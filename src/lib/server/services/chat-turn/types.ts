@@ -6,6 +6,7 @@ import type {
 	HonchoContextSnapshot,
 	DeepResearchDepth,
 	ModelId,
+	ThinkingMode,
 	TaskState,
 	ToolCallEntry,
 	WebCitationAudit,
@@ -30,11 +31,13 @@ export type ParsedChatTurnRequest = {
 	activeDocumentArtifactId?: string;
 	personalityProfileId?: string;
 	deepResearchDepth?: DeepResearchDepth;
+	thinkingMode: ThinkingMode;
 	skipPersistUserMessage: boolean;
 	attachmentTraceId?: string;
 };
 
 export type PreflightedChatTurn = ParsedChatTurnRequest;
+export type ChatTurnPreflight = PreflightedChatTurn;
 
 export type WorkingSetItem = {
 	id: string;

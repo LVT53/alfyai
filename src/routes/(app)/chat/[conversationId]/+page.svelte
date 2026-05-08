@@ -40,7 +40,11 @@ import {
 import { recordDocumentWorkspaceOpen, uploadKnowledgeAttachment } from "$lib/client/api/knowledge";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import { currentConversationId } from "$lib/stores/ui";
-import { selectedModel } from "$lib/stores/settings";
+import {
+	selectedModel,
+	selectedThinkingMode,
+	setSelectedThinkingMode,
+} from "$lib/stores/settings";
 import EvidenceManager from "$lib/components/chat/EvidenceManager.svelte";
 import type {
 	ArtifactSummary,
@@ -880,6 +884,7 @@ async function reconnectToOrphanedStream(
 		{
 			reconnectToStreamId: streamId,
 			reconnectUserMessage: userMessage,
+			thinkingMode: $selectedThinkingMode,
 		},
 	);
 }
@@ -1660,6 +1665,7 @@ function handleSend(
 			skipPersistUserMessage,
 			attachmentIds,
 			deepResearchDepth: payload.deepResearchDepth ?? null,
+			thinkingMode: payload.thinkingMode ?? $selectedThinkingMode,
 			activeDocumentArtifactId: getActiveWorkspaceArtifactId(),
 			personalityProfileId: personalityProfileIdForTurn,
 			retryAssistantMessageId,
@@ -1806,6 +1812,7 @@ function handleRetry() {
 			},
 			{
 				modelId: lastAssistantMsg?.modelId ?? $selectedModel,
+				thinkingMode: $selectedThinkingMode,
 				activeDocumentArtifactId: getActiveWorkspaceArtifactId(),
 				personalityProfileId: selectedPersonalityId,
 				retryAssistantMessageId: retryAssistantMessageId ?? undefined,
@@ -2117,6 +2124,8 @@ function handleDrop(event: DragEvent) {
 				{personalityProfiles}
 				{selectedPersonalityId}
 				onPersonalityChange={setSelectedPersonalityId}
+				thinkingMode={$selectedThinkingMode}
+				onThinkingModeChange={setSelectedThinkingMode}
 				draftText={conversationDraft?.draftText ?? ''}
 				draftAttachments={conversationDraft?.selectedAttachments ?? []}
 				draftVersion={conversationDraft?.updatedAt ?? 0}

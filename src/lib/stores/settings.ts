@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 import { updateUserPreferences } from '$lib/client/api/settings';
-import type { ModelId } from '$lib/types';
+import type { ModelId, ThinkingMode } from '$lib/types';
 import { canUseStorage, persist, read } from './_local-storage';
 
 export type TitleLanguage = 'auto' | 'en' | 'hu';
@@ -10,10 +10,12 @@ export type { ModelId };
 export const selectedModel = writable<ModelId>('model1');
 export const titleLanguage = writable<TitleLanguage>('auto');
 export const uiLanguage = writable<UiLanguage>('en');
+export const selectedThinkingMode = writable<ThinkingMode>('auto');
 
 const SELECTED_MODEL_KEY = 'selectedModel';
 const TITLE_LANGUAGE_KEY = 'titleLanguage';
 const UI_LANGUAGE_KEY = 'uiLanguage';
+const THINKING_MODE_KEY = 'thinkingMode';
 
 export function initSettings(serverPrefs?: { model?: ModelId; titleLanguage?: TitleLanguage; uiLanguage?: UiLanguage }): void {
 	if (!canUseStorage()) {
@@ -55,11 +57,23 @@ export function initSettings(serverPrefs?: { model?: ModelId; titleLanguage?: Ti
 			uiLanguage.set(storedUiLanguage);
 		}
 	}
+
+	const storedThinkingMode = read<ThinkingMode>(
+		THINKING_MODE_KEY,
+		'auto',
+		(v): v is ThinkingMode => v === 'auto' || v === 'on' || v === 'off'
+	);
+	selectedThinkingMode.set(storedThinkingMode);
 }
 
 export function setSelectedModel(model: ModelId): void {
 	selectedModel.set(model);
 	persist(SELECTED_MODEL_KEY, model);
+}
+
+export function setSelectedThinkingMode(mode: ThinkingMode): void {
+	selectedThinkingMode.set(mode);
+	persist(THINKING_MODE_KEY, mode);
 }
 
 export async function setSelectedModelAndSync(model: ModelId): Promise<void> {

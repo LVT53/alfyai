@@ -36,7 +36,7 @@ vi.mock("./inference-providers", () => ({
 	getProviderWithSecrets: mocks.getProviderWithSecrets,
 }));
 
-import { buildOutboundSystemPrompt, sendMessage } from "./langflow";
+import { buildOutboundSystemPrompt, sendMessage, shouldAutoEnableThinking } from "./langflow";
 import { estimateTokenCount } from "$lib/utils/tokens";
 
 const model1 = {
@@ -248,7 +248,7 @@ describe("sendMessage provider routing", () => {
 				timeout: 300,
 				max_tokens: 8192,
 				enable_thinking: false,
-				thinking_type: "enabled",
+				thinking_type: "disabled",
 			},
 		});
 		expect(body.tweaks["ModelNode-1"]).not.toHaveProperty("reasoning_effort");
@@ -626,7 +626,11 @@ describe("sendMessage provider routing", () => {
 			updatedAt: new Date(),
 		});
 
-		await sendMessage("Hello", "conv-1", "provider:provider-1");
+		await sendMessage(
+			"Diagnose the failure mode",
+			"conv-1",
+			"provider:provider-1",
+		);
 
 		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
 		expect(body.tweaks).toMatchObject({
@@ -665,7 +669,11 @@ describe("sendMessage provider routing", () => {
 			updatedAt: new Date(),
 		});
 
-		await sendMessage("Hello", "conv-1", "provider:provider-1");
+		await sendMessage(
+			"Think carefully about the failure mode",
+			"conv-1",
+			"provider:provider-1",
+		);
 
 		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
 		expect(body.tweaks).toMatchObject({
@@ -810,10 +818,10 @@ describe("sendMessage provider routing", () => {
 		expect(body.tweaks["ModelNode-1"]).not.toHaveProperty("thinking_type");
 	});
 
-	it("enables reasoning capture for built-in Qwen models routed through the custom Langflow node", async () => {
+	it("enables reasoning capture for complex built-in Qwen turns routed through the custom Langflow node", async () => {
 		mockConfig({ modelName: "qwen3-6-35b" });
 
-		await sendMessage("Hello", "conv-1", "model1");
+		await sendMessage("Diagnose why this streaming parser fails on split thinking tags.", "conv-1", "model1");
 
 		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
 		expect(body.tweaks).toMatchObject({
@@ -823,6 +831,54 @@ describe("sendMessage provider routing", () => {
 				enable_thinking: true,
 			},
 		});
+	});
+
+	it("keeps auto thinking off for simple built-in Qwen turns", async () => {
+		mockConfig({ modelName: "qwen3-6-35b" });
+
+		await sendMessage("Hello", "conv-1", "model1");
+
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(body.tweaks).toMatchObject({
+			"ModelNode-1": {
+				model_name: "qwen3-6-35b",
+				timeout: 300,
+				enable_thinking: false,
+				thinking_type: "disabled",
+			},
+		});
+	});
+
+	it("honors manual thinking overrides", async () => {
+		mockConfig({ modelName: "qwen3-6-35b" });
+
+		await sendMessage("Hello", "conv-1", "model1", undefined, {
+			thinkingMode: "on",
+		});
+		await sendMessage("Diagnose the parser failure", "conv-1", "model1", undefined, {
+			thinkingMode: "off",
+		});
+
+		const firstBody = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		const secondBody = JSON.parse(String(vi.mocked(fetch).mock.calls[1]?.[1]?.body));
+		expect(firstBody.tweaks["ModelNode-1"]).toMatchObject({
+			enable_thinking: true,
+			thinking_type: "enabled",
+		});
+		expect(secondBody.tweaks["ModelNode-1"]).toMatchObject({
+			enable_thinking: false,
+			thinking_type: "disabled",
+		});
+	});
+
+	it("classifies thinking auto mode from message complexity", () => {
+		expect(shouldAutoEnableThinking("Hello")).toBe(false);
+		expect(shouldAutoEnableThinking("Diagnose why retry streaming fails after a reconnect.")).toBe(true);
+		expect(
+			shouldAutoEnableThinking(
+				"Compare options A and B, explain the tradeoffs, then propose an implementation plan.",
+			),
+		).toBe(true);
 	});
 
 	it("sends configured reasoning_effort for built-in Mistral Medium 3p5 models", async () => {

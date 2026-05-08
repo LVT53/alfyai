@@ -26,6 +26,7 @@ export const POST: RequestHandler = async (event) => {
 		activeDocumentArtifactId?: unknown;
 		streamId?: unknown;
 		model?: unknown;
+		thinkingMode?: unknown;
 		personalityProfileId?: unknown;
 	};
 	try {
@@ -42,6 +43,7 @@ export const POST: RequestHandler = async (event) => {
 		activeDocumentArtifactId,
 		streamId,
 		model,
+		thinkingMode,
 		personalityProfileId,
 	} = body;
 	if (typeof conversationId !== 'string' || !conversationId.trim()) {
@@ -140,6 +142,10 @@ export const POST: RequestHandler = async (event) => {
 					? streamId.trim()
 					: undefined,
 			model: typeof model === 'string' && model.trim() ? model.trim() : undefined,
+			thinkingMode:
+				typeof thinkingMode === 'string' && thinkingMode.trim()
+					? thinkingMode.trim()
+					: undefined,
 			personalityProfileId:
 				typeof personalityProfileId === 'string' && personalityProfileId.trim()
 					? personalityProfileId.trim()

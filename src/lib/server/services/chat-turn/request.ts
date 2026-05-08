@@ -5,7 +5,7 @@ import {
 	getMaxMessageLength,
 	type RuntimeConfig,
 } from '$lib/server/config-store';
-import type { DeepResearchDepth, ModelId } from '$lib/types';
+import type { DeepResearchDepth, ModelId, ThinkingMode } from '$lib/types';
 import type {
 	ChatTurnRequestError,
 	ChatTurnRoute,
@@ -28,6 +28,7 @@ type RequestBody = {
 	personalityProfileId?: unknown;
 	deepResearch?: unknown;
 	deepResearchDepth?: unknown;
+	thinkingMode?: unknown;
 };
 
 export async function parseChatTurnRequest(
@@ -54,6 +55,7 @@ export async function parseChatTurnRequest(
 		personalityProfileId,
 		deepResearch,
 		deepResearchDepth,
+		thinkingMode,
 	} = body;
 
 	// Allow empty message when reconnecting to an existing stream (streamId provided)
@@ -126,6 +128,7 @@ export async function parseChatTurnRequest(
 		? attachmentIds.filter((id): id is string => typeof id === 'string')
 		: [];
 	const selectedDeepResearchDepth = parseDeepResearchDepth(deepResearch, deepResearchDepth);
+	const selectedThinkingMode = parseThinkingMode(thinkingMode);
 
 	return {
 		ok: true,
@@ -148,6 +151,7 @@ export async function parseChatTurnRequest(
 					? personalityProfileId.trim()
 					: undefined,
 			deepResearchDepth: selectedDeepResearchDepth,
+			thinkingMode: selectedThinkingMode,
 			skipPersistUserMessage: skipPersistUserMessage === true,
 			attachmentTraceId:
 				safeAttachmentIds.length > 0 ? createAttachmentTraceId(route) : undefined,
@@ -170,4 +174,8 @@ function parseDeepResearchDepth(
 
 function isDeepResearchDepth(value: string): value is DeepResearchDepth {
 	return value === 'focused' || value === 'standard' || value === 'max';
+}
+
+function parseThinkingMode(value: unknown): ThinkingMode {
+	return value === 'on' || value === 'off' || value === 'auto' ? value : 'auto';
 }

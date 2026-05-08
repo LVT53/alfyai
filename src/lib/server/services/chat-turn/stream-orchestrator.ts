@@ -138,6 +138,7 @@ export function runChatStreamOrchestrator(
 	const activeDocumentArtifactId = turn.activeDocumentArtifactId;
 	const attachmentTraceId = turn.attachmentTraceId;
 	const personalityProfileId = turn.personalityProfileId;
+	const thinkingMode = turn.thinkingMode;
 
 	const encoder = new TextEncoder();
 	let cancelStream = () => undefined;
@@ -548,6 +549,7 @@ export function runChatStreamOrchestrator(
 						attachmentIds: safeAttachmentIds,
 						activeDocumentArtifactId,
 						attachmentTraceId,
+						thinkingMode,
 					},
 					user,
 					attachContinuityToTaskState,
@@ -613,6 +615,7 @@ export function runChatStreamOrchestrator(
 							systemPromptAppendix: currentSystemPromptAppendix(),
 							personalityPrompt,
 							skipHonchoContext,
+							thinkingMode,
 						},
 					).catch(async (error) => {
 						if (

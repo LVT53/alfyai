@@ -134,6 +134,39 @@ describe('MessageInput', () => {
 		);
 	});
 
+	it('sends the selected thinking mode with the next message', async () => {
+		const sendSpy = vi.fn();
+		const thinkingModeChangeSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, rerender } = render(MessageInput, {
+			onSend: sendSpy,
+			thinkingMode: 'auto',
+			onThinkingModeChange: thinkingModeChangeSpy,
+		});
+
+		await fireEvent.click(getByRole('button', { name: 'Open composer tools' }));
+		await fireEvent.click(getByRole('button', { name: 'Auto' }));
+		await fireEvent.click(getByRole('option', { name: 'Off' }));
+
+		expect(thinkingModeChangeSpy).toHaveBeenCalledWith('off');
+
+		await rerender({
+			onSend: sendSpy,
+			thinkingMode: 'off',
+			onThinkingModeChange: thinkingModeChangeSpy,
+		});
+		await fireEvent.input(getByPlaceholderText('Type a message...'), {
+			target: { value: 'Answer directly' },
+		});
+		await fireEvent.click(getByRole('button', { name: 'Send message' }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Answer directly',
+				thinkingMode: 'off',
+			})
+		);
+	});
+
 	it('clears stale conversation ids when the parent resets the prop to null', async () => {
 		const sendSpy = vi.fn();
 		const { getByPlaceholderText, getByLabelText, rerender } = render(MessageInput, {

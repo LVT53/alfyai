@@ -6,6 +6,7 @@
 		getPersonalityProfileDisplayDescription,
 		getPersonalityProfileDisplayName,
 	} from '$lib/utils/personality-profile-labels';
+	import type { ThinkingMode } from '$lib/types';
 
 	let {
 		canAttach = false,
@@ -15,6 +16,8 @@
 		personalityProfiles = [],
 		selectedPersonalityId = null,
 		onPersonalityChange = undefined,
+		thinkingMode = 'auto',
+		onThinkingModeChange = undefined,
 	}: {
 		canAttach?: boolean;
 		attachmentsEnabled?: boolean;
@@ -23,14 +26,24 @@
 		personalityProfiles?: Array<{ id: string; name: string; description: string }>;
 		selectedPersonalityId?: string | null;
 		onPersonalityChange?: ((id: string | null) => void) | undefined;
+		thinkingMode?: ThinkingMode;
+		onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
 	} = $props();
 
 	let root = $state<HTMLDivElement | undefined>(undefined);
-	let activeDropdown = $state<'model' | 'style' | null>(null);
+	let activeDropdown = $state<'model' | 'style' | 'thinking' | null>(null);
 	let styleOpen = $derived(activeDropdown === 'style');
+	let thinkingOpen = $derived(activeDropdown === 'thinking');
 
 	let selectedProfile = $derived(
 		personalityProfiles.find((p) => p.id === selectedPersonalityId) ?? null,
+	);
+	let selectedThinkingLabel = $derived(
+		thinkingMode === 'on'
+			? $t('composerTools.thinkingOn')
+			: thinkingMode === 'off'
+				? $t('composerTools.thinkingOff')
+				: $t('composerTools.thinkingAuto'),
 	);
 
 	function closeMenu() {
@@ -41,6 +54,11 @@
 	function handleAttach() {
 		onAttach?.();
 		onClose?.();
+	}
+
+	function selectThinkingMode(mode: ThinkingMode) {
+		onThinkingModeChange?.(mode);
+		closeMenu();
 	}
 
 	onMount(() => {
@@ -134,6 +152,62 @@
 			</div>
 		</div>
 	{/if}
+
+	<div class="menu-row menu-row--static">
+		<div class="menu-label">{$t('composerTools.thinking')}</div>
+		<div class="model-selector">
+			<button
+				type="button"
+				class="model-selector__trigger"
+				onclick={() => activeDropdown = thinkingOpen ? null : 'thinking'}
+				aria-haspopup="listbox"
+				aria-expanded={thinkingOpen}
+			>
+				<span class="model-selector__text">{selectedThinkingLabel}</span>
+				<svg
+					class="model-selector__chevron"
+					class:model-selector__chevron--open={thinkingOpen}
+					xmlns="http://www.w3.org/2000/svg"
+					width="16" height="16" viewBox="0 0 24 24"
+					fill="none" stroke="currentColor"
+					stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+				>
+					<polyline points="6 9 12 15 18 9" />
+				</svg>
+			</button>
+			{#if thinkingOpen}
+				<ul class="model-selector__dropdown" role="listbox" aria-label={$t('composerTools.thinking')}>
+					<li
+						role="option"
+						aria-selected={thinkingMode === 'auto'}
+						class="model-selector__option"
+						class:model-selector__option--selected={thinkingMode === 'auto'}
+						onclick={() => selectThinkingMode('auto')}
+						onkeydown={(e) => e.key === 'Enter' && selectThinkingMode('auto')}
+						tabindex="0"
+					>{$t('composerTools.thinkingAuto')}</li>
+					<li
+						role="option"
+						aria-selected={thinkingMode === 'on'}
+						class="model-selector__option"
+						class:model-selector__option--selected={thinkingMode === 'on'}
+						onclick={() => selectThinkingMode('on')}
+						onkeydown={(e) => e.key === 'Enter' && selectThinkingMode('on')}
+						tabindex="0"
+					>{$t('composerTools.thinkingOn')}</li>
+					<li
+						role="option"
+						aria-selected={thinkingMode === 'off'}
+						class="model-selector__option"
+						class:model-selector__option--selected={thinkingMode === 'off'}
+						onclick={() => selectThinkingMode('off')}
+						onkeydown={(e) => e.key === 'Enter' && selectThinkingMode('off')}
+						tabindex="0"
+					>{$t('composerTools.thinkingOff')}</li>
+				</ul>
+			{/if}
+		</div>
+	</div>
 
 	<div class="menu-row">
 		<button

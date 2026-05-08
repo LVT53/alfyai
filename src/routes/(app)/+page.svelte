@@ -15,13 +15,17 @@ import { fetchConversationDetail } from '$lib/client/api/conversations';
 import { uploadKnowledgeAttachment } from '$lib/client/api/knowledge';
 import { createNewConversation, upsertConversationLocal } from '$lib/stores/conversations';
 import { currentConversationId } from '$lib/stores/ui';
-import { selectedModel } from '$lib/stores/settings';
+import {
+	selectedModel,
+	selectedThinkingMode,
+	setSelectedThinkingMode,
+} from '$lib/stores/settings';
 import { t } from '$lib/i18n';
 import MessageInput from '$lib/components/chat/MessageInput.svelte';
 import DropZoneOverlay from '$lib/components/chat/DropZoneOverlay.svelte';
 import { fetchPublicPersonalityProfiles } from '$lib/client/api/admin';
 import { isOsFileDropEvent } from '$lib/utils/file-drag';
-import type { ConversationDetail, ModelId } from '$lib/types';
+import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import type {
 		ArtifactSummary,
@@ -68,6 +72,7 @@ import type { ConversationDetail, ModelId } from '$lib/types';
 		conversationId: string | null;
 		modelId?: ModelId;
 		deepResearchDepth?: 'focused' | 'standard' | 'max' | null;
+		thinkingMode?: ThinkingMode;
 	};
 
 	type MessageInputDraftPayload = {
@@ -279,6 +284,7 @@ import type { ConversationDetail, ModelId } from '$lib/types';
 				modelId: payload.modelId ?? $selectedModel,
 				personalityProfileId: selectedPersonalityId,
 				deepResearchDepth: payload.deepResearchDepth ?? null,
+				thinkingMode: payload.thinkingMode ?? $selectedThinkingMode,
 			});
 			await navigateToConversationFromLanding({
 				conversationId: id,
@@ -427,6 +433,8 @@ import type { ConversationDetail, ModelId } from '$lib/types';
 					{personalityProfiles}
 					{selectedPersonalityId}
 					onPersonalityChange={(id) => selectedPersonalityId = id}
+					thinkingMode={$selectedThinkingMode}
+					onThinkingModeChange={setSelectedThinkingMode}
 				onUploadFiles={handleUploadFiles}
 				/>
 			</div>

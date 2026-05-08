@@ -13,6 +13,7 @@ import type {
 	PendingAttachment,
 	TaskState,
 	TaskSteeringPayload,
+	ThinkingMode,
 } from "$lib/types";
 
 type SendPayload = {
@@ -23,6 +24,7 @@ type SendPayload = {
 	conversationId: string | null;
 	personalityProfileId?: string | null;
 	deepResearchDepth?: DeepResearchDepth | null;
+	thinkingMode?: ThinkingMode;
 };
 
 type DraftPayload = {
@@ -66,6 +68,8 @@ let {
 	personalityProfiles = [],
 	selectedPersonalityId = null,
 	onPersonalityChange = undefined,
+	thinkingMode = "auto",
+	onThinkingModeChange = undefined,
 	deepResearchEnabled = false,
 }: {
 	disabled?: boolean;
@@ -111,6 +115,8 @@ let {
 	personalityProfiles?: Array<{ id: string; name: string; description: string }>;
 	selectedPersonalityId?: string | null;
 	onPersonalityChange?: ((id: string | null) => void) | undefined;
+	thinkingMode?: ThinkingMode;
+	onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
 	deepResearchEnabled?: boolean;
 } = $props();
 
@@ -310,6 +316,7 @@ function buildSendPayload(): SendPayload {
 		conversationId: resolvedConversationId,
 		personalityProfileId: selectedPersonalityId,
 		deepResearchDepth: deepResearchEnabled ? selectedDeepResearchDepth : null,
+		thinkingMode,
 	};
 }
 
@@ -709,6 +716,8 @@ async function emitDraftChange(force = false) {
 							{personalityProfiles}
 							{selectedPersonalityId}
 							{onPersonalityChange}
+							{thinkingMode}
+							{onThinkingModeChange}
 						/>
 					{/if}
 				</div>

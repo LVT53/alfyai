@@ -11,6 +11,7 @@ import type {
 	FileProductionJob,
 	DeepResearchJob,
 	ModelId,
+	ThinkingMode,
 } from '$lib/types';
 
 export { isOsFileDropEvent };
@@ -24,6 +25,7 @@ export type SendPayload = {
 	modelId?: ModelId;
 	personalityProfileId?: string | null;
 	deepResearchDepth?: 'focused' | 'standard' | 'max' | null;
+	thinkingMode?: ThinkingMode;
 };
 
 export type MessageEditPayload = {
@@ -466,5 +468,6 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 		conversationId: payload.conversationId ?? null,
 		modelId: payload.modelId,
 		deepResearchDepth: payload.deepResearchDepth ?? null,
+		thinkingMode: payload.thinkingMode,
 	};
 }

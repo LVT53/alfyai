@@ -79,6 +79,7 @@ describe('conversation-session', () => {
 			modelId: undefined,
 			personalityProfileId: null,
 			deepResearchDepth: null,
+			thinkingMode: 'auto',
 		});
 		expect(hasPendingConversationMessage('conv-123')).toBe(false);
 	});
@@ -89,12 +90,14 @@ describe('conversation-session', () => {
 			attachmentIds: [],
 			attachments: [],
 			deepResearchDepth: 'max',
+			thinkingMode: 'on',
 		});
 
 		expect(consumePendingConversationMessage('conv-123')).toEqual(
 			expect.objectContaining({
 				message: 'Research this deeply',
 				deepResearchDepth: 'max',
+				thinkingMode: 'on',
 			})
 		);
 	});

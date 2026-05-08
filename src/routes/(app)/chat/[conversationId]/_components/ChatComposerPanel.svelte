@@ -11,6 +11,7 @@
 		PendingAttachment,
 		TaskState,
 		TaskSteeringPayload,
+		ThinkingMode,
 	} from '$lib/types';
 	import type { DraftChangePayload, SendPayload } from '../_helpers';
 
@@ -48,6 +49,8 @@
 		personalityProfiles,
 		selectedPersonalityId,
 		onPersonalityChange,
+		thinkingMode,
+		onThinkingModeChange,
 	}: {
 		sendError: string | null;
 		onRetry: () => void;
@@ -89,6 +92,8 @@
 		personalityProfiles?: Array<{ id: string; name: string; description: string }>;
 		selectedPersonalityId?: string | null;
 		onPersonalityChange?: ((id: string | null) => void) | undefined;
+		thinkingMode?: ThinkingMode;
+		onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
 	} = $props();
 
 	// Dynamic keyboard detection using visualViewport API
@@ -183,6 +188,8 @@
 			{personalityProfiles}
 			{selectedPersonalityId}
 			{onPersonalityChange}
+			{thinkingMode}
+			{onThinkingModeChange}
 		/>
 	</div>
 </div>

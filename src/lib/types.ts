@@ -6,6 +6,7 @@ export type Theme = "system" | "light" | "dark";
 export type UiLanguage = "en" | "hu";
 
 export type ModelId = "model1" | "model2" | `provider:${string}`;
+export type ThinkingMode = "auto" | "on" | "off";
 
 export function isProviderModelId(
 	modelId: string,

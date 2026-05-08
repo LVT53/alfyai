@@ -91,6 +91,7 @@ function createTurn(
 		modelDisplayName: "Model One",
 		skipPersistUserMessage: false,
 		attachmentIds: [],
+		thinkingMode: "auto",
 		activeDocumentArtifactId: null,
 		attachmentTraceId: null,
 		...overrides,

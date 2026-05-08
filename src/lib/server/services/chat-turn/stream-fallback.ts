@@ -1,5 +1,5 @@
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
-import type { HonchoContextInfo, HonchoContextSnapshot } from "$lib/types";
+import type { HonchoContextInfo, HonchoContextSnapshot, ThinkingMode } from "$lib/types";
 
 export interface NonStreamFallbackSendParams {
 	upstreamMessage: string;
@@ -8,6 +8,7 @@ export interface NonStreamFallbackSendParams {
 	attachmentIds: string[];
 	activeDocumentArtifactId: string | null;
 	attachmentTraceId: string | null;
+	thinkingMode: ThinkingMode;
 }
 
 export interface NonStreamFallbackResponse {
@@ -34,6 +35,7 @@ export interface NonStreamFallbackDeps {
 			systemPromptAppendix?: string;
 			personalityPrompt?: string;
 			skipHonchoContext?: boolean;
+			thinkingMode?: ThinkingMode;
 		},
 	) => Promise<NonStreamFallbackResponse>;
 	sendParams: NonStreamFallbackSendParams;
@@ -97,6 +99,7 @@ export async function runNonStreamFallback(
 			systemPromptAppendix,
 			personalityPrompt,
 			skipHonchoContext,
+			thinkingMode: sendParams.thinkingMode,
 		},
 	);
 

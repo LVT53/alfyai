@@ -4,6 +4,7 @@ import type {
 	DeepResearchDepth,
 	ModelId,
 	PendingAttachment,
+	ThinkingMode,
 } from '$lib/types';
 import {
 	deleteConversationDraft,
@@ -24,6 +25,7 @@ export type PendingConversationMessage = {
 	modelId?: ModelId;
 	personalityProfileId?: string | null;
 	deepResearchDepth?: DeepResearchDepth | null;
+	thinkingMode?: ThinkingMode;
 };
 
 function getSessionStorage(): Storage | null {
@@ -123,6 +125,7 @@ export function storePendingConversationMessage(
 			modelId: payload.modelId,
 			personalityProfileId: payload.personalityProfileId,
 			deepResearchDepth: payload.deepResearchDepth,
+			thinkingMode: payload.thinkingMode,
 		})
 	);
 }
@@ -168,6 +171,12 @@ export function consumePendingConversationMessage(
 				parsed.deepResearchDepth === 'max'
 					? parsed.deepResearchDepth
 					: null,
+			thinkingMode:
+				parsed.thinkingMode === 'auto' ||
+				parsed.thinkingMode === 'on' ||
+				parsed.thinkingMode === 'off'
+					? parsed.thinkingMode
+					: 'auto',
 		};
 	} catch {
 		return {
@@ -175,6 +184,7 @@ export function consumePendingConversationMessage(
 			attachmentIds: [],
 			attachments: [],
 			deepResearchDepth: null,
+			thinkingMode: 'auto',
 		};
 	}
 }

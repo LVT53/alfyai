@@ -170,6 +170,7 @@ export const POST: RequestHandler = async (event) => {
 				activeDocumentArtifactId: turn.activeDocumentArtifactId,
 				attachmentTraceId: turn.attachmentTraceId,
 				personalityPrompt,
+				thinkingMode: turn.thinkingMode,
 			},
 		);
 		const text = langflowResult.text ?? "";

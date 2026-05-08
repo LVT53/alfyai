@@ -455,6 +455,7 @@ describe("POST /api/chat/stream", () => {
 			message: "Refine it",
 			conversationId: "conv-1",
 			activeDocumentArtifactId: "artifact-focused-1",
+			thinkingMode: "off",
 		});
 		const response = await POST(event);
 		const body = await readSseResponse(response);
@@ -467,6 +468,7 @@ describe("POST /api/chat/stream", () => {
 			"model1",
 			expect.objectContaining({
 				activeDocumentArtifactId: "artifact-focused-1",
+				thinkingMode: "off",
 				user: {
 					id: "user-1",
 					displayName: undefined,
@@ -1091,7 +1093,7 @@ describe("POST /api/chat/stream", () => {
 			"Szia",
 			"conv-1",
 			"model1",
-			{
+			expect.objectContaining({
 				signal: expect.any(Object),
 				user: {
 					id: "user-1",
@@ -1099,7 +1101,8 @@ describe("POST /api/chat/stream", () => {
 					email: "test@example.com",
 				},
 				attachmentIds: [],
-			},
+				thinkingMode: "auto",
+			}),
 		);
 		expect(body).toContain('"text":"Final English answer."');
 	});

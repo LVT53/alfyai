@@ -3,6 +3,7 @@ import type {
 	LangflowRunRequest,
 	LangflowRunResponse,
 	ModelId,
+	ThinkingMode,
 } from "$lib/types";
 import { isProviderModelId } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
@@ -66,6 +67,8 @@ type LangflowModelRunConfig = ModelConfig & {
 	providerThinkingType?: string | null;
 	requiresComponentTweaks?: boolean;
 };
+
+type EffectiveThinkingType = "enabled" | "disabled" | null;
 
 const CURRENT_USER_MESSAGE_MARKER = "## Current User Message\n";
 const LANGFLOW_PROMPT_OVERHEAD_RESERVE_TOKENS = 512;
@@ -631,8 +634,60 @@ function emitOutboundContextTrace(params: {
 	}
 }
 
+function supportsTurnScopedThinking(
+	modelConfig: LangflowModelRunConfig,
+): boolean {
+	return Boolean(
+		modelConfig.providerReasoningEffort ||
+			modelConfig.reasoningEffort ||
+			modelConfig.providerThinkingType ||
+			modelConfig.thinkingType ||
+			isMistralMedium35Model(modelConfig.modelName) ||
+			/\b(qwen3?|deepseek|nemotron|reasoning|r1)\b/i.test(
+				modelConfig.modelName,
+			),
+	);
+}
+
+export function shouldAutoEnableThinking(message: string): boolean {
+	const normalized = message.toLowerCase();
+	const words = normalized.match(/\p{L}+|\d+/gu) ?? [];
+	const questionCount = (message.match(/\?/g) ?? []).length;
+	const hasListOrCode =
+		/```|^\s*[-*]\s+/m.test(message) || /^\s*\d+[.)]\s+/m.test(message);
+
+	if (words.length >= 55 || message.length >= 280 || questionCount >= 2) {
+		return true;
+	}
+
+	if (hasListOrCode) {
+		return true;
+	}
+
+	return /\b(analy[sz]e|architecture|compare|debug|diagnose|derive|design|evaluate|explain why|fix|hypothesis|implement|investigate|optimi[sz]e|plan|prove|reason|refactor|research|root cause|solve|strategy|test|think|trade[- ]?off|why)\b/.test(
+		normalized,
+	);
+}
+
+function resolveEffectiveThinkingType(params: {
+	modelConfig: LangflowModelRunConfig;
+	message: string;
+	thinkingMode?: ThinkingMode;
+}): EffectiveThinkingType {
+	const mode = params.thinkingMode ?? "auto";
+	if (mode === "on") return "enabled";
+	if (mode === "off") return "disabled";
+
+	if (!supportsTurnScopedThinking(params.modelConfig)) {
+		return null;
+	}
+
+	return shouldAutoEnableThinking(params.message) ? "enabled" : "disabled";
+}
+
 function shouldSendVllmChatTemplateThinking(
 	modelConfig: LangflowModelRunConfig,
+	effectiveThinkingType: EffectiveThinkingType,
 ): boolean {
 	if (isMistralMedium35Model(modelConfig.modelName)) {
 		return false;
@@ -642,12 +697,10 @@ function shouldSendVllmChatTemplateThinking(
 		return false;
 	}
 
-	const thinkingType =
-		modelConfig.providerThinkingType ?? modelConfig.thinkingType;
-	if (thinkingType === "enabled") {
+	if (effectiveThinkingType === "enabled") {
 		return true;
 	}
-	if (thinkingType === "disabled") {
+	if (effectiveThinkingType === "disabled") {
 		return false;
 	}
 
@@ -665,21 +718,23 @@ function isMistralMedium35Model(modelName: string): boolean {
 
 function getProviderReasoningEffort(
 	modelConfig: LangflowModelRunConfig,
+	effectiveThinkingType: EffectiveThinkingType,
 ): string | null {
 	const configuredReasoningEffort =
 		modelConfig.providerReasoningEffort ?? modelConfig.reasoningEffort;
-	const configuredThinkingType =
-		modelConfig.providerThinkingType ?? modelConfig.thinkingType;
 
-	if (configuredReasoningEffort) {
+	if (
+		configuredReasoningEffort &&
+		effectiveThinkingType !== "disabled"
+	) {
 		return configuredReasoningEffort;
 	}
 
 	if (isMistralMedium35Model(modelConfig.modelName)) {
-		if (configuredThinkingType === "enabled") {
+		if (effectiveThinkingType === "enabled") {
 			return "high";
 		}
-		if (configuredThinkingType === "disabled") {
+		if (effectiveThinkingType === "disabled") {
 			return "none";
 		}
 	}
@@ -690,16 +745,33 @@ function getProviderReasoningEffort(
 function buildLangflowTweaks(
 	modelConfig: LangflowModelRunConfig,
 	systemPrompt: string,
+	message: string,
 	effectiveMaxTokens?: number | null,
+	thinkingMode?: ThinkingMode,
 ): Record<string, unknown> {
 	const componentId = modelConfig.componentId.trim();
 	const requestTimeoutSeconds = Math.max(
 		1,
 		Math.ceil(getConfig().requestTimeoutMs / 1000),
 	);
-	const reasoningEffort = getProviderReasoningEffort(modelConfig);
-	const thinkingType =
+	const effectiveThinkingType = resolveEffectiveThinkingType({
+		modelConfig,
+		message,
+		thinkingMode,
+	});
+	const configuredReasoningEffort =
+		modelConfig.providerReasoningEffort ?? modelConfig.reasoningEffort;
+	const configuredThinkingType =
 		modelConfig.providerThinkingType ?? modelConfig.thinkingType;
+	const reasoningEffort = getProviderReasoningEffort(
+		modelConfig,
+		effectiveThinkingType,
+	);
+	const shouldSendReasoningEffort =
+		Boolean(reasoningEffort) &&
+		((Boolean(configuredReasoningEffort) && !configuredThinkingType) ||
+			effectiveThinkingType !== "enabled" ||
+			isMistralMedium35Model(modelConfig.modelName));
 	const componentTweaks = {
 		model_name: modelConfig.modelName,
 		api_base: modelConfig.baseUrl,
@@ -708,13 +780,17 @@ function buildLangflowTweaks(
 		...(effectiveMaxTokens != null
 			? { max_tokens: effectiveMaxTokens }
 			: {}),
-		enable_thinking: shouldSendVllmChatTemplateThinking(modelConfig),
-		...(reasoningEffort &&
-		(!thinkingType || isMistralMedium35Model(modelConfig.modelName))
+		enable_thinking: shouldSendVllmChatTemplateThinking(
+			modelConfig,
+			effectiveThinkingType,
+		),
+		...(shouldSendReasoningEffort
 			? { reasoning_effort: reasoningEffort }
 			: {}),
-		...(thinkingType && !isMistralMedium35Model(modelConfig.modelName)
-			? { thinking_type: thinkingType }
+		...(effectiveThinkingType &&
+		!isMistralMedium35Model(modelConfig.modelName) &&
+		!shouldSendReasoningEffort
+			? { thinking_type: effectiveThinkingType }
 			: {}),
 		system_prompt: systemPrompt,
 	};
@@ -907,6 +983,7 @@ export async function sendMessage(
 		systemPromptAppendix?: string;
 		personalityPrompt?: string;
 		skipHonchoContext?: boolean;
+		thinkingMode?: ThinkingMode;
 	},
 ): Promise<{
 	text: string;
@@ -1046,7 +1123,9 @@ export async function sendMessage(
 			tweaks: buildLangflowTweaks(
 				modelConfig,
 				systemPrompt,
+				message,
 				budgetedPrompt.outputTokenBudget.effectiveMaxTokens,
+				options?.thinkingMode,
 			),
 		};
 
@@ -1121,6 +1200,7 @@ export async function sendMessageStream(
 		systemPromptAppendix?: string;
 		personalityPrompt?: string;
 		skipHonchoContext?: boolean;
+		thinkingMode?: ThinkingMode;
 	},
 ): Promise<{
 	stream?: ReadableStream<Uint8Array>;
@@ -1275,7 +1355,9 @@ export async function sendMessageStream(
 			tweaks: buildLangflowTweaks(
 				modelConfig,
 				systemPrompt,
+				message,
 				budgetedPrompt.outputTokenBudget.effectiveMaxTokens,
+				options?.thinkingMode,
 			),
 		};
 

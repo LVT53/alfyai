@@ -102,6 +102,7 @@ export type StreamChatOptions = {
 	skipPersistUserMessage?: boolean;
 	attachmentIds?: string[];
 	deepResearchDepth?: import('$lib/types').DeepResearchDepth | null;
+	thinkingMode?: import('$lib/types').ThinkingMode;
 	activeDocumentArtifactId?: string;
 	personalityProfileId?: string | null;
 	retryAssistantMessageId?: string;
@@ -122,6 +123,7 @@ export function streamChat(
 		skipPersistUserMessage,
 		attachmentIds,
 		deepResearchDepth,
+		thinkingMode,
 		activeDocumentArtifactId,
 		personalityProfileId,
 		retryAssistantMessageId,
@@ -177,6 +179,7 @@ export function streamChat(
 						userMessage: retryUserMessage ?? message,
 						streamId,
 						model: modelId,
+						thinkingMode,
 						activeDocumentArtifactId,
 						personalityProfileId,
 					})
@@ -188,6 +191,7 @@ export function streamChat(
 						skipPersistUserMessage,
 						attachmentIds,
 						deepResearch: deepResearchDepth ? { depth: deepResearchDepth } : undefined,
+						thinkingMode,
 						activeDocumentArtifactId,
 						personalityProfileId,
 						reconnectToStreamId,
