@@ -57,11 +57,20 @@
 	let selectedRows = $derived(
 		contextSources
 			? contextSources.groups
-				.filter((group) => group.kind !== 'pinned' && group.kind !== 'excluded')
+				.filter((group) => group.state === 'active')
 				.flatMap((group) => group.items)
+				.filter((item) => item.state === 'active')
 			: contextDebug?.selectedEvidence.filter(
 				(item) => !pinnedIds.has(item.artifactId) && !excludedIds.has(item.artifactId)
 			) ?? []
+	);
+	let inferredRows = $derived(
+		contextSources
+			? contextSources.groups
+				.filter((group) => group.state === 'inferred')
+				.flatMap((group) => group.items)
+				.filter((item) => item.state === 'inferred')
+			: []
 	);
 	let pinnedRows = $derived(
 		contextSources?.groups.find((group) => group.kind === 'pinned')?.items ??
@@ -169,7 +178,7 @@
 				<div class="section">
 					<div class="section-header">
 						<h3>{$t('contextSources.currentSelection')}</h3>
-						<span>{contextSources?.selectedCount ?? selectedRows.length}</span>
+						<span>{selectedRows.length}</span>
 					</div>
 					{#if selectedRows.length > 0}
 						<div class="row-list">
@@ -202,6 +211,33 @@
 						<div class="empty-state">{$t('contextSources.noActiveSources')}</div>
 					{/if}
 				</div>
+
+				{#if inferredRows.length > 0}
+					<div class="section">
+						<div class="section-header">
+							<h3>{$t('contextSources.inferredSources')}</h3>
+							<span>{contextSources?.inferredCount ?? inferredRows.length}</span>
+						</div>
+						<div class="row-list">
+							{#each inferredRows as item (itemId(item))}
+								<div class="evidence-row">
+									<div class="row-copy">
+										<div class="row-title">{itemTitle(item)}</div>
+										<div class="row-meta">
+											<span class="row-chip">{itemSourceType(item)}</span>
+											{#if contextSources && 'id' in item}
+												<span>{formatGroupKind(item.id.split(':')[0] as ContextSourceGroupKind)}</span>
+											{/if}
+											{#if itemReason(item)}
+												<span>{itemReason(item)}</span>
+											{/if}
+										</div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 
 				<div class="section">
 					<div class="section-header">

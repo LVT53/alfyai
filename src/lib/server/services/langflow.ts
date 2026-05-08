@@ -69,6 +69,7 @@ type LangflowModelRunConfig = ModelConfig & {
 
 const CURRENT_USER_MESSAGE_MARKER = "## Current User Message\n";
 const LANGFLOW_PROMPT_OVERHEAD_RESERVE_TOKENS = 512;
+const UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK = 150_000;
 
 const URL_LIST_TOOL_ARGUMENT_GUARD = [
 	"Tool argument safety for URL-processing tools:",
@@ -317,7 +318,7 @@ async function resolveLangflowRunConfig(
 			maxTokens: provider.maxTokens ?? config.model1.maxTokens,
 			flowId: config.model1.flowId || config.langflowFlowId,
 			componentId,
-			contextLimits: resolveProviderPromptContextLimits(provider, config),
+			contextLimits: resolveProviderPromptContextLimits(provider),
 			providerId,
 			providerReasoningEffort: provider.reasoningEffort,
 			providerThinkingType: provider.thinkingType,
@@ -363,13 +364,12 @@ function resolveProviderPromptContextLimits(
 		compactionUiThreshold: number | null;
 		targetConstructedContext: number | null;
 	},
-	config: RuntimeConfig,
 ): PromptContextLimits {
 	const budget = deriveModelContextBudget({
 		maxModelContext:
 			provider.maxModelContext ??
 			inferModelContextWindow(provider.modelName) ??
-			config.maxModelContext,
+			UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK,
 		compactionUiThreshold: provider.compactionUiThreshold,
 		targetConstructedContext: provider.targetConstructedContext,
 	});

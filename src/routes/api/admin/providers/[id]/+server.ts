@@ -10,7 +10,7 @@ import {
   normalizeThinkingType,
   parseProviderLimitOverrides,
   updateProvider,
-  validateProviderLimitOrdering,
+  validateProviderLimitConfiguration,
   validateProviderConnection,
   type UpdateProviderInput,
 } from '$lib/server/services/inference-providers';
@@ -53,38 +53,28 @@ export const PUT: RequestHandler = async (event) => {
       return json({ error: 'Invalid thinking type' }, { status: 400 });
     }
 
-    const needsExistingProvider =
-      Boolean(
-        body.baseUrl !== undefined ||
-        body.apiKey !== undefined ||
-        limits.value.maxModelContext !== undefined ||
-        limits.value.compactionUiThreshold !== undefined ||
-        limits.value.targetConstructedContext !== undefined ||
-        limits.value.maxTokens !== undefined
-      );
-    const existing = needsExistingProvider ? await getProviderWithSecrets(id) : null;
-    if (needsExistingProvider && !existing) {
+    const existing = await getProviderWithSecrets(id);
+    if (!existing) {
       return json({ error: 'Provider not found' }, { status: 404 });
     }
 
-    if (existing) {
-      const limitOrderingError = validateProviderLimitOrdering({
-        maxModelContext:
-          input.maxModelContext !== undefined ? input.maxModelContext : existing.maxModelContext,
-        compactionUiThreshold:
-          input.compactionUiThreshold !== undefined
-            ? input.compactionUiThreshold
-            : existing.compactionUiThreshold,
-        targetConstructedContext:
-          input.targetConstructedContext !== undefined
-            ? input.targetConstructedContext
-            : existing.targetConstructedContext,
-        maxTokens:
-          input.maxTokens !== undefined ? input.maxTokens : existing.maxTokens,
-      });
-      if (limitOrderingError) {
-        return json({ error: limitOrderingError }, { status: 400 });
-      }
+    const limitOrderingError = validateProviderLimitConfiguration({
+      enabled: input.enabled !== undefined ? input.enabled : existing.enabled,
+      maxModelContext:
+        input.maxModelContext !== undefined ? input.maxModelContext : existing.maxModelContext,
+      compactionUiThreshold:
+        input.compactionUiThreshold !== undefined
+          ? input.compactionUiThreshold
+          : existing.compactionUiThreshold,
+      targetConstructedContext:
+        input.targetConstructedContext !== undefined
+          ? input.targetConstructedContext
+          : existing.targetConstructedContext,
+      maxTokens:
+        input.maxTokens !== undefined ? input.maxTokens : existing.maxTokens,
+    });
+    if (limitOrderingError) {
+      return json({ error: limitOrderingError }, { status: 400 });
     }
 
     const validationBaseUrl =
@@ -97,9 +87,9 @@ export const PUT: RequestHandler = async (event) => {
         : undefined;
 
     if (validationBaseUrl || validationApiKey) {
-      const apiKey = validationApiKey ?? decryptApiKey(existing!.apiKeyEncrypted, existing!.apiKeyIv);
+      const apiKey = validationApiKey ?? decryptApiKey(existing.apiKeyEncrypted, existing.apiKeyIv);
       const connectionTest = await validateProviderConnection(
-        validationBaseUrl ?? existing!.baseUrl,
+        validationBaseUrl ?? existing.baseUrl,
         apiKey
       );
       if (!connectionTest.valid) {

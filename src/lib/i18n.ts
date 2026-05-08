@@ -493,7 +493,12 @@ const dictionary = {
 		"admin.disabled": "Disabled",
 		"admin.contextLimits": "Context Limits",
 		"admin.contextLimitsDescription": "Leave empty to use global defaults.",
+		"admin.contextLimitsDescriptionBuiltIn": "Leave empty to use global defaults.",
+		"admin.contextLimitsDescriptionProvider":
+			"Max Model Context is required for third-party providers. Leave target and threshold empty to derive them from that context window.",
 		"admin.maxModelContextLabel": "Max Model Context (tokens)",
+		"admin.maxModelContextRequired":
+			"Required for third-party providers. This is the total input plus output context window.",
 		"admin.compactionUiThresholdLabel": "Compaction UI Threshold (tokens)",
 		"admin.targetConstructedContextLabel":
 			"Target Constructed Context (tokens)",
@@ -501,6 +506,8 @@ const dictionary = {
 		"admin.fillRequiredFields": "Fill in all required provider fields.",
 		"admin.fillRequiredBuiltIn":
 			"Fill in display name, base URL, and model name.",
+		"admin.fillRequiredProviderContext":
+			"Set Max Model Context for this provider.",
 		"admin.saveChanges": "Save Changes",
 		"admin.saveConfiguration": "Save Configuration",
 		// Admin - Create User Modal
@@ -841,6 +848,7 @@ const dictionary = {
 		"contextSources.close": "Close Context Sources",
 		"contextSources.manage": "Manage context sources",
 		"contextSources.currentSelection": "Current sources",
+		"contextSources.inferredSources": "Inferred sources",
 		"contextSources.pinned": "Pinned",
 		"contextSources.excluded": "Excluded",
 		"contextSources.pinnedByYou": "Pinned by you",
@@ -1504,7 +1512,13 @@ const dictionary = {
 		"admin.contextLimits": "Kontextuskorlátok",
 		"admin.contextLimitsDescription":
 			"Hagyd üresen a globális alapértelmezések használatához.",
+		"admin.contextLimitsDescriptionBuiltIn":
+			"Hagyd üresen a globális alapértelmezések használatához.",
+		"admin.contextLimitsDescriptionProvider":
+			"A harmadik féltől származó szolgáltatóknál kötelező a maximális modellkontextus. A célkontextust és a küszöböt hagyd üresen, ha ebből az ablakból szeretnéd származtatni őket.",
 		"admin.maxModelContextLabel": "Maximális modellkontextus (token)",
+		"admin.maxModelContextRequired":
+			"Harmadik féltől származó szolgáltatóknál kötelező. Ez a teljes bemeneti és kimeneti kontextusablak.",
 		"admin.compactionUiThresholdLabel": "Tömörítési UI küszöb (token)",
 		"admin.targetConstructedContextLabel": "Célkontextus (token)",
 		"admin.maxMessageLengthLabel": "Maximális üzenethossz (karakter)",
@@ -1512,6 +1526,8 @@ const dictionary = {
 			"Töltsd ki az összes kötelező szolgáltatói mezőt.",
 		"admin.fillRequiredBuiltIn":
 			"Töltsd ki a megjelenített nevet, az alap-URL-t és a modell nevét.",
+		"admin.fillRequiredProviderContext":
+			"Állítsd be a szolgáltató maximális modellkontextusát.",
 		"admin.saveChanges": "Változtatások mentése",
 		"admin.saveConfiguration": "Konfiguráció mentése",
 		// Admin - Create User Modal
@@ -1773,6 +1789,7 @@ const dictionary = {
 		"contextSources.close": "Kontextusforrások bezárása",
 		"contextSources.manage": "Kontextusforrások kezelése",
 		"contextSources.currentSelection": "Jelenlegi források",
+		"contextSources.inferredSources": "Kikövetkeztetett források",
 		"contextSources.pinned": "Rögzített",
 		"contextSources.excluded": "Kizárt",
 		"contextSources.pinnedByYou": "Általad rögzítve",

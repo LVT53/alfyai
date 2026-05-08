@@ -2,6 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockValidateSession = vi.fn();
 const mockRefreshConfig = vi.fn(async () => undefined);
+const mockGetConfig = vi.fn(() => ({
+	deepResearchWorkerEnabled: false,
+	deepResearchWorkerIntervalMs: 5000,
+	deepResearchWorkerStaleTimeoutMs: 1800000,
+	deepResearchWorkerGlobalConcurrency: 2,
+	deepResearchWorkerUserConcurrency: 2,
+}));
 const mockEnsureMemoryMaintenanceScheduler = vi.fn();
 const mockPrewarmSandboxImageInBackground = vi.fn();
 const mockEnsureRuntimeSchemaCompatibility = vi.fn(async () => undefined);
@@ -16,6 +23,7 @@ vi.mock("$lib/server/services/webhook-buffer", () => ({
 }));
 
 vi.mock("$lib/server/config-store", () => ({
+	getConfig: mockGetConfig,
 	refreshConfig: mockRefreshConfig,
 }));
 

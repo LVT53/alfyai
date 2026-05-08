@@ -3,6 +3,133 @@ import { buildContextSourcesState } from "./context-sources";
 import type { ArtifactSummary, ContextDebugState, ConversationContextStatus } from "$lib/types";
 
 describe("buildContextSourcesState", () => {
+	it("treats selected message evidence as inferred instead of active carried-forward context", () => {
+		const contextDebug: ContextDebugState = {
+			activeTaskId: null,
+			activeTaskObjective: null,
+			taskLocked: false,
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "skipped",
+			selectedEvidence: [
+				{
+					artifactId: "artifact-message-evidence",
+					name: "Message evidence",
+					artifactType: "document",
+					sourceType: "document",
+					role: "selected",
+					origin: "system",
+					confidence: 0.9,
+					reason: "retrieved for this response",
+				},
+			],
+			selectedEvidenceBySource: [{ sourceType: "document", count: 1 }],
+			pinnedEvidence: [],
+			excludedEvidence: [],
+			honcho: null,
+		};
+
+		const state = buildContextSourcesState({
+			userId: "user-1",
+			conversationId: "conv-1",
+			contextDebug,
+			now: new Date("2026-05-05T10:00:00.000Z"),
+		});
+
+		expect(state.activeCount).toBe(0);
+		expect(state.inferredCount).toBe(1);
+		expect(state.selectedCount).toBe(1);
+		expect(state.groups).toEqual([
+			expect.objectContaining({
+				kind: "task_evidence",
+				state: "inferred",
+				items: [
+					expect.objectContaining({
+						artifactId: "artifact-message-evidence",
+						state: "inferred",
+					}),
+				],
+			}),
+		]);
+	});
+
+	it("does not mark sources as reduced when extra tracked rows do not prove budget loss", () => {
+		const contextStatus: ConversationContextStatus = {
+			conversationId: "conv-1",
+			userId: "user-1",
+			estimatedTokens: 4_000,
+			maxContextTokens: 100_000,
+			thresholdTokens: 80_000,
+			targetTokens: 90_000,
+			compactionApplied: false,
+			compactionMode: "none",
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "skipped",
+			layersUsed: ["working_set", "task_state"],
+			workingSetCount: 2,
+			workingSetArtifactIds: ["artifact-selected", "artifact-related"],
+			workingSetApplied: true,
+			taskStateApplied: true,
+			promptArtifactCount: 1,
+			recentTurnCount: 1,
+			summary: null,
+			updatedAt: 1_777_140_000_000,
+		};
+		const contextDebug: ContextDebugState = {
+			activeTaskId: null,
+			activeTaskObjective: null,
+			taskLocked: false,
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "skipped",
+			selectedEvidence: [
+				{
+					artifactId: "artifact-selected",
+					name: "Selected source",
+					artifactType: "document",
+					sourceType: "document",
+					role: "selected",
+					origin: "system",
+					confidence: 0.9,
+					reason: "matches the current request",
+				},
+			],
+			selectedEvidenceBySource: [{ sourceType: "document", count: 1 }],
+			pinnedEvidence: [],
+			excludedEvidence: [],
+			honcho: {
+				source: "session_context",
+				summary: "Memory exists but was not a lost prompt source.",
+				latencyMs: 12,
+				diagnostics: null,
+			},
+		};
+
+		const state = buildContextSourcesState({
+			userId: "user-1",
+			conversationId: "conv-1",
+			contextStatus,
+			contextDebug,
+			activeWorkingSet: [
+				artifact("artifact-selected", "Selected source"),
+				artifact("artifact-related", "Related available source"),
+			],
+			now: new Date("2026-05-05T10:00:00.000Z"),
+		});
+
+		expect(state.activeCount).toBe(2);
+		expect(state.inferredCount).toBe(2);
+		expect(state.selectedCount).toBe(1);
+		expect(state.compacted).toBe(false);
+		expect(state.reduced).toBe(false);
+		expect(state.groups.flatMap((group) => group.items)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ reduced: false, compacted: false }),
+			]),
+		);
+	});
+
 	it("summarizes active, pinned, excluded, reduced, and compacted context sources", () => {
 		const contextStatus: ConversationContextStatus = {
 			conversationId: "conv-1",
@@ -93,7 +220,7 @@ describe("buildContextSourcesState", () => {
 			compacted: true,
 			updatedAt: new Date("2026-05-05T10:00:00.000Z").getTime(),
 		});
-		expect(state.activeCount).toBe(4);
+		expect(state.activeCount).toBe(3);
 		expect(state.groups.map((group) => group.kind)).toEqual([
 			"attachments",
 			"working_set",
@@ -107,6 +234,15 @@ describe("buildContextSourcesState", () => {
 			state: "active",
 			reduced: true,
 			compacted: true,
+		});
+		expect(state.groups.find((group) => group.kind === "task_evidence")).toMatchObject({
+			state: "inferred",
+			items: [
+				expect.objectContaining({
+					artifactId: "artifact-selected",
+					state: "inferred",
+				}),
+			],
 		});
 	});
 });

@@ -98,11 +98,27 @@ const ATTACHMENT_TASK_PER_ATTACHMENT_TOKEN_BUDGET = 2_400;
 const ATTACHMENT_EXCERPT_PER_ATTACHMENT_TOKEN_BUDGET = 600;
 const RECENT_TURN_COUNT = 3;
 const UNMATCHED_RECENT_TURN_TOKEN_LIMIT = 480;
+const MIN_RELEVANT_KNOWLEDGE_ARTIFACTS = 6;
+const MAX_RELEVANT_KNOWLEDGE_ARTIFACTS = 64;
+const RELEVANT_KNOWLEDGE_ARTIFACT_TARGET_TOKEN_STEP = 32_768;
 
 // Authority note:
 // - Honcho is a semantic mirror/integration layer for sessions, peers, conclusions, and overview text
 // - local persona-memory, task-state, and document-resolution remain authoritative for freshness-sensitive
 //   truth, task continuity, and working-document identity
+
+export function deriveRelevantKnowledgeArtifactLimit(targetConstructedContext: number): number {
+	if (!Number.isFinite(targetConstructedContext) || targetConstructedContext <= 0) {
+		return MIN_RELEVANT_KNOWLEDGE_ARTIFACTS;
+	}
+	return Math.max(
+		MIN_RELEVANT_KNOWLEDGE_ARTIFACTS,
+		Math.min(
+			MAX_RELEVANT_KNOWLEDGE_ARTIFACTS,
+			Math.ceil(targetConstructedContext / RELEVANT_KNOWLEDGE_ARTIFACT_TARGET_TOKEN_STEP)
+		)
+	);
+}
 
 function inferContextTraceSourceForSection(
 	section: Pick<PromptContextSection, 'title' | 'layer'>
@@ -1341,7 +1357,7 @@ export async function buildConstructedContext(params: {
 		query: params.message,
 		excludeConversationId: params.conversationId,
 		currentConversationId: params.conversationId,
-		limit: 6,
+		limit: deriveRelevantKnowledgeArtifactLimit(targetBudget),
 		preferredArtifactId:
 			retrievalActiveDocumentState.currentGeneratedArtifactId ??
 			params.activeDocumentArtifactId,
@@ -1650,8 +1666,7 @@ export async function buildConstructedContext(params: {
 		estimatedTokens: selectedPromptContext.estimatedTokens,
 		compactionApplied:
 			selectedPromptContext.compactionApplied ||
-			selectedPromptContext.compactionMode !== 'none' ||
-			selectedPromptContext.estimatedTokens >= compactionThreshold,
+			selectedPromptContext.compactionMode !== 'none',
 		contextLimits: {
 			maxModelContext,
 			compactionUiThreshold: compactionThreshold,

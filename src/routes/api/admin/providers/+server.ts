@@ -8,7 +8,7 @@ import {
   normalizeReasoningEffort,
   normalizeThinkingType,
   parseProviderLimitOverrides,
-  validateProviderLimitOrdering,
+  validateProviderLimitConfiguration,
   validateProviderConnection,
   type CreateProviderInput,
 } from '$lib/server/services/inference-providers';
@@ -66,7 +66,8 @@ export const POST: RequestHandler = async (event) => {
       return json({ error: 'Name must contain only letters, numbers, underscores, and hyphens' }, { status: 400 });
     }
 
-    const limitOrderingError = validateProviderLimitOrdering({
+    const limitOrderingError = validateProviderLimitConfiguration({
+      enabled: input.enabled,
       maxModelContext: input.maxModelContext,
       compactionUiThreshold: input.compactionUiThreshold,
       targetConstructedContext: input.targetConstructedContext,

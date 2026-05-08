@@ -38,7 +38,7 @@ export function buildContextSourcesState(
 		}),
 		buildEvidenceGroup({
 			kind: "task_evidence",
-			state: "active",
+			state: "inferred",
 			evidence: input.contextDebug?.selectedEvidence ?? [],
 		}),
 		buildEvidenceGroup({
@@ -64,15 +64,7 @@ export function buildContextSourcesState(
 		input.contextStatus?.compactionApplied ||
 			(input.contextStatus && input.contextStatus.compactionMode !== "none"),
 	);
-	const trackedAvailableCount = countUniqueItems(
-		groups.filter((group) => group.state !== "excluded"),
-	);
-	const promptArtifactCount = input.contextStatus?.promptArtifactCount ?? selectedCount;
-	const reduced =
-		compacted ||
-		(trackedAvailableCount > 0 &&
-			promptArtifactCount > 0 &&
-			promptArtifactCount < trackedAvailableCount);
+	const reduced = compacted;
 
 	return {
 		conversationId: input.conversationId,

@@ -67,8 +67,12 @@ The turn-specific ceiling for how much **Prompt Context** may be sent to the mod
 _Avoid_: model limit, token dump
 
 **Max Model Context**:
-The model/provider-specific maximum context window AlfyAI may plan against.
-_Avoid_: target context, compaction threshold, evidence budget
+The model's total input-plus-output context window.
+_Avoid_: max output tokens, response limit, prompt-only window
+
+**Max Output Tokens**:
+The maximum generated response size reserved for a model call.
+_Avoid_: model context, context length, prompt budget
 
 **Target Constructed Context**:
 The configured target size for a Normal Chat turn's **Prompt Context** before final model-call overhead and response space.
@@ -133,11 +137,19 @@ _Avoid_: demo slice, spike, partial path
 - **Context Sources** may summarize or group sources for a cleaner UI, but it should preserve enough detail for users to understand which important sources are being carried forward.
 - **Context Sources** is conversation-level and compact.
 - **Context Sources** should subtly indicate when active sources were compacted, reduced, or omitted because of budget pressure.
+- A **Reduced** Context Sources state means at least one active source was downgraded, truncated, or omitted from **Prompt Context** because of **Context Budget** pressure.
+- A large **Knowledge Library**, inferred memory group, or duplicate source-management row should not by itself make **Context Sources** appear reduced.
+- A false **Reduced** state is **Context Selection Debt** and should be corrected independently of broader source-planning upgrades.
 - **Message Evidence** is message-level and may stay attached to each assistant response.
 - **Context Sources** should show the broader carried-forward pool, while **Message Evidence** shows what supported a specific answer.
 - **Context Sources** should avoid unbounded lists by grouping, summarizing, or collapsing lower-priority sources.
 - **Context Sources** should separate active sources from inferred available sources.
 - Active **Context Sources** include current attachments, pinned sources, open or current documents, current generated documents, and strong task sources.
+- In a new chat, the **Knowledge Library** is **Available Context**, not active **Context Sources**, unless the user explicitly asks for library material or retrieval finds a strong relevant hit.
+- A strong Knowledge Library retrieval hit may support the current answer as **Message Evidence** without automatically becoming an active **Context Source**.
+- A retrieved Library Document should become an active **Context Source** only when the user follows up on it as the working subject, opens it, pins it, or otherwise gives a strong source-continuity signal.
+- **Context Source** lifecycle is: **Available Context** may become a candidate, a candidate may become **Message Evidence**, and **Message Evidence** becomes an active **Context Source** only after a strong continuity signal.
+- Existing Knowledge Library material starts as **Available Context**, not active **Context Sources**.
 - Memory may appear in **Context Sources** as a compact separate group.
 - Memory display should summarize source type or role rather than exposing long memory internals.
 - Inferred available sources may be grouped or collapsed with counts and representative names.
@@ -161,7 +173,13 @@ _Avoid_: demo slice, spike, partial path
 - Individual subsystems may supply **Available Context** and **Context Signals**, but should not independently force large text into **Prompt Context**.
 - **Max Model Context** should be derived from provider/model metadata when available.
 - Explicit admin **Max Model Context** values override derived provider/model defaults.
-- If model capacity is unknown, AlfyAI should use a conservative known fallback or require admin configuration for that provider.
+- Third-party API connections should use the context length configured in admin model settings.
+- A third-party API connection without an explicit or confidently inferred context length is not fully configured for production use.
+- The safety fallback for unknown model capacity is 150k tokens, and it should be treated as a conservative fallback rather than the model's real advertised capacity.
+- Third-party API connections should require **Max Model Context** in admin model settings before they are considered fully configured.
+- Third-party **Target Constructed Context** and **Compaction Threshold** may remain optional; when unset, they should derive from the configured **Max Model Context**.
+- **Max Model Context** describes the total model window, while **Max Output Tokens** describes reserved response space.
+- **Max Output Tokens** reduces usable prompt capacity but should not be treated as the model's context length.
 - **Target Constructed Context** and **Compaction Threshold** are the primary product controls for prompt size.
 - **Target Constructed Context** and **Compaction Threshold** should be automatically derived from the selected model's usable context capacity by default.
 - A good default is **Target Constructed Context** at about 90% of usable context capacity and **Compaction Threshold** at about 80% of usable context capacity.
@@ -173,14 +191,28 @@ _Avoid_: demo slice, spike, partial path
 - Candidate and rerank limits are performance safeguards, not the source of truth for how many sources may enter **Prompt Context**.
 - **Context Selection** may batch, widen, or bypass reranking for clearly active sources when model capacity allows.
 - Cost-saving behavior should be an explicit admin or runtime policy, not an accidental consequence of small fixed evidence limits.
+- False **Reduced** state, third-party provider context configuration, and unknown-capacity fallback behavior are immediate correctness issues.
+- Source lifecycle promotion and breadth-first depth allocation are V2 source-planning upgrades.
 - Every promoted context item has a **Context Inclusion Level**.
 - **Reference Context** preserves awareness without sending body content.
 - **Excerpt Context** supports focused answers when only part of an item is relevant.
 - **Task Context** is reserved for turns that require substantial document or workspace content.
+- Active source status decides eligibility for **Prompt Context**; task intent decides **Context Inclusion Level** depth.
+- Large-context models should not force full source text by default.
+- Whole-document or near-full context is appropriate when the task requires it and the **Context Budget** allows it.
+- Structured slices or task-focused excerpts should be preferred for ordinary summarization, comparison, and question-answering over large documents.
+- When multiple active **Context Sources** compete for budget, **Context Selection** should preserve breadth before adding depth.
+- Every active source should receive at least **Reference Context** or **Excerpt Context** when budget allows before one source receives substantially deeper context.
+- Under budget pressure, active sources should lose depth before they are omitted entirely.
 - **Omitted Context** remains **Available Context** and may be promoted in a later turn.
 - An open workspace document is **Available Context**.
 - An open workspace document creates a **Weak Context Signal**.
 - A **Weak Context Signal** may combine with user wording or explicit selection to become a **Strong Context Signal**.
+- A **Strong Context Signal** should be deterministic and source-identity-backed.
+- LLMs and rerankers may rank candidates and judge relevance, but they should not independently promote a source into active carry-forward context.
+- The TEI reranker may strengthen evidence ordering and source relevance when combined with deterministic source identity or continuity signals.
+- Opening a Library Document creates a **Weak Context Signal** by default.
+- Opening a Library Document becomes a **Strong Context Signal** only when paired with document-directed user wording, explicit selection, pinning, or another source-continuity action.
 - Passive workspace state alone should not promote a document into **Prompt Context**.
 - Uncertainty should usually reduce the **Context Inclusion Level** rather than block the user.
 - A **Context Clarification** is reserved for cases where the answer would materially depend on choosing between ambiguous context items.

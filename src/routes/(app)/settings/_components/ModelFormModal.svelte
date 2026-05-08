@@ -79,6 +79,7 @@ let showApiKey = $state(false);
 let localError = $state("");
 
 let isBuiltIn = $derived(model?.isBuiltIn ?? false);
+let requiresProviderContext = $derived(!isBuiltIn && formEnabled);
 let visibleError = $derived(error || localError);
 
 function handleSave() {
@@ -117,6 +118,10 @@ function handleSave() {
 			localError = $t("admin.fillRequiredBuiltIn");
 			return;
 		}
+	}
+	if (requiresProviderContext && !formMaxModelContext) {
+		localError = $t("admin.fillRequiredProviderContext");
+		return;
 	}
 	data.displayName = data.displayName ?? formDisplayName;
 	data.baseUrl = data.baseUrl ?? formBaseUrl;
@@ -219,11 +224,14 @@ function handleSave() {
 				</div>
 				<div class="mt-2 border-t border-border pt-3">
 					<h3 class="text-sm font-medium text-text-primary mb-2">{$t('admin.contextLimits')}</h3>
-					<p class="text-xs text-text-muted mb-2">{$t('admin.contextLimitsDescription')}</p>
+					<p class="text-xs text-text-muted mb-2">{requiresProviderContext ? $t('admin.contextLimitsDescriptionProvider') : $t('admin.contextLimitsDescriptionBuiltIn')}</p>
 					<div class="flex flex-col gap-2">
 						<div>
 							<label class="settings-label" for="form-max-context">{$t('admin.maxModelContextLabel')}</label>
-							<input id="form-max-context" type="number" class="settings-input" bind:value={formMaxModelContext} placeholder="262144" min="1000" />
+							<input id="form-max-context" type="number" class="settings-input" bind:value={formMaxModelContext} placeholder="262144" min="1000" required={requiresProviderContext} />
+							{#if requiresProviderContext}
+								<p class="mt-1 text-xs text-text-muted">{$t('admin.maxModelContextRequired')}</p>
+							{/if}
 						</div>
 						<div>
 							<label class="settings-label" for="form-compaction-threshold">{$t('admin.compactionUiThresholdLabel')}</label>

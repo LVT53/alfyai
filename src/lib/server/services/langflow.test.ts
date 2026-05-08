@@ -273,6 +273,79 @@ describe("sendMessage provider routing", () => {
 		);
 	});
 
+	it("uses a 150k safety context fallback for unknown provider capacity", async () => {
+		mocks.buildConstructedContext.mockResolvedValueOnce({
+			inputValue: "Hello",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+		});
+
+		await sendMessage("Hello", "conv-1", "provider:provider-1", {
+			id: "user-1",
+		});
+
+		expect(mocks.buildConstructedContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				modelId: "provider:provider-1",
+				contextLimits: {
+					maxModelContext: 150_000,
+					targetConstructedContext: 135_000,
+					compactionUiThreshold: 120_000,
+				},
+			}),
+		);
+	});
+
+	it("derives provider target and threshold from configured max model context without using max tokens as context", async () => {
+		mocks.getProviderWithSecrets.mockResolvedValueOnce({
+			id: "provider-1",
+			name: "openrouter",
+			displayName: "Large Context Provider",
+			baseUrl: "https://openrouter.ai/api/v1",
+			apiKeyEncrypted: "encrypted",
+			apiKeyIv: "iv",
+			modelName: "vendor/large-context-model",
+			reasoningEffort: null,
+			thinkingType: null,
+			enabled: true,
+			sortOrder: 0,
+			maxModelContext: 1_000_000,
+			compactionUiThreshold: null,
+			targetConstructedContext: null,
+			maxMessageLength: null,
+			maxTokens: 8_192,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		mocks.buildConstructedContext.mockResolvedValueOnce({
+			inputValue: "Hello",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+		});
+
+		await sendMessage("Hello", "conv-1", "provider:provider-1", {
+			id: "user-1",
+		});
+
+		expect(mocks.buildConstructedContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				contextLimits: {
+					maxModelContext: 1_000_000,
+					targetConstructedContext: 900_000,
+					compactionUiThreshold: 800_000,
+				},
+			}),
+		);
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(body.tweaks["ModelNode-1"].max_tokens).toBe(8_192);
+	});
+
 	it("applies the configured local model prompt budget to the final outbound payload", async () => {
 		mockConfig(
 			{ maxTokens: 512 },

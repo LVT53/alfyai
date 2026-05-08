@@ -179,6 +179,20 @@ export function validateProviderLimitOrdering(input: {
   return null;
 }
 
+export function validateProviderLimitConfiguration(input: {
+  enabled?: boolean;
+  maxModelContext: number | null;
+  compactionUiThreshold: number | null;
+  targetConstructedContext: number | null;
+  maxTokens?: number | null;
+}): string | null {
+  if (input.enabled !== false && input.maxModelContext === null) {
+    return 'Max model context is required';
+  }
+
+  return validateProviderLimitOrdering(input);
+}
+
 export function normalizeReasoningEffort(value: unknown): ProviderReasoningEffort | null {
   return value === 'low' || value === 'medium' || value === 'high' || value === 'max' || value === 'xhigh' ? value : null;
 }

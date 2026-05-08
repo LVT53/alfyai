@@ -38,6 +38,9 @@ const mockResolvePromptAttachmentArtifacts = vi.hoisted(() =>
 const mockListConversationSourceArtifactIds = vi.hoisted(() =>
 	vi.fn(async () => [])
 );
+const mockFindRelevantKnowledgeArtifacts = vi.hoisted(() =>
+	vi.fn(async () => [])
+);
 const now = Date.now();
 
 const userRows = [
@@ -92,6 +95,40 @@ const mockGetLatestHonchoMetadata = vi.fn(async () => ({
 	honchoContext: null,
 	honchoSnapshot: null,
 }));
+const mockCompactContextSections = vi.hoisted(() =>
+	vi.fn(({ message }: { message: string }) => ({
+		inputValue: message,
+		compactionApplied: false,
+		compactionMode: 'none',
+		layersUsed: [],
+		estimatedTokens: 0,
+		sectionSelections: [],
+	}))
+);
+const mockUpdateConversationContextStatus = vi.hoisted(() =>
+	vi.fn(async () => ({
+		conversationId: 'conv-456',
+		userId: 'user-123',
+		estimatedTokens: 0,
+		maxContextTokens: 262144,
+		thresholdTokens: 209715,
+		targetTokens: 157286,
+		compactionApplied: false,
+		compactionMode: 'none',
+		routingStage: 'deterministic',
+		routingConfidence: 0,
+		verificationStatus: 'skipped',
+		layersUsed: [],
+		workingSetCount: 0,
+		workingSetArtifactIds: [],
+		workingSetApplied: false,
+		taskStateApplied: false,
+		promptArtifactCount: 0,
+		recentTurnCount: 0,
+		summary: null,
+		updatedAt: Date.now(),
+	}))
+);
 const mockHonchoSession = vi.fn(async (id: string) => ({
 	id,
 	addPeers: vi.fn(async () => undefined),
@@ -269,14 +306,7 @@ vi.mock('$lib/server/utils/prompt-context', () => ({
 	serializeWorkingSetArtifacts: vi.fn(() => []),
 	dedupeById: vi.fn((items: unknown[]) => items),
 	buildContextSection: vi.fn(() => ({ type: 'text', content: '' })),
-	compactContextSections: vi.fn(({ message }: { message: string }) => ({
-		inputValue: message,
-		compactionApplied: false,
-		compactionMode: 'none',
-		layersUsed: [],
-		estimatedTokens: 0,
-		sectionSelections: [],
-	})),
+	compactContextSections: mockCompactContextSections,
 	extractSerializedAttachmentBody: vi.fn(() => null),
 	rerankHistoricalSections: vi.fn(async ({ sections }: { sections: unknown[] }) => sections),
 	selectRecentRoleTurns: vi.fn(() => []),
@@ -294,33 +324,12 @@ vi.mock('$lib/server/services/knowledge', () => ({
 	getCompactionUiThreshold: () => 209715,
 	getMaxModelContext: () => 262144,
 	getTargetConstructedContext: () => 157286,
-	findRelevantKnowledgeArtifacts: vi.fn(async () => []),
+	findRelevantKnowledgeArtifacts: mockFindRelevantKnowledgeArtifacts,
 	getArtifactsForUser: vi.fn(async () => []),
 	listConversationSourceArtifactIds: mockListConversationSourceArtifactIds,
 	resolvePromptAttachmentArtifacts: mockResolvePromptAttachmentArtifacts,
 	selectWorkingSetArtifactsForPrompt: vi.fn(async () => []),
-	updateConversationContextStatus: vi.fn(async () => ({
-		conversationId: 'conv-456',
-		userId: 'user-123',
-		estimatedTokens: 0,
-		maxContextTokens: 262144,
-		thresholdTokens: 209715,
-		targetTokens: 157286,
-		compactionApplied: false,
-		compactionMode: 'none',
-		routingStage: 'deterministic',
-		routingConfidence: 0,
-		verificationStatus: 'skipped',
-		layersUsed: [],
-		workingSetCount: 0,
-		workingSetArtifactIds: [],
-		workingSetApplied: false,
-		taskStateApplied: false,
-		promptArtifactCount: 0,
-		recentTurnCount: 0,
-		summary: null,
-		updatedAt: Date.now(),
-	})),
+	updateConversationContextStatus: mockUpdateConversationContextStatus,
 	WORKING_SET_DOCUMENT_TOKEN_BUDGET: 1500,
 	WORKING_SET_OUTPUT_TOKEN_BUDGET: 2000,
 	WORKING_SET_PROMPT_TOKEN_BUDGET: 12000,
@@ -507,6 +516,15 @@ describe('honcho learning - buildConstructedContext', () => {
 			items: [],
 			unresolvedItems: [],
 		});
+		mockCompactContextSections.mockImplementation(({ message }: { message: string }) => ({
+			inputValue: message,
+			compactionApplied: false,
+			compactionMode: 'none',
+			layersUsed: [],
+			estimatedTokens: 0,
+			sectionSelections: [],
+		}));
+		mockFindRelevantKnowledgeArtifacts.mockResolvedValue([]);
 	});
 
 	it('passes the active context target budget into task evidence selection', async () => {
@@ -526,6 +544,46 @@ describe('honcho learning - buildConstructedContext', () => {
 		expect(mockPrepareTaskContext).toHaveBeenCalledWith(
 			expect.objectContaining({
 				targetConstructedContext: 720_000,
+			})
+		);
+	});
+
+	it('requests a larger relevant knowledge candidate set for a large constructed context target', async () => {
+		const { buildConstructedContext } = await import('./honcho');
+
+		await buildConstructedContext({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			message: 'Find every plausible source for this broad synthesis.',
+			contextLimits: {
+				maxModelContext: 1_000_000,
+				compactionUiThreshold: 900_000,
+				targetConstructedContext: 720_000,
+			},
+		});
+
+		expect(mockFindRelevantKnowledgeArtifacts).toHaveBeenCalledWith(
+			expect.objectContaining({
+				limit: expect.any(Number),
+			})
+		);
+		const requestedLimit = mockFindRelevantKnowledgeArtifacts.mock.calls[0]?.[0]?.limit;
+		expect(requestedLimit).toBeGreaterThan(6);
+		expect(requestedLimit).toBeLessThanOrEqual(64);
+	});
+
+	it('keeps the default relevant knowledge candidate set at the small-context floor', async () => {
+		const { buildConstructedContext } = await import('./honcho');
+
+		await buildConstructedContext({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			message: 'Answer from ordinary chat context.',
+		});
+
+		expect(mockFindRelevantKnowledgeArtifacts).toHaveBeenCalledWith(
+			expect.objectContaining({
+				limit: 6,
 			})
 		);
 	});
@@ -599,6 +657,37 @@ describe('honcho learning - buildConstructedContext', () => {
 						contentText: 'Extracted carried-forward attachment body.',
 					}),
 				],
+			})
+		);
+	});
+
+	it('does not persist threshold-only context pressure as compaction', async () => {
+		mockCompactContextSections.mockImplementationOnce(({ message }: { message: string }) => ({
+			inputValue: message,
+			compactionApplied: false,
+			compactionMode: 'none',
+			layersUsed: [],
+			estimatedTokens: 950_000,
+			sectionSelections: [],
+		}));
+		const { buildConstructedContext } = await import('./honcho');
+
+		await buildConstructedContext({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			message: 'This prompt fits, but it is above the UI pressure threshold.',
+			contextLimits: {
+				maxModelContext: 1_000_000,
+				compactionUiThreshold: 900_000,
+				targetConstructedContext: 980_000,
+			},
+		});
+
+		expect(mockUpdateConversationContextStatus).toHaveBeenCalledWith(
+			expect.objectContaining({
+				estimatedTokens: 950_000,
+				compactionApplied: false,
+				compactionMode: 'none',
 			})
 		);
 	});

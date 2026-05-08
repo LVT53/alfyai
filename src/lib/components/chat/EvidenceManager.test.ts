@@ -54,6 +54,18 @@ describe("EvidenceManager context source labels", () => {
 		expect(getByText("Pinned source")).toBeInTheDocument();
 		expect(getByText("Excluded source")).toBeInTheDocument();
 	});
+
+	it("keeps inferred task evidence out of current sources", () => {
+		const { getByText } = render(EvidenceManager, {
+			open: true,
+			contextDebug: makeContextDebug(),
+			contextSources: makeInferredOnlyContextSources(),
+		});
+
+		expect(getByText("No active context sources are selected right now.")).toBeInTheDocument();
+		expect(getByText("Inferred sources")).toBeInTheDocument();
+		expect(getByText("Draft reference")).toBeInTheDocument();
+	});
 });
 
 function makeContextDebug(): ContextDebugState {
@@ -143,6 +155,41 @@ function makeContextSources(): ContextSourcesState {
 						sourceType: "document",
 						artifactType: "document",
 						reduced: true,
+						compacted: false,
+					},
+				],
+			},
+		],
+	};
+}
+
+function makeInferredOnlyContextSources(): ContextSourcesState {
+	return {
+		conversationId: "conversation-1",
+		userId: "user-1",
+		activeCount: 0,
+		inferredCount: 1,
+		selectedCount: 1,
+		pinnedCount: 0,
+		excludedCount: 0,
+		reduced: false,
+		compacted: false,
+		updatedAt: Date.now(),
+		groups: [
+			{
+				kind: "task_evidence",
+				state: "inferred",
+				totalCount: 1,
+				items: [
+					{
+						id: "task_evidence:message-1",
+						artifactId: "artifact-1",
+						title: "Draft reference",
+						state: "inferred",
+						sourceType: "document",
+						artifactType: "document",
+						reason: "Referenced in selected message evidence",
+						reduced: false,
 						compacted: false,
 					},
 				],

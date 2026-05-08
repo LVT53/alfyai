@@ -117,6 +117,60 @@ describe("Deep Research model configuration", () => {
 		});
 	});
 
+	it("derives optional provider target and threshold limits from configured max model context", async () => {
+		runtimeConfig.deepResearchModels.research_task = "provider:deep-provider";
+		getProviderById.mockResolvedValue({
+			id: "deep-provider",
+			displayName: "Deep Provider",
+			baseUrl: "https://api.deep-provider.example/v1",
+			modelName: "deep-provider/large-context",
+			enabled: true,
+			maxModelContext: 1_000_000,
+			compactionUiThreshold: null,
+			targetConstructedContext: null,
+			maxMessageLength: null,
+			maxTokens: 16_000,
+		});
+
+		await expect(resolveDeepResearchModel("research_task")).resolves.toMatchObject({
+			modelId: "provider:deep-provider",
+			limits: {
+				maxModelContext: 1_000_000,
+				compactionUiThreshold: 800_000,
+				targetConstructedContext: 900_000,
+				maxMessageLength: 10_000,
+				maxTokens: 16_000,
+			},
+		});
+	});
+
+	it("uses the provider safety fallback for unknown provider context capacity", async () => {
+		runtimeConfig.deepResearchModels.citation_audit = "provider:unknown";
+		getProviderById.mockResolvedValue({
+			id: "unknown",
+			displayName: "Unknown Provider",
+			baseUrl: "https://api.unknown-provider.example/v1",
+			modelName: "vendor/custom-model",
+			enabled: true,
+			maxModelContext: null,
+			compactionUiThreshold: null,
+			targetConstructedContext: null,
+			maxMessageLength: null,
+			maxTokens: null,
+		});
+
+		await expect(resolveDeepResearchModel("citation_audit")).resolves.toMatchObject({
+			modelId: "provider:unknown",
+			limits: {
+				maxModelContext: 150_000,
+				compactionUiThreshold: 120_000,
+				targetConstructedContext: 135_000,
+				maxMessageLength: 10_000,
+				maxTokens: null,
+			},
+		});
+	});
+
 	it("falls back to Model 1 when a configured role points at a disabled provider or disabled Model 2", async () => {
 		runtimeConfig.deepResearchModels.synthesis = "provider:disabled";
 		getProviderById.mockResolvedValueOnce({

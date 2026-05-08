@@ -5,9 +5,13 @@ import {
 } from "$lib/deep-research-models";
 import type { ModelId } from "$lib/types";
 import { getConfig, getProviderById, type RuntimeConfig } from "$lib/server/config-store";
+import { deriveModelContextBudget } from "$lib/server/services/chat-turn/context-budget";
+import { inferModelContextWindow } from "$lib/server/services/model-context";
 
 export { DEEP_RESEARCH_MODEL_ROLES };
 export type { DeepResearchModelRole, DeepResearchModelSelections };
+
+const UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK = 150_000;
 
 export type ResolvedDeepResearchModel = {
 	role: DeepResearchModelRole;
@@ -35,6 +39,14 @@ export async function resolveDeepResearchModel(
 		const providerId = configuredModelId.slice("provider:".length);
 		const provider = await getProviderById(providerId).catch(() => null);
 		if (provider?.enabled) {
+			const providerBudget = deriveModelContextBudget({
+				maxModelContext:
+					provider.maxModelContext ??
+					inferModelContextWindow(provider.modelName) ??
+					UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK,
+				compactionUiThreshold: provider.compactionUiThreshold,
+				targetConstructedContext: provider.targetConstructedContext,
+			});
 			return {
 				role,
 				modelId: configuredModelId,
@@ -44,13 +56,9 @@ export async function resolveDeepResearchModel(
 				providerBaseUrl: provider.baseUrl,
 				providerModelName: provider.modelName,
 				limits: {
-					maxModelContext:
-						provider.maxModelContext ?? config.maxModelContext,
-					compactionUiThreshold:
-						provider.compactionUiThreshold ?? config.compactionUiThreshold,
-					targetConstructedContext:
-						provider.targetConstructedContext ??
-						config.targetConstructedContext,
+					maxModelContext: providerBudget.maxModelContext,
+					compactionUiThreshold: providerBudget.compactionUiThreshold,
+					targetConstructedContext: providerBudget.targetConstructedContext,
 					maxMessageLength:
 						provider.maxMessageLength ?? config.maxMessageLength,
 					maxTokens: provider.maxTokens ?? null,
