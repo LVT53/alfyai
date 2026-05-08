@@ -184,6 +184,35 @@ function buildSseStream(lines: string[]): {
 	};
 }
 
+function buildControlledSseStream() {
+	const encoder = new TextEncoder();
+	let enqueueToken!: (text: string) => void;
+	let finish!: () => void;
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			enqueueToken = (text: string) => {
+				controller.enqueue(
+					encoder.encode(`event: token\ndata: ${JSON.stringify({ text })}\n\n`),
+				);
+			};
+			finish = () => {
+				controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+				controller.close();
+			};
+		},
+	});
+	return {
+		stream,
+		contextStatus: undefined,
+		taskState: null,
+		contextDebug: null,
+		honchoContext: null,
+		honchoSnapshot: null,
+		enqueueToken,
+		finish,
+	};
+}
+
 async function readSseResponse(response: Response): Promise<string> {
 	const reader = response.body!.getReader();
 	const chunks: Uint8Array[] = [];
@@ -507,6 +536,46 @@ describe("POST /api/chat/stream", () => {
 			undefined,
 			{ evidenceStatus: "pending", modelDisplayName: "Model 1" },
 		);
+		expect(mockTouchConversation).toHaveBeenCalledWith("user-1", "conv-1");
+	});
+
+	it("continues processing upstream after the response body is cancelled mid-generation", async () => {
+		const conversation = {
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		mockGetConversation.mockResolvedValue(conversation);
+
+		const upstream = buildControlledSseStream();
+		mockSendMessageStream.mockResolvedValue(upstream);
+
+		const event = makeEvent({
+			message: "Hi",
+			conversationId: "conv-1",
+			streamId: "stream-cancelled-client",
+		});
+		const response = await POST(event);
+		const reader = response.body!.getReader();
+
+		await reader.read();
+		await reader.cancel();
+
+		upstream.enqueueToken("Still running");
+		upstream.finish();
+
+		await vi.waitFor(() => {
+			expect(mockCreateMessage).toHaveBeenNthCalledWith(
+				2,
+				"conv-1",
+				"assistant",
+				"Still running",
+				undefined,
+				undefined,
+				{ evidenceStatus: "pending", modelDisplayName: "Model 1" },
+			);
+		});
 		expect(mockTouchConversation).toHaveBeenCalledWith("user-1", "conv-1");
 	});
 

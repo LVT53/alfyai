@@ -144,6 +144,8 @@ export function runChatStreamOrchestrator(
 
 	const stream = new ReadableStream({
 		async start(controller) {
+			const downstreamAbortController = new AbortController();
+			const downstreamSignal = downstreamAbortController.signal;
 			let downstreamClosed = false;
 			let ended = false;
 			let lastAssistantSnapshot = "";
@@ -153,6 +155,9 @@ export function runChatStreamOrchestrator(
 				if (downstreamClosed) return;
 				downstreamClosed = true;
 				downstreamAbortSignal.removeEventListener("abort", closeDownstream);
+				if (!downstreamAbortController.signal.aborted) {
+					downstreamAbortController.abort();
+				}
 				// Do NOT abort upstream on client disconnect — let generation complete and persist to DB.
 				// The client reloads persisted messages on visibility restore (mobile background fix).
 				try {
@@ -176,7 +181,7 @@ export function runChatStreamOrchestrator(
 				runReconnect(targetStreamId, {
 					enqueueChunk,
 					closeDownstream,
-					downstreamAbortSignal,
+					downstreamAbortSignal: downstreamSignal,
 					getStreamBuffer: (id) => getStreamBuffer(id) ?? undefined,
 					subscribeToStream,
 					unsubscribeFromStream,
@@ -323,10 +328,7 @@ export function runChatStreamOrchestrator(
 			try {
 				fileProductionJobIdsAtStart = new Set(
 					(
-						await listConversationFileProductionJobs(
-							user.id,
-							conversationId,
-						)
+						await listConversationFileProductionJobs(user.id, conversationId)
 					).map((job) => job.id),
 				);
 			} catch (error) {

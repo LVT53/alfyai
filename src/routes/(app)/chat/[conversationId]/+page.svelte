@@ -776,12 +776,16 @@ async function reconnectToOrphanedStream(
 					void pollMessageEvidence(serverAssistantId);
 					setTimeout(() => refreshMessageCost(serverAssistantId), 1500);
 				}
-
+			},
+			onError(err) {
 				const isBrowserAbort =
 					err.name === "AbortError" &&
 					browser &&
 					document.visibilityState === "hidden";
 				if (isBrowserAbort) {
+					messages.update((list) => removeMessageById(list, placeholderId));
+					activeStream = null;
+					isSending = false;
 					streamInterruptedByBackground = true;
 					return;
 				}
@@ -791,7 +795,7 @@ async function reconnectToOrphanedStream(
 				const isCapacityError =
 					err.message?.includes("capacity") || err.code === "CAPACITY_EXCEEDED";
 				if (isCapacityError && retryCount < 3) {
-					const delay = Math.pow(2, retryCount) * 500; // 500ms, 1s, 2s
+					const delay = 2 ** retryCount * 500; // 500ms, 1s, 2s
 					console.info(
 						"[CHAT] Capacity error - retrying reconnection in",
 						delay,
@@ -823,6 +827,9 @@ async function reconnectToOrphanedStream(
 					"[CHAT] Reconnection failed, fetching fresh data directly",
 				);
 				hasPersistedMessages = true;
+				isSending = false;
+				activeStream = null;
+				messages.update((list) => removeMessageById(list, placeholderId));
 				fetchConversationDetail(data.conversation.id)
 					.then((detail) => {
 						console.info(
@@ -868,8 +875,8 @@ async function reconnectToOrphanedStream(
 					.catch((e) => {
 						console.error("[CHAT] Failed to fetch fresh data:", e);
 					});
+				},
 			},
-		},
 		{
 			reconnectToStreamId: streamId,
 			reconnectUserMessage: userMessage,
