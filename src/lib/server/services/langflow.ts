@@ -651,6 +651,13 @@ function isKnownThinkingTypeModel(modelName: string): boolean {
 	return /\b(qwen3?|deepseek|nemotron|reasoning|r1)\b/i.test(modelName);
 }
 
+function isFireworksDeepSeekV4Model(modelConfig: LangflowModelRunConfig): boolean {
+	return (
+		/fireworks\.ai/i.test(modelConfig.baseUrl) &&
+		/deepseek[-_/]?v4/i.test(modelConfig.modelName)
+	);
+}
+
 function supportsThinkingTypeTweaks(
 	modelConfig: LangflowModelRunConfig,
 	configuredThinkingType: string | null | undefined,
@@ -752,6 +759,13 @@ function getProviderReasoningEffort(
 		if (effectiveThinkingType === "disabled") {
 			return "none";
 		}
+	}
+
+	if (
+		effectiveThinkingType === "disabled" &&
+		isFireworksDeepSeekV4Model(modelConfig)
+	) {
+		return "none";
 	}
 
 	return null;

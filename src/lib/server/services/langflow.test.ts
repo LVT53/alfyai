@@ -729,6 +729,50 @@ describe("sendMessage provider routing", () => {
 		expect(secondBody.tweaks["ModelNode-1"]).not.toHaveProperty("thinking_type");
 	});
 
+	it("sends reasoning_effort none when Fireworks DeepSeek V4 auto-disables thinking", async () => {
+		const fireworksDeepSeekProvider = {
+			id: "provider-1",
+			name: "fireworks",
+			displayName: "Fireworks DeepSeek V4",
+			baseUrl: "https://api.fireworks.ai/inference/v1",
+			apiKeyEncrypted: "encrypted",
+			apiKeyIv: "iv",
+			modelName: "accounts/fireworks/models/deepseek-v4-pro",
+			reasoningEffort: "max",
+			thinkingType: null,
+			enabled: true,
+			sortOrder: 0,
+			maxModelContext: null,
+			compactionUiThreshold: null,
+			targetConstructedContext: null,
+			maxMessageLength: null,
+			maxTokens: null,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		};
+		mocks.getProviderWithSecrets
+			.mockResolvedValueOnce(fireworksDeepSeekProvider)
+			.mockResolvedValueOnce(fireworksDeepSeekProvider);
+
+		await sendMessage("Hello", "conv-1", "provider:provider-1");
+		await sendMessage("Hello", "conv-1", "provider:provider-1", undefined, {
+			thinkingMode: "off",
+		});
+
+		const firstBody = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		const secondBody = JSON.parse(String(vi.mocked(fetch).mock.calls[1]?.[1]?.body));
+		expect(firstBody.tweaks["ModelNode-1"]).toMatchObject({
+			enable_thinking: false,
+			reasoning_effort: "none",
+		});
+		expect(firstBody.tweaks["ModelNode-1"]).not.toHaveProperty("thinking_type");
+		expect(secondBody.tweaks["ModelNode-1"]).toMatchObject({
+			enable_thinking: false,
+			reasoning_effort: "none",
+		});
+		expect(secondBody.tweaks["ModelNode-1"]).not.toHaveProperty("thinking_type");
+	});
+
 	it("sends reasoning_effort for Mistral Medium 3.5 even when thinking.type is configured", async () => {
 		mocks.getProviderWithSecrets.mockResolvedValueOnce({
 			id: "provider-1",
