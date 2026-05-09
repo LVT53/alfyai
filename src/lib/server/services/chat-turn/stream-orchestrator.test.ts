@@ -129,6 +129,18 @@ function createErrorEventStream(message: string): ReadableStream<Uint8Array> {
 	});
 }
 
+function createEventBlockStream(blocks: string[]): ReadableStream<Uint8Array> {
+	const encoder = new TextEncoder();
+	return new ReadableStream({
+		start(controller) {
+			for (const block of blocks) {
+				controller.enqueue(encoder.encode(block));
+			}
+			controller.close();
+		},
+	});
+}
+
 function createHangingStream(): ReadableStream<Uint8Array> {
 	return new ReadableStream({
 		start() {
@@ -626,6 +638,82 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(sendMessage).toHaveBeenCalledWith(
 			"Hello",
 			"read-timeout-failover-conv",
+			"model2",
+			expect.any(Object),
+			expect.any(Object),
+		);
+	});
+
+	it("routes upstream ReadTimeout error events after reasoning-only output", async () => {
+		const {
+			isLangflowTimeoutError,
+			resolveTimeoutFailoverTargetModelId,
+			sendMessage,
+			sendMessageStream,
+		} = await import("$lib/server/services/langflow");
+		(isLangflowTimeoutError as ReturnType<typeof vi.fn>).mockImplementation(
+			(error: unknown) =>
+				error instanceof Error &&
+				error.message.toLowerCase().includes("readtimeout"),
+		);
+		(
+			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
+		).mockResolvedValue("model2");
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+			stream: createEventBlockStream([
+				`event: token\ndata: ${JSON.stringify({
+					choices: [
+						{ delta: { reasoning_content: "working through fallback" } },
+					],
+				})}\n\n`,
+				`event: error\ndata: ${JSON.stringify({
+					message: "**ReadTimeout**\n - **Details: **\nhttpx.ReadTimeout",
+				})}\n\n`,
+			]),
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+		});
+		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+			text: "Backup answer",
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+			modelId: "model2",
+			modelDisplayName: "Model Two",
+		});
+
+		const response = runChatStreamOrchestrator({
+			user: {
+				id: "u1",
+				displayName: "User",
+				email: "u@test.com",
+			},
+			turn: createTurn({
+				conversationId: "reasoning-timeout-failover-conv",
+				streamId: "reasoning-timeout-failover-stream",
+				modelId: "model1",
+				modelDisplayName: "Model One",
+			}),
+			upstreamMessage: "Hello",
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+		});
+
+		const chunks = await readSseResponse(response);
+		const body = chunks.join("\n\n");
+		expect(body).toContain('event: token\ndata: {"text":"Backup answer"}');
+		expect(body).toContain("event: end");
+		expect(body).not.toContain("event: error");
+		expect(sendMessage).toHaveBeenCalledWith(
+			"Hello",
+			"reasoning-timeout-failover-conv",
 			"model2",
 			expect.any(Object),
 			expect.any(Object),

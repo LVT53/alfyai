@@ -366,6 +366,12 @@ export function runChatStreamOrchestrator(
 						chunkRuntime.toolCallRecords.length > 0 ||
 						emittedAssistantText.trim(),
 				);
+			const hasVisibleStreamOutput = () =>
+				Boolean(
+					chunkRuntime.fullResponse.trim() ||
+						chunkRuntime.toolCallRecords.length > 0 ||
+						emittedAssistantText.trim(),
+				);
 			const hasPersistableStreamOutput = () =>
 				Boolean(
 					chunkRuntime.fullResponse.trim() ||
@@ -519,7 +525,7 @@ export function runChatStreamOrchestrator(
 						thinkingLength: chunkRuntime.thinkingContent.length,
 						toolCallCount: chunkRuntime.toolCallRecords.length,
 					});
-					if (!hasEmittedStreamOutput()) {
+					if (!hasVisibleStreamOutput()) {
 						upstreamIdleTimedOutBeforeOutput = true;
 						void (async () => {
 							const timeoutFailoverTarget =
@@ -792,7 +798,7 @@ export function runChatStreamOrchestrator(
 								}
 								const upstreamError = new Error(errorMessage);
 								if (
-									!hasEmittedStreamOutput() &&
+									!hasVisibleStreamOutput() &&
 									isLangflowTimeoutError(upstreamError)
 								) {
 									const timeoutFailoverTarget =
@@ -900,7 +906,7 @@ export function runChatStreamOrchestrator(
 					!wasActiveChatStreamStopRequested(streamId) &&
 					(shouldFallbackToNonStreaming(error) ||
 						upstreamIdleTimedOutBeforeOutput) &&
-					!hasEmittedStreamOutput()
+					!hasVisibleStreamOutput()
 				) {
 					await fallbackToNonStreaming(
 						"stream_read_failure",
