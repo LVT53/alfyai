@@ -149,6 +149,33 @@ function createHangingStream(): ReadableStream<Uint8Array> {
 	});
 }
 
+function createHangingEventBlockStream(blocks: string[]): {
+	stream: ReadableStream<Uint8Array>;
+	close: () => void;
+} {
+	const encoder = new TextEncoder();
+	let upstreamController: ReadableStreamDefaultController<Uint8Array> | null =
+		null;
+
+	return {
+		stream: new ReadableStream({
+			start(controller) {
+				upstreamController = controller;
+				for (const block of blocks) {
+					controller.enqueue(encoder.encode(block));
+				}
+			},
+		}),
+		close() {
+			try {
+				upstreamController?.close();
+			} catch {
+				/* stream may already be closed by the test path */
+			}
+		},
+	};
+}
+
 function createErroredStream(
 	blocks: string[],
 	error: Error,
@@ -647,6 +674,97 @@ describe("stream-orchestrator SSE contract", () => {
 			expect.any(Object),
 			expect.any(Object),
 		);
+	});
+
+	it("keeps first-visible-output failover armed after tool-call chunks", async () => {
+		vi.useFakeTimers();
+		const { getConfig } = await import("$lib/server/config-store");
+		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+			requestTimeoutMs: 120000,
+			modelTimeoutFailoverEnabled: true,
+			modelTimeoutFailoverTimeoutMs: 10000,
+			modelTimeoutFailoverTargetModel: "model2",
+		});
+		const {
+			resolveTimeoutFailoverTargetModelId,
+			sendMessage,
+			sendMessageStream,
+		} = await import("$lib/server/services/langflow");
+		(
+			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
+		).mockResolvedValue("model2");
+		const toolCallMarker = `\u0002TOOL_START\u001f${JSON.stringify({
+			name: "web_search",
+			input: { query: "weather" },
+		})}\u0003`;
+		const upstream = createHangingEventBlockStream([
+			`event: token\ndata: ${JSON.stringify({
+				choices: [{ delta: { content: toolCallMarker } }],
+			})}\n\n`,
+		]);
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+			stream: upstream.stream,
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+		});
+		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+			text: "Backup answer",
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+			modelId: "model2",
+			modelDisplayName: "Model Two",
+		});
+
+		const response = runChatStreamOrchestrator({
+			user: {
+				id: "u1",
+				displayName: "User",
+				email: "u@test.com",
+			},
+			turn: createTurn({
+				conversationId: "tool-call-timeout-failover-conv",
+				streamId: "tool-call-timeout-failover-stream",
+				modelId: "model1",
+				modelDisplayName: "Model One",
+			}),
+			upstreamMessage: "Hello",
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+		});
+
+		const chunksPromise = readSseResponse(response);
+		try {
+			await vi.advanceTimersByTimeAsync(9999);
+			expect(sendMessage).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(1);
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(sendMessage).toHaveBeenCalledWith(
+				"Hello",
+				"tool-call-timeout-failover-conv",
+				"model2",
+				expect.any(Object),
+				expect.any(Object),
+			);
+
+			const chunks = await chunksPromise;
+			const body = chunks.join("\n\n");
+			expect(body).toContain("event: tool_call");
+			expect(body).toContain('event: token\ndata: {"text":"Backup answer"}');
+			expect(body).toContain("event: end");
+			expect(body).not.toContain("event: error");
+		} finally {
+			upstream.close();
+			await chunksPromise.catch(() => undefined);
+		}
 	});
 
 	it("routes upstream ReadTimeout error events to the configured failover model before output starts", async () => {

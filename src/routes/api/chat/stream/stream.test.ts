@@ -10,6 +10,8 @@ vi.mock("$lib/server/services/conversations", () => ({
 }));
 
 vi.mock("$lib/server/services/langflow", () => ({
+	isLangflowTimeoutError: vi.fn(() => false),
+	resolveTimeoutFailoverTargetModelId: vi.fn(async () => null),
 	sendMessage: vi.fn(),
 	sendMessageStream: vi.fn(),
 }));
@@ -87,15 +89,18 @@ vi.mock("$lib/server/env", () => ({
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
-import { getChatFilesForAssistantMessage, syncGeneratedFilesToMemory } from "$lib/server/services/chat-files";
 import {
-	assignFileProductionJobsToAssistantMessage,
-	listConversationFileProductionJobs,
-} from "$lib/server/services/file-production";
+	getChatFilesForAssistantMessage,
+	syncGeneratedFilesToMemory,
+} from "$lib/server/services/chat-files";
 import {
 	getConversation,
 	touchConversation,
 } from "$lib/server/services/conversations";
+import {
+	assignFileProductionJobsToAssistantMessage,
+	listConversationFileProductionJobs,
+} from "$lib/server/services/file-production";
 import { assertPromptReadyAttachments } from "$lib/server/services/knowledge";
 import { sendMessage, sendMessageStream } from "$lib/server/services/langflow";
 import {
@@ -127,12 +132,13 @@ const mockAssignFileProductionJobsToAssistantMessage =
 	assignFileProductionJobsToAssistantMessage as ReturnType<typeof vi.fn>;
 const mockListConversationFileProductionJobs =
 	listConversationFileProductionJobs as ReturnType<typeof vi.fn>;
+type StreamPostEvent = Parameters<typeof POST>[0];
 
 function makeEvent(
 	body: unknown,
 	user = { id: "user-1", email: "test@example.com" },
 	signal?: AbortSignal,
-) {
+): StreamPostEvent {
 	return {
 		request: new Request("http://localhost/api/chat/stream", {
 			method: "POST",
@@ -150,7 +156,7 @@ function makeEvent(
 		params: {},
 		url: new URL("http://localhost/api/chat/stream"),
 		route: { id: "/api/chat/stream" },
-	} as any;
+	} as StreamPostEvent;
 }
 
 function buildSseStream(lines: string[]): {
@@ -214,7 +220,10 @@ function buildControlledSseStream() {
 }
 
 async function readSseResponse(response: Response): Promise<string> {
-	const reader = response.body!.getReader();
+	const reader = response.body?.getReader();
+	if (!reader) {
+		throw new Error("Missing response body");
+	}
 	const chunks: Uint8Array[] = [];
 	while (true) {
 		const { done, value } = await reader.read();
@@ -245,9 +254,7 @@ describe("POST /api/chat/stream", () => {
 		mockSendMessage.mockReset();
 		mockGetChatFilesForAssistantMessage.mockResolvedValue([]);
 		mockSyncGeneratedFilesToMemory.mockResolvedValue(undefined);
-		mockAssignFileProductionJobsToAssistantMessage.mockResolvedValue(
-			undefined,
-		);
+		mockAssignFileProductionJobsToAssistantMessage.mockResolvedValue(undefined);
 		mockListConversationFileProductionJobs.mockResolvedValue([]);
 	});
 
@@ -559,7 +566,10 @@ describe("POST /api/chat/stream", () => {
 			streamId: "stream-cancelled-client",
 		});
 		const response = await POST(event);
-		const reader = response.body!.getReader();
+		const reader = response.body?.getReader();
+		if (!reader) {
+			throw new Error("Missing response body");
+		}
 
 		await reader.read();
 		await reader.cancel();

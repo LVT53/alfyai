@@ -75,7 +75,9 @@ function getStreamTimeoutMs(): number {
 	return Math.max(60_000, getConfig().requestTimeoutMs);
 }
 
-function getFirstVisibleOutputTimeoutMs(modelId?: string | null): number | null {
+function getFirstVisibleOutputTimeoutMs(
+	modelId?: string | null,
+): number | null {
 	const config = getConfig();
 	const sourceModelId = modelId ?? "model1";
 	const failoverTargetModelId = config.modelTimeoutFailoverTargetModel;
@@ -335,7 +337,6 @@ export function runChatStreamOrchestrator(
 					candidates?: import("$lib/types").ToolEvidenceCandidate[];
 				},
 			) => {
-				clearFirstVisibleOutputTimeout();
 				chunkRuntime.emitToolCallEvent(name, input, status, details);
 			};
 			let firstVisibleOutputTimeoutId: ReturnType<typeof setTimeout> | null =
@@ -346,8 +347,13 @@ export function runChatStreamOrchestrator(
 				firstVisibleOutputTimeoutId = null;
 			};
 			const emitChunkWithOutputHandling = (chunk: string): boolean => {
+				const previousVisibleAnswerLength = chunkRuntime.fullResponse.length;
 				const emitted = chunkRuntime.emitChunkWithOutputHandling(chunk);
-				if (emitted && chunk.trim()) {
+				if (
+					emitted &&
+					chunkRuntime.fullResponse.length > previousVisibleAnswerLength &&
+					chunkRuntime.fullResponse.trim()
+				) {
 					clearFirstVisibleOutputTimeout();
 				}
 				return emitted;
@@ -404,6 +410,8 @@ export function runChatStreamOrchestrator(
 						chunkRuntime.toolCallRecords.length > 0 ||
 						emittedAssistantText.trim(),
 				);
+			const hasVisibleAssistantAnswerOutput = () =>
+				Boolean(chunkRuntime.fullResponse.trim());
 			const hasPersistableStreamOutput = () =>
 				Boolean(
 					chunkRuntime.fullResponse.trim() ||
@@ -560,7 +568,7 @@ export function runChatStreamOrchestrator(
 						thinkingLength: chunkRuntime.thinkingContent.length,
 						toolCallCount: chunkRuntime.toolCallRecords.length,
 					});
-					if (!hasVisibleStreamOutput()) {
+					if (!hasVisibleAssistantAnswerOutput()) {
 						upstreamIdleTimedOutBeforeOutput = true;
 						void (async () => {
 							const timeoutFailoverTarget =
@@ -601,7 +609,7 @@ export function runChatStreamOrchestrator(
 						thinkingLength: chunkRuntime.thinkingContent.length,
 						toolCallCount: chunkRuntime.toolCallRecords.length,
 					});
-					if (hasVisibleStreamOutput()) {
+					if (hasVisibleAssistantAnswerOutput()) {
 						return;
 					}
 					upstreamIdleTimedOutBeforeOutput = true;
@@ -641,8 +649,8 @@ export function runChatStreamOrchestrator(
 				attemptedNonStreamFallback = true;
 				const timeoutFailoverTarget =
 					isLangflowTimeoutError(error) || upstreamIdleTimedOutBeforeOutput
-					? await resolveTimeoutFailoverTargetModelId(modelId ?? "model1")
-					: null;
+						? await resolveTimeoutFailoverTargetModelId(modelId ?? "model1")
+						: null;
 				const fallbackModelId = timeoutFailoverTarget ?? modelId;
 				if (upstreamIdleTimedOutBeforeOutput && !timeoutFailoverTarget) {
 					failStream("timeout");
@@ -871,7 +879,7 @@ export function runChatStreamOrchestrator(
 								}
 								const upstreamError = new Error(errorMessage);
 								if (
-									!hasVisibleStreamOutput() &&
+									!hasVisibleAssistantAnswerOutput() &&
 									isLangflowTimeoutError(upstreamError)
 								) {
 									const timeoutFailoverTarget =
@@ -977,9 +985,11 @@ export function runChatStreamOrchestrator(
 				if (
 					!attemptedNonStreamFallback &&
 					!wasActiveChatStreamStopRequested(streamId) &&
-					(shouldFallbackToNonStreaming(error) ||
-						upstreamIdleTimedOutBeforeOutput) &&
-					!hasVisibleStreamOutput()
+					(upstreamIdleTimedOutBeforeOutput ||
+						isLangflowTimeoutError(error) ||
+						(shouldFallbackToNonStreaming(error) &&
+							!hasVisibleStreamOutput())) &&
+					!hasVisibleAssistantAnswerOutput()
 				) {
 					await fallbackToNonStreaming(
 						"stream_read_failure",
