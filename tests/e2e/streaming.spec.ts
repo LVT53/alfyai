@@ -171,14 +171,27 @@ test.describe('SSE streaming verification', () => {
 
   test('stopping a stream restores the queued message as a draft', async ({ page }) => {
     let callCount = 0;
+    let releaseStream: (() => void) | null = null;
+    const streamReleased = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
 
     await page.route('**/api/chat/stream', async (route) => {
       callCount += 1;
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+      await streamReleased;
       await route.fulfill({
         status: 200,
         headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
         body: buildSseBody('This response should be stopped'),
+      }).catch(() => {});
+    });
+
+    await page.route('**/api/chat/stream/stop', async (route) => {
+      releaseStream?.();
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stopped: true }),
       });
     });
 
@@ -198,6 +211,48 @@ test.describe('SSE streaming verification', () => {
     await expect(page.getByTestId('message-input')).toHaveValue('Queued after stop');
     await page.waitForTimeout(150);
     expect(callCount).toBe(1);
+  });
+
+  test('stop button stays enabled while waiting for generation', async ({ page }) => {
+    let streamRequestBody: Record<string, unknown> | null = null;
+    let stopRequestBody: Record<string, unknown> | null = null;
+    let releaseStream: (() => void) | null = null;
+    const streamReleased = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+
+    await page.route('**/api/chat/stream', async (route) => {
+      streamRequestBody = route.request().postDataJSON() as Record<string, unknown>;
+      await streamReleased;
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+        body: buildSseBody('Stopped after waiting'),
+      }).catch(() => {});
+    });
+
+    await page.route('**/api/chat/stream/stop', async (route) => {
+      stopRequestBody = route.request().postDataJSON() as Record<string, unknown>;
+      releaseStream?.();
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stopped: true }),
+      });
+    });
+
+    await openConversationComposer(page);
+    await page.getByTestId('message-input').fill('Wait and stop');
+    await page.getByTestId('send-button').click();
+    await expect(page.getByTestId('stop-button')).toBeVisible({ timeout: 5000 });
+
+    const stopButton = page.getByTestId('stop-button');
+    await expect(stopButton).toBeEnabled();
+    await stopButton.click();
+
+    await expect.poll(() => stopRequestBody).not.toBeNull();
+    expect(stopRequestBody?.streamId).toBe(streamRequestBody?.streamId);
+    await expect(page.getByTestId('stop-button')).toHaveCount(0);
   });
 
   test('stream errors restore the queued message instead of auto-sending it', async ({ page }) => {

@@ -2107,7 +2107,7 @@ function handleDrop(event: DragEvent) {
 				onDraftChange={handleDraftChange}
 				onEditQueuedMessage={editQueuedTurn}
 				onDeleteQueuedMessage={clearQueuedTurn}
-				disabled={isConversationReadOnlyForChat || isSending || isEditResendPending}
+				disabled={isConversationReadOnlyForChat || isEditResendPending}
 				isGenerating={!isConversationReadOnlyForChat && (isSending || isEditResendPending)}
 				hasQueuedMessage={Boolean(queuedTurn)}
 				queuedMessagePreview={queuedTurn?.message ?? ''}
