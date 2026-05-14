@@ -44,6 +44,21 @@ export const conversations = sqliteTable('conversations', {
   userStatusIdx: index('conversations_user_status_idx').on(table.userId, table.status, table.updatedAt),
 }));
 
+export const conversationSummaries = sqliteTable('conversation_summaries', {
+  conversationId: text('conversation_id')
+    .primaryKey()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  summary: text('summary').notNull(),
+  source: text('source').notNull().default('deterministic'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+  userUpdatedIdx: index('conversation_summaries_user_updated_idx').on(table.userId, table.updatedAt),
+}));
+
 export const messages = sqliteTable('messages', {
   id: text('id').primaryKey(),
   conversationId: text('conversation_id')

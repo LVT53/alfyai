@@ -499,6 +499,8 @@ export async function completeStreamTurn(
 							userId,
 							conversationId,
 							upstreamMessage,
+							userMessage: normalizedMessage,
+							assistantResponse: finalResponse,
 							assistantMirrorContent: finalResponse,
 							workCapsule: latestWorkCapsule,
 							maintenanceReason: "chat_stream",

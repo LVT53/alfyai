@@ -255,6 +255,8 @@ export const POST: RequestHandler = async (event) => {
 			userId: user.id,
 			conversationId: turn.conversationId,
 			upstreamMessage,
+			userMessage: turn.normalizedMessage,
+			assistantResponse: responseText,
 			assistantMirrorContent: text,
 			workCapsule: turnState.workCapsule,
 			maintenanceReason: "chat_send",

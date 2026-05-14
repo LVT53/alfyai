@@ -1,6 +1,7 @@
 import { hasRecentUserCorrectionSignal } from "$lib/server/services/active-state";
 import { recordMessageAnalytics } from "$lib/server/services/analytics";
 import { clearConversationDraft } from "$lib/server/services/conversation-drafts";
+import { refreshConversationSummary } from "$lib/server/services/conversation-summaries";
 import {
 	mirrorMessage,
 	mirrorWorkCapsuleConclusion,
@@ -321,8 +322,23 @@ export async function runPostTurnTasks(
 		);
 	}
 
+	const summaryRefreshTask =
+		params.userMessage.trim() && params.assistantResponse.trim()
+			? refreshConversationSummary({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					userMessage: params.userMessage,
+					assistantResponse: params.assistantResponse,
+				}).catch((error) =>
+					console.error(
+						`${params.logPrefix} Conversation summary refresh failed:`,
+						error,
+					),
+				)
+			: Promise.resolve();
+
 	try {
-		await Promise.allSettled(honchoTasks);
+		await Promise.allSettled([...honchoTasks, summaryRefreshTask]);
 		await runUserMemoryMaintenance(params.userId, params.maintenanceReason);
 	} catch (error) {
 		console.error(

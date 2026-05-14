@@ -10,6 +10,7 @@ const {
 	projectFolderRows,
 	linkRows,
 	conversationRows,
+	conversationSummaryRows,
 	messageRows,
 	taskStateRows,
 	checkpointRows,
@@ -23,6 +24,7 @@ const {
 	projectFolderRows: [] as Array<Record<string, any>>,
 	linkRows: [] as Array<Record<string, unknown>>,
 	conversationRows: [] as Array<Record<string, any>>,
+	conversationSummaryRows: [] as Array<Record<string, any>>,
 	messageRows: [] as Array<Record<string, any>>,
 	taskStateRows: [] as Array<Record<string, any>>,
 	checkpointRows: [] as Array<Record<string, any>>,
@@ -123,6 +125,9 @@ vi.mock('$lib/server/db', () => ({
 				if (table?.__name === 'conversations') {
 					return createQuery(conversationRows, shape);
 				}
+				if (table?.__name === 'conversation_summaries') {
+					return createQuery(conversationSummaryRows, shape);
+				}
 				if (table?.__name === 'messages') {
 					return createQuery(messageRows, shape);
 				}
@@ -163,6 +168,13 @@ vi.mock('$lib/server/db/schema', () => ({
 		userId: { name: 'userId' },
 		title: { name: 'title' },
 		projectId: { name: 'projectId' },
+		updatedAt: { name: 'updatedAt' },
+	},
+	conversationSummaries: {
+		__name: 'conversation_summaries',
+		conversationId: { name: 'conversationId' },
+		userId: { name: 'userId' },
+		summary: { name: 'summary' },
 		updatedAt: { name: 'updatedAt' },
 	},
 	messages: {
@@ -267,6 +279,7 @@ describe('task continuity memory events', () => {
 		projectFolderRows.splice(0, projectFolderRows.length);
 		linkRows.splice(0, linkRows.length);
 		conversationRows.splice(0, conversationRows.length);
+		conversationSummaryRows.splice(0, conversationSummaryRows.length);
 		messageRows.splice(0, messageRows.length);
 		taskStateRows.splice(0, taskStateRows.length);
 		checkpointRows.splice(0, checkpointRows.length);
@@ -583,6 +596,89 @@ describe('task continuity memory events', () => {
 		});
 	});
 
+	it('prefers durable conversation summaries in Project Continuity Awareness', async () => {
+		projectRows.push({
+			projectId: 'memory-project-1',
+			userId: 'user-1',
+			name: 'Launch continuity',
+			summary: 'Inferred long-term launch work.',
+			status: 'active',
+			lastActiveAt: new Date('2026-05-14T08:00:00.000Z'),
+			updatedAt: new Date('2026-05-14T08:00:00.000Z'),
+		});
+		conversationRows.push(
+			{
+				id: 'conv-current',
+				userId: 'user-1',
+				title: 'Current unorganized conversation',
+				projectId: null,
+				updatedAt: new Date('2026-05-14T09:00:00.000Z'),
+			},
+			{
+				id: 'conv-linked',
+				userId: 'user-1',
+				title: 'Linked launch brief',
+				projectId: null,
+				updatedAt: new Date('2026-05-14T09:05:00.000Z'),
+			}
+		);
+		taskStateRows.push({
+			taskId: 'task-linked',
+			userId: 'user-1',
+			conversationId: 'conv-linked',
+			objective: 'Older continuity objective fallback',
+			updatedAt: new Date('2026-05-14T09:05:00.000Z'),
+		});
+		linkRows.push(
+			{
+				projectId: 'memory-project-1',
+				userId: 'user-1',
+				taskId: 'task-current',
+				conversationId: 'conv-current',
+				updatedAt: new Date('2026-05-14T09:01:00.000Z'),
+			},
+			{
+				projectId: 'memory-project-1',
+				userId: 'user-1',
+				taskId: 'task-linked',
+				conversationId: 'conv-linked',
+				updatedAt: new Date('2026-05-14T09:05:00.000Z'),
+			}
+		);
+		checkpointRows.push({
+			taskId: 'task-linked',
+			userId: 'user-1',
+			content: 'Older continuity checkpoint fallback.',
+			checkpointType: 'stable',
+			updatedAt: new Date('2026-05-14T09:05:30.000Z'),
+		});
+		conversationSummaryRows.push({
+			conversationId: 'conv-linked',
+			userId: 'user-1',
+			summary: 'Durable continuity summary wins for awareness.',
+			updatedAt: new Date('2026-05-14T09:06:00.000Z'),
+		});
+
+		const { getProjectReferenceContext } = await import('./continuity');
+
+		const context = await getProjectReferenceContext({
+			userId: 'user-1',
+			conversationId: 'conv-current',
+		});
+
+		expect(context).toMatchObject({
+			source: 'project_continuity',
+			entries: [
+				{
+					conversationId: 'conv-linked',
+					title: 'Linked launch brief',
+					objective: 'Older continuity objective fallback',
+					summary: 'Durable continuity summary wins for awareness.',
+				},
+			],
+		});
+	});
+
 	it('keeps Project Folder Awareness canonical when a folder conversation also has inferred continuity links', async () => {
 		projectFolderRows.push({
 			id: 'folder-1',
@@ -805,6 +901,61 @@ describe('task continuity memory events', () => {
 				title: 'Objective sibling',
 				objective: 'Define the launch metrics',
 				summary: 'Define the launch metrics',
+			},
+		]);
+	});
+
+	it('prefers durable conversation summaries in Project Folder Awareness', async () => {
+		conversationRows.push(
+			{
+				id: 'conv-current',
+				userId: 'user-1',
+				title: 'Current conversation',
+				projectId: 'folder-1',
+				updatedAt: new Date('2026-05-14T09:00:00.000Z'),
+			},
+			{
+				id: 'conv-sibling',
+				userId: 'user-1',
+				title: 'Sibling with durable summary',
+				projectId: 'folder-1',
+				updatedAt: new Date('2026-05-14T09:06:00.000Z'),
+			}
+		);
+		taskStateRows.push({
+			taskId: 'task-sibling',
+			userId: 'user-1',
+			conversationId: 'conv-sibling',
+			objective: 'Older task objective fallback',
+			updatedAt: new Date('2026-05-14T09:03:00.000Z'),
+		});
+		checkpointRows.push({
+			taskId: 'task-sibling',
+			userId: 'user-1',
+			content: 'Older checkpoint fallback.',
+			checkpointType: 'stable',
+			updatedAt: new Date('2026-05-14T09:04:00.000Z'),
+		});
+		conversationSummaryRows.push({
+			conversationId: 'conv-sibling',
+			userId: 'user-1',
+			summary: 'Durable sibling summary wins for awareness.',
+			updatedAt: new Date('2026-05-14T09:05:00.000Z'),
+		});
+
+		const { getProjectFolderReferenceContext } = await import('./continuity');
+
+		const context = await getProjectFolderReferenceContext({
+			userId: 'user-1',
+			conversationId: 'conv-current',
+		});
+
+		expect(context?.entries).toEqual([
+			{
+				conversationId: 'conv-sibling',
+				title: 'Sibling with durable summary',
+				objective: 'Older task objective fallback',
+				summary: 'Durable sibling summary wins for awareness.',
 			},
 		]);
 	});

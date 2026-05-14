@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
   conversations,
+  conversationSummaries,
   conversationTaskStates,
   messages,
   memoryEvents,
@@ -424,6 +425,31 @@ async function getLatestStableCheckpoint(
   return row?.content ?? null;
 }
 
+async function getConversationSummaryMap(params: {
+  userId: string;
+  conversationIds: string[];
+}): Promise<Map<string, string>> {
+  if (params.conversationIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      conversationId: conversationSummaries.conversationId,
+      summary: conversationSummaries.summary,
+    })
+    .from(conversationSummaries)
+    .where(
+      and(
+        eq(conversationSummaries.userId, params.userId),
+        inArray(conversationSummaries.conversationId, params.conversationIds),
+      ),
+    );
+
+  return new Map(
+    rows
+      .map((row) => [row.conversationId, row.summary] as const)
+      .filter(([, summary]) => normalizeWhitespace(summary).length > 0),
+  );
+}
+
 export async function getProjectFolderReferenceContext(params: {
   userId: string;
   conversationId: string;
@@ -541,6 +567,10 @@ export async function getProjectFolderReferenceContext(params: {
       latestStableCheckpointByTask.set(row.taskId, row.content);
     }
   }
+  const summaryByConversation = await getConversationSummaryMap({
+    userId: params.userId,
+    conversationIds: siblingConversationIds,
+  });
 
   return {
     projectId: conversationRow.projectId,
@@ -548,11 +578,12 @@ export async function getProjectFolderReferenceContext(params: {
     entries: siblingRows.map((row) => {
       const task = taskByConversation.get(row.conversationId) ?? null;
       const summary =
-        task
+        summaryByConversation.get(row.conversationId) ??
+        (task
           ? latestStableCheckpointByTask.get(task.taskId) ??
             latestCheckpointByTask.get(task.taskId) ??
             task.objective
-          : null;
+          : null);
       return {
         conversationId: row.conversationId,
         title: clipRequired(row.title, PROJECT_FOLDER_AWARENESS_TITLE_MAX),
@@ -714,6 +745,10 @@ async function getProjectContinuityReferenceContext(params: {
       latestStableCheckpointByTask.set(row.taskId, row.content);
     }
   }
+  const summaryByConversation = await getConversationSummaryMap({
+    userId: params.userId,
+    conversationIds: siblingConversationIds,
+  });
 
   const entries: ProjectFolderReferenceEntry[] = [];
   const seenConversationIds = new Set<string>();
@@ -723,11 +758,12 @@ async function getProjectContinuityReferenceContext(params: {
     if (!conversation) continue;
     const task = taskById.get(row.taskId) ?? null;
     const summary =
-      task
+      summaryByConversation.get(row.conversationId) ??
+      (task
         ? latestStableCheckpointByTask.get(task.taskId) ??
           latestCheckpointByTask.get(task.taskId) ??
           task.objective
-        : null;
+        : null);
     entries.push({
       conversationId: row.conversationId,
       title: clipRequired(conversation.title, PROJECT_FOLDER_AWARENESS_TITLE_MAX),

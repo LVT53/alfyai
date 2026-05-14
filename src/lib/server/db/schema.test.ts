@@ -170,4 +170,61 @@ describe('schema core tables', () => {
       ).toThrow();
     });
   });
+
+  describe('conversation_summaries table', () => {
+    it('stores one summary per conversation and cascades with conversation deletion', () => {
+      const columns = sqlite
+        .prepare("PRAGMA table_info(conversation_summaries)")
+        .all() as { name: string; pk: number }[];
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining([
+          'conversation_id',
+          'user_id',
+          'summary',
+          'source',
+          'created_at',
+          'updated_at',
+        ]),
+      );
+      expect(columns.find((column) => column.name === 'conversation_id')?.pk).toBe(1);
+
+      const foreignKeys = sqlite
+        .prepare("PRAGMA foreign_key_list(conversation_summaries)")
+        .all() as { from: string; table: string; to: string; on_delete: string }[];
+      expect(foreignKeys).toContainEqual(
+        expect.objectContaining({
+          from: 'conversation_id',
+          table: 'conversations',
+          to: 'id',
+          on_delete: 'CASCADE',
+        }),
+      );
+
+      const userId = 'test-user-conversation-summary';
+      db.insert(schema.users).values({
+        id: userId,
+        email: 'conversation-summary@example.com',
+        passwordHash: 'hash-summary',
+      }).run();
+      db.insert(schema.conversations).values({
+        id: 'conversation-summary-cascade',
+        userId,
+        title: 'Summary cascade test',
+      }).run();
+      db.insert(schema.conversationSummaries).values({
+        conversationId: 'conversation-summary-cascade',
+        userId,
+        summary: 'Durable conversation summary.',
+      }).run();
+
+      db.delete(schema.conversations)
+        .where(eq(schema.conversations.id, 'conversation-summary-cascade'))
+        .run();
+
+      const summary = db.select().from(schema.conversationSummaries)
+        .where(eq(schema.conversationSummaries.conversationId, 'conversation-summary-cascade'))
+        .get();
+      expect(summary).toBeUndefined();
+    });
+  });
 });
