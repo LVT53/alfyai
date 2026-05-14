@@ -76,7 +76,7 @@ describe('createSession', () => {
     vi.clearAllMocks();
   });
 
-  it('returns a 64-char hex token and expiresAt ~7 days from now', async () => {
+  it('returns a 64-char hex token and expiresAt ~14 days from now by default', async () => {
     const insertChain = makeInsertChain();
     mockDb.insert.mockReturnValue(insertChain);
 
@@ -86,14 +86,27 @@ describe('createSession', () => {
 
     expect(token).toMatch(/^[a-f0-9]{64}$/);
 
-    const sevenDays = 7 * 24 * 60 * 60 * 1000;
-    expect(expiresAt).toBeGreaterThanOrEqual(before + sevenDays - 10);
-    expect(expiresAt).toBeLessThanOrEqual(after + sevenDays + 10);
+    const fourteenDays = 14 * 24 * 60 * 60 * 1000;
+    expect(expiresAt).toBeGreaterThanOrEqual(before + fourteenDays - 10);
+    expect(expiresAt).toBeLessThanOrEqual(after + fourteenDays + 10);
 
     expect(mockDb.insert).toHaveBeenCalled();
     expect(insertChain.values).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-123' })
     );
+  });
+
+  it('uses a 1-day expiry when rememberMe is false', async () => {
+    const insertChain = makeInsertChain();
+    mockDb.insert.mockReturnValue(insertChain);
+
+    const before = Date.now();
+    const { expiresAt } = await createSession('user-123', { rememberMe: false });
+    const after = Date.now();
+
+    const oneDay = 24 * 60 * 60 * 1000;
+    expect(expiresAt).toBeGreaterThanOrEqual(before + oneDay - 10);
+    expect(expiresAt).toBeLessThanOrEqual(after + oneDay + 10);
   });
 
   it('creates unique tokens on each call', async () => {
@@ -183,7 +196,7 @@ describe('deleteSession', () => {
 describe('setSessionCookie', () => {
   it('sets httpOnly cookie with lax sameSite and root path', () => {
     const mockCookies = { set: vi.fn() };
-    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    const expiresAt = Date.now() + 14 * 24 * 60 * 60 * 1000;
 
     setSessionCookie(mockCookies, 'my-token', expiresAt);
 
@@ -200,19 +213,22 @@ describe('setSessionCookie', () => {
     expect(callArgs.maxAge).toBeGreaterThan(0);
   });
 
-  it('omits maxAge for browser-session cookies', () => {
+  it('sets Max-Age for short non-remembered cookies', () => {
     const mockCookies = { set: vi.fn() };
-    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
 
     setSessionCookie(mockCookies, 'my-token', expiresAt, { rememberMe: false });
 
     expect(mockCookies.set).toHaveBeenCalledWith(
       'session',
       'my-token',
-      expect.not.objectContaining({
+      expect.objectContaining({
         maxAge: expect.any(Number),
       })
     );
+    const callArgs = mockCookies.set.mock.calls[0][2];
+    expect(callArgs.maxAge).toBeGreaterThan(0);
+    expect(callArgs.maxAge).toBeLessThanOrEqual(24 * 60 * 60);
   });
 });
 

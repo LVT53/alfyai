@@ -4,7 +4,9 @@ vi.mock("$lib/server/services/task-state", () => ({
 	getProjectReferenceContext: vi.fn(),
 }));
 
-const { messageRows, queryLimits } = vi.hoisted(() => ({
+const { artifactRows, deepResearchRows, messageRows, queryLimits } = vi.hoisted(() => ({
+	artifactRows: [] as Array<Record<string, any>>,
+	deepResearchRows: [] as Array<Record<string, any>>,
 	messageRows: [] as Array<Record<string, any>>,
 	queryLimits: [] as number[],
 }));
@@ -63,6 +65,16 @@ function createQuery(rows: Array<Record<string, any>>, shape?: Record<string, an
 	let currentRows = [...rows];
 	const chain = {
 		from: () => chain,
+		innerJoin: (table: { __name?: string }) => {
+			if (table?.__name === "artifacts") {
+				currentRows = currentRows.flatMap((row) =>
+					artifactRows
+						.filter((artifact) => artifact.artifactId === row.reportArtifactId)
+						.map((artifact) => ({ ...row, ...artifact })),
+				);
+			}
+			return chain;
+		},
 		where: (condition: MockCondition) => {
 			currentRows = currentRows.filter((row) => matchesCondition(row, condition));
 			return chain;
@@ -96,6 +108,9 @@ vi.mock("$lib/server/db", () => ({
 				if (table?.__name === "messages") {
 					return createQuery(messageRows, shape);
 				}
+				if (table?.__name === "deepResearchJobs") {
+					return createQuery(deepResearchRows, shape);
+				}
 				return createQuery([], shape);
 			},
 		}),
@@ -103,6 +118,28 @@ vi.mock("$lib/server/db", () => ({
 }));
 
 vi.mock("$lib/server/db/schema", () => ({
+	artifacts: {
+		__name: "artifacts",
+		id: { name: "artifactId" },
+		userId: { name: "artifactUserId" },
+		name: { name: "reportTitle" },
+		summary: { name: "reportSummary" },
+		contentText: { name: "reportContent" },
+	},
+	deepResearchJobs: {
+		__name: "deepResearchJobs",
+		id: { name: "jobId" },
+		userId: { name: "jobUserId" },
+		conversationId: { name: "conversationId" },
+		status: { name: "status" },
+		title: { name: "title" },
+		userRequest: { name: "userRequest" },
+		depth: { name: "depth" },
+		completedAt: { name: "completedAt" },
+		updatedAt: { name: "updatedAt" },
+		createdAt: { name: "createdAt" },
+		reportArtifactId: { name: "reportArtifactId" },
+	},
 	messages: {
 		__name: "messages",
 		conversationId: { name: "conversationId" },
@@ -137,6 +174,8 @@ const mockGetProjectReferenceContext =
 describe("getProjectContext", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		artifactRows.splice(0, artifactRows.length);
+		deepResearchRows.splice(0, deepResearchRows.length);
 		messageRows.splice(0, messageRows.length);
 		queryLimits.splice(0, queryLimits.length);
 	});
@@ -207,6 +246,78 @@ describe("getProjectContext", () => {
 		]);
 		expect(JSON.stringify(result)).not.toContain("messages");
 		expect(JSON.stringify(result)).not.toContain("transcript");
+	});
+
+	it("includes completed deep-research questions and report summaries in summary context", async () => {
+		mockGetProjectReferenceContext.mockResolvedValue({
+			source: "project_folder",
+			projectId: "project-1",
+			projectName: "Launch Plan",
+			omittedSiblingCount: 0,
+			entries: [
+				{
+					conversationId: "conv-2",
+					title: "Regulatory research",
+					objective: "Understand compliance risks",
+					summary: "Research planning chat.",
+				},
+			],
+		});
+		deepResearchRows.push({
+			conversationId: "conv-2",
+			jobUserId: "user-1",
+			status: "completed",
+			jobId: "job-1",
+			title: "AI copyright research",
+			userRequest: "Compare EU and US AI copyright training data rules",
+			depth: "standard",
+			completedAt: new Date("2026-05-14T10:00:00.000Z"),
+			updatedAt: new Date("2026-05-14T10:00:00.000Z"),
+			createdAt: new Date("2026-05-14T09:00:00.000Z"),
+			reportArtifactId: "artifact-1",
+		});
+		artifactRows.push({
+			artifactId: "artifact-1",
+			artifactUserId: "user-1",
+			reportTitle: "AI copyright research.md",
+			reportSummary: "Audited Research Report for AI copyright research",
+			reportContent: "Full report body should only appear in detail mode.",
+		});
+
+		const result = await getProjectContext({
+			userId: "user-1",
+			conversationId: "conv-1",
+			mode: "summary",
+			includeEvidenceCandidates: true,
+		});
+
+		expect(result.siblings[0]?.deepResearchResults).toEqual([
+			{
+				jobId: "job-1",
+				title: "AI copyright research",
+				userRequest: "Compare EU and US AI copyright training data rules",
+				depth: "standard",
+				completedAt: new Date("2026-05-14T10:00:00.000Z").getTime(),
+				reportArtifact: {
+					id: "artifact-1",
+					title: "AI copyright research.md",
+					summary: "Audited Research Report for AI copyright research",
+				},
+			},
+		]);
+		expect(result.siblings[0]?.omittedDeepResearchResultCount).toBe(0);
+		expect(result.evidenceCandidates).toEqual(
+			expect.arrayContaining([
+				{
+					id: "deep-research-report:artifact-1",
+					title: "AI copyright research.md",
+					snippet:
+						"Question: Compare EU and US AI copyright training data rules Audited Research Report for AI copyright research",
+					sourceType: "document",
+				},
+			]),
+		);
+		expect(JSON.stringify(result)).not.toContain("Full report body should only");
 	});
 
 	it("returns an explicit non-error result when no folder or continuity exists", async () => {
@@ -293,6 +404,26 @@ describe("getProjectContext", () => {
 				createdAt: new Date("2026-05-14T09:04:00.000Z"),
 			},
 		);
+		deepResearchRows.push({
+			conversationId: "conv-2",
+			jobUserId: "user-1",
+			status: "completed",
+			jobId: "job-1",
+			title: "Pricing research",
+			userRequest: "Find pricing model evidence",
+			depth: "focused",
+			completedAt: new Date("2026-05-14T09:05:00.000Z"),
+			updatedAt: new Date("2026-05-14T09:05:00.000Z"),
+			createdAt: new Date("2026-05-14T09:00:00.000Z"),
+			reportArtifactId: "artifact-1",
+		});
+		artifactRows.push({
+			artifactId: "artifact-1",
+			artifactUserId: "user-1",
+			reportTitle: "Pricing research.md",
+			reportSummary: "Audited pricing research.",
+			reportContent: "Detailed pricing report body.",
+		});
 
 		const result = await getProjectContext({
 			userId: "user-1",
@@ -330,14 +461,22 @@ describe("getProjectContext", () => {
 						createdAt: new Date("2026-05-14T09:04:00.000Z").getTime(),
 					},
 				],
+				deepResearchResults: [
+					{
+						jobId: "job-1",
+						title: "Pricing research",
+						userRequest: "Find pricing model evidence",
+						depth: "focused",
+						completedAt: new Date("2026-05-14T09:05:00.000Z").getTime(),
+						reportArtifact: {
+							id: "artifact-1",
+							title: "Pricing research.md",
+							summary: "Audited pricing research.",
+							content: "Detailed pricing report body.",
+						},
+					},
+				],
 			},
-			evidenceCandidates: [
-				{
-					id: "project-context-detail:conv-2",
-					title: "Pricing",
-					sourceType: "memory",
-				},
-			],
 			audit: {
 				conversationId: "conv-1",
 				siblingConversationId: "conv-2",
@@ -345,6 +484,20 @@ describe("getProjectContext", () => {
 				appliedMaxMessages: 2,
 			},
 		});
+		expect(result.evidenceCandidates).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "project-context-detail:conv-2",
+					title: "Pricing",
+					sourceType: "memory",
+				}),
+				expect.objectContaining({
+					id: "deep-research-report:artifact-1",
+					title: "Pricing research.md",
+					sourceType: "document",
+				}),
+			]),
+		);
 		expect(JSON.stringify(result)).not.toContain("hidden system prompt");
 		expect(result.siblings).toEqual([]);
 		expect(queryLimits).toEqual([2]);

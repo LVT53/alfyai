@@ -199,6 +199,7 @@ type ResearchReportContext = {
 	job: DeepResearchJobRow;
 	report: typeof artifacts.$inferSelect;
 	artifactKind: "report" | "memo";
+	sourceProjectId: string | null;
 };
 type ExistingReportActionMessage = {
 	message: typeof messages.$inferSelect;
@@ -2103,6 +2104,7 @@ export async function discussDeepResearchReport(
 			const conversation = await createConversation(
 				input.userId,
 				buildFollowupConversationTitle("Discuss", context.job.title),
+				{ projectId: context.sourceProjectId },
 			);
 			const message = input.persistSeedMessage
 				? await createMessage(
@@ -2177,6 +2179,7 @@ export async function researchFurtherFromDeepResearchReport(
 			const conversation = await createConversation(
 				input.userId,
 				buildFollowupConversationTitle("Research further", context.job.title),
+				{ projectId: context.sourceProjectId },
 			);
 			const message = await createMessage(
 				conversation.id,
@@ -2477,15 +2480,18 @@ async function loadCompletedResearchArtifactContext(input: {
 		.select({
 			job: deepResearchJobs,
 			report: artifacts,
+			sourceProjectId: conversations.projectId,
 		})
 		.from(deepResearchJobs)
 		.innerJoin(artifacts, eq(deepResearchJobs.reportArtifactId, artifacts.id))
+		.innerJoin(conversations, eq(deepResearchJobs.conversationId, conversations.id))
 		.where(
 			and(
 				eq(deepResearchJobs.id, input.jobId),
 				eq(deepResearchJobs.userId, input.userId),
 				eq(deepResearchJobs.status, "completed"),
 				eq(artifacts.userId, input.userId),
+				eq(conversations.userId, input.userId),
 			),
 		)
 		.limit(1);

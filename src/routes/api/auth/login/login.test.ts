@@ -92,6 +92,7 @@ describe('POST /api/auth/login', () => {
     const event = makeEvent({ email: 'alice@example.com', password: 'correct', rememberMe: true });
     await POST(event);
 
+    expect(mockCreateSession).toHaveBeenCalledWith('user-1', { rememberMe: true });
     expect(mockSetSessionCookie).toHaveBeenCalledWith(
       event.cookies,
       'my-session-token',
@@ -102,7 +103,7 @@ describe('POST /api/auth/login', () => {
     );
   });
 
-  it('sets a session cookie without Max-Age when rememberMe is false', async () => {
+  it('creates a short session when rememberMe is false', async () => {
     const user = { id: 'user-1', email: 'alice@example.com', name: 'Alice', passwordHash: 'hash' };
     mockDb.select.mockReturnValue(makeSelectChain([user]));
     mockVerifyPassword.mockResolvedValue(true);
@@ -115,6 +116,7 @@ describe('POST /api/auth/login', () => {
     });
     await POST(event);
 
+    expect(mockCreateSession).toHaveBeenCalledWith('user-1', { rememberMe: false });
     expect(mockSetSessionCookie).toHaveBeenCalledWith(
       event.cookies,
       'session-only-token',

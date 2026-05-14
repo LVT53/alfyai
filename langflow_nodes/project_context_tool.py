@@ -2,8 +2,10 @@
 Project Context Tool for Langflow Agents.
 
 This component exposes AlfyAI's `project_context` tool. Summary mode returns
-bounded Project Folder or lower-authority Project Continuity summaries. Detail
-mode returns capped recent messages for one allowed sibling conversation.
+bounded Project Folder or lower-authority Project Continuity summaries, plus
+completed deep-research result summaries when present. Detail mode returns capped
+recent messages and clipped deep-research report artifact content for one allowed
+sibling conversation.
 """
 
 from __future__ import annotations
@@ -312,8 +314,9 @@ class ProjectContextToolComponent(Component):
                 "evidenceCandidates": bounded_candidates,
                 "audit": result.get("audit", {}),
                 "instructions": (
-                    "Use this as memory context only. It contains bounded project summaries, not raw transcripts. "
-                    "Do not claim details that are not present in the returned summaries."
+                    "Use this as memory context only. Summary mode contains bounded project and deep-research summaries, not raw transcripts. "
+                    "Detail mode may include capped dialogue and clipped deep-research report artifact content. "
+                    "Do not claim details that are not present in the returned payload."
                 ),
             })
 
