@@ -71,4 +71,33 @@ describe("SkillDraftCard", () => {
 		expect(screen.getByRole("button", { name: "Vázlat elvetése" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Rendszerskill publikálása" })).toBeInTheDocument();
 	});
+
+	it("hides the publish action when system publishing is unavailable", () => {
+		render(SkillDraftCard, {
+			draft: makeDraft(),
+			canPublishSystem: false,
+			onSave: vi.fn(),
+			onDismiss: vi.fn(),
+			onPublish: vi.fn(),
+		});
+
+		expect(screen.getByRole("button", { name: "Save private skill" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Publish system skill" })).not.toBeInTheDocument();
+	});
+
+	it("renders a localized draft action error and disables actions while busy", () => {
+		uiLanguage.set("hu");
+
+		render(SkillDraftCard, {
+			draft: makeDraft(),
+			busy: true,
+			actionError: "Nem sikerült menteni a skill vázlatot.",
+			onSave: vi.fn(),
+			onDismiss: vi.fn(),
+		});
+
+		expect(screen.getByRole("alert")).toHaveTextContent("Nem sikerült menteni a skill vázlatot.");
+		expect(screen.getByRole("button", { name: "Privát skill mentése" })).toBeDisabled();
+		expect(screen.getByRole("button", { name: "Vázlat elvetése" })).toBeDisabled();
+	});
 });

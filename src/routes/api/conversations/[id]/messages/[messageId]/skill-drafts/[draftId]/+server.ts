@@ -1,9 +1,12 @@
 import { json } from "@sveltejs/kit";
-import type { RequestHandler } from "./$types";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import { getConversation } from "$lib/server/services/conversations";
-import { updateAssistantMessageSkillDraftStatus } from "$lib/server/services/messages";
+import {
+	SkillDraftTransitionError,
+	updateAssistantMessageSkillDraftStatus,
+} from "$lib/server/services/messages";
+import type { RequestHandler } from "./$types";
 
 function disabledResponse() {
 	return json(
@@ -33,9 +36,23 @@ export const DELETE: RequestHandler = async (event) => {
 		messageId: event.params.messageId,
 		draftId: event.params.draftId,
 		status: "dismissed",
+	}).catch((error) => {
+		if (error instanceof SkillDraftTransitionError) {
+			return error;
+		}
+		throw error;
 	});
+	if (draft instanceof SkillDraftTransitionError) {
+		return json(
+			{ error: draft.message, errorKey: draft.code },
+			{ status: draft.status },
+		);
+	}
 	if (!draft) {
-		return json({ error: "Skill draft not found.", errorKey: "skillDrafts.notFound" }, { status: 404 });
+		return json(
+			{ error: "Skill draft not found.", errorKey: "skillDrafts.notFound" },
+			{ status: 404 },
+		);
 	}
 
 	return json({ draft });

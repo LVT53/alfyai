@@ -1,5 +1,5 @@
 <script lang="ts">
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 import { onMount, onDestroy, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { page } from "$app/state";
@@ -35,6 +35,7 @@ import {
 	publishSkillDraft as publishSkillDraftRequest,
 	saveSkillDraft as saveSkillDraftRequest,
 } from "$lib/client/api/skills";
+import { ApiError } from "$lib/client/api/http";
 import {
 	advanceDeepResearchWorkflow as advanceDeepResearchWorkflowRequest,
 	approveDeepResearchPlan as approveDeepResearchPlanRequest,
@@ -70,6 +71,7 @@ import type {
 	TaskState,
 	TaskSteeringPayload,
 } from "$lib/types";
+import type { I18nKey } from "$lib/i18n";
 import type { PageProps } from "./$types";
 import {
 	streamChat,
@@ -154,7 +156,17 @@ const initialActiveSkillSession = getData().activeSkillSession ?? null;
 const initialConversationId = getData().conversation.id;
 const initialConversationStatus = getData().conversation.status ?? "open";
 const initialUserPersonality = getData().userPersonality ?? null;
-const canPublishSkillDrafts = getData().user?.role === "admin";
+const canPublishSkillDrafts = false;
+const skillDraftLocalizedApiErrorKeys: Record<string, I18nKey> = {
+	"composerCommandRegistry.disabled": "composerCommandRegistry.disabled",
+	"skillDrafts.notFound": "skillDrafts.notFound",
+	"skillDrafts.publishDisabled": "skillDrafts.publishDisabled",
+	"skills.notFound": "skills.notFound",
+};
+const skillSessionLocalizedApiErrorKeys: Record<string, I18nKey> = {
+	"composerCommandRegistry.disabled": "composerCommandRegistry.disabled",
+	"skillSessions.errors.activeConflict": "skillSessions.errors.activeConflict",
+};
 
 // Track conversation title reactively - use $derived to keep in sync with page data
 let conversationTitle = $derived(data.conversation?.title ?? "");
@@ -198,6 +210,7 @@ let deepResearchJobs = $state<DeepResearchJob[]>(initialDeepResearchJobs);
 let activeSkillSession = $state<SkillSession | null>(initialActiveSkillSession);
 let skillSessionBusy = $state(false);
 let skillSessionError = $state<string | null>(null);
+let skillDraftActionState = $state<Record<string, { busy?: boolean; error?: string | null }>>({});
 let conversationStatus = $state(initialConversationStatus);
 let isConversationReadOnlyForChat = $derived(
 	isConversationReadOnly({ status: conversationStatus }, deepResearchJobs),
@@ -1042,8 +1055,10 @@ async function endCurrentSkillSession(reason: "ended" | "dismissed") {
 		await endConversationSkillSession(data.conversation.id, reason);
 		activeSkillSession = null;
 	} catch (error) {
-		skillSessionError =
-			error instanceof Error ? error.message : $t("skillSessions.errors.end");
+		skillSessionError = localizedSkillSessionError(
+			error,
+			"skillSessions.errors.end",
+		);
 	} finally {
 		skillSessionBusy = false;
 	}
@@ -1526,31 +1541,90 @@ function patchSkillDraftFromResponse(
 	);
 }
 
+function skillDraftActionKey(payload: { messageId: string; draftId: string }) {
+	return `${payload.messageId}:${payload.draftId}`;
+}
+
+function setSkillDraftActionState(
+	payload: { messageId: string; draftId: string },
+	state: { busy?: boolean; error?: string | null },
+) {
+	skillDraftActionState = {
+		...skillDraftActionState,
+		[skillDraftActionKey(payload)]: state,
+	};
+}
+
+function localizedSkillDraftActionError(error: unknown, fallbackKey: I18nKey): string {
+	const translate = get(t);
+	if (error instanceof ApiError && error.errorKey) {
+		const localizedKey = skillDraftLocalizedApiErrorKeys[error.errorKey];
+		if (localizedKey) return translate(localizedKey);
+	}
+	return translate(fallbackKey);
+}
+
+function localizedSkillSessionError(error: unknown, fallbackKey: I18nKey): string {
+	const translate = get(t);
+	if (error instanceof ApiError && error.errorKey) {
+		const localizedKey = skillSessionLocalizedApiErrorKeys[error.errorKey];
+		if (localizedKey) return translate(localizedKey);
+	}
+	return error instanceof Error ? error.message : translate(fallbackKey);
+}
+
 async function handleSaveSkillDraft(payload: { messageId: string; draftId: string }) {
-	const response = await saveSkillDraftRequest(
-		data.conversation.id,
-		payload.messageId,
-		payload.draftId,
-	);
-	patchSkillDraftFromResponse(payload.messageId, response);
+	setSkillDraftActionState(payload, { busy: true, error: null });
+	try {
+		const response = await saveSkillDraftRequest(
+			data.conversation.id,
+			payload.messageId,
+			payload.draftId,
+		);
+		patchSkillDraftFromResponse(payload.messageId, response);
+		setSkillDraftActionState(payload, { busy: false, error: null });
+	} catch (error) {
+		setSkillDraftActionState(payload, {
+			busy: false,
+			error: localizedSkillDraftActionError(error, "skillDrafts.saveError"),
+		});
+	}
 }
 
 async function handleDismissSkillDraft(payload: { messageId: string; draftId: string }) {
-	const response = await dismissSkillDraftRequest(
-		data.conversation.id,
-		payload.messageId,
-		payload.draftId,
-	);
-	patchSkillDraftFromResponse(payload.messageId, response);
+	setSkillDraftActionState(payload, { busy: true, error: null });
+	try {
+		const response = await dismissSkillDraftRequest(
+			data.conversation.id,
+			payload.messageId,
+			payload.draftId,
+		);
+		patchSkillDraftFromResponse(payload.messageId, response);
+		setSkillDraftActionState(payload, { busy: false, error: null });
+	} catch (error) {
+		setSkillDraftActionState(payload, {
+			busy: false,
+			error: localizedSkillDraftActionError(error, "skillDrafts.dismissError"),
+		});
+	}
 }
 
 async function handlePublishSkillDraft(payload: { messageId: string; draftId: string }) {
-	const response = await publishSkillDraftRequest(
-		data.conversation.id,
-		payload.messageId,
-		payload.draftId,
-	);
-	patchSkillDraftFromResponse(payload.messageId, response);
+	setSkillDraftActionState(payload, { busy: true, error: null });
+	try {
+		const response = await publishSkillDraftRequest(
+			data.conversation.id,
+			payload.messageId,
+			payload.draftId,
+		);
+		patchSkillDraftFromResponse(payload.messageId, response);
+		setSkillDraftActionState(payload, { busy: false, error: null });
+	} catch (error) {
+		setSkillDraftActionState(payload, {
+			busy: false,
+			error: localizedSkillDraftActionError(error, "skillDrafts.publishError"),
+		});
+	}
 }
 
 async function handleSend(
@@ -1586,8 +1660,10 @@ async function handleSend(
 				payload.pendingSkill,
 			);
 		} catch (error) {
-			skillSessionError =
-				error instanceof Error ? error.message : $t("skillSessions.errors.start");
+			skillSessionError = localizedSkillSessionError(
+				error,
+				"skillSessions.errors.start",
+			);
 			sendError = skillSessionError;
 			canRetry = false;
 			isSending = false;
@@ -2188,6 +2264,7 @@ function handleDrop(event: DragEvent) {
 						onEdit={handleEdit}
 						onSteer={handleSteering}
 						{canPublishSkillDrafts}
+						{skillDraftActionState}
 						onSaveSkillDraft={handleSaveSkillDraft}
 						onDismissSkillDraft={handleDismissSkillDraft}
 						onPublishSkillDraft={handlePublishSkillDraft}

@@ -38,6 +38,17 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	webCitationAudit?: WebCitationAudit | null;
 };
 
+export class SkillDraftTransitionError extends Error {
+	constructor(
+		public code: string,
+		message: string,
+		public status = 409,
+	) {
+		super(message);
+		this.name = "SkillDraftTransitionError";
+	}
+}
+
 function getModelDisplayName(modelId?: string | null): string | undefined {
 	if (!modelId) return undefined;
 	const config = getConfig();
@@ -111,6 +122,52 @@ function parseMetadata(value: string | null): PersistedMessageMetadata | null {
 	}
 }
 
+function compactSkillNoteOperationForMetadata(
+	operation: NonNullable<
+		SkillControlMessageMetadata["pendingSkillNoteIntents"]
+	>[number],
+): Record<string, unknown> {
+	const bodyLength = operation.body.length;
+	if (operation.action === "create") {
+		return {
+			operationId: operation.operationId,
+			kind: operation.kind,
+			action: operation.action,
+			title: operation.title,
+			bodyLength,
+		};
+	}
+	return {
+		operationId: operation.operationId,
+		kind: operation.kind,
+		action: operation.action,
+		targetArtifactId: operation.targetArtifactId,
+		bodyLength,
+	};
+}
+
+function compactPersistedMessageMetadata(
+	metadata: PersistedMessageMetadata,
+): PersistedMessageMetadata {
+	const next: Record<string, unknown> = { ...metadata };
+	if (Array.isArray(metadata.pendingSkillNoteIntents)) {
+		next.pendingSkillNoteIntents = metadata.pendingSkillNoteIntents.map(
+			compactSkillNoteOperationForMetadata,
+		);
+	}
+	if (metadata.skillControl?.operations) {
+		next.skillControl = {
+			...metadata.skillControl,
+			operations: metadata.skillControl.operations.map((operation) =>
+				operation.kind === "note_intent"
+					? compactSkillNoteOperationForMetadata(operation)
+					: operation,
+			),
+		};
+	}
+	return next as PersistedMessageMetadata;
+}
+
 export async function listMessages(
 	conversationId: string,
 ): Promise<ChatMessage[]> {
@@ -180,7 +237,9 @@ export async function createMessage(
 				thinkingSegments && thinkingSegments.length > 0
 					? JSON.stringify(thinkingSegments)
 					: null,
-			metadataJson: metadata ? JSON.stringify(metadata) : null,
+			metadataJson: metadata
+				? JSON.stringify(compactPersistedMessageMetadata(metadata))
+				: null,
 		})
 		.returning();
 
@@ -322,7 +381,7 @@ export async function updateMessageHonchoMetadata(
 		.set({
 			metadataJson: Object.keys(next).length > 0 ? JSON.stringify(next) : null,
 		})
-			.where(eq(messages.id, messageId));
+		.where(eq(messages.id, messageId));
 }
 
 export async function getAssistantMessageSkillDraft(params: {
@@ -378,9 +437,37 @@ export async function updateAssistantMessageSkillDraftStatus(params: {
 		: [];
 	const draftIndex = drafts.findIndex((draft) => draft.id === params.draftId);
 	if (draftIndex === -1) return null;
+	const currentDraft = drafts[draftIndex];
+
+	if (
+		params.status === "saved" &&
+		currentDraft.status === "saved" &&
+		currentDraft.savedSkillId
+	) {
+		return currentDraft;
+	}
+
+	if (currentDraft.status !== "proposed") {
+		throw new SkillDraftTransitionError(
+			"skill_draft_transition_conflict",
+			"Skill draft is already in a final state.",
+			409,
+		);
+	}
+
+	if (
+		(params.status === "saved" && !params.savedSkillId) ||
+		params.status === "published"
+	) {
+		throw new SkillDraftTransitionError(
+			"skill_draft_transition_conflict",
+			"Skill draft transition is not allowed.",
+			409,
+		);
+	}
 
 	const nextDraft: SkillDraftProposal = {
-		...drafts[draftIndex],
+		...currentDraft,
 		status: params.status,
 		updatedAt: Date.now(),
 	};

@@ -74,6 +74,8 @@ vi.mock('$lib/server/services/chat-turn/stream-orchestrator', () => ({
 
 import { POST } from './+server';
 import { cleanupFailedTurn } from '$lib/server/services/chat-turn/retry-cleanup';
+import { preflightChatTurn } from '$lib/server/services/chat-turn/preflight';
+import { runChatStreamOrchestrator } from '$lib/server/services/chat-turn/stream-orchestrator';
 import { deleteMessages } from '$lib/server/services/messages';
 
 function makeEvent(body: Record<string, unknown>) {
@@ -143,6 +145,53 @@ describe('POST /api/chat/retry', () => {
 		expect(response.status).toBe(200);
 		expect(deleteMessages).toHaveBeenCalledWith(['assistant-3']);
 		expect(capturedSyntheticBodies[0]?.message).toBe('latest prompt');
+	});
+
+	it('keeps active Skill prompt context when regenerating a response', async () => {
+		(preflightChatTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+			ok: true,
+			value: {
+				conversationId: 'conv-1',
+				normalizedMessage: 'latest prompt',
+				modelDisplayName: 'Model 1',
+				modelId: 'model1',
+				attachmentIds: [],
+				linkedSources: [],
+				thinkingMode: 'auto',
+				skipPersistUserMessage: true,
+				skillPromptContext: {
+					source: 'active_session',
+					sessionId: 'session-1',
+					sessionStatus: 'active',
+					skillId: 'skill-1',
+					skillOwnership: 'user',
+					skillDisplayName: 'Meeting critic',
+					skillDescription: 'Reviews notes',
+					skillInstructions: 'Capture decisions before answering.',
+					durationPolicy: 'session',
+					questionPolicy: 'none',
+					notesPolicy: 'create_private_notes',
+					sourceScope: 'selected_sources_only',
+					skillVersion: 1,
+					linkedSources: [],
+				},
+			},
+		});
+
+		const response = await POST(
+			makeEvent({
+				conversationId: 'conv-1',
+				assistantMessageId: 'assistant-3',
+				userMessageId: 'user-3',
+				userMessage: 'latest prompt',
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		const options = (runChatStreamOrchestrator as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
+		expect(options.systemPromptAppendix).toContain('Active Skill Context');
+		expect(options.systemPromptAppendix).toContain('Capture decisions before answering.');
+		expect(options.systemPromptAppendix).toContain('regenerating their last request');
 	});
 
 	it('rejects a mismatched user/assistant retry target', async () => {

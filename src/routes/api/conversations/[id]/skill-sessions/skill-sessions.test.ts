@@ -23,21 +23,32 @@ vi.mock("$lib/server/services/skills/sessions", () => ({
 	startSkillSession: vi.fn(),
 }));
 
-import { DELETE, POST } from "./+server";
 import { requireAuth } from "$lib/server/auth/hooks";
-import { endSkillSession, startSkillSession } from "$lib/server/services/skills/sessions";
+import {
+	endSkillSession,
+	startSkillSession,
+} from "$lib/server/services/skills/sessions";
+import { DELETE, POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockStartSkillSession = startSkillSession as ReturnType<typeof vi.fn>;
 const mockEndSkillSession = endSkillSession as ReturnType<typeof vi.fn>;
 
-function makeEvent(method: string, body: unknown, user = { id: "user-1" }, id = "conv-1") {
+function makeEvent(
+	method: string,
+	body: unknown,
+	user = { id: "user-1" },
+	id = "conv-1",
+) {
 	return {
-		request: new Request(`http://localhost/api/conversations/${id}/skill-sessions`, {
-			method,
-			headers: { "content-type": "application/json" },
-			body: body === undefined ? undefined : JSON.stringify(body),
-		}),
+		request: new Request(
+			`http://localhost/api/conversations/${id}/skill-sessions`,
+			{
+				method,
+				headers: { "content-type": "application/json" },
+				body: body === undefined ? undefined : JSON.stringify(body),
+			},
+		),
 		locals: { user },
 		params: { id },
 		url: new URL(`http://localhost/api/conversations/${id}/skill-sessions`),
@@ -99,12 +110,46 @@ describe("/api/conversations/[id]/skill-sessions", () => {
 		const data = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(mockEndSkillSession).toHaveBeenCalledWith("user-1", "conv-1", "dismissed");
+		expect(mockEndSkillSession).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+			"dismissed",
+		);
 		expect(data.activeSkillSession).toBeNull();
 		expect(data.endedSkillSession).toMatchObject({
 			id: "session-1",
 			status: "ended",
 			endReason: "dismissed",
+		});
+	});
+
+	it("returns typed conflict responses from the session service", async () => {
+		mockStartSkillSession.mockRejectedValue(
+			new (
+				await import("$lib/server/services/skills/sessions")
+			).SkillSessionError(
+				"active_skill_session_conflict",
+				"Another skill session is already active.",
+				409,
+			),
+		);
+
+		const response = await POST(
+			makeEvent("POST", {
+				pendingSkill: {
+					id: "skill-2",
+					ownership: "user",
+					displayName: "Interview coach",
+				},
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(409);
+		expect(data).toEqual({
+			error: "Another skill session is already active.",
+			code: "active_skill_session_conflict",
+			errorKey: "skillSessions.errors.activeConflict",
 		});
 	});
 });

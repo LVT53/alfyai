@@ -113,6 +113,7 @@ export function createServerChunkRuntime({
 	onThinking,
 	onToolCall,
 	thinkingBatchMin = 20,
+	skillControlEnabled = true,
 }: {
 	enqueueChunk: (chunk: string) => boolean;
 	onToken?: (text: string) => void;
@@ -124,6 +125,7 @@ export function createServerChunkRuntime({
 		outputSummary?: string | null,
 	) => void;
 	thinkingBatchMin?: number;
+	skillControlEnabled?: boolean;
 }) {
 	let fullResponse = "";
 	let thinkingContent = "";
@@ -220,6 +222,8 @@ export function createServerChunkRuntime({
 		input: string,
 		force = false,
 	): string => {
+		if (!skillControlEnabled) return input;
+
 		let value = skillControlEnvelopeBuffer + input;
 		skillControlEnvelopeBuffer = "";
 		if (!value) return "";

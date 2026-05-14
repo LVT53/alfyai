@@ -1,5 +1,17 @@
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+export class ApiError extends Error {
+	readonly errorKey?: string;
+	readonly status: number;
+
+	constructor(message: string, options: { errorKey?: string; status: number }) {
+		super(message);
+		this.name = 'ApiError';
+		this.errorKey = options.errorKey;
+		this.status = options.status;
+	}
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
 }
@@ -12,23 +24,30 @@ function performRequest(
 	return init === undefined ? fetchImpl(input) : fetchImpl(input, init);
 }
 
-async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+async function readErrorPayload(
+	response: Response,
+	fallback: string
+): Promise<{ message: string; errorKey?: string }> {
 	const text = await response.text().catch(() => '');
-	if (!text) return fallback;
+	if (!text) return { message: fallback };
 
 	try {
 		const parsed = JSON.parse(text) as unknown;
 		if (isRecord(parsed)) {
 			const message = parsed.error ?? parsed.message;
+			const errorKey = typeof parsed.errorKey === 'string' && parsed.errorKey.trim()
+				? parsed.errorKey
+				: undefined;
 			if (typeof message === 'string' && message.trim()) {
-				return message;
+				return { message, errorKey };
 			}
+			if (errorKey) return { message: fallback, errorKey };
 		}
 	} catch {
 		// Fall back to raw text below.
 	}
 
-	return text.trim() || fallback;
+	return { message: text.trim() || fallback };
 }
 
 export async function requestJson<T>(
@@ -39,7 +58,11 @@ export async function requestJson<T>(
 ): Promise<T> {
 	const response = await performRequest(fetchImpl, input, init);
 	if (!response.ok) {
-		throw new Error(await readErrorMessage(response, errorMessage));
+		const error = await readErrorPayload(response, errorMessage);
+		throw new ApiError(error.message, {
+			errorKey: error.errorKey,
+			status: response.status,
+		});
 	}
 
 	try {
@@ -57,6 +80,10 @@ export async function requestVoid(
 ): Promise<void> {
 	const response = await performRequest(fetchImpl, input, init);
 	if (!response.ok) {
-		throw new Error(await readErrorMessage(response, errorMessage));
+		const error = await readErrorPayload(response, errorMessage);
+		throw new ApiError(error.message, {
+			errorKey: error.errorKey,
+			status: response.status,
+		});
 	}
 }

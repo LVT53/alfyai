@@ -1,21 +1,25 @@
-import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
-	artifacts,
 	skillNoteCheckpoints,
 	skillNoteOperations,
 	skillSessions,
 } from "$lib/server/db/schema";
-import { getConfig } from "$lib/server/config-store";
-import { parseJsonRecord } from "$lib/server/utils/json";
-import { syncArtifactChunks } from "$lib/server/services/task-state/chunk-sync";
-import { queueArtifactSemanticEmbeddingRefresh } from "$lib/server/services/semantic-embedding-refresh";
-import type { Artifact, SkillControlOperation } from "$lib/types";
-import { guessSummary, mapArtifact } from "../knowledge/store";
+import type { SkillControlOperation } from "$lib/types";
+import {
+	getMutableSkillNoteArtifact,
+	insertSkillNoteArtifactRecord,
+	refreshSkillNoteArtifact,
+	updateSkillNoteArtifactRecord,
+} from "../knowledge";
 import { recordSkillNoteFailureMilestone } from "./sessions";
 
-const CHECKPOINT_BODY_LIMIT = 50_000;
+const MAX_NOTE_OPERATIONS_PER_TURN = 8;
+const MAX_OPERATION_BODY_LENGTH = 20_000;
+const MAX_FINAL_NOTE_BODY_LENGTH = 50_000;
+const MAX_CHECKPOINTS_PER_NOTE = 20;
 
 export interface AppliedSkillNoteOperation {
 	operationId: string;
@@ -72,6 +76,27 @@ function cleanText(value: string | undefined, field: string): string {
 		);
 	}
 	return trimmed;
+}
+
+function assertBodyLimit(body: string, operation: SkillNoteOperation) {
+	if (body.length <= MAX_OPERATION_BODY_LENGTH) return;
+	throw new SkillNoteOperationError(
+		operation.action === "append"
+			? "note_append_too_large"
+			: "note_operation_body_too_large",
+		"Skill note operation body is too large.",
+		413,
+	);
+}
+
+function assertFinalBodyLimit(body: string) {
+	if (body.length > MAX_FINAL_NOTE_BODY_LENGTH) {
+		throw new SkillNoteOperationError(
+			"note_final_body_too_large",
+			"Skill note body would exceed the maximum size.",
+			413,
+		);
+	}
 }
 
 function cleanTitle(value: string | undefined): string {
@@ -168,16 +193,6 @@ function buildSkillNoteMetadata(params: {
 	};
 }
 
-async function syncNoteArtifact(artifact: Artifact) {
-	await syncArtifactChunks({
-		artifactId: artifact.id,
-		userId: artifact.userId,
-		conversationId: artifact.conversationId,
-		contentText: artifact.contentText,
-	});
-	queueArtifactSemanticEmbeddingRefresh(artifact);
-}
-
 async function applyCreateOperation(params: {
 	userId: string;
 	conversationId: string;
@@ -187,6 +202,8 @@ async function applyCreateOperation(params: {
 }): Promise<AppliedSkillNoteOperation> {
 	const title = cleanTitle(params.operation.title);
 	const body = cleanText(params.operation.body, "body");
+	assertBodyLimit(body, params.operation);
+	assertFinalBodyLimit(body);
 	const artifactId = randomUUID();
 	const now = new Date();
 	const metadata = buildSkillNoteMetadata({
@@ -196,23 +213,15 @@ async function applyCreateOperation(params: {
 	});
 
 	db.transaction((tx) => {
-		tx.insert(artifacts)
-			.values({
-				id: artifactId,
-				userId: params.userId,
-				conversationId: params.conversationId,
-				type: "skill_note",
-				retrievalClass: "durable",
-				name: title,
-				mimeType: "text/markdown",
-				extension: "md",
-				sizeBytes: Buffer.byteLength(body, "utf8"),
-				contentText: body,
-				summary: guessSummary(body, title),
-				metadataJson: JSON.stringify(metadata),
-				updatedAt: now,
-			})
-			.run();
+		insertSkillNoteArtifactRecord(tx, {
+			artifactId,
+			userId: params.userId,
+			conversationId: params.conversationId,
+			title,
+			body,
+			metadata,
+			now,
+		});
 		tx.insert(skillNoteOperations)
 			.values({
 				id: randomUUID(),
@@ -227,10 +236,7 @@ async function applyCreateOperation(params: {
 			.run();
 	});
 
-	const row = await db.select().from(artifacts).where(eq(artifacts.id, artifactId)).get();
-	if (row) {
-		await syncNoteArtifact(mapArtifact(row));
-	}
+	await refreshSkillNoteArtifact(artifactId);
 
 	return {
 		operationId: params.operation.operationId,
@@ -245,26 +251,15 @@ async function getMutableSkillNoteTarget(params: {
 	conversationId: string;
 	artifactId: string;
 }) {
-	const row = await db
-		.select()
-		.from(artifacts)
-		.where(
-			and(
-				eq(artifacts.id, params.artifactId),
-				eq(artifacts.userId, params.userId),
-				eq(artifacts.conversationId, params.conversationId),
-			),
-		)
-		.get();
-
-	if (!row || row.type !== "skill_note") {
+	const artifact = await getMutableSkillNoteArtifact(params);
+	if (!artifact) {
 		throw new SkillNoteOperationError(
 			"invalid_note_target",
 			"Skill note operations can only mutate Skill Notes.",
 			403,
 		);
 	}
-	return row;
+	return artifact;
 }
 
 async function applyUpdateOperation(params: {
@@ -275,6 +270,7 @@ async function applyUpdateOperation(params: {
 	operation: Extract<SkillNoteOperation, { action: "replace" | "append" }>;
 }): Promise<AppliedSkillNoteOperation> {
 	const body = cleanText(params.operation.body, "body");
+	assertBodyLimit(body, params.operation);
 	const target = await getMutableSkillNoteTarget({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -285,7 +281,8 @@ async function applyUpdateOperation(params: {
 		params.operation.action === "replace"
 			? body
 			: [previousBody.trim(), body].filter(Boolean).join("\n\n");
-	const previousMetadata = parseJsonRecord(target.metadataJson ?? null);
+	assertFinalBodyLimit(nextBody);
+	const previousMetadata = target.metadata;
 	const nextMetadata = buildSkillNoteMetadata({
 		session: params.session,
 		assistantMessageId: params.assistantMessageId,
@@ -293,9 +290,19 @@ async function applyUpdateOperation(params: {
 		previousMetadata,
 	});
 	const now = new Date();
+	const existingCheckpoint = await db
+		.select({ id: skillNoteCheckpoints.id })
+		.from(skillNoteCheckpoints)
+		.where(
+			and(
+				eq(skillNoteCheckpoints.noteArtifactId, target.id),
+				eq(skillNoteCheckpoints.assistantMessageId, params.assistantMessageId),
+			),
+		)
+		.get();
 
 	db.transaction((tx) => {
-		if (params.operation.action === "replace") {
+		if (!existingCheckpoint) {
 			tx.insert(skillNoteCheckpoints)
 				.values({
 					id: randomUUID(),
@@ -305,21 +312,20 @@ async function applyUpdateOperation(params: {
 					conversationId: params.conversationId,
 					assistantMessageId: params.assistantMessageId,
 					operationId: params.operation.operationId,
-					previousBody: previousBody.slice(0, CHECKPOINT_BODY_LIMIT),
-					previousMetadataJson: target.metadataJson,
+					previousBody,
+					previousMetadataJson: previousMetadata
+						? JSON.stringify(previousMetadata)
+						: null,
 				})
 				.run();
 		}
-		tx.update(artifacts)
-			.set({
-				contentText: nextBody,
-				sizeBytes: Buffer.byteLength(nextBody, "utf8"),
-				summary: guessSummary(nextBody, target.name),
-				metadataJson: JSON.stringify(nextMetadata),
-				updatedAt: now,
-			})
-			.where(eq(artifacts.id, target.id))
-			.run();
+		updateSkillNoteArtifactRecord(tx, {
+			artifactId: target.id,
+			name: target.name,
+			body: nextBody,
+			metadata: nextMetadata,
+			now,
+		});
 		tx.insert(skillNoteOperations)
 			.values({
 				id: randomUUID(),
@@ -334,10 +340,8 @@ async function applyUpdateOperation(params: {
 			.run();
 	});
 
-	const row = await db.select().from(artifacts).where(eq(artifacts.id, target.id)).get();
-	if (row) {
-		await syncNoteArtifact(mapArtifact(row));
-	}
+	await pruneSkillNoteCheckpoints(target.id);
+	await refreshSkillNoteArtifact(target.id);
 
 	return {
 		operationId: params.operation.operationId,
@@ -347,7 +351,23 @@ async function applyUpdateOperation(params: {
 	};
 }
 
-function failureFromError(operation: SkillNoteOperation, error: unknown): FailedSkillNoteOperation {
+async function pruneSkillNoteCheckpoints(noteArtifactId: string) {
+	const rows = await db
+		.select({ id: skillNoteCheckpoints.id })
+		.from(skillNoteCheckpoints)
+		.where(eq(skillNoteCheckpoints.noteArtifactId, noteArtifactId))
+		.orderBy(desc(skillNoteCheckpoints.createdAt));
+	const excessIds = rows.slice(MAX_CHECKPOINTS_PER_NOTE).map((row) => row.id);
+	if (excessIds.length === 0) return;
+	await db
+		.delete(skillNoteCheckpoints)
+		.where(inArray(skillNoteCheckpoints.id, excessIds));
+}
+
+function failureFromError(
+	operation: SkillNoteOperation,
+	error: unknown,
+): FailedSkillNoteOperation {
 	if (error instanceof SkillNoteOperationError) {
 		return {
 			operationId: operation.operationId,
@@ -364,6 +384,20 @@ function failureFromError(operation: SkillNoteOperation, error: unknown): Failed
 	};
 }
 
+function validateEnvelopeOperationBodies(
+	operations: SkillNoteOperation[],
+): FailedSkillNoteOperation | null {
+	for (const operation of operations) {
+		try {
+			const body = cleanText(operation.body, "body");
+			assertBodyLimit(body, operation);
+		} catch (error) {
+			return failureFromError(operation, error);
+		}
+	}
+	return null;
+}
+
 export async function applySkillNoteOperations(params: {
 	userId: string;
 	conversationId: string;
@@ -375,6 +409,28 @@ export async function applySkillNoteOperations(params: {
 	const session = await getSessionForNoteOperation(params);
 	const applied: AppliedSkillNoteOperation[] = [];
 	const failures: FailedSkillNoteOperation[] = [];
+
+	if (params.operations.length > MAX_NOTE_OPERATIONS_PER_TURN) {
+		return {
+			applied,
+			failures: [
+				{
+					operationId: params.operations[0]?.operationId ?? "unknown",
+					action: params.operations[0]?.action ?? "create",
+					code: "too_many_note_operations",
+					message: "Too many skill note operations in one turn.",
+				},
+			],
+		};
+	}
+
+	const bodyLimitFailure = validateEnvelopeOperationBodies(params.operations);
+	if (bodyLimitFailure) {
+		return {
+			applied,
+			failures: [bodyLimitFailure],
+		};
+	}
 
 	for (const operation of params.operations) {
 		const existing = await getExistingOperation({
@@ -425,7 +481,8 @@ export async function commitSkillNoteOperationsAfterAssistantMessage(params: {
 	operations: SkillControlOperation[];
 }): Promise<ApplySkillNoteOperationsResult | null> {
 	const noteOperations = params.operations.filter(
-		(operation): operation is SkillNoteOperation => operation.kind === "note_intent",
+		(operation): operation is SkillNoteOperation =>
+			operation.kind === "note_intent",
 	);
 	if (noteOperations.length === 0) return null;
 	if (!params.sessionId) {

@@ -38,13 +38,14 @@ import { POST } from "./+server";
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
-const mockGetAssistantMessageSkillDraft = getAssistantMessageSkillDraft as ReturnType<
-	typeof vi.fn
->;
+const mockGetAssistantMessageSkillDraft =
+	getAssistantMessageSkillDraft as ReturnType<typeof vi.fn>;
 const mockUpdateAssistantMessageSkillDraftStatus =
 	updateAssistantMessageSkillDraftStatus as ReturnType<typeof vi.fn>;
-const mockCreateSystemSkillDefinition = createSystemSkillDefinition as ReturnType<typeof vi.fn>;
-const mockUpdateSystemSkillDefinition = updateSystemSkillDefinition as ReturnType<typeof vi.fn>;
+const mockCreateSystemSkillDefinition =
+	createSystemSkillDefinition as ReturnType<typeof vi.fn>;
+const mockUpdateSystemSkillDefinition =
+	updateSystemSkillDefinition as ReturnType<typeof vi.fn>;
 
 function makeEvent(body?: unknown) {
 	return {
@@ -72,7 +73,10 @@ describe("POST /api/conversations/[id]/messages/[messageId]/skill-drafts/[draftI
 		vi.clearAllMocks();
 		mockRequireAdmin.mockReturnValue(undefined);
 		mockGetConfig.mockReturnValue({ composerCommandRegistryEnabled: true });
-		mockGetConversation.mockResolvedValue({ id: "conv-1", userId: "admin-user" });
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			userId: "admin-user",
+		});
 		mockGetAssistantMessageSkillDraft.mockResolvedValue({
 			id: "draft-1",
 			status: "proposed",
@@ -88,7 +92,8 @@ describe("POST /api/conversations/[id]/messages/[messageId]/skill-drafts/[draftI
 		mockCreateSystemSkillDefinition.mockResolvedValue({
 			id: "system-generated-1",
 			ownership: "system",
-			published: true,
+			enabled: false,
+			published: false,
 		});
 		mockUpdateAssistantMessageSkillDraftStatus.mockResolvedValue({
 			id: "draft-1",
@@ -97,52 +102,34 @@ describe("POST /api/conversations/[id]/messages/[messageId]/skill-drafts/[draftI
 		});
 	});
 
-	it("publishes a draft as a System Skill through the admin-only system boundary", async () => {
+	it("blocks chat draft publishing so drafts do not become globally discoverable System Skills", async () => {
 		const response = await POST(makeEvent());
 		const data = await response.json();
 
-		expect(response.status).toBe(201);
+		expect(response.status).toBe(409);
 		expect(mockRequireAdmin).toHaveBeenCalled();
 		expect(mockGetConversation).toHaveBeenCalledWith("admin-user", "conv-1");
-		expect(mockCreateSystemSkillDefinition).toHaveBeenCalledWith(
-			"admin-user",
-			expect.objectContaining({
-				displayName: "Meeting critic",
-				instructions: "Find missing owners.",
-				enabled: true,
-				published: true,
-				creationSource: "ai_draft",
-			}),
-		);
+		expect(mockCreateSystemSkillDefinition).not.toHaveBeenCalled();
 		expect(mockUpdateSystemSkillDefinition).not.toHaveBeenCalled();
-		expect(data.systemSkill).toEqual({
-			id: "system-generated-1",
-			ownership: "system",
-			published: true,
-		});
+		expect(data.errorKey).toBe("skillDrafts.publishDisabled");
 	});
 
-	it("updates an existing System Skill when an explicit systemSkillId is provided", async () => {
+	it("does not update an existing System Skill from a chat draft", async () => {
 		mockUpdateSystemSkillDefinition.mockResolvedValue({
 			id: "system:meeting-critic",
 			ownership: "system",
-			published: true,
+			published: false,
 		});
 
-		const response = await POST(makeEvent({ systemSkillId: "system:meeting-critic" }));
+		const response = await POST(
+			makeEvent({ systemSkillId: "system:meeting-critic" }),
+		);
 		const data = await response.json();
 
-		expect(response.status).toBe(200);
+		expect(response.status).toBe(409);
 		expect(mockCreateSystemSkillDefinition).not.toHaveBeenCalled();
-		expect(mockUpdateSystemSkillDefinition).toHaveBeenCalledWith(
-			"system:meeting-critic",
-			expect.objectContaining({
-				displayName: "Meeting critic",
-				published: true,
-				creationSource: "ai_draft",
-			}),
-		);
-		expect(data.systemSkill.id).toBe("system:meeting-critic");
+		expect(mockUpdateSystemSkillDefinition).not.toHaveBeenCalled();
+		expect(data.errorKey).toBe("skillDrafts.publishDisabled");
 	});
 
 	it("does not read drafts from another user's private conversation even for admins", async () => {

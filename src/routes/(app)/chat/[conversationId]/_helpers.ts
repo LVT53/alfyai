@@ -67,6 +67,7 @@ const FRIENDLY_SEND_ERROR_KEYS = {
 	file_too_large: 'chat.error.fileTooLarge',
 	message_too_long: 'chat.error.messageTooLong',
 	provider_tool_rounds: 'chat.error.providerToolRounds',
+	linked_source_not_found: 'chat.error.linkedSourceNotFound',
 } as const satisfies Record<string, I18nKey>;
 
 const FALLBACK_SEND_ERRORS: Record<keyof typeof FRIENDLY_SEND_ERROR_KEYS, string> = {
@@ -84,6 +85,8 @@ const FALLBACK_SEND_ERRORS: Record<keyof typeof FRIENDLY_SEND_ERROR_KEYS, string
 		'That message is longer than the configured model input limit. Shorten it or split the request into smaller parts.',
 	provider_tool_rounds:
 		'The provider needed too many tool-call rounds and the turn was stopped to avoid looping. Retry with a narrower request or fewer required sources.',
+	linked_source_not_found:
+		'One of the linked Library documents is no longer available. Remove the missing source or link it again, then retry.',
 };
 
 function friendlyError(
@@ -105,6 +108,7 @@ export function toFriendlySendError(error: Error, translate?: Translate): string
 	if (errorWithCode.code === 'file_too_large') return friendlyError('file_too_large', translate);
 	if (errorWithCode.code === 'message_too_long') return friendlyError('message_too_long', translate);
 	if (errorWithCode.code === 'provider_tool_rounds') return friendlyError('provider_tool_rounds', translate);
+	if (errorWithCode.code === 'linked_source_not_found') return friendlyError('linked_source_not_found', translate);
 
 	const message = (error.message ?? '').toLowerCase();
 	if (message.includes('timeout') || message.includes('timed out')) {

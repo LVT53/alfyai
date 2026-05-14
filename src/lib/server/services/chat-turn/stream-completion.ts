@@ -38,6 +38,7 @@ export interface CompleteStreamTurnParams {
 	fullResponse: string;
 	toolCallRecords: ToolCallEntry[];
 	skillControlEnvelopePayloads: string[];
+	skillControlEnabled?: boolean;
 	serverSegments: Array<unknown>;
 	attachmentIds: string[];
 	linkedSources: LinkedContextSource[];
@@ -179,6 +180,7 @@ export async function completeStreamTurn(
 		fullResponse,
 		toolCallRecords,
 		skillControlEnvelopePayloads,
+		skillControlEnabled = true,
 		serverSegments,
 		attachmentIds,
 		linkedSources,
@@ -224,7 +226,9 @@ export async function completeStreamTurn(
 	const finalResponse = citationGate?.response ?? fullResponse;
 	const skillControl = wasStopped
 		? { operations: [] }
-		: parseSkillControlEnvelopePayloads(skillControlEnvelopePayloads);
+		: skillControlEnabled
+			? parseSkillControlEnvelopePayloads(skillControlEnvelopePayloads)
+			: { operations: [] };
 	if (citationGate?.appendedNotice) {
 		enqueueChunk(
 			`event: token\ndata: ${JSON.stringify({ text: `\n\n${citationGate.appendedNotice}` })}\n\n`,

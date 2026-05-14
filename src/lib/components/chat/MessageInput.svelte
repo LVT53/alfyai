@@ -310,17 +310,20 @@ $effect(() => {
 		}
 
 		pendingAttachments = Array.from(merged.values());
-		selectedLinkedSources = draftLinkedSources.map((source) => ({
-			...source,
-			familyArtifactIds: [...source.familyArtifactIds],
-		}));
-		pendingSkill = draftPendingSkill
-			? {
-					id: draftPendingSkill.id,
-					ownership: draftPendingSkill.ownership,
-					displayName: draftPendingSkill.displayName,
-				}
-			: null;
+		selectedLinkedSources = composerCommandRegistryEnabled
+			? draftLinkedSources.map((source) => ({
+					...source,
+					familyArtifactIds: [...source.familyArtifactIds],
+				}))
+			: [];
+		pendingSkill =
+			composerCommandRegistryEnabled && draftPendingSkill
+				? {
+						id: draftPendingSkill.id,
+						ownership: draftPendingSkill.ownership,
+						displayName: draftPendingSkill.displayName,
+					}
+				: null;
 		attachmentError = "";
 		uploadState = "idle";
 		queuedSendAfterProcessing = false;
@@ -329,8 +332,25 @@ $effect(() => {
 		closeCommandTray();
 		lastEmittedDraftKey = "";
 		draftEmissionVersion += 1;
+		if (
+			!composerCommandRegistryEnabled &&
+			(draftLinkedSources.length > 0 || draftPendingSkill)
+		) {
+			void emitDraftChange(true);
+		}
 		adjustHeight();
 	}
+});
+
+$effect(() => {
+	if (composerCommandRegistryEnabled) return;
+	if (selectedLinkedSources.length === 0 && !pendingSkill) return;
+	selectedLinkedSources = [];
+	pendingSkill = null;
+	sourceManagerOpen = false;
+	documentPickerOpen = false;
+	draftEmissionVersion += 1;
+	void emitDraftChange();
 });
 
 $effect(() => {
@@ -448,11 +468,9 @@ function handleKeydown(event: KeyboardEvent) {
 		dismissCommandTray();
 		return;
 	}
-	if (event.key === "Enter" && !event.shiftKey && commandToken) {
-		const rows = getCommandTrayRows(commandToken).slice(
-			0,
-			COMPOSER_COMMAND_VISIBLE_RESULT_LIMIT,
-		);
+	const interactiveCommandRows = getInteractiveCommandRows();
+	if (event.key === "Enter" && !event.shiftKey && interactiveCommandRows.length > 0) {
+		const rows = interactiveCommandRows;
 		const row = rows[highlightedCommandIndex] ?? rows[0];
 		if (row) {
 			event.preventDefault();
@@ -487,6 +505,19 @@ function handleKeydown(event: KeyboardEvent) {
 	scheduleTextareaValueSync();
 }
 
+function getInteractiveCommandRows(): CommandTrayRow[] {
+	if (
+		!composerCommandRegistryEnabled ||
+		!commandTrayMounted ||
+		commandTrayClosing ||
+		!commandToken ||
+		getCommandTokenKey(commandToken) === dismissedCommandTokenKey
+	) {
+		return [];
+	}
+	return getCommandTrayRows(commandToken).slice(0, COMPOSER_COMMAND_VISIBLE_RESULT_LIMIT);
+}
+
 function buildSendPayload(): SendPayload {
 	return {
 		message: message.trim(),
@@ -497,11 +528,14 @@ function buildSendPayload(): SendPayload {
 		pendingAttachments: pendingAttachments.map((attachment) => ({
 			...attachment,
 		})),
-		linkedSources: effectiveLinkedSources.map((source) => ({
-			...source,
-			familyArtifactIds: [...source.familyArtifactIds],
-		})),
-		pendingSkill: selectedDeepResearchDepth ? null : pendingSkill,
+		linkedSources: composerCommandRegistryEnabled
+			? effectiveLinkedSources.map((source) => ({
+					...source,
+					familyArtifactIds: [...source.familyArtifactIds],
+				}))
+			: [],
+		pendingSkill:
+			composerCommandRegistryEnabled && !selectedDeepResearchDepth ? pendingSkill : null,
 		conversationId: resolvedConversationId,
 		personalityProfileId: selectedPersonalityId,
 		deepResearchDepth: deepResearchEnabled ? selectedDeepResearchDepth : null,
@@ -903,8 +937,8 @@ function hasClearableComposerState(nextMessage: string): boolean {
 	return (
 		nextMessage.trim().length > 0 ||
 		pendingAttachments.length > 0 ||
-		effectiveLinkedSources.length > 0 ||
-		Boolean(pendingSkill) ||
+		(composerCommandRegistryEnabled && effectiveLinkedSources.length > 0) ||
+		(composerCommandRegistryEnabled && Boolean(pendingSkill)) ||
 		Boolean(selectedDeepResearchDepth)
 	);
 }
@@ -959,7 +993,7 @@ function selectCommand(command: CommandTrayRow) {
 		const nextMessage = getMessageWithoutActiveCommandToken()?.text ?? message;
 		if (!confirmClearComposer(nextMessage)) return;
 		const consumed = consumeActiveCommandToken();
-		closeCommandTray();
+		finishCommandTrayClose();
 		if (consumed) {
 			clearComposerAfterSubmit();
 		}
@@ -971,7 +1005,7 @@ function selectCommand(command: CommandTrayRow) {
 			? commandToken.query.slice("document ".length).trim()
 			: "";
 	const consumed = consumeActiveCommandToken();
-	closeCommandTray();
+	finishCommandTrayClose();
 	if (!consumed) return;
 
 	switch (command.id) {
@@ -1251,17 +1285,20 @@ async function emitDraftChange(force = false) {
 	const nextPendingAttachments = pendingAttachments.map((attachment) => ({
 		...attachment,
 	}));
-	const nextLinkedSources = effectiveLinkedSources.map((source) => ({
-		...source,
-		familyArtifactIds: [...source.familyArtifactIds],
-	}));
-	const nextPendingSkill = pendingSkill
-		? {
-				id: pendingSkill.id,
-				ownership: pendingSkill.ownership,
-				displayName: pendingSkill.displayName,
-			}
-		: null;
+	const nextLinkedSources = composerCommandRegistryEnabled
+		? effectiveLinkedSources.map((source) => ({
+				...source,
+				familyArtifactIds: [...source.familyArtifactIds],
+			}))
+		: [];
+	const nextPendingSkill =
+		composerCommandRegistryEnabled && pendingSkill
+			? {
+					id: pendingSkill.id,
+					ownership: pendingSkill.ownership,
+					displayName: pendingSkill.displayName,
+				}
+			: null;
 	const hasMeaningfulDraft =
 		nextMessage.trim().length > 0 ||
 		nextPendingAttachments.length > 0 ||
@@ -1373,7 +1410,7 @@ async function emitDraftChange(force = false) {
 			</div>
 		{/if}
 
-		{#if effectiveLinkedSources.length > 0}
+		{#if composerCommandRegistryEnabled && effectiveLinkedSources.length > 0}
 			<ul class="linked-source-chips" aria-label={$t('linkedSources.chipsLabel')}>
 				{#each effectiveLinkedSources as source (source.displayArtifactId)}
 					<li class="linked-source-chip">
@@ -1390,7 +1427,7 @@ async function emitDraftChange(force = false) {
 			</ul>
 		{/if}
 
-		{#if pendingSkill}
+		{#if composerCommandRegistryEnabled && pendingSkill}
 			<ul class="linked-source-chips" aria-label={$t('pendingSkill.chipsLabel')}>
 				<li class="linked-source-chip">
 					<span>{pendingSkill.displayName}</span>

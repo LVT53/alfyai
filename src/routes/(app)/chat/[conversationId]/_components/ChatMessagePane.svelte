@@ -24,6 +24,7 @@
 		onEdit,
 		onSteer,
 		canPublishSkillDrafts = false,
+		skillDraftActionState = {},
 		onSaveSkillDraft,
 		onDismissSkillDraft,
 		onPublishSkillDraft,
@@ -48,6 +49,7 @@
 		onEdit: (payload: MessageEditPayload) => void;
 		onSteer: (payload: TaskSteeringPayload) => void | Promise<void>;
 		canPublishSkillDrafts?: boolean;
+		skillDraftActionState?: Record<string, { busy?: boolean; error?: string | null }>;
 		onSaveSkillDraft?: (payload: { messageId: string; draftId: string }) => void | Promise<void>;
 		onDismissSkillDraft?: (payload: { messageId: string; draftId: string }) => void | Promise<void>;
 		onPublishSkillDraft?: (payload: { messageId: string; draftId: string }) => void | Promise<void>;
@@ -83,6 +85,7 @@
 		{onEdit}
 		{onSteer}
 		{canPublishSkillDrafts}
+		{skillDraftActionState}
 		{onSaveSkillDraft}
 		{onDismissSkillDraft}
 		{onPublishSkillDraft}

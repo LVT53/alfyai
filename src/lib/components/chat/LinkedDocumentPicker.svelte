@@ -22,6 +22,7 @@ let {
 } = $props();
 
 let searchInput = $state<HTMLInputElement | null>(null);
+let dialog = $state<HTMLElement | null>(null);
 let query = $state(untrack(() => initialQuery));
 let selected = $state<LinkedContextSource[]>(
 	untrack(() => selectedSources.map((source) => ({ ...source })))
@@ -79,6 +80,41 @@ function handleBackdropPointerDown(event: PointerEvent) {
 function handleWindowKeydown(event: KeyboardEvent) {
 	if (event.key === 'Escape') {
 		onCancel();
+		return;
+	}
+	if (event.key === 'Tab') {
+		trapTabNavigation(event);
+	}
+}
+
+function getFocusableElements(): HTMLElement[] {
+	if (!dialog) return [];
+	return Array.from(
+		dialog.querySelectorAll<HTMLElement>(
+			'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+		)
+	);
+}
+
+function trapTabNavigation(event: KeyboardEvent) {
+	const focusableElements = getFocusableElements();
+	if (focusableElements.length === 0) return;
+	const first = focusableElements[0];
+	const last = focusableElements[focusableElements.length - 1];
+	const activeElement = document.activeElement;
+	if (!(activeElement instanceof Node) || !dialog?.contains(activeElement)) {
+		event.preventDefault();
+		first.focus();
+		return;
+	}
+	if (event.shiftKey && activeElement === first) {
+		event.preventDefault();
+		last.focus();
+		return;
+	}
+	if (!event.shiftKey && activeElement === last) {
+		event.preventDefault();
+		first.focus();
 	}
 }
 
@@ -91,6 +127,7 @@ onMount(() => {
 
 <div class="linked-document-backdrop" role="presentation" onpointerdown={handleBackdropPointerDown}>
 	<div
+		bind:this={dialog}
 		class="linked-document-picker"
 		role="dialog"
 		aria-modal="true"

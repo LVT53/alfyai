@@ -12,6 +12,7 @@ import { parseChatTurnRequest } from '$lib/server/services/chat-turn/request';
 import { createJsonErrorResponse } from '$lib/server/api/responses';
 import { createStreamJsonErrorResponse } from '$lib/server/services/chat-turn/stream';
 import { runChatStreamOrchestrator } from '$lib/server/services/chat-turn/stream-orchestrator';
+import { buildSkillSystemPromptAppendix } from '$lib/server/services/skills/prompt-context';
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
@@ -171,6 +172,15 @@ export const POST: RequestHandler = async (event) => {
 
 	const upstreamMessage = turn.normalizedMessage;
 	const regenerationPromptAppendix = 'The user is regenerating their last request. Provide a completely fresh answer without referencing, acknowledging, or building upon your previous response to this same question. Do not mention that you answered this before. Start fresh as if this is the first time you are seeing this query.';
+	const skillSystemPromptAppendix = buildSkillSystemPromptAppendix(
+		turn.skillPromptContext,
+	);
+	const systemPromptAppendix = [
+		skillSystemPromptAppendix,
+		regenerationPromptAppendix,
+	]
+		.filter((value): value is string => Boolean(value?.trim()))
+		.join('\n\n');
 
 	const requestStartTime = Date.now();
 
@@ -185,6 +195,6 @@ export const POST: RequestHandler = async (event) => {
 		downstreamAbortSignal: event.request.signal,
 		requestStartTime,
 		isReconnect: false,
-		systemPromptAppendix: regenerationPromptAppendix,
+		systemPromptAppendix,
 	});
 };

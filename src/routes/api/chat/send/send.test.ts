@@ -90,6 +90,7 @@ vi.mock('$lib/server/services/skills/user-skills', () => ({
 vi.mock('$lib/server/services/skills/sessions', () => ({
 	applySkillControlOperations: vi.fn(async () => null),
 	getActiveSkillSession: vi.fn(async () => null),
+	startSkillSession: vi.fn(async () => null),
 }));
 
 vi.mock('$lib/server/services/skills/notes', () => ({
@@ -160,7 +161,7 @@ import {
 	getAvailableSkillSummary,
 } from '$lib/server/services/skills/user-skills';
 import { getActiveSkillSession } from '$lib/server/services/skills/sessions';
-import { applySkillControlOperations } from '$lib/server/services/skills/sessions';
+import { applySkillControlOperations, startSkillSession } from '$lib/server/services/skills/sessions';
 import { commitSkillNoteOperationsAfterAssistantMessage } from '$lib/server/services/skills/notes';
 import { getProjectReferenceContext } from '$lib/server/services/task-state';
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
@@ -180,6 +181,7 @@ const mockGetAvailableSkillSummary = getAvailableSkillSummary as ReturnType<type
 const mockGetAvailableSkillDefinition = getAvailableSkillDefinition as ReturnType<typeof vi.fn>;
 const mockGetActiveSkillSession = getActiveSkillSession as ReturnType<typeof vi.fn>;
 const mockApplySkillControlOperations = applySkillControlOperations as ReturnType<typeof vi.fn>;
+const mockStartSkillSession = startSkillSession as ReturnType<typeof vi.fn>;
 const mockCommitSkillNoteOperations =
 	commitSkillNoteOperationsAfterAssistantMessage as ReturnType<typeof vi.fn>;
 
@@ -248,6 +250,31 @@ describe('POST /api/chat/send', () => {
 			updatedAt: 2,
 		});
 		mockGetActiveSkillSession.mockResolvedValue(null);
+		mockStartSkillSession.mockResolvedValue({
+			id: 'session-1',
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			skillId: 'skill-1',
+			skillOwnership: 'user',
+			status: 'active',
+			pauseReason: null,
+			endReason: null,
+			skillDisplayName: 'Interview coach',
+			skillDescription: 'Asks useful questions.',
+			skillInstructions: 'Ask one concise follow-up before answering.',
+			activationExamples: ['interview me first'],
+			durationPolicy: 'session',
+			questionPolicy: 'ask_when_needed',
+			notesPolicy: 'create_private_notes',
+			sourceScope: 'selected_sources_only',
+			skillVersion: 1,
+			startedFrom: 'pending_skill',
+			startedAt: 1,
+			updatedAt: 1,
+			pausedAt: null,
+			endedAt: null,
+			milestones: [],
+		});
 	});
 
 	it('returns AI response text for a valid request', async () => {
@@ -601,6 +628,83 @@ describe('POST /api/chat/send', () => {
 		expect(mockSendMessage).not.toHaveBeenCalled();
 	});
 
+	it('rejects normal chat when the pending skill definition disappears after summary validation', async () => {
+		mockGetConversation.mockResolvedValue({ id: 'conv-1', title: 'Test', createdAt: 0, updatedAt: 0 });
+		mockGetAvailableSkillSummary.mockResolvedValue({
+			id: 'skill-1',
+			ownership: 'user',
+			displayName: 'Interview coach',
+		});
+		mockGetAvailableSkillDefinition.mockResolvedValue(null);
+
+		const response = await POST(
+			makeEvent({
+				message: 'Use this skill',
+				conversationId: 'conv-1',
+				pendingSkill: {
+					id: 'skill-1',
+					ownership: 'user',
+					displayName: 'Interview coach',
+				},
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(409);
+		expect(data).toMatchObject({
+			error: 'Selected skill is no longer available.',
+			code: 'pending_skill_unavailable',
+		});
+		expect(mockSendMessage).not.toHaveBeenCalled();
+	});
+
+	it('rejects normal chat when a different active skill session blocks the pending session skill', async () => {
+		mockGetConversation.mockResolvedValue({ id: 'conv-1', title: 'Test', createdAt: 0, updatedAt: 0 });
+		mockGetAvailableSkillDefinition.mockResolvedValue({
+			id: 'skill-2',
+			ownership: 'user',
+			displayName: 'Code reviewer',
+			description: 'Reviews code.',
+			instructions: 'Review the code carefully.',
+			activationExamples: [],
+			enabled: true,
+			durationPolicy: 'session',
+			questionPolicy: 'none',
+			notesPolicy: 'none',
+			sourceScope: 'selected_sources_only',
+			creationSource: 'user_created',
+			version: 1,
+			createdAt: 1,
+			updatedAt: 2,
+		});
+		mockStartSkillSession.mockRejectedValue(
+			Object.assign(new Error('Another skill session is already active.'), {
+				code: 'active_skill_session_conflict',
+				status: 409,
+			}),
+		);
+
+		const response = await POST(
+			makeEvent({
+				message: 'Use this other skill',
+				conversationId: 'conv-1',
+				pendingSkill: {
+					id: 'skill-2',
+					ownership: 'user',
+					displayName: 'Code reviewer',
+				},
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(409);
+		expect(data).toMatchObject({
+			error: 'Another skill session is already active.',
+			code: 'active_skill_session_conflict',
+		});
+		expect(mockSendMessage).not.toHaveBeenCalled();
+	});
+
 	it('passes pending Skill instructions as a system appendix without changing the visible user transcript', async () => {
 		mockGetConversation.mockResolvedValue({ id: 'conv-1', title: 'Test', createdAt: 0, updatedAt: 0 });
 		mockCreateMessage
@@ -655,6 +759,57 @@ describe('POST /api/chat/send', () => {
 		expect(options.systemPromptAppendix).toContain('displayArtifactId: display-1');
 		expect(options.systemPromptAppendix).not.toContain('  Draft the plan  ');
 		expect(mockCreateMessage).toHaveBeenCalledWith('conv-1', 'user', 'Draft the plan');
+	});
+
+	it('treats Skill Control Envelopes as plain assistant output when Composer Command Registry is disabled', async () => {
+		configMockState.composerCommandRegistryEnabled = false;
+		mockGetConversation.mockResolvedValue({ id: 'conv-1', title: 'Test', createdAt: 0, updatedAt: 0 });
+		mockCreateMessage
+			.mockResolvedValueOnce({ id: 'user-msg', role: 'user', content: 'Hello', timestamp: Date.now() })
+			.mockResolvedValueOnce({
+				id: 'assistant-msg',
+				role: 'assistant',
+				content: 'Visible answer.',
+				timestamp: Date.now(),
+			});
+		const envelope = [
+			'<skill_control_v1>',
+			JSON.stringify({
+				version: 1,
+				operations: [
+					{
+						operationId: 'ask-deadline',
+						kind: 'session_transition',
+						transition: 'awaiting_user',
+					},
+				],
+			}),
+			'</skill_control_v1>',
+		].join('\n');
+		mockSendMessage.mockResolvedValue({
+			text: `Visible answer.\n${envelope}`,
+			rawResponse: {},
+			contextStatus: undefined,
+		});
+
+		const response = await POST(makeEvent({ message: 'Hello', conversationId: 'conv-1' }));
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.response.text).toContain('<skill_control_v1>');
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			'conv-1',
+			'assistant',
+			expect.stringContaining('<skill_control_v1>'),
+			undefined,
+			undefined,
+			expect.not.objectContaining({
+				skillControl: expect.anything(),
+				skillQuestion: expect.anything(),
+			}),
+		);
+		expect(mockCommitSkillNoteOperations).not.toHaveBeenCalled();
+		expect(mockApplySkillControlOperations).not.toHaveBeenCalled();
 	});
 
 	it('strips Skill Control Envelopes, persists metadata, and applies transitions after assistant persistence', async () => {
@@ -800,6 +955,101 @@ describe('POST /api/chat/send', () => {
 				},
 			],
 		});
+	});
+
+	it('commits first-response note operations to the session started from a pending skill', async () => {
+		mockGetConversation.mockResolvedValue({ id: 'conv-1', title: 'Test', createdAt: 0, updatedAt: 0 });
+		mockGetAvailableSkillDefinition.mockResolvedValue({
+			id: 'skill-1',
+			ownership: 'user',
+			displayName: 'Meeting critic',
+			description: 'Reviews notes',
+			instructions: 'Capture decisions.',
+			activationExamples: [],
+			durationPolicy: 'session',
+			questionPolicy: 'none',
+			notesPolicy: 'create_private_notes',
+			sourceScope: 'selected_sources_only',
+			creationSource: 'user_created',
+			version: 1,
+			createdAt: 1,
+			updatedAt: 2,
+		});
+		mockStartSkillSession.mockResolvedValue({
+			id: 'started-session-1',
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			skillId: 'skill-1',
+			skillOwnership: 'user',
+			status: 'active',
+			pauseReason: null,
+			endReason: null,
+			skillDisplayName: 'Meeting critic',
+			skillDescription: 'Reviews notes',
+			skillInstructions: 'Capture decisions.',
+			activationExamples: [],
+			durationPolicy: 'session',
+			questionPolicy: 'none',
+			notesPolicy: 'create_private_notes',
+			sourceScope: 'selected_sources_only',
+			skillVersion: 1,
+			startedFrom: 'pending_skill',
+			startedAt: 1,
+			updatedAt: 1,
+			pausedAt: null,
+			endedAt: null,
+			milestones: [],
+		});
+		mockCreateMessage
+			.mockResolvedValueOnce({ id: 'user-msg', role: 'user', content: 'Capture this', timestamp: Date.now() })
+			.mockResolvedValueOnce({
+				id: 'assistant-msg',
+				role: 'assistant',
+				content: 'Captured.',
+				timestamp: Date.now(),
+			});
+		mockSendMessage.mockResolvedValue({
+			text: [
+				'Captured.',
+				'<skill_control_v1>',
+				JSON.stringify({
+					version: 1,
+					operations: [
+						{
+							operationId: 'note-create-1',
+							kind: 'note_intent',
+							action: 'create',
+							title: 'Decision',
+							body: 'Use the short plan.',
+						},
+					],
+				}),
+				'</skill_control_v1>',
+			].join('\n'),
+			rawResponse: {},
+			contextStatus: undefined,
+		});
+
+		const response = await POST(makeEvent({
+			message: 'Capture this',
+			conversationId: 'conv-1',
+			pendingSkill: {
+				id: 'skill-1',
+				ownership: 'user',
+				displayName: 'Meeting critic',
+			},
+		}));
+
+		expect(response.status).toBe(200);
+		expect(mockStartSkillSession).toHaveBeenCalledWith('user-1', 'conv-1', {
+			id: 'skill-1',
+			ownership: 'user',
+			displayName: 'Meeting critic',
+		});
+		expect(mockCommitSkillNoteOperations).toHaveBeenCalledWith(expect.objectContaining({
+			sessionId: 'started-session-1',
+			assistantMessageId: 'assistant-msg',
+		}));
 	});
 
 	it('does not apply pending skills to Deep Research job startup', async () => {

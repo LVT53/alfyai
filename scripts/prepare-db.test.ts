@@ -8,6 +8,7 @@ import { prepareDatabase } from './prepare-db';
 
 const PRE_DEEP_RESEARCH_TAG = '1777140000011_file_production_requests';
 const ADOPTION_BASELINE_TAG = '0005_flaky_famine';
+const SKILL_NOTES_TAG = '1777140000035_skill_notes';
 
 let tempDir: string | null = null;
 
@@ -166,5 +167,22 @@ describe('prepare-db script', () => {
 		} finally {
 			sqlite.close();
 		}
+	});
+
+	it('rejects a journaled Composer Command V1 schema with a missing required draft column', () => {
+		tempDir = mkdtempSync(join(tmpdir(), 'alfyai-prepare-db-'));
+		const dbPath = join(tempDir, 'chat.db');
+		createDatabaseMigratedThroughTag(dbPath, SKILL_NOTES_TAG);
+
+		const corrupted = new Database(dbPath);
+		try {
+			corrupted.exec('ALTER TABLE conversation_drafts DROP COLUMN pending_skill_json');
+		} finally {
+			corrupted.close();
+		}
+
+		expect(() => prepareDatabase(dbPath)).toThrow(
+			/missing column conversation_drafts\.pending_skill_json/,
+		);
 	});
 });

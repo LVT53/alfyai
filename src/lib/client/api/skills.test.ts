@@ -10,6 +10,7 @@ import {
 	saveSkillDraft,
 	updateUserSkill,
 } from "./skills";
+import type { FetchLike } from "./http";
 
 describe("skills client API", () => {
 	it("lists user skills from the authenticated API", async () => {
@@ -210,5 +211,30 @@ describe("skills client API", () => {
 		await expect(dismissSkillDraft("conv-1", "assistant-1", "draft-1", fetchMock)).resolves.toEqual({
 			draft: { id: "draft-1", status: "dismissed" },
 		});
+	});
+
+	it("preserves API error keys from failed assistant Skill Draft save, dismiss, and publish actions", async () => {
+		const actions: Array<(fetchMock: FetchLike) => Promise<unknown>> = [
+			(fetchMock) => saveSkillDraft("conv-1", "assistant-1", "draft-1", fetchMock),
+			(fetchMock) => dismissSkillDraft("conv-1", "assistant-1", "draft-1", fetchMock),
+			(fetchMock) => publishSkillDraft("conv-1", "assistant-1", "draft-1", undefined, fetchMock),
+		];
+
+		for (const action of actions) {
+			const baseFetchMock = vi.fn(async () =>
+				new Response(
+					JSON.stringify({
+						error: "Skill draft not found.",
+						errorKey: "skillDrafts.notFound",
+					}),
+					{ status: 404, headers: { "Content-Type": "application/json" } },
+				),
+			);
+
+			await expect(action(baseFetchMock)).rejects.toMatchObject({
+				message: "Skill draft not found.",
+				errorKey: "skillDrafts.notFound",
+			});
+		}
 	});
 });

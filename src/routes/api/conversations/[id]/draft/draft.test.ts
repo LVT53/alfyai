@@ -112,4 +112,30 @@ describe('PUT /api/conversations/[id]/draft', () => {
 		expect(data.code).toBe('composer_commands_disabled');
 		expect(mockUpsert).not.toHaveBeenCalled();
 	});
+
+	it('rejects selected linked source draft state when Composer Command Registry is disabled', async () => {
+		mockGetConfig.mockReturnValue({ composerCommandRegistryEnabled: false } as ReturnType<typeof getConfig>);
+
+		const response = await PUT(
+			makeEvent({
+				draftText: 'Use this later',
+				selectedAttachmentIds: [],
+				selectedLinkedSources: [
+					{
+						displayArtifactId: 'display-1',
+						promptArtifactId: 'prompt-1',
+						familyArtifactIds: ['display-1', 'prompt-1'],
+						name: 'Report.pdf',
+						type: 'document',
+					},
+				],
+				pendingSkill: null,
+			})
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(403);
+		expect(data.code).toBe('composer_commands_disabled');
+		expect(mockUpsert).not.toHaveBeenCalled();
+	});
 });

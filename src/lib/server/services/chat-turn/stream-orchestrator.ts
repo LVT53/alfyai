@@ -166,6 +166,7 @@ export function runChatStreamOrchestrator(
 	const attachmentTraceId = turn.attachmentTraceId;
 	const personalityProfileId = turn.personalityProfileId;
 	const thinkingMode = turn.thinkingMode;
+	const skillControlEnabled = getConfig().composerCommandRegistryEnabled;
 
 	const encoder = new TextEncoder();
 	let cancelStream = () => undefined;
@@ -308,6 +309,7 @@ export function runChatStreamOrchestrator(
 			}
 			const chunkRuntime = createServerChunkRuntime({
 				enqueueChunk,
+				skillControlEnabled,
 				onToken: (chunk) => {
 					if (streamId)
 						appendToStreamBuffer(streamId, "token", { text: chunk });
@@ -495,6 +497,7 @@ export function runChatStreamOrchestrator(
 					toolCallRecords: chunkRuntime.toolCallRecords,
 					skillControlEnvelopePayloads:
 						chunkRuntime.skillControlEnvelopePayloads,
+					skillControlEnabled,
 					serverSegments: chunkRuntime.serverSegments,
 					attachmentIds: safeAttachmentIds,
 					linkedSources: turn.linkedSources,

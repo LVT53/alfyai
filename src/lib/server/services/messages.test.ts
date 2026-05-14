@@ -11,69 +11,74 @@ type MessageRow = {
 	createdAt: Date;
 };
 
-const { mockRows, mockSelect, mockInsert, mockUpdate, mockDelete } = vi.hoisted(() => {
-	const mockRows: MessageRow[] = [];
+const { mockRows, mockSelect, mockInsert, mockUpdate, mockDelete } = vi.hoisted(
+	() => {
+		const mockRows: MessageRow[] = [];
 
-	const applySelection = (selection: Record<string, unknown>) =>
-		mockRows.map((row) =>
-			Object.fromEntries(
-				Object.keys(selection).map((key) => [
-					key,
-					row[key as keyof MessageRow],
-				]),
-			),
-		);
+		const applySelection = (selection: Record<string, unknown>) =>
+			mockRows.map((row) =>
+				Object.fromEntries(
+					Object.keys(selection).map((key) => [
+						key,
+						row[key as keyof MessageRow],
+					]),
+				),
+			);
 
-	const mockSelect = vi.fn((selection: Record<string, unknown>) => {
-		const builder = {
-			from: vi.fn(() => builder),
-			where: vi.fn(() => builder),
-			orderBy: vi.fn(() => Promise.resolve(applySelection(selection))),
-			limit: vi.fn((count: number) =>
-				Promise.resolve(applySelection(selection).slice(0, count)),
-			),
-		};
+		const mockSelect = vi.fn((selection: Record<string, unknown>) => {
+			const builder = {
+				from: vi.fn(() => builder),
+				where: vi.fn(() => builder),
+				orderBy: vi.fn(() => Promise.resolve(applySelection(selection))),
+				limit: vi.fn((count: number) =>
+					Promise.resolve(applySelection(selection).slice(0, count)),
+				),
+			};
 
-		return builder;
-	});
+			return builder;
+		});
 
-	const mockInsert = vi.fn(() => ({
-		values: vi.fn((values: Omit<MessageRow, "createdAt">) => ({
-			returning: vi.fn(async () => {
-				const row = { ...values, createdAt: new Date("2026-03-29T12:00:00.000Z") };
-				mockRows.push(row);
-				return [row];
-			}),
-		})),
-	}));
+		const mockInsert = vi.fn(() => ({
+			values: vi.fn((values: Omit<MessageRow, "createdAt">) => ({
+				returning: vi.fn(async () => {
+					const row = {
+						...values,
+						createdAt: new Date("2026-03-29T12:00:00.000Z"),
+					};
+					mockRows.push(row);
+					return [row];
+				}),
+			})),
+		}));
 
-	const mockUpdate = vi.fn(() => {
-		const builder = {
-			set: vi.fn((values: { metadataJson: string | null }) => {
-				const chain = {
-					where: vi.fn(async () => {
-						if (mockRows[0]) {
-							mockRows[0].metadataJson = values.metadataJson;
-						}
-					}),
-				};
-				return chain;
-			}),
-		};
+		const mockUpdate = vi.fn(() => {
+			const builder = {
+				set: vi.fn((values: { metadataJson: string | null }) => {
+					const chain = {
+						where: vi.fn(async () => {
+							if (mockRows[0]) {
+								mockRows[0].metadataJson = values.metadataJson;
+							}
+						}),
+					};
+					return chain;
+				}),
+			};
 
-		return builder;
-	});
+			return builder;
+		});
 
-	const mockDelete = vi.fn(() => {
-		const builder = {
-			where: vi.fn(async () => undefined),
-		};
+		const mockDelete = vi.fn(() => {
+			const builder = {
+				where: vi.fn(async () => undefined),
+			};
 
-		return builder;
-	});
+			return builder;
+		});
 
-	return { mockRows, mockSelect, mockInsert, mockUpdate, mockDelete };
-});
+		return { mockRows, mockSelect, mockInsert, mockUpdate, mockDelete };
+	},
+);
 
 vi.mock("$lib/server/db", () => ({
 	db: {
@@ -407,9 +412,7 @@ describe("messages Honcho metadata", () => {
 			],
 			skillControl: expect.objectContaining({
 				envelopeVersion: 1,
-				operations: [
-					expect.objectContaining({ operationId: "question-1" }),
-				],
+				operations: [expect.objectContaining({ operationId: "question-1" })],
 			}),
 		});
 		expect(JSON.parse(mockRows.at(-1)?.metadataJson ?? "{}")).toMatchObject({
@@ -417,8 +420,62 @@ describe("messages Honcho metadata", () => {
 		});
 	});
 
+	it("compacts Skill Note operation bodies before persisting assistant metadata", async () => {
+		const { createMessage } = await import("./messages");
+
+		const message = await createMessage(
+			"conv-1",
+			"assistant",
+			"I captured that.",
+			undefined,
+			undefined,
+			{
+				pendingSkillNoteIntents: [
+					{
+						operationId: "note-secret-1",
+						kind: "note_intent",
+						action: "create",
+						title: "Private decision",
+						body: "SECRET_NOTE_BODY should not be exposed through message metadata.",
+					},
+				],
+				skillControl: {
+					envelopeVersion: 1,
+					malformedEnvelopeCount: 0,
+					operations: [
+						{
+							operationId: "note-secret-1",
+							kind: "note_intent",
+							action: "create",
+							title: "Private decision",
+							body: "SECRET_NOTE_BODY should not be exposed through message metadata.",
+						},
+					],
+				},
+			},
+		);
+
+		const metadataJson = mockRows.at(-1)?.metadataJson ?? "";
+		expect(metadataJson).not.toContain("SECRET_NOTE_BODY");
+		expect(message.pendingSkillNoteIntents).toEqual([
+			expect.objectContaining({
+				operationId: "note-secret-1",
+				action: "create",
+				bodyLength: 64,
+			}),
+		]);
+		expect(message.skillControl?.operations).toEqual([
+			expect.objectContaining({
+				operationId: "note-secret-1",
+				action: "create",
+				bodyLength: 64,
+			}),
+		]);
+	});
+
 	it("preserves Skill Draft metadata and updates draft status on assistant messages", async () => {
-		const { createMessage, updateAssistantMessageSkillDraftStatus } = await import("./messages");
+		const { createMessage, updateAssistantMessageSkillDraftStatus } =
+			await import("./messages");
 
 		const message = await createMessage(
 			"conv-1",
@@ -433,7 +490,8 @@ describe("messages Honcho metadata", () => {
 						status: "proposed",
 						displayName: "Meeting critic",
 						description: "Review meeting notes for weak follow-ups.",
-						instructions: "Find missing owners, vague deadlines, and risky assumptions.",
+						instructions:
+							"Find missing owners, vague deadlines, and risky assumptions.",
 						activationExamples: ["review these meeting notes"],
 						durationPolicy: "next_message",
 						questionPolicy: "none",
@@ -470,6 +528,74 @@ describe("messages Honcho metadata", () => {
 					status: "dismissed",
 				},
 			],
+		});
+	});
+
+	it("guards Skill Draft status transitions and treats repeated saves as idempotent", async () => {
+		const { createMessage, updateAssistantMessageSkillDraftStatus } =
+			await import("./messages");
+
+		const message = await createMessage(
+			"conv-1",
+			"assistant",
+			"I can turn that into a reusable skill.",
+			undefined,
+			undefined,
+			{
+				skillDrafts: [
+					{
+						id: "draft-1",
+						status: "proposed",
+						displayName: "Meeting critic",
+						description: "Review meeting notes for weak follow-ups.",
+						instructions:
+							"Find missing owners, vague deadlines, and risky assumptions.",
+						activationExamples: ["review these meeting notes"],
+						durationPolicy: "next_message",
+						questionPolicy: "none",
+						notesPolicy: "none",
+						sourceScope: "selected_sources_only",
+					},
+				],
+			},
+		);
+
+		const saved = await updateAssistantMessageSkillDraftStatus({
+			conversationId: "conv-1",
+			messageId: message.id,
+			draftId: "draft-1",
+			status: "saved",
+			savedSkillId: "skill-1",
+		});
+		expect(saved).toMatchObject({
+			id: "draft-1",
+			status: "saved",
+			savedSkillId: "skill-1",
+		});
+
+		const repeated = await updateAssistantMessageSkillDraftStatus({
+			conversationId: "conv-1",
+			messageId: message.id,
+			draftId: "draft-1",
+			status: "saved",
+			savedSkillId: "skill-2",
+		});
+		expect(repeated).toMatchObject({
+			id: "draft-1",
+			status: "saved",
+			savedSkillId: "skill-1",
+		});
+
+		await expect(
+			updateAssistantMessageSkillDraftStatus({
+				conversationId: "conv-1",
+				messageId: message.id,
+				draftId: "draft-1",
+				status: "dismissed",
+			}),
+		).rejects.toMatchObject({
+			code: "skill_draft_transition_conflict",
+			status: 409,
 		});
 	});
 });

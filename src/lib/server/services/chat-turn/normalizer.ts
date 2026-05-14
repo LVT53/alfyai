@@ -18,7 +18,10 @@ export function normalizeAssistantOutput(text: string): string {
 	return normalizeAssistantOutputWithSkillControl(text).visibleText;
 }
 
-export function normalizeAssistantOutputWithSkillControl(text: string) {
+export function normalizeAssistantOutputWithSkillControl(
+	text: string,
+	options: { skillControlEnabled?: boolean } = {},
+) {
 	if (!text) return { visibleText: "", operations: [] };
 
 	const split = splitLeadingThinkingPreamble(text, { allowOpenEnded: true });
@@ -45,6 +48,13 @@ export function normalizeAssistantOutputWithSkillControl(text: string) {
 	let result = visibleText;
 	result = processToolCallMarkers(result, () => {});
 	result = stripLeakedToolDiagnostics(result);
+
+	if (options.skillControlEnabled === false) {
+		return {
+			visibleText: result.trim(),
+			operations: [],
+		};
+	}
 
 	return parseSkillControlEnvelopeFromAssistantText(result);
 }

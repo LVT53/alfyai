@@ -13,6 +13,15 @@ vi.mock("$lib/server/services/conversations", () => ({
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
+	SkillDraftTransitionError: class SkillDraftTransitionError extends Error {
+		constructor(
+			public code: string,
+			message: string,
+			public status = 409,
+		) {
+			super(message);
+		}
+	},
 	updateAssistantMessageSkillDraftStatus: vi.fn(),
 }));
 
@@ -50,7 +59,10 @@ describe("DELETE /api/conversations/[id]/messages/[messageId]/skill-drafts/[draf
 		vi.clearAllMocks();
 		mockRequireAuth.mockReturnValue(undefined);
 		mockGetConfig.mockReturnValue({ composerCommandRegistryEnabled: true });
-		mockGetConversation.mockResolvedValue({ id: "conv-1", userId: "owner-user" });
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			userId: "owner-user",
+		});
 		mockUpdateAssistantMessageSkillDraftStatus.mockResolvedValue({
 			id: "draft-1",
 			status: "dismissed",
@@ -70,5 +82,23 @@ describe("DELETE /api/conversations/[id]/messages/[messageId]/skill-drafts/[draf
 			draftId: "draft-1",
 			status: "dismissed",
 		});
+	});
+
+	it("returns a conflict for final-state draft transitions", async () => {
+		mockUpdateAssistantMessageSkillDraftStatus.mockRejectedValue(
+			new (
+				await import("$lib/server/services/messages")
+			).SkillDraftTransitionError(
+				"skill_draft_transition_conflict",
+				"Skill draft is already in a final state.",
+				409,
+			),
+		);
+
+		const response = await DELETE(makeEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(409);
+		expect(data.errorKey).toBe("skill_draft_transition_conflict");
 	});
 });

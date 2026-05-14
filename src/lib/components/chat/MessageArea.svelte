@@ -26,6 +26,7 @@ let {
 	onSteer = undefined,
 	onOpenDocument = undefined,
 	canPublishSkillDrafts = false,
+	skillDraftActionState = {},
 	onSaveSkillDraft = undefined,
 	onDismissSkillDraft = undefined,
 	onPublishSkillDraft = undefined,
@@ -52,6 +53,7 @@ let {
 	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
 	canPublishSkillDrafts?: boolean;
+	skillDraftActionState?: Record<string, { busy?: boolean; error?: string | null }>;
 	onSaveSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
 	onDismissSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
 	onPublishSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
@@ -299,6 +301,7 @@ async function alignToBottomAfterRender() {
 					{onSteer}
 					{onOpenDocument}
 					{canPublishSkillDrafts}
+					{skillDraftActionState}
 					{onSaveSkillDraft}
 					{onDismissSkillDraft}
 					{onPublishSkillDraft}

@@ -34,6 +34,7 @@
 		onRetryFileProductionJob = undefined,
 		onCancelFileProductionJob = undefined,
 		canPublishSkillDrafts = false,
+		skillDraftActionState = {},
 		onSaveSkillDraft = undefined,
 		onDismissSkillDraft = undefined,
 		onPublishSkillDraft = undefined,
@@ -52,6 +53,7 @@
 		onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 		onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
 		canPublishSkillDrafts?: boolean;
+		skillDraftActionState?: Record<string, { busy?: boolean; error?: string | null }>;
 		onSaveSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
 		onDismissSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
 		onPublishSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
@@ -231,6 +233,10 @@
 	function skillDraftPayload(draftId: string) {
 		return { messageId: message.id, draftId };
 	}
+
+	function skillDraftState(draftId: string) {
+		return skillDraftActionState[`${message.id}:${draftId}`] ?? {};
+	}
 </script>
 
 <div class="group flex w-full flex-col {isUser && !isEditing ? 'items-end' : 'items-start'} gap-md py-md fade-in">
@@ -296,9 +302,12 @@
 			{#if skillDrafts.length > 0}
 				<div class="skill-draft-list">
 					{#each skillDrafts as draft (draft.id)}
+						{@const actionState = skillDraftState(draft.id)}
 						<SkillDraftCard
 							{draft}
 							canPublishSystem={canPublishSkillDrafts}
+							busy={Boolean(actionState.busy)}
+							actionError={actionState.error ?? null}
 							onSave={(draftId) => onSaveSkillDraft?.(skillDraftPayload(draftId))}
 							onDismiss={(draftId) => onDismissSkillDraft?.(skillDraftPayload(draftId))}
 							onPublish={(draftId) => onPublishSkillDraft?.(skillDraftPayload(draftId))}

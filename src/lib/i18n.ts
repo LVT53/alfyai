@@ -306,6 +306,8 @@ const dictionary = {
 			"That message is longer than the configured model input limit. Shorten it or split the request into smaller parts.",
 		"chat.error.providerToolRounds":
 			"The provider needed too many tool-call rounds and the turn was stopped to avoid looping. Retry with a narrower request or fewer required sources.",
+		"chat.error.linkedSourceNotFound":
+			"One of the linked Library documents is no longer available. Remove the missing source or link it again, then retry.",
 		// Admin - Models section
 		"admin.models": "Models",
 		"admin.builtIn": "Built-in",
@@ -423,6 +425,8 @@ const dictionary = {
 		"skillSessions.dismiss": "Dismiss",
 		"skillSessions.errors.start": "Failed to start skill session.",
 		"skillSessions.errors.end": "Failed to end skill session.",
+		"skillSessions.errors.activeConflict":
+			"Finish or dismiss the active skill before starting another one.",
 		"skillSessions.milestones.started": "Skill session started.",
 		"skillSessions.milestones.paused": "Skill session paused.",
 		"skillSessions.milestones.ended": "Skill session ended.",
@@ -456,6 +460,10 @@ const dictionary = {
 		"skillDrafts.saveError": "Failed to save skill draft.",
 		"skillDrafts.dismissError": "Failed to dismiss skill draft.",
 		"skillDrafts.publishError": "Failed to publish skill draft.",
+		"skillDrafts.publishDisabled":
+			"Chat skill drafts can only be saved privately. System skills must be reviewed in admin settings.",
+		"skillDrafts.notFound": "Skill draft not found.",
+		"skills.notFound": "Skill not found.",
 		"composerCommands.skill.label": "Skill",
 		"composerCommands.skill.description":
 			"Open skill controls when skill discovery lands.",
@@ -1555,6 +1563,8 @@ const dictionary = {
 			"Az üzenet hosszabb a beállított modellbemeneti korlátnál. Rövidítsd le, vagy bontsd kisebb részekre a kérést.",
 		"chat.error.providerToolRounds":
 			"A szolgáltatónak túl sok eszközhívási körre volt szüksége, ezért a rendszer leállította a választ, hogy ne fusson végtelen ciklusba. Próbáld újra szűkebb kéréssel vagy kevesebb kötelező forrással.",
+		"chat.error.linkedSourceNotFound":
+			"Az egyik kapcsolt könyvtári dokumentum már nem érhető el. Távolítsd el a hiányzó forrást, vagy kapcsold újra, majd próbáld meg ismét.",
 		// Admin - Models section
 		"admin.models": "Modellek",
 		"admin.builtIn": "Beépített",
@@ -1676,6 +1686,8 @@ const dictionary = {
 		"skillSessions.dismiss": "Elvetés",
 		"skillSessions.errors.start": "Nem sikerült elindítani a skill munkamenetet.",
 		"skillSessions.errors.end": "Nem sikerült lezárni a skill munkamenetet.",
+		"skillSessions.errors.activeConflict":
+			"Fejezd be vagy vesd el az aktív skillt, mielőtt másikat indítasz.",
 		"skillSessions.milestones.started": "Skill munkamenet elindítva.",
 		"skillSessions.milestones.paused": "Skill munkamenet szüneteltetve.",
 		"skillSessions.milestones.ended": "Skill munkamenet lezárva.",
@@ -1709,6 +1721,10 @@ const dictionary = {
 		"skillDrafts.saveError": "Nem sikerült menteni a skill vázlatot.",
 		"skillDrafts.dismissError": "Nem sikerült elvetni a skill vázlatot.",
 		"skillDrafts.publishError": "Nem sikerült publikálni a skill vázlatot.",
+		"skillDrafts.publishDisabled":
+			"A chatbeli skill vázlatok csak privátként menthetők. A rendszerskilleket az admin beállításokban kell átnézni.",
+		"skillDrafts.notFound": "A skill vázlat nem található.",
+		"skills.notFound": "A skill nem található.",
 		"composerCommands.skill.label": "Skill",
 		"composerCommands.skill.description":
 			"Skill vezérlők megnyitása a felfedezés elkészülte után.",

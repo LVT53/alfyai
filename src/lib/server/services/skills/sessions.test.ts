@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { unlinkSync } from "node:fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { randomUUID } from "node:crypto";
-import { unlinkSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
 let dbPath: string;
@@ -56,9 +56,13 @@ describe("skill sessions", () => {
 
 	it("starts one durable active session per conversation with an immutable skill snapshot", async () => {
 		seedBaseData();
-		const { createUserSkillDefinition, updateUserSkillDefinition } = await import("./user-skills");
-		const { getActiveSkillSession, serializePublicSkillSession, startSkillSession } =
-			await import("./sessions");
+		const { createUserSkillDefinition, updateUserSkillDefinition } =
+			await import("./user-skills");
+		const {
+			getActiveSkillSession,
+			serializePublicSkillSession,
+			startSkillSession,
+		} = await import("./sessions");
 
 		const skill = await createUserSkillDefinition("user-1", {
 			displayName: "Meeting critic",
@@ -112,7 +116,9 @@ describe("skill sessions", () => {
 			instructions: "Changed instructions.",
 		});
 
-		await expect(getActiveSkillSession("user-1", "conv-1")).resolves.toMatchObject({
+		await expect(
+			getActiveSkillSession("user-1", "conv-1"),
+		).resolves.toMatchObject({
 			id: started.id,
 			status: "active",
 			skillDisplayName: "Meeting critic",
@@ -128,10 +134,57 @@ describe("skill sessions", () => {
 		expect(publicSession).not.toHaveProperty("skillInstructions");
 	});
 
+	it("rejects starting a different active skill in the same conversation", async () => {
+		seedBaseData();
+		const { createUserSkillDefinition } = await import("./user-skills");
+		const { startSkillSession } = await import("./sessions");
+
+		const firstSkill = await createUserSkillDefinition("user-1", {
+			displayName: "Meeting critic",
+			description: "Reviews notes.",
+			instructions: "Find weak claims.",
+			durationPolicy: "session",
+		});
+		const secondSkill = await createUserSkillDefinition("user-1", {
+			displayName: "Interview coach",
+			description: "Asks questions.",
+			instructions: "Ask short questions first.",
+			durationPolicy: "session",
+		});
+
+		const started = await startSkillSession("user-1", "conv-1", {
+			id: firstSkill.id,
+			ownership: "user",
+			displayName: firstSkill.displayName,
+		});
+
+		await expect(
+			startSkillSession("user-1", "conv-1", {
+				id: secondSkill.id,
+				ownership: "user",
+				displayName: secondSkill.displayName,
+			}),
+		).rejects.toMatchObject({
+			code: "active_skill_session_conflict",
+			status: 409,
+		});
+
+		await expect(
+			startSkillSession("user-1", "conv-1", {
+				id: firstSkill.id,
+				ownership: "user",
+				displayName: firstSkill.displayName,
+			}),
+		).resolves.toMatchObject({ id: started.id });
+	});
+
 	it("enforces ownership, feature flag, unavailable skill pause, and end milestones", async () => {
 		seedBaseData();
-		const { createUserSkillDefinition, updateUserSkillDefinition } = await import("./user-skills");
-		const { endSkillSession, getActiveSkillSession, startSkillSession } = await import("./sessions");
+		const { createUserSkillDefinition, updateUserSkillDefinition } =
+			await import("./user-skills");
+		const { getActiveSkillSession, startSkillSession } = await import(
+			"./sessions"
+		);
 
 		const skill = await createUserSkillDefinition("user-1", {
 			displayName: "Interview coach",
@@ -166,8 +219,10 @@ describe("skill sessions", () => {
 
 		process.env.COMPOSER_COMMAND_REGISTRY_ENABLED = "true";
 		vi.resetModules();
-		const { getActiveSkillSession: getAfterFlagReset, endSkillSession: endAfterFlagReset } =
-			await import("./sessions");
+		const {
+			getActiveSkillSession: getAfterFlagReset,
+			endSkillSession: endAfterFlagReset,
+		} = await import("./sessions");
 
 		await updateUserSkillDefinition("user-1", skill.id, { enabled: false });
 		const paused = await getAfterFlagReset("user-1", "conv-1");
@@ -202,8 +257,11 @@ describe("skill sessions", () => {
 	it("applies Skill Control Envelope transitions once per operation id", async () => {
 		seedBaseData();
 		const { createUserSkillDefinition } = await import("./user-skills");
-		const { applySkillControlOperations, getActiveSkillSession, startSkillSession } =
-			await import("./sessions");
+		const {
+			applySkillControlOperations,
+			getActiveSkillSession,
+			startSkillSession,
+		} = await import("./sessions");
 
 		const skill = await createUserSkillDefinition("user-1", {
 			displayName: "Interview coach",
@@ -268,8 +326,11 @@ describe("skill sessions", () => {
 	it("maps terminal Skill Control Envelope transitions to ended sessions", async () => {
 		seedBaseData();
 		const { createUserSkillDefinition } = await import("./user-skills");
-		const { applySkillControlOperations, getActiveSkillSession, startSkillSession } =
-			await import("./sessions");
+		const {
+			applySkillControlOperations,
+			getActiveSkillSession,
+			startSkillSession,
+		} = await import("./sessions");
 
 		const skill = await createUserSkillDefinition("user-1", {
 			displayName: "Planner",

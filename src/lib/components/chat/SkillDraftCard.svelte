@@ -6,6 +6,7 @@
 		draft,
 		canPublishSystem = false,
 		busy = false,
+		actionError = null,
 		onSave = undefined,
 		onDismiss = undefined,
 		onPublish = undefined,
@@ -13,6 +14,7 @@
 		draft: SkillDraftProposal;
 		canPublishSystem?: boolean;
 		busy?: boolean;
+		actionError?: string | null;
 		onSave?: ((draftId: string) => void | Promise<void>) | undefined;
 		onDismiss?: ((draftId: string) => void | Promise<void>) | undefined;
 		onPublish?: ((draftId: string) => void | Promise<void>) | undefined;
@@ -90,6 +92,9 @@
 	</ul>
 
 	{#if !isFinal}
+		{#if actionError}
+			<p class="skill-draft-card__error" role="alert">{actionError}</p>
+		{/if}
 		<div class="skill-draft-card__actions">
 			<button type="button" class="skill-draft-card__primary" disabled={busy} onclick={() => onSave?.(draft.id)}>
 				{$t('skillDrafts.save')}
@@ -187,6 +192,16 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.5rem;
+	}
+
+	.skill-draft-card__error {
+		border: 1px solid var(--danger, #b42318);
+		border-radius: 8px;
+		background: var(--danger-surface, rgba(180, 35, 24, 0.08));
+		padding: 0.45rem 0.6rem;
+		color: var(--danger, #b42318);
+		font-size: 0.84rem;
+		line-height: 1.4;
 	}
 
 	button {

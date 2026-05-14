@@ -101,7 +101,8 @@ export const PUT: RequestHandler = async (event) => {
 	if (pendingSkill === undefined) {
 		return json({ error: 'pendingSkill must be a selected skill summary or null' }, { status: 400 });
 	}
-	if (pendingSkill && !getConfig().composerCommandRegistryEnabled) {
+	const composerCommandRegistryEnabled = getConfig().composerCommandRegistryEnabled;
+	if ((pendingSkill || selectedLinkedSources.length > 0) && !composerCommandRegistryEnabled) {
 		return json(
 			{
 				error: 'Composer Command Registry is disabled.',

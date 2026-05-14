@@ -189,7 +189,9 @@ export const POST: RequestHandler = async (event) => {
 		const honchoContext = langflowResult.honchoContext;
 		const honchoSnapshot = langflowResult.honchoSnapshot;
 		const normalizedAssistantOutput =
-			normalizeAssistantOutputWithSkillControl(text);
+			normalizeAssistantOutputWithSkillControl(text, {
+				skillControlEnabled: runtimeConfig.composerCommandRegistryEnabled,
+			});
 		const responseText = normalizedAssistantOutput.visibleText;
 		const effectiveModelId = langflowResult.modelId ?? turn.modelId ?? "model1";
 		const effectiveModelDisplayName =

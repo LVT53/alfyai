@@ -1,16 +1,19 @@
 import { json } from "@sveltejs/kit";
-import type { RequestHandler } from "./$types";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import { getConversation } from "$lib/server/services/conversations";
 import {
 	getAssistantMessageSkillDraft,
+	SkillDraftTransitionError,
 	updateAssistantMessageSkillDraftStatus,
 } from "$lib/server/services/messages";
 import {
 	createUserSkillDefinition,
+	deleteUserSkillDefinition,
+	getUserSkillDefinition,
 	UserSkillValidationError,
 } from "$lib/server/services/skills/user-skills";
+import type { RequestHandler } from "./$types";
 
 function disabledResponse() {
 	return json(
@@ -23,7 +26,17 @@ function disabledResponse() {
 }
 
 function validationResponse(error: UserSkillValidationError) {
-	return json({ error: error.message, errorKey: error.code }, { status: error.status });
+	return json(
+		{ error: error.message, errorKey: error.code },
+		{ status: error.status },
+	);
+}
+
+function transitionConflictResponse(error: SkillDraftTransitionError) {
+	return json(
+		{ error: error.message, errorKey: error.code },
+		{ status: error.status },
+	);
 }
 
 export const POST: RequestHandler = async (event) => {
@@ -45,7 +58,22 @@ export const POST: RequestHandler = async (event) => {
 		draftId: event.params.draftId,
 	});
 	if (!draft) {
-		return json({ error: "Skill draft not found.", errorKey: "skillDrafts.notFound" }, { status: 404 });
+		return json(
+			{ error: "Skill draft not found.", errorKey: "skillDrafts.notFound" },
+			{ status: 404 },
+		);
+	}
+	if (draft.status === "saved" && draft.savedSkillId) {
+		return json({ skill: { id: draft.savedSkillId }, draft }, { status: 200 });
+	}
+	if (draft.status !== "proposed") {
+		return transitionConflictResponse(
+			new SkillDraftTransitionError(
+				"skill_draft_transition_conflict",
+				"Skill draft is already in a final state.",
+				409,
+			),
+		);
 	}
 
 	try {
@@ -61,18 +89,54 @@ export const POST: RequestHandler = async (event) => {
 			sourceScope: draft.sourceScope,
 			creationSource: "ai_draft",
 		});
-		const updatedDraft = await updateAssistantMessageSkillDraftStatus({
-			conversationId: event.params.id,
-			messageId: event.params.messageId,
-			draftId: event.params.draftId,
-			status: "saved",
-			savedSkillId: skill.id,
-		});
+		let updatedDraft: Awaited<
+			ReturnType<typeof updateAssistantMessageSkillDraftStatus>
+		>;
+		try {
+			updatedDraft = await updateAssistantMessageSkillDraftStatus({
+				conversationId: event.params.id,
+				messageId: event.params.messageId,
+				draftId: event.params.draftId,
+				status: "saved",
+				savedSkillId: skill.id,
+			});
+		} catch (error) {
+			if (error instanceof SkillDraftTransitionError) {
+				await deleteUserSkillDefinition(user.id, skill.id).catch(() => undefined);
+			}
+			throw error;
+		}
+
+		if (
+			updatedDraft?.status === "saved" &&
+			updatedDraft.savedSkillId &&
+			updatedDraft.savedSkillId !== skill.id
+		) {
+			await deleteUserSkillDefinition(user.id, skill.id).catch(() => undefined);
+			const existingSkill = await getUserSkillDefinition(
+				user.id,
+				updatedDraft.savedSkillId,
+			);
+			return json(
+				{ skill: existingSkill ?? { id: updatedDraft.savedSkillId }, draft: updatedDraft },
+				{ status: 200 },
+			);
+		}
+		if (!updatedDraft) {
+			await deleteUserSkillDefinition(user.id, skill.id).catch(() => undefined);
+			return json(
+				{ error: "Skill draft not found.", errorKey: "skillDrafts.notFound" },
+				{ status: 404 },
+			);
+		}
 
 		return json({ skill, draft: updatedDraft }, { status: 201 });
 	} catch (error) {
 		if (error instanceof UserSkillValidationError) {
 			return validationResponse(error);
+		}
+		if (error instanceof SkillDraftTransitionError) {
+			return transitionConflictResponse(error);
 		}
 		throw error;
 	}

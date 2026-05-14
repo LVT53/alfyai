@@ -188,6 +188,35 @@ describe('MessageInput', () => {
 		expect(queryByRole('listbox', { name: 'Composer commands' })).toBeNull();
 	});
 
+	it('does not select a stale command when Enter follows Escape during tray close', async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			deepResearchEnabled: true,
+			onSend: sendSpy,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/research' } });
+		await fireEvent.keyDown(input, { key: 'Escape' });
+		expect(getByRole('listbox', { name: 'Composer commands' })).toHaveAttribute(
+			'data-state',
+			'closing'
+		);
+
+		await fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: '/research',
+				deepResearchDepth: null,
+			})
+		);
+		expect(getByRole('button', { name: 'Deep Research' })).not.toHaveClass(
+			'composer-icon--active'
+		);
+	});
+
 	it('selects a highlighted command with Enter before sending', async () => {
 		const sendSpy = vi.fn();
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
@@ -661,6 +690,54 @@ describe('MessageInput', () => {
 			getByRole('button', { name: 'Remove pending skill Interview coach' })
 		).toBeInTheDocument();
 		expect(queryByRole('listbox', { name: 'Composer commands' })).toBeNull();
+	});
+
+	it('ignores linked source and pending skill drafts when the registry flag is disabled', async () => {
+		const sendSpy = vi.fn();
+		const draftSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, queryByText } = render(MessageInput, {
+			composerCommandRegistryEnabled: false,
+			draftLinkedSources: [
+				{
+					displayArtifactId: 'display-disabled',
+					promptArtifactId: 'prompt-disabled',
+					familyArtifactIds: ['display-disabled', 'prompt-disabled'],
+					name: 'Disabled source.pdf',
+					type: 'document',
+				},
+			],
+			draftPendingSkill: {
+				id: 'skill-disabled',
+				ownership: 'user',
+				displayName: 'Disabled Skill',
+			},
+			draftVersion: 1,
+			onDraftChange: draftSpy,
+			onSend: sendSpy,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		expect(queryByText('Disabled source.pdf')).toBeNull();
+		expect(queryByText('Disabled Skill')).toBeNull();
+		await waitFor(() =>
+			expect(draftSpy).toHaveBeenCalledWith(
+				expect.objectContaining({
+					selectedLinkedSources: [],
+					pendingSkill: null,
+				})
+			)
+		);
+
+		await fireEvent.input(input, { target: { value: 'Send without disabled draft state' } });
+		await fireEvent.click(getByRole('button', { name: 'Send message' }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Send without disabled draft state',
+				linkedSources: [],
+				pendingSkill: null,
+			})
+		);
 	});
 
 	it('keeps pending composer state when /clear confirmation is cancelled', async () => {

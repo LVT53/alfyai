@@ -9,11 +9,13 @@ import {
 	isLinkedContextSourceError,
 } from '$lib/server/services/linked-context-sources';
 import { resolveSkillPromptContext } from '$lib/server/services/skills/prompt-context';
+import { startSkillSession } from '$lib/server/services/skills/sessions';
 import { getAvailableSkillSummary } from '$lib/server/services/skills/user-skills';
 import type {
 	ChatTurnRequestError,
 	ParsedChatTurnRequest,
 	PreflightedChatTurn,
+	SkillPromptContext,
 } from './types';
 
 type PreflightResult =
@@ -115,18 +117,96 @@ export async function preflightChatTurn(params: {
 		}
 	}
 
+	let skillPromptContext = await resolveSkillPromptContext({
+		userId,
+		turn: {
+			...request,
+			linkedSources: resolvedLinkedSources,
+		},
+	});
+
+	if (
+		!request.deepResearchDepth &&
+		request.pendingSkill &&
+		skillPromptContext?.source !== 'pending_skill'
+	) {
+		return {
+			ok: false,
+			error: {
+				status: 409,
+				error: 'Selected skill is no longer available.',
+				code: 'pending_skill_unavailable',
+			},
+		};
+	}
+
+	if (
+		!request.deepResearchDepth &&
+		request.pendingSkill &&
+		skillPromptContext?.source === 'pending_skill' &&
+		skillPromptContext.durationPolicy === 'session'
+	) {
+		try {
+			const session = await startSkillSession(
+				userId,
+				request.conversationId,
+				request.pendingSkill,
+			);
+			skillPromptContext = {
+				source: 'active_session',
+				sessionId: session.id,
+				sessionStatus: session.status === 'paused' ? 'paused' : 'active',
+				skillId: session.skillId,
+				skillOwnership: session.skillOwnership,
+				skillDisplayName: session.skillDisplayName,
+				skillDescription: session.skillDescription,
+				skillInstructions: session.skillInstructions,
+				durationPolicy: session.durationPolicy,
+				questionPolicy: session.questionPolicy,
+				notesPolicy: session.notesPolicy,
+				sourceScope: session.sourceScope,
+				skillVersion: session.skillVersion,
+				linkedSources: skillPromptContext.linkedSources,
+			} satisfies SkillPromptContext;
+		} catch (error) {
+			const code =
+				error instanceof Error && 'code' in error
+					? (error as { code?: unknown }).code
+					: undefined;
+			const status =
+				error instanceof Error && 'status' in error
+					? (error as { status?: unknown }).status
+					: undefined;
+			if (code === 'skill_unavailable') {
+				return {
+					ok: false,
+					error: {
+						status: 409,
+						error: 'Selected skill is no longer available.',
+						code: 'pending_skill_unavailable',
+					},
+				};
+			}
+			if (code === 'active_skill_session_conflict') {
+				return {
+					ok: false,
+					error: {
+						status: typeof status === 'number' ? status : 409,
+						error: 'Another skill session is already active.',
+						code: 'active_skill_session_conflict',
+					},
+				};
+			}
+			throw error;
+		}
+	}
+
 	return {
 		ok: true,
 		value: {
 			...request,
 			linkedSources: resolvedLinkedSources,
-			skillPromptContext: await resolveSkillPromptContext({
-				userId,
-				turn: {
-					...request,
-					linkedSources: resolvedLinkedSources,
-				},
-			}),
+			skillPromptContext,
 		},
 	};
 }

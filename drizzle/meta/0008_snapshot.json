@@ -709,6 +709,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "pending_skill_json": {
+          "name": "pending_skill_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "integer",
@@ -3052,6 +3059,328 @@
           "tableTo": "conversations",
           "columnsFrom": [
             "conversation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "skill_note_operations": {
+      "name": "skill_note_operations",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assistant_message_id": {
+          "name": "assistant_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "operation_id": {
+          "name": "operation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "skill_note_operations_session_turn_operation_idx": {
+          "name": "skill_note_operations_session_turn_operation_idx",
+          "columns": [
+            "session_id",
+            "assistant_message_id",
+            "operation_id"
+          ],
+          "isUnique": true
+        },
+        "skill_note_operations_artifact_created_idx": {
+          "name": "skill_note_operations_artifact_created_idx",
+          "columns": [
+            "artifact_id",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "skill_note_operations_session_id_skill_sessions_id_fk": {
+          "name": "skill_note_operations_session_id_skill_sessions_id_fk",
+          "tableFrom": "skill_note_operations",
+          "tableTo": "skill_sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "skill_note_operations_user_id_users_id_fk": {
+          "name": "skill_note_operations_user_id_users_id_fk",
+          "tableFrom": "skill_note_operations",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "skill_note_operations_conversation_id_conversations_id_fk": {
+          "name": "skill_note_operations_conversation_id_conversations_id_fk",
+          "tableFrom": "skill_note_operations",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "skill_note_operations_assistant_message_id_messages_id_fk": {
+          "name": "skill_note_operations_assistant_message_id_messages_id_fk",
+          "tableFrom": "skill_note_operations",
+          "tableTo": "messages",
+          "columnsFrom": [
+            "assistant_message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "skill_note_operations_artifact_id_artifacts_id_fk": {
+          "name": "skill_note_operations_artifact_id_artifacts_id_fk",
+          "tableFrom": "skill_note_operations",
+          "tableTo": "artifacts",
+          "columnsFrom": [
+            "artifact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "skill_note_checkpoints": {
+      "name": "skill_note_checkpoints",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note_artifact_id": {
+          "name": "note_artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assistant_message_id": {
+          "name": "assistant_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "operation_id": {
+          "name": "operation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "previous_body": {
+          "name": "previous_body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "previous_metadata_json": {
+          "name": "previous_metadata_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "skill_note_checkpoints_note_created_idx": {
+          "name": "skill_note_checkpoints_note_created_idx",
+          "columns": [
+            "note_artifact_id",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "skill_note_checkpoints_session_created_idx": {
+          "name": "skill_note_checkpoints_session_created_idx",
+          "columns": [
+            "session_id",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "skill_note_checkpoints_note_artifact_id_artifacts_id_fk": {
+          "name": "skill_note_checkpoints_note_artifact_id_artifacts_id_fk",
+          "tableFrom": "skill_note_checkpoints",
+          "tableTo": "artifacts",
+          "columnsFrom": [
+            "note_artifact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "skill_note_checkpoints_session_id_skill_sessions_id_fk": {
+          "name": "skill_note_checkpoints_session_id_skill_sessions_id_fk",
+          "tableFrom": "skill_note_checkpoints",
+          "tableTo": "skill_sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "skill_note_checkpoints_user_id_users_id_fk": {
+          "name": "skill_note_checkpoints_user_id_users_id_fk",
+          "tableFrom": "skill_note_checkpoints",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "skill_note_checkpoints_conversation_id_conversations_id_fk": {
+          "name": "skill_note_checkpoints_conversation_id_conversations_id_fk",
+          "tableFrom": "skill_note_checkpoints",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "skill_note_checkpoints_assistant_message_id_messages_id_fk": {
+          "name": "skill_note_checkpoints_assistant_message_id_messages_id_fk",
+          "tableFrom": "skill_note_checkpoints",
+          "tableTo": "messages",
+          "columnsFrom": [
+            "assistant_message_id"
           ],
           "columnsTo": [
             "id"

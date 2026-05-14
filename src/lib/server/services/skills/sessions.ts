@@ -1,5 +1,12 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { getConfig } from "$lib/server/config-store";
+import { db } from "$lib/server/db";
+import {
+	conversations,
+	skillSessionMilestones,
+	skillSessions,
+} from "$lib/server/db/schema";
 import type {
 	PendingSkillSelection,
 	SkillControlOperation,
@@ -8,9 +15,6 @@ import type {
 	SkillSessionMilestone,
 	SkillSessionMilestoneKind,
 } from "$lib/types";
-import { db } from "$lib/server/db";
-import { conversations, skillSessionMilestones, skillSessions } from "$lib/server/db/schema";
-import { getConfig } from "$lib/server/config-store";
 import { getAvailableSkillDefinition } from "./user-skills";
 
 export class SkillSessionError extends Error {
@@ -26,7 +30,11 @@ export class SkillSessionError extends Error {
 
 function assertSessionsEnabled() {
 	if (!getConfig().composerCommandRegistryEnabled) {
-		throw new SkillSessionError("skill_sessions_disabled", "Skill sessions are disabled.", 403);
+		throw new SkillSessionError(
+			"skill_sessions_disabled",
+			"Skill sessions are disabled.",
+			403,
+		);
 	}
 }
 
@@ -37,7 +45,9 @@ function toUnixSeconds(value: Date | null): number | null {
 function parseStringArray(value: string): string[] {
 	try {
 		const parsed = JSON.parse(value) as unknown;
-		return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+		return Array.isArray(parsed)
+			? parsed.filter((item): item is string => typeof item === "string")
+			: [];
 	} catch {
 		return [];
 	}
@@ -54,7 +64,9 @@ function parseObject(value: string): Record<string, unknown> {
 	}
 }
 
-function toMilestone(row: typeof skillSessionMilestones.$inferSelect): SkillSessionMilestone {
+function toMilestone(
+	row: typeof skillSessionMilestones.$inferSelect,
+): SkillSessionMilestone {
 	return {
 		id: row.id,
 		sessionId: row.sessionId,
@@ -98,7 +110,9 @@ function toSession(
 	};
 }
 
-export function serializePublicSkillSession(session: SkillSessionInternal | null): SkillSession | null {
+export function serializePublicSkillSession(
+	session: SkillSessionInternal | null,
+): SkillSession | null {
 	if (!session) return null;
 	const { skillInstructions: _skillInstructions, ...publicSession } = session;
 	return publicSession;
@@ -108,16 +122,26 @@ async function assertConversationOwner(userId: string, conversationId: string) {
 	const row = await db
 		.select({ id: conversations.id })
 		.from(conversations)
-		.where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		)
 		.get();
 
 	if (!row) {
-		throw new SkillSessionError("conversation_not_found", "Conversation not found.", 404);
+		throw new SkillSessionError(
+			"conversation_not_found",
+			"Conversation not found.",
+			404,
+		);
 	}
 }
 
 async function listMilestones(sessionIds: string[]) {
-	if (sessionIds.length === 0) return new Map<string, SkillSessionMilestone[]>();
+	if (sessionIds.length === 0)
+		return new Map<string, SkillSessionMilestone[]>();
 	const rows = await db
 		.select()
 		.from(skillSessionMilestones)
@@ -127,12 +151,17 @@ async function listMilestones(sessionIds: string[]) {
 	const grouped = new Map<string, SkillSessionMilestone[]>();
 	for (const row of rows) {
 		const milestone = toMilestone(row);
-		grouped.set(row.sessionId, [...(grouped.get(row.sessionId) ?? []), milestone]);
+		grouped.set(row.sessionId, [
+			...(grouped.get(row.sessionId) ?? []),
+			milestone,
+		]);
 	}
 	return grouped;
 }
 
-async function hydrateSession(row: typeof skillSessions.$inferSelect): Promise<SkillSessionInternal> {
+async function hydrateSession(
+	row: typeof skillSessions.$inferSelect,
+): Promise<SkillSessionInternal> {
 	const milestones = await listMilestones([row.id]);
 	return toSession(row, milestones.get(row.id) ?? []);
 }
@@ -153,7 +182,10 @@ async function getCurrentSessionRow(userId: string, conversationId: string) {
 }
 
 async function appendMilestone(
-	session: Pick<typeof skillSessions.$inferSelect, "id" | "userId" | "conversationId" | "skillDisplayName">,
+	session: Pick<
+		typeof skillSessions.$inferSelect,
+		"id" | "userId" | "conversationId" | "skillDisplayName"
+	>,
 	kind: SkillSessionMilestoneKind,
 	messageKey: string,
 	messageParams?: Record<string, unknown>,
@@ -182,6 +214,16 @@ export async function startSkillSession(
 
 	const existing = await getCurrentSessionRow(userId, conversationId);
 	if (existing?.status === "active") {
+		if (
+			existing.skillId !== pendingSkill.id ||
+			existing.skillOwnership !== pendingSkill.ownership
+		) {
+			throw new SkillSessionError(
+				"active_skill_session_conflict",
+				"Another skill session is already active.",
+				409,
+			);
+		}
 		return hydrateSession(existing);
 	}
 
@@ -196,38 +238,52 @@ export async function startSkillSession(
 
 	const sessionId = randomUUID();
 	db.transaction((tx) => {
-		tx.insert(skillSessions).values({
-			id: sessionId,
-			userId,
-			conversationId,
-			skillId: skill.id,
-			skillOwnership: skill.ownership,
-			status: "active",
-			skillDisplayName: skill.displayName,
-			skillDescription: skill.description,
-			skillInstructions: skill.instructions,
-			activationExamplesJson: JSON.stringify(skill.activationExamples),
-			durationPolicy: skill.durationPolicy,
-			questionPolicy: skill.questionPolicy,
-			notesPolicy: skill.notesPolicy,
-			sourceScope: skill.sourceScope,
-			skillVersion: skill.version,
-			startedFrom: "pending_skill",
-		}).run();
-		tx.insert(skillSessionMilestones).values({
-			id: randomUUID(),
-			sessionId,
-			userId,
-			conversationId,
-			kind: "started",
-			messageKey: "skillSessions.milestones.started",
-			messageParamsJson: JSON.stringify({ skillDisplayName: skill.displayName }),
-		}).run();
+		tx.insert(skillSessions)
+			.values({
+				id: sessionId,
+				userId,
+				conversationId,
+				skillId: skill.id,
+				skillOwnership: skill.ownership,
+				status: "active",
+				skillDisplayName: skill.displayName,
+				skillDescription: skill.description,
+				skillInstructions: skill.instructions,
+				activationExamplesJson: JSON.stringify(skill.activationExamples),
+				durationPolicy: skill.durationPolicy,
+				questionPolicy: skill.questionPolicy,
+				notesPolicy: skill.notesPolicy,
+				sourceScope: skill.sourceScope,
+				skillVersion: skill.version,
+				startedFrom: "pending_skill",
+			})
+			.run();
+		tx.insert(skillSessionMilestones)
+			.values({
+				id: randomUUID(),
+				sessionId,
+				userId,
+				conversationId,
+				kind: "started",
+				messageKey: "skillSessions.milestones.started",
+				messageParamsJson: JSON.stringify({
+					skillDisplayName: skill.displayName,
+				}),
+			})
+			.run();
 	});
 
-	const row = await db.select().from(skillSessions).where(eq(skillSessions.id, sessionId)).get();
+	const row = await db
+		.select()
+		.from(skillSessions)
+		.where(eq(skillSessions.id, sessionId))
+		.get();
 	if (!row) {
-		throw new SkillSessionError("session_create_failed", "Failed to create skill session.", 500);
+		throw new SkillSessionError(
+			"session_create_failed",
+			"Failed to create skill session.",
+			500,
+		);
 	}
 	return hydrateSession(row);
 }
@@ -439,11 +495,16 @@ export async function recordSkillNoteFailureMilestone(params: {
 		return current;
 	}
 
-	await appendMilestone(row, "failed_note", "skillSessions.milestones.failedNote", {
-		envelopeOperationId: params.operationId,
-		assistantMessageId: params.assistantMessageId,
-		errorCode: params.errorCode,
-		errorMessage: params.errorMessage,
-	});
+	await appendMilestone(
+		row,
+		"failed_note",
+		"skillSessions.milestones.failedNote",
+		{
+			envelopeOperationId: params.operationId,
+			assistantMessageId: params.assistantMessageId,
+			errorCode: params.errorCode,
+			errorMessage: params.errorMessage,
+		},
+	);
 	return hydrateSession(row);
 }

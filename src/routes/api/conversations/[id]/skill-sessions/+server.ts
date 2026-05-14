@@ -28,7 +28,17 @@ function parsePendingSkill(value: unknown): PendingSkillSelection | null {
 
 function skillSessionErrorResponse(error: unknown) {
 	if (error instanceof SkillSessionError) {
-		return json({ error: error.message, code: error.code }, { status: error.status });
+		return json(
+			{
+				error: error.message,
+				code: error.code,
+				errorKey:
+					error.code === "active_skill_session_conflict"
+						? "skillSessions.errors.activeConflict"
+						: undefined,
+			},
+			{ status: error.status },
+		);
 	}
 	console.error("[SKILL_SESSIONS] Request failed:", error);
 	return json({ error: "Failed to update skill session" }, { status: 500 });

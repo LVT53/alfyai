@@ -109,4 +109,24 @@ describe('LinkedDocumentPicker', () => {
 
 		expect(cancel).toHaveBeenCalledTimes(1);
 	});
+
+	it('traps Tab navigation inside the modal dialog', async () => {
+		render(LinkedDocumentPicker, {
+			documents: [makeDocument()],
+			selectedSources: [],
+			onApply: vi.fn(),
+			onCancel: vi.fn(),
+		});
+
+		const closeButton = screen.getByRole('button', { name: 'Close document picker' });
+		const applyButton = screen.getByRole('button', { name: 'Link selected documents' });
+
+		applyButton.focus();
+		await fireEvent.keyDown(window, { key: 'Tab' });
+		expect(closeButton).toHaveFocus();
+
+		closeButton.focus();
+		await fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+		expect(applyButton).toHaveFocus();
+	});
 });

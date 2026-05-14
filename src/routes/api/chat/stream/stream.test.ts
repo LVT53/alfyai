@@ -102,6 +102,7 @@ vi.mock("$lib/server/services/skills/user-skills", () => ({
 vi.mock("$lib/server/services/skills/sessions", () => ({
 	applySkillControlOperations: vi.fn(async () => null),
 	getActiveSkillSession: vi.fn(async () => null),
+	startSkillSession: vi.fn(async () => null),
 }));
 
 vi.mock("$lib/server/services/task-state", () => ({
@@ -728,6 +729,64 @@ describe("POST /api/chat/stream", () => {
 			code: "composer_commands_disabled",
 		});
 		expect(mockSendMessageStream).not.toHaveBeenCalled();
+	});
+
+	it("streams Skill Control Envelopes as plain output when Composer Command Registry is disabled", async () => {
+		configMockState.composerCommandRegistryEnabled = false;
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		mockCreateMessage
+			.mockResolvedValueOnce({ id: "user-msg", role: "user", content: "Hello", timestamp: Date.now() })
+			.mockResolvedValueOnce({
+				id: "assistant-msg",
+				role: "assistant",
+				content: "Visible answer.",
+				timestamp: Date.now(),
+			});
+		mockSendMessageStream.mockResolvedValue(
+			buildSseStream([
+				'event: token\ndata: {"text":"Visible answer.\\n<skill_control"}\n\n',
+				`event: token\ndata: ${JSON.stringify({
+					text: [
+						"_v1>",
+						JSON.stringify({
+							version: 1,
+							operations: [
+								{
+									operationId: "ask-deadline",
+									kind: "session_transition",
+									transition: "awaiting_user",
+								},
+							],
+						}),
+						"</skill_control_v1>",
+					].join("\n"),
+				})}\n\n`,
+				"data: [DONE]\n\n",
+			]),
+		);
+
+		const response = await POST(makeEvent({ message: "Hello", conversationId: "conv-1" }));
+		const body = await readSseResponse(response);
+
+		expect(response.status).toBe(200);
+		expect(body).toContain("skill_control_v1");
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			expect.stringContaining("<skill_control_v1>"),
+			undefined,
+			undefined,
+			expect.not.objectContaining({
+				skillControl: expect.anything(),
+				skillQuestion: expect.anything(),
+			}),
+		);
+		expect(mockApplySkillControlOperations).not.toHaveBeenCalled();
 	});
 
 	it("continues processing upstream after the client disconnects during metadata loading", async () => {

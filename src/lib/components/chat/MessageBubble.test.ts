@@ -123,4 +123,41 @@ describe('MessageBubble', () => {
 			draftId: 'draft-1',
 		});
 	});
+
+	it('renders assistant Skill Draft action state beside the affected draft', () => {
+		const message: ChatMessage = {
+			id: 'assistant-1',
+			renderKey: 'assistant-1',
+			role: 'assistant',
+			content: 'I can make that reusable.',
+			timestamp: Date.now(),
+			skillDrafts: [
+				{
+					id: 'draft-1',
+					status: 'proposed',
+					displayName: 'Meeting critic',
+					description: 'Review meeting notes for weak follow-ups.',
+					instructions: 'Find missing owners.',
+					activationExamples: [],
+					durationPolicy: 'next_message',
+					questionPolicy: 'none',
+					notesPolicy: 'none',
+					sourceScope: 'selected_sources_only',
+				},
+			],
+		};
+
+		render(MessageBubble, {
+			message,
+			skillDraftActionState: {
+				'assistant-1:draft-1': {
+					busy: true,
+					error: 'Failed to save skill draft.',
+				},
+			},
+		});
+
+		expect(screen.getByRole('alert')).toHaveTextContent('Failed to save skill draft.');
+		expect(screen.getByRole('button', { name: 'Save private skill' })).toBeDisabled();
+	});
 });

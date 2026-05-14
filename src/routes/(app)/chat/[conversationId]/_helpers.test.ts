@@ -99,6 +99,13 @@ describe('toFriendlySendError', () => {
 			'translated:chat.error.backend'
 		);
 	});
+
+	it('maps missing linked source preflight failures to a specific localized message', () => {
+		const error = new Error('Linked source is no longer available') as Error & { code?: string };
+		error.code = 'linked_source_not_found';
+
+		expect(toFriendlySendError(error, translate)).toBe('translated:chat.error.linkedSourceNotFound');
+	});
 });
 
 describe('workspace presentation helpers', () => {
