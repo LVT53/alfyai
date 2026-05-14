@@ -8,7 +8,11 @@ interface LoginResponse {
 	};
 }
 
-export async function login(email: string, password: string): Promise<LoginResponse> {
+export async function login(
+	email: string,
+	password: string,
+	rememberMe = false
+): Promise<LoginResponse> {
 	return requestJson<LoginResponse>(
 		'/api/auth/login',
 		{
@@ -16,7 +20,7 @@ export async function login(email: string, password: string): Promise<LoginRespo
 			headers: {
 				'Content-Type': 'application/json',
 			},
-			body: JSON.stringify({ email, password }),
+			body: JSON.stringify({ email, password, rememberMe }),
 		},
 		'Login failed. Please check your credentials.'
 	);

@@ -8,8 +8,14 @@
   let password = $state('');
   let error = $state('');
   let loading = $state(false);
+  let hydrated = $state(false);
   let showPassword = $state(false);
+  let rememberMe = $state(false);
   let formRef = $state<HTMLFormElement | null>(null);
+
+  $effect(() => {
+    hydrated = true;
+  });
 
   async function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
@@ -23,7 +29,7 @@
     loading = true;
 
     try {
-      await login(email, password);
+      await login(email, password, rememberMe);
       clearClientAccountState();
       await invalidateAll();
       await goto('/', { invalidateAll: true });
@@ -60,7 +66,7 @@
       <p class="text-sm text-text-muted">{$t('login.welcomeBack')}</p>
     </div>
 
-    <form bind:this={formRef} onsubmit={handleSubmit} class="flex flex-col">
+    <form bind:this={formRef} method="post" action="/api/auth/login" onsubmit={handleSubmit} class="flex flex-col">
       <div class="flex flex-col gap-md">
         <div class="space-y-2">
           <label for="email" class="block text-sm font-medium text-text-primary">
@@ -121,13 +127,25 @@
         </div>
       </div>
 
+      <label class="mt-md flex min-h-[32px] items-center gap-sm text-sm text-text-primary">
+        <input
+          name="rememberMe"
+          type="checkbox"
+          value="true"
+          bind:checked={rememberMe}
+          disabled={loading}
+          class="h-4 w-4 rounded border-border bg-surface-page text-accent focus:ring-2 focus:ring-focus-ring disabled:opacity-50"
+        />
+        <span>{$t('login.rememberMe')}</span>
+      </label>
+
       {#if error}
         <p class="mt-md text-sm text-danger" role="alert" data-testid="login-error">{error}</p>
       {/if}
 
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || !hydrated}
         class="btn-primary mt-lg flex min-h-[44px] w-full cursor-pointer items-center justify-center disabled:cursor-not-allowed disabled:opacity-70"
       >
         {#if loading}

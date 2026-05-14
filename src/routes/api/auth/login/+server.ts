@@ -1,20 +1,47 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { json } from '@sveltejs/kit';
-import { verifyPassword, createSession } from '$lib/server/services/auth';
+import { verifyPassword, createSession, setSessionCookie } from '$lib/server/services/auth';
 import { db } from '$lib/server/db';
 import { users } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 
+type LoginResponseMode = 'json' | 'redirect';
+
 // Validation schema for login request
 const loginSchema = z.object({
 	email: z.string().min(1, 'Invalid email or password'),
-	password: z.string().min(1, 'Invalid email or password')
+	password: z.string().min(1, 'Invalid email or password'),
+	rememberMe: z.boolean().optional().default(false)
 });
 
-export const POST: RequestHandler = async ({ request }) => {
+async function parseLoginRequest(request: Request): Promise<{
+	body: unknown;
+	responseMode: LoginResponseMode;
+}> {
+	const contentType = request.headers.get('content-type') ?? '';
+	if (contentType.includes('application/json')) {
+		return {
+			body: await request.json(),
+			responseMode: 'json'
+		};
+	}
+
+	const formData = await request.formData();
+	const rememberMeValue = formData.get('rememberMe');
+	return {
+		body: {
+			email: formData.get('email'),
+			password: formData.get('password'),
+			rememberMe: rememberMeValue === 'on' || rememberMeValue === 'true'
+		},
+		responseMode: 'redirect'
+	};
+}
+
+export const POST: RequestHandler = async ({ request, cookies }) => {
 	try {
-		const body = await request.json();
+		const { body, responseMode } = await parseLoginRequest(request);
 		const result = loginSchema.safeParse(body);
 		
 		if (!result.success) {
@@ -24,7 +51,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		const { email, password } = result.data;
+		const { email, password, rememberMe } = result.data;
 
 		// Find user by email
 		const userResult = await db
@@ -55,21 +82,24 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		// Create session and set cookie
 		const { token, expiresAt } = await createSession(user.id);
+		setSessionCookie(cookies, token, expiresAt, { rememberMe });
 
-		return json(
-			{
-				user: {
-					id: user.id,
-					email: user.email,
-					displayName: user.name ?? user.email
-				}
-			},
-			{
+		if (responseMode === 'redirect') {
+			return new Response(null, {
+				status: 303,
 				headers: {
-					'Set-Cookie': `session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${Math.floor((expiresAt - Date.now()) / 1000)}`
+					Location: '/'
 				}
+			});
+		}
+
+		return json({
+			user: {
+				id: user.id,
+				email: user.email,
+				displayName: user.name ?? user.email
 			}
-		);
+		});
 	} catch (err) {
 		console.error('Login error:', err);
 		return json(

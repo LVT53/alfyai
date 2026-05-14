@@ -199,6 +199,21 @@ describe('setSessionCookie', () => {
     const callArgs = mockCookies.set.mock.calls[0][2];
     expect(callArgs.maxAge).toBeGreaterThan(0);
   });
+
+  it('omits maxAge for browser-session cookies', () => {
+    const mockCookies = { set: vi.fn() };
+    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+
+    setSessionCookie(mockCookies, 'my-token', expiresAt, { rememberMe: false });
+
+    expect(mockCookies.set).toHaveBeenCalledWith(
+      'session',
+      'my-token',
+      expect.not.objectContaining({
+        maxAge: expect.any(Number),
+      })
+    );
+  });
 });
 
 describe('clearSessionCookie', () => {

@@ -1,9 +1,12 @@
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
+import type { Cookies } from '@sveltejs/kit';
 import { db } from '../db/index';
 import { sessions, users } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
 import type { SessionUser } from '../../types';
+
+const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function verifyPassword(plaintext: string, hash: string): Promise<boolean> {
   return bcrypt.compare(plaintext, hash);
@@ -11,7 +14,7 @@ export async function verifyPassword(plaintext: string, hash: string): Promise<b
 
 export async function createSession(userId: string): Promise<{ token: string; expiresAt: number }> {
   const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+  const expiresAt = Date.now() + SESSION_DURATION_MS;
 
   await db.insert(sessions).values({
     id: token,
@@ -57,18 +60,33 @@ export async function deleteSession(token: string): Promise<void> {
   await db.delete(sessions).where(eq(sessions.id, token));
 }
 
-export function setSessionCookie(cookies: any, token: string, expiresAt: number): void {
+type SessionCookieOptions = {
+  rememberMe?: boolean;
+};
+
+export function setSessionCookie(
+  cookies: Pick<Cookies, 'set'>,
+  token: string,
+  expiresAt: number,
+  options: SessionCookieOptions = { rememberMe: true }
+): void {
   const maxAge = Math.floor((expiresAt - Date.now()) / 1000);
-  cookies.set('session', token, {
+
+  const cookieOptions: Parameters<Cookies['set']>[2] = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge,
-  });
+  };
+
+  if (options.rememberMe !== false) {
+    cookieOptions.maxAge = maxAge;
+  }
+
+  cookies.set('session', token, cookieOptions);
 }
 
-export function clearSessionCookie(cookies: any): void {
+export function clearSessionCookie(cookies: Pick<Cookies, 'delete'>): void {
   cookies.delete('session', {
     path: '/',
   });

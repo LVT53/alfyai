@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('$lib/server/services/auth', () => ({
   verifyPassword: vi.fn(),
   createSession: vi.fn(),
+  setSessionCookie: vi.fn(),
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -20,11 +21,12 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 import { POST } from './+server';
-import { verifyPassword, createSession } from '$lib/server/services/auth';
+import { verifyPassword, createSession, setSessionCookie } from '$lib/server/services/auth';
 import { db } from '$lib/server/db';
 
 const mockVerifyPassword = verifyPassword as ReturnType<typeof vi.fn>;
 const mockCreateSession = createSession as ReturnType<typeof vi.fn>;
+const mockSetSessionCookie = setSessionCookie as ReturnType<typeof vi.fn>;
 const mockDb = db as any;
 
 function makeEvent(body: unknown) {
@@ -34,6 +36,22 @@ function makeEvent(body: unknown) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+    cookies: {
+      set: vi.fn(),
+    },
+  } as any;
+}
+
+function makeFormEvent(body: URLSearchParams) {
+  return {
+    request: new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    }),
+    cookies: {
+      set: vi.fn(),
+    },
   } as any;
 }
 
@@ -65,18 +83,94 @@ describe('POST /api/auth/login', () => {
     expect(data.user.displayName).toBe('Alice');
   });
 
-  it('sets Set-Cookie header with session token on successful login', async () => {
+  it('sets session cookie with the auth helper on successful login', async () => {
     const user = { id: 'user-1', email: 'alice@example.com', name: 'Alice', passwordHash: 'hash' };
     mockDb.select.mockReturnValue(makeSelectChain([user]));
     mockVerifyPassword.mockResolvedValue(true);
     mockCreateSession.mockResolvedValue({ token: 'my-session-token', expiresAt: Date.now() + 604800000 });
 
-    const response = await POST(makeEvent({ email: 'alice@example.com', password: 'correct' }));
+    const event = makeEvent({ email: 'alice@example.com', password: 'correct', rememberMe: true });
+    await POST(event);
 
-    const setCookie = response.headers.get('Set-Cookie');
-    expect(setCookie).toBeTruthy();
-    expect(setCookie).toContain('my-session-token');
-    expect(setCookie).toContain('HttpOnly');
+    expect(mockSetSessionCookie).toHaveBeenCalledWith(
+      event.cookies,
+      'my-session-token',
+      expect.any(Number),
+      expect.objectContaining({
+        rememberMe: true,
+      })
+    );
+  });
+
+  it('sets a session cookie without Max-Age when rememberMe is false', async () => {
+    const user = { id: 'user-1', email: 'alice@example.com', name: 'Alice', passwordHash: 'hash' };
+    mockDb.select.mockReturnValue(makeSelectChain([user]));
+    mockVerifyPassword.mockResolvedValue(true);
+    mockCreateSession.mockResolvedValue({ token: 'session-only-token', expiresAt: Date.now() + 604800000 });
+
+    const event = makeEvent({
+      email: 'alice@example.com',
+      password: 'correct',
+      rememberMe: false,
+    });
+    await POST(event);
+
+    expect(mockSetSessionCookie).toHaveBeenCalledWith(
+      event.cookies,
+      'session-only-token',
+      expect.any(Number),
+      expect.objectContaining({
+        rememberMe: false,
+      })
+    );
+  });
+
+  it('sets a persistent cookie when rememberMe is true', async () => {
+    const user = { id: 'user-1', email: 'alice@example.com', name: 'Alice', passwordHash: 'hash' };
+    mockDb.select.mockReturnValue(makeSelectChain([user]));
+    mockVerifyPassword.mockResolvedValue(true);
+    mockCreateSession.mockResolvedValue({ token: 'persistent-token', expiresAt: Date.now() + 604800000 });
+
+    const event = makeEvent({
+      email: 'alice@example.com',
+      password: 'correct',
+      rememberMe: true,
+    });
+    await POST(event);
+
+    expect(mockSetSessionCookie).toHaveBeenCalledWith(
+      event.cookies,
+      'persistent-token',
+      expect.any(Number),
+      expect.objectContaining({
+        rememberMe: true,
+      })
+    );
+  });
+
+  it('redirects native form login and maps checkbox value to rememberMe', async () => {
+    const user = { id: 'user-1', email: 'alice@example.com', name: 'Alice', passwordHash: 'hash' };
+    mockDb.select.mockReturnValue(makeSelectChain([user]));
+    mockVerifyPassword.mockResolvedValue(true);
+    mockCreateSession.mockResolvedValue({ token: 'form-token', expiresAt: Date.now() + 604800000 });
+
+    const event = makeFormEvent(new URLSearchParams({
+      email: 'alice@example.com',
+      password: 'correct',
+      rememberMe: 'true',
+    }));
+    const response = await POST(event);
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get('Location')).toBe('/');
+    expect(mockSetSessionCookie).toHaveBeenCalledWith(
+      event.cookies,
+      'form-token',
+      expect.any(Number),
+      expect.objectContaining({
+        rememberMe: true,
+      })
+    );
   });
 
   it('returns 401 with generic error when user email does not exist', async () => {
