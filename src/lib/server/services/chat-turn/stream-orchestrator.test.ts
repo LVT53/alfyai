@@ -28,6 +28,7 @@ vi.mock("$lib/server/services/task-state", () => ({
 	),
 	getContextDebugState: vi.fn(async () => null),
 	getConversationTaskState: vi.fn(async () => null),
+	getProjectFolderReferenceContext: vi.fn(async () => null),
 }));
 
 vi.mock("$lib/server/services/chat-turn/finalize", () => ({

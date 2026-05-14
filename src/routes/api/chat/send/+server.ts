@@ -178,6 +178,7 @@ export const POST: RequestHandler = async (event) => {
 		const contextStatus = langflowResult.contextStatus;
 		const initialTaskState = langflowResult.taskState;
 		const initialContextDebug = langflowResult.contextDebug;
+		const contextTraceSections = langflowResult.contextTraceSections;
 		const honchoContext = langflowResult.honchoContext;
 		const honchoSnapshot = langflowResult.honchoSnapshot;
 		const responseText = normalizeAssistantOutput(text);
@@ -247,6 +248,7 @@ export const POST: RequestHandler = async (event) => {
 			contextDebug: turnState.contextDebug,
 			initialTaskState,
 			initialContextDebug,
+			contextTraceSections,
 		});
 		void runPostTurnTasks({
 			logPrefix: "[SEND]",

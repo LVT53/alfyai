@@ -10,6 +10,7 @@ const {
 	projectFolderRows,
 	linkRows,
 	conversationRows,
+	messageRows,
 	taskStateRows,
 	checkpointRows,
 } = vi.hoisted(() => ({
@@ -22,6 +23,7 @@ const {
 	projectFolderRows: [] as Array<Record<string, any>>,
 	linkRows: [] as Array<Record<string, unknown>>,
 	conversationRows: [] as Array<Record<string, any>>,
+	messageRows: [] as Array<Record<string, any>>,
 	taskStateRows: [] as Array<Record<string, any>>,
 	checkpointRows: [] as Array<Record<string, any>>,
 }));
@@ -121,6 +123,9 @@ vi.mock('$lib/server/db', () => ({
 				if (table?.__name === 'conversations') {
 					return createQuery(conversationRows, shape);
 				}
+				if (table?.__name === 'messages') {
+					return createQuery(messageRows, shape);
+				}
 				if (table?.__name === 'conversation_task_states') {
 					return createQuery(taskStateRows, shape);
 				}
@@ -159,6 +164,14 @@ vi.mock('$lib/server/db/schema', () => ({
 		title: { name: 'title' },
 		projectId: { name: 'projectId' },
 		updatedAt: { name: 'updatedAt' },
+	},
+	messages: {
+		__name: 'messages',
+		id: { name: 'id' },
+		conversationId: { name: 'conversationId' },
+		role: { name: 'role' },
+		content: { name: 'content' },
+		createdAt: { name: 'createdAt' },
 	},
 	conversationTaskStates: {
 		__name: 'conversation_task_states',
@@ -254,8 +267,164 @@ describe('task continuity memory events', () => {
 		projectFolderRows.splice(0, projectFolderRows.length);
 		linkRows.splice(0, linkRows.length);
 		conversationRows.splice(0, conversationRows.length);
+		messageRows.splice(0, messageRows.length);
 		taskStateRows.splice(0, taskStateRows.length);
 		checkpointRows.splice(0, checkpointRows.length);
+	});
+
+	it('promotes the same-folder sibling that strongly matches the current query', async () => {
+		projectFolderRows.push({
+			id: 'folder-1',
+			userId: 'user-1',
+			name: 'Brand refresh',
+			updatedAt: new Date('2026-05-14T09:00:00.000Z'),
+		});
+		conversationRows.push(
+			{
+				id: 'conv-current',
+				userId: 'user-1',
+				title: 'Current conversation',
+				projectId: 'folder-1',
+				updatedAt: new Date('2026-05-14T09:20:00.000Z'),
+			},
+			{
+				id: 'conv-fonts',
+				userId: 'user-1',
+				title: 'Font options for the brand refresh',
+				projectId: 'folder-1',
+				updatedAt: new Date('2026-05-14T09:10:00.000Z'),
+			},
+			{
+				id: 'conv-colors',
+				userId: 'user-1',
+				title: 'Color palette notes',
+				projectId: 'folder-1',
+				updatedAt: new Date('2026-05-14T09:15:00.000Z'),
+			},
+			{
+				id: 'conv-other-folder',
+				userId: 'user-1',
+				title: 'Font options from a different folder',
+				projectId: 'folder-2',
+				updatedAt: new Date('2026-05-14T09:30:00.000Z'),
+			}
+		);
+		taskStateRows.push(
+			{
+				taskId: 'task-fonts',
+				userId: 'user-1',
+				conversationId: 'conv-fonts',
+				objective: 'Compare font options for headings and body copy',
+				updatedAt: new Date('2026-05-14T09:11:00.000Z'),
+			},
+			{
+				taskId: 'task-colors',
+				userId: 'user-1',
+				conversationId: 'conv-colors',
+				objective: 'Choose color palette options',
+				updatedAt: new Date('2026-05-14T09:16:00.000Z'),
+			}
+		);
+		checkpointRows.push({
+			taskId: 'task-fonts',
+			userId: 'user-1',
+			content: 'Discussed Inter, Source Sans, and a serif accent as font options.',
+			checkpointType: 'stable',
+			updatedAt: new Date('2026-05-14T09:12:00.000Z'),
+		});
+		messageRows.push(
+			{
+				id: 'msg-1',
+				conversationId: 'conv-fonts',
+				role: 'user',
+				content: 'What font options should we consider?',
+				createdAt: new Date('2026-05-14T09:12:00.000Z'),
+			},
+			{
+				id: 'msg-2',
+				conversationId: 'conv-fonts',
+				role: 'assistant',
+				content: 'Inter, Source Sans, and a restrained serif accent fit the brief.',
+				createdAt: new Date('2026-05-14T09:13:00.000Z'),
+			},
+			{
+				id: 'msg-3',
+				conversationId: 'conv-fonts',
+				role: 'assistant',
+				content: 'Older font note should be omitted by the message cap.',
+				createdAt: new Date('2026-05-14T09:11:00.000Z'),
+			}
+		);
+
+		const { selectProjectFolderSiblingPromotion } = await import('./continuity');
+
+		const promotion = await selectProjectFolderSiblingPromotion({
+			userId: 'user-1',
+			conversationId: 'conv-current',
+			query: 'what font options did we discuss in this project?',
+			messageLimit: 2,
+		});
+
+		expect(promotion).toEqual({
+			projectId: 'folder-1',
+			projectName: 'Brand refresh',
+			conversationId: 'conv-fonts',
+			title: 'Font options for the brand refresh',
+			objective: 'Compare font options for headings and body copy',
+			summary: 'Discussed Inter, Source Sans, and a serif accent as font options.',
+			score: expect.any(Number),
+			matchedTerms: expect.arrayContaining(['font', 'options']),
+			messages: [
+				{
+					role: 'user',
+					content: 'What font options should we consider?',
+					createdAt: new Date('2026-05-14T09:12:00.000Z').getTime(),
+				},
+				{
+					role: 'assistant',
+					content: 'Inter, Source Sans, and a restrained serif accent fit the brief.',
+					createdAt: new Date('2026-05-14T09:13:00.000Z').getTime(),
+				},
+			],
+			omittedMessageCount: 1,
+		});
+		expect(promotion?.score).toBeGreaterThanOrEqual(8);
+	});
+
+	it('does not promote a sibling for generic folder references without a strong query match', async () => {
+		conversationRows.push(
+			{
+				id: 'conv-current',
+				userId: 'user-1',
+				title: 'Current conversation',
+				projectId: 'folder-1',
+				updatedAt: new Date('2026-05-14T09:20:00.000Z'),
+			},
+			{
+				id: 'conv-colors',
+				userId: 'user-1',
+				title: 'Color palette options',
+				projectId: 'folder-1',
+				updatedAt: new Date('2026-05-14T09:15:00.000Z'),
+			}
+		);
+		taskStateRows.push({
+			taskId: 'task-colors',
+			userId: 'user-1',
+			conversationId: 'conv-colors',
+			objective: 'Choose color palette options',
+			updatedAt: new Date('2026-05-14T09:16:00.000Z'),
+		});
+
+		const { selectProjectFolderSiblingPromotion } = await import('./continuity');
+
+		await expect(
+			selectProjectFolderSiblingPromotion({
+				userId: 'user-1',
+				conversationId: 'conv-current',
+				query: 'what font options did we discuss in this project?',
+			})
+		).resolves.toBeNull();
 	});
 
 	it('returns no Project Folder Awareness when the conversation is not in a folder', async () => {

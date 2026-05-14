@@ -48,6 +48,7 @@ import {
 	URL_LIST_TOOL_RECOVERY_APPENDIX,
 } from "$lib/server/services/chat-turn/stream";
 import { completeStreamTurn } from "$lib/server/services/chat-turn/stream-completion";
+import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import { runNonStreamFallback } from "$lib/server/services/chat-turn/stream-fallback";
 import { doReconnect as runReconnect } from "$lib/server/services/chat-turn/stream-reconnect";
 import type { ChatTurnPreflight } from "$lib/server/services/chat-turn/types";
@@ -458,6 +459,9 @@ export function runChatStreamOrchestrator(
 				| import("$lib/types").HonchoContextSnapshot
 				| null
 				| undefined;
+			let latestContextTraceSections:
+				| LegacyContextTraceSectionInput[]
+				| undefined;
 			let latestProviderUsage: ProviderUsageSnapshot | null = null;
 			let latestModelId = modelId ?? "model1";
 			let latestModelDisplayName = modelDisplayName;
@@ -468,6 +472,9 @@ export function runChatStreamOrchestrator(
 			let initialContextDebug:
 				| import("$lib/types").ContextDebugState
 				| null
+				| undefined;
+			let initialContextTraceSections:
+				| LegacyContextTraceSectionInput[]
 				| undefined;
 			const completeSuccess = (wasStopped = false) => {
 				if (ended) return;
@@ -497,10 +504,12 @@ export function runChatStreamOrchestrator(
 					latestContextDebug,
 					latestHonchoContext,
 					latestHonchoSnapshot,
+					latestContextTraceSections,
 					latestProviderUsage,
 					initialContextStatus,
 					initialTaskState,
 					initialContextDebug,
+					initialContextTraceSections,
 					createMessage,
 					persistUserTurnAttachments,
 					persistAssistantTurnState,
@@ -786,6 +795,9 @@ export function runChatStreamOrchestrator(
 						initialContextDebug = latestContextDebug;
 						latestHonchoContext = langflowResponse.honchoContext ?? null;
 						latestHonchoSnapshot = langflowResponse.honchoSnapshot ?? null;
+						latestContextTraceSections =
+							langflowResponse.contextTraceSections;
+						initialContextTraceSections = latestContextTraceSections;
 
 						if (
 							!(await emitResolvedAssistantText(langflowResponse.text ?? ""))
@@ -824,6 +836,8 @@ export function runChatStreamOrchestrator(
 					initialContextDebug = latestContextDebug;
 					latestHonchoContext = langflowResponse.honchoContext ?? null;
 					latestHonchoSnapshot = langflowResponse.honchoSnapshot ?? null;
+					latestContextTraceSections = langflowResponse.contextTraceSections;
+					initialContextTraceSections = latestContextTraceSections;
 
 					scheduleUpstreamIdleTimeout(attempt);
 					try {

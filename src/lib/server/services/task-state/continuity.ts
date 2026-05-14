@@ -4,6 +4,7 @@ import { db } from "$lib/server/db";
 import {
   conversations,
   conversationTaskStates,
+  messages,
   memoryEvents,
   memoryProjectTaskLinks,
   memoryProjects,
@@ -42,6 +43,46 @@ const PROJECT_FOLDER_AWARENESS_LIMIT = 5;
 const PROJECT_FOLDER_AWARENESS_TITLE_MAX = 120;
 const PROJECT_FOLDER_AWARENESS_OBJECTIVE_MAX = 240;
 const PROJECT_FOLDER_AWARENESS_SUMMARY_MAX = 360;
+const PROJECT_FOLDER_SIBLING_CANDIDATE_LIMIT = 24;
+const PROJECT_FOLDER_SIBLING_MESSAGE_LIMIT = 6;
+const PROJECT_FOLDER_SIBLING_MIN_SCORE = 8;
+const PROJECT_FOLDER_SIBLING_MIN_MATCHED_TERMS = 2;
+const PROJECT_FOLDER_SIBLING_TITLE_MAX = 160;
+const PROJECT_FOLDER_SIBLING_OBJECTIVE_MAX = 360;
+const PROJECT_FOLDER_SIBLING_SUMMARY_MAX = 600;
+const PROJECT_FOLDER_SIBLING_MESSAGE_MAX = 900;
+const PROJECT_FOLDER_SIBLING_STOP_TERMS = new Set([
+  "a",
+  "about",
+  "again",
+  "all",
+  "an",
+  "and",
+  "any",
+  "are",
+  "did",
+  "discuss",
+  "discussed",
+  "do",
+  "for",
+  "from",
+  "have",
+  "in",
+  "it",
+  "of",
+  "on",
+  "our",
+  "project",
+  "that",
+  "the",
+  "this",
+  "to",
+  "was",
+  "we",
+  "what",
+  "which",
+  "with",
+]);
 const PROJECT_PAUSE_SIGNAL_PATTERN =
   /\b(pause|put (?:it|this|that)? ?on hold|hold off on|park|set aside|deprioriti[sz]e|stop working on|not working on)\b/i;
 const PROJECT_RESUME_SIGNAL_PATTERN =
@@ -64,6 +105,19 @@ export type ProjectFolderReferenceContext = {
   projectName: string;
   entries: ProjectFolderReferenceEntry[];
   omittedSiblingCount: number;
+};
+
+export type ProjectFolderSiblingPromotionContext = {
+  projectId: string;
+  projectName: string;
+  conversationId: string;
+  title: string;
+  objective: string | null;
+  summary: string | null;
+  score: number;
+  matchedTerms: string[];
+  messages: Array<{ role: "user" | "assistant"; content: string; createdAt: number }>;
+  omittedMessageCount: number;
 };
 
 function clipNullable(
@@ -90,6 +144,49 @@ function overlapScore(left: string[], right: string[]): number {
     if (rightSet.has(value)) overlap += 1;
   }
   return overlap;
+}
+
+function tokenizeSiblingPromotionText(value: string | null | undefined): string[] {
+  const normalized = normalizeWhitespace(value ?? "")
+    .toLowerCase()
+    .replace(/['’]s\b/g, "");
+  const tokens = normalized.match(/[a-z0-9][a-z0-9-]{2,}/g) ?? [];
+  return Array.from(
+    new Set(
+      tokens
+        .filter((token) => !PROJECT_FOLDER_SIBLING_STOP_TERMS.has(token)),
+    ),
+  );
+}
+
+function scoreSiblingPromotionCandidate(params: {
+  queryTerms: string[];
+  title: string;
+  objective: string | null;
+  summary: string | null;
+}): { score: number; matchedTerms: string[] } {
+  if (params.queryTerms.length === 0) {
+    return { score: 0, matchedTerms: [] };
+  }
+
+  const titleTerms = new Set(tokenizeSiblingPromotionText(params.title));
+  const objectiveTerms = new Set(tokenizeSiblingPromotionText(params.objective));
+  const summaryTerms = new Set(tokenizeSiblingPromotionText(params.summary));
+  const matchedTerms: string[] = [];
+  let score = 0;
+
+  for (const term of params.queryTerms) {
+    let termScore = 0;
+    if (titleTerms.has(term)) termScore += 5;
+    if (objectiveTerms.has(term)) termScore += 4;
+    if (summaryTerms.has(term)) termScore += 3;
+    if (termScore > 0) {
+      matchedTerms.push(term);
+      score += termScore;
+    }
+  }
+
+  return { score, matchedTerms };
 }
 
 function projectStatusForLastActive(
@@ -459,6 +556,222 @@ export async function getProjectFolderReferenceContext(params: {
       };
     }),
     omittedSiblingCount: Math.max(0, siblingCount - siblingRows.length),
+  };
+}
+
+export async function selectProjectFolderSiblingPromotion(params: {
+  userId: string;
+  conversationId: string;
+  query: string;
+  candidateLimit?: number;
+  messageLimit?: number;
+}): Promise<ProjectFolderSiblingPromotionContext | null> {
+  const queryTerms = tokenizeSiblingPromotionText(params.query);
+  if (queryTerms.length === 0) return null;
+
+  const candidateLimit = Math.max(
+    1,
+    params.candidateLimit ?? PROJECT_FOLDER_SIBLING_CANDIDATE_LIMIT,
+  );
+  const messageLimit = Math.max(
+    1,
+    params.messageLimit ?? PROJECT_FOLDER_SIBLING_MESSAGE_LIMIT,
+  );
+
+  const [conversationRow] = await db
+    .select({ projectId: conversations.projectId })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.userId, params.userId),
+        eq(conversations.id, params.conversationId),
+      ),
+    )
+    .limit(1);
+
+  if (!conversationRow?.projectId) return null;
+
+  const [projectRow, siblingRows] = await Promise.all([
+    db
+      .select({ name: projects.name })
+      .from(projects)
+      .where(
+        and(
+          eq(projects.userId, params.userId),
+          eq(projects.id, conversationRow.projectId),
+        ),
+      )
+      .limit(1),
+    db
+      .select({
+        conversationId: conversations.id,
+        title: conversations.title,
+        updatedAt: conversations.updatedAt,
+      })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.userId, params.userId),
+          eq(conversations.projectId, conversationRow.projectId),
+          ne(conversations.id, params.conversationId),
+        ),
+      )
+      .orderBy(desc(conversations.updatedAt), asc(conversations.id))
+      .limit(candidateLimit),
+  ]);
+
+  if (siblingRows.length === 0) return null;
+
+  const siblingConversationIds = siblingRows.map((row) => row.conversationId);
+  const taskRows = await db
+    .select({
+      taskId: conversationTaskStates.taskId,
+      conversationId: conversationTaskStates.conversationId,
+      objective: conversationTaskStates.objective,
+      updatedAt: conversationTaskStates.updatedAt,
+    })
+    .from(conversationTaskStates)
+    .where(
+      and(
+        eq(conversationTaskStates.userId, params.userId),
+        inArray(conversationTaskStates.conversationId, siblingConversationIds),
+      ),
+    )
+    .orderBy(desc(conversationTaskStates.updatedAt), asc(conversationTaskStates.taskId));
+
+  const taskByConversation = new Map<
+    string,
+    { taskId: string; objective: string }
+  >();
+  for (const row of taskRows) {
+    if (taskByConversation.has(row.conversationId)) continue;
+    if (isPlaceholderObjective(row.objective)) continue;
+    taskByConversation.set(row.conversationId, {
+      taskId: row.taskId,
+      objective: row.objective,
+    });
+  }
+
+  const selectedTaskIds = Array.from(
+    new Set(Array.from(taskByConversation.values()).map((task) => task.taskId)),
+  );
+  const checkpointRows =
+    selectedTaskIds.length > 0
+      ? await db
+          .select({
+            taskId: taskCheckpoints.taskId,
+            content: taskCheckpoints.content,
+            checkpointType: taskCheckpoints.checkpointType,
+            updatedAt: taskCheckpoints.updatedAt,
+          })
+          .from(taskCheckpoints)
+          .where(
+            and(
+              eq(taskCheckpoints.userId, params.userId),
+              inArray(taskCheckpoints.taskId, selectedTaskIds),
+            ),
+          )
+          .orderBy(desc(taskCheckpoints.updatedAt))
+      : [];
+
+  const latestCheckpointByTask = new Map<string, string>();
+  const latestStableCheckpointByTask = new Map<string, string>();
+  for (const row of checkpointRows) {
+    if (!latestCheckpointByTask.has(row.taskId)) {
+      latestCheckpointByTask.set(row.taskId, row.content);
+    }
+    if (
+      row.checkpointType === "stable" &&
+      !latestStableCheckpointByTask.has(row.taskId)
+    ) {
+      latestStableCheckpointByTask.set(row.taskId, row.content);
+    }
+  }
+
+  const ranked = siblingRows
+    .map((row) => {
+      const task = taskByConversation.get(row.conversationId) ?? null;
+      const summary = task
+        ? latestStableCheckpointByTask.get(task.taskId) ??
+          latestCheckpointByTask.get(task.taskId) ??
+          task.objective
+        : null;
+      const scored = scoreSiblingPromotionCandidate({
+        queryTerms,
+        title: row.title,
+        objective: task?.objective ?? null,
+        summary,
+      });
+      return {
+        conversationId: row.conversationId,
+        title: row.title,
+        updatedAt: row.updatedAt instanceof Date ? row.updatedAt.getTime() : Number(row.updatedAt ?? 0),
+        objective: task?.objective ?? null,
+        summary,
+        score: scored.score,
+        matchedTerms: scored.matchedTerms,
+      };
+    })
+    .filter(
+      (candidate) =>
+        candidate.score >= PROJECT_FOLDER_SIBLING_MIN_SCORE &&
+        candidate.matchedTerms.length >= PROJECT_FOLDER_SIBLING_MIN_MATCHED_TERMS,
+    )
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        right.updatedAt - left.updatedAt ||
+        left.conversationId.localeCompare(right.conversationId),
+    );
+
+  const winner = ranked[0];
+  if (!winner) return null;
+
+  const [messageCountRows, messageRows] = await Promise.all([
+    db
+      .select({ messageCount: count() })
+      .from(messages)
+      .where(eq(messages.conversationId, winner.conversationId)),
+    db
+      .select({
+        role: messages.role,
+        content: messages.content,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(eq(messages.conversationId, winner.conversationId))
+      .orderBy(desc(messages.createdAt))
+      .limit(messageLimit),
+  ]);
+
+  const selectedMessages = messageRows
+    .filter((row) => row.role === "user" || row.role === "assistant")
+    .map((row) => ({
+      role: row.role as "user" | "assistant",
+      content: clipRequired(row.content, PROJECT_FOLDER_SIBLING_MESSAGE_MAX),
+      createdAt:
+        row.createdAt instanceof Date
+          ? row.createdAt.getTime()
+          : Number(row.createdAt ?? 0),
+    }))
+    .sort((left, right) => left.createdAt - right.createdAt);
+
+  const messageCount = messageCountRows[0]?.messageCount ?? selectedMessages.length;
+
+  return {
+    projectId: conversationRow.projectId,
+    projectName: projectRow[0]?.name ?? "Project folder",
+    conversationId: winner.conversationId,
+    title: clipRequired(winner.title, PROJECT_FOLDER_SIBLING_TITLE_MAX),
+    objective: clipNullable(
+      winner.objective,
+      PROJECT_FOLDER_SIBLING_OBJECTIVE_MAX,
+    ),
+    summary: clipNullable(winner.summary, PROJECT_FOLDER_SIBLING_SUMMARY_MAX),
+    score: winner.score,
+    matchedTerms: winner.matchedTerms,
+    messages: selectedMessages,
+    omittedMessageCount: Math.max(0, messageCount - selectedMessages.length),
   };
 }
 

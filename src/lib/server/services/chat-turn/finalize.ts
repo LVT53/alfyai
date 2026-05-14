@@ -238,6 +238,7 @@ export async function persistAssistantEvidence(
 			taskState: params.taskState ?? params.initialTaskState ?? null,
 			contextStatus: params.contextStatus ?? null,
 			contextDebug: params.contextDebug ?? params.initialContextDebug ?? null,
+			contextTraceSections: params.contextTraceSections,
 			toolCalls: doneToolCalls,
 			currentAttachments,
 		});

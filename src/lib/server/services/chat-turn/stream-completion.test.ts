@@ -79,6 +79,17 @@ describe("completeStreamTurn", () => {
 		latestContextDebug: null as unknown,
 		latestHonchoContext: null as unknown,
 		latestHonchoSnapshot: null as unknown,
+		latestContextTraceSections: [
+			{
+				name: "Project Folder Sibling Context",
+				source: "memory",
+				body: "Title: Font options",
+				inclusionLevel: "legacy_full",
+				itemIds: ["conversation:conv-fonts"],
+				itemTitles: ["Font options"],
+				signalReasons: ["project_folder_sibling:query_match"],
+			},
+		],
 		latestProviderUsage: null as unknown,
 		initialContextStatus: null as unknown,
 		initialTaskState: null as unknown,
@@ -231,6 +242,12 @@ describe("completeStreamTurn", () => {
 				userId: "user-1",
 				conversationId: "conv-1",
 				assistantMessageId: "asst-msg-1",
+				contextTraceSections: [
+					expect.objectContaining({
+						name: "Project Folder Sibling Context",
+						itemIds: ["conversation:conv-fonts"],
+					}),
+				],
 			}),
 		);
 	});

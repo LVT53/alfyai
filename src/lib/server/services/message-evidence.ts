@@ -11,6 +11,7 @@ import type {
 	ToolCallEntry,
 	ToolEvidenceCandidate,
 } from '$lib/types';
+import type { LegacyContextTraceSectionInput } from './chat-turn/context-trace';
 import { getArtifactsForUser } from './knowledge';
 import { canUseTeiReranker, rerankItems } from './tei-reranker';
 import { resolveArtifactFamilyKeys } from './evidence-family';
@@ -62,12 +63,14 @@ function mergeChannels(
 	return Array.from(new Set([...(left ?? []), ...(right ?? [])]));
 }
 
-function buildMemoryGroup(contextStatus: ConversationContextStatus | null | undefined): MessageEvidenceGroup | null {
-	if (!contextStatus) return null;
-
+function buildMemoryGroup(params: {
+	contextStatus: ConversationContextStatus | null | undefined;
+	contextTraceSections?: LegacyContextTraceSectionInput[];
+}): MessageEvidenceGroup | null {
 	const items: MessageEvidenceItem[] = [];
+	const contextStatus = params.contextStatus;
 
-	if (contextStatus.taskStateApplied) {
+	if (contextStatus?.taskStateApplied) {
 		items.push({
 			id: 'task-state',
 			title: 'Task state',
@@ -77,17 +80,17 @@ function buildMemoryGroup(contextStatus: ConversationContextStatus | null | unde
 		});
 	}
 
-	if (contextStatus.recentTurnCount > 0) {
+	if ((contextStatus?.recentTurnCount ?? 0) > 0) {
 		items.push({
 			id: 'recent-turns',
-			title: `Recent turns (${contextStatus.recentTurnCount})`,
+			title: `Recent turns (${contextStatus?.recentTurnCount ?? 0})`,
 			sourceType: 'memory',
 			status: 'reference',
 			description: 'Recent dialogue used for continuity.',
 		});
 	}
 
-	if (contextStatus.layersUsed.includes('session')) {
+	if (contextStatus?.layersUsed.includes('session')) {
 		items.push({
 			id: 'session-memory',
 			title: 'Session memory',
@@ -99,13 +102,36 @@ function buildMemoryGroup(contextStatus: ConversationContextStatus | null | unde
 		});
 	}
 
-	if (contextStatus.layersUsed.includes('capsule')) {
+	if (contextStatus?.layersUsed.includes('capsule')) {
 		items.push({
 			id: 'workflow-memory',
 			title: 'Prior workflows',
 			sourceType: 'memory',
 			status: 'reference',
 			description: 'Relevant workflow capsules were included for continuity.',
+		});
+	}
+
+	for (const section of params.contextTraceSections ?? []) {
+		if (
+			section.name !== 'Project Folder Sibling Context' ||
+			section.source !== 'memory' ||
+			section.inclusionLevel === 'omitted'
+		) {
+			continue;
+		}
+		const itemId = section.itemIds?.[0];
+		const itemTitle = section.itemTitles?.[0];
+		if (!itemId || !itemTitle) continue;
+		items.push({
+			id: itemId,
+			canonicalId: `memory:${itemId}`,
+			title: itemTitle,
+			sourceType: 'memory',
+			status: 'reference',
+			description: 'Promoted from the same Project Folder for this query.',
+			reason: section.signalReasons?.join(', ') || null,
+			channels: ['memory'],
 		});
 	}
 
@@ -394,6 +420,7 @@ export async function buildAssistantEvidenceSummary(params: {
 	taskState: TaskState | null;
 	contextStatus?: ConversationContextStatus | null;
 	contextDebug?: ContextDebugState | null;
+	contextTraceSections?: LegacyContextTraceSectionInput[];
 	toolCalls?: ToolCallEntry[];
 	currentAttachments?: ArtifactSummary[];
 }): Promise<MessageEvidenceSummary | null> {
@@ -404,7 +431,10 @@ export async function buildAssistantEvidenceSummary(params: {
 			contextDebug: params.contextDebug,
 			currentAttachments: params.currentAttachments,
 		})),
-		buildMemoryGroup(params.contextStatus),
+		buildMemoryGroup({
+			contextStatus: params.contextStatus,
+			contextTraceSections: params.contextTraceSections,
+		}),
 		await buildRerankedToolGroup({
 			sourceType: 'web',
 			message: params.message,

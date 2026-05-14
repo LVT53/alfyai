@@ -76,10 +76,12 @@ export {
   listTaskMemoryItems,
   pruneOrphanProjectMemory,
   resolveProjectContinuityStatus,
+  selectProjectFolderSiblingPromotion,
   syncProjectMemoryFromTaskState,
   syncTaskContinuityFromTaskState,
   updateProjectMemoryStatuses,
   type ProjectFolderReferenceContext,
+  type ProjectFolderSiblingPromotionContext,
 } from "./task-state/continuity";
 export {
   canUseContextSummarizer,

@@ -8,6 +8,7 @@ import type {
 	WebCitationAudit,
 } from "$lib/types";
 import { buildContextSourcesState } from "./context-sources";
+import type { LegacyContextTraceSectionInput } from "./context-trace";
 import type { WorkCapsuleSummary } from "./types";
 
 type PersistedStreamTurnState = {
@@ -43,10 +44,12 @@ export interface CompleteStreamTurnParams {
 	latestContextDebug: unknown;
 	latestHonchoContext: unknown;
 	latestHonchoSnapshot: unknown;
+	latestContextTraceSections?: LegacyContextTraceSectionInput[];
 	latestProviderUsage: unknown;
 	initialContextStatus: unknown;
 	initialTaskState: unknown;
 	initialContextDebug: unknown;
+	initialContextTraceSections?: LegacyContextTraceSectionInput[];
 	createMessage: (
 		conversationId: string,
 		role: "user" | "assistant",
@@ -106,6 +109,7 @@ export interface CompleteStreamTurnParams {
 		contextDebug: unknown;
 		initialTaskState: unknown;
 		initialContextDebug: unknown;
+		contextTraceSections?: LegacyContextTraceSectionInput[];
 		toolCalls: ToolCallEntry[];
 		webCitationAudit?: WebCitationAudit | null;
 	}) => Promise<void>;
@@ -178,10 +182,12 @@ export async function completeStreamTurn(
 		latestContextDebug,
 		latestHonchoContext,
 		latestHonchoSnapshot,
+		latestContextTraceSections,
 		latestProviderUsage,
 		initialContextStatus,
 		initialTaskState,
 		initialContextDebug,
+		initialContextTraceSections,
 		createMessage,
 		persistUserTurnAttachments,
 		persistAssistantTurnState,
@@ -473,6 +479,9 @@ export async function completeStreamTurn(
 								: latestContextDebug,
 							initialTaskState,
 							initialContextDebug,
+							contextTraceSections:
+								latestContextTraceSections ??
+								initialContextTraceSections,
 							toolCalls: toolCallRecords,
 							webCitationAudit: citationGate?.audit,
 						});

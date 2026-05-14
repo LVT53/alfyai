@@ -69,7 +69,9 @@ import {
 	getProjectFolderReferenceContext,
 	getPromptArtifactSnippets,
 	prepareTaskContext,
+	selectProjectFolderSiblingPromotion,
 	type ProjectFolderReferenceContext,
+	type ProjectFolderSiblingPromotionContext,
 } from './task-state';
 import { getConversationProjectLabel } from './projects';
 import { canUseTeiReranker, rerankItems } from './tei-reranker';
@@ -145,6 +147,7 @@ function buildContextSelectionCandidates(params: {
 	sections: PromptContextSection[];
 	attachmentContext?: BudgetedAttachmentContext | null;
 	carriedForwardAttachmentContext?: BudgetedAttachmentContext | null;
+	projectFolderSiblingPromotion?: ProjectFolderSiblingPromotionContext | null;
 	evidenceItems?: Array<{
 		id: string;
 		title: string;
@@ -155,23 +158,31 @@ function buildContextSelectionCandidates(params: {
 		const isAttachmentSection = section.title === 'Current Attachments';
 		const isCarriedForwardAttachmentSection = section.title === 'Attached Sources';
 		const isEvidenceSection = section.title === 'Retrieved Evidence';
+		const isProjectFolderSiblingSection = section.title === 'Project Folder Sibling Context';
 		const attachmentItems = isAttachmentSection
 			? (params.attachmentContext?.items ?? [])
 			: isCarriedForwardAttachmentSection
 				? (params.carriedForwardAttachmentContext?.items ?? [])
 			: [];
 		const evidenceItems = isEvidenceSection ? (params.evidenceItems ?? []) : [];
+		const promotedSibling = isProjectFolderSiblingSection
+			? params.projectFolderSiblingPromotion
+			: null;
 		return {
 			title: section.title,
 			body: section.body,
-			source: inferContextTraceSourceForSection(section),
+			source: promotedSibling ? 'memory' : inferContextTraceSourceForSection(section),
 			layer: section.layer,
 			protected: section.protected,
 			itemIds: isEvidenceSection
 				? evidenceItems.map((item) => item.id)
+				: promotedSibling
+					? [`conversation:${promotedSibling.conversationId}`]
 				: attachmentItems.map((item) => item.id),
 			itemTitles: isEvidenceSection
 				? evidenceItems.map((item) => item.title)
+				: promotedSibling
+					? [promotedSibling.title]
 				: attachmentItems.map((item) => item.title),
 			signalReasons:
 				isAttachmentSection && params.attachmentContext
@@ -186,6 +197,11 @@ function buildContextSelectionCandidates(params: {
 						? ['pinned_evidence', 'working_set_context:budgeted']
 					: section.title === 'Honcho Session Context'
 						? ['recent_turn_context:budgeted']
+					: promotedSibling
+						? [
+								'project_folder_sibling:query_match',
+								`project_folder_sibling_score:${promotedSibling.score}`,
+							]
 					: [],
 		};
 	});
@@ -249,6 +265,49 @@ function buildProjectFolderAwarenessPromptSection(
 		body: [
 			'Other conversations in this Project Folder, excluding the current conversation. Use as lightweight orientation, not source evidence.',
 			...entryBlocks,
+			omittedLine,
+		]
+			.filter((value): value is string => Boolean(value))
+			.join('\n\n'),
+		layer: 'task_state',
+		protected: false,
+		llmCompactible: true,
+	};
+}
+
+function buildProjectFolderSiblingPromptSection(
+	promotion: ProjectFolderSiblingPromotionContext | null
+): PromptContextSection | null {
+	if (!promotion) return null;
+
+	const messageLines = promotion.messages.map((message) => {
+		const role = message.role === 'assistant' ? 'assistant' : 'user';
+		return `${role}: ${clipText(message.content, 900)}`;
+	});
+	const omittedLine =
+		promotion.omittedMessageCount > 0
+			? `Omitted recent turns: ${promotion.omittedMessageCount}`
+			: null;
+
+	return {
+		title: 'Project Folder Sibling Context',
+		body: [
+			'Promoted sibling conversation from the same Project Folder because the current query matched that sibling work.',
+			`Project Folder: ${JSON.stringify(promotion.projectName)}`,
+			`Title: ${JSON.stringify(promotion.title)}`,
+			promotion.objective
+				? `Objective: ${JSON.stringify(promotion.objective)}`
+				: null,
+			promotion.summary
+				? `Summary/Checkpoint: ${JSON.stringify(promotion.summary)}`
+				: null,
+			`Match score: ${promotion.score}`,
+			promotion.matchedTerms.length > 0
+				? `Matched terms: ${promotion.matchedTerms.join(', ')}`
+				: null,
+			messageLines.length > 0
+				? ['Recent bounded turns:', ...messageLines].join('\n')
+				: null,
 			omittedLine,
 		]
 			.filter((value): value is string => Boolean(value))
@@ -1299,6 +1358,7 @@ export async function buildConstructedContext(params: {
 		workingSetArtifacts,
 		projectFolderLabel,
 		projectFolderReferenceContext,
+		projectFolderSiblingPromotion,
 	] =
 		await Promise.all([
 			loadSessionPromptContext({
@@ -1322,6 +1382,11 @@ export async function buildConstructedContext(params: {
 			getProjectFolderReferenceContext({
 				userId: params.userId,
 				conversationId: params.conversationId,
+			}).catch(() => null),
+			selectProjectFolderSiblingPromotion({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				query: params.message,
 			}).catch(() => null),
 		]);
 	const {
@@ -1505,12 +1570,18 @@ export async function buildConstructedContext(params: {
 	const projectFolderAwarenessSection = buildProjectFolderAwarenessPromptSection(
 		projectFolderReferenceContext
 	);
+	const projectFolderSiblingSection = buildProjectFolderSiblingPromptSection(
+		projectFolderSiblingPromotion
+	);
 
 	if (projectFolderSection) {
 		sections.push(projectFolderSection);
 	}
 	if (projectFolderAwarenessSection) {
 		sections.push(projectFolderAwarenessSection);
+	}
+	if (projectFolderSiblingSection) {
+		sections.push(projectFolderSiblingSection);
 	}
 
 	if (taskState) {
@@ -1727,6 +1798,7 @@ export async function buildConstructedContext(params: {
 			sections: effectiveSections,
 			attachmentContext,
 			carriedForwardAttachmentContext,
+			projectFolderSiblingPromotion,
 			evidenceItems: selectedEvidence.map((artifact) => ({
 				id: artifact.id,
 				title: artifact.name,

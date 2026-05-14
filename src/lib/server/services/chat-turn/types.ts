@@ -1,4 +1,5 @@
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
+import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
@@ -108,6 +109,7 @@ export type PersistAssistantEvidenceParams = {
 	contextDebug?: ContextDebugState | null;
 	initialTaskState?: TaskState | null;
 	initialContextDebug?: ContextDebugState | null;
+	contextTraceSections?: LegacyContextTraceSectionInput[];
 	toolCalls?: ToolCallEntry[];
 	webCitationAudit?: WebCitationAudit | null;
 };

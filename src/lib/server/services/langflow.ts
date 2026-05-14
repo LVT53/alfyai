@@ -83,6 +83,7 @@ type LangflowRequestResult = {
 	contextDebug?: import("$lib/types").ContextDebugState | null;
 	honchoContext?: import("$lib/types").HonchoContextInfo | null;
 	honchoSnapshot?: import("$lib/types").HonchoContextSnapshot | null;
+	contextTraceSections?: LegacyContextTraceSectionInput[];
 	providerUsage?: ProviderUsageSnapshot | null;
 	modelId: ModelId;
 	modelDisplayName: string;
@@ -98,6 +99,7 @@ type LangflowStreamResult = {
 	contextDebug?: import("$lib/types").ContextDebugState | null;
 	honchoContext?: import("$lib/types").HonchoContextInfo | null;
 	honchoSnapshot?: import("$lib/types").HonchoContextSnapshot | null;
+	contextTraceSections?: LegacyContextTraceSectionInput[];
 	providerUsage?: ProviderUsageSnapshot | null;
 	modelId: ModelId;
 	modelDisplayName: string;
@@ -1301,6 +1303,7 @@ async function sendMessageAttempt(
 			contextDebug,
 			honchoContext,
 			honchoSnapshot,
+			contextTraceSections,
 			providerUsage,
 			modelId: modelId ?? "model1",
 			modelDisplayName: modelConfig.displayName,
@@ -1621,6 +1624,7 @@ async function sendMessageStreamAttempt(
 				contextDebug,
 				honchoContext,
 				honchoSnapshot,
+				contextTraceSections,
 				providerUsage,
 				modelId: modelId ?? "model1",
 				modelDisplayName: modelConfig.displayName,
@@ -1643,6 +1647,7 @@ async function sendMessageStreamAttempt(
 			contextDebug,
 			honchoContext,
 			honchoSnapshot,
+			contextTraceSections,
 			modelId: modelId ?? "model1",
 			modelDisplayName: modelConfig.displayName,
 			timeoutFailover,

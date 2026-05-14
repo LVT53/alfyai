@@ -47,6 +47,9 @@ const mockGetConversationProjectLabel = vi.hoisted(() =>
 const mockGetProjectFolderReferenceContext = vi.hoisted(() =>
 	vi.fn(async () => null)
 );
+const mockSelectProjectFolderSiblingPromotion = vi.hoisted(() =>
+	vi.fn(async () => null)
+);
 const now = Date.now();
 
 const userRows = [
@@ -353,6 +356,7 @@ vi.mock('$lib/server/services/task-state', () => ({
 	getProjectFolderReferenceContext: mockGetProjectFolderReferenceContext,
 	getPromptArtifactSnippets: vi.fn(async () => new Map()),
 	prepareTaskContext: mockPrepareTaskContext,
+	selectProjectFolderSiblingPromotion: mockSelectProjectFolderSiblingPromotion,
 }));
 
 // Mock tei-reranker
@@ -571,6 +575,7 @@ describe('honcho learning - buildConstructedContext', () => {
 		mockFindRelevantKnowledgeArtifacts.mockResolvedValue([]);
 		mockGetConversationProjectLabel.mockResolvedValue(null);
 		mockGetProjectFolderReferenceContext.mockResolvedValue(null);
+		mockSelectProjectFolderSiblingPromotion.mockResolvedValue(null);
 	});
 
 	it('adds the current Project Folder label to prompt context as quoted metadata', async () => {
@@ -669,6 +674,83 @@ describe('honcho learning - buildConstructedContext', () => {
 
 		expect(afterFailure.inputValue).toContain('## Current User Message');
 		expect(afterFailure.inputValue).not.toContain('## Project Folder Awareness');
+	});
+
+	it('adds promoted Project Folder Sibling Context with trace metadata when query matches sibling work', async () => {
+		mockGetProjectFolderReferenceContext.mockResolvedValueOnce({
+			projectId: 'folder-1',
+			projectName: 'Brand refresh',
+			entries: [
+				{
+					conversationId: 'conv-fonts',
+					title: 'Font options',
+					objective: 'Compare font options',
+					summary: 'Discussed Inter and Source Sans.',
+				},
+			],
+			omittedSiblingCount: 0,
+		});
+		mockSelectProjectFolderSiblingPromotion.mockResolvedValueOnce({
+			projectId: 'folder-1',
+			projectName: 'Brand refresh',
+			conversationId: 'conv-fonts',
+			title: 'Font options',
+			objective: 'Compare font options for headings and body copy',
+			summary: 'Discussed Inter, Source Sans, and a serif accent.',
+			score: 24,
+			matchedTerms: ['font', 'options'],
+			messages: [
+				{
+					role: 'user',
+					content: 'What font options should we consider?',
+					createdAt: Date.parse('2026-05-14T09:12:00.000Z'),
+				},
+				{
+					role: 'assistant',
+					content: 'Inter, Source Sans, and a serif accent fit.',
+					createdAt: Date.parse('2026-05-14T09:13:00.000Z'),
+				},
+			],
+			omittedMessageCount: 1,
+		});
+		renderSectionsInCompactionMock();
+		const { buildConstructedContext } = await import('./honcho');
+
+		const result = await buildConstructedContext({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			message: 'what font options did we discuss in this project?',
+		});
+
+		expect(mockSelectProjectFolderSiblingPromotion).toHaveBeenCalledWith({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			query: 'what font options did we discuss in this project?',
+		});
+		expect(result.inputValue).toContain('## Project Folder Awareness');
+		expect(result.inputValue).toContain('## Project Folder Sibling Context');
+		expect(result.inputValue.indexOf('## Project Folder Awareness')).toBeLessThan(
+			result.inputValue.indexOf('## Project Folder Sibling Context')
+		);
+		expect(result.inputValue).toContain('Promoted sibling conversation from the same Project Folder because the current query matched that sibling work.');
+		expect(result.inputValue).toContain('Title: "Font options"');
+		expect(result.inputValue).toContain('Matched terms: font, options');
+		expect(result.inputValue).toContain('user: What font options should we consider?');
+		expect(result.inputValue).toContain('Omitted recent turns: 1');
+		expect(result.contextTraceSections).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: 'Project Folder Sibling Context',
+					source: 'memory',
+					itemIds: ['conversation:conv-fonts'],
+					itemTitles: ['Font options'],
+					signalReasons: [
+						'project_folder_sibling:query_match',
+						'project_folder_sibling_score:24',
+					],
+				}),
+			])
+		);
 	});
 
 	it('keeps relevant knowledge artifact retrieval scoped to the current query when folder awareness exists', async () => {
