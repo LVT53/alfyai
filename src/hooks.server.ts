@@ -18,6 +18,7 @@ const PUBLIC_PATHS = [
 	"/api/webhook/sentence",
 	"/api/chat/files/produce",
 	"/api/tools/image-search",
+	"/api/tools/project-context",
 	"/api/tools/research-web",
 	"/api/health",
 ];
