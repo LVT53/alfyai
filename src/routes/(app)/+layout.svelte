@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { page } from '$app/stores';
-	import { navigating } from '$app/stores';
+	import { page, navigating, updated } from '$app/state';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import Header from '$lib/components/layout/Header.svelte';
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
+	import ServerUpdateNotice from './_components/ServerUpdateNotice.svelte';
 	import { currentConversationId, sidebarOpen, initUIListeners } from '$lib/stores/ui';
 	import {
 		conversations,
@@ -26,6 +26,7 @@
 	let lastRefreshTime = $state(0);
 	const REFRESH_DEBOUNCE_MS = 2000; // 2 seconds minimum between refreshes
 	let previousConversationUserId = $state<string | null>(null);
+	let serverUpdateAvailable = $state(false);
 
 	$effect(() => {
 		const nextUserId = data.user?.id ?? null;
@@ -50,8 +51,14 @@
 
 	$effect(() => {
 		if (!browser) return;
-		const match = $page.url.pathname.match(/^\/chat\/([^/]+)$/);
+		const match = page.url.pathname.match(/^\/chat\/([^/]+)$/);
 		currentConversationId.set(match?.[1] ?? null);
+	});
+
+	$effect(() => {
+		if (updated.current) {
+			serverUpdateAvailable = true;
+		}
 	});
 
 	/**
@@ -70,7 +77,7 @@
 
 		// Store current conversation state before refresh
 		const currentId = $currentConversationId;
-		const currentPath = $page.url.pathname;
+		const currentPath = page.url.pathname;
 
 		try {
 			await loadConversations();
@@ -94,12 +101,28 @@
 		}
 	}
 
+	async function checkForServerUpdate() {
+		if (!browser || serverUpdateAvailable) return;
+
+		try {
+			serverUpdateAvailable = await updated.check();
+		} catch (error) {
+			console.warn('Failed to check for a server update:', error);
+		}
+	}
+
+	function refreshForServerUpdate() {
+		if (!browser) return;
+		window.location.reload();
+	}
+
 	/**
 	 * Handle visibilitychange event - refresh when tab becomes visible
 	 */
 	function handleVisibilityChange() {
 		if (document.visibilityState === 'visible') {
 			refreshConversations();
+			void checkForServerUpdate();
 		}
 	}
 
@@ -108,6 +131,7 @@
 	 */
 	function handleWindowFocus() {
 		refreshConversations();
+		void checkForServerUpdate();
 	}
 
 	onMount(() => {
@@ -123,6 +147,7 @@
 		// Add event listeners for conversation list refresh
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 		window.addEventListener('focus', handleWindowFocus);
+		void checkForServerUpdate();
 
 		return () => {
 			cleanupUIListeners();
@@ -149,7 +174,7 @@
 		<Sidebar open={$sidebarOpen} conversationsData={data?.conversations ?? []} projectsData={data?.projects ?? []} user={data?.user} />
 
 		<main class="relative flex h-full flex-1 flex-col overflow-hidden min-w-0">
-			{#if $navigating}
+			{#if navigating.to}
 				<div class="pointer-events-none absolute inset-x-0 top-0 z-20 h-1 overflow-hidden">
 					<div class="route-progress h-full w-1/3 rounded-full bg-accent/80"></div>
 				</div>
@@ -157,6 +182,7 @@
 			{@render children()}
 		</main>
 	</div>
+	<ServerUpdateNotice visible={serverUpdateAvailable} onRefresh={refreshForServerUpdate} />
 </div>
 
 <style>

@@ -11,6 +11,9 @@ const config = {
 			precompress: false,
 			envPrefix: ''
 		}),
+		version: {
+			pollInterval: 60000
+		},
 		alias: {
 			'$lib': 'src/lib'
 		}
