@@ -126,7 +126,7 @@ describe("buildOutboundSystemPrompt", () => {
 		vi.clearAllMocks();
 	});
 
-	it("keeps always-on date, unified file-production, and image-search guidance with custom prompts", () => {
+	it("keeps always-on date, unified file-production, project-context, and image-search guidance with custom prompts", () => {
 		const prompt = buildOutboundSystemPrompt({
 			basePrompt: "Custom system prompt",
 			inputValue: "Create a downloadable PDF with photos of Amsterdam.",
@@ -160,6 +160,11 @@ describe("buildOutboundSystemPrompt", () => {
 		expect(prompt).toContain("Image search workflow");
 		expect(prompt).toContain("image_search");
 		expect(prompt).toContain("research_web");
+		expect(prompt).toContain("Project context workflow");
+		expect(prompt).toContain("project_context");
+		expect(prompt).toContain("not a last resort");
+		expect(prompt).toContain("siblingConversationId");
+		expect(prompt).toContain("memory/context");
 		expect(prompt).toContain("Exact web facts and prices");
 		expect(prompt).toContain("do not rely on search-result snippets alone");
 		expect(prompt).toContain(
