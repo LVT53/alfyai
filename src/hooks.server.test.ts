@@ -13,6 +13,7 @@ const mockEnsureMemoryMaintenanceScheduler = vi.fn();
 const mockPrewarmSandboxImageInBackground = vi.fn();
 const mockEnsureRuntimeSchemaCompatibility = vi.fn(async () => undefined);
 const mockEnsureFileProductionWorker = vi.fn(async () => undefined);
+const mockEnsureDeepResearchWorkerScheduler = vi.fn();
 
 vi.mock("$lib/server/services/auth", () => ({
 	validateSession: mockValidateSession,
@@ -43,10 +44,25 @@ vi.mock("$lib/server/services/file-production", () => ({
 	ensureFileProductionWorker: mockEnsureFileProductionWorker,
 }));
 
+vi.mock("$lib/server/services/deep-research/worker", () => ({
+	ensureDeepResearchWorkerScheduler: mockEnsureDeepResearchWorkerScheduler,
+}));
+
+function deferred<T = void>() {
+	let resolve!: (value: T | PromiseLike<T>) => void;
+	const promise = new Promise<T>((res) => {
+		resolve = res;
+	});
+	return { promise, resolve };
+}
+
 describe("hooks.server.ts", () => {
 	beforeEach(() => {
 		vi.resetModules();
 		vi.clearAllMocks();
+		mockRefreshConfig.mockResolvedValue(undefined);
+		mockEnsureRuntimeSchemaCompatibility.mockResolvedValue(undefined);
+		mockEnsureFileProductionWorker.mockResolvedValue(undefined);
 	});
 
 	it("allows public routes without a session", async () => {
@@ -65,19 +81,51 @@ describe("hooks.server.ts", () => {
 		expect(resolve).toHaveBeenCalledOnce();
 		expect(event.locals.user).toBeNull();
 		expect(event.locals.webhookBuffer).toEqual({ id: "test-buffer" });
-		expect(mockPrewarmSandboxImageInBackground).toHaveBeenCalledOnce();
 	});
 
-	it("runs runtime schema compatibility during server init", async () => {
+	it("runs config-dependent startup work after runtime config is refreshed", async () => {
 		const { init } = await import("./hooks.server");
 
 		await init();
 
 		expect(mockEnsureRuntimeSchemaCompatibility).toHaveBeenCalledOnce();
+		expect(mockRefreshConfig).toHaveBeenCalledOnce();
+		expect(mockEnsureMemoryMaintenanceScheduler).toHaveBeenCalledOnce();
+		expect(mockPrewarmSandboxImageInBackground).toHaveBeenCalledOnce();
 		expect(mockEnsureFileProductionWorker).toHaveBeenCalledOnce();
+		expect(mockEnsureDeepResearchWorkerScheduler).toHaveBeenCalledOnce();
+		expect(
+			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
+		).toBeLessThan(mockRefreshConfig.mock.invocationCallOrder[0]);
+		expect(mockRefreshConfig.mock.invocationCallOrder[0]).toBeLessThan(
+			mockEnsureMemoryMaintenanceScheduler.mock.invocationCallOrder[0],
+		);
 		expect(
 			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
 		).toBeLessThan(mockEnsureFileProductionWorker.mock.invocationCallOrder[0]);
+	});
+
+	it("waits for runtime config refresh before resolving the first request", async () => {
+		const refresh = deferred();
+		mockRefreshConfig.mockReturnValue(refresh.promise);
+		const { handle } = await import("./hooks.server");
+		const resolve = vi.fn(async () => new Response("ok"));
+		const event = {
+			cookies: { get: vi.fn(() => undefined) },
+			locals: {},
+			url: new URL("http://localhost/api/health"),
+		} as Parameters<typeof handle>[0]["event"];
+
+		const handlePromise = handle({ event, resolve });
+
+		try {
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(resolve).not.toHaveBeenCalled();
+		} finally {
+			refresh.resolve();
+			await handlePromise.catch(() => undefined);
+		}
 	});
 
 	it("allows the health check route without a session", async () => {

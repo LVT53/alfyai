@@ -77,7 +77,9 @@ export const POST: RequestHandler = async (event) => {
       return json({ error: limitOrderingError }, { status: 400 });
     }
 
-    const connectionTest = await validateProviderConnection(input.baseUrl, input.apiKey);
+    const connectionTest = await validateProviderConnection(input.baseUrl, input.apiKey, {
+      modelName: input.modelName,
+    });
     if (!connectionTest.valid) {
       return json({ error: connectionTest.error }, { status: 400 });
     }

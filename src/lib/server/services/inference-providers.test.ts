@@ -1,9 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+	validateProviderConnection,
 	validateProviderLimitConfiguration,
 	validateProviderLimitOrdering,
 } from "./inference-providers";
+
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+	globalThis.fetch = originalFetch;
+	vi.restoreAllMocks();
+});
 
 describe("validateProviderLimitOrdering", () => {
 	it("allows model-scaled target and compaction percentages", () => {
@@ -73,5 +81,39 @@ describe("validateProviderLimitConfiguration", () => {
 				maxTokens: null,
 			}),
 		).toBe("Max model context is required");
+	});
+});
+
+describe("validateProviderConnection", () => {
+	it("accepts Fire Pass keys for the documented Kimi Turbo router without probing /models", async () => {
+		const fetchSpy = vi.fn(async () => new Response(null, { status: 403 }));
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const result = await validateProviderConnection(
+			"https://api.fireworks.ai/inference/v1",
+			"fpk_test_key",
+			{ modelName: "accounts/fireworks/routers/kimi-k2p6-turbo" },
+		);
+
+		expect(result).toEqual({ valid: true });
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it("rejects Fire Pass keys for non-Fire-Pass Fireworks models", async () => {
+		const fetchSpy = vi.fn(async () => new Response(null, { status: 200 }));
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const result = await validateProviderConnection(
+			"https://api.fireworks.ai/inference/v1",
+			"fpk_test_key",
+			{ modelName: "accounts/fireworks/models/kimi-k2p6" },
+		);
+
+		expect(result).toEqual({
+			valid: false,
+			error:
+				"Fire Pass keys only work with accounts/fireworks/routers/kimi-k2p6-turbo",
+		});
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 });

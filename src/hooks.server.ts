@@ -12,11 +12,6 @@ import { ensureFileProductionWorker } from "$lib/server/services/file-production
 import { ensureMemoryMaintenanceScheduler } from "$lib/server/services/memory-maintenance";
 import { webhookBuffer } from "$lib/server/services/webhook-buffer";
 
-// Load admin config overrides once at startup
-refreshConfig().catch((err) => console.error("Config refresh failed:", err));
-ensureMemoryMaintenanceScheduler();
-prewarmSandboxImageInBackground();
-
 const PUBLIC_PATHS = [
 	"/login",
 	"/api/auth/login",
@@ -30,6 +25,25 @@ const PUBLIC_PATHS = [
 // Throttled lastSeenAt tracking: fire-and-forget writes with 5-minute TTL per user.
 const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000;
 const lastSeenWriteTimestamps = new Map<string, number>();
+let runtimeConfigReady = false;
+let runtimeConfigReadyPromise: Promise<void> | null = null;
+
+async function ensureRuntimeConfigReady(): Promise<void> {
+	if (runtimeConfigReady) return;
+
+	if (!runtimeConfigReadyPromise) {
+		runtimeConfigReadyPromise = (async () => {
+			await ensureRuntimeSchemaCompatibility();
+			await refreshConfig();
+			runtimeConfigReady = true;
+		})().catch((error) => {
+			runtimeConfigReadyPromise = null;
+			throw error;
+		});
+	}
+
+	await runtimeConfigReadyPromise;
+}
 
 function touchLastSeenAt(userId: string): void {
 	const now = Date.now();
@@ -45,8 +59,9 @@ function touchLastSeenAt(userId: string): void {
 }
 
 export const init: ServerInit = async () => {
-	await ensureRuntimeSchemaCompatibility();
-	await refreshConfig();
+	await ensureRuntimeConfigReady();
+	ensureMemoryMaintenanceScheduler();
+	prewarmSandboxImageInBackground();
 	await ensureFileProductionWorker();
 	ensureDeepResearchWorkerScheduler(() => {
 		const config = getConfig();
@@ -63,7 +78,7 @@ export const init: ServerInit = async () => {
 };
 
 export const handle: Handle = async ({ event, resolve }) => {
-	await ensureRuntimeSchemaCompatibility();
+	await ensureRuntimeConfigReady();
 
 	try {
 		const token = event.cookies.get("session");

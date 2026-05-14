@@ -1,5 +1,10 @@
-import { randomUUID } from 'crypto';
-import { createCipheriv, createDecipheriv, randomBytes, pbkdf2Sync } from 'crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  pbkdf2Sync,
+  randomBytes,
+  randomUUID,
+} from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { inferenceProviders } from '../db/schema';
@@ -8,6 +13,8 @@ import { buildOpenAICompatibleUrl } from './openai-compatible-url';
 
 export type ProviderReasoningEffort = 'low' | 'medium' | 'high' | 'max' | 'xhigh';
 export type ProviderThinkingType = 'enabled' | 'disabled';
+const FIRE_PASS_KEY_PREFIX = 'fpk_';
+const FIRE_PASS_MODEL_NAME = 'accounts/fireworks/routers/kimi-k2p6-turbo';
 
 export interface InferenceProvider {
   id: string;
@@ -385,12 +392,26 @@ export async function deleteProvider(id: string): Promise<boolean> {
 
 export async function validateProviderConnection(
   baseUrl: string,
-  apiKey: string
+  apiKey: string,
+  options: { modelName?: string | null } = {}
 ): Promise<{ valid: boolean; error?: string }> {
   try {
     const url = new URL(baseUrl);
     if (!url.protocol.startsWith('http')) {
       return { valid: false, error: 'Base URL must use HTTP or HTTPS protocol' };
+    }
+
+    const isFirePassKey = apiKey.trim().startsWith(FIRE_PASS_KEY_PREFIX);
+    if (isFirePassKey && isFireworksHost(url)) {
+      const modelName = options.modelName?.trim().toLowerCase() ?? '';
+      if (modelName !== FIRE_PASS_MODEL_NAME) {
+        return {
+          valid: false,
+          error: `Fire Pass keys only work with ${FIRE_PASS_MODEL_NAME}`,
+        };
+      }
+
+      return { valid: true };
     }
 
     const modelsUrl = buildOpenAICompatibleUrl(baseUrl, '/v1/models');
@@ -420,6 +441,10 @@ export async function validateProviderConnection(
     }
     return { valid: false, error: 'Unknown error' };
   }
+}
+
+function isFireworksHost(url: URL): boolean {
+  return url.hostname === 'fireworks.ai' || url.hostname.endsWith('.fireworks.ai');
 }
 
 function mapRowToProvider(row: typeof inferenceProviders.$inferSelect): InferenceProvider {

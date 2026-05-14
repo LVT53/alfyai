@@ -23,7 +23,9 @@ export const POST: RequestHandler = async (event) => {
       return json({ valid: false, error: 'Failed to decrypt API key' });
     }
 
-    const result = await validateProviderConnection(provider.baseUrl, apiKey);
+    const result = await validateProviderConnection(provider.baseUrl, apiKey, {
+      modelName: provider.modelName,
+    });
     return json(result);
   } catch (error) {
     console.error('[ADMIN] Failed to validate provider:', error);

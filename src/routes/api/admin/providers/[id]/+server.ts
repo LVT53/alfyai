@@ -90,7 +90,8 @@ export const PUT: RequestHandler = async (event) => {
       const apiKey = validationApiKey ?? decryptApiKey(existing.apiKeyEncrypted, existing.apiKeyIv);
       const connectionTest = await validateProviderConnection(
         validationBaseUrl ?? existing.baseUrl,
-        apiKey
+        apiKey,
+        { modelName: input.modelName ?? existing.modelName }
       );
       if (!connectionTest.valid) {
         return json({ error: connectionTest.error }, { status: 400 });
