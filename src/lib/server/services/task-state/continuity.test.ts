@@ -446,6 +446,222 @@ describe('task continuity memory events', () => {
 		).resolves.toBeNull();
 	});
 
+	it('returns bounded Project Continuity Awareness for an unorganized conversation linked to memory project work', async () => {
+		projectRows.push({
+			projectId: 'memory-project-1',
+			userId: 'user-1',
+			name: 'Launch continuity',
+			summary: 'Inferred long-term launch work.',
+			status: 'active',
+			lastActiveAt: new Date('2026-05-14T08:00:00.000Z'),
+			updatedAt: new Date('2026-05-14T08:00:00.000Z'),
+		});
+		conversationRows.push(
+			{
+				id: 'conv-current',
+				userId: 'user-1',
+				title: 'Current unorganized conversation',
+				projectId: null,
+				updatedAt: new Date('2026-05-14T09:00:00.000Z'),
+			},
+			{
+				id: 'conv-linked-1',
+				userId: 'user-1',
+				title: 'Linked launch brief',
+				projectId: null,
+				updatedAt: new Date('2026-05-14T09:05:00.000Z'),
+			},
+			{
+				id: 'conv-linked-2',
+				userId: 'user-1',
+				title: 'Linked rollout notes',
+				projectId: null,
+				updatedAt: new Date('2026-05-14T09:04:00.000Z'),
+			},
+			{
+				id: 'conv-global',
+				userId: 'user-1',
+				title: 'Unrelated global conversation',
+				projectId: null,
+				updatedAt: new Date('2026-05-14T09:06:00.000Z'),
+			}
+		);
+		taskStateRows.push(
+			{
+				taskId: 'task-current',
+				userId: 'user-1',
+				conversationId: 'conv-current',
+				objective: 'Continue the launch project',
+				updatedAt: new Date('2026-05-14T09:01:00.000Z'),
+			},
+			{
+				taskId: 'task-linked-1',
+				userId: 'user-1',
+				conversationId: 'conv-linked-1',
+				objective: 'Prepare the launch brief',
+				updatedAt: new Date('2026-05-14T09:05:00.000Z'),
+			},
+			{
+				taskId: 'task-linked-2',
+				userId: 'user-1',
+				conversationId: 'conv-linked-2',
+				objective: 'Plan launch rollout sequencing',
+				updatedAt: new Date('2026-05-14T09:04:00.000Z'),
+			},
+			{
+				taskId: 'task-global',
+				userId: 'user-1',
+				conversationId: 'conv-global',
+				objective: 'Unrelated global work',
+				updatedAt: new Date('2026-05-14T09:06:00.000Z'),
+			}
+		);
+		linkRows.push(
+			{
+				projectId: 'memory-project-1',
+				userId: 'user-1',
+				taskId: 'task-current',
+				conversationId: 'conv-current',
+				updatedAt: new Date('2026-05-14T09:01:00.000Z'),
+			},
+			{
+				projectId: 'memory-project-1',
+				userId: 'user-1',
+				taskId: 'task-linked-1',
+				conversationId: 'conv-linked-1',
+				updatedAt: new Date('2026-05-14T09:05:00.000Z'),
+			},
+			{
+				projectId: 'memory-project-1',
+				userId: 'user-1',
+				taskId: 'task-linked-2',
+				conversationId: 'conv-linked-2',
+				updatedAt: new Date('2026-05-14T09:04:00.000Z'),
+			},
+			{
+				projectId: 'other-memory-project',
+				userId: 'user-1',
+				taskId: 'task-global',
+				conversationId: 'conv-global',
+				updatedAt: new Date('2026-05-14T09:06:00.000Z'),
+			}
+		);
+		checkpointRows.push({
+			taskId: 'task-linked-1',
+			userId: 'user-1',
+			content: 'Stable linked launch checkpoint.',
+			checkpointType: 'stable',
+			updatedAt: new Date('2026-05-14T09:05:30.000Z'),
+		});
+
+		const { getProjectReferenceContext } = await import('./continuity');
+
+		const context = await getProjectReferenceContext({
+			userId: 'user-1',
+			conversationId: 'conv-current',
+		});
+
+		expect(context).toEqual({
+			source: 'project_continuity',
+			projectId: 'memory-project-1',
+			projectName: 'Launch continuity',
+			entries: [
+				{
+					conversationId: 'conv-linked-1',
+					title: 'Linked launch brief',
+					objective: 'Prepare the launch brief',
+					summary: 'Stable linked launch checkpoint.',
+				},
+				{
+					conversationId: 'conv-linked-2',
+					title: 'Linked rollout notes',
+					objective: 'Plan launch rollout sequencing',
+					summary: 'Plan launch rollout sequencing',
+				},
+			],
+			omittedSiblingCount: 0,
+		});
+	});
+
+	it('keeps Project Folder Awareness canonical when a folder conversation also has inferred continuity links', async () => {
+		projectFolderRows.push({
+			id: 'folder-1',
+			userId: 'user-1',
+			name: 'Explicit folder',
+			updatedAt: new Date('2026-05-14T09:00:00.000Z'),
+		});
+		projectRows.push({
+			projectId: 'memory-project-1',
+			userId: 'user-1',
+			name: 'Inferred continuity',
+			summary: 'Lower-authority inferred work.',
+			status: 'active',
+			lastActiveAt: new Date('2026-05-14T08:00:00.000Z'),
+			updatedAt: new Date('2026-05-14T08:00:00.000Z'),
+		});
+		conversationRows.push(
+			{
+				id: 'conv-current',
+				userId: 'user-1',
+				title: 'Current folder conversation',
+				projectId: 'folder-1',
+				updatedAt: new Date('2026-05-14T09:00:00.000Z'),
+			},
+			{
+				id: 'conv-folder-sibling',
+				userId: 'user-1',
+				title: 'Folder sibling',
+				projectId: 'folder-1',
+				updatedAt: new Date('2026-05-14T09:05:00.000Z'),
+			},
+			{
+				id: 'conv-continuity-sibling',
+				userId: 'user-1',
+				title: 'Continuity sibling',
+				projectId: null,
+				updatedAt: new Date('2026-05-14T09:06:00.000Z'),
+			}
+		);
+		linkRows.push(
+			{
+				projectId: 'memory-project-1',
+				userId: 'user-1',
+				taskId: 'task-current',
+				conversationId: 'conv-current',
+				updatedAt: new Date('2026-05-14T09:01:00.000Z'),
+			},
+			{
+				projectId: 'memory-project-1',
+				userId: 'user-1',
+				taskId: 'task-continuity-sibling',
+				conversationId: 'conv-continuity-sibling',
+				updatedAt: new Date('2026-05-14T09:06:00.000Z'),
+			}
+		);
+
+		const { getProjectReferenceContext } = await import('./continuity');
+
+		const context = await getProjectReferenceContext({
+			userId: 'user-1',
+			conversationId: 'conv-current',
+		});
+
+		expect(context).toMatchObject({
+			source: 'project_folder',
+			projectId: 'folder-1',
+			projectName: 'Explicit folder',
+			entries: [
+				expect.objectContaining({
+					conversationId: 'conv-folder-sibling',
+					title: 'Folder sibling',
+				}),
+			],
+		});
+		expect(context?.entries.map((entry) => entry.conversationId)).not.toContain(
+			'conv-continuity-sibling'
+		);
+	});
+
 	it('includes only same-user same-folder siblings and excludes the current conversation', async () => {
 		projectFolderRows.push({
 			id: 'folder-1',

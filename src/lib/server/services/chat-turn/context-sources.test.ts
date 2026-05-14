@@ -300,6 +300,63 @@ describe("buildContextSourcesState", () => {
 			}),
 		]);
 	});
+
+	it("adds compact project continuity awareness as one lower-authority inferred conversation source", () => {
+		const state = buildContextSourcesState({
+			userId: "user-1",
+			conversationId: "conv-1",
+			projectReference: {
+				source: "project_continuity",
+				projectId: "memory-project-1",
+				projectName: "Launch continuity",
+				entries: [
+					{
+						conversationId: "conv-linked-1",
+						title: "Linked launch brief",
+						objective: "Prepare the linked brief",
+						summary: "Stable linked checkpoint.",
+					},
+					{
+						conversationId: "conv-linked-2",
+						title: "Linked rollout notes",
+						objective: null,
+						summary: null,
+					},
+				],
+				omittedSiblingCount: 1,
+			},
+			now: new Date("2026-05-05T10:00:00.000Z"),
+		});
+
+		expect(state.activeCount).toBe(0);
+		expect(state.inferredCount).toBe(1);
+		expect(state.groups).toEqual([
+			expect.objectContaining({
+				kind: "project_continuity",
+				state: "inferred",
+				totalCount: 3,
+				items: [
+					expect.objectContaining({
+						id: "project_continuity:memory-project-1",
+						title: "Launch continuity",
+						state: "inferred",
+						sourceType: "conversation",
+						reason: "2 linked conversations summarized, 1 more omitted",
+						metadata: {
+							projectId: "memory-project-1",
+							projectName: "Launch continuity",
+							siblingCount: 3,
+							includedSiblingCount: 2,
+							omittedSiblingCount: 1,
+							siblingSummary:
+								"Linked launch brief: Stable linked checkpoint. Linked rollout notes",
+							authority: "project_continuity",
+						},
+					}),
+				],
+			}),
+		]);
+	});
 });
 
 function artifact(id: string, name: string): ArtifactSummary {

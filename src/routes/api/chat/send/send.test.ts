@@ -61,7 +61,7 @@ vi.mock('$lib/server/services/task-state', () => ({
 	attachContinuityToTaskState: vi.fn(async (_userId: string, taskState: unknown) => taskState),
 	getContextDebugState: vi.fn(async () => null),
 	getConversationTaskState: vi.fn(async () => null),
-	getProjectFolderReferenceContext: vi.fn(async () => null),
+	getProjectReferenceContext: vi.fn(async () => null),
 	syncTaskContinuityFromTaskState: vi.fn(async () => null),
 	updateTaskStateCheckpoint: vi.fn(async () => null),
 }));
@@ -113,7 +113,7 @@ import {
 import { buildDeepResearchPlanningContext } from '$lib/server/services/deep-research/planning-context';
 import { createMessage, updateMessageHonchoMetadata } from '$lib/server/services/messages';
 import { assertPromptReadyAttachments } from '$lib/server/services/knowledge';
-import { getProjectFolderReferenceContext } from '$lib/server/services/task-state';
+import { getProjectReferenceContext } from '$lib/server/services/task-state';
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockTouchConversation = touchConversation as ReturnType<typeof vi.fn>;
@@ -124,7 +124,7 @@ const mockBuildDeepResearchPlanningContext = buildDeepResearchPlanningContext as
 const mockCreateMessage = createMessage as ReturnType<typeof vi.fn>;
 const mockUpdateMessageHonchoMetadata = updateMessageHonchoMetadata as ReturnType<typeof vi.fn>;
 const mockAssertPromptReadyAttachments = assertPromptReadyAttachments as ReturnType<typeof vi.fn>;
-const mockGetProjectFolderReferenceContext = getProjectFolderReferenceContext as ReturnType<typeof vi.fn>;
+const mockGetProjectReferenceContext = getProjectReferenceContext as ReturnType<typeof vi.fn>;
 
 function makeEvent(body: unknown, user = { id: 'user-1', email: 'test@example.com' }) {
 	return {
@@ -146,7 +146,7 @@ describe('POST /api/chat/send', () => {
 		configMockState.deepResearchEnabled = true;
 		mockRequireAuth.mockReturnValue(undefined);
 		mockTouchConversation.mockImplementation(async () => null);
-		mockGetProjectFolderReferenceContext.mockResolvedValue(null);
+		mockGetProjectReferenceContext.mockResolvedValue(null);
 		mockAssertCanStartDeepResearchJob.mockResolvedValue(undefined);
 		mockCreateMessage.mockImplementation(async () => ({
 			id: crypto.randomUUID(),
@@ -247,7 +247,8 @@ describe('POST /api/chat/send', () => {
 			rawResponse: {},
 			contextStatus: undefined,
 		});
-		mockGetProjectFolderReferenceContext.mockResolvedValueOnce({
+		mockGetProjectReferenceContext.mockResolvedValueOnce({
+			source: 'project_folder',
 			projectId: 'folder-1',
 			projectName: 'Launch folder',
 			entries: [
@@ -292,7 +293,7 @@ describe('POST /api/chat/send', () => {
 			rawResponse: {},
 			contextStatus: undefined,
 		});
-		mockGetProjectFolderReferenceContext.mockRejectedValueOnce(new Error('folder lookup failed'));
+		mockGetProjectReferenceContext.mockRejectedValueOnce(new Error('folder lookup failed'));
 
 		const fallbackResponse = await POST(makeEvent({ message: 'Hello again', conversationId: 'conv-1' }));
 		const fallbackData = await fallbackResponse.json();

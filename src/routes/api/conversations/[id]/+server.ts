@@ -23,7 +23,7 @@ import {
 	attachContinuityToTaskState,
 	getContextDebugState,
 	getConversationTaskState,
-	getProjectFolderReferenceContext,
+	getProjectReferenceContext,
 } from '$lib/server/services/task-state';
 
 function isConversationDeleteBlockedByDeepResearchError(
@@ -78,7 +78,7 @@ export const GET: RequestHandler = async (event) => {
 			fileProductionJobs,
 			deepResearchJobs,
 			costSummary,
-			projectFolderReference,
+			projectReference,
 		] = await Promise.all([
 			listMessages(id),
 			listConversationArtifacts(user.id, id),
@@ -91,7 +91,7 @@ export const GET: RequestHandler = async (event) => {
 			listConversationFileProductionJobs(user.id, id),
 			listConversationDeepResearchJobs(user.id, id),
 			getConversationCostSummary(id),
-			getProjectFolderReferenceContext({ userId: user.id, conversationId: id }).catch(
+			getProjectReferenceContext({ userId: user.id, conversationId: id }).catch(
 				() => null,
 			),
 		]);
@@ -105,7 +105,7 @@ export const GET: RequestHandler = async (event) => {
 			contextDebug,
 			attachedArtifacts,
 			activeWorkingSet,
-			projectFolderReference,
+			projectReference,
 		});
 		return json({
 			conversation,

@@ -66,11 +66,11 @@ import type {
 import {
 	formatTaskStateForPrompt,
 	getContextDebugState,
-	getProjectFolderReferenceContext,
+	getProjectReferenceContext,
 	getPromptArtifactSnippets,
 	prepareTaskContext,
 	selectProjectFolderSiblingPromotion,
-	type ProjectFolderReferenceContext,
+	type ProjectReferenceContext,
 	type ProjectFolderSiblingPromotionContext,
 } from './task-state';
 import { getConversationProjectLabel } from './projects';
@@ -237,8 +237,8 @@ function buildProjectFolderPromptSection(label: string | null): PromptContextSec
 	};
 }
 
-function buildProjectFolderAwarenessPromptSection(
-	context: ProjectFolderReferenceContext | null
+function buildProjectAwarenessPromptSection(
+	context: ProjectReferenceContext | null
 ): PromptContextSection | null {
 	if (!context || context.entries.length === 0) return null;
 
@@ -255,15 +255,23 @@ function buildProjectFolderAwarenessPromptSection(
 	);
 	const omittedLine =
 		context.omittedSiblingCount > 0
-			? `Omitted: ${context.omittedSiblingCount} more sibling conversation${
+			? `Omitted: ${context.omittedSiblingCount} more ${
+					context.source === 'project_folder' ? 'sibling' : 'linked'
+				} conversation${
 					context.omittedSiblingCount === 1 ? '' : 's'
-				} due to the folder awareness cap.`
+				} due to the ${
+					context.source === 'project_folder' ? 'folder' : 'continuity'
+				} awareness cap.`
 			: null;
+	const isFolder = context.source === 'project_folder';
 
 	return {
-		title: 'Project Folder Awareness',
+		title: isFolder ? 'Project Folder Awareness' : 'Project Continuity Awareness',
 		body: [
-			'Other conversations in this Project Folder, excluding the current conversation. Use as lightweight orientation, not source evidence.',
+			isFolder
+				? 'Other conversations in this Project Folder, excluding the current conversation. Use as lightweight orientation, not source evidence.'
+				: 'Inferred from memory project/task continuity for unorganized conversations. This is lower authority than an explicit Project Folder and should be used only as lightweight orientation, not source evidence.',
+			isFolder ? null : `Memory Project: ${JSON.stringify(context.projectName)}`,
 			...entryBlocks,
 			omittedLine,
 		]
@@ -1379,7 +1387,7 @@ export async function buildConstructedContext(params: {
 				params.activeDocumentArtifactId
 			).catch(() => []),
 			getConversationProjectLabel(params.userId, params.conversationId).catch(() => null),
-			getProjectFolderReferenceContext({
+			getProjectReferenceContext({
 				userId: params.userId,
 				conversationId: params.conversationId,
 			}).catch(() => null),
@@ -1567,7 +1575,7 @@ export async function buildConstructedContext(params: {
 	const sessionContextMessages = filteredTurns.flatMap((turn) => turn.messages);
 	const sections: PromptContextSection[] = [];
 	const projectFolderSection = buildProjectFolderPromptSection(projectFolderLabel);
-	const projectFolderAwarenessSection = buildProjectFolderAwarenessPromptSection(
+	const projectFolderAwarenessSection = buildProjectAwarenessPromptSection(
 		projectFolderReferenceContext
 	);
 	const projectFolderSiblingSection = buildProjectFolderSiblingPromptSection(

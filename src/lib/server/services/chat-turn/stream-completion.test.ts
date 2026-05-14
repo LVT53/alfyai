@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ArtifactSummary, ContextDebugState, TaskState } from "$lib/types";
-import { getProjectFolderReferenceContext } from "$lib/server/services/task-state";
+import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { completeStreamTurn } from "./stream-completion";
 
 vi.mock("$lib/server/services/task-state", () => ({
-	getProjectFolderReferenceContext: vi.fn(async () => null),
+	getProjectReferenceContext: vi.fn(async () => null),
 }));
 
 describe("completeStreamTurn", () => {
@@ -23,8 +23,8 @@ describe("completeStreamTurn", () => {
 	const mockGetFileProductionJobs = vi.fn();
 	const mockAssignFileProductionJobs = vi.fn();
 	const mockEstimateTokenCount = vi.fn().mockReturnValue(100);
-	const mockGetProjectFolderReferenceContext =
-		getProjectFolderReferenceContext as ReturnType<typeof vi.fn>;
+	const mockGetProjectReferenceContext =
+		getProjectReferenceContext as ReturnType<typeof vi.fn>;
 
 	const defaultUserMsg = { id: "user-msg-1" };
 	const defaultAssistantMsg = { id: "asst-msg-1" };
@@ -51,7 +51,7 @@ describe("completeStreamTurn", () => {
 		mockAssignFileProductionJobs.mockResolvedValue(undefined);
 		mockEnqueueChunk.mockReturnValue(true);
 		mockEstimateTokenCount.mockReturnValue(100);
-		mockGetProjectFolderReferenceContext.mockResolvedValue(null);
+		mockGetProjectReferenceContext.mockResolvedValue(null);
 	});
 
 	const defaultParams = {
@@ -418,7 +418,8 @@ describe("completeStreamTurn", () => {
 	});
 
 	it("includes project folder awareness in end metadata and degrades lookup failures", async () => {
-		mockGetProjectFolderReferenceContext.mockResolvedValueOnce({
+		mockGetProjectReferenceContext.mockResolvedValueOnce({
+			source: "project_folder",
 			projectId: "folder-1",
 			projectName: "Launch folder",
 			entries: [
@@ -440,7 +441,7 @@ describe("completeStreamTurn", () => {
 		expect(endCall).toBeDefined();
 		const data = JSON.parse(endCall[0].replace("event: end\ndata: ", ""));
 
-		expect(mockGetProjectFolderReferenceContext).toHaveBeenCalledWith({
+		expect(mockGetProjectReferenceContext).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
 		});
@@ -470,7 +471,7 @@ describe("completeStreamTurn", () => {
 		mockAssignFileProductionJobs.mockResolvedValue(undefined);
 		mockEnqueueChunk.mockReturnValue(true);
 		mockEstimateTokenCount.mockReturnValue(100);
-		mockGetProjectFolderReferenceContext.mockRejectedValueOnce(
+		mockGetProjectReferenceContext.mockRejectedValueOnce(
 			new Error("folder lookup failed"),
 		);
 

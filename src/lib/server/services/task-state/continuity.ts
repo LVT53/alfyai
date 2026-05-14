@@ -107,6 +107,14 @@ export type ProjectFolderReferenceContext = {
   omittedSiblingCount: number;
 };
 
+export type ProjectContinuityReferenceContext = ProjectFolderReferenceContext & {
+  source: "project_continuity";
+};
+
+export type ProjectReferenceContext =
+  | (ProjectFolderReferenceContext & { source: "project_folder" })
+  | ProjectContinuityReferenceContext;
+
 export type ProjectFolderSiblingPromotionContext = {
   projectId: string;
   projectName: string;
@@ -557,6 +565,212 @@ export async function getProjectFolderReferenceContext(params: {
     }),
     omittedSiblingCount: Math.max(0, siblingCount - siblingRows.length),
   };
+}
+
+async function getProjectContinuityReferenceContext(params: {
+  userId: string;
+  conversationId: string;
+}): Promise<ProjectContinuityReferenceContext | null> {
+  const [currentLink] = await db
+    .select({
+      projectId: memoryProjectTaskLinks.projectId,
+      updatedAt: memoryProjectTaskLinks.updatedAt,
+    })
+    .from(memoryProjectTaskLinks)
+    .where(
+      and(
+        eq(memoryProjectTaskLinks.userId, params.userId),
+        eq(memoryProjectTaskLinks.conversationId, params.conversationId),
+      ),
+    )
+    .orderBy(desc(memoryProjectTaskLinks.updatedAt))
+    .limit(1);
+
+  if (!currentLink?.projectId) return null;
+
+  const [projectRow] = await db
+    .select({
+      name: memoryProjects.name,
+    })
+    .from(memoryProjects)
+    .where(
+      and(
+        eq(memoryProjects.userId, params.userId),
+        eq(memoryProjects.projectId, currentLink.projectId),
+      ),
+    )
+    .limit(1);
+
+  if (!projectRow) return null;
+
+  const continuityWhere = and(
+    eq(memoryProjectTaskLinks.userId, params.userId),
+    eq(memoryProjectTaskLinks.projectId, currentLink.projectId),
+    ne(memoryProjectTaskLinks.conversationId, params.conversationId),
+  );
+  const [linkedCountRows, linkedRows] = await Promise.all([
+    db
+      .select({ siblingCount: count() })
+      .from(memoryProjectTaskLinks)
+      .where(continuityWhere),
+    db
+      .select({
+        conversationId: memoryProjectTaskLinks.conversationId,
+        taskId: memoryProjectTaskLinks.taskId,
+        updatedAt: memoryProjectTaskLinks.updatedAt,
+      })
+      .from(memoryProjectTaskLinks)
+      .where(continuityWhere)
+      .orderBy(desc(memoryProjectTaskLinks.updatedAt), asc(memoryProjectTaskLinks.taskId))
+      .limit(PROJECT_FOLDER_AWARENESS_LIMIT),
+  ]);
+
+  if (linkedRows.length === 0) return null;
+
+  const siblingConversationIds = linkedRows.map((row) => row.conversationId);
+  const selectedTaskIds = linkedRows.map((row) => row.taskId);
+  const [siblingRows, taskRows] = await Promise.all([
+    db
+      .select({
+        conversationId: conversations.id,
+        title: conversations.title,
+      })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.userId, params.userId),
+          inArray(conversations.id, siblingConversationIds),
+        ),
+      ),
+    db
+      .select({
+        taskId: conversationTaskStates.taskId,
+        conversationId: conversationTaskStates.conversationId,
+        objective: conversationTaskStates.objective,
+        updatedAt: conversationTaskStates.updatedAt,
+      })
+      .from(conversationTaskStates)
+      .where(
+        and(
+          eq(conversationTaskStates.userId, params.userId),
+          inArray(conversationTaskStates.taskId, selectedTaskIds),
+        ),
+      )
+      .orderBy(desc(conversationTaskStates.updatedAt), asc(conversationTaskStates.taskId)),
+  ]);
+
+  const conversationById = new Map(
+    siblingRows.map((row) => [
+      row.conversationId,
+      {
+        title: row.title,
+      },
+    ]),
+  );
+  const taskById = new Map<
+    string,
+    { taskId: string; conversationId: string; objective: string }
+  >();
+  for (const row of taskRows) {
+    if (isPlaceholderObjective(row.objective)) continue;
+    taskById.set(row.taskId, {
+      taskId: row.taskId,
+      conversationId: row.conversationId,
+      objective: clipRequired(
+        row.objective,
+        PROJECT_FOLDER_AWARENESS_OBJECTIVE_MAX,
+      ),
+    });
+  }
+
+  const checkpointRows =
+    selectedTaskIds.length > 0
+      ? await db
+          .select({
+            taskId: taskCheckpoints.taskId,
+            content: taskCheckpoints.content,
+            checkpointType: taskCheckpoints.checkpointType,
+            updatedAt: taskCheckpoints.updatedAt,
+          })
+          .from(taskCheckpoints)
+          .where(
+            and(
+              eq(taskCheckpoints.userId, params.userId),
+              inArray(taskCheckpoints.taskId, selectedTaskIds),
+            ),
+          )
+          .orderBy(desc(taskCheckpoints.updatedAt))
+      : [];
+  const latestCheckpointByTask = new Map<string, string>();
+  const latestStableCheckpointByTask = new Map<string, string>();
+  for (const row of checkpointRows) {
+    if (!latestCheckpointByTask.has(row.taskId)) {
+      latestCheckpointByTask.set(row.taskId, row.content);
+    }
+    if (
+      row.checkpointType === "stable" &&
+      !latestStableCheckpointByTask.has(row.taskId)
+    ) {
+      latestStableCheckpointByTask.set(row.taskId, row.content);
+    }
+  }
+
+  const entries: ProjectFolderReferenceEntry[] = [];
+  const seenConversationIds = new Set<string>();
+  for (const row of linkedRows) {
+    if (seenConversationIds.has(row.conversationId)) continue;
+    const conversation = conversationById.get(row.conversationId);
+    if (!conversation) continue;
+    const task = taskById.get(row.taskId) ?? null;
+    const summary =
+      task
+        ? latestStableCheckpointByTask.get(task.taskId) ??
+          latestCheckpointByTask.get(task.taskId) ??
+          task.objective
+        : null;
+    entries.push({
+      conversationId: row.conversationId,
+      title: clipRequired(conversation.title, PROJECT_FOLDER_AWARENESS_TITLE_MAX),
+      objective: task?.objective ?? null,
+      summary: clipNullable(summary, PROJECT_FOLDER_AWARENESS_SUMMARY_MAX),
+    });
+    seenConversationIds.add(row.conversationId);
+  }
+
+  if (entries.length === 0) return null;
+  const siblingCount = linkedCountRows[0]?.siblingCount ?? linkedRows.length;
+
+  return {
+    source: "project_continuity",
+    projectId: currentLink.projectId,
+    projectName: projectRow.name,
+    entries,
+    omittedSiblingCount: Math.max(0, siblingCount - entries.length),
+  };
+}
+
+export async function getProjectReferenceContext(params: {
+  userId: string;
+  conversationId: string;
+}): Promise<ProjectReferenceContext | null> {
+  const [conversationRow] = await db
+    .select({ projectId: conversations.projectId })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.userId, params.userId),
+        eq(conversations.id, params.conversationId),
+      ),
+    )
+    .limit(1);
+
+  if (!conversationRow) return null;
+  if (conversationRow.projectId) {
+    const folderContext = await getProjectFolderReferenceContext(params);
+    return folderContext ? { ...folderContext, source: "project_folder" } : null;
+  }
+
+  return getProjectContinuityReferenceContext(params);
 }
 
 export async function selectProjectFolderSiblingPromotion(params: {

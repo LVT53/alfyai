@@ -1,5 +1,5 @@
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
-import { getProjectFolderReferenceContext } from "$lib/server/services/task-state";
+import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import type {
 	ArtifactSummary,
 	ContextDebugState,
@@ -348,7 +348,7 @@ export async function completeStreamTurn(
 			);
 		}
 
-		const projectFolderReference = await getProjectFolderReferenceContext({
+		const projectReference = await getProjectReferenceContext({
 			userId,
 			conversationId,
 		}).catch(() => null);
@@ -366,7 +366,7 @@ export async function completeStreamTurn(
 				? (getPersistedArtifactSummaries(persistedTurnState.activeWorkingSet) ??
 					[])
 				: (getPersistedArtifactSummaries(latestActiveWorkingSet) ?? []),
-			projectFolderReference,
+			projectReference,
 		});
 		const activeWorkingSet = persistedTurnState
 			? persistedTurnState.activeWorkingSet

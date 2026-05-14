@@ -24,7 +24,7 @@ import { buildDeepResearchPlanningContext } from "$lib/server/services/deep-rese
 import { sendMessage } from "$lib/server/services/langflow";
 import { createMessage } from "$lib/server/services/messages";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
-import { getProjectFolderReferenceContext } from "$lib/server/services/task-state";
+import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { RequestHandler } from "./$types";
 
@@ -259,7 +259,7 @@ export const POST: RequestHandler = async (event) => {
 			workCapsule: turnState.workCapsule,
 			maintenanceReason: "chat_send",
 		});
-		const projectFolderReference = await getProjectFolderReferenceContext({
+		const projectReference = await getProjectReferenceContext({
 			userId: user.id,
 			conversationId: turn.conversationId,
 		}).catch(() => null);
@@ -269,7 +269,7 @@ export const POST: RequestHandler = async (event) => {
 			contextStatus,
 			contextDebug: turnState.contextDebug,
 			activeWorkingSet: turnState.activeWorkingSet,
-			projectFolderReference,
+			projectReference,
 		});
 
 		return json({

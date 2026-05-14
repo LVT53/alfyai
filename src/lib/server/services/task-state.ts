@@ -70,6 +70,7 @@ export {
   forgetProjectMemory,
   forgetTaskMemory,
   getProjectFolderReferenceContext,
+  getProjectReferenceContext,
   getTaskContinuitySummary,
   listFocusContinuityItems,
   listProjectMemoryItems,
@@ -82,6 +83,7 @@ export {
   updateProjectMemoryStatuses,
   type ProjectFolderReferenceContext,
   type ProjectFolderSiblingPromotionContext,
+  type ProjectReferenceContext,
 } from "./task-state/continuity";
 export {
   canUseContextSummarizer,

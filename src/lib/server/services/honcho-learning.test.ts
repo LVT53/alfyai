@@ -47,6 +47,9 @@ const mockGetConversationProjectLabel = vi.hoisted(() =>
 const mockGetProjectFolderReferenceContext = vi.hoisted(() =>
 	vi.fn(async () => null)
 );
+const mockGetProjectReferenceContext = vi.hoisted(() =>
+	vi.fn(async () => null)
+);
 const mockSelectProjectFolderSiblingPromotion = vi.hoisted(() =>
 	vi.fn(async () => null)
 );
@@ -354,6 +357,7 @@ vi.mock('$lib/server/services/task-state', () => ({
 	formatTaskStateForPrompt: vi.fn((taskState: { objective: string }) => `Objective: ${taskState.objective}`),
 	getContextDebugState: vi.fn(async () => null),
 	getProjectFolderReferenceContext: mockGetProjectFolderReferenceContext,
+	getProjectReferenceContext: mockGetProjectReferenceContext,
 	getPromptArtifactSnippets: vi.fn(async () => new Map()),
 	prepareTaskContext: mockPrepareTaskContext,
 	selectProjectFolderSiblingPromotion: mockSelectProjectFolderSiblingPromotion,
@@ -575,6 +579,7 @@ describe('honcho learning - buildConstructedContext', () => {
 		mockFindRelevantKnowledgeArtifacts.mockResolvedValue([]);
 		mockGetConversationProjectLabel.mockResolvedValue(null);
 		mockGetProjectFolderReferenceContext.mockResolvedValue(null);
+		mockGetProjectReferenceContext.mockResolvedValue(null);
 		mockSelectProjectFolderSiblingPromotion.mockResolvedValue(null);
 	});
 
@@ -612,7 +617,8 @@ describe('honcho learning - buildConstructedContext', () => {
 	});
 
 	it('adds Project Folder Awareness as lightweight reference context when sibling summaries exist', async () => {
-		mockGetProjectFolderReferenceContext.mockResolvedValueOnce({
+		mockGetProjectReferenceContext.mockResolvedValueOnce({
+			source: 'project_folder',
 			projectId: 'folder-1',
 			entries: [
 				{
@@ -633,7 +639,7 @@ describe('honcho learning - buildConstructedContext', () => {
 			message: 'Continue the folder work.',
 		});
 
-		expect(mockGetProjectFolderReferenceContext).toHaveBeenCalledWith({
+		expect(mockGetProjectReferenceContext).toHaveBeenCalledWith({
 			userId: 'user-1',
 			conversationId: 'conv-1',
 		});
@@ -651,8 +657,44 @@ describe('honcho learning - buildConstructedContext', () => {
 		);
 	});
 
+	it('adds lower-authority Project Continuity Awareness for unorganized linked project work', async () => {
+		mockGetProjectReferenceContext.mockResolvedValueOnce({
+			source: 'project_continuity',
+			projectId: 'memory-project-1',
+			projectName: 'Launch continuity',
+			entries: [
+				{
+					conversationId: 'conv-linked',
+					title: 'Linked launch brief',
+					objective: 'Prepare the linked launch brief',
+					summary: 'Stable linked checkpoint.',
+				},
+			],
+			omittedSiblingCount: 1,
+		});
+		renderSectionsInCompactionMock();
+		const { buildConstructedContext } = await import('./honcho');
+
+		const result = await buildConstructedContext({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			message: 'Continue this unorganized project.',
+		});
+
+		expect(result.inputValue).toContain('## Project Continuity Awareness');
+		expect(result.inputValue).toContain(
+			'Inferred from memory project/task continuity for unorganized conversations. This is lower authority than an explicit Project Folder and should be used only as lightweight orientation, not source evidence.'
+		);
+		expect(result.inputValue).toContain('Memory Project: "Launch continuity"');
+		expect(result.inputValue).toContain('Title: "Linked launch brief"');
+		expect(result.inputValue).toContain(
+			'Omitted: 1 more linked conversation due to the continuity awareness cap.'
+		);
+		expect(result.inputValue).not.toContain('## Project Folder Awareness');
+	});
+
 	it('omits Project Folder Awareness when the helper returns no context or fails', async () => {
-		mockGetProjectFolderReferenceContext.mockResolvedValueOnce(null);
+		mockGetProjectReferenceContext.mockResolvedValueOnce(null);
 		renderSectionsInCompactionMock();
 		const { buildConstructedContext } = await import('./honcho');
 
@@ -664,7 +706,7 @@ describe('honcho learning - buildConstructedContext', () => {
 
 		expect(withoutAwareness.inputValue).not.toContain('## Project Folder Awareness');
 
-		mockGetProjectFolderReferenceContext.mockRejectedValueOnce(new Error('folder unavailable'));
+		mockGetProjectReferenceContext.mockRejectedValueOnce(new Error('folder unavailable'));
 		renderSectionsInCompactionMock();
 		const afterFailure = await buildConstructedContext({
 			userId: 'user-1',
@@ -677,7 +719,8 @@ describe('honcho learning - buildConstructedContext', () => {
 	});
 
 	it('adds promoted Project Folder Sibling Context with trace metadata when query matches sibling work', async () => {
-		mockGetProjectFolderReferenceContext.mockResolvedValueOnce({
+		mockGetProjectReferenceContext.mockResolvedValueOnce({
+			source: 'project_folder',
 			projectId: 'folder-1',
 			projectName: 'Brand refresh',
 			entries: [
@@ -754,7 +797,8 @@ describe('honcho learning - buildConstructedContext', () => {
 	});
 
 	it('keeps relevant knowledge artifact retrieval scoped to the current query when folder awareness exists', async () => {
-		mockGetProjectFolderReferenceContext.mockResolvedValueOnce({
+		mockGetProjectReferenceContext.mockResolvedValueOnce({
+			source: 'project_folder',
 			projectId: 'folder-1',
 			entries: [
 				{

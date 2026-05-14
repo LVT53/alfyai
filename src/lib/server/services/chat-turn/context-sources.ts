@@ -9,7 +9,10 @@ import type {
 	ConversationContextStatus,
 	EvidenceSourceType,
 } from "$lib/types";
-import type { ProjectFolderReferenceContext } from "$lib/server/services/task-state/continuity";
+import type {
+	ProjectFolderReferenceContext,
+	ProjectReferenceContext,
+} from "$lib/server/services/task-state/continuity";
 
 export type BuildContextSourcesStateInput = {
 	userId: string;
@@ -18,6 +21,7 @@ export type BuildContextSourcesStateInput = {
 	contextDebug?: ContextDebugState | null;
 	attachedArtifacts?: ArtifactSummary[];
 	activeWorkingSet?: ArtifactSummary[];
+	projectReference?: ProjectReferenceContext | null;
 	projectFolderReference?: ProjectFolderReferenceContext | null;
 	now?: Date;
 };
@@ -54,7 +58,12 @@ export function buildContextSourcesState(
 			evidence: input.contextDebug?.excludedEvidence ?? [],
 		}),
 		buildMemoryGroup(input.contextDebug),
-		buildProjectFolderGroup(input.projectFolderReference),
+		buildProjectReferenceGroup(
+			input.projectReference ??
+				(input.projectFolderReference
+					? { ...input.projectFolderReference, source: "project_folder" }
+					: null),
+		),
 	].filter((group): group is ContextSourceGroup => Boolean(group));
 
 	const selectedCount =
@@ -164,13 +173,16 @@ function buildMemoryGroup(
 	};
 }
 
-function buildProjectFolderGroup(
-	projectFolderReference: ProjectFolderReferenceContext | null | undefined,
+function buildProjectReferenceGroup(
+	projectFolderReference: ProjectReferenceContext | null | undefined,
 ): ContextSourceGroup | null {
 	if (!projectFolderReference || projectFolderReference.entries.length === 0) {
 		return null;
 	}
 
+	const isFolder = projectFolderReference.source === "project_folder";
+	const kind: Extract<ContextSourceGroupKind, "project_folder" | "project_continuity"> =
+		isFolder ? "project_folder" : "project_continuity";
 	const includedSiblingCount = projectFolderReference.entries.length;
 	const siblingCount =
 		includedSiblingCount + projectFolderReference.omittedSiblingCount;
@@ -185,16 +197,16 @@ function buildProjectFolderGroup(
 		.join(" ");
 	const reason =
 		projectFolderReference.omittedSiblingCount > 0
-			? `${includedSiblingCount} sibling conversations summarized, ${projectFolderReference.omittedSiblingCount} more omitted`
-			: `${includedSiblingCount} sibling conversation${includedSiblingCount === 1 ? "" : "s"} summarized`;
+			? `${includedSiblingCount} ${isFolder ? "sibling" : "linked"} conversations summarized, ${projectFolderReference.omittedSiblingCount} more omitted`
+			: `${includedSiblingCount} ${isFolder ? "sibling" : "linked"} conversation${includedSiblingCount === 1 ? "" : "s"} summarized`;
 
 	return {
-		kind: "project_folder",
+		kind,
 		state: "inferred",
 		totalCount: siblingCount,
 		items: [
 			{
-				id: `project_folder:${projectFolderReference.projectId}`,
+				id: `${kind}:${projectFolderReference.projectId}`,
 				title: projectFolderReference.projectName,
 				state: "inferred",
 				sourceType: "conversation",
@@ -206,6 +218,7 @@ function buildProjectFolderGroup(
 					includedSiblingCount,
 					omittedSiblingCount: projectFolderReference.omittedSiblingCount,
 					siblingSummary,
+					...(isFolder ? {} : { authority: projectFolderReference.source }),
 				},
 			},
 		],
