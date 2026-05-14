@@ -1,13 +1,14 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAdmin } from '$lib/server/auth/hooks';
-import { clearProvidersCache } from '$lib/server/config-store';
+import { clearProvidersCache, refreshConfig } from '$lib/server/config-store';
 import {
   createProvider,
   listProviders,
   normalizeReasoningEffort,
   normalizeThinkingType,
   parseProviderLimitOverrides,
+  resolveProviderLimitDefaults,
   validateProviderLimitConfiguration,
   validateProviderConnection,
   type CreateProviderInput,
@@ -54,6 +55,14 @@ export const POST: RequestHandler = async (event) => {
       return json({ error: 'Missing required fields' }, { status: 400 });
     }
 
+    const limitDefaults = resolveProviderLimitDefaults({
+      modelName: input.modelName,
+      maxModelContext: input.maxModelContext,
+      maxMessageLength: input.maxMessageLength,
+    });
+    input.maxModelContext = limitDefaults.maxModelContext;
+    input.maxMessageLength = limitDefaults.maxMessageLength;
+
     if (body.reasoningEffort && !input.reasoningEffort) {
       return json({ error: 'Invalid reasoning effort' }, { status: 400 });
     }
@@ -86,6 +95,7 @@ export const POST: RequestHandler = async (event) => {
 
     const provider = await createProvider(input);
     clearProvidersCache();
+    await refreshConfig();
     return json({ provider }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message.includes('UNIQUE constraint')) {

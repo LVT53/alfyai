@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+	resolveProviderLimitDefaults,
 	validateProviderConnection,
 	validateProviderLimitConfiguration,
 	validateProviderLimitOrdering,
@@ -81,6 +82,54 @@ describe("validateProviderLimitConfiguration", () => {
 				maxTokens: null,
 			}),
 		).toBe("Max model context is required");
+	});
+});
+
+describe("resolveProviderLimitDefaults", () => {
+	it("fills Fireworks model context and message defaults for researched model IDs", () => {
+		expect(
+			resolveProviderLimitDefaults({
+				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+				maxModelContext: null,
+				maxMessageLength: null,
+			}),
+		).toEqual({
+			maxModelContext: 262_144,
+			maxMessageLength: 1_048_576,
+		});
+		expect(
+			resolveProviderLimitDefaults({
+				modelName: "accounts/fireworks/models/deepseek-v4-pro",
+				maxModelContext: null,
+				maxMessageLength: null,
+			}),
+		).toEqual({
+			maxModelContext: 1_048_576,
+			maxMessageLength: 4_194_304,
+		});
+		expect(
+			resolveProviderLimitDefaults({
+				modelName: "accounts/fireworks/models/minimax-m2p7",
+				maxModelContext: null,
+				maxMessageLength: null,
+			}),
+		).toEqual({
+			maxModelContext: 196_608,
+			maxMessageLength: 786_432,
+		});
+	});
+
+	it("derives a message default from custom provider context when no preset matches", () => {
+		expect(
+			resolveProviderLimitDefaults({
+				modelName: "custom-model",
+				maxModelContext: 100_000,
+				maxMessageLength: null,
+			}),
+		).toEqual({
+			maxModelContext: 100_000,
+			maxMessageLength: 400_000,
+		});
 	});
 });
 

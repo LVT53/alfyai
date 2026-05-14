@@ -175,7 +175,7 @@ Notes before the tables:
 | `DATABASE_PATH` | No | `./data/chat.db` | SQLite database location | Set it when the database should live outside the repo root or on a mounted volume | The parent directory must be writable |
 | `WEBHOOK_PORT` | No | `8090` | Port used by webhook-related server handling | Set it only if your deployment expects a different port | Must be numeric |
 | `REQUEST_TIMEOUT_MS` | No | `300000` | Upstream request timeout for long-running model calls | Lower it for stricter failure windows or raise it for slower models | Affects perceived reliability on slow backends |
-| `MAX_MESSAGE_LENGTH` | No | `10000` | Maximum accepted user message length | Lower it for tighter limits or raise it for longer prompts | Can also be overridden in admin config |
+| `MAX_MESSAGE_LENGTH` | No | lowest enabled model cap | Global fallback maximum accepted user message length | Leave unset to derive it from the lowest enabled model Max Message Length | Can also be overridden in admin config |
 | `ATTACHMENT_TRACE_DEBUG` | No | `false` | Enables extra attachment tracing logs | Turn it on while debugging upload/readiness issues | Debug logging only; not a feature flag |
 | `MAX_MODEL_CONTEXT` | No | `262144` | Maximum tokens the model context window supports | Raise it for larger context windows or lower it for stricter limits | Can also be overridden in admin config |
 | `COMPACTION_UI_THRESHOLD` | No | `209715` | UI warning threshold at 80% of max | Adjust if you want earlier or later compaction warnings | Can also be overridden in admin config |

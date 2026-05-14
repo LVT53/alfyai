@@ -417,6 +417,8 @@ const dictionary = {
 		"admin.compactionUiThreshold": "Compaction UI Threshold (tokens)",
 		"admin.targetConstructedContext": "Target Constructed Context (tokens)",
 		"admin.maxMessageLength": "Max Message Length (characters)",
+		"admin.maxMessageLengthDescription":
+			"Global fallback used before a model-specific cap is known. Leave empty to use the lowest enabled model's max message length.",
 		"admin.maxFileUploadSize": "Max File Upload Size (bytes)",
 		"admin.requestTimeoutMs": "Request Timeout (ms)",
 		"admin.systemPromptLabel": "System Prompt",
@@ -1442,6 +1444,8 @@ const dictionary = {
 		"admin.compactionUiThreshold": "Tömörítési UI küszöb (token)",
 		"admin.targetConstructedContext": "Célkontextus (token)",
 		"admin.maxMessageLength": "Maximális üzenethossz (karakter)",
+		"admin.maxMessageLengthDescription":
+			"Globális tartalékérték, amíg nem ismert a modellspecifikus korlát. Hagyd üresen a legalacsonyabb engedélyezett modellkorlát használatához.",
 		"admin.maxFileUploadSize": "Maximális fájlfeltöltési méret (bájt)",
 		"admin.requestTimeoutMs": "Kérés időkorlát (ms)",
 		"admin.systemPromptLabel": "Rendszerprompt",

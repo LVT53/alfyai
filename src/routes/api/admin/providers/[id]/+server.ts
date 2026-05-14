@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAdmin } from '$lib/server/auth/hooks';
-import { clearProvidersCache } from '$lib/server/config-store';
+import { clearProvidersCache, refreshConfig } from '$lib/server/config-store';
 import {
   deleteProvider,
   decryptApiKey,
@@ -9,6 +9,7 @@ import {
   normalizeReasoningEffort,
   normalizeThinkingType,
   parseProviderLimitOverrides,
+  resolveProviderLimitDefaults,
   updateProvider,
   validateProviderLimitConfiguration,
   validateProviderConnection,
@@ -58,6 +59,33 @@ export const PUT: RequestHandler = async (event) => {
       return json({ error: 'Provider not found' }, { status: 404 });
     }
 
+    if (
+      input.modelName !== undefined ||
+      input.maxModelContext !== undefined ||
+      input.maxMessageLength !== undefined
+    ) {
+      const limitDefaults = resolveProviderLimitDefaults({
+        modelName: input.modelName ?? existing.modelName,
+        maxModelContext:
+          input.maxModelContext !== undefined
+            ? input.maxModelContext
+            : existing.maxModelContext,
+        maxMessageLength:
+          input.maxMessageLength !== undefined
+            ? input.maxMessageLength
+            : existing.maxMessageLength,
+      });
+      if (
+        input.maxModelContext !== undefined ||
+        (existing.maxModelContext == null && limitDefaults.maxModelContext != null)
+      ) {
+        input.maxModelContext = limitDefaults.maxModelContext;
+      }
+      if (input.maxMessageLength === undefined || input.maxMessageLength === null) {
+        input.maxMessageLength = limitDefaults.maxMessageLength;
+      }
+    }
+
     const limitOrderingError = validateProviderLimitConfiguration({
       enabled: input.enabled !== undefined ? input.enabled : existing.enabled,
       maxModelContext:
@@ -105,6 +133,7 @@ export const PUT: RequestHandler = async (event) => {
     }
 
     clearProvidersCache();
+    await refreshConfig();
     return json({ provider });
   } catch (error) {
     console.error('[ADMIN] Failed to update provider:', error);
@@ -124,6 +153,7 @@ export const DELETE: RequestHandler = async (event) => {
     }
 
     clearProvidersCache();
+    await refreshConfig();
     return json({ success: true });
   } catch (error) {
     console.error('[ADMIN] Failed to delete provider:', error);

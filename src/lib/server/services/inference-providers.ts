@@ -9,6 +9,10 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { inferenceProviders } from '../db/schema';
 import { config } from '../env';
+import {
+  deriveMaxMessageLengthFromContextTokens,
+  getKnownModelLimitPreset,
+} from '$lib/model-limit-presets';
 import { buildOpenAICompatibleUrl } from './openai-compatible-url';
 
 export type ProviderReasoningEffort = 'low' | 'medium' | 'high' | 'max' | 'xhigh';
@@ -198,6 +202,26 @@ export function validateProviderLimitConfiguration(input: {
   }
 
   return validateProviderLimitOrdering(input);
+}
+
+export function resolveProviderLimitDefaults(input: {
+  modelName: string;
+  maxModelContext: number | null;
+  maxMessageLength: number | null;
+}): {
+  maxModelContext: number | null;
+  maxMessageLength: number | null;
+} {
+  const preset = getKnownModelLimitPreset(input.modelName);
+  const maxModelContext = input.maxModelContext ?? preset?.maxModelContext ?? null;
+  const maxMessageLength =
+    input.maxMessageLength ??
+    preset?.maxMessageLength ??
+    (maxModelContext != null
+      ? deriveMaxMessageLengthFromContextTokens(maxModelContext)
+      : null);
+
+  return { maxModelContext, maxMessageLength };
 }
 
 export function normalizeReasoningEffort(value: unknown): ProviderReasoningEffort | null {

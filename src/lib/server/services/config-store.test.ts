@@ -1,12 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let adminConfigRows: Array<{ key: string; value: string }> = [];
+let providerRows: Array<{
+	enabled: boolean | null;
+	maxModelContext: number | null;
+	maxMessageLength: number | null;
+}> = [];
 
 // Mock must be defined before imports
 vi.mock("../db", () => ({
 	db: {
-		select: vi.fn(() => ({
-			from: vi.fn(() => Promise.resolve(adminConfigRows)),
+		select: vi.fn((fields?: unknown) => ({
+			from: vi.fn(() =>
+				Promise.resolve(fields ? providerRows : adminConfigRows),
+			),
 		})),
 	},
 }));
@@ -16,6 +23,17 @@ vi.mock("../env", () => ({
 		workingSetDocumentTokenBudget: 4000,
 		workingSetPromptTokenBudget: 20000,
 		smallFileThresholdChars: 5000,
+		maxMessageLength: 1_048_576,
+		maxModelContext: 262_144,
+		model1MaxModelContext: 262_144,
+		model1CompactionUiThreshold: 209_715,
+		model1TargetConstructedContext: 235_929,
+		model1MaxMessageLength: 1_048_576,
+		model2MaxModelContext: 262_144,
+		model2CompactionUiThreshold: 209_715,
+		model2TargetConstructedContext: 235_929,
+		model2MaxMessageLength: 1_048_576,
+		model2Enabled: true,
 		deepResearchEnabled: false,
 		deepResearchWorkerEnabled: false,
 		deepResearchWorkerIntervalMs: 5000,
@@ -45,6 +63,17 @@ vi.mock("../env", () => ({
 		workingSetDocumentTokenBudget: 4000,
 		workingSetPromptTokenBudget: 20000,
 		smallFileThresholdChars: 5000,
+		maxMessageLength: 1_048_576,
+		maxModelContext: 262_144,
+		model1MaxModelContext: 262_144,
+		model1CompactionUiThreshold: 209_715,
+		model1TargetConstructedContext: 235_929,
+		model1MaxMessageLength: 1_048_576,
+		model2MaxModelContext: 262_144,
+		model2CompactionUiThreshold: 209_715,
+		model2TargetConstructedContext: 235_929,
+		model2MaxMessageLength: 1_048_576,
+		model2Enabled: true,
 		deepResearchEnabled: false,
 		deepResearchWorkerEnabled: false,
 		deepResearchWorkerIntervalMs: 5000,
@@ -85,6 +114,7 @@ const {
 describe("Knowledge Store Config", () => {
 	beforeEach(async () => {
 		adminConfigRows = [];
+		providerRows = [];
 		await refreshConfig();
 	});
 
@@ -136,6 +166,33 @@ describe("Knowledge Store Config", () => {
 			expect(config.modelTimeoutFailoverEnabled).toBe(false);
 			expect(config.modelTimeoutFailoverTimeoutMs).toBe(60000);
 			expect(config.modelTimeoutFailoverTargetModel).toBe("model2");
+		});
+
+		it("getConfig() should default max message length to the lowest enabled model cap", async () => {
+			providerRows = [
+				{ enabled: true, maxModelContext: 196_608, maxMessageLength: null },
+				{
+					enabled: true,
+					maxModelContext: 1_048_576,
+					maxMessageLength: 4_194_304,
+				},
+				{ enabled: false, maxModelContext: 50_000, maxMessageLength: 200_000 },
+			];
+
+			await refreshConfig();
+
+			expect(getConfig().maxMessageLength).toBe(786_432);
+		});
+
+		it("getConfig() should allow an explicit global max message length override", async () => {
+			adminConfigRows = [{ key: "MAX_MESSAGE_LENGTH", value: "50000" }];
+			providerRows = [
+				{ enabled: true, maxModelContext: 196_608, maxMessageLength: 786_432 },
+			];
+
+			await refreshConfig();
+
+			expect(getConfig().maxMessageLength).toBe(50_000);
 		});
 
 		it("getConfig() should apply and clamp model timeout failover admin overrides", async () => {

@@ -10,6 +10,7 @@ import {
 	type DeepResearchDepthBudgetPolicy,
 	type DeepResearchModelSelections,
 } from "../deep-research-models";
+import { deriveMaxMessageLengthFromContextTokens } from "../model-limit-presets";
 
 export interface ModelConfig {
 	baseUrl: string;
@@ -202,6 +203,54 @@ function readConfig(): Config {
 	}
 	const databasePath = getDatabasePath();
 	const honchoWorkspace = process.env.HONCHO_WORKSPACE || "alfyai-prod";
+	const model2Enabled = process.env.MODEL_2_ENABLED !== "false";
+	const maxModelContext = Math.max(
+		1000,
+		parseInt(process.env.MAX_MODEL_CONTEXT || "262144", 10) || 262144,
+	);
+	const model1MaxModelContext = Math.max(
+		1000,
+		parseInt(
+			process.env.MODEL_1_MAX_MODEL_CONTEXT ||
+				process.env.MAX_MODEL_CONTEXT ||
+				"262144",
+			10,
+		) || 262144,
+	);
+	const model2MaxModelContext = Math.max(
+		1000,
+		parseInt(
+			process.env.MODEL_2_MAX_MODEL_CONTEXT ||
+				process.env.MAX_MODEL_CONTEXT ||
+				"262144",
+			10,
+		) || 262144,
+	);
+	const parsedMaxMessageLength = parseInt(
+		process.env.MAX_MESSAGE_LENGTH || "",
+		10,
+	);
+	const explicitMaxMessageLength = Number.isNaN(parsedMaxMessageLength)
+		? null
+		: Math.max(1, parsedMaxMessageLength);
+	const model1MaxMessageLength = Math.max(
+		1,
+		parseInt(process.env.MODEL_1_MAX_MESSAGE_LENGTH || "", 10) ||
+			explicitMaxMessageLength ||
+			deriveMaxMessageLengthFromContextTokens(model1MaxModelContext),
+	);
+	const model2MaxMessageLength = Math.max(
+		1,
+		parseInt(process.env.MODEL_2_MAX_MESSAGE_LENGTH || "", 10) ||
+			explicitMaxMessageLength ||
+			deriveMaxMessageLengthFromContextTokens(model2MaxModelContext),
+	);
+	const maxMessageLength =
+		explicitMaxMessageLength ??
+		Math.min(
+			model1MaxMessageLength,
+			...(model2Enabled ? [model2MaxMessageLength] : []),
+		);
 
 	return {
 		langflowApiUrl: process.env.LANGFLOW_API_URL || "http://localhost:7860",
@@ -316,11 +365,8 @@ function readConfig(): Config {
 		modelTimeoutFailoverTargetModel: normalizeConfiguredModelId(
 			process.env.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL || "model2",
 		),
-		maxMessageLength: parseInt(process.env.MAX_MESSAGE_LENGTH || "10000", 10),
-		maxModelContext: Math.max(
-			1000,
-			parseInt(process.env.MAX_MODEL_CONTEXT || "262144", 10) || 262144,
-		),
+		maxMessageLength,
+		maxModelContext,
 		compactionUiThreshold: Math.max(
 			1000,
 			parseInt(process.env.COMPACTION_UI_THRESHOLD || "209715", 10) || 209715,
@@ -330,15 +376,7 @@ function readConfig(): Config {
 			parseInt(process.env.TARGET_CONSTRUCTED_CONTEXT || "235929", 10) ||
 				235929,
 		),
-		model1MaxModelContext: Math.max(
-			1000,
-			parseInt(
-				process.env.MODEL_1_MAX_MODEL_CONTEXT ||
-					process.env.MAX_MODEL_CONTEXT ||
-					"262144",
-				10,
-			) || 262144,
-		),
+		model1MaxModelContext,
 		model1CompactionUiThreshold: Math.max(
 			1000,
 			parseInt(
@@ -357,24 +395,8 @@ function readConfig(): Config {
 				10,
 			) || 235929,
 		),
-		model1MaxMessageLength: Math.max(
-			1,
-			parseInt(
-				process.env.MODEL_1_MAX_MESSAGE_LENGTH ||
-					process.env.MAX_MESSAGE_LENGTH ||
-					"10000",
-				10,
-			) || 10000,
-		),
-		model2MaxModelContext: Math.max(
-			1000,
-			parseInt(
-				process.env.MODEL_2_MAX_MODEL_CONTEXT ||
-					process.env.MAX_MODEL_CONTEXT ||
-					"262144",
-				10,
-			) || 262144,
-		),
+		model1MaxMessageLength,
+		model2MaxModelContext,
 		model2CompactionUiThreshold: Math.max(
 			1000,
 			parseInt(
@@ -393,15 +415,7 @@ function readConfig(): Config {
 				10,
 			) || 235929,
 		),
-		model2MaxMessageLength: Math.max(
-			1,
-			parseInt(
-				process.env.MODEL_2_MAX_MESSAGE_LENGTH ||
-					process.env.MAX_MESSAGE_LENGTH ||
-					"10000",
-				10,
-			) || 10000,
-		),
+		model2MaxMessageLength,
 		workingSetDocumentTokenBudget: Math.max(
 			100,
 			parseInt(process.env.WORKING_SET_DOCUMENT_TOKEN_BUDGET || "4000", 10) ||
@@ -456,7 +470,7 @@ function readConfig(): Config {
 				process.env.MODEL_2_THINKING_TYPE,
 			),
 		},
-		model2Enabled: process.env.MODEL_2_ENABLED !== "false",
+		model2Enabled,
 		honchoApiKey: process.env.HONCHO_API_KEY || "",
 		honchoBaseUrl: process.env.HONCHO_BASE_URL || "http://localhost:8000",
 		honchoWorkspace,

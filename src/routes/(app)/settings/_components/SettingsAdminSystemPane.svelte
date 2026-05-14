@@ -890,6 +890,18 @@ function placeholderFor(key: string): string {
 	<h2 class="settings-section-title">{$t('admin.rateSizeLimits')}</h2>
 	<div class="flex flex-col gap-3">
 		<div>
+			<label class="settings-label" for="MAX_MESSAGE_LENGTH">{$t('admin.maxMessageLength')}</label>
+			<input
+				id="MAX_MESSAGE_LENGTH"
+				type="number"
+				min="1"
+				class="settings-input"
+				bind:value={adminConfig.MAX_MESSAGE_LENGTH}
+				placeholder={placeholderFor('MAX_MESSAGE_LENGTH')}
+			/>
+			<p class="mt-1 text-xs text-text-muted">{$t('admin.maxMessageLengthDescription')}</p>
+		</div>
+		<div>
 			<label class="settings-label" for="MAX_FILE_UPLOAD_SIZE">{$t('admin.maxFileUploadSize')}</label>
 			<input
 				id="MAX_FILE_UPLOAD_SIZE"

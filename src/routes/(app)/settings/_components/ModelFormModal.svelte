@@ -3,6 +3,7 @@ import { untrack } from "svelte";
 import { get } from "svelte/store";
 import { t } from "$lib/i18n";
 import type { InferenceProvider } from "$lib/client/api/admin";
+import { getKnownModelLimitPreset } from "$lib/model-limit-presets";
 
 const tVal = get(t);
 
@@ -82,8 +83,20 @@ let isBuiltIn = $derived(model?.isBuiltIn ?? false);
 let requiresProviderContext = $derived(!isBuiltIn && formEnabled);
 let visibleError = $derived(error || localError);
 
+function applyKnownModelLimitDefaults() {
+	const preset = getKnownModelLimitPreset(formModelName);
+	if (!preset) return;
+	if (!formMaxModelContext) {
+		formMaxModelContext = String(preset.maxModelContext);
+	}
+	if (!formMaxMessageLength) {
+		formMaxMessageLength = String(preset.maxMessageLength);
+	}
+}
+
 function handleSave() {
 	localError = "";
+	applyKnownModelLimitDefaults();
 	const data: Record<string, unknown> = {};
 	if (isCreate) {
 		if (
@@ -181,7 +194,7 @@ function handleSave() {
 				</div>
 				<div>
 					<label class="settings-label" for="form-model-name">{$t('admin.modelName')}</label>
-					<input id="form-model-name" type="text" class="settings-input" bind:value={formModelName} placeholder={isBuiltIn ? $t('admin.modelNamePlaceholderBuiltIn') : $t('admin.modelNamePlaceholderProvider')} />
+					<input id="form-model-name" type="text" class="settings-input" bind:value={formModelName} onchange={applyKnownModelLimitDefaults} placeholder={isBuiltIn ? $t('admin.modelNamePlaceholderBuiltIn') : $t('admin.modelNamePlaceholderProvider')} />
 				</div>
 				<div>
 					<label class="settings-label" for="form-max-tokens">{$t('admin.maxTokens')}</label>

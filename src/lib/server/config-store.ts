@@ -14,8 +14,9 @@ import {
 	type DeepResearchDepthBudgetPolicy,
 	type DeepResearchModelSelections,
 } from "$lib/deep-research-models";
+import { deriveMaxMessageLengthFromContextTokens } from "$lib/model-limit-presets";
 import { db } from "./db";
-import { adminConfig } from "./db/schema";
+import { adminConfig, inferenceProviders } from "./db/schema";
 import { getSystemPrompt, normalizeSystemPromptReference } from "./prompts";
 
 export const ADMIN_CONFIG_KEYS = [
@@ -277,6 +278,43 @@ function normalizeThinkingTypeOverride(
 	value: string,
 ): ModelConfig["thinkingType"] {
 	return value === "enabled" || value === "disabled" ? value : null;
+}
+
+function positiveIntegerOrNull(value: unknown): number | null {
+	return typeof value === "number" && Number.isInteger(value) && value > 0
+		? value
+		: null;
+}
+
+async function resolveLowestModelMaxMessageLength(
+	config: RuntimeConfig,
+): Promise<number> {
+	const candidates = [
+		positiveIntegerOrNull(config.model1MaxMessageLength),
+		config.model2Enabled === false
+			? null
+			: positiveIntegerOrNull(config.model2MaxMessageLength),
+	];
+
+	const providerRows = await db
+		.select({
+			enabled: inferenceProviders.enabled,
+			maxModelContext: inferenceProviders.maxModelContext,
+			maxMessageLength: inferenceProviders.maxMessageLength,
+		})
+		.from(inferenceProviders);
+
+	for (const provider of providerRows) {
+		if (provider.enabled === false) continue;
+		candidates.push(
+			positiveIntegerOrNull(provider.maxMessageLength) ??
+				(provider.maxModelContext != null
+					? deriveMaxMessageLengthFromContextTokens(provider.maxModelContext)
+					: null),
+		);
+	}
+
+	return Math.min(...candidates.filter((value): value is number => value != null));
 }
 
 const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
@@ -710,6 +748,7 @@ export async function refreshConfig(): Promise<void> {
 	const overrides: Record<string, string> = Object.fromEntries(
 		rows.map((r) => [r.key, r.value]),
 	);
+	const hasMaxMessageLengthOverride = overrides.MAX_MESSAGE_LENGTH !== undefined;
 
 	const base = buildDefaultConfig();
 
@@ -717,6 +756,10 @@ export async function refreshConfig(): Promise<void> {
 		const value = overrides[key];
 		if (value === undefined) continue;
 		overrideAppliers[key](base, value);
+	}
+
+	if (!hasMaxMessageLengthOverride) {
+		base.maxMessageLength = await resolveLowestModelMaxMessageLength(base);
 	}
 
 	runtimeConfig = base;

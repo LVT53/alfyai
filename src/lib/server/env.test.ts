@@ -110,7 +110,7 @@ describe("Environment Configuration", () => {
 		expect(config.modelTimeoutFailoverEnabled).toBe(false);
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(60000);
 		expect(config.modelTimeoutFailoverTargetModel).toBe("model2");
-		expect(config.maxMessageLength).toBe(10000);
+		expect(config.maxMessageLength).toBe(1_048_576);
 		expect(config.sessionSecret).toBe(
 			"test-session-secret-12345678901234567890123456789012",
 		);

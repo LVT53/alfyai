@@ -6,6 +6,7 @@ vi.mock("$lib/server/auth/hooks", () => ({
 
 vi.mock("$lib/server/config-store", () => ({
 	clearProvidersCache: vi.fn(),
+	refreshConfig: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/inference-providers", async () => {
@@ -22,7 +23,7 @@ vi.mock("$lib/server/services/inference-providers", async () => {
 });
 
 import { requireAdmin } from "$lib/server/auth/hooks";
-import { clearProvidersCache } from "$lib/server/config-store";
+import { clearProvidersCache, refreshConfig } from "$lib/server/config-store";
 import {
 	createProvider,
 	validateProviderConnection,
@@ -31,6 +32,7 @@ import { POST } from "./+server";
 
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
 const mockClearProvidersCache = clearProvidersCache as ReturnType<typeof vi.fn>;
+const mockRefreshConfig = refreshConfig as ReturnType<typeof vi.fn>;
 const mockCreateProvider = createProvider as ReturnType<typeof vi.fn>;
 const mockValidateProviderConnection = validateProviderConnection as ReturnType<
 	typeof vi.fn
@@ -91,6 +93,7 @@ describe("admin providers collection route", () => {
 			}),
 		);
 		expect(mockClearProvidersCache).toHaveBeenCalled();
+		expect(mockRefreshConfig).toHaveBeenCalled();
 	});
 
 	it("rejects an enabled third-party provider without max model context", async () => {
@@ -132,6 +135,27 @@ describe("admin providers collection route", () => {
 			"https://api.fireworks.ai/inference/v1",
 			"fpk_test_key",
 			{ modelName: "accounts/fireworks/routers/kimi-k2p6-turbo" },
+		);
+	});
+
+	it("uses researched Fireworks limits as defaults for Fire Pass Kimi Turbo", async () => {
+		const response = await POST(
+			makePostEvent({
+				name: "firepass",
+				displayName: "Fire Pass",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				apiKey: "fpk_test_key",
+				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+				enabled: true,
+			}),
+		);
+
+		expect(response.status).toBe(201);
+		expect(mockCreateProvider).toHaveBeenCalledWith(
+			expect.objectContaining({
+				maxModelContext: 262_144,
+				maxMessageLength: 1_048_576,
+			}),
 		);
 	});
 });
