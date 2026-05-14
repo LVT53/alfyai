@@ -81,7 +81,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		}
 
 		// Create session and set cookie
-		const { token, expiresAt } = await createSession(user.id);
+		const { token, expiresAt } = await createSession(user.id, { rememberMe });
 		setSessionCookie(cookies, token, expiresAt, { rememberMe });
 
 		if (responseMode === 'redirect') {

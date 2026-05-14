@@ -6,15 +6,21 @@ import { sessions, users } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
 import type { SessionUser } from '../../types';
 
-const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+const SHORT_SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
+const REMEMBERED_SESSION_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
 
 export async function verifyPassword(plaintext: string, hash: string): Promise<boolean> {
   return bcrypt.compare(plaintext, hash);
 }
 
-export async function createSession(userId: string): Promise<{ token: string; expiresAt: number }> {
+export async function createSession(
+  userId: string,
+  options: SessionCookieOptions = { rememberMe: true },
+): Promise<{ token: string; expiresAt: number }> {
   const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = Date.now() + SESSION_DURATION_MS;
+  const durationMs =
+    options.rememberMe === false ? SHORT_SESSION_DURATION_MS : REMEMBERED_SESSION_DURATION_MS;
+  const expiresAt = Date.now() + durationMs;
 
   await db.insert(sessions).values({
     id: token,
@@ -68,7 +74,7 @@ export function setSessionCookie(
   cookies: Pick<Cookies, 'set'>,
   token: string,
   expiresAt: number,
-  options: SessionCookieOptions = { rememberMe: true }
+  _options: SessionCookieOptions = { rememberMe: true }
 ): void {
   const maxAge = Math.floor((expiresAt - Date.now()) / 1000);
 
@@ -79,9 +85,7 @@ export function setSessionCookie(
     path: '/',
   };
 
-  if (options.rememberMe !== false) {
-    cookieOptions.maxAge = maxAge;
-  }
+  cookieOptions.maxAge = maxAge;
 
   cookies.set('session', token, cookieOptions);
 }

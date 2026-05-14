@@ -7,16 +7,34 @@ import { isHonchoEnabled, getOrCreateSession } from './honcho';
 import { recordConversationAnalytics } from './analytics';
 import { convergeProjectFolderContinuityForConversation } from './task-state/continuity';
 
-export async function createConversation(userId: string, title?: string): Promise<Conversation> {
+type CreateConversationOptions = {
+	projectId?: string | null;
+};
+
+export async function createConversation(
+	userId: string,
+	title?: string,
+	options: CreateConversationOptions = {}
+): Promise<Conversation> {
 	const id = randomUUID();
+	const projectId = options.projectId ?? null;
 	const [conversation] = await db
 		.insert(conversations)
 		.values({
 			id,
 			userId,
 			title: title ?? 'New Conversation',
+			projectId,
 		})
 		.returning();
+	if (projectId) {
+		await convergeProjectFolderContinuityForConversation({
+			userId,
+			conversationId: conversation.id,
+			projectId,
+			previousProjectId: null,
+		});
+	}
 	// Pre-create Honcho session for this conversation
 	if (isHonchoEnabled()) {
 		getOrCreateSession(userId, id).catch((err) =>

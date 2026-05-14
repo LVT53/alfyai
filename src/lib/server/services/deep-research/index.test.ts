@@ -78,6 +78,29 @@ async function seedAdditionalConversation(input: {
 	sqlite.close();
 }
 
+async function assignSourceConversationToProject() {
+	const sqlite = new Database(dbPath);
+	sqlite.pragma("foreign_keys = ON");
+	const db = drizzle(sqlite, { schema });
+
+	const now = new Date("2026-05-05T10:00:00.000Z");
+	db.insert(schema.projects)
+		.values({
+			id: "project-1",
+			userId: "user-1",
+			name: "Research folder",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.update(schema.conversations)
+		.set({ projectId: "project-1" })
+		.where(eq(schema.conversations.id, "conv-1"))
+		.run();
+
+	sqlite.close();
+}
+
 async function seedCompletedMeaningfulPasses(jobId: string, count: number) {
 	const { upsertResearchPassCheckpoint, completeResearchPassCheckpoint } =
 		await import("./pass-state");
@@ -1247,6 +1270,7 @@ describe("deep research job shell service", () => {
 		const { db } = await import("$lib/server/db");
 		const { discussDeepResearchReport } = await import("./index");
 		const { created, completed } = await completeApprovedJobWithAuditedReport();
+		await assignSourceConversationToProject();
 
 		const action = await discussDeepResearchReport({
 			userId: "user-1",
@@ -1294,6 +1318,7 @@ describe("deep research job shell service", () => {
 			reportArtifactId: completed?.reportArtifactId,
 			conversation: {
 				title: "Discuss: Compare EU and US AI copyright training data rules",
+				projectId: "project-1",
 			},
 		});
 		expect(action?.conversation.id).not.toBe("conv-1");
@@ -1318,6 +1343,7 @@ describe("deep research job shell service", () => {
 		const { db } = await import("$lib/server/db");
 		const { researchFurtherFromDeepResearchReport } = await import("./index");
 		const { created, completed } = await completeApprovedJobWithAuditedReport();
+		await assignSourceConversationToProject();
 
 		const action = await researchFurtherFromDeepResearchReport({
 			userId: "user-1",
@@ -1358,6 +1384,7 @@ describe("deep research job shell service", () => {
 			conversation: {
 				title:
 					"Research further: Compare EU and US AI copyright training data rules",
+				projectId: "project-1",
 			},
 			messageId: expect.any(String),
 			job: {

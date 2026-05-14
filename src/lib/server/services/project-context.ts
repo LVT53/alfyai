@@ -3,7 +3,7 @@ import {
 	type ProjectReferenceContext,
 } from "$lib/server/services/task-state";
 import { db } from "$lib/server/db";
-import { messages } from "$lib/server/db/schema";
+import { artifacts, deepResearchJobs, messages } from "$lib/server/db/schema";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
 import type { ToolEvidenceCandidate } from "$lib/types";
@@ -13,6 +13,9 @@ const HARD_MAX_SIBLINGS = 5;
 const DEFAULT_MAX_MESSAGES = 6;
 const HARD_MAX_MESSAGES = 10;
 const MESSAGE_CONTENT_MAX = 1_200;
+const DEEP_RESEARCH_RESULTS_PER_CONVERSATION = 3;
+const DEEP_RESEARCH_SUMMARY_MAX = 900;
+const DEEP_RESEARCH_CONTENT_MAX = 2_400;
 
 export type ProjectContextMode = "summary" | "detail";
 
@@ -21,6 +24,8 @@ export type ProjectContextSiblingSummary = {
 	title: string;
 	objective: string | null;
 	summary: string | null;
+	deepResearchResults?: ProjectContextDeepResearchResult[];
+	omittedDeepResearchResultCount?: number;
 };
 
 export type ProjectContextDetailMessage = {
@@ -33,6 +38,41 @@ export type ProjectContextSelectedSiblingDetail = ProjectContextSiblingSummary &
 	messages: ProjectContextDetailMessage[];
 	omittedMessageCount: number;
 };
+
+export type ProjectContextDeepResearchResult = {
+	jobId: string;
+	title: string;
+	userRequest: string;
+	depth: string;
+	completedAt: number;
+	reportArtifact: {
+		id: string;
+		title: string;
+		summary: string | null;
+		content?: string | null;
+	};
+};
+
+type DeepResearchResultRow = {
+	conversationId: string;
+	jobId: string;
+	title: string;
+	userRequest: string;
+	depth: string;
+	completedAt: Date | number | null;
+	reportArtifactId: string;
+	reportTitle: string;
+	reportSummary: string | null;
+	reportContent: string | null;
+};
+
+type DeepResearchResultsByConversation = Map<
+	string,
+	{
+		results: ProjectContextDeepResearchResult[];
+		omittedCount: number;
+	}
+>;
 
 export type ProjectContextResult = {
 	success: true;
@@ -96,10 +136,113 @@ function clipMessageContent(value: string): string {
 	return clipNullableText(normalizeWhitespace(value), MESSAGE_CONTENT_MAX) ?? "";
 }
 
+function clipDeepResearchText(
+	value: string | null | undefined,
+	maxLength: number,
+): string | null {
+	return clipNullableText(normalizeWhitespace(value ?? ""), maxLength);
+}
+
+function attachDeepResearchResults(
+	sibling: ProjectContextSiblingSummary,
+	deepResearchResults: DeepResearchResultsByConversation,
+): ProjectContextSiblingSummary {
+	const result = deepResearchResults.get(sibling.conversationId);
+	if (!result || result.results.length === 0) return sibling;
+	return {
+		...sibling,
+		deepResearchResults: result.results,
+		omittedDeepResearchResultCount: result.omittedCount,
+	};
+}
+
+function mapDeepResearchResultRow(
+	row: DeepResearchResultRow,
+	includeContent: boolean,
+): ProjectContextDeepResearchResult {
+	return {
+		jobId: row.jobId,
+		title: row.title,
+		userRequest: clipDeepResearchText(row.userRequest, DEEP_RESEARCH_SUMMARY_MAX) ?? "",
+		depth: row.depth,
+		completedAt: toTimestampMs(row.completedAt),
+		reportArtifact: {
+			id: row.reportArtifactId,
+			title: row.reportTitle,
+			summary: clipDeepResearchText(row.reportSummary, DEEP_RESEARCH_SUMMARY_MAX),
+			...(includeContent
+				? {
+						content: clipDeepResearchText(
+							row.reportContent,
+							DEEP_RESEARCH_CONTENT_MAX,
+						),
+					}
+				: {}),
+		},
+	};
+}
+
+async function listDeepResearchResults(params: {
+	userId: string;
+	conversationIds: string[];
+	includeContent: boolean;
+}): Promise<DeepResearchResultsByConversation> {
+	const conversationIds = Array.from(new Set(params.conversationIds)).filter(
+		Boolean,
+	);
+	if (conversationIds.length === 0) return new Map();
+
+	const rows = (await db
+		.select({
+			conversationId: deepResearchJobs.conversationId,
+			jobId: deepResearchJobs.id,
+			title: deepResearchJobs.title,
+			userRequest: deepResearchJobs.userRequest,
+			depth: deepResearchJobs.depth,
+			completedAt: deepResearchJobs.completedAt,
+			reportArtifactId: artifacts.id,
+			reportTitle: artifacts.name,
+			reportSummary: artifacts.summary,
+			reportContent: artifacts.contentText,
+		})
+		.from(deepResearchJobs)
+		.innerJoin(artifacts, eq(deepResearchJobs.reportArtifactId, artifacts.id))
+		.where(
+			and(
+				eq(deepResearchJobs.userId, params.userId),
+				eq(deepResearchJobs.status, "completed"),
+				inArray(deepResearchJobs.conversationId, conversationIds),
+				eq(artifacts.userId, params.userId),
+			),
+		)
+		.orderBy(
+			desc(deepResearchJobs.completedAt),
+			desc(deepResearchJobs.updatedAt),
+			desc(deepResearchJobs.createdAt),
+		)) as DeepResearchResultRow[];
+
+	const grouped: DeepResearchResultsByConversation = new Map();
+	for (const row of rows) {
+		const current = grouped.get(row.conversationId) ?? {
+			results: [],
+			omittedCount: 0,
+		};
+		if (current.results.length < DEEP_RESEARCH_RESULTS_PER_CONVERSATION) {
+			current.results.push(
+				mapDeepResearchResultRow(row, params.includeContent),
+			);
+		} else {
+			current.omittedCount += 1;
+		}
+		grouped.set(row.conversationId, current);
+	}
+	return grouped;
+}
+
 function buildEvidenceCandidates(
 	siblings: ProjectContextSiblingSummary[],
 ): ToolEvidenceCandidate[] {
-	return siblings
+	const summaryCandidates = siblings
 		.filter((sibling) => sibling.summary?.trim())
 		.map((sibling) => ({
 			id: `conversation-summary:${sibling.conversationId}`,
@@ -107,6 +250,26 @@ function buildEvidenceCandidates(
 			snippet: sibling.summary,
 			sourceType: "memory",
 		}));
+	const deepResearchCandidates = siblings.flatMap((sibling) =>
+		buildDeepResearchEvidenceCandidates(sibling.deepResearchResults ?? []),
+	);
+	return [...summaryCandidates, ...deepResearchCandidates];
+}
+
+function buildDeepResearchEvidenceCandidates(
+	results: ProjectContextDeepResearchResult[],
+): ToolEvidenceCandidate[] {
+	return results.map((result) => ({
+		id: `deep-research-report:${result.reportArtifact.id}`,
+		title: result.reportArtifact.title,
+		snippet: clipNullableText(
+			[`Question: ${result.userRequest}`, result.reportArtifact.summary]
+				.filter(Boolean)
+				.join(" "),
+			700,
+		),
+		sourceType: "document" as const,
+	}));
 }
 
 function buildDetailEvidenceCandidate(
@@ -115,6 +278,14 @@ function buildDetailEvidenceCandidate(
 	const snippetParts = [
 		sibling.summary,
 		...sibling.messages.map((message) => `${message.role}: ${message.content}`),
+		...(sibling.deepResearchResults ?? []).map(
+			(result) =>
+				`deep research question: ${result.userRequest} report: ${
+					result.reportArtifact.content ??
+					result.reportArtifact.summary ??
+					result.reportArtifact.title
+				}`,
+		),
 	].filter((value): value is string => Boolean(value?.trim()));
 	return {
 		id: `project-context-detail:${sibling.conversationId}`,
@@ -165,6 +336,7 @@ async function listRecentDialogueMessages(params: {
 
 async function buildDetailResult(params: {
 	reference: ProjectReferenceContext;
+	userId: string;
 	conversationId: string;
 	siblingConversationId: string | null | undefined;
 	requestedMaxSiblings: number | null;
@@ -193,11 +365,19 @@ async function buildDetailResult(params: {
 		conversationId: siblingConversationId,
 		maxMessages: params.appliedMaxMessages,
 	});
-	const selectedSibling: ProjectContextSelectedSiblingDetail = {
+	const deepResearchResults = await listDeepResearchResults({
+		userId: params.userId,
+		conversationIds: [siblingConversationId],
+		includeContent: true,
+	});
+	const selectedSiblingBase: ProjectContextSiblingSummary = {
 		conversationId: sibling.conversationId,
 		title: sibling.title,
 		objective: sibling.objective,
 		summary: sibling.summary,
+	};
+	const selectedSibling: ProjectContextSelectedSiblingDetail = {
+		...attachDeepResearchResults(selectedSiblingBase, deepResearchResults),
 		messages: detailMessages.messages,
 		omittedMessageCount: detailMessages.omittedMessageCount,
 	};
@@ -216,7 +396,12 @@ async function buildDetailResult(params: {
 		omittedSiblingCount: params.reference.omittedSiblingCount,
 		selectedSibling,
 		evidenceCandidates: params.includeEvidenceCandidates
-			? [buildDetailEvidenceCandidate(selectedSibling)]
+			? [
+					buildDetailEvidenceCandidate(selectedSibling),
+					...buildDeepResearchEvidenceCandidates(
+						selectedSibling.deepResearchResults ?? [],
+					),
+				]
 			: [],
 		audit: {
 			conversationId: params.conversationId,
@@ -286,6 +471,7 @@ export async function getProjectContext(
 	if (mode === "detail") {
 		return buildDetailResult({
 			reference,
+			userId: params.userId,
 			conversationId: params.conversationId,
 			siblingConversationId: params.siblingConversationId,
 			requestedMaxSiblings,
@@ -296,12 +482,20 @@ export async function getProjectContext(
 		});
 	}
 
-	const siblings = reference.entries.slice(0, maxSiblings).map((entry) => ({
+	const baseSiblings = reference.entries.slice(0, maxSiblings).map((entry) => ({
 		conversationId: entry.conversationId,
 		title: entry.title,
 		objective: entry.objective,
 		summary: entry.summary,
 	}));
+	const deepResearchResults = await listDeepResearchResults({
+		userId: params.userId,
+		conversationIds: baseSiblings.map((sibling) => sibling.conversationId),
+		includeContent: false,
+	});
+	const siblings = baseSiblings.map((sibling) =>
+		attachDeepResearchResults(sibling, deepResearchResults),
+	);
 	const omittedByRequest = Math.max(0, reference.entries.length - siblings.length);
 	const omittedSiblingCount = reference.omittedSiblingCount + omittedByRequest;
 
