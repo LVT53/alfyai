@@ -7,6 +7,8 @@ export const QWEN_CHATML_ANALYSIS_OPEN_TAG = "<|im_start|>analysis";
 export const QWEN_CHATML_THINKING_CLOSE_TAG = "<|im_end|>";
 export const MISTRAL_THINKING_OPEN_TAG = "[THINK]";
 export const MISTRAL_THINKING_CLOSE_TAG = "[/THINK]";
+export const SKILL_CONTROL_ENVELOPE_OPEN_TAG = "<skill_control_v1>";
+export const SKILL_CONTROL_ENVELOPE_CLOSE_TAG = "</skill_control_v1>";
 
 const THINKING_OPEN_TAGS = [
 	THINKING_OPEN_TAG,
@@ -42,6 +44,11 @@ interface TagMatch {
 	tag: string;
 }
 
+export interface SkillControlEnvelopeBlock {
+	rawJson: string;
+	rawBlock: string;
+}
+
 export function createInlineThinkingState(): InlineThinkingState {
 	return {
 		buffer: "",
@@ -59,6 +66,51 @@ export function getPartialTagPrefixLength(value: string, tag: string): number {
 	}
 
 	return 0;
+}
+
+export function getSkillControlEnvelopePrefixHoldLength(value: string): number {
+	return getPartialTagPrefixLength(value, SKILL_CONTROL_ENVELOPE_OPEN_TAG);
+}
+
+export function stripCompleteSkillControlEnvelopeBlocks(value: string): {
+	visibleText: string;
+	envelopes: SkillControlEnvelopeBlock[];
+} {
+	if (!value) {
+		return { visibleText: "", envelopes: [] };
+	}
+
+	const envelopes: SkillControlEnvelopeBlock[] = [];
+	let visibleText = "";
+	let cursor = 0;
+	const lowerValue = value.toLowerCase();
+	const openTag = SKILL_CONTROL_ENVELOPE_OPEN_TAG;
+	const closeTag = SKILL_CONTROL_ENVELOPE_CLOSE_TAG;
+
+	while (cursor < value.length) {
+		const openIndex = lowerValue.indexOf(openTag, cursor);
+		if (openIndex === -1) {
+			visibleText += value.slice(cursor);
+			break;
+		}
+
+		const payloadStart = openIndex + openTag.length;
+		const closeIndex = lowerValue.indexOf(closeTag, payloadStart);
+		if (closeIndex === -1) {
+			visibleText += value.slice(cursor);
+			break;
+		}
+
+		visibleText += value.slice(cursor, openIndex);
+		const blockEnd = closeIndex + closeTag.length;
+		envelopes.push({
+			rawJson: value.slice(payloadStart, closeIndex).trim(),
+			rawBlock: value.slice(openIndex, blockEnd),
+		});
+		cursor = blockEnd;
+	}
+
+	return { visibleText, envelopes };
 }
 
 function emitChunk(

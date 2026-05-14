@@ -288,7 +288,7 @@ describe("Deep Research dev-control acceptance path", () => {
 		}
 	});
 
-	it("starts, approves, advances, and completes a report through public dev routes", async () => {
+	it("starts, approves, advances, and completes an evidence limitation memo through public dev routes", async () => {
 		const {
 			jobId,
 			startResponse,
@@ -341,13 +341,14 @@ describe("Deep Research dev-control acceptance path", () => {
 			job: {
 				id: jobId,
 				status: "completed",
+				stage: "evidence_limitation_memo_ready",
 				reportArtifactId: expect.any(String),
 			},
 		});
 		expect(sourceConversation).toMatchObject({
 			id: "conv-1",
-			status: "sealed",
-			sealedAt: expect.any(Date),
+			status: "open",
+			sealedAt: null,
 		});
 	});
 
@@ -416,7 +417,7 @@ describe("Deep Research dev-control acceptance path", () => {
 		]);
 	});
 
-	it("keeps the completed Research conversation sealed while Report Actions create new conversations", async () => {
+	it("keeps the completed memo source conversation open while Report Actions create new conversations", async () => {
 		const { POST: discussReport } = await import(
 			"./jobs/[id]/report-actions/discuss/+server"
 		);
@@ -458,7 +459,6 @@ describe("Deep Research dev-control acceptance path", () => {
 			conversation: {
 				title: "Discuss: Compare EU and US AI copyright training data rules",
 			},
-			messageId: expect.any(String),
 		});
 		expect(researchFurtherResponse.status).toBe(201);
 		expect(further).toMatchObject({
@@ -479,8 +479,8 @@ describe("Deep Research dev-control acceptance path", () => {
 		expect(further.conversation.id).not.toBe(discuss.conversation.id);
 		expect(sourceConversation).toMatchObject({
 			id: "conv-1",
-			status: "sealed",
-			sealedAt: expect.any(Date),
+			status: "open",
+			sealedAt: null,
 		});
 		expect(discussConversation).toMatchObject({
 			id: discuss.conversation.id,

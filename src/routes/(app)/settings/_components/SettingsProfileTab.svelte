@@ -7,6 +7,7 @@
 		getPersonalityProfileDisplayName,
 	} from '$lib/utils/personality-profile-labels';
 	import PasswordField from './PasswordField.svelte';
+	import UserSkillsSettingsSurface from './UserSkillsSettingsSurface.svelte';
 	import type { ModelId } from '$lib/types';
 
 	type AvailableModel = { id: ModelId; displayName: string };
@@ -61,6 +62,7 @@
 		onForgetEverything,
 		forgetEverythingLoading = false,
 		forgetEverythingError = '',
+		skillsEnabled = false,
 	}: {
 		userId: string;
 		userDisplayName: string;
@@ -108,6 +110,7 @@
 		onForgetEverything: () => void | Promise<void>;
 		forgetEverythingLoading?: boolean;
 		forgetEverythingError?: string;
+		skillsEnabled?: boolean;
 	} = $props();
 </script>
 
@@ -304,6 +307,8 @@
 		</div>
 	</div>
 </section>
+
+<UserSkillsSettingsSurface {skillsEnabled} />
 
 <section class="settings-card settings-card-danger mb-4">
 	<h2 class="settings-section-title text-danger">{$t('settings_dangerZone')}</h2>

@@ -1,8 +1,51 @@
 import { describe, expect, it } from "vitest";
 import { buildContextSourcesState } from "./context-sources";
-import type { ArtifactSummary, ContextDebugState, ConversationContextStatus } from "$lib/types";
+import type {
+	ArtifactSummary,
+	ContextDebugState,
+	ConversationContextStatus,
+	LinkedContextSource,
+} from "$lib/types";
 
 describe("buildContextSourcesState", () => {
+	it("keeps linked source documents distinct from uploaded attachments", () => {
+		const state = buildContextSourcesState({
+			userId: "user-1",
+			conversationId: "conv-1",
+			attachedArtifacts: [artifact("attachment-1", "Uploaded attachment")],
+			linkedSources: [linkedSource("display-1", "Linked plan.pdf")],
+			now: new Date("2026-05-05T10:00:00.000Z"),
+		});
+
+		expect(state.activeCount).toBe(2);
+		expect(state.groups.map((group) => group.kind)).toEqual([
+			"attachments",
+			"linked_source",
+		]);
+		expect(state.groups.find((group) => group.kind === "linked_source")).toEqual(
+			expect.objectContaining({
+				kind: "linked_source",
+				state: "active",
+				totalCount: 1,
+				items: [
+					expect.objectContaining({
+						id: "linked_source:display-1",
+						artifactId: "display-1",
+						title: "Linked plan.pdf",
+						state: "active",
+						sourceType: "document",
+						artifactType: "document",
+						reason: "linked_context_source",
+						metadata: {
+							promptArtifactId: "prompt-display-1",
+							documentOrigin: "uploaded",
+						},
+					}),
+				],
+			}),
+		);
+	});
+
 	it("treats selected message evidence as inferred instead of active carried-forward context", () => {
 		const contextDebug: ContextDebugState = {
 			activeTaskId: null,
@@ -371,5 +414,17 @@ function artifact(id: string, name: string): ArtifactSummary {
 		summary: null,
 		createdAt: 1_777_140_000_000,
 		updatedAt: 1_777_140_000_000,
+	};
+}
+
+function linkedSource(displayArtifactId: string, name: string): LinkedContextSource {
+	return {
+		displayArtifactId,
+		promptArtifactId: `prompt-${displayArtifactId}`,
+		familyArtifactIds: [displayArtifactId, `prompt-${displayArtifactId}`],
+		name,
+		type: "document",
+		mimeType: "application/pdf",
+		documentOrigin: "uploaded",
 	};
 }

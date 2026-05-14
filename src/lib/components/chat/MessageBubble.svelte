@@ -15,6 +15,7 @@
 	import FileAttachment from './FileAttachment.svelte';
 	import MessageEvidenceDetails from './MessageEvidenceDetails.svelte';
 	import FileProductionCard from './FileProductionCard.svelte';
+	import SkillDraftCard from './SkillDraftCard.svelte';
 	import { onDestroy, tick } from 'svelte';
 	import type { TaskSteeringPayload } from '$lib/types';
 
@@ -32,6 +33,10 @@
 		onOpenDocument = undefined,
 		onRetryFileProductionJob = undefined,
 		onCancelFileProductionJob = undefined,
+		canPublishSkillDrafts = false,
+		onSaveSkillDraft = undefined,
+		onDismissSkillDraft = undefined,
+		onPublishSkillDraft = undefined,
 	}: {
 		message: ChatMessage;
 		isLast?: boolean;
@@ -46,6 +51,10 @@
 		onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
 		onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 		onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
+		canPublishSkillDrafts?: boolean;
+		onSaveSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
+		onDismissSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
+		onPublishSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
 	} = $props();
 
 	let copied = $state(false);
@@ -76,6 +85,7 @@
 	let responseTokenCount = $derived(estimateTokenCount(message.content));
 	let totalTokenCount = $derived(thinkingTokenCount + responseTokenCount);
 	let hasTokenInfo = $derived(hasThinking || responseTokenCount > 0 || message.costUsd != null);
+	let skillDrafts = $derived(message.skillDrafts ?? []);
 
 	// Thinking is definitively done once visible response text has started streaming
 	// OR the whole message is complete. This keeps the label as "Thinking" between
@@ -217,6 +227,10 @@
 			conversationId: attachment.conversationId,
 		});
 	}
+
+	function skillDraftPayload(draftId: string) {
+		return { messageId: message.id, draftId };
+	}
 </script>
 
 <div class="group flex w-full flex-col {isUser && !isEditing ? 'items-end' : 'items-start'} gap-md py-md fade-in">
@@ -279,6 +293,19 @@
 					isStreaming={Boolean(message.isStreaming)}
 				/>
 			</div>
+			{#if skillDrafts.length > 0}
+				<div class="skill-draft-list">
+					{#each skillDrafts as draft (draft.id)}
+						<SkillDraftCard
+							{draft}
+							canPublishSystem={canPublishSkillDrafts}
+							onSave={(draftId) => onSaveSkillDraft?.(skillDraftPayload(draftId))}
+							onDismiss={(draftId) => onDismissSkillDraft?.(skillDraftPayload(draftId))}
+							onPublish={(draftId) => onPublishSkillDraft?.(skillDraftPayload(draftId))}
+						/>
+					{/each}
+				</div>
+			{/if}
 			{#if fileProductionJobs.length > 0 && conversationId}
 				<div class="file-production-inline" data-testid="message-file-production-jobs">
 					{#each dedupedFileProductionJobs as job (job.id)}

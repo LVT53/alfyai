@@ -1,6 +1,11 @@
 <script lang="ts">
 	import MessageInput from './MessageInput.svelte';
-	import type { ContextDebugState, ConversationContextStatus, TaskSteeringPayload } from '$lib/types';
+	import type {
+		ContextDebugState,
+		ConversationContextStatus,
+		LinkedContextSource,
+		TaskSteeringPayload,
+	} from '$lib/types';
 
 	let {
 		maxLength = 10000,
@@ -41,6 +46,7 @@
 			conversationId: string | null;
 			draftText: string;
 			selectedAttachmentIds: string[];
+			selectedLinkedSources: LinkedContextSource[];
 		}) => void;
 	} = $props();
 
@@ -60,6 +66,7 @@
 		conversationId: string | null;
 		draftText: string;
 		selectedAttachmentIds: string[];
+		selectedLinkedSources: LinkedContextSource[];
 	}) {
 		onDraftChange(payload);
 	}

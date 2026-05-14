@@ -46,6 +46,7 @@ function renderComposerPanel(props: Partial<Parameters<typeof render>[1]> = {}) 
 		onManageEvidence: vi.fn(),
 		totalCostUsd: 0,
 		totalTokens: 0,
+		composerCommandRegistryEnabled: false,
 		personalityProfiles: [],
 		selectedPersonalityId: null,
 		onPersonalityChange: vi.fn(),
@@ -66,6 +67,53 @@ describe("ChatComposerPanel", () => {
 		});
 
 		expect(queryByRole("button", { name: "Deep Research" })).not.toBeNull();
+	});
+
+	it("passes the Composer Command Registry feature flag into the composer", async () => {
+		const { getByPlaceholderText, queryByRole, rerender } = renderComposerPanel({
+			composerCommandRegistryEnabled: false,
+		});
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "/" },
+		});
+
+		expect(queryByRole("listbox", { name: "Composer commands" })).toBeNull();
+
+		await rerender({
+			composerCommandRegistryEnabled: true,
+		});
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "/" },
+		});
+
+		expect(queryByRole("listbox", { name: "Composer commands" })).not.toBeNull();
+	});
+
+	it("forwards restored linked sources and pending skill into the composer", () => {
+		const { getByText, getByRole } = renderComposerPanel({
+			composerCommandRegistryEnabled: true,
+			draftLinkedSources: [
+				{
+					displayArtifactId: "display-wrapper",
+					promptArtifactId: "prompt-wrapper",
+					familyArtifactIds: ["display-wrapper", "prompt-wrapper"],
+					name: "Wrapper source.md",
+					type: "document",
+				},
+			],
+			draftPendingSkill: {
+				id: "skill-wrapper",
+				ownership: "user",
+				displayName: "Wrapper Skill",
+			},
+			draftVersion: 1,
+		});
+
+		expect(getByText("Wrapper source.md")).toBeInTheDocument();
+		expect(getByText("Wrapper Skill")).toBeInTheDocument();
+		expect(getByRole("button", { name: "Remove Wrapper source.md" })).toBeInTheDocument();
+		expect(getByRole("button", { name: "Remove pending skill Wrapper Skill" })).toBeInTheDocument();
 	});
 
 	it("passes the selected Deep Research depth through chat sends", async () => {

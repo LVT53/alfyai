@@ -191,6 +191,26 @@ describe('DocumentsList', () => {
 			expect(screen.getAllByText(/generated/i).length).toBeGreaterThan(0);
 		});
 
+		it('renders Skill Notes as a distinct type badge', () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						{
+							id: 'note-1',
+							name: 'Research notes',
+							type: 'skill_note',
+							documentOrigin: 'skill_note',
+							mimeType: 'text/markdown',
+							sizeBytes: 1024,
+							createdAt: Date.now(),
+						},
+					],
+				},
+			});
+
+			expect(screen.getByText('Skill Note')).toBeInTheDocument();
+		});
+
 		it('renders file sizes in human-readable format', () => {
 			render(DocumentsList, {
 				props: {

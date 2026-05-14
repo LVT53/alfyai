@@ -311,6 +311,61 @@ describe("knowledge documents store", () => {
     expect(generatedDocuments[0]?.sourceChatFileId).toBe("chat-file-1");
   });
 
+  it("lists Skill Notes as distinct library documents", async () => {
+    mockRows.push({
+      id: "note-1",
+      type: "skill_note",
+      retrievalClass: "durable",
+      name: "Research skill note",
+      mimeType: "text/markdown",
+      sizeBytes: 512,
+      conversationId: "conv-1",
+      summary: "Living note captured by a skill session",
+      metadataJson: JSON.stringify({
+        skillSessionId: "session-1",
+        originAssistantMessageId: "message-1",
+      }),
+      createdAt: new Date("2026-04-04T10:00:00Z"),
+      updatedAt: new Date("2026-04-04T10:00:00Z"),
+    });
+
+    let selectCall = 0;
+    mockSelect.mockImplementation(() => {
+      selectCall += 1;
+      if (selectCall === 1) {
+        return {
+          from: vi.fn(() => ({
+            where: vi.fn(async () => [{ id: "conv-1" }]),
+          })),
+        };
+      }
+
+      return {
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(async () => mockRows),
+          })),
+        })),
+      };
+    });
+
+    const { listLogicalDocuments } = await import("./documents");
+    const documents = await listLogicalDocuments("user-1", {
+      includeGeneratedOutputs: true,
+    });
+
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({
+      id: "note-1",
+      type: "skill_note",
+      displayArtifactId: "note-1",
+      promptArtifactId: "note-1",
+      documentOrigin: "skill_note",
+      name: "Research skill note",
+      normalizedAvailable: true,
+    });
+  });
+
   it("prefers semantic and reranked artifact matches when lexical scores are weak", async () => {
     mockRows.push(
       {

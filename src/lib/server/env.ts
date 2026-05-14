@@ -32,6 +32,7 @@ interface Config {
 	langflowWebhookSecret: string;
 	alfyaiApiSigningKey: string;
 	attachmentTraceDebug: boolean;
+	composerCommandRegistryEnabled: boolean;
 	deepResearchEnabled: boolean;
 	deepResearchWorkerEnabled: boolean;
 	deepResearchWorkerIntervalMs: number;
@@ -259,6 +260,8 @@ function readConfig(): Config {
 		langflowWebhookSecret: process.env.LANGFLOW_WEBHOOK_SECRET || "",
 		alfyaiApiSigningKey: process.env.ALFYAI_API_SIGNING_KEY || "",
 		attachmentTraceDebug: process.env.ATTACHMENT_TRACE_DEBUG === "true",
+		composerCommandRegistryEnabled:
+			process.env.COMPOSER_COMMAND_REGISTRY_ENABLED === "true",
 		deepResearchEnabled: process.env.DEEP_RESEARCH_ENABLED === "true",
 		deepResearchWorkerEnabled:
 			process.env.DEEP_RESEARCH_WORKER_ENABLED === "true",

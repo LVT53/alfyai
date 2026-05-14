@@ -20,14 +20,21 @@ import {
 	deleteConversation,
 	deleteConversationDraft,
 	deleteConversationMessages,
+	endConversationSkillSession,
 	fetchConversationDetail,
 	fetchMessageEvidence,
 	generateConversationTitle,
+	startConversationSkillSession,
 } from "$lib/client/api/conversations";
 import {
 	cancelFileProductionJob as cancelFileProductionJobRequest,
 	retryFileProductionJob as retryFileProductionJobRequest,
 } from "$lib/client/api/file-production";
+import {
+	dismissSkillDraft as dismissSkillDraftRequest,
+	publishSkillDraft as publishSkillDraftRequest,
+	saveSkillDraft as saveSkillDraftRequest,
+} from "$lib/client/api/skills";
 import {
 	advanceDeepResearchWorkflow as advanceDeepResearchWorkflowRequest,
 	approveDeepResearchPlan as approveDeepResearchPlanRequest,
@@ -59,6 +66,7 @@ import type {
 	DeepResearchReportIntent,
 	DocumentWorkspaceItem,
 	FileProductionJob,
+	SkillSession,
 	TaskState,
 	TaskSteeringPayload,
 } from "$lib/types";
@@ -90,6 +98,7 @@ import {
 } from "$lib/stores/conversations";
 import ChatComposerPanel from "./_components/ChatComposerPanel.svelte";
 import ChatMessagePane from "./_components/ChatMessagePane.svelte";
+import SkillSessionPanel from "./_components/SkillSessionPanel.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
 import DocumentWorkspace from "$lib/components/document-workspace/DocumentWorkspace.svelte";
 import {
@@ -109,6 +118,7 @@ import {
 	mergeFileProductionJob,
 	mergeAttachedArtifacts,
 	removeMessageById,
+	patchSkillDraftInMessageList,
 	toFriendlySendError,
 	updateMessageById,
 	cloneSendPayload,
@@ -140,9 +150,11 @@ const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
 const initialDeepResearchJobs = getData().deepResearchJobs ?? [];
+const initialActiveSkillSession = getData().activeSkillSession ?? null;
 const initialConversationId = getData().conversation.id;
 const initialConversationStatus = getData().conversation.status ?? "open";
 const initialUserPersonality = getData().userPersonality ?? null;
+const canPublishSkillDrafts = getData().user?.role === "admin";
 
 // Track conversation title reactively - use $derived to keep in sync with page data
 let conversationTitle = $derived(data.conversation?.title ?? "");
@@ -183,6 +195,9 @@ let conversationDraft = $state<ConversationDraft | null>(
 let generatedFiles = $state<ChatGeneratedFile[]>(initialGeneratedFiles);
 let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 let deepResearchJobs = $state<DeepResearchJob[]>(initialDeepResearchJobs);
+let activeSkillSession = $state<SkillSession | null>(initialActiveSkillSession);
+let skillSessionBusy = $state(false);
+let skillSessionError = $state<string | null>(null);
 let conversationStatus = $state(initialConversationStatus);
 let isConversationReadOnlyForChat = $derived(
 	isConversationReadOnly({ status: conversationStatus }, deepResearchJobs),
@@ -1000,6 +1015,7 @@ async function hydrateConversationDetail(conversationId: string) {
 		deepResearchJobs = payload.deepResearchJobs
 			? mergeDeepResearchJobsForHydration(deepResearchJobs, payload.deepResearchJobs)
 			: deepResearchJobs;
+		activeSkillSession = payload.activeSkillSession ?? null;
 		conversationStatus = payload.conversation?.status ?? conversationStatus;
 		bootstrapMode = false;
 
@@ -1015,6 +1031,21 @@ async function hydrateConversationDetail(conversationId: string) {
 		// Ignore hydration failures; the optimistic chat flow can continue without it.
 	} finally {
 		hydratingConversation = false;
+	}
+}
+
+async function endCurrentSkillSession(reason: "ended" | "dismissed") {
+	if (!activeSkillSession || skillSessionBusy) return;
+	skillSessionBusy = true;
+	skillSessionError = null;
+	try {
+		await endConversationSkillSession(data.conversation.id, reason);
+		activeSkillSession = null;
+	} catch (error) {
+		skillSessionError =
+			error instanceof Error ? error.message : $t("skillSessions.errors.end");
+	} finally {
+		skillSessionBusy = false;
 	}
 }
 
@@ -1327,6 +1358,10 @@ $effect(() => {
 });
 
 $effect(() => {
+	activeSkillSession = data.activeSkillSession ?? null;
+});
+
+$effect(() => {
 	conversationStatus = data.conversation.status ?? "open";
 });
 
@@ -1338,12 +1373,16 @@ function restorePayloadToDraft(payload: SendPayload) {
 		draftText: payload.message,
 		selectedAttachmentIds: payload.attachmentIds,
 		selectedAttachments: payload.pendingAttachments ?? [],
+		selectedLinkedSources: payload.linkedSources ?? [],
+		pendingSkill: payload.deepResearchDepth ? null : payload.pendingSkill ?? null,
 	});
 	void draftPersistence.persist(
 		{
 			conversationId: nextConversationId,
 			draftText: payload.message,
 			selectedAttachmentIds: payload.attachmentIds,
+			selectedLinkedSources: payload.linkedSources ?? [],
+			pendingSkill: payload.deepResearchDepth ? null : payload.pendingSkill ?? null,
 		},
 		true,
 	);
@@ -1474,7 +1513,47 @@ async function refreshMessageCost(messageId: string) {
 	}
 }
 
-function handleSend(
+function patchSkillDraftFromResponse(
+	messageId: string,
+	response: { draft?: NonNullable<ChatMessage["skillDrafts"]>[number] },
+) {
+	if (!response.draft) return;
+	messages.update((list) =>
+		patchSkillDraftInMessageList(list, {
+			messageId,
+			draft: response.draft!,
+		}),
+	);
+}
+
+async function handleSaveSkillDraft(payload: { messageId: string; draftId: string }) {
+	const response = await saveSkillDraftRequest(
+		data.conversation.id,
+		payload.messageId,
+		payload.draftId,
+	);
+	patchSkillDraftFromResponse(payload.messageId, response);
+}
+
+async function handleDismissSkillDraft(payload: { messageId: string; draftId: string }) {
+	const response = await dismissSkillDraftRequest(
+		data.conversation.id,
+		payload.messageId,
+		payload.draftId,
+	);
+	patchSkillDraftFromResponse(payload.messageId, response);
+}
+
+async function handlePublishSkillDraft(payload: { messageId: string; draftId: string }) {
+	const response = await publishSkillDraftRequest(
+		data.conversation.id,
+		payload.messageId,
+		payload.draftId,
+	);
+	patchSkillDraftFromResponse(payload.messageId, response);
+}
+
+async function handleSend(
 	payload: SendPayload,
 	skipUserMessage = false,
 	skipPersistUserMessage = false,
@@ -1491,6 +1570,30 @@ function handleSend(
 			? payload.personalityProfileId
 			: selectedPersonalityId;
 	if (!text.trim() || isConversationReadOnlyForChat || isSending || isEditResendPending) return;
+	const deepResearchDepthForTurn = shouldStartDeepResearchJob(
+		payload,
+		retryAssistantMessageId,
+	)
+		? payload.deepResearchDepth
+		: null;
+
+	if (payload.pendingSkill && !deepResearchDepthForTurn) {
+		isSending = true;
+		try {
+			skillSessionError = null;
+			activeSkillSession = await startConversationSkillSession(
+				data.conversation.id,
+				payload.pendingSkill,
+			);
+		} catch (error) {
+			skillSessionError =
+				error instanceof Error ? error.message : $t("skillSessions.errors.start");
+			sendError = skillSessionError;
+			canRetry = false;
+			isSending = false;
+			return;
+		}
+	}
 
 	sendError = null;
 	isSending = true;
@@ -1520,13 +1623,6 @@ function handleSend(
 	);
 
 	let clientUserMsgId: string | null = null;
-	const deepResearchDepthForTurn = shouldStartDeepResearchJob(
-		payload,
-		retryAssistantMessageId,
-	)
-		? payload.deepResearchDepth
-		: null;
-
 	if (!skipUserMessage) {
 		clientUserMsgId = crypto.randomUUID();
 		const userMessage = createUserMessage({
@@ -1638,7 +1734,7 @@ function handleSend(
 				if (queuedTurn) {
 					const nextQueuedTurn = cloneSendPayload(queuedTurn);
 					queuedTurn = null;
-					handleSend(nextQueuedTurn, false, false, false);
+					void handleSend(nextQueuedTurn, false, false, false);
 				}
 			},
 			onError(err) {
@@ -1664,6 +1760,8 @@ function handleSend(
 			modelId: modelIdForTurn,
 			skipPersistUserMessage,
 			attachmentIds,
+			linkedSources: payload.linkedSources ?? [],
+			pendingSkill: payload.deepResearchDepth ? null : payload.pendingSkill ?? null,
 			deepResearchDepth: payload.deepResearchDepth ?? null,
 			thinkingMode: payload.thinkingMode ?? $selectedThinkingMode,
 			activeDocumentArtifactId: getActiveWorkspaceArtifactId(),
@@ -1939,11 +2037,15 @@ function handleDraftChange(payload: DraftChangePayload) {
 		draftText: payload.draftText,
 		selectedAttachmentIds: payload.selectedAttachmentIds,
 		selectedAttachments: payload.selectedAttachments,
+		selectedLinkedSources: payload.selectedLinkedSources,
+		pendingSkill: payload.pendingSkill,
 	});
 	void draftPersistence.persist({
 		conversationId: nextConversationId,
 		draftText: payload.draftText,
 		selectedAttachmentIds: payload.selectedAttachmentIds,
+		selectedLinkedSources: payload.selectedLinkedSources,
+		pendingSkill: payload.pendingSkill,
 	});
 }
 
@@ -2085,6 +2187,10 @@ function handleDrop(event: DragEvent) {
 						onRegenerate={handleRegenerate}
 						onEdit={handleEdit}
 						onSteer={handleSteering}
+						{canPublishSkillDrafts}
+						onSaveSkillDraft={handleSaveSkillDraft}
+						onDismissSkillDraft={handleDismissSkillDraft}
+						onPublishSkillDraft={handlePublishSkillDraft}
 						onRetryFileProductionJob={handleRetryFileProductionJob}
 						onCancelFileProductionJob={handleCancelFileProductionJob}
 						onCancelDeepResearchJob={handleCancelDeepResearchJob}
@@ -2096,6 +2202,16 @@ function handleDrop(event: DragEvent) {
 					/>
 				{/if}
 			</div>
+
+			{#if activeSkillSession}
+				<SkillSessionPanel
+					session={activeSkillSession}
+					busy={skillSessionBusy}
+					error={skillSessionError}
+					onFinish={() => endCurrentSkillSession("ended")}
+					onDismiss={() => endCurrentSkillSession("dismissed")}
+				/>
+			{/if}
 
 			<ChatComposerPanel
 				{sendError}
@@ -2121,6 +2237,7 @@ function handleDrop(event: DragEvent) {
 				{totalCostUsd}
 				{totalTokens}
 				deepResearchEnabled={data.deepResearchEnabled}
+				composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
 				{personalityProfiles}
 				{selectedPersonalityId}
 				onPersonalityChange={setSelectedPersonalityId}
@@ -2128,6 +2245,8 @@ function handleDrop(event: DragEvent) {
 				onThinkingModeChange={setSelectedThinkingMode}
 				draftText={conversationDraft?.draftText ?? ''}
 				draftAttachments={conversationDraft?.selectedAttachments ?? []}
+				draftLinkedSources={conversationDraft?.selectedLinkedSources ?? []}
+				draftPendingSkill={conversationDraft?.pendingSkill ?? null}
 				draftVersion={conversationDraft?.updatedAt ?? 0}
 				onSteer={handleSteering}
 				onManageEvidence={openEvidenceManager}

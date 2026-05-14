@@ -715,6 +715,7 @@ export interface ConversationDetail {
 	generatedFiles?: ChatGeneratedFile[];
 	fileProductionJobs?: FileProductionJob[];
 	deepResearchJobs?: DeepResearchJob[];
+	activeSkillSession?: SkillSession | null;
 	totalCostUsdMicros?: number;
 	totalTokens?: number;
 }
@@ -832,6 +833,82 @@ export type MessageEvidenceStatusState =
 	| "failed"
 	| "none";
 
+export type SkillControlSessionTransition =
+	| "active"
+	| "awaiting_user"
+	| "finished"
+	| "failed_note"
+	| "dismissed";
+
+export type SkillDraftStatus =
+	| "proposed"
+	| "saved"
+	| "dismissed"
+	| "published";
+
+export type SkillDraftDurationPolicy = "next_message" | "session";
+export type SkillDraftQuestionPolicy = "none" | "ask_when_needed";
+export type SkillDraftNotesPolicy = "none" | "create_private_notes";
+export type SkillDraftSourceScope =
+	| "current_conversation"
+	| "selected_sources_only";
+
+export interface SkillDraftProposal {
+	id: string;
+	status: SkillDraftStatus;
+	displayName: string;
+	description: string;
+	instructions: string;
+	activationExamples: string[];
+	durationPolicy: SkillDraftDurationPolicy;
+	questionPolicy: SkillDraftQuestionPolicy;
+	notesPolicy: SkillDraftNotesPolicy;
+	sourceScope: SkillDraftSourceScope;
+	savedSkillId?: string;
+	publishedSystemSkillId?: string;
+	updatedAt?: number;
+}
+
+export type SkillControlOperation =
+	| {
+			operationId: string;
+			kind: "session_transition";
+			transition: SkillControlSessionTransition;
+	  }
+	| {
+			operationId: string;
+			kind: "note_intent";
+			action: "create";
+			title: string;
+			body: string;
+	  }
+	| {
+			operationId: string;
+			kind: "note_intent";
+			action: "replace" | "append";
+			targetArtifactId: string;
+			body: string;
+	  }
+	| {
+			operationId: string;
+			kind: "skill_draft";
+			draft: SkillDraftProposal;
+	  };
+
+export interface SkillControlMessageMetadata {
+	skillQuestion?: boolean;
+	pendingSkillNoteIntents?: Extract<
+		SkillControlOperation,
+		{ kind: "note_intent" }
+	>[];
+	skillDrafts?: SkillDraftProposal[];
+	skillControl?: {
+		envelopeVersion: 1;
+		operations: SkillControlOperation[];
+		malformedEnvelopeCount: number;
+	};
+}
+
 export interface ChatMessage {
 	id: string;
 	// Stable client-side identity used for keyed rendering so stream finalization
@@ -861,12 +938,17 @@ export interface ChatMessage {
 	webCitationAudit?: WebCitationAudit;
 	evidencePending?: boolean;
 	honchoContext?: HonchoContextInfo;
+	skillQuestion?: boolean;
+	pendingSkillNoteIntents?: SkillControlMessageMetadata["pendingSkillNoteIntents"];
+	skillDrafts?: SkillControlMessageMetadata["skillDrafts"];
+	skillControl?: SkillControlMessageMetadata["skillControl"];
 }
 
 export type ArtifactType =
 	| "source_document"
 	| "normalized_document"
 	| "generated_output"
+	| "skill_note"
 	| "work_capsule";
 
 export type ArtifactRetrievalClass =
@@ -876,6 +958,7 @@ export type ArtifactRetrievalClass =
 
 export type ArtifactLinkType =
 	| "attached_to_conversation"
+	| "linked_context_source"
 	| "derived_from"
 	| "used_in_output"
 	| "supersedes"
@@ -950,6 +1033,7 @@ export interface ArtifactSummary {
 
 export interface KnowledgeDocumentItem {
 	id: string;
+	type?: ArtifactType;
 	displayArtifactId: string;
 	promptArtifactId: string | null;
 	familyArtifactIds: string[];
@@ -959,7 +1043,7 @@ export interface KnowledgeDocumentItem {
 	conversationId: string | null;
 	summary: string | null;
 	normalizedAvailable: boolean;
-	documentOrigin?: "uploaded" | "generated";
+	documentOrigin?: "uploaded" | "generated" | "skill_note";
 	documentFamilyId?: string | null;
 	documentFamilyStatus?: WorkingDocumentFamilyStatus | null;
 	documentLabel?: string | null;
@@ -994,11 +1078,79 @@ export interface PendingAttachment {
 	readinessError?: string | null;
 }
 
+export interface LinkedContextSource {
+	displayArtifactId: string;
+	promptArtifactId: string | null;
+	familyArtifactIds: string[];
+	name: string;
+	type: "document";
+	mimeType?: string | null;
+	documentOrigin?: KnowledgeDocumentItem["documentOrigin"];
+}
+
+export interface PendingSkillSelection {
+	id: string;
+	ownership: "user" | "system";
+	displayName: string;
+}
+
+export type SkillSessionStatus = "active" | "paused" | "ended";
+export type SkillSessionMilestoneKind =
+	| "started"
+	| "paused"
+	| "ended"
+	| "dismissed"
+	| "unavailable"
+	| "awaiting_user"
+	| "failed_note";
+
+export interface SkillSessionMilestone {
+	id: string;
+	sessionId: string;
+	userId: string;
+	conversationId: string;
+	kind: SkillSessionMilestoneKind;
+	messageKey: string;
+	messageParams: Record<string, unknown>;
+	createdAt: number;
+}
+
+export interface SkillSession {
+	id: string;
+	userId: string;
+	conversationId: string;
+	skillId: string;
+	skillOwnership: "user" | "system";
+	status: SkillSessionStatus;
+	pauseReason: string | null;
+	endReason: string | null;
+	skillDisplayName: string;
+	skillDescription: string;
+	activationExamples: string[];
+	durationPolicy: "next_message" | "session";
+	questionPolicy: "none" | "ask_when_needed";
+	notesPolicy: "none" | "create_private_notes";
+	sourceScope: "current_conversation" | "selected_sources_only";
+	skillVersion: number;
+	startedFrom: "pending_skill";
+	startedAt: number;
+	updatedAt: number;
+	pausedAt: number | null;
+	endedAt: number | null;
+	milestones: SkillSessionMilestone[];
+}
+
+export interface SkillSessionInternal extends SkillSession {
+	skillInstructions: string;
+}
+
 export interface ConversationDraft {
 	conversationId: string;
 	draftText: string;
 	selectedAttachmentIds: string[];
 	selectedAttachments: PendingAttachment[];
+	selectedLinkedSources: LinkedContextSource[];
+	pendingSkill: PendingSkillSelection | null;
 	updatedAt: number;
 }
 
@@ -1148,6 +1300,7 @@ export interface ConversationContextStatus {
 
 export type ContextSourceGroupKind =
 	| "attachments"
+	| "linked_source"
 	| "working_set"
 	| "task_evidence"
 	| "pinned"

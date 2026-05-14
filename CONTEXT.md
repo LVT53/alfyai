@@ -126,6 +126,14 @@ _Avoid_: phase, batch refactor, cleanup later
 A slice that is complete enough to operate reliably in production rather than only demonstrate a prototype path.
 _Avoid_: demo slice, spike, partial path
 
+**Composer Command Slice**:
+A production slice that implements a coherent part of the **Composer Command Registry** or **Skill** system while keeping unfinished behavior hidden behind a feature flag.
+_Avoid_: demo command, half-enabled skill path, prototype UI
+
+**Composer Command V1**:
+The complete production-ready first release of the **Composer Command Registry**, **Skills**, **Skill Sessions**, **Linked Context Sources**, **Skill Notes**, and AI-created **Skill Drafts**.
+_Avoid_: demo prototype, prompt shortcut experiment, partial command palette
+
 **Project Folder**:
 A user-managed grouping of conversations that names the project the user intends those conversations to belong to.
 _Avoid_: UI project, folder, memory project
@@ -146,10 +154,348 @@ _Avoid_: global chat search, folder awareness, all memory
 A compact durable description of what happened in one conversation.
 _Avoid_: task checkpoint, transcript, chat title
 
+**Composer Command Registry**:
+The Normal Chat command surface that discovers and runs composer-triggered actions from typed prefixes.
+_Avoid_: prompt shortcut list, agent tool registry, Deep Research command system
+
+**Command Suggestion Row**:
+The shared composer UI row used to discover and select **Skills** or **Composer Commands** while the user types a command prefix.
+_Avoid_: autocomplete text, prompt template menu, separate skill browser
+
+**Command Tray**:
+The composer-attached surface that contains **Command Suggestion Rows** while the user is selecting a `$` skill or `/` command.
+_Avoid_: modal palette, detached dropdown, full command center
+
+**Skill**:
+An explicitly activated guided behavior that can shape a Normal Chat turn or short interaction.
+_Avoid_: Langflow tool, system prompt, slash command, agent mode
+
+**System Skill**:
+A **Skill** managed by an administrator and available to eligible users.
+_Avoid_: built-in prompt, hardcoded skill, Langflow tool
+
+**User Skill**:
+A **Skill** created or customized by an individual user for their own Normal Chat use.
+_Avoid_: private command, personal prompt snippet, user tool
+
+**Skill Draft**:
+A proposed **Skill** definition created by a user or by AlfyAI that is not active in the `$` skill list until the owning user saves it.
+_Avoid_: installed skill, hidden prompt, temporary chat instruction
+
+**Skill Definition**:
+The saved editable configuration for a **Skill**, including its display information, instructions, visibility, run policy, note behavior, source scope, ownership, enabled state, and version.
+_Avoid_: executable plugin, Langflow node, raw system prompt
+
+**Skill Draft Card**:
+A compact assistant-message card that presents an AlfyAI-proposed **Skill Draft** and lets the user review, save, dismiss, or publish it if they are an admin.
+_Avoid_: installed skill row, hidden suggestion, tool output
+
+**Skills Settings Surface**:
+The user settings area where users create, edit, enable, disable, and delete their own **User Skills**, and where admins may also manage **System Skills**.
+_Avoid_: hidden admin config, command tray editor, Langflow flow manager
+
+**Skill Session**:
+An active **Skill** run whose state remains visible and controllable while it affects one or more Normal Chat turns.
+_Avoid_: hidden mode, background agent, Deep Research job
+
+**Skill Session Panel**:
+The composer-adjacent UI surface that shows the current active **Skill Session**, expected next action, note target, and finish or dismiss controls.
+_Avoid_: transcript log, settings editor, hidden mode banner
+
+**Pending Skill Chip**:
+A compact composer chip showing a one-turn **Skill** selected for the next Normal Chat message.
+_Avoid_: active session panel, transcript marker, command text
+
+**Linked Source Chip**:
+A compact composer chip showing a **Linked Context Source** selected for upcoming Normal Chat context.
+_Avoid_: upload attachment, evidence row, document tab
+
+**Document Picker Modal**:
+A modal or mobile sheet for selecting one or more existing **Library Documents** to become **Linked Context Sources**.
+_Avoid_: upload manager, document preview modal, inline tray submode
+
+**Linked Sources Popover**:
+A compact composer-adjacent surface for inspecting, removing, clearing, or adding currently selected **Linked Context Sources**.
+_Avoid_: full Knowledge Library modal, evidence manager, document preview
+
+**Setting State Chip**:
+A compact composer chip showing a temporary non-default composer setting that affects the next turn.
+_Avoid_: permanent preference display, settings form, hidden flag
+
+**Skill Session Milestone**:
+A sparse durable chat-history marker for important **Skill Session** events, such as started, note updated, or finished.
+_Avoid_: activity spam, internal state dump, debug event
+
+**Skill Question**:
+A normal assistant message that asks the user for the next answer required by a question-capable **Skill Session**.
+_Avoid_: separate question tool, form-only prompt, hidden app prompt
+
+**Skill Control Envelope**:
+A structured assistant-output control block that AlfyAI validates, strips from visible text, and uses to update **Skill Session** state.
+_Avoid_: visible answer text, prose guessing, Langflow tool output
+
+**Skill Run Policy**:
+The configured runtime behavior for a **Skill**, including whether it completes after one turn, stays active across turns, writes notes, or asks user-facing questions.
+_Avoid_: hardcoded skill type, prompt flag, UI exception
+
+**Skill Duration Policy**:
+The part of a **Skill Run Policy** that decides whether the **Skill** applies only to the next message, stays active until the user turns it off, or stays active until the **Skill** reaches a clear finish point.
+_Avoid_: session type, persistence flag, mode name
+
+**Skill Question Policy**:
+The part of a **Skill Run Policy** that decides whether the **Skill** may ask user-facing follow-up questions before continuing.
+_Avoid_: interview mode, clarification hack, assistant pause flag
+
+**Skill Notes Policy**:
+The part of a **Skill Run Policy** that decides whether the **Skill** may create or update notes, and whether note changes need user approval.
+_Avoid_: filesystem permission, memory write flag, hidden scratchpad
+
+**Skill Source Scope**:
+The part of a **Skill Definition** that limits what source material a **Skill** may intentionally use, such as no extra sources, selected sources only, current conversation context, or Knowledge Library search.
+_Avoid_: retrieval bypass, hidden context access, tool permission
+
+**Skill Note**:
+A living AI-created Markdown working document that a note-capable **Skill** may create or update during Normal Chat.
+_Avoid_: uploaded document, generated-document version, hidden memory, scratchpad
+
+**Skill Note Checkpoint**:
+A bounded internal recovery record of a previous **Skill Note** state.
+_Avoid_: visible document version, library duplicate, generated document revision
+
+**Skill Note Operation**:
+A validated bounded write requested by a **Skill Control Envelope** to create, replace, or append to a **Skill Note**.
+_Avoid_: arbitrary file write, raw filesystem edit, document patch script
+
+**Structured Skill Note**:
+A **Skill Note** that follows app-owned Markdown section conventions for readability and future export.
+_Avoid_: rigid database schema, arbitrary transcript dump, hidden memory object
+
+**Composer Command**:
+An immediate app-side composer action, such as changing a Normal Chat setting, attaching a document, linking a Library Document, or opening an upload flow.
+_Avoid_: skill, tool call, hidden prompt, chat macro
+
+**Linked Context Source**:
+A user-selected existing source, such as a **Library Document**, that should be considered for upcoming Normal Chat turns without being re-uploaded as an attachment.
+_Avoid_: uploaded attachment, file copy, hidden retrieval hint
+
 ### Relationships
 
 - **Available Context** is broader than **Prompt Context**.
 - **Prompt Context** is selected per **Normal Chat** turn.
+- The **Composer Command Registry** has separate **Skill** and **Composer Command** namespaces.
+- The **Composer Command Registry** and **Skill** work should ship in **Composer Command Slices** behind a feature flag until the v1 surface is coherent.
+- The **Composer Command Registry** feature flag should be runtime admin-configurable and default off until the v1 surface is coherent.
+- Recommended **Composer Command Slices** are existing slash settings, linked context sources, skill definitions and settings, durable skill sessions, skill control envelopes and question-led sessions, Skill Notes, and AI Skill Draft Cards.
+- **Composer Command V1** should include complete desktop and mobile command selection, command mixing, the agreed slash catalog, Linked Context Source persistence, User and System Skill management, one-turn skills, durable multi-turn Skill Sessions, Skill Control Envelope handling, question-led skills, living Skill Notes, AI Skill Draft Cards, and focused regression coverage.
+- The `$` prefix opens **Skills** in the **Composer Command Registry**.
+- The `/` prefix opens **Composer Commands** in the **Composer Command Registry**.
+- `$` and `/` discovery should use the same **Command Suggestion Row** surface and keyboard behavior.
+- **Command Suggestion Rows** may render namespace-specific details, such as skill ownership and policy indicators for `$`, or current command values for `/`.
+- **Command Suggestion Rows** appear inside the **Command Tray**.
+- The **Command Tray** should cap visible suggestions to a small ranked set rather than rendering an unbounded skill or command list.
+- Network-backed **Command Tray** search should debounce user input and keep keyboard selection stable while results update.
+- The **Command Tray** should be visually attached to the composer and appear to slide upward from behind it.
+- The **Command Tray** should use a darker elevated surface, approximately 90% of the composer width, so it reads as a layered card behind the composer rather than a separate modal.
+- The **Command Tray** should animate in from the first interaction with a smooth upward slide and fade.
+- The **Command Tray** should animate out with the corresponding slide and fade rather than disappearing abruptly.
+- When the **Command Tray** is open, Enter should select the highlighted **Command Suggestion Row** instead of sending the current message.
+- Message send on Enter resumes only after the **Command Tray** closes or no command selection is active.
+- During IME or text composition, keyboard actions should not select command rows or send messages.
+- Shift+Enter should insert a newline even when the **Command Tray** is open.
+- Arrow key tray navigation should not interfere with active text composition.
+- The **Command Tray** should expose accessible combobox or listbox-style semantics with clear active-row announcements.
+- **Document Picker Modal**, **Linked Sources Popover**, and mobile sheets should trap and restore focus appropriately.
+- Chips should provide specific accessible remove labels.
+- Command and skill animations should respect reduced-motion preferences.
+- App-side command, source, skill, and note errors should surface locally near the tray, picker, chip, session panel, or settings editor that caused them, not as ordinary assistant text.
+- The **Command Tray** may show locally known commands and already-loaded skills during network issues, but network-backed actions such as document picking, skill saving, and session state changes should fail locally with retry affordances.
+- Offline or failed network states should not block ordinary message typing or sending unless the user selected command-derived state that requires validation.
+- On mobile, the **Command Tray** should render as a bottom sheet rather than a compressed desktop tray.
+- The mobile **Command Tray** should use touch-friendly rows, capped height, outside-tap or swipe dismissal, and a clear connection to the composer.
+- Accent color should highlight active command states, selected rows, and confirmed selections without making the whole tray visually loud.
+- `$` **Command Suggestion Rows** should show skill name, a one-line description, ownership, duration behavior, question capability, and note capability.
+- `$` **Command Suggestion Rows** should not show full skill instructions; full instructions belong in the skill editor or details view.
+- A focused `$` row should use a slightly lighter dark surface plus restrained accent treatment, such as a thin border or left rail.
+- `/` **Command Suggestion Rows** should be shorter direct-action rows that show command name, direct effect, and current state where relevant.
+- `/` command current state should appear for values such as current model, style, thinking mode, Deep Research mode, or linked-source count.
+- `/` rows may use familiar action icons when they improve scanning.
+- A **Composer Command** should mutate explicit app state, attach or link context, or open a user-visible flow rather than paste hidden instructions into the message.
+- Command prefix text should be consumed only after the user explicitly selects a **Skill** or **Composer Command**.
+- If a user sends text containing `$` or `/` without selecting a **Command Suggestion Row**, AlfyAI should treat that text as ordinary user message content.
+- Selecting a **Skill** or **Composer Command** should preserve non-command message text already typed around the command.
+- Users may combine one pending or active **Skill**, multiple **Linked Context Sources**, uploaded attachments, and composer setting commands in one Normal Chat turn.
+- While a Normal Chat response is streaming, new command-derived composer state should apply only to the next queued turn, not the in-flight assistant response.
+- Starting a durable **Skill Session** while streaming should start with the queued turn that carries that skill, not mutate the response currently being generated.
+- If a queued turn already exists, changing command-derived state should require editing or replacing that queued turn rather than silently stacking another queued payload.
+- V1 should allow only one pending or active **Skill** at a time; selecting another **Skill** should require replacing, finishing, or dismissing the current one.
+- If **Deep Research Mode** is selected through `/research`, Normal Chat **Skill Sessions** should not apply to that turn.
+- Command prefixes are discovery triggers, not a strict command language.
+- `$` and `/` should open the **Command Tray** only for an active cursor token at the start of the composer or after whitespace.
+- A command token query continues until whitespace.
+- The **Command Tray** should follow the command token at the cursor rather than the first command-looking text in the composer.
+- Prefix-like text inside URLs, prices, paths, or ordinary prose should remain literal unless it satisfies the active command-token rule.
+- Escape should dismiss the **Command Tray** for the current command token until that token changes.
+- Pasting ordinary text should not automatically open the **Command Tray**.
+- Pasting text that exactly matches an enabled **Skill** or **Composer Command** may open the **Command Tray** with the exact match highlighted, but paste alone should not execute the command.
+- Exact pasted command matches should use restrained accent text highlighting rather than a loud visual state.
+- Users should not need to know exact command arguments, such as a document name, before selecting a **Composer Command**.
+- After a **Skill** or **Composer Command** is selected, AlfyAI should convert it into structured composer state, remove only the selected command token, preserve the remaining text, and allow remaining command prefixes to be selected in any order.
+- Removing a selected command token should perform only local whitespace cleanup, not natural-language rewriting of the remaining message text.
+- After command-token cleanup, the cursor should stay near the removed token rather than jumping to the end of the composer.
+- When a command opens a modal or picker, focus should return to the composer near the removed token after that flow closes.
+- When a selected `/document` token includes a typed query, that query may initialize the **Document Picker Modal** search and be removed with the selected command token.
+- Unsent command-derived composer state should restore across navigation or refresh when it is part of the pending next turn, including pending one-turn skills and **Linked Source Chips**.
+- Transient UI state such as an open **Command Tray**, highlighted row, open **Document Picker Modal**, or open **Linked Sources Popover** should not restore.
+- `/clear` should clear pending composer state such as textarea content, pending one-turn skill selection, linked-source chips, pending upload attachments, and command tray state.
+- `/clear` should not dismiss a durable active **Skill Session** unless the user explicitly chooses that additional action.
+- `/clear` should confirm when it would remove attachments, linked sources, or a pending skill.
+- `/clear` should remove the selected command token only after confirmation when it would clear meaningful pending state; cancelling should leave the composer unchanged.
+- A **Skill** may shape the next Normal Chat behavior, but it is not a Langflow tool and should not be treated as a Deep Research mode.
+- A **Skill** may be a **System Skill** or a **User Skill**.
+- **System Skills** and **User Skills** share the same activation surface, but ownership controls who can edit, publish, disable, or delete them.
+- Users may hide **System Skills** from their own `$` discovery without disabling them system-wide.
+- Hidden **System Skills** should remain restorable from the **Skills Settings Surface**.
+- Users should not edit shared **System Skill** definitions unless they are an admin.
+- A pending **Skill** selection should be blocked at send if the **Skill** was disabled, hidden, deleted, or otherwise made unavailable before submission.
+- An active **Skill Session** should pause or end visibly if its underlying **Skill** becomes unavailable, rather than continuing with stale hidden instructions.
+- A **Skill Draft** may become a **User Skill** when the owning user saves it.
+- A **Skill Draft** may become a **System Skill** only when an administrator publishes it system-wide.
+- AlfyAI may create a **Skill Draft**, but it should not silently save, enable, or publish a **Skill**.
+- AlfyAI-proposed **Skill Drafts** should appear as **Skill Draft Cards** attached to assistant messages.
+- A **Skill Draft Card** should show proposed name, description, run-policy summary, notes behavior, source scope, and review/save/dismiss actions.
+- A **Skill Draft Card** should offer system-wide publish actions only to admins.
+- V1 **Skill Drafts** attached to chat should live in assistant-message metadata until saved, not a separate drafts table.
+- AlfyAI may prefill **Skill Draft** policy fields, but ambiguous drafts should default to next-message duration, no questions, no notes, and selected-sources-only source scope.
+- **Skill Draft** review should visibly call out broader capabilities such as note writing or Knowledge Library search before save.
+- V1 AI-created **Skill Drafts** are app-side draft proposals, not Langflow tool side effects.
+- V1 should not expose a model-facing Langflow `create_skill` tool.
+- A v1 **Skill Definition** should be declarative configuration, not executable code or an arbitrary plugin surface.
+- A v1 **Skill Definition** should include display name, description, instructions, activation examples, visibility, ownership, enabled state, duration policy, question policy, notes policy, source scope, creation source, version, and update timestamp.
+- V1 should not include skill sharing, copying, duplicating, import, package install, remote marketplace, or plugin-style export flows.
+- Users may create new **User Skills** manually, but v1 should not offer clone, copy, or personalize-from-system-skill workflows.
+- V1 should ship a small initial **System Skill** set rather than a large catalog.
+- Initial **System Skills** should include Interview, Grill With Docs, Code Review, and Writing Coach.
+- Built-in **System Skills** exist to prove the framework and provide useful defaults; users and admins should still be able to create personalized skills.
+- Built-in **System Skill** display names, descriptions, and default instructions should support English and Hungarian where practical.
+- **User Skills** should remain in the user-authored language rather than being automatically translated.
+- AI-created **Skill Drafts** should default to the current UI or chat language unless the user asks otherwise.
+- **User Skills** should be managed from the **Skills Settings Surface** under the user's settings/profile area.
+- Admin users may manage **System Skills** from the same **Skills Settings Surface** with system-wide publishing controls.
+- Admins manage **System Skills** and global skill settings, but v1 should not expose private **User Skill** instructions, bodies, or **Skill Note** content to admins.
+- Future admin-safe surfaces may expose aggregate **User Skill** or **Skill Note** metadata and counts, but not private content by default.
+- `/skill` and `$` discovery may provide shortcuts to create or manage skills, but editing belongs in the **Skills Settings Surface**.
+- Normal users may save personalized **User Skills** that only they see.
+- Admin users may save personalized **User Skills** and may also publish **System Skills** for eligible users.
+- Empty `$` discovery should show pinned, recent, or recommended skills first, then **User Skills**, then remaining **System Skills**.
+- Typed `$` discovery should rank skill name matches before activation-example matches, and activation-example matches before description matches.
+- `$` discovery should cap visible tray results for performance and scanning.
+- When match quality is equal, **User Skills** should rank above **System Skills**.
+- **Skill** display names do not need to be globally unique.
+- Duplicate **Skill** display names should be disambiguated with ownership labels such as User or System.
+- Saving or publishing a **Skill** with a duplicate display name should warn but not block the user.
+- Disabled **Skills** and unsaved **Skill Drafts** should not appear in `$` discovery.
+- Multi-turn behavior belongs to a **Skill Run Policy**, not to hardcoded skill names.
+- A **Skill Run Policy** should be configured through plain behavior controls rather than exposed as confusing implementation-oriented preset names.
+- A **Skill Run Policy** may combine duration, question behavior, and note permissions instead of treating those as mutually exclusive skill types.
+- A **Skill Duration Policy**, **Skill Question Policy**, and **Skill Notes Policy** are independent controls in the skill editor.
+- A **Skill Source Scope** should guard what source material a **Skill** may intentionally request or rely on, while **Context Selection** remains responsible for actual **Prompt Context**.
+- V1 **Skill Source Scope** options should include no extra sources, selected sources only, current conversation context, and Knowledge Library search.
+- User-created **Skills** should default to selected sources only.
+- A note-capable **Skill** may create or update a **Skill Note** when its **Skill Notes Policy** allows notes.
+- A **Skill Note** is a living document with one current visible state rather than a visible **Generated Document Version** chain.
+- Updating a **Skill Note** should update the current note in place instead of creating another Library Document or generated-document revision.
+- **Skill Note Checkpoints** may exist for bounded recovery or audit, but they should not appear as separate **Library Documents** or **Working Documents**.
+- A **Skill Note** is AI-created working material; it does not allow AlfyAI to silently edit a user-uploaded **Library Document**.
+- V1 **Skill Note Operations** are limited to creating a note, replacing a note body, or appending a dated or session-scoped note entry.
+- A **Skill Note Operation** should never expose raw filesystem paths or allow arbitrary file writes.
+- Replacing a **Skill Note** body should create a bounded **Skill Note Checkpoint** before the current body changes.
+- A failed **Skill Note Operation** should not partially mutate the **Skill Note**.
+- If assistant text succeeds but a **Skill Note Operation** fails, the **Skill Session Panel** should surface the note failure while preserving the assistant response.
+- **Skill Notes** should be visible and reusable in the Knowledge Library under a distinct source or category.
+- A **Skill Note** created in the current **Skill Session** may be an active **Context Source** for that session.
+- After its originating **Skill Session** ends, a **Skill Note** should return to low-authority **Available Context** by default.
+- Because **Skill Notes** often duplicate chat decisions, they should not become **Prompt Context** in other conversations without explicit selection, a strong source-continuity signal, or a strong retrieval hit.
+- A **Skill Note** should record its origin conversation and originating **Skill Session**.
+- A **Skill Note** should use a distinct living-note artifact type rather than `generated_output`, because it should not enter generated-document version-family behavior.
+- App-side skills such as Grill With Docs should write **Skill Notes**, not real repository files, uploaded **Library Documents**, or arbitrary filesystem paths.
+- Built-in note-writing skills may use **Structured Skill Notes** with predictable Markdown sections such as resolved decisions, open questions, terms, deferred ideas, and ADR candidates.
+- If an open or linked **Skill Note** is updated by a **Skill Note Operation**, AlfyAI should refresh the current note in place and keep existing links pointed at the updated note.
+- **Skill Note** updates should show quiet provenance such as an updated timestamp or skill source rather than disruptive notifications for every append.
+- A **Skill Note** may be globally visible in the Knowledge Library while retaining conversation-scoped context authority by default.
+- Reusing a **Skill Note** in another conversation should require explicit selection, such as linking it as a **Linked Context Source**.
+- An active **Skill Session** may use the **Skill Notes** it created during that session.
+- Restarting the same **Skill** in the same conversation may use prior same-conversation **Skill Notes** as low-authority reference context.
+- A **Skill** should not receive blanket high-authority access to all **Skill Notes** it created across other conversations.
+- Activating a **Skill** should add structured Normal Chat turn context rather than rewriting or prefixing the user's message text.
+- The user-visible transcript should preserve what the user wrote, not the command syntax or hidden skill instructions.
+- Skill instructions, **Skill Session** state, and relevant **Skill Notes** should enter **Prompt Context** through the chat-turn assembly path.
+- **Skills** should act as process guidance, while **Linked Context Sources** and attachments provide source or task material.
+- A **Skill** should not override the current user message, explicit user instructions, or document facts.
+- **Skill** instructions are user-authored process guidance and should be lower priority than system, developer, app policy, current user instructions, and source facts.
+- **Skill** instructions cannot grant tool access, filesystem access, source access, or note-write authority beyond the validated **Skill Definition** policy and server-side checks.
+- A `/` command that selects an existing **Library Document** should create a **Linked Context Source**, not a new upload.
+- A **Linked Context Source** is a structured source-selection signal for **Context Selection** and may appear as a compact composer chip distinct from uploaded attachments.
+- If the same source is both a current-turn upload attachment and a **Linked Context Source**, the attachment should win and the linked source should be deduplicated.
+- The composer and chat-turn preflight should avoid double-counting the same source family as both attachment and linked source.
+- Before message submission, a **Linked Context Source** selected by `/document` is pending composer state.
+- After message submission, selected **Linked Context Sources** should become active conversation **Context Sources** until removed, a clear topic shift demotes them, or another existing context-source lifecycle rule applies.
+- Pending **Linked Context Sources** should be validated during chat-turn preflight.
+- If a pending **Linked Context Source** is deleted or inaccessible before send, AlfyAI should block the send, identify the invalid source, and let the user remove it rather than silently ignoring it.
+- The v1 composer **Composer Command** catalog includes `/model`, `/style`, `/thinking`, `/attach`, `/document`, `/source`, `/skill`, `/settings`, `/clear`, and `/research`.
+- `/document` may add one or more **Linked Context Sources** in one flow.
+- Repeated `/document` selections should merge linked-source chips instead of replacing earlier selected sources.
+- `/document` should open a **Document Picker Modal** rather than keep multi-document selection inside the **Command Tray**.
+- The **Document Picker Modal** should reuse the Knowledge Library document-list language and scanning behavior while hiding management actions such as delete, download, and upload.
+- The **Document Picker Modal** should support multi-select and add selected documents as **Linked Source Chips**.
+- The **Document Picker Modal** should enforce a configurable selected-document cap for UI and performance predictability.
+- The **Document Picker Modal** should support pagination or server-aware search for large Knowledge Libraries and preserve selection across pages or searches.
+- Server-backed **Document Picker Modal** search should debounce input and keep already selected sources selected across query changes.
+- The **Document Picker Modal** should include uploaded **Library Documents**, current or active **Generated Documents**, and **Skill Notes**.
+- Historical **Generated Document Versions** should be hidden by default in the **Document Picker Modal** and available only through an explicit historical filter.
+- Raw **Generated Files** that are not document-like should not appear in the **Document Picker Modal** by default.
+- Selecting many documents does not guarantee full-body **Prompt Context** for every source; **Context Selection** should preserve breadth before depth and disclose limitations when needed.
+- `/source` should open a compact **Linked Sources Popover** for currently selected **Linked Context Sources**.
+- The **Linked Sources Popover** should list linked sources with title, type, and remove controls, plus simple add-document and clear-all actions.
+- The **Linked Sources Popover** should stay visually close to existing composer UI and remain compact.
+- `$` should be the fast path for directly activating enabled **Skills**.
+- `/skill` should act as a skill command hub with actions such as pick skill, create skill, manage skills, and stop active skill when applicable.
+- `/skill` pick behavior should reuse `$` skill discovery rather than introduce a second skill picker implementation.
+- `/research` is a thin bridge to the existing **Deep Research Mode** composer control when that feature is enabled.
+- `/research` does not use **Skill Sessions**, **Skill Notes**, **Skill Drafts**, or **Linked Context Sources**, and does not change the **Deep Research Job** lifecycle.
+- A **Skill Session** should be visible to the user while it can affect submitted messages.
+- V1 allows at most one active **Skill Session** per conversation composer.
+- Starting another **Skill Session** while one is active should require replacing, finishing, or dismissing the current session rather than stacking skill instructions.
+- Multi-turn **Skill Sessions** should be durable and scoped to a conversation.
+- A **Skill Session** should snapshot its **Skill Definition** instructions, policies, source scope, display name, and version when the session starts.
+- Editing a **Skill Definition** should affect future sessions, not already-running **Skill Sessions**, unless the user explicitly restarts or updates the session.
+- Skill-definition snapshots are backend continuity records and should not add visible UI clutter by default.
+- Durable v1 storage should distinguish saved **Skill Definitions**, per-user skill preferences, conversation-scoped **Skill Sessions**, sparse **Skill Session Milestones**, living **Skill Notes**, and bounded **Skill Note Checkpoints**.
+- **Skill Session Milestones** should be persisted as separate skill-session event rows, not synthetic user or assistant messages.
+- **Skill Session Milestones** may be rendered alongside chat history when useful, but they should not be treated as chat turns.
+- A pending one-turn **Skill** selection may remain composer-draft state until the user submits the next message.
+- A completed or dismissed **Skill Session** may remain available as lightweight history, but it should not appear as an active composer mode.
+- **Skill Notes** remain durable after their originating **Skill Session** ends.
+- The **Skill Session Panel** should own active controls for a running **Skill Session**.
+- A **Pending Skill Chip** should represent a one-turn **Skill** selected before message submission.
+- **Linked Source Chips** should represent composer-selected **Linked Context Sources** and remain visually distinct from upload attachment chips.
+- **Setting State Chips** should appear only for temporary non-default composer choices that affect the next turn.
+- Pending chips should sit inside the composer flow between the textarea and action controls so they read as part of the next message payload.
+- The desktop **Skill Session Panel** should use a compact dark surface with an accent rail, skill name, status, next action, note link when present, and finish or dismiss controls.
+- On mobile, an active **Skill Session Panel** should default to a collapsed single-row bar above the composer with status and a tap target to expand into a bottom sheet.
+- Mobile **Skill Session Panel** content should avoid pushing the composer and latest messages off-screen.
+- `/model`, `/style`, and `/thinking` should update the same current composer settings used by the existing composer tools, not create a separate one-turn override system.
+- When an existing composer control already visibly reflects a setting command result, a **Setting State Chip** is not required.
+- **Skill Session Milestones** may appear in chat history for durable orientation, but ordinary internal session-state changes should not create noisy transcript entries.
+- A question-capable **Skill Session** should ask through normal assistant messages marked as **Skill Questions**, not through a separate question transport.
+- A **Skill Question** should remain part of the user-visible transcript.
+- If a question-capable **Skill** asks multiple questions despite its policy, v1 should not rewrite or block the assistant message; the **Skill Session** should remain in a conservative awaiting-user state.
+- A **Skill Control Envelope** should update **Skill Session** state such as active, awaiting user, finished, and note operations.
+- A **Skill Control Envelope** should be stripped from visible assistant text before persistence and display.
+- **Skill Control Envelope** operations should be idempotent by session turn and operation ID so stream retries, reconnects, or finalization retries do not duplicate note writes or status transitions.
+- If a user stops a streaming response before a complete valid **Skill Control Envelope** is finalized, AlfyAI should not apply partial note operations or finish the **Skill Session**.
+- Stopping a skill-guided response should leave the **Skill Session** active in a conservative state unless a complete idempotent operation already committed.
+- If a **Skill Control Envelope** is missing or invalid, AlfyAI should keep the **Skill Session** in a conservative active state rather than guessing from prose.
+- This **Composer Command Registry** v1 is scoped to **Normal Chat** and does not change the **Deep Research Job** lifecycle.
 - **Context Sources** explains and steers automatic context selection; it should not make the user manually budget context.
 - **Context Sources** may expose pin and exclude controls as optional overrides.
 - Pinning or excluding a **Context Source** is scoped to the current conversation or task by default.

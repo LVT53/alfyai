@@ -6,6 +6,7 @@ import { parseChatTurnRequest } from "$lib/server/services/chat-turn/request";
 import { checkStreamCapacity } from '$lib/server/services/chat-turn/active-streams';
 import { createStreamJsonErrorResponse } from "$lib/server/services/chat-turn/stream";
 import { runChatStreamOrchestrator } from "$lib/server/services/chat-turn/stream-orchestrator";
+import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
 
 export const POST: RequestHandler = async (event) => {
   requireAuth(event);
@@ -71,6 +72,9 @@ export const POST: RequestHandler = async (event) => {
   const turn = preflight.value;
 
   const upstreamMessage = turn.normalizedMessage;
+  const skillSystemPromptAppendix = buildSkillSystemPromptAppendix(
+    turn.skillPromptContext,
+  );
 
   return runChatStreamOrchestrator({
     user: {
@@ -83,5 +87,6 @@ export const POST: RequestHandler = async (event) => {
     downstreamAbortSignal: event.request.signal,
     requestStartTime,
     isReconnect,
+    systemPromptAppendix: skillSystemPromptAppendix,
   });
 };

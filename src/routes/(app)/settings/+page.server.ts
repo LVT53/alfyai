@@ -36,9 +36,10 @@ export const load: ServerLoad = async (event) => {
   };
 
   const isAdmin = userRow.role === 'admin';
+  const runtime = getConfig();
 
   if (!isAdmin) {
-    return { userSettings };
+    return { userSettings, composerCommandRegistryEnabled: runtime.composerCommandRegistryEnabled };
   }
 
   // Admin: load config data
@@ -47,7 +48,6 @@ export const load: ServerLoad = async (event) => {
     configRows.map((r) => [r.key, r.value])
   );
 
-  const runtime = getConfig();
   const envDefaults = getEnvDefaults();
   const currentConfigValues = getResolvedAdminConfigValues(runtime);
 
@@ -65,8 +65,9 @@ export const load: ServerLoad = async (event) => {
     adminConfigKeys: ADMIN_CONFIG_KEYS,
     currentConfigValues,
     configOverrides,
-    envDefaults,
+		envDefaults,
 		modelNames,
 		availableModels,
+		composerCommandRegistryEnabled: runtime.composerCommandRegistryEnabled,
   };
 };

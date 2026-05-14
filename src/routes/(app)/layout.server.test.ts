@@ -16,6 +16,7 @@ vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({
 		maxMessageLength: 12000,
 		deepResearchEnabled: true,
+		composerCommandRegistryEnabled: true,
 	})),
 	normalizeModelSelectionWithProviders: vi.fn((model: string) =>
 		Promise.resolve(model),
@@ -73,6 +74,24 @@ describe("(app) layout load", () => {
 		expect(result).toEqual(
 			expect.objectContaining({
 				deepResearchEnabled: true,
+			}),
+		);
+	});
+
+	it("exposes the Composer Command Registry feature flag to app pages", async () => {
+		const result = await load({
+			locals: {
+				user: {
+					id: "user-1",
+					email: "user@example.com",
+					displayName: "User",
+				},
+			},
+		} as Parameters<typeof load>[0]);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				composerCommandRegistryEnabled: true,
 			}),
 		);
 	});

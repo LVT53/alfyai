@@ -71,6 +71,7 @@ describe("Environment Configuration", () => {
 		delete process.env.WEBHOOK_PORT;
 		delete process.env.REQUEST_TIMEOUT_MS;
 		delete process.env.MAX_MESSAGE_LENGTH;
+		delete process.env.COMPOSER_COMMAND_REGISTRY_ENABLED;
 		delete process.env.DATABASE_PATH;
 
 		const { config } = await import("./env");
@@ -110,6 +111,7 @@ describe("Environment Configuration", () => {
 		expect(config.modelTimeoutFailoverEnabled).toBe(false);
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(60000);
 		expect(config.modelTimeoutFailoverTargetModel).toBe("model2");
+		expect(config.composerCommandRegistryEnabled).toBe(false);
 		expect(config.maxMessageLength).toBe(1_048_576);
 		expect(config.sessionSecret).toBe(
 			"test-session-secret-12345678901234567890123456789012",
@@ -156,6 +158,7 @@ describe("Environment Configuration", () => {
 		process.env.MODEL_TIMEOUT_FAILOVER_ENABLED = "true";
 		process.env.MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS = "2500";
 		process.env.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL = "provider:backup";
+		process.env.COMPOSER_COMMAND_REGISTRY_ENABLED = "true";
 		process.env.MAX_MESSAGE_LENGTH = "5000";
 		process.env.SESSION_SECRET =
 			"test-session-secret-12345678901234567890123456789012";
@@ -202,6 +205,7 @@ describe("Environment Configuration", () => {
 		expect(config.modelTimeoutFailoverEnabled).toBe(true);
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(2500);
 		expect(config.modelTimeoutFailoverTargetModel).toBe("provider:backup");
+		expect(config.composerCommandRegistryEnabled).toBe(true);
 		expect(config.maxMessageLength).toBe(5000);
 		expect(config.sessionSecret).toBe(
 			"test-session-secret-12345678901234567890123456789012",

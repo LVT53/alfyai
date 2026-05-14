@@ -158,8 +158,9 @@ export function buildGeneratedOutputDocumentMetadata(params: {
 
 export function getArtifactDocumentOrigin(
   artifactType: ArtifactType,
-): "uploaded" | "generated" | null {
+): "uploaded" | "generated" | "skill_note" | null {
   if (artifactType === "generated_output") return "generated";
+  if (artifactType === "skill_note") return "skill_note";
   if (artifactType === "source_document" || artifactType === "normalized_document") {
     return "uploaded";
   }

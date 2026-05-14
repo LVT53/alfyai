@@ -4,11 +4,14 @@ type MessageRow = {
 	id: string;
 	conversationId: string;
 	role: "user" | "assistant";
+	content: string;
+	thinking: string | null;
+	toolCalls: string | null;
 	metadataJson: string | null;
 	createdAt: Date;
 };
 
-const { mockRows, mockSelect, mockUpdate, mockDelete } = vi.hoisted(() => {
+const { mockRows, mockSelect, mockInsert, mockUpdate, mockDelete } = vi.hoisted(() => {
 	const mockRows: MessageRow[] = [];
 
 	const applySelection = (selection: Record<string, unknown>) =>
@@ -33,6 +36,16 @@ const { mockRows, mockSelect, mockUpdate, mockDelete } = vi.hoisted(() => {
 
 		return builder;
 	});
+
+	const mockInsert = vi.fn(() => ({
+		values: vi.fn((values: Omit<MessageRow, "createdAt">) => ({
+			returning: vi.fn(async () => {
+				const row = { ...values, createdAt: new Date("2026-03-29T12:00:00.000Z") };
+				mockRows.push(row);
+				return [row];
+			}),
+		})),
+	}));
 
 	const mockUpdate = vi.fn(() => {
 		const builder = {
@@ -59,12 +72,13 @@ const { mockRows, mockSelect, mockUpdate, mockDelete } = vi.hoisted(() => {
 		return builder;
 	});
 
-	return { mockRows, mockSelect, mockUpdate, mockDelete };
+	return { mockRows, mockSelect, mockInsert, mockUpdate, mockDelete };
 });
 
 vi.mock("$lib/server/db", () => ({
 	db: {
 		select: mockSelect,
+		insert: mockInsert,
 		update: mockUpdate,
 		delete: mockDelete,
 	},
@@ -76,6 +90,9 @@ vi.mock("$lib/server/db/schema", () => ({
 		id: "id",
 		conversationId: "conversationId",
 		role: "role",
+		content: "content",
+		thinking: "thinking",
+		toolCalls: "toolCalls",
 		metadataJson: "metadataJson",
 		createdAt: "createdAt",
 	},
@@ -121,6 +138,9 @@ describe("messages Honcho metadata", () => {
 			id: "assistant-1",
 			conversationId: "conv-1",
 			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
 			createdAt: new Date("2026-03-29T12:00:00.000Z"),
 			metadataJson: JSON.stringify({
 				honchoContext: {
@@ -173,6 +193,9 @@ describe("messages Honcho metadata", () => {
 			id: "assistant-1",
 			conversationId: "conv-1",
 			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
 			createdAt: new Date("2026-03-29T12:00:00.000Z"),
 			metadataJson: JSON.stringify({
 				evidenceStatus: "ready",
@@ -228,6 +251,9 @@ describe("messages Honcho metadata", () => {
 			id: "assistant-1",
 			conversationId: "conv-1",
 			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
 			createdAt: new Date("2026-03-29T12:00:00.000Z"),
 			metadataJson: JSON.stringify({
 				evidenceStatus: "ready",
@@ -287,6 +313,9 @@ describe("messages Honcho metadata", () => {
 				id: "assistant-newest",
 				conversationId: "conv-1",
 				role: "assistant",
+				content: "Newest answer",
+				thinking: null,
+				toolCalls: null,
 				createdAt: new Date("2026-03-29T12:01:00.000Z"),
 				metadataJson: JSON.stringify({
 					honchoContext: {
@@ -303,6 +332,9 @@ describe("messages Honcho metadata", () => {
 				id: "assistant-older",
 				conversationId: "conv-1",
 				role: "assistant",
+				content: "Older answer",
+				thinking: null,
+				toolCalls: null,
 				createdAt: new Date("2026-03-29T12:00:00.000Z"),
 				metadataJson: JSON.stringify({
 					honchoSnapshot: {
@@ -330,6 +362,114 @@ describe("messages Honcho metadata", () => {
 		});
 		expect(metadata.honchoSnapshot).toMatchObject({
 			summary: "Older snapshot",
+		});
+	});
+
+	it("persists and returns Skill Question metadata on assistant messages", async () => {
+		const { createMessage } = await import("./messages");
+
+		const message = await createMessage(
+			"conv-1",
+			"assistant",
+			"Which deadline should I use?",
+			undefined,
+			undefined,
+			{
+				skillQuestion: true,
+				pendingSkillNoteIntents: [
+					{
+						operationId: "note-1",
+						kind: "note_intent",
+						action: "create",
+						title: "Draft note",
+						body: "Capture later.",
+					},
+				],
+				skillControl: {
+					envelopeVersion: 1,
+					malformedEnvelopeCount: 0,
+					operations: [
+						{
+							operationId: "question-1",
+							kind: "session_transition",
+							transition: "awaiting_user",
+						},
+					],
+				},
+			},
+		);
+
+		expect(message).toMatchObject({
+			content: "Which deadline should I use?",
+			skillQuestion: true,
+			pendingSkillNoteIntents: [
+				expect.objectContaining({ operationId: "note-1" }),
+			],
+			skillControl: expect.objectContaining({
+				envelopeVersion: 1,
+				operations: [
+					expect.objectContaining({ operationId: "question-1" }),
+				],
+			}),
+		});
+		expect(JSON.parse(mockRows.at(-1)?.metadataJson ?? "{}")).toMatchObject({
+			skillQuestion: true,
+		});
+	});
+
+	it("preserves Skill Draft metadata and updates draft status on assistant messages", async () => {
+		const { createMessage, updateAssistantMessageSkillDraftStatus } = await import("./messages");
+
+		const message = await createMessage(
+			"conv-1",
+			"assistant",
+			"I can turn that into a reusable skill.",
+			undefined,
+			undefined,
+			{
+				skillDrafts: [
+					{
+						id: "draft-1",
+						status: "proposed",
+						displayName: "Meeting critic",
+						description: "Review meeting notes for weak follow-ups.",
+						instructions: "Find missing owners, vague deadlines, and risky assumptions.",
+						activationExamples: ["review these meeting notes"],
+						durationPolicy: "next_message",
+						questionPolicy: "none",
+						notesPolicy: "none",
+						sourceScope: "selected_sources_only",
+					},
+				],
+			},
+		);
+
+		expect(message.skillDrafts).toEqual([
+			expect.objectContaining({
+				id: "draft-1",
+				status: "proposed",
+				displayName: "Meeting critic",
+			}),
+		]);
+
+		const updatedDraft = await updateAssistantMessageSkillDraftStatus({
+			conversationId: "conv-1",
+			messageId: message.id,
+			draftId: "draft-1",
+			status: "dismissed",
+		});
+
+		expect(updatedDraft).toMatchObject({
+			id: "draft-1",
+			status: "dismissed",
+		});
+		expect(JSON.parse(mockRows.at(-1)?.metadataJson ?? "{}")).toMatchObject({
+			skillDrafts: [
+				{
+					id: "draft-1",
+					status: "dismissed",
+				},
+			],
 		});
 	});
 });

@@ -18,6 +18,10 @@ import { listConversationFileProductionJobs } from '$lib/server/services/file-pr
 import { listConversationDeepResearchJobs } from '$lib/server/services/deep-research';
 import { getConversationDraft } from '$lib/server/services/conversation-drafts';
 import { getConversationCostSummary } from '$lib/server/services/analytics';
+import {
+	getActiveSkillSession,
+	serializePublicSkillSession,
+} from '$lib/server/services/skills/sessions';
 import { buildContextSourcesState } from '$lib/server/services/chat-turn/context-sources';
 import {
 	attachContinuityToTaskState,
@@ -50,6 +54,7 @@ export const GET: RequestHandler = async (event) => {
 
 		if (event.url.searchParams.get('view') === 'bootstrap') {
 			const draft = await getConversationDraft(user.id, id).catch(() => null);
+			const activeSkillSession = await getActiveSkillSession(user.id, id).catch(() => null);
 			return json({
 				conversation,
 				messages: [],
@@ -62,6 +67,7 @@ export const GET: RequestHandler = async (event) => {
 				draft,
 				fileProductionJobs: [],
 				deepResearchJobs: [],
+				activeSkillSession: serializePublicSkillSession(activeSkillSession),
 				bootstrap: true,
 			});
 		}
@@ -79,6 +85,7 @@ export const GET: RequestHandler = async (event) => {
 			deepResearchJobs,
 			costSummary,
 			projectReference,
+			activeSkillSession,
 		] = await Promise.all([
 			listMessages(id),
 			listConversationArtifacts(user.id, id),
@@ -94,6 +101,7 @@ export const GET: RequestHandler = async (event) => {
 			getProjectReferenceContext({ userId: user.id, conversationId: id }).catch(
 				() => null,
 			),
+			getActiveSkillSession(user.id, id).catch(() => null),
 		]);
 		const taskStateWithContinuity = await attachContinuityToTaskState(user.id, taskState).catch(
 			() => taskState
@@ -120,6 +128,7 @@ export const GET: RequestHandler = async (event) => {
 			generatedFiles,
 			fileProductionJobs,
 			deepResearchJobs,
+			activeSkillSession: serializePublicSkillSession(activeSkillSession),
 			bootstrap: false,
 			totalCostUsdMicros: costSummary.totalCostUsdMicros,
 			totalTokens: costSummary.totalTokens,

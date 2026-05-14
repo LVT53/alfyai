@@ -4,8 +4,9 @@ import { hasPendingConversationMessage } from '$lib/client/conversation-session'
 import type { PageLoad } from './$types';
 import type { ConversationDetail } from '$lib/types';
 
-export const load: PageLoad = async ({ params, fetch, url }) => {
+export const load: PageLoad = async ({ params, fetch, url, parent }) => {
 	const { conversationId } = params;
+	const parentData = await parent();
 	const useBootstrap =
 		url.searchParams.get('view') === 'bootstrap' ||
 		(browser && typeof window !== 'undefined'
@@ -27,6 +28,7 @@ export const load: PageLoad = async ({ params, fetch, url }) => {
 	const detail: ConversationDetail = await res.json();
 
 	return {
+		...parentData,
 		conversation: detail.conversation,
 		messages: detail.messages,
 		attachedArtifacts: detail.attachedArtifacts ?? [],
@@ -40,6 +42,7 @@ export const load: PageLoad = async ({ params, fetch, url }) => {
 		generatedFiles: detail.generatedFiles ?? [],
 		fileProductionJobs: detail.fileProductionJobs ?? [],
 		deepResearchJobs: detail.deepResearchJobs ?? [],
+		activeSkillSession: detail.activeSkillSession ?? null,
 		totalCostUsdMicros: detail.totalCostUsdMicros ?? 0,
 		totalTokens: detail.totalTokens ?? 0,
 	};

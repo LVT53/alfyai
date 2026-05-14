@@ -39,6 +39,7 @@ export const load: ServerLoad = async (event) => {
 		projects: projectsList,
 		maxMessageLength: config.maxMessageLength,
 		deepResearchEnabled: config.deepResearchEnabled,
+		composerCommandRegistryEnabled: config.composerCommandRegistryEnabled,
 		userTheme: userRow?.theme ?? 'system',
 		userModel,
 		userTitleLanguage: (userRow?.titleLanguage ?? 'auto') as 'auto' | 'en' | 'hu',

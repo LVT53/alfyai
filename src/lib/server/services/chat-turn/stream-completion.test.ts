@@ -1,10 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ArtifactSummary, ContextDebugState, TaskState } from "$lib/types";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
+import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { completeStreamTurn } from "./stream-completion";
 
 vi.mock("$lib/server/services/task-state", () => ({
 	getProjectReferenceContext: vi.fn(async () => null),
+}));
+
+vi.mock("$lib/server/services/skills/sessions", () => ({
+	applySkillControlOperations: vi.fn(async () => null),
+}));
+
+vi.mock("$lib/server/services/skills/notes", () => ({
+	commitSkillNoteOperationsAfterAssistantMessage: vi.fn(async () => null),
 }));
 
 describe("completeStreamTurn", () => {
@@ -25,6 +35,10 @@ describe("completeStreamTurn", () => {
 	const mockEstimateTokenCount = vi.fn().mockReturnValue(100);
 	const mockGetProjectReferenceContext =
 		getProjectReferenceContext as ReturnType<typeof vi.fn>;
+	const mockApplySkillControlOperations =
+		applySkillControlOperations as ReturnType<typeof vi.fn>;
+	const mockCommitSkillNoteOperations =
+		commitSkillNoteOperationsAfterAssistantMessage as ReturnType<typeof vi.fn>;
 
 	const defaultUserMsg = { id: "user-msg-1" };
 	const defaultAssistantMsg = { id: "asst-msg-1" };
@@ -68,8 +82,11 @@ describe("completeStreamTurn", () => {
 		thinkingContent: "<thinking>reason</thinking>",
 		fullResponse: "response text",
 		toolCallRecords: [],
+		skillControlEnvelopePayloads: [],
 		serverSegments: [],
 		attachmentIds: ["att-1"],
+		linkedSources: [],
+		activeSkillSessionId: null,
 		activeDocumentArtifactId: "doc-1",
 		requestStartTime: Date.now() - 5000,
 		fileProductionJobIdsAtStart: new Set<string>(),
@@ -189,6 +206,114 @@ describe("completeStreamTurn", () => {
 			undefined,
 			{ evidenceStatus: "pending", modelDisplayName: "Model One" },
 		);
+	});
+
+	it("persists Skill Control metadata and applies stream operations after assistant persistence", async () => {
+		await completeStreamTurn({
+			...defaultParams,
+			fullResponse: "What deadline should I use?",
+			skillControlEnvelopePayloads: [
+				JSON.stringify({
+					version: 1,
+					operations: [
+						{
+							operationId: "stream-question",
+							kind: "session_transition",
+							transition: "awaiting_user",
+						},
+					],
+				}),
+			],
+		});
+
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"What deadline should I use?",
+			"<thinking>reason</thinking>",
+			undefined,
+			expect.objectContaining({
+				evidenceStatus: "pending",
+				skillQuestion: true,
+				skillControl: expect.objectContaining({
+					operations: [
+						expect.objectContaining({ operationId: "stream-question" }),
+					],
+				}),
+			}),
+		);
+		expect(mockApplySkillControlOperations).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "asst-msg-1",
+			operations: [
+				{
+					operationId: "stream-question",
+					kind: "session_transition",
+					transition: "awaiting_user",
+				},
+			],
+		});
+	});
+
+	it("commits stream note operations after assistant persistence", async () => {
+		await completeStreamTurn({
+			...defaultParams,
+			activeSkillSessionId: "session-1",
+			fullResponse: "Captured.",
+			skillControlEnvelopePayloads: [
+				JSON.stringify({
+					version: 1,
+					operations: [
+						{
+							operationId: "stream-note-create",
+							kind: "note_intent",
+							action: "create",
+							title: "Decision",
+							body: "Use the short plan.",
+						},
+					],
+				}),
+			],
+		});
+
+		expect(mockCommitSkillNoteOperations).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			sessionId: "session-1",
+			assistantMessageId: "asst-msg-1",
+			operations: [
+				{
+					operationId: "stream-note-create",
+					kind: "note_intent",
+					action: "create",
+					title: "Decision",
+					body: "Use the short plan.",
+				},
+			],
+		});
+	});
+
+	it("does not apply Skill Control operations for stopped streams", async () => {
+		await completeStreamTurn({
+			...defaultParams,
+			wasStopped: true,
+			fullResponse: "Partial answer",
+			skillControlEnvelopePayloads: [
+				JSON.stringify({
+					version: 1,
+					operations: [
+						{
+							operationId: "partial-question",
+							kind: "session_transition",
+							transition: "awaiting_user",
+						},
+					],
+				}),
+			],
+		});
+
+		expect(mockApplySkillControlOperations).not.toHaveBeenCalled();
 	});
 
 	it("persists user turn attachments when attachments exist", async () => {

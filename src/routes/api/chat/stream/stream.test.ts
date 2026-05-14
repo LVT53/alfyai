@@ -1,7 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const configMockState = vi.hoisted(() => ({
+	composerCommandRegistryEnabled: true,
+}));
+
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
+}));
+
+vi.mock("$lib/server/config-store", () => ({
+	getConfig: vi.fn(() => ({
+		concurrentStreamLimit: 100,
+		perUserStreamLimit: 10,
+		requestTimeoutMs: 60_000,
+		modelTimeoutFailoverEnabled: false,
+		modelTimeoutFailoverTargetModel: null,
+		modelTimeoutFailoverTimeoutMs: 1_000,
+		composerCommandRegistryEnabled: configMockState.composerCommandRegistryEnabled,
+		model1: {
+			displayName: "Model 1",
+		},
+		model2: {
+			displayName: "Model 2",
+		},
+	})),
+	getProviderById: vi.fn(async () => null),
+	normalizeModelSelection: vi.fn((model: string) => model),
+	getMaxMessageLength: vi.fn(() => 10000),
 }));
 
 vi.mock("$lib/server/services/conversations", () => ({
@@ -44,12 +69,48 @@ vi.mock("$lib/server/services/knowledge", () => ({
 	upsertWorkCapsule: vi.fn(async () => null),
 }));
 
+vi.mock("$lib/server/services/linked-context-sources", () => ({
+	addConversationLinkedContextSources: vi.fn(async () => []),
+	isLinkedContextSourceError: vi.fn(() => false),
+}));
+
+vi.mock("$lib/server/services/skills/user-skills", () => ({
+	getAvailableSkillDefinition: vi.fn(async () => ({
+		id: "skill-1",
+		ownership: "user",
+		displayName: "Interview coach",
+		description: "Asks useful questions.",
+		instructions: "Ask one concise follow-up before answering.",
+		activationExamples: ["interview me first"],
+		enabled: true,
+		durationPolicy: "next_message",
+		questionPolicy: "ask_when_needed",
+		notesPolicy: "none",
+		sourceScope: "selected_sources_only",
+		creationSource: "user_created",
+		version: 1,
+		createdAt: 1,
+		updatedAt: 2,
+	})),
+	getAvailableSkillSummary: vi.fn(async () => ({
+		id: "skill-1",
+		ownership: "user",
+		displayName: "Interview coach",
+	})),
+}));
+
+vi.mock("$lib/server/services/skills/sessions", () => ({
+	applySkillControlOperations: vi.fn(async () => null),
+	getActiveSkillSession: vi.fn(async () => null),
+}));
+
 vi.mock("$lib/server/services/task-state", () => ({
 	attachContinuityToTaskState: vi.fn(
 		async (_userId: string, taskState: unknown) => taskState,
 	),
 	getContextDebugState: vi.fn(async () => null),
 	getConversationTaskState: vi.fn(async () => null),
+	getProjectReferenceContext: vi.fn(async () => null),
 	syncTaskContinuityFromTaskState: vi.fn(async () => null),
 	updateTaskStateCheckpoint: vi.fn(async () => null),
 }));
@@ -102,12 +163,14 @@ import {
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
 import { assertPromptReadyAttachments } from "$lib/server/services/knowledge";
+import { addConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
 import { sendMessage, sendMessageStream } from "$lib/server/services/langflow";
 import {
 	createMessage,
 	updateMessageHonchoMetadata,
 } from "$lib/server/services/messages";
 import { getConversationTaskState } from "$lib/server/services/task-state";
+import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import { POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
@@ -120,9 +183,13 @@ const mockUpdateMessageHonchoMetadata =
 	updateMessageHonchoMetadata as ReturnType<typeof vi.fn>;
 const mockAssertPromptReadyAttachments =
 	assertPromptReadyAttachments as ReturnType<typeof vi.fn>;
+const mockAddConversationLinkedContextSources =
+	addConversationLinkedContextSources as ReturnType<typeof vi.fn>;
 const mockGetConversationTaskState = getConversationTaskState as ReturnType<
 	typeof vi.fn
 >;
+const mockApplySkillControlOperations =
+	applySkillControlOperations as ReturnType<typeof vi.fn>;
 const mockGetChatFilesForAssistantMessage =
 	getChatFilesForAssistantMessage as ReturnType<typeof vi.fn>;
 const mockSyncGeneratedFilesToMemory = syncGeneratedFilesToMemory as ReturnType<
@@ -237,6 +304,7 @@ async function readSseResponse(response: Response): Promise<string> {
 describe("POST /api/chat/stream", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		configMockState.composerCommandRegistryEnabled = true;
 		vi.spyOn(console, "info").mockImplementation(() => undefined);
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		mockRequireAuth.mockReturnValue(undefined);
@@ -251,6 +319,7 @@ describe("POST /api/chat/stream", () => {
 			displayArtifacts: [],
 			promptArtifacts: [],
 		});
+		mockAddConversationLinkedContextSources.mockResolvedValue([]);
 		mockSendMessage.mockReset();
 		mockGetChatFilesForAssistantMessage.mockResolvedValue([]);
 		mockSyncGeneratedFilesToMemory.mockResolvedValue(undefined);
@@ -430,6 +499,78 @@ describe("POST /api/chat/stream", () => {
 		);
 	});
 
+	it("strips Skill Control Envelopes from stream tokens and applies captured operations", async () => {
+		const conversation = {
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		mockGetConversation.mockResolvedValue(conversation);
+		mockCreateMessage
+			.mockResolvedValueOnce({
+				id: "user-msg",
+				role: "user",
+				content: "Coach me",
+				timestamp: Date.now(),
+			})
+			.mockResolvedValueOnce({
+				id: "assistant-msg",
+				role: "assistant",
+				content: "What deadline should I use?",
+				timestamp: Date.now(),
+			});
+		mockSendMessageStream.mockResolvedValue(
+			buildSseStream([
+				'event: token\ndata: {"text":"What deadline should I use?\\n<skill_control"}\n\n',
+				`event: token\ndata: ${JSON.stringify({
+					text: `_v1>${JSON.stringify({
+						version: 1,
+						operations: [
+							{
+								operationId: "stream-question",
+								kind: "session_transition",
+								transition: "awaiting_user",
+							},
+						],
+					})}</skill_control_v1>`,
+				})}\n\n`,
+				"data: [DONE]\n\n",
+			]),
+		);
+
+		const response = await POST(
+			makeEvent({ message: "Coach me", conversationId: "conv-1" }),
+		);
+		const body = await readSseResponse(response);
+
+		expect(body).toContain('"text":"What deadline should I use?\\n"');
+		expect(body).not.toContain("skill_control_v1");
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"What deadline should I use?\n",
+			undefined,
+			undefined,
+			expect.objectContaining({
+				evidenceStatus: "pending",
+				skillQuestion: true,
+			}),
+		);
+		expect(mockApplySkillControlOperations).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-msg",
+			operations: [
+				{
+					operationId: "stream-question",
+					kind: "session_transition",
+					transition: "awaiting_user",
+				},
+			],
+		});
+	});
+
 	it("forwards the active workspace document id into Langflow streaming calls", async () => {
 		const conversation = {
 			id: "conv-1",
@@ -483,6 +624,110 @@ describe("POST /api/chat/stream", () => {
 				},
 			}),
 		);
+	});
+
+	it("passes pending Skill instructions as a system appendix without changing the streamed user transcript", async () => {
+		const conversation = {
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		mockGetConversation.mockResolvedValue(conversation);
+		mockCreateMessage
+			.mockResolvedValueOnce({
+				id: "user-msg",
+				role: "user",
+				content: "Draft the plan",
+				timestamp: Date.now(),
+			})
+			.mockResolvedValueOnce({
+				id: "assistant-msg",
+				role: "assistant",
+				content: "Question first.",
+				timestamp: Date.now(),
+			});
+		mockSendMessageStream.mockResolvedValue(
+			buildSseStream([
+				'event: add_message\ndata: {"text":"Question first."}\n\n',
+				"data: [DONE]\n\n",
+			]),
+		);
+		const linkedSources = [
+			{
+				displayArtifactId: "display-1",
+				promptArtifactId: "prompt-1",
+				familyArtifactIds: ["display-1", "prompt-1"],
+				name: "Discovery notes.pdf",
+				type: "document" as const,
+			},
+		];
+		mockAddConversationLinkedContextSources.mockResolvedValueOnce(linkedSources);
+
+		const event = makeEvent({
+			message: "  Draft the plan  ",
+			conversationId: "conv-1",
+			pendingSkill: {
+				id: "skill-1",
+				ownership: "user",
+				displayName: "Interview coach",
+			},
+			linkedSources,
+		});
+		const response = await POST(event);
+		const body = await readSseResponse(response);
+
+		expect(response.status).toBe(200);
+		expect(body).toContain("Question first.");
+		expect(mockSendMessageStream).toHaveBeenCalledWith(
+			"Draft the plan",
+			"conv-1",
+			"model1",
+			expect.objectContaining({
+				systemPromptAppendix: expect.stringContaining(
+					"Ask one concise follow-up before answering.",
+				),
+			}),
+		);
+		const options = mockSendMessageStream.mock.calls.at(-1)?.[3];
+		expect(options.systemPromptAppendix).toContain("Discovery notes.pdf");
+		expect(options.systemPromptAppendix).toContain("displayArtifactId: display-1");
+		expect(options.systemPromptAppendix).not.toContain("  Draft the plan  ");
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"user",
+			"Draft the plan",
+		);
+	});
+
+	it("rejects pending Skill payloads when Composer Command Registry is disabled", async () => {
+		configMockState.composerCommandRegistryEnabled = false;
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		});
+
+		const response = await POST(
+			makeEvent({
+				message: "Use this skill",
+				conversationId: "conv-1",
+				pendingSkill: {
+					id: "skill-1",
+					ownership: "user",
+					displayName: "Interview coach",
+				},
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(403);
+		expect(data).toMatchObject({
+			error: "Composer Command Registry is disabled.",
+			code: "composer_commands_disabled",
+		});
+		expect(mockSendMessageStream).not.toHaveBeenCalled();
 	});
 
 	it("continues processing upstream after the client disconnects during metadata loading", async () => {

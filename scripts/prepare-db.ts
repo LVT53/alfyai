@@ -46,6 +46,11 @@ const requiredExistingTables = [
 	'persona_memory_clusters',
 	'persona_memory_cluster_members',
 	'conversation_drafts',
+	'user_skill_definitions',
+	'skill_sessions',
+	'skill_session_milestones',
+	'skill_note_operations',
+	'skill_note_checkpoints',
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [

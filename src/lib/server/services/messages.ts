@@ -15,12 +15,15 @@ import type {
 	MessageEvidenceStatusState,
 	MessageEvidenceSummary,
 	MessageRole,
+	SkillControlMessageMetadata,
+	SkillDraftProposal,
+	SkillDraftStatus,
 	ThinkingSegment,
 	WebCitationAudit,
 } from "$lib/types";
 import { listMessageAttachments } from "./knowledge";
 
-type PersistedMessageMetadata = {
+type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	evidenceSummary?: MessageEvidenceSummary | null;
 	evidenceStatus?: MessageEvidenceStatusState;
 	deepResearchReportContext?: {
@@ -89,6 +92,12 @@ function mapRowToChatMessage(
 		webCitationAudit: metadata?.webCitationAudit ?? undefined,
 		evidencePending,
 		honchoContext: metadata?.honchoContext ?? undefined,
+		skillQuestion: metadata?.skillQuestion || undefined,
+		pendingSkillNoteIntents: metadata?.pendingSkillNoteIntents,
+		skillDrafts: Array.isArray(metadata?.skillDrafts)
+			? metadata.skillDrafts
+			: undefined,
+		skillControl: metadata?.skillControl,
 	};
 }
 
@@ -313,7 +322,96 @@ export async function updateMessageHonchoMetadata(
 		.set({
 			metadataJson: Object.keys(next).length > 0 ? JSON.stringify(next) : null,
 		})
-		.where(eq(messages.id, messageId));
+			.where(eq(messages.id, messageId));
+}
+
+export async function getAssistantMessageSkillDraft(params: {
+	conversationId: string;
+	messageId: string;
+	draftId: string;
+}): Promise<SkillDraftProposal | null> {
+	const [row] = await db
+		.select({ metadataJson: messages.metadataJson, role: messages.role })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.id, params.messageId),
+				eq(messages.conversationId, params.conversationId),
+				eq(messages.role, "assistant"),
+			),
+		)
+		.limit(1);
+
+	if (!row || row.role !== "assistant") return null;
+	const metadata = parseMetadata(row.metadataJson);
+	const drafts = Array.isArray(metadata?.skillDrafts)
+		? metadata.skillDrafts
+		: [];
+	return drafts.find((draft) => draft.id === params.draftId) ?? null;
+}
+
+export async function updateAssistantMessageSkillDraftStatus(params: {
+	conversationId: string;
+	messageId: string;
+	draftId: string;
+	status: SkillDraftStatus;
+	savedSkillId?: string;
+	publishedSystemSkillId?: string;
+}): Promise<SkillDraftProposal | null> {
+	const [row] = await db
+		.select({ metadataJson: messages.metadataJson, role: messages.role })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.id, params.messageId),
+				eq(messages.conversationId, params.conversationId),
+				eq(messages.role, "assistant"),
+			),
+		)
+		.limit(1);
+
+	if (!row || row.role !== "assistant") return null;
+
+	const metadata = parseMetadata(row.metadataJson) ?? {};
+	const drafts = Array.isArray(metadata.skillDrafts)
+		? metadata.skillDrafts
+		: [];
+	const draftIndex = drafts.findIndex((draft) => draft.id === params.draftId);
+	if (draftIndex === -1) return null;
+
+	const nextDraft: SkillDraftProposal = {
+		...drafts[draftIndex],
+		status: params.status,
+		updatedAt: Date.now(),
+	};
+	if (params.savedSkillId) {
+		nextDraft.savedSkillId = params.savedSkillId;
+	}
+	if (params.publishedSystemSkillId) {
+		nextDraft.publishedSystemSkillId = params.publishedSystemSkillId;
+	}
+
+	const nextDrafts = drafts.slice();
+	nextDrafts[draftIndex] = nextDraft;
+	const next: PersistedMessageMetadata = {
+		...metadata,
+		skillDrafts: nextDrafts,
+	};
+
+	await db
+		.update(messages)
+		.set({
+			metadataJson: JSON.stringify(next),
+		})
+		.where(
+			and(
+				eq(messages.id, params.messageId),
+				eq(messages.conversationId, params.conversationId),
+				eq(messages.role, "assistant"),
+			),
+		);
+
+	return nextDraft;
 }
 
 export async function getLatestHonchoMetadata(conversationId: string): Promise<{

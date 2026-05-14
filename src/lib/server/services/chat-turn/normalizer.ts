@@ -6,6 +6,7 @@ import {
 	stripLeadingResponseMarker,
 	stripLeakedToolDiagnostics,
 } from "$lib/services/stream-protocol";
+import { parseSkillControlEnvelopeFromAssistantText } from "./skill-control-envelope";
 import { processToolCallMarkers } from "./tool-call-markers";
 
 /**
@@ -14,7 +15,11 @@ import { processToolCallMarkers } from "./tool-call-markers";
  * Used by both send and stream paths.
  */
 export function normalizeAssistantOutput(text: string): string {
-	if (!text) return "";
+	return normalizeAssistantOutputWithSkillControl(text).visibleText;
+}
+
+export function normalizeAssistantOutputWithSkillControl(text: string) {
+	if (!text) return { visibleText: "", operations: [] };
 
 	const split = splitLeadingThinkingPreamble(text, { allowOpenEnded: true });
 	const inputText = split
@@ -41,5 +46,5 @@ export function normalizeAssistantOutput(text: string): string {
 	result = processToolCallMarkers(result, () => {});
 	result = stripLeakedToolDiagnostics(result);
 
-	return result.trim();
+	return parseSkillControlEnvelopeFromAssistantText(result);
 }

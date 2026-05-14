@@ -76,6 +76,8 @@ describe('conversation-session', () => {
 			message: 'Hello there',
 			attachmentIds: ['artifact-1'],
 			attachments: [attachment],
+			linkedSources: [],
+			pendingSkill: null,
 			modelId: undefined,
 			personalityProfileId: null,
 			deepResearchDepth: null,
@@ -103,6 +105,14 @@ describe('conversation-session', () => {
 	});
 
 	it('builds a draft record only when the draft is meaningful', () => {
+		const linkedSource = {
+			displayArtifactId: 'source-display',
+			promptArtifactId: 'source-prompt',
+			familyArtifactIds: ['source-display', 'source-prompt'],
+			name: 'Linked report.pdf',
+			type: 'document' as const,
+		};
+
 		expect(
 			createConversationDraftRecord({
 				conversationId: null,
@@ -110,6 +120,7 @@ describe('conversation-session', () => {
 				draftText: 'Draft message',
 				selectedAttachmentIds: [],
 				selectedAttachments: [],
+				selectedLinkedSources: [linkedSource],
 				updatedAt: 123,
 			})
 		).toEqual({
@@ -117,6 +128,8 @@ describe('conversation-session', () => {
 			draftText: 'Draft message',
 			selectedAttachmentIds: [],
 			selectedAttachments: [],
+			selectedLinkedSources: [linkedSource],
+			pendingSkill: null,
 			updatedAt: 123,
 		});
 
@@ -126,6 +139,44 @@ describe('conversation-session', () => {
 				draftText: '   ',
 				selectedAttachmentIds: [],
 				selectedAttachments: [],
+				selectedLinkedSources: [linkedSource],
+			})
+		).toEqual({
+			conversationId: 'draft',
+			draftText: '   ',
+			selectedAttachmentIds: [],
+			selectedAttachments: [],
+			selectedLinkedSources: [linkedSource],
+			pendingSkill: null,
+			updatedAt: expect.any(Number),
+		});
+
+		expect(
+			createConversationDraftRecord({
+				conversationId: 'conv-skill',
+				draftText: '   ',
+				selectedAttachmentIds: [],
+				selectedAttachments: [],
+				selectedLinkedSources: [],
+				pendingSkill: { id: 'skill-1', ownership: 'user', displayName: 'Interview coach' },
+			})
+		).toEqual({
+			conversationId: 'conv-skill',
+			draftText: '   ',
+			selectedAttachmentIds: [],
+			selectedAttachments: [],
+			selectedLinkedSources: [],
+			pendingSkill: { id: 'skill-1', ownership: 'user', displayName: 'Interview coach' },
+			updatedAt: expect.any(Number),
+		});
+
+		expect(
+			createConversationDraftRecord({
+				conversationId: null,
+				draftText: '   ',
+				selectedAttachmentIds: [],
+				selectedAttachments: [],
+				selectedLinkedSources: [],
 			})
 		).toBeNull();
 	});
@@ -139,6 +190,16 @@ describe('conversation-session', () => {
 			conversationId: 'conv-123',
 			draftText: 'Hello draft',
 			selectedAttachmentIds: ['artifact-1'],
+			pendingSkill: { id: 'skill-1', ownership: 'user', displayName: 'Interview coach' },
+			selectedLinkedSources: [
+				{
+					displayArtifactId: 'source-display',
+					promptArtifactId: 'source-prompt',
+					familyArtifactIds: ['source-display', 'source-prompt'],
+					name: 'Linked report.pdf',
+					type: 'document',
+				},
+			],
 		});
 
 		expect(fetchMock).not.toHaveBeenCalled();
@@ -151,6 +212,16 @@ describe('conversation-session', () => {
 			body: JSON.stringify({
 				draftText: 'Hello draft',
 				selectedAttachmentIds: ['artifact-1'],
+				selectedLinkedSources: [
+					{
+						displayArtifactId: 'source-display',
+						promptArtifactId: 'source-prompt',
+						familyArtifactIds: ['source-display', 'source-prompt'],
+						name: 'Linked report.pdf',
+						type: 'document',
+					},
+				],
+				pendingSkill: { id: 'skill-1', ownership: 'user', displayName: 'Interview coach' },
 			}),
 		});
 	});
@@ -164,6 +235,7 @@ describe('conversation-session', () => {
 			conversationId: 'conv-123',
 			draftText: 'Hello draft',
 			selectedAttachmentIds: [],
+			pendingSkill: null,
 		});
 
 		await persistence.flush();
@@ -175,6 +247,8 @@ describe('conversation-session', () => {
 			body: JSON.stringify({
 				draftText: 'Hello draft',
 				selectedAttachmentIds: [],
+				selectedLinkedSources: [],
+				pendingSkill: null,
 			}),
 		});
 	});

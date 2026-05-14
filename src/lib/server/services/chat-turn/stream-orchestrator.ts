@@ -493,8 +493,15 @@ export function runChatStreamOrchestrator(
 					thinkingContent: chunkRuntime.thinkingContent,
 					fullResponse: chunkRuntime.fullResponse,
 					toolCallRecords: chunkRuntime.toolCallRecords,
+					skillControlEnvelopePayloads:
+						chunkRuntime.skillControlEnvelopePayloads,
 					serverSegments: chunkRuntime.serverSegments,
 					attachmentIds: safeAttachmentIds,
+					linkedSources: turn.linkedSources,
+					activeSkillSessionId:
+						turn.skillPromptContext?.source === "active_session"
+							? turn.skillPromptContext.sessionId
+							: null,
 					activeDocumentArtifactId,
 					requestStartTime,
 					fileProductionJobIdsAtStart,
@@ -647,9 +654,13 @@ export function runChatStreamOrchestrator(
 			let personalityPrompt: string | undefined;
 			let latestUpstreamAttempt = 1;
 			let attemptedNonStreamFallback = false;
-			const currentSystemPromptAppendix = () =>
-				retryAppendix ??
-				(usedUrlListRecovery ? URL_LIST_TOOL_RECOVERY_APPENDIX : undefined);
+			const currentSystemPromptAppendix = () => {
+				const appendices = [
+					retryAppendix,
+					usedUrlListRecovery ? URL_LIST_TOOL_RECOVERY_APPENDIX : undefined,
+				].filter((value): value is string => Boolean(value?.trim()));
+				return appendices.length > 0 ? appendices.join("\n\n") : undefined;
+			};
 			fallbackToNonStreaming = async (
 				reason: "stream_connect_failure" | "stream_read_failure",
 				attempt: number,

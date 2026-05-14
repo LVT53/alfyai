@@ -56,6 +56,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"MODEL_2_REASONING_EFFORT",
 	"MODEL_2_THINKING_TYPE",
 	"MODEL_2_ENABLED",
+	"COMPOSER_COMMAND_REGISTRY_ENABLED",
 	"DEEP_RESEARCH_ENABLED",
 	"DEEP_RESEARCH_WORKER_ENABLED",
 	"DEEP_RESEARCH_WORKER_INTERVAL_MS",
@@ -137,6 +138,7 @@ export interface RuntimeConfig {
 	langflowFlowId: string;
 	langflowWebhookSecret: string;
 	attachmentTraceDebug: boolean;
+	composerCommandRegistryEnabled: boolean;
 	deepResearchEnabled: boolean;
 	deepResearchWorkerEnabled: boolean;
 	deepResearchWorkerIntervalMs: number;
@@ -249,6 +251,8 @@ function buildDefaultConfig(): RuntimeConfig {
 			envConfig.deepResearchDepthBudgets,
 		),
 		braveSearchApiKey: envConfig.braveSearchApiKey,
+		composerCommandRegistryEnabled:
+			envConfig.composerCommandRegistryEnabled ?? false,
 		deepResearchEnabled: envConfig.deepResearchEnabled ?? false,
 	};
 }
@@ -445,6 +449,9 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	MODEL_2_ENABLED: (config, value) => {
 		config.model2Enabled = value === "true";
+	},
+	COMPOSER_COMMAND_REGISTRY_ENABLED: (config, value) => {
+		config.composerCommandRegistryEnabled = value === "true";
 	},
 	DEEP_RESEARCH_ENABLED: (config, value) => {
 		config.deepResearchEnabled = value === "true";
@@ -958,6 +965,9 @@ export function getResolvedAdminConfigValues(
 		MODEL_2_REASONING_EFFORT: config.model2.reasoningEffort ?? "",
 		MODEL_2_THINKING_TYPE: config.model2.thinkingType ?? "",
 		MODEL_2_ENABLED: String(config.model2Enabled),
+		COMPOSER_COMMAND_REGISTRY_ENABLED: String(
+			config.composerCommandRegistryEnabled,
+		),
 		DEEP_RESEARCH_ENABLED: String(config.deepResearchEnabled),
 		DEEP_RESEARCH_WORKER_ENABLED: String(config.deepResearchWorkerEnabled),
 		DEEP_RESEARCH_WORKER_INTERVAL_MS: String(

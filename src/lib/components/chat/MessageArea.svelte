@@ -25,6 +25,10 @@ let {
 	onEdit = undefined,
 	onSteer = undefined,
 	onOpenDocument = undefined,
+	canPublishSkillDrafts = false,
+	onSaveSkillDraft = undefined,
+	onDismissSkillDraft = undefined,
+	onPublishSkillDraft = undefined,
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
 	onCancelDeepResearchJob = undefined,
@@ -47,6 +51,10 @@ let {
 		| undefined;
 	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
+	canPublishSkillDrafts?: boolean;
+	onSaveSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
+	onDismissSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
+	onPublishSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
 	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelDeepResearchJob?: ((jobId: string) => void | Promise<void>) | undefined;
@@ -290,6 +298,10 @@ async function alignToBottomAfterRender() {
 					{onEdit}
 					{onSteer}
 					{onOpenDocument}
+					{canPublishSkillDrafts}
+					{onSaveSkillDraft}
+					{onDismissSkillDraft}
+					{onPublishSkillDraft}
 					{onRetryFileProductionJob}
 					{onCancelFileProductionJob}
 				/>

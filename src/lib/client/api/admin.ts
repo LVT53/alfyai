@@ -201,6 +201,94 @@ export async function validateProvider(id: string): Promise<ValidateResponse> {
 	);
 }
 
+export type AdminSkillDurationPolicy = "next_message" | "session";
+export type AdminSkillQuestionPolicy = "none" | "ask_when_needed";
+export type AdminSkillNotesPolicy = "none" | "create_private_notes";
+export type AdminSkillSourceScope = "current_conversation" | "selected_sources_only";
+export type AdminSkillCreationSource = "user_created" | "ai_draft" | "system_seed";
+
+export interface AdminSystemSkill {
+	id: string;
+	ownership: "system";
+	displayName: string;
+	description: string;
+	instructions: string;
+	activationExamples: string[];
+	enabled: boolean;
+	published: boolean;
+	durationPolicy: AdminSkillDurationPolicy;
+	questionPolicy: AdminSkillQuestionPolicy;
+	notesPolicy: AdminSkillNotesPolicy;
+	sourceScope: AdminSkillSourceScope;
+	creationSource: AdminSkillCreationSource;
+	version: number;
+	createdAt: number;
+	updatedAt: number;
+	localizedDefaults?: {
+		en: { displayName: string; description: string; instructions: string };
+		hu: { displayName: string; description: string; instructions: string };
+	};
+}
+
+export interface AdminSystemSkillDraft {
+	displayName: string;
+	description?: string;
+	instructions: string;
+	activationExamples?: string[];
+	enabled?: boolean;
+	published?: boolean;
+	durationPolicy?: AdminSkillDurationPolicy;
+	questionPolicy?: AdminSkillQuestionPolicy;
+	notesPolicy?: AdminSkillNotesPolicy;
+	sourceScope?: AdminSkillSourceScope;
+}
+
+interface AdminSystemSkillsResponse {
+	skills: AdminSystemSkill[];
+}
+
+interface AdminSystemSkillResponse {
+	skill: AdminSystemSkill;
+}
+
+export async function fetchAdminSystemSkills(): Promise<AdminSystemSkill[]> {
+	const response = await requestJson<AdminSystemSkillsResponse>(
+		"/api/admin/skills",
+		undefined,
+		"Failed to load system skills",
+	);
+	return Array.isArray(response.skills) ? response.skills : [];
+}
+
+export async function createAdminSystemSkill(data: AdminSystemSkillDraft): Promise<AdminSystemSkill> {
+	const response = await requestJson<AdminSystemSkillResponse>(
+		"/api/admin/skills",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(data),
+		},
+		"Failed to save system skill",
+	);
+	return response.skill;
+}
+
+export async function updateAdminSystemSkill(
+	id: string,
+	data: Partial<AdminSystemSkillDraft>,
+): Promise<AdminSystemSkill> {
+	const response = await requestJson<AdminSystemSkillResponse>(
+		`/api/admin/skills/${encodeURIComponent(id)}`,
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(data),
+		},
+		"Failed to save system skill",
+	);
+	return response.skill;
+}
+
 export interface PersonalityProfileSummary {
 	id: string;
 	name: string;

@@ -13,10 +13,11 @@ import {
 	shouldStartDeepResearchJob,
 	shouldDeleteConversationAfterCancellingDeepResearch,
 	mergeFileProductionJob,
+	patchSkillDraftInMessageList,
 	shouldHydrateFileProductionJobsOnToolCall,
 	toFriendlySendError,
 } from './_helpers';
-import type { DeepResearchJob, FileProductionJob } from '$lib/types';
+import type { ChatMessage, DeepResearchJob, FileProductionJob, SkillDraftProposal } from '$lib/types';
 
 function makeJob(id: string, status: FileProductionJob['status']): FileProductionJob {
 	return {
@@ -146,6 +147,85 @@ describe('send payload helpers', () => {
 		expect(shouldStartDeepResearchJob(payload)).toBe(true);
 		expect(shouldStartDeepResearchJob({ ...payload, deepResearchDepth: null })).toBe(false);
 		expect(shouldStartDeepResearchJob(payload, 'assistant-retry-1')).toBe(false);
+	});
+});
+
+describe('Skill Draft message helpers', () => {
+	function makeSkillDraft(overrides: Partial<SkillDraftProposal> = {}): SkillDraftProposal {
+		return {
+			id: 'draft-1',
+			status: 'proposed',
+			displayName: 'Meeting critic',
+			description: 'Review meeting notes.',
+			instructions: 'Find missing owners.',
+			activationExamples: [],
+			durationPolicy: 'next_message',
+			questionPolicy: 'none',
+			notesPolicy: 'none',
+			sourceScope: 'selected_sources_only',
+			...overrides,
+		};
+	}
+
+	it('patches the matching assistant Skill Draft without replacing unrelated messages', () => {
+		const userMessage: ChatMessage = {
+			id: 'user-1',
+			role: 'user',
+			content: 'Review this.',
+			timestamp: 1,
+		};
+		const assistantMessage: ChatMessage = {
+			id: 'assistant-1',
+			role: 'assistant',
+			content: 'I can make this reusable.',
+			timestamp: 2,
+			skillDrafts: [makeSkillDraft()],
+		};
+		const updatedDraft = makeSkillDraft({ status: 'saved' });
+
+		expect(
+			patchSkillDraftInMessageList([userMessage, assistantMessage], {
+				messageId: 'assistant-1',
+				draft: updatedDraft,
+			})
+		).toEqual([
+			userMessage,
+			{
+				...assistantMessage,
+				skillDrafts: [updatedDraft],
+			},
+		]);
+	});
+
+	it('does not patch a same-id draft on a different assistant message', () => {
+		const firstMessage: ChatMessage = {
+			id: 'assistant-1',
+			role: 'assistant',
+			content: 'First',
+			timestamp: 1,
+			skillDrafts: [makeSkillDraft()],
+		};
+		const secondMessage: ChatMessage = {
+			id: 'assistant-2',
+			role: 'assistant',
+			content: 'Second',
+			timestamp: 2,
+			skillDrafts: [makeSkillDraft()],
+		};
+		const updatedDraft = makeSkillDraft({ status: 'dismissed' });
+
+		expect(
+			patchSkillDraftInMessageList([firstMessage, secondMessage], {
+				messageId: 'assistant-2',
+				draft: updatedDraft,
+			})
+		).toEqual([
+			firstMessage,
+			{
+				...secondMessage,
+				skillDrafts: [updatedDraft],
+			},
+		]);
 	});
 });
 

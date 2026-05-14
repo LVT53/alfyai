@@ -6,7 +6,9 @@ import type {
 	Artifact,
 	ArtifactSummary,
 	ConversationDraft,
+	LinkedContextSource,
 	PendingAttachment,
+	PendingSkillSelection,
 } from '$lib/types';
 import { resolvePromptAttachmentArtifacts } from './knowledge';
 
@@ -26,8 +28,62 @@ function toArtifactSummary(artifact: Artifact): ArtifactSummary {
 	};
 }
 
-function hasMeaningfulDraft(draftText: string, selectedAttachmentIds: string[]): boolean {
-	return draftText.trim().length > 0 || selectedAttachmentIds.length > 0;
+function parseLinkedSourcesJson(value: string | null): LinkedContextSource[] {
+	if (!value) return [];
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter(
+			(source): source is LinkedContextSource =>
+				typeof source === 'object' &&
+				source !== null &&
+				'displayArtifactId' in source &&
+				typeof source.displayArtifactId === 'string' &&
+				'name' in source &&
+				typeof source.name === 'string' &&
+				'type' in source &&
+				source.type === 'document'
+		);
+	} catch {
+		return [];
+	}
+}
+
+function parsePendingSkillJson(value: string | null): PendingSkillSelection | null {
+	if (!value) return null;
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		if (typeof parsed !== 'object' || parsed === null) return null;
+		const record = parsed as Record<string, unknown>;
+		if (
+			typeof record.id !== 'string' ||
+			(record.ownership !== 'user' && record.ownership !== 'system') ||
+			typeof record.displayName !== 'string'
+		) {
+			return null;
+		}
+		return {
+			id: record.id,
+			ownership: record.ownership,
+			displayName: record.displayName,
+		};
+	} catch {
+		return null;
+	}
+}
+
+function hasMeaningfulDraft(
+	draftText: string,
+	selectedAttachmentIds: string[],
+	selectedLinkedSources: LinkedContextSource[],
+	pendingSkill: PendingSkillSelection | null
+): boolean {
+	return (
+		draftText.trim().length > 0 ||
+		selectedAttachmentIds.length > 0 ||
+		selectedLinkedSources.length > 0 ||
+		Boolean(pendingSkill)
+	);
 }
 
 export async function getConversationDraft(
@@ -48,6 +104,8 @@ export async function getConversationDraft(
 	if (!row) return null;
 
 	const selectedAttachmentIds = parseJsonStringArray(row.selectedAttachmentIdsJson);
+	const selectedLinkedSources = parseLinkedSourcesJson(row.selectedLinkedSourcesJson);
+	const pendingSkill = parsePendingSkillJson(row.pendingSkillJson);
 	const resolved =
 		selectedAttachmentIds.length > 0
 			? await resolvePromptAttachmentArtifacts(userId, selectedAttachmentIds).catch(() => null)
@@ -70,6 +128,8 @@ export async function getConversationDraft(
 		draftText: row.draftText ?? '',
 		selectedAttachmentIds,
 		selectedAttachments: pendingAttachments,
+		selectedLinkedSources,
+		pendingSkill,
 		updatedAt: row.updatedAt.getTime(),
 	};
 }
@@ -79,11 +139,15 @@ export async function upsertConversationDraft(params: {
 	conversationId: string;
 	draftText: string;
 	selectedAttachmentIds: string[];
+	selectedLinkedSources?: LinkedContextSource[];
+	pendingSkill?: PendingSkillSelection | null;
 }): Promise<ConversationDraft | null> {
 	const selectedAttachmentIds = Array.from(new Set(params.selectedAttachmentIds));
+	const selectedLinkedSources = params.selectedLinkedSources ?? [];
+	const pendingSkill = params.pendingSkill ?? null;
 	const draftText = params.draftText;
 
-	if (!hasMeaningfulDraft(draftText, selectedAttachmentIds)) {
+	if (!hasMeaningfulDraft(draftText, selectedAttachmentIds, selectedLinkedSources, pendingSkill)) {
 		await clearConversationDraft(params.userId, params.conversationId);
 		return null;
 	}
@@ -95,6 +159,8 @@ export async function upsertConversationDraft(params: {
 			userId: params.userId,
 			draftText,
 			selectedAttachmentIdsJson: JSON.stringify(selectedAttachmentIds),
+			selectedLinkedSourcesJson: JSON.stringify(selectedLinkedSources),
+			pendingSkillJson: JSON.stringify(pendingSkill),
 			updatedAt: new Date(),
 		})
 		.onConflictDoUpdate({
@@ -103,6 +169,8 @@ export async function upsertConversationDraft(params: {
 				userId: params.userId,
 				draftText,
 				selectedAttachmentIdsJson: JSON.stringify(selectedAttachmentIds),
+				selectedLinkedSourcesJson: JSON.stringify(selectedLinkedSources),
+				pendingSkillJson: JSON.stringify(pendingSkill),
 				updatedAt: new Date(),
 			},
 		});

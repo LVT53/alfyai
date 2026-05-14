@@ -2,8 +2,10 @@ import type {
 	ArtifactSummary,
 	ConversationDraft,
 	DeepResearchDepth,
+	LinkedContextSource,
 	ModelId,
 	PendingAttachment,
+	PendingSkillSelection,
 	ThinkingMode,
 } from '$lib/types';
 import {
@@ -22,6 +24,8 @@ export type PendingConversationMessage = {
 	message: string;
 	attachmentIds: string[];
 	attachments: ArtifactSummary[];
+	linkedSources?: LinkedContextSource[];
+	pendingSkill?: PendingSkillSelection | null;
 	modelId?: ModelId;
 	personalityProfileId?: string | null;
 	deepResearchDepth?: DeepResearchDepth | null;
@@ -54,6 +58,38 @@ function toArtifactSummaryList(value: unknown): ArtifactSummary[] {
 			'id' in artifact &&
 			typeof artifact.id === 'string'
 	);
+}
+
+function toLinkedContextSourceList(value: unknown): LinkedContextSource[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter(
+		(source): source is LinkedContextSource =>
+			typeof source === 'object' &&
+			source !== null &&
+			'displayArtifactId' in source &&
+			typeof source.displayArtifactId === 'string' &&
+			'name' in source &&
+			typeof source.name === 'string' &&
+			'type' in source &&
+			source.type === 'document'
+	);
+}
+
+function toPendingSkillSelection(value: unknown): PendingSkillSelection | null {
+	if (typeof value !== 'object' || value === null) return null;
+	const record = value as Record<string, unknown>;
+	if (
+		typeof record.id !== 'string' ||
+		(record.ownership !== 'user' && record.ownership !== 'system') ||
+		typeof record.displayName !== 'string'
+	) {
+		return null;
+	}
+	return {
+		id: record.id,
+		ownership: record.ownership,
+		displayName: record.displayName,
+	};
 }
 
 export function markPreviousConversationId(conversationId: string | null): void {
@@ -122,6 +158,8 @@ export function storePendingConversationMessage(
 			message: payload.message.trim(),
 			attachmentIds: payload.attachmentIds,
 			attachments: payload.attachments,
+			linkedSources: payload.linkedSources ?? [],
+			pendingSkill: payload.pendingSkill ?? null,
 			modelId: payload.modelId,
 			personalityProfileId: payload.personalityProfileId,
 			deepResearchDepth: payload.deepResearchDepth,
@@ -154,6 +192,8 @@ export function consumePendingConversationMessage(
 				? parsed.attachmentIds.filter((value): value is string => typeof value === 'string')
 				: [],
 			attachments: toArtifactSummaryList(parsed.attachments),
+			linkedSources: toLinkedContextSourceList(parsed.linkedSources),
+			pendingSkill: toPendingSkillSelection(parsed.pendingSkill),
 			modelId:
 				typeof parsed.modelId === 'string' &&
 				(parsed.modelId === 'model1' ||
@@ -183,6 +223,8 @@ export function consumePendingConversationMessage(
 			message: rawValue,
 			attachmentIds: [],
 			attachments: [],
+			linkedSources: [],
+			pendingSkill: null,
 			deepResearchDepth: null,
 			thinkingMode: 'auto',
 		};
@@ -191,9 +233,16 @@ export function consumePendingConversationMessage(
 
 export function hasMeaningfulDraft(
 	draftText: string,
-	selectedAttachmentIds: string[]
+	selectedAttachmentIds: string[],
+	selectedLinkedSources: LinkedContextSource[] = [],
+	pendingSkill: PendingSkillSelection | null = null
 ): boolean {
-	return draftText.trim().length > 0 || selectedAttachmentIds.length > 0;
+	return (
+		draftText.trim().length > 0 ||
+		selectedAttachmentIds.length > 0 ||
+		selectedLinkedSources.length > 0 ||
+		Boolean(pendingSkill)
+	);
 }
 
 export function createConversationDraftRecord(params: {
@@ -202,9 +251,20 @@ export function createConversationDraftRecord(params: {
 	draftText: string;
 	selectedAttachmentIds: string[];
 	selectedAttachments: PendingAttachment[];
+	selectedLinkedSources?: LinkedContextSource[];
+	pendingSkill?: PendingSkillSelection | null;
 	updatedAt?: number;
 }): ConversationDraft | null {
-	if (!hasMeaningfulDraft(params.draftText, params.selectedAttachmentIds)) {
+	const selectedLinkedSources = params.selectedLinkedSources ?? [];
+	const pendingSkill = params.pendingSkill ?? null;
+	if (
+		!hasMeaningfulDraft(
+			params.draftText,
+			params.selectedAttachmentIds,
+			selectedLinkedSources,
+			pendingSkill
+		)
+	) {
 		return null;
 	}
 
@@ -213,6 +273,8 @@ export function createConversationDraftRecord(params: {
 		draftText: params.draftText,
 		selectedAttachmentIds: params.selectedAttachmentIds,
 		selectedAttachments: params.selectedAttachments,
+		selectedLinkedSources,
+		pendingSkill,
 		updatedAt: params.updatedAt ?? Date.now(),
 	};
 }
@@ -221,16 +283,33 @@ export function createDraftPersistence(fetchImpl: FetchLike = fetch, delayMs = 4
 	let draftPersistTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastPersistKey = '';
 	let pendingRequest:
-		| { conversationId: string; draftText: string; selectedAttachmentIds: string[] }
+		| {
+				conversationId: string;
+				draftText: string;
+				selectedAttachmentIds: string[];
+				selectedLinkedSources?: LinkedContextSource[];
+				pendingSkill?: PendingSkillSelection | null;
+		  }
 		| null = null;
 
 	async function runPersist(request: {
 		conversationId: string;
 		draftText: string;
 		selectedAttachmentIds: string[];
+		selectedLinkedSources?: LinkedContextSource[];
+		pendingSkill?: PendingSkillSelection | null;
 	}): Promise<void> {
 		try {
-			if (!hasMeaningfulDraft(request.draftText, request.selectedAttachmentIds)) {
+			const selectedLinkedSources = request.selectedLinkedSources ?? [];
+			const pendingSkill = request.pendingSkill ?? null;
+			if (
+				!hasMeaningfulDraft(
+					request.draftText,
+					request.selectedAttachmentIds,
+					selectedLinkedSources,
+					pendingSkill
+				)
+			) {
 				await deleteConversationDraft(request.conversationId, fetchImpl);
 				return;
 			}
@@ -240,6 +319,8 @@ export function createDraftPersistence(fetchImpl: FetchLike = fetch, delayMs = 4
 				{
 					draftText: request.draftText,
 					selectedAttachmentIds: request.selectedAttachmentIds,
+					selectedLinkedSources,
+					pendingSkill,
 				},
 				fetchImpl
 			);
@@ -263,12 +344,20 @@ export function createDraftPersistence(fetchImpl: FetchLike = fetch, delayMs = 4
 
 	return {
 		async persist(
-			request: { conversationId: string; draftText: string; selectedAttachmentIds: string[] },
+			request: {
+				conversationId: string;
+				draftText: string;
+				selectedAttachmentIds: string[];
+				selectedLinkedSources?: LinkedContextSource[];
+				pendingSkill?: PendingSkillSelection | null;
+			},
 			immediate = false
 		): Promise<void> {
 			const key = `${request.conversationId}:${JSON.stringify({
 				draftText: request.draftText,
 				selectedAttachmentIds: request.selectedAttachmentIds,
+				selectedLinkedSources: request.selectedLinkedSources ?? [],
+				pendingSkill: request.pendingSkill ?? null,
 			})}`;
 			if (!immediate && key === lastPersistKey) {
 				return;
@@ -277,7 +366,13 @@ export function createDraftPersistence(fetchImpl: FetchLike = fetch, delayMs = 4
 			lastPersistKey = key;
 			pendingRequest = request;
 			const shouldPersistImmediately =
-				immediate || !hasMeaningfulDraft(request.draftText, request.selectedAttachmentIds);
+				immediate ||
+				!hasMeaningfulDraft(
+					request.draftText,
+					request.selectedAttachmentIds,
+					request.selectedLinkedSources ?? [],
+					request.pendingSkill ?? null
+				);
 
 			if (draftPersistTimer) {
 				clearTimeout(draftPersistTimer);

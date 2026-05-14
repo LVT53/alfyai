@@ -98,6 +98,28 @@ describe("normalizeAssistantOutput", () => {
 		expect(result).toBe("hello");
 	});
 
+	it("strips complete Skill Control Envelope blocks from visible assistant output", () => {
+		const result = normalizeAssistantOutput(
+			[
+				"I need one detail before continuing.",
+				"<skill_control_v1>",
+				JSON.stringify({
+					version: 1,
+					operations: [
+						{
+							operationId: "question-1",
+							kind: "session_transition",
+							transition: "awaiting_user",
+						},
+					],
+				}),
+				"</skill_control_v1>",
+			].join("\n"),
+		);
+
+		expect(result).toBe("I need one detail before continuing.");
+	});
+
 	it("handles whitespace-only input", () => {
 		const result = normalizeAssistantOutput("   \n\t  ");
 		expect(result).toBe("");

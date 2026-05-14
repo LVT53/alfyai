@@ -117,6 +117,8 @@
 		switch (kind) {
 			case 'attachments':
 				return $t('contextSources.group.attachments');
+			case 'linked_source':
+				return $t('contextSources.group.linkedSource');
 			case 'working_set':
 				return $t('contextSources.group.workingSet');
 			case 'task_evidence':

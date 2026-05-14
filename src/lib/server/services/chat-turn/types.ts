@@ -6,7 +6,9 @@ import type {
 	HonchoContextInfo,
 	HonchoContextSnapshot,
 	DeepResearchDepth,
+	LinkedContextSource,
 	ModelId,
+	PendingSkillSelection,
 	ThinkingMode,
 	TaskState,
 	ToolCallEntry,
@@ -29,6 +31,8 @@ export type ParsedChatTurnRequest = {
 	modelId: ModelId | undefined;
 	modelDisplayName: string;
 	attachmentIds: string[];
+	linkedSources: LinkedContextSource[];
+	pendingSkill: PendingSkillSelection | null;
 	activeDocumentArtifactId?: string;
 	personalityProfileId?: string;
 	deepResearchDepth?: DeepResearchDepth;
@@ -37,7 +41,36 @@ export type ParsedChatTurnRequest = {
 	attachmentTraceId?: string;
 };
 
-export type PreflightedChatTurn = ParsedChatTurnRequest;
+export interface SkillPromptLinkedSource {
+	displayArtifactId: string;
+	promptArtifactId: string | null;
+	familyArtifactIds: string[];
+	name: string;
+	type: "document";
+	mimeType?: string | null;
+	documentOrigin?: LinkedContextSource["documentOrigin"];
+}
+
+export interface SkillPromptContext {
+	source: "pending_skill" | "active_session";
+	sessionId?: string;
+	sessionStatus?: "active" | "paused";
+	skillId: string;
+	skillOwnership: "user" | "system";
+	skillDisplayName: string;
+	skillDescription: string;
+	skillInstructions: string;
+	durationPolicy: "next_message" | "session";
+	questionPolicy: "none" | "ask_when_needed";
+	notesPolicy: "none" | "create_private_notes";
+	sourceScope: "current_conversation" | "selected_sources_only";
+	skillVersion: number;
+	linkedSources: SkillPromptLinkedSource[];
+}
+
+export type PreflightedChatTurn = ParsedChatTurnRequest & {
+	skillPromptContext?: SkillPromptContext | null;
+};
 export type ChatTurnPreflight = PreflightedChatTurn;
 
 export type WorkingSetItem = {

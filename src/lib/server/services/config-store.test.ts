@@ -58,6 +58,7 @@ vi.mock("../env", () => ({
 		modelTimeoutFailoverEnabled: false,
 		modelTimeoutFailoverTimeoutMs: 60000,
 		modelTimeoutFailoverTargetModel: "model2",
+		composerCommandRegistryEnabled: false,
 	},
 	envConfig: {
 		workingSetDocumentTokenBudget: 4000,
@@ -98,6 +99,7 @@ vi.mock("../env", () => ({
 		modelTimeoutFailoverEnabled: false,
 		modelTimeoutFailoverTimeoutMs: 60000,
 		modelTimeoutFailoverTargetModel: "model2",
+		composerCommandRegistryEnabled: false,
 	},
 }));
 
@@ -160,6 +162,11 @@ describe("Knowledge Store Config", () => {
 			expect(config.deepResearchEnabled).toBe(false);
 		});
 
+		it("getConfig() should keep Composer Command Registry disabled by default", () => {
+			const config = getConfig();
+			expect(config.composerCommandRegistryEnabled).toBe(false);
+		});
+
 		it("getConfig() should expose model timeout failover defaults", () => {
 			const config = getConfig();
 
@@ -219,6 +226,16 @@ describe("Knowledge Store Config", () => {
 			await refreshConfig();
 
 			expect(getConfig().deepResearchEnabled).toBe(true);
+		});
+
+		it("getConfig() should allow admin config to enable Composer Command Registry", async () => {
+			adminConfigRows = [
+				{ key: "COMPOSER_COMMAND_REGISTRY_ENABLED", value: "true" },
+			];
+
+			await refreshConfig();
+
+			expect(getConfig().composerCommandRegistryEnabled).toBe(true);
 		});
 
 		it("getConfig() should expose Deep Research worker defaults", () => {
@@ -381,6 +398,7 @@ describe("Knowledge Store Config", () => {
 				DEEP_RESEARCH_SYNTHESIS_MODEL: "model1",
 				DEEP_RESEARCH_CITATION_AUDIT_MODEL: "model1",
 				DEEP_RESEARCH_REPORT_MODEL: "model1",
+				COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
 			});
 			const depthBudgets = JSON.parse(values.DEEP_RESEARCH_DEPTH_BUDGETS_JSON);
 			expect(depthBudgets.focused).toMatchObject({

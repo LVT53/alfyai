@@ -1,11 +1,16 @@
 <script lang="ts">
 import {
+	createAdminSystemSkill,
 	createProvider,
 	deleteProvider,
+	fetchAdminSystemSkills,
 	fetchProviders,
 	updateProvider,
+	updateAdminSystemSkill,
 	validateProvider,
 	fetchPersonalityProfiles,
+	type AdminSystemSkill,
+	type AdminSystemSkillDraft,
 	type InferenceProvider,
 	type PersonalityProfileSummary,
 } from "$lib/client/api/admin";
@@ -53,6 +58,26 @@ let providers = $state<InferenceProvider[]>([]);
 let providersLoading = $state(false);
 let providersError = $state("");
 let adminPersonalities = $state<PersonalityProfileSummary[]>([]);
+let systemSkills = $state<AdminSystemSkill[]>([]);
+let systemSkillsLoading = $state(false);
+let systemSkillsError = $state("");
+let systemSkillsMessage = $state("");
+let editingSystemSkillId = $state<string | null>(null);
+let systemSkillSaving = $state(false);
+let systemSkillDraft = $state<
+	AdminSystemSkillDraft & { activationExamplesText: string }
+>({
+	displayName: "",
+	description: "",
+	instructions: "",
+	activationExamplesText: "",
+	enabled: true,
+	published: false,
+	durationPolicy: "next_message",
+	questionPolicy: "ask_when_needed",
+	notesPolicy: "none",
+	sourceScope: "selected_sources_only",
+});
 
 $effect(() => {
 	void fetchPersonalityProfiles()
@@ -61,12 +86,21 @@ $effect(() => {
 });
 let providersMessage = $state("");
 let providersMessageTimer: ReturnType<typeof setTimeout> | undefined;
+let systemSkillsMessageTimer: ReturnType<typeof setTimeout> | undefined;
 
 function showProvidersMessage(text: string) {
 	clearTimeout(providersMessageTimer);
 	providersMessage = text;
 	providersMessageTimer = setTimeout(() => {
 		providersMessage = "";
+	}, 4000);
+}
+
+function showSystemSkillsMessage(text: string) {
+	clearTimeout(systemSkillsMessageTimer);
+	systemSkillsMessage = text;
+	systemSkillsMessageTimer = setTimeout(() => {
+		systemSkillsMessage = "";
 	}, 4000);
 }
 
@@ -97,6 +131,100 @@ async function loadProviders() {
 		providersError = errorMessage(error, $t("admin.failedLoadProviders"));
 	} finally {
 		providersLoading = false;
+	}
+}
+
+async function loadSystemSkills() {
+	systemSkillsLoading = true;
+	systemSkillsError = "";
+	try {
+		systemSkills = await fetchAdminSystemSkills();
+	} catch (error: unknown) {
+		systemSkillsError = errorMessage(error, $t("admin.systemSkills.errors.load"));
+	} finally {
+		systemSkillsLoading = false;
+	}
+}
+
+function resetSystemSkillDraft() {
+	editingSystemSkillId = null;
+	systemSkillDraft = {
+		displayName: "",
+		description: "",
+		instructions: "",
+		activationExamplesText: "",
+		enabled: true,
+		published: false,
+		durationPolicy: "next_message",
+		questionPolicy: "ask_when_needed",
+		notesPolicy: "none",
+		sourceScope: "selected_sources_only",
+	};
+}
+
+function editSystemSkill(skill: AdminSystemSkill) {
+	editingSystemSkillId = skill.id;
+	systemSkillsError = "";
+	systemSkillDraft = {
+		displayName: skill.displayName,
+		description: skill.description,
+		instructions: skill.instructions,
+		activationExamplesText: skill.activationExamples.join("\n"),
+		enabled: skill.enabled,
+		published: skill.published,
+		durationPolicy: skill.durationPolicy,
+		questionPolicy: skill.questionPolicy,
+		notesPolicy: skill.notesPolicy,
+		sourceScope: skill.sourceScope,
+	};
+}
+
+function systemSkillPayload(): AdminSystemSkillDraft {
+	return {
+		displayName: systemSkillDraft.displayName,
+		description: systemSkillDraft.description,
+		instructions: systemSkillDraft.instructions,
+		activationExamples: systemSkillDraft.activationExamplesText
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean),
+		enabled: systemSkillDraft.enabled,
+		published: systemSkillDraft.published,
+		durationPolicy: systemSkillDraft.durationPolicy,
+		questionPolicy: systemSkillDraft.questionPolicy,
+		notesPolicy: systemSkillDraft.notesPolicy,
+		sourceScope: systemSkillDraft.sourceScope,
+	};
+}
+
+async function saveSystemSkill() {
+	systemSkillSaving = true;
+	systemSkillsError = "";
+	try {
+		if (editingSystemSkillId) {
+			await updateAdminSystemSkill(editingSystemSkillId, systemSkillPayload());
+			showSystemSkillsMessage($t("admin.systemSkills.updated"));
+		} else {
+			await createAdminSystemSkill(systemSkillPayload());
+			showSystemSkillsMessage($t("admin.systemSkills.created"));
+		}
+		resetSystemSkillDraft();
+		await loadSystemSkills();
+	} catch (error: unknown) {
+		systemSkillsError = errorMessage(error, $t("admin.systemSkills.errors.save"));
+	} finally {
+		systemSkillSaving = false;
+	}
+}
+
+async function updateSystemSkillFlags(skill: AdminSystemSkill, changes: Partial<AdminSystemSkillDraft>) {
+	systemSkillsError = "";
+	try {
+		await updateAdminSystemSkill(skill.id, changes);
+		showSystemSkillsMessage($t("admin.systemSkills.updated"));
+		await loadSystemSkills();
+	} catch (error: unknown) {
+		systemSkillsError = errorMessage(error, $t("admin.systemSkills.errors.save"));
 	}
 }
 
@@ -323,6 +451,10 @@ $effect(() => {
 	void loadProviders();
 });
 
+$effect(() => {
+	void loadSystemSkills();
+});
+
 function configLabelKey(key: string): string {
 	const map: Record<string, string> = {
 		MODEL_1_BASEURL: "admin.model1BaseUrl",
@@ -340,6 +472,8 @@ function configLabelKey(key: string): string {
 		MODEL_2_FLOW_ID: "admin.model2FlowId",
 		MODEL_2_COMPONENT_ID: "admin.model2ComponentId",
 		MODEL_2_ENABLED: "admin.model2Enabled",
+		COMPOSER_COMMAND_REGISTRY_ENABLED:
+			"admin.composerCommandRegistryEnabled",
 		DEEP_RESEARCH_ENABLED: "admin.deepResearchEnabled",
 		DEEP_RESEARCH_WORKER_ENABLED: "admin.deepResearchWorkerEnabled",
 		DEEP_RESEARCH_WORKER_INTERVAL_MS: "admin.deepResearchWorkerIntervalMs",
@@ -534,6 +668,166 @@ function placeholderFor(key: string): string {
 			/>
 			<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
 		</label>
+	</div>
+</section>
+
+<!-- Composer Command Registry feature flag -->
+<section class="settings-card mb-4">
+	<h2 class="settings-section-title">{$t('admin.composerCommandRegistry')}</h2>
+	<div class="flex items-center justify-between">
+		<div>
+			<label class="settings-label mb-0" for="COMPOSER_COMMAND_REGISTRY_ENABLED">
+				{$t('admin.composerCommandRegistryEnabled')}
+			</label>
+			<p class="text-xs text-text-tertiary">{$t('admin.composerCommandRegistryDescription')}</p>
+		</div>
+		<label class="relative inline-flex cursor-pointer items-center">
+			<input
+				id="COMPOSER_COMMAND_REGISTRY_ENABLED"
+				type="checkbox"
+				class="peer sr-only"
+				checked={adminConfig.COMPOSER_COMMAND_REGISTRY_ENABLED === 'true'}
+				onchange={(event) => {
+					adminConfig.COMPOSER_COMMAND_REGISTRY_ENABLED = event.currentTarget.checked ? 'true' : 'false';
+				}}
+			/>
+			<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
+		</label>
+	</div>
+</section>
+
+<!-- System Skills -->
+<section class="settings-card mb-4">
+	<div class="mb-3 flex items-center justify-between gap-3">
+		<div>
+			<h2 class="settings-section-title mb-0">{$t('admin.systemSkills.title')}</h2>
+			<p class="text-xs text-text-tertiary">{$t('admin.systemSkills.description')}</p>
+		</div>
+		<button class="btn-small" onclick={resetSystemSkillDraft}>
+			{$t('admin.systemSkills.new')}
+		</button>
+	</div>
+
+	{#if systemSkillsLoading}
+		<p class="text-sm text-text-secondary">{$t('admin.systemSkills.loading')}</p>
+	{:else if systemSkillsError}
+		<p class="text-sm text-danger">{systemSkillsError}</p>
+	{:else if systemSkills.length === 0}
+		<p class="text-sm text-text-muted">{$t('admin.systemSkills.empty')}</p>
+	{:else}
+		<div class="mb-4 flex flex-col gap-2">
+			{#each systemSkills as skill}
+				<div class="rounded-md border border-border bg-surface-page px-3 py-2">
+					<div class="flex flex-wrap items-start justify-between gap-3">
+						<div class="min-w-0 flex-1">
+							<div class="flex flex-wrap items-center gap-2">
+								<span class="text-sm font-medium text-text-primary">{skill.displayName}</span>
+								<span class={`text-xs ${skill.published ? 'text-success' : 'text-text-muted'}`}>
+									{skill.published ? $t('admin.systemSkills.status.published') : $t('admin.systemSkills.status.draft')}
+								</span>
+								<span class={`text-xs ${skill.enabled ? 'text-success' : 'text-text-muted'}`}>
+									{skill.enabled ? $t('skills.status.enabled') : $t('skills.status.disabled')}
+								</span>
+							</div>
+							<p class="mt-1 text-xs text-text-muted">{skill.description}</p>
+						</div>
+						<div class="flex flex-wrap items-center gap-2">
+							<button
+								class="btn-small"
+								aria-label={$t('skills.editA11y', { name: skill.displayName })}
+								onclick={() => editSystemSkill(skill)}
+							>
+								{$t('common.edit')}
+							</button>
+							<button
+								class="btn-small"
+								aria-label={skill.enabled ? $t('skills.disableA11y', { name: skill.displayName }) : $t('skills.enableA11y', { name: skill.displayName })}
+								onclick={() => updateSystemSkillFlags(skill, { enabled: !skill.enabled })}
+							>
+								{skill.enabled ? $t('skills.disable') : $t('skills.enable')}
+							</button>
+							{#if !skill.published}
+								<button
+									class="btn-small"
+									aria-label={$t('admin.systemSkills.publishA11y', { name: skill.displayName })}
+									onclick={() => updateSystemSkillFlags(skill, { published: true, enabled: true })}
+								>
+									{$t('admin.systemSkills.publish')}
+								</button>
+							{/if}
+						</div>
+					</div>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	<div class="border-t border-border pt-4">
+		<h3 class="text-sm font-medium text-text-primary">
+			{editingSystemSkillId ? $t('admin.systemSkills.editTitle') : $t('admin.systemSkills.createTitle')}
+		</h3>
+		<div class="mt-3 grid gap-3 md:grid-cols-2">
+			<div>
+				<label class="settings-label" for="SYSTEM_SKILL_DISPLAY_NAME">{$t('skills.displayName')}</label>
+				<input
+					id="SYSTEM_SKILL_DISPLAY_NAME"
+					class="settings-input"
+					bind:value={systemSkillDraft.displayName}
+					placeholder={$t('admin.systemSkills.displayNamePlaceholder')}
+				/>
+			</div>
+			<div>
+				<label class="settings-label" for="SYSTEM_SKILL_EXAMPLES">{$t('skills.activationExamples')}</label>
+				<input
+					id="SYSTEM_SKILL_EXAMPLES"
+					class="settings-input"
+					bind:value={systemSkillDraft.activationExamplesText}
+					placeholder={$t('skills.activationExamplesPlaceholder')}
+				/>
+			</div>
+		</div>
+		<div class="mt-3">
+			<label class="settings-label" for="SYSTEM_SKILL_DESCRIPTION">{$t('skills.description')}</label>
+			<input
+				id="SYSTEM_SKILL_DESCRIPTION"
+				class="settings-input"
+				bind:value={systemSkillDraft.description}
+				placeholder={$t('admin.systemSkills.descriptionPlaceholder')}
+			/>
+		</div>
+		<div class="mt-3">
+			<label class="settings-label" for="SYSTEM_SKILL_INSTRUCTIONS">{$t('skills.instructions')}</label>
+			<textarea
+				id="SYSTEM_SKILL_INSTRUCTIONS"
+				class="settings-input min-h-[140px]"
+				bind:value={systemSkillDraft.instructions}
+				placeholder={$t('admin.systemSkills.instructionsPlaceholder')}
+				rows="6"
+			></textarea>
+		</div>
+		<div class="mt-3 grid gap-3 md:grid-cols-2">
+			<label class="flex items-center gap-2 text-sm text-text-secondary">
+				<input type="checkbox" bind:checked={systemSkillDraft.enabled} />
+				{$t('skills.enabled')}
+			</label>
+			<label class="flex items-center gap-2 text-sm text-text-secondary">
+				<input type="checkbox" bind:checked={systemSkillDraft.published} />
+				{$t('admin.systemSkills.published')}
+			</label>
+		</div>
+		<div class="mt-4 flex flex-wrap gap-2">
+			<button class="btn-primary" onclick={saveSystemSkill} disabled={systemSkillSaving}>
+				{systemSkillSaving ? $t('common.saving') : $t('admin.systemSkills.save')}
+			</button>
+			{#if editingSystemSkillId}
+				<button class="btn-secondary" onclick={resetSystemSkillDraft}>
+					{$t('common.cancel')}
+				</button>
+			{/if}
+		</div>
+		{#if systemSkillsMessage}
+			<p class="mt-3 text-sm text-success">{systemSkillsMessage}</p>
+		{/if}
 	</div>
 </section>
 

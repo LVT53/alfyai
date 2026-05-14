@@ -58,6 +58,7 @@
 		modelNames?: Record<string, string>;
 		availableModels?: Array<{ id: ModelId; displayName: string }>;
 		envDefaults?: Record<string, string>;
+		composerCommandRegistryEnabled?: boolean;
 	}
 
 	let { data }: PageProps = $props();
@@ -455,6 +456,7 @@ let removingPhoto = $state(false);
 				forgetEverythingLoading={forgetEverythingLoading}
 				forgetEverythingError={forgetEverythingError}
 				onForgetEverything={requestForgetEverything}
+				skillsEnabled={(data as SettingsPageData).composerCommandRegistryEnabled ?? false}
 			/>
 		{/if}
 

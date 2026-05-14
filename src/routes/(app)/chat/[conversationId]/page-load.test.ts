@@ -51,11 +51,48 @@ describe('chat conversation page load', () => {
 		const event = {
 			params: { conversationId: 'conv-1' },
 			fetch: fetch as unknown as typeof globalThis.fetch,
+			parent: vi.fn(async () => ({})),
 			url: new URL('http://localhost/chat/conv-1'),
 		} as Parameters<typeof load>[0];
 		const data = await load(event);
 
 		expect(fetch).toHaveBeenCalledWith('/api/conversations/conv-1');
 		expect(data.deepResearchJobs).toEqual(deepResearchJobs);
+	});
+
+	it('preserves parent layout runtime flags for the chat page', async () => {
+		const fetch = vi.fn(async () => {
+			return new Response(
+				JSON.stringify({
+					conversation: {
+						id: 'conv-1',
+						title: 'Composer commands',
+						projectId: null,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+					messages: [],
+				}),
+				{ status: 200 }
+			);
+		});
+		const parent = vi.fn(async () => ({
+			composerCommandRegistryEnabled: true,
+			deepResearchEnabled: true,
+			maxMessageLength: 12000,
+		}));
+
+		const event = {
+			params: { conversationId: 'conv-1' },
+			fetch: fetch as unknown as typeof globalThis.fetch,
+			parent,
+			url: new URL('http://localhost/chat/conv-1'),
+		} as Parameters<typeof load>[0];
+		const data = await load(event);
+
+		expect(parent).toHaveBeenCalledOnce();
+		expect(data.composerCommandRegistryEnabled).toBe(true);
+		expect(data.deepResearchEnabled).toBe(true);
+		expect(data.maxMessageLength).toBe(12000);
 	});
 });

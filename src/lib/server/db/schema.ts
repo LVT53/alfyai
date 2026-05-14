@@ -896,6 +896,8 @@ export const conversationDrafts = sqliteTable('conversation_drafts', {
     .references(() => users.id, { onDelete: 'cascade' }),
   draftText: text('draft_text').notNull().default(''),
   selectedAttachmentIdsJson: text('selected_attachment_ids_json'),
+  selectedLinkedSourcesJson: text('selected_linked_sources_json'),
+  pendingSkillJson: text('pending_skill_json'),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 }, (table) => ({
   userUpdatedIdx: index('conversation_drafts_user_updated_idx').on(table.userId, table.updatedAt),
@@ -907,6 +909,171 @@ export const adminConfig = sqliteTable('admin_config', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedBy: text('updated_by').notNull(),
 });
+
+export const userSkillDefinitions = sqliteTable('user_skill_definitions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  ownership: text('ownership').notNull().default('user'),
+  displayName: text('display_name').notNull(),
+  description: text('description').notNull().default(''),
+  instructions: text('instructions').notNull(),
+  activationExamplesJson: text('activation_examples_json').notNull().default('[]'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  published: integer('published', { mode: 'boolean' }).notNull().default(false),
+  durationPolicy: text('duration_policy').notNull().default('next_message'),
+  questionPolicy: text('question_policy').notNull().default('none'),
+  notesPolicy: text('notes_policy').notNull().default('none'),
+  sourceScope: text('source_scope').notNull().default('current_conversation'),
+  creationSource: text('creation_source').notNull().default('user_created'),
+  version: integer('version').notNull().default(1),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+  userUpdatedIdx: index('user_skill_definitions_user_updated_idx').on(
+    table.userId,
+    table.updatedAt,
+  ),
+  userNameIdx: index('user_skill_definitions_user_name_idx').on(table.userId, table.displayName),
+  userEnabledIdx: index('user_skill_definitions_user_enabled_idx').on(
+    table.userId,
+    table.enabled,
+    table.displayName,
+  ),
+}));
+
+export const skillSessions = sqliteTable('skill_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  skillId: text('skill_id').notNull(),
+  skillOwnership: text('skill_ownership').notNull(),
+  status: text('status').notNull().default('active'),
+  pauseReason: text('pause_reason'),
+  endReason: text('end_reason'),
+  skillDisplayName: text('skill_display_name').notNull(),
+  skillDescription: text('skill_description').notNull().default(''),
+  skillInstructions: text('skill_instructions').notNull(),
+  activationExamplesJson: text('activation_examples_json').notNull().default('[]'),
+  durationPolicy: text('duration_policy').notNull(),
+  questionPolicy: text('question_policy').notNull(),
+  notesPolicy: text('notes_policy').notNull(),
+  sourceScope: text('source_scope').notNull(),
+  skillVersion: integer('skill_version').notNull(),
+  startedFrom: text('started_from').notNull(),
+  startedAt: integer('started_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  pausedAt: integer('paused_at', { mode: 'timestamp' }),
+  endedAt: integer('ended_at', { mode: 'timestamp' }),
+}, (table) => ({
+  userConversationUpdatedIdx: index('skill_sessions_user_conversation_updated_idx').on(
+    table.userId,
+    table.conversationId,
+    table.updatedAt,
+  ),
+  conversationStatusIdx: index('skill_sessions_conversation_status_idx').on(
+    table.conversationId,
+    table.status,
+  ),
+  oneActivePerConversationIdx: uniqueIndex('skill_sessions_one_active_per_conversation_idx')
+    .on(table.conversationId)
+    .where(sql`${table.status} = 'active'`),
+}));
+
+export const skillSessionMilestones = sqliteTable('skill_session_milestones', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => skillSessions.id, { onDelete: 'cascade' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  messageKey: text('message_key').notNull(),
+  messageParamsJson: text('message_params_json').notNull().default('{}'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+  sessionCreatedIdx: index('skill_session_milestones_session_created_idx').on(
+    table.sessionId,
+    table.createdAt,
+  ),
+  conversationCreatedIdx: index('skill_session_milestones_conversation_created_idx').on(
+    table.conversationId,
+    table.createdAt,
+  ),
+}));
+
+export const skillNoteOperations = sqliteTable('skill_note_operations', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => skillSessions.id, { onDelete: 'cascade' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  assistantMessageId: text('assistant_message_id')
+    .notNull()
+    .references(() => messages.id, { onDelete: 'cascade' }),
+  operationId: text('operation_id').notNull(),
+  action: text('action').notNull(),
+  artifactId: text('artifact_id')
+    .notNull()
+    .references(() => artifacts.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+  sessionTurnOperationIdx: uniqueIndex('skill_note_operations_session_turn_operation_idx').on(
+    table.sessionId,
+    table.assistantMessageId,
+    table.operationId,
+  ),
+  artifactCreatedIdx: index('skill_note_operations_artifact_created_idx').on(
+    table.artifactId,
+    table.createdAt,
+  ),
+}));
+
+export const skillNoteCheckpoints = sqliteTable('skill_note_checkpoints', {
+  id: text('id').primaryKey(),
+  noteArtifactId: text('note_artifact_id')
+    .notNull()
+    .references(() => artifacts.id, { onDelete: 'cascade' }),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => skillSessions.id, { onDelete: 'cascade' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  assistantMessageId: text('assistant_message_id')
+    .notNull()
+    .references(() => messages.id, { onDelete: 'cascade' }),
+  operationId: text('operation_id').notNull(),
+  previousBody: text('previous_body').notNull(),
+  previousMetadataJson: text('previous_metadata_json'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+  noteCreatedIdx: index('skill_note_checkpoints_note_created_idx').on(
+    table.noteArtifactId,
+    table.createdAt,
+  ),
+  sessionCreatedIdx: index('skill_note_checkpoints_session_created_idx').on(
+    table.sessionId,
+    table.createdAt,
+  ),
+}));
 
 export const inferenceProviders = sqliteTable('inference_providers', {
   id: text('id').primaryKey(),

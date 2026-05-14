@@ -203,7 +203,10 @@
 		return score;
 	}
 
-	function getDocumentKind(document: KnowledgeDocumentItem): 'generated' | 'uploaded' {
+	function getDocumentKind(document: KnowledgeDocumentItem): 'generated' | 'skill_note' | 'uploaded' {
+		if (document.documentOrigin === 'skill_note' || document.type === 'skill_note') {
+			return 'skill_note';
+		}
 		return document.documentOrigin === 'generated' || document.type === 'generated_output'
 			? 'generated'
 			: 'uploaded';
@@ -737,7 +740,9 @@
 									</div>
 								</td>
 								<td class="col-type">
-								{#if document.documentOrigin === 'generated' || document.type === 'generated_output'}
+								{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
+									<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
+								{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
 									<span class="type-badge type-generated">{$t('knowledge.generated')}</span>
 								{:else}
 									<span class="type-badge type-uploaded">{$t('knowledge.uploaded')}</span>
@@ -1239,6 +1244,12 @@
 		background: color-mix(in srgb, var(--text-muted) 15%, transparent);
 		color: var(--text-muted);
 		border: 1px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
+	}
+
+	.type-skill-note {
+		background: color-mix(in srgb, var(--success) 15%, transparent);
+		color: var(--success);
+		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
 	}
 
 	.col-size {

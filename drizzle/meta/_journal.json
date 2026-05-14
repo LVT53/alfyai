@@ -302,6 +302,48 @@
       "when": 1777140000029,
       "tag": "1777140000029_conversation_summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1777140000030,
+      "tag": "1777140000030_user_skill_definitions",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1777140000031,
+      "tag": "1777140000031_conversation_draft_linked_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1777140000032,
+      "tag": "1777140000032_system_skill_published",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1777140000033,
+      "tag": "1777140000033_conversation_draft_pending_skill",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1777140000034,
+      "tag": "1777140000034_skill_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1777140000035,
+      "tag": "1777140000035_skill_notes",
+      "breakpoints": true
     }
 
   ]

@@ -5,7 +5,13 @@ import {
 	getMaxMessageLength,
 	type RuntimeConfig,
 } from '$lib/server/config-store';
-import type { DeepResearchDepth, ModelId, ThinkingMode } from '$lib/types';
+import type {
+	DeepResearchDepth,
+	LinkedContextSource,
+	ModelId,
+	PendingSkillSelection,
+	ThinkingMode,
+} from '$lib/types';
 import type {
 	ChatTurnRequestError,
 	ChatTurnRoute,
@@ -24,6 +30,8 @@ type RequestBody = {
 	model?: unknown;
 	skipPersistUserMessage?: unknown;
 	attachmentIds?: unknown;
+	linkedSources?: unknown;
+	pendingSkill?: unknown;
 	activeDocumentArtifactId?: unknown;
 	personalityProfileId?: unknown;
 	deepResearch?: unknown;
@@ -51,6 +59,8 @@ export async function parseChatTurnRequest(
 		model,
 		skipPersistUserMessage,
 		attachmentIds,
+		linkedSources,
+		pendingSkill,
 		activeDocumentArtifactId,
 		personalityProfileId,
 		deepResearch,
@@ -127,6 +137,8 @@ export async function parseChatTurnRequest(
 	const safeAttachmentIds = Array.isArray(attachmentIds)
 		? attachmentIds.filter((id): id is string => typeof id === 'string')
 		: [];
+	const safeLinkedSources = parseLinkedSources(linkedSources);
+	const safePendingSkill = parsePendingSkill(pendingSkill);
 	const selectedDeepResearchDepth = parseDeepResearchDepth(deepResearch, deepResearchDepth);
 	const selectedThinkingMode = parseThinkingMode(thinkingMode);
 
@@ -142,6 +154,8 @@ export async function parseChatTurnRequest(
 			modelId,
 			modelDisplayName,
 			attachmentIds: safeAttachmentIds,
+			linkedSources: safeLinkedSources,
+			pendingSkill: selectedDeepResearchDepth ? null : safePendingSkill,
 			activeDocumentArtifactId:
 				typeof activeDocumentArtifactId === 'string' && activeDocumentArtifactId.trim().length > 0
 					? activeDocumentArtifactId.trim()
@@ -157,6 +171,38 @@ export async function parseChatTurnRequest(
 				safeAttachmentIds.length > 0 ? createAttachmentTraceId(route) : undefined,
 		},
 	};
+}
+
+function parsePendingSkill(value: unknown): PendingSkillSelection | null {
+	if (typeof value !== 'object' || value === null) return null;
+	const record = value as Record<string, unknown>;
+	if (
+		typeof record.id !== 'string' ||
+		(record.ownership !== 'user' && record.ownership !== 'system') ||
+		typeof record.displayName !== 'string'
+	) {
+		return null;
+	}
+	return {
+		id: record.id,
+		ownership: record.ownership,
+		displayName: record.displayName,
+	};
+}
+
+function parseLinkedSources(value: unknown): LinkedContextSource[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter(
+		(source): source is LinkedContextSource =>
+			typeof source === 'object' &&
+			source !== null &&
+			'displayArtifactId' in source &&
+			typeof source.displayArtifactId === 'string' &&
+			'name' in source &&
+			typeof source.name === 'string' &&
+			'type' in source &&
+			source.type === 'document'
+	);
 }
 
 function parseDeepResearchDepth(

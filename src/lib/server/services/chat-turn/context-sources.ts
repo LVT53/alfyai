@@ -8,6 +8,7 @@ import type {
 	ContextSourcesState,
 	ConversationContextStatus,
 	EvidenceSourceType,
+	LinkedContextSource,
 } from "$lib/types";
 import type {
 	ProjectFolderReferenceContext,
@@ -20,6 +21,7 @@ export type BuildContextSourcesStateInput = {
 	contextStatus?: ConversationContextStatus | null;
 	contextDebug?: ContextDebugState | null;
 	attachedArtifacts?: ArtifactSummary[];
+	linkedSources?: LinkedContextSource[];
 	activeWorkingSet?: ArtifactSummary[];
 	projectReference?: ProjectReferenceContext | null;
 	projectFolderReference?: ProjectFolderReferenceContext | null;
@@ -36,6 +38,7 @@ export function buildContextSourcesState(
 			artifacts: input.attachedArtifacts ?? [],
 			reason: "attached_to_conversation",
 		}),
+		buildLinkedSourceGroup(input.linkedSources ?? []),
 		buildArtifactGroup({
 			kind: "working_set",
 			state: "active",
@@ -103,6 +106,31 @@ export function buildContextSourcesState(
 			})),
 		})),
 		updatedAt: input.now?.getTime() ?? Date.now(),
+	};
+}
+
+function buildLinkedSourceGroup(
+	linkedSources: LinkedContextSource[],
+): ContextSourceGroup | null {
+	if (linkedSources.length === 0) return null;
+	const items = linkedSources.map((source) => ({
+		id: `linked_source:${source.displayArtifactId}`,
+		artifactId: source.displayArtifactId,
+		title: source.name,
+		state: "active" as const,
+		sourceType: "document" as const,
+		artifactType: "document" as const,
+		reason: "linked_context_source",
+		metadata: {
+			promptArtifactId: source.promptArtifactId ?? null,
+			documentOrigin: source.documentOrigin ?? null,
+		},
+	}));
+	return {
+		kind: "linked_source",
+		state: "active",
+		totalCount: items.length,
+		items,
 	};
 }
 

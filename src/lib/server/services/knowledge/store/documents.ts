@@ -66,6 +66,7 @@ function mapLogicalDocumentItem(params: {
 }): KnowledgeDocumentItem {
   return {
     id: params.displayArtifact.id,
+    type: params.displayArtifact.type,
     displayArtifactId: params.displayArtifact.id,
     promptArtifactId: params.promptArtifactId,
     familyArtifactIds: params.familyArtifactIds,
@@ -151,7 +152,7 @@ export async function listLogicalDocuments(
         inArray(
           artifacts.type,
           includeGeneratedOutputs
-            ? ["source_document", "normalized_document", "generated_output"]
+            ? ["source_document", "normalized_document", "generated_output", "skill_note"]
             : ["source_document", "normalized_document"],
         ),
       ),
@@ -179,6 +180,7 @@ export async function listLogicalDocuments(
   const generatedOutputArtifacts = summaries.filter(
     (item) => item.type === "generated_output",
   );
+  const skillNoteArtifacts = summaries.filter((item) => item.type === "skill_note");
   const metadataById = new Map(
     scopedRows.map((row) => [
       row.id,
@@ -253,6 +255,20 @@ export async function listLogicalDocuments(
   }
 
   if (includeGeneratedOutputs) {
+    for (const note of skillNoteArtifacts) {
+      documents.push(
+        mapLogicalDocumentItem({
+          displayArtifact: note,
+          promptArtifactId: note.id,
+          familyArtifactIds: [note.id],
+          normalizedAvailable: true,
+          summary: note.summary,
+          updatedAt: note.updatedAt,
+          documentOrigin: "skill_note",
+        }),
+      );
+    }
+
     const generatedByFamily = new Map<
       string,
       {

@@ -10,7 +10,10 @@ import type {
 	ToolEvidenceCandidate,
 	FileProductionJob,
 	DeepResearchJob,
+	LinkedContextSource,
 	ModelId,
+	PendingSkillSelection,
+	SkillDraftProposal,
 	ThinkingMode,
 } from '$lib/types';
 
@@ -21,6 +24,8 @@ export type SendPayload = {
 	attachmentIds: string[];
 	attachments: ArtifactSummary[];
 	pendingAttachments: PendingAttachment[];
+	linkedSources?: LinkedContextSource[];
+	pendingSkill?: PendingSkillSelection | null;
 	conversationId?: string | null;
 	modelId?: ModelId;
 	personalityProfileId?: string | null;
@@ -42,6 +47,8 @@ export type DraftChangePayload = {
 	draftText: string;
 	selectedAttachmentIds: string[];
 	selectedAttachments: PendingAttachment[];
+	selectedLinkedSources: LinkedContextSource[];
+	pendingSkill: PendingSkillSelection | null;
 };
 
 export type StreamToolCallDetails = {
@@ -309,6 +316,23 @@ export function updateMessageById(
 	return list.map((message) => (message.id === messageId ? updater(message) : message));
 }
 
+export function patchSkillDraftInMessageList(
+	list: ChatMessage[],
+	params: { messageId: string; draft: SkillDraftProposal }
+): ChatMessage[] {
+	return list.map((message) => {
+		if (message.id !== params.messageId) return message;
+		const skillDrafts = message.skillDrafts ?? [];
+		if (!skillDrafts.some((draft) => draft.id === params.draft.id)) return message;
+		return {
+			...message,
+			skillDrafts: skillDrafts.map((draft) =>
+				draft.id === params.draft.id ? params.draft : draft
+			),
+		};
+	});
+}
+
 export function appendTokenChunkToMessageList(
 	list: ChatMessage[],
 	placeholderId: string,
@@ -465,6 +489,17 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 		pendingAttachments: (payload.pendingAttachments ?? []).map((attachment) => ({
 			...attachment,
 		})),
+		linkedSources: (payload.linkedSources ?? []).map((source) => ({
+			...source,
+			familyArtifactIds: [...source.familyArtifactIds],
+		})),
+		pendingSkill: payload.pendingSkill
+			? {
+					id: payload.pendingSkill.id,
+					ownership: payload.pendingSkill.ownership,
+					displayName: payload.pendingSkill.displayName,
+				}
+			: null,
 		conversationId: payload.conversationId ?? null,
 		modelId: payload.modelId,
 		deepResearchDepth: payload.deepResearchDepth ?? null,

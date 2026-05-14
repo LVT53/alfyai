@@ -4,10 +4,13 @@ import {
 	FRIENDLY_STREAM_ERRORS,
 	flushInlineThinkingState,
 	getLeakedToolDiagnosticPrefixLength,
+	getSkillControlEnvelopePrefixHoldLength,
 	getTextContent,
 	looksLikeLeadingThinkingPreamble,
 	mayStartLeadingThinkingPreamble,
 	processInlineThinkingChunk,
+	SKILL_CONTROL_ENVELOPE_CLOSE_TAG,
+	SKILL_CONTROL_ENVELOPE_OPEN_TAG,
 	type StreamErrorCode,
 	splitLeadingThinkingPreamble,
 	stripLeadingResponseMarker,
@@ -128,10 +131,12 @@ export function createServerChunkRuntime({
 	const leakedToolDiagnosticsState = createLeakedToolDiagnosticsState();
 	const serverSegments: ServerStreamSegment[] = [];
 	const toolCallRecords: ToolCallEntry[] = [];
+	const skillControlEnvelopePayloads: string[] = [];
 	let pendingThinkingBuffer = "";
 	let leadingOutputState: "pending" | "thinking" | "done" = "pending";
 	let leadingOutputBuffer = "";
 	let visibleTokenBuffer = "";
+	let skillControlEnvelopeBuffer = "";
 
 	const flushPendingThinking = (): boolean => {
 		if (!pendingThinkingBuffer) return true;
@@ -179,13 +184,17 @@ export function createServerChunkRuntime({
 			visibleTokenBuffer,
 			leakedToolDiagnosticsState,
 		);
+		const envelopeFilteredBuffer = filterSkillControlEnvelopeText(
+			sanitizedBuffer,
+			force,
+		);
 		const holdLength = force
 			? 0
-			: getLeakedToolDiagnosticPrefixLength(sanitizedBuffer);
+			: getLeakedToolDiagnosticPrefixLength(envelopeFilteredBuffer);
 		const visibleChunk = holdLength
-			? sanitizedBuffer.slice(0, -holdLength)
-			: sanitizedBuffer;
-		visibleTokenBuffer = holdLength ? sanitizedBuffer.slice(-holdLength) : "";
+			? envelopeFilteredBuffer.slice(0, -holdLength)
+			: envelopeFilteredBuffer;
+		visibleTokenBuffer = holdLength ? envelopeFilteredBuffer.slice(-holdLength) : "";
 
 		if (!visibleChunk) {
 			return true;
@@ -205,6 +214,51 @@ export function createServerChunkRuntime({
 
 		visibleTokenBuffer += chunk;
 		return flushVisibleTokenBuffer(false);
+	};
+
+	const filterSkillControlEnvelopeText = (
+		input: string,
+		force = false,
+	): string => {
+		let value = skillControlEnvelopeBuffer + input;
+		skillControlEnvelopeBuffer = "";
+		if (!value) return "";
+
+		let output = "";
+		const openTag = SKILL_CONTROL_ENVELOPE_OPEN_TAG;
+		const closeTag = SKILL_CONTROL_ENVELOPE_CLOSE_TAG;
+
+		while (value) {
+			const lowerValue = value.toLowerCase();
+			const openIndex = lowerValue.indexOf(openTag);
+			if (openIndex === -1) {
+				const holdLength = force
+					? 0
+					: getSkillControlEnvelopePrefixHoldLength(value);
+				output += holdLength ? value.slice(0, -holdLength) : value;
+				skillControlEnvelopeBuffer = holdLength ? value.slice(-holdLength) : "";
+				break;
+			}
+
+			output += value.slice(0, openIndex);
+			const payloadStart = openIndex + openTag.length;
+			const closeIndex = lowerValue.indexOf(closeTag, payloadStart);
+			if (closeIndex === -1) {
+				if (force) {
+					output += value.slice(openIndex);
+				} else {
+					skillControlEnvelopeBuffer = value.slice(openIndex);
+				}
+				break;
+			}
+
+			skillControlEnvelopePayloads.push(
+				value.slice(payloadStart, closeIndex).trim(),
+			);
+			value = value.slice(closeIndex + closeTag.length);
+		}
+
+		return output;
 	};
 
 	const emitToolCallEvent = (
@@ -392,6 +446,9 @@ export function createServerChunkRuntime({
 		},
 		get toolCallRecords() {
 			return toolCallRecords;
+		},
+		get skillControlEnvelopePayloads() {
+			return skillControlEnvelopePayloads;
 		},
 	};
 }

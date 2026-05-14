@@ -47,6 +47,15 @@ vi.mock('$lib/server/services/deep-research', () => ({
 	listConversationDeepResearchJobs: vi.fn(),
 }));
 
+vi.mock('$lib/server/services/skills/sessions', () => ({
+	getActiveSkillSession: vi.fn(),
+	serializePublicSkillSession: (session: any) => {
+		if (!session) return null;
+		const { skillInstructions: _skillInstructions, ...publicSession } = session;
+		return publicSession;
+	},
+}));
+
 import { GET, PATCH } from './+server';
 import { requireAuth } from '$lib/server/auth/hooks';
 import { getConversation, moveConversationToProject } from '$lib/server/services/conversations';
@@ -67,6 +76,7 @@ import { getConversationDraft } from '$lib/server/services/conversation-drafts';
 import { getConversationCostSummary } from '$lib/server/services/analytics';
 import { listConversationFileProductionJobs } from '$lib/server/services/file-production';
 import { listConversationDeepResearchJobs } from '$lib/server/services/deep-research';
+import { getActiveSkillSession } from '$lib/server/services/skills/sessions';
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
@@ -86,6 +96,7 @@ const mockListConversationFileProductionJobs =
 	listConversationFileProductionJobs as ReturnType<typeof vi.fn>;
 const mockListConversationDeepResearchJobs =
 	listConversationDeepResearchJobs as ReturnType<typeof vi.fn>;
+const mockGetActiveSkillSession = getActiveSkillSession as ReturnType<typeof vi.fn>;
 
 function makeEvent(user = { id: 'user-1' }, id = 'conv-1') {
 	return {
@@ -170,6 +181,32 @@ describe('GET /api/conversations/[id]', () => {
 			},
 		]);
 		mockListConversationDeepResearchJobs.mockResolvedValue([]);
+		mockGetActiveSkillSession.mockResolvedValue(null);
+	});
+
+	it('returns the active skill session with conversation detail', async () => {
+		mockGetActiveSkillSession.mockResolvedValue({
+			id: 'skill-session-1',
+			conversationId: 'conv-1',
+			userId: 'user-1',
+			status: 'active',
+			skillOwnership: 'system',
+			skillDisplayName: 'Meeting critic',
+			skillInstructions: 'SYSTEM_SENTINEL: hidden system skill instructions',
+		});
+
+		const response = await GET(makeEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(mockGetActiveSkillSession).toHaveBeenCalledWith('user-1', 'conv-1');
+		expect(data.activeSkillSession).toMatchObject({
+			id: 'skill-session-1',
+			status: 'active',
+			skillDisplayName: 'Meeting critic',
+		});
+		expect(data.activeSkillSession).not.toHaveProperty('skillInstructions');
+		expect(JSON.stringify(data)).not.toContain('SYSTEM_SENTINEL');
 	});
 
 	it('returns file-production jobs with the conversation detail', async () => {

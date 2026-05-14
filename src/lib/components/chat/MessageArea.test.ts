@@ -1,5 +1,5 @@
-import { render, fireEvent, waitFor } from '@testing-library/svelte';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { render, fireEvent, waitFor } from '@testing-library/svelte';
 import MessageArea from './MessageArea.svelte';
 import type {
 	ChatMessage,
@@ -7,6 +7,13 @@ import type {
 	DocumentWorkspaceItem,
 	FileProductionJob,
 } from '$lib/types';
+
+vi.mock('$lib/utils/markdown-loader', () => ({
+	prepareCodeHighlighting: async () => undefined,
+	renderCodeBlock: async (content: string) => `<pre><code>${content}</code></pre>`,
+	renderHighlightedText: async (content: string) => content,
+	renderMarkdown: async (content: string) => content.replace(/\*\*(.*?)\*\*/g, '$1'),
+}));
 
 Object.defineProperty(window, 'matchMedia', {
 	writable: true,
@@ -143,6 +150,60 @@ describe('MessageArea', () => {
 		expect(
 			getByText('Your messages and generated files will appear here.')
 		).toBeInTheDocument();
+	});
+
+	it('forwards assistant Skill Draft card actions with message and draft ids', async () => {
+		const onSaveSkillDraft = vi.fn();
+		const onDismissSkillDraft = vi.fn();
+		const onPublishSkillDraft = vi.fn();
+		const message: ChatMessage = {
+			id: 'assistant-1',
+			role: 'assistant',
+			content: 'I can make this reusable.',
+			timestamp: Date.now(),
+			skillDrafts: [
+				{
+					id: 'draft-1',
+					status: 'proposed',
+					displayName: 'Meeting critic',
+					description: 'Review meeting notes.',
+					instructions: 'Find missing owners.',
+					activationExamples: [],
+					durationPolicy: 'next_message',
+					questionPolicy: 'none',
+					notesPolicy: 'none',
+					sourceScope: 'selected_sources_only',
+				},
+			],
+		};
+
+		const { getByRole } = render(MessageArea, {
+			messages: [message],
+			conversationId: 'conv-1',
+			isThinkingActive: false,
+			contextDebug: null,
+			canPublishSkillDrafts: true,
+			onSaveSkillDraft,
+			onDismissSkillDraft,
+			onPublishSkillDraft,
+		});
+
+		await fireEvent.click(getByRole('button', { name: 'Save private skill' }));
+		await fireEvent.click(getByRole('button', { name: 'Dismiss draft' }));
+		await fireEvent.click(getByRole('button', { name: 'Publish system skill' }));
+
+		expect(onSaveSkillDraft).toHaveBeenCalledWith({
+			messageId: 'assistant-1',
+			draftId: 'draft-1',
+		});
+		expect(onDismissSkillDraft).toHaveBeenCalledWith({
+			messageId: 'assistant-1',
+			draftId: 'draft-1',
+		});
+		expect(onPublishSkillDraft).toHaveBeenCalledWith({
+			messageId: 'assistant-1',
+			draftId: 'draft-1',
+		});
 	});
 
 	it('renders persisted Deep Research jobs as cards without an assistant message', () => {

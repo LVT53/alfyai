@@ -30,6 +30,7 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 	import type {
 		ArtifactSummary,
 		ConversationDraft,
+		LinkedContextSource,
 		PendingAttachment,
 	} from '$lib/types';
 
@@ -70,6 +71,8 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 		attachmentIds: string[];
 		attachments: ArtifactSummary[];
 		conversationId: string | null;
+		linkedSources?: LinkedContextSource[];
+		pendingSkill?: import('$lib/types').PendingSkillSelection | null;
 		modelId?: ModelId;
 		deepResearchDepth?: 'focused' | 'standard' | 'max' | null;
 		thinkingMode?: ThinkingMode;
@@ -80,6 +83,8 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 		draftText: string;
 		selectedAttachmentIds: string[];
 		selectedAttachments: PendingAttachment[];
+		selectedLinkedSources: LinkedContextSource[];
+		pendingSkill: import('$lib/types').PendingSkillSelection | null;
 	};
 
 	let hasStarted = $state(false);
@@ -276,11 +281,15 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 				conversationId: id,
 				draftText: '',
 				selectedAttachmentIds: [],
+				selectedLinkedSources: [],
+				pendingSkill: null,
 			}, true);
 			storePendingConversationMessage(id, {
 				message: text,
 				attachmentIds: payload.attachmentIds,
 				attachments: payload.attachments,
+				linkedSources: payload.deepResearchDepth ? [] : payload.linkedSources ?? [],
+				pendingSkill: payload.deepResearchDepth ? null : payload.pendingSkill ?? null,
 				modelId: payload.modelId ?? $selectedModel,
 				personalityProfileId: selectedPersonalityId,
 				deepResearchDepth: payload.deepResearchDepth ?? null,
@@ -328,6 +337,8 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 			draftText: payload.draftText,
 			selectedAttachmentIds: payload.selectedAttachmentIds,
 			selectedAttachments: payload.selectedAttachments,
+			selectedLinkedSources: payload.selectedLinkedSources,
+			pendingSkill: payload.pendingSkill,
 		});
 		const stalePreparedConversationId =
 			(payload.conversationId ?? preparedConversationId) ?? null;
@@ -356,6 +367,8 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 			conversationId: nextDraft.conversationId,
 			draftText: payload.draftText,
 			selectedAttachmentIds: payload.selectedAttachmentIds,
+			selectedLinkedSources: payload.selectedLinkedSources,
+			pendingSkill: payload.pendingSkill,
 		});
 	}
 </script>
@@ -419,6 +432,7 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 					disabled={creating}
 					maxLength={data.maxMessageLength}
 					deepResearchEnabled={data.deepResearchEnabled}
+					composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
 					conversationId={preparedConversationId}
 					contextStatus={null}
 					attachedArtifacts={[]}
@@ -426,6 +440,7 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 					contextDebug={null}
 					draftText={conversationDraft?.draftText ?? ''}
 					draftAttachments={conversationDraft?.selectedAttachments ?? []}
+					draftLinkedSources={conversationDraft?.selectedLinkedSources ?? []}
 					draftVersion={conversationDraft?.updatedAt ?? 0}
 					attachmentsEnabled={true}
 					ensureConversation={ensurePreparedConversation}

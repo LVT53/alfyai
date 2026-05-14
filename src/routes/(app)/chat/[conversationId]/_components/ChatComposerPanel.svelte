@@ -8,7 +8,9 @@
 		ContextDebugState,
 		ContextSourcesState,
 		ConversationContextStatus,
+		LinkedContextSource,
 		PendingAttachment,
+		PendingSkillSelection,
 		TaskState,
 		TaskSteeringPayload,
 		ThinkingMode,
@@ -38,6 +40,8 @@
 		contextSources = null,
 		draftText,
 		draftAttachments,
+		draftLinkedSources = [],
+		draftPendingSkill = null,
 		draftVersion,
 		onSteer,
 		onManageEvidence,
@@ -46,6 +50,7 @@
 		totalCostUsd,
 		totalTokens,
 		deepResearchEnabled,
+		composerCommandRegistryEnabled = false,
 		personalityProfiles,
 		selectedPersonalityId,
 		onPersonalityChange,
@@ -74,6 +79,8 @@
 		contextSources?: ContextSourcesState | null;
 		draftText: string;
 		draftAttachments: PendingAttachment[];
+		draftLinkedSources?: LinkedContextSource[];
+		draftPendingSkill?: PendingSkillSelection | null;
 		draftVersion: number;
 		onSteer: (payload: TaskSteeringPayload) => void | Promise<void>;
 		onManageEvidence: () => void;
@@ -89,6 +96,7 @@
 		totalCostUsd?: number;
 		totalTokens?: number;
 		deepResearchEnabled?: boolean;
+		composerCommandRegistryEnabled?: boolean;
 		personalityProfiles?: Array<{ id: string; name: string; description: string }>;
 		selectedPersonalityId?: string | null;
 		onPersonalityChange?: ((id: string | null) => void) | undefined;
@@ -176,6 +184,8 @@
 			{contextSources}
 			{draftText}
 			{draftAttachments}
+			{draftLinkedSources}
+			{draftPendingSkill}
 			{draftVersion}
 			attachmentsEnabled={true}
 			{onSteer}
@@ -185,6 +195,7 @@
 			{totalCostUsd}
 			{totalTokens}
 			{deepResearchEnabled}
+			{composerCommandRegistryEnabled}
 			{personalityProfiles}
 			{selectedPersonalityId}
 			{onPersonalityChange}

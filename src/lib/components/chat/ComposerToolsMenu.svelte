@@ -18,6 +18,7 @@
 		onPersonalityChange = undefined,
 		thinkingMode = 'auto',
 		onThinkingModeChange = undefined,
+		initialOpen = null,
 	}: {
 		canAttach?: boolean;
 		attachmentsEnabled?: boolean;
@@ -28,10 +29,12 @@
 		onPersonalityChange?: ((id: string | null) => void) | undefined;
 		thinkingMode?: ThinkingMode;
 		onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
+		initialOpen?: 'model' | 'style' | 'thinking' | null;
 	} = $props();
 
 	let root = $state<HTMLDivElement | undefined>(undefined);
 	let activeDropdown = $state<'model' | 'style' | 'thinking' | null>(null);
+	let appliedInitialOpen = $state<'model' | 'style' | 'thinking' | null>(null);
 	let styleOpen = $derived(activeDropdown === 'style');
 	let thinkingOpen = $derived(activeDropdown === 'thinking');
 
@@ -45,6 +48,12 @@
 				? $t('composerTools.thinkingOff')
 				: $t('composerTools.thinkingAuto'),
 	);
+
+	$effect(() => {
+		if (initialOpen === appliedInitialOpen) return;
+		activeDropdown = initialOpen;
+		appliedInitialOpen = initialOpen;
+	});
 
 	function closeMenu() {
 		activeDropdown = null;

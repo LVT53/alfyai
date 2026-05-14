@@ -23,6 +23,10 @@
 		onRegenerate,
 		onEdit,
 		onSteer,
+		canPublishSkillDrafts = false,
+		onSaveSkillDraft,
+		onDismissSkillDraft,
+		onPublishSkillDraft,
 		onRetryFileProductionJob,
 		onCancelFileProductionJob,
 		onCancelDeepResearchJob,
@@ -43,6 +47,10 @@
 		onRegenerate: (payload: MessageRegeneratePayload) => void;
 		onEdit: (payload: MessageEditPayload) => void;
 		onSteer: (payload: TaskSteeringPayload) => void | Promise<void>;
+		canPublishSkillDrafts?: boolean;
+		onSaveSkillDraft?: (payload: { messageId: string; draftId: string }) => void | Promise<void>;
+		onDismissSkillDraft?: (payload: { messageId: string; draftId: string }) => void | Promise<void>;
+		onPublishSkillDraft?: (payload: { messageId: string; draftId: string }) => void | Promise<void>;
 		onRetryFileProductionJob?: (jobId: string) => void | Promise<void>;
 		onCancelFileProductionJob?: (jobId: string) => void | Promise<void>;
 		onCancelDeepResearchJob?: (jobId: string) => void | Promise<void>;
@@ -74,6 +82,10 @@
 		{onRegenerate}
 		{onEdit}
 		{onSteer}
+		{canPublishSkillDrafts}
+		{onSaveSkillDraft}
+		{onDismissSkillDraft}
+		{onPublishSkillDraft}
 		{onRetryFileProductionJob}
 		{onCancelFileProductionJob}
 		{onCancelDeepResearchJob}

@@ -119,6 +119,28 @@ describe("createServerChunkRuntime", () => {
 		);
 	});
 
+	it("strips complete Skill Control Envelope blocks from visible stream tokens", () => {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+
+		runtime.emitChunkWithOutputHandling("Question?\n<skill_control");
+		runtime.emitChunkWithOutputHandling(
+			'_v1>{"version":1,"operations":[{"operationId":"op-1","kind":"session_transition","transition":"awaiting_user"}]}</skill_control_v1>',
+		);
+		runtime.flushInlineThinkingBuffer();
+
+		expect(tokenTexts(chunks).join("")).toBe("Question?\n");
+		expect(runtime.fullResponse).toBe("Question?\n");
+		expect(runtime.skillControlEnvelopePayloads).toEqual([
+			'{"version":1,"operations":[{"operationId":"op-1","kind":"session_transition","transition":"awaiting_user"}]}',
+		]);
+	});
+
 	it("keeps file-production tool calls out of persisted thinking segments", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({

@@ -1,0 +1,42 @@
+import { json } from "@sveltejs/kit";
+import type { RequestHandler } from "./$types";
+import { requireAuth } from "$lib/server/auth/hooks";
+import { getConfig } from "$lib/server/config-store";
+import { getConversation } from "$lib/server/services/conversations";
+import { updateAssistantMessageSkillDraftStatus } from "$lib/server/services/messages";
+
+function disabledResponse() {
+	return json(
+		{
+			error: "Composer Command Registry is disabled.",
+			errorKey: "composerCommandRegistry.disabled",
+		},
+		{ status: 404 },
+	);
+}
+
+export const DELETE: RequestHandler = async (event) => {
+	requireAuth(event);
+
+	if (!getConfig().composerCommandRegistryEnabled) {
+		return disabledResponse();
+	}
+
+	const user = event.locals.user!;
+	const conversation = await getConversation(user.id, event.params.id);
+	if (!conversation) {
+		return json({ error: "Conversation not found." }, { status: 404 });
+	}
+
+	const draft = await updateAssistantMessageSkillDraftStatus({
+		conversationId: event.params.id,
+		messageId: event.params.messageId,
+		draftId: event.params.draftId,
+		status: "dismissed",
+	});
+	if (!draft) {
+		return json({ error: "Skill draft not found.", errorKey: "skillDrafts.notFound" }, { status: 404 });
+	}
+
+	return json({ draft });
+};

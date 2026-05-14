@@ -1,11 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent, waitFor } from '@testing-library/svelte';
+import { render, fireEvent, waitFor, within } from '@testing-library/svelte';
 import MessageInputWrapper from './MessageInputWrapper.test.svelte';
 import MessageInput from './MessageInput.svelte';
+
+const fetchKnowledgeLibraryMock = vi.hoisted(() => vi.fn());
+const discoverSkillsMock = vi.hoisted(() => vi.fn());
+
+vi.mock('$lib/client/api/knowledge', () => ({
+	fetchKnowledgeLibrary: fetchKnowledgeLibraryMock,
+}));
+
+vi.mock('$lib/client/api/skills', () => ({
+	discoverSkills: discoverSkillsMock,
+}));
 
 describe('MessageInput', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		discoverSkillsMock.mockResolvedValue([]);
 	});
 
 	it('renders correctly', () => {
@@ -132,6 +149,644 @@ describe('MessageInput', () => {
 				deepResearchDepth: null,
 			})
 		);
+	});
+
+	it('opens the command tray for a slash command when the registry flag is enabled', async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+
+		await fireEvent.input(getByPlaceholderText('Type a message...'), {
+			target: { value: '/' },
+		});
+
+		expect(getByRole('listbox', { name: 'Composer commands' })).toBeInTheDocument();
+		expect(getByRole('option', { name: /\/model/i })).toBeInTheDocument();
+	});
+
+	it('keeps the command tray mounted in a closing state on Escape', async () => {
+		const { getByPlaceholderText, getByRole, queryByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/' } });
+		expect(getByRole('listbox', { name: 'Composer commands' })).toHaveAttribute(
+			'data-state',
+			'open'
+		);
+
+		await fireEvent.keyDown(input, { key: 'Escape' });
+
+		expect(getByRole('listbox', { name: 'Composer commands' })).toHaveAttribute(
+			'data-state',
+			'closing'
+		);
+
+		await fireEvent.animationEnd(getByRole('listbox', { name: 'Composer commands' }));
+
+		expect(queryByRole('listbox', { name: 'Composer commands' })).toBeNull();
+	});
+
+	it('selects a highlighted command with Enter before sending', async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			deepResearchEnabled: true,
+			onSend: sendSpy,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/research' } });
+		await fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+		expect(sendSpy).not.toHaveBeenCalled();
+		expect(input.value).toBe('');
+		expect(getByRole('button', { name: 'Deep Research' })).toHaveClass('composer-icon--active');
+
+		await fireEvent.input(input, { target: { value: 'Check latest policy' } });
+		await fireEvent.click(getByRole('button', { name: 'Send message' }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Check latest policy',
+				deepResearchDepth: 'standard',
+			})
+		);
+	});
+
+	it('announces the active command row while navigating the tray', async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/' } });
+
+		expect(getByRole('status')).toHaveTextContent('Active command: /model Model');
+		await fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+		expect(getByRole('status')).toHaveTextContent('Active command: /style Style');
+	});
+
+	it('keeps Shift+Enter and IME composition from selecting command rows', async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, queryByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			deepResearchEnabled: true,
+			onSend: sendSpy,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/research' } });
+		await fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+
+		expect(sendSpy).not.toHaveBeenCalled();
+		expect(queryByRole('listbox', { name: 'Composer commands' })).toBeInTheDocument();
+		expect(input.value).toBe('/research');
+
+		await fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+
+		expect(sendSpy).not.toHaveBeenCalled();
+		expect(queryByRole('listbox', { name: 'Composer commands' })).toBeInTheDocument();
+	});
+
+	it('opens /document picker, renders linked source chips, removes them, and sends structured sources', async () => {
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [
+				{
+					id: 'display-1',
+					displayArtifactId: 'display-1',
+					promptArtifactId: 'prompt-1',
+					familyArtifactIds: ['display-1', 'prompt-1'],
+					name: 'Budget notes.md',
+					mimeType: 'text/markdown',
+					sizeBytes: 100,
+					conversationId: null,
+					summary: null,
+					normalizedAvailable: true,
+					documentOrigin: 'uploaded',
+					createdAt: 1,
+					updatedAt: 2,
+				},
+			],
+			results: [],
+			workflows: [],
+		});
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, findByRole, findByText, queryByText } = render(
+			MessageInput,
+			{
+				composerCommandRegistryEnabled: true,
+				onSend: sendSpy,
+			}
+		);
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/document' } });
+		await fireEvent.click(getByRole('option', { name: /\/document/i }));
+		await findByRole('dialog', { name: 'Link Library documents' });
+		await fireEvent.click(await findByRole('checkbox', { name: 'Budget notes.md' }));
+		await fireEvent.click(getByRole('button', { name: 'Link selected documents' }));
+
+		expect(await findByText('Budget notes.md')).toBeInTheDocument();
+
+		await fireEvent.click(getByRole('button', { name: 'Remove Budget notes.md' }));
+		expect(queryByText('Budget notes.md')).toBeNull();
+
+		await fireEvent.input(input, { target: { value: '/document' } });
+		await fireEvent.click(getByRole('option', { name: /\/document/i }));
+		await fireEvent.click(await findByRole('checkbox', { name: 'Budget notes.md' }));
+		await fireEvent.click(getByRole('button', { name: 'Link selected documents' }));
+		await fireEvent.input(input, { target: { value: 'Use this source' } });
+		await fireEvent.click(getByRole('button', { name: 'Send message' }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Use this source',
+				linkedSources: [
+					expect.objectContaining({
+						displayArtifactId: 'display-1',
+						promptArtifactId: 'prompt-1',
+						name: 'Budget notes.md',
+						type: 'document',
+					}),
+				],
+			})
+		);
+	});
+
+	it('uses the typed /document query as the initial picker search', async () => {
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [
+				{
+					id: 'display-report',
+					displayArtifactId: 'display-report',
+					promptArtifactId: 'prompt-report',
+					familyArtifactIds: ['display-report', 'prompt-report'],
+					name: 'Annual report.pdf',
+					mimeType: 'application/pdf',
+					sizeBytes: 100,
+					conversationId: null,
+					summary: null,
+					normalizedAvailable: true,
+					documentOrigin: 'uploaded',
+					createdAt: 1,
+					updatedAt: 2,
+				},
+				{
+					id: 'display-budget',
+					displayArtifactId: 'display-budget',
+					promptArtifactId: 'prompt-budget',
+					familyArtifactIds: ['display-budget', 'prompt-budget'],
+					name: 'Budget notes.md',
+					mimeType: 'text/markdown',
+					sizeBytes: 100,
+					conversationId: null,
+					summary: null,
+					normalizedAvailable: true,
+					documentOrigin: 'uploaded',
+					createdAt: 1,
+					updatedAt: 2,
+				},
+			],
+			results: [],
+			workflows: [],
+		});
+		const { getByPlaceholderText, getByRole, findByRole, queryByText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/document report' } });
+		await fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+		await findByRole('dialog', { name: 'Link Library documents' });
+		expect(getByRole('searchbox', { name: 'Search documents' })).toHaveValue('report');
+		expect(getByRole('checkbox', { name: 'Annual report.pdf' })).toBeInTheDocument();
+		expect(queryByText('Budget notes.md')).toBeNull();
+	});
+
+	it('restores focus to the composer when the document picker is cancelled', async () => {
+		const { getByPlaceholderText, getByRole, findByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/document' } });
+		await fireEvent.click(getByRole('option', { name: /\/document/i }));
+		await findByRole('dialog', { name: 'Link Library documents' });
+		await fireEvent.click(getByRole('button', { name: 'Close document picker' }));
+
+		await waitFor(() => expect(input).toHaveFocus());
+	});
+
+	it('restores linked source draft chips without reopening transient picker or tray state', () => {
+		const { getByText, queryByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			draftLinkedSources: [
+				{
+					displayArtifactId: 'display-1',
+					promptArtifactId: 'prompt-1',
+					familyArtifactIds: ['display-1', 'prompt-1'],
+					name: 'Restored report.pdf',
+					type: 'document',
+				},
+			],
+			draftVersion: 1,
+		});
+
+		expect(getByText('Restored report.pdf')).toBeInTheDocument();
+		expect(queryByRole('dialog', { name: 'Link Library documents' })).toBeNull();
+		expect(queryByRole('listbox', { name: 'Composer commands' })).toBeNull();
+	});
+
+	it('opens the /source manager and removes a linked source', async () => {
+		const draftSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, getByText, queryByText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			draftLinkedSources: [
+				{
+					displayArtifactId: 'display-1',
+					promptArtifactId: 'prompt-1',
+					familyArtifactIds: ['display-1', 'prompt-1'],
+					name: 'Restored report.pdf',
+					type: 'document',
+					documentOrigin: 'uploaded',
+				},
+			],
+			draftVersion: 1,
+			onDraftChange: draftSpy,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/source' } });
+		await fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+		const manager = getByRole('dialog', { name: 'Sources' });
+		expect(manager).toBeInTheDocument();
+		expect(within(manager).getByText('Restored report.pdf')).toBeInTheDocument();
+		expect(within(manager).getByText('Uploaded document')).toBeInTheDocument();
+
+		await fireEvent.click(
+			within(manager).getByRole('button', { name: 'Remove Restored report.pdf' })
+		);
+
+		expect(queryByText('Restored report.pdf')).toBeNull();
+		expect(draftSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				selectedLinkedSources: [],
+			})
+		);
+	});
+
+	it('clears linked sources and opens the document picker from the source manager', async () => {
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [
+				{
+					id: 'display-2',
+					displayArtifactId: 'display-2',
+					promptArtifactId: 'prompt-2',
+					familyArtifactIds: ['display-2', 'prompt-2'],
+					name: 'New source.docx',
+					mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+					sizeBytes: 100,
+					conversationId: null,
+					summary: null,
+					normalizedAvailable: true,
+					documentOrigin: 'uploaded',
+					createdAt: 1,
+					updatedAt: 2,
+				},
+			],
+			results: [],
+			workflows: [],
+		});
+		const { getByPlaceholderText, getByRole, findByRole, findByText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			draftLinkedSources: [
+				{
+					displayArtifactId: 'display-1',
+					promptArtifactId: 'prompt-1',
+					familyArtifactIds: ['display-1', 'prompt-1'],
+					name: 'Restored report.pdf',
+					type: 'document',
+					documentOrigin: 'uploaded',
+				},
+			],
+			draftVersion: 1,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/source' } });
+		await fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+		const manager = getByRole('dialog', { name: 'Sources' });
+
+		await fireEvent.click(within(manager).getByRole('button', { name: 'Clear all' }));
+		expect(within(manager).getByText('No linked sources selected.')).toBeInTheDocument();
+
+		await fireEvent.click(within(manager).getByRole('button', { name: 'Add document' }));
+		await findByRole('dialog', { name: 'Link Library documents' });
+		await fireEvent.click(await findByRole('checkbox', { name: 'New source.docx' }));
+		await fireEvent.click(getByRole('button', { name: 'Link selected documents' }));
+
+		expect(await findByText('New source.docx')).toBeInTheDocument();
+	});
+
+	it('closes the source manager on Escape and outside pointer down with focus restored', async () => {
+		const { getByPlaceholderText, getByRole, queryByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/source' } });
+		await fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+		expect(getByRole('dialog', { name: 'Sources' })).toBeInTheDocument();
+
+		await fireEvent.keyDown(document, { key: 'Escape' });
+		await waitFor(() => expect(queryByRole('dialog', { name: 'Sources' })).toBeNull());
+		await waitFor(() => expect(input).toHaveFocus());
+
+		await fireEvent.input(input, { target: { value: '/source' } });
+		await fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+		expect(getByRole('dialog', { name: 'Sources' })).toBeInTheDocument();
+
+		await fireEvent.pointerDown(document.body);
+		await waitFor(() => expect(queryByRole('dialog', { name: 'Sources' })).toBeNull());
+		await waitFor(() => expect(input).toHaveFocus());
+	});
+
+	it('consumes only the active command token and preserves surrounding text', async () => {
+		const { getByPlaceholderText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			deepResearchEnabled: true,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, {
+			target: { value: 'Please /research now' },
+		});
+		input.setSelectionRange(11, 11);
+		await fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+		expect(input.value).toBe('Please  now');
+	});
+
+	it('opens dollar skill discovery without triggering on prices', async () => {
+		discoverSkillsMock.mockResolvedValue([
+			{
+				id: 'skill-1',
+				ownership: 'user',
+				displayName: 'Interview coach',
+				description: 'Practice interview answers.',
+				activationExamples: ['interview me'],
+				enabled: true,
+			},
+		]);
+		const { getByPlaceholderText, queryByRole, findByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: 'It costs $12' } });
+		expect(queryByRole('listbox', { name: 'Composer commands' })).toBeNull();
+
+		await fireEvent.input(input, { target: { value: '$interview' } });
+		expect(await findByRole('option', { name: /Interview coach/i })).toBeInTheDocument();
+		expect(discoverSkillsMock).toHaveBeenCalledWith('interview');
+	});
+
+	it('selects a discovered skill into pending state and preserves surrounding text', async () => {
+		discoverSkillsMock.mockResolvedValue([
+			{
+				id: 'skill-1',
+				ownership: 'user',
+				displayName: 'Interview coach',
+				description: 'Practice interview answers.',
+				activationExamples: ['interview me'],
+				enabled: true,
+			},
+		]);
+		const sendSpy = vi.fn();
+		const draftSpy = vi.fn();
+		const { getByPlaceholderText, findByRole, getByRole, getByText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			onSend: sendSpy,
+			onDraftChange: draftSpy,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: 'Please $interview this answer' } });
+		input.setSelectionRange(17, 17);
+		await fireEvent.keyDown(input, { key: 'ArrowDown' });
+		await fireEvent.click(await findByRole('option', { name: /Interview coach/i }));
+
+		expect(input.value).toBe('Please  this answer');
+		expect(getByText('Interview coach')).toBeInTheDocument();
+		expect(draftSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				pendingSkill: expect.objectContaining({
+					id: 'skill-1',
+					ownership: 'user',
+					displayName: 'Interview coach',
+				}),
+			})
+		);
+
+		await fireEvent.click(getByRole('button', { name: 'Send message' }));
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Please  this answer',
+				pendingSkill: expect.objectContaining({ id: 'skill-1', ownership: 'user' }),
+			})
+		);
+	});
+
+	it('replaces the existing pending skill when another skill is selected', async () => {
+		discoverSkillsMock
+			.mockResolvedValueOnce([
+				{
+					id: 'skill-1',
+					ownership: 'user',
+					displayName: 'Interview coach',
+					description: 'Practice interview answers.',
+					activationExamples: [],
+					enabled: true,
+				},
+			])
+			.mockResolvedValueOnce([
+				{
+					id: 'system:code-review',
+					ownership: 'system',
+					displayName: 'Code Review',
+					description: 'Review code.',
+					activationExamples: [],
+					enabled: true,
+					published: true,
+				},
+			]);
+		const { getByPlaceholderText, findByRole, queryByText, getByText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '$interview First' } });
+		input.setSelectionRange(10, 10);
+		await fireEvent.keyDown(input, { key: 'ArrowDown' });
+		await fireEvent.click(await findByRole('option', { name: /Interview coach/i }));
+		expect(getByText('Interview coach')).toBeInTheDocument();
+
+		await fireEvent.input(input, { target: { value: '$review First' } });
+		input.setSelectionRange(7, 7);
+		await fireEvent.keyDown(input, { key: 'ArrowDown' });
+		await fireEvent.click(await findByRole('option', { name: /Code Review/i }));
+
+		expect(queryByText('Interview coach')).toBeNull();
+		expect(getByText('Code Review')).toBeInTheDocument();
+	});
+
+	it('restores a pending skill draft chip without reopening discovery', () => {
+		const { getByText, getByRole, queryByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			draftPendingSkill: {
+				id: 'skill-1',
+				ownership: 'user',
+				displayName: 'Interview coach',
+			},
+			draftVersion: 1,
+		});
+
+		expect(getByText('Interview coach')).toBeInTheDocument();
+		expect(
+			getByRole('button', { name: 'Remove pending skill Interview coach' })
+		).toBeInTheDocument();
+		expect(queryByRole('listbox', { name: 'Composer commands' })).toBeNull();
+	});
+
+	it('keeps pending composer state when /clear confirmation is cancelled', async () => {
+		const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+		const draftSpy = vi.fn();
+		const { getByPlaceholderText, getByText, getByRole, findByText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			draftText: 'Keep this draft',
+			draftAttachments: [
+				{
+					artifact: {
+						id: 'artifact-draft-clear',
+						type: 'source_document',
+						retrievalClass: 'durable',
+						name: 'clear-attachment.pdf',
+						mimeType: 'application/pdf',
+						sizeBytes: 7,
+						conversationId: 'conv-1',
+						summary: null,
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+					},
+					promptReady: true,
+					promptArtifactId: 'normalized-clear-attachment',
+					readinessError: null,
+				},
+			],
+			draftLinkedSources: [
+				{
+					displayArtifactId: 'display-clear',
+					promptArtifactId: 'prompt-clear',
+					familyArtifactIds: ['display-clear', 'prompt-clear'],
+					name: 'Clear source.md',
+					type: 'document',
+				},
+			],
+			draftPendingSkill: {
+				id: 'skill-clear',
+				ownership: 'user',
+				displayName: 'Clear Skill',
+			},
+			draftVersion: 1,
+			onDraftChange: draftSpy,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		expect(await findByText('clear-attachment.pdf')).toBeInTheDocument();
+		await fireEvent.input(input, { target: { value: 'Keep this draft /clear' } });
+		input.setSelectionRange(input.value.length, input.value.length);
+		await fireEvent.click(getByRole('option', { name: /\/clear/i }));
+
+		expect(confirmSpy).toHaveBeenCalledWith('Clear the current draft and pending composer selections?');
+		expect(input.value).toBe('Keep this draft /clear');
+		expect(getByText('clear-attachment.pdf')).toBeInTheDocument();
+		expect(getByText('Clear source.md')).toBeInTheDocument();
+		expect(getByText('Clear Skill')).toBeInTheDocument();
+		expect(getByRole('button', { name: 'Remove pending skill Clear Skill' })).toBeInTheDocument();
+		expect(draftSpy).not.toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				draftText: '',
+				selectedAttachmentIds: [],
+				selectedLinkedSources: [],
+				pendingSkill: null,
+			})
+		);
+
+		confirmSpy.mockRestore();
+	});
+
+	it('clears pending composer state after /clear confirmation', async () => {
+		const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+		const draftSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, queryByText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			draftText: 'Remove this draft',
+			draftLinkedSources: [
+				{
+					displayArtifactId: 'display-remove',
+					promptArtifactId: 'prompt-remove',
+					familyArtifactIds: ['display-remove', 'prompt-remove'],
+					name: 'Remove source.md',
+					type: 'document',
+				},
+			],
+			draftPendingSkill: {
+				id: 'skill-remove',
+				ownership: 'system',
+				displayName: 'Remove Skill',
+			},
+			draftVersion: 1,
+			onDraftChange: draftSpy,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: 'Remove this draft /clear' } });
+		input.setSelectionRange(input.value.length, input.value.length);
+		await fireEvent.click(getByRole('option', { name: /\/clear/i }));
+
+		expect(confirmSpy).toHaveBeenCalledWith('Clear the current draft and pending composer selections?');
+		expect(input.value).toBe('');
+		expect(queryByText('Remove source.md')).toBeNull();
+		expect(queryByText('Remove Skill')).toBeNull();
+		expect(draftSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				draftText: '',
+				selectedAttachmentIds: [],
+				selectedLinkedSources: [],
+				pendingSkill: null,
+			})
+		);
+
+		confirmSpy.mockRestore();
+	});
+
+	it('opens existing thinking controls from the slash command', async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/thinking' } });
+		await fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+		expect(input.value).toBe('');
+		expect(getByRole('listbox', { name: 'Thinking' })).toBeInTheDocument();
+		expect(getByRole('option', { name: 'Off' })).toBeInTheDocument();
 	});
 
 	it('sends the selected thinking mode with the next message', async () => {

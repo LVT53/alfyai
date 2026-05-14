@@ -1,14 +1,18 @@
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
+import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import type {
 	ArtifactSummary,
 	ContextDebugState,
 	ConversationContextStatus,
 	ToolCallEntry,
 	WebCitationAudit,
+	LinkedContextSource,
 } from "$lib/types";
 import { buildContextSourcesState } from "./context-sources";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
+import { parseSkillControlEnvelopePayloads } from "./skill-control-envelope";
 import type { WorkCapsuleSummary } from "./types";
 
 type PersistedStreamTurnState = {
@@ -33,8 +37,11 @@ export interface CompleteStreamTurnParams {
 	thinkingContent: string;
 	fullResponse: string;
 	toolCallRecords: ToolCallEntry[];
+	skillControlEnvelopePayloads: string[];
 	serverSegments: Array<unknown>;
 	attachmentIds: string[];
+	linkedSources: LinkedContextSource[];
+	activeSkillSessionId?: string | null;
 	activeDocumentArtifactId: string | null;
 	requestStartTime: number;
 	fileProductionJobIdsAtStart: Set<string>;
@@ -171,8 +178,11 @@ export async function completeStreamTurn(
 		thinkingContent,
 		fullResponse,
 		toolCallRecords,
+		skillControlEnvelopePayloads,
 		serverSegments,
 		attachmentIds,
+		linkedSources,
+		activeSkillSessionId,
 		activeDocumentArtifactId,
 		requestStartTime,
 		fileProductionJobIdsAtStart,
@@ -212,6 +222,9 @@ export async function completeStreamTurn(
 				toolCalls: toolCallRecords,
 			});
 	const finalResponse = citationGate?.response ?? fullResponse;
+	const skillControl = wasStopped
+		? { operations: [] }
+		: parseSkillControlEnvelopePayloads(skillControlEnvelopePayloads);
 	if (citationGate?.appendedNotice) {
 		enqueueChunk(
 			`event: token\ndata: ${JSON.stringify({ text: `\n\n${citationGate.appendedNotice}` })}\n\n`,
@@ -272,6 +285,7 @@ export async function completeStreamTurn(
 				{
 					evidenceStatus: "pending",
 					modelDisplayName,
+					...skillControl.metadata,
 				},
 			).catch(() => undefined)
 		: Promise.resolve(undefined);
@@ -362,6 +376,7 @@ export async function completeStreamTurn(
 			attachedArtifacts:
 				getPersistedArtifactSummaries(persistedTurnState?.attachedArtifacts) ??
 				attachedArtifactsForContextSources,
+			linkedSources,
 			activeWorkingSet: persistedTurnState
 				? (getPersistedArtifactSummaries(persistedTurnState.activeWorkingSet) ??
 					[])
@@ -425,6 +440,45 @@ export async function completeStreamTurn(
 
 			let latestWorkCapsule: WorkCapsuleSummary;
 			if (assistantMsg) {
+				if (skillControl.operations.length > 0) {
+					postPersistTasks.push(
+						commitSkillNoteOperationsAfterAssistantMessage({
+							userId,
+							conversationId,
+							sessionId: activeSkillSessionId,
+							assistantMessageId: assistantMsg.id,
+							operations: skillControl.operations,
+						}).catch((error) => {
+							console.warn(
+								"[CHAT_STREAM] Failed to apply Skill Note Operations",
+								{
+									conversationId,
+									streamId,
+									assistantMessageId: assistantMsg.id,
+									error,
+								},
+							);
+						}),
+					);
+					postPersistTasks.push(
+						applySkillControlOperations({
+							userId,
+							conversationId,
+							assistantMessageId: assistantMsg.id,
+							operations: skillControl.operations,
+						}).catch((error) => {
+							console.warn(
+								"[CHAT_STREAM] Failed to apply Skill Control Envelope",
+								{
+									conversationId,
+									streamId,
+									assistantMessageId: assistantMsg.id,
+									error,
+								},
+							);
+						}),
+					);
+				}
 				uiStateTask = persistAssistantTurnState({
 					userId,
 					conversationId,

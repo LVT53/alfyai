@@ -78,6 +78,17 @@ describe("EvidenceManager context source labels", () => {
 		expect(getByText("Project folder")).toBeInTheDocument();
 		expect(getByText("2 sibling conversations summarized")).toBeInTheDocument();
 	});
+
+	it("labels linked source groups separately from attachments", () => {
+		const { getByText } = render(EvidenceManager, {
+			open: true,
+			contextDebug: makeContextDebug(),
+			contextSources: makeLinkedSourceContextSources(),
+		});
+
+		expect(getByText("Linked report.pdf")).toBeInTheDocument();
+		expect(getByText("Linked sources")).toBeInTheDocument();
+	});
 });
 
 function makeContextDebug(): ContextDebugState {
@@ -234,6 +245,41 @@ function makeProjectFolderContextSources(): ContextSourcesState {
 						state: "inferred",
 						sourceType: "conversation",
 						reason: "2 sibling conversations summarized",
+						reduced: false,
+						compacted: false,
+					},
+				],
+			},
+		],
+	};
+}
+
+function makeLinkedSourceContextSources(): ContextSourcesState {
+	return {
+		conversationId: "conversation-1",
+		userId: "user-1",
+		activeCount: 1,
+		inferredCount: 0,
+		selectedCount: 0,
+		pinnedCount: 0,
+		excludedCount: 0,
+		reduced: false,
+		compacted: false,
+		updatedAt: Date.now(),
+		groups: [
+			{
+				kind: "linked_source",
+				state: "active",
+				totalCount: 1,
+				items: [
+					{
+						id: "linked_source:display-1",
+						artifactId: "display-1",
+						title: "Linked report.pdf",
+						state: "active",
+						sourceType: "document",
+						artifactType: "document",
+						reason: "linked_context_source",
 						reduced: false,
 						compacted: false,
 					},
