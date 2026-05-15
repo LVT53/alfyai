@@ -162,9 +162,9 @@
 		{/if}
 	</div>
 
-	<div class="project-row-actions flex h-[28px] shrink-0 items-center justify-end">
+	<div class="project-row-actions flex shrink-0 items-center justify-end">
 		<button
-			class="project-inline-action btn-icon-bare flex h-[28px] w-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:opacity-0 md:group-hover:opacity-100"
+			class="project-row-action-button project-inline-action btn-icon-bare flex shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:opacity-0 md:group-hover:opacity-100"
 			class:md:opacity-100={menuOpen || creatingConversation}
 			onclick={createConversation}
 			disabled={creatingConversation}
@@ -173,12 +173,12 @@
 			title={$t('sidebar.newChatInProject')}
 		>
 			{#if creatingConversation}
-				<svg class="project-action-spinner" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+				<svg class="project-action-spinner" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
 					<path d="M21 12a9 9 0 0 1-9 9"/>
 					<path d="M3 12a9 9 0 0 1 9-9"/>
 				</svg>
 			{:else}
-				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+				<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"/>
 					<path d="M12 8v6"/><path d="M9 11h6"/>
 				</svg>
@@ -188,12 +188,12 @@
 		<!-- Context menu trigger -->
 		<button
 			bind:this={triggerRef}
-			class="btn-icon-bare flex h-[28px] w-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-icon-primary focus-visible:outline-none md:opacity-0 md:group-hover:opacity-100"
+			class="project-row-action-button btn-icon-bare flex shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-icon-primary focus-visible:outline-none md:opacity-0 md:group-hover:opacity-100"
 			class:md:opacity-100={menuOpen}
 			onclick={toggleMenu}
 			aria-label={$t('sidebar.projectOptions')}
 		>
-			<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 				<circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" />
 			</svg>
 		</button>
@@ -261,6 +261,18 @@
 {/if}
 
 <style>
+	.project-row-actions {
+		height: 22px;
+	}
+
+	.project-row-action-button {
+		height: 22px;
+		min-height: 22px;
+		width: 20px;
+		min-width: 20px;
+		padding: 0;
+	}
+
 	.project-row-drop-active,
 	.project-row-drop-active:hover {
 		background: transparent;
