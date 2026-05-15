@@ -169,6 +169,7 @@ const skillDraftLocalizedApiErrorKeys: Record<string, I18nKey> = {
 	"composerCommandRegistry.disabled": "composerCommandRegistry.disabled",
 	"skillDrafts.notFound": "skillDrafts.notFound",
 	"skillDrafts.publishDisabled": "skillDrafts.publishDisabled",
+	"skillDrafts.inheritedCopyBlocked": "skillDrafts.inheritedCopyBlocked",
 	"skills.notFound": "skills.notFound",
 };
 

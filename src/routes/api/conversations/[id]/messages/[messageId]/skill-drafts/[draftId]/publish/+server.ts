@@ -2,7 +2,10 @@ import { json } from "@sveltejs/kit";
 import { requireAdmin } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import { getConversation } from "$lib/server/services/conversations";
-import { getAssistantMessageSkillDraft } from "$lib/server/services/messages";
+import {
+	getAssistantMessageSkillDraft,
+	isAssistantMessageForkCopy,
+} from "$lib/server/services/messages";
 import type { RequestHandler } from "./$types";
 
 function disabledResponse() {
@@ -12,6 +15,16 @@ function disabledResponse() {
 			errorKey: "composerCommandRegistry.disabled",
 		},
 		{ status: 404 },
+	);
+}
+
+function inheritedCopyResponse() {
+	return json(
+		{
+			error: "Inherited Skill Drafts on copied fork messages cannot be changed.",
+			errorKey: "skillDrafts.inheritedCopyBlocked",
+		},
+		{ status: 409 },
 	);
 }
 
@@ -26,6 +39,15 @@ export const POST: RequestHandler = async (event) => {
 	const conversation = await getConversation(user.id, event.params.id);
 	if (!conversation) {
 		return json({ error: "Conversation not found." }, { status: 404 });
+	}
+
+	if (
+		await isAssistantMessageForkCopy({
+			conversationId: event.params.id,
+			messageId: event.params.messageId,
+		})
+	) {
+		return inheritedCopyResponse();
 	}
 
 	const draft = await getAssistantMessageSkillDraft({

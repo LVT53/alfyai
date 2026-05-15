@@ -14,6 +14,7 @@ vi.mock("$lib/server/services/conversations", () => ({
 
 vi.mock("$lib/server/services/messages", () => ({
 	getAssistantMessageSkillDraft: vi.fn(),
+	isAssistantMessageForkCopy: vi.fn(),
 	updateAssistantMessageSkillDraftStatus: vi.fn(),
 }));
 
@@ -27,6 +28,7 @@ import { getConfig } from "$lib/server/config-store";
 import { getConversation } from "$lib/server/services/conversations";
 import {
 	getAssistantMessageSkillDraft,
+	isAssistantMessageForkCopy,
 	updateAssistantMessageSkillDraftStatus,
 } from "$lib/server/services/messages";
 import {
@@ -40,6 +42,8 @@ const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockGetAssistantMessageSkillDraft =
 	getAssistantMessageSkillDraft as ReturnType<typeof vi.fn>;
+const mockIsAssistantMessageForkCopy =
+	isAssistantMessageForkCopy as ReturnType<typeof vi.fn>;
 const mockUpdateAssistantMessageSkillDraftStatus =
 	updateAssistantMessageSkillDraftStatus as ReturnType<typeof vi.fn>;
 const mockCreateSystemSkillDefinition =
@@ -77,6 +81,7 @@ describe("POST /api/conversations/[id]/messages/[messageId]/skill-drafts/[draftI
 			id: "conv-1",
 			userId: "admin-user",
 		});
+		mockIsAssistantMessageForkCopy.mockResolvedValue(false);
 		mockGetAssistantMessageSkillDraft.mockResolvedValue({
 			id: "draft-1",
 			status: "proposed",
@@ -140,5 +145,22 @@ describe("POST /api/conversations/[id]/messages/[messageId]/skill-drafts/[draftI
 		expect(response.status).toBe(404);
 		expect(mockGetAssistantMessageSkillDraft).not.toHaveBeenCalled();
 		expect(mockCreateSystemSkillDefinition).not.toHaveBeenCalled();
+	});
+
+	it("rejects publishing inherited Skill Drafts on copied fork messages", async () => {
+		mockIsAssistantMessageForkCopy.mockResolvedValue(true);
+
+		const response = await POST(makeEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(409);
+		expect(data.errorKey).toBe("skillDrafts.inheritedCopyBlocked");
+		expect(mockIsAssistantMessageForkCopy).toHaveBeenCalledWith({
+			conversationId: "conv-1",
+			messageId: "msg-1",
+		});
+		expect(mockGetAssistantMessageSkillDraft).not.toHaveBeenCalled();
+		expect(mockCreateSystemSkillDefinition).not.toHaveBeenCalled();
+		expect(mockUpdateSystemSkillDefinition).not.toHaveBeenCalled();
 	});
 });

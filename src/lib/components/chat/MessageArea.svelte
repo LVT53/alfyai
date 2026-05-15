@@ -327,29 +327,35 @@ async function alignToBottomAfterRender() {
 				/>
 				{#if forkOrigin?.copiedForkPointMessageId === message.id}
 					<div
-						class="fork-boundary-marker"
+						class="fork-boundary-marker fork-lineage-marker"
 						data-testid="fork-boundary-marker"
 						role="note"
 						aria-label={$t('fork.boundaryMarkerLabel')}
 					>
-						<div class="fork-boundary-line" aria-hidden="true"></div>
-						<div class="fork-boundary-copy">
-							<span class="fork-boundary-title">{$t('fork.boundaryTitle')}</span>
-							{#if forkSourceHref(forkOrigin)}
-								<a
-									class="fork-boundary-source"
-									href={forkSourceHref(forkOrigin)}
-									aria-label={$t('fork.openSourceConversation', { title: forkOrigin.sourceTitle })}
-								>
-									{$t('fork.boundarySource', { title: forkOrigin.sourceTitle })}
-								</a>
-							{:else}
-								<span class="fork-boundary-source fork-boundary-source-degraded">
-									<span>{$t('fork.boundarySource', { title: forkOrigin.sourceTitle })}</span>
-									<span class="fork-boundary-source-status">{$t('fork.sourceUnavailable')}</span>
-								</span>
-							{/if}
+						<div class="fork-lineage-icon" aria-hidden="true">
+							<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M4 12h5"/>
+								<path d="M9 12c4 0 5-6 10-6"/>
+								<path d="M16 3l3 3-3 3"/>
+								<path d="M9 12c4 0 5 6 10 6"/>
+								<path d="M16 15l3 3-3 3"/>
+							</svg>
 						</div>
+						<span class="fork-boundary-title">{$t('fork.boundaryTitle')}</span>
+						{#if forkSourceHref(forkOrigin)}
+							<a
+								class="fork-boundary-source fork-lineage-link"
+								href={forkSourceHref(forkOrigin)}
+								aria-label={$t('fork.openSourceConversation', { title: forkOrigin.sourceTitle })}
+							>
+								{$t('fork.boundarySource', { title: forkOrigin.sourceTitle })}
+							</a>
+						{:else}
+							<span class="fork-boundary-source fork-boundary-source-degraded">
+								<span>{$t('fork.boundarySource', { title: forkOrigin.sourceTitle })}</span>
+								<span class="fork-boundary-source-status">{$t('fork.sourceUnavailable')}</span>
+							</span>
+						{/if}
 					</div>
 				{/if}
 				{#each deepResearchJobsByAnchorMessageKey.get(messageRenderKey(message)) ?? [] as job (job.id)}
@@ -412,37 +418,33 @@ async function alignToBottomAfterRender() {
 		color: var(--text-secondary);
 	}
 
-	.fork-boundary-marker {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-		margin: var(--space-sm) 0 var(--space-md);
-		border-left: 3px solid color-mix(in srgb, var(--accent) 82%, var(--text-primary) 18%);
-		padding: 0.45rem 0 0.45rem var(--space-sm);
-		color: var(--text-secondary);
-		font-family: 'Nimbus Sans L', sans-serif;
-	}
-
-	.fork-boundary-line {
-		width: 1.25rem;
-		height: 2px;
-		flex: 0 0 auto;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--accent) 74%, var(--border-default) 26%);
-	}
-
-	.fork-boundary-copy {
+	.fork-lineage-marker {
 		display: inline-flex;
-		max-width: min(100%, 28rem);
-		flex: 0 1 auto;
+		width: fit-content;
+		max-width: 100%;
+		align-self: flex-start;
 		align-items: center;
 		flex-wrap: wrap;
 		gap: var(--space-xs);
+		margin-top: var(--space-md);
+		border-left: 3px solid color-mix(in srgb, var(--accent) 78%, var(--text-primary) 22%);
 		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--surface-elevated) 84%, var(--accent) 16%);
-		padding: 0.42rem var(--space-sm);
+		padding: 0.42rem 0.6rem;
+		font-family: 'Nimbus Sans L', sans-serif;
 		font-size: 0.76rem;
 		line-height: 1.35;
+		color: var(--text-secondary);
+	}
+
+	.fork-boundary-marker {
+		margin: var(--space-sm) 0 var(--space-md);
+	}
+
+	.fork-lineage-icon {
+		display: inline-flex;
+		flex: 0 0 auto;
+		color: var(--text-muted);
 	}
 
 	.fork-boundary-title {
@@ -453,8 +455,9 @@ async function alignToBottomAfterRender() {
 
 	.fork-boundary-source {
 		min-width: 0;
+		max-width: 18rem;
 		overflow-wrap: anywhere;
-		color: var(--text-muted);
+		color: var(--text-secondary);
 	}
 
 	.fork-boundary-source-degraded {
@@ -467,12 +470,12 @@ async function alignToBottomAfterRender() {
 		color: var(--text-subtle);
 	}
 
-	a.fork-boundary-source {
+	.fork-lineage-link {
 		text-decoration: none;
 	}
 
-	a.fork-boundary-source:hover,
-	a.fork-boundary-source:focus-visible {
+	.fork-lineage-link:hover,
+	.fork-lineage-link:focus-visible {
 		color: var(--text-primary);
 		text-decoration: underline;
 		text-underline-offset: 0.18em;

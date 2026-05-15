@@ -282,6 +282,54 @@ describe('MessageArea', () => {
 		expect(queryByRole('link', { name: /Deleted source title/ })).not.toBeInTheDocument();
 	});
 
+	it('renders fork boundary and origin markers with the same lineage row treatment', () => {
+		const messages: ChatMessage[] = [
+			{
+				id: 'fork-assistant-1',
+				role: 'assistant',
+				content: 'Copied answer',
+				timestamp: Date.now(),
+				sourceForks: {
+					count: 1,
+					forks: [
+						{
+							conversationId: 'child-fork-1',
+							title: 'Child fork',
+							forkSequence: 1,
+							createdAt: Date.now(),
+						},
+					],
+				},
+			},
+		];
+
+		const { getByTestId } = render(MessageArea, {
+			messages,
+			conversationId: 'fork-conv',
+			isThinkingActive: false,
+			contextDebug: null,
+			forkOrigin: {
+				forkConversationId: 'fork-conv',
+				sourceConversationId: 'source-conv',
+				sourceAssistantMessageId: 'source-assistant-1',
+				sourceConversationIdAvailable: true,
+				sourceAssistantMessageIdAvailable: true,
+				copiedForkPointMessageId: 'fork-assistant-1',
+				sourceTitle: 'Source title',
+				forkSequence: 1,
+				createdAt: Date.now(),
+			},
+		});
+
+		const boundaryMarker = getByTestId('fork-boundary-marker');
+		const originMarker = getByTestId('fork-origin-marker');
+		expect(boundaryMarker).toHaveClass('fork-lineage-marker');
+		expect(originMarker).toHaveClass('fork-lineage-marker');
+		expect(boundaryMarker.querySelector('.fork-boundary-line')).not.toBeInTheDocument();
+		expect(boundaryMarker.querySelector('circle')).not.toBeInTheDocument();
+		expect(originMarker.querySelector('circle')).not.toBeInTheDocument();
+	});
+
 	it('renders persisted Deep Research jobs as cards without an assistant message', () => {
 		const { getByRole, getByText, queryByText } = render(MessageArea, {
 			messages: [],

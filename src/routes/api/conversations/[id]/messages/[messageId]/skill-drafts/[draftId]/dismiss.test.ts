@@ -22,18 +22,24 @@ vi.mock("$lib/server/services/messages", () => ({
 			super(message);
 		}
 	},
+	isAssistantMessageForkCopy: vi.fn(),
 	updateAssistantMessageSkillDraftStatus: vi.fn(),
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import { getConversation } from "$lib/server/services/conversations";
-import { updateAssistantMessageSkillDraftStatus } from "$lib/server/services/messages";
+import {
+	isAssistantMessageForkCopy,
+	updateAssistantMessageSkillDraftStatus,
+} from "$lib/server/services/messages";
 import { DELETE } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
+const mockIsAssistantMessageForkCopy =
+	isAssistantMessageForkCopy as ReturnType<typeof vi.fn>;
 const mockUpdateAssistantMessageSkillDraftStatus =
 	updateAssistantMessageSkillDraftStatus as ReturnType<typeof vi.fn>;
 
@@ -63,6 +69,7 @@ describe("DELETE /api/conversations/[id]/messages/[messageId]/skill-drafts/[draf
 			id: "conv-1",
 			userId: "owner-user",
 		});
+		mockIsAssistantMessageForkCopy.mockResolvedValue(false);
 		mockUpdateAssistantMessageSkillDraftStatus.mockResolvedValue({
 			id: "draft-1",
 			status: "dismissed",
@@ -100,5 +107,20 @@ describe("DELETE /api/conversations/[id]/messages/[messageId]/skill-drafts/[draf
 
 		expect(response.status).toBe(409);
 		expect(data.errorKey).toBe("skill_draft_transition_conflict");
+	});
+
+	it("rejects dismissing inherited Skill Drafts on copied fork messages", async () => {
+		mockIsAssistantMessageForkCopy.mockResolvedValue(true);
+
+		const response = await DELETE(makeEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(409);
+		expect(data.errorKey).toBe("skillDrafts.inheritedCopyBlocked");
+		expect(mockIsAssistantMessageForkCopy).toHaveBeenCalledWith({
+			conversationId: "conv-1",
+			messageId: "msg-1",
+		});
+		expect(mockUpdateAssistantMessageSkillDraftStatus).not.toHaveBeenCalled();
 	});
 });

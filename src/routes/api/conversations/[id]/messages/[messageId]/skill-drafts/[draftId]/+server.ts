@@ -3,6 +3,7 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import { getConversation } from "$lib/server/services/conversations";
 import {
+	isAssistantMessageForkCopy,
 	SkillDraftTransitionError,
 	updateAssistantMessageSkillDraftStatus,
 } from "$lib/server/services/messages";
@@ -18,6 +19,16 @@ function disabledResponse() {
 	);
 }
 
+function inheritedCopyResponse() {
+	return json(
+		{
+			error: "Inherited Skill Drafts on copied fork messages cannot be changed.",
+			errorKey: "skillDrafts.inheritedCopyBlocked",
+		},
+		{ status: 409 },
+	);
+}
+
 export const DELETE: RequestHandler = async (event) => {
 	requireAuth(event);
 
@@ -29,6 +40,15 @@ export const DELETE: RequestHandler = async (event) => {
 	const conversation = await getConversation(user.id, event.params.id);
 	if (!conversation) {
 		return json({ error: "Conversation not found." }, { status: 404 });
+	}
+
+	if (
+		await isAssistantMessageForkCopy({
+			conversationId: event.params.id,
+			messageId: event.params.messageId,
+		})
+	) {
+		return inheritedCopyResponse();
 	}
 
 	const draft = await updateAssistantMessageSkillDraftStatus({

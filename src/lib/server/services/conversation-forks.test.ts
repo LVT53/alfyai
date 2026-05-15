@@ -17,6 +17,12 @@ import {
 import { dirname, join } from "node:path";
 import * as schema from "$lib/server/db/schema";
 
+const semanticRefreshQueue = vi.hoisted(() => vi.fn());
+
+vi.mock("./semantic-embedding-refresh", () => ({
+	queueArtifactSemanticEmbeddingRefresh: semanticRefreshQueue,
+}));
+
 let dbPath: string;
 let testStoredChatPaths: string[] = [];
 
@@ -318,6 +324,7 @@ describe("conversation forks", () => {
 		dbPath = `/tmp/alfyai-conversation-forks-${randomUUID()}.db`;
 		process.env.DATABASE_PATH = dbPath;
 		testStoredChatPaths = [];
+		semanticRefreshQueue.mockReset();
 		vi.resetModules();
 	});
 
@@ -495,6 +502,142 @@ describe("conversation forks", () => {
 				payloadJson: expect.stringContaining('"sourceAssistantMessageId":"source-assistant-1"'),
 			}),
 		]);
+	});
+
+	it("copies assistant messages as passive history without inherited live metadata", async () => {
+		seedTextConversation();
+		const { sqlite, db } = openDatabase();
+		db.update(schema.messages)
+			.set({
+				metadataJson: JSON.stringify({
+					evidenceStatus: "pending",
+					modelDisplayName: "Source Model",
+					webCitationAudit: {
+						status: "unsupported_citations",
+						retrievedSourceCount: 1,
+						citedUrlCount: 1,
+						supportedCitationCount: 0,
+						unsupportedCitationCount: 1,
+						citations: [],
+					},
+					honchoContext: {
+						source: "snapshot",
+						waitedMs: 20,
+						queuePendingWorkUnits: 0,
+						queueInProgressWorkUnits: 0,
+						fallbackReason: "timeout",
+						snapshotCreatedAt: 123,
+					},
+					honchoSnapshot: {
+						createdAt: 123,
+						summary: "Source-only Honcho summary",
+						messages: [],
+					},
+					skillQuestion: true,
+					pendingSkillNoteIntents: [
+						{
+							operationId: "note-1",
+							kind: "note_intent",
+							action: "create",
+							title: "Inherited note",
+							body: "Should not remain actionable.",
+						},
+					],
+					skillDrafts: [
+						{
+							id: "draft-1",
+							status: "proposed",
+							displayName: "Inherited draft",
+							description: "Should not remain actionable.",
+							instructions: "Do not save from copied history.",
+							activationExamples: ["use the inherited draft"],
+							durationPolicy: "next_message",
+							questionPolicy: "none",
+							notesPolicy: "none",
+							sourceScope: "selected_sources_only",
+						},
+					],
+					skillControl: {
+						envelopeVersion: 1,
+						malformedEnvelopeCount: 0,
+						operations: [
+							{
+								operationId: "draft-op-1",
+								kind: "skill_draft",
+								draft: {
+									id: "draft-1",
+									status: "proposed",
+									displayName: "Inherited draft",
+									description: "Should not remain actionable.",
+									instructions: "Do not save from copied history.",
+									activationExamples: ["use the inherited draft"],
+									durationPolicy: "next_message",
+									questionPolicy: "none",
+									notesPolicy: "none",
+									sourceScope: "selected_sources_only",
+								},
+							},
+						],
+					},
+				}),
+			})
+			.where(eq(schema.messages.id, "source-assistant-1"))
+			.run();
+		sqlite.close();
+		const { createConversationFork } = await import("./conversation-forks");
+
+		const result = await createConversationFork({
+			userId: "user-1",
+			sourceConversationId: "source-conv",
+			sourceMessageId: "source-assistant-1",
+		});
+		const { forkMessages } = readForkRows(result.conversation.id);
+		const copiedAssistantMetadata = JSON.parse(String(forkMessages[1]?.metadataJson));
+
+		expect(copiedAssistantMetadata).toMatchObject({
+			modelDisplayName: "Source Model",
+			webCitationAudit: {
+				status: "unsupported_citations",
+				unsupportedCitationCount: 1,
+			},
+			forkCopy: {
+				sourceMessageId: "source-assistant-1",
+				sourceConversationId: "source-conv",
+			},
+		});
+		expect(copiedAssistantMetadata.evidenceStatus).toBeUndefined();
+		expect(copiedAssistantMetadata.evidenceSummary).toBeUndefined();
+		expect(copiedAssistantMetadata.forkEvidenceSnapshot).toBeUndefined();
+		expect(copiedAssistantMetadata.honchoContext).toBeUndefined();
+		expect(copiedAssistantMetadata.honchoSnapshot).toBeUndefined();
+		expect(copiedAssistantMetadata.skillQuestion).toBeUndefined();
+		expect(copiedAssistantMetadata.pendingSkillNoteIntents).toBeUndefined();
+		expect(copiedAssistantMetadata.skillDrafts).toBeUndefined();
+		expect(copiedAssistantMetadata.skillControl).toBeUndefined();
+
+		const { listMessages, getMessageEvidenceState } = await import("./messages");
+		const listedMessages = await listMessages(result.conversation.id);
+		expect(listedMessages[1]).toMatchObject({
+			modelDisplayName: "Source Model",
+			webCitationAudit: expect.objectContaining({
+				status: "unsupported_citations",
+			}),
+			forkCopy: expect.objectContaining({
+				sourceMessageId: "source-assistant-1",
+			}),
+		});
+		expect(listedMessages[1]?.evidencePending).toBe(false);
+		expect(listedMessages[1]?.honchoContext).toBeUndefined();
+		expect(listedMessages[1]?.skillQuestion).toBeUndefined();
+		expect(listedMessages[1]?.pendingSkillNoteIntents).toBeUndefined();
+		expect(listedMessages[1]?.skillDrafts).toBeUndefined();
+		expect(listedMessages[1]?.skillControl).toBeUndefined();
+		await expect(
+			getMessageEvidenceState(result.conversation.id, forkMessages[1]?.id ?? ""),
+		).resolves.toMatchObject({
+			status: "none",
+			evidenceSummary: null,
+		});
 	});
 
 	it("uses lineage-based fork sequencing for repeated forks from the same assistant response", async () => {
@@ -1065,6 +1208,7 @@ describe("conversation forks", () => {
 	it("fails clearly without creating a fork when copied history has non-terminal file-production work", async () => {
 		seedTextConversation();
 		const { sqlite, db } = openDatabase();
+		const freshJobTime = new Date();
 		db.insert(schema.fileProductionJobs)
 			.values({
 				id: "source-job-queued",
@@ -1080,8 +1224,8 @@ describe("conversation forks", () => {
 				requestJson: JSON.stringify({ requestedOutputs: [{ filename: "queued.pdf" }] }),
 				sourceMode: "program",
 				documentIntent: "report",
-				createdAt: new Date("2026-05-15T10:00:02.100Z"),
-				updatedAt: new Date("2026-05-15T10:00:02.100Z"),
+				createdAt: freshJobTime,
+				updatedAt: freshJobTime,
 			})
 			.run();
 		sqlite.close();
@@ -1105,6 +1249,61 @@ describe("conversation forks", () => {
 			fileProductionJobs: [],
 			generatedArtifacts: [],
 		});
+	});
+
+	it("reconciles stale file-production work before fork gating", async () => {
+		seedTextConversation();
+		const { sqlite, db } = openDatabase();
+		const staleJobTime = new Date("2026-05-03T19:43:00.000Z");
+		db.insert(schema.fileProductionJobs)
+			.values({
+				id: "source-job-stale-queued",
+				conversationId: "source-conv",
+				assistantMessageId: "source-assistant-1",
+				userId: "user-1",
+				title: "Stale queued report",
+				status: "queued",
+				stage: "rendering",
+				origin: "tool",
+				retryable: false,
+				idempotencyKey: "source-stale-queued-idempotency-key",
+				requestJson: JSON.stringify({ requestedOutputs: [{ filename: "queued.pdf" }] }),
+				sourceMode: "program",
+				documentIntent: "report",
+				createdAt: staleJobTime,
+				updatedAt: staleJobTime,
+			})
+			.run();
+		sqlite.close();
+		const { createConversationFork } = await import("./conversation-forks");
+
+		const result = await createConversationFork({
+			userId: "user-1",
+			sourceConversationId: "source-conv",
+			sourceMessageId: "source-assistant-1",
+		});
+		const sourceRows = readGeneratedWorkRows("source-conv");
+		const forkRows = readGeneratedWorkRows(result.conversation.id);
+
+		expect(result.forkOrigin.forkSequence).toBe(1);
+		expect(sourceRows.fileProductionJobs).toEqual([
+			expect.objectContaining({
+				id: "source-job-stale-queued",
+				status: "failed",
+				errorCode: "worker_queue_timeout",
+				retryable: true,
+			}),
+		]);
+		expect(forkRows.fileProductionJobs).toEqual([
+			expect.objectContaining({
+				conversationId: result.conversation.id,
+				title: "Stale queued report",
+				status: "failed",
+				errorCode: "worker_queue_timeout",
+				retryable: true,
+			}),
+		]);
+		expect(forkRows.fileProductionJobs[0]?.id).not.toBe("source-job-stale-queued");
 	});
 
 	it("snapshots cancelled file-production jobs as terminal copied history", async () => {
@@ -1375,6 +1574,120 @@ describe("conversation forks", () => {
 					link.linkType === "attached_to_conversation",
 			),
 		).toHaveLength(1);
+		expect(semanticRefreshQueue).toHaveBeenCalledTimes(1);
+		expect(semanticRefreshQueue).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: copiedArtifact?.id,
+				userId: "user-1",
+				conversationId: result.conversation.id,
+				type: "generated_output",
+				contentText: "Generated report content",
+				metadata: expect.objectContaining({
+					forkedFromArtifactId: "source-generated-current",
+					originConversationId: result.conversation.id,
+					originAssistantMessageId: copiedAssistantMessageId,
+				}),
+			}),
+		);
+	});
+
+	it("does not queue semantic refresh for generated-output snapshots when the fork rolls back", async () => {
+		seedTextConversation();
+		writeStoredChatFile("source-conv/source-file-1.txt", "rolled back bytes");
+		const { sqlite, db } = openDatabase();
+		const createdAt = new Date("2026-05-15T10:00:02.500Z");
+		db.insert(schema.users)
+			.values({
+				id: "user-2",
+				email: "other@example.com",
+				passwordHash: "hash",
+			})
+			.run();
+		db.insert(schema.chatGeneratedFiles)
+			.values({
+				id: "source-file-1",
+				conversationId: "source-conv",
+				assistantMessageId: "source-assistant-1",
+				userId: "user-1",
+				filename: "report.txt",
+				mimeType: "text/plain",
+				sizeBytes: "rolled back bytes".length,
+				storagePath: "source-conv/source-file-1.txt",
+				createdAt,
+			})
+			.run();
+		db.insert(schema.artifacts)
+			.values([
+				{
+					id: "source-generated-current",
+					userId: "user-1",
+					conversationId: "source-conv",
+					type: "generated_output",
+					retrievalClass: "durable",
+					name: "Generated report",
+					mimeType: "text/plain",
+					contentText: "Generated report content",
+					metadataJson: JSON.stringify({
+						originalChatFileId: "source-file-1",
+						assistantMessageId: "source-assistant-1",
+						documentFamilyId: "source-family-1",
+						documentFamilyStatus: "active",
+						originConversationId: "source-conv",
+						originAssistantMessageId: "source-assistant-1",
+					}),
+					createdAt,
+					updatedAt: createdAt,
+				},
+				{
+					id: "other-user-source-doc",
+					userId: "user-2",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "Other.pdf",
+					createdAt,
+					updatedAt: createdAt,
+				},
+			])
+			.run();
+		db.insert(schema.artifactLinks)
+			.values({
+				id: "unauthorized-source-message-link",
+				userId: "user-1",
+				artifactId: "other-user-source-doc",
+				conversationId: "source-conv",
+				messageId: "source-user-1",
+				linkType: "attached_to_conversation",
+				createdAt,
+			})
+			.run();
+		sqlite.close();
+		const storedPathsBeforeFork = listStoredChatFilePaths();
+		const { createConversationFork } = await import("./conversation-forks");
+
+		await expect(
+			createConversationFork({
+				userId: "user-1",
+				sourceConversationId: "source-conv",
+				sourceMessageId: "source-assistant-1",
+			}),
+		).rejects.toMatchObject({
+			code: "required_artifact_unauthorized",
+			status: 403,
+		});
+
+		expect(semanticRefreshQueue).not.toHaveBeenCalled();
+		expect(readForkRowsAfterFailure()).toEqual({
+			forkConversations: [],
+			forkMessages: [],
+			generatedFiles: [],
+			fileProductionJobs: [],
+			generatedArtifacts: [],
+		});
+		expect(
+			listStoredChatFilePaths().filter(
+				(path) => !storedPathsBeforeFork.includes(path),
+			),
+		).toEqual([]);
 	});
 
 	it("fails clearly when binary-backed generated-output artifacts have no copied chat file", async () => {

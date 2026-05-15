@@ -40,7 +40,7 @@ describe('ConversationItem Component', () => {
 		expect(screen.queryByText('2 mins ago')).not.toBeInTheDocument();
 	});
 
-	it('renders a compact accessible fork indicator for fork conversations', async () => {
+	it('renders a compact non-interactive fork indicator for fork conversations', async () => {
 		render(ConversationItemWrapper, {
 			conversation: {
 				...mockConversation,
@@ -56,9 +56,12 @@ describe('ConversationItem Component', () => {
 		const indicator = screen.getByLabelText('Fork of Source title, fork 2');
 		expect(indicator).toBeInTheDocument();
 		expect(indicator).toHaveAttribute('title', 'Fork of Source title, fork 2');
-		expect(indicator).toHaveAttribute('type', 'button');
-		indicator.focus();
-		expect(indicator).toHaveFocus();
+		expect(indicator.tagName.toLowerCase()).not.toBe('button');
+		expect(indicator).not.toHaveAttribute('type');
+		expect(indicator).not.toHaveAttribute('tabindex');
+		expect(indicator.tabIndex).toBe(-1);
+		expect(screen.queryByRole('button', { name: 'Fork of Source title, fork 2' })).not.toBeInTheDocument();
+		expect(indicator.querySelector('circle')).not.toBeInTheDocument();
 		expect(screen.queryByRole('tree')).not.toBeInTheDocument();
 	});
 

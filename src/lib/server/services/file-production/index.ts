@@ -104,6 +104,14 @@ export interface RecoverStaleFileProductionAttemptsInput {
 	now?: Date;
 }
 
+export interface ReconcileStaleFileProductionJobsInput {
+	userId: string;
+	conversationId: string;
+	assistantMessageIds?: string[];
+	staleBefore?: Date;
+	now?: Date;
+}
+
 export interface RetryFileProductionJobInput {
 	userId: string;
 	jobId: string;
@@ -849,6 +857,208 @@ export async function recoverStaleFileProductionAttempts(
 	return { recovered };
 }
 
+export async function reconcileStaleFileProductionJobs(
+	input: ReconcileStaleFileProductionJobsInput
+): Promise<{ recovered: number }> {
+	const now = input.now ?? new Date();
+	const staleBefore =
+		input.staleBefore ?? new Date(now.getTime() - DEFAULT_STALE_ATTEMPT_MS);
+	const assistantMessageIds = input.assistantMessageIds
+		? Array.from(new Set(input.assistantMessageIds.filter(Boolean)))
+		: null;
+	if (assistantMessageIds && assistantMessageIds.length === 0) {
+		return { recovered: 0 };
+	}
+	const scopedJobWhere = (...conditions: Parameters<typeof and>) =>
+		assistantMessageIds
+			? and(
+					eq(fileProductionJobs.userId, input.userId),
+					eq(fileProductionJobs.conversationId, input.conversationId),
+					inArray(fileProductionJobs.assistantMessageId, assistantMessageIds),
+					...conditions
+				)
+			: and(
+					eq(fileProductionJobs.userId, input.userId),
+					eq(fileProductionJobs.conversationId, input.conversationId),
+					...conditions
+				);
+
+	const recovered = db.transaction((tx) => {
+		let recoveredCount = 0;
+		const staleQueuedJobs = tx
+			.select({ jobId: fileProductionJobs.id })
+			.from(fileProductionJobs)
+			.where(
+				scopedJobWhere(
+					eq(fileProductionJobs.status, 'queued'),
+					lt(fileProductionJobs.updatedAt, staleBefore)
+				)
+			)
+			.all();
+
+		for (const job of staleQueuedJobs) {
+			const result = tx
+				.update(fileProductionJobs)
+				.set({
+					status: 'failed',
+					stage: null,
+					retryable: true,
+					errorCode: 'worker_queue_timeout',
+					errorMessage: 'File production worker did not start before the queue timeout.',
+					completedAt: now,
+					updatedAt: now,
+				})
+				.where(
+					and(
+						eq(fileProductionJobs.id, job.jobId),
+						eq(fileProductionJobs.status, 'queued')
+					)
+				)
+				.run();
+			if (result.changes > 0) {
+				recoveredCount += 1;
+			}
+		}
+
+		const staleRunningJobs = tx
+			.select({
+				job: fileProductionJobs,
+				attempt: fileProductionJobAttempts,
+			})
+			.from(fileProductionJobs)
+			.leftJoin(
+				fileProductionJobAttempts,
+				eq(fileProductionJobAttempts.id, fileProductionJobs.currentAttemptId)
+			)
+			.where(
+				scopedJobWhere(
+					eq(fileProductionJobs.status, 'running'),
+					lt(fileProductionJobs.updatedAt, staleBefore)
+				)
+			)
+			.all();
+
+		for (const row of staleRunningJobs) {
+			const hasLostAttemptState =
+				!row.job.currentAttemptId ||
+				!row.attempt ||
+				row.attempt.status !== 'running' ||
+				row.attempt.heartbeatAt === null;
+			if (!hasLostAttemptState) {
+				continue;
+			}
+
+			if (row.attempt?.status === 'running') {
+				tx.update(fileProductionJobAttempts)
+					.set({
+						status: 'failed',
+						finishedAt: now,
+						errorCode: 'worker_state_lost',
+						errorMessage: 'File production worker state was lost before finishing.',
+						retryable: true,
+						updatedAt: now,
+					})
+					.where(
+						and(
+							eq(fileProductionJobAttempts.id, row.attempt.id),
+							eq(fileProductionJobAttempts.jobId, row.job.id),
+							eq(fileProductionJobAttempts.status, 'running')
+						)
+					)
+					.run();
+			}
+
+			const result = tx
+				.update(fileProductionJobs)
+				.set({
+					status: 'failed',
+					stage: null,
+					retryable: true,
+					errorCode: 'worker_state_lost',
+					errorMessage: 'File production worker state was lost before finishing.',
+					completedAt: now,
+					updatedAt: now,
+				})
+				.where(
+					and(
+						eq(fileProductionJobs.id, row.job.id),
+						eq(fileProductionJobs.status, 'running')
+					)
+				)
+				.run();
+			if (result.changes > 0) {
+				recoveredCount += 1;
+			}
+		}
+
+		const staleAttempts = tx
+			.select({
+				attemptId: fileProductionJobAttempts.id,
+				jobId: fileProductionJobAttempts.jobId,
+			})
+			.from(fileProductionJobAttempts)
+			.innerJoin(fileProductionJobs, eq(fileProductionJobs.id, fileProductionJobAttempts.jobId))
+			.where(
+				scopedJobWhere(
+					eq(fileProductionJobs.status, 'running'),
+					eq(fileProductionJobs.currentAttemptId, fileProductionJobAttempts.id),
+					eq(fileProductionJobAttempts.status, 'running'),
+					lt(fileProductionJobAttempts.heartbeatAt, staleBefore)
+				)
+			)
+			.all();
+
+		for (const attempt of staleAttempts) {
+			const attemptResult = tx
+				.update(fileProductionJobAttempts)
+				.set({
+					status: 'failed',
+					finishedAt: now,
+					errorCode: 'worker_heartbeat_timeout',
+					errorMessage: 'File production worker stopped before finishing.',
+					retryable: true,
+					updatedAt: now,
+				})
+				.where(
+					and(
+						eq(fileProductionJobAttempts.id, attempt.attemptId),
+						eq(fileProductionJobAttempts.jobId, attempt.jobId),
+						eq(fileProductionJobAttempts.status, 'running')
+					)
+				)
+				.run();
+
+			if (attemptResult.changes === 0) {
+				continue;
+			}
+
+			tx.update(fileProductionJobs)
+				.set({
+					status: 'failed',
+					stage: null,
+					retryable: true,
+					errorCode: 'worker_heartbeat_timeout',
+					errorMessage: 'File production worker stopped before finishing.',
+					completedAt: now,
+					updatedAt: now,
+				})
+				.where(
+					and(
+						eq(fileProductionJobs.id, attempt.jobId),
+						eq(fileProductionJobs.status, 'running'),
+						eq(fileProductionJobs.currentAttemptId, attempt.attemptId)
+					)
+				)
+				.run();
+			recoveredCount += 1;
+		}
+
+		return recoveredCount;
+	});
+
+	return { recovered };
+}
+
 export async function retryFileProductionJob(
 	input: RetryFileProductionJobInput
 ): Promise<FileProductionJob | null> {
@@ -1395,7 +1605,7 @@ export function wakeFileProductionWorker(): void {
 	}
 
 	drainPromise = Promise.resolve()
-		.then(drainFileProductionWorker)
+		.then(() => drainFileProductionWorker())
 		.catch((error) => {
 			console.error('[FILE_PRODUCTION] Worker drain failed', { error });
 		})

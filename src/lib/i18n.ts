@@ -474,6 +474,8 @@ const dictionary = {
 		"skillDrafts.publishError": "Failed to publish skill draft.",
 		"skillDrafts.publishDisabled":
 			"Chat skill drafts can only be saved privately. Admin-wide skills must be reviewed in admin settings.",
+		"skillDrafts.inheritedCopyBlocked":
+			"Inherited skill drafts from copied fork history cannot be changed.",
 		"skillDrafts.notFound": "Skill draft not found.",
 		"skills.notFound": "Skill not found.",
 		"composerCommands.skill.label": "Skill",
@@ -1167,6 +1169,8 @@ const dictionary = {
 			"A document or attachment needed for this fork is not available to your account.",
 		"fork.errors.requiredGeneratedWorkUnavailable":
 			"Generated work needed for this fork is no longer available.",
+		"fork.errors.sequenceConflict":
+			"Another fork was created at the same time. Please try again.",
 		"fork.sourceUnavailable": "Source conversation unavailable",
 		"fork.activeStreamGuard":
 			"Wait for the current response to finish, or stop it, before creating a fork.",
@@ -1790,6 +1794,8 @@ const dictionary = {
 		"skillDrafts.publishError": "Nem sikerült publikálni a skill vázlatot.",
 		"skillDrafts.publishDisabled":
 			"A chatbeli skill vázlatok csak privátként menthetők. Az adminszintű skilleket az admin beállításokban kell átnézni.",
+		"skillDrafts.inheritedCopyBlocked":
+			"A fork másolt előzményeiből örökölt skill vázlatok nem módosíthatók.",
 		"skillDrafts.notFound": "A skill vázlat nem található.",
 		"skills.notFound": "A skill nem található.",
 		"composerCommands.skill.label": "Skill",
@@ -2402,6 +2408,8 @@ const dictionary = {
 			"Az elágazáshoz szükséges dokumentum vagy csatolmány nem érhető el a fiókod számára.",
 		"fork.errors.requiredGeneratedWorkUnavailable":
 			"Az elágazáshoz szükséges generált munka már nem érhető el.",
+		"fork.errors.sequenceConflict":
+			"Egy másik elágazás ugyanebben az időben jött létre. Próbáld újra.",
 		"fork.sourceUnavailable": "A forrásbeszélgetés nem érhető el",
 		"fork.activeStreamGuard":
 			"Várd meg az aktuális választ, vagy állítsd le, mielőtt elágazást hozol létre.",

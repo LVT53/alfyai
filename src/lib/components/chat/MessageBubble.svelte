@@ -357,17 +357,18 @@
 			{/if}
 			{#if sourceForks && sourceForks.count > 0}
 				<div
-					class="fork-origin-marker"
+					class="fork-origin-marker fork-lineage-marker"
 					data-testid="fork-origin-marker"
 					role="note"
 					aria-label={$t('fork.originMarkerLabel')}
 				>
-					<div class="fork-origin-icon" aria-hidden="true">
+					<div class="fork-lineage-icon" aria-hidden="true">
 						<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<circle cx="18" cy="18" r="3"/>
-							<circle cx="6" cy="6" r="3"/>
-							<path d="M6 9v2a7 7 0 0 0 7 7h2"/>
-							<path d="M6 9v1a7 7 0 0 1 7 7"/>
+							<path d="M4 12h5"/>
+							<path d="M9 12c4 0 5-6 10-6"/>
+							<path d="M16 3l3 3-3 3"/>
+							<path d="M9 12c4 0 5 6 10 6"/>
+							<path d="M16 15l3 3-3 3"/>
 						</svg>
 					</div>
 					{#if sourceForks.count === 1 && sourceForks.forks[0]}
@@ -514,10 +515,11 @@
 						<span class="mini-spinner" aria-hidden="true"></span>
 					{:else}
 						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<circle cx="18" cy="18" r="3"/>
-							<circle cx="6" cy="6" r="3"/>
-							<path d="M6 9v2a7 7 0 0 0 7 7h2"/>
-							<path d="M6 9v1a7 7 0 0 1 7 7"/>
+							<path d="M4 12h5"/>
+							<path d="M9 12c4 0 5-6 10-6"/>
+							<path d="M16 3l3 3-3 3"/>
+							<path d="M9 12c4 0 5 6 10 6"/>
+							<path d="M16 15l3 3-3 3"/>
 						</svg>
 					{/if}
 				</button>
@@ -711,9 +713,11 @@
 		margin-top: var(--space-md);
 	}
 
-	.fork-origin-marker {
+	.fork-lineage-marker {
 		display: inline-flex;
+		width: fit-content;
 		max-width: 100%;
+		align-self: flex-start;
 		align-items: center;
 		flex-wrap: wrap;
 		gap: var(--space-xs);
@@ -728,7 +732,7 @@
 		color: var(--text-secondary);
 	}
 
-	.fork-origin-icon {
+	.fork-lineage-icon {
 		display: inline-flex;
 		flex: 0 0 auto;
 		color: var(--text-muted);

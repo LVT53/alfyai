@@ -433,6 +433,26 @@ export async function getAssistantMessageSkillDraft(params: {
 	return drafts.find((draft) => draft.id === params.draftId) ?? null;
 }
 
+export async function isAssistantMessageForkCopy(params: {
+	conversationId: string;
+	messageId: string;
+}): Promise<boolean> {
+	const [row] = await db
+		.select({ metadataJson: messages.metadataJson, role: messages.role })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.id, params.messageId),
+				eq(messages.conversationId, params.conversationId),
+				eq(messages.role, "assistant"),
+			),
+		)
+		.limit(1);
+
+	if (!row || row.role !== "assistant") return false;
+	return Boolean(parseMetadata(row.metadataJson)?.forkCopy);
+}
+
 export async function updateAssistantMessageSkillDraftStatus(params: {
 	conversationId: string;
 	messageId: string;
@@ -546,6 +566,7 @@ export async function getLatestHonchoMetadata(conversationId: string): Promise<{
 	for (const row of rows) {
 		const metadata = parseMetadata(row.metadataJson);
 		if (!metadata) continue;
+		if (metadata.forkCopy) continue;
 
 		if (!honchoContext && metadata.honchoContext) {
 			honchoContext = metadata.honchoContext;

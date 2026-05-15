@@ -53,6 +53,9 @@ describe('chat lifecycle guards', () => {
 		expect(getForkCreationErrorKey('required_generated_work_unavailable')).toBe(
 			'fork.errors.requiredGeneratedWorkUnavailable',
 		);
+		expect(getForkCreationErrorKey('fork_sequence_conflict')).toBe(
+			'fork.errors.sequenceConflict',
+		);
 		expect(getForkCreationErrorKey('unknown_code')).toBeNull();
 	});
 

@@ -13,6 +13,7 @@ const forkCreationErrorKeys: Record<string, I18nKey> = {
 	required_artifact_unauthorized: 'fork.errors.requiredArtifactUnauthorized',
 	required_generated_work_unavailable:
 		'fork.errors.requiredGeneratedWorkUnavailable',
+	fork_sequence_conflict: 'fork.errors.sequenceConflict',
 };
 
 export function hasForkedAssistantInRange(

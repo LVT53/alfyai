@@ -95,6 +95,7 @@ describe('i18n composer and skills namespaces', () => {
 			'fork.errors.requiredArtifactUnauthorized',
 			'fork.errors.requiredArtifactUnavailable',
 			'fork.errors.requiredGeneratedWorkUnavailable',
+			'fork.errors.sequenceConflict',
 			'fork.errors.sourceConversationNotFound',
 			'fork.errors.stoppedSourceMessage',
 		];
@@ -103,5 +104,12 @@ describe('i18n composer and skills namespaces', () => {
 			expect(keys.en).toContain(key);
 			expect(keys.hu).toContain(key);
 		}
+	});
+
+	it('localizes the inherited Skill Draft copy guard', () => {
+		const keys = collectDictionaryKeys();
+
+		expect(keys.en).toContain('skillDrafts.inheritedCopyBlocked');
+		expect(keys.hu).toContain('skillDrafts.inheritedCopyBlocked');
 	});
 });

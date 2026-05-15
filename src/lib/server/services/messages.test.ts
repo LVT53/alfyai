@@ -370,6 +370,81 @@ describe("messages Honcho metadata", () => {
 		});
 	});
 
+	it("ignores Honcho metadata inherited on copied fork messages", async () => {
+		mockRows.push({
+			id: "assistant-copied",
+			conversationId: "fork-conv-1",
+			role: "assistant",
+			content: "Copied source answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				forkCopy: {
+					sourceMessageId: "source-assistant-1",
+					sourceConversationId: "source-conv-1",
+					sourceRole: "assistant",
+					sourceCreatedAt: "2026-03-29T11:00:00.000Z",
+				},
+				honchoContext: {
+					source: "snapshot",
+					waitedMs: 100,
+					queuePendingWorkUnits: 1,
+					queueInProgressWorkUnits: 0,
+					fallbackReason: "timeout",
+					snapshotCreatedAt: 222,
+				},
+				honchoSnapshot: {
+					createdAt: 222,
+					summary: "Source conversation snapshot",
+					messages: [
+						{
+							role: "assistant",
+							content: "Source-only memory",
+							createdAt: Date.parse("2026-03-29T11:00:00.000Z"),
+						},
+					],
+				},
+			}),
+		});
+
+		const { getLatestHonchoMetadata } = await import("./messages");
+
+		await expect(getLatestHonchoMetadata("fork-conv-1")).resolves.toEqual({
+			honchoContext: null,
+			honchoSnapshot: null,
+		});
+	});
+
+	it("identifies assistant messages copied into forks", async () => {
+		mockRows.push({
+			id: "assistant-copied",
+			conversationId: "fork-conv-1",
+			role: "assistant",
+			content: "Copied source answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				forkCopy: {
+					sourceMessageId: "source-assistant-1",
+					sourceConversationId: "source-conv-1",
+					sourceRole: "assistant",
+					sourceCreatedAt: "2026-03-29T11:00:00.000Z",
+				},
+			}),
+		});
+
+		const { isAssistantMessageForkCopy } = await import("./messages");
+
+		await expect(
+			isAssistantMessageForkCopy({
+				conversationId: "fork-conv-1",
+				messageId: "assistant-copied",
+			}),
+		).resolves.toBe(true);
+	});
+
 	it("persists and returns Skill Question metadata on assistant messages", async () => {
 		const { createMessage } = await import("./messages");
 

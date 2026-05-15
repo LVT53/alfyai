@@ -538,6 +538,251 @@ describe('file production service', () => {
 		});
 	});
 
+	it('reconciles stale queued and running jobs while preserving fresh queued work', async () => {
+		const {
+			claimNextFileProductionJob,
+			createFileProductionJob,
+			listConversationFileProductionJobs,
+			reconcileStaleFileProductionJobs,
+		} = await import('./index');
+		const runningJob = await createFileProductionJob({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			assistantMessageId: 'assistant-1',
+			title: 'Stale running fork blocker',
+			origin: 'unified_produce',
+			now: new Date('2026-05-03T19:41:00.000Z'),
+		});
+		await claimNextFileProductionJob({
+			workerId: 'worker-stale',
+			now: new Date('2026-05-03T19:42:00.000Z'),
+		});
+		const staleQueuedJob = await createFileProductionJob({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			assistantMessageId: 'assistant-1',
+			title: 'Stale queued fork blocker',
+			origin: 'unified_produce',
+			now: new Date('2026-05-03T19:43:00.000Z'),
+		});
+		const freshQueuedJob = await createFileProductionJob({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			assistantMessageId: 'assistant-1',
+			title: 'Fresh queued fork blocker',
+			origin: 'unified_produce',
+			now: new Date('2026-05-03T20:05:00.000Z'),
+		});
+
+		const recovered = await reconcileStaleFileProductionJobs({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			assistantMessageIds: ['assistant-1'],
+			staleBefore: new Date('2026-05-03T20:00:00.000Z'),
+			now: new Date('2026-05-03T20:10:00.000Z'),
+		});
+
+		expect(recovered).toEqual({ recovered: 2 });
+		const jobs = await listConversationFileProductionJobs('user-1', 'conv-1');
+		expect(jobs.find((job) => job.id === runningJob.id)).toMatchObject({
+			status: 'failed',
+			error: {
+				code: 'worker_heartbeat_timeout',
+				retryable: true,
+			},
+		});
+		expect(jobs.find((job) => job.id === staleQueuedJob.id)).toMatchObject({
+			status: 'failed',
+			error: {
+				code: 'worker_queue_timeout',
+				retryable: true,
+			},
+		});
+		expect(jobs.find((job) => job.id === freshQueuedJob.id)).toMatchObject({
+			status: 'queued',
+			error: null,
+		});
+	});
+
+	it('reconciles stale running jobs with lost attempt state while preserving fresh running jobs', async () => {
+		const { db } = await import('$lib/server/db');
+		const {
+			listConversationFileProductionJobs,
+			reconcileStaleFileProductionJobs,
+		} = await import('./index');
+		const staleTime = new Date('2026-05-03T19:41:00.000Z');
+		const freshTime = new Date('2026-05-03T20:05:00.000Z');
+		await db.insert(schema.fileProductionJobs).values([
+			{
+				id: 'running-no-attempt',
+				conversationId: 'conv-1',
+				assistantMessageId: 'assistant-1',
+				userId: 'user-1',
+				title: 'Running without attempt',
+				status: 'running',
+				stage: 'rendering',
+				origin: 'unified_produce',
+				currentAttemptId: null,
+				createdAt: staleTime,
+				updatedAt: staleTime,
+			},
+			{
+				id: 'running-missing-attempt',
+				conversationId: 'conv-1',
+				assistantMessageId: 'assistant-1',
+				userId: 'user-1',
+				title: 'Running missing attempt',
+				status: 'running',
+				stage: 'rendering',
+				origin: 'unified_produce',
+				currentAttemptId: 'missing-attempt',
+				createdAt: staleTime,
+				updatedAt: staleTime,
+			},
+			{
+				id: 'running-failed-attempt',
+				conversationId: 'conv-1',
+				assistantMessageId: 'assistant-1',
+				userId: 'user-1',
+				title: 'Running failed attempt',
+				status: 'running',
+				stage: 'rendering',
+				origin: 'unified_produce',
+				currentAttemptId: 'failed-attempt',
+				createdAt: staleTime,
+				updatedAt: staleTime,
+			},
+			{
+				id: 'running-null-heartbeat',
+				conversationId: 'conv-1',
+				assistantMessageId: 'assistant-1',
+				userId: 'user-1',
+				title: 'Running null heartbeat',
+				status: 'running',
+				stage: 'rendering',
+				origin: 'unified_produce',
+				currentAttemptId: 'null-heartbeat-attempt',
+				createdAt: staleTime,
+				updatedAt: staleTime,
+			},
+			{
+				id: 'fresh-running',
+				conversationId: 'conv-1',
+				assistantMessageId: 'assistant-1',
+				userId: 'user-1',
+				title: 'Fresh running',
+				status: 'running',
+				stage: 'rendering',
+				origin: 'unified_produce',
+				currentAttemptId: 'fresh-attempt',
+				createdAt: freshTime,
+				updatedAt: freshTime,
+			},
+			{
+				id: 'fresh-running-no-attempt',
+				conversationId: 'conv-1',
+				assistantMessageId: 'assistant-1',
+				userId: 'user-1',
+				title: 'Fresh running without attempt',
+				status: 'running',
+				stage: 'rendering',
+				origin: 'unified_produce',
+				currentAttemptId: null,
+				createdAt: freshTime,
+				updatedAt: freshTime,
+			},
+		]);
+		await db.insert(schema.fileProductionJobAttempts).values([
+			{
+				id: 'failed-attempt',
+				jobId: 'running-failed-attempt',
+				attemptNumber: 1,
+				status: 'failed',
+				stage: 'rendering',
+				workerId: 'worker-lost',
+				claimedAt: staleTime,
+				heartbeatAt: staleTime,
+				startedAt: staleTime,
+				finishedAt: staleTime,
+				errorCode: 'renderer_timeout',
+				errorMessage: 'Renderer timed out.',
+				retryable: true,
+				createdAt: staleTime,
+				updatedAt: staleTime,
+			},
+			{
+				id: 'null-heartbeat-attempt',
+				jobId: 'running-null-heartbeat',
+				attemptNumber: 1,
+				status: 'running',
+				stage: 'rendering',
+				workerId: 'worker-lost',
+				claimedAt: staleTime,
+				heartbeatAt: null,
+				startedAt: staleTime,
+				finishedAt: null,
+				createdAt: staleTime,
+				updatedAt: staleTime,
+			},
+			{
+				id: 'fresh-attempt',
+				jobId: 'fresh-running',
+				attemptNumber: 1,
+				status: 'running',
+				stage: 'rendering',
+				workerId: 'worker-fresh',
+				claimedAt: freshTime,
+				heartbeatAt: freshTime,
+				startedAt: freshTime,
+				finishedAt: null,
+				createdAt: freshTime,
+				updatedAt: freshTime,
+			},
+		]);
+
+		const recovered = await reconcileStaleFileProductionJobs({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			assistantMessageIds: ['assistant-1'],
+			staleBefore: new Date('2026-05-03T20:00:00.000Z'),
+			now: new Date('2026-05-03T20:10:00.000Z'),
+		});
+
+		expect(recovered).toEqual({ recovered: 4 });
+		const jobs = await listConversationFileProductionJobs('user-1', 'conv-1');
+		for (const jobId of [
+			'running-no-attempt',
+			'running-missing-attempt',
+			'running-failed-attempt',
+			'running-null-heartbeat',
+		]) {
+			expect(jobs.find((job) => job.id === jobId)).toMatchObject({
+				status: 'failed',
+				error: {
+					code: 'worker_state_lost',
+					retryable: true,
+				},
+			});
+		}
+		expect(jobs.find((job) => job.id === 'fresh-running')).toMatchObject({
+			status: 'running',
+			error: null,
+		});
+		expect(jobs.find((job) => job.id === 'fresh-running-no-attempt')).toMatchObject({
+			status: 'running',
+			error: null,
+		});
+		const [nullHeartbeatAttempt] = await db
+			.select()
+			.from(schema.fileProductionJobAttempts)
+			.where(eq(schema.fileProductionJobAttempts.id, 'null-heartbeat-attempt'));
+		expect(nullHeartbeatAttempt).toMatchObject({
+			status: 'failed',
+			errorCode: 'worker_state_lost',
+			retryable: true,
+		});
+	});
+
 	it('retries a retryable failed job under the same job identity with a new attempt number', async () => {
 		const {
 			claimNextFileProductionJob,
