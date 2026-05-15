@@ -115,7 +115,7 @@
 <div
 	data-testid="project-drop-target"
 	data-project-id={project.id}
-	class="group flex min-h-[32px] cursor-pointer select-none items-center rounded-lg border border-transparent pr-0.5 pl-1 transition-colors duration-150 hover:border-border-subtle hover:bg-surface-elevated"
+	class="group flex min-h-[32px] cursor-pointer select-none items-center rounded-lg border border-transparent pr-0 pl-1 transition-colors duration-150 hover:border-border-subtle hover:bg-surface-elevated"
 	class:project-row-drop-active={dropActive}
 	onclick={() => onToggle?.({ id: project.id, expanded: !expanded })}
 	onkeydown={(event) => event.key === 'Enter' && onToggle?.({ id: project.id, expanded: !expanded })}

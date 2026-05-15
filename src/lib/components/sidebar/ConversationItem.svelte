@@ -213,7 +213,7 @@
   data-testid="conversation-item"
 	data-conversation-id={conversation.id}
   class="group relative flex min-h-[32px] cursor-pointer items-center justify-between rounded-lg border border-transparent transition-colors duration-150 hover:border-border-subtle hover:bg-surface-elevated focus-visible:bg-surface-elevated focus-visible:outline-none"
-	style="padding: 0 2px 0 6px; pointer-events: auto;"
+	style="padding: 0 0 0 6px; pointer-events: auto;"
   class:bg-surface-elevated={active}
   class:border-accent={active}
   class:shadow-sm={active}
@@ -248,7 +248,7 @@
 		{/if}
 	</div>
 
-	<div class="relative flex min-h-[32px] min-w-[32px] flex-shrink-0 items-center justify-center">
+	<div class="relative flex min-h-[32px] min-w-[28px] flex-shrink-0 items-center justify-center">
 		<button
 			bind:this={triggerRef}
 			class="btn-icon-bare flex min-h-[28px] min-w-[28px] flex-shrink-0 items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-icon-primary hover:opacity-100 focus-visible:bg-surface-page focus-visible:opacity-100 focus-visible:outline-none md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
