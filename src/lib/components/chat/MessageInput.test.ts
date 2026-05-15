@@ -244,6 +244,23 @@ describe('MessageInput', () => {
 		);
 	});
 
+	it('selects the active command with Tab before moving focus', async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			deepResearchEnabled: true,
+			onSend: sendSpy,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/research' } });
+		await fireEvent.keyDown(input, { key: 'Tab', shiftKey: false });
+
+		expect(sendSpy).not.toHaveBeenCalled();
+		expect(input.value).toBe('');
+		expect(getByRole('button', { name: 'Deep Research' })).toHaveClass('composer-icon--active');
+	});
+
 	it('announces the active command row while navigating the tray', async () => {
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
 			composerCommandRegistryEnabled: true,
