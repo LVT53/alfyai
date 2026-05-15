@@ -28,6 +28,7 @@ export const SIDEBAR_DESKTOP_BREAKPOINT = 1024;
 export const SIDEBAR_MIN_WIDTH = 240;
 export const SIDEBAR_DEFAULT_WIDTH = 300;
 export const SIDEBAR_MAX_WIDTH = 480;
+const PROJECT_FOLDER_EXPANDED_KEY = 'projectFolderExpanded';
 
 const isValidBool = (v: string): v is 'true' | 'false' => v === 'true' || v === 'false';
 
@@ -80,6 +81,40 @@ const initialSidebarCollapsedValue = browser
 	: 'true';
 export const sidebarCollapsed = writable<boolean>(initialSidebarCollapsedValue === 'true');
 
+function readProjectFolderExpanded(): Record<string, boolean> {
+	if (!browser) return {};
+
+	try {
+		const stored = localStorage.getItem(PROJECT_FOLDER_EXPANDED_KEY);
+		if (!stored) return {};
+
+		const parsed: unknown = JSON.parse(stored);
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+		return Object.fromEntries(
+			Object.entries(parsed).filter(([, value]) => typeof value === 'boolean')
+		);
+	} catch {
+		return {};
+	}
+}
+
+export const projectFolderExpanded = writable<Record<string, boolean>>(readProjectFolderExpanded());
+
+export function setProjectFolderExpanded(id: string, expanded: boolean): void {
+	projectFolderExpanded.update((state) => ({
+		...state,
+		[id]: expanded,
+	}));
+}
+
+export function clearProjectFolderExpanded(id: string): void {
+	projectFolderExpanded.update((state) => {
+		const { [id]: _removed, ...rest } = state;
+		return rest;
+	});
+}
+
 function isValidSidebarWidth(value: string): value is string {
 	const parsed = Number(value);
 	return Number.isFinite(parsed) && parsed >= SIDEBAR_MIN_WIDTH && parsed <= SIDEBAR_MAX_WIDTH;
@@ -97,3 +132,6 @@ export function clampSidebarWidth(width: number): number {
 sidebarOpen.subscribe((value) => persist('sidebarOpen', value ? 'true' : 'false'));
 sidebarCollapsed.subscribe((value) => persist('sidebarCollapsed', value ? 'true' : 'false'));
 sidebarWidth.subscribe((value) => persist('sidebarWidth', String(clampSidebarWidth(value))));
+projectFolderExpanded.subscribe((value) =>
+	persist(PROJECT_FOLDER_EXPANDED_KEY, JSON.stringify(value))
+);

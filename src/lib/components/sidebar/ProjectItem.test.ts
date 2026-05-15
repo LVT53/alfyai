@@ -34,4 +34,21 @@ describe("ProjectItem", () => {
 
 		expect(screen.getByRole("button", { name: "Create chat in House tasks" })).toBeInTheDocument();
 	});
+
+	it("shows immediate busy state while a project chat is being created", async () => {
+		const onCreateConversation = vi.fn();
+		render(ProjectItem, {
+			project,
+			creatingConversation: true,
+			onCreateConversation,
+		});
+
+		const action = screen.getByRole("button", { name: "Create chat in House tasks" });
+		expect(action).toBeDisabled();
+		expect(action).toHaveAttribute("aria-busy", "true");
+
+		await fireEvent.click(action);
+
+		expect(onCreateConversation).not.toHaveBeenCalled();
+	});
 });

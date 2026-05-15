@@ -10,6 +10,7 @@
 		expanded = true,
 		menuOpen = false,
 		dropActive = false,
+		creatingConversation = false,
 		onToggle,
 		onCreateConversation,
 		onRename,
@@ -21,6 +22,7 @@
 		expanded?: boolean;
 		menuOpen?: boolean;
 		dropActive?: boolean;
+		creatingConversation?: boolean;
 		onToggle?: (payload: { id: string; expanded: boolean }) => void;
 		onCreateConversation?: (payload: { id: string }) => void;
 		onRename?: (payload: { id: string; name: string }) => void;
@@ -101,6 +103,7 @@
 
 	function createConversation(e: MouseEvent) {
 		e.stopPropagation();
+		if (creatingConversation) return;
 		onMenuClose?.({ id: project.id });
 		onCreateConversation?.({ id: project.id });
 	}
@@ -161,21 +164,30 @@
 
 	<button
 		class="project-inline-action btn-icon-bare ml-1 flex h-[26px] w-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:opacity-0 md:group-hover:opacity-100"
-		class:md:opacity-100={menuOpen}
+		class:md:opacity-100={menuOpen || creatingConversation}
 		onclick={createConversation}
+		disabled={creatingConversation}
+		aria-busy={creatingConversation}
 		aria-label={$t('sidebar.createChatInProject', { name: project.name })}
 		title={$t('sidebar.newChatInProject')}
 	>
-		<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-			<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"/>
-			<path d="M12 8v6"/><path d="M9 11h6"/>
-		</svg>
+		{#if creatingConversation}
+			<svg class="project-action-spinner" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+				<path d="M21 12a9 9 0 0 1-9 9"/>
+				<path d="M3 12a9 9 0 0 1 9-9"/>
+			</svg>
+		{:else}
+			<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"/>
+				<path d="M12 8v6"/><path d="M9 11h6"/>
+			</svg>
+		{/if}
 	</button>
 
 	<!-- Context menu trigger -->
 	<button
 		bind:this={triggerRef}
-		class="btn-icon-bare ml-1 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-icon-primary focus-visible:outline-none md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
+		class="btn-icon-bare ml-0 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-icon-primary focus-visible:outline-none md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
 		class:md:opacity-100={menuOpen}
 		onclick={toggleMenu}
 		aria-label={$t('sidebar.projectOptions')}
@@ -196,11 +208,20 @@
 				class="project-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				aria-label={$t('sidebar.createChatInProject', { name: project.name })}
 				onclick={createConversation}
+				disabled={creatingConversation}
+				aria-busy={creatingConversation}
 			>
-				<svg class="project-option-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"/>
-					<path d="M12 8v6"/><path d="M9 11h6"/>
-				</svg>
+				{#if creatingConversation}
+					<svg class="project-option-icon project-action-spinner" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+						<path d="M21 12a9 9 0 0 1-9 9"/>
+						<path d="M3 12a9 9 0 0 1 9-9"/>
+					</svg>
+				{:else}
+					<svg class="project-option-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"/>
+						<path d="M12 8v6"/><path d="M9 11h6"/>
+					</svg>
+				{/if}
 				<span>{$t('sidebar.newChatInProject')}</span>
 			</button>
 			<button
@@ -247,6 +268,22 @@
 	.project-row-drop-active .project-inline-action:hover,
 	.project-row-drop-active .project-inline-action:focus-visible {
 		background: color-mix(in srgb, var(--accent) 18%, transparent 82%);
+	}
+
+	.project-inline-action:disabled,
+	.project-option:disabled {
+		cursor: wait;
+		opacity: 0.82;
+	}
+
+	.project-action-spinner {
+		animation: project-action-spin 0.8s linear infinite;
+	}
+
+	@keyframes project-action-spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.project-menu {

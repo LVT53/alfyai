@@ -19,7 +19,14 @@
 		deleteProject,
 		reconcileProjectSnapshot
 	} from '$lib/stores/projects';
-	import { currentConversationId, sidebarOpen, SIDEBAR_DESKTOP_BREAKPOINT } from '$lib/stores/ui';
+	import {
+		clearProjectFolderExpanded,
+		currentConversationId,
+		projectFolderExpanded,
+		setProjectFolderExpanded,
+		sidebarOpen,
+		SIDEBAR_DESKTOP_BREAKPOINT
+	} from '$lib/stores/ui';
 	import { t } from '$lib/i18n';
 	import type { ConversationListItem, Project } from '$lib/types';
 	import ConversationItem from './ConversationItem.svelte';
@@ -50,11 +57,11 @@
 	});
 
 	let openSidebarMenu = $state<OpenSidebarMenu>(null);
-	// Map of projectId → expanded state (local only)
-	let expandedProjects = $state<Record<string, boolean>>({});
+	const expandedProjects = $derived($projectFolderExpanded);
 	let isCreatingProject = $state(false);
 	let newProjectName = $state('');
 	let newProjectInputRef = $state<HTMLInputElement | undefined>(undefined);
+	let creatingProjectConversationId = $state<string | null>(null);
 
 	const visibleConversations = $derived(
 		conversationsStoreReady ? $conversations : initialConversations
@@ -67,19 +74,6 @@
 			: null
 	);
 	const canDropIntoUnorganized = $derived(activeDraggedConversation?.projectId != null);
-
-	// Ensure newly loaded projects default to expanded
-	$effect(() => {
-		const missingProjects = allProjects.filter((project) => !(project.id in expandedProjects));
-		if (missingProjects.length === 0) {
-			return;
-		}
-
-		expandedProjects = {
-			...expandedProjects,
-			...Object.fromEntries(missingProjects.map((project) => [project.id, false]))
-		};
-	});
 
 	const conversationsByProject = $derived.by(() => {
 		const map: Record<string, ConversationListItem[]> = {};
@@ -250,7 +244,7 @@
 
 		try {
 			await moveConversationToProject(conversationId, payload.projectId);
-			expandedProjects = { ...expandedProjects, [payload.projectId]: true };
+			setProjectFolderExpanded(payload.projectId, true);
 		} catch (e) {
 			console.error('Drag to project failed', e);
 			alert($t('sidebar.failedMoveConversation'));
@@ -292,7 +286,7 @@
 
 	function handleProjectToggle(payload: { id: string; expanded: boolean }) {
 		const { id, expanded } = payload;
-		expandedProjects = { ...expandedProjects, [id]: expanded };
+		setProjectFolderExpanded(id, expanded);
 	}
 
 	async function handleProjectRename(payload: { id: string; name: string }) {
@@ -311,6 +305,7 @@
 		closeAllMenus();
 		try {
 			clearProjectFromConversations(id);
+			clearProjectFolderExpanded(id);
 			await deleteProject(id);
 		} catch (e) {
 			console.error('Delete project failed', e);
@@ -320,17 +315,22 @@
 
 	async function handleCreateConversationInProject(payload: { id: string }) {
 		const { id: projectId } = payload;
+		if (creatingProjectConversationId) return;
+
 		closeAllMenus();
 		clearDragState();
+		creatingProjectConversationId = projectId;
+		setProjectFolderExpanded(projectId, true);
 		try {
 			const conversationId = await createNewConversation({ projectId });
 			upsertConversationLocal(conversationId, 'New Conversation', Date.now() / 1000, projectId);
-			expandedProjects = { ...expandedProjects, [projectId]: true };
 			currentConversationId.set(conversationId);
 			await goto(`/chat/${conversationId}?view=bootstrap`);
 		} catch (e) {
 			console.error('Create project conversation failed', e);
 			alert($t('sidebar.failedCreateProjectConversation'));
+		} finally {
+			creatingProjectConversationId = null;
 		}
 	}
 
@@ -361,7 +361,7 @@
 		if (!name) return;
 		try {
 			const project = await createProject(name);
-			expandedProjects = { ...expandedProjects, [project.id]: true };
+			setProjectFolderExpanded(project.id, true);
 		} catch (e) {
 			console.error('Create project failed', e);
 			alert($t('sidebar.failedCreateProject'));
@@ -437,6 +437,7 @@
 							expanded={expandedProjects[project.id] ?? false}
 							menuOpen={isProjectMenuOpen(project.id)}
 							dropActive={dropTarget?.kind === 'project' && dropTarget.projectId === project.id}
+							creatingConversation={creatingProjectConversationId === project.id}
 							onToggle={handleProjectToggle}
 							onCreateConversation={handleCreateConversationInProject}
 							onRename={handleProjectRename}
