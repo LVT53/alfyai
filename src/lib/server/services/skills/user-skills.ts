@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, notInArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db } from "$lib/server/db";
-import { userSkillDefinitions } from "$lib/server/db/schema";
+import { userSkillDefinitions, users } from "$lib/server/db/schema";
 
 export type SkillOwnership = "user" | "system";
 export type SkillDurationPolicy = "next_message" | "session";
@@ -123,72 +123,121 @@ const creationSources = new Set<SkillCreationSource>(["user_created", "ai_draft"
 
 const builtInSystemSkills = [
 	{
-		id: "system:interview",
-		en: {
-			displayName: "Interview",
-			description: "Runs a structured interview before drafting recommendations or plans.",
-			instructions:
-				"Interview the user with focused follow-up questions before giving a final answer. Keep questions concise, adapt to answers, and summarize the user's constraints before moving to recommendations.",
-		},
-		hu: {
-			displayName: "Interjú",
-			description: "Strukturált interjút vezet ajánlások vagy tervek készítése előtt.",
-			instructions:
-				"Tegyél fel célzott, rövid tisztázó kérdéseket a végső válasz előtt. Igazodj a válaszokhoz, és foglald össze a felhasználó korlátait, mielőtt javaslatot teszel.",
-		},
-		activationExamples: ["interview me first", "ask me questions before planning"],
-	},
-	{
 		id: "system:grill-with-docs",
 		en: {
-			displayName: "Grill With Docs",
-			description: "Challenges a plan against attached or selected project documents.",
+			displayName: "Plan Critic",
+			description: "Stress-tests a plan against attached or selected project documents.",
 			instructions:
 				"Stress-test the user's plan against available documents. Identify contradictions, weak assumptions, missing decisions, and terminology drift. Prefer document-grounded questions and concrete revisions.",
 		},
 		hu: {
-			displayName: "Dokumentumos grill",
-			description: "A tervet csatolt vagy kijelölt projektdokumentumok alapján kérdőjelezi meg.",
+			displayName: "Tervkritikus",
+			description: "A tervet csatolt vagy kijelölt projektdokumentumok alapján teszteli.",
 			instructions:
 				"Tedd próbára a felhasználó tervét az elérhető dokumentumok alapján. Mutasd ki az ellentmondásokat, gyenge feltételezéseket, hiányzó döntéseket és terminológiai eltéréseket.",
 		},
-		activationExamples: ["grill this plan with the docs", "challenge this against our ADRs"],
+		activationExamples: ["criticize this plan", "challenge this against our ADRs"],
 	},
 	{
-		id: "system:code-review",
+		id: "system:document-explainer",
 		en: {
-			displayName: "Code Review",
-			description: "Reviews code for correctness, regressions, security risks, and missing tests.",
+			displayName: "Document Explainer",
+			description: "Explains selected documents in plain language with source-grounded structure.",
 			instructions:
-				"Review code from a bug-first perspective. Lead with concrete findings, include file and line references when available, call out missing tests, and keep summaries secondary.",
+				"Explain the selected or attached document clearly. Start with the main point, define important terms, call out assumptions or caveats, and ground claims in the document instead of guessing beyond it.",
 		},
 		hu: {
-			displayName: "Kódreview",
-			description:
-				"Helyesség, regressziók, biztonsági kockázatok és hiányzó tesztek alapján vizsgálja a kódot.",
+			displayName: "Dokumentummagyarázó",
+			description: "Kijelölt dokumentumokat magyaráz el érthetően, forráshoz kötötten.",
 			instructions:
-				"Hibakereső szemlélettel review-zd a kódot. Konkrét megállapításokkal kezdj, adj fájl- és sorhivatkozást, ha elérhető, és jelezd a hiányzó teszteket.",
+				"Magyarázd el világosan a kijelölt vagy csatolt dokumentumot. Kezdd a fő üzenettel, definiáld a fontos fogalmakat, jelezd a feltételezéseket vagy fenntartásokat, és a dokumentumra támaszkodj.",
 		},
-		activationExamples: ["review this diff", "find bugs in this change"],
+		activationExamples: ["explain this document", "summarize this source"],
 	},
 	{
-		id: "system:writing-coach",
+		id: "system:study-coach",
 		en: {
-			displayName: "Writing Coach",
-			description: "Improves structure, clarity, tone, and audience fit for writing drafts.",
+			displayName: "Study Coach",
+			description: "Helps learn material through guided questions, checks, and study plans.",
 			instructions:
-				"Coach the user's writing without taking over their voice. Improve structure, clarity, and tone; explain the highest-impact edits; and preserve the intended audience and purpose.",
+				"Help the user study actively. Break material into learnable chunks, ask brief check-for-understanding questions when useful, correct misunderstandings, and suggest practical next study steps.",
 		},
 		hu: {
-			displayName: "Íráscoach",
-			description:
-				"Javítja a vázlatok szerkezetét, érthetőségét, hangnemét és közönséghez illeszkedését.",
+			displayName: "Tanulási coach",
+			description: "Irányított kérdésekkel, ellenőrzésekkel és tanulási tervvel segít tanulni.",
 			instructions:
-				"Segítsd a felhasználó írását anélkül, hogy elvennéd a hangját. Javítsd a szerkezetet, érthetőséget és hangnemet, és őrizd meg a célközönséget.",
+				"Segíts aktív tanulással. Bontsd az anyagot tanulható részekre, szükség esetén tegyél fel rövid ellenőrző kérdéseket, javítsd a félreértéseket, és adj gyakorlati következő lépéseket.",
 		},
-		activationExamples: ["improve this draft", "coach this memo"],
+		activationExamples: ["help me study this", "quiz me on this topic"],
+	},
+	{
+		id: "system:purchase-helper",
+		en: {
+			displayName: "Purchase Helper",
+			description: "Compares buying options against needs, constraints, tradeoffs, and current facts.",
+			instructions:
+				"Help the user make a purchase decision. Clarify needs and constraints when needed, compare options by practical tradeoffs, flag uncertainty or freshness-sensitive facts, and avoid overconfident recommendations.",
+		},
+		hu: {
+			displayName: "Vásárlási segítő",
+			description:
+				"Vásárlási lehetőségeket hasonlít össze igények, korlátok, kompromisszumok és aktuális tények alapján.",
+			instructions:
+				"Segíts a felhasználónak vásárlási döntést hozni. Szükség esetén tisztázd az igényeket és korlátokat, hasonlítsd össze a gyakorlati kompromisszumokat, jelezd a bizonytalanságot vagy frissességfüggő tényeket, és kerüld a túlzott magabiztosságot.",
+		},
+		activationExamples: ["help me choose what to buy", "compare these options"],
+	},
+	{
+		id: "system:translate-rewrite",
+		en: {
+			displayName: "Translate & Rewrite",
+			description: "Translates, rewrites, and adapts text while preserving intent and audience fit.",
+			instructions:
+				"Translate or rewrite the user's text while preserving meaning, intent, and audience fit. Keep terminology consistent, explain material changes when helpful, and ask before changing ambiguous meaning.",
+		},
+		hu: {
+			displayName: "Fordítás és átírás",
+			description:
+				"Szöveget fordít, átír és célközönséghez igazít a szándék megőrzésével.",
+			instructions:
+				"Fordítsd vagy írd át a felhasználó szövegét úgy, hogy megmaradjon a jelentés, szándék és célközönséghez illeszkedés. Tartsd következetesen a terminológiát, szükség esetén magyarázd a lényegi módosításokat, és kérdezz, ha a jelentés kétértelmű.",
+		},
+		activationExamples: ["translate this", "rewrite this more clearly"],
+	},
+	{
+		id: "system:appointment-prep",
+		en: {
+			displayName: "Appointment Prep",
+			description: "Prepares agendas, questions, context, and follow-up plans for appointments.",
+			instructions:
+				"Help the user prepare for an appointment or meeting. Organize the goal, relevant context, questions to ask, materials to bring, risks to mention, and concrete follow-up items.",
+		},
+		hu: {
+			displayName: "Időpontfelkészítő",
+			description:
+				"Napirendet, kérdéseket, kontextust és utánkövetési tervet készít időpontokra.",
+			instructions:
+				"Segíts a felhasználónak felkészülni egy időpontra vagy megbeszélésre. Rendezd a célt, releváns kontextust, felteendő kérdéseket, szükséges anyagokat, említendő kockázatokat és konkrét utánkövetési teendőket.",
+		},
+		activationExamples: ["prepare me for this appointment", "help me plan this meeting"],
 	},
 ] as const;
+
+const retiredBuiltInSystemSkillIds = [
+	"system:interview",
+	"system:code-review",
+	"system:writing-coach",
+] as const;
+
+const previousBuiltInSystemSkillDefaults = {
+	"system:grill-with-docs": {
+		displayName: "Grill With Docs",
+		description: "Challenges a plan against attached or selected project documents.",
+		instructions:
+			"Stress-test the user's plan against available documents. Identify contradictions, weak assumptions, missing decisions, and terminology drift. Prefer document-grounded questions and concrete revisions.",
+		activationExamples: ["grill this plan with the docs", "challenge this against our ADRs"],
+	},
+} as const;
 
 function parseExamples(value: string): string[] {
 	try {
@@ -363,6 +412,35 @@ function cleanEnum<T extends string>(
 		return fallback;
 	}
 	throw new UserSkillValidationError(code, "Invalid skill policy.");
+}
+
+function shouldRefreshSeededDefault(
+	existingValue: string,
+	currentDefault: string,
+	previousDefault?: string,
+): boolean {
+	if (existingValue === currentDefault) return false;
+	return previousDefault !== undefined && existingValue === previousDefault;
+}
+
+async function resolveSystemSkillSeedOwnerId(createdByUserId: string): Promise<string> {
+	const existingSystemOwner = await db
+		.select({ userId: userSkillDefinitions.userId })
+		.from(userSkillDefinitions)
+		.where(eq(userSkillDefinitions.ownership, "system"))
+		.orderBy(asc(userSkillDefinitions.createdAt))
+		.limit(1)
+		.get();
+	if (existingSystemOwner) return existingSystemOwner.userId;
+
+	const adminOwner = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.role, "admin"))
+		.orderBy(asc(users.createdAt))
+		.limit(1)
+		.get();
+	return adminOwner?.id ?? createdByUserId;
 }
 
 function buildCreateValues(userId: string, input: CreateUserSkillDefinitionInput) {
@@ -584,19 +662,104 @@ export async function deleteUserSkillDefinition(userId: string, skillId: string)
 }
 
 export async function seedBuiltInSystemSkillDefinitions(createdByUserId: string): Promise<void> {
+	const seedOwnerId = await resolveSystemSkillSeedOwnerId(createdByUserId);
+
+	for (const skillId of retiredBuiltInSystemSkillIds) {
+		const existing = await db
+			.select({
+				enabled: userSkillDefinitions.enabled,
+				published: userSkillDefinitions.published,
+			})
+			.from(userSkillDefinitions)
+			.where(and(eq(userSkillDefinitions.id, skillId), eq(userSkillDefinitions.ownership, "system")))
+			.get();
+		if (!existing || (!existing.enabled && !existing.published)) continue;
+
+		await db
+			.update(userSkillDefinitions)
+			.set({
+				enabled: false,
+				published: false,
+				updatedAt: new Date(),
+				version: sql`${userSkillDefinitions.version} + 1`,
+			})
+			.where(and(eq(userSkillDefinitions.id, skillId), eq(userSkillDefinitions.ownership, "system")))
+			.run();
+	}
+
 	for (const builtIn of builtInSystemSkills) {
 		const existing = await db
-			.select({ id: userSkillDefinitions.id })
+			.select()
 			.from(userSkillDefinitions)
 			.where(and(eq(userSkillDefinitions.id, builtIn.id), eq(userSkillDefinitions.ownership, "system")))
 			.get();
-		if (existing) continue;
+		if (existing) {
+			const previousDefaults =
+				previousBuiltInSystemSkillDefaults[
+					builtIn.id as keyof typeof previousBuiltInSystemSkillDefaults
+				];
+			const nextValues: Partial<typeof userSkillDefinitions.$inferInsert> = {
+				updatedAt: new Date(),
+			};
+
+			if (
+				shouldRefreshSeededDefault(
+					existing.displayName,
+					builtIn.en.displayName,
+					previousDefaults?.displayName,
+				)
+			) {
+				nextValues.displayName = builtIn.en.displayName;
+			}
+			if (
+				shouldRefreshSeededDefault(
+					existing.description,
+					builtIn.en.description,
+					previousDefaults?.description,
+				)
+			) {
+				nextValues.description = builtIn.en.description;
+			}
+			if (
+				shouldRefreshSeededDefault(
+					existing.instructions,
+					builtIn.en.instructions,
+					previousDefaults?.instructions,
+				)
+			) {
+				nextValues.instructions = builtIn.en.instructions;
+			}
+			const builtInActivationExamplesJson = JSON.stringify(builtIn.activationExamples);
+			if (
+				shouldRefreshSeededDefault(
+					existing.activationExamplesJson,
+					builtInActivationExamplesJson,
+					previousDefaults ? JSON.stringify(previousDefaults.activationExamples) : undefined,
+				)
+			) {
+				nextValues.activationExamplesJson = builtInActivationExamplesJson;
+			}
+
+			if (Object.keys(nextValues).length > 1) {
+				await db
+					.update(userSkillDefinitions)
+					.set({
+						...nextValues,
+						version: sql`${userSkillDefinitions.version} + 1`,
+					})
+					.where(
+						and(eq(userSkillDefinitions.id, builtIn.id), eq(userSkillDefinitions.ownership, "system")),
+					)
+					.run();
+			}
+			continue;
+		}
 
 		await db
 			.insert(userSkillDefinitions)
 			.values({
 				id: builtIn.id,
-				userId: createdByUserId,
+				userId: seedOwnerId,
 				ownership: "system",
 				displayName: builtIn.en.displayName,
 				description: builtIn.en.description,
@@ -618,7 +781,12 @@ export async function listAdminSystemSkillDefinitions(): Promise<SystemSkillDefi
 	const rows = await db
 		.select()
 		.from(userSkillDefinitions)
-		.where(eq(userSkillDefinitions.ownership, "system"))
+		.where(
+			and(
+				eq(userSkillDefinitions.ownership, "system"),
+				notInArray(userSkillDefinitions.id, [...retiredBuiltInSystemSkillIds]),
+			),
+		)
 		.orderBy(asc(userSkillDefinitions.displayName));
 
 	return rows.map(toSystemSkillDefinition);

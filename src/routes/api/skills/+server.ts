@@ -6,6 +6,7 @@ import {
 	createUserSkillDefinition,
 	listEnabledSystemSkillSummaries,
 	listUserSkillDefinitions,
+	seedBuiltInSystemSkillDefinitions,
 	UserSkillValidationError,
 	type CreateUserSkillDefinitionInput,
 	type SystemSkillSummary,
@@ -85,6 +86,7 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	const user = event.locals.user!;
+	await seedBuiltInSystemSkillDefinitions(user.id);
 	const [skills, systemSkills] = await Promise.all([
 		listUserSkillDefinitions(user.id),
 		listEnabledSystemSkillSummaries(),

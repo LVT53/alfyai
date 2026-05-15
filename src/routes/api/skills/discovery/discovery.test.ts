@@ -10,16 +10,23 @@ vi.mock("$lib/server/auth/hooks", () => ({
 
 vi.mock("$lib/server/services/skills/user-skills", () => ({
 	discoverSkillSummaries: vi.fn(),
+	seedBuiltInSystemSkillDefinitions: vi.fn(),
 }));
 
 import { getConfig } from "$lib/server/config-store";
 import { requireAuth } from "$lib/server/auth/hooks";
-import { discoverSkillSummaries } from "$lib/server/services/skills/user-skills";
+import {
+	discoverSkillSummaries,
+	seedBuiltInSystemSkillDefinitions,
+} from "$lib/server/services/skills/user-skills";
 import { GET } from "./+server";
 
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockDiscoverSkillSummaries = discoverSkillSummaries as ReturnType<typeof vi.fn>;
+const mockSeedBuiltInSystemSkillDefinitions = seedBuiltInSystemSkillDefinitions as ReturnType<
+	typeof vi.fn
+>;
 
 function makeEvent(url = "http://localhost/api/skills/discovery?q=interview") {
 	return {
@@ -61,6 +68,7 @@ describe("/api/skills/discovery", () => {
 			}),
 		]);
 		expect(JSON.stringify(data.skills)).not.toContain("instructions");
+		expect(mockSeedBuiltInSystemSkillDefinitions).toHaveBeenCalledWith("owner-user");
 		expect(mockDiscoverSkillSummaries).toHaveBeenCalledWith("owner-user", "interview");
 	});
 
@@ -72,6 +80,7 @@ describe("/api/skills/discovery", () => {
 
 		expect(response.status).toBe(404);
 		expect(data.errorKey).toBe("composerCommandRegistry.disabled");
+		expect(mockSeedBuiltInSystemSkillDefinitions).not.toHaveBeenCalled();
 		expect(mockDiscoverSkillSummaries).not.toHaveBeenCalled();
 	});
 });

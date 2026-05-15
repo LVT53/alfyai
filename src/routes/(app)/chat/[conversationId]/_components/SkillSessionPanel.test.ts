@@ -32,7 +32,7 @@ describe("SkillSessionPanel", () => {
 	it("shows the durable session summary and exposes finish/dismiss controls", async () => {
 		const onFinish = vi.fn();
 		const onDismiss = vi.fn();
-		const { getByRole, getByText } = render(SkillSessionPanel, {
+		const { getByRole, getByText, queryByText } = render(SkillSessionPanel, {
 			session,
 			onFinish,
 			onDismiss,
@@ -44,8 +44,9 @@ describe("SkillSessionPanel", () => {
 		expect(panel.querySelector(".skill-session-panel__status")).toHaveTextContent("Active");
 		expect(getByText("Meeting critic")).toBeInTheDocument();
 		expect(getByText("Active")).toBeInTheDocument();
-		expect(getByText("Selected sources only · Private notes")).toBeInTheDocument();
-		expect(getByText("Expected next action: continue the chat with this skill active.")).toBeInTheDocument();
+		expect(queryByText("Active skill")).not.toBeInTheDocument();
+		expect(queryByText("Selected sources only · Private notes")).not.toBeInTheDocument();
+		expect(queryByText("Expected next action: continue the chat with this skill active.")).not.toBeInTheDocument();
 
 		await fireEvent.click(getByRole("button", { name: "Finish" }));
 		await fireEvent.click(getByRole("button", { name: "Dismiss" }));

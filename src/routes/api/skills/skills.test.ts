@@ -12,6 +12,7 @@ vi.mock("$lib/server/services/skills/user-skills", () => ({
 	createUserSkillDefinition: vi.fn(),
 	listEnabledSystemSkillSummaries: vi.fn(),
 	listUserSkillDefinitions: vi.fn(),
+	seedBuiltInSystemSkillDefinitions: vi.fn(),
 }));
 
 import { getConfig } from "$lib/server/config-store";
@@ -20,6 +21,7 @@ import {
 	createUserSkillDefinition,
 	listEnabledSystemSkillSummaries,
 	listUserSkillDefinitions,
+	seedBuiltInSystemSkillDefinitions,
 } from "$lib/server/services/skills/user-skills";
 import { GET, POST } from "./+server";
 
@@ -30,6 +32,9 @@ const mockListEnabledSystemSkillSummaries = listEnabledSystemSkillSummaries as R
 	typeof vi.fn
 >;
 const mockListUserSkillDefinitions = listUserSkillDefinitions as ReturnType<typeof vi.fn>;
+const mockSeedBuiltInSystemSkillDefinitions = seedBuiltInSystemSkillDefinitions as ReturnType<
+	typeof vi.fn
+>;
 
 function makeEvent(body?: unknown) {
 	return {
@@ -60,6 +65,7 @@ describe("/api/skills", () => {
 
 		expect(response.status).toBe(404);
 		expect(data.errorKey).toBe("composerCommandRegistry.disabled");
+		expect(mockSeedBuiltInSystemSkillDefinitions).not.toHaveBeenCalled();
 		expect(mockListUserSkillDefinitions).not.toHaveBeenCalled();
 	});
 
@@ -76,23 +82,23 @@ describe("/api/skills", () => {
 		expect(mockCreateUserSkillDefinition).not.toHaveBeenCalled();
 	});
 
-	it("lists only the authenticated user's skills", async () => {
+	it("reconciles built-ins before listing only the authenticated user's skills", async () => {
 		mockListUserSkillDefinitions.mockResolvedValue([{ id: "skill-1", displayName: "Skill" }]);
 		mockListEnabledSystemSkillSummaries.mockResolvedValue([
 			{
-				id: "system:interview",
+				id: "system:grill-with-docs",
 				ownership: "system",
-				displayName: "Interview",
+				displayName: "Plan Critic",
 				description: "A safe summary.",
 				instructions: "LEAKED_SYSTEM_INSTRUCTIONS",
 				localizedDefaults: {
 					en: {
-						displayName: "Interview",
+						displayName: "Plan Critic",
 						description: "A safe summary.",
 						instructions: "LEAKED_EN_INSTRUCTIONS",
 					},
 					hu: {
-						displayName: "Interjú",
+						displayName: "Tervkritikus",
 						description: "Biztonságos összefoglaló.",
 						instructions: "LEAKED_HU_INSTRUCTIONS",
 					},
@@ -107,17 +113,17 @@ describe("/api/skills", () => {
 		expect(data.skills).toEqual([{ id: "skill-1", displayName: "Skill" }]);
 		expect(data.systemSkills).toEqual([
 			{
-				id: "system:interview",
+				id: "system:grill-with-docs",
 				ownership: "system",
-				displayName: "Interview",
+				displayName: "Plan Critic",
 				description: "A safe summary.",
 				localizedDefaults: {
 					en: {
-						displayName: "Interview",
+						displayName: "Plan Critic",
 						description: "A safe summary.",
 					},
 					hu: {
-						displayName: "Interjú",
+						displayName: "Tervkritikus",
 						description: "Biztonságos összefoglaló.",
 					},
 				},
@@ -128,6 +134,7 @@ describe("/api/skills", () => {
 		expect(serializedSystemSkills).not.toContain("LEAKED_SYSTEM_INSTRUCTIONS");
 		expect(serializedSystemSkills).not.toContain("LEAKED_EN_INSTRUCTIONS");
 		expect(serializedSystemSkills).not.toContain("LEAKED_HU_INSTRUCTIONS");
+		expect(mockSeedBuiltInSystemSkillDefinitions).toHaveBeenCalledWith("owner-user");
 		expect(mockListUserSkillDefinitions).toHaveBeenCalledWith("owner-user");
 		expect(mockListEnabledSystemSkillSummaries).toHaveBeenCalledWith();
 	});

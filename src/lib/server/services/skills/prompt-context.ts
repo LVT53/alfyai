@@ -97,10 +97,19 @@ function buildLinkedSourceLines(sources: SkillPromptLinkedSource[]): string[] {
 	});
 }
 
+function buildQuestionPolicyLines(context: SkillPromptContext): string[] {
+	if (context.questionPolicy !== "ask_when_needed") return [];
+	return [
+		"- If more information is needed from the user, ask at most one focused question in this assistant turn.",
+		"- Do not bundle multiple interview or clarification questions into one response.",
+	];
+}
+
 export function buildSkillSystemPromptAppendix(
 	context: SkillPromptContext | null | undefined,
 ): string | undefined {
 	if (!context) return undefined;
+	const questionPolicyLines = buildQuestionPolicyLines(context);
 
 	const metadata = [
 		`Source: ${sourceLabel(context.source)}`,
@@ -122,5 +131,8 @@ export function buildSkillSystemPromptAppendix(
 		"",
 		"Skill instructions:",
 		context.skillInstructions.trim(),
+		...(questionPolicyLines.length > 0
+			? ["", "Skill operating rules:", ...questionPolicyLines]
+			: []),
 	].join("\n");
 }
