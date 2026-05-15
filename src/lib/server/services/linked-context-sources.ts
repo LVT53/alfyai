@@ -29,6 +29,14 @@ function toLinkedContextSource(document: KnowledgeDocumentItem): LinkedContextSo
 	};
 }
 
+function isPromptReadyDocument(document: KnowledgeDocumentItem): boolean {
+	return (
+		document.normalizedAvailable &&
+		typeof document.promptArtifactId === 'string' &&
+		document.promptArtifactId.length > 0
+	);
+}
+
 function documentMatchesSource(
 	document: KnowledgeDocumentItem,
 	source: LinkedContextSource
@@ -38,7 +46,10 @@ function documentMatchesSource(
 		document.promptArtifactId,
 		...document.familyArtifactIds,
 	].filter((id): id is string => typeof id === 'string' && id.length > 0));
-	return ids.has(source.displayArtifactId) || Boolean(source.promptArtifactId && ids.has(source.promptArtifactId));
+	return (
+		ids.has(source.displayArtifactId) ||
+		Boolean(source.promptArtifactId && ids.has(source.promptArtifactId))
+	);
 }
 
 function overlapsAttachments(source: LinkedContextSource, attachmentIds: Set<string>): boolean {
@@ -79,6 +90,13 @@ export async function resolveLinkedContextSourcesForConversation(params: {
 				'Linked source is no longer available',
 				404,
 				'linked_source_not_found'
+			);
+		}
+		if (!isPromptReadyDocument(document)) {
+			throw new LinkedContextSourceError(
+				'Linked source is not ready for prompt context',
+				409,
+				'linked_source_not_prompt_ready'
 			);
 		}
 		const canonical = toLinkedContextSource(document);

@@ -197,7 +197,11 @@ let pendingAttachmentArtifacts = $derived(
 	pendingAttachments.map((attachment) => attachment.artifact),
 );
 let effectiveLinkedSources = $derived(
-	selectedLinkedSources.filter((source) => !sourceOverlapsPendingAttachments(source)),
+	selectedLinkedSources.filter(
+		(source) =>
+			isPromptReadyLinkedSource(source) &&
+			!sourceOverlapsPendingAttachments(source),
+	),
 );
 let hasUnreadyAttachment = $derived(
 	pendingAttachments.some((attachment) => !attachment.promptReady),
@@ -1071,6 +1075,20 @@ function sourceOverlapsPendingAttachments(source: LinkedContextSource): boolean 
 		.some((id) => attachmentIds.has(id));
 }
 
+function isPromptReadyLinkedSource(source: LinkedContextSource): boolean {
+	return (
+		typeof source.promptArtifactId === "string" && source.promptArtifactId.length > 0
+	);
+}
+
+function isPromptReadyKnowledgeDocument(document: KnowledgeDocumentItem): boolean {
+	return (
+		document.normalizedAvailable &&
+		typeof document.promptArtifactId === "string" &&
+		document.promptArtifactId.length > 0
+	);
+}
+
 async function openDocumentPicker(initialQuery = "") {
 	documentPickerOpen = true;
 	documentPickerInitialQuery = initialQuery;
@@ -1083,7 +1101,7 @@ async function openDocumentPicker(initialQuery = "") {
 	documentPickerError = "";
 	try {
 		const library = await fetchKnowledgeLibrary();
-		documentPickerDocuments = library.documents;
+		documentPickerDocuments = library.documents.filter(isPromptReadyKnowledgeDocument);
 	} catch {
 		documentPickerError = $t("linkedSources.picker.error");
 	} finally {

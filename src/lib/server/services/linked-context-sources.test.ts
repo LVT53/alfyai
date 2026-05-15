@@ -86,4 +86,35 @@ describe('linked context sources', () => {
 		expect(resolved).toEqual([]);
 		expect(mockListKnowledgeArtifacts).toHaveBeenCalledWith('user-1');
 	});
+
+	it('rejects linked documents that are not ready for prompt context', async () => {
+		mockListKnowledgeArtifacts.mockResolvedValue({
+			documents: [
+				makeDocument({
+					promptArtifactId: null,
+					familyArtifactIds: ['display-1'],
+					normalizedAvailable: false,
+				}),
+			],
+			results: [],
+			workflows: [],
+		});
+
+		await expect(
+			resolveLinkedContextSourcesForConversation({
+				userId: 'user-1',
+				conversationId: 'conv-1',
+				linkedSources: [
+					makeSource({
+						promptArtifactId: null,
+						familyArtifactIds: ['display-1'],
+					}),
+				],
+				attachmentIds: [],
+			})
+		).rejects.toMatchObject({
+			code: 'linked_source_not_prompt_ready',
+			status: 409,
+		});
+	});
 });

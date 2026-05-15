@@ -59,6 +59,37 @@ describe('LinkedDocumentPicker', () => {
 		]);
 	});
 
+	it('only offers prompt-ready documents and drops stale selections', () => {
+		render(LinkedDocumentPicker, {
+			documents: [
+				makeDocument(),
+				makeDocument({
+					id: 'display-unready',
+					displayArtifactId: 'display-unready',
+					promptArtifactId: null,
+					familyArtifactIds: ['display-unready'],
+					name: 'Still processing.pdf',
+					normalizedAvailable: false,
+				}),
+			],
+			selectedSources: [
+				{
+					displayArtifactId: 'display-stale',
+					promptArtifactId: null,
+					familyArtifactIds: ['display-stale'],
+					name: 'Stale source.pdf',
+					type: 'document',
+				},
+			],
+			onApply: vi.fn(),
+			onCancel: vi.fn(),
+		});
+
+		expect(screen.getByRole('checkbox', { name: /Annual report.pdf/i })).toBeInTheDocument();
+		expect(screen.queryByText('Still processing.pdf')).toBeNull();
+		expect(screen.queryByText('Stale source.pdf')).toBeNull();
+	});
+
 	it('shows selected documents and allows removal before applying', async () => {
 		const apply = vi.fn();
 		render(LinkedDocumentPicker, {

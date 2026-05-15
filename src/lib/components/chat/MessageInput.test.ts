@@ -315,6 +315,21 @@ describe('MessageInput', () => {
 					createdAt: 1,
 					updatedAt: 2,
 				},
+				{
+					id: 'display-unready',
+					displayArtifactId: 'display-unready',
+					promptArtifactId: null,
+					familyArtifactIds: ['display-unready'],
+					name: 'Still processing.pdf',
+					mimeType: 'application/pdf',
+					sizeBytes: 100,
+					conversationId: null,
+					summary: null,
+					normalizedAvailable: false,
+					documentOrigin: 'uploaded',
+					createdAt: 1,
+					updatedAt: 2,
+				},
 			],
 			results: [],
 			workflows: [],
@@ -332,6 +347,7 @@ describe('MessageInput', () => {
 		await fireEvent.input(input, { target: { value: '/document' } });
 		await fireEvent.click(getByRole('option', { name: /\/document/i }));
 		await findByRole('dialog', { name: 'Link Library documents' });
+		expect(queryByText('Still processing.pdf')).toBeNull();
 		await fireEvent.click(await findByRole('checkbox', { name: 'Budget notes.md' }));
 		await fireEvent.click(getByRole('button', { name: 'Link selected documents' }));
 

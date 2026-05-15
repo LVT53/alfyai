@@ -25,19 +25,36 @@ let searchInput = $state<HTMLInputElement | null>(null);
 let dialog = $state<HTMLElement | null>(null);
 let query = $state(untrack(() => initialQuery));
 let selected = $state<LinkedContextSource[]>(
-	untrack(() => selectedSources.map((source) => ({ ...source })))
+	untrack(() =>
+		selectedSources.filter(isPromptReadySource).map((source) => ({ ...source }))
+	)
 );
 
+let promptReadyDocuments = $derived(documents.filter(isPromptReadyDocument));
 let filteredDocuments = $derived.by(() => {
 	const normalizedQuery = query.trim().toLowerCase();
-	if (!normalizedQuery) return documents;
-	return documents.filter((document) =>
+	if (!normalizedQuery) return promptReadyDocuments;
+	return promptReadyDocuments.filter((document) =>
 		[document.name, document.summary ?? '', document.mimeType ?? '']
 			.join(' ')
 			.toLowerCase()
 			.includes(normalizedQuery)
 	);
 });
+
+function isPromptReadyDocument(document: KnowledgeDocumentItem): boolean {
+	return (
+		document.normalizedAvailable &&
+		typeof document.promptArtifactId === 'string' &&
+		document.promptArtifactId.length > 0
+	);
+}
+
+function isPromptReadySource(source: LinkedContextSource): boolean {
+	return (
+		typeof source.promptArtifactId === 'string' && source.promptArtifactId.length > 0
+	);
+}
 
 function toLinkedSource(document: KnowledgeDocumentItem): LinkedContextSource {
 	return {
@@ -181,7 +198,7 @@ onMount(() => {
 				<p class="linked-document-picker__state" role="status">{$t('linkedSources.picker.loading')}</p>
 			{:else if error}
 				<p class="linked-document-picker__state linked-document-picker__state--error" role="alert">{error}</p>
-			{:else if documents.length === 0}
+			{:else if promptReadyDocuments.length === 0}
 				<p class="linked-document-picker__state">{$t('linkedSources.picker.empty')}</p>
 			{:else if filteredDocuments.length === 0}
 				<p class="linked-document-picker__state">{$t('linkedSources.picker.noMatches')}</p>
