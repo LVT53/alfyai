@@ -112,6 +112,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"MODEL_TIMEOUT_FAILOVER_ENABLED",
 	"MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS",
 	"MODEL_TIMEOUT_FAILOVER_TARGET_MODEL",
+	"DEFAULT_NEW_USER_MODEL",
 	"FILE_PRODUCTION_MAX_OUTPUTS",
 	"FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES",
 	"FILE_PRODUCTION_MAX_PROJECTION_BYTES",
@@ -178,6 +179,7 @@ export interface RuntimeConfig {
 	modelTimeoutFailoverEnabled: boolean;
 	modelTimeoutFailoverTimeoutMs: number;
 	modelTimeoutFailoverTargetModel: ModelId;
+	defaultNewUserModel: ModelId;
 	maxMessageLength: number;
 	maxModelContext: number;
 	compactionUiThreshold: number;
@@ -685,6 +687,9 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: (config, value) => {
 		config.modelTimeoutFailoverTargetModel = normalizeConfiguredModelId(value);
 	},
+	DEFAULT_NEW_USER_MODEL: (config, value) => {
+		config.defaultNewUserModel = normalizeConfiguredModelId(value);
+	},
 	FILE_PRODUCTION_MAX_OUTPUTS: (config, value) => {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined) config.fileProductionMaxOutputs = Math.max(1, parsed);
@@ -1054,6 +1059,7 @@ export function getResolvedAdminConfigValues(
 		),
 		MODEL_TIMEOUT_FAILOVER_TARGET_MODEL:
 			config.modelTimeoutFailoverTargetModel,
+		DEFAULT_NEW_USER_MODEL: config.defaultNewUserModel,
 		FILE_PRODUCTION_MAX_OUTPUTS: String(config.fileProductionMaxOutputs),
 		FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES: String(config.fileProductionMaxSourceJsonBytes),
 		FILE_PRODUCTION_MAX_PROJECTION_BYTES: String(config.fileProductionMaxProjectionBytes),

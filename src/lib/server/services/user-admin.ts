@@ -4,6 +4,7 @@ import { count, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { analyticsConversations, sessions, usageEvents, users } from '$lib/server/db/schema';
 import type { AdminManagedUserSummary, UserRole } from '$lib/types';
+import { getConfig } from '../config-store';
 import { deleteUserAccountAsAdminWithCleanup } from './cleanup';
 
 export interface CreateManagedUserInput {
@@ -197,6 +198,7 @@ export async function createManagedUser(input: CreateManagedUserInput): Promise<
 		email,
 		name,
 		passwordHash: await bcrypt.hash(password, 12),
+		preferredModel: getConfig().defaultNewUserModel,
 		role,
 		updatedAt: new Date(),
 	});

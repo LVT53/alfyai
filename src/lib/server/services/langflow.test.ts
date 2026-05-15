@@ -1124,6 +1124,309 @@ describe("sendMessage provider routing", () => {
 		}
 	});
 
+	it("retries a rate-limited provider request with the configured provider failover model", async () => {
+		const primaryProvider = {
+			id: "provider-1",
+			name: "fireworks",
+			displayName: "Fire Pass Kimi K2.6 Turbo",
+			baseUrl: "https://api.fireworks.ai/inference/v1",
+			apiKeyEncrypted: "encrypted",
+			apiKeyIv: "iv",
+			modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+			reasoningEffort: null,
+			thinkingType: null,
+			enabled: true,
+			sortOrder: 0,
+			maxModelContext: null,
+			compactionUiThreshold: null,
+			targetConstructedContext: null,
+			maxMessageLength: null,
+			maxTokens: 8192,
+			rateLimitFallbackEnabled: true,
+			rateLimitFallbackBaseUrl: "https://api.moonshot.ai/chat/completions",
+			rateLimitFallbackApiKeyEncrypted: "encrypted-fallback",
+			rateLimitFallbackApiKeyIv: "fallback-iv",
+			rateLimitFallbackModelName: "kimi-k2.6",
+			rateLimitFallbackTimeoutMs: 500,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		};
+		mockConfig(
+			{},
+			{
+				modelTimeoutFailoverEnabled: false,
+				modelTimeoutFailoverTargetModel: "model2",
+			},
+		);
+		mocks.getProviderWithSecrets.mockResolvedValue(primaryProvider);
+		mocks.decryptApiKey.mockImplementation((encrypted: string) =>
+			encrypted === "encrypted-fallback"
+				? "fallback-secret"
+				: "provider-secret",
+		);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+				const body = JSON.parse(String(init?.body ?? "{}"));
+				const modelName = body.tweaks?.["ModelNode-1"]?.model_name;
+				if (modelName === "accounts/fireworks/routers/kimi-k2p6-turbo") {
+					return new Response(
+						JSON.stringify({
+							error: "Fireworks API error 429: rate limit exceeded for model",
+						}),
+						{
+							status: 429,
+							statusText: "Too Many Requests",
+							headers: { "Content-Type": "application/json" },
+						},
+					);
+				}
+				return new Response(
+					JSON.stringify({
+						outputs: [
+							{
+								outputs: [
+									{
+										results: {
+											message: { text: "Fallback provider answer" },
+										},
+									},
+								],
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				);
+			}),
+		);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		try {
+			const result = await sendMessage(
+				"Hello",
+				"conv-1",
+				"provider:provider-1",
+			);
+
+			expect(fetch).toHaveBeenCalledTimes(2);
+			expect(result.text).toBe("Fallback provider answer");
+			expect(result.modelId).toBe("provider:provider-1");
+			expect(result.modelDisplayName).toBe(
+				"Fire Pass Kimi K2.6 Turbo (rate-limit fallback)",
+			);
+			expect(result.timeoutFailover).toMatchObject({
+				fromModelId: "provider:provider-1",
+				toModelId: "provider:provider-1",
+				reason: "rate_limit",
+				fromModelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+				toModelName: "kimi-k2.6",
+			});
+			const fallbackBody = JSON.parse(
+				String(vi.mocked(fetch).mock.calls[1]?.[1]?.body),
+			);
+			expect(fallbackBody.tweaks["ModelNode-1"]).toMatchObject({
+				model_name: "kimi-k2.6",
+				api_base: "https://api.moonshot.ai/v1",
+				api_key: "fallback-secret",
+				timeout: 1,
+				max_tokens: 8192,
+			});
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining(
+					"[LANGFLOW] Request switching to failover model sessionId=conv-1 from=provider:provider-1:accounts/fireworks/routers/kimi-k2p6-turbo to=provider:provider-1:kimi-k2.6 reason=rate_limit status=429",
+				),
+			);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("uses the global configured failover model when provider endpoint fallback is unavailable", async () => {
+		mockConfig(
+			{},
+			{
+				model2: {
+					baseUrl: "http://backup-model/v1",
+					apiKey: "backup-key",
+					modelName: "backup-model",
+					displayName: "Backup Model",
+					systemPrompt: "",
+					flowId: "shared-flow",
+					componentId: "ModelNode-1",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2Enabled: true,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: "model2",
+			},
+		);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+				const body = JSON.parse(String(init?.body ?? "{}"));
+				if (
+					body.tweaks?.["ModelNode-1"]?.model_name ===
+					"accounts/fireworks/models/kimi-k2"
+				) {
+					return new Response(
+						JSON.stringify({
+							error: "Fireworks API error 429: rate limit exceeded for model",
+						}),
+						{
+							status: 429,
+							statusText: "Too Many Requests",
+							headers: { "Content-Type": "application/json" },
+						},
+					);
+				}
+				return new Response(
+					JSON.stringify({
+						outputs: [
+							{
+								outputs: [
+									{
+										results: {
+											message: { text: "Global backup answer" },
+										},
+									},
+								],
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				);
+			}),
+		);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		try {
+			const result = await sendMessage(
+				"Hello",
+				"conv-1",
+				"provider:provider-1",
+			);
+
+			expect(fetch).toHaveBeenCalledTimes(2);
+			expect(result.text).toBe("Global backup answer");
+			expect(result.modelId).toBe("model2");
+			expect(result.modelDisplayName).toBe("Backup Model");
+			expect(result.timeoutFailover).toEqual({
+				fromModelId: "provider:provider-1",
+				toModelId: "model2",
+				reason: "rate_limit",
+			});
+			const fallbackBody = JSON.parse(
+				String(vi.mocked(fetch).mock.calls[1]?.[1]?.body),
+			);
+			expect(fallbackBody.tweaks["ModelNode-1"]).toMatchObject({
+				model_name: "backup-model",
+				api_base: "http://backup-model/v1",
+				api_key: "backup-key",
+			});
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining(
+					"[LANGFLOW] Request switching to failover model sessionId=conv-1 from=provider:provider-1 to=model2 reason=rate_limit status=429",
+				),
+			);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("does not retry non-rate-limit non-OK provider responses", async () => {
+		const primaryProvider = {
+			id: "provider-1",
+			name: "fireworks",
+			displayName: "Fire Pass Kimi K2.6 Turbo",
+			baseUrl: "https://api.fireworks.ai/inference/v1",
+			apiKeyEncrypted: "encrypted",
+			apiKeyIv: "iv",
+			modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+			reasoningEffort: null,
+			thinkingType: null,
+			enabled: true,
+			sortOrder: 0,
+			maxModelContext: null,
+			compactionUiThreshold: null,
+			targetConstructedContext: null,
+			maxMessageLength: null,
+			maxTokens: 8192,
+			rateLimitFallbackEnabled: true,
+			rateLimitFallbackBaseUrl: "https://api.moonshot.ai/v1",
+			rateLimitFallbackApiKeyEncrypted: "encrypted-fallback",
+			rateLimitFallbackApiKeyIv: "fallback-iv",
+			rateLimitFallbackModelName: "kimi-k2.6",
+			rateLimitFallbackTimeoutMs: 12_000,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		};
+		mockConfig(
+			{},
+			{
+				model2: {
+					baseUrl: "http://backup-model/v1",
+					apiKey: "backup-key",
+					modelName: "backup-model",
+					displayName: "Backup Model",
+					systemPrompt: "",
+					flowId: "shared-flow",
+					componentId: "ModelNode-1",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2Enabled: true,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: "model2",
+			},
+		);
+		mocks.getProviderWithSecrets.mockResolvedValue(primaryProvider);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: "invalid request payload" }), {
+						status: 500,
+						statusText: "Internal Server Error",
+						headers: { "Content-Type": "application/json" },
+					}),
+			),
+		);
+		const error = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		try {
+			await expect(
+				sendMessage("Hello", "conv-1", "provider:provider-1"),
+			).rejects.toThrow(/Langflow API error: 500 Internal Server Error/);
+
+			expect(fetch).toHaveBeenCalledTimes(1);
+			expect(warn).not.toHaveBeenCalledWith(
+				expect.stringContaining("switching to failover model"),
+			);
+			expect(error).toHaveBeenCalledWith(
+				"[LANGFLOW] sendMessage non-OK response",
+				expect.objectContaining({
+					status: 500,
+					statusText: "Internal Server Error",
+				}),
+			);
+		} finally {
+			error.mockRestore();
+			warn.mockRestore();
+		}
+	});
+
 	it("fails clearly when provider routing has no shared Langflow component ID", async () => {
 		mockConfig({ componentId: "" });
 

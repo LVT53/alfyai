@@ -72,6 +72,7 @@ interface Config {
 	modelTimeoutFailoverEnabled: boolean;
 	modelTimeoutFailoverTimeoutMs: number;
 	modelTimeoutFailoverTargetModel: import("$lib/types").ModelId;
+	defaultNewUserModel: import("$lib/types").ModelId;
 	maxMessageLength: number;
 	maxModelContext: number;
 	compactionUiThreshold: number;
@@ -367,6 +368,9 @@ function readConfig(): Config {
 		),
 		modelTimeoutFailoverTargetModel: normalizeConfiguredModelId(
 			process.env.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL || "model2",
+		),
+		defaultNewUserModel: normalizeConfiguredModelId(
+			process.env.DEFAULT_NEW_USER_MODEL || "model1",
 		),
 		maxMessageLength,
 		maxModelContext,

@@ -439,6 +439,33 @@ function deepResearchModelOptions(): Array<{
 	return Array.from(options, ([id, displayName]) => ({ id, displayName }));
 }
 
+function defaultNewUserModelOptions(): Array<{
+	id: ModelId;
+	displayName: string;
+}> {
+	const options = new Map<ModelId, string>();
+	for (const provider of providers) {
+		if (!provider.enabled) continue;
+		options.set(`provider:${provider.id}` as ModelId, provider.displayName);
+	}
+	for (const model of deepResearchModelOptions()) {
+		if (!options.has(model.id)) {
+			options.set(model.id, model.displayName);
+		}
+	}
+	return Array.from(options, ([id, displayName]) => ({ id, displayName }));
+}
+
+function defaultNewUserModelValue(): ModelId {
+	const configured = (adminConfig.DEFAULT_NEW_USER_MODEL ||
+		envDefaults.DEFAULT_NEW_USER_MODEL ||
+		"model1") as ModelId;
+	const options = defaultNewUserModelOptions();
+	return options.some((model) => model.id === configured)
+		? configured
+		: (options[0]?.id ?? "model1");
+}
+
 function deepResearchRoleValue(
 	role: DeepResearchModelRoleDefinition,
 ): ModelId {
@@ -635,6 +662,22 @@ function placeholderFor(key: string): string {
 				<p class="text-xs text-text-muted">
 					{$t('admin.thirdPartyDescription')}
 				</p>
+				<div class="border-t border-border pt-3">
+					<label class="settings-label" for="DEFAULT_NEW_USER_MODEL">{$t('admin.defaultNewUserModel')}</label>
+					<select
+						id="DEFAULT_NEW_USER_MODEL"
+						class="settings-input"
+						value={defaultNewUserModelValue()}
+						onchange={(event) => {
+							adminConfig.DEFAULT_NEW_USER_MODEL = event.currentTarget.value;
+						}}
+					>
+						{#each defaultNewUserModelOptions() as model}
+							<option value={model.id}>{model.displayName}</option>
+						{/each}
+					</select>
+					<p class="mt-1 text-xs text-text-muted">{$t('admin.defaultNewUserModelDescription')}</p>
+				</div>
 			</div>
 		{/if}
 

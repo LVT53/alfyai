@@ -58,6 +58,7 @@ vi.mock("../env", () => ({
 		modelTimeoutFailoverEnabled: false,
 		modelTimeoutFailoverTimeoutMs: 60000,
 		modelTimeoutFailoverTargetModel: "model2",
+		defaultNewUserModel: "model1",
 		composerCommandRegistryEnabled: true,
 	},
 	envConfig: {
@@ -99,6 +100,7 @@ vi.mock("../env", () => ({
 		modelTimeoutFailoverEnabled: false,
 		modelTimeoutFailoverTimeoutMs: 60000,
 		modelTimeoutFailoverTargetModel: "model2",
+		defaultNewUserModel: "model1",
 		composerCommandRegistryEnabled: true,
 	},
 }));
@@ -218,6 +220,16 @@ describe("Knowledge Store Config", () => {
 			expect(config.modelTimeoutFailoverEnabled).toBe(true);
 			expect(config.modelTimeoutFailoverTimeoutMs).toBe(1000);
 			expect(config.modelTimeoutFailoverTargetModel).toBe("provider:backup");
+		});
+
+		it("getConfig() should allow a provider as the default model for new users", async () => {
+			adminConfigRows = [
+				{ key: "DEFAULT_NEW_USER_MODEL", value: "provider:firepass" },
+			];
+
+			await refreshConfig();
+
+			expect(getConfig().defaultNewUserModel).toBe("provider:firepass");
 		});
 
 		it("getConfig() should allow admin config to enable Deep Research", async () => {
@@ -399,6 +411,7 @@ describe("Knowledge Store Config", () => {
 				DEEP_RESEARCH_CITATION_AUDIT_MODEL: "model1",
 				DEEP_RESEARCH_REPORT_MODEL: "model1",
 				COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
+				DEFAULT_NEW_USER_MODEL: "model1",
 			});
 			const depthBudgets = JSON.parse(values.DEEP_RESEARCH_DEPTH_BUDGETS_JSON);
 			expect(depthBudgets.focused).toMatchObject({

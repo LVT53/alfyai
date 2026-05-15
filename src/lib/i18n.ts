@@ -332,6 +332,9 @@ const dictionary = {
 		"admin.validationFailed": "Validation failed: {error}",
 		"admin.thirdPartyDescription":
 			"Third-party models route through the shared Langflow Agent flow and use the same connected tools as built-in models.",
+		"admin.defaultNewUserModel": "Default model for new users",
+		"admin.defaultNewUserModelDescription":
+			"Choose the initial preferred model assigned to newly created users. Enabled providers are listed first; built-in models remain available.",
 		"admin.loadingModels": "Loading models...",
 		"admin.langflow": "Langflow",
 		"admin.model1": "Model 1",
@@ -706,6 +709,13 @@ const dictionary = {
 		"admin.doNotSend": "Do not send",
 		"admin.enabled": "Enabled",
 		"admin.disabled": "Disabled",
+		"admin.rateLimitFallbackEnabled": "Enable rate-limit fallback",
+		"admin.rateLimitFallbackDescription":
+			"Retry provider rate-limit responses through a separate OpenAI-compatible endpoint.",
+		"admin.rateLimitFallbackBaseUrl": "Fallback Base URL",
+		"admin.rateLimitFallbackApiKey": "Fallback API Key",
+		"admin.rateLimitFallbackModelName": "Fallback Model Name",
+		"admin.rateLimitFallbackTimeoutMs": "Fallback Timeout (ms)",
 		"admin.contextLimits": "Context Limits",
 		"admin.contextLimitsDescription": "Leave empty to use global defaults.",
 		"admin.contextLimitsDescriptionBuiltIn":
@@ -724,6 +734,10 @@ const dictionary = {
 			"Fill in display name, base URL, and model name.",
 		"admin.fillRequiredProviderContext":
 			"Set Max Model Context for this provider.",
+		"admin.fillRequiredRateLimitFallback":
+			"Fill in all enabled rate-limit fallback fields.",
+		"admin.invalidRateLimitFallbackTimeout":
+			"Fallback timeout must be a whole number of at least 1000 ms.",
 		"admin.saveChanges": "Save Changes",
 		"admin.saveConfiguration": "Save Configuration",
 		// Admin - Create User Modal
@@ -1598,6 +1612,9 @@ const dictionary = {
 		"admin.validationFailed": "Az ellenőrzés sikertelen: {error}",
 		"admin.thirdPartyDescription":
 			"A külső modellek a megosztott Langflow Agent-folyamaton keresztül futnak, és ugyanazokat a csatlakoztatott eszközöket használják, mint a beépített modellek.",
+		"admin.defaultNewUserModel": "Új felhasználók alapértelmezett modellje",
+		"admin.defaultNewUserModelDescription":
+			"Válaszd ki az újonnan létrehozott felhasználók kezdeti preferált modelljét. Az engedélyezett szolgáltatók jelennek meg elöl, a beépített modellek továbbra is választhatók.",
 		"admin.loadingModels": "Modellek betöltése...",
 		"admin.langflow": "Langflow",
 		"admin.model1": "1. modell",
@@ -1985,6 +2002,14 @@ const dictionary = {
 		"admin.doNotSend": "Ne küldje el",
 		"admin.enabled": "Engedélyezve",
 		"admin.disabled": "Letiltva",
+		"admin.rateLimitFallbackEnabled":
+			"Sebességkorlátos tartalék út engedélyezése",
+		"admin.rateLimitFallbackDescription":
+			"A szolgáltatói sebességkorlátos válaszok újrapróbálása külön OpenAI-kompatibilis végponton keresztül.",
+		"admin.rateLimitFallbackBaseUrl": "Tartalék alap-URL",
+		"admin.rateLimitFallbackApiKey": "Tartalék API-kulcs",
+		"admin.rateLimitFallbackModelName": "Tartalék modell neve",
+		"admin.rateLimitFallbackTimeoutMs": "Tartalék időkorlát (ms)",
 		"admin.contextLimits": "Kontextuskorlátok",
 		"admin.contextLimitsDescription":
 			"Hagyd üresen a globális alapértelmezések használatához.",
@@ -2004,6 +2029,10 @@ const dictionary = {
 			"Töltsd ki a megjelenített nevet, az alap-URL-t és a modell nevét.",
 		"admin.fillRequiredProviderContext":
 			"Állítsd be a szolgáltató maximális modellkontextusát.",
+		"admin.fillRequiredRateLimitFallback":
+			"Töltsd ki az összes engedélyezett sebességkorlátos tartalék mezőt.",
+		"admin.invalidRateLimitFallbackTimeout":
+			"A tartalék időkorlátnak legalább 1000 ms-os egész számnak kell lennie.",
 		"admin.saveChanges": "Változtatások mentése",
 		"admin.saveConfiguration": "Konfiguráció mentése",
 		// Admin - Create User Modal
