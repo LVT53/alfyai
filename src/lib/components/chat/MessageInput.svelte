@@ -1478,7 +1478,9 @@ async function emitDraftChange(force = false) {
 						aria-label={$t('pendingSkill.removeA11y', { name: pendingSkill.displayName })}
 						onclick={removePendingSkill}
 					>
-						<span aria-hidden="true">x</span>
+						<svg aria-hidden="true" viewBox="0 0 16 16" width="11" height="11">
+							<path d="M4 4l8 8M12 4l-8 8" />
+						</svg>
 					</button>
 				</li>
 			</ul>
@@ -1809,7 +1811,7 @@ async function emitDraftChange(force = false) {
 		flex-wrap: wrap;
 		gap: 0.5rem;
 		margin: 0;
-		padding: 0.25rem 1rem 0.55rem;
+		padding: 0.25rem 0.25rem 0.55rem;
 		list-style: none;
 	}
 
@@ -1823,7 +1825,7 @@ async function emitDraftChange(force = false) {
 		border-radius: 999px;
 		background: color-mix(in srgb, var(--accent) 13%, var(--surface-overlay) 87%);
 		box-shadow: 0 1px 0 color-mix(in srgb, var(--surface-overlay) 86%, transparent 14%) inset;
-		padding: 0.28rem 0.38rem 0.28rem 0.42rem;
+		padding: 0.28rem 0.34rem 0.28rem 0.58rem;
 		color: var(--text-primary);
 	}
 
@@ -1863,8 +1865,8 @@ async function emitDraftChange(force = false) {
 	}
 
 	.pending-skill-chip__remove {
-		width: 1.45rem;
-		height: 1.45rem;
+		width: 1.35rem;
+		height: 1.35rem;
 		display: inline-grid;
 		place-items: center;
 		flex: 0 0 auto;
@@ -1877,6 +1879,14 @@ async function emitDraftChange(force = false) {
 			background-color var(--duration-standard) var(--ease-out),
 			color var(--duration-standard) var(--ease-out),
 			transform var(--duration-standard) var(--ease-out);
+	}
+
+	.pending-skill-chip__remove svg {
+		display: block;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
 	}
 
 	.pending-skill-chip__remove:hover,
@@ -2058,41 +2068,46 @@ async function emitDraftChange(force = false) {
 	.deep-research-menu {
 		position: absolute;
 		left: 0;
-		bottom: calc(100% + 10px);
+		bottom: calc(100% + 8px);
 		z-index: 40;
 		display: flex;
-		width: min(14rem, calc(100vw - 2rem));
+		width: min(12.75rem, calc(100vw - 2rem));
 		flex-direction: column;
-		gap: 0.25rem;
-		border: 1px solid color-mix(in srgb, var(--border-default) 82%, transparent 18%);
-		border-radius: 0.9rem;
-		background: color-mix(in srgb, var(--surface-overlay) 92%, var(--surface-page) 8%);
-		box-shadow: var(--shadow-lg);
-		padding: 0.45rem;
+		gap: 0.12rem;
+		border: 1px solid color-mix(in srgb, var(--border-default) 76%, var(--surface-page) 24%);
+		border-radius: 0.72rem;
+		background: color-mix(in srgb, var(--surface-overlay) 88%, var(--surface-page) 12%);
+		box-shadow:
+			0 14px 30px rgba(0, 0, 0, 0.14),
+			0 1px 0 color-mix(in srgb, var(--border-default) 88%, transparent 12%);
+		padding: 0.32rem;
 		backdrop-filter: blur(14px);
 	}
 
 	.deep-research-option {
 		width: 100%;
 		border: 0;
-		border-radius: 0.72rem;
+		border-radius: 0.5rem;
 		background: transparent;
-		padding: 0.58rem 0.68rem;
+		padding: 0.42rem 0.52rem;
 		text-align: left;
 		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.88rem;
+		font-size: 0.78rem;
+		line-height: 1.15;
 		color: var(--text-primary);
 		cursor: pointer;
 		transition:
 			background-color var(--duration-standard) var(--ease-out),
 			color var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out),
 			box-shadow var(--duration-standard) var(--ease-out);
 	}
 
 	.deep-research-option:hover,
 	.deep-research-option:focus-visible {
-		background: color-mix(in srgb, var(--surface-page) 78%, var(--surface-elevated) 22%);
-		box-shadow: 0 0 0 2px var(--focus-ring);
+		background: rgba(194, 166, 106, 0.24);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 34%, transparent 66%);
+		transform: translateY(-1px);
 		outline: none;
 	}
 
@@ -2100,6 +2115,19 @@ async function emitDraftChange(force = false) {
 		background: color-mix(in srgb, var(--accent) 14%, var(--surface-elevated) 86%);
 		color: var(--accent);
 		font-weight: 600;
+	}
+
+	:global(.dark) .deep-research-menu {
+		background: color-mix(in srgb, var(--surface-overlay) 78%, #050505 22%);
+		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
+		box-shadow:
+			0 16px 32px rgba(0, 0, 0, 0.4),
+			0 0 0 1px color-mix(in srgb, var(--border-default) 88%, transparent 12%);
+	}
+
+	:global(.dark) .deep-research-option:hover,
+	:global(.dark) .deep-research-option:focus-visible {
+		background: rgba(194, 166, 106, 0.3);
 	}
 
 	.composer-textarea {

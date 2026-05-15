@@ -575,33 +575,53 @@
 	.popover-actions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.45rem;
-		margin-top: 0.7rem;
+		gap: 0.35rem;
+		margin-top: 0.65rem;
 	}
 
 	.popover-action-button {
 		cursor: pointer;
-		border: 1px solid color-mix(in srgb, var(--border-default) 75%, transparent 25%);
-		border-radius: 9999px;
-		background: color-mix(in srgb, var(--surface-page) 75%, var(--surface-elevated) 25%);
+		min-height: 1.8rem;
+		border: 1px solid color-mix(in srgb, var(--border-default) 76%, var(--surface-page) 24%);
+		border-radius: 0.5rem;
+		background: color-mix(in srgb, var(--surface-page) 64%, var(--surface-elevated) 36%);
 		color: var(--text-primary);
 		font-family: 'Nimbus Sans L', sans-serif;
 		transition:
 			border-color var(--duration-standard) var(--ease-out),
-			background-color var(--duration-standard) var(--ease-out);
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out),
+			box-shadow var(--duration-standard) var(--ease-out);
 		font-size: 0.72rem;
-		padding: 0.24rem 0.5rem;
+		font-weight: 600;
+		line-height: 1.1;
+		padding: 0.34rem 0.5rem;
 	}
 
 	.popover-action-button:hover,
 	.popover-action-button:focus-visible {
 		border-color: color-mix(in srgb, var(--accent) 35%, var(--border-default) 65%);
+		background: rgba(194, 166, 106, 0.22);
+		color: var(--text-primary);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 34%, transparent 66%);
+		transform: translateY(-1px);
 		outline: none;
 	}
 
 	.popover-action-button--ghost {
 		background: transparent;
 		color: var(--text-muted);
+	}
+
+	:global(.dark) .popover-action-button {
+		background: color-mix(in srgb, var(--surface-overlay) 82%, var(--surface-elevated) 18%);
+		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
+	}
+
+	:global(.dark) .popover-action-button:hover,
+	:global(.dark) .popover-action-button:focus-visible {
+		background: rgba(194, 166, 106, 0.3);
 	}
 
 	.popover-chips {
