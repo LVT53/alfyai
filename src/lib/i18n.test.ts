@@ -9,11 +9,13 @@ const auditedPrefixes = [
 	'composerCommandRegistry.',
 	'composerCommands.',
 	'linkedSources.',
+	'fork.',
 	'pendingSkill.',
 	'skillDrafts.',
 	'skillSessions.',
 	'skills.',
 	'sourceManager.',
+	'sidebar.forkIndicatorTooltip',
 ] as const;
 
 function collectDictionaryKeys(): Record<'en' | 'hu', string[]> {

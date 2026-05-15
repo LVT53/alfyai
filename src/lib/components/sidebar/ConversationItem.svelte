@@ -202,6 +202,15 @@
 		onDragEnd?.({ id: conversation.id });
 	}
 
+	function forkIndicatorLabel() {
+		const summary = conversation.forkSummary;
+		if (!summary) return '';
+		return $t('sidebar.forkIndicatorTooltip', {
+			title: summary.sourceTitle,
+			sequence: summary.forkSequence,
+		});
+	}
+
 	onMount(() => {
 		return setupMenuSync(() => menuOpen, doUpdatePosition);
 	});
@@ -238,12 +247,32 @@
 				class="min-h-[44px] w-full rounded-sm border border-border bg-surface-page px-2 py-1 text-sm font-sans text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent"
 			/>
 		{:else}
-			<div class="truncate px-1.5 text-[13px] font-sans text-text-primary">
+			<div class="flex min-w-0 items-center gap-1.5 px-1.5">
+				{#if conversation.forkSummary}
+					{@const indicatorLabel = forkIndicatorLabel()}
+					<button
+						type="button"
+						class="fork-indicator"
+						aria-label={indicatorLabel}
+						title={indicatorLabel}
+						onclick={(event) => event.stopPropagation()}
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<circle cx="18" cy="18" r="3"/>
+							<circle cx="6" cy="6" r="3"/>
+							<path d="M6 9v2a7 7 0 0 0 7 7h2"/>
+							<path d="M6 9v1a7 7 0 0 1 7 7"/>
+						</svg>
+						<span class="fork-indicator-tooltip">{indicatorLabel}</span>
+					</button>
+				{/if}
+			<div class="truncate text-[13px] font-sans text-text-primary">
 				{#if isNewTitle && !isEditing}
 					<TypewriterText text={conversation.title} onComplete={() => isNewTitle = false} />
 				{:else}
 					{conversation.title}
 				{/if}
+			</div>
 			</div>
 		{/if}
 	</div>
@@ -455,5 +484,59 @@
 
 	.conversation-item-dragging {
 		opacity: 0.58;
+	}
+
+	.fork-indicator {
+		position: relative;
+		display: inline-flex;
+		flex: 0 0 auto;
+		align-items: center;
+		justify-content: center;
+		border: 0;
+		background: transparent;
+		color: var(--text-muted);
+		cursor: help;
+		padding: 0;
+	}
+
+	.fork-indicator-tooltip {
+		position: absolute;
+		left: 0;
+		bottom: calc(100% + 6px);
+		z-index: 30;
+		max-width: 14rem;
+		overflow: hidden;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-lg);
+		color: var(--text-primary);
+		font-family: 'Nimbus Sans L', sans-serif;
+		font-size: 0.72rem;
+		line-height: 1.25;
+		opacity: 0;
+		padding: 0.35rem 0.5rem;
+		pointer-events: none;
+		text-overflow: ellipsis;
+		transform: translateY(2px);
+		transition:
+			opacity var(--duration-micro) var(--ease-out),
+			transform var(--duration-micro) var(--ease-out);
+		visibility: hidden;
+		white-space: nowrap;
+	}
+
+	.fork-indicator:hover .fork-indicator-tooltip,
+	.fork-indicator:focus-visible .fork-indicator-tooltip,
+	.group:focus-visible .fork-indicator-tooltip {
+		opacity: 1;
+		transform: translateY(0);
+		visibility: visible;
+	}
+
+	.fork-indicator:focus-visible {
+		border-radius: 999px;
+		outline: 2px solid var(--focus-ring, var(--accent));
+		outline-offset: 2px;
 	}
 </style>

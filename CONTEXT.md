@@ -154,6 +154,22 @@ _Avoid_: global chat search, folder awareness, all memory
 A compact durable description of what happened in one conversation.
 _Avoid_: task checkpoint, transcript, chat title
 
+**Conversation Fork**:
+A new conversation that preserves a source conversation up to a chosen assistant response and then continues independently.
+_Avoid_: inline branch, alternate message, retry, regeneration
+
+**Fork Boundary Marker**:
+A compact persisted cue in a **Conversation Fork** that separates inherited snapshot history from new fork-local work.
+_Avoid_: system message, copied-message badge, branch tree node, plain divider
+
+**Fork Origin Marker**:
+A compact persisted cue on a source assistant response showing that one or more **Conversation Forks** start there.
+_Avoid_: boundary marker, fake message, inline branch, plain divider
+
+**Conversation Fork Indicator**:
+A compact conversation-list cue that identifies a conversation as a **Conversation Fork**.
+_Avoid_: project icon, status badge, nested branch, full origin panel
+
 **Composer Command Registry**:
 The Normal Chat command surface that discovers and runs composer-triggered actions from typed prefixes.
 _Avoid_: prompt shortcut list, agent tool registry, Deep Research command system
@@ -667,6 +683,46 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - A **Production Slice** includes fallback behavior, observability, tests, and cleanup appropriate to its scope.
 - Replacing context-selection behavior should include removing **Context Selection Debt** once the replacement path owns the behavior.
 - A conversation may belong to zero or one **Project Folder**.
+- A **Conversation Fork** is a new conversation with independent future turns.
+- A **Conversation Fork** has one immediate source conversation and one source assistant response.
+- A **Conversation Fork** preserves visible history through its fork point, including user-visible attachments and generated work from copied turns.
+- A **Conversation Fork** excludes source conversation messages after the source assistant response.
+- Copied history in a **Conversation Fork** remains usable as **Available Context** while staying distinguishable from fork-local turns.
+- A **Conversation Fork** inherits conversation history, not live control state such as drafts, queued turns, active streams, active **Skill Sessions**, or current **Working Set**.
+- A **Conversation Fork** starts in the same **Project Folder** as its source conversation by default and may be moved afterward like any other conversation.
+- **Conversation Fork** lineage should be shown as a compact contextual cue, not as a full branch tree or nested sidebar hierarchy.
+- A source assistant response with forks should show compact fork awareness, with fork details available only on demand.
+- A source assistant response with forks should persist a visually scannable **Fork Origin Marker** for auditability.
+- A **Conversation Fork** should show a **Conversation Fork Indicator** in conversation lists with accessible hover/focus text.
+- A **Conversation Fork** is a snapshot of copied history; later edits, regeneration, deletion, or title changes in the source conversation do not rewrite the fork.
+- Editing or regenerating source history that has **Conversation Forks** should warn that existing forks remain unchanged.
+- Deleting a source conversation should not delete its **Conversation Forks**.
+- If a source conversation is deleted, its **Conversation Forks** should retain source-title lineage snapshots while source navigation degrades gracefully.
+- Deleting a **Conversation Fork** should update fork awareness on the source side without mutating the source transcript.
+- Creating a **Conversation Fork** does not automatically send a Normal Chat turn.
+- Creating a **Conversation Fork** should open the new fork for continued work.
+- A **Conversation Fork** can start only from a completed, persisted assistant response.
+- Inherited assistant responses inside a **Conversation Fork** may themselves become fork points for a new immediate child fork.
+- Creating a **Conversation Fork** should not implicitly stop or detach an active stream.
+- Messages copied into a **Conversation Fork** receive new identities while retaining lineage to their source messages.
+- The **Conversation Fork** action belongs on the eligible assistant response that defines the fork point.
+- Creating a **Conversation Fork** should not replay copied turns into memory, analytics, external mirrors, task checkpoints, summaries, or generated-work side effects.
+- A **Conversation Fork** should preserve the documents, attachments, generated work, and artifact relationships needed to continue from copied history as usable **Available Context**.
+- A **Conversation Fork** should link existing durable document artifacts but snapshot conversation-owned generated work into the fork.
+- Generated work copied into a **Conversation Fork** should begin fork-local generated-document families while retaining origin lineage to the source generated work.
+- Creating a **Conversation Fork** should be atomic; a failed fork should not leave partial copied history or partial artifact continuity.
+- A **Conversation Fork** should fail clearly rather than silently omit copied visible documents, attachments, generated work, or required artifact relationships.
+- Inherited assistant responses in a **Conversation Fork** should preserve their original **Message Evidence** as snapshot evidence.
+- Inherited copied history in a **Conversation Fork** should not count as new usage or cost.
+- External memory mirrors should receive only fork-local turns from a **Conversation Fork**, not a replay of inherited copied history.
+- Creating a **Conversation Fork** should create one compact local event describing the lineage, not one event per copied turn.
+- A **Conversation Fork** should persist a visually scannable **Fork Boundary Marker** so the inherited-history boundary survives refreshes.
+- A **Fork Boundary Marker** is lineage metadata, not a chat message.
+- A new **Conversation Fork** opens with fork-local composer state, not inherited drafts, queued turns, pending skills, or selected source chips.
+- A **Conversation Fork** should start with a predictable editable title derived from the source conversation title.
+- Multiple **Conversation Forks** from the same source conversation should receive lineage-based title suffixes rather than relying on title text matching.
+- A sealed source conversation may still produce an open **Conversation Fork** because fork creation does not mutate the source conversation.
+- Opening a **Conversation Fork** should preserve visual continuity from the source conversation rather than abruptly replacing the chat surface.
 - **Project Continuity** may exist with or without a **Project Folder**.
 - When a conversation belongs to a **Project Folder**, that **Project Folder** is the canonical project identity for **Project Continuity**.
 - A **Project Folder** and **Project Continuity** keep separate identities even when they are linked.

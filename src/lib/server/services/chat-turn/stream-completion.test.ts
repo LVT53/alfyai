@@ -623,6 +623,20 @@ describe("completeStreamTurn", () => {
 		expect(data.wasStopped).toBe(true);
 	});
 
+	it("persists stopped assistant responses with message metadata", async () => {
+		await completeStreamTurn({ ...defaultParams, wasStopped: true });
+
+		expect(mockCreateMessage).toHaveBeenNthCalledWith(
+			2,
+			"conv-1",
+			"assistant",
+			"response text",
+			"<thinking>reason</thinking>",
+			undefined,
+			expect.objectContaining({ wasStopped: true }),
+		);
+	});
+
 	it("touches conversation and clears stream buffer on completion", async () => {
 		await completeStreamTurn(defaultParams);
 

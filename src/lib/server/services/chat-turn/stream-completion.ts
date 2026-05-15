@@ -289,6 +289,7 @@ export async function completeStreamTurn(
 				{
 					evidenceStatus: "pending",
 					modelDisplayName,
+					...(wasStopped ? { wasStopped: true } : {}),
 					...skillControl.metadata,
 				},
 			).catch(() => undefined)

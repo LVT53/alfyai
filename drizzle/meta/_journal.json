@@ -351,6 +351,13 @@
       "when": 1777140000036,
       "tag": "1777140000036_inference_provider_rate_limit_fallback",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1777140000037,
+      "tag": "1777140000037_conversation_forks",
+      "breakpoints": true
     }
 
   ]

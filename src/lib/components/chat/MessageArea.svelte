@@ -4,6 +4,7 @@ import { t } from "$lib/i18n";
 import type {
 	ChatMessage,
 	ContextDebugState,
+	ConversationForkOrigin,
 	DeepResearchJob,
 	DeepResearchReportIntent,
 	DocumentWorkspaceItem,
@@ -20,9 +21,12 @@ let {
 	contextDebug = null,
 	fileProductionJobs = [],
 	deepResearchJobs = [],
+	forkOrigin = null,
+	forkingMessageId = null,
 	readOnly = false,
 	onRegenerate = undefined,
 	onEdit = undefined,
+	onFork = undefined,
 	onSteer = undefined,
 	onOpenDocument = undefined,
 	canPublishSkillDrafts = false,
@@ -45,11 +49,14 @@ let {
 	contextDebug?: ContextDebugState | null;
 	fileProductionJobs?: FileProductionJob[];
 	deepResearchJobs?: DeepResearchJob[];
+	forkOrigin?: ConversationForkOrigin | null;
+	forkingMessageId?: string | null;
 	readOnly?: boolean;
 	onRegenerate?: ((payload: { messageId: string }) => void) | undefined;
 	onEdit?:
 		| ((payload: { messageId: string; newText: string }) => void)
 		| undefined;
+	onFork?: ((payload: { messageId: string }) => void | Promise<void>) | undefined;
 	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
 	canPublishSkillDrafts?: boolean;
@@ -246,6 +253,14 @@ function getFileProductionJobsForMessage(message: ChatMessage): FileProductionJo
 	});
 }
 
+function forkSourceHref(origin: ConversationForkOrigin): string | null {
+	if (!origin.sourceConversationIdAvailable) return null;
+	const messageAnchor = origin.sourceAssistantMessageIdAvailable
+		? `#message-${origin.sourceAssistantMessageId}`
+		: '';
+	return `/chat/${origin.sourceConversationId}${messageAnchor}`;
+}
+
 async function alignToBottomAfterRender() {
 	if (!scrollContainer) return;
 	await tick();
@@ -298,6 +313,8 @@ async function alignToBottomAfterRender() {
 					{readOnly}
 					{onRegenerate}
 					{onEdit}
+					{onFork}
+					forkBusy={forkingMessageId === message.id}
 					{onSteer}
 					{onOpenDocument}
 					{canPublishSkillDrafts}
@@ -308,6 +325,33 @@ async function alignToBottomAfterRender() {
 					{onRetryFileProductionJob}
 					{onCancelFileProductionJob}
 				/>
+				{#if forkOrigin?.copiedForkPointMessageId === message.id}
+					<div
+						class="fork-boundary-marker"
+						data-testid="fork-boundary-marker"
+						role="note"
+						aria-label={$t('fork.boundaryMarkerLabel')}
+					>
+						<div class="fork-boundary-line" aria-hidden="true"></div>
+						<div class="fork-boundary-copy">
+							<span class="fork-boundary-title">{$t('fork.boundaryTitle')}</span>
+							{#if forkSourceHref(forkOrigin)}
+								<a
+									class="fork-boundary-source"
+									href={forkSourceHref(forkOrigin)}
+									aria-label={$t('fork.openSourceConversation', { title: forkOrigin.sourceTitle })}
+								>
+									{$t('fork.boundarySource', { title: forkOrigin.sourceTitle })}
+								</a>
+							{:else}
+								<span class="fork-boundary-source fork-boundary-source-degraded">
+									<span>{$t('fork.boundarySource', { title: forkOrigin.sourceTitle })}</span>
+									<span class="fork-boundary-source-status">{$t('fork.sourceUnavailable')}</span>
+								</span>
+							{/if}
+						</div>
+					</div>
+				{/if}
 				{#each deepResearchJobsByAnchorMessageKey.get(messageRenderKey(message)) ?? [] as job (job.id)}
 					<ResearchCard
 						job={job}
@@ -366,6 +410,73 @@ async function alignToBottomAfterRender() {
 		font-size: 0.98rem;
 		line-height: 1.6;
 		color: var(--text-secondary);
+	}
+
+	.fork-boundary-marker {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		margin: var(--space-sm) 0 var(--space-md);
+		border-left: 3px solid color-mix(in srgb, var(--accent) 82%, var(--text-primary) 18%);
+		padding: 0.45rem 0 0.45rem var(--space-sm);
+		color: var(--text-secondary);
+		font-family: 'Nimbus Sans L', sans-serif;
+	}
+
+	.fork-boundary-line {
+		width: 1.25rem;
+		height: 2px;
+		flex: 0 0 auto;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--accent) 74%, var(--border-default) 26%);
+	}
+
+	.fork-boundary-copy {
+		display: inline-flex;
+		max-width: min(100%, 28rem);
+		flex: 0 1 auto;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-xs);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--surface-elevated) 84%, var(--accent) 16%);
+		padding: 0.42rem var(--space-sm);
+		font-size: 0.76rem;
+		line-height: 1.35;
+	}
+
+	.fork-boundary-title {
+		font-weight: 700;
+		color: var(--text-primary);
+		white-space: nowrap;
+	}
+
+	.fork-boundary-source {
+		min-width: 0;
+		overflow-wrap: anywhere;
+		color: var(--text-muted);
+	}
+
+	.fork-boundary-source-degraded {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-xs);
+	}
+
+	.fork-boundary-source-status {
+		color: var(--text-subtle);
+	}
+
+	a.fork-boundary-source {
+		text-decoration: none;
+	}
+
+	a.fork-boundary-source:hover,
+	a.fork-boundary-source:focus-visible {
+		color: var(--text-primary);
+		text-decoration: underline;
+		text-underline-offset: 0.18em;
+		outline: none;
 	}
 
 	@media (min-width: 768px) {

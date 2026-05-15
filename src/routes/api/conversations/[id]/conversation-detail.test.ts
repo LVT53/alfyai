@@ -14,6 +14,11 @@ vi.mock('$lib/server/services/messages', () => ({
 	listMessages: vi.fn(),
 }));
 
+vi.mock('$lib/server/services/conversation-forks', () => ({
+	getConversationForkOrigin: vi.fn(),
+	listChildForksBySourceMessages: vi.fn(),
+}));
+
 vi.mock('$lib/server/services/knowledge', () => ({
 	getConversationWorkingSet: vi.fn(),
 	getConversationContextStatus: vi.fn(),
@@ -61,6 +66,10 @@ import { requireAuth } from '$lib/server/auth/hooks';
 import { getConversation, moveConversationToProject } from '$lib/server/services/conversations';
 import { listMessages } from '$lib/server/services/messages';
 import {
+	getConversationForkOrigin,
+	listChildForksBySourceMessages,
+} from '$lib/server/services/conversation-forks';
+import {
 	getConversationWorkingSet,
 	getConversationContextStatus,
 	listConversationArtifacts,
@@ -82,6 +91,9 @@ const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockMoveConversationToProject = moveConversationToProject as ReturnType<typeof vi.fn>;
 const mockListMessages = listMessages as ReturnType<typeof vi.fn>;
+const mockGetConversationForkOrigin = getConversationForkOrigin as ReturnType<typeof vi.fn>;
+const mockListChildForksBySourceMessages =
+	listChildForksBySourceMessages as ReturnType<typeof vi.fn>;
 const mockListConversationArtifacts = listConversationArtifacts as ReturnType<typeof vi.fn>;
 const mockGetConversationWorkingSet = getConversationWorkingSet as ReturnType<typeof vi.fn>;
 const mockGetConversationContextStatus = getConversationContextStatus as ReturnType<typeof vi.fn>;
@@ -134,6 +146,8 @@ describe('GET /api/conversations/[id]', () => {
 			updatedAt: Date.now(),
 		});
 		mockListMessages.mockResolvedValue([]);
+		mockGetConversationForkOrigin.mockResolvedValue(null);
+		mockListChildForksBySourceMessages.mockResolvedValue({});
 		mockListConversationArtifacts.mockResolvedValue([]);
 		mockGetConversationWorkingSet.mockResolvedValue([]);
 		mockGetConversationContextStatus.mockResolvedValue(null);
@@ -207,6 +221,85 @@ describe('GET /api/conversations/[id]', () => {
 		});
 		expect(data.activeSkillSession).not.toHaveProperty('skillInstructions');
 		expect(JSON.stringify(data)).not.toContain('SYSTEM_SENTINEL');
+	});
+
+	it('returns fork origin metadata with conversation detail', async () => {
+		mockGetConversationForkOrigin.mockResolvedValue({
+			forkConversationId: 'conv-1',
+			sourceConversationId: 'source-conv',
+			sourceAssistantMessageId: 'source-assistant-1',
+			sourceConversationIdAvailable: true,
+			sourceAssistantMessageIdAvailable: true,
+			copiedForkPointMessageId: 'fork-assistant-1',
+			sourceTitle: 'Source title',
+			forkSequence: 1,
+			createdAt: 1,
+		});
+
+		const response = await GET(makeEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(mockGetConversationForkOrigin).toHaveBeenCalledWith('conv-1');
+		expect(data.forkOrigin).toMatchObject({
+			copiedForkPointMessageId: 'fork-assistant-1',
+			sourceTitle: 'Source title',
+		});
+	});
+
+	it('attaches compact child-fork metadata to source assistant messages', async () => {
+		mockListMessages.mockResolvedValue([
+			{
+				id: 'user-1',
+				role: 'user',
+				content: 'Question',
+				timestamp: 1,
+			},
+			{
+				id: 'assistant-1',
+				role: 'assistant',
+				content: 'Answer',
+				timestamp: 2,
+			},
+		]);
+		mockListChildForksBySourceMessages.mockResolvedValue({
+			'assistant-1': {
+				count: 2,
+				forks: [
+					{
+						conversationId: 'fork-1',
+						title: 'Quarterly report (fork 1)',
+						forkSequence: 1,
+						createdAt: 1,
+					},
+					{
+						conversationId: 'fork-2',
+						title: 'Renamed fork',
+						forkSequence: 2,
+						createdAt: 2,
+					},
+				],
+			},
+		});
+
+		const response = await GET(makeEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(mockListChildForksBySourceMessages).toHaveBeenCalledWith('user-1', ['assistant-1']);
+		expect(data.messages).toEqual([
+			expect.objectContaining({ id: 'user-1' }),
+			expect.objectContaining({
+				id: 'assistant-1',
+				sourceForks: {
+					count: 2,
+					forks: [
+						expect.objectContaining({ conversationId: 'fork-1' }),
+						expect.objectContaining({ conversationId: 'fork-2', title: 'Renamed fork' }),
+					],
+				},
+			}),
+		]);
 	});
 
 	it('returns file-production jobs with the conversation detail', async () => {

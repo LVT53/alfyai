@@ -334,10 +334,15 @@ export async function refreshConversationWorkingSet(params: {
 	const artifactRows = await getArtifactsForUser(params.userId, Array.from(candidateIds));
 	const existingByArtifactId = new Map(existingItems.map((item) => [item.artifactId, item]));
 	const message = params.message?.trim() ?? '';
+	const linkedSourceArtifactIds = new Set(sourceArtifactIds);
 
 	const candidates: WorkingSetCandidate[] = artifactRows
 		.filter((artifact) => artifact.type !== 'work_capsule')
-		.filter((artifact) => artifact.conversationId === params.conversationId)
+		.filter(
+			(artifact) =>
+				artifact.conversationId === params.conversationId ||
+				linkedSourceArtifactIds.has(artifact.id)
+		)
 		.map((artifact) => {
 			return {
 				artifactId: artifact.id,

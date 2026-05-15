@@ -100,6 +100,44 @@ export interface Conversation {
 	updatedAt: number; // Unix timestamp
 }
 
+export interface ConversationForkOrigin {
+	forkConversationId: string;
+	sourceConversationId: string;
+	sourceAssistantMessageId: string;
+	sourceConversationIdAvailable: boolean;
+	sourceAssistantMessageIdAvailable: boolean;
+	copiedForkPointMessageId: string;
+	sourceTitle: string;
+	forkSequence: number;
+	createdAt: number;
+}
+
+export interface ConversationForkChildSummary {
+	conversationId: string;
+	title: string;
+	forkSequence: number;
+	createdAt: number;
+}
+
+export interface MessageSourceForks {
+	count: number;
+	forks: ConversationForkChildSummary[];
+}
+
+export interface ConversationForkListSummary {
+	sourceTitle: string;
+	forkSequence: number;
+	sourceConversationId: string;
+	sourceConversationIdAvailable: boolean;
+}
+
+export interface ForkCopyMetadata {
+	sourceMessageId: string;
+	sourceConversationId: string;
+	sourceRole: MessageRole;
+	sourceCreatedAt: string;
+}
+
 export type DeepResearchDepth = "focused" | "standard" | "max";
 
 export type DeepResearchPlanStatus = "awaiting_approval" | "approved";
@@ -704,6 +742,7 @@ export interface DocumentWorkspaceItem {
 export interface ConversationDetail {
 	conversation: Conversation;
 	messages: ChatMessage[];
+	forkOrigin?: ConversationForkOrigin | null;
 	attachedArtifacts?: ArtifactSummary[];
 	activeWorkingSet?: ArtifactSummary[];
 	contextStatus?: ConversationContextStatus | null;
@@ -726,6 +765,7 @@ export interface ConversationListItem {
 	title: string;
 	updatedAt: number; // Unix timestamp
 	projectId?: string | null;
+	forkSummary?: ConversationForkListSummary;
 }
 
 // MessageRole type: 'user' | 'assistant'
@@ -797,6 +837,13 @@ export interface MessageEvidenceGroup {
 export interface MessageEvidenceSummary {
 	structuredWebSearch: boolean;
 	groups: MessageEvidenceGroup[];
+}
+
+export interface ForkEvidenceSnapshot {
+	sourceMessageId: string;
+	sourceConversationId: string;
+	snapshotCreatedAt: string;
+	evidenceSummary: MessageEvidenceSummary;
 }
 
 export type WebCitationAuditStatus =
@@ -937,11 +984,15 @@ export interface ChatMessage {
 	evidenceSummary?: MessageEvidenceSummary;
 	webCitationAudit?: WebCitationAudit;
 	evidencePending?: boolean;
+	wasStopped?: boolean;
 	honchoContext?: HonchoContextInfo;
 	skillQuestion?: boolean;
 	pendingSkillNoteIntents?: SkillControlMessageMetadata["pendingSkillNoteIntents"];
 	skillDrafts?: SkillControlMessageMetadata["skillDrafts"];
 	skillControl?: SkillControlMessageMetadata["skillControl"];
+	forkCopy?: ForkCopyMetadata;
+	forkEvidenceSnapshot?: ForkEvidenceSnapshot;
+	sourceForks?: MessageSourceForks;
 }
 
 export type ArtifactType =
@@ -1387,6 +1438,15 @@ export interface ContextDebugEvidenceSummaryItem {
 	count: number;
 }
 
+export interface ForkContextProvenanceSummary {
+	inheritedMessageCount: number;
+	inheritedTurnCount: number;
+	forkLocalMessageCount: number;
+	sourceConversationIds: string[];
+	sourceMessageIds: string[];
+	copiedForkPointMessageId?: string | null;
+}
+
 export type HonchoContextSource = "live" | "snapshot" | "persisted_fallback";
 
 export type HonchoFallbackReason =
@@ -1408,6 +1468,7 @@ export interface HonchoSnapshotMessage {
 	role: MessageRole;
 	content: string;
 	createdAt: number;
+	forkCopy?: ForkCopyMetadata;
 }
 
 export interface HonchoContextSnapshot {
@@ -1428,6 +1489,7 @@ export interface ContextDebugState {
 	pinnedEvidence: ContextDebugEvidenceItem[];
 	excludedEvidence: ContextDebugEvidenceItem[];
 	honcho?: HonchoContextInfo | null;
+	forkProvenance?: ForkContextProvenanceSummary | null;
 }
 
 export type PersonaMemoryScope = "self" | "assistant_about_user";
@@ -1461,7 +1523,8 @@ export type MemoryEventDomain =
 	| "temporal"
 	| "preference"
 	| "task"
-	| "document";
+	| "document"
+	| "conversation";
 export type MemoryEventType =
 	| "persona_fact_updated"
 	| "deadline_set"
@@ -1473,7 +1536,8 @@ export type MemoryEventType =
 	| "preference_updated"
 	| "document_opened"
 	| "document_refined"
-	| "document_superseded";
+	| "document_superseded"
+	| "conversation_fork_created";
 
 export interface PersonaMemoryTemporalInfo {
 	kind: PersonaMemoryTemporalKind;

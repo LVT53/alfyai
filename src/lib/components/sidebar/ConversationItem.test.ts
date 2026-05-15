@@ -40,6 +40,28 @@ describe('ConversationItem Component', () => {
 		expect(screen.queryByText('2 mins ago')).not.toBeInTheDocument();
 	});
 
+	it('renders a compact accessible fork indicator for fork conversations', async () => {
+		render(ConversationItemWrapper, {
+			conversation: {
+				...mockConversation,
+				forkSummary: {
+					sourceTitle: 'Source title',
+					forkSequence: 2,
+					sourceConversationId: 'source-conv',
+					sourceConversationIdAvailable: true,
+				},
+			},
+		});
+
+		const indicator = screen.getByLabelText('Fork of Source title, fork 2');
+		expect(indicator).toBeInTheDocument();
+		expect(indicator).toHaveAttribute('title', 'Fork of Source title, fork 2');
+		expect(indicator).toHaveAttribute('type', 'button');
+		indicator.focus();
+		expect(indicator).toHaveFocus();
+		expect(screen.queryByRole('tree')).not.toBeInTheDocument();
+	});
+
 	it('dispatches select event when clicked', async () => {
 		const mockSelect = vi.fn();
 		const { container } = render(ConversationItemWrapper, { 

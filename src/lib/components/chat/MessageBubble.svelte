@@ -29,6 +29,8 @@
 		readOnly = false,
 		onRegenerate = undefined,
 		onEdit = undefined,
+		onFork = undefined,
+		forkBusy = false,
 		onSteer = undefined,
 		onOpenDocument = undefined,
 		onRetryFileProductionJob = undefined,
@@ -48,6 +50,8 @@
 		readOnly?: boolean;
 		onRegenerate?: ((payload: { messageId: string }) => void) | undefined;
 		onEdit?: ((payload: { messageId: string; newText: string }) => void) | undefined;
+		onFork?: ((payload: { messageId: string }) => void | Promise<void>) | undefined;
+		forkBusy?: boolean;
 		onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
 		onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
 		onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
@@ -65,6 +69,7 @@
 	let editText = $state('');
 	let editTextarea = $state<HTMLTextAreaElement | null>(null);
 	let showTimestampTooltip = $state(false);
+	let showForkDetails = $state(false);
 	let dedupedFileProductionJobs = $derived(
 		fileProductionJobs.reduce(
 			(acc, job) => {
@@ -88,12 +93,27 @@
 	let totalTokenCount = $derived(thinkingTokenCount + responseTokenCount);
 	let hasTokenInfo = $derived(hasThinking || responseTokenCount > 0 || message.costUsd != null);
 	let skillDrafts = $derived(message.skillDrafts ?? []);
+	let sourceForks = $derived(message.sourceForks);
 
 	// Thinking is definitively done once visible response text has started streaming
 	// OR the whole message is complete. This keeps the label as "Thinking" between
 	// multi-burst thinking phases (isThinkingStreaming briefly false, but no content yet).
 	let isDone = $derived(!message.isStreaming && !message.isThinkingStreaming);
 	let isGenerating = $derived(Boolean(message.isStreaming || message.isThinkingStreaming));
+	let hasServerPersistedIdentity = $derived(
+		message.renderKey === undefined || message.renderKey !== message.id
+	);
+	let canFork = $derived(
+		!isUser &&
+			!readOnly &&
+			Boolean(onFork) &&
+			Boolean(message.id) &&
+			hasServerPersistedIdentity &&
+			!message.wasStopped &&
+			!message.isStreaming &&
+			!message.isThinkingStreaming &&
+			message.content.trim().length > 0
+	);
 	let showLogoBelow = $derived(!isUser && isLast && (hasThinking || isGenerating));
 	let thinkingIsDone = $derived(
 		hasThinking && !message.isThinkingStreaming && (message.content.trim().length > 0 || isDone)
@@ -237,6 +257,14 @@
 	function skillDraftState(draftId: string) {
 		return skillDraftActionState[`${message.id}:${draftId}`] ?? {};
 	}
+
+	function forkLinkLabel(title: string): string {
+		return $t('fork.openFork', { title });
+	}
+
+	function toggleForkDetails() {
+		showForkDetails = !showForkDetails;
+	}
 </script>
 
 <div class="group flex w-full flex-col {isUser && !isEditing ? 'items-end' : 'items-start'} gap-md py-md fade-in">
@@ -325,6 +353,58 @@
 							onCancel={onCancelFileProductionJob}
 						/>
 					{/each}
+				</div>
+			{/if}
+			{#if sourceForks && sourceForks.count > 0}
+				<div
+					class="fork-origin-marker"
+					data-testid="fork-origin-marker"
+					role="note"
+					aria-label={$t('fork.originMarkerLabel')}
+				>
+					<div class="fork-origin-icon" aria-hidden="true">
+						<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="18" cy="18" r="3"/>
+							<circle cx="6" cy="6" r="3"/>
+							<path d="M6 9v2a7 7 0 0 0 7 7h2"/>
+							<path d="M6 9v1a7 7 0 0 1 7 7"/>
+						</svg>
+					</div>
+					{#if sourceForks.count === 1 && sourceForks.forks[0]}
+						{@const childFork = sourceForks.forks[0]}
+						<span class="fork-origin-label">{$t('fork.originSingleLabel')}</span>
+						<a
+							class="fork-origin-link"
+							href={`/chat/${childFork.conversationId}`}
+							aria-label={forkLinkLabel(childFork.title)}
+						>
+							{childFork.title}
+						</a>
+					{:else}
+						<div class="fork-origin-details">
+							<button
+								type="button"
+								class="fork-origin-summary"
+								aria-expanded={showForkDetails}
+								onclick={toggleForkDetails}
+							>
+								{$t('fork.originCountLabel', { count: sourceForks.count })}
+							</button>
+							{#if showForkDetails}
+								<div class="fork-origin-list">
+									{#each sourceForks.forks as childFork (childFork.conversationId)}
+										<a
+											class="fork-origin-link"
+											href={`/chat/${childFork.conversationId}`}
+											aria-label={forkLinkLabel(childFork.title)}
+										>
+											{childFork.title}
+										</a>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/if}
 			{#if message.evidenceSummary && message.evidenceSummary.groups.length > 0}
@@ -418,6 +498,28 @@
 						<path d="M3 22v-6h6"/>
 						<path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
 					</svg>
+				</button>
+			{/if}
+
+			{#if canFork}
+				<button
+					type="button"
+					class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
+					onclick={() => onFork?.({ messageId: message.id })}
+					disabled={forkBusy}
+					title={forkBusy ? $t('fork.creating') : $t('messageBubble.forkFromHere')}
+					aria-label={forkBusy ? $t('fork.creating') : $t('messageBubble.forkFromHere')}
+				>
+					{#if forkBusy}
+						<span class="mini-spinner" aria-hidden="true"></span>
+					{:else}
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="18" cy="18" r="3"/>
+							<circle cx="6" cy="6" r="3"/>
+							<path d="M6 9v2a7 7 0 0 0 7 7h2"/>
+							<path d="M6 9v1a7 7 0 0 1 7 7"/>
+						</svg>
+					{/if}
 				</button>
 			{/if}
 
@@ -593,11 +695,97 @@
 		margin-top: var(--space-sm);
 	}
 
+	.mini-spinner {
+		width: 1rem;
+		height: 1rem;
+		border: 2px solid currentColor;
+		border-right-color: transparent;
+		border-radius: 999px;
+		animation: spin 700ms linear infinite;
+	}
+
 	.file-production-inline {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-xs);
 		margin-top: var(--space-md);
+	}
+
+	.fork-origin-marker {
+		display: inline-flex;
+		max-width: 100%;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-xs);
+		margin-top: var(--space-md);
+		border-left: 3px solid color-mix(in srgb, var(--accent) 78%, var(--text-primary) 22%);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--surface-elevated) 84%, var(--accent) 16%);
+		padding: 0.42rem 0.6rem;
+		font-family: 'Nimbus Sans L', sans-serif;
+		font-size: 0.76rem;
+		line-height: 1.35;
+		color: var(--text-secondary);
+	}
+
+	.fork-origin-icon {
+		display: inline-flex;
+		flex: 0 0 auto;
+		color: var(--text-muted);
+	}
+
+	.fork-origin-label {
+		font-weight: 700;
+		color: var(--text-primary);
+		white-space: nowrap;
+	}
+
+	.fork-origin-link {
+		min-width: 0;
+		max-width: 18rem;
+		overflow-wrap: anywhere;
+		color: var(--text-secondary);
+		text-decoration: none;
+	}
+
+	.fork-origin-link:hover,
+	.fork-origin-link:focus-visible {
+		color: var(--text-primary);
+		text-decoration: underline;
+		text-underline-offset: 0.18em;
+		outline: none;
+	}
+
+	.fork-origin-details {
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.fork-origin-summary {
+		display: inline-flex;
+		border: 0;
+		background: transparent;
+		color: var(--text-primary);
+		cursor: pointer;
+		font: inherit;
+		font-weight: 700;
+		padding: 0;
+		text-align: left;
+	}
+
+	.fork-origin-summary:hover,
+	.fork-origin-summary:focus-visible {
+		text-decoration: underline;
+		text-underline-offset: 0.18em;
+		outline: none;
+	}
+
+	.fork-origin-list {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		gap: 0.18rem;
+		margin-top: var(--space-xs);
 	}
 
 	.evidence-pending {
@@ -613,6 +801,10 @@
 	@keyframes fadeIn {
 		from { opacity: 0; }
 		to { opacity: 1; }
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
 	}
 
 	.info-container {

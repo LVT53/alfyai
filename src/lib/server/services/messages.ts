@@ -10,6 +10,7 @@ import {
 } from "$lib/server/db/schema";
 import type {
 	ChatMessage,
+	ForkEvidenceSnapshot,
 	HonchoContextInfo,
 	HonchoContextSnapshot,
 	MessageEvidenceStatusState,
@@ -36,6 +37,9 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	honchoSnapshot?: HonchoContextSnapshot | null;
 	modelDisplayName?: string | null;
 	webCitationAudit?: WebCitationAudit | null;
+	wasStopped?: boolean;
+	forkCopy?: ChatMessage["forkCopy"];
+	forkEvidenceSnapshot?: ForkEvidenceSnapshot;
 };
 
 export class SkillDraftTransitionError extends Error {
@@ -55,6 +59,28 @@ function getModelDisplayName(modelId?: string | null): string | undefined {
 	if (modelId === "model1") return config.model1.displayName;
 	if (modelId === "model2") return config.model2.displayName;
 	return undefined;
+}
+
+function isMessageEvidenceSummary(
+	value: unknown,
+): value is MessageEvidenceSummary {
+	return Boolean(
+		value &&
+			typeof value === "object" &&
+			Array.isArray((value as MessageEvidenceSummary).groups),
+	);
+}
+
+function readEvidenceSummaryFromMetadata(
+	metadata: PersistedMessageMetadata | null,
+): MessageEvidenceSummary | null {
+	if (isMessageEvidenceSummary(metadata?.forkEvidenceSnapshot?.evidenceSummary)) {
+		return metadata.forkEvidenceSnapshot.evidenceSummary;
+	}
+	if (isMessageEvidenceSummary(metadata?.evidenceSummary)) {
+		return metadata.evidenceSummary;
+	}
+	return null;
 }
 
 function mapRowToChatMessage(
@@ -79,16 +105,12 @@ function mapRowToChatMessage(
 	}
 
 	const metadata = parseMetadata(row.metadataJson);
-	const evidenceSummary =
-		metadata?.evidenceSummary && Array.isArray(metadata.evidenceSummary.groups)
-			? metadata.evidenceSummary
-			: undefined;
+	const evidenceSummary = readEvidenceSummaryFromMetadata(metadata) ?? undefined;
 	const evidencePending =
 		metadata?.evidenceStatus === "pending" && !evidenceSummary;
 
 	return {
 		id: row.id,
-		renderKey: row.id,
 		role: row.role as MessageRole,
 		content: row.content,
 		thinking: row.thinking ?? undefined,
@@ -102,6 +124,7 @@ function mapRowToChatMessage(
 		evidenceSummary,
 		webCitationAudit: metadata?.webCitationAudit ?? undefined,
 		evidencePending,
+		wasStopped: metadata?.wasStopped === true ? true : undefined,
 		honchoContext: metadata?.honchoContext ?? undefined,
 		skillQuestion: metadata?.skillQuestion || undefined,
 		pendingSkillNoteIntents: metadata?.pendingSkillNoteIntents,
@@ -109,6 +132,8 @@ function mapRowToChatMessage(
 			? metadata.skillDrafts
 			: undefined,
 		skillControl: metadata?.skillControl,
+		forkCopy: metadata?.forkCopy,
+		forkEvidenceSnapshot: metadata?.forkEvidenceSnapshot,
 	};
 }
 
@@ -186,7 +211,7 @@ export async function listMessages(
 			.leftJoin(usageEvents, eq(messages.id, usageEvents.messageId))
 			.leftJoin(messageAnalytics, eq(messages.id, messageAnalytics.messageId))
 			.where(eq(messages.conversationId, conversationId))
-			.orderBy(asc(messages.createdAt)),
+			.orderBy(asc(messages.createdAt), asc(messages.id)),
 		listMessageAttachments(conversationId),
 	]);
 
@@ -252,6 +277,7 @@ export async function getMessageEvidenceState(
 ): Promise<{
 	status: MessageEvidenceStatusState;
 	evidenceSummary: MessageEvidenceSummary | null;
+	forkEvidenceSnapshot?: ForkEvidenceSnapshot;
 } | null> {
 	const [row] = await db
 		.select({ metadataJson: messages.metadataJson })
@@ -267,14 +293,12 @@ export async function getMessageEvidenceState(
 	if (!row) return null;
 
 	const metadata = parseMetadata(row.metadataJson);
-	const evidenceSummary =
-		metadata?.evidenceSummary && Array.isArray(metadata.evidenceSummary.groups)
-			? metadata.evidenceSummary
-			: null;
+	const evidenceSummary = readEvidenceSummaryFromMetadata(metadata);
 
 	return {
 		status: metadata?.evidenceStatus ?? (evidenceSummary ? "ready" : "none"),
 		evidenceSummary,
+		forkEvidenceSnapshot: metadata?.forkEvidenceSnapshot,
 	};
 }
 

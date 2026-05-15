@@ -206,6 +206,82 @@ describe('MessageArea', () => {
 		});
 	});
 
+	it('renders a fork boundary marker after the copied fork point message', () => {
+		const messages: ChatMessage[] = [
+			{
+				id: 'fork-user-1',
+				role: 'user',
+				content: 'Original question',
+				timestamp: Date.now(),
+			},
+			{
+				id: 'fork-assistant-1',
+				role: 'assistant',
+				content: 'Copied answer',
+				timestamp: Date.now(),
+			},
+		];
+
+		const { getByLabelText, getByTestId, getByText } = render(MessageArea, {
+			messages,
+			conversationId: 'fork-conv',
+			isThinkingActive: false,
+			contextDebug: null,
+			forkOrigin: {
+				forkConversationId: 'fork-conv',
+				sourceConversationId: 'source-conv',
+				sourceAssistantMessageId: 'source-assistant-1',
+				sourceConversationIdAvailable: true,
+				sourceAssistantMessageIdAvailable: true,
+				copiedForkPointMessageId: 'fork-assistant-1',
+				sourceTitle: 'Source title',
+				forkSequence: 1,
+				createdAt: Date.now(),
+			},
+		});
+
+		expect(getByTestId('fork-boundary-marker')).toBe(getByLabelText('Conversation fork boundary'));
+		expect(getByText('Fork starts here')).toBeInTheDocument();
+		expect(getByText('Copied from Source title')).toBeInTheDocument();
+		expect(getByText('Copied from Source title')).toHaveAttribute(
+			'href',
+			'/chat/source-conv#message-source-assistant-1',
+		);
+	});
+
+	it('renders a degraded fork boundary source when the source conversation is unavailable', () => {
+		const messages: ChatMessage[] = [
+			{
+				id: 'fork-assistant-1',
+				role: 'assistant',
+				content: 'Copied answer',
+				timestamp: Date.now(),
+			},
+		];
+
+		const { getByText, queryByRole } = render(MessageArea, {
+			messages,
+			conversationId: 'fork-conv',
+			isThinkingActive: false,
+			contextDebug: null,
+			forkOrigin: {
+				forkConversationId: 'fork-conv',
+				sourceConversationId: 'source-conv',
+				sourceAssistantMessageId: 'source-assistant-1',
+				sourceConversationIdAvailable: false,
+				sourceAssistantMessageIdAvailable: false,
+				copiedForkPointMessageId: 'fork-assistant-1',
+				sourceTitle: 'Deleted source title',
+				forkSequence: 1,
+				createdAt: Date.now(),
+			},
+		});
+
+		expect(getByText('Copied from Deleted source title')).toBeInTheDocument();
+		expect(getByText('Source conversation unavailable')).toBeInTheDocument();
+		expect(queryByRole('link', { name: /Deleted source title/ })).not.toBeInTheDocument();
+	});
+
 	it('renders persisted Deep Research jobs as cards without an assistant message', () => {
 		const { getByRole, getByText, queryByText } = render(MessageArea, {
 			messages: [],

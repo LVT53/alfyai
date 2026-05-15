@@ -24,6 +24,7 @@ import {
 	fetchConversationDetail,
 	fetchMessageEvidence,
 	generateConversationTitle,
+	createConversationFork,
 	startConversationSkillSession,
 } from "$lib/client/api/conversations";
 import {
@@ -59,6 +60,7 @@ import type {
 	ChatGeneratedFile,
 	ChatMessage,
 	ConversationDraft,
+	ConversationForkOrigin,
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
@@ -98,6 +100,7 @@ import {
 	updateConversationTitleLocal,
 	upsertConversationLocal,
 } from "$lib/stores/conversations";
+import { hasForkedAssistantInRange } from "./lifecycle-guards";
 import ChatComposerPanel from "./_components/ChatComposerPanel.svelte";
 import ChatMessagePane from "./_components/ChatMessagePane.svelte";
 import SkillSessionPanel from "./_components/SkillSessionPanel.svelte";
@@ -148,6 +151,7 @@ const initialTaskState = getData().taskState ?? null;
 const initialContextDebug = getData().contextDebug ?? null;
 const initialContextSources = getData().contextSources ?? null;
 const initialConversationDraft = getData().draft ?? null;
+const initialForkOrigin = getData().forkOrigin ?? null;
 const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
@@ -213,6 +217,7 @@ let contextSources = $state<ContextSourcesState | null>(initialContextSources);
 let conversationDraft = $state<ConversationDraft | null>(
 	initialConversationDraft,
 );
+let forkOrigin = $state<ConversationForkOrigin | null>(initialForkOrigin);
 let generatedFiles = $state<ChatGeneratedFile[]>(initialGeneratedFiles);
 let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 let deepResearchJobs = $state<DeepResearchJob[]>(initialDeepResearchJobs);
@@ -220,6 +225,9 @@ let activeSkillSession = $state<SkillSession | null>(initialActiveSkillSession);
 let skillSessionBusy = $state(false);
 let skillSessionError = $state<string | null>(null);
 let skillDraftActionState = $state<Record<string, { busy?: boolean; error?: string | null }>>({});
+let forkingMessageId = $state<string | null>(null);
+let forkOpening = $state(Boolean(initialForkOrigin));
+let forkOpeningTimeout: ReturnType<typeof setTimeout> | null = null;
 let conversationStatus = $state(initialConversationStatus);
 let isConversationReadOnlyForChat = $derived(
 	isConversationReadOnly({ status: conversationStatus }, deepResearchJobs),
@@ -288,6 +296,16 @@ let availableWorkspaceDocuments = $derived(
 function getPersistedWorkspaceState() {
 	if (!browser) return null;
 	return loadPersistedWorkspaceDocumentState(window.sessionStorage);
+}
+
+function triggerForkOpeningTransition() {
+	if (!browser || !forkOrigin) return;
+	forkOpeningTimeout && clearTimeout(forkOpeningTimeout);
+	forkOpening = true;
+	forkOpeningTimeout = setTimeout(() => {
+		forkOpening = false;
+		forkOpeningTimeout = null;
+	}, 320);
 }
 
 function restorePersistedWorkspaceState() {
@@ -493,6 +511,8 @@ function resetState() {
 	contextDebug = data.contextDebug ?? null;
 	contextSources = data.contextSources ?? null;
 	conversationDraft = data.draft ?? null;
+	forkOrigin = data.forkOrigin ?? null;
+	triggerForkOpeningTransition();
 	generatedFiles = data.generatedFiles ?? [];
 	fileProductionJobs = data.fileProductionJobs ?? [];
 	deepResearchJobs = data.deepResearchJobs ?? [];
@@ -505,6 +525,7 @@ function resetState() {
 	hydratingConversation = false;
 	suppressHydration = false;
 	evidenceManagerOpen = false;
+	forkingMessageId = null;
 	draftPersistence.clear();
 	currentConversationId.set(data.conversation.id);
 	// Defer pending-message send to avoid state-cascade during hydration
@@ -687,6 +708,7 @@ async function loadPersistedData() {
 		messages.set([...(detail.messages ?? [])]);
 		contextStatus = detail.contextStatus ?? contextStatus;
 		contextSources = detail.contextSources ?? contextSources;
+		forkOrigin = detail.forkOrigin ?? forkOrigin;
 		activeWorkingSet = detail.activeWorkingSet ?? activeWorkingSet;
 		taskState = detail.taskState ?? taskState;
 		contextDebug = detail.contextDebug ?? contextDebug;
@@ -899,6 +921,7 @@ async function reconnectToOrphanedStream(
 						activeWorkingSet = detail.activeWorkingSet ?? activeWorkingSet;
 						taskState = detail.taskState ?? taskState;
 						contextDebug = detail.contextDebug ?? contextDebug;
+						forkOrigin = detail.forkOrigin ?? forkOrigin;
 						generatedFiles = [...(detail.generatedFiles ?? [])];
 						fileProductionJobs = [...(detail.fileProductionJobs ?? [])];
 						deepResearchJobs = mergeDeepResearchJobsForHydration(
@@ -971,6 +994,7 @@ async function checkForOrphanedStreamOnMount() {
 
 onMount(() => {
 	currentConversationId.set(data.conversation.id);
+	triggerForkOpeningTransition();
 	document.addEventListener("visibilitychange", handleVisibilityChange);
 	window.addEventListener(
 		WORKSPACE_CONVERSATION_DELETED_EVENT,
@@ -988,6 +1012,10 @@ onDestroy(() => {
 			WORKSPACE_CONVERSATION_DELETED_EVENT,
 			handleWorkspaceConversationDeletedEvent,
 		);
+	}
+	if (forkOpeningTimeout) {
+		clearTimeout(forkOpeningTimeout);
+		forkOpeningTimeout = null;
 	}
 	for (const controller of evidencePollControllers.values()) {
 		controller.abort();
@@ -1032,6 +1060,7 @@ async function hydrateConversationDetail(conversationId: string) {
 		taskState = payload.taskState ?? taskState;
 		contextDebug = payload.contextDebug ?? contextDebug;
 		conversationDraft = payload.draft ?? conversationDraft;
+		forkOrigin = payload.forkOrigin ?? forkOrigin;
 		generatedFiles = payload.generatedFiles ?? generatedFiles;
 		fileProductionJobs = payload.fileProductionJobs ?? fileProductionJobs;
 		deepResearchJobs = payload.deepResearchJobs
@@ -1636,6 +1665,41 @@ async function handlePublishSkillDraft(payload: { messageId: string; draftId: st
 	}
 }
 
+async function handleFork(payload: { messageId: string }) {
+	if (isConversationReadOnlyForChat || forkingMessageId) return;
+	if (activeStream) {
+		sendError = get(t)("fork.activeStreamGuard");
+		return;
+	}
+	forkingMessageId = payload.messageId;
+	sendError = null;
+	try {
+		const result = await createConversationFork(data.conversation.id, {
+			messageId: payload.messageId,
+		});
+		upsertConversationLocal(
+			result.conversation.id,
+			result.conversation.title,
+			result.conversation.updatedAt,
+			result.conversation.projectId ?? null,
+		);
+		conversationDraft = null;
+		queuedTurn = null;
+		draftPersistence.clear();
+		currentConversationId.set(result.conversation.id);
+		await goto(`/chat/${result.conversation.id}`);
+	} catch (error) {
+		sendError =
+			error instanceof ApiError
+				? get(t)("fork.failed")
+				: error instanceof Error
+					? error.message
+					: get(t)("fork.failed");
+	} finally {
+		forkingMessageId = null;
+	}
+}
+
 async function handleSend(
 	payload: SendPayload,
 	skipUserMessage = false,
@@ -2012,6 +2076,12 @@ function handleRegenerate(payload: MessageRegeneratePayload) {
 	const msgs = $messages;
 	const assistantIdx = msgs.findIndex((m) => m.id === messageId);
 	if (assistantIdx === -1) return;
+	if (
+		hasForkedAssistantInRange(msgs, assistantIdx) &&
+		!window.confirm(get(t)("fork.regenerateWarning"))
+	) {
+		return;
+	}
 
 	// Find the user message immediately before this assistant message
 	const userIdx = assistantIdx - 1;
@@ -2043,6 +2113,12 @@ async function handleEdit(payload: MessageEditPayload) {
 	const msgs = $messages;
 	const editIdx = msgs.findIndex((m) => m.id === messageId);
 	if (editIdx === -1) return;
+	if (
+		hasForkedAssistantInRange(msgs, editIdx) &&
+		!window.confirm(get(t)("fork.editWarning"))
+	) {
+		return;
+	}
 
 	const idsToDelete = msgs.slice(editIdx).map((m) => m.id);
 
@@ -2267,10 +2343,14 @@ function handleDrop(event: DragEvent) {
 						{contextDebug}
 						{fileProductionJobs}
 						{deepResearchJobs}
+						{forkOrigin}
+						{forkOpening}
+						{forkingMessageId}
 						readOnly={isConversationReadOnlyForChat}
 						onOpenDocument={openWorkspaceDocument}
 						onRegenerate={handleRegenerate}
 						onEdit={handleEdit}
+						onFork={handleFork}
 						onSteer={handleSteering}
 						{canPublishSkillDrafts}
 						{skillDraftActionState}

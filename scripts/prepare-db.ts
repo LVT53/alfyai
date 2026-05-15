@@ -25,6 +25,7 @@ const requiredExistingTables = [
 	'artifact_chunks',
 	'conversation_context_status',
 	'conversation_summaries',
+	'conversation_forks',
 	'deep_research_jobs',
 	'deep_research_plan_versions',
 	'deep_research_timeline_events',

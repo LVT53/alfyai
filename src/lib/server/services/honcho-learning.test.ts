@@ -107,6 +107,9 @@ const mockGetLatestHonchoMetadata = vi.fn(async () => ({
 	honchoContext: null,
 	honchoSnapshot: null,
 }));
+const mockGetConversationForkOrigin = vi.hoisted(() =>
+	vi.fn(async () => null)
+);
 const mockCompactContextSections = vi.hoisted(() =>
 	vi.fn(({ message }: { message: string }) => ({
 		inputValue: message,
@@ -116,6 +119,34 @@ const mockCompactContextSections = vi.hoisted(() =>
 		estimatedTokens: 0,
 		sectionSelections: [],
 	}))
+);
+const mockSelectRecentRoleTurns = vi.hoisted(() =>
+	vi.fn((messages: unknown[]) => (messages.length > 0 ? [{ messages }] : []))
+);
+const mockSelectPromptSessionTurns = vi.hoisted(() =>
+	vi.fn(({ turns }: { turns: unknown[] }) => turns)
+);
+const mockSerializeBudgetedRoleTurns = vi.hoisted(() =>
+	vi.fn(
+		({
+			turns,
+			resolveRole,
+			resolveContent,
+		}: {
+			turns: Array<{ messages: unknown[] }>;
+			resolveRole: (message: unknown) => string;
+			resolveContent: (message: unknown) => string;
+		}) => ({
+			body: turns
+				.flatMap((turn) => turn.messages)
+				.map((message) => `${resolveRole(message)}: ${resolveContent(message)}`)
+				.join('\n'),
+			includedTurnCount: turns.length,
+			omittedTurnCount: 0,
+			trimmed: false,
+			estimatedTokens: 10,
+		})
+	)
 );
 const mockUpdateConversationContextStatus = vi.hoisted(() =>
 	vi.fn(async () => ({
@@ -314,13 +345,7 @@ vi.mock('$lib/server/utils/prompt-context', () => ({
 	serializePeerContext: vi.fn((context: unknown) => 'serialized peer context'),
 	serializeArtifacts: vi.fn(() => []),
 	serializeBudgetedAttachments: mockSerializeBudgetedAttachments,
-	serializeBudgetedRoleTurns: vi.fn(() => ({
-		body: '',
-		includedTurnCount: 0,
-		omittedTurnCount: 0,
-		trimmed: false,
-		estimatedTokens: 0,
-	})),
+	serializeBudgetedRoleTurns: mockSerializeBudgetedRoleTurns,
 	serializeRoleMessages: vi.fn(() => []),
 	serializeWorkingSetArtifacts: vi.fn(() => []),
 	dedupeById: vi.fn((items: unknown[]) => items),
@@ -328,14 +353,18 @@ vi.mock('$lib/server/utils/prompt-context', () => ({
 	compactContextSections: mockCompactContextSections,
 	extractSerializedAttachmentBody: vi.fn(() => null),
 	rerankHistoricalSections: vi.fn(async ({ sections }: { sections: unknown[] }) => sections),
-	selectRecentRoleTurns: vi.fn(() => []),
-	selectPromptSessionTurns: vi.fn(() => []),
+	selectRecentRoleTurns: mockSelectRecentRoleTurns,
+	selectPromptSessionTurns: mockSelectPromptSessionTurns,
 	truncateToTokenBudget: vi.fn((text: string) => text),
 }));
 
 vi.mock('$lib/server/services/messages', () => ({
 	getLatestHonchoMetadata: mockGetLatestHonchoMetadata,
 	listMessages: mockListMessages,
+}));
+
+vi.mock('./conversation-forks', () => ({
+	getConversationForkOrigin: mockGetConversationForkOrigin,
 }));
 
 vi.mock('./projects', () => ({
@@ -588,6 +617,29 @@ describe('honcho learning - buildConstructedContext', () => {
 		mockGetProjectFolderReferenceContext.mockResolvedValue(null);
 		mockGetProjectReferenceContext.mockResolvedValue(null);
 		mockSelectProjectFolderSiblingPromotion.mockResolvedValue(null);
+		mockGetConversationForkOrigin.mockResolvedValue(null);
+		mockListMessages.mockResolvedValue([]);
+		mockGetLatestHonchoMetadata.mockResolvedValue({
+			honchoContext: null,
+			honchoSnapshot: null,
+		});
+		mockSessionContext.mockResolvedValue({
+			messages: [
+				{
+					content: 'Hello there',
+					peerId: 'user-1',
+					createdAt: new Date(now - 60000).toISOString(),
+					metadata: { role: 'user' },
+				},
+				{
+					content: 'Hi! How can I help?',
+					peerId: 'assistant_user-1',
+					createdAt: new Date(now - 30000).toISOString(),
+					metadata: { role: 'assistant' },
+				},
+			],
+			summary: null,
+		});
 	});
 
 	it('adds the current Project Folder label to prompt context as quoted metadata', async () => {
@@ -1000,6 +1052,82 @@ describe('honcho learning - buildConstructedContext', () => {
 				compactionMode: 'none',
 			})
 		);
+	});
+
+	it('merges inherited fork history into live Honcho prompt context and exposes provenance', async () => {
+		mockConfig.honchoEnabled = true;
+		mockListMessages.mockResolvedValueOnce([
+			{
+				id: 'fork-user-1',
+				role: 'user',
+				content: 'Inherited source question',
+				timestamp: Date.parse('2026-05-15T10:00:01.000Z'),
+				forkCopy: {
+					sourceMessageId: 'source-user-1',
+					sourceConversationId: 'source-conv',
+					sourceRole: 'user',
+					sourceCreatedAt: '2026-05-15T10:00:01.000Z',
+				},
+			},
+			{
+				id: 'fork-assistant-1',
+				role: 'assistant',
+				content: 'Inherited source answer',
+				timestamp: Date.parse('2026-05-15T10:00:02.000Z'),
+				forkCopy: {
+					sourceMessageId: 'source-assistant-1',
+					sourceConversationId: 'source-conv',
+					sourceRole: 'assistant',
+					sourceCreatedAt: '2026-05-15T10:00:02.000Z',
+				},
+			},
+		]);
+		mockSessionContext.mockResolvedValueOnce({
+			messages: [
+				{
+					content: 'Fork-local follow-up',
+					peerId: 'user-1',
+					createdAt: '2026-05-15T10:05:00.000Z',
+					metadata: { role: 'user' },
+				},
+			],
+			summary: null,
+		});
+		mockGetConversationForkOrigin.mockResolvedValueOnce({
+			forkConversationId: 'fork-conv',
+			sourceConversationId: 'source-conv',
+			sourceAssistantMessageId: 'source-assistant-1',
+			sourceConversationIdAvailable: true,
+			sourceAssistantMessageIdAvailable: true,
+			copiedForkPointMessageId: 'fork-assistant-1',
+			sourceTitle: 'Source title',
+			forkSequence: 1,
+			createdAt: Date.now(),
+		});
+		renderSectionsInCompactionMock();
+		const { buildConstructedContext } = await import('./honcho');
+
+		const result = await buildConstructedContext({
+			userId: 'user-1',
+			conversationId: 'fork-conv',
+			message: 'Continue from the inherited answer.',
+		});
+
+		expect(result.inputValue).toContain('## Honcho Session Context');
+		expect(result.inputValue).toContain('Inherited source question');
+		expect(result.inputValue).toContain('Inherited source answer');
+		expect(result.inputValue).toContain('Fork-local follow-up');
+		expect(result.inputValue).toContain(
+			'[Inherited copied turn from source conversation source-conv; source message source-assistant-1]'
+		);
+		expect(result.contextDebug?.forkProvenance).toMatchObject({
+			inheritedMessageCount: 2,
+			inheritedTurnCount: 1,
+			forkLocalMessageCount: 1,
+			sourceConversationIds: ['source-conv'],
+			sourceMessageIds: ['source-user-1', 'source-assistant-1'],
+			copiedForkPointMessageId: 'fork-assistant-1',
+		});
 	});
 });
 

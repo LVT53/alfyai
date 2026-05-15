@@ -9,6 +9,10 @@ import {
 import { deleteConversationWithCleanup } from '$lib/server/services/cleanup';
 import { listMessages } from '$lib/server/services/messages';
 import {
+	getConversationForkOrigin,
+	listChildForksBySourceMessages,
+} from '$lib/server/services/conversation-forks';
+import {
 	getConversationWorkingSet,
 	getConversationContextStatus,
 	listConversationArtifacts
@@ -55,9 +59,11 @@ export const GET: RequestHandler = async (event) => {
 		if (event.url.searchParams.get('view') === 'bootstrap') {
 			const draft = await getConversationDraft(user.id, id).catch(() => null);
 			const activeSkillSession = await getActiveSkillSession(user.id, id).catch(() => null);
+			const forkOrigin = await getConversationForkOrigin(id).catch(() => null);
 			return json({
 				conversation,
 				messages: [],
+				forkOrigin,
 				attachedArtifacts: [],
 				activeWorkingSet: [],
 				contextStatus: null,
@@ -74,6 +80,7 @@ export const GET: RequestHandler = async (event) => {
 
 		const [
 			messageHistory,
+			forkOrigin,
 			attachedArtifacts,
 			activeWorkingSet,
 			contextStatus,
@@ -88,6 +95,7 @@ export const GET: RequestHandler = async (event) => {
 			activeSkillSession,
 		] = await Promise.all([
 			listMessages(id),
+			getConversationForkOrigin(id),
 			listConversationArtifacts(user.id, id),
 			getConversationWorkingSet(user.id, id),
 			getConversationContextStatus(user.id, id),
@@ -106,6 +114,16 @@ export const GET: RequestHandler = async (event) => {
 		const taskStateWithContinuity = await attachContinuityToTaskState(user.id, taskState).catch(
 			() => taskState
 		);
+		const sourceForksByMessageId = await listChildForksBySourceMessages(
+			user.id,
+			messageHistory
+				.filter((message) => message.role === 'assistant')
+				.map((message) => message.id),
+		).catch(() => ({}));
+		const messagesWithSourceForks = messageHistory.map((message) => {
+			const sourceForks = sourceForksByMessageId[message.id];
+			return sourceForks ? { ...message, sourceForks } : message;
+		});
 		const contextSources = buildContextSourcesState({
 			userId: user.id,
 			conversationId: id,
@@ -117,7 +135,8 @@ export const GET: RequestHandler = async (event) => {
 		});
 		return json({
 			conversation,
-			messages: messageHistory,
+			messages: messagesWithSourceForks,
+			forkOrigin,
 			attachedArtifacts,
 			activeWorkingSet,
 			contextStatus,

@@ -2,10 +2,11 @@ import { db } from '$lib/server/db';
 import { conversations, messages, projects } from '$lib/server/db/schema';
 import { eq, and, desc, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
-import type { Conversation } from '$lib/types';
+import type { Conversation, ConversationListItem } from '$lib/types';
 import { isHonchoEnabled, getOrCreateSession } from './honcho';
 import { recordConversationAnalytics } from './analytics';
 import { convergeProjectFolderContinuityForConversation } from './task-state/continuity';
+import { getConversationForkSummaries } from './conversation-forks';
 
 type CreateConversationOptions = {
 	projectId?: string | null;
@@ -57,7 +58,7 @@ export async function createConversation(
 	};
 }
 
-export async function listConversations(userId: string): Promise<Conversation[]> {
+export async function listConversations(userId: string): Promise<ConversationListItem[]> {
 	const result = await db
 		.select()
 		.from(conversations)
@@ -77,7 +78,7 @@ export async function listConversations(userId: string): Promise<Conversation[]>
 		conversationIdsWithMessages.map((row) => row.conversationId)
 	);
 
-	return result
+	const visibleConversations = result
 		.filter((conv) => visibleConversationIds.has(conv.id))
 		.map(conv => ({
 		id: conv.id,
@@ -86,6 +87,15 @@ export async function listConversations(userId: string): Promise<Conversation[]>
 		createdAt: conv.createdAt.getTime() / 1000,
 		updatedAt: conv.updatedAt.getTime() / 1000,
 	}));
+	const forkSummaries = await getConversationForkSummaries(
+		userId,
+		visibleConversations.map((conversation) => conversation.id),
+	);
+
+	return visibleConversations.map((conversation) => {
+		const forkSummary = forkSummaries.get(conversation.id);
+		return forkSummary ? { ...conversation, forkSummary } : conversation;
+	});
 }
 
 export async function getConversation(userId: string, conversationId: string): Promise<Conversation | null> {

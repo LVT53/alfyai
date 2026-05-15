@@ -62,6 +62,8 @@ import type {
 	HonchoContextSnapshot,
 	ConversationContextStatus,
 	ContextDebugState,
+	ForkContextProvenanceSummary,
+	ForkCopyMetadata,
 } from '$lib/types';
 import {
 	formatTaskStateForPrompt,
@@ -83,6 +85,7 @@ import {
 } from './attachment-trace';
 import { buildActiveDocumentState } from './active-state';
 import { getLatestHonchoMetadata, listMessages } from './messages';
+import { getConversationForkOrigin } from './conversation-forks';
 
 let client: Honcho | null = null;
 
@@ -1002,6 +1005,7 @@ type PromptContextMessage = {
 	role: 'user' | 'assistant';
 	content: string;
 	createdAt: number;
+	forkCopy?: ForkCopyMetadata;
 };
 
 function mapHonchoMessagesToPromptContext(
@@ -1023,6 +1027,7 @@ function mapStoredMessagesToPromptContext(messages: ChatMessage[]): PromptContex
 			role: message.role,
 			content: message.content,
 			createdAt: message.timestamp,
+			forkCopy: message.forkCopy,
 		}))
 		.sort((a, b) => a.createdAt - b.createdAt);
 }
@@ -1055,6 +1060,7 @@ function mapSnapshotMessagesToPromptContext(
 			role: message.role,
 			content: message.content,
 			createdAt: message.createdAt,
+			forkCopy: message.forkCopy,
 		}))
 		.sort((a, b) => a.createdAt - b.createdAt);
 }
@@ -1069,6 +1075,7 @@ function createHonchoSnapshot(params: {
 			role: message.role,
 			content: message.content,
 			createdAt: message.createdAt,
+			forkCopy: message.forkCopy,
 		}));
 	const summary = params.summary?.trim() ? params.summary.trim() : null;
 
@@ -1080,6 +1087,66 @@ function createHonchoSnapshot(params: {
 		createdAt: Date.now(),
 		summary,
 		messages: normalizedMessages,
+	};
+}
+
+function promptMessageKey(message: PromptContextMessage): string {
+	return [
+		message.role,
+		message.createdAt,
+		createHash('sha1').update(message.content).digest('hex'),
+	].join(':');
+}
+
+function mergeInheritedForkMessages(params: {
+	liveMessages: PromptContextMessage[];
+	storedMessages: PromptContextMessage[];
+}): PromptContextMessage[] {
+	const inheritedMessages = params.storedMessages.filter((message) => message.forkCopy);
+	if (inheritedMessages.length === 0) return params.liveMessages;
+
+	const seen = new Set(params.liveMessages.map(promptMessageKey));
+	const merged = [...params.liveMessages];
+	for (const message of inheritedMessages) {
+		const key = promptMessageKey(message);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		merged.push(message);
+	}
+	return merged.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+function summarizeForkContextProvenance(params: {
+	messages: PromptContextMessage[];
+	copiedForkPointMessageId?: string | null;
+}): ForkContextProvenanceSummary | null {
+	const inheritedMessages = params.messages.filter((message) => message.forkCopy);
+	if (inheritedMessages.length === 0) return null;
+
+	const inheritedTurns = selectRecentRoleTurns(
+		inheritedMessages,
+		(message) => message.role,
+		inheritedMessages.length
+	);
+	return {
+		inheritedMessageCount: inheritedMessages.length,
+		inheritedTurnCount: inheritedTurns.length,
+		forkLocalMessageCount: Math.max(0, params.messages.length - inheritedMessages.length),
+		sourceConversationIds: Array.from(
+			new Set(
+				inheritedMessages
+					.map((message) => message.forkCopy?.sourceConversationId)
+					.filter((value): value is string => Boolean(value))
+			)
+		),
+		sourceMessageIds: Array.from(
+			new Set(
+				inheritedMessages
+					.map((message) => message.forkCopy?.sourceMessageId)
+					.filter((value): value is string => Boolean(value))
+			)
+		),
+		copiedForkPointMessageId: params.copiedForkPointMessageId ?? null,
 	};
 }
 
@@ -1278,10 +1345,14 @@ async function loadSessionPromptContext(params: {
 		);
 	}
 
-	const sessionMessages = mapHonchoMessagesToPromptContext(
+	const liveSessionMessages = mapHonchoMessagesToPromptContext(
 		liveContextResult.value.messages,
 		params.userId
 	);
+	const sessionMessages = mergeInheritedForkMessages({
+		liveMessages: liveSessionMessages,
+		storedMessages: fallbackSessionMessages,
+	});
 	const summary = liveContextResult.value.summary?.content?.trim()
 		? liveContextResult.value.summary.content.trim()
 		: null;
@@ -1365,6 +1436,7 @@ export async function buildConstructedContext(params: {
 		projectFolderLabel,
 		projectFolderReferenceContext,
 		projectFolderSiblingPromotion,
+		forkOrigin,
 	] =
 		await Promise.all([
 			loadSessionPromptContext({
@@ -1394,6 +1466,7 @@ export async function buildConstructedContext(params: {
 				conversationId: params.conversationId,
 				query: params.message,
 			}).catch(() => null),
+			getConversationForkOrigin(params.conversationId).catch(() => null),
 		]);
 	const {
 		sessionMessages,
@@ -1402,6 +1475,10 @@ export async function buildConstructedContext(params: {
 		honchoContext,
 		honchoSnapshot,
 	} = sessionContext;
+	const forkProvenance = summarizeForkContextProvenance({
+		messages: sessionMessages,
+		copiedForkPointMessageId: forkOrigin?.copiedForkPointMessageId ?? null,
+	});
 	const currentAttachments = resolvedAttachments.promptArtifacts;
 	const currentAttachmentIds = new Set(currentAttachments.map((artifact) => artifact.id));
 	const requestedAttachmentIds = new Set(attachmentIds);
@@ -1570,7 +1647,13 @@ export async function buildConstructedContext(params: {
 	const sessionTurnContext = serializeBudgetedRoleTurns({
 		turns: filteredTurns,
 		resolveRole: (message) => message.role,
-		resolveContent: (message) => message.content,
+		resolveContent: (message) =>
+			message.forkCopy
+				? [
+						`[Inherited copied turn from source conversation ${message.forkCopy.sourceConversationId}; source message ${message.forkCopy.sourceMessageId}]`,
+						message.content,
+					].join('\n')
+				: message.content,
 		maxTokens: sessionHistoryBudget.totalBudget,
 	});
 	const recentTurnCount = sessionTurnContext.includedTurnCount;
@@ -1840,7 +1923,47 @@ export async function buildConstructedContext(params: {
 		inputValue: selectedPromptContext.inputValue,
 		contextStatus: status,
 		taskState,
-		contextDebug: await getContextDebugState(params.userId, params.conversationId).catch(() => null),
+		contextDebug: await getContextDebugState(params.userId, params.conversationId)
+			.then((debug) =>
+				debug
+					? {
+							...debug,
+							honcho: honchoContext,
+							forkProvenance,
+						}
+					: ({
+							activeTaskId: null,
+							activeTaskObjective: null,
+							taskLocked: false,
+							routingStage: preparedContext.routingStage,
+							routingConfidence: preparedContext.routingConfidence,
+							verificationStatus: preparedContext.verificationStatus,
+							selectedEvidence: [],
+							selectedEvidenceBySource: [],
+							pinnedEvidence: [],
+							excludedEvidence: [],
+							honcho: honchoContext,
+							forkProvenance,
+						} satisfies ContextDebugState)
+			)
+			.catch(() =>
+				forkProvenance || honchoContext
+					? ({
+							activeTaskId: null,
+							activeTaskObjective: null,
+							taskLocked: false,
+							routingStage: preparedContext.routingStage,
+							routingConfidence: preparedContext.routingConfidence,
+							verificationStatus: preparedContext.verificationStatus,
+							selectedEvidence: [],
+							selectedEvidenceBySource: [],
+							pinnedEvidence: [],
+							excludedEvidence: [],
+							honcho: honchoContext,
+							forkProvenance,
+						} satisfies ContextDebugState)
+					: null
+			),
 		honchoContext,
 		honchoSnapshot,
 		contextTraceSections: selectedPromptContext.contextTraceSections,

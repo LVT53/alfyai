@@ -56,7 +56,7 @@ export const conversationSummaries = sqliteTable('conversation_summaries', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 }, (table) => ({
-  userUpdatedIdx: index('conversation_summaries_user_updated_idx').on(table.userId, table.updatedAt),
+	userUpdatedIdx: index('conversation_summaries_user_updated_idx').on(table.userId, table.updatedAt),
 }));
 
 export const messages = sqliteTable('messages', {
@@ -71,6 +71,46 @@ export const messages = sqliteTable('messages', {
   metadataJson: text('metadata_json'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
+
+export const conversationForks = sqliteTable('conversation_forks', {
+  id: text('id').primaryKey(),
+  forkConversationId: text('fork_conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  sourceConversationId: text('source_conversation_id').references(() => conversations.id, {
+    onDelete: 'set null',
+  }),
+  sourceConversationIdSnapshot: text('source_conversation_id_snapshot').notNull(),
+  sourceAssistantMessageId: text('source_assistant_message_id').references(() => messages.id, {
+    onDelete: 'set null',
+  }),
+  sourceAssistantMessageIdSnapshot: text('source_assistant_message_id_snapshot').notNull(),
+  copiedForkPointMessageId: text('copied_fork_point_message_id')
+    .notNull()
+    .references(() => messages.id, { onDelete: 'cascade' }),
+  sourceTitle: text('source_title').notNull(),
+  forkSequence: integer('fork_sequence').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+  forkConversationUniqueIdx: uniqueIndex(
+    'conversation_forks_fork_conversation_unique_idx'
+  ).on(table.forkConversationId),
+  sourceAssistantIdx: index('conversation_forks_source_assistant_idx').on(
+    table.sourceAssistantMessageIdSnapshot,
+    table.forkSequence
+  ),
+  sourceConversationIdx: index('conversation_forks_source_conversation_idx').on(
+    table.sourceConversationIdSnapshot,
+    table.forkSequence
+  ),
+  userCreatedIdx: index('conversation_forks_user_created_idx').on(
+    table.userId,
+    table.createdAt
+  ),
+}));
 
 export const deepResearchJobs = sqliteTable('deep_research_jobs', {
   id: text('id').primaryKey(),
