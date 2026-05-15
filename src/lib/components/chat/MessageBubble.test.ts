@@ -160,4 +160,143 @@ describe('MessageBubble', () => {
 		expect(screen.getByRole('alert')).toHaveTextContent('Failed to save skill draft.');
 		expect(screen.getByRole('button', { name: 'Save private skill' })).toBeDisabled();
 	});
+
+	it('shows the fork action only for completed persisted assistant messages', async () => {
+		const onFork = vi.fn();
+		const assistantMessage: ChatMessage = {
+			id: 'assistant-1',
+			role: 'assistant',
+			content: 'Completed answer.',
+			timestamp: Date.now(),
+		};
+
+		const { rerender } = render(MessageBubble, {
+			message: assistantMessage,
+			onFork,
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Fork from here' }));
+		expect(onFork).toHaveBeenCalledWith({ messageId: 'assistant-1' });
+
+		await rerender({
+			message: {
+				...assistantMessage,
+				renderKey: undefined,
+			},
+			onFork,
+		});
+		expect(screen.getByRole('button', { name: 'Fork from here' })).toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...assistantMessage,
+				renderKey: 'client-only-stopped',
+				id: 'client-only-stopped',
+				wasStopped: true,
+			},
+			onFork,
+		});
+		expect(screen.queryByRole('button', { name: 'Fork from here' })).not.toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...assistantMessage,
+				id: 'persisted-stopped',
+				renderKey: 'client-placeholder',
+				wasStopped: true,
+			},
+			onFork,
+		});
+		expect(screen.queryByRole('button', { name: 'Fork from here' })).not.toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...assistantMessage,
+				id: 'streaming-assistant',
+				isStreaming: true,
+			},
+			onFork,
+		});
+		expect(screen.queryByRole('button', { name: 'Fork from here' })).not.toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...assistantMessage,
+				content: '   ',
+			},
+			onFork,
+		});
+		expect(screen.queryByRole('button', { name: 'Fork from here' })).not.toBeInTheDocument();
+	});
+
+	it('shows a source fork marker with a direct link when one child fork exists', () => {
+		const message: ChatMessage = {
+			id: 'assistant-1',
+			role: 'assistant',
+			content: 'Completed answer.',
+			timestamp: Date.now(),
+			sourceForks: {
+				count: 1,
+				forks: [
+					{
+						conversationId: 'fork-1',
+						title: 'Source title (fork 1)',
+						forkSequence: 1,
+						createdAt: 1,
+					},
+				],
+			},
+		};
+
+		render(MessageBubble, { message });
+
+		expect(screen.getByTestId('fork-origin-marker')).toBeInTheDocument();
+		expect(screen.getByText('Forked from this response')).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'Open fork Source title (fork 1)' })).toHaveAttribute(
+			'href',
+			'/chat/fork-1',
+		);
+	});
+
+	it('shows count-first fork awareness with on-demand links for multiple child forks', async () => {
+		const message: ChatMessage = {
+			id: 'assistant-1',
+			role: 'assistant',
+			content: 'Completed answer.',
+			timestamp: Date.now(),
+			sourceForks: {
+				count: 2,
+				forks: [
+					{
+						conversationId: 'fork-1',
+						title: 'First fork',
+						forkSequence: 1,
+						createdAt: 1,
+					},
+					{
+						conversationId: 'fork-2',
+						title: 'Renamed second fork',
+						forkSequence: 2,
+						createdAt: 2,
+					},
+				],
+			},
+		};
+
+		render(MessageBubble, { message });
+
+		const detailsButton = screen.getByRole('button', { name: '2 forks from this response' });
+		expect(detailsButton).toBeInTheDocument();
+		expect(detailsButton).toHaveAttribute('aria-expanded', 'false');
+		await fireEvent.click(detailsButton);
+		expect(detailsButton).toHaveAttribute('aria-expanded', 'true');
+		expect(screen.getByRole('link', { name: 'Open fork First fork' })).toHaveAttribute(
+			'href',
+			'/chat/fork-1',
+		);
+		expect(screen.getByRole('link', { name: 'Open fork Renamed second fork' })).toHaveAttribute(
+			'href',
+			'/chat/fork-2',
+		);
+	});
 });

@@ -38,6 +38,7 @@ export const load: PageLoad = async ({ params, fetch, url, parent }) => {
 		taskState: detail.taskState ?? null,
 		contextDebug: detail.contextDebug ?? null,
 		draft: detail.draft ?? null,
+		forkOrigin: detail.forkOrigin ?? null,
 		bootstrap: detail.bootstrap ?? false,
 		generatedFiles: detail.generatedFiles ?? [],
 		fileProductionJobs: detail.fileProductionJobs ?? [],

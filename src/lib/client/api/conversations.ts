@@ -1,7 +1,9 @@
 import type {
 	ChatMessage,
 	ContextDebugState,
+	Conversation,
 	ConversationDetail,
+	ConversationForkOrigin,
 	ConversationListItem,
 	LinkedContextSource,
 	PendingSkillSelection,
@@ -14,6 +16,11 @@ import { _unwrapList } from './_utils';
 
 type ConversationSummary = Pick<ConversationListItem, 'id' | 'title' | 'updatedAt' | 'projectId'>;
 type MessageEvidenceSummary = ChatMessage['evidenceSummary'];
+
+export interface ConversationForkResponse {
+	conversation: Conversation;
+	forkOrigin: ConversationForkOrigin;
+}
 
 export type MessageEvidenceResult =
 	| { status: 'pending' }
@@ -105,6 +112,31 @@ export async function createConversation(
 	}
 
 	return payload;
+}
+
+export async function createConversationFork(
+	conversationId: string,
+	payload: { messageId: string },
+	fetchImpl: FetchLike = fetch
+): Promise<ConversationForkResponse> {
+	const result = await requestJson<ConversationForkResponse>(
+		`/api/conversations/${conversationId}/forks`,
+		{
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify(payload),
+		},
+		'Failed to create conversation fork',
+		fetchImpl
+	);
+
+	if (!result?.conversation?.id || !result?.forkOrigin?.copiedForkPointMessageId) {
+		throw new Error('The server returned unexpected fork data. Please try again.');
+	}
+
+	return result;
 }
 
 export async function renameConversation(

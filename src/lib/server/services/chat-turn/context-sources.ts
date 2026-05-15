@@ -61,6 +61,7 @@ export function buildContextSourcesState(
 			evidence: input.contextDebug?.excludedEvidence ?? [],
 		}),
 		buildMemoryGroup(input.contextDebug),
+		buildForkHistoryGroup(input.contextDebug),
 		buildProjectReferenceGroup(
 			input.projectReference ??
 				(input.projectFolderReference
@@ -106,6 +107,36 @@ export function buildContextSourcesState(
 			})),
 		})),
 		updatedAt: input.now?.getTime() ?? Date.now(),
+	};
+}
+
+function buildForkHistoryGroup(
+	contextDebug: ContextDebugState | null | undefined,
+): ContextSourceGroup | null {
+	const provenance = contextDebug?.forkProvenance;
+	if (!provenance || provenance.inheritedMessageCount === 0) return null;
+	return {
+		kind: "conversation",
+		state: "inferred",
+		totalCount: 1,
+		items: [
+			{
+				id: "conversation:fork-inherited-history",
+				title: "Inherited fork history",
+				state: "inferred",
+				sourceType: "conversation",
+				reason: "fork_inherited_history",
+				metadata: {
+					inheritedMessageCount: provenance.inheritedMessageCount,
+					inheritedTurnCount: provenance.inheritedTurnCount,
+					forkLocalMessageCount: provenance.forkLocalMessageCount,
+					sourceConversationCount: provenance.sourceConversationIds.length,
+					sourceMessageCount: provenance.sourceMessageIds.length,
+					copiedForkPointMessageId:
+						provenance.copiedForkPointMessageId ?? null,
+				},
+			},
+		],
 	};
 }
 

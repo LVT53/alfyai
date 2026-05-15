@@ -96,6 +96,62 @@ describe("buildContextSourcesState", () => {
 		]);
 	});
 
+	it("exposes inherited fork history as conversation context provenance", () => {
+		const contextDebug: ContextDebugState = {
+			activeTaskId: null,
+			activeTaskObjective: null,
+			taskLocked: false,
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "skipped",
+			selectedEvidence: [],
+			selectedEvidenceBySource: [],
+			pinnedEvidence: [],
+			excludedEvidence: [],
+			honcho: null,
+			forkProvenance: {
+				inheritedMessageCount: 2,
+				inheritedTurnCount: 1,
+				forkLocalMessageCount: 1,
+				sourceConversationIds: ["source-conv"],
+				sourceMessageIds: ["source-user-1", "source-assistant-1"],
+				copiedForkPointMessageId: "fork-assistant-1",
+			},
+		};
+
+		const state = buildContextSourcesState({
+			userId: "user-1",
+			conversationId: "fork-conv",
+			contextDebug,
+			now: new Date("2026-05-05T10:00:00.000Z"),
+		});
+
+		expect(state.inferredCount).toBe(1);
+		expect(state.groups).toEqual([
+			expect.objectContaining({
+				kind: "conversation",
+				state: "inferred",
+				totalCount: 1,
+				items: [
+					expect.objectContaining({
+						id: "conversation:fork-inherited-history",
+						title: "Inherited fork history",
+						sourceType: "conversation",
+						reason: "fork_inherited_history",
+						metadata: {
+							inheritedMessageCount: 2,
+							inheritedTurnCount: 1,
+							forkLocalMessageCount: 1,
+							sourceConversationCount: 1,
+							sourceMessageCount: 2,
+							copiedForkPointMessageId: "fork-assistant-1",
+						},
+					}),
+				],
+			}),
+		]);
+	});
+
 	it("does not mark sources as reduced when extra tracked rows do not prove budget loss", () => {
 		const contextStatus: ConversationContextStatus = {
 			conversationId: "conv-1",
