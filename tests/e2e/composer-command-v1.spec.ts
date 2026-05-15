@@ -307,6 +307,28 @@ test.describe('Composer Command V1', () => {
 		}
 		expect(panelBox.width).toBeLessThan(composerBox.width);
 		expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(composerBox.y + 4);
+
+		await typeComposerCommand(page, '/');
+		const activeTray = page.getByRole('listbox', { name: 'Composer commands' });
+		await expect(activeTray).toBeVisible();
+		const firstOption = activeTray.getByRole('option').first();
+		const firstOptionBox = await firstOption.boundingBox();
+		if (!firstOptionBox) {
+			throw new Error('Command tray option was not measurable.');
+		}
+		await expect
+			.poll(() =>
+				page.evaluate(({ x, y }) => {
+					const element = document.elementFromPoint(x, y);
+					return Boolean(element?.closest('#composer-command-tray'));
+				}, {
+					x: firstOptionBox.x + firstOptionBox.width / 2,
+					y: firstOptionBox.y + firstOptionBox.height / 2,
+				}),
+			)
+			.toBe(true);
+		await page.keyboard.press('Escape');
+
 		await expect.poll(() => capture.streamBody).toBeTruthy();
 		expect(capture.streamBody).toMatchObject({
 			message: 'Use every selected composer command in normal chat.',

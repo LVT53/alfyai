@@ -169,7 +169,7 @@ onMount(() => {
 							aria-label={$t('linkedSources.removeA11y', { name: source.name })}
 							onclick={() => removeSelected(source.displayArtifactId)}
 						>
-							{$t('linkedSources.remove')}
+							<span aria-hidden="true">x</span>
 						</button>
 					</li>
 				{/each}

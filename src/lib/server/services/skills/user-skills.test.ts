@@ -169,8 +169,8 @@ describe("user skill definitions", () => {
 		expect(serializedSummaries).not.toContain("instructions");
 		expect(serializedSummaries).not.toContain("Admin-edited interview instructions.");
 		expect(serializedSummaries).not.toContain("PRIVATE_USER_TWO_INSTRUCTIONS");
-		expect(serializedSummaries).not.toContain("Interview the user with focused follow-up questions");
-		expect(serializedSummaries).not.toContain("Tegyél fel célzott");
+		expect(serializedSummaries).not.toContain("one focused follow-up question at a time");
+		expect(serializedSummaries).not.toContain("Egyszerre egy célzott");
 		for (const summary of summaries) {
 			expect(summary).not.toHaveProperty("instructions");
 			expect(summary.localizedDefaults.en).not.toHaveProperty("instructions");

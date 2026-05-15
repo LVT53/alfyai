@@ -128,13 +128,13 @@ const builtInSystemSkills = [
 			displayName: "Interview",
 			description: "Runs a structured interview before drafting recommendations or plans.",
 			instructions:
-				"Interview the user with focused follow-up questions before giving a final answer. Keep questions concise, adapt to answers, and summarize the user's constraints before moving to recommendations.",
+				"Interview the user with one focused follow-up question at a time before giving a final answer. Keep each question concise, adapt to answers, and summarize the user's constraints before moving to recommendations.",
 		},
 		hu: {
 			displayName: "Interjú",
 			description: "Strukturált interjút vezet ajánlások vagy tervek készítése előtt.",
 			instructions:
-				"Tegyél fel célzott, rövid tisztázó kérdéseket a végső válasz előtt. Igazodj a válaszokhoz, és foglald össze a felhasználó korlátait, mielőtt javaslatot teszel.",
+				"Egyszerre egy célzott, rövid tisztázó kérdést tegyél fel a végső válasz előtt. Igazodj a válaszokhoz, és foglald össze a felhasználó korlátait, mielőtt javaslatot teszel.",
 		},
 		activationExamples: ["interview me first", "ask me questions before planning"],
 	},
