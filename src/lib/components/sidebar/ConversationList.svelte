@@ -408,7 +408,7 @@
 			{/if}
 
 			<!-- Project list -->
-			<div class="flex flex-col gap-px px-1">
+			<div class="flex flex-col gap-0 px-1">
 				{#each allProjects as project (project.id)}
 					<div
 						class="project-drop-zone rounded-xl border border-transparent"
