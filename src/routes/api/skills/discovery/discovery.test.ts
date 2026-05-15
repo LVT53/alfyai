@@ -10,6 +10,7 @@ vi.mock("$lib/server/auth/hooks", () => ({
 
 vi.mock("$lib/server/services/skills/user-skills", () => ({
 	discoverSkillSummaries: vi.fn(),
+	localizeSkillDiscoverySummary: vi.fn((skill) => skill),
 	seedBuiltInSystemSkillDefinitions: vi.fn(),
 }));
 
@@ -31,7 +32,7 @@ const mockSeedBuiltInSystemSkillDefinitions = seedBuiltInSystemSkillDefinitions 
 function makeEvent(url = "http://localhost/api/skills/discovery?q=interview") {
 	return {
 		request: new Request(url),
-		locals: { user: { id: "owner-user", role: "user" } },
+		locals: { user: { id: "owner-user", role: "user", uiLanguage: "en" } },
 		params: {},
 		url: new URL(url),
 		route: { id: "/api/skills/discovery" },

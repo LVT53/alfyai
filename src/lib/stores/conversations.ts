@@ -77,14 +77,14 @@ export async function loadConversations(): Promise<void> {
 
 let isCreating = false;
 
-export async function createNewConversation(): Promise<string> {
+export async function createNewConversation(options: { projectId?: string | null } = {}): Promise<string> {
 	if (isCreating) {
 		throw new Error('Please wait, a conversation is already being created.');
 	}
 
 	isCreating = true;
 	try {
-		const conversation = await createConversation();
+		const conversation = await createConversation(undefined, options);
 		return conversation.id;
 	} catch (error) {
 		console.error('Error in createNewConversation:', error);
@@ -97,19 +97,33 @@ export async function createNewConversation(): Promise<string> {
 	}
 }
 
-export function upsertConversationLocal(id: string, title = 'New Conversation', updatedAt = Date.now() / 1000): void {
+export function upsertConversationLocal(
+	id: string,
+	title = 'New Conversation',
+	updatedAt = Date.now() / 1000,
+	projectId?: string | null
+): void {
 	optimisticConversationIds.add(id);
 	deletedConversationIds.delete(id);
 	conversations.update((items) => {
 		const existingIndex = items.findIndex((item) => item.id === id);
 		if (existingIndex === -1) {
-			return [{ id, title, updatedAt }, ...items];
+			return [
+				{
+					id,
+					title,
+					updatedAt,
+					...(projectId !== undefined ? { projectId } : {}),
+				},
+				...items,
+			];
 		}
 
 		const nextItems = [...items];
 		nextItems[existingIndex] = {
 			...nextItems[existingIndex],
-			updatedAt
+			updatedAt,
+			...(projectId !== undefined ? { projectId } : {}),
 		};
 		return nextItems;
 	});

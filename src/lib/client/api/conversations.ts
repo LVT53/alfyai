@@ -37,6 +37,10 @@ interface ConversationDraftPayload {
 	pendingSkill?: PendingSkillSelection | null;
 }
 
+interface CreateConversationOptions {
+	projectId?: string | null;
+}
+
 export async function fetchConversations(): Promise<ConversationListItem[]> {
 	const payload = await requestJson<{ conversations?: ConversationListItem[] }>(
 		'/api/conversations',
@@ -77,7 +81,13 @@ export async function conversationExists(
 	}
 }
 
-export async function createConversation(title?: string): Promise<ConversationSummary> {
+export async function createConversation(
+	title?: string,
+	options: CreateConversationOptions = {}
+): Promise<ConversationSummary> {
+	const body: Record<string, unknown> = {};
+	if (title) body.title = title;
+	if (options.projectId !== undefined) body.projectId = options.projectId;
 	const payload = await requestJson<ConversationSummary>(
 		'/api/conversations',
 		{
@@ -85,7 +95,7 @@ export async function createConversation(title?: string): Promise<ConversationSu
 			headers: {
 				'Content-Type': 'application/json',
 			},
-			body: JSON.stringify(title ? { title } : {}),
+			body: JSON.stringify(body),
 		},
 		'We could not create a new conversation at this time. Please try again later.'
 	);

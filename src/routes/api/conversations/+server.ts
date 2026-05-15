@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAuth } from '$lib/server/auth/hooks';
 import { listConversations, createConversation } from '$lib/server/services/conversations';
+import { getProject } from '$lib/server/services/projects';
 
 export const GET: RequestHandler = async (event) => {
 	requireAuth(event);
@@ -17,7 +18,23 @@ export const POST: RequestHandler = async (event) => {
 
 	const body = await event.request.json().catch(() => ({}));
 	const title = typeof body?.title === 'string' ? body.title.trim() || undefined : undefined;
+	const projectId =
+		body?.projectId === undefined || body?.projectId === null
+			? null
+			: typeof body.projectId === 'string'
+				? body.projectId.trim()
+				: undefined;
 
-	const conversation = await createConversation(user.id, title);
+	if (projectId === undefined || projectId === '') {
+		return json({ error: 'projectId must be a string or null' }, { status: 400 });
+	}
+	if (projectId) {
+		const project = await getProject(user.id, projectId);
+		if (!project) {
+			return json({ error: 'Project not found' }, { status: 404 });
+		}
+	}
+
+	const conversation = await createConversation(user.id, title, { projectId });
 	return json(conversation, { status: 201 });
 };

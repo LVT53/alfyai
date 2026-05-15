@@ -11,6 +11,7 @@
 		menuOpen = false,
 		dropActive = false,
 		onToggle,
+		onCreateConversation,
 		onRename,
 		onDelete,
 		onDragOverProject,
@@ -24,6 +25,7 @@
 		menuOpen?: boolean;
 		dropActive?: boolean;
 		onToggle?: (payload: { id: string; expanded: boolean }) => void;
+		onCreateConversation?: (payload: { id: string }) => void;
 		onRename?: (payload: { id: string; name: string }) => void;
 		onDelete?: (payload: { id: string }) => void;
 		onDragOverProject?: (payload: { id: string }) => void;
@@ -45,7 +47,7 @@
 	function doUpdatePosition() {
 		if (!triggerRef) return;
 		menuBaseBackground = setMenuBaseBackground() || 'var(--surface-elevated)';
-		updateMenuPosition(triggerRef, (style) => { menuPositionStyle = style; }, 176);
+		updateMenuPosition(triggerRef, (style) => { menuPositionStyle = style; }, 164, 6);
 	}
 
 	function toggleMenu(e: MouseEvent) {
@@ -130,6 +132,12 @@
 	onMount(() => {
 		return setupMenuSync(() => menuOpen, doUpdatePosition);
 	});
+
+	function createConversation(e: MouseEvent) {
+		e.stopPropagation();
+		onMenuClose?.({ id: project.id });
+		onCreateConversation?.({ id: project.id });
+	}
 </script>
 
 <svelte:window onclick={handleOutsideClick} />
@@ -206,23 +214,34 @@
 		<div
 			bind:this={menuRef}
 			use:portal
-			class="project-menu z-[9999] overflow-hidden rounded-[0.75rem] border p-[5px]"
+			class="project-menu z-[9999] overflow-hidden rounded-lg border p-1"
 			style={`${menuPositionStyle} --project-menu-bg: ${menuBaseBackground};`}
 		>
 			<button
-				class="project-option flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+				class="project-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+				aria-label={$t('sidebar.createChatInProject', { name: project.name })}
+				onclick={createConversation}
+			>
+				<svg class="project-option-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"/>
+					<path d="M12 8v6"/><path d="M9 11h6"/>
+				</svg>
+				<span>{$t('sidebar.newChatInProject')}</span>
+			</button>
+			<button
+				class="project-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				onclick={startRename}
 			>
-				<svg class="project-option-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<svg class="project-option-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z"/>
 				</svg>
 				<span>{$t('sidebar.rename')}</span>
 			</button>
 			<button
-				class="project-option project-option-danger flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+				class="project-option project-option-danger flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				onclick={handleDelete}
 			>
-				<svg class="project-option-icon project-option-icon-danger" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<svg class="project-option-icon project-option-icon-danger" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
 				</svg>
 				<span>{$t('sidebar.delete')}</span>
@@ -263,10 +282,11 @@
 
 	.project-option {
 		border: 0;
-		border-radius: 0.75rem;
+		border-radius: 0.5rem;
 		background: var(--project-menu-bg);
-		padding-inline: 0.65rem;
-		gap: 0.8rem;
+		padding: 0.35rem 0.55rem;
+		gap: 0.45rem;
+		line-height: 1.15;
 	}
 
 	.project-option:hover,
@@ -280,8 +300,8 @@
 	}
 
 	.project-option-icon {
-		margin-right: 7px;
 		color: color-mix(in srgb, var(--surface-overlay) 45%, var(--text-primary) 55%);
+		flex-shrink: 0;
 	}
 
 	.project-option-icon-danger {

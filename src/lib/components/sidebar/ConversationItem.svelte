@@ -124,7 +124,7 @@
 	function doUpdatePosition() {
 		if (!triggerRef) return;
 		menuBaseBackground = setMenuBaseBackground() || 'var(--surface-elevated)';
-		updateMenuPosition(triggerRef, (style) => { menuPositionStyle = style; }, 190);
+		updateMenuPosition(triggerRef, (style) => { menuPositionStyle = style; }, 178, 6);
 	}
 
 	function toggleMenu(e: MouseEvent) {
@@ -164,7 +164,7 @@
 	function updateSubmenuPosition() {
 		if (!menuRef) return;
 		const rect = menuRef.getBoundingClientRect();
-		const submenuWidth = 200;
+		const submenuWidth = 184;
 		const viewportPadding = 12;
 		// Try right side first, fall back to left
 		let left = rect.right + 4;
@@ -278,15 +278,15 @@
 			<div
 				bind:this={menuRef}
 				use:portal
-				class="conversation-menu z-[9999] overflow-hidden rounded-[0.75rem] border p-[5px]"
+				class="conversation-menu z-[9999] overflow-hidden rounded-lg border p-1"
 				style={`${menuPositionStyle} --conversation-menu-bg: ${menuBaseBackground};`}
 			>
 				<button
 					data-testid="rename-option"
-					class="conversation-option flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+					class="conversation-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={startRename}
 				>
-					<svg class="conversation-option-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<svg class="conversation-option-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M12 20h9" />
 						<path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z" />
 					</svg>
@@ -295,11 +295,11 @@
 
 				{#if projects.length > 0 || conversation.projectId}
 					<button
-						class="conversation-option flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+						class="conversation-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 						class:conversation-option-active={showProjectSubmenu}
 						onclick={toggleProjectSubmenu}
 					>
-						<svg class="conversation-option-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<svg class="conversation-option-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 							<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
 						</svg>
 						<span class="flex-1">{$t('sidebar.moveToProject')}</span>
@@ -311,10 +311,10 @@
 
 				<button
 					data-testid="delete-option"
-					class="conversation-option conversation-option-danger flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+					class="conversation-option conversation-option-danger flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={handleDelete}
 				>
-					<svg class="conversation-option-icon conversation-option-icon-danger" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<svg class="conversation-option-icon conversation-option-icon-danger" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M3 6h18" />
 						<path d="M8 6V4h8v2" />
 						<path d="M19 6l-1 14H6L5 6" />
@@ -331,12 +331,12 @@
 			<div
 				bind:this={submenuRef}
 				use:portal
-				class="conversation-menu z-[10000] overflow-hidden rounded-[0.75rem] border p-[5px]"
+				class="conversation-menu z-[10000] overflow-hidden rounded-lg border p-1"
 				style={`${submenuPositionStyle} --conversation-menu-bg: ${menuBaseBackground};`}
 			>
 				{#each projects as proj (proj.id)}
 					<button
-						class="conversation-option flex min-h-[36px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+						class="conversation-option flex min-h-[30px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 						class:conversation-option-current={conversation.projectId === proj.id}
 						onclick={(event) => handleMoveToProject(event, proj.id)}
 					>
@@ -354,7 +354,7 @@
 				{#if conversation.projectId}
 					<div class="my-[3px] border-t border-border-subtle mx-1"></div>
 					<button
-						class="conversation-option flex min-h-[36px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-muted transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+						class="conversation-option flex min-h-[30px] w-full items-center text-left font-sans text-[12px] text-text-muted transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 						onclick={(event) => handleMoveToProject(event, null)}
 					>
 						<svg class="conversation-option-icon opacity-60" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -400,10 +400,11 @@
 
 	.conversation-option {
 		border: 0;
-		border-radius: 0.75rem;
+		border-radius: 0.5rem;
 		background: var(--conversation-menu-bg);
-		padding-inline: 0.65rem;
-		gap: 0.8rem;
+		padding: 0.35rem 0.55rem;
+		gap: 0.45rem;
+		line-height: 1.15;
 	}
 
 	.conversation-option:hover,
@@ -425,7 +426,6 @@
 	}
 
 	.conversation-option-icon {
-		margin-right: 7px;
 		color: color-mix(in srgb, var(--surface-overlay) 45%, var(--text-primary) 55%);
 		flex-shrink: 0;
 	}

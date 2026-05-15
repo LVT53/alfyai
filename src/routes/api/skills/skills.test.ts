@@ -12,6 +12,7 @@ vi.mock("$lib/server/services/skills/user-skills", () => ({
 	createUserSkillDefinition: vi.fn(),
 	listEnabledSystemSkillSummaries: vi.fn(),
 	listUserSkillDefinitions: vi.fn(),
+	localizeSystemSkillSummary: vi.fn((skill) => skill),
 	seedBuiltInSystemSkillDefinitions: vi.fn(),
 }));
 
@@ -43,7 +44,7 @@ function makeEvent(body?: unknown) {
 			headers: { "Content-Type": "application/json" },
 			body: body === undefined ? undefined : JSON.stringify(body),
 		}),
-		locals: { user: { id: "owner-user", role: "user" } },
+		locals: { user: { id: "owner-user", role: "user", uiLanguage: "en" } },
 		params: {},
 		url: new URL("http://localhost/api/skills"),
 		route: { id: "/api/skills" },

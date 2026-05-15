@@ -4,6 +4,7 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import {
 	discoverSkillSummaries,
+	localizeSkillDiscoverySummary,
 	seedBuiltInSystemSkillDefinitions,
 } from "$lib/server/services/skills/user-skills";
 
@@ -28,5 +29,5 @@ export const GET: RequestHandler = async (event) => {
 	const user = event.locals.user!;
 	await seedBuiltInSystemSkillDefinitions(user.id);
 	const skills = await discoverSkillSummaries(user.id, query);
-	return json({ skills });
+	return json({ skills: skills.map((skill) => localizeSkillDiscoverySummary(skill, user.uiLanguage)) });
 };

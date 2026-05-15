@@ -348,12 +348,27 @@ function normalizeDiscoveryText(value: string): string {
 
 function discoveryMatchRank(skill: SkillDiscoverySummary, query: string): number {
 	if (!query) return 0;
-	const displayName = normalizeDiscoveryText(skill.displayName);
-	if (displayName.includes(query)) return 0;
+	const displayNames = [skill.displayName];
+	const descriptions = [skill.description];
+	if (skill.ownership === "system") {
+		displayNames.push(
+			skill.localizedDefaults.en.displayName,
+			skill.localizedDefaults.hu.displayName,
+		);
+		descriptions.push(
+			skill.localizedDefaults.en.description,
+			skill.localizedDefaults.hu.description,
+		);
+	}
+	if (displayNames.some((displayName) => normalizeDiscoveryText(displayName).includes(query))) {
+		return 0;
+	}
 	if (skill.activationExamples.some((example) => normalizeDiscoveryText(example).includes(query))) {
 		return 1;
 	}
-	if (normalizeDiscoveryText(skill.description).includes(query)) return 2;
+	if (descriptions.some((description) => normalizeDiscoveryText(description).includes(query))) {
+		return 2;
+	}
 	return Number.MAX_SAFE_INTEGER;
 }
 
@@ -375,6 +390,35 @@ function compareDiscoverySummaries(
 		if (updatedDelta !== 0) return updatedDelta;
 	}
 	return left.displayName.localeCompare(right.displayName, "en", { sensitivity: "base" });
+}
+
+export function localizeSystemSkillSummary(
+	skill: SystemSkillSummary,
+	language: "en" | "hu" | undefined,
+): SystemSkillSummary {
+	if (language !== "hu") return skill;
+	const localized = skill.localizedDefaults[language];
+	const english = skill.localizedDefaults.en;
+	const displayName =
+		skill.displayName === english.displayName || skill.displayName === localized.displayName
+			? localized.displayName
+			: skill.displayName;
+	const description =
+		skill.description === english.description || skill.description === localized.description
+			? localized.description
+			: skill.description;
+	return {
+		...skill,
+		displayName,
+		description,
+	};
+}
+
+export function localizeSkillDiscoverySummary(
+	skill: SkillDiscoverySummary,
+	language: "en" | "hu" | undefined,
+): SkillDiscoverySummary {
+	return skill.ownership === "system" ? localizeSystemSkillSummary(skill, language) : skill;
 }
 
 function cleanOptionalText(value: unknown, maxLength: number): string {

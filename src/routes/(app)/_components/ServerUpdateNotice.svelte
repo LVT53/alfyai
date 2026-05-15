@@ -1,4 +1,6 @@
 <script lang="ts">
+import { t } from '$lib/i18n';
+
 let {
 	visible,
 	onRefresh,
@@ -20,14 +22,14 @@ let {
 	>
 		<div class="space-y-xs">
 			<h2 id="server-update-title" class="text-base font-semibold text-text-primary">
-				Update available
+				{$t('serverUpdate.title')}
 			</h2>
 			<p id="server-update-description" class="text-sm leading-6 text-text-muted">
-				The server was updated. Refresh when you're ready to load the latest version.
+				{$t('serverUpdate.description')}
 			</p>
 		</div>
 		<div class="flex justify-end">
-			<button type="button" class="btn-primary" onclick={onRefresh}>Refresh</button>
+			<button type="button" class="btn-primary" onclick={onRefresh}>{$t('serverUpdate.refresh')}</button>
 		</div>
 	</div>
 {/if}

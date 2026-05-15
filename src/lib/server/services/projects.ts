@@ -29,6 +29,15 @@ export async function createProject(userId: string, name: string): Promise<Proje
   return toProject(row);
 }
 
+export async function getProject(userId: string, projectId: string): Promise<Project | null> {
+  const row = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+    .get();
+  return row ? toProject(row) : null;
+}
+
 export async function updateProject(
   userId: string,
   projectId: string,

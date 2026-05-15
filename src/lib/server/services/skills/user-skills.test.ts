@@ -118,6 +118,7 @@ describe("user skill definitions", () => {
 			listAdminSystemSkillDefinitions,
 			listEnabledSystemSkillSummaries,
 			listUserSkillDefinitions,
+			localizeSystemSkillSummary,
 			seedBuiltInSystemSkillDefinitions,
 			updateSystemSkillDefinition,
 		} = await import("./user-skills");
@@ -183,6 +184,24 @@ describe("user skill definitions", () => {
 			"Translate & Rewrite",
 		]);
 		expect(summaries.map((skill) => skill.id)).not.toContain("system:interview");
+		expect(
+			localizeSystemSkillSummary(
+				summaries.find((skill) => skill.id === "system:document-explainer")!,
+				"hu",
+			),
+		).toMatchObject({
+			displayName: "Dokumentummagyarázó",
+			description: "Kijelölt dokumentumokat magyaráz el érthetően, forráshoz kötötten.",
+		});
+		expect(
+			localizeSystemSkillSummary(
+				summaries.find((skill) => skill.id === "system:grill-with-docs")!,
+				"hu",
+			),
+		).toMatchObject({
+			displayName: "Tervkritikus",
+			description: "Admin-edited description.",
+		});
 		expect(serializedSummaries).not.toContain("instructions");
 		expect(serializedSummaries).not.toContain("Admin-edited plan critic instructions.");
 		expect(serializedSummaries).not.toContain("PRIVATE_USER_TWO_INSTRUCTIONS");

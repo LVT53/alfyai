@@ -5,10 +5,12 @@
 	import { page } from '$app/stores';
 	import {
 		conversations,
+		createNewConversation,
 		deleteConversationById,
 		renameConversation,
 		moveConversationToProject,
-		clearProjectFromConversations
+		clearProjectFromConversations,
+		upsertConversationLocal
 	} from '$lib/stores/conversations';
 	import {
 		projects as projectsStore,
@@ -315,6 +317,25 @@
 		}
 	}
 
+	async function handleCreateConversationInProject(payload: { id: string }) {
+		const { id: projectId } = payload;
+		closeAllMenus();
+		clearDragState();
+		try {
+			const conversationId = await createNewConversation({ projectId });
+			upsertConversationLocal(conversationId, 'New Conversation', Date.now() / 1000, projectId);
+			expandedProjects = { ...expandedProjects, [projectId]: true };
+			currentConversationId.set(conversationId);
+			if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
+				sidebarOpen.set(false);
+			}
+			await goto(`/chat/${conversationId}?view=bootstrap`);
+		} catch (e) {
+			console.error('Create project conversation failed', e);
+			alert($t('sidebar.failedCreateProjectConversation'));
+		}
+	}
+
 	function handleProjectMenuToggle(payload: { id: string; open: boolean }) {
 		const { id, open } = payload;
 		openSidebarMenu = open ? { kind: 'project', id } : null;
@@ -419,6 +440,7 @@
 							menuOpen={isProjectMenuOpen(project.id)}
 							dropActive={dropTarget?.kind === 'project' && dropTarget.projectId === project.id}
 							onToggle={handleProjectToggle}
+							onCreateConversation={handleCreateConversationInProject}
 							onRename={handleProjectRename}
 							onDelete={handleProjectDelete}
 							onDragOverProject={handleProjectDragOver}

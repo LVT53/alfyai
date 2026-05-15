@@ -67,6 +67,14 @@ describe('conversations store', () => {
 		]);
 	});
 
+	it('can place an optimistic local conversation inside a project', () => {
+		upsertConversationLocal('conv-local', 'Draft', 500, 'proj-1');
+
+		expect(get(conversations)).toEqual([
+			{ id: 'conv-local', title: 'Draft', updatedAt: 500, projectId: 'proj-1' },
+		]);
+	});
+
 	it('drops locally preserved conversations when the snapshot owner changes', () => {
 		reconcileConversationSnapshot(
 			[{ id: 'user-1-conv', title: 'User 1 chat', updatedAt: 2 }],
@@ -122,6 +130,24 @@ describe('conversations store', () => {
 		expect(fetch).toHaveBeenCalledWith(
 			'/api/conversations',
 			expect.objectContaining({ method: 'POST' })
+		);
+	});
+
+	it('creates a conversation inside a project through the API', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(
+			jsonResponse(
+				{ id: 'conv-1', title: 'New Conversation', updatedAt: 123, projectId: 'proj-1' },
+				{ status: 201 }
+			)
+		);
+
+		await expect(createNewConversation({ projectId: 'proj-1' })).resolves.toBe('conv-1');
+		expect(fetch).toHaveBeenCalledWith(
+			'/api/conversations',
+			expect.objectContaining({
+				method: 'POST',
+				body: JSON.stringify({ projectId: 'proj-1' }),
+			})
 		);
 	});
 

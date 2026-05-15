@@ -77,6 +77,8 @@ const dictionary = {
 		"sidebar.projectDropArea": "{name} project drop area",
 		"sidebar.conversationOptions": "Conversation options",
 		"sidebar.projectOptions": "Project options",
+		"sidebar.newChatInProject": "New chat",
+		"sidebar.createChatInProject": "Create chat in {name}",
 		"sidebar.rename": "Rename",
 		"sidebar.moveToProject": "Move to project",
 		"sidebar.delete": "Delete",
@@ -99,6 +101,12 @@ const dictionary = {
 			"Failed to delete project. Please try again.",
 		"sidebar.failedCreateProject":
 			"Failed to create project. Please try again.",
+		"sidebar.failedCreateProjectConversation":
+			"Failed to create chat in this project. Please try again.",
+		"serverUpdate.title": "Update available",
+		"serverUpdate.description":
+			"The server was updated. Refresh when you're ready to load the latest version.",
+		"serverUpdate.refresh": "Refresh",
 		"header.newChat": "New chat",
 		"header.profileAndSettings": "Profile & Settings",
 		"header.logout": "Logout",
@@ -1332,6 +1340,8 @@ const dictionary = {
 		"sidebar.projectDropArea": "{name} projekt célterülete",
 		"sidebar.conversationOptions": "Beszélgetés beállításai",
 		"sidebar.projectOptions": "Projekt beállításai",
+		"sidebar.newChatInProject": "Új beszélgetés",
+		"sidebar.createChatInProject": "Új beszélgetés létrehozása itt: {name}",
 		"sidebar.rename": "Átnevezés",
 		"sidebar.moveToProject": "Áthelyezés projektbe",
 		"sidebar.delete": "Törlés",
@@ -1354,6 +1364,12 @@ const dictionary = {
 			"Nem sikerült törölni a projektet. Próbáld újra.",
 		"sidebar.failedCreateProject":
 			"Nem sikerült létrehozni a projektet. Próbáld újra.",
+		"sidebar.failedCreateProjectConversation":
+			"Nem sikerült beszélgetést létrehozni ebben a projektben. Próbáld újra.",
+		"serverUpdate.title": "Frissítés érhető el",
+		"serverUpdate.description":
+			"A szerver frissült. Frissítsd az oldalt, amikor készen állsz a legújabb verzió betöltésére.",
+		"serverUpdate.refresh": "Frissítés",
 		"header.newChat": "Új beszélgetés",
 		"header.profileAndSettings": "Profil és beállítások",
 		"header.logout": "Kijelentkezés",

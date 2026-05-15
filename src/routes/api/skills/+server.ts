@@ -6,6 +6,7 @@ import {
 	createUserSkillDefinition,
 	listEnabledSystemSkillSummaries,
 	listUserSkillDefinitions,
+	localizeSystemSkillSummary,
 	seedBuiltInSystemSkillDefinitions,
 	UserSkillValidationError,
 	type CreateUserSkillDefinitionInput,
@@ -91,7 +92,12 @@ export const GET: RequestHandler = async (event) => {
 		listUserSkillDefinitions(user.id),
 		listEnabledSystemSkillSummaries(),
 	]);
-	return json({ skills, systemSkills: systemSkills.map(publicSystemSkillSummary) });
+	return json({
+		skills,
+		systemSkills: systemSkills
+			.map((skill) => localizeSystemSkillSummary(skill, user.uiLanguage))
+			.map(publicSystemSkillSummary),
+	});
 };
 
 export const POST: RequestHandler = async (event) => {
