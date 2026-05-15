@@ -469,7 +469,9 @@ function handleKeydown(event: KeyboardEvent) {
 		return;
 	}
 	const interactiveCommandRows = getInteractiveCommandRows();
-	if (event.key === "Enter" && !event.shiftKey && interactiveCommandRows.length > 0) {
+	const shouldSelectCommandWithKeyboard =
+		(event.key === "Enter" || event.key === "Tab") && !event.shiftKey;
+	if (shouldSelectCommandWithKeyboard && interactiveCommandRows.length > 0) {
 		const rows = interactiveCommandRows;
 		const row = rows[highlightedCommandIndex] ?? rows[0];
 		if (row) {
