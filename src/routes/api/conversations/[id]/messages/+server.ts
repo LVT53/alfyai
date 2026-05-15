@@ -3,6 +3,10 @@ import type { RequestHandler } from './$types';
 import { requireAuth } from '$lib/server/auth/hooks';
 import { getConversation } from '$lib/server/services/conversations';
 import { listMessages, deleteMessages } from '$lib/server/services/messages';
+import { listChildForksBySourceMessages } from '$lib/server/services/conversation-forks';
+
+const FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE =
+	'forked_source_history_confirmation_required';
 
 export const DELETE: RequestHandler = async (event) => {
 	try {
@@ -21,11 +25,34 @@ export const DELETE: RequestHandler = async (event) => {
 		}
 
 		const messageIds: string[] = body.messageIds.filter((id: unknown) => typeof id === 'string');
+		const confirmedForkedSourceHistoryMutation =
+			body.confirmForkedSourceHistoryMutation === true;
 
 		// Verify all messages belong to this conversation before deleting
 		const existingMessages = await listMessages(id);
 		const existingIds = new Set(existingMessages.map((m) => m.id));
 		const safeIds = messageIds.filter((mid) => existingIds.has(mid));
+		const safeIdSet = new Set(safeIds);
+		const assistantMessageIds = existingMessages
+			.filter((message) => message.role === 'assistant' && safeIdSet.has(message.id))
+			.map((message) => message.id);
+
+		if (assistantMessageIds.length > 0 && !confirmedForkedSourceHistoryMutation) {
+			const childForks = await listChildForksBySourceMessages(user.id, assistantMessageIds);
+			const hasChildForks = Object.values(childForks).some(
+				(sourceForks) => (sourceForks.count ?? 0) > 0,
+			);
+			if (hasChildForks) {
+				return json(
+					{
+						error: 'Forked source history requires confirmation',
+						code: FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE,
+						errorKey: 'fork.editWarning',
+					},
+					{ status: 409 },
+				);
+			}
+		}
 
 		await deleteMessages(safeIds);
 

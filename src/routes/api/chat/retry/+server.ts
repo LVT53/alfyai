@@ -5,6 +5,7 @@ import { db } from '$lib/server/db';
 import { messages } from '$lib/server/db/schema';
 import { getConversation } from '$lib/server/services/conversations';
 import { deleteMessages } from '$lib/server/services/messages';
+import { listChildForksBySourceMessages } from '$lib/server/services/conversation-forks';
 import { getConfig } from '$lib/server/config-store';
 import { cleanupFailedTurn } from '$lib/server/services/chat-turn/retry-cleanup';
 import { preflightChatTurn } from '$lib/server/services/chat-turn/preflight';
@@ -13,6 +14,9 @@ import { createJsonErrorResponse } from '$lib/server/api/responses';
 import { createStreamJsonErrorResponse } from '$lib/server/services/chat-turn/stream';
 import { runChatStreamOrchestrator } from '$lib/server/services/chat-turn/stream-orchestrator';
 import { buildSkillSystemPromptAppendix } from '$lib/server/services/skills/prompt-context';
+
+const FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE =
+	'forked_source_history_confirmation_required';
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
@@ -29,6 +33,7 @@ export const POST: RequestHandler = async (event) => {
 		model?: unknown;
 		thinkingMode?: unknown;
 		personalityProfileId?: unknown;
+		confirmForkedSourceHistoryMutation?: unknown;
 	};
 	try {
 		body = await event.request.json();
@@ -46,6 +51,7 @@ export const POST: RequestHandler = async (event) => {
 		model,
 		thinkingMode,
 		personalityProfileId,
+		confirmForkedSourceHistoryMutation,
 	} = body;
 	if (typeof conversationId !== 'string' || !conversationId.trim()) {
 		return createJsonErrorResponse('conversationId is required', 400);
@@ -94,6 +100,35 @@ export const POST: RequestHandler = async (event) => {
 		return createJsonErrorResponse('Retry user message text does not match persisted message', 409);
 	}
 
+	const trailingMessages = conversationMessages.slice(assistantIndex);
+	if (confirmForkedSourceHistoryMutation !== true) {
+		const trailingAssistantMessageIds = trailingMessages
+			.filter((message) => message.role === 'assistant')
+			.map((message) => message.id);
+		if (trailingAssistantMessageIds.length > 0) {
+			const childForks = await listChildForksBySourceMessages(
+				user.id,
+				trailingAssistantMessageIds,
+			);
+			const hasChildForks = Object.values(childForks).some(
+				(sourceForks) => (sourceForks.count ?? 0) > 0,
+			);
+			if (hasChildForks) {
+				return new Response(
+					JSON.stringify({
+						error: 'Forked source history requires confirmation',
+						code: FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE,
+						errorKey: 'fork.regenerateWarning',
+					}),
+					{
+						status: 409,
+						headers: { 'Content-Type': 'application/json' },
+					},
+				);
+			}
+		}
+	}
+
 	let cleanupResult;
 	try {
 		cleanupResult = await cleanupFailedTurn({
@@ -119,9 +154,7 @@ export const POST: RequestHandler = async (event) => {
 		console.warn('[RETRY] Cleanup warnings:', cleanupResult.warnings);
 	}
 
-	const trailingMessageIds = conversationMessages
-		.slice(assistantIndex)
-		.map((message) => message.id);
+	const trailingMessageIds = trailingMessages.map((message) => message.id);
 	await deleteMessages(trailingMessageIds);
 
 	if (!precedingUserMsg.content.trim()) {

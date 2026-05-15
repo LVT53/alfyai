@@ -110,6 +110,7 @@ export type StreamChatOptions = {
 	retryAssistantMessageId?: string;
 	retryUserMessageId?: string;
 	retryUserMessage?: string;
+	confirmForkedSourceHistoryMutation?: boolean;
 	reconnectToStreamId?: string;
 	reconnectUserMessage?: string;
 };
@@ -133,6 +134,7 @@ export function streamChat(
 		retryAssistantMessageId,
 		retryUserMessageId,
 		retryUserMessage,
+		confirmForkedSourceHistoryMutation,
 		reconnectToStreamId,
 		reconnectUserMessage,
 	} = options ?? {};
@@ -186,6 +188,8 @@ export function streamChat(
 						thinkingMode,
 						activeDocumentArtifactId,
 						personalityProfileId,
+						confirmForkedSourceHistoryMutation:
+							confirmForkedSourceHistoryMutation === true ? true : undefined,
 					})
 				: JSON.stringify({
 						message,

@@ -1,12 +1,14 @@
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export class ApiError extends Error {
+	readonly code?: string;
 	readonly errorKey?: string;
 	readonly status: number;
 
-	constructor(message: string, options: { errorKey?: string; status: number }) {
+	constructor(message: string, options: { code?: string; errorKey?: string; status: number }) {
 		super(message);
 		this.name = 'ApiError';
+		this.code = options.code;
 		this.errorKey = options.errorKey;
 		this.status = options.status;
 	}
@@ -27,7 +29,7 @@ function performRequest(
 async function readErrorPayload(
 	response: Response,
 	fallback: string
-): Promise<{ message: string; errorKey?: string }> {
+): Promise<{ message: string; code?: string; errorKey?: string }> {
 	const text = await response.text().catch(() => '');
 	if (!text) return { message: fallback };
 
@@ -35,13 +37,16 @@ async function readErrorPayload(
 		const parsed = JSON.parse(text) as unknown;
 		if (isRecord(parsed)) {
 			const message = parsed.error ?? parsed.message;
+			const code = typeof parsed.code === 'string' && parsed.code.trim()
+				? parsed.code
+				: undefined;
 			const errorKey = typeof parsed.errorKey === 'string' && parsed.errorKey.trim()
 				? parsed.errorKey
 				: undefined;
 			if (typeof message === 'string' && message.trim()) {
-				return { message, errorKey };
+				return { message, code, errorKey };
 			}
-			if (errorKey) return { message: fallback, errorKey };
+			if (code || errorKey) return { message: fallback, code, errorKey };
 		}
 	} catch {
 		// Fall back to raw text below.
@@ -60,6 +65,7 @@ export async function requestJson<T>(
 	if (!response.ok) {
 		const error = await readErrorPayload(response, errorMessage);
 		throw new ApiError(error.message, {
+			code: error.code,
 			errorKey: error.errorKey,
 			status: response.status,
 		});
@@ -82,6 +88,7 @@ export async function requestVoid(
 	if (!response.ok) {
 		const error = await readErrorPayload(response, errorMessage);
 		throw new ApiError(error.message, {
+			code: error.code,
 			errorKey: error.errorKey,
 			status: response.status,
 		});

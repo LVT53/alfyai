@@ -29,6 +29,10 @@ vi.mock('$lib/server/services/messages', () => ({
 	deleteMessages: vi.fn(async () => undefined),
 }));
 
+vi.mock('$lib/server/services/conversation-forks', () => ({
+	listChildForksBySourceMessages: vi.fn(async () => ({})),
+}));
+
 vi.mock('$lib/server/config-store', () => ({
 	getConfig: vi.fn(() => ({
 		maxMessageLength: 10000,
@@ -77,6 +81,7 @@ import { cleanupFailedTurn } from '$lib/server/services/chat-turn/retry-cleanup'
 import { preflightChatTurn } from '$lib/server/services/chat-turn/preflight';
 import { runChatStreamOrchestrator } from '$lib/server/services/chat-turn/stream-orchestrator';
 import { deleteMessages } from '$lib/server/services/messages';
+import { listChildForksBySourceMessages } from '$lib/server/services/conversation-forks';
 
 function makeEvent(body: Record<string, unknown>) {
 	return {
@@ -110,6 +115,7 @@ describe('POST /api/chat/retry', () => {
 			{ id: 'user-3', role: 'user', content: 'latest prompt' },
 			{ id: 'assistant-3', role: 'assistant', content: 'latest answer' },
 		);
+		(listChildForksBySourceMessages as ReturnType<typeof vi.fn>).mockResolvedValue({});
 	});
 
 	it('regenerates a historical assistant turn using its preceding user message', async () => {
@@ -207,5 +213,59 @@ describe('POST /api/chat/retry', () => {
 		expect(response.status).toBe(409);
 		expect(cleanupFailedTurn).not.toHaveBeenCalled();
 		expect(deleteMessages).not.toHaveBeenCalled();
+	});
+
+	it('requires explicit confirmation before regenerating source history with child forks', async () => {
+		(listChildForksBySourceMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
+			'assistant-2': {
+				count: 1,
+				forks: [
+					{
+						conversationId: 'fork-1',
+						title: 'Source (fork 1)',
+						forkSequence: 1,
+						createdAt: 1,
+					},
+				],
+			},
+		});
+
+		const response = await POST(
+			makeEvent({
+				conversationId: 'conv-1',
+				assistantMessageId: 'assistant-2',
+				userMessageId: 'user-2',
+				userMessage: 'historical prompt',
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(409);
+		expect(data).toEqual({
+			error: 'Forked source history requires confirmation',
+			code: 'forked_source_history_confirmation_required',
+			errorKey: 'fork.regenerateWarning',
+		});
+		expect(cleanupFailedTurn).not.toHaveBeenCalled();
+		expect(deleteMessages).not.toHaveBeenCalled();
+	});
+
+	it('regenerates forked source history after explicit confirmation', async () => {
+		(listChildForksBySourceMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
+			'assistant-2': { count: 1, forks: [] },
+		});
+
+		const response = await POST(
+			makeEvent({
+				conversationId: 'conv-1',
+				assistantMessageId: 'assistant-2',
+				userMessageId: 'user-2',
+				userMessage: 'historical prompt',
+				confirmForkedSourceHistoryMutation: true,
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(deleteMessages).toHaveBeenCalledWith(['assistant-2', 'user-3', 'assistant-3']);
 	});
 });

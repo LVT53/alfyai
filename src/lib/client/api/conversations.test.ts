@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { conversationExists, createConversationFork } from './conversations';
+import { ApiError } from './http';
+import {
+	conversationExists,
+	createConversationFork,
+	deleteConversationMessages,
+} from './conversations';
 
 describe('conversationExists', () => {
 	it('returns true when the conversation detail endpoint succeeds', async () => {
@@ -19,6 +24,32 @@ describe('conversationExists', () => {
 		const fetchMock = vi.fn(async () => new Response('Server error', { status: 500 }));
 
 		await expect(conversationExists('conv-1', fetchMock)).resolves.toBeNull();
+	});
+});
+
+describe('deleteConversationMessages', () => {
+	it('sends explicit forked source-history confirmation when provided', async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(JSON.stringify({ deleted: 2 }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' },
+			}),
+		);
+
+		await expect(
+			deleteConversationMessages('conv-1', ['user-1', 'assistant-1'], {
+				confirmForkedSourceHistoryMutation: true,
+				fetchImpl: fetchMock,
+			}),
+		).resolves.toBe(2);
+
+		const request = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+		expect(request?.body).toBe(
+			JSON.stringify({
+				messageIds: ['user-1', 'assistant-1'],
+				confirmForkedSourceHistoryMutation: true,
+			}),
+		);
 	});
 });
 
@@ -65,5 +96,26 @@ describe('createConversationFork', () => {
 		});
 		expect(result.conversation.id).toBe('fork-conv');
 		expect(result.forkOrigin.copiedForkPointMessageId).toBe('fork-assistant-1');
+	});
+
+	it('preserves precise server fork failure codes for localization', async () => {
+		const fetchMock = vi.fn(async () =>
+			new Response(
+				JSON.stringify({
+					error: 'Forks can only be created from a persisted assistant response',
+					code: 'invalid_source_message',
+				}),
+				{ status: 400, headers: { 'content-type': 'application/json' } },
+			),
+		);
+
+		await expect(
+			createConversationFork('source-conv', { messageId: 'user-1' }, fetchMock),
+		).rejects.toMatchObject({
+			name: 'ApiError',
+			message: 'Forks can only be created from a persisted assistant response',
+			status: 400,
+			code: 'invalid_source_message',
+		} satisfies Partial<ApiError>);
 	});
 });

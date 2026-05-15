@@ -100,7 +100,11 @@ import {
 	updateConversationTitleLocal,
 	upsertConversationLocal,
 } from "$lib/stores/conversations";
-import { hasForkedAssistantInRange } from "./lifecycle-guards";
+import {
+	getForkCreationErrorKey,
+	hasForkedAssistantInRange,
+	isForkedSourceHistoryConfirmationRequired,
+} from "./lifecycle-guards";
 import ChatComposerPanel from "./_components/ChatComposerPanel.svelte";
 import ChatMessagePane from "./_components/ChatMessagePane.svelte";
 import SkillSessionPanel from "./_components/SkillSessionPanel.svelte";
@@ -1611,6 +1615,15 @@ function localizedSkillSessionError(error: unknown, fallbackKey: I18nKey): strin
 	return error instanceof Error ? error.message : translate(fallbackKey);
 }
 
+function localizedForkCreationError(error: unknown): string {
+	const translate = get(t);
+	if (error instanceof ApiError) {
+		const localizedKey = getForkCreationErrorKey(error.code);
+		if (localizedKey) return translate(localizedKey);
+	}
+	return error instanceof Error ? error.message : translate("fork.failed");
+}
+
 async function handleSaveSkillDraft(payload: { messageId: string; draftId: string }) {
 	setSkillDraftActionState(payload, { busy: true, error: null });
 	try {
@@ -1689,12 +1702,7 @@ async function handleFork(payload: { messageId: string }) {
 		currentConversationId.set(result.conversation.id);
 		await goto(`/chat/${result.conversation.id}`);
 	} catch (error) {
-		sendError =
-			error instanceof ApiError
-				? get(t)("fork.failed")
-				: error instanceof Error
-					? error.message
-					: get(t)("fork.failed");
+		sendError = localizedForkCreationError(error);
 	} finally {
 		forkingMessageId = null;
 	}
@@ -1707,6 +1715,8 @@ async function handleSend(
 	clearDraft = true,
 	retryAssistantMessageId?: string,
 	retryUserMessageId?: string,
+	confirmForkedSourceHistoryMutation = false,
+	onForkedSourceHistoryConfirmationRequired?: () => void,
 ) {
 	const text = payload.message;
 	const attachmentIds = payload.attachmentIds ?? [];
@@ -1892,6 +1902,20 @@ async function handleSend(
 				isSending = false;
 				restoreQueuedTurnToDraft();
 
+				if (
+					retryAssistantMessageId &&
+					!confirmForkedSourceHistoryMutation &&
+					isForkedSourceHistoryConfirmationRequired(err)
+				) {
+					if (onForkedSourceHistoryConfirmationRequired) {
+						onForkedSourceHistoryConfirmationRequired();
+					} else {
+						sendError = get(t)("fork.regenerateWarning");
+						canRetry = true;
+					}
+					return;
+				}
+
 				const isBrowserAbort =
 					err.name === "AbortError" &&
 					browser &&
@@ -1918,6 +1942,7 @@ async function handleSend(
 			retryAssistantMessageId,
 			retryUserMessageId,
 			retryUserMessage: retryAssistantMessageId ? text : undefined,
+			confirmForkedSourceHistoryMutation,
 		},
 	);
 }
@@ -2070,14 +2095,19 @@ function handleRetry() {
 	}
 }
 
-function handleRegenerate(payload: MessageRegeneratePayload) {
+function handleRegenerate(
+	payload: MessageRegeneratePayload,
+	confirmForkedSourceHistoryMutation = false,
+) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
 	const { messageId } = payload;
 	const msgs = $messages;
 	const assistantIdx = msgs.findIndex((m) => m.id === messageId);
 	if (assistantIdx === -1) return;
+	const hasKnownForks = hasForkedAssistantInRange(msgs, assistantIdx);
 	if (
-		hasForkedAssistantInRange(msgs, assistantIdx) &&
+		hasKnownForks &&
+		!confirmForkedSourceHistoryMutation &&
 		!window.confirm(get(t)("fork.regenerateWarning"))
 	) {
 		return;
@@ -2104,17 +2134,29 @@ function handleRegenerate(payload: MessageRegeneratePayload) {
 		true,
 		messageId,
 		msgs[userIdx].id,
+		confirmForkedSourceHistoryMutation || hasKnownForks,
+		() => {
+			messages.set(msgs);
+			if (window.confirm(get(t)("fork.regenerateWarning"))) {
+				handleRegenerate(payload, true);
+			}
+		},
 	);
 }
 
-async function handleEdit(payload: MessageEditPayload) {
+async function handleEdit(
+	payload: MessageEditPayload,
+	confirmForkedSourceHistoryMutation = false,
+) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
 	const { messageId, newText } = payload;
 	const msgs = $messages;
 	const editIdx = msgs.findIndex((m) => m.id === messageId);
 	if (editIdx === -1) return;
+	const hasKnownForks = hasForkedAssistantInRange(msgs, editIdx);
 	if (
-		hasForkedAssistantInRange(msgs, editIdx) &&
+		hasKnownForks &&
+		!confirmForkedSourceHistoryMutation &&
 		!window.confirm(get(t)("fork.editWarning"))
 	) {
 		return;
@@ -2128,9 +2170,22 @@ async function handleEdit(payload: MessageEditPayload) {
 	sendError = null;
 	isEditResendPending = true;
 	try {
-		await deleteConversationMessages(data.conversation.id, idsToDelete);
+		await deleteConversationMessages(data.conversation.id, idsToDelete, {
+			confirmForkedSourceHistoryMutation:
+				confirmForkedSourceHistoryMutation || hasKnownForks,
+		});
 	} catch (error) {
 		messages.set(msgs);
+		if (
+			!confirmForkedSourceHistoryMutation &&
+			isForkedSourceHistoryConfirmationRequired(error)
+		) {
+			isEditResendPending = false;
+			if (window.confirm(get(t)("fork.editWarning"))) {
+				void handleEdit(payload, true);
+			}
+			return;
+		}
 		sendError =
 			error instanceof Error ? error.message : "Failed to delete messages";
 		isEditResendPending = false;

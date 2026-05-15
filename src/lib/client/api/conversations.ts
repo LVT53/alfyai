@@ -354,8 +354,16 @@ export async function generateConversationTitle(
 
 export async function deleteConversationMessages(
 	conversationId: string,
-	messageIds: string[]
+	messageIds: string[],
+	options: {
+		confirmForkedSourceHistoryMutation?: boolean;
+		fetchImpl?: FetchLike;
+	} = {},
 ): Promise<number> {
+	const body: Record<string, unknown> = { messageIds };
+	if (options.confirmForkedSourceHistoryMutation) {
+		body.confirmForkedSourceHistoryMutation = true;
+	}
 	const payload = await requestJson<{ deleted?: number }>(
 		`/api/conversations/${conversationId}/messages`,
 		{
@@ -363,9 +371,10 @@ export async function deleteConversationMessages(
 			headers: {
 				'Content-Type': 'application/json',
 			},
-			body: JSON.stringify({ messageIds }),
+			body: JSON.stringify(body),
 		},
-		'Failed to delete messages'
+		'Failed to delete messages',
+		options.fetchImpl,
 	);
 
 	return typeof payload.deleted === 'number' ? payload.deleted : 0;

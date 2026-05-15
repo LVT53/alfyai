@@ -183,6 +183,14 @@ function isDurableDocumentArtifactType(type: string): boolean {
 	return type === "source_document" || type === "normalized_document";
 }
 
+function isGeneratedOutputArtifactType(type: string): boolean {
+	return type === "generated_output";
+}
+
+function isTerminalFileProductionStatus(status: string): boolean {
+	return status === "succeeded" || status === "failed" || status === "cancelled";
+}
+
 function getChatFilesDir(): string {
 	return join(process.cwd(), "data", "chat-files");
 }
@@ -209,6 +217,7 @@ function copyDurableDocumentLinks(params: {
 	forkConversationId: string;
 	sourceMessageIds: string[];
 	copiedMessageIdBySourceId: Map<string, string>;
+	copiedGeneratedArtifactIds: Set<string>;
 	forkPointCreatedAt: Date;
 	now: Date;
 }): void {
@@ -253,8 +262,23 @@ function copyDurableDocumentLinks(params: {
 				403,
 			);
 		}
-		if (!isDurableDocumentArtifactType(row.artifact.type)) continue;
-		linksToCopy.push(row.link);
+		if (isDurableDocumentArtifactType(row.artifact.type)) {
+			linksToCopy.push(row.link);
+			continue;
+		}
+		if (isGeneratedOutputArtifactType(row.artifact.type)) {
+			if (params.copiedGeneratedArtifactIds.has(row.artifact.id)) continue;
+			throw new ConversationForkError(
+				"required_generated_work_unavailable",
+				"Fork source includes generated work that cannot be snapshotted",
+				409,
+			);
+		}
+		throw new ConversationForkError(
+			"required_artifact_unavailable",
+			`Fork source includes a visible ${row.artifact.type} attachment that cannot be preserved`,
+			409,
+		);
 	}
 
 	if (linksToCopy.length === 0) return;
@@ -285,10 +309,11 @@ function copyGeneratedWorkSnapshot(params: {
 	forkConversationId: string;
 	sourceMessageIds: string[];
 	copiedMessageIdBySourceId: Map<string, string>;
+	forkPointCreatedAt: Date;
 	now: Date;
 	stagedFilePaths: string[];
-}): void {
-	if (params.sourceMessageIds.length === 0) return;
+}): Map<string, string> {
+	if (params.sourceMessageIds.length === 0) return new Map();
 
 	const sourceFiles = params.tx
 		.select()
@@ -355,6 +380,16 @@ function copyGeneratedWorkSnapshot(params: {
 		)
 		.orderBy(asc(fileProductionJobs.createdAt), asc(fileProductionJobs.id))
 		.all();
+	const nonTerminalJob = sourceJobs.find(
+		(job) => !isTerminalFileProductionStatus(job.status),
+	);
+	if (nonTerminalJob) {
+		throw new ConversationForkError(
+			"required_generated_work_unavailable",
+			"Fork source includes generated work that is still queued or running",
+			409,
+		);
+	}
 	const copiedJobIdBySourceId = new Map<string, string>();
 	const sourceJobFileLinks =
 		sourceJobs.length > 0
@@ -423,6 +458,7 @@ function copyGeneratedWorkSnapshot(params: {
 
 	const sourceFileIds = new Set(sourceFiles.map((file) => file.id));
 	const sourceMessageIds = new Set(params.sourceMessageIds);
+	const copiedArtifactIdBySourceId = new Map<string, string>();
 	const sourceGeneratedArtifacts = params.tx
 		.select()
 		.from(artifacts)
@@ -457,9 +493,8 @@ function copyGeneratedWorkSnapshot(params: {
 			);
 		});
 
-	if (sourceGeneratedArtifacts.length === 0) return;
+	if (sourceGeneratedArtifacts.length === 0) return copiedArtifactIdBySourceId;
 
-	const copiedArtifactIdBySourceId = new Map<string, string>();
 	for (const sourceArtifact of sourceGeneratedArtifacts) {
 		const sourceMetadata = parseJsonRecord(sourceArtifact.metadataJson);
 		const sourceOriginalChatFileId =
@@ -482,6 +517,13 @@ function copyGeneratedWorkSnapshot(params: {
 			throw new ConversationForkError(
 				"required_generated_work_unavailable",
 				"Fork source includes generated work whose file metadata is no longer available",
+				409,
+			);
+		}
+		if (sourceArtifact.storagePath && !copiedChatFileId) {
+			throw new ConversationForkError(
+				"required_generated_work_unavailable",
+				"Fork source includes binary generated work that cannot be copied",
 				409,
 			);
 		}
@@ -534,7 +576,7 @@ function copyGeneratedWorkSnapshot(params: {
 				extension: sourceArtifact.extension,
 				sizeBytes: sourceArtifact.sizeBytes,
 				binaryHash: sourceArtifact.binaryHash,
-				storagePath: sourceArtifact.storagePath,
+				storagePath: copiedChatFileId ? null : sourceArtifact.storagePath,
 				contentText: sourceArtifact.contentText,
 				summary: sourceArtifact.summary,
 				metadataJson: JSON.stringify(nextMetadata),
@@ -579,6 +621,16 @@ function copyGeneratedWorkSnapshot(params: {
 		if (link.linkType === "supersedes") return [];
 		const copiedArtifactId = copiedArtifactIdBySourceId.get(link.artifactId);
 		if (!copiedArtifactId) return [];
+		if (link.messageId && !params.copiedMessageIdBySourceId.has(link.messageId)) {
+			return [];
+		}
+		if (
+			link.messageId === null &&
+			link.linkType === "attached_to_conversation" &&
+			!isConversationLevelLinkVisibleAtFork(link, params.forkPointCreatedAt)
+		) {
+			return [];
+		}
 		const copiedRelatedArtifactId = link.relatedArtifactId
 			? copiedArtifactIdBySourceId.get(link.relatedArtifactId)
 			: null;
@@ -597,7 +649,7 @@ function copyGeneratedWorkSnapshot(params: {
 					(canKeepDurableRelatedArtifact ? link.relatedArtifactId : null),
 				conversationId: params.forkConversationId,
 				messageId: link.messageId
-					? (params.copiedMessageIdBySourceId.get(link.messageId) ?? null)
+					? params.copiedMessageIdBySourceId.get(link.messageId)
 					: null,
 				linkType: link.linkType,
 				createdAt: link.createdAt,
@@ -607,6 +659,8 @@ function copyGeneratedWorkSnapshot(params: {
 	if (linksToCopy.length > 0) {
 		params.tx.insert(artifactLinks).values(linksToCopy).run();
 	}
+
+	return copiedArtifactIdBySourceId;
 }
 
 export async function createConversationFork(
@@ -713,7 +767,7 @@ export async function createConversationFork(
 				copiedMessages[index]?.id ?? "",
 			]),
 		);
-		copyDurableDocumentLinks({
+		const copiedGeneratedArtifactIdBySourceId = copyGeneratedWorkSnapshot({
 			tx,
 			userId: params.userId,
 			sourceConversationId: sourceConversation.id,
@@ -722,16 +776,18 @@ export async function createConversationFork(
 			copiedMessageIdBySourceId,
 			forkPointCreatedAt: forkPointMessage.createdAt,
 			now,
+			stagedFilePaths,
 		});
-		copyGeneratedWorkSnapshot({
+		copyDurableDocumentLinks({
 			tx,
 			userId: params.userId,
 			sourceConversationId: sourceConversation.id,
 			forkConversationId: forkConversation.id,
 			sourceMessageIds: sourceMessagesToCopy.map((message) => message.id),
 			copiedMessageIdBySourceId,
+			copiedGeneratedArtifactIds: new Set(copiedGeneratedArtifactIdBySourceId.keys()),
+			forkPointCreatedAt: forkPointMessage.createdAt,
 			now,
-			stagedFilePaths,
 		});
 
 		const lineage = tx

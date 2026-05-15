@@ -355,6 +355,31 @@ describe('streamChat', () => {
 		expect(parsedBody.activeDocumentArtifactId).toBe('artifact-focused-2');
 	});
 
+	it('threads confirmed forked source-history mutation into retry requests', async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				'event: end\n',
+				'data: {}\n',
+				'\n'
+			])
+		);
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat('ignored', 'conv-1', cb as unknown as StreamCallbacks, {
+			retryAssistantMessageId: 'assistant-msg-1',
+			retryUserMessageId: 'user-msg-1',
+			retryUserMessage: 'historical user text',
+			confirmForkedSourceHistoryMutation: true,
+		});
+		await done;
+
+		const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+		const parsedBody = JSON.parse(String(requestInit?.body));
+		expect(parsedBody.confirmForkedSourceHistoryMutation).toBe(true);
+	});
+
 	it('parses tool-call details and assistant evidence metadata', async () => {
 		const mockFetch = vi.mocked(fetch);
 		const onToolCall = vi.fn();

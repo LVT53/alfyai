@@ -522,6 +522,82 @@ describe("conversation forks", () => {
 		expect(secondFork.forkOrigin.forkSequence).toBe(2);
 	});
 
+	it("enforces unique fork sequences per user and source assistant response", () => {
+		seedTextConversation();
+		const { sqlite, db } = openDatabase();
+		const now = new Date("2026-05-15T10:01:00.000Z");
+		db.insert(schema.conversations)
+			.values([
+				{
+					id: "fork-conv-one",
+					userId: "user-1",
+					title: "Source title (fork 1)",
+					createdAt: now,
+					updatedAt: now,
+				},
+				{
+					id: "fork-conv-two",
+					userId: "user-1",
+					title: "Source title (fork 1 duplicate)",
+					createdAt: now,
+					updatedAt: now,
+				},
+			])
+			.run();
+		db.insert(schema.messages)
+			.values([
+				{
+					id: "fork-one-assistant-copy",
+					conversationId: "fork-conv-one",
+					role: "assistant",
+					content: "Assistant answer to fork from",
+					createdAt: now,
+				},
+				{
+					id: "fork-two-assistant-copy",
+					conversationId: "fork-conv-two",
+					role: "assistant",
+					content: "Assistant answer to fork from",
+					createdAt: now,
+				},
+			])
+			.run();
+		db.insert(schema.conversationForks)
+			.values({
+				id: "lineage-one",
+				forkConversationId: "fork-conv-one",
+				userId: "user-1",
+				sourceConversationId: "source-conv",
+				sourceConversationIdSnapshot: "source-conv",
+				sourceAssistantMessageId: "source-assistant-1",
+				sourceAssistantMessageIdSnapshot: "source-assistant-1",
+				copiedForkPointMessageId: "fork-one-assistant-copy",
+				sourceTitle: "Source title",
+				forkSequence: 1,
+				createdAt: now,
+			})
+			.run();
+
+		expect(() =>
+			db.insert(schema.conversationForks)
+				.values({
+					id: "lineage-two",
+					forkConversationId: "fork-conv-two",
+					userId: "user-1",
+					sourceConversationId: "source-conv",
+					sourceConversationIdSnapshot: "source-conv",
+					sourceAssistantMessageId: "source-assistant-1",
+					sourceAssistantMessageIdSnapshot: "source-assistant-1",
+					copiedForkPointMessageId: "fork-two-assistant-copy",
+					sourceTitle: "Source title",
+					forkSequence: 1,
+					createdAt: now,
+				})
+				.run(),
+		).toThrow(/unique/i);
+		sqlite.close();
+	});
+
 	it("copies message attachment links onto the copied message ids without duplicating artifacts", async () => {
 		seedTextConversation();
 		const { sqlite, db } = openDatabase();
@@ -589,6 +665,104 @@ describe("conversation forks", () => {
 				}),
 			]),
 		);
+	});
+
+	it("fails clearly when a copied visible attachment type cannot be preserved", async () => {
+		seedTextConversation();
+		const { sqlite, db } = openDatabase();
+		db.insert(schema.artifacts)
+			.values({
+				id: "source-skill-note",
+				userId: "user-1",
+				conversationId: "source-conv",
+				type: "skill_note",
+				retrievalClass: "durable",
+				name: "Visible skill note",
+				contentText: "A visible non-document attachment",
+				createdAt: new Date("2026-05-15T10:00:01.500Z"),
+				updatedAt: new Date("2026-05-15T10:00:01.500Z"),
+			})
+			.run();
+		db.insert(schema.artifactLinks)
+			.values({
+				id: "source-skill-note-attachment-link",
+				userId: "user-1",
+				artifactId: "source-skill-note",
+				conversationId: "source-conv",
+				messageId: "source-user-1",
+				linkType: "attached_to_conversation",
+				createdAt: new Date("2026-05-15T10:00:01.600Z"),
+			})
+			.run();
+		sqlite.close();
+		const { createConversationFork } = await import("./conversation-forks");
+
+		await expect(
+			createConversationFork({
+				userId: "user-1",
+				sourceConversationId: "source-conv",
+				sourceMessageId: "source-assistant-1",
+			}),
+		).rejects.toMatchObject({
+			code: "required_artifact_unavailable",
+			status: 409,
+		});
+		expect(readAllForkArtifacts()).toEqual({
+			forkConversations: [],
+			forkMessages: [],
+			forkLinks: [],
+		});
+	});
+
+	it("fails clearly when a visible generated-output attachment is not snapshotted", async () => {
+		seedTextConversation();
+		const { sqlite, db } = openDatabase();
+		db.insert(schema.artifacts)
+			.values({
+				id: "source-generated-unassociated",
+				userId: "user-1",
+				conversationId: "source-conv",
+				type: "generated_output",
+				retrievalClass: "durable",
+				name: "Detached generated output",
+				contentText: "Generated output without fork-copy metadata",
+				metadataJson: JSON.stringify({
+					documentFamilyId: "detached-family",
+					documentFamilyStatus: "active",
+				}),
+				createdAt: new Date("2026-05-15T10:00:01.500Z"),
+				updatedAt: new Date("2026-05-15T10:00:01.500Z"),
+			})
+			.run();
+		db.insert(schema.artifactLinks)
+			.values({
+				id: "source-detached-generated-attachment-link",
+				userId: "user-1",
+				artifactId: "source-generated-unassociated",
+				conversationId: "source-conv",
+				messageId: "source-user-1",
+				linkType: "attached_to_conversation",
+				createdAt: new Date("2026-05-15T10:00:01.600Z"),
+			})
+			.run();
+		sqlite.close();
+		const { createConversationFork } = await import("./conversation-forks");
+
+		await expect(
+			createConversationFork({
+				userId: "user-1",
+				sourceConversationId: "source-conv",
+				sourceMessageId: "source-assistant-1",
+			}),
+		).rejects.toMatchObject({
+			code: "required_generated_work_unavailable",
+			status: 409,
+		});
+		expect(readAllForkArtifacts()).toEqual({
+			forkConversations: [],
+			forkMessages: [],
+			forkLinks: [],
+		});
 	});
 
 	it("links only fork-point-visible durable conversation documents into the fork without duplicating artifacts", async () => {
@@ -888,6 +1062,109 @@ describe("conversation forks", () => {
 		expect(readStoredChatFile(copiedFile?.storagePath ?? "")).toBe("fork me as bytes");
 	});
 
+	it("fails clearly without creating a fork when copied history has non-terminal file-production work", async () => {
+		seedTextConversation();
+		const { sqlite, db } = openDatabase();
+		db.insert(schema.fileProductionJobs)
+			.values({
+				id: "source-job-queued",
+				conversationId: "source-conv",
+				assistantMessageId: "source-assistant-1",
+				userId: "user-1",
+				title: "Queued report",
+				status: "queued",
+				stage: "rendering",
+				origin: "tool",
+				retryable: false,
+				idempotencyKey: "source-queued-idempotency-key",
+				requestJson: JSON.stringify({ requestedOutputs: [{ filename: "queued.pdf" }] }),
+				sourceMode: "program",
+				documentIntent: "report",
+				createdAt: new Date("2026-05-15T10:00:02.100Z"),
+				updatedAt: new Date("2026-05-15T10:00:02.100Z"),
+			})
+			.run();
+		sqlite.close();
+		const { createConversationFork } = await import("./conversation-forks");
+
+		await expect(
+			createConversationFork({
+				userId: "user-1",
+				sourceConversationId: "source-conv",
+				sourceMessageId: "source-assistant-1",
+			}),
+		).rejects.toMatchObject({
+			code: "required_generated_work_unavailable",
+			status: 409,
+		});
+
+		expect(readForkRowsAfterFailure()).toEqual({
+			forkConversations: [],
+			forkMessages: [],
+			generatedFiles: [],
+			fileProductionJobs: [],
+			generatedArtifacts: [],
+		});
+	});
+
+	it("snapshots cancelled file-production jobs as terminal copied history", async () => {
+		seedTextConversation();
+		const { sqlite, db } = openDatabase();
+		db.insert(schema.fileProductionJobs)
+			.values({
+				id: "source-job-cancelled",
+				conversationId: "source-conv",
+				assistantMessageId: "source-assistant-1",
+				userId: "user-1",
+				title: "Cancelled report",
+				status: "cancelled",
+				stage: null,
+				origin: "tool",
+				retryable: false,
+				idempotencyKey: "source-cancelled-idempotency-key",
+				requestJson: JSON.stringify({ requestedOutputs: [{ filename: "cancelled.pdf" }] }),
+				sourceMode: "program",
+				documentIntent: "report",
+				cancelRequestedAt: new Date("2026-05-15T10:00:02.500Z"),
+				completedAt: new Date("2026-05-15T10:00:03.000Z"),
+				createdAt: new Date("2026-05-15T10:00:02.100Z"),
+				updatedAt: new Date("2026-05-15T10:00:03.000Z"),
+			})
+			.run();
+		sqlite.close();
+		const { createConversationFork } = await import("./conversation-forks");
+
+		const result = await createConversationFork({
+			userId: "user-1",
+			sourceConversationId: "source-conv",
+			sourceMessageId: "source-assistant-1",
+		});
+		const { forkMessages } = readForkRows(result.conversation.id);
+		const copiedAssistantMessageId = forkMessages[1]?.id;
+		const forkGeneratedWork = readGeneratedWorkRows(result.conversation.id);
+
+		expect(forkGeneratedWork.fileProductionJobs).toEqual([
+			expect.objectContaining({
+				conversationId: result.conversation.id,
+				assistantMessageId: copiedAssistantMessageId,
+				userId: "user-1",
+				title: "Cancelled report",
+				status: "cancelled",
+				origin: "tool",
+				sourceMode: "program",
+				documentIntent: "report",
+			}),
+		]);
+		expect(forkGeneratedWork.fileProductionJobs[0]?.id).not.toBe(
+			"source-job-cancelled",
+		);
+		expect(forkGeneratedWork.fileProductionJobs[0]?.idempotencyKey).not.toBe(
+			"source-cancelled-idempotency-key",
+		);
+		expect(forkGeneratedWork.generatedFiles).toEqual([]);
+		expect(forkGeneratedWork.fileProductionJobFiles).toEqual([]);
+	});
+
 	it("copies generated-output artifacts into fork-local document families with origin lineage", async () => {
 		seedTextConversation();
 		writeStoredChatFile("source-conv/source-file-1.txt", "fork me as bytes");
@@ -939,6 +1216,7 @@ describe("conversation forks", () => {
 					retrievalClass: "durable",
 					name: "Generated report",
 					mimeType: "text/plain",
+					storagePath: "source-conv/source-generated-current.bin",
 					contentText: "Generated report content",
 					summary: "Generated report summary",
 					metadataJson: JSON.stringify({
@@ -976,16 +1254,45 @@ describe("conversation forks", () => {
 			})
 			.run();
 		db.insert(schema.artifactLinks)
-			.values({
-				id: "source-generated-supersedes-link",
-				userId: "user-1",
-				artifactId: "source-generated-current",
-				relatedArtifactId: "source-generated-previous",
-				conversationId: "source-conv",
-				messageId: "source-assistant-1",
-				linkType: "supersedes",
-				createdAt,
-			})
+			.values([
+				{
+					id: "source-generated-supersedes-link",
+					userId: "user-1",
+					artifactId: "source-generated-current",
+					relatedArtifactId: "source-generated-previous",
+					conversationId: "source-conv",
+					messageId: "source-assistant-1",
+					linkType: "supersedes",
+					createdAt,
+				},
+				{
+					id: "source-generated-visible-link",
+					userId: "user-1",
+					artifactId: "source-generated-current",
+					conversationId: "source-conv",
+					messageId: "source-assistant-1",
+					linkType: "attached_to_conversation",
+					createdAt,
+				},
+				{
+					id: "source-generated-post-fork-message-link",
+					userId: "user-1",
+					artifactId: "source-generated-current",
+					conversationId: "source-conv",
+					messageId: "source-user-later",
+					linkType: "attached_to_conversation",
+					createdAt: new Date("2026-05-15T10:00:03.100Z"),
+				},
+				{
+					id: "source-generated-post-fork-conversation-link",
+					userId: "user-1",
+					artifactId: "source-generated-current",
+					conversationId: "source-conv",
+					messageId: null,
+					linkType: "attached_to_conversation",
+					createdAt: new Date("2026-05-15T10:00:03.200Z"),
+				},
+			])
 			.run();
 		sqlite.close();
 		const { createConversationFork } = await import("./conversation-forks");
@@ -1017,6 +1324,7 @@ describe("conversation forks", () => {
 		]);
 		const copiedArtifact = generatedArtifacts[0];
 		expect(copiedArtifact?.id).not.toBe("source-generated-current");
+		expect(copiedArtifact?.storagePath).toBeNull();
 		const metadata = JSON.parse(String(copiedArtifact?.metadataJson));
 		expect(metadata).toMatchObject({
 			generatedFile: true,
@@ -1050,6 +1358,70 @@ describe("conversation forks", () => {
 			}),
 		]);
 		expect(links.filter((link) => link.linkType === "supersedes")).toEqual([]);
+		expect(links).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					artifactId: copiedArtifact?.id,
+					conversationId: result.conversation.id,
+					messageId: copiedAssistantMessageId,
+					linkType: "attached_to_conversation",
+				}),
+			]),
+		);
+		expect(
+			links.filter(
+				(link) =>
+					link.artifactId === copiedArtifact?.id &&
+					link.linkType === "attached_to_conversation",
+			),
+		).toHaveLength(1);
+	});
+
+	it("fails clearly when binary-backed generated-output artifacts have no copied chat file", async () => {
+		seedTextConversation();
+		const { sqlite, db } = openDatabase();
+		const createdAt = new Date("2026-05-15T10:00:02.500Z");
+		db.insert(schema.artifacts)
+			.values({
+				id: "source-generated-binary-only",
+				userId: "user-1",
+				conversationId: "source-conv",
+				type: "generated_output",
+				retrievalClass: "durable",
+				name: "Binary only generated output",
+				mimeType: "application/pdf",
+				storagePath: "source-conv/generated-output-only.pdf",
+				metadataJson: JSON.stringify({
+					assistantMessageId: "source-assistant-1",
+					documentFamilyId: "source-binary-family",
+					documentFamilyStatus: "active",
+					originConversationId: "source-conv",
+					originAssistantMessageId: "source-assistant-1",
+				}),
+				createdAt,
+				updatedAt: createdAt,
+			})
+			.run();
+		sqlite.close();
+		const { createConversationFork } = await import("./conversation-forks");
+
+		await expect(
+			createConversationFork({
+				userId: "user-1",
+				sourceConversationId: "source-conv",
+				sourceMessageId: "source-assistant-1",
+			}),
+		).rejects.toMatchObject({
+			code: "required_generated_work_unavailable",
+			status: 409,
+		});
+		expect(readForkRowsAfterFailure()).toEqual({
+			forkConversations: [],
+			forkMessages: [],
+			generatedFiles: [],
+			fileProductionJobs: [],
+			generatedArtifacts: [],
+		});
 	});
 
 	it("fails clearly and cleans staged generated-file copies when required binary storage is missing", async () => {

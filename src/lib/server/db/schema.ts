@@ -102,6 +102,9 @@ export const conversationForks = sqliteTable('conversation_forks', {
     table.sourceAssistantMessageIdSnapshot,
     table.forkSequence
   ),
+  userSourceAssistantSequenceUniqueIdx: uniqueIndex(
+    'conversation_forks_user_source_assistant_sequence_unique_idx'
+  ).on(table.userId, table.sourceAssistantMessageIdSnapshot, table.forkSequence),
   sourceConversationIdx: index('conversation_forks_source_conversation_idx').on(
     table.sourceConversationIdSnapshot,
     table.forkSequence
