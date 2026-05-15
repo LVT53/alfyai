@@ -101,6 +101,10 @@ export interface InferenceProvider {
 	targetConstructedContext: number | null;
 	maxMessageLength: number | null;
 	maxTokens: number | null;
+	rateLimitFallbackEnabled: boolean;
+	rateLimitFallbackBaseUrl: string | null;
+	rateLimitFallbackModelName: string | null;
+	rateLimitFallbackTimeoutMs: number;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -142,6 +146,11 @@ export async function createProvider(data: {
 	targetConstructedContext?: number | null;
 	maxMessageLength?: number | null;
 	maxTokens?: number | null;
+	rateLimitFallbackEnabled?: boolean;
+	rateLimitFallbackBaseUrl?: string | null;
+	rateLimitFallbackApiKey?: string | null;
+	rateLimitFallbackModelName?: string | null;
+	rateLimitFallbackTimeoutMs?: number | null;
 }): Promise<InferenceProvider> {
 	const response = await requestJson<ProviderResponse>(
 		"/api/admin/providers",
@@ -171,6 +180,11 @@ export async function updateProvider(
 		targetConstructedContext?: number | null;
 		maxMessageLength?: number | null;
 		maxTokens?: number | null;
+		rateLimitFallbackEnabled?: boolean;
+		rateLimitFallbackBaseUrl?: string | null;
+		rateLimitFallbackApiKey?: string | null;
+		rateLimitFallbackModelName?: string | null;
+		rateLimitFallbackTimeoutMs?: number | null;
 	},
 ): Promise<InferenceProvider> {
 	const response = await requestJson<ProviderResponse>(

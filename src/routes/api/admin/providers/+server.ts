@@ -8,7 +8,9 @@ import {
   normalizeReasoningEffort,
   normalizeThinkingType,
   parseProviderLimitOverrides,
+  parseProviderRateLimitFallback,
   resolveProviderLimitDefaults,
+  validateProviderRateLimitFallbackConfiguration,
   validateProviderLimitConfiguration,
   validateProviderConnection,
   type CreateProviderInput,
@@ -33,6 +35,10 @@ export const POST: RequestHandler = async (event) => {
     if (!limits.ok) {
       return json({ error: limits.error }, { status: 400 });
     }
+    const fallback = parseProviderRateLimitFallback(body);
+    if (!fallback.ok) {
+      return json({ error: fallback.error }, { status: 400 });
+    }
 
     const input: CreateProviderInput = {
       name: body.name,
@@ -49,6 +55,7 @@ export const POST: RequestHandler = async (event) => {
       targetConstructedContext: limits.value.targetConstructedContext ?? null,
       maxMessageLength: limits.value.maxMessageLength ?? null,
       maxTokens: limits.value.maxTokens ?? null,
+      ...fallback.value,
     };
 
     if (!input.name || !input.displayName || !input.baseUrl || !input.apiKey || !input.modelName) {
@@ -86,11 +93,35 @@ export const POST: RequestHandler = async (event) => {
       return json({ error: limitOrderingError }, { status: 400 });
     }
 
+    const fallbackConfigurationError = validateProviderRateLimitFallbackConfiguration({
+      enabled: input.rateLimitFallbackEnabled ?? false,
+      baseUrl: input.rateLimitFallbackBaseUrl,
+      modelName: input.rateLimitFallbackModelName,
+      apiKeyAvailable:
+        typeof input.rateLimitFallbackApiKey === 'string' &&
+        input.rateLimitFallbackApiKey.trim().length > 0,
+      timeoutMs: input.rateLimitFallbackTimeoutMs,
+    });
+    if (fallbackConfigurationError) {
+      return json({ error: fallbackConfigurationError }, { status: 400 });
+    }
+
     const connectionTest = await validateProviderConnection(input.baseUrl, input.apiKey, {
       modelName: input.modelName,
     });
     if (!connectionTest.valid) {
       return json({ error: connectionTest.error }, { status: 400 });
+    }
+
+    if (input.rateLimitFallbackEnabled) {
+      const fallbackConnectionTest = await validateProviderConnection(
+        input.rateLimitFallbackBaseUrl!,
+        input.rateLimitFallbackApiKey!,
+        { modelName: input.rateLimitFallbackModelName }
+      );
+      if (!fallbackConnectionTest.valid) {
+        return json({ error: fallbackConnectionTest.error }, { status: 400 });
+      }
     }
 
     const provider = await createProvider(input);

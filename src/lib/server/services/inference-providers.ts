@@ -19,6 +19,7 @@ export type ProviderReasoningEffort = 'low' | 'medium' | 'high' | 'max' | 'xhigh
 export type ProviderThinkingType = 'enabled' | 'disabled';
 const FIRE_PASS_KEY_PREFIX = 'fpk_';
 const FIRE_PASS_MODEL_NAME = 'accounts/fireworks/routers/kimi-k2p6-turbo';
+const DEFAULT_RATE_LIMIT_FALLBACK_TIMEOUT_MS = 10000;
 
 export interface InferenceProvider {
   id: string;
@@ -35,6 +36,10 @@ export interface InferenceProvider {
   targetConstructedContext: number | null;
   maxMessageLength: number | null;
   maxTokens: number | null;
+  rateLimitFallbackEnabled: boolean;
+  rateLimitFallbackBaseUrl: string | null;
+  rateLimitFallbackModelName: string | null;
+  rateLimitFallbackTimeoutMs: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -42,6 +47,8 @@ export interface InferenceProvider {
 export interface InferenceProviderWithSecrets extends InferenceProvider {
   apiKeyEncrypted: string;
   apiKeyIv: string;
+  rateLimitFallbackApiKeyEncrypted: string | null;
+  rateLimitFallbackApiKeyIv: string | null;
 }
 
 export interface CreateProviderInput {
@@ -59,6 +66,11 @@ export interface CreateProviderInput {
   targetConstructedContext?: number | null;
   maxMessageLength?: number | null;
   maxTokens?: number | null;
+  rateLimitFallbackEnabled?: boolean;
+  rateLimitFallbackBaseUrl?: string | null;
+  rateLimitFallbackApiKey?: string | null;
+  rateLimitFallbackModelName?: string | null;
+  rateLimitFallbackTimeoutMs?: number | null;
 }
 
 export interface UpdateProviderInput {
@@ -75,6 +87,11 @@ export interface UpdateProviderInput {
   targetConstructedContext?: number | null;
   maxMessageLength?: number | null;
   maxTokens?: number | null;
+  rateLimitFallbackEnabled?: boolean;
+  rateLimitFallbackBaseUrl?: string | null;
+  rateLimitFallbackApiKey?: string | null;
+  rateLimitFallbackModelName?: string | null;
+  rateLimitFallbackTimeoutMs?: number | null;
 }
 
 export type ProviderLimitInput = {
@@ -91,6 +108,22 @@ export type NormalizedProviderLimits = {
   targetConstructedContext?: number | null;
   maxMessageLength?: number | null;
   maxTokens?: number | null;
+};
+
+export type ProviderRateLimitFallbackInput = {
+  rateLimitFallbackEnabled?: unknown;
+  rateLimitFallbackBaseUrl?: unknown;
+  rateLimitFallbackApiKey?: unknown;
+  rateLimitFallbackModelName?: unknown;
+  rateLimitFallbackTimeoutMs?: unknown;
+};
+
+export type NormalizedProviderRateLimitFallback = {
+  rateLimitFallbackEnabled?: boolean;
+  rateLimitFallbackBaseUrl?: string | null;
+  rateLimitFallbackApiKey?: string | null;
+  rateLimitFallbackModelName?: string | null;
+  rateLimitFallbackTimeoutMs?: number | null;
 };
 
 export function parseProviderLimitOverrides(input: ProviderLimitInput): {
@@ -152,6 +185,90 @@ export function parseProviderLimitOverrides(input: ProviderLimitInput): {
   if (maxTokens.value !== undefined) normalized.maxTokens = maxTokens.value;
 
   return { ok: true, value: normalized };
+}
+
+export function parseProviderRateLimitFallback(input: ProviderRateLimitFallbackInput): {
+  ok: true;
+  value: NormalizedProviderRateLimitFallback;
+} | {
+  ok: false;
+  error: string;
+} {
+  const normalized: NormalizedProviderRateLimitFallback = {};
+
+  if (input.rateLimitFallbackEnabled !== undefined) {
+    if (typeof input.rateLimitFallbackEnabled !== 'boolean') {
+      return { ok: false, error: 'Rate-limit fallback enabled must be a boolean' };
+    }
+    normalized.rateLimitFallbackEnabled = input.rateLimitFallbackEnabled;
+  }
+
+  const parseOptionalString = (
+    value: unknown,
+    label: string
+  ): { ok: true; value: string | null | undefined } | { ok: false; error: string } => {
+    if (value === undefined) return { ok: true, value: undefined };
+    if (value === null || value === '') return { ok: true, value: null };
+    if (typeof value !== 'string') return { ok: false, error: `${label} must be a string` };
+    return { ok: true, value: value.trim() || null };
+  };
+
+  const baseUrl = parseOptionalString(
+    input.rateLimitFallbackBaseUrl,
+    'Rate-limit fallback base URL'
+  );
+  if (!baseUrl.ok) return baseUrl;
+  if (baseUrl.value !== undefined) normalized.rateLimitFallbackBaseUrl = baseUrl.value;
+
+  const apiKey = parseOptionalString(
+    input.rateLimitFallbackApiKey,
+    'Rate-limit fallback API key'
+  );
+  if (!apiKey.ok) return apiKey;
+  if (apiKey.value !== undefined) normalized.rateLimitFallbackApiKey = apiKey.value;
+
+  const modelName = parseOptionalString(
+    input.rateLimitFallbackModelName,
+    'Rate-limit fallback model name'
+  );
+  if (!modelName.ok) return modelName;
+  if (modelName.value !== undefined) normalized.rateLimitFallbackModelName = modelName.value;
+
+  const timeout = input.rateLimitFallbackTimeoutMs;
+  if (timeout !== undefined) {
+    if (timeout === null || timeout === '') {
+      normalized.rateLimitFallbackTimeoutMs = null;
+    } else if (typeof timeout !== 'number' || !Number.isFinite(timeout) || !Number.isInteger(timeout)) {
+      return { ok: false, error: 'Rate-limit fallback timeout must be an integer' };
+    } else if (timeout < 1000) {
+      return { ok: false, error: 'Rate-limit fallback timeout must be at least 1000' };
+    } else {
+      normalized.rateLimitFallbackTimeoutMs = timeout;
+    }
+  }
+
+  return { ok: true, value: normalized };
+}
+
+export function validateProviderRateLimitFallbackConfiguration(input: {
+  enabled: boolean;
+  baseUrl: string | null | undefined;
+  modelName: string | null | undefined;
+  apiKeyAvailable: boolean;
+  timeoutMs?: number | null;
+}): string | null {
+  if (!input.enabled) return null;
+  if (!input.baseUrl) return 'Rate-limit fallback base URL is required';
+  if (!input.apiKeyAvailable) return 'Rate-limit fallback API key is required';
+  if (!input.modelName) return 'Rate-limit fallback model name is required';
+  if (
+    input.timeoutMs !== undefined &&
+    input.timeoutMs !== null &&
+    (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 1000)
+  ) {
+    return 'Rate-limit fallback timeout must be at least 1000';
+  }
+  return null;
 }
 
 export function validateProviderLimitOrdering(input: {
@@ -263,6 +380,10 @@ export function decryptApiKey(encrypted: string, iv: string): string {
 
 export async function createProvider(input: CreateProviderInput): Promise<InferenceProvider> {
   const { encrypted, iv } = encryptApiKey(input.apiKey);
+  const fallbackApiKey =
+    input.rateLimitFallbackApiKey && input.rateLimitFallbackApiKey.trim()
+      ? encryptApiKey(input.rateLimitFallbackApiKey)
+      : null;
   const now = new Date();
 
   const [provider] = await db
@@ -284,6 +405,13 @@ export async function createProvider(input: CreateProviderInput): Promise<Infere
       targetConstructedContext: input.targetConstructedContext ?? null,
       maxMessageLength: input.maxMessageLength ?? null,
       maxTokens: input.maxTokens ?? null,
+      rateLimitFallbackEnabled: input.rateLimitFallbackEnabled ?? false,
+      rateLimitFallbackBaseUrl: input.rateLimitFallbackBaseUrl ?? null,
+      rateLimitFallbackApiKeyEncrypted: fallbackApiKey?.encrypted ?? null,
+      rateLimitFallbackApiKeyIv: fallbackApiKey?.iv ?? null,
+      rateLimitFallbackModelName: input.rateLimitFallbackModelName ?? null,
+      rateLimitFallbackTimeoutMs:
+        input.rateLimitFallbackTimeoutMs ?? DEFAULT_RATE_LIMIT_FALLBACK_TIMEOUT_MS,
       createdAt: now,
       updatedAt: now,
     })
@@ -396,6 +524,29 @@ export async function updateProvider(
   if (input.maxTokens !== undefined) {
     updates.maxTokens = input.maxTokens;
   }
+  if (input.rateLimitFallbackEnabled !== undefined) {
+    updates.rateLimitFallbackEnabled = input.rateLimitFallbackEnabled;
+  }
+  if (input.rateLimitFallbackBaseUrl !== undefined) {
+    updates.rateLimitFallbackBaseUrl = input.rateLimitFallbackBaseUrl;
+  }
+  if (input.rateLimitFallbackApiKey !== undefined) {
+    if (input.rateLimitFallbackApiKey && input.rateLimitFallbackApiKey.trim()) {
+      const { encrypted, iv } = encryptApiKey(input.rateLimitFallbackApiKey);
+      updates.rateLimitFallbackApiKeyEncrypted = encrypted;
+      updates.rateLimitFallbackApiKeyIv = iv;
+    } else {
+      updates.rateLimitFallbackApiKeyEncrypted = null;
+      updates.rateLimitFallbackApiKeyIv = null;
+    }
+  }
+  if (input.rateLimitFallbackModelName !== undefined) {
+    updates.rateLimitFallbackModelName = input.rateLimitFallbackModelName;
+  }
+  if (input.rateLimitFallbackTimeoutMs !== undefined) {
+    updates.rateLimitFallbackTimeoutMs =
+      input.rateLimitFallbackTimeoutMs ?? DEFAULT_RATE_LIMIT_FALLBACK_TIMEOUT_MS;
+  }
 
   const [updated] = await db
     .update(inferenceProviders)
@@ -487,6 +638,11 @@ function mapRowToProvider(row: typeof inferenceProviders.$inferSelect): Inferenc
     targetConstructedContext: row.targetConstructedContext ?? null,
     maxMessageLength: row.maxMessageLength ?? null,
     maxTokens: row.maxTokens ?? null,
+    rateLimitFallbackEnabled: row.rateLimitFallbackEnabled ?? false,
+    rateLimitFallbackBaseUrl: row.rateLimitFallbackBaseUrl ?? null,
+    rateLimitFallbackModelName: row.rateLimitFallbackModelName ?? null,
+    rateLimitFallbackTimeoutMs:
+      row.rateLimitFallbackTimeoutMs ?? DEFAULT_RATE_LIMIT_FALLBACK_TIMEOUT_MS,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -499,5 +655,7 @@ function mapRowToProviderWithSecrets(
     ...mapRowToProvider(row),
     apiKeyEncrypted: row.apiKeyEncrypted,
     apiKeyIv: row.apiKeyIv,
+    rateLimitFallbackApiKeyEncrypted: row.rateLimitFallbackApiKeyEncrypted ?? null,
+    rateLimitFallbackApiKeyIv: row.rateLimitFallbackApiKeyIv ?? null,
   };
 }

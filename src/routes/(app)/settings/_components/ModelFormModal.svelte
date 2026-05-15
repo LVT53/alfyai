@@ -7,6 +7,17 @@ import { getKnownModelLimitPreset } from "$lib/model-limit-presets";
 
 const tVal = get(t);
 
+type ModelFormModalModel = InferenceProvider & {
+	isBuiltIn?: boolean;
+	flowId?: string;
+	componentId?: string;
+	rateLimitFallbackEnabled?: boolean | null;
+	rateLimitFallbackBaseUrl?: string | null;
+	rateLimitFallbackApiKey?: string | null;
+	rateLimitFallbackModelName?: string | null;
+	rateLimitFallbackTimeoutMs?: number | null;
+};
+
 function handleKeydown(e: KeyboardEvent) {
 	if (e.key === 'Escape') {
 		onClose?.();
@@ -22,13 +33,7 @@ let {
 	saving = false,
 	error = "",
 }: {
-	model?:
-		| (InferenceProvider & {
-				isBuiltIn?: boolean;
-				flowId?: string;
-				componentId?: string;
-		  })
-		| null;
+	model?: ModelFormModalModel | null;
 	isCreate?: boolean;
 	onSave?: (data: Record<string, unknown>) => void | Promise<void>;
 	onClose?: () => void;
@@ -75,8 +80,26 @@ let formMaxMessageLength = $state(
 		model?.maxMessageLength ? String(model.maxMessageLength) : "",
 	),
 );
+let formRateLimitFallbackEnabled = $state(
+	untrack(() => Boolean(model?.rateLimitFallbackEnabled)),
+);
+let formRateLimitFallbackBaseUrl = $state(
+	untrack(() => model?.rateLimitFallbackBaseUrl ?? ""),
+);
+let formRateLimitFallbackApiKey = $state("");
+let formRateLimitFallbackModelName = $state(
+	untrack(() => model?.rateLimitFallbackModelName ?? ""),
+);
+let formRateLimitFallbackTimeoutMs = $state(
+	untrack(() =>
+		model?.rateLimitFallbackTimeoutMs
+			? String(model.rateLimitFallbackTimeoutMs)
+			: "",
+	),
+);
 let formName = $state(untrack(() => model?.name ?? ""));
 let showApiKey = $state(false);
+let showRateLimitFallbackApiKey = $state(false);
 let localError = $state("");
 
 let isBuiltIn = $derived(model?.isBuiltIn ?? false);
@@ -136,6 +159,27 @@ function handleSave() {
 		localError = $t("admin.fillRequiredProviderContext");
 		return;
 	}
+	const rateLimitFallbackTimeoutMs = formRateLimitFallbackTimeoutMs
+		? Number(formRateLimitFallbackTimeoutMs)
+		: null;
+	if (!isBuiltIn && formRateLimitFallbackEnabled) {
+		if (
+			!formRateLimitFallbackBaseUrl ||
+			(isCreate && !formRateLimitFallbackApiKey) ||
+			!formRateLimitFallbackModelName ||
+			!formRateLimitFallbackTimeoutMs
+		) {
+			localError = $t("admin.fillRequiredRateLimitFallback");
+			return;
+		}
+		if (
+			!Number.isInteger(rateLimitFallbackTimeoutMs) ||
+			rateLimitFallbackTimeoutMs < 1000
+		) {
+			localError = $t("admin.invalidRateLimitFallbackTimeout");
+			return;
+		}
+	}
 	data.displayName = data.displayName ?? formDisplayName;
 	data.baseUrl = data.baseUrl ?? formBaseUrl;
 	data.modelName = data.modelName ?? formModelName;
@@ -155,6 +199,17 @@ function handleSave() {
 	data.maxMessageLength = formMaxMessageLength
 		? Number(formMaxMessageLength)
 		: null;
+	if (!isBuiltIn) {
+		data.rateLimitFallbackEnabled = formRateLimitFallbackEnabled;
+		data.rateLimitFallbackBaseUrl =
+			formRateLimitFallbackBaseUrl || null;
+		data.rateLimitFallbackModelName =
+			formRateLimitFallbackModelName || null;
+		data.rateLimitFallbackTimeoutMs = rateLimitFallbackTimeoutMs;
+		if (formRateLimitFallbackApiKey) {
+			data.rateLimitFallbackApiKey = formRateLimitFallbackApiKey;
+		}
+	}
 	onSave?.(data);
 }
 </script>
@@ -235,6 +290,71 @@ function handleSave() {
 					<input id="form-enabled" type="checkbox" bind:checked={formEnabled} />
 					<label class="settings-label mb-0" for="form-enabled">{$t('admin.enabled')}</label>
 				</div>
+				{#if !isBuiltIn}
+					<div class="mt-2 border-t border-border pt-3">
+						<div class="flex items-center justify-between gap-3">
+							<div>
+								<label class="settings-label mb-0" for="form-rate-limit-fallback-enabled">{$t('admin.rateLimitFallbackEnabled')}</label>
+								<p class="text-xs text-text-muted">{$t('admin.rateLimitFallbackDescription')}</p>
+							</div>
+							<input
+								id="form-rate-limit-fallback-enabled"
+								type="checkbox"
+								bind:checked={formRateLimitFallbackEnabled}
+							/>
+						</div>
+						{#if formRateLimitFallbackEnabled}
+							<div class="mt-3 flex flex-col gap-2">
+								<div>
+									<label class="settings-label" for="form-rate-limit-fallback-base-url">{$t('admin.rateLimitFallbackBaseUrl')}</label>
+									<input
+										id="form-rate-limit-fallback-base-url"
+										type="url"
+										class="settings-input"
+										bind:value={formRateLimitFallbackBaseUrl}
+										placeholder={$t('admin.baseUrlPlaceholder')}
+									/>
+								</div>
+								<div>
+									<label class="settings-label" for="form-rate-limit-fallback-api-key">{$t('admin.rateLimitFallbackApiKey')}</label>
+									<div class="flex items-center gap-2">
+										<input
+											id="form-rate-limit-fallback-api-key"
+											type={showRateLimitFallbackApiKey ? 'text' : 'password'}
+											class="settings-input flex-1"
+											bind:value={formRateLimitFallbackApiKey}
+											placeholder={model && !isCreate ? $t('admin.unchanged') : $t('admin.apiKeyPlaceholder')}
+										/>
+										<button type="button" class="btn-secondary" onclick={() => (showRateLimitFallbackApiKey = !showRateLimitFallbackApiKey)}>
+											{showRateLimitFallbackApiKey ? $t('admin.hide') : $t('admin.show')}
+										</button>
+									</div>
+								</div>
+								<div>
+									<label class="settings-label" for="form-rate-limit-fallback-model-name">{$t('admin.rateLimitFallbackModelName')}</label>
+									<input
+										id="form-rate-limit-fallback-model-name"
+										type="text"
+										class="settings-input"
+										bind:value={formRateLimitFallbackModelName}
+										placeholder={$t('admin.modelNamePlaceholderProvider')}
+									/>
+								</div>
+								<div>
+									<label class="settings-label" for="form-rate-limit-fallback-timeout-ms">{$t('admin.rateLimitFallbackTimeoutMs')}</label>
+									<input
+										id="form-rate-limit-fallback-timeout-ms"
+										type="number"
+										class="settings-input"
+										bind:value={formRateLimitFallbackTimeoutMs}
+										placeholder="30000"
+										min="1000"
+									/>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
 				<div class="mt-2 border-t border-border pt-3">
 					<h3 class="text-sm font-medium text-text-primary mb-2">{$t('admin.contextLimits')}</h3>
 					<p class="text-xs text-text-muted mb-2">{requiresProviderContext ? $t('admin.contextLimitsDescriptionProvider') : $t('admin.contextLimitsDescriptionBuiltIn')}</p>

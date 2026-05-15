@@ -69,10 +69,22 @@ type LangflowModelRunConfig = ModelConfig & {
 };
 
 type EffectiveThinkingType = "enabled" | "disabled" | null;
+type LangflowFailoverReason = "timeout" | "rate_limit";
 type TimeoutFailoverInfo = {
 	fromModelId: ModelId;
 	toModelId: ModelId;
-	reason: "timeout";
+	reason: LangflowFailoverReason;
+	fromModelName?: string;
+	toModelName?: string;
+};
+
+type LangflowFailoverTarget = {
+	modelId: ModelId;
+	modelConfig?: LangflowModelRunConfig;
+	timeoutMs: number;
+	logFrom: string;
+	logTo: string;
+	info: TimeoutFailoverInfo;
 };
 
 type LangflowRequestResult = {
@@ -107,6 +119,11 @@ type LangflowStreamResult = {
 };
 
 type LangflowTimeoutError = Error & { code?: string };
+type LangflowHttpError = Error & {
+	status?: number;
+	statusText?: string;
+	bodyPreview?: string;
+};
 
 const CURRENT_USER_MESSAGE_MARKER = "## Current User Message\n";
 const LANGFLOW_PROMPT_OVERHEAD_RESERVE_TOKENS = 512;
@@ -928,6 +945,22 @@ function createLangflowTimeoutError(message: string): LangflowTimeoutError {
 	return error;
 }
 
+function createLangflowHttpError(params: {
+	status: number;
+	statusText: string;
+	body: string;
+}): LangflowHttpError {
+	const bodyPreview = params.body.slice(0, 500);
+	const error = new Error(
+		`Langflow API error: ${params.status} ${params.statusText}${bodyPreview ? ` - ${bodyPreview}` : ""}`,
+	) as LangflowHttpError;
+	error.name = "LangflowHttpError";
+	error.status = params.status;
+	error.statusText = params.statusText;
+	error.bodyPreview = params.body.slice(0, 1000);
+	return error;
+}
+
 export function isLangflowTimeoutError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
 	const code = (error as LangflowTimeoutError).code;
@@ -944,6 +977,30 @@ export function isLangflowTimeoutError(error: unknown): boolean {
 	);
 }
 
+function getLangflowErrorStatus(error: unknown): number | null {
+	if (!(error instanceof Error)) return null;
+	const status = (error as LangflowHttpError).status;
+	return typeof status === "number" && Number.isFinite(status) ? status : null;
+}
+
+export function isLangflowRateLimitError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const status = getLangflowErrorStatus(error);
+	if (status === 429) return true;
+
+	const bodyPreview = (error as LangflowHttpError).bodyPreview;
+	const haystack =
+		`${error.name}\n${error.message}\n${typeof bodyPreview === "string" ? bodyPreview : ""}`.toLowerCase();
+	if (!haystack.includes("fireworks")) return false;
+
+	return (
+		/\b429\b/.test(haystack) ||
+		haystack.includes("too many requests") ||
+		haystack.includes("rate limit") ||
+		haystack.includes("ratelimit")
+	);
+}
+
 function configuredAttemptTimeoutMs(
 	config: RuntimeConfig,
 	failoverCandidate: ModelId | null,
@@ -955,6 +1012,155 @@ function configuredAttemptTimeoutMs(
 	);
 }
 
+function readStringProperty(
+	record: Record<string, unknown>,
+	key: string,
+): string | null {
+	const value = record[key];
+	return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readNumberProperty(
+	record: Record<string, unknown>,
+	key: string,
+): number | null {
+	const value = record[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function buildProviderRateLimitFallbackModelConfig(params: {
+	provider: unknown;
+	config: RuntimeConfig;
+}): {
+	modelConfig: LangflowModelRunConfig;
+	timeoutMs: number;
+	logFrom: string;
+	logTo: string;
+	info: Pick<TimeoutFailoverInfo, "fromModelName" | "toModelName">;
+} | null {
+	if (!params.provider || typeof params.provider !== "object") return null;
+	const provider = params.provider as Record<string, unknown>;
+	if (provider.rateLimitFallbackEnabled !== true) return null;
+
+	const baseUrl = readStringProperty(provider, "rateLimitFallbackBaseUrl");
+	const modelName = readStringProperty(provider, "rateLimitFallbackModelName");
+	const encryptedApiKey = readStringProperty(
+		provider,
+		"rateLimitFallbackApiKeyEncrypted",
+	);
+	const apiKeyIv = readStringProperty(provider, "rateLimitFallbackApiKeyIv");
+	if (!baseUrl || !modelName || !encryptedApiKey || !apiKeyIv) return null;
+
+	const providerId = readStringProperty(provider, "id") ?? undefined;
+	const providerModelName =
+		readStringProperty(provider, "modelName") ?? undefined;
+	const providerDisplayName =
+		readStringProperty(provider, "displayName") ??
+		params.config.model1.displayName;
+	const fallbackDisplayName = `${providerDisplayName} (rate-limit fallback)`;
+	const timeoutMs = Math.max(
+		1000,
+		readNumberProperty(provider, "rateLimitFallbackTimeoutMs") ??
+			params.config.requestTimeoutMs,
+	);
+	const apiKey = decryptApiKey(encryptedApiKey, apiKeyIv);
+	const normalizedBaseUrl = normalizeOpenAICompatibleBaseUrl(baseUrl);
+	const contextLimits = resolveProviderPromptContextLimits({
+		modelName,
+		maxModelContext:
+			typeof provider.maxModelContext === "number"
+				? provider.maxModelContext
+				: null,
+		compactionUiThreshold:
+			typeof provider.compactionUiThreshold === "number"
+				? provider.compactionUiThreshold
+				: null,
+		targetConstructedContext:
+			typeof provider.targetConstructedContext === "number"
+				? provider.targetConstructedContext
+				: null,
+	});
+
+	return {
+		modelConfig: {
+			...params.config.model1,
+			baseUrl: normalizedBaseUrl,
+			apiKey,
+			modelName,
+			displayName: fallbackDisplayName,
+			maxTokens:
+				typeof provider.maxTokens === "number"
+					? provider.maxTokens
+					: params.config.model1.maxTokens,
+			flowId: params.config.model1.flowId || params.config.langflowFlowId,
+			componentId: params.config.model1.componentId.trim(),
+			contextLimits,
+			providerId,
+			providerReasoningEffort:
+				typeof provider.reasoningEffort === "string"
+					? provider.reasoningEffort
+					: null,
+			providerThinkingType:
+				typeof provider.thinkingType === "string"
+					? provider.thinkingType
+					: null,
+			requiresComponentTweaks: true,
+		},
+		timeoutMs,
+		logFrom: providerModelName
+			? `${providerId ? `provider:${providerId}` : "provider"}:${providerModelName}`
+			: providerId
+				? `provider:${providerId}`
+				: "provider",
+		logTo: providerId ? `provider:${providerId}:${modelName}` : modelName,
+		info: {
+			fromModelName: providerModelName,
+			toModelName: modelName,
+		},
+	};
+}
+
+async function resolveValidatedFailoverTargetModelId(
+	sourceModelId: ModelId,
+	candidate: ModelId | null,
+	config: RuntimeConfig,
+): Promise<ModelId | null> {
+	if (!candidate || candidate === sourceModelId) return null;
+
+	if (candidate === "model2" && config.model2Enabled === false) {
+		return null;
+	}
+
+	if (candidate.startsWith("provider:")) {
+		const provider = await getProviderWithSecrets(
+			candidate.slice("provider:".length),
+		).catch(() => null);
+		if (!provider?.enabled) return null;
+	}
+
+	return candidate;
+}
+
+function buildModelIdFailoverTarget(params: {
+	sourceModelId: ModelId;
+	targetModelId: ModelId | null;
+	timeoutMs: number;
+	reason: LangflowFailoverReason;
+}): LangflowFailoverTarget | null {
+	if (!params.targetModelId) return null;
+	return {
+		modelId: params.targetModelId,
+		timeoutMs: params.timeoutMs,
+		logFrom: params.sourceModelId,
+		logTo: params.targetModelId,
+		info: {
+			fromModelId: params.sourceModelId,
+			toModelId: params.targetModelId,
+			reason: params.reason,
+		},
+	};
+}
+
 export async function resolveTimeoutFailoverTargetModelId(
 	modelId?: ModelId | null,
 	config: RuntimeConfig = getConfig(),
@@ -963,20 +1169,79 @@ export async function resolveTimeoutFailoverTargetModelId(
 
 	const sourceModelId = modelId ?? "model1";
 	const targetModelId = config.modelTimeoutFailoverTargetModel;
-	if (!targetModelId || targetModelId === sourceModelId) return null;
+	return resolveValidatedFailoverTargetModelId(
+		sourceModelId,
+		targetModelId,
+		config,
+	);
+}
 
-	if (targetModelId === "model2" && config.model2Enabled === false) {
-		return null;
-	}
-
-	if (targetModelId.startsWith("provider:")) {
+async function resolveRateLimitFailoverTarget(
+	modelId?: ModelId | null,
+	config: RuntimeConfig = getConfig(),
+): Promise<LangflowFailoverTarget | null> {
+	const sourceModelId = modelId ?? "model1";
+	if (isProviderModelId(sourceModelId)) {
 		const provider = await getProviderWithSecrets(
-			targetModelId.slice("provider:".length),
+			sourceModelId.slice("provider:".length),
 		).catch(() => null);
-		if (!provider?.enabled) return null;
+		const providerFallback = buildProviderRateLimitFallbackModelConfig({
+			provider,
+			config,
+		});
+		if (providerFallback) {
+			return {
+				modelId: sourceModelId,
+				modelConfig: providerFallback.modelConfig,
+				timeoutMs: providerFallback.timeoutMs,
+				logFrom: providerFallback.logFrom,
+				logTo: providerFallback.logTo,
+				info: {
+					fromModelId: sourceModelId,
+					toModelId: sourceModelId,
+					reason: "rate_limit",
+					...providerFallback.info,
+				},
+			};
+		}
 	}
 
-	return targetModelId;
+	const globalTarget = await resolveTimeoutFailoverTargetModelId(
+		sourceModelId,
+		config,
+	);
+	return buildModelIdFailoverTarget({
+		sourceModelId,
+		targetModelId: globalTarget,
+		timeoutMs: config.requestTimeoutMs,
+		reason: "rate_limit",
+	});
+}
+
+function logLangflowFailoverSwitch(params: {
+	label: "Request" | "Streaming request";
+	sessionId: string;
+	from: string;
+	to: string;
+	reason: LangflowFailoverReason;
+	status?: number | null;
+	timeoutMs?: number | null;
+}): void {
+	const status = params.status ?? null;
+	const timeoutMs = params.timeoutMs ?? null;
+	console.warn(
+		[
+			`[LANGFLOW] ${params.label} switching to failover model`,
+			`sessionId=${params.sessionId}`,
+			`from=${params.from}`,
+			`to=${params.to}`,
+			`reason=${params.reason}`,
+			status == null ? null : `status=${status}`,
+			timeoutMs == null ? null : `timeoutMs=${timeoutMs}`,
+		]
+			.filter(Boolean)
+			.join(" "),
+	);
 }
 
 export async function prepareOutboundChatContext(params: {
@@ -1127,6 +1392,7 @@ async function sendMessageAttempt(
 	},
 	attemptTimeoutMs: number,
 	timeoutFailover?: TimeoutFailoverInfo,
+	overrideModelConfig?: LangflowModelRunConfig,
 ): Promise<LangflowRequestResult> {
 	const config = getConfig();
 	const controller = new AbortController();
@@ -1138,7 +1404,8 @@ async function sendMessageAttempt(
 	const signal = mergeAbortSignals(options?.signal, controller.signal);
 
 	try {
-		const modelConfig = await resolveLangflowRunConfig(modelId);
+		const modelConfig =
+			overrideModelConfig ?? (await resolveLangflowRunConfig(modelId));
 		const flowId = modelConfig.flowId || config.langflowFlowId;
 		const url = `${config.langflowApiUrl}/api/v1/run/${flowId}`;
 		const modelName = modelConfig.modelName;
@@ -1291,15 +1558,20 @@ async function sendMessageAttempt(
 
 		if (!response.ok) {
 			const errorBody = await response.text().catch(() => "");
-			console.error("[LANGFLOW] sendMessage non-OK response", {
-				url,
+			const httpError = createLangflowHttpError({
 				status: response.status,
 				statusText: response.statusText,
-				bodyPreview: errorBody.slice(0, 1000),
+				body: errorBody,
 			});
-			throw new Error(
-				`Langflow API error: ${response.status} ${response.statusText}${errorBody ? ` - ${errorBody.slice(0, 500)}` : ""}`,
-			);
+			if (!isLangflowRateLimitError(httpError)) {
+				console.error("[LANGFLOW] sendMessage non-OK response", {
+					url,
+					status: response.status,
+					statusText: response.statusText,
+					bodyPreview: errorBody.slice(0, 1000),
+				});
+			}
+			throw httpError;
 		}
 
 		const rawResponse: LangflowRunResponse = await response.json();
@@ -1369,37 +1641,64 @@ export async function sendMessage(
 			attemptTimeoutMs,
 		);
 	} catch (error) {
-		if (
-			!failoverTargetModelId ||
-			options?.signal?.aborted ||
-			!isLangflowTimeoutError(error)
-		) {
+		if (options?.signal?.aborted) {
 			throw error;
 		}
 
-		console.warn(
-			"[LANGFLOW] Request timed out before response; retrying with failover model",
-			{
+		if (isLangflowTimeoutError(error) && failoverTargetModelId) {
+			logLangflowFailoverSwitch({
+				label: "Request",
 				sessionId,
-				fromModelId: requestedModelId,
-				toModelId: failoverTargetModelId,
-				timeoutMs: attemptTimeoutMs,
-			},
-		);
-
-		return sendMessageAttempt(
-			message,
-			sessionId,
-			failoverTargetModelId,
-			user,
-			options,
-			attemptTimeoutMs,
-			{
-				fromModelId: requestedModelId,
-				toModelId: failoverTargetModelId,
+				from: requestedModelId,
+				to: failoverTargetModelId,
 				reason: "timeout",
-			},
-		);
+				timeoutMs: attemptTimeoutMs,
+			});
+
+			return sendMessageAttempt(
+				message,
+				sessionId,
+				failoverTargetModelId,
+				user,
+				options,
+				attemptTimeoutMs,
+				{
+					fromModelId: requestedModelId,
+					toModelId: failoverTargetModelId,
+					reason: "timeout",
+				},
+			);
+		}
+
+		if (isLangflowRateLimitError(error)) {
+			const rateLimitFailoverTarget = await resolveRateLimitFailoverTarget(
+				requestedModelId,
+				config,
+			);
+			if (rateLimitFailoverTarget) {
+				logLangflowFailoverSwitch({
+					label: "Request",
+					sessionId,
+					from: rateLimitFailoverTarget.logFrom,
+					to: rateLimitFailoverTarget.logTo,
+					reason: "rate_limit",
+					status: getLangflowErrorStatus(error),
+				});
+
+				return sendMessageAttempt(
+					message,
+					sessionId,
+					rateLimitFailoverTarget.modelId,
+					user,
+					options,
+					rateLimitFailoverTarget.timeoutMs,
+					rateLimitFailoverTarget.info,
+					rateLimitFailoverTarget.modelConfig,
+				);
+			}
+		}
+
+		throw error;
 	}
 }
 
@@ -1421,6 +1720,7 @@ async function sendMessageStreamAttempt(
 	},
 	attemptTimeoutMs: number,
 	timeoutFailover?: TimeoutFailoverInfo,
+	overrideModelConfig?: LangflowModelRunConfig,
 ): Promise<LangflowStreamResult> {
 	const config = getConfig();
 	const timeoutController = new AbortController();
@@ -1446,7 +1746,8 @@ async function sendMessageStreamAttempt(
 	);
 
 	try {
-		const modelConfig = await resolveLangflowRunConfig(modelId);
+		const modelConfig =
+			overrideModelConfig ?? (await resolveLangflowRunConfig(modelId));
 		const flowId = modelConfig.flowId || config.langflowFlowId;
 		const url = `${config.langflowApiUrl}/api/v1/run/${flowId}?stream=true`;
 		const modelName = modelConfig.modelName;
@@ -1602,15 +1903,20 @@ async function sendMessageStreamAttempt(
 
 		if (!response.ok) {
 			const errorBody = await response.text().catch(() => "");
-			console.error("[LANGFLOW] sendMessageStream non-OK response", {
-				url,
+			const httpError = createLangflowHttpError({
 				status: response.status,
 				statusText: response.statusText,
-				bodyPreview: errorBody.slice(0, 1000),
+				body: errorBody,
 			});
-			throw new Error(
-				`Langflow API error: ${response.status} ${response.statusText}${errorBody ? ` - ${errorBody.slice(0, 500)}` : ""}`,
-			);
+			if (!isLangflowRateLimitError(httpError)) {
+				console.error("[LANGFLOW] sendMessageStream non-OK response", {
+					url,
+					status: response.status,
+					statusText: response.statusText,
+					bodyPreview: errorBody.slice(0, 1000),
+				});
+			}
+			throw httpError;
 		}
 
 		const contentType = response.headers.get("content-type") ?? "";
@@ -1721,35 +2027,61 @@ export async function sendMessageStream(
 			attemptTimeoutMs,
 		);
 	} catch (error) {
-		if (
-			!failoverTargetModelId ||
-			options?.signal?.aborted ||
-			!isLangflowTimeoutError(error)
-		) {
+		if (options?.signal?.aborted) {
 			throw error;
 		}
 
-		console.warn(
-			"[LANGFLOW] Streaming request timed out before headers; retrying with failover model",
-			{
+		if (isLangflowTimeoutError(error) && failoverTargetModelId) {
+			logLangflowFailoverSwitch({
+				label: "Streaming request",
 				sessionId,
-				fromModelId: requestedModelId,
-				toModelId: failoverTargetModelId,
-				timeoutMs: attemptTimeoutMs,
-			},
-		);
-
-		return sendMessageStreamAttempt(
-			message,
-			sessionId,
-			failoverTargetModelId,
-			options,
-			attemptTimeoutMs,
-			{
-				fromModelId: requestedModelId,
-				toModelId: failoverTargetModelId,
+				from: requestedModelId,
+				to: failoverTargetModelId,
 				reason: "timeout",
-			},
-		);
+				timeoutMs: attemptTimeoutMs,
+			});
+
+			return sendMessageStreamAttempt(
+				message,
+				sessionId,
+				failoverTargetModelId,
+				options,
+				attemptTimeoutMs,
+				{
+					fromModelId: requestedModelId,
+					toModelId: failoverTargetModelId,
+					reason: "timeout",
+				},
+			);
+		}
+
+		if (isLangflowRateLimitError(error)) {
+			const rateLimitFailoverTarget = await resolveRateLimitFailoverTarget(
+				requestedModelId,
+				config,
+			);
+			if (rateLimitFailoverTarget) {
+				logLangflowFailoverSwitch({
+					label: "Streaming request",
+					sessionId,
+					from: rateLimitFailoverTarget.logFrom,
+					to: rateLimitFailoverTarget.logTo,
+					reason: "rate_limit",
+					status: getLangflowErrorStatus(error),
+				});
+
+				return sendMessageStreamAttempt(
+					message,
+					sessionId,
+					rateLimitFailoverTarget.modelId,
+					options,
+					rateLimitFailoverTarget.timeoutMs,
+					rateLimitFailoverTarget.info,
+					rateLimitFailoverTarget.modelConfig,
+				);
+			}
+		}
+
+		throw error;
 	}
 }

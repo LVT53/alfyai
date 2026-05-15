@@ -1092,6 +1092,12 @@ export const inferenceProviders = sqliteTable('inference_providers', {
   targetConstructedContext: integer('target_constructed_context'),
   maxMessageLength: integer('max_message_length'),
   maxTokens: integer('max_tokens'),
+  rateLimitFallbackEnabled: integer('rate_limit_fallback_enabled', { mode: 'boolean' }).notNull().default(false),
+  rateLimitFallbackBaseUrl: text('rate_limit_fallback_base_url'),
+  rateLimitFallbackApiKeyEncrypted: text('rate_limit_fallback_api_key_encrypted'),
+  rateLimitFallbackApiKeyIv: text('rate_limit_fallback_api_key_iv'),
+  rateLimitFallbackModelName: text('rate_limit_fallback_model_name'),
+  rateLimitFallbackTimeoutMs: integer('rate_limit_fallback_timeout_ms').notNull().default(10000),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });

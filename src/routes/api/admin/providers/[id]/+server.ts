@@ -9,8 +9,10 @@ import {
   normalizeReasoningEffort,
   normalizeThinkingType,
   parseProviderLimitOverrides,
+  parseProviderRateLimitFallback,
   resolveProviderLimitDefaults,
   updateProvider,
+  validateProviderRateLimitFallbackConfiguration,
   validateProviderLimitConfiguration,
   validateProviderConnection,
   type UpdateProviderInput,
@@ -24,6 +26,10 @@ export const PUT: RequestHandler = async (event) => {
     const limits = parseProviderLimitOverrides(body);
     if (!limits.ok) {
       return json({ error: limits.error }, { status: 400 });
+    }
+    const fallback = parseProviderRateLimitFallback(body);
+    if (!fallback.ok) {
+      return json({ error: fallback.error }, { status: 400 });
     }
 
     const input: UpdateProviderInput = {};
@@ -45,6 +51,13 @@ export const PUT: RequestHandler = async (event) => {
     }
     if (limits.value.maxMessageLength !== undefined) input.maxMessageLength = limits.value.maxMessageLength;
     if (limits.value.maxTokens !== undefined) input.maxTokens = limits.value.maxTokens;
+    Object.assign(input, fallback.value);
+    if (
+      typeof body.rateLimitFallbackApiKey === 'string' &&
+      body.rateLimitFallbackApiKey.trim() === ''
+    ) {
+      delete input.rateLimitFallbackApiKey;
+    }
 
     if (body.reasoningEffort && !input.reasoningEffort) {
       return json({ error: 'Invalid reasoning effort' }, { status: 400 });
@@ -105,6 +118,40 @@ export const PUT: RequestHandler = async (event) => {
       return json({ error: limitOrderingError }, { status: 400 });
     }
 
+    const fallbackEnabled =
+      input.rateLimitFallbackEnabled !== undefined
+        ? input.rateLimitFallbackEnabled
+        : existing.rateLimitFallbackEnabled;
+    const fallbackBaseUrl =
+      input.rateLimitFallbackBaseUrl !== undefined
+        ? input.rateLimitFallbackBaseUrl
+        : existing.rateLimitFallbackBaseUrl;
+    const fallbackModelName =
+      input.rateLimitFallbackModelName !== undefined
+        ? input.rateLimitFallbackModelName
+        : existing.rateLimitFallbackModelName;
+    const fallbackApiKeyChanged =
+      typeof input.rateLimitFallbackApiKey === 'string' &&
+      input.rateLimitFallbackApiKey.trim().length > 0;
+    const fallbackApiKeyCleared = input.rateLimitFallbackApiKey === null;
+    const fallbackApiKeyAvailable =
+      fallbackApiKeyChanged ||
+      (!fallbackApiKeyCleared &&
+        Boolean(existing.rateLimitFallbackApiKeyEncrypted && existing.rateLimitFallbackApiKeyIv));
+    const fallbackConfigurationError = validateProviderRateLimitFallbackConfiguration({
+      enabled: fallbackEnabled,
+      baseUrl: fallbackBaseUrl,
+      modelName: fallbackModelName,
+      apiKeyAvailable: fallbackApiKeyAvailable,
+      timeoutMs:
+        input.rateLimitFallbackTimeoutMs !== undefined
+          ? input.rateLimitFallbackTimeoutMs
+          : existing.rateLimitFallbackTimeoutMs,
+    });
+    if (fallbackConfigurationError) {
+      return json({ error: fallbackConfigurationError }, { status: 400 });
+    }
+
     const validationBaseUrl =
       typeof body.baseUrl === 'string' && body.baseUrl.trim()
         ? body.baseUrl
@@ -123,6 +170,27 @@ export const PUT: RequestHandler = async (event) => {
       );
       if (!connectionTest.valid) {
         return json({ error: connectionTest.error }, { status: 400 });
+      }
+    }
+
+    const fallbackEndpointChanged =
+      input.rateLimitFallbackBaseUrl !== undefined ||
+      input.rateLimitFallbackModelName !== undefined ||
+      fallbackApiKeyChanged;
+    if (fallbackEnabled && fallbackEndpointChanged) {
+      const fallbackApiKey = fallbackApiKeyChanged
+        ? input.rateLimitFallbackApiKey!
+        : decryptApiKey(
+            existing.rateLimitFallbackApiKeyEncrypted!,
+            existing.rateLimitFallbackApiKeyIv!
+          );
+      const fallbackConnectionTest = await validateProviderConnection(
+        fallbackBaseUrl!,
+        fallbackApiKey,
+        { modelName: fallbackModelName }
+      );
+      if (!fallbackConnectionTest.valid) {
+        return json({ error: fallbackConnectionTest.error }, { status: 400 });
       }
     }
 
