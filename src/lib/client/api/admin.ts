@@ -255,7 +255,7 @@ export async function fetchAdminSystemSkills(): Promise<AdminSystemSkill[]> {
 	const response = await requestJson<AdminSystemSkillsResponse>(
 		"/api/admin/skills",
 		undefined,
-		"Failed to load system skills",
+		"Failed to load skills",
 	);
 	return Array.isArray(response.skills) ? response.skills : [];
 }
@@ -268,7 +268,7 @@ export async function createAdminSystemSkill(data: AdminSystemSkillDraft): Promi
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(data),
 		},
-		"Failed to save system skill",
+		"Failed to save skill",
 	);
 	return response.skill;
 }
@@ -284,7 +284,7 @@ export async function updateAdminSystemSkill(
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(data),
 		},
-		"Failed to save system skill",
+		"Failed to save skill",
 	);
 	return response.skill;
 }

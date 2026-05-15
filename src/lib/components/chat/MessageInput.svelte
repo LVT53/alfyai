@@ -1907,12 +1907,12 @@ async function emitDraftChange(force = false) {
 		left: 50%;
 		bottom: calc(100% - 0.4rem);
 		z-index: 1;
-		width: min(90%, 44rem);
+		width: min(95%, 44rem);
 		max-height: min(23rem, calc(100vh - 12rem));
 		overflow-y: auto;
 		border: 1px solid color-mix(in srgb, var(--border-default) 76%, transparent 24%);
 		border-radius: 1rem 1rem 0.9rem 0.9rem;
-		background: color-mix(in srgb, var(--surface-overlay) 94%, #111 6%);
+		background: color-mix(in srgb, var(--surface-overlay) 84%, #0b0b0b 16%);
 		box-shadow:
 			0 18px 42px rgba(0, 0, 0, 0.28),
 			0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent 92%);
@@ -1925,6 +1925,11 @@ async function emitDraftChange(force = false) {
 	.command-tray[data-state="closing"] {
 		pointer-events: none;
 		animation: commandTrayOut 150ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+	}
+
+	:global(.dark) .command-tray {
+		background: color-mix(in srgb, var(--surface-overlay) 76%, #050505 24%);
+		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
 	}
 
 	.command-row {

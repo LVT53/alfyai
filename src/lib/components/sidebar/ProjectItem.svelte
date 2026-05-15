@@ -14,9 +14,6 @@
 		onCreateConversation,
 		onRename,
 		onDelete,
-		onDragOverProject,
-		onDragLeaveProject,
-		onDropConversation,
 		onMenuToggle,
 		onMenuClose
 	}: {
@@ -28,9 +25,6 @@
 		onCreateConversation?: (payload: { id: string }) => void;
 		onRename?: (payload: { id: string; name: string }) => void;
 		onDelete?: (payload: { id: string }) => void;
-		onDragOverProject?: (payload: { id: string }) => void;
-		onDragLeaveProject?: (payload: { id: string }) => void;
-		onDropConversation?: (payload: { projectId: string; conversationId?: string | null }) => void;
 		onMenuToggle?: (payload: { id: string; open: boolean }) => void;
 		onMenuClose?: (payload: { id: string }) => void;
 	} = $props();
@@ -101,34 +95,6 @@
 		onDelete?.({ id: project.id });
 	}
 
-	function handleDragOver(event: DragEvent) {
-		event.preventDefault();
-		event.stopPropagation();
-		if (event.dataTransfer) {
-			event.dataTransfer.dropEffect = 'move';
-		}
-		onDragOverProject?.({ id: project.id });
-	}
-
-	function handleDragLeave(event: DragEvent) {
-		const currentTarget = event.currentTarget as HTMLElement | null;
-		const nextTarget = event.relatedTarget as Node | null;
-		if (currentTarget && nextTarget && currentTarget.contains(nextTarget)) {
-			return;
-		}
-		onDragLeaveProject?.({ id: project.id });
-	}
-
-	function handleDrop(event: DragEvent) {
-		event.preventDefault();
-		event.stopPropagation();
-		const conversationId =
-			event.dataTransfer?.getData('application/x-alfyai-conversation') ||
-			event.dataTransfer?.getData('text/plain') ||
-			null;
-		onDropConversation?.({ projectId: project.id, conversationId });
-	}
-
 	onMount(() => {
 		return setupMenuSync(() => menuOpen, doUpdatePosition);
 	});
@@ -147,12 +113,8 @@
 	data-testid="project-drop-target"
 	data-project-id={project.id}
 	class="group flex min-h-[32px] cursor-pointer select-none items-center rounded-lg border border-transparent pr-0.5 pl-1 transition-colors duration-150 hover:border-border-subtle hover:bg-surface-elevated"
-	class:border-accent={dropActive}
-	class:bg-surface-elevated={dropActive}
+	class:project-row-drop-active={dropActive}
 	onclick={() => onToggle?.({ id: project.id, expanded: !expanded })}
-	ondragover={handleDragOver}
-	ondragleave={handleDragLeave}
-	ondrop={handleDrop}
 	onkeydown={(event) => event.key === 'Enter' && onToggle?.({ id: project.id, expanded: !expanded })}
 	role="button"
 	tabindex="0"
@@ -196,6 +158,19 @@
 			<span class="truncate text-[13px] font-medium font-sans text-text-primary">{project.name}</span>
 		{/if}
 	</div>
+
+	<button
+		class="project-inline-action btn-icon-bare ml-1 flex h-[26px] w-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:opacity-0 md:group-hover:opacity-100"
+		class:md:opacity-100={menuOpen}
+		onclick={createConversation}
+		aria-label={$t('sidebar.createChatInProject', { name: project.name })}
+		title={$t('sidebar.newChatInProject')}
+	>
+		<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"/>
+			<path d="M12 8v6"/><path d="M9 11h6"/>
+		</svg>
+	</button>
 
 	<!-- Context menu trigger -->
 	<button
@@ -263,6 +238,17 @@
 {/if}
 
 <style>
+	.project-row-drop-active,
+	.project-row-drop-active:hover {
+		background: transparent;
+		border-color: transparent;
+	}
+
+	.project-row-drop-active .project-inline-action:hover,
+	.project-row-drop-active .project-inline-action:focus-visible {
+		background: color-mix(in srgb, var(--accent) 18%, transparent 82%);
+	}
+
 	.project-menu {
 		background: var(--project-menu-bg, var(--surface-elevated));
 		border-color: color-mix(in srgb, var(--border-default) 76%, var(--surface-page) 24%);

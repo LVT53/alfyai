@@ -14,7 +14,7 @@
 	} from '$lib/stores/conversations';
 	import { conversationExists } from '$lib/client/api/conversations';
 	import { removeConversationFromPersistedWorkspaceDocumentState } from '$lib/client/document-workspace-state';
-	import { projects } from '$lib/stores/projects';
+	import { reconcileProjectSnapshot } from '$lib/stores/projects';
 	import { initSettings, uiLanguage } from '$lib/stores/settings';
 	import { initTheme } from '$lib/stores/theme';
 	import { initAvatar } from '$lib/stores/avatar';
@@ -39,7 +39,9 @@
 	});
 
 	$effect(() => {
-		projects.set(data?.projects ?? []);
+		reconcileProjectSnapshot(data?.projects ?? [], {
+			userId: data.user?.id ?? null,
+		});
 	});
 
 	// Reactive <html lang> attribute

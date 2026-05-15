@@ -16,6 +16,7 @@ export const conversations = writable<ConversationListItem[]>([]);
 
 const optimisticConversationIds = new Set<string>();
 const deletedConversationIds = new Set<string>();
+const localConversationProjectIds = new Map<string, string | null>();
 let conversationSnapshotUserId: string | null = null;
 
 export function reconcileConversationSnapshot(
@@ -35,6 +36,7 @@ export function reconcileConversationSnapshot(
 		if (shouldReset) {
 			optimisticConversationIds.clear();
 			deletedConversationIds.clear();
+			localConversationProjectIds.clear();
 			conversationSnapshotUserId = options.userId ?? null;
 			return incoming;
 		}
@@ -43,7 +45,17 @@ export function reconcileConversationSnapshot(
 			conversationSnapshotUserId = options.userId;
 		}
 
-		const next = new Map(incoming.map((item) => [item.id, item]));
+		const mergedIncoming = incoming.map((item) => {
+			if (!localConversationProjectIds.has(item.id)) return item;
+			const localProjectId = localConversationProjectIds.get(item.id) ?? null;
+			if ((item.projectId ?? null) === localProjectId) {
+				localConversationProjectIds.delete(item.id);
+				return item;
+			}
+			return { ...item, projectId: localProjectId };
+		});
+
+		const next = new Map(mergedIncoming.map((item) => [item.id, item]));
 		for (const item of current) {
 			if (deletedConversationIds.has(item.id)) continue;
 			if (!optimisticConversationIds.has(item.id)) continue;
@@ -52,7 +64,7 @@ export function reconcileConversationSnapshot(
 			}
 		}
 
-		for (const item of incoming) {
+		for (const item of mergedIncoming) {
 			optimisticConversationIds.delete(item.id);
 		}
 
@@ -63,6 +75,7 @@ export function reconcileConversationSnapshot(
 export function clearConversationStore(): void {
 	optimisticConversationIds.clear();
 	deletedConversationIds.clear();
+	localConversationProjectIds.clear();
 	conversationSnapshotUserId = null;
 	conversations.set([]);
 }
@@ -105,6 +118,9 @@ export function upsertConversationLocal(
 ): void {
 	optimisticConversationIds.add(id);
 	deletedConversationIds.delete(id);
+	if (projectId !== undefined) {
+		localConversationProjectIds.set(id, projectId);
+	}
 	conversations.update((items) => {
 		const existingIndex = items.findIndex((item) => item.id === id);
 		if (existingIndex === -1) {
@@ -132,6 +148,7 @@ export function upsertConversationLocal(
 export function removeConversationLocal(id: string): void {
 	optimisticConversationIds.delete(id);
 	deletedConversationIds.add(id);
+	localConversationProjectIds.delete(id);
 	conversations.update((items) => items.filter((conversation) => conversation.id !== id));
 }
 
@@ -143,6 +160,7 @@ export async function deleteConversationById(id: string): Promise<void> {
 	}
 	optimisticConversationIds.delete(id);
 	deletedConversationIds.add(id);
+	localConversationProjectIds.delete(id);
 	conversations.update((items) => items.filter((conversation) => conversation.id !== id));
 }
 
@@ -163,6 +181,7 @@ export function updateConversationTitleLocal(id: string, title: string): void {
 
 export async function moveConversationToProject(id: string, projectId: string | null): Promise<void> {
 	await moveConversationRequest(id, projectId);
+	localConversationProjectIds.set(id, projectId);
 	conversations.update((items) =>
 		items.map((conversation) =>
 			conversation.id === id ? { ...conversation, projectId } : conversation
@@ -172,10 +191,10 @@ export async function moveConversationToProject(id: string, projectId: string | 
 
 export function clearProjectFromConversations(projectId: string): void {
 	conversations.update((items) =>
-		items.map((conversation) =>
-			conversation.projectId === projectId
-				? { ...conversation, projectId: null }
-				: conversation
-		)
+		items.map((conversation) => {
+			if (conversation.projectId !== projectId) return conversation;
+			localConversationProjectIds.set(conversation.id, null);
+			return { ...conversation, projectId: null };
+		})
 	);
 }

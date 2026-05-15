@@ -69,7 +69,7 @@ describe('ChatMessagePane', () => {
 
 		await fireEvent.click(getByRole('button', { name: 'Save private skill' }));
 		await fireEvent.click(getByRole('button', { name: 'Dismiss draft' }));
-		await fireEvent.click(getByRole('button', { name: 'Publish system skill' }));
+		await fireEvent.click(getByRole('button', { name: 'Publish skill' }));
 
 		expect(onSaveSkillDraft).toHaveBeenCalledWith({
 			messageId: 'assistant-1',

@@ -108,7 +108,7 @@ describe('MessageBubble', () => {
 		expect(screen.getByRole('article', { name: 'Skill draft: Meeting critic' })).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Save private skill' }));
 		await fireEvent.click(screen.getByRole('button', { name: 'Dismiss draft' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Publish system skill' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Publish skill' }));
 
 		expect(onSaveSkillDraft).toHaveBeenCalledWith({
 			messageId: 'assistant-1',

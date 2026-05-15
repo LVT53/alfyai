@@ -42,7 +42,7 @@ export const POST: RequestHandler = async (event) => {
 
 	return json(
 		{
-			error: "Publishing chat Skill Drafts as System Skills is disabled.",
+			error: "Publishing chat Skill Drafts as admin-wide Skills is disabled.",
 			errorKey: "skillDrafts.publishDisabled",
 			draft,
 		},

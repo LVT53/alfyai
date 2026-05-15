@@ -141,7 +141,7 @@ export async function fetchSystemSkillSummaries(
 	const data = await requestJson<SkillListResponse>(
 		"/api/skills",
 		undefined,
-		"Failed to load system skills",
+		"Failed to load skills",
 		fetchImpl,
 	);
 	return Array.isArray(data.systemSkills) ? data.systemSkills.map(publicSystemSkillSummary) : [];

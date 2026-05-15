@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { createProject, deleteProject, loadProjects, projects, renameProject } from './projects';
+import {
+	clearProjectStore,
+	createProject,
+	deleteProject,
+	loadProjects,
+	projects,
+	reconcileProjectSnapshot,
+	renameProject,
+} from './projects';
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
 	return new Response(JSON.stringify(body), {
@@ -11,7 +19,7 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
 
 describe('projects store', () => {
 	beforeEach(() => {
-		projects.set([]);
+		clearProjectStore();
 		vi.restoreAllMocks();
 		vi.stubGlobal('fetch', vi.fn());
 		vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -52,6 +60,22 @@ describe('projects store', () => {
 		});
 		expect(get(projects)).toEqual([
 			{ id: 'proj-1', name: 'Alpha', sortOrder: 0, createdAt: 1, updatedAt: 1 },
+		]);
+	});
+
+	it('keeps locally created projects when a stale snapshot arrives', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(
+			jsonResponse(
+				{ id: 'proj-local', name: 'Local', sortOrder: 0, createdAt: 1, updatedAt: 1 },
+				{ status: 201 }
+			)
+		);
+
+		await createProject('Local');
+		reconcileProjectSnapshot([]);
+
+		expect(get(projects)).toEqual([
+			{ id: 'proj-local', name: 'Local', sortOrder: 0, createdAt: 1, updatedAt: 1 },
 		]);
 	});
 

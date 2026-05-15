@@ -163,6 +163,15 @@ const skillDraftLocalizedApiErrorKeys: Record<string, I18nKey> = {
 	"skillDrafts.publishDisabled": "skillDrafts.publishDisabled",
 	"skills.notFound": "skills.notFound",
 };
+
+$effect(() => {
+	upsertConversationLocal(
+		data.conversation.id,
+		data.conversation.title,
+		data.conversation.updatedAt,
+		data.conversation.projectId ?? null,
+	);
+});
 const skillSessionLocalizedApiErrorKeys: Record<string, I18nKey> = {
 	"composerCommandRegistry.disabled": "composerCommandRegistry.disabled",
 	"skillSessions.errors.activeConflict": "skillSessions.errors.activeConflict",

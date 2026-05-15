@@ -20,9 +20,18 @@ describe("ProjectItem", () => {
 		});
 
 		await fireEvent.click(
-			screen.getByRole("button", { name: "Create chat in House tasks" }),
+			screen.getAllByRole("button", { name: "Create chat in House tasks" })[1],
 		);
 
 		expect(onCreateConversation).toHaveBeenCalledWith({ id: "project-1" });
+	});
+
+	it("shows the project-row new chat action outside the overflow menu", () => {
+		render(ProjectItem, {
+			project,
+			onCreateConversation: vi.fn(),
+		});
+
+		expect(screen.getByRole("button", { name: "Create chat in House tasks" })).toBeInTheDocument();
 	});
 });

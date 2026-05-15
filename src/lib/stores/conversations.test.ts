@@ -177,6 +177,22 @@ describe('conversations store', () => {
 		]);
 	});
 
+	it('preserves a local project move when a stale snapshot arrives', async () => {
+		conversations.set([{ id: 'conv-1', title: 'Chat', updatedAt: 123, projectId: null }]);
+		vi.mocked(fetch).mockResolvedValueOnce(
+			jsonResponse({ id: 'conv-1', title: 'Chat', updatedAt: 123, projectId: 'proj-1' })
+		);
+
+		await moveConversationToProject('conv-1', 'proj-1');
+		reconcileConversationSnapshot([
+			{ id: 'conv-1', title: 'Chat', updatedAt: 124, projectId: null },
+		]);
+
+		expect(get(conversations)).toEqual([
+			{ id: 'conv-1', title: 'Chat', updatedAt: 124, projectId: 'proj-1' },
+		]);
+	});
+
 	it('deletes a conversation and removes it from the store', async () => {
 		conversations.set([{ id: 'conv-1', title: 'Chat', updatedAt: 123, projectId: null }]);
 		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ success: true }));

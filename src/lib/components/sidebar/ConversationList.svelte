@@ -16,7 +16,8 @@
 		projects as projectsStore,
 		createProject,
 		renameProject,
-		deleteProject
+		deleteProject,
+		reconcileProjectSnapshot
 	} from '$lib/stores/projects';
 	import { currentConversationId, sidebarOpen, SIDEBAR_DESKTOP_BREAKPOINT } from '$lib/stores/ui';
 	import { t } from '$lib/i18n';
@@ -43,7 +44,7 @@
 		| { kind: 'project'; id: string }
 		| null;
 	onMount(() => {
-		projectsStore.set(initialProjects);
+		reconcileProjectSnapshot(initialProjects);
 		projectsStoreReady = true;
 		conversationsStoreReady = true;
 	});
@@ -326,9 +327,6 @@
 			upsertConversationLocal(conversationId, 'New Conversation', Date.now() / 1000, projectId);
 			expandedProjects = { ...expandedProjects, [projectId]: true };
 			currentConversationId.set(conversationId);
-			if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
-				sidebarOpen.set(false);
-			}
 			await goto(`/chat/${conversationId}?view=bootstrap`);
 		} catch (e) {
 			console.error('Create project conversation failed', e);
@@ -413,7 +411,7 @@
 			<div class="flex flex-col gap-px px-1">
 				{#each allProjects as project (project.id)}
 					<div
-						class="project-drop-zone rounded-xl border border-transparent transition-colors duration-150"
+						class="project-drop-zone rounded-xl border border-transparent"
 						class:project-drop-zone-active={dropTarget?.kind === 'project' && dropTarget.projectId === project.id}
 						role="group"
 						aria-label={$t('sidebar.projectDropArea', { name: project.name })}
@@ -443,9 +441,6 @@
 							onCreateConversation={handleCreateConversationInProject}
 							onRename={handleProjectRename}
 							onDelete={handleProjectDelete}
-							onDragOverProject={handleProjectDragOver}
-							onDragLeaveProject={handleProjectDragLeave}
-							onDropConversation={handleProjectDropConversation}
 							onMenuToggle={handleProjectMenuToggle}
 							onMenuClose={handleProjectMenuClose}
 						/>
@@ -596,6 +591,13 @@
 				color-mix(in srgb, var(--accent) 12%, transparent 88%),
 				color-mix(in srgb, var(--surface-elevated) 78%, transparent 22%)
 			);
+	}
+
+	.project-drop-zone {
+		transition:
+			background-color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+			border-color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+			box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1);
 	}
 
 	.empty-projects-btn {

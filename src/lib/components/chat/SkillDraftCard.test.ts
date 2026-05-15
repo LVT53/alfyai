@@ -52,13 +52,13 @@ describe("SkillDraftCard", () => {
 		expect(screen.getByRole("button", { name: "Dismiss draft" })).toHaveClass(
 			"skill-draft-card__secondary",
 		);
-		expect(screen.getByRole("button", { name: "Publish system skill" })).toHaveClass(
+		expect(screen.getByRole("button", { name: "Publish skill" })).toHaveClass(
 			"skill-draft-card__secondary",
 		);
 
 		await fireEvent.click(screen.getByRole("button", { name: "Save private skill" }));
 		await fireEvent.click(screen.getByRole("button", { name: "Dismiss draft" }));
-		await fireEvent.click(screen.getByRole("button", { name: "Publish system skill" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Publish skill" }));
 
 		expect(onSave).toHaveBeenCalledWith("draft-1");
 		expect(onDismiss).toHaveBeenCalledWith("draft-1");
@@ -78,7 +78,7 @@ describe("SkillDraftCard", () => {
 
 		expect(screen.getByRole("button", { name: "Privát skill mentése" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Vázlat elvetése" })).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Rendszerskill publikálása" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Skill publikálása" })).toBeInTheDocument();
 	});
 
 	it("hides the publish action when system publishing is unavailable", () => {
@@ -91,7 +91,7 @@ describe("SkillDraftCard", () => {
 		});
 
 		expect(screen.getByRole("button", { name: "Save private skill" })).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Publish system skill" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Publish skill" })).not.toBeInTheDocument();
 	});
 
 	it("renders a localized draft action error and disables actions while busy", () => {
