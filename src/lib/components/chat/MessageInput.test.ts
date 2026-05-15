@@ -1373,6 +1373,33 @@ describe('MessageInput', () => {
 		expect(draftSpy).toHaveBeenCalledTimes(1);
 	});
 
+	it('does not create a draft conversation for raw command triggers', async () => {
+		const ensureConversation = vi.fn(async () => 'conv-command');
+		const draftSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			ensureConversation,
+			onDraftChange: draftSpy,
+		});
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: '/' } });
+		await waitFor(() =>
+			expect(getByRole('listbox', { name: 'Composer commands' })).toBeInTheDocument()
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(ensureConversation).not.toHaveBeenCalled();
+
+		await fireEvent.input(input, { target: { value: '$' } });
+		await waitFor(() =>
+			expect(getByRole('listbox', { name: 'Composer commands' })).toBeInTheDocument()
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(ensureConversation).not.toHaveBeenCalled();
+	});
+
 	it('queues the next message on Enter while generation is in progress', async () => {
 		const queueSpy = vi.fn();
 		const { getByPlaceholderText, queryByTestId } = render(MessageInputWrapper, {

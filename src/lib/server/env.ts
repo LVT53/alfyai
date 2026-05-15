@@ -261,7 +261,7 @@ function readConfig(): Config {
 		alfyaiApiSigningKey: process.env.ALFYAI_API_SIGNING_KEY || "",
 		attachmentTraceDebug: process.env.ATTACHMENT_TRACE_DEBUG === "true",
 		composerCommandRegistryEnabled:
-			process.env.COMPOSER_COMMAND_REGISTRY_ENABLED === "true",
+			process.env.COMPOSER_COMMAND_REGISTRY_ENABLED !== "false",
 		deepResearchEnabled: process.env.DEEP_RESEARCH_ENABLED === "true",
 		deepResearchWorkerEnabled:
 			process.env.DEEP_RESEARCH_WORKER_ENABLED === "true",

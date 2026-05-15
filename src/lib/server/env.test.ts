@@ -111,12 +111,23 @@ describe("Environment Configuration", () => {
 		expect(config.modelTimeoutFailoverEnabled).toBe(false);
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(60000);
 		expect(config.modelTimeoutFailoverTargetModel).toBe("model2");
-		expect(config.composerCommandRegistryEnabled).toBe(false);
+		expect(config.composerCommandRegistryEnabled).toBe(true);
 		expect(config.maxMessageLength).toBe(1_048_576);
 		expect(config.sessionSecret).toBe(
 			"test-session-secret-12345678901234567890123456789012",
 		);
 		expect(config.databasePath).toBe("./data/chat.db");
+	});
+
+	it("should allow disabling Composer Command Registry explicitly", async () => {
+		process.env.LANGFLOW_API_KEY = "test-api-key";
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.COMPOSER_COMMAND_REGISTRY_ENABLED = "false";
+
+		const { config } = await import("./env");
+
+		expect(config.composerCommandRegistryEnabled).toBe(false);
 	});
 
 	it("should return valid config object when all vars are present", async () => {

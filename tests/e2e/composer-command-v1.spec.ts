@@ -200,6 +200,34 @@ test.describe('Composer Command V1', () => {
 		expect(discovery.body).toMatchObject({ errorKey: 'composerCommandRegistry.disabled' });
 	});
 
+	test('landing command trigger opens the tray without creating a draft conversation', async ({ page }) => {
+		await login(page);
+		await setComposerCommandRegistry(page, true);
+		let createConversationAttempts = 0;
+		await page.route('**/api/conversations', async (route) => {
+			if (route.request().method() === 'POST') {
+				createConversationAttempts += 1;
+				await route.fulfill({
+					status: 404,
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ error: 'unexpected create conversation' }),
+				});
+				return;
+			}
+			await route.continue();
+		});
+		await page.goto('/', { waitUntil: 'domcontentloaded' });
+		await openConversationComposer(page);
+
+		await typeComposerCommand(page, '/');
+		await expect(page.getByRole('listbox', { name: 'Composer commands' })).toBeVisible();
+		expect(createConversationAttempts).toBe(0);
+
+		await typeComposerCommand(page, '$');
+		await expect(page.getByRole('listbox', { name: 'Composer commands' })).toBeVisible();
+		expect(createConversationAttempts).toBe(0);
+	});
+
 	test('mixes skill, linked sources, upload, and thinking mode in one normal chat turn', async ({ page }) => {
 		const capture: { streamBody?: Record<string, unknown> } = {};
 

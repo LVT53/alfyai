@@ -1279,9 +1279,19 @@ async function ensureDraftConversationId(): Promise<string | null> {
 	return ensureDraftConversationPromise;
 }
 
+function getDraftTextForPersistence(): string {
+	if (!composerCommandRegistryEnabled || !textarea) return message;
+	const cursor = textarea.selectionStart ?? message.length;
+	const activeToken =
+		findDocumentCommandTokenWithQuery(message, cursor) ??
+		findActiveComposerCommandToken(message, cursor);
+	if (!activeToken) return message;
+	return message.slice(0, activeToken.start) + message.slice(activeToken.end);
+}
+
 async function emitDraftChange(force = false) {
 	const emissionVersion = draftEmissionVersion;
-	const nextMessage = message;
+	const nextMessage = getDraftTextForPersistence();
 	const nextPendingAttachments = pendingAttachments.map((attachment) => ({
 		...attachment,
 	}));
@@ -1304,9 +1314,14 @@ async function emitDraftChange(force = false) {
 		nextPendingAttachments.length > 0 ||
 		nextLinkedSources.length > 0 ||
 		Boolean(nextPendingSkill);
-	const draftConversationId = hasMeaningfulDraft
-		? await ensureDraftConversationId()
-		: resolvedConversationId;
+	let draftConversationId: string | null = resolvedConversationId;
+	if (hasMeaningfulDraft) {
+		try {
+			draftConversationId = await ensureDraftConversationId();
+		} catch {
+			return;
+		}
+	}
 	if (emissionVersion !== draftEmissionVersion) return;
 	const payload = {
 		conversationId: draftConversationId,

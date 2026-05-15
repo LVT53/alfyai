@@ -252,7 +252,7 @@ function buildDefaultConfig(): RuntimeConfig {
 		),
 		braveSearchApiKey: envConfig.braveSearchApiKey,
 		composerCommandRegistryEnabled:
-			envConfig.composerCommandRegistryEnabled ?? false,
+			envConfig.composerCommandRegistryEnabled ?? true,
 		deepResearchEnabled: envConfig.deepResearchEnabled ?? false,
 	};
 }
