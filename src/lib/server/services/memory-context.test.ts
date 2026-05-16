@@ -138,6 +138,33 @@ describe("memory context service", () => {
 		});
 	});
 
+	it("defaults omitted mode to Honcho-led persona recall", async () => {
+		const { getMemoryContext } = await import("./memory-context");
+
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			query: "What durable preferences matter?",
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			mode: "persona",
+			status: "available",
+			source: "honcho_peer_chat",
+			audit: {
+				conversationId: "conv-current",
+				query: "What durable preferences matter?",
+			},
+		});
+		expect(mockRecallPersonaMemory).toHaveBeenCalledWith({
+			userId: "user-1",
+			userDisplayName: undefined,
+			query: "What durable preferences matter?",
+		});
+		expect(mockGetProjectContext).not.toHaveBeenCalled();
+	});
+
 	it("degrades clearly when Honcho persona recall is disabled", async () => {
 		mockRecallPersonaMemory.mockResolvedValueOnce({
 			status: "disabled",

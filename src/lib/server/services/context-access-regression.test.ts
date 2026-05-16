@@ -371,7 +371,8 @@ describe("Context Access v1 integrated regression harness", () => {
 		expect(nodeSource).toContain('name = "memory_context"');
 		expect(nodeSource).toContain('method="memory_context"');
 		expect(nodeSource).toContain("/api/tools/memory-context");
-		expect(nodeSource).toContain('options=["project", "persona", "history"]');
+		expect(nodeSource).toContain('options=["persona", "history", "project"]');
+		expect(nodeSource).toContain('value="persona"');
 		const legacyToolName = ["project", "context"].join("_");
 		const legacyToolRoute = `/api/tools/${legacyToolName.replace("_", "-")}`;
 		expect(nodeSource).not.toContain(`name = "${legacyToolName}"`);

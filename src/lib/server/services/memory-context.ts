@@ -275,13 +275,12 @@ function requestedLimit(value: number | null | undefined): number | null {
 function tokenizeQuery(query: string): string[] {
 	return Array.from(
 		new Set(
-			(query.toLowerCase().match(/[a-z0-9%_\\]+/gi) ?? [])
-				.filter(
-					(term) =>
-						/[a-z0-9]/i.test(term) &&
-						term.length >= 2 &&
-						!HISTORY_QUERY_STOPWORDS.has(term),
-				),
+			(query.toLowerCase().match(/[a-z0-9%_\\]+/gi) ?? []).filter(
+				(term) =>
+					/[a-z0-9]/i.test(term) &&
+					term.length >= 2 &&
+					!HISTORY_QUERY_STOPWORDS.has(term),
+			),
 		),
 	);
 }
@@ -630,7 +629,7 @@ async function getHistoryMemoryContext(
 export async function getMemoryContext(
 	params: GetMemoryContextParams,
 ): Promise<MemoryContextResult> {
-	const mode = params.mode?.trim() || "project";
+	const mode = params.mode?.trim() || "persona";
 	if (mode === "project") {
 		return getProjectMemoryContext(params);
 	}

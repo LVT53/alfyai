@@ -49,10 +49,9 @@ export const POST: RequestHandler = async (event) => {
 
 	const serviceAssertion =
 		user === null
-			? verifyServiceAssertion(
-					event.request.headers.get("authorization"),
-					{ expectedAudience: "memory_context" },
-				)
+			? verifyServiceAssertion(event.request.headers.get("authorization"), {
+					expectedAudience: "memory_context",
+				})
 			: null;
 	if (user === null && !serviceAssertion?.valid) {
 		return json({ error: "Unauthorized" }, { status: 401 });
@@ -75,7 +74,7 @@ export const POST: RequestHandler = async (event) => {
 		const result = await getMemoryContext({
 			userId: conversation.userId,
 			conversationId,
-			mode: optionalString(data.mode) ?? "project",
+			mode: optionalString(data.mode) ?? "persona",
 			query: optionalString(data.query) ?? null,
 			userDisplayName: optionalString(user?.displayName),
 			maxSiblings: optionalPositiveInt(data.maxSiblings, "maxSiblings"),

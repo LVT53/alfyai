@@ -124,6 +124,40 @@ describe("POST /api/tools/memory-context", () => {
 		});
 	});
 
+	it("defaults omitted mode to persona memory", async () => {
+		mockGetMemoryContext.mockResolvedValueOnce({
+			success: true,
+			mode: "persona",
+			status: "available",
+			source: "honcho_peer_chat",
+			content: "The user prefers concise answers.",
+			evidenceCandidates: [],
+			audit: {
+				conversationId: "conv-1",
+				query: "What should I remember?",
+			},
+		});
+
+		const response = await POST(
+			makeEvent({
+				conversationId: "conv-1",
+				query: "What should I remember?",
+			}),
+		);
+		const body = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(body.mode).toBe("persona");
+		expect(mockGetMemoryContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				conversationId: "conv-1",
+				mode: "persona",
+				query: "What should I remember?",
+			}),
+		);
+	});
+
 	it("accepts a valid signed service assertion scoped to the same conversation", async () => {
 		const response = await POST(
 			makeEvent(

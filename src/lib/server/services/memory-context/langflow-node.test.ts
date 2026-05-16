@@ -19,7 +19,10 @@ describe("Langflow Memory Context tool node", () => {
 		expect(source).toContain('method="memory_context"');
 		expect(source).toContain("def memory_context(self) -> Data:");
 		expect(source).toContain("/api/tools/memory-context");
-		expect(source).toContain('options=["project", "persona", "history"]');
+		expect(source).toContain('options=["persona", "history", "project"]');
+		expect(source).toContain('value="persona"');
+		expect(source).toContain("Optional memory question or context hint");
+		expect(source).not.toContain("why project context is being requested");
 		expect(source).not.toContain(`name = "${legacyToolName}"`);
 		expect(source).not.toContain(`method="${legacyToolName}"`);
 		expect(source).not.toContain(legacyToolRoute);

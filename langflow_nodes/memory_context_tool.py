@@ -1,10 +1,10 @@
 """
 Memory Context Tool for Langflow Agents.
 
-This component exposes AlfyAI's `memory_context` tool. Project mode returns
-bounded Project Folder or lower-authority Project Continuity summaries, persona
-mode asks Honcho targeted questions about durable user context, and history mode
-searches older non-project conversations or expands one selected conversation.
+This component exposes AlfyAI's `memory_context` tool. Persona mode asks Honcho
+targeted questions about durable user context, history mode searches older
+non-project conversations or expands one selected conversation, and project mode
+returns bounded Project Folder or lower-authority Project Continuity summaries.
 """
 
 from __future__ import annotations
@@ -54,29 +54,29 @@ class MemoryContextToolComponent(Component):
         DropdownInput(
             name="mode",
             display_name="Mode",
-            info="Use project for project/folder continuity, persona for Honcho user memory, or history for older non-project chats.",
-            options=["project", "persona", "history"],
-            value="project",
+            info="Use persona for Honcho user memory, history for older non-project chats, or project for project/folder continuity.",
+            options=["persona", "history", "project"],
+            value="persona",
             tool_mode=True,
         ),
         StrInput(
             name="query",
             display_name="Query",
-            info="Optional hint for why project context is being requested.",
+            info="Optional memory question or context hint for the lookup.",
             value="",
             tool_mode=True,
         ),
         IntInput(
             name="maxSiblings",
-            display_name="Max Siblings",
-            info="Maximum sibling conversation summaries to return. Capped by AlfyAI.",
+            display_name="Project Result Limit",
+            info="Project mode only. Maximum sibling conversation summaries to return. Capped by AlfyAI.",
             value=10,
             tool_mode=True,
         ),
         StrInput(
             name="siblingConversationId",
-            display_name="Sibling Conversation",
-            info="Optional. Use a conversationId returned by project summary to request detail for one allowed sibling.",
+            display_name="Project Conversation Detail",
+            info="Project mode only. Use a conversationId returned by project summary to request detail for one allowed sibling.",
             value="",
             tool_mode=True,
         ),
@@ -178,7 +178,7 @@ class MemoryContextToolComponent(Component):
             logger.warning(f"Failed to emit {marker_type} marker: {exc}")
 
     def _build_payload(self, conversation_id: str) -> dict[str, Any] | str:
-        mode = str(getattr(self, "mode", "") or "project").strip() or "project"
+        mode = str(getattr(self, "mode", "") or "persona").strip() or "persona"
         if mode not in ("project", "persona", "history"):
             return "Unsupported memory_context mode."
 
@@ -319,7 +319,7 @@ class MemoryContextToolComponent(Component):
         self._emit_tool_marker("TOOL_START", {
             "name": "memory_context",
             "input": {
-                "mode": payload.get("mode", "project"),
+                "mode": payload.get("mode", "persona"),
                 "query": payload.get("query", ""),
                 "maxSiblings": max_siblings,
                 "siblingConversationId": payload.get("siblingConversationId", ""),
@@ -342,7 +342,7 @@ class MemoryContextToolComponent(Component):
             evidence_candidates = result.get("evidenceCandidates", [])
             if not isinstance(evidence_candidates, list):
                 evidence_candidates = []
-            mode = str(result.get("mode", payload.get("mode", "project")) or "project")
+            mode = str(result.get("mode", payload.get("mode", "persona")) or "persona")
             is_detail = bool(
                 payload.get("siblingConversationId")
                 or payload.get("historyConversationId")
@@ -369,11 +369,11 @@ class MemoryContextToolComponent(Component):
             elif result.get("hasProjectContext"):
                 project = result.get("project", {})
                 if isinstance(project, dict):
-                    output_summary = f"Project context found: {project.get('name', 'Project')}"
+                    output_summary = f"Project memory found: {project.get('name', 'Project')}"
                 else:
-                    output_summary = "Project context found."
+                    output_summary = "Project memory found."
             else:
-                output_summary = "No project memory context found for this conversation."
+                output_summary = "No project memory found for this conversation."
 
             audit = result.get("audit", {})
             metadata = {
@@ -430,8 +430,9 @@ class MemoryContextToolComponent(Component):
                 "evidenceCandidates": bounded_candidates,
                 "audit": result.get("audit", {}),
                 "instructions": (
-                    "Use this as memory context only. Project mode contains bounded project and deep-research summaries, not raw transcripts. "
-                    "Persona mode contains durable user context from Honcho. History mode contains older non-project chat summaries or one selected conversation detail. "
+                    "Use this as memory context only. Persona mode contains durable user context from Honcho. "
+                    "History mode contains older non-project chat summaries or one selected conversation detail. "
+                    "Project mode contains bounded project and deep-research summaries, not raw transcripts. "
                     "Do not claim details that are not present in the returned payload."
                 ),
             })
