@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
-import { verifyFileProductionServiceAssertion } from "$lib/server/auth/hooks";
+import { verifyServiceAssertion } from "$lib/server/auth/hooks";
 import { db } from "$lib/server/db";
 import { conversations } from "$lib/server/db/schema";
 import {
@@ -75,7 +75,7 @@ export const POST: RequestHandler = async (event) => {
 
 	const serviceAssertion =
 		user === null
-			? verifyFileProductionServiceAssertion(
+			? verifyServiceAssertion(
 					event.request.headers.get("authorization"),
 				)
 			: null;

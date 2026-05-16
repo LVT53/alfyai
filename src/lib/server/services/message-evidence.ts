@@ -32,6 +32,8 @@ const GROUP_ORDER: Record<EvidenceSourceType, number> = {
 	memory: 3,
 };
 
+const MAX_SELECTED_MEMORY_TOOL_CANDIDATES = 3;
+
 function memoryContextMetadata(
 	tool: ToolCallEntry,
 ): Record<string, string | number | boolean | null> | undefined {
@@ -43,6 +45,56 @@ function memoryContextMetadata(
 		return undefined;
 	}
 	return tool.metadata;
+}
+
+function collectStringValues(value: unknown): string[] {
+	if (typeof value === "string" && value.trim()) return [value.trim()];
+	if (!Array.isArray(value)) return [];
+	return value
+		.filter((entry): entry is string => typeof entry === "string")
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+}
+
+function toolSelectedMemoryIds(tool: ToolCallEntry): Set<string> {
+	const selectedValues = [
+		...collectStringValues(tool.input.selectedCandidateId),
+		...collectStringValues(tool.input.selectedCandidateIds),
+		...collectStringValues(tool.input.selectedConversationId),
+		...collectStringValues(tool.input.historyConversationId),
+		...collectStringValues(tool.input.siblingConversationId),
+		...collectStringValues(tool.metadata?.selectedCandidateId),
+	];
+	return new Set(selectedValues);
+}
+
+function candidateMatchesSelectedMemoryId(
+	candidate: ToolEvidenceCandidate,
+	selectedIds: Set<string>,
+): boolean {
+	if (selectedIds.size === 0) return false;
+	for (const selectedId of selectedIds) {
+		if (candidate.id === selectedId || candidate.id.endsWith(`:${selectedId}`)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function isSelectedMemoryCandidate(
+	candidate: ToolEvidenceCandidate,
+	tool: ToolCallEntry,
+): boolean {
+	const metadata = candidate.metadata;
+	return (
+		candidate.selected === true ||
+		candidate.material === true ||
+		candidate.status === "selected" ||
+		metadata?.selected === true ||
+		metadata?.material === true ||
+		metadata?.status === "selected" ||
+		candidateMatchesSelectedMemoryId(candidate, toolSelectedMemoryIds(tool))
+	);
 }
 
 function sanitizeUrl(value: unknown): string | null {
@@ -157,6 +209,7 @@ function buildMemoryGroup(params: {
 			tool.status === "done"
 				? (tool.candidates ?? [])
 						.filter((candidate) => candidate.sourceType === "memory")
+						.filter((candidate) => isSelectedMemoryCandidate(candidate, tool))
 						.map((candidate) => ({
 							id: candidate.id,
 							canonicalId: canonicalKeyForCandidate("memory", candidate),
@@ -172,7 +225,7 @@ function buildMemoryGroup(params: {
 						}))
 				: [],
 		),
-	);
+	).slice(0, MAX_SELECTED_MEMORY_TOOL_CANDIDATES);
 	items.push(...memoryToolCandidates);
 
 	if (items.length === 0) return null;

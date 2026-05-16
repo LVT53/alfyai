@@ -18,6 +18,7 @@ vi.mock('$lib/server/env', () => ({
 import {
 	getBearerToken,
 	verifyFileProductionServiceAssertion,
+	verifyServiceAssertion,
 } from './hooks';
 
 function signPayload(payload: Record<string, unknown>, signingKey: string): string {
@@ -72,6 +73,76 @@ describe('auth hooks', () => {
 		if (result.valid) {
 			expect(result.claims.conversationId).toBe('conv-1');
 			expect(result.claims.userId).toBe('user-1');
+		}
+	});
+
+	it('verifies a valid signed service assertion for the expected audience', () => {
+		const payload = {
+			conversationId: 'conv-1',
+			userId: 'user-1',
+			audience: 'memory_context',
+			exp: Date.now() + 60_000,
+		};
+		const token = signPayload(payload, 'test-signing-key');
+
+		const result = verifyServiceAssertion(`Bearer ${token}`, {
+			expectedAudience: 'memory_context',
+		});
+		expect(result.valid).toBe(true);
+		if (result.valid) {
+			expect(result.claims.conversationId).toBe('conv-1');
+			expect(result.claims.audience).toBe('memory_context');
+		}
+	});
+
+	it('rejects a signed service assertion with the wrong audience', () => {
+		const payload = {
+			conversationId: 'conv-1',
+			userId: 'user-1',
+			audience: 'file_production',
+			exp: Date.now() + 60_000,
+		};
+		const token = signPayload(payload, 'test-signing-key');
+
+		const result = verifyServiceAssertion(`Bearer ${token}`, {
+			expectedAudience: 'memory_context',
+		});
+		expect(result.valid).toBe(false);
+		if (!result.valid) {
+			expect(result.reason).toBe('invalid_audience');
+		}
+	});
+
+	it('rejects legacy assertions without an audience when an audience is required', () => {
+		const payload = {
+			conversationId: 'conv-1',
+			userId: 'user-1',
+			exp: Date.now() + 60_000,
+		};
+		const token = signPayload(payload, 'test-signing-key');
+
+		const result = verifyServiceAssertion(`Bearer ${token}`, {
+			expectedAudience: 'memory_context',
+		});
+		expect(result.valid).toBe(false);
+		if (!result.valid) {
+			expect(result.reason).toBe('missing_audience');
+		}
+	});
+
+	it('keeps the file-production compatibility verifier accepting legacy assertions', () => {
+		const payload = {
+			conversationId: 'conv-1',
+			userId: 'user-1',
+			exp: Date.now() + 60_000,
+		};
+		const token = signPayload(payload, 'test-signing-key');
+
+		const result = verifyFileProductionServiceAssertion(`Bearer ${token}`);
+		expect(result.valid).toBe(true);
+		if (result.valid) {
+			expect(result.claims.conversationId).toBe('conv-1');
+			expect(result.claims.audience).toBeUndefined();
 		}
 	});
 

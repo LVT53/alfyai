@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { searchImages } from '$lib/server/services/image-search';
-import { verifyFileProductionServiceAssertion } from '$lib/server/auth/hooks';
+import { verifyServiceAssertion } from '$lib/server/auth/hooks';
 import { db } from '$lib/server/db';
 import { conversations } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
@@ -31,7 +31,7 @@ export const POST: RequestHandler = async (event) => {
 
   const serviceAssertion =
     user === null
-      ? verifyFileProductionServiceAssertion(event.request.headers.get('authorization'))
+      ? verifyServiceAssertion(event.request.headers.get('authorization'))
       : null;
   if (user === null && (!serviceAssertion || !serviceAssertion.valid)) {
     return json({ error: 'Unauthorized' }, { status: 401 });

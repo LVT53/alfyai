@@ -1924,6 +1924,36 @@ describe('honcho learning - getPeerContext', () => {
 		expect(mockPeerChat).not.toHaveBeenCalled();
 	});
 
+	it('recalls persona memory from the assistant representation of the user and sanitizes peer ids', async () => {
+		const { getHonchoAssistantPeerId, getHonchoUserPeerId, recallPersonaMemory } = await import('./honcho');
+		const userPeerId = getHonchoUserPeerId('user-1');
+		const assistantPeerId = getHonchoAssistantPeerId('user-1');
+		mockPeerChat.mockResolvedValueOnce(
+			`${assistantPeerId} remembers that ${userPeerId} prefers concise implementation plans.`
+		);
+
+		const result = await recallPersonaMemory({
+			userId: 'user-1',
+			query: 'What does the assistant remember about this user?',
+			userDisplayName: 'Test User',
+		});
+
+		expect(mockHonchoPeer).toHaveBeenCalledWith(userPeerId);
+		expect(mockHonchoPeer).toHaveBeenCalledWith(assistantPeerId);
+		expect(mockPeerChat).toHaveBeenCalledWith(
+			'What does the assistant remember about this user?',
+			{
+				target: expect.objectContaining({ id: userPeerId }),
+				reasoningLevel: 'medium',
+			}
+		);
+		expect(result).toEqual({
+			status: 'ok',
+			source: 'honcho_peer_chat',
+			content: 'Test User remembers that Test User prefers concise implementation plans.',
+		});
+	});
+
 	it('normalizes conclusion timestamps correctly', async () => {
 		const fixedTime = '2026-04-15T10:30:00.000Z';
 		mockScopeList.mockResolvedValueOnce({

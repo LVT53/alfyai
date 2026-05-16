@@ -73,7 +73,7 @@ describe("buildAssistantEvidenceSummary", () => {
 		expect(omitted).toBeNull();
 	});
 
-	it("includes memory_context project, persona, and history candidates from completed tool calls", async () => {
+	it("omits unselected memory_context candidates from completed tool calls", async () => {
 		const summary = await buildAssistantEvidenceSummary({
 			userId: "user-1",
 			message: "use the pricing context from the project tool",
@@ -81,7 +81,7 @@ describe("buildAssistantEvidenceSummary", () => {
 			toolCalls: [
 				{
 					name: "memory_context",
-					input: { mode: "project", siblingConversationId: "conv-pricing" },
+					input: { mode: "project", query: "pricing" },
 					status: "done",
 					sourceType: "memory",
 					candidates: [
@@ -124,42 +124,11 @@ describe("buildAssistantEvidenceSummary", () => {
 			],
 		});
 
-		expect(summary?.groups).toEqual([
-			expect.objectContaining({
-				sourceType: "memory",
-				items: [
-					expect.objectContaining({
-						id: "memory-context:project:conv-pricing",
-						title: "Pricing project",
-						sourceType: "memory",
-						status: "reference",
-						description:
-							"Stable pricing brief. user: Recent user message assistant: Recent assistant message",
-						channels: ["memory"],
-					}),
-					expect.objectContaining({
-						id: "memory-context:persona:user-1",
-						title: "Honcho persona recall",
-						sourceType: "memory",
-						status: "reference",
-						description: "The user prefers concise answers.",
-						channels: ["memory"],
-					}),
-					expect.objectContaining({
-						id: "memory-context:history:conv-cycling",
-						title: "Cycling history",
-						sourceType: "memory",
-						status: "reference",
-						description: "Older non-project cycling discussion.",
-						channels: ["memory"],
-					}),
-				],
-			}),
-		]);
+		expect(summary).toBeNull();
 		expect(JSON.stringify(summary)).not.toContain("Running history lookup");
 	});
 
-	it("carries memory_context applied limits and omitted counts on memory evidence items", async () => {
+	it("includes selected memory_context candidates and carries applied limits", async () => {
 		const summary = await buildAssistantEvidenceSummary({
 			userId: "user-1",
 			message: "use memory_context history",
@@ -181,6 +150,14 @@ describe("buildAssistantEvidenceSummary", () => {
 							title: "Bike planning",
 							snippet: "Discussed commute setup and tire width.",
 							sourceType: "memory",
+							metadata: { selected: true },
+						},
+						{
+							id: "memory-context:history:conv-fit",
+							title: "Bike fit",
+							snippet: "Discussed saddle height constraints.",
+							sourceType: "memory",
+							material: true,
 						},
 					],
 				},
@@ -201,6 +178,12 @@ describe("buildAssistantEvidenceSummary", () => {
 							appliedMaxHistoryConversations: 3,
 							omittedConversationCount: 2,
 						},
+					}),
+					expect.objectContaining({
+						id: "memory-context:history:conv-fit",
+						title: "Bike fit",
+						sourceType: "memory",
+						status: "reference",
 					}),
 				],
 			}),

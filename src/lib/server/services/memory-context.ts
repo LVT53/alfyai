@@ -22,7 +22,7 @@ import {
 import {
 	getProjectContext,
 	type ProjectContextResult,
-} from "$lib/server/services/project-context";
+} from "$lib/server/services/memory-context/project";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
@@ -119,6 +119,64 @@ const HISTORY_SNIPPET_MAX_CHARS = 700;
 const HISTORY_MESSAGE_MAX_CHARS = 1_200;
 const MIN_MAX_HISTORY_MESSAGES = 10;
 const OPERATIONAL_MAX_HISTORY_MESSAGES = 96;
+const HISTORY_QUERY_STOPWORDS = new Set([
+	"a",
+	"about",
+	"all",
+	"am",
+	"an",
+	"and",
+	"are",
+	"as",
+	"at",
+	"be",
+	"been",
+	"but",
+	"by",
+	"can",
+	"could",
+	"did",
+	"do",
+	"does",
+	"for",
+	"from",
+	"had",
+	"has",
+	"have",
+	"how",
+	"i",
+	"in",
+	"is",
+	"it",
+	"know",
+	"me",
+	"my",
+	"of",
+	"on",
+	"or",
+	"our",
+	"please",
+	"remember",
+	"tell",
+	"that",
+	"the",
+	"their",
+	"them",
+	"there",
+	"this",
+	"to",
+	"was",
+	"we",
+	"what",
+	"when",
+	"where",
+	"which",
+	"who",
+	"with",
+	"would",
+	"you",
+	"your",
+]);
 
 function buildPersonaEvidenceCandidate(params: {
 	userId: string;
@@ -217,13 +275,19 @@ function requestedLimit(value: number | null | undefined): number | null {
 function tokenizeQuery(query: string): string[] {
 	return Array.from(
 		new Set(
-			query
-				.toLowerCase()
-				.split(/[^a-z0-9]+/i)
-				.map((term) => term.trim())
-				.filter((term) => term.length >= 2),
+			(query.toLowerCase().match(/[a-z0-9%_\\]+/gi) ?? [])
+				.filter(
+					(term) =>
+						/[a-z0-9]/i.test(term) &&
+						term.length >= 2 &&
+						!HISTORY_QUERY_STOPWORDS.has(term),
+				),
 		),
 	);
+}
+
+function escapeHistoryLikeTerm(term: string): string {
+	return term.replace(/[\\%_]/g, (character) => `\\${character}`);
 }
 
 function scoreHistoryText(terms: string[], text: string): number {
@@ -241,7 +305,7 @@ function buildHistoryTermFilter(
 ): SQL | undefined {
 	if (terms.length === 0) return undefined;
 	const filters = terms.flatMap((term) => {
-		const pattern = `%${term}%`;
+		const pattern = `%${escapeHistoryLikeTerm(term)}%`;
 		return columns.map(
 			(column) => sql`lower(${column}) like ${pattern} escape '\\'`,
 		);
@@ -277,6 +341,7 @@ async function listHistoryCandidates(params: {
 }): Promise<HistoryCandidate[]> {
 	const db = await getDb();
 	const terms = tokenizeQuery(params.query);
+	if (terms.length === 0) return [];
 	const summaryFilter = buildHistoryTermFilter(terms, [
 		sql`${conversations.title}`,
 		sql`${conversationSummaries.summary}`,

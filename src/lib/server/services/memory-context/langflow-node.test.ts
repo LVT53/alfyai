@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 
 const nodeSource = () =>
 	readFileSync(
-		resolve(process.cwd(), "langflow_nodes/project_context_tool.py"),
+		resolve(process.cwd(), "langflow_nodes/memory_context_tool.py"),
 		"utf8",
 	);
+const legacyToolName = ["project", "context"].join("_");
+const legacyToolRoute = `/api/tools/${legacyToolName.replace("_", "-")}`;
 
 describe("Langflow Memory Context tool node", () => {
 	it("exposes memory_context project, persona, and history fields as the model-facing tool contract", () => {
@@ -18,9 +20,9 @@ describe("Langflow Memory Context tool node", () => {
 		expect(source).toContain("def memory_context(self) -> Data:");
 		expect(source).toContain("/api/tools/memory-context");
 		expect(source).toContain('options=["project", "persona", "history"]');
-		expect(source).not.toContain('name = "project_context"');
-		expect(source).not.toContain('method="project_context"');
-		expect(source).not.toContain("/api/tools/project-context");
+		expect(source).not.toContain(`name = "${legacyToolName}"`);
+		expect(source).not.toContain(`method="${legacyToolName}"`);
+		expect(source).not.toContain(legacyToolRoute);
 
 		for (const field of [
 			"mode",
@@ -52,13 +54,19 @@ describe("Langflow Memory Context tool node", () => {
 		expect(source).toContain('getattr(self.graph, "session_id", None)');
 	});
 
+	it("scopes memory_context service assertions to the memory_context audience", () => {
+		const source = nodeSource();
+
+		expect(source).toContain('"audience": "memory_context"');
+	});
+
 	it("emits memory tool markers with bounded evidence candidates", () => {
 		const source = nodeSource();
 
 		expect(source).toContain('"TOOL_START"');
 		expect(source).toContain('"TOOL_END"');
 		expect(source).toContain('"name": "memory_context"');
-		expect(source).not.toContain('"name": "project_context"');
+		expect(source).not.toContain(`"name": "${legacyToolName}"`);
 		expect(source).toContain('"sourceType": "memory"');
 		expect(source).toContain('"candidates": evidence_candidates');
 		expect(source).toContain('"metadata": metadata');

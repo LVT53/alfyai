@@ -174,7 +174,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
-import { getProjectContext } from "./project-context";
+import { getProjectContext } from "./project";
 
 const mockGetProjectReferenceContext =
 	getProjectReferenceContext as ReturnType<typeof vi.fn>;
@@ -350,7 +350,7 @@ describe("getProjectContext", () => {
 			audit: {
 				conversationId: "conv-empty",
 				scope: "conversation",
-				noProjectReason: "no_project_context",
+				noProjectReason: "no_memory_context",
 			},
 		});
 	});
@@ -426,7 +426,7 @@ describe("getProjectContext", () => {
 				conversationId: "conv-1",
 				mode: "full",
 			}),
-		).rejects.toThrow(/Unsupported project_context mode/);
+		).rejects.toThrow(/Unsupported memory_context mode/);
 		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
 	});
 
@@ -560,7 +560,7 @@ describe("getProjectContext", () => {
 		expect(result.evidenceCandidates).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
-					id: "project-context-detail:conv-2",
+					id: "memory-context:project-detail:conv-2",
 					title: "Pricing",
 					sourceType: "memory",
 				}),
@@ -578,8 +578,8 @@ describe("getProjectContext", () => {
 
 	it.each([
 		["current conversation", "conv-1", /Current conversation is not a valid/],
-		["other folder", "conv-other-folder", /outside project_context scope/],
-		["other user", "conv-other-user", /outside project_context scope/],
+		["other folder", "conv-other-folder", /outside memory_context scope/],
+		["other user", "conv-other-user", /outside memory_context scope/],
 	])("rejects out-of-scope detail for %s", async (_label, siblingConversationId, errorPattern) => {
 		mockGetProjectReferenceContext.mockResolvedValue({
 			source: "project_folder",
@@ -629,7 +629,7 @@ describe("getProjectContext", () => {
 				mode: "detail",
 				siblingConversationId: "conv-other-inferred-project",
 			}),
-		).rejects.toThrow(/outside project_context scope/);
+		).rejects.toThrow(/outside memory_context scope/);
 	});
 
 	it("clamps detail messages to the hard cap", async () => {
@@ -771,7 +771,7 @@ describe("getProjectContext", () => {
 			audit: {
 				conversationId: "conv-empty",
 				siblingConversationId: "conv-2",
-				noProjectReason: "no_project_context",
+				noProjectReason: "no_memory_context",
 			},
 		});
 	});

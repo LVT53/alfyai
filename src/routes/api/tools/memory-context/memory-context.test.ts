@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/auth/hooks", () => ({
-	verifyFileProductionServiceAssertion: vi.fn(),
+	verifyServiceAssertion: vi.fn(),
 }));
 
 vi.mock("$lib/server/db", () => ({
@@ -18,13 +18,14 @@ vi.mock("$lib/server/services/memory-context", () => ({
 	getMemoryContext: vi.fn(),
 }));
 
-import { verifyFileProductionServiceAssertion } from "$lib/server/auth/hooks";
+import { verifyServiceAssertion } from "$lib/server/auth/hooks";
 import { db } from "$lib/server/db";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { POST } from "./+server";
 
-const mockVerifyFileProductionServiceAssertion =
-	verifyFileProductionServiceAssertion as ReturnType<typeof vi.fn>;
+const mockVerifyServiceAssertion = verifyServiceAssertion as ReturnType<
+	typeof vi.fn
+>;
 const mockFindConversation = db.query.conversations.findFirst as ReturnType<
 	typeof vi.fn
 >;
@@ -60,11 +61,12 @@ describe("POST /api/tools/memory-context", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockFindConversation.mockResolvedValue({ id: "conv-1", userId: "user-1" });
-		mockVerifyFileProductionServiceAssertion.mockReturnValue({
+		mockVerifyServiceAssertion.mockReturnValue({
 			valid: true,
 			claims: {
 				conversationId: "conv-1",
 				userId: "user-1",
+				audience: "memory_context",
 				exp: Date.now() + 60_000,
 			},
 		});
@@ -132,9 +134,9 @@ describe("POST /api/tools/memory-context", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(mockVerifyFileProductionServiceAssertion).toHaveBeenCalledWith(
-			"Bearer signed",
-		);
+		expect(mockVerifyServiceAssertion).toHaveBeenCalledWith("Bearer signed", {
+			expectedAudience: "memory_context",
+		});
 		expect(mockGetMemoryContext).toHaveBeenCalledWith(
 			expect.objectContaining({
 				userId: "user-1",
@@ -235,9 +237,9 @@ describe("POST /api/tools/memory-context", () => {
 
 		expect(response.status).toBe(200);
 		expect(body.mode).toBe("history");
-		expect(mockVerifyFileProductionServiceAssertion).toHaveBeenCalledWith(
-			"Bearer signed",
-		);
+		expect(mockVerifyServiceAssertion).toHaveBeenCalledWith("Bearer signed", {
+			expectedAudience: "memory_context",
+		});
 		expect(mockGetMemoryContext).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -255,7 +257,7 @@ describe("POST /api/tools/memory-context", () => {
 	});
 
 	it("rejects service assertions for a different conversation", async () => {
-		mockVerifyFileProductionServiceAssertion.mockReturnValueOnce({
+		mockVerifyServiceAssertion.mockReturnValueOnce({
 			valid: true,
 			claims: {
 				conversationId: "conv-other",
@@ -276,6 +278,27 @@ describe("POST /api/tools/memory-context", () => {
 		expect(mockGetMemoryContext).not.toHaveBeenCalled();
 	});
 
+	it("rejects signed service assertions without the memory_context audience", async () => {
+		mockVerifyServiceAssertion.mockReturnValueOnce({
+			valid: false,
+			reason: "missing_audience",
+		});
+
+		const response = await POST(
+			makeEvent(
+				{ conversationId: "conv-1", mode: "project" },
+				null,
+				"Bearer legacy",
+			),
+		);
+
+		expect(response.status).toBe(401);
+		expect(mockVerifyServiceAssertion).toHaveBeenCalledWith("Bearer legacy", {
+			expectedAudience: "memory_context",
+		});
+		expect(mockGetMemoryContext).not.toHaveBeenCalled();
+	});
+
 	it("returns a clear client error for unsupported memory modes", async () => {
 		mockGetMemoryContext.mockRejectedValueOnce(
 			new Error("Unsupported memory_context mode: persona"),
@@ -290,9 +313,9 @@ describe("POST /api/tools/memory-context", () => {
 		expect(body.error).toBe("Unsupported memory_context mode: persona");
 	});
 
-	it("does not leak delegated project_context wording in model-facing errors", async () => {
+	it("returns project mode validation with memory_context wording", async () => {
 		mockGetMemoryContext.mockRejectedValueOnce(
-			new Error("siblingConversationId is outside project_context scope"),
+			new Error("siblingConversationId is outside memory_context scope"),
 		);
 
 		const response = await POST(

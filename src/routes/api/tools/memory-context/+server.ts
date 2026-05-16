@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
-import { verifyFileProductionServiceAssertion } from "$lib/server/auth/hooks";
+import { verifyServiceAssertion } from "$lib/server/auth/hooks";
 import { db } from "$lib/server/db";
 import { conversations } from "$lib/server/db/schema";
 import { getMemoryContext } from "$lib/server/services/memory-context";
@@ -49,8 +49,9 @@ export const POST: RequestHandler = async (event) => {
 
 	const serviceAssertion =
 		user === null
-			? verifyFileProductionServiceAssertion(
+			? verifyServiceAssertion(
 					event.request.headers.get("authorization"),
+					{ expectedAudience: "memory_context" },
 				)
 			: null;
 	if (user === null && !serviceAssertion?.valid) {
@@ -94,12 +95,11 @@ export const POST: RequestHandler = async (event) => {
 		});
 		return json(result);
 	} catch (error) {
-		const rawMessage =
+		const message =
 			error instanceof Error ? error.message : "Memory context lookup failed";
-		const message = rawMessage.replaceAll("project_context", "memory_context");
 		const status =
-			/invalid|required|supported|outside (project_context|memory_context)( history)? scope|not a valid project_context sibling/.test(
-				rawMessage,
+			/invalid|required|supported|outside memory_context( history)? scope|not a valid memory_context sibling/.test(
+				message,
 			)
 				? 400
 				: 500;

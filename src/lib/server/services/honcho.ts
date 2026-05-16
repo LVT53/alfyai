@@ -2131,8 +2131,12 @@ export async function recallPersonaMemory(params: {
 
 	try {
 		const response = await resolveWithTimeout(
-			getUserPeer(params.userId).then((peer) =>
-				peer.chat(query, { reasoningLevel: 'medium' }),
+			Promise.all([getUserPeer(params.userId), getAssistantPeer(params.userId)]).then(
+				async ([userPeer, assistantPeer]) =>
+					assistantPeer.chat(query, {
+						target: userPeer,
+						reasoningLevel: 'medium',
+					})
 			),
 			{
 				timeoutMs: Math.max(
@@ -2157,13 +2161,16 @@ export async function recallPersonaMemory(params: {
 		}
 		const content =
 			typeof response.value === 'string' ? response.value.trim() : '';
-		if (!content) {
+		const sanitizedContent = content
+			? sanitizePersonaMemoryText(content, params.userId, params.userDisplayName)
+			: '';
+		if (!sanitizedContent) {
 			return { status: 'empty', source: 'honcho_peer_chat', content: null };
 		}
 		return {
 			status: 'ok',
 			source: 'honcho_peer_chat',
-			content,
+			content: sanitizedContent,
 		};
 	} catch (error) {
 		console.error('[HONCHO] Persona recall failed:', error);

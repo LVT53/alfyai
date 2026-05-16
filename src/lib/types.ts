@@ -773,12 +773,18 @@ export type MessageRole = "user" | "assistant";
 
 export type EvidenceSourceType = "web" | "document" | "memory" | "tool";
 
+export type MessageEvidenceStatus = "selected" | "rejected" | "reference";
+
 export interface ToolEvidenceCandidate {
 	id: string;
 	title: string;
 	url?: string | null;
 	snippet?: string | null;
 	sourceType: EvidenceSourceType;
+	selected?: boolean;
+	material?: boolean;
+	status?: MessageEvidenceStatus;
+	metadata?: Record<string, string | number | boolean | null>;
 }
 
 export interface ToolCallEntry {
@@ -803,8 +809,6 @@ export type ThinkingSegment =
 			candidates?: ToolEvidenceCandidate[];
 			metadata?: Record<string, string | number | boolean | null>;
 	  };
-
-export type MessageEvidenceStatus = "selected" | "rejected" | "reference";
 
 export type EvidenceChannel =
 	| "attached"

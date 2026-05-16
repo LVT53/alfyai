@@ -154,6 +154,7 @@ class MemoryContextToolComponent(Component):
         payload = {
             "conversationId": conversation_id,
             "userId": str(getattr(self, "user_id", "") or "").strip() or "service",
+            "audience": "memory_context",
             "exp": int(time.time() * 1000) + 5 * 60 * 1000,
         }
         payload_json = json.dumps(payload, separators=(",", ":")).encode("utf-8")

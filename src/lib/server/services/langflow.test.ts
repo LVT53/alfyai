@@ -172,7 +172,7 @@ describe("buildOutboundSystemPrompt", () => {
 		expect(prompt).toContain("Honcho");
 		expect(prompt).toContain("older non-project conversations");
 		expect(prompt).toContain("memory/context");
-		expect(prompt).not.toContain("project_context");
+		expect(prompt).not.toContain(["project", "context"].join("_"));
 		expect(prompt).toContain("Exact web facts and prices");
 		expect(prompt).toContain("do not rely on search-result snippets alone");
 		expect(prompt).toContain(

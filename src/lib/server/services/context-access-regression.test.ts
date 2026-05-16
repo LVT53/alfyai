@@ -357,7 +357,7 @@ describe("Context Access v1 integrated regression harness", () => {
 			modelDisplayName: "Context Harness Model",
 		});
 		const nodeSource = readFileSync(
-			resolve(process.cwd(), "langflow_nodes", "project_context_tool.py"),
+			resolve(process.cwd(), "langflow_nodes", "memory_context_tool.py"),
 			"utf8",
 		);
 
@@ -366,14 +366,16 @@ describe("Context Access v1 integrated regression harness", () => {
 		expect(prompt).toContain("mode `project`");
 		expect(prompt).toContain("mode `persona`");
 		expect(prompt).toContain("mode `history`");
-		expect(prompt).not.toContain("project_context");
+		expect(prompt).not.toContain(["project", "context"].join("_"));
 
 		expect(nodeSource).toContain('name = "memory_context"');
 		expect(nodeSource).toContain('method="memory_context"');
 		expect(nodeSource).toContain("/api/tools/memory-context");
 		expect(nodeSource).toContain('options=["project", "persona", "history"]');
-		expect(nodeSource).not.toContain('name = "project_context"');
-		expect(nodeSource).not.toContain('method="project_context"');
-		expect(nodeSource).not.toContain("/api/tools/project-context");
+		const legacyToolName = ["project", "context"].join("_");
+		const legacyToolRoute = `/api/tools/${legacyToolName.replace("_", "-")}`;
+		expect(nodeSource).not.toContain(`name = "${legacyToolName}"`);
+		expect(nodeSource).not.toContain(`method="${legacyToolName}"`);
+		expect(nodeSource).not.toContain(legacyToolRoute);
 	});
 });

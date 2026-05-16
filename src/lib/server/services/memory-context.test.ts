@@ -10,7 +10,7 @@ const mockGetProjectContext = vi.fn();
 const mockRecallPersonaMemory = vi.fn();
 let dbPath: string;
 
-vi.mock("./project-context", () => ({
+vi.mock("$lib/server/services/memory-context/project", () => ({
 	getProjectContext: mockGetProjectContext,
 }));
 
@@ -408,6 +408,267 @@ describe("memory context service", () => {
 		]);
 		expect(result.omittedConversationCount).toBe(1);
 		expect(JSON.stringify(result)).not.toContain("recent-nonmatch");
+	});
+
+	it("ranks topic history ahead of generic stopword-heavy chats", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		const now = new Date("2026-05-16T09:00:00.000Z");
+		db.insert(schema.users)
+			.values({
+				id: "user-1",
+				email: "stopwords-history@example.com",
+				passwordHash: "hash",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		db.insert(schema.conversations)
+			.values([
+				{
+					id: "conv-current",
+					userId: "user-1",
+					title: "Current chat",
+					createdAt: now,
+					updatedAt: now,
+				},
+				...Array.from({ length: 4 }, (_, index) => ({
+					id: `generic-${index + 1}`,
+					userId: "user-1",
+					title: `What do you know about my generic chat ${index + 1}`,
+					projectId: null,
+					createdAt: new Date(2026, 4, 16, 8, index),
+					updatedAt: new Date(2026, 4, 16, 9, index),
+				})),
+				...Array.from({ length: 3 }, (_, index) => ({
+					id: `bike-topic-${index + 1}`,
+					userId: "user-1",
+					title: `Cycling setup ${index + 1}`,
+					projectId: null,
+					createdAt: new Date(2026, 4, 12 + index, 8),
+					updatedAt: new Date(2026, 4, 12 + index, 9),
+				})),
+			])
+			.run();
+		db.insert(schema.conversationSummaries)
+			.values([
+				...Array.from({ length: 4 }, (_, index) => ({
+					conversationId: `generic-${index + 1}`,
+					userId: "user-1",
+					summary: `What do you know about my status update ${index + 1}: reviewed calendar admin and account preferences.`,
+					source: "deterministic",
+					createdAt: new Date(2026, 4, 16, 9, index),
+					updatedAt: new Date(2026, 4, 16, 9, index),
+				})),
+				...Array.from({ length: 3 }, (_, index) => ({
+					conversationId: `bike-topic-${index + 1}`,
+					userId: "user-1",
+					summary: `Discussed bike setup ${index + 1}: saddle height, tire pressure, and panniers.`,
+					source: "deterministic",
+					createdAt: new Date(2026, 4, 12 + index, 9),
+					updatedAt: new Date(2026, 4, 12 + index, 9),
+				})),
+			])
+			.run();
+		sqlite.close();
+
+		const { getMemoryContext } = await import("./memory-context");
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "history",
+			query: "what do you know about my bike",
+			maxHistoryConversations: 4,
+		});
+
+		expect(result.conversations.map((item) => item.conversationId)).toEqual([
+			"bike-topic-3",
+			"bike-topic-2",
+			"bike-topic-1",
+		]);
+		expect(JSON.stringify(result)).not.toContain("generic-");
+	});
+
+	it("treats SQL LIKE wildcard characters in history queries as literal text", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		const now = new Date("2026-05-16T09:00:00.000Z");
+		db.insert(schema.users)
+			.values({
+				id: "user-1",
+				email: "wildcard-history@example.com",
+				passwordHash: "hash",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		db.insert(schema.conversations)
+			.values([
+				{
+					id: "conv-current",
+					userId: "user-1",
+					title: "Current chat",
+					createdAt: now,
+					updatedAt: now,
+				},
+				{
+					id: "literal-token",
+					userId: "user-1",
+					title: "Literal bike_% token",
+					projectId: null,
+					createdAt: new Date("2026-05-14T08:00:00.000Z"),
+					updatedAt: new Date("2026-05-14T09:00:00.000Z"),
+				},
+				{
+					id: "wildcard-shaped",
+					userId: "user-1",
+					title: "Bike wildcard shaped text",
+					projectId: null,
+					createdAt: new Date("2026-05-15T08:00:00.000Z"),
+					updatedAt: new Date("2026-05-15T09:00:00.000Z"),
+				},
+				{
+					id: "literal-backslash",
+					userId: "user-1",
+					title: "Literal bike backslash token",
+					projectId: null,
+					createdAt: new Date("2026-05-13T08:00:00.000Z"),
+					updatedAt: new Date("2026-05-13T09:00:00.000Z"),
+				},
+				{
+					id: "backslash-shaped",
+					userId: "user-1",
+					title: "Bike no backslash token",
+					projectId: null,
+					createdAt: new Date("2026-05-12T08:00:00.000Z"),
+					updatedAt: new Date("2026-05-12T09:00:00.000Z"),
+				},
+			])
+			.run();
+		db.insert(schema.conversationSummaries)
+			.values([
+				{
+					conversationId: "literal-token",
+					userId: "user-1",
+					summary: "The exact saved label was bike_% for the frame bag.",
+					source: "deterministic",
+					createdAt: new Date("2026-05-14T09:00:00.000Z"),
+					updatedAt: new Date("2026-05-14T09:00:00.000Z"),
+				},
+				{
+					conversationId: "wildcard-shaped",
+					userId: "user-1",
+					summary: "Discussed bike setup and bikeABC frame bag notes.",
+					source: "deterministic",
+					createdAt: new Date("2026-05-15T09:00:00.000Z"),
+					updatedAt: new Date("2026-05-15T09:00:00.000Z"),
+				},
+				{
+					conversationId: "literal-backslash",
+					userId: "user-1",
+					summary: "The exact saved path was bike\\bag for commute notes.",
+					source: "deterministic",
+					createdAt: new Date("2026-05-13T09:00:00.000Z"),
+					updatedAt: new Date("2026-05-13T09:00:00.000Z"),
+				},
+				{
+					conversationId: "backslash-shaped",
+					userId: "user-1",
+					summary: "Discussed bikeXbag and bike bag labels without a slash.",
+					source: "deterministic",
+					createdAt: new Date("2026-05-12T09:00:00.000Z"),
+					updatedAt: new Date("2026-05-12T09:00:00.000Z"),
+				},
+			])
+			.run();
+		sqlite.close();
+
+		const { getMemoryContext } = await import("./memory-context");
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "history",
+			query: "bike_%",
+			maxHistoryConversations: 10,
+		});
+
+		expect(result.conversations.map((item) => item.conversationId)).toEqual([
+			"literal-token",
+		]);
+		expect(JSON.stringify(result)).not.toContain("wildcard-shaped");
+
+		const backslashResult = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "history",
+			query: "bike\\bag",
+			maxHistoryConversations: 10,
+		});
+
+		expect(
+			backslashResult.conversations.map((item) => item.conversationId),
+		).toEqual(["literal-backslash"]);
+		expect(JSON.stringify(backslashResult)).not.toContain("backslash-shaped");
+	});
+
+	it("returns empty history instead of broad recall when a query has no salient terms", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		const now = new Date("2026-05-16T09:00:00.000Z");
+		db.insert(schema.users)
+			.values({
+				id: "user-1",
+				email: "low-signal-history@example.com",
+				passwordHash: "hash",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		db.insert(schema.conversations)
+			.values([
+				{
+					id: "conv-current",
+					userId: "user-1",
+					title: "Current chat",
+					createdAt: now,
+					updatedAt: now,
+				},
+				{
+					id: "unrelated-memory",
+					userId: "user-1",
+					title: "Unrelated account history",
+					projectId: null,
+					createdAt: new Date("2026-05-15T08:00:00.000Z"),
+					updatedAt: new Date("2026-05-15T09:00:00.000Z"),
+				},
+			])
+			.run();
+		db.insert(schema.conversationSummaries)
+			.values({
+				conversationId: "unrelated-memory",
+				userId: "user-1",
+				summary: "Discussed invoices, groceries, and a calendar reminder.",
+				source: "deterministic",
+				createdAt: new Date("2026-05-15T09:00:00.000Z"),
+				updatedAt: new Date("2026-05-15T09:00:00.000Z"),
+			})
+			.run();
+		sqlite.close();
+
+		const { getMemoryContext } = await import("./memory-context");
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "history",
+			query: "what do you know about my % _ \\",
+			maxHistoryConversations: 10,
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			mode: "history",
+			status: "empty",
+			conversations: [],
+			omittedConversationCount: 0,
+			evidenceCandidates: [],
+		});
 	});
 
 	it("expands one selected history conversation with bounded messages and omitted counts", async () => {

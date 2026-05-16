@@ -100,7 +100,7 @@ export type ProjectContextResult = {
 		requestedMaxMessages?: number | null;
 		appliedMaxMessages?: number;
 		includeEvidenceCandidates: boolean;
-		noProjectReason?: "no_project_context";
+		noProjectReason?: "no_memory_context";
 	};
 };
 
@@ -321,7 +321,7 @@ function buildDetailEvidenceCandidate(
 		),
 	].filter((value): value is string => Boolean(value?.trim()));
 	return {
-		id: `project-context-detail:${sibling.conversationId}`,
+		id: `memory-context:project-detail:${sibling.conversationId}`,
 		title: sibling.title,
 		snippet: clipNullableText(snippetParts.join(" "), 700),
 		sourceType: "memory",
@@ -383,7 +383,7 @@ async function buildDetailResult(params: {
 		throw new Error("siblingConversationId is required for detail mode");
 	}
 	if (siblingConversationId === params.conversationId) {
-		throw new Error("Current conversation is not a valid project_context sibling");
+		throw new Error("Current conversation is not a valid memory_context sibling");
 	}
 
 	const sibling =
@@ -391,7 +391,7 @@ async function buildDetailResult(params: {
 			(entry) => entry.conversationId === siblingConversationId,
 		) ?? null;
 	if (!sibling) {
-		throw new Error("siblingConversationId is outside project_context scope");
+		throw new Error("siblingConversationId is outside memory_context scope");
 	}
 
 	const detailMessages = await listRecentDialogueMessages({
@@ -454,7 +454,7 @@ export async function getProjectContext(
 ): Promise<ProjectContextResult> {
 	const mode = params.mode?.trim() || "summary";
 	if (mode !== "summary" && mode !== "detail") {
-		throw new Error("Unsupported project_context mode");
+		throw new Error("Unsupported memory_context mode");
 	}
 
 	const requestedMaxSiblings =
@@ -496,7 +496,7 @@ export async function getProjectContext(
 				requestedMaxMessages,
 				appliedMaxMessages: maxMessages,
 				includeEvidenceCandidates,
-				noProjectReason: "no_project_context",
+				noProjectReason: "no_memory_context",
 			},
 		};
 	}

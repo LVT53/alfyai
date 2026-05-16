@@ -19,10 +19,15 @@ export function getBearerToken(authorizationHeader: string | null): string | nul
 	return token;
 }
 
-type FileProductionServiceClaims = {
+type ServiceAssertionClaims = {
 	conversationId: string;
 	userId?: string;
+	audience?: string;
 	exp: number;
+};
+
+type VerifyServiceAssertionOptions = {
+	expectedAudience?: string;
 };
 
 function decodeBase64Url(input: string): string | null {
@@ -38,9 +43,9 @@ function decodeBase64Url(input: string): string | null {
 	}
 }
 
-function isValidFileProductionServiceClaims(
+function isValidServiceAssertionClaims(
 	value: unknown
-): value is FileProductionServiceClaims {
+): value is ServiceAssertionClaims {
 	if (!value || typeof value !== 'object') return false;
 	const claims = value as Record<string, unknown>;
 
@@ -49,14 +54,17 @@ function isValidFileProductionServiceClaims(
 		claims.conversationId.trim().length > 0 &&
 		(claims.userId === undefined ||
 			(typeof claims.userId === 'string' && claims.userId.trim().length > 0)) &&
+		(claims.audience === undefined ||
+			(typeof claims.audience === 'string' && claims.audience.trim().length > 0)) &&
 		typeof claims.exp === 'number' &&
 		Number.isFinite(claims.exp)
 	);
 }
 
-export function verifyFileProductionServiceAssertion(
-	authorizationHeader: string | null
-): { valid: true; claims: FileProductionServiceClaims } | { valid: false; reason: string } {
+export function verifyServiceAssertion(
+	authorizationHeader: string | null,
+	options: VerifyServiceAssertionOptions = {},
+): { valid: true; claims: ServiceAssertionClaims } | { valid: false; reason: string } {
 	const signingKey = config.alfyaiApiSigningKey.trim();
 	if (!signingKey) {
 		return { valid: false, reason: 'signing_key_missing' };
@@ -98,7 +106,7 @@ export function verifyFileProductionServiceAssertion(
 		return { valid: false, reason: 'invalid_payload_json' };
 	}
 
-	if (!isValidFileProductionServiceClaims(parsed)) {
+	if (!isValidServiceAssertionClaims(parsed)) {
 		return { valid: false, reason: 'invalid_claims' };
 	}
 
@@ -106,7 +114,23 @@ export function verifyFileProductionServiceAssertion(
 		return { valid: false, reason: 'expired' };
 	}
 
+	if (
+		options.expectedAudience &&
+		parsed.audience !== options.expectedAudience
+	) {
+		return {
+			valid: false,
+			reason: parsed.audience ? 'invalid_audience' : 'missing_audience',
+		};
+	}
+
 	return { valid: true, claims: parsed };
+}
+
+export function verifyFileProductionServiceAssertion(
+	authorizationHeader: string | null
+): { valid: true; claims: ServiceAssertionClaims } | { valid: false; reason: string } {
+	return verifyServiceAssertion(authorizationHeader);
 }
 
 export function requireAdmin(event) {
