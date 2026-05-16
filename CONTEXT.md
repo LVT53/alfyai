@@ -30,6 +30,22 @@ _Avoid_: project-only tool, persona-memory tool, transcript search tool
 A compact Honcho-led personalization profile available to an ordinary chat turn before the model decides whether to retrieve deeper memory.
 _Avoid_: newest memories, raw conclusion list, local persona summary
 
+**Knowledge Memory Overview**:
+The user-facing Memory Profile summary in the Knowledge Base. It should read as human-readable memory notes that explain what AlfyAI understands about the user, not as raw markdown, transcript metadata, conversation result logs, or a report outline.
+_Avoid_: memory markdown, Honcho dump, conversation results list, generated report
+
+**Knowledge Memory Overview Bullet**:
+A concrete, human-readable statement about the user, their preferences, owned things, goals, constraints, current projects, or durable personal context. It may include specific remembered items when they help the user understand what AlfyAI knows, but it should not cite retrieval provenance such as chat numbers, conversation titles, or result counts.
+_Avoid_: chat mention, conversation provenance, source inventory, result summary
+
+**Memory Provenance Noise**:
+Source metadata that may be useful internally but should not appear as the main text of a **Knowledge Memory Overview Bullet**, including timestamps, chat numbers, conversation titles, result counts, and section labels like "Explicit Observations".
+_Avoid_: visible timestamp, chat title, generated result count, raw Honcho section label
+
+**Sensitive Memory Value**:
+Exact personal or security-sensitive values such as phone numbers, email addresses, physical addresses, account identifiers, credentials, tokens, and keys. A Knowledge Memory Overview may soften these values when they appear in otherwise useful bullets, but it should not become a separate memory policy engine that suppresses broad categories of legitimate Honcho memory.
+_Avoid_: raw phone number, exact credential, exposed token, overzealous memory filtering
+
 **Context Sources**:
 The user-facing surface that shows documents, attachments, memory, prior turns, generated work, and other sources AlfyAI is considering or carrying forward.
 _Avoid_: evidence manager, manual retrieval setup, budget manager

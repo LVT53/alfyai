@@ -14,9 +14,9 @@
 		focusContinuityItemCount,
 		honchoEnabled,
 		honchoOverview,
+		honchoOverviewBullets,
 		honchoOverviewSource,
 		honchoOverviewStatus,
-		honchoOverviewHtml,
 		honchoOverviewUpdatedAt,
 		honchoOverviewLastAttemptAt,
 		durablePersonaCount,
@@ -34,9 +34,9 @@
 		focusContinuityItemCount: number;
 		honchoEnabled: boolean;
 		honchoOverview: string;
+		honchoOverviewBullets: string[];
 		honchoOverviewSource: KnowledgeMemoryOverviewSource;
 		honchoOverviewStatus: KnowledgeMemoryOverviewStatus;
-		honchoOverviewHtml: string;
 		honchoOverviewUpdatedAt: number | null;
 		honchoOverviewLastAttemptAt: number | null;
 		durablePersonaCount: number;
@@ -220,9 +220,11 @@
 						{$t('memory.personaFallbackNotice')}
 					</p>
 				{/if}
-				<div class="memory-markdown prose mt-4 max-w-none text-base leading-[1.65] text-text-secondary dark:prose-invert">
-					{@html honchoOverviewHtml}
-				</div>
+				<ul class="memory-overview-list mt-4 list-disc space-y-3 pl-5 text-sm font-sans leading-[1.65] text-text-secondary">
+					{#each honchoOverviewBullets as bullet (bullet)}
+						<li class="pl-1">{bullet}</li>
+					{/each}
+				</ul>
 			{:else if honchoOverviewStatus === 'temporarily_unavailable'}
 				<p class="mt-4 text-sm font-sans leading-[1.6] text-text-muted">
 					{$t('memory.temporarilyUnavailable', { count: durablePersonaCount })}

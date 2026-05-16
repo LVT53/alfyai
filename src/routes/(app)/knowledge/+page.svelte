@@ -12,9 +12,6 @@
 		type KnowledgeMemoryActionPayload,
 	} from '$lib/client/api/knowledge';
 	import { browser } from '$app/environment';
-	import { isDark } from '$lib/stores/theme';
-	import { renderMarkdown } from '$lib/utils/markdown-loader';
-	import { escapeHtml, sanitizeHtml } from '$lib/utils/html-sanitizer';
 	import { buildChatSourceMessageHref } from '$lib/client/document-workspace-navigation';
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 	import { t } from '$lib/i18n';
@@ -35,6 +32,7 @@
 	import {
 		getDefaultPersonaMemoryFilter,
 		getFocusContinuityItemCount,
+		normalizeKnowledgeMemoryOverviewBullets,
 		toWorkspaceDocument,
 		type FocusContinuityView,
 
@@ -112,7 +110,6 @@
 	let liveOverviewPollAttempts = $state(0);
 	let memoryTabVisible = $state(true);
 	let activeMemoryModal = $state<MemoryModal>(null);
-	let honchoOverviewHtml = $state('');
 	let selectedPersonaMemoryIds = $state<string[]>([]);
 	let personaMemoryFilter = $state<PersonaMemoryFilter>('active');
 	let selectedTaskMemoryIds = $state<string[]>([]);
@@ -140,6 +137,9 @@
 	);
 
 	let honchoOverview = $derived(memorySummary.overview?.trim() ?? '');
+	let honchoOverviewBullets = $derived(
+		normalizeKnowledgeMemoryOverviewBullets(honchoOverview)
+	);
 	let honchoOverviewSource = $derived(memorySummary.overviewSource);
 	let honchoOverviewStatus = $derived(memorySummary.overviewStatus);
 	let honchoOverviewUpdatedAt = $derived(memorySummary.overviewUpdatedAt);
@@ -147,11 +147,6 @@
 	let durablePersonaCount = $derived(memorySummary.durablePersonaCount);
 	let activeConstraintCount = $derived(memorySummary.activeConstraintCount ?? 0);
 	let currentProjectContextCount = $derived(memorySummary.currentProjectContextCount ?? 0);
-	$effect(() => {
-		void renderHonchoOverview(honchoOverview, $isDark);
-	});
-
-	let overviewRenderVersion = 0;
 
 	// Documents section handlers
 	function handleDocumentPaginationLimitChange(limit: number) {
@@ -281,24 +276,6 @@
 			manageError = failures.length === files.length
 				? `Failed to upload ${files.length} file${files.length === 1 ? '' : 's'}.`
 				: `${failures.length} file${failures.length === 1 ? '' : 's'} failed to upload.`;
-		}
-	}
-
-	async function renderHonchoOverview(source: string, isDarkMode: boolean) {
-		const renderVersion = ++overviewRenderVersion;
-
-		if (!source) {
-			honchoOverviewHtml = '';
-			return;
-		}
-
-		try {
-			const overviewHtml = await renderMarkdown(source, isDarkMode);
-			if (renderVersion !== overviewRenderVersion) return;
-			honchoOverviewHtml = sanitizeHtml(overviewHtml);
-		} catch {
-			if (renderVersion !== overviewRenderVersion) return;
-			honchoOverviewHtml = `<p>${escapeHtml(source)}</p>`;
 		}
 	}
 
@@ -837,9 +814,9 @@
 			{focusContinuityItemCount}
 			{honchoEnabled}
 			{honchoOverview}
+			{honchoOverviewBullets}
 			{honchoOverviewSource}
 			{honchoOverviewStatus}
-			{honchoOverviewHtml}
 			{honchoOverviewUpdatedAt}
 			{honchoOverviewLastAttemptAt}
 			{durablePersonaCount}
@@ -943,44 +920,6 @@
 <style>
 	:global(.knowledge-page input[type='checkbox']) {
 		cursor: pointer;
-	}
-
-	:global(.memory-markdown *:last-child) {
-		margin-bottom: 0;
-	}
-
-	:global(.memory-markdown p + p),
-	:global(.memory-markdown ul + p),
-	:global(.memory-markdown ol + p) {
-		margin-top: 0.85rem;
-	}
-
-	:global(.memory-markdown strong) {
-		color: var(--text-primary);
-		font-weight: 600;
-	}
-
-	:global(.memory-markdown ul),
-	:global(.memory-markdown ol) {
-		padding-left: 1.25rem;
-	}
-
-	:global(.memory-markdown pre) {
-		background: var(--surface-code);
-		border-color: var(--border-default);
-	}
-
-	:global(.memory-markdown code) {
-		color: var(--text-primary);
-	}
-
-	:global(.memory-markdown :not(pre) > code) {
-		background: color-mix(in srgb, var(--surface-code) 90%, transparent 10%);
-	}
-
-	:global(.memory-markdown pre code) {
-		background: transparent;
-		color: inherit;
 	}
 
 	:global(.memory-preview) {

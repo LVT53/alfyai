@@ -13,11 +13,82 @@ export type LibraryModal = "documents" | null;
 export type PersonaMemoryFilter = "active" | "dormant" | "archived";
 export type FocusContinuityView = "tasks" | "across_chats";
 
+const MEMORY_OVERVIEW_BULLET_LIMIT = 40;
+const MEMORY_OVERVIEW_TIMESTAMP_RE = /\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/g;
+const MEMORY_OVERVIEW_SECTION_LABEL_RE =
+	/^(?:#{1,6}\s*)?(?:explicit\s+observations?|observations?|memory\s+overview|memory\s+profile)\s*[:\-–—]?\s*/i;
+const PHONE_LIKE_VALUE_RE = /(^|[^\w/])(\+?\d[\d\s().-]{7,}\d)(?=$|[^\w/])/g;
+const EMAIL_VALUE_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const SENSITIVE_NAMED_VALUE_RE =
+	/\b(api[_-]?key|token|secret|password|credential)(\s*(?:is|=|:)\s*)["']?[A-Za-z0-9._~+/=-]{8,}["']?/gi;
+
 export const personaMemoryFilters: PersonaMemoryFilter[] = [
 	"active",
 	"dormant",
 	"archived",
 ];
+
+function stripMemoryOverviewSectionLabel(value: string): string {
+	let cleaned = value.trim();
+	for (let index = 0; index < 3; index += 1) {
+		const next = cleaned.replace(MEMORY_OVERVIEW_SECTION_LABEL_RE, "").trim();
+		if (next === cleaned) break;
+		cleaned = next;
+	}
+	return cleaned;
+}
+
+function softenSensitiveMemoryValues(value: string): string {
+	return value
+		.replace(EMAIL_VALUE_RE, "[email address]")
+		.replace(SENSITIVE_NAMED_VALUE_RE, "$1$2[redacted]")
+		.replace(PHONE_LIKE_VALUE_RE, (match, prefix: string, value: string) => {
+			const digitCount = value.replace(/\D/g, "").length;
+			if (digitCount < 8 || digitCount > 15) return match;
+			return `${prefix}[phone number]`;
+		});
+}
+
+function normalizeMemoryOverviewBullet(value: string): string | null {
+	const cleaned = softenSensitiveMemoryValues(
+		stripMemoryOverviewSectionLabel(
+			value
+				.trim()
+				.replace(/^["“”]+|["“”]+$/g, "")
+				.replace(MEMORY_OVERVIEW_TIMESTAMP_RE, "")
+				.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/, "")
+				.replace(/^\s*#{1,6}\s*/, ""),
+		).replace(/\s+/g, " "),
+	).trim();
+
+	return cleaned ? cleaned : null;
+}
+
+export function normalizeKnowledgeMemoryOverviewBullets(raw: string): string[] {
+	const source = stripMemoryOverviewSectionLabel(
+		raw.replace(/\r/g, "\n"),
+	).trim();
+	if (!source) return [];
+
+	const hasTimestampedObservations = Boolean(
+		source.match(MEMORY_OVERVIEW_TIMESTAMP_RE),
+	);
+	const segments = hasTimestampedObservations
+		? source.split(/(?=\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\])/g)
+		: source.split(/\n+/g);
+	const bullets: string[] = [];
+	const seen = new Set<string>();
+
+	for (const segment of segments) {
+		const bullet = normalizeMemoryOverviewBullet(segment);
+		if (!bullet || seen.has(bullet)) continue;
+		seen.add(bullet);
+		bullets.push(bullet);
+		if (bullets.length >= MEMORY_OVERVIEW_BULLET_LIMIT) break;
+	}
+
+	return bullets;
+}
 
 export function getDefaultPersonaMemoryFilter(
 	memories: PersonaMemoryItem[],
