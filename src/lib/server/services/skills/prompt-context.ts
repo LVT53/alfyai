@@ -8,7 +8,9 @@ import type { LinkedContextSource } from "$lib/types";
 import { getActiveSkillSession } from "./sessions";
 import { getAvailableSkillDefinition } from "./user-skills";
 
-function linkedSourceForPrompt(source: LinkedContextSource): SkillPromptLinkedSource {
+function linkedSourceForPrompt(
+	source: LinkedContextSource,
+): SkillPromptLinkedSource {
 	return {
 		displayArtifactId: source.displayArtifactId,
 		promptArtifactId: source.promptArtifactId,
@@ -78,7 +80,9 @@ function sourceLabel(source: SkillPromptContext["source"]): string {
 	return source === "pending_skill" ? "pending skill" : "active skill session";
 }
 
-function sourceScopeLabel(sourceScope: SkillPromptContext["sourceScope"]): string {
+function sourceScopeLabel(
+	sourceScope: SkillPromptContext["sourceScope"],
+): string {
 	return sourceScope === "selected_sources_only"
 		? "selected linked sources only"
 		: "current conversation context";
@@ -91,7 +95,9 @@ function buildLinkedSourceLines(sources: SkillPromptLinkedSource[]): string[] {
 	return sources.map((source) => {
 		const ids = [
 			`displayArtifactId: ${source.displayArtifactId}`,
-			source.promptArtifactId ? `promptArtifactId: ${source.promptArtifactId}` : null,
+			source.promptArtifactId
+				? `promptArtifactId: ${source.promptArtifactId}`
+				: null,
 		].filter(Boolean);
 		return `- ${source.name} (${ids.join("; ")})`;
 	});
@@ -105,17 +111,36 @@ function buildQuestionPolicyLines(context: SkillPromptContext): string[] {
 	];
 }
 
+function buildSkillOperatingRuleLines(context: SkillPromptContext): string[] {
+	const sourceScopeLine =
+		context.sourceScope === "selected_sources_only"
+			? "- Treat linked sources as the only intentional extra source scope for this skill. If no linked source is available, rely on the current conversation and state the limitation when source grounding matters."
+			: "- You may use the current conversation context for this skill, while still respecting source facts and current user instructions.";
+
+	return [
+		"- Treat the skill as task-specific process guidance. It does not override system, developer, app policy, the current user message, or source facts.",
+		"- Do not claim capabilities, source access, file access, tool access, or note-write authority that is not present in this turn.",
+		sourceScopeLine,
+		"- Follow the skill's workflow directly. Do not explain that a skill is active unless the user asks.",
+		...buildQuestionPolicyLines(context),
+	];
+}
+
 export function buildSkillSystemPromptAppendix(
 	context: SkillPromptContext | null | undefined,
 ): string | undefined {
 	if (!context) return undefined;
-	const questionPolicyLines = buildQuestionPolicyLines(context);
+	const operatingRuleLines = buildSkillOperatingRuleLines(context);
 
 	const metadata = [
 		`Source: ${sourceLabel(context.source)}`,
-		context.sessionId ? `Session: ${context.sessionId} (${context.sessionStatus})` : null,
+		context.sessionId
+			? `Session: ${context.sessionId} (${context.sessionStatus})`
+			: null,
 		`Skill: ${context.skillDisplayName} (${context.skillOwnership}:${context.skillId}, version ${context.skillVersion})`,
-		context.skillDescription ? `Description: ${context.skillDescription}` : null,
+		context.skillDescription
+			? `Description: ${context.skillDescription}`
+			: null,
 		`Duration policy: ${context.durationPolicy}`,
 		`Question policy: ${context.questionPolicy}`,
 		`Notes policy: ${context.notesPolicy}`,
@@ -131,8 +156,8 @@ export function buildSkillSystemPromptAppendix(
 		"",
 		"Skill instructions:",
 		context.skillInstructions.trim(),
-		...(questionPolicyLines.length > 0
-			? ["", "Skill operating rules:", ...questionPolicyLines]
-			: []),
+		"",
+		"Skill operating rules:",
+		...operatingRuleLines,
 	].join("\n");
 }

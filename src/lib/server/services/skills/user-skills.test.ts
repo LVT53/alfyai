@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
 let dbPath: string;
@@ -60,14 +60,20 @@ describe("user skill definitions", () => {
 			displayName: "Meeting critic",
 			description: "Reviews meeting notes before sending.",
 			instructions: "Find weak claims and unclear follow-ups.",
-			activationExamples: ["review these notes", "criticize this meeting summary"],
+			activationExamples: [
+				"review these notes",
+				"criticize this meeting summary",
+			],
 		});
 
 		expect(created).toMatchObject({
 			displayName: "Meeting critic",
 			description: "Reviews meeting notes before sending.",
 			instructions: "Find weak claims and unclear follow-ups.",
-			activationExamples: ["review these notes", "criticize this meeting summary"],
+			activationExamples: [
+				"review these notes",
+				"criticize this meeting summary",
+			],
 			ownership: "user",
 			enabled: true,
 			durationPolicy: "next_message",
@@ -80,11 +86,17 @@ describe("user skill definitions", () => {
 
 		await expect(listUserSkillDefinitions("user-1")).resolves.toHaveLength(1);
 		await expect(listUserSkillDefinitions("user-2")).resolves.toEqual([]);
-		await expect(getUserSkillDefinition("user-2", created.id)).resolves.toBeNull();
+		await expect(
+			getUserSkillDefinition("user-2", created.id),
+		).resolves.toBeNull();
 
-		const blockedUpdate = await updateUserSkillDefinition("user-2", created.id, {
-			displayName: "Stolen skill",
-		});
+		const blockedUpdate = await updateUserSkillDefinition(
+			"user-2",
+			created.id,
+			{
+				displayName: "Stolen skill",
+			},
+		);
 		expect(blockedUpdate).toBeNull();
 
 		const updated = await updateUserSkillDefinition("user-1", created.id, {
@@ -103,11 +115,17 @@ describe("user skill definitions", () => {
 			version: 2,
 		});
 
-		await expect(deleteUserSkillDefinition("user-2", created.id)).resolves.toBe(false);
-		await expect(getUserSkillDefinition("user-1", created.id)).resolves.toMatchObject({
+		await expect(deleteUserSkillDefinition("user-2", created.id)).resolves.toBe(
+			false,
+		);
+		await expect(
+			getUserSkillDefinition("user-1", created.id),
+		).resolves.toMatchObject({
 			id: created.id,
 		});
-		await expect(deleteUserSkillDefinition("user-1", created.id)).resolves.toBe(true);
+		await expect(deleteUserSkillDefinition("user-1", created.id)).resolves.toBe(
+			true,
+		);
 		await expect(listUserSkillDefinitions("user-1")).resolves.toEqual([]);
 	});
 
@@ -143,13 +161,21 @@ describe("user skill definitions", () => {
 			"Translate & Rewrite",
 		]);
 		expect(seeded.every((skill) => skill.ownership === "system")).toBe(true);
-		expect(seeded.every((skill) => skill.enabled && skill.published)).toBe(true);
+		expect(seeded.every((skill) => skill.enabled && skill.published)).toBe(
+			true,
+		);
 
-		const planCritic = seeded.find((skill) => skill.id === "system:grill-with-docs");
+		const planCritic = seeded.find(
+			(skill) => skill.id === "system:grill-with-docs",
+		);
 		expect(planCritic?.displayName).toBe("Plan Critic");
 		expect(planCritic?.localizedDefaults.hu.displayName).toBe("Tervkritikus");
-		const documentExplainer = seeded.find((skill) => skill.id === "system:document-explainer");
-		expect(documentExplainer?.localizedDefaults.hu.displayName).toBe("Dokumentummagyarázó");
+		const documentExplainer = seeded.find(
+			(skill) => skill.id === "system:document-explainer",
+		);
+		expect(documentExplainer?.localizedDefaults.hu.displayName).toBe(
+			"Dokumentummagyarázó",
+		);
 
 		const edited = await updateSystemSkillDefinition("system:grill-with-docs", {
 			instructions: "Admin-edited plan critic instructions.",
@@ -183,27 +209,36 @@ describe("user skill definitions", () => {
 			"Study Coach",
 			"Translate & Rewrite",
 		]);
-		expect(summaries.map((skill) => skill.id)).not.toContain("system:interview");
+		expect(summaries.map((skill) => skill.id)).not.toContain(
+			"system:interview",
+		);
+		const documentExplainerSummary = summaries.find(
+			(skill) => skill.id === "system:document-explainer",
+		);
+		if (!documentExplainerSummary) {
+			throw new Error("Expected seeded document explainer summary.");
+		}
 		expect(
-			localizeSystemSkillSummary(
-				summaries.find((skill) => skill.id === "system:document-explainer")!,
-				"hu",
-			),
+			localizeSystemSkillSummary(documentExplainerSummary, "hu"),
 		).toMatchObject({
 			displayName: "Dokumentummagyarázó",
-			description: "Kijelölt dokumentumokat magyaráz el érthetően, forráshoz kötötten.",
+			description:
+				"Kijelölt dokumentumokat magyaráz el érthetően, a forrástényeket, fenntartásokat és szerkezetet megőrizve.",
 		});
-		expect(
-			localizeSystemSkillSummary(
-				summaries.find((skill) => skill.id === "system:grill-with-docs")!,
-				"hu",
-			),
-		).toMatchObject({
+		const planCriticSummary = summaries.find(
+			(skill) => skill.id === "system:grill-with-docs",
+		);
+		if (!planCriticSummary) {
+			throw new Error("Expected seeded plan critic summary.");
+		}
+		expect(localizeSystemSkillSummary(planCriticSummary, "hu")).toMatchObject({
 			displayName: "Tervkritikus",
 			description: "Admin-edited description.",
 		});
 		expect(serializedSummaries).not.toContain("instructions");
-		expect(serializedSummaries).not.toContain("Admin-edited plan critic instructions.");
+		expect(serializedSummaries).not.toContain(
+			"Admin-edited plan critic instructions.",
+		);
 		expect(serializedSummaries).not.toContain("PRIVATE_USER_TWO_INSTRUCTIONS");
 		expect(serializedSummaries).not.toContain("Stress-test the user's plan");
 		expect(serializedSummaries).not.toContain("Tedd próbára");
@@ -214,7 +249,10 @@ describe("user skill definitions", () => {
 		}
 		await expect(listUserSkillDefinitions("user-1")).resolves.toEqual([]);
 		await expect(listUserSkillDefinitions("user-2")).resolves.toContainEqual(
-			expect.objectContaining({ id: privateSkill.id, instructions: "PRIVATE_USER_TWO_INSTRUCTIONS" }),
+			expect.objectContaining({
+				id: privateSkill.id,
+				instructions: "PRIVATE_USER_TWO_INSTRUCTIONS",
+			}),
 		);
 	});
 
@@ -250,7 +288,8 @@ describe("user skill definitions", () => {
 					userId: "user-1",
 					ownership: "system",
 					displayName: "Grill With Docs",
-					description: "Challenges a plan against attached or selected project documents.",
+					description:
+						"Challenges a plan against attached or selected project documents.",
 					instructions: "Admin-edited critic instructions.",
 					activationExamplesJson: JSON.stringify([
 						"grill this plan with the docs",
@@ -269,10 +308,35 @@ describe("user skill definitions", () => {
 					userId: "user-1",
 					ownership: "system",
 					displayName: "Code Review",
-					description: "Reviews code for correctness, regressions, security risks, and missing tests.",
+					description:
+						"Reviews code for correctness, regressions, security risks, and missing tests.",
 					instructions:
 						"Review code from a bug-first perspective. Lead with concrete findings, include file and line references when available, call out missing tests, and keep summaries secondary.",
-					activationExamplesJson: JSON.stringify(["review this diff", "find bugs in this change"]),
+					activationExamplesJson: JSON.stringify([
+						"review this diff",
+						"find bugs in this change",
+					]),
+					enabled: true,
+					published: true,
+					durationPolicy: "next_message",
+					questionPolicy: "ask_when_needed",
+					notesPolicy: "none",
+					sourceScope: "selected_sources_only",
+					creationSource: "system_seed",
+				},
+				{
+					id: "system:purchase-helper",
+					userId: "user-1",
+					ownership: "system",
+					displayName: "Purchase Helper",
+					description:
+						"Compares buying options against needs, constraints, tradeoffs, and current facts.",
+					instructions:
+						"Help the user make a purchase decision. Clarify needs and constraints when needed, compare options by practical tradeoffs, flag uncertainty or freshness-sensitive facts, and avoid overconfident recommendations.",
+					activationExamplesJson: JSON.stringify([
+						"help me choose what to buy",
+						"compare these options",
+					]),
 					enabled: true,
 					published: true,
 					durationPolicy: "next_message",
@@ -303,7 +367,9 @@ describe("user skill definitions", () => {
 			"system:study-coach",
 			"system:translate-rewrite",
 		]);
-		await expect(getSystemSkillDefinition("system:interview")).resolves.toMatchObject({
+		await expect(
+			getSystemSkillDefinition("system:interview"),
+		).resolves.toMatchObject({
 			id: "system:interview",
 			displayName: "Interview",
 			description: "Admin-customized retired interview description.",
@@ -311,7 +377,9 @@ describe("user skill definitions", () => {
 			enabled: false,
 			published: false,
 		});
-		await expect(getSystemSkillDefinition("system:code-review")).resolves.toMatchObject({
+		await expect(
+			getSystemSkillDefinition("system:code-review"),
+		).resolves.toMatchObject({
 			id: "system:code-review",
 			enabled: false,
 			published: false,
@@ -320,10 +388,28 @@ describe("user skill definitions", () => {
 		const planCritic = await getSystemSkillDefinition("system:grill-with-docs");
 		expect(planCritic).toMatchObject({
 			displayName: "Plan Critic",
-			description: "Stress-tests a plan against attached or selected project documents.",
+			description:
+				"Stress-tests plans against selected sources, product language, constraints, and implementation reality.",
 			instructions: "Admin-edited critic instructions.",
-			activationExamples: ["criticize this plan", "challenge this against our ADRs"],
+			activationExamples: [
+				"criticize this plan",
+				"challenge this against our ADRs",
+				"stress-test this implementation plan",
+				"find the weak assumptions",
+			],
 			questionPolicy: "ask_when_needed",
+		});
+		await expect(
+			getSystemSkillDefinition("system:purchase-helper"),
+		).resolves.toMatchObject({
+			description:
+				"Compares buying options against user needs, constraints, tradeoffs, risks, and current evidence.",
+			activationExamples: [
+				"help me choose what to buy",
+				"compare these options",
+				"which option fits my needs",
+				"make a buying decision matrix",
+			],
 		});
 
 		const summaries = await listEnabledSystemSkillSummaries();
@@ -334,12 +420,59 @@ describe("user skill definitions", () => {
 		expect(serializedSummaries).not.toContain("Code Review");
 	});
 
+	it("refreshes unedited seeded System Skill defaults to the stronger built-in workflows", async () => {
+		seedUsers();
+		const {
+			getSystemSkillDefinition,
+			seedBuiltInSystemSkillDefinitions,
+			updateSystemSkillDefinition,
+		} = await import("./user-skills");
+
+		await seedBuiltInSystemSkillDefinitions("user-1");
+		const seededPurchaseHelper = await getSystemSkillDefinition(
+			"system:purchase-helper",
+		);
+		expect(seededPurchaseHelper).toMatchObject({
+			description:
+				"Compares buying options against user needs, constraints, tradeoffs, risks, and current evidence.",
+			activationExamples: [
+				"help me choose what to buy",
+				"compare these options",
+				"which option fits my needs",
+				"make a buying decision matrix",
+			],
+		});
+		expect(seededPurchaseHelper?.instructions).toContain(
+			"not a generic best-product ranking",
+		);
+		expect(seededPurchaseHelper?.instructions).toContain(
+			"Treat prices, availability, laws, insurance terms, and product specifications as freshness-sensitive.",
+		);
+
+		await updateSystemSkillDefinition("system:document-explainer", {
+			instructions: "Admin-customized document instructions.",
+			description: "Admin-customized document description.",
+		});
+		await seedBuiltInSystemSkillDefinitions("user-1");
+
+		await expect(
+			getSystemSkillDefinition("system:document-explainer"),
+		).resolves.toMatchObject({
+			description: "Admin-customized document description.",
+			instructions: "Admin-customized document instructions.",
+		});
+	});
+
 	it("uses a stable admin owner when a normal user triggers missing built-in seeding", async () => {
 		seedUsers();
 		const sqlite = new Database(dbPath);
 		sqlite.pragma("foreign_keys = ON");
 		const seedDb = drizzle(sqlite, { schema });
-		seedDb.update(schema.users).set({ role: "admin" }).where(eq(schema.users.id, "user-2")).run();
+		seedDb
+			.update(schema.users)
+			.set({ role: "admin" })
+			.where(eq(schema.users.id, "user-2"))
+			.run();
 		sqlite.close();
 
 		const { seedBuiltInSystemSkillDefinitions } = await import("./user-skills");
@@ -356,7 +489,9 @@ describe("user skill definitions", () => {
 			.where(eq(schema.userSkillDefinitions.ownership, "system"));
 
 		expect(systemRows).toHaveLength(6);
-		expect(new Set(systemRows.map((row) => row.userId))).toEqual(new Set(["user-2"]));
+		expect(new Set(systemRows.map((row) => row.userId))).toEqual(
+			new Set(["user-2"]),
+		);
 	});
 
 	it("discovers available skills with user skills outranking equal system matches", async () => {
@@ -396,7 +531,9 @@ describe("user skill definitions", () => {
 			activationExamples: ["interview"],
 		});
 		await seedBuiltInSystemSkillDefinitions("user-1");
-		await updateSystemSkillDefinition("system:study-coach", { published: false });
+		await updateSystemSkillDefinition("system:study-coach", {
+			published: false,
+		});
 		await createSystemSkillDefinition("user-1", {
 			displayName: "Interview draft",
 			description: "Unpublished system skill.",
@@ -406,14 +543,21 @@ describe("user skill definitions", () => {
 		});
 		await updateUserSkillDefinition("user-1", disabled.id, { enabled: false });
 
-		await expect(discoverSkillSummaries("user-1", "interview")).resolves.toEqual([
+		await expect(
+			discoverSkillSummaries("user-1", "interview"),
+		).resolves.toEqual([
 			expect.objectContaining({ id: userNameMatch.id, ownership: "user" }),
-			expect.objectContaining({ id: userDescriptionMatch.id, ownership: "user" }),
+			expect.objectContaining({
+				id: userDescriptionMatch.id,
+				ownership: "user",
+			}),
 		]);
 		const discovered = await discoverSkillSummaries("user-1", "interview");
 		const serialized = JSON.stringify(discovered);
 		expect(discovered.map((skill) => skill.id)).not.toContain(disabled.id);
-		expect(discovered.map((skill) => skill.id)).not.toContain("system:study-coach");
+		expect(discovered.map((skill) => skill.id)).not.toContain(
+			"system:study-coach",
+		);
 		expect(serialized).not.toContain("instructions");
 	});
 });

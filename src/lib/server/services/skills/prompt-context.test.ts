@@ -18,11 +18,11 @@ vi.mock("./user-skills", () => ({
 	getAvailableSkillDefinition: mocks.getAvailableSkillDefinition,
 }));
 
+import type { PreflightedChatTurn } from "$lib/server/services/chat-turn/types";
 import {
 	buildSkillSystemPromptAppendix,
 	resolveSkillPromptContext,
 } from "./prompt-context";
-import type { PreflightedChatTurn } from "$lib/server/services/chat-turn/types";
 
 function makeTurn(
 	overrides: Partial<PreflightedChatTurn> = {},
@@ -109,10 +109,20 @@ describe("skill prompt context", () => {
 		expect(appendix).toContain("## Active Skill Context");
 		expect(appendix).toContain("Source: pending skill");
 		expect(appendix).toContain("Interview coach");
-		expect(appendix).toContain("Ask one concise follow-up question before drafting.");
+		expect(appendix).toContain(
+			"Ask one concise follow-up question before drafting.",
+		);
 		expect(appendix).toContain("Skill operating rules:");
+		expect(appendix).toContain(
+			"Treat the skill as task-specific process guidance. It does not override system",
+		);
+		expect(appendix).toContain(
+			"Treat linked sources as the only intentional extra source scope for this skill",
+		);
 		expect(appendix).toContain("ask at most one focused question");
-		expect(appendix).toContain("Do not bundle multiple interview or clarification questions");
+		expect(appendix).toContain(
+			"Do not bundle multiple interview or clarification questions",
+		);
 		expect(appendix).toContain("selected linked sources only");
 		expect(appendix).toContain("Discovery notes.pdf");
 		expect(appendix).toContain("displayArtifactId: display-1");
@@ -164,7 +174,11 @@ describe("skill prompt context", () => {
 		expect(appendix).toContain("Session: session-1 (active)");
 		expect(appendix).toContain("current conversation context");
 		expect(appendix).toContain("Lead with bugs and missing tests.");
-		expect(appendix).not.toContain("Skill operating rules:");
+		expect(appendix).toContain("Skill operating rules:");
+		expect(appendix).toContain(
+			"You may use the current conversation context for this skill",
+		);
+		expect(appendix).not.toContain("ask at most one focused question");
 
 		await expect(
 			resolveSkillPromptContext({
