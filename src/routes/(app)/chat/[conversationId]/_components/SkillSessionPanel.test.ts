@@ -41,9 +41,12 @@ describe("SkillSessionPanel", () => {
 		const panel = getByRole("region", { name: "Skill session" });
 		expect(panel).toBeInTheDocument();
 		expect(panel).toHaveClass("skill-session-panel");
-		expect(panel.querySelector(".skill-session-panel__status")).toHaveTextContent("Active");
+		expect(panel.querySelector(".skill-session-panel__status")).not.toBeInTheDocument();
+		expect(panel.querySelector(".skill-session-panel__marker")).toHaveClass(
+			"skill-session-panel__marker--active",
+		);
 		expect(getByText("Meeting critic")).toBeInTheDocument();
-		expect(getByText("Active")).toBeInTheDocument();
+		expect(queryByText("Active")).not.toBeInTheDocument();
 		expect(queryByText("Active skill")).not.toBeInTheDocument();
 		expect(queryByText("Selected sources only · Private notes")).not.toBeInTheDocument();
 		expect(queryByText("Expected next action: continue the chat with this skill active.")).not.toBeInTheDocument();

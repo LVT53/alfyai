@@ -274,27 +274,6 @@ export async function completeStreamTurn(
 			userMessageToPersist = buffer.userMessage;
 		}
 	}
-	const userMsgPromise = persistUserMessage
-		? createMessage(conversationId, "user", userMessageToPersist).catch(
-				() => undefined,
-			)
-		: Promise.resolve(undefined);
-	const assistantMsgPromise = finalResponse.trim()
-		? createMessage(
-				conversationId,
-				"assistant",
-				finalResponse,
-				thinkingContent || undefined,
-				serverSegments.length > 0 ? serverSegments : undefined,
-				{
-					evidenceStatus: "pending",
-					modelDisplayName,
-					...(wasStopped ? { wasStopped: true } : {}),
-					...skillControl.metadata,
-				},
-			).catch(() => undefined)
-		: Promise.resolve(undefined);
-
 	const sendEndAndClose = async (
 		userMsgId?: string,
 		assistantMsgId?: string,
@@ -425,154 +404,171 @@ export async function completeStreamTurn(
 		closeDownstream();
 	};
 
-	return Promise.all([userMsgPromise, assistantMsgPromise])
-		.then(([userMsg, assistantMsg]) => {
-			const postPersistTasks: Promise<unknown>[] = [];
-			let uiStateTask: Promise<unknown> = Promise.resolve();
-			let attachmentPersistenceTask: Promise<unknown> = Promise.resolve();
-			if (persistUserMessage && userMsg && attachmentIds.length > 0) {
-				attachmentPersistenceTask = persistUserTurnAttachments({
-					userId,
+	try {
+		const userMsg = persistUserMessage
+			? await createMessage(conversationId, "user", userMessageToPersist).catch(
+					() => undefined,
+				)
+			: undefined;
+		const assistantMsg = finalResponse.trim()
+			? await createMessage(
 					conversationId,
-					messageId: userMsg.id,
-					normalizedMessage,
-					attachmentIds,
-				})
-					.then((artifacts) => {
-						attachedArtifactsForContextSources =
-							getPersistedArtifactSummaries(artifacts) ?? [];
-					})
-					.catch(() => undefined);
-				postPersistTasks.push(attachmentPersistenceTask);
-			}
-
-			let latestWorkCapsule: WorkCapsuleSummary;
-			if (assistantMsg) {
-				if (skillControl.operations.length > 0) {
-					postPersistTasks.push(
-						commitSkillNoteOperationsAfterAssistantMessage({
-							userId,
-							conversationId,
-							sessionId: activeSkillSessionId,
-							assistantMessageId: assistantMsg.id,
-							operations: skillControl.operations,
-						}).catch((error) => {
-							console.warn(
-								"[CHAT_STREAM] Failed to apply Skill Note Operations",
-								{
-									conversationId,
-									streamId,
-									assistantMessageId: assistantMsg.id,
-									error,
-								},
-							);
-						}),
-					);
-					postPersistTasks.push(
-						applySkillControlOperations({
-							userId,
-							conversationId,
-							assistantMessageId: assistantMsg.id,
-							operations: skillControl.operations,
-						}).catch((error) => {
-							console.warn(
-								"[CHAT_STREAM] Failed to apply Skill Control Envelope",
-								{
-									conversationId,
-									streamId,
-									assistantMessageId: assistantMsg.id,
-									error,
-								},
-							);
-						}),
-					);
-				}
-				uiStateTask = persistAssistantTurnState({
-					userId,
-					conversationId,
-					normalizedMessage,
-					assistantResponse: finalResponse,
-					attachmentIds,
-					activeDocumentArtifactId,
-					contextStatus: latestContextStatus,
-					initialTaskState,
-					initialContextDebug,
-					userMessageId: userMsg?.id ?? null,
-					assistantMessageId: assistantMsg.id,
-					analytics: {
-						model: analyticsModel,
+					"assistant",
+					finalResponse,
+					thinkingContent || undefined,
+					serverSegments.length > 0 ? serverSegments : undefined,
+					{
+						evidenceStatus: "pending",
 						modelDisplayName,
-						promptTokens: estimateTokenCount(upstreamMessage),
-						completionTokens: responseTokenCount,
-						reasoningTokens: thinkingTokenCount,
-						generationTimeMs: genTimeMs,
-						providerUsage: latestProviderUsage,
+						...(wasStopped ? { wasStopped: true } : {}),
+						...skillControl.metadata,
 					},
-					continuitySource: "stream",
-					honchoContext: latestHonchoContext,
-					honchoSnapshot: latestHonchoSnapshot,
-				}).then((turnState) => {
-					persistedTurnState = turnState;
-					latestWorkCapsule = turnState.workCapsule;
-				});
-				postPersistTasks.push(uiStateTask);
+				).catch(() => undefined)
+			: undefined;
+		const postPersistTasks: Promise<unknown>[] = [];
+		let uiStateTask: Promise<unknown> = Promise.resolve();
+		let attachmentPersistenceTask: Promise<unknown> = Promise.resolve();
+		if (persistUserMessage && userMsg && attachmentIds.length > 0) {
+			attachmentPersistenceTask = persistUserTurnAttachments({
+				userId,
+				conversationId,
+				messageId: userMsg.id,
+				normalizedMessage,
+				attachmentIds,
+			})
+				.then((artifacts) => {
+					attachedArtifactsForContextSources =
+						getPersistedArtifactSummaries(artifacts) ?? [];
+				})
+				.catch(() => undefined);
+			postPersistTasks.push(attachmentPersistenceTask);
+		}
 
+		let latestWorkCapsule: WorkCapsuleSummary;
+		if (assistantMsg) {
+			if (skillControl.operations.length > 0) {
 				postPersistTasks.push(
-					(async () => {
-						await uiStateTask.catch(() => undefined);
-						const currentTurnState = persistedTurnState;
-						await persistAssistantEvidence({
-							logPrefix: "[STREAM]",
-							userId,
-							conversationId,
-							assistantMessageId: assistantMsg.id,
-							normalizedMessage,
-							assistantResponse: finalResponse,
-							attachmentIds,
-							taskState: currentTurnState
-								? currentTurnState.taskState
-								: latestTaskState,
-							contextStatus:
-								(latestContextStatus as unknown) ??
-								(initialContextStatus as unknown) ??
-								null,
-							contextDebug: currentTurnState
-								? currentTurnState.contextDebug
-								: latestContextDebug,
-							initialTaskState,
-							initialContextDebug,
-							contextTraceSections:
-								latestContextTraceSections ??
-								initialContextTraceSections,
-							toolCalls: toolCallRecords,
-							webCitationAudit: citationGate?.audit,
-						});
-					})(),
+					commitSkillNoteOperationsAfterAssistantMessage({
+						userId,
+						conversationId,
+						sessionId: activeSkillSessionId,
+						assistantMessageId: assistantMsg.id,
+						operations: skillControl.operations,
+					}).catch((error) => {
+						console.warn(
+							"[CHAT_STREAM] Failed to apply Skill Note Operations",
+							{
+								conversationId,
+								streamId,
+								assistantMessageId: assistantMsg.id,
+								error,
+							},
+						);
+					}),
+				);
+				postPersistTasks.push(
+					applySkillControlOperations({
+						userId,
+						conversationId,
+						assistantMessageId: assistantMsg.id,
+						operations: skillControl.operations,
+					}).catch((error) => {
+						console.warn(
+							"[CHAT_STREAM] Failed to apply Skill Control Envelope",
+							{
+								conversationId,
+								streamId,
+								assistantMessageId: assistantMsg.id,
+								error,
+							},
+						);
+					}),
 				);
 			}
+			uiStateTask = persistAssistantTurnState({
+				userId,
+				conversationId,
+				normalizedMessage,
+				assistantResponse: finalResponse,
+				attachmentIds,
+				activeDocumentArtifactId,
+				contextStatus: latestContextStatus,
+				initialTaskState,
+				initialContextDebug,
+				userMessageId: userMsg?.id ?? null,
+				assistantMessageId: assistantMsg.id,
+				analytics: {
+					model: analyticsModel,
+					modelDisplayName,
+					promptTokens: estimateTokenCount(upstreamMessage),
+					completionTokens: responseTokenCount,
+					reasoningTokens: thinkingTokenCount,
+					generationTimeMs: genTimeMs,
+					providerUsage: latestProviderUsage,
+				},
+				continuitySource: "stream",
+				honchoContext: latestHonchoContext,
+				honchoSnapshot: latestHonchoSnapshot,
+			}).then((turnState) => {
+				persistedTurnState = turnState;
+				latestWorkCapsule = turnState.workCapsule;
+			});
+			postPersistTasks.push(uiStateTask);
 
-			return uiStateTask
-				.then(() => attachmentPersistenceTask)
-				.then(() => sendEndAndClose(userMsg?.id, assistantMsg?.id))
-				.then(() =>
-					Promise.allSettled(postPersistTasks).then(() =>
-						runPostTurnTasks({
-							logPrefix: "[STREAM]",
-							userId,
-							conversationId,
-							upstreamMessage,
-							userMessage: normalizedMessage,
-							assistantResponse: finalResponse,
-							assistantMirrorContent: finalResponse,
-							workCapsule: latestWorkCapsule,
-							maintenanceReason: "chat_stream",
-						}),
-					),
-				);
-		})
-		.catch(() => {
-			return sendEndAndClose();
-		});
+			postPersistTasks.push(
+				(async () => {
+					await uiStateTask.catch(() => undefined);
+					const currentTurnState = persistedTurnState;
+					await persistAssistantEvidence({
+						logPrefix: "[STREAM]",
+						userId,
+						conversationId,
+						assistantMessageId: assistantMsg.id,
+						normalizedMessage,
+						assistantResponse: finalResponse,
+						attachmentIds,
+						taskState: currentTurnState
+							? currentTurnState.taskState
+							: latestTaskState,
+						contextStatus:
+							(latestContextStatus as unknown) ??
+							(initialContextStatus as unknown) ??
+							null,
+						contextDebug: currentTurnState
+							? currentTurnState.contextDebug
+							: latestContextDebug,
+						initialTaskState,
+						initialContextDebug,
+						contextTraceSections:
+							latestContextTraceSections ?? initialContextTraceSections,
+						toolCalls: toolCallRecords,
+						webCitationAudit: citationGate?.audit,
+					});
+				})(),
+			);
+		}
+
+		return uiStateTask
+			.then(() => attachmentPersistenceTask)
+			.then(() => sendEndAndClose(userMsg?.id, assistantMsg?.id))
+			.then(() =>
+				Promise.allSettled(postPersistTasks).then(() =>
+					runPostTurnTasks({
+						logPrefix: "[STREAM]",
+						userId,
+						conversationId,
+						upstreamMessage,
+						userMessage: normalizedMessage,
+						assistantResponse: finalResponse,
+						assistantMirrorContent: finalResponse,
+						workCapsule: latestWorkCapsule,
+						maintenanceReason: "chat_stream",
+					}),
+				),
+			);
+	} catch {
+		return sendEndAndClose();
+	}
 }
 
 function getPersistedArtifactSummaries(

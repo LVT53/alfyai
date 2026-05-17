@@ -55,12 +55,24 @@ prevContentLength = totalLength;
 		return n.includes('fetch') || n.includes('url') || n.includes('web') || n.includes('browse');
 	}
 
-	// Returns the raw URL if any tool input contains one, or null for everything else.
-	function getFetchUrl(name: string, input: Record<string, unknown>): string | null {
-		if (isFileProductionToolName(name)) return null;
-		if (!isFetchTool(name)) return null;
-		const raw = String(Object.values(input)[0] ?? '');
-		try { new URL(raw); return raw; } catch { return null; }
+	function toUrlList(value: unknown): string[] {
+		return String(value ?? '')
+			.split(',')
+			.map((part) => part.trim())
+			.filter((part) => {
+				try {
+					new URL(part);
+					return true;
+				} catch {
+					return false;
+				}
+			});
+	}
+
+	function getFetchUrls(name: string, input: Record<string, unknown>): string[] {
+		if (isFileProductionToolName(name)) return [];
+		if (!isFetchTool(name)) return [];
+		return Object.values(input).flatMap(toUrlList);
 	}
 
 	function formatToolCall(name: string, input: Record<string, unknown>): string {
@@ -133,21 +145,33 @@ prevContentLength = totalLength;
 	{#if visibleTools.length > 0}
 		<div class="tool-call-stack">
 			{#each visibleTools as tool, i (tool.name + JSON.stringify(tool.input) + '-' + i)}
-				<div class="tool-call-row" class:is-running={tool.status === 'running'}>
-					{#if tool.status === 'running'}
-						<span class="tool-dot"></span>
-					{:else}
-						<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
-							<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-								stroke-linecap="round" stroke-linejoin="round"/>
-						</svg>
-					{/if}
-					{#if getFetchUrl(tool.name, tool.input)}
-					<span class="tool-label-text">Fetching: <a class="tool-link" href={getFetchUrl(tool.name, tool.input)} target="_blank" rel="noopener noreferrer" onclick={(event) => event.stopPropagation()}>{extractHostname(String(Object.values(tool.input)[0] ?? ''))}</a></span>
+				{#if getFetchUrls(tool.name, tool.input).length > 0}
+					{#each getFetchUrls(tool.name, tool.input) as url}
+						<div class="tool-call-row" class:is-running={tool.status === 'running'}>
+							{#if tool.status === 'running'}
+								<span class="tool-dot"></span>
+							{:else}
+								<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
+									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
+										stroke-linecap="round" stroke-linejoin="round"/>
+								</svg>
+							{/if}
+							<span class="tool-label-text">Fetching: <a class="tool-link" href={url} target="_blank" rel="noopener noreferrer" onclick={(event) => event.stopPropagation()}>{extractHostname(url)}</a></span>
+						</div>
+					{/each}
 				{:else}
-					<span class="tool-label-text" title={getToolTitle(tool.name, tool.input)}>{formatToolCall(tool.name, tool.input)}</span>
+					<div class="tool-call-row" class:is-running={tool.status === 'running'}>
+						{#if tool.status === 'running'}
+							<span class="tool-dot"></span>
+						{:else}
+							<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
+								<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
+									stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+						{/if}
+						<span class="tool-label-text" title={getToolTitle(tool.name, tool.input)}>{formatToolCall(tool.name, tool.input)}</span>
+					</div>
 				{/if}
-				</div>
 			{/each}
 		</div>
 	{/if}
@@ -159,21 +183,33 @@ prevContentLength = totalLength;
 					{#if seg.type === 'text'}
 						<pre class="thinking-text">{seg.content}</pre>
 					{:else}
-						<div class="tool-call-item">
-							{#if seg.status === 'done'}
-								<svg class="check-icon" viewBox="0 0 12 12" fill="none">
-									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-										stroke-linecap="round" stroke-linejoin="round"/>
-								</svg>
-							{:else}
-								<span class="tool-dot-inline"></span>
-							{/if}
-							{#if getFetchUrl(seg.name, seg.input)}
-							<span class="tool-item-label">Fetching: <a class="tool-link" href={getFetchUrl(seg.name, seg.input)} target="_blank" rel="noopener noreferrer">{extractHostname(String(Object.values(seg.input)[0] ?? ''))}</a></span>
+						{#if getFetchUrls(seg.name, seg.input).length > 0}
+							{#each getFetchUrls(seg.name, seg.input) as url}
+								<div class="tool-call-item">
+									{#if seg.status === 'done'}
+										<svg class="check-icon" viewBox="0 0 12 12" fill="none">
+											<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
+												stroke-linecap="round" stroke-linejoin="round"/>
+										</svg>
+									{:else}
+										<span class="tool-dot-inline"></span>
+									{/if}
+									<span class="tool-item-label">Fetching: <a class="tool-link" href={url} target="_blank" rel="noopener noreferrer">{extractHostname(url)}</a></span>
+								</div>
+							{/each}
 						{:else}
-							<span class="tool-item-label" title={getToolTitle(seg.name, seg.input)}>{formatToolCall(seg.name, seg.input)}</span>
+							<div class="tool-call-item">
+								{#if seg.status === 'done'}
+									<svg class="check-icon" viewBox="0 0 12 12" fill="none">
+										<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
+											stroke-linecap="round" stroke-linejoin="round"/>
+									</svg>
+								{:else}
+									<span class="tool-dot-inline"></span>
+								{/if}
+								<span class="tool-item-label" title={getToolTitle(seg.name, seg.input)}>{formatToolCall(seg.name, seg.input)}</span>
+							</div>
 						{/if}
-						</div>
 					{/if}
 				{/each}
 		{:else}

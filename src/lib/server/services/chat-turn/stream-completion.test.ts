@@ -208,6 +208,41 @@ describe("completeStreamTurn", () => {
 		);
 	});
 
+	it("persists the user message before the assistant response for the same turn", async () => {
+		const persistedRoles: string[] = [];
+		let resolveUserMessage: (() => void) | undefined;
+		const createMessage = vi.fn(
+			async (
+				_conversationId: string,
+				role: "user" | "assistant",
+			): Promise<{ id: string }> => {
+				if (role === "user") {
+					return new Promise((resolve) => {
+						resolveUserMessage = () => {
+							persistedRoles.push("user");
+							resolve({ id: "user-msg-1" });
+						};
+					});
+				}
+
+				persistedRoles.push("assistant");
+				return { id: "asst-msg-1" };
+			},
+		);
+
+		const completion = completeStreamTurn({
+			...defaultParams,
+			createMessage,
+			attachmentIds: [],
+		});
+		await Promise.resolve();
+
+		resolveUserMessage?.();
+		await completion;
+
+		expect(persistedRoles).toEqual(["user", "assistant"]);
+	});
+
 	it("persists Skill Control metadata and applies stream operations after assistant persistence", async () => {
 		await completeStreamTurn({
 			...defaultParams,

@@ -46,6 +46,25 @@ describe('MessageInput', () => {
 		expect(button.disabled).toBe(false);
 	});
 
+	it('renders typed URLs as clickable blank-tab links without replacing the textarea', async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput);
+		const input = getByPlaceholderText('Type a message...') as HTMLTextAreaElement;
+
+		await fireEvent.input(input, {
+			target: { value: 'Read https://example.com/report and www.example.org' },
+		});
+
+		const secureLink = getByRole('link', { name: 'https://example.com/report' });
+		expect(secureLink).toHaveAttribute('href', 'https://example.com/report');
+		expect(secureLink).toHaveAttribute('target', '_blank');
+		expect(secureLink.getAttribute('rel')).toContain('noopener');
+		expect(secureLink.getAttribute('rel')).toContain('noreferrer');
+
+		const bareLink = getByRole('link', { name: 'www.example.org' });
+		expect(bareLink).toHaveAttribute('href', 'https://www.example.org');
+		expect(input.value).toBe('Read https://example.com/report and www.example.org');
+	});
+
 	it('shows the Deep Research composer control only when enabled', () => {
 		const { queryByRole, rerender } = render(MessageInput);
 
