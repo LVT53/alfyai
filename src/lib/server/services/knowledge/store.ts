@@ -34,6 +34,7 @@ export {
   listMessageAttachments,
   resolvePromptAttachmentArtifacts,
   saveUploadedArtifact,
+  saveUploadedArtifactFromStoredFile,
 } from "./store/attachments";
 
 export {

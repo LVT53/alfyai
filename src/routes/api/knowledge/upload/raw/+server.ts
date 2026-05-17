@@ -1,0 +1,437 @@
+import { createHash } from 'crypto';
+import { createWriteStream } from 'fs';
+import { mkdir, unlink } from 'fs/promises';
+import { once } from 'events';
+import { join } from 'path';
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { requireAuth } from '$lib/server/auth/hooks';
+import {
+	createNormalizedArtifact,
+	resolvePromptAttachmentArtifacts,
+	saveUploadedArtifactFromStoredFile,
+} from '$lib/server/services/knowledge';
+import { syncArtifactToHoncho } from '$lib/server/services/honcho';
+import {
+	createAttachmentTraceId,
+	logAttachmentTrace,
+} from '$lib/server/services/attachment-trace';
+import { getConversation } from '$lib/server/services/conversations';
+import { getConfig } from '$lib/server/config-store';
+import { getAdapterBodySizeLimitBytes } from '$lib/server/env';
+
+const UPLOAD_NAME_HEADER = 'x-alfyai-upload-name';
+const UPLOAD_SIZE_HEADER = 'x-alfyai-upload-size';
+const UPLOAD_TRACE_HEADER = 'x-alfyai-upload-trace-id';
+const UPLOAD_CONVERSATION_HEADER = 'x-alfyai-conversation-id';
+const PROGRESS_BYTES = 8 * 1024 * 1024;
+const PROGRESS_MS = 10_000;
+
+class RawUploadLimitError extends Error {
+	code = 'upload_body_too_large' as const;
+	status = 413 as const;
+}
+
+class RawUploadSizeMismatchError extends Error {
+	code = 'upload_size_mismatch' as const;
+	status = 400 as const;
+}
+
+function parseContentLength(value: string | null): number | null {
+	if (!value) return null;
+	const parsed = Number(value);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function formatBytes(value: number | null): string {
+	if (value === null || !Number.isFinite(value)) return 'unlimited';
+	const mb = value / (1024 * 1024);
+	return `${Number.isInteger(mb) ? mb : mb.toFixed(1)}MB`;
+}
+
+function decodeHeaderValue(value: string | null): string | null {
+	if (!value) return null;
+	try {
+		return decodeURIComponent(value).slice(0, 240);
+	} catch {
+		return value.slice(0, 240);
+	}
+}
+
+function sanitizeHeaderValue(value: string | null): string | null {
+	if (!value) return null;
+	const trimmed = value.trim();
+	return trimmed ? trimmed.slice(0, 240) : null;
+}
+
+function sanitizeUploadTraceId(value: string | null): string | null {
+	if (!value) return null;
+	const trimmed = value.trim();
+	return /^[a-z0-9:_-]{4,120}$/i.test(trimmed) ? trimmed : null;
+}
+
+function finiteLimit(value: number): number | null {
+	return Number.isFinite(value) ? value : null;
+}
+
+function effectiveRequestBodyLimit(params: {
+	appFileLimit: number;
+	adapterBodySizeLimit: number;
+}): number {
+	const adapterLimit = finiteLimit(params.adapterBodySizeLimit);
+	return adapterLimit === null
+		? params.appFileLimit
+		: Math.min(params.appFileLimit, adapterLimit);
+}
+
+function uploadBodyLimitMessage(limitBytes: number | null) {
+	return `Upload exceeded the server request body size limit of ${formatBytes(limitBytes)}. Try uploading a smaller file or increase BODY_SIZE_LIMIT for this deployment.`;
+}
+
+function isAbortError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	const name =
+		typeof error === 'object' &&
+		error !== null &&
+		'name' in error &&
+		typeof (error as { name?: unknown }).name === 'string'
+			? (error as { name: string }).name
+			: '';
+	return name === 'AbortError' || /\baborted\b|operation was aborted|client prematurely closed/i.test(message);
+}
+
+async function writeChunk(
+	writer: ReturnType<typeof createWriteStream>,
+	chunk: Uint8Array,
+): Promise<void> {
+	if (!writer.write(Buffer.from(chunk))) {
+		await once(writer, 'drain');
+	}
+}
+
+async function finishWriter(writer: ReturnType<typeof createWriteStream>): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		writer.once('finish', resolve);
+		writer.once('error', reject);
+		writer.end();
+	});
+}
+
+async function receiveRawUpload(params: {
+	body: ReadableStream<Uint8Array>;
+	tempPathAbsolute: string;
+	traceId: string;
+	userId: string;
+	fileName: string | null;
+	declaredFileSize: number | null;
+	contentLength: number | null;
+	requestBodyLimit: number;
+	signal?: AbortSignal;
+	startedAt: number;
+}): Promise<{ receivedBytes: number; binaryHash: string }> {
+	const reader = params.body.getReader();
+	const writer = createWriteStream(params.tempPathAbsolute, { flags: 'wx' });
+	const hash = createHash('sha256');
+	let receivedBytes = 0;
+	let nextProgressBytes = PROGRESS_BYTES;
+	let lastProgressAt = Date.now();
+	let abortLogged = false;
+
+	const logProgress = (reason: 'bytes' | 'interval') => {
+		console.info('[KNOWLEDGE] Raw upload receive progress', {
+			traceId: params.traceId,
+			userId: params.userId,
+			fileName: params.fileName,
+			reason,
+			receivedBytes,
+			declaredFileSize: params.declaredFileSize,
+			contentLength: params.contentLength,
+			durationMs: Date.now() - params.startedAt,
+		});
+	};
+	const onAbort = () => {
+		abortLogged = true;
+		console.warn('[KNOWLEDGE] Raw upload request aborted while receiving body', {
+			traceId: params.traceId,
+			userId: params.userId,
+			fileName: params.fileName,
+			receivedBytes,
+			declaredFileSize: params.declaredFileSize,
+			contentLength: params.contentLength,
+			durationMs: Date.now() - params.startedAt,
+		});
+	};
+	params.signal?.addEventListener('abort', onAbort, { once: true });
+
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			receivedBytes += value.byteLength;
+			if (receivedBytes > params.requestBodyLimit) {
+				throw new RawUploadLimitError(uploadBodyLimitMessage(params.requestBodyLimit));
+			}
+			hash.update(value);
+			await writeChunk(writer, value);
+
+			const now = Date.now();
+			if (receivedBytes >= nextProgressBytes) {
+				logProgress('bytes');
+				while (receivedBytes >= nextProgressBytes) {
+					nextProgressBytes += PROGRESS_BYTES;
+				}
+				lastProgressAt = now;
+			} else if (now - lastProgressAt >= PROGRESS_MS) {
+				logProgress('interval');
+				lastProgressAt = now;
+			}
+		}
+
+		await finishWriter(writer);
+	} catch (error) {
+		writer.destroy();
+		await reader.cancel().catch(() => undefined);
+		await unlink(params.tempPathAbsolute).catch(() => undefined);
+		if (!abortLogged && isAbortError(error)) {
+			onAbort();
+		}
+		throw error;
+	} finally {
+		params.signal?.removeEventListener('abort', onAbort);
+	}
+
+	if (params.declaredFileSize !== null && receivedBytes !== params.declaredFileSize) {
+		await unlink(params.tempPathAbsolute).catch(() => undefined);
+		throw new RawUploadSizeMismatchError(
+			`Upload size mismatch. Browser declared ${params.declaredFileSize} bytes but the server received ${receivedBytes} bytes.`
+		);
+	}
+
+	return {
+		receivedBytes,
+		binaryHash: hash.digest('hex'),
+	};
+}
+
+export const POST: RequestHandler = async (event) => {
+	requireAuth(event);
+	const user = event.locals.user!;
+	const traceId = sanitizeUploadTraceId(event.request.headers.get(UPLOAD_TRACE_HEADER)) ?? createAttachmentTraceId('upload');
+	const startedAt = Date.now();
+	const config = getConfig();
+	const contentLength = parseContentLength(event.request.headers.get('content-length'));
+	const declaredFileName = decodeHeaderValue(event.request.headers.get(UPLOAD_NAME_HEADER));
+	const declaredFileSize = parseContentLength(event.request.headers.get(UPLOAD_SIZE_HEADER));
+	const conversationId = sanitizeHeaderValue(event.request.headers.get(UPLOAD_CONVERSATION_HEADER));
+	const mimeType = event.request.headers.get('content-type')?.split(';')[0]?.trim() || null;
+	const adapterBodySizeLimit = getAdapterBodySizeLimitBytes();
+	const requestBodyLimit = effectiveRequestBodyLimit({
+		appFileLimit: config.maxFileUploadSize,
+		adapterBodySizeLimit,
+	});
+
+	console.info('[KNOWLEDGE] Raw upload receive started', {
+		traceId,
+		userId: user.id,
+		fileName: declaredFileName,
+		declaredFileSize,
+		contentLength,
+		mimeType,
+		conversationId,
+		maxFileUploadSize: config.maxFileUploadSize,
+		adapterBodySizeLimit,
+		requestBodyLimit,
+	});
+
+	if (!declaredFileName) {
+		return json({ error: 'Upload file name is required', code: 'upload_name_required', traceId }, { status: 400 });
+	}
+
+	if (!event.request.body) {
+		return json({ error: 'Upload request body is empty', code: 'upload_body_missing', traceId }, { status: 400 });
+	}
+
+	if (conversationId) {
+		const conversation = await getConversation(user.id, conversationId);
+		if (!conversation) {
+			return json({ error: 'Conversation not found or access denied', code: 'conversation_not_found', traceId }, { status: 400 });
+		}
+	}
+
+	if (declaredFileSize !== null && declaredFileSize > config.maxFileUploadSize) {
+		return json(
+			{
+				error: `File too large. Maximum size is ${formatBytes(config.maxFileUploadSize)}.`,
+				code: 'upload_file_too_large',
+				errorKey: 'knowledge.uploadFileTooLarge',
+				traceId,
+			},
+			{ status: 413 }
+		);
+	}
+
+	if (contentLength !== null && contentLength > requestBodyLimit) {
+		return json(
+			{
+				error: uploadBodyLimitMessage(requestBodyLimit),
+				code: 'upload_body_too_large',
+				errorKey: 'knowledge.uploadBodyTooLarge',
+				traceId,
+			},
+			{ status: 413 }
+		);
+	}
+
+	const tempDir = join(process.cwd(), 'data', 'knowledge', user.id, '.incoming');
+	await mkdir(tempDir, { recursive: true });
+	const tempPathAbsolute = join(tempDir, `${traceId}-${Date.now()}.upload`);
+
+	let received: { receivedBytes: number; binaryHash: string };
+	try {
+		received = await receiveRawUpload({
+			body: event.request.body,
+			tempPathAbsolute,
+			traceId,
+			userId: user.id,
+			fileName: declaredFileName,
+			declaredFileSize,
+			contentLength,
+			requestBodyLimit,
+			signal: event.request.signal,
+			startedAt,
+		});
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		const status =
+			error instanceof RawUploadLimitError || error instanceof RawUploadSizeMismatchError
+				? error.status
+				: isAbortError(error)
+					? 400
+					: 500;
+		const code =
+			error instanceof RawUploadLimitError || error instanceof RawUploadSizeMismatchError
+				? error.code
+				: isAbortError(error)
+					? 'upload_aborted'
+					: 'upload_receive_failed';
+		console.warn('[KNOWLEDGE] Raw upload receive failed', {
+			traceId,
+			userId: user.id,
+			fileName: declaredFileName,
+			declaredFileSize,
+			contentLength,
+			code,
+			message,
+			durationMs: Date.now() - startedAt,
+		});
+		return json({ error: message, code, traceId }, { status });
+	}
+
+	console.info('[KNOWLEDGE] Raw upload receive completed', {
+		traceId,
+		userId: user.id,
+		fileName: declaredFileName,
+		receivedBytes: received.receivedBytes,
+		contentLength,
+		durationMs: Date.now() - startedAt,
+	});
+
+	const uploadResult = await saveUploadedArtifactFromStoredFile({
+		userId: user.id,
+		conversationId,
+		fileName: declaredFileName,
+		mimeType,
+		sizeBytes: received.receivedBytes,
+		binaryHash: received.binaryHash,
+		tempPathAbsolute,
+	});
+	const artifact = uploadResult.artifact;
+	console.info('[KNOWLEDGE] Raw source upload saved', {
+		traceId,
+		userId: user.id,
+		conversationId,
+		artifactId: artifact.id,
+		fileName: artifact.name,
+		fileSize: artifact.sizeBytes,
+		durationMs: Date.now() - startedAt,
+	});
+
+	let normalizedArtifact = uploadResult.normalizedArtifact;
+	if (!normalizedArtifact && artifact.storagePath) {
+		normalizedArtifact = await createNormalizedArtifact({
+			userId: user.id,
+			conversationId,
+			sourceArtifactId: artifact.id,
+			sourceStoragePath: artifact.storagePath,
+			sourceName: artifact.name,
+			sourceMimeType: artifact.mimeType,
+		});
+	}
+	console.info('[KNOWLEDGE] Raw upload extraction completed', {
+		traceId,
+		userId: user.id,
+		conversationId,
+		artifactId: artifact.id,
+		normalizedArtifactId: normalizedArtifact?.id ?? null,
+		normalizedTextLength: normalizedArtifact?.contentText?.length ?? 0,
+		durationMs: Date.now() - startedAt,
+	});
+
+	let syncResult: Awaited<ReturnType<typeof syncArtifactToHoncho>> = {
+		uploaded: false,
+		mode: 'none',
+	};
+	syncResult = await syncArtifactToHoncho({
+		userId: user.id,
+		conversationId,
+		artifact,
+	});
+
+	if (!syncResult.uploaded) {
+		syncResult = await syncArtifactToHoncho({
+			userId: user.id,
+			conversationId,
+			artifact,
+			fallbackTextArtifact: normalizedArtifact,
+		});
+	}
+	console.info('[KNOWLEDGE] Raw upload Honcho sync completed', {
+		traceId,
+		userId: user.id,
+		conversationId,
+		artifactId: artifact.id,
+		uploaded: syncResult.uploaded,
+		mode: syncResult.mode,
+		durationMs: Date.now() - startedAt,
+	});
+
+	const resolvedAttachment = await resolvePromptAttachmentArtifacts(user.id, [artifact.id]);
+	const resolvedItem = resolvedAttachment.items[0];
+	const promptReady = resolvedItem?.promptReady ?? false;
+	const readinessError = resolvedItem
+		? resolvedItem.readinessError
+		: 'This file could not be prepared for chat. Remove it or upload a supported text-readable document.';
+
+	logAttachmentTrace('upload_result', {
+		traceId,
+		userId: user.id,
+		conversationId,
+		sourceArtifactId: artifact.id,
+		normalizedArtifactId: normalizedArtifact?.id ?? null,
+		promptReady,
+		promptArtifactId: resolvedItem?.promptArtifact?.id ?? null,
+		extractionTextLength: resolvedItem?.contentLength ?? 0,
+		chunkCount: resolvedItem?.chunkCount ?? 0,
+		contentHash: resolvedItem?.contentHash ?? null,
+	});
+
+	return json({
+		artifact,
+		normalizedArtifact,
+		honcho: syncResult,
+		promptReady,
+		promptArtifactId: promptReady ? resolvedItem?.promptArtifact?.id ?? null : null,
+		readinessError,
+		renameInfo: uploadResult.renameInfo,
+	});
+};

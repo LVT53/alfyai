@@ -19,6 +19,7 @@ const MULTIPART_OVERHEAD_ALLOWANCE_BYTES = 1024 * 1024;
 const UPLOAD_NAME_HEADER = 'x-alfyai-upload-name';
 const UPLOAD_SIZE_HEADER = 'x-alfyai-upload-size';
 const UPLOAD_TRACE_HEADER = 'x-alfyai-upload-trace-id';
+const MULTIPART_PARSE_WATCHDOG_MS = 10_000;
 const MAX_FILE_SIZE_MB = () => Math.round(getConfig().maxFileUploadSize / (1024 * 1024));
 
 function parseContentLength(value: string | null): number | null {
@@ -170,7 +171,43 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 
+	console.info('[KNOWLEDGE] Multipart upload receive started', {
+		traceId,
+		userId: user.id,
+		declaredFileName,
+		declaredFileSize,
+		contentLength,
+		maxFileUploadSize: config.maxFileUploadSize,
+		adapterBodySizeLimit,
+		requestBodyLimit,
+	});
+
 	let formData: FormData;
+	const logMultipartAbort = () => {
+		console.warn('[KNOWLEDGE] Multipart upload request aborted during formData parsing', {
+			traceId,
+			userId: user.id,
+			declaredFileName,
+			declaredFileSize,
+			contentLength,
+			durationMs: Date.now() - startedAt,
+		});
+	};
+	const watchdog = setInterval(() => {
+		console.warn('[KNOWLEDGE] Multipart upload still parsing formData', {
+			traceId,
+			userId: user.id,
+			declaredFileName,
+			declaredFileSize,
+			contentLength,
+			requestSignalAborted: event.request.signal?.aborted ?? null,
+			durationMs: Date.now() - startedAt,
+		});
+	}, MULTIPART_PARSE_WATCHDOG_MS);
+	const requestSignal = event.request.signal;
+	if (typeof requestSignal?.addEventListener === 'function') {
+		requestSignal.addEventListener('abort', logMultipartAbort, { once: true });
+	}
 	try {
 		formData = await event.request.formData();
 	} catch (error) {
@@ -233,6 +270,11 @@ export const POST: RequestHandler = async (event) => {
 		}
 
 		return json({ error: 'Invalid form data', code: 'invalid_form_data' }, { status: 400 });
+	} finally {
+		clearInterval(watchdog);
+		if (typeof requestSignal?.removeEventListener === 'function') {
+			requestSignal.removeEventListener('abort', logMultipartAbort);
+		}
 	}
 
 	const file = formData.get('file');

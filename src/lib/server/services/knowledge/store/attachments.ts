@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, rename, unlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
@@ -487,6 +487,90 @@ export async function saveUploadedArtifact(params: {
         : {}),
     },
   });
+
+  if (params.conversationId) {
+    await ensureConversationAttachmentLink({
+      userId: params.userId,
+      artifactId: artifact.id,
+      conversationId: params.conversationId,
+    });
+  }
+
+  return {
+    artifact,
+    normalizedArtifact: null,
+    ...(nameResolution.wasRenamed
+      ? {
+          renameInfo: {
+            originalName: nameResolution.originalName,
+            wasRenamed: true,
+          },
+        }
+      : {}),
+  };
+}
+
+export async function saveUploadedArtifactFromStoredFile(params: {
+  userId: string;
+  conversationId?: string | null;
+  fileName: string;
+  mimeType?: string | null;
+  sizeBytes: number;
+  binaryHash: string;
+  tempPathAbsolute: string;
+  metadata?: Record<string, unknown> | null;
+}): Promise<{
+  artifact: Artifact;
+  normalizedArtifact: Artifact | null;
+  renameInfo?: {
+    originalName: string;
+    wasRenamed: boolean;
+  };
+}> {
+  const extension = fileExtension(params.fileName);
+  const userDir = knowledgeUserDir(params.userId);
+
+  const nameResolution = await resolveArtifactNameWithAutoRename({
+    userId: params.userId,
+    originalName: params.fileName,
+  });
+
+  const finalArtifactId = randomUUID();
+  await mkdir(userDir, { recursive: true });
+
+  const fileName = extension
+    ? `${finalArtifactId}.${extension}`
+    : finalArtifactId;
+  const storagePath = join("data", "knowledge", params.userId, fileName);
+  const absolutePath = join(process.cwd(), storagePath);
+  await rename(params.tempPathAbsolute, absolutePath);
+
+  let artifact: Artifact;
+  try {
+    artifact = await createArtifact({
+      id: finalArtifactId,
+      userId: params.userId,
+      conversationId: params.conversationId,
+      type: "source_document",
+      name: nameResolution.finalName,
+      mimeType: params.mimeType || null,
+      extension,
+      sizeBytes: params.sizeBytes,
+      binaryHash: params.binaryHash,
+      storagePath,
+      summary: nameResolution.finalName,
+      metadata: {
+        uploadSource: "chat",
+        ...(params.metadata ?? {}),
+        ...(nameResolution.wasRenamed
+          ? { originalName: nameResolution.originalName, renamed: true }
+          : {}),
+      },
+    });
+  } catch (error) {
+    await unlink(absolutePath).catch(() => undefined);
+    throw error;
+  }
 
   if (params.conversationId) {
     await ensureConversationAttachmentLink({

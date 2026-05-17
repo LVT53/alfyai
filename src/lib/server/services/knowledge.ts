@@ -60,6 +60,7 @@ export {
 	listMessageAttachments,
 	resolvePromptAttachmentArtifacts,
 	saveUploadedArtifact,
+	saveUploadedArtifactFromStoredFile,
 	WORKING_SET_DOCUMENT_TOKEN_BUDGET,
 	WORKING_SET_OUTPUT_TOKEN_BUDGET,
 	WORKING_SET_PROMPT_TOKEN_BUDGET,

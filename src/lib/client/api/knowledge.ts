@@ -48,6 +48,7 @@ const UPLOAD_GATEWAY_STATUSES = new Set([502, 503, 504]);
 const UPLOAD_NAME_HEADER = 'X-AlfyAI-Upload-Name';
 const UPLOAD_SIZE_HEADER = 'X-AlfyAI-Upload-Size';
 const UPLOAD_TRACE_HEADER = 'X-AlfyAI-Upload-Trace-Id';
+const UPLOAD_CONVERSATION_HEADER = 'X-AlfyAI-Conversation-Id';
 
 type KnowledgeUploadIntentResponse = {
 	traceId: string;
@@ -63,7 +64,7 @@ function formatUploadBytes(value: number): string {
 }
 
 function uploadGatewayMessage(file: File, status: number): string {
-	return `Upload gateway failed with HTTP ${status} while receiving "${file.name}" (${formatUploadBytes(file.size)}). AlfyAI did not finish receiving the file, so extraction did not start. Check reverse proxy body limits/timeouts and whether the Node server restarted or ran out of memory during multipart parsing.`;
+	return `Upload gateway failed with HTTP ${status} while receiving "${file.name}" (${formatUploadBytes(file.size)}). AlfyAI did not finish receiving the file, so extraction did not start. Check reverse proxy body limits/timeouts and whether the Node server restarted while streaming the upload body.`;
 }
 
 function errorName(error: unknown): string {
@@ -182,23 +183,22 @@ export async function uploadKnowledgeAttachment(
 		'Failed to prepare upload.',
 		fetchImpl
 	);
-	const formData = new FormData();
-	formData.append('file', file);
-	if (conversationId) {
-		formData.append('conversationId', conversationId);
-	}
-
 	try {
+		const uploadHeaders: Record<string, string> = {
+			[UPLOAD_NAME_HEADER]: encodeUploadHeaderValue(file.name),
+			[UPLOAD_SIZE_HEADER]: String(file.size),
+			[UPLOAD_TRACE_HEADER]: intent.traceId,
+			'Content-Type': file.type || 'application/octet-stream',
+		};
+		if (conversationId) {
+			uploadHeaders[UPLOAD_CONVERSATION_HEADER] = conversationId;
+		}
 		return await requestJson<KnowledgeUploadResponse>(
-			'/api/knowledge/upload',
+			'/api/knowledge/upload/raw',
 			{
 				method: 'POST',
-				headers: {
-					[UPLOAD_NAME_HEADER]: encodeUploadHeaderValue(file.name),
-					[UPLOAD_SIZE_HEADER]: String(file.size),
-					[UPLOAD_TRACE_HEADER]: intent.traceId,
-				},
-				body: formData,
+				headers: uploadHeaders,
+				body: file,
 			},
 			'Failed to upload attachment.',
 			fetchImpl

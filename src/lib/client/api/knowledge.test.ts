@@ -3,7 +3,7 @@ import type { ApiError } from "./http";
 import { uploadKnowledgeAttachment } from "./knowledge";
 
 describe("knowledge client API", () => {
-	it("uploads attachments through multipart form data", async () => {
+	it("uploads attachments through the raw file-body endpoint", async () => {
 		const fetchImpl = vi
 			.fn()
 			.mockResolvedValueOnce(
@@ -46,17 +46,16 @@ describe("knowledge client API", () => {
 		);
 		expect(fetchImpl).toHaveBeenNthCalledWith(
 			2,
-			"/api/knowledge/upload",
+			"/api/knowledge/upload/raw",
 			expect.objectContaining({
 				method: "POST",
-				body: expect.any(FormData),
+				body: file,
 			}),
 		);
 		const [, init] = fetchImpl.mock.calls[1];
-		const body = init.body as FormData;
-		expect(body.get("file")).toBe(file);
-		expect(body.get("conversationId")).toBe("conv-1");
 		expect(init.headers).toMatchObject({
+			"Content-Type": "text/plain",
+			"X-AlfyAI-Conversation-Id": "conv-1",
 			"X-AlfyAI-Upload-Name": "note.txt",
 			"X-AlfyAI-Upload-Size": String(file.size),
 			"X-AlfyAI-Upload-Trace-Id": "trace-upload",
@@ -86,6 +85,7 @@ describe("knowledge client API", () => {
 
 		const [, init] = fetchImpl.mock.calls[1];
 		expect(init.headers).toMatchObject({
+			"Content-Type": "application/pdf",
 			"X-AlfyAI-Upload-Name": encodeURIComponent(file.name),
 			"X-AlfyAI-Upload-Size": String(file.size),
 		});
