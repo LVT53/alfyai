@@ -26,12 +26,14 @@ import {
 	fetchAdminCampaigns,
 	updateAdminCampaign,
 } from '$lib/client/api/campaigns';
+import { uploadCampaignAssetSource } from '$lib/client/api/campaign-assets';
 
 const mockArchiveAdminCampaign = archiveAdminCampaign as ReturnType<typeof vi.fn>;
 const mockDeleteAdminCampaignDraft = deleteAdminCampaignDraft as ReturnType<typeof vi.fn>;
 const mockFetchAdminCampaigns = fetchAdminCampaigns as ReturnType<typeof vi.fn>;
 const mockFetchAdminCampaign = fetchAdminCampaign as ReturnType<typeof vi.fn>;
 const mockUpdateAdminCampaign = updateAdminCampaign as ReturnType<typeof vi.fn>;
+const mockUploadCampaignAssetSource = uploadCampaignAssetSource as ReturnType<typeof vi.fn>;
 
 describe('SettingsAdminCampaignsPane', () => {
 	beforeEach(() => {
@@ -212,5 +214,27 @@ describe('SettingsAdminCampaignsPane', () => {
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
 		expect(mockUpdateAdminCampaign).not.toHaveBeenCalled();
+	});
+
+	it('opens the crop modal immediately while the screenshot source upload is still pending', async () => {
+		mockUploadCampaignAssetSource.mockReturnValue(new Promise(() => {}));
+		render(SettingsAdminCampaignsPane);
+
+		await waitFor(() => {
+			expect(screen.getByRole('button', { name: /Welcome tour/ })).toBeInTheDocument();
+		});
+
+		const uploadLabel = screen.getAllByText('Upload mobile crop')[0].closest('label');
+		const uploadInput = uploadLabel?.querySelector('input[type="file"]') as HTMLInputElement | null;
+		expect(uploadInput).toBeTruthy();
+
+		await fireEvent.change(uploadInput!, {
+			target: {
+				files: [new File(['fake image bytes'], 'mobile.png', { type: 'image/png' })],
+			},
+		});
+
+		expect(mockUploadCampaignAssetSource).toHaveBeenCalled();
+		expect(screen.getByRole('dialog', { name: 'Crop campaign screenshot' })).toBeInTheDocument();
 	});
 });

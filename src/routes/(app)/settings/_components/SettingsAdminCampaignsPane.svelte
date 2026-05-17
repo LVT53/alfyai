@@ -52,8 +52,8 @@
 	type CropJob = {
 		slideLocalId: string;
 		variant: CampaignAssetVariant;
-		sourceAssetId: string;
 		imageSrc: string;
+		sourceUpload: Promise<{ id: string }>;
 	};
 
 	let campaigns = $state<Campaign[]>([]);
@@ -417,20 +417,24 @@
 		const file = input.files?.[0];
 		input.value = '';
 		if (!file) return;
-		assetLoading = `${slideLocalId}:${variant}`;
-		try {
-			const source = await uploadCampaignAssetSource({ image: file });
-			cropJob = {
-				slideLocalId,
-				variant,
-				sourceAssetId: source.id,
-				imageSrc: URL.createObjectURL(file),
-			};
-		} catch (error) {
-			showError(error, $t('admin.campaigns.errors.assetUpload'));
-		} finally {
-			assetLoading = null;
-		}
+
+		const loadingKey = `${slideLocalId}:${variant}`;
+		const imageSrc = URL.createObjectURL(file);
+		const sourceUpload = uploadCampaignAssetSource({ image: file });
+		assetLoading = loadingKey;
+		sourceUpload
+			.catch((error) => {
+				showError(error, $t('admin.campaigns.errors.assetUpload'));
+			})
+			.finally(() => {
+				if (assetLoading === loadingKey) assetLoading = null;
+			});
+		cropJob = {
+			slideLocalId,
+			variant,
+			imageSrc,
+			sourceUpload,
+		};
 	}
 
 	function attachCrop(slideLocalId: string, variant: CampaignAssetVariant, sourceAssetId: string, cropAssetId: string) {
@@ -448,15 +452,16 @@
 	async function saveCrop(payload: { file: File; width: number; height: number; crop: CampaignAssetCropGeometry }) {
 		if (!cropJob) return;
 		const activeCrop = cropJob;
+		const source = await activeCrop.sourceUpload;
 		const crop = await saveCampaignAssetCrop({
-			sourceAssetId: activeCrop.sourceAssetId,
+			sourceAssetId: source.id,
 			variant: activeCrop.variant,
 			image: payload.file,
 			width: payload.width,
 			height: payload.height,
 			crop: payload.crop,
 		});
-		attachCrop(activeCrop.slideLocalId, activeCrop.variant, activeCrop.sourceAssetId, crop.id);
+		attachCrop(activeCrop.slideLocalId, activeCrop.variant, source.id, crop.id);
 		URL.revokeObjectURL(activeCrop.imageSrc);
 		cropJob = null;
 	}
