@@ -9,10 +9,11 @@
 	} from '$lib/client/api/settings';
 	import { t } from '$lib/i18n';
 	import CreateUserModal from './CreateUserModal.svelte';
+	import SettingsAdminCampaignsPane from './SettingsAdminCampaignsPane.svelte';
 	import SettingsAdminSystemPane from './SettingsAdminSystemPane.svelte';
 	import SettingsAdminUsersPane from './SettingsAdminUsersPane.svelte';
 
-	type AdminPane = 'system' | 'users';
+	type AdminPane = 'system' | 'users' | 'campaigns';
 
 	let {
 		currentUserId,
@@ -204,6 +205,13 @@
 	>
 		{$t('settings_usersTab')}
 	</button>
+	<button
+		class="tab-btn flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors duration-150"
+		class:tab-active={activePane === 'campaigns'}
+		onclick={() => openPane('campaigns')}
+	>
+		{$t('settings_campaignsTab')}
+	</button>
 </div>
 
 {#if activePane === 'system'}
@@ -219,7 +227,7 @@
 		{onCheckHonchoHealth}
 		{onSaveAdminConfig}
 	/>
-{:else}
+{:else if activePane === 'users'}
 	<SettingsAdminUsersPane
 		{currentUserId}
 		{modelNames}
@@ -239,6 +247,8 @@
 		onDeleteUser={handleDeleteUser}
 		onRevokeSessions={handleRevokeSessions}
 	/>
+{:else}
+	<SettingsAdminCampaignsPane />
 {/if}
 
 {#if showCreateUserModal}

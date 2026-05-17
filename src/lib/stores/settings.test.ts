@@ -5,6 +5,7 @@ import {
 	initSettings,
 	setSelectedModel,
 	setSelectedModelAndSync,
+	setModelPreferenceAndSync,
 	type ModelId,
 } from './settings';
 
@@ -103,6 +104,22 @@ describe('settings store', () => {
 			await setSelectedModelAndSync('model2');
 
 			expect(get(selectedModel)).toBe('model2');
+		});
+
+		it('should sync an inherited system default while applying the effective model locally', async () => {
+			vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ success: true })));
+
+			await setModelPreferenceAndSync(null, 'model2');
+
+			expect(get(selectedModel)).toBe('model2');
+			expect(fetch).toHaveBeenCalledWith(
+				'/api/settings/preferences',
+				expect.objectContaining({
+					method: 'PATCH',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ preferredModel: null }),
+				})
+			);
 		});
 
 	});

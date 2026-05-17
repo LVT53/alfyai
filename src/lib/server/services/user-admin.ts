@@ -3,9 +3,10 @@ import { randomUUID } from 'crypto';
 import { count, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { analyticsConversations, sessions, usageEvents, users } from '$lib/server/db/schema';
+import { getConfig } from '$lib/server/config-store';
 import type { AdminManagedUserSummary, UserRole } from '$lib/types';
-import { getConfig } from '../config-store';
 import { deleteUserAccountAsAdminWithCleanup } from './cleanup';
+import { modelPreferenceStorageForSystemDefault } from './model-preferences';
 
 export interface CreateManagedUserInput {
 	email: string;
@@ -193,12 +194,14 @@ export async function createManagedUser(input: CreateManagedUserInput): Promise<
 		throw new Error('A user with that email already exists.');
 	}
 
+	const modelPreferenceStorage = await modelPreferenceStorageForSystemDefault(getConfig());
+
 	await db.insert(users).values({
 		id: randomUUID(),
 		email,
 		name,
 		passwordHash: await bcrypt.hash(password, 12),
-		preferredModel: getConfig().defaultNewUserModel,
+		...modelPreferenceStorage,
 		role,
 		updatedAt: new Date(),
 	});

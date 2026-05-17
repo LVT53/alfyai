@@ -5,6 +5,7 @@
 	import { goto } from '$app/navigation';
 	import Header from '$lib/components/layout/Header.svelte';
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
+	import CampaignModal from '$lib/components/campaigns/CampaignModal.svelte';
 	import ServerUpdateNotice from './_components/ServerUpdateNotice.svelte';
 	import { currentConversationId, sidebarOpen, initUIListeners } from '$lib/stores/ui';
 	import {
@@ -12,12 +13,32 @@
 		loadConversations,
 		reconcileConversationSnapshot,
 	} from '$lib/stores/conversations';
+	import {
+		completeCampaign,
+		fetchEligibleCampaign,
+		fetchLatestCampaign,
+		recordCampaignEvent,
+		type Campaign,
+		type CampaignEventType,
+		type CampaignSlide,
+	} from '$lib/client/api/campaigns';
 	import { conversationExists } from '$lib/client/api/conversations';
+	import { shouldPersistCampaignCompletion, type CampaignDisplayMode } from '$lib/client/campaign-replay';
 	import { removeConversationFromPersistedWorkspaceDocumentState } from '$lib/client/document-workspace-state';
+	import { fetchPublicPersonalityProfiles } from '$lib/client/api/admin';
+	import { updateUserPreferences } from '$lib/client/api/settings';
 	import { reconcileProjectSnapshot } from '$lib/stores/projects';
-	import { initSettings, uiLanguage } from '$lib/stores/settings';
-	import { initTheme } from '$lib/stores/theme';
+	import {
+		initSettings,
+		setModelPreferenceAndSync,
+		setSelectedModelAndSync,
+		setUiLanguageAndSync,
+		uiLanguage,
+		type UiLanguage,
+	} from '$lib/stores/settings';
+	import { initTheme, setThemeAndSync, type Theme } from '$lib/stores/theme';
 	import { initAvatar } from '$lib/stores/avatar';
+	import type { ModelId, UserModelPreference } from '$lib/types';
 	import type { LayoutProps } from './$types';
 
 	let { data, children }: LayoutProps = $props();
@@ -27,6 +48,16 @@
 	const REFRESH_DEBOUNCE_MS = 2000; // 2 seconds minimum between refreshes
 	let previousConversationUserId = $state<string | null>(null);
 	let serverUpdateAvailable = $state(false);
+	let activeCampaign = $state<Campaign | null>(null);
+	let campaignMode = $state<CampaignDisplayMode>('auto');
+	let campaignSlideIndex = $state(0);
+	let campaignViewedSlideIds = new Set<string>();
+	let selectedCampaignModel = $state<UserModelPreference>(null);
+	let effectiveCampaignModel = $state<ModelId>('model1');
+	let selectedCampaignTheme = $state<Theme>('system');
+	let selectedCampaignUiLanguage = $state<UiLanguage>('en');
+	let selectedCampaignPersonalityId = $state<string | null>(null);
+	let campaignPersonalityProfiles = $state<Array<{ id: string; name: string; description: string; isBuiltIn?: boolean | number | null }>>([]);
 
 	$effect(() => {
 		const nextUserId = data.user?.id ?? null;
@@ -134,6 +165,114 @@
 		window.location.reload();
 	}
 
+	async function recordActiveCampaignEvent(
+		eventType: CampaignEventType,
+		slideId?: string | null,
+		metadata?: Record<string, unknown>,
+	) {
+		if (!activeCampaign) return;
+		try {
+			await recordCampaignEvent(activeCampaign.id, { eventType, slideId, metadata });
+		} catch (error) {
+			console.warn('Failed to record campaign event:', error);
+		}
+	}
+
+	function openCampaign(campaign: Campaign, mode: CampaignDisplayMode) {
+		activeCampaign = campaign;
+		campaignMode = mode;
+		campaignSlideIndex = 0;
+		campaignViewedSlideIds = new Set();
+		void recordCampaignEvent(campaign.id, {
+			eventType: mode === 'auto' ? 'auto_shown' : 'replay_opened',
+		}).catch((error) => {
+			console.warn('Failed to record campaign open event:', error);
+		});
+	}
+
+	async function checkEligibleCampaign() {
+		if (!browser || activeCampaign) return;
+		try {
+			const campaign = await fetchEligibleCampaign();
+			if (campaign && !activeCampaign) {
+				openCampaign(campaign, 'auto');
+			}
+		} catch (error) {
+			console.warn('Failed to load eligible campaign:', error);
+		}
+	}
+
+	async function handleAppVersionClick() {
+		if (!browser) return;
+		try {
+			const campaign = await fetchLatestCampaign();
+			if (campaign) {
+				openCampaign(campaign, 'replay');
+			}
+		} catch (error) {
+			console.warn('Failed to load latest campaign:', error);
+		}
+	}
+
+	function handleCampaignSlideView(slide: CampaignSlide, index: number) {
+		if (!activeCampaign) return;
+		const slideId = slide.id ?? `slide-${index}`;
+		if (campaignViewedSlideIds.has(slideId)) return;
+		campaignViewedSlideIds.add(slideId);
+		void recordActiveCampaignEvent('slide_viewed', slide.id ?? null, {
+			index,
+			mode: campaignMode,
+		});
+	}
+
+	async function finishActiveCampaign(reason: 'completed' | 'skipped') {
+		const campaign = activeCampaign;
+		if (!campaign) return;
+		const mode = campaignMode;
+		activeCampaign = null;
+		if (!shouldPersistCampaignCompletion(mode)) return;
+		try {
+			await completeCampaign(campaign.id, reason);
+		} catch (error) {
+			console.warn('Failed to complete campaign:', error);
+		}
+	}
+
+	function recordSetupPreferenceChange(preference: string, value: string) {
+		void recordActiveCampaignEvent('setup_preference_changed', null, { preference, value });
+	}
+
+	async function changeCampaignUiLanguage(language: UiLanguage) {
+		selectedCampaignUiLanguage = language;
+		await setUiLanguageAndSync(language);
+		recordSetupPreferenceChange('ui_language', language);
+	}
+
+	async function changeCampaignTheme(theme: Theme) {
+		selectedCampaignTheme = theme;
+		await setThemeAndSync(theme);
+		recordSetupPreferenceChange('theme', theme);
+	}
+
+	async function changeCampaignModel(model: UserModelPreference) {
+		selectedCampaignModel = model;
+		if (model === null) {
+			effectiveCampaignModel = data.systemDefaultModel ?? data.userModel;
+			await setModelPreferenceAndSync(null, effectiveCampaignModel);
+			recordSetupPreferenceChange('model_default', 'system');
+			return;
+		}
+		effectiveCampaignModel = model;
+		await setSelectedModelAndSync(model);
+		recordSetupPreferenceChange('model_default', model);
+	}
+
+	async function changeCampaignPersonality(id: string | null) {
+		selectedCampaignPersonalityId = id;
+		await updateUserPreferences({ preferredPersonalityId: id }).catch(() => {});
+		recordSetupPreferenceChange('ai_style', id ?? 'default');
+	}
+
 	/**
 	 * Handle visibilitychange event - refresh when tab becomes visible
 	 */
@@ -160,12 +299,29 @@
 			uiLanguage: data.userUiLanguage,
 		});
 		initAvatar(data.user?.profilePicture ?? null);
+		selectedCampaignModel = data.userModelPreference ?? null;
+		effectiveCampaignModel = data.userModel;
+		selectedCampaignTheme = data.userTheme as Theme;
+		selectedCampaignUiLanguage = data.userUiLanguage;
+		selectedCampaignPersonalityId = data.userPersonality ?? null;
 		const cleanupUIListeners = initUIListeners();
 
 		// Add event listeners for conversation list refresh
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 		window.addEventListener('focus', handleWindowFocus);
 		void checkForServerUpdate();
+		void fetchPublicPersonalityProfiles()
+			.then((profiles) => {
+				campaignPersonalityProfiles = profiles;
+				if (
+					selectedCampaignPersonalityId &&
+					!profiles.some((profile) => profile.id === selectedCampaignPersonalityId)
+				) {
+					selectedCampaignPersonalityId = null;
+				}
+			})
+			.catch(() => {});
+		void checkEligibleCampaign();
 
 		return () => {
 			cleanupUIListeners();
@@ -189,7 +345,14 @@
 	<Header />
 
 	<div class="flex h-full flex-1 overflow-hidden">
-		<Sidebar open={$sidebarOpen} conversationsData={data?.conversations ?? []} projectsData={data?.projects ?? []} user={data?.user} />
+		<Sidebar
+			open={$sidebarOpen}
+			conversationsData={data?.conversations ?? []}
+			projectsData={data?.projects ?? []}
+			user={data?.user}
+			appVersion={data?.appVersion}
+			onAppVersionClick={handleAppVersionClick}
+		/>
 
 		<main class="relative flex h-full flex-1 flex-col overflow-hidden min-w-0">
 			{#if navigating.to}
@@ -202,6 +365,32 @@
 	</div>
 	<ServerUpdateNotice visible={serverUpdateAvailable} onRefresh={refreshForServerUpdate} />
 </div>
+
+{#if activeCampaign}
+	<CampaignModal
+		campaign={activeCampaign}
+		locale={$uiLanguage}
+		slideIndex={campaignSlideIndex}
+		onSlideChange={(index) => (campaignSlideIndex = index)}
+		onSlideView={handleCampaignSlideView}
+		onSkip={() => finishActiveCampaign('skipped')}
+		onFinish={() => finishActiveCampaign('completed')}
+		setupPreferences={{
+			availableModels: data.availableModels ?? [],
+			effectiveModel: effectiveCampaignModel,
+			systemDefaultModel: data.systemDefaultModel ?? data.userModel,
+			selectedModel: selectedCampaignModel,
+			selectedTheme: selectedCampaignTheme,
+			selectedUiLanguage: selectedCampaignUiLanguage,
+			personalityProfiles: campaignPersonalityProfiles,
+			selectedPersonalityId: selectedCampaignPersonalityId,
+			onChangeUiLanguage: changeCampaignUiLanguage,
+			onChangeTheme: changeCampaignTheme,
+			onChangeModel: changeCampaignModel,
+			onChangePersonality: changeCampaignPersonality,
+		}}
+	/>
+{/if}
 
 <style>
 	@keyframes route-progress-slide {

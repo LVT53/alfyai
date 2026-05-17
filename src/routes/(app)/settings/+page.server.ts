@@ -9,9 +9,9 @@ import {
   ADMIN_CONFIG_KEYS,
   getResolvedAdminConfigValues,
   getConfig,
-  normalizeModelSelectionWithProviders
 } from '$lib/server/config-store';
 import type { UserSettings } from '$lib/types';
+import { resolveUserModelPreference } from '$lib/server/services/model-preferences';
 
 export const load: ServerLoad = async (event) => {
   if (!event.locals.user) throw redirect(302, '/login');
@@ -19,13 +19,22 @@ export const load: ServerLoad = async (event) => {
   const [userRow] = await db.select().from(users).where(eq(users.id, event.locals.user.id));
   if (!userRow) throw redirect(302, '/login');
 
+  const runtime = getConfig();
+  const resolvedModelPreference = await resolveUserModelPreference(
+    userRow.preferredModel,
+    userRow.modelPreferenceMode,
+    runtime,
+  );
+
   const userSettings: UserSettings = {
     id: userRow.id,
     email: userRow.email,
     name: userRow.name,
     role: userRow.role as 'user' | 'admin',
     preferences: {
-      preferredModel: await normalizeModelSelectionWithProviders(userRow.preferredModel ?? 'model1'),
+      preferredModel: resolvedModelPreference.preference,
+      effectiveModel: resolvedModelPreference.effectiveModel,
+      systemDefaultModel: resolvedModelPreference.systemDefaultModel,
       theme: (userRow.theme ?? 'system') as 'system' | 'light' | 'dark',
       titleLanguage: (userRow.titleLanguage ?? 'auto') as 'auto' | 'en' | 'hu',
       uiLanguage: (userRow.uiLanguage ?? 'en') as 'en' | 'hu',
@@ -36,10 +45,22 @@ export const load: ServerLoad = async (event) => {
   };
 
   const isAdmin = userRow.role === 'admin';
-  const runtime = getConfig();
+	const availableModels = await getAvailableModelsWithProviders();
+	const modelNames: Record<string, string> = {
+		model1: runtime.model1.displayName,
+		model2: runtime.model2.displayName,
+	};
+	for (const m of availableModels) {
+		modelNames[m.id] = m.displayName;
+	}
 
   if (!isAdmin) {
-    return { userSettings, composerCommandRegistryEnabled: runtime.composerCommandRegistryEnabled };
+    return {
+      userSettings,
+      modelNames,
+      availableModels,
+      composerCommandRegistryEnabled: runtime.composerCommandRegistryEnabled,
+    };
   }
 
   // Admin: load config data
@@ -50,15 +71,6 @@ export const load: ServerLoad = async (event) => {
 
   const envDefaults = getEnvDefaults();
   const currentConfigValues = getResolvedAdminConfigValues(runtime);
-
-	const availableModels = await getAvailableModelsWithProviders();
-	const modelNames: Record<string, string> = {
-		model1: runtime.model1.displayName,
-		model2: runtime.model2.displayName,
-	};
-	for (const m of availableModels) {
-		modelNames[m.id] = m.displayName;
-	}
 
   return {
     userSettings,

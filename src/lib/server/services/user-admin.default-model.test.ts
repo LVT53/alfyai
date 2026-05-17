@@ -58,8 +58,8 @@ describe("createManagedUser default model", () => {
 		}
 	});
 
-	it("stores the configured provider model as the new user's preferred model", async () => {
-		prepareDatabaseWithDefaultModel("provider:firepass");
+	it("stores inherited system default for new managed users", async () => {
+		prepareDatabaseWithDefaultModel("model2");
 		const { refreshConfig } = await import("$lib/server/config-store");
 		const { createManagedUser } = await import("./user-admin");
 
@@ -73,7 +73,8 @@ describe("createManagedUser default model", () => {
 		expect(readUserByEmail("new-user@example.com")).toEqual(
 			expect.objectContaining({
 				email: "new-user@example.com",
-				preferredModel: "provider:firepass",
+				preferredModel: "model2",
+				modelPreferenceMode: "system",
 			}),
 		);
 	});

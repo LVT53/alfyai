@@ -20,6 +20,7 @@
 	import ConversationList from '../sidebar/ConversationList.svelte';
 	import SearchModal from '../search/SearchModal.svelte';
 	import AvatarCircle from '../ui/AvatarCircle.svelte';
+	import AppVersionBadge from './AppVersionBadge.svelte';
 	import type { ConversationListItem, SessionUser, Project } from '$lib/types';
 	import { avatarState } from '$lib/stores/avatar';
 
@@ -27,12 +28,16 @@
 		open = false,
 		conversationsData = [],
 		projectsData = [],
-		user = null
+		user = null,
+		appVersion = null,
+		onAppVersionClick = undefined,
 	}: {
 		open?: boolean;
 		conversationsData?: ConversationListItem[];
 		projectsData?: Project[];
 		user?: SessionUser | null;
+		appVersion?: { compact: string; full: string } | null;
+		onAppVersionClick?: (() => void) | undefined;
 	} = $props();
 
 	let isDesktop = $state(browser ? window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT : false);
@@ -170,8 +175,17 @@
 		class:px-0={isCollapsed}
 	>
 		{#if !isCollapsed}
-			<div class="overflow-hidden whitespace-nowrap text-[20px] font-sans font-semibold tracking-[-0.03em] text-text-primary opacity-90 transition-opacity duration-150">
-				AlfyAI
+			<div class="flex min-w-0 items-baseline gap-2">
+				<div class="overflow-hidden whitespace-nowrap text-[20px] font-sans font-semibold tracking-[-0.03em] text-text-primary opacity-90 transition-opacity duration-150">
+					AlfyAI
+				</div>
+				{#if appVersion}
+					<AppVersionBadge
+						compactVersion={appVersion.compact}
+						fullVersion={appVersion.full}
+						onClick={onAppVersionClick}
+					/>
+				{/if}
 			</div>
 		{/if}
 
@@ -532,6 +546,9 @@
 
 	@media (min-width: 1024px) {
 		.sidebar-panel {
+			position: relative !important;
+			inset: auto !important;
+			flex: 0 0 auto;
 			transform: translateX(0) !important;
 			translate: 0 !important;
 			opacity: 1 !important;

@@ -42,7 +42,7 @@ test.describe('Admin last active tracking', () => {
 
 		await userRows.first().click();
 
-		const detailPanel = page.locator('text=Last active');
+		const detailPanel = page.getByText('Last active', { exact: true });
 		await expect(detailPanel).toBeVisible();
 	});
 

@@ -4,8 +4,12 @@ import { requireAuth } from '$lib/server/auth/hooks';
 import { db } from '$lib/server/db';
 import { users } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
-import { getAvailableModelsWithProviders } from '$lib/server/config-store';
+import { getAvailableModelsWithProviders, getConfig } from '$lib/server/config-store';
 import type { ModelId } from '$lib/types';
+import {
+	modelPreferenceStorageForExplicitChoice,
+	modelPreferenceStorageForSystemDefault,
+} from '$lib/server/services/model-preferences';
 
 const VALID_THEMES = ['system', 'light', 'dark'];
 const VALID_TITLE_LANGUAGES = ['auto', 'en', 'hu'];
@@ -32,11 +36,18 @@ export const PATCH: RequestHandler = async (event) => {
   const updates: Record<string, unknown> = { updatedAt: new Date() };
 
   if (body.preferredModel !== undefined) {
-    const validModels = new Set((await getAvailableModelsWithProviders()).map((model) => model.id));
-    if (!validModels.has(body.preferredModel as ModelId)) {
-      return json({ error: 'Invalid preferredModel' }, { status: 400 });
+    if (body.preferredModel === null) {
+      Object.assign(updates, await modelPreferenceStorageForSystemDefault(getConfig()));
+    } else {
+      const validModels = new Set((await getAvailableModelsWithProviders()).map((model) => model.id));
+			if (!validModels.has(body.preferredModel as ModelId)) {
+				return json({ error: 'Invalid preferredModel' }, { status: 400 });
+			}
+			Object.assign(updates, await modelPreferenceStorageForExplicitChoice(
+				body.preferredModel as ModelId,
+				getConfig()
+			));
     }
-    updates.preferredModel = body.preferredModel;
   }
 
   if (body.theme !== undefined) {

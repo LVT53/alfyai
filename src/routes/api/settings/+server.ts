@@ -5,7 +5,8 @@ import { db } from '$lib/server/db';
 import { users } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import type { UserSettings } from '$lib/types';
-import { normalizeModelSelectionWithProviders } from '$lib/server/config-store';
+import { getConfig } from '$lib/server/config-store';
+import { resolveUserModelPreference } from '$lib/server/services/model-preferences';
 
 export const GET: RequestHandler = async (event) => {
   requireAuth(event);
@@ -16,13 +17,21 @@ export const GET: RequestHandler = async (event) => {
     return json({ error: 'User not found' }, { status: 404 });
   }
 
+  const resolvedModelPreference = await resolveUserModelPreference(
+    user.preferredModel,
+    user.modelPreferenceMode,
+    getConfig(),
+  );
+
   const settings: UserSettings = {
     id: user.id,
     email: user.email,
     name: user.name,
     role: user.role as 'user' | 'admin',
     preferences: {
-      preferredModel: await normalizeModelSelectionWithProviders(user.preferredModel ?? 'model1'),
+      preferredModel: resolvedModelPreference.preference,
+      effectiveModel: resolvedModelPreference.effectiveModel,
+      systemDefaultModel: resolvedModelPreference.systemDefaultModel,
       theme: (user.theme ?? 'system') as 'system' | 'light' | 'dark',
       titleLanguage: (user.titleLanguage ?? 'auto') as 'auto' | 'en' | 'hu',
       uiLanguage: (user.uiLanguage ?? 'en') as 'en' | 'hu',

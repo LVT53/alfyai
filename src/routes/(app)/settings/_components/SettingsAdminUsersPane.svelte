@@ -164,7 +164,8 @@ $effect(() => {
 									? 'border-accent bg-accent/8'
 									: 'border-border bg-surface-overlay hover:border-accent/40 hover:bg-surface-elevated'
 							}`}
-							data-testid={`admin-user-row-${user.id}`}
+							data-testid="admin-user-row"
+							data-user-id={user.id}
 							onclick={() => (selectedUserId = user.id)}
 						>
 							<div class="flex flex-col items-start gap-2">

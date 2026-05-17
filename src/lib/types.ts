@@ -6,6 +6,7 @@ export type Theme = "system" | "light" | "dark";
 export type UiLanguage = "en" | "hu";
 
 export type ModelId = "model1" | "model2" | `provider:${string}`;
+export type UserModelPreference = ModelId | null;
 export type ThinkingMode = "auto" | "on" | "off";
 
 export function isProviderModelId(
@@ -22,7 +23,9 @@ export function getProviderIdFromModelId(modelId: ModelId): string | null {
 }
 
 export interface UserPreferences {
-	preferredModel: ModelId;
+	preferredModel: UserModelPreference;
+	effectiveModel: ModelId;
+	systemDefaultModel: ModelId;
 	theme: Theme;
 	titleLanguage: "auto" | "en" | "hu";
 	uiLanguage: UiLanguage;

@@ -17,6 +17,10 @@ vi.mock("$lib/server/config-store", () => ({
 		maxMessageLength: 12000,
 		deepResearchEnabled: true,
 		composerCommandRegistryEnabled: true,
+		defaultNewUserModel: "model2",
+		model1: { displayName: "Model 1" },
+		model2: { displayName: "Model 2" },
+		model2Enabled: true,
 	})),
 	normalizeModelSelectionWithProviders: vi.fn((model: string) =>
 		Promise.resolve(model),
@@ -33,7 +37,7 @@ vi.mock("$lib/server/db", () => ({
 				where: vi.fn(() =>
 					Promise.resolve([
 						{
-							preferredModel: "model1",
+							preferredModel: "model2",
 							theme: "system",
 							titleLanguage: "auto",
 							uiLanguage: "en",
@@ -92,6 +96,47 @@ describe("(app) layout load", () => {
 		expect(result).toEqual(
 			expect.objectContaining({
 				composerCommandRegistryEnabled: true,
+			}),
+		);
+	});
+
+	it("exposes inherited and effective model preferences to the app shell", async () => {
+		const result = await load({
+			locals: {
+				user: {
+					id: "user-1",
+					email: "user@example.com",
+					displayName: "User",
+				},
+			},
+		} as Parameters<typeof load>[0]);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				userModelPreference: null,
+				userModel: "model2",
+				systemDefaultModel: "model2",
+			}),
+		);
+	});
+
+	it("exposes package version metadata to the sidebar", async () => {
+		const result = await load({
+			locals: {
+				user: {
+					id: "user-1",
+					email: "user@example.com",
+					displayName: "User",
+				},
+			},
+		} as Parameters<typeof load>[0]);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				appVersion: {
+					compact: "v0.1",
+					full: "0.1.0",
+				},
 			}),
 		);
 	});

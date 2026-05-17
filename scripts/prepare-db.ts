@@ -52,6 +52,13 @@ const requiredExistingTables = [
 	'skill_session_milestones',
 	'skill_note_operations',
 	'skill_note_checkpoints',
+	'campaign_assets',
+	'announcement_campaigns',
+	'announcement_campaign_slides',
+	'announcement_campaign_snapshots',
+	'announcement_campaign_snapshot_slides',
+	'announcement_campaign_user_states',
+	'announcement_campaign_events',
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [
@@ -73,6 +80,12 @@ const requiredExistingColumns: Array<[string, string]> = [
 	['conversation_drafts', 'selected_linked_sources_json'],
 	['conversation_drafts', 'pending_skill_json'],
 	['user_skill_definitions', 'published'],
+	['announcement_campaigns', 'identity_key'],
+	['announcement_campaigns', 'published_snapshot_id'],
+	['announcement_campaign_slides', 'desktop_crop_asset_id'],
+	['announcement_campaign_snapshots', 'identity_key'],
+	['announcement_campaign_user_states', 'snapshot_id'],
+	['announcement_campaign_events', 'event_type'],
 ];
 
 const baselineAdoptionRequiredTables = [
@@ -106,8 +119,13 @@ const baselineAdoptionRequiredColumns: Array<[string, string]> = [
 ];
 
 // Columns that should be auto-created if missing (safe defaults, no data loss)
-const autoCreateColumns: Array<[string, string, string]> = [
+const autoCreateColumnsBeforeMigrations: Array<[string, string, string]> = [
 	['users', 'title_language', "TEXT NOT NULL DEFAULT 'auto'"],
+];
+
+const autoCreateColumnsAfterMigrations: Array<[string, string, string]> = [
+	...autoCreateColumnsBeforeMigrations,
+	['users', 'model_preference_mode', 'TEXT'],
 ];
 
 const ADOPTION_BASELINE_TAG = '0005_flaky_famine';
@@ -155,9 +173,9 @@ function hasColumn(tableName: string, columnName: string): boolean {
 	return listColumns(tableName).includes(columnName);
 }
 
-function autoCreateMissingColumns(): number {
+function autoCreateMissingColumns(columns: readonly (readonly [string, string, string])[]): number {
 	let created = 0;
-	for (const [table, column, definition] of autoCreateColumns) {
+	for (const [table, column, definition] of columns) {
 		if (!hasTable(table)) continue;
 		if (hasColumn(table, column)) continue;
 		sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -584,12 +602,12 @@ export function prepareDatabase(path = process.env.DATABASE_PATH || './data/chat
 				}
 				applyNoJournalAdoptionCompatibilityBackfills();
 			} else {
-				autoCreateMissingColumns();
+				autoCreateMissingColumns(autoCreateColumnsBeforeMigrations);
 				applyMigrationCompatibilityRepairs();
 			}
 
 			runDrizzleMigrations();
-			autoCreateMissingColumns();
+			autoCreateMissingColumns(autoCreateColumnsAfterMigrations);
 			const schemaProblems = validateExistingRuntimeSchema();
 			if (schemaProblems.length > 0) {
 				throw new Error(

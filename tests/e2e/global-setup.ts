@@ -1,6 +1,28 @@
 import { execSync } from 'child_process';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import Database from 'better-sqlite3';
+
+function clearCampaignState(dbPath: string) {
+  const db = new Database(dbPath);
+  try {
+    db.transaction(() => {
+      for (const table of [
+        'announcement_campaign_events',
+        'announcement_campaign_user_states',
+        'announcement_campaign_snapshot_slides',
+        'announcement_campaign_snapshots',
+        'announcement_campaign_slides',
+        'announcement_campaigns',
+        'campaign_assets',
+      ]) {
+        db.prepare(`DELETE FROM ${table}`).run();
+      }
+    })();
+  } finally {
+    db.close();
+  }
+}
 
 export default async function globalSetup() {
   const dbDir = join(process.cwd(), 'data');
@@ -27,6 +49,12 @@ export default async function globalSetup() {
     );
   } catch (err) {
     console.warn('[globalSetup] db:prepare failed:', (err as Error).message?.slice(0, 200));
+  }
+
+  try {
+    clearCampaignState(dbPath);
+  } catch (err) {
+    console.warn('[globalSetup] Campaign cleanup failed:', (err as Error).message?.slice(0, 200));
   }
 
   try {

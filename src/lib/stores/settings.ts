@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 import { updateUserPreferences } from '$lib/client/api/settings';
-import type { ModelId, ThinkingMode } from '$lib/types';
+import type { ModelId, ThinkingMode, UserModelPreference } from '$lib/types';
 import { canUseStorage, persist, read } from './_local-storage';
 
 export type TitleLanguage = 'auto' | 'en' | 'hu';
@@ -82,6 +82,18 @@ export async function setSelectedModelAndSync(model: ModelId): Promise<void> {
 		await updateUserPreferences({ preferredModel: model });
 	} catch {
 		// Non-fatal: local preference already applied
+	}
+}
+
+export async function setModelPreferenceAndSync(
+	preference: UserModelPreference,
+	effectiveModel: ModelId,
+): Promise<void> {
+	setSelectedModel(effectiveModel);
+	try {
+		await updateUserPreferences({ preferredModel: preference });
+	} catch {
+		// Non-fatal: local effective model already applied
 	}
 }
 

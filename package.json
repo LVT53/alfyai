@@ -1,4 +1,6 @@
 {
+	"name": "alfyai",
+	"version": "0.1.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build && node scripts/patch-body-size-limit.mjs",

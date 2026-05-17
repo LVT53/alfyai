@@ -21,6 +21,7 @@
 	import { projects } from '$lib/stores/projects';
 	import {
 		setSelectedModelAndSync,
+		setModelPreferenceAndSync,
 		setTitleLanguageAndSync,
 		setUiLanguageAndSync,
 		type TitleLanguage,
@@ -35,7 +36,7 @@
 	import SettingsAdministrationTab from './_components/SettingsAdministrationTab.svelte';
 	import SettingsAnalyticsTab from './_components/SettingsAnalyticsTab.svelte';
 	import SettingsProfileTab from './_components/SettingsProfileTab.svelte';
-	import type { ModelId } from '$lib/types';
+	import type { ModelId, UserModelPreference } from '$lib/types';
 	import type { PageProps } from './$types';
 
 	// Extended data interface for admin-specific properties
@@ -46,7 +47,9 @@
 			name: string | null;
 			role: 'user' | 'admin';
 			preferences: {
-				preferredModel: ModelId;
+				preferredModel: UserModelPreference;
+				effectiveModel: ModelId;
+				systemDefaultModel: ModelId;
 				theme: 'system' | 'light' | 'dark';
 				titleLanguage: 'auto' | 'en' | 'hu';
 				uiLanguage: 'en' | 'hu';
@@ -94,7 +97,9 @@
 	let showNewPw = $state(false);
 	let showConfirmPw = $state(false);
 
-	let selectedModel = $state(initialPreferences.preferredModel);
+	let selectedModel = $state<UserModelPreference>(initialPreferences.preferredModel);
+	let effectiveModel = $state<ModelId>(initialPreferences.effectiveModel);
+	const systemDefaultModel = initialPreferences.systemDefaultModel ?? initialPreferences.effectiveModel;
 	let selectedTheme = $state(initialPreferences.theme);
 	let selectedTitleLanguage = $state(initialPreferences.titleLanguage ?? 'auto');
 	let selectedUiLanguage = $state<UiLanguage>(initialPreferences.uiLanguage ?? 'en');
@@ -246,9 +251,14 @@ let removingPhoto = $state(false);
 		await updateUserPreferences({ preferredPersonalityId: id }).catch(() => {});
 	}
 
-	async function changeModel(model: ModelId) {
+	async function changeModel(model: UserModelPreference) {
 		selectedModel = model;
-		await setSelectedModelAndSync(model);
+		effectiveModel = model ?? systemDefaultModel;
+		if (model === null) {
+			await setModelPreferenceAndSync(null, systemDefaultModel);
+		} else {
+			await setSelectedModelAndSync(model);
+		}
 	}
 
 	async function changeTheme(theme: 'system' | 'light' | 'dark') {
@@ -441,6 +451,8 @@ let removingPhoto = $state(false);
 				onSavePassword={savePassword}
 				{availableModels}
 				{selectedModel}
+				{effectiveModel}
+				{systemDefaultModel}
 				{selectedTheme}
 				{selectedTitleLanguage}
 				{selectedUiLanguage}
@@ -790,6 +802,15 @@ let removingPhoto = $state(false);
 	}
 
 	.settings-shell-admin {
-		max-width: 1180px;
+		max-width: 1440px;
+		padding-left: var(--space-lg);
+		padding-right: var(--space-lg);
+	}
+
+	@media (max-width: 768px) {
+		.settings-shell-admin {
+			padding-left: var(--space-md);
+			padding-right: var(--space-md);
+		}
 	}
 </style>

@@ -8,7 +8,7 @@
 	} from '$lib/utils/personality-profile-labels';
 	import PasswordField from './PasswordField.svelte';
 	import UserSkillsSettingsSurface from './UserSkillsSettingsSurface.svelte';
-	import type { ModelId } from '$lib/types';
+	import type { ModelId, UserModelPreference } from '$lib/types';
 
 	type AvailableModel = { id: ModelId; displayName: string };
 	type Theme = 'system' | 'light' | 'dark';
@@ -47,6 +47,8 @@
 		onSavePassword,
 		availableModels,
 		selectedModel,
+		effectiveModel,
+		systemDefaultModel = effectiveModel,
 		selectedTheme,
 		selectedTitleLanguage,
 		selectedUiLanguage,
@@ -94,11 +96,13 @@
 		passwordError?: string;
 		onSavePassword: () => void | Promise<void>;
 		availableModels: AvailableModel[];
-		selectedModel: ModelId;
+		selectedModel: UserModelPreference;
+		effectiveModel: ModelId;
+		systemDefaultModel?: ModelId;
 		selectedTheme: Theme;
 		selectedTitleLanguage: TitleLanguage;
 		selectedUiLanguage: UiLanguage;
-		onChangeModel: (model: ModelId) => void | Promise<void>;
+		onChangeModel: (model: UserModelPreference) => void | Promise<void>;
 		onChangeTheme: (theme: Theme) => void | Promise<void>;
 		onChangeTitleLanguage: (lang: TitleLanguage) => void | Promise<void>;
 		onChangeUiLanguage: (lang: UiLanguage) => void | Promise<void>;
@@ -112,6 +116,13 @@
 		forgetEverythingError?: string;
 		skillsEnabled?: boolean;
 	} = $props();
+
+	const systemDefaultModelDisplayName = $derived(
+		availableModels.find((model) => model.id === systemDefaultModel)?.displayName ?? systemDefaultModel
+	);
+	const explicitModelOptions = $derived(
+		availableModels.filter((model) => model.id !== systemDefaultModel)
+	);
 </script>
 
 <section class="settings-card mb-4">
@@ -217,7 +228,17 @@
 		<div>
 			<p class="settings-label">{$t('settings_defaultModel')}</p>
 			<div class="flex gap-2">
-				{#each availableModels as model}
+				<button
+					class="pref-pill"
+					class:pref-pill-active={selectedModel === null}
+					title={$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}
+					aria-label={$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}
+					onclick={() => onChangeModel(null)}
+				>
+					<span>{$t('settings.systemDefaultModel')}</span>
+					<span class="text-xs opacity-70">{systemDefaultModelDisplayName}</span>
+				</button>
+				{#each explicitModelOptions as model}
 					<button
 						class="pref-pill"
 						class:pref-pill-active={selectedModel === model.id}

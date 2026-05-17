@@ -57,6 +57,26 @@ describe('schema core tables', () => {
       expect(user?.name).toBe('Test User');
       expect(user?.honchoPeerVersion).toBe(0);
     });
+
+    it('keeps model preference storage non-null with a separate inheritance mode', () => {
+      const columns = sqlite
+        .prepare("PRAGMA table_info(users)")
+        .all() as { name: string; notnull: number; dflt_value: string | null }[];
+
+      expect(columns).toContainEqual(
+        expect.objectContaining({
+          name: 'preferred_model',
+          notnull: 1,
+          dflt_value: "'model1'",
+        }),
+      );
+      expect(columns).toContainEqual(
+        expect.objectContaining({
+          name: 'model_preference_mode',
+          notnull: 0,
+        }),
+      );
+    });
   });
 
   describe('artifacts table', () => {
@@ -225,6 +245,115 @@ describe('schema core tables', () => {
         .where(eq(schema.conversationSummaries.conversationId, 'conversation-summary-cascade'))
         .get();
       expect(summary).toBeUndefined();
+    });
+  });
+
+  describe('campaign_assets table', () => {
+    it('stores app-owned draft and published campaign screenshot assets outside knowledge artifacts', () => {
+      const columns = sqlite
+        .prepare("PRAGMA table_info(campaign_assets)")
+        .all() as { name: string; notnull: number }[];
+      const columnNames = columns.map((column) => column.name);
+
+      expect(columnNames).toEqual(
+        expect.arrayContaining([
+          'id',
+          'uploaded_by_user_id',
+          'source_asset_id',
+          'asset_kind',
+          'variant',
+          'status',
+          'original_filename',
+          'mime_type',
+          'size_bytes',
+          'storage_path',
+          'width',
+          'height',
+          'crop_x',
+          'crop_y',
+          'crop_width',
+          'crop_height',
+          'zoom',
+          'crop_metadata_json',
+          'created_at',
+          'updated_at',
+        ]),
+      );
+      expect(columns.find((column) => column.name === 'uploaded_by_user_id')?.notnull).toBe(1);
+      expect(columns.find((column) => column.name === 'storage_path')?.notnull).toBe(1);
+
+      const foreignKeys = sqlite
+        .prepare("PRAGMA foreign_key_list(campaign_assets)")
+        .all() as { from: string; table: string; to: string; on_delete: string }[];
+      expect(foreignKeys).toContainEqual(
+        expect.objectContaining({
+          from: 'uploaded_by_user_id',
+          table: 'users',
+          to: 'id',
+          on_delete: 'CASCADE',
+        }),
+      );
+
+      const indexes = sqlite
+        .prepare("PRAGMA index_list(campaign_assets)")
+        .all() as { name: string }[];
+      expect(indexes.map((index) => index.name)).toEqual(
+        expect.arrayContaining([
+          'campaign_assets_status_idx',
+          'campaign_assets_uploaded_by_idx',
+          'campaign_assets_source_idx',
+        ]),
+      );
+
+      db.insert(schema.users).values({
+        id: 'campaign-asset-admin',
+        email: 'campaign-assets@example.com',
+        passwordHash: 'hash-campaign-assets',
+        role: 'admin',
+      }).run();
+
+      db.insert(schema.campaignAssets).values({
+        id: 'asset-source-1',
+        uploadedByUserId: 'campaign-asset-admin',
+        assetKind: 'source',
+        status: 'draft',
+        originalFilename: 'source.png',
+        mimeType: 'image/png',
+        sizeBytes: 1234,
+        storagePath: 'source/asset-source-1.png',
+      }).run();
+
+      db.insert(schema.campaignAssets).values({
+        id: 'asset-crop-1',
+        uploadedByUserId: 'campaign-asset-admin',
+        sourceAssetId: 'asset-source-1',
+        assetKind: 'crop',
+        variant: 'desktop',
+        status: 'draft',
+        originalFilename: 'desktop.png',
+        mimeType: 'image/png',
+        sizeBytes: 1000,
+        storagePath: 'crop/asset-crop-1.png',
+        width: 1600,
+        height: 1000,
+        cropX: 12,
+        cropY: 8,
+        cropWidth: 800,
+        cropHeight: 500,
+        zoom: 1.25,
+        cropMetadataJson: JSON.stringify({ ratio: 1.6 }),
+      }).run();
+
+      const crop = db
+        .select()
+        .from(schema.campaignAssets)
+        .where(eq(schema.campaignAssets.id, 'asset-crop-1'))
+        .get();
+
+      expect(crop?.sourceAssetId).toBe('asset-source-1');
+      expect(crop?.variant).toBe('desktop');
+      expect(crop?.cropWidth).toBe(800);
+      expect(crop?.cropHeight).toBe(500);
     });
   });
 });

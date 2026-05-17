@@ -365,6 +365,27 @@
       "when": 1777140000038,
       "tag": "1777140000038_conversation_forks_sequence_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1777140000039,
+      "tag": "1777140000039_campaign_assets",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1777140000040,
+      "tag": "1777140000040_user_model_preference_inheritance",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1777140000041,
+      "tag": "1777140000041_announcement_campaigns",
+      "breakpoints": true
     }
 
   ]

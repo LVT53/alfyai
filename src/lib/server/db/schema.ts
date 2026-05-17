@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 export const users = sqliteTable('users', {
@@ -9,6 +10,7 @@ export const users = sqliteTable('users', {
   honchoPeerVersion: integer('honcho_peer_version').notNull().default(0),
   role: text('role').notNull().default('user'),
   preferredModel: text('preferred_model').notNull().default('model1'),
+  modelPreferenceMode: text('model_preference_mode'),
   translationEnabled: integer('translation_enabled').notNull().default(0),
   theme: text('theme').notNull().default('system'),
   titleLanguage: text('title_language').notNull().default('auto'),
@@ -1363,6 +1365,230 @@ export const fileProductionJobFiles = sqliteTable('file_production_job_files', {
 		table.chatGeneratedFileId
 	),
 	jobOrderIdx: index('file_production_job_files_job_order_idx').on(table.jobId, table.sortOrder),
+}));
+
+export const campaignAssets = sqliteTable('campaign_assets', {
+	id: text('id').primaryKey(),
+	uploadedByUserId: text('uploaded_by_user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	sourceAssetId: text('source_asset_id').references((): AnySQLiteColumn => campaignAssets.id, {
+		onDelete: 'set null',
+	}),
+	assetKind: text('asset_kind').notNull(),
+	variant: text('variant'),
+	status: text('status').notNull().default('draft'),
+	originalFilename: text('original_filename').notNull(),
+	mimeType: text('mime_type').notNull(),
+	sizeBytes: integer('size_bytes').notNull().default(0),
+	storagePath: text('storage_path').notNull(),
+	width: integer('width'),
+	height: integer('height'),
+	cropX: real('crop_x'),
+	cropY: real('crop_y'),
+	cropWidth: real('crop_width'),
+	cropHeight: real('crop_height'),
+	zoom: real('zoom'),
+	cropMetadataJson: text('crop_metadata_json'),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+	statusIdx: index('campaign_assets_status_idx').on(table.status, table.createdAt),
+	uploadedByIdx: index('campaign_assets_uploaded_by_idx').on(table.uploadedByUserId, table.createdAt),
+	sourceIdx: index('campaign_assets_source_idx').on(table.sourceAssetId, table.variant),
+}));
+
+export const announcementCampaigns = sqliteTable('announcement_campaigns', {
+	id: text('id').primaryKey(),
+	type: text('type').notNull(),
+	status: text('status').notNull().default('draft'),
+	identityKey: text('identity_key').notNull().unique(),
+	name: text('name').notNull(),
+	campaignVersion: text('campaign_version').notNull(),
+	revision: integer('revision').notNull(),
+	releaseVersion: text('release_version'),
+	audience: text('audience').notNull().default('all'),
+	createdByUserId: text('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+	publishedByUserId: text('published_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+	publishedSnapshotId: text('published_snapshot_id'),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	publishedAt: integer('published_at', { mode: 'timestamp' }),
+	archivedAt: integer('archived_at', { mode: 'timestamp' }),
+}, (table) => ({
+	typeStatusIdx: index('announcement_campaigns_type_status_idx').on(
+		table.type,
+		table.status,
+		table.publishedAt,
+	),
+	versionRevisionUniqueIdx: uniqueIndex('announcement_campaigns_version_revision_unique_idx').on(
+		table.type,
+		table.campaignVersion,
+		table.revision,
+	),
+	statusUpdatedIdx: index('announcement_campaigns_status_updated_idx').on(
+		table.status,
+		table.updatedAt,
+	),
+}));
+
+export const announcementCampaignSlides = sqliteTable('announcement_campaign_slides', {
+	id: text('id').primaryKey(),
+	campaignId: text('campaign_id')
+		.notNull()
+		.references(() => announcementCampaigns.id, { onDelete: 'cascade' }),
+	layoutType: text('layout_type').notNull(),
+	semanticRole: text('semantic_role').notNull().default('feature'),
+	sortOrder: integer('sort_order').notNull(),
+	titleEn: text('title_en').notNull().default(''),
+	titleHu: text('title_hu').notNull().default(''),
+	bodyEn: text('body_en').notNull().default(''),
+	bodyHu: text('body_hu').notNull().default(''),
+	actionLabelEn: text('action_label_en'),
+	actionLabelHu: text('action_label_hu'),
+	altTextEn: text('alt_text_en').notNull().default(''),
+	altTextHu: text('alt_text_hu').notNull().default(''),
+	desktopCropAssetId: text('desktop_crop_asset_id').references(() => campaignAssets.id, {
+		onDelete: 'set null',
+	}),
+	mobileCropAssetId: text('mobile_crop_asset_id').references(() => campaignAssets.id, {
+		onDelete: 'set null',
+	}),
+	actionDestination: text('action_destination'),
+	setupControlsJson: text('setup_controls_json'),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+	campaignOrderIdx: index('announcement_campaign_slides_campaign_order_idx').on(
+		table.campaignId,
+		table.sortOrder,
+	),
+	campaignOrderUniqueIdx: uniqueIndex('announcement_campaign_slides_campaign_order_unique_idx').on(
+		table.campaignId,
+		table.sortOrder,
+	),
+}));
+
+export const announcementCampaignSnapshots = sqliteTable('announcement_campaign_snapshots', {
+	id: text('id').primaryKey(),
+	campaignId: text('campaign_id')
+		.notNull()
+		.references(() => announcementCampaigns.id, { onDelete: 'cascade' }),
+	identityKey: text('identity_key').notNull().unique(),
+	type: text('type').notNull(),
+	name: text('name').notNull(),
+	campaignVersion: text('campaign_version').notNull(),
+	revision: integer('revision').notNull(),
+	releaseVersion: text('release_version'),
+	audience: text('audience').notNull().default('all'),
+	publishedByUserId: text('published_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+	publishedAt: integer('published_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	archivedAt: integer('archived_at', { mode: 'timestamp' }),
+}, (table) => ({
+	campaignIdx: index('announcement_campaign_snapshots_campaign_idx').on(table.campaignId),
+	typePublishedIdx: index('announcement_campaign_snapshots_type_published_idx').on(
+		table.type,
+		table.publishedAt,
+	),
+}));
+
+export const announcementCampaignSnapshotSlides = sqliteTable('announcement_campaign_snapshot_slides', {
+	id: text('id').primaryKey(),
+	snapshotId: text('snapshot_id')
+		.notNull()
+		.references(() => announcementCampaignSnapshots.id, { onDelete: 'cascade' }),
+	campaignId: text('campaign_id')
+		.notNull()
+		.references(() => announcementCampaigns.id, { onDelete: 'cascade' }),
+	draftSlideId: text('draft_slide_id'),
+	layoutType: text('layout_type').notNull(),
+	semanticRole: text('semantic_role').notNull().default('feature'),
+	sortOrder: integer('sort_order').notNull(),
+	titleEn: text('title_en').notNull(),
+	titleHu: text('title_hu').notNull(),
+	bodyEn: text('body_en').notNull(),
+	bodyHu: text('body_hu').notNull(),
+	actionLabelEn: text('action_label_en'),
+	actionLabelHu: text('action_label_hu'),
+	altTextEn: text('alt_text_en').notNull(),
+	altTextHu: text('alt_text_hu').notNull(),
+	desktopCropAssetId: text('desktop_crop_asset_id').notNull().references(() => campaignAssets.id, {
+		onDelete: 'restrict',
+	}),
+	mobileCropAssetId: text('mobile_crop_asset_id').notNull().references(() => campaignAssets.id, {
+		onDelete: 'restrict',
+	}),
+	actionDestination: text('action_destination'),
+	setupControlsJson: text('setup_controls_json'),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+	snapshotOrderIdx: index('announcement_campaign_snapshot_slides_order_idx').on(
+		table.snapshotId,
+		table.sortOrder,
+	),
+	campaignOrderIdx: index('announcement_campaign_snapshot_slides_campaign_idx').on(
+		table.campaignId,
+		table.sortOrder,
+	),
+}));
+
+export const announcementCampaignUserStates = sqliteTable('announcement_campaign_user_states', {
+	id: text('id').primaryKey(),
+	userId: text('user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	campaignId: text('campaign_id')
+		.notNull()
+		.references(() => announcementCampaigns.id, { onDelete: 'cascade' }),
+	snapshotId: text('snapshot_id')
+		.notNull()
+		.references(() => announcementCampaignSnapshots.id, { onDelete: 'cascade' }),
+	status: text('status').notNull(),
+	reason: text('reason').notNull(),
+	completedAt: integer('completed_at', { mode: 'timestamp' }),
+	dismissedAt: integer('dismissed_at', { mode: 'timestamp' }),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+	userSnapshotUniqueIdx: uniqueIndex('announcement_campaign_user_states_user_snapshot_unique_idx').on(
+		table.userId,
+		table.snapshotId,
+	),
+	userCampaignIdx: index('announcement_campaign_user_states_user_campaign_idx').on(
+		table.userId,
+		table.campaignId,
+	),
+}));
+
+export const announcementCampaignEvents = sqliteTable('announcement_campaign_events', {
+	id: text('id').primaryKey(),
+	userId: text('user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	campaignId: text('campaign_id')
+		.notNull()
+		.references(() => announcementCampaigns.id, { onDelete: 'cascade' }),
+	snapshotId: text('snapshot_id')
+		.notNull()
+		.references(() => announcementCampaignSnapshots.id, { onDelete: 'cascade' }),
+	eventType: text('event_type').notNull(),
+	slideId: text('slide_id').references(() => announcementCampaignSnapshotSlides.id, {
+		onDelete: 'set null',
+	}),
+	metadataJson: text('metadata_json'),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+	campaignEventIdx: index('announcement_campaign_events_campaign_event_idx').on(
+		table.campaignId,
+		table.eventType,
+		table.createdAt,
+	),
+	userCampaignEventIdx: index('announcement_campaign_events_user_campaign_event_idx').on(
+		table.userId,
+		table.campaignId,
+		table.eventType,
+	),
+	slideIdx: index('announcement_campaign_events_slide_idx').on(table.slideId),
 }));
 
 export const personalityProfiles = sqliteTable('personality_profiles', {

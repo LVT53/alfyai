@@ -2,6 +2,146 @@
 
 AlfyAI is a conversational workspace where users can chat casually, use tools, work with files, and optionally start deeper background research tasks. This context captures product-domain language that should stay stable across implementation choices.
 
+## User Onboarding
+
+### Language
+
+**First-run Onboarding Tour**:
+A versioned per-user introduction shown in the authenticated app shell until the user completes or dismisses that tour version. It teaches core AlfyAI concepts, may collect initial preference choices, and can be replayed from Settings.
+_Avoid_: welcome popup, tutorial carousel, one-time modal
+
+**First-run Onboarding Audience**:
+All users who have not completed or dismissed the current first-run onboarding campaign version, including existing accounts. Ordinary campaign audience settings do not narrow first-run onboarding v1.
+_Avoid_: new-users-only onboarding, signup-only tour, admin-only onboarding
+
+**Announcement Campaign**:
+A versioned, localized app-shell announcement shown to an eligible user until that user completes or dismisses the campaign version. A campaign may be the **First-run Onboarding Tour**, a product update, or another high-priority disclosure, but only one campaign should be active in the shell at a time.
+_Avoid_: toast, changelog page, ad hoc modal, release banner
+
+**Campaign Auto-show**:
+The app-shell behavior that opens one eligible published **Announcement Campaign** without an explicit user click. First-run onboarding takes precedence for users who have not completed or dismissed it; release/update campaigns auto-show only after onboarding is no longer pending, and only the latest unseen release/update campaign auto-shows.
+_Avoid_: popup queue, scheduled modal, forced replay
+
+**Campaign Skip**:
+The secondary action that closes an auto-shown **Announcement Campaign** and marks that campaign version finished for the user. Skip replaces explicit "don't show again" wording in the campaign modal and is hidden on the final slide. Closing the modal with the close button has the same user-state effect as Skip.
+_Avoid_: reminder toggle, maybe later, close without state
+
+**Campaign Identity**:
+The system-generated stable identity for an **Announcement Campaign**, derived from campaign type, version, and revision rather than typed by an admin.
+_Avoid_: admin slug, editable key, title-as-id
+
+**Draft Announcement Campaign**:
+An editable admin-authored campaign revision that has not yet been published to users. It may be previewed in the admin UI but is not eligible for automatic display.
+_Avoid_: live campaign, hidden popup, production draft
+
+**Campaign Template**:
+A system-seeded draft scaffold for a campaign such as first-run onboarding. A template can provide required slide structure and starting copy, but it is not auto-shown until an admin completes validation and publishes it.
+_Avoid_: auto-published onboarding, demo campaign, hidden default
+
+**Published Announcement Campaign**:
+An immutable campaign revision that may be shown to eligible users, replayed from the **App Version Badge**, and audited later by admins. Corrections require publishing a new campaign version rather than mutating the published record.
+_Avoid_: editable announcement, mutable release notes, overwritten campaign
+
+**Published Campaign Snapshot**:
+The frozen published content and asset references for a **Published Announcement Campaign**, stored separately from editable draft state so later edits, crop-tool changes, or admin configuration changes cannot alter what users saw.
+_Avoid_: live draft render, mutable slide JSON, reconstructed campaign
+
+**Archived Announcement Campaign**:
+A published campaign that is no longer eligible for automatic display but remains available in admin history and audit views.
+_Avoid_: deleted announcement, hidden history, expired modal
+
+**Campaign Authoring Surface**:
+The Campaigns pane in admin settings for creating draft campaigns, editing fixed-layout slides, previewing the campaign in desktop/mobile and English/Hungarian modes, publishing immutable campaign revisions, and reviewing published or archived campaign history. Desktop uses a three-zone workbench: campaign list, editor, and exact modal preview; smaller screens may stack editing, preview, and history views.
+_Avoid_: rich page builder, markdown changelog editor, ad hoc popup form
+
+**Campaign Slide Ordering**:
+The admin workflow for changing slide order using explicit accessible move controls. Drag and drop is not required for v1.
+_Avoid_: drag-only ordering, hidden sort field, inaccessible reorder
+
+**Campaign Shell Preview**:
+An admin-only preview that opens draft campaign content in the real campaign modal without changing per-user completion state or writing campaign interaction analytics. It must be visibly marked as a preview.
+_Avoid_: test publish, user-visible draft, analytics event
+
+**Campaign Modal Layout**:
+The fixed user-facing layout for **Announcement Campaigns**. Desktop uses a centered modal with blurred backdrop, subtle border, 8px radius, prominent 16:10 screenshot, localized copy, segmented progress, compact header, and fixed footer. Mobile uses a near full-screen modal or sheet with safe-area padding, 9:16 screenshot, scrollable content, stacked setup controls, and sticky footer. Skip sits far left on non-final slides, Back and the accent Next/Finish action sit on the right, and all clickable controls need pointer cursor, hover affordance, and focus-visible styling.
+_Avoid_: arbitrary slide layout, landing page, inline banner
+
+**Campaign Slide Layout**:
+The fixed layout type for a campaign slide. V1 supports only setup slides and standard slides; both still use required desktop and mobile **Campaign Screenshots**.
+_Avoid_: text-only disclosure, rich custom slide, arbitrary content block
+
+**Campaign Image Crop**:
+The admin workflow that accepts source images and produces required desktop and mobile **Campaign Screenshots** using the campaign's fixed aspect ratios. Desktop crops use 16:10 and mobile crops use 9:16. A slide may use separate desktop and mobile source uploads, with optional source reuse when practical, and the admin should not have to pre-crop source images outside AlfyAI.
+_Avoid_: exact-ratio upload requirement, uncropped image, responsive freeform media
+
+**Campaign Crop Modal**:
+The dedicated admin modal for producing a desktop or mobile **Campaign Image Crop** from a source image. It provides enough room for fixed-ratio cropping, zoom, pan/reposition, reset, and save actions without crowding the campaign editor.
+_Avoid_: cramped inline cropper, external crop tool, freeform crop
+
+**Announcement Release**:
+A meaningful app release that intentionally has an attached **Announcement Campaign**. It is not inferred from every deployment or patch version; the product decides which releases deserve an announcement.
+_Avoid_: every deploy, automatic patch popup, server-update notice
+
+**App Version Badge**:
+A compact, muted version label shown next to the AlfyAI title in the sidebar. It identifies the current app version and opens the most recent **Announcement Campaign** when clicked. It displays a compact major/minor version such as `v1.4`, with the full package version available in hover or metadata.
+_Avoid_: changelog nav item, build hash, update toast
+
+**Canonical App Version**:
+The deployed AlfyAI application version used by the **App Version Badge** and as the default linked app version for release campaigns. It comes from package metadata rather than admin-entered configuration.
+_Avoid_: admin-typed current version, deploy timestamp, build hash as product version
+
+**Campaign Screenshot**:
+A curated static capture of AlfyAI used inside an **Announcement Campaign** to show a released product surface without relying on the user's private data or live app state. Each campaign slide requires desktop and mobile screenshots with stable aspect ratios, and screenshots may zoom into a focused UI area instead of showing the full app chrome.
+_Avoid_: live screenshot, user-data preview, approximate mock UI
+
+**Campaign Asset**:
+An app-owned screenshot or image file uploaded and cropped through admin campaign authoring. Campaign assets are stored outside the Knowledge Base, are not user documents, and are served according to campaign publication state: draft assets to admins only, published campaign assets to authenticated eligible viewers.
+_Avoid_: knowledge artifact, public static file, chat attachment
+
+**Campaign Content Localization**:
+Admin-authored localized slide content stored with campaign drafts and published snapshots. Reusable campaign UI chrome belongs in the app i18n dictionary, while campaign-specific titles, body text, action labels, and image alt text are campaign content.
+_Avoid_: hardcoded slide copy, i18n-only campaign text, single-language release note
+
+**Campaign Publish Validation**:
+The strict completeness checks required before a draft campaign can become a published immutable snapshot. Validation covers required localized content, desktop and mobile campaign assets, valid slide ordering, bounded actions, valid preference controls, and type-specific requirements such as first-run setup and data disclosure slides.
+_Avoid_: best-effort publish, missing-language campaign, broken slide
+
+**Campaign Interaction Analytics**:
+Minimal admin-facing event records for campaign delivery and engagement, such as auto-shown, slide viewed, completed, skipped, replay opened, and setup preference changed. These events are tied to campaign identity, user, timestamp, event type, and slide index when relevant, without free-form user content or heatmap-style tracking.
+_Avoid_: behavioral surveillance, click heatmap, transcript analytics
+
+**Campaign Analytics Summary**:
+The admin campaign-detail view of **Campaign Interaction Analytics**, showing simple campaign-revision counts and completion/drop-off signals near the campaign content rather than in the general analytics dashboard.
+_Avoid_: global usage dashboard, per-click report, heatmap
+
+**Campaign Action Destination**:
+An optional slide action target chosen from a fixed allowlist of internal AlfyAI routes. Campaign actions do not support arbitrary external URLs in v1.
+_Avoid_: external link, arbitrary redirect, freeform URL
+
+**Onboarding Preference Choice**:
+A real account default selected inside the **First-run Onboarding Tour** using the same preference authority as Settings. It is limited to existing user-controlled defaults such as UI language, default model, AI style, and theme.
+_Avoid_: onboarding-only setting, setup wizard state, admin default override
+
+**Onboarding Setup Slide**:
+The first slide of the **First-run Onboarding Tour**, where the user can choose the most important account defaults before seeing feature introductions. It groups **Onboarding Preference Choices** such as language, theme, default model, and AI style.
+_Avoid_: language-only slide, account setup wizard, profile creation
+
+**System Default Preference**:
+A user preference state where the account inherits the current administrator-configured default instead of storing a personal override. For model selection, it means the user's default model follows the system default model until the user chooses a specific model.
+_Avoid_: copied default, recommended model, hardcoded provider
+
+**System Default Migration**:
+The transition rule for existing user model preferences when **System Default Preference** is introduced. Existing users whose stored preferred model equals the configured default model become inherited System default users; users with a different stored model keep that model as an explicit override.
+_Avoid_: forced reset, all-users model override, historical guesswork
+
+**Onboarding Feature Introduction**:
+A tour slide that teaches or discloses a product capability without changing durable workspace data or system-level configuration. It may link the user to the owning surface after the tour.
+_Avoid_: hidden configuration step, feature enablement, tutorial task
+
+**Onboarding Data Disclosure**:
+A required first-run onboarding slide that plainly explains that AlfyAI is not fully local, may process messages and files through configured model providers and integrations, and stores memory or analytics according to the deployment's configuration. It is an acknowledgement disclosure unless the product offers a real opt-out.
+_Avoid_: privacy consent toggle, local-only claim, legal fine print
+
 ## Normal Chat Context
 
 ### Language

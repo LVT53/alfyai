@@ -5,11 +5,12 @@ import { listProjects } from '$lib/server/services/projects';
 import {
 	getAvailableModelsWithProviders,
 	getConfig,
-	normalizeModelSelectionWithProviders,
 } from '$lib/server/config-store';
 import { db } from '$lib/server/db';
 import { users } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
+import { resolveUserModelPreference } from '$lib/server/services/model-preferences';
+import { getAppVersionMetadata } from '$lib/server/services/app-version';
 
 export const load: ServerLoad = async (event) => {
 	if (!event.locals.user) {
@@ -23,9 +24,10 @@ export const load: ServerLoad = async (event) => {
 	]);
 
 	const config = getConfig();
-	const userModel = await normalizeModelSelectionWithProviders(
-		userRow?.preferredModel ?? 'model1',
-		config
+	const resolvedModelPreference = await resolveUserModelPreference(
+		userRow?.preferredModel,
+		userRow?.modelPreferenceMode,
+		config,
 	);
 	const availableModels = await getAvailableModelsWithProviders();
 	const modelNames: Record<string, string> = {};
@@ -41,12 +43,15 @@ export const load: ServerLoad = async (event) => {
 		deepResearchEnabled: config.deepResearchEnabled,
 		composerCommandRegistryEnabled: config.composerCommandRegistryEnabled,
 		userTheme: userRow?.theme ?? 'system',
-		userModel,
+		userModel: resolvedModelPreference.effectiveModel,
+		systemDefaultModel: resolvedModelPreference.systemDefaultModel,
+		userModelPreference: resolvedModelPreference.preference,
 		userTitleLanguage: (userRow?.titleLanguage ?? 'auto') as 'auto' | 'en' | 'hu',
 		userUiLanguage: (userRow?.uiLanguage ?? 'en') as 'en' | 'hu',
 		userPersonality: userRow?.preferredPersonalityId ?? null,
 		userAvatarId: userRow?.avatarId ?? null,
 		modelNames,
 		availableModels,
+		appVersion: getAppVersionMetadata(),
 	};
 };
