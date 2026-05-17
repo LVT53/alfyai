@@ -65,6 +65,15 @@ export function getTeiRerankerMaxTexts(): number {
   return Math.max(1, getConfig().teiRerankerMaxTexts);
 }
 
+function resolveRerankerMaxTexts(requestedMaxTexts?: number): number {
+  const configuredMaxTexts = getTeiRerankerMaxTexts();
+  if (requestedMaxTexts == null) return configuredMaxTexts;
+  const requested = Number.isFinite(requestedMaxTexts)
+    ? Math.max(1, Math.floor(requestedMaxTexts))
+    : configuredMaxTexts;
+  return Math.min(configuredMaxTexts, requested);
+}
+
 export async function rerankTexts(params: {
   query: string;
   texts: string[];
@@ -103,7 +112,7 @@ export async function rerankTexts(params: {
   }
 
   const config = getConfig();
-  const maxTexts = Math.max(1, params.maxTexts ?? config.teiRerankerMaxTexts);
+  const maxTexts = resolveRerankerMaxTexts(params.maxTexts);
   const texts = params.texts.slice(0, maxTexts);
 
   const response = await postToTei<TeiRerankResponse>({
@@ -150,13 +159,14 @@ export async function rerankItems<T>(params: {
     return { items: [], confidence: 0 };
   }
 
-  const limitedItems = params.items.slice(0, params.maxTexts ?? getTeiRerankerMaxTexts());
+  const maxTexts = resolveRerankerMaxTexts(params.maxTexts);
+  const limitedItems = params.items.slice(0, maxTexts);
   let rerankDiagnostics: TeiRerankDiagnostics | null = null;
   const results = await rerankTexts({
     query: params.query,
     texts: limitedItems.map((item) => params.getText(item)),
     truncate: params.truncate,
-    maxTexts: params.maxTexts,
+    maxTexts,
     onDiagnostics: (diagnostics) => {
       rerankDiagnostics = diagnostics;
     },

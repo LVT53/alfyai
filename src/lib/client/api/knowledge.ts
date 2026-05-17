@@ -47,6 +47,11 @@ const UPLOAD_INTERRUPTED_MESSAGE =
 const UPLOAD_GATEWAY_STATUSES = new Set([502, 503, 504]);
 const UPLOAD_NAME_HEADER = 'X-AlfyAI-Upload-Name';
 const UPLOAD_SIZE_HEADER = 'X-AlfyAI-Upload-Size';
+const UPLOAD_TRACE_HEADER = 'X-AlfyAI-Upload-Trace-Id';
+
+type KnowledgeUploadIntentResponse = {
+	traceId: string;
+};
 
 function encodeUploadHeaderValue(value: string): string {
 	return encodeURIComponent(value).slice(0, 512);
@@ -160,6 +165,23 @@ export async function uploadKnowledgeAttachment(
 	conversationId?: string | null,
 	fetchImpl: FetchLike = fetch
 ): Promise<KnowledgeUploadResponse> {
+	const intent = await requestJson<KnowledgeUploadIntentResponse>(
+		'/api/knowledge/upload/intent',
+		{
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				fileName: file.name,
+				fileSize: file.size,
+				mimeType: file.type || null,
+				conversationId: conversationId ?? null,
+			}),
+		},
+		'Failed to prepare upload.',
+		fetchImpl
+	);
 	const formData = new FormData();
 	formData.append('file', file);
 	if (conversationId) {
@@ -174,6 +196,7 @@ export async function uploadKnowledgeAttachment(
 				headers: {
 					[UPLOAD_NAME_HEADER]: encodeUploadHeaderValue(file.name),
 					[UPLOAD_SIZE_HEADER]: String(file.size),
+					[UPLOAD_TRACE_HEADER]: intent.traceId,
 				},
 				body: formData,
 			},

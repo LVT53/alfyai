@@ -91,6 +91,33 @@ describe('tei-reranker service', () => {
     });
   });
 
+  it('clamps explicit text limits to the configured TEI reranker maximum', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          results: [
+            { index: 2, score: 0.9 },
+            { index: 0, score: 0.3 },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    const { rerankTexts } = await import('./tei-reranker');
+    await rerankTexts({
+      query: 'rank',
+      texts: ['a', 'b', 'c', 'd', 'e'],
+      maxTexts: 5,
+    });
+
+    const [, request] = vi.mocked(fetch).mock.calls[0]!;
+    expect(JSON.parse(String(request?.body)).texts).toEqual(['a', 'b', 'c']);
+  });
+
   it('accepts the results response shape and sorts by score descending', async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(
@@ -184,6 +211,43 @@ describe('tei-reranker service', () => {
         outputCount: 2,
         fallbackReason: null,
         confidence: 88,
+      })
+    );
+  });
+
+  it('clamps rerankItems explicit limits before calling TEI', async () => {
+    mockRuntimeConfig.teiRerankerMaxTexts = 2;
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          results: [
+            { index: 1, score: 0.91 },
+            { index: 0, score: 0.45 },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    const diagnostics = vi.fn();
+    const { rerankItems } = await import('./tei-reranker');
+    await rerankItems({
+      query: 'best item',
+      items: [{ text: 'alpha' }, { text: 'beta' }, { text: 'gamma' }],
+      getText: (item) => item.text,
+      maxTexts: 3,
+      onDiagnostics: diagnostics,
+    });
+
+    const [, request] = vi.mocked(fetch).mock.calls[0]!;
+    expect(JSON.parse(String(request?.body)).texts).toEqual(['alpha', 'beta']);
+    expect(diagnostics).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputCount: 3,
+        limitedCount: 2,
       })
     );
   });

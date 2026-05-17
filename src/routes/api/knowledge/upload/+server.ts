@@ -18,6 +18,7 @@ import { getAdapterBodySizeLimitBytes } from '$lib/server/env';
 const MULTIPART_OVERHEAD_ALLOWANCE_BYTES = 1024 * 1024;
 const UPLOAD_NAME_HEADER = 'x-alfyai-upload-name';
 const UPLOAD_SIZE_HEADER = 'x-alfyai-upload-size';
+const UPLOAD_TRACE_HEADER = 'x-alfyai-upload-trace-id';
 const MAX_FILE_SIZE_MB = () => Math.round(getConfig().maxFileUploadSize / (1024 * 1024));
 
 function parseContentLength(value: string | null): number | null {
@@ -39,6 +40,12 @@ function decodeHeaderValue(value: string | null): string | null {
 	} catch {
 		return value.slice(0, 240);
 	}
+}
+
+function sanitizeUploadTraceId(value: string | null): string | null {
+	if (!value) return null;
+	const trimmed = value.trim();
+	return /^[a-z0-9:_-]{4,120}$/i.test(trimmed) ? trimmed : null;
 }
 
 function uploadBodyLimitMessage(limitBytes: number | null) {
@@ -98,7 +105,7 @@ function effectiveRequestBodyLimit(params: {
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
 	const user = event.locals.user!;
-	const traceId = createAttachmentTraceId('upload');
+	const traceId = sanitizeUploadTraceId(event.request.headers.get(UPLOAD_TRACE_HEADER)) ?? createAttachmentTraceId('upload');
 	const startedAt = Date.now();
 	const config = getConfig();
 	const contentLength = parseContentLength(event.request.headers.get('content-length'));
@@ -113,6 +120,7 @@ export const POST: RequestHandler = async (event) => {
 
 	if (contentLength !== null && contentLength > requestBodyLimit) {
 		console.warn('[KNOWLEDGE] Multipart upload exceeded app body allowance before parsing:', {
+			traceId,
 			userId: user.id,
 			declaredFileName,
 			declaredFileSize,
@@ -141,6 +149,7 @@ export const POST: RequestHandler = async (event) => {
 
 	if (declaredFileSize !== null && declaredFileSize > config.maxFileUploadSize) {
 		console.warn('[KNOWLEDGE] Upload file exceeded app file allowance before parsing:', {
+			traceId,
 			userId: user.id,
 			declaredFileName,
 			declaredFileSize,
@@ -169,6 +178,7 @@ export const POST: RequestHandler = async (event) => {
 		const aborted = isUploadAbortError(error, message);
 		const limitError = isBodySizeLimitError(error, message);
 		const diagnostics = {
+			traceId,
 			userId: user.id,
 			declaredFileName,
 			declaredFileSize,

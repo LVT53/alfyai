@@ -441,6 +441,45 @@ describe("sendMessage provider routing", () => {
 		).toBeLessThanOrEqual(8_000);
 	});
 
+	it("reserves room for Langflow framing when enforcing the final outbound payload budget", async () => {
+		mockConfig(
+			{ maxTokens: 8192 },
+			{
+				model1MaxModelContext: 262_144,
+				model1CompactionUiThreshold: 209_715,
+				model1TargetConstructedContext: 235_929,
+			},
+		);
+		const oversizedContext = [
+			"Context from your conversation history:",
+			`## Retrieved Evidence\n${"large context ".repeat(120_000)}`,
+			"## Current User Message\nTiny question?",
+		].join("\n\n");
+		mocks.buildConstructedContext.mockResolvedValueOnce({
+			inputValue: oversizedContext,
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+		});
+
+		await sendMessage("Tiny question?", "conv-1", "model1", { id: "user-1" });
+
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		const systemPrompt = body.tweaks["ModelNode-1"].system_prompt;
+		const promptEstimateWithSafety = Math.ceil(
+			estimateTokenCount(`${systemPrompt}\n\n${body.input_value}`) * 1.2,
+		);
+		const langflowOverheadReserve = Math.floor(262_144 * 0.16);
+		expect(body.input_value).toContain(
+			"## Current User Message\nTiny question?",
+		);
+		expect(
+			promptEstimateWithSafety + langflowOverheadReserve + body.tweaks["ModelNode-1"].max_tokens,
+		).toBeLessThanOrEqual(262_144);
+	});
+
 	it("does not cap outbound prompt context at the compaction UI threshold", async () => {
 		mockConfig(
 			{ maxTokens: 512 },

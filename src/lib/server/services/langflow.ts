@@ -127,6 +127,9 @@ type LangflowHttpError = Error & {
 
 const CURRENT_USER_MESSAGE_MARKER = "## Current User Message\n";
 const LANGFLOW_PROMPT_OVERHEAD_RESERVE_TOKENS = 512;
+const LANGFLOW_PROMPT_OVERHEAD_RESERVE_RATIO = 0.16;
+const LANGFLOW_PROMPT_MAX_OVERHEAD_RESERVE_TOKENS = 48_000;
+const LANGFLOW_PROMPT_TOKEN_SAFETY_FACTOR = 1.2;
 const UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK = 150_000;
 
 const URL_LIST_TOOL_ARGUMENT_GUARD = [
@@ -449,6 +452,20 @@ function resolveProviderPromptContextLimits(provider: {
 	};
 }
 
+function estimateOutboundPromptTokens(text: string): number {
+	return Math.ceil(estimateTokenCount(text) * LANGFLOW_PROMPT_TOKEN_SAFETY_FACTOR);
+}
+
+function resolveLangflowPromptOverheadReserve(maxModelContext: number): number {
+	return Math.max(
+		LANGFLOW_PROMPT_OVERHEAD_RESERVE_TOKENS,
+		Math.min(
+			LANGFLOW_PROMPT_MAX_OVERHEAD_RESERVE_TOKENS,
+			Math.floor(maxModelContext * LANGFLOW_PROMPT_OVERHEAD_RESERVE_RATIO),
+		),
+	);
+}
+
 function extractCurrentMessageSection(
 	inputValue: string,
 	message: string,
@@ -475,8 +492,13 @@ function resolveOutputTokenBudget(params: {
 	systemPrompt: string;
 	currentMessageSection: string;
 }): OutputTokenBudget {
-	const systemTokens = estimateTokenCount(params.systemPrompt);
-	const currentMessageTokens = estimateTokenCount(params.currentMessageSection);
+	const systemTokens = estimateOutboundPromptTokens(params.systemPrompt);
+	const currentMessageTokens = estimateOutboundPromptTokens(
+		params.currentMessageSection,
+	);
+	const overheadReserveTokens = resolveLangflowPromptOverheadReserve(
+		params.contextLimits.maxModelContext,
+	);
 	const budget = deriveModelContextBudget({
 		maxModelContext: params.contextLimits.maxModelContext,
 		targetConstructedContext: params.contextLimits.targetConstructedContext,
@@ -484,7 +506,7 @@ function resolveOutputTokenBudget(params: {
 		maxTokens: params.maxTokens,
 		systemPromptTokens: systemTokens,
 		currentMessageTokens,
-		overheadReserveTokens: LANGFLOW_PROMPT_OVERHEAD_RESERVE_TOKENS,
+		overheadReserveTokens,
 	});
 	return {
 		configuredMaxTokens: budget.configuredMaxTokens,
@@ -516,16 +538,26 @@ function applyOutboundPromptBudget(params: {
 		currentMessageSection,
 	});
 	const outputReserve = outputTokenBudget.outputReserve;
+	const promptOverheadReserve = resolveLangflowPromptOverheadReserve(
+		params.contextLimits.maxModelContext,
+	);
 	const configuredPromptBudget = Math.min(
 		params.contextLimits.targetConstructedContext,
-		Math.max(1, params.contextLimits.maxModelContext - outputReserve),
+		Math.max(
+			1,
+			params.contextLimits.maxModelContext -
+				outputReserve -
+				promptOverheadReserve,
+		),
 	);
-	const systemTokens = estimateTokenCount(params.systemPrompt);
-	const inputTokenBudget =
-		configuredPromptBudget -
-		systemTokens -
-		LANGFLOW_PROMPT_OVERHEAD_RESERVE_TOKENS;
+	const systemTokens = estimateOutboundPromptTokens(params.systemPrompt);
+	const inputTokenBudget = configuredPromptBudget - systemTokens;
+	const safeInputTokenBudget = Math.max(
+		1,
+		Math.floor(inputTokenBudget / LANGFLOW_PROMPT_TOKEN_SAFETY_FACTOR),
+	);
 	const currentInputTokens = estimateTokenCount(params.inputValue);
+	const safeCurrentInputTokens = estimateOutboundPromptTokens(params.inputValue);
 	if (outputTokenBudget.outputReserveClamped) {
 		console.warn("[LANGFLOW] Output token cap clamped", {
 			sessionId: params.sessionId,
@@ -537,18 +569,20 @@ function applyOutboundPromptBudget(params: {
 			configuredMaxTokens: outputTokenBudget.configuredMaxTokens,
 			effectiveMaxTokens: outputTokenBudget.effectiveMaxTokens,
 			outputReserve: outputTokenBudget.outputReserve,
+			promptOverheadReserve,
+			tokenSafetyFactor: LANGFLOW_PROMPT_TOKEN_SAFETY_FACTOR,
 			outputReserveClamped: true,
 		});
 	}
 
-	if (inputTokenBudget > 0 && currentInputTokens <= inputTokenBudget) {
+	if (inputTokenBudget > 0 && safeCurrentInputTokens <= inputTokenBudget) {
 		return { inputValue: params.inputValue, outputTokenBudget };
 	}
 
 	const currentMessageTokens = estimateTokenCount(currentMessageSection);
 	const contextBudget = Math.max(
 		0,
-		inputTokenBudget - currentMessageTokens - 16,
+		safeInputTokenBudget - currentMessageTokens - 16,
 	);
 	const compactedContext = contextPrefix
 		? truncateToTokenBudget(contextPrefix, contextBudget)
@@ -558,7 +592,7 @@ function applyOutboundPromptBudget(params: {
 		.join("\n\n");
 	const finalInputValue =
 		inputTokenBudget > 0
-			? truncateToTokenBudget(budgetedInputValue, inputTokenBudget)
+			? truncateToTokenBudget(budgetedInputValue, safeInputTokenBudget)
 			: currentMessageSection;
 
 	console.warn("[LANGFLOW] Outbound prompt budget applied", {
@@ -571,13 +605,18 @@ function applyOutboundPromptBudget(params: {
 		targetConstructedContext: params.contextLimits.targetConstructedContext,
 		configuredPromptBudget,
 		systemTokens,
+		promptOverheadReserve,
+		tokenSafetyFactor: LANGFLOW_PROMPT_TOKEN_SAFETY_FACTOR,
 		outputReserve,
 		configuredMaxTokens: outputTokenBudget.configuredMaxTokens,
 		effectiveMaxTokens: outputTokenBudget.effectiveMaxTokens,
 		outputReserveClamped: outputTokenBudget.outputReserveClamped,
 		inputTokenBudget,
+		safeInputTokenBudget,
 		beforeInputTokens: currentInputTokens,
+		beforeInputTokensWithSafety: safeCurrentInputTokens,
 		afterInputTokens: estimateTokenCount(finalInputValue),
+		afterInputTokensWithSafety: estimateOutboundPromptTokens(finalInputValue),
 	});
 
 	return { inputValue: finalInputValue, outputTokenBudget };
