@@ -13,7 +13,6 @@ vi.mock('$lib/server/services/knowledge/upload-completion', () => ({
 
 vi.mock('$lib/server/services/attachment-trace', () => ({
 	createAttachmentTraceId: vi.fn(() => 'trace-upload'),
-	logAttachmentTrace: vi.fn(),
 }));
 
 vi.mock('$lib/server/services/conversations', () => ({
@@ -31,21 +30,33 @@ const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
 let consoleWarnSpy: ReturnType<typeof vi.spyOn> | null = null;
 
-function makeRawUploadEvent(body: BodyInit, headers: Record<string, string>) {
+function makeChunkEvent(body: BodyInit, headers: Record<string, string>) {
 	return {
-		request: new Request('http://localhost/api/knowledge/upload/raw', {
+		request: new Request('http://localhost/api/knowledge/upload/chunk', {
 			method: 'POST',
 			headers,
 			body,
 		}),
-		locals: { user: { id: 'raw-user', email: 'test@example.com' } },
+		locals: { user: { id: 'user-1', email: 'test@example.com' } },
 		params: {},
-		url: new URL('http://localhost/api/knowledge/upload/raw'),
-		route: { id: '/api/knowledge/upload/raw' },
+		url: new URL('http://localhost/api/knowledge/upload/chunk'),
+		route: { id: '/api/knowledge/upload/chunk' },
 	} as any;
 }
 
-describe('POST /api/knowledge/upload/raw', () => {
+function chunkHeaders(overrides: Record<string, string> = {}) {
+	return {
+		'content-type': 'application/pdf',
+		'x-alfyai-upload-name': 'scan.pdf',
+		'x-alfyai-upload-size': '10',
+		'x-alfyai-upload-trace-id': 'upload-chunktest',
+		'x-alfyai-conversation-id': 'conv-1',
+		'x-alfyai-chunk-total': '2',
+		...overrides,
+	};
+}
+
+describe('POST /api/knowledge/upload/chunk', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
@@ -59,19 +70,7 @@ describe('POST /api/knowledge/upload/raw', () => {
 			updatedAt: Date.now(),
 		});
 		mockCompleteStoredKnowledgeUpload.mockResolvedValue({
-			artifact: {
-				id: 'artifact-1',
-				type: 'source_document',
-				retrievalClass: 'durable',
-				name: 'scan.pdf',
-				mimeType: 'application/pdf',
-				sizeBytes: 5,
-				conversationId: 'conv-1',
-				summary: 'scan.pdf',
-				storagePath: 'data/knowledge/user-1/artifact-1.pdf',
-				createdAt: Date.now(),
-				updatedAt: Date.now(),
-			},
+			artifact: { id: 'artifact-1' },
 			normalizedArtifact: null,
 			reusedExistingArtifact: false,
 			honcho: { uploaded: false, mode: 'none' },
@@ -84,62 +83,78 @@ describe('POST /api/knowledge/upload/raw', () => {
 		consoleWarnSpy?.mockRestore();
 		consoleInfoSpy = null;
 		consoleWarnSpy = null;
-		await rm(join(process.cwd(), 'data', 'knowledge', 'raw-user', '.incoming'), {
+		await rm(join(process.cwd(), 'data', 'knowledge', 'user-1', '.incoming', 'upload-chunktest'), {
 			force: true,
 			recursive: true,
 		});
 	});
 
-	it('streams the raw file body to temporary storage and persists a source artifact', async () => {
-		const bytes = Buffer.from('hello');
+	it('accepts non-final chunks without starting extraction', async () => {
 		const response = await POST(
-			makeRawUploadEvent(bytes, {
-				'content-type': 'application/pdf',
-				'x-alfyai-upload-name': encodeURIComponent('scan.pdf'),
-				'x-alfyai-upload-size': String(bytes.length),
-				'x-alfyai-upload-trace-id': 'upload-rawtest',
-				'x-alfyai-conversation-id': 'conv-1',
-			}),
+			makeChunkEvent(Buffer.from('hello'), chunkHeaders({
+				'x-alfyai-chunk-index': '0',
+				'x-alfyai-chunk-start': '0',
+				'x-alfyai-chunk-size': '5',
+				'x-alfyai-chunk-final': 'false',
+			})),
 		);
 		const data = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(data.artifact.id).toBe('artifact-1');
+		expect(data.complete).toBe(false);
+		expect(data.receivedBytes).toBe(5);
+		expect(mockCompleteStoredKnowledgeUpload).not.toHaveBeenCalled();
+	});
+
+	it('assembles all chunks and completes the knowledge upload on the final chunk', async () => {
+		await POST(
+			makeChunkEvent(Buffer.from('hello'), chunkHeaders({
+				'x-alfyai-chunk-index': '0',
+				'x-alfyai-chunk-start': '0',
+				'x-alfyai-chunk-size': '5',
+				'x-alfyai-chunk-final': 'false',
+			})),
+		);
+		const response = await POST(
+			makeChunkEvent(Buffer.from('world'), chunkHeaders({
+				'x-alfyai-chunk-index': '1',
+				'x-alfyai-chunk-start': '5',
+				'x-alfyai-chunk-size': '5',
+				'x-alfyai-chunk-final': 'true',
+			})),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.complete).toBe(true);
 		expect(mockCompleteStoredKnowledgeUpload).toHaveBeenCalledWith(
 			expect.objectContaining({
-				userId: 'raw-user',
+				userId: 'user-1',
 				conversationId: 'conv-1',
 				fileName: 'scan.pdf',
 				mimeType: 'application/pdf',
-				sizeBytes: bytes.length,
-				binaryHash: createHash('sha256').update(bytes).digest('hex'),
-				tempPathAbsolute: expect.stringContaining('.incoming'),
-				traceId: 'upload-rawtest',
-				logPrefix: 'Raw',
-			}),
-		);
-		expect(consoleInfoSpy).toHaveBeenCalledWith(
-			'[KNOWLEDGE] Raw upload receive completed',
-			expect.objectContaining({
-				traceId: 'upload-rawtest',
-				receivedBytes: bytes.length,
+				sizeBytes: 10,
+				binaryHash: createHash('sha256').update('helloworld').digest('hex'),
+				tempPathAbsolute: expect.stringContaining('upload-chunktest.assembled'),
+				traceId: 'upload-chunktest',
+				logPrefix: 'Chunked',
 			}),
 		);
 	});
 
-	it('rejects raw uploads when the declared browser size does not match received bytes', async () => {
+	it('rejects chunks whose declared size does not match the received body', async () => {
 		const response = await POST(
-			makeRawUploadEvent(Buffer.from('hello'), {
-				'content-type': 'application/pdf',
-				'x-alfyai-upload-name': 'scan.pdf',
-				'x-alfyai-upload-size': '6',
-				'x-alfyai-upload-trace-id': 'upload-mismatch',
-			}),
+			makeChunkEvent(Buffer.from('nope'), chunkHeaders({
+				'x-alfyai-chunk-index': '0',
+				'x-alfyai-chunk-start': '0',
+				'x-alfyai-chunk-size': '5',
+				'x-alfyai-chunk-final': 'false',
+			})),
 		);
 		const data = await response.json();
 
 		expect(response.status).toBe(400);
-		expect(data.code).toBe('upload_size_mismatch');
+		expect(data.code).toBe('chunk_size_mismatch');
 		expect(mockCompleteStoredKnowledgeUpload).not.toHaveBeenCalled();
 	});
 });

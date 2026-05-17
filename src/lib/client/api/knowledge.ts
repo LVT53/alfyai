@@ -49,10 +49,33 @@ const UPLOAD_NAME_HEADER = 'X-AlfyAI-Upload-Name';
 const UPLOAD_SIZE_HEADER = 'X-AlfyAI-Upload-Size';
 const UPLOAD_TRACE_HEADER = 'X-AlfyAI-Upload-Trace-Id';
 const UPLOAD_CONVERSATION_HEADER = 'X-AlfyAI-Conversation-Id';
+const UPLOAD_CHUNK_INDEX_HEADER = 'X-AlfyAI-Chunk-Index';
+const UPLOAD_CHUNK_TOTAL_HEADER = 'X-AlfyAI-Chunk-Total';
+const UPLOAD_CHUNK_START_HEADER = 'X-AlfyAI-Chunk-Start';
+const UPLOAD_CHUNK_SIZE_HEADER = 'X-AlfyAI-Chunk-Size';
+const UPLOAD_CHUNK_FINAL_HEADER = 'X-AlfyAI-Chunk-Final';
+const CHUNKED_UPLOAD_THRESHOLD_BYTES = 2 * 1024 * 1024;
+const UPLOAD_CHUNK_BYTES = 256 * 1024;
 
 type KnowledgeUploadIntentResponse = {
 	traceId: string;
 };
+
+type ChunkUploadResponse =
+	| (KnowledgeUploadResponse & {
+			complete: true;
+			traceId: string;
+			receivedBytes: number;
+			totalSize: number;
+	  })
+	| {
+			complete: false;
+			traceId: string;
+			receivedBytes: number;
+			totalSize: number;
+			chunkIndex: number;
+			totalChunks: number;
+	  };
 
 function encodeUploadHeaderValue(value: string): string {
 	return encodeURIComponent(value).slice(0, 512);
@@ -65,6 +88,19 @@ function formatUploadBytes(value: number): string {
 
 function uploadGatewayMessage(file: File, status: number): string {
 	return `Upload gateway failed with HTTP ${status} while receiving "${file.name}" (${formatUploadBytes(file.size)}). AlfyAI did not finish receiving the file, so extraction did not start. Check reverse proxy body limits/timeouts and whether the Node server restarted while streaming the upload body.`;
+}
+
+function buildUploadHeaders(file: File, traceId: string, conversationId?: string | null): Record<string, string> {
+	const headers: Record<string, string> = {
+		[UPLOAD_NAME_HEADER]: encodeUploadHeaderValue(file.name),
+		[UPLOAD_SIZE_HEADER]: String(file.size),
+		[UPLOAD_TRACE_HEADER]: traceId,
+		'Content-Type': file.type || 'application/octet-stream',
+	};
+	if (conversationId) {
+		headers[UPLOAD_CONVERSATION_HEADER] = conversationId;
+	}
+	return headers;
 }
 
 function errorName(error: unknown): string {
@@ -184,20 +220,14 @@ export async function uploadKnowledgeAttachment(
 		fetchImpl
 	);
 	try {
-		const uploadHeaders: Record<string, string> = {
-			[UPLOAD_NAME_HEADER]: encodeUploadHeaderValue(file.name),
-			[UPLOAD_SIZE_HEADER]: String(file.size),
-			[UPLOAD_TRACE_HEADER]: intent.traceId,
-			'Content-Type': file.type || 'application/octet-stream',
-		};
-		if (conversationId) {
-			uploadHeaders[UPLOAD_CONVERSATION_HEADER] = conversationId;
+		if (file.size > CHUNKED_UPLOAD_THRESHOLD_BYTES) {
+			return await uploadChunkedKnowledgeAttachment(file, intent.traceId, conversationId, fetchImpl);
 		}
 		return await requestJson<KnowledgeUploadResponse>(
 			'/api/knowledge/upload/raw',
 			{
 				method: 'POST',
-				headers: uploadHeaders,
+				headers: buildUploadHeaders(file, intent.traceId, conversationId),
 				body: file,
 			},
 			'Failed to upload attachment.',
@@ -212,6 +242,49 @@ export async function uploadKnowledgeAttachment(
 		}
 		throw error;
 	}
+}
+
+async function uploadChunkedKnowledgeAttachment(
+	file: File,
+	traceId: string,
+	conversationId: string | null | undefined,
+	fetchImpl: FetchLike
+): Promise<KnowledgeUploadResponse> {
+	const totalChunks = Math.max(1, Math.ceil(file.size / UPLOAD_CHUNK_BYTES));
+	let finalResponse: KnowledgeUploadResponse | null = null;
+
+	for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+		const start = chunkIndex * UPLOAD_CHUNK_BYTES;
+		const end = Math.min(file.size, start + UPLOAD_CHUNK_BYTES);
+		const chunk = file.slice(start, end, file.type || 'application/octet-stream');
+		const isFinal = chunkIndex === totalChunks - 1;
+		const response = await requestJson<ChunkUploadResponse>(
+			'/api/knowledge/upload/chunk',
+			{
+				method: 'POST',
+				headers: {
+					...buildUploadHeaders(file, traceId, conversationId),
+					[UPLOAD_CHUNK_INDEX_HEADER]: String(chunkIndex),
+					[UPLOAD_CHUNK_TOTAL_HEADER]: String(totalChunks),
+					[UPLOAD_CHUNK_START_HEADER]: String(start),
+					[UPLOAD_CHUNK_SIZE_HEADER]: String(end - start),
+					[UPLOAD_CHUNK_FINAL_HEADER]: isFinal ? 'true' : 'false',
+				},
+				body: chunk,
+			},
+			'Failed to upload attachment.',
+			fetchImpl
+		);
+
+		if (response.complete) {
+			finalResponse = response;
+		}
+	}
+
+	if (!finalResponse) {
+		throw new Error('Upload finished without a completed server response.');
+	}
+	return finalResponse;
 }
 
 export async function recordDocumentWorkspaceOpen(artifactId: string): Promise<void> {

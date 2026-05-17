@@ -91,6 +91,88 @@ describe("knowledge client API", () => {
 		});
 	});
 
+	it("uploads large attachments in small chunks to avoid long request timeouts", async () => {
+		const fileBytes = new Uint8Array(2 * 1024 * 1024 + 1);
+		const file = new File([fileBytes], "large.pdf", { type: "application/pdf" });
+		const totalChunks = 9;
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ traceId: "trace-upload" }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+		for (let index = 0; index < totalChunks - 1; index += 1) {
+			fetchImpl.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						complete: false,
+						traceId: "trace-upload",
+						receivedBytes: (index + 1) * 256 * 1024,
+						totalSize: file.size,
+						chunkIndex: index,
+						totalChunks,
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			);
+		}
+		fetchImpl.mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					complete: true,
+					traceId: "trace-upload",
+					receivedBytes: file.size,
+					totalSize: file.size,
+					artifact: { id: "artifact-large" },
+					promptReady: true,
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
+		);
+
+		await expect(
+			uploadKnowledgeAttachment(file, "conv-1", fetchImpl),
+		).resolves.toMatchObject({
+			artifact: { id: "artifact-large" },
+			promptReady: true,
+		});
+
+		expect(fetchImpl).toHaveBeenCalledTimes(totalChunks + 1);
+		expect(fetchImpl).toHaveBeenNthCalledWith(
+			2,
+			"/api/knowledge/upload/chunk",
+			expect.objectContaining({
+				method: "POST",
+				body: expect.any(Blob),
+			}),
+		);
+		const [, firstChunkInit] = fetchImpl.mock.calls[1];
+		expect(firstChunkInit.headers).toMatchObject({
+			"Content-Type": "application/pdf",
+			"X-AlfyAI-Chunk-Index": "0",
+			"X-AlfyAI-Chunk-Total": String(totalChunks),
+			"X-AlfyAI-Chunk-Start": "0",
+			"X-AlfyAI-Chunk-Size": String(256 * 1024),
+			"X-AlfyAI-Chunk-Final": "false",
+			"X-AlfyAI-Conversation-Id": "conv-1",
+			"X-AlfyAI-Upload-Trace-Id": "trace-upload",
+		});
+		const [, finalChunkInit] = fetchImpl.mock.calls[totalChunks];
+		expect(finalChunkInit.headers).toMatchObject({
+			"X-AlfyAI-Chunk-Index": String(totalChunks - 1),
+			"X-AlfyAI-Chunk-Size": "1",
+			"X-AlfyAI-Chunk-Final": "true",
+		});
+	});
+
 	it("preserves server-side upload aborted errors", async () => {
 		const fetchImpl = vi
 			.fn()

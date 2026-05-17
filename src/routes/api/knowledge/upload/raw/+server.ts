@@ -6,19 +6,11 @@ import { join } from 'path';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAuth } from '$lib/server/auth/hooks';
-import {
-	createNormalizedArtifact,
-	resolvePromptAttachmentArtifacts,
-	saveUploadedArtifactFromStoredFile,
-} from '$lib/server/services/knowledge';
-import { syncArtifactToHoncho } from '$lib/server/services/honcho';
-import {
-	createAttachmentTraceId,
-	logAttachmentTrace,
-} from '$lib/server/services/attachment-trace';
+import { createAttachmentTraceId } from '$lib/server/services/attachment-trace';
 import { getConversation } from '$lib/server/services/conversations';
 import { getConfig } from '$lib/server/config-store';
 import { getAdapterBodySizeLimitBytes } from '$lib/server/env';
+import { completeStoredKnowledgeUpload } from '$lib/server/services/knowledge/upload-completion';
 
 const UPLOAD_NAME_HEADER = 'x-alfyai-upload-name';
 const UPLOAD_SIZE_HEADER = 'x-alfyai-upload-size';
@@ -336,7 +328,7 @@ export const POST: RequestHandler = async (event) => {
 		durationMs: Date.now() - startedAt,
 	});
 
-	const uploadResult = await saveUploadedArtifactFromStoredFile({
+	const response = await completeStoredKnowledgeUpload({
 		userId: user.id,
 		conversationId,
 		fileName: declaredFileName,
@@ -344,94 +336,9 @@ export const POST: RequestHandler = async (event) => {
 		sizeBytes: received.receivedBytes,
 		binaryHash: received.binaryHash,
 		tempPathAbsolute,
-	});
-	const artifact = uploadResult.artifact;
-	console.info('[KNOWLEDGE] Raw source upload saved', {
 		traceId,
-		userId: user.id,
-		conversationId,
-		artifactId: artifact.id,
-		fileName: artifact.name,
-		fileSize: artifact.sizeBytes,
-		durationMs: Date.now() - startedAt,
+		startedAt,
+		logPrefix: 'Raw',
 	});
-
-	let normalizedArtifact = uploadResult.normalizedArtifact;
-	if (!normalizedArtifact && artifact.storagePath) {
-		normalizedArtifact = await createNormalizedArtifact({
-			userId: user.id,
-			conversationId,
-			sourceArtifactId: artifact.id,
-			sourceStoragePath: artifact.storagePath,
-			sourceName: artifact.name,
-			sourceMimeType: artifact.mimeType,
-		});
-	}
-	console.info('[KNOWLEDGE] Raw upload extraction completed', {
-		traceId,
-		userId: user.id,
-		conversationId,
-		artifactId: artifact.id,
-		normalizedArtifactId: normalizedArtifact?.id ?? null,
-		normalizedTextLength: normalizedArtifact?.contentText?.length ?? 0,
-		durationMs: Date.now() - startedAt,
-	});
-
-	let syncResult: Awaited<ReturnType<typeof syncArtifactToHoncho>> = {
-		uploaded: false,
-		mode: 'none',
-	};
-	syncResult = await syncArtifactToHoncho({
-		userId: user.id,
-		conversationId,
-		artifact,
-	});
-
-	if (!syncResult.uploaded) {
-		syncResult = await syncArtifactToHoncho({
-			userId: user.id,
-			conversationId,
-			artifact,
-			fallbackTextArtifact: normalizedArtifact,
-		});
-	}
-	console.info('[KNOWLEDGE] Raw upload Honcho sync completed', {
-		traceId,
-		userId: user.id,
-		conversationId,
-		artifactId: artifact.id,
-		uploaded: syncResult.uploaded,
-		mode: syncResult.mode,
-		durationMs: Date.now() - startedAt,
-	});
-
-	const resolvedAttachment = await resolvePromptAttachmentArtifacts(user.id, [artifact.id]);
-	const resolvedItem = resolvedAttachment.items[0];
-	const promptReady = resolvedItem?.promptReady ?? false;
-	const readinessError = resolvedItem
-		? resolvedItem.readinessError
-		: 'This file could not be prepared for chat. Remove it or upload a supported text-readable document.';
-
-	logAttachmentTrace('upload_result', {
-		traceId,
-		userId: user.id,
-		conversationId,
-		sourceArtifactId: artifact.id,
-		normalizedArtifactId: normalizedArtifact?.id ?? null,
-		promptReady,
-		promptArtifactId: resolvedItem?.promptArtifact?.id ?? null,
-		extractionTextLength: resolvedItem?.contentLength ?? 0,
-		chunkCount: resolvedItem?.chunkCount ?? 0,
-		contentHash: resolvedItem?.contentHash ?? null,
-	});
-
-	return json({
-		artifact,
-		normalizedArtifact,
-		honcho: syncResult,
-		promptReady,
-		promptArtifactId: promptReady ? resolvedItem?.promptArtifact?.id ?? null : null,
-		readinessError,
-		renameInfo: uploadResult.renameInfo,
-	});
+	return json(response);
 };
