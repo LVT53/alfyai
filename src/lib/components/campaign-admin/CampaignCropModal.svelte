@@ -224,11 +224,11 @@
 
 	onMount(() => {
 		previousFocus = document.activeElement as HTMLElement;
-		setTimeout(() => dialogRef?.focus(), 0);
+		setTimeout(() => dialogRef?.focus({ preventScroll: true }), 0);
 	});
 
 	onDestroy(() => {
-		previousFocus?.focus();
+		previousFocus?.focus({ preventScroll: true });
 	});
 </script>
 

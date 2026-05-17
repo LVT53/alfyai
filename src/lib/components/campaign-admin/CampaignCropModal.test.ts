@@ -63,4 +63,29 @@ describe('CampaignCropModal', () => {
 		expect(screen.getByRole('button', { name: 'Mégse' })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Kivágás mentése' })).toBeInTheDocument();
 	});
+
+	it('does not scroll the settings page when trapping and restoring focus', async () => {
+		const opener = document.createElement('button');
+		document.body.append(opener);
+		opener.focus();
+		const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+
+		const { unmount } = render(CampaignCropModal, {
+			props: {
+				imageSrc: 'data:image/png;base64,c291cmNl',
+				ratio: 9 / 16,
+				variant: 'mobile',
+				onSave: vi.fn(),
+				onCancel: vi.fn(),
+			},
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+
+		unmount();
+		expect(focusSpy).toHaveBeenLastCalledWith({ preventScroll: true });
+		opener.remove();
+		focusSpy.mockRestore();
+	});
 });

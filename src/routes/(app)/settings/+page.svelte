@@ -388,7 +388,7 @@ let removingPhoto = $state(false);
 	});
 </script>
 
-<div class="flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
+<div class="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto">
 	<div class="settings-shell mx-auto w-full px-4 py-8" class:settings-shell-admin={activeTab === 'administration' && isAdmin}>
 		<h1 class="mb-6 text-2xl font-semibold text-text-primary">{$t('settings')}</h1>
 

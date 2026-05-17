@@ -354,7 +354,7 @@
 			onAppVersionClick={handleAppVersionClick}
 		/>
 
-		<main class="relative flex h-full flex-1 flex-col overflow-hidden min-w-0">
+		<main class="relative flex h-full flex-1 flex-col overflow-clip min-w-0">
 			{#if navigating.to}
 				<div class="pointer-events-none absolute inset-x-0 top-0 z-20 h-1 overflow-hidden">
 					<div class="route-progress h-full w-1/3 rounded-full bg-accent/80"></div>
