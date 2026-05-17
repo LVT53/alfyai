@@ -58,6 +58,10 @@ type DraftPayload = {
 
 type DeepResearchDepth = "focused" | "standard" | "max";
 
+type ComposerTextSegment =
+	| { kind: "text"; text: string }
+	| { kind: "link"; text: string; href: string };
+
 let {
 	disabled = false,
 	maxLength = 10000,
@@ -178,6 +182,7 @@ let skillDiscoveryRequestId = 0;
 let toolsMenuInitialOpen = $state<"model" | "style" | "thinking" | null>(null);
 let selectedDeepResearchDepth = $state<DeepResearchDepth | null>(null);
 let queuedSendAfterProcessing = $state(false);
+let linkHighlightScrollTop = $state(0);
 let appliedDraftVersion = -1;
 let lastEmittedDraftKey = "";
 let ensureDraftConversationPromise: Promise<string> | null = null;
@@ -258,6 +263,7 @@ let activeCommandAnnouncement = $derived(
 			})
 		: "",
 );
+let composerTextSegments = $derived(tokenizeComposerLinks(message));
 
 $effect(() => {
 	resolvedConversationId = conversationId;
@@ -463,6 +469,10 @@ function handleKeyup() {
 	syncTextareaValueFromDom();
 }
 
+function handleTextareaScroll(event: Event) {
+	linkHighlightScrollTop = (event.currentTarget as HTMLTextAreaElement).scrollTop;
+}
+
 function handleKeydown(event: KeyboardEvent) {
 	if (disabled) return;
 	if (event.isComposing) return;
@@ -609,6 +619,41 @@ function stop() {
 	if (isMobile()) {
 		textarea.blur();
 	}
+}
+
+const URL_MATCH_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+const TRAILING_URL_PUNCTUATION_PATTERN = /[),.!?:;]+$/;
+
+function tokenizeComposerLinks(text: string): ComposerTextSegment[] {
+	if (!text) return [];
+	const segments: ComposerTextSegment[] = [];
+	let currentIndex = 0;
+	let hasLink = false;
+
+	for (const match of text.matchAll(URL_MATCH_PATTERN)) {
+		const rawUrl = match[0];
+		const rawStart = match.index ?? 0;
+		const visibleUrl = rawUrl.replace(TRAILING_URL_PUNCTUATION_PATTERN, "");
+		if (!visibleUrl) continue;
+		const visibleEnd = rawStart + visibleUrl.length;
+
+		if (rawStart > currentIndex) {
+			segments.push({ kind: "text", text: text.slice(currentIndex, rawStart) });
+		}
+		segments.push({
+			kind: "link",
+			text: visibleUrl,
+			href: visibleUrl.startsWith("www.") ? `https://${visibleUrl}` : visibleUrl,
+		});
+		hasLink = true;
+		currentIndex = visibleEnd;
+	}
+
+	if (!hasLink) return [];
+	if (currentIndex < text.length) {
+		segments.push({ kind: "text", text: text.slice(currentIndex) });
+	}
+	return segments;
 }
 
 onMount(() => {
@@ -1422,6 +1467,7 @@ async function emitDraftChange(force = false) {
 			bind:value={message}
 			oninput={handleInput}
 			onselect={handleSelect}
+			onscroll={handleTextareaScroll}
 			onkeydown={handleKeydown}
 			onkeyup={handleKeyup}
 			disabled={disabled}
@@ -1431,6 +1477,20 @@ async function emitDraftChange(force = false) {
 			class="composer-textarea min-h-[72px] w-full resize-none overflow-y-auto border-0 bg-transparent px-[13px] py-[7px] text-left text-[15px] leading-[1.42] font-serif text-text-primary placeholder:font-sans placeholder:text-[14px] placeholder:text-text-muted focus:outline-none focus:ring-0 md:min-h-[88px] md:px-[16px] md:py-[8px] md:text-[15px] md:leading-[1.35]"
 			rows="1"
 		></textarea>
+		{#if composerTextSegments.length > 0}
+			<div
+				class="composer-link-highlights min-h-[72px] px-[13px] py-[7px] text-left text-[15px] leading-[1.42] font-serif md:min-h-[88px] md:px-[16px] md:py-[8px] md:text-[15px] md:leading-[1.35]"
+				style={`transform: translateY(-${linkHighlightScrollTop}px);`}
+			>
+				{#each composerTextSegments as segment}
+					{#if segment.kind === 'link'}
+						<a href={segment.href} target="_blank" rel="noopener noreferrer">{segment.text}</a>
+					{:else}
+						<span>{segment.text}</span>
+					{/if}
+				{/each}
+			</div>
+		{/if}
 
 		{#if pendingAttachments.length > 0}
 			<div class="flex flex-wrap gap-2 px-[16px] pb-2 pt-1">
@@ -2132,6 +2192,45 @@ async function emitDraftChange(force = false) {
 
 	.composer-textarea {
 		align-self: stretch;
+		position: relative;
+		z-index: 1;
+	}
+
+	.composer-link-highlights {
+		position: absolute;
+		top: 8px;
+		left: 8px;
+		right: 8px;
+		z-index: 2;
+		max-height: 112px;
+		overflow: hidden;
+		overflow-wrap: anywhere;
+		pointer-events: none;
+		white-space: pre-wrap;
+		color: transparent;
+	}
+
+	.composer-link-highlights a {
+		color: var(--accent);
+		pointer-events: auto;
+		text-decoration-line: underline;
+		text-decoration-thickness: 0.08em;
+		text-underline-offset: 0.16em;
+	}
+
+	.composer-link-highlights a:focus-visible {
+		border-radius: 0.18rem;
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 40%, transparent 60%);
+		outline: none;
+	}
+
+	@media (min-width: 768px) {
+		.composer-link-highlights {
+			top: 10px;
+			left: 10px;
+			right: 10px;
+			max-height: 240px;
+		}
 	}
 
 	.composer-actions {

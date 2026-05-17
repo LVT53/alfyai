@@ -57,4 +57,32 @@ describe('ThinkingBlock', () => {
 		expect(screen.getByText('example.com')).toBeInTheDocument();
 		expect(screen.getByText(/Fetching:/)).toBeInTheDocument();
 	});
+
+	it('renders comma-separated URL fetch inputs as separate Fetching links', () => {
+		const segments: ThinkingSegment[] = [
+			{
+				type: 'tool_call',
+				name: 'fetch_url',
+				status: 'done',
+				input: {
+					url: 'https://a.example/x, https://b.example/y',
+				},
+			},
+		];
+
+		render(ThinkingBlock, {
+			props: {
+				content: '',
+				thinkingIsDone: true,
+				segments,
+			},
+		});
+
+		const links = screen.getAllByRole('link', { name: /(?:a|b)\.example/ });
+
+		expect(links).toHaveLength(2);
+		expect(screen.getAllByText(/Fetching:/)).toHaveLength(2);
+		expect(links[0]).toHaveAttribute('href', 'https://a.example/x');
+		expect(links[1]).toHaveAttribute('href', 'https://b.example/y');
+	});
 });

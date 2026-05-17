@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy, onMount } from "svelte";
 	import { t } from "$lib/i18n";
 	import type { SkillSession } from "$lib/types";
 
@@ -12,7 +13,6 @@
 
 	let { session, busy = false, error = null, onFinish, onDismiss }: Props = $props();
 
-	const statusLabel = $derived($t(`skillSessions.status.${session.status}`));
 	const latestNoteFailure = $derived(
 		session.milestones
 			.filter((milestone) => milestone.kind === "failed_note")
@@ -23,14 +23,44 @@
 			? latestNoteFailure.messageParams.errorMessage
 			: $t("skillSessions.noteFailureFallback"),
 	);
+
+	let panelElement = $state<HTMLElement | null>(null);
+	let resizeObserver: ResizeObserver | null = null;
+	let heightHost: HTMLElement | null = null;
+
+	function syncPanelHeight() {
+		if (!panelElement || typeof window === "undefined") return;
+		const host = panelElement.closest<HTMLElement>(".chat-main") ?? panelElement.parentElement;
+		if (!host) return;
+		heightHost = host;
+		host.style.setProperty("--active-skill-session-height", `${panelElement.offsetHeight}px`);
+	}
+
+	onMount(() => {
+		syncPanelHeight();
+		if (typeof ResizeObserver !== "undefined" && panelElement) {
+			resizeObserver = new ResizeObserver(syncPanelHeight);
+			resizeObserver.observe(panelElement);
+		}
+		const frame = requestAnimationFrame(syncPanelHeight);
+		return () => cancelAnimationFrame(frame);
+	});
+
+	onDestroy(() => {
+		resizeObserver?.disconnect();
+		heightHost?.style.removeProperty("--active-skill-session-height");
+	});
 </script>
 
-<section class="skill-session-panel" aria-label={$t("skillSessions.panelLabel")}>
+<section bind:this={panelElement} class="skill-session-panel" aria-label={$t("skillSessions.panelLabel")}>
 	<div class="skill-session-panel__content">
 		<div class="skill-session-panel__identity">
-			<span class="skill-session-panel__marker" aria-hidden="true"></span>
+			<span
+				class="skill-session-panel__marker"
+				class:skill-session-panel__marker--active={session.status === "active"}
+				aria-hidden="true"
+			></span>
 			<h2>{session.skillDisplayName}</h2>
-			<span class="skill-session-panel__status" class:paused={session.status === "paused"}>{statusLabel}</span>
 		</div>
 		<div class="skill-session-panel__actions">
 			<button type="button" onclick={onFinish} disabled={busy}>
@@ -92,6 +122,12 @@
 		border-radius: 999px;
 		background: var(--accent);
 		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent 85%);
+		animation: skill-session-marker-pulse 1.5s ease-in-out infinite;
+	}
+
+	.skill-session-panel__marker--active {
+		background: var(--success);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 18%, transparent 82%);
 	}
 
 	h2 {
@@ -103,24 +139,6 @@
 		font-size: 0.875rem;
 		font-weight: 650;
 		line-height: 1.25;
-	}
-
-	.skill-session-panel__status {
-		flex: 0 0 auto;
-		border-radius: 999px;
-		border: 1px solid color-mix(in srgb, var(--success) 28%, transparent 72%);
-		background: color-mix(in srgb, var(--success) 14%, var(--surface-elevated) 86%);
-		color: var(--success);
-		font-size: 0.68rem;
-		font-weight: 600;
-		padding: 0.16rem 0.45rem;
-		white-space: nowrap;
-	}
-
-	.skill-session-panel__status.paused {
-		border-color: color-mix(in srgb, var(--accent) 30%, transparent 70%);
-		background: color-mix(in srgb, var(--accent) 14%, var(--surface-elevated) 86%);
-		color: var(--accent);
 	}
 
 	.skill-session-panel__error {
@@ -195,6 +213,18 @@
 	button:disabled {
 		cursor: not-allowed;
 		opacity: 0.65;
+	}
+
+	@keyframes skill-session-marker-pulse {
+		0%,
+		100% {
+			opacity: 0.72;
+			transform: scale(0.92);
+		}
+		50% {
+			opacity: 1;
+			transform: scale(1);
+		}
 	}
 
 	:global(.dark) .skill-session-panel {

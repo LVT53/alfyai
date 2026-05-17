@@ -152,6 +152,30 @@ describe('MessageArea', () => {
 		).toBeInTheDocument();
 	});
 
+	it('adds the measured active skill session height to scroll clearance', () => {
+		const message: ChatMessage = {
+			id: 'assistant-1',
+			role: 'assistant',
+			content: 'Ready.',
+			timestamp: Date.now(),
+		};
+
+		const { container } = render(MessageArea, {
+			messages: [message],
+			conversationId: 'conv-1',
+			isThinkingActive: false,
+			contextDebug: null,
+			hasActiveSkillSession: true,
+			activeSkillSessionHeight: 84,
+		});
+
+		const clearance = container.querySelector('.scroll-clearance');
+		expect(clearance).toHaveClass('scroll-clearance-active-skill');
+		expect(clearance).toHaveStyle({
+			'--active-skill-session-height': '84px',
+		});
+	});
+
 	it('forwards assistant Skill Draft card actions with message and draft ids', async () => {
 		const onSaveSkillDraft = vi.fn();
 		const onDismissSkillDraft = vi.fn();

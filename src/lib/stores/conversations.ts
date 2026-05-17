@@ -19,6 +19,20 @@ const deletedConversationIds = new Set<string>();
 const localConversationProjectIds = new Map<string, string | null>();
 let conversationSnapshotUserId: string | null = null;
 
+function isTransientRefreshError(error: unknown): boolean {
+	if (error instanceof DOMException && error.name === 'AbortError') return true;
+	if (!(error instanceof Error)) return false;
+	const message = error.message.toLowerCase();
+	return (
+		error instanceof TypeError ||
+		message.includes('failed to fetch') ||
+		message.includes('networkerror') ||
+		message.includes('network error') ||
+		message.includes('timed out') ||
+		message.includes('timeout')
+	);
+}
+
 export function reconcileConversationSnapshot(
 	items: ConversationListItem[],
 	options: { resetLocalState?: boolean; userId?: string | null } = {}
@@ -84,7 +98,9 @@ export async function loadConversations(): Promise<void> {
 	try {
 		reconcileConversationSnapshot(await fetchConversations());
 	} catch (error) {
-		console.error('Error loading conversations:', error);
+		if (!isTransientRefreshError(error)) {
+			console.warn('Error loading conversations:', error);
+		}
 	}
 }
 

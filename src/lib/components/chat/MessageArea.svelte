@@ -22,6 +22,7 @@ let {
 	fileProductionJobs = [],
 	deepResearchJobs = [],
 	hasActiveSkillSession = false,
+	activeSkillSessionHeight = 0,
 	forkOrigin = null,
 	forkingMessageId = null,
 	readOnly = false,
@@ -51,6 +52,7 @@ let {
 	fileProductionJobs?: FileProductionJob[];
 	deepResearchJobs?: DeepResearchJob[];
 	hasActiveSkillSession?: boolean;
+	activeSkillSessionHeight?: number;
 	forkOrigin?: ConversationForkOrigin | null;
 	forkingMessageId?: string | null;
 	readOnly?: boolean;
@@ -376,6 +378,7 @@ async function alignToBottomAfterRender() {
 			<div
 				class="scroll-clearance"
 				class:scroll-clearance-active-skill={hasActiveSkillSession}
+				style={activeSkillSessionHeight > 0 ? `--active-skill-session-height: ${activeSkillSessionHeight}px;` : undefined}
 				aria-hidden="true"
 			></div>
 		{/if}
@@ -392,12 +395,13 @@ async function alignToBottomAfterRender() {
 	.scroll-clearance {
 		/* Extra height accounts for the absolutely-positioned floating composer
 		   overlaying the bottom of the scroll area. */
-		height: 10.5rem;
+		--scroll-clearance-base: 10.5rem;
+		height: var(--scroll-clearance-base);
 		flex: 0 0 auto;
 	}
 
 	.scroll-clearance-active-skill {
-		height: 13.75rem;
+		height: calc(var(--scroll-clearance-base) + var(--active-skill-session-height, 0px));
 	}
 
 	.conversation-empty-state {
@@ -494,7 +498,7 @@ async function alignToBottomAfterRender() {
 
 	@media (min-width: 768px) {
 		.scroll-clearance {
-			height: 9.5rem;
+			--scroll-clearance-base: 9.5rem;
 		}
 	}
 </style>

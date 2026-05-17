@@ -54,6 +54,21 @@ describe('conversations store', () => {
 		]);
 	});
 
+	it('preserves stale conversations without console noise when a refresh times out', async () => {
+		const errorSpy = vi.mocked(console.error);
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		conversations.set([{ id: 'conv-stale', title: 'Stale', updatedAt: 123, projectId: null }]);
+		vi.mocked(fetch).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+		await loadConversations();
+
+		expect(get(conversations)).toEqual([
+			{ id: 'conv-stale', title: 'Stale', updatedAt: 123, projectId: null },
+		]);
+		expect(errorSpy).not.toHaveBeenCalled();
+		expect(warnSpy).not.toHaveBeenCalled();
+	});
+
 	it('preserves optimistic local conversations when a stale snapshot arrives', () => {
 		upsertConversationLocal('conv-local', 'Draft', 500);
 
