@@ -143,6 +143,47 @@ export async function addConversationLinkedContextSources(params: {
 	return resolved;
 }
 
+export async function listConversationLinkedContextSources(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<LinkedContextSource[]> {
+	const rows = await db
+		.select({
+			artifactId: artifactLinks.artifactId,
+			relatedArtifactId: artifactLinks.relatedArtifactId,
+		})
+		.from(artifactLinks)
+		.where(
+			and(
+				eq(artifactLinks.userId, params.userId),
+				eq(artifactLinks.conversationId, params.conversationId),
+				eq(artifactLinks.linkType, 'linked_context_source'),
+				isNull(artifactLinks.messageId)
+			)
+		);
+	if (rows.length === 0) return [];
+
+	const { documents } = await listKnowledgeArtifacts(params.userId);
+	const byDisplayId = new Map<string, LinkedContextSource>();
+
+	for (const row of rows) {
+		const sourceProbe: LinkedContextSource = {
+			displayArtifactId: row.artifactId,
+			promptArtifactId: row.relatedArtifactId,
+			familyArtifactIds: [row.artifactId, row.relatedArtifactId].filter(
+				(value): value is string => typeof value === 'string' && value.length > 0
+			),
+			name: '',
+			type: 'document',
+		};
+		const document = documents.find((entry) => documentMatchesSource(entry, sourceProbe));
+		if (!document || !isPromptReadyDocument(document)) continue;
+		byDisplayId.set(document.displayArtifactId, toLinkedContextSource(document));
+	}
+
+	return Array.from(byDisplayId.values());
+}
+
 export function isLinkedContextSourceError(
 	error: unknown
 ): error is LinkedContextSourceError {

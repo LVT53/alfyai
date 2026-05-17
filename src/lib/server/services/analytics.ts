@@ -187,7 +187,9 @@ async function getModelSnapshot(modelId: string, fallbackDisplayName?: string | 
 		};
 	}
 
-	const providerId = getProviderIdFromModelId(modelId);
+	const providerId = isProviderModelId(modelId)
+		? getProviderIdFromModelId(modelId)
+		: null;
 	const provider = providerId ? await getProviderById(providerId).catch(() => null) : null;
 	return {
 		modelDisplayName: fallbackDisplayName ?? provider?.displayName ?? modelId,

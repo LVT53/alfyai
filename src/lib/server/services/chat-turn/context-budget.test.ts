@@ -210,6 +210,20 @@ describe("deriveModelContextBudget", () => {
 		});
 		expect(taskDepth.perArtifactCharBudget).toBeGreaterThan(12_000);
 
+		const directDepth = deriveDocumentContextDepthBudget({
+			contextBudget: mediumContext,
+			documentCount: 1,
+			intent: "direct",
+		});
+		expect(directDepth).toMatchObject({
+			depth: "task",
+			perArtifactLimit: 8,
+			useFullContent: true,
+		});
+		expect(directDepth.perArtifactCharBudget).toBeGreaterThanOrEqual(
+			20_000,
+		);
+
 		const broadTaskDepth = deriveDocumentContextDepthBudget({
 			contextBudget: largeContext,
 			documentCount: 12,

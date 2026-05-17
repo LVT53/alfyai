@@ -39,6 +39,12 @@ const mockResolvePromptAttachmentArtifacts = vi.hoisted(() =>
 		unresolvedItems: [],
 	}))
 );
+const mockGetArtifactsForUser = vi.hoisted(() =>
+	vi.fn(async () => [])
+);
+const mockListConversationLinkedContextSources = vi.hoisted(() =>
+	vi.fn(async () => [])
+);
 const mockListConversationSourceArtifactIds = vi.hoisted(() =>
 	vi.fn(async () => [])
 );
@@ -395,7 +401,7 @@ vi.mock('$lib/server/services/knowledge', () => ({
 	getMaxModelContext: () => 262144,
 	getTargetConstructedContext: () => 157286,
 	findRelevantKnowledgeArtifacts: mockFindRelevantKnowledgeArtifacts,
-	getArtifactsForUser: vi.fn(async () => []),
+	getArtifactsForUser: mockGetArtifactsForUser,
 	listConversationSourceArtifactIds: mockListConversationSourceArtifactIds,
 	resolvePromptAttachmentArtifacts: mockResolvePromptAttachmentArtifacts,
 	selectWorkingSetArtifactsForPrompt: vi.fn(async () => []),
@@ -404,6 +410,10 @@ vi.mock('$lib/server/services/knowledge', () => ({
 	WORKING_SET_OUTPUT_TOKEN_BUDGET: 2000,
 	WORKING_SET_PROMPT_TOKEN_BUDGET: 12000,
 	AttachmentReadinessError: class extends Error {},
+}));
+
+vi.mock('./linked-context-sources', () => ({
+	listConversationLinkedContextSources: mockListConversationLinkedContextSources,
 }));
 
 // Mock task-state
@@ -618,6 +628,8 @@ describe('honcho learning - buildConstructedContext', () => {
 		vi.resetModules();
 		mockConfig.honchoEnabled = false;
 		mockListConversationSourceArtifactIds.mockResolvedValue([]);
+		mockListConversationLinkedContextSources.mockResolvedValue([]);
+		mockGetArtifactsForUser.mockResolvedValue([]);
 		mockResolvePromptAttachmentArtifacts.mockResolvedValue({
 			displayArtifacts: [],
 			promptArtifacts: [],
@@ -695,6 +707,85 @@ describe('honcho learning - buildConstructedContext', () => {
 		expect(mockGetConversationProjectLabel).toHaveBeenCalledWith('user-1', 'conv-without-folder');
 		expect(result.inputValue).not.toContain('## Project Folder');
 		expect(result.inputValue).not.toContain('Project Folder label:');
+	});
+
+	it('includes persisted /document linked source content as direct protected context', async () => {
+		const linkedArtifact = {
+			id: 'prompt-1',
+			type: 'normalized_document',
+			name: 'Internal extracted name.md',
+			mimeType: 'text/markdown',
+			sizeBytes: 12000,
+			conversationId: null,
+			summary: 'A selected document',
+			contentText: 'Full markdown body head ... tail marker',
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+		};
+		mockListConversationLinkedContextSources.mockResolvedValueOnce([
+			{
+				displayArtifactId: 'display-1',
+				promptArtifactId: 'prompt-1',
+				familyArtifactIds: ['display-1', 'prompt-1'],
+				name: 'Selected requirements.md',
+				type: 'document',
+				mimeType: 'text/markdown',
+				documentOrigin: 'uploaded',
+			},
+		]);
+		mockGetArtifactsForUser.mockResolvedValueOnce([linkedArtifact]);
+		mockGetPromptArtifactSnippets.mockResolvedValueOnce(
+			new Map([['prompt-1', 'FULL CONTENT TAIL MARKER']])
+		);
+		mockSerializeWorkingSetArtifacts.mockImplementationOnce(
+			({
+				artifacts,
+				snippets,
+			}: {
+				artifacts: Array<{ id: string; name: string }>;
+				snippets: Map<string, string>;
+			}) => `Document: ${artifacts[0].name}\n${snippets.get(artifacts[0].id)}`
+		);
+		renderSectionsInCompactionMock();
+		const { buildConstructedContext } = await import('./honcho');
+
+		const result = await buildConstructedContext({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			message: 'Continue from the selected document.',
+		});
+
+		expect(mockListConversationLinkedContextSources).toHaveBeenCalledWith({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+		});
+		expect(mockGetArtifactsForUser).toHaveBeenCalledWith('user-1', ['prompt-1']);
+		expect(mockGetPromptArtifactSnippets).toHaveBeenCalledWith(
+			expect.objectContaining({
+				artifacts: [
+					expect.objectContaining({
+						id: 'prompt-1',
+						name: 'Selected requirements.md',
+					}),
+				],
+				perArtifactLimit: 8,
+				useFullContent: true,
+			})
+		);
+		expect(mockSerializeWorkingSetArtifacts).toHaveBeenCalledWith(
+			expect.objectContaining({
+				artifacts: [
+					expect.objectContaining({
+						id: 'prompt-1',
+						name: 'Selected requirements.md',
+					}),
+				],
+				documentBudget: expect.any(Number),
+				totalBudget: expect.any(Number),
+			})
+		);
+		expect(result.inputValue).toContain('## Linked Sources');
+		expect(result.inputValue).toContain('FULL CONTENT TAIL MARKER');
 	});
 
 	it('adds Project Folder Awareness as lightweight reference context when sibling summaries exist', async () => {

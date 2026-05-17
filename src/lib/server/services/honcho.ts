@@ -47,6 +47,7 @@ import type {
 import {
 	AttachmentReadinessError,
 	findRelevantKnowledgeArtifacts,
+	getArtifactsForUser,
 	getCompactionUiThreshold,
 	getMaxModelContext,
 	getTargetConstructedContext,
@@ -58,6 +59,7 @@ import {
 	WORKING_SET_OUTPUT_TOKEN_BUDGET,
 	WORKING_SET_PROMPT_TOKEN_BUDGET,
 } from './knowledge';
+import { listConversationLinkedContextSources } from './linked-context-sources';
 import { scoreMatch } from './working-set';
 import { clipText } from '$lib/server/utils/text';
 import type {
@@ -69,6 +71,7 @@ import type {
 	ContextDebugState,
 	ForkContextProvenanceSummary,
 	ForkCopyMetadata,
+	LinkedContextSource,
 } from '$lib/types';
 import {
 	formatTaskStateForPrompt,
@@ -166,6 +169,10 @@ function buildContextSelectionCandidates(params: {
 	projectFolderSiblingPromotion?: ProjectFolderSiblingPromotionContext | null;
 	documentContextIntent?: DocumentContextIntent;
 	documentDepthBudget?: DocumentContextDepthBudget | null;
+	linkedSourceItems?: Array<{
+		id: string;
+		title: string;
+	}>;
 	evidenceItems?: Array<{
 		id: string;
 		title: string;
@@ -182,6 +189,7 @@ function buildContextSelectionCandidates(params: {
 	return params.sections.map((section) => {
 		const isAttachmentSection = section.title === 'Current Attachments';
 		const isCarriedForwardAttachmentSection = section.title === 'Attached Sources';
+		const isLinkedSourceSection = section.title === 'Linked Sources';
 		const isEvidenceSection = section.title === 'Retrieved Evidence';
 		const isProjectFolderSiblingSection = section.title === 'Project Folder Sibling Context';
 		const attachmentItems = isAttachmentSection
@@ -189,6 +197,7 @@ function buildContextSelectionCandidates(params: {
 			: isCarriedForwardAttachmentSection
 				? (params.carriedForwardAttachmentContext?.items ?? [])
 			: [];
+		const linkedSourceItems = isLinkedSourceSection ? (params.linkedSourceItems ?? []) : [];
 		const evidenceItems = isEvidenceSection ? (params.evidenceItems ?? []) : [];
 		const promotedSibling = isProjectFolderSiblingSection
 			? params.projectFolderSiblingPromotion
@@ -201,11 +210,15 @@ function buildContextSelectionCandidates(params: {
 			protected: section.protected,
 			itemIds: isEvidenceSection
 				? evidenceItems.map((item) => item.id)
+				: isLinkedSourceSection
+					? linkedSourceItems.map((item) => item.id)
 				: promotedSibling
 					? [`conversation:${promotedSibling.conversationId}`]
 				: attachmentItems.map((item) => item.id),
 			itemTitles: isEvidenceSection
 				? evidenceItems.map((item) => item.title)
+				: isLinkedSourceSection
+					? linkedSourceItems.map((item) => item.title)
 				: promotedSibling
 					? [promotedSibling.title]
 				: attachmentItems.map((item) => item.title),
@@ -220,6 +233,11 @@ function buildContextSelectionCandidates(params: {
 						? [
 								`attachment_context:${params.carriedForwardAttachmentContext.mode}`,
 								'attached_sources:carried_forward',
+								...documentContextSignalReasons,
+							]
+						: isLinkedSourceSection
+						? [
+								'linked_context_source:direct',
 								...documentContextSignalReasons,
 							]
 						: isEvidenceSection && evidenceItems.some((item) => item.pinned)
@@ -269,6 +287,34 @@ function buildCurrentAttachmentSnippetMap(params: {
 	return next;
 }
 
+async function resolveLinkedSourcePromptArtifacts(params: {
+	userId: string;
+	linkedSources: LinkedContextSource[];
+}): Promise<Artifact[]> {
+	const orderedPromptIds = params.linkedSources
+		.map((source) => source.promptArtifactId ?? source.displayArtifactId)
+		.filter((id): id is string => typeof id === 'string' && id.length > 0);
+	if (orderedPromptIds.length === 0) return [];
+
+	const artifacts = await getArtifactsForUser(params.userId, Array.from(new Set(orderedPromptIds)));
+	const artifactsById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
+	const resolved: Artifact[] = [];
+	const seen = new Set<string>();
+
+	for (const source of params.linkedSources) {
+		const promptArtifactId = source.promptArtifactId ?? source.displayArtifactId;
+		const artifact = artifactsById.get(promptArtifactId);
+		if (!artifact || seen.has(artifact.id)) continue;
+		seen.add(artifact.id);
+		resolved.push({
+			...artifact,
+			name: source.name.trim() || artifact.name,
+		});
+	}
+
+	return resolved;
+}
+
 function buildProjectFolderPromptSection(label: string | null): PromptContextSection | null {
 	const trimmed = label?.trim();
 	if (!trimmed) return null;
@@ -292,11 +338,15 @@ function inferDocumentContextIntent(params: {
 	hasCurrentAttachments: boolean;
 	hasCarriedForwardAttachments: boolean;
 	hasActiveDocument: boolean;
+	hasLinkedSources: boolean;
 }): DocumentContextIntent {
 	const message = params.message.trim();
 	const hasTaskIntent = DOCUMENT_TASK_INTENT_RE.test(message);
 	const hasAnswerIntent = DOCUMENT_ANSWER_INTENT_RE.test(message);
 	const hasDocumentReference = DOCUMENT_REFERENCE_RE.test(message);
+	if (params.hasLinkedSources) {
+		return 'direct';
+	}
 	const explicitDocumentSelection =
 		params.hasCurrentAttachments ||
 		params.hasActiveDocument ||
@@ -1484,6 +1534,7 @@ export async function buildConstructedContext(params: {
 		sessionContext,
 		resolvedAttachments,
 		conversationSourceArtifactIds,
+		linkedContextSources,
 		workingSetArtifacts,
 		projectFolderLabel,
 		projectFolderReferenceContext,
@@ -1501,6 +1552,10 @@ export async function buildConstructedContext(params: {
 			listConversationSourceArtifactIds(params.userId, params.conversationId).catch(
 				() => []
 			),
+			listConversationLinkedContextSources({
+				userId: params.userId,
+				conversationId: params.conversationId,
+			}).catch(() => []),
 			selectWorkingSetArtifactsForPrompt(
 				params.userId,
 				params.conversationId,
@@ -1532,6 +1587,10 @@ export async function buildConstructedContext(params: {
 		copiedForkPointMessageId: forkOrigin?.copiedForkPointMessageId ?? null,
 	});
 	const currentAttachments = resolvedAttachments.promptArtifacts;
+	const linkedSourceArtifacts = await resolveLinkedSourcePromptArtifacts({
+		userId: params.userId,
+		linkedSources: linkedContextSources,
+	}).catch(() => []);
 	const currentAttachmentIds = new Set(currentAttachments.map((artifact) => artifact.id));
 	const requestedAttachmentIds = new Set(attachmentIds);
 	const carriedForwardSourceIds = conversationSourceArtifactIds.filter(
@@ -1570,7 +1629,11 @@ export async function buildConstructedContext(params: {
 		);
 	}
 	const retrievalActiveDocumentState = buildActiveDocumentState({
-		artifacts: dedupeById([...currentAttachments, ...workingSetArtifacts]),
+		artifacts: dedupeById([
+			...currentAttachments,
+			...linkedSourceArtifacts,
+			...workingSetArtifacts,
+		]),
 		message: params.message,
 		attachmentIds,
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
@@ -1614,6 +1677,7 @@ export async function buildConstructedContext(params: {
 	const allAttachmentContextIds = new Set([
 		...attachmentIds,
 		...currentAttachments.map((artifact) => artifact.id),
+		...linkedSourceArtifacts.map((artifact) => artifact.id),
 		...(suppressCarryover ? [] : carriedForwardSourceIds),
 		...carriedForwardAttachments.map((artifact) => artifact.id),
 	]);
@@ -1632,7 +1696,12 @@ export async function buildConstructedContext(params: {
 		suppressGeneratedCarryover: suppressCarryover,
 	}).catch(() => []);
 	const activeDocumentState = buildActiveDocumentState({
-		artifacts: dedupeById([...currentAttachments, ...workingSetArtifacts, ...relevantArtifacts]),
+		artifacts: dedupeById([
+			...currentAttachments,
+			...linkedSourceArtifacts,
+			...workingSetArtifacts,
+			...relevantArtifacts,
+		]),
 		message: params.message,
 		attachmentIds,
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
@@ -1668,6 +1737,7 @@ export async function buildConstructedContext(params: {
 	const promptArtifacts = new Map<string, Artifact>();
 	for (const artifact of [
 		...currentAttachments,
+		...linkedSourceArtifacts,
 		...carriedForwardAttachments,
 		...selectedEvidence,
 	]) {
@@ -1679,6 +1749,7 @@ export async function buildConstructedContext(params: {
 		hasCurrentAttachments: currentAttachments.length > 0,
 		hasCarriedForwardAttachments: carriedForwardAttachments.length > 0,
 		hasActiveDocument: Boolean(params.activeDocumentArtifactId),
+		hasLinkedSources: linkedSourceArtifacts.length > 0,
 	});
 	const documentDepthBudget = deriveDocumentContextDepthBudget({
 		contextBudget: modelContextBudget,
@@ -1817,6 +1888,25 @@ export async function buildConstructedContext(params: {
 				contentHash: null,
 			});
 		}
+	}
+
+	const linkedSourceContext =
+		linkedSourceArtifacts.length > 0
+			? serializeWorkingSetArtifacts({
+					artifacts: linkedSourceArtifacts,
+					snippets: artifactSnippets,
+					totalBudget: documentDepthBudget.totalBudget,
+					documentBudget: documentDepthBudget.perArtifactCharBudget,
+					outputBudget: documentDepthBudget.perArtifactCharBudget,
+				})
+			: '';
+	if (linkedSourceContext.trim()) {
+		sections.push({
+			title: 'Linked Sources',
+			body: linkedSourceContext,
+			layer: 'documents',
+			protected: true,
+		});
 	}
 
 	const carriedForwardAttachmentContext =
@@ -1970,6 +2060,10 @@ export async function buildConstructedContext(params: {
 			projectFolderSiblingPromotion,
 			documentContextIntent,
 			documentDepthBudget,
+			linkedSourceItems: linkedSourceArtifacts.map((artifact) => ({
+				id: artifact.id,
+				title: artifact.name,
+			})),
 			evidenceItems: selectedEvidence.map((artifact) => ({
 				id: artifact.id,
 				title: artifact.name,
