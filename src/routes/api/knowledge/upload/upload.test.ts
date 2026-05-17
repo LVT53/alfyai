@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/server/auth/hooks', () => ({
 	requireAuth: vi.fn(),
@@ -39,6 +39,7 @@ const mockResolvePromptAttachmentArtifacts = resolvePromptAttachmentArtifacts as
 const mockSaveUploadedArtifact = saveUploadedArtifact as ReturnType<typeof vi.fn>;
 const mockSyncArtifactToHoncho = syncArtifactToHoncho as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
+let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
 
 function makeEventWithFormData(formData: FormData) {
 	return {
@@ -58,6 +59,7 @@ function makeEventWithFormData(formData: FormData) {
 describe('POST /api/knowledge/upload', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
 		mockRequireAuth.mockReturnValue(undefined);
 		mockSyncArtifactToHoncho.mockResolvedValue({ uploaded: true, mode: 'native' });
 		mockCreateNormalizedArtifact.mockResolvedValue(null);
@@ -74,6 +76,11 @@ describe('POST /api/knowledge/upload', () => {
 			createdAt: Date.now(),
 			updatedAt: Date.now(),
 		});
+	});
+
+	afterEach(() => {
+		consoleInfoSpy?.mockRestore();
+		consoleInfoSpy = null;
 	});
 
 	it('rejects files larger than 100MB', async () => {
@@ -370,6 +377,7 @@ describe('POST /api/knowledge/upload', () => {
 
 	it('rejects oversized multipart bodies before parsing them', async () => {
 		const formData = vi.fn();
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 		const event = {
 			request: {
 				formData,
@@ -391,15 +399,67 @@ describe('POST /api/knowledge/upload', () => {
 		expect(data.error).toMatch(/BODY_SIZE_LIMIT/i);
 		expect(formData).not.toHaveBeenCalled();
 		expect(mockSaveUploadedArtifact).not.toHaveBeenCalled();
+		warnSpy.mockRestore();
+	});
+
+	it('rejects uploads above the adapter BODY_SIZE_LIMIT before multipart parsing', async () => {
+		const originalBodySizeLimit = process.env.BODY_SIZE_LIMIT;
+		process.env.BODY_SIZE_LIMIT = '40M';
+		const formData = vi.fn();
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		const event = {
+			request: {
+				formData,
+				headers: {
+					get: vi.fn((name: string) => {
+						const normalized = name.toLowerCase();
+						if (normalized === 'content-length') return String(47 * 1024 * 1024);
+						if (normalized === 'x-alfyai-upload-name') return encodeURIComponent('large.pdf');
+						if (normalized === 'x-alfyai-upload-size') return String(46 * 1024 * 1024);
+						return null;
+					}),
+				},
+			},
+			locals: { user: { id: 'user-1', email: 'test@example.com' } },
+			params: {},
+			url: new URL('http://localhost/api/knowledge/upload'),
+			route: { id: '/api/knowledge/upload' },
+		} as any;
+
+		try {
+			const response = await POST(event);
+			const data = await response.json();
+
+			expect(response.status).toBe(413);
+			expect(data.code).toBe('upload_body_too_large');
+			expect(data.error).toMatch(/40MB/i);
+			expect(data.details.fileName).toBe('large.pdf');
+			expect(formData).not.toHaveBeenCalled();
+		} finally {
+			if (originalBodySizeLimit === undefined) {
+				delete process.env.BODY_SIZE_LIMIT;
+			} else {
+				process.env.BODY_SIZE_LIMIT = originalBodySizeLimit;
+			}
+			warnSpy.mockRestore();
+		}
 	});
 
 	it('returns an explicit upload aborted error when multipart parsing is interrupted', async () => {
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 		const event = {
 			request: {
 				formData: vi.fn().mockRejectedValue(new Error('aborted')),
 				headers: {
-					get: vi.fn().mockReturnValue('19021532'),
+					get: vi.fn((name: string) => {
+						const normalized = name.toLowerCase();
+						if (normalized === 'content-length') return '19021532';
+						if (normalized === 'x-alfyai-upload-name') return encodeURIComponent('Quarterly report.pdf');
+						if (normalized === 'x-alfyai-upload-size') return '18874368';
+						return null;
+					}),
 				},
+				signal: { aborted: true },
 			},
 			locals: { user: { id: 'user-1', email: 'test@example.com' } },
 			params: {},
@@ -412,8 +472,12 @@ describe('POST /api/knowledge/upload', () => {
 
 		expect(response.status).toBe(400);
 		expect(data.code).toBe('upload_aborted');
-		expect(data.error).toMatch(/interrupted/i);
+		expect(data.error).toMatch(/Quarterly report\.pdf/i);
+		expect(data.error).toMatch(/BODY_SIZE_LIMIT/i);
+		expect(data.details.classification).toBe('connection_closed_before_multipart_parse');
+		expect(data.details.requestSignalAborted).toBe(true);
 		expect(mockSaveUploadedArtifact).not.toHaveBeenCalled();
+		warnSpy.mockRestore();
 	});
 
 	it('uploads a conversation-scoped attachment', async () => {

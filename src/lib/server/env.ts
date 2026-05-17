@@ -138,6 +138,29 @@ export function getDatabasePath(env: NodeJS.ProcessEnv = process.env): string {
 	return env.DATABASE_PATH || "./data/chat.db";
 }
 
+const DEFAULT_ADAPTER_BODY_SIZE_LIMIT = "100M";
+const BYTE_SUFFIX_MULTIPLIERS: Record<string, number> = {
+	K: 1024,
+	M: 1024 * 1024,
+	G: 1024 * 1024 * 1024,
+};
+
+export function parseByteSizeLimit(value: string): number {
+	const trimmed = value.trim();
+	if (/^infinity$/i.test(trimmed)) return Infinity;
+
+	const suffix = trimmed.at(-1)?.toUpperCase() ?? "";
+	const multiplier = BYTE_SUFFIX_MULTIPLIERS[suffix] ?? 1;
+	const numeric = multiplier === 1 ? trimmed : trimmed.slice(0, -1);
+	return Number(numeric) * multiplier;
+}
+
+export function getAdapterBodySizeLimitBytes(
+	env: NodeJS.ProcessEnv = process.env,
+): number {
+	return parseByteSizeLimit(env.BODY_SIZE_LIMIT || DEFAULT_ADAPTER_BODY_SIZE_LIMIT);
+}
+
 function normalizeModelReasoningEffort(
 	value: string | undefined,
 ): ModelConfig["reasoningEffort"] {

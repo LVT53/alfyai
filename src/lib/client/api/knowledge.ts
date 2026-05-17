@@ -6,7 +6,7 @@ import type {
 	KnowledgeUploadResponse,
 	WorkCapsule,
 } from '$lib/types';
-import { requestJson, requestVoid, type FetchLike } from './http';
+import { ApiError, requestJson, requestVoid, type FetchLike } from './http';
 import { _unwrapList } from './_utils';
 
 export type KnowledgeLibrary = {
@@ -44,6 +44,22 @@ type KnowledgeDeleteResult = {
 
 const UPLOAD_INTERRUPTED_MESSAGE =
 	'Upload was interrupted before it completed. Try again; if it keeps happening, the server or reverse proxy may be closing large uploads before AlfyAI receives them.';
+const UPLOAD_GATEWAY_STATUSES = new Set([502, 503, 504]);
+const UPLOAD_NAME_HEADER = 'X-AlfyAI-Upload-Name';
+const UPLOAD_SIZE_HEADER = 'X-AlfyAI-Upload-Size';
+
+function encodeUploadHeaderValue(value: string): string {
+	return encodeURIComponent(value).slice(0, 512);
+}
+
+function formatUploadBytes(value: number): string {
+	const mb = value / (1024 * 1024);
+	return `${Number.isInteger(mb) ? mb : mb.toFixed(1)}MB`;
+}
+
+function uploadGatewayMessage(file: File, status: number): string {
+	return `Upload gateway failed with HTTP ${status} while receiving "${file.name}" (${formatUploadBytes(file.size)}). AlfyAI did not finish receiving the file, so extraction did not start. Check reverse proxy body limits/timeouts and whether the Node server restarted or ran out of memory during multipart parsing.`;
+}
 
 function errorName(error: unknown): string {
 	return typeof error === 'object' && error !== null && 'name' in error && typeof (error as { name?: unknown }).name === 'string'
@@ -155,12 +171,19 @@ export async function uploadKnowledgeAttachment(
 			'/api/knowledge/upload',
 			{
 				method: 'POST',
+				headers: {
+					[UPLOAD_NAME_HEADER]: encodeUploadHeaderValue(file.name),
+					[UPLOAD_SIZE_HEADER]: String(file.size),
+				},
 				body: formData,
 			},
 			'Failed to upload attachment.',
 			fetchImpl
 		);
 	} catch (error) {
+		if (error instanceof ApiError && UPLOAD_GATEWAY_STATUSES.has(error.status)) {
+			throw new Error(uploadGatewayMessage(file, error.status));
+		}
 		if (isUploadTransportAbort(error)) {
 			throw new Error(UPLOAD_INTERRUPTED_MESSAGE);
 		}

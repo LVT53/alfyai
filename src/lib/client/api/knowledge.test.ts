@@ -33,6 +33,30 @@ describe("knowledge client API", () => {
 		const body = init.body as FormData;
 		expect(body.get("file")).toBe(file);
 		expect(body.get("conversationId")).toBe("conv-1");
+		expect(init.headers).toMatchObject({
+			"X-AlfyAI-Upload-Name": "note.txt",
+			"X-AlfyAI-Upload-Size": String(file.size),
+		});
+	});
+
+	it("sends encoded upload metadata headers before multipart parsing", async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ artifact: { id: "artifact-1" } }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+		const file = new File(["hello"], "árvíz tűrő.pdf", {
+			type: "application/pdf",
+		});
+
+		await uploadKnowledgeAttachment(file, null, fetchImpl);
+
+		const [, init] = fetchImpl.mock.calls[0];
+		expect(init.headers).toMatchObject({
+			"X-AlfyAI-Upload-Name": encodeURIComponent(file.name),
+			"X-AlfyAI-Upload-Size": String(file.size),
+		});
 	});
 
 	it("preserves server-side upload aborted errors", async () => {
@@ -68,5 +92,19 @@ describe("knowledge client API", () => {
 		await expect(
 			uploadKnowledgeAttachment(new File(["x"], "doc.pdf"), null, fetchImpl),
 		).rejects.toThrow(/server or reverse proxy may be closing large uploads/i);
+	});
+
+	it("normalizes upload gateway failures into deployment guidance", async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			new Response("Bad Gateway", {
+				status: 502,
+				headers: { "Content-Type": "text/plain" },
+			}),
+		);
+		const file = new File(["x"], "large.pdf", { type: "application/pdf" });
+
+		await expect(uploadKnowledgeAttachment(file, null, fetchImpl)).rejects.toThrow(
+			/reverse proxy body limits\/timeouts/i,
+		);
 	});
 });

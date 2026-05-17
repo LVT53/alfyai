@@ -108,6 +108,7 @@ const HONCHO_SAFE_ID_MAX_LENGTH = 48;
 const HONCHO_LIVE_CONTEXT_TOKENS = 2_000;
 const HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_PREFIXES = ['text/'];
 const HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_TYPES = new Set(['application/pdf', 'application/json']);
+const HONCHO_NATIVE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 const HONCHO_ID_HASH_LENGTH = 32;
 const ATTACHMENT_PROMPT_TOKEN_BUDGET = 6_000;
 const ATTACHMENT_TASK_PER_ATTACHMENT_TOKEN_BUDGET = 2_400;
@@ -735,6 +736,17 @@ export async function syncArtifactToHoncho(params: {
 		HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_PREFIXES.some((prefix) => nativeMimeType.startsWith(prefix));
 
 	if (!nativeUploadSupported) {
+		return { uploaded: false, mode: 'none' };
+	}
+
+	const nativeUploadSize = params.file?.size ?? params.artifact.sizeBytes ?? null;
+	if (nativeUploadSize !== null && nativeUploadSize > HONCHO_NATIVE_UPLOAD_MAX_BYTES) {
+		console.info('[HONCHO] Skipped native artifact upload above Honcho size limit', {
+			artifactId: params.artifact.id,
+			fileName: params.file?.name ?? params.artifact.name,
+			sizeBytes: nativeUploadSize,
+			maxBytes: HONCHO_NATIVE_UPLOAD_MAX_BYTES,
+		});
 		return { uploaded: false, mode: 'none' };
 	}
 

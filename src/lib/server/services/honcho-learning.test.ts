@@ -1804,6 +1804,39 @@ describe('honcho learning - syncArtifactToHoncho', () => {
 		expect(result.mode).toBe('none');
 	});
 
+	it('skips native Honcho uploads above the native file size limit', async () => {
+		const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+		const { syncArtifactToHoncho } = await import('./honcho');
+		const file = new File([new Uint8Array(6 * 1024 * 1024)], 'large.pdf', {
+			type: 'application/pdf',
+		});
+
+		try {
+			const result = await syncArtifactToHoncho({
+				userId: 'user-1',
+				conversationId: 'conv-1',
+				artifact: {
+					id: 'artifact-1',
+					userId: 'user-1',
+					type: 'source_document' as const,
+					name: 'large.pdf',
+					mimeType: 'application/pdf',
+					sizeBytes: file.size,
+					conversationId: 'conv-1',
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				file,
+			});
+
+			expect(result.uploaded).toBe(false);
+			expect(result.mode).toBe('none');
+			expect(mockSessionUploadFile).not.toHaveBeenCalled();
+		} finally {
+			infoSpy.mockRestore();
+		}
+	});
+
 	it('skips sync when honcho is disabled via config', async () => {
 		// Temporarily disable honcho
 		const originalEnabled = mockConfig.honchoEnabled;
