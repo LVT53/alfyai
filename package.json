@@ -44,7 +44,7 @@
 		"express": "^5.2.1",
 		"jsdom": "^29.0.0",
 		"postcss": "^8.5.8",
-		"svelte": "5.53.12",
+		"svelte": "5.55.8",
 		"svelte-check": "^4.4.6",
 		"tailwindcss": "^4.2.1",
 		"tsx": "^4.21.0",
@@ -77,5 +77,16 @@
 		"tar-stream": "^3.1.8",
 		"zod": "^4.1.12"
 	},
-	"type": "module"
+	"type": "module",
+	"overrides": {
+		"@esbuild-kit/core-utils": {
+			"esbuild": "0.25.12"
+		},
+		"@sveltejs/kit": {
+			"cookie": "0.7.2"
+		},
+		"dockerode": {
+			"protobufjs": "7.6.0"
+		}
+	}
 }
