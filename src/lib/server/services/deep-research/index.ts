@@ -19,6 +19,7 @@ import {
 	createArtifactLink,
 } from "$lib/server/services/knowledge/store";
 import { createMessage } from "$lib/server/services/messages";
+import { messageTimestampOrderAsc } from "$lib/server/services/message-ordering";
 import { generateTitle } from "$lib/server/services/title-generator";
 import type {
 	Conversation,
@@ -2388,7 +2389,7 @@ async function loadExistingReportActionMessage(input: {
 				like(messages.metadataJson, `%"sourceJobId":"${input.sourceJobId}"%`),
 			),
 		)
-		.orderBy(asc(messages.createdAt));
+		.orderBy(...messageTimestampOrderAsc());
 
 	for (const row of rows) {
 		const metadata = parseDeepResearchReportContextMetadata(

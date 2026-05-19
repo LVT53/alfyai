@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { requireAuth } from '$lib/server/auth/hooks';
-import { asc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { messages } from '$lib/server/db/schema';
 import { getConversation } from '$lib/server/services/conversations';
@@ -14,6 +14,8 @@ import { createJsonErrorResponse } from '$lib/server/api/responses';
 import { createStreamJsonErrorResponse } from '$lib/server/services/chat-turn/stream';
 import { runChatStreamOrchestrator } from '$lib/server/services/chat-turn/stream-orchestrator';
 import { buildSkillSystemPromptAppendix } from '$lib/server/services/skills/prompt-context';
+import { messageOrderAsc } from '$lib/server/services/message-ordering';
+import { repairConversationMessageSequences } from '$lib/server/services/message-sequences';
 
 const FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE =
 	'forked_source_history_confirmation_required';
@@ -71,6 +73,8 @@ export const POST: RequestHandler = async (event) => {
 		return createJsonErrorResponse('Conversation not found', 404);
 	}
 
+	repairConversationMessageSequences(conversationId);
+
 	const conversationMessages = await db
 		.select({
 			id: messages.id,
@@ -79,7 +83,7 @@ export const POST: RequestHandler = async (event) => {
 		})
 		.from(messages)
 		.where(eq(messages.conversationId, conversationId))
-		.orderBy(asc(messages.createdAt));
+		.orderBy(...messageOrderAsc());
 
 	const assistantIndex = conversationMessages.findIndex((message) => message.id === assistantMessageId);
 	const assistantMsg = assistantIndex >= 0 ? conversationMessages[assistantIndex] : null;

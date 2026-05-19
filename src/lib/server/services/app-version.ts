@@ -21,13 +21,15 @@ export interface AppVersionMetadataOptions {
 }
 
 function readPackageMetadata(): PackageMetadata {
-	return JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")) as PackageMetadata;
+	return JSON.parse(
+		readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
+	) as PackageMetadata;
 }
 
 function compactVersion(version: string): string {
 	const normalized = version.trim().replace(/^v/i, "");
-	const [major = "0", minor = "0"] = normalized.split(".");
-	return `v${major}.${minor}`;
+	const [major = "0", minor = "0", patch] = normalized.split(".");
+	return `v${[major, minor, patch].filter((part) => part !== undefined).join(".")}`;
 }
 
 export async function getLatestPublishedReleaseVersion(
@@ -37,8 +39,16 @@ export async function getLatestPublishedReleaseVersion(
 	const row = db
 		.select({ releaseVersion: announcementCampaigns.releaseVersion })
 		.from(announcementCampaigns)
-		.where(and(eq(announcementCampaigns.type, "release_update"), eq(announcementCampaigns.status, "published")))
-		.orderBy(desc(announcementCampaigns.publishedAt), desc(announcementCampaigns.revision))
+		.where(
+			and(
+				eq(announcementCampaigns.type, "release_update"),
+				eq(announcementCampaigns.status, "published"),
+			),
+		)
+		.orderBy(
+			desc(announcementCampaigns.publishedAt),
+			desc(announcementCampaigns.revision),
+		)
 		.get();
 	return row?.releaseVersion?.trim() || null;
 }
@@ -47,7 +57,11 @@ export async function getAppVersionMetadata(
 	options: AppVersionMetadataOptions = {},
 ): Promise<AppVersionMetadata> {
 	const releaseVersion = await getLatestPublishedReleaseVersion(options);
-	const full = releaseVersion ?? options.packageVersion ?? readPackageMetadata().version ?? "0.0.0";
+	const full =
+		releaseVersion ??
+		options.packageVersion ??
+		readPackageMetadata().version ??
+		"0.0.0";
 	return {
 		full,
 		compact: compactVersion(full),

@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { eq } from 'drizzle-orm';
 import * as schema from './schema';
-import { existsSync, unlinkSync, mkdirSync } from 'fs';
+import { existsSync, unlinkSync, mkdirSync, readFileSync } from 'fs';
 import { dirname } from 'path';
 
 const TEST_DB_PATH = './test-data/schema-test.db';
@@ -354,6 +354,94 @@ describe('schema core tables', () => {
       expect(crop?.variant).toBe('desktop');
       expect(crop?.cropWidth).toBe(800);
       expect(crop?.cropHeight).toBe(500);
+    });
+  });
+
+  describe('messages table', () => {
+    it('stores a per-conversation message sequence with a unique nullable index', () => {
+      const columns = sqlite
+        .prepare("PRAGMA table_info(messages)")
+        .all() as { name: string; notnull: number }[];
+      expect(columns).toContainEqual(
+        expect.objectContaining({
+          name: 'message_sequence',
+          notnull: 0,
+        }),
+      );
+
+      const indexes = sqlite
+        .prepare("PRAGMA index_list(messages)")
+        .all() as { name: string; unique: number }[];
+      expect(indexes).toContainEqual(
+        expect.objectContaining({
+          name: 'messages_conversation_sequence_unique_idx',
+          unique: 1,
+        }),
+      );
+      expect(indexes).toContainEqual(
+        expect.objectContaining({
+          name: 'messages_conversation_order_idx',
+        }),
+      );
+    });
+
+    it('backfills message sequence by created_at then rowid instead of UUID id', () => {
+      const legacySqlite = new Database(':memory:');
+      try {
+        legacySqlite.exec(`
+          CREATE TABLE users (
+            id text PRIMARY KEY NOT NULL,
+            email text NOT NULL,
+            password_hash text NOT NULL
+          );
+          CREATE TABLE conversations (
+            id text PRIMARY KEY NOT NULL,
+            user_id text NOT NULL,
+            title text NOT NULL,
+            created_at integer DEFAULT (unixepoch()) NOT NULL,
+            updated_at integer DEFAULT (unixepoch()) NOT NULL
+          );
+          CREATE TABLE messages (
+            id text PRIMARY KEY NOT NULL,
+            conversation_id text NOT NULL,
+            role text NOT NULL,
+            content text NOT NULL,
+            created_at integer DEFAULT (unixepoch()) NOT NULL
+          );
+          INSERT INTO users (id, email, password_hash)
+          VALUES ('user-1', 'legacy-ordering@example.com', 'hash');
+          INSERT INTO conversations (id, user_id, title, created_at, updated_at)
+          VALUES ('conv-1', 'user-1', 'Legacy ordering', 1777140000, 1777140000);
+          INSERT INTO messages (id, conversation_id, role, content, created_at)
+          VALUES
+            ('z-user-message', 'conv-1', 'user', 'Question first', 1777140001),
+            ('a-assistant-message', 'conv-1', 'assistant', 'Answer second', 1777140001);
+        `);
+
+        const migrationSql = readFileSync(
+          './drizzle/1777140000042_message_sequence.sql',
+          'utf8',
+        );
+        for (const statement of migrationSql
+          .split('--> statement-breakpoint')
+          .map((part) => part.trim())
+          .filter(Boolean)) {
+          legacySqlite.exec(statement);
+        }
+
+        const rows = legacySqlite
+          .prepare(
+            'SELECT id, message_sequence FROM messages ORDER BY message_sequence ASC',
+          )
+          .all() as { id: string; message_sequence: number }[];
+
+        expect(rows).toEqual([
+          { id: 'z-user-message', message_sequence: 1 },
+          { id: 'a-assistant-message', message_sequence: 2 },
+        ]);
+      } finally {
+        legacySqlite.close();
+      }
     });
   });
 });

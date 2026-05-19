@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type MessageRow = {
 	id: string;
 	conversationId: string;
+	messageSequence?: number | null;
 	role: "user" | "assistant";
 	content: string;
 	thinking: string | null;
@@ -11,74 +12,109 @@ type MessageRow = {
 	createdAt: Date;
 };
 
-const { mockRows, mockSelect, mockInsert, mockUpdate, mockDelete } = vi.hoisted(
-	() => {
-		const mockRows: MessageRow[] = [];
+const {
+	mockRows,
+	mockSelect,
+	mockInsert,
+	mockUpdate,
+	mockDelete,
+	mockTransaction,
+} = vi.hoisted(() => {
+	const mockRows: MessageRow[] = [];
 
-		const applySelection = (selection: Record<string, unknown>) =>
-			mockRows.map((row) =>
-				Object.fromEntries(
-					Object.keys(selection).map((key) => [
-						key,
-						row[key as keyof MessageRow],
-					]),
-				),
-			);
+	const applySelection = (selection: Record<string, unknown>) => {
+		if (Object.keys(selection).length === 1 && "value" in selection) {
+			return [
+				{
+					value:
+						Math.max(0, ...mockRows.map((row) => row.messageSequence ?? 0)) + 1,
+				},
+			];
+		}
+		return mockRows.map((row) =>
+			Object.fromEntries(
+				Object.keys(selection).map((key) => [
+					key,
+					row[key as keyof MessageRow],
+				]),
+			),
+		);
+	};
 
-		const mockSelect = vi.fn((selection: Record<string, unknown>) => {
-			const builder = {
-				from: vi.fn(() => builder),
-				where: vi.fn(() => builder),
-				orderBy: vi.fn(() => Promise.resolve(applySelection(selection))),
-				limit: vi.fn((count: number) =>
-					Promise.resolve(applySelection(selection).slice(0, count)),
-				),
-			};
+	const mockSelect = vi.fn((selection: Record<string, unknown>) => {
+		const builder = {
+			from: vi.fn(() => builder),
+			where: vi.fn(() => builder),
+			orderBy: vi.fn(() => Promise.resolve(applySelection(selection))),
+			limit: vi.fn((count: number) =>
+				Promise.resolve(applySelection(selection).slice(0, count)),
+			),
+			get: vi.fn(() => applySelection(selection)[0]),
+		};
 
-			return builder;
-		});
+		return builder;
+	});
 
-		const mockInsert = vi.fn(() => ({
-			values: vi.fn((values: Omit<MessageRow, "createdAt">) => ({
-				returning: vi.fn(async () => {
-					const row = {
-						...values,
-						createdAt: new Date("2026-03-29T12:00:00.000Z"),
-					};
-					mockRows.push(row);
-					return [row];
-				}),
-			})),
-		}));
+	const mockInsert = vi.fn(() => ({
+		values: vi.fn((values: Omit<MessageRow, "createdAt">) => ({
+			returning: vi.fn(() => {
+				const row = {
+					...values,
+					createdAt: new Date("2026-03-29T12:00:00.000Z"),
+				};
+				mockRows.push(row);
+				return {
+					get: vi.fn(() => row),
+					all: vi.fn(() => [row]),
+				};
+			}),
+		})),
+	}));
 
-		const mockUpdate = vi.fn(() => {
-			const builder = {
-				set: vi.fn((values: { metadataJson: string | null }) => {
-					const chain = {
-						where: vi.fn(async () => {
-							if (mockRows[0]) {
-								mockRows[0].metadataJson = values.metadataJson;
-							}
-						}),
-					};
-					return chain;
-				}),
-			};
+	const mockUpdate = vi.fn(() => {
+		const builder = {
+			set: vi.fn((values: { metadataJson: string | null }) => {
+				const chain = {
+					where: vi.fn(async () => {
+						if (mockRows[0]) {
+							mockRows[0].metadataJson = values.metadataJson;
+						}
+					}),
+				};
+				return chain;
+			}),
+		};
 
-			return builder;
-		});
+		return builder;
+	});
 
-		const mockDelete = vi.fn(() => {
-			const builder = {
-				where: vi.fn(async () => undefined),
-			};
+	const mockDelete = vi.fn(() => {
+		const builder = {
+			where: vi.fn(async () => undefined),
+		};
 
-			return builder;
-		});
+		return builder;
+	});
 
-		return { mockRows, mockSelect, mockInsert, mockUpdate, mockDelete };
-	},
-);
+	const mockTransaction = vi.fn((callback: (tx: unknown) => unknown) =>
+		callback({
+			select: mockSelect,
+			insert: mockInsert,
+			update: mockUpdate,
+			delete: mockDelete,
+			run: vi.fn(),
+		}),
+	);
+
+	return {
+		mockRows,
+		mockSelect,
+		mockInsert,
+		mockUpdate,
+		mockDelete,
+		mockTransaction,
+	};
+});
 
 vi.mock("$lib/server/db", () => ({
 	db: {
@@ -86,6 +122,7 @@ vi.mock("$lib/server/db", () => ({
 		insert: mockInsert,
 		update: mockUpdate,
 		delete: mockDelete,
+		transaction: mockTransaction,
 	},
 }));
 
@@ -99,6 +136,7 @@ vi.mock("$lib/server/db/schema", () => ({
 		thinking: "thinking",
 		toolCalls: "toolCalls",
 		metadataJson: "metadataJson",
+		messageSequence: "messageSequence",
 		createdAt: "createdAt",
 	},
 	messageAnalytics: {

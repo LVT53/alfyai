@@ -27,6 +27,11 @@ import type {
 } from "$lib/types";
 import { queueArtifactSemanticEmbeddingRefresh } from "./semantic-embedding-refresh";
 import { reconcileStaleFileProductionJobs } from "./file-production";
+import { messageOrderAsc } from "./message-ordering";
+import {
+	type MessageSequenceExecutor,
+	repairConversationMessageSequencesWithExecutor,
+} from "./message-sequences";
 
 type CreateConversationForkParams = {
 	userId: string;
@@ -49,7 +54,7 @@ type PersistedMessageMetadata = Record<string, unknown> & {
 type JsonRecord = Record<string, unknown>;
 type ForkQueryExecutor = {
 	select: typeof db.select;
-};
+} & MessageSequenceExecutor;
 type SourceConversationRow = typeof conversations.$inferSelect;
 type SourceMessageRow = typeof messages.$inferSelect;
 type GeneratedFileCopyPlan = {
@@ -245,12 +250,18 @@ function readForkSourceSnapshot(
 		.get();
 
 	const sourceMessages = sourceConversation
-		? executor
-				.select()
-				.from(messages)
-				.where(eq(messages.conversationId, sourceConversation.id))
-				.orderBy(asc(messages.createdAt), asc(messages.id))
-				.all()
+		? (() => {
+				repairConversationMessageSequencesWithExecutor(
+					executor,
+					sourceConversation.id,
+				);
+				return executor
+					.select()
+					.from(messages)
+					.where(eq(messages.conversationId, sourceConversation.id))
+					.orderBy(...messageOrderAsc())
+					.all();
+			})()
 		: [];
 
 	return validateForkSourceSnapshot({
@@ -927,9 +938,10 @@ export async function createConversationFork(
 				const copiedMessages = tx
 					.insert(messages)
 					.values(
-						sourceMessagesToCopy.map((sourceMessage) => ({
+						sourceMessagesToCopy.map((sourceMessage, index) => ({
 							id: randomUUID(),
 							conversationId: forkConversation.id,
+							messageSequence: index + 1,
 							role: sourceMessage.role,
 							content: sourceMessage.content,
 							thinking: sourceMessage.thinking,

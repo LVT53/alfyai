@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import * as schema from "$lib/server/db/schema";
+import { messageOrderAsc } from "./message-ordering";
 
 const semanticRefreshQueue = vi.hoisted(() => vi.fn());
 
@@ -127,7 +128,7 @@ function readForkRows(forkConversationId: string) {
 		.select()
 		.from(schema.messages)
 		.where(eq(schema.messages.conversationId, forkConversationId))
-		.orderBy(schema.messages.createdAt)
+		.orderBy(...messageOrderAsc())
 		.all();
 	const lineage = db
 		.select()

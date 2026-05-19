@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
@@ -23,6 +23,11 @@ import type {
 	WebCitationAudit,
 } from "$lib/types";
 import { listMessageAttachments } from "./knowledge";
+import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
+import {
+	repairConversationMessageSequences,
+	repairConversationMessageSequencesWithExecutor,
+} from "./message-sequences";
 
 type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	evidenceSummary?: MessageEvidenceSummary | null;
@@ -74,7 +79,9 @@ function isMessageEvidenceSummary(
 function readEvidenceSummaryFromMetadata(
 	metadata: PersistedMessageMetadata | null,
 ): MessageEvidenceSummary | null {
-	if (isMessageEvidenceSummary(metadata?.forkEvidenceSnapshot?.evidenceSummary)) {
+	if (
+		isMessageEvidenceSummary(metadata?.forkEvidenceSnapshot?.evidenceSummary)
+	) {
 		return metadata.forkEvidenceSnapshot.evidenceSummary;
 	}
 	if (isMessageEvidenceSummary(metadata?.evidenceSummary)) {
@@ -105,7 +112,8 @@ function mapRowToChatMessage(
 	}
 
 	const metadata = parseMetadata(row.metadataJson);
-	const evidenceSummary = readEvidenceSummaryFromMetadata(metadata) ?? undefined;
+	const evidenceSummary =
+		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
 	const evidencePending =
 		metadata?.evidenceStatus === "pending" && !evidenceSummary;
 
@@ -196,6 +204,8 @@ function compactPersistedMessageMetadata(
 export async function listMessages(
 	conversationId: string,
 ): Promise<ChatMessage[]> {
+	repairConversationMessageSequences(conversationId);
+
 	const [result, attachmentMap] = await Promise.all([
 		db
 			.select({
@@ -211,7 +221,7 @@ export async function listMessages(
 			.leftJoin(usageEvents, eq(messages.id, usageEvents.messageId))
 			.leftJoin(messageAnalytics, eq(messages.id, messageAnalytics.messageId))
 			.where(eq(messages.conversationId, conversationId))
-			.orderBy(asc(messages.createdAt), asc(messages.id)),
+			.orderBy(...messageOrderAsc()),
 		listMessageAttachments(conversationId),
 	]);
 
@@ -250,23 +260,36 @@ export async function createMessage(
 	thinkingSegments?: ThinkingSegment[],
 	metadata?: PersistedMessageMetadata,
 ): Promise<ChatMessage> {
-	const [message] = await db
-		.insert(messages)
-		.values({
-			id: randomUUID(),
-			conversationId,
-			role,
-			content,
-			thinking: thinking ?? null,
-			toolCalls:
-				thinkingSegments && thinkingSegments.length > 0
-					? JSON.stringify(thinkingSegments)
+	const message = db.transaction((tx) => {
+		repairConversationMessageSequencesWithExecutor(tx, conversationId);
+		const nextSequence = tx
+			.select({
+				value: sql<number>`COALESCE(MAX(${messages.messageSequence}), 0) + 1`,
+			})
+			.from(messages)
+			.where(eq(messages.conversationId, conversationId))
+			.get();
+
+		return tx
+			.insert(messages)
+			.values({
+				id: randomUUID(),
+				conversationId,
+				messageSequence: nextSequence?.value ?? 1,
+				role,
+				content,
+				thinking: thinking ?? null,
+				toolCalls:
+					thinkingSegments && thinkingSegments.length > 0
+						? JSON.stringify(thinkingSegments)
+						: null,
+				metadataJson: metadata
+					? JSON.stringify(compactPersistedMessageMetadata(metadata))
 					: null,
-			metadataJson: metadata
-				? JSON.stringify(compactPersistedMessageMetadata(metadata))
-				: null,
-		})
-		.returning();
+			})
+			.returning()
+			.get();
+	});
 
 	return mapRowToChatMessage(message);
 }
@@ -549,6 +572,8 @@ export async function getLatestHonchoMetadata(conversationId: string): Promise<{
 	honchoContext: HonchoContextInfo | null;
 	honchoSnapshot: HonchoContextSnapshot | null;
 }> {
+	repairConversationMessageSequences(conversationId);
+
 	const rows = await db
 		.select({ metadataJson: messages.metadataJson })
 		.from(messages)
@@ -558,7 +583,7 @@ export async function getLatestHonchoMetadata(conversationId: string): Promise<{
 				eq(messages.role, "assistant"),
 			),
 		)
-		.orderBy(desc(messages.createdAt));
+		.orderBy(...messageOrderDesc());
 
 	let honchoContext: HonchoContextInfo | null = null;
 	let honchoSnapshot: HonchoContextSnapshot | null = null;

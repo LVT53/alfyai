@@ -69,6 +69,7 @@ const requiredExistingColumns: Array<[string, string]> = [
 	['messages', 'thinking'],
 	['messages', 'tool_calls'],
 	['messages', 'metadata_json'],
+	['messages', 'message_sequence'],
 	['users', 'role'],
 	['users', 'preferred_model'],
 	['users', 'translation_enabled'],

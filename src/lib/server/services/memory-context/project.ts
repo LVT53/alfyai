@@ -8,6 +8,8 @@ import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
 import type { ToolEvidenceCandidate } from "$lib/types";
 import { getTargetConstructedContext } from "$lib/server/config-store";
+import { messageOrderDesc } from "$lib/server/services/message-ordering";
+import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 
 const MIN_MAX_SIBLINGS = 5;
 const OPERATIONAL_MAX_SIBLINGS = 64;
@@ -339,6 +341,7 @@ async function listRecentDialogueMessages(params: {
 		eq(messages.conversationId, params.conversationId),
 		inArray(messages.role, ["user", "assistant"]),
 	);
+	repairConversationMessageSequences(params.conversationId);
 
 	const [countRows, rows] = await Promise.all([
 		db.select({ messageCount: count() }).from(messages).where(dialogueWhere),
@@ -350,7 +353,7 @@ async function listRecentDialogueMessages(params: {
 			})
 			.from(messages)
 			.where(dialogueWhere)
-			.orderBy(desc(messages.createdAt))
+			.orderBy(...messageOrderDesc())
 			.limit(params.maxMessages),
 	]);
 	const messageCount = countRows[0]?.messageCount ?? rows.length;

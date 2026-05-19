@@ -1,9 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as schema from "$lib/server/db/schema";
-import { getAppVersionMetadata, getLatestPublishedReleaseVersion } from "./app-version";
+import {
+	getAppVersionMetadata,
+	getLatestPublishedReleaseVersion,
+} from "./app-version";
 
 describe("app version metadata", () => {
 	let sqlite: Database.Database;
@@ -38,11 +41,11 @@ describe("app version metadata", () => {
 					id: "release-2",
 					type: "release_update",
 					status: "published",
-					identityKey: "release_update:1.0.0:r1",
+					identityKey: "release_update:1.0.1:r1",
 					name: "AlfyAI 1.0",
-					campaignVersion: "1.0.0",
+					campaignVersion: "1.0.1",
 					revision: 1,
-					releaseVersion: "1.0.0",
+					releaseVersion: "1.0.1",
 					publishedAt: new Date("2026-05-17T10:00:00.000Z"),
 				},
 				{
@@ -59,17 +62,32 @@ describe("app version metadata", () => {
 			])
 			.run();
 
-		await expect(getLatestPublishedReleaseVersion({ db })).resolves.toBe("1.0.0");
-		await expect(getAppVersionMetadata({ db, packageVersion: "0.1.0" })).resolves.toEqual({
-			full: "1.0.0",
-			compact: "v1.0",
+		await expect(getLatestPublishedReleaseVersion({ db })).resolves.toBe(
+			"1.0.1",
+		);
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "0.1.0" }),
+		).resolves.toEqual({
+			full: "1.0.1",
+			compact: "v1.0.1",
 		});
 	});
 
 	it("falls back to package metadata when no release campaign has been published", async () => {
-		await expect(getAppVersionMetadata({ db, packageVersion: "0.1.0" })).resolves.toEqual({
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "0.1.0" }),
+		).resolves.toEqual({
 			full: "0.1.0",
-			compact: "v0.1",
+			compact: "v0.1.0",
+		});
+	});
+
+	it("caps the compact sidebar badge version at three numeric places", async () => {
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "1.2.3.4" }),
+		).resolves.toEqual({
+			full: "1.2.3.4",
+			compact: "v1.2.3",
 		});
 	});
 });

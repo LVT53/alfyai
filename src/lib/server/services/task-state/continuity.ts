@@ -25,6 +25,8 @@ import { parseJsonStringArray } from "$lib/server/utils/json";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
 import { DAY_MS, RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
 import { scoreMatch } from "$lib/server/services/working-set";
+import { messageOrderDesc } from "$lib/server/services/message-ordering";
+import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import {
   canUseContextSummarizer,
   requestStructuredControlModel,
@@ -977,6 +979,8 @@ export async function selectProjectFolderSiblingPromotion(params: {
   const winner = ranked[0];
   if (!winner) return null;
 
+  repairConversationMessageSequences(winner.conversationId);
+
   const [messageCountRows, messageRows] = await Promise.all([
     db
       .select({ messageCount: count() })
@@ -990,7 +994,7 @@ export async function selectProjectFolderSiblingPromotion(params: {
       })
       .from(messages)
       .where(eq(messages.conversationId, winner.conversationId))
-      .orderBy(desc(messages.createdAt))
+      .orderBy(...messageOrderDesc())
       .limit(messageLimit),
   ]);
 

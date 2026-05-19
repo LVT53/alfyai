@@ -11,6 +11,8 @@ import {
 	deriveConversationArtifactBaseName,
 	isPlaceholderConversationTitle,
 } from '../knowledge-labels';
+import { messageOrderDesc } from '../message-ordering';
+import { repairConversationMessageSequences } from '../message-sequences';
 import { syncArtifactChunks } from '../task-state';
 import {
 	createArtifact,
@@ -117,6 +119,8 @@ export async function createGeneratedOutputArtifact(params: {
 	const trimmed = params.content.trim();
 	if (!trimmed) return null;
 
+	repairConversationMessageSequences(params.conversationId);
+
 	const [conversationTitle, latestUserMessage] = await Promise.all([
 		db
 			.select({ title: conversations.title })
@@ -126,7 +130,7 @@ export async function createGeneratedOutputArtifact(params: {
 			.select({ content: messages.content })
 			.from(messages)
 			.where(and(eq(messages.conversationId, params.conversationId), eq(messages.role, 'user')))
-			.orderBy(desc(messages.createdAt))
+			.orderBy(...messageOrderDesc())
 			.limit(1),
 	]);
 	const artifactBaseName = deriveConversationArtifactBaseName({
@@ -192,11 +196,13 @@ export async function upsertWorkCapsule(params: {
 
 	if (!conversation) return null;
 
+	repairConversationMessageSequences(params.conversationId);
+
 	const recentMessages = await db
 		.select()
 		.from(messages)
 		.where(eq(messages.conversationId, params.conversationId))
-		.orderBy(desc(messages.createdAt))
+		.orderBy(...messageOrderDesc())
 		.limit(8);
 
 	const sourceArtifactIds = await listConversationSourceArtifactIds(params.userId, params.conversationId);

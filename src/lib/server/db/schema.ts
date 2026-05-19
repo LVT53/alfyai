@@ -66,13 +66,23 @@ export const messages = sqliteTable('messages', {
   conversationId: text('conversation_id')
     .notNull()
     .references(() => conversations.id, { onDelete: 'cascade' }),
+  messageSequence: integer('message_sequence'),
   role: text('role').notNull(),
   content: text('content').notNull(),
   thinking: text('thinking'),
   toolCalls: text('tool_calls'),
   metadataJson: text('metadata_json'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-});
+}, (table) => ({
+  conversationSequenceUniqueIdx: uniqueIndex('messages_conversation_sequence_unique_idx')
+    .on(table.conversationId, table.messageSequence)
+    .where(sql`${table.messageSequence} IS NOT NULL`),
+  conversationOrderIdx: index('messages_conversation_order_idx').on(
+    table.conversationId,
+    table.messageSequence,
+    table.createdAt
+  ),
+}));
 
 export const conversationForks = sqliteTable('conversation_forks', {
   id: text('id').primaryKey(),

@@ -15,8 +15,8 @@ vi.mock("$lib/server/services/projects", () => ({
 vi.mock("$lib/server/services/app-version", () => ({
 	getAppVersionMetadata: vi.fn(() =>
 		Promise.resolve({
-			compact: "v1.0",
-			full: "1.0.0",
+			compact: "v1.0.1",
+			full: "1.0.1",
 		}),
 	),
 }));
@@ -143,8 +143,8 @@ describe("(app) layout load", () => {
 		expect(result).toEqual(
 			expect.objectContaining({
 				appVersion: {
-					compact: "v1.0",
-					full: "1.0.0",
+					compact: "v1.0.1",
+					full: "1.0.1",
 				},
 			}),
 		);

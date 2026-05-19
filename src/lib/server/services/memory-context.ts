@@ -23,6 +23,11 @@ import {
 	getProjectContext,
 	type ProjectContextResult,
 } from "$lib/server/services/memory-context/project";
+import {
+	messageOrderDesc,
+	messageTimestampOrderDesc,
+} from "$lib/server/services/message-ordering";
+import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
@@ -391,7 +396,7 @@ async function listHistoryCandidates(params: {
 				messageFilter,
 			),
 		)
-		.orderBy(desc(messages.createdAt))
+		.orderBy(...messageTimestampOrderDesc())
 		.limit(HISTORY_MESSAGE_MATCH_LIMIT);
 
 	const candidates = new Map<string, HistoryCandidate>();
@@ -490,6 +495,7 @@ async function loadHistoryConversationDetail(params: {
 		eq(messages.conversationId, params.historyConversationId),
 		inArray(messages.role, ["user", "assistant"]),
 	);
+	repairConversationMessageSequences(params.historyConversationId);
 	const [countRows, rows] = await Promise.all([
 		db.select({ messageCount: count() }).from(messages).where(dialogueWhere),
 		db
@@ -500,7 +506,7 @@ async function loadHistoryConversationDetail(params: {
 			})
 			.from(messages)
 			.where(dialogueWhere)
-			.orderBy(desc(messages.createdAt))
+			.orderBy(...messageOrderDesc())
 			.limit(params.maxMessages),
 	]);
 	const selectedMessages = rows

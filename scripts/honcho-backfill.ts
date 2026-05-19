@@ -12,8 +12,10 @@ if (!process.env.SESSION_SECRET) process.env.SESSION_SECRET = 'placeholder-secre
 
 import { db } from '../src/lib/server/db';
 import { users, conversations, messages } from '../src/lib/server/db/schema';
-import { eq, asc } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getOrCreateSession, mirrorMessage } from '../src/lib/server/services/honcho';
+import { messageOrderAsc } from '../src/lib/server/services/message-ordering';
+import { repairConversationMessageSequences } from '../src/lib/server/services/message-sequences';
 
 const RATE_LIMIT_MS = 100; // 10 msgs/sec
 
@@ -60,11 +62,12 @@ async function main() {
       const honchoSessionId = await getOrCreateSession(user.id, conv.id);
 
       // Get all messages in chronological order
+      repairConversationMessageSequences(conv.id);
       const convMessages = await db
         .select()
         .from(messages)
         .where(eq(messages.conversationId, conv.id))
-        .orderBy(asc(messages.createdAt));
+        .orderBy(...messageOrderAsc());
 
       if (convMessages.length === 0) continue;
 
