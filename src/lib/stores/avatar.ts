@@ -1,4 +1,4 @@
-import { writable, derived } from 'svelte/store';
+import { writable } from "svelte/store";
 
 // Tracks whether the current user has a profile picture, and a cache-buster
 // timestamp so AvatarCircle always fetches the latest version after upload.
@@ -12,7 +12,7 @@ const _avatar = writable<AvatarState>({ profilePicture: null, cacheBuster: 0 });
 export const avatarState = { subscribe: _avatar.subscribe };
 
 export function initAvatar(profilePicture: string | null) {
-	_avatar.set({ profilePicture, cacheBuster: Date.now() });
+	_avatar.update((state) => ({ ...state, profilePicture }));
 }
 
 export function setAvatarUploaded(userId: string) {

@@ -282,6 +282,55 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(chunks[0]).not.toContain("event:");
 	});
 
+	it("logs structured phase timing without emitting timing SSE events", async () => {
+		const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+		const { sendMessageStream } = await import("$lib/server/services/langflow");
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+			stream: createTokenStream("Hi"),
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+		});
+
+		const response = runChatStreamOrchestrator({
+			user: {
+				id: "u1",
+				displayName: "User",
+				email: "u@test.com",
+			},
+			turn: createTurn(),
+			upstreamMessage: "Hello",
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+			routePhaseTimings: { route_parse: 1, capacity: 2, preflight: 3 },
+		});
+
+		const chunks = await readSseResponse(response);
+		const eventNames = chunks
+			.filter((chunk) => chunk.startsWith("event: "))
+			.map((chunk) => chunk.slice("event: ".length).split("\n")[0]);
+		const phaseTimingLog = infoSpy.mock.calls.find(
+			([message]) => message === "[CHAT_STREAM] phase_timing",
+		);
+
+		expect(new Set(eventNames)).toEqual(new Set(["token", "end"]));
+		expect(phaseTimingLog?.[1]).toEqual(
+			expect.objectContaining({
+				conversationId: "test-conv",
+				streamId: "test-stream",
+				route_parse_ms: expect.any(Number),
+				prelude_ms: expect.any(Number),
+				langflow_request_ms: expect.any(Number),
+				first_upstream_event_ms: expect.any(Number),
+				first_visible_token_ms: expect.any(Number),
+				end_ms: expect.any(Number),
+			}),
+		);
+	});
+
 	// SKIPPED: ReadableStream orchestrator hangs due to heartbeat interval blocking.
 	// The unit tests for completeStreamTurn, doReconnect, and runNonStreamFallback
 	// provide full coverage of the SSE event shapes and orchestration logic.

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidate } from '$app/navigation';
 	import ProfilePictureEditor from '$lib/components/ui/ProfilePictureEditor.svelte';
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 	import { clearConversationSessionState } from '$lib/client/conversation-session';
@@ -355,6 +355,7 @@ let removingPhoto = $state(false);
 		adminError = '';
 		try {
 			await updateAdminConfig(adminConfig);
+			await invalidate('app:shell');
 			showMessage('adminMessage', 'Configuration saved.');
 		} catch (error: any) {
 			adminError = error.message;

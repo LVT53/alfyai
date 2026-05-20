@@ -490,6 +490,10 @@ const dictionary = {
 			"Enable Composer Command Registry",
 		"admin.composerCommandRegistryDescription":
 			"Expose the Normal Chat command registry shell. Runtime skill behavior stays inactive until later slices are enabled.",
+		"admin.appVersion": "Application version",
+		"admin.appVersionOverride": "App version override",
+		"admin.appVersionOverrideDescription":
+			"Leave empty to display the package version. Set a value to silently override the app version badge without publishing a campaign.",
 		"admin.systemSkills.title": "Skills",
 		"admin.systemSkills.description":
 			"Manage admin-defined skills. Users can see enabled, published summaries, but only admins can edit instructions.",
@@ -1025,6 +1029,7 @@ const dictionary = {
 		"chat.loading": "Loading messages...",
 		"chat.startingConversation": "Starting conversation...",
 		"chat.thinking": "Thinking...",
+		"chat.preparingResponse": "Preparing response...",
 		"chat.stoppedEarly": "Response stopped early",
 		"chat.queuedNext": "Queued next",
 		"chat.nextMessageQueued": "Next message queued.",
@@ -1949,6 +1954,10 @@ const dictionary = {
 			"Beviteli parancsregiszter engedélyezése",
 		"admin.composerCommandRegistryDescription":
 			"Megjeleníti a normál chat parancsregiszterének vázát. A skill futtatási viselkedés a későbbi szeletekig inaktív marad.",
+		"admin.appVersion": "Alkalmazásverzió",
+		"admin.appVersionOverride": "Appverzió felülírása",
+		"admin.appVersionOverrideDescription":
+			"Hagyd üresen a package verzió megjelenítéséhez. Beállított értékkel kampány publikálása nélkül írható felül az alkalmazásverzió jelvénye.",
 		"admin.systemSkills.title": "Skillek",
 		"admin.systemSkills.description":
 			"Admin által meghatározott skillek kezelése. A felhasználók az engedélyezett, közzétett összefoglalókat látják, de az utasításokat csak adminok szerkeszthetik.",
@@ -2401,6 +2410,7 @@ const dictionary = {
 		"chat.loading": "Üzenetek betöltése...",
 		"chat.startingConversation": "Beszélgetés indítása...",
 		"chat.thinking": "Gondolkodás...",
+		"chat.preparingResponse": "Válasz előkészítése...",
 		"chat.stoppedEarly": "Válasz idő előtt leállt",
 		"chat.queuedNext": "Következő üzenet várakozik",
 		"chat.nextMessageQueued": "Következő üzenet várakozik.",

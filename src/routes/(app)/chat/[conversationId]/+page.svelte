@@ -3,7 +3,7 @@ import { get, writable } from "svelte/store";
 import { onMount, onDestroy, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { page } from "$app/state";
-import { goto, invalidateAll, replaceState } from "$app/navigation";
+import { goto, invalidate, invalidateAll, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
 import {
 	cleanupPreparedConversation,
@@ -571,7 +571,7 @@ function handleVisibilityChange() {
 	if (document.visibilityState === "visible") {
 		if (streamInterruptedByBackground) {
 			streamInterruptedByBackground = false;
-			invalidateAll();
+			void invalidate(`app:conversation-detail:${data.conversation.id}`);
 			void checkForOrphanedStreamOnMount();
 		}
 

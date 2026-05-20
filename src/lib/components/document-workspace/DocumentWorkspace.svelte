@@ -66,6 +66,8 @@ let compareLoading = $state(false);
 let compareError = $state<string | null>(null);
 let documentPreviewRendererModulePromise: Promise<DocumentPreviewRendererModule> | null =
 	null;
+let desktopShellElement = $state<HTMLElement | null>(null);
+let mobileShellElement = $state<HTMLElement | null>(null);
 // Fade animation state
 let isVisible = $state(false);
 let shouldRender = $state(false);
@@ -371,7 +373,9 @@ function getDocumentPreviewUrl(document: DocumentWorkspaceItem): string | null {
 	return null;
 }
 
-function getDocumentDownloadUrl(document: DocumentWorkspaceItem): string | null {
+function getDocumentDownloadUrl(
+	document: DocumentWorkspaceItem,
+): string | null {
 	if (document.downloadUrl) return document.downloadUrl;
 	if (document.source === "knowledge_artifact" && document.artifactId) {
 		return `/api/knowledge/${document.artifactId}/download`;
@@ -399,6 +403,39 @@ function handleMobileBackdropClick(event: MouseEvent) {
 	if (event.target === event.currentTarget) {
 		handleCloseWorkspace();
 	}
+}
+
+function handleWindowKeydown(event: KeyboardEvent) {
+	if (
+		event.key !== "Escape" ||
+		event.defaultPrevented ||
+		!shouldShowWorkspaceShell ||
+		presentation !== "expanded"
+	) {
+		return;
+	}
+
+	handleCloseWorkspace();
+}
+
+function handleDocumentPointerdown(event: PointerEvent) {
+	if (
+		!shouldShowWorkspaceShell ||
+		presentation !== "expanded" ||
+		!desktopShellElement
+	) {
+		return;
+	}
+
+	const target = event.target;
+	if (target instanceof Node && desktopShellElement.contains(target)) {
+		return;
+	}
+	if (target instanceof Node && mobileShellElement?.contains(target)) {
+		return;
+	}
+
+	handleCloseWorkspace();
 }
 
 async function loadComparePreview(
@@ -430,11 +467,7 @@ async function ensureDocumentPreviewRendererModule() {
 
 $effect(() => {
 	if (!browser) return;
-	if (
-		open ||
-		documents.length > 0 ||
-		availableDocuments.some((document) => getDocumentPreviewUrl(document))
-	) {
+	if (shouldShowWorkspaceShell) {
 		void ensureDocumentPreviewRendererModule().catch(() => {
 			documentPreviewRendererModulePromise = null;
 		});
@@ -514,6 +547,9 @@ $effect(() => {
 });
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:document onpointerdown={handleDocumentPointerdown} />
+
 {#if shouldRender && activeDocument}
 	<!-- Mobile overlay -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -522,7 +558,11 @@ $effect(() => {
 		role="presentation"
 		onclick={handleMobileBackdropClick}
 	>
-		<section class="workspace-shell workspace-shell-mobile" aria-label={$t('documentWorkspace.documentWorkspace')}>
+		<section
+			bind:this={mobileShellElement}
+			class="workspace-shell workspace-shell-mobile"
+			aria-label={$t('documentWorkspace.documentWorkspace')}
+		>
 			<div class="workspace-header">
 				<div class="workspace-heading">
 					<div class="workspace-eyebrow">{$t('documentWorkspace.workingDocument')}</div>
@@ -769,6 +809,7 @@ $effect(() => {
 
 	<!-- Desktop / tablet side pane -->
 	<aside 
+		bind:this={desktopShellElement}
 		class="workspace-shell workspace-shell-desktop transition fade"
 		class:workspace-fade-in={isVisible}
 		class:workspace-resizing={isResizing}

@@ -100,6 +100,17 @@
 	// multi-burst thinking phases (isThinkingStreaming briefly false, but no content yet).
 	let isDone = $derived(!message.isStreaming && !message.isThinkingStreaming);
 	let isGenerating = $derived(Boolean(message.isStreaming || message.isThinkingStreaming));
+	let hasVisibleContent = $derived(message.content.trim().length > 0);
+	let hasFileProductionCards = $derived(fileProductionJobs.length > 0 && Boolean(conversationId));
+	let showPreparingStatus = $derived(
+		!isUser &&
+			isGenerating &&
+			!hasVisibleContent &&
+			!hasThinking &&
+			!hasToolCalls &&
+			skillDrafts.length === 0 &&
+			!hasFileProductionCards
+	);
 	let hasServerPersistedIdentity = $derived(
 		message.renderKey === undefined || message.renderKey !== message.id
 	);
@@ -327,6 +338,9 @@
 					isStreaming={Boolean(message.isStreaming)}
 				/>
 			</div>
+			{#if showPreparingStatus}
+				<div class="preparing-status" aria-live="polite">{$t('chat.preparingResponse')}</div>
+			{/if}
 			{#if skillDrafts.length > 0}
 				<div class="skill-draft-list">
 					{#each skillDrafts as draft (draft.id)}
@@ -711,6 +725,14 @@
 		flex-direction: column;
 		gap: var(--space-xs);
 		margin-top: var(--space-md);
+	}
+
+	.preparing-status {
+		margin-top: var(--space-xs);
+		font-family: 'Nimbus Sans L', sans-serif;
+		font-size: 0.82rem;
+		line-height: 1.4;
+		color: var(--text-muted);
 	}
 
 	.fork-lineage-marker {

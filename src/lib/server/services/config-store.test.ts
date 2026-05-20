@@ -232,6 +232,19 @@ describe("Knowledge Store Config", () => {
 			expect(getConfig().defaultNewUserModel).toBe("provider:firepass");
 		});
 
+		it("getConfig() should apply and expose the silent app version override", async () => {
+			adminConfigRows = [
+				{ key: "APP_VERSION_OVERRIDE", value: "2026.05-admin" },
+			];
+
+			await refreshConfig();
+
+			expect(getConfig().appVersionOverride).toBe("2026.05-admin");
+			expect(getResolvedAdminConfigValues().APP_VERSION_OVERRIDE).toBe(
+				"2026.05-admin",
+			);
+		});
+
 		it("getConfig() should allow admin config to enable Deep Research", async () => {
 			adminConfigRows = [{ key: "DEEP_RESEARCH_ENABLED", value: "true" }];
 

@@ -1,16 +1,16 @@
-import { writable } from 'svelte/store';
-import type { ConversationListItem } from '$lib/types';
+import { writable } from "svelte/store";
 import {
 	createConversation,
 	deleteConversation,
 	fetchConversations,
 	moveConversationToProject as moveConversationRequest,
 	renameConversation as renameConversationRequest,
-} from '$lib/client/api/conversations';
+} from "$lib/client/api/conversations";
 import {
 	dispatchWorkspaceConversationDeleted,
 	removeConversationFromPersistedWorkspaceDocumentState,
-} from '$lib/client/document-workspace-state';
+} from "$lib/client/document-workspace-state";
+import type { ConversationListItem } from "$lib/types";
 
 export const conversations = writable<ConversationListItem[]>([]);
 
@@ -18,25 +18,36 @@ const optimisticConversationIds = new Set<string>();
 const deletedConversationIds = new Set<string>();
 const localConversationProjectIds = new Map<string, string | null>();
 let conversationSnapshotUserId: string | null = null;
+let lastSuccessfulConversationSnapshotAt = 0;
+
+interface LoadConversationsOptions {
+	force?: boolean;
+	minIntervalMs?: number;
+}
+
+interface LoadConversationsResult {
+	refreshed: boolean;
+}
 
 function isTransientRefreshError(error: unknown): boolean {
-	if (error instanceof DOMException && error.name === 'AbortError') return true;
+	if (error instanceof DOMException && error.name === "AbortError") return true;
 	if (!(error instanceof Error)) return false;
 	const message = error.message.toLowerCase();
 	return (
 		error instanceof TypeError ||
-		message.includes('failed to fetch') ||
-		message.includes('networkerror') ||
-		message.includes('network error') ||
-		message.includes('timed out') ||
-		message.includes('timeout')
+		message.includes("failed to fetch") ||
+		message.includes("networkerror") ||
+		message.includes("network error") ||
+		message.includes("timed out") ||
+		message.includes("timeout")
 	);
 }
 
 export function reconcileConversationSnapshot(
 	items: ConversationListItem[],
-	options: { resetLocalState?: boolean; userId?: string | null } = {}
+	options: { resetLocalState?: boolean; userId?: string | null } = {},
 ): void {
+	lastSuccessfulConversationSnapshotAt = Date.now();
 	const ownerChanged =
 		options.userId !== undefined &&
 		conversationSnapshotUserId !== null &&
@@ -82,7 +93,9 @@ export function reconcileConversationSnapshot(
 			optimisticConversationIds.delete(item.id);
 		}
 
-		return Array.from(next.values()).sort((left, right) => right.updatedAt - left.updatedAt);
+		return Array.from(next.values()).sort(
+			(left, right) => right.updatedAt - left.updatedAt,
+		);
 	});
 }
 
@@ -91,24 +104,41 @@ export function clearConversationStore(): void {
 	deletedConversationIds.clear();
 	localConversationProjectIds.clear();
 	conversationSnapshotUserId = null;
+	lastSuccessfulConversationSnapshotAt = 0;
 	conversations.set([]);
 }
 
-export async function loadConversations(): Promise<void> {
+export async function loadConversations(
+	options: LoadConversationsOptions = {},
+): Promise<LoadConversationsResult> {
+	const minIntervalMs = options.minIntervalMs ?? 0;
+	if (
+		!options.force &&
+		minIntervalMs > 0 &&
+		lastSuccessfulConversationSnapshotAt > 0 &&
+		Date.now() - lastSuccessfulConversationSnapshotAt < minIntervalMs
+	) {
+		return { refreshed: false };
+	}
+
 	try {
 		reconcileConversationSnapshot(await fetchConversations());
+		return { refreshed: true };
 	} catch (error) {
 		if (!isTransientRefreshError(error)) {
-			console.warn('Error loading conversations:', error);
+			console.warn("Error loading conversations:", error);
 		}
+		return { refreshed: false };
 	}
 }
 
 let isCreating = false;
 
-export async function createNewConversation(options: { projectId?: string | null } = {}): Promise<string> {
+export async function createNewConversation(
+	options: { projectId?: string | null } = {},
+): Promise<string> {
 	if (isCreating) {
-		throw new Error('Please wait, a conversation is already being created.');
+		throw new Error("Please wait, a conversation is already being created.");
 	}
 
 	isCreating = true;
@@ -116,11 +146,13 @@ export async function createNewConversation(options: { projectId?: string | null
 		const conversation = await createConversation(undefined, options);
 		return conversation.id;
 	} catch (error) {
-		console.error('Error in createNewConversation:', error);
+		console.error("Error in createNewConversation:", error);
 		if (error instanceof Error) {
 			throw error;
 		}
-		throw new Error('An unexpected error occurred while creating a conversation. Please try again.');
+		throw new Error(
+			"An unexpected error occurred while creating a conversation. Please try again.",
+		);
 	} finally {
 		isCreating = false;
 	}
@@ -128,9 +160,9 @@ export async function createNewConversation(options: { projectId?: string | null
 
 export function upsertConversationLocal(
 	id: string,
-	title = 'New Conversation',
+	title = "New Conversation",
 	updatedAt = Date.now() / 1000,
-	projectId?: string | null
+	projectId?: string | null,
 ): void {
 	optimisticConversationIds.add(id);
 	deletedConversationIds.delete(id);
@@ -165,44 +197,90 @@ export function removeConversationLocal(id: string): void {
 	optimisticConversationIds.delete(id);
 	deletedConversationIds.add(id);
 	localConversationProjectIds.delete(id);
-	conversations.update((items) => items.filter((conversation) => conversation.id !== id));
+	conversations.update((items) =>
+		items.filter((conversation) => conversation.id !== id),
+	);
 }
 
 export async function deleteConversationById(id: string): Promise<void> {
 	await deleteConversation(id);
-	if (typeof window !== 'undefined') {
-		removeConversationFromPersistedWorkspaceDocumentState(window.sessionStorage, id);
+	if (typeof window !== "undefined") {
+		removeConversationFromPersistedWorkspaceDocumentState(
+			window.sessionStorage,
+			id,
+		);
 		dispatchWorkspaceConversationDeleted(id);
 	}
 	optimisticConversationIds.delete(id);
 	deletedConversationIds.add(id);
 	localConversationProjectIds.delete(id);
-	conversations.update((items) => items.filter((conversation) => conversation.id !== id));
+	conversations.update((items) =>
+		items.filter((conversation) => conversation.id !== id),
+	);
 }
 
-export async function renameConversation(id: string, title: string): Promise<void> {
+export async function renameConversation(
+	id: string,
+	title: string,
+): Promise<void> {
 	await renameConversationRequest(id, title);
 	conversations.update((items) =>
-		items.map((conversation) => (conversation.id === id ? { ...conversation, title } : conversation))
+		items.map((conversation) =>
+			conversation.id === id ? { ...conversation, title } : conversation,
+		),
 	);
 }
 
 export function updateConversationTitleLocal(id: string, title: string): void {
 	conversations.update((items) =>
 		items.map((conversation) =>
-			conversation.id === id ? { ...conversation, title } : conversation
-		)
+			conversation.id === id ? { ...conversation, title } : conversation,
+		),
 	);
 }
 
-export async function moveConversationToProject(id: string, projectId: string | null): Promise<void> {
-	await moveConversationRequest(id, projectId);
+export async function moveConversationToProject(
+	id: string,
+	projectId: string | null,
+): Promise<void> {
+	let previousProjectId: string | null = null;
+	let foundConversation = false;
+	const hadPreviousLocalProjectId = localConversationProjectIds.has(id);
+	const previousLocalProjectId = localConversationProjectIds.get(id) ?? null;
 	localConversationProjectIds.set(id, projectId);
 	conversations.update((items) =>
-		items.map((conversation) =>
-			conversation.id === id ? { ...conversation, projectId } : conversation
-		)
+		items.map((conversation) => {
+			if (conversation.id !== id) return conversation;
+			previousProjectId = conversation.projectId ?? null;
+			foundConversation = true;
+			return { ...conversation, projectId };
+		}),
 	);
+	try {
+		await moveConversationRequest(id, projectId);
+	} catch (error) {
+		if (localConversationProjectIds.get(id) === projectId) {
+			if (hadPreviousLocalProjectId) {
+				localConversationProjectIds.set(id, previousLocalProjectId);
+			} else {
+				localConversationProjectIds.delete(id);
+			}
+		}
+		if (foundConversation) {
+			conversations.update((items) =>
+				items.map((conversation) => {
+					if (
+						conversation.id !== id ||
+						(conversation.projectId ?? null) !== projectId
+					) {
+						return conversation;
+					}
+					return { ...conversation, projectId: previousProjectId };
+				}),
+			);
+		}
+		throw error;
+	}
 }
 
 export function clearProjectFromConversations(projectId: string): void {
@@ -211,6 +289,6 @@ export function clearProjectFromConversations(projectId: string): void {
 			if (conversation.projectId !== projectId) return conversation;
 			localConversationProjectIds.set(conversation.id, null);
 			return { ...conversation, projectId: null };
-		})
+		}),
 	);
 }

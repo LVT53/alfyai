@@ -164,14 +164,14 @@ import {
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
 import { assertPromptReadyAttachments } from "$lib/server/services/knowledge";
-import { addConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
 import { sendMessage, sendMessageStream } from "$lib/server/services/langflow";
+import { addConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
 import {
 	createMessage,
 	updateMessageHonchoMetadata,
 } from "$lib/server/services/messages";
-import { getConversationTaskState } from "$lib/server/services/task-state";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
+import { getConversationTaskState } from "$lib/server/services/task-state";
 import { POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
@@ -348,6 +348,37 @@ describe("POST /api/chat/stream", () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+	});
+
+	it("exposes route phase timings in Server-Timing without adding SSE events", async () => {
+		const conversation = {
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		mockGetConversation.mockResolvedValue(conversation);
+		mockSendMessageStream.mockResolvedValue(
+			buildSseStream([
+				'event: add_message\ndata: {"text":"Hello"}\n\n',
+				"data: [DONE]\n\n",
+			]),
+		);
+
+		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
+		const response = await POST(event);
+		const body = await readSseResponse(response);
+
+		expect(response.headers.get("Server-Timing")).toEqual(
+			expect.stringContaining("route_parse;dur="),
+		);
+		expect(response.headers.get("Server-Timing")).toEqual(
+			expect.stringContaining("preflight;dur="),
+		);
+		const eventNames = Array.from(body.matchAll(/^event: ([^\n\r]+)/gm)).map(
+			(match) => match[1],
+		);
+		expect(new Set(eventNames)).toEqual(new Set(["token", "end"]));
 	});
 
 	it("starts SSE responses with an ignored prelude comment to flush browser-facing proxies", async () => {

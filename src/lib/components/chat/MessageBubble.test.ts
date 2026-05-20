@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ChatMessage, DocumentWorkspaceItem, FileProductionJob } from '$lib/types';
 import MessageBubble from './MessageBubble.svelte';
-import type { ChatMessage, DocumentWorkspaceItem } from '$lib/types';
 
 vi.mock('$lib/utils/markdown-loader', () => ({
 	prepareCodeHighlighting: async () => undefined,
@@ -23,6 +23,93 @@ describe('MessageBubble', () => {
 				dispatchEvent: vi.fn(),
 			})),
 		});
+	});
+
+	it('shows a lightweight preparation status for an empty streaming assistant response', () => {
+		const message: ChatMessage = {
+			id: 'assistant-preparing',
+			renderKey: 'assistant-preparing',
+			role: 'assistant',
+			content: '',
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+		};
+
+		render(MessageBubble, { message });
+
+		expect(screen.getByText('Preparing response...')).toBeInTheDocument();
+	});
+
+	it('removes the preparation status once assistant output surfaces', async () => {
+		const baseMessage: ChatMessage = {
+			id: 'assistant-preparing',
+			renderKey: 'assistant-preparing',
+			role: 'assistant',
+			content: '',
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+		};
+		const fileProductionJob: FileProductionJob = {
+			id: 'job-1',
+			conversationId: 'conv-1',
+			assistantMessageId: 'assistant-preparing',
+			title: 'Draft report',
+			status: 'queued',
+			stage: null,
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+			files: [],
+			warnings: [],
+			error: null,
+		};
+
+		const { rerender } = render(MessageBubble, { message: baseMessage });
+
+		expect(screen.getByText('Preparing response...')).toBeInTheDocument();
+
+		await rerender({ message: { ...baseMessage, content: 'First token' } });
+		expect(screen.queryByText('Preparing response...')).not.toBeInTheDocument();
+
+		await rerender({ message: { ...baseMessage, thinking: 'Checking context' } });
+		expect(screen.queryByText('Preparing response...')).not.toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...baseMessage,
+				thinkingSegments: [{ type: 'tool_call', name: 'web_search', input: {}, status: 'running' }],
+			},
+		});
+		expect(screen.queryByText('Preparing response...')).not.toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...baseMessage,
+				skillDrafts: [
+					{
+						id: 'draft-1',
+						status: 'proposed',
+						displayName: 'Meeting critic',
+						description: 'Review meeting notes for weak follow-ups.',
+						instructions: 'Find missing owners.',
+						activationExamples: [],
+						durationPolicy: 'next_message',
+						questionPolicy: 'none',
+						notesPolicy: 'none',
+						sourceScope: 'selected_sources_only',
+					},
+				],
+			},
+		});
+		expect(screen.queryByText('Preparing response...')).not.toBeInTheDocument();
+
+		await rerender({
+			message: baseMessage,
+			conversationId: 'conv-1',
+			fileProductionJobs: [fileProductionJob],
+		});
+		expect(screen.queryByText('Preparing response...')).not.toBeInTheDocument();
 	});
 
 	it('opens attached artifacts through the shared document workspace callback', async () => {

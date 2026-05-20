@@ -67,6 +67,7 @@ const SSE_HEADERS = {
 };
 const SSE_PRELUDE_PADDING_BYTES = 8192;
 const SSE_HEARTBEAT_COMMENT = ": keep-alive\n\n";
+export type StreamPhaseTimings = Record<string, number>;
 
 export type ServerStreamSegment =
 	| { type: "text"; content: string }
@@ -96,8 +97,25 @@ export function createStreamJsonErrorResponse(
 	});
 }
 
-export function createEventStreamResponse(stream: ReadableStream): Response {
-	return new Response(stream, { headers: SSE_HEADERS });
+function formatServerTiming(timings: StreamPhaseTimings): string {
+	return Object.entries(timings)
+		.filter(([, durationMs]) => Number.isFinite(durationMs) && durationMs >= 0)
+		.map(([name, durationMs]) => `${name};dur=${durationMs.toFixed(1)}`)
+		.join(", ");
+}
+
+export function createEventStreamResponse(
+	stream: ReadableStream,
+	options?: { serverTiming?: StreamPhaseTimings },
+): Response {
+	const headers: Record<string, string> = { ...SSE_HEADERS };
+	const serverTiming = options?.serverTiming
+		? formatServerTiming(options.serverTiming)
+		: "";
+	if (serverTiming) {
+		headers["Server-Timing"] = serverTiming;
+	}
+	return new Response(stream, { headers });
 }
 
 export function createSsePreludeComment(): string {

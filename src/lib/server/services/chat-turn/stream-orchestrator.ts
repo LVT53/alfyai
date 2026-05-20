@@ -22,6 +22,7 @@ import {
 	unsubscribeFromStream,
 	wasActiveChatStreamStopRequested,
 } from "$lib/server/services/chat-turn/active-streams";
+import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import {
 	persistAssistantEvidence,
 	persistAssistantTurnState,
@@ -43,12 +44,12 @@ import {
 	parseUpstreamEvents,
 	processToolCallMarkers,
 	type StreamErrorCode,
+	type StreamPhaseTimings,
 	streamErrorEvent,
 	toIncrementalChunk,
 	URL_LIST_TOOL_RECOVERY_APPENDIX,
 } from "$lib/server/services/chat-turn/stream";
 import { completeStreamTurn } from "$lib/server/services/chat-turn/stream-completion";
-import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import { runNonStreamFallback } from "$lib/server/services/chat-turn/stream-fallback";
 import { doReconnect as runReconnect } from "$lib/server/services/chat-turn/stream-reconnect";
 import type { ChatTurnPreflight } from "$lib/server/services/chat-turn/types";
@@ -140,6 +141,7 @@ export interface StreamOrchestratorOptions {
 	isReconnect?: boolean;
 	skipHonchoContext?: boolean;
 	systemPromptAppendix?: string;
+	routePhaseTimings?: StreamPhaseTimings;
 }
 
 export function runChatStreamOrchestrator(
@@ -154,6 +156,7 @@ export function runChatStreamOrchestrator(
 		isReconnect,
 		skipHonchoContext,
 		systemPromptAppendix: retryAppendix,
+		routePhaseTimings,
 	} = options;
 	const conversationId = turn.conversationId;
 	const normalizedMessage = turn.normalizedMessage;
@@ -170,6 +173,29 @@ export function runChatStreamOrchestrator(
 
 	const encoder = new TextEncoder();
 	let cancelStream = () => undefined;
+	const streamStartTime = Date.now();
+	const phaseTimingMs: StreamPhaseTimings = { ...(routePhaseTimings ?? {}) };
+	const recordElapsedPhase = (name: string) => {
+		if (phaseTimingMs[name] !== undefined) return;
+		phaseTimingMs[name] = Date.now() - requestStartTime;
+	};
+	const recordDurationPhase = (name: string, startedAt: number) => {
+		if (phaseTimingMs[name] !== undefined) return;
+		phaseTimingMs[name] = Date.now() - startedAt;
+	};
+	const logPhaseTiming = (outcome: "success" | "error" | "stopped") => {
+		recordElapsedPhase("end");
+		const payload: Record<string, string | number | boolean | null> = {
+			conversationId,
+			streamId: streamId ?? null,
+			modelId: modelId ?? null,
+			outcome,
+		};
+		for (const [name, durationMs] of Object.entries(phaseTimingMs)) {
+			payload[`${name}_ms`] = durationMs;
+		}
+		console.info("[CHAT_STREAM] phase_timing", payload);
+	};
 
 	const stream = new ReadableStream({
 		async start(controller) {
@@ -332,7 +358,12 @@ export function runChatStreamOrchestrator(
 					}
 				},
 			});
-			const emitThinking = chunkRuntime.emitThinking;
+			const emitThinking = (reasoning: string) => {
+				if (reasoning) {
+					recordElapsedPhase("first_thinking");
+				}
+				return chunkRuntime.emitThinking(reasoning);
+			};
 			const emitToolCallEventWithDebug = (
 				name: string,
 				input: Record<string, unknown>,
@@ -360,6 +391,7 @@ export function runChatStreamOrchestrator(
 					chunkRuntime.fullResponse.length > previousVisibleAnswerLength &&
 					chunkRuntime.fullResponse.trim()
 				) {
+					recordElapsedPhase("first_visible_token");
 					clearFirstVisibleOutputTimeout();
 				}
 				return emitted;
@@ -373,6 +405,7 @@ export function runChatStreamOrchestrator(
 			unrefTimer(heartbeatIntervalId);
 
 			enqueueChunk(createSsePreludeComment());
+			recordDurationPhase("prelude", streamStartTime);
 
 			let fileProductionJobIdsAtStart = new Set<string>();
 			try {
@@ -484,6 +517,7 @@ export function runChatStreamOrchestrator(
 			const completeSuccess = (wasStopped = false) => {
 				if (ended) return;
 				ended = true;
+				logPhaseTiming(wasStopped ? "stopped" : "success");
 				completeStreamTurn({
 					wasStopped,
 					conversationId,
@@ -544,6 +578,7 @@ export function runChatStreamOrchestrator(
 			const failStream = (code: StreamErrorCode) => {
 				if (ended) return;
 				ended = true;
+				logPhaseTiming("error");
 				clearFirstVisibleOutputTimeout();
 				if (streamId) {
 					clearStreamBuffer(streamId);
@@ -760,6 +795,7 @@ export function runChatStreamOrchestrator(
 
 				upstreamAttempt: for (let attempt = 1; attempt <= 2; attempt += 1) {
 					latestUpstreamAttempt = attempt;
+					const langflowRequestStartedAt = Date.now();
 					const langflowResponse = await sendMessageStream(
 						upstreamMessage,
 						conversationId,
@@ -794,6 +830,7 @@ export function runChatStreamOrchestrator(
 							error,
 						);
 					});
+					recordDurationPhase("langflow_request", langflowRequestStartedAt);
 					if (!langflowResponse) {
 						return;
 					}
@@ -861,6 +898,7 @@ export function runChatStreamOrchestrator(
 						for await (const upstreamEvent of parseUpstreamEvents(
 							langflowStream,
 						)) {
+							recordElapsedPhase("first_upstream_event");
 							markUpstreamActivity(attempt);
 							const { event: eventType, data } = upstreamEvent;
 							const eventUsage = extractProviderUsage(data);
@@ -1088,5 +1126,5 @@ export function runChatStreamOrchestrator(
 		},
 	});
 
-	return createEventStreamResponse(stream);
+	return createEventStreamResponse(stream, { serverTiming: routePhaseTimings });
 }

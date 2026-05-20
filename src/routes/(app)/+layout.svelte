@@ -46,6 +46,7 @@
 	// Debounce state for conversation list refresh
 	let lastRefreshTime = $state(0);
 	const REFRESH_DEBOUNCE_MS = 2000; // 2 seconds minimum between refreshes
+	const CONVERSATION_SNAPSHOT_FRESH_MS = 30_000;
 	let previousConversationUserId = $state<string | null>(null);
 	let serverUpdateAvailable = $state(false);
 	let activeCampaign = $state<Campaign | null>(null);
@@ -126,14 +127,17 @@
 		const currentPath = page.url.pathname;
 
 		try {
-			await loadConversations();
+			const refreshResult = await loadConversations({
+				minIntervalMs: CONVERSATION_SNAPSHOT_FRESH_MS,
+			});
 
 			// Edge case: if current conversation was deleted from another device,
 			// redirect to landing page. Do not rely solely on the sidebar list:
-			// brand-new bootstrap conversations can exist before the list chooses to show them.
+			// brand-new bootstrap conversations can exist before the list chooses to show them,
+			// while a skipped freshness refresh means a stale local row cannot prove existence.
 			if (currentId && currentPath === `/chat/${currentId}`) {
 				const stillExists = $conversations.some(c => c.id === currentId);
-				if (!stillExists) {
+				if (!refreshResult.refreshed || !stillExists) {
 					const exists = await conversationExists(currentId);
 					if (exists === false) {
 						removeConversationFromPersistedWorkspaceDocumentState(window.sessionStorage, currentId);

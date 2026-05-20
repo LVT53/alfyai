@@ -77,6 +77,35 @@ describe("SettingsAdminSystemPane", () => {
 		expect(adminConfig.COMPOSER_COMMAND_REGISTRY_ENABLED).toBe("true");
 	});
 
+	it("lets admins edit and save the silent app version override", async () => {
+		const onSaveAdminConfig = vi.fn();
+		const adminConfig = {
+			APP_VERSION_OVERRIDE: "",
+			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
+			MODEL_2_ENABLED: "true",
+			DEEP_RESEARCH_ENABLED: "false",
+			DEEP_RESEARCH_WORKER_ENABLED: "false",
+		};
+
+		const { getByLabelText, getByRole } = render(SettingsAdminSystemPane, {
+			adminConfig,
+			envDefaults: { APP_VERSION_OVERRIDE: "" },
+			availableModels: [{ id: "model1", displayName: "Model 1" }],
+			onCheckHonchoHealth: vi.fn(),
+			onSaveAdminConfig,
+		});
+
+		await fireEvent.input(getByLabelText("App version override"), {
+			target: { value: "2026.05-admin" },
+		});
+		await fireEvent.click(
+			getByRole("button", { name: "Save Configuration" }),
+		);
+
+		expect(adminConfig.APP_VERSION_OVERRIDE).toBe("2026.05-admin");
+		expect(onSaveAdminConfig).toHaveBeenCalledTimes(1);
+	});
+
 	it("lets admins publish draft System Skills", async () => {
 		mockFetchAdminSystemSkills.mockResolvedValue([
 			{

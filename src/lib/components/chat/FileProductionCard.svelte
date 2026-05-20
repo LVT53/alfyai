@@ -1,113 +1,123 @@
 <script lang="ts">
-	import { t } from '$lib/i18n';
-	import type { I18nKey } from '$lib/i18n';
-	import type { DocumentWorkspaceItem, FileProductionJob, FileProductionJobFile } from '$lib/types';
-	import { formatByteSize } from '$lib/utils/format';
+import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
+import { t } from "$lib/i18n";
+import type { I18nKey } from "$lib/i18n";
+import type {
+	DocumentWorkspaceItem,
+	FileProductionJob,
+	FileProductionJobFile,
+} from "$lib/types";
+import { formatByteSize } from "$lib/utils/format";
 
-	const ERROR_MESSAGE_KEYS: Partial<Record<string, I18nKey>> = {
-		too_many_outputs: 'fileProduction.error.too_many_outputs',
-		source_too_large: 'fileProduction.error.source_too_large',
-		projection_too_large: 'fileProduction.error.projection_too_large',
-		page_limit_exceeded: 'fileProduction.error.page_limit_exceeded',
-		table_limit_exceeded: 'fileProduction.error.table_limit_exceeded',
-		chart_limit_exceeded: 'fileProduction.error.chart_limit_exceeded',
-		image_limit_exceeded: 'fileProduction.error.image_limit_exceeded',
-		renderer_timeout: 'fileProduction.error.renderer_timeout',
-		sandbox_timeout: 'fileProduction.error.sandbox_timeout',
-		invalid_document_source: 'fileProduction.error.invalid_document_source',
-		unsupported_document_block: 'fileProduction.error.unsupported_document_block',
-		unsupported_table_structure: 'fileProduction.error.unsupported_table_structure',
-		unsupported_chart_type: 'fileProduction.error.unsupported_chart_type',
-		unsupported_chart_data: 'fileProduction.error.unsupported_chart_data',
-		unsupported_pdf_block: 'fileProduction.error.unsupported_pdf_block',
-		unsupported_output_type: 'fileProduction.error.unsupported_output_type',
-		pdf_font_missing: 'fileProduction.error.pdf_font_missing',
-		document_render_failed: 'fileProduction.error.document_render_failed',
-		output_file_too_large: 'fileProduction.error.output_file_too_large',
-		job_outputs_too_large: 'fileProduction.error.job_outputs_too_large',
-	};
+const ERROR_MESSAGE_KEYS: Partial<Record<string, I18nKey>> = {
+	too_many_outputs: "fileProduction.error.too_many_outputs",
+	source_too_large: "fileProduction.error.source_too_large",
+	projection_too_large: "fileProduction.error.projection_too_large",
+	page_limit_exceeded: "fileProduction.error.page_limit_exceeded",
+	table_limit_exceeded: "fileProduction.error.table_limit_exceeded",
+	chart_limit_exceeded: "fileProduction.error.chart_limit_exceeded",
+	image_limit_exceeded: "fileProduction.error.image_limit_exceeded",
+	renderer_timeout: "fileProduction.error.renderer_timeout",
+	sandbox_timeout: "fileProduction.error.sandbox_timeout",
+	invalid_document_source: "fileProduction.error.invalid_document_source",
+	unsupported_document_block: "fileProduction.error.unsupported_document_block",
+	unsupported_table_structure:
+		"fileProduction.error.unsupported_table_structure",
+	unsupported_chart_type: "fileProduction.error.unsupported_chart_type",
+	unsupported_chart_data: "fileProduction.error.unsupported_chart_data",
+	unsupported_pdf_block: "fileProduction.error.unsupported_pdf_block",
+	unsupported_output_type: "fileProduction.error.unsupported_output_type",
+	pdf_font_missing: "fileProduction.error.pdf_font_missing",
+	document_render_failed: "fileProduction.error.document_render_failed",
+	output_file_too_large: "fileProduction.error.output_file_too_large",
+	job_outputs_too_large: "fileProduction.error.job_outputs_too_large",
+};
 
-	let {
-		job,
-		onOpenDocument = undefined,
-		onRetry = undefined,
-		onCancel = undefined,
-	}: {
-		job: FileProductionJob;
-		onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
-		onRetry?: ((jobId: string) => void) | undefined;
-		onCancel?: ((jobId: string) => void) | undefined;
-	} = $props();
+let {
+	job,
+	onOpenDocument = undefined,
+	onRetry = undefined,
+	onCancel = undefined,
+}: {
+	job: FileProductionJob;
+	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
+	onRetry?: ((jobId: string) => void) | undefined;
+	onCancel?: ((jobId: string) => void) | undefined;
+} = $props();
 
-	let isActive = $derived(job.status === 'queued' || job.status === 'running');
-	let isResolved = $derived(!isActive);
+let isActive = $derived(job.status === "queued" || job.status === "running");
+let isResolved = $derived(!isActive);
 
-	function fileCountLabel(count: number): string {
-		if (count === 0) {
-			return $t('fileProduction.noFiles');
-		}
-		return count === 1
-			? $t('fileProduction.oneFile')
-			: $t('fileProduction.fileCount', { count });
+function fileCountLabel(count: number): string {
+	if (count === 0) {
+		return $t("fileProduction.noFiles");
 	}
+	return count === 1
+		? $t("fileProduction.oneFile")
+		: $t("fileProduction.fileCount", { count });
+}
 
-	function statusLabel(status: FileProductionJob['status']): string {
-		switch (status) {
-			case 'queued':
-				return $t('fileProduction.queued');
-			case 'running':
-				return $t('fileProduction.running');
-			case 'failed':
-				return $t('fileProduction.failed');
-			case 'cancelled':
-				return $t('fileProduction.cancelled');
-			default:
-				return $t('fileProduction.ready');
-		}
+function statusLabel(status: FileProductionJob["status"]): string {
+	switch (status) {
+		case "queued":
+			return $t("fileProduction.queued");
+		case "running":
+			return $t("fileProduction.running");
+		case "failed":
+			return $t("fileProduction.failed");
+		case "cancelled":
+			return $t("fileProduction.cancelled");
+		default:
+			return $t("fileProduction.ready");
 	}
+}
 
-	function statusDescription(job: FileProductionJob): string | null {
-		if (job.error?.message) {
-			const key = ERROR_MESSAGE_KEYS[job.error.code];
-			return key ? $t(key) : job.error.message;
-		}
-		switch (job.status) {
-			case 'queued':
-				return $t('fileProduction.queuedDescription');
-			case 'running':
-				return $t('fileProduction.runningDescription');
-			case 'failed':
-				return $t('fileProduction.failedDescription');
-			case 'cancelled':
-				return $t('fileProduction.cancelledDescription');
-			default:
-				return null;
-		}
+function statusDescription(job: FileProductionJob): string | null {
+	if (job.error?.message) {
+		const key = ERROR_MESSAGE_KEYS[job.error.code];
+		return key ? $t(key) : job.error.message;
 	}
+	switch (job.status) {
+		case "queued":
+			return $t("fileProduction.queuedDescription");
+		case "running":
+			return $t("fileProduction.runningDescription");
+		case "failed":
+			return $t("fileProduction.failedDescription");
+		case "cancelled":
+			return $t("fileProduction.cancelledDescription");
+		default:
+			return null;
+	}
+}
 
-	function openFile(file: FileProductionJobFile) {
-		if (!onOpenDocument || !file.previewUrl) return;
-		onOpenDocument({
-			id: file.id,
-			source: 'chat_generated_file',
-			filename: file.filename,
-			title: file.documentLabel ?? file.filename,
-			documentFamilyId: file.documentFamilyId ?? null,
-			documentFamilyStatus: file.documentFamilyStatus ?? null,
-			documentLabel: file.documentLabel ?? null,
-			documentRole: file.documentRole ?? null,
-			versionNumber: file.versionNumber ?? 1,
-			originConversationId: file.originConversationId ?? job.conversationId,
-			originAssistantMessageId:
-				file.originAssistantMessageId ?? job.assistantMessageId ?? null,
-			sourceChatFileId: file.sourceChatFileId ?? file.id,
-			mimeType: file.mimeType,
-			previewUrl: file.previewUrl,
-			artifactId: file.artifactId ?? null,
-			conversationId: job.conversationId,
-			downloadUrl: file.downloadUrl,
-		});
-	}
+function openFile(file: FileProductionJobFile) {
+	if (!onOpenDocument || !file.previewUrl) return;
+	onOpenDocument({
+		id: file.id,
+		source: "chat_generated_file",
+		filename: file.filename,
+		title: file.documentLabel ?? file.filename,
+		documentFamilyId: file.documentFamilyId ?? null,
+		documentFamilyStatus: file.documentFamilyStatus ?? null,
+		documentLabel: file.documentLabel ?? null,
+		documentRole: file.documentRole ?? null,
+		versionNumber: file.versionNumber ?? 1,
+		originConversationId: file.originConversationId ?? job.conversationId,
+		originAssistantMessageId:
+			file.originAssistantMessageId ?? job.assistantMessageId ?? null,
+		sourceChatFileId: file.sourceChatFileId ?? file.id,
+		mimeType: file.mimeType,
+		previewUrl: file.previewUrl,
+		artifactId: file.artifactId ?? null,
+		conversationId: job.conversationId,
+		downloadUrl: file.downloadUrl,
+	});
+}
+
+function handlePreviewIntent(file: FileProductionJobFile) {
+	void prewarmDocumentPreview(file);
+}
 </script>
 
 <div
@@ -167,6 +177,8 @@
 							class="file-open"
 							disabled={!file.previewUrl}
 							onclick={() => openFile(file)}
+							onpointerenter={() => handlePreviewIntent(file)}
+							onfocus={() => handlePreviewIntent(file)}
 							aria-label={$t('fileProduction.previewLabel', { filename: file.filename })}
 						>
 							<span class="file-name" title={file.filename}>{file.filename}</span>

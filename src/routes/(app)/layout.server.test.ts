@@ -72,17 +72,31 @@ vi.mock("drizzle-orm", () => ({
 
 const { load } = await import("./+layout.server");
 
-describe("(app) layout load", () => {
-	it("exposes the Deep Research feature flag to app pages", async () => {
-		const result = await load({
-			locals: {
-				user: {
-					id: "user-1",
-					email: "user@example.com",
-					displayName: "User",
-				},
+function createAuthenticatedLoadEvent() {
+	return {
+		locals: {
+			user: {
+				id: "user-1",
+				email: "user@example.com",
+				displayName: "User",
 			},
-		} as Parameters<typeof load>[0]);
+		},
+		depends: vi.fn(),
+	} as Parameters<typeof load>[0];
+}
+
+describe("(app) layout load", () => {
+	it("registers app shell dependencies for targeted reloads", async () => {
+		const event = createAuthenticatedLoadEvent();
+
+		await load(event);
+
+		expect(event.depends).toHaveBeenCalledWith("app:shell");
+		expect(event.depends).toHaveBeenCalledWith("app:shell:conversations");
+	});
+
+	it("exposes the Deep Research feature flag to app pages", async () => {
+		const result = await load(createAuthenticatedLoadEvent());
 
 		expect(result).toEqual(
 			expect.objectContaining({
@@ -92,15 +106,7 @@ describe("(app) layout load", () => {
 	});
 
 	it("exposes the Composer Command Registry feature flag to app pages", async () => {
-		const result = await load({
-			locals: {
-				user: {
-					id: "user-1",
-					email: "user@example.com",
-					displayName: "User",
-				},
-			},
-		} as Parameters<typeof load>[0]);
+		const result = await load(createAuthenticatedLoadEvent());
 
 		expect(result).toEqual(
 			expect.objectContaining({
@@ -110,15 +116,7 @@ describe("(app) layout load", () => {
 	});
 
 	it("exposes inherited and effective model preferences to the app shell", async () => {
-		const result = await load({
-			locals: {
-				user: {
-					id: "user-1",
-					email: "user@example.com",
-					displayName: "User",
-				},
-			},
-		} as Parameters<typeof load>[0]);
+		const result = await load(createAuthenticatedLoadEvent());
 
 		expect(result).toEqual(
 			expect.objectContaining({
@@ -130,15 +128,7 @@ describe("(app) layout load", () => {
 	});
 
 	it("exposes resolved app version metadata to the sidebar", async () => {
-		const result = await load({
-			locals: {
-				user: {
-					id: "user-1",
-					email: "user@example.com",
-					displayName: "User",
-				},
-			},
-		} as Parameters<typeof load>[0]);
+		const result = await load(createAuthenticatedLoadEvent());
 
 		expect(result).toEqual(
 			expect.objectContaining({

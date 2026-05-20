@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { normalizeSystemPromptReference } from '../../src/lib/server/prompts';
 import { login } from './helpers';
@@ -229,6 +229,35 @@ test.describe('Admin model routing settings', () => {
 
     await reloadAdministrationTab(page);
     await expect(page.locator('#HONCHO_PERSONA_CONTEXT_WAIT_MS')).toHaveValue('1200');
+  });
+});
+
+test.describe('Admin app version settings', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page);
+    await setAdminOverrideViaApi(page, 'APP_VERSION_OVERRIDE', '');
+    await openAdministrationTab(page);
+  });
+
+  test.afterEach(async ({ page }) => {
+    await setAdminOverrideViaApi(page, 'APP_VERSION_OVERRIDE', '');
+  });
+
+  test('refreshes the sidebar version badge after saving the app version override', async ({ page }) => {
+    await page.locator('#APP_VERSION_OVERRIDE').fill('2026.05-admin');
+
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/admin/config') &&
+          response.request().method() === 'PUT' &&
+          response.status() === 200
+      ),
+      page.getByRole('button', { name: 'Save Configuration' }).click(),
+    ]);
+
+    await page.getByRole('button', { name: 'Expand sidebar' }).click();
+    await expect(page.getByRole('button', { name: 'App version v2026.05-admin' })).toBeVisible();
   });
 });
 

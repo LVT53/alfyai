@@ -501,6 +501,7 @@ function configLabelKey(key: string): string {
 		MODEL_2_ENABLED: "admin.model2Enabled",
 		COMPOSER_COMMAND_REGISTRY_ENABLED:
 			"admin.composerCommandRegistryEnabled",
+		APP_VERSION_OVERRIDE: "admin.appVersionOverride",
 		DEEP_RESEARCH_ENABLED: "admin.deepResearchEnabled",
 		DEEP_RESEARCH_WORKER_ENABLED: "admin.deepResearchWorkerEnabled",
 		DEEP_RESEARCH_WORKER_INTERVAL_MS: "admin.deepResearchWorkerIntervalMs",
@@ -736,6 +737,23 @@ function placeholderFor(key: string): string {
 			/>
 			<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
 		</label>
+	</div>
+</section>
+
+<!-- Application Version -->
+<section class="settings-card mb-4">
+	<h2 class="settings-section-title">{$t('admin.appVersion')}</h2>
+	<div>
+		<label class="settings-label" for="APP_VERSION_OVERRIDE">{$t('admin.appVersionOverride')}</label>
+		<input
+			id="APP_VERSION_OVERRIDE"
+			type="text"
+			class="settings-input"
+			bind:value={adminConfig.APP_VERSION_OVERRIDE}
+			placeholder={placeholderFor('APP_VERSION_OVERRIDE')}
+			autocomplete="off"
+		/>
+		<p class="mt-1 text-xs text-text-muted">{$t('admin.appVersionOverrideDescription')}</p>
 	</div>
 </section>
 

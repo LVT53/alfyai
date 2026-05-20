@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { streamChat } from './streaming';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StreamCallbacks } from './streaming';
+import { streamChat } from './streaming';
 
 function buildFetchResponse(sseLines: string[], status = 200): Response {
 	const encoder = new TextEncoder();
@@ -264,6 +264,49 @@ describe('streamChat', () => {
 			assistantMessageId: 'assistant-1',
 			wasStopped: false
 		});
+	});
+
+	it('reports opt-in client timing without changing token parsing or logging by default', async () => {
+		const mockFetch = vi.mocked(fetch);
+		const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				': prelude\n',
+				'\n',
+				'event: token\n',
+				'data: {"text":"Hello"}\n',
+				'\n',
+				'event: end\n',
+				'data: {}\n',
+				'\n'
+			])
+		);
+
+		const cb = {
+			...makeCallbacks(),
+			onTiming: vi.fn(),
+		};
+		const done = waitForStream(cb);
+		streamChat('test message', 'conv-1', cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(cb.onToken).toHaveBeenCalledWith('Hello');
+		expect(cb.onEnd).toHaveBeenCalledWith('Hello', undefined);
+		expect(cb.onTiming).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: '/api/chat/stream',
+				streamId: expect.any(String),
+				phases: expect.objectContaining({
+					fetchStartMs: 0,
+					responseHeadersMs: expect.any(Number),
+					firstByteMs: expect.any(Number),
+					firstTokenMs: expect.any(Number),
+					endMs: expect.any(Number),
+				}),
+			})
+		);
+		expect(consoleInfo).not.toHaveBeenCalled();
+		consoleInfo.mockRestore();
 	});
 
 	it('threads the active workspace document id into the streaming request body', async () => {

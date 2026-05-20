@@ -1,18 +1,29 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import {
 	getAppVersionMetadata,
 	getLatestPublishedReleaseVersion,
 } from "./app-version";
 
+const configStoreMock = vi.hoisted(() => ({
+	appVersionOverride: null as string | null,
+}));
+
+vi.mock("$lib/server/config-store", () => ({
+	getConfig: () => ({
+		appVersionOverride: configStoreMock.appVersionOverride,
+	}),
+}));
+
 describe("app version metadata", () => {
 	let sqlite: Database.Database;
 	let db: ReturnType<typeof drizzle<typeof schema>>;
 
 	beforeEach(() => {
+		configStoreMock.appVersionOverride = null;
 		sqlite = new Database(":memory:");
 		sqlite.pragma("foreign_keys = ON");
 		db = drizzle(sqlite, { schema });
@@ -23,7 +34,7 @@ describe("app version metadata", () => {
 		sqlite.close();
 	});
 
-	it("uses the latest published release campaign version for the sidebar badge", async () => {
+	it("uses package metadata for the sidebar badge even when release campaigns exist", async () => {
 		db.insert(schema.announcementCampaigns)
 			.values([
 				{
@@ -68,14 +79,66 @@ describe("app version metadata", () => {
 		await expect(
 			getAppVersionMetadata({ db, packageVersion: "0.1.0" }),
 		).resolves.toEqual({
-			full: "1.0.1",
-			compact: "v1.0.1",
+			full: "0.1.0",
+			compact: "v0.1.0",
+		});
+	});
+
+	it("uses the admin app version override for the sidebar badge before package metadata", async () => {
+		await expect(
+			getAppVersionMetadata({
+				db,
+				packageVersion: "0.1.0",
+				config: { appVersionOverride: "2026.05-admin" },
+			}),
+		).resolves.toEqual({
+			full: "2026.05-admin",
+			compact: "v2026.05-admin",
+		});
+	});
+
+	it("uses the ambient admin app version override when no config is injected", async () => {
+		configStoreMock.appVersionOverride = "2026.05-admin";
+
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "0.1.0" }),
+		).resolves.toEqual({
+			full: "2026.05-admin",
+			compact: "v2026.05-admin",
+		});
+	});
+
+	it("treats an injected null app version override as authoritative", async () => {
+		configStoreMock.appVersionOverride = "2026.05-admin";
+
+		await expect(
+			getAppVersionMetadata({
+				db,
+				packageVersion: "0.1.0",
+				config: { appVersionOverride: null },
+			}),
+		).resolves.toEqual({
+			full: "0.1.0",
+			compact: "v0.1.0",
 		});
 	});
 
 	it("falls back to package metadata when no release campaign has been published", async () => {
 		await expect(
 			getAppVersionMetadata({ db, packageVersion: "0.1.0" }),
+		).resolves.toEqual({
+			full: "0.1.0",
+			compact: "v0.1.0",
+		});
+	});
+
+	it("falls back to package metadata when the admin app version override is empty", async () => {
+		await expect(
+			getAppVersionMetadata({
+				db,
+				packageVersion: "0.1.0",
+				config: { appVersionOverride: "   " },
+			}),
 		).resolves.toEqual({
 			full: "0.1.0",
 			compact: "v0.1.0",

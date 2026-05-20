@@ -1,28 +1,35 @@
-import { redirect } from '@sveltejs/kit';
-import { browser } from '$app/environment';
-import { hasPendingConversationMessage } from '$lib/client/conversation-session';
-import type { PageLoad } from './$types';
-import type { ConversationDetail } from '$lib/types';
+import { redirect } from "@sveltejs/kit";
+import { browser } from "$app/environment";
+import { hasPendingConversationMessage } from "$lib/client/conversation-session";
+import type { ConversationDetail } from "$lib/types";
+import type { PageLoad } from "./$types";
 
-export const load: PageLoad = async ({ params, fetch, url, parent }) => {
+export const load: PageLoad = async ({
+	params,
+	fetch,
+	url,
+	parent,
+	depends,
+}) => {
 	const { conversationId } = params;
+	depends(`app:conversation-detail:${conversationId}`);
 	const parentData = await parent();
 	const useBootstrap =
-		url.searchParams.get('view') === 'bootstrap' ||
-		(browser && typeof window !== 'undefined'
+		url.searchParams.get("view") === "bootstrap" ||
+		(browser && typeof window !== "undefined"
 			? hasPendingConversationMessage(conversationId)
 			: false);
 
 	const res = await fetch(
-		`/api/conversations/${conversationId}${useBootstrap ? '?view=bootstrap' : ''}`
+		`/api/conversations/${conversationId}${useBootstrap ? "?view=bootstrap" : ""}`,
 	);
 
 	if (res.status === 404 || res.status === 500) {
-		throw redirect(302, '/');
+		throw redirect(302, "/");
 	}
 
 	if (!res.ok) {
-		throw redirect(302, '/');
+		throw redirect(302, "/");
 	}
 
 	const detail: ConversationDetail = await res.json();

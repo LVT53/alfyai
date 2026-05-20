@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { and, desc, eq } from "drizzle-orm";
+import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
 import { db as defaultDb } from "$lib/server/db";
 import { announcementCampaigns } from "$lib/server/db/schema";
 
@@ -18,6 +19,7 @@ export interface AppVersionMetadata {
 export interface AppVersionMetadataOptions {
 	db?: AppVersionDb;
 	packageVersion?: string;
+	config?: Pick<RuntimeConfig, "appVersionOverride">;
 }
 
 function readPackageMetadata(): PackageMetadata {
@@ -56,12 +58,13 @@ export async function getLatestPublishedReleaseVersion(
 export async function getAppVersionMetadata(
 	options: AppVersionMetadataOptions = {},
 ): Promise<AppVersionMetadata> {
-	const releaseVersion = await getLatestPublishedReleaseVersion(options);
-	const full =
-		releaseVersion ??
-		options.packageVersion ??
-		readPackageMetadata().version ??
-		"0.0.0";
+	const appVersionOverride =
+		options.config === undefined
+			? getConfig().appVersionOverride
+			: options.config.appVersionOverride;
+	const packageVersion =
+		options.packageVersion ?? readPackageMetadata().version ?? "0.0.0";
+	const full = appVersionOverride?.trim() || packageVersion;
 	return {
 		full,
 		compact: compactVersion(full),

@@ -1,493 +1,569 @@
 <script lang="ts">
-	import type { KnowledgeDocumentItem } from '$lib/types';
-	import { formatByteSize } from '$lib/utils/format';
-	import { formatMediumDateTime } from '$lib/utils/time';
-	import { t } from '$lib/i18n';
+import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
+import type { KnowledgeDocumentItem } from "$lib/types";
+import { formatByteSize } from "$lib/utils/format";
+import { formatMediumDateTime } from "$lib/utils/time";
+import { t } from "$lib/i18n";
 
-	type DocumentSortKey = 'name' | 'size' | 'type' | 'date';
-	type SortDirection = 'asc' | 'desc';
+type DocumentSortKey = "name" | "size" | "type" | "date";
+type SortDirection = "asc" | "desc";
 
-	interface DocumentsListProps {
-		documents: KnowledgeDocumentItem[];
-		loading?: boolean;
-		paginationLimit?: 20 | 50 | 100;
-		currentPage?: number;
-		bulkDeleteSuccessVersion?: number;
-		onPaginationLimitChange?: (limit: number) => void;
-		onPageChange?: (page: number) => void;
-		onSelect?: (document: KnowledgeDocumentItem) => void;
-		onDelete?: (documentId: string) => void;
-		onBulkDelete?: (documentIds: string[]) => Promise<boolean>;
-		onDownload?: (documentId: string) => void;
-		onUpload?: (files: File[]) => void | Promise<void>;
-	}
+interface DocumentsListProps {
+	documents: KnowledgeDocumentItem[];
+	loading?: boolean;
+	paginationLimit?: 20 | 50 | 100;
+	currentPage?: number;
+	bulkDeleteSuccessVersion?: number;
+	onPaginationLimitChange?: (limit: number) => void;
+	onPageChange?: (page: number) => void;
+	onSelect?: (document: KnowledgeDocumentItem) => void;
+	onDelete?: (documentId: string) => void;
+	onBulkDelete?: (documentIds: string[]) => Promise<boolean>;
+	onDownload?: (documentId: string) => void;
+	onUpload?: (files: File[]) => void | Promise<void>;
+}
 
-	let {
-		documents,
-		loading = false,
-		paginationLimit = 20,
-		currentPage = 1,
-		bulkDeleteSuccessVersion = 0,
-		onPaginationLimitChange,
-		onPageChange,
-		onSelect,
-		onDelete,
-		onBulkDelete,
-		onDownload,
-		onUpload,
-	}: DocumentsListProps = $props();
+let {
+	documents,
+	loading = false,
+	paginationLimit = 20,
+	currentPage = 1,
+	bulkDeleteSuccessVersion = 0,
+	onPaginationLimitChange,
+	onPageChange,
+	onSelect,
+	onDelete,
+	onBulkDelete,
+	onDownload,
+	onUpload,
+}: DocumentsListProps = $props();
 
-	// Selection state
-	let selectedIds = $state<Set<string>>(new Set());
+// Selection state
+let selectedIds = $state<Set<string>>(new Set());
 
-	// Drag-drop state
-	let isDragOver = $state(false);
-	let dragCounter = $state(0);
-	let fileInputRef = $state<HTMLInputElement | undefined>(undefined);
-	let isUploading = $state(false);
-	let searchQuery = $state('');
-	let sortKey = $state<DocumentSortKey>('date');
-	let sortDirection = $state<SortDirection>('desc');
+// Drag-drop state
+let isDragOver = $state(false);
+let dragCounter = $state(0);
+let fileInputRef = $state<HTMLInputElement | undefined>(undefined);
+let isUploading = $state(false);
+let searchQuery = $state("");
+let sortKey = $state<DocumentSortKey>("date");
+let sortDirection = $state<SortDirection>("desc");
 
-	// Selection derived state
-	const selectedCount = $derived(selectedIds.size);
-	const isAllSelected = $derived.by(() => {
-		if (paginatedDocuments.length === 0) return false;
-		return paginatedDocuments.every((doc) => selectedIds.has(doc.id));
-	});
-	const isIndeterminate = $derived.by(() => {
-		if (paginatedDocuments.length === 0) return false;
-		const selectedOnPage = paginatedDocuments.filter((doc) => selectedIds.has(doc.id)).length;
-		return selectedOnPage > 0 && selectedOnPage < paginatedDocuments.length;
-	});
-	const hasSelection = $derived(selectedIds.size > 0);
+// Selection derived state
+const selectedCount = $derived(selectedIds.size);
+const isAllSelected = $derived.by(() => {
+	if (paginatedDocuments.length === 0) return false;
+	return paginatedDocuments.every((doc) => selectedIds.has(doc.id));
+});
+const isIndeterminate = $derived.by(() => {
+	if (paginatedDocuments.length === 0) return false;
+	const selectedOnPage = paginatedDocuments.filter((doc) =>
+		selectedIds.has(doc.id),
+	).length;
+	return selectedOnPage > 0 && selectedOnPage < paginatedDocuments.length;
+});
+const hasSelection = $derived(selectedIds.size > 0);
 
-	// Clear selection when page changes (explicit, non-looping)
-	$effect(() => {
-		const currentPageValue = currentPage;
-		return () => {
-			if (currentPageValue !== currentPage) {
-				selectedIds = new Set();
-			}
-		};
-	});
-
-	// Clamp currentPage to valid range when totalPages shrinks
-	$effect(() => {
-		if (totalPages > 0 && currentPage > totalPages) {
-			onPageChange?.(totalPages);
-		} else if (totalPages === 0 && currentPage > 1) {
-			onPageChange?.(1);
+// Clear selection when page changes (explicit, non-looping)
+$effect(() => {
+	const currentPageValue = currentPage;
+	return () => {
+		if (currentPageValue !== currentPage) {
+			selectedIds = new Set();
 		}
-	});
+	};
+});
 
-	// Clear selection when bulk delete succeeds (parent signals via version increment)
-	$effect(() => {
-		const currentVersion = bulkDeleteSuccessVersion;
-		return () => {
-			if (currentVersion !== bulkDeleteSuccessVersion && bulkDeleteSuccessVersion > 0) {
-				selectedIds = new Set();
-			}
-		};
-	});
+// Clamp currentPage to valid range when totalPages shrinks
+$effect(() => {
+	if (totalPages > 0 && currentPage > totalPages) {
+		onPageChange?.(totalPages);
+	} else if (totalPages === 0 && currentPage > 1) {
+		onPageChange?.(1);
+	}
+});
 
-	// Accepted file types for upload
-	const acceptedFileTypes =
-		'.pdf,.doc,.docx,.txt,.md,.json,.csv,.xlsx,.xls,.pptx,.ppt,.html,.htm,.jpg,.jpeg,.jfif,.png,.gif,.bmp,.tiff,.tif,.webp,.svg,.heic,.heif,.avif';
-
-	function handleDragEnter(event: DragEvent) {
-		event.preventDefault();
-		event.stopPropagation();
-		dragCounter += 1;
-		if (event.dataTransfer?.types.includes('Files')) {
-			isDragOver = true;
+// Clear selection when bulk delete succeeds (parent signals via version increment)
+$effect(() => {
+	const currentVersion = bulkDeleteSuccessVersion;
+	return () => {
+		if (
+			currentVersion !== bulkDeleteSuccessVersion &&
+			bulkDeleteSuccessVersion > 0
+		) {
+			selectedIds = new Set();
 		}
-	}
+	};
+});
 
-	function handleDragLeave(event: DragEvent) {
-		event.preventDefault();
-		event.stopPropagation();
-		dragCounter -= 1;
-		if (dragCounter === 0) {
-			isDragOver = false;
-		}
-	}
+// Accepted file types for upload
+const acceptedFileTypes =
+	".pdf,.doc,.docx,.txt,.md,.json,.csv,.xlsx,.xls,.pptx,.ppt,.html,.htm,.jpg,.jpeg,.jfif,.png,.gif,.bmp,.tiff,.tif,.webp,.svg,.heic,.heif,.avif";
 
-	function handleDragOver(event: DragEvent) {
-		event.preventDefault();
-		event.stopPropagation();
+function handleDragEnter(event: DragEvent) {
+	event.preventDefault();
+	event.stopPropagation();
+	dragCounter += 1;
+	if (event.dataTransfer?.types.includes("Files")) {
+		isDragOver = true;
 	}
+}
 
-	async function handleDrop(event: DragEvent) {
-		event.preventDefault();
-		event.stopPropagation();
+function handleDragLeave(event: DragEvent) {
+	event.preventDefault();
+	event.stopPropagation();
+	dragCounter -= 1;
+	if (dragCounter === 0) {
 		isDragOver = false;
-		dragCounter = 0;
-
-		const files = event.dataTransfer?.files;
-		if (!files || files.length === 0) return;
-
-		const validFiles = Array.from(files).filter((file) => {
-			// Basic file type validation
-			const extension = file.name.split('.').pop()?.toLowerCase();
-			const acceptedExtensions = acceptedFileTypes.split(',').map((t) => t.replace('.', ''));
-			return extension && acceptedExtensions.includes(extension);
-		});
-
-		if (validFiles.length === 0) return;
-
-		await processUpload(validFiles);
 	}
+}
 
-	function handleUploadClick() {
-		fileInputRef?.click();
+function handleDragOver(event: DragEvent) {
+	event.preventDefault();
+	event.stopPropagation();
+}
+
+async function handleDrop(event: DragEvent) {
+	event.preventDefault();
+	event.stopPropagation();
+	isDragOver = false;
+	dragCounter = 0;
+
+	const files = event.dataTransfer?.files;
+	if (!files || files.length === 0) return;
+
+	const validFiles = Array.from(files).filter((file) => {
+		// Basic file type validation
+		const extension = file.name.split(".").pop()?.toLowerCase();
+		const acceptedExtensions = acceptedFileTypes
+			.split(",")
+			.map((t) => t.replace(".", ""));
+		return extension && acceptedExtensions.includes(extension);
+	});
+
+	if (validFiles.length === 0) return;
+
+	await processUpload(validFiles);
+}
+
+function handleUploadClick() {
+	fileInputRef?.click();
+}
+
+function handleEmptyStateClick() {
+	if (!onUpload || isUploading) return;
+	handleUploadClick();
+}
+
+async function handleFileSelect(event: Event) {
+	const input = event.target as HTMLInputElement;
+	const files = input.files;
+	if (!files || files.length === 0) return;
+
+	await processUpload(Array.from(files));
+
+	// Reset input for reuse
+	input.value = "";
+}
+
+async function processUpload(files: File[]) {
+	if (!onUpload || files.length === 0) return;
+
+	isUploading = true;
+	try {
+		await onUpload(files);
+	} catch (error) {
+		console.error("Upload failed:", error);
+	} finally {
+		isUploading = false;
 	}
+}
 
-	function handleEmptyStateClick() {
-		if (!onUpload || isUploading) return;
-		handleUploadClick();
-	}
-
-	async function handleFileSelect(event: Event) {
-		const input = event.target as HTMLInputElement;
-		const files = input.files;
-		if (!files || files.length === 0) return;
-
-		await processUpload(Array.from(files));
-
-		// Reset input for reuse
-		input.value = '';
-	}
-
-	async function processUpload(files: File[]) {
-		if (!onUpload || files.length === 0) return;
-
-		isUploading = true;
-		try {
-			await onUpload(files);
-		} catch (error) {
-			console.error('Upload failed:', error);
-		} finally {
-			isUploading = false;
-		}
-	}
-
-	function UploadIcon() {
-		return `
+function UploadIcon() {
+	return `
 			<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 				<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
 				<polyline points="17 8 12 3 7 8"></polyline>
 				<line x1="12" y1="3" x2="12" y2="15"></line>
 			</svg>
 		`;
-	}
+}
 
-	function normalizeText(value: string | null | undefined): string {
-		return (value ?? '').toLowerCase().trim();
-	}
+function normalizeText(value: string | null | undefined): string {
+	return (value ?? "").toLowerCase().trim();
+}
 
-	function tokenizeQuery(query: string): string[] {
-		return normalizeText(query)
-			.split(/\s+/)
-			.filter((term) => term.length > 1);
-	}
+function tokenizeQuery(query: string): string[] {
+	return normalizeText(query)
+		.split(/\s+/)
+		.filter((term) => term.length > 1);
+}
 
-	function scoreTermMatches(target: string, terms: string[], weight: number): number {
-		if (!target || terms.length === 0) return 0;
-		let score = 0;
-		for (const term of terms) {
-			if (target.includes(term)) {
-				score += weight;
-			}
+function scoreTermMatches(
+	target: string,
+	terms: string[],
+	weight: number,
+): number {
+	if (!target || terms.length === 0) return 0;
+	let score = 0;
+	for (const term of terms) {
+		if (target.includes(term)) {
+			score += weight;
 		}
-		return score;
+	}
+	return score;
+}
+
+function getDocumentKind(
+	document: KnowledgeDocumentItem,
+): "generated" | "skill_note" | "uploaded" {
+	if (
+		document.documentOrigin === "skill_note" ||
+		document.type === "skill_note"
+	) {
+		return "skill_note";
+	}
+	return document.documentOrigin === "generated" ||
+		document.type === "generated_output"
+		? "generated"
+		: "uploaded";
+}
+
+function scoreDocumentForSearch(
+	document: KnowledgeDocumentItem,
+	query: string,
+): number {
+	const normalizedQuery = normalizeText(query);
+	if (!normalizedQuery) return 1;
+
+	const terms = tokenizeQuery(normalizedQuery);
+	const name = normalizeText(document.name);
+	const label = normalizeText(document.documentLabel ?? null);
+	const role = normalizeText(document.documentRole ?? null);
+	const summary = normalizeText(document.summary ?? null);
+	const kind = getDocumentKind(document);
+
+	let score = 0;
+
+	if (name.includes(normalizedQuery)) score += 70;
+	if (label?.includes(normalizedQuery)) score += 60;
+	if (summary?.includes(normalizedQuery)) score += 28;
+	if (role?.includes(normalizedQuery)) score += 18;
+	if (kind.includes(normalizedQuery)) score += 12;
+
+	score += scoreTermMatches(name, terms, 18);
+	score += scoreTermMatches(label, terms, 15);
+	score += scoreTermMatches(summary, terms, 6);
+	score += scoreTermMatches(role, terms, 5);
+
+	return score;
+}
+
+const searchedDocuments = $derived.by(() => {
+	const query = normalizeText(searchQuery);
+	if (!query) {
+		return documents.map((document) => ({ document, score: 0 }));
 	}
 
-	function getDocumentKind(document: KnowledgeDocumentItem): 'generated' | 'skill_note' | 'uploaded' {
-		if (document.documentOrigin === 'skill_note' || document.type === 'skill_note') {
-			return 'skill_note';
+	return documents
+		.map((document) => ({
+			document,
+			score: scoreDocumentForSearch(document, query),
+		}))
+		.filter((entry) => entry.score > 0);
+});
+
+function compareText(left: string, right: string): number {
+	return left.localeCompare(right, undefined, {
+		sensitivity: "base",
+		numeric: true,
+	});
+}
+
+const sortedDocuments = $derived.by(() => {
+	const direction = sortDirection === "asc" ? 1 : -1;
+	const entries = [...searchedDocuments];
+
+	entries.sort((leftEntry, rightEntry) => {
+		const left = leftEntry.document;
+		const right = rightEntry.document;
+
+		// When searching, preserve relevance as highest priority.
+		if (searchQuery.trim().length > 0 && leftEntry.score !== rightEntry.score) {
+			return rightEntry.score - leftEntry.score;
 		}
-		return document.documentOrigin === 'generated' || document.type === 'generated_output'
-			? 'generated'
-			: 'uploaded';
-	}
 
-	function scoreDocumentForSearch(document: KnowledgeDocumentItem, query: string): number {
-		const normalizedQuery = normalizeText(query);
-		if (!normalizedQuery) return 1;
-
-		const terms = tokenizeQuery(normalizedQuery);
-		const name = normalizeText(document.name);
-		const label = normalizeText(document.documentLabel ?? null);
-		const role = normalizeText(document.documentRole ?? null);
-		const summary = normalizeText(document.summary ?? null);
-		const kind = getDocumentKind(document);
-
-		let score = 0;
-
-		if (name.includes(normalizedQuery)) score += 70;
-		if (label && label.includes(normalizedQuery)) score += 60;
-		if (summary && summary.includes(normalizedQuery)) score += 28;
-		if (role && role.includes(normalizedQuery)) score += 18;
-		if (kind.includes(normalizedQuery)) score += 12;
-
-		score += scoreTermMatches(name, terms, 18);
-		score += scoreTermMatches(label, terms, 15);
-		score += scoreTermMatches(summary, terms, 6);
-		score += scoreTermMatches(role, terms, 5);
-
-		return score;
-	}
-
-	const searchedDocuments = $derived.by(() => {
-		const query = normalizeText(searchQuery);
-		if (!query) {
-			return documents.map((document) => ({ document, score: 0 }));
+		if (sortKey === "name") {
+			const byName = compareText(left.name, right.name) * direction;
+			if (byName !== 0) return byName;
 		}
 
-		return documents
-			.map((document) => ({
-				document,
-				score: scoreDocumentForSearch(document, query),
-			}))
-			.filter((entry) => entry.score > 0);
+		if (sortKey === "size") {
+			const bySize =
+				((left.sizeBytes ?? 0) - (right.sizeBytes ?? 0)) * direction;
+			if (bySize !== 0) return bySize;
+		}
+
+		if (sortKey === "type") {
+			const byType =
+				compareText(getDocumentKind(left), getDocumentKind(right)) * direction;
+			if (byType !== 0) return byType;
+		}
+
+		if (sortKey === "date") {
+			const byDate =
+				((left.createdAt ?? 0) - (right.createdAt ?? 0)) * direction;
+			if (byDate !== 0) return byDate;
+		}
+
+		// Deterministic tie-breakers
+		const byNameTie = compareText(left.name, right.name);
+		if (byNameTie !== 0) return byNameTie;
+		const byDateTie = (right.createdAt ?? 0) - (left.createdAt ?? 0);
+		if (byDateTie !== 0) return byDateTie;
+		return compareText(left.id, right.id);
 	});
 
-	function compareText(left: string, right: string): number {
-		return left.localeCompare(right, undefined, { sensitivity: 'base', numeric: true });
+	return entries.map((entry) => entry.document);
+});
+
+// Pagination
+const totalPages = $derived(
+	Math.ceil(sortedDocuments.length / paginationLimit),
+);
+const paginatedDocuments = $derived.by(() => {
+	const start = (currentPage - 1) * paginationLimit;
+	const end = start + paginationLimit;
+	return sortedDocuments.slice(start, end);
+});
+
+const showingFrom = $derived((currentPage - 1) * paginationLimit + 1);
+const showingTo = $derived(
+	Math.min(currentPage * paginationLimit, sortedDocuments.length),
+);
+
+function toggleSort(nextSortKey: DocumentSortKey) {
+	if (sortKey === nextSortKey) {
+		sortDirection = sortDirection === "asc" ? "desc" : "asc";
+		return;
+	}
+	sortKey = nextSortKey;
+	sortDirection =
+		nextSortKey === "name" || nextSortKey === "type" ? "asc" : "desc";
+}
+
+function getAriaSort(
+	column: DocumentSortKey,
+): "none" | "ascending" | "descending" {
+	if (sortKey !== column) return "none";
+	return sortDirection === "asc" ? "ascending" : "descending";
+}
+
+function getSortIndicator(column: DocumentSortKey): string {
+	if (sortKey !== column) return "↕";
+	return sortDirection === "asc" ? "↑" : "↓";
+}
+
+function getFileExtension(filename: string | null | undefined): string {
+	const value = (filename ?? "").trim();
+	if (!value.includes(".")) return "";
+	return value.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function getFileIcon(
+	mimeType: string | null,
+	filename: string,
+): typeof GenericFileIcon {
+	const mime = normalizeText(mimeType);
+	const extension = getFileExtension(filename);
+
+	if (
+		mime.startsWith("image/") ||
+		[
+			"png",
+			"jpg",
+			"jpeg",
+			"jfif",
+			"gif",
+			"bmp",
+			"tiff",
+			"tif",
+			"svg",
+			"webp",
+			"heic",
+			"heif",
+			"avif",
+		].includes(extension)
+	) {
+		return ImageIcon;
 	}
 
-	const sortedDocuments = $derived.by(() => {
-		const direction = sortDirection === 'asc' ? 1 : -1;
-		const entries = [...searchedDocuments];
-
-		entries.sort((leftEntry, rightEntry) => {
-			const left = leftEntry.document;
-			const right = rightEntry.document;
-
-			// When searching, preserve relevance as highest priority.
-			if (searchQuery.trim().length > 0 && leftEntry.score !== rightEntry.score) {
-				return rightEntry.score - leftEntry.score;
-			}
-
-			if (sortKey === 'name') {
-				const byName = compareText(left.name, right.name) * direction;
-				if (byName !== 0) return byName;
-			}
-
-			if (sortKey === 'size') {
-				const bySize = ((left.sizeBytes ?? 0) - (right.sizeBytes ?? 0)) * direction;
-				if (bySize !== 0) return bySize;
-			}
-
-			if (sortKey === 'type') {
-				const byType = compareText(getDocumentKind(left), getDocumentKind(right)) * direction;
-				if (byType !== 0) return byType;
-			}
-
-			if (sortKey === 'date') {
-				const byDate = ((left.createdAt ?? 0) - (right.createdAt ?? 0)) * direction;
-				if (byDate !== 0) return byDate;
-			}
-
-			// Deterministic tie-breakers
-			const byNameTie = compareText(left.name, right.name);
-			if (byNameTie !== 0) return byNameTie;
-			const byDateTie = (right.createdAt ?? 0) - (left.createdAt ?? 0);
-			if (byDateTie !== 0) return byDateTie;
-			return compareText(left.id, right.id);
-		});
-
-		return entries.map((entry) => entry.document);
-	});
-
-	// Pagination
-	const totalPages = $derived(Math.ceil(sortedDocuments.length / paginationLimit));
-	const paginatedDocuments = $derived.by(() => {
-		const start = (currentPage - 1) * paginationLimit;
-		const end = start + paginationLimit;
-		return sortedDocuments.slice(start, end);
-	});
-
-	const showingFrom = $derived((currentPage - 1) * paginationLimit + 1);
-	const showingTo = $derived(Math.min(currentPage * paginationLimit, sortedDocuments.length));
-
-	function toggleSort(nextSortKey: DocumentSortKey) {
-		if (sortKey === nextSortKey) {
-			sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-			return;
-		}
-		sortKey = nextSortKey;
-		sortDirection = nextSortKey === 'name' || nextSortKey === 'type' ? 'asc' : 'desc';
+	if (mime === "application/pdf" || extension === "pdf") {
+		return PdfIcon;
 	}
 
-	function getAriaSort(column: DocumentSortKey): 'none' | 'ascending' | 'descending' {
-		if (sortKey !== column) return 'none';
-		return sortDirection === 'asc' ? 'ascending' : 'descending';
+	if (
+		mime.includes("spreadsheet") ||
+		mime.includes("excel") ||
+		mime.includes("csv") ||
+		["csv", "xls", "xlsx", "ods"].includes(extension)
+	) {
+		return SpreadsheetIcon;
 	}
 
-	function getSortIndicator(column: DocumentSortKey): string {
-		if (sortKey !== column) return '↕';
-		return sortDirection === 'asc' ? '↑' : '↓';
+	if (
+		mime.includes("presentation") ||
+		["ppt", "pptx", "odp"].includes(extension)
+	) {
+		return SlidesIcon;
 	}
 
-	function getFileExtension(filename: string | null | undefined): string {
-		const value = (filename ?? '').trim();
-		if (!value.includes('.')) return '';
-		return value.split('.').pop()?.toLowerCase() ?? '';
+	if (
+		mime.includes("code") ||
+		mime.includes("javascript") ||
+		mime.includes("typescript") ||
+		mime.includes("json") ||
+		mime.includes("xml") ||
+		mime.includes("html") ||
+		mime.includes("css") ||
+		[
+			"js",
+			"ts",
+			"tsx",
+			"jsx",
+			"json",
+			"xml",
+			"html",
+			"css",
+			"py",
+			"java",
+			"go",
+			"rs",
+		].includes(extension)
+	) {
+		return CodeIcon;
 	}
 
-	function getFileIcon(mimeType: string | null, filename: string): typeof GenericFileIcon {
-		const mime = normalizeText(mimeType);
-		const extension = getFileExtension(filename);
-
-		if (
-			mime.startsWith('image/') ||
-			['png', 'jpg', 'jpeg', 'jfif', 'gif', 'bmp', 'tiff', 'tif', 'svg', 'webp', 'heic', 'heif', 'avif'].includes(extension)
-		) {
-			return ImageIcon;
-		}
-
-		if (mime === 'application/pdf' || extension === 'pdf') {
-			return PdfIcon;
-		}
-
-		if (
-			mime.includes('spreadsheet') ||
-			mime.includes('excel') ||
-			mime.includes('csv') ||
-			['csv', 'xls', 'xlsx', 'ods'].includes(extension)
-		) {
-			return SpreadsheetIcon;
-		}
-
-		if (mime.includes('presentation') || ['ppt', 'pptx', 'odp'].includes(extension)) {
-			return SlidesIcon;
-		}
-
-		if (
-			mime.includes('code') ||
-			mime.includes('javascript') ||
-			mime.includes('typescript') ||
-			mime.includes('json') ||
-			mime.includes('xml') ||
-			mime.includes('html') ||
-			mime.includes('css') ||
-			['js', 'ts', 'tsx', 'jsx', 'json', 'xml', 'html', 'css', 'py', 'java', 'go', 'rs'].includes(extension)
-		) {
-			return CodeIcon;
-		}
-
-		if (
-			mime.includes('zip') ||
-			mime.includes('compressed') ||
-			mime.includes('archive') ||
-			['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)
-		) {
-			return ArchiveIcon;
-		}
-
-		if (
-			mime.includes('text/') ||
-			['txt', 'md', 'rtf', 'log', 'odt', 'doc', 'docx'].includes(extension) ||
-			mime.includes('document') ||
-			mime.includes('word')
-		) {
-			return DocumentIcon;
-		}
-
-		return GenericFileIcon;
+	if (
+		mime.includes("zip") ||
+		mime.includes("compressed") ||
+		mime.includes("archive") ||
+		["zip", "rar", "7z", "tar", "gz"].includes(extension)
+	) {
+		return ArchiveIcon;
 	}
 
-	function handleRowClick(event: MouseEvent, document: KnowledgeDocumentItem) {
-		// Don't trigger if clicking on row actions or selection controls
-		if ((event.target as HTMLElement).closest('button, input, label, .checkbox-label')) return;
-		onSelect?.(document);
+	if (
+		mime.includes("text/") ||
+		["txt", "md", "rtf", "log", "odt", "doc", "docx"].includes(extension) ||
+		mime.includes("document") ||
+		mime.includes("word")
+	) {
+		return DocumentIcon;
 	}
 
-	function handleDeleteClick(event: MouseEvent, documentId: string) {
-		event.stopPropagation();
-		onDelete?.(documentId);
-	}
+	return GenericFileIcon;
+}
 
-	function handleDownloadClick(event: MouseEvent, documentId: string) {
-		event.stopPropagation();
-		onDownload?.(documentId);
-	}
+function handleRowClick(event: MouseEvent, document: KnowledgeDocumentItem) {
+	// Don't trigger if clicking on row actions or selection controls
+	if (
+		(event.target as HTMLElement).closest(
+			"button, input, label, .checkbox-label",
+		)
+	)
+		return;
+	onSelect?.(document);
+}
 
-	// Selection handlers
-	function toggleSelection(documentId: string) {
+function handleDocumentPreviewIntent(document: KnowledgeDocumentItem) {
+	void prewarmDocumentPreview(document);
+}
+
+function handleDeleteClick(event: MouseEvent, documentId: string) {
+	event.stopPropagation();
+	onDelete?.(documentId);
+}
+
+function handleDownloadClick(event: MouseEvent, documentId: string) {
+	event.stopPropagation();
+	onDownload?.(documentId);
+}
+
+// Selection handlers
+function toggleSelection(documentId: string) {
+	const next = new Set(selectedIds);
+	if (next.has(documentId)) {
+		next.delete(documentId);
+	} else {
+		next.add(documentId);
+	}
+	selectedIds = next;
+}
+
+function toggleSelectAll() {
+	if (isAllSelected) {
+		// Deselect all on current page
 		const next = new Set(selectedIds);
-		if (next.has(documentId)) {
-			next.delete(documentId);
-		} else {
-			next.add(documentId);
+		for (const doc of paginatedDocuments) {
+			next.delete(doc.id);
+		}
+		selectedIds = next;
+	} else {
+		// Select all on current page
+		const next = new Set(selectedIds);
+		for (const doc of paginatedDocuments) {
+			next.add(doc.id);
 		}
 		selectedIds = next;
 	}
+}
 
-	function toggleSelectAll() {
-		if (isAllSelected) {
-			// Deselect all on current page
-			const next = new Set(selectedIds);
-			for (const doc of paginatedDocuments) {
-				next.delete(doc.id);
-			}
-			selectedIds = next;
-		} else {
-			// Select all on current page
-			const next = new Set(selectedIds);
-			for (const doc of paginatedDocuments) {
-				next.add(doc.id);
-			}
-			selectedIds = next;
+function clearSelection() {
+	selectedIds = new Set();
+}
+
+async function handleBulkDelete(): Promise<boolean> {
+	if (selectedIds.size === 0) return false;
+	if (!onBulkDelete) return false;
+
+	const idsToDelete = Array.from(selectedIds);
+	try {
+		const success = await onBulkDelete(idsToDelete);
+		// Only clear selection if delete was explicitly successful
+		if (success === true) {
+			clearSelection();
 		}
+		return success;
+	} catch {
+		// Keep selection on error so user can retry
+		return false;
 	}
+}
 
-	function clearSelection() {
-		selectedIds = new Set();
-	}
-
-	async function handleBulkDelete(): Promise<boolean> {
-		if (selectedIds.size === 0) return false;
-		if (!onBulkDelete) return false;
-
-		const idsToDelete = Array.from(selectedIds);
-		try {
-			const success = await onBulkDelete(idsToDelete);
-			// Only clear selection if delete was explicitly successful
-			if (success === true) {
-				clearSelection();
-			}
-			return success;
-		} catch {
-			// Keep selection on error so user can retry
-			return false;
-		}
-	}
-
-	// Icon components
-	function GenericFileIcon() {
-		return `
+// Icon components
+function GenericFileIcon() {
+	return `
 			<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 				<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
 				<polyline points="14 2 14 8 20 8"></polyline>
 			</svg>
 		`;
-	}
+}
 
-	function ImageIcon() {
-		return `
+function ImageIcon() {
+	return `
 			<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 				<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
 				<circle cx="8.5" cy="8.5" r="1.5"></circle>
 				<polyline points="21 15 16 10 5 21"></polyline>
 			</svg>
 		`;
-	}
+}
 
-	function PdfIcon() {
-		return `
+function PdfIcon() {
+	return `
 			<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 				<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
 				<polyline points="14 2 14 8 20 8"></polyline>
@@ -495,10 +571,10 @@
 				<path d="M10 16h4"></path>
 			</svg>
 		`;
-	}
+}
 
-	function SpreadsheetIcon() {
-		return `
+function SpreadsheetIcon() {
+	return `
 			<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 				<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
 				<line x1="3" y1="9" x2="21" y2="9"></line>
@@ -507,10 +583,10 @@
 				<line x1="15" y1="3" x2="15" y2="21"></line>
 			</svg>
 		`;
-	}
+}
 
-	function DocumentIcon() {
-		return `
+function DocumentIcon() {
+	return `
 			<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 				<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
 				<polyline points="14 2 14 8 20 8"></polyline>
@@ -518,36 +594,36 @@
 				<line x1="16" y1="17" x2="8" y2="17"></line>
 			</svg>
 		`;
-	}
+}
 
-	function CodeIcon() {
-		return `
+function CodeIcon() {
+	return `
 			<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 				<polyline points="16 18 22 12 16 6"></polyline>
 				<polyline points="8 6 2 12 8 18"></polyline>
 			</svg>
 		`;
-	}
+}
 
-	function ArchiveIcon() {
-		return `
+function ArchiveIcon() {
+	return `
 			<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 				<polyline points="21 8 21 21 3 21 3 8"></polyline>
 				<rect x="1" y="3" width="22" height="5"></rect>
 				<line x1="10" y1="12" x2="14" y2="12"></line>
 			</svg>
 		`;
-	}
+}
 
-	function SlidesIcon() {
-		return `
+function SlidesIcon() {
+	return `
 			<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 				<path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"></path>
 				<path d="M8 21h8"></path>
 				<path d="M12 17v4"></path>
 			</svg>
 		`;
-	}
+}
 </script>
 
 <div
@@ -698,9 +774,11 @@
 					<tbody>
 						{#each paginatedDocuments as document (document.id)}
 							<tr
-								class="document-row"
+								class="document-row document-list-item"
 								class:selected={selectedIds.has(document.id)}
 								onclick={(e) => handleRowClick(e, document)}
+								onpointerenter={() => handleDocumentPreviewIntent(document)}
+								onfocus={() => handleDocumentPreviewIntent(document)}
 								tabindex="0"
 								onkeydown={(e) => {
 									if (e.key === 'Enter' || e.key === ' ') {
@@ -739,7 +817,7 @@
 									{/if}
 									</div>
 								</td>
-								<td class="col-type">
+								<td class="col-type" data-mobile-label={$t('knowledge.type')}>
 								{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
 									<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
 								{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
@@ -748,10 +826,10 @@
 									<span class="type-badge type-uploaded">{$t('knowledge.uploaded')}</span>
 								{/if}
 								</td>
-								<td class="col-size">
+								<td class="col-size" data-mobile-label={$t('knowledge.size')}>
 									{formatByteSize(document.sizeBytes, { trimWholeUnits: true })}
 								</td>
-								<td class="col-date">
+								<td class="col-date" data-mobile-label={$t('knowledge.date')}>
 									{formatMediumDateTime(document.createdAt)}
 								</td>
 								<td class="col-actions">
@@ -1501,5 +1579,184 @@
 	.bulk-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	@media (max-width: 720px) {
+		.table-container {
+			max-height: none;
+			overflow: visible;
+			border: 0;
+			border-radius: 0;
+			background: transparent;
+		}
+
+		.documents-table,
+		.documents-table tbody {
+			display: block;
+			width: 100%;
+		}
+
+		.documents-table thead {
+			position: static;
+			display: block;
+			background: transparent;
+			border: 0;
+			margin-bottom: var(--space-xs);
+		}
+
+		.documents-table thead tr {
+			display: flex;
+			flex-wrap: wrap;
+			gap: var(--space-xs);
+		}
+
+		.documents-table th {
+			display: none;
+			padding: 0;
+		}
+
+		.documents-table th.col-name,
+		.documents-table th.col-type,
+		.documents-table th.col-size,
+		.documents-table th.col-date {
+			display: block;
+			width: auto;
+			min-width: 0;
+		}
+
+		.documents-table thead .sort-button {
+			padding: 0.4rem 0.52rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: var(--surface-elevated);
+			font-size: 0.66rem;
+		}
+
+		.documents-table tbody {
+			display: flex;
+			flex-direction: column;
+			gap: var(--space-sm);
+		}
+
+		.documents-table .document-list-item {
+			display: grid;
+			grid-template-columns: 26px 28px minmax(0, 1fr) auto;
+			grid-template-areas:
+				"check icon name actions"
+				"check icon type actions"
+				"check icon size date";
+			column-gap: var(--space-sm);
+			row-gap: 0.34rem;
+			align-items: center;
+			padding: 0.68rem 0.72rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: var(--surface-elevated);
+		}
+
+		.documents-table td {
+			padding: 0;
+			border-bottom: 0;
+		}
+
+		.documents-table .col-checkbox {
+			grid-area: check;
+			width: 26px;
+			align-self: start;
+			padding-top: 0.12rem;
+		}
+
+		.documents-table .col-icon {
+			grid-area: icon;
+			width: 28px;
+			align-self: start;
+			padding-top: 0.05rem;
+		}
+
+		.documents-table .col-name {
+			grid-area: name;
+			min-width: 0;
+			padding-right: var(--space-xs);
+		}
+
+		.document-name {
+			min-width: 0;
+			gap: 0.32rem;
+			font-size: 0.86rem;
+			line-height: 1.25;
+			overflow-wrap: anywhere;
+		}
+
+		.documents-table .col-type {
+			grid-area: type;
+			width: auto;
+			min-width: 0;
+		}
+
+		.documents-table .col-size {
+			grid-area: size;
+			width: auto;
+		}
+
+		.documents-table .col-date {
+			grid-area: date;
+			width: auto;
+			justify-self: end;
+			text-align: right;
+		}
+
+		.documents-table .col-actions {
+			grid-area: actions;
+			width: auto;
+			align-self: center;
+		}
+
+		.documents-table .col-type,
+		.documents-table .col-size,
+		.documents-table .col-date {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.34rem;
+			font-size: 0.74rem;
+			line-height: 1.2;
+		}
+
+		.documents-table td[data-mobile-label]::before {
+			content: attr(data-mobile-label);
+			font-size: 0.66rem;
+			font-weight: 600;
+			text-transform: uppercase;
+			color: var(--text-muted);
+		}
+
+		.type-badge,
+		.version-badge,
+		.original-badge,
+		.historical-badge {
+			letter-spacing: 0.02em;
+		}
+
+		.action-buttons {
+			flex-direction: column;
+			gap: 0.18rem;
+		}
+
+		.action-btn {
+			width: 30px;
+			height: 30px;
+		}
+
+		.bulk-action-bar,
+		.pagination {
+			border-radius: var(--radius-md);
+			padding: var(--space-sm);
+		}
+
+		.bulk-actions,
+		.pagination-info,
+		.pagination-controls {
+			width: 100%;
+			justify-content: space-between;
+		}
 	}
 </style>

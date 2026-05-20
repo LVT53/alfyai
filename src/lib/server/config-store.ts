@@ -1,23 +1,22 @@
 // Runtime config store: merges env vars with admin_config DB overrides.
 // All services should call getConfig() instead of importing from env.ts directly.
 
-import type { ModelConfig } from "./env";
-import { config as envConfig } from "./env";
-
-export type { ModelConfig } from "./env";
-
-import type { ModelId } from "$lib/types";
 import {
-	defaultDeepResearchModelSelections,
-	normalizeDeepResearchDepthBudgetPolicy,
-	normalizeConfiguredModelId,
 	type DeepResearchDepthBudgetPolicy,
 	type DeepResearchModelSelections,
+	defaultDeepResearchModelSelections,
+	normalizeConfiguredModelId,
+	normalizeDeepResearchDepthBudgetPolicy,
 } from "$lib/deep-research-models";
 import { deriveMaxMessageLengthFromContextTokens } from "$lib/model-limit-presets";
+import type { ModelId } from "$lib/types";
 import { db } from "./db";
 import { adminConfig, inferenceProviders } from "./db/schema";
+import type { ModelConfig } from "./env";
+import { config as envConfig } from "./env";
 import { getSystemPrompt, normalizeSystemPromptReference } from "./prompts";
+
+export type { ModelConfig } from "./env";
 
 export const ADMIN_CONFIG_KEYS = [
 	"MAX_MESSAGE_LENGTH",
@@ -106,6 +105,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"WEB_RESEARCH_CONTENT_CHARS",
 	"WEB_RESEARCH_FRESHNESS_HOURS",
 	"BRAVE_SEARCH_API_KEY",
+	"APP_VERSION_OVERRIDE",
 	"SYSTEM_PROMPT",
 	"MAX_FILE_UPLOAD_SIZE",
 	"REQUEST_TIMEOUT_MS",
@@ -155,6 +155,7 @@ export interface RuntimeConfig {
 	deepResearchDepthBudgets: DeepResearchDepthBudgetPolicy;
 	deepResearchModels: DeepResearchModelSelections;
 	contextDiagnosticsDebug: boolean;
+	appVersionOverride: string | null;
 	titleGenUrl: string;
 	titleGenApiKey: string;
 	titleGenModel: string;
@@ -253,6 +254,7 @@ function buildDefaultConfig(): RuntimeConfig {
 			envConfig.deepResearchDepthBudgets,
 		),
 		braveSearchApiKey: envConfig.braveSearchApiKey,
+		appVersionOverride: null,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
 		deepResearchEnabled: envConfig.deepResearchEnabled ?? false,
@@ -663,6 +665,9 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	BRAVE_SEARCH_API_KEY: (config, value) => {
 		config.braveSearchApiKey = value;
 	},
+	APP_VERSION_OVERRIDE: (config, value) => {
+		config.appVersionOverride = value.trim() || null;
+	},
 	SYSTEM_PROMPT: (config, value) => {
 		config.systemPrompt = normalizeSystemPromptReference(value) ?? "";
 	},
@@ -1050,6 +1055,7 @@ export function getResolvedAdminConfigValues(
 		WEB_RESEARCH_CONTENT_CHARS: String(config.webResearchContentChars),
 		WEB_RESEARCH_FRESHNESS_HOURS: String(config.webResearchFreshnessHours),
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
+		APP_VERSION_OVERRIDE: config.appVersionOverride ?? "",
 		SYSTEM_PROMPT: getSystemPrompt(config.systemPrompt),
 		MAX_FILE_UPLOAD_SIZE: String(config.maxFileUploadSize),
 		REQUEST_TIMEOUT_MS: String(config.requestTimeoutMs),
@@ -1081,7 +1087,7 @@ export function getResolvedAdminConfigValues(
 
 // Returns the env-var default value for each admin config key (for UI display)
 export function getEnvDefaults(): Record<AdminConfigKey, string> {
-	return getResolvedAdminConfigValues(envConfig);
+	return getResolvedAdminConfigValues(buildDefaultConfig());
 }
 
 let cachedProviders:

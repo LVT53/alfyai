@@ -148,7 +148,9 @@ describe("DocumentWorkspace", () => {
 			"open-documents-rail-version",
 		);
 		expect(within(rail).getByText("Knowledge Base")).toBeInTheDocument();
-		expect(within(rail).getByText(/text • research brief/i)).toBeInTheDocument();
+		expect(
+			within(rail).getByText(/text • research brief/i),
+		).toBeInTheDocument();
 		expect(within(rail).getByText("AI")).toBeInTheDocument();
 		expect(
 			rail.querySelector(".open-documents-rail-source-ai svg"),
@@ -204,15 +206,15 @@ describe("DocumentWorkspace", () => {
 		expect(
 			within(desktopWorkspace).queryByText(/from assistant message/i),
 		).not.toBeInTheDocument();
-		expect(
-			within(desktopWorkspace).queryByText("v1"),
-		).not.toBeInTheDocument();
+		expect(within(desktopWorkspace).queryByText("v1")).not.toBeInTheDocument();
 		expect(within(desktopWorkspace).getByText("AI")).toBeInTheDocument();
 		expect(
 			desktopWorkspace.querySelector(".workspace-source-pill-ai svg"),
 		).toBeInTheDocument();
 		expect(
-			desktopWorkspace.querySelector(".workspace-title-row .workspace-header-actions"),
+			desktopWorkspace.querySelector(
+				".workspace-title-row .workspace-header-actions",
+			),
 		).toBeInTheDocument();
 
 		const sourceTitle = desktopWorkspace.querySelector(
@@ -383,6 +385,115 @@ describe("DocumentWorkspace", () => {
 		).toBeInTheDocument();
 	});
 
+	it("closes an expanded workspace when Escape is pressed", async () => {
+		const onCloseWorkspace = vi.fn();
+
+		render(DocumentWorkspace, {
+			props: {
+				open: true,
+				presentation: "expanded",
+				returnToDockedOnExpandedClose: false,
+				documents: [
+					{
+						id: "doc-1",
+						source: "knowledge_artifact",
+						filename: "document.pdf",
+						title: "Document",
+						mimeType: "application/pdf",
+						artifactId: "artifact-1",
+					},
+				],
+				availableDocuments: [],
+				activeDocumentId: "doc-1",
+				onSelectDocument: vi.fn(),
+				onOpenDocument: vi.fn(),
+				onCloseDocument: vi.fn(),
+				onCloseWorkspace,
+			},
+		});
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+
+		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
+	});
+
+	it("closes an expanded workspace when pressing outside the desktop shell", async () => {
+		const onCloseWorkspace = vi.fn();
+
+		render(DocumentWorkspace, {
+			props: {
+				open: true,
+				presentation: "expanded",
+				returnToDockedOnExpandedClose: false,
+				documents: [
+					{
+						id: "doc-1",
+						source: "knowledge_artifact",
+						filename: "document.pdf",
+						title: "Document",
+						mimeType: "application/pdf",
+						artifactId: "artifact-1",
+					},
+				],
+				availableDocuments: [],
+				activeDocumentId: "doc-1",
+				onSelectDocument: vi.fn(),
+				onOpenDocument: vi.fn(),
+				onCloseDocument: vi.fn(),
+				onCloseWorkspace,
+			},
+		});
+
+		const desktopWorkspace = screen.getByRole("complementary", {
+			name: /document workspace/i,
+		});
+
+		await fireEvent.pointerDown(desktopWorkspace);
+		expect(onCloseWorkspace).not.toHaveBeenCalled();
+
+		document.body.dispatchEvent(
+			new PointerEvent("pointerdown", { bubbles: true }),
+		);
+
+		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps an expanded mobile workspace open when pressing inside the mobile shell", async () => {
+		const onCloseWorkspace = vi.fn();
+
+		render(DocumentWorkspace, {
+			props: {
+				open: true,
+				presentation: "expanded",
+				returnToDockedOnExpandedClose: false,
+				documents: [
+					{
+						id: "doc-1",
+						source: "knowledge_artifact",
+						filename: "document.pdf",
+						title: "Document",
+						mimeType: "application/pdf",
+						artifactId: "artifact-1",
+					},
+				],
+				availableDocuments: [],
+				activeDocumentId: "doc-1",
+				onSelectDocument: vi.fn(),
+				onOpenDocument: vi.fn(),
+				onCloseDocument: vi.fn(),
+				onCloseWorkspace,
+			},
+		});
+
+		const mobileWorkspace = document.querySelector(
+			".workspace-shell-mobile",
+		) as HTMLElement;
+
+		await fireEvent.pointerDown(mobileWorkspace);
+
+		expect(onCloseWorkspace).not.toHaveBeenCalled();
+	});
+
 	it("opens chat-generated PPTX files through the shared docked workspace renderer", async () => {
 		(global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
 			() => new Promise(() => undefined),
@@ -496,7 +607,8 @@ describe("DocumentWorkspace", () => {
 	it("opens image previews in docked Chat, expanded Chat, and expanded Knowledge workspace layouts", async () => {
 		(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
 			ok: true,
-			blob: () => Promise.resolve(new Blob(["image data"], { type: "image/png" })),
+			blob: () =>
+				Promise.resolve(new Blob(["image data"], { type: "image/png" })),
 		});
 		const chatImage = {
 			id: "chat-image",
@@ -969,9 +1081,9 @@ describe("DocumentWorkspace", () => {
 		);
 		expect(versionBadges).toHaveLength(2);
 		expect(versionBadges[0]).toHaveClass("workspace-version-badge");
-		expect(within(desktopWorkspace).getAllByText("Brief").length).toBeGreaterThan(
-			0,
-		);
+		expect(
+			within(desktopWorkspace).getAllByText("Brief").length,
+		).toBeGreaterThan(0);
 		expect(
 			within(desktopWorkspace).getAllByText("Historical").length,
 		).toBeGreaterThan(0);
@@ -1092,7 +1204,9 @@ describe("DocumentWorkspace", () => {
 		expect(
 			within(desktopWorkspace).queryByText(/from assistant message/i),
 		).not.toBeInTheDocument();
-		expect(within(desktopWorkspace).getByText("Knowledge Base")).toBeInTheDocument();
+		expect(
+			within(desktopWorkspace).getByText("Knowledge Base"),
+		).toBeInTheDocument();
 		expect(
 			within(
 				within(desktopWorkspace).getByTestId("document-provenance"),

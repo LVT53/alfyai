@@ -23,11 +23,29 @@ export interface StreamMetadata {
 	generatedFiles?: import('$lib/types').ChatGeneratedFile[];
 }
 
+export interface StreamTimingSnapshot {
+	streamId: string;
+	url: string;
+	serverTiming?: string | null;
+	outcome: 'success' | 'error' | 'stopped' | 'closed';
+	phases: {
+		fetchStartMs: number;
+		responseHeadersMs?: number;
+		firstByteMs?: number;
+		firstTokenMs?: number;
+		firstThinkingMs?: number;
+		firstToolCallMs?: number;
+		endMs?: number;
+		errorMs?: number;
+	};
+}
+
 export interface StreamCallbacks {
 	onToken: (chunk: string) => void;
 	onThinking: (chunk: string) => void;
 	onEnd: (fullText: string, metadata?: StreamMetadata) => void;
 	onError: (error: Error) => void;
+	onTiming?: (timing: StreamTimingSnapshot) => void;
 	onWaiting?: () => void;
 	onToolCall?: (
 		name: string,
@@ -141,6 +159,14 @@ export function streamChat(
 	} = options ?? {};
 	const controller = new AbortController();
 	const streamId = reconnectToStreamId ?? crypto.randomUUID();
+	const timingStart =
+		typeof performance !== 'undefined' && typeof performance.now === 'function'
+			? performance.now()
+			: Date.now();
+	const timingPhases: StreamTimingSnapshot['phases'] = { fetchStartMs: 0 };
+	let serverTiming: string | null = null;
+	let streamUrl = '/api/chat/stream';
+	let timingReported = false;
 	let stopRequested = false;
 	let detached = false;
 	let fullText = '';
@@ -173,11 +199,37 @@ export function streamChat(
 		});
 	}
 
+	function elapsedMs(): number {
+		const now =
+			typeof performance !== 'undefined' && typeof performance.now === 'function'
+				? performance.now()
+				: Date.now();
+		return Math.max(0, now - timingStart);
+	}
+
+	function markTimingPhase(name: keyof StreamTimingSnapshot['phases']) {
+		if (timingPhases[name] !== undefined) return;
+		timingPhases[name] = elapsedMs();
+	}
+
+	function reportTiming(outcome: StreamTimingSnapshot['outcome']) {
+		if (timingReported) return;
+		timingReported = true;
+		callbacks.onTiming?.({
+			streamId,
+			url: streamUrl,
+			serverTiming,
+			outcome,
+			phases: { ...timingPhases },
+		});
+	}
+
 	(async () => {
 		try {
 			const url = retryAssistantMessageId
 				? '/api/chat/retry'
 				: '/api/chat/stream';
+			streamUrl = url;
 			const body = retryAssistantMessageId
 				? JSON.stringify({
 						conversationId,
@@ -214,6 +266,8 @@ export function streamChat(
 				body,
 				signal: controller.signal
 			});
+			markTimingPhase('responseHeadersMs');
+			serverTiming = res.headers.get('Server-Timing');
 
 			if (!res.ok) {
 				let errorMessage = `HTTP ${res.status}`;
@@ -225,11 +279,15 @@ export function streamChat(
 				} catch {
 					/* noop */
 				}
+				markTimingPhase('errorMs');
+				reportTiming('error');
 				callbacks.onError(toStreamError(errorMessage, errorCode));
 				return;
 			}
 
 			if (!res.body) {
+				markTimingPhase('errorMs');
+				reportTiming('error');
 				callbacks.onError(toStreamError('Response has no body'));
 				return;
 			}
@@ -282,6 +340,7 @@ export function streamChat(
 							const parsed = JSON.parse(rawData);
 							const chunk = parsed.text ?? (typeof parsed === 'string' ? parsed : '');
 							if (chunk) {
+								markTimingPhase('firstTokenMs');
 								if (isReplaying) {
 									replayTokenBuffer.push(chunk);
 								} else {
@@ -299,8 +358,9 @@ export function streamChat(
 							const parsed = JSON.parse(rawData);
 							const rawThinking = parsed.text ?? (typeof parsed === 'string' ? parsed : '');
 							if (!rawThinking) return false;
-							const thinkingChunk = rawThinking.replace(/<tool_calls>[\r\n]*[\r\n\ta-zA-Z0-9_./:,'\"{}\u4e00-\u9fff-]*?<\/tool_calls>/gi, '');
+							const thinkingChunk = rawThinking.replace(/<tool_calls>[\r\n]*[\r\n\ta-zA-Z0-9_./:,'"{}\u4e00-\u9fff-]*?<\/tool_calls>/gi, '');
 							if (thinkingChunk) {
+								markTimingPhase('firstThinkingMs');
 								if (isReplaying) {
 									replayThinkingBuffer.push(thinkingChunk);
 								} else {
@@ -316,6 +376,7 @@ export function streamChat(
 					if (currentEvent === 'tool_call') {
 						try {
 							const parsed = JSON.parse(rawData);
+							markTimingPhase('firstToolCallMs');
 							callbacks.onToolCall?.(parsed.name, parsed.input ?? {}, parsed.status, {
 								outputSummary: parsed.outputSummary,
 								sourceType: parsed.sourceType,
@@ -356,7 +417,9 @@ export function streamChat(
 						} catch {
 							/* noop */
 						}
+						markTimingPhase('endMs');
 						flushInlineBufferAtEnd();
+						reportTiming('success');
 						callbacks.onEnd(fullText, metadata);
 						return true;
 					}
@@ -371,6 +434,8 @@ export function streamChat(
 						} catch {
 							errorMessage = rawData || errorMessage;
 						}
+						markTimingPhase('errorMs');
+						reportTiming('error');
 						callbacks.onError(toStreamError(errorMessage, errorCode));
 						return true;
 					}
@@ -448,10 +513,13 @@ export function streamChat(
 							break;
 						}
 						flushInlineBufferAtEnd();
+						markTimingPhase('endMs');
+						reportTiming('closed');
 						callbacks.onEnd(fullText);
 						break;
 					}
 
+					markTimingPhase('firstByteMs');
 					buffer += decoder.decode(value, { stream: true });
 					if (drainBuffer()) {
 						return;
@@ -465,10 +533,16 @@ export function streamChat(
 				return;
 			}
 			if (stopRequested) {
+				markTimingPhase('endMs');
+				reportTiming('stopped');
 				callbacks.onEnd(fullText, { wasStopped: true });
 			} else if (err instanceof Error) {
+				markTimingPhase('errorMs');
+				reportTiming('error');
 				callbacks.onError(err);
 			} else {
+				markTimingPhase('errorMs');
+				reportTiming('error');
 				callbacks.onError(toStreamError(String(err)));
 			}
 		}
