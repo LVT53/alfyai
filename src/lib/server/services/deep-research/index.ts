@@ -1158,22 +1158,39 @@ export async function completeDeepResearchJobWithAuditedReport(
 		},
 		now,
 	});
-	const reportDraft = await writeResearchReportWithLlm({
-		context: {
+	let reportDraft: ResearchReportDraft;
+	try {
+		reportDraft = await writeResearchReportWithLlm({
+			context: {
+				jobId: job.id,
+				conversationId: job.conversationId,
+				userId: job.userId,
+				now,
+			},
 			jobId: job.id,
-			conversationId: job.conversationId,
-			userId: job.userId,
-			now,
-		},
-		jobId: job.id,
-		plan: currentPlan.rawPlan,
-		synthesisNotes: input.synthesisNotes,
-		synthesisClaims: verifiedSynthesisClaims,
-		evidenceNotes: verifiedEvidenceNotes,
-		sources: sources.map(mapSourceForReportWriter),
-		limitations: input.limitations,
-		reportOutcome,
-	});
+			plan: currentPlan.rawPlan,
+			synthesisNotes: input.synthesisNotes,
+			synthesisClaims: verifiedSynthesisClaims,
+			evidenceNotes: verifiedEvidenceNotes,
+			sources: sources.map(mapSourceForReportWriter),
+			limitations: input.limitations,
+			reportOutcome,
+		});
+	} catch (error) {
+		if (isSourceNoteDumpReadabilityError(error)) {
+			return completeDeepResearchJobWithEvidenceLimitationMemoFromState({
+				job,
+				currentPlan,
+				sources,
+				limitations: [
+					...(input.limitations ?? []),
+					sourceNoteDumpReportLimitation(),
+				],
+				now,
+			});
+		}
+		throw error;
+	}
 	if (!(await loadFinalizableDeepResearchJobRow(job))) {
 		return loadDeepResearchJobSnapshot({
 			userId: job.userId,
@@ -1850,22 +1867,36 @@ async function completeAuditedReportWithSupportedClaimGraph(input: {
 		...input.limitations,
 		...claimGraphReportLimitations(input.auditResult),
 	];
-	const reportDraft = await writeResearchReportWithLlm({
-		context: {
+	let reportDraft: ResearchReportDraft;
+	try {
+		reportDraft = await writeResearchReportWithLlm({
+			context: {
+				jobId: input.job.id,
+				conversationId: input.job.conversationId,
+				userId: input.job.userId,
+				now: input.now,
+			},
 			jobId: input.job.id,
-			conversationId: input.job.conversationId,
-			userId: input.job.userId,
-			now: input.now,
-		},
-		jobId: input.job.id,
-		plan: input.currentPlan.rawPlan,
-		synthesisNotes: input.synthesisNotes,
-		synthesisClaims: verifiedSynthesisClaims,
-		evidenceNotes: input.evidenceNotes,
-		sources: sources.map(mapSourceForReportWriter),
-		limitations: reportLimitations,
-		reportOutcome,
-	});
+			plan: input.currentPlan.rawPlan,
+			synthesisNotes: input.synthesisNotes,
+			synthesisClaims: verifiedSynthesisClaims,
+			evidenceNotes: input.evidenceNotes,
+			sources: sources.map(mapSourceForReportWriter),
+			limitations: reportLimitations,
+			reportOutcome,
+		});
+	} catch (error) {
+		if (isSourceNoteDumpReadabilityError(error)) {
+			return completeDeepResearchJobWithEvidenceLimitationMemoFromState({
+				job: input.job,
+				currentPlan: input.currentPlan,
+				sources,
+				limitations: [...reportLimitations, sourceNoteDumpReportLimitation()],
+				now: input.now,
+			});
+		}
+		throw error;
+	}
 	if (!(await loadFinalizableDeepResearchJobRow(input.job))) {
 		return loadDeepResearchJobSnapshot({
 			userId: input.job.userId,
@@ -3105,6 +3136,16 @@ function claimGraphAuditWarnings(
 		];
 	}
 	return [];
+}
+
+function isSourceNoteDumpReadabilityError(error: unknown): boolean {
+	return (
+		error instanceof Error && /source-note dump detected/i.test(error.message)
+	);
+}
+
+function sourceNoteDumpReportLimitation(): string {
+	return "Report assembly could not publish a readable research report because retained claims repeated source-note titles.";
 }
 
 function uniqueValues<T>(values: T[]): T[] {

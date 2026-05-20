@@ -700,6 +700,159 @@ describe("audited Deep Research report completion", () => {
 		);
 	});
 
+	it("publishes an Evidence Limitation Memo instead of throwing when audited claims are source-note titles", async () => {
+		const {
+			approveDeepResearchPlan,
+			completeDeepResearchJobWithAuditedReport,
+			startDeepResearchJobShell,
+		} = await import("./index");
+		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
+		const { upsertResearchPassCheckpoint } = await import("./pass-state");
+		const { markResearchSourceReviewed, saveDiscoveredResearchSource } =
+			await import("./sources");
+		const { saveDeepResearchSynthesisClaims } = await import(
+			"./synthesis-claims"
+		);
+		const { getArtifactForUser } = await import(
+			"$lib/server/services/knowledge/store"
+		);
+
+		const created = await startDeepResearchJobShell({
+			userId: "user-1",
+			conversationId: "conv-1",
+			triggerMessageId: "user-msg-1",
+			userRequest: "Compare Cube Nulane and Cube Kathmandu bikes",
+			depth: "standard",
+			now: new Date("2026-05-05T10:01:00.000Z"),
+		});
+		await approveDeepResearchPlan({
+			userId: "user-1",
+			jobId: created.id,
+			now: new Date("2026-05-05T10:06:00.000Z"),
+		});
+		await seedCompletedMeaningfulPasses(created.id, 3, 2);
+		const checkpoint = await upsertResearchPassCheckpoint({
+			userId: "user-1",
+			jobId: created.id,
+			conversationId: "conv-1",
+			passNumber: 1,
+			searchIntent: "Verify bike source-note title regression",
+			now: new Date("2026-05-05T10:10:00.000Z"),
+		});
+		const sourceTitles = [
+			"2025 CUBE Bikes Nulane One - Bike Insights",
+			"2026 CUBE Bikes Kathmandu One - Bike Insights",
+			"Compare CUBE NULANE PRO 2024 vs CUBE KATHMANDU, PRO 2025",
+		];
+		const reviewedSources = [];
+		for (const [index, title] of sourceTitles.entries()) {
+			const source = await saveDiscoveredResearchSource({
+				userId: "user-1",
+				conversationId: "conv-1",
+				jobId: created.id,
+				url: `https://bike.example.test/source-${index + 1}`,
+				title,
+				provider: "public_web",
+				snippet: title,
+				discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
+			});
+			reviewedSources.push(
+				await markResearchSourceReviewed({
+					userId: "user-1",
+					sourceId: source.id,
+					reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
+					reviewedNote: title,
+					extractedClaims: [title],
+					sourceQualitySignals: {
+						sourceType: "official_vendor",
+						independence: "primary",
+						freshness: "current",
+						directness: "direct",
+						extractionConfidence: "high",
+						claimFit: "strong",
+					},
+				}),
+			);
+		}
+		const evidenceNotes = await saveDeepResearchEvidenceNotes({
+			userId: "user-1",
+			jobId: created.id,
+			conversationId: "conv-1",
+			passCheckpointId: checkpoint.id,
+			notes: reviewedSources.map((source) => ({
+				sourceId: source.id,
+				findingText: source.title ?? source.url,
+				supportedKeyQuestion: "Which bike sources support the comparison?",
+				sourceSupport: {
+					sourceId: source.id,
+					reviewedSourceId: source.id,
+					title: source.title ?? source.url,
+				},
+				sourceQualitySignals: {
+					sourceType: "official_vendor",
+					independence: "primary",
+					freshness: "current",
+					directness: "direct",
+					extractionConfidence: "high",
+					claimFit: "strong",
+				},
+			})),
+			now: new Date("2026-05-05T10:11:00.000Z"),
+		});
+		await saveDeepResearchSynthesisClaims({
+			userId: "user-1",
+			jobId: created.id,
+			conversationId: "conv-1",
+			passCheckpointId: checkpoint.id,
+			synthesisPass: "synthesis-pass-1",
+			claims: evidenceNotes.map((note) => ({
+				statement: note.findingText,
+				claimType: "official_specification",
+				central: true,
+				status: "accepted",
+				evidenceLinks: [
+					{
+						evidenceNoteId: note.id,
+						relation: "support",
+					},
+				],
+			})),
+			now: new Date("2026-05-05T10:12:00.000Z"),
+		});
+
+		const completed = await completeDeepResearchJobWithAuditedReport({
+			userId: "user-1",
+			jobId: created.id,
+			synthesisNotes: buildSynthesisNotes(
+				created.id,
+				reviewedSources.map((source) => ({
+					statement: source.title ?? source.url,
+					sourceId: source.id,
+					url: source.url,
+					title: source.title ?? source.url,
+				})),
+			),
+			now: new Date("2026-05-05T10:20:00.000Z"),
+		});
+		const memoArtifact = completed?.reportArtifactId
+			? await getArtifactForUser("user-1", completed.reportArtifactId)
+			: null;
+
+		expect(completed).toMatchObject({
+			id: created.id,
+			status: "completed",
+			stage: "evidence_limitation_memo_ready",
+		});
+		expect(memoArtifact?.metadata).toMatchObject({
+			deepResearchEvidenceLimitationMemo: true,
+			documentRole: "evidence_limitation_memo",
+		});
+		expect(memoArtifact?.contentText).toContain(
+			"Report assembly could not publish a readable research report because retained claims repeated source-note titles.",
+		);
+		expect(memoArtifact?.contentText).not.toContain("# Research Report:");
+	});
+
 	it("preserves structured comparison matrix markdown after audited finalization", async () => {
 		const {
 			approveDeepResearchPlan,

@@ -89,6 +89,12 @@ function providerConfig() {
 		targetConstructedContext: 108_000,
 		maxMessageLength: 30_000,
 		maxTokens: 12_000,
+		rateLimitFallbackEnabled: true,
+		rateLimitFallbackBaseUrl: "https://api.moonshot.ai/v1",
+		rateLimitFallbackApiKeyEncrypted: "encrypted-fallback",
+		rateLimitFallbackApiKeyIv: "fallback-iv",
+		rateLimitFallbackModelName: "kimi-k2.6",
+		rateLimitFallbackTimeoutMs: 12_000,
 	};
 }
 
@@ -258,7 +264,168 @@ describe("Deep Research model runner", () => {
 		);
 	});
 
-	it("keeps provider failures on the citation audit fallback boundary", async () => {
+	it("retries rate-limited provider citation audits with the provider fallback model", async () => {
+		mocks.decryptApiKey.mockImplementation((encrypted) =>
+			encrypted === "encrypted-fallback"
+				? "fallback-secret"
+				: "provider-secret",
+		);
+		const fetchImpl = vi.fn(async (url: URL | RequestInfo) => {
+			const requestUrl = String(url);
+			if (requestUrl.startsWith("https://openrouter.ai")) {
+				return new Response(JSON.stringify({ error: "rate limited" }), {
+					status: 429,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+			return new Response(
+				JSON.stringify({
+					choices: [
+						{
+							message: {
+								content:
+									'{"claims":[{"claimId":"claim-1","status":"supported","reason":"Fallback model audited it.","citationSourceIds":["source-1"]}]}',
+							},
+						},
+					],
+					usage: {
+						prompt_tokens: 20,
+						completion_tokens: 9,
+						total_tokens: 29,
+					},
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		});
+
+		const result = await tryRunAndRecordDeepResearchModel({
+			role: "citation_audit",
+			jobId: "job-1",
+			conversationId: "conversation-1",
+			userId: "user-1",
+			stage: "citation_audit",
+			operation: "citation_audit",
+			messages: [
+				{ role: "system", content: "Audit citations. Return only JSON." },
+				{ role: "user", content: "{}" },
+			],
+			fetchImpl,
+		});
+
+		expect(result?.content).toContain("Fallback model audited it.");
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(fetchImpl.mock.calls[1]?.[0]).toBe(
+			"https://api.moonshot.ai/v1/chat/completions",
+		);
+		const fallbackHeaders = fetchImpl.mock.calls[1]?.[1]?.headers as Record<
+			string,
+			string
+		>;
+		expect(fallbackHeaders.Authorization).toBe("Bearer fallback-secret");
+		expect(
+			JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body)),
+		).toMatchObject({
+			model: "kimi-k2.6",
+			temperature: 0.2,
+		});
+		expect(mocks.warn).toHaveBeenCalledWith(
+			"[DEEP_RESEARCH] LLM role switching to failover model",
+			expect.objectContaining({
+				role: "citation_audit",
+				jobId: "job-1",
+				from: "provider:openrouter:anthropic/claude-sonnet-4",
+				to: "provider:openrouter:kimi-k2.6",
+				reason: "rate_limit",
+				status: 429,
+			}),
+		);
+		expect(mocks.saveResearchUsageRecord).toHaveBeenCalledOnce();
+	});
+
+	it("uses the global failover model when provider rate-limit fallback is unavailable", async () => {
+		runtimeConfig.modelTimeoutFailoverEnabled = true;
+		runtimeConfig.modelTimeoutFailoverTargetModel = "model2";
+		mocks.getProviderWithSecrets.mockResolvedValue({
+			...providerConfig(),
+			rateLimitFallbackEnabled: false,
+			apiKeyEncrypted: "encrypted-key",
+			apiKeyIv: "iv",
+		});
+		const fetchImpl = vi.fn(async (url: URL | RequestInfo) => {
+			const requestUrl = String(url);
+			if (requestUrl.startsWith("https://openrouter.ai")) {
+				return new Response(JSON.stringify({ error: "rate limited" }), {
+					status: 429,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+			return new Response(
+				JSON.stringify({
+					choices: [
+						{
+							message: {
+								content:
+									'{"claims":[{"claimId":"claim-1","status":"supported"}]}',
+							},
+						},
+					],
+					usage: {
+						prompt_tokens: 12,
+						completion_tokens: 4,
+						total_tokens: 16,
+					},
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		});
+
+		const result = await tryRunAndRecordDeepResearchModel({
+			role: "citation_audit",
+			jobId: "job-1",
+			conversationId: "conversation-1",
+			userId: "user-1",
+			stage: "citation_audit",
+			operation: "citation_audit",
+			messages: [
+				{ role: "system", content: "Audit citations. Return only JSON." },
+				{ role: "user", content: "{}" },
+			],
+			fetchImpl,
+		});
+
+		expect(result).toMatchObject({
+			modelId: "model2",
+			modelDisplayName: "Model Two",
+		});
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(fetchImpl.mock.calls[1]?.[0]).toBe(
+			"https://model-two.example/v1/chat/completions",
+		);
+		expect(
+			JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body)),
+		).toMatchObject({
+			model: "model-two",
+		});
+		expect(mocks.warn).toHaveBeenCalledWith(
+			"[DEEP_RESEARCH] LLM role switching to failover model",
+			expect.objectContaining({
+				role: "citation_audit",
+				jobId: "job-1",
+				from: "provider:openrouter:anthropic/claude-sonnet-4",
+				to: "model2",
+				reason: "rate_limit",
+				status: 429,
+			}),
+		);
+	});
+
+	it("keeps provider failures on the citation audit deterministic fallback boundary after failover is unavailable", async () => {
+		mocks.getProviderWithSecrets.mockResolvedValueOnce({
+			...providerConfig(),
+			rateLimitFallbackEnabled: false,
+			apiKeyEncrypted: "encrypted-key",
+			apiKeyIv: "iv",
+		});
 		const fetchImpl = vi.fn(async () => {
 			return new Response(JSON.stringify({ error: "provider unavailable" }), {
 				status: 503,
@@ -282,7 +449,7 @@ describe("Deep Research model runner", () => {
 
 		expect(result).toBeNull();
 		expect(mocks.warn).toHaveBeenCalledWith(
-			"[DEEP_RESEARCH] LLM role failed; using fallback",
+			"[DEEP_RESEARCH] LLM role failed; using deterministic fallback",
 			expect.objectContaining({
 				role: "citation_audit",
 				jobId: "job-1",
