@@ -2009,6 +2009,7 @@ async function handleSend(
 				: (payload.pendingSkill ?? null),
 			deepResearchDepth: payload.deepResearchDepth ?? null,
 			thinkingMode: payload.thinkingMode ?? $selectedThinkingMode,
+			forceWebSearch: payload.forceWebSearch === true,
 			activeDocumentArtifactId: getActiveWorkspaceArtifactId(),
 			personalityProfileId: personalityProfileIdForTurn,
 			retryAssistantMessageId,

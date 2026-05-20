@@ -474,6 +474,51 @@ describe("POST /api/chat/send", () => {
 		);
 	});
 
+	it("passes a forced web-search turn flag into the Langflow send options", async () => {
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		mockCreateMessage
+			.mockResolvedValueOnce({
+				id: "user-msg",
+				role: "user",
+				content: "What changed today?",
+				timestamp: Date.now(),
+			})
+			.mockResolvedValueOnce({
+				id: "assistant-msg",
+				role: "assistant",
+				content: "Grounded answer",
+				timestamp: Date.now(),
+			});
+		mockSendMessage.mockResolvedValue({
+			text: "Grounded answer",
+			rawResponse: {},
+			contextStatus: undefined,
+		});
+
+		const event = makeEvent({
+			message: "What changed today?",
+			conversationId: "conv-1",
+			forceWebSearch: true,
+		});
+		const response = await POST(event);
+
+		expect(response.status).toBe(200);
+		expect(mockSendMessage).toHaveBeenCalledWith(
+			"What changed today?",
+			"conv-1",
+			"model1",
+			expect.any(Object),
+			expect.objectContaining({
+				forceWebSearch: true,
+			}),
+		);
+	});
+
 	it("returns project folder awareness in send metadata and degrades lookup failures", async () => {
 		const conversation = {
 			id: "conv-1",

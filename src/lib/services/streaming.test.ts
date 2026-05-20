@@ -84,6 +84,33 @@ describe('streamChat', () => {
 		expect(cb.onToken).toHaveBeenNthCalledWith(2, ' world');
 	});
 
+	it('includes forceWebSearch in the stream request body for the current turn', async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				'event: end\n',
+				'data: {}\n',
+				'\n'
+			])
+		);
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat('test message', 'conv-1', cb as unknown as StreamCallbacks, {
+			forceWebSearch: true
+		});
+		await done;
+
+		const requestBody = JSON.parse(
+			String(mockFetch.mock.calls[0]?.[1]?.body)
+		);
+		expect(requestBody).toMatchObject({
+			message: 'test message',
+			conversationId: 'conv-1',
+			forceWebSearch: true
+		});
+	});
+
 	it('calls onEnd with full concatenated text', async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(

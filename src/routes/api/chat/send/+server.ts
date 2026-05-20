@@ -179,6 +179,7 @@ export const POST: RequestHandler = async (event) => {
 				systemPromptAppendix: skillSystemPromptAppendix,
 				personalityPrompt,
 				thinkingMode: turn.thinkingMode,
+				forceWebSearch: turn.forceWebSearch,
 			},
 		);
 		const text = langflowResult.text ?? "";

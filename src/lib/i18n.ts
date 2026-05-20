@@ -678,6 +678,9 @@ const dictionary = {
 		"composerCommands.clear.description": "Clear the current composer draft.",
 		"composerCommands.clear.confirm":
 			"Clear the current draft and pending composer selections?",
+		"composerCommands.web.label": "Web search",
+		"composerCommands.web.description":
+			"Force Web search for the next message.",
 		"composerCommands.research.label": "Deep Research",
 		"composerCommands.research.description":
 			"Toggle standard Deep Research depth for the next message.",
@@ -1108,6 +1111,9 @@ const dictionary = {
 		"composerTools.deepResearchFocused": "Focused Deep Research",
 		"composerTools.deepResearchStandard": "Standard Deep Research",
 		"composerTools.deepResearchMax": "Max Deep Research",
+		"composerTools.webSearch": "Web search",
+		"composerTools.removeWebSearch": "Remove Web search",
+		"composerTools.activeControls": "Active composer controls",
 		"composerTools.thinking": "Thinking",
 		"composerTools.thinkingAuto": "Auto",
 		"composerTools.thinkingOn": "On",
@@ -2200,6 +2206,9 @@ const dictionary = {
 			"Törli az aktuális beviteli piszkozatot.",
 		"composerCommands.clear.confirm":
 			"Törlöd az aktuális piszkozatot és a függőben lévő beviteli kijelöléseket?",
+		"composerCommands.web.label": "Webes keresés",
+		"composerCommands.web.description":
+			"Webes keresést kényszerít a következő üzenethez.",
 		"composerCommands.research.label": "Mély kutatás",
 		"composerCommands.research.description":
 			"Normál Mély kutatás mélységet kapcsol a következő üzenethez.",
@@ -2544,6 +2553,9 @@ const dictionary = {
 		"composerTools.deepResearchFocused": "Fókuszált mély kutatás",
 		"composerTools.deepResearchStandard": "Normál mély kutatás",
 		"composerTools.deepResearchMax": "Max mély kutatás",
+		"composerTools.webSearch": "Webes keresés",
+		"composerTools.removeWebSearch": "Webes keresés eltávolítása",
+		"composerTools.activeControls": "Aktív beviteli vezérlők",
 		"composerTools.thinking": "Gondolkodás",
 		"composerTools.thinkingAuto": "Auto",
 		"composerTools.thinkingOn": "Be",

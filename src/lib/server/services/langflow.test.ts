@@ -314,6 +314,21 @@ describe("sendMessage provider routing", () => {
 		);
 	});
 
+	it("adds a current-turn web retrieval instruction when forced web search is requested", async () => {
+		await sendMessage("What changed today?", "conv-1", "model1", undefined, {
+			forceWebSearch: true,
+		});
+
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		const systemPrompt = body.tweaks["ModelNode-1"].system_prompt;
+		expect(systemPrompt).toContain("Current-turn forced web retrieval");
+		expect(systemPrompt).toContain(
+			"use available web retrieval for this answer",
+		);
+		expect(systemPrompt).toContain("cite page-backed claims");
+		expect(systemPrompt).toContain("tools are unavailable");
+	});
+
 	it("passes Hungarian response-language policy into Langflow requests", async () => {
 		await sendMessage(
 			"Kérlek foglald össze magyarul a legfontosabb webes forrásokat.",

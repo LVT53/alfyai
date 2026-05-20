@@ -14,6 +14,7 @@ export interface NonStreamFallbackSendParams {
 	activeDocumentArtifactId: string | null;
 	attachmentTraceId: string | null;
 	thinkingMode: ThinkingMode;
+	forceWebSearch: boolean;
 }
 
 export interface NonStreamFallbackResponse {
@@ -43,6 +44,7 @@ export interface NonStreamFallbackDeps {
 			personalityPrompt?: string;
 			skipHonchoContext?: boolean;
 			thinkingMode?: ThinkingMode;
+			forceWebSearch?: boolean;
 		},
 	) => Promise<NonStreamFallbackResponse>;
 	sendParams: NonStreamFallbackSendParams;
@@ -109,6 +111,7 @@ export async function runNonStreamFallback(
 			personalityPrompt,
 			skipHonchoContext,
 			thinkingMode: sendParams.thinkingMode,
+			forceWebSearch: sendParams.forceWebSearch,
 		},
 	);
 

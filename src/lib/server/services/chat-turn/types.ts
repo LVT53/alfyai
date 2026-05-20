@@ -37,6 +37,7 @@ export type ParsedChatTurnRequest = {
 	personalityProfileId?: string;
 	deepResearchDepth?: DeepResearchDepth;
 	thinkingMode: ThinkingMode;
+	forceWebSearch: boolean;
 	skipPersistUserMessage: boolean;
 	attachmentTraceId?: string;
 };

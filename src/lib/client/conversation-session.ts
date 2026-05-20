@@ -30,6 +30,7 @@ export type PendingConversationMessage = {
 	personalityProfileId?: string | null;
 	deepResearchDepth?: DeepResearchDepth | null;
 	thinkingMode?: ThinkingMode;
+	forceWebSearch?: boolean;
 };
 
 function getSessionStorage(): Storage | null {
@@ -182,6 +183,7 @@ export function storePendingConversationMessage(
 			personalityProfileId: payload.personalityProfileId,
 			deepResearchDepth: payload.deepResearchDepth,
 			thinkingMode: payload.thinkingMode,
+			forceWebSearch: payload.forceWebSearch === true,
 		}),
 	);
 }
@@ -239,6 +241,7 @@ export function consumePendingConversationMessage(
 				parsed.thinkingMode === "off"
 					? parsed.thinkingMode
 					: "auto",
+			forceWebSearch: parsed.forceWebSearch === true,
 		};
 	} catch {
 		return {
@@ -249,6 +252,7 @@ export function consumePendingConversationMessage(
 			pendingSkill: null,
 			deepResearchDepth: null,
 			thinkingMode: "auto",
+			forceWebSearch: false,
 		};
 	}
 }

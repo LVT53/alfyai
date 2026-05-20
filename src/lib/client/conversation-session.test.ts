@@ -90,6 +90,7 @@ describe("conversation-session", () => {
 			personalityProfileId: null,
 			deepResearchDepth: null,
 			thinkingMode: "auto",
+			forceWebSearch: false,
 		});
 		expect(hasPendingConversationMessage("conv-123")).toBe(false);
 	});

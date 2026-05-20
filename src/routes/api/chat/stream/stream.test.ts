@@ -701,6 +701,54 @@ describe("POST /api/chat/stream", () => {
 		);
 	});
 
+	it("passes a forced web-search turn flag into Langflow streaming options", async () => {
+		const conversation = {
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		mockGetConversation.mockResolvedValue(conversation);
+		mockCreateMessage
+			.mockResolvedValueOnce({
+				id: "user-msg",
+				role: "user",
+				content: "What changed today?",
+				timestamp: Date.now(),
+			})
+			.mockResolvedValueOnce({
+				id: "assistant-msg",
+				role: "assistant",
+				content: "Grounded",
+				timestamp: Date.now(),
+			});
+		mockSendMessageStream.mockResolvedValue(
+			buildSseStream([
+				'event: add_message\ndata: {"text":"Grounded"}\n\n',
+				"data: [DONE]\n\n",
+			]),
+		);
+
+		const event = makeEvent({
+			message: "What changed today?",
+			conversationId: "conv-1",
+			forceWebSearch: true,
+		});
+		const response = await POST(event);
+		const body = await readSseResponse(response);
+
+		expect(response.status).toBe(200);
+		expect(body).toContain('"text":"Grounded"');
+		expect(mockSendMessageStream).toHaveBeenCalledWith(
+			"What changed today?",
+			"conv-1",
+			"model1",
+			expect.objectContaining({
+				forceWebSearch: true,
+			}),
+		);
+	});
+
 	it("passes pending Skill instructions as a system appendix without changing the streamed user transcript", async () => {
 		const conversation = {
 			id: "conv-1",

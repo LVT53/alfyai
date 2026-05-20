@@ -34,6 +34,7 @@ export type SendPayload = {
 	personalityProfileId?: string | null;
 	deepResearchDepth?: "focused" | "standard" | "max" | null;
 	thinkingMode?: ThinkingMode;
+	forceWebSearch?: boolean;
 };
 
 export type MessageEditPayload = {
@@ -609,6 +610,7 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 		modelId: payload.modelId,
 		deepResearchDepth: payload.deepResearchDepth ?? null,
 		thinkingMode: payload.thinkingMode,
+		forceWebSearch: payload.forceWebSearch === true,
 	};
 }
 

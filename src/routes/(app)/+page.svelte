@@ -76,6 +76,7 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 		modelId?: ModelId;
 		deepResearchDepth?: 'focused' | 'standard' | 'max' | null;
 		thinkingMode?: ThinkingMode;
+		forceWebSearch?: boolean;
 	};
 
 	type MessageInputDraftPayload = {
@@ -294,6 +295,7 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 				personalityProfileId: selectedPersonalityId,
 				deepResearchDepth: payload.deepResearchDepth ?? null,
 				thinkingMode: payload.thinkingMode ?? $selectedThinkingMode,
+				forceWebSearch: payload.forceWebSearch === true,
 			});
 			await navigateToConversationFromLanding({
 				conversationId: id,

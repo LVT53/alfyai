@@ -19,6 +19,8 @@
 		thinkingMode = 'auto',
 		onThinkingModeChange = undefined,
 		initialOpen = null,
+		forceWebSearch = false,
+		onForceWebSearchChange = undefined,
 	}: {
 		canAttach?: boolean;
 		attachmentsEnabled?: boolean;
@@ -30,6 +32,8 @@
 		thinkingMode?: ThinkingMode;
 		onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
 		initialOpen?: 'model' | 'style' | 'thinking' | null;
+		forceWebSearch?: boolean;
+		onForceWebSearchChange?: ((enabled: boolean) => void) | undefined;
 	} = $props();
 
 	let root = $state<HTMLDivElement | undefined>(undefined);
@@ -68,6 +72,11 @@
 	function selectThinkingMode(mode: ThinkingMode) {
 		onThinkingModeChange?.(mode);
 		closeMenu();
+	}
+
+	function toggleWebSearch() {
+		onForceWebSearchChange?.(!forceWebSearch);
+		onClose?.();
 	}
 
 	onMount(() => {
@@ -222,6 +231,27 @@
 		<button
 			type="button"
 			class="menu-row menu-row--button"
+			class:menu-row--selected={forceWebSearch}
+			onclick={toggleWebSearch}
+			aria-label={$t('composerTools.webSearch')}
+			aria-checked={forceWebSearch}
+			role="menuitemcheckbox"
+		>
+			<span class="menu-label">{$t('composerTools.webSearch')}</span>
+			<span class="menu-icon" aria-hidden="true">
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="12" cy="12" r="10" />
+					<path d="M2 12h20" />
+					<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+				</svg>
+			</span>
+		</button>
+	</div>
+
+	<div class="menu-row">
+		<button
+			type="button"
+			class="menu-row menu-row--button"
 			onclick={handleAttach}
 			disabled={!canAttach}
 			title={attachmentsEnabled ? $t('composerTools.attachFileMaxSize') : $t('composerTools.uploadsUnavailable')}
@@ -299,7 +329,8 @@
 	}
 
 	.menu-row--button:hover:not(:disabled),
-	.menu-row--button:focus-visible {
+	.menu-row--button:focus-visible,
+	.menu-row--selected {
 		background: rgba(194, 166, 106, 0.24);
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 34%, transparent 66%);
 		transform: translateY(-1px);
@@ -307,7 +338,8 @@
 	}
 
 	:global(.dark) .menu-row--button:hover:not(:disabled),
-	:global(.dark) .menu-row--button:focus-visible {
+	:global(.dark) .menu-row--button:focus-visible,
+	:global(.dark) .menu-row--selected {
 		background: rgba(194, 166, 106, 0.3);
 	}
 

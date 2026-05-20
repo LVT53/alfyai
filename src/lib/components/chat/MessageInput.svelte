@@ -48,6 +48,7 @@ type SendPayload = {
 	thinkingMode?: ThinkingMode;
 	linkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
+	forceWebSearch?: boolean;
 };
 
 type DraftPayload = {
@@ -188,6 +189,7 @@ let skillDiscoveryLoading = $state(false);
 let skillDiscoveryRequestId = 0;
 let toolsMenuInitialOpen = $state<"model" | "style" | "thinking" | null>(null);
 let selectedDeepResearchDepth = $state<DeepResearchDepth | null>(null);
+let forceWebSearch = $state(false);
 let queuedSendAfterProcessing = $state(false);
 let linkHighlightScrollTop = $state(0);
 let appliedDraftVersion = -1;
@@ -582,6 +584,7 @@ function buildSendPayload(): SendPayload {
 		personalityProfileId: selectedPersonalityId,
 		deepResearchDepth: deepResearchEnabled ? selectedDeepResearchDepth : null,
 		thinkingMode,
+		forceWebSearch,
 	};
 }
 
@@ -598,6 +601,7 @@ function clearComposerAfterSubmit() {
 	closeCommandTray();
 	documentPickerOpen = false;
 	selectedDeepResearchDepth = null;
+	forceWebSearch = false;
 	lastEmittedDraftKey = "";
 	draftEmissionVersion += 1;
 	void emitDraftChange(true);
@@ -783,6 +787,10 @@ function selectDeepResearchDepth(depth: DeepResearchDepth) {
 	selectedDeepResearchDepth =
 		selectedDeepResearchDepth === depth ? null : depth;
 	showDeepResearchMenu = false;
+}
+
+function setForceWebSearch(enabled: boolean) {
+	forceWebSearch = enabled;
 }
 
 type CommandTrayRow = Omit<
@@ -1154,6 +1162,9 @@ function selectCommand(command: CommandTrayRow) {
 			break;
 		case "settings":
 			void goto("/settings");
+			break;
+		case "web":
+			forceWebSearch = true;
 			break;
 		case "research":
 			toggleStandardDeepResearchFromCommand();
@@ -1638,6 +1649,27 @@ async function emitDraftChange(force = false) {
 			</ul>
 		{/if}
 
+		{#if forceWebSearch}
+			<ul class="pending-skill-chips" aria-label={$t('composerTools.activeControls')}>
+				<li class="pending-skill-chip">
+					<span class="pending-skill-chip__marker" aria-hidden="true"></span>
+					<span class="pending-skill-chip__copy">
+						<span class="pending-skill-chip__label">{$t('composerTools.webSearch')}</span>
+					</span>
+					<button
+						type="button"
+						class="pending-skill-chip__remove"
+						aria-label={$t('composerTools.removeWebSearch')}
+						onclick={() => setForceWebSearch(false)}
+					>
+						<svg aria-hidden="true" viewBox="0 0 16 16" width="11" height="11">
+							<path d="M4 4l8 8M12 4l-8 8" />
+						</svg>
+					</button>
+				</li>
+			</ul>
+		{/if}
+
 		{#if hasQueuedMessage}
 			<div
 				data-testid="queued-message-banner"
@@ -1701,6 +1733,8 @@ async function emitDraftChange(force = false) {
 							{thinkingMode}
 							{onThinkingModeChange}
 							initialOpen={toolsMenuInitialOpen}
+							{forceWebSearch}
+							onForceWebSearchChange={setForceWebSearch}
 						/>
 					{/if}
 				</div>

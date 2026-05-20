@@ -133,6 +133,7 @@ export type StreamChatOptions = {
 	pendingSkill?: import("$lib/types").PendingSkillSelection | null;
 	deepResearchDepth?: import("$lib/types").DeepResearchDepth | null;
 	thinkingMode?: import("$lib/types").ThinkingMode;
+	forceWebSearch?: boolean;
 	activeDocumentArtifactId?: string;
 	personalityProfileId?: string | null;
 	retryAssistantMessageId?: string;
@@ -157,6 +158,7 @@ export function streamChat(
 		pendingSkill,
 		deepResearchDepth,
 		thinkingMode,
+		forceWebSearch,
 		activeDocumentArtifactId,
 		personalityProfileId,
 		retryAssistantMessageId,
@@ -267,6 +269,7 @@ export function streamChat(
 							? { depth: deepResearchDepth }
 							: undefined,
 						thinkingMode,
+						forceWebSearch: forceWebSearch === true ? true : undefined,
 						activeDocumentArtifactId,
 						personalityProfileId,
 						reconnectToStreamId,

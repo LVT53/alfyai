@@ -224,6 +224,32 @@ describe("MessageInput", () => {
 		);
 	});
 
+	it("sends one-turn Web search from the composer tools toggle", async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+		});
+
+		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
+		await fireEvent.click(
+			getByRole("menuitemcheckbox", { name: "Web search" }),
+		);
+		expect(
+			getByRole("button", { name: "Remove Web search" }),
+		).toBeInTheDocument();
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Find current SvelteKit release notes" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Find current SvelteKit release notes",
+				forceWebSearch: true,
+			}),
+		);
+	});
+
 	it("opens the command tray for a slash command when the registry flag is enabled", async () => {
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
 			composerCommandRegistryEnabled: true,
@@ -329,6 +355,64 @@ describe("MessageInput", () => {
 				message: "Check latest policy",
 				deepResearchDepth: "standard",
 			}),
+		);
+	});
+
+	it("selects /web before sending a one-turn Web search", async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			onSend: sendSpy,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/web" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(sendSpy).not.toHaveBeenCalled();
+		expect(input.value).toBe("");
+
+		await fireEvent.input(input, { target: { value: "Find the latest docs" } });
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Find the latest docs",
+				forceWebSearch: true,
+			}),
+		);
+	});
+
+	it("clears the Web search force flag after sending", async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
+		await fireEvent.click(
+			getByRole("menuitemcheckbox", { name: "Web search" }),
+		);
+		await fireEvent.input(input, {
+			target: { value: "Find current release notes" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		await fireEvent.input(input, { target: { value: "No search this time" } });
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ forceWebSearch: true }),
+		);
+		expect(sendSpy).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ forceWebSearch: false }),
 		);
 	});
 

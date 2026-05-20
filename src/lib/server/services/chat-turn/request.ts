@@ -37,6 +37,7 @@ type RequestBody = {
 	deepResearch?: unknown;
 	deepResearchDepth?: unknown;
 	thinkingMode?: unknown;
+	forceWebSearch?: unknown;
 };
 
 export async function parseChatTurnRequest(
@@ -66,6 +67,7 @@ export async function parseChatTurnRequest(
 		deepResearch,
 		deepResearchDepth,
 		thinkingMode,
+		forceWebSearch,
 	} = body;
 
 	// Allow empty message when reconnecting to an existing stream (streamId provided)
@@ -185,6 +187,7 @@ export async function parseChatTurnRequest(
 					: undefined,
 			deepResearchDepth: selectedDeepResearchDepth,
 			thinkingMode: selectedThinkingMode,
+			forceWebSearch: forceWebSearch === true,
 			skipPersistUserMessage: skipPersistUserMessage === true,
 			attachmentTraceId:
 				safeAttachmentIds.length > 0

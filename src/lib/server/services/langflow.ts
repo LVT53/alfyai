@@ -278,6 +278,13 @@ const SOURCE_AUTHORITY_GUARD = [
 	"- When multiple sources agree, prefer citing the highest-authority one; when they conflict, explain the conflict and cite the higher-authority source.",
 ].join("\n");
 
+const FORCE_WEB_SEARCH_GUARD = [
+	"Current-turn forced web retrieval:",
+	"- The user explicitly requested web grounding for this turn; use available web retrieval for this answer when a web retrieval tool is listed in the runtime tool schema.",
+	"- cite page-backed claims with markdown links to the supporting source pages.",
+	"- If tools are unavailable, or retrieval does not expose evidence for a claim, say so instead of guessing.",
+].join("\n");
+
 function containsHttpUrl(value: string): boolean {
 	return /https?:\/\/[^\s)>\]]+/i.test(value);
 }
@@ -289,6 +296,7 @@ export function buildOutboundSystemPrompt(params: {
 	modelDisplayName?: string;
 	systemPromptAppendix?: string;
 	personalityPrompt?: string;
+	forceWebSearch?: boolean;
 }): string {
 	const modelHeader = params.modelDisplayName
 		? `[MODEL: ${params.modelDisplayName}]\n`
@@ -311,6 +319,10 @@ export function buildOutboundSystemPrompt(params: {
 
 	if (containsHttpUrl(params.inputValue)) {
 		guidanceAdditions.push(URL_LIST_TOOL_ARGUMENT_GUARD);
+	}
+
+	if (params.forceWebSearch === true) {
+		guidanceAdditions.push(FORCE_WEB_SEARCH_GUARD);
 	}
 
 	guidanceAdditions.push(
@@ -1287,6 +1299,7 @@ export async function prepareOutboundChatContext(params: {
 	attachmentTraceId?: string;
 	systemPromptAppendix?: string;
 	personalityPrompt?: string;
+	forceWebSearch?: boolean;
 	skipHonchoContext?: boolean;
 	modelId?: string;
 	contextLimits?: PromptContextLimits;
@@ -1360,6 +1373,7 @@ export async function prepareOutboundChatContext(params: {
 		modelDisplayName: params.modelConfig.displayName,
 		systemPromptAppendix: params.systemPromptAppendix,
 		personalityPrompt: params.personalityPrompt,
+		forceWebSearch: params.forceWebSearch,
 	});
 	const budgetedPrompt = applyOutboundPromptBudget({
 		inputValue,
@@ -1422,6 +1436,7 @@ async function sendMessageAttempt(
 		personalityPrompt?: string;
 		skipHonchoContext?: boolean;
 		thinkingMode?: ThinkingMode;
+		forceWebSearch?: boolean;
 	},
 	attemptTimeoutMs: number,
 	timeoutFailover?: TimeoutFailoverInfo,
@@ -1516,6 +1531,7 @@ async function sendMessageAttempt(
 			modelDisplayName: modelConfig.displayName,
 			systemPromptAppendix: options?.systemPromptAppendix,
 			personalityPrompt: options?.personalityPrompt,
+			forceWebSearch: options?.forceWebSearch,
 		});
 		const contextLimits = resolvePromptContextLimits(
 			modelId ?? "model1",
@@ -1651,6 +1667,7 @@ export async function sendMessage(
 		personalityPrompt?: string;
 		skipHonchoContext?: boolean;
 		thinkingMode?: ThinkingMode;
+		forceWebSearch?: boolean;
 	},
 ): Promise<LangflowRequestResult> {
 	const config = getConfig();
@@ -1750,6 +1767,7 @@ async function sendMessageStreamAttempt(
 		personalityPrompt?: string;
 		skipHonchoContext?: boolean;
 		thinkingMode?: ThinkingMode;
+		forceWebSearch?: boolean;
 	},
 	attemptTimeoutMs: number,
 	timeoutFailover?: TimeoutFailoverInfo,
@@ -1858,6 +1876,7 @@ async function sendMessageStreamAttempt(
 			modelDisplayName: modelConfig.displayName,
 			systemPromptAppendix: options?.systemPromptAppendix,
 			personalityPrompt: options?.personalityPrompt,
+			forceWebSearch: options?.forceWebSearch,
 		});
 		const contextLimits = resolvePromptContextLimits(
 			modelId ?? "model1",
@@ -2038,6 +2057,7 @@ export async function sendMessageStream(
 		personalityPrompt?: string;
 		skipHonchoContext?: boolean;
 		thinkingMode?: ThinkingMode;
+		forceWebSearch?: boolean;
 	},
 ): Promise<LangflowStreamResult> {
 	const config = getConfig();

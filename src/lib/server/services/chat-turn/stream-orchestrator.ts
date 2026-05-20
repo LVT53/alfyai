@@ -744,6 +744,7 @@ export function runChatStreamOrchestrator(
 						activeDocumentArtifactId,
 						attachmentTraceId,
 						thinkingMode,
+						forceWebSearch: turn.forceWebSearch,
 					},
 					user,
 					attachContinuityToTaskState,
@@ -816,6 +817,7 @@ export function runChatStreamOrchestrator(
 							personalityPrompt,
 							skipHonchoContext,
 							thinkingMode,
+							forceWebSearch: turn.forceWebSearch,
 						},
 					).catch(async (error) => {
 						if (

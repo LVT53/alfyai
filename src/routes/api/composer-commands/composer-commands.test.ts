@@ -42,7 +42,9 @@ describe("GET /api/composer-commands", () => {
 
 		expect(response.status).toBe(200);
 		expect(data.registry.scope).toBe("normal_chat");
-		expect(data.registry.commands.map((command: { token: string }) => command.token)).toEqual([
+		expect(
+			data.registry.commands.map((command: { token: string }) => command.token),
+		).toEqual([
 			"/model",
 			"/style",
 			"/thinking",
@@ -52,6 +54,7 @@ describe("GET /api/composer-commands", () => {
 			"/skill",
 			"/settings",
 			"/clear",
+			"/web",
 			"/research",
 		]);
 	});
