@@ -9,6 +9,7 @@ import * as schema from "$lib/server/db/schema";
 
 const {
 	mockArtifactHasReferencesOutsideConversation,
+	mockCancelRunningResearchTasks,
 	mockDeleteAllChatFilesForConversation,
 	mockDeleteConversationHonchoState,
 	mockGetSourceArtifactIdForNormalizedArtifact,
@@ -16,6 +17,7 @@ const {
 	mockListConversationOwnedArtifacts,
 } = vi.hoisted(() => ({
 	mockArtifactHasReferencesOutsideConversation: vi.fn(),
+	mockCancelRunningResearchTasks: vi.fn(),
 	mockDeleteAllChatFilesForConversation: vi.fn(),
 	mockDeleteConversationHonchoState: vi.fn(),
 	mockGetSourceArtifactIdForNormalizedArtifact: vi.fn(),
@@ -38,6 +40,10 @@ vi.mock("../knowledge", () => ({
 		mockGetSourceArtifactIdForNormalizedArtifact,
 	hardDeleteArtifactsForUser: mockHardDeleteArtifactsForUser,
 	listConversationOwnedArtifacts: mockListConversationOwnedArtifacts,
+}));
+
+vi.mock("../deep-research/tasks", () => ({
+	cancelRunningResearchTasks: mockCancelRunningResearchTasks,
 }));
 
 let dbPath: string;
@@ -100,6 +106,7 @@ describe("deleteConversationWithCleanup", () => {
 		mockHardDeleteArtifactsForUser.mockResolvedValue(undefined);
 		mockDeleteAllChatFilesForConversation.mockResolvedValue(undefined);
 		mockDeleteConversationHonchoState.mockResolvedValue(undefined);
+		mockCancelRunningResearchTasks.mockResolvedValue([]);
 	});
 
 	afterEach(async () => {
@@ -116,36 +123,54 @@ describe("deleteConversationWithCleanup", () => {
 		}
 	});
 
-	it("blocks conversation deletion while a Deep Research job is awaiting approval", async () => {
+	it("cancels active Deep Research jobs before deleting the conversation", async () => {
 		seedConversation({
 			id: "job-1",
-			status: "awaiting_approval",
-			stage: "plan_drafted",
+			status: "running",
+			stage: "citation_audit",
 		});
 
-		const {
-			ConversationDeleteBlockedByDeepResearchError,
-			deleteConversationWithCleanup,
-		} = await import("./conversation-cleanup");
+		const { deleteConversationWithCleanup } = await import(
+			"./conversation-cleanup"
+		);
 
-		await expect(
-			deleteConversationWithCleanup("user-1", "conversation-1"),
-		).rejects.toBeInstanceOf(ConversationDeleteBlockedByDeepResearchError);
+		const result = await deleteConversationWithCleanup(
+			"user-1",
+			"conversation-1",
+		);
 
 		const { db } = await import("$lib/server/db");
-		const [conversation] = await db
+		const conversations = await db
 			.select({ id: schema.conversations.id })
 			.from(schema.conversations)
 			.where(eq(schema.conversations.id, "conversation-1"));
-		const [job] = await db
-			.select({ id: schema.deepResearchJobs.id })
+		const jobs = await db
+			.select({
+				id: schema.deepResearchJobs.id,
+				status: schema.deepResearchJobs.status,
+			})
 			.from(schema.deepResearchJobs)
 			.where(eq(schema.deepResearchJobs.id, "job-1"));
 
-		expect(conversation).toEqual({ id: "conversation-1" });
-		expect(job).toEqual({ id: "job-1" });
-		expect(mockDeleteConversationHonchoState).not.toHaveBeenCalled();
-		expect(mockDeleteAllChatFilesForConversation).not.toHaveBeenCalled();
+		expect(result).toEqual({
+			deletedArtifactIds: [],
+			preservedArtifactIds: [],
+		});
+		expect(conversations).toEqual([]);
+		expect(jobs).toEqual([]);
+		expect(mockCancelRunningResearchTasks).toHaveBeenCalledWith({
+			userId: "user-1",
+			jobId: "job-1",
+			reason: "Conversation deleted while Deep Research job was active.",
+			now: expect.any(Date),
+		});
+		expect(mockDeleteConversationHonchoState).toHaveBeenCalledWith(
+			"user-1",
+			"conversation-1",
+		);
+		expect(mockDeleteAllChatFilesForConversation).toHaveBeenCalledWith(
+			"conversation-1",
+		);
 	});
 
 	it("allows conversation deletion after the Deep Research job is cancelled", async () => {

@@ -1,64 +1,67 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock('$lib/server/auth/hooks', () => ({
+vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
 }));
 
-vi.mock('$lib/server/services/conversations', () => ({
+vi.mock("$lib/server/services/conversations", () => ({
 	getConversation: vi.fn(),
 	updateConversationTitle: vi.fn(),
 	moveConversationToProject: vi.fn(),
 }));
 
-vi.mock('$lib/server/services/messages', () => ({
+vi.mock("$lib/server/services/messages", () => ({
 	listMessages: vi.fn(),
 }));
 
-vi.mock('$lib/server/services/knowledge', () => ({
+vi.mock("$lib/server/services/knowledge", () => ({
 	getConversationWorkingSet: vi.fn(),
 	getConversationContextStatus: vi.fn(),
 	listConversationArtifacts: vi.fn(),
 }));
 
-vi.mock('$lib/server/services/task-state', () => ({
-	attachContinuityToTaskState: vi.fn(async (_userId: string, taskState: unknown) => taskState),
+vi.mock("$lib/server/services/task-state", () => ({
+	attachContinuityToTaskState: vi.fn(
+		async (_userId: string, taskState: unknown) => taskState,
+	),
 	getContextDebugState: vi.fn(),
 	getConversationTaskState: vi.fn(),
 }));
 
-vi.mock('$lib/server/services/cleanup', () => ({
+vi.mock("$lib/server/services/cleanup", () => ({
 	deleteConversationWithCleanup: vi.fn(),
 }));
 
-import { DELETE } from './+server';
-import { requireAuth } from '$lib/server/auth/hooks';
-import { deleteConversationWithCleanup } from '$lib/server/services/cleanup';
+import { requireAuth } from "$lib/server/auth/hooks";
+import { deleteConversationWithCleanup } from "$lib/server/services/cleanup";
+import { DELETE } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
-const mockDeleteConversationWithCleanup = deleteConversationWithCleanup as ReturnType<typeof vi.fn>;
+const mockDeleteConversationWithCleanup =
+	deleteConversationWithCleanup as ReturnType<typeof vi.fn>;
 
-function makeEvent(user = { id: 'user-1' }, id = 'conv-1') {
+function makeEvent(user = { id: "user-1" }, id = "conv-1") {
 	return {
 		request: new Request(`http://localhost/api/conversations/${id}`, {
-			method: 'DELETE',
+			method: "DELETE",
 		}),
 		locals: { user },
 		params: { id },
 		url: new URL(`http://localhost/api/conversations/${id}`),
-		route: { id: '/api/conversations/[id]' },
+		route: { id: "/api/conversations/[id]" },
 	} as any;
 }
 
-describe('DELETE /api/conversations/[id]', () => {
+describe("DELETE /api/conversations/[id]", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockRequireAuth.mockReturnValue(undefined);
 	});
 
-	it('returns cleanup metadata on success', async () => {
+	it("returns cleanup metadata on success", async () => {
 		mockDeleteConversationWithCleanup.mockResolvedValue({
-			deletedArtifactIds: ['artifact-1'],
-			preservedArtifactIds: ['artifact-2'],
+			deletedArtifactIds: ["artifact-1"],
+			preservedArtifactIds: ["artifact-2"],
 		});
 
 		const response = await DELETE(makeEvent());
@@ -66,12 +69,15 @@ describe('DELETE /api/conversations/[id]', () => {
 
 		expect(response.status).toBe(200);
 		expect(data.success).toBe(true);
-		expect(data.deletedArtifactIds).toEqual(['artifact-1']);
-		expect(data.preservedArtifactIds).toEqual(['artifact-2']);
-		expect(mockDeleteConversationWithCleanup).toHaveBeenCalledWith('user-1', 'conv-1');
+		expect(data.deletedArtifactIds).toEqual(["artifact-1"]);
+		expect(data.preservedArtifactIds).toEqual(["artifact-2"]);
+		expect(mockDeleteConversationWithCleanup).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+		);
 	});
 
-	it('returns 404 when the conversation does not exist', async () => {
+	it("returns 404 when the conversation does not exist", async () => {
 		mockDeleteConversationWithCleanup.mockResolvedValue(null);
 
 		const response = await DELETE(makeEvent());
@@ -81,28 +87,15 @@ describe('DELETE /api/conversations/[id]', () => {
 		expect(data.error).toMatch(/not found/i);
 	});
 
-	it('returns 500 when cleanup throws', async () => {
-		mockDeleteConversationWithCleanup.mockRejectedValue(new Error('cleanup failed'));
+	it("returns 500 when cleanup throws", async () => {
+		mockDeleteConversationWithCleanup.mockRejectedValue(
+			new Error("cleanup failed"),
+		);
 
 		const response = await DELETE(makeEvent());
 		const data = await response.json();
 
 		expect(response.status).toBe(500);
 		expect(data.error).toMatch(/failed to fully delete conversation/i);
-	});
-
-	it('returns 409 when active Deep Research jobs block deletion', async () => {
-		mockDeleteConversationWithCleanup.mockRejectedValue({
-			code: 'active_deep_research_jobs',
-		});
-
-		const response = await DELETE(makeEvent());
-		const data = await response.json();
-
-		expect(response.status).toBe(409);
-		expect(data).toEqual({
-			error: 'Conversation has active Deep Research jobs',
-			code: 'active_deep_research_jobs',
-		});
 	});
 });

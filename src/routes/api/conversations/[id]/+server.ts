@@ -1,49 +1,38 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { requireAuth } from '$lib/server/auth/hooks';
-import {
-	getConversation,
-	updateConversationTitle,
-	moveConversationToProject
-} from '$lib/server/services/conversations';
-import { deleteConversationWithCleanup } from '$lib/server/services/cleanup';
-import { listMessages } from '$lib/server/services/messages';
+import { json } from "@sveltejs/kit";
+import { requireAuth } from "$lib/server/auth/hooks";
+import { getConversationCostSummary } from "$lib/server/services/analytics";
+import { getChatFiles } from "$lib/server/services/chat-files";
+import { buildContextSourcesState } from "$lib/server/services/chat-turn/context-sources";
+import { deleteConversationWithCleanup } from "$lib/server/services/cleanup";
+import { getConversationDraft } from "$lib/server/services/conversation-drafts";
 import {
 	getConversationForkOrigin,
 	listChildForksBySourceMessages,
-} from '$lib/server/services/conversation-forks';
+} from "$lib/server/services/conversation-forks";
 import {
-	getConversationWorkingSet,
+	getConversation,
+	moveConversationToProject,
+	updateConversationTitle,
+} from "$lib/server/services/conversations";
+import { listConversationDeepResearchJobs } from "$lib/server/services/deep-research";
+import { listConversationFileProductionJobs } from "$lib/server/services/file-production";
+import {
 	getConversationContextStatus,
-	listConversationArtifacts
-} from '$lib/server/services/knowledge';
-import { getChatFiles } from '$lib/server/services/chat-files';
-import { listConversationFileProductionJobs } from '$lib/server/services/file-production';
-import { listConversationDeepResearchJobs } from '$lib/server/services/deep-research';
-import { getConversationDraft } from '$lib/server/services/conversation-drafts';
-import { getConversationCostSummary } from '$lib/server/services/analytics';
+	getConversationWorkingSet,
+	listConversationArtifacts,
+} from "$lib/server/services/knowledge";
+import { listMessages } from "$lib/server/services/messages";
 import {
 	getActiveSkillSession,
 	serializePublicSkillSession,
-} from '$lib/server/services/skills/sessions';
-import { buildContextSourcesState } from '$lib/server/services/chat-turn/context-sources';
+} from "$lib/server/services/skills/sessions";
 import {
 	attachContinuityToTaskState,
 	getContextDebugState,
 	getConversationTaskState,
 	getProjectReferenceContext,
-} from '$lib/server/services/task-state';
-
-function isConversationDeleteBlockedByDeepResearchError(
-	error: unknown
-): error is { code: 'active_deep_research_jobs' } {
-	return (
-		typeof error === 'object' &&
-		error !== null &&
-		'code' in error &&
-		(error as { code?: unknown }).code === 'active_deep_research_jobs'
-	);
-}
+} from "$lib/server/services/task-state";
+import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async (event) => {
 	try {
@@ -53,12 +42,14 @@ export const GET: RequestHandler = async (event) => {
 
 		const conversation = await getConversation(user.id, id);
 		if (!conversation) {
-			return json({ error: 'Conversation not found' }, { status: 404 });
+			return json({ error: "Conversation not found" }, { status: 404 });
 		}
 
-		if (event.url.searchParams.get('view') === 'bootstrap') {
+		if (event.url.searchParams.get("view") === "bootstrap") {
 			const draft = await getConversationDraft(user.id, id).catch(() => null);
-			const activeSkillSession = await getActiveSkillSession(user.id, id).catch(() => null);
+			const activeSkillSession = await getActiveSkillSession(user.id, id).catch(
+				() => null,
+			);
 			const forkOrigin = await getConversationForkOrigin(id).catch(() => null);
 			return json({
 				conversation,
@@ -111,13 +102,14 @@ export const GET: RequestHandler = async (event) => {
 			),
 			getActiveSkillSession(user.id, id).catch(() => null),
 		]);
-		const taskStateWithContinuity = await attachContinuityToTaskState(user.id, taskState).catch(
-			() => taskState
-		);
+		const taskStateWithContinuity = await attachContinuityToTaskState(
+			user.id,
+			taskState,
+		).catch(() => taskState);
 		const sourceForksByMessageId = await listChildForksBySourceMessages(
 			user.id,
 			messageHistory
-				.filter((message) => message.role === 'assistant')
+				.filter((message) => message.role === "assistant")
 				.map((message) => message.id),
 		).catch(() => ({}));
 		const messagesWithSourceForks = messageHistory.map((message) => {
@@ -153,8 +145,8 @@ export const GET: RequestHandler = async (event) => {
 			totalTokens: costSummary.totalTokens,
 		});
 	} catch (err) {
-		console.error('Error loading conversation:', err);
-		return json({ error: 'Failed to load conversation' }, { status: 500 });
+		console.error("Error loading conversation:", err);
+		return json({ error: "Failed to load conversation" }, { status: 500 });
 	}
 };
 
@@ -165,30 +157,44 @@ export const PATCH: RequestHandler = async (event) => {
 
 	const body = await event.request.json().catch(() => null);
 	if (!body) {
-		return json({ error: 'Body is required' }, { status: 400 });
+		return json({ error: "Body is required" }, { status: 400 });
 	}
 
 	// Handle project assignment
-	if ('projectId' in body) {
-		const projectId = body.projectId === null || typeof body.projectId === 'string' ? body.projectId : undefined;
+	if ("projectId" in body) {
+		const projectId =
+			body.projectId === null || typeof body.projectId === "string"
+				? body.projectId
+				: undefined;
 		if (projectId === undefined) {
-			return json({ error: 'projectId must be a string or null' }, { status: 400 });
+			return json(
+				{ error: "projectId must be a string or null" },
+				{ status: 400 },
+			);
 		}
-		const conversation = await moveConversationToProject(user.id, id, projectId);
+		const conversation = await moveConversationToProject(
+			user.id,
+			id,
+			projectId,
+		);
 		if (!conversation) {
-			return json({ error: 'Conversation not found' }, { status: 404 });
+			return json({ error: "Conversation not found" }, { status: 404 });
 		}
 		return json(conversation);
 	}
 
 	// Handle title rename
-	if (typeof body.title !== 'string' || body.title.trim().length === 0) {
-		return json({ error: 'Title is required' }, { status: 400 });
+	if (typeof body.title !== "string" || body.title.trim().length === 0) {
+		return json({ error: "Title is required" }, { status: 400 });
 	}
 
-	const conversation = await updateConversationTitle(user.id, id, body.title.trim());
+	const conversation = await updateConversationTitle(
+		user.id,
+		id,
+		body.title.trim(),
+	);
 	if (!conversation) {
-		return json({ error: 'Conversation not found' }, { status: 404 });
+		return json({ error: "Conversation not found" }, { status: 404 });
 	}
 
 	return json(conversation);
@@ -199,25 +205,22 @@ export const DELETE: RequestHandler = async (event) => {
 	const user = event.locals.user!;
 	const { id } = event.params;
 
-	let deleted;
+	let deleted: Awaited<ReturnType<typeof deleteConversationWithCleanup>>;
 	try {
 		deleted = await deleteConversationWithCleanup(user.id, id);
 	} catch (error) {
-		if (isConversationDeleteBlockedByDeepResearchError(error)) {
-			return json(
-				{
-					error: 'Conversation has active Deep Research jobs',
-					code: error.code,
-				},
-				{ status: 409 }
-			);
-		}
-		console.error('[CONVERSATION_DELETE] Failed to fully delete conversation:', error);
-		return json({ error: 'Failed to fully delete conversation' }, { status: 500 });
+		console.error(
+			"[CONVERSATION_DELETE] Failed to fully delete conversation:",
+			error,
+		);
+		return json(
+			{ error: "Failed to fully delete conversation" },
+			{ status: 500 },
+		);
 	}
 
 	if (!deleted) {
-		return json({ error: 'Conversation not found' }, { status: 404 });
+		return json({ error: "Conversation not found" }, { status: 404 });
 	}
 
 	return json({

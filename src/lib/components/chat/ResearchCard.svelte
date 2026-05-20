@@ -94,7 +94,10 @@ let failedFavicons = $state<Record<string, true>>({});
 let isOptimisticJob = $derived(job.id.startsWith("pending-deep-research-"));
 let canCancel = $derived(
 	!isOptimisticJob &&
-		(job.status === "awaiting_plan" || job.status === "awaiting_approval"),
+		(job.status === "awaiting_plan" ||
+			job.status === "awaiting_approval" ||
+			job.status === "approved" ||
+			job.status === "running"),
 );
 let canAdvanceResearch = $derived(
 	job.status === "approved" || job.status === "running",

@@ -149,6 +149,23 @@ describe("ResearchCard", () => {
 		).toBeInTheDocument();
 	});
 
+	it("lets running jobs be cancelled", async () => {
+		const onCancel = vi.fn();
+		const { getByRole } = render(ResearchCard, {
+			job: makeDeepResearchJob({
+				status: "running",
+				stage: "citation_audit",
+			}),
+			onCancel,
+		});
+
+		await fireEvent.click(
+			getByRole("button", { name: "Cancel Deep Research" }),
+		);
+
+		expect(onCancel).toHaveBeenCalledWith("research-job-1");
+	});
+
 	it("presents a corrected plan revision draft as needing approval", async () => {
 		const onApprove = vi.fn(async () => {});
 		const onEdit = vi.fn(async () => {});

@@ -383,12 +383,12 @@ describe("conversation-session", () => {
 		expect(removeLocal).toHaveBeenCalledWith("conv-123");
 	});
 
-	it("keeps empty prepared conversations locally when server cleanup is blocked", async () => {
+	it("keeps empty prepared conversations locally when server cleanup fails", async () => {
 		const fetchMock = vi.fn().mockResolvedValue(
 			new Response(
-				JSON.stringify({ error: "Conversation has active Deep Research jobs" }),
+				JSON.stringify({ error: "Failed to fully delete conversation" }),
 				{
-					status: 409,
+					status: 500,
 				},
 			),
 		);
