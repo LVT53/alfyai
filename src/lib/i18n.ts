@@ -73,13 +73,19 @@ const dictionary = {
 		"sidebar.projectName": "Project name",
 		"sidebar.noProjectsYet": "No projects yet",
 		"sidebar.groupChatsCreateOne": "Group your chats - click to create one",
-		"sidebar.chats": "Chats",
+		"sidebar.chats": "Unorganized",
 		"sidebar.noConversationsYet": "No conversations yet",
 		"sidebar.unorganizedDropArea": "Unorganized conversations drop area",
 		"sidebar.projectDropArea": "{name} project drop area",
 		"sidebar.conversationOptions": "Conversation options",
 		"sidebar.forkIndicatorTooltip": "Fork of {title}, fork {sequence}",
 		"sidebar.projectOptions": "Project options",
+		"sidebar.pinned": "Pinned",
+		"sidebar.pinToSidebar": "Pin to sidebar",
+		"sidebar.unpinFromSidebar": "Unpin from sidebar",
+		"sidebar.reorderItem": "Reorder {label}",
+		"sidebar.moveItemUp": "Move {label} up",
+		"sidebar.moveItemDown": "Move {label} down",
 		"sidebar.newChatInProject": "New chat",
 		"sidebar.createChatInProject": "Create chat in {name}",
 		"sidebar.rename": "Rename",
@@ -106,6 +112,12 @@ const dictionary = {
 			"Failed to create project. Please try again.",
 		"sidebar.failedCreateProjectConversation":
 			"Failed to create chat in this project. Please try again.",
+		"sidebar.failedUpdateConversationPin":
+			"Failed to update conversation pin. Please try again.",
+		"sidebar.failedUpdateProjectPin":
+			"Failed to update project pin. Please try again.",
+		"sidebar.failedReorderSidebar":
+			"Failed to save sidebar order. Please try again.",
 		"appVersion.label": "App version {version}",
 		"appVersion.title": "AlfyAI {version}",
 		"serverUpdate.title": "Update available",
@@ -1593,7 +1605,7 @@ const dictionary = {
 		"sidebar.noProjectsYet": "Még nincsenek projektek",
 		"sidebar.groupChatsCreateOne":
 			"Rendezd projektekbe a beszélgetéseidet - kattints a létrehozáshoz",
-		"sidebar.chats": "Beszélgetések",
+		"sidebar.chats": "Rendezetlen",
 		"sidebar.noConversationsYet": "Még nincsenek beszélgetések",
 		"sidebar.unorganizedDropArea": "Rendezetlen beszélgetések célterülete",
 		"sidebar.projectDropArea": "{name} projekt célterülete",
@@ -1601,6 +1613,12 @@ const dictionary = {
 		"sidebar.forkIndicatorTooltip":
 			"Elágazás innen: {title}, {sequence}. elágazás",
 		"sidebar.projectOptions": "Projekt beállításai",
+		"sidebar.pinned": "Rögzítve",
+		"sidebar.pinToSidebar": "Rögzítés az oldalsávra",
+		"sidebar.unpinFromSidebar": "Rögzítés feloldása az oldalsávon",
+		"sidebar.reorderItem": "{label} átrendezése",
+		"sidebar.moveItemUp": "{label} mozgatása fel",
+		"sidebar.moveItemDown": "{label} mozgatása le",
 		"sidebar.newChatInProject": "Új beszélgetés",
 		"sidebar.createChatInProject": "Új beszélgetés létrehozása itt: {name}",
 		"sidebar.rename": "Átnevezés",
@@ -1627,6 +1645,12 @@ const dictionary = {
 			"Nem sikerült létrehozni a projektet. Próbáld újra.",
 		"sidebar.failedCreateProjectConversation":
 			"Nem sikerült beszélgetést létrehozni ebben a projektben. Próbáld újra.",
+		"sidebar.failedUpdateConversationPin":
+			"Nem sikerült frissíteni a beszélgetés rögzítését. Próbáld újra.",
+		"sidebar.failedUpdateProjectPin":
+			"Nem sikerült frissíteni a projekt rögzítését. Próbáld újra.",
+		"sidebar.failedReorderSidebar":
+			"Nem sikerült menteni az oldalsáv sorrendjét. Próbáld újra.",
 		"appVersion.label": "Alkalmazásverzió: {version}",
 		"appVersion.title": "AlfyAI {version}",
 		"serverUpdate.title": "Frissítés érhető el",

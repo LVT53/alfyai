@@ -1,219 +1,283 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import type { ConversationListItem, Project } from '$lib/types';
-	import { t } from '$lib/i18n';
-	import { portal, setMenuBaseBackground, updateMenuPosition, setupMenuSync } from '$lib/utils/popup-menu';
-	import ConfirmDialog from '../ui/ConfirmDialog.svelte';
-	import TypewriterText from '../ui/TypewriterText.svelte';
+import { onMount } from "svelte";
+import type { ConversationListItem, Project } from "$lib/types";
+import { t } from "$lib/i18n";
+import {
+	portal,
+	setMenuBaseBackground,
+	updateMenuPosition,
+	setupMenuSync,
+} from "$lib/utils/popup-menu";
+import ConfirmDialog from "../ui/ConfirmDialog.svelte";
+import TypewriterText from "../ui/TypewriterText.svelte";
 
-	let {
-		conversation,
-		active = false,
-		menuOpen = false,
-		projects = [],
-		dragEnabled = false,
-		isDragging = false,
-		onSelect,
-		onRename,
-		onDelete,
-		onMoveToProject,
-		onDragStart,
-		onDragEnd,
-		onMenuToggle,
-		onMenuClose
-	}: {
-		conversation: ConversationListItem;
-		active?: boolean;
-		menuOpen?: boolean;
-		projects?: Project[];
-		dragEnabled?: boolean;
-		isDragging?: boolean;
-		onSelect?: (payload: { id: string }) => void;
-		onRename?: (payload: { id: string; title: string }) => void;
-		onDelete?: (payload: { id: string }) => void;
-		onMoveToProject?: (payload: { id: string; projectId: string | null }) => void;
-		onDragStart?: (payload: { id: string }) => void;
-		onDragEnd?: (payload: { id: string }) => void;
-		onMenuToggle?: (payload: { id: string; open: boolean }) => void;
-		onMenuClose?: (payload: { id: string }) => void;
-	} = $props();
+type SidebarConversation = ConversationListItem & {
+	sidebarPinned?: boolean;
+	sidebarSortOrder?: number | null;
+};
 
-	let isEditing = $state(false);
-	let editTitle = $state('');
-	let inputRef = $state<HTMLInputElement | undefined>(undefined);
-	let menuRef = $state<HTMLDivElement | undefined>(undefined);
-	let triggerRef = $state<HTMLButtonElement | undefined>(undefined);
-	let showDeleteConfirm = $state(false);
-	let menuPositionStyle = $state('');
-	let menuBaseBackground = $state('var(--surface-elevated)');
-	let showProjectSubmenu = $state(false);
-	let submenuRef = $state<HTMLDivElement | undefined>(undefined);
-	let submenuPositionStyle = $state('');
+let {
+	conversation,
+	active = false,
+	menuOpen = false,
+	projects = [],
+	projectLabel = null,
+	dragEnabled = false,
+	isDragging = false,
+	onSelect,
+	onRename,
+	onDelete,
+	onTogglePin,
+	onMoveToProject,
+	onDragStart,
+	onDragEnd,
+	onMenuToggle,
+	onMenuClose,
+}: {
+	conversation: SidebarConversation;
+	active?: boolean;
+	menuOpen?: boolean;
+	projects?: Project[];
+	projectLabel?: string | null;
+	dragEnabled?: boolean;
+	isDragging?: boolean;
+	onSelect?: (payload: { id: string }) => void;
+	onRename?: (payload: { id: string; title: string }) => void;
+	onDelete?: (payload: { id: string }) => void;
+	onTogglePin?: (payload: { id: string; pinned: boolean }) => void;
+	onMoveToProject?: (payload: { id: string; projectId: string | null }) => void;
+	onDragStart?: (payload: { id: string }) => void;
+	onDragEnd?: (payload: { id: string }) => void;
+	onMenuToggle?: (payload: { id: string; open: boolean }) => void;
+	onMenuClose?: (payload: { id: string }) => void;
+} = $props();
 
-	// Track title changes for animation
-	let previousTitle = '';
-	let isNewTitle = $state(false);
+let isEditing = $state(false);
+let editTitle = $state("");
+let inputRef = $state<HTMLInputElement | undefined>(undefined);
+let menuRef = $state<HTMLDivElement | undefined>(undefined);
+let triggerRef = $state<HTMLButtonElement | undefined>(undefined);
+let showDeleteConfirm = $state(false);
+let menuPositionStyle = $state("");
+let menuBaseBackground = $state("var(--surface-elevated)");
+let showProjectSubmenu = $state(false);
+let submenuRef = $state<HTMLDivElement | undefined>(undefined);
+let submenuPositionStyle = $state("");
+let menuAnchor = $state<
+	{ kind: "trigger" } | { kind: "pointer"; x: number; y: number }
+>({
+	kind: "trigger",
+});
 
-	$effect(() => {
-		if (!previousTitle) {
-			previousTitle = conversation.title;
-			return;
+// Track title changes for animation
+let previousTitle = "";
+let isNewTitle = $state(false);
+
+$effect(() => {
+	if (!previousTitle) {
+		previousTitle = conversation.title;
+		return;
+	}
+
+	if (conversation.title !== previousTitle) {
+		isNewTitle =
+			previousTitle === "New Conversation" &&
+			conversation.title !== "New Conversation";
+		previousTitle = conversation.title;
+	}
+});
+
+function handleSelect() {
+	if (!isEditing && !menuOpen) {
+		onSelect?.({ id: conversation.id });
+	}
+}
+
+function startRename(e: MouseEvent) {
+	e.stopPropagation();
+	isEditing = true;
+	editTitle = conversation.title;
+	showProjectSubmenu = false;
+	onMenuClose?.({ id: conversation.id });
+	setTimeout(() => {
+		if (inputRef) {
+			inputRef.focus();
+			inputRef.select();
 		}
+	}, 0);
+}
 
-		if (conversation.title !== previousTitle) {
-			isNewTitle = previousTitle === 'New Conversation' && conversation.title !== 'New Conversation';
-			previousTitle = conversation.title;
+function saveRename() {
+	if (isEditing) {
+		isEditing = false;
+		const trimmedTitle = editTitle.trim();
+		if (trimmedTitle && trimmedTitle !== conversation.title) {
+			onRename?.({ id: conversation.id, title: trimmedTitle });
 		}
+	}
+}
+
+function handleKeydown(e: KeyboardEvent) {
+	if (e.key === "Enter") {
+		e.preventDefault();
+		saveRename();
+	} else if (e.key === "Escape") {
+		isEditing = false;
+	}
+}
+
+function handleDelete(e: MouseEvent) {
+	e.stopPropagation();
+	showProjectSubmenu = false;
+	onMenuClose?.({ id: conversation.id });
+	showDeleteConfirm = true;
+}
+
+function handleTogglePin(e: MouseEvent) {
+	e.stopPropagation();
+	showProjectSubmenu = false;
+	onMenuClose?.({ id: conversation.id });
+	onTogglePin?.({ id: conversation.id, pinned: !conversation.sidebarPinned });
+}
+
+function confirmDelete() {
+	showDeleteConfirm = false;
+	onDelete?.({ id: conversation.id });
+}
+
+function cancelDelete() {
+	showDeleteConfirm = false;
+}
+
+function doUpdatePosition() {
+	menuBaseBackground = setMenuBaseBackground() || "var(--surface-elevated)";
+	if (menuAnchor.kind === "pointer") {
+		updateMenuPositionFromPoint(menuAnchor.x, menuAnchor.y, 178);
+		return;
+	}
+	if (!triggerRef) return;
+	updateMenuPosition(
+		triggerRef,
+		(style) => {
+			menuPositionStyle = style;
+		},
+		178,
+		6,
+	);
+}
+
+function updateMenuPositionFromPoint(x: number, y: number, menuWidth: number) {
+	const viewportPadding = 12;
+	const left = Math.min(
+		window.innerWidth - menuWidth - viewportPadding,
+		Math.max(viewportPadding, x),
+	);
+	const top = Math.min(
+		window.innerHeight - viewportPadding,
+		Math.max(viewportPadding, y),
+	);
+	menuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`;
+}
+
+function toggleMenu(e: MouseEvent) {
+	e.stopPropagation();
+	showProjectSubmenu = false;
+	menuAnchor = { kind: "trigger" };
+	if (!menuOpen) doUpdatePosition();
+	onMenuToggle?.({ id: conversation.id, open: !menuOpen });
+}
+
+function openContextMenu(e: MouseEvent) {
+	if (isEditing) return;
+	e.preventDefault();
+	e.stopPropagation();
+	showProjectSubmenu = false;
+	menuAnchor = { kind: "pointer", x: e.clientX, y: e.clientY };
+	doUpdatePosition();
+	onMenuToggle?.({ id: conversation.id, open: true });
+}
+
+function handleOutsideClick(e: MouseEvent) {
+	const target = e.target as Node;
+	if (
+		menuOpen &&
+		menuRef &&
+		triggerRef &&
+		!menuRef.contains(target) &&
+		!triggerRef.contains(target) &&
+		!submenuRef?.contains(target)
+	) {
+		e.preventDefault();
+		e.stopPropagation();
+		showProjectSubmenu = false;
+		onMenuClose?.({ id: conversation.id });
+	}
+}
+
+function toggleProjectSubmenu(e: MouseEvent) {
+	e.stopPropagation();
+	showProjectSubmenu = !showProjectSubmenu;
+	if (showProjectSubmenu) {
+		updateSubmenuPosition();
+	}
+}
+
+function updateSubmenuPosition() {
+	if (!menuRef) return;
+	const rect = menuRef.getBoundingClientRect();
+	const submenuWidth = 184;
+	const viewportPadding = 12;
+	// Try right side first, fall back to left
+	let left = rect.right + 4;
+	if (left + submenuWidth > window.innerWidth - viewportPadding) {
+		left = rect.left - submenuWidth - 4;
+	}
+	const top = Math.min(window.innerHeight - 12, rect.top);
+	submenuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${submenuWidth}px;`;
+}
+
+function handleMoveToProject(e: MouseEvent, projectId: string | null) {
+	e.stopPropagation();
+	showProjectSubmenu = false;
+	onMenuClose?.({ id: conversation.id });
+	onMoveToProject?.({ id: conversation.id, projectId });
+}
+
+function handleDragStart(event: DragEvent) {
+	if (!dragEnabled || isEditing) {
+		event.preventDefault();
+		return;
+	}
+
+	showProjectSubmenu = false;
+	onMenuClose?.({ id: conversation.id });
+	event.dataTransfer?.setData(
+		"application/x-alfyai-conversation",
+		conversation.id,
+	);
+	event.dataTransfer?.setData("text/plain", conversation.id);
+	if (event.dataTransfer) {
+		event.dataTransfer.effectAllowed = "move";
+	}
+	onDragStart?.({ id: conversation.id });
+}
+
+function handleDragEnd() {
+	onDragEnd?.({ id: conversation.id });
+}
+
+function forkIndicatorLabel() {
+	const summary = conversation.forkSummary;
+	if (!summary) return "";
+	return $t("sidebar.forkIndicatorTooltip", {
+		title: summary.sourceTitle,
+		sequence: summary.forkSequence,
 	});
+}
 
-	function handleSelect() {
-		if (!isEditing && !menuOpen) {
-			onSelect?.({ id: conversation.id });
-		}
-	}
-
-	function startRename(e: MouseEvent) {
-		e.stopPropagation();
-		isEditing = true;
-		editTitle = conversation.title;
-		showProjectSubmenu = false;
-		onMenuClose?.({ id: conversation.id });
-		setTimeout(() => {
-			if (inputRef) {
-				inputRef.focus();
-				inputRef.select();
-			}
-		}, 0);
-	}
-
-	function saveRename() {
-		if (isEditing) {
-			isEditing = false;
-			const trimmedTitle = editTitle.trim();
-			if (trimmedTitle && trimmedTitle !== conversation.title) {
-				onRename?.({ id: conversation.id, title: trimmedTitle });
-			}
-		}
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') {
-			e.preventDefault();
-			saveRename();
-		} else if (e.key === 'Escape') {
-			isEditing = false;
-		}
-	}
-
-	function handleDelete(e: MouseEvent) {
-		e.stopPropagation();
-		showProjectSubmenu = false;
-		onMenuClose?.({ id: conversation.id });
-		showDeleteConfirm = true;
-	}
-
-	function confirmDelete() {
-		showDeleteConfirm = false;
-		onDelete?.({ id: conversation.id });
-	}
-
-	function cancelDelete() {
-		showDeleteConfirm = false;
-	}
-
-	function doUpdatePosition() {
-		if (!triggerRef) return;
-		menuBaseBackground = setMenuBaseBackground() || 'var(--surface-elevated)';
-		updateMenuPosition(triggerRef, (style) => { menuPositionStyle = style; }, 178, 6);
-	}
-
-	function toggleMenu(e: MouseEvent) {
-		e.stopPropagation();
-		showProjectSubmenu = false;
-		if (!menuOpen) doUpdatePosition();
-		onMenuToggle?.({ id: conversation.id, open: !menuOpen });
-	}
-
-	function handleOutsideClick(e: MouseEvent) {
-		const target = e.target as Node;
-		if (
-			menuOpen &&
-			menuRef &&
-			triggerRef &&
-			!menuRef.contains(target) &&
-			!triggerRef.contains(target) &&
-			!submenuRef?.contains(target)
-		) {
-			e.preventDefault();
-			e.stopPropagation();
-			showProjectSubmenu = false;
-			onMenuClose?.({ id: conversation.id });
-		}
-	}
-
-
-
-	function toggleProjectSubmenu(e: MouseEvent) {
-		e.stopPropagation();
-		showProjectSubmenu = !showProjectSubmenu;
-		if (showProjectSubmenu) {
-			updateSubmenuPosition();
-		}
-	}
-
-	function updateSubmenuPosition() {
-		if (!menuRef) return;
-		const rect = menuRef.getBoundingClientRect();
-		const submenuWidth = 184;
-		const viewportPadding = 12;
-		// Try right side first, fall back to left
-		let left = rect.right + 4;
-		if (left + submenuWidth > window.innerWidth - viewportPadding) {
-			left = rect.left - submenuWidth - 4;
-		}
-		const top = Math.min(window.innerHeight - 12, rect.top);
-		submenuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${submenuWidth}px;`;
-	}
-
-	function handleMoveToProject(e: MouseEvent, projectId: string | null) {
-		e.stopPropagation();
-		showProjectSubmenu = false;
-		onMenuClose?.({ id: conversation.id });
-		onMoveToProject?.({ id: conversation.id, projectId });
-	}
-
-	function handleDragStart(event: DragEvent) {
-		if (!dragEnabled || isEditing) {
-			event.preventDefault();
-			return;
-		}
-
-		showProjectSubmenu = false;
-		onMenuClose?.({ id: conversation.id });
-		event.dataTransfer?.setData('application/x-alfyai-conversation', conversation.id);
-		event.dataTransfer?.setData('text/plain', conversation.id);
-		if (event.dataTransfer) {
-			event.dataTransfer.effectAllowed = 'move';
-		}
-		onDragStart?.({ id: conversation.id });
-	}
-
-	function handleDragEnd() {
-		onDragEnd?.({ id: conversation.id });
-	}
-
-	function forkIndicatorLabel() {
-		const summary = conversation.forkSummary;
-		if (!summary) return '';
-		return $t('sidebar.forkIndicatorTooltip', {
-			title: summary.sourceTitle,
-			sequence: summary.forkSequence,
-		});
-	}
-
-	onMount(() => {
-		return setupMenuSync(() => menuOpen, doUpdatePosition);
-	});
+onMount(() => {
+	return setupMenuSync(() => menuOpen, doUpdatePosition);
+});
 </script>
 
 <svelte:window onclick={handleOutsideClick} />
@@ -229,6 +293,7 @@
 	class:conversation-item-dragging={isDragging}
 	draggable={dragEnabled && !isEditing}
   onclick={handleSelect}
+	oncontextmenu={openContextMenu}
 	ondragstart={handleDragStart}
 	ondragend={handleDragEnd}
   onkeydown={(event) => event.key === 'Enter' && handleSelect()}
@@ -266,11 +331,16 @@
 						<span class="fork-indicator-tooltip" aria-hidden="true">{indicatorLabel}</span>
 					</span>
 				{/if}
-			<div class="truncate text-[13px] font-sans text-text-primary">
-				{#if isNewTitle && !isEditing}
-					<TypewriterText text={conversation.title} onComplete={() => isNewTitle = false} />
-				{:else}
-					{conversation.title}
+			<div class="min-w-0 flex-1">
+				<div class="truncate text-[13px] font-sans text-text-primary">
+					{#if isNewTitle && !isEditing}
+						<TypewriterText text={conversation.title} onComplete={() => isNewTitle = false} />
+					{:else}
+						{conversation.title}
+					{/if}
+				</div>
+				{#if projectLabel}
+					<div class="truncate text-[10px] leading-3 text-text-muted">{projectLabel}</div>
 				{/if}
 			</div>
 			</div>
@@ -307,10 +377,25 @@
 			<div
 				bind:this={menuRef}
 				use:portal
+				role="menu"
 				class="conversation-menu z-[9999] overflow-hidden rounded-lg border p-1"
 				style={`${menuPositionStyle} --conversation-menu-bg: ${menuBaseBackground};`}
 			>
 				<button
+					role="menuitem"
+					data-testid="pin-option"
+					class="conversation-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+					onclick={handleTogglePin}
+				>
+					<svg class="conversation-option-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M12 17v5"/>
+						<path d="M7 7l10 10"/>
+						<path d="M8 4h8l-1 6 3 3v2H6v-2l3-3z"/>
+					</svg>
+					<span>{conversation.sidebarPinned ? $t('sidebar.unpinFromSidebar') : $t('sidebar.pinToSidebar')}</span>
+				</button>
+				<button
+					role="menuitem"
 					data-testid="rename-option"
 					class="conversation-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={startRename}
@@ -324,6 +409,7 @@
 
 				{#if projects.length > 0 || conversation.projectId}
 					<button
+						role="menuitem"
 						class="conversation-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 						class:conversation-option-active={showProjectSubmenu}
 						onclick={toggleProjectSubmenu}
@@ -339,6 +425,7 @@
 				{/if}
 
 				<button
+					role="menuitem"
 					data-testid="delete-option"
 					class="conversation-option conversation-option-danger flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={handleDelete}

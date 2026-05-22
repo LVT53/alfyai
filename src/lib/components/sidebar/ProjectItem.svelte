@@ -1,112 +1,195 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import type { Project } from '$lib/types';
-	import { t } from '$lib/i18n';
-	import { portal, setMenuBaseBackground, updateMenuPosition, setupMenuSync } from '$lib/utils/popup-menu';
-	import ConfirmDialog from '../ui/ConfirmDialog.svelte';
+import { onMount } from "svelte";
+import type { Project } from "$lib/types";
+import { t } from "$lib/i18n";
+import {
+	portal,
+	setMenuBaseBackground,
+	setupMenuSync,
+} from "$lib/utils/popup-menu";
+import ConfirmDialog from "../ui/ConfirmDialog.svelte";
 
-	let {
-		project,
-		expanded = true,
-		menuOpen = false,
-		dropActive = false,
-		creatingConversation = false,
-		onToggle,
-		onCreateConversation,
-		onRename,
-		onDelete,
-		onMenuToggle,
-		onMenuClose
-	}: {
-		project: Project;
-		expanded?: boolean;
-		menuOpen?: boolean;
-		dropActive?: boolean;
-		creatingConversation?: boolean;
-		onToggle?: (payload: { id: string; expanded: boolean }) => void;
-		onCreateConversation?: (payload: { id: string }) => void;
-		onRename?: (payload: { id: string; name: string }) => void;
-		onDelete?: (payload: { id: string }) => void;
-		onMenuToggle?: (payload: { id: string; open: boolean }) => void;
-		onMenuClose?: (payload: { id: string }) => void;
-	} = $props();
+type SidebarProject = Project & {
+	sidebarPinned?: boolean;
+	sidebarSortOrder?: number | null;
+};
 
-	let isEditing = $state(false);
-	let editName = $state('');
-	let inputRef = $state<HTMLInputElement | undefined>(undefined);
-	let menuRef = $state<HTMLDivElement | undefined>(undefined);
-	let triggerRef = $state<HTMLButtonElement | undefined>(undefined);
-	let showDeleteConfirm = $state(false);
-	let menuPositionStyle = $state('');
-	let menuBaseBackground = $state('var(--surface-elevated)');
+let {
+	project,
+	expanded = true,
+	menuOpen = false,
+	dropActive = false,
+	creatingConversation = false,
+	onToggle,
+	onCreateConversation,
+	onRename,
+	onDelete,
+	onTogglePin,
+	onMenuToggle,
+	onMenuClose,
+}: {
+	project: SidebarProject;
+	expanded?: boolean;
+	menuOpen?: boolean;
+	dropActive?: boolean;
+	creatingConversation?: boolean;
+	onToggle?: (payload: { id: string; expanded: boolean }) => void;
+	onCreateConversation?: (payload: { id: string }) => void;
+	onRename?: (payload: { id: string; name: string }) => void;
+	onDelete?: (payload: { id: string }) => void;
+	onTogglePin?: (payload: { id: string; pinned: boolean }) => void;
+	onMenuToggle?: (payload: { id: string; open: boolean }) => void;
+	onMenuClose?: (payload: { id: string }) => void;
+} = $props();
 
-	function doUpdatePosition() {
-		if (!triggerRef) return;
-		menuBaseBackground = setMenuBaseBackground() || 'var(--surface-elevated)';
-		updateMenuPosition(triggerRef, (style) => { menuPositionStyle = style; }, 164, 6);
+let isEditing = $state(false);
+let editName = $state("");
+let inputRef = $state<HTMLInputElement | undefined>(undefined);
+let menuRef = $state<HTMLDivElement | undefined>(undefined);
+let triggerRef = $state<HTMLButtonElement | undefined>(undefined);
+let showDeleteConfirm = $state(false);
+let menuPositionStyle = $state("");
+let menuBaseBackground = $state("var(--surface-elevated)");
+let menuAnchor = $state<
+	{ kind: "trigger" } | { kind: "pointer"; x: number; y: number }
+>({
+	kind: "trigger",
+});
+
+function doUpdatePosition() {
+	menuBaseBackground = setMenuBaseBackground() || "var(--surface-elevated)";
+	if (menuAnchor.kind === "pointer") {
+		updateMenuPositionFromPoint(menuAnchor.x, menuAnchor.y, 164);
+		return;
 	}
+	if (!triggerRef) return;
+	updateMenuPositionBesideTrigger(triggerRef, 164);
+}
 
-	function toggleMenu(e: MouseEvent) {
+function updateMenuPositionBesideTrigger(
+	trigger: HTMLElement,
+	menuWidth: number,
+) {
+	const rect = trigger.getBoundingClientRect();
+	const viewportPadding = 12;
+	let left = rect.right + 6;
+	if (left + menuWidth > window.innerWidth - viewportPadding) {
+		left = rect.left - menuWidth - 6;
+	}
+	left = Math.min(
+		window.innerWidth - menuWidth - viewportPadding,
+		Math.max(viewportPadding, left),
+	);
+	const top = Math.min(
+		window.innerHeight - viewportPadding,
+		Math.max(viewportPadding, rect.top),
+	);
+	menuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`;
+}
+
+function updateMenuPositionFromPoint(x: number, y: number, menuWidth: number) {
+	const viewportPadding = 12;
+	const left = Math.min(
+		window.innerWidth - menuWidth - viewportPadding,
+		Math.max(viewportPadding, x),
+	);
+	const top = Math.min(
+		window.innerHeight - viewportPadding,
+		Math.max(viewportPadding, y),
+	);
+	menuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`;
+}
+
+function toggleMenu(e: MouseEvent) {
+	e.stopPropagation();
+	menuAnchor = { kind: "trigger" };
+	if (!menuOpen) doUpdatePosition();
+	onMenuToggle?.({ id: project.id, open: !menuOpen });
+}
+
+function openContextMenu(e: MouseEvent) {
+	if (isEditing) return;
+	e.preventDefault();
+	e.stopPropagation();
+	menuAnchor = { kind: "pointer", x: e.clientX, y: e.clientY };
+	doUpdatePosition();
+	onMenuToggle?.({ id: project.id, open: true });
+}
+
+function handleOutsideClick(e: MouseEvent) {
+	const target = e.target as Node;
+	if (
+		menuOpen &&
+		menuRef &&
+		triggerRef &&
+		!menuRef.contains(target) &&
+		!triggerRef.contains(target)
+	) {
+		e.preventDefault();
 		e.stopPropagation();
-		if (!menuOpen) doUpdatePosition();
-		onMenuToggle?.({ id: project.id, open: !menuOpen });
+		onMenuClose?.({ id: project.id });
 	}
+}
 
-	function handleOutsideClick(e: MouseEvent) {
-		const target = e.target as Node;
-		if (menuOpen && menuRef && triggerRef && !menuRef.contains(target) && !triggerRef.contains(target)) {
-			e.preventDefault();
-			e.stopPropagation();
-			onMenuClose?.({ id: project.id });
+function startRename(e: MouseEvent) {
+	e.stopPropagation();
+	isEditing = true;
+	editName = project.name;
+	onMenuClose?.({ id: project.id });
+	setTimeout(() => {
+		if (inputRef) {
+			inputRef.focus();
+			inputRef.select();
+		}
+	}, 0);
+}
+
+function saveRename() {
+	if (isEditing) {
+		isEditing = false;
+		const trimmed = editName.trim();
+		if (trimmed && trimmed !== project.name) {
+			onRename?.({ id: project.id, name: trimmed });
 		}
 	}
+}
 
-	function startRename(e: MouseEvent) {
-		e.stopPropagation();
-		isEditing = true;
-		editName = project.name;
-		onMenuClose?.({ id: project.id });
-		setTimeout(() => {
-			if (inputRef) { inputRef.focus(); inputRef.select(); }
-		}, 0);
+function handleKeydown(e: KeyboardEvent) {
+	if (e.key === "Enter") {
+		e.preventDefault();
+		saveRename();
+	} else if (e.key === "Escape") {
+		isEditing = false;
 	}
+}
 
-	function saveRename() {
-		if (isEditing) {
-			isEditing = false;
-			const trimmed = editName.trim();
-			if (trimmed && trimmed !== project.name) {
-				onRename?.({ id: project.id, name: trimmed });
-			}
-		}
-	}
+function handleDelete(e: MouseEvent) {
+	e.stopPropagation();
+	onMenuClose?.({ id: project.id });
+	showDeleteConfirm = true;
+}
 
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') { e.preventDefault(); saveRename(); }
-		else if (e.key === 'Escape') { isEditing = false; }
-	}
+function handleTogglePin(e: MouseEvent) {
+	e.stopPropagation();
+	onMenuClose?.({ id: project.id });
+	onTogglePin?.({ id: project.id, pinned: !project.sidebarPinned });
+}
 
-	function handleDelete(e: MouseEvent) {
-		e.stopPropagation();
-		onMenuClose?.({ id: project.id });
-		showDeleteConfirm = true;
-	}
+function confirmDelete() {
+	showDeleteConfirm = false;
+	onDelete?.({ id: project.id });
+}
 
-	function confirmDelete() {
-		showDeleteConfirm = false;
-		onDelete?.({ id: project.id });
-	}
+onMount(() => {
+	return setupMenuSync(() => menuOpen, doUpdatePosition);
+});
 
-	onMount(() => {
-		return setupMenuSync(() => menuOpen, doUpdatePosition);
-	});
-
-	function createConversation(e: MouseEvent) {
-		e.stopPropagation();
-		if (creatingConversation) return;
-		onMenuClose?.({ id: project.id });
-		onCreateConversation?.({ id: project.id });
-	}
+function createConversation(e: MouseEvent) {
+	e.stopPropagation();
+	if (creatingConversation) return;
+	onMenuClose?.({ id: project.id });
+	onCreateConversation?.({ id: project.id });
+}
 </script>
 
 <svelte:window onclick={handleOutsideClick} />
@@ -118,6 +201,7 @@
 	class="group flex min-h-[34px] cursor-pointer select-none items-center rounded-lg border border-transparent pr-0.5 pl-1 transition-colors duration-150 hover:border-border-subtle hover:bg-surface-elevated"
 	class:project-row-drop-active={dropActive}
 	onclick={() => onToggle?.({ id: project.id, expanded: !expanded })}
+	oncontextmenu={openContextMenu}
 	onkeydown={(event) => event.key === 'Enter' && onToggle?.({ id: project.id, expanded: !expanded })}
 	role="button"
 	tabindex="0"
@@ -162,6 +246,20 @@
 		{/if}
 	</div>
 
+	{#if project.sidebarPinned}
+		<span
+			class="project-pin-indicator mr-1 flex shrink-0 items-center justify-center text-icon-muted"
+			aria-label={$t('sidebar.pinned')}
+			title={$t('sidebar.pinned')}
+		>
+			<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<path d="M12 17v5"/>
+				<path d="M7 7l10 10"/>
+				<path d="M8 4h8l-1 6 3 3v2H6v-2l3-3z"/>
+			</svg>
+		</span>
+	{/if}
+
 	<div class="project-row-actions flex shrink-0 items-center justify-end gap-px">
 		<button
 			class="project-row-action-button project-inline-action btn-icon-bare flex shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:opacity-0 md:group-hover:opacity-100"
@@ -203,10 +301,24 @@
 		<div
 			bind:this={menuRef}
 			use:portal
+			role="menu"
 			class="project-menu z-[9999] overflow-hidden rounded-lg border p-1"
 			style={`${menuPositionStyle} --project-menu-bg: ${menuBaseBackground};`}
 		>
 			<button
+				role="menuitem"
+				class="project-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+				onclick={handleTogglePin}
+			>
+				<svg class="project-option-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M12 17v5"/>
+					<path d="M7 7l10 10"/>
+					<path d="M8 4h8l-1 6 3 3v2H6v-2l3-3z"/>
+				</svg>
+				<span>{project.sidebarPinned ? $t('sidebar.unpinFromSidebar') : $t('sidebar.pinToSidebar')}</span>
+			</button>
+			<button
+				role="menuitem"
 				class="project-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				aria-label={$t('sidebar.createChatInProject', { name: project.name })}
 				onclick={createConversation}
@@ -227,6 +339,7 @@
 				<span>{$t('sidebar.newChatInProject')}</span>
 			</button>
 			<button
+				role="menuitem"
 				class="project-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				onclick={startRename}
 			>
@@ -236,6 +349,7 @@
 				<span>{$t('sidebar.rename')}</span>
 			</button>
 			<button
+				role="menuitem"
 				class="project-option project-option-danger flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				onclick={handleDelete}
 			>
@@ -271,6 +385,10 @@
 		width: 28px;
 		min-width: 28px;
 		padding: 0;
+	}
+
+	.project-pin-indicator {
+		opacity: 0.76;
 	}
 
 	.project-row-drop-active,

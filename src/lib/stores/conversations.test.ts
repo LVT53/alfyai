@@ -1,5 +1,9 @@
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	savePinnedConversationSidebarOrder,
+	setConversationSidebarPinned,
+} from "$lib/client/api/conversations";
 import { WORKSPACE_CONVERSATION_DELETED_EVENT } from "$lib/client/document-workspace-state";
 import {
 	clearConversationStore,
@@ -10,8 +14,20 @@ import {
 	moveConversationToProject,
 	reconcileConversationSnapshot,
 	renameConversation,
+	savePinnedConversationOrder,
+	toggleConversationSidebarPin,
 	upsertConversationLocal,
 } from "./conversations";
+
+vi.mock("$lib/client/api/conversations", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/client/api/conversations")>();
+	return {
+		...actual,
+		setConversationSidebarPinned: vi.fn(),
+		savePinnedConversationSidebarOrder: vi.fn(),
+	};
+});
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
 	return new Response(JSON.stringify(body), {
@@ -24,6 +40,8 @@ describe("conversations store", () => {
 	beforeEach(() => {
 		clearConversationStore();
 		vi.restoreAllMocks();
+		vi.mocked(setConversationSidebarPinned).mockReset();
+		vi.mocked(savePinnedConversationSidebarOrder).mockReset();
 		vi.stubGlobal("fetch", vi.fn());
 		vi.stubGlobal("window", {
 			sessionStorage: {
@@ -290,6 +308,332 @@ describe("conversations store", () => {
 
 		expect(get(conversations)).toEqual([
 			{ id: "conv-1", title: "Chat", updatedAt: 123, projectId: "proj-1" },
+		]);
+	});
+
+	it("pins a conversation optimistically at the top of the sidebar", async () => {
+		conversations.set([
+			{
+				id: "conv-recent",
+				title: "Recent",
+				updatedAt: 300,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+			{
+				id: "conv-older",
+				title: "Older",
+				updatedAt: 100,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+		]);
+		let resolvePin:
+			| ((conversation: {
+					id: string;
+					title: string;
+					updatedAt: number;
+					projectId: string | null;
+					sidebarPinned: boolean;
+					sidebarSortOrder: number | null;
+			  }) => void)
+			| undefined;
+		vi.mocked(setConversationSidebarPinned).mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolvePin = resolve;
+			}),
+		);
+
+		const pin = toggleConversationSidebarPin("conv-older", true);
+
+		expect(vi.mocked(setConversationSidebarPinned)).toHaveBeenCalledWith(
+			"conv-older",
+			true,
+		);
+		expect(get(conversations).map((conversation) => conversation.id)).toEqual([
+			"conv-older",
+			"conv-recent",
+		]);
+		expect(get(conversations)[0]).toEqual(
+			expect.objectContaining({
+				id: "conv-older",
+				sidebarPinned: true,
+				sidebarSortOrder: -1,
+			}),
+		);
+
+		expect(resolvePin).toBeDefined();
+		if (!resolvePin) throw new Error("Expected pin request resolver");
+		resolvePin({
+			id: "conv-older",
+			title: "Older",
+			updatedAt: 100,
+			projectId: null,
+			sidebarPinned: true,
+			sidebarSortOrder: 0,
+		});
+		await pin;
+	});
+
+	it("keeps a pending conversation pin when a stale snapshot arrives", async () => {
+		conversations.set([
+			{
+				id: "conv-recent",
+				title: "Recent",
+				updatedAt: 300,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+			{
+				id: "conv-older",
+				title: "Older",
+				updatedAt: 100,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+		]);
+		let resolvePin:
+			| ((conversation: {
+					id: string;
+					title: string;
+					updatedAt: number;
+					projectId: string | null;
+					sidebarPinned: boolean;
+					sidebarSortOrder: number | null;
+			  }) => void)
+			| undefined;
+		vi.mocked(setConversationSidebarPinned).mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolvePin = resolve;
+			}),
+		);
+
+		const pin = toggleConversationSidebarPin("conv-older", true);
+		reconcileConversationSnapshot([
+			{
+				id: "conv-recent",
+				title: "Recent",
+				updatedAt: 300,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+			{
+				id: "conv-older",
+				title: "Older",
+				updatedAt: 120,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+		]);
+
+		expect(get(conversations)[0]).toEqual(
+			expect.objectContaining({
+				id: "conv-older",
+				updatedAt: 120,
+				sidebarPinned: true,
+				sidebarSortOrder: -1,
+			}),
+		);
+
+		expect(resolvePin).toBeDefined();
+		if (!resolvePin) throw new Error("Expected pin request resolver");
+		resolvePin({
+			id: "conv-older",
+			title: "Older",
+			updatedAt: 120,
+			projectId: null,
+			sidebarPinned: true,
+			sidebarSortOrder: 0,
+		});
+		await pin;
+	});
+
+	it("rolls back a conversation pin when persistence fails", async () => {
+		conversations.set([
+			{
+				id: "conv-recent",
+				title: "Recent",
+				updatedAt: 300,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+			{
+				id: "conv-older",
+				title: "Older",
+				updatedAt: 100,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+		]);
+		vi.mocked(setConversationSidebarPinned).mockRejectedValueOnce(
+			new Error("pin failed"),
+		);
+
+		const pin = toggleConversationSidebarPin("conv-older", true);
+
+		expect(get(conversations).map((conversation) => conversation.id)).toEqual([
+			"conv-older",
+			"conv-recent",
+		]);
+		await expect(pin).rejects.toThrow("pin failed");
+		expect(get(conversations)).toEqual([
+			{
+				id: "conv-recent",
+				title: "Recent",
+				updatedAt: 300,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+			{
+				id: "conv-older",
+				title: "Older",
+				updatedAt: 100,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+		]);
+	});
+
+	it("keeps pinned conversation order when activity timestamps change", () => {
+		reconcileConversationSnapshot([
+			{
+				id: "conv-first",
+				title: "First",
+				updatedAt: 100,
+				projectId: null,
+				sidebarPinned: true,
+				sidebarSortOrder: 0,
+			},
+			{
+				id: "conv-second",
+				title: "Second",
+				updatedAt: 200,
+				projectId: null,
+				sidebarPinned: true,
+				sidebarSortOrder: 1,
+			},
+			{
+				id: "conv-unpinned",
+				title: "Unpinned",
+				updatedAt: 300,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+		]);
+
+		reconcileConversationSnapshot([
+			{
+				id: "conv-second",
+				title: "Second",
+				updatedAt: 900,
+				projectId: null,
+				sidebarPinned: true,
+				sidebarSortOrder: 1,
+			},
+			{
+				id: "conv-first",
+				title: "First",
+				updatedAt: 100,
+				projectId: null,
+				sidebarPinned: true,
+				sidebarSortOrder: 0,
+			},
+			{
+				id: "conv-unpinned",
+				title: "Unpinned",
+				updatedAt: 300,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+		]);
+
+		expect(get(conversations).map((conversation) => conversation.id)).toEqual([
+			"conv-first",
+			"conv-second",
+			"conv-unpinned",
+		]);
+	});
+
+	it("rolls back pinned conversation reorder when persistence fails", async () => {
+		conversations.set([
+			{
+				id: "conv-a",
+				title: "A",
+				updatedAt: 100,
+				projectId: null,
+				sidebarPinned: true,
+				sidebarSortOrder: 0,
+			},
+			{
+				id: "conv-b",
+				title: "B",
+				updatedAt: 200,
+				projectId: null,
+				sidebarPinned: true,
+				sidebarSortOrder: 1,
+			},
+			{
+				id: "conv-c",
+				title: "C",
+				updatedAt: 300,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+		]);
+		vi.mocked(savePinnedConversationSidebarOrder).mockRejectedValueOnce(
+			new Error("save failed"),
+		);
+
+		const save = savePinnedConversationOrder(["conv-b", "conv-a"]);
+
+		expect(vi.mocked(savePinnedConversationSidebarOrder)).toHaveBeenCalledWith([
+			"conv-b",
+			"conv-a",
+		]);
+		expect(get(conversations).map((conversation) => conversation.id)).toEqual([
+			"conv-b",
+			"conv-a",
+			"conv-c",
+		]);
+		await expect(save).rejects.toThrow("save failed");
+		expect(get(conversations)).toEqual([
+			{
+				id: "conv-a",
+				title: "A",
+				updatedAt: 100,
+				projectId: null,
+				sidebarPinned: true,
+				sidebarSortOrder: 0,
+			},
+			{
+				id: "conv-b",
+				title: "B",
+				updatedAt: 200,
+				projectId: null,
+				sidebarPinned: true,
+				sidebarSortOrder: 1,
+			},
+			{
+				id: "conv-c",
+				title: "C",
+				updatedAt: 300,
+				projectId: null,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
 		]);
 	});
 

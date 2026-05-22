@@ -16,7 +16,16 @@ const auditedPrefixes = [
 	"skillSessions.",
 	"skills.",
 	"sourceManager.",
+	"sidebar.failedReorderSidebar",
+	"sidebar.failedUpdateConversationPin",
+	"sidebar.failedUpdateProjectPin",
 	"sidebar.forkIndicatorTooltip",
+	"sidebar.moveItemDown",
+	"sidebar.moveItemUp",
+	"sidebar.pinToSidebar",
+	"sidebar.pinned",
+	"sidebar.reorderItem",
+	"sidebar.unpinFromSidebar",
 ] as const;
 
 function collectDictionaryKeys(): Record<"en" | "hu", string[]> {

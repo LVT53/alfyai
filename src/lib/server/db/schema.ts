@@ -53,6 +53,10 @@ export const conversations = sqliteTable(
 		projectId: text("project_id"),
 		status: text("status").notNull().default("open"),
 		sealedAt: integer("sealed_at", { mode: "timestamp" }),
+		sidebarPinned: integer("sidebar_pinned", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		sidebarSortOrder: integer("sidebar_sort_order"),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),
@@ -65,6 +69,11 @@ export const conversations = sqliteTable(
 			table.userId,
 			table.status,
 			table.updatedAt,
+		),
+		userSidebarIdx: index("conversations_user_sidebar_idx").on(
+			table.userId,
+			table.sidebarPinned,
+			table.sidebarSortOrder,
 		),
 	}),
 );
@@ -1531,6 +1540,9 @@ export const projects = sqliteTable(
 			.references(() => users.id, { onDelete: "cascade" }),
 		name: text("name").notNull(),
 		color: text("color"),
+		sidebarPinned: integer("sidebar_pinned", { mode: "boolean" })
+			.notNull()
+			.default(false),
 		sortOrder: integer("sort_order").notNull().default(0),
 		canonicalMemoryProjectId: text("canonical_memory_project_id").references(
 			() => memoryProjects.projectId,
@@ -1547,6 +1559,11 @@ export const projects = sqliteTable(
 		canonicalMemoryProjectUniqueIdx: uniqueIndex(
 			"projects_canonical_memory_project_id_unique_idx",
 		).on(table.canonicalMemoryProjectId),
+		userSidebarIdx: index("projects_user_sidebar_idx").on(
+			table.userId,
+			table.sidebarPinned,
+			table.sortOrder,
+		),
 	}),
 );
 

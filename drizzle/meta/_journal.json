@@ -400,6 +400,13 @@
       "when": 1777140000043,
       "tag": "1777140000043_skill_packs_variants",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1777140000044,
+      "tag": "1777140000044_sidebar_pin_order",
+      "breakpoints": true
     }
 
   ]

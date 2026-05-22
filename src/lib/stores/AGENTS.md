@@ -32,6 +32,7 @@ Client state management using Svelte writable stores. Owns browser state, optimi
 - **Legacy writable pattern**: All stores use `writable()` from `svelte/store`. Not yet migrated to Svelte 5 runes.
 - **Optimistic updates**: Mutate store immediately, then confirm with server. Track pending IDs in module-level Sets (see `conversations.ts`).
 - **Persistence**: localStorage for theme, model, title language, and UI language. Server sync for account-level preferences.
+- **Sidebar pinning**: Treat conversation and project-folder pin/unpin as durable resource updates through the existing client API/store boundaries. Bulk sidebar reorder can use a dedicated ordered-ID save path in the later drag-reorder slice.
 - **API delegation**: Stores import from `$lib/client/api/`. Never inline fetch logic.
 - **SSR guards**: Check `typeof window !== 'undefined'` or `browser` from `$app/environment` before accessing DOM APIs.
 - **Derived stores**: Use `derived()` for computed state (theme dark mode, avatar cache-busting).

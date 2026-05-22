@@ -8,13 +8,13 @@ if (!process.env.DATABASE_PATH) {
 	process.env.DATABASE_PATH = "./data/chat.db";
 }
 
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
-import { existsSync, mkdirSync, readFileSync } from "fs";
-import { dirname, resolve } from "path";
-import { fileURLToPath } from "url";
 
 let databasePath = process.env.DATABASE_PATH;
 let sqlite: Database.Database;
@@ -66,6 +66,9 @@ const requiredExistingColumns: Array<[string, string]> = [
 	["conversations", "project_id"],
 	["conversations", "status"],
 	["conversations", "sealed_at"],
+	["conversations", "sidebar_pinned"],
+	["conversations", "sidebar_sort_order"],
+	["projects", "sidebar_pinned"],
 	["deep_research_jobs", "report_artifact_id"],
 	["messages", "thinking"],
 	["messages", "tool_calls"],

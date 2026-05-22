@@ -5,33 +5,33 @@ import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifactChunks,
-	chatGeneratedFiles,
-	fileProductionJobFiles,
-	fileProductionJobs,
 	artifactLinks,
 	artifacts,
+	chatGeneratedFiles,
 	conversationForks,
 	conversations,
+	fileProductionJobFiles,
+	fileProductionJobs,
 	memoryEvents,
 	messages,
 } from "$lib/server/db/schema";
 import type {
+	Artifact,
 	Conversation,
 	ConversationForkListSummary,
 	ConversationForkOrigin,
 	ForkCopyMetadata,
 	ForkEvidenceSnapshot,
-	MessageSourceForks,
 	MessageEvidenceSummary,
-	Artifact,
+	MessageSourceForks,
 } from "$lib/types";
-import { queueArtifactSemanticEmbeddingRefresh } from "./semantic-embedding-refresh";
 import { reconcileStaleFileProductionJobs } from "./file-production";
 import { messageOrderAsc } from "./message-ordering";
 import {
 	type MessageSequenceExecutor,
 	repairConversationMessageSequencesWithExecutor,
 } from "./message-sequences";
+import { queueArtifactSemanticEmbeddingRefresh } from "./semantic-embedding-refresh";
 
 type CreateConversationForkParams = {
 	userId: string;
@@ -102,12 +102,16 @@ function mapConversation(row: typeof conversations.$inferSelect): Conversation {
 		projectId: row.projectId ?? null,
 		status: row.status as Conversation["status"],
 		sealedAt: row.sealedAt ? row.sealedAt.getTime() / 1000 : null,
+		sidebarPinned: row.sidebarPinned,
+		sidebarSortOrder: row.sidebarSortOrder ?? null,
 		createdAt: row.createdAt.getTime() / 1000,
 		updatedAt: row.updatedAt.getTime() / 1000,
 	};
 }
 
-function mapForkOrigin(row: typeof conversationForks.$inferSelect): ConversationForkOrigin {
+function mapForkOrigin(
+	row: typeof conversationForks.$inferSelect,
+): ConversationForkOrigin {
 	return {
 		forkConversationId: row.forkConversationId,
 		sourceConversationId:
@@ -291,9 +295,13 @@ function isForkSequenceUniqueConstraintError(error: unknown): boolean {
 		return false;
 	}
 	return (
-		message.includes("conversation_forks_user_source_assistant_sequence_unique_idx") ||
+		message.includes(
+			"conversation_forks_user_source_assistant_sequence_unique_idx",
+		) ||
 		(message.includes("conversation_forks.user_id") &&
-			message.includes("conversation_forks.source_assistant_message_id_snapshot") &&
+			message.includes(
+				"conversation_forks.source_assistant_message_id_snapshot",
+			) &&
 			message.includes("conversation_forks.fork_sequence"))
 	);
 }
@@ -417,7 +425,9 @@ function isGeneratedOutputArtifactType(type: string): boolean {
 }
 
 function isTerminalFileProductionStatus(status: string): boolean {
-	return status === "succeeded" || status === "failed" || status === "cancelled";
+	return (
+		status === "succeeded" || status === "failed" || status === "cancelled"
+	);
 }
 
 function getChatFilesDir(): string {
@@ -474,7 +484,9 @@ function copyDurableDocumentLinks(params: {
 
 	const linksToCopy: (typeof artifactLinks.$inferSelect)[] = [];
 	for (const row of rows) {
-		if (!isConversationLevelLinkVisibleAtFork(row.link, params.forkPointCreatedAt)) {
+		if (
+			!isConversationLevelLinkVisibleAtFork(row.link, params.forkPointCreatedAt)
+		) {
 			continue;
 		}
 		if (!row.artifact) {
@@ -559,7 +571,9 @@ function copyGeneratedWorkSnapshot(params: {
 				id: copiedFileId,
 				conversationId: params.forkConversationId,
 				assistantMessageId: sourceFile.assistantMessageId
-					? (params.copiedMessageIdBySourceId.get(sourceFile.assistantMessageId) ?? null)
+					? (params.copiedMessageIdBySourceId.get(
+							sourceFile.assistantMessageId,
+						) ?? null)
 					: null,
 				userId: params.userId,
 				filename: sourceFile.filename,
@@ -600,8 +614,16 @@ function copyGeneratedWorkSnapshot(params: {
 			? params.tx
 					.select()
 					.from(fileProductionJobFiles)
-					.where(inArray(fileProductionJobFiles.jobId, sourceJobs.map((job) => job.id)))
-					.orderBy(asc(fileProductionJobFiles.sortOrder), asc(fileProductionJobFiles.id))
+					.where(
+						inArray(
+							fileProductionJobFiles.jobId,
+							sourceJobs.map((job) => job.id),
+						),
+					)
+					.orderBy(
+						asc(fileProductionJobFiles.sortOrder),
+						asc(fileProductionJobFiles.id),
+					)
 					.all()
 			: [];
 	for (const sourceJob of sourceJobs) {
@@ -613,7 +635,9 @@ function copyGeneratedWorkSnapshot(params: {
 				id: copiedJobId,
 				conversationId: params.forkConversationId,
 				assistantMessageId: sourceJob.assistantMessageId
-					? (params.copiedMessageIdBySourceId.get(sourceJob.assistantMessageId) ?? null)
+					? (params.copiedMessageIdBySourceId.get(
+							sourceJob.assistantMessageId,
+						) ?? null)
 					: null,
 				userId: params.userId,
 				title: sourceJob.title,
@@ -640,7 +664,9 @@ function copyGeneratedWorkSnapshot(params: {
 
 	for (const sourceLink of sourceJobFileLinks) {
 		const copiedJobId = copiedJobIdBySourceId.get(sourceLink.jobId);
-		const copiedFileId = copiedFileIdBySourceId.get(sourceLink.chatGeneratedFileId);
+		const copiedFileId = copiedFileIdBySourceId.get(
+			sourceLink.chatGeneratedFileId,
+		);
 		if (!copiedJobId || !copiedFileId) {
 			throw new ConversationForkError(
 				"required_generated_work_unavailable",
@@ -690,8 +716,10 @@ function copyGeneratedWorkSnapshot(params: {
 					? metadata.originAssistantMessageId
 					: null;
 			return (
-				(originalChatFileId !== null && sourceFileIds.has(originalChatFileId)) ||
-				(assistantMessageId !== null && sourceMessageIds.has(assistantMessageId)) ||
+				(originalChatFileId !== null &&
+					sourceFileIds.has(originalChatFileId)) ||
+				(assistantMessageId !== null &&
+					sourceMessageIds.has(assistantMessageId)) ||
 				(originAssistantMessageId !== null &&
 					sourceMessageIds.has(originAssistantMessageId))
 			);
@@ -805,7 +833,12 @@ function copyGeneratedWorkSnapshot(params: {
 	const sourceChunks = params.tx
 		.select()
 		.from(artifactChunks)
-		.where(inArray(artifactChunks.artifactId, Array.from(copiedArtifactIdBySourceId.keys())))
+		.where(
+			inArray(
+				artifactChunks.artifactId,
+				Array.from(copiedArtifactIdBySourceId.keys()),
+			),
+		)
 		.orderBy(asc(artifactChunks.chunkIndex), asc(artifactChunks.id))
 		.all();
 	if (sourceChunks.length > 0) {
@@ -831,47 +864,57 @@ function copyGeneratedWorkSnapshot(params: {
 		.select({ link: artifactLinks, relatedArtifact: artifacts })
 		.from(artifactLinks)
 		.leftJoin(artifacts, eq(artifactLinks.relatedArtifactId, artifacts.id))
-		.where(inArray(artifactLinks.artifactId, Array.from(copiedArtifactIdBySourceId.keys())))
+		.where(
+			inArray(
+				artifactLinks.artifactId,
+				Array.from(copiedArtifactIdBySourceId.keys()),
+			),
+		)
 		.all();
-	const linksToCopy = sourceArtifactLinks.flatMap(({ link, relatedArtifact }) => {
-		if (link.linkType === "supersedes") return [];
-		const copiedArtifactId = copiedArtifactIdBySourceId.get(link.artifactId);
-		if (!copiedArtifactId) return [];
-		if (link.messageId && !params.copiedMessageIdBySourceId.has(link.messageId)) {
-			return [];
-		}
-		if (
-			link.messageId === null &&
-			link.linkType === "attached_to_conversation" &&
-			!isConversationLevelLinkVisibleAtFork(link, params.forkPointCreatedAt)
-		) {
-			return [];
-		}
-		const copiedRelatedArtifactId = link.relatedArtifactId
-			? copiedArtifactIdBySourceId.get(link.relatedArtifactId)
-			: null;
-		const canKeepDurableRelatedArtifact =
-			!copiedRelatedArtifactId &&
-			relatedArtifact &&
-			isDurableDocumentArtifactType(relatedArtifact.type) &&
-			relatedArtifact.userId === params.userId;
-		return [
-			{
-				id: randomUUID(),
-				userId: params.userId,
-				artifactId: copiedArtifactId,
-				relatedArtifactId:
-					copiedRelatedArtifactId ??
-					(canKeepDurableRelatedArtifact ? link.relatedArtifactId : null),
-				conversationId: params.forkConversationId,
-				messageId: link.messageId
-					? params.copiedMessageIdBySourceId.get(link.messageId)
-					: null,
-				linkType: link.linkType,
-				createdAt: link.createdAt,
-			},
-		];
-	});
+	const linksToCopy = sourceArtifactLinks.flatMap(
+		({ link, relatedArtifact }) => {
+			if (link.linkType === "supersedes") return [];
+			const copiedArtifactId = copiedArtifactIdBySourceId.get(link.artifactId);
+			if (!copiedArtifactId) return [];
+			if (
+				link.messageId &&
+				!params.copiedMessageIdBySourceId.has(link.messageId)
+			) {
+				return [];
+			}
+			if (
+				link.messageId === null &&
+				link.linkType === "attached_to_conversation" &&
+				!isConversationLevelLinkVisibleAtFork(link, params.forkPointCreatedAt)
+			) {
+				return [];
+			}
+			const copiedRelatedArtifactId = link.relatedArtifactId
+				? copiedArtifactIdBySourceId.get(link.relatedArtifactId)
+				: null;
+			const canKeepDurableRelatedArtifact =
+				!copiedRelatedArtifactId &&
+				relatedArtifact &&
+				isDurableDocumentArtifactType(relatedArtifact.type) &&
+				relatedArtifact.userId === params.userId;
+			return [
+				{
+					id: randomUUID(),
+					userId: params.userId,
+					artifactId: copiedArtifactId,
+					relatedArtifactId:
+						copiedRelatedArtifactId ??
+						(canKeepDurableRelatedArtifact ? link.relatedArtifactId : null),
+					conversationId: params.forkConversationId,
+					messageId: link.messageId
+						? params.copiedMessageIdBySourceId.get(link.messageId)
+						: null,
+					linkType: link.linkType,
+					createdAt: link.createdAt,
+				},
+			];
+		},
+	);
 	if (linksToCopy.length > 0) {
 		params.tx.insert(artifactLinks).values(linksToCopy).run();
 	}
@@ -913,12 +956,11 @@ export async function createConversationFork(
 			});
 
 			transactionResult = db.transaction((tx) => {
-				const {
-					sourceConversation,
-					sourceMessagesToCopy,
-					forkPointMessage,
-				} = readForkSourceSnapshot(tx as ForkQueryExecutor, params);
-				const sourceMessageIds = sourceMessagesToCopy.map((message) => message.id);
+				const { sourceConversation, sourceMessagesToCopy, forkPointMessage } =
+					readForkSourceSnapshot(tx as ForkQueryExecutor, params);
+				const sourceMessageIds = sourceMessagesToCopy.map(
+					(message) => message.id,
+				);
 				const forkSequence = getNextForkSequence(tx, forkPointMessage.id);
 				const now = new Date();
 				const forkConversation = tx
@@ -952,7 +994,8 @@ export async function createConversationFork(
 					)
 					.returning()
 					.all();
-				const copiedForkPointMessage = copiedMessages[copiedMessages.length - 1];
+				const copiedForkPointMessage =
+					copiedMessages[copiedMessages.length - 1];
 				if (!copiedForkPointMessage) {
 					throw new ConversationForkError(
 						"invalid_source_message",
@@ -1018,8 +1061,7 @@ export async function createConversationFork(
 					throw new ForkSequenceCollisionRetry();
 				}
 
-				tx
-					.insert(memoryEvents)
+				tx.insert(memoryEvents)
 					.values({
 						id: randomUUID(),
 						eventKey: scopeMemoryEventKey(
@@ -1108,9 +1150,9 @@ export async function listChildForksBySourceMessages(
 	userId: string,
 	sourceAssistantMessageIds: string[],
 ): Promise<Record<string, MessageSourceForks>> {
-	const uniqueMessageIds = Array.from(new Set(sourceAssistantMessageIds)).filter(
-		Boolean,
-	);
+	const uniqueMessageIds = Array.from(
+		new Set(sourceAssistantMessageIds),
+	).filter(Boolean);
 	if (uniqueMessageIds.length === 0) return {};
 
 	const rows = await db
@@ -1129,10 +1171,7 @@ export async function listChildForksBySourceMessages(
 		.where(
 			and(
 				eq(conversationForks.userId, userId),
-				inArray(
-					conversationForks.sourceAssistantMessageId,
-					uniqueMessageIds,
-				),
+				inArray(conversationForks.sourceAssistantMessageId, uniqueMessageIds),
 			),
 		)
 		.orderBy(
@@ -1181,9 +1220,6 @@ export async function getConversationForkSummaries(
 		);
 
 	return new Map(
-		rows.map((row) => [
-			row.forkConversationId,
-			mapForkListSummary(row),
-		]),
+		rows.map((row) => [row.forkConversationId, mapForkListSummary(row)]),
 	);
 }

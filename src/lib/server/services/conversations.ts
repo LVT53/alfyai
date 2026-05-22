@@ -1,21 +1,53 @@
-import { db } from '$lib/server/db';
-import { conversations, messages, projects } from '$lib/server/db/schema';
-import { eq, and, desc, inArray } from 'drizzle-orm';
-import { randomUUID } from 'crypto';
-import type { Conversation, ConversationListItem } from '$lib/types';
-import { isHonchoEnabled, getOrCreateSession } from './honcho';
-import { recordConversationAnalytics } from './analytics';
-import { convergeProjectFolderContinuityForConversation } from './task-state/continuity';
-import { getConversationForkSummaries } from './conversation-forks';
+import { randomUUID } from "node:crypto";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { db } from "$lib/server/db";
+import { conversations, messages, projects } from "$lib/server/db/schema";
+import type { Conversation, ConversationListItem } from "$lib/types";
+import { recordConversationAnalytics } from "./analytics";
+import { getConversationForkSummaries } from "./conversation-forks";
+import { getOrCreateSession, isHonchoEnabled } from "./honcho";
+import { convergeProjectFolderContinuityForConversation } from "./task-state/continuity";
 
 type CreateConversationOptions = {
 	projectId?: string | null;
 };
 
+function toConversation(row: typeof conversations.$inferSelect): Conversation {
+	return {
+		id: row.id,
+		title: row.title,
+		projectId: row.projectId ?? null,
+		status: row.status as Conversation["status"],
+		sealedAt: row.sealedAt ? row.sealedAt.getTime() / 1000 : null,
+		sidebarPinned: row.sidebarPinned,
+		sidebarSortOrder: row.sidebarSortOrder ?? null,
+		createdAt: row.createdAt.getTime() / 1000,
+		updatedAt: row.updatedAt.getTime() / 1000,
+	};
+}
+
+function sortConversationList(
+	items: ConversationListItem[],
+): ConversationListItem[] {
+	return items.sort((a, b) => {
+		if (a.sidebarPinned !== b.sidebarPinned) {
+			return a.sidebarPinned ? -1 : 1;
+		}
+		if (a.sidebarPinned) {
+			return (
+				(a.sidebarSortOrder ?? Number.MAX_SAFE_INTEGER) -
+					(b.sidebarSortOrder ?? Number.MAX_SAFE_INTEGER) ||
+				b.updatedAt - a.updatedAt
+			);
+		}
+		return b.updatedAt - a.updatedAt;
+	});
+}
+
 export async function createConversation(
 	userId: string,
 	title?: string,
-	options: CreateConversationOptions = {}
+	options: CreateConversationOptions = {},
 ): Promise<Conversation> {
 	const id = randomUUID();
 	const projectId = options.projectId ?? null;
@@ -24,7 +56,7 @@ export async function createConversation(
 		.values({
 			id,
 			userId,
-			title: title ?? 'New Conversation',
+			title: title ?? "New Conversation",
 			projectId,
 		})
 		.returning();
@@ -39,7 +71,7 @@ export async function createConversation(
 	// Pre-create Honcho session for this conversation
 	if (isHonchoEnabled()) {
 		getOrCreateSession(userId, id).catch((err) =>
-			console.error('[HONCHO] Create session failed:', err)
+			console.error("[HONCHO] Create session failed:", err),
 		);
 	}
 	recordConversationAnalytics({
@@ -49,16 +81,12 @@ export async function createConversation(
 		createdAt: conversation.createdAt,
 	}).catch(() => undefined);
 
-	return {
-		id: conversation.id,
-		title: conversation.title,
-		projectId: conversation.projectId ?? null,
-		createdAt: conversation.createdAt.getTime() / 1000,
-		updatedAt: conversation.updatedAt.getTime() / 1000,
-	};
+	return toConversation(conversation);
 }
 
-export async function listConversations(userId: string): Promise<ConversationListItem[]> {
+export async function listConversations(
+	userId: string,
+): Promise<ConversationListItem[]> {
 	const result = await db
 		.select()
 		.from(conversations)
@@ -72,21 +100,22 @@ export async function listConversations(userId: string): Promise<ConversationLis
 	const conversationIdsWithMessages = await db
 		.selectDistinct({ conversationId: messages.conversationId })
 		.from(messages)
-		.where(inArray(messages.conversationId, result.map((conversation) => conversation.id)));
+		.where(
+			inArray(
+				messages.conversationId,
+				result.map((conversation) => conversation.id),
+			),
+		);
 
 	const visibleConversationIds = new Set(
-		conversationIdsWithMessages.map((row) => row.conversationId)
+		conversationIdsWithMessages.map((row) => row.conversationId),
 	);
 
-	const visibleConversations = result
-		.filter((conv) => visibleConversationIds.has(conv.id))
-		.map(conv => ({
-		id: conv.id,
-		title: conv.title,
-		projectId: conv.projectId ?? null,
-		createdAt: conv.createdAt.getTime() / 1000,
-		updatedAt: conv.updatedAt.getTime() / 1000,
-	}));
+	const visibleConversations = sortConversationList(
+		result
+			.filter((conv) => visibleConversationIds.has(conv.id))
+			.map((conv) => toConversation(conv)),
+	);
 	const forkSummaries = await getConversationForkSummaries(
 		userId,
 		visibleConversations.map((conversation) => conversation.id),
@@ -98,24 +127,28 @@ export async function listConversations(userId: string): Promise<ConversationLis
 	});
 }
 
-export async function getConversation(userId: string, conversationId: string): Promise<Conversation | null> {
+export async function getConversation(
+	userId: string,
+	conversationId: string,
+): Promise<Conversation | null> {
 	const [conversation] = await db
 		.select()
 		.from(conversations)
-		.where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)));
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		);
 	if (!conversation) {
 		return null;
 	}
-	return {
-		id: conversation.id,
-		title: conversation.title,
-		projectId: conversation.projectId ?? null,
-		createdAt: conversation.createdAt.getTime() / 1000,
-		updatedAt: conversation.updatedAt.getTime() / 1000,
-	};
+	return toConversation(conversation);
 }
 
-export async function getConversationUserId(conversationId: string): Promise<string | null> {
+export async function getConversationUserId(
+	conversationId: string,
+): Promise<string | null> {
 	const [conversation] = await db
 		.select({ userId: conversations.userId })
 		.from(conversations)
@@ -125,59 +158,166 @@ export async function getConversationUserId(conversationId: string): Promise<str
 	return conversation?.userId ?? null;
 }
 
-export async function updateConversationTitle(userId: string, conversationId: string, title: string): Promise<Conversation | null> {
+export async function updateConversationTitle(
+	userId: string,
+	conversationId: string,
+	title: string,
+): Promise<Conversation | null> {
 	const [conversation] = await db
 		.update(conversations)
 		.set({ title, updatedAt: new Date() })
-		.where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		)
 		.returning();
 	if (!conversation) {
 		return null;
 	}
-	return {
-		id: conversation.id,
-		title: conversation.title,
-		projectId: conversation.projectId ?? null,
-		createdAt: conversation.createdAt.getTime() / 1000,
-		updatedAt: conversation.updatedAt.getTime() / 1000,
-	};
+	return toConversation(conversation);
 }
 
-export async function deleteConversation(userId: string, conversationId: string): Promise<boolean> {
+export async function deleteConversation(
+	userId: string,
+	conversationId: string,
+): Promise<boolean> {
 	const result = await db
 		.delete(conversations)
-		.where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		)
 		.returning();
 	return result.length > 0;
 }
 
-export async function touchConversation(userId: string, conversationId: string): Promise<Conversation | null> {
+export async function touchConversation(
+	userId: string,
+	conversationId: string,
+): Promise<Conversation | null> {
 	const [conversation] = await db
 		.update(conversations)
 		.set({ updatedAt: new Date() })
-		.where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		)
 		.returning();
 	if (!conversation) {
 		return null;
 	}
-	return {
-		id: conversation.id,
-		title: conversation.title,
-		projectId: conversation.projectId ?? null,
-		createdAt: conversation.createdAt.getTime() / 1000,
-		updatedAt: conversation.updatedAt.getTime() / 1000,
-	};
+	return toConversation(conversation);
+}
+
+export async function setConversationSidebarPinned(
+	userId: string,
+	conversationId: string,
+	sidebarPinned: boolean,
+): Promise<Conversation | null> {
+	if (!sidebarPinned) {
+		const [conversation] = await db
+			.update(conversations)
+			.set({ sidebarPinned: false, sidebarSortOrder: null })
+			.where(
+				and(
+					eq(conversations.id, conversationId),
+					eq(conversations.userId, userId),
+				),
+			)
+			.returning();
+		return conversation ? toConversation(conversation) : null;
+	}
+
+	const [currentTop] = await db
+		.select({ sidebarSortOrder: conversations.sidebarSortOrder })
+		.from(conversations)
+		.where(
+			and(
+				eq(conversations.userId, userId),
+				eq(conversations.sidebarPinned, true),
+			),
+		)
+		.orderBy(asc(conversations.sidebarSortOrder))
+		.limit(1);
+	const nextSortOrder = (currentTop?.sidebarSortOrder ?? 1) - 1;
+	const [conversation] = await db
+		.update(conversations)
+		.set({ sidebarPinned: true, sidebarSortOrder: nextSortOrder })
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		)
+		.returning();
+	return conversation ? toConversation(conversation) : null;
+}
+
+export async function savePinnedConversationSidebarOrder(
+	userId: string,
+	orderedIds: string[],
+): Promise<void> {
+	if (orderedIds.length === 0) return;
+	if (new Set(orderedIds).size !== orderedIds.length) {
+		throw new Error("orderedIds must not contain duplicates");
+	}
+
+	const rows = await db
+		.select({
+			id: conversations.id,
+			sidebarPinned: conversations.sidebarPinned,
+		})
+		.from(conversations)
+		.where(
+			and(
+				eq(conversations.userId, userId),
+				inArray(conversations.id, orderedIds),
+			),
+		);
+
+	if (
+		rows.length !== orderedIds.length ||
+		rows.some((row) => !row.sidebarPinned)
+	) {
+		throw new Error("orderedIds must contain only owned pinned conversations");
+	}
+
+	db.transaction((tx) => {
+		for (const [index, conversationId] of orderedIds.entries()) {
+			tx.update(conversations)
+				.set({ sidebarSortOrder: index })
+				.where(
+					and(
+						eq(conversations.id, conversationId),
+						eq(conversations.userId, userId),
+						eq(conversations.sidebarPinned, true),
+					),
+				)
+				.run();
+		}
+	});
 }
 
 export async function moveConversationToProject(
 	userId: string,
 	conversationId: string,
-	projectId: string | null
+	projectId: string | null,
 ): Promise<Conversation | null> {
 	const [existingConversation] = await db
 		.select({ projectId: conversations.projectId })
 		.from(conversations)
-		.where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		)
 		.limit(1);
 	if (!existingConversation) return null;
 
@@ -193,7 +333,12 @@ export async function moveConversationToProject(
 	const [conversation] = await db
 		.update(conversations)
 		.set({ projectId, updatedAt: new Date() })
-		.where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		)
 		.returning();
 	if (!conversation) return null;
 	await convergeProjectFolderContinuityForConversation({
@@ -202,11 +347,5 @@ export async function moveConversationToProject(
 		projectId,
 		previousProjectId: existingConversation.projectId ?? null,
 	});
-	return {
-		id: conversation.id,
-		title: conversation.title,
-		projectId: conversation.projectId ?? null,
-		createdAt: conversation.createdAt.getTime() / 1000,
-		updatedAt: conversation.updatedAt.getTime() / 1000,
-	};
+	return toConversation(conversation);
 }

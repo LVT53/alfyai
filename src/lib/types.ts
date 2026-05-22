@@ -87,6 +87,7 @@ export interface Project {
 	id: string;
 	name: string;
 	color?: string | null;
+	sidebarPinned: boolean;
 	sortOrder: number;
 	createdAt: number; // Unix timestamp
 	updatedAt: number; // Unix timestamp
@@ -99,6 +100,8 @@ export interface Conversation {
 	projectId?: string | null;
 	status?: "open" | "sealed";
 	sealedAt?: number | null;
+	sidebarPinned: boolean;
+	sidebarSortOrder: number | null;
 	createdAt: number; // Unix timestamp
 	updatedAt: number; // Unix timestamp
 }
@@ -776,6 +779,8 @@ export interface ConversationListItem {
 	title: string;
 	updatedAt: number; // Unix timestamp
 	projectId?: string | null;
+	sidebarPinned: boolean;
+	sidebarSortOrder: number | null;
 	forkSummary?: ConversationForkListSummary;
 }
 
@@ -1733,11 +1738,11 @@ export interface LangflowRunResponse {
 		outputs: Array<{
 			results: {
 				message?: LangflowMessage;
-				[key: string]: any;
+				[key: string]: unknown;
 			};
-			[key: string]: any;
+			[key: string]: unknown;
 		}>;
-		[key: string]: any;
+		[key: string]: unknown;
 	}>;
 }
 

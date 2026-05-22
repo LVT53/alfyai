@@ -310,6 +310,14 @@ _Avoid_: demo prototype, prompt shortcut experiment, partial command palette
 A user-managed grouping of conversations that names the project the user intends those conversations to belong to.
 _Avoid_: UI project, folder, memory project
 
+**Sidebar Pin**:
+A user-owned sidebar preference that visually promotes a **Conversation** or **Project Folder** without changing prompt context or memory authority.
+_Avoid_: context pin, favorite, priority memory
+
+**Sidebar Order**:
+The user-owned visual order of **Project Folders** and **Sidebar-Pinned Conversations** in the sidebar.
+_Avoid_: activity order, memory priority, conversation rank
+
 **Project Continuity**:
 AlfyAI's long-term memory about an ongoing project across related tasks and conversations.
 _Avoid_: memory project, project folder, task bucket
@@ -971,6 +979,41 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Removing a conversation from a **Project Folder** removes that folder as the canonical project identity for future turns in the conversation.
 - Deleting a **Project Folder** unassigns its conversations from that folder and unlinks its canonical **Project Continuity**, but it does not delete the conversations or by itself mean the user asked AlfyAI to forget project memory.
 - **Project Continuity** is forgotten only through an explicit memory-forgetting action or cleanup of conversation-scoped memory links.
+- A **Sidebar Pin** changes only sidebar presentation; it does not pin a **Context Source**, change **Prompt Context**, or raise memory authority.
+- **Sidebar-Pinned Conversations** may use manual **Sidebar Order** relative to other pinned conversations.
+- **Sidebar-Pinned Conversations** appear once in a global pinned area even when they belong to a **Project Folder**.
+- A **Sidebar-Pinned Conversation** keeps its **Project Folder** assignment while visually promoted outside that folder.
+- A **Sidebar-Pinned Conversation** that belongs to a **Project Folder** should show a subtle project label in the global pinned area.
+- Moving a **Sidebar-Pinned Conversation** into, out of, or between **Project Folders** should preserve its **Sidebar Pin**.
+- Unpinned conversations remain ordered by recent activity.
+- **Project Folders** may use manual **Sidebar Order** relative to other project folders.
+- Sidebar-pinned **Project Folders** stay in the Projects section and sort before unpinned **Project Folders**.
+- Sidebar-pinning a **Project Folder** does not move its conversations into the global pinned area.
+- Deleting a sidebar-pinned item removes that item's **Sidebar Pin** with the item.
+- Deleting a **Project Folder** should not unpin conversations that were inside it; those conversations become unorganized while keeping their own **Sidebar Pin** if they had one.
+- The sidebar details menu for a **Conversation** or **Project Folder** should expose `Pin to sidebar` when unpinned and `Unpin from sidebar` when pinned.
+- The global pinned conversation area should be labeled `Pinned` in English and `Rögzített` in Hungarian.
+- The sidebar pin action should appear before rename, move, or delete actions because it controls sidebar presentation rather than item ownership.
+- A **Sidebar-Pinned Conversation** should keep the same conversation actions as an unpinned conversation.
+- Pinning and unpinning should rely on immediate sidebar movement as success feedback rather than adding success toasts.
+- The sidebar details menu should remain available through normal click or tap on the three-dots control.
+- Opening the same sidebar details menu from a row context-menu gesture may be added as a secondary shortcut, but it should not replace click, tap, or keyboard access.
+- The first **Sidebar Pin** slice should support the existing three-dots menu and row context-menu gestures that open the same sidebar details menu.
+- Opening a sidebar details menu from a row context-menu gesture should not select a conversation or expand/collapse a **Project Folder**.
+- A sidebar details menu opened from a row context-menu gesture should appear at the pointer position while using the same menu contents as the three-dots menu.
+- Pinned sidebar rows should show a subtle persistent pin indicator.
+- Pinned-state styling should not compete with active-conversation styling.
+- **Sidebar Pin** and **Sidebar Order** are durable account state, not browser-local preferences.
+- Sidebar expansion state may remain browser-local, but sidebar pinning should follow the user across devices.
+- Newly pinned items enter at the top of their pinned group.
+- Activity updates should not reorder sidebar-pinned items.
+- Unpinning a **Conversation** returns it to its ordinary project or unorganized location by recent activity.
+- Re-pinning a previously unpinned item should place it at the top of its pinned group rather than restoring an old pinned position.
+- Only conversations visible in the sidebar may be sidebar-pinned.
+- Empty bootstrap conversations do not need sidebar pinning before they become visible sidebar conversations.
+- The global pinned conversation area should appear only when at least one conversation is sidebar-pinned.
+- The first **Sidebar Pin** slice may ship without drag reordering if newly pinned items have deterministic top insertion.
+- Drag reordering should use the same user interaction pattern for sidebar-pinned conversations and sidebar-pinned **Project Folders**.
 - A **Project Folder** assignment is a **Strong Context Signal** for project identity.
 - A **Project Folder** name may enter **Prompt Context** as a quoted label, not as user or system instructions.
 - Raw **Project Folder** names belong in **Prompt Context**, not in the system prompt.

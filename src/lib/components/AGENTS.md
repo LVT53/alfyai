@@ -92,6 +92,7 @@ ui/
 ## Key Component Boundaries (not in parent)
 
 - `ConversationList.svelte` owns drag/drop state — `ConversationItem` and `ProjectItem` are **event emitters**, not persistence actors
+- Sidebar drag reordering should stay sidebar-specific for now. Reuse a shared sidebar reorder primitive for sidebar-pinned conversations and sidebar-pinned project folders, but keep persistence and cross-group rules in `ConversationList.svelte`.
 - `MessageArea.svelte` is the **sole scroll owner** for conversation content — do not add `overflow-y: auto` elsewhere
 - `MessageArea.svelte` must also keep newly appended file-production cards visible when the user remained near the bottom of the chat
 - `MessageArea.svelte` also owns the quiet empty-conversation ready state for chat detail routes; do not reintroduce the landing-page hero copy inside the message pane

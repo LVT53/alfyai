@@ -5,6 +5,8 @@ import {
 	fetchConversations,
 	moveConversationToProject as moveConversationRequest,
 	renameConversation as renameConversationRequest,
+	savePinnedConversationSidebarOrder,
+	setConversationSidebarPinned,
 } from "$lib/client/api/conversations";
 import {
 	dispatchWorkspaceConversationDeleted,
@@ -14,9 +16,21 @@ import type { ConversationListItem } from "$lib/types";
 
 export const conversations = writable<ConversationListItem[]>([]);
 
+type SidebarConversationFields = {
+	sidebarPinned?: boolean;
+	sidebarSortOrder?: number | null;
+};
+
+type SidebarConversationListItem = ConversationListItem &
+	SidebarConversationFields;
+
 const optimisticConversationIds = new Set<string>();
 const deletedConversationIds = new Set<string>();
 const localConversationProjectIds = new Map<string, string | null>();
+const localConversationSidebarStates = new Map<
+	string,
+	{ sidebarPinned: boolean; sidebarSortOrder: number | null }
+>();
 let conversationSnapshotUserId: string | null = null;
 let lastSuccessfulConversationSnapshotAt = 0;
 
@@ -43,6 +57,107 @@ function isTransientRefreshError(error: unknown): boolean {
 	);
 }
 
+function getSidebarPinned(item: ConversationListItem): boolean {
+	return (item as SidebarConversationListItem).sidebarPinned === true;
+}
+
+function getSidebarSortOrder(item: ConversationListItem): number | null {
+	const order = (item as SidebarConversationListItem).sidebarSortOrder;
+	return typeof order === "number" && Number.isFinite(order) ? order : null;
+}
+
+function sortConversationsForSidebar(
+	items: ConversationListItem[],
+): ConversationListItem[] {
+	return items
+		.map((item, index) => ({ item, index }))
+		.sort((left, right) => {
+			const leftPinned = getSidebarPinned(left.item);
+			const rightPinned = getSidebarPinned(right.item);
+			if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
+
+			if (leftPinned) {
+				const leftOrder = getSidebarSortOrder(left.item);
+				const rightOrder = getSidebarSortOrder(right.item);
+				if (
+					leftOrder !== null &&
+					rightOrder !== null &&
+					leftOrder !== rightOrder
+				) {
+					return leftOrder - rightOrder;
+				}
+				if (leftOrder !== null && rightOrder === null) return -1;
+				if (leftOrder === null && rightOrder !== null) return 1;
+				return left.index - right.index;
+			}
+
+			return (
+				right.item.updatedAt - left.item.updatedAt || left.index - right.index
+			);
+		})
+		.map(({ item }) => item);
+}
+
+function nextTopPinnedConversationOrder(items: ConversationListItem[]): number {
+	const pinnedOrders = items
+		.filter(getSidebarPinned)
+		.map(getSidebarSortOrder)
+		.filter((order): order is number => order !== null);
+	if (pinnedOrders.length === 0) return -1;
+	return Math.min(...pinnedOrders) - 1;
+}
+
+function getConversationSidebarState(item: ConversationListItem): {
+	sidebarPinned: boolean;
+	sidebarSortOrder: number | null;
+} {
+	return {
+		sidebarPinned: getSidebarPinned(item),
+		sidebarSortOrder: getSidebarSortOrder(item),
+	};
+}
+
+function conversationSidebarStateMatches(
+	item: ConversationListItem,
+	state: { sidebarPinned: boolean; sidebarSortOrder: number | null },
+): boolean {
+	return (
+		getSidebarPinned(item) === state.sidebarPinned &&
+		getSidebarSortOrder(item) === state.sidebarSortOrder
+	);
+}
+
+function applyConversationSidebarState(
+	item: ConversationListItem,
+	state: { sidebarPinned: boolean; sidebarSortOrder: number | null },
+): ConversationListItem {
+	return {
+		...item,
+		sidebarPinned: state.sidebarPinned,
+		sidebarSortOrder: state.sidebarSortOrder,
+	};
+}
+
+function applyConversationMutationResults(items: ConversationListItem[]): void {
+	if (items.length === 0) return;
+	const incomingById = new Map(items.map((item) => [item.id, item]));
+	conversations.update((current) => {
+		const seenIds = new Set<string>();
+		const merged = current.map((conversation) => {
+			const incoming = incomingById.get(conversation.id);
+			if (!incoming) return conversation;
+			seenIds.add(conversation.id);
+			return { ...conversation, ...incoming };
+		});
+
+		for (const item of items) {
+			if (!seenIds.has(item.id)) merged.push(item);
+		}
+
+		return sortConversationsForSidebar(merged);
+	});
+}
+
 export function reconcileConversationSnapshot(
 	items: ConversationListItem[],
 	options: { resetLocalState?: boolean; userId?: string | null } = {},
@@ -62,8 +177,9 @@ export function reconcileConversationSnapshot(
 			optimisticConversationIds.clear();
 			deletedConversationIds.clear();
 			localConversationProjectIds.clear();
+			localConversationSidebarStates.clear();
 			conversationSnapshotUserId = options.userId ?? null;
-			return incoming;
+			return sortConversationsForSidebar(incoming);
 		}
 
 		if (options.userId !== undefined) {
@@ -71,13 +187,23 @@ export function reconcileConversationSnapshot(
 		}
 
 		const mergedIncoming = incoming.map((item) => {
-			if (!localConversationProjectIds.has(item.id)) return item;
-			const localProjectId = localConversationProjectIds.get(item.id) ?? null;
-			if ((item.projectId ?? null) === localProjectId) {
-				localConversationProjectIds.delete(item.id);
-				return item;
+			let nextItem = item;
+			if (localConversationProjectIds.has(item.id)) {
+				const localProjectId = localConversationProjectIds.get(item.id) ?? null;
+				if ((item.projectId ?? null) === localProjectId) {
+					localConversationProjectIds.delete(item.id);
+				} else {
+					nextItem = { ...nextItem, projectId: localProjectId };
+				}
 			}
-			return { ...item, projectId: localProjectId };
+
+			const localSidebarState = localConversationSidebarStates.get(item.id);
+			if (!localSidebarState) return nextItem;
+			if (conversationSidebarStateMatches(item, localSidebarState)) {
+				localConversationSidebarStates.delete(item.id);
+				return nextItem;
+			}
+			return applyConversationSidebarState(nextItem, localSidebarState);
 		});
 
 		const next = new Map(mergedIncoming.map((item) => [item.id, item]));
@@ -93,9 +219,7 @@ export function reconcileConversationSnapshot(
 			optimisticConversationIds.delete(item.id);
 		}
 
-		return Array.from(next.values()).sort(
-			(left, right) => right.updatedAt - left.updatedAt,
-		);
+		return sortConversationsForSidebar(Array.from(next.values()));
 	});
 }
 
@@ -103,6 +227,7 @@ export function clearConversationStore(): void {
 	optimisticConversationIds.clear();
 	deletedConversationIds.clear();
 	localConversationProjectIds.clear();
+	localConversationSidebarStates.clear();
 	conversationSnapshotUserId = null;
 	lastSuccessfulConversationSnapshotAt = 0;
 	conversations.set([]);
@@ -197,6 +322,7 @@ export function removeConversationLocal(id: string): void {
 	optimisticConversationIds.delete(id);
 	deletedConversationIds.add(id);
 	localConversationProjectIds.delete(id);
+	localConversationSidebarStates.delete(id);
 	conversations.update((items) =>
 		items.filter((conversation) => conversation.id !== id),
 	);
@@ -214,6 +340,7 @@ export async function deleteConversationById(id: string): Promise<void> {
 	optimisticConversationIds.delete(id);
 	deletedConversationIds.add(id);
 	localConversationProjectIds.delete(id);
+	localConversationSidebarStates.delete(id);
 	conversations.update((items) =>
 		items.filter((conversation) => conversation.id !== id),
 	);
@@ -237,6 +364,147 @@ export function updateConversationTitleLocal(id: string, title: string): void {
 			conversation.id === id ? { ...conversation, title } : conversation,
 		),
 	);
+}
+
+export async function toggleConversationSidebarPin(
+	id: string,
+	sidebarPinned?: boolean,
+): Promise<void> {
+	let previousConversation: ConversationListItem | null = null;
+	let previousSidebarState:
+		| { sidebarPinned: boolean; sidebarSortOrder: number | null }
+		| undefined;
+	let hadPreviousSidebarState = false;
+	let nextPinned = Boolean(sidebarPinned);
+	let optimisticSidebarState:
+		| { sidebarPinned: boolean; sidebarSortOrder: number | null }
+		| undefined;
+
+	conversations.update((items) => {
+		const current = items.find((conversation) => conversation.id === id);
+		if (!current) return items;
+		previousConversation = current;
+		hadPreviousSidebarState = localConversationSidebarStates.has(id);
+		previousSidebarState = localConversationSidebarStates.get(id);
+		nextPinned = sidebarPinned ?? !getSidebarPinned(current);
+		const nextSidebarState = {
+			sidebarPinned: nextPinned,
+			sidebarSortOrder: nextPinned
+				? nextTopPinnedConversationOrder(items)
+				: null,
+		};
+		optimisticSidebarState = nextSidebarState;
+		localConversationSidebarStates.set(id, optimisticSidebarState);
+		return sortConversationsForSidebar(
+			items.map((conversation) =>
+				conversation.id === id
+					? applyConversationSidebarState(conversation, nextSidebarState)
+					: conversation,
+			),
+		);
+	});
+
+	try {
+		const updatedConversation = await setConversationSidebarPinned(
+			id,
+			nextPinned,
+		);
+		localConversationSidebarStates.set(
+			id,
+			getConversationSidebarState(updatedConversation),
+		);
+		conversations.update((items) =>
+			sortConversationsForSidebar(
+				items.map((conversation) =>
+					conversation.id === id
+						? { ...conversation, ...updatedConversation }
+						: conversation,
+				),
+			),
+		);
+	} catch (error) {
+		if (
+			optimisticSidebarState &&
+			localConversationSidebarStates.get(id) === optimisticSidebarState
+		) {
+			if (hadPreviousSidebarState && previousSidebarState) {
+				localConversationSidebarStates.set(id, previousSidebarState);
+			} else {
+				localConversationSidebarStates.delete(id);
+			}
+		}
+		if (previousConversation) {
+			conversations.update((items) =>
+				sortConversationsForSidebar(
+					items.map((conversation) =>
+						conversation.id === id ? previousConversation : conversation,
+					),
+				),
+			);
+		}
+		throw error;
+	}
+}
+
+export async function savePinnedConversationOrder(
+	orderedIds: string[],
+): Promise<void> {
+	const orderedIdSet = new Set(orderedIds);
+	let previousItems: ConversationListItem[] = [];
+	const previousSidebarStates = new Map<
+		string,
+		{
+			hadState: boolean;
+			state?: { sidebarPinned: boolean; sidebarSortOrder: number | null };
+		}
+	>();
+	const optimisticSidebarStates = new Map<
+		string,
+		{ sidebarPinned: boolean; sidebarSortOrder: number | null }
+	>();
+
+	conversations.update((items) => {
+		previousItems = items;
+		for (const id of orderedIds) {
+			previousSidebarStates.set(id, {
+				hadState: localConversationSidebarStates.has(id),
+				state: localConversationSidebarStates.get(id),
+			});
+		}
+
+		const nextItems = items.map((conversation) => {
+			if (!orderedIdSet.has(conversation.id)) return conversation;
+			const nextSidebarState = {
+				sidebarPinned: true,
+				sidebarSortOrder: orderedIds.indexOf(conversation.id),
+			};
+			optimisticSidebarStates.set(conversation.id, nextSidebarState);
+			localConversationSidebarStates.set(conversation.id, nextSidebarState);
+			return applyConversationSidebarState(conversation, nextSidebarState);
+		});
+
+		return sortConversationsForSidebar(nextItems);
+	});
+
+	try {
+		const updatedConversations =
+			await savePinnedConversationSidebarOrder(orderedIds);
+		if (Array.isArray(updatedConversations)) {
+			applyConversationMutationResults(updatedConversations);
+		}
+	} catch (error) {
+		for (const [id, state] of optimisticSidebarStates) {
+			if (localConversationSidebarStates.get(id) !== state) continue;
+			const previous = previousSidebarStates.get(id);
+			if (previous?.hadState && previous.state) {
+				localConversationSidebarStates.set(id, previous.state);
+			} else {
+				localConversationSidebarStates.delete(id);
+			}
+		}
+		conversations.set(previousItems);
+		throw error;
+	}
 }
 
 export async function moveConversationToProject(
