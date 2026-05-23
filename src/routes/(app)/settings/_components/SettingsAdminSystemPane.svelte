@@ -236,7 +236,7 @@ async function saveModelIconCrop(payload: { file: File; width: number; height: n
 	} catch (error: unknown) {
 		throw new Error(errorMessage(error, $t("admin.modelIconUploadFailed")));
 	} finally {
-		if (modelIconCropJob === activeCrop) iconUploading = null;
+		if (iconUploading === activeCrop.key) iconUploading = null;
 	}
 }
 

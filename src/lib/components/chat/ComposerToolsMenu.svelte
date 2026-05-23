@@ -270,6 +270,8 @@
 
 <style>
 	.tools-menu {
+		--tools-menu-row-height: 2.75rem;
+
 		position: absolute;
 		left: 0;
 		bottom: calc(100% + 8px);
@@ -296,6 +298,7 @@
 
 	.menu-row {
 		display: flex;
+		min-height: var(--tools-menu-row-height);
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.42rem;
@@ -314,6 +317,7 @@
 	.menu-row--button {
 		display: flex;
 		width: 100%;
+		min-height: calc(var(--tools-menu-row-height) - 0.08rem);
 		align-items: center;
 		justify-content: space-between;
 		border: 0;

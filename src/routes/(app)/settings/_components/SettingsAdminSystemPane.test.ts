@@ -29,6 +29,7 @@ import {
 	updateAdminSystemSkill,
 } from "$lib/client/api/admin";
 import {
+	saveModelIconAssetCrop,
 	uploadCampaignAssetSource,
 	uploadModelIconAsset,
 } from "$lib/client/api/campaign-assets";
@@ -38,6 +39,7 @@ const mockFetchAdminSystemSkills = fetchAdminSystemSkills as ReturnType<typeof v
 const mockFetchProviders = fetchProviders as ReturnType<typeof vi.fn>;
 const mockUpdateAdminConfig = updateAdminConfig as ReturnType<typeof vi.fn>;
 const mockUpdateAdminSystemSkill = updateAdminSystemSkill as ReturnType<typeof vi.fn>;
+const mockSaveModelIconAssetCrop = saveModelIconAssetCrop as ReturnType<typeof vi.fn>;
 const mockUploadCampaignAssetSource = uploadCampaignAssetSource as ReturnType<typeof vi.fn>;
 const mockUploadModelIconAsset = uploadModelIconAsset as ReturnType<typeof vi.fn>;
 
@@ -65,6 +67,7 @@ describe("SettingsAdminSystemPane", () => {
 		mockFetchAdminSystemSkills.mockResolvedValue([]);
 		mockFetchProviders.mockResolvedValue([]);
 		mockUpdateAdminConfig.mockResolvedValue(undefined);
+		mockSaveModelIconAssetCrop.mockResolvedValue({ id: "icon-crop-1" });
 		mockUploadCampaignAssetSource.mockResolvedValue({ id: "source-1" });
 		mockUploadModelIconAsset.mockResolvedValue({ id: "icon-1" });
 		Object.defineProperty(URL, "createObjectURL", {
@@ -73,6 +76,19 @@ describe("SettingsAdminSystemPane", () => {
 		});
 		Object.defineProperty(URL, "revokeObjectURL", {
 			value: vi.fn(),
+			configurable: true,
+		});
+		Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+			value: vi.fn(() => ({
+				clearRect: vi.fn(),
+				drawImage: vi.fn(),
+			})),
+			configurable: true,
+		});
+		Object.defineProperty(HTMLCanvasElement.prototype, "toBlob", {
+			value: vi.fn((callback: BlobCallback) => {
+				callback(new Blob(["webp"], { type: "image/webp" }));
+			}),
 			configurable: true,
 		});
 	});
@@ -298,14 +314,22 @@ describe("SettingsAdminSystemPane", () => {
 		expect(adminConfig.DEFAULT_NEW_USER_MODEL).toBe("provider:fire-pass");
 	});
 
-	it("opens a 1:1 cropper for raster model icon uploads", async () => {
-		const { getAllByLabelText, getByText } = render(SettingsAdminSystemPane, {
-			adminConfig: {
-				COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
-				MODEL_2_ENABLED: "true",
-				DEEP_RESEARCH_ENABLED: "false",
-				DEEP_RESEARCH_WORKER_ENABLED: "false",
-			},
+	it("crops raster model icon uploads and clears the uploading label after save", async () => {
+		const adminConfig = {
+			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
+			MODEL_1_ICON_ASSET_ID: "",
+			MODEL_2_ENABLED: "true",
+			DEEP_RESEARCH_ENABLED: "false",
+			DEEP_RESEARCH_WORKER_ENABLED: "false",
+		};
+		const {
+			container,
+			getAllByLabelText,
+			getByRole,
+			getByText,
+			queryByText,
+		} = render(SettingsAdminSystemPane, {
+			adminConfig,
 			availableModels: [{ id: "model1", displayName: "Model 1" }],
 			onCheckHonchoHealth: vi.fn(),
 			onSaveAdminConfig: vi.fn(),
@@ -328,6 +352,39 @@ describe("SettingsAdminSystemPane", () => {
 			image: expect.any(File),
 		});
 		expect(mockUploadModelIconAsset).not.toHaveBeenCalled();
+
+		const cropImage = container.querySelector(
+			".crop-frame img",
+		) as HTMLImageElement | null;
+		expect(cropImage).not.toBeNull();
+		Object.defineProperty(cropImage, "naturalWidth", {
+			value: 1200,
+			configurable: true,
+		});
+		Object.defineProperty(cropImage, "naturalHeight", {
+			value: 800,
+			configurable: true,
+		});
+		await fireEvent.load(cropImage as HTMLImageElement);
+
+		await fireEvent.click(getByRole("button", { name: "Save crop" }));
+
+		await waitFor(() => {
+			expect(mockSaveModelIconAssetCrop).toHaveBeenCalledWith({
+				sourceAssetId: "source-1",
+				crop: expect.any(Object),
+				image: expect.any(File),
+				width: 512,
+				height: 512,
+			});
+		});
+		expect(mockUpdateAdminConfig).toHaveBeenCalledWith({
+			MODEL_1_ICON_ASSET_ID: "icon-crop-1",
+		});
+		expect(adminConfig.MODEL_1_ICON_ASSET_ID).toBe("icon-crop-1");
+		await waitFor(() => {
+			expect(queryByText("Uploading...")).not.toBeInTheDocument();
+		});
 	});
 
 	it("stores SVG model icons directly without opening the cropper", async () => {
