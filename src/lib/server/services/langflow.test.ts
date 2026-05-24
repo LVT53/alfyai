@@ -40,13 +40,13 @@ vi.mock("./inference-providers", () => ({
 	getProviderWithSecrets: mocks.getProviderWithSecrets,
 }));
 
+import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	buildOutboundSystemPrompt,
 	isLangflowTimeoutError,
 	sendMessage,
 	shouldAutoEnableThinking,
 } from "./langflow";
-import { estimateTokenCount } from "$lib/utils/tokens";
 
 const model1 = {
 	baseUrl: "http://local-model/v1",
@@ -182,6 +182,13 @@ describe("buildOutboundSystemPrompt", () => {
 		expect(prompt).toContain("Web search query planning");
 		expect(prompt).toContain("identify the concrete entity, target fact");
 		expect(prompt).toContain("search the current role/title and organization");
+		expect(prompt).toContain("Knowledge-cutoff-safe current research");
+		expect(prompt).toContain(
+			"Do not seed a current or future-looking web query",
+		);
+		expect(prompt).toContain("cutoff-era examples");
+		expect(prompt).toContain("new AI model releases");
+		expect(prompt).toContain("2026 open weight language models releases");
 		expect(prompt).toContain("Prefer `sourcePolicy: technical`");
 		expect(prompt).toContain("Prefer `sourcePolicy: commerce`");
 		expect(prompt).toContain("Do not issue broad queries");
@@ -271,7 +278,9 @@ describe("buildOutboundSystemPrompt", () => {
 			responseLanguage: "hu",
 		});
 
-		expect(prompt).toContain("Detected latest user-message language: Hungarian");
+		expect(prompt).toContain(
+			"Detected latest user-message language: Hungarian",
+		);
 		expect(prompt).not.toMatch(
 			/always respond in english|every word you write must be in english|never attempt to generate text in hungarian|non-english language/i,
 		);
@@ -293,7 +302,9 @@ describe("buildOutboundSystemPrompt", () => {
 			personalityPrompt: obsoleteTranslationContract,
 		});
 
-		expect(prompt).toContain("Detected latest user-message language: Hungarian");
+		expect(prompt).toContain(
+			"Detected latest user-message language: Hungarian",
+		);
 		expect(prompt).not.toMatch(
 			/always respond in english|every word you write must be in english|never attempt to generate text in hungarian|dedicated translation layer|output can be garbled/i,
 		);
@@ -576,7 +587,9 @@ describe("sendMessage provider routing", () => {
 			"## Current User Message\nTiny question?",
 		);
 		expect(
-			promptEstimateWithSafety + langflowOverheadReserve + body.tweaks["ModelNode-1"].max_tokens,
+			promptEstimateWithSafety +
+				langflowOverheadReserve +
+				body.tweaks["ModelNode-1"].max_tokens,
 		).toBeLessThanOrEqual(262_144);
 	});
 

@@ -251,6 +251,15 @@ const WEB_SEARCH_QUERY_PLANNING_GUARD = [
 	"- Do not issue broad queries like `latest news`, `reviews`, or `best products` without the entity and decision criteria that make the result relevant.",
 ].join("\n");
 
+const KNOWLEDGE_CUTOFF_SAFE_RESEARCH_GUARD = [
+	"Knowledge-cutoff-safe current research:",
+	"- For current, latest, post-training-cutoff, future-looking, or user-specified recent-period topics, treat remembered names, examples, rankings, release dates, and specs as unverified until current retrieved sources confirm them.",
+	"- Do not seed a current or future-looking web query with model names, product names, people, companies, or policy details that come only from memory or cutoff-era examples.",
+	"- If the user names a concrete entity, include that entity. If the user asks for a current set, market overview, comparison, or new releases without naming exact entities, discover the current entities from current sources first, then use retrieved names in narrower follow-up queries.",
+	"- Start discovery queries with neutral descriptors plus the requested timeframe, source type, and decision criteria. For example, for new AI model releases use a query like `2026 open weight language models releases official blog benchmark`, not a memorized old anchor such as `LLaMA 2 70B 2026` unless the user specifically asked about that model.",
+	"- If retrieval finds only stale entities or no evidence for the requested recent period, say that the retrieved evidence did not establish the current answer instead of filling the gap with older remembered facts.",
+].join("\n");
+
 const MEMORY_CONTEXT_GUARD = [
 	"Memory context workflow:",
 	"- If `memory_context` is available, use it proactively when durable memory, user preferences, project folder context, sibling conversations, earlier decisions, related chat summaries, deep-research reports, or continuity across a project could materially improve the answer. It is an ordinary context tool, not a last resort.",
@@ -368,6 +377,7 @@ export function buildOutboundSystemPrompt(params: {
 		IMAGE_SEARCH_GUARD,
 		WEB_RESEARCH_GUARD,
 		WEB_SEARCH_QUERY_PLANNING_GUARD,
+		KNOWLEDGE_CUTOFF_SAFE_RESEARCH_GUARD,
 		MEMORY_CONTEXT_GUARD,
 		WEB_FACT_EXTRACTION_GUARD,
 		PERSONA_MEMORY_GUARD,
