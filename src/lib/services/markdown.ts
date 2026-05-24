@@ -394,7 +394,26 @@ function plainTextFromInlineTokens(tokens: unknown): string {
 		.join("");
 }
 
-function renderCompactSourceLink(params: { href: string; sourceName: string }) {
+function sourceLabelFromLinkText(params: {
+	href: string;
+	parsedHref: URL;
+	tokens: unknown;
+}): string {
+	const text = compactWhitespace(plainTextFromInlineTokens(params.tokens));
+
+	if (
+		!text ||
+		text === params.href ||
+		text === params.parsedHref.href ||
+		/^https?:\/\//i.test(text)
+	) {
+		return params.parsedHref.hostname.replace(/^www\./i, "");
+	}
+
+	return text;
+}
+
+function renderSourceLinkChip(params: { href: string; sourceName: string }) {
 	const sourceName = escapeHtml(params.sourceName);
 	const href = escapeHtml(params.href);
 	const ariaLabel = escapeHtml(
@@ -402,12 +421,9 @@ function renderCompactSourceLink(params: { href: string; sourceName: string }) {
 	);
 
 	return [
-		`<a href="${href}" class="source-link-pill" target="_blank" rel="noopener noreferrer external" aria-label="${ariaLabel}" title="${ariaLabel}">`,
-		'<span class="source-link-pill__icon" aria-hidden="true"></span>',
-		'<span class="source-link-pill__tooltip" aria-hidden="true">',
-		`<span class="source-link-pill__name">${sourceName}</span>`,
-		`<span class="source-link-pill__url">${href}</span>`,
-		"</span>",
+		`<a href="${href}" class="source-link-chip" target="_blank" rel="noopener noreferrer external" aria-label="${ariaLabel}">`,
+		`<span class="source-link-chip__label">${sourceName}</span>`,
+		'<span class="source-link-chip__icon" aria-hidden="true"></span>',
 		"</a>",
 	].join("");
 }
@@ -441,11 +457,12 @@ function createMarkdownRenderer(
 			options.compactExternalLinks &&
 			["http:", "https:"].includes(parsedHref.protocol)
 		) {
-			const sourceName =
-				compactWhitespace(plainTextFromInlineTokens(tokens)) ||
-				parsedHref.hostname ||
-				href;
-			return renderCompactSourceLink({ href, sourceName });
+			const sourceName = sourceLabelFromLinkText({
+				href,
+				parsedHref,
+				tokens,
+			});
+			return renderSourceLinkChip({ href, sourceName });
 		}
 
 		const titleAttribute = title ? ` title="${escapeHtml(title)}"` : "";

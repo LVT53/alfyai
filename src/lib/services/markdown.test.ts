@@ -46,7 +46,7 @@ describe("Markdown Rendering Service", () => {
 		expect(html).toContain('rel="noopener noreferrer external"');
 	});
 
-	it("can render external source links as compact icon pills", async () => {
+	it("can render external source links as compact labeled chips", async () => {
 		const mod = await import("./markdown");
 		const html = await mod.renderMarkdown(
 			"See [Example Source](https://example.com/page) for details.",
@@ -54,18 +54,28 @@ describe("Markdown Rendering Service", () => {
 			{ compactExternalLinks: true },
 		);
 
-		expect(html).toContain('class="source-link-pill"');
+		expect(html).toContain('class="source-link-chip"');
 		expect(html).toContain(
 			'aria-label="Open source: Example Source - https://example.com/page"',
 		);
-		expect(html).toContain('class="source-link-pill__tooltip"');
 		expect(html).toContain(
-			'class="source-link-pill__name">Example Source</span>',
+			'class="source-link-chip__label">Example Source</span>',
 		);
-		expect(html).toContain(
-			'class="source-link-pill__url">https://example.com/page</span>',
-		);
+		expect(html).toContain('class="source-link-chip__icon"');
 		expect(html).not.toContain(">Example Source</a>");
+	});
+
+	it("uses a domain label when compact source link text is only a URL", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			"See [https://www.example.com/page](https://www.example.com/page).",
+			false,
+			{ compactExternalLinks: true },
+		);
+
+		expect(html).toContain(
+			'class="source-link-chip__label">example.com</span>',
+		);
 	});
 
 	it("renders document frontmatter and Obsidian-style callouts while keeping local links non-navigating", async () => {

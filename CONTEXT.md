@@ -194,9 +194,9 @@ _Avoid_: evidence manager, manual retrieval setup, budget manager
 The user-facing audit of sources used or cited for one assistant message.
 _Avoid_: context sources, carried-forward context, context manager
 
-**Source Link Pill**:
-A compact assistant-message affordance that represents a safe external source link as an icon-only pill. Hover or focus reveals the source name and URL while the answer text stays uncluttered.
-_Avoid_: raw citation URL, full source title inline, evidence row
+**Source Link Chip**:
+A compact assistant-message affordance that represents a safe external source link as a short clickable label plus external-link icon. Hover or focus reveals the full source name and URL while the answer text stays uncluttered.
+_Avoid_: icon-only citation, raw citation URL, full source title inline, evidence row
 
 **Protected Context**:
 Context that should survive budget pressure longer than ordinary context but still respects the **Context Budget**.

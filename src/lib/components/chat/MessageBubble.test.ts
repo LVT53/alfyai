@@ -256,7 +256,7 @@ describe('MessageBubble', () => {
 		expect(screen.getByRole('button', { name: 'Save private skill' })).toBeDisabled();
 	});
 
-	it('asks the markdown renderer for compact source-link pills on assistant messages', async () => {
+	it('asks the markdown renderer for compact source-link chips on assistant messages', async () => {
 		const message: ChatMessage = {
 			id: 'assistant-link-1',
 			renderKey: 'assistant-link-1',

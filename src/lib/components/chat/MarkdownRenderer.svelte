@@ -24,16 +24,30 @@
   type MarkdownBlock =
     | { type: 'html'; html: string; isNew?: boolean }
     | { type: 'code'; code: string; language?: string; html: string; isNew?: boolean };
+  type SourceLinkTooltip = {
+    sourceName: string;
+    url: string;
+    left: number;
+    top: number;
+    maxWidth: number;
+    placement: 'top' | 'bottom';
+  };
 
   let blocks = $state<MarkdownBlock[]>([]);
   let prevBlockCount = 0;
   let container = $state<HTMLDivElement | null>(null);
+  let sourceTooltipElement = $state<HTMLDivElement | null>(null);
+  let sourceTooltip = $state<SourceLinkTooltip | null>(null);
   let prevWordCount = 0;
   let prevLastBlockEl: HTMLElement | null = null;
   let renderVersion = 0;
   let resizeObserver: ResizeObserver | null = null;
   let resizeFrame = 0;
+  let sourceTooltipFrame = 0;
   let postRenderVersion = 0;
+  let activeSourceLink: HTMLAnchorElement | null = null;
+  const SOURCE_TOOLTIP_MARGIN = 12;
+  const SOURCE_TOOLTIP_OFFSET = 8;
 
   // Throttle rendering during streaming so each visual update is large
   // enough that new blocks are perceivable with the fade-in animation.
@@ -220,7 +234,7 @@
         const element = node as Element;
         const tagName = element.tagName;
         if (tagName === 'SCRIPT' || tagName === 'STYLE') return;
-        if (element.matches('.source-link-pill__tooltip')) return;
+        if (element.matches('.source-link-chip')) return;
         Array.from(node.childNodes).forEach(processNode);
       }
     }
@@ -298,6 +312,133 @@
     window.open(link.href, '_blank', 'noopener,noreferrer');
   }
 
+  function getSourceLink(target: EventTarget | null): HTMLAnchorElement | null {
+    if (!(target instanceof Element)) return null;
+
+    const link = target.closest('a.source-link-chip');
+    return link instanceof HTMLAnchorElement ? link : null;
+  }
+
+  function getViewportBounds() {
+    const viewport = window.visualViewport;
+    return {
+      left: viewport?.offsetLeft ?? 0,
+      top: viewport?.offsetTop ?? 0,
+      width: viewport?.width ?? window.innerWidth,
+      height: viewport?.height ?? window.innerHeight,
+    };
+  }
+
+  function updateSourceLinkTooltipPosition() {
+    if (!activeSourceLink || !sourceTooltip || !sourceTooltipElement || !activeSourceLink.isConnected) {
+      sourceTooltip = null;
+      activeSourceLink = null;
+      return;
+    }
+
+    const linkRect = activeSourceLink.getBoundingClientRect();
+    const tooltipRect = sourceTooltipElement.getBoundingClientRect();
+    const viewport = getViewportBounds();
+    const maxWidth = Math.min(384, Math.max(180, viewport.width - SOURCE_TOOLTIP_MARGIN * 2));
+    const tooltipWidth = Math.min(tooltipRect.width || maxWidth, maxWidth);
+    const tooltipHeight = tooltipRect.height || 48;
+    const minimumCenter = viewport.left + SOURCE_TOOLTIP_MARGIN + tooltipWidth / 2;
+    const maximumCenter = viewport.left + viewport.width - SOURCE_TOOLTIP_MARGIN - tooltipWidth / 2;
+    const idealCenter = linkRect.left + linkRect.width / 2;
+    const left = Math.min(Math.max(idealCenter, minimumCenter), maximumCenter);
+    const spaceBelow = viewport.top + viewport.height - linkRect.bottom;
+    const spaceAbove = linkRect.top - viewport.top;
+    const placement =
+      spaceBelow < tooltipHeight + SOURCE_TOOLTIP_OFFSET && spaceAbove > spaceBelow ? 'top' : 'bottom';
+    const idealTop =
+      placement === 'top'
+        ? linkRect.top - tooltipHeight - SOURCE_TOOLTIP_OFFSET
+        : linkRect.bottom + SOURCE_TOOLTIP_OFFSET;
+    const top = Math.min(
+      Math.max(idealTop, viewport.top + SOURCE_TOOLTIP_MARGIN),
+      viewport.top + viewport.height - SOURCE_TOOLTIP_MARGIN - tooltipHeight,
+    );
+
+    sourceTooltip = {
+      ...sourceTooltip,
+      left,
+      top,
+      maxWidth,
+      placement,
+    };
+  }
+
+  function scheduleSourceTooltipPosition() {
+    if (!sourceTooltip) return;
+    if (sourceTooltipFrame) {
+      cancelAnimationFrame(sourceTooltipFrame);
+    }
+    sourceTooltipFrame = requestAnimationFrame(() => {
+      sourceTooltipFrame = 0;
+      updateSourceLinkTooltipPosition();
+    });
+  }
+
+  async function showSourceLinkTooltip(link: HTMLAnchorElement) {
+    const label = link.querySelector('.source-link-chip__label')?.textContent?.trim();
+    const sourceName = label || link.hostname || link.href;
+    const linkRect = link.getBoundingClientRect();
+    const viewport = getViewportBounds();
+    activeSourceLink = link;
+    sourceTooltip = {
+      sourceName,
+      url: link.href,
+      left: linkRect.left + linkRect.width / 2,
+      top: linkRect.bottom + SOURCE_TOOLTIP_OFFSET,
+      maxWidth: Math.min(384, Math.max(180, viewport.width - SOURCE_TOOLTIP_MARGIN * 2)),
+      placement: 'bottom',
+    };
+
+    await tick();
+    if (activeSourceLink === link) {
+      updateSourceLinkTooltipPosition();
+    }
+  }
+
+  function hideSourceLinkTooltip(link?: HTMLAnchorElement | null) {
+    if (link && activeSourceLink !== link) return;
+    activeSourceLink = null;
+    sourceTooltip = null;
+  }
+
+  function handleSourceLinkPointerOver(event: PointerEvent) {
+    const link = getSourceLink(event.target);
+    if (!link) return;
+    if (event.relatedTarget instanceof Node && link.contains(event.relatedTarget)) return;
+    void showSourceLinkTooltip(link);
+  }
+
+  function handleSourceLinkPointerOut(event: PointerEvent) {
+    const link = getSourceLink(event.target);
+    if (!link) return;
+    if (event.relatedTarget instanceof Node && link.contains(event.relatedTarget)) return;
+    hideSourceLinkTooltip(link);
+  }
+
+  function handleSourceLinkFocusIn(event: FocusEvent) {
+    const link = getSourceLink(event.target);
+    if (!link) return;
+    void showSourceLinkTooltip(link);
+  }
+
+  function handleSourceLinkFocusOut(event: FocusEvent) {
+    const link = getSourceLink(event.target);
+    if (!link) return;
+    if (event.relatedTarget instanceof Node && link.contains(event.relatedTarget)) return;
+    hideSourceLinkTooltip(link);
+  }
+
+  function handleSourceLinkKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      hideSourceLinkTooltip();
+    }
+  }
+
   function scheduleTableEnhancement() {
     if (resizeFrame) {
       cancelAnimationFrame(resizeFrame);
@@ -309,9 +450,17 @@
   }
 
   onMount(() => {
-    const handleViewportChange = () => scheduleTableEnhancement();
+    const handleViewportChange = () => {
+      scheduleTableEnhancement();
+      scheduleSourceTooltipPosition();
+    };
     const clickContainer = container;
     clickContainer?.addEventListener('click', handleMarkdownClick);
+    clickContainer?.addEventListener('pointerover', handleSourceLinkPointerOver);
+    clickContainer?.addEventListener('pointerout', handleSourceLinkPointerOut);
+    clickContainer?.addEventListener('focusin', handleSourceLinkFocusIn);
+    clickContainer?.addEventListener('focusout', handleSourceLinkFocusOut);
+    clickContainer?.addEventListener('keydown', handleSourceLinkKeydown);
 
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
@@ -324,7 +473,9 @@
 
     window.addEventListener('resize', handleViewportChange);
     window.addEventListener('orientationchange', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
     window.visualViewport?.addEventListener('resize', handleViewportChange);
+    window.visualViewport?.addEventListener('scroll', handleViewportChange);
     document.fonts?.ready.then(() => scheduleTableEnhancement()).catch(() => undefined);
 
     return () => {
@@ -338,10 +489,23 @@
         cancelAnimationFrame(resizeFrame);
         resizeFrame = 0;
       }
+      if (sourceTooltipFrame) {
+        cancelAnimationFrame(sourceTooltipFrame);
+        sourceTooltipFrame = 0;
+      }
+      activeSourceLink = null;
+      sourceTooltip = null;
       window.removeEventListener('resize', handleViewportChange);
       window.removeEventListener('orientationchange', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
       window.visualViewport?.removeEventListener('resize', handleViewportChange);
+      window.visualViewport?.removeEventListener('scroll', handleViewportChange);
       clickContainer?.removeEventListener('click', handleMarkdownClick);
+      clickContainer?.removeEventListener('pointerover', handleSourceLinkPointerOver);
+      clickContainer?.removeEventListener('pointerout', handleSourceLinkPointerOut);
+      clickContainer?.removeEventListener('focusin', handleSourceLinkFocusIn);
+      clickContainer?.removeEventListener('focusout', handleSourceLinkFocusOut);
+      clickContainer?.removeEventListener('keydown', handleSourceLinkKeydown);
     };
   });
 
@@ -352,6 +516,7 @@
     resizeObserver?.disconnect();
     resizeObserver?.observe(container);
     scheduleTableEnhancement();
+    scheduleSourceTooltipPosition();
 
     if (!isStreaming) return;
 
@@ -393,6 +558,19 @@
     {/if}
   {/each}
 </div>
+{#if sourceTooltip}
+  <div
+    bind:this={sourceTooltipElement}
+    class={sourceTooltip.placement === 'top'
+      ? 'source-link-tooltip-floating source-link-tooltip-floating--top'
+      : 'source-link-tooltip-floating'}
+    role="tooltip"
+    style={`left: ${sourceTooltip.left}px; top: ${sourceTooltip.top}px; max-width: ${sourceTooltip.maxWidth}px;`}
+  >
+    <span class="source-link-tooltip-floating__name">{sourceTooltip.sourceName}</span>
+    <span class="source-link-tooltip-floating__url">{sourceTooltip.url}</span>
+  </div>
+{/if}
 
 <style>
   .markdown-container {
@@ -421,19 +599,22 @@
     animation: wordFadeIn 200ms ease-out forwards;
   }
 
-  :global(.source-link-pill) {
+  :global(.source-link-chip) {
     position: relative;
     display: inline-flex;
-    width: 1.55em;
-    min-width: 1.55em;
-    height: 1.18em;
+    max-width: min(24ch, 100%);
     align-items: center;
+    gap: 0.28em;
     justify-content: center;
-    margin: 0 0.08em;
-    border: 1px solid var(--border-subtle);
+    margin: 0 0.1em;
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border-subtle));
     border-radius: 999px;
-    background: color-mix(in srgb, var(--surface-elevated) 82%, var(--accent) 18%);
-    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--surface-elevated) 86%, var(--accent) 14%);
+    color: color-mix(in srgb, var(--accent) 82%, var(--text-primary));
+    font-size: 0.88em;
+    font-weight: 620;
+    line-height: 1.35;
+    padding: 0.07em 0.38em 0.07em 0.44em;
     text-decoration: none !important;
     vertical-align: -0.14em;
     transition:
@@ -442,36 +623,41 @@
       color var(--duration-micro) var(--ease-out);
   }
 
-  :global(.source-link-pill:hover),
-  :global(.source-link-pill:focus-visible) {
+  :global(.source-link-chip:hover),
+  :global(.source-link-chip:focus-visible) {
     border-color: color-mix(in srgb, var(--accent) 70%, var(--border-subtle));
-    background: color-mix(in srgb, var(--surface-elevated) 72%, var(--accent) 28%);
+    background: color-mix(in srgb, var(--surface-elevated) 76%, var(--accent) 24%);
     color: var(--text-primary);
     outline: none;
   }
 
-  :global(.source-link-pill:focus-visible) {
+  :global(.source-link-chip:focus-visible) {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 42%, transparent);
   }
 
-  :global(.source-link-pill__icon) {
+  :global(.source-link-chip__label) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :global(.source-link-chip__icon) {
     position: relative;
     display: block;
-    width: 0.82em;
-    height: 0.82em;
+    width: 0.88em;
+    min-width: 0.88em;
+    height: 0.88em;
     background: currentColor;
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3C/svg%3E") center / contain no-repeat;
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3C/svg%3E") center / contain no-repeat;
   }
 
-  :global(.source-link-pill__tooltip) {
-    position: absolute;
-    top: calc(100% + 0.45rem);
-    left: 50%;
-    z-index: 40;
+  .source-link-tooltip-floating {
+    position: fixed;
+    z-index: 90;
     display: flex;
-    min-width: min(18rem, 82vw);
-    max-width: min(24rem, 82vw);
+    min-width: min(18rem, calc(100vw - 1.5rem));
     flex-direction: column;
     gap: 0.18rem;
     border: 1px solid var(--border-subtle);
@@ -482,36 +668,27 @@
     font-family: 'Nimbus Sans L', sans-serif;
     font-size: 0.76rem;
     line-height: 1.35;
-    opacity: 0;
     padding: 0.45rem 0.55rem;
     pointer-events: none;
     text-align: left;
-    transform: translate(-50%, -0.2rem);
-    transition:
-      opacity var(--duration-micro) var(--ease-out),
-      transform var(--duration-micro) var(--ease-out),
-      visibility var(--duration-micro) var(--ease-out);
-    visibility: hidden;
+    transform: translateX(-50%);
     white-space: normal;
   }
 
-  :global(.source-link-pill__name) {
+  .source-link-tooltip-floating__name {
     font-weight: 650;
     overflow-wrap: anywhere;
   }
 
-  :global(.source-link-pill__url) {
+  .source-link-tooltip-floating__url {
     color: var(--text-muted);
     font-family: 'Nimbus Mono PS', monospace;
     font-size: 0.7rem;
     overflow-wrap: anywhere;
   }
 
-  :global(.source-link-pill:hover .source-link-pill__tooltip),
-  :global(.source-link-pill:focus-visible .source-link-pill__tooltip) {
-    opacity: 1;
-    transform: translate(-50%, 0);
-    visibility: visible;
+  .source-link-tooltip-floating--top {
+    transform: translateX(-50%);
   }
 
   @keyframes wordFadeIn {
