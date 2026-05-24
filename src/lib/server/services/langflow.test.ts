@@ -179,6 +179,12 @@ describe("buildOutboundSystemPrompt", () => {
 		expect(prompt).not.toContain(["project", "context"].join("_"));
 		expect(prompt).toContain("Exact web facts and prices");
 		expect(prompt).toContain("do not rely on search-result snippets alone");
+		expect(prompt).toContain("Web search query planning");
+		expect(prompt).toContain("identify the concrete entity, target fact");
+		expect(prompt).toContain("search the current role/title and organization");
+		expect(prompt).toContain("Prefer `sourcePolicy: technical`");
+		expect(prompt).toContain("Prefer `sourcePolicy: commerce`");
+		expect(prompt).toContain("Do not issue broad queries");
 		expect(prompt).toContain(
 			"get_contents` expects a JSON argument like {urls:",
 		);
@@ -376,6 +382,8 @@ describe("sendMessage provider routing", () => {
 		expect(systemPrompt).toContain(
 			"use available web retrieval for this answer",
 		);
+		expect(systemPrompt).toContain("Build a focused query");
+		expect(systemPrompt).toContain("use live/exact retrieval");
 		expect(systemPrompt).toContain("cite page-backed claims");
 		expect(systemPrompt).toContain("tools are unavailable");
 	});

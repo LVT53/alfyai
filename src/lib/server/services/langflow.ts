@@ -239,6 +239,18 @@ const WEB_RESEARCH_GUARD = [
 	"- Use the injected current date for temporal context before searching.",
 ].join("\n");
 
+const WEB_SEARCH_QUERY_PLANNING_GUARD = [
+	"Web search query planning:",
+	"- Before searching, identify the concrete entity, target fact, timeframe, geography or jurisdiction, version or model, and source authority needed. Keep those terms in the query instead of sending a vague paraphrase.",
+	"- For freshness-sensitive prompts such as today, current, latest, now, price, availability, policy, version, leadership, schedule, or deadline, include the current year/date or explicit timeframe when useful. Prefer `freshness: live` and `mode: exact` for exact values.",
+	"- For role-holder, office-holder, executive, organization, or named-person questions where the answer may have changed, search the current role/title and organization first rather than relying on a remembered name.",
+	"- For technical, API, library, package, migration, or error questions, query official docs, release notes, changelogs, README, or issue tracker terms first. Prefer `sourcePolicy: technical`.",
+	"- For law, medical, finance, tax, policy, safety, or other high-stakes topics, search official, government, regulatory, or primary sources first. Prefer `sourcePolicy: medical_legal_financial` when available.",
+	"- For commerce, product, availability, and buying advice, include exact product/model, region, current year/date, official specs or store, independent review, and known issue or complaint terms as appropriate. Prefer `sourcePolicy: commerce`.",
+	"- If the first retrieved evidence is thin, stale, ambiguous, or conflicting, make the follow-up query narrower by adding the missing attribute, source type, date, version, location, or conflicting term.",
+	"- Do not issue broad queries like `latest news`, `reviews`, or `best products` without the entity and decision criteria that make the result relevant.",
+].join("\n");
+
 const MEMORY_CONTEXT_GUARD = [
 	"Memory context workflow:",
 	"- If `memory_context` is available, use it proactively when durable memory, user preferences, project folder context, sibling conversations, earlier decisions, related chat summaries, deep-research reports, or continuity across a project could materially improve the answer. It is an ordinary context tool, not a last resort.",
@@ -284,6 +296,8 @@ const SOURCE_AUTHORITY_GUARD = [
 const FORCE_WEB_SEARCH_GUARD = [
 	"Current-turn forced web retrieval:",
 	"- The user explicitly requested web grounding for this turn; use available web retrieval for this answer when a web retrieval tool is listed in the runtime tool schema.",
+	"- Prefer `research_web` when available. Build a focused query from the user's exact task plus the key entity, timeframe, geography or jurisdiction, version or model, source type, and exact fact needed.",
+	"- For current, latest, price, availability, date, spec, policy, schedule, leadership, law, or other volatile claims, use live/exact retrieval with page-backed evidence instead of answering from memory.",
 	"- cite page-backed claims with markdown links to the supporting source pages.",
 	"- If tools are unavailable, or retrieval does not expose evidence for a claim, say so instead of guessing.",
 ].join("\n");
@@ -355,6 +369,7 @@ export function buildOutboundSystemPrompt(params: {
 		FILE_GENERATION_GUARD,
 		IMAGE_SEARCH_GUARD,
 		WEB_RESEARCH_GUARD,
+		WEB_SEARCH_QUERY_PLANNING_GUARD,
 		MEMORY_CONTEXT_GUARD,
 		WEB_FACT_EXTRACTION_GUARD,
 		PERSONA_MEMORY_GUARD,
