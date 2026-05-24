@@ -1,3 +1,5 @@
+import type { RenderMarkdownOptions } from "$lib/services/markdown";
+
 /**
  * Shared markdown module loader with lazy caching.
  *
@@ -41,9 +43,10 @@ export async function renderHighlightedText(
 export async function renderMarkdown(
 	content: string,
 	isDark: boolean,
+	options?: RenderMarkdownOptions,
 ): Promise<string> {
 	const { renderMarkdown: fn } = await getMarkdownModule();
-	return fn(content, isDark);
+	return fn(content, isDark, options);
 }
 
 export async function renderCodeBlock(

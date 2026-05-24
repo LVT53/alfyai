@@ -1,17 +1,25 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, DocumentWorkspaceItem, FileProductionJob } from '$lib/types';
+import { renderMarkdown } from '$lib/utils/markdown-loader';
 import MessageBubble from './MessageBubble.svelte';
+
+const markdownLoaderMock = vi.hoisted(() => ({
+	renderMarkdown: vi.fn(async (content: string) =>
+		content.replace(/\*\*(.*?)\*\*/g, '$1'),
+	),
+}));
 
 vi.mock('$lib/utils/markdown-loader', () => ({
 	prepareCodeHighlighting: async () => undefined,
 	renderCodeBlock: async (content: string) => `<pre><code>${content}</code></pre>`,
 	renderHighlightedText: async (content: string) => content,
-	renderMarkdown: async (content: string) => content.replace(/\*\*(.*?)\*\*/g, '$1'),
+	renderMarkdown: markdownLoaderMock.renderMarkdown,
 }));
 
 describe('MessageBubble', () => {
 	beforeEach(() => {
+		markdownLoaderMock.renderMarkdown.mockClear();
 		Object.defineProperty(window, 'matchMedia', {
 			writable: true,
 			value: vi.fn().mockImplementation((query: string) => ({
@@ -246,6 +254,26 @@ describe('MessageBubble', () => {
 
 		expect(screen.getByRole('alert')).toHaveTextContent('Failed to save skill draft.');
 		expect(screen.getByRole('button', { name: 'Save private skill' })).toBeDisabled();
+	});
+
+	it('asks the markdown renderer for compact source-link pills on assistant messages', async () => {
+		const message: ChatMessage = {
+			id: 'assistant-link-1',
+			renderKey: 'assistant-link-1',
+			role: 'assistant',
+			content: 'Claim backed by [Example Source](https://example.com/report).',
+			timestamp: Date.now(),
+		};
+
+		render(MessageBubble, { message });
+
+		await waitFor(() => {
+			expect(renderMarkdown).toHaveBeenCalledWith(
+				message.content,
+				false,
+				expect.objectContaining({ compactExternalLinks: true }),
+			);
+		});
 	});
 
 	it('shows the fork action only for completed persisted assistant messages', async () => {

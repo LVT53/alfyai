@@ -7,6 +7,10 @@ type Highlighter = Awaited<
 	>
 >;
 
+type RenderMarkdownOptions = {
+	compactExternalLinks?: boolean;
+};
+
 const HIGHLIGHT_LANGS = {
 	javascript: () => import("@shikijs/langs/javascript"),
 	typescript: () => import("@shikijs/langs/typescript"),
@@ -192,6 +196,7 @@ async function renderHighlightedText(
 async function renderMarkdown(
 	content: string,
 	isDark: boolean,
+	options: RenderMarkdownOptions = {},
 ): Promise<string> {
 	await initMarkdownParser();
 	if (content.includes("```")) {
@@ -201,7 +206,7 @@ async function renderMarkdown(
 	const marked = getMarked();
 	const frontmatter = await extractFrontmatter(content);
 	const displayContent = normalizeMarkdownContent(frontmatter.content);
-	const renderer = createMarkdownRenderer(isDark);
+	const renderer = createMarkdownRenderer(isDark, options);
 	const html = marked.parse(displayContent, {
 		renderer: renderer as Parameters<typeof marked.parse>[1]["renderer"],
 		breaks: true,
@@ -368,7 +373,49 @@ function transformCalloutHtml(html: string): string {
 	);
 }
 
-function createMarkdownRenderer(isDark: boolean) {
+function compactWhitespace(value: string): string {
+	return value.replace(/\s+/g, " ").trim();
+}
+
+function plainTextFromInlineTokens(tokens: unknown): string {
+	if (!Array.isArray(tokens)) return "";
+
+	return tokens
+		.map((token) => {
+			if (!token || typeof token !== "object") return "";
+
+			const record = token as Record<string, unknown>;
+			if (typeof record.text === "string") return record.text;
+			if (Array.isArray(record.tokens)) {
+				return plainTextFromInlineTokens(record.tokens);
+			}
+			return "";
+		})
+		.join("");
+}
+
+function renderCompactSourceLink(params: { href: string; sourceName: string }) {
+	const sourceName = escapeHtml(params.sourceName);
+	const href = escapeHtml(params.href);
+	const ariaLabel = escapeHtml(
+		`Open source: ${params.sourceName} - ${params.href}`,
+	);
+
+	return [
+		`<a href="${href}" class="source-link-pill" target="_blank" rel="noopener noreferrer external" aria-label="${ariaLabel}" title="${ariaLabel}">`,
+		'<span class="source-link-pill__icon" aria-hidden="true"></span>',
+		'<span class="source-link-pill__tooltip" aria-hidden="true">',
+		`<span class="source-link-pill__name">${sourceName}</span>`,
+		`<span class="source-link-pill__url">${href}</span>`,
+		"</span>",
+		"</a>",
+	].join("");
+}
+
+function createMarkdownRenderer(
+	isDark: boolean,
+	options: RenderMarkdownOptions,
+) {
 	const marked = getMarked();
 	const renderer = new marked.Renderer();
 
@@ -390,6 +437,17 @@ function createMarkdownRenderer(isDark: boolean) {
 			return text;
 		}
 
+		if (
+			options.compactExternalLinks &&
+			["http:", "https:"].includes(parsedHref.protocol)
+		) {
+			const sourceName =
+				compactWhitespace(plainTextFromInlineTokens(tokens)) ||
+				parsedHref.hostname ||
+				href;
+			return renderCompactSourceLink({ href, sourceName });
+		}
+
 		const titleAttribute = title ? ` title="${escapeHtml(title)}"` : "";
 		return `<a href="${escapeHtml(href)}"${titleAttribute} target="_blank" rel="noopener noreferrer external">${text}</a>`;
 	};
@@ -401,6 +459,7 @@ export {
 	initHighlighter,
 	normalizeLanguage,
 	prepareCodeHighlighting,
+	type RenderMarkdownOptions,
 	renderCodeBlock,
 	renderHighlightedText,
 	renderMarkdown,

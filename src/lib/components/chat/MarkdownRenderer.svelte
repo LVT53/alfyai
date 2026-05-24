@@ -12,11 +12,13 @@
   let {
     content = '',
     isDark = false,
-    isStreaming = false
+    isStreaming = false,
+    compactExternalLinks = false
   }: {
     content?: string;
     isDark?: boolean;
     isStreaming?: boolean;
+    compactExternalLinks?: boolean;
   } = $props();
 
   type MarkdownBlock =
@@ -39,7 +41,7 @@
   let throttleTimer: ReturnType<typeof setTimeout> | null = null;
   const STREAM_THROTTLE_MS = 40;
 
-  function scheduleRender(src: string, darkMode: boolean, streaming: boolean) {
+  function scheduleRender(src: string, darkMode: boolean, streaming: boolean, compactLinks: boolean) {
     pendingContent = src;
     if (throttleTimer !== null) return;
     throttleTimer = setTimeout(() => {
@@ -47,11 +49,11 @@
       const latest = pendingContent;
       pendingContent = null;
       if (latest === null) return;
-      void renderContent(latest, darkMode, streaming);
+      void renderContent(latest, darkMode, streaming, compactLinks);
     }, STREAM_THROTTLE_MS);
   }
 
-  async function splitMarkdownBlocks(source: string, darkMode: boolean): Promise<MarkdownBlock[]> {
+  async function splitMarkdownBlocks(source: string, darkMode: boolean, compactLinks: boolean): Promise<MarkdownBlock[]> {
     const normalizedSource = source.startsWith('[Translation unavailable]')
       ? source.substring('[Translation unavailable]'.length).trimStart()
       : source;
@@ -65,7 +67,9 @@
     const flushText = async () => {
       if (!textLines.length) return;
 
-      const html = await renderMarkdown(textLines.join('\n'), darkMode);
+      const html = await renderMarkdown(textLines.join('\n'), darkMode, {
+        compactExternalLinks: compactLinks
+      });
       if (html.trim()) {
         nextBlocks.push({ type: 'html', html });
       }
@@ -116,12 +120,12 @@
     return nextBlocks;
   }
 
-  async function renderContent(src: string, darkMode: boolean, streaming: boolean) {
+  async function renderContent(src: string, darkMode: boolean, streaming: boolean, compactLinks: boolean) {
     const currentRender = ++renderVersion;
     if (src.includes('```')) {
       await prepareCodeHighlighting(src);
     }
-    const newBlocks = await splitMarkdownBlocks(src, darkMode);
+    const newBlocks = await splitMarkdownBlocks(src, darkMode, compactLinks);
     if (currentRender !== renderVersion) return;
     const oldCount = prevBlockCount;
     
@@ -144,9 +148,10 @@
     const nextContent = content;
     const darkMode = isDark;
     const streaming = isStreaming;
+    const compactLinks = compactExternalLinks;
 
     if (streaming) {
-      scheduleRender(nextContent, darkMode, streaming);
+      scheduleRender(nextContent, darkMode, streaming, compactLinks);
       return;
     }
 
@@ -157,7 +162,7 @@
       pendingContent = null;
     }
 
-    void renderContent(nextContent, darkMode, streaming);
+    void renderContent(nextContent, darkMode, streaming, compactLinks);
   });
 
   $effect(() => {
@@ -212,8 +217,10 @@
         }
         node.parentNode?.replaceChild(fragment, node);
       } else if (node.nodeType === Node.ELEMENT_NODE) {
-        const tagName = (node as Element).tagName;
+        const element = node as Element;
+        const tagName = element.tagName;
         if (tagName === 'SCRIPT' || tagName === 'STYLE') return;
+        if (element.matches('.source-link-pill__tooltip')) return;
         Array.from(node.childNodes).forEach(processNode);
       }
     }
@@ -412,6 +419,99 @@
 
   :global(.word-new) {
     animation: wordFadeIn 200ms ease-out forwards;
+  }
+
+  :global(.source-link-pill) {
+    position: relative;
+    display: inline-flex;
+    width: 1.55em;
+    min-width: 1.55em;
+    height: 1.18em;
+    align-items: center;
+    justify-content: center;
+    margin: 0 0.08em;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-elevated) 82%, var(--accent) 18%);
+    color: var(--text-secondary);
+    text-decoration: none !important;
+    vertical-align: -0.14em;
+    transition:
+      border-color var(--duration-micro) var(--ease-out),
+      background var(--duration-micro) var(--ease-out),
+      color var(--duration-micro) var(--ease-out);
+  }
+
+  :global(.source-link-pill:hover),
+  :global(.source-link-pill:focus-visible) {
+    border-color: color-mix(in srgb, var(--accent) 70%, var(--border-subtle));
+    background: color-mix(in srgb, var(--surface-elevated) 72%, var(--accent) 28%);
+    color: var(--text-primary);
+    outline: none;
+  }
+
+  :global(.source-link-pill:focus-visible) {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 42%, transparent);
+  }
+
+  :global(.source-link-pill__icon) {
+    position: relative;
+    display: block;
+    width: 0.82em;
+    height: 0.82em;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+
+  :global(.source-link-pill__tooltip) {
+    position: absolute;
+    top: calc(100% + 0.45rem);
+    left: 50%;
+    z-index: 40;
+    display: flex;
+    min-width: min(18rem, 82vw);
+    max-width: min(24rem, 82vw);
+    flex-direction: column;
+    gap: 0.18rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 7px;
+    background: var(--surface-elevated);
+    box-shadow: var(--shadow-lg);
+    color: var(--text-primary);
+    font-family: 'Nimbus Sans L', sans-serif;
+    font-size: 0.76rem;
+    line-height: 1.35;
+    opacity: 0;
+    padding: 0.45rem 0.55rem;
+    pointer-events: none;
+    text-align: left;
+    transform: translate(-50%, -0.2rem);
+    transition:
+      opacity var(--duration-micro) var(--ease-out),
+      transform var(--duration-micro) var(--ease-out),
+      visibility var(--duration-micro) var(--ease-out);
+    visibility: hidden;
+    white-space: normal;
+  }
+
+  :global(.source-link-pill__name) {
+    font-weight: 650;
+    overflow-wrap: anywhere;
+  }
+
+  :global(.source-link-pill__url) {
+    color: var(--text-muted);
+    font-family: 'Nimbus Mono PS', monospace;
+    font-size: 0.7rem;
+    overflow-wrap: anywhere;
+  }
+
+  :global(.source-link-pill:hover .source-link-pill__tooltip),
+  :global(.source-link-pill:focus-visible .source-link-pill__tooltip) {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    visibility: visible;
   }
 
   @keyframes wordFadeIn {

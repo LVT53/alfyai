@@ -337,11 +337,12 @@
 				</div>
 			{/if}
 		{:else}
-			<div class="prose-container min-w-0 w-full overflow-hidden text-[15px] leading-[1.5] md:leading-[1.55]">
+			<div class="prose-container min-w-0 w-full text-[15px] leading-[1.5] md:leading-[1.55]">
 				<MarkdownRenderer
 					content={message.content}
 					isDark={$isDark}
 					isStreaming={Boolean(message.isStreaming)}
+					compactExternalLinks
 				/>
 			</div>
 			{#if showPreparingStatus}
@@ -614,6 +615,7 @@
 		width: 100%;
 		max-width: 100%;
 		overflow-x: clip;
+		overflow-y: visible;
 	}
 
 	.prose-container :global(.prose) {
