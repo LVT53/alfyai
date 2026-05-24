@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from typing import Any, ClassVar
 
+import httpx
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, SystemMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
@@ -125,6 +127,51 @@ class NemotronReasoningChatOpenAI(ChatOpenAI):
             payload.pop("reasoning_effort", None)
         return payload
 
+    @staticmethod
+    def _coerce_openai_compatible_content(content: Any) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for part in content:
+                if isinstance(part, str):
+                    parts.append(part)
+                    continue
+                if isinstance(part, dict):
+                    text = part.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+                        continue
+                try:
+                    parts.append(json.dumps(part, ensure_ascii=False, separators=(",", ":")))
+                except TypeError:
+                    parts.append(str(part))
+            return "".join(parts)
+        return str(content)
+
+    def _normalize_payload_message_content(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Keep assistant/tool history valid for vLLM's OpenAI-compatible validator."""
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            return payload
+
+        string_content_roles = {"assistant", "tool", "function", "system", "developer"}
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+
+            role = msg.get("role")
+            has_tool_calls = bool(msg.get("tool_calls"))
+            content = msg.get("content")
+            if has_tool_calls and content in (None, ""):
+                msg["content"] = ""
+                continue
+            if role in string_content_roles and "content" in msg:
+                msg["content"] = self._coerce_openai_compatible_content(content)
+        return payload
+
     def _merge_reasoning_body(self, payload: dict[str, Any]) -> dict[str, Any]:
         payload = self._strip_blank_reasoning_fields(payload)
         reasoning_effort = str(self.reasoning_effort or "").strip()
@@ -184,7 +231,7 @@ class NemotronReasoningChatOpenAI(ChatOpenAI):
                 inner_end = content.find(close_tag)
                 reasoning_text = content[inner_start:inner_end]
                 clean_content = content[:start] + content[end:]
-                msg["content"] = clean_content if clean_content or not has_tool_calls else None
+                msg["content"] = clean_content if clean_content or not has_tool_calls else ""
                 if reasoning_text:
                     self._set_payload_reasoning(msg, reasoning_text)
                 # Cache for fallback on later turns
@@ -197,8 +244,8 @@ class NemotronReasoningChatOpenAI(ChatOpenAI):
                 )
                 continue
 
-            if has_tool_calls and not content:
-                msg["content"] = None
+            if has_tool_calls and content in (None, ""):
+                msg["content"] = ""
 
             # Case 2: message already has reasoning_content in additional_kwargs
             # (langchain_openai's _convert_message_to_dict does NOT preserve it,
@@ -327,6 +374,7 @@ class NemotronReasoningChatOpenAI(ChatOpenAI):
         """Override to recover reasoning_content from <thinking> tags before sending to the API."""
         payload = super()._get_request_payload(messages, stop=stop, **kwargs)
         payload = self._strip_blank_reasoning_fields(payload)
+        payload = self._normalize_payload_message_content(payload)
         return self._recover_reasoning_in_payload(payload)
 
     async def _astream(self, messages: Any, *args: Any, **kwargs: Any):
@@ -613,6 +661,30 @@ class NemotronReasoningVllmComponent(LCModelComponent):
         ),
     ]
 
+    @staticmethod
+    def _build_openai_timeout(timeout_seconds: Any, allow_long_stream_reads: bool) -> Any:
+        if timeout_seconds is None or timeout_seconds == -1:
+            return None
+
+        try:
+            seconds = float(timeout_seconds)
+        except (TypeError, ValueError):
+            return timeout_seconds
+
+        if seconds <= 0:
+            return None
+        if not allow_long_stream_reads:
+            return seconds
+
+        connect_timeout = min(10.0, seconds)
+        return httpx.Timeout(
+            timeout=seconds,
+            connect=connect_timeout,
+            read=None,
+            write=seconds,
+            pool=connect_timeout,
+        )
+
     def _validate_model_exists(self, base_url: str, model_name: str, api_key: str | None = None) -> bool:
         """Validate that the model exists on the OpenAI-compatible server."""
         try:
@@ -706,8 +778,12 @@ class NemotronReasoningVllmComponent(LCModelComponent):
 
         if self.seed is not None and self.seed != -1:
             parameters["seed"] = self.seed
-        if self.timeout is not None and self.timeout != -1:
-            parameters["timeout"] = self.timeout
+        configured_timeout = self._build_openai_timeout(
+            self.timeout,
+            allow_long_stream_reads=_allows_chat_template_kwargs(normalized_api_base),
+        )
+        if configured_timeout is not None:
+            parameters["timeout"] = configured_timeout
         if self.max_retries is not None and self.max_retries != -1:
             parameters["max_retries"] = self.max_retries
 

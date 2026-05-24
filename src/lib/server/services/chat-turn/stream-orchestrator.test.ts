@@ -152,6 +152,7 @@ function createHangingStream(): ReadableStream<Uint8Array> {
 
 function createHangingEventBlockStream(blocks: string[]): {
 	stream: ReadableStream<Uint8Array>;
+	enqueue: (block: string) => void;
 	close: () => void;
 } {
 	const encoder = new TextEncoder();
@@ -167,6 +168,9 @@ function createHangingEventBlockStream(blocks: string[]): {
 				}
 			},
 		}),
+		enqueue(block: string) {
+			upstreamController?.enqueue(encoder.encode(block));
+		},
 		close() {
 			try {
 				upstreamController?.close();
@@ -728,7 +732,7 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
-	it("keeps first-visible-output failover armed after tool-call chunks", async () => {
+	it("does not trigger first-visible-output failover after tool-call progress before answer text", async () => {
 		vi.useFakeTimers();
 		const { getConfig } = await import("$lib/server/config-store");
 		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -748,6 +752,10 @@ describe("stream-orchestrator SSE contract", () => {
 		const toolCallMarker = `\u0002TOOL_START\u001f${JSON.stringify({
 			name: "web_search",
 			input: { query: "weather" },
+		})}\u0003`;
+		const toolDoneMarker = `\u0002TOOL_END\u001f${JSON.stringify({
+			name: "web_search",
+			outputSummary: "Weather results returned.",
 		})}\u0003`;
 		const upstream = createHangingEventBlockStream([
 			`event: token\ndata: ${JSON.stringify({
@@ -799,18 +807,114 @@ describe("stream-orchestrator SSE contract", () => {
 			await vi.advanceTimersByTimeAsync(1);
 			await Promise.resolve();
 			await Promise.resolve();
-			expect(sendMessage).toHaveBeenCalledWith(
-				"Hello",
-				"tool-call-timeout-failover-conv",
-				"model2",
-				expect.any(Object),
-				expect.any(Object),
+			expect(sendMessage).not.toHaveBeenCalled();
+
+			upstream.enqueue(
+				`event: token\ndata: ${JSON.stringify({
+					choices: [{ delta: { content: toolDoneMarker } }],
+				})}\n\n`,
 			);
+			upstream.enqueue(
+				`event: token\ndata: ${JSON.stringify({
+					choices: [{ delta: { content: "Forecast answer." } }],
+				})}\n\n`,
+			);
+			upstream.close();
 
 			const chunks = await chunksPromise;
 			const body = chunks.join("\n\n");
 			expect(body).toContain("event: tool_call");
-			expect(body).toContain('event: token\ndata: {"text":"Backup answer"}');
+			expect(body).toContain('event: token\ndata: {"text":"Forecast answer."}');
+			expect(body).toContain("event: end");
+			expect(body).not.toContain("event: error");
+		} finally {
+			upstream.close();
+			await chunksPromise.catch(() => undefined);
+		}
+	});
+
+	it("does not trigger first-visible-output failover after reasoning progress before answer text", async () => {
+		vi.useFakeTimers();
+		const { getConfig } = await import("$lib/server/config-store");
+		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+			requestTimeoutMs: 120000,
+			modelTimeoutFailoverEnabled: true,
+			modelTimeoutFailoverTimeoutMs: 10000,
+			modelTimeoutFailoverTargetModel: "model2",
+		});
+		const {
+			resolveTimeoutFailoverTargetModelId,
+			sendMessage,
+			sendMessageStream,
+		} = await import("$lib/server/services/langflow");
+		(
+			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
+		).mockResolvedValue("model2");
+		const upstream = createHangingEventBlockStream([
+			`event: token\ndata: ${JSON.stringify({
+				choices: [
+					{ delta: { reasoning_content: "thinking through tool use" } },
+				],
+			})}\n\n`,
+		]);
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+			stream: upstream.stream,
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+		});
+		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+			text: "Backup answer",
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+			modelId: "model2",
+			modelDisplayName: "Model Two",
+		});
+
+		const response = runChatStreamOrchestrator({
+			user: {
+				id: "u1",
+				displayName: "User",
+				email: "u@test.com",
+			},
+			turn: createTurn({
+				conversationId: "reasoning-progress-timeout-conv",
+				streamId: "reasoning-progress-timeout-stream",
+				modelId: "model1",
+				modelDisplayName: "Model One",
+			}),
+			upstreamMessage: "Hello",
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+		});
+
+		const chunksPromise = readSseResponse(response);
+		try {
+			await vi.advanceTimersByTimeAsync(10000);
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(sendMessage).not.toHaveBeenCalled();
+
+			upstream.enqueue(
+				`event: token\ndata: ${JSON.stringify({
+					choices: [{ delta: { content: "Reasoned answer." } }],
+				})}\n\n`,
+			);
+			upstream.close();
+
+			const chunks = await chunksPromise;
+			const body = chunks.join("\n\n");
+			expect(body).toContain(
+				'event: thinking\ndata: {"text":"thinking through tool use"}',
+			);
+			expect(body).toContain('event: token\ndata: {"text":"Reasoned answer."}');
 			expect(body).toContain("event: end");
 			expect(body).not.toContain("event: error");
 		} finally {

@@ -359,11 +359,22 @@ export function runChatStreamOrchestrator(
 					}
 				},
 			});
+			let firstVisibleOutputTimeoutId: ReturnType<typeof setTimeout> | null =
+				null;
+			const clearFirstVisibleOutputTimeout = () => {
+				if (!firstVisibleOutputTimeoutId) return;
+				clearTimeout(firstVisibleOutputTimeoutId);
+				firstVisibleOutputTimeoutId = null;
+			};
 			const emitThinking = (reasoning: string) => {
 				if (reasoning) {
 					recordElapsedPhase("first_thinking");
 				}
-				return chunkRuntime.emitThinking(reasoning);
+				const emitted = chunkRuntime.emitThinking(reasoning);
+				if (emitted && chunkRuntime.thinkingContent.trim()) {
+					clearFirstVisibleOutputTimeout();
+				}
+				return emitted;
 			};
 			const emitToolCallEventWithDebug = (
 				name: string,
@@ -377,13 +388,9 @@ export function runChatStreamOrchestrator(
 				},
 			) => {
 				chunkRuntime.emitToolCallEvent(name, input, status, details);
-			};
-			let firstVisibleOutputTimeoutId: ReturnType<typeof setTimeout> | null =
-				null;
-			const clearFirstVisibleOutputTimeout = () => {
-				if (!firstVisibleOutputTimeoutId) return;
-				clearTimeout(firstVisibleOutputTimeoutId);
-				firstVisibleOutputTimeoutId = null;
+				if (chunkRuntime.toolCallRecords.length > 0) {
+					clearFirstVisibleOutputTimeout();
+				}
 			};
 			const emitChunkWithOutputHandling = (chunk: string): boolean => {
 				const previousVisibleAnswerLength = chunkRuntime.fullResponse.length;
@@ -695,6 +702,9 @@ export function runChatStreamOrchestrator(
 				if (!firstVisibleOutputTimeoutMs) return;
 				clearFirstVisibleOutputTimeout();
 				firstVisibleOutputTimeoutId = setTimeout(() => {
+					if (hasEmittedStreamOutput()) {
+						return;
+					}
 					console.warn("[STREAM] First visible output timeout", {
 						conversationId,
 						streamId,
@@ -704,9 +714,6 @@ export function runChatStreamOrchestrator(
 						thinkingLength: chunkRuntime.thinkingContent.length,
 						toolCallCount: chunkRuntime.toolCallRecords.length,
 					});
-					if (hasVisibleAssistantAnswerOutput()) {
-						return;
-					}
 					upstreamIdleTimedOutBeforeOutput = true;
 					void (async () => {
 						const timeoutFailoverTarget =
