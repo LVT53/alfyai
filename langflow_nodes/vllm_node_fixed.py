@@ -151,6 +151,61 @@ class NemotronReasoningChatOpenAI(ChatOpenAI):
             return "".join(parts)
         return str(content)
 
+    @staticmethod
+    def _coerce_tool_call_arguments(arguments: Any) -> str:
+        if arguments is None:
+            return "{}"
+        if isinstance(arguments, str):
+            return arguments
+        try:
+            return json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
+        except TypeError:
+            return str(arguments)
+
+    def _normalize_openai_compatible_tool_calls(self, msg: dict[str, Any]) -> bool:
+        tool_calls = msg.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            msg.pop("tool_calls", None)
+            msg.pop("tool_call_chunks", None)
+            return False
+
+        normalized_tool_calls: list[dict[str, Any]] = []
+        for tool_call in tool_calls:
+            if not isinstance(tool_call, dict):
+                continue
+
+            function = tool_call.get("function")
+            if not isinstance(function, dict):
+                continue
+
+            tool_call_id = tool_call.get("id")
+            function_name = function.get("name")
+            if not isinstance(tool_call_id, str) or not tool_call_id.strip():
+                continue
+            if not isinstance(function_name, str) or not function_name.strip():
+                continue
+
+            normalized_tool_calls.append(
+                {
+                    "type": "function",
+                    "id": tool_call_id,
+                    "function": {
+                        "name": function_name,
+                        "arguments": self._coerce_tool_call_arguments(
+                            function.get("arguments"),
+                        ),
+                    },
+                },
+            )
+
+        msg.pop("tool_call_chunks", None)
+        if normalized_tool_calls:
+            msg["tool_calls"] = normalized_tool_calls
+            return True
+
+        msg.pop("tool_calls", None)
+        return False
+
     def _normalize_payload_message_content(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Keep assistant/tool history valid for vLLM's OpenAI-compatible validator."""
         messages = payload.get("messages")
@@ -163,7 +218,7 @@ class NemotronReasoningChatOpenAI(ChatOpenAI):
                 continue
 
             role = msg.get("role")
-            has_tool_calls = bool(msg.get("tool_calls"))
+            has_tool_calls = self._normalize_openai_compatible_tool_calls(msg)
             content = msg.get("content")
             if has_tool_calls and content in (None, ""):
                 msg["content"] = ""

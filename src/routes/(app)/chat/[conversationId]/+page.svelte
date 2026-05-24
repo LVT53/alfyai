@@ -10,8 +10,10 @@ import {
 	consumePendingConversationMessage,
 	createConversationDraftRecord,
 	createDraftPersistence,
+	getConversationModelSelection,
 	getConversationPersonalitySelection,
 	hasMeaningfulDraft,
+	setConversationModelSelection,
 	setConversationPersonalitySelection,
 	storePendingConversationMessage,
 } from "$lib/client/conversation-session";
@@ -55,6 +57,7 @@ import { currentConversationId } from "$lib/stores/ui";
 import {
 	selectedModel,
 	selectedThinkingMode,
+	setSelectedModel,
 	setSelectedThinkingMode,
 } from "$lib/stores/settings";
 import EvidenceManager from "$lib/components/chat/EvidenceManager.svelte";
@@ -73,6 +76,7 @@ import type {
 	DocumentWorkspaceItem,
 	FileProductionJob,
 	SkillSession,
+	ModelId,
 	TaskState,
 	TaskSteeringPayload,
 } from "$lib/types";
@@ -169,6 +173,7 @@ const initialActiveSkillSession = getData().activeSkillSession ?? null;
 const initialConversationId = getData().conversation.id;
 const initialConversationStatus = getData().conversation.status ?? "open";
 const initialUserPersonality = getData().userPersonality ?? null;
+const initialUserModel = (getData().userModel ?? "model1") as ModelId;
 const modelIcons = $derived.by(() => {
 	const models =
 		((data as typeof data & {
@@ -476,6 +481,18 @@ function setSelectedPersonalityId(id: string | null) {
 	setConversationPersonalitySelection(data.conversation.id, id);
 }
 
+function applyConversationModelSelection(
+	conversationId: string,
+	profileDefault: ModelId,
+) {
+	setSelectedModel(getConversationModelSelection(conversationId, profileDefault));
+}
+
+function setSelectedConversationModelId(modelId: ModelId) {
+	setSelectedModel(modelId);
+	setConversationModelSelection(data.conversation.id, modelId);
+}
+
 function maybeSendPendingInitialMessage() {
 	if (
 		typeof window === "undefined" ||
@@ -502,6 +519,9 @@ function maybeSendPendingInitialMessage() {
 	}
 	// Show loading state until streaming actually starts
 	initialStreamPending = true;
+	if (pendingDraft.modelId) {
+		setSelectedConversationModelId(pendingDraft.modelId);
+	}
 	setSelectedPersonalityId(pendingDraft.personalityProfileId ?? null);
 	handleSend({ ...pendingDraft, pendingAttachments: [] });
 }
@@ -526,6 +546,10 @@ function resetState() {
 	selectedPersonalityId = getConversationPersonalitySelection(
 		data.conversation.id,
 		data.userPersonality ?? null,
+	);
+	applyConversationModelSelection(
+		data.conversation.id,
+		(data.userModel ?? "model1") as ModelId,
 	);
 	contextStatus = data.contextStatus ?? null;
 	attachedArtifacts = data.attachedArtifacts ?? [];
@@ -1004,6 +1028,9 @@ async function checkForOrphanedStreamOnMount() {
 
 onMount(() => {
 	currentConversationId.set(data.conversation.id);
+	requestAnimationFrame(() => {
+		applyConversationModelSelection(initialConversationId, initialUserModel);
+	});
 	triggerForkOpeningTransition();
 	document.addEventListener("visibilitychange", handleVisibilityChange);
 	window.addEventListener(
@@ -1781,6 +1808,7 @@ async function handleSend(
 	const attachmentIds = payload.attachmentIds ?? [];
 	const newAttachments = payload.attachments ?? [];
 	const modelIdForTurn = payload.modelId ?? $selectedModel;
+	setConversationModelSelection(data.conversation.id, modelIdForTurn);
 	const personalityProfileIdForTurn =
 		payload.personalityProfileId !== undefined
 			? payload.personalityProfileId
@@ -2541,6 +2569,7 @@ function handleDrop(event: DragEvent) {
 				{personalityProfiles}
 				{selectedPersonalityId}
 				onPersonalityChange={setSelectedPersonalityId}
+				onModelChange={setSelectedConversationModelId}
 				thinkingMode={$selectedThinkingMode}
 				onThinkingModeChange={setSelectedThinkingMode}
 				draftText={conversationDraft?.draftText ?? ''}

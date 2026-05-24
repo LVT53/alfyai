@@ -6,10 +6,12 @@ import {
 	consumePreviousConversationId,
 	createConversationDraftRecord,
 	createDraftPersistence,
+	getConversationModelSelection,
 	getConversationPersonalitySelection,
 	getLandingDraftConversationId,
 	hasPendingConversationMessage,
 	markPreviousConversationId,
+	setConversationModelSelection,
 	setConversationPersonalitySelection,
 	setLandingDraftConversationId,
 	storePendingConversationMessage,
@@ -57,6 +59,17 @@ describe("conversation-session", () => {
 		expect(getConversationPersonalitySelection("conv-456", "creative")).toBe(
 			"creative",
 		);
+	});
+
+	it("keeps chat-local model selection separate from the profile default", () => {
+		expect(getConversationModelSelection("conv-123", "model1")).toBe("model1");
+
+		setConversationModelSelection("conv-123", "provider:local-gpt-oss");
+		expect(getConversationModelSelection("conv-123", "model1")).toBe(
+			"provider:local-gpt-oss",
+		);
+
+		expect(getConversationModelSelection("conv-456", "model1")).toBe("model1");
 	});
 
 	it("stores and consumes pending conversation messages", () => {

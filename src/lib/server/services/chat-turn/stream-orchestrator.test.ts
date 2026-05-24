@@ -923,7 +923,7 @@ describe("stream-orchestrator SSE contract", () => {
 		}
 	});
 
-	it("routes upstream ReadTimeout error events to the configured failover model before output starts", async () => {
+	it("retries upstream ReadTimeout error events as a stream on the configured failover model before output starts", async () => {
 		const {
 			isLangflowTimeoutError,
 			resolveTimeoutFailoverTargetModelId,
@@ -938,7 +938,7 @@ describe("stream-orchestrator SSE contract", () => {
 		(
 			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
 		).mockResolvedValue("model2");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
 			stream: createErrorEventStream(
 				"**ReadTimeout**\n - **Details: **\nhttpx.ReadTimeout",
 			),
@@ -949,8 +949,8 @@ describe("stream-orchestrator SSE contract", () => {
 			honchoSnapshot: null,
 			providerUsage: null,
 		});
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "Backup answer",
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+			stream: createTokenStream("Backup answer"),
 			contextStatus: null,
 			taskState: null,
 			contextDebug: null,
@@ -983,16 +983,24 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(body).toContain('event: token\ndata: {"text":"Backup answer"}');
 		expect(body).toContain("event: end");
 		expect(body).not.toContain("event: error");
-		expect(sendMessage).toHaveBeenCalledWith(
+		expect(sendMessage).not.toHaveBeenCalled();
+		expect(sendMessageStream).toHaveBeenNthCalledWith(
+			1,
+			"Hello",
+			"read-timeout-failover-conv",
+			"model1",
+			expect.any(Object),
+		);
+		expect(sendMessageStream).toHaveBeenNthCalledWith(
+			2,
 			"Hello",
 			"read-timeout-failover-conv",
 			"model2",
 			expect.any(Object),
-			expect.any(Object),
 		);
 	});
 
-	it("routes upstream ReadTimeout error events after reasoning-only output", async () => {
+	it("retries upstream ReadTimeout error events after reasoning-only output as a failover stream", async () => {
 		const {
 			isLangflowTimeoutError,
 			resolveTimeoutFailoverTargetModelId,
@@ -1007,7 +1015,7 @@ describe("stream-orchestrator SSE contract", () => {
 		(
 			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
 		).mockResolvedValue("model2");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
 			stream: createEventBlockStream([
 				`event: token\ndata: ${JSON.stringify({
 					choices: [
@@ -1025,8 +1033,8 @@ describe("stream-orchestrator SSE contract", () => {
 			honchoSnapshot: null,
 			providerUsage: null,
 		});
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "Backup answer",
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+			stream: createTokenStream("Backup answer"),
 			contextStatus: null,
 			taskState: null,
 			contextDebug: null,
@@ -1059,11 +1067,19 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(body).toContain('event: token\ndata: {"text":"Backup answer"}');
 		expect(body).toContain("event: end");
 		expect(body).not.toContain("event: error");
-		expect(sendMessage).toHaveBeenCalledWith(
+		expect(sendMessage).not.toHaveBeenCalled();
+		expect(sendMessageStream).toHaveBeenNthCalledWith(
+			1,
+			"Hello",
+			"reasoning-timeout-failover-conv",
+			"model1",
+			expect.any(Object),
+		);
+		expect(sendMessageStream).toHaveBeenNthCalledWith(
+			2,
 			"Hello",
 			"reasoning-timeout-failover-conv",
 			"model2",
-			expect.any(Object),
 			expect.any(Object),
 		);
 	});

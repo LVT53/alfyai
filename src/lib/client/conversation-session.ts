@@ -19,6 +19,7 @@ const PREVIOUS_CONVERSATION_KEY = "previous-conversation-id";
 const LANDING_DRAFT_CONVERSATION_KEY = "landing-draft-conversation-id";
 const PENDING_MESSAGE_PREFIX = "pending-chat-message:";
 const CONVERSATION_PERSONALITY_PREFIX = "conversation-personality:";
+const CONVERSATION_MODEL_PREFIX = "conversation-model:";
 
 export type PendingConversationMessage = {
 	message: string;
@@ -48,6 +49,17 @@ function getPendingMessageKey(conversationId: string): string {
 
 function getConversationPersonalityKey(conversationId: string): string {
 	return `${CONVERSATION_PERSONALITY_PREFIX}${conversationId}`;
+}
+
+function getConversationModelKey(conversationId: string): string {
+	return `${CONVERSATION_MODEL_PREFIX}${conversationId}`;
+}
+
+function isModelId(value: unknown): value is ModelId {
+	return (
+		typeof value === "string" &&
+		(value === "model1" || value === "model2" || value.startsWith("provider:"))
+	);
 }
 
 function toArtifactSummaryList(value: unknown): ArtifactSummary[] {
@@ -167,6 +179,34 @@ export function setConversationPersonalitySelection(
 	);
 }
 
+export function getConversationModelSelection(
+	conversationId: string,
+	profileDefault: ModelId,
+): ModelId {
+	const storage = getSessionStorage();
+	const key = getConversationModelKey(conversationId);
+	if (!storage || storage.getItem(key) === null) {
+		return profileDefault;
+	}
+
+	try {
+		const parsed = JSON.parse(storage.getItem(key) ?? "null") as unknown;
+		return isModelId(parsed) ? parsed : profileDefault;
+	} catch {
+		return profileDefault;
+	}
+}
+
+export function setConversationModelSelection(
+	conversationId: string,
+	modelId: ModelId,
+): void {
+	getSessionStorage()?.setItem(
+		getConversationModelKey(conversationId),
+		JSON.stringify(modelId),
+	);
+}
+
 export function storePendingConversationMessage(
 	conversationId: string,
 	payload: PendingConversationMessage,
@@ -218,13 +258,7 @@ export function consumePendingConversationMessage(
 			attachments: toArtifactSummaryList(parsed.attachments),
 			linkedSources: toLinkedContextSourceList(parsed.linkedSources),
 			pendingSkill: toPendingSkillSelection(parsed.pendingSkill),
-			modelId:
-				typeof parsed.modelId === "string" &&
-				(parsed.modelId === "model1" ||
-					parsed.modelId === "model2" ||
-					parsed.modelId.startsWith("provider:"))
-					? (parsed.modelId as ModelId)
-					: undefined,
+			modelId: isModelId(parsed.modelId) ? parsed.modelId : undefined,
 			personalityProfileId:
 				typeof parsed.personalityProfileId === "string"
 					? parsed.personalityProfileId

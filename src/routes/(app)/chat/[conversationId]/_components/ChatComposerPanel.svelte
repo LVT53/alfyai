@@ -10,6 +10,7 @@
 		ContextSourcesState,
 		ConversationContextStatus,
 		LinkedContextSource,
+		ModelId,
 		PendingAttachment,
 		PendingSkillSelection,
 		TaskState,
@@ -55,6 +56,7 @@
 		personalityProfiles,
 		selectedPersonalityId,
 		onPersonalityChange,
+		onModelChange,
 		thinkingMode,
 		onThinkingModeChange,
 		children,
@@ -102,6 +104,7 @@
 		personalityProfiles?: Array<{ id: string; name: string; description: string }>;
 		selectedPersonalityId?: string | null;
 		onPersonalityChange?: ((id: string | null) => void) | undefined;
+		onModelChange?: ((modelId: ModelId) => void) | undefined;
 		thinkingMode?: ThinkingMode;
 		onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
 		children?: Snippet;
@@ -204,6 +207,7 @@
 			{personalityProfiles}
 			{selectedPersonalityId}
 			{onPersonalityChange}
+			{onModelChange}
 			{thinkingMode}
 			{onThinkingModeChange}
 		/>

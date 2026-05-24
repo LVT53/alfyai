@@ -75,6 +75,20 @@ describe("Langflow custom model node", () => {
 		);
 	});
 
+	it("drops partial streaming tool calls before sending history back to vLLM", () => {
+		const source = nodeSource("vllm_node_fixed.py");
+
+		expect(source).toContain("_normalize_openai_compatible_tool_calls");
+		expect(source).toContain('msg.pop("tool_call_chunks", None)');
+		expect(source).toContain('msg.pop("tool_calls", None)');
+		expect(source).toContain('if not isinstance(tool_call_id, str) or not tool_call_id.strip():');
+		expect(source).toContain('if not isinstance(function_name, str) or not function_name.strip():');
+		expect(source).toContain('"arguments": self._coerce_tool_call_arguments(');
+		expect(source).toMatch(
+			/has_tool_calls = self\._normalize_openai_compatible_tool_calls\(msg\)[\s\S]*if has_tool_calls and content in \(None, ""\):/,
+		);
+	});
+
 	it("uses stream-friendly read timeout settings for local OpenAI-compatible models", () => {
 		const source = nodeSource("vllm_node_fixed.py");
 

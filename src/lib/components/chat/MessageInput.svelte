@@ -30,6 +30,7 @@ import type {
 	ConversationContextStatus,
 	KnowledgeDocumentItem,
 	LinkedContextSource,
+	ModelId,
 	PendingAttachment,
 	TaskState,
 	TaskSteeringPayload,
@@ -100,6 +101,7 @@ let {
 	personalityProfiles = [],
 	selectedPersonalityId = null,
 	onPersonalityChange = undefined,
+	onModelChange = undefined,
 	thinkingMode = "auto",
 	onThinkingModeChange = undefined,
 	deepResearchEnabled = false,
@@ -154,6 +156,7 @@ let {
 	}>;
 	selectedPersonalityId?: string | null;
 	onPersonalityChange?: ((id: string | null) => void) | undefined;
+	onModelChange?: ((modelId: ModelId) => void) | undefined;
 	thinkingMode?: ThinkingMode;
 	onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
 	deepResearchEnabled?: boolean;
@@ -1757,6 +1760,7 @@ async function emitDraftChange(force = false) {
 							{personalityProfiles}
 							{selectedPersonalityId}
 							{onPersonalityChange}
+							{onModelChange}
 							{thinkingMode}
 							{onThinkingModeChange}
 							initialOpen={toolsMenuInitialOpen}

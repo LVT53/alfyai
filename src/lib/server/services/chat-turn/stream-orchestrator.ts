@@ -739,6 +739,7 @@ export function runChatStreamOrchestrator(
 			let usedUrlListRecovery = false;
 			let personalityPrompt: string | undefined;
 			let latestUpstreamAttempt = 1;
+			let currentStreamModelId = modelId;
 			let attemptedNonStreamFallback = false;
 			const currentSystemPromptAppendix = () => {
 				const appendices = [
@@ -746,6 +747,37 @@ export function runChatStreamOrchestrator(
 					usedUrlListRecovery ? URL_LIST_TOOL_RECOVERY_APPENDIX : undefined,
 				].filter((value): value is string => Boolean(value?.trim()));
 				return appendices.length > 0 ? appendices.join("\n\n") : undefined;
+			};
+			const retryStreamOnTimeoutFailover = async (
+				attempt: number,
+				error: Error,
+			): Promise<boolean> => {
+				const timeoutFailoverTarget =
+					await resolveTimeoutFailoverTargetModelId(
+						currentStreamModelId ?? "model1",
+					);
+				if (
+					!timeoutFailoverTarget ||
+					timeoutFailoverTarget === currentStreamModelId ||
+					attempt >= 2
+				) {
+					return false;
+				}
+
+				console.warn(
+					"[STREAM] Retrying upstream stream on failover model after timeout",
+					{
+						conversationId,
+						attempt,
+						fromModelId: currentStreamModelId ?? "model1",
+						toModelId: timeoutFailoverTarget,
+						errorName: error.name,
+						errorMessage: error.message,
+					},
+				);
+				currentStreamModelId = timeoutFailoverTarget;
+				latestModelId = timeoutFailoverTarget;
+				return true;
 			};
 			fallbackToNonStreaming = async (
 				reason: "stream_connect_failure" | "stream_read_failure",
@@ -755,9 +787,11 @@ export function runChatStreamOrchestrator(
 				attemptedNonStreamFallback = true;
 				const timeoutFailoverTarget =
 					isLangflowTimeoutError(error) || upstreamIdleTimedOutBeforeOutput
-						? await resolveTimeoutFailoverTargetModelId(modelId ?? "model1")
+						? await resolveTimeoutFailoverTargetModelId(
+								currentStreamModelId ?? "model1",
+							)
 						: null;
-				const fallbackModelId = timeoutFailoverTarget ?? modelId;
+				const fallbackModelId = timeoutFailoverTarget ?? currentStreamModelId;
 				if (upstreamIdleTimedOutBeforeOutput && !timeoutFailoverTarget) {
 					failStream("timeout");
 					return null;
@@ -769,7 +803,7 @@ export function runChatStreamOrchestrator(
 					{
 						conversationId,
 						attempt,
-						fromModelId: modelId ?? "model1",
+						fromModelId: currentStreamModelId ?? "model1",
 						toModelId: fallbackModelId ?? "model1",
 						errorName: error instanceof Error ? error.name : undefined,
 						errorMessage:
@@ -845,7 +879,7 @@ export function runChatStreamOrchestrator(
 					const langflowResponse = await sendMessageStream(
 						upstreamMessage,
 						conversationId,
-						modelId,
+						currentStreamModelId,
 						{
 							signal: upstreamAbortController.signal,
 							user: {
@@ -991,17 +1025,13 @@ export function runChatStreamOrchestrator(
 									!hasVisibleAssistantAnswerOutput() &&
 									isLangflowTimeoutError(upstreamError)
 								) {
-									const timeoutFailoverTarget =
-										await resolveTimeoutFailoverTargetModelId(
-											modelId ?? "model1",
-										);
-									if (timeoutFailoverTarget && fallbackToNonStreaming) {
-										await fallbackToNonStreaming(
-											"stream_read_failure",
+									if (
+										await retryStreamOnTimeoutFailover(
 											attempt,
 											upstreamError,
-										);
-										return;
+										)
+									) {
+										continue upstreamAttempt;
 									}
 								}
 								failStream(classifyStreamError(errorMessage));

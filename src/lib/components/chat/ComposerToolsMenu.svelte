@@ -6,7 +6,7 @@
 		getPersonalityProfileDisplayDescription,
 		getPersonalityProfileDisplayName,
 	} from '$lib/utils/personality-profile-labels';
-	import type { ThinkingMode } from '$lib/types';
+	import type { ModelId, ThinkingMode } from '$lib/types';
 
 	let {
 		canAttach = false,
@@ -16,6 +16,7 @@
 		personalityProfiles = [],
 		selectedPersonalityId = null,
 		onPersonalityChange = undefined,
+		onModelChange = undefined,
 		thinkingMode = 'auto',
 		onThinkingModeChange = undefined,
 		initialOpen = null,
@@ -29,6 +30,7 @@
 		personalityProfiles?: Array<{ id: string; name: string; description: string }>;
 		selectedPersonalityId?: string | null;
 		onPersonalityChange?: ((id: string | null) => void) | undefined;
+		onModelChange?: ((modelId: ModelId) => void) | undefined;
 		thinkingMode?: ThinkingMode;
 		onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
 		initialOpen?: 'model' | 'style' | 'thinking' | null;
@@ -62,6 +64,11 @@
 	function closeMenu() {
 		activeDropdown = null;
 		onClose?.();
+	}
+
+	function selectModel(payload: { modelId: ModelId }) {
+		onModelChange?.(payload.modelId);
+		closeMenu();
 	}
 
 	function handleAttach() {
@@ -111,7 +118,7 @@
 		<ModelSelector
 			open={activeDropdown === 'model'}
 			onOpenChange={(open) => activeDropdown = open ? 'model' : null}
-			onSelect={closeMenu}
+			onSelect={selectModel}
 		/>
 	</div>
 
