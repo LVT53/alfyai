@@ -530,6 +530,106 @@ describe("context compression snapshots", () => {
 		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(1);
 	});
 
+	it("derives a missing goal from meaningful current-state summary content", async () => {
+		seedConversationWithMessages();
+		mocks.sendJsonControlMessage.mockResolvedValue({
+			text: JSON.stringify({
+				currentState:
+					"The first exchange established that the user asked an initial question and the assistant answered it; future turns should preserve that exchange as compact continuity.",
+				importantFacts: [
+					"The covered source contains one user question and one assistant answer.",
+				],
+			}),
+			modelId: "model1",
+			modelDisplayName: "Selected Model",
+			rawResponse: {},
+		});
+		const { runContextCompression } = await import("./context-compression");
+
+		const result = await runContextCompression({
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic",
+			selectedModelId: "model1",
+			sourceMessages: [
+				{
+					id: "message-1",
+					role: "user",
+					content: "First question",
+					messageSequence: 1,
+				},
+				{
+					id: "message-2",
+					role: "assistant",
+					content: "First answer",
+					messageSequence: 2,
+				},
+			],
+		});
+
+		expect(result.status).toBe("valid");
+		expect(result.failureReason).toBeNull();
+		expect(result.snapshot).toMatchObject({
+			goal: "The first exchange established that the user asked an initial question and the assistant answered it; future turns should preserve that exchange as compact continuity.",
+			currentState:
+				"The first exchange established that the user asked an initial question and the assistant answered it; future turns should preserve that exchange as compact continuity.",
+			sourceCoverage: {
+				messageIds: ["message-1", "message-2"],
+			},
+		});
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(1);
+	});
+
+	it("derives a blank current state from meaningful goal content", async () => {
+		seedConversationWithMessages();
+		mocks.sendJsonControlMessage.mockResolvedValue({
+			text: JSON.stringify({
+				goal: "Keep the compacted conversation focused on the first user question and the assistant answer so later turns can continue without replaying raw history.",
+				currentState: "   ",
+				importantDecisions: [
+					"Use the context compression snapshot as the prompt continuity source.",
+				],
+			}),
+			modelId: "model1",
+			modelDisplayName: "Selected Model",
+			rawResponse: {},
+		});
+		const { runContextCompression } = await import("./context-compression");
+
+		const result = await runContextCompression({
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic",
+			selectedModelId: "model1",
+			sourceMessages: [
+				{
+					id: "message-1",
+					role: "user",
+					content: "First question",
+					messageSequence: 1,
+				},
+				{
+					id: "message-2",
+					role: "assistant",
+					content: "First answer",
+					messageSequence: 2,
+				},
+			],
+		});
+
+		expect(result.status).toBe("valid");
+		expect(result.failureReason).toBeNull();
+		expect(result.snapshot).toMatchObject({
+			goal: "Keep the compacted conversation focused on the first user question and the assistant answer so later turns can continue without replaying raw history.",
+			currentState:
+				"Keep the compacted conversation focused on the first user question and the assistant answer so later turns can continue without replaying raw history.",
+			sourceCoverage: {
+				messageIds: ["message-1", "message-2"],
+			},
+		});
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(1);
+	});
+
 	it("repairs or filters malformed evidence refs without rejecting a meaningful snapshot", async () => {
 		seedConversationWithMessages();
 		mocks.sendJsonControlMessage.mockResolvedValue({

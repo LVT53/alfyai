@@ -893,27 +893,34 @@ function normalizeCompressionSnapshotInput(params: {
 		"openQuestions",
 		"questions",
 	]);
+	const explicitGoal = firstTrimmedString(params.parsed, [
+		"goal",
+		"currentGoal",
+		"current_goal",
+		"objective",
+	]);
+	const explicitCurrentState = firstTrimmedString(params.parsed, [
+		"currentState",
+		"current_state",
+		"state",
+		"summary",
+		"currentSummary",
+	]);
 
 	return {
 		goal:
-			firstTrimmedString(params.parsed, [
-				"goal",
-				"currentGoal",
-				"current_goal",
-				"objective",
-			]) ??
+			explicitGoal ??
 			importantDecisions[0] ??
 			openTasks[0] ??
+			explicitCurrentState ??
+			importantFacts[0] ??
 			"",
 		currentState:
-			firstTrimmedString(params.parsed, [
-				"currentState",
-				"current_state",
-				"state",
-				"summary",
-				"currentSummary",
-			]) ??
+			explicitCurrentState ??
 			importantFacts[0] ??
+			explicitGoal ??
+			importantDecisions[0] ??
+			openTasks[0] ??
 			"",
 		importantDecisions,
 		importantFacts,
