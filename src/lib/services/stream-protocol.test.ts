@@ -393,6 +393,45 @@ describe("stream-protocol", () => {
 		);
 	});
 
+	it("strips Röviden-prefixed Hungarian web-planning narration and fetched page text before the final answer", () => {
+		const cleaned = stripLeakedToolDiagnostics(
+			[
+				"Röviden kikeresem a vonóhorgos kerékpárszállítóra vonatkozó aktuális magyar rendszámtábla-szabályokat.Röviden ellenőrzöm a friss magyar forrásokat a részletekért.",
+				"Természetjáró hírek - termeszet.hu",
+				"Kategóriák",
+				"Belépés",
+				"Kapcsolat",
+				"Belépés/Kapcsolat",
+				"Kirándulás",
+				"Kerékpárszállítás az autó hátulján?",
+				"A vonóhorogra szerelt kerékpárszállító eltakarhatja az autó hátsó rendszámát.",
+				"Ha a vonóhorgos kerékpárszállító eltakarja az autó rendszámát, külön rendszámtáblát kell felszerelni a tartóra.",
+			].join("\n"),
+		);
+
+		expect(cleaned).toBe(
+			"Ha a vonóhorgos kerékpárszállító eltakarja az autó rendszámát, külön rendszámtáblát kell felszerelni a tartóra.",
+		);
+		expect(cleaned).not.toContain("Röviden kikeresem");
+		expect(cleaned).not.toContain("Természetjáró hírek");
+		expect(cleaned).not.toContain("Kategóriák");
+	});
+
+	it("keeps ordinary Hungarian answers that start with Röviden", () => {
+		expect(
+			stripLeakedToolDiagnostics(
+				"Röviden: ha a tartó eltakarja a rendszámot, külön tábla kell.",
+			),
+		).toBe("Röviden: ha a tartó eltakarja a rendszámot, külön tábla kell.");
+		expect(
+			stripLeakedToolDiagnostics(
+				"Röviden, a szabály lényege az, hogy a rendszámnak láthatónak kell maradnia.",
+			),
+		).toBe(
+			"Röviden, a szabály lényege az, hogy a rendszámnak láthatónak kell maradnia.",
+		);
+	});
+
 	it("strips raw web search and fetch result blocks after leaked diagnostics", () => {
 		expect(
 			stripLeakedToolDiagnostics(
@@ -530,6 +569,9 @@ describe("stream-protocol", () => {
 		expect(
 			getLeakedToolDiagnosticPrefixLength("Answer before Found 8 sour"),
 		).toBe(13);
+		expect(getLeakedToolDiagnosticPrefixLength("Röviden kikere")).toBe(
+			"Röviden kikere".length,
+		);
 		expect(
 			getLeakedToolDiagnosticPrefixLength(
 				"Answer before Found 8 source files were useful",

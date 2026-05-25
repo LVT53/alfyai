@@ -467,6 +467,7 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(body).not.toContain("errors.pydantic.dev");
 		expect(body).not.toContain("Traceback");
 		expect(body).not.toContain("input_value=");
+		expect(body).not.toContain("documentSource");
 
 		expect(persistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -482,6 +483,7 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(persistedResponse).not.toContain("errors.pydantic.dev");
 		expect(persistedResponse).not.toContain("Traceback");
 		expect(persistedResponse).not.toContain("input_value=");
+		expect(persistedResponse).not.toContain("documentSource");
 	});
 
 	it("does not replace a completed file-production tool-only stream with a generic error message", async () => {

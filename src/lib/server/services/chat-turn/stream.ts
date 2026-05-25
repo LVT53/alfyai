@@ -895,6 +895,12 @@ export function formatUpstreamErrorAsAssistantMessage(
 	return "I couldn't complete that request because the upstream tool returned an error. Please retry or adjust the request.";
 }
 
+function isInternalFileProductionField(field: string): boolean {
+	return /^(?:documentSource|document_source|requestedOutputs|sourceMode|documentIntent|templateHint|program|program\.sourceCode|sourceCode|idempotencyKey)$/i.test(
+		field,
+	);
+}
+
 function summarizeValidationError(rawMessage: string): string | null {
 	const lines = rawMessage
 		.replace(/\r/g, "\n")
@@ -918,9 +924,15 @@ function summarizeValidationError(rawMessage: string): string | null {
 		.toLowerCase();
 
 	if (field && expectedType) {
+		if (isInternalFileProductionField(field)) {
+			return "the file-generation tool rejected its input shape";
+		}
 		return `${field} should be a valid ${expectedType}`;
 	}
 	if (field) {
+		if (isInternalFileProductionField(field)) {
+			return "the file-generation tool rejected its input shape";
+		}
 		return `${field} has an invalid value`;
 	}
 

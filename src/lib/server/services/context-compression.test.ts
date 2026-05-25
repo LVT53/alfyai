@@ -473,6 +473,136 @@ describe("context compression snapshots", () => {
 		);
 	});
 
+	it("accepts a meaningful compression snapshot when the model omits app-owned empty fields and source coverage", async () => {
+		seedConversationWithMessages();
+		mocks.sendJsonControlMessage.mockResolvedValue({
+			text: JSON.stringify({
+				goal: "Keep answering the user's original question from the first exchange.",
+				currentState:
+					"The assistant has answered the initial question and future turns should continue from that answer.",
+				importantFacts: [
+					"The covered source contains one user question and one assistant answer.",
+				],
+			}),
+			modelId: "model1",
+			modelDisplayName: "Selected Model",
+			rawResponse: {},
+		});
+		const { runContextCompression } = await import("./context-compression");
+
+		const result = await runContextCompression({
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic",
+			selectedModelId: "model1",
+			sourceMessages: [
+				{
+					id: "message-1",
+					role: "user",
+					content: "First question",
+					messageSequence: 1,
+				},
+				{
+					id: "message-2",
+					role: "assistant",
+					content: "First answer",
+					messageSequence: 2,
+				},
+			],
+		});
+
+		expect(result.status).toBe("valid");
+		expect(result.failureReason).toBeNull();
+		expect(result.snapshot).toMatchObject({
+			importantDecisions: [],
+			openTasks: [],
+			openQuestions: [],
+			toolUseAndEvidenceRefs: [],
+			sourceCoverage: {
+				messageIds: ["message-1", "message-2"],
+				ranges: [{ startMessageId: "message-1", endMessageId: "message-2" }],
+			},
+		});
+		expect(result.sourceCoverage).toMatchObject({
+			messageIds: ["message-1", "message-2"],
+			ranges: [{ startMessageId: "message-1", endMessageId: "message-2" }],
+		});
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(1);
+	});
+
+	it("repairs or filters malformed evidence refs without rejecting a meaningful snapshot", async () => {
+		seedConversationWithMessages();
+		mocks.sendJsonControlMessage.mockResolvedValue({
+			text: JSON.stringify({
+				goal: "Keep the first exchange available as compact context.",
+				currentState:
+					"The assistant has answered the initial question and the next turn should preserve that answer.",
+				importantDecisions: [],
+				importantFacts: [
+					"The first assistant answer is useful evidence for follow-up turns.",
+				],
+				openTasks: ["Continue from the initial answer if the user follows up."],
+				openQuestions: [],
+				toolUseAndEvidenceRefs: [
+					{
+						label: "First exchange evidence",
+						messageIds: ["message-1"],
+					},
+					{
+						kind: "tool",
+						detail: "The assistant used the first answer as source evidence.",
+						messageIds: ["message-2"],
+					},
+					{},
+				],
+				sourceCoverage: {
+					messageIds: ["message-1", "message-2"],
+				},
+			}),
+			modelId: "model1",
+			modelDisplayName: "Selected Model",
+			rawResponse: {},
+		});
+		const { runContextCompression } = await import("./context-compression");
+
+		const result = await runContextCompression({
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic",
+			selectedModelId: "model1",
+			sourceMessages: [
+				{
+					id: "message-1",
+					role: "user",
+					content: "First question",
+					messageSequence: 1,
+				},
+				{
+					id: "message-2",
+					role: "assistant",
+					content: "First answer",
+					messageSequence: 2,
+				},
+			],
+		});
+
+		expect(result.status).toBe("valid");
+		expect(result.snapshot.toolUseAndEvidenceRefs).toEqual([
+			{
+				kind: "source",
+				label: "First exchange evidence",
+				messageIds: ["message-1"],
+			},
+			{
+				kind: "tool",
+				label: "The assistant used the first answer as source evidence.",
+				messageIds: ["message-2"],
+				detail: "The assistant used the first answer as source evidence.",
+			},
+		]);
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(1);
+	});
+
 	it("retries once with repair instructions when the model output is invalid", async () => {
 		seedConversationWithMessages();
 		mocks.sendJsonControlMessage

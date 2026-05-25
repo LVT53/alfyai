@@ -630,6 +630,181 @@ function stripReasoningEnvelope(output: string): string {
 	return remaining;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function trimmedString(value: unknown): string | null {
+	return typeof value === "string" && value.trim().length > 0
+		? value.trim()
+		: null;
+}
+
+function firstTrimmedString(
+	value: Record<string, unknown>,
+	keys: string[],
+): string | null {
+	for (const key of keys) {
+		const field = trimmedString(value[key]);
+		if (field) return field;
+	}
+	return null;
+}
+
+function firstStringList(
+	value: Record<string, unknown>,
+	keys: string[],
+): string[] {
+	for (const key of keys) {
+		const field = value[key];
+		if (Array.isArray(field)) {
+			return field
+				.map((item) => trimmedString(item))
+				.filter((item): item is string => Boolean(item));
+		}
+	}
+	return [];
+}
+
+function firstRecordArray(
+	value: Record<string, unknown>,
+	keys: string[],
+): Record<string, unknown>[] {
+	for (const key of keys) {
+		const field = value[key];
+		if (Array.isArray(field)) {
+			return field.filter(isRecord);
+		}
+	}
+	return [];
+}
+
+function normalizeEvidenceMessageIds(value: unknown): string[] {
+	return Array.isArray(value)
+		? value
+				.map((item) => trimmedString(item))
+				.filter((item): item is string => Boolean(item))
+		: [];
+}
+
+function normalizeCompressionEvidenceRefs(
+	value: Record<string, unknown>,
+): ContextCompressionStructuredSnapshot["toolUseAndEvidenceRefs"] {
+	return firstRecordArray(value, [
+		"toolUseAndEvidenceRefs",
+		"evidenceRefs",
+		"sourceRefs",
+		"references",
+	])
+		.map((ref) => {
+			const detail = firstTrimmedString(ref, [
+				"detail",
+				"description",
+				"summary",
+			]);
+			const messageIds = normalizeEvidenceMessageIds(
+				ref.messageIds ?? ref.messages,
+			);
+			const label =
+				firstTrimmedString(ref, ["label", "title", "name"]) ??
+				detail ??
+				(messageIds.length > 0
+					? `Referenced messages: ${messageIds.join(", ")}`
+					: null);
+			const kind =
+				firstTrimmedString(ref, ["kind", "type"]) ??
+				(messageIds.length > 0 ? "source" : "evidence");
+
+			if (!label) return null;
+
+			return {
+				kind,
+				label,
+				...(messageIds.length > 0 ? { messageIds } : {}),
+				...(detail ? { detail } : {}),
+			};
+		})
+		.filter(
+			(
+				ref,
+			): ref is ContextCompressionStructuredSnapshot["toolUseAndEvidenceRefs"][number] =>
+				Boolean(ref),
+		);
+}
+
+function normalizeSourceCoverage(params: {
+	requiredMessageIds: string[];
+	sourceRanges: ContextCompressionSourceRange[];
+}): ContextCompressionStructuredSnapshot["sourceCoverage"] {
+	const ranges = params.sourceRanges
+		.map((range) => ({
+			startMessageId: range.startMessageId,
+			endMessageId: range.endMessageId,
+		}))
+		.filter((range) => range.startMessageId && range.endMessageId);
+
+	return {
+		messageIds: params.requiredMessageIds,
+		...(ranges.length > 0 ? { ranges } : {}),
+	};
+}
+
+function normalizeCompressionSnapshotInput(params: {
+	parsed: ContextCompressionSnapshotJson;
+	requiredMessageIds: string[];
+	sourceRanges: ContextCompressionSourceRange[];
+}): ContextCompressionSnapshotJson {
+	const importantDecisions = firstStringList(params.parsed, [
+		"importantDecisions",
+		"decisions",
+	]);
+	const importantFacts = firstStringList(params.parsed, [
+		"importantFacts",
+		"facts",
+	]);
+	const openTasks = firstStringList(params.parsed, [
+		"openTasks",
+		"tasks",
+		"nextSteps",
+	]);
+	const openQuestions = firstStringList(params.parsed, [
+		"openQuestions",
+		"questions",
+	]);
+
+	return {
+		goal:
+			firstTrimmedString(params.parsed, [
+				"goal",
+				"currentGoal",
+				"current_goal",
+				"objective",
+			]) ??
+			importantDecisions[0] ??
+			openTasks[0] ??
+			"",
+		currentState:
+			firstTrimmedString(params.parsed, [
+				"currentState",
+				"current_state",
+				"state",
+				"summary",
+				"currentSummary",
+			]) ??
+			importantFacts[0] ??
+			"",
+		importantDecisions,
+		importantFacts,
+		openTasks,
+		openQuestions,
+		toolUseAndEvidenceRefs: normalizeCompressionEvidenceRefs(params.parsed),
+		sourceCoverage: normalizeSourceCoverage({
+			requiredMessageIds: params.requiredMessageIds,
+			sourceRanges: params.sourceRanges,
+		}),
+	};
+}
+
 function buildCompressionPrompt(params: {
 	input: RunContextCompressionInput;
 	sourceRanges: ContextCompressionSourceRange[];
@@ -680,6 +855,7 @@ function buildCompressionPrompt(params: {
 function validateCompressionSnapshot(
 	output: string,
 	requiredMessageIds: string[],
+	sourceRanges: ContextCompressionSourceRange[],
 ):
 	| { ok: true; snapshot: ContextCompressionStructuredSnapshot }
 	| { ok: false; reason: string } {
@@ -689,7 +865,19 @@ function validateCompressionSnapshot(
 		return { ok: false, reason: "Model output was not a JSON object." };
 	}
 
-	const result = compressionSnapshotSchema.safeParse(parsed);
+	if (/<\/?thinking\b/i.test(JSON.stringify(parsed))) {
+		return {
+			ok: false,
+			reason: "Snapshot contained leftover <thinking> tags.",
+		};
+	}
+
+	const normalized = normalizeCompressionSnapshotInput({
+		parsed,
+		requiredMessageIds,
+		sourceRanges,
+	});
+	const result = compressionSnapshotSchema.safeParse(normalized);
 	if (!result.success) {
 		return {
 			ok: false,
@@ -833,6 +1021,7 @@ export async function runContextCompression(
 		const validation = validateCompressionSnapshot(
 			response.text,
 			coveredMessageIds,
+			sourceRanges,
 		);
 		if (!validation.ok) {
 			rejectionReason = validation.reason;
