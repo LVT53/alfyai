@@ -418,6 +418,136 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(errorChunk).toContain('"code"');
 	});
 
+	it("persists a concise assistant error message when Langflow emits a validation error event", async () => {
+		const { sendMessageStream } = await import("$lib/server/services/langflow");
+		const { persistAssistantTurnState } = await import(
+			"$lib/server/services/chat-turn/finalize"
+		);
+		const rawError = [
+			"1 validation error for InputSchema",
+			"documentSource",
+			"  Input should be a valid string [type=string_type, input_value={'type':'document_source','document':{'title':'Long raw source'}}, input_type=dict]",
+			"    For further information visit https://errors.pydantic.dev/2.11/v/string_type",
+			"Traceback (most recent call last):",
+			'  File "/app/.venv/lib/python3.12/site-packages/langflow/custom.py", line 99, in build',
+		].join("\n");
+
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+			stream: createEventBlockStream([
+				`event: error\ndata: ${JSON.stringify({ text: rawError })}\n\n`,
+			]),
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+		});
+
+		const response = runChatStreamOrchestrator({
+			user: {
+				id: "u1",
+				displayName: "User",
+				email: "u@test.com",
+			},
+			turn: createTurn({
+				conversationId: "validation-error-conv",
+				streamId: "validation-error-stream",
+			}),
+			upstreamMessage: "Create a document",
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+		});
+
+		const body = (await readSseResponse(response)).join("\n\n");
+		expect(body).toContain("event: token");
+		expect(body).toContain("I couldn't complete that request");
+		expect(body).toContain("event: end");
+		expect(body).not.toContain("event: error");
+		expect(body).not.toContain("errors.pydantic.dev");
+		expect(body).not.toContain("Traceback");
+		expect(body).not.toContain("input_value=");
+
+		expect(persistAssistantTurnState).toHaveBeenCalledWith(
+			expect.objectContaining({
+				conversationId: "validation-error-conv",
+				assistantResponse: expect.stringContaining(
+					"I couldn't complete that request",
+				),
+			}),
+		);
+		const persistedResponse = (
+			persistAssistantTurnState as ReturnType<typeof vi.fn>
+		).mock.calls.at(-1)?.[0]?.assistantResponse;
+		expect(persistedResponse).not.toContain("errors.pydantic.dev");
+		expect(persistedResponse).not.toContain("Traceback");
+		expect(persistedResponse).not.toContain("input_value=");
+	});
+
+	it("does not replace a completed file-production tool-only stream with a generic error message", async () => {
+		const { sendMessage, sendMessageStream } = await import(
+			"$lib/server/services/langflow"
+		);
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+			stream: createEventBlockStream([
+				`data: ${JSON.stringify({
+					choices: [
+						{
+							delta: {
+								tool_calls: [
+									{
+										id: "file-call-1",
+										function: {
+											name: "produce_file",
+											arguments: JSON.stringify({
+												requestTitle: "Report",
+												sourceMode: "program",
+												requestedOutputs: [{ type: "pdf" }],
+											}),
+										},
+									},
+								],
+							},
+							finish_reason: "tool_calls",
+						},
+					],
+				})}\n\n`,
+				`event: error\ndata: ${JSON.stringify({ text: "Langflow emitted a late bookkeeping error" })}\n\n`,
+			]),
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+		});
+
+		const response = runChatStreamOrchestrator({
+			user: {
+				id: "u1",
+				displayName: "User",
+				email: "u@test.com",
+			},
+			turn: createTurn({
+				conversationId: "file-tool-error-conv",
+				streamId: "file-tool-error-stream",
+			}),
+			upstreamMessage: "Make a file",
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+		});
+
+		const body = (await readSseResponse(response)).join("\n\n");
+		expect(body).toContain("event: tool_call");
+		expect(body).toContain('"name":"produce_file"');
+		expect(body).toContain('"status":"done"');
+		expect(body).toContain("event: end");
+		expect(body).not.toContain("event: token");
+		expect(body).not.toContain("I couldn't complete that request");
+		expect(body).not.toContain("event: error");
+		expect(sendMessage).not.toHaveBeenCalled();
+	});
+
 	it("falls back to non-streaming when the upstream body terminates before output", async () => {
 		const { sendMessage, sendMessageStream } = await import(
 			"$lib/server/services/langflow"

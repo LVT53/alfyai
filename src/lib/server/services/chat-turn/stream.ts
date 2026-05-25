@@ -884,6 +884,49 @@ export function classifyStreamError(rawMessage: string): StreamErrorCode {
 	return "backend_failure";
 }
 
+export function formatUpstreamErrorAsAssistantMessage(
+	rawMessage: string,
+): string {
+	const validationSummary = summarizeValidationError(rawMessage);
+	if (validationSummary) {
+		return `I couldn't complete that request because a tool input failed validation: ${validationSummary}.`;
+	}
+
+	return "I couldn't complete that request because the upstream tool returned an error. Please retry or adjust the request.";
+}
+
+function summarizeValidationError(rawMessage: string): string | null {
+	const lines = rawMessage
+		.replace(/\r/g, "\n")
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	const validationLineIndex = lines.findIndex((line) =>
+		/\bvalidation error\b/i.test(line),
+	);
+	if (validationLineIndex === -1) {
+		return null;
+	}
+
+	const field = lines
+		.slice(validationLineIndex + 1)
+		.find((line) => /^[A-Za-z_][\w.:-]*$/.test(line));
+	const expectedType = lines
+		.map((line) => line.match(/\bInput should be (?:a |an )?valid ([^[.]+)/i))
+		.find((match): match is RegExpMatchArray => Boolean(match))?.[1]
+		.trim()
+		.toLowerCase();
+
+	if (field && expectedType) {
+		return `${field} should be a valid ${expectedType}`;
+	}
+	if (field) {
+		return `${field} has an invalid value`;
+	}
+
+	return "invalid tool input";
+}
+
 export function isAbruptUpstreamTermination(error: unknown): boolean {
 	if (!(error instanceof Error)) {
 		return false;

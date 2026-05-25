@@ -38,6 +38,7 @@ import {
 	createSsePreludeComment,
 	extractAssistantChunk,
 	extractErrorMessage,
+	formatUpstreamErrorAsAssistantMessage,
 	getReasoningContent,
 	isAbruptUpstreamTermination,
 	isUrlListValidationError,
@@ -1039,6 +1040,7 @@ export function runChatStreamOrchestrator(
 									continue upstreamAttempt;
 								}
 								const upstreamError = new Error(errorMessage);
+								const errorCode = classifyStreamError(errorMessage);
 								if (
 									!hasVisibleAssistantAnswerOutput() &&
 									isLangflowTimeoutError(upstreamError)
@@ -1048,8 +1050,32 @@ export function runChatStreamOrchestrator(
 									) {
 										continue upstreamAttempt;
 									}
+									failStream(errorCode);
+									return;
 								}
-								failStream(classifyStreamError(errorMessage));
+								if (
+									hasCompletedFileProductionToolCall() &&
+									flushBufferedStreamOutput() &&
+									hasPersistableStreamOutput()
+								) {
+									completeSuccess();
+									return;
+								}
+								if (errorCode === "backend_failure") {
+									if (
+										!(await emitResolvedAssistantText(
+											formatUpstreamErrorAsAssistantMessage(errorMessage),
+										))
+									) {
+										return;
+									}
+									if (!flushBufferedStreamOutput()) {
+										return;
+									}
+									completeSuccess();
+									return;
+								}
+								failStream(errorCode);
 								return;
 							}
 

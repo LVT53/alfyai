@@ -29,7 +29,7 @@ from typing import Any
 import requests
 
 from lfx.custom.custom_component.component import Component
-from lfx.inputs.inputs import DropdownInput, MultilineInput, StrInput
+from lfx.inputs.inputs import DictInput, DropdownInput, MultilineInput, StrInput
 from lfx.io import Output
 from lfx.log.logger import logger
 from lfx.schema.data import Data
@@ -113,23 +113,23 @@ class FileProductionToolComponent(Component):
             advanced=True,
             tool_mode=True,
         ),
-        MultilineInput(
+        DictInput(
             name="documentSource",
             display_name="Document Source",
             info=(
-                'JSON-encoded object using the AlfyAI Standard Report source shape. Required when sourceMode is document_source. '
+                'Object using the AlfyAI Standard Report source shape. Required when sourceMode is document_source. '
                 'Include version: 1, template: "alfyai_standard_report", title, and blocks. '
                 'Heading blocks use {"type":"heading","level":2,"text":"Section title"}.'
             ),
-            value="",
+            value={},
             required=False,
             tool_mode=True,
         ),
-        MultilineInput(
+        DictInput(
             name="program",
             display_name="Program",
-            info='JSON-encoded object with language, sourceCode, and optional filename. Required when sourceMode is program.',
-            value="",
+            info='Object with language, sourceCode, and optional filename. Required when sourceMode is program.',
+            value={},
             required=False,
             tool_mode=True,
         ),
@@ -286,10 +286,12 @@ class FileProductionToolComponent(Component):
             return 'sourceMode must be "document_source" or "program".'
         if not document_intent:
             return "documentIntent is required."
-        if source_mode == "document_source" and not isinstance(document_source, dict):
-            return "documentSource must be a JSON-encoded object when sourceMode is document_source."
-        if source_mode == "program" and not isinstance(program, dict):
-            return "program must be a JSON-encoded object when sourceMode is program."
+        if source_mode == "document_source" and (
+            not isinstance(document_source, dict) or not document_source
+        ):
+            return "documentSource must be an object when sourceMode is document_source."
+        if source_mode == "program" and (not isinstance(program, dict) or not program):
+            return "program must be an object when sourceMode is program."
 
         payload: dict[str, Any] = {
             "conversationId": conversation_id,
