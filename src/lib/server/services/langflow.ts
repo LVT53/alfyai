@@ -271,6 +271,8 @@ const WEB_RESEARCH_GUARD = [
 	"- For product reviews, hands-on comparisons, buying advice, or questions about YouTube videos, include `review`, `YouTube`, or `video` in the research query when relevant so `research_web` can surface transcript-backed evidence from selected YouTube results.",
 	"- Treat `research_web.evidence` as the strongest source of page-backed facts. If an exact value is not present in evidence or fetched source text, say that the retrieved source did not expose it.",
 	"- Cite final web claims with markdown links using the returned source title and URL. Do not cite a source unless it supports the sentence.",
+	"- Never paste raw tool output into the final answer. Do not expose raw JSON, field names, diagnostics, source/evidence arrays, numbered search dumps, fetched page text dumps, or `Found N sources` summaries from `research_web`, `search`, `get_contents`, or `fetch_content`.",
+	"- If a tool returns `answerBriefMarkdown`, use it as evidence for your own concise answer; do not copy the field name or dump the raw brief.",
 	"- If `research_web` is unavailable and Exa Search is connected, its search tool is usually named `search` and expects a JSON argument: {`query`: `your search terms`}.",
 	"- For raw Exa follow-up retrieval, chain `search` calls first, then use the connected content tool. In current Langflow Exa flows this is usually `get_contents`, not `fetch_content`.",
 	'- Raw Exa `get_contents` expects a JSON argument like {urls: ["https://example.com/page"]}; use URLs from search results unless the tool schema says otherwise.',
@@ -676,7 +678,10 @@ function applyOutboundPromptBudget(params: {
 	const safeCurrentInputTokens = estimateOutboundPromptTokens(
 		params.inputValue,
 	);
-	if (outputTokenBudget.outputReserveClamped) {
+	if (
+		outputTokenBudget.outputReserveClamped &&
+		getConfig().contextDiagnosticsDebug
+	) {
 		console.warn("[LANGFLOW] Output token cap clamped", {
 			sessionId: params.sessionId,
 			modelId: params.modelId ?? "model1",
@@ -713,29 +718,31 @@ function applyOutboundPromptBudget(params: {
 			? truncateToTokenBudget(budgetedInputValue, safeInputTokenBudget)
 			: currentMessageSection;
 
-	console.warn("[LANGFLOW] Outbound prompt budget applied", {
-		sessionId: params.sessionId,
-		modelId: params.modelId ?? "model1",
-		providerId: params.providerId ?? null,
-		modelName: params.modelName,
-		maxModelContext: params.contextLimits.maxModelContext,
-		compactionUiThreshold: params.contextLimits.compactionUiThreshold,
-		targetConstructedContext: params.contextLimits.targetConstructedContext,
-		configuredPromptBudget,
-		systemTokens,
-		promptOverheadReserve,
-		tokenSafetyFactor: LANGFLOW_PROMPT_TOKEN_SAFETY_FACTOR,
-		outputReserve,
-		configuredMaxTokens: outputTokenBudget.configuredMaxTokens,
-		effectiveMaxTokens: outputTokenBudget.effectiveMaxTokens,
-		outputReserveClamped: outputTokenBudget.outputReserveClamped,
-		inputTokenBudget,
-		safeInputTokenBudget,
-		beforeInputTokens: currentInputTokens,
-		beforeInputTokensWithSafety: safeCurrentInputTokens,
-		afterInputTokens: estimateTokenCount(finalInputValue),
-		afterInputTokensWithSafety: estimateOutboundPromptTokens(finalInputValue),
-	});
+	if (getConfig().contextDiagnosticsDebug) {
+		console.warn("[LANGFLOW] Outbound prompt budget applied", {
+			sessionId: params.sessionId,
+			modelId: params.modelId ?? "model1",
+			providerId: params.providerId ?? null,
+			modelName: params.modelName,
+			maxModelContext: params.contextLimits.maxModelContext,
+			compactionUiThreshold: params.contextLimits.compactionUiThreshold,
+			targetConstructedContext: params.contextLimits.targetConstructedContext,
+			configuredPromptBudget,
+			systemTokens,
+			promptOverheadReserve,
+			tokenSafetyFactor: LANGFLOW_PROMPT_TOKEN_SAFETY_FACTOR,
+			outputReserve,
+			configuredMaxTokens: outputTokenBudget.configuredMaxTokens,
+			effectiveMaxTokens: outputTokenBudget.effectiveMaxTokens,
+			outputReserveClamped: outputTokenBudget.outputReserveClamped,
+			inputTokenBudget,
+			safeInputTokenBudget,
+			beforeInputTokens: currentInputTokens,
+			beforeInputTokensWithSafety: safeCurrentInputTokens,
+			afterInputTokens: estimateTokenCount(finalInputValue),
+			afterInputTokensWithSafety: estimateOutboundPromptTokens(finalInputValue),
+		});
+	}
 
 	return { inputValue: finalInputValue, outputTokenBudget };
 }
@@ -1717,11 +1724,14 @@ export async function sendJsonControlMessage(
 	);
 	const maxTokens =
 		options.maxTokens ??
-		(modelConfig.maxTokens != null ? Math.min(modelConfig.maxTokens, 4096) : 2048);
+		(modelConfig.maxTokens != null
+			? Math.min(modelConfig.maxTokens, 4096)
+			: 2048);
 	const headers: Record<string, string> = {
 		"Content-Type": "application/json",
 	};
-	if (modelConfig.apiKey) headers.Authorization = `Bearer ${modelConfig.apiKey}`;
+	if (modelConfig.apiKey)
+		headers.Authorization = `Bearer ${modelConfig.apiKey}`;
 
 	const body: Record<string, unknown> = {
 		model: modelName,
@@ -1871,10 +1881,10 @@ async function sendMessageAttempt(
 		const baseSystemPrompt =
 			user?.id && !options?.systemPromptOverride
 				? await buildEnhancedSystemPrompt(configuredBasePrompt, {
-					userId: user.id,
-					displayName: user.displayName,
-					email: user.email,
-				})
+						userId: user.id,
+						displayName: user.displayName,
+						email: user.email,
+					})
 				: getSystemPrompt(configuredBasePrompt);
 		let systemPrompt = buildOutboundSystemPrompt({
 			basePrompt: baseSystemPrompt,
@@ -2241,10 +2251,10 @@ async function sendMessageStreamAttempt(
 		const baseSystemPrompt =
 			options?.user?.id && !options?.systemPromptOverride
 				? await buildEnhancedSystemPrompt(configuredBasePrompt, {
-					userId: options.user.id,
-					displayName: options.user.displayName,
-					email: options.user.email,
-				})
+						userId: options.user.id,
+						displayName: options.user.displayName,
+						email: options.user.email,
+					})
 				: getSystemPrompt(configuredBasePrompt);
 		let systemPrompt = buildOutboundSystemPrompt({
 			basePrompt: baseSystemPrompt,

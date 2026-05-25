@@ -195,7 +195,9 @@ export function runChatStreamOrchestrator(
 		for (const [name, durationMs] of Object.entries(phaseTimingMs)) {
 			payload[`${name}_ms`] = durationMs;
 		}
-		console.info("[CHAT_STREAM] phase_timing", payload);
+		if (getConfig().contextDiagnosticsDebug) {
+			console.info("[CHAT_STREAM] phase_timing", payload);
+		}
 	};
 
 	const stream = new ReadableStream({
@@ -765,10 +767,9 @@ export function runChatStreamOrchestrator(
 				attempt: number,
 				error: Error,
 			): Promise<boolean> => {
-				const timeoutFailoverTarget =
-					await resolveTimeoutFailoverTargetModelId(
-						currentStreamModelId ?? "model1",
-					);
+				const timeoutFailoverTarget = await resolveTimeoutFailoverTargetModelId(
+					currentStreamModelId ?? "model1",
+				);
 				if (
 					!timeoutFailoverTarget ||
 					timeoutFailoverTarget === currentStreamModelId ||
@@ -1039,10 +1040,7 @@ export function runChatStreamOrchestrator(
 									isLangflowTimeoutError(upstreamError)
 								) {
 									if (
-										await retryStreamOnTimeoutFailover(
-											attempt,
-											upstreamError,
-										)
+										await retryStreamOnTimeoutFailover(attempt, upstreamError)
 									) {
 										continue upstreamAttempt;
 									}

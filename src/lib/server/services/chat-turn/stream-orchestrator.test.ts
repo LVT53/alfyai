@@ -290,6 +290,11 @@ describe("stream-orchestrator SSE contract", () => {
 		const infoSpy = vi
 			.spyOn(console, "info")
 			.mockImplementation(() => undefined);
+		const { getConfig } = await import("$lib/server/config-store");
+		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+			requestTimeoutMs: 30000,
+			contextDiagnosticsDebug: true,
+		});
 		const { sendMessageStream } = await import("$lib/server/services/langflow");
 		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
 			stream: createTokenStream("Hi"),

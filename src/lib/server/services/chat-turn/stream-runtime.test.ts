@@ -92,6 +92,36 @@ describe("createServerChunkRuntime", () => {
 		);
 	});
 
+	it("strips leaked raw web research result blocks from visible tokens", () => {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+
+		runtime.emitChunkWithOutputHandling("Qudelix alternatives");
+		runtime.emitChunkWithOutputHandling("Found 8 source(s)");
+		runtime.emitChunkWithOutputHandling(
+			[
+				" and 16 evidence snippet(s)",
+				"1. title: Qudelix product page",
+				"url: https://example.com/qudelix",
+				"evidence: Raw search snippets are tool output.",
+				"Based on the sources, the Qudelix 5K is the direct comparison point.",
+			].join("\n"),
+		);
+		runtime.flushInlineThinkingBuffer();
+
+		expect(tokenTexts(chunks).join("")).toBe(
+			[
+				"Qudelix alternatives",
+				"Based on the sources, the Qudelix 5K is the direct comparison point.",
+			].join("\n"),
+		);
+	});
+
 	it("strips split bare source reference markers from visible tokens", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({

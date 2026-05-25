@@ -1,3 +1,4 @@
+import { getConfig } from "$lib/server/config-store";
 import {
 	listContextCompressionSnapshots,
 	serializeContextCompressionSnapshot,
@@ -260,16 +261,18 @@ export async function completeStreamTurn(
 	let persistedTurnState: PersistedStreamTurnState | null = null;
 	let attachedArtifactsForContextSources: ArtifactSummary[] = [];
 
-	console.info("[CHAT_STREAM] Tool-call summary", {
-		conversationId,
-		streamId,
-		wasStopped,
-		toolCallCount: toolCallSummary.length,
-		fileProductionCallCount: toolCallSummary.filter(
-			(record) => record.name === "produce_file",
-		).length,
-		toolCalls: toolCallSummary,
-	});
+	if (getConfig().contextDiagnosticsDebug) {
+		console.info("[CHAT_STREAM] Tool-call summary", {
+			conversationId,
+			streamId,
+			wasStopped,
+			toolCallCount: toolCallSummary.length,
+			fileProductionCallCount: toolCallSummary.filter(
+				(record) => record.name === "produce_file",
+			).length,
+			toolCalls: toolCallSummary,
+		});
+	}
 
 	let userMessageToPersist = normalizedMessage;
 	if (isReconnect && streamId) {

@@ -176,6 +176,7 @@ describe("buildOutboundSystemPrompt", () => {
 		expect(prompt).toContain("Image search workflow");
 		expect(prompt).toContain("image_search");
 		expect(prompt).toContain("research_web");
+		expect(prompt).toContain("Never paste raw tool output");
 		expect(prompt).toContain("Memory context workflow");
 		expect(prompt).toContain("memory_context");
 		expect(prompt).toContain("Do not output bare source markers");
@@ -905,6 +906,7 @@ describe("sendMessage provider routing", () => {
 	});
 
 	it("keeps usable prompt context when a switched provider has an impossible max token cap", async () => {
+		mockConfig({}, { contextDiagnosticsDebug: true });
 		mocks.getProviderWithSecrets.mockResolvedValueOnce({
 			id: "provider-1",
 			name: "fireworks",

@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ArtifactSummary, ContextDebugState, TaskState } from "$lib/types";
-import { getProjectReferenceContext } from "$lib/server/services/task-state";
-import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
+import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
+import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import type { ArtifactSummary, ContextDebugState, TaskState } from "$lib/types";
 import { completeStreamTurn } from "./stream-completion";
+
+vi.mock("$lib/server/config-store", () => ({
+	getConfig: vi.fn(() => ({ contextDiagnosticsDebug: false })),
+}));
 
 vi.mock("$lib/server/services/task-state", () => ({
 	getProjectReferenceContext: vi.fn(async () => null),

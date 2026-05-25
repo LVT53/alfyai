@@ -82,6 +82,22 @@ describe("normalizeAssistantOutput", () => {
 		expect(result).toBe("Qudelix alternatives\n\nThe answer starts here.");
 	});
 
+	it("strips leaked raw web-search result blocks from assistant output", () => {
+		const result = normalizeAssistantOutput(
+			[
+				"Search results:",
+				"1. title: OpenAI gpt-oss repository",
+				"url: https://github.com/openai/gpt-oss",
+				"evidence: Raw search snippets belong to tool output.",
+				"Based on the retrieved source, gpt-oss is OpenAI's open-weight model repository.",
+			].join("\n"),
+		);
+
+		expect(result).toBe(
+			"Based on the retrieved source, gpt-oss is OpenAI's open-weight model repository.",
+		);
+	});
+
 	it("strips bare source reference markers while preserving markdown source links", () => {
 		const result = normalizeAssistantOutput(
 			[

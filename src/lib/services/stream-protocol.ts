@@ -255,7 +255,12 @@ const LEADING_RESPONSE_SPACE_BEFORE_UPPER_RE = /^response[\t ]+(?=[A-Z])/;
 const TENTATIVE_LEADING_RESPONSE_MARKER_RE =
 	/^response(?:(?=[A-Z])|(?=\s*<)|:\s*|[\t ]+|\n+)/i;
 const WEB_RESEARCH_DIAGNOSTIC_RE =
-	/Found\s+\d+\s+source(?:\(s\)|s)?\s+and\s+\d+\s+evidence(?:\s+snippet(?:s|\(s\))?)?(?:\.|(?=$|\s|[A-Z]|[,;:!?]))/gi;
+	/Found\s+\d+\s+source(?:\(s\)|s)?\s+and\s+\d+\s+evidence(?:\s+snippet(?:s|\(s\))?)?(?:\.|(?=$|\s|[A-Z]|[,;:!?]))/i;
+const WEB_TOOL_MARKER_PATTERNS = [
+	WEB_RESEARCH_DIAGNOSTIC_RE,
+	/(?:search|research)\s+results(?:\s+for)?\s*:/i,
+	/(?:fetch_content|get_contents|fetch)\s+(?:results?|output|content)\s*:/i,
+] as const;
 const WEB_RESEARCH_DIAGNOSTIC_PREFIX_SCAN_CHARS = 180;
 const WEB_RESEARCH_DIAGNOSTIC_PREFIX_WORDS = [
 	"found",
@@ -266,6 +271,24 @@ const WEB_RESEARCH_DIAGNOSTIC_PREFIX_WORDS = [
 	"evidence",
 	"snippet",
 	"snippets",
+] as const;
+const WEB_TOOL_DIAGNOSTIC_PREFIXES = [
+	{ marker: "search results", minPrefixLength: "search".length },
+	{ marker: "research results", minPrefixLength: "research".length },
+	{ marker: "fetch_content output", minPrefixLength: "fetch_".length },
+	{ marker: "get_contents output", minPrefixLength: "get_".length },
+	{ marker: "fetch output", minPrefixLength: "fetch".length },
+] as const;
+const WEB_TOOL_RAW_LINE_PATTERNS = [
+	/^(?:\{|\}|\[|\]|,)/,
+	/^```(?:json)?\s*$/i,
+	/^```\s*$/i,
+	/^"?(?:success|name|sourceType|answerBrief|answerBriefMarkdown|query|queries|sources|evidence|diagnostics|instructions|conversationId)"?\s*:/i,
+	/^(?:success|name|sourceType|answerBrief|answerBriefMarkdown|query|queries|sources|evidence|diagnostics|instructions|conversationId)\s*:/i,
+	/^(?:\d+\.|-\s*)\s*(?:source|title|url|snippet|evidence|content)\b\s*[:=-]/i,
+	/^(?:title|url|source|snippet|evidence|content)\s*:/i,
+	/^(?:\d+\.|-\s*)\s*\S.{0,180}https?:\/\/\S+/i,
+	/^https?:\/\/\S+/i,
 ] as const;
 const PYTHON_TOOL_DIAGNOSTIC_PREFIX_SCAN_CHARS = 120;
 const PYTHON_TOOL_DIAGNOSTIC_PREFIXES = [
@@ -311,6 +334,8 @@ const ASSISTANT_PROSE_BOUNDARY_PATTERNS = [
 ] as const;
 
 export interface LeakedToolDiagnosticsState {
+	suppressWebToolOutput: boolean;
+	pendingWebToolWhitespace: string;
 	suppressPythonToolOutput: boolean;
 	lastVisibleChar: string;
 }
@@ -349,7 +374,12 @@ function stripTentativeLeadingResponseMarker(value: string): string {
 }
 
 export function createLeakedToolDiagnosticsState(): LeakedToolDiagnosticsState {
-	return { suppressPythonToolOutput: false, lastVisibleChar: "" };
+	return {
+		suppressWebToolOutput: false,
+		pendingWebToolWhitespace: "",
+		suppressPythonToolOutput: false,
+		lastVisibleChar: "",
+	};
 }
 
 function shouldInsertSpaceAfterRemovedSourceMarker(params: {
@@ -421,6 +451,28 @@ function findFirstPythonToolMarkerIndex(value: string): number {
 	return bestIndex;
 }
 
+function findFirstWebToolMarker(
+	value: string,
+): { index: number; length: number } | null {
+	let bestMatch: { index: number; length: number } | null = null;
+	for (const pattern of WEB_TOOL_MARKER_PATTERNS) {
+		const match = pattern.exec(value);
+		if (match?.index !== undefined) {
+			const candidate = { index: match.index, length: match[0].length };
+			if (!bestMatch || candidate.index < bestMatch.index) {
+				bestMatch = candidate;
+			}
+		}
+	}
+	return bestMatch;
+}
+
+function isWebToolRawOutputLine(value: string): boolean {
+	const candidate = value.trim();
+	if (!candidate) return false;
+	return WEB_TOOL_RAW_LINE_PATTERNS.some((pattern) => pattern.test(candidate));
+}
+
 function findAssistantProseBoundaryIndex(value: string): number {
 	const lowerValue = value.toLowerCase();
 	let bestIndex = -1;
@@ -434,6 +486,62 @@ function findAssistantProseBoundaryIndex(value: string): number {
 	}
 
 	return bestIndex;
+}
+
+function stripLeakedWebToolDiagnostics(
+	value: string,
+	state: LeakedToolDiagnosticsState,
+): string {
+	let output = "";
+
+	for (const { line, lineEnding } of splitPreservingLineEndings(value)) {
+		if (state.pendingWebToolWhitespace) {
+			if (!line.trim()) {
+				state.pendingWebToolWhitespace += lineEnding;
+				continue;
+			}
+			if (isWebToolRawOutputLine(line)) {
+				state.suppressWebToolOutput = true;
+				continue;
+			}
+			if (!state.suppressWebToolOutput) {
+				output += state.pendingWebToolWhitespace;
+				state.pendingWebToolWhitespace = "";
+			}
+		}
+
+		if (state.suppressWebToolOutput) {
+			if (!line.trim() || isWebToolRawOutputLine(line)) {
+				continue;
+			}
+			if (state.pendingWebToolWhitespace) {
+				if (output || state.lastVisibleChar) {
+					output += state.pendingWebToolWhitespace;
+				}
+				state.pendingWebToolWhitespace = "";
+			}
+			state.suppressWebToolOutput = false;
+		}
+
+		const marker = findFirstWebToolMarker(line);
+		if (marker) {
+			const prefix = line.slice(0, marker.index);
+			const remainder = line.slice(marker.index + marker.length);
+			if (prefix.trim()) {
+				output += prefix;
+			}
+			if (remainder.trim() && !isWebToolRawOutputLine(remainder)) {
+				output += remainder + lineEnding;
+			} else {
+				state.pendingWebToolWhitespace += lineEnding;
+			}
+			continue;
+		}
+
+		output += line + lineEnding;
+	}
+
+	return output;
 }
 
 function splitPreservingLineEndings(
@@ -510,7 +618,7 @@ export function stripLeakedToolDiagnostics(
 	value: string,
 	state: LeakedToolDiagnosticsState = createLeakedToolDiagnosticsState(),
 ): string {
-	const withoutWebDiagnostics = value.replace(WEB_RESEARCH_DIAGNOSTIC_RE, "");
+	const withoutWebDiagnostics = stripLeakedWebToolDiagnostics(value, state);
 	const withoutPythonDiagnostics = stripLeakedPythonToolDiagnostics(
 		withoutWebDiagnostics,
 		state,
@@ -524,6 +632,21 @@ export function stripLeakedToolDiagnostics(
 function isLeakedToolDiagnosticPrefix(value: string): boolean {
 	const candidate = value.trimStart();
 	if (!candidate) return false;
+	const lowerCandidate = candidate.toLowerCase();
+
+	const hasKnownWebToolPrefix = WEB_TOOL_DIAGNOSTIC_PREFIXES.some(
+		({ marker, minPrefixLength }) => {
+			if (lowerCandidate.startsWith(marker)) {
+				return true;
+			}
+			return (
+				lowerCandidate.length >= minPrefixLength &&
+				marker.startsWith(lowerCandidate)
+			);
+		},
+	);
+	if (hasKnownWebToolPrefix) return true;
+
 	if (!/^found[\s\d()a-z]*$/i.test(candidate)) return false;
 
 	const words = candidate.toLowerCase().match(/[a-z]+/g) ?? [];

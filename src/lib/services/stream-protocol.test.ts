@@ -260,6 +260,38 @@ describe("stream-protocol", () => {
 		).toBe("The answer starts here.");
 	});
 
+	it("strips raw web search and fetch result blocks after leaked diagnostics", () => {
+		expect(
+			stripLeakedToolDiagnostics(
+				[
+					"Qudelix alternativesFound 8 source(s) and 16 evidence snippet(s)",
+					"1. title: Qudelix product page",
+					"url: https://example.com/qudelix",
+					"evidence: The page text and search snippets are tool evidence.",
+					"Based on the sources, the Qudelix 5K is the direct comparison point.",
+				].join("\n"),
+			),
+		).toBe(
+			[
+				"Qudelix alternatives",
+				"Based on the sources, the Qudelix 5K is the direct comparison point.",
+			].join("\n"),
+		);
+
+		expect(
+			stripLeakedToolDiagnostics(
+				[
+					"fetch_content output:",
+					"{",
+					'  "answerBriefMarkdown": "raw fetched page text",',
+					'  "sources": [{"title": "Example", "url": "https://example.com"}]',
+					"}",
+					"The final answer uses the fetched page without dumping it.",
+				].join("\n"),
+			),
+		).toBe("The final answer uses the fetched page without dumping it.");
+	});
+
 	it("strips leaked Python REPL invocation and execution output", () => {
 		const cleaned = stripLeakedToolDiagnostics(
 			[
