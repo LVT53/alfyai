@@ -26,6 +26,13 @@ function jsonCandidates(content: string): string[] {
 	const candidates = [content];
 	if (fenced) candidates.unshift(fenced);
 
+	const withoutDanglingOpeningBrace = content.startsWith("{")
+		? content.slice(1).trimStart()
+		: "";
+	if (withoutDanglingOpeningBrace.startsWith("{")) {
+		candidates.push(withoutDanglingOpeningBrace);
+	}
+
 	const firstBrace = content.indexOf("{");
 	const lastBrace = content.lastIndexOf("}");
 	if (firstBrace >= 0 && lastBrace > firstBrace) {
