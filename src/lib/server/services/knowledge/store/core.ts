@@ -36,9 +36,9 @@ export function getTargetConstructedContext(modelId?: string): number {
   return getPerModelTargetContext(modelId);
 }
 
-export const WORKING_SET_PROMPT_TOKEN_BUDGET = 20_000;
-export const WORKING_SET_DOCUMENT_TOKEN_BUDGET = 4_000;
-export const WORKING_SET_OUTPUT_TOKEN_BUDGET = 2_000;
+export const WORKING_SET_PROMPT_TOKEN_BUDGET = 3_000;
+export const WORKING_SET_DOCUMENT_TOKEN_BUDGET = 1_200;
+export const WORKING_SET_OUTPUT_TOKEN_BUDGET = 1_000;
 
 export { getDocumentTokenBudget, getWorkingSetPromptTokenBudget, getSmallFileThreshold };
 

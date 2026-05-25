@@ -364,18 +364,31 @@ function applyDerivedContextLimitDefaults(
 		}
 	}
 
-	config.model1CompactionUiThreshold = deriveCompactionUiThreshold(
-		config.model1MaxModelContext,
-	);
-	config.model1TargetConstructedContext = deriveTargetConstructedContext(
-		config.model1MaxModelContext,
-	);
-	config.model2CompactionUiThreshold = deriveCompactionUiThreshold(
-		config.model2MaxModelContext,
-	);
-	config.model2TargetConstructedContext = deriveTargetConstructedContext(
-		config.model2MaxModelContext,
-	);
+	if (overrides.MODEL_1_MAX_MODEL_CONTEXT !== undefined) {
+		if (overrides.MODEL_1_COMPACTION_UI_THRESHOLD === undefined) {
+			config.model1CompactionUiThreshold = deriveCompactionUiThreshold(
+				config.model1MaxModelContext,
+			);
+		}
+		if (overrides.MODEL_1_TARGET_CONSTRUCTED_CONTEXT === undefined) {
+			config.model1TargetConstructedContext = deriveTargetConstructedContext(
+				config.model1MaxModelContext,
+			);
+		}
+	}
+
+	if (overrides.MODEL_2_MAX_MODEL_CONTEXT !== undefined) {
+		if (overrides.MODEL_2_COMPACTION_UI_THRESHOLD === undefined) {
+			config.model2CompactionUiThreshold = deriveCompactionUiThreshold(
+				config.model2MaxModelContext,
+			);
+		}
+		if (overrides.MODEL_2_TARGET_CONSTRUCTED_CONTEXT === undefined) {
+			config.model2TargetConstructedContext = deriveTargetConstructedContext(
+				config.model2MaxModelContext,
+			);
+		}
+	}
 }
 
 function applyDerivedMaxMessageLengthDefaults(

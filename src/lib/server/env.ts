@@ -144,6 +144,10 @@ const BYTE_SUFFIX_MULTIPLIERS: Record<string, number> = {
 	M: 1024 * 1024,
 	G: 1024 * 1024 * 1024,
 };
+const DEFAULT_MAX_MODEL_CONTEXT_TOKENS = 262_144;
+const MIN_MODEL_CONTEXT_TOKENS = 1_000;
+const COMPACTION_THRESHOLD_RATIO = 0.8;
+const TARGET_CONSTRUCTED_CONTEXT_RATIO = 0.9;
 
 export function parseByteSizeLimit(value: string): number {
 	const trimmed = value.trim();
@@ -182,6 +186,38 @@ function normalizeModelThinkingType(
 function parseIntegerEnv(value: string | undefined, fallback: number): number {
 	const parsed = parseInt(value ?? "", 10);
 	return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function parsePositiveIntegerEnv(
+	value: string | undefined,
+	fallback: number,
+	minimum = 1,
+): number {
+	const parsed = parseInt(value ?? "", 10);
+	return Math.max(
+		minimum,
+		Number.isNaN(parsed) || parsed <= 0 ? fallback : parsed,
+	);
+}
+
+function deriveCompactionUiThreshold(maxModelContext: number): number {
+	return Math.max(
+		1,
+		Math.min(
+			maxModelContext - 1,
+			Math.floor(maxModelContext * COMPACTION_THRESHOLD_RATIO),
+		),
+	);
+}
+
+function deriveTargetConstructedContext(maxModelContext: number): number {
+	return Math.max(
+		1,
+		Math.min(
+			maxModelContext - 1,
+			Math.floor(maxModelContext * TARGET_CONSTRUCTED_CONTEXT_RATIO),
+		),
+	);
 }
 
 function readDeepResearchModelSelections(): DeepResearchModelSelections {
@@ -229,28 +265,71 @@ function readConfig(): Config {
 	const databasePath = getDatabasePath();
 	const honchoWorkspace = process.env.HONCHO_WORKSPACE || "alfyai-prod";
 	const model2Enabled = process.env.MODEL_2_ENABLED !== "false";
-	const maxModelContext = Math.max(
-		1000,
-		parseInt(process.env.MAX_MODEL_CONTEXT || "262144", 10) || 262144,
+	const maxModelContext = parsePositiveIntegerEnv(
+		process.env.MAX_MODEL_CONTEXT,
+		DEFAULT_MAX_MODEL_CONTEXT_TOKENS,
+		MIN_MODEL_CONTEXT_TOKENS,
 	);
-	const model1MaxModelContext = Math.max(
-		1000,
-		parseInt(
-			process.env.MODEL_1_MAX_MODEL_CONTEXT ||
-				process.env.MAX_MODEL_CONTEXT ||
-				"262144",
-			10,
-		) || 262144,
+	const compactionUiThreshold =
+		process.env.COMPACTION_UI_THRESHOLD !== undefined
+			? parsePositiveIntegerEnv(
+					process.env.COMPACTION_UI_THRESHOLD,
+					deriveCompactionUiThreshold(maxModelContext),
+				)
+			: deriveCompactionUiThreshold(maxModelContext);
+	const targetConstructedContext =
+		process.env.TARGET_CONSTRUCTED_CONTEXT !== undefined
+			? parsePositiveIntegerEnv(
+					process.env.TARGET_CONSTRUCTED_CONTEXT,
+					deriveTargetConstructedContext(maxModelContext),
+				)
+			: deriveTargetConstructedContext(maxModelContext);
+	const model1MaxModelContext = parsePositiveIntegerEnv(
+		process.env.MODEL_1_MAX_MODEL_CONTEXT ?? process.env.MAX_MODEL_CONTEXT,
+		maxModelContext,
+		MIN_MODEL_CONTEXT_TOKENS,
 	);
-	const model2MaxModelContext = Math.max(
-		1000,
-		parseInt(
-			process.env.MODEL_2_MAX_MODEL_CONTEXT ||
-				process.env.MAX_MODEL_CONTEXT ||
-				"262144",
-			10,
-		) || 262144,
+	const model1CompactionUiThreshold =
+		process.env.MODEL_1_COMPACTION_UI_THRESHOLD !== undefined
+			? parsePositiveIntegerEnv(
+					process.env.MODEL_1_COMPACTION_UI_THRESHOLD,
+					deriveCompactionUiThreshold(model1MaxModelContext),
+				)
+			: process.env.COMPACTION_UI_THRESHOLD !== undefined
+				? compactionUiThreshold
+				: deriveCompactionUiThreshold(model1MaxModelContext);
+	const model1TargetConstructedContext =
+		process.env.MODEL_1_TARGET_CONSTRUCTED_CONTEXT !== undefined
+			? parsePositiveIntegerEnv(
+					process.env.MODEL_1_TARGET_CONSTRUCTED_CONTEXT,
+					deriveTargetConstructedContext(model1MaxModelContext),
+				)
+			: process.env.TARGET_CONSTRUCTED_CONTEXT !== undefined
+				? targetConstructedContext
+				: deriveTargetConstructedContext(model1MaxModelContext);
+	const model2MaxModelContext = parsePositiveIntegerEnv(
+		process.env.MODEL_2_MAX_MODEL_CONTEXT ?? process.env.MAX_MODEL_CONTEXT,
+		maxModelContext,
+		MIN_MODEL_CONTEXT_TOKENS,
 	);
+	const model2CompactionUiThreshold =
+		process.env.MODEL_2_COMPACTION_UI_THRESHOLD !== undefined
+			? parsePositiveIntegerEnv(
+					process.env.MODEL_2_COMPACTION_UI_THRESHOLD,
+					deriveCompactionUiThreshold(model2MaxModelContext),
+				)
+			: process.env.COMPACTION_UI_THRESHOLD !== undefined
+				? compactionUiThreshold
+				: deriveCompactionUiThreshold(model2MaxModelContext);
+	const model2TargetConstructedContext =
+		process.env.MODEL_2_TARGET_CONSTRUCTED_CONTEXT !== undefined
+			? parsePositiveIntegerEnv(
+					process.env.MODEL_2_TARGET_CONSTRUCTED_CONTEXT,
+					deriveTargetConstructedContext(model2MaxModelContext),
+				)
+			: process.env.TARGET_CONSTRUCTED_CONTEXT !== undefined
+				? targetConstructedContext
+				: deriveTargetConstructedContext(model2MaxModelContext);
 	const parsedMaxMessageLength = parseInt(
 		process.env.MAX_MESSAGE_LENGTH || "",
 		10,
@@ -397,54 +476,15 @@ function readConfig(): Config {
 		),
 		maxMessageLength,
 		maxModelContext,
-		compactionUiThreshold: Math.max(
-			1000,
-			parseInt(process.env.COMPACTION_UI_THRESHOLD || "209715", 10) || 209715,
-		),
-		targetConstructedContext: Math.max(
-			1000,
-			parseInt(process.env.TARGET_CONSTRUCTED_CONTEXT || "235929", 10) ||
-				235929,
-		),
+		compactionUiThreshold,
+		targetConstructedContext,
 		model1MaxModelContext,
-		model1CompactionUiThreshold: Math.max(
-			1000,
-			parseInt(
-				process.env.MODEL_1_COMPACTION_UI_THRESHOLD ||
-					process.env.COMPACTION_UI_THRESHOLD ||
-					"209715",
-				10,
-			) || 209715,
-		),
-		model1TargetConstructedContext: Math.max(
-			1000,
-			parseInt(
-				process.env.MODEL_1_TARGET_CONSTRUCTED_CONTEXT ||
-					process.env.TARGET_CONSTRUCTED_CONTEXT ||
-					"235929",
-				10,
-			) || 235929,
-		),
+		model1CompactionUiThreshold,
+		model1TargetConstructedContext,
 		model1MaxMessageLength,
 		model2MaxModelContext,
-		model2CompactionUiThreshold: Math.max(
-			1000,
-			parseInt(
-				process.env.MODEL_2_COMPACTION_UI_THRESHOLD ||
-					process.env.COMPACTION_UI_THRESHOLD ||
-					"209715",
-				10,
-			) || 209715,
-		),
-		model2TargetConstructedContext: Math.max(
-			1000,
-			parseInt(
-				process.env.MODEL_2_TARGET_CONSTRUCTED_CONTEXT ||
-					process.env.TARGET_CONSTRUCTED_CONTEXT ||
-					"235929",
-				10,
-			) || 235929,
-		),
+		model2CompactionUiThreshold,
+		model2TargetConstructedContext,
 		model2MaxMessageLength,
 		workingSetDocumentTokenBudget: Math.max(
 			100,

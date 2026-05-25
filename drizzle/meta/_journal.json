@@ -414,6 +414,13 @@
       "when": 1777140000045,
       "tag": "1777140000045_model_icons_optional_campaign_images",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1777140000046,
+      "tag": "1777140000046_context_compression_snapshots",
+      "breakpoints": true
     }
 
   ]

@@ -24,6 +24,7 @@
 		onManageEvidence = () => {},
 		onEditQueuedMessage = () => {},
 		onDeleteQueuedMessage = () => {},
+		onCompact = () => {},
 		onDraftChange = () => {}
 	}: {
 		maxLength?: number;
@@ -42,6 +43,7 @@
 		onManageEvidence?: () => void;
 		onEditQueuedMessage?: () => void;
 		onDeleteQueuedMessage?: () => void;
+		onCompact?: () => void;
 		onDraftChange?: (payload: {
 			conversationId: string | null;
 			draftText: string;
@@ -89,5 +91,6 @@
 	{onManageEvidence}
 	{onEditQueuedMessage}
 	{onDeleteQueuedMessage}
+	{onCompact}
 	onDraftChange={handleDraftChange}
 />

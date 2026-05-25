@@ -45,6 +45,7 @@ const {
 		const builder = {
 			from: vi.fn(() => builder),
 			where: vi.fn(() => builder),
+			all: vi.fn(() => applySelection(selection)),
 			orderBy: vi.fn(() => Promise.resolve(applySelection(selection))),
 			limit: vi.fn((count: number) =>
 				Promise.resolve(applySelection(selection).slice(0, count)),
@@ -89,8 +90,11 @@ const {
 	});
 
 	const mockDelete = vi.fn(() => {
+		const run = vi.fn(() => undefined);
 		const builder = {
-			where: vi.fn(async () => undefined),
+			where: vi.fn(() => ({
+				run,
+			})),
 		};
 
 		return builder;
@@ -128,6 +132,10 @@ vi.mock("$lib/server/db", () => ({
 
 vi.mock("$lib/server/db/schema", () => ({
 	conversations: { id: "id", userId: "userId" },
+	contextCompressionSnapshots: {
+		conversationId: "conversationId",
+		sourceEndMessageSequence: "sourceEndMessageSequence",
+	},
 	messages: {
 		id: "id",
 		conversationId: "conversationId",

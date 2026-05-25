@@ -27,6 +27,7 @@ import {
 	fetchMessageEvidence,
 	generateConversationTitle,
 	createConversationFork,
+	runConversationContextCompression,
 	startConversationSkillSession,
 } from "$lib/client/api/conversations";
 import {
@@ -67,6 +68,7 @@ import type {
 	ChatMessage,
 	ConversationDraft,
 	ConversationForkOrigin,
+	ContextCompressionMarker,
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
@@ -169,6 +171,8 @@ const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
 const initialDeepResearchJobs = getData().deepResearchJobs ?? [];
+const initialContextCompressionSnapshots =
+	getData().contextCompressionSnapshots ?? [];
 const initialActiveSkillSession = getData().activeSkillSession ?? null;
 const initialConversationId = getData().conversation.id;
 const initialConversationStatus = getData().conversation.status ?? "open";
@@ -245,6 +249,9 @@ let forkOrigin = $state<ConversationForkOrigin | null>(initialForkOrigin);
 let generatedFiles = $state<ChatGeneratedFile[]>(initialGeneratedFiles);
 let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 let deepResearchJobs = $state<DeepResearchJob[]>(initialDeepResearchJobs);
+let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
+	initialContextCompressionSnapshots,
+);
 let activeSkillSession = $state<SkillSession | null>(initialActiveSkillSession);
 let skillSessionBusy = $state(false);
 let skillSessionError = $state<string | null>(null);
@@ -252,6 +259,8 @@ let skillDraftActionState = $state<
 	Record<string, { busy?: boolean; error?: string | null }>
 >({});
 let forkingMessageId = $state<string | null>(null);
+let contextCompressionInFlight = $state(false);
+let queuedContextCompression = $state(false);
 let forkOpening = $state(Boolean(initialForkOrigin));
 let forkOpeningTimeout: ReturnType<typeof setTimeout> | null = null;
 let conversationStatus = $state(initialConversationStatus);
@@ -560,10 +569,11 @@ function resetState() {
 	conversationDraft = data.draft ?? null;
 	forkOrigin = data.forkOrigin ?? null;
 	triggerForkOpeningTransition();
-	generatedFiles = data.generatedFiles ?? [];
-	fileProductionJobs = data.fileProductionJobs ?? [];
-	deepResearchJobs = data.deepResearchJobs ?? [];
-	conversationStatus = data.conversation.status ?? "open";
+		generatedFiles = data.generatedFiles ?? [];
+		fileProductionJobs = data.fileProductionJobs ?? [];
+		deepResearchJobs = data.deepResearchJobs ?? [];
+		contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
+		conversationStatus = data.conversation.status ?? "open";
 	totalCostUsdMicros = data.totalCostUsdMicros ?? 0;
 	totalTokens = data.totalTokens ?? 0;
 	restorePersistedWorkspaceState();
@@ -1101,14 +1111,16 @@ async function hydrateConversationDetail(conversationId: string) {
 		conversationDraft = payload.draft ?? conversationDraft;
 		forkOrigin = payload.forkOrigin ?? forkOrigin;
 		generatedFiles = payload.generatedFiles ?? generatedFiles;
-		fileProductionJobs = payload.fileProductionJobs ?? fileProductionJobs;
-		deepResearchJobs = payload.deepResearchJobs
-			? mergeDeepResearchJobsForHydration(
-					deepResearchJobs,
-					payload.deepResearchJobs,
-				)
-			: deepResearchJobs;
-		activeSkillSession = payload.activeSkillSession ?? null;
+			fileProductionJobs = payload.fileProductionJobs ?? fileProductionJobs;
+			deepResearchJobs = payload.deepResearchJobs
+				? mergeDeepResearchJobsForHydration(
+						deepResearchJobs,
+						payload.deepResearchJobs,
+					)
+				: deepResearchJobs;
+			contextCompressionMarkers =
+				payload.contextCompressionSnapshots ?? contextCompressionMarkers;
+			activeSkillSession = payload.activeSkillSession ?? null;
 		conversationStatus = payload.conversation?.status ?? conversationStatus;
 		bootstrapMode = false;
 
@@ -1394,6 +1406,8 @@ async function startDeepResearchTurn(params: {
 		activeStream = null;
 		canRetry = false;
 		queuedTurn = null;
+		queuedContextCompression = false;
+		contextCompressionInFlight = false;
 		void hydrateConversationDetail(data.conversation.id);
 	} catch (err) {
 		isSending = false;
@@ -1477,6 +1491,20 @@ $effect(() => {
 			deepResearchJobs,
 			data.deepResearchJobs ?? [],
 		);
+	}
+});
+
+let initializedContextCompressionData = false;
+let prevContextCompressionData: typeof data.contextCompressionSnapshots;
+$effect(() => {
+	if (!initializedContextCompressionData) {
+		prevContextCompressionData = data.contextCompressionSnapshots;
+		initializedContextCompressionData = true;
+		return;
+	}
+	if (data.contextCompressionSnapshots !== prevContextCompressionData) {
+		prevContextCompressionData = data.contextCompressionSnapshots;
+		contextCompressionMarkers = [...(data.contextCompressionSnapshots ?? [])];
 	}
 });
 
@@ -1958,6 +1986,9 @@ async function handleSend(
 					generatedFiles = [...generatedFiles, ...newFiles];
 					void hydrateConversationDetail(data.conversation.id);
 				}
+				if (metadata?.contextCompressionSnapshots) {
+					contextCompressionMarkers = metadata.contextCompressionSnapshots;
+				}
 				const serverAssistantId = metadata?.assistantMessageId;
 				if (serverAssistantId) {
 					attachFileProductionJobsToAssistantMessage(serverAssistantId);
@@ -1978,6 +2009,10 @@ async function handleSend(
 				}
 
 				if (metadata?.wasStopped) {
+					if (queuedContextCompression) {
+						queuedContextCompression = false;
+						void runManualContextCompression();
+					}
 					restoreQueuedTurnToDraft();
 					return;
 				}
@@ -1987,11 +2022,7 @@ async function handleSend(
 					completedAssistantResponse,
 				);
 
-				if (queuedTurn) {
-					const nextQueuedTurn = cloneSendPayload(queuedTurn);
-					queuedTurn = null;
-					void handleSend(nextQueuedTurn, false, false, false);
-				}
+				void drainPostTurnQueue();
 			},
 			onError(err) {
 				messages.update((list) => removeMessageById(list, placeholderId));
@@ -2140,6 +2171,9 @@ function handleRetry() {
 						generatedFiles = [...generatedFiles, ...newFiles];
 						void hydrateConversationDetail(data.conversation.id);
 					}
+					if (metadata?.contextCompressionSnapshots) {
+						contextCompressionMarkers = metadata.contextCompressionSnapshots;
+					}
 					const serverAssistantId = metadata?.assistantMessageId;
 					if (serverAssistantId) {
 						attachFileProductionJobsToAssistantMessage(serverAssistantId);
@@ -2160,19 +2194,19 @@ function handleRetry() {
 						setTimeout(() => refreshMessageCost(serverAssistantId), 1500);
 					}
 
-					if (metadata?.wasStopped) {
-						restoreQueuedTurnToDraft();
-						return;
-					}
+						if (metadata?.wasStopped) {
+							if (queuedContextCompression) {
+								queuedContextCompression = false;
+								void runManualContextCompression();
+							}
+							restoreQueuedTurnToDraft();
+							return;
+						}
 
 					maybeTriggerTitleGeneration(lastUserMessage, fullText);
 
-					if (queuedTurn) {
-						const nextQueuedTurn = cloneSendPayload(queuedTurn);
-						queuedTurn = null;
-						handleSend(nextQueuedTurn, false, false, false);
-					}
-				},
+						void drainPostTurnQueue();
+					},
 				onError(err) {
 					messages.update((list) => removeMessageById(list, placeholderId));
 					activeStream = null;
@@ -2316,6 +2350,102 @@ function handleStop() {
 		activeStream.stop();
 		// The stream will trigger onEnd via the abort controller
 	}
+}
+
+function latestTimelineMessageId(): string | null {
+	return [...$messages].reverse().find((message) => Boolean(message.id))?.id ?? null;
+}
+
+function upsertContextCompressionMarker(marker: ContextCompressionMarker) {
+	const existingIndex = contextCompressionMarkers.findIndex(
+		(existing) => existing.id === marker.id,
+	);
+	if (existingIndex === -1) {
+		contextCompressionMarkers = [...contextCompressionMarkers, marker];
+		return;
+	}
+	contextCompressionMarkers = contextCompressionMarkers.map((existing) =>
+		existing.id === marker.id ? marker : existing,
+	);
+}
+
+function replaceContextCompressionMarker(
+	tempId: string,
+	marker: ContextCompressionMarker,
+) {
+	contextCompressionMarkers = [
+		...contextCompressionMarkers.filter((existing) => existing.id !== tempId),
+		marker,
+	];
+}
+
+async function runManualContextCompression() {
+	if (contextCompressionInFlight) return;
+	const sourceEndMessageId = latestTimelineMessageId();
+	if (!sourceEndMessageId) return;
+
+	contextCompressionInFlight = true;
+	sendError = null;
+	const now = Date.now();
+	const tempId = `pending-${crypto.randomUUID()}`;
+	upsertContextCompressionMarker({
+		id: tempId,
+		trigger: "manual",
+		status: "running",
+		sourceEndMessageId,
+		createdAt: now,
+		updatedAt: now,
+	});
+
+	try {
+		const snapshot = await runConversationContextCompression(
+			data.conversation.id,
+			{
+				selectedModelId: $selectedModel,
+				trigger: "manual",
+			},
+		);
+		replaceContextCompressionMarker(tempId, snapshot);
+		if (snapshot.status === "failed") {
+			sendError = $t("contextCompression.failed");
+		}
+		void hydrateConversationDetail(data.conversation.id);
+	} catch {
+		replaceContextCompressionMarker(tempId, {
+			id: tempId,
+			trigger: "manual",
+			status: "failed",
+			sourceEndMessageId,
+			createdAt: now,
+			updatedAt: Date.now(),
+		});
+		sendError = $t("contextCompression.failed");
+	} finally {
+		contextCompressionInFlight = false;
+	}
+}
+
+async function drainPostTurnQueue() {
+	if (queuedContextCompression) {
+		queuedContextCompression = false;
+		await runManualContextCompression();
+	}
+
+	if (queuedTurn) {
+		const nextQueuedTurn = cloneSendPayload(queuedTurn);
+		queuedTurn = null;
+		void handleSend(nextQueuedTurn, false, false, false);
+	}
+}
+
+function handleCompact() {
+	if (isConversationReadOnlyForChat) return;
+	if (isSending || isEditResendPending) {
+		queuedContextCompression = true;
+		sendError = null;
+		return;
+	}
+	void runManualContextCompression();
 }
 
 function handleQueue(payload: SendPayload) {
@@ -2514,6 +2644,7 @@ function handleDrop(event: DragEvent) {
 						{modelIcons}
 						{fileProductionJobs}
 						{deepResearchJobs}
+						contextCompressionMarkers={contextCompressionMarkers}
 						hasActiveSkillSession={Boolean(activeSkillSession)}
 						{forkOrigin}
 						{forkOpening}
@@ -2548,6 +2679,7 @@ function handleDrop(event: DragEvent) {
 				onSend={handleSend}
 				onQueue={handleQueue}
 				onStop={handleStop}
+				onCompact={handleCompact}
 				onDraftChange={handleDraftChange}
 				onEditQueuedMessage={editQueuedTurn}
 				onDeleteQueuedMessage={clearQueuedTurn}

@@ -408,6 +408,26 @@ describe("MessageInput", () => {
 		);
 	});
 
+	it("runs the /compact command without sending a chat message", async () => {
+		const sendSpy = vi.fn();
+		const compactSpy = vi.fn();
+		const { getByPlaceholderText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			onSend: sendSpy,
+			onCompact: compactSpy,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/compact" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(sendSpy).not.toHaveBeenCalled();
+		expect(compactSpy).toHaveBeenCalledTimes(1);
+		expect(input.value).toBe("");
+	});
+
 	it("clears the Web search force flag after sending", async () => {
 		const sendSpy = vi.fn();
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {

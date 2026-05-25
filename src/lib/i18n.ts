@@ -696,6 +696,9 @@ const dictionary = {
 		"composerCommands.clear.description": "Clear the current composer draft.",
 		"composerCommands.clear.confirm":
 			"Clear the current draft and pending composer selections?",
+		"composerCommands.compact.label": "Compact",
+		"composerCommands.compact.description":
+			"Compact older context for future turns.",
 		"composerCommands.web.label": "Web search",
 		"composerCommands.web.description":
 			"Force Web search for the next message.",
@@ -1371,6 +1374,11 @@ const dictionary = {
 		"fork.boundaryMarkerLabel": "Conversation fork boundary",
 		"fork.boundaryTitle": "Fork starts here",
 		"fork.boundarySource": "Copied from {title}",
+		"contextCompression.manualRunning": "Compacting context",
+		"contextCompression.manualValid": "Compacted context",
+		"contextCompression.automaticRunning": "Automatically compacting context",
+		"contextCompression.automaticValid": "Automatically compacted context",
+		"contextCompression.failed": "Context compaction failed",
 		"fork.openSourceConversation": "Open source conversation {title}",
 		"fork.originMarkerLabel": "Conversation forks from this response",
 		"fork.originSingleLabel": "Forked from this response",
@@ -2253,6 +2261,9 @@ const dictionary = {
 			"Törli az aktuális beviteli piszkozatot.",
 		"composerCommands.clear.confirm":
 			"Törlöd az aktuális piszkozatot és a függőben lévő beviteli kijelöléseket?",
+		"composerCommands.compact.label": "Tömörítés",
+		"composerCommands.compact.description":
+			"Régebbi kontextus tömörítése a következő körökhöz.",
 		"composerCommands.web.label": "Webes keresés",
 		"composerCommands.web.description":
 			"Webes keresést kényszerít a következő üzenethez.",
@@ -2851,6 +2862,11 @@ const dictionary = {
 		"fork.boundaryMarkerLabel": "Beszélgetéselágazás határa",
 		"fork.boundaryTitle": "Az elágazás itt kezdődik",
 		"fork.boundarySource": "Másolva innen: {title}",
+		"contextCompression.manualRunning": "Kontextus tömörítése",
+		"contextCompression.manualValid": "Tömörített kontextus",
+		"contextCompression.automaticRunning": "Automatikus kontextustömörítés",
+		"contextCompression.automaticValid": "Automatikusan tömörített kontextus",
+		"contextCompression.failed": "A kontextustömörítés sikertelen",
 		"fork.openSourceConversation": "Forrásbeszélgetés megnyitása: {title}",
 		"fork.originMarkerLabel": "Ebből a válaszból indult beszélgetéselágazások",
 		"fork.originSingleLabel": "Ebből a válaszból elágaztatva",

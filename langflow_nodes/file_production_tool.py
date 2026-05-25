@@ -35,6 +35,10 @@ from lfx.log.logger import logger
 from lfx.schema.data import Data
 
 
+MODEL_FILE_PRODUCTION_ERROR_MAX_CHARS = 500
+MODEL_FILE_PRODUCTION_FILE_LIMIT = 5
+
+
 class FileProductionToolComponent(Component):
     """Unified tool component for creating durable AlfyAI generated-file jobs."""
 
@@ -143,6 +147,57 @@ class FileProductionToolComponent(Component):
     @staticmethod
     def _base64url_encode(payload: bytes) -> str:
         return base64.urlsafe_b64encode(payload).decode("utf-8").rstrip("=")
+
+    @staticmethod
+    def _truncate_text(value: Any, max_chars: int) -> str:
+        text = str(value or "")
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars].rstrip() + "..."
+
+    @classmethod
+    def _compact_files_for_model(cls, files: Any) -> list[dict[str, Any]]:
+        if not isinstance(files, list):
+            return []
+        compact_files: list[dict[str, Any]] = []
+        for file in files[:MODEL_FILE_PRODUCTION_FILE_LIMIT]:
+            if not isinstance(file, dict):
+                continue
+            compact_file = {
+                "id": file.get("id"),
+                "filename": file.get("filename") or file.get("name"),
+                "mimeType": file.get("mimeType"),
+                "sizeBytes": file.get("sizeBytes"),
+            }
+            compact_files.append({
+                key: value
+                for key, value in compact_file.items()
+                if value not in (None, "", [])
+            })
+        return compact_files
+
+    @classmethod
+    def _compact_job_for_model(cls, job: Any) -> dict[str, Any] | None:
+        if not isinstance(job, dict):
+            return None
+        compact_job = {
+            "id": job.get("id"),
+            "status": job.get("status"),
+            "stage": job.get("stage"),
+            "requestTitle": job.get("requestTitle"),
+            "sourceMode": job.get("sourceMode"),
+            "documentIntent": job.get("documentIntent"),
+            "files": cls._compact_files_for_model(job.get("files", [])),
+            "error": cls._truncate_text(
+                job.get("error") or job.get("errorMessage"),
+                MODEL_FILE_PRODUCTION_ERROR_MAX_CHARS,
+            ),
+        }
+        return {
+            key: value
+            for key, value in compact_job.items()
+            if value not in (None, "", [])
+        }
 
     @staticmethod
     def _parse_json_field(value: Any, fallback: Any = None) -> Any:
@@ -344,6 +399,12 @@ class FileProductionToolComponent(Component):
 
         if result.get("success"):
             job = result.get("job", {})
+            model_job = self._compact_job_for_model(job)
+            model_files = (
+                model_job.get("files", [])
+                if isinstance(model_job, dict)
+                else []
+            )
             summary = "File production request accepted. The chat card will update when the file is ready."
             self._emit_tool_marker(
                 "TOOL_END",
@@ -352,20 +413,24 @@ class FileProductionToolComponent(Component):
                     "name": "produce_file",
                     "sourceType": "tool",
                     "outputSummary": summary,
-                    "candidates": job.get("files", []) if isinstance(job, dict) else [],
+                    "candidates": model_files,
                 },
             )
             return Data(
                 data={
                     "success": True,
                     "message": summary,
-                    "job": job,
+                    "job": model_job,
                     "reused": bool(result.get("reused")),
                     "conversationId": conversation_id,
                 }
             )
 
-        error_message = str(result.get("error", "Unknown file-production error"))
+        error_message = self._truncate_text(
+            result.get("error", "Unknown file-production error"),
+            MODEL_FILE_PRODUCTION_ERROR_MAX_CHARS,
+        )
+        model_job = self._compact_job_for_model(result.get("job"))
         logger.error(f"File production failed: {error_message}")
         self._emit_tool_marker(
             "TOOL_END",
@@ -381,7 +446,7 @@ class FileProductionToolComponent(Component):
             data={
                 "success": False,
                 "error": error_message,
-                "job": result.get("job"),
+                "job": model_job,
                 "conversationId": conversation_id,
             }
         )

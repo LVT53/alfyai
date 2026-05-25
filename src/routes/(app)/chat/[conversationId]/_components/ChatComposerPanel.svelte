@@ -29,6 +29,7 @@
 		onDraftChange,
 		onEditQueuedMessage,
 		onDeleteQueuedMessage,
+		onCompact,
 		disabled,
 		isGenerating,
 		hasQueuedMessage,
@@ -70,6 +71,7 @@
 		onDraftChange: (payload: DraftChangePayload) => void;
 		onEditQueuedMessage: () => void;
 		onDeleteQueuedMessage: () => void;
+		onCompact: () => void;
 		disabled: boolean;
 		isGenerating: boolean;
 		hasQueuedMessage: boolean;
@@ -179,6 +181,7 @@
 			{onDraftChange}
 			{onEditQueuedMessage}
 			{onDeleteQueuedMessage}
+			{onCompact}
 			{disabled}
 			{isGenerating}
 			{hasQueuedMessage}

@@ -16,6 +16,10 @@ import {
 	updateConversationTitle,
 } from "$lib/server/services/conversations";
 import { listConversationDeepResearchJobs } from "$lib/server/services/deep-research";
+import {
+	listContextCompressionSnapshots,
+	serializeContextCompressionSnapshot,
+} from "$lib/server/services/context-compression";
 import { listConversationFileProductionJobs } from "$lib/server/services/file-production";
 import {
 	getConversationContextStatus,
@@ -68,6 +72,7 @@ export const GET: RequestHandler = async (event) => {
 				draft,
 				fileProductionJobs: [],
 				deepResearchJobs: [],
+				contextCompressionSnapshots: [],
 				activeSkillSession: serializePublicSkillSession(activeSkillSession),
 				bootstrap: true,
 			});
@@ -85,6 +90,7 @@ export const GET: RequestHandler = async (event) => {
 			generatedFiles,
 			fileProductionJobs,
 			deepResearchJobs,
+			contextCompressionSnapshots,
 			costSummary,
 			projectReference,
 			activeSkillSession,
@@ -100,6 +106,7 @@ export const GET: RequestHandler = async (event) => {
 			getChatFiles(id),
 			listConversationFileProductionJobs(user.id, id),
 			listConversationDeepResearchJobs(user.id, id),
+			listContextCompressionSnapshots(id),
 			getConversationCostSummary(id),
 			getProjectReferenceContext({ userId: user.id, conversationId: id }).catch(
 				() => null,
@@ -143,6 +150,9 @@ export const GET: RequestHandler = async (event) => {
 			generatedFiles,
 			fileProductionJobs,
 			deepResearchJobs,
+			contextCompressionSnapshots: contextCompressionSnapshots.map(
+				serializeContextCompressionSnapshot,
+			),
 			activeSkillSession: serializePublicSkillSession(activeSkillSession),
 			bootstrap: false,
 			totalCostUsdMicros: costSummary.totalCostUsdMicros,

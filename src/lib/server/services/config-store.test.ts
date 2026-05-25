@@ -204,7 +204,48 @@ describe("Knowledge Store Config", () => {
 			expect(getConfig().maxMessageLength).toBe(50_000);
 		});
 
-		it("getConfig() should derive model-specific budgets from a model max context override", async () => {
+		it("getConfig() should derive global context budgets from a global max context override when target and threshold are unset", async () => {
+			adminConfigRows = [{ key: "MAX_MODEL_CONTEXT", value: "1000000" }];
+
+			await refreshConfig();
+
+			const config = getConfig();
+			expect(config.maxModelContext).toBe(1_000_000);
+			expect(config.compactionUiThreshold).toBe(800_000);
+			expect(config.targetConstructedContext).toBe(900_000);
+		});
+
+		it("getConfig() should keep explicit global context budget overrides", async () => {
+			adminConfigRows = [
+				{ key: "MAX_MODEL_CONTEXT", value: "1000000" },
+				{ key: "COMPACTION_UI_THRESHOLD", value: "700000" },
+				{ key: "TARGET_CONSTRUCTED_CONTEXT", value: "750000" },
+			];
+
+			await refreshConfig();
+
+			const config = getConfig();
+			expect(config.maxModelContext).toBe(1_000_000);
+			expect(config.compactionUiThreshold).toBe(700_000);
+			expect(config.targetConstructedContext).toBe(750_000);
+		});
+
+		it("getConfig() should derive model-specific budgets from a model max context override when target and threshold are unset", async () => {
+			adminConfigRows = [
+				{ key: "MODEL_1_MAX_MODEL_CONTEXT", value: "132000" },
+			];
+
+			await refreshConfig();
+
+			const config = getConfig();
+			expect(config.model1MaxModelContext).toBe(132_000);
+			expect(config.model1CompactionUiThreshold).toBe(105_600);
+			expect(config.model1TargetConstructedContext).toBe(118_800);
+			expect(config.model1MaxMessageLength).toBe(528_000);
+			expect(config.maxMessageLength).toBe(528_000);
+		});
+
+		it("getConfig() should keep explicit model-specific context budget overrides", async () => {
 			adminConfigRows = [
 				{ key: "MODEL_1_MAX_MODEL_CONTEXT", value: "132000" },
 				{ key: "MODEL_1_COMPACTION_UI_THRESHOLD", value: "90000" },
@@ -215,8 +256,8 @@ describe("Knowledge Store Config", () => {
 
 			const config = getConfig();
 			expect(config.model1MaxModelContext).toBe(132_000);
-			expect(config.model1CompactionUiThreshold).toBe(105_600);
-			expect(config.model1TargetConstructedContext).toBe(118_800);
+			expect(config.model1CompactionUiThreshold).toBe(90_000);
+			expect(config.model1TargetConstructedContext).toBe(100_000);
 			expect(config.model1MaxMessageLength).toBe(528_000);
 			expect(config.maxMessageLength).toBe(528_000);
 		});

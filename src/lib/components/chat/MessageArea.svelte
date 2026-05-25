@@ -4,6 +4,7 @@ import { t } from "$lib/i18n";
 import type {
 	ChatMessage,
 	ContextDebugState,
+	ContextCompressionMarker,
 	ConversationForkOrigin,
 	DeepResearchJob,
 	DeepResearchReportIntent,
@@ -22,6 +23,7 @@ let {
 	modelIcons = {},
 	fileProductionJobs = [],
 	deepResearchJobs = [],
+	contextCompressionMarkers = [],
 	hasActiveSkillSession = false,
 	activeSkillSessionHeight = 0,
 	forkOrigin = null,
@@ -53,6 +55,7 @@ let {
 	modelIcons?: Record<string, string | null | undefined>;
 	fileProductionJobs?: FileProductionJob[];
 	deepResearchJobs?: DeepResearchJob[];
+	contextCompressionMarkers?: ContextCompressionMarker[];
 	hasActiveSkillSession?: boolean;
 	activeSkillSessionHeight?: number;
 	forkOrigin?: ConversationForkOrigin | null;
@@ -210,6 +213,15 @@ let deepResearchJobsByAnchorMessageKey = $derived(
 	}, new Map<string, DeepResearchJob[]>())
 );
 
+let contextCompressionMarkersBySourceEndMessageId = $derived(
+	contextCompressionMarkers.reduce((markersByMessageId, marker) => {
+		const markers = markersByMessageId.get(marker.sourceEndMessageId) ?? [];
+		markers.push(marker);
+		markersByMessageId.set(marker.sourceEndMessageId, markers);
+		return markersByMessageId;
+	}, new Map<string, ContextCompressionMarker[]>())
+);
+
 let unanchoredDeepResearchJobs = $derived(
 	deepResearchJobs.filter((job) => {
 		return !findDeepResearchAnchorMessageKey(job, dedupedMessages);
@@ -265,6 +277,20 @@ function forkSourceHref(origin: ConversationForkOrigin): string | null {
 		? `#message-${origin.sourceAssistantMessageId}`
 		: '';
 	return `/chat/${origin.sourceConversationId}${messageAnchor}`;
+}
+
+function contextCompressionMarkerLabel(marker: ContextCompressionMarker): string {
+	if (marker.status === 'running') {
+		return marker.trigger === 'automatic'
+			? $t('contextCompression.automaticRunning')
+			: $t('contextCompression.manualRunning');
+	}
+	if (marker.status === 'failed') {
+		return $t('contextCompression.failed');
+	}
+	return marker.trigger === 'automatic'
+		? $t('contextCompression.automaticValid')
+		: $t('contextCompression.manualValid');
 }
 
 async function alignToBottomAfterRender() {
@@ -365,6 +391,19 @@ async function alignToBottomAfterRender() {
 						{/if}
 					</div>
 				{/if}
+				{#each contextCompressionMarkersBySourceEndMessageId.get(message.id) ?? [] as marker (marker.id)}
+					<div
+						class="fork-lineage-marker context-compression-marker"
+						class:context-compression-marker-running={marker.status === 'running'}
+						class:context-compression-marker-failed={marker.status === 'failed'}
+						data-testid={`context-compression-marker-${marker.id}`}
+						role="note"
+						aria-label={contextCompressionMarkerLabel(marker)}
+					>
+						<span class="context-compression-line" aria-hidden="true"></span>
+						<span class="fork-boundary-title">{contextCompressionMarkerLabel(marker)}</span>
+					</div>
+				{/each}
 				{#each deepResearchJobsByAnchorMessageKey.get(messageRenderKey(message)) ?? [] as job (job.id)}
 					<ResearchCard
 						job={job}
@@ -489,6 +528,34 @@ async function alignToBottomAfterRender() {
 		color: var(--text-subtle);
 	}
 
+	.context-compression-marker {
+		margin: var(--space-xs) 0 var(--space-md);
+		border-left-color: color-mix(in srgb, var(--accent) 88%, var(--text-primary) 12%);
+	}
+
+	.context-compression-marker-running {
+		border-left-color: color-mix(in srgb, var(--text-muted) 72%, var(--accent) 28%);
+		background: color-mix(in srgb, var(--surface-elevated) 90%, var(--accent) 10%);
+	}
+
+	.context-compression-marker-failed {
+		border-left-color: var(--danger, #c2410c);
+		background: color-mix(in srgb, var(--surface-elevated) 88%, var(--danger, #c2410c) 12%);
+	}
+
+	.context-compression-line {
+		display: block;
+		flex: 0 0 2.25rem;
+		height: 2px;
+		border-radius: 999px;
+		background: currentColor;
+		opacity: 0.5;
+	}
+
+	.context-compression-marker-running .context-compression-line {
+		animation: contextCompressionPulse 900ms ease-in-out infinite;
+	}
+
 	.fork-lineage-link {
 		text-decoration: none;
 	}
@@ -504,6 +571,18 @@ async function alignToBottomAfterRender() {
 	@media (min-width: 768px) {
 		.scroll-clearance {
 			--scroll-clearance-base: 9.5rem;
+		}
+	}
+
+	@keyframes contextCompressionPulse {
+		0%,
+		100% {
+			opacity: 0.25;
+			transform: scaleX(0.72);
+		}
+		50% {
+			opacity: 0.75;
+			transform: scaleX(1);
 		}
 	}
 </style>

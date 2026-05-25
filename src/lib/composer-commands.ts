@@ -8,6 +8,7 @@ export type ComposerCommandId =
 	| "skill"
 	| "settings"
 	| "clear"
+	| "compact"
 	| "web"
 	| "research";
 
@@ -86,6 +87,13 @@ export const STATIC_COMPOSER_COMMANDS = [
 		token: "/clear",
 		labelKey: "composerCommands.clear.label",
 		descriptionKey: "composerCommands.clear.description",
+		availability: "available",
+	},
+	{
+		id: "compact",
+		token: "/compact",
+		labelKey: "composerCommands.compact.label",
+		descriptionKey: "composerCommands.compact.description",
 		availability: "available",
 	},
 	{

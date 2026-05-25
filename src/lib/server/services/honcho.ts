@@ -94,6 +94,10 @@ import {
 import { buildActiveDocumentState } from './active-state';
 import { getLatestHonchoMetadata, listMessages } from './messages';
 import { getConversationForkOrigin } from './conversation-forks';
+import type {
+	ContextCompressionSnapshot,
+	ContextCompressionSourceMessage,
+} from './context-compression';
 
 let client: Honcho | null = null;
 
@@ -251,6 +255,8 @@ function buildContextSelectionCandidates(params: {
 							? documentContextSignalReasons
 							: section.title === 'Honcho Session Context'
 								? ['recent_turn_context:budgeted']
+								: section.title === 'Context Compression Snapshot'
+									? ['context_compression_snapshot:valid']
 								: section.title === 'Baseline Memory Profile'
 									? ['honcho_baseline_profile:live']
 									: promotedSibling
@@ -1116,9 +1122,11 @@ export async function deleteAllHonchoStateForUser(userId: string): Promise<void>
 }
 
 type PromptContextMessage = {
+	id?: string;
 	role: 'user' | 'assistant';
 	content: string;
 	createdAt: number;
+	messageSequence?: number;
 	forkCopy?: ForkCopyMetadata;
 };
 
@@ -1135,12 +1143,20 @@ function mapHonchoMessagesToPromptContext(
 		.sort((a, b) => a.createdAt - b.createdAt);
 }
 
-function mapStoredMessagesToPromptContext(messages: ChatMessage[]): PromptContextMessage[] {
+function mapStoredMessagesToPromptContextWithSequences(
+	messages: ChatMessage[],
+	sourceMessages: ContextCompressionSourceMessage[]
+): PromptContextMessage[] {
+	const sequenceByMessageId = new Map(
+		sourceMessages.map((message) => [message.id, message.messageSequence])
+	);
 	return messages
 		.map((message) => ({
+			id: message.id,
 			role: message.role,
 			content: message.content,
 			createdAt: message.timestamp,
+			messageSequence: sequenceByMessageId.get(message.id),
 			forkCopy: message.forkCopy,
 		}))
 		.sort((a, b) => a.createdAt - b.createdAt);
@@ -1149,7 +1165,19 @@ function mapStoredMessagesToPromptContext(messages: ChatMessage[]): PromptContex
 async function loadFallbackPromptContextMessages(
 	conversationId: string
 ): Promise<PromptContextMessage[]> {
-	return mapStoredMessagesToPromptContext(await listMessages(conversationId));
+	const [storedMessages, sourceMessages] = await Promise.all([
+		listMessages(conversationId),
+		import('./context-compression')
+			.then(({ listContextCompressionSourceMessages }) =>
+				listContextCompressionSourceMessages(conversationId)
+			)
+			.catch(() => [] as ContextCompressionSourceMessage[]),
+	]);
+
+	return mapStoredMessagesToPromptContextWithSequences(
+		storedMessages,
+		sourceMessages
+	);
 }
 
 type TimedResolution<T> = {
@@ -1160,6 +1188,7 @@ type TimedResolution<T> = {
 
 type LoadedSessionPromptContext = {
 	sessionMessages: PromptContextMessage[];
+	storedMessages: PromptContextMessage[];
 	summary: string | null;
 	peerContext: string;
 	honchoContext: HonchoContextInfo | null;
@@ -1344,6 +1373,7 @@ async function loadSessionPromptContext(params: {
 	if (!isHonchoEnabled()) {
 		return {
 			sessionMessages: fallbackSessionMessages,
+			storedMessages: fallbackSessionMessages,
 			summary: null,
 			peerContext: '',
 			honchoContext: null,
@@ -1358,6 +1388,7 @@ async function loadSessionPromptContext(params: {
 	if (!hasStoredSessionContext) {
 		return {
 			sessionMessages: [],
+			storedMessages: fallbackSessionMessages,
 			summary: null,
 			peerContext: await loadPersonaContext(params),
 			honchoContext: {
@@ -1387,6 +1418,7 @@ async function loadSessionPromptContext(params: {
 
 		return {
 			sessionMessages,
+			storedMessages: fallbackSessionMessages,
 			summary,
 			peerContext,
 			honchoContext: {
@@ -1486,6 +1518,7 @@ async function loadSessionPromptContext(params: {
 
 	return {
 		sessionMessages,
+		storedMessages: fallbackSessionMessages,
 		summary,
 		peerContext,
 		honchoContext: {
@@ -1498,6 +1531,33 @@ async function loadSessionPromptContext(params: {
 		},
 		honchoSnapshot,
 	};
+}
+
+async function loadContextCompressionPromptSnapshot(params: {
+	conversationId: string;
+	userId: string;
+}): Promise<{ snapshot: ContextCompressionSnapshot; body: string } | null> {
+	const {
+		formatContextCompressionSnapshotForPrompt,
+		getLatestValidContextCompressionSnapshot,
+	} = await import('./context-compression');
+	const snapshot = await getLatestValidContextCompressionSnapshot(params);
+	if (!snapshot) return null;
+	const body = formatContextCompressionSnapshotForPrompt(snapshot).trim();
+	return body ? { snapshot, body } : null;
+}
+
+function selectRawSessionMessagesAfterCompressionSnapshot(params: {
+	storedMessages: PromptContextMessage[];
+	snapshot: ContextCompressionSnapshot | null;
+}): PromptContextMessage[] {
+	if (!params.snapshot) return params.storedMessages;
+	const sourceEndMessageSequence = params.snapshot.sourceEndMessageSequence;
+	return params.storedMessages.filter(
+		(message) =>
+			typeof message.messageSequence === 'number' &&
+			message.messageSequence > sourceEndMessageSequence
+	);
 }
 
 
@@ -1552,6 +1612,7 @@ export async function buildConstructedContext(params: {
 		projectFolderReferenceContext,
 		projectFolderSiblingPromotion,
 		forkOrigin,
+		contextCompressionPromptSnapshot,
 	] =
 		await Promise.all([
 			loadSessionPromptContext({
@@ -1586,14 +1647,25 @@ export async function buildConstructedContext(params: {
 				query: params.message,
 			}).catch(() => null),
 			getConversationForkOrigin(params.conversationId).catch(() => null),
+			loadContextCompressionPromptSnapshot({
+				userId: params.userId,
+				conversationId: params.conversationId,
+			}).catch(() => null),
 		]);
 	const {
 		sessionMessages,
+		storedMessages,
 		summary: sessionSummary,
 		peerContext,
 		honchoContext,
 		honchoSnapshot,
 	} = sessionContext;
+	const promptSessionMessages = contextCompressionPromptSnapshot
+		? selectRawSessionMessagesAfterCompressionSnapshot({
+				storedMessages,
+				snapshot: contextCompressionPromptSnapshot.snapshot,
+			})
+		: sessionMessages;
 	const forkProvenance = summarizeForkContextProvenance({
 		messages: sessionMessages,
 		copiedForkPointMessageId: forkOrigin?.copiedForkPointMessageId ?? null,
@@ -1779,9 +1851,9 @@ export async function buildConstructedContext(params: {
 	}).catch(() => new Map<string, string>());
 
 	const allTurns = selectRecentRoleTurns(
-		sessionMessages,
+		promptSessionMessages,
 		(message) => message.role,
-		sessionMessages.length
+		promptSessionMessages.length
 	);
 
 	const filteredTurns = selectPromptSessionTurns({
@@ -1962,16 +2034,18 @@ export async function buildConstructedContext(params: {
 			minTotalBudget: WORKING_SET_PROMPT_TOKEN_BUDGET,
 			minPerSourceBudget: Math.min(
 				WORKING_SET_DOCUMENT_TOKEN_BUDGET,
-				WORKING_SET_OUTPUT_TOKEN_BUDGET
+				WORKING_SET_OUTPUT_TOKEN_BUDGET,
 			),
 		});
 		const retrievedEvidenceBudget = Math.min(
 			evidenceBudget.totalBudget,
-			documentDepthBudget.totalBudget
+			documentDepthBudget.totalBudget,
+			WORKING_SET_PROMPT_TOKEN_BUDGET,
 		);
 		const retrievedEvidencePerSourceBudget = Math.min(
 			evidenceBudget.perSourceBudget,
-			documentDepthBudget.perArtifactCharBudget
+			documentDepthBudget.perArtifactCharBudget,
+			WORKING_SET_DOCUMENT_TOKEN_BUDGET,
 		);
 		sections.push({
 			title: 'Retrieved Evidence',
@@ -1984,6 +2058,16 @@ export async function buildConstructedContext(params: {
 			}),
 			layer: 'working_set',
 			protected: selectedEvidence.some((artifact) => pinnedArtifactIds.has(artifact.id)),
+		});
+	}
+
+	if (contextCompressionPromptSnapshot) {
+		sections.push({
+			title: 'Context Compression Snapshot',
+			body: contextCompressionPromptSnapshot.body,
+			layer: 'session',
+			protected: true,
+			llmCompactible: true,
 		});
 	}
 

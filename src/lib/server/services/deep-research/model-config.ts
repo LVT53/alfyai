@@ -48,6 +48,8 @@ export async function resolveDeepResearchModel(
 					provider.maxModelContext ??
 					inferModelContextWindow(provider.modelName) ??
 					UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK,
+				compactionUiThreshold: provider.compactionUiThreshold,
+				targetConstructedContext: provider.targetConstructedContext,
 			});
 			return {
 				role,

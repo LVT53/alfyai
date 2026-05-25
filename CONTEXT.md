@@ -258,6 +258,14 @@ _Avoid_: arbitrary evidence cap, fixed document limit, small-context mode
 The configured point at which AlfyAI treats **Prompt Context** as large enough to show or record compaction pressure.
 _Avoid_: hard evidence limit, maximum context, token warning
 
+**Context Compression**:
+An LLM-produced compact representation of selected context that would otherwise exceed the **Context Budget**.
+_Avoid_: context selection, deterministic truncation, hidden omission
+
+**Context Compression Snapshot**:
+A reversible prompt snapshot used by future **Context Selection** to represent older or oversized selected context without deleting raw conversation, file, tool, or source records.
+_Avoid_: memory replacement, message rewrite, deleted history
+
 **Reserved Context Budget**:
 The portion of **Context Budget** held for the current user message, system instructions, tool overhead, and response space.
 _Avoid_: hidden budget, overhead
@@ -761,8 +769,33 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - User reset or exclusion is stronger than topic-shift decay and may remove sources from the active pool.
 - Smart decay or compaction may use a local control model when intelligence is useful.
 - Local-model decay or compaction should avoid slowing ordinary response generation; prefer cached, bounded, asynchronous, or fallback-safe decisions.
-- Smart compaction and decay are async-first and should usually run after a turn or during idle maintenance.
+- Smart decay is async-first and should usually run after a turn or during idle maintenance.
+- **Context Compression** should run on demand when selected **Prompt Context** does not fit the model-window-aware **Context Budget**, not as routine background work after every turn.
 - During a chat turn, use deterministic fast rules unless a high-impact decision requires a short-timeout local-model check.
+- **Context Selection** remains responsible for choosing candidate **Prompt Context**; **Context Compression** handles selected context that cannot fit the model-window-aware **Context Budget** without losing the user's working intent.
+- Deterministic overflow handling should enforce hard safety boundaries, but it should not be the primary production behavior for silently dropping or slicing useful selected context.
+- **Context Compression** should use the user's selected response model in v1; a separate admin-configured compressor model would weaken the user's model preference without enough product value.
+- **Context Compression Snapshots** change prompt assembly defaults only; they must not rewrite, delete, or replace raw chat messages, files, tool outputs, Message Evidence, or source records.
+- In v1, **Context Compression Snapshots** may be consumed only by Normal Chat prompt assembly, Context Sources status/markers, and operational metadata that records compression occurred.
+- In v1, **Context Compression Snapshots** must not feed Honcho mirroring, durable memory extraction, Message Evidence, source audit, file-production source material, tool-call replay, exact retry/regenerate reconstruction, search indexing, or conversation export.
+- **Context Compression Snapshots** are conversation-owned records and must be linked to the raw messages, source ranges, and source groups they summarize.
+- Deleting a conversation must delete its **Context Compression Snapshots**.
+- Editing or deleting a message that predates or participates in a **Context Compression Snapshot** must delete that snapshot through the same mutation boundary that handles normal chat-turn storage cleanup.
+- **Context Compression Snapshots** should not survive as orphaned database rows after their owning conversation or covered source history changes.
+- Invalid **Context Compression Snapshots** should be hard-deleted in v1 rather than retained as invalidated audit records.
+- When selected context is too large for the selected model to compress in one pass, **Context Compression** should use hierarchical source-aware compression with bounded chunks and a final merge pass.
+- Hierarchical **Context Compression** should chunk by natural source boundaries such as message pairs, tool call/result pairs, document sections, web/research excerpts, and log sections rather than arbitrary token slicing whenever possible.
+- Hierarchical **Context Compression** must preserve causal order for user/assistant turns and tool call/result pairs.
+- Active or in-flight tool calls are not eligible for **Context Compression**.
+- Completed tool outputs from older turns may be included in **Context Compression Snapshots** as structured tool state.
+- The just-finished tool result for the current turn should remain raw selected context for that turn.
+- Large completed tool outputs such as raw JSON, logs, or page text should be summarized in **Context Compression Snapshots** with source coverage and limitations rather than replayed in full.
+- A **Context Compression Snapshot** should be structured rather than a single prose blob.
+- A **Context Compression Snapshot** should preserve the current goal, active decisions, open questions, user preferences relevant to the conversation, working artifacts, summarized tool state, source coverage, and known limitations.
+- Model-facing prompt assembly may render a **Context Compression Snapshot** as readable text, but storage should keep enough structure for audit, status display, and regression tests.
+- A **Context Compression Snapshot** must pass deterministic validation before it becomes **Prompt Context**.
+- **Context Compression Snapshot** validation should verify schema, token budget fit, source coverage, tool call/result coverage, absence of raw oversized blobs, and absence of internal reasoning tags.
+- If **Context Compression** validation fails, AlfyAI may retry compression once with stricter instructions before falling back to deterministic safety trimming plus a visible **Context Limitation**.
 - Memory remains supporting context even for large-context models.
 - Memory should stay compact and summary-oriented rather than expanding into long history dumps by default.
 - **Protected Context** is not unlimited context.
@@ -790,8 +823,10 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Context Access** v1 should make memory and document context reliable together; fixing memory retrieval while leaving Knowledge Library document selection dependent on exact filenames or manual `/document` selection is not a production-quality slice.
 - **Max Model Context** should be derived from provider/model metadata when available.
 - Explicit admin **Max Model Context** values override derived provider/model defaults.
+- For locally managed or frequently retuned models, configured admin model settings are the authority for **Max Model Context**; do not hardcode GPT-OSS or other local model context windows when the admin fields already carry that limit.
 - Third-party API connections should use the context length configured in admin model settings.
 - A third-party API connection without an explicit or confidently inferred context length is not fully configured for production use.
+- This deployment assumes every usable model has a configured **Max Model Context**; v1 does not need a separate missing-limit user flow.
 - The safety fallback for unknown model capacity is 150k tokens, and it should be treated as a conservative fallback rather than the model's real advertised capacity.
 - Third-party API connections should require **Max Model Context** in admin model settings before they are considered fully configured.
 - Third-party **Target Constructed Context** and **Compaction Threshold** may remain optional; when unset, they should derive from the configured **Max Model Context**.
@@ -876,6 +911,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Recent conversation turns are **Support Context** by default.
 - The immediately previous exchange may receive limited protection for conversational continuity.
 - Older turns should compete through relevance and budget rather than transcript recency alone.
+- Older turns may be represented by a **Context Compression Snapshot** when raw inclusion would exceed the **Context Budget**.
 - Large previous outputs should not become **Prompt Context** only because they are recent.
 - **Generated Files** and **Generated Documents** are **Available Context** but not automatically **Prompt Context**.
 - Generated-output prompt inclusion must happen through **Context Selection**, not through a separate latest-file or file-generation prompt shortcut.
@@ -910,6 +946,36 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - External memory mirrors should receive conversational content and minimal role/session metadata, not local diagnostics.
 - **Context Trace** is operational diagnostics, not a normal user-interface feature.
 - Normal chat UI should not surface **Context Trace**.
+- A user-triggered or automatic **Context Compression** should create a compact user-visible chat marker, distinct from **Context Trace**.
+- While **Context Compression** is running, the marker may appear as a thin in-progress line; after completion it should become a compact accent-colored marker such as "Compacted context" for manual compression or "Automatically compacted context" for automatic compression.
+- Automatic **Context Compression** during a user turn should continue the turn after compression without requiring user intervention.
+- Automatic **Context Compression** during a user turn should keep the user turn pending, show a compact intermediate timeline marker, and then continue into normal assistant thinking and generation.
+- A **Context Compression** marker is a chat timeline event backed by snapshot status, not a normal user, assistant, or system message row.
+- The app should check model-window fit at every model-call boundary in a user turn, including after tool calls or other in-generation prompt expansion.
+- If any in-generation model-call boundary would exceed the model-window-aware **Context Budget**, the app should handle it through **Context Compression** or another explicit overflow path and keep the user informed.
+- Post-tool automatic **Context Compression** should compact older selected context while keeping the just-returned tool result raw for the current turn.
+- Failed or timed-out automatic **Context Compression** should not silently continue with arbitrary deterministic truncation.
+- If automatic **Context Compression** fails validation or size limits, AlfyAI may retry once with stricter instructions.
+- If automatic **Context Compression** still fails, AlfyAI should preserve the current user message, current tool result when present, and highest-priority protected context, then continue only with a visible **Context Limitation** when the reduced context is likely useful.
+- If no useful reduced context can fit, AlfyAI should stop the turn with a clear recoverable error rather than producing an answer from silently damaged context.
+- Manual `/compact` should run immediately only when no assistant turn is active.
+- If an assistant turn is active, manual `/compact` should queue behind the active turn and run against the completed conversation state rather than compressing partial streaming state.
+- Manual `/compact` should not interrupt an active assistant turn unless the user explicitly stops that turn first.
+- Manual `/compact` may run even when selected **Prompt Context** already fits the active model because its purpose is also reducing conversation drift and clarifying working state.
+- Manual `/compact` should avoid recompressing when no relevant raw conversation or source state changed since the last valid **Context Compression Snapshot**.
+- Manual `/compact` should make future prompts prefer the resulting **Context Compression Snapshot** for older history while preserving recent raw turns.
+- A valid **Context Compression Snapshot** may represent a covered prefix or range of older conversation context.
+- New messages after a valid **Context Compression Snapshot** should remain raw recent context rather than invalidating the snapshot.
+- Future prompt assembly should combine the latest valid **Context Compression Snapshot** for covered older history with raw recent turns after the snapshot.
+- A **Context Compression Snapshot** should be invalidated by changes inside its covered source history, not by later appended messages.
+- A newer **Context Compression Snapshot** may compress the previous valid snapshot plus raw turns appended after that snapshot.
+- **Context Compression** may repeatedly compact from the latest valid snapshot plus raw turns as often as needed; v1 should not impose a snapshot generation limit.
+- Automatic **Context Compression** should be incremental by default, using the latest valid **Context Compression Snapshot**, raw messages after that snapshot, current selected source context, and current user intent.
+- Automatic **Context Compression** should not reopen older raw history merely because a snapshot exists; older raw history should be revisited only through explicit user intent, exact-history requests, or retrieval-selected relevance.
+- Exact older-content requests should use the existing **Memory Context Tool** or another existing retrieval path to find and return the relevant raw or detailed context as new selected **Prompt Context**.
+- **Context Compression** should not introduce a separate exact-history bypass for compressed snapshots.
+- Raw covered history remains stored and available for exact retrieval or future features, but v1 should not force periodic full raw-source rebuilds solely to prevent compression drift.
+- Users are responsible for using project chats, separate conversations, manual `/compact`, source selection, and other focus tools when a conversation's working focus drifts too far.
 - Normal Chat **Context Selection** happens before the model call by default.
 - If selected context is insufficient, AlfyAI should use a **Context Clarification** or **Context Limitation** rather than a hidden context-expansion loop.
 - **Context Selection** should evolve through **Context Selection Slices**.

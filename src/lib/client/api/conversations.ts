@@ -1,5 +1,6 @@
 import type {
 	ChatMessage,
+	ContextCompressionMarker,
 	ContextDebugState,
 	Conversation,
 	ConversationDetail,
@@ -38,6 +39,10 @@ interface TitleGenerationResponse {
 interface TaskSteeringResponse {
 	taskState?: TaskState | null;
 	contextDebug?: ContextDebugState | null;
+}
+
+interface ContextCompressionResponse {
+	snapshot: ContextCompressionMarker;
 }
 
 interface ConversationDraftPayload {
@@ -445,4 +450,27 @@ export async function applyTaskSteering(
 		},
 		"Failed to update task steering",
 	);
+}
+
+export async function runConversationContextCompression(
+	conversationId: string,
+	payload: { selectedModelId: string; trigger?: "manual" | "automatic" },
+	fetchImpl: FetchLike = fetch,
+): Promise<ContextCompressionMarker> {
+	const result = await requestJson<ContextCompressionResponse>(
+		`/api/conversations/${conversationId}/context-compression`,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(payload),
+		},
+		"Failed to compact context",
+		fetchImpl,
+	);
+	if (!result.snapshot) {
+		throw new Error("The server returned unexpected context compression data.");
+	}
+	return result.snapshot;
 }

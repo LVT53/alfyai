@@ -135,6 +135,58 @@ export const messages = sqliteTable(
 	}),
 );
 
+export const contextCompressionSnapshots = sqliteTable(
+	"context_compression_snapshots",
+	{
+		id: text("id").primaryKey(),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		trigger: text("trigger").notNull(),
+		status: text("status").notNull().default("running"),
+		modelId: text("model_id").notNull(),
+		sourceStartMessageId: text("source_start_message_id")
+			.notNull()
+			.references(() => messages.id, { onDelete: "cascade" }),
+		sourceEndMessageId: text("source_end_message_id")
+			.notNull()
+			.references(() => messages.id, { onDelete: "cascade" }),
+		sourceStartMessageSequence: integer(
+			"source_start_message_sequence",
+		).notNull(),
+		sourceEndMessageSequence: integer("source_end_message_sequence").notNull(),
+		snapshotJson: text("snapshot_json").notNull().default("{}"),
+		sourceCoverageJson: text("source_coverage_json").notNull().default("{}"),
+		sourceRefsJson: text("source_refs_json").notNull().default("[]"),
+		estimatedTokens: integer("estimated_tokens").notNull().default(0),
+		sourceTokenEstimate: integer("source_token_estimate").notNull().default(0),
+		failureReason: text("failure_reason"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		conversationCreatedIdx: index(
+			"context_compression_snapshots_conversation_created_idx",
+		).on(table.conversationId, table.createdAt),
+		conversationStatusIdx: index(
+			"context_compression_snapshots_conversation_status_idx",
+		).on(table.conversationId, table.status, table.updatedAt),
+		conversationSourceEndIdx: index(
+			"context_compression_snapshots_conversation_source_end_idx",
+		).on(table.conversationId, table.sourceEndMessageSequence),
+		userConversationIdx: index(
+			"context_compression_snapshots_user_conversation_idx",
+		).on(table.userId, table.conversationId),
+	}),
+);
+
 export const conversationForks = sqliteTable(
 	"conversation_forks",
 	{

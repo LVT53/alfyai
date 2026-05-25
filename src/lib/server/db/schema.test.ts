@@ -1,9 +1,9 @@
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { existsSync, mkdirSync, readFileSync, unlinkSync } from "fs";
-import { dirname } from "path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "./schema";
 
@@ -681,6 +681,93 @@ describe("schema core tables", () => {
 			} finally {
 				legacySqlite.close();
 			}
+		});
+	});
+
+	describe("context compression snapshots table", () => {
+		it("stores conversation-owned source coverage with cascade ownership", () => {
+			const columns = sqlite
+				.prepare("PRAGMA table_info(context_compression_snapshots)")
+				.all() as {
+				name: string;
+				notnull: number;
+				dflt_value: string | null;
+			}[];
+			const columnNames = columns.map((column) => column.name);
+
+			expect(columnNames).toEqual(
+				expect.arrayContaining([
+					"id",
+					"conversation_id",
+					"user_id",
+					"trigger",
+					"status",
+					"model_id",
+					"source_start_message_id",
+					"source_end_message_id",
+					"source_start_message_sequence",
+					"source_end_message_sequence",
+					"snapshot_json",
+					"source_coverage_json",
+					"source_refs_json",
+					"estimated_tokens",
+					"source_token_estimate",
+					"failure_reason",
+				]),
+			);
+			expect(columns).toContainEqual(
+				expect.objectContaining({
+					name: "status",
+					notnull: 1,
+					dflt_value: "'running'",
+				}),
+			);
+
+			const foreignKeys = sqlite
+				.prepare("PRAGMA foreign_key_list(context_compression_snapshots)")
+				.all() as {
+				from: string;
+				table: string;
+				to: string;
+				on_delete: string;
+			}[];
+			expect(foreignKeys).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						from: "conversation_id",
+						table: "conversations",
+						to: "id",
+						on_delete: "CASCADE",
+					}),
+					expect.objectContaining({
+						from: "user_id",
+						table: "users",
+						to: "id",
+						on_delete: "CASCADE",
+					}),
+					expect.objectContaining({
+						from: "source_start_message_id",
+						table: "messages",
+						to: "id",
+						on_delete: "CASCADE",
+					}),
+					expect.objectContaining({
+						from: "source_end_message_id",
+						table: "messages",
+						to: "id",
+						on_delete: "CASCADE",
+					}),
+				]),
+			);
+
+			const indexes = sqlite
+				.prepare("PRAGMA index_list(context_compression_snapshots)")
+				.all() as { name: string }[];
+			expect(indexes).toContainEqual(
+				expect.objectContaining({
+					name: "context_compression_snapshots_conversation_source_end_idx",
+				}),
+			);
 		});
 	});
 });

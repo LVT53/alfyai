@@ -91,6 +91,7 @@ let {
 	onManageEvidence = undefined,
 	onEditQueuedMessage = undefined,
 	onDeleteQueuedMessage = undefined,
+	onCompact = undefined,
 	hasQueuedMessage = false,
 	queuedMessagePreview = "",
 	onDraftChange = undefined,
@@ -130,6 +131,7 @@ let {
 	onManageEvidence?: (() => void) | undefined;
 	onEditQueuedMessage?: (() => void) | undefined;
 	onDeleteQueuedMessage?: (() => void) | undefined;
+	onCompact?: (() => void) | undefined;
 	hasQueuedMessage?: boolean;
 	queuedMessagePreview?: string;
 	onDraftChange?: ((payload: DraftPayload) => void) | undefined;
@@ -1191,6 +1193,9 @@ function selectCommand(command: CommandTrayRow) {
 			break;
 		case "settings":
 			void goto("/settings");
+			break;
+		case "compact":
+			onCompact?.();
 			break;
 		case "web":
 			forceWebSearch = true;

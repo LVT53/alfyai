@@ -767,9 +767,24 @@ export interface ConversationDetail {
 	generatedFiles?: ChatGeneratedFile[];
 	fileProductionJobs?: FileProductionJob[];
 	deepResearchJobs?: DeepResearchJob[];
+	contextCompressionSnapshots?: ContextCompressionMarker[];
 	activeSkillSession?: SkillSession | null;
 	totalCostUsdMicros?: number;
 	totalTokens?: number;
+}
+
+export type ContextCompressionTrigger = "manual" | "automatic";
+export type ContextCompressionStatus = "running" | "valid" | "failed";
+
+export interface ContextCompressionMarker {
+	id: string;
+	trigger: ContextCompressionTrigger;
+	status: ContextCompressionStatus;
+	sourceEndMessageId: string;
+	createdAt: number;
+	updatedAt: number;
+	estimatedTokens?: number;
+	sourceTokenEstimate?: number;
 }
 
 // ConversationListItem interface: id, title, updatedAt

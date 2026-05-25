@@ -28,6 +28,16 @@ from lfx.log.logger import logger
 from lfx.schema.data import Data
 
 
+MODEL_ANSWER_BRIEF_MARKDOWN_MAX_CHARS = 12000
+MODEL_SOURCE_LIMIT = 8
+MODEL_EVIDENCE_LIMIT = 12
+MODEL_QUERY_LIMIT = 6
+MODEL_SOURCE_TITLE_MAX_CHARS = 180
+MODEL_URL_MAX_CHARS = 500
+MODEL_EVIDENCE_QUOTE_MAX_CHARS = 500
+MODEL_DIAGNOSTIC_TEXT_MAX_CHARS = 240
+
+
 class WebResearchToolComponent(Component):
     """Tool component for source-ranked web research via AlfyAI."""
 
@@ -112,6 +122,130 @@ class WebResearchToolComponent(Component):
     @staticmethod
     def _base64url_encode(payload: bytes) -> str:
         return base64.urlsafe_b64encode(payload).decode("utf-8").rstrip("=")
+
+    @staticmethod
+    def _truncate_text(value: Any, max_chars: int) -> str:
+        text = str(value or "")
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars].rstrip() + "..."
+
+    @classmethod
+    def _compact_queries_for_model(cls, queries: Any) -> list[str]:
+        if not isinstance(queries, list):
+            return []
+        return [
+            cls._truncate_text(query, MODEL_SOURCE_TITLE_MAX_CHARS)
+            for query in queries[:MODEL_QUERY_LIMIT]
+            if str(query or "").strip()
+        ]
+
+    @classmethod
+    def _compact_sources_for_model(cls, sources: Any) -> list[dict[str, Any]]:
+        if not isinstance(sources, list):
+            return []
+        compact_sources: list[dict[str, Any]] = []
+        for index, source in enumerate(sources[:MODEL_SOURCE_LIMIT]):
+            if not isinstance(source, dict):
+                continue
+            compact_source = {
+                "ref": source.get("ref") or f"S{index + 1}",
+                "id": source.get("id") or source.get("sourceId"),
+                "title": cls._truncate_text(source.get("title"), MODEL_SOURCE_TITLE_MAX_CHARS),
+                "url": cls._truncate_text(source.get("url"), MODEL_URL_MAX_CHARS),
+                "provider": source.get("provider"),
+                "authorityClass": source.get("authorityClass"),
+                "authorityScore": source.get("authorityScore"),
+                "publishedAt": source.get("publishedAt"),
+                "updatedAt": source.get("updatedAt"),
+                "youtubeTranscript": source.get("youtubeTranscript"),
+            }
+            compact_sources.append({
+                key: value
+                for key, value in compact_source.items()
+                if value not in (None, "", [])
+            })
+        return compact_sources
+
+    @classmethod
+    def _compact_evidence_for_model(cls, evidence: Any) -> list[dict[str, Any]]:
+        if not isinstance(evidence, list):
+            return []
+        compact_evidence: list[dict[str, Any]] = []
+        for index, item in enumerate(evidence[:MODEL_EVIDENCE_LIMIT]):
+            if not isinstance(item, dict):
+                continue
+            compact_item = {
+                "ref": item.get("ref") or f"E{index + 1}",
+                "id": item.get("id") or item.get("evidenceId"),
+                "sourceRef": item.get("sourceRef"),
+                "sourceId": item.get("sourceId"),
+                "title": cls._truncate_text(item.get("title"), MODEL_SOURCE_TITLE_MAX_CHARS),
+                "url": cls._truncate_text(item.get("url"), MODEL_URL_MAX_CHARS),
+                "quote": cls._truncate_text(item.get("quote"), MODEL_EVIDENCE_QUOTE_MAX_CHARS),
+                "score": item.get("score"),
+            }
+            compact_evidence.append({
+                key: value
+                for key, value in compact_item.items()
+                if value not in (None, "", [])
+            })
+        return compact_evidence
+
+    @classmethod
+    def _compact_answer_brief_for_model(cls, answer_brief: Any) -> dict[str, Any]:
+        if not isinstance(answer_brief, dict):
+            return {
+                "markdown": "",
+                "instructions": [],
+                "sourceCount": 0,
+                "evidenceCount": 0,
+            }
+        sources = cls._compact_sources_for_model(answer_brief.get("sources", []))
+        evidence = cls._compact_evidence_for_model(answer_brief.get("evidence", []))
+        return {
+            "markdown": cls._truncate_text(
+                answer_brief.get("markdown"),
+                MODEL_ANSWER_BRIEF_MARKDOWN_MAX_CHARS,
+            ),
+            "instructions": [
+                cls._truncate_text(instruction, MODEL_DIAGNOSTIC_TEXT_MAX_CHARS)
+                for instruction in answer_brief.get("instructions", [])
+                if str(instruction or "").strip()
+            ],
+            "sourceCount": len(sources),
+            "evidenceCount": len(evidence),
+        }
+
+    @classmethod
+    def _compact_diagnostics_for_model(cls, diagnostics: Any) -> dict[str, Any]:
+        if not isinstance(diagnostics, dict):
+            return {}
+        compact: dict[str, Any] = {}
+        for key in [
+            "mode",
+            "freshness",
+            "sourcePolicy",
+            "plannedQueryCount",
+            "fetchedSourceCount",
+            "fusedSourceCount",
+            "selectedSourceCount",
+            "openedPageCount",
+            "evidenceCandidateCount",
+            "exactEvidenceCandidateCount",
+            "reranked",
+            "sourceReranked",
+        ]:
+            value = diagnostics.get(key)
+            if value not in (None, "", []):
+                compact[key] = value
+        fallback_reasons = diagnostics.get("fallbackReasons")
+        if isinstance(fallback_reasons, list) and fallback_reasons:
+            compact["fallbackReasons"] = [
+                cls._truncate_text(reason, MODEL_DIAGNOSTIC_TEXT_MAX_CHARS)
+                for reason in fallback_reasons[:8]
+            ]
+        return compact
 
     def _build_service_assertion(self, conversation_id: str) -> str | None:
         signing_key = str(getattr(self, "alfyai_api_signing_key", "") or "").strip()
@@ -294,6 +428,13 @@ class WebResearchToolComponent(Component):
             answer_brief = result.get("answerBrief", {})
             if not isinstance(answer_brief, dict):
                 answer_brief = {}
+            model_sources = self._compact_sources_for_model(sources)
+            model_evidence = self._compact_evidence_for_model(evidence)
+            model_answer_brief = self._compact_answer_brief_for_model(answer_brief)
+            model_answer_brief_markdown = model_answer_brief.pop("markdown", "")
+            model_diagnostics = self._compact_diagnostics_for_model(
+                result.get("diagnostics", {})
+            )
             logger.info(
                 "Web research successful: found %s source(s), %s evidence snippet(s)",
                 len(sources),
@@ -304,20 +445,20 @@ class WebResearchToolComponent(Component):
                 "name": "research_web",
                 "sourceType": "web",
                 "outputSummary": None,
-                "candidates": sources,
+                "candidates": model_sources,
             })
 
             return Data(data={
                 "success": True,
                 "name": "research_web",
                 "sourceType": "web",
-                "answerBrief": answer_brief,
-                "answerBriefMarkdown": answer_brief.get("markdown", ""),
+                "answerBrief": model_answer_brief,
+                "answerBriefMarkdown": model_answer_brief_markdown,
                 "query": result.get("query", query),
-                "queries": result.get("queries", []),
-                "sources": sources,
-                "evidence": evidence,
-                "diagnostics": result.get("diagnostics", {}),
+                "queries": self._compact_queries_for_model(result.get("queries", [])),
+                "sources": model_sources,
+                "evidence": model_evidence,
+                "diagnostics": model_diagnostics,
                 "instructions": (
                     "Read answerBriefMarkdown first. Answer only from the returned answerBrief, sources, "
                     "and evidence. Use markdown links for citations with the listed source URLs. "

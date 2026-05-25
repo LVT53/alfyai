@@ -36,6 +36,27 @@ export type AuthenticatedPromptUser = {
 	email?: string | null;
 };
 
+type SendMessageOptions = {
+	signal?: AbortSignal;
+	attachmentIds?: string[];
+	activeDocumentArtifactId?: string;
+	attachmentTraceId?: string;
+	systemPromptAppendix?: string;
+	personalityPrompt?: string;
+	skipHonchoContext?: boolean;
+	thinkingMode?: ThinkingMode;
+	forceWebSearch?: boolean;
+};
+
+type SendMessageStreamOptions = SendMessageOptions & {
+	connectTimeoutMs?: number;
+	user?: AuthenticatedPromptUser;
+};
+
+type ConstructedContextResult = Awaited<
+	ReturnType<typeof buildConstructedContext>
+>;
+
 export type PreparedOutboundChatContext = {
 	inputValue: string;
 	systemPrompt: string;
@@ -504,12 +525,16 @@ function resolvePromptContextLimits(
 function resolveProviderPromptContextLimits(provider: {
 	modelName?: string | null;
 	maxModelContext: number | null;
+	compactionUiThreshold?: number | null;
+	targetConstructedContext?: number | null;
 }): PromptContextLimits {
 	const budget = deriveModelContextBudget({
 		maxModelContext:
 			provider.maxModelContext ??
 			inferModelContextWindow(provider.modelName) ??
 			UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK,
+		compactionUiThreshold: provider.compactionUiThreshold,
+		targetConstructedContext: provider.targetConstructedContext,
 	});
 	return {
 		maxModelContext: budget.maxModelContext,
@@ -690,6 +715,141 @@ function applyOutboundPromptBudget(params: {
 	});
 
 	return { inputValue: finalInputValue, outputTokenBudget };
+}
+
+function estimateOutboundPromptFit(params: {
+	inputValue: string;
+	message: string;
+	systemPrompt: string;
+	contextLimits: PromptContextLimits;
+	maxTokens?: number | null;
+}) {
+	const { currentMessageSection } = extractCurrentMessageSection(
+		params.inputValue,
+		params.message,
+	);
+	const outputTokenBudget = resolveOutputTokenBudget({
+		maxTokens: params.maxTokens,
+		contextLimits: params.contextLimits,
+		systemPrompt: params.systemPrompt,
+		currentMessageSection,
+	});
+	const promptOverheadReserve = resolveLangflowPromptOverheadReserve(
+		params.contextLimits.maxModelContext,
+	);
+	const configuredPromptBudget = Math.min(
+		params.contextLimits.targetConstructedContext,
+		Math.max(
+			1,
+			params.contextLimits.maxModelContext -
+				outputTokenBudget.outputReserve -
+				promptOverheadReserve,
+		),
+	);
+	const systemTokens = estimateOutboundPromptTokens(params.systemPrompt);
+	const inputTokenBudget = configuredPromptBudget - systemTokens;
+	const safeInputTokens = estimateOutboundPromptTokens(params.inputValue);
+	return {
+		overBudget: inputTokenBudget <= 0 || safeInputTokens > inputTokenBudget,
+		inputTokenBudget,
+		safeInputTokens,
+		configuredPromptBudget,
+		systemTokens,
+		outputReserve: outputTokenBudget.outputReserve,
+		promptOverheadReserve,
+	};
+}
+
+async function maybeRunAutomaticContextCompression(params: {
+	user: AuthenticatedPromptUser | undefined;
+	sessionId: string;
+	message: string;
+	modelId: ModelId;
+	modelConfig: LangflowModelRunConfig;
+	contextLimits: PromptContextLimits;
+	inputValue: string;
+	systemPrompt: string;
+	attachmentIds?: string[];
+	activeDocumentArtifactId?: string;
+	attachmentTraceId?: string;
+}): Promise<ConstructedContextResult | null> {
+	if (!params.user?.id) return null;
+
+	const fit = estimateOutboundPromptFit({
+		inputValue: params.inputValue,
+		message: params.message,
+		systemPrompt: params.systemPrompt,
+		contextLimits: params.contextLimits,
+		maxTokens: params.modelConfig.maxTokens,
+	});
+	if (!fit.overBudget) return null;
+
+	const {
+		getLatestValidContextCompressionSnapshot,
+		listContextCompressionSourceMessages,
+		runContextCompression,
+	} = await import("./context-compression");
+	const sourceMessages = await listContextCompressionSourceMessages(
+		params.sessionId,
+	);
+	const priorSnapshot = await getLatestValidContextCompressionSnapshot({
+		userId: params.user.id,
+		conversationId: params.sessionId,
+	}).catch(() => null);
+	const pendingSourceMessages = priorSnapshot
+		? sourceMessages.filter(
+				(message) =>
+					message.messageSequence > priorSnapshot.sourceEndMessageSequence,
+			)
+		: sourceMessages;
+	if (pendingSourceMessages.length === 0) return null;
+
+	console.info(
+		"[LANGFLOW] Running automatic context compression before model call",
+		{
+			sessionId: params.sessionId,
+			modelId: params.modelId,
+			beforeInputTokensWithSafety: fit.safeInputTokens,
+			inputTokenBudget: fit.inputTokenBudget,
+			sourceMessageCount: pendingSourceMessages.length,
+			priorSnapshotId: priorSnapshot?.id ?? null,
+		},
+	);
+
+	const snapshot = await runContextCompression({
+		conversationId: params.sessionId,
+		userId: params.user.id,
+		trigger: "automatic",
+		selectedModelId: params.modelId,
+		sourceMessages: pendingSourceMessages,
+		priorSnapshot,
+		sourceTokenEstimate: fit.safeInputTokens,
+		targetTokenEstimate: params.contextLimits.targetConstructedContext,
+		budget: {
+			maxModelContext: params.contextLimits.maxModelContext,
+			targetConstructedContext: params.contextLimits.targetConstructedContext,
+		},
+	});
+	if (snapshot.status !== "valid") {
+		console.warn("[LANGFLOW] Automatic context compression failed validation", {
+			sessionId: params.sessionId,
+			modelId: params.modelId,
+			snapshotId: snapshot.id,
+			failureReason: snapshot.failureReason,
+		});
+		return null;
+	}
+
+	return buildConstructedContext({
+		userId: params.user.id,
+		conversationId: params.sessionId,
+		message: params.message,
+		attachmentIds: params.attachmentIds,
+		activeDocumentArtifactId: params.activeDocumentArtifactId,
+		attachmentTraceId: params.attachmentTraceId,
+		modelId: params.modelId,
+		contextLimits: params.modelConfig.contextLimits,
+	});
 }
 
 function inferContextTraceSource(sectionName: string): ContextTraceSource {
@@ -1459,19 +1619,9 @@ export function extractMessageText(response: LangflowRunResponse): string {
 async function sendMessageAttempt(
 	message: string,
 	sessionId: string,
-	modelId?: ModelId,
-	user?: AuthenticatedPromptUser,
-	options?: {
-		signal?: AbortSignal;
-		attachmentIds?: string[];
-		activeDocumentArtifactId?: string;
-		attachmentTraceId?: string;
-		systemPromptAppendix?: string;
-		personalityPrompt?: string;
-		skipHonchoContext?: boolean;
-		thinkingMode?: ThinkingMode;
-		forceWebSearch?: boolean;
-	},
+	modelId: ModelId | undefined,
+	user: AuthenticatedPromptUser | undefined,
+	options: SendMessageOptions | undefined,
 	attemptTimeoutMs: number,
 	timeoutFailover?: TimeoutFailoverInfo,
 	overrideModelConfig?: LangflowModelRunConfig,
@@ -1558,7 +1708,7 @@ async function sendMessageAttempt(
 					email: user.email,
 				})
 			: getSystemPrompt(modelConfig.systemPrompt);
-		const systemPrompt = buildOutboundSystemPrompt({
+		let systemPrompt = buildOutboundSystemPrompt({
 			basePrompt: baseSystemPrompt,
 			inputValue,
 			responseLanguage: detectLanguage(message),
@@ -1573,6 +1723,47 @@ async function sendMessageAttempt(
 			modelConfig,
 			config,
 		);
+		const automaticCompressionContext = !options?.skipHonchoContext
+			? await maybeRunAutomaticContextCompression({
+					user,
+					sessionId,
+					message,
+					modelId: modelId ?? "model1",
+					modelConfig,
+					contextLimits,
+					inputValue,
+					systemPrompt,
+					attachmentIds: options?.attachmentIds,
+					activeDocumentArtifactId: options?.activeDocumentArtifactId,
+					attachmentTraceId: options?.attachmentTraceId,
+				}).catch((error) => {
+					console.warn("[LANGFLOW] Automatic context compression skipped", {
+						sessionId,
+						modelId: modelId ?? "model1",
+						error: error instanceof Error ? error.message : String(error),
+					});
+					return null;
+				})
+			: null;
+		if (automaticCompressionContext) {
+			inputValue = automaticCompressionContext.inputValue;
+			contextStatus = automaticCompressionContext.contextStatus;
+			taskState = automaticCompressionContext.taskState;
+			contextDebug = automaticCompressionContext.contextDebug;
+			honchoContext = automaticCompressionContext.honchoContext;
+			honchoSnapshot = automaticCompressionContext.honchoSnapshot;
+			contextTraceSections = automaticCompressionContext.contextTraceSections;
+			systemPrompt = buildOutboundSystemPrompt({
+				basePrompt: baseSystemPrompt,
+				inputValue,
+				responseLanguage: detectLanguage(message),
+				modelDisplayName: modelConfig.displayName,
+				modelName: modelConfig.modelName,
+				systemPromptAppendix: options?.systemPromptAppendix,
+				personalityPrompt: options?.personalityPrompt,
+				forceWebSearch: options?.forceWebSearch,
+			});
+		}
 		const budgetedPrompt = applyOutboundPromptBudget({
 			inputValue,
 			message,
@@ -1693,17 +1884,7 @@ export async function sendMessage(
 	sessionId: string,
 	modelId?: ModelId,
 	user?: AuthenticatedPromptUser,
-	options?: {
-		signal?: AbortSignal;
-		attachmentIds?: string[];
-		activeDocumentArtifactId?: string;
-		attachmentTraceId?: string;
-		systemPromptAppendix?: string;
-		personalityPrompt?: string;
-		skipHonchoContext?: boolean;
-		thinkingMode?: ThinkingMode;
-		forceWebSearch?: boolean;
-	},
+	options?: SendMessageOptions,
 ): Promise<LangflowRequestResult> {
 	const config = getConfig();
 	const requestedModelId = modelId ?? "model1";
@@ -1790,20 +1971,8 @@ export async function sendMessage(
 async function sendMessageStreamAttempt(
 	message: string,
 	sessionId: string,
-	modelId?: ModelId,
-	options?: {
-		connectTimeoutMs?: number;
-		signal?: AbortSignal;
-		user?: AuthenticatedPromptUser;
-		attachmentIds?: string[];
-		activeDocumentArtifactId?: string;
-		attachmentTraceId?: string;
-		systemPromptAppendix?: string;
-		personalityPrompt?: string;
-		skipHonchoContext?: boolean;
-		thinkingMode?: ThinkingMode;
-		forceWebSearch?: boolean;
-	},
+	modelId: ModelId | undefined,
+	options: SendMessageStreamOptions | undefined,
 	attemptTimeoutMs: number,
 	timeoutFailover?: TimeoutFailoverInfo,
 	overrideModelConfig?: LangflowModelRunConfig,
@@ -1904,7 +2073,7 @@ async function sendMessageStreamAttempt(
 					email: options.user.email,
 				})
 			: getSystemPrompt(modelConfig.systemPrompt);
-		const systemPrompt = buildOutboundSystemPrompt({
+		let systemPrompt = buildOutboundSystemPrompt({
 			basePrompt: baseSystemPrompt,
 			inputValue,
 			responseLanguage: detectLanguage(message),
@@ -1919,6 +2088,47 @@ async function sendMessageStreamAttempt(
 			modelConfig,
 			config,
 		);
+		const automaticCompressionContext = !options?.skipHonchoContext
+			? await maybeRunAutomaticContextCompression({
+					user: options?.user,
+					sessionId,
+					message,
+					modelId: modelId ?? "model1",
+					modelConfig,
+					contextLimits,
+					inputValue,
+					systemPrompt,
+					attachmentIds: options?.attachmentIds,
+					activeDocumentArtifactId: options?.activeDocumentArtifactId,
+					attachmentTraceId: options?.attachmentTraceId,
+				}).catch((error) => {
+					console.warn("[LANGFLOW] Automatic context compression skipped", {
+						sessionId,
+						modelId: modelId ?? "model1",
+						error: error instanceof Error ? error.message : String(error),
+					});
+					return null;
+				})
+			: null;
+		if (automaticCompressionContext) {
+			inputValue = automaticCompressionContext.inputValue;
+			contextStatus = automaticCompressionContext.contextStatus;
+			taskState = automaticCompressionContext.taskState;
+			contextDebug = automaticCompressionContext.contextDebug;
+			honchoContext = automaticCompressionContext.honchoContext;
+			honchoSnapshot = automaticCompressionContext.honchoSnapshot;
+			contextTraceSections = automaticCompressionContext.contextTraceSections;
+			systemPrompt = buildOutboundSystemPrompt({
+				basePrompt: baseSystemPrompt,
+				inputValue,
+				responseLanguage: detectLanguage(message),
+				modelDisplayName: modelConfig.displayName,
+				modelName: modelConfig.modelName,
+				systemPromptAppendix: options?.systemPromptAppendix,
+				personalityPrompt: options?.personalityPrompt,
+				forceWebSearch: options?.forceWebSearch,
+			});
+		}
 		const budgetedPrompt = applyOutboundPromptBudget({
 			inputValue,
 			message,
@@ -2082,19 +2292,7 @@ export async function sendMessageStream(
 	message: string,
 	sessionId: string,
 	modelId?: ModelId,
-	options?: {
-		connectTimeoutMs?: number;
-		signal?: AbortSignal;
-		user?: AuthenticatedPromptUser;
-		attachmentIds?: string[];
-		activeDocumentArtifactId?: string;
-		attachmentTraceId?: string;
-		systemPromptAppendix?: string;
-		personalityPrompt?: string;
-		skipHonchoContext?: boolean;
-		thinkingMode?: ThinkingMode;
-		forceWebSearch?: boolean;
-	},
+	options?: SendMessageStreamOptions,
 ): Promise<LangflowStreamResult> {
 	const config = getConfig();
 	const requestedModelId = modelId ?? "model1";

@@ -110,7 +110,7 @@ describe("Deep Research model configuration", () => {
 			limits: {
 				maxModelContext: 180_000,
 				compactionUiThreshold: 144_000,
-				targetConstructedContext: 162_000,
+				targetConstructedContext: 108_000,
 				maxMessageLength: 30_000,
 				maxTokens: 12_000,
 			},
@@ -142,6 +142,33 @@ describe("Deep Research model configuration", () => {
 				targetConstructedContext: 900_000,
 				maxMessageLength: 10_000,
 				maxTokens: 16_000,
+			},
+		});
+	});
+
+	it("derives optional provider target and threshold limits from an inferred model context window", async () => {
+		runtimeConfig.deepResearchModels.synthesis = "provider:gpt";
+		getProviderById.mockResolvedValue({
+			id: "gpt",
+			displayName: "GPT Provider",
+			baseUrl: "https://api.gpt-provider.example/v1",
+			modelName: "openai/gpt-4.1",
+			enabled: true,
+			maxModelContext: null,
+			compactionUiThreshold: null,
+			targetConstructedContext: null,
+			maxMessageLength: null,
+			maxTokens: null,
+		});
+
+		await expect(resolveDeepResearchModel("synthesis")).resolves.toMatchObject({
+			modelId: "provider:gpt",
+			limits: {
+				maxModelContext: 1_047_576,
+				compactionUiThreshold: 838_060,
+				targetConstructedContext: 942_818,
+				maxMessageLength: 10_000,
+				maxTokens: null,
 			},
 		});
 	});

@@ -5,8 +5,10 @@ import { db } from '../../src/lib/server/db';
 import { users, conversations, artifacts, artifactChunks, messages } from '../../src/lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { createConversation } from '../../src/lib/server/services/conversations';
+import { createContextCompressionSnapshot } from '../../src/lib/server/services/context-compression';
 import { createArtifact } from '../../src/lib/server/services/knowledge/store/core';
 import { buildConstructedContext } from '../../src/lib/server/services/honcho';
+import { createMessage } from '../../src/lib/server/services/messages';
 import { estimateTokenCount } from '../../src/lib/utils/tokens';
 import { getSmallFileThreshold, getDocumentTokenBudget, getWorkingSetPromptTokenBudget, getTargetConstructedContext, getCompactionUiThreshold, getMaxModelContext } from '../../src/lib/server/services/knowledge/store/core';
 
@@ -44,6 +46,63 @@ describe('Context Assembly Integration Tests', () => {
   beforeEach(async () => {
     const conversation = await createConversation(testUserId, 'Test Context Assembly Conversation');
     testConversationId = conversation.id;
+  });
+
+  it('uses a valid context compression snapshot instead of covered raw session turns', async () => {
+    const oldUser = await createMessage(
+      testConversationId,
+      'user',
+      'OLD_RAW_SECRET_USER_CONTENT should not be replayed after compression'
+    );
+    const oldAssistant = await createMessage(
+      testConversationId,
+      'assistant',
+      'OLD_RAW_SECRET_ASSISTANT_CONTENT should not be replayed after compression'
+    );
+    await createMessage(
+      testConversationId,
+      'user',
+      'NEW_RAW_RECENT_CONTENT should stay visible after compression'
+    );
+
+    await createContextCompressionSnapshot({
+      conversationId: testConversationId,
+      userId: testUserId,
+      trigger: 'manual',
+      status: 'valid',
+      modelId: 'model1',
+      sourceStartMessageId: oldUser.id,
+      sourceEndMessageId: oldAssistant.id,
+      sourceStartMessageSequence: 1,
+      sourceEndMessageSequence: 2,
+      snapshot: {
+        goal: 'Keep the compressed old exchange available.',
+        currentState: 'The old exchange was compressed into a validated snapshot.',
+        importantDecisions: ['Use the compact snapshot for covered older turns.'],
+        importantFacts: ['Compressed fact from old turns.'],
+        openTasks: ['Continue from newer raw turns.'],
+        openQuestions: [],
+        toolUseAndEvidenceRefs: [],
+        sourceCoverage: {
+          messageIds: [oldUser.id, oldAssistant.id],
+        },
+      },
+      sourceCoverage: {
+        messageIds: [oldUser.id, oldAssistant.id],
+      },
+    });
+
+    const result = await buildConstructedContext({
+      userId: testUserId,
+      conversationId: testConversationId,
+      message: 'Continue the work',
+    });
+
+    expect(result.inputValue).toContain('## Context Compression Snapshot');
+    expect(result.inputValue).toContain('Compressed fact from old turns.');
+    expect(result.inputValue).toContain('NEW_RAW_RECENT_CONTENT');
+    expect(result.inputValue).not.toContain('OLD_RAW_SECRET_USER_CONTENT');
+    expect(result.inputValue).not.toContain('OLD_RAW_SECRET_ASSISTANT_CONTENT');
   });
 
   afterAll(async () => {
@@ -284,7 +343,7 @@ describe('Context Assembly Integration Tests', () => {
       const attachmentMatch = result.inputValue.match(/## Current Attachments[\s\S]*?(?=## |$)/);
       if (attachmentMatch) {
         const attachmentSectionTokens = estimateTokenCount(attachmentMatch[0]);
-        expect(attachmentSectionTokens).toBeLessThan(docBudget * 2);
+        expect(attachmentSectionTokens).toBeLessThan(6_500);
       }
     });
 

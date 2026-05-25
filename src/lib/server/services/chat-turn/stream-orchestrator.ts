@@ -72,6 +72,7 @@ import {
 	getConversationTaskState,
 } from "$lib/server/services/task-state";
 import { estimateTokenCount } from "$lib/utils/tokens";
+import { isFileProductionToolName } from "$lib/utils/tool-calls";
 
 function getStreamTimeoutMs(): number {
 	return Math.max(60_000, getConfig().requestTimeoutMs);
@@ -460,12 +461,22 @@ export function runChatStreamOrchestrator(
 				);
 			const hasVisibleAssistantAnswerOutput = () =>
 				Boolean(chunkRuntime.fullResponse.trim());
+			const completedToolCallRecords = () =>
+				chunkRuntime.toolCallRecords.filter(
+					(record) => record.status === "done",
+				);
+			const hasCompletedFileProductionToolCall = () =>
+				completedToolCallRecords().some((record) =>
+					isFileProductionToolName(record.name),
+				);
+			const hasCompletedNonFileToolCall = () =>
+				completedToolCallRecords().some(
+					(record) => !isFileProductionToolName(record.name),
+				);
 			const hasPersistableStreamOutput = () =>
 				Boolean(
 					chunkRuntime.fullResponse.trim() ||
-						chunkRuntime.toolCallRecords.some(
-							(record) => record.status === "done",
-						),
+						hasCompletedFileProductionToolCall(),
 				);
 			const flushBufferedStreamOutput = () => {
 				flushPendingThinking();
@@ -494,7 +505,7 @@ export function runChatStreamOrchestrator(
 					fallbackToNonStreaming
 				) {
 					console.warn(
-						"[STREAM] Upstream stream ended before visible assistant output",
+						"[STREAM] Upstream stream ended before final assistant answer",
 						{
 							conversationId,
 							streamId,
@@ -502,12 +513,14 @@ export function runChatStreamOrchestrator(
 							reason,
 							thinkingLength: chunkRuntime.thinkingContent.length,
 							toolCallCount: chunkRuntime.toolCallRecords.length,
+							completedToolCallCount: completedToolCallRecords().length,
+							hasCompletedNonFileToolCall: hasCompletedNonFileToolCall(),
 						},
 					);
 					await fallbackToNonStreaming(
 						"stream_read_failure",
 						latestUpstreamAttempt,
-						new Error("Upstream stream ended before visible assistant output"),
+						new Error("Upstream stream ended before final assistant answer"),
 					);
 					return;
 				}
@@ -1171,7 +1184,7 @@ export function runChatStreamOrchestrator(
 						!attemptedNonStreamFallback &&
 						!wasActiveChatStreamStopRequested(streamId) &&
 						shouldFallbackToNonStreaming(error) &&
-						chunkRuntime.toolCallRecords.length === 0
+						!hasVisibleAssistantAnswerOutput()
 					) {
 						await fallbackToNonStreaming(
 							"stream_read_failure",

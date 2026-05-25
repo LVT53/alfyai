@@ -4,9 +4,12 @@ const mocks = vi.hoisted(() => ({
 	buildConstructedContext: vi.fn(),
 	buildEnhancedSystemPrompt: vi.fn(),
 	decryptApiKey: vi.fn(),
+	getLatestValidContextCompressionSnapshot: vi.fn(),
 	getConfig: vi.fn(),
 	getProviderWithSecrets: vi.fn(),
 	getSystemPrompt: vi.fn(),
+	listContextCompressionSourceMessages: vi.fn(),
+	runContextCompression: vi.fn(),
 }));
 
 vi.mock("../config-store", () => ({
@@ -38,6 +41,14 @@ vi.mock("./attachment-trace", () => ({
 vi.mock("./inference-providers", () => ({
 	decryptApiKey: mocks.decryptApiKey,
 	getProviderWithSecrets: mocks.getProviderWithSecrets,
+}));
+
+vi.mock("./context-compression", () => ({
+	getLatestValidContextCompressionSnapshot:
+		mocks.getLatestValidContextCompressionSnapshot,
+	listContextCompressionSourceMessages:
+		mocks.listContextCompressionSourceMessages,
+	runContextCompression: mocks.runContextCompression,
 }));
 
 import { estimateTokenCount } from "$lib/utils/tokens";
@@ -331,6 +342,13 @@ describe("sendMessage provider routing", () => {
 		mocks.getSystemPrompt.mockReturnValue("Base system prompt");
 		mocks.buildEnhancedSystemPrompt.mockResolvedValue("Base system prompt");
 		mocks.decryptApiKey.mockReturnValue("provider-secret");
+		mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue(null);
+		mocks.listContextCompressionSourceMessages.mockResolvedValue([]);
+		mocks.runContextCompression.mockResolvedValue({
+			id: "snapshot-1",
+			status: "valid",
+			failureReason: null,
+		});
 		mocks.getProviderWithSecrets.mockResolvedValue({
 			id: "provider-1",
 			name: "fireworks",
@@ -517,6 +535,51 @@ describe("sendMessage provider routing", () => {
 		expect(body.tweaks["ModelNode-1"].max_tokens).toBe(8_192);
 	});
 
+	it("preserves explicit provider prompt budget limits", async () => {
+		mocks.getProviderWithSecrets.mockResolvedValueOnce({
+			id: "provider-1",
+			name: "openrouter",
+			displayName: "Tuned Context Provider",
+			baseUrl: "https://openrouter.ai/api/v1",
+			apiKeyEncrypted: "encrypted",
+			apiKeyIv: "iv",
+			modelName: "vendor/large-context-model",
+			reasoningEffort: null,
+			thinkingType: null,
+			enabled: true,
+			sortOrder: 0,
+			maxModelContext: 1_000_000,
+			compactionUiThreshold: 512_000,
+			targetConstructedContext: 640_000,
+			maxMessageLength: null,
+			maxTokens: 8_192,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		mocks.buildConstructedContext.mockResolvedValueOnce({
+			inputValue: "Hello",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+		});
+
+		await sendMessage("Hello", "conv-1", "provider:provider-1", {
+			id: "user-1",
+		});
+
+		expect(mocks.buildConstructedContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				contextLimits: {
+					maxModelContext: 1_000_000,
+					targetConstructedContext: 640_000,
+					compactionUiThreshold: 512_000,
+				},
+			}),
+		);
+	});
+
 	it("applies the configured local model prompt budget to the final outbound payload", async () => {
 		mockConfig(
 			{ maxTokens: 512 },
@@ -552,6 +615,81 @@ describe("sendMessage provider routing", () => {
 		expect(
 			estimateTokenCount(`${systemPrompt}\n\n${body.input_value}`),
 		).toBeLessThanOrEqual(8_000);
+	});
+
+	it("runs automatic context compression before falling back to outbound prompt truncation", async () => {
+		mockConfig(
+			{ maxTokens: 256 },
+			{
+				model1MaxModelContext: 12_000,
+				model1CompactionUiThreshold: 6_400,
+				model1TargetConstructedContext: 8_000,
+			},
+		);
+		const oversizedContext = [
+			"Context from your conversation history:",
+			`## Honcho Session Context\n${"older raw context ".repeat(3000)}`,
+			"## Current User Message\nContinue?",
+		].join("\n\n");
+		const compressedContext = [
+			"Context from your conversation history:",
+			"## Context Compression Snapshot\nCompressed old context.",
+			"## Honcho Session Context\nRecent raw context.",
+			"## Current User Message\nContinue?",
+		].join("\n\n");
+		mocks.buildConstructedContext
+			.mockResolvedValueOnce({
+				inputValue: oversizedContext,
+				contextStatus: undefined,
+				taskState: null,
+				contextDebug: null,
+				honchoContext: null,
+				honchoSnapshot: null,
+			})
+			.mockResolvedValueOnce({
+				inputValue: compressedContext,
+				contextStatus: undefined,
+				taskState: null,
+				contextDebug: null,
+				honchoContext: null,
+				honchoSnapshot: null,
+			});
+		mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+			{
+				id: "message-1",
+				role: "user",
+				content: "Old raw user context",
+				messageSequence: 1,
+			},
+			{
+				id: "message-2",
+				role: "assistant",
+				content: "Old raw assistant context",
+				messageSequence: 2,
+			},
+		]);
+
+		await sendMessage("Continue?", "conv-1", "model1", { id: "user-1" });
+
+		expect(mocks.runContextCompression).toHaveBeenCalledWith(
+			expect.objectContaining({
+				conversationId: "conv-1",
+				userId: "user-1",
+				trigger: "automatic",
+				selectedModelId: "model1",
+				sourceMessages: expect.arrayContaining([
+					expect.objectContaining({ id: "message-1" }),
+					expect.objectContaining({ id: "message-2" }),
+				]),
+				priorSnapshot: null,
+			}),
+		);
+		expect(mocks.buildConstructedContext).toHaveBeenCalledTimes(2);
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(body.input_value).toContain("## Context Compression Snapshot");
+		expect(body.input_value).not.toContain(
+			"older raw context older raw context",
+		);
 	});
 
 	it("reserves room for Langflow framing when enforcing the final outbound payload budget", async () => {

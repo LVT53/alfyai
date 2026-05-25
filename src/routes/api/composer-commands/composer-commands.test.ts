@@ -54,6 +54,7 @@ describe("GET /api/composer-commands", () => {
 			"/skill",
 			"/settings",
 			"/clear",
+			"/compact",
 			"/web",
 			"/research",
 		]);

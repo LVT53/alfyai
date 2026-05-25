@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
+	contextCompressionSnapshots,
 	conversations,
 	messageAnalytics,
 	messages,
@@ -249,7 +250,68 @@ export async function listMessages(
 
 export async function deleteMessages(ids: string[]): Promise<void> {
 	if (ids.length === 0) return;
-	await db.delete(messages).where(inArray(messages.id, ids));
+	db.transaction((tx) => {
+		let deletedRows = tx
+			.select({
+				id: messages.id,
+				conversationId: messages.conversationId,
+				messageSequence: messages.messageSequence,
+			})
+			.from(messages)
+			.where(inArray(messages.id, ids))
+			.all();
+
+		const conversationIds = Array.from(
+			new Set(deletedRows.map((row) => row.conversationId)),
+		);
+		if (deletedRows.some((row) => row.messageSequence == null)) {
+			for (const conversationId of conversationIds) {
+				repairConversationMessageSequencesWithExecutor(tx, conversationId);
+			}
+			deletedRows = tx
+				.select({
+					id: messages.id,
+					conversationId: messages.conversationId,
+					messageSequence: messages.messageSequence,
+				})
+				.from(messages)
+				.where(inArray(messages.id, ids))
+				.all();
+		}
+
+		const earliestDeletedSequenceByConversation = new Map<string, number>();
+		for (const row of deletedRows) {
+			if (row.messageSequence == null) continue;
+			const current = earliestDeletedSequenceByConversation.get(
+				row.conversationId,
+			);
+			if (current == null || row.messageSequence < current) {
+				earliestDeletedSequenceByConversation.set(
+					row.conversationId,
+					row.messageSequence,
+				);
+			}
+		}
+
+		for (const [
+			conversationId,
+			earliestDeletedMessageSequence,
+		] of earliestDeletedSequenceByConversation) {
+			tx.delete(contextCompressionSnapshots)
+				.where(
+					and(
+						eq(contextCompressionSnapshots.conversationId, conversationId),
+						gte(
+							contextCompressionSnapshots.sourceEndMessageSequence,
+							earliestDeletedMessageSequence,
+						),
+					),
+				)
+				.run();
+		}
+
+		tx.delete(messages).where(inArray(messages.id, ids)).run();
+	});
 }
 
 export async function createMessage(

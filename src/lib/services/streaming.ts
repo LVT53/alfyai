@@ -21,6 +21,7 @@ export interface StreamMetadata {
 	contextDebug?: import("$lib/types").ContextDebugState | null;
 	messageEvidence?: import("$lib/types").MessageEvidenceSummary | null;
 	generatedFiles?: import("$lib/types").ChatGeneratedFile[];
+	contextCompressionSnapshots?: import("$lib/types").ContextCompressionMarker[];
 }
 
 export interface StreamTimingSnapshot {

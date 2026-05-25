@@ -2,6 +2,7 @@
 	import MessageArea from '$lib/components/chat/MessageArea.svelte';
 	import type {
 		ChatMessage,
+		ContextCompressionMarker,
 		ContextDebugState,
 		DeepResearchJob,
 		DeepResearchReportIntent,
@@ -20,6 +21,7 @@
 		modelIcons = {},
 		fileProductionJobs = [],
 		deepResearchJobs = [],
+		contextCompressionMarkers = [],
 		hasActiveSkillSession = false,
 		forkOrigin = null,
 		forkOpening = false,
@@ -51,6 +53,7 @@
 		modelIcons?: Record<string, string | null | undefined>;
 		fileProductionJobs?: FileProductionJob[];
 		deepResearchJobs?: DeepResearchJob[];
+		contextCompressionMarkers?: ContextCompressionMarker[];
 		hasActiveSkillSession?: boolean;
 		forkOrigin?: ConversationForkOrigin | null;
 		forkOpening?: boolean;
@@ -98,6 +101,7 @@
 		{modelIcons}
 		{fileProductionJobs}
 		{deepResearchJobs}
+		{contextCompressionMarkers}
 		{hasActiveSkillSession}
 		{forkOrigin}
 		{forkingMessageId}

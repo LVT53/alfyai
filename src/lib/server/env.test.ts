@@ -130,6 +130,33 @@ describe("Environment Configuration", () => {
 		expect(config.composerCommandRegistryEnabled).toBe(false);
 	});
 
+	it("should derive unset context budget defaults from the configured model window", async () => {
+		process.env.LANGFLOW_API_KEY = "test-api-key";
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.MAX_MODEL_CONTEXT = "1000000";
+		delete process.env.COMPACTION_UI_THRESHOLD;
+		delete process.env.TARGET_CONSTRUCTED_CONTEXT;
+		delete process.env.MODEL_1_MAX_MODEL_CONTEXT;
+		delete process.env.MODEL_1_COMPACTION_UI_THRESHOLD;
+		delete process.env.MODEL_1_TARGET_CONSTRUCTED_CONTEXT;
+		delete process.env.MODEL_2_MAX_MODEL_CONTEXT;
+		delete process.env.MODEL_2_COMPACTION_UI_THRESHOLD;
+		delete process.env.MODEL_2_TARGET_CONSTRUCTED_CONTEXT;
+
+		const { config } = await import("./env");
+
+		expect(config.maxModelContext).toBe(1_000_000);
+		expect(config.compactionUiThreshold).toBe(800_000);
+		expect(config.targetConstructedContext).toBe(900_000);
+		expect(config.model1MaxModelContext).toBe(1_000_000);
+		expect(config.model1CompactionUiThreshold).toBe(800_000);
+		expect(config.model1TargetConstructedContext).toBe(900_000);
+		expect(config.model2MaxModelContext).toBe(1_000_000);
+		expect(config.model2CompactionUiThreshold).toBe(800_000);
+		expect(config.model2TargetConstructedContext).toBe(900_000);
+	});
+
 	it("should return valid config object when all vars are present", async () => {
 		// Set all env vars to test values
 		process.env.LANGFLOW_API_URL = "http://test-langflow:8080";

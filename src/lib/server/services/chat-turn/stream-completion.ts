@@ -1,14 +1,18 @@
-import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
-import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import {
+	listContextCompressionSnapshots,
+	serializeContextCompressionSnapshot,
+} from "$lib/server/services/context-compression";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
+import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
 import type {
 	ArtifactSummary,
 	ContextDebugState,
 	ConversationContextStatus,
+	LinkedContextSource,
 	ToolCallEntry,
 	WebCitationAudit,
-	LinkedContextSource,
 } from "$lib/types";
 import { buildContextSourcesState } from "./context-sources";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
@@ -370,6 +374,11 @@ export async function completeStreamTurn(
 				latestContextTraceSections ?? initialContextTraceSections ?? [],
 			toolCalls: toolCallRecords.filter((tool) => tool.status === "done"),
 		});
+		const contextCompressionSnapshots = await listContextCompressionSnapshots(
+			conversationId,
+		)
+			.then((snapshots) => snapshots.map(serializeContextCompressionSnapshot))
+			.catch(() => []);
 		const activeWorkingSet = persistedTurnState
 			? persistedTurnState.activeWorkingSet
 			: latestActiveWorkingSet;
@@ -397,6 +406,7 @@ export async function completeStreamTurn(
 				taskState,
 				contextDebug,
 				generatedFiles,
+				contextCompressionSnapshots,
 			})}\n\n`,
 		);
 		touchConversation(userId, conversationId).catch(() => undefined);

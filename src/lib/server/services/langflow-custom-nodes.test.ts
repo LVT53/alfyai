@@ -283,4 +283,39 @@ describe("Langflow custom model node", () => {
 		expect(source).toContain("next_callbacks = existing + [cb]");
 		expect(source).toContain('"callId": call_id');
 	});
+
+	it("keeps model-facing web research results compact", () => {
+		const source = nodeSource("web_research_tool.py");
+
+		expect(source).toContain("MODEL_ANSWER_BRIEF_MARKDOWN_MAX_CHARS = 12000");
+		expect(source).toContain("_compact_sources_for_model");
+		expect(source).toContain("_compact_evidence_for_model");
+		expect(source).toContain(
+			"model_sources = self._compact_sources_for_model(sources)",
+		);
+		expect(source).toContain(
+			"model_evidence = self._compact_evidence_for_model(evidence)",
+		);
+		expect(source).toContain(
+			'model_answer_brief_markdown = model_answer_brief.pop("markdown", "")',
+		);
+		expect(source).toContain('"answerBrief": model_answer_brief');
+		expect(source).toContain(
+			'"answerBriefMarkdown": model_answer_brief_markdown',
+		);
+		expect(source).toContain('"sources": model_sources');
+		expect(source).toContain('"evidence": model_evidence');
+		expect(source).toContain('"diagnostics": model_diagnostics');
+	});
+
+	it("keeps model-facing file-production status compact", () => {
+		const source = nodeSource("file_production_tool.py");
+
+		expect(source).toContain("MODEL_FILE_PRODUCTION_FILE_LIMIT = 5");
+		expect(source).toContain("_compact_job_for_model");
+		expect(source).toContain("model_job = self._compact_job_for_model(job)");
+		expect(source).toContain('"candidates": model_files');
+		expect(source).toContain('"job": model_job');
+		expect(source).toContain("MODEL_FILE_PRODUCTION_ERROR_MAX_CHARS");
+	});
 });

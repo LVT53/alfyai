@@ -1274,6 +1274,107 @@ describe("POST /api/chat/stream", () => {
 		expect(body).toContain('"query":"SvelteKit docs"');
 	});
 
+	it("falls back when a non-file tool call completes without final assistant text", async () => {
+		const conversation = {
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		mockGetConversation.mockResolvedValue(conversation);
+		mockSendMessageStream.mockResolvedValue(
+			buildSseStream([
+				`data: ${JSON.stringify({
+					data: {
+						chunk: {
+							tool_calls: [
+								{
+									id: "lc-call-1",
+									name: "research_web",
+									args: {
+										query: "SvelteKit docs",
+									},
+								},
+							],
+						},
+					},
+				})}\n\n`,
+				"data: [DONE]\n\n",
+			]),
+		);
+		mockSendMessage.mockResolvedValue({
+			text: "Recovered final answer",
+			rawResponse: {
+				outputs: [
+					{
+						outputs: [
+							{ results: { message: { text: "Recovered final answer" } } },
+						],
+					},
+				],
+			},
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+		});
+
+		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
+		const response = await POST(event);
+		const body = await readSseResponse(response);
+
+		expect(body).toContain("event: tool_call");
+		expect(body).toContain('"callId":"lc-call-1"');
+		expect(body).toContain('"status":"done"');
+		expect(body).toContain("event: token");
+		expect(body).toContain('"text":"Recovered final answer"');
+		expect(body).toContain("event: end");
+		expect(mockSendMessage).toHaveBeenCalled();
+	});
+
+	it("allows file-production tool-only streams to complete without fallback", async () => {
+		const conversation = {
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		mockGetConversation.mockResolvedValue(conversation);
+		mockSendMessageStream.mockResolvedValue(
+			buildSseStream([
+				`data: ${JSON.stringify({
+					data: {
+						chunk: {
+							tool_calls: [
+								{
+									id: "file-call-1",
+									name: "produce_file",
+									args: {
+										requestTitle: "Report",
+										sourceMode: "program",
+										requestedOutputs: [{ type: "pdf" }],
+									},
+								},
+							],
+						},
+					},
+				})}\n\n`,
+				"data: [DONE]\n\n",
+			]),
+		);
+
+		const event = makeEvent({ message: "Make a file", conversationId: "conv-1" });
+		const response = await POST(event);
+		const body = await readSseResponse(response);
+
+		expect(body).toContain("event: tool_call");
+		expect(body).toContain('"callId":"file-call-1"');
+		expect(body).toContain('"name":"produce_file"');
+		expect(body).toContain('"status":"done"');
+		expect(body).toContain("event: end");
+		expect(body).not.toContain("event: token");
+		expect(mockSendMessage).not.toHaveBeenCalled();
+	});
+
 	it("extracts final native message tool calls into structured tool_call events", async () => {
 		const conversation = {
 			id: "conv-1",

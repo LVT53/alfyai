@@ -354,6 +354,37 @@ describe('MessageArea', () => {
 		expect(originMarker.querySelector('circle')).not.toBeInTheDocument();
 	});
 
+	it('renders context compression markers as compact timeline events', () => {
+		const messages: ChatMessage[] = [
+			{
+				id: 'message-1',
+				role: 'assistant',
+				content: 'Earlier answer',
+				timestamp: Date.now(),
+			},
+		];
+
+		const { getByLabelText, getByTestId, getByText } = render(MessageArea, {
+			messages,
+			conversationId: 'conv-1',
+			contextCompressionMarkers: [
+				{
+					id: 'snapshot-1',
+					trigger: 'manual',
+					status: 'valid',
+					sourceEndMessageId: 'message-1',
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+			],
+		});
+
+		expect(getByTestId('context-compression-marker-snapshot-1')).toBe(
+			getByLabelText('Compacted context'),
+		);
+		expect(getByText('Compacted context')).toBeInTheDocument();
+	});
+
 	it('renders persisted Deep Research jobs as cards without an assistant message', () => {
 		const { getByRole, getByText, queryByText } = render(MessageArea, {
 			messages: [],
