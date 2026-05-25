@@ -9,11 +9,11 @@ import * as schema from "$lib/server/db/schema";
 let dbPath: string;
 
 const mocks = vi.hoisted(() => ({
-	sendMessage: vi.fn(),
+	sendJsonControlMessage: vi.fn(),
 }));
 
 vi.mock("./langflow", () => ({
-	sendMessage: mocks.sendMessage,
+	sendJsonControlMessage: mocks.sendJsonControlMessage,
 }));
 
 vi.mock("./knowledge", () => ({
@@ -139,7 +139,7 @@ describe("context compression snapshots", () => {
 		dbPath = `/tmp/alfyai-context-compression-${Date.now()}-${Math.random()}.db`;
 		process.env.DATABASE_PATH = dbPath;
 		vi.resetModules();
-		mocks.sendMessage.mockReset();
+		mocks.sendJsonControlMessage.mockReset();
 	});
 
 	afterEach(async () => {
@@ -367,7 +367,7 @@ describe("context compression snapshots", () => {
 
 	it("runs context compression through the selected response model and persists a validated snapshot", async () => {
 		seedConversationWithMessages();
-		mocks.sendMessage.mockResolvedValueOnce({
+		mocks.sendJsonControlMessage.mockResolvedValueOnce({
 			text: `<thinking>Reasoning may quote payload JSON like {"task":"context_compression"} before the final answer.</thinking>${JSON.stringify({
 				goal: "Keep answering the user's original question.",
 				currentState: "The assistant has answered the first exchange.",
@@ -436,18 +436,13 @@ describe("context compression snapshots", () => {
 		expect(result.estimatedTokens).toBeGreaterThan(0);
 		expect(result.sourceTokenEstimate).toBe(24);
 
-		expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
-		const call = mocks.sendMessage.mock.calls[0];
-		expect(call?.[2]).toBe("model2");
-		expect(call?.[3]).toBeUndefined();
-		expect(call?.[4]).toMatchObject({
-			skipHonchoContext: true,
-			skipDefaultRuntimeGuidance: true,
-			systemPromptOverride: expect.stringContaining("Context compression"),
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(1);
+		const call = mocks.sendJsonControlMessage.mock.calls[0];
+		expect(call?.[1]).toBe("model2");
+		expect(call?.[2]).toMatchObject({
+			systemPrompt: expect.stringContaining("Context compression"),
 			thinkingMode: "on",
-			jsonMode: true,
 		});
-		expect(call?.[4]?.systemPromptAppendix).toBeUndefined();
 
 		const [stored] = await listContextCompressionSnapshots("conv-1");
 		expect(stored).toEqual(
@@ -462,7 +457,7 @@ describe("context compression snapshots", () => {
 
 	it("retries once with repair instructions when the model output is invalid", async () => {
 		seedConversationWithMessages();
-		mocks.sendMessage
+		mocks.sendJsonControlMessage
 			.mockResolvedValueOnce({
 				text: JSON.stringify({
 					goal: "Too little",
@@ -526,15 +521,15 @@ describe("context compression snapshots", () => {
 		expect(result.snapshot).toMatchObject({
 			goal: "Keep the discussion anchored to the first exchange.",
 		});
-		expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
-		expect(String(mocks.sendMessage.mock.calls[1]?.[0])).toContain(
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(2);
+		expect(String(mocks.sendJsonControlMessage.mock.calls[1]?.[0])).toContain(
 			"Previous output was rejected",
 		);
 	});
 
 	it("marks the running snapshot failed when validation still rejects the repair", async () => {
 		seedConversationWithMessages();
-		mocks.sendMessage
+		mocks.sendJsonControlMessage
 			.mockResolvedValueOnce({
 				text: "not json",
 				modelId: "model1",
@@ -586,7 +581,7 @@ describe("context compression snapshots", () => {
 
 		expect(result.status).toBe("failed");
 		expect(result.failureReason).toContain("<thinking>");
-		expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(2);
 
 		const [stored] = await listContextCompressionSnapshots("conv-1");
 		expect(stored).toEqual(
@@ -600,7 +595,7 @@ describe("context compression snapshots", () => {
 
 	it("marks the running snapshot failed when the compression model call throws", async () => {
 		seedConversationWithMessages();
-		mocks.sendMessage.mockRejectedValue(new Error("Langflow unavailable"));
+		mocks.sendJsonControlMessage.mockRejectedValue(new Error("Langflow unavailable"));
 		const {
 			listContextCompressionSnapshots,
 			runContextCompression,
@@ -629,7 +624,7 @@ describe("context compression snapshots", () => {
 
 		expect(result.status).toBe("failed");
 		expect(result.failureReason).toContain("Langflow unavailable");
-		expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(2);
 
 		const [stored] = await listContextCompressionSnapshots("conv-1");
 		expect(stored).toEqual(

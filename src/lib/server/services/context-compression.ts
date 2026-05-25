@@ -6,7 +6,7 @@ import { contextCompressionSnapshots, messages } from "$lib/server/db/schema";
 import type { ContextCompressionMarker, ModelId } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { parseModelJsonObject } from "./deep-research/llm-json";
-import { sendMessage } from "./langflow";
+import { sendJsonControlMessage } from "./langflow";
 import { messageOrderAsc } from "./message-ordering";
 import { repairConversationMessageSequences } from "./message-sequences";
 
@@ -720,24 +720,19 @@ export async function runContextCompression(
 
 	let rejectionReason: string | null = null;
 	for (const attempt of [0, 1] as const) {
-		let response: Awaited<ReturnType<typeof sendMessage>>;
+		let response: Awaited<ReturnType<typeof sendJsonControlMessage>>;
 		try {
-			response = await sendMessage(
+			response = await sendJsonControlMessage(
 				buildCompressionPrompt({
 					input,
 					sourceRanges,
 					repairReason:
 						attempt === 1 ? (rejectionReason ?? undefined) : undefined,
 				}),
-				`context-compression:${input.conversationId}:${running.id}`,
 				input.selectedModelId,
-				undefined,
 				{
-					skipHonchoContext: true,
-					skipDefaultRuntimeGuidance: true,
-					systemPromptOverride: CONTEXT_COMPRESSION_SYSTEM_APPENDIX,
+					systemPrompt: CONTEXT_COMPRESSION_SYSTEM_APPENDIX,
 					thinkingMode: "on",
-					jsonMode: true,
 				},
 			);
 		} catch (error) {

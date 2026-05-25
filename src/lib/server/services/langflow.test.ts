@@ -55,6 +55,7 @@ import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	buildOutboundSystemPrompt,
 	isLangflowTimeoutError,
+	sendJsonControlMessage,
 	sendMessage,
 	shouldAutoEnableThinking,
 } from "./langflow";
@@ -458,22 +459,47 @@ describe("sendMessage provider routing", () => {
 		expect(systemPrompt).not.toContain("Memory context workflow");
 	});
 
-	it("can request JSON mode for model-facing control tasks", async () => {
-		await sendMessage("Return JSON", "control-session", "model1", undefined, {
-			skipHonchoContext: true,
-			skipDefaultRuntimeGuidance: true,
-			systemPromptOverride: "Control task. Return only JSON.",
+	it("runs JSON control tasks directly against the selected OpenAI-compatible model", async () => {
+		mockConfig({
+			modelName: "openai/gpt-oss-120b",
+			displayName: "ChatGPT OSS",
+			reasoningEffort: "high",
+			maxTokens: 8192,
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							choices: [{ message: { content: '{"ok":true}' } }],
+						}),
+						{
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						},
+					),
+			),
+		);
+
+		const result = await sendJsonControlMessage("Return JSON", "model1", {
+			systemPrompt: "Control task. Return only JSON.",
 			thinkingMode: "on",
-			jsonMode: true,
 		});
 
+		expect(result.text).toBe('{"ok":true}');
 		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
-		expect(body.tweaks["ModelNode-1"]).toMatchObject({
-			enable_thinking: true,
-			model_kwargs: {
-				response_format: { type: "json_object" },
-			},
+		expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toBe(
+			"http://local-model/v1/chat/completions",
+		);
+		expect(body).toMatchObject({
+			model: "openai/gpt-oss-120b",
+			response_format: { type: "json_object" },
+			reasoning_effort: "high",
+			chat_template_kwargs: { enable_thinking: true },
+			max_tokens: 4096,
 		});
+		expect(body.messages[0].content).toContain("Reasoning: high");
 	});
 
 	it("passes Hungarian response-language policy into Langflow requests", async () => {

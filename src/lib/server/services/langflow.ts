@@ -28,7 +28,10 @@ import { buildConstructedContext, buildEnhancedSystemPrompt } from "./honcho";
 import { decryptApiKey, getProviderWithSecrets } from "./inference-providers";
 import { detectLanguage, type SupportedLanguage } from "./language";
 import { inferModelContextWindow } from "./model-context";
-import { normalizeOpenAICompatibleBaseUrl } from "./openai-compatible-url";
+import {
+	buildOpenAICompatibleUrl,
+	normalizeOpenAICompatibleBaseUrl,
+} from "./openai-compatible-url";
 
 export type AuthenticatedPromptUser = {
 	id: string;
@@ -47,7 +50,6 @@ type SendMessageOptions = {
 	skipDefaultRuntimeGuidance?: boolean;
 	systemPromptOverride?: string;
 	thinkingMode?: ThinkingMode;
-	jsonMode?: boolean;
 	forceWebSearch?: boolean;
 };
 
@@ -140,6 +142,13 @@ type LangflowStreamResult = {
 	modelId: ModelId;
 	modelDisplayName: string;
 	timeoutFailover?: TimeoutFailoverInfo;
+};
+
+type JsonControlMessageResult = {
+	text: string;
+	rawResponse: unknown;
+	modelId: ModelId;
+	modelDisplayName: string;
 };
 
 type LangflowTimeoutError = Error & { code?: string };
@@ -1106,7 +1115,6 @@ function buildLangflowTweaks(
 	message: string,
 	effectiveMaxTokens?: number | null,
 	thinkingMode?: ThinkingMode,
-	jsonMode?: boolean,
 	requestTimeoutMs: number = getConfig().requestTimeoutMs,
 ): Record<string, unknown> {
 	const componentId = modelConfig.componentId.trim();
@@ -1146,9 +1154,6 @@ function buildLangflowTweaks(
 		),
 		...(shouldSendReasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 		...(shouldSendThinkingType ? { thinking_type: effectiveThinkingType } : {}),
-		...(jsonMode
-			? { model_kwargs: { response_format: { type: "json_object" } } }
-			: {}),
 		system_prompt: systemPrompt,
 	};
 
@@ -1628,6 +1633,138 @@ export function extractMessageText(response: LangflowRunResponse): string {
 	}
 }
 
+function extractOpenAICompatibleMessageText(response: unknown): string {
+	const record =
+		response && typeof response === "object"
+			? (response as Record<string, unknown>)
+			: {};
+	const choices = Array.isArray(record.choices) ? record.choices : [];
+	const firstChoice = choices[0] as Record<string, unknown> | undefined;
+	const message =
+		firstChoice?.message && typeof firstChoice.message === "object"
+			? (firstChoice.message as Record<string, unknown>)
+			: null;
+	const content = message?.content;
+	if (typeof content === "string" && content.trim()) return content;
+	if (Array.isArray(content)) {
+		const text = content
+			.map((part) => {
+				if (typeof part === "string") return part;
+				if (part && typeof part === "object") {
+					const maybeText = (part as Record<string, unknown>).text;
+					return typeof maybeText === "string" ? maybeText : "";
+				}
+				return "";
+			})
+			.join("")
+			.trim();
+		if (text) return text;
+	}
+
+	const reasoning = message?.reasoning ?? message?.reasoning_content;
+	if (typeof reasoning === "string" && reasoning.trim()) return reasoning;
+
+	const legacyText = firstChoice?.text;
+	if (typeof legacyText === "string" && legacyText.trim()) return legacyText;
+
+	throw new Error("Could not extract message text from control model response");
+}
+
+export async function sendJsonControlMessage(
+	message: string,
+	modelId: ModelId | undefined,
+	options: {
+		systemPrompt: string;
+		thinkingMode?: ThinkingMode;
+		maxTokens?: number;
+		temperature?: number;
+		signal?: AbortSignal;
+	},
+): Promise<JsonControlMessageResult> {
+	const config = getConfig();
+	const modelConfig = await resolveLangflowRunConfig(modelId);
+	const modelName = modelConfig.modelName;
+	if (!modelConfig.baseUrl || !modelName) {
+		throw new Error("Selected control model is not configured");
+	}
+
+	const systemPrompt = buildOutboundSystemPrompt({
+		basePrompt: getSystemPrompt(options.systemPrompt),
+		inputValue: message,
+		modelDisplayName: modelConfig.displayName,
+		modelName,
+		skipDefaultRuntimeGuidance: true,
+	});
+	const effectiveThinkingType = resolveEffectiveThinkingType({
+		modelConfig,
+		message,
+		thinkingMode: options.thinkingMode,
+	});
+	const reasoningEffort = getProviderReasoningEffort(
+		modelConfig,
+		effectiveThinkingType,
+	);
+	const enableTemplateThinking = shouldSendVllmChatTemplateThinking(
+		modelConfig,
+		effectiveThinkingType,
+	);
+	const maxTokens =
+		options.maxTokens ??
+		(modelConfig.maxTokens != null ? Math.min(modelConfig.maxTokens, 4096) : 2048);
+	const headers: Record<string, string> = {
+		"Content-Type": "application/json",
+	};
+	if (modelConfig.apiKey) headers.Authorization = `Bearer ${modelConfig.apiKey}`;
+
+	const body: Record<string, unknown> = {
+		model: modelName,
+		messages: [
+			{ role: "system", content: systemPrompt },
+			{ role: "user", content: message },
+		],
+		temperature: options.temperature ?? 0.1,
+		max_tokens: maxTokens,
+		stream: false,
+		response_format: { type: "json_object" },
+	};
+	if (reasoningEffort) {
+		body.reasoning_effort = reasoningEffort;
+	}
+	if (enableTemplateThinking) {
+		body.chat_template_kwargs = { enable_thinking: true };
+		body.extra_body = {
+			chat_template_kwargs: { enable_thinking: true },
+		};
+	}
+
+	const response = await fetch(
+		buildOpenAICompatibleUrl(modelConfig.baseUrl, "/v1/chat/completions"),
+		{
+			method: "POST",
+			headers,
+			body: JSON.stringify(body),
+			signal: mergeAbortSignals(
+				options.signal,
+				AbortSignal.timeout(config.requestTimeoutMs),
+			),
+		},
+	);
+	if (!response.ok) {
+		const errorBody = await response.text().catch(() => "");
+		throw new Error(
+			`Control model request failed: ${response.status} ${response.statusText}${errorBody ? ` - ${errorBody.slice(0, 500)}` : ""}`,
+		);
+	}
+
+	const rawResponse = await response.json();
+	return {
+		text: extractOpenAICompatibleMessageText(rawResponse),
+		rawResponse,
+		modelId: modelId ?? "model1",
+		modelDisplayName: modelConfig.displayName,
+	};
+}
+
 async function sendMessageAttempt(
 	message: string,
 	sessionId: string,
@@ -1819,7 +1956,6 @@ async function sendMessageAttempt(
 				message,
 				budgetedPrompt.outputTokenBudget.effectiveMaxTokens,
 				options?.thinkingMode,
-				options?.jsonMode,
 				attemptTimeoutMs,
 			),
 		};
@@ -2190,7 +2326,6 @@ async function sendMessageStreamAttempt(
 				message,
 				budgetedPrompt.outputTokenBudget.effectiveMaxTokens,
 				options?.thinkingMode,
-				options?.jsonMode,
 				attemptTimeoutMs,
 			),
 		};
