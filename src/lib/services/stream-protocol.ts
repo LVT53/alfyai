@@ -368,7 +368,7 @@ const DOCUMENT_SOURCE_BLOCK_TYPES = [
 	"chart",
 ] as const;
 const DOCUMENT_SOURCE_CONTINUATION_LINE_RE =
-	/^(?:(?:\{|\}|\[|\]),?|,|"?(?:type|title|subtitle|summary|blocks|sections|level|text|items|ordered|columns|rows|cells|callout|variant|quote|language|code|caption|chartType|data|labels|datasets|url|alt)"?\s*:)/i;
+	/^(?:(?:\{|\}|\[|\]),?|,|"?(?:documentSource|document_source|program|sourceMode|documentIntent|requestedOutputs|idempotencyKey|requestTitle|templateHint|sourceCode|filename|version|template|type|title|subtitle|summary|blocks|sections|level|text|items|ordered|columns|rows|cells|callout|variant|quote|language|code|caption|chartType|data|labels|datasets|url|alt)"?\s*:)/i;
 const ASSISTANT_PROSE_BOUNDARY_PATTERNS = [
 	"i see",
 	"i found",
@@ -379,8 +379,9 @@ const ASSISTANT_PROSE_BOUNDARY_PATTERNS = [
 	"here's",
 	"here is",
 	"here are",
+	"the final answer",
+	"the answer",
 	"based on",
-	"the ",
 	"this ",
 	"it ",
 	"you ",
@@ -393,6 +394,29 @@ const ASSISTANT_PROSE_BOUNDARY_PATTERNS = [
 	"no,",
 	"no.",
 	"no ",
+] as const;
+const WEB_ASSISTANT_PROSE_BOUNDARY_PATTERNS = [
+	"i see",
+	"i found",
+	"i can",
+	"i will",
+	"i should",
+	"i'll",
+	"here's",
+	"here is",
+	"here are",
+	"the final answer",
+	"the answer",
+	"based on",
+	"in short",
+	"in summary",
+	"to summarize",
+	"the key point",
+	"magyarországon",
+	"röviden",
+	"a rövid válasz",
+	"a válasz",
+	"összefoglalva",
 ] as const;
 
 export interface LeakedToolDiagnosticsState {
@@ -517,12 +541,20 @@ function findFirstPythonToolMarkerIndex(value: string): number {
 
 function findFirstWebToolMarker(
 	value: string,
-): { index: number; length: number } | null {
-	let bestMatch: { index: number; length: number } | null = null;
+): { index: number; length: number; suppressFollowing: boolean } | null {
+	let bestMatch: {
+		index: number;
+		length: number;
+		suppressFollowing: boolean;
+	} | null = null;
 	for (const pattern of WEB_TOOL_MARKER_PATTERNS) {
 		const match = pattern.exec(value);
 		if (match?.index !== undefined) {
-			const candidate = { index: match.index, length: match[0].length };
+			const candidate = {
+				index: match.index,
+				length: match[0].length,
+				suppressFollowing: pattern !== WEB_RESEARCH_DIAGNOSTIC_RE,
+			};
 			if (!bestMatch || candidate.index < bestMatch.index) {
 				bestMatch = candidate;
 			}
@@ -537,11 +569,14 @@ function isWebToolRawOutputLine(value: string): boolean {
 	return WEB_TOOL_RAW_LINE_PATTERNS.some((pattern) => pattern.test(candidate));
 }
 
-function findAssistantProseBoundaryIndex(value: string): number {
+function findFirstBoundaryPatternIndex(
+	value: string,
+	patterns: readonly string[],
+): number {
 	const lowerValue = value.toLowerCase();
 	let bestIndex = -1;
 
-	for (const pattern of ASSISTANT_PROSE_BOUNDARY_PATTERNS) {
+	for (const pattern of patterns) {
 		const index = lowerValue.indexOf(pattern);
 		if (index === -1) {
 			continue;
@@ -550,6 +585,20 @@ function findAssistantProseBoundaryIndex(value: string): number {
 	}
 
 	return bestIndex;
+}
+
+function findAssistantProseBoundaryIndex(value: string): number {
+	return findFirstBoundaryPatternIndex(
+		value,
+		ASSISTANT_PROSE_BOUNDARY_PATTERNS,
+	);
+}
+
+function findWebAssistantProseBoundaryIndex(value: string): number {
+	return findFirstBoundaryPatternIndex(
+		value,
+		WEB_ASSISTANT_PROSE_BOUNDARY_PATTERNS,
+	);
 }
 
 function stripLeakedWebToolDiagnostics(
@@ -578,6 +627,10 @@ function stripLeakedWebToolDiagnostics(
 			if (!line.trim() || isWebToolRawOutputLine(line)) {
 				continue;
 			}
+			const boundaryIndex = findWebAssistantProseBoundaryIndex(line);
+			if (boundaryIndex < 0 && !startsWithAssistantAnswerBoundary(line)) {
+				continue;
+			}
 			if (state.pendingWebToolWhitespace) {
 				if (output || state.lastVisibleChar) {
 					output += state.pendingWebToolWhitespace;
@@ -585,6 +638,21 @@ function stripLeakedWebToolDiagnostics(
 				state.pendingWebToolWhitespace = "";
 			}
 			state.suppressWebToolOutput = false;
+			const prose = line.slice(Math.max(0, boundaryIndex));
+			const markerIndex = findFirstWebToolMarker(prose)?.index ?? -1;
+			if (markerIndex >= 0) {
+				const prefix = prose.slice(0, markerIndex);
+				if (prefix.trim()) {
+					output += prefix;
+					if (lineEnding) {
+						output += lineEnding;
+					}
+				}
+				state.suppressWebToolOutput = true;
+				continue;
+			}
+			output += prose + lineEnding;
+			continue;
 		}
 
 		const marker = findFirstWebToolMarker(line);
@@ -597,6 +665,7 @@ function stripLeakedWebToolDiagnostics(
 			if (remainder.trim() && !isWebToolRawOutputLine(remainder)) {
 				output += remainder + lineEnding;
 			} else {
+				state.suppressWebToolOutput = marker.suppressFollowing;
 				state.pendingWebToolWhitespace += lineEnding;
 			}
 			continue;
@@ -678,21 +747,62 @@ function stripLeakedPythonToolDiagnostics(
 	return output;
 }
 
-function stripLeadingToolPlanningNarration(value: string): string {
+function startsWithAssistantAnswerBoundary(value: string): boolean {
+	const firstLine = value.trimStart().split(/\r?\n/, 1)[0] ?? "";
+	if (!firstLine.trim() || isWebToolRawOutputLine(firstLine)) {
+		return false;
+	}
+
+	return (
+		findWebAssistantProseBoundaryIndex(firstLine) === 0 ||
+		/^\d+[.)]\s+\S/.test(firstLine)
+	);
+}
+
+function shouldSuppressWebOutputAfterToolPlanning(value: string): boolean {
+	const candidate = value.trimStart();
+	if (!candidate) {
+		return true;
+	}
+
+	return !startsWithAssistantAnswerBoundary(candidate);
+}
+
+function stripLeadingToolPlanningNarration(
+	value: string,
+	state?: LeakedToolDiagnosticsState,
+): string {
 	if (!value.trim()) {
 		return value;
 	}
 
-	const match = LEADING_TOOL_PLANNING_NARRATION_RE.exec(value);
-	if (!match) {
+	let remainder = value;
+	let strippedNarration = false;
+
+	while (remainder.trim()) {
+		const match = LEADING_TOOL_PLANNING_NARRATION_RE.exec(remainder);
+		if (!match) {
+			break;
+		}
+
+		const nextRemainder = remainder.slice(match[0].length);
+		if (!nextRemainder.trim() && !/[.!?]\s*$/.test(match[0])) {
+			break;
+		}
+
+		strippedNarration = true;
+		remainder = nextRemainder.trimStart() ? nextRemainder.trimStart() : "";
+	}
+
+	if (!strippedNarration) {
 		return value;
 	}
 
-	const remainder = value.slice(match[0].length);
-	if (!remainder.trim() && !/[.!?]\s*$/.test(match[0])) {
-		return value;
+	if (state && shouldSuppressWebOutputAfterToolPlanning(remainder)) {
+		state.suppressWebToolOutput = true;
 	}
-	return remainder.trimStart() ? remainder.trimStart() : "";
+
+	return remainder;
 }
 
 function stripLeadingFileProductionRepairNarration(
@@ -722,6 +832,22 @@ function hasDocumentSourceBlockType(value: string): boolean {
 	const blockType = getDocumentSourceBlockType(value);
 	return Boolean(
 		blockType && DOCUMENT_SOURCE_BLOCK_TYPES.some((type) => type === blockType),
+	);
+}
+
+function looksLikeRawFileProductionPayload(value: string): boolean {
+	const hasDocumentSource = /"documentSource"\s*:/i.test(value);
+	const hasDocumentStructure =
+		/"blocks"\s*:/i.test(value) || /"template"\s*:/i.test(value);
+	const hasProgramSource =
+		/"program"\s*:/i.test(value) && /"sourceCode"\s*:/i.test(value);
+	const hasDocumentSourceRoot =
+		/"version"\s*:\s*1\b/i.test(value) && /"blocks"\s*:/i.test(value);
+
+	return (
+		(hasDocumentSource && hasDocumentStructure) ||
+		hasProgramSource ||
+		hasDocumentSourceRoot
 	);
 }
 
@@ -767,7 +893,47 @@ function findJsonObjectEnd(value: string, startIndex: number): number | null {
 	return null;
 }
 
+function isFileProductionPayloadRawOutputPrefix(value: string): boolean {
+	if (/^\s/.test(value)) return false;
+	const candidate = value.trimStart();
+	if (!candidate) return false;
+
+	const compact = candidate.toLowerCase().replace(/\s+/g, "");
+	return (
+		compact.length >= 4 &&
+		[
+			'{"documentsource":',
+			'{"program":',
+			'{"version":1,"blocks"',
+			'{"version":1,"template"',
+		].some((prefix) => prefix.startsWith(compact) || compact.startsWith(prefix))
+	);
+}
+
 function stripLeadingDocumentSourceObjectStream(line: string): {
+	line: string;
+	removed: boolean;
+	openEnded: boolean;
+} {
+	return stripLeadingStructuredPayloadStream(line, {
+		allowDocumentBlockObjects: true,
+	});
+}
+
+function stripLeadingFileProductionPayloadStream(line: string): {
+	line: string;
+	removed: boolean;
+	openEnded: boolean;
+} {
+	return stripLeadingStructuredPayloadStream(line, {
+		allowDocumentBlockObjects: false,
+	});
+}
+
+function stripLeadingStructuredPayloadStream(
+	line: string,
+	options: { allowDocumentBlockObjects: boolean },
+): {
 	line: string;
 	removed: boolean;
 	openEnded: boolean;
@@ -786,14 +952,24 @@ function stripLeadingDocumentSourceObjectStream(line: string): {
 
 		const objectEnd = findJsonObjectEnd(line, cursor);
 		if (objectEnd === null) {
-			if (isDocumentSourceRawOutputPrefix(line.slice(cursor))) {
+			if (
+				(options.allowDocumentBlockObjects &&
+					isDocumentSourceRawOutputPrefix(line.slice(cursor))) ||
+				isFileProductionPayloadRawOutputPrefix(line.slice(cursor))
+			) {
 				return { line: "", removed: true, openEnded: true };
 			}
 			break;
 		}
 
 		const objectText = line.slice(cursor, objectEnd);
-		if (!hasDocumentSourceBlockType(objectText)) {
+		if (
+			!(
+				options.allowDocumentBlockObjects &&
+				hasDocumentSourceBlockType(objectText)
+			) &&
+			!looksLikeRawFileProductionPayload(objectText)
+		) {
 			break;
 		}
 
@@ -828,6 +1004,17 @@ function stripLeakedDocumentSourceDiagnostics(
 	let output = "";
 
 	for (const { line, lineEnding } of splitPreservingLineEndings(value)) {
+		const directPayload = stripLeadingFileProductionPayloadStream(line);
+		if (directPayload.removed) {
+			state.suppressDocumentSourceOutput =
+				directPayload.openEnded || !directPayload.line.trim();
+			if (!directPayload.line.trim()) {
+				continue;
+			}
+			output += directPayload.line + lineEnding;
+			continue;
+		}
+
 		if (state.suppressDocumentSourceOutput) {
 			const stripped = stripLeadingDocumentSourceObjectStream(line);
 			if (stripped.removed) {
@@ -856,7 +1043,10 @@ export function stripLeakedToolDiagnostics(
 	value: string,
 	state: LeakedToolDiagnosticsState = createLeakedToolDiagnosticsState(),
 ): string {
-	const withoutLeadingToolNarration = stripLeadingToolPlanningNarration(value);
+	const withoutLeadingToolNarration = stripLeadingToolPlanningNarration(
+		value,
+		state,
+	);
 	const withoutFileProductionRepair = stripLeadingFileProductionRepairNarration(
 		withoutLeadingToolNarration,
 		state,
@@ -998,7 +1188,8 @@ export function getLeakedToolDiagnosticPrefixLength(value: string): number {
 			isLeakedToolDiagnosticPrefix(suffix) ||
 			isFileProductionRepairNarrationPrefix(suffix) ||
 			isLeakedPythonToolDiagnosticPrefix(suffix) ||
-			isPlainSourceReferenceMarkerPrefix(suffix)
+			isPlainSourceReferenceMarkerPrefix(suffix) ||
+			isFileProductionPayloadRawOutputPrefix(suffix)
 		) {
 			return value.length - index;
 		}
@@ -1375,6 +1566,13 @@ function getTextContent(value: unknown): string {
 		}
 	}
 
+	if ("content_blocks" in payload) {
+		const contentBlocksText = getTextFromContentBlocks(payload.content_blocks);
+		if (contentBlocksText) {
+			return contentBlocksText;
+		}
+	}
+
 	for (const key of ["text", "chunk", "content"]) {
 		const candidate = payload[key];
 		if (typeof candidate === "string" && candidate.length > 0) {
@@ -1385,13 +1583,6 @@ function getTextContent(value: unknown): string {
 			if (contentPartsText) {
 				return contentPartsText;
 			}
-		}
-	}
-
-	if ("content_blocks" in payload) {
-		const contentBlocksText = getTextFromContentBlocks(payload.content_blocks);
-		if (contentBlocksText) {
-			return contentBlocksText;
 		}
 	}
 

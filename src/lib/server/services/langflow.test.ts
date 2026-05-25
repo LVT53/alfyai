@@ -166,8 +166,17 @@ describe("buildOutboundSystemPrompt", () => {
 		expect(prompt).toContain("requestTitle");
 		expect(prompt).toContain("requestedOutputs");
 		expect(prompt).toContain("documentIntent");
-		expect(prompt).toContain("JSON-encoded string");
-		expect(prompt).toContain("not as a nested object or array");
+		expect(prompt).toContain(
+			"`documentSource` and `program` are object fields",
+		);
+		expect(prompt).toContain("Pass them as nested objects");
+		expect(prompt).toContain("requestedOutputs remains a JSON-encoded array");
+		expect(prompt).not.toContain(
+			"Langflow validates `requestedOutputs`, `documentSource`, and `program` as text fields",
+		);
+		expect(prompt).not.toContain("`documentSource` must be a JSON string");
+		expect(prompt).not.toContain("`program` must be a JSON-encoded string");
+		expect(prompt).not.toContain("not as a nested object or array");
 		expect(prompt).toContain('type: "heading"');
 		expect(prompt).toContain("level: 2");
 		expect(prompt).toContain("headers");
@@ -501,6 +510,84 @@ describe("sendMessage provider routing", () => {
 			max_tokens: 4096,
 		});
 		expect(body.messages[0].content).toContain("Reasoning: high");
+	});
+
+	it("rejects JSON control responses that only contain reasoning text", async () => {
+		mockConfig({
+			modelName: "openai/gpt-oss-120b",
+			displayName: "ChatGPT OSS",
+			reasoningEffort: "high",
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							choices: [
+								{
+									message: {
+										content: "",
+										reasoning: '{"ok":true}',
+									},
+								},
+							],
+						}),
+						{
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						},
+					),
+			),
+		);
+
+		await expect(
+			sendJsonControlMessage("Return JSON", "model1", {
+				systemPrompt: "Control task. Return only JSON.",
+				thinkingMode: "on",
+			}),
+		).rejects.toThrow(
+			"Could not extract message text from control model response",
+		);
+	});
+
+	it("rejects JSON control responses that only contain reasoning_content text", async () => {
+		mockConfig({
+			modelName: "openai/gpt-oss-120b",
+			displayName: "ChatGPT OSS",
+			reasoningEffort: "high",
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							choices: [
+								{
+									message: {
+										content: "",
+										reasoning_content: '{"ok":true}',
+									},
+								},
+							],
+						}),
+						{
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						},
+					),
+			),
+		);
+
+		await expect(
+			sendJsonControlMessage("Return JSON", "model1", {
+				systemPrompt: "Control task. Return only JSON.",
+				thinkingMode: "on",
+			}),
+		).rejects.toThrow(
+			"Could not extract message text from control model response",
+		);
 	});
 
 	it("can request schema-guided JSON for structured control tasks", async () => {

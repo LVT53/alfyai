@@ -214,7 +214,8 @@ const FILE_GENERATION_GUARD = [
 	"- Prefer the fewest `produce_file` calls that faithfully represent the user's request. For the same report or document in multiple formats, batch those formats into one call instead of issuing parallel calls.",
 	"- Every call must include `idempotencyKey`, `requestTitle`, `requestedOutputs`, `sourceMode`, and `documentIntent`. It may include `templateHint`, `documentSource`, and `program` when relevant.",
 	"- `conversationId` is supplied by the tool runtime from the active chat session. Do not ask the user for it and do not include it as a normal tool argument.",
-	"- Langflow validates `requestedOutputs`, `documentSource`, and `program` as text fields before the tool runs. Pass each one as a JSON-encoded string, not as a nested object or array.",
+	"- requestedOutputs remains a JSON-encoded array string because Langflow exposes it as text.",
+	"- `documentSource` and `program` are object fields exposed by Langflow. Pass them as nested objects, not JSON-encoded strings.",
 	"- `documentIntent` is a short model hint such as `report`, `analysis_brief`, `invoice`, `slides`, `spreadsheet`, or `data_export`. Server-side classification and validation remain authoritative.",
 	"- `templateHint` is optional. Use it only for user-visible preferences such as `standard-report`, `compact`, `visual-report`, or a requested house style; the renderer may ignore unsupported hints.",
 	"",
@@ -223,12 +224,12 @@ const FILE_GENERATION_GUARD = [
 	'- `requestedOutputs` should be a JSON string containing an array like `"[{\\"type\\":\\"pdf\\"}]"`, `"[{\\"type\\":\\"docx\\"}]"`, `"[{\\"type\\":\\"html\\"}]"`, or a multi-output array when the user asks for multiple formats.',
 	'- Prefer one `document_source` call with multiple `requestedOutputs` for the same styled document, such as `"[{\\"type\\":\\"pdf\\"},{\\"type\\":\\"docx\\"},{\\"type\\":\\"html\\"}]"`.',
 	"- Build `documentSource` as structured content: title, optional subtitle or cover metadata, and blocks such as headings, paragraphs, lists, tables, callouts, quotes, code, dividers, images, and charts.",
-	'- `documentSource` must be a JSON string whose parsed object includes: `version: 1`, `template: "alfyai_standard_report"`, `title`, and `blocks`.',
+	'- `documentSource` must be an object that includes: `version: 1`, `template: "alfyai_standard_report"`, `title`, and `blocks`.',
 	"- Keep each section heading directly before the paragraphs, lists, tables, or charts it introduces. Do not group headings separately from their content.",
 	"- Include a concise `date` or `cover.dateLabel` when the generated document should show a generation date; the renderer will place it compactly in the header.",
 	"- Minimal valid `documentSource` field value example:",
 	"  ```json",
-	'  "{\\"version\\":1,\\"template\\":\\"alfyai_standard_report\\",\\"title\\":\\"Quarterly Summary\\",\\"blocks\\":[{\\"type\\":\\"paragraph\\",\\"text\\":\\"Executive summary.\\"}]}"',
+	'  {"version":1,"template":"alfyai_standard_report","title":"Quarterly Summary","blocks":[{"type":"paragraph","text":"Executive summary."}]}',
 	"  ```",
 	'- For headings, use `{ type: "heading", level: 2, text: "Section title" }`. Supported heading levels are 1, 2, and 3.',
 	'- For tables, the safest shape is `{ type: "table", title, headers: ["Column"], rows: [["Value"]] }`. Do not use merged cells, nested tables, `rowspan`, or `colspan`.',
@@ -239,7 +240,7 @@ const FILE_GENERATION_GUARD = [
 	"",
 	"For CSV, JSON, TXT, SVG, ZIP, XLSX, PPTX, custom DOCX/ODT packaging, or other code-generated artifacts:",
 	'- Use `sourceMode: "program"` and provide `program` with `language`, `sourceCode`, and optional `filename`.',
-	'- `program` must be a JSON-encoded string. Example: `"program": "{\\"language\\":\\"python\\",\\"sourceCode\\":\\"...\\",\\"filename\\":\\"data.csv\\"}"`.',
+	'- `program` must be an object. Example: `"program": {"language":"python","sourceCode":"...","filename":"data.csv"}`.',
 	'- Use `language: "python"` for standard-library-friendly text and data exports such as CSV, JSON, TXT, Markdown, simple HTML, and SVG.',
 	"- Do not assume Python third-party packages such as openpyxl, reportlab, python-docx, pandas, or matplotlib are installed.",
 	'- Use `language: "javascript"` for `.xlsx` with `exceljs`, `.pptx` with `pptxgenjs`, `.docx` with `docx`, and `.odt` with `jszip` packaging.',
@@ -1673,9 +1674,6 @@ function extractOpenAICompatibleMessageText(response: unknown): string {
 			.trim();
 		if (text) return text;
 	}
-
-	const reasoning = message?.reasoning ?? message?.reasoning_content;
-	if (typeof reasoning === "string" && reasoning.trim()) return reasoning;
 
 	const legacyText = firstChoice?.text;
 	if (typeof legacyText === "string" && legacyText.trim()) return legacyText;

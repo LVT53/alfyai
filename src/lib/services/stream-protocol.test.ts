@@ -253,6 +253,26 @@ describe("stream-protocol", () => {
 		).toBe("Magyarországon hivatalosan szürke rendszámot lehet igényelni.");
 	});
 
+	it("prefers clean Langflow content blocks over dirty top-level add_message text", () => {
+		expect(
+			getTextContent({
+				text: "get_contents output:\nRaw web page text that should not be shown.",
+				content_blocks: [
+					{
+						title: "Agent Steps",
+						contents: [
+							{
+								type: "text",
+								text: "The visible answer uses the fetched page without dumping it.",
+								header: { title: "Output", icon: "Bot" },
+							},
+						],
+					},
+				],
+			}),
+		).toBe("The visible answer uses the fetched page without dumping it.");
+	});
+
 	it("keeps multiple Langflow assistant output blocks when none look like tool output", () => {
 		expect(
 			getTextContent({
@@ -352,6 +372,27 @@ describe("stream-protocol", () => {
 		).toBe("A rövid válasz: igényelhető.");
 	});
 
+	it("strips consecutive Hungarian web-planning narration and raw page text before the final answer", () => {
+		expect(
+			stripLeakedToolDiagnostics(
+				[
+					"Rákeresek a vonóhorgos kerékpárszállítóra szerelhető rendszámtábla szabályaira és beszerzési lehetőségeire.Két konkrét, friss magyar forrást is lekérdezek a részletekért.",
+					"Szürke rendszám - Tudj meg mindent a szürke rendszámról!",
+					"Keresés",
+					"Kapcsolat",
+					"Belépés",
+					"Kosár",
+					"Kerékpárszállítók",
+					"Adatvédelmi nyilatkozat",
+					"Elfogadom",
+					"Magyarországon hivatalosan szürke rendszámot lehet igényelni vonóhorgos kerékpártartóra.",
+				].join("\n"),
+			),
+		).toBe(
+			"Magyarországon hivatalosan szürke rendszámot lehet igényelni vonóhorgos kerékpártartóra.",
+		);
+	});
+
 	it("strips raw web search and fetch result blocks after leaked diagnostics", () => {
 		expect(
 			stripLeakedToolDiagnostics(
@@ -382,6 +423,84 @@ describe("stream-protocol", () => {
 				].join("\n"),
 			),
 		).toBe("The final answer uses the fetched page without dumping it.");
+	});
+
+	it("strips plain article prose after leaked web get_contents output markers", () => {
+		expect(
+			stripLeakedToolDiagnostics(
+				[
+					"get_contents output:",
+					"Bicikliszállítás az autó hátulján?",
+					"A kerékpárszállító használata előtt fontos ellenőrizni a rendszám láthatóságát.",
+					"Ha a rendszám takarásban van, külön rendszámtábla szükséges.",
+					"",
+					"Based on the fetched source, the key point is that a visible rear plate is required.",
+				].join("\n"),
+			),
+		).toBe(
+			"Based on the fetched source, the key point is that a visible rear plate is required.",
+		);
+	});
+
+	it("does not treat generic article prose as the final answer after web output markers", () => {
+		expect(
+			stripLeakedToolDiagnostics(
+				[
+					"get_contents output:",
+					"This article explains how rear-mounted bicycle carriers affect license plate visibility.",
+					"The regulation depends on whether the plate is obscured.",
+					"",
+					"Here is the final answer: use an additional visible plate when the original is covered.",
+				].join("\n"),
+			),
+		).toBe(
+			"Here is the final answer: use an additional visible plate when the original is covered.",
+		);
+	});
+
+	it("strips direct raw documentSource and program payloads before the final answer", () => {
+		expect(
+			stripLeakedToolDiagnostics(
+				[
+					'{"documentSource":{"version":1,"template":"alfyai_standard_report","title":"Draft","blocks":[{"type":"paragraph","text":"Raw document payload."}]}}',
+					"Here is the concise answer without the raw document payload.",
+				].join("\n"),
+			),
+		).toBe("Here is the concise answer without the raw document payload.");
+
+		expect(
+			stripLeakedToolDiagnostics(
+				[
+					'{"program":{"language":"python","sourceCode":"from pathlib import Path\\nPath(\\"/output/data.csv\\").write_text(\\"a,b\\")","filename":"data.csv"}}',
+					"The file request has been started.",
+				].join("\n"),
+			),
+		).toBe("The file request has been started.");
+	});
+
+	it("strips split raw documentSource payloads without repair narration", () => {
+		expect(
+			stripLeakedToolDiagnostics(
+				[
+					'{"documentSource": {',
+					'  "version": 1,',
+					'  "template": "alfyai_standard_report",',
+					'  "title": "Draft",',
+					'  "blocks": [',
+					'    {"type":"paragraph","text":"Raw split document payload."}',
+					"  ]",
+					"}}",
+					"Here is the final user-facing answer.",
+				].join("\n"),
+			),
+		).toBe("Here is the final user-facing answer.");
+	});
+
+	it("keeps ordinary leading document block JSON examples outside repair context", () => {
+		const jsonExample =
+			'{"type":"paragraph","text":"Use this shape inside documentSource."}';
+
+		expect(stripLeakedToolDiagnostics(jsonExample)).toBe(jsonExample);
 	});
 
 	it("strips leaked Python REPL invocation and execution output", () => {
@@ -435,6 +554,18 @@ describe("stream-protocol", () => {
 		expect(getLeakedToolDiagnosticPrefixLength("Here is JSON: {")).toBe(0);
 		expect(getLeakedToolDiagnosticPrefixLength('Here is JSON: {"type":')).toBe(
 			0,
+		);
+	});
+
+	it("holds split raw file-production payload prefixes in streaming buffers", () => {
+		expect(getLeakedToolDiagnosticPrefixLength('{"documentSource":')).toBe(
+			'{"documentSource":'.length,
+		);
+		expect(
+			getLeakedToolDiagnosticPrefixLength('Answer before {"program":'),
+		).toBe('{"program":'.length);
+		expect(getLeakedToolDiagnosticPrefixLength('{"version":1,"blocks"')).toBe(
+			'{"version":1,"blocks"'.length,
 		);
 	});
 
