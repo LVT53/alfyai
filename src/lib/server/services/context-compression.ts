@@ -231,7 +231,7 @@ const semanticCompressionSnapshotSchema = compressionSnapshotSchema.superRefine(
 	},
 );
 
-const CONTEXT_COMPRESSION_CONTROL_MAX_TOKENS = 4096;
+const CONTEXT_COMPRESSION_CONTROL_MAX_TOKENS = 8192;
 const CONTEXT_COMPRESSION_CONTROL_MAX_ATTEMPTS = 4;
 
 const compressionSnapshotJsonSchema = {

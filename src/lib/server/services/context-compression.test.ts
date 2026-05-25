@@ -454,7 +454,7 @@ describe("context compression snapshots", () => {
 		expect(call?.[2]).toMatchObject({
 			systemPrompt: expect.stringContaining("Context compression"),
 			thinkingMode: "on",
-			maxTokens: 4096,
+			maxTokens: 8192,
 			jsonSchema: expect.objectContaining({
 				name: "context_compression_snapshot",
 				strict: true,
