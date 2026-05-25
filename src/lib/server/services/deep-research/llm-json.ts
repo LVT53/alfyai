@@ -13,7 +13,9 @@ export function parseModelJsonValue(content: string): unknown | null {
 	return null;
 }
 
-export function parseModelJsonObject(content: string): Record<string, unknown> | null {
+export function parseModelJsonObject(
+	content: string,
+): Record<string, unknown> | null {
 	const parsed = parseModelJsonValue(content);
 	if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
 		return parsed as Record<string, unknown>;
@@ -38,7 +40,59 @@ function jsonCandidates(content: string): string[] {
 	if (firstBrace >= 0 && lastBrace > firstBrace) {
 		candidates.push(content.slice(firstBrace, lastBrace + 1));
 	}
+	candidates.push(...balancedJsonObjectCandidates(content));
 	return [...new Set(candidates)];
+}
+
+function balancedJsonObjectCandidates(content: string): string[] {
+	const ranges: Array<{ start: number; end: number }> = [];
+	let start = -1;
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+
+	for (let index = 0; index < content.length; index += 1) {
+		const char = content[index];
+
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (char === "\\") {
+				escaped = true;
+				continue;
+			}
+			if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (char === '"') {
+			inString = true;
+			continue;
+		}
+		if (char === "{") {
+			if (depth === 0) {
+				start = index;
+			}
+			depth += 1;
+			continue;
+		}
+		if (char === "}" && depth > 0) {
+			depth -= 1;
+			if (depth === 0 && start >= 0) {
+				ranges.push({ start, end: index + 1 });
+				start = -1;
+			}
+		}
+	}
+
+	return ranges
+		.reverse()
+		.map((range) => content.slice(range.start, range.end).trim())
+		.filter(Boolean);
 }
 
 export function stringValue(value: unknown): string | null {
