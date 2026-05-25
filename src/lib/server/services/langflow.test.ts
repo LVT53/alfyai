@@ -502,6 +502,57 @@ describe("sendMessage provider routing", () => {
 		expect(body.messages[0].content).toContain("Reasoning: high");
 	});
 
+	it("can request schema-guided JSON for structured control tasks", async () => {
+		mockConfig({
+			modelName: "openai/gpt-oss-120b",
+			displayName: "ChatGPT OSS",
+			reasoningEffort: "high",
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							choices: [{ message: { content: '{"ok":true}' } }],
+						}),
+						{
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						},
+					),
+			),
+		);
+
+		await sendJsonControlMessage("Return JSON", "model1", {
+			systemPrompt: "Control task. Return only JSON.",
+			thinkingMode: "on",
+			jsonSchema: {
+				name: "control_result",
+				strict: true,
+				schema: {
+					type: "object",
+					properties: { ok: { type: "boolean" } },
+					required: ["ok"],
+				},
+			},
+		});
+
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(body.response_format).toEqual({
+			type: "json_schema",
+			json_schema: {
+				name: "control_result",
+				strict: true,
+				schema: {
+					type: "object",
+					properties: { ok: { type: "boolean" } },
+					required: ["ok"],
+				},
+			},
+		});
+	});
+
 	it("passes Hungarian response-language policy into Langflow requests", async () => {
 		await sendMessage(
 			"Kérlek foglald össze magyarul a legfontosabb webes forrásokat.",

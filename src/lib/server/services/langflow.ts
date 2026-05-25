@@ -151,6 +151,12 @@ type JsonControlMessageResult = {
 	modelDisplayName: string;
 };
 
+type JsonControlResponseSchema = {
+	name: string;
+	schema: Record<string, unknown>;
+	strict?: boolean;
+};
+
 type LangflowTimeoutError = Error & { code?: string };
 type LangflowHttpError = Error & {
 	status?: number;
@@ -1679,6 +1685,7 @@ export async function sendJsonControlMessage(
 		maxTokens?: number;
 		temperature?: number;
 		signal?: AbortSignal;
+		jsonSchema?: JsonControlResponseSchema;
 	},
 ): Promise<JsonControlMessageResult> {
 	const config = getConfig();
@@ -1725,7 +1732,16 @@ export async function sendJsonControlMessage(
 		temperature: options.temperature ?? 0.1,
 		max_tokens: maxTokens,
 		stream: false,
-		response_format: { type: "json_object" },
+		response_format: options.jsonSchema
+			? {
+					type: "json_schema",
+					json_schema: {
+						name: options.jsonSchema.name,
+						strict: options.jsonSchema.strict ?? true,
+						schema: options.jsonSchema.schema,
+					},
+				}
+			: { type: "json_object" },
 	};
 	if (reasoningEffort) {
 		body.reasoning_effort = reasoningEffort;

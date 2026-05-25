@@ -126,6 +126,82 @@ const compressionSnapshotSchema = z.strictObject({
 	}),
 });
 
+const compressionSnapshotJsonSchema = {
+	type: "object",
+	additionalProperties: false,
+	properties: {
+		goal: { type: "string", minLength: 1 },
+		currentState: { type: "string", minLength: 1 },
+		importantDecisions: {
+			type: "array",
+			items: { type: "string", minLength: 1 },
+		},
+		importantFacts: {
+			type: "array",
+			items: { type: "string", minLength: 1 },
+		},
+		openTasks: {
+			type: "array",
+			items: { type: "string", minLength: 1 },
+		},
+		openQuestions: {
+			type: "array",
+			items: { type: "string", minLength: 1 },
+		},
+		toolUseAndEvidenceRefs: {
+			type: "array",
+			items: {
+				type: "object",
+				additionalProperties: false,
+				properties: {
+					kind: { type: "string", minLength: 1 },
+					label: { type: "string", minLength: 1 },
+					messageIds: {
+						type: "array",
+						items: { type: "string", minLength: 1 },
+					},
+					detail: { type: "string", minLength: 1 },
+				},
+				required: ["kind", "label"],
+			},
+		},
+		sourceCoverage: {
+			type: "object",
+			additionalProperties: false,
+			properties: {
+				messageIds: {
+					type: "array",
+					items: { type: "string", minLength: 1 },
+					minItems: 1,
+				},
+				ranges: {
+					type: "array",
+					items: {
+						type: "object",
+						additionalProperties: false,
+						properties: {
+							startMessageId: { type: "string", minLength: 1 },
+							endMessageId: { type: "string", minLength: 1 },
+						},
+						required: ["startMessageId", "endMessageId"],
+					},
+				},
+			},
+			required: ["messageIds"],
+		},
+	},
+	required: [
+		"goal",
+		"currentState",
+		"importantDecisions",
+		"importantFacts",
+		"openTasks",
+		"openQuestions",
+		"toolUseAndEvidenceRefs",
+		"sourceCoverage",
+	],
+} satisfies Record<string, unknown>;
+
 export type ContextCompressionStructuredSnapshot = z.infer<
 	typeof compressionSnapshotSchema
 >;
@@ -733,6 +809,11 @@ export async function runContextCompression(
 				{
 					systemPrompt: CONTEXT_COMPRESSION_SYSTEM_APPENDIX,
 					thinkingMode: "on",
+					jsonSchema: {
+						name: "context_compression_snapshot",
+						strict: true,
+						schema: compressionSnapshotJsonSchema,
+					},
 				},
 			);
 		} catch (error) {

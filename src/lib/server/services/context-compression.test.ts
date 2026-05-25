@@ -442,6 +442,10 @@ describe("context compression snapshots", () => {
 		expect(call?.[2]).toMatchObject({
 			systemPrompt: expect.stringContaining("Context compression"),
 			thinkingMode: "on",
+			jsonSchema: expect.objectContaining({
+				name: "context_compression_snapshot",
+				strict: true,
+			}),
 		});
 
 		const [stored] = await listContextCompressionSnapshots("conv-1");
