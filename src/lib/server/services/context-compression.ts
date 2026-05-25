@@ -127,6 +127,7 @@ const compressionSnapshotSchema = z.strictObject({
 });
 
 const CONTEXT_COMPRESSION_CONTROL_MAX_TOKENS = 4096;
+const CONTEXT_COMPRESSION_CONTROL_MAX_ATTEMPTS = 4;
 
 const compressionSnapshotJsonSchema = {
 	type: "object",
@@ -797,7 +798,11 @@ export async function runContextCompression(
 	});
 
 	let rejectionReason: string | null = null;
-	for (const attempt of [0, 1] as const) {
+	for (
+		let attempt = 0;
+		attempt < CONTEXT_COMPRESSION_CONTROL_MAX_ATTEMPTS;
+		attempt += 1
+	) {
 		let response: Awaited<ReturnType<typeof sendJsonControlMessage>>;
 		try {
 			response = await sendJsonControlMessage(
@@ -805,7 +810,7 @@ export async function runContextCompression(
 					input,
 					sourceRanges,
 					repairReason:
-						attempt === 1 ? (rejectionReason ?? undefined) : undefined,
+						attempt > 0 ? (rejectionReason ?? undefined) : undefined,
 				}),
 				input.selectedModelId,
 				{
