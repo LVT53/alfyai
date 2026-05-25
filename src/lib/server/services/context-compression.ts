@@ -532,6 +532,25 @@ function requiredCoverageMessageIds(params: {
 	);
 }
 
+function stripReasoningEnvelope(output: string): string {
+	let remaining = output.trim();
+	let changed = true;
+	while (changed) {
+		changed = false;
+		remaining = remaining
+			.replace(/^\s*<thinking>[\s\S]*?<\/thinking>\s*/i, () => {
+				changed = true;
+				return "";
+			})
+			.replace(/\s*<thinking>[\s\S]*?<\/thinking>\s*$/i, () => {
+				changed = true;
+				return "";
+			})
+			.trim();
+	}
+	return remaining;
+}
+
 function buildCompressionPrompt(params: {
 	input: RunContextCompressionInput;
 	sourceRanges: ContextCompressionSourceRange[];
@@ -585,7 +604,8 @@ function validateCompressionSnapshot(
 ):
 	| { ok: true; snapshot: ContextCompressionStructuredSnapshot }
 	| { ok: false; reason: string } {
-	const parsed = parseModelJsonObject(output);
+	const visibleOutput = stripReasoningEnvelope(output);
+	const parsed = parseModelJsonObject(visibleOutput || output);
 	if (!parsed) {
 		return { ok: false, reason: "Model output was not a JSON object." };
 	}

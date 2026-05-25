@@ -368,7 +368,7 @@ describe("context compression snapshots", () => {
 	it("runs context compression through the selected response model and persists a validated snapshot", async () => {
 		seedConversationWithMessages();
 		mocks.sendMessage.mockResolvedValueOnce({
-			text: JSON.stringify({
+			text: `<thinking>Reasoning may quote payload JSON like {"task":"context_compression"} before the final answer.</thinking>${JSON.stringify({
 				goal: "Keep answering the user's original question.",
 				currentState: "The assistant has answered the first exchange.",
 				importantDecisions: ["Use the existing chat context compression boundary."],
@@ -382,7 +382,7 @@ describe("context compression snapshots", () => {
 					messageIds: ["message-1", "message-2"],
 					ranges: [{ startMessageId: "message-1", endMessageId: "message-2" }],
 				},
-			}),
+			})}`,
 			modelId: "model2",
 			modelDisplayName: "Selected Model",
 			rawResponse: {},
