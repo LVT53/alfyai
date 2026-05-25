@@ -843,6 +843,7 @@ export function runChatStreamOrchestrator(
 					flushPendingThinking,
 					flushInlineThinkingBuffer,
 					flushOutputBuffer,
+					hasVisibleAssistantText: hasVisibleAssistantAnswerOutput,
 					completeSuccess,
 					signal: upstreamAbortController.signal,
 					systemPromptAppendix: currentSystemPromptAppendix(),

@@ -57,6 +57,7 @@ export interface NonStreamFallbackDeps {
 	flushPendingThinking: () => void;
 	flushInlineThinkingBuffer: () => boolean;
 	flushOutputBuffer: () => boolean;
+	hasVisibleAssistantText: () => boolean;
 	completeSuccess: () => void;
 	signal: AbortSignal;
 	systemPromptAppendix: string | undefined;
@@ -83,6 +84,7 @@ export async function runNonStreamFallback(
 		flushPendingThinking,
 		flushInlineThinkingBuffer,
 		flushOutputBuffer,
+		hasVisibleAssistantText,
 		completeSuccess,
 		signal,
 		systemPromptAppendix,
@@ -148,6 +150,9 @@ export async function runNonStreamFallback(
 		return false;
 	}
 	if (!flushOutputBuffer()) {
+		return false;
+	}
+	if (!hasVisibleAssistantText()) {
 		return false;
 	}
 

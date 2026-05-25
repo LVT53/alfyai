@@ -8,6 +8,7 @@ describe("runNonStreamFallback", () => {
 	const mockFlushPendingThinking = vi.fn();
 	const mockFlushInlineThinking = vi.fn();
 	const mockFlushOutput = vi.fn();
+	const mockHasVisibleAssistantText = vi.fn();
 	const mockCompleteSuccess = vi.fn();
 	const mockOnContextStatus = vi.fn();
 	const mockOnTaskState = vi.fn();
@@ -51,6 +52,7 @@ describe("runNonStreamFallback", () => {
 			flushPendingThinking: mockFlushPendingThinking,
 			flushInlineThinkingBuffer: mockFlushInlineThinking,
 			flushOutputBuffer: mockFlushOutput,
+			hasVisibleAssistantText: mockHasVisibleAssistantText,
 			completeSuccess: mockCompleteSuccess,
 			signal: new AbortController().signal,
 			systemPromptAppendix: undefined,
@@ -72,6 +74,7 @@ describe("runNonStreamFallback", () => {
 		mockEmitText.mockResolvedValue(true);
 		mockFlushInlineThinking.mockReturnValue(true);
 		mockFlushOutput.mockReturnValue(true);
+		mockHasVisibleAssistantText.mockReturnValue(true);
 		mockAttachContinuity.mockImplementation(
 			(_userId: string, taskState: unknown) => Promise.resolve(taskState),
 		);
@@ -176,6 +179,16 @@ describe("runNonStreamFallback", () => {
 
 		await callFallback();
 
+		expect(mockCompleteSuccess).not.toHaveBeenCalled();
+	});
+
+	it("returns early if fallback text normalizes to no visible assistant text", async () => {
+		mockHasVisibleAssistantText.mockReturnValue(false);
+
+		const result = await callFallback();
+
+		expect(result).toBe(false);
+		expect(mockFlushPendingThinking).toHaveBeenCalled();
 		expect(mockCompleteSuccess).not.toHaveBeenCalled();
 	});
 
