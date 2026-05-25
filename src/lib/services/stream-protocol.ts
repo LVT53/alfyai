@@ -1120,6 +1120,14 @@ function isToolPlanningNarrationPrefix(value: string): boolean {
 	if (/^\s/.test(value)) return false;
 	const candidate = value.toLowerCase();
 	if (!candidate) return false;
+	if (
+		candidate.length >= 2 &&
+		TOOL_PLANNING_NARRATION_PREFIXES.some((prefix) =>
+			prefix.startsWith(candidate),
+		)
+	) {
+		return true;
+	}
 	if (candidate.length < 4) return false;
 	if (LEADING_TOOL_PLANNING_NARRATION_RE.test(candidate)) return true;
 

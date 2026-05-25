@@ -117,6 +117,32 @@ describe("createServerChunkRuntime", () => {
 		expect(runtime.fullResponse).not.toContain("Friss adatokat keresek");
 	});
 
+	it("strips split standalone Hungarian web-planning narration before visible answer tokens", () => {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+
+		runtime.emitChunkWithOutputHandling("Ki");
+		runtime.emitChunkWithOutputHandling("ker");
+		runtime.emitChunkWithOutputHandling("esem");
+		runtime.emitChunkWithOutputHandling(
+			" a vonóhorgos kerékpárszállító rendszámtáblával kapcsolatos aktuális magyar szabályokat.",
+		);
+		runtime.emitChunkWithOutputHandling(
+			"Ha a vonóhorgos kerékpárszállító eltakarja az autó rendszámát, külön rendszámtáblát kell felszerelni a tartóra.",
+		);
+		runtime.flushInlineThinkingBuffer();
+
+		expect(tokenTexts(chunks).join("")).toBe(
+			"Ha a vonóhorgos kerékpárszállító eltakarja az autó rendszámát, külön rendszámtáblát kell felszerelni a tartóra.",
+		);
+		expect(runtime.fullResponse).not.toContain("Kikeresem");
+	});
+
 	it("strips leaked raw web research result blocks from visible tokens", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({

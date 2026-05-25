@@ -443,6 +443,7 @@ describe("stream-protocol", () => {
 		expect(getLeakedToolDiagnosticPrefixLength("Kikeres")).toBe(
 			"Kikeres".length,
 		);
+		expect(getLeakedToolDiagnosticPrefixLength("Ki")).toBe("Ki".length);
 	});
 
 	it("strips raw web search and fetch result blocks after leaked diagnostics", () => {
