@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	classifyStreamError,
 	createServerChunkRuntime,
+	extractAssistantChunk,
 	extractErrorMessage,
 } from "./stream";
 
@@ -370,6 +371,25 @@ describe("createServerChunkRuntime", () => {
 				outputSummary: "Found sources",
 			}),
 		]);
+	});
+});
+
+describe("extractAssistantChunk", () => {
+	it("does not expose token text from tool senders as assistant output", () => {
+		expect(
+			extractAssistantChunk("token", {
+				sender: "Search",
+				text: "Raw fetched page text should stay in the tool channel.",
+			}),
+		).toBe("");
+		expect(
+			extractAssistantChunk("token", {
+				data: {
+					sender_name: "Tool",
+					text: "Raw tool result",
+				},
+			}),
+		).toBe("");
 	});
 });
 

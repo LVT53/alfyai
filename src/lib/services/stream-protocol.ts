@@ -841,7 +841,12 @@ function getTextFromContentBlocks(value: unknown): string {
 		return "";
 	}
 
-	const prioritized: Array<{ text: string; priority: number }> = [];
+	const prioritized: Array<{
+		text: string;
+		priority: number;
+		headerTitle: string;
+		headerIcon: string;
+	}> = [];
 
 	for (const block of value) {
 		const blockRecord = getNestedObject(block);
@@ -866,6 +871,8 @@ function getTextFromContentBlocks(value: unknown): string {
 				typeof header?.title === "string"
 					? header.title.toLowerCase().trim()
 					: "";
+			const headerIcon =
+				typeof header?.icon === "string" ? header.icon.toLowerCase().trim() : "";
 
 			if (headerTitle.includes("input")) {
 				continue;
@@ -878,7 +885,7 @@ function getTextFromContentBlocks(value: unknown): string {
 					? 2
 					: 1;
 
-			prioritized.push({ text, priority });
+			prioritized.push({ text, priority, headerTitle, headerIcon });
 		}
 	}
 
@@ -891,11 +898,92 @@ function getTextFromContentBlocks(value: unknown): string {
 		0,
 	);
 
-	return prioritized
-		.filter((entry) => entry.priority === highestPriority)
+	const candidates = prioritized.filter(
+		(entry) => entry.priority === highestPriority,
+	);
+
+	if (highestPriority > 1) {
+		const assistantOutputs = candidates.filter(
+			(entry) => !looksLikeIntermediateToolContentBlock(entry),
+		);
+		if (assistantOutputs.length !== candidates.length) {
+			return (assistantOutputs.at(-1)?.text ?? "").trim();
+		}
+	}
+
+	return candidates
 		.map((entry) => entry.text)
 		.join("\n")
 		.trim();
+}
+
+function looksLikeIntermediateToolContentBlock(entry: {
+	text: string;
+	headerTitle: string;
+	headerIcon: string;
+}): boolean {
+	const headerHint = `${entry.headerTitle} ${entry.headerIcon}`;
+	if (/\b(?:search|tool|retriever|retrieval|web|globe)\b/i.test(headerHint)) {
+		return true;
+	}
+	return (
+		looksLikeToolPlanningNarration(entry.text) ||
+		looksLikeRawToolContentBlock(entry.text)
+	);
+}
+
+function looksLikeToolPlanningNarration(value: string): boolean {
+	const trimmed = value.trim();
+	if (!trimmed || trimmed.length > 360) {
+		return false;
+	}
+
+	return /^(?:i(?:'ll| will| am going to)?\s+(?:search|look up|fetch|check|research)\b|let me\s+(?:search|look up|fetch|check)\b|rákeresek\b|keresek\b|lekérdezek\b|megnézem\b|utánanézek\b|(?:két|több)\s+konkrét\b[\s\S]*\b(?:forrást|forrás)\b[\s\S]*\blekérdezek\b)/i.test(
+		trimmed,
+	);
+}
+
+function looksLikeRawToolContentBlock(value: string): boolean {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return false;
+	}
+	if (/^(?:\{|\[)[\s\S]*(?:\}|\])$/.test(trimmed)) {
+		return true;
+	}
+
+	const lines = trimmed
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean);
+	if (lines.length < 6) {
+		return false;
+	}
+
+	const rawLineHits = lines.filter(isWebToolRawOutputLine).length;
+	if (rawLineHits >= 3) {
+		return true;
+	}
+
+	const chromeHits = lines.filter(isLikelyWebPageChromeLine).length;
+	const shortLineRatio =
+		lines.filter((line) => line.length <= 56).length / lines.length;
+	const dateLineHits = lines.filter((line) =>
+		/^20\d{2}[-./]\d{2}[-./]\d{2}$/.test(line),
+	).length;
+
+	return (
+		chromeHits >= 3 ||
+		(lines.length >= 12 && chromeHits >= 2 && shortLineRatio >= 0.55) ||
+		(lines.length >= 18 && dateLineHits >= 2 && shortLineRatio >= 0.5)
+	);
+}
+
+function isLikelyWebPageChromeLine(value: string): boolean {
+	const normalized = value.toLowerCase().trim();
+	return /^(?:search|home|menu|contact|login|log in|sign in|register|favorites|cart|basket|orders|shop|webshop|categories|previous article|next article|privacy policy|terms|terms and conditions|cookie settings|accept|facebook|copyright|impressum|keresés|főoldal|otthon|menü|kapcsolat|belépés|regisztráció|kedvencek|kosár|rendeléseim|webshop|kategóriák|címlapon|előző cikk|következő cikk|adatvédelmi nyilatkozat|adatkezelési beállítások|ászf|sütik|elfogadom|impresszum)$/i.test(
+		normalized,
+	);
 }
 
 function isReasoningTextPartType(value: unknown): boolean {

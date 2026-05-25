@@ -1210,6 +1210,92 @@ describe("POST /api/chat/stream", () => {
 		expect(body).not.toContain('"text":"Tell me a story"');
 	});
 
+	it("does not leak Langflow agent-step web search and fetch outputs from content_blocks", async () => {
+		const conversation = {
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		mockGetConversation.mockResolvedValue(conversation);
+		mockSendMessageStream.mockResolvedValue(
+			buildSseStream([
+				`${JSON.stringify({
+					event: "add_message",
+					data: {
+						sender: "Language Model",
+						text: "",
+						content_blocks: [
+							{
+								title: "Agent Steps",
+								contents: [
+									{
+										type: "text",
+										text: "Rákeresek a vonóhorgos kerékpárszállító szabályaira.",
+										header: { title: "Output", icon: "Bot" },
+									},
+									{
+										type: "text",
+										text: [
+											"Szürke rendszám - Tudj meg mindent a szürke rendszámról!",
+											"Keresés",
+											"Kapcsolat",
+											"Belépés",
+											"Kosár",
+											"Kerékpárszállítók",
+											"Adatvédelmi nyilatkozat",
+											"Elfogadom",
+										].join("\n"),
+										header: { title: "Output", icon: "Search" },
+									},
+									{
+										type: "text",
+										text: [
+											"Bicikliszállítás az autó hátulján?",
+											"Otthon",
+											"Kirándulás",
+											"Kategóriák",
+											"Címlapon",
+											"Előző cikk",
+											"Következő cikk",
+										].join("\n"),
+										header: { title: "Output", icon: "FileText" },
+									},
+									{
+										type: "text",
+										text: "Magyarországon hivatalosan szürke rendszámot lehet igényelni.",
+										header: { title: "Output", icon: "Bot" },
+									},
+								],
+							},
+						],
+					},
+				})}\n\n`,
+				'{"event":"end","data":{}}\n\n',
+			]),
+		);
+
+		const event = makeEvent({ message: "Keress rá", conversationId: "conv-1" });
+		const response = await POST(event);
+		const body = await readSseResponse(response);
+
+		expect(body).toContain(
+			'"text":"Magyarországon hivatalosan szürke rendszámot lehet igényelni."',
+		);
+		expect(body).not.toContain("Rákeresek");
+		expect(body).not.toContain("Keresés");
+		expect(body).not.toContain("Bicikliszállítás");
+		expect(mockCreateMessage).toHaveBeenNthCalledWith(
+			2,
+			"conv-1",
+			"assistant",
+			"Magyarországon hivatalosan szürke rendszámot lehet igényelni.",
+			undefined,
+			undefined,
+			{ evidenceStatus: "pending", modelDisplayName: "Model 1" },
+		);
+	});
+
 	it("aggregates native streamed tool call deltas into structured tool_call events", async () => {
 		const conversation = {
 			id: "conv-1",

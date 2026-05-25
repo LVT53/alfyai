@@ -909,6 +909,9 @@ export function extractAssistantChunk(
 	rawData: unknown,
 ): string {
 	const data = parseMaybeJson(rawData);
+	if (isToolLikeStreamPayload(eventType, data)) {
+		return "";
+	}
 	const sender = getSender(data);
 	const normalizedSender = sender ? normalizeSender(sender) : null;
 
@@ -926,13 +929,56 @@ export function extractAssistantChunk(
 			"language model",
 			"agent",
 			"bot",
-		].includes(normalizedSender) &&
-		eventType !== "token"
+		].includes(normalizedSender)
 	) {
 		return "";
 	}
 
 	return getTextContent(data);
+}
+
+function isToolLikeStreamPayload(eventType: string, value: unknown): boolean {
+	const normalizedEventType = eventType.toLowerCase().trim();
+	if (
+		/\b(?:tool|retriever|retrieval)\b/.test(normalizedEventType) &&
+		normalizedEventType !== "tool_call"
+	) {
+		return true;
+	}
+
+	const payload = getNestedObject(value);
+	if (!payload) return false;
+
+	const role = readNonEmptyString(payload.role)?.toLowerCase();
+	if (role === "tool") {
+		return true;
+	}
+
+	const type = readNonEmptyString(payload.type)?.toLowerCase();
+	if (
+		type &&
+		/^(?:tool|tool_message|tool_result|tool_output|retriever|retrieval_result)$/.test(
+			type,
+		)
+	) {
+		return true;
+	}
+
+	const name = readNonEmptyString(payload.name)?.toLowerCase();
+	if (
+		name &&
+		/^(?:research_web|search|web_search|exa_search|get_contents|fetch_content|fetch|memory_context)$/.test(
+			name,
+		)
+	) {
+		return true;
+	}
+
+	if ("data" in payload) {
+		return isToolLikeStreamPayload(eventType, payload.data);
+	}
+
+	return false;
 }
 
 export function toIncrementalChunk(

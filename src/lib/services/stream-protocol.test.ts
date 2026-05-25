@@ -198,6 +198,87 @@ describe("stream-protocol", () => {
 		expect(getTextContent(output)).toBe("Visible answer");
 	});
 
+	it("uses the final Langflow content block output instead of concatenating tool dumps", () => {
+		const rawSearchDump = [
+			"Szürke rendszám - Tudj meg mindent a szürke rendszámról!",
+			"Keresés",
+			"Kapcsolat",
+			"Belépés",
+			"Kosár",
+			"Kerékpárszállítók",
+			"Adatvédelmi nyilatkozat",
+			"Elfogadom",
+		].join("\n");
+		const rawFetchDump = [
+			"Bicikliszállítás az autó hátulján?",
+			"Otthon",
+			"Kirándulás",
+			"Kategóriák",
+			"Címlapon",
+			"Előző cikk",
+			"Következő cikk",
+			"2026-05-22",
+		].join("\n");
+
+		expect(
+			getTextContent({
+				content_blocks: [
+					{
+						title: "Agent Steps",
+						contents: [
+							{
+								type: "text",
+								text: "Rákeresek a vonóhorgos szabályokra.",
+								header: { title: "Output", icon: "Bot" },
+							},
+							{
+								type: "text",
+								text: rawSearchDump,
+								header: { title: "Output", icon: "Search" },
+							},
+							{
+								type: "text",
+								text: rawFetchDump,
+								header: { title: "Output", icon: "FileText" },
+							},
+							{
+								type: "text",
+								text: "Magyarországon hivatalosan szürke rendszámot lehet igényelni.",
+								header: { title: "Output", icon: "Bot" },
+							},
+						],
+					},
+				],
+			}),
+		).toBe(
+			"Magyarországon hivatalosan szürke rendszámot lehet igényelni.",
+		);
+	});
+
+	it("keeps multiple Langflow assistant output blocks when none look like tool output", () => {
+		expect(
+			getTextContent({
+				content_blocks: [
+					{
+						title: "Answer",
+						contents: [
+							{
+								type: "text",
+								text: "First paragraph.",
+								header: { title: "Output", icon: "Bot" },
+							},
+							{
+								type: "text",
+								text: "Second paragraph.",
+								header: { title: "Output", icon: "Bot" },
+							},
+						],
+					},
+				],
+			}),
+		).toBe("First paragraph.\nSecond paragraph.");
+	});
+
 	it("does not expose reasoning_text content parts as assistant text", () => {
 		expect(
 			getTextContent({

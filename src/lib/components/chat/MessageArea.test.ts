@@ -384,6 +384,11 @@ describe('MessageArea', () => {
 			getByLabelText('Compacted context'),
 		);
 		expect(getByText('Compacted context')).toBeInTheDocument();
+		expect(
+			getByTestId('context-compression-marker-snapshot-1').querySelector(
+				'.context-compression-line',
+			),
+		).not.toBeInTheDocument();
 	});
 
 	it('renders persisted Deep Research jobs as cards without an assistant message', () => {

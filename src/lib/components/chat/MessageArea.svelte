@@ -409,7 +409,6 @@ async function alignToBottomAfterRender() {
 						role="note"
 						aria-label={contextCompressionMarkerLabel(marker)}
 					>
-						<span class="context-compression-line" aria-hidden="true"></span>
 						<span class="fork-boundary-title">{contextCompressionMarkerLabel(marker)}</span>
 					</div>
 				{/each}
@@ -552,19 +551,6 @@ async function alignToBottomAfterRender() {
 		background: color-mix(in srgb, var(--surface-elevated) 88%, var(--danger, #c2410c) 12%);
 	}
 
-	.context-compression-line {
-		display: block;
-		flex: 0 0 2.25rem;
-		height: 2px;
-		border-radius: 999px;
-		background: currentColor;
-		opacity: 0.5;
-	}
-
-	.context-compression-marker-running .context-compression-line {
-		animation: contextCompressionPulse 900ms ease-in-out infinite;
-	}
-
 	.fork-lineage-link {
 		text-decoration: none;
 	}
@@ -583,15 +569,4 @@ async function alignToBottomAfterRender() {
 		}
 	}
 
-	@keyframes contextCompressionPulse {
-		0%,
-		100% {
-			opacity: 0.25;
-			transform: scaleX(0.72);
-		}
-		50% {
-			opacity: 0.75;
-			transform: scaleX(1);
-		}
-	}
 </style>
