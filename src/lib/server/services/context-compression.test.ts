@@ -444,7 +444,7 @@ describe("context compression snapshots", () => {
 			skipHonchoContext: true,
 			skipDefaultRuntimeGuidance: true,
 			systemPromptOverride: expect.stringContaining("Context compression"),
-			thinkingMode: "off",
+			thinkingMode: "on",
 		});
 		expect(call?.[4]?.systemPromptAppendix).toBeUndefined();
 

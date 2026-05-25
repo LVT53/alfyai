@@ -708,7 +708,7 @@ export async function runContextCompression(
 				skipHonchoContext: true,
 				skipDefaultRuntimeGuidance: true,
 				systemPromptOverride: CONTEXT_COMPRESSION_SYSTEM_APPENDIX,
-				thinkingMode: "off",
+				thinkingMode: "on",
 			},
 		);
 
