@@ -1,6 +1,11 @@
 <script lang="ts">
   import CodeBlock from './CodeBlock.svelte';
-  import { renderMarkdown, renderCodeBlock, prepareCodeHighlighting } from '$lib/utils/markdown-loader';
+  import {
+    collectSourceReferenceCandidates,
+    prepareCodeHighlighting,
+    renderCodeBlock,
+    renderMarkdown
+  } from '$lib/utils/markdown-loader';
   import {
     deriveBalancedColumnWidths,
     getTableColumnCount,
@@ -64,12 +69,7 @@
     if (!compactLinks) return [];
 
     try {
-      const markdown = await import('$lib/utils/markdown-loader');
-      if (typeof markdown.collectSourceReferenceCandidates !== 'function') {
-        return [];
-      }
-
-      return markdown.collectSourceReferenceCandidates(source);
+      return collectSourceReferenceCandidates(source);
     } catch {
       return [];
     }

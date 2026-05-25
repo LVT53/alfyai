@@ -1146,7 +1146,9 @@ function buildLangflowTweaks(
 		),
 		...(shouldSendReasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 		...(shouldSendThinkingType ? { thinking_type: effectiveThinkingType } : {}),
-		...(jsonMode ? { json_mode: true } : {}),
+		...(jsonMode
+			? { model_kwargs: { response_format: { type: "json_object" } } }
+			: {}),
 		system_prompt: systemPrompt,
 	};
 

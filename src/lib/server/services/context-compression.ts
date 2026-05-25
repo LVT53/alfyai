@@ -669,6 +669,12 @@ function buildSourceRefs(params: {
 	];
 }
 
+function compressionFailureReason(error: unknown): string {
+	const message = error instanceof Error ? error.message : String(error);
+	const reason = `Context compression model call failed: ${message}`;
+	return reason.length > 1000 ? `${reason.slice(0, 1000)}...` : reason;
+}
+
 export async function runContextCompression(
 	input: RunContextCompressionInput,
 ): Promise<ContextCompressionSnapshot> {
@@ -714,24 +720,30 @@ export async function runContextCompression(
 
 	let rejectionReason: string | null = null;
 	for (const attempt of [0, 1] as const) {
-		const response = await sendMessage(
-			buildCompressionPrompt({
-				input,
-				sourceRanges,
-				repairReason:
-					attempt === 1 ? (rejectionReason ?? undefined) : undefined,
-			}),
-			`context-compression:${input.conversationId}:${running.id}`,
-			input.selectedModelId,
-			undefined,
-			{
-				skipHonchoContext: true,
-				skipDefaultRuntimeGuidance: true,
-				systemPromptOverride: CONTEXT_COMPRESSION_SYSTEM_APPENDIX,
-				thinkingMode: "on",
-				jsonMode: true,
-			},
-		);
+		let response: Awaited<ReturnType<typeof sendMessage>>;
+		try {
+			response = await sendMessage(
+				buildCompressionPrompt({
+					input,
+					sourceRanges,
+					repairReason:
+						attempt === 1 ? (rejectionReason ?? undefined) : undefined,
+				}),
+				`context-compression:${input.conversationId}:${running.id}`,
+				input.selectedModelId,
+				undefined,
+				{
+					skipHonchoContext: true,
+					skipDefaultRuntimeGuidance: true,
+					systemPromptOverride: CONTEXT_COMPRESSION_SYSTEM_APPENDIX,
+					thinkingMode: "on",
+					jsonMode: true,
+				},
+			);
+		} catch (error) {
+			rejectionReason = compressionFailureReason(error);
+			continue;
+		}
 
 		const validation = validateCompressionSnapshot(
 			response.text,

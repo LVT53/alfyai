@@ -597,4 +597,47 @@ describe("context compression snapshots", () => {
 			}),
 		);
 	});
+
+	it("marks the running snapshot failed when the compression model call throws", async () => {
+		seedConversationWithMessages();
+		mocks.sendMessage.mockRejectedValue(new Error("Langflow unavailable"));
+		const {
+			listContextCompressionSnapshots,
+			runContextCompression,
+		} = await import("./context-compression");
+
+		const result = await runContextCompression({
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic",
+			selectedModelId: "model1",
+			sourceMessages: [
+				{
+					id: "message-1",
+					role: "user",
+					content: "First question",
+					messageSequence: 1,
+				},
+				{
+					id: "message-2",
+					role: "assistant",
+					content: "First answer",
+					messageSequence: 2,
+				},
+			],
+		});
+
+		expect(result.status).toBe("failed");
+		expect(result.failureReason).toContain("Langflow unavailable");
+		expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
+
+		const [stored] = await listContextCompressionSnapshots("conv-1");
+		expect(stored).toEqual(
+			expect.objectContaining({
+				id: result.id,
+				status: "failed",
+				failureReason: expect.stringContaining("Langflow unavailable"),
+			}),
+		);
+	});
 });

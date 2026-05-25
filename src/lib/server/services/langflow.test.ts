@@ -470,7 +470,9 @@ describe("sendMessage provider routing", () => {
 		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
 		expect(body.tweaks["ModelNode-1"]).toMatchObject({
 			enable_thinking: true,
-			json_mode: true,
+			model_kwargs: {
+				response_format: { type: "json_object" },
+			},
 		});
 	});
 
