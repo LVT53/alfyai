@@ -825,7 +825,7 @@ export function runChatStreamOrchestrator(
 					},
 				);
 
-				await runNonStreamFallback({
+				const recovered = await runNonStreamFallback({
 					sendMessage,
 					sendParams: {
 						upstreamMessage,
@@ -874,6 +874,9 @@ export function runChatStreamOrchestrator(
 						latestModelDisplayName = displayName;
 					},
 				});
+				if (!recovered && !ended) {
+					failStream("backend_failure");
+				}
 
 				return null;
 			};

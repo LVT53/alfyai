@@ -209,15 +209,17 @@ describe("runNonStreamFallback", () => {
 		await callFallback();
 	});
 
-	it("handles null text gracefully", async () => {
+	it("does not complete when fallback returns no assistant text", async () => {
 		mockSendMessage.mockResolvedValue({
 			...defaultFallbackResponse,
 			text: null,
 		});
 		mockEmitText.mockResolvedValue(true);
 
-		await callFallback();
+		const result = await callFallback();
 
-		expect(mockEmitText).toHaveBeenCalledWith(null);
+		expect(result).toBe(false);
+		expect(mockEmitText).not.toHaveBeenCalled();
+		expect(mockCompleteSuccess).not.toHaveBeenCalled();
 	});
 });

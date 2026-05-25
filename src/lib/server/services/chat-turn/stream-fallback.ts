@@ -129,7 +129,14 @@ export async function runNonStreamFallback(
 	onHonchoSnapshot(fallbackResponse.honchoSnapshot ?? null);
 	onProviderUsage(fallbackResponse.providerUsage ?? null);
 	if (fallbackResponse.modelId && fallbackResponse.modelDisplayName) {
-		onResolvedModel?.(fallbackResponse.modelId, fallbackResponse.modelDisplayName);
+		onResolvedModel?.(
+			fallbackResponse.modelId,
+			fallbackResponse.modelDisplayName,
+		);
+	}
+
+	if (!fallbackResponse.text?.trim()) {
+		return false;
 	}
 
 	if (!(await emitResolvedAssistantText(fallbackResponse.text))) {

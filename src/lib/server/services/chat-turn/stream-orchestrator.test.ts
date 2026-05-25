@@ -1137,6 +1137,58 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
+	it("emits an error when stream and fallback both end without visible assistant text", async () => {
+		const { sendMessage, sendMessageStream } = await import(
+			"$lib/server/services/langflow"
+		);
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
+			stream: createEventBlockStream([
+				`event: token\ndata: ${JSON.stringify({
+					choices: [{ delta: { reasoning_content: "thinking only" } }],
+				})}\n\n`,
+				`event: end\ndata: ${JSON.stringify({ result: {} })}\n\n`,
+			]),
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+		});
+		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+			text: null,
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+		});
+
+		const response = runChatStreamOrchestrator({
+			user: {
+				id: "u1",
+				displayName: "User",
+				email: "u@test.com",
+			},
+			turn: createTurn({
+				conversationId: "empty-fallback-conv",
+				streamId: "empty-fallback-stream",
+				modelId: "model1",
+				modelDisplayName: "Model One",
+			}),
+			upstreamMessage: "Hello",
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+		});
+
+		const body = (await readSseResponse(response)).join("\n\n");
+		expect(body).toContain("event: error");
+		expect(body).toContain("backend_failure");
+		expect(body).not.toContain("event: end");
+		expect(sendMessage).toHaveBeenCalledOnce();
+	});
+
 	it("does not duplicate a Langflow end result after visible tokens", async () => {
 		const { sendMessage, sendMessageStream } = await import(
 			"$lib/server/services/langflow"
