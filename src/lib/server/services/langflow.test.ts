@@ -590,6 +590,44 @@ describe("sendMessage provider routing", () => {
 		);
 	});
 
+	it("can opt into reasoning fallback for schema-validated control tasks", async () => {
+		mockConfig({
+			modelName: "openai/gpt-oss-120b",
+			displayName: "ChatGPT OSS",
+			reasoningEffort: "high",
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							choices: [
+								{
+									message: {
+										content: "",
+										reasoning: '{"ok":true}',
+									},
+								},
+							],
+						}),
+						{
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						},
+					),
+			),
+		);
+
+		const result = await sendJsonControlMessage("Return JSON", "model1", {
+			systemPrompt: "Control task. Return only JSON.",
+			thinkingMode: "on",
+			allowReasoningFallback: true,
+		});
+
+		expect(result.text).toBe('{"ok":true}');
+	});
+
 	it("can request schema-guided JSON for structured control tasks", async () => {
 		mockConfig({
 			modelName: "openai/gpt-oss-120b",

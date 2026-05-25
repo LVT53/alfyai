@@ -1647,7 +1647,10 @@ export function extractMessageText(response: LangflowRunResponse): string {
 	}
 }
 
-function extractOpenAICompatibleMessageText(response: unknown): string {
+function extractOpenAICompatibleMessageText(
+	response: unknown,
+	options: { allowReasoningFallback?: boolean } = {},
+): string {
 	const record =
 		response && typeof response === "object"
 			? (response as Record<string, unknown>)
@@ -1678,6 +1681,11 @@ function extractOpenAICompatibleMessageText(response: unknown): string {
 	const legacyText = firstChoice?.text;
 	if (typeof legacyText === "string" && legacyText.trim()) return legacyText;
 
+	if (options.allowReasoningFallback) {
+		const reasoning = message?.reasoning ?? message?.reasoning_content;
+		if (typeof reasoning === "string" && reasoning.trim()) return reasoning;
+	}
+
 	throw new Error("Could not extract message text from control model response");
 }
 
@@ -1691,6 +1699,7 @@ export async function sendJsonControlMessage(
 		temperature?: number;
 		signal?: AbortSignal;
 		jsonSchema?: JsonControlResponseSchema;
+		allowReasoningFallback?: boolean;
 	},
 ): Promise<JsonControlMessageResult> {
 	const config = getConfig();
@@ -1782,7 +1791,9 @@ export async function sendJsonControlMessage(
 
 	const rawResponse = await response.json();
 	return {
-		text: extractOpenAICompatibleMessageText(rawResponse),
+		text: extractOpenAICompatibleMessageText(rawResponse, {
+			allowReasoningFallback: options.allowReasoningFallback,
+		}),
 		rawResponse,
 		modelId: modelId ?? "model1",
 		modelDisplayName: modelConfig.displayName,

@@ -822,6 +822,7 @@ export async function runContextCompression(
 						strict: true,
 						schema: compressionSnapshotJsonSchema,
 					},
+					allowReasoningFallback: true,
 				},
 			);
 		} catch (error) {

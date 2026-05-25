@@ -459,6 +459,7 @@ describe("context compression snapshots", () => {
 				name: "context_compression_snapshot",
 				strict: true,
 			}),
+			allowReasoningFallback: true,
 		});
 
 		const [stored] = await listContextCompressionSnapshots("conv-1");
