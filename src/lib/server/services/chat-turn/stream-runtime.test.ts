@@ -143,6 +143,22 @@ describe("createServerChunkRuntime", () => {
 		expect(runtime.fullResponse).not.toContain("Kikeresem");
 	});
 
+	it("drops unresolved short web-planning prefixes at stream flush", () => {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+
+		runtime.emitChunkWithOutputHandling("Ki");
+		runtime.flushInlineThinkingBuffer();
+
+		expect(tokenTexts(chunks).join("")).toBe("");
+		expect(runtime.fullResponse).toBe("");
+	});
+
 	it("strips leaked raw web research result blocks from visible tokens", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({

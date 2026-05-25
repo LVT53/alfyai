@@ -394,6 +394,14 @@ export function createServerChunkRuntime({
 			sanitizedBuffer,
 			force,
 		);
+		if (
+			force &&
+			getLeakedToolDiagnosticPrefixLength(envelopeFilteredBuffer) ===
+				envelopeFilteredBuffer.length
+		) {
+			visibleTokenBuffer = "";
+			return true;
+		}
 		const holdLength = force
 			? 0
 			: getLeakedToolDiagnosticPrefixLength(envelopeFilteredBuffer);
