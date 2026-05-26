@@ -882,8 +882,6 @@ export function runChatStreamOrchestrator(
 
 				return null;
 			};
-			scheduleFirstVisibleOutputTimeout();
-
 			try {
 				if (personalityProfileId) {
 					const profile = await getPersonalityProfile(
@@ -992,6 +990,7 @@ export function runChatStreamOrchestrator(
 					latestContextTraceSections = langflowResponse.contextTraceSections;
 					initialContextTraceSections = latestContextTraceSections;
 
+					scheduleFirstVisibleOutputTimeout();
 					scheduleUpstreamIdleTimeout(attempt);
 					try {
 						for await (const upstreamEvent of parseUpstreamEvents(

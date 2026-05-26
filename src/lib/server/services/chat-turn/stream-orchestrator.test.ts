@@ -869,6 +869,88 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	it("does not start first-visible-output failover while preparing the upstream stream", async () => {
+		vi.useFakeTimers();
+		const { getConfig } = await import("$lib/server/config-store");
+		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+			requestTimeoutMs: 120000,
+			modelTimeoutFailoverEnabled: true,
+			modelTimeoutFailoverTimeoutMs: 10000,
+			modelTimeoutFailoverTargetModel: "model2",
+		});
+		const {
+			resolveTimeoutFailoverTargetModelId,
+			sendMessage,
+			sendMessageStream,
+		} = await import("$lib/server/services/langflow");
+		(
+			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
+		).mockResolvedValue("model2");
+		let resolvePreparedStream:
+			| ((
+					value: Awaited<ReturnType<typeof sendMessageStream>>,
+			  ) => void)
+			| null = null;
+		const preparedStream = new Promise<
+			Awaited<ReturnType<typeof sendMessageStream>>
+		>((resolve) => {
+			resolvePreparedStream = resolve;
+		});
+		(sendMessageStream as ReturnType<typeof vi.fn>).mockReturnValue(
+			preparedStream,
+		);
+		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+			text: "Backup answer",
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+			modelId: "model2",
+			modelDisplayName: "Model Two",
+		});
+
+		const response = runChatStreamOrchestrator({
+			user: {
+				id: "u1",
+				displayName: "User",
+				email: "u@test.com",
+			},
+			turn: createTurn({
+				conversationId: "preparing-stream-timeout-conv",
+				streamId: "preparing-stream-timeout-stream",
+				modelId: "model1",
+				modelDisplayName: "Model One",
+			}),
+			upstreamMessage: "Hello",
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+		});
+
+		const chunksPromise = readSseResponse(response);
+		await vi.advanceTimersByTimeAsync(10000);
+		await Promise.resolve();
+		expect(sendMessage).not.toHaveBeenCalled();
+
+		resolvePreparedStream?.({
+			stream: createTokenStream("Prepared answer"),
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+		});
+
+		const chunks = await chunksPromise;
+		const body = chunks.join("\n\n");
+		expect(body).toContain('event: token\ndata: {"text":"Prepared answer"}');
+		expect(body).toContain("event: end");
+		expect(body).not.toContain("event: error");
+		expect(sendMessage).not.toHaveBeenCalled();
+	});
+
 	it("does not trigger first-visible-output failover after tool-call progress before answer text", async () => {
 		vi.useFakeTimers();
 		const { getConfig } = await import("$lib/server/config-store");

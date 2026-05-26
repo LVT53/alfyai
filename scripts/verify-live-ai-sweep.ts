@@ -153,44 +153,46 @@ function apiPath(value: string): string {
 async function apiJson<T>(
 	page: Page,
 	url: string,
-	init?: { method?: string; headers?: Record<string, string>; body?: string },
+	init?: RequestInit,
 ): Promise<T> {
-	const result = await page.evaluate(
-		async ({ requestUrl, requestInit }) => {
-			const response = await fetch(requestUrl, requestInit);
-			const text = await response.text();
-			return {
-				ok: response.ok,
-				status: response.status,
-				text,
-			};
-		},
-		{ requestUrl: url, requestInit: init },
-	);
-	if (!result.ok) {
-		throw new Error(`HTTP ${result.status} from ${url}: ${result.text}`);
+	const response = await authenticatedFetch(page, url, init);
+	const text = await response.text();
+	if (!response.ok) {
+		throw new Error(`HTTP ${response.status} from ${url}: ${text}`);
 	}
-	return JSON.parse(result.text) as T;
+	return JSON.parse(text) as T;
+}
+
+async function authenticatedFetch(
+	page: Page,
+	url: string,
+	init: RequestInit = {},
+): Promise<Response> {
+	const headers = new Headers(init.headers);
+	const cookies = await page.context().cookies(baseUrl);
+	const cookieHeader = cookies
+		.map((cookie) => `${cookie.name}=${cookie.value}`)
+		.join("; ");
+	if (cookieHeader) {
+		headers.set("Cookie", cookieHeader);
+	}
+	return fetch(apiPath(url), {
+		...init,
+		headers,
+	});
 }
 
 async function login(page: Page) {
 	await page.goto(apiPath("/login"), { waitUntil: "domcontentloaded" });
-	const result = await page.evaluate(
-		async ({ loginEmail, loginPassword }) => {
-			const response = await fetch("/api/auth/login", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ email: loginEmail, password: loginPassword }),
-			});
-			return { ok: response.ok, status: response.status };
+	const response = await page.request.post(apiPath("/api/auth/login"), {
+		data: {
+			email: requireEnv("LIVE_AI_EMAIL", email),
+			password: requireEnv("LIVE_AI_PASSWORD", password),
 		},
-		{
-			loginEmail: requireEnv("LIVE_AI_EMAIL", email),
-			loginPassword: requireEnv("LIVE_AI_PASSWORD", password),
-		},
-	);
-	if (!result.ok) {
-		throw new Error(`Login failed with HTTP ${result.status}`);
+		headers: { "Content-Type": "application/json" },
+	});
+	if (!response.ok()) {
+		throw new Error(`Login failed with HTTP ${response.status()}`);
 	}
 	await page.goto(apiPath("/"), { waitUntil: "domcontentloaded" });
 }
@@ -262,108 +264,100 @@ async function streamTurn(
 		forceWebSearch?: boolean;
 	},
 ): Promise<StreamResult> {
-	return page.evaluate(
-		async ({ payload, waitMs }) => {
-			const controller = new AbortController();
-			const timeout = setTimeout(() => controller.abort(), waitMs);
-			try {
-				const response = await fetch("/api/chat/stream", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						message: payload.message,
-						conversationId: payload.conversationId,
-						streamId: crypto.randomUUID(),
-						model: payload.modelId,
-						thinkingMode: "auto",
-						forceWebSearch: payload.forceWebSearch ? true : undefined,
-					}),
-					signal: controller.signal,
-				});
-				if (!response.ok) {
-					throw new Error(
-						`stream HTTP ${response.status}: ${await response.text()}`,
-					);
-				}
-				if (!response.body) {
-					throw new Error("stream response had no body");
-				}
-				const reader = response.body.getReader();
-				const decoder = new TextDecoder();
-				let buffer = "";
-				let currentEvent: string | null = null;
-				let text = "";
-				let thinkingLength = 0;
-				let metadata: Record<string, unknown> | null = null;
-				const toolCalls: Array<Record<string, unknown>> = [];
-				let streamError: string | null = null;
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		const response = await authenticatedFetch(page, "/api/chat/stream", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				message: input.message,
+				conversationId: input.conversationId,
+				streamId: crypto.randomUUID(),
+				model: input.modelId,
+				thinkingMode: "auto",
+				forceWebSearch: input.forceWebSearch ? true : undefined,
+			}),
+			signal: controller.signal,
+		});
+		if (!response.ok) {
+			throw new Error(`stream HTTP ${response.status}: ${await response.text()}`);
+		}
+		if (!response.body) {
+			throw new Error("stream response had no body");
+		}
+		const reader = response.body.getReader();
+		const decoder = new TextDecoder();
+		let buffer = "";
+		let currentEvent: string | null = null;
+		let text = "";
+		let thinkingLength = 0;
+		let metadata: Record<string, unknown> | null = null;
+		const toolCalls: Array<Record<string, unknown>> = [];
+		let streamError: string | null = null;
 
-				function handleData(rawData: string) {
-					if (currentEvent === "token") {
-						const parsed = JSON.parse(rawData);
-						text += parsed.text ?? (typeof parsed === "string" ? parsed : "");
-						return;
-					}
-					if (currentEvent === "thinking") {
-						const parsed = JSON.parse(rawData);
-						const chunk =
-							parsed.text ?? (typeof parsed === "string" ? parsed : "");
-						thinkingLength += chunk.length;
-						return;
-					}
-					if (currentEvent === "tool_call") {
-						toolCalls.push(JSON.parse(rawData));
-						return;
-					}
-					if (currentEvent === "end") {
-						metadata = JSON.parse(rawData);
-						return;
-					}
-					if (currentEvent === "error") {
-						const parsed = JSON.parse(rawData);
-						streamError = parsed.error ?? rawData;
-					}
-				}
-
-				function processBlock(block: string) {
-					for (const rawLine of block.split(/\r?\n/)) {
-						const line = rawLine.trimEnd();
-						if (!line) continue;
-						if (line.startsWith("event: ")) {
-							currentEvent = line.slice("event: ".length).trim();
-							continue;
-						}
-						if (line.startsWith("data: ")) {
-							handleData(line.slice("data: ".length));
-						}
-					}
-				}
-
-				for (;;) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					buffer += decoder.decode(value, { stream: true });
-					let boundary = buffer.indexOf("\n\n");
-					while (boundary >= 0) {
-						const block = buffer.slice(0, boundary);
-						buffer = buffer.slice(boundary + 2);
-						processBlock(block);
-						boundary = buffer.indexOf("\n\n");
-					}
-				}
-				if (buffer.trim()) {
-					processBlock(buffer);
-				}
-				if (streamError) {
-					throw new Error(streamError);
-				}
-				return { text, thinkingLength, metadata, toolCalls };
-			} finally {
-				clearTimeout(timeout);
+		function handleData(rawData: string) {
+			if (currentEvent === "token") {
+				const parsed = JSON.parse(rawData);
+				text += parsed.text ?? (typeof parsed === "string" ? parsed : "");
+				return;
 			}
-		},
-		{ payload: input, waitMs: timeoutMs },
-	);
+			if (currentEvent === "thinking") {
+				const parsed = JSON.parse(rawData);
+				const chunk = parsed.text ?? (typeof parsed === "string" ? parsed : "");
+				thinkingLength += chunk.length;
+				return;
+			}
+			if (currentEvent === "tool_call") {
+				toolCalls.push(JSON.parse(rawData));
+				return;
+			}
+			if (currentEvent === "end") {
+				metadata = JSON.parse(rawData);
+				return;
+			}
+			if (currentEvent === "error") {
+				const parsed = JSON.parse(rawData);
+				streamError = parsed.error ?? rawData;
+			}
+		}
+
+		function processBlock(block: string) {
+			for (const rawLine of block.split(/\r?\n/)) {
+				const line = rawLine.trimEnd();
+				if (!line) continue;
+				if (line.startsWith("event: ")) {
+					currentEvent = line.slice("event: ".length).trim();
+					continue;
+				}
+				if (line.startsWith("data: ")) {
+					handleData(line.slice("data: ".length));
+				}
+			}
+		}
+
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			let boundary = buffer.indexOf("\n\n");
+			while (boundary >= 0) {
+				const block = buffer.slice(0, boundary);
+				buffer = buffer.slice(boundary + 2);
+				processBlock(block);
+				boundary = buffer.indexOf("\n\n");
+			}
+		}
+		if (buffer.trim()) {
+			processBlock(buffer);
+		}
+		if (streamError) {
+			throw new Error(streamError);
+		}
+		return { text, thinkingLength, metadata, toolCalls };
+	} finally {
+		clearTimeout(timeout);
+	}
 }
 
 async function runCompression(
