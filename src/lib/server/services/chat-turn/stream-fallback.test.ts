@@ -232,8 +232,39 @@ describe("runNonStreamFallback", () => {
 		const result = await callFallback();
 
 		expect(result).toBe(false);
+		expect(mockSendMessage).toHaveBeenCalledTimes(2);
 		expect(mockEmitText).not.toHaveBeenCalled();
 		expect(mockCompleteSuccess).not.toHaveBeenCalled();
+	});
+
+	it("retries once with an empty-output recovery appendix", async () => {
+		mockSendMessage
+			.mockResolvedValueOnce({
+				...defaultFallbackResponse,
+				text: null,
+			})
+			.mockResolvedValueOnce(defaultFallbackResponse);
+
+		const result = await callFallback({
+			systemPromptAppendix: "Existing appendix",
+		});
+
+		expect(result).toBe(true);
+		expect(mockSendMessage).toHaveBeenCalledTimes(2);
+		expect(mockSendMessage).toHaveBeenNthCalledWith(
+			2,
+			expect.any(String),
+			expect.any(String),
+			expect.any(String),
+			expect.any(Object),
+			expect.objectContaining({
+				systemPromptAppendix: expect.stringContaining(
+					"Existing appendix\n\nThe previous attempt produced no visible final answer",
+				),
+			}),
+		);
+		expect(mockEmitText).toHaveBeenCalledWith("fallback response");
+		expect(mockCompleteSuccess).toHaveBeenCalled();
 	});
 
 	it("returns false instead of throwing when fallback send fails", async () => {

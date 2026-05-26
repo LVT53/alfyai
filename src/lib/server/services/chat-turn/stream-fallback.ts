@@ -72,6 +72,18 @@ export interface NonStreamFallbackDeps {
 	onResolvedModel?: (modelId: ModelId, displayName: string) => void;
 }
 
+const EMPTY_VISIBLE_OUTPUT_RECOVERY_APPENDIX =
+	"The previous attempt produced no visible final answer. Produce the concise final answer requested by the user now. Do not output hidden reasoning, tool arguments, raw tool output, raw JSON, logs, or diagnostics.";
+
+function appendSystemPromptAppendix(
+	base: string | undefined,
+	appendix: string,
+): string {
+	return [base, appendix]
+		.filter((value): value is string => Boolean(value?.trim()))
+		.join("\n\n");
+}
+
 export async function runNonStreamFallback(
 	deps: NonStreamFallbackDeps,
 ): Promise<boolean> {
@@ -100,23 +112,46 @@ export async function runNonStreamFallback(
 			onResolvedModel,
 		} = deps;
 
-		const fallbackResponse = await sendMessage(
-			sendParams.upstreamMessage,
-			sendParams.conversationId,
-			sendParams.modelId,
-			user,
-			{
-				signal,
-				attachmentIds: sendParams.attachmentIds,
-				activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
-				attachmentTraceId: sendParams.attachmentTraceId,
-				systemPromptAppendix,
-				personalityPrompt,
-				skipHonchoContext,
-				thinkingMode: sendParams.thinkingMode,
-				forceWebSearch: sendParams.forceWebSearch,
-			},
-		);
+		let fallbackResponse: NonStreamFallbackResponse | null = null;
+		for (let attempt = 1; attempt <= 2; attempt += 1) {
+			const attemptSystemPromptAppendix =
+				attempt === 1
+					? systemPromptAppendix
+					: appendSystemPromptAppendix(
+							systemPromptAppendix,
+							EMPTY_VISIBLE_OUTPUT_RECOVERY_APPENDIX,
+						);
+			fallbackResponse = await sendMessage(
+				sendParams.upstreamMessage,
+				sendParams.conversationId,
+				sendParams.modelId,
+				user,
+				{
+					signal,
+					attachmentIds: sendParams.attachmentIds,
+					activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
+					attachmentTraceId: sendParams.attachmentTraceId,
+					systemPromptAppendix: attemptSystemPromptAppendix,
+					personalityPrompt,
+					skipHonchoContext,
+					thinkingMode: sendParams.thinkingMode,
+					forceWebSearch: sendParams.forceWebSearch,
+				},
+			);
+
+			if (fallbackResponse.text?.trim() || attempt === 2) {
+				break;
+			}
+			console.warn("[STREAM] Non-stream fallback returned no visible text", {
+				conversationId: sendParams.conversationId,
+				modelId: sendParams.modelId,
+				attempt,
+			});
+		}
+
+		if (!fallbackResponse) {
+			return false;
+		}
 
 		const contextStatus = fallbackResponse.contextStatus;
 		onContextStatus(contextStatus);

@@ -1400,7 +1400,7 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(body).toContain("event: error");
 		expect(body).toContain("backend_failure");
 		expect(body).not.toContain("event: end");
-		expect(sendMessage).toHaveBeenCalledOnce();
+		expect(sendMessage).toHaveBeenCalledTimes(2);
 	});
 
 	it("does not duplicate a Langflow end result after visible tokens", async () => {
