@@ -112,7 +112,6 @@ export async function runNonStreamFallback(
 			onResolvedModel,
 		} = deps;
 
-		let fallbackResponse: NonStreamFallbackResponse | null = null;
 		for (let attempt = 1; attempt <= 2; attempt += 1) {
 			const attemptSystemPromptAppendix =
 				attempt === 1
@@ -121,7 +120,7 @@ export async function runNonStreamFallback(
 							systemPromptAppendix,
 							EMPTY_VISIBLE_OUTPUT_RECOVERY_APPENDIX,
 						);
-			fallbackResponse = await sendMessage(
+			const fallbackResponse = await sendMessage(
 				sendParams.upstreamMessage,
 				sendParams.conversationId,
 				sendParams.modelId,
@@ -139,61 +138,69 @@ export async function runNonStreamFallback(
 				},
 			);
 
-			if (fallbackResponse.text?.trim() || attempt === 2) {
-				break;
+			const contextStatus = fallbackResponse.contextStatus;
+			onContextStatus(contextStatus);
+
+			const taskState = await attachContinuityToTaskState(
+				user.id,
+				fallbackResponse.taskState ?? null,
+			).catch(() => fallbackResponse.taskState ?? null);
+			onTaskState(taskState);
+
+			onContextDebug(fallbackResponse.contextDebug ?? null);
+			onHonchoContext(fallbackResponse.honchoContext ?? null);
+			onHonchoSnapshot(fallbackResponse.honchoSnapshot ?? null);
+			onProviderUsage(fallbackResponse.providerUsage ?? null);
+			if (fallbackResponse.modelId && fallbackResponse.modelDisplayName) {
+				onResolvedModel?.(
+					fallbackResponse.modelId,
+					fallbackResponse.modelDisplayName,
+				);
 			}
-			console.warn("[STREAM] Non-stream fallback returned no visible text", {
-				conversationId: sendParams.conversationId,
-				modelId: sendParams.modelId,
-				attempt,
-			});
+
+			if (!fallbackResponse.text?.trim()) {
+				if (attempt < 2) {
+					console.warn("[STREAM] Non-stream fallback returned no text", {
+						conversationId: sendParams.conversationId,
+						modelId: sendParams.modelId,
+						attempt,
+					});
+					continue;
+				}
+				return false;
+			}
+
+			if (!(await emitResolvedAssistantText(fallbackResponse.text))) {
+				return false;
+			}
+
+			flushPendingThinking();
+			if (!flushInlineThinkingBuffer()) {
+				return false;
+			}
+			if (!flushOutputBuffer()) {
+				return false;
+			}
+			if (!hasVisibleAssistantText()) {
+				if (attempt < 2) {
+					console.warn(
+						"[STREAM] Non-stream fallback normalized to no visible text",
+						{
+							conversationId: sendParams.conversationId,
+							modelId: sendParams.modelId,
+							attempt,
+						},
+					);
+					continue;
+				}
+				return false;
+			}
+
+			completeSuccess();
+			return true;
 		}
 
-		if (!fallbackResponse) {
-			return false;
-		}
-
-		const contextStatus = fallbackResponse.contextStatus;
-		onContextStatus(contextStatus);
-
-		const taskState = await attachContinuityToTaskState(
-			user.id,
-			fallbackResponse.taskState ?? null,
-		).catch(() => fallbackResponse.taskState ?? null);
-		onTaskState(taskState);
-
-		onContextDebug(fallbackResponse.contextDebug ?? null);
-		onHonchoContext(fallbackResponse.honchoContext ?? null);
-		onHonchoSnapshot(fallbackResponse.honchoSnapshot ?? null);
-		onProviderUsage(fallbackResponse.providerUsage ?? null);
-		if (fallbackResponse.modelId && fallbackResponse.modelDisplayName) {
-			onResolvedModel?.(
-				fallbackResponse.modelId,
-				fallbackResponse.modelDisplayName,
-			);
-		}
-
-		if (!fallbackResponse.text?.trim()) {
-			return false;
-		}
-
-		if (!(await emitResolvedAssistantText(fallbackResponse.text))) {
-			return false;
-		}
-
-		flushPendingThinking();
-		if (!flushInlineThinkingBuffer()) {
-			return false;
-		}
-		if (!flushOutputBuffer()) {
-			return false;
-		}
-		if (!hasVisibleAssistantText()) {
-			return false;
-		}
-
-		completeSuccess();
-		return true;
+		return false;
 	} catch (error) {
 		console.warn("[STREAM] Non-stream fallback failed", {
 			conversationId: deps.sendParams.conversationId,

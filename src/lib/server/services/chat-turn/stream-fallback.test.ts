@@ -188,6 +188,8 @@ describe("runNonStreamFallback", () => {
 		const result = await callFallback();
 
 		expect(result).toBe(false);
+		expect(mockSendMessage).toHaveBeenCalledTimes(2);
+		expect(mockEmitText).toHaveBeenCalledTimes(2);
 		expect(mockFlushPendingThinking).toHaveBeenCalled();
 		expect(mockCompleteSuccess).not.toHaveBeenCalled();
 	});
@@ -264,6 +266,19 @@ describe("runNonStreamFallback", () => {
 			}),
 		);
 		expect(mockEmitText).toHaveBeenCalledWith("fallback response");
+		expect(mockCompleteSuccess).toHaveBeenCalled();
+	});
+
+	it("retries once when fallback text normalizes to no visible output", async () => {
+		mockHasVisibleAssistantText
+			.mockReturnValueOnce(false)
+			.mockReturnValueOnce(true);
+
+		const result = await callFallback();
+
+		expect(result).toBe(true);
+		expect(mockSendMessage).toHaveBeenCalledTimes(2);
+		expect(mockEmitText).toHaveBeenCalledTimes(2);
 		expect(mockCompleteSuccess).toHaveBeenCalled();
 	});
 
