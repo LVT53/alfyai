@@ -29,7 +29,8 @@ from typing import Any
 import requests
 
 from lfx.custom.custom_component.component import Component
-from lfx.inputs.inputs import DictInput, DropdownInput, MultilineInput, StrInput
+from lfx.inputs.input_mixin import FieldTypes
+from lfx.inputs.inputs import DropdownInput, MultilineInput, StrInput
 from lfx.io import Output
 from lfx.log.logger import logger
 from lfx.schema.data import Data
@@ -113,7 +114,7 @@ class FileProductionToolComponent(Component):
             advanced=True,
             tool_mode=True,
         ),
-        DictInput(
+        MultilineInput(
             name="documentSource",
             display_name="Document Source",
             info=(
@@ -121,15 +122,17 @@ class FileProductionToolComponent(Component):
                 'Include version: 1, template: "alfyai_standard_report", title, and blocks. '
                 'Heading blocks use {"type":"heading","level":2,"text":"Section title"}.'
             ),
-            value={},
+            value="",
+            field_type=FieldTypes.DICT,
             required=False,
             tool_mode=True,
         ),
-        DictInput(
+        MultilineInput(
             name="program",
             display_name="Program",
             info='Object with language, sourceCode, and optional filename. Required when sourceMode is program.',
-            value={},
+            value="",
+            field_type=FieldTypes.DICT,
             required=False,
             tool_mode=True,
         ),
