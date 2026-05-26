@@ -952,6 +952,77 @@ describe("sendMessage provider routing", () => {
 		);
 	});
 
+	it("runs automatic context compression from raw pending source messages even when constructed context already fits", async () => {
+		mockConfig(
+			{ maxTokens: 256 },
+			{
+				model1MaxModelContext: 12_000,
+				model1CompactionUiThreshold: 6_400,
+				model1TargetConstructedContext: 8_000,
+			},
+		);
+		const alreadySelectedContext = [
+			"Context from your conversation history:",
+			"## Honcho Session Context\nRecent selected context only.",
+			"## Current User Message\nContinue?",
+		].join("\n\n");
+		const compressedContext = [
+			"Context from your conversation history:",
+			"## Context Compression Snapshot\nCompressed raw pending source transcript.",
+			"## Current User Message\nContinue?",
+		].join("\n\n");
+		mocks.buildConstructedContext
+			.mockResolvedValueOnce({
+				inputValue: alreadySelectedContext,
+				contextStatus: undefined,
+				taskState: null,
+				contextDebug: null,
+				honchoContext: null,
+				honchoSnapshot: null,
+			})
+			.mockResolvedValueOnce({
+				inputValue: compressedContext,
+				contextStatus: undefined,
+				taskState: null,
+				contextDebug: null,
+				honchoContext: null,
+				honchoSnapshot: null,
+			});
+		mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+			{
+				id: "message-1",
+				role: "user",
+				content: "raw pending transcript fact ".repeat(5000),
+				messageSequence: 1,
+			},
+			{
+				id: "message-2",
+				role: "assistant",
+				content: "raw pending transcript answer ".repeat(5000),
+				messageSequence: 2,
+			},
+		]);
+
+		await sendMessage("Continue?", "conv-1", "model1", { id: "user-1" });
+
+		expect(mocks.runContextCompression).toHaveBeenCalledWith(
+			expect.objectContaining({
+				conversationId: "conv-1",
+				userId: "user-1",
+				trigger: "automatic",
+				selectedModelId: "model1",
+				sourceMessages: expect.arrayContaining([
+					expect.objectContaining({ id: "message-1" }),
+					expect.objectContaining({ id: "message-2" }),
+				]),
+			}),
+		);
+		expect(mocks.buildConstructedContext).toHaveBeenCalledTimes(2);
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(body.input_value).toBe(compressedContext);
+		expect(body.input_value).not.toContain("[truncated]");
+	});
+
 	it("reserves room for Langflow framing when enforcing the final outbound payload budget", async () => {
 		mockConfig(
 			{ maxTokens: 8192 },

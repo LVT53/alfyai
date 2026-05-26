@@ -39,6 +39,9 @@ class Data:
         self.args = args
         self.kwargs = kwargs
 
+class FieldTypes:
+    DICT = "dict"
+
 def install_module(name, attrs=None):
     module = types.ModuleType(name)
     for key, value in (attrs or {}).items():
@@ -52,6 +55,7 @@ for name in [
     "lfx.custom.custom_component",
     "lfx.custom.custom_component.component",
     "lfx.inputs",
+    "lfx.inputs.input_mixin",
     "lfx.inputs.inputs",
     "lfx.io",
     "lfx.log",
@@ -65,6 +69,7 @@ for name in [
 sys.modules["lfx.custom.custom_component.component"].Component = Component
 for attr in ["DictInput", "DropdownInput", "MultilineInput", "StrInput"]:
     setattr(sys.modules["lfx.inputs.inputs"], attr, type(attr, (DummyInput,), {}))
+sys.modules["lfx.inputs.input_mixin"].FieldTypes = FieldTypes
 sys.modules["lfx.io"].Output = Output
 sys.modules["lfx.log.logger"].logger = types.SimpleNamespace(
     debug=lambda *args, **kwargs: None,
@@ -88,6 +93,7 @@ inputs = {
     getattr(input_field, "name", ""): {
         "inputType": input_field.__class__.__name__,
         "toolMode": getattr(input_field, "tool_mode", None),
+        "fieldType": getattr(input_field, "field_type", None),
         "info": getattr(input_field, "info", ""),
     }
     for input_field in component.inputs
@@ -112,7 +118,7 @@ print(json.dumps({
 	) as {
 		inputs: Record<
 			"documentSource" | "program",
-			{ inputType: string; toolMode: boolean; info: string }
+			{ inputType: string; toolMode: boolean; fieldType: string; info: string }
 		>;
 		parsedObject: { title: string };
 		parsedArray: Array<{ type: string }>;
@@ -168,10 +174,12 @@ describe("Langflow File Production tool node", () => {
 	it("accepts structured document source and program arguments from agent tool calls", () => {
 		const contract = runFileProductionNodeContractFixture();
 
-		expect(contract.inputs.documentSource.inputType).toBe("DictInput");
+		expect(contract.inputs.documentSource.inputType).toBe("MultilineInput");
+		expect(contract.inputs.documentSource.fieldType).toBe("dict");
 		expect(contract.inputs.documentSource.toolMode).toBe(true);
 		expect(contract.inputs.documentSource.info).not.toContain("JSON-encoded");
-		expect(contract.inputs.program.inputType).toBe("DictInput");
+		expect(contract.inputs.program.inputType).toBe("MultilineInput");
+		expect(contract.inputs.program.fieldType).toBe("dict");
 		expect(contract.inputs.program.toolMode).toBe(true);
 		expect(contract.inputs.program.info).not.toContain("JSON-encoded");
 
@@ -183,17 +191,17 @@ describe("Langflow File Production tool node", () => {
 	it("keeps Langflow tool inputs aligned with the mixed structured and text schema", () => {
 		const source = nodeSource();
 
-		expect(source).toContain(
-			"DictInput, DropdownInput, MultilineInput, StrInput",
-		);
-		expect(source).toMatch(/DictInput\(\s+name="program"/);
+		expect(source).toContain("from lfx.inputs.input_mixin import FieldTypes");
+		expect(source).toContain("DropdownInput, MultilineInput, StrInput");
+		expect(source).toMatch(/MultilineInput\(\s+name="program"/);
+		expect(source).toContain("field_type=FieldTypes.DICT");
 		expect(source).toContain(
 			"Object with language, sourceCode, and optional filename",
 		);
 		expect(source).toContain(
 			"program must be an object when sourceMode is program.",
 		);
-		expect(source).toMatch(/DictInput\(\s+name="documentSource"/);
+		expect(source).toMatch(/MultilineInput\(\s+name="documentSource"/);
 		expect(source).toContain(
 			"Object using the AlfyAI Standard Report source shape",
 		);

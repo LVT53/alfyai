@@ -95,13 +95,12 @@ export function serializeBudgetedRoleTurns<T>(params: {
 	resolveContent: (message: T) => string;
 	maxTokens: number;
 }): BudgetedRoleTurnContext {
-	const maxTokens = Math.max(0, Math.floor(params.maxTokens));
-	if (params.turns.length === 0 || maxTokens <= 0) {
+	if (params.turns.length === 0) {
 		return {
 			body: '',
 			includedTurnCount: 0,
 			omittedTurnCount: params.turns.length,
-			trimmed: params.turns.length > 0,
+			trimmed: false,
 			estimatedTokens: 0,
 		};
 	}
@@ -114,39 +113,12 @@ export function serializeBudgetedRoleTurns<T>(params: {
 			turn.messages.length
 		)
 	);
-	const selectedTurns: string[] = [];
-	let omittedTurnCount = 0;
-
-	for (let index = serializedTurns.length - 1; index >= 0; index -= 1) {
-		const candidateTurns = [serializedTurns[index], ...selectedTurns];
-		const candidateBody = candidateTurns.join('\n\n');
-		if (estimateTokenCount(candidateBody) <= maxTokens) {
-			selectedTurns.unshift(serializedTurns[index]);
-			continue;
-		}
-
-		omittedTurnCount = index + 1;
-		break;
-	}
-
-	if (selectedTurns.length === 0) {
-		const latestTurn = serializedTurns[serializedTurns.length - 1] ?? '';
-		const body = truncateToTokenBudget(latestTurn, maxTokens);
-		return {
-			body,
-			includedTurnCount: body ? 1 : 0,
-			omittedTurnCount: Math.max(0, serializedTurns.length - (body ? 1 : 0)),
-			trimmed: true,
-			estimatedTokens: estimateTokenCount(body),
-		};
-	}
-
-	const body = selectedTurns.join('\n\n');
+	const body = serializedTurns.join('\n\n');
 	return {
 		body,
-		includedTurnCount: selectedTurns.length,
-		omittedTurnCount,
-		trimmed: omittedTurnCount > 0,
+		includedTurnCount: params.turns.length,
+		omittedTurnCount: 0,
+		trimmed: false,
 		estimatedTokens: estimateTokenCount(body),
 	};
 }
@@ -191,19 +163,12 @@ export function selectPromptSessionTurns<T>(params: {
 	recentTurnCount?: number;
 	matchThreshold?: number;
 }): T[] {
-	const recentTurnCount = params.recentTurnCount ?? 3;
-	const matchThreshold = params.matchThreshold ?? 1;
-
-	return params.turns.filter((turn, index) => {
-		const isRecent = index >= params.turns.length - recentTurnCount;
-		if (isRecent) return true;
-
-		const turnContent = params.resolveContent(turn);
-		const score = params.scoreTurn(params.message, turnContent);
-		if (score >= matchThreshold) return true;
-
-		return false;
-	});
+	void params.message;
+	void params.resolveContent;
+	void params.scoreTurn;
+	void params.recentTurnCount;
+	void params.matchThreshold;
+	return params.turns;
 }
 
 export function serializePeerContext(peerContext: {
@@ -536,37 +501,12 @@ export function compactContextSections(params: {
 		);
 	}
 
-	function buildTrimmedProtectedSection(section: PromptContextSection): string {
-		const fallback = buildContextSection(section.title, '[truncated]');
-		if (estimateWithSection(fallback) > params.targetTokens) return '';
-
-		const suffix = '\n...[truncated]';
-		let low = 0;
-		let high = section.body.length;
-		let best = fallback;
-
-		while (low <= high) {
-			const mid = Math.floor((low + high) / 2);
-			const candidateBody = section.body.slice(0, mid).trim();
-			const body = candidateBody ? `${candidateBody}${suffix}` : '[truncated]';
-			const candidate = buildContextSection(section.title, body);
-			if (estimateWithSection(candidate) <= params.targetTokens) {
-				best = candidate;
-				low = mid + 1;
-			} else {
-				high = mid - 1;
-			}
-		}
-
-		return best;
-	}
-
 	for (const section of params.sections) {
 		const candidate = buildContextSection(section.title, section.body);
 		if (!candidate) continue;
 		const candidateTokens = estimateTokenCount(candidate);
 		const nextTotal = estimateWithSection(candidate);
-		if (nextTotal <= params.targetTokens) {
+		if (nextTotal <= params.targetTokens || section.protected) {
 			bodyParts.push(candidate);
 			sectionSelections.push({
 				title: section.title,
@@ -578,36 +518,6 @@ export function compactContextSections(params: {
 				estimatedTokens: candidateTokens,
 			});
 			if (section.layer) layersUsed.add(section.layer);
-			continue;
-		}
-
-		if (section.protected) {
-			const truncated = buildTrimmedProtectedSection(section);
-			if (truncated) {
-				bodyParts.push(truncated);
-				sectionSelections.push({
-					title: section.title,
-					body: truncated.replace(/^## .+\n/, ''),
-					layer: section.layer,
-					protected: true,
-					trimmed: true,
-					inclusionLevel: 'trimmed',
-					estimatedTokens: estimateTokenCount(truncated),
-				});
-				if (section.layer) layersUsed.add(section.layer);
-			} else {
-				sectionSelections.push({
-					title: section.title,
-					body: '',
-					layer: section.layer,
-					protected: true,
-					trimmed: false,
-					inclusionLevel: 'omitted',
-					estimatedTokens: 0,
-				});
-			}
-			compactionApplied = true;
-			if (compactionMode === 'none') compactionMode = 'deterministic';
 			continue;
 		}
 

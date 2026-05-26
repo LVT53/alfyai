@@ -86,6 +86,23 @@ type OutputTokenBudget = {
 	outputReserveClamped: boolean;
 };
 
+type AutomaticContextCompressionOutcome =
+	| "not_needed"
+	| "not_possible"
+	| "failed"
+	| "succeeded";
+
+type AutomaticContextCompressionResult = {
+	context: ConstructedContextResult | null;
+	outcome: AutomaticContextCompressionOutcome;
+	reason: string;
+	attempted: boolean;
+	beforeInputTokensWithSafety?: number;
+	rawSourceTokensWithSafety?: number;
+	sourceMessageCount?: number;
+	snapshotId?: string | null;
+};
+
 type LangflowModelRunConfig = ModelConfig & {
 	contextLimits?: PromptContextLimits;
 	providerId?: string;
@@ -645,6 +662,7 @@ function applyOutboundPromptBudget(params: {
 	modelId: ModelId | string | undefined;
 	modelName: string;
 	providerId?: string | null;
+	automaticCompression?: AutomaticContextCompressionResult | null;
 }): { inputValue: string; outputTokenBudget: OutputTokenBudget } {
 	const { contextPrefix, currentMessageSection } = extractCurrentMessageSection(
 		params.inputValue,
@@ -742,6 +760,12 @@ function applyOutboundPromptBudget(params: {
 			beforeInputTokensWithSafety: safeCurrentInputTokens,
 			afterInputTokens: estimateTokenCount(finalInputValue),
 			afterInputTokensWithSafety: estimateOutboundPromptTokens(finalInputValue),
+			fallbackAfterAutomaticCompression:
+				params.automaticCompression?.outcome ?? "untracked",
+			automaticCompressionAttempted:
+				params.automaticCompression?.attempted ?? false,
+			automaticCompressionReason:
+				params.automaticCompression?.reason ?? "legacy_budget_guard",
 		});
 	}
 
@@ -791,6 +815,66 @@ function estimateOutboundPromptFit(params: {
 	};
 }
 
+function automaticCompressionResult(
+	input: Omit<AutomaticContextCompressionResult, "context"> & {
+		context?: ConstructedContextResult | null;
+	},
+): AutomaticContextCompressionResult {
+	return {
+		context: input.context ?? null,
+		outcome: input.outcome,
+		reason: input.reason,
+		attempted: input.attempted,
+		beforeInputTokensWithSafety: input.beforeInputTokensWithSafety,
+		rawSourceTokensWithSafety: input.rawSourceTokensWithSafety,
+		sourceMessageCount: input.sourceMessageCount,
+		snapshotId: input.snapshotId,
+	};
+}
+
+function serializeRawSourceMessageForFit(message: {
+	role: string;
+	content: string;
+	thinking?: string | null;
+	toolCalls?: unknown;
+}): string {
+	const parts = [
+		`${message.role.toUpperCase()}:`,
+		message.content?.trim() ?? "",
+	];
+	if (message.thinking?.trim()) {
+		parts.push(`Thinking:\n${message.thinking.trim()}`);
+	}
+	if (message.toolCalls != null) {
+		parts.push(
+			`Tool calls:\n${
+				typeof message.toolCalls === "string"
+					? message.toolCalls
+					: JSON.stringify(message.toolCalls)
+			}`,
+		);
+	}
+	return parts.filter((part) => part.trim()).join("\n");
+}
+
+function buildRawPendingSourceFitInput(params: {
+	sourceMessages: Array<{
+		role: string;
+		content: string;
+		thinking?: string | null;
+		toolCalls?: unknown;
+	}>;
+	message: string;
+}): string {
+	return [
+		"Context from your conversation history:",
+		...params.sourceMessages.map(serializeRawSourceMessageForFit),
+		`${CURRENT_USER_MESSAGE_MARKER}${params.message.trim()}`,
+	]
+		.filter((part) => part.trim())
+		.join("\n\n");
+}
+
 async function maybeRunAutomaticContextCompression(params: {
 	user: AuthenticatedPromptUser | undefined;
 	sessionId: string;
@@ -803,8 +887,14 @@ async function maybeRunAutomaticContextCompression(params: {
 	attachmentIds?: string[];
 	activeDocumentArtifactId?: string;
 	attachmentTraceId?: string;
-}): Promise<ConstructedContextResult | null> {
-	if (!params.user?.id) return null;
+}): Promise<AutomaticContextCompressionResult> {
+	if (!params.user?.id) {
+		return automaticCompressionResult({
+			outcome: "not_possible",
+			reason: "missing_user",
+			attempted: false,
+		});
+	}
 
 	const fit = estimateOutboundPromptFit({
 		inputValue: params.inputValue,
@@ -813,7 +903,6 @@ async function maybeRunAutomaticContextCompression(params: {
 		contextLimits: params.contextLimits,
 		maxTokens: params.modelConfig.maxTokens,
 	});
-	if (!fit.overBudget) return null;
 
 	const {
 		getLatestValidContextCompressionSnapshot,
@@ -833,7 +922,39 @@ async function maybeRunAutomaticContextCompression(params: {
 					message.messageSequence > priorSnapshot.sourceEndMessageSequence,
 			)
 		: sourceMessages;
-	if (pendingSourceMessages.length === 0) return null;
+	if (pendingSourceMessages.length === 0) {
+		return automaticCompressionResult({
+			outcome: fit.overBudget ? "not_possible" : "not_needed",
+			reason: fit.overBudget
+				? "no_pending_source_messages"
+				: "prompt_within_budget",
+			attempted: false,
+			beforeInputTokensWithSafety: fit.safeInputTokens,
+			sourceMessageCount: 0,
+		});
+	}
+
+	const rawSourceInputValue = buildRawPendingSourceFitInput({
+		sourceMessages: pendingSourceMessages,
+		message: params.message,
+	});
+	const rawSourceFit = estimateOutboundPromptFit({
+		inputValue: rawSourceInputValue,
+		message: params.message,
+		systemPrompt: params.systemPrompt,
+		contextLimits: params.contextLimits,
+		maxTokens: params.modelConfig.maxTokens,
+	});
+	if (!fit.overBudget && !rawSourceFit.overBudget) {
+		return automaticCompressionResult({
+			outcome: "not_needed",
+			reason: "prompt_and_raw_source_within_budget",
+			attempted: false,
+			beforeInputTokensWithSafety: fit.safeInputTokens,
+			rawSourceTokensWithSafety: rawSourceFit.safeInputTokens,
+			sourceMessageCount: pendingSourceMessages.length,
+		});
+	}
 
 	console.info(
 		"[LANGFLOW] Running automatic context compression before model call",
@@ -841,6 +962,7 @@ async function maybeRunAutomaticContextCompression(params: {
 			sessionId: params.sessionId,
 			modelId: params.modelId,
 			beforeInputTokensWithSafety: fit.safeInputTokens,
+			rawSourceTokensWithSafety: rawSourceFit.safeInputTokens,
 			inputTokenBudget: fit.inputTokenBudget,
 			sourceMessageCount: pendingSourceMessages.length,
 			priorSnapshotId: priorSnapshot?.id ?? null,
@@ -854,7 +976,10 @@ async function maybeRunAutomaticContextCompression(params: {
 		selectedModelId: params.modelId,
 		sourceMessages: pendingSourceMessages,
 		priorSnapshot,
-		sourceTokenEstimate: fit.safeInputTokens,
+		sourceTokenEstimate: Math.max(
+			fit.safeInputTokens,
+			rawSourceFit.safeInputTokens,
+		),
 		targetTokenEstimate: params.contextLimits.targetConstructedContext,
 		budget: {
 			maxModelContext: params.contextLimits.maxModelContext,
@@ -868,10 +993,18 @@ async function maybeRunAutomaticContextCompression(params: {
 			snapshotId: snapshot.id,
 			failureReason: snapshot.failureReason,
 		});
-		return null;
+		return automaticCompressionResult({
+			outcome: "failed",
+			reason: snapshot.failureReason ?? "snapshot_validation_failed",
+			attempted: true,
+			beforeInputTokensWithSafety: fit.safeInputTokens,
+			rawSourceTokensWithSafety: rawSourceFit.safeInputTokens,
+			sourceMessageCount: pendingSourceMessages.length,
+			snapshotId: snapshot.id,
+		});
 	}
 
-	return buildConstructedContext({
+	const context = await buildConstructedContext({
 		userId: params.user.id,
 		conversationId: params.sessionId,
 		message: params.message,
@@ -880,6 +1013,16 @@ async function maybeRunAutomaticContextCompression(params: {
 		attachmentTraceId: params.attachmentTraceId,
 		modelId: params.modelId,
 		contextLimits: params.modelConfig.contextLimits,
+	});
+	return automaticCompressionResult({
+		context,
+		outcome: "succeeded",
+		reason: "snapshot_valid",
+		attempted: true,
+		beforeInputTokensWithSafety: fit.safeInputTokens,
+		rawSourceTokensWithSafety: rawSourceFit.safeInputTokens,
+		sourceMessageCount: pendingSourceMessages.length,
+		snapshotId: snapshot.id,
 	});
 }
 
@@ -1590,7 +1733,7 @@ export async function prepareOutboundChatContext(params: {
 				email: params.user.email,
 			})
 		: getSystemPrompt(params.modelConfig.systemPrompt);
-	const systemPrompt = buildOutboundSystemPrompt({
+	let systemPrompt = buildOutboundSystemPrompt({
 		basePrompt: baseSystemPrompt,
 		inputValue,
 		responseLanguage: detectLanguage(params.message),
@@ -1600,22 +1743,78 @@ export async function prepareOutboundChatContext(params: {
 		personalityPrompt: params.personalityPrompt,
 		forceWebSearch: params.forceWebSearch,
 	});
+	const contextLimits =
+		params.contextLimits ??
+		resolvePromptContextLimits(
+			params.modelId ?? "model1",
+			params.modelConfig,
+			getConfig(),
+		);
+	const automaticCompression = !params.skipHonchoContext
+		? await maybeRunAutomaticContextCompression({
+				user: params.user,
+				sessionId: params.sessionId,
+				message: params.message,
+				modelId:
+					params.modelId && isProviderModelId(params.modelId)
+						? params.modelId
+						: params.modelId === "model2"
+							? "model2"
+							: "model1",
+				modelConfig: params.modelConfig,
+				contextLimits,
+				inputValue,
+				systemPrompt,
+				attachmentIds: params.attachmentIds,
+				activeDocumentArtifactId: params.activeDocumentArtifactId,
+				attachmentTraceId: params.attachmentTraceId,
+			}).catch((error) => {
+				console.warn("[LANGFLOW] Automatic context compression skipped", {
+					sessionId: params.sessionId,
+					modelId: params.modelId ?? "model1",
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return automaticCompressionResult({
+					outcome: "failed",
+					reason: error instanceof Error ? error.message : String(error),
+					attempted: true,
+				});
+			})
+		: automaticCompressionResult({
+				outcome: "not_possible",
+				reason: "honcho_context_disabled",
+				attempted: false,
+			});
+	if (automaticCompression.context) {
+		inputValue = automaticCompression.context.inputValue;
+		contextStatus = automaticCompression.context.contextStatus;
+		taskState = automaticCompression.context.taskState;
+		contextDebug = automaticCompression.context.contextDebug;
+		honchoContext = automaticCompression.context.honchoContext;
+		honchoSnapshot = automaticCompression.context.honchoSnapshot;
+		contextTraceSections = automaticCompression.context.contextTraceSections;
+		systemPrompt = buildOutboundSystemPrompt({
+			basePrompt: baseSystemPrompt,
+			inputValue,
+			responseLanguage: detectLanguage(params.message),
+			modelDisplayName: params.modelConfig.displayName,
+			modelName: params.modelConfig.modelName,
+			systemPromptAppendix: params.systemPromptAppendix,
+			personalityPrompt: params.personalityPrompt,
+			forceWebSearch: params.forceWebSearch,
+		});
+	}
 	const budgetedPrompt = applyOutboundPromptBudget({
 		inputValue,
 		message: params.message,
 		systemPrompt,
-		contextLimits:
-			params.contextLimits ??
-			resolvePromptContextLimits(
-				params.modelId ?? "model1",
-				params.modelConfig,
-				getConfig(),
-			),
+		contextLimits,
 		maxTokens: params.modelConfig.maxTokens,
 		sessionId: params.sessionId,
 		modelId: params.modelId ?? "model1",
 		modelName: params.modelConfig.modelName,
 		providerId: null,
+		automaticCompression,
 	});
 	inputValue = budgetedPrompt.inputValue;
 
@@ -1911,7 +2110,7 @@ async function sendMessageAttempt(
 			modelConfig,
 			config,
 		);
-		const automaticCompressionContext = !options?.skipHonchoContext
+		const automaticCompression = !options?.skipHonchoContext
 			? await maybeRunAutomaticContextCompression({
 					user,
 					sessionId,
@@ -1930,17 +2129,25 @@ async function sendMessageAttempt(
 						modelId: modelId ?? "model1",
 						error: error instanceof Error ? error.message : String(error),
 					});
-					return null;
+					return automaticCompressionResult({
+						outcome: "failed",
+						reason: error instanceof Error ? error.message : String(error),
+						attempted: true,
+					});
 				})
-			: null;
-		if (automaticCompressionContext) {
-			inputValue = automaticCompressionContext.inputValue;
-			contextStatus = automaticCompressionContext.contextStatus;
-			taskState = automaticCompressionContext.taskState;
-			contextDebug = automaticCompressionContext.contextDebug;
-			honchoContext = automaticCompressionContext.honchoContext;
-			honchoSnapshot = automaticCompressionContext.honchoSnapshot;
-			contextTraceSections = automaticCompressionContext.contextTraceSections;
+			: automaticCompressionResult({
+					outcome: "not_possible",
+					reason: "honcho_context_disabled",
+					attempted: false,
+				});
+		if (automaticCompression.context) {
+			inputValue = automaticCompression.context.inputValue;
+			contextStatus = automaticCompression.context.contextStatus;
+			taskState = automaticCompression.context.taskState;
+			contextDebug = automaticCompression.context.contextDebug;
+			honchoContext = automaticCompression.context.honchoContext;
+			honchoSnapshot = automaticCompression.context.honchoSnapshot;
+			contextTraceSections = automaticCompression.context.contextTraceSections;
 			systemPrompt = buildOutboundSystemPrompt({
 				basePrompt: baseSystemPrompt,
 				inputValue,
@@ -1963,6 +2170,7 @@ async function sendMessageAttempt(
 			modelId: modelId ?? "model1",
 			modelName,
 			providerId: modelConfig.providerId ?? null,
+			automaticCompression,
 		});
 		inputValue = budgetedPrompt.inputValue;
 		emitOutboundContextTrace({
@@ -2281,7 +2489,7 @@ async function sendMessageStreamAttempt(
 			modelConfig,
 			config,
 		);
-		const automaticCompressionContext = !options?.skipHonchoContext
+		const automaticCompression = !options?.skipHonchoContext
 			? await maybeRunAutomaticContextCompression({
 					user: options?.user,
 					sessionId,
@@ -2300,17 +2508,25 @@ async function sendMessageStreamAttempt(
 						modelId: modelId ?? "model1",
 						error: error instanceof Error ? error.message : String(error),
 					});
-					return null;
+					return automaticCompressionResult({
+						outcome: "failed",
+						reason: error instanceof Error ? error.message : String(error),
+						attempted: true,
+					});
 				})
-			: null;
-		if (automaticCompressionContext) {
-			inputValue = automaticCompressionContext.inputValue;
-			contextStatus = automaticCompressionContext.contextStatus;
-			taskState = automaticCompressionContext.taskState;
-			contextDebug = automaticCompressionContext.contextDebug;
-			honchoContext = automaticCompressionContext.honchoContext;
-			honchoSnapshot = automaticCompressionContext.honchoSnapshot;
-			contextTraceSections = automaticCompressionContext.contextTraceSections;
+			: automaticCompressionResult({
+					outcome: "not_possible",
+					reason: "honcho_context_disabled",
+					attempted: false,
+				});
+		if (automaticCompression.context) {
+			inputValue = automaticCompression.context.inputValue;
+			contextStatus = automaticCompression.context.contextStatus;
+			taskState = automaticCompression.context.taskState;
+			contextDebug = automaticCompression.context.contextDebug;
+			honchoContext = automaticCompression.context.honchoContext;
+			honchoSnapshot = automaticCompression.context.honchoSnapshot;
+			contextTraceSections = automaticCompression.context.contextTraceSections;
 			systemPrompt = buildOutboundSystemPrompt({
 				basePrompt: baseSystemPrompt,
 				inputValue,
@@ -2333,6 +2549,7 @@ async function sendMessageStreamAttempt(
 			modelId: modelId ?? "model1",
 			modelName,
 			providerId: modelConfig.providerId ?? null,
+			automaticCompression,
 		});
 		inputValue = budgetedPrompt.inputValue;
 		emitOutboundContextTrace({

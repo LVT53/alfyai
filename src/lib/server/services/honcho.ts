@@ -1,6 +1,6 @@
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import { createHash, randomUUID } from 'crypto';
+import { createHash } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { Honcho } from '@honcho-ai/sdk';
 import type { Message, Peer } from '@honcho-ai/sdk';
@@ -20,7 +20,6 @@ import {
 	serializeBudgetedAttachments,
 	serializeBudgetedRoleTurns,
 	serializeWorkingSetArtifacts,
-	selectPromptSessionTurns,
 	selectRecentRoleTurns,
 	truncateToTokenBudget,
 	type BudgetedAttachmentContext,
@@ -60,7 +59,6 @@ import {
 	WORKING_SET_PROMPT_TOKEN_BUDGET,
 } from './knowledge';
 import { listConversationLinkedContextSources } from './linked-context-sources';
-import { scoreMatch } from './working-set';
 import { clipText } from '$lib/server/utils/text';
 import type {
 	Artifact,
@@ -1856,16 +1854,8 @@ export async function buildConstructedContext(params: {
 		promptSessionMessages.length
 	);
 
-	const filteredTurns = selectPromptSessionTurns({
-		turns: allTurns,
-		message: params.message,
-		resolveContent: (turn) => turn.messages.map((m) => m.content).join(' '),
-		scoreTurn: (message, turnContent) => scoreMatch(message, turnContent),
-		recentTurnCount: sessionHistoryBudget.recentTurnCount,
-	});
-
 	const sessionTurnContext = serializeBudgetedRoleTurns({
-		turns: filteredTurns,
+		turns: allTurns,
 		resolveRole: (message) => message.role,
 		resolveContent: (message) =>
 			message.forkCopy
@@ -2106,7 +2096,7 @@ export async function buildConstructedContext(params: {
 		});
 	}
 
-	let effectiveSections = [
+	const effectiveSections = [
 		...(await rerankHistoricalSections({
 			enabled: canUseTeiReranker(),
 			message: params.message,

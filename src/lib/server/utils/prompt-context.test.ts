@@ -31,7 +31,7 @@ function makeAttachment(overrides: Partial<Artifact> = {}): Artifact {
 }
 
 describe("compactContextSections", () => {
-	it("downgrades protected context before dropping it and stays within budget", () => {
+	it("keeps protected core context intact even when it exceeds the target budget", () => {
 		const compacted = compactContextSections({
 			intro: "Context bundle:",
 			message: "What should I do next?",
@@ -47,8 +47,11 @@ describe("compactContextSections", () => {
 		});
 
 		expect(compacted.inputValue).toContain("## Task State");
-		expect(compacted.inputValue).toContain("[truncated]");
-		expect(compacted.estimatedTokens).toBeLessThanOrEqual(80);
+		expect(compacted.inputValue).toContain("Important task state. ".repeat(20));
+		expect(compacted.inputValue).not.toContain("[truncated]");
+		expect(compacted.compactionApplied).toBe(false);
+		expect(compacted.compactionMode).toBe("none");
+		expect(compacted.estimatedTokens).toBeGreaterThan(80);
 		expect(estimateTokenCount(compacted.inputValue)).toBe(
 			compacted.estimatedTokens,
 		);
@@ -56,8 +59,8 @@ describe("compactContextSections", () => {
 			expect.objectContaining({
 				title: "Task State",
 				protected: true,
-				trimmed: true,
-				inclusionLevel: "trimmed",
+				trimmed: false,
+				inclusionLevel: "full",
 			}),
 		]);
 	});
@@ -80,14 +83,14 @@ describe("compactContextSections", () => {
 		expect(compacted.inputValue).toContain(
 			"## Current User Message\nKeep this exact user question.",
 		);
-		expect(compacted.inputValue).not.toContain("## Task State");
+		expect(compacted.inputValue).toContain("## Task State");
+		expect(compacted.inputValue).toContain("Important task state.");
 		expect(compacted.sectionSelections).toEqual([
 			expect.objectContaining({
 				title: "Task State",
 				protected: true,
 				trimmed: false,
-				inclusionLevel: "omitted",
-				estimatedTokens: 0,
+				inclusionLevel: "full",
 			}),
 		]);
 	});
@@ -186,6 +189,40 @@ describe("serializeBudgetedAttachments", () => {
 });
 
 describe("selectPromptSessionTurns", () => {
+	it("keeps older unrelated turns so LLM compression, not deterministic relevance, handles overflow", () => {
+		const turns = [
+			{
+				messages: [
+					{ role: "user" as const, content: "First unrelated request" },
+					{ role: "assistant" as const, content: "FIRST_TURN_MARKER" },
+				],
+			},
+			{
+				messages: [
+					{ role: "user" as const, content: "Second unrelated request" },
+					{ role: "assistant" as const, content: "SECOND_TURN_MARKER" },
+				],
+			},
+			{
+				messages: [
+					{ role: "user" as const, content: "Current adjacent request" },
+					{ role: "assistant" as const, content: "RECENT_TURN_MARKER" },
+				],
+			},
+		];
+
+		const selected = selectPromptSessionTurns({
+			turns,
+			message: "Different topic.",
+			resolveContent: (turn) =>
+				turn.messages.map((message) => message.content).join(" "),
+			scoreTurn: () => 0,
+			recentTurnCount: 1,
+		});
+
+		expect(selected).toEqual(turns);
+	});
+
 	it("keeps large recent turns so final context budgeting decides what fits", () => {
 		const turns = [
 			{
@@ -241,7 +278,7 @@ describe("serializeBudgetedRoleTurns", () => {
 	const role = (message: { role: "user" | "assistant" }) => message.role;
 	const content = (message: { content: string }) => message.content;
 
-	it("drops older turns before newer turns when history exceeds its budget", () => {
+	it("serializes every session turn even when the estimate exceeds the budget", () => {
 		const turns = [
 			{
 				messages: [
@@ -276,16 +313,16 @@ describe("serializeBudgetedRoleTurns", () => {
 			maxTokens: middleAndLatestBudget,
 		});
 
-		expect(serialized.body).not.toContain("Old setup question");
+		expect(serialized.body).toContain("Old setup question");
 		expect(serialized.body).toContain("Middle design question");
 		expect(serialized.body).toContain("Latest implementation question");
-		expect(serialized.includedTurnCount).toBe(2);
-		expect(serialized.omittedTurnCount).toBe(1);
-		expect(serialized.trimmed).toBe(true);
-		expect(serialized.estimatedTokens).toBeLessThanOrEqual(middleAndLatestBudget);
+		expect(serialized.includedTurnCount).toBe(3);
+		expect(serialized.omittedTurnCount).toBe(0);
+		expect(serialized.trimmed).toBe(false);
+		expect(serialized.estimatedTokens).toBeGreaterThan(middleAndLatestBudget);
 	});
 
-	it("keeps a truncated latest turn instead of dropping all session history", () => {
+	it("keeps an oversized latest turn intact so overflow is handled by compression", () => {
 		const serialized = serializeBudgetedRoleTurns({
 			turns: [
 				{
@@ -304,11 +341,12 @@ describe("serializeBudgetedRoleTurns", () => {
 		});
 
 		expect(serialized.body).toContain("Latest web research request");
-		expect(serialized.body).toContain("[truncated]");
+		expect(serialized.body).toContain("Detailed search result.");
+		expect(serialized.body).not.toContain("[truncated]");
 		expect(serialized.includedTurnCount).toBe(1);
 		expect(serialized.omittedTurnCount).toBe(0);
-		expect(serialized.trimmed).toBe(true);
-		expect(serialized.estimatedTokens).toBeLessThanOrEqual(80);
+		expect(serialized.trimmed).toBe(false);
+		expect(serialized.estimatedTokens).toBeGreaterThan(80);
 	});
 });
 
