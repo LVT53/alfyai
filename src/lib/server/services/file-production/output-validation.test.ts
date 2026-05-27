@@ -1,6 +1,10 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
-import { validateXlsxBytes } from "./output-validation";
+import {
+	validateGeneratedOutputFile,
+	validateProgramOutputContract,
+	validateXlsxBytes,
+} from "./output-validation";
 
 async function buildMinimalXlsxZip(extraEntries = 0): Promise<Buffer> {
 	const zip = new JSZip();
@@ -34,5 +38,75 @@ describe("file-production output validation", () => {
 			ok: false,
 			code: "xlsx_output_too_complex",
 		});
+	});
+
+	it("accepts repo-documented Markdown, SVG, and ZIP program output types", async () => {
+		for (const requestedType of ["md", "markdown", "text/markdown"]) {
+			await expect(
+				validateProgramOutputContract({
+					requestedOutputTypes: [requestedType],
+					programFilename: "notes.md",
+					files: [
+						{
+							filename: "notes.md",
+							mimeType: "text/markdown",
+							content: Buffer.from("# Notes\n"),
+						},
+					],
+				}),
+			).resolves.toEqual({ ok: true });
+		}
+
+		await expect(
+			validateProgramOutputContract({
+				requestedOutputTypes: ["svg"],
+				programFilename: "diagram.svg",
+				files: [
+					{
+						filename: "diagram.svg",
+						mimeType: "image/svg+xml",
+						content: Buffer.from("<svg></svg>"),
+					},
+				],
+			}),
+		).resolves.toEqual({ ok: true });
+
+		await expect(
+			validateProgramOutputContract({
+				requestedOutputTypes: ["zip"],
+				programFilename: "archive.zip",
+				files: [
+					{
+						filename: "archive.zip",
+						mimeType: "application/zip",
+						content: Buffer.from("zip bytes"),
+					},
+				],
+			}),
+		).resolves.toEqual({ ok: true });
+	});
+
+	it("accepts common Markdown, SVG, and ZIP MIME aliases on download validation", async () => {
+		await expect(
+			validateGeneratedOutputFile({
+				filename: "notes.markdown",
+				mimeType: "text/plain",
+				content: Buffer.from("# Notes\n"),
+			}),
+		).resolves.toEqual({ ok: true });
+		await expect(
+			validateGeneratedOutputFile({
+				filename: "diagram.svg",
+				mimeType: "text/xml",
+				content: Buffer.from("<svg></svg>"),
+			}),
+		).resolves.toEqual({ ok: true });
+		await expect(
+			validateGeneratedOutputFile({
+				filename: "archive.zip",
+				mimeType: "application/octet-stream",
+				content: Buffer.from("zip bytes"),
+			}),
+		).resolves.toEqual({ ok: true });
 	});
 });

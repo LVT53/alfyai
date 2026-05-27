@@ -4,9 +4,12 @@ import JSZip from "jszip";
 const EXTENSION_MIME_TYPES: Record<string, string[]> = {
 	".pdf": ["application/pdf"],
 	".txt": ["text/plain"],
+	".md": ["text/markdown", "text/plain"],
+	".markdown": ["text/markdown", "text/plain"],
 	".csv": ["text/csv", "text/plain"],
 	".html": ["text/html"],
 	".json": ["application/json", "text/json", "text/plain"],
+	".svg": ["image/svg+xml", "application/xml", "text/xml", "text/plain"],
 	".xlsx": [
 		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	],
@@ -17,7 +20,11 @@ const EXTENSION_MIME_TYPES: Record<string, string[]> = {
 		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
 	],
 	".odt": ["application/vnd.oasis.opendocument.text"],
-	".zip": ["application/zip", "application/x-zip-compressed"],
+	".zip": [
+		"application/zip",
+		"application/x-zip-compressed",
+		"application/octet-stream",
+	],
 };
 
 const OUTPUT_TYPE_EXTENSIONS: Record<string, string> = {
@@ -26,12 +33,17 @@ const OUTPUT_TYPE_EXTENSIONS: Record<string, string> = {
 	txt: ".txt",
 	text: ".txt",
 	"text/plain": ".txt",
+	md: ".md",
+	markdown: ".md",
+	"text/markdown": ".md",
 	csv: ".csv",
 	"text/csv": ".csv",
 	html: ".html",
 	"text/html": ".html",
 	json: ".json",
 	"application/json": ".json",
+	svg: ".svg",
+	"image/svg+xml": ".svg",
 	xlsx: ".xlsx",
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
 	docx: ".docx",

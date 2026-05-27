@@ -44,6 +44,7 @@ const MIME_TYPES: Record<string, string> = {
 	".css": "text/css",
 	".csv": "text/csv",
 	".json": "application/json",
+	".zip": "application/zip",
 	".txt": "text/plain",
 	".md": "text/markdown",
 	".xml": "application/xml",
