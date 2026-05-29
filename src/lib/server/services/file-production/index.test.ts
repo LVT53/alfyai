@@ -262,6 +262,328 @@ describe("file production service", () => {
 		});
 	});
 
+	it("accepts a parsed program-mode intake request and wakes queued work", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-program",
+				requestTitle: "CSV export",
+				sourceMode: "program",
+				documentIntent: "data_export",
+				requestedOutputs: [{ type: "csv" }],
+				program: {
+					language: "python",
+					sourceCode:
+						'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
+					filename: "data.csv",
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:20.000Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				title: "CSV export",
+				status: "queued",
+				files: [],
+			},
+		});
+		expect(wakeWorker).toHaveBeenCalledTimes(1);
+	});
+
+	it("accepts model-friendly document-source intake and stores normalized source", async () => {
+		const { db } = await import("$lib/server/db");
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-document-source",
+				requestTitle: "Our Chats - PDF Report",
+				sourceMode: "document_source",
+				documentIntent: "report",
+				requestedOutputs: [{ type: "pdf" }],
+				documentSource: {
+					version: 1,
+					template: "alfyai_standard_report",
+					title: "Our Chats: Interaction Analysis Report",
+					blocks: [
+						{ type: "heading", text: "Executive Summary" },
+						{
+							type: "paragraph",
+							text: "This report summarizes the conversation.",
+						},
+						{
+							type: "table",
+							title: "Key Chat Metrics",
+							headers: ["Metric", "Value"],
+							rows: [["Total Messages", "48"]],
+						},
+						{
+							type: "chart",
+							chartType: "bar",
+							title: "Topics Discussed by Message Count",
+							caption: "Breakdown of conversation volume across main topics.",
+							altText: "Bar chart showing message counts per topic",
+							data: {
+								labels: ["General", "Technical"],
+								datasets: [{ label: "Messages", data: [12, 15] }],
+							},
+						},
+					],
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:25.000Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: 202,
+			job: {
+				title: "Our Chats - PDF Report",
+				status: "queued",
+			},
+		});
+		if (!result.ok) throw new Error("Expected accepted document-source intake");
+		const [row] = await db
+			.select({ requestJson: schema.fileProductionJobs.requestJson })
+			.from(schema.fileProductionJobs)
+			.where(eq(schema.fileProductionJobs.id, result.job.id));
+		const requestJson = JSON.parse(row.requestJson ?? "{}");
+
+		expect(requestJson).toMatchObject({
+			sourceMode: "document_source",
+			outputs: [{ type: "pdf" }],
+			documentIntent: "report",
+			documentSource: {
+				version: 1,
+				template: "alfyai_standard_report",
+				blocks: expect.arrayContaining([
+					{ type: "heading", level: 2, text: "Executive Summary" },
+					expect.objectContaining({
+						type: "table",
+						columns: [
+							{ key: "metric", label: "Metric", kind: "text" },
+							{ key: "value", label: "Value", kind: "text" },
+						],
+						rows: [{ metric: "Total Messages", value: "48" }],
+					}),
+					expect.objectContaining({
+						type: "chart",
+						chartType: "bar",
+						xKey: "label",
+						yKey: "value",
+					}),
+				]),
+			},
+		});
+		expect(wakeWorker).toHaveBeenCalledTimes(1);
+	});
+
+	it("persists malformed program intake as a durable failed job", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-bad-program",
+				requestTitle: "Broken export",
+				sourceMode: "program",
+				outputs: [{ type: "csv" }],
+				program: {
+					language: "ruby",
+					sourceCode: 'puts "bad"',
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:26.000Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			status: 422,
+			code: "invalid_program_language",
+			error: "program.language must be python or javascript",
+			job: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				title: "Broken export",
+				status: "failed",
+				error: {
+					code: "invalid_program_language",
+					message: "program.language must be python or javascript",
+					retryable: false,
+				},
+			},
+		});
+		expect(wakeWorker).not.toHaveBeenCalled();
+	});
+
+	it("persists static limit failures during intake and logs the limit detail", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-too-many",
+				requestTitle: "Too many files",
+				sourceMode: "program",
+				outputs: [
+					{ type: "csv" },
+					{ type: "json" },
+					{ type: "txt" },
+					{ type: "xlsx" },
+					{ type: "html" },
+					{ type: "zip" },
+				],
+				program: {
+					language: "python",
+					sourceCode:
+						'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:27.000Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			status: 422,
+			code: "too_many_outputs",
+			error: "Too many outputs were requested.",
+			job: {
+				conversationId: "conv-1",
+				title: "Too many files",
+				status: "failed",
+				error: {
+					code: "too_many_outputs",
+					message: "Too many outputs were requested.",
+					retryable: false,
+				},
+			},
+		});
+		expect(wakeWorker).not.toHaveBeenCalled();
+		expect(warnSpy).toHaveBeenCalledWith(
+			"[FILE_PRODUCTION] Static limit failed",
+			expect.objectContaining({
+				code: "too_many_outputs",
+				limit: 5,
+				actual: 6,
+				unit: "outputs",
+			}),
+		);
+		warnSpy.mockRestore();
+	});
+
+	it("persists malformed document-source intake as a durable failed job", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-bad-document-source",
+				requestTitle: "Unsafe report",
+				sourceMode: "document_source",
+				outputs: [{ type: "pdf" }],
+				documentSource: {
+					version: 1,
+					template: "alfyai_standard_report",
+					title: "Unsafe report",
+					blocks: [{ type: "rawHtml", html: "<script>alert(1)</script>" }],
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:28.000Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			status: 422,
+			code: "unsupported_document_block",
+			error: "Generated document source contains an unsupported block.",
+			job: {
+				conversationId: "conv-1",
+				title: "Unsafe report",
+				status: "failed",
+				error: {
+					code: "unsupported_document_block",
+					message: "Generated document source contains an unsupported block.",
+					retryable: false,
+				},
+			},
+		});
+		expect(wakeWorker).not.toHaveBeenCalled();
+	});
+
+	it("reuses one failed intake job for the same idempotency key", async () => {
+		const { db } = await import("$lib/server/db");
+		const { submitFileProductionIntake } = await import("./index");
+		const body = {
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			idempotencyKey: "turn-1:intake-failed-reuse",
+			requestTitle: "Broken export",
+			sourceMode: "program",
+			outputs: [{ type: "csv" }],
+			program: {
+				language: "ruby",
+				sourceCode: 'puts "bad"',
+			},
+		};
+
+		const first = await submitFileProductionIntake({
+			userId: "user-1",
+			body,
+			wakeWorker: vi.fn(),
+			now: new Date("2026-05-03T19:31:29.000Z"),
+		});
+		const second = await submitFileProductionIntake({
+			userId: "user-1",
+			body: { ...body, requestTitle: "Duplicate broken export" },
+			wakeWorker: vi.fn(),
+			now: new Date("2026-05-03T19:31:30.000Z"),
+		});
+		const rows = await db
+			.select()
+			.from(schema.fileProductionJobs)
+			.where(eq(schema.fileProductionJobs.idempotencyKey, body.idempotencyKey));
+
+		expect(first.ok).toBe(false);
+		expect(second.ok).toBe(false);
+		expect(first.job?.id).toBe(second.job?.id);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			title: "Broken export",
+			status: "failed",
+			errorCode: "invalid_program_language",
+		});
+	});
+
 	it("assigns newly produced jobs and linked files to the assistant message after stream completion", async () => {
 		const { db } = await import("$lib/server/db");
 		const { assignFileProductionJobsToAssistantMessage } = await import(

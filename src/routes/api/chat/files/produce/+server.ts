@@ -1,209 +1,27 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { verifyFileProductionServiceAssertion } from '$lib/server/auth/hooks';
-import { getConversation, getConversationUserId } from '$lib/server/services/conversations';
+import { json } from "@sveltejs/kit";
+import { verifyFileProductionServiceAssertion } from "$lib/server/auth/hooks";
 import {
-	createFailedFileProductionJob,
-	createOrReuseFileProductionJob,
-	wakeFileProductionWorker,
-} from '$lib/server/services/file-production';
-import { validateFileProductionStaticLimits } from '$lib/server/services/file-production/limits';
-import { validateGeneratedDocumentSource } from '$lib/server/services/file-production/source-schema';
+	getConversation,
+	getConversationUserId,
+} from "$lib/server/services/conversations";
+import {
+	type FileProductionIntakeResult,
+	getFileProductionIntakeConversationId,
+	submitFileProductionIntake,
+} from "$lib/server/services/file-production";
+import type { RequestHandler } from "./$types";
 
-type ProduceProgramLanguage = 'python' | 'javascript';
-
-interface ProduceProgramRequest {
-	conversationId: string;
-	assistantMessageId?: string | null;
-	idempotencyKey: string;
-	requestTitle: string;
-	sourceMode: 'program' | 'document_source';
-	requestedOutputs?: Array<{ type: string }>;
-	outputs?: Array<{ type: string }>;
-	documentIntent?: string | null;
-	templateHint?: string | null;
-	program?: {
-		language: ProduceProgramLanguage;
-		sourceCode: string;
-		filename?: string;
-	};
-	documentSource?: unknown;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null;
-}
-
-function validateProgramRequest(
-	body: unknown
-):
-	| { ok: true; value: ProduceProgramRequest }
-	| { ok: false; error: string; code: string; status: number } {
-	if (!isRecord(body)) {
-		return { ok: false, error: 'JSON body is required', code: 'invalid_json_body', status: 400 };
-	}
-	const conversationId = typeof body.conversationId === 'string' ? body.conversationId.trim() : '';
-	const idempotencyKey =
-		typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
-	const requestTitle = typeof body.requestTitle === 'string' ? body.requestTitle.trim() : '';
-	const sourceMode = body.sourceMode;
-	const program = isRecord(body.program) ? body.program : null;
-	const language = program && typeof program.language === 'string' ? program.language.trim() : '';
-	const sourceCode =
-		program && typeof program.sourceCode === 'string' ? program.sourceCode.trim() : '';
-
-	if (!conversationId) {
-		return { ok: false, error: 'conversationId is required', code: 'missing_conversation_id', status: 400 };
-	}
-	if (!idempotencyKey) {
-		return { ok: false, error: 'idempotencyKey is required', code: 'missing_idempotency_key', status: 400 };
-	}
-	if (!requestTitle) {
-		return { ok: false, error: 'requestTitle is required', code: 'missing_request_title', status: 400 };
-	}
-	if (sourceMode !== 'program' && sourceMode !== 'document_source') {
-		return { ok: false, error: 'sourceMode must be program or document_source', code: 'unsupported_source_mode', status: 422 };
-	}
-
-	const requestedOutputsRaw = Array.isArray(body.requestedOutputs)
-		? body.requestedOutputs
-		: Array.isArray(body.outputs)
-			? body.outputs
-			: [];
-
-	if (sourceMode === 'document_source') {
-		const documentValidation = validateGeneratedDocumentSource(body.documentSource);
-		if (!documentValidation.ok) {
-			return {
-				ok: false,
-				error: documentValidation.message,
-				code: documentValidation.code,
-				status: 422,
-			};
-		}
-
-		return {
-			ok: true,
-			value: {
-				conversationId,
-				assistantMessageId:
-					typeof body.assistantMessageId === 'string' && body.assistantMessageId.trim()
-						? body.assistantMessageId.trim()
-						: null,
-				idempotencyKey,
-				requestTitle,
-				sourceMode: 'document_source',
-				outputs: requestedOutputsRaw
-					.filter((output): output is Record<string, unknown> => isRecord(output))
-					.map((output) => ({
-						type: typeof output.type === 'string' ? output.type.trim() : 'file',
-					})),
-				documentIntent:
-					typeof body.documentIntent === 'string' && body.documentIntent.trim()
-						? body.documentIntent.trim()
-						: null,
-				templateHint:
-					typeof body.templateHint === 'string' && body.templateHint.trim()
-						? body.templateHint.trim()
-						: null,
-				documentSource: documentValidation.source,
-			},
-		};
-	}
-
-	if (language !== 'python' && language !== 'javascript') {
-		return {
-			ok: false,
-			error: 'program.language must be python or javascript',
-			code: 'invalid_program_language',
-			status: 422,
-		};
-	}
-	if (!sourceCode) {
-		return { ok: false, error: 'program.sourceCode is required', code: 'missing_program_source', status: 422 };
-	}
-
-	return {
-		ok: true,
-		value: {
-			conversationId,
-			assistantMessageId:
-				typeof body.assistantMessageId === 'string' && body.assistantMessageId.trim()
-					? body.assistantMessageId.trim()
-					: null,
-			idempotencyKey,
-			requestTitle,
-			sourceMode: 'program',
-			outputs: requestedOutputsRaw
-				.filter((output): output is Record<string, unknown> => isRecord(output))
-				.map((output) => ({
-					type: typeof output.type === 'string' ? output.type.trim() : 'file',
-				})),
-			documentIntent:
-				typeof body.documentIntent === 'string' && body.documentIntent.trim()
-					? body.documentIntent.trim()
-					: null,
-			templateHint:
-				typeof body.templateHint === 'string' && body.templateHint.trim()
-					? body.templateHint.trim()
-					: null,
-			program: {
-				language: language as ProduceProgramLanguage,
-				sourceCode,
-				filename:
-					program && typeof program.filename === 'string' && program.filename.trim()
-						? program.filename.trim()
-						: undefined,
-			},
-		},
-	};
-}
-
-function extractFailureDraft(body: unknown) {
-	if (!isRecord(body)) return null;
-	const conversationId = typeof body.conversationId === 'string' ? body.conversationId.trim() : '';
-	const idempotencyKey =
-		typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
-	const requestTitle = typeof body.requestTitle === 'string' ? body.requestTitle.trim() : '';
-	if (!conversationId || !idempotencyKey || !requestTitle) return null;
-
-	return {
-		conversationId,
-		assistantMessageId:
-			typeof body.assistantMessageId === 'string' && body.assistantMessageId.trim()
-				? body.assistantMessageId.trim()
-				: null,
-		idempotencyKey,
-		requestTitle,
-		sourceMode: typeof body.sourceMode === 'string' && body.sourceMode.trim()
-			? body.sourceMode.trim()
-			: 'unknown',
-		documentIntent:
-			typeof body.documentIntent === 'string' && body.documentIntent.trim()
-				? body.documentIntent.trim()
-				: null,
-		requestJson: isRecord(body)
-			? {
-					sourceMode: typeof body.sourceMode === 'string' ? body.sourceMode : null,
-					outputs: Array.isArray(body.requestedOutputs)
-						? body.requestedOutputs
-						: Array.isArray(body.outputs)
-							? body.outputs
-							: [],
-					documentIntent: typeof body.documentIntent === 'string' ? body.documentIntent : null,
-					templateHint: typeof body.templateHint === 'string' ? body.templateHint : null,
-					program: isRecord(body.program) ? body.program : null,
-					documentSource: isRecord(body.documentSource) ? body.documentSource : null,
-				}
-			: null,
-	};
-}
-
-async function resolveOwnerUserId(event: Parameters<RequestHandler>[0], conversationId: string) {
+async function resolveOwnerUserId(
+	event: Parameters<RequestHandler>[0],
+	conversationId: string,
+) {
 	const user = event.locals.user ?? null;
 
-	if (!user && !event.request.headers.get('authorization')) {
-		return { ok: false as const, response: json({ error: 'Unauthorized' }, { status: 401 }) };
+	if (!user && !event.request.headers.get("authorization")) {
+		return {
+			ok: false as const,
+			response: json({ error: "Unauthorized" }, { status: 401 }),
+		};
 	}
 
 	if (user) {
@@ -211,26 +29,50 @@ async function resolveOwnerUserId(event: Parameters<RequestHandler>[0], conversa
 		if (!conversation) {
 			return {
 				ok: false as const,
-				response: json({ error: 'Conversation not found' }, { status: 404 }),
+				response: json({ error: "Conversation not found" }, { status: 404 }),
 			};
 		}
 		return { ok: true as const, userId: user.id };
 	}
 
 	const serviceAssertion = verifyFileProductionServiceAssertion(
-		event.request.headers.get('authorization')
+		event.request.headers.get("authorization"),
 	);
-	if (!serviceAssertion?.valid || serviceAssertion.claims.conversationId !== conversationId) {
-		return { ok: false as const, response: json({ error: 'Unauthorized' }, { status: 401 }) };
+	if (
+		!serviceAssertion?.valid ||
+		serviceAssertion.claims.conversationId !== conversationId
+	) {
+		return {
+			ok: false as const,
+			response: json({ error: "Unauthorized" }, { status: 401 }),
+		};
 	}
 	const conversationUserId = await getConversationUserId(conversationId);
 	if (!conversationUserId) {
 		return {
 			ok: false as const,
-			response: json({ error: 'Conversation not found' }, { status: 404 }),
+			response: json({ error: "Conversation not found" }, { status: 404 }),
 		};
 	}
 	return { ok: true as const, userId: conversationUserId };
+}
+
+function intakeResultResponse(result: FileProductionIntakeResult) {
+	if (result.ok) {
+		return json(
+			{ job: result.job, reused: result.reused },
+			{ status: result.status },
+		);
+	}
+
+	if (result.job) {
+		return json(
+			{ error: result.error, job: result.job },
+			{ status: result.status },
+		);
+	}
+
+	return json({ error: result.error }, { status: result.status });
 }
 
 export const POST: RequestHandler = async (event) => {
@@ -238,89 +80,24 @@ export const POST: RequestHandler = async (event) => {
 	try {
 		body = await event.request.json();
 	} catch {
-		return json({ error: 'Invalid JSON body' }, { status: 400 });
+		return json({ error: "Invalid JSON body" }, { status: 400 });
 	}
 
-	const validation = validateProgramRequest(body);
-	if (!validation.ok) {
-		const failureDraft = extractFailureDraft(body);
-		if (failureDraft && validation.status >= 422) {
-			const owner = await resolveOwnerUserId(event, failureDraft.conversationId);
-			if (!owner.ok) return owner.response;
-			const job = await createFailedFileProductionJob({
-				userId: owner.userId,
-				conversationId: failureDraft.conversationId,
-				assistantMessageId: failureDraft.assistantMessageId,
-				title: failureDraft.requestTitle,
-				origin: 'unified_produce',
-				idempotencyKey: failureDraft.idempotencyKey,
-				sourceMode: failureDraft.sourceMode,
-				documentIntent: failureDraft.documentIntent,
-				requestJson: failureDraft.requestJson,
-				errorCode: validation.code,
-				errorMessage: validation.error,
-				retryable: false,
-			});
-			return json({ error: validation.error, job }, { status: validation.status });
-		}
-		return json({ error: validation.error }, { status: validation.status });
+	const conversationId = getFileProductionIntakeConversationId(body);
+	if (!conversationId.ok) {
+		return json(
+			{ error: conversationId.error },
+			{ status: conversationId.status },
+		);
 	}
 
-	const request = validation.value;
-	const owner = await resolveOwnerUserId(event, request.conversationId);
+	const owner = await resolveOwnerUserId(event, conversationId.conversationId);
 	if (!owner.ok) return owner.response;
-	const requestJson = {
-		sourceMode: request.sourceMode,
-		outputs: request.outputs ?? [],
-		documentIntent: request.documentIntent ?? null,
-		templateHint: request.templateHint ?? null,
-		program: request.program ?? null,
-		documentSource: request.documentSource ?? null,
-	};
-	const staticLimit = validateFileProductionStaticLimits({
-		outputCount: request.outputs?.length ?? 0,
-		sourceJsonBytes: Buffer.byteLength(JSON.stringify(requestJson), 'utf8'),
-	});
-	if (!staticLimit.ok) {
-		const job = await createFailedFileProductionJob({
+
+	return intakeResultResponse(
+		await submitFileProductionIntake({
 			userId: owner.userId,
-			conversationId: request.conversationId,
-			assistantMessageId: request.assistantMessageId ?? null,
-			title: request.requestTitle,
-			origin: 'unified_produce',
-			idempotencyKey: request.idempotencyKey,
-			sourceMode: request.sourceMode,
-			documentIntent: request.documentIntent ?? null,
-			requestJson,
-			errorCode: staticLimit.code,
-			errorMessage: staticLimit.message,
-			retryable: staticLimit.retryable,
-		});
-		console.warn('[FILE_PRODUCTION] Static limit failed', {
-			jobId: job.id,
-			code: staticLimit.code,
-			limit: staticLimit.limit,
-			actual: staticLimit.actual,
-			unit: staticLimit.unit,
-		});
-		return json({ error: staticLimit.message, job }, { status: 422 });
-	}
-
-	const result = await createOrReuseFileProductionJob({
-		userId: owner.userId,
-		conversationId: request.conversationId,
-		assistantMessageId: request.assistantMessageId ?? null,
-		title: request.requestTitle,
-		origin: 'unified_produce',
-		idempotencyKey: request.idempotencyKey,
-		sourceMode: request.sourceMode,
-		documentIntent: request.documentIntent ?? null,
-		requestJson,
-	});
-
-	if (result.job.status === 'queued' || result.job.status === 'running') {
-		await wakeFileProductionWorker();
-	}
-
-	return json({ job: result.job, reused: result.reused }, { status: 202 });
+			body,
+		}),
+	);
 };

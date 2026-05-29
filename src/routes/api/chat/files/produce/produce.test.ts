@@ -1,361 +1,290 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock('$lib/server/services/conversations', () => ({
+vi.mock("$lib/server/services/conversations", () => ({
 	getConversation: vi.fn(),
 	getConversationUserId: vi.fn(),
 }));
 
-vi.mock('$lib/server/services/file-production', () => ({
-	createFailedFileProductionJob: vi.fn(),
-	createOrReuseFileProductionJob: vi.fn(),
-	wakeFileProductionWorker: vi.fn(),
+vi.mock("$lib/server/services/file-production", () => ({
+	getFileProductionIntakeConversationId: vi.fn(),
+	submitFileProductionIntake: vi.fn(),
 }));
 
-vi.mock('$lib/server/auth/hooks', () => ({
+vi.mock("$lib/server/auth/hooks", () => ({
 	verifyFileProductionServiceAssertion: vi.fn(),
 }));
 
-import { POST } from './+server';
-import { getConversation } from '$lib/server/services/conversations';
+import { verifyFileProductionServiceAssertion } from "$lib/server/auth/hooks";
 import {
-	createFailedFileProductionJob,
-	createOrReuseFileProductionJob,
-	wakeFileProductionWorker,
-} from '$lib/server/services/file-production';
+	getConversation,
+	getConversationUserId,
+} from "$lib/server/services/conversations";
+import {
+	getFileProductionIntakeConversationId,
+	submitFileProductionIntake,
+} from "$lib/server/services/file-production";
+import { POST } from "./+server";
+
+type ProduceRouteEvent = Parameters<typeof POST>[0];
 
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
-const mockCreateOrReuseFileProductionJob =
-	createOrReuseFileProductionJob as ReturnType<typeof vi.fn>;
-const mockCreateFailedFileProductionJob =
-	createFailedFileProductionJob as ReturnType<typeof vi.fn>;
-const mockWakeFileProductionWorker = wakeFileProductionWorker as ReturnType<typeof vi.fn>;
+const mockGetConversationUserId = getConversationUserId as ReturnType<
+	typeof vi.fn
+>;
+const mockGetFileProductionIntakeConversationId =
+	getFileProductionIntakeConversationId as ReturnType<typeof vi.fn>;
+const mockSubmitFileProductionIntake = submitFileProductionIntake as ReturnType<
+	typeof vi.fn
+>;
+const mockVerifyFileProductionServiceAssertion =
+	verifyFileProductionServiceAssertion as ReturnType<typeof vi.fn>;
 
-function makeEvent(body: unknown, user: { id: string } | null = { id: 'user-1' }) {
+const queuedJob = {
+	id: "job-1",
+	conversationId: "conv-1",
+	assistantMessageId: null,
+	title: "CSV export",
+	status: "queued",
+	stage: null,
+	createdAt: 1,
+	updatedAt: 1,
+	files: [],
+	warnings: [],
+	error: null,
+};
+
+function makeEvent(
+	body: unknown,
+	user: { id: string } | null = { id: "user-1" },
+	headers: Record<string, string> = {},
+) {
 	return {
-		request: new Request('http://localhost/api/chat/files/produce', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+		request: new Request("http://localhost/api/chat/files/produce", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", ...headers },
 			body: JSON.stringify(body),
 		}),
 		locals: { user },
 		params: {},
-		url: new URL('http://localhost/api/chat/files/produce'),
-		route: { id: '/api/chat/files/produce' },
-	} as any;
+		url: new URL("http://localhost/api/chat/files/produce"),
+		route: { id: "/api/chat/files/produce" },
+	} as unknown as ProduceRouteEvent;
 }
 
-describe('POST /api/chat/files/produce', () => {
+function makeInvalidJsonEvent(user: { id: string } | null = { id: "user-1" }) {
+	return {
+		request: new Request("http://localhost/api/chat/files/produce", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: "{",
+		}),
+		locals: { user },
+		params: {},
+		url: new URL("http://localhost/api/chat/files/produce"),
+		route: { id: "/api/chat/files/produce" },
+	} as unknown as ProduceRouteEvent;
+}
+
+describe("POST /api/chat/files/produce", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockGetFileProductionIntakeConversationId.mockReturnValue({
+			ok: true,
+			conversationId: "conv-1",
+		});
 		mockGetConversation.mockResolvedValue({
-			id: 'conv-1',
-			title: 'Files',
+			id: "conv-1",
+			title: "Files",
 			createdAt: 1,
 			updatedAt: 1,
 		});
-		mockCreateOrReuseFileProductionJob.mockResolvedValue({
+		mockGetConversationUserId.mockResolvedValue("user-1");
+		mockSubmitFileProductionIntake.mockResolvedValue({
+			ok: true,
+			status: 202,
 			reused: false,
-			job: {
-				id: 'job-1',
-				conversationId: 'conv-1',
-				assistantMessageId: null,
-				title: 'CSV export',
-				status: 'queued',
-				stage: null,
-				createdAt: 1,
-				updatedAt: 1,
-				files: [],
-				warnings: [],
-				error: null,
-			},
+			job: queuedJob,
 		});
-		mockCreateFailedFileProductionJob.mockResolvedValue({
-			id: 'job-failed',
-			conversationId: 'conv-1',
-			assistantMessageId: null,
-			title: 'Broken export',
-			status: 'failed',
-			stage: null,
-			createdAt: 1,
-			updatedAt: 1,
-			files: [],
-			warnings: [],
+		mockVerifyFileProductionServiceAssertion.mockReturnValue(null);
+	});
+
+	it("returns 400 for unreadable JSON without calling intake", async () => {
+		const response = await POST(makeInvalidJsonEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(400);
+		expect(data).toEqual({ error: "Invalid JSON body" });
+		expect(mockGetFileProductionIntakeConversationId).not.toHaveBeenCalled();
+		expect(mockSubmitFileProductionIntake).not.toHaveBeenCalled();
+	});
+
+	it("translates intake conversation-id parsing failures", async () => {
+		mockGetFileProductionIntakeConversationId.mockReturnValueOnce({
+			ok: false,
+			status: 400,
+			code: "missing_conversation_id",
+			error: "conversationId is required",
+		});
+
+		const response = await POST(makeEvent({ requestTitle: "CSV export" }));
+		const data = await response.json();
+
+		expect(response.status).toBe(400);
+		expect(data).toEqual({ error: "conversationId is required" });
+		expect(mockGetConversation).not.toHaveBeenCalled();
+		expect(mockSubmitFileProductionIntake).not.toHaveBeenCalled();
+	});
+
+	it("delegates accepted signed-in requests to file-production intake", async () => {
+		const body = {
+			conversationId: "conv-1",
+			idempotencyKey: "turn-1:file-1",
+			requestTitle: "CSV export",
+			sourceMode: "program",
+			outputs: [{ type: "csv" }],
+			program: {
+				language: "python",
+				sourceCode:
+					'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
+			},
+		};
+
+		const response = await POST(makeEvent(body));
+		const data = await response.json();
+
+		expect(response.status).toBe(202);
+		expect(mockGetFileProductionIntakeConversationId).toHaveBeenCalledWith(
+			body,
+		);
+		expect(mockGetConversation).toHaveBeenCalledWith("user-1", "conv-1");
+		expect(mockSubmitFileProductionIntake).toHaveBeenCalledWith({
+			userId: "user-1",
+			body,
+		});
+		expect(data).toEqual({
+			job: queuedJob,
+			reused: false,
+		});
+	});
+
+	it("translates durable intake failures without route-local validation", async () => {
+		const failedJob = {
+			...queuedJob,
+			id: "job-failed",
+			title: "Broken export",
+			status: "failed",
 			error: {
-				code: 'invalid_program_language',
-				message: 'program.language must be python or javascript',
+				code: "invalid_program_language",
+				message: "program.language must be python or javascript",
 				retryable: false,
 			},
+		};
+		mockSubmitFileProductionIntake.mockResolvedValueOnce({
+			ok: false,
+			status: 422,
+			code: "invalid_program_language",
+			error: "program.language must be python or javascript",
+			job: failedJob,
 		});
-		mockWakeFileProductionWorker.mockResolvedValue(undefined);
-	});
 
-	it('creates a durable queued program-mode job and wakes the worker', async () => {
 		const response = await POST(
 			makeEvent({
-				conversationId: 'conv-1',
-				idempotencyKey: 'turn-1:file-1',
-				requestTitle: 'CSV export',
-				sourceMode: 'program',
-				documentIntent: 'data_export',
-				templateHint: 'compact',
-				outputs: [{ type: 'csv' }],
+				conversationId: "conv-1",
+				idempotencyKey: "turn-1:bad-file",
+				requestTitle: "Broken export",
+				sourceMode: "program",
 				program: {
-					language: 'python',
-					sourceCode: 'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
-					filename: 'data.csv',
-				},
-			})
-		);
-		const data = await response.json();
-
-		expect(response.status).toBe(202);
-		expect(mockGetConversation).toHaveBeenCalledWith('user-1', 'conv-1');
-		expect(mockCreateOrReuseFileProductionJob).toHaveBeenCalledWith(
-			expect.objectContaining({
-				userId: 'user-1',
-				conversationId: 'conv-1',
-				assistantMessageId: null,
-				title: 'CSV export',
-				idempotencyKey: 'turn-1:file-1',
-				sourceMode: 'program',
-				documentIntent: 'data_export',
-				requestJson: expect.objectContaining({
-					sourceMode: 'program',
-					documentIntent: 'data_export',
-					templateHint: 'compact',
-					program: expect.objectContaining({
-						language: 'python',
-						filename: 'data.csv',
-					}),
-				}),
-			})
-		);
-		expect(mockWakeFileProductionWorker).toHaveBeenCalledTimes(1);
-		expect(data).toEqual({
-			job: expect.objectContaining({ id: 'job-1', status: 'queued' }),
-			reused: false,
-		});
-	});
-
-	it('accepts model-friendly document-source reports with omitted heading levels', async () => {
-		const response = await POST(
-			makeEvent({
-				conversationId: 'conv-1',
-				idempotencyKey: 'turn-1:our-chats-report',
-				requestTitle: 'Our Chats - PDF Report',
-				sourceMode: 'document_source',
-				documentIntent: 'report',
-				requestedOutputs: [{ type: 'pdf' }],
-				documentSource: {
-					version: 1,
-					template: 'alfyai_standard_report',
-					title: 'Our Chats: Interaction Analysis Report',
-					blocks: [
-						{ type: 'heading', text: 'Executive Summary' },
-						{ type: 'paragraph', text: 'This report summarizes the recent conversation.' },
-						{ type: 'heading', text: 'Session Metrics Overview' },
-						{
-							type: 'table',
-							title: 'Key Chat Metrics',
-							headers: ['Metric', 'Value', 'Benchmark', 'Status'],
-							rows: [
-								['Total Messages', '48', '40', 'Above'],
-								['Avg Response Time', '1.2s', '2.0s', 'Better'],
-								['Topics Covered', '6', '5', 'Above'],
-							],
-						},
-						{ type: 'heading', text: 'Topic Distribution' },
-						{
-							type: 'chart',
-							chartType: 'bar',
-							title: 'Topics Discussed by Message Count',
-							caption: 'Breakdown of conversation volume across main topics.',
-							altText: 'Bar chart showing message counts per topic',
-							data: {
-								labels: ['General', 'Technical', 'Files', 'Research', 'Feedback'],
-								datasets: [{ label: 'Messages', data: [12, 15, 8, 7, 6] }],
-							},
-						},
-					],
-				},
-			})
-		);
-		const data = await response.json();
-
-		expect(response.status).toBe(202);
-		expect(mockCreateOrReuseFileProductionJob).toHaveBeenCalledWith(
-			expect.objectContaining({
-				sourceMode: 'document_source',
-				documentIntent: 'report',
-				requestJson: expect.objectContaining({
-					outputs: [{ type: 'pdf' }],
-					documentSource: expect.objectContaining({
-						version: 1,
-						template: 'alfyai_standard_report',
-						blocks: expect.arrayContaining([
-							{ type: 'heading', level: 2, text: 'Executive Summary' },
-							{ type: 'heading', level: 2, text: 'Session Metrics Overview' },
-							{ type: 'heading', level: 2, text: 'Topic Distribution' },
-							expect.objectContaining({ type: 'table' }),
-							expect.objectContaining({
-								type: 'chart',
-								chartType: 'bar',
-								xKey: 'label',
-								yKey: 'value',
-							}),
-						]),
-					}),
-				}),
-			})
-		);
-		expect(mockWakeFileProductionWorker).toHaveBeenCalledTimes(1);
-		expect(data.job).toMatchObject({ id: 'job-1', status: 'queued' });
-	});
-
-	it('persists source validation failures as failed jobs without waking the worker', async () => {
-		const response = await POST(
-			makeEvent({
-				conversationId: 'conv-1',
-				idempotencyKey: 'turn-1:bad-file',
-				requestTitle: 'Broken export',
-				sourceMode: 'program',
-				outputs: [{ type: 'csv' }],
-				program: {
-					language: 'ruby',
+					language: "ruby",
 					sourceCode: 'puts "bad"',
 				},
-			})
+			}),
 		);
 		const data = await response.json();
 
 		expect(response.status).toBe(422);
-		expect(mockGetConversation).toHaveBeenCalledWith('user-1', 'conv-1');
-		expect(mockCreateFailedFileProductionJob).toHaveBeenCalledWith(
-			expect.objectContaining({
-				userId: 'user-1',
-				conversationId: 'conv-1',
-				title: 'Broken export',
-				idempotencyKey: 'turn-1:bad-file',
-				sourceMode: 'program',
-				errorCode: 'invalid_program_language',
-				errorMessage: 'program.language must be python or javascript',
-				requestJson: expect.objectContaining({
-					sourceMode: 'program',
-				}),
-			})
-		);
-		expect(mockWakeFileProductionWorker).not.toHaveBeenCalled();
-		expect(data.job).toMatchObject({
-			id: 'job-failed',
-			status: 'failed',
+		expect(data).toEqual({
+			error: "program.language must be python or javascript",
+			job: failedJob,
 		});
 	});
 
-	it('persists static limit failures before creating or running a queued job', async () => {
-		mockCreateFailedFileProductionJob.mockResolvedValueOnce({
-			id: 'job-limit',
-			conversationId: 'conv-1',
-			assistantMessageId: null,
-			title: 'Too many files',
-			status: 'failed',
-			stage: null,
-			createdAt: 1,
-			updatedAt: 1,
-			files: [],
-			warnings: [],
-			error: {
-				code: 'too_many_outputs',
-				message: 'Too many outputs were requested.',
-				retryable: false,
+	it("returns 401 when neither a user nor service assertion is present", async () => {
+		const response = await POST(makeEvent({ conversationId: "conv-1" }, null));
+		const data = await response.json();
+
+		expect(response.status).toBe(401);
+		expect(data).toEqual({ error: "Unauthorized" });
+		expect(mockSubmitFileProductionIntake).not.toHaveBeenCalled();
+	});
+
+	it("returns 404 when the signed-in user does not own the conversation", async () => {
+		mockGetConversation.mockResolvedValueOnce(null);
+
+		const response = await POST(makeEvent({ conversationId: "conv-1" }));
+		const data = await response.json();
+
+		expect(response.status).toBe(404);
+		expect(data).toEqual({ error: "Conversation not found" });
+		expect(mockSubmitFileProductionIntake).not.toHaveBeenCalled();
+	});
+
+	it("accepts a valid conversation-scoped service assertion", async () => {
+		mockVerifyFileProductionServiceAssertion.mockReturnValueOnce({
+			valid: true,
+			claims: {
+				conversationId: "conv-1",
+			},
+		});
+		const body = {
+			conversationId: "conv-1",
+			idempotencyKey: "turn-1:file-1",
+			requestTitle: "CSV export",
+			sourceMode: "program",
+			outputs: [{ type: "csv" }],
+			program: {
+				language: "python",
+				sourceCode:
+					'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
+			},
+		};
+
+		const response = await POST(
+			makeEvent(body, null, { authorization: "Bearer service-token" }),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(202);
+		expect(mockVerifyFileProductionServiceAssertion).toHaveBeenCalledWith(
+			"Bearer service-token",
+		);
+		expect(mockGetConversationUserId).toHaveBeenCalledWith("conv-1");
+		expect(mockSubmitFileProductionIntake).toHaveBeenCalledWith({
+			userId: "user-1",
+			body,
+		});
+		expect(data).toEqual({
+			job: queuedJob,
+			reused: false,
+		});
+	});
+
+	it("rejects service assertions scoped to another conversation", async () => {
+		mockVerifyFileProductionServiceAssertion.mockReturnValueOnce({
+			valid: true,
+			claims: {
+				conversationId: "other-conv",
 			},
 		});
 
 		const response = await POST(
-			makeEvent({
-				conversationId: 'conv-1',
-				idempotencyKey: 'turn-1:too-many',
-				requestTitle: 'Too many files',
-				sourceMode: 'program',
-				outputs: [
-					{ type: 'csv' },
-					{ type: 'json' },
-					{ type: 'txt' },
-					{ type: 'xlsx' },
-					{ type: 'html' },
-					{ type: 'zip' },
-				],
-				program: {
-					language: 'python',
-					sourceCode: 'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
-				},
-			})
+			makeEvent({ conversationId: "conv-1" }, null, {
+				authorization: "Bearer service-token",
+			}),
 		);
 		const data = await response.json();
 
-		expect(response.status).toBe(422);
-		expect(mockCreateOrReuseFileProductionJob).not.toHaveBeenCalled();
-		expect(mockCreateFailedFileProductionJob).toHaveBeenCalledWith(
-			expect.objectContaining({
-				errorCode: 'too_many_outputs',
-				errorMessage: 'Too many outputs were requested.',
-				retryable: false,
-			})
-		);
-		expect(mockWakeFileProductionWorker).not.toHaveBeenCalled();
-		expect(data.job).toMatchObject({
-			id: 'job-limit',
-			status: 'failed',
-		});
-	});
-
-	it('persists malformed document-source requests as failed jobs before renderer work', async () => {
-		mockCreateFailedFileProductionJob.mockResolvedValueOnce({
-			id: 'job-document-source-failed',
-			conversationId: 'conv-1',
-			assistantMessageId: null,
-			title: 'Unsafe report',
-			status: 'failed',
-			stage: null,
-			createdAt: 1,
-			updatedAt: 1,
-			files: [],
-			warnings: [],
-			error: {
-				code: 'unsupported_document_block',
-				message: 'Generated document source contains an unsupported block.',
-				retryable: false,
-			},
-		});
-
-		const response = await POST(
-			makeEvent({
-				conversationId: 'conv-1',
-				idempotencyKey: 'turn-1:unsafe-doc',
-				requestTitle: 'Unsafe report',
-				sourceMode: 'document_source',
-				outputs: [{ type: 'pdf' }],
-				documentSource: {
-					version: 1,
-					template: 'alfyai_standard_report',
-					title: 'Unsafe report',
-					blocks: [{ type: 'rawHtml', html: '<script>alert(1)</script>' }],
-				},
-			})
-		);
-		const data = await response.json();
-
-		expect(response.status).toBe(422);
-		expect(mockCreateFailedFileProductionJob).toHaveBeenCalledWith(
-			expect.objectContaining({
-				sourceMode: 'document_source',
-				errorCode: 'unsupported_document_block',
-				errorMessage: 'Generated document source contains an unsupported block.',
-			})
-		);
-		expect(mockWakeFileProductionWorker).not.toHaveBeenCalled();
-		expect(data.job).toMatchObject({
-			id: 'job-document-source-failed',
-			status: 'failed',
-		});
+		expect(response.status).toBe(401);
+		expect(data).toEqual({ error: "Unauthorized" });
+		expect(mockSubmitFileProductionIntake).not.toHaveBeenCalled();
 	});
 });

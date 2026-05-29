@@ -104,4 +104,23 @@ describe("obsolete file-generation surfaces", () => {
 			"Generated files appear in the chat UI after the response finishes.",
 		);
 	});
+
+	it("keeps produce route intake behind the file-production boundary", () => {
+		const source = readFileSync(
+			join(root, "src/routes/api/chat/files/produce/+server.ts"),
+			"utf8",
+		);
+
+		expect(source).toContain("submitFileProductionIntake");
+		expect(source).toContain("getFileProductionIntakeConversationId");
+		expect(source).not.toContain("validateProgramRequest");
+		expect(source).not.toContain("extractFailureDraft");
+		expect(source).not.toContain("validateFileProductionStaticLimits");
+		expect(source).not.toContain("validateGeneratedDocumentSource");
+		expect(source).not.toContain("createFailedFileProductionJob");
+		expect(source).not.toContain("createOrReuseFileProductionJob");
+		expect(source).not.toContain("wakeFileProductionWorker");
+		expect(source).not.toContain("file-production/limits");
+		expect(source).not.toContain("file-production/source-schema");
+	});
 });

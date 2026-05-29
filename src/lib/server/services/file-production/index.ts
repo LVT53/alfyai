@@ -19,6 +19,11 @@ import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-
 import type { FileProductionJob } from "$lib/types";
 import { createDefaultGeneratedDocumentImageLoader } from "./image-loader";
 import {
+	type FileProductionIntakeResult,
+	type SubmitFileProductionIntakeInput,
+	submitFileProductionIntakeWithDependencies,
+} from "./intake";
+import {
 	type FileProductionLimits,
 	getFileProductionLimits,
 	validateFileProductionOutputLimits,
@@ -34,6 +39,13 @@ import {
 	type GeneratedDocumentSource,
 	validateGeneratedDocumentSource,
 } from "./source-schema";
+
+export type {
+	FileProductionIntakeConversationIdResult,
+	FileProductionIntakeResult,
+	SubmitFileProductionIntakeInput,
+} from "./intake";
+export { getFileProductionIntakeConversationId } from "./intake";
 
 export interface CreateFileProductionJobInput {
 	userId: string;
@@ -399,6 +411,16 @@ export async function createFailedFileProductionJob(
 			retryable: input.retryable,
 		},
 	};
+}
+
+export async function submitFileProductionIntake(
+	input: SubmitFileProductionIntakeInput,
+): Promise<FileProductionIntakeResult> {
+	return submitFileProductionIntakeWithDependencies(input, {
+		createOrReuseFileProductionJob,
+		createFailedFileProductionJob,
+		wakeFileProductionWorker: input.wakeWorker ?? wakeFileProductionWorker,
+	});
 }
 
 function mapError(
