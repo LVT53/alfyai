@@ -25,7 +25,7 @@ Docs checked before planning:
 
 ## Implementation Status
 
-Finished locally on 2026-05-29.
+Finished on 2026-05-29 in commit `31371c0a` and deployed to the live `alfydesign` host.
 
 - `job-ledger.ts` now owns durable job/attempt state transitions, retry/cancel, stale recovery, produced-file links, legacy backfill, and job read-model mapping.
 - `worker-runner.ts` now owns worker identity, initialization, wakeup/drain lifecycle, and current-attempt orchestration.
@@ -41,6 +41,12 @@ Local verification:
 - `npm run build`: passed.
 - `npx biome check` on touched file-production files: passed.
 - `npm run lint`: still fails on pre-existing repository-wide Biome diagnostics outside this change.
+
+Live verification:
+
+- `scripts/verify-live-file-production-types.ts`: passed against `https://ai.alfydesign.com` for document-source PDF/DOCX/HTML plus program CSV/JSON/TXT/MD/SVG/ZIP/XLSX/PPTX/DOCX/ODT. Every job reached `succeeded`, and every produced file downloaded with the expected MIME type and non-empty bytes.
+- `scripts/verify-live-ai-sweep.ts`: passed for the GPT OSS and Kimi model paths, including login, streaming turns, web-search tool events, file-generation tool events, succeeded file-production jobs, manual context compression, automatic low-context compression, and recall checks.
+- Live service checks after deployment: `systemctl is-active langflow-chat.service` returned `active`, `/api/health` returned `{"status":"OK"}`, and journal inspection showed no file-production errors.
 
 ## Slice 1: Extract The Job Ledger
 
@@ -122,3 +128,4 @@ Run after the slices are integrated:
 - `npm run test:unit`
 - `npm run build`
 - `LIVE_AI_BASE_URL=https://ai.alfydesign.com npx tsx scripts/verify-live-file-production-types.ts` after deployment.
+- `LIVE_AI_BASE_URL=https://ai.alfydesign.com npx tsx scripts/verify-live-ai-sweep.ts` after deployment when a broader live end-to-end assessment is requested.
