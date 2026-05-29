@@ -123,4 +123,87 @@ describe("obsolete file-generation surfaces", () => {
 		expect(source).not.toContain("file-production/limits");
 		expect(source).not.toContain("file-production/source-schema");
 	});
+
+	it("keeps durable file-production job ledger transitions behind the ledger module", () => {
+		const facade = readFileSync(
+			join(root, "src/lib/server/services/file-production/index.ts"),
+			"utf8",
+		);
+		const ledgerPath = "src/lib/server/services/file-production/job-ledger.ts";
+		const ledger = readFileSync(join(root, ledgerPath), "utf8");
+
+		expect(facade).toContain('from "./job-ledger"');
+		expect(facade).not.toContain(
+			"export async function claimNextFileProductionJob",
+		);
+		expect(facade).not.toContain("function mapJobRow");
+		expect(ledger).toContain(
+			"export async function claimNextFileProductionJob",
+		);
+		expect(ledger).toContain("fileProductionJobAttempts");
+	});
+
+	it("keeps file-production worker and execution dispatch behind deeper modules", () => {
+		const facade = readFileSync(
+			join(root, "src/lib/server/services/file-production/index.ts"),
+			"utf8",
+		);
+		const workerRunner = readFileSync(
+			join(root, "src/lib/server/services/file-production/worker-runner.ts"),
+			"utf8",
+		);
+		const executionAdapter = readFileSync(
+			join(
+				root,
+				"src/lib/server/services/file-production/execution-adapter.ts",
+			),
+			"utf8",
+		);
+
+		expect(facade).toContain('from "./worker-runner"');
+		expect(facade).not.toContain("DEFAULT_WORKER_ID");
+		expect(facade).not.toContain("workerInitialized");
+		expect(facade).not.toContain("drainPromise");
+		expect(facade).not.toContain("parseFileProductionJobRequest");
+		expect(facade).not.toContain("renderStandardReportPdf");
+		expect(facade).not.toContain("executeSandboxCode");
+		expect(workerRunner).toContain("const DEFAULT_WORKER_ID");
+		expect(workerRunner).toContain("let workerInitialized");
+		expect(workerRunner).toContain("let drainPromise");
+		expect(executionAdapter).toContain(
+			"function parseFileProductionJobRequest",
+		);
+		expect(executionAdapter).toContain("renderStandardReportPdf");
+		expect(executionAdapter).toContain("executeSandboxCode");
+	});
+
+	it("keeps generated-file storage and linking behind the storage adapter", () => {
+		const workerRunner = readFileSync(
+			join(root, "src/lib/server/services/file-production/worker-runner.ts"),
+			"utf8",
+		);
+		const storageAdapter = readFileSync(
+			join(root, "src/lib/server/services/file-production/storage-adapter.ts"),
+			"utf8",
+		);
+		const facade = readFileSync(
+			join(root, "src/lib/server/services/file-production/index.ts"),
+			"utf8",
+		);
+
+		expect(workerRunner).toContain('from "./storage-adapter"');
+		for (const directStorageImport of [
+			"storeGeneratedFile as",
+			"syncGeneratedFilesToMemory as",
+			"validateFileProductionOutputLimits",
+			"validateProgramOutputContract",
+			"attachGeneratedDocumentSourceArtifactToRenderedFiles",
+			"mapChatFileToProducedFile",
+			"mapChatFileToSourceProducedFile",
+		]) {
+			expect(workerRunner).not.toContain(directStorageImport);
+			expect(storageAdapter).toContain(directStorageImport.replace(" as", ""));
+			expect(facade).not.toContain(directStorageImport);
+		}
+	});
 });
