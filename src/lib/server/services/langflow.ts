@@ -18,6 +18,7 @@ import {
 	summarizeAttachmentSectionInInput,
 } from "./attachment-trace";
 import { deriveModelContextBudget } from "./chat-turn/context-budget";
+import { buildConstructedContext } from "./chat-turn/context-selection";
 import {
 	buildLegacyContextTrace,
 	type ContextTraceContextSource,
@@ -25,7 +26,7 @@ import {
 	emitContextTrace,
 	type LegacyContextTraceSectionInput,
 } from "./chat-turn/context-trace";
-import { buildConstructedContext, buildEnhancedSystemPrompt } from "./honcho";
+import { buildEnhancedSystemPrompt } from "./honcho";
 import { decryptApiKey, getProviderWithSecrets } from "./inference-providers";
 import { detectLanguage, type SupportedLanguage } from "./language";
 import { inferModelContextWindow } from "./model-context";

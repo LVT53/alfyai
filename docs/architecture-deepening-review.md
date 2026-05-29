@@ -113,19 +113,21 @@ The top 8 files (all 700+ lines) represent ~40% of total server code.
 
 ## Candidate 1: `honcho.ts` — Monolithic Sink
 
-**Files**: `src/lib/server/services/honcho.ts` (1,680 lines)
+**Files**: `src/lib/server/services/honcho.ts`, `src/lib/server/services/chat-turn/context-selection.ts`
+
+**Implementation Status, 2026-05-29**: finished. `buildConstructedContext()` and related prompt-selection helpers now live in `chat-turn/context-selection.ts`. `honcho.ts` is a Honcho adapter/supplier through `loadHonchoPromptContext()` plus mirror/sync/persona/health behavior.
 
 ### Problem
 
-What should be a Honcho integration adapter has become the de facto chat context assembly hub. Five distinct responsibilities are collapsed into one file:
+What should be a Honcho integration adapter had become the de facto chat context assembly hub. This has been corrected; keep the notes below as the original diagnosis and do not move prompt assembly back into Honcho.
 
 1. **SDK lifecycle** — peer creation, session bootstrap, identity rotation
 2. **Message mirroring** — mirroring user/assistant messages to Honcho
 3. **Persona CRUD** — list, forget, forget-all persona memories
-4. **Context assembly** — `buildConstructedContext()` (starting at line 1079), the main chat context builder
+4. **Context assembly** — moved to `chat-turn/context-selection.ts`
 5. **System prompt enhancement** — `buildEnhancedSystemPrompt()`, health checks
 
-`buildConstructedContext()` alone coordinates:
+`buildConstructedContext()` now coordinates from the chat-turn context-selection boundary:
 - Session prompt loading from admin config
 - Attachment resolution and readiness
 - Working-set selection via `knowledge/context.ts`
@@ -134,25 +136,28 @@ What should be a Honcho integration adapter has become the de facto chat context
 - Honcho peer context enrichment
 - Document resolution authority signals
 
-This function is effectively a second chat pipeline inside the Honcho adapter.
+The important invariant after the fix is that this function must remain outside the Honcho adapter.
 
-### Current Import Surface
+### Current Import Surface After Fix
 
 ```
 honcho.ts imports:
-  config-store, db, schema, prompts, utils
-  knowledge (knowledge.ts)
-  working-set
-  task-state (formatTaskStateForPrompt, getContextDebugState, getPromptArtifactSnippets, prepareTaskContext)
-  tei-reranker, tei-embedder
-  attachment-trace
-  working-document-selection (resolveWorkingDocumentSelection)
-  messages (getLatestHonchoMetadata, computeEstimatedMessagesTokenCount, etc.)
+  Honcho SDK types/client
+  config-store, db, schema, prompts
+  prompt-context helpers for Honcho serialization/truncation
+  messages for stored Honcho metadata and fallback session messages
+
+chat-turn/context-selection.ts imports:
+  Honcho session/persona supplier
+  knowledge and linked-source candidate suppliers
+  task-state candidate suppliers
+  working-document-selection signals
+  context budget, prompt-context, TEI rerank/embedder, attachment trace
 ```
 
 ### Deletion Test
 
-If `buildConstructedContext` were its own module, `honcho.ts` would drop to ~900 lines of focused Honcho operations. Context assembly would have clearer locality.
+With `buildConstructedContext` in the chat-turn boundary, `honcho.ts` stays focused on Honcho operations and context assembly has clearer locality.
 
 ### Solution Outline
 
@@ -160,7 +165,7 @@ If `buildConstructedContext` were its own module, `honcho.ts` would drop to ~900
 honcho.ts  (remainder ~900 lines)
   └── Honcho SDK adapter: session/peer lifecycle, message mirroring, persona CRUD, health
 
-chat-turn/context-assembly.ts  (new, ~600 lines)
+chat-turn/context-selection.ts
   └── buildConstructedContext() + related helpers
   └── Owns: prompt loading, attachment resolution, working-set selection,
            working-document selection, task preparation, Honcho enrichment
@@ -175,7 +180,7 @@ chat-turn/context-assembly.ts  (new, ~600 lines)
 ### Risks
 
 - `buildConstructedContext` exports a specific return type consumed by chat-turn routes — contract must be preserved
-- Honcho enrichment inside context assembly means the new module would still import from honcho.ts (for `getPeerContext`, `listPersonaMemories`). This is correct — honcho remains the Honcho authority, context-assembly just calls it.
+- Honcho enrichment inside context selection means the chat-turn module still imports a narrow supplier from `honcho.ts`. This is correct; Honcho remains the Honcho authority, while context selection owns prompt inclusion and budget.
 
 ---
 

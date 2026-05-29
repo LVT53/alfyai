@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 import { createConversation } from '../../src/lib/server/services/conversations';
 import { createContextCompressionSnapshot } from '../../src/lib/server/services/context-compression';
 import { createArtifact } from '../../src/lib/server/services/knowledge/store/core';
-import { buildConstructedContext } from '../../src/lib/server/services/honcho';
+import { buildConstructedContext } from '../../src/lib/server/services/chat-turn/context-selection';
 import { createMessage } from '../../src/lib/server/services/messages';
 import { estimateTokenCount } from '../../src/lib/utils/tokens';
 import { getSmallFileThreshold, getDocumentTokenBudget, getWorkingSetPromptTokenBudget, getTargetConstructedContext, getCompactionUiThreshold, getMaxModelContext } from '../../src/lib/server/services/knowledge/store/core';

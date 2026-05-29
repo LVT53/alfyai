@@ -26,3 +26,5 @@ We chose this order because trace-first gives production visibility, but the imm
 The first implementation slices should reuse existing persistence such as conversation working-set items and task evidence links before adding schema. New tables are only justified when a missing Context Sources concept cannot be represented cleanly by the existing boundaries.
 
 Each replacement slice must remove or disable the older path it replaces in the same slice. Leaving parallel budget or selection behavior behind is Context Selection Debt, not a valid intermediate endpoint.
+
+**Implementation Status, 2026-05-29:** slice 12 is complete for Normal Chat prompt construction. The replaced Honcho-owned `buildConstructedContext()` path was removed from `honcho.ts`; Langflow now calls the chat-turn context-selection boundary directly, and Honcho supplies only Honcho session/persona context.

@@ -291,7 +291,7 @@ describe("Context Access v1 integrated regression harness", () => {
 					: [],
 		);
 
-		const { buildConstructedContext } = await import("./honcho");
+		const { buildConstructedContext } = await import("./chat-turn/context-selection");
 		const { getMemoryContext } = await import("./memory-context");
 
 		const constructed = await buildConstructedContext({

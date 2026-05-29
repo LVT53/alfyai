@@ -2,6 +2,8 @@
 
 AlfyAI will make Context Access a first-class Normal Chat capability, starting with Honcho-led baseline personalization plus one consolidated model-facing `memory_context` retrieval tool. Honcho remains the authority for persona and relationship memory; AlfyAI extends that memory with app-owned project and conversation-history retrieval without rebuilding a parallel local persona-memory system.
 
+**Implementation Status, 2026-05-29:** Honcho-led memory remains intact, but prompt selection no longer lives in Honcho. Honcho now supplies session/persona candidates to `chat-turn/context-selection.ts`; the chat-turn boundary decides whether the Baseline Memory Profile, Honcho session context, task state, attachments, linked sources, and retrieved evidence enter Prompt Context and how much budget they receive.
+
 The existing project-only `project_context` tool will be removed from the model-facing toolset rather than kept as a compatibility alias. Its project and continuity behavior will move under `memory_context(mode: "project")`, alongside Honcho-backed persona recall and account-scoped conversation-history recall. This keeps the model from choosing between overlapping memory tools and makes one tool responsible for answering "what durable context do we already have?"
 
 Baseline personalization will use a Honcho-generated profile or representation-oriented answer instead of a newest-N raw conclusion list. That profile is Protected Context but not unlimited: it should be generous for this small trusted deployment and scale from the configured model/context budget, shrinking under genuine budget pressure before disappearing. Deeper persona recall belongs in `memory_context(mode: "persona")`.

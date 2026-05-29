@@ -222,6 +222,10 @@ _Avoid_: essential context, mandatory context, unlimited context
 The per-turn process that chooses **Prompt Context** from **Available Context**.
 _Avoid_: memory assembly, Honcho context, retrieval, prompt building
 
+**Normal Chat Context Selection Boundary**:
+The deep server module at `src/lib/server/services/chat-turn/context-selection.ts` that owns constructed Prompt Context for a Normal Chat turn, including candidate collection, budgeted section selection, context status updates, and Context Trace sections. Honcho, Knowledge, Task-State, Working Document Selection, and linked-source services supply candidates or signals to this boundary; they do not decide final Prompt Context inclusion.
+_Avoid_: Honcho prompt assembly, Langflow prompt builder, route-local retrieval policy
+
 **Context Inclusion Level**:
 The amount of an item of **Available Context** promoted into **Prompt Context** for a turn.
 _Avoid_: mode, retrieval class, prompt size
@@ -826,6 +830,9 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Passive workspace state alone does not create **Protected Context**.
 - **Context Selection** is the source of truth for promoting **Available Context** into **Prompt Context**.
 - **Context Selection** considers conversation, memory, attachment, workspace, task, generated-file, generated-document, and retrieval signals together.
+- `src/lib/server/services/chat-turn/context-selection.ts` is the **Normal Chat Context Selection Boundary** for constructed Prompt Context.
+- `src/lib/server/services/honcho.ts` supplies Honcho session/persona candidates through a narrow adapter seam and must not own prompt budget policy, Knowledge retrieval, Task-State selection, linked-source assembly, or Working Document Selection.
+- `src/lib/server/services/langflow.ts` may request constructed Prompt Context from the chat-turn boundary and may add model-facing runtime guidance, but it should not rebuild candidate promotion or inclusion policy.
 - Individual subsystems may supply **Available Context** and **Context Signals**, but should not independently force large text into **Prompt Context**.
 - **Memory Access** should extend Honcho-led memory rather than replace it with a parallel local persona-memory system.
 - **Memory Access** may make historic chat details available for retrieval, but historic chats become **Prompt Context** only through **Context Selection** or an explicit model-facing retrieval result.

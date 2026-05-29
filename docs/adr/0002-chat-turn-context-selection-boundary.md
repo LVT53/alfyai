@@ -2,6 +2,8 @@
 
 Normal Chat context selection will be owned by a dedicated chat-turn service rather than by Honcho, task-state, knowledge retrieval, or Langflow transport code. Those subsystems may supply available context and context signals, but the chat-turn context-selection boundary decides what becomes prompt context, at what inclusion level, and within what budget, so passive workspace state, memory, attachments, and retrieved evidence cannot independently stack into oversized prompts.
 
+**Implementation Status, 2026-05-29:** implemented for Normal Chat prompt construction. `src/lib/server/services/chat-turn/context-selection.ts` now exports `buildConstructedContext()` and owns candidate collection, budgeted section selection, context status updates, and trace sections. `src/lib/server/services/honcho.ts` exposes `loadHonchoPromptContext()` as a narrow session/persona supplier and no longer imports Knowledge, Task-State, TEI, linked-source, fork, working-document, or context-selection policy modules for prompt assembly.
+
 ADR-0017 complements this decision: Working Document Identity may identify the prompt-ready artifact for a Working Document, but Context Selection remains responsible for deciding whether that artifact enters Prompt Context and how much budget it receives.
 
 ADR-0018 complements this decision: Working Document Selection may identify live current-document signals and caller-ready prompt/retrieval/task-evidence views, but Context Selection remains responsible for final Prompt Context inclusion level and budget.

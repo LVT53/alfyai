@@ -116,7 +116,7 @@ The review recommendation is to stop sharing Working Document behavior by conven
 **Verification**
 
 - [x] Focused WDS/finalize tracer: `npm run test:unit -- src/lib/server/services/working-document-selection.test.ts src/lib/server/services/chat-turn/finalize.test.ts`
-- [x] Minimum WDS-04 regression set: `npm run test:unit -- src/lib/server/services/working-document-selection.test.ts src/lib/server/services/chat-turn/finalize.test.ts src/lib/server/services/honcho-learning.test.ts src/lib/server/services/task-state-learning.test.ts src/lib/server/services/knowledge/context.test.ts`
+- [x] Minimum WDS-04 regression set: `npm run test:unit -- src/lib/server/services/working-document-selection.test.ts src/lib/server/services/chat-turn/finalize.test.ts src/lib/server/services/honcho-context-selection.test.ts src/lib/server/services/task-state-learning.test.ts src/lib/server/services/knowledge/context.test.ts`
 - [x] `npm run check`
 - [x] Full `npm run test:unit` passed locally.
 - [x] Remote live deploy and smoke assessment via `$remote-live-testing`: commit `55c57f26` deployed to `main`, `langflow-chat.service` restarted active on port 3001, `/login` returned HTTP 200, and logs since restart showed no runtime errors. The live AI sweep exercised web search, file production, manual compaction, and automatic compaction across GPT-OSS and Kimi; all infrastructure/tooling checks passed, with one GPT-OSS exact-recall assertion missing only the word `marked` from `teal folder marked 9Q` (`teal folder 9Q` was returned), assessed as model wording variance rather than a Working Document Selection or runtime regression.

@@ -26,8 +26,11 @@ vi.mock("../prompts", async (importOriginal) => {
 });
 
 vi.mock("./honcho", () => ({
-	buildConstructedContext: mocks.buildConstructedContext,
 	buildEnhancedSystemPrompt: mocks.buildEnhancedSystemPrompt,
+}));
+
+vi.mock("./chat-turn/context-selection", () => ({
+	buildConstructedContext: mocks.buildConstructedContext,
 }));
 
 vi.mock("./attachment-trace", () => ({

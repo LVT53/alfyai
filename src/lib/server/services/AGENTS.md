@@ -194,7 +194,7 @@ task-state.ts (facade — 1,535 lines)
   └── mappers.ts          ← row-to-type mappers (shared by above)
 ```
 
-**Context assembly path**: `task-state.ts selectTaskStateForTurn()` → `artifacts.ts getPromptArtifactSnippets()` → `continuity.ts syncTaskContinuityFromTaskState()` → `honcho.ts buildConstructedContext()`
+**Context assembly path**: `langflow.ts` requests Prompt Context from `chat-turn/context-selection.ts buildConstructedContext()`; that boundary composes Honcho session/persona candidates from `honcho.ts loadHonchoPromptContext()`, Knowledge candidates, Task-State candidates, Context Budget, and Prompt Context selection. Honcho stays a memory adapter, not the prompt assembler.
 
 ## Shared Utils Usage
 
