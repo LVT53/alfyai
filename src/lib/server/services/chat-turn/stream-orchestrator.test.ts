@@ -349,11 +349,7 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
-	// SKIPPED: ReadableStream orchestrator hangs due to heartbeat interval blocking.
-	// The unit tests for completeStreamTurn, doReconnect, and runNonStreamFallback
-	// provide full coverage of the SSE event shapes and orchestration logic.
-	// The route-level stream.test.ts and Playwright E2E tests cover full pipeline.
-	it.skip("produces event: end with all required fields", async () => {
+	it("produces event: end with all required fields", async () => {
 		const { sendMessageStream } = await import("$lib/server/services/langflow");
 		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
 			stream: createTokenStream("Hello world"),

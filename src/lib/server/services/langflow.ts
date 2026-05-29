@@ -26,7 +26,6 @@ import {
 	emitContextTrace,
 	type LegacyContextTraceSectionInput,
 } from "./chat-turn/context-trace";
-import { buildEnhancedSystemPrompt } from "./honcho";
 import { decryptApiKey, getProviderWithSecrets } from "./inference-providers";
 import { detectLanguage, type SupportedLanguage } from "./language";
 import { inferModelContextWindow } from "./model-context";
@@ -386,6 +385,47 @@ const FORCE_WEB_SEARCH_GUARD = [
 
 function containsHttpUrl(value: string): boolean {
 	return /https?:\/\/[^\s)>\]]+/i.test(value);
+}
+
+async function buildEnhancedSystemPrompt(
+	promptName: string | undefined,
+	params: {
+		userId: string;
+		displayName?: string | null;
+		email?: string | null;
+	},
+): Promise<string> {
+	const basePrompt = getSystemPrompt(promptName);
+	const normalizedDisplayName = params.displayName?.trim() || null;
+	const normalizedEmail = params.email?.trim() || null;
+	const sections = [
+		basePrompt,
+		basePrompt ? "" : null,
+		normalizedDisplayName || normalizedEmail
+			? [
+					"## User Profile",
+					"The following account-level profile fields belong to the current human user.",
+					normalizedDisplayName ? `Display Name: ${normalizedDisplayName}` : null,
+					normalizedEmail ? `Email: ${normalizedEmail}` : null,
+					"Use them for respectful personalization and direct address when helpful, especially early in a conversation before other memory exists.",
+					"Do not infer extra biography, preferences, or private facts beyond these explicit fields.",
+				]
+					.filter((value): value is string => value !== null)
+					.join("\n")
+			: null,
+		"## Retrieved Context Discipline",
+		"Use any retrieved task state, recalled session details, documents, workflows, or evidence as supporting context only.",
+		"User profile and persona memory describe the human user, not you.",
+		"Never adopt the user's biography, preferences, education, profession, or life circumstances as your own identity.",
+		"You remain AlfyAI, the assistant, even when memory says the user is a student, designer, applicant, or has other personal traits.",
+		"Do not restate user-memory facts in first person unless the user is directly quoting themselves.",
+		"Do not let stale or weakly related retrieved material steer the conversation.",
+		"Do not proactively pivot to old recalled documents, recipes, files, or workflows unless the latest user turn clearly asks for them or they are directly relevant to the active task.",
+		"If retrieved context conflicts with the current user intent, follow the current user intent and ignore the irrelevant retrieved material.",
+		"When prior evidence is relevant, use it naturally without over-explaining that it was retrieved.",
+	];
+
+	return sections.filter((value): value is string => value !== null).join("\n");
 }
 
 export function buildOutboundSystemPrompt(params: {

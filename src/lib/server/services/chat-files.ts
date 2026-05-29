@@ -14,7 +14,6 @@ import {
 	resolveGeneratedDocumentFamilyContext,
 } from '$lib/server/services/knowledge/store/document-metadata';
 import { GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY } from '$lib/server/services/file-production/source-persistence';
-import { syncArtifactToHoncho } from '$lib/server/services/honcho';
 import { recordMemoryEvent } from '$lib/server/services/memory-events';
 import { extractDocumentText } from './document-extraction';
 
@@ -565,6 +564,7 @@ export async function syncGeneratedFilesToMemory(params: {
 	const { createArtifactLink, createGeneratedOutputArtifact } = await import(
 		'$lib/server/services/knowledge'
 	);
+	const { syncArtifactToHoncho } = await import('$lib/server/services/honcho');
 
 	const uniqueFileIds = Array.from(new Set(params.fileIds));
 	const artifactIdsByChatFile = await listGeneratedOutputArtifactIdsByChatFile(

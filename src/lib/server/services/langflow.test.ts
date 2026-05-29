@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	buildConstructedContext: vi.fn(),
-	buildEnhancedSystemPrompt: vi.fn(),
 	decryptApiKey: vi.fn(),
 	getLatestValidContextCompressionSnapshot: vi.fn(),
 	getConfig: vi.fn(),
@@ -24,10 +23,6 @@ vi.mock("../prompts", async (importOriginal) => {
 		getSystemPrompt: mocks.getSystemPrompt,
 	};
 });
-
-vi.mock("./honcho", () => ({
-	buildEnhancedSystemPrompt: mocks.buildEnhancedSystemPrompt,
-}));
 
 vi.mock("./chat-turn/context-selection", () => ({
 	buildConstructedContext: mocks.buildConstructedContext,
@@ -382,7 +377,6 @@ describe("sendMessage provider routing", () => {
 		mockConfig();
 		mockLangflowResponse();
 		mocks.getSystemPrompt.mockReturnValue("Base system prompt");
-		mocks.buildEnhancedSystemPrompt.mockResolvedValue("Base system prompt");
 		mocks.decryptApiKey.mockReturnValue("provider-secret");
 		mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue(null);
 		mocks.listContextCompressionSourceMessages.mockResolvedValue([]);
@@ -492,13 +486,47 @@ describe("sendMessage provider routing", () => {
 			thinkingMode: "off",
 		});
 
-		expect(mocks.buildEnhancedSystemPrompt).not.toHaveBeenCalled();
 		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
 		const systemPrompt = body.tweaks["ModelNode-1"].system_prompt;
 		expect(systemPrompt).toContain("Control task. Return only JSON.");
+		expect(systemPrompt).not.toContain("## User Profile");
+		expect(systemPrompt).not.toContain("## Retrieved Context Discipline");
 		expect(systemPrompt).not.toContain("Generated file workflow");
 		expect(systemPrompt).not.toContain("Web research workflow");
 		expect(systemPrompt).not.toContain("Memory context workflow");
+	});
+
+	it("adds account profile and retrieved-context discipline to signed-in user prompts", async () => {
+		await sendMessage(
+			"Hello",
+			"conv-1",
+			"model1",
+			{
+				id: "user-1",
+				displayName: "  Ada Lovelace  ",
+				email: "  ada@example.com  ",
+			},
+			{
+				skipHonchoContext: true,
+			},
+		);
+
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		const systemPrompt = body.tweaks["ModelNode-1"].system_prompt;
+		expect(systemPrompt).toContain("Base system prompt");
+		expect(systemPrompt).toContain("## User Profile");
+		expect(systemPrompt).toContain(
+			"The following account-level profile fields belong to the current human user.",
+		);
+		expect(systemPrompt).toContain("Display Name: Ada Lovelace");
+		expect(systemPrompt).toContain("Email: ada@example.com");
+		expect(systemPrompt).toContain("## Retrieved Context Discipline");
+		expect(systemPrompt).toContain(
+			"Use any retrieved task state, recalled session details, documents, workflows, or evidence as supporting context only.",
+		);
+		expect(systemPrompt).toContain(
+			"User profile and persona memory describe the human user, not you.",
+		);
 	});
 
 	it("runs JSON control tasks directly against the selected OpenAI-compatible model", async () => {

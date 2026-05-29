@@ -7,15 +7,12 @@ import {
 	storeGeneratedFile as storeChatGeneratedFile,
 	syncGeneratedFilesToMemory as syncChatGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
+import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 import type { Artifact, FileProductionJob } from "$lib/types";
 import type {
 	ParsedFileProductionJobRequest,
 	ProgramExecutionResult,
 } from "./execution-adapter";
-import {
-	mapChatFileToProducedFile,
-	mapChatFileToSourceProducedFile,
-} from "./job-ledger";
 import {
 	type FileProductionLimits,
 	getFileProductionLimits,
@@ -88,6 +85,48 @@ function getProducedFileSizeBytes(
 	return Buffer.isBuffer(file.content)
 		? file.content.length
 		: Buffer.byteLength(file.content);
+}
+
+function mapChatFileToProducedFile(
+	file: ChatFile,
+): FileProductionJob["files"][number] {
+	return {
+		id: file.id,
+		filename: file.filename,
+		mimeType: file.mimeType,
+		sizeBytes: file.sizeBytes,
+		downloadUrl: `/api/chat/files/${file.id}/download`,
+		previewUrl: `/api/chat/files/${file.id}/preview`,
+		artifactId: file.artifactId,
+		documentFamilyId: file.documentFamilyId,
+		documentFamilyStatus: file.documentFamilyStatus,
+		documentLabel: file.documentLabel,
+		documentRole: file.documentRole,
+		versionNumber: file.versionNumber,
+		originConversationId: file.originConversationId,
+		originAssistantMessageId: file.originAssistantMessageId,
+		sourceChatFileId: file.sourceChatFileId,
+	};
+}
+
+function mapChatFileToSourceProducedFile(
+	file: ChatFile,
+	sourceArtifact: Artifact,
+): FileProductionJob["files"][number] {
+	const metadata = parseWorkingDocumentMetadata(sourceArtifact.metadata);
+	return {
+		...mapChatFileToProducedFile(file),
+		artifactId: sourceArtifact.id,
+		documentFamilyId: metadata.documentFamilyId ?? sourceArtifact.id,
+		documentFamilyStatus: metadata.documentFamilyStatus ?? "active",
+		documentLabel: metadata.documentLabel ?? sourceArtifact.name,
+		documentRole: metadata.documentRole ?? null,
+		versionNumber: metadata.versionNumber ?? 1,
+		originConversationId:
+			metadata.originConversationId ?? sourceArtifact.conversationId,
+		originAssistantMessageId: metadata.originAssistantMessageId ?? null,
+		sourceChatFileId: file.id,
+	};
 }
 
 export async function storeFileProductionOutputs(

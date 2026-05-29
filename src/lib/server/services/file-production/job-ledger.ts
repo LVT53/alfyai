@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	chatGeneratedFiles,
@@ -7,13 +7,7 @@ import {
 	fileProductionJobFiles,
 	fileProductionJobs,
 } from "$lib/server/db/schema";
-import {
-	type ChatFile,
-	getChatFiles,
-	getChatFilesByIdsForConversation,
-} from "$lib/server/services/chat-files";
-import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
-import type { Artifact, FileProductionJob } from "$lib/types";
+import type { FileProductionJob } from "$lib/types";
 
 export interface CreateFileProductionJobInput {
 	userId: string;
@@ -115,14 +109,6 @@ export interface ClaimedFileProductionJob {
 
 export const DEFAULT_STALE_ATTEMPT_MS = 10 * 60 * 1000;
 
-function legacyJobId(fileId: string): string {
-	return `legacy-file:${fileId}`;
-}
-
-function legacyJobFileLinkId(fileId: string): string {
-	return `legacy-file-link:${fileId}`;
-}
-
 function isUniqueConstraintError(error: unknown): boolean {
 	if (!(error instanceof Error)) {
 		return false;
@@ -154,97 +140,6 @@ async function findIdempotentFileProductionJob(input: {
 		.limit(1);
 
 	return job ?? null;
-}
-
-async function ensureLegacyJobs(files: ChatFile[]): Promise<void> {
-	const legacyFiles = files.filter((file) => file.assistantMessageId);
-	if (legacyFiles.length === 0) {
-		return;
-	}
-
-	const fileIds = legacyFiles.map((file) => file.id);
-	const existingLinks = await db
-		.select({ chatGeneratedFileId: fileProductionJobFiles.chatGeneratedFileId })
-		.from(fileProductionJobFiles)
-		.where(inArray(fileProductionJobFiles.chatGeneratedFileId, fileIds));
-	const linkedFileIds = new Set(
-		existingLinks.map((link) => link.chatGeneratedFileId),
-	);
-	const missingFiles = legacyFiles.filter((file) => !linkedFileIds.has(file.id));
-
-	for (const file of missingFiles) {
-		const createdAt = new Date(file.createdAt);
-		await db
-			.insert(fileProductionJobs)
-			.values({
-				id: legacyJobId(file.id),
-				conversationId: file.conversationId,
-				assistantMessageId: file.assistantMessageId,
-				userId: file.userId,
-				title: file.documentLabel ?? file.filename,
-				status: "succeeded",
-				stage: null,
-				origin: "legacy_generated_file",
-				createdAt,
-				updatedAt: createdAt,
-			})
-			.onConflictDoNothing({ target: fileProductionJobs.id });
-
-		await db
-			.insert(fileProductionJobFiles)
-			.values({
-				id: legacyJobFileLinkId(file.id),
-				jobId: legacyJobId(file.id),
-				chatGeneratedFileId: file.id,
-				sortOrder: 0,
-				createdAt,
-			})
-			.onConflictDoNothing({
-				target: fileProductionJobFiles.chatGeneratedFileId,
-			});
-	}
-}
-
-export function mapChatFileToProducedFile(
-	file: ChatFile,
-): FileProductionJob["files"][number] {
-	return {
-		id: file.id,
-		filename: file.filename,
-		mimeType: file.mimeType,
-		sizeBytes: file.sizeBytes,
-		downloadUrl: `/api/chat/files/${file.id}/download`,
-		previewUrl: `/api/chat/files/${file.id}/preview`,
-		artifactId: file.artifactId,
-		documentFamilyId: file.documentFamilyId,
-		documentFamilyStatus: file.documentFamilyStatus,
-		documentLabel: file.documentLabel,
-		documentRole: file.documentRole,
-		versionNumber: file.versionNumber,
-		originConversationId: file.originConversationId,
-		originAssistantMessageId: file.originAssistantMessageId,
-		sourceChatFileId: file.sourceChatFileId,
-	};
-}
-
-export function mapChatFileToSourceProducedFile(
-	file: ChatFile,
-	sourceArtifact: Artifact,
-): FileProductionJob["files"][number] {
-	const metadata = parseWorkingDocumentMetadata(sourceArtifact.metadata);
-	return {
-		...mapChatFileToProducedFile(file),
-		artifactId: sourceArtifact.id,
-		documentFamilyId: metadata.documentFamilyId ?? sourceArtifact.id,
-		documentFamilyStatus: metadata.documentFamilyStatus ?? "active",
-		documentLabel: metadata.documentLabel ?? sourceArtifact.name,
-		documentRole: metadata.documentRole ?? null,
-		versionNumber: metadata.versionNumber ?? 1,
-		originConversationId:
-			metadata.originConversationId ?? sourceArtifact.conversationId,
-		originAssistantMessageId: metadata.originAssistantMessageId ?? null,
-		sourceChatFileId: file.id,
-	};
 }
 
 export async function createFileProductionJob(
@@ -1242,70 +1137,6 @@ export async function getCurrentOwnedRunningJob(input: {
 		.limit(1);
 
 	return job?.job ?? null;
-}
-
-export async function listConversationFileProductionJobs(
-	userId: string,
-	conversationId: string,
-): Promise<FileProductionJob[]> {
-	const files = await getChatFiles(conversationId);
-	const userFiles = files.filter((file) => file.userId === userId);
-	await ensureLegacyJobs(userFiles);
-	const jobs = await db
-		.select()
-		.from(fileProductionJobs)
-		.where(
-			and(
-				eq(fileProductionJobs.userId, userId),
-				eq(fileProductionJobs.conversationId, conversationId),
-			),
-		)
-		.orderBy(desc(fileProductionJobs.createdAt));
-
-	if (jobs.length === 0) {
-		return [];
-	}
-
-	const links = await db
-		.select()
-		.from(fileProductionJobFiles)
-		.where(
-			inArray(
-				fileProductionJobFiles.jobId,
-				jobs.map((job) => job.id),
-			),
-		);
-	const linksByJobId = new Map<string, typeof links>();
-	for (const link of links) {
-		const next = linksByJobId.get(link.jobId) ?? [];
-		next.push(link);
-		linksByJobId.set(link.jobId, next);
-	}
-	const linkedFileIds = Array.from(
-		new Set(links.map((link) => link.chatGeneratedFileId)),
-	);
-	const linkedFiles = (
-		await getChatFilesByIdsForConversation(conversationId, linkedFileIds)
-	).filter((file) => file.userId === userId);
-
-	const fileById = new Map(
-		[...userFiles, ...linkedFiles].map((file) => [file.id, file]),
-	);
-
-	return jobs
-		.map((job) => {
-			const jobLinks = (linksByJobId.get(job.id) ?? []).sort(
-				(a, b) => a.sortOrder - b.sortOrder,
-			);
-			return mapJobRow(
-				job,
-				jobLinks
-					.map((link) => fileById.get(link.chatGeneratedFileId))
-					.filter((file): file is ChatFile => Boolean(file))
-					.map(mapChatFileToProducedFile),
-			);
-		})
-		.filter((job) => job.files.length > 0 || job.status !== "succeeded");
 }
 
 export async function assignFileProductionJobsToAssistantMessage(

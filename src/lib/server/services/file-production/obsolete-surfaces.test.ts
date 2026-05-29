@@ -240,4 +240,27 @@ describe("obsolete file-generation surfaces", () => {
 			expect(readModel).not.toContain(eagerImport);
 		}
 	});
+
+	it("keeps conversation detail generated-file reads off Honcho and stale ledger projections", () => {
+		const chatFiles = readFileSync(
+			join(root, "src/lib/server/services/chat-files.ts"),
+			"utf8",
+		);
+		const ledger = readFileSync(
+			join(root, "src/lib/server/services/file-production/job-ledger.ts"),
+			"utf8",
+		);
+
+		expect(chatFiles).not.toContain(
+			"import { syncArtifactToHoncho } from '$lib/server/services/honcho';",
+		);
+		expect(chatFiles).toContain("import('$lib/server/services/honcho')");
+		expect(ledger).not.toContain("$lib/server/services/chat-files");
+		expect(ledger).not.toContain(
+			"export async function listConversationFileProductionJobs",
+		);
+		expect(ledger).not.toContain("function ensureLegacyJobs");
+		expect(ledger).not.toContain("function legacyJobId");
+		expect(ledger).not.toContain("function legacyJobFileLinkId");
+	});
 });

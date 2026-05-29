@@ -13,7 +13,11 @@ request.ts → preflight.ts → [send route | stream-orchestrator.ts] → finali
                                        ▼
                                 normalizer.ts
 
-stream-orchestrator.ts → active-streams.ts (lifecycle)
+langflow.ts → context-selection.ts (constructed prompt context)
+stream-orchestrator.ts → active-streams.ts (lifecycle/buffer)
+stream-orchestrator.ts → stream-completion.ts (terminal event + persistence)
+stream-orchestrator.ts → stream-reconnect.ts (buffer replay + live subscription)
+stream-orchestrator.ts → stream.ts (SSE framing/runtime helpers)
 failures → retry-cleanup.ts
 ```
 
@@ -23,8 +27,12 @@ failures → retry-cleanup.ts
 |------|------|
 | Parse body, model, attachments | `request.ts` |
 | Validate conversation, check attachment readiness | `preflight.ts` |
+| Build constructed prompt context for Langflow | `context-selection.ts` |
 | Assistant output normalization | `normalizer.ts` |
-| SSE orchestration, upstream retry, downstream framing | `stream-orchestrator.ts` |
+| Stream attempt orchestration, upstream retry/failover, active-stream registration | `stream-orchestrator.ts` |
+| Browser SSE framing/runtime helpers, upstream parsing, tool-call markers, thinking cleanup | `stream.ts`, `stream-parser.ts`, `thinking-normalizer.ts`, `tool-call-markers.ts` |
+| Stream terminal persistence and `event: end` payload | `stream-completion.ts` |
+| Reconnect replay and live stream subscription | `stream-reconnect.ts` |
 | Post-turn persistence fan-out (messages, honcho, task-state, knowledge) | `finalize.ts` |
 | Stream lifecycle, explicit stop handling | `active-streams.ts` |
 | Idempotent cleanup on turn failure | `retry-cleanup.ts` |
@@ -32,7 +40,11 @@ failures → retry-cleanup.ts
 
 ## CONVENTIONS
 
-- `stream-orchestrator.ts` owns all upstream event parsing: Langflow SSE → tokens, thinking tags, and structured tool-call markers. Keep SSE framing logic there, not in routes.
+- `context-selection.ts` owns constructed prompt-context assembly for Langflow, including memory/session/task/document candidate selection and budgeting. Keep prompt-context ranking here, not in routes or Honcho.
+- `stream-orchestrator.ts` owns the live streaming attempt: active-stream registration, upstream stream invocation, timeout/failover decisions, phase timing, heartbeat/prelude scheduling, and delegation to completion/reconnect helpers.
+- `stream.ts` and its submodules own Browser SSE framing/runtime helpers plus Langflow SSE parsing into tokens, thinking tags, and structured tool-call markers. Keep framing and parsing helpers there, not in routes.
+- `stream-completion.ts` owns terminal stream completion: final persistence through `finalize.ts`, generated-file assignment, context-source hydration, and the `event: end` payload shape.
+- `stream-reconnect.ts` owns reconnect replay from `active-streams.ts` buffers and live subscription until terminal `end` or `error`.
 - `finalize.ts` is the single fan-out point after any turn (stream or non-stream). Add new post-turn side effects there, not in route files.
 - `normalizer.ts` normalizes assistant text through the same stream-protocol helpers so `/send`, `/stream`, retry, and title generation return the same visible content shape.
 - `retry-cleanup.ts` runs idempotent cleanup for evidence links, checkpoints, work capsules, generated outputs, and the assistant message itself on failure.
@@ -41,6 +53,8 @@ failures → retry-cleanup.ts
 ## ANTI-PATTERNS
 
 - Do not duplicate SSE parsing, tool-call handling, or thinking extraction between `stream-orchestrator.ts` / `stream.ts` helpers and route files.
+- Do not put terminal `event: end` payload changes in the route or orchestrator without updating `stream-completion.ts` and its focused tests.
+- Do not rebuild prompt-context selection in `langflow.ts`, Honcho, routes, or tests; call `context-selection.ts` and keep its budget/trace contract coherent.
 - Do not add post-turn persistence directly in `/api/chat/send` or `/api/chat/stream`; route through `finalize.ts`.
 - Do not collapse user-requested stop and passive disconnect into one generic abort. Use `active-streams.ts` for explicit stops; let navigation/unmount detach locally without marking the turn stopped.
 - Do not inline new persistence side effects inside `stream.ts` closures that only one endpoint can see.
