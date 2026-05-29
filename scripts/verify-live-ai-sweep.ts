@@ -659,8 +659,9 @@ const automaticCompactionRecallPrompt =
 const webSearchPrompt =
 	"Use web search to answer in Hungarian: Magyarországon hogyan igényelhető szürke rendszám vonóhorgos kerékpárszállítóhoz 2026-ban? Give a concise answer with source titles or URLs. Do not paste raw page text, navigation menus, cookie banners, search result dumps, or tool output.";
 
-const filePrompt =
-	"Create a one-page PDF file called context-sweep-summary.pdf with sections Overview, Checks, and Risks. Use the file generation tool. The PDF must mention LANTERN-PAPAYA-17, ORCHID-TUNGSTEN-58, and budget guard. In the chat reply, do not print JSON, document source, program source, tool arguments, or repair narration; only confirm the file was created.";
+function filePromptFor(fileName: string): string {
+	return `Create a new one-page PDF file called ${fileName} with sections Overview, Checks, and Risks. Use the file generation tool. Do not reuse, refer to, or claim an existing similarly named generated file; create a new file for this turn. The PDF must mention LANTERN-PAPAYA-17, ORCHID-TUNGSTEN-58, and budget guard. In the chat reply, do not print JSON, document source, program source, tool arguments, or repair narration; only confirm the file was created.`;
+}
 
 const recallPrompt = `Return strict JSON only. Based on the conversation so far, recall these exact fields from all three compacted cycles:
 {
@@ -862,9 +863,10 @@ async function runModelSweep(page: Page, model: ModelRef, label: string) {
 		notes: [`status=${String(snapshot2.snapshot.status)}`],
 	});
 
+	const requestedFileName = `context-sweep-summary-${slug(label)}-${Date.now()}.pdf`;
 	const fileTurn = await recordTurn(
 		"file generation leak check",
-		filePrompt,
+		filePromptFor(requestedFileName),
 		"file",
 	);
 	let fileDetail: ConversationDetail;
