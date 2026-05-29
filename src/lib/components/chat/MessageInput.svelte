@@ -32,8 +32,6 @@ import type {
 	LinkedContextSource,
 	ModelId,
 	PendingAttachment,
-	TaskState,
-	TaskSteeringPayload,
 	ThinkingMode,
 	PendingSkillSelection,
 } from "$lib/types";
@@ -76,7 +74,6 @@ let {
 	ensureConversation = null,
 	contextStatus = null,
 	attachedArtifacts = [],
-	taskState = null,
 	contextDebug = null,
 	contextSources = null,
 	draftText = "",
@@ -87,8 +84,6 @@ let {
 	onSend = undefined,
 	onQueue = undefined,
 	onStop = undefined,
-	onSteer = undefined,
-	onManageEvidence = undefined,
 	onEditQueuedMessage = undefined,
 	onDeleteQueuedMessage = undefined,
 	onCompact = undefined,
@@ -116,7 +111,6 @@ let {
 	ensureConversation?: (() => Promise<string>) | null;
 	contextStatus?: ConversationContextStatus | null;
 	attachedArtifacts?: ArtifactSummary[];
-	taskState?: TaskState | null;
 	contextDebug?: ContextDebugState | null;
 	contextSources?: ContextSourcesState | null;
 	draftText?: string;
@@ -127,8 +121,6 @@ let {
 	onSend?: ((payload: SendPayload) => void) | undefined;
 	onQueue?: ((payload: SendPayload) => void) | undefined;
 	onStop?: (() => void) | undefined;
-	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
-	onManageEvidence?: (() => void) | undefined;
 	onEditQueuedMessage?: (() => void) | undefined;
 	onDeleteQueuedMessage?: (() => void) | undefined;
 	onCompact?: (() => void) | undefined;
@@ -1436,14 +1428,6 @@ function removePendingAttachment(id: string) {
 	void emitDraftChange();
 }
 
-function handleSteering(payload: TaskSteeringPayload) {
-	onSteer?.(payload);
-}
-
-function handleManageEvidence() {
-	onManageEvidence?.();
-}
-
 function editQueuedMessage() {
 	onEditQueuedMessage?.();
 	if (!isMobile()) {
@@ -1837,11 +1821,8 @@ async function emitDraftChange(force = false) {
 				<ContextUsageRing
 					{contextStatus}
 					attachedArtifacts={composerArtifacts}
-					{taskState}
 					{contextDebug}
 					{contextSources}
-					onSteer={handleSteering}
-					onManageEvidence={handleManageEvidence}
 					{totalCostUsd}
 					{totalTokens}
 				/>

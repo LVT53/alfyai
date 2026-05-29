@@ -13,8 +13,6 @@
 		ModelId,
 		PendingAttachment,
 		PendingSkillSelection,
-		TaskState,
-		TaskSteeringPayload,
 		ThinkingMode,
 	} from '$lib/types';
 	import type { DraftChangePayload, SendPayload } from '../_helpers';
@@ -38,7 +36,6 @@
 		conversationId,
 		contextStatus,
 		attachedArtifacts,
-		taskState,
 		contextDebug,
 		contextSources = null,
 		draftText,
@@ -46,8 +43,6 @@
 		draftLinkedSources = [],
 		draftPendingSkill = null,
 		draftVersion,
-		onSteer,
-		onManageEvidence,
 		onUploadReady,
 		onUploadFiles,
 		totalCostUsd,
@@ -80,7 +75,6 @@
 		conversationId: string;
 		contextStatus: ConversationContextStatus | null;
 		attachedArtifacts: ArtifactSummary[];
-		taskState: TaskState | null;
 		contextDebug: ContextDebugState | null;
 		contextSources?: ContextSourcesState | null;
 		draftText: string;
@@ -88,8 +82,6 @@
 		draftLinkedSources?: LinkedContextSource[];
 		draftPendingSkill?: PendingSkillSelection | null;
 		draftVersion: number;
-		onSteer: (payload: TaskSteeringPayload) => void | Promise<void>;
-		onManageEvidence: () => void;
 		onUploadReady?: ((uploadFn: (files: FileList | null) => Promise<void>) => void) | undefined;
 		onUploadFiles?: ((payload: {
 			files: File[];
@@ -190,7 +182,6 @@
 			{conversationId}
 			{contextStatus}
 			{attachedArtifacts}
-			{taskState}
 			{contextDebug}
 			{contextSources}
 			{draftText}
@@ -199,8 +190,6 @@
 			{draftPendingSkill}
 			{draftVersion}
 			attachmentsEnabled={true}
-			{onSteer}
-			onManageEvidence={onManageEvidence}
 			{onUploadReady}
 			{onUploadFiles}
 			{totalCostUsd}

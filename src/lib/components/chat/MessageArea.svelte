@@ -92,6 +92,7 @@ let {
 } = $props();
 
 let scrollContainer = $state<HTMLDivElement | null>(null);
+let forkBoundaryMarker = $state<HTMLDivElement | null>(null);
 let shouldAutoScroll = true;
 let lastMessageCount = 0;
 let lastFileProductionJobCount = 0;
@@ -99,6 +100,8 @@ let lastDeepResearchJobCount = 0;
 let lastContextCompressionMarkerCount = 0;
 let lastConversationId: string | null = null;
 let shouldJumpToConversationBottom = false;
+let pendingForkBoundaryMessageId: string | null = null;
+let lastForkBoundaryJumpKey: string | null = null;
 
 $effect(() => {
 	if (conversationId && conversationId !== lastConversationId) {
@@ -108,7 +111,14 @@ $effect(() => {
 		lastFileProductionJobCount = 0;
 		lastDeepResearchJobCount = 0;
 		lastContextCompressionMarkerCount = 0;
-		shouldJumpToConversationBottom = true;
+		pendingForkBoundaryMessageId = forkOrigin?.copiedForkPointMessageId ?? null;
+		shouldJumpToConversationBottom = pendingForkBoundaryMessageId == null;
+	} else if (conversationId && forkOrigin?.copiedForkPointMessageId) {
+		const forkBoundaryJumpKey = `${conversationId}:${forkOrigin.copiedForkPointMessageId}`;
+		if (forkBoundaryJumpKey !== lastForkBoundaryJumpKey) {
+			pendingForkBoundaryMessageId = forkOrigin.copiedForkPointMessageId;
+			shouldJumpToConversationBottom = false;
+		}
 	}
 });
 
@@ -153,7 +163,9 @@ $effect.pre(() => {
 	const hasNewContextCompressionMarkers =
 		contextCompressionMarkers.length > lastContextCompressionMarkerCount;
 
-	if (shouldJumpToConversationBottom) {
+	if (pendingForkBoundaryMessageId) {
+		void alignForkBoundaryAfterRender(pendingForkBoundaryMessageId);
+	} else if (shouldJumpToConversationBottom) {
 		// Switching to another conversation should always reveal the latest response.
 		void alignToBottomAfterRender();
 		shouldJumpToConversationBottom = false;
@@ -312,6 +324,20 @@ async function alignToBottomAfterRender() {
 		});
 	});
 }
+
+async function alignForkBoundaryAfterRender(messageId: string) {
+	if (!scrollContainer) return;
+	await tick();
+	requestAnimationFrame(() => {
+		if (!scrollContainer || !forkBoundaryMarker) return;
+		const scrollContainerRect = scrollContainer.getBoundingClientRect();
+		const markerRect = forkBoundaryMarker.getBoundingClientRect();
+		scrollContainer.scrollTop += markerRect.top - scrollContainerRect.top;
+		pendingForkBoundaryMessageId = null;
+		lastForkBoundaryJumpKey = conversationId ? `${conversationId}:${messageId}` : null;
+		shouldAutoScroll = false;
+	});
+}
 </script>
 
 <div
@@ -369,7 +395,9 @@ async function alignToBottomAfterRender() {
 				/>
 				{#if forkOrigin?.copiedForkPointMessageId === message.id}
 					<div
+						bind:this={forkBoundaryMarker}
 						class="fork-boundary-marker fork-lineage-marker"
+						data-fork-boundary-message-id={message.id}
 						data-testid="fork-boundary-marker"
 						role="note"
 						aria-label={$t('fork.boundaryMarkerLabel')}

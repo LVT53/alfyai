@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount } from 'svelte';
 	import { t } from '$lib/i18n';
 	import type {
 		ArtifactSummary,
@@ -7,29 +7,20 @@
 		ContextSourcesState,
 		ConversationContextStatus,
 		MemoryLayer,
-		TaskState,
-		TaskSteeringAction,
-		TaskSteeringPayload,
 	} from '$lib/types';
 
 	let {
 		contextStatus = null,
 		attachedArtifacts = [],
-		taskState = null,
 		contextDebug = null,
 		contextSources = null,
-		onSteer = undefined,
-		onManageEvidence = undefined,
 		totalCostUsd = 0,
 		totalTokens = 0,
 	}: {
 		contextStatus?: ConversationContextStatus | null;
 		attachedArtifacts?: ArtifactSummary[];
-		taskState?: TaskState | null;
 		contextDebug?: ContextDebugState | null;
 		contextSources?: ContextSourcesState | null;
-		onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
-		onManageEvidence?: (() => void) | undefined;
 		totalCostUsd?: number;
 		totalTokens?: number;
 	} = $props();
@@ -37,9 +28,6 @@
 	let root = $state<HTMLDivElement | null>(null);
 	let isOpen = $state(false);
 	let mobile = $state(false);
-	let showNewTaskForm = $state(false);
-	let newTaskObjective = $state('');
-	let newTaskInput = $state<HTMLInputElement | null>(null);
 
 	const size = 38;
 	const strokeWidth = 3;
@@ -62,7 +50,6 @@
 		const handlePointerDown = (event: MouseEvent | TouchEvent) => {
 			if (root && !root.contains(event.target as Node)) {
 				isOpen = false;
-				resetNewTaskForm();
 			}
 		};
 
@@ -78,9 +65,6 @@
 
 	function handleClick() {
 		isOpen = !isOpen;
-		if (!isOpen) {
-			resetNewTaskForm();
-		}
 	}
 
 	function formatLayer(layer: MemoryLayer): string {
@@ -117,23 +101,6 @@
 		return $t('contextSources.full');
 	}
 
-	function steer(action: TaskSteeringAction, artifactId?: string, objective?: string) {
-		onSteer?.({ action, artifactId, objective });
-	}
-
-	function resetNewTaskForm() {
-		showNewTaskForm = false;
-		newTaskObjective = '';
-	}
-
-	function openEvidenceManager() {
-		onManageEvidence?.();
-		if (mobile) {
-			isOpen = false;
-			resetNewTaskForm();
-		}
-	}
-
 	function formatCostUsd(costUsd: number): string {
 		return `$${costUsd.toFixed(costUsd < 1 ? 4 : 2)}`;
 	}
@@ -147,36 +114,6 @@
 	let showCost = $derived(totalCostUsd > 0 || totalTokens > 0);
 	let costText = $derived(showCost ? `${formatCostUsd(totalCostUsd)} \u00b7 ${formatTokenCount(totalTokens)} ${$t('contextUsageRing.tokens')}` : '');
 
-	async function openNewTaskForm() {
-		showNewTaskForm = true;
-		await tick();
-		newTaskInput?.focus();
-		newTaskInput?.select();
-	}
-
-	function cancelNewTaskForm() {
-		resetNewTaskForm();
-	}
-
-	function submitNewTask() {
-		steer('start_new_task', undefined, newTaskObjective);
-		resetNewTaskForm();
-		if (mobile) {
-			isOpen = false;
-		}
-	}
-
-	function handleNewTaskKeydown(event: KeyboardEvent) {
-		if (event.key === 'Enter') {
-			event.preventDefault();
-			submitNewTask();
-		}
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			cancelNewTaskForm();
-		}
-	}
-
 	let promptBudget = $derived(contextStatus ? Math.max(contextStatus.targetTokens, 1) : 1);
 	let ratio = $derived(
 		contextStatus
@@ -185,7 +122,6 @@
 	);
 	let dashOffset = $derived(circumference * (1 - ratio));
 	let percent = $derived(Math.round(ratio * 100));
-	let activeObjective = $derived(contextDebug?.activeTaskObjective ?? taskState?.objective ?? null);
 	let selectedSourceCount = $derived(
 		contextSources?.selectedCount ?? contextDebug?.selectedEvidence.length ?? 0
 	);
@@ -255,70 +191,6 @@
 		role="dialog"
 		aria-label={$t('contextUsageRing.focusPanel')}
 	>
-		<div class="popover-section">
-			<div class="popover-label">{$t('contextUsageRing.focus')}</div>
-			{#if activeObjective}
-				<div class="popover-copy">{activeObjective}</div>
-			{:else}
-				<div class="popover-empty">{$t('contextUsageRing.noActiveTask')}</div>
-			{/if}
-
-			<div class="popover-actions">
-				<button
-					type="button"
-					class="popover-action-button"
-					onclick={() => steer(contextDebug?.taskLocked ? 'unlock_task' : 'lock_task')}
-				>
-					{contextDebug?.taskLocked ? $t('contextUsageRing.unlockTask') : $t('contextUsageRing.lockTask')}
-				</button>
-				{#if showNewTaskForm}
-					<div class="task-form">
-						<label class="task-form-label" for="new-task-objective">{$t('contextUsageRing.optionalTaskName')}</label>
-						<input
-							bind:this={newTaskInput}
-							id="new-task-objective"
-							class="task-form-input"
-							type="text"
-							placeholder={$t('contextUsageRing.placeholder')}
-							bind:value={newTaskObjective}
-							onkeydown={handleNewTaskKeydown}
-						/>
-						<div class="task-form-actions">
-							<button
-								type="button"
-								class="popover-action-button"
-								onclick={submitNewTask}
-							>
-								{$t('contextUsageRing.start')}
-							</button>
-							<button
-								type="button"
-								class="popover-action-button popover-action-button--ghost"
-								onclick={cancelNewTaskForm}
-							>
-								{$t('common.cancel')}
-							</button>
-						</div>
-					</div>
-				{:else}
-					<button
-						type="button"
-						class="popover-action-button"
-						onclick={openNewTaskForm}
-					>
-						{$t('contextUsageRing.startNewTask')}
-					</button>
-				{/if}
-				<button
-					type="button"
-					class="popover-action-button"
-					onclick={openEvidenceManager}
-				>
-					{$t('contextUsageRing.manageEvidence')}
-				</button>
-			</div>
-		</div>
-
 		{#if showCost}
 			<div class="popover-section">
 				<div class="popover-label">{$t('contextUsageRing.cost')}</div>
@@ -561,69 +433,6 @@
 		color: var(--accent);
 	}
 
-	.popover-copy {
-		margin-top: 0.5rem;
-		font-size: 0.84rem;
-		line-height: 1.45;
-		color: var(--text-primary);
-	}
-
-	.popover-copy--muted {
-		color: var(--text-secondary);
-	}
-
-	.popover-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.35rem;
-		margin-top: 0.65rem;
-	}
-
-	.popover-action-button {
-		cursor: pointer;
-		min-height: 1.8rem;
-		border: 1px solid color-mix(in srgb, var(--border-default) 76%, var(--surface-page) 24%);
-		border-radius: 0.5rem;
-		background: color-mix(in srgb, var(--surface-page) 64%, var(--surface-elevated) 36%);
-		color: var(--text-primary);
-		font-family: 'Nimbus Sans L', sans-serif;
-		transition:
-			border-color var(--duration-standard) var(--ease-out),
-			background-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out),
-			transform var(--duration-standard) var(--ease-out),
-			box-shadow var(--duration-standard) var(--ease-out);
-		font-size: 0.72rem;
-		font-weight: 600;
-		line-height: 1.1;
-		padding: 0.34rem 0.5rem;
-	}
-
-	.popover-action-button:hover,
-	.popover-action-button:focus-visible {
-		border-color: color-mix(in srgb, var(--accent) 35%, var(--border-default) 65%);
-		background: rgba(194, 166, 106, 0.22);
-		color: var(--text-primary);
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 34%, transparent 66%);
-		transform: translateY(-1px);
-		outline: none;
-	}
-
-	.popover-action-button--ghost {
-		background: transparent;
-		color: var(--text-muted);
-	}
-
-	:global(.dark) .popover-action-button {
-		background: color-mix(in srgb, var(--surface-overlay) 82%, var(--surface-elevated) 18%);
-		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
-	}
-
-	:global(.dark) .popover-action-button:hover,
-	:global(.dark) .popover-action-button:focus-visible {
-		background: rgba(194, 166, 106, 0.3);
-	}
-
 	.popover-chips {
 		display: flex;
 		flex-wrap: wrap;
@@ -640,65 +449,9 @@
 		color: var(--text-muted);
 	}
 
-	.popover-sublist {
-		display: flex;
-		flex-direction: column;
-		gap: 0.45rem;
-		margin-top: 0.55rem;
-	}
-
 	.popover-empty {
 		margin-top: 0.5rem;
 		font-size: 0.82rem;
 		color: var(--text-muted);
-	}
-
-	.popover-label--subtle {
-		margin-bottom: -0.15rem;
-		font-size: 0.68rem;
-		color: var(--text-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-	}
-
-	.task-form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-		min-width: min(17rem, calc(100vw - 4rem));
-	}
-
-	.task-form-label {
-		font-size: 0.68rem;
-		font-family: 'Nimbus Sans L', sans-serif;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: var(--text-muted);
-	}
-
-	.task-form-input {
-		width: 100%;
-		border: 1px solid color-mix(in srgb, var(--border-default) 78%, transparent 22%);
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--surface-page) 84%, var(--surface-elevated) 16%);
-		padding: 0.5rem 0.65rem;
-		font-size: 0.76rem;
-		color: var(--text-primary);
-	}
-
-	.task-form-input::placeholder {
-		color: var(--text-muted);
-	}
-
-	.task-form-input:focus-visible {
-		outline: none;
-		border-color: color-mix(in srgb, var(--accent) 45%, var(--border-default) 55%);
-		box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent 75%);
-	}
-
-	.task-form-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.45rem;
 	}
 </style>

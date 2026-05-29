@@ -2691,7 +2691,6 @@ function handleDrop(event: DragEvent) {
 				conversationId={data.conversation.id}
 				{contextStatus}
 				{attachedArtifacts}
-				{taskState}
 				{contextDebug}
 				{contextSources}
 				{totalCostUsd}
@@ -2709,8 +2708,6 @@ function handleDrop(event: DragEvent) {
 				draftLinkedSources={conversationDraft?.selectedLinkedSources ?? []}
 				draftPendingSkill={conversationDraft?.pendingSkill ?? null}
 				draftVersion={conversationDraft?.updatedAt ?? 0}
-				onSteer={handleSteering}
-				onManageEvidence={openEvidenceManager}
 				onUploadReady={handleUploadReady}
 				onUploadFiles={handleUploadFiles}
 			>

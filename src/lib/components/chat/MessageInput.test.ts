@@ -1552,9 +1552,9 @@ describe("MessageInput", () => {
 		expect(mockSend).not.toHaveBeenCalled();
 	});
 
-	it("dispatches optional task objective from the focus panel", async () => {
+	it("does not expose task steering controls in the context ring popup", async () => {
 		const steerSpy = vi.fn();
-		const { getByRole, getByPlaceholderText } = render(MessageInputWrapper, {
+		const { getByLabelText, queryByRole, queryByText } = render(MessageInputWrapper, {
 			onSteer: steerSpy,
 			contextStatus: {
 				conversationId: "conv-1",
@@ -1592,25 +1592,17 @@ describe("MessageInput", () => {
 			},
 		});
 
-		await fireEvent.click(getByRole("button", { name: "Start new task" }));
-		const taskInput = getByPlaceholderText(
-			"Leave empty to infer from your next message",
-		) as HTMLInputElement;
-		await fireEvent.input(taskInput, {
-			target: { value: "Prepare internship applications" },
-		});
-		await fireEvent.click(getByRole("button", { name: "Start" }));
+		await fireEvent.click(getByLabelText(/prompt budget usage/i));
 
-		expect(steerSpy).toHaveBeenCalledWith({
-			action: "start_new_task",
-			artifactId: undefined,
-			objective: "Prepare internship applications",
-		});
+		expect(queryByText("Current task")).toBeNull();
+		expect(queryByRole("button", { name: "Lock task" })).toBeNull();
+		expect(queryByRole("button", { name: "Start new task" })).toBeNull();
+		expect(steerSpy).not.toHaveBeenCalled();
 	});
 
-	it("opens the evidence controls from the context ring on click", async () => {
+	it("does not expose the evidence controls from the context ring popup", async () => {
 		const manageEvidenceSpy = vi.fn();
-		const { getByLabelText, getByRole } = render(MessageInputWrapper, {
+		const { getByLabelText, queryByRole } = render(MessageInputWrapper, {
 			onManageEvidence: manageEvidenceSpy,
 			contextStatus: {
 				conversationId: "conv-1",
@@ -1649,11 +1641,9 @@ describe("MessageInput", () => {
 		});
 
 		await fireEvent.click(getByLabelText(/prompt budget usage/i));
-		await fireEvent.click(
-			getByRole("button", { name: "Manage context sources" }),
-		);
 
-		expect(manageEvidenceSpy).toHaveBeenCalledTimes(1);
+		expect(queryByRole("button", { name: "Manage context sources" })).toBeNull();
+		expect(manageEvidenceSpy).not.toHaveBeenCalled();
 	});
 
 	it("disables send while an attachment upload is still in progress", async () => {

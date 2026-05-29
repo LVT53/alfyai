@@ -274,6 +274,90 @@ describe('MessageArea', () => {
 		);
 	});
 
+	it('aligns the fork boundary to the top of the chat viewport on initial fork open', async () => {
+		vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+			const element = this as HTMLElement;
+			if (element.classList.contains('scroll-container')) {
+				return {
+					top: 25,
+					left: 0,
+					bottom: 625,
+					right: 760,
+					width: 760,
+					height: 600,
+					x: 0,
+					y: 25,
+					toJSON: () => ({}),
+				};
+			}
+			if (element.getAttribute('data-testid') === 'fork-boundary-marker') {
+				return {
+					top: 225,
+					left: 0,
+					bottom: 255,
+					right: 760,
+					width: 760,
+					height: 30,
+					x: 0,
+					y: 225,
+					toJSON: () => ({}),
+				};
+			}
+			return {
+				top: 0,
+				left: 0,
+				bottom: 0,
+				right: 0,
+				width: 0,
+				height: 0,
+				x: 0,
+				y: 0,
+				toJSON: () => ({}),
+			};
+		});
+		const messages: ChatMessage[] = [
+			{
+				id: 'fork-user-1',
+				role: 'user',
+				content: 'Original question',
+				timestamp: Date.now(),
+			},
+			{
+				id: 'fork-assistant-1',
+				role: 'assistant',
+				content: 'Copied answer',
+				timestamp: Date.now(),
+			},
+			{
+				id: 'fork-user-2',
+				role: 'user',
+				content: 'Fork-local follow-up',
+				timestamp: Date.now(),
+			},
+		];
+
+		const { container } = render(MessageArea, {
+			messages,
+			conversationId: 'fork-conv',
+			isThinkingActive: false,
+			contextDebug: null,
+			forkOrigin: {
+				forkConversationId: 'fork-conv',
+				sourceConversationId: 'source-conv',
+				sourceAssistantMessageId: 'source-assistant-1',
+				sourceConversationIdAvailable: true,
+				sourceAssistantMessageIdAvailable: true,
+				copiedForkPointMessageId: 'fork-assistant-1',
+				sourceTitle: 'Source title',
+				forkSequence: 1,
+				createdAt: Date.now(),
+			},
+		});
+
+		const scrollContainer = container.querySelector('.scroll-container') as HTMLDivElement;
+		await waitFor(() => expect(scrollContainer.scrollTop).toBe(200));
+	});
+
 	it('renders a degraded fork boundary source when the source conversation is unavailable', () => {
 		const messages: ChatMessage[] = [
 			{

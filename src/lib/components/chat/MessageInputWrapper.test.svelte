@@ -60,10 +60,6 @@
 		onQueue(payload.message);
 	}
 
-	function handleSteer(payload: TaskSteeringPayload) {
-		onSteer(payload);
-	}
-
 	function handleDraftChange(payload: {
 		conversationId: string | null;
 		draftText: string;
@@ -87,8 +83,6 @@
 	{contextDebug}
 	onSend={handleSend}
 	onQueue={handleQueue}
-	onSteer={handleSteer}
-	{onManageEvidence}
 	{onEditQueuedMessage}
 	{onDeleteQueuedMessage}
 	{onCompact}

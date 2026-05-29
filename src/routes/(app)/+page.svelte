@@ -438,7 +438,6 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 					conversationId={preparedConversationId}
 					contextStatus={null}
 					attachedArtifacts={[]}
-					taskState={null}
 					contextDebug={null}
 					draftText={conversationDraft?.draftText ?? ''}
 					draftAttachments={conversationDraft?.selectedAttachments ?? []}
