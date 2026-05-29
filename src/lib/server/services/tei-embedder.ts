@@ -44,21 +44,27 @@ export function getTeiEmbedderBatchSize(): number {
 
 export async function embedTexts(
   texts: string[],
-  options: { normalize?: boolean; truncate?: boolean } = {}
+  options: { normalize?: boolean; truncate?: boolean; promptName?: string } = {}
 ): Promise<number[][] | null> {
   if (texts.length === 0) return [];
   if (!canUseTeiEmbedder()) return null;
 
   const config = getConfig();
+  const promptName = options.promptName?.trim();
+  const body: Record<string, unknown> = {
+    inputs: texts,
+    normalize: options.normalize ?? true,
+    truncate: options.truncate ?? true,
+  };
+  if (promptName) {
+    body.prompt_name = promptName;
+  }
+
   const response = await postToTei<TeiEmbedResponse>({
     baseUrl: config.teiEmbedderUrl,
     path: '/embed',
     apiKey: config.teiEmbedderApiKey,
-    body: {
-      inputs: texts,
-      normalize: options.normalize ?? true,
-      truncate: options.truncate ?? true,
-    },
+    body,
   });
 
   return normalizeEmbeddingResponse(response);
@@ -66,7 +72,7 @@ export async function embedTexts(
 
 export async function embedText(
   text: string,
-  options: { normalize?: boolean; truncate?: boolean } = {}
+  options: { normalize?: boolean; truncate?: boolean; promptName?: string } = {}
 ): Promise<number[] | null> {
   const embeddings = await embedTexts([text], options);
   return embeddings ? embeddings[0] ?? null : null;

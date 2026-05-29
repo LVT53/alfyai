@@ -123,6 +123,20 @@ describe('semantic-embedding-refresh', () => {
     ).toContain('Objective: Finish the proposal');
   });
 
+  it('keeps Qwen-sized artifact source text before clipping', async () => {
+    const { buildArtifactEmbeddingSourceText } = await import('./semantic-embedding-refresh');
+    const source = buildArtifactEmbeddingSourceText({
+      id: 'artifact-1',
+      userId: 'user-1',
+      name: 'Long document',
+      summary: null,
+      contentText: 'x'.repeat(140_000),
+    });
+
+    expect(source?.length).toBeGreaterThan(120_000);
+    expect(source?.length).toBeLessThanOrEqual(131_072);
+  });
+
   it('queues a background artifact embedding refresh', async () => {
     const { queueArtifactSemanticEmbeddingRefresh } = await import('./semantic-embedding-refresh');
 

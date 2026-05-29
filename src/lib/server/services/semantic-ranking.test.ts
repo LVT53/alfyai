@@ -4,16 +4,18 @@ const {
   mockListSemanticEmbeddingsBySubject,
   mockCanUseTeiEmbedder,
   mockEmbedText,
+  mockRuntimeConfig,
 } = vi.hoisted(() => ({
   mockListSemanticEmbeddingsBySubject: vi.fn(async () => new Map()),
   mockCanUseTeiEmbedder: vi.fn(() => true),
   mockEmbedText: vi.fn(async () => [1, 0]),
+  mockRuntimeConfig: {
+    teiEmbedderModel: 'bge-m3',
+  },
 }));
 
 vi.mock('$lib/server/config-store', () => ({
-  getConfig: () => ({
-    teiEmbedderModel: 'bge-m3',
-  }),
+  getConfig: () => mockRuntimeConfig,
 }));
 
 vi.mock('./semantic-embeddings', () => ({
@@ -31,6 +33,7 @@ describe('semantic-ranking', () => {
     mockCanUseTeiEmbedder.mockReturnValue(true);
     mockEmbedText.mockResolvedValue([1, 0]);
     mockListSemanticEmbeddingsBySubject.mockResolvedValue(new Map());
+    mockRuntimeConfig.teiEmbedderModel = 'bge-m3';
   });
 
   it('computes cosine similarity safely', async () => {
@@ -89,5 +92,24 @@ describe('semantic-ranking', () => {
         fallbackReason: null,
       })
     );
+  });
+
+  it('uses the Qwen query prompt for Qwen3 query embeddings only', async () => {
+    mockRuntimeConfig.teiEmbedderModel = 'Qwen/Qwen3-Embedding-0.6B';
+    mockListSemanticEmbeddingsBySubject.mockResolvedValue(
+      new Map([['doc-1', { embedding: [1, 0] }]])
+    );
+
+    const { shortlistSemanticMatchesBySubject } = await import('./semantic-ranking');
+    await shortlistSemanticMatchesBySubject({
+      userId: 'user-1',
+      subjectType: 'artifact',
+      query: 'forecast',
+      items: [{ id: 'doc-1' }],
+      getSubjectId: (item) => item.id,
+      limit: 1,
+    });
+
+    expect(mockEmbedText).toHaveBeenCalledWith('forecast', { promptName: 'query' });
   });
 });

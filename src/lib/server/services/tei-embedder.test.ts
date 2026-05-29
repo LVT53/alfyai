@@ -89,4 +89,24 @@ describe('tei-embedder service', () => {
 
     expect(result).toEqual([0.5, 0.6, 0.7]);
   });
+
+  it('passes an embedding prompt name when requested', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify([[0.1, 0.2]]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const { embedText } = await import('./tei-embedder');
+    await embedText('semantic query', { promptName: 'query' });
+
+    const [, request] = vi.mocked(fetch).mock.calls[0]!;
+    expect(JSON.parse(String(request?.body))).toEqual({
+      inputs: ['semantic query'],
+      normalize: true,
+      truncate: true,
+      prompt_name: 'query',
+    });
+  });
 });

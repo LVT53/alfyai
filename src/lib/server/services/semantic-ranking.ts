@@ -16,6 +16,10 @@ function getEmbeddingModelName(): string | null {
   return modelName ? modelName : null;
 }
 
+function getQueryEmbeddingOptions(modelName: string): { promptName?: string } {
+  return /(^|[/_-])qwen3[-_/]?embedding/i.test(modelName) ? { promptName: 'query' } : {};
+}
+
 export async function shortlistSemanticMatchesBySubject<T>(params: {
   userId: string;
   subjectType: SemanticEmbeddingSubjectType;
@@ -51,7 +55,7 @@ export async function shortlistSemanticMatchesBySubject<T>(params: {
     return null;
   }
 
-  const queryEmbedding = await embedText(trimmedQuery);
+  const queryEmbedding = await embedText(trimmedQuery, getQueryEmbeddingOptions(modelName));
   if (!queryEmbedding || queryEmbedding.length === 0) {
     report({
       storedEmbeddingCount: 0,

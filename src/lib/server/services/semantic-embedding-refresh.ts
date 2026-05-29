@@ -19,7 +19,9 @@ import {
   upsertSemanticEmbedding,
 } from './semantic-embeddings';
 
-const MAX_SOURCE_TEXT_CHARS = 8000;
+const QWEN3_EMBEDDING_CONTEXT_TOKENS = 32_768;
+const APPROX_CHARS_PER_TOKEN = 4;
+const MAX_SOURCE_TEXT_CHARS = QWEN3_EMBEDDING_CONTEXT_TOKENS * APPROX_CHARS_PER_TOKEN;
 const queuedRefreshes = new Map<string, Promise<void>>();
 
 type RefreshableSubject =

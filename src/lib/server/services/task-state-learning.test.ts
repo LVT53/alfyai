@@ -490,6 +490,7 @@ describe('task-state selected evidence policy', () => {
 	});
 
 	it('keeps one-turn relevant library documents selected even when lexical scoring is weak', async () => {
+		const now = Date.now();
 		taskStateRows.push({
 			taskId: 'task-1',
 			userId: 'user-1',
@@ -505,8 +506,8 @@ describe('task-state selected evidence policy', () => {
 			activeArtifactIdsJson: '[]',
 			nextStepsJson: '[]',
 			lastCheckpointAt: null,
-			createdAt: new Date('2026-04-01T10:00:00Z'),
-			updatedAt: new Date('2026-04-01T10:00:00Z'),
+			createdAt: new Date(now),
+			updatedAt: new Date(now),
 		});
 		const semanticDocument = {
 			id: 'doc-semantic',
@@ -522,8 +523,8 @@ describe('task-state selected evidence policy', () => {
 			contentText: 'Escalation policy and support team operating procedures',
 			extension: 'txt',
 			storagePath: null,
-			createdAt: Date.parse('2026-04-01T10:00:00Z'),
-			updatedAt: Date.parse('2026-04-01T10:00:00Z'),
+			createdAt: now,
+			updatedAt: now,
 		};
 
 		const { prepareTaskContext } = await import('./task-state');
@@ -540,6 +541,7 @@ describe('task-state selected evidence policy', () => {
 	});
 
 	it('does not persist one-turn cross-conversation semantic documents as durable selected evidence', async () => {
+		const now = Date.now();
 		taskStateRows.push({
 			taskId: 'task-1',
 			userId: 'user-1',
@@ -555,8 +557,8 @@ describe('task-state selected evidence policy', () => {
 			activeArtifactIdsJson: '[]',
 			nextStepsJson: '[]',
 			lastCheckpointAt: null,
-			createdAt: new Date('2026-04-01T10:00:00Z'),
-			updatedAt: new Date('2026-04-01T10:00:00Z'),
+			createdAt: new Date(now),
+			updatedAt: new Date(now),
 		});
 		const semanticDocument = {
 			id: 'doc-semantic',
@@ -572,8 +574,8 @@ describe('task-state selected evidence policy', () => {
 			contentText: 'Escalation policy and support team operating procedures',
 			extension: 'txt',
 			storagePath: null,
-			createdAt: Date.parse('2026-04-01T10:00:00Z'),
-			updatedAt: Date.parse('2026-04-01T10:00:00Z'),
+			createdAt: now,
+			updatedAt: now,
 		};
 
 		const { prepareTaskContext } = await import('./task-state');
