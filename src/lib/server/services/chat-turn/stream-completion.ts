@@ -1,13 +1,17 @@
 import { getConfig } from "$lib/server/config-store";
 import {
-	listContextCompressionSnapshots,
-	serializeContextCompressionSnapshot,
-} from "$lib/server/services/context-compression";
-import {
 	buildChatTurnCompletionContextSources,
 	finalizeChatTurn,
 } from "$lib/server/services/chat-turn/finalize";
+import {
+	listContextCompressionSnapshots,
+	serializeContextCompressionSnapshot,
+} from "$lib/server/services/context-compression";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
+import {
+	BROWSER_CHAT_SSE_EVENTS,
+	encodeBrowserChatSseEvent,
+} from "$lib/services/stream-protocol";
 import type {
 	ContextDebugState,
 	ContextSourcesState,
@@ -201,7 +205,6 @@ export async function completeStreamTurn(
 		latestHonchoSnapshot,
 		latestContextTraceSections,
 		latestProviderUsage,
-		initialContextStatus,
 		initialTaskState,
 		initialContextDebug,
 		initialContextTraceSections,
@@ -236,7 +239,9 @@ export async function completeStreamTurn(
 			: { operations: [] };
 	if (citationGate?.appendedNotice) {
 		enqueueChunk(
-			`event: token\ndata: ${JSON.stringify({ text: `\n\n${citationGate.appendedNotice}` })}\n\n`,
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
+				text: `\n\n${citationGate.appendedNotice}`,
+			}),
 		);
 		console.warn("[CHAT_STREAM] Appended web citation quality notice", {
 			conversationId,
@@ -382,7 +387,7 @@ export async function completeStreamTurn(
 			: latestContextDebug;
 
 		enqueueChunk(
-			`event: end\ndata: ${JSON.stringify({
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.end, {
 				thinkingTokenCount,
 				responseTokenCount,
 				totalTokenCount,
@@ -399,7 +404,7 @@ export async function completeStreamTurn(
 				contextDebug,
 				generatedFiles,
 				contextCompressionSnapshots,
-			})}\n\n`,
+			}),
 		);
 		touchConversation(userId, conversationId).catch(() => undefined);
 		if (streamId) clearStreamBuffer(streamId);

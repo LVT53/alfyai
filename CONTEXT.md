@@ -154,6 +154,22 @@ _Avoid_: prompt, evidence, memory dump, active context
 The subset of **Available Context** actually sent to the model for a specific **Normal Chat** turn.
 _Avoid_: available context, all memory, workspace state
 
+**Normal Chat Turn**:
+One user request and assistant response cycle in **Normal Chat**, including **Context Selection** before the model call and **Normal Chat Turn Completion** after the assistant response.
+_Avoid_: message send, Langflow run, SSE session
+
+**Normal Chat Turn Completion**:
+The point where an assistant response becomes durable conversation state, including persisted messages, response-facing **Context Sources**, message evidence, skill state changes, and continuity side effects for that turn.
+_Avoid_: route response assembly, stream end event, post-send cleanup
+
+**Normal Chat Completion Boundary**:
+The app-owned boundary that decides the durable result of **Normal Chat Turn Completion** before transport adapters expose it as JSON, SSE, refreshable conversation detail, or visible chat UI state.
+_Avoid_: deep module, route-local completion, stream-only finalization
+
+**Browser SSE Protocol**:
+The browser-facing streaming transport contract for **Normal Chat** stream and reconnect responses, including the allowed SSE event names, payload shapes, encoding, and decoding rules owned by `src/lib/services/stream-protocol.ts`.
+_Avoid_: Langflow stream, Normal Chat Turn Completion, route-local event string
+
 **Memory Access**:
 AlfyAI's ability to use durable user, conversation, project, document, and research context through Honcho-led memory and app-supplied historical context retrieval.
 _Avoid_: local persona engine, memory replacement, transcript dump
@@ -510,6 +526,11 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 
 - **Available Context** is broader than **Prompt Context**.
 - **Prompt Context** is selected per **Normal Chat** turn.
+- **Context Selection** starts a **Normal Chat Turn** by choosing **Prompt Context** from **Available Context**.
+- **Normal Chat Turn Completion** ends a **Normal Chat Turn** by turning assistant output into durable conversation state and response-facing **Context Sources**.
+- Transport surfaces may expose the result of **Normal Chat Turn Completion**, but they should not redefine what completion means.
+- The **Browser SSE Protocol** exposes streaming, replay, waiting, completion, and error transport events for **Normal Chat**, but it does not own durable turn completion.
+- **Browser SSE Protocol** event names and payload shapes should change only at the shared stream-protocol boundary with protocol tests.
 - The **Composer Command Registry** has separate **Skill** and **Composer Command** namespaces.
 - The **Composer Command Registry** and **Skill** work should ship in **Composer Command Slices** behind a feature flag until the v1 surface is coherent.
 - The **Composer Command Registry** feature flag should be runtime admin-configurable and default off until the v1 surface is coherent.
@@ -1156,6 +1177,10 @@ _Avoid_: new version, replacement, overwrite
 A user request for AlfyAI to create one or more downloadable **Generated Files**.
 _Avoid_: export task, PDF tool call, sandbox job
 
+**File Production Intake**:
+The normalized start of a **File Production Request**, where AlfyAI decides whether the request becomes a queued job or a durable failed **File Production Card** before rendering begins.
+_Avoid_: route-local file job, tool-specific export path, transient generation task
+
 **File Production Card**:
 A chat card that presents the durable state and actions for a **File Production Request**.
 _Avoid_: stream placeholder, temporary generated-file row, tool-call log
@@ -1216,6 +1241,9 @@ _Avoid_: source message button, primary document action, source viewer
 - A **Generated File** does not automatically become a **Generated Document**.
 - A **File Production Request** may produce one or more **Generated Files**.
 - A **File Production Request** is one user-facing capability even when AlfyAI uses different internal production methods.
+- Every **File Production Request** enters **File Production Intake** before renderer, sandbox, or storage work begins.
+- **File Production Intake** creates or reuses durable **File Production Card** state; it is not a stream-only or tool-specific concern.
+- A malformed **File Production Request** still produces a durable failed **File Production Card** through **File Production Intake** when enough conversation ownership is known.
 - A **File Production Card** appears from persisted job state, not from a stream-only placeholder.
 - A **File Production Card** may present queued or running jobs with a generating visual treatment while the underlying job status remains `queued` or `running`.
 - A queued or running **File Production Card** may use a content-loading shimmer treatment instead of textual progress, a spinner, or a progress bar.

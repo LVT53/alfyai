@@ -4,6 +4,8 @@ AlfyAI file production will be exposed to the model as one user-facing capabilit
 
 Implementation should move in small production slices. Each slice must be independently testable and verifiable, leave the system usable, include appropriate fallback/observability, and remove the specific old behavior it replaces rather than accumulating parallel paths.
 
+File-production intake is a deep module inside the file-production boundary, not behavior owned by `/api/chat/files/produce`, a Langflow node, or any future tool adapter. Adapters may authenticate, parse transport JSON, extract only the minimum conversation identity needed for ownership checks, and translate the intake result into HTTP or tool output. The intake module owns request normalization, source-mode validation, static limits, durable failed-job persistence, idempotent job create/reuse, and worker wakeup. Future edits should extend that intake entrypoint instead of reintroducing route-local or tool-local file-production rules.
+
 The existing `generate_file` and `export_document` Langflow tools and endpoints should be treated as obsolete migration targets, not compatibility surfaces. Once the unified file-production tool/node and endpoint are ready, remove and disable the obsolete tools/routes instead of keeping shims. Model guidance, AGENTS files, README/setup notes, and other agent-facing documents must be updated in the same migration so no instruction path continues to point at the old generation system.
 
 **Considered Options**
@@ -11,5 +13,6 @@ The existing `generate_file` and `export_document` Langflow tools and endpoints 
 - Keep separate model-facing PDF export and sandbox file-generation tools.
 - Make sandboxed code generation the universal production path.
 - Unify file production behind a dedicated server service while keeping renderers, sandbox execution, storage, and context selection as separate boundaries.
+- Keep request parsing, failed-job persistence, and worker wakeup in the produce route while moving only rendering/execution behind the service boundary.
 
 We chose the unified boundary because the current split makes simple file requests brittle, especially PDFs, and forces the model to choose between implementation paths. Server-owned production preserves style control, gives generated outputs a clean context-selection contract, and lets document source, rendering, persistence, and preview evolve without reintroducing route-local or tool-local file workflows.

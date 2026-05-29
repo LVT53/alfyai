@@ -15,3 +15,5 @@ For web research, the web-research service owns source discovery, page opening, 
 - Create a dedicated chat-turn context-selection boundary.
 
 We chose the chat-turn boundary because context selection is per-turn Normal Chat behavior, while Honcho remains an integration adapter and knowledge/task services remain candidate suppliers rather than generic prompt engines.
+
+ADR-0015 complements this decision: context selection owns what enters the model before a Normal Chat turn, while turn completion owns the durable and response-facing result after the assistant answer.

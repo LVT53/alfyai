@@ -1,6 +1,8 @@
 import {
+	BROWSER_CHAT_SSE_EVENTS,
 	createInlineThinkingState,
 	createLeakedToolDiagnosticsState,
+	encodeBrowserChatSseEvent,
 	FRIENDLY_STREAM_ERRORS,
 	flushInlineThinkingState,
 	getLeakedToolDiagnosticPrefixLength,
@@ -357,7 +359,9 @@ export function createServerChunkRuntime({
 		}
 		if (onThinking) onThinking(chunk);
 		return enqueueChunk(
-			`event: thinking\ndata: ${JSON.stringify({ text: chunk })}\n\n`,
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.thinking, {
+				text: chunk,
+			}),
 		);
 	};
 
@@ -420,7 +424,9 @@ export function createServerChunkRuntime({
 		fullResponse += visibleChunk;
 		if (onToken) onToken(visibleChunk);
 		return enqueueChunk(
-			`event: token\ndata: ${JSON.stringify({ text: visibleChunk })}\n\n`,
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
+				text: visibleChunk,
+			}),
 		);
 	};
 
@@ -570,7 +576,7 @@ export function createServerChunkRuntime({
 		if (onToolCall)
 			onToolCall(name, input, status, details?.outputSummary, details);
 		enqueueChunk(
-			`event: tool_call\ndata: ${JSON.stringify({
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.toolCall, {
 				callId,
 				name,
 				input,
@@ -579,7 +585,7 @@ export function createServerChunkRuntime({
 				sourceType: details?.sourceType,
 				candidates: details?.candidates,
 				metadata: details?.metadata,
-			})}\n\n`,
+			}),
 		);
 
 		if (status === "running") {
@@ -969,7 +975,10 @@ export function isAbruptUpstreamTermination(error: unknown): boolean {
 }
 
 export function streamErrorEvent(code: StreamErrorCode): string {
-	return `event: error\ndata: ${JSON.stringify({ code, message: FRIENDLY_STREAM_ERRORS[code] })}\n\n`;
+	return encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.error, {
+		code,
+		message: FRIENDLY_STREAM_ERRORS[code],
+	});
 }
 
 export function extractAssistantChunk(

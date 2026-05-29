@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	BROWSER_CHAT_SSE_EVENTS,
+	decodeBrowserChatSseEvents,
+	encodeBrowserChatSseEvent,
+} from "$lib/services/stream-protocol";
 import { doReconnect } from "./stream-reconnect";
 
 interface ReconnectBuffer {
@@ -82,6 +87,12 @@ describe("doReconnect", () => {
 		};
 	}
 
+	function enqueuedProtocolEvents() {
+		return enqueueChunk.mock.calls.flatMap(([chunk]) =>
+			decodeBrowserChatSseEvents(chunk as string),
+		);
+	}
+
 	it("enqueues SSE prelude and heartbeat comments on start", () => {
 		callDoReconnect();
 
@@ -109,35 +120,42 @@ describe("doReconnect", () => {
 		callDoReconnect();
 
 		expect(enqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining("event: replay_start"),
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.replayStart, {
+				tokenCount: 2,
+				thinkingCount: 1,
+				toolCallCount: 1,
+				userMessage: null,
+			}),
 		);
 
 		expect(enqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining("event: token"),
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
+				text: "Hello",
+			}),
 		);
 		expect(enqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining('"text":"Hello"'),
-		);
-		expect(enqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining('"text":" world"'),
-		);
-
-		expect(enqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining("event: thinking"),
-		);
-		expect(enqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining('"text":"reasoning"'),
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
+				text: " world",
+			}),
 		);
 
 		expect(enqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining("event: tool_call"),
-		);
-		expect(enqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining('"name":"search"'),
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.thinking, {
+				text: "reasoning",
+			}),
 		);
 
 		expect(enqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining("event: replay_end"),
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.toolCall, {
+				name: "search",
+				input: { q: "test" },
+				status: "done",
+				outputSummary: "found",
+			}),
+		);
+
+		expect(enqueueChunk).toHaveBeenCalledWith(
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.replayEnd, {}),
 		);
 	});
 
@@ -177,15 +195,11 @@ describe("doReconnect", () => {
 
 		callDoReconnect();
 
-		const toolCallChunk = enqueueChunk.mock.calls
-			.map((call: string[]) => call[0])
-			.find((chunk: string) => chunk.startsWith("event: tool_call"));
-		expect(toolCallChunk).toBeDefined();
-		const payload = JSON.parse(
-			toolCallChunk?.match(/^data: (.*)$/m)?.[1] ?? "{}",
+		const toolCallEvent = enqueuedProtocolEvents().find(
+			(event) => event.event === BROWSER_CHAT_SSE_EVENTS.toolCall,
 		);
 
-		expect(payload).toEqual({
+		expect(toolCallEvent?.data).toEqual({
 			name: "web_search",
 			input: { query: "OpenAI news" },
 			status: "done",
@@ -210,33 +224,56 @@ describe("doReconnect", () => {
 		const listener = subscribeToStream.mock.calls[0][1] as (
 			chunk: string,
 		) => void;
-		listener('event: token\ndata: {"text":"live"}\n\n');
+		const liveChunk = encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
+			text: "live",
+		});
+		listener(liveChunk);
 
-		expect(enqueueChunk).toHaveBeenCalledWith(
-			'event: token\ndata: {"text":"live"}\n\n',
-		);
+		expect(enqueueChunk).toHaveBeenCalledWith(liveChunk);
 	});
 
-	it('closes downstream and unsubscribes on "event: end" live chunk', () => {
+	it("closes downstream and unsubscribes on an end protocol event", () => {
 		callDoReconnect();
 
 		const listener = subscribeToStream.mock.calls[0][1] as (
 			chunk: string,
 		) => void;
-		listener("event: end\ndata: {}\n\n");
+		listener(encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.end, {}));
 
 		expect(unsubscribeFromStream).toHaveBeenCalledWith("test-stream", listener);
 		expect(clearInterval).toHaveBeenCalled();
 		expect(closeDownstream).toHaveBeenCalled();
 	});
 
-	it('closes downstream and unsubscribes on "event: error" live chunk', () => {
+	it("closes downstream when a forwarded live chunk contains a terminal protocol event after a comment", () => {
 		callDoReconnect();
 
 		const listener = subscribeToStream.mock.calls[0][1] as (
 			chunk: string,
 		) => void;
-		listener('event: error\ndata: {"code":"timeout"}\n\n');
+		const liveChunk = `: heartbeat\n\n${encodeBrowserChatSseEvent(
+			BROWSER_CHAT_SSE_EVENTS.end,
+			{},
+		)}`;
+		listener(liveChunk);
+
+		expect(enqueueChunk).toHaveBeenCalledWith(liveChunk);
+		expect(unsubscribeFromStream).toHaveBeenCalledWith("test-stream", listener);
+		expect(clearInterval).toHaveBeenCalled();
+		expect(closeDownstream).toHaveBeenCalled();
+	});
+
+	it("closes downstream and unsubscribes on an error protocol event", () => {
+		callDoReconnect();
+
+		const listener = subscribeToStream.mock.calls[0][1] as (
+			chunk: string,
+		) => void;
+		listener(
+			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.error, {
+				code: "timeout",
+			}),
+		);
 
 		expect(unsubscribeFromStream).toHaveBeenCalledWith("test-stream", listener);
 		expect(clearInterval).toHaveBeenCalled();
@@ -263,15 +300,14 @@ describe("doReconnect", () => {
 
 		callDoReconnect();
 
-		const calls = enqueueChunk.mock.calls.flat() as string[];
-		const replayStartCall = calls.find((c: string) =>
-			c.includes("event: replay_start"),
+		const replayStartEvent = enqueuedProtocolEvents().find(
+			(event) => event.event === BROWSER_CHAT_SSE_EVENTS.replayStart,
 		);
-		const replayEndCall = calls.find((c: string) =>
-			c.includes("event: replay_end"),
+		const replayEndEvent = enqueuedProtocolEvents().find(
+			(event) => event.event === BROWSER_CHAT_SSE_EVENTS.replayEnd,
 		);
-		expect(replayStartCall).toBeUndefined();
-		expect(replayEndCall).toBeUndefined();
+		expect(replayStartEvent).toBeUndefined();
+		expect(replayEndEvent).toBeUndefined();
 	});
 
 	it("closes downstream when getStreamBuffer throws", () => {

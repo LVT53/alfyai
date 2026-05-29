@@ -1,3 +1,9 @@
+import {
+	BROWSER_CHAT_SSE_EVENTS,
+	decodeBrowserChatSseEvents,
+	encodeBrowserChatSseEvent,
+} from "$lib/services/stream-protocol";
+
 export interface ReconnectBuffer {
 	userMessage: string | null;
 	tokens: string[];
@@ -35,6 +41,14 @@ function unrefTimer(timer: ReturnType<typeof setInterval>) {
 	timer.unref?.();
 }
 
+function containsTerminalBrowserChatEvent(chunk: string): boolean {
+	return decodeBrowserChatSseEvents(chunk).some(
+		(event) =>
+			event.event === BROWSER_CHAT_SSE_EVENTS.end ||
+			event.event === BROWSER_CHAT_SSE_EVENTS.error,
+	);
+}
+
 export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 	const {
 		enqueueChunk,
@@ -68,26 +82,30 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 			);
 			if (hasContent) {
 				enqueueChunk(
-					`event: replay_start\ndata: ${JSON.stringify({
+					encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.replayStart, {
 						tokenCount: buffer.tokens.length,
 						thinkingCount: buffer.thinking.length,
 						toolCallCount: buffer.toolCalls.length,
 						userMessage: buffer.userMessage,
-					})}\n\n`,
+					}),
 				);
 				for (const token of buffer.tokens) {
 					enqueueChunk(
-						`event: token\ndata: ${JSON.stringify({ text: token })}\n\n`,
+						encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
+							text: token,
+						}),
 					);
 				}
 				for (const thinking of buffer.thinking) {
 					enqueueChunk(
-						`event: thinking\ndata: ${JSON.stringify({ text: thinking })}\n\n`,
+						encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.thinking, {
+							text: thinking,
+						}),
 					);
 				}
 				for (const toolCall of buffer.toolCalls) {
 					enqueueChunk(
-						`event: tool_call\ndata: ${JSON.stringify({
+						encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.toolCall, {
 							callId: toolCall.callId,
 							name: toolCall.name,
 							input: toolCall.input,
@@ -96,20 +114,19 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 							sourceType: toolCall.sourceType,
 							candidates: toolCall.candidates,
 							metadata: toolCall.metadata,
-						})}\n\n`,
+						}),
 					);
 				}
-				enqueueChunk("event: replay_end\ndata: {}\n\n");
+				enqueueChunk(
+					encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.replayEnd, {}),
+				);
 			}
 		}
 
 		let reconnectHeartbeatId: ReturnType<typeof setInterval>;
 		const liveListener = (chunk: string) => {
 			enqueueChunk(chunk);
-			if (
-				chunk.startsWith("event: end\n") ||
-				chunk.startsWith("event: error\n")
-			) {
+			if (containsTerminalBrowserChatEvent(chunk)) {
 				unsubscribeFromStream(targetStreamId, liveListener);
 				clearInterval(reconnectHeartbeatId);
 				closeDownstream();

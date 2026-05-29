@@ -1,21 +1,40 @@
 import { describe, expect, it } from "vitest";
 import {
+	BROWSER_CHAT_SSE_EVENTS,
+	decodeBrowserChatSseEvents,
+} from "$lib/services/stream-protocol";
+import {
 	classifyStreamError,
 	createServerChunkRuntime,
 	extractAssistantChunk,
 	extractErrorMessage,
 } from "./stream";
 
-function tokenTexts(chunks: string[]): string[] {
+function eventData(chunks: string[], eventName: string): unknown[] {
 	return chunks
-		.filter((chunk) => chunk.startsWith("event: token"))
-		.map((chunk) => JSON.parse(chunk.match(/^data: (.*)$/m)?.[1] ?? "{}").text);
+		.flatMap((chunk) => decodeBrowserChatSseEvents(chunk))
+		.filter((event) => event.event === eventName && event.dataKind === "json")
+		.map((event) => event.data);
+}
+
+function tokenTexts(chunks: string[]): string[] {
+	return eventData(chunks, BROWSER_CHAT_SSE_EVENTS.token).map((data) =>
+		typeof data === "object" && data !== null && "text" in data
+			? String((data as { text?: unknown }).text ?? "")
+			: "",
+	);
 }
 
 function thinkingTexts(chunks: string[]): string[] {
-	return chunks
-		.filter((chunk) => chunk.startsWith("event: thinking"))
-		.map((chunk) => JSON.parse(chunk.match(/^data: (.*)$/m)?.[1] ?? "{}").text);
+	return eventData(chunks, BROWSER_CHAT_SSE_EVENTS.thinking).map((data) =>
+		typeof data === "object" && data !== null && "text" in data
+			? String((data as { text?: unknown }).text ?? "")
+			: "",
+	);
+}
+
+function toolCallEvents(chunks: string[]): unknown[] {
+	return eventData(chunks, BROWSER_CHAT_SSE_EVENTS.toolCall);
 }
 
 describe("createServerChunkRuntime", () => {
@@ -354,9 +373,7 @@ describe("createServerChunkRuntime", () => {
 		);
 		runtime.emitToolCallEvent("produce_file", {}, "done");
 
-		expect(
-			chunks.filter((chunk) => chunk.startsWith("event: tool_call")),
-		).toHaveLength(2);
+		expect(toolCallEvents(chunks)).toHaveLength(2);
 		expect(runtime.toolCallRecords).toEqual([
 			expect.objectContaining({ name: "produce_file", status: "done" }),
 		]);
@@ -390,9 +407,7 @@ describe("createServerChunkRuntime", () => {
 			outputSummary: "Found sources",
 		});
 
-		expect(
-			chunks.filter((chunk) => chunk.startsWith("event: tool_call")),
-		).toHaveLength(2);
+		expect(toolCallEvents(chunks)).toHaveLength(2);
 		expect(runtime.toolCallRecords).toEqual([
 			expect.objectContaining({
 				callId: "tool-call-1",
@@ -442,9 +457,7 @@ describe("createServerChunkRuntime", () => {
 			outputSummary: "Found sources",
 		});
 
-		expect(
-			chunks.filter((chunk) => chunk.startsWith("event: tool_call")),
-		).toHaveLength(2);
+		expect(toolCallEvents(chunks)).toHaveLength(2);
 		expect(runtime.toolCallRecords).toEqual([
 			expect.objectContaining({
 				callId: "langchain-run-1",
@@ -495,9 +508,7 @@ describe("createServerChunkRuntime", () => {
 			outputSummary: "Found sources",
 		});
 
-		expect(
-			chunks.filter((chunk) => chunk.startsWith("event: tool_call")),
-		).toHaveLength(2);
+		expect(toolCallEvents(chunks)).toHaveLength(2);
 		expect(runtime.toolCallRecords).toEqual([
 			expect.objectContaining({
 				callId: "langchain-run-1",

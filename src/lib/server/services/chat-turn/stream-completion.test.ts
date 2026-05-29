@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import {
+	BROWSER_CHAT_SSE_EVENTS,
+	decodeBrowserChatSseEvents,
+} from "$lib/services/stream-protocol";
 import type { ArtifactSummary, ContextDebugState, TaskState } from "$lib/types";
 import { completeStreamTurn } from "./stream-completion";
 
@@ -43,6 +47,26 @@ describe("completeStreamTurn", () => {
 		applySkillControlOperations as ReturnType<typeof vi.fn>;
 	const mockCommitSkillNoteOperations =
 		commitSkillNoteOperationsAfterAssistantMessage as ReturnType<typeof vi.fn>;
+
+	function getLatestEndPayload(): Record<string, unknown> {
+		const endEvent = mockEnqueueChunk.mock.calls
+			.flatMap((call: string[]) => decodeBrowserChatSseEvents(call[0] ?? ""))
+			.find(
+				(event) =>
+					event.event === BROWSER_CHAT_SSE_EVENTS.end &&
+					event.dataKind === "json",
+			);
+
+		expect(endEvent).toBeDefined();
+		return (endEvent?.data ?? {}) as Record<string, unknown>;
+	}
+
+	function getContextSourceGroups(payload: Record<string, unknown>): unknown[] {
+		const contextSources = payload.contextSources as
+			| { groups?: unknown[] }
+			| undefined;
+		return contextSources?.groups ?? [];
+	}
 
 	const defaultUserMsg = { id: "user-msg-1" };
 	const defaultAssistantMsg = { id: "asst-msg-1" };
@@ -497,11 +521,7 @@ describe("completeStreamTurn", () => {
 	it("sends SSE event:end with correct payload shape", async () => {
 		await completeStreamTurn(defaultParams);
 
-		const endCall = mockEnqueueChunk.mock.calls.find((call: string[]) =>
-			call[0]?.startsWith("event: end"),
-		);
-		expect(endCall).toBeDefined();
-		const data = JSON.parse(endCall[0].replace("event: end\ndata: ", ""));
+		const data = getLatestEndPayload();
 		expect(data).toEqual(
 			expect.objectContaining({
 				thinkingTokenCount: 100,
@@ -551,16 +571,12 @@ describe("completeStreamTurn", () => {
 			),
 		});
 
-		const endCall = mockEnqueueChunk.mock.calls.find((call: string[]) =>
-			call[0]?.startsWith("event: end"),
-		);
-		expect(endCall).toBeDefined();
-		const data = JSON.parse(endCall[0].replace("event: end\ndata: ", ""));
+		const data = getLatestEndPayload();
 
 		expect(data.activeWorkingSet).toEqual(persistedWorkingSet);
 		expect(data.taskState).toEqual(persistedTaskState);
 		expect(data.contextDebug).toEqual(persistedContextDebug);
-		expect(data.contextSources.groups).toEqual(
+		expect(getContextSourceGroups(data)).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
 					kind: "attachments",
@@ -612,17 +628,13 @@ describe("completeStreamTurn", () => {
 
 		await completeStreamTurn(defaultParams);
 
-		const endCall = mockEnqueueChunk.mock.calls.find((call: string[]) =>
-			call[0]?.startsWith("event: end"),
-		);
-		expect(endCall).toBeDefined();
-		const data = JSON.parse(endCall[0].replace("event: end\ndata: ", ""));
+		const data = getLatestEndPayload();
 
 		expect(mockGetProjectReferenceContext).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
 		});
-		expect(data.contextSources.groups).toEqual([
+		expect(getContextSourceGroups(data)).toEqual([
 			expect.objectContaining({
 				kind: "project_folder",
 				state: "inferred",
@@ -654,24 +666,14 @@ describe("completeStreamTurn", () => {
 
 		await completeStreamTurn(defaultParams);
 
-		const fallbackEndCall = mockEnqueueChunk.mock.calls.find((call: string[]) =>
-			call[0]?.startsWith("event: end"),
-		);
-		expect(fallbackEndCall).toBeDefined();
-		const fallbackData = JSON.parse(
-			fallbackEndCall[0].replace("event: end\ndata: ", ""),
-		);
-		expect(fallbackData.contextSources.groups).toEqual([]);
+		const fallbackData = getLatestEndPayload();
+		expect(getContextSourceGroups(fallbackData)).toEqual([]);
 	});
 
 	it("sets wasStopped to true in the end event when requested", async () => {
 		await completeStreamTurn({ ...defaultParams, wasStopped: true });
 
-		const endCall = mockEnqueueChunk.mock.calls.find((call: string[]) =>
-			call[0]?.startsWith("event: end"),
-		);
-		expect(endCall).toBeDefined();
-		const data = JSON.parse(endCall[0].replace("event: end\ndata: ", ""));
+		const data = getLatestEndPayload();
 		expect(data.wasStopped).toBe(true);
 	});
 
