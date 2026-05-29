@@ -12,6 +12,10 @@ const USER_CORRECTION_RE =
 	/\b(actually|instead|rather than|use the previous|use the earlier|change it to|revise this|refine this|update this|fix this|correct this|replace that|not that one)\b/i;
 const CONTEXT_RESET_RE =
 	/\b(done with (?:that|this|it)|finished with (?:that|this|it)|finished (?:that|this|it)|completed (?:that|this|it)|that(?:'s| is) done|wrapped up|move on|switch topics|new topic|another topic|something else|let's talk about something else)\b/i;
+const NEW_GENERATED_DOCUMENT_REQUEST_RE =
+	/\b(create|generate|make|produce|export|build)\b[\s\S]{0,140}\b(pdf|docx|xlsx|pptx|csv|html|file|document|report|deck|slide deck|slides|spreadsheet|workbook)\b|\b(pdf|docx|xlsx|pptx|csv|html)\b[\s\S]{0,80}\b(called|named)\b/i;
+const EXPLICIT_DOCUMENT_INPUT_REFERENCE_RE =
+	/\b(this|that|same|current|open|opened|selected|attached|attachment|uploaded|source)\b|\b(from|based on)\s+(?:the\s+)?(?:this|that|current|open|opened|selected|attached|uploaded|source)\b/i;
 
 interface WorkingDocumentSignalState {
 	documentFocused: boolean;
@@ -185,6 +189,20 @@ function hasActiveContextResetSignal(
 	return CONTEXT_RESET_RE.test(message);
 }
 
+function hasNewGeneratedDocumentRequestSignal(
+	message: string | null | undefined,
+): boolean {
+	if (!message?.trim()) return false;
+	return NEW_GENERATED_DOCUMENT_REQUEST_RE.test(message);
+}
+
+function hasExplicitDocumentInputReferenceSignal(
+	message: string | null | undefined,
+): boolean {
+	if (!message?.trim()) return false;
+	return EXPLICIT_DOCUMENT_INPUT_REFERENCE_RE.test(message);
+}
+
 function deriveWorkingDocumentReasonCodes(params: {
 	artifactId: string;
 	reasonCodes: WorkingSetReasonCode[];
@@ -328,6 +346,10 @@ function buildWorkingDocumentSignalState(params: {
 	currentConversationId?: string | null;
 }): WorkingDocumentSignalState {
 	const hasContextResetSignal = hasActiveContextResetSignal(params.message);
+	const hasNewGeneratedDocumentRequest =
+		hasNewGeneratedDocumentRequestSignal(params.message);
+	const hasExplicitDocumentInputReference =
+		hasExplicitDocumentInputReferenceSignal(params.message);
 	const shouldContinueDocumentState = !hasContextResetSignal;
 	const hasRecentUserCorrection = hasUserCorrectionSignal(params.message);
 	const hasActiveDocument =
@@ -336,8 +358,12 @@ function buildWorkingDocumentSignalState(params: {
 	const activeDocumentFocused =
 		shouldContinueDocumentState &&
 		hasActiveDocument &&
-		hasActiveDocumentFocusSignal(params.message);
-	const recentRefinedState = shouldContinueDocumentState
+		hasActiveDocumentFocusSignal(params.message) &&
+		(!hasNewGeneratedDocumentRequest || hasExplicitDocumentInputReference);
+	const shouldContinueGeneratedDocumentState =
+		shouldContinueDocumentState &&
+		(!hasNewGeneratedDocumentRequest || activeDocumentFocused);
+	const recentRefinedState = shouldContinueGeneratedDocumentState
 		? resolveRecentlyRefinedGeneratedFamily({
 				artifacts: params.artifacts,
 				preferredArtifactId:
@@ -356,7 +382,7 @@ function buildWorkingDocumentSignalState(params: {
 			hasActiveDocument,
 			hasContinuityDocument: Boolean(recentRefinedState.familyId),
 		});
-	const selection = shouldContinueDocumentState
+	const selection = shouldContinueGeneratedDocumentState
 		? resolveCurrentGeneratedDocumentSelection({
 				artifacts: params.artifacts,
 				preferredArtifactId:
@@ -365,7 +391,8 @@ function buildWorkingDocumentSignalState(params: {
 				preferredFamilyId: documentFocused ? recentRefinedState.familyId : null,
 				query: params.message.trim(),
 				currentConversationId: params.currentConversationId ?? null,
-				allowFallbackToLatest: documentFocused,
+				allowFallbackToLatest:
+					documentFocused && !hasNewGeneratedDocumentRequest,
 			})
 		: {
 				primaryArtifactId: null,
@@ -547,7 +574,8 @@ export function resolveWorkingDocumentSelection(
 			preferredGeneratedFamilyId:
 				workingDocumentSignalState.recentlyRefinedFamilyId,
 			suppressGeneratedCarryover:
-				workingDocumentSignalState.hasContextResetSignal,
+				workingDocumentSignalState.hasContextResetSignal ||
+				hasNewGeneratedDocumentRequestSignal(params.message),
 			hasExplicitResetSignal: workingDocumentSignalState.hasContextResetSignal,
 		},
 		taskEvidence: {

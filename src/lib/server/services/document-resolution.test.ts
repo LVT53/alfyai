@@ -615,6 +615,30 @@ describe("document resolution", () => {
     expect(selection.primaryArtifactId).toBeNull();
   });
 
+  it("does not re-add an exact generated-output filename match after carryover is suppressed", () => {
+    const selection = resolveRelevantGeneratedDocumentSelection({
+      query: "Create a new one-page PDF file called context-sweep-summary.pdf",
+      limit: 4,
+      suppressCarryoverWhenUnfocused: true,
+      artifacts: [
+        makeArtifact({
+          id: "artifact-summary",
+          name: "context-sweep-summary.pdf",
+          updatedAt: 4,
+          metadata: {
+            documentFamilyId: "family-summary",
+            documentLabel: "context-sweep-summary",
+            versionNumber: 1,
+            generatedFilename: "context-sweep-summary.pdf",
+          },
+        }),
+      ],
+    });
+
+    expect(selection.orderedArtifacts).toEqual([]);
+    expect(selection.primaryArtifactId).toBeNull();
+  });
+
   it("treats a recently corrected generated document as prompt-eligible even when ephemeral", () => {
     const artifact = makeArtifact({
       id: "artifact-1",

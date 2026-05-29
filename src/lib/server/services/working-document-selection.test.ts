@@ -242,4 +242,32 @@ describe("working document selection", () => {
 			isSelectedCurrentGeneratedDocument: false,
 		});
 	});
+
+	it("suppresses generated-output carryover for new file creation requests", () => {
+		const selection = resolveWorkingDocumentSelection({
+			message: "Create a new one-page PDF file called brief-v1.pdf.",
+			currentConversationId: "conv-1",
+			artifacts: [
+				generatedArtifact(
+					"brief-v1",
+					{
+						documentFamilyId: "family-brief",
+						documentLabel: "Project brief",
+						versionNumber: 1,
+						generatedFilename: "brief-v1.pdf",
+					},
+					1,
+				),
+			],
+		});
+
+		expect(selection.currentDocument).toBe(null);
+		expect(selection.latestGeneratedDocumentIds).toEqual([]);
+		expect(selection.retrieval).toMatchObject({
+			preferredArtifactId: null,
+			preferredGeneratedFamilyId: null,
+			suppressGeneratedCarryover: true,
+		});
+		expect(selection.taskEvidence.protectedArtifactIds).toEqual([]);
+	});
 });

@@ -316,12 +316,14 @@ export function resolveRelevantGeneratedDocumentSelection(params: {
     }
   }
 
-  for (const resolution of resolutions) {
-    if (seenArtifactIds.has(resolution.artifact.id)) continue;
-    if (preferredFamilyId && resolution.familyId === preferredFamilyId) continue;
-    orderedArtifacts.push(resolution.artifact);
-    seenArtifactIds.add(resolution.artifact.id);
-    if (orderedArtifacts.length >= params.limit) break;
+  if (!params.suppressCarryoverWhenUnfocused) {
+    for (const resolution of resolutions) {
+      if (seenArtifactIds.has(resolution.artifact.id)) continue;
+      if (preferredFamilyId && resolution.familyId === preferredFamilyId) continue;
+      orderedArtifacts.push(resolution.artifact);
+      seenArtifactIds.add(resolution.artifact.id);
+      if (orderedArtifacts.length >= params.limit) break;
+    }
   }
 
   const primaryReasonCodes = preferredArtifact
