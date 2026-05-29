@@ -3,18 +3,19 @@ import {
 	listContextCompressionSnapshots,
 	serializeContextCompressionSnapshot,
 } from "$lib/server/services/context-compression";
-import { finalizeChatTurn } from "$lib/server/services/chat-turn/finalize";
-import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import {
+	buildChatTurnCompletionContextSources,
+	finalizeChatTurn,
+} from "$lib/server/services/chat-turn/finalize";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
 import type {
-	ArtifactSummary,
 	ContextDebugState,
+	ContextSourcesState,
 	ConversationContextStatus,
 	LinkedContextSource,
 	ToolCallEntry,
 	WebCitationAudit,
 } from "$lib/types";
-import { buildContextSourcesState } from "./context-sources";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import { parseSkillControlEnvelopePayloads } from "./skill-control-envelope";
 import type { WorkCapsuleSummary } from "./types";
@@ -258,7 +259,7 @@ export async function completeStreamTurn(
 		(record) => record.name === "produce_file",
 	);
 	let persistedTurnState: PersistedStreamTurnState | null = null;
-	let attachedArtifactsForContextSources: ArtifactSummary[] = [];
+	let persistedContextSources: ContextSourcesState | null = null;
 
 	if (getConfig().contextDiagnosticsDebug) {
 		console.info("[CHAT_STREAM] Tool-call summary", {
@@ -352,30 +353,19 @@ export async function completeStreamTurn(
 			);
 		}
 
-		const projectReference = await getProjectReferenceContext({
-			userId,
-			conversationId,
-		}).catch(() => null);
-		const contextSources = buildContextSourcesState({
-			userId,
-			conversationId,
-			contextStatus: latestContextStatus as ConversationContextStatus | null,
-			contextDebug: persistedTurnState
-				? (persistedTurnState.contextDebug as ContextDebugState | null)
-				: (latestContextDebug as ContextDebugState | null),
-			attachedArtifacts:
-				getPersistedArtifactSummaries(persistedTurnState?.attachedArtifacts) ??
-				attachedArtifactsForContextSources,
-			linkedSources,
-			activeWorkingSet: persistedTurnState
-				? (getPersistedArtifactSummaries(persistedTurnState.activeWorkingSet) ??
-					[])
-				: (getPersistedArtifactSummaries(latestActiveWorkingSet) ?? []),
-			projectReference,
-			contextTraceSections:
-				latestContextTraceSections ?? initialContextTraceSections ?? [],
-			toolCalls: toolCallRecords.filter((tool) => tool.status === "done"),
-		});
+		const contextSources =
+			persistedContextSources ??
+			(await buildChatTurnCompletionContextSources({
+				userId,
+				conversationId,
+				contextStatus: latestContextStatus as ConversationContextStatus | null,
+				contextDebug: latestContextDebug as ContextDebugState | null,
+				linkedSources,
+				activeWorkingSet: latestActiveWorkingSet,
+				contextTraceSections:
+					latestContextTraceSections ?? initialContextTraceSections ?? [],
+				toolCalls: toolCallRecords,
+			}));
 		const contextCompressionSnapshots = await listContextCompressionSnapshots(
 			conversationId,
 		)
@@ -460,6 +450,7 @@ export async function completeStreamTurn(
 			contextTraceSections:
 				latestContextTraceSections ?? initialContextTraceSections,
 			webCitationAudit: citationGate?.audit,
+			linkedSources,
 			persistenceMode: "best_effort",
 			createMessage,
 			persistUserTurnAttachments,
@@ -477,12 +468,7 @@ export async function completeStreamTurn(
 					attachedArtifacts: completion.attachedArtifacts,
 				}
 			: null;
-		await completion.attachmentTask.then((artifacts) => {
-			attachedArtifactsForContextSources =
-				artifacts ?? attachedArtifactsForContextSources;
-		});
-		attachedArtifactsForContextSources =
-			completion.attachedArtifacts ?? attachedArtifactsForContextSources;
+		persistedContextSources = completion.contextSources;
 		return sendEndAndClose(
 			completion.userMessage?.id,
 			completion.assistantMessage?.id,
@@ -490,24 +476,4 @@ export async function completeStreamTurn(
 	} catch {
 		return sendEndAndClose();
 	}
-}
-
-function getPersistedArtifactSummaries(
-	value: unknown,
-): ArtifactSummary[] | null {
-	if (!Array.isArray(value)) return null;
-	return value.filter(isArtifactSummaryLike) as ArtifactSummary[];
-}
-
-function isArtifactSummaryLike(value: unknown): value is ArtifactSummary {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"id" in value &&
-		typeof value.id === "string" &&
-		"name" in value &&
-		typeof value.name === "string" &&
-		"type" in value &&
-		typeof value.type === "string"
-	);
 }

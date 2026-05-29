@@ -32,11 +32,22 @@ import {
 	attachContinuityToTaskState,
 	getContextDebugState,
 	getConversationTaskState,
+	getProjectReferenceContext,
 	syncTaskContinuityFromTaskState,
 	updateTaskStateCheckpoint,
 } from "$lib/server/services/task-state";
 import { buildWebCitationAudit } from "$lib/server/services/web-citation-audit";
-import type { SkillControlOperation } from "$lib/types";
+import type {
+	ArtifactSummary,
+	ContextDebugState,
+	ContextSourcesState,
+	ConversationContextStatus,
+	LinkedContextSource,
+	SkillControlOperation,
+	ToolCallEntry,
+} from "$lib/types";
+import { buildContextSourcesState } from "./context-sources";
+import type { LegacyContextTraceSectionInput } from "./context-trace";
 import type {
 	PersistAssistantEvidenceParams,
 	PersistAssistantTurnStateParams,
@@ -116,6 +127,7 @@ export type FinalizeChatTurnParams = {
 	honchoSnapshot: PersistAssistantTurnStateParams["honchoSnapshot"];
 	assistantMirrorContent: string;
 	maintenanceReason: RunPostTurnTasksParams["maintenanceReason"];
+	linkedSources?: LinkedContextSource[];
 	toolCalls?: PersistAssistantEvidenceParams["toolCalls"];
 	contextTraceSections?: PersistAssistantEvidenceParams["contextTraceSections"];
 	webCitationAudit?: PersistAssistantEvidenceParams["webCitationAudit"];
@@ -125,6 +137,7 @@ export type FinalizeChatTurnParams = {
 	persistAssistantTurnState?: typeof persistAssistantTurnState;
 	persistAssistantEvidence?: typeof persistAssistantEvidence;
 	runPostTurnTasks?: typeof runPostTurnTasks;
+	buildCompletionContextSources?: typeof buildChatTurnCompletionContextSources;
 	persistUserAttachmentsBeforeAssistantMessage?: boolean;
 	waitForEvidenceBeforePostTurnTasks?: boolean;
 };
@@ -148,11 +161,66 @@ export type FinalizeChatTurnResult = {
 	userMessage: { id: string } | undefined;
 	assistantMessage: { id: string } | undefined;
 	turnState: PersistAssistantTurnStateResult | null;
+	contextSources: ContextSourcesState;
 	evidenceTask: Promise<void>;
 	createPostTurnTask: () => Promise<void>;
 	attachmentTask: Promise<WorkingSetItem[] | undefined>;
 	attachedArtifacts?: WorkingSetItem[];
 };
+
+export type BuildChatTurnCompletionContextSourcesParams = {
+	userId: string;
+	conversationId: string;
+	contextStatus?: ConversationContextStatus | null;
+	contextDebug?: ContextDebugState | null;
+	attachedArtifacts?: unknown;
+	linkedSources?: LinkedContextSource[];
+	activeWorkingSet?: unknown;
+	contextTraceSections?: LegacyContextTraceSectionInput[];
+	toolCalls?: ToolCallEntry[];
+};
+
+export async function buildChatTurnCompletionContextSources(
+	params: BuildChatTurnCompletionContextSourcesParams,
+): Promise<ContextSourcesState> {
+	const projectReference = await getProjectReferenceContext({
+		userId: params.userId,
+		conversationId: params.conversationId,
+	}).catch(() => null);
+
+	return buildContextSourcesState({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		contextStatus: params.contextStatus ?? null,
+		contextDebug: params.contextDebug ?? null,
+		attachedArtifacts: toArtifactSummaries(params.attachedArtifacts),
+		linkedSources: params.linkedSources ?? [],
+		activeWorkingSet: toArtifactSummaries(params.activeWorkingSet),
+		projectReference,
+		contextTraceSections: params.contextTraceSections ?? [],
+		toolCalls: (params.toolCalls ?? []).filter(
+			(tool) => tool.status === "done",
+		),
+	});
+}
+
+function toArtifactSummaries(value: unknown): ArtifactSummary[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter(isArtifactSummaryLike) as ArtifactSummary[];
+}
+
+function isArtifactSummaryLike(value: unknown): value is ArtifactSummary {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"id" in value &&
+		typeof value.id === "string" &&
+		"name" in value &&
+		typeof value.name === "string" &&
+		"type" in value &&
+		typeof value.type === "string"
+	);
+}
 
 async function createTurnMessage(
 	params: {
@@ -193,6 +261,8 @@ export async function finalizeChatTurn(
 	const persistAssistantEvidenceImpl =
 		params.persistAssistantEvidence ?? persistAssistantEvidence;
 	const runPostTurnTasksImpl = params.runPostTurnTasks ?? runPostTurnTasks;
+	const buildCompletionContextSourcesImpl =
+		params.buildCompletionContextSources ?? buildChatTurnCompletionContextSources;
 	const persistUserAttachmentsBeforeAssistantMessage =
 		params.persistUserAttachmentsBeforeAssistantMessage ?? true;
 	const waitForEvidenceBeforePostTurnTasks =
@@ -372,17 +442,31 @@ export async function finalizeChatTurn(
 							assistantMirrorContent: params.assistantMirrorContent,
 							workCapsule: turnState.workCapsule,
 							maintenanceReason: params.maintenanceReason,
-						}))
+							}))
 			: Promise.resolve();
+
+	const resolvedAttachedArtifacts = attachedArtifacts ?? (await attachmentTask);
+	const contextSources = await buildCompletionContextSourcesImpl({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		contextStatus: params.contextStatus ?? null,
+		contextDebug: turnState?.contextDebug ?? params.initialContextDebug ?? null,
+		attachedArtifacts: resolvedAttachedArtifacts,
+		linkedSources: params.linkedSources ?? [],
+		activeWorkingSet: turnState?.activeWorkingSet,
+		contextTraceSections: params.contextTraceSections,
+		toolCalls: params.toolCalls,
+	});
 
 	return {
 		userMessage,
 		assistantMessage,
 		turnState,
+		contextSources,
 		evidenceTask,
 		createPostTurnTask,
 		attachmentTask,
-		attachedArtifacts,
+		attachedArtifacts: resolvedAttachedArtifacts,
 	};
 }
 

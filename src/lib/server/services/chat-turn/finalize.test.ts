@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAssistantEvidenceSummary } from '$lib/server/services/message-evidence';
 import { commitSkillNoteOperationsAfterAssistantMessage } from '$lib/server/services/skills/notes';
 import { applySkillControlOperations } from '$lib/server/services/skills/sessions';
+import { getProjectReferenceContext } from '$lib/server/services/task-state';
 
 const {
 	mockMirrorMessage,
@@ -82,6 +83,7 @@ vi.mock('$lib/server/services/task-state', () => ({
 	attachContinuityToTaskState: vi.fn(async (_userId, taskState) => taskState),
 	getContextDebugState: vi.fn(async () => null),
 	getConversationTaskState: vi.fn(async () => null),
+	getProjectReferenceContext: vi.fn(async () => null),
 	syncTaskContinuityFromTaskState: vi.fn(async () => undefined),
 	updateTaskStateCheckpoint: vi.fn(async () => null),
 }));
@@ -394,5 +396,120 @@ describe('finalizeChatTurn', () => {
 		evidenceDeferred.resolve();
 		postTurnDeferred.resolve();
 		await postTurnTask;
+	});
+
+	it('returns context sources assembled by the completion boundary', async () => {
+		const mockGetProjectReferenceContext =
+			getProjectReferenceContext as ReturnType<typeof vi.fn>;
+		mockGetProjectReferenceContext.mockResolvedValueOnce({
+			source: 'project_folder',
+			projectId: 'folder-1',
+			projectName: 'Launch folder',
+			entries: [
+				{
+					conversationId: 'conv-sibling-1',
+					title: 'Pricing notes',
+					objective: null,
+					summary: 'Stable pricing brief.',
+				},
+			],
+			omittedSiblingCount: 0,
+		});
+		const persistAssistantTurnState = vi.fn(async () => ({
+			activeWorkingSet: [
+				{
+					id: 'working-1',
+					type: 'generated_output',
+					name: 'Working output',
+					mimeType: null,
+					sizeBytes: null,
+					conversationId: 'conv-1',
+					summary: null,
+					createdAt: 0,
+					updatedAt: 0,
+				},
+			],
+			taskState: null,
+			contextDebug: null,
+			workCapsule: {} as unknown as undefined,
+		}));
+		const { finalizeChatTurn } = await import('./finalize');
+
+		const completion = await finalizeChatTurn({
+			logPrefix: '[SEND]',
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			userMessageContent: 'normalized user message',
+			persistUserMessage: true,
+			normalizedMessage: 'normalized user message',
+			upstreamMessage: 'upstream prompt payload',
+			assistantResponse: 'visible assistant response',
+			assistantMetadata: {
+				evidenceStatus: 'pending',
+				modelDisplayName: 'Model One',
+			},
+			skillControlOperations: [],
+			skillControlSessionId: null,
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: {
+				model: 'model-1',
+				modelDisplayName: 'Model One',
+				promptTokens: 8,
+				completionTokens: 5,
+				generationTimeMs: undefined,
+				providerUsage: null,
+			},
+			continuitySource: 'send',
+			honchoContext: null,
+			honchoSnapshot: null,
+			assistantMirrorContent: 'assistant mirror text',
+			maintenanceReason: 'chat_send',
+			linkedSources: [
+				{
+					displayArtifactId: 'display-1',
+					promptArtifactId: 'prompt-1',
+					familyArtifactIds: [],
+					name: 'Linked source.pdf',
+					type: 'document',
+					documentOrigin: 'uploaded',
+				},
+			],
+			persistAssistantTurnState,
+		});
+
+		expect(completion.contextSources.groups).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: 'linked_source',
+					items: [
+						expect.objectContaining({
+							artifactId: 'display-1',
+							title: 'Linked source.pdf',
+						}),
+					],
+				}),
+				expect.objectContaining({
+					kind: 'working_set',
+					items: [
+						expect.objectContaining({
+							artifactId: 'working-1',
+							title: 'Working output',
+						}),
+					],
+				}),
+				expect.objectContaining({
+					kind: 'project_folder',
+					items: [
+						expect.objectContaining({
+							title: 'Launch folder',
+						}),
+					],
+				}),
+			]),
+		);
 	});
 });

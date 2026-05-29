@@ -3,7 +3,6 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import { checkStreamCapacity } from "$lib/server/services/chat-turn/active-streams";
-import { buildContextSourcesState } from "$lib/server/services/chat-turn/context-sources";
 import {
 	finalizeChatTurn,
 	persistUserTurnAttachments,
@@ -23,7 +22,6 @@ import { sendMessage } from "$lib/server/services/langflow";
 import { createMessage } from "$lib/server/services/messages";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
-import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { RequestHandler } from "./$types";
 
@@ -231,6 +229,7 @@ export const POST: RequestHandler = async (event) => {
 			honchoSnapshot,
 			assistantMirrorContent: text,
 			maintenanceReason: "chat_send",
+			linkedSources: turn.linkedSources,
 			contextTraceSections,
 			persistenceMode: "strict",
 			waitForEvidenceBeforePostTurnTasks: false,
@@ -240,26 +239,12 @@ export const POST: RequestHandler = async (event) => {
 		);
 		void completion.evidenceTask;
 		void completion.createPostTurnTask();
-		const projectReference = await getProjectReferenceContext({
-			userId: user.id,
-			conversationId: turn.conversationId,
-		}).catch(() => null);
-		const contextSources = buildContextSourcesState({
-			userId: user.id,
-			conversationId: turn.conversationId,
-			contextStatus,
-			contextDebug: completion.turnState?.contextDebug,
-			linkedSources: turn.linkedSources,
-			activeWorkingSet: completion.turnState?.activeWorkingSet,
-			projectReference,
-			contextTraceSections,
-		});
 
 		return json({
 			response: { text: responseText },
 			conversationId: turn.conversationId,
 			contextStatus,
-			contextSources,
+			contextSources: completion.contextSources,
 			activeWorkingSet: completion.turnState?.activeWorkingSet,
 			taskState: completion.turnState?.taskState,
 			contextDebug: completion.turnState?.contextDebug,
