@@ -98,4 +98,3 @@ Run after the slices are integrated:
 - `npm run test:unit`
 - `npm run build`
 - File-production live smoke via `LIVE_AI_BASE_URL=https://ai.alfydesign.com npx tsx scripts/verify-live-file-production-types.ts` after deployment, unless a narrower live smoke is chosen for safety.
-

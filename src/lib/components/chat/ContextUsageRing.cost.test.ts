@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import ContextUsageRing from './ContextUsageRing.svelte';
 
 vi.mock('$lib/i18n', () => ({
@@ -66,7 +66,6 @@ describe('ContextUsageRing cost display', () => {
 				excludedEvidence: [],
 			},
 			onSteer: vi.fn(),
-			onManageEvidence: vi.fn(),
 		});
 
 		expect(screen.queryByText('contextUsageRing.focus')).toBeNull();
@@ -74,6 +73,20 @@ describe('ContextUsageRing cost display', () => {
 		expect(screen.queryByText('contextUsageRing.unlockTask')).toBeNull();
 		expect(screen.queryByText('contextUsageRing.startNewTask')).toBeNull();
 		expect(screen.queryByText('contextUsageRing.manageEvidence')).toBeNull();
+	});
+
+	it('opens context source management without restoring task controls', async () => {
+		const manageEvidence = vi.fn();
+		renderRing({ onManageEvidence: manageEvidence });
+
+		await fireEvent.click(screen.getByLabelText('contextUsageRing.noContext'));
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'contextUsageRing.manageEvidence' }),
+		);
+
+		expect(manageEvidence).toHaveBeenCalledTimes(1);
+		expect(screen.queryByText('contextUsageRing.unlockTask')).toBeNull();
+		expect(screen.queryByText('contextUsageRing.startNewTask')).toBeNull();
 	});
 
 	it('removes across chats section even when continuity exists', () => {

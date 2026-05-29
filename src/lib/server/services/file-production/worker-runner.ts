@@ -137,6 +137,10 @@ async function executeNextFileProductionJobStep(
 		jobId: claimed.job.id,
 		attemptId: claimed.attempt.id,
 		workerId: input.workerId,
+		files: producedFiles.map((file, index) => ({
+			chatGeneratedFileId: file.id,
+			sortOrder: index,
+		})),
 		now: new Date(),
 	});
 

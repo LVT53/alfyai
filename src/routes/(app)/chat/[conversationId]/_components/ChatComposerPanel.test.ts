@@ -90,6 +90,20 @@ describe("ChatComposerPanel", () => {
 		expect(queryByRole("listbox", { name: "Composer commands" })).not.toBeNull();
 	});
 
+	it("forwards the context source management action into the composer ring", async () => {
+		const onManageEvidence = vi.fn();
+		const { getByLabelText, getByRole } = renderComposerPanel({
+			onManageEvidence,
+		});
+
+		await fireEvent.click(getByLabelText("No context yet"));
+		await fireEvent.click(
+			getByRole("button", { name: "Manage context sources" }),
+		);
+
+		expect(onManageEvidence).toHaveBeenCalledTimes(1);
+	});
+
 	it("forwards restored linked sources and pending skill into the composer", () => {
 		const { getByText, getByRole } = renderComposerPanel({
 			composerCommandRegistryEnabled: true,

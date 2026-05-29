@@ -165,6 +165,91 @@ describe('finalizeChatTurn', () => {
 		vi.clearAllMocks();
 	});
 
+	it('persists completed control-only turns with empty visible assistant text', async () => {
+		const createMessage = vi.fn(
+			async (
+				_conversationId: string,
+				role: "user" | "assistant",
+			): Promise<{ id: string }> => ({ id: `${role}-message` }),
+		);
+		const persistAssistantTurnState = vi.fn(async () => ({
+			activeWorkingSet: [],
+			taskState: null,
+			contextDebug: null,
+			workCapsule: {} as unknown as undefined,
+		}));
+		const mockApplySkillControlOperations =
+			applySkillControlOperations as ReturnType<typeof vi.fn>;
+		const { finalizeChatTurn } = await import('./finalize');
+
+		const completion = await finalizeChatTurn({
+			logPrefix: '[SEND]',
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			userMessageContent: 'normalized user message',
+			persistUserMessage: true,
+			normalizedMessage: 'normalized user message',
+			upstreamMessage: 'upstream prompt payload',
+			assistantResponse: '',
+			assistantMetadata: {
+				evidenceStatus: 'pending',
+				skillQuestion: true,
+			},
+			skillControlOperations: [
+				{
+					operationId: 'control-only-question',
+					kind: 'session_transition',
+					transition: 'awaiting_user',
+				} as never,
+			],
+			skillControlSessionId: 'session-1',
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: {
+				model: 'model-1',
+				modelDisplayName: 'Model One',
+				promptTokens: 8,
+				completionTokens: 0,
+				generationTimeMs: undefined,
+				providerUsage: null,
+			},
+			continuitySource: 'send',
+			honchoContext: null,
+			honchoSnapshot: null,
+			assistantMirrorContent: '',
+			maintenanceReason: 'chat_send',
+			createMessage,
+			persistAssistantTurnState,
+		});
+
+		expect(completion.assistantMessage).toEqual({ id: 'assistant-message' });
+		expect(createMessage).toHaveBeenCalledWith(
+			'conv-1',
+			'assistant',
+			'',
+			undefined,
+			undefined,
+			expect.objectContaining({ skillQuestion: true }),
+		);
+		expect(mockApplySkillControlOperations).toHaveBeenCalledWith({
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			assistantMessageId: 'assistant-message',
+			operations: [
+				expect.objectContaining({ operationId: 'control-only-question' }),
+			],
+		});
+		expect(persistAssistantTurnState).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assistantMessageId: 'assistant-message',
+				assistantResponse: '',
+			}),
+		);
+	});
+
 	it('includes streamId in skill control warnings when present', async () => {
 		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 		const mockCommitSkillNoteOperations =

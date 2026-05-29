@@ -412,6 +412,8 @@ export async function completeStreamTurn(
 	};
 
 	try {
+		const persistAssistantMessage =
+			!wasStopped || finalResponse.trim().length > 0;
 		const completion = await finalizeChatTurn({
 			logPrefix: "[STREAM]",
 			streamId,
@@ -457,6 +459,7 @@ export async function completeStreamTurn(
 			webCitationAudit: citationGate?.audit,
 			linkedSources,
 			persistenceMode: "best_effort",
+			persistAssistantMessage,
 			createMessage,
 			persistUserTurnAttachments,
 			persistAssistantTurnState,

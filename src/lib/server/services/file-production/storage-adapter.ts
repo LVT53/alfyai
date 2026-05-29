@@ -13,7 +13,6 @@ import type {
 	ProgramExecutionResult,
 } from "./execution-adapter";
 import {
-	linkProducedFileToJob,
 	mapChatFileToProducedFile,
 	mapChatFileToSourceProducedFile,
 } from "./job-ledger";
@@ -152,7 +151,7 @@ export async function storeFileProductionOutputs(
 	const storeGeneratedFile = input.storeGeneratedFile ?? storeChatGeneratedFile;
 	const storedFiles: ChatFile[] = [];
 	try {
-		for (const [index, file] of input.executionResult.files.entries()) {
+		for (const file of input.executionResult.files) {
 			const filename =
 				input.request.sourceMode === "program" &&
 				input.request.filename &&
@@ -163,7 +162,7 @@ export async function storeFileProductionOutputs(
 				input.job.conversationId,
 				input.job.userId,
 				{
-					assistantMessageId: input.job.assistantMessageId,
+					assistantMessageId: null,
 					filename,
 					mimeType: file.mimeType,
 					content: Buffer.isBuffer(file.content)
@@ -171,12 +170,6 @@ export async function storeFileProductionOutputs(
 						: Buffer.from(file.content),
 				},
 			);
-			await linkProducedFileToJob({
-				jobId: input.job.id,
-				chatGeneratedFileId: storedFile.id,
-				sortOrder: index,
-				createdAt: input.now,
-			});
 			storedFiles.push(storedFile);
 		}
 	} catch (error) {

@@ -86,5 +86,6 @@
 	{onEditQueuedMessage}
 	{onDeleteQueuedMessage}
 	{onCompact}
+	{onManageEvidence}
 	onDraftChange={handleDraftChange}
 />

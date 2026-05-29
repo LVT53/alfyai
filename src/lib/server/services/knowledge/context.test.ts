@@ -312,6 +312,57 @@ describe("knowledge context retrieval", () => {
 		);
 	});
 
+	it("suppresses stale generated working-set prompt evidence for new file creation requests", async () => {
+		const staleGenerated = artifact({
+			id: "brief-v1",
+			name: "legacy-brief.pdf",
+			summary: "Legacy project brief",
+		});
+		mockDbSelectQueue.push({
+			final: "where",
+			rows: [
+				{
+					item: workingSetItem({
+						artifactId: "brief-v1",
+						reasonCodesJson: JSON.stringify(["latest_generated_output"]),
+					}),
+					artifact: staleGenerated,
+				},
+			],
+		});
+		mockResolveWorkingDocumentSelection.mockReturnValueOnce(
+			workingDocumentSelection({
+				retrieval: {
+					preferredArtifactId: null,
+					preferredGeneratedFamilyId: null,
+					suppressGeneratedCarryover: true,
+					hasExplicitResetSignal: false,
+				},
+				prompt: {
+					reasonCodesByArtifactId: new Map([["brief-v1", []]]),
+				},
+			}),
+		);
+		mockIsGeneratedDocumentPromptEligible.mockReturnValue(true);
+
+		const { selectWorkingSetArtifactsForPrompt } = await import("./context");
+		const selected = await selectWorkingSetArtifactsForPrompt(
+			"user-1",
+			"conv-1",
+			"Create a new one-page PDF file called context-sweep-summary.pdf",
+		);
+
+		expect(selected).toEqual([]);
+		expect(mockResolveWorkingDocumentSelection).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message:
+					"Create a new one-page PDF file called context-sweep-summary.pdf",
+				artifacts: [staleGenerated],
+				currentConversationId: "conv-1",
+			}),
+		);
+	});
+
 	it("uses the WDS working-set view for generated-document candidates and flags", async () => {
 		const infoSpy = vi
 			.spyOn(console, "info")

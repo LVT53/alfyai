@@ -119,12 +119,46 @@ function legacyJobFileLinkId(fileId: string): string {
 	return `legacy-file-link:${fileId}`;
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+	if (!(error instanceof Error)) {
+		return false;
+	}
+
+	const code =
+		"code" in error && typeof error.code === "string" ? error.code : null;
+	return (
+		code === "SQLITE_CONSTRAINT_UNIQUE" ||
+		error.message.includes("UNIQUE constraint failed")
+	);
+}
+
+async function findIdempotentFileProductionJob(input: {
+	userId: string;
+	conversationId: string;
+	idempotencyKey: string;
+}): Promise<typeof fileProductionJobs.$inferSelect | null> {
+	const [job] = await db
+		.select()
+		.from(fileProductionJobs)
+		.where(
+			and(
+				eq(fileProductionJobs.userId, input.userId),
+				eq(fileProductionJobs.conversationId, input.conversationId),
+				eq(fileProductionJobs.idempotencyKey, input.idempotencyKey),
+			),
+		)
+		.limit(1);
+
+	return job ?? null;
+}
+
 async function ensureLegacyJobs(files: ChatFile[]): Promise<void> {
-	if (files.length === 0) {
+	const legacyFiles = files.filter((file) => file.assistantMessageId);
+	if (legacyFiles.length === 0) {
 		return;
 	}
 
-	const fileIds = files.map((file) => file.id);
+	const fileIds = legacyFiles.map((file) => file.id);
 	const existingLinks = await db
 		.select({ chatGeneratedFileId: fileProductionJobFiles.chatGeneratedFileId })
 		.from(fileProductionJobFiles)
@@ -132,7 +166,7 @@ async function ensureLegacyJobs(files: ChatFile[]): Promise<void> {
 	const linkedFileIds = new Set(
 		existingLinks.map((link) => link.chatGeneratedFileId),
 	);
-	const missingFiles = files.filter((file) => !linkedFileIds.has(file.id));
+	const missingFiles = legacyFiles.filter((file) => !linkedFileIds.has(file.id));
 
 	for (const file of missingFiles) {
 		const createdAt = new Date(file.createdAt);
@@ -258,77 +292,94 @@ export async function createFileProductionJob(
 export async function createOrReuseFileProductionJob(
 	input: CreateOrReuseFileProductionJobInput,
 ): Promise<CreateOrReuseFileProductionJobResult> {
-	const existingJobs = await db
-		.select()
-		.from(fileProductionJobs)
-		.where(
-			and(
-				eq(fileProductionJobs.userId, input.userId),
-				eq(fileProductionJobs.conversationId, input.conversationId),
-				eq(fileProductionJobs.idempotencyKey, input.idempotencyKey),
-			),
-		)
-		.limit(1);
+	const existingJob = await findIdempotentFileProductionJob(input);
 
-	if (existingJobs[0]) {
+	if (existingJob) {
 		return {
-			job: mapJobRow(existingJobs[0], []),
+			job: mapJobRow(existingJob, []),
 			reused: true,
 		};
 	}
 
-	const job = await createFileProductionJob(input);
-	return { job, reused: false };
+	try {
+		const job = await createFileProductionJob(input);
+		return { job, reused: false };
+	} catch (error) {
+		if (!isUniqueConstraintError(error)) {
+			throw error;
+		}
+
+		const winner = await findIdempotentFileProductionJob(input);
+		if (!winner) {
+			throw error;
+		}
+
+		return {
+			job: mapJobRow(winner, []),
+			reused: true,
+		};
+	}
 }
 
 export async function createFailedFileProductionJob(
 	input: CreateFailedFileProductionJobInput,
 ): Promise<FileProductionJob> {
 	if (input.idempotencyKey) {
-		const existingJobs = await db
-			.select()
-			.from(fileProductionJobs)
-			.where(
-				and(
-					eq(fileProductionJobs.userId, input.userId),
-					eq(fileProductionJobs.conversationId, input.conversationId),
-					eq(fileProductionJobs.idempotencyKey, input.idempotencyKey),
-				),
-			)
-			.limit(1);
+		const existingJob = await findIdempotentFileProductionJob({
+			userId: input.userId,
+			conversationId: input.conversationId,
+			idempotencyKey: input.idempotencyKey,
+		});
 
-		if (existingJobs[0]) {
-			return mapJobRow(existingJobs[0], []);
+		if (existingJob) {
+			return mapJobRow(existingJob, []);
 		}
 	}
 
 	const now = input.now ?? new Date();
 	const id = randomUUID();
-	await db.insert(fileProductionJobs).values({
-		id,
-		conversationId: input.conversationId,
-		assistantMessageId: input.assistantMessageId ?? null,
-		userId: input.userId,
-		title: input.title,
-		status: "failed",
-		stage: null,
-		origin: input.origin,
-		currentAttemptId: null,
-		retryable: input.retryable,
-		errorCode: input.errorCode,
-		errorMessage: input.errorMessage,
-		completedAt: now,
-		cancelRequestedAt: null,
-		idempotencyKey: input.idempotencyKey ?? null,
-		requestJson:
-			input.requestJson === undefined
-				? null
-				: JSON.stringify(input.requestJson),
-		sourceMode: input.sourceMode ?? null,
-		documentIntent: input.documentIntent ?? null,
-		createdAt: now,
-		updatedAt: now,
-	});
+	try {
+		await db.insert(fileProductionJobs).values({
+			id,
+			conversationId: input.conversationId,
+			assistantMessageId: input.assistantMessageId ?? null,
+			userId: input.userId,
+			title: input.title,
+			status: "failed",
+			stage: null,
+			origin: input.origin,
+			currentAttemptId: null,
+			retryable: input.retryable,
+			errorCode: input.errorCode,
+			errorMessage: input.errorMessage,
+			completedAt: now,
+			cancelRequestedAt: null,
+			idempotencyKey: input.idempotencyKey ?? null,
+			requestJson:
+				input.requestJson === undefined
+					? null
+					: JSON.stringify(input.requestJson),
+			sourceMode: input.sourceMode ?? null,
+			documentIntent: input.documentIntent ?? null,
+			createdAt: now,
+			updatedAt: now,
+		});
+	} catch (error) {
+		if (!input.idempotencyKey || !isUniqueConstraintError(error)) {
+			throw error;
+		}
+
+		const winner = await findIdempotentFileProductionJob({
+			userId: input.userId,
+			conversationId: input.conversationId,
+			idempotencyKey: input.idempotencyKey,
+		});
+		if (!winner) {
+			throw error;
+		}
+
+		return mapJobRow(winner, []);
+	}
 
 	return {
 		id,
@@ -1059,11 +1110,19 @@ export async function completeFileProductionJobAttempt(input: {
 	jobId: string;
 	attemptId: string;
 	workerId: string;
+	files?: Array<{
+		chatGeneratedFileId: string;
+		sortOrder: number;
+	}>;
 	now: Date;
 }): Promise<boolean> {
 	return db.transaction((tx) => {
 		const [job] = tx
-			.select({ id: fileProductionJobs.id })
+			.select({
+				id: fileProductionJobs.id,
+				conversationId: fileProductionJobs.conversationId,
+				assistantMessageId: fileProductionJobs.assistantMessageId,
+			})
 			.from(fileProductionJobs)
 			.where(
 				and(
@@ -1098,6 +1157,36 @@ export async function completeFileProductionJobAttempt(input: {
 
 		if (attemptResult.changes === 0) {
 			return false;
+		}
+
+		const producedFiles = input.files ?? [];
+		for (const file of producedFiles) {
+			tx.insert(fileProductionJobFiles)
+				.values({
+					id: randomUUID(),
+					jobId: input.jobId,
+					chatGeneratedFileId: file.chatGeneratedFileId,
+					sortOrder: file.sortOrder,
+					createdAt: input.now,
+				})
+				.onConflictDoNothing({
+					target: fileProductionJobFiles.chatGeneratedFileId,
+				})
+				.run();
+		}
+		if (job.assistantMessageId && producedFiles.length > 0) {
+			tx.update(chatGeneratedFiles)
+				.set({ assistantMessageId: job.assistantMessageId })
+				.where(
+					and(
+						eq(chatGeneratedFiles.conversationId, job.conversationId),
+						inArray(
+							chatGeneratedFiles.id,
+							producedFiles.map((file) => file.chatGeneratedFileId),
+						),
+					),
+				)
+				.run();
 		}
 
 		tx.update(fileProductionJobs)

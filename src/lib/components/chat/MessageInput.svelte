@@ -91,6 +91,7 @@ let {
 	onEditQueuedMessage = undefined,
 	onDeleteQueuedMessage = undefined,
 	onCompact = undefined,
+	onManageEvidence = undefined,
 	hasQueuedMessage = false,
 	queuedMessagePreview = "",
 	onDraftChange = undefined,
@@ -128,6 +129,7 @@ let {
 	onEditQueuedMessage?: (() => void) | undefined;
 	onDeleteQueuedMessage?: (() => void) | undefined;
 	onCompact?: (() => void) | undefined;
+	onManageEvidence?: (() => void) | undefined;
 	hasQueuedMessage?: boolean;
 	queuedMessagePreview?: string;
 	onDraftChange?: ((payload: DraftPayload) => void) | undefined;
@@ -1301,9 +1303,20 @@ function applyLinkedSources(sources: LinkedContextSource[]) {
 }
 
 function removeLinkedSource(displayArtifactId: string) {
-	selectedLinkedSources = selectedLinkedSources.filter(
-		(source) => source.displayArtifactId !== displayArtifactId,
-	);
+	const target =
+		effectiveLinkedSources.find(
+			(source) => source.displayArtifactId === displayArtifactId,
+		) ??
+		selectedLinkedSources.find(
+			(source) => source.displayArtifactId === displayArtifactId,
+		);
+	selectedLinkedSources = target
+		? selectedLinkedSources.filter(
+				(source) => !linkedContextSourcesOverlap(source, target),
+			)
+		: selectedLinkedSources.filter(
+				(source) => source.displayArtifactId !== displayArtifactId,
+			);
 	draftEmissionVersion += 1;
 	void emitDraftChange();
 }
@@ -1829,6 +1842,7 @@ async function emitDraftChange(force = false) {
 					{contextSources}
 					{totalCostUsd}
 					{totalTokens}
+					{onManageEvidence}
 				/>
 			</div>
 

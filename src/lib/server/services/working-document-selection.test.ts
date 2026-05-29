@@ -270,4 +270,66 @@ describe("working document selection", () => {
 		});
 		expect(selection.taskEvidence.protectedArtifactIds).toEqual([]);
 	});
+
+	it("keeps the active document focused when the request says the document", () => {
+		const selection = resolveWorkingDocumentSelection({
+			message: "Make the document shorter.",
+			activeDocumentArtifactId: "brief-v1",
+			currentConversationId: "conv-1",
+			artifacts: [
+				generatedArtifact(
+					"brief-v1",
+					{
+						documentFamilyId: "family-brief",
+						documentLabel: "Project brief",
+						versionNumber: 1,
+					},
+					1,
+				),
+			],
+		});
+
+		expect(selection.currentDocument).toMatchObject({
+			artifactId: "brief-v1",
+			familyId: "family-brief",
+			source: "active_focus",
+		});
+		expect(selection.activeFocus.artifactIds).toEqual(["brief-v1"]);
+		expect(selection.prompt.reasonCodesByArtifactId.get("brief-v1")).toEqual([
+			"active_document_focus",
+			"preferred_artifact",
+		]);
+		expect(selection.taskEvidence.protectedArtifactIds).toEqual(["brief-v1"]);
+	});
+
+	it("keeps the active document focused when creating a file from the document", () => {
+		const selection = resolveWorkingDocumentSelection({
+			message: "Create a PDF from the document.",
+			activeDocumentArtifactId: "brief-v1",
+			currentConversationId: "conv-1",
+			artifacts: [
+				generatedArtifact(
+					"brief-v1",
+					{
+						documentFamilyId: "family-brief",
+						documentLabel: "Project brief",
+						versionNumber: 1,
+					},
+					1,
+				),
+			],
+		});
+
+		expect(selection.currentDocument).toMatchObject({
+			artifactId: "brief-v1",
+			familyId: "family-brief",
+			source: "active_focus",
+		});
+		expect(selection.retrieval).toMatchObject({
+			preferredArtifactId: "brief-v1",
+			preferredGeneratedFamilyId: null,
+			suppressGeneratedCarryover: true,
+		});
+		expect(selection.taskEvidence.protectedArtifactIds).toEqual(["brief-v1"]);
+	});
 });

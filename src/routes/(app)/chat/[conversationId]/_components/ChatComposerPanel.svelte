@@ -28,6 +28,7 @@
 		onEditQueuedMessage,
 		onDeleteQueuedMessage,
 		onCompact,
+		onManageEvidence,
 		disabled,
 		isGenerating,
 		hasQueuedMessage,
@@ -67,6 +68,7 @@
 		onEditQueuedMessage: () => void;
 		onDeleteQueuedMessage: () => void;
 		onCompact: () => void;
+		onManageEvidence?: (() => void) | undefined;
 		disabled: boolean;
 		isGenerating: boolean;
 		hasQueuedMessage: boolean;
@@ -174,6 +176,7 @@
 			{onEditQueuedMessage}
 			{onDeleteQueuedMessage}
 			{onCompact}
+			{onManageEvidence}
 			{disabled}
 			{isGenerating}
 			{hasQueuedMessage}

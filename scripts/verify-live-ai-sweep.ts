@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright";
 import { stripLeakedToolDiagnostics } from "../src/lib/services/stream-protocol";
 
@@ -114,35 +115,24 @@ function requireEnv(name: string, value: string | undefined): string {
 	return value;
 }
 
-function parseJsonObject(text: string): Record<string, unknown> | null {
+export function parseJsonObject(text: string): Record<string, unknown> | null {
 	const trimmed = text.trim();
-	const candidates = [trimmed];
-	const firstBrace = trimmed.indexOf("{");
-	const lastBrace = trimmed.lastIndexOf("}");
-	if (firstBrace >= 0 && lastBrace > firstBrace) {
-		candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
-	}
-
-	for (const candidate of candidates) {
-		try {
-			const parsed: unknown = JSON.parse(candidate);
-			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-				return parsed as Record<string, unknown>;
-			}
-		} catch {
-			// Try the next candidate.
+	try {
+		const parsed: unknown = JSON.parse(trimmed);
+		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+			return parsed as Record<string, unknown>;
 		}
+	} catch {
+		return null;
 	}
 	return null;
 }
 
-function structuredRecallHasValue(params: {
-	text: string;
+export function structuredRecallHasValue(params: {
 	parsed: Record<string, unknown> | null;
 	field: string;
 	acceptedValues: string[];
 }): boolean {
-	const normalizedText = params.text.toLowerCase();
 	const normalizedAcceptedValues = params.acceptedValues.map((value) =>
 		value.toLowerCase(),
 	);
@@ -152,9 +142,7 @@ function structuredRecallHasValue(params: {
 
 	return normalizedAcceptedValues.some(
 		(value) =>
-			normalizedText.includes(value) ||
-			normalizedFieldValue === value ||
-			normalizedFieldValue.includes(value),
+			normalizedFieldValue === value || normalizedFieldValue.includes(value),
 	);
 }
 
@@ -1061,7 +1049,6 @@ async function runAutomaticLowContextPass(
 			.filter(
 				(check) =>
 					!structuredRecallHasValue({
-						text: recall.text,
 						parsed: parsedRecall,
 						field: check.field,
 						acceptedValues: check.acceptedValues,
@@ -1201,7 +1188,16 @@ async function main() {
 	}
 }
 
-main().catch((error) => {
-	console.error(error);
-	process.exit(1);
-});
+function isDirectExecution(): boolean {
+	return Boolean(
+		process.argv[1] &&
+			path.resolve(process.argv[1]) === fileURLToPath(import.meta.url),
+	);
+}
+
+if (isDirectExecution()) {
+	main().catch((error) => {
+		console.error(error);
+		process.exit(1);
+	});
+}

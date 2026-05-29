@@ -15,7 +15,7 @@ const CONTEXT_RESET_RE =
 const NEW_GENERATED_DOCUMENT_REQUEST_RE =
 	/\b(create|generate|make|produce|export|build)\b[\s\S]{0,140}\b(pdf|docx|xlsx|pptx|csv|html|file|document|report|deck|slide deck|slides|spreadsheet|workbook)\b|\b(pdf|docx|xlsx|pptx|csv|html)\b[\s\S]{0,80}\b(called|named)\b/i;
 const EXPLICIT_DOCUMENT_INPUT_REFERENCE_RE =
-	/\b(this|that|same|current|open|opened|selected|attached|attachment|uploaded|source)\b|\b(from|based on)\s+(?:the\s+)?(?:this|that|current|open|opened|selected|attached|uploaded|source)\b/i;
+	/\b(this|that|same|current|open|opened|selected|attached|attachment|uploaded|source)\b|\bthe\s+(?:document|doc|file|pdf|attachment|report|source)\b|\b(from|based on|using|use|with)\s+(?:the\s+)?(?:this|that|current|open|opened|selected|attached|attachment|uploaded|document|doc|file|pdf|report|source)\b/i;
 
 interface WorkingDocumentSignalState {
 	documentFocused: boolean;

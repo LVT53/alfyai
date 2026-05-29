@@ -242,6 +242,9 @@ export async function selectWorkingSetArtifactsForPrompt(
 		currentConversationId: conversationId,
 		reasonCodesByArtifactId,
 	});
+	const promptProtectedArtifactIds = new Set(
+		selection.taskEvidence.workingDocumentProtectedArtifactIds
+	);
 
 	const selectedArtifacts = mappedRows
 		.map((row) => {
@@ -262,11 +265,15 @@ export async function selectWorkingSetArtifactsForPrompt(
 				messageMatchScore,
 				explicitlyRequested,
 			});
+			const suppressStaleGeneratedCarryover =
+				artifact.type === 'generated_output' &&
+				selection.retrieval.suppressGeneratedCarryover &&
+				!promptProtectedArtifactIds.has(artifact.id);
 
 			return {
 				artifact,
 				reasonCodes,
-				promptEligible,
+				promptEligible: promptEligible && !suppressStaleGeneratedCarryover,
 				score: row.item.score + messageMatchScore * 14 + (explicitlyRequested ? 14 : 0),
 			};
 		})

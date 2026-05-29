@@ -2683,6 +2683,7 @@ function handleDrop(event: DragEvent) {
 				onDraftChange={handleDraftChange}
 				onEditQueuedMessage={editQueuedTurn}
 				onDeleteQueuedMessage={clearQueuedTurn}
+				onManageEvidence={openEvidenceManager}
 				disabled={isConversationReadOnlyForChat || isEditResendPending}
 				isGenerating={!isConversationReadOnlyForChat && (isSending || isEditResendPending)}
 				hasQueuedMessage={Boolean(queuedTurn)}

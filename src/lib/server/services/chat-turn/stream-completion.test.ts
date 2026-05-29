@@ -88,6 +88,7 @@ describe("completeStreamTurn", () => {
 		mockRunPostTurnTasks.mockResolvedValue(undefined);
 		mockTouchConversation.mockResolvedValue(undefined);
 		mockGetStreamBuffer.mockReturnValue(null);
+		mockSyncGeneratedFiles.mockResolvedValue(undefined);
 		mockGetChatFilesForMsg.mockResolvedValue([]);
 		mockGetFileProductionJobs.mockResolvedValue([]);
 		mockAssignFileProductionJobs.mockResolvedValue(undefined);
@@ -691,6 +692,25 @@ describe("completeStreamTurn", () => {
 		);
 	});
 
+	it("does not persist an assistant message for stopped streams without visible text", async () => {
+		await completeStreamTurn({
+			...defaultParams,
+			wasStopped: true,
+			fullResponse: "",
+			thinkingContent: "",
+		});
+
+		expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"user",
+			"user message",
+		);
+		expect(mockPersistAssistantTurnState).not.toHaveBeenCalled();
+		const data = getLatestEndPayload();
+		expect(data.assistantMessageId).toBeUndefined();
+	});
+
 	it("touches conversation and clears stream buffer on completion", async () => {
 		await completeStreamTurn(defaultParams);
 
@@ -710,6 +730,45 @@ describe("completeStreamTurn", () => {
 			"user",
 			"buffered message",
 		);
+	});
+
+	it("attaches produce_file jobs for completed streams with empty visible text", async () => {
+		mockGetFileProductionJobs.mockResolvedValue([
+			{ id: "job-new", files: [{ id: "gf-new" }] },
+		]);
+		mockGetChatFilesForMsg.mockResolvedValue([
+			{ id: "gf-new", name: "output.txt" },
+		]);
+
+		await completeStreamTurn({
+			...defaultParams,
+			fullResponse: "",
+			toolCallRecords: [{ name: "produce_file", status: "done" }],
+		});
+
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"",
+			"<thinking>reason</thinking>",
+			undefined,
+			expect.objectContaining({ evidenceStatus: "pending" }),
+		);
+		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assistantMessageId: "asst-msg-1",
+				assistantResponse: "",
+			}),
+		);
+		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+			"asst-msg-1",
+			["job-new"],
+		);
+		const data = getLatestEndPayload();
+		expect(data.assistantMessageId).toBe("asst-msg-1");
+		expect(data.generatedFiles).toEqual([{ id: "gf-new", name: "output.txt" }]);
 	});
 
 	it("attaches new file-production jobs from produce_file to the assistant message", async () => {

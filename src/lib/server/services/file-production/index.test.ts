@@ -694,6 +694,72 @@ describe("file production service", () => {
 		});
 	});
 
+	it("reselects the queued production job when concurrent same-key creation wins the idempotency race", async () => {
+		const { db } = await import("$lib/server/db");
+		const { createOrReuseFileProductionJob } = await import("./index");
+		const baseInput = {
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			origin: "unified_produce",
+			idempotencyKey: "turn-1:concurrent-file",
+			sourceMode: "program",
+			documentIntent: null,
+			requestJson: {
+				sourceMode: "program",
+				program: {
+					language: "python",
+					sourceCode:
+						'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
+					filename: "data.csv",
+				},
+				outputs: [{ type: "csv" }],
+			},
+		} as const;
+
+		const results = await Promise.allSettled([
+			createOrReuseFileProductionJob({
+				...baseInput,
+				title: "Concurrent CSV export",
+				now: new Date("2026-05-03T19:31:32.000Z"),
+			}),
+			createOrReuseFileProductionJob({
+				...baseInput,
+				title: "Duplicate concurrent CSV export",
+				now: new Date("2026-05-03T19:31:32.001Z"),
+			}),
+		]);
+
+		expect(results.map((result) => result.status)).toEqual([
+			"fulfilled",
+			"fulfilled",
+		]);
+		if (
+			results[0].status !== "fulfilled" ||
+			results[1].status !== "fulfilled"
+		) {
+			throw new Error("Expected both concurrent submissions to resolve");
+		}
+		const [first, second] = [results[0].value, results[1].value];
+		const rows = await db
+			.select()
+			.from(schema.fileProductionJobs)
+			.where(
+				eq(
+					schema.fileProductionJobs.idempotencyKey,
+					baseInput.idempotencyKey,
+				),
+			);
+
+		expect(first.job.id).toBe(second.job.id);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			id: first.job.id,
+			title: "Concurrent CSV export",
+			status: "queued",
+		});
+	});
+
 	it("persists a failed production job for validation failures", async () => {
 		const {
 			createFailedFileProductionJob,
@@ -1444,12 +1510,12 @@ describe("file production service", () => {
 				error: null,
 			};
 		});
-		const storeGeneratedFile = vi.fn(async () => {
+		const storeGeneratedFile = vi.fn(async (_conversationId, _userId, file) => {
 			const now = new Date("2026-05-03T20:05:00.000Z");
 			await db.insert(schema.chatGeneratedFiles).values({
 				id: "file-produced-1",
 				conversationId: "conv-1",
-				assistantMessageId: "assistant-1",
+				assistantMessageId: file.assistantMessageId,
 				userId: "user-1",
 				filename: "data.csv",
 				mimeType: "text/csv",
@@ -1460,7 +1526,7 @@ describe("file production service", () => {
 			return {
 				id: "file-produced-1",
 				conversationId: "conv-1",
-				assistantMessageId: "assistant-1",
+				assistantMessageId: file.assistantMessageId ?? null,
 				artifactId: null,
 				userId: "user-1",
 				filename: "data.csv",
@@ -1497,7 +1563,7 @@ describe("file production service", () => {
 			"python",
 		);
 		expect(storeGeneratedFile).toHaveBeenCalledWith("conv-1", "user-1", {
-			assistantMessageId: "assistant-1",
+			assistantMessageId: null,
 			filename: "data.csv",
 			mimeType: "text/csv",
 			content: expect.any(Buffer),
@@ -1519,6 +1585,119 @@ describe("file production service", () => {
 			chatGeneratedFileId: "file-produced-1",
 			sortOrder: 0,
 		});
+		const [file] = await db
+			.select()
+			.from(schema.chatGeneratedFiles)
+			.where(eq(schema.chatGeneratedFiles.id, "file-produced-1"));
+		expect(file.assistantMessageId).toBe("assistant-1");
+	});
+
+	it("keeps partially stored files unlinked when a later output storage step fails", async () => {
+		const { db } = await import("$lib/server/db");
+		const {
+			createOrReuseFileProductionJob,
+			executeNextFileProductionJob,
+			listConversationFileProductionJobs,
+		} = await import("./index");
+		const created = await createOrReuseFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Partial package export",
+			origin: "unified_produce",
+			idempotencyKey: "turn-1:partial-storage-failure",
+			sourceMode: "program",
+			documentIntent: "data_export",
+			requestJson: {
+				sourceMode: "program",
+				program: {
+					language: "python",
+					sourceCode: "writes two outputs",
+				},
+				outputs: [{ type: "csv" }, { type: "txt" }],
+			},
+			now: new Date("2026-05-03T20:05:30.000Z"),
+		});
+		const storeGeneratedFile = vi
+			.fn()
+			.mockImplementationOnce(async (_conversationId, _userId, file) => {
+				const now = new Date("2026-05-03T20:05:35.000Z");
+				await db.insert(schema.chatGeneratedFiles).values({
+					id: "file-partial-storage-1",
+					conversationId: "conv-1",
+					assistantMessageId: file.assistantMessageId,
+					userId: "user-1",
+					filename: file.filename,
+					mimeType: file.mimeType,
+					sizeBytes: file.content.length,
+					storagePath: "conv-1/file-partial-storage-1.csv",
+					createdAt: now,
+				});
+				return {
+					id: "file-partial-storage-1",
+					conversationId: "conv-1",
+					assistantMessageId: file.assistantMessageId ?? null,
+					artifactId: null,
+					userId: "user-1",
+					filename: file.filename,
+					mimeType: file.mimeType,
+					sizeBytes: file.content.length,
+					storagePath: "conv-1/file-partial-storage-1.csv",
+					createdAt: now.getTime(),
+				};
+			})
+			.mockRejectedValueOnce(new Error("disk full during second output"));
+
+		const result = await executeNextFileProductionJob({
+			workerId: "worker-partial-storage",
+			executeCode: vi.fn(async () => ({
+				files: [
+					{
+						filename: "data.csv",
+						mimeType: "text/csv",
+						content: Buffer.from("a,b\n1,2"),
+					},
+					{
+						filename: "notes.txt",
+						mimeType: "text/plain",
+						content: Buffer.from("notes"),
+					},
+				],
+				stdout: "",
+				stderr: "",
+				error: null,
+			})),
+			storeGeneratedFile,
+			now: new Date("2026-05-03T20:05:35.000Z"),
+		});
+		const jobs = await listConversationFileProductionJobs("user-1", "conv-1");
+		const links = await db
+			.select()
+			.from(schema.fileProductionJobFiles)
+			.where(eq(schema.fileProductionJobFiles.jobId, created.job.id));
+		const storedFiles = await db
+			.select()
+			.from(schema.chatGeneratedFiles)
+			.where(eq(schema.chatGeneratedFiles.id, "file-partial-storage-1"));
+
+		expect(result).toBeNull();
+		expect(storeGeneratedFile).toHaveBeenCalledTimes(2);
+		expect(storedFiles).toHaveLength(1);
+		expect(links).toHaveLength(0);
+		expect(jobs.find((job) => job.id === created.job.id)).toMatchObject({
+			status: "failed",
+			files: [],
+			error: {
+				code: "program_output_storage_failed",
+				message: "disk full during second output",
+				retryable: true,
+			},
+		});
+		expect(
+			jobs.some((job) =>
+				job.files.some((file) => file.id === "file-partial-storage-1"),
+			),
+		).toBe(false);
 	});
 
 	it("fails oversized program outputs before storage and without produced-file links", async () => {

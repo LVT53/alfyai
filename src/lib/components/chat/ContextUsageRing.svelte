@@ -16,6 +16,7 @@
 		contextSources = null,
 		totalCostUsd = 0,
 		totalTokens = 0,
+		onManageEvidence = undefined,
 	}: {
 		contextStatus?: ConversationContextStatus | null;
 		attachedArtifacts?: ArtifactSummary[];
@@ -23,6 +24,7 @@
 		contextSources?: ContextSourcesState | null;
 		totalCostUsd?: number;
 		totalTokens?: number;
+		onManageEvidence?: (() => void) | undefined;
 	} = $props();
 
 	let root = $state<HTMLDivElement | null>(null);
@@ -65,6 +67,11 @@
 
 	function handleClick() {
 		isOpen = !isOpen;
+	}
+
+	function handleManageEvidence() {
+		onManageEvidence?.();
+		isOpen = false;
 	}
 
 	function formatLayer(layer: MemoryLayer): string {
@@ -272,6 +279,11 @@
 			{:else}
 				<div class="popover-empty">{$t('contextUsageRing.noContext')}</div>
 			{/if}
+			{#if onManageEvidence}
+				<button type="button" class="popover-action" onclick={handleManageEvidence}>
+					{$t('contextUsageRing.manageEvidence')}
+				</button>
+			{/if}
 		</div>
 	</div>
 </div>
@@ -453,5 +465,30 @@
 		margin-top: 0.5rem;
 		font-size: 0.82rem;
 		color: var(--text-muted);
+	}
+
+	.popover-action {
+		margin-top: 0.75rem;
+		width: 100%;
+		border: 1px solid color-mix(in srgb, var(--border-default) 78%, transparent 22%);
+		border-radius: 0.65rem;
+		background: color-mix(in srgb, var(--surface-page) 72%, var(--surface-elevated) 28%);
+		padding: 0.5rem 0.65rem;
+		font-size: 0.78rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		text-align: center;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
+	}
+
+	.popover-action:hover,
+	.popover-action:focus-visible {
+		border-color: color-mix(in srgb, var(--accent) 48%, var(--border-default) 52%);
+		background: color-mix(in srgb, var(--accent) 12%, var(--surface-elevated) 88%);
+		color: var(--accent);
+		outline: none;
 	}
 </style>

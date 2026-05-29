@@ -132,6 +132,7 @@ export type FinalizeChatTurnParams = {
 	contextTraceSections?: PersistAssistantEvidenceParams["contextTraceSections"];
 	webCitationAudit?: PersistAssistantEvidenceParams["webCitationAudit"];
 	persistenceMode?: MessageCreationMode;
+	persistAssistantMessage?: boolean;
 	createMessage?: CreateMessageFn;
 	persistUserTurnAttachments?: typeof persistUserTurnAttachments;
 	persistAssistantTurnState?: typeof persistAssistantTurnState;
@@ -298,7 +299,8 @@ export async function finalizeChatTurn(
 		});
 	}
 
-	const assistantMessage = params.assistantResponse.trim()
+	const shouldPersistAssistantMessage = params.persistAssistantMessage ?? true;
+	const assistantMessage = shouldPersistAssistantMessage
 		? await createTurnMessage(
 				{
 					conversationId: params.conversationId,

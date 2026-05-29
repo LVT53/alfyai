@@ -811,6 +811,67 @@ describe("MessageInput", () => {
 		]);
 	});
 
+	it("removes every hidden linked source that overlaps the removed visible family chip", async () => {
+		const sendSpy = vi.fn();
+		const draftSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, queryByText } = render(
+			MessageInput,
+			{
+				composerCommandRegistryEnabled: true,
+				draftLinkedSources: [
+					{
+						displayArtifactId: "generated-v1",
+						promptArtifactId: "generated-v1",
+						familyArtifactIds: ["generated-v1", "generated-v2"],
+						name: "Generated plan v1.docx",
+						type: "document",
+						documentOrigin: "generated",
+					},
+					{
+						displayArtifactId: "generated-v2",
+						promptArtifactId: "generated-v2",
+						familyArtifactIds: ["generated-v1", "generated-v2"],
+						name: "Generated plan v2.docx",
+						type: "document",
+						documentOrigin: "generated",
+					},
+				],
+				draftVersion: 1,
+				onDraftChange: draftSpy,
+				onSend: sendSpy,
+			},
+		);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		expect(
+			getByRole("button", { name: "Remove Generated plan v2.docx" }),
+		).toBeInTheDocument();
+		await fireEvent.click(
+			getByRole("button", { name: "Remove Generated plan v2.docx" }),
+		);
+
+		expect(queryByText("Generated plan v1.docx")).toBeNull();
+		expect(queryByText("Generated plan v2.docx")).toBeNull();
+		expect(draftSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				selectedLinkedSources: [],
+			}),
+		);
+
+		await fireEvent.input(input, {
+			target: { value: "Continue without linked generated sources" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				linkedSources: [],
+			}),
+		);
+	});
+
 	it("opens the /source manager and removes a linked source", async () => {
 		const draftSpy = vi.fn();
 		const { getByPlaceholderText, getByRole, queryByText } = render(
@@ -1648,9 +1709,9 @@ describe("MessageInput", () => {
 		expect(steerSpy).not.toHaveBeenCalled();
 	});
 
-	it("does not expose the evidence controls from the context ring popup", async () => {
+	it("opens context source management from the context ring popup", async () => {
 		const manageEvidenceSpy = vi.fn();
-		const { getByLabelText, queryByRole } = render(MessageInputWrapper, {
+		const { getByLabelText, getByRole } = render(MessageInputWrapper, {
 			onManageEvidence: manageEvidenceSpy,
 			contextStatus: {
 				conversationId: "conv-1",
@@ -1689,11 +1750,11 @@ describe("MessageInput", () => {
 		});
 
 		await fireEvent.click(getByLabelText(/prompt budget usage/i));
+		await fireEvent.click(
+			getByRole("button", { name: "Manage context sources" }),
+		);
 
-		expect(
-			queryByRole("button", { name: "Manage context sources" }),
-		).toBeNull();
-		expect(manageEvidenceSpy).not.toHaveBeenCalled();
+		expect(manageEvidenceSpy).toHaveBeenCalledTimes(1);
 	});
 
 	it("disables send while an attachment upload is still in progress", async () => {
