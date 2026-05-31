@@ -131,4 +131,4 @@ Focused implementation verification from orchestration passed before this status
 npm run test:unit -- src/lib/server/services/generated-file-serving.test.ts 'src/routes/api/chat/files/[id]/preview/preview.test.ts' 'src/routes/api/chat/files/[id]/download/download.test.ts' src/lib/server/services/knowledge/store/working-document-file-serving.test.ts
 ```
 
-Result: 4 files, 32 tests passed after adding the succeeded job-linked unassigned-file regression; the generated-file-serving service test later covered generated SVG preview hardening as well.
+Result: 4 files, 33 tests passed after adding the succeeded job-linked unassigned-file regression and generated SVG preview hardening coverage.
