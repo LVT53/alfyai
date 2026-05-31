@@ -1274,6 +1274,10 @@ _Avoid_: legacy live-signal helper, stale reason-code carryover, caller-local cu
 The user-facing surface where one or more **Working Documents** can be opened, switched, inspected, compared, or closed.
 _Avoid_: working document sidebar, file preview modal, active document
 
+**Preview Runtime**:
+The client-side deep module under `src/lib/components/document-workspace/preview-runtime/` that loads preview bytes, classifies file types, and renders supported **Working Document** previews through focused PDF, Office, Text, and Image adapters.
+_Avoid_: monolithic file preview component, route-local renderer, server file-serving rule
+
 **Open Documents Rail**:
 The **Document Workspace** switcher that appears when multiple **Working Documents** are open.
 _Avoid_: tabs, document chips, file row
@@ -1338,6 +1342,10 @@ _Avoid_: source message button, primary document action, source viewer
 - **Working Document Selection** owns live per-turn signal collapse for **Working Documents**; callers should request its prompt, working-set, retrieval, and task-evidence views instead of re-deriving active focus, correction target, current-generated, recent-refinement, or reset rules locally.
 - `document-resolution.ts` remains the generated-document family ranking authority. **Working Document Selection** consumes that ranking to decide the live current/generated carryover view; it does not replace generated-family identity or version ordering.
 - **Document Workspace** and Knowledge preview/download routes use **Working Document Identity** preview/file-serving identity so source-plus-normalized documents open the display file while text-only documents degrade deliberately.
+- **Preview Runtime** consumes bytes served through **Working Document Identity** and server-side file serving; it does not decide which artifact or generated file is authorized or canonical.
+- **Preview Runtime** owns client-side file-type preview behavior for PDF, Office/OpenDocument, text/Markdown/CSV/HTML, and images; `DocumentPreviewRenderer.svelte` coordinates loading/error/unsupported state and adapter composition.
+- **Document Workspace** lazy-loads `DocumentPreviewRenderer.svelte`, and `DocumentPreviewRenderer.svelte` delegates heavy file-type work into **Preview Runtime** adapters so idle Chat and Knowledge shells do not eagerly import preview libraries.
+- Preview prewarm may warm the same preview URL bytes, but **Preview Runtime** remains the authoritative browser path for opening and rendering the preview.
 - **Linked Context Sources** use **Working Document Identity** canonical display, prompt, and family identity for dedupe, stale-selection matching, and prompt readiness.
 - **Context Selection** may consume prompt identity supplied by **Working Document Identity** and signals supplied by **Working Document Selection**, but **Context Selection** still decides whether an artifact becomes **Prompt Context** and how much budget it receives.
 - Knowledge retrieval and **Context Sources** may use **Working Document Selection** to preserve the user's current document intent across follow-up turns, but they should not become a second live-signal authority.

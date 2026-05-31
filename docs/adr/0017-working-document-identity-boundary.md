@@ -4,6 +4,8 @@ Working Document Identity is the authority for purpose-specific artifact identit
 
 The server-side file-serving companion, `src/lib/server/services/knowledge/store/working-document-file-serving.ts`, owns the preview/download resolution rules for Working Documents. Normalized documents with a source artifact resolve to the source binary when available, generated-output artifacts with `sourceChatFileId` resolve to validated chat-file bytes, and text-only artifacts remain valid degraded previews.
 
+ADR-0021 complements this decision: Working Document Identity and file serving decide which bytes are eligible for preview/download, while the client-side Preview Runtime owns browser rendering for those bytes by file type.
+
 Context Selection remains the prompt-budget authority. Working Document Identity can say which artifact is prompt-ready and which artifact id represents prompt identity, but it does not decide whether a source enters the model prompt, how much of it is included, or how it competes with memory, attachments, retrieval, or task context.
 
 ADR-0018 complements this decision: Working Document Selection owns live per-turn Working Document signals such as active focus, correction target, current generated document, recent refinement, and reset suppression. Working Document Identity remains the purpose-specific id authority; it does not decide live current-document carryover.
