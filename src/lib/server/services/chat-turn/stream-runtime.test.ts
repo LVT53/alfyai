@@ -285,6 +285,53 @@ describe("createServerChunkRuntime", () => {
 		);
 	});
 
+	it("holds and strips split standalone fetched web page dumps", () => {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+
+		runtime.emitChunkWithOutputHandling("Anvil Arrow - Star Citizen Wiki\n");
+		runtime.emitChunkWithOutputHandling("Toggle search\nSearch\nToggle menu\n");
+		runtime.emitChunkWithOutputHandling(
+			[
+				"Star Citizen Wiki",
+				"Navigation",
+				"Home Recent changes Random page Special pages Upload file",
+				"Vehicles",
+				"Gameplay",
+				"External",
+				"Status page",
+				"Contact us",
+				"Discord",
+				"Twitter",
+				"GitHub",
+				"Reddit",
+				"Anvil Arrow",
+				"From the Star Citizen Wiki, the fidelity encyclopedia",
+				"404Fidelity neededThis page does not exist currently. Maybe soon?",
+				"The article that you're looking for doesn't exist.",
+				"Retrieved from ",
+				"starcitizen.tools",
+				"Privacy policy",
+				"About us",
+				"Disclaimers",
+				"Cookie statement",
+				"Status page",
+				"GitHub",
+				"Patreon",
+				"Ko-fi",
+			].join("\n"),
+		);
+		runtime.flushInlineThinkingBuffer();
+
+		expect(tokenTexts(chunks).join("")).toBe("");
+		expect(runtime.fullResponse).toBe("");
+	});
+
 	it("strips split bare source reference markers from visible tokens", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({

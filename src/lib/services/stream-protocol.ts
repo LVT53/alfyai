@@ -486,6 +486,7 @@ const WEB_TOOL_MARKER_PATTERNS = [
 	/(?:fetch_content|get_contents|fetch)\s+(?:results?|output|content)\s*:/i,
 ] as const;
 const WEB_RESEARCH_DIAGNOSTIC_PREFIX_SCAN_CHARS = 180;
+const RAW_WEB_PAGE_PREFIX_SCAN_CHARS = 720;
 const WEB_RESEARCH_DIAGNOSTIC_PREFIX_WORDS = [
 	"found",
 	"source",
@@ -919,6 +920,30 @@ function stripLeakedWebToolDiagnostics(
 	}
 
 	return output;
+}
+
+function stripStandaloneRawWebToolOutput(value: string): string {
+	const trimmed = value.trimStart();
+	if (/^(?:\{|\[)/.test(trimmed)) {
+		return value;
+	}
+
+	if (!looksLikeRawToolContentBlock(value)) {
+		return value;
+	}
+
+	const lines = splitPreservingLineEndings(value);
+	const boundaryIndex = lines.findIndex(({ line }) =>
+		startsWithAssistantAnswerBoundary(line),
+	);
+	if (boundaryIndex <= 0) {
+		return boundaryIndex === 0 ? value : "";
+	}
+
+	return lines
+		.slice(boundaryIndex)
+		.map(({ line, lineEnding }) => line + lineEnding)
+		.join("");
 }
 
 function splitPreservingLineEndings(
@@ -1391,8 +1416,11 @@ export function stripLeakedToolDiagnostics(
 		withoutDocumentSourceDiagnostics,
 		state,
 	);
-	const withoutPythonDiagnostics = stripLeakedPythonToolDiagnostics(
+	const withoutStandaloneRawWeb = stripStandaloneRawWebToolOutput(
 		withoutWebDiagnostics,
+	);
+	const withoutPythonDiagnostics = stripLeakedPythonToolDiagnostics(
+		withoutStandaloneRawWeb,
 		state,
 	);
 	return stripPlainSourceReferenceMarkers(
@@ -1517,6 +1545,7 @@ export function getLeakedToolDiagnosticPrefixLength(value: string): number {
 		value.length -
 			Math.max(
 				WEB_RESEARCH_DIAGNOSTIC_PREFIX_SCAN_CHARS,
+				RAW_WEB_PAGE_PREFIX_SCAN_CHARS,
 				PYTHON_TOOL_DIAGNOSTIC_PREFIX_SCAN_CHARS,
 				TOOL_PLANNING_NARRATION_PREFIX_SCAN_CHARS,
 				PLAIN_SOURCE_REFERENCE_MARKER_PREFIX_SCAN_CHARS,
@@ -1531,6 +1560,12 @@ export function getLeakedToolDiagnosticPrefixLength(value: string): number {
 			TOOL_PLANNING_NARRATION_PREFIXES.some((prefix) =>
 				prefix.startsWith(trimmedSuffix),
 			)
+		) {
+			return value.length - index;
+		}
+		if (
+			index === 0 &&
+			looksLikePotentialStandaloneRawWebPageDumpPrefix(suffix)
 		) {
 			return value.length - index;
 		}
@@ -1830,6 +1865,52 @@ function isLikelyWebPageChromeLine(value: string): boolean {
 	const normalized = value.toLowerCase().trim();
 	return /^(?:search|home|menu|contact|login|log in|sign in|register|favorites|cart|basket|orders|shop|webshop|categories|previous article|next article|privacy policy|terms|terms and conditions|cookie settings|accept|facebook|copyright|impressum|keresés|főoldal|otthon|menü|kapcsolat|belépés|regisztráció|kedvencek|kosár|rendeléseim|webshop|kategóriák|címlapon|előző cikk|következő cikk|adatvédelmi nyilatkozat|adatkezelési beállítások|ászf|sütik|elfogadom|impresszum)$/i.test(
 		normalized,
+	);
+}
+
+function isPotentialWebPageChromeLine(value: string): boolean {
+	const normalized = value.toLowerCase().trim();
+	if (isLikelyWebPageChromeLine(normalized)) {
+		return true;
+	}
+
+	return /^(?:toggle search|toggle menu|toggle preferences menu|toggle personal menu|navigation|views|tools|more actions|personal tools|create account|not logged in|status page|about us|disclaimers|cookie statement|discord|twitter|mastodon|threads|bluesky|github|reddit|patreon|ko-fi)$/i.test(
+		normalized,
+	);
+}
+
+function looksLikePotentialStandaloneRawWebPageDumpPrefix(
+	value: string,
+): boolean {
+	const candidate = value.trimStart();
+	if (!candidate || /^(?:\{|\[)/.test(candidate)) {
+		return false;
+	}
+
+	const lines = candidate
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean);
+	if (lines.length === 0 || lines.length > 18) {
+		return false;
+	}
+
+	const firstLine = lines[0] ?? "";
+	const firstLineLooksLikeKnownWebTitle =
+		firstLine.length <= 140 &&
+		/\b(?:wiki|wikipedia|fandom)\b\s*$/i.test(firstLine) &&
+		!/[.!?]\s*$/.test(firstLine);
+	const hasEarlyChromeLine = lines
+		.slice(1, 5)
+		.some((line) => isPotentialWebPageChromeLine(line));
+	const chromeHits = lines.filter(isPotentialWebPageChromeLine).length;
+
+	if (lines.length === 1) {
+		return firstLineLooksLikeKnownWebTitle;
+	}
+
+	return (
+		firstLineLooksLikeKnownWebTitle && (hasEarlyChromeLine || chromeHits >= 2)
 	);
 }
 

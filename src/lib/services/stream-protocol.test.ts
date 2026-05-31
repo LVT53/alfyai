@@ -667,6 +667,45 @@ describe("stream-protocol", () => {
 		);
 	});
 
+	it("strips standalone raw fetched wiki page dumps without explicit tool markers", () => {
+		const cleaned = stripLeakedToolDiagnostics(
+			[
+				"Anvil Arrow - Star Citizen Wiki",
+				"Toggle search",
+				"Search",
+				"Toggle menu",
+				"Star Citizen Wiki",
+				"Navigation",
+				"Home Recent changes Random page Special pages Upload file",
+				"Vehicles",
+				"Gameplay",
+				"External",
+				"Status page",
+				"Contact us",
+				"Discord",
+				"Twitter",
+				"GitHub",
+				"Reddit",
+				"Anvil Arrow",
+				"From the Star Citizen Wiki, the fidelity encyclopedia",
+				"404Fidelity neededThis page does not exist currently. Maybe soon?",
+				"The article that you're looking for doesn't exist.",
+				"Retrieved from ",
+				"starcitizen.tools",
+				"Privacy policy",
+				"About us",
+				"Disclaimers",
+				"Cookie statement",
+				"Status page",
+				"GitHub",
+				"Patreon",
+				"Ko-fi",
+			].join("\n"),
+		);
+
+		expect(cleaned).toBe("");
+	});
+
 	it("strips direct raw documentSource and program payloads before the final answer", () => {
 		expect(
 			stripLeakedToolDiagnostics(

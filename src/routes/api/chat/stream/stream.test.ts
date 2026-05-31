@@ -1296,6 +1296,86 @@ describe("POST /api/chat/stream", () => {
 		);
 	});
 
+	it("does not leak standalone fetched web page text from final Langflow message text", async () => {
+		const conversation = {
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		const rawFetchedPage = [
+			"Anvil Arrow - Star Citizen Wiki",
+			"Toggle search",
+			"Search",
+			"Toggle menu",
+			"Star Citizen Wiki",
+			"Navigation",
+			"Home Recent changes Random page Special pages Upload file",
+			"Vehicles",
+			"Gameplay",
+			"External",
+			"Status page",
+			"Contact us",
+			"Discord",
+			"Twitter",
+			"GitHub",
+			"Reddit",
+			"Anvil Arrow",
+			"From the Star Citizen Wiki, the fidelity encyclopedia",
+			"404Fidelity neededThis page does not exist currently. Maybe soon?",
+			"The article that you're looking for doesn't exist.",
+			"Retrieved from ",
+			"starcitizen.tools",
+			"Privacy policy",
+			"About us",
+			"Disclaimers",
+			"Cookie statement",
+			"Status page",
+			"GitHub",
+			"Patreon",
+			"Ko-fi",
+		].join("\n");
+		mockGetConversation.mockResolvedValue(conversation);
+		mockSendMessageStream.mockResolvedValue(
+			buildSseStream([
+				`${JSON.stringify({
+					event: "add_message",
+					data: {
+						sender: "Language Model",
+						text: rawFetchedPage,
+					},
+				})}\n\n`,
+				'{"event":"end","data":{}}\n\n',
+			]),
+		);
+		mockSendMessage.mockResolvedValue({
+			text: "The Star Citizen Wiki page for Anvil Arrow was not found.",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+			modelId: "model1",
+			modelDisplayName: "Model 1",
+		});
+
+		const event = makeEvent({
+			message: "Fetch that page",
+			conversationId: "conv-1",
+		});
+		const response = await POST(event);
+		const body = await readSseResponse(response);
+
+		expect(body).toContain(
+			'"text":"The Star Citizen Wiki page for Anvil Arrow was not found."',
+		);
+		expect(body).not.toContain("Anvil Arrow - Star Citizen Wiki");
+		expect(body).not.toContain("Toggle search");
+		expect(body).not.toContain("Privacy policy");
+		expect(mockSendMessage).toHaveBeenCalled();
+	});
+
 	it("aggregates native streamed tool call deltas into structured tool_call events", async () => {
 		const conversation = {
 			id: "conv-1",
@@ -1448,7 +1528,10 @@ describe("POST /api/chat/stream", () => {
 			]),
 		);
 
-		const event = makeEvent({ message: "Make a file", conversationId: "conv-1" });
+		const event = makeEvent({
+			message: "Make a file",
+			conversationId: "conv-1",
+		});
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
