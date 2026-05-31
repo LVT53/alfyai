@@ -379,6 +379,23 @@ class NemotronReasoningChatOpenAI(ChatOpenAI):
         return None
 
     @staticmethod
+    def _generation_chunk_has_content(generation_chunk: Any) -> bool:
+        message = getattr(generation_chunk, "message", None)
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            return bool(content)
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, str) and part:
+                    return True
+                if isinstance(part, dict):
+                    text = part.get("text")
+                    if isinstance(text, str) and text:
+                        return True
+            return False
+        return False
+
+    @staticmethod
     def _has_stream_choices(raw_chunk: dict[str, Any]) -> bool:
         choices = raw_chunk.get("choices")
         if not isinstance(choices, list) or len(choices) == 0:
@@ -436,6 +453,13 @@ class NemotronReasoningChatOpenAI(ChatOpenAI):
 
         response = await self.async_client.create(**payload)
         default_chunk_class = AIMessageChunk
+        reasoning_span_open = False
+
+        def make_content_chunk(content: str) -> ChatGenerationChunk:
+            return ChatGenerationChunk(
+                message=AIMessageChunk(content=content),
+                generation_info={},
+            )
 
         async for raw_chunk in response:
             if not isinstance(raw_chunk, dict):
@@ -443,10 +467,10 @@ class NemotronReasoningChatOpenAI(ChatOpenAI):
 
             reasoning = self._extract_reasoning_from_stream_chunk(raw_chunk)
             if reasoning:
-                yield ChatGenerationChunk(
-                    message=AIMessageChunk(content=self._reasoning_to_tagged_content(reasoning)),
-                    generation_info={},
-                )
+                if not reasoning_span_open:
+                    yield make_content_chunk(self.reasoning_open_tag)
+                    reasoning_span_open = True
+                yield make_content_chunk(reasoning)
 
             if not self._has_stream_choices(raw_chunk):
                 logger.debug("[REASONING_STREAM] Skipping provider stream chunk without choices")
@@ -467,8 +491,15 @@ class NemotronReasoningChatOpenAI(ChatOpenAI):
             if generation_chunk is None:
                 continue
 
+            if reasoning_span_open and self._generation_chunk_has_content(generation_chunk):
+                yield make_content_chunk(self.reasoning_close_tag)
+                reasoning_span_open = False
+
             default_chunk_class = generation_chunk.message.__class__
             yield generation_chunk
+
+        if reasoning_span_open:
+            yield make_content_chunk(self.reasoning_close_tag)
 
     def _generate(self, messages: Any, stop: Any = None, run_manager: Any = None, **kwargs: Any) -> ChatResult:  # noqa: ARG002
         """Send non-streaming requests with the same reasoning body merge as streaming."""

@@ -147,7 +147,159 @@ print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
 	};
 };
 
+const runVllmNodeReasoningStreamFixture = () => {
+	const nodePath = resolve(
+		process.cwd(),
+		"langflow_nodes",
+		"vllm_node_fixed.py",
+	);
+	const script = `
+import asyncio
+import importlib.util
+import json
+import sys
+import types
+
+class Dummy:
+    def __init__(self, *args, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def __init_subclass__(cls, **kwargs):
+        return super().__init_subclass__(**kwargs)
+
+    @classmethod
+    def get_base_inputs(cls):
+        return []
+
+    def copy(self, update=None):
+        clone = self.__class__()
+        clone.__dict__.update(self.__dict__)
+        clone.__dict__.update(update or {})
+        return clone
+
+def install_module(name, attrs=None):
+    module = types.ModuleType(name)
+    for key, value in (attrs or {}).items():
+        setattr(module, key, value)
+    sys.modules[name] = module
+    return module
+
+for name in [
+    "langchain_core",
+    "langchain_core.language_models",
+    "langchain_core.language_models.chat_models",
+    "langchain_core.messages",
+    "langchain_core.outputs",
+    "langchain_openai",
+    "pydantic",
+    "pydantic.v1",
+    "lfx",
+    "lfx.base",
+    "lfx.base.models",
+    "lfx.base.models.model",
+    "lfx.field_typing",
+    "lfx.field_typing.range_spec",
+    "lfx.inputs",
+    "lfx.inputs.inputs",
+    "lfx.log",
+    "lfx.log.logger",
+    "httpx",
+    "requests",
+]:
+    install_module(name)
+
+sys.modules["langchain_core.language_models.chat_models"].BaseChatModel = Dummy
+sys.modules["langchain_core.messages"].AIMessage = Dummy
+sys.modules["langchain_core.messages"].AIMessageChunk = Dummy
+sys.modules["langchain_core.messages"].SystemMessage = Dummy
+sys.modules["langchain_core.outputs"].ChatGenerationChunk = Dummy
+sys.modules["langchain_core.outputs"].ChatResult = Dummy
+sys.modules["langchain_openai"].ChatOpenAI = Dummy
+sys.modules["pydantic.v1"].SecretStr = Dummy
+sys.modules["lfx.base.models.model"].LCModelComponent = Dummy
+sys.modules["lfx.field_typing"].LanguageModel = Dummy
+sys.modules["lfx.field_typing.range_spec"].RangeSpec = Dummy
+for attr in [
+    "BoolInput",
+    "DictInput",
+    "IntInput",
+    "MultilineInput",
+    "SecretStrInput",
+    "SliderInput",
+    "StrInput",
+]:
+    setattr(sys.modules["lfx.inputs.inputs"], attr, Dummy)
+sys.modules["lfx.log.logger"].logger = types.SimpleNamespace(
+    debug=lambda *args, **kwargs: None,
+    info=lambda *args, **kwargs: None,
+    warning=lambda *args, **kwargs: None,
+    error=lambda *args, **kwargs: None,
+)
+sys.modules["httpx"].Timeout = Dummy
+sys.modules["requests"].get = lambda *args, **kwargs: Dummy(
+    raise_for_status=lambda: None,
+    json=lambda: {"data": []},
+)
+
+spec = importlib.util.spec_from_file_location("vllm_node_fixed", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+class FakeAsyncClient:
+    async def create(self, **payload):
+        async def stream():
+            for reasoning in ["The", " search", " tool", " keeps", " returning", " no", " results"]:
+                yield {"choices": [{"delta": {"reasoning_content": reasoning}}]}
+            yield {"choices": [{"delta": {"content": "Final answer"}}]}
+        return stream()
+
+def fake_request_payload(self, messages, *args, **kwargs):
+    return {"messages": []}
+
+def fake_convert_chunk_to_generation_chunk(raw_chunk, default_chunk_class, generation_info):
+    delta = (raw_chunk.get("choices") or [{}])[0].get("delta") or {}
+    content = delta.get("content")
+    if content:
+        return module.ChatGenerationChunk(
+            message=module.AIMessageChunk(content=content),
+            generation_info={},
+        )
+    return None
+
+async def main():
+    model = module.NemotronReasoningChatOpenAI()
+    model._get_request_payload = types.MethodType(fake_request_payload, model)
+    model.async_client = FakeAsyncClient()
+    model._convert_chunk_to_generation_chunk = fake_convert_chunk_to_generation_chunk
+
+    chunks = []
+    async for chunk in model._astream([]):
+        chunks.append(chunk.message.content)
+    print(json.dumps(chunks, ensure_ascii=False, separators=(",", ":")))
+
+asyncio.run(main())
+`;
+	return JSON.parse(
+		execFileSync("python3", ["-c", script, nodePath], {
+			encoding: "utf8",
+			maxBuffer: 1024 * 1024,
+		}),
+	) as string[];
+};
+
 describe("Langflow custom model node", () => {
+	it("keeps streamed reasoning deltas in one thinking tag span", () => {
+		const chunks = runVllmNodeReasoningStreamFixture();
+
+		expect(chunks.join("")).toBe(
+			"<thinking>The search tool keeps returning no results</thinking>Final answer",
+		);
+		expect(chunks.filter((chunk) => chunk === "<thinking>").length).toBe(1);
+		expect(chunks.filter((chunk) => chunk === "</thinking>").length).toBe(1);
+		expect(chunks).not.toContain("<thinking>The</thinking>");
+	});
+
 	it("recovers every tagged GPT-OSS thinking block before replaying assistant history to the model", () => {
 		const recoveredPayload = runVllmNodeReasoningRecoveryFixture();
 		const assistantMessage = recoveredPayload.messages[0];
