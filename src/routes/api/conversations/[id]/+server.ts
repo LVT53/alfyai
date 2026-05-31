@@ -1,4 +1,4 @@
-import { json } from "@sveltejs/kit";
+import { isHttpError, isRedirect, json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { deleteConversationWithCleanup } from "$lib/server/services/cleanup";
 import { getConversationDetail } from "$lib/server/services/conversation-detail/read-model";
@@ -34,6 +34,9 @@ export const GET: RequestHandler = async (event) => {
 
 		return json(detail);
 	} catch (err) {
+		if (isHttpError(err) || isRedirect(err)) {
+			throw err;
+		}
 		console.error("Error loading conversation:", err);
 		return json({ error: "Failed to load conversation" }, { status: 500 });
 	}

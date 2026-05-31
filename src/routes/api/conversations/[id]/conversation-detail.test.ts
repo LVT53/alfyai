@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { error, redirect } from "@sveltejs/kit";
 
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
@@ -98,6 +99,36 @@ describe("GET /api/conversations/[id]", () => {
 			location: "/login",
 		});
 		expect(mockGetConversationDetail).not.toHaveBeenCalled();
+	});
+
+	it("propagates SvelteKit HTTP errors from delegated detail loading", async () => {
+		let httpError: unknown;
+		try {
+			error(403, "Forbidden");
+		} catch (err) {
+			httpError = err;
+		}
+		mockGetConversationDetail.mockRejectedValue(httpError);
+
+		await expect(GET(makeEvent())).rejects.toMatchObject({
+			status: 403,
+			body: { message: "Forbidden" },
+		});
+	});
+
+	it("propagates SvelteKit redirects from delegated detail loading", async () => {
+		let redirectError: unknown;
+		try {
+			redirect(307, "/login");
+		} catch (err) {
+			redirectError = err;
+		}
+		mockGetConversationDetail.mockRejectedValue(redirectError);
+
+		await expect(GET(makeEvent())).rejects.toMatchObject({
+			status: 307,
+			location: "/login",
+		});
 	});
 
 	it("delegates full detail loading to the read model", async () => {
