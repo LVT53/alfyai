@@ -239,6 +239,32 @@ class WebResearchToolComponent(Component):
             value = diagnostics.get(key)
             if value not in (None, "", []):
                 compact[key] = value
+        providers = diagnostics.get("providers")
+        if isinstance(providers, dict):
+            compact["providers"] = {
+                key: bool(providers.get(key))
+                for key in ["exaConfigured", "braveConfigured"]
+                if key in providers
+            }
+        provider_calls = diagnostics.get("providerCalls")
+        if isinstance(provider_calls, list):
+            provider_errors: list[dict[str, Any]] = []
+            for call in provider_calls:
+                if not isinstance(call, dict) or not call.get("error"):
+                    continue
+                provider_errors.append({
+                    "provider": call.get("provider"),
+                    "query": cls._truncate_text(
+                        call.get("query"),
+                        MODEL_DIAGNOSTIC_TEXT_MAX_CHARS,
+                    ),
+                    "error": cls._truncate_text(
+                        call.get("error"),
+                        MODEL_DIAGNOSTIC_TEXT_MAX_CHARS,
+                    ),
+                })
+            if provider_errors:
+                compact["providerErrors"] = provider_errors[:4]
         fallback_reasons = diagnostics.get("fallbackReasons")
         if isinstance(fallback_reasons, list) and fallback_reasons:
             compact["fallbackReasons"] = [

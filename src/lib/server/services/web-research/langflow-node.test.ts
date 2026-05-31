@@ -79,14 +79,27 @@ class FakeResponse:
                 "sources": [],
                 "evidence": [],
             },
-            "diagnostics": {
-                "mode": "exact",
-                "freshness": "live",
-                "sourcePolicy": "commerce",
-                "selectedSourceCount": 1,
-                "evidenceCandidateCount": 1,
-            },
-        }
+			"diagnostics": {
+				"mode": "exact",
+				"freshness": "live",
+				"sourcePolicy": "commerce",
+				"providers": {
+					"exaConfigured": True,
+					"braveConfigured": True,
+				},
+				"selectedSourceCount": 1,
+				"evidenceCandidateCount": 1,
+				"providerCalls": [
+					{
+						"provider": "brave",
+						"query": "current Framework X Pro price",
+						"resultCount": 0,
+						"latencyMs": 25,
+						"error": "Brave search failed: 429 Too Many Requests",
+					}
+				],
+			},
+		}
 
 def install_module(name, attrs=None):
     module = types.ModuleType(name)
@@ -161,6 +174,14 @@ print(json.dumps({
 			answerBriefMarkdown?: string;
 			sources?: Array<{ title?: string; url?: string }>;
 			evidence?: Array<{ quote?: string }>;
+			diagnostics?: {
+				providers?: { exaConfigured?: boolean; braveConfigured?: boolean };
+				providerErrors?: Array<{
+					provider?: string;
+					query?: string;
+					error?: string;
+				}>;
+			};
 		};
 		text: string;
 	};
@@ -210,5 +231,14 @@ describe("Langflow Web Research tool node", () => {
 			"https://example.com/products/x-pro",
 		);
 		expect(textPayload.evidence?.[0]?.quote).toContain("$799");
+		expect(textPayload.diagnostics?.providers).toEqual({
+			exaConfigured: true,
+			braveConfigured: true,
+		});
+		expect(textPayload.diagnostics?.providerErrors?.[0]).toMatchObject({
+			provider: "brave",
+			query: "current Framework X Pro price",
+			error: "Brave search failed: 429 Too Many Requests",
+		});
 	});
 });

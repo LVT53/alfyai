@@ -172,6 +172,72 @@ describe("web research planning", () => {
 });
 
 describe("researchWeb", () => {
+	it("reports missing search providers instead of treating disabled search as no results", async () => {
+		const fetchMock = vi.fn();
+
+		const result = await researchWeb(
+			{
+				query: "SvelteKit official documentation",
+				mode: "quick",
+				sourcePolicy: "technical",
+				maxSources: 3,
+			},
+			{
+				config: { ...webConfig, exaApiKey: "", braveSearchApiKey: "" },
+				fetch: fetchMock,
+				now: new Date("2026-05-02T12:00:00.000Z"),
+			},
+		);
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(result.sources).toHaveLength(0);
+		expect(result.diagnostics.providers).toEqual({
+			exaConfigured: false,
+			braveConfigured: false,
+		});
+		expect(result.diagnostics.fallbackReasons).toContain(
+			"web_research_not_configured",
+		);
+		expect(result.diagnostics.fallbackReasons).not.toContain(
+			"no_search_results",
+		);
+	});
+
+	it("reports provider failures instead of treating failed searches as no results", async () => {
+		const fetchMock = vi.fn(async () => {
+			return new Response(
+				JSON.stringify({ error: "invalid Exa search configuration" }),
+				{ status: 400, headers: { "Content-Type": "application/json" } },
+			);
+		});
+
+		const result = await researchWeb(
+			{
+				query: "SvelteKit official documentation",
+				mode: "quick",
+				sourcePolicy: "technical",
+				maxSources: 3,
+			},
+			{
+				config: { ...webConfig, braveSearchApiKey: "" },
+				fetch: fetchMock,
+				now: new Date("2026-05-02T12:00:00.000Z"),
+			},
+		);
+
+		expect(result.sources).toHaveLength(0);
+		expect(result.diagnostics.providerCalls.length).toBeGreaterThan(0);
+		expect(result.diagnostics.providerCalls.every((call) => call.error)).toBe(
+			true,
+		);
+		expect(result.diagnostics.fallbackReasons).toContain(
+			"provider_search_failed",
+		);
+		expect(result.diagnostics.fallbackReasons).not.toContain(
+			"no_search_results",
+		);
+	});
+
 	it("fuses Exa and Brave results, opens selected pages, and reranks evidence chunks", async () => {
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {

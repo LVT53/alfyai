@@ -1553,10 +1553,13 @@ export async function researchWeb(
 		fallbackReasons: [],
 	};
 
-	const providerCalls = queries.flatMap((query) => [
-		{ provider: "exa" as const, query },
-		{ provider: "brave" as const, query },
-	]);
+	const enabledProviders: ResearchProvider[] = [
+		...(config.exaApiKey.trim() ? (["exa"] as const) : []),
+		...(config.braveSearchApiKey.trim() ? (["brave"] as const) : []),
+	];
+	const providerCalls = queries.flatMap((query) =>
+		enabledProviders.map((provider) => ({ provider, query })),
+	);
 	const directUrlSources = createDirectUrlSources({
 		request: normalized,
 		nowIso,
@@ -1636,7 +1639,16 @@ export async function researchWeb(
 	);
 	diagnostics.selectedSourceCount = selectedSources.length;
 	if (selectedSources.length === 0) {
-		diagnostics.fallbackReasons.push("no_search_results");
+		if (enabledProviders.length === 0 && directUrlSources.length === 0) {
+			diagnostics.fallbackReasons.push("web_research_not_configured");
+		} else if (
+			diagnostics.providerCalls.length > 0 &&
+			diagnostics.providerCalls.every((call) => Boolean(call.error))
+		) {
+			diagnostics.fallbackReasons.push("provider_search_failed");
+		} else {
+			diagnostics.fallbackReasons.push("no_search_results");
+		}
 	}
 
 	if (
