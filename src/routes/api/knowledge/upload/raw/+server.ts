@@ -1,31 +1,33 @@
-import { createHash } from 'crypto';
-import { createWriteStream } from 'fs';
-import { mkdir, unlink } from 'fs/promises';
-import { once } from 'events';
-import { join } from 'path';
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { requireAuth } from '$lib/server/auth/hooks';
-import { createAttachmentTraceId } from '$lib/server/services/attachment-trace';
-import { getConversation } from '$lib/server/services/conversations';
-import { getConfig } from '$lib/server/config-store';
-import { getAdapterBodySizeLimitBytes } from '$lib/server/env';
-import { completeStoredKnowledgeUpload } from '$lib/server/services/knowledge/upload-completion';
+import { createHash } from "node:crypto";
+import { once } from "node:events";
+import { createWriteStream } from "node:fs";
+import { mkdir, unlink } from "node:fs/promises";
+import { join } from "node:path";
+import { json } from "@sveltejs/kit";
+import { requireAuth } from "$lib/server/auth/hooks";
+import { createAttachmentTraceId } from "$lib/server/services/attachment-trace";
+import {
+	completeKnowledgeUploadFromStoredFile,
+	isKnowledgeUploadConversationError,
+	resolveKnowledgeUploadLimits,
+	validateKnowledgeUploadConversation,
+} from "$lib/server/services/knowledge/upload-intake";
+import type { RequestHandler } from "./$types";
 
-const UPLOAD_NAME_HEADER = 'x-alfyai-upload-name';
-const UPLOAD_SIZE_HEADER = 'x-alfyai-upload-size';
-const UPLOAD_TRACE_HEADER = 'x-alfyai-upload-trace-id';
-const UPLOAD_CONVERSATION_HEADER = 'x-alfyai-conversation-id';
+const UPLOAD_NAME_HEADER = "x-alfyai-upload-name";
+const UPLOAD_SIZE_HEADER = "x-alfyai-upload-size";
+const UPLOAD_TRACE_HEADER = "x-alfyai-upload-trace-id";
+const UPLOAD_CONVERSATION_HEADER = "x-alfyai-conversation-id";
 const PROGRESS_BYTES = 8 * 1024 * 1024;
 const PROGRESS_MS = 10_000;
 
 class RawUploadLimitError extends Error {
-	code = 'upload_body_too_large' as const;
+	code = "upload_body_too_large" as const;
 	status = 413 as const;
 }
 
 class RawUploadSizeMismatchError extends Error {
-	code = 'upload_size_mismatch' as const;
+	code = "upload_size_mismatch" as const;
 	status = 400 as const;
 }
 
@@ -36,7 +38,7 @@ function parseContentLength(value: string | null): number | null {
 }
 
 function formatBytes(value: number | null): string {
-	if (value === null || !Number.isFinite(value)) return 'unlimited';
+	if (value === null || !Number.isFinite(value)) return "unlimited";
 	const mb = value / (1024 * 1024);
 	return `${Number.isInteger(mb) ? mb : mb.toFixed(1)}MB`;
 }
@@ -62,20 +64,6 @@ function sanitizeUploadTraceId(value: string | null): string | null {
 	return /^[a-z0-9:_-]{4,120}$/i.test(trimmed) ? trimmed : null;
 }
 
-function finiteLimit(value: number): number | null {
-	return Number.isFinite(value) ? value : null;
-}
-
-function effectiveRequestBodyLimit(params: {
-	appFileLimit: number;
-	adapterBodySizeLimit: number;
-}): number {
-	const adapterLimit = finiteLimit(params.adapterBodySizeLimit);
-	return adapterLimit === null
-		? params.appFileLimit
-		: Math.min(params.appFileLimit, adapterLimit);
-}
-
 function uploadBodyLimitMessage(limitBytes: number | null) {
 	return `Upload exceeded the server request body size limit of ${formatBytes(limitBytes)}. Try uploading a smaller file or increase BODY_SIZE_LIMIT for this deployment.`;
 }
@@ -83,13 +71,16 @@ function uploadBodyLimitMessage(limitBytes: number | null) {
 function isAbortError(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
 	const name =
-		typeof error === 'object' &&
+		typeof error === "object" &&
 		error !== null &&
-		'name' in error &&
-		typeof (error as { name?: unknown }).name === 'string'
+		"name" in error &&
+		typeof (error as { name?: unknown }).name === "string"
 			? (error as { name: string }).name
-			: '';
-	return name === 'AbortError' || /\baborted\b|operation was aborted|client prematurely closed/i.test(message);
+			: "";
+	return (
+		name === "AbortError" ||
+		/\baborted\b|operation was aborted|client prematurely closed/i.test(message)
+	);
 }
 
 async function writeChunk(
@@ -97,14 +88,16 @@ async function writeChunk(
 	chunk: Uint8Array,
 ): Promise<void> {
 	if (!writer.write(Buffer.from(chunk))) {
-		await once(writer, 'drain');
+		await once(writer, "drain");
 	}
 }
 
-async function finishWriter(writer: ReturnType<typeof createWriteStream>): Promise<void> {
+async function finishWriter(
+	writer: ReturnType<typeof createWriteStream>,
+): Promise<void> {
 	await new Promise<void>((resolve, reject) => {
-		writer.once('finish', resolve);
-		writer.once('error', reject);
+		writer.once("finish", resolve);
+		writer.once("error", reject);
 		writer.end();
 	});
 }
@@ -122,15 +115,15 @@ async function receiveRawUpload(params: {
 	startedAt: number;
 }): Promise<{ receivedBytes: number; binaryHash: string }> {
 	const reader = params.body.getReader();
-	const writer = createWriteStream(params.tempPathAbsolute, { flags: 'wx' });
-	const hash = createHash('sha256');
+	const writer = createWriteStream(params.tempPathAbsolute, { flags: "wx" });
+	const hash = createHash("sha256");
 	let receivedBytes = 0;
 	let nextProgressBytes = PROGRESS_BYTES;
 	let lastProgressAt = Date.now();
 	let abortLogged = false;
 
-	const logProgress = (reason: 'bytes' | 'interval') => {
-		console.info('[KNOWLEDGE] Raw upload receive progress', {
+	const logProgress = (reason: "bytes" | "interval") => {
+		console.info("[KNOWLEDGE] Raw upload receive progress", {
 			traceId: params.traceId,
 			userId: params.userId,
 			fileName: params.fileName,
@@ -143,17 +136,20 @@ async function receiveRawUpload(params: {
 	};
 	const onAbort = () => {
 		abortLogged = true;
-		console.warn('[KNOWLEDGE] Raw upload request aborted while receiving body', {
-			traceId: params.traceId,
-			userId: params.userId,
-			fileName: params.fileName,
-			receivedBytes,
-			declaredFileSize: params.declaredFileSize,
-			contentLength: params.contentLength,
-			durationMs: Date.now() - params.startedAt,
-		});
+		console.warn(
+			"[KNOWLEDGE] Raw upload request aborted while receiving body",
+			{
+				traceId: params.traceId,
+				userId: params.userId,
+				fileName: params.fileName,
+				receivedBytes,
+				declaredFileSize: params.declaredFileSize,
+				contentLength: params.contentLength,
+				durationMs: Date.now() - params.startedAt,
+			},
+		);
 	};
-	params.signal?.addEventListener('abort', onAbort, { once: true });
+	params.signal?.addEventListener("abort", onAbort, { once: true });
 
 	try {
 		while (true) {
@@ -161,20 +157,22 @@ async function receiveRawUpload(params: {
 			if (done) break;
 			receivedBytes += value.byteLength;
 			if (receivedBytes > params.requestBodyLimit) {
-				throw new RawUploadLimitError(uploadBodyLimitMessage(params.requestBodyLimit));
+				throw new RawUploadLimitError(
+					uploadBodyLimitMessage(params.requestBodyLimit),
+				);
 			}
 			hash.update(value);
 			await writeChunk(writer, value);
 
 			const now = Date.now();
 			if (receivedBytes >= nextProgressBytes) {
-				logProgress('bytes');
+				logProgress("bytes");
 				while (receivedBytes >= nextProgressBytes) {
 					nextProgressBytes += PROGRESS_BYTES;
 				}
 				lastProgressAt = now;
 			} else if (now - lastProgressAt >= PROGRESS_MS) {
-				logProgress('interval');
+				logProgress("interval");
 				lastProgressAt = now;
 			}
 		}
@@ -189,40 +187,50 @@ async function receiveRawUpload(params: {
 		}
 		throw error;
 	} finally {
-		params.signal?.removeEventListener('abort', onAbort);
+		params.signal?.removeEventListener("abort", onAbort);
 	}
 
-	if (params.declaredFileSize !== null && receivedBytes !== params.declaredFileSize) {
+	if (
+		params.declaredFileSize !== null &&
+		receivedBytes !== params.declaredFileSize
+	) {
 		await unlink(params.tempPathAbsolute).catch(() => undefined);
 		throw new RawUploadSizeMismatchError(
-			`Upload size mismatch. Browser declared ${params.declaredFileSize} bytes but the server received ${receivedBytes} bytes.`
+			`Upload size mismatch. Browser declared ${params.declaredFileSize} bytes but the server received ${receivedBytes} bytes.`,
 		);
 	}
 
 	return {
 		receivedBytes,
-		binaryHash: hash.digest('hex'),
+		binaryHash: hash.digest("hex"),
 	};
 }
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
 	const user = event.locals.user!;
-	const traceId = sanitizeUploadTraceId(event.request.headers.get(UPLOAD_TRACE_HEADER)) ?? createAttachmentTraceId('upload');
+	const traceId =
+		sanitizeUploadTraceId(event.request.headers.get(UPLOAD_TRACE_HEADER)) ??
+		createAttachmentTraceId("upload");
 	const startedAt = Date.now();
-	const config = getConfig();
-	const contentLength = parseContentLength(event.request.headers.get('content-length'));
-	const declaredFileName = decodeHeaderValue(event.request.headers.get(UPLOAD_NAME_HEADER));
-	const declaredFileSize = parseContentLength(event.request.headers.get(UPLOAD_SIZE_HEADER));
-	const conversationId = sanitizeHeaderValue(event.request.headers.get(UPLOAD_CONVERSATION_HEADER));
-	const mimeType = event.request.headers.get('content-type')?.split(';')[0]?.trim() || null;
-	const adapterBodySizeLimit = getAdapterBodySizeLimitBytes();
-	const requestBodyLimit = effectiveRequestBodyLimit({
-		appFileLimit: config.maxFileUploadSize,
-		adapterBodySizeLimit,
-	});
+	const limits = resolveKnowledgeUploadLimits();
+	const contentLength = parseContentLength(
+		event.request.headers.get("content-length"),
+	);
+	const declaredFileName = decodeHeaderValue(
+		event.request.headers.get(UPLOAD_NAME_HEADER),
+	);
+	const declaredFileSize = parseContentLength(
+		event.request.headers.get(UPLOAD_SIZE_HEADER),
+	);
+	const conversationId = sanitizeHeaderValue(
+		event.request.headers.get(UPLOAD_CONVERSATION_HEADER),
+	);
+	const mimeType =
+		event.request.headers.get("content-type")?.split(";")[0]?.trim() || null;
+	const requestBodyLimit = limits.storedFileLimit;
 
-	console.info('[KNOWLEDGE] Raw upload receive started', {
+	console.info("[KNOWLEDGE] Raw upload receive started", {
 		traceId,
 		userId: user.id,
 		fileName: declaredFileName,
@@ -230,35 +238,45 @@ export const POST: RequestHandler = async (event) => {
 		contentLength,
 		mimeType,
 		conversationId,
-		maxFileUploadSize: config.maxFileUploadSize,
-		adapterBodySizeLimit,
+		maxFileUploadSize: limits.maxFileUploadSize,
+		adapterBodySizeLimit: limits.adapterBodySizeLimit,
 		requestBodyLimit,
 	});
 
 	if (!declaredFileName) {
-		return json({ error: 'Upload file name is required', code: 'upload_name_required', traceId }, { status: 400 });
+		return json(
+			{
+				error: "Upload file name is required",
+				code: "upload_name_required",
+				traceId,
+			},
+			{ status: 400 },
+		);
 	}
 
 	if (!event.request.body) {
-		return json({ error: 'Upload request body is empty', code: 'upload_body_missing', traceId }, { status: 400 });
-	}
-
-	if (conversationId) {
-		const conversation = await getConversation(user.id, conversationId);
-		if (!conversation) {
-			return json({ error: 'Conversation not found or access denied', code: 'conversation_not_found', traceId }, { status: 400 });
-		}
-	}
-
-	if (declaredFileSize !== null && declaredFileSize > config.maxFileUploadSize) {
 		return json(
 			{
-				error: `File too large. Maximum size is ${formatBytes(config.maxFileUploadSize)}.`,
-				code: 'upload_file_too_large',
-				errorKey: 'knowledge.uploadFileTooLarge',
+				error: "Upload request body is empty",
+				code: "upload_body_missing",
 				traceId,
 			},
-			{ status: 413 }
+			{ status: 400 },
+		);
+	}
+
+	if (
+		declaredFileSize !== null &&
+		declaredFileSize > limits.maxFileUploadSize
+	) {
+		return json(
+			{
+				error: `File too large. Maximum size is ${formatBytes(limits.maxFileUploadSize)}.`,
+				code: "upload_file_too_large",
+				errorKey: "knowledge.uploadFileTooLarge",
+				traceId,
+			},
+			{ status: 413 },
 		);
 	}
 
@@ -266,15 +284,41 @@ export const POST: RequestHandler = async (event) => {
 		return json(
 			{
 				error: uploadBodyLimitMessage(requestBodyLimit),
-				code: 'upload_body_too_large',
-				errorKey: 'knowledge.uploadBodyTooLarge',
+				code: "upload_body_too_large",
+				errorKey: "knowledge.uploadBodyTooLarge",
 				traceId,
 			},
-			{ status: 413 }
+			{ status: 413 },
 		);
 	}
 
-	const tempDir = join(process.cwd(), 'data', 'knowledge', user.id, '.incoming');
+	let validatedConversationId: string | null;
+	try {
+		validatedConversationId = await validateKnowledgeUploadConversation({
+			userId: user.id,
+			conversationId,
+		});
+	} catch (error) {
+		if (isKnowledgeUploadConversationError(error)) {
+			return json(
+				{
+					error: "Conversation not found or access denied",
+					code: "conversation_not_found",
+					traceId,
+				},
+				{ status: 400 },
+			);
+		}
+		throw error;
+	}
+
+	const tempDir = join(
+		process.cwd(),
+		"data",
+		"knowledge",
+		user.id,
+		".incoming",
+	);
 	await mkdir(tempDir, { recursive: true });
 	const tempPathAbsolute = join(tempDir, `${traceId}-${Date.now()}.upload`);
 
@@ -295,18 +339,20 @@ export const POST: RequestHandler = async (event) => {
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		const status =
-			error instanceof RawUploadLimitError || error instanceof RawUploadSizeMismatchError
+			error instanceof RawUploadLimitError ||
+			error instanceof RawUploadSizeMismatchError
 				? error.status
 				: isAbortError(error)
 					? 400
 					: 500;
 		const code =
-			error instanceof RawUploadLimitError || error instanceof RawUploadSizeMismatchError
+			error instanceof RawUploadLimitError ||
+			error instanceof RawUploadSizeMismatchError
 				? error.code
 				: isAbortError(error)
-					? 'upload_aborted'
-					: 'upload_receive_failed';
-		console.warn('[KNOWLEDGE] Raw upload receive failed', {
+					? "upload_aborted"
+					: "upload_receive_failed";
+		console.warn("[KNOWLEDGE] Raw upload receive failed", {
 			traceId,
 			userId: user.id,
 			fileName: declaredFileName,
@@ -319,7 +365,7 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: message, code, traceId }, { status });
 	}
 
-	console.info('[KNOWLEDGE] Raw upload receive completed', {
+	console.info("[KNOWLEDGE] Raw upload receive completed", {
 		traceId,
 		userId: user.id,
 		fileName: declaredFileName,
@@ -328,17 +374,32 @@ export const POST: RequestHandler = async (event) => {
 		durationMs: Date.now() - startedAt,
 	});
 
-	const response = await completeStoredKnowledgeUpload({
-		userId: user.id,
-		conversationId,
-		fileName: declaredFileName,
-		mimeType,
-		sizeBytes: received.receivedBytes,
-		binaryHash: received.binaryHash,
-		tempPathAbsolute,
-		traceId,
-		startedAt,
-		logPrefix: 'Raw',
-	});
-	return json(response);
+	try {
+		const response = await completeKnowledgeUploadFromStoredFile({
+			userId: user.id,
+			conversationId: validatedConversationId,
+			fileName: declaredFileName,
+			mimeType,
+			sizeBytes: received.receivedBytes,
+			binaryHash: received.binaryHash,
+			tempPathAbsolute,
+			traceId,
+			startedAt,
+			logPrefix: "Raw",
+		});
+		return json(response);
+	} catch (error) {
+		if (isKnowledgeUploadConversationError(error)) {
+			await unlink(tempPathAbsolute).catch(() => undefined);
+			return json(
+				{
+					error: "Conversation not found or access denied",
+					code: "conversation_not_found",
+					traceId,
+				},
+				{ status: 400 },
+			);
+		}
+		throw error;
+	}
 };

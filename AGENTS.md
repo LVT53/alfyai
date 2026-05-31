@@ -225,6 +225,7 @@ Do not:
   - [`src/lib/server/services/knowledge/store/attachments.ts`](./src/lib/server/services/knowledge/store/attachments.ts)
   - [`src/lib/server/services/knowledge/store/documents.ts`](./src/lib/server/services/knowledge/store/documents.ts)
   - [`src/lib/server/services/knowledge/store/cleanup.ts`](./src/lib/server/services/knowledge/store/cleanup.ts)
+  - [`src/lib/server/services/knowledge/upload-intake.ts`](./src/lib/server/services/knowledge/upload-intake.ts)
   - [`src/lib/server/services/knowledge/context.ts`](./src/lib/server/services/knowledge/context.ts)
   - [`src/lib/server/services/knowledge/capsules.ts`](./src/lib/server/services/knowledge/capsules.ts)
 - Related services:
@@ -258,6 +259,11 @@ Responsibility split:
   - artifact deletion
   - cross-conversation reference checks
   - bulk cleanup actions
+- `upload-intake.ts`
+  - shared knowledge upload limits
+  - optional conversation validation
+  - uploaded source persistence through the store
+  - normalized artifact creation, Honcho sync/fallback, prompt readiness, and upload trace output
 - `context.ts`
   - relevant-artifact lookup
   - working-set and context status operations
@@ -295,7 +301,7 @@ Do not:
 
 Rules:
 
-- Direct library uploads through `/api/knowledge/upload` may omit `conversationId`; when present, the route must validate that the conversation belongs to the user before any artifact insert or link write
+- Direct library uploads through `/api/knowledge/upload` may omit `conversationId`; when present, Knowledge Upload Intake must validate that the conversation belongs to the user before any artifact insert or link write
 - File versioning is NOT supported - single version per file
 - Auto-rename on name conflicts (counter suffix) - no overwrite
 - Import from Obsidian/Notion flattens hierarchy, stores original path in metadata

@@ -115,6 +115,7 @@ retry-cleanup.ts              ← idempotent cleanup on turn failure (evidence l
 
 ```
 knowledge.ts (facade — re-exports from below)
+  ├── knowledge/upload-intake.ts ← shared upload limits, conversation validation, completion
   ├── store.ts (facade — re-exports from store/*)
   │     ├── store/core.ts         ← artifact CRUD, mapping, WORKING_SET_*_BUDGET
   │     ├── store/attachments.ts  ← upload → auto-rename → link
@@ -124,9 +125,9 @@ knowledge.ts (facade — re-exports from below)
   └── capsules.ts                ← work capsules, generated outputs
 ```
 
-**Call chain for attachment upload**: `saveUploadedArtifact()` → `store/core.ts createArtifact()` → `store/core.ts syncArtifactChunks()` (delegates to `task-state/artifacts.ts`). Text extraction for prompt readiness happens through normalized-document creation, not by turning duplicate uploads into versions.
+**Call chain for attachment upload**: upload routes receive bytes or chunk metadata, then call `knowledge/upload-intake.ts`. The intake boundary resolves shared limits, validates any supplied conversation id, calls `saveUploadedArtifact()` / `saveUploadedArtifactFromStoredFile()`, creates normalized artifacts, syncs Honcho with fallback text, and resolves prompt readiness. Store writes still flow through `store/core.ts createArtifact()` → `store/core.ts syncArtifactChunks()` (delegates to `task-state/artifacts.ts`). Text extraction for prompt readiness happens through normalized-document creation, not by turning duplicate uploads into versions.
 
-**Library upload note**: knowledge-page uploads may pass `conversationId = null`; `saveUploadedArtifact()` must skip `attached_to_conversation` link creation in that case, while `/api/knowledge/upload` validates any provided conversation id before insert and keeps Honcho sync conversation-bound.
+**Library upload note**: knowledge-page uploads may pass `conversationId = null`; `saveUploadedArtifact()` must skip `attached_to_conversation` link creation in that case. Knowledge upload adapters must use `upload-intake.ts` for provided conversation validation, prompt readiness, and Honcho sync instead of importing conversation, store, or Honcho helpers directly.
 
 **Document search note**: `searchKnowledgeDocuments()` in `knowledge/store/documents.ts` is the shared document search path used by `/api/knowledge/search` and the shell search modal. Keep ranking and logical-document mapping there instead of duplicating it in routes or client components.
 

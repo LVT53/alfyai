@@ -1198,6 +1198,10 @@ _Avoid_: duplicate version, overwrite candidate
 An **Uploaded Document** whose display name was changed to preserve both files after a **Filename Conflict**.
 _Avoid_: new version, replacement, overwrite
 
+**Knowledge Upload Intake**:
+The deep server module at `src/lib/server/services/knowledge/upload-intake.ts` that completes an **Uploaded Document** after an upload adapter has authenticated the user and received bytes or upload intent metadata. It owns shared upload limits, optional conversation validation, source artifact persistence through the Knowledge store, normalized-document extraction, Honcho sync and fallback, prompt-readiness resolution, and upload trace output.
+_Avoid_: route-local upload completion, partial raw-upload helper, duplicated readiness path
+
 **File Production Request**:
 A user request for AlfyAI to create one or more downloadable **Generated Files**.
 _Avoid_: export task, PDF tool call, sandbox job
@@ -1348,6 +1352,10 @@ _Avoid_: source message button, primary document action, source viewer
 - A **Filename Conflict** does not create a **Generated Document Version**.
 - An **Auto-Renamed Upload** remains a separate **Uploaded Document**.
 - Uploaded documents do not form user-visible version history in v1.
+- Every **Uploaded Document** enters **Knowledge Upload Intake** before normalized extraction, Honcho sync, or prompt-readiness response assembly.
+- Knowledge upload routes are adapters for authentication, HTTP metadata parsing, multipart form reads, raw stream receipt, chunk storage, chunk assembly, and response translation; they do not own durable upload completion.
+- **Knowledge Upload Intake** composes Knowledge store attachment persistence for auto-rename, optional conversation linking, and source artifact writes; it does not create a second artifact store.
+- **Knowledge Upload Intake** validates any supplied conversation id before artifact persistence or prompt-readiness linking, while conversationless library uploads stay valid.
 - A **Generated Document Family** may contain one or more **Generated Document Versions**.
 - A **Working Document** may point to either a **Library Document** or a **Generated Document**.
 - **Working Document Identity** owns purpose-specific artifact ids for **Working Documents**; callers should request display, prompt, preview/file-serving, or family identity instead of inspecting `displayArtifactId`, `promptArtifactId`, and `familyArtifactIds` directly.
