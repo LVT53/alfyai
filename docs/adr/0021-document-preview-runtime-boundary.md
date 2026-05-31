@@ -10,7 +10,7 @@ File Production remains the producer of generated-document sources and rendered 
 
 Heavy preview dependencies must stay off the idle shell path. `DocumentWorkspace.svelte` lazy-loads `DocumentPreviewRenderer.svelte`, and Preview Runtime adapters dynamically import browser-heavy libraries such as PDF.js, Mammoth, ExcelJS, JSZip, PPTXViewer, and the markdown highlighter only on the file-type paths that need them.
 
-**Implementation Status, 2026-05-31:** implemented locally. `DocumentPreviewRenderer.svelte` delegates to `preview-runtime/index.ts`, `pdf/PdfPreview.svelte`, `image/ImagePreview.svelte`, `office/index.ts`, and `text/index.ts`. The old monolithic renderer tests were rewritten into focused adapter/runtime tests plus a smaller coordinator test. Verification covered focused preview runtime tests, `npm run check`, and the full `npm run test:unit` suite before live deployment.
+**Implementation Status, 2026-05-31:** implemented and live verified. `DocumentPreviewRenderer.svelte` delegates to `preview-runtime/index.ts`, `pdf/PdfPreview.svelte`, `image/ImagePreview.svelte`, `office/index.ts`, and `text/index.ts`. The old monolithic renderer tests were rewritten into focused adapter/runtime tests plus a smaller coordinator test. Verification covered focused preview runtime tests, `npm run check`, the full `npm run test:unit` suite, `npm run build`, remote deployment to `https://ai.alfydesign.com`, service health/log inspection, and a live Knowledge Document Workspace smoke test for Markdown, image, and PDF previews.
 
 **Considered Options**
 

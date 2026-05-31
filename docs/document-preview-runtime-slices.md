@@ -4,7 +4,7 @@ These are local `$to-issues` tracer-bullet slices for the architecture-review re
 
 The review recommendation is to keep the shared **Document Workspace** shell, but deepen the rich-preview internals by file type. Today `DocumentPreviewRenderer.svelte` owns preview fetch, loading state, file-type dispatch, PDF rendering, Office conversions, text/Markdown/CSV/HTML sanitization, image inspection, and most preview styling. The target boundary is a **Preview Runtime** module set that owns file-type loading and rendering while `DocumentPreviewRenderer.svelte` becomes the coordinator/composition surface used by `DocumentWorkspace.svelte`.
 
-**Implementation Status, 2026-05-31:** DPR-01 through DPR-05 are implemented locally. The implementation added `src/lib/components/document-workspace/preview-runtime/` with a base runtime contract, PDF and image Svelte adapters, and Office/Text adapter helpers. `DocumentPreviewRenderer.svelte` is now the embedded coordinator that owns shell/loading/error state and adapter composition. Focused runtime tests and the slim coordinator test passed, followed by `npm run check` and the full `npm run test:unit` suite. Live deployment verification remains the final acceptance item.
+**Implementation Status, 2026-05-31:** DPR-01 through DPR-05 are implemented and live verified. The implementation added `src/lib/components/document-workspace/preview-runtime/` with a base runtime contract, PDF and image Svelte adapters, and Office/Text adapter helpers. `DocumentPreviewRenderer.svelte` is now the embedded coordinator that owns shell/loading/error state and adapter composition. Focused runtime tests and the slim coordinator test passed, followed by `npm run check`, the full `npm run test:unit` suite, `npm run build`, remote deployment to `https://ai.alfydesign.com`, and a live Knowledge Document Workspace smoke test covering Markdown, image, and PDF previews with no browser console/page errors and clean post-smoke service logs.
 
 ## Evidence And Constraints
 
@@ -18,6 +18,7 @@ The review recommendation is to keep the shared **Document Workspace** shell, bu
 - Repo boundary: use Svelte 5 runes and callback props in touched Svelte files; do not introduce legacy event dispatch or `on:` directives.
 - Context7 evidence: Svelte 5 recommends `$props()`, local `$state`, callback props, and native dynamic components; SvelteKit recommends `browser` checks or `onMount`/dynamic imports for browser-only libraries; Vitest 4 supports jsdom and module mocks for focused helper/component tests.
 - Manual docs evidence: PDF.js documents `getDocument(...).promise`, page `getViewport`, HiDPI canvas sizing, and avoiding concurrent renders on one canvas; Mammoth supports browser conversion via `{ arrayBuffer }`; DOMPurify remains the sanitizer for preview HTML.
+- Live verification evidence: `6ad2c916` was deployed to the `alfydesign` host on 2026-05-31, `langflow-chat.service` restarted active on port 3001, `/api/health` returned `{"status":"OK"}`, and Playwright verified Markdown, image, and PDF preview adapters through the Knowledge page with zero console/page errors.
 
 ## Done Criteria
 
@@ -141,11 +142,11 @@ The review recommendation is to keep the shared **Document Workspace** shell, bu
 - [x] `CONTEXT.md` defines **Preview Runtime** and its relationship to **Document Workspace**, **Working Document Identity**, preview prewarm, and server-side file serving.
 - [x] A related ADR records that Preview Runtime owns client-side file-type rendering while Working Document Identity/file serving owns which bytes are served.
 - [x] The architecture review HTML marks `Deepen Document Preview Rendering` as finished and includes implementation status plus verification evidence.
-- [ ] Local and live verification pass.
+- [x] Local and live verification pass.
 
 **Verification**
 
 - [x] `npm run check`
 - [x] `npm run test:unit`
 - [x] Focused preview tests for runtime/adapters
-- [ ] Live deploy and smoke test focused on Knowledge/Chat Document Workspace preview behavior
+- [x] Live deploy and smoke test focused on Knowledge/Chat Document Workspace preview behavior
