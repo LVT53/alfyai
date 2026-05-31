@@ -1243,7 +1243,7 @@ A downloadable file produced by AlfyAI during chat.
 _Avoid_: uploaded document, attachment, artifact
 
 **Generated File Serving**:
-The server-side boundary at `src/lib/server/services/generated-file-serving.ts` that serves validated **Generated File** bytes for preview or download once a caller has selected a generated chat-file id.
+The server-side boundary at `src/lib/server/services/generated-file-serving.ts` that serves validated **Generated File** bytes for preview or download once a caller has selected a generated chat-file id and the file is either attached to an assistant message or linked to a succeeded **File Production Job** for the same user and conversation.
 _Avoid_: route-local generated-file headers, preview-runtime authorization, working-document byte validator
 
 **Generated Document**:
@@ -1311,14 +1311,14 @@ _Avoid_: source message button, primary document action, source viewer
 - A **File Production Request** may produce one or more **Generated Files**.
 - A **File Production Request** is one user-facing capability even when AlfyAI uses different internal production methods.
 - **File Production** creates jobs, renders or executes outputs, and stores **Generated Files**; **Generated File Serving** serves already-stored generated-file bytes.
-- **Generated File Serving** owns generated-file lookup, conversation-owner fallback, assigned-file quarantine, generated-file type checks, byte validation, MIME/content-type selection, CSP/disposition/cache headers, and generated-HTML preview hardening.
+- **Generated File Serving** owns generated-file lookup, conversation-owner fallback, assigned/succeeded-job eligibility, generated-file type checks, byte validation, MIME/content-type selection, CSP/disposition/cache headers, and generated-HTML preview hardening.
 - Chat generated-file preview and download routes are transport adapters over **Generated File Serving**.
 - Every **File Production Request** enters **File Production Intake** before renderer, sandbox, or storage work begins.
 - **File Production Intake** creates or reuses durable **File Production Card** state; it is not a stream-only or tool-specific concern.
 - A malformed **File Production Request** still produces a durable failed **File Production Card** through **File Production Intake** when enough conversation ownership is known.
 - The public file-production facade delegates to deep modules; callers should import the facade unless they are inside the file-production boundary or the **Conversation Detail Read Model** needs **File Production Read Model** without loading worker/rendering/storage modules.
 - **File Production Job Ledger** is the durable state authority for **File Production Cards** and attempts; renderers, routes, and worker code should not reimplement job state transitions.
-- **File Production Read Model** is the projection authority for conversation-visible **File Production Cards**; it may hydrate job-linked unassigned files for finalization, but public generated-file lists and direct preview/download routes still require an assigned assistant message.
+- **File Production Read Model** is the projection authority for conversation-visible **File Production Cards**; it may hydrate job-linked unassigned files for finalization, and **Generated File Serving** may serve those unassigned files only when the read model confirms a succeeded job link for the requesting user and conversation.
 - **File Production Worker Runner** consumes **File Production Job Ledger**, **File Production Execution Adapter**, and **Generated File Storage Adapter** rather than owning their rules inline.
 - **File Production Execution Adapter** decides how a persisted request runs; it does not own durable job state or generated-file storage.
 - **Generated File Storage Adapter** stores and links outputs after execution and before job success; output validation failures do not create produced-file links.

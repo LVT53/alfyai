@@ -8,7 +8,7 @@ Working Document Identity and the server-side working-document file-serving boun
 
 File Production remains the producer of generated-document sources and rendered generated files. Preview Runtime may render generated-file bytes once they are served through the existing preview route, but it must not create file-production jobs, validate generated output storage, or replace source-first document rendering.
 
-ADR-0023 records the Generated File Serving boundary. Future preview work should keep generated-file lookup, assignment quarantine, ownership fallback, MIME/byte validation, CSP, disposition, and cache policy server-side instead of pushing those rules into `DocumentPreviewRenderer.svelte` or Preview Runtime adapters.
+ADR-0023 records the Generated File Serving boundary. Future preview work should keep generated-file lookup, assigned/succeeded-job eligibility, ownership fallback, MIME/byte validation, CSP, disposition, and cache policy server-side instead of pushing those rules into `DocumentPreviewRenderer.svelte` or Preview Runtime adapters.
 
 Heavy preview dependencies must stay off the idle shell path. `DocumentWorkspace.svelte` lazy-loads `DocumentPreviewRenderer.svelte`, and Preview Runtime adapters dynamically import browser-heavy libraries such as PDF.js, Mammoth, ExcelJS, JSZip, PPTXViewer, and the markdown highlighter only on the file-type paths that need them.
 

@@ -8,6 +8,7 @@ import {
 	isGeneratedFileTypeAllowed,
 	validateGeneratedOutputFile,
 } from "$lib/server/services/file-production/output-validation";
+import { hasSucceededFileProductionJobForChatFile } from "$lib/server/services/file-production/read-model";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 
 export type GeneratedFileServingMode = "preview" | "download";
@@ -37,7 +38,18 @@ export async function resolveGeneratedFileServing(params: {
 	const chatFile =
 		(await getChatFileByUser(params.fileId, params.userId)) ??
 		(await getChatFileByConversationOwner(params.fileId, params.userId));
-	if (!chatFile || chatFile.assistantMessageId === null) {
+	if (!chatFile) {
+		return { ok: false, status: 404, error: "File not found" };
+	}
+
+	if (
+		chatFile.assistantMessageId === null &&
+		!(await hasSucceededFileProductionJobForChatFile({
+			userId: params.userId,
+			conversationId: chatFile.conversationId,
+			chatGeneratedFileId: chatFile.id,
+		}))
+	) {
 		return { ok: false, status: 404, error: "File not found" };
 	}
 

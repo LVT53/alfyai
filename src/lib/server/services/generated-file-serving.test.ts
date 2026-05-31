@@ -7,13 +7,18 @@ vi.mock("$lib/server/services/chat-files", () => ({
 	readChatFileContentByUser: vi.fn(),
 }));
 
+vi.mock("$lib/server/services/file-production/read-model", () => ({
+	hasSucceededFileProductionJobForChatFile: vi.fn(),
+}));
+
 import {
+	type ChatFile,
 	getChatFileByConversationOwner,
 	getChatFileByUser,
 	readChatFileContentByConversationOwner,
 	readChatFileContentByUser,
-	type ChatFile,
 } from "$lib/server/services/chat-files";
+import { hasSucceededFileProductionJobForChatFile } from "$lib/server/services/file-production/read-model";
 import { resolveGeneratedFileServing } from "./generated-file-serving";
 
 const mockGetChatFileByUser = vi.mocked(getChatFileByUser);
@@ -23,6 +28,9 @@ const mockGetChatFileByConversationOwner = vi.mocked(
 const mockReadChatFileContentByUser = vi.mocked(readChatFileContentByUser);
 const mockReadChatFileContentByConversationOwner = vi.mocked(
 	readChatFileContentByConversationOwner,
+);
+const mockHasSucceededFileProductionJobForChatFile = vi.mocked(
+	hasSucceededFileProductionJobForChatFile,
 );
 
 function chatFile(overrides: Partial<ChatFile> = {}): ChatFile {
@@ -44,6 +52,7 @@ function chatFile(overrides: Partial<ChatFile> = {}): ChatFile {
 describe("resolveGeneratedFileServing", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockHasSucceededFileProductionJobForChatFile.mockResolvedValue(false);
 	});
 
 	it("serves a user-owned generated file with inline preview headers", async () => {
@@ -67,6 +76,7 @@ describe("resolveGeneratedFileServing", () => {
 		});
 		expect(mockGetChatFileByUser).toHaveBeenCalledWith("file-1", "user-1");
 		expect(mockGetChatFileByConversationOwner).not.toHaveBeenCalled();
+		expect(mockHasSucceededFileProductionJobForChatFile).not.toHaveBeenCalled();
 	});
 
 	it("serves generated HTML previews with restrictive browser headers", async () => {
@@ -177,7 +187,7 @@ describe("resolveGeneratedFileServing", () => {
 		);
 	});
 
-	it("returns not found for unassigned generated files", async () => {
+	it("returns not found for unassigned generated files without an eligible job link", async () => {
 		mockGetChatFileByUser.mockResolvedValue(
 			chatFile({ assistantMessageId: null }),
 		);
@@ -193,8 +203,39 @@ describe("resolveGeneratedFileServing", () => {
 			status: 404,
 			error: "File not found",
 		});
+		expect(mockHasSucceededFileProductionJobForChatFile).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			chatGeneratedFileId: "file-1",
+		});
 		expect(mockReadChatFileContentByUser).not.toHaveBeenCalled();
 		expect(mockReadChatFileContentByConversationOwner).not.toHaveBeenCalled();
+	});
+
+	it("serves unassigned generated files linked to a succeeded file-production job", async () => {
+		mockGetChatFileByUser.mockResolvedValue(
+			chatFile({ assistantMessageId: null }),
+		);
+		mockHasSucceededFileProductionJobForChatFile.mockResolvedValue(true);
+		mockReadChatFileContentByUser.mockResolvedValue(Buffer.from("job output"));
+
+		const result = await resolveGeneratedFileServing({
+			userId: "user-1",
+			fileId: "file-1",
+			mode: "download",
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(Buffer.from(result.body).toString()).toBe("job output");
+		expect(result.headers["Content-Disposition"]).toBe(
+			"attachment; filename*=UTF-8''notes.txt",
+		);
+		expect(mockHasSucceededFileProductionJobForChatFile).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			chatGeneratedFileId: "file-1",
+		});
 	});
 
 	it("returns a read failure when validated metadata points to missing bytes", async () => {

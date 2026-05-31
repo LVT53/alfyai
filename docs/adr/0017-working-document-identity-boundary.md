@@ -12,7 +12,7 @@ ADR-0018 complements this decision: Working Document Selection owns live per-tur
 
 File Production remains the producer of generated-document sources, rendered files, and job lifecycle state. Working Document Identity consumes generated-output metadata such as `sourceChatFileId` and document-family metadata for workspace, linked-source, and preview behavior, but it must not create file-production jobs or persist generated-document source artifacts.
 
-Generated File Serving remains the generated chat-file serving authority. Working Document Identity may select the generated-output source chat file, but it must not duplicate assignment quarantine, ownership fallback, MIME/byte validation, CSP, disposition, or cache header rules.
+Generated File Serving remains the generated chat-file serving authority. Working Document Identity may select the generated-output source chat file, but it must not duplicate eligibility checks for assigned or succeeded job-linked unassigned files, ownership fallback, MIME/byte validation, CSP, disposition, or cache header rules.
 
 **Implementation Status, 2026-05-29:** implemented. Logical document mapping, Knowledge workspace helpers, Linked Context Source resolution, chat `/document` selection, Knowledge preview, and Knowledge download now route through the Working Document Identity or file-serving boundary. Focused tests cover source-plus-normalized uploads, normalized-only fallbacks, generated documents, generated-output source chat files, Skill Notes, linked-source dedupe, and route adapters.
 

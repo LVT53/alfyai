@@ -250,6 +250,31 @@ export async function listConversationGeneratedFiles(
 	);
 }
 
+export async function hasSucceededFileProductionJobForChatFile(input: {
+	userId: string;
+	conversationId: string;
+	chatGeneratedFileId: string;
+}): Promise<boolean> {
+	const [row] = await db
+		.select({ jobId: fileProductionJobs.id })
+		.from(fileProductionJobFiles)
+		.innerJoin(
+			fileProductionJobs,
+			eq(fileProductionJobs.id, fileProductionJobFiles.jobId),
+		)
+		.where(
+			and(
+				eq(fileProductionJobFiles.chatGeneratedFileId, input.chatGeneratedFileId),
+				eq(fileProductionJobs.userId, input.userId),
+				eq(fileProductionJobs.conversationId, input.conversationId),
+				eq(fileProductionJobs.status, "succeeded"),
+			),
+		)
+		.limit(1);
+
+	return Boolean(row);
+}
+
 async function getReadModelChatFilesByIdsForConversation(
 	conversationId: string,
 	fileIds: string[],
