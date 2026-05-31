@@ -90,11 +90,12 @@ Do not:
   - Owns the landing-to-chat visual handoff: once the first message is sent, the landing composer should transition into a bottom-docked "opening chat" state instead of staying centered like the idle hero surface.
   - First-message sends may use a full document navigation to `/chat/[conversationId]` after storing the pending message so deploy/restart edge cases cannot leave the browser visually stuck on the landing route while the new chat already runs on the server.
 - [`src/routes/(app)/chat/[conversationId]/+page.svelte`](./src/routes/(app)/chat/[conversationId]/+page.svelte)
-  - Owns live chat page state, stream lifecycle, and draft restore behavior for an existing conversation.
-  - Owns the one-slot queued follow-up turn while a response is streaming.
+  - Owns visible chat page state, route lifecycle hooks, draft persistence, document workspace state, and UI commands for an existing conversation.
+  - Delegates Normal Chat browser-side send, retry, reconnect, waiting, stop, and queued follow-up runtime semantics to `src/lib/client/normal-chat-client-turn-runtime.ts`.
+  - Keeps visible queued-turn preview and composer state through runtime adapters, while the runtime decides queued turn admission, restore, and drain ordering.
   - Owns route-level working-document workspace state. Which document is open, active, compared, or closed belongs here, not inside file-row or preview components.
   - The chat detail route should stay visually distinct from the landing page: the composer remains bottom-docked and the message surface stays visible even before the first persisted messages arrive.
-  - Route-local `_components/` and `*_helpers.ts` files are acceptable for chat render scaffolding and pure page-only transforms, but stream/evidence/draft orchestration should stay in the page.
+  - Route-local `_components/` and `*_helpers.ts` files are acceptable for chat render scaffolding and pure page-only transforms, but Normal Chat client turn runtime semantics should stay in the client runtime module.
 - [`src/routes/(app)/knowledge/+page.svelte`](./src/routes/(app)/knowledge/+page.svelte)
   - Large page-specific knowledge UI with a single primary content column.
   - Main content: Library and Memory Profile tabs.
@@ -110,7 +111,7 @@ Do not:
 
 - move chat orchestration into shared visual components
 - make `MessageInput.svelte` own cross-page navigation or conversation bootstrap decisions
-- make `MessageInput.svelte` own queued-turn orchestration; it may emit `onQueue`, but the chat page decides auto-send and restore behavior
+- make `MessageInput.svelte` own queued-turn orchestration; it may emit `onQueue`, but the Normal Chat Client Turn Runtime decides queued-turn admission, auto-send, and restore behavior through page-owned adapters
 - let `MessageInput.svelte` retain a stale internal `conversationId` after the parent clears the prop; landing-page sends and uploads must fall back to the parent-owned prepared-conversation flow instead of silently targeting an old conversation
 - turn page files into long-lived business-logic modules when a store/service/helper boundary already exists
 

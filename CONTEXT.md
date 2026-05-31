@@ -170,6 +170,10 @@ _Avoid_: deep module, route-local completion, stream-only finalization
 The browser-facing streaming transport contract for **Normal Chat** stream and reconnect responses, including the allowed SSE event names, payload shapes, encoding, and decoding rules owned by `src/lib/services/stream-protocol.ts`.
 _Avoid_: Langflow stream, Normal Chat Turn Completion, route-local event string
 
+**Normal Chat Client Turn Runtime**:
+The browser-side plain TypeScript boundary at `src/lib/client/normal-chat-client-turn-runtime.ts` that owns Normal Chat send, retry, reconnect, waiting, stop, queued follow-up, and recovery runtime semantics above `streamChat`. It consumes decoded stream callbacks and server-returned metadata through page adapters while the chat page keeps visible Svelte state, route lifecycle, document workspace state, and UI commands.
+_Avoid_: Browser SSE parser, Context Sources builder, chat page state, durable completion
+
 **Memory Access**:
 AlfyAI's ability to use durable user, conversation, project, document, and research context through Honcho-led memory and app-supplied historical context retrieval.
 _Avoid_: local persona engine, memory replacement, transcript dump
@@ -535,6 +539,9 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Transport surfaces may expose the result of **Normal Chat Turn Completion**, but they should not redefine what completion means.
 - The **Browser SSE Protocol** exposes streaming, replay, waiting, completion, and error transport events for **Normal Chat**, but it does not own durable turn completion.
 - **Browser SSE Protocol** event names and payload shapes should change only at the shared stream-protocol boundary with protocol tests.
+- The **Normal Chat Client Turn Runtime** sits above `streamChat`: it reacts to decoded Browser SSE callbacks, but it does not parse Browser SSE event strings or define protocol grammar.
+- The **Normal Chat Client Turn Runtime** applies server-returned metadata through chat-page adapters; it does not build **Context Sources** or decide **Normal Chat Turn Completion**.
+- The chat page owns visible Svelte state, route lifecycle, document workspace state, and UI commands; the **Normal Chat Client Turn Runtime** owns browser-side turn transitions and queue recovery rules.
 - The **Composer Command Registry** has separate **Skill** and **Composer Command** namespaces.
 - The **Composer Command Registry** and **Skill** work should ship in **Composer Command Slices** behind a feature flag until the v1 surface is coherent.
 - The **Composer Command Registry** feature flag should be runtime admin-configurable and default off until the v1 surface is coherent.

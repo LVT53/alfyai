@@ -6,6 +6,8 @@ Send, stream, and retry entrypoints remain transport adapters. They may translat
 
 The Browser SSE Protocol is a separate transport boundary. `src/lib/services/stream-protocol.ts` owns browser-facing SSE event names, payload shapes, encoding, decoding, and replay framing for stream/reconnect responses. Normal Chat Turn Completion owns the durable result that may be summarized in an SSE `end` payload; it does not own raw SSE wire formatting.
 
+The Normal Chat Client Turn Runtime is a separate browser-side runtime boundary. `src/lib/client/normal-chat-client-turn-runtime.ts` consumes server-returned completion metadata through page adapters, but it does not decide message persistence, Context Sources construction, Skill side effects, message evidence, or continuity work owned by chat-turn completion.
+
 **Considered Options**
 
 - Keep `/api/chat/send` and stream completion as separate completion paths.
@@ -20,4 +22,5 @@ We chose the chat-turn boundary because completion is the second half of a Norma
 - New post-turn side effects for Normal Chat should enter through `src/lib/server/services/chat-turn/finalize.ts`.
 - Route files and stream adapters may format transport payloads, but they should not own durable completion sequencing.
 - Browser-facing SSE event names and payloads belong in `src/lib/services/stream-protocol.ts`; completion code may supply payload data, but it should not duplicate raw event-string builders.
+- Browser-side send, retry, reconnect, waiting, stop, and queue transitions belong in `src/lib/client/normal-chat-client-turn-runtime.ts`; that runtime applies completion results but must not recreate durable completion sequencing.
 - Response-facing Context Sources changes need completion-boundary tests, not only route tests.

@@ -95,6 +95,49 @@ test.describe('Chat send/receive messages', () => {
     });
   });
 
+  test('navigation during an active stream does not send an explicit stop request', async ({ page }) => {
+    await page.unroute('**/api/chat/stream');
+
+    let stopRequests = 0;
+    let releaseStream: (() => void) | null = null;
+    const streamReleased = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+
+    await page.route('**/api/chat/stream', async (route) => {
+      await streamReleased;
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+        body: 'event: token\ndata: {"text":"Detached stream completed"}\n\nevent: end\ndata: {}\n\n',
+      }).catch(() => {});
+    });
+
+    await page.route('**/api/chat/stream/stop', async (route) => {
+      stopRequests += 1;
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stopped: true }),
+      });
+    });
+
+    try {
+      await openConversationComposer(page);
+      await page.getByTestId('message-input').fill('Navigate during active stream');
+      await page.getByTestId('send-button').click();
+      await expect(page.getByTestId('stop-button')).toBeVisible({ timeout: 5000 });
+
+      await page.goto('/');
+      await expect(page.getByTestId('message-input')).toBeVisible({ timeout: 15000 });
+      await page.waitForTimeout(300);
+
+      expect(stopRequests).toBe(0);
+    } finally {
+      releaseStream?.();
+    }
+  });
+
   test('Shift+Enter does not send the message (newline)', async ({ page }) => {
     await openConversationComposer(page);
     await page.getByTestId('message-input').fill('Line 1');

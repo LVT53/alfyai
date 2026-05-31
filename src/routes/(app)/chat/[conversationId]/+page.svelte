@@ -85,11 +85,9 @@ import type {
 import type { I18nKey } from "$lib/i18n";
 import type { PageProps } from "./$types";
 import {
-	streamChat,
-	checkForOrphanedStream,
-	getStreamBufferInfo,
-} from "$lib/services/streaming";
-import type { StreamHandle } from "$lib/services/streaming";
+	createBrowserNormalChatClientTurnRuntime,
+	type NormalChatRuntimeSnapshot,
+} from "$lib/client/normal-chat-client-turn-runtime";
 import {
 	buildChatSourceMessageHref,
 	clearChatFocusMessageParam,
@@ -123,23 +121,18 @@ import {
 	appendAssistantPlaceholder,
 	appendThinkingChunkToMessageList,
 	appendTokenChunkToMessageList,
-	appendUserMessageAndPlaceholder,
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
-	createAssistantPlaceholder,
-	createUserMessage,
 	finalizeStreamingMessageList,
 	getWorkspacePresentationAfterDocumentOpen,
 	hasActiveDeepResearchJobs,
 	hasActiveFileProductionJobs,
 	mergeDeepResearchJobsForHydration,
 	mergeFileProductionJob,
-	mergeAttachedArtifacts,
 	removeMessageById,
 	patchSkillDraftInMessageList,
 	toFriendlySendError,
 	updateMessageById,
-	cloneSendPayload,
 	isPendingSkillUnavailableError,
 	isConversationReadOnly,
 	isOsFileDropEvent,
@@ -223,12 +216,9 @@ const draftPersistence = createDraftPersistence();
 let sendError = $state<string | null>(null);
 let isSending = $state(false);
 let isEditResendPending = $state(false);
-let activeStream = $state<StreamHandle | null>(null);
+let normalChatRuntimeActive = $state(false);
 let queuedTurn = $state<SendPayload | null>(null);
 let titleGenerationTriggered = false;
-let lastUserMessage = "";
-let lastAssistantResponse = "";
-let canRetry = false;
 let prevConversationId: string | null = null;
 let hasPersistedMessages = initialHasPersistedMessages;
 let contextStatus = $state<ConversationContextStatus | null>(
@@ -291,14 +281,191 @@ let selectedPersonalityId = $state<string | null>(
 let bootstrapMode = initialBootstrapMode;
 let hydratingConversation = false;
 let suppressHydration = $state(false);
-// Set to true when the stream was cancelled by the browser (e.g. mobile backgrounding)
-// rather than by the user tapping Stop. Triggers a data reload on visibility restore.
-let streamInterruptedByBackground = false;
-// Set to true when onWaiting fired and we're polling for completion
-let isPollingForCompletion = false;
 // Set to true when we're waiting for the initial pending message to be sent (landing page transition)
 let initialStreamPending = $state(untrack(() => data.bootstrap ?? false));
 const evidencePollControllers = new Map<string, AbortController>();
+
+function applyNormalChatRuntimeSnapshot(snapshot: NormalChatRuntimeSnapshot) {
+	normalChatRuntimeActive = snapshot.active;
+	isSending = snapshot.isSending;
+	queuedTurn = snapshot.queuedTurn;
+	queuedContextCompression = snapshot.queuedContextCompression;
+}
+
+const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
+	getConversationId: () => data.conversation.id,
+	getSelectedModel: () => $selectedModel,
+	getThinkingMode: () => $selectedThinkingMode,
+	getPersonalityProfileId: () => selectedPersonalityId,
+	getActiveDocumentArtifactId: () => getActiveWorkspaceArtifactId(),
+	getMessages: () => $messages,
+	isReadOnly: () => isConversationReadOnlyForChat,
+	isEditResendPending: () => isEditResendPending,
+	isBrowserHidden: () =>
+		browser && typeof document !== "undefined"
+			? document.visibilityState === "hidden"
+			: false,
+	randomId: () => crypto.randomUUID(),
+	schedule: (callback, delayMs) => setTimeout(callback, delayMs),
+	onStateChange: applyNormalChatRuntimeSnapshot,
+	setConversationModelSelection: (modelId) =>
+		setConversationModelSelection(data.conversation.id, modelId),
+	setInitialStreamPending: (pending) => {
+		initialStreamPending = pending;
+	},
+	setSuppressHydration: (suppress) => {
+		suppressHydration = suppress;
+	},
+	markHasPersistedMessages: () => {
+		hasPersistedMessages = true;
+	},
+	clearDraft: () => {
+		conversationDraft = null;
+		draftPersistence.clear();
+	},
+	deleteDraft: () => {
+		void deleteConversationDraft(data.conversation.id);
+	},
+	clearAttachedArtifacts: () => {
+		const currentAttachedArtifacts = attachedArtifacts;
+		attachedArtifacts = [];
+		return currentAttachedArtifacts;
+	},
+	recordConversationActivity: () => {
+		upsertConversationLocal(
+			data.conversation.id,
+			data.conversation.title,
+			Date.now() / 1000,
+		);
+	},
+	startPendingSkillSession: async (payload) => {
+		try {
+			skillSessionError = null;
+			activeSkillSession = await startConversationSkillSession(
+				data.conversation.id,
+				payload.pendingSkill!,
+			);
+			return { ok: true };
+		} catch (error) {
+			if (isPendingSkillUnavailableError(error)) {
+				return {
+					ok: false,
+					errorMessage: $t("pendingSkill.recoveryError"),
+					restoredPayload: markPendingSkillUnavailable(payload),
+				};
+			}
+			return {
+				ok: false,
+				errorMessage: localizedSkillSessionError(
+					error,
+					"skillSessions.errors.start",
+				),
+			};
+		}
+	},
+	shouldStartDeepResearchJob,
+	startDeepResearchTurn: (params) => {
+		void startDeepResearchTurn(params);
+	},
+	appendUserMessage: (message) => {
+		messages.update((list) => [...list, message]);
+	},
+	appendAssistantPlaceholder: (placeholder) => {
+		messages.update((list) => appendAssistantPlaceholder(list, placeholder));
+	},
+	appendTokenChunk: (placeholderId, chunk) => {
+		messages.update((list) =>
+			appendTokenChunkToMessageList(list, placeholderId, chunk),
+		);
+	},
+	appendThinkingChunk: (placeholderId, chunk) => {
+		messages.update((list) =>
+			appendThinkingChunkToMessageList(list, placeholderId, chunk),
+		);
+	},
+	applyToolCallUpdate: (placeholderId, name, input, status, details) => {
+		messages.update((list) =>
+			applyToolCallUpdateToMessageList(list, {
+				placeholderId,
+				name,
+				input,
+				status,
+				details,
+			}),
+		);
+	},
+	shouldHydrateFileProductionJobsOnToolCall,
+	removeMessage: (messageId) => {
+		messages.update((list) => removeMessageById(list, messageId));
+	},
+	finalizeStreamingMessage: ({ placeholderId, clientUserMessageId, metadata }) => {
+		messages.update((list) =>
+			finalizeStreamingMessageList(list, {
+				placeholderId,
+				clientUserMessageId,
+				metadata,
+			}),
+		);
+	},
+	applyStreamMetadata: (metadata) => {
+		contextStatus = metadata?.contextStatus ?? contextStatus;
+		contextSources = metadata?.contextSources ?? contextSources;
+		activeWorkingSet = metadata?.activeWorkingSet ?? activeWorkingSet;
+		taskState = metadata?.taskState ?? taskState;
+		contextDebug = metadata?.contextDebug ?? contextDebug;
+	},
+	attachFileProductionJobsToAssistantMessage,
+	pollMessageEvidence: (assistantMessageId) => {
+		void pollMessageEvidence(assistantMessageId);
+	},
+	refreshMessageCost: (assistantMessageId) => {
+		setTimeout(() => refreshMessageCost(assistantMessageId), 1500);
+	},
+	hydrateConversationDetail: () => {
+		void hydrateConversationDetail(data.conversation.id);
+	},
+	pollForCompletion: (placeholderId, clientUserMessageId) => {
+		void pollForCompletion(placeholderId, clientUserMessageId ?? null);
+	},
+	loadPersistedData: () => {
+		void loadPersistedData();
+	},
+	mergeGeneratedFiles: (files) => {
+		const existingIds = new Set(generatedFiles.map((file) => file.id));
+		const newFiles = files.filter((file) => !existingIds.has(file.id));
+		generatedFiles = [...generatedFiles, ...newFiles];
+	},
+	setContextCompressionMarkers: (markers) => {
+		contextCompressionMarkers = markers;
+	},
+	maybeTriggerTitleGeneration,
+	runManualContextCompression,
+	restorePayloadToDraft,
+	markPendingSkillUnavailable,
+	isPendingSkillUnavailableError,
+	isForkedSourceHistoryConfirmationRequired,
+	toFriendlySendError: (error) => toFriendlySendError(error, $t),
+	setSendError: (message) => {
+		if (message === "pendingSkill.recoveryError") {
+			sendError = $t("pendingSkill.recoveryError");
+			return;
+		}
+		if (message === "fork.regenerateWarning") {
+			sendError = get(t)("fork.regenerateWarning");
+			return;
+		}
+		sendError = message;
+	},
+	setSkillSessionError: (message) => {
+		skillSessionError = message;
+	},
+	onBackgroundInterrupted: () => {
+		// The runtime owns the interruption flag; the page owns the recovery fetch.
+	},
+	onBackgroundVisibilityRestore: () => {
+		void invalidate(`app:conversation-detail:${data.conversation.id}`);
+	},
+});
 
 let isThinkingActive = $derived(
 	Boolean($messages[$messages.length - 1]?.isThinkingStreaming),
@@ -540,18 +707,12 @@ function resetState() {
 		controller.abort();
 	}
 	evidencePollControllers.clear();
-	if (activeStream) {
-		activeStream.detach();
-		activeStream = null;
-	}
+	normalChatRuntime.reset();
 	messages.set(data.messages ?? []);
 	hasPersistedMessages = (data.messages?.length ?? 0) > 0;
 	sendError = null;
 	isSending = false;
 	titleGenerationTriggered = false;
-	lastUserMessage = "";
-	lastAssistantResponse = "";
-	canRetry = false;
 	selectedPersonalityId = getConversationPersonalitySelection(
 		data.conversation.id,
 		data.userPersonality ?? null,
@@ -577,7 +738,6 @@ function resetState() {
 	totalCostUsdMicros = data.totalCostUsdMicros ?? 0;
 	totalTokens = data.totalTokens ?? 0;
 	restorePersistedWorkspaceState();
-	queuedTurn = null;
 	bootstrapMode = data.bootstrap ?? false;
 	hydratingConversation = false;
 	suppressHydration = false;
@@ -610,7 +770,7 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (!data?.conversation?.id || activeStream) {
+	if (!data?.conversation?.id || normalChatRuntimeActive) {
 		return;
 	}
 	if (data.conversation.id !== prevConversationId) {
@@ -621,11 +781,7 @@ $effect(() => {
 
 function handleVisibilityChange() {
 	if (document.visibilityState === "visible") {
-		if (streamInterruptedByBackground) {
-			streamInterruptedByBackground = false;
-			void invalidate(`app:conversation-detail:${data.conversation.id}`);
-			void checkForOrphanedStreamOnMount();
-		}
+		normalChatRuntime.handleVisibilityVisible();
 
 		// Recover evidence for any messages with pending status
 		recoverPendingEvidence();
@@ -645,13 +801,17 @@ function recoverPendingEvidence() {
 	}
 }
 
-async function pollForCompletion(placeholderId: string, attempt = 0) {
+async function pollForCompletion(
+	placeholderId: string,
+	clientUserMessageId: string | null = null,
+	attempt = 0,
+) {
 	const maxAttempts = 60;
 	const pollInterval = 2000;
 
 	if (attempt >= maxAttempts) {
 		console.info("[CHAT] Polling timeout - checking final state");
-		isPollingForCompletion = false;
+		normalChatRuntime.completePollingRecovery();
 		void loadPersistedData();
 		return;
 	}
@@ -663,7 +823,12 @@ async function pollForCompletion(placeholderId: string, attempt = 0) {
 
 	if (!detail) {
 		setTimeout(
-			() => void pollForCompletion(placeholderId, attempt + 1),
+			() =>
+				void pollForCompletion(
+					placeholderId,
+					clientUserMessageId,
+					attempt + 1,
+				),
 			pollInterval,
 		);
 		return;
@@ -678,11 +843,6 @@ async function pollForCompletion(placeholderId: string, attempt = 0) {
 
 	// Find messages that are NOT already in our list and are assistant messages
 	const newMessages = detail.messages ?? [];
-	const existingAssistantIds = new Set(
-		newMessages
-			.filter((m: ChatMessage) => m.role === "assistant")
-			.map((m: ChatMessage) => m.id),
-	);
 
 	// Find NEW assistant messages (ones not already in our list)
 	const newAssistantMessages = newMessages.filter(
@@ -696,6 +856,14 @@ async function pollForCompletion(placeholderId: string, attempt = 0) {
 	if (newAssistantMessages.length > 0) {
 		// Get the most recent new assistant message
 		const newAssistant = newAssistantMessages[newAssistantMessages.length - 1];
+		const newAssistantIndex = newMessages.findIndex(
+			(message: ChatMessage) => message.id === newAssistant.id,
+		);
+		const persistedUserMessage =
+			newAssistantIndex > 0 &&
+			newMessages[newAssistantIndex - 1]?.role === "user"
+				? (newMessages[newAssistantIndex - 1] as ChatMessage)
+				: null;
 		console.info(
 			"[CHAT] Completion detected - new assistant message found, content length:",
 			newAssistant.content.length,
@@ -703,12 +871,30 @@ async function pollForCompletion(placeholderId: string, attempt = 0) {
 
 		// Remove the placeholder
 		messages.update((list) => {
-			const filtered = list.filter((m) => m.id !== placeholderId);
-			return [...filtered, newAssistant];
+			const filtered = list.filter(
+				(message) =>
+					message.id !== placeholderId &&
+					(message.id !== persistedUserMessage?.id ||
+						message.id === clientUserMessageId),
+			);
+			const withPersistedUser =
+				clientUserMessageId && persistedUserMessage
+					? filtered.map((message) =>
+							message.id === clientUserMessageId
+								? {
+										...persistedUserMessage,
+										renderKey:
+											message.renderKey ??
+											persistedUserMessage.renderKey ??
+											clientUserMessageId,
+									}
+								: message,
+						)
+					: filtered;
+			return [...withPersistedUser, newAssistant];
 		});
 
-		isSending = false;
-		canRetry = false;
+		normalChatRuntime.completePollingRecovery();
 
 		// Update context status
 		if (detail.contextStatus) {
@@ -743,14 +929,15 @@ async function pollForCompletion(placeholderId: string, attempt = 0) {
 		if (newAssistant.id) {
 			void pollMessageEvidence(newAssistant.id);
 		}
+		void normalChatRuntime.drainPostTurnQueue();
 
-		isPollingForCompletion = false;
 		return;
 	}
 
 	// Still waiting, poll again
 	setTimeout(
-		() => void pollForCompletion(placeholderId, attempt + 1),
+		() =>
+			void pollForCompletion(placeholderId, clientUserMessageId, attempt + 1),
 		pollInterval,
 	);
 }
@@ -780,260 +967,11 @@ async function loadPersistedData() {
 		const pending = consumePendingConversationMessage(data.conversation.id);
 		void pending;
 	}
-	isSending = false;
-	isPollingForCompletion = false;
-}
-
-async function reconnectToOrphanedStream(
-	streamId: string,
-	userMessage: string = "",
-	retryCount = 0,
-) {
-	if (isSending || activeStream) return;
-
-	console.info(
-		"[CHAT] Starting reconnection to stream:",
-		streamId,
-		"userMessage:",
-		userMessage.slice(0, 50),
-		"attempt:",
-		retryCount + 1,
-	);
-	isSending = true;
-	hasPersistedMessages = true;
-
-	const placeholderId = crypto.randomUUID();
-	const placeholder = createAssistantPlaceholder(placeholderId);
-	const clientUserMsgId = crypto.randomUUID();
-	const userMsgObj = createUserMessage({
-		id: clientUserMsgId,
-		text: userMessage,
-		attachmentIds: [],
-		attachedArtifacts: [],
-	});
-	messages.update((list) =>
-		appendUserMessageAndPlaceholder(list, userMsgObj, placeholder),
-	);
-
-	activeStream = streamChat(
-		userMessage || "",
-		data.conversation.id,
-		{
-			onToken(chunk) {
-				messages.update((list) =>
-					appendTokenChunkToMessageList(list, placeholderId, chunk),
-				);
-			},
-			onThinking(chunk) {
-				messages.update((list) =>
-					appendThinkingChunkToMessageList(list, placeholderId, chunk),
-				);
-			},
-			onToolCall(name, input, status, details) {
-				messages.update((list) =>
-					applyToolCallUpdateToMessageList(list, {
-						placeholderId,
-						name,
-						input,
-						status,
-						details,
-					}),
-				);
-				if (shouldHydrateFileProductionJobsOnToolCall(name, status)) {
-					void hydrateConversationDetail(data.conversation.id);
-				}
-			},
-			onWaiting() {
-				console.info("[CHAT] Reconnection waiting - polling for completion");
-				activeStream?.detach();
-				activeStream = null;
-				isPollingForCompletion = true;
-				void pollForCompletion(placeholderId);
-			},
-			onEnd(fullText, metadata) {
-				// If we're polling for completion, don't finalize - polling will handle it
-				if (isPollingForCompletion) {
-					console.info(
-						"[CHAT] Stream ended during polling - ignoring finalize",
-					);
-					isPollingForCompletion = false;
-					return;
-				}
-				console.info(
-					"[CHAT] Reconnection stream ended, fullText length:",
-					fullText.length,
-				);
-				contextStatus = metadata?.contextStatus ?? contextStatus;
-				contextSources = metadata?.contextSources ?? contextSources;
-				activeWorkingSet = metadata?.activeWorkingSet ?? activeWorkingSet;
-				taskState = metadata?.taskState ?? taskState;
-				contextDebug = metadata?.contextDebug ?? contextDebug;
-				if (metadata?.generatedFiles) {
-					const existingIds = new Set(generatedFiles.map((f) => f.id));
-					const newFiles = metadata.generatedFiles.filter(
-						(f) => !existingIds.has(f.id),
-					);
-					generatedFiles = [...generatedFiles, ...newFiles];
-				}
-				if (metadata?.generatedFiles) {
-					void hydrateConversationDetail(data.conversation.id);
-				}
-				const serverAssistantId = metadata?.assistantMessageId;
-				if (serverAssistantId) {
-					attachFileProductionJobsToAssistantMessage(serverAssistantId);
-				}
-				messages.update((list) =>
-					finalizeStreamingMessageList(list, {
-						placeholderId,
-						clientUserMessageId: null,
-						metadata,
-					}),
-				);
-				isSending = false;
-				activeStream = null;
-				canRetry = false;
-				if (serverAssistantId) {
-					void pollMessageEvidence(serverAssistantId);
-					setTimeout(() => refreshMessageCost(serverAssistantId), 1500);
-				}
-			},
-			onError(err) {
-				const isBrowserAbort =
-					err.name === "AbortError" &&
-					browser &&
-					document.visibilityState === "hidden";
-				if (isBrowserAbort) {
-					messages.update((list) => removeMessageById(list, placeholderId));
-					activeStream = null;
-					isSending = false;
-					streamInterruptedByBackground = true;
-					return;
-				}
-
-				// Capacity error means the orphaned stream is still running in background
-				// Retry reconnection with exponential backoff (max 3 retries)
-				const isCapacityError =
-					err.message?.includes("capacity") || err.code === "CAPACITY_EXCEEDED";
-				if (isCapacityError && retryCount < 3) {
-					const delay = 2 ** retryCount * 500; // 500ms, 1s, 2s
-					console.info(
-						"[CHAT] Capacity error - retrying reconnection in",
-						delay,
-						"ms (attempt",
-						retryCount + 2,
-						")",
-					);
-					isSending = false;
-					activeStream = null;
-					messages.update((list) => removeMessageById(list, placeholderId));
-					setTimeout(() => {
-						void reconnectToOrphanedStream(
-							streamId,
-							userMessage,
-							retryCount + 1,
-						);
-					}, delay);
-					return;
-				}
-
-				// After max retries, fall back to showing persisted data
-				if (isCapacityError) {
-					console.info("[CHAT] Max retries reached, loading persisted data");
-				}
-
-				// Reconnection error - the stream may have completed server-side
-				// while we attempted to reconnect. Fetch fresh data directly.
-				console.info(
-					"[CHAT] Reconnection failed, fetching fresh data directly",
-				);
-				hasPersistedMessages = true;
-				isSending = false;
-				activeStream = null;
-				messages.update((list) => removeMessageById(list, placeholderId));
-				fetchConversationDetail(data.conversation.id)
-					.then((detail) => {
-						console.info(
-							"[CHAT] Fresh data loaded, messages:",
-							detail.messages.length,
-							"generatedFiles:",
-							detail.generatedFiles?.length ?? 0,
-						);
-						// Log messages to debug empty box issue
-						const lastMsg = detail.messages[detail.messages.length - 1];
-						const secondLastMsg = detail.messages[detail.messages.length - 2];
-						console.info(
-							"[CHAT] Last 2 messages:",
-							lastMsg?.role,
-							"content len:",
-							lastMsg?.content?.length ?? "N/A",
-							secondLastMsg?.role,
-							"content len:",
-							secondLastMsg?.content?.length ?? "N/A",
-						);
-
-						// Update stores directly - don't call invalidateAll as it can overwrite our fresh data
-						messages.set([...(detail.messages ?? [])]); // Create new array to trigger reactivity
-						contextStatus = detail.contextStatus ?? contextStatus;
-						contextSources = detail.contextSources ?? contextSources;
-						activeWorkingSet = detail.activeWorkingSet ?? activeWorkingSet;
-						taskState = detail.taskState ?? taskState;
-						contextDebug = detail.contextDebug ?? contextDebug;
-						forkOrigin = detail.forkOrigin ?? forkOrigin;
-						generatedFiles = [...(detail.generatedFiles ?? [])];
-						fileProductionJobs = [...(detail.fileProductionJobs ?? [])];
-						deepResearchJobs = mergeDeepResearchJobsForHydration(
-							deepResearchJobs,
-							detail.deepResearchJobs ?? [],
-						);
-						conversationStatus =
-							detail.conversation?.status ?? conversationStatus;
-						conversationDraft = null;
-						// Clear sessionStorage draft to prevent restoration
-						const pending = consumePendingConversationMessage(
-							data.conversation.id,
-						);
-						void pending;
-					})
-					.catch((e) => {
-						console.error("[CHAT] Failed to fetch fresh data:", e);
-					});
-			},
-		},
-		{
-			reconnectToStreamId: streamId,
-			reconnectUserMessage: userMessage,
-			thinkingMode: $selectedThinkingMode,
-		},
-	);
+	normalChatRuntime.completePollingRecovery();
 }
 
 async function checkForOrphanedStreamOnMount() {
-	// Note: hydratingConversation is intentionally NOT in the skip condition.
-	// Orphan detection is independent of bootstrap hydration — the reconnection
-	// path guards itself via isSending/activeStream, and hydration skips when
-	// activeStream is set. Skipping the orphan check while hydrating causes a
-	// race where the client misses the orphaned stream, the server keeps it
-	// alive, and the user gets a 502 on the next send due to orphan cancellation
-	// timing issues.
-	if (isSending || activeStream) {
-		return;
-	}
-
-	// Pending message consumption is intentionally left to maybeSendPendingInitialMessage().
-	// Removing it here prevents a race where this function (called from onMount) steals the
-	// message before the $effect → resetState() → maybeSendPendingInitialMessage() path can
-	// read it, leaving the chat stuck on 'Conversation Ready' with no way to send.
-
-	// Check for orphaned streams regardless of existing messages
-	// Previous turns don't prevent reconnection to active streams
-	const streamId = await checkForOrphanedStream(data.conversation.id);
-
-	if (!streamId) return;
-
-	// Fetch buffer info to get the original user message for reconnection
-	const bufferInfo = await getStreamBufferInfo(streamId);
-
-	void reconnectToOrphanedStream(streamId, bufferInfo?.userMessage ?? "");
+	await normalChatRuntime.checkForOrphanedStreamOnMount();
 }
 
 onMount(() => {
@@ -1071,10 +1009,7 @@ onDestroy(() => {
 	}
 	evidencePollControllers.clear();
 
-	if (activeStream) {
-		activeStream.detach();
-		activeStream = null;
-	}
+	normalChatRuntime.detach();
 
 	void draftPersistence.flush();
 
@@ -1125,7 +1060,7 @@ async function hydrateConversationDetail(conversationId: string) {
 		bootstrapMode = false;
 
 		if (
-			!activeStream &&
+			!normalChatRuntimeActive &&
 			$messages.length === 0 &&
 			(payload.messages?.length ?? 0) > 0
 		) {
@@ -1401,18 +1336,14 @@ async function startDeepResearchTurn(params: {
 			optimisticJob.id,
 			job,
 		);
-		isSending = false;
 		initialStreamPending = false;
-		activeStream = null;
-		canRetry = false;
-		queuedTurn = null;
-		queuedContextCompression = false;
 		contextCompressionInFlight = false;
+		normalChatRuntime.completePollingRecovery();
+		void normalChatRuntime.drainPostTurnQueue();
 		void hydrateConversationDetail(data.conversation.id);
 	} catch (err) {
-		isSending = false;
 		initialStreamPending = false;
-		activeStream = null;
+		normalChatRuntime.completePollingRecovery();
 		deepResearchJobs = removeDeepResearchJob(
 			deepResearchJobs,
 			optimisticJob.id,
@@ -1420,7 +1351,6 @@ async function startDeepResearchTurn(params: {
 		restoreQueuedTurnToDraft();
 		sendError =
 			err instanceof Error ? err.message : "Failed to start Deep Research";
-		canRetry = false;
 	}
 }
 
@@ -1544,20 +1474,15 @@ function restorePayloadToDraft(payload: SendPayload) {
 }
 
 function restoreQueuedTurnToDraft() {
-	if (!queuedTurn) return;
-	const nextQueuedTurn = cloneSendPayload(queuedTurn);
-	queuedTurn = null;
-	restorePayloadToDraft(nextQueuedTurn);
+	normalChatRuntime.restoreQueuedTurnToDraft();
 }
 
 function editQueuedTurn() {
-	restoreQueuedTurnToDraft();
-	sendError = null;
+	normalChatRuntime.editQueuedTurn();
 }
 
 function clearQueuedTurn() {
-	queuedTurn = null;
-	sendError = null;
+	normalChatRuntime.clearQueuedTurn();
 }
 
 function maybeTriggerTitleGeneration(
@@ -1794,7 +1719,7 @@ async function handlePublishSkillDraft(payload: {
 
 async function handleFork(payload: { messageId: string }) {
 	if (isConversationReadOnlyForChat || forkingMessageId) return;
-	if (activeStream) {
+	if (normalChatRuntimeActive) {
 		sendError = get(t)("fork.activeStreamGuard");
 		return;
 	}
@@ -1833,14 +1758,8 @@ async function handleSend(
 	onForkedSourceHistoryConfirmationRequired?: () => void,
 ) {
 	const text = payload.message;
-	const attachmentIds = payload.attachmentIds ?? [];
-	const newAttachments = payload.attachments ?? [];
 	const modelIdForTurn = payload.modelId ?? $selectedModel;
 	setConversationModelSelection(data.conversation.id, modelIdForTurn);
-	const personalityProfileIdForTurn =
-		payload.personalityProfileId !== undefined
-			? payload.personalityProfileId
-			: selectedPersonalityId;
 	if (
 		!text.trim() ||
 		isConversationReadOnlyForChat ||
@@ -1848,395 +1767,20 @@ async function handleSend(
 		isEditResendPending
 	)
 		return;
-	const deepResearchDepthForTurn = shouldStartDeepResearchJob(
-		payload,
+
+	await normalChatRuntime.send(payload, {
+		skipUserMessage,
+		skipPersistUserMessage,
+		clearDraft,
 		retryAssistantMessageId,
-	)
-		? payload.deepResearchDepth
-		: null;
-
-	if (payload.pendingSkill && !deepResearchDepthForTurn) {
-		isSending = true;
-		try {
-			skillSessionError = null;
-			activeSkillSession = await startConversationSkillSession(
-				data.conversation.id,
-				payload.pendingSkill,
-			);
-		} catch (error) {
-			if (isPendingSkillUnavailableError(error)) {
-				const restoredPayload = markPendingSkillUnavailable(payload);
-				restorePayloadToDraft(restoredPayload);
-				skillSessionError = $t("pendingSkill.recoveryError");
-			} else {
-				skillSessionError = localizedSkillSessionError(
-					error,
-					"skillSessions.errors.start",
-				);
-			}
-			sendError = skillSessionError;
-			canRetry = false;
-			isSending = false;
-			return;
-		}
-	}
-
-	sendError = null;
-	isSending = true;
-	suppressHydration = true;
-	initialStreamPending = false;
-	lastUserMessage = text;
-	canRetry = true;
-	hasPersistedMessages = true;
-	if (clearDraft) {
-		conversationDraft = null;
-		draftPersistence.clear();
-		void deleteConversationDraft(data.conversation.id);
-	}
-
-	// Keep route-level conversation artifacts out of the next composer frame.
-	const currentAttachedArtifacts = attachedArtifacts;
-	attachedArtifacts = [];
-
-	const sentAttachments = mergeAttachedArtifacts(
-		currentAttachedArtifacts,
-		newAttachments,
-	);
-	upsertConversationLocal(
-		data.conversation.id,
-		data.conversation.title,
-		Date.now() / 1000,
-	);
-
-	let clientUserMsgId: string | null = null;
-	if (!skipUserMessage) {
-		clientUserMsgId = crypto.randomUUID();
-		const userMessage = createUserMessage({
-			id: clientUserMsgId,
-			text,
-			attachmentIds,
-			attachedArtifacts: sentAttachments,
-		});
-		messages.update((list) => [...list, userMessage]);
-	}
-
-	if (deepResearchDepthForTurn) {
-		void startDeepResearchTurn({
-			message: text,
-			depth: deepResearchDepthForTurn,
-			attachmentIds,
-			modelId: modelIdForTurn,
-			personalityProfileId: personalityProfileIdForTurn,
-			clientUserMessageId: clientUserMsgId,
-		});
-		return;
-	}
-
-	const placeholderId = crypto.randomUUID();
-	const placeholder = createAssistantPlaceholder(placeholderId);
-	if (skipUserMessage) {
-		messages.update((list) => appendAssistantPlaceholder(list, placeholder));
-	} else {
-		messages.update((list) => appendAssistantPlaceholder(list, placeholder));
-	}
-
-	activeStream = streamChat(
-		text,
-		data.conversation.id,
-		{
-			onToken(chunk) {
-				messages.update((list) =>
-					appendTokenChunkToMessageList(list, placeholderId, chunk),
-				);
-			},
-			onThinking(chunk) {
-				messages.update((list) =>
-					appendThinkingChunkToMessageList(list, placeholderId, chunk),
-				);
-			},
-			onToolCall(name, input, status, details) {
-				messages.update((list) =>
-					applyToolCallUpdateToMessageList(list, {
-						placeholderId,
-						name,
-						input,
-						status,
-						details,
-					}),
-				);
-				if (shouldHydrateFileProductionJobsOnToolCall(name, status)) {
-					void hydrateConversationDetail(data.conversation.id);
-				}
-			},
-			onEnd(fullText, metadata) {
-				const completedUserMessage = lastUserMessage;
-				const completedAssistantResponse = fullText;
-				lastAssistantResponse = fullText;
-				contextStatus = metadata?.contextStatus ?? contextStatus;
-				contextSources = metadata?.contextSources ?? contextSources;
-				activeWorkingSet = metadata?.activeWorkingSet ?? activeWorkingSet;
-				taskState = metadata?.taskState ?? taskState;
-				contextDebug = metadata?.contextDebug ?? contextDebug;
-				if (metadata?.generatedFiles) {
-					// Merge new files with existing, using ID to prevent duplicates
-					const existingIds = new Set(generatedFiles.map((f) => f.id));
-					const newFiles = metadata.generatedFiles.filter(
-						(f) => !existingIds.has(f.id),
-					);
-					generatedFiles = [...generatedFiles, ...newFiles];
-					void hydrateConversationDetail(data.conversation.id);
-				}
-				if (metadata?.contextCompressionSnapshots) {
-					contextCompressionMarkers = metadata.contextCompressionSnapshots;
-				}
-				const serverAssistantId = metadata?.assistantMessageId;
-				if (serverAssistantId) {
-					attachFileProductionJobsToAssistantMessage(serverAssistantId);
-				}
-				messages.update((list) =>
-					finalizeStreamingMessageList(list, {
-						placeholderId,
-						clientUserMessageId: clientUserMsgId,
-						metadata,
-					}),
-				);
-				isSending = false;
-				activeStream = null;
-				canRetry = false;
-				if (serverAssistantId) {
-					void pollMessageEvidence(serverAssistantId);
-					setTimeout(() => refreshMessageCost(serverAssistantId), 1500);
-				}
-
-				if (metadata?.wasStopped) {
-					if (queuedContextCompression) {
-						queuedContextCompression = false;
-						void runManualContextCompression();
-					}
-					restoreQueuedTurnToDraft();
-					return;
-				}
-
-				maybeTriggerTitleGeneration(
-					completedUserMessage,
-					completedAssistantResponse,
-				);
-
-				void drainPostTurnQueue();
-			},
-			onError(err) {
-				messages.update((list) => removeMessageById(list, placeholderId));
-				activeStream = null;
-				isSending = false;
-				restoreQueuedTurnToDraft();
-
-				if (isPendingSkillUnavailableError(err)) {
-					if (clientUserMsgId) {
-						messages.update((list) => removeMessageById(list, clientUserMsgId));
-					}
-					restorePayloadToDraft(markPendingSkillUnavailable(payload));
-					sendError = $t("pendingSkill.recoveryError");
-					canRetry = false;
-					return;
-				}
-
-				if (
-					retryAssistantMessageId &&
-					!confirmForkedSourceHistoryMutation &&
-					isForkedSourceHistoryConfirmationRequired(err)
-				) {
-					if (onForkedSourceHistoryConfirmationRequired) {
-						onForkedSourceHistoryConfirmationRequired();
-					} else {
-						sendError = get(t)("fork.regenerateWarning");
-						canRetry = true;
-					}
-					return;
-				}
-
-				const isBrowserAbort =
-					err.name === "AbortError" &&
-					browser &&
-					document.visibilityState === "hidden";
-				if (isBrowserAbort) {
-					streamInterruptedByBackground = true;
-					return;
-				}
-
-				sendError = toFriendlySendError(err, $t);
-				canRetry = true;
-			},
-		},
-		{
-			modelId: modelIdForTurn,
-			skipPersistUserMessage,
-			attachmentIds,
-			linkedSources: payload.linkedSources ?? [],
-			pendingSkill: payload.deepResearchDepth
-				? null
-				: (payload.pendingSkill ?? null),
-			deepResearchDepth: payload.deepResearchDepth ?? null,
-			thinkingMode: payload.thinkingMode ?? $selectedThinkingMode,
-			forceWebSearch: payload.forceWebSearch === true,
-			activeDocumentArtifactId: getActiveWorkspaceArtifactId(),
-			personalityProfileId: personalityProfileIdForTurn,
-			retryAssistantMessageId,
-			retryUserMessageId,
-			retryUserMessage: retryAssistantMessageId ? text : undefined,
-			confirmForkedSourceHistoryMutation,
-		},
-	);
+		retryUserMessageId,
+		confirmForkedSourceHistoryMutation,
+		onForkedSourceHistoryConfirmationRequired,
+	});
 }
 
 function handleRetry() {
-	if (isConversationReadOnlyForChat) return;
-	if (canRetry && lastUserMessage) {
-		sendError = null;
-		isSending = true;
-		hasPersistedMessages = true;
-		const retryMessages = $messages;
-		const lastAssistantMsg = retryMessages.findLast(
-			(m) => m.role === "assistant",
-		);
-		const retryAssistantMessageId = lastAssistantMsg?.id;
-		const retryAssistantIdx = retryAssistantMessageId
-			? retryMessages.findIndex((m) => m.id === retryAssistantMessageId)
-			: -1;
-		const retryUserMessageId =
-			retryAssistantIdx > 0 &&
-			retryMessages[retryAssistantIdx - 1]?.role === "user"
-				? retryMessages[retryAssistantIdx - 1].id
-				: undefined;
-
-		const placeholderId = crypto.randomUUID();
-		const placeholder = createAssistantPlaceholder(placeholderId);
-		messages.update((list) => [...list, placeholder]);
-
-		if (retryAssistantMessageId) {
-			messages.update((list) =>
-				removeMessageById(list, retryAssistantMessageId),
-			);
-		}
-
-		activeStream = streamChat(
-			lastUserMessage,
-			data.conversation.id,
-			{
-				onToken(chunk) {
-					messages.update((list) =>
-						appendTokenChunkToMessageList(list, placeholderId, chunk),
-					);
-				},
-				onThinking(chunk) {
-					messages.update((list) =>
-						appendThinkingChunkToMessageList(list, placeholderId, chunk),
-					);
-				},
-				onToolCall(name, input, status, details) {
-					messages.update((list) =>
-						applyToolCallUpdateToMessageList(list, {
-							placeholderId,
-							name,
-							input,
-							status,
-							details,
-						}),
-					);
-					if (shouldHydrateFileProductionJobsOnToolCall(name, status)) {
-						void hydrateConversationDetail(data.conversation.id);
-					}
-				},
-				onWaiting() {
-					console.info(
-						"[CHAT] Entering waiting state - polling for completion",
-					);
-					activeStream?.detach();
-					activeStream = null;
-					// Start polling for completion
-					void pollForCompletion(placeholderId);
-				},
-				onEnd(fullText, metadata) {
-					lastAssistantResponse = fullText;
-					contextStatus = metadata?.contextStatus ?? contextStatus;
-					contextSources = metadata?.contextSources ?? contextSources;
-					activeWorkingSet = metadata?.activeWorkingSet ?? activeWorkingSet;
-					taskState = metadata?.taskState ?? taskState;
-					contextDebug = metadata?.contextDebug ?? contextDebug;
-					if (metadata?.generatedFiles) {
-						// Merge new files with existing, using ID to prevent duplicates
-						const existingIds = new Set(generatedFiles.map((f) => f.id));
-						const newFiles = metadata.generatedFiles.filter(
-							(f) => !existingIds.has(f.id),
-						);
-						generatedFiles = [...generatedFiles, ...newFiles];
-						void hydrateConversationDetail(data.conversation.id);
-					}
-					if (metadata?.contextCompressionSnapshots) {
-						contextCompressionMarkers = metadata.contextCompressionSnapshots;
-					}
-					const serverAssistantId = metadata?.assistantMessageId;
-					if (serverAssistantId) {
-						attachFileProductionJobsToAssistantMessage(serverAssistantId);
-					}
-					messages.update((list) =>
-						finalizeStreamingMessageList(list, {
-							placeholderId,
-							clientUserMessageId: null,
-							metadata,
-						}),
-					);
-					isSending = false;
-					activeStream = null;
-					canRetry = false;
-					if (serverAssistantId) {
-						void pollMessageEvidence(serverAssistantId);
-						// Refresh cost data after analytics recording completes
-						setTimeout(() => refreshMessageCost(serverAssistantId), 1500);
-					}
-
-						if (metadata?.wasStopped) {
-							if (queuedContextCompression) {
-								queuedContextCompression = false;
-								void runManualContextCompression();
-							}
-							restoreQueuedTurnToDraft();
-							return;
-						}
-
-					maybeTriggerTitleGeneration(lastUserMessage, fullText);
-
-						void drainPostTurnQueue();
-					},
-				onError(err) {
-					messages.update((list) => removeMessageById(list, placeholderId));
-					activeStream = null;
-					isSending = false;
-					restoreQueuedTurnToDraft();
-
-					const isBrowserAbort =
-						err.name === "AbortError" &&
-						browser &&
-						document.visibilityState === "hidden";
-					if (isBrowserAbort) {
-						streamInterruptedByBackground = true;
-						return;
-					}
-
-					sendError = toFriendlySendError(err, $t);
-					canRetry = true;
-				},
-			},
-			{
-				modelId: lastAssistantMsg?.modelId ?? $selectedModel,
-				thinkingMode: $selectedThinkingMode,
-				activeDocumentArtifactId: getActiveWorkspaceArtifactId(),
-				personalityProfileId: selectedPersonalityId,
-				retryAssistantMessageId: retryAssistantMessageId ?? undefined,
-				retryUserMessageId,
-				retryUserMessage: retryAssistantMessageId ? lastUserMessage : undefined,
-			},
-		);
-	}
+	normalChatRuntime.retry();
 }
 
 function handleRegenerate(
@@ -2346,10 +1890,7 @@ async function handleEdit(
 }
 
 function handleStop() {
-	if (activeStream) {
-		activeStream.stop();
-		// The stream will trigger onEnd via the abort controller
-	}
+	normalChatRuntime.stop();
 }
 
 function latestTimelineMessageId(): string | null {
@@ -2425,43 +1966,12 @@ async function runManualContextCompression() {
 	}
 }
 
-async function drainPostTurnQueue() {
-	if (queuedContextCompression) {
-		queuedContextCompression = false;
-		await runManualContextCompression();
-	}
-
-	if (queuedTurn) {
-		const nextQueuedTurn = cloneSendPayload(queuedTurn);
-		queuedTurn = null;
-		void handleSend(nextQueuedTurn, false, false, false);
-	}
-}
-
 function handleCompact() {
-	if (isConversationReadOnlyForChat) return;
-	if (isSending || isEditResendPending) {
-		queuedContextCompression = true;
-		sendError = null;
-		return;
-	}
-	void runManualContextCompression();
+	normalChatRuntime.compact();
 }
 
 function handleQueue(payload: SendPayload) {
-	if (
-		isConversationReadOnlyForChat ||
-		!isSending ||
-		queuedTurn ||
-		!payload.message.trim()
-	) {
-		return;
-	}
-
-	queuedTurn = cloneSendPayload(payload);
-	conversationDraft = null;
-	draftPersistence.clear();
-	sendError = null;
+	normalChatRuntime.queue(payload);
 }
 
 async function handleSteering(payload: TaskSteeringPayload) {

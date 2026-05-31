@@ -362,14 +362,6 @@ export function appendAssistantPlaceholder(
 	return [...list, placeholder];
 }
 
-export function appendUserMessageAndPlaceholder(
-	list: ChatMessage[],
-	userMessage: ChatMessage,
-	placeholder: ChatMessage,
-): ChatMessage[] {
-	return [...list, userMessage, placeholder];
-}
-
 export function updateMessageById(
 	list: ChatMessage[],
 	messageId: string,

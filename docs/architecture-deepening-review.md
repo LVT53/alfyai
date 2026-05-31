@@ -543,7 +543,7 @@ import { uploadKnowledgeAttachment } from '$lib/client/api/knowledge';
 ```
 
 This directly violates AGENTS.md rules:
-- "`MessageInput.svelte` may emit `onQueue`, but the chat page decides auto-send and restore behavior"
+- "`MessageInput.svelte` may emit `onQueue`, but the Normal Chat Client Turn Runtime decides queued-turn admission, auto-send, and restore behavior through page-owned adapters"
 - "`client/api/` owns reusable browser fetch logic. Stores should not become ad hoc HTTP clients"
 - Components should not own business logic — they should emit events
 

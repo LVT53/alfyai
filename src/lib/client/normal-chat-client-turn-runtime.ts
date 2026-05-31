@@ -1,0 +1,879 @@
+import type {
+	ArtifactSummary,
+	ChatMessage,
+	LinkedContextSource,
+	ModelId,
+	PendingAttachment,
+	PendingSkillSelection,
+	ThinkingMode,
+} from "$lib/types";
+import {
+	checkForOrphanedStream,
+	getStreamBufferInfo,
+	streamChat,
+	type StreamCallbacks,
+	type StreamChatOptions,
+	type StreamHandle,
+	type StreamMetadata,
+} from "$lib/services/streaming";
+
+type StreamToolCallDetails = Parameters<
+	NonNullable<StreamCallbacks["onToolCall"]>
+>[3];
+
+export type NormalChatSendPayload = {
+	message: string;
+	attachmentIds: string[];
+	attachments: ArtifactSummary[];
+	pendingAttachments: PendingAttachment[];
+	linkedSources?: LinkedContextSource[];
+	pendingSkill?: PendingSkillSelection | null;
+	conversationId?: string | null;
+	modelId?: ModelId;
+	personalityProfileId?: string | null;
+	deepResearchDepth?: "focused" | "standard" | "max" | null;
+	thinkingMode?: ThinkingMode;
+	forceWebSearch?: boolean;
+};
+
+export type NormalChatRuntimeSnapshot = {
+	active: boolean;
+	isSending: boolean;
+	isPollingForCompletion: boolean;
+	streamInterruptedByBackground: boolean;
+	canRetry: boolean;
+	queuedTurn: NormalChatSendPayload | null;
+	queuedContextCompression: boolean;
+	lastUserMessage: string;
+	lastAssistantResponse: string;
+};
+
+type PendingSkillSessionResult =
+	| { ok: true }
+	| {
+			ok: false;
+			errorMessage: string;
+			restoredPayload?: NormalChatSendPayload | null;
+	  };
+
+type DeepResearchTurnParams = {
+	message: string;
+	depth: NonNullable<NormalChatSendPayload["deepResearchDepth"]>;
+	attachmentIds: string[];
+	modelId: ModelId;
+	personalityProfileId: string | null;
+	clientUserMessageId: string | null;
+};
+
+export type NormalChatClientTurnRuntimeAdapters = {
+	streamChat: typeof streamChat;
+	checkForOrphanedStream: typeof checkForOrphanedStream;
+	getStreamBufferInfo: typeof getStreamBufferInfo;
+	getConversationId: () => string;
+	getSelectedModel: () => ModelId;
+	getThinkingMode: () => ThinkingMode;
+	getPersonalityProfileId: () => string | null;
+	getActiveDocumentArtifactId: () => string | undefined;
+	getMessages: () => ChatMessage[];
+	isReadOnly: () => boolean;
+	isEditResendPending: () => boolean;
+	isBrowserHidden: () => boolean;
+	randomId: () => string;
+	schedule: (
+		callback: () => void,
+		delayMs: number,
+	) => ReturnType<typeof setTimeout>;
+	onStateChange?: (snapshot: NormalChatRuntimeSnapshot) => void;
+	setConversationModelSelection: (modelId: ModelId) => void;
+	setInitialStreamPending?: (pending: boolean) => void;
+	setSuppressHydration?: (suppress: boolean) => void;
+	markHasPersistedMessages?: () => void;
+	clearDraft: () => void;
+	deleteDraft?: () => void;
+	clearAttachedArtifacts: () => ArtifactSummary[];
+	recordConversationActivity: () => void;
+	startPendingSkillSession: (
+		payload: NormalChatSendPayload,
+	) => Promise<PendingSkillSessionResult>;
+	shouldStartDeepResearchJob: (
+		payload: NormalChatSendPayload,
+		retryAssistantMessageId?: string,
+	) => boolean;
+	startDeepResearchTurn: (params: DeepResearchTurnParams) => void | Promise<void>;
+	appendUserMessage: (message: ChatMessage) => void;
+	appendAssistantPlaceholder: (placeholder: ChatMessage) => void;
+	appendTokenChunk: (placeholderId: string, chunk: string) => void;
+	appendThinkingChunk: (placeholderId: string, chunk: string) => void;
+	applyToolCallUpdate: (
+		placeholderId: string,
+		name: string,
+		input: Record<string, unknown>,
+		status: "running" | "done",
+		details?: StreamToolCallDetails,
+	) => void;
+	shouldHydrateFileProductionJobsOnToolCall?: (
+		name: string,
+		status: "running" | "done",
+	) => boolean;
+	removeMessage: (messageId: string) => void;
+	finalizeStreamingMessage: (params: {
+		placeholderId: string;
+		clientUserMessageId: string | null;
+		metadata?: StreamMetadata;
+	}) => void;
+	applyStreamMetadata: (metadata?: StreamMetadata) => void;
+	attachFileProductionJobsToAssistantMessage: (assistantMessageId: string) => void;
+	pollMessageEvidence: (assistantMessageId: string) => void;
+	refreshMessageCost: (assistantMessageId: string) => void;
+	hydrateConversationDetail: () => void;
+	pollForCompletion: (
+		placeholderId: string,
+		clientUserMessageId?: string | null,
+	) => void;
+	loadPersistedData: () => void;
+	mergeGeneratedFiles?: (files: NonNullable<StreamMetadata["generatedFiles"]>) => void;
+	setContextCompressionMarkers?: (
+		markers: NonNullable<StreamMetadata["contextCompressionSnapshots"]>,
+	) => void;
+	maybeTriggerTitleGeneration: (
+		userMessage: string,
+		assistantResponse: string,
+	) => void;
+	runManualContextCompression: () => Promise<void> | void;
+	restorePayloadToDraft: (payload: NormalChatSendPayload) => void;
+	markPendingSkillUnavailable: (
+		payload: NormalChatSendPayload,
+	) => NormalChatSendPayload;
+	isPendingSkillUnavailableError: (error: unknown) => boolean;
+	isForkedSourceHistoryConfirmationRequired: (error: unknown) => boolean;
+	toFriendlySendError: (error: Error) => string;
+	setSendError: (message: string | null) => void;
+	setSkillSessionError: (message: string | null) => void;
+	onBackgroundInterrupted: () => void;
+	onBackgroundVisibilityRestore?: () => void;
+	onForkedSourceHistoryConfirmationRequired?: () => void;
+};
+
+export type BrowserNormalChatClientTurnRuntimeAdapters = Omit<
+	NormalChatClientTurnRuntimeAdapters,
+	"streamChat" | "checkForOrphanedStream" | "getStreamBufferInfo"
+>;
+
+type SendRuntimeOptions = {
+	skipUserMessage?: boolean;
+	skipPersistUserMessage?: boolean;
+	clearDraft?: boolean;
+	retryAssistantMessageId?: string;
+	retryUserMessageId?: string;
+	confirmForkedSourceHistoryMutation?: boolean;
+	onForkedSourceHistoryConfirmationRequired?: () => void;
+};
+
+type StartStreamParams = {
+	message: string;
+	placeholderId: string;
+	clientUserMessageId: string | null;
+	payload?: NormalChatSendPayload;
+	streamOptions: StreamChatOptions;
+	completedUserMessage: string;
+	isReconnect?: boolean;
+	reconnectStreamId?: string;
+	reconnectRetryCount?: number;
+	onForkedSourceHistoryConfirmationRequired?: () => void;
+};
+
+export type NormalChatClientTurnRuntime = ReturnType<
+	typeof createNormalChatClientTurnRuntime
+>;
+
+export function createBrowserNormalChatClientTurnRuntime(
+	adapters: BrowserNormalChatClientTurnRuntimeAdapters,
+) {
+	return createNormalChatClientTurnRuntime({
+		...adapters,
+		streamChat,
+		checkForOrphanedStream,
+		getStreamBufferInfo,
+	});
+}
+
+export function createNormalChatClientTurnRuntime(
+	adapters: NormalChatClientTurnRuntimeAdapters,
+) {
+	let activeStream: StreamHandle | null = null;
+	let isSending = false;
+	let isPollingForCompletion = false;
+	let streamInterruptedByBackground = false;
+	let canRetry = false;
+	let queuedTurn: NormalChatSendPayload | null = null;
+	let queuedContextCompression = false;
+	let lastUserMessage = "";
+	let lastAssistantResponse = "";
+
+	function snapshot(): NormalChatRuntimeSnapshot {
+		return {
+			active: Boolean(activeStream),
+			isSending,
+			isPollingForCompletion,
+			streamInterruptedByBackground,
+			canRetry,
+			queuedTurn: queuedTurn ? cloneSendPayload(queuedTurn) : null,
+			queuedContextCompression,
+			lastUserMessage,
+			lastAssistantResponse,
+		};
+	}
+
+	function emitState() {
+		adapters.onStateChange?.(snapshot());
+	}
+
+	function setActiveStream(nextStream: StreamHandle | null) {
+		activeStream = nextStream;
+		emitState();
+	}
+
+	function beginTurn() {
+		isSending = true;
+		emitState();
+	}
+
+	function completeTurn() {
+		isSending = false;
+		setActiveStream(null);
+	}
+
+	function createAssistantPlaceholder(id: string): ChatMessage {
+		return {
+			id,
+			renderKey: id,
+			role: "assistant",
+			content: "",
+			timestamp: Date.now(),
+			isStreaming: true,
+		};
+	}
+
+	function createUserMessage(params: {
+		id: string;
+		text: string;
+		attachmentIds: string[];
+		attachedArtifacts: ArtifactSummary[];
+	}): ChatMessage {
+		return {
+			id: params.id,
+			renderKey: params.id,
+			role: "user",
+			content: params.text,
+			attachments: params.attachedArtifacts
+				.filter((artifact) => params.attachmentIds.includes(artifact.id))
+				.map((artifact) => ({
+					id: artifact.id,
+					artifactId: artifact.id,
+					name: artifact.name,
+					type: artifact.type,
+					mimeType: artifact.mimeType,
+					sizeBytes: artifact.sizeBytes,
+					conversationId: artifact.conversationId,
+					messageId: null,
+					createdAt: artifact.createdAt,
+				})),
+			timestamp: Date.now(),
+		};
+	}
+
+	function applyMetadata(metadata?: StreamMetadata) {
+		adapters.applyStreamMetadata(metadata);
+		if (metadata?.generatedFiles) {
+			adapters.mergeGeneratedFiles?.(metadata.generatedFiles);
+			adapters.hydrateConversationDetail();
+		}
+		if (metadata?.contextCompressionSnapshots) {
+			adapters.setContextCompressionMarkers?.(
+				metadata.contextCompressionSnapshots,
+			);
+		}
+		const serverAssistantId = metadata?.assistantMessageId;
+		if (serverAssistantId) {
+			adapters.attachFileProductionJobsToAssistantMessage(serverAssistantId);
+		}
+		return serverAssistantId ?? null;
+	}
+
+	function takeQueuedContextCompression() {
+		if (!queuedContextCompression) return false;
+		queuedContextCompression = false;
+		emitState();
+		return true;
+	}
+
+	async function drainPostTurnQueue() {
+		if (takeQueuedContextCompression()) {
+			await adapters.runManualContextCompression();
+		}
+
+		if (queuedTurn) {
+			const nextQueuedTurn = cloneSendPayload(queuedTurn);
+			queuedTurn = null;
+			emitState();
+			void send(nextQueuedTurn, {
+				skipUserMessage: false,
+				skipPersistUserMessage: false,
+				clearDraft: false,
+			});
+		}
+	}
+
+	function restoreQueuedTurnToDraft() {
+		if (!queuedTurn) return;
+		const nextQueuedTurn = cloneSendPayload(queuedTurn);
+		queuedTurn = null;
+		emitState();
+		adapters.restorePayloadToDraft(nextQueuedTurn);
+	}
+
+	function buildCallbacks(params: StartStreamParams): StreamCallbacks {
+		return {
+			onToken(chunk) {
+				adapters.appendTokenChunk(params.placeholderId, chunk);
+			},
+			onThinking(chunk) {
+				adapters.appendThinkingChunk(params.placeholderId, chunk);
+			},
+			onToolCall(name, input, status, details) {
+				adapters.applyToolCallUpdate(
+					params.placeholderId,
+					name,
+					input,
+					status,
+					details,
+				);
+				if (adapters.shouldHydrateFileProductionJobsOnToolCall?.(name, status)) {
+					adapters.hydrateConversationDetail();
+				}
+			},
+			onWaiting() {
+				activeStream?.detach();
+				isPollingForCompletion = true;
+				setActiveStream(null);
+				adapters.pollForCompletion(
+					params.placeholderId,
+					params.clientUserMessageId,
+				);
+			},
+			onEnd(fullText, metadata) {
+				if (isPollingForCompletion) {
+					isPollingForCompletion = false;
+					emitState();
+					return;
+				}
+
+				lastAssistantResponse = fullText;
+				const serverAssistantId = applyMetadata(metadata);
+				adapters.finalizeStreamingMessage({
+					placeholderId: params.placeholderId,
+					clientUserMessageId: params.clientUserMessageId,
+					metadata,
+				});
+				canRetry = false;
+				completeTurn();
+				if (serverAssistantId) {
+					adapters.pollMessageEvidence(serverAssistantId);
+					adapters.refreshMessageCost(serverAssistantId);
+				}
+
+				if (metadata?.wasStopped) {
+					if (takeQueuedContextCompression()) {
+						void adapters.runManualContextCompression();
+					}
+					restoreQueuedTurnToDraft();
+					return;
+				}
+
+				adapters.maybeTriggerTitleGeneration(
+					params.completedUserMessage,
+					fullText,
+				);
+				void drainPostTurnQueue();
+			},
+			onError(error) {
+				const err = error instanceof Error ? error : new Error(String(error));
+				const isBackgroundAbort =
+					err.name === "AbortError" && adapters.isBrowserHidden();
+				if (!isBackgroundAbort && params.isReconnect && isCapacityError(err)) {
+					const retryCount = params.reconnectRetryCount ?? 0;
+					if (retryCount < 3 && params.reconnectStreamId) {
+						const delay = 2 ** retryCount * 500;
+						completeTurn();
+						adapters.removeMessage(params.placeholderId);
+						adapters.schedule(() => {
+							void reconnectToOrphanedStream(
+								params.reconnectStreamId!,
+								params.message,
+								retryCount + 1,
+							);
+						}, delay);
+						return;
+					}
+				}
+
+				adapters.removeMessage(params.placeholderId);
+				completeTurn();
+				if (!params.isReconnect) {
+					if (takeQueuedContextCompression()) {
+						void adapters.runManualContextCompression();
+					}
+					restoreQueuedTurnToDraft();
+				}
+
+				if (isBackgroundAbort) {
+					streamInterruptedByBackground = true;
+					adapters.onBackgroundInterrupted();
+					emitState();
+					return;
+				}
+
+				if (
+					params.payload &&
+					adapters.isPendingSkillUnavailableError(err)
+				) {
+					if (params.clientUserMessageId) {
+						adapters.removeMessage(params.clientUserMessageId);
+					}
+					adapters.restorePayloadToDraft(
+						adapters.markPendingSkillUnavailable(params.payload),
+					);
+					adapters.setSendError("pendingSkill.recoveryError");
+					canRetry = false;
+					emitState();
+					return;
+				}
+
+				if (
+					params.streamOptions.retryAssistantMessageId &&
+					!params.streamOptions.confirmForkedSourceHistoryMutation &&
+					adapters.isForkedSourceHistoryConfirmationRequired(err)
+				) {
+					const confirmationCallback =
+						params.onForkedSourceHistoryConfirmationRequired ??
+						adapters.onForkedSourceHistoryConfirmationRequired;
+					if (confirmationCallback) {
+						confirmationCallback();
+					} else {
+						adapters.setSendError("fork.regenerateWarning");
+						canRetry = true;
+						emitState();
+					}
+					return;
+				}
+
+				if (params.isReconnect) {
+					adapters.loadPersistedData();
+					return;
+				}
+
+				adapters.setSendError(adapters.toFriendlySendError(err));
+				canRetry = true;
+				emitState();
+			},
+		};
+	}
+
+	function startStream(params: StartStreamParams) {
+		const callbacks = buildCallbacks(params);
+		setActiveStream(
+			adapters.streamChat(
+				params.message,
+				adapters.getConversationId(),
+				callbacks,
+				params.streamOptions,
+			),
+		);
+	}
+
+	async function send(
+		payload: NormalChatSendPayload,
+		options: SendRuntimeOptions = {},
+	) {
+		const text = payload.message;
+		if (
+			!text.trim() ||
+			adapters.isReadOnly() ||
+			isSending ||
+			adapters.isEditResendPending()
+		) {
+			return;
+		}
+
+		const modelIdForTurn = payload.modelId ?? adapters.getSelectedModel();
+		adapters.setConversationModelSelection(modelIdForTurn);
+		const personalityProfileIdForTurn =
+			payload.personalityProfileId !== undefined
+				? payload.personalityProfileId
+				: adapters.getPersonalityProfileId();
+
+		if (
+			payload.pendingSkill &&
+			!adapters.shouldStartDeepResearchJob(
+				payload,
+				options.retryAssistantMessageId,
+			)
+		) {
+			beginTurn();
+			const result = await adapters.startPendingSkillSession(payload);
+			if (!result.ok) {
+				if (result.restoredPayload) {
+					adapters.restorePayloadToDraft(result.restoredPayload);
+				}
+				adapters.setSkillSessionError(result.errorMessage);
+				adapters.setSendError(result.errorMessage);
+				canRetry = false;
+				completeTurn();
+				return;
+			}
+		}
+
+		adapters.setSendError(null);
+		beginTurn();
+		adapters.setSuppressHydration?.(true);
+		adapters.setInitialStreamPending?.(false);
+		lastUserMessage = text;
+		canRetry = true;
+		adapters.markHasPersistedMessages?.();
+		emitState();
+
+		if (options.clearDraft ?? true) {
+			adapters.clearDraft();
+			adapters.deleteDraft?.();
+		}
+
+		const currentAttachedArtifacts = adapters.clearAttachedArtifacts();
+		const sentAttachments = mergeAttachedArtifacts(
+			currentAttachedArtifacts,
+			payload.attachments ?? [],
+		);
+		adapters.recordConversationActivity();
+
+		let clientUserMessageId: string | null = null;
+		if (!options.skipUserMessage) {
+			clientUserMessageId = adapters.randomId();
+			adapters.appendUserMessage(
+				createUserMessage({
+					id: clientUserMessageId,
+					text,
+					attachmentIds: payload.attachmentIds ?? [],
+					attachedArtifacts: sentAttachments,
+				}),
+			);
+		}
+
+		const deepResearchDepthForTurn = adapters.shouldStartDeepResearchJob(
+			payload,
+			options.retryAssistantMessageId,
+		)
+			? payload.deepResearchDepth
+			: null;
+		if (deepResearchDepthForTurn) {
+			void adapters.startDeepResearchTurn({
+				message: text,
+				depth: deepResearchDepthForTurn,
+				attachmentIds: payload.attachmentIds ?? [],
+				modelId: modelIdForTurn,
+				personalityProfileId: personalityProfileIdForTurn,
+				clientUserMessageId,
+			});
+			return;
+		}
+
+		const placeholderId = adapters.randomId();
+		adapters.appendAssistantPlaceholder(
+			createAssistantPlaceholder(placeholderId),
+		);
+
+		startStream({
+			message: text,
+			placeholderId,
+			clientUserMessageId,
+			payload,
+			completedUserMessage: text,
+			onForkedSourceHistoryConfirmationRequired:
+				options.onForkedSourceHistoryConfirmationRequired,
+			streamOptions: {
+				modelId: modelIdForTurn,
+				skipPersistUserMessage: options.skipPersistUserMessage ?? false,
+				attachmentIds: payload.attachmentIds ?? [],
+				linkedSources: payload.linkedSources ?? [],
+				pendingSkill: payload.deepResearchDepth
+					? null
+					: (payload.pendingSkill ?? null),
+				deepResearchDepth: payload.deepResearchDepth ?? null,
+				thinkingMode: payload.thinkingMode ?? adapters.getThinkingMode(),
+				forceWebSearch: payload.forceWebSearch === true,
+				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
+				personalityProfileId: personalityProfileIdForTurn,
+				retryAssistantMessageId: options.retryAssistantMessageId,
+				retryUserMessageId: options.retryUserMessageId,
+				retryUserMessage: options.retryAssistantMessageId ? text : undefined,
+				confirmForkedSourceHistoryMutation:
+					options.confirmForkedSourceHistoryMutation,
+			},
+		});
+	}
+
+	function retry() {
+		if (adapters.isReadOnly() || !canRetry || !lastUserMessage) {
+			return;
+		}
+		adapters.setSendError(null);
+		beginTurn();
+		adapters.markHasPersistedMessages?.();
+
+		const retryMessages = adapters.getMessages();
+		const lastAssistantMsg = retryMessages.findLast(
+			(message) => message.role === "assistant",
+		);
+		const retryAssistantMessageId = lastAssistantMsg?.id;
+		const retryAssistantIndex = retryAssistantMessageId
+			? retryMessages.findIndex((message) => message.id === retryAssistantMessageId)
+			: -1;
+		const retryUserMessageId =
+			retryAssistantIndex > 0 &&
+			retryMessages[retryAssistantIndex - 1]?.role === "user"
+				? retryMessages[retryAssistantIndex - 1].id
+				: undefined;
+		const placeholderId = adapters.randomId();
+		adapters.appendAssistantPlaceholder(
+			createAssistantPlaceholder(placeholderId),
+		);
+		if (retryAssistantMessageId) {
+			adapters.removeMessage(retryAssistantMessageId);
+		}
+
+		startStream({
+			message: lastUserMessage,
+			placeholderId,
+			clientUserMessageId: null,
+			completedUserMessage: lastUserMessage,
+			streamOptions: {
+				modelId: lastAssistantMsg?.modelId ?? adapters.getSelectedModel(),
+				thinkingMode: adapters.getThinkingMode(),
+				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
+				personalityProfileId: adapters.getPersonalityProfileId(),
+				retryAssistantMessageId: retryAssistantMessageId ?? undefined,
+				retryUserMessageId,
+				retryUserMessage: retryAssistantMessageId
+					? lastUserMessage
+					: undefined,
+			},
+		});
+	}
+
+	function queue(payload: NormalChatSendPayload) {
+		if (
+			adapters.isReadOnly() ||
+			!isSending ||
+			queuedTurn ||
+			!payload.message.trim()
+		) {
+			return;
+		}
+		queuedTurn = cloneSendPayload(payload);
+		adapters.clearDraft();
+		adapters.setSendError(null);
+		emitState();
+	}
+
+	function clearQueuedTurn() {
+		queuedTurn = null;
+		adapters.setSendError(null);
+		emitState();
+	}
+
+	function editQueuedTurn() {
+		restoreQueuedTurnToDraft();
+		adapters.setSendError(null);
+	}
+
+	function compact() {
+		if (adapters.isReadOnly()) return;
+		if (isSending || adapters.isEditResendPending()) {
+			queuedContextCompression = true;
+			adapters.setSendError(null);
+			emitState();
+			return;
+		}
+		void adapters.runManualContextCompression();
+	}
+
+	function stop() {
+		activeStream?.stop();
+	}
+
+	function detach() {
+		activeStream?.detach();
+		activeStream = null;
+		emitState();
+	}
+
+	function reset() {
+		detach();
+		isSending = false;
+		isPollingForCompletion = false;
+		streamInterruptedByBackground = false;
+		canRetry = false;
+		queuedTurn = null;
+		queuedContextCompression = false;
+		lastUserMessage = "";
+		lastAssistantResponse = "";
+		emitState();
+	}
+
+	function handleVisibilityVisible() {
+		if (!streamInterruptedByBackground) return;
+		streamInterruptedByBackground = false;
+		emitState();
+		adapters.onBackgroundVisibilityRestore?.();
+		void checkForOrphanedStreamOnMount();
+	}
+
+	async function reconnectToOrphanedStream(
+		streamId: string,
+		userMessage = "",
+		retryCount = 0,
+	) {
+		if (isSending || activeStream) return;
+
+		beginTurn();
+		adapters.markHasPersistedMessages?.();
+		const placeholderId = adapters.randomId();
+		let clientUserMessageId = findExistingReconnectUserMessageId(userMessage);
+		if (!clientUserMessageId && userMessage.trim()) {
+			clientUserMessageId = adapters.randomId();
+			adapters.appendUserMessage(
+				createUserMessage({
+					id: clientUserMessageId,
+					text: userMessage,
+					attachmentIds: [],
+					attachedArtifacts: [],
+				}),
+			);
+		}
+		adapters.appendAssistantPlaceholder(
+			createAssistantPlaceholder(placeholderId),
+		);
+
+		startStream({
+			message: userMessage || "",
+			placeholderId,
+			clientUserMessageId,
+			completedUserMessage: userMessage,
+			isReconnect: true,
+			reconnectStreamId: streamId,
+			reconnectRetryCount: retryCount,
+			streamOptions: {
+				reconnectToStreamId: streamId,
+				reconnectUserMessage: userMessage,
+				thinkingMode: adapters.getThinkingMode(),
+			},
+		});
+	}
+
+	function findExistingReconnectUserMessageId(userMessage: string) {
+		if (!userMessage.trim()) return null;
+		const existingUserMessage = adapters
+			.getMessages()
+			.findLast(
+				(message) =>
+					message.role === "user" && message.content === userMessage,
+			);
+		return existingUserMessage?.id ?? null;
+	}
+
+	async function checkForOrphanedStreamOnMount() {
+		if (isSending || activeStream) {
+			return;
+		}
+		const streamId = await adapters.checkForOrphanedStream(
+			adapters.getConversationId(),
+		);
+		if (!streamId) return;
+		const bufferInfo = await adapters.getStreamBufferInfo(streamId);
+		void reconnectToOrphanedStream(streamId, bufferInfo?.userMessage ?? "");
+	}
+
+	return {
+		snapshot,
+		send,
+		retry,
+		queue,
+		clearQueuedTurn,
+		editQueuedTurn,
+		compact,
+		stop,
+		detach,
+		reset,
+		completePollingRecovery() {
+			isSending = false;
+			isPollingForCompletion = false;
+			canRetry = false;
+			setActiveStream(null);
+		},
+		restoreQueuedTurnToDraft,
+		drainPostTurnQueue,
+		handleVisibilityVisible,
+		reconnectToOrphanedStream,
+		checkForOrphanedStreamOnMount,
+	};
+}
+
+function cloneSendPayload(payload: NormalChatSendPayload): NormalChatSendPayload {
+	return {
+		message: payload.message,
+		attachmentIds: [...(payload.attachmentIds ?? [])],
+		attachments: [...(payload.attachments ?? [])],
+		pendingAttachments: (payload.pendingAttachments ?? []).map((attachment) => ({
+			...attachment,
+		})),
+		linkedSources: (payload.linkedSources ?? []).map((source) => ({
+			...source,
+			familyArtifactIds: [...source.familyArtifactIds],
+		})),
+		pendingSkill: payload.pendingSkill
+			? {
+					...payload.pendingSkill,
+					baseSkillId: payload.pendingSkill.baseSkillId ?? null,
+					baseSkillDisplayName:
+						payload.pendingSkill.baseSkillDisplayName ?? null,
+					unavailable: payload.pendingSkill.unavailable === true,
+				}
+			: null,
+		conversationId: payload.conversationId ?? null,
+		modelId: payload.modelId,
+		personalityProfileId: payload.personalityProfileId ?? null,
+		deepResearchDepth: payload.deepResearchDepth ?? null,
+		thinkingMode: payload.thinkingMode,
+		forceWebSearch: payload.forceWebSearch === true,
+	};
+}
+
+function mergeAttachedArtifacts(
+	currentArtifacts: ArtifactSummary[],
+	nextArtifacts: ArtifactSummary[],
+): ArtifactSummary[] {
+	if (nextArtifacts.length === 0) return currentArtifacts;
+	const mergedArtifacts = new Map(
+		currentArtifacts.map((artifact) => [artifact.id, artifact]),
+	);
+	for (const artifact of nextArtifacts) {
+		mergedArtifacts.set(artifact.id, artifact);
+	}
+	return Array.from(mergedArtifacts.values());
+}
+
+function isCapacityError(error: Error & { code?: unknown }) {
+	return (
+		error.message?.toLowerCase().includes("capacity") ||
+		error.code === "CAPACITY_EXCEEDED" ||
+		error.code === "capacity_exceeded"
+	);
+}
