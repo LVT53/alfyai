@@ -178,6 +178,10 @@ _Avoid_: Langflow stream, Normal Chat Turn Completion, route-local event string
 The browser-side plain TypeScript boundary at `src/lib/client/normal-chat-client-turn-runtime.ts` that owns Normal Chat send, retry, reconnect, waiting, stop, queued follow-up, and recovery runtime semantics above `streamChat`. It consumes decoded stream callbacks and server-returned metadata through page adapters while the chat page keeps visible Svelte state, route lifecycle, document workspace state, and UI commands.
 _Avoid_: Browser SSE parser, Context Sources builder, chat page state, durable completion
 
+**Conversation Detail Read Model**:
+The server read-model boundary at `src/lib/server/services/conversation-detail/read-model.ts` that assembles the refreshable `ConversationDetail` payload for chat page load and browser hydration. It owns bootstrap/full detail selection, payload defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft, generated-file, File Production, Deep Research, context-compression, cost fields, and active Skill Session public serialization.
+_Avoid_: route-local hydration recipe, durable Normal Chat Turn Completion, Browser SSE end payload, page-owned payload assembly
+
 **Memory Access**:
 AlfyAI's ability to use durable user, conversation, project, document, and research context through Honcho-led memory and app-supplied historical context retrieval.
 _Avoid_: local persona engine, memory replacement, transcript dump
@@ -1301,7 +1305,7 @@ _Avoid_: source message button, primary document action, source viewer
 - Every **File Production Request** enters **File Production Intake** before renderer, sandbox, or storage work begins.
 - **File Production Intake** creates or reuses durable **File Production Card** state; it is not a stream-only or tool-specific concern.
 - A malformed **File Production Request** still produces a durable failed **File Production Card** through **File Production Intake** when enough conversation ownership is known.
-- The public file-production facade delegates to deep modules; callers should import the facade unless they are inside the file-production boundary or are read-only conversation detail code that needs **File Production Read Model** without loading worker/rendering/storage modules.
+- The public file-production facade delegates to deep modules; callers should import the facade unless they are inside the file-production boundary or the **Conversation Detail Read Model** needs **File Production Read Model** without loading worker/rendering/storage modules.
 - **File Production Job Ledger** is the durable state authority for **File Production Cards** and attempts; renderers, routes, and worker code should not reimplement job state transitions.
 - **File Production Read Model** is the projection authority for conversation-visible **File Production Cards**; it may hydrate job-linked unassigned files for finalization, but public generated-file lists and direct preview/download routes still require an assigned assistant message.
 - **File Production Worker Runner** consumes **File Production Job Ledger**, **File Production Execution Adapter**, and **Generated File Storage Adapter** rather than owning their rules inline.

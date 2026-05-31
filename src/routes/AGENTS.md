@@ -59,6 +59,7 @@ logout/                # Logout page
 | `api/chat/files/[id]/preview/+server.ts` | Generated file preview |
 | `api/chat/files/[id]/download/+server.ts` | Generated file download |
 | `api/chat/files/export/+server.ts` | Conversation file export |
+| `api/conversations/[id]/+server.ts` | Conversation detail CRUD adapter; GET delegates to `conversation-detail/read-model` |
 | `api/conversations/[id]/context-status/+server.ts` | Conversation context status |
 | `api/conversations/[id]/task-steering/+server.ts` | Task steering |
 | `api/knowledge/upload/+server.ts` | File upload handler |
@@ -96,11 +97,13 @@ logout/                # Logout page
 - **Route params**: Dynamic segments use `[param]`; access via `event.params`
 - **Auth**: `hooks.server.ts` attaches user to `locals`; routes use `requireAuth()` or redirect
 - **Thin routes**: Parse request, call service, return response; no business logic inline
+- **Conversation detail**: Refreshable `/api/conversations/[id]` GET payload assembly belongs in `src/lib/server/services/conversation-detail/read-model.ts`, not in the route adapter
 
 ## Anti-Patterns
 
 - Duplicating turn logic between `send` and `stream` routes
 - Adding business logic directly in `+server.ts` files instead of services
+- Rebuilding conversation detail hydration, Context Sources projection, or active Skill Session serialization inside `api/conversations/[id]/+server.ts`
 - Fetching layout data again in child pages
 - Creating new `sessionStorage` keys outside `conversation-session.ts`
 - Adding route-local SSE event shapes without updating the browser parser

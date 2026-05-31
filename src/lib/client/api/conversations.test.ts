@@ -1,12 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	conversationExists,
 	createConversationFork,
 	deleteConversationMessages,
+	fetchConversationDetail,
 	savePinnedConversationSidebarOrder,
 	setConversationSidebarPinned,
 } from "./conversations";
 import type { ApiError } from "./http";
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
 
 describe("conversationExists", () => {
 	it("returns true when the conversation detail endpoint succeeds", async () => {
@@ -30,6 +35,38 @@ describe("conversationExists", () => {
 		);
 
 		await expect(conversationExists("conv-1", fetchMock)).resolves.toBeNull();
+	});
+});
+
+describe("fetchConversationDetail", () => {
+	it("requests the bootstrap view through the conversation detail endpoint", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						conversation: {
+							id: "conv-1",
+							title: "Bootstrap",
+							projectId: null,
+							createdAt: 1,
+							updatedAt: 1,
+						},
+						messages: [],
+						bootstrap: true,
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const detail = await fetchConversationDetail("conv-1", {
+			view: "bootstrap",
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1?view=bootstrap",
+		);
+		expect(detail.bootstrap).toBe(true);
 	});
 });
 

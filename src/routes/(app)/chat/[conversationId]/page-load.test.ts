@@ -91,6 +91,85 @@ describe("chat conversation page load", () => {
 		expect(data.deepResearchJobs).toEqual(deepResearchJobs);
 	});
 
+	it("requests bootstrap conversation detail when the URL asks for bootstrap view", async () => {
+		const fetch = vi.fn(async () => {
+			return new Response(
+				JSON.stringify({
+					conversation: {
+						id: "conv-1",
+						title: "Bootstrap",
+						projectId: null,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+					messages: [],
+					bootstrap: true,
+				}),
+				{ status: 200 },
+			);
+		});
+
+		const event = {
+			params: { conversationId: "conv-1" },
+			fetch: fetch as unknown as typeof globalThis.fetch,
+			parent: vi.fn(async () => ({})),
+			url: new URL("http://localhost/chat/conv-1?view=bootstrap"),
+			depends: vi.fn(),
+		} as Parameters<typeof load>[0];
+		const data = await load(event);
+
+		expect(fetch).toHaveBeenCalledWith(
+			"/api/conversations/conv-1?view=bootstrap",
+		);
+		expect(data.bootstrap).toBe(true);
+	});
+
+	it("defaults optional conversation detail fields for chat hydration", async () => {
+		const fetch = vi.fn(async () => {
+			return new Response(
+				JSON.stringify({
+					conversation: {
+						id: "conv-1",
+						title: "Sparse detail",
+						projectId: null,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+					messages: [],
+				}),
+				{ status: 200 },
+			);
+		});
+
+		const event = {
+			params: { conversationId: "conv-1" },
+			fetch: fetch as unknown as typeof globalThis.fetch,
+			parent: vi.fn(async () => ({})),
+			url: new URL("http://localhost/chat/conv-1"),
+			depends: vi.fn(),
+		} as Parameters<typeof load>[0];
+		const data = await load(event);
+
+		expect(data).toMatchObject({
+			attachedArtifacts: [],
+			activeWorkingSet: [],
+			contextStatus: null,
+			contextSources: null,
+			taskState: null,
+			contextDebug: null,
+			draft: null,
+			forkOrigin: null,
+			bootstrap: false,
+			generatedFiles: [],
+			fileProductionJobs: [],
+			deepResearchJobs: [],
+			contextCompressionSnapshots: [],
+			activeSkillSession: null,
+			totalCostUsdMicros: 0,
+			totalTokens: 0,
+		});
+	});
+
 	it("preserves parent layout runtime flags for the chat page", async () => {
 		const fetch = vi.fn(async () => {
 			return new Response(

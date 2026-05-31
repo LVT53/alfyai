@@ -213,17 +213,36 @@ describe("obsolete file-generation surfaces", () => {
 			join(root, "src/routes/api/conversations/[id]/+server.ts"),
 			"utf8",
 		);
+		const conversationDetailReadModel = readFileSync(
+			join(root, "src/lib/server/services/conversation-detail/read-model.ts"),
+			"utf8",
+		);
 		const readModel = readFileSync(
 			join(root, "src/lib/server/services/file-production/read-model.ts"),
 			"utf8",
 		);
 
 		expect(conversationDetailRoute).toContain(
-			'$lib/server/services/file-production/read-model',
+			"$lib/server/services/conversation-detail/read-model",
+		);
+		expect(conversationDetailRoute).not.toContain(
+			"$lib/server/services/file-production/read-model",
+		);
+		expect(conversationDetailReadModel).toContain(
+			"$lib/server/services/file-production/read-model",
 		);
 		expect(readModel).toContain(
 			"export async function listConversationFileProductionJobs",
 		);
+		for (const eagerFileProductionImport of [
+			"file-production/worker-runner",
+			"file-production/execution-adapter",
+			"file-production/storage-adapter",
+		]) {
+			expect(conversationDetailReadModel).not.toContain(
+				eagerFileProductionImport,
+			);
+		}
 		for (const eagerImport of [
 			"from \"./index\"",
 			"from './index'",

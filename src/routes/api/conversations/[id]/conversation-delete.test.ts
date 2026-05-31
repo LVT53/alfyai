@@ -5,27 +5,13 @@ vi.mock("$lib/server/auth/hooks", () => ({
 }));
 
 vi.mock("$lib/server/services/conversations", () => ({
-	getConversation: vi.fn(),
-	updateConversationTitle: vi.fn(),
 	moveConversationToProject: vi.fn(),
+	setConversationSidebarPinned: vi.fn(),
+	updateConversationTitle: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/messages", () => ({
-	listMessages: vi.fn(),
-}));
-
-vi.mock("$lib/server/services/knowledge", () => ({
-	getConversationWorkingSet: vi.fn(),
-	getConversationContextStatus: vi.fn(),
-	listConversationArtifacts: vi.fn(),
-}));
-
-vi.mock("$lib/server/services/task-state", () => ({
-	attachContinuityToTaskState: vi.fn(
-		async (_userId: string, taskState: unknown) => taskState,
-	),
-	getContextDebugState: vi.fn(),
-	getConversationTaskState: vi.fn(),
+vi.mock("$lib/server/services/conversation-detail/read-model", () => ({
+	getConversationDetail: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/cleanup", () => ({

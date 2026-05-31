@@ -4,6 +4,8 @@ AlfyAI will treat Normal Chat Turn Completion as a chat-turn boundary, not as ro
 
 Send, stream, and retry entrypoints remain transport adapters. They may translate requests and expose the completed turn as JSON, SSE, reconnect state, or refreshable conversation detail, but they must not reintroduce their own durable completion order or rebuild Context Sources from route-local state.
 
+Refreshable conversation detail payload assembly is a separate read-model concern. ADR-0022 records `src/lib/server/services/conversation-detail/read-model.ts` as the owner of `/api/conversations/[id]` GET payload assembly while this chat-turn boundary keeps ownership of durable Normal Chat Turn Completion.
+
 The Browser SSE Protocol is a separate transport boundary. `src/lib/services/stream-protocol.ts` owns browser-facing SSE event names, payload shapes, encoding, decoding, and replay framing for stream/reconnect responses. Normal Chat Turn Completion owns the durable result that may be summarized in an SSE `end` payload; it does not own raw SSE wire formatting.
 
 The Normal Chat Client Turn Runtime is a separate browser-side runtime boundary. `src/lib/client/normal-chat-client-turn-runtime.ts` consumes server-returned completion metadata through page adapters, but it does not decide message persistence, Context Sources construction, Skill side effects, message evidence, or continuity work owned by chat-turn completion.

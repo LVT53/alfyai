@@ -121,6 +121,11 @@ Do not:
   - [`src/routes/api/chat/send/+server.ts`](./src/routes/api/chat/send/+server.ts)
   - [`src/routes/api/chat/stream/+server.ts`](./src/routes/api/chat/stream/+server.ts)
   - [`src/routes/api/chat/stream/stop/+server.ts`](./src/routes/api/chat/stream/stop/+server.ts)
+- Conversation detail hydration:
+  - [`src/lib/server/services/conversation-detail/read-model.ts`](./src/lib/server/services/conversation-detail/read-model.ts)
+    - Owns refreshable `/api/conversations/[id]` GET payload assembly for chat page load and browser hydration.
+    - Assembles bootstrap and full detail payloads, including defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft/generated-file/File Production/Deep Research/context-compression/cost fields, and active Skill Session public serialization.
+    - The route GET handler stays an auth/HTTP adapter that delegates to `getConversationDetail(...)`.
 - Shared pipeline:
   - [`src/lib/server/services/chat-turn/request.ts`](./src/lib/server/services/chat-turn/request.ts)
   - [`src/lib/server/services/chat-turn/preflight.ts`](./src/lib/server/services/chat-turn/preflight.ts)
@@ -168,7 +173,7 @@ Do not:
   - Chat page refreshes conversation detail after file-producing turns and while queued/running production jobs exist
   - [`src/routes/api/chat/files/produce/+server.ts`](./src/routes/api/chat/files/produce/+server.ts) stays an auth/HTTP adapter; `src/lib/server/services/file-production/` owns intake parsing, validation, durable job creation/reuse, failed-job persistence, and worker wakeup
   - File-production state and execution rules stay in the deep modules behind the facade. Do not put job ledger transitions, worker drain loops, persisted request parsing, renderer dispatch, or generated-file storage/linking back into `index.ts`, routes, renderers, or chat-file services.
-  - Read-only routes such as conversation detail should import `file-production/read-model.ts` directly. General callers may use the public facade, but must not make read paths eagerly load worker-runner, renderer, sandbox, Honcho, or generated-file storage modules.
+  - The Conversation Detail Read Model may import `file-production/read-model.ts` directly. General callers may use the public facade, but must not make read paths eagerly load worker-runner, renderer, sandbox, Honcho, or generated-file storage modules.
   - Source-first generated-document source artifacts start as pending and non-durable, promote to durable only after rendered files attach successfully, and stay non-prompt-eligible if rendering/storage fails before attachment.
   - [`src/lib/server/sandbox/config.ts`](./src/lib/server/sandbox/config.ts) now ensures the sandbox runtime images exist before container creation, warms them in the background at app startup, and supports both the Python runtime (`python:3.11-slim`) and the JavaScript runtime (`node:22-bookworm-slim`)
   - [`src/lib/server/sandbox/config.ts`](./src/lib/server/sandbox/config.ts) must wait for exec inspection to report `Running === false` before the archive reader inspects `/output`; do not treat an early stream close as proof that the sandbox command has finished
@@ -178,6 +183,7 @@ Do not:
 Do:
 
 - put shared request parsing, attachment preflight, model normalization, stream framing, and finalization in `chat-turn/`
+- put refreshable conversation detail GET payload assembly in `src/lib/server/services/conversation-detail/read-model.ts`; keep `src/routes/api/conversations/[id]/+server.ts` transport-oriented
 - let `src/lib/server/services/chat-turn/stream-orchestrator.ts` and the stream submodules own shared upstream event parsing, tool-call marker handling, downstream token/thinking framing, and leading-output cleanup
 - let `src/lib/server/services/chat-turn/normalizer.ts` normalize assistant text through the shared stream-protocol helpers so `/send`, `/stream`, retries, and title generation use the same visible content shape
 - use `src/routes/api/chat/stream/stop/+server.ts` plus `chat-turn/active-streams.ts` for explicit user-requested aborts; do not overload passive disconnect handling for that purpose
