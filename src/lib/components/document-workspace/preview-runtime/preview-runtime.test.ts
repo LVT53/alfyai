@@ -40,6 +40,12 @@ describe("preview runtime", () => {
 			}),
 		).toBe("/api/knowledge/artifact-123/preview");
 		expect(
+			resolvePreviewSourceUrl({
+				artifactId: "artifact-123",
+				previewUrl: "",
+			}),
+		).toBe("/api/knowledge/artifact-123/preview");
+		expect(
 			resolvePreviewSourceUrl({ artifactId: null, previewUrl: null }),
 		).toBe(null);
 	});
@@ -72,6 +78,43 @@ describe("preview runtime", () => {
 			textKind: "markdown",
 			language: "markdown",
 		});
+	});
+
+	it("classifies fetched previews from the response blob MIME when metadata is missing", async () => {
+		const result = await loadPreviewRuntime({
+			artifactId: "artifact-image",
+			previewUrl: null,
+			filename: "download",
+			mimeType: null,
+			fetchImpl: vi
+				.fn()
+				.mockResolvedValue(
+					makeFetchResponse(new Blob(["image bytes"], { type: "image/png" })),
+				),
+		});
+
+		expectReady(result);
+		expect(result.fileType).toBe("image");
+		expect(result.adapter.kind).toBe("image");
+	});
+
+	it("uses the response blob MIME when generic metadata is parameterized", async () => {
+		const result = await loadPreviewRuntime({
+			artifactId: "artifact-image",
+			previewUrl: null,
+			filename: "download",
+			mimeType: " application/octet-stream ; charset=binary ",
+			fetchImpl: vi
+				.fn()
+				.mockResolvedValue(
+					makeFetchResponse(new Blob(["image bytes"], { type: "image/png" })),
+				),
+		});
+
+		expectReady(result);
+		expect(result.fileType).toBe("image");
+		expect(result.adapter.kind).toBe("image");
+		expect(result.mimeType).toBe("image/png");
 	});
 
 	it("corrects text-selected binary previews by sniffing PDF and PPTX signatures", async () => {

@@ -88,8 +88,14 @@ const MIN_WIDTH = 620;
 const MAX_WIDTH_RATIO = 0.68;
 const LEGACY_NARROW_WIDTH_THRESHOLD = 700;
 const WORKSPACE_WIDTH_STORAGE_KEY = "document-workspace-width";
+const DESKTOP_PREVIEW_MEDIA_QUERY = "(min-width: 768px)";
 
 let workspaceWidth = $state(getInitialWorkspaceWidth());
+let previewRendererSurface = $state<"desktop" | "mobile">(
+	getInitialPreviewRendererSurface(),
+);
+let shouldRenderMobilePreview = $derived(previewRendererSurface === "mobile");
+let shouldRenderDesktopPreview = $derived(previewRendererSurface === "desktop");
 
 // Persist workspace width when it changes
 $effect(() => {
@@ -178,6 +184,35 @@ function getInitialWorkspaceWidth(): number {
 		shouldUseStoredWidth ? parsedStoredValue : DEFAULT_WORKSPACE_WIDTH,
 	);
 }
+
+function getInitialPreviewRendererSurface(): "desktop" | "mobile" {
+	if (!browser || typeof window.matchMedia !== "function") return "desktop";
+	return window.matchMedia(DESKTOP_PREVIEW_MEDIA_QUERY).matches
+		? "desktop"
+		: "mobile";
+}
+
+$effect(() => {
+	if (!browser || typeof window.matchMedia !== "function") {
+		previewRendererSurface = "desktop";
+		return;
+	}
+
+	const desktopPreviewQuery = window.matchMedia(DESKTOP_PREVIEW_MEDIA_QUERY);
+	function syncPreviewRendererSurface() {
+		previewRendererSurface = desktopPreviewQuery.matches ? "desktop" : "mobile";
+	}
+
+	syncPreviewRendererSurface();
+	desktopPreviewQuery.addEventListener("change", syncPreviewRendererSurface);
+
+	return () => {
+		desktopPreviewQuery.removeEventListener(
+			"change",
+			syncPreviewRendererSurface,
+		);
+	};
+});
 
 function handleResizeKeyDown(event: KeyboardEvent) {
 	if (!browser) return;
@@ -786,22 +821,24 @@ $effect(() => {
 						{/if}
 					</div>
 				{:else}
-					{#await ensureDocumentPreviewRendererModule() then { default: DocumentPreviewRendererComponent }}
-						<DocumentPreviewRendererComponent
-							open={true}
-							artifactId={activeDocument.artifactId ?? null}
-							previewUrl={activeDocument.previewUrl ?? null}
-							filename={activeDocument.filename}
-							mimeType={activeDocument.mimeType}
-							onClose={handleCloseWorkspace}
-							bind:currentPage={currentPage}
-							bind:totalPages={currentTotalPages}
-						/>
-					{:catch}
-						<div class="workspace-compare-state workspace-compare-state-error">
-							Failed to load document preview.
-						</div>
-					{/await}
+					{#if shouldRenderMobilePreview}
+						{#await ensureDocumentPreviewRendererModule() then { default: DocumentPreviewRendererComponent }}
+							<DocumentPreviewRendererComponent
+								open={true}
+								artifactId={activeDocument.artifactId ?? null}
+								previewUrl={activeDocument.previewUrl ?? null}
+								filename={activeDocument.filename}
+								mimeType={activeDocument.mimeType}
+								onClose={handleCloseWorkspace}
+								bind:currentPage={currentPage}
+								bind:totalPages={currentTotalPages}
+							/>
+						{:catch}
+							<div class="workspace-compare-state workspace-compare-state-error">
+								Failed to load document preview.
+							</div>
+						{/await}
+					{/if}
 				{/if}
 			</div>
 		</section>
@@ -1036,24 +1073,26 @@ $effect(() => {
 					</div>
 				{/if}
 			</div>
-		{:else}
-				{#await ensureDocumentPreviewRendererModule() then { default: DocumentPreviewRendererComponent }}
-					<DocumentPreviewRendererComponent
-						open={true}
-						artifactId={activeDocument.artifactId ?? null}
-						previewUrl={activeDocument.previewUrl ?? null}
-						filename={activeDocument.filename}
-						mimeType={activeDocument.mimeType}
-						onClose={handleCloseWorkspace}
-						bind:currentPage={currentPage}
-						bind:totalPages={currentTotalPages}
-					/>
-				{:catch}
-				<div class="workspace-compare-state workspace-compare-state-error">
-					{$t('documentWorkspace.previewLoadFailed')}
-				</div>
-			{/await}
-		{/if}
+			{:else}
+				{#if shouldRenderDesktopPreview}
+					{#await ensureDocumentPreviewRendererModule() then { default: DocumentPreviewRendererComponent }}
+						<DocumentPreviewRendererComponent
+							open={true}
+							artifactId={activeDocument.artifactId ?? null}
+							previewUrl={activeDocument.previewUrl ?? null}
+							filename={activeDocument.filename}
+							mimeType={activeDocument.mimeType}
+							onClose={handleCloseWorkspace}
+							bind:currentPage={currentPage}
+							bind:totalPages={currentTotalPages}
+						/>
+					{:catch}
+						<div class="workspace-compare-state workspace-compare-state-error">
+							{$t('documentWorkspace.previewLoadFailed')}
+						</div>
+					{/await}
+				{/if}
+			{/if}
 	</div>
 		</div>
 	</div>

@@ -64,8 +64,10 @@ export function resolvePreviewSourceUrl({
 	artifactId,
 	previewUrl = null,
 }: PreviewSourceInput): string | null {
+	const explicitPreviewUrl = previewUrl?.trim() || null;
 	return (
-		previewUrl ?? (artifactId ? `/api/knowledge/${artifactId}/preview` : null)
+		explicitPreviewUrl ??
+		(artifactId ? `/api/knowledge/${artifactId}/preview` : null)
 	);
 }
 
@@ -89,23 +91,24 @@ export async function loadPreviewRuntime(
 		}
 
 		const blob = await response.blob();
+		const mimeType = getEffectiveMimeType(input.mimeType, blob.type);
 		const fileType = await resolvePreviewFileType({
 			blob,
 			filename: input.filename,
-			mimeType: input.mimeType,
+			mimeType,
 		});
 		const adapter = await buildPreviewAdapter({
 			blob,
 			fileType,
 			filename: input.filename,
-			mimeType: input.mimeType,
+			mimeType,
 		});
 
 		return {
 			status: "ready",
 			sourceUrl,
 			filename: input.filename,
-			mimeType: input.mimeType,
+			mimeType,
 			fileType,
 			blob,
 			adapter,
@@ -198,8 +201,24 @@ async function buildPreviewAdapter({
 }
 
 function isGenericMimeType(mimeType: string | null): boolean {
-	const mime = mimeType?.toLowerCase() ?? "";
+	const mime = normalizeMimeType(mimeType);
 	return !mime || GENERIC_MIME_TYPES.has(mime);
+}
+
+function getEffectiveMimeType(
+	metadataMimeType: string | null,
+	blobMimeType: string | null,
+): string | null {
+	const metadataMime = normalizeMimeType(metadataMimeType);
+	const blobMime = normalizeMimeType(blobMimeType);
+	if (!isGenericMimeType(metadataMime)) return metadataMime;
+	if (!isGenericMimeType(blobMime)) return blobMime;
+	return metadataMime || blobMime || null;
+}
+
+function normalizeMimeType(mimeType: string | null): string | null {
+	const mime = mimeType?.split(";")[0]?.trim().toLowerCase() ?? "";
+	return mime || null;
 }
 
 function getTextPreviewKind(

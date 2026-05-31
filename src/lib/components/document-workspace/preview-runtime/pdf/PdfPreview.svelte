@@ -42,6 +42,11 @@ type PdfDocumentProxy = {
 	getPage: (pageNumber: number) => Promise<PdfPageProxy>;
 };
 
+type PdfLoadingTask = {
+	promise: Promise<PdfDocumentProxy>;
+	destroy: () => Promise<void>;
+};
+
 let {
 	blob,
 	filename = "PDF document",
@@ -73,6 +78,8 @@ let pdfDragOriginLeft = $state(0);
 let pdfDragOriginTop = $state(0);
 
 let pdfRenderVersion = 0;
+let activePdfLoadingTask: PdfLoadingTask | null = null;
+let activePdfDestroyPromise: Promise<void> | null = null;
 let activeRenderTasks = new Map<number, PdfRenderTask>();
 let pageObserver: IntersectionObserver | null = null;
 let isProgrammaticScroll = $state(false);
@@ -85,8 +92,9 @@ $effect(() => {
 	void renderPdf(activeBlob);
 
 	return () => {
-		cancelActivePdfRenderTasks();
 		pdfRenderVersion += 1;
+		cancelActivePdfRenderTasks();
+		destroyActivePdfLoadingTask();
 	};
 });
 
@@ -148,7 +156,7 @@ $effect(() => {
 	const node = scrollContainerRef;
 	let pinchActive = false;
 	let pinchStartDistance = 0;
-	let pinchStartZoom = zoom;
+	let pinchStartZoom = 1;
 
 	const flushPendingPinchZoom = () => {
 		pinchZoomFrame = null;
@@ -158,7 +166,7 @@ $effect(() => {
 	const stopPinch = () => {
 		pinchActive = false;
 		pinchStartDistance = 0;
-		pinchStartZoom = zoom;
+		pinchStartZoom = 1;
 	};
 
 	const handleTouchStart = (event: TouchEvent) => {
@@ -223,9 +231,14 @@ async function loadPdfjs() {
 async function renderPdf(nextBlob: Blob) {
 	if (!browser) return;
 
-	cancelActivePdfRenderTasks();
 	pdfRenderVersion += 1;
 	const currentVersion = pdfRenderVersion;
+	cancelActivePdfRenderTasks();
+	const pendingDestroy = destroyActivePdfLoadingTask();
+	if (pendingDestroy) {
+		await pendingDestroy;
+		if (pdfRenderVersion !== currentVersion) return;
+	}
 
 	pdfDoc = null;
 	canvasRefs = [];
@@ -237,17 +250,32 @@ async function renderPdf(nextBlob: Blob) {
 	pdfDragging = false;
 	isRendering = true;
 
+	let loadingTask: PdfLoadingTask | null = null;
+
 	try {
 		const pdfjs = await loadPdfjs();
 		if (pdfRenderVersion !== currentVersion) return;
 
 		const arrayBuffer = await nextBlob.arrayBuffer();
+		if (pdfRenderVersion !== currentVersion) return;
+
 		const verbosity = pdfjs.VerbosityLevel?.ERRORS;
-		pdfDoc = await pdfjs.getDocument({
+		loadingTask = pdfjs.getDocument({
 			data: arrayBuffer,
 			...(verbosity !== undefined ? { verbosity } : {}),
-		}).promise;
-		totalPages = pdfDoc.numPages;
+		}) as PdfLoadingTask;
+		activePdfLoadingTask = loadingTask;
+
+		const nextPdfDoc = await loadingTask.promise;
+		if (
+			pdfRenderVersion !== currentVersion ||
+			activePdfLoadingTask !== loadingTask
+		) {
+			return;
+		}
+
+		pdfDoc = nextPdfDoc;
+		totalPages = nextPdfDoc.numPages;
 		canvasRefs = new Array(totalPages).fill(null);
 		currentPage = 1;
 		lastObservedPage = 1;
@@ -259,7 +287,9 @@ async function renderPdf(nextBlob: Blob) {
 		if (pdfRenderVersion !== currentVersion) return;
 
 		if (scrollContainerRef && totalPages > 0) {
-			const page = await pdfDoc.getPage(1);
+			const page = await nextPdfDoc.getPage(1);
+			if (pdfRenderVersion !== currentVersion) return;
+
 			const unscaledViewport = page.getViewport({ scale: 1.0 });
 			const containerWidth = scrollContainerRef.clientWidth - 48;
 			baseScale =
@@ -276,6 +306,12 @@ async function renderPdf(nextBlob: Blob) {
 		isRendering = false;
 		void renderRemainingPages(2, zoom, currentVersion);
 	} catch (err) {
+		if (
+			pdfRenderVersion !== currentVersion ||
+			(loadingTask && activePdfLoadingTask !== loadingTask)
+		) {
+			return;
+		}
 		const message = "Failed to render PDF file";
 		onError?.(message);
 		console.error("PDF render error:", err);
@@ -284,6 +320,20 @@ async function renderPdf(nextBlob: Blob) {
 			isRendering = false;
 		}
 	}
+}
+
+function destroyActivePdfLoadingTask(): Promise<void> | null {
+	const loadingTask = activePdfLoadingTask;
+	if (!loadingTask) return activePdfDestroyPromise;
+	activePdfLoadingTask = null;
+	const destroyPromise = loadingTask.destroy().catch(() => undefined);
+	activePdfDestroyPromise = destroyPromise;
+	void destroyPromise.finally(() => {
+		if (activePdfDestroyPromise === destroyPromise) {
+			activePdfDestroyPromise = null;
+		}
+	});
+	return destroyPromise;
 }
 
 function cancelActivePdfRenderTasks() {
@@ -381,7 +431,7 @@ async function renderPage(
 		}
 		console.error("PDF page render error:", err);
 	} finally {
-		if (renderTask) {
+		if (renderTask && activeRenderTasks.get(pageNumber) === renderTask) {
 			activeRenderTasks.delete(pageNumber);
 		}
 	}

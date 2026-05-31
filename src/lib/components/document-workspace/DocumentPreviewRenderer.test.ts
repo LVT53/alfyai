@@ -86,6 +86,33 @@ function mockPendingFetch() {
 	);
 }
 
+function deferredPreviewResponse(content: string, type = "text/plain") {
+	let resolveResponse!: (response: {
+		ok: boolean;
+		status: number;
+		blob: () => Promise<Blob>;
+	}) => void;
+	const blob = vi.fn(() => Promise.resolve(new Blob([content], { type })));
+	const responsePromise = new Promise<{
+		ok: boolean;
+		status: number;
+		blob: () => Promise<Blob>;
+	}>((resolve) => {
+		resolveResponse = resolve;
+	});
+
+	return {
+		blob,
+		responsePromise,
+		resolve: () =>
+			resolveResponse({
+				ok: true,
+				status: 200,
+				blob,
+			}),
+	};
+}
+
 describe("DocumentPreviewRenderer", () => {
 	const mockOnClose = vi.fn();
 	const createObjectURL = vi.fn(() => "blob:preview-url");
@@ -121,6 +148,7 @@ describe("DocumentPreviewRenderer", () => {
 				numPages: 1,
 				getPage: pdfMocks.getPage,
 			}),
+			destroy: vi.fn(() => Promise.resolve()),
 		}));
 		officeMocks.renderOfficePreview.mockImplementation(
 			async (adapter: { kind: string }) => {
@@ -216,6 +244,50 @@ describe("DocumentPreviewRenderer", () => {
 		expect(global.fetch).toHaveBeenCalledTimes(2);
 	});
 
+	it("keeps the selected document preview when an older load finishes late", async () => {
+		const first = deferredPreviewResponse("first document");
+		const second = deferredPreviewResponse("second document");
+		(global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+			(url: string) => {
+				if (url.includes("first-artifact")) return first.responsePromise;
+				if (url.includes("second-artifact")) return second.responsePromise;
+				throw new Error(`Unexpected preview URL: ${url}`);
+			},
+		);
+
+		const { rerender } = openPreview({
+			artifactId: "first-artifact",
+			filename: "first.txt",
+			mimeType: "text/plain",
+			onClose: mockOnClose,
+		});
+
+		await waitFor(() => {
+			expect(global.fetch).toHaveBeenCalledWith(
+				"/api/knowledge/first-artifact/preview",
+			);
+		});
+
+		await rerender({
+			artifactId: "second-artifact",
+			filename: "second.txt",
+			mimeType: "text/plain",
+		});
+		await waitFor(() => {
+			expect(global.fetch).toHaveBeenCalledWith(
+				"/api/knowledge/second-artifact/preview",
+			);
+		});
+
+		second.resolve();
+		expect(await screen.findByText("second document")).toBeInTheDocument();
+
+		first.resolve();
+		await waitFor(() => expect(first.blob).toHaveBeenCalled());
+		expect(screen.getByText("second document")).toBeInTheDocument();
+		expect(screen.queryByText("first document")).not.toBeInTheDocument();
+	});
+
 	it("maps missing files to the existing not-found state", async () => {
 		(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
 			ok: false,
@@ -225,6 +297,41 @@ describe("DocumentPreviewRenderer", () => {
 		openPreview({ onClose: mockOnClose });
 
 		expect(await screen.findByText("File not found")).toBeInTheDocument();
+	});
+
+	it("shows unavailable preview state without fetching when no preview source exists", () => {
+		openPreview({
+			artifactId: null,
+			previewUrl: null,
+			filename: "source-less.pdf",
+			mimeType: "application/pdf",
+			onClose: mockOnClose,
+		});
+
+		expect(screen.getByText("Preview not available")).toBeInTheDocument();
+		expect(
+			screen.queryByText("Preview not available for this file type"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /retry/i }),
+		).not.toBeInTheDocument();
+		expect(global.fetch).not.toHaveBeenCalled();
+	});
+
+	it("treats whitespace-only explicit preview URLs as a missing preview source", () => {
+		openPreview({
+			artifactId: null,
+			previewUrl: "   ",
+			filename: "source-less.pdf",
+			mimeType: "application/pdf",
+			onClose: mockOnClose,
+		});
+
+		expect(screen.getByText("Preview not available")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /retry/i }),
+		).not.toBeInTheDocument();
+		expect(global.fetch).not.toHaveBeenCalled();
 	});
 
 	it("renders as an embedded preview region without standalone modal chrome", () => {

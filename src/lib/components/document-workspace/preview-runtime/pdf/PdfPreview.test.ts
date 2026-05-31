@@ -30,6 +30,7 @@ vi.mock("pdfjs-dist", () => ({
 			numPages: 2,
 			getPage: mockPdfGetPage,
 		}),
+		destroy: vi.fn(async () => undefined),
 	})),
 }));
 
@@ -82,6 +83,102 @@ describe("PdfPreview", () => {
 		);
 	});
 
+	it("destroys the previous PDF loading task when the blob changes", async () => {
+		const firstDestroy = vi.fn(async () => undefined);
+		const secondDestroy = vi.fn(async () => undefined);
+		const firstLoadingPromise = new Promise<{
+			numPages: number;
+			getPage: typeof mockPdfGetPage;
+		}>(() => undefined);
+
+		vi.mocked(pdfjsLib.getDocument)
+			.mockReturnValueOnce({
+				promise: firstLoadingPromise,
+				destroy: firstDestroy,
+			} as ReturnType<typeof pdfjsLib.getDocument>)
+			.mockReturnValueOnce({
+				promise: Promise.resolve({
+					numPages: 2,
+					getPage: mockPdfGetPage,
+				}),
+				destroy: secondDestroy,
+			} as ReturnType<typeof pdfjsLib.getDocument>);
+
+		const { rerender } = render(PdfPreview, {
+			props: {
+				blob: new Blob(["%PDF-1.7 first"], { type: "application/pdf" }),
+				filename: "first.pdf",
+			},
+		});
+
+		await waitFor(() => {
+			expect(pdfjsLib.getDocument).toHaveBeenCalledTimes(1);
+		});
+
+		await rerender({
+			blob: new Blob(["%PDF-1.7 second"], { type: "application/pdf" }),
+			filename: "second.pdf",
+		});
+
+		await waitFor(() => {
+			expect(firstDestroy).toHaveBeenCalledTimes(1);
+		});
+		expect(secondDestroy).not.toHaveBeenCalled();
+	});
+
+	it("waits for the previous PDF loading task to finish destroying before starting the replacement load", async () => {
+		let finishDestroy: () => void = () => undefined;
+		const firstDestroyPromise = new Promise<void>((resolve) => {
+			finishDestroy = resolve;
+		});
+		const firstDestroy = vi.fn(() => firstDestroyPromise);
+		const firstLoadingPromise = new Promise<{
+			numPages: number;
+			getPage: typeof mockPdfGetPage;
+		}>(() => undefined);
+
+		vi.mocked(pdfjsLib.getDocument)
+			.mockReturnValueOnce({
+				promise: firstLoadingPromise,
+				destroy: firstDestroy,
+			} as ReturnType<typeof pdfjsLib.getDocument>)
+			.mockReturnValueOnce({
+				promise: Promise.resolve({
+					numPages: 2,
+					getPage: mockPdfGetPage,
+				}),
+				destroy: vi.fn(async () => undefined),
+			} as ReturnType<typeof pdfjsLib.getDocument>);
+
+		const { rerender } = render(PdfPreview, {
+			props: {
+				blob: new Blob(["%PDF-1.7 first"], { type: "application/pdf" }),
+				filename: "first.pdf",
+			},
+		});
+
+		await waitFor(() => {
+			expect(pdfjsLib.getDocument).toHaveBeenCalledTimes(1);
+		});
+
+		await rerender({
+			blob: new Blob(["%PDF-1.7 second"], { type: "application/pdf" }),
+			filename: "second.pdf",
+		});
+
+		await waitFor(() => {
+			expect(firstDestroy).toHaveBeenCalledTimes(1);
+		});
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(pdfjsLib.getDocument).toHaveBeenCalledTimes(1);
+
+		finishDestroy();
+		await waitFor(() => {
+			expect(pdfjsLib.getDocument).toHaveBeenCalledTimes(2);
+		});
+	});
+
 	it("cancels active render tasks and re-renders when zoom changes", async () => {
 		let rejectSlowRender: (error: Error) => void = () => undefined;
 		const slowRenderPromise = new Promise<void>((_, reject) => {
@@ -116,6 +213,56 @@ describe("PdfPreview", () => {
 			);
 		});
 		expect(screen.getByLabelText("Reset zoom")).toHaveTextContent("125%");
+	});
+
+	it("keeps the latest page render cancellable when an older canceled render settles late", async () => {
+		let rejectFirstRender: (error: Error) => void = () => undefined;
+		const firstRenderPromise = new Promise<void>((_, reject) => {
+			rejectFirstRender = reject;
+		});
+		const secondRenderPromise = new Promise<void>(() => undefined);
+		const firstRenderCancel = vi.fn();
+		const secondRenderCancel = vi.fn();
+
+		mockPdfRender
+			.mockImplementationOnce(() => ({
+				promise: firstRenderPromise,
+				cancel: firstRenderCancel,
+			}))
+			.mockImplementationOnce(() => ({
+				promise: secondRenderPromise,
+				cancel: secondRenderCancel,
+			}));
+
+		render(PdfPreview, {
+			props: {
+				blob: new Blob(["%PDF-1.7 rapid zoom"], {
+					type: "application/pdf",
+				}),
+				filename: "rapid-zoom.pdf",
+			},
+		});
+
+		const zoomIn = await screen.findByLabelText("Zoom in");
+		await waitFor(() => {
+			expect(mockPdfRender).toHaveBeenCalledTimes(1);
+		});
+
+		await fireEvent.click(zoomIn);
+		await waitFor(() => {
+			expect(firstRenderCancel).toHaveBeenCalled();
+			expect(mockPdfRender).toHaveBeenCalledTimes(2);
+		});
+
+		rejectFirstRender(new Error("cancelled"));
+		await waitFor(() => {
+			expect(screen.getByLabelText("Reset zoom")).toHaveTextContent("125%");
+		});
+
+		await fireEvent.click(zoomIn);
+		await waitFor(() => {
+			expect(secondRenderCancel).toHaveBeenCalled();
+		});
 	});
 
 	it("sizes canvases for the device pixel ratio while rendering at logical viewport size", async () => {
@@ -341,6 +488,61 @@ describe("PdfPreview", () => {
 		expect(preventDefault).toHaveBeenCalled();
 		await waitFor(() => {
 			expect(screen.getByLabelText("Reset zoom")).toHaveTextContent("150%");
+		});
+	});
+
+	it("keeps a continuous pinch gesture active across multiple zoom frames", async () => {
+		render(PdfPreview, {
+			props: {
+				blob: new Blob(["%PDF-1.7 continuous pinch"], {
+					type: "application/pdf",
+				}),
+				filename: "continuous-pinch.pdf",
+			},
+		});
+
+		const scrollRegion = await screen.findByTestId("pdf-scroll-region");
+		const touchStart = new Event("touchstart", {
+			bubbles: true,
+			cancelable: true,
+		});
+		Object.defineProperty(touchStart, "touches", {
+			value: [
+				{ clientX: 0, clientY: 0 },
+				{ clientX: 100, clientY: 0 },
+			],
+		});
+		scrollRegion.dispatchEvent(touchStart);
+
+		const firstTouchMove = new Event("touchmove", {
+			bubbles: true,
+			cancelable: true,
+		});
+		Object.defineProperty(firstTouchMove, "touches", {
+			value: [
+				{ clientX: 0, clientY: 0 },
+				{ clientX: 150, clientY: 0 },
+			],
+		});
+		scrollRegion.dispatchEvent(firstTouchMove);
+		await waitFor(() => {
+			expect(screen.getByLabelText("Reset zoom")).toHaveTextContent("150%");
+		});
+
+		const secondTouchMove = new Event("touchmove", {
+			bubbles: true,
+			cancelable: true,
+		});
+		Object.defineProperty(secondTouchMove, "touches", {
+			value: [
+				{ clientX: 0, clientY: 0 },
+				{ clientX: 200, clientY: 0 },
+			],
+		});
+		scrollRegion.dispatchEvent(secondTouchMove);
+
+		await waitFor(() => {
+			expect(screen.getByLabelText("Reset zoom")).toHaveTextContent("200%");
 		});
 	});
 

@@ -135,8 +135,9 @@ export function buildStaticHtmlPreviewSrcdoc(content: string): string {
 		allowStyleAttributes: true,
 	});
 	const safeCss = sanitizeLocalCss(css);
+	const safeHtmlWithSafeInlineStyles = sanitizeInlineStyleAttributes(safeHtml);
 	const styleBlock = safeCss ? `<style>${safeCss}</style>` : "";
-	return `<!doctype html><html><head><base target="_blank"><meta charset="utf-8">${styleBlock}</head><body>${safeHtml}</body></html>`;
+	return `<!doctype html><html><head><base target="_blank"><meta charset="utf-8">${styleBlock}</head><body>${safeHtmlWithSafeInlineStyles}</body></html>`;
 }
 
 export function extractLocalStyleBlocks(content: string): {
@@ -157,9 +158,32 @@ export function extractLocalStyleBlocks(content: string): {
 export function sanitizeLocalCss(css: string): string {
 	return css
 		.replace(/@import[^;]+;?/gi, "")
+		.replace(/(?:-webkit-)?image-set\s*\([^)]*\)/gi, "none")
 		.replace(/url\s*\([^)]*\)/gi, "none")
 		.replace(/expression\s*\([^)]*\)/gi, "")
 		.replace(/javascript:/gi, "")
 		.replace(/[<>]/g, "")
 		.trim();
+}
+
+function sanitizeInlineStyleAttributes(html: string): string {
+	if (!html.includes("style=") || typeof document === "undefined") {
+		return html;
+	}
+
+	const template = document.createElement("template");
+	template.innerHTML = html;
+
+	for (const element of template.content.querySelectorAll<HTMLElement>(
+		"[style]",
+	)) {
+		const safeStyle = sanitizeLocalCss(element.getAttribute("style") ?? "");
+		if (safeStyle) {
+			element.setAttribute("style", safeStyle);
+		} else {
+			element.removeAttribute("style");
+		}
+	}
+
+	return template.innerHTML;
 }

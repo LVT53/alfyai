@@ -71,13 +71,20 @@ export async function renderXlsxPreview(
 			const sheetName = worksheet.name || `Sheet ${sheetId}`;
 			html += `<div class="sheet"><h4>${escapeHtml(sheetName)}</h4><table class="xlsx-table">`;
 
-			worksheet.eachRow((row) => {
+			const columnCount = worksheet.columnCount;
+			for (let rowNumber = 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+				const row = worksheet.getRow(rowNumber);
 				html += "<tr>";
-				row.eachCell((cell) => {
+				for (
+					let columnNumber = 1;
+					columnNumber <= columnCount;
+					columnNumber += 1
+				) {
+					const cell = row.getCell(columnNumber);
 					html += `<td>${escapeHtml(formatXlsxCellForPreview(cell))}</td>`;
-				});
+				}
 				html += "</tr>";
-			});
+			}
 
 			html += "</table></div>";
 		});
@@ -290,9 +297,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
+function formatXlsxDateForPreview(value: Date): string {
+	const year = value.getUTCFullYear();
+	const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+	const day = String(value.getUTCDate()).padStart(2, "0");
+	return `${year}-${month}-${day}`;
+}
+
 export function formatXlsxCellValueForPreview(value: unknown): string {
 	if (value == null) return "";
-	if (value instanceof Date) return value.toISOString().slice(0, 10);
+	if (value instanceof Date) return formatXlsxDateForPreview(value);
 	if (typeof value === "string") return value;
 	if (
 		typeof value === "number" ||
@@ -337,6 +351,12 @@ export function formatXlsxCellValueForPreview(value: unknown): string {
 }
 
 export function formatXlsxCellForPreview(cell: XlsxCellLike): string {
+	if (cell.result instanceof Date) {
+		return formatXlsxCellValueForPreview(cell.result);
+	}
+	if (cell.value instanceof Date) {
+		return formatXlsxCellValueForPreview(cell.value);
+	}
 	if (
 		typeof cell.text === "string" &&
 		cell.text.trim() &&

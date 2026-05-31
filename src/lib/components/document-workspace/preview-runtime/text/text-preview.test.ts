@@ -93,4 +93,28 @@ describe("text preview adapter", () => {
 		expect(srcdoc).not.toContain("javascript:");
 		expect(srcdoc).not.toContain('content: "<"');
 	});
+
+	it("applies the local CSS sanitizer to inline style attributes", () => {
+		const srcdoc = buildStaticHtmlPreviewSrcdoc(`
+			<p style="color: blue; background-image: url('https://evil.test/track.png'); width: expression(alert(1));">Preview</p>
+		`);
+
+		expect(srcdoc).toContain("color: blue");
+		expect(srcdoc).not.toContain("https://evil.test");
+		expect(srcdoc).not.toContain("url(");
+		expect(srcdoc).not.toContain("expression");
+	});
+
+	it("removes image-set resource loads from local CSS and inline styles", () => {
+		const srcdoc = buildStaticHtmlPreviewSrcdoc(`
+			<style>
+				body { background-image: image-set("https://evil.test/a.png" 1x); }
+			</style>
+			<p style="background-image: -webkit-image-set('https://evil.test/b.png' 1x); color: green;">Preview</p>
+		`);
+
+		expect(srcdoc).toContain("color: green");
+		expect(srcdoc).not.toContain("image-set");
+		expect(srcdoc).not.toContain("https://evil.test");
+	});
 });

@@ -53,6 +53,93 @@ describe("DocumentWorkspace", () => {
 		});
 	});
 
+	it("loads one embedded preview for the active workspace document", async () => {
+		(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+			ok: true,
+			blob: () =>
+				Promise.resolve(new Blob(["workspace notes"], { type: "text/plain" })),
+		});
+
+		render(DocumentWorkspace, {
+			props: {
+				open: true,
+				documents: [
+					{
+						id: "generated-file-1",
+						source: "chat_generated_file",
+						filename: "workspace-notes.txt",
+						title: "Workspace notes",
+						mimeType: "text/plain",
+						artifactId: null,
+						previewUrl: "/api/chat/files/generated-file-1/preview",
+					},
+				],
+				availableDocuments: [],
+				activeDocumentId: "generated-file-1",
+				onSelectDocument: vi.fn(),
+				onOpenDocument: vi.fn(),
+				onCloseDocument: vi.fn(),
+				onCloseWorkspace: vi.fn(),
+			},
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("workspace notes")).toBeInTheDocument();
+		});
+
+		expect(
+			screen.getAllByRole("region", { name: "workspace-notes.txt" }),
+		).toHaveLength(1);
+		expect(global.fetch).toHaveBeenCalledTimes(1);
+		expect(global.fetch).toHaveBeenCalledWith(
+			"/api/chat/files/generated-file-1/preview",
+		);
+	});
+
+	it("reopens a source-less workspace document without stale preview fetches", async () => {
+		const sourceLessDocument = {
+			id: "source-less-document",
+			source: "chat_generated_file" as const,
+			filename: "source-less.pdf",
+			title: "Source-less PDF",
+			mimeType: "application/pdf",
+			artifactId: null,
+			previewUrl: null,
+		};
+
+		const { rerender } = render(DocumentWorkspace, {
+			props: {
+				open: true,
+				documents: [sourceLessDocument],
+				availableDocuments: [],
+				activeDocumentId: "source-less-document",
+				onSelectDocument: vi.fn(),
+				onOpenDocument: vi.fn(),
+				onCloseDocument: vi.fn(),
+				onCloseWorkspace: vi.fn(),
+			},
+		});
+
+		await waitFor(() => {
+			expect(screen.getAllByText("Preview not available")).toHaveLength(1);
+		});
+		expect(global.fetch).not.toHaveBeenCalled();
+
+		await rerender({ open: false, documents: [], activeDocumentId: null });
+		expect(screen.queryByText("Preview not available")).not.toBeInTheDocument();
+
+		await rerender({
+			open: true,
+			documents: [sourceLessDocument],
+			activeDocumentId: "source-less-document",
+		});
+
+		await waitFor(() => {
+			expect(screen.getAllByText("Preview not available")).toHaveLength(1);
+		});
+		expect(global.fetch).not.toHaveBeenCalled();
+	});
+
 	it("requests expanded presentation instead of opening a separate viewer", async () => {
 		const onPresentationChange = vi.fn();
 

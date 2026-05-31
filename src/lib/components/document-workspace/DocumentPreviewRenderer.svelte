@@ -7,6 +7,7 @@ import { tick } from "svelte";
 import DocumentPreviewToolbar from "./DocumentPreviewToolbar.svelte";
 import {
 	loadPreviewRuntime,
+	resolvePreviewSourceUrl,
 	type PreviewRuntimeAdapter,
 } from "./preview-runtime";
 import ImagePreview from "./preview-runtime/image/ImagePreview.svelte";
@@ -53,10 +54,24 @@ let isLoading = $state(false);
 let error = $state<string | null>(null);
 let fileType = $state<PreviewFileType>("unsupported");
 let officePreviewRef = $state<HTMLDivElement | null>(null);
+let missingPreviewSource = $state(false);
+let previewLoadToken = 0;
 
 $effect(() => {
-	if (open && (artifactId || previewUrl)) {
-		void fetchFile();
+	const previewSourceUrl = resolvePreviewSourceUrl({ artifactId, previewUrl });
+	if (open && previewSourceUrl) {
+		startPreviewLoad();
+		return () => {
+			invalidatePreviewLoad();
+		};
+	}
+
+	invalidatePreviewLoad();
+	resetPreviewState();
+	isLoading = false;
+
+	if (open) {
+		missingPreviewSource = true;
 	}
 });
 
@@ -95,11 +110,25 @@ function resetPreviewState() {
 	officePreview = null;
 	error = null;
 	fileType = "unsupported";
+	missingPreviewSource = false;
 	currentPage = 1;
 	totalPages = 0;
 }
 
-async function fetchFile() {
+function invalidatePreviewLoad() {
+	previewLoadToken += 1;
+}
+
+function startPreviewLoad() {
+	const loadToken = ++previewLoadToken;
+	void fetchFile(loadToken);
+}
+
+function isStalePreviewLoad(loadToken: number): boolean {
+	return loadToken !== previewLoadToken;
+}
+
+async function fetchFile(loadToken: number) {
 	isLoading = true;
 	resetPreviewState();
 
@@ -111,6 +140,8 @@ async function fetchFile() {
 			mimeType,
 		});
 
+		if (isStalePreviewLoad(loadToken)) return;
+
 		if (result.status === "error") {
 			throw new Error(result.error);
 		}
@@ -120,14 +151,17 @@ async function fetchFile() {
 		fileType = result.fileType;
 
 		if (result.adapter.kind === "text" || result.adapter.kind === "html") {
-			textPreview = await renderTextPreview(result.adapter, {
+			const renderedText = await renderTextPreview(result.adapter, {
 				isDark: isDarkTheme(),
 			});
+			if (isStalePreviewLoad(loadToken)) return;
+			textPreview = renderedText;
 			return;
 		}
 
 		if (isOfficeAdapter(result.adapter)) {
 			const renderedOffice = await renderOfficePreview(result.adapter);
+			if (isStalePreviewLoad(loadToken)) return;
 			if (renderedOffice.status === "error") {
 				throw new Error(renderedOffice.error);
 			}
@@ -138,9 +172,12 @@ async function fetchFile() {
 			}
 		}
 	} catch (err) {
+		if (isStalePreviewLoad(loadToken)) return;
 		error = err instanceof Error ? err.message : "Failed to load file";
 	} finally {
-		isLoading = false;
+		if (!isStalePreviewLoad(loadToken)) {
+			isLoading = false;
+		}
 	}
 }
 
@@ -204,10 +241,17 @@ function downloadFile() {
 						<button
 							type="button"
 							class="btn-secondary text-sm mt-2"
-							onclick={() => void fetchFile()}
+							onclick={startPreviewLoad}
 						>
 							{$t("filePreview.retry")}
 						</button>
+					</div>
+				{:else if missingPreviewSource}
+					<div class="m-6 rounded-[1.2rem] border border-dashed border-border bg-surface-page px-6 py-8 text-center">
+						<svg class="mx-auto mb-3 text-icon-muted" xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
+						</svg>
+						<p class="text-sm text-text-muted">{$t("filePreview.notAvailable")}</p>
 					</div>
 				{:else if fileType === "unsupported"}
 					<div class="m-6 rounded-[1.2rem] border border-dashed border-border bg-surface-page px-6 py-8 text-center">

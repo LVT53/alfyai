@@ -91,6 +91,69 @@ describe("office preview adapter", () => {
 		expect(result.html).toContain("<td>Rich Text</td>");
 	});
 
+	it("preserves empty XLSX cells so sparse sheet columns do not shift", async () => {
+		const ExcelJS = await import("exceljs");
+		const workbook = new ExcelJS.Workbook();
+		const worksheet = workbook.addWorksheet("Sparse");
+		worksheet.getCell("A1").value = "Left";
+		worksheet.getCell("C1").value = "Right";
+
+		const buffer = await workbook.xlsx.writeBuffer();
+		const result = await renderXlsxPreview(new Blob([buffer as BlobPart]));
+
+		expect(result.status).toBe("ready");
+		if (result.status !== "ready") return;
+		expect(result.html).toContain(
+			"<tr><td>Left</td><td></td><td>Right</td></tr>",
+		);
+	});
+
+	it("preserves empty XLSX rows so sparse sheet rows do not shift", async () => {
+		const ExcelJS = await import("exceljs");
+		const workbook = new ExcelJS.Workbook();
+		const worksheet = workbook.addWorksheet("Sparse Rows");
+		worksheet.getCell("A1").value = "Top";
+		worksheet.getCell("A3").value = "Bottom";
+
+		const buffer = await workbook.xlsx.writeBuffer();
+		const result = await renderXlsxPreview(new Blob([buffer as BlobPart]));
+
+		expect(result.status).toBe("ready");
+		if (result.status !== "ready") return;
+		expect(result.html).toContain(
+			"<tr><td>Top</td></tr><tr><td></td></tr><tr><td>Bottom</td></tr>",
+		);
+	});
+
+	it("renders XLSX date cells with stable preview formatting", async () => {
+		const ExcelJS = await import("exceljs");
+		const workbook = new ExcelJS.Workbook();
+		const worksheet = workbook.addWorksheet("Dates");
+		worksheet.getCell("A1").value = new Date(Date.UTC(2026, 4, 31));
+
+		const buffer = await workbook.xlsx.writeBuffer();
+		const result = await renderXlsxPreview(new Blob([buffer as BlobPart]));
+
+		expect(result.status).toBe("ready");
+		if (result.status !== "ready") return;
+		expect(result.html).toContain("<td>2026-05-31</td>");
+	});
+
+	it("renders XLSX date serials by workbook calendar day instead of local timezone", async () => {
+		const ExcelJS = await import("exceljs");
+		const workbook = new ExcelJS.Workbook();
+		const worksheet = workbook.addWorksheet("Date Serials");
+		worksheet.getCell("A1").value = new Date(Date.UTC(2026, 4, 30, 22));
+		worksheet.getCell("A1").numFmt = "yyyy-mm-dd";
+
+		const buffer = await workbook.xlsx.writeBuffer();
+		const result = await renderXlsxPreview(new Blob([buffer as BlobPart]));
+
+		expect(result.status).toBe("ready");
+		if (result.status !== "ready") return;
+		expect(result.html).toContain("<td>2026-05-30</td>");
+	});
+
 	it("renders ODT content.xml with escaped text and document-root fallback", async () => {
 		const JSZip = (await import("jszip")).default;
 		const zip = new JSZip();
