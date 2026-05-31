@@ -1,5 +1,4 @@
 import { getConversationCostSummary } from "$lib/server/services/analytics";
-import { getChatFiles } from "$lib/server/services/chat-files";
 import { buildContextSourcesState } from "$lib/server/services/chat-turn/context-sources";
 import {
 	listContextCompressionSnapshots,
@@ -12,7 +11,10 @@ import {
 } from "$lib/server/services/conversation-forks";
 import { getConversation } from "$lib/server/services/conversations";
 import { listConversationDeepResearchJobs } from "$lib/server/services/deep-research";
-import { listConversationFileProductionJobs } from "$lib/server/services/file-production/read-model";
+import {
+	listConversationFileProductionJobs,
+	listConversationGeneratedFiles,
+} from "$lib/server/services/file-production/read-model";
 import {
 	getConversationContextStatus,
 	getConversationWorkingSet,
@@ -102,7 +104,7 @@ export async function getConversationDetail({
 		getConversationTaskState(userId, conversationId),
 		getContextDebugState(userId, conversationId),
 		getConversationDraft(userId, conversationId),
-		getChatFiles(conversationId),
+		listConversationGeneratedFiles(conversationId),
 		listConversationFileProductionJobs(userId, conversationId),
 		listConversationDeepResearchJobs(userId, conversationId),
 		listContextCompressionSnapshots(conversationId),

@@ -25,7 +25,7 @@ Routes are thin adapters. Page routes render UI; API routes expose endpoints. Du
 api/                   # API endpoints
   auth/                # Login, logout
   avatar/              # User avatar
-  chat/                # Send, stream, retry, stop, file generation, export
+  chat/                # Send, stream, retry, stop, file production
   conversations/       # CRUD, title, draft, messages, evidence, context-status, task-steering
   knowledge/           # Upload, search, documents, memory, actions
   admin/               # Config, users, sessions, honcho
@@ -55,10 +55,11 @@ logout/                # Logout page
 | `api/chat/stream/status/+server.ts` | Stream capacity/status check |
 | `api/chat/retry/+server.ts` | Retry failed turns |
 | `api/chat/stream/stop/+server.ts` | Explicit user stop |
-| `api/chat/files/generate/+server.ts` | File generation |
+| `api/chat/files/produce/+server.ts` | File-production intake |
+| `api/chat/files/jobs/[id]/retry/+server.ts` | Retry file-production job |
+| `api/chat/files/jobs/[id]/cancel/+server.ts` | Cancel file-production job |
 | `api/chat/files/[id]/preview/+server.ts` | Generated file preview |
 | `api/chat/files/[id]/download/+server.ts` | Generated file download |
-| `api/chat/files/export/+server.ts` | Conversation file export |
 | `api/conversations/[id]/+server.ts` | Conversation detail CRUD adapter; GET delegates to `conversation-detail/read-model` |
 | `api/conversations/[id]/context-status/+server.ts` | Conversation context status |
 | `api/conversations/[id]/task-steering/+server.ts` | Task steering |

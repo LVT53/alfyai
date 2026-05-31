@@ -10,12 +10,13 @@ import {
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async (event) => {
+	requireAuth(event);
+	const user = event.locals.user;
+	if (!user) {
+		return json({ error: "Unauthorized" }, { status: 401 });
+	}
+
 	try {
-		requireAuth(event);
-		const user = event.locals.user;
-		if (!user) {
-			return json({ error: "Unauthorized" }, { status: 401 });
-		}
 		const { id } = event.params;
 		const view =
 			event.url.searchParams.get("view") === "bootstrap"

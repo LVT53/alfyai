@@ -238,6 +238,51 @@ describe("researchWeb", () => {
 		);
 	});
 
+	it("keeps provider failure context when another configured provider returns no results", async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = input.toString();
+			if (url === "https://api.exa.ai/search") {
+				return new Response(
+					JSON.stringify({ error: "temporary Exa provider failure" }),
+					{ status: 500, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+				return new Response(JSON.stringify({ web: { results: [] } }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+
+		const result = await researchWeb(
+			{
+				query: "SvelteKit official documentation",
+				mode: "quick",
+				sourcePolicy: "technical",
+				maxSources: 3,
+			},
+			{
+				config: webConfig,
+				fetch: fetchMock,
+				now: new Date("2026-05-02T12:00:00.000Z"),
+			},
+		);
+
+		expect(result.sources).toHaveLength(0);
+		expect(result.diagnostics.providerCalls.some((call) => call.error)).toBe(
+			true,
+		);
+		expect(result.diagnostics.providerCalls.some((call) => !call.error)).toBe(
+			true,
+		);
+		expect(result.diagnostics.fallbackReasons).toContain(
+			"provider_search_failed",
+		);
+		expect(result.diagnostics.fallbackReasons).toContain("no_search_results");
+	});
+
 	it("fuses Exa and Brave results, opens selected pages, and reranks evidence chunks", async () => {
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {

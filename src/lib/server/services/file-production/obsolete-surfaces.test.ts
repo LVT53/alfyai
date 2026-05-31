@@ -25,6 +25,8 @@ const obsoleteText = [
 	"export_document",
 	"createPDF",
 	"create-pdf",
+	"api/chat/files/generate",
+	"api/chat/files/export",
 	"/api/chat/files/generate",
 	"/api/chat/files/export",
 	"ChatGeneratedFileListItem",
@@ -231,6 +233,17 @@ describe("obsolete file-generation surfaces", () => {
 		expect(conversationDetailReadModel).toContain(
 			"$lib/server/services/file-production/read-model",
 		);
+		expect(conversationDetailReadModel).toContain(
+			"listConversationGeneratedFiles",
+		);
+		expect(conversationDetailReadModel).not.toContain(
+			"$lib/server/services/chat-files",
+		);
+		expect(readModel).toContain(
+			"export async function listConversationGeneratedFiles",
+		);
+		expect(readModel).toContain("function mapChatFileToGeneratedFile");
+		expect(readModel).toMatch(/\.map\(\s*mapChatFileToGeneratedFile,\s*\)/);
 		expect(readModel).toContain(
 			"export async function listConversationFileProductionJobs",
 		);

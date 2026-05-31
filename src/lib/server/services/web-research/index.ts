@@ -1641,13 +1641,17 @@ export async function researchWeb(
 	if (selectedSources.length === 0) {
 		if (enabledProviders.length === 0 && directUrlSources.length === 0) {
 			diagnostics.fallbackReasons.push("web_research_not_configured");
-		} else if (
-			diagnostics.providerCalls.length > 0 &&
-			diagnostics.providerCalls.every((call) => Boolean(call.error))
-		) {
-			diagnostics.fallbackReasons.push("provider_search_failed");
 		} else {
-			diagnostics.fallbackReasons.push("no_search_results");
+			const providerCallCount = diagnostics.providerCalls.length;
+			const providerFailureCount = diagnostics.providerCalls.filter((call) =>
+				Boolean(call.error),
+			).length;
+			if (providerFailureCount > 0) {
+				diagnostics.fallbackReasons.push("provider_search_failed");
+			}
+			if (providerFailureCount < providerCallCount) {
+				diagnostics.fallbackReasons.push("no_search_results");
+			}
 		}
 	}
 

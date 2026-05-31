@@ -8,7 +8,7 @@ import {
 } from "$lib/server/db/schema";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 import { parseJsonRecord } from "$lib/server/utils/json";
-import type { FileProductionJob } from "$lib/types";
+import type { ChatGeneratedFile, FileProductionJob } from "$lib/types";
 
 const GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY =
 	"generatedDocumentRenderedChatFileIds";
@@ -217,6 +217,37 @@ async function listConversationReadModelChatFiles(
 			artifactIdsByChatFile.get(row.id)?.originAssistantMessageId ?? null,
 		sourceChatFileId: artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
 	}));
+}
+
+function mapChatFileToGeneratedFile(
+	file: ReadModelChatFile,
+): ChatGeneratedFile {
+	return {
+		id: file.id,
+		conversationId: file.conversationId,
+		assistantMessageId: file.assistantMessageId,
+		artifactId: file.artifactId,
+		documentFamilyId: file.documentFamilyId,
+		documentFamilyStatus: file.documentFamilyStatus,
+		documentLabel: file.documentLabel,
+		documentRole: file.documentRole,
+		versionNumber: file.versionNumber,
+		originConversationId: file.originConversationId,
+		originAssistantMessageId: file.originAssistantMessageId,
+		sourceChatFileId: file.sourceChatFileId,
+		filename: file.filename,
+		mimeType: file.mimeType,
+		sizeBytes: file.sizeBytes,
+		createdAt: file.createdAt,
+	};
+}
+
+export async function listConversationGeneratedFiles(
+	conversationId: string,
+): Promise<ChatGeneratedFile[]> {
+	return (await listConversationReadModelChatFiles(conversationId)).map(
+		mapChatFileToGeneratedFile,
+	);
 }
 
 async function getReadModelChatFilesByIdsForConversation(

@@ -150,7 +150,6 @@ class WebResearchToolComponent(Component):
                 continue
             compact_source = {
                 "ref": source.get("ref") or f"S{index + 1}",
-                "id": source.get("id") or source.get("sourceId"),
                 "title": cls._truncate_text(source.get("title"), MODEL_SOURCE_TITLE_MAX_CHARS),
                 "url": cls._truncate_text(source.get("url"), MODEL_URL_MAX_CHARS),
                 "provider": source.get("provider"),
@@ -177,9 +176,7 @@ class WebResearchToolComponent(Component):
                 continue
             compact_item = {
                 "ref": item.get("ref") or f"E{index + 1}",
-                "id": item.get("id") or item.get("evidenceId"),
                 "sourceRef": item.get("sourceRef"),
-                "sourceId": item.get("sourceId"),
                 "title": cls._truncate_text(item.get("title"), MODEL_SOURCE_TITLE_MAX_CHARS),
                 "url": cls._truncate_text(item.get("url"), MODEL_URL_MAX_CHARS),
                 "quote": cls._truncate_text(item.get("quote"), MODEL_EVIDENCE_QUOTE_MAX_CHARS),

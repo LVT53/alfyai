@@ -88,6 +88,18 @@ describe("GET /api/conversations/[id]", () => {
 		expect(mockGetConversationDetail).not.toHaveBeenCalled();
 	});
 
+	it("propagates authentication redirects instead of treating them as detail read failures", async () => {
+		mockRequireAuth.mockImplementation(() => {
+			throw { status: 302, location: "/login" };
+		});
+
+		await expect(GET(makeEvent(null))).rejects.toMatchObject({
+			status: 302,
+			location: "/login",
+		});
+		expect(mockGetConversationDetail).not.toHaveBeenCalled();
+	});
+
 	it("delegates full detail loading to the read model", async () => {
 		const response = await GET(makeEvent());
 		const data = await response.json();

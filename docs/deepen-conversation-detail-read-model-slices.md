@@ -4,9 +4,9 @@ Source: `/private/var/folders/6c/llmb9__97ngcxtc26hvg8jzh0000gn/T/architecture-r
 
 ## Context
 
-The current conversation detail route assembles the full chat hydration payload directly in `src/routes/api/conversations/[id]/+server.ts`. That route currently knows the bootstrap payload, full payload shape, messages plus child-fork hydration, attached artifacts, working set, context status/debug, Context Sources, task state continuity, draft, legacy generated files, File Production jobs, Deep Research jobs, context compression snapshots, cost totals, project reference fallback behavior, and active Skill Session serialization.
+Before commit `23b3e628`, the conversation detail route assembled the full chat hydration payload directly in `src/routes/api/conversations/[id]/+server.ts`. That route knew the bootstrap payload, full payload shape, messages plus child-fork hydration, attached artifacts, working set, context status/debug, Context Sources, task state continuity, draft, legacy generated files, File Production jobs, Deep Research jobs, context compression snapshots, cost totals, project reference fallback behavior, and active Skill Session serialization.
 
-The architecture target is to move that recipe behind one server read-model module so route adapters stay thin and payload evolution has one owner. The chat page load and browser hydration should keep consuming the same stable `ConversationDetail` contract.
+The architecture target was to move that recipe behind one server read-model module so route adapters stay thin and payload evolution has one owner. At HEAD `b7691557`, `src/routes/api/conversations/[id]/+server.ts` delegates GET payload assembly to `getConversationDetail(...)` in `src/lib/server/services/conversation-detail/read-model.ts`, and the chat page load and browser hydration keep consuming the same stable `ConversationDetail` contract.
 
 Docs checked before planning:
 
@@ -16,6 +16,8 @@ Docs checked before planning:
 - The dedicated Svelte MCP docs tool is not exposed in this session, so Context7's official SvelteKit docs are the fallback docs source.
 
 ## Done Criteria
+
+Status: satisfied by commit `23b3e628` and still consistent at HEAD `b7691557`.
 
 - `src/routes/api/conversations/[id]/+server.ts` remains a thin adapter for GET/PATCH/DELETE; GET authenticates, delegates conversation detail assembly to a read-model module, maps not-found to 404, and returns JSON.
 - A Conversation Detail Read Model deep module owns bootstrap and full conversation detail assembly, including defaults, fallbacks, child-fork message decoration, task-state continuity attachment, Context Sources construction, snapshot serialization, and active Skill Session public serialization.
@@ -32,7 +34,9 @@ Type: AFK
 
 Blocked by: None
 
-What to build:
+Status: Completed in commit `23b3e628`.
+
+Original work to build:
 
 Move bootstrap and full conversation detail assembly from the GET route into a dedicated Conversation Detail Read Model service. The route should call the read model with `userId`, `conversationId`, and `view`, then return its payload or a 404. The read model should preserve the existing `ConversationDetail` contract and all current fallback/default behavior.
 
@@ -56,7 +60,9 @@ Type: AFK
 
 Blocked by: Slice 1
 
-What to build:
+Status: Completed in commit `23b3e628`.
+
+Original work to build:
 
 Update the route and page tests so they reflect the new boundary. Route tests should no longer duplicate the full read-model dependency graph through mocks. Page-load and client API tests should keep guarding the stable `ConversationDetail` payload contract from the browser side.
 
@@ -78,9 +84,11 @@ Type: AFK
 
 Blocked by: Slice 2
 
-What to build:
+Status: Completed in commit `23b3e628`.
 
-Record Conversation Detail Read Model as a first-class deep module in project docs and remove stale code/test leftovers from the old route-local implementation. Update the architecture review HTML section from `in-process` to finished only after implementation and verification pass.
+Original work to build:
+
+Record Conversation Detail Read Model as a first-class deep module in project docs and remove stale code/test leftovers from the old route-local implementation. The architecture review HTML section was eligible to move from `in-process` to finished only after implementation and verification passed.
 
 Acceptance criteria:
 
@@ -96,16 +104,16 @@ Suggested verification:
 - `rg "buildContextSourcesState|listConversationFileProductionJobs|getConversationTaskState|listMessages|serializePublicSkillSession" 'src/routes/api/conversations/[id]/+server.ts'`
 - `rg "Conversation Detail Read Model|conversation-detail/read-model" CONTEXT.md docs/adr AGENTS.md src/routes/AGENTS.md`
 
-## Final Verification
+## Recorded Implementation Verification
 
-Run after all slices are integrated:
+The implementation record for commit `23b3e628` and the finished architecture-review section report these checks as passed:
 
 - `npm run check`
 - `npm run test:unit`
 - `npm run build`
 - `git status --short --branch`
 
-Remote live verification after local checks:
+The implementation record also reports this remote live verification:
 
 - Commit and push `dev`, fast-forward `main`, and push `main`.
 - Deploy on `alfydesign` with `./scripts/deploy.sh`.

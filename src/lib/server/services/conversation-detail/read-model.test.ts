@@ -46,11 +46,8 @@ vi.mock("$lib/server/services/task-state", () => ({
 	getProjectReferenceContext: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/chat-files", () => ({
-	getChatFiles: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/file-production/read-model", () => ({
+	listConversationGeneratedFiles: vi.fn(),
 	listConversationFileProductionJobs: vi.fn(),
 }));
 
@@ -86,7 +83,6 @@ vi.mock("$lib/server/services/analytics", () => ({
 }));
 
 import { getConversationCostSummary } from "$lib/server/services/analytics";
-import { getChatFiles } from "$lib/server/services/chat-files";
 import {
 	listContextCompressionSnapshots,
 } from "$lib/server/services/context-compression";
@@ -97,7 +93,10 @@ import {
 } from "$lib/server/services/conversation-forks";
 import { getConversation } from "$lib/server/services/conversations";
 import { listConversationDeepResearchJobs } from "$lib/server/services/deep-research";
-import { listConversationFileProductionJobs } from "$lib/server/services/file-production/read-model";
+import {
+	listConversationFileProductionJobs,
+	listConversationGeneratedFiles,
+} from "$lib/server/services/file-production/read-model";
 import {
 	getConversationContextStatus,
 	getConversationWorkingSet,
@@ -130,7 +129,9 @@ const mockGetConversationTaskState = vi.mocked(getConversationTaskState);
 const mockGetContextDebugState = vi.mocked(getContextDebugState);
 const mockAttachContinuityToTaskState = vi.mocked(attachContinuityToTaskState);
 const mockGetProjectReferenceContext = vi.mocked(getProjectReferenceContext);
-const mockGetChatFiles = vi.mocked(getChatFiles);
+const mockListConversationGeneratedFiles = vi.mocked(
+	listConversationGeneratedFiles,
+);
 const mockListConversationFileProductionJobs = vi.mocked(
 	listConversationFileProductionJobs,
 );
@@ -194,7 +195,7 @@ describe("Conversation Detail Read Model", () => {
 			async (_userId: string, taskState: unknown) => taskState,
 		);
 		mockGetProjectReferenceContext.mockResolvedValue(null);
-		mockGetChatFiles.mockResolvedValue([]);
+		mockListConversationGeneratedFiles.mockResolvedValue([]);
 		mockListConversationFileProductionJobs.mockResolvedValue([]);
 		mockListConversationDeepResearchJobs.mockResolvedValue([]);
 		mockListContextCompressionSnapshots.mockResolvedValue([]);
@@ -218,7 +219,7 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockListMessages).not.toHaveBeenCalled();
 		expect(mockListConversationArtifacts).not.toHaveBeenCalled();
 		expect(mockGetConversationTaskState).not.toHaveBeenCalled();
-		expect(mockGetChatFiles).not.toHaveBeenCalled();
+		expect(mockListConversationGeneratedFiles).not.toHaveBeenCalled();
 		expect(mockListConversationFileProductionJobs).not.toHaveBeenCalled();
 		expect(mockListConversationDeepResearchJobs).not.toHaveBeenCalled();
 		expect(mockListContextCompressionSnapshots).not.toHaveBeenCalled();
@@ -298,7 +299,7 @@ describe("Conversation Detail Read Model", () => {
 			objective: "Draft the report",
 			continuityAttached: true,
 		} as never);
-		mockGetChatFiles.mockResolvedValue([
+		mockListConversationGeneratedFiles.mockResolvedValue([
 			{
 				id: "generated-file-1",
 				filename: "report.docx",
@@ -348,6 +349,9 @@ describe("Conversation Detail Read Model", () => {
 		});
 
 		expect(mockListMessages).toHaveBeenCalledWith("conv-1");
+		expect(mockListConversationGeneratedFiles).toHaveBeenCalledWith(
+			"conv-1",
+		);
 		expect(mockAttachContinuityToTaskState).toHaveBeenCalledWith("user-1", {
 			id: "task-1",
 			objective: "Draft the report",

@@ -226,11 +226,16 @@ describe("Langflow Web Research tool node", () => {
 		const textPayload = JSON.parse(result.text) as typeof result.data;
 		expect(textPayload.success).toBe(true);
 		expect(result.text).not.toContain("conv-1");
+		expect(result.text).not.toContain("source-1");
+		expect(result.text).not.toContain("evidence-1");
 		expect(textPayload.answerBriefMarkdown).toContain("Research brief for");
 		expect(textPayload.sources?.[0]?.url).toBe(
 			"https://example.com/products/x-pro",
 		);
+		expect(textPayload.sources?.[0]).not.toHaveProperty("id");
 		expect(textPayload.evidence?.[0]?.quote).toContain("$799");
+		expect(textPayload.evidence?.[0]).not.toHaveProperty("id");
+		expect(textPayload.evidence?.[0]).not.toHaveProperty("sourceId");
 		expect(textPayload.diagnostics?.providers).toEqual({
 			exaConfigured: true,
 			braveConfigured: true,
