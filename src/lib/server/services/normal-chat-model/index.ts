@@ -22,6 +22,7 @@ import type { ThinkingMode } from "$lib/types";
 import type { ProviderUsageSnapshot } from "../analytics";
 import { decryptApiKey, getProviderWithSecrets } from "../inference-providers";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
+import { createOpenAICompatibleStreamNormalizingFetch } from "./openai-compatible-stream-normalizer";
 
 type NormalChatReasoningEffort = NonNullable<ModelConfig["reasoningEffort"]>;
 
@@ -316,15 +317,16 @@ function createNormalChatOpenAICompatibleProvider(params: {
 	provider: NormalChatModelRunProvider;
 	fetch?: typeof fetch;
 }) {
+	const normalizedFetch = createOpenAICompatibleStreamNormalizingFetch(
+		params.fetch,
+	);
+
 	return createOpenAICompatible({
 		name: params.provider.name,
 		apiKey: params.provider.apiKey,
 		baseURL: normalizeOpenAICompatibleBaseUrl(params.provider.baseUrl),
-		includeUsage: !isCapabilityUnsupported(
-			params.provider,
-			"usageReporting",
-		),
-		fetch: params.fetch,
+		includeUsage: !isCapabilityUnsupported(params.provider, "usageReporting"),
+		fetch: normalizedFetch,
 	});
 }
 

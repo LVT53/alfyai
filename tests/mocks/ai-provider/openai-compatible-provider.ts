@@ -5,10 +5,10 @@ import {
 	type ServerResponse,
 } from "node:http";
 import {
+	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_PLAIN_TEXT,
 	AI_SMOKE_REASONING_TEXT,
-	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_SCENARIOS,
 	AI_SMOKE_SLOW_CHUNK_DELAY_MS,
 	AI_SMOKE_STREAM_REASONING_TEXT,
@@ -188,6 +188,15 @@ export function createOpenAICompatibleProviderHarness(
 					}
 
 					writeToolCallChatCompletionStream(response);
+					return;
+				}
+				if (scenario === AI_SMOKE_SCENARIOS.toolRoundtripMissingToolCallId) {
+					if (hasToolResultMessage(body)) {
+						writeToolFinalChatCompletionStream(response);
+						return;
+					}
+
+					writeToolCallWithoutIdChatCompletionStream(response);
 					return;
 				}
 				if (scenario === AI_SMOKE_SCENARIOS.slowChunks) {
@@ -543,6 +552,58 @@ function writeToolCallChatCompletionStream(response: ServerResponse): void {
 	response.end("data: [DONE]\n\n");
 }
 
+function writeToolCallWithoutIdChatCompletionStream(
+	response: ServerResponse,
+): void {
+	const chunkBase = {
+		id: "chatcmpl_fake_tool_call_without_id_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_004,
+		model: AI_SMOKE_MODEL_ID,
+	};
+
+	response.writeHead(200, {
+		"Access-Control-Allow-Headers": "authorization, content-type",
+		"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+		"Access-Control-Allow-Origin": "*",
+		"Cache-Control": "no-cache",
+		Connection: "keep-alive",
+		"Content-Type": "text/event-stream; charset=utf-8",
+	});
+
+	writeServerSentEvent(response, {
+		...chunkBase,
+		choices: [
+			{
+				index: 0,
+				delta: {
+					tool_calls: [
+						{
+							index: 0,
+							type: "function",
+							function: {
+								name: AI_SMOKE_TOOL_NAME,
+								arguments: JSON.stringify(TOOL_CALL_INPUT),
+							},
+						},
+					],
+				},
+				finish_reason: null,
+			},
+		],
+	});
+	writeServerSentEvent(response, {
+		...chunkBase,
+		choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+		usage: {
+			prompt_tokens: 11,
+			completion_tokens: 7,
+			total_tokens: 18,
+		},
+	});
+	response.end("data: [DONE]\n\n");
+}
+
 function writeToolFinalChatCompletionStream(response: ServerResponse): void {
 	const chunkBase = {
 		id: "chatcmpl_fake_tool_final_stream",
@@ -653,7 +714,7 @@ function hasToolResultMessage(body: Record<string, unknown>): boolean {
 			(message) =>
 				isJsonObject(message) &&
 				message.role === "tool" &&
-				message.tool_call_id === TOOL_CALL_ID,
+				typeof message.tool_call_id === "string",
 		)
 	);
 }

@@ -3,11 +3,11 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { runStreamingNormalChatModelRun } from "$lib/server/services/normal-chat-model";
 import {
+	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_PLAIN_TEXT,
 	AI_SMOKE_REASONING_TEXT,
-	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_SCENARIOS,
 	AI_SMOKE_SLOW_CHUNK_DELAY_MS,
 	AI_SMOKE_STREAM_REASONING_TEXT,
@@ -406,6 +406,101 @@ describe("fake OpenAI-compatible provider harness", () => {
 								jobId: "fake-job-1",
 								title: "Deterministic fake report",
 							}),
+						}),
+					]),
+				},
+			},
+		]);
+	});
+
+	it("normalizes streamed tool calls that omit provider tool call ids", async () => {
+		const toolExecute = vi.fn(async ({ title }: { title: string }) => ({
+			jobId: "fake-job-1",
+			title,
+		}));
+
+		const events = [];
+		for await (const event of runStreamingNormalChatModelRun({
+			provider: {
+				id: "provider-1",
+				name: "fake-openai-compatible",
+				displayName: "Fake OpenAI Compatible",
+				baseUrl: provider.baseURL,
+				modelName: AI_SMOKE_MODEL_ID,
+				apiKey: AI_SMOKE_API_KEY,
+			},
+			headers: {
+				"x-ai-smoke-scenario":
+					AI_SMOKE_SCENARIOS.toolRoundtripMissingToolCallId,
+			},
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Search with a local model." }],
+				},
+			],
+			tools: {
+				[AI_SMOKE_TOOL_NAME]: tool({
+					description: "Return a deterministic fake job.",
+					inputSchema: z.object({
+						title: z.string(),
+					}),
+					execute: toolExecute,
+				}),
+			},
+		})) {
+			events.push(event);
+		}
+
+		expect(events).toContainEqual({
+			type: "tool_call",
+			callId: "call_compat_0",
+			toolName: AI_SMOKE_TOOL_NAME,
+			input: { title: "Deterministic fake report" },
+		});
+		expect(events).toContainEqual({
+			type: "tool_result",
+			callId: "call_compat_0",
+			toolName: AI_SMOKE_TOOL_NAME,
+			output: {
+				jobId: "fake-job-1",
+				title: "Deterministic fake report",
+			},
+		});
+		expect(events).toContainEqual({
+			type: "text_delta",
+			text: AI_SMOKE_TOOL_FINAL_TEXT,
+		});
+		expect(events).not.toContainEqual({
+			type: "error",
+			error: "Expected 'id' to be a string.",
+		});
+		expect(toolExecute).toHaveBeenCalledWith(
+			{ title: "Deterministic fake report" },
+			expect.objectContaining({ toolCallId: "call_compat_0" }),
+		);
+
+		expect(provider.requests()).toMatchObject([
+			{
+				method: "POST",
+				path: "/v1/chat/completions",
+				body: {
+					tools: [
+						expect.objectContaining({
+							type: "function",
+							function: expect.objectContaining({ name: AI_SMOKE_TOOL_NAME }),
+						}),
+					],
+				},
+			},
+			{
+				method: "POST",
+				path: "/v1/chat/completions",
+				body: {
+					messages: expect.arrayContaining([
+						expect.objectContaining({
+							role: "tool",
+							tool_call_id: "call_compat_0",
 						}),
 					]),
 				},
