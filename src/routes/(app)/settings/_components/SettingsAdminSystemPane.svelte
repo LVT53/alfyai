@@ -1245,16 +1245,6 @@ function placeholderFor(key: string): string {
 	<h2 class="settings-section-title">{$t('admin.titleGenerator')}</h2>
 	<div class="flex flex-col gap-3">
 		<div>
-			<label class="settings-label" for="TITLE_GEN_URL">{$t(configLabelKey('TITLE_GEN_URL'))}</label>
-			<input
-				id="TITLE_GEN_URL"
-				type="text"
-				class="settings-input"
-				bind:value={adminConfig['TITLE_GEN_URL']}
-				placeholder={placeholderFor('TITLE_GEN_URL')}
-			/>
-		</div>
-		<div>
 			<label class="settings-label" for="TITLE_GEN_MODEL">{$t(configLabelKey('TITLE_GEN_MODEL'))}</label>
 			<select
 				id="TITLE_GEN_MODEL"
@@ -1297,11 +1287,6 @@ function placeholderFor(key: string): string {
 <section class="settings-card mb-4">
 	<h2 class="settings-section-title">{$t('admin.contextSummarizer')}</h2>
 	<div class="flex flex-col gap-3">
-		<div>
-			<label class="settings-label" for="CONTEXT_SUMMARIZER_URL">{$t(configLabelKey('CONTEXT_SUMMARIZER_URL'))}</label>
-			<input id="CONTEXT_SUMMARIZER_URL" type="text" class="settings-input" bind:value={adminConfig['CONTEXT_SUMMARIZER_URL']} placeholder={placeholderFor('CONTEXT_SUMMARIZER_URL')} />
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.summarizerUrlDescription')}</p>
-		</div>
 		<div>
 			<label class="settings-label" for="CONTEXT_SUMMARIZER_MODEL">{$t(configLabelKey('CONTEXT_SUMMARIZER_MODEL'))}</label>
 			<select
