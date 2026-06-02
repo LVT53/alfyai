@@ -16,6 +16,7 @@ describe("runNonStreamFallback", () => {
 	const mockOnHonchoContext = vi.fn();
 	const mockOnHonchoSnapshot = vi.fn();
 	const mockOnProviderUsage = vi.fn();
+	const mockOnRecoveredToolCalls = vi.fn();
 
 	const defaultSendParams = {
 		runtimeConfig: {
@@ -69,6 +70,7 @@ describe("runNonStreamFallback", () => {
 			onHonchoContext: mockOnHonchoContext,
 			onHonchoSnapshot: mockOnHonchoSnapshot,
 			onProviderUsage: mockOnProviderUsage,
+			onRecoveredToolCalls: mockOnRecoveredToolCalls,
 			...overrides,
 		});
 	}
@@ -311,6 +313,7 @@ describe("runNonStreamFallback", () => {
 		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
 			expect.objectContaining({
 				disableTools: false,
+				forceProduceFileTool: true,
 				message:
 					"Generate a detailed PDF report from the AlmaLinux Server project folder.",
 				systemPromptAppendix: expect.stringContaining(
@@ -318,6 +321,36 @@ describe("runNonStreamFallback", () => {
 				),
 			}),
 		);
+	});
+
+	it("reports fallback tool calls so file jobs can attach to the final assistant turn", async () => {
+		const producedFileToolCall = {
+			callId: "call-file-1",
+			name: "produce_file",
+			input: { requestTitle: "AlmaLinux Server report" },
+			status: "done" as const,
+			outputSummary: "Queued PDF generation.",
+			metadata: { ok: true, evidenceReady: true },
+		};
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			...defaultFallbackResponse,
+			normalChatToolCalls: [producedFileToolCall],
+		});
+
+		const result = await callFallback({
+			sendParams: {
+				...defaultSendParams,
+				upstreamMessage:
+					"Generate a detailed PDF report from the AlmaLinux Server project folder.",
+			},
+			completedToolCallContext:
+				"Tool 1: memory_context\nSummary: Project memory found: AlmaLinux Server",
+		});
+
+		expect(result).toBe(true);
+		expect(mockOnRecoveredToolCalls).toHaveBeenCalledWith([
+			producedFileToolCall,
+		]);
 	});
 
 	it("retries once when fallback text normalizes to no visible output", async () => {

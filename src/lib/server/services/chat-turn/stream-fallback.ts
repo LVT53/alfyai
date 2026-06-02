@@ -6,6 +6,7 @@ import type {
 	HonchoContextSnapshot,
 	ModelId,
 	ThinkingMode,
+	ToolCallEntry,
 } from "$lib/types";
 
 export interface NonStreamFallbackSendParams {
@@ -28,6 +29,8 @@ export interface NonStreamFallbackResponse {
 	honchoContext?: HonchoContextInfo | null;
 	honchoSnapshot?: HonchoContextSnapshot | null;
 	providerUsage?: ProviderUsageSnapshot | null;
+	normalChatToolCalls?: ToolCallEntry[];
+	toolCalls?: ToolCallEntry[];
 	modelId?: ModelId;
 	modelDisplayName?: string;
 }
@@ -49,6 +52,7 @@ export interface NonStreamFallbackDeps {
 		forceWebSearch?: boolean;
 		signal?: AbortSignal;
 		disableTools?: boolean;
+		forceProduceFileTool?: boolean;
 	}) => Promise<NonStreamFallbackResponse>;
 	sendParams: NonStreamFallbackSendParams;
 	user: { id: string; displayName: string | null; email: string | null };
@@ -73,6 +77,7 @@ export interface NonStreamFallbackDeps {
 	onHonchoSnapshot: (snap: HonchoContextSnapshot | null) => void;
 	onProviderUsage: (usage: ProviderUsageSnapshot | null) => void;
 	onResolvedModel?: (modelId: ModelId, displayName: string) => void;
+	onRecoveredToolCalls?: (toolCalls: ToolCallEntry[]) => void;
 	completedToolCallContext?: string | null;
 }
 
@@ -113,6 +118,7 @@ export async function runNonStreamFallback(
 			onHonchoSnapshot,
 			onProviderUsage,
 			onResolvedModel,
+			onRecoveredToolCalls,
 		} = deps;
 		const completedToolCallContext = deps.completedToolCallContext?.trim();
 		const shouldAllowForcedFileTool =
@@ -156,7 +162,13 @@ export async function runNonStreamFallback(
 				disableTools:
 					(Boolean(completedToolCallContext) && !shouldAllowForcedFileTool) ||
 					attempt > 1,
+				forceProduceFileTool: shouldAllowForcedFileTool,
 			});
+			const fallbackToolCalls =
+				fallbackResponse.normalChatToolCalls ?? fallbackResponse.toolCalls ?? [];
+			if (fallbackToolCalls.length > 0) {
+				onRecoveredToolCalls?.(fallbackToolCalls);
+			}
 
 			const contextStatus = fallbackResponse.contextStatus;
 			onContextStatus(contextStatus);

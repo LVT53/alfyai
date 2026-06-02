@@ -54,6 +54,7 @@ import {
 	resolveModelTimeoutFailoverTargetModelId,
 } from "$lib/server/services/normal-chat-failover";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
+import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import {
 	attachContinuityToTaskState,
@@ -484,6 +485,32 @@ export function runChatStreamOrchestrator(
 					});
 				}
 			};
+			const emitRecoveredToolCalls = (records: ToolCallEntry[]) => {
+				for (const record of records) {
+					if (record.status === "done") {
+						emitToolCallEventWithDebug(
+							record.name,
+							asToolInput(record.input),
+							"running",
+							{
+								callId: record.callId,
+							},
+						);
+					}
+					emitToolCallEventWithDebug(
+						record.name,
+						asToolInput(record.input),
+						record.status,
+						{
+							callId: record.callId,
+							outputSummary: record.outputSummary,
+							sourceType: record.sourceType,
+							candidates: record.candidates,
+							metadata: record.metadata,
+						},
+					);
+				}
+			};
 			const emitChunkWithOutputHandling = (chunk: string): boolean => {
 				const previousVisibleAnswerLength = chunkRuntime.fullResponse.length;
 				const emitted = chunkRuntime.emitChunkWithOutputHandling(chunk);
@@ -582,6 +609,34 @@ export function runChatStreamOrchestrator(
 			) => {
 				chunkRuntime.flushNativeToolCalls();
 				if (!flushBufferedStreamOutput()) {
+					return;
+				}
+				const shouldRecoverMissingFileProduction =
+					isProduceFileRequest(upstreamMessage) &&
+					!hasCompletedFileProductionToolCall() &&
+					!attemptedNonStreamFallback &&
+					!wasActiveChatStreamStopRequested(streamId) &&
+					Boolean(fallbackToNonStreaming);
+				if (shouldRecoverMissingFileProduction) {
+					console.warn(
+						"[STREAM] File request ended without produce_file tool call",
+						{
+							conversationId,
+							streamId,
+							modelId,
+							reason,
+							responseLength: chunkRuntime.fullResponse.length,
+							thinkingLength: chunkRuntime.thinkingContent.length,
+							toolCallCount: chunkRuntime.toolCallRecords.length,
+							completedToolCallCount: completedToolCallRecords().length,
+							hasCompletedNonFileToolCall: hasCompletedNonFileToolCall(),
+						},
+					);
+					await fallbackToNonStreaming(
+						"stream_read_failure",
+						latestUpstreamAttempt,
+						new Error("File request completed without produce_file tool call"),
+					);
 					return;
 				}
 				if (hasPersistableStreamOutput()) {
@@ -965,6 +1020,7 @@ export function runChatStreamOrchestrator(
 						latestModelId = resolvedModelId;
 						latestModelDisplayName = displayName;
 					},
+					onRecoveredToolCalls: emitRecoveredToolCalls,
 					completedToolCallContext: buildCompletedToolCallFallbackContext(
 						chunkRuntime.toolCallRecords,
 					),

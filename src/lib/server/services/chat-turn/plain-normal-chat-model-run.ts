@@ -47,6 +47,7 @@ export type PlainNormalChatSendModelParams = {
 	createTurnId?: () => string;
 	signal?: AbortSignal;
 	disableTools?: boolean;
+	forceProduceFileTool?: boolean;
 };
 
 export type PlainNormalChatSendModelResult = {
@@ -102,7 +103,9 @@ export async function runPlainNormalChatSendModel(
 		conversationId: params.conversationId,
 		turnId: params.createTurnId?.() ?? randomUUID(),
 	});
-	const toolChoice = shouldForceProduceFileTool(params.message)
+	const shouldForceFileTool =
+		params.forceProduceFileTool || shouldForceProduceFileTool(params.message);
+	const toolChoice = shouldForceFileTool
 		? ({ type: "tool", toolName: "produce_file" } as const)
 		: undefined;
 	const tools = params.disableTools ? undefined : normalChatTools.tools;

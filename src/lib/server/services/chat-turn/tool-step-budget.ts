@@ -1,1 +1,1 @@
-export const NORMAL_CHAT_MAX_TOOL_STEPS = 12;
+export const NORMAL_CHAT_MAX_TOOL_STEPS = 16;

@@ -525,6 +525,123 @@ describe("stream-orchestrator SSE contract", () => {
 		]);
 	});
 
+	it("recovers a visible file-request answer that ended without produce_file", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { runPlainNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+		);
+		const { persistAssistantEvidence } = await import(
+			"$lib/server/services/chat-turn/finalize"
+		);
+		const upstreamMessage =
+			"Could you please generate a pdf report with the content from AlmaLinux Server project folder? I want it to be detailed and long.";
+		const memoryToolCall = {
+			callId: "call-memory-1",
+			name: "memory_context",
+			input: { mode: "project", query: "AlmaLinux Server" },
+			status: "done" as const,
+			outputSummary: "Project memory found: AlmaLinux Server",
+			sourceType: "memory" as const,
+			candidates: [],
+			metadata: { ok: true, evidenceReady: true },
+		};
+		const recoveredFileToolCall = {
+			callId: "call-file-1",
+			name: "produce_file",
+			input: { requestTitle: "AlmaLinux Server report" },
+			status: "done" as const,
+			outputSummary: "Queued PDF generation.",
+			sourceType: "generated_file" as const,
+			candidates: [],
+			metadata: { ok: true, evidenceReady: true },
+		};
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult(
+				[
+					{
+						type: "tool_call",
+						callId: "call-memory-1",
+						toolName: "memory_context",
+						input: memoryToolCall.input,
+					},
+					{
+						type: "tool_result",
+						callId: "call-memory-1",
+						toolName: "memory_context",
+						output: { ok: true },
+					},
+					{
+						type: "text_delta",
+						text: "I have the project folder context. I'm now synthesizing the PDF report.",
+					},
+					finishEvent,
+				],
+				{ normalChatToolCalls: [memoryToolCall] },
+			),
+		);
+		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue({
+			text: "The PDF report request has been started.",
+			normalChatToolCalls: [recoveredFileToolCall],
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			providerUsage: null,
+			modelId: "model-1",
+			modelDisplayName: "Model One",
+		});
+
+		const response = runChatStreamOrchestrator({
+			user: {
+				id: "u1",
+				displayName: "User",
+				email: "u@test.com",
+			},
+			turn: createTurn({
+				normalizedMessage: upstreamMessage,
+			}),
+			upstreamMessage,
+			downstreamAbortSignal: new AbortController().signal,
+			requestStartTime: Date.now(),
+		});
+		const chunks = await readSseResponse(response);
+		const toolPayloads = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-tool-call",
+		);
+
+		expect(runPlainNormalChatSendModel).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: upstreamMessage,
+				forceProduceFileTool: true,
+			}),
+		);
+		expect(toolPayloads).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: "produce_file",
+					status: "done",
+					outputSummary: "Queued PDF generation.",
+				}),
+			]),
+		);
+		expect(persistAssistantEvidence).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolCalls: expect.arrayContaining([
+					expect.objectContaining({
+						name: "produce_file",
+						status: "done",
+					}),
+				]),
+			}),
+		);
+	});
+
 	it("emits failed tool events as not evidence-ready", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"

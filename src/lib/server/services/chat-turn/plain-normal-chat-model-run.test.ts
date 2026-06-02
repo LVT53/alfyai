@@ -322,6 +322,46 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
+	it("can force the produce_file tool after context-dependent file context is recovered", async () => {
+		await runPlainNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig: {
+				requestTimeoutMs: 1_500,
+				model1: {
+					baseUrl: "https://openai-compatible.example/v1",
+					apiKey: "model-1-secret",
+					modelName: "gpt-4.1",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: 2048,
+					reasoningEffort: "high",
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://unused.example/v1",
+					apiKey: "",
+					modelName: "unused",
+					displayName: "Unused",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as RuntimeConfig,
+			message:
+				"Could you please generate a pdf report with the content from AlmaLinux Server project folder? I want it to be detailed and long.",
+			conversationId: "conv-1",
+			modelId: "model1",
+			forceProduceFileTool: true,
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolChoice: { type: "tool", toolName: "produce_file" },
+			}),
+		);
+	});
+
 	it("leaves tool choice automatic for non-file chat requests", async () => {
 		await runPlainNormalChatSendModel({
 			userId: "user-1",
@@ -601,7 +641,7 @@ describe("runPlainNormalChatSendModel", () => {
 		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
 				tools,
-				maxToolSteps: 12,
+				maxToolSteps: 16,
 			}),
 		);
 		expect(result.normalChatToolCalls).toEqual(normalChatToolCalls);
@@ -648,7 +688,7 @@ describe("runPlainNormalChatSendModel", () => {
 			expect.objectContaining({
 				tools: undefined,
 				toolChoice: undefined,
-				maxToolSteps: 12,
+				maxToolSteps: 16,
 			}),
 		);
 	});
