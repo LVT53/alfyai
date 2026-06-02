@@ -346,6 +346,97 @@ describe("validateProviderConnection", () => {
 		});
 	});
 
+	it("explains unverified Fireworks reasoning and multimodal input capabilities without faking support", async () => {
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						object: "list",
+						data: [
+							{
+								id: "accounts/fireworks/models/deepseek-v3p1",
+								object: "model",
+								created: 1_686_935_002,
+								owned_by: "fireworks",
+							},
+						],
+					}),
+					{ status: 200 },
+				),
+		);
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const result = await validateProviderConnection(
+			"https://api.fireworks.ai/inference/v1",
+			"fw_test_key",
+			{ modelName: "accounts/fireworks/models/deepseek-v3p1" },
+		);
+
+		expect(result).toMatchObject({
+			valid: true,
+			capabilities: {
+				reasoningControls: {
+					state: "unknown",
+					supported: null,
+					detail: expect.stringContaining("reasoning_effort"),
+				},
+				fileMessageParts: {
+					state: "unknown",
+					supported: null,
+					detail: expect.stringContaining("message input"),
+				},
+				imageMessageParts: {
+					state: "unknown",
+					supported: null,
+					detail: expect.stringContaining("message input"),
+				},
+			},
+		});
+		expect(result.capabilities?.fileMessageParts.detail).toContain(
+			"not generated file production",
+		);
+		expect(result.capabilities?.imageMessageParts.detail).toContain(
+			"not image search",
+		);
+	});
+
+	it("marks Firepass Kimi reasoning controls as supported when the provider is configured to send reasoning controls", async () => {
+		const fetchSpy = vi.fn(async () => new Response(null, { status: 403 }));
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const result = await validateProviderConnection(
+			"https://api.fireworks.ai/inference/v1",
+			"fpk_test_key",
+			{
+				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+				reasoningEffort: "high",
+				thinkingType: "enabled",
+			},
+		);
+
+		expect(result).toMatchObject({
+			valid: true,
+			capabilities: {
+				reasoningControls: {
+					state: "detected",
+					supported: true,
+					detail: expect.stringContaining("configured"),
+				},
+				fileMessageParts: {
+					state: "unknown",
+					supported: null,
+					detail: expect.stringContaining("not generated file production"),
+				},
+				imageMessageParts: {
+					state: "unknown",
+					supported: null,
+					detail: expect.stringContaining("not image search"),
+				},
+			},
+		});
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
 	it("accepts Fire Pass keys for the documented Kimi Turbo router without probing /models", async () => {
 		const fetchSpy = vi.fn(async () => new Response(null, { status: 403 }));
 		globalThis.fetch = fetchSpy as unknown as typeof fetch;

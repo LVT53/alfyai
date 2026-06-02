@@ -441,14 +441,23 @@ function closeModal() {
 }
 
 function handleModalUploadIcon(targetKind: string, file: File) {
-	const target: ModelIconTarget =
-		targetKind === "model1"
-			? { kind: "built-in", modelName: "model1" }
-			: targetKind === "model2"
-				? { kind: "built-in", modelName: "model2" }
-				: { kind: "provider", provider: providers.find((p) => p.id === targetKind) as InferenceProvider };
+	let target: ModelIconTarget;
+	if (targetKind === "model1") {
+		target = { kind: "built-in", modelName: "model1" };
+	} else if (targetKind === "model2") {
+		target = { kind: "built-in", modelName: "model2" };
+	} else {
+		const provider = providers.find(
+			(p) => p.id === targetKind || p.name === targetKind,
+		);
+		if (!provider) {
+			modalError = $t("admin.modelIconProviderMissing");
+			return;
+		}
+		target = { kind: "provider", provider };
+	}
 	const syntheticEvent = {
-		currentTarget: { files: [file] },
+		currentTarget: { files: [file], value: "" },
 	} as unknown as Event;
 	handleModelIconFile(syntheticEvent, target);
 }

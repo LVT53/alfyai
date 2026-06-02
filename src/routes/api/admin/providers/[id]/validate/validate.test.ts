@@ -108,4 +108,57 @@ describe("admin provider validation route", () => {
 		expect(mockClearProvidersCache).toHaveBeenCalled();
 		expect(mockRefreshConfig).toHaveBeenCalled();
 	});
+
+	it("forwards configured reasoning controls when refreshing capability evidence", async () => {
+		mockGetProviderWithSecrets.mockResolvedValue({
+			id: "provider-1",
+			name: "firepass",
+			displayName: "Fire Pass Turbo",
+			baseUrl: "https://api.fireworks.ai/inference/v1",
+			apiKeyEncrypted: "encrypted",
+			apiKeyIv: "iv",
+			modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+			reasoningEffort: "high",
+			thinkingType: "enabled",
+			enabled: true,
+			capabilities: createModelCapabilitySet(),
+		});
+		const capabilities = createModelCapabilitySet({
+			reasoningControls: {
+				state: "detected",
+				source: "manual_override",
+				detail: "Admin configured reasoning controls",
+			},
+		});
+		mockValidateProviderConnection.mockResolvedValue({
+			valid: true,
+			capabilities,
+		});
+
+		const response = await POST(makeValidateEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(mockValidateProviderConnection).toHaveBeenCalledWith(
+			"https://api.fireworks.ai/inference/v1",
+			"secret",
+			{
+				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+				reasoningEffort: "high",
+				thinkingType: "enabled",
+			},
+		);
+		expect(data).toMatchObject({
+			valid: true,
+			capabilities: {
+				reasoningControls: {
+					state: "detected",
+					supported: true,
+				},
+			},
+		});
+		expect(mockUpdateProvider).toHaveBeenCalledWith("provider-1", {
+			capabilities,
+		});
+	});
 });

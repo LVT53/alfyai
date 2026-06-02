@@ -26,6 +26,8 @@ export const POST: RequestHandler = async (event) => {
 
     const result = await validateProviderConnection(provider.baseUrl, apiKey, {
       modelName: provider.modelName,
+      reasoningEffort: provider.reasoningEffort,
+      thinkingType: provider.thinkingType,
     });
     if (result.capabilities) {
       await updateProvider(id, { capabilities: result.capabilities });

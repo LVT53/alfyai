@@ -153,4 +153,31 @@ describe("admin provider detail route", () => {
 			{ modelName: "kimi-k2.6" },
 		);
 	});
+
+	it("revalidates capabilities with configured reasoning controls when they change", async () => {
+		const response = await PUT(
+			makePutEvent({
+				reasoningEffort: "high",
+				thinkingType: "enabled",
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(mockValidateProviderConnection).toHaveBeenCalledWith(
+			"https://api.fireworks.ai/inference/v1",
+			"existing-fallback-secret",
+			{
+				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+				reasoningEffort: "high",
+				thinkingType: "enabled",
+			},
+		);
+		expect(mockUpdateProvider).toHaveBeenCalledWith(
+			"provider-1",
+			expect.objectContaining({
+				reasoningEffort: "high",
+				thinkingType: "enabled",
+			}),
+		);
+	});
 });

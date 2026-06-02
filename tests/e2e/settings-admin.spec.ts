@@ -28,7 +28,7 @@ async function setPromptOverrideViaApi(page: Page, value: string) {
     const response = await fetch('/api/admin/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ MODEL_1_SYSTEM_PROMPT: nextValue }),
+      body: JSON.stringify({ SYSTEM_PROMPT: nextValue }),
     });
 
     return {
@@ -75,7 +75,8 @@ async function openAdministrationUsersPane(page: Page) {
 }
 
 async function savePromptFromUi(page: Page, value: string) {
-  const field = page.locator('#MODEL_1_SYSTEM_PROMPT');
+  const field = page.locator('#SYSTEM_PROMPT');
+  await field.scrollIntoViewIfNeeded();
   await field.fill(value);
 
   await Promise.all([
@@ -111,18 +112,22 @@ test.describe('Admin prompt settings', () => {
 
   test('saving the built-in prompt stores the canonical prompt reference', async ({ page }) => {
     const initialConfig = await fetchAdminConfig(page);
-    const builtInPrompt = await page.locator('#MODEL_1_SYSTEM_PROMPT').inputValue();
+    const builtInPrompt = await page.locator('#SYSTEM_PROMPT').inputValue();
     const expectedReference =
-      normalizeSystemPromptReference(initialConfig.envDefaults.MODEL_1_SYSTEM_PROMPT) ??
-      initialConfig.envDefaults.MODEL_1_SYSTEM_PROMPT;
+      normalizeSystemPromptReference(initialConfig.envDefaults.SYSTEM_PROMPT) ??
+      initialConfig.envDefaults.SYSTEM_PROMPT;
 
     await savePromptFromUi(page, builtInPrompt);
 
     const savedConfig = await fetchAdminConfig(page);
-    expect(savedConfig.overrides.MODEL_1_SYSTEM_PROMPT).toBe(expectedReference);
+    if (expectedReference) {
+      expect(savedConfig.overrides.SYSTEM_PROMPT).toBe(expectedReference);
+    } else {
+      expect(savedConfig.overrides.SYSTEM_PROMPT).toBeUndefined();
+    }
 
     await reloadAdministrationTab(page);
-    await expect(page.locator('#MODEL_1_SYSTEM_PROMPT')).toHaveValue(builtInPrompt);
+    await expect(page.locator('#SYSTEM_PROMPT')).toHaveValue(builtInPrompt);
   });
 
   test('saving a custom prompt keeps the custom text', async ({ page }) => {
@@ -132,24 +137,24 @@ test.describe('Admin prompt settings', () => {
     await savePromptFromUi(page, customPrompt);
 
     const savedConfig = await fetchAdminConfig(page);
-    expect(savedConfig.overrides.MODEL_1_SYSTEM_PROMPT).toBe(customPrompt);
+    expect(savedConfig.overrides.SYSTEM_PROMPT).toBe(customPrompt);
 
     await reloadAdministrationTab(page);
-    await expect(page.locator('#MODEL_1_SYSTEM_PROMPT')).toHaveValue(customPrompt);
+    await expect(page.locator('#SYSTEM_PROMPT')).toHaveValue(customPrompt);
   });
 
   test('clearing the prompt resets the UI back to the default prompt', async ({ page }) => {
-    const builtInPrompt = await page.locator('#MODEL_1_SYSTEM_PROMPT').inputValue();
+    const builtInPrompt = await page.locator('#SYSTEM_PROMPT').inputValue();
     const customPrompt = 'Temporary custom prompt for reset coverage.';
 
     await savePromptFromUi(page, customPrompt);
     await savePromptFromUi(page, '');
 
     const savedConfig = await fetchAdminConfig(page);
-    expect(savedConfig.overrides.MODEL_1_SYSTEM_PROMPT).toBeUndefined();
+    expect(savedConfig.overrides.SYSTEM_PROMPT).toBeUndefined();
 
     await reloadAdministrationTab(page);
-    await expect(page.locator('#MODEL_1_SYSTEM_PROMPT')).toHaveValue(builtInPrompt);
+    await expect(page.locator('#SYSTEM_PROMPT')).toHaveValue(builtInPrompt);
   });
 });
 

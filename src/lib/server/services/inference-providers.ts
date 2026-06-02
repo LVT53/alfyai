@@ -159,6 +159,13 @@ export interface ProviderConnectionValidationResult {
 	capabilities?: ModelCapabilitySet;
 }
 
+type ProviderCapabilityHintInput = {
+	baseUrl: string;
+	modelName: string;
+	reasoningEffort?: ProviderReasoningEffort | null;
+	thinkingType?: ProviderThinkingType | null;
+};
+
 export function parseProviderLimitOverrides(input: ProviderLimitInput):
 	| {
 			ok: true;
@@ -677,7 +684,11 @@ export async function deleteProvider(id: string): Promise<boolean> {
 export async function validateProviderConnection(
 	baseUrl: string,
 	apiKey: string,
-	options: { modelName?: string | null } = {},
+	options: {
+		modelName?: string | null;
+		reasoningEffort?: ProviderReasoningEffort | null;
+		thinkingType?: ProviderThinkingType | null;
+	} = {},
 ): Promise<ProviderConnectionValidationResult> {
 	try {
 		const url = new URL(baseUrl);
@@ -700,7 +711,7 @@ export async function validateProviderConnection(
 
 			return {
 				valid: true,
-				capabilities: knownFirePassKimiCapabilities(),
+				capabilities: knownFirePassKimiCapabilities(options),
 			};
 		}
 
@@ -714,6 +725,8 @@ export async function validateProviderConnection(
 			knownProviderCapabilities({
 				baseUrl,
 				modelName: options.modelName ?? "",
+				reasoningEffort: options.reasoningEffort ?? null,
+				thinkingType: options.thinkingType ?? null,
 			}),
 		);
 		return probe.valid
@@ -964,7 +977,7 @@ function isModelCapabilitySource(
 }
 
 function knownProviderCapabilities(
-	row: Pick<typeof inferenceProviders.$inferSelect, "baseUrl" | "modelName">,
+	row: ProviderCapabilityHintInput,
 ): ModelCapabilitySet | null {
 	try {
 		const url = new URL(row.baseUrl);
@@ -972,10 +985,10 @@ function knownProviderCapabilities(
 			isFireworksHost(url) &&
 			row.modelName.trim().toLowerCase() === FIRE_PASS_MODEL_NAME
 		) {
-			return knownFirePassKimiCapabilities();
+			return knownFirePassKimiCapabilities(row);
 		}
 		if (isFireworksHost(url)) {
-			return knownFireworksOpenAICompatibleCapabilities();
+			return knownFireworksOpenAICompatibleCapabilities(row);
 		}
 		return null;
 	} catch {
@@ -998,7 +1011,58 @@ function mergeKnownModelCapabilities(
 	);
 }
 
-function knownFireworksOpenAICompatibleCapabilities(): ModelCapabilitySet {
+function configuredReasoningCapability(
+	input: Pick<
+		ProviderCapabilityHintInput,
+		"reasoningEffort" | "thinkingType"
+	> = {},
+): Partial<ModelCapabilityStatus> {
+	if (input.reasoningEffort || input.thinkingType) {
+		const controls = [
+			input.reasoningEffort ? `reasoning_effort=${input.reasoningEffort}` : "",
+			input.thinkingType
+				? `extra_body.thinking.type=${input.thinkingType}`
+				: "",
+		].filter(Boolean);
+		return {
+			state: "detected",
+			source: "manual_override",
+			detail: `Admin configured ${controls.join(" and ")}; AlfyAI will send reasoning controls for this provider.`,
+		};
+	}
+
+	return {
+		state: "unknown",
+		source: "probe",
+		detail:
+			"Reasoning control support is unverified. Configure reasoning_effort or extra_body.thinking.type only for providers/models known to accept those options.",
+	};
+}
+
+function unknownFileMessagePartsCapability(): Partial<ModelCapabilityStatus> {
+	return {
+		state: "unknown",
+		source: "probe",
+		detail:
+			"Unverified model message input file-part support; this is not generated file production, which is handled by AlfyAI's produce_file tool.",
+	};
+}
+
+function unknownImageMessagePartsCapability(): Partial<ModelCapabilityStatus> {
+	return {
+		state: "unknown",
+		source: "probe",
+		detail:
+			"Unverified model message input image-part support; this is not image search, which is handled by AlfyAI's research/image tools.",
+	};
+}
+
+function knownFireworksOpenAICompatibleCapabilities(
+	input: Pick<
+		ProviderCapabilityHintInput,
+		"reasoningEffort" | "thinkingType"
+	> = {},
+): ModelCapabilitySet {
 	return createModelCapabilitySet({
 		chat: {
 			state: "detected",
@@ -1025,12 +1089,20 @@ function knownFireworksOpenAICompatibleCapabilities(): ModelCapabilitySet {
 			source: "probe",
 			detail: "Fireworks documents token usage metrics for non-streaming and streaming responses.",
 		},
+		reasoningControls: configuredReasoningCapability(input),
+		fileMessageParts: unknownFileMessagePartsCapability(),
+		imageMessageParts: unknownImageMessagePartsCapability(),
 	});
 }
 
-function knownFirePassKimiCapabilities(): ModelCapabilitySet {
+function knownFirePassKimiCapabilities(
+	input: Pick<
+		ProviderCapabilityHintInput,
+		"reasoningEffort" | "thinkingType"
+	> = {},
+): ModelCapabilitySet {
 	return createModelCapabilitySet({
-		...knownFireworksOpenAICompatibleCapabilities(),
+		...knownFireworksOpenAICompatibleCapabilities(input),
 		chat: {
 			state: "detected",
 			source: "probe",

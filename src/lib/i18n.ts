@@ -515,12 +515,15 @@ const dictionary = {
 		"admin.providerUpdated": "Provider updated.",
 		"admin.providerDeleted": "Provider deleted.",
 		"admin.uploadModelIcon": "Upload icon",
+		"admin.modelIconSelected": "Selected: {name}",
 		"admin.modelIconUploading": "Uploading...",
 		"admin.modelIconUpdated": "Model icon updated.",
 		"admin.modelIconCropTitle": "Crop model icon",
 		"admin.modelIconSquareRequired": "Model icon must use a 1:1 image ratio.",
 		"admin.modelIconReadFailed": "Could not read the selected image.",
 		"admin.modelIconUploadFailed": "Failed to upload model icon.",
+		"admin.modelIconProviderMissing":
+			"Could not find the provider for this icon upload. Close the form and try again.",
 		"admin.deleteProviderConfirm": 'Delete provider "{name}"?',
 		"admin.failedLoadProviders": "Failed to load providers.",
 		"admin.failedSave": "Failed to save.",
@@ -2080,6 +2083,7 @@ const dictionary = {
 		"admin.providerUpdated": "Szolgáltató frissítve.",
 		"admin.providerDeleted": "Szolgáltató törölve.",
 		"admin.uploadModelIcon": "Ikon feltöltése",
+		"admin.modelIconSelected": "Kiválasztva: {name}",
 		"admin.modelIconUploading": "Feltöltés...",
 		"admin.modelIconUpdated": "Modellikon frissítve.",
 		"admin.modelIconCropTitle": "Modellikon kivágása",
@@ -2087,6 +2091,8 @@ const dictionary = {
 			"A modellikon képarányának 1:1-nek kell lennie.",
 		"admin.modelIconReadFailed": "Nem sikerült beolvasni a kiválasztott képet.",
 		"admin.modelIconUploadFailed": "Nem sikerült feltölteni a modell ikonját.",
+		"admin.modelIconProviderMissing":
+			"Nem található a szolgáltató ehhez az ikonfeltöltéshez. Zárd be az űrlapot, majd próbáld újra.",
 		"admin.deleteProviderConfirm":
 			'Biztosan törlöd a(z) "{name}" szolgáltatót?',
 		"admin.failedLoadProviders": "Nem sikerült betölteni a szolgáltatókat.",

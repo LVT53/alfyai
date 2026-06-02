@@ -42,12 +42,15 @@ let {
 	onUploadIcon?: (targetKind: "model1" | "model2" | string, file: File) => void;
 } = $props();
 
+let selectedIconFileName = $state("");
+
 function handleIconFileChange(event: Event) {
 	const input = event.currentTarget as HTMLInputElement;
 	const file = input.files?.[0] ?? null;
 	input.value = "";
 	if (!file) return;
-	const targetKind = model?.name ?? "provider";
+	selectedIconFileName = file.name;
+	const targetKind = model?.id ?? model?.name ?? "provider";
 	onUploadIcon?.(targetKind, file);
 }
 
@@ -225,6 +228,11 @@ function handleSave() {
 					<div>
 						<label class="settings-label" for="form-icon-upload">{$t('admin.uploadModelIcon')}</label>
 						<input id="form-icon-upload" type="file" class="settings-input" accept="image/*,.svg" onchange={handleIconFileChange} />
+						{#if selectedIconFileName}
+							<p class="mt-1 text-xs text-success" role="status">
+								{$t('admin.modelIconSelected', { name: selectedIconFileName })}
+							</p>
+						{/if}
 						<p class="mt-1 text-xs text-text-muted">{$t('admin.uploadModelIconDescription')}</p>
 					</div>
 				{/if}

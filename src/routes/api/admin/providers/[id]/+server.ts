@@ -167,12 +167,26 @@ export const PUT: RequestHandler = async (event) => {
         ? body.apiKey
         : undefined;
 
-    if (validationBaseUrl || validationApiKey || input.modelName !== undefined) {
+    if (
+      validationBaseUrl ||
+      validationApiKey ||
+      input.modelName !== undefined ||
+      input.reasoningEffort !== undefined ||
+      input.thinkingType !== undefined
+    ) {
       const apiKey = validationApiKey ?? decryptApiKey(existing.apiKeyEncrypted, existing.apiKeyIv);
       const connectionTest = await validateProviderConnection(
         validationBaseUrl ?? existing.baseUrl,
         apiKey,
-        { modelName: input.modelName ?? existing.modelName }
+        {
+          modelName: input.modelName ?? existing.modelName,
+          reasoningEffort:
+            input.reasoningEffort !== undefined
+              ? input.reasoningEffort
+              : existing.reasoningEffort,
+          thinkingType:
+            input.thinkingType !== undefined ? input.thinkingType : existing.thinkingType,
+        }
       );
       if (!connectionTest.valid) {
         return json({ error: connectionTest.error }, { status: 400 });

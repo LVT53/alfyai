@@ -134,7 +134,38 @@ describe("admin providers collection route", () => {
 		expect(mockValidateProviderConnection).toHaveBeenCalledWith(
 			"https://api.fireworks.ai/inference/v1",
 			"fpk_test_key",
-			{ modelName: "accounts/fireworks/routers/kimi-k2p6-turbo" },
+			{
+				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+		);
+	});
+
+	it("passes configured reasoning controls when validating a new provider", async () => {
+		const response = await POST(
+			makePostEvent({
+				name: "firepass",
+				displayName: "Fire Pass",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				apiKey: "fpk_test_key",
+				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+				reasoningEffort: "high",
+				thinkingType: "enabled",
+				enabled: true,
+				maxModelContext: 256000,
+			}),
+		);
+
+		expect(response.status).toBe(201);
+		expect(mockValidateProviderConnection).toHaveBeenCalledWith(
+			"https://api.fireworks.ai/inference/v1",
+			"fpk_test_key",
+			{
+				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+				reasoningEffort: "high",
+				thinkingType: "enabled",
+			},
 		);
 	});
 

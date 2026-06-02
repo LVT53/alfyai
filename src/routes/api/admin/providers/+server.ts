@@ -112,6 +112,8 @@ export const POST: RequestHandler = async (event) => {
 
     const connectionTest = await validateProviderConnection(input.baseUrl, input.apiKey, {
       modelName: input.modelName,
+      reasoningEffort: input.reasoningEffort,
+      thinkingType: input.thinkingType,
     });
     if (!connectionTest.valid) {
       return json({ error: connectionTest.error }, { status: 400 });

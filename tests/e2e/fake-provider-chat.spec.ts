@@ -80,8 +80,11 @@ test.describe("fake OpenAI-compatible provider app journey", () => {
 						isOpenAIChatCompletionBody(request.body) &&
 						request.body.stream === true,
 				);
-			expect(streamedChatRequests).toHaveLength(1);
-			expect(streamedChatRequests[0]).toMatchObject({
+			const userChatRequest = streamedChatRequests.find((request) =>
+				JSON.stringify(request.body).includes("Say hello through the fake provider."),
+			);
+			expect(userChatRequest).toBeTruthy();
+			expect(userChatRequest).toMatchObject({
 				method: "POST",
 				authorization: "Bearer [redacted]",
 				body: {

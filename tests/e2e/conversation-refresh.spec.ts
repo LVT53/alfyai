@@ -1,4 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
+import { eq } from 'drizzle-orm';
+import { db } from '../../src/lib/server/db';
+import { users } from '../../src/lib/server/db/schema';
+import { createConversation as createServerConversation } from '../../src/lib/server/services/conversations';
+import { createMessage } from '../../src/lib/server/services/messages';
 import { login, createConversation, ensureSidebarExpanded } from './helpers';
 
 /**
@@ -31,14 +36,58 @@ async function getConversationCount(page: Page): Promise<number> {
   return page.getByTestId('conversation-item').count();
 }
 
+async function waitPastRefreshDebounce(page: Page) {
+  await page.waitForTimeout(2100);
+}
+
+async function expectConversationVisible(page: Page, conversationId: string) {
+  await expect(page.locator(`[data-conversation-id="${conversationId}"]`)).toBeVisible({
+    timeout: 10000,
+  });
+}
+
+async function waitForConversationRefreshResponse(page: Page, conversationId: string) {
+  const response = await page.waitForResponse(
+    (candidate) =>
+      candidate.url().endsWith('/api/conversations') &&
+      candidate.request().method() === 'GET',
+    { timeout: 10000 }
+  );
+  expect(response.status()).toBe(200);
+  const body = (await response.json()) as { conversations?: Array<{ id: string }> };
+  expect(body.conversations?.some((conversation) => conversation.id === conversationId)).toBe(true);
+}
+
+async function deleteConversationViaApi(page: Page, conversationId: string) {
+  const result = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
+    return { ok: response.ok, status: response.status };
+  }, conversationId);
+  expect(result.ok, `conversation delete failed with status ${result.status}`).toBe(true);
+}
+
+async function seedListableConversation(title: string): Promise<string> {
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, 'admin@local'))
+    .limit(1);
+  expect(user?.id).toBeTruthy();
+  if (!user) throw new Error('Test admin user is missing');
+
+  const conversation = await createServerConversation(user.id, title);
+  await createMessage(conversation.id, 'user', `${title} body`);
+  return conversation.id;
+}
+
 test.describe('Conversation list refresh on tab/window focus', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
   });
 
-  test('refreshes conversation list when tab becomes visible', async ({ page, context }) => {
+  test('refreshes conversation list when tab becomes visible', async ({ page }) => {
     // Create initial conversation
-    const conversationId = await createConversation(page, 'Initial conversation for refresh test');
+    await createConversation(page, 'Initial conversation for refresh test');
     await ensureSidebarExpanded(page);
 
     // Get initial count
@@ -46,26 +95,23 @@ test.describe('Conversation list refresh on tab/window focus', () => {
     expect(initialCount).toBeGreaterThanOrEqual(1);
 
     // Create a second conversation in a different browser context
-    const page2 = await context.newPage();
-    await login(page2);
-    await createConversation(page2, 'Second conversation from another context');
+    const secondTitle = 'Second conversation from another context';
+    const secondConversationId = await seedListableConversation(secondTitle);
+    await waitPastRefreshDebounce(page);
 
     // Trigger visibility change on first page
+    const refreshResponse = waitForConversationRefreshResponse(page, secondConversationId);
+    await page.bringToFront();
     await triggerVisibilityChange(page);
+    await refreshResponse;
 
-    // Wait for refresh (debounce is 2 seconds, but we wait a bit more for the API)
-    await page.waitForTimeout(2500);
+    await expectConversationVisible(page, secondConversationId);
 
-    // Verify conversation count increased
-    const newCount = await getConversationCount(page);
-    expect(newCount).toBeGreaterThan(initialCount);
-
-    await page2.close();
   });
 
-  test('refreshes conversation list on window focus', async ({ page, context }) => {
+  test('refreshes conversation list on window focus', async ({ page }) => {
     // Create initial conversation
-    const conversationId = await createConversation(page, 'Initial conversation for focus test');
+    await createConversation(page, 'Initial conversation for focus test');
     await ensureSidebarExpanded(page);
 
     // Get initial count
@@ -73,21 +119,18 @@ test.describe('Conversation list refresh on tab/window focus', () => {
     expect(initialCount).toBeGreaterThanOrEqual(1);
 
     // Create a second conversation in a different browser context
-    const page2 = await context.newPage();
-    await login(page2);
-    await createConversation(page2, 'Second conversation from focus context');
+    const secondTitle = 'Second conversation from focus context';
+    const secondConversationId = await seedListableConversation(secondTitle);
+    await waitPastRefreshDebounce(page);
 
     // Trigger window focus on first page
+    const refreshResponse = waitForConversationRefreshResponse(page, secondConversationId);
+    await page.bringToFront();
     await triggerWindowFocus(page);
+    await refreshResponse;
 
-    // Wait for refresh
-    await page.waitForTimeout(2500);
+    await expectConversationVisible(page, secondConversationId);
 
-    // Verify conversation count increased
-    const newCount = await getConversationCount(page);
-    expect(newCount).toBeGreaterThan(initialCount);
-
-    await page2.close();
   });
 
   test('debounce prevents refresh more than once per 2 seconds', async ({ page }) => {
@@ -151,21 +194,11 @@ test.describe('Conversation list refresh on tab/window focus', () => {
     // Delete the conversation from another context
     const page2 = await context.newPage();
     await login(page2);
-    await page2.goto('/');
-    await ensureSidebarExpanded(page2);
-
-    // Find and delete the conversation
-    const conversationItem = page2.locator(`[data-conversation-id="${conversationId}"]`);
-    if (await conversationItem.isVisible().catch(() => false)) {
-      await conversationItem.hover();
-      await conversationItem.getByRole('button', { name: 'Conversation options' }).click();
-      await page2.getByTestId('delete-option').click();
-      await page2.getByTestId('confirm-delete').click();
-    }
+    await deleteConversationViaApi(page2, conversationId);
+    await waitPastRefreshDebounce(page);
 
     // Trigger refresh on first page
     await triggerVisibilityChange(page);
-    await page.waitForTimeout(2500);
 
     // Verify redirected to landing page
     await expect(page).toHaveURL('/', { timeout: 10000 });
@@ -181,7 +214,8 @@ test.describe('Conversation list refresh on tab/window focus', () => {
     await ensureSidebarExpanded(page);
 
     // Get the sidebar scroll container
-    const sidebar = page.locator('.sidebar-scroll-container, [data-testid="sidebar"] .overflow-y-auto').first();
+    const sidebar = page.locator('aside.transitions-enabled .overflow-y-auto').first();
+    await expect(sidebar).toBeVisible();
 
     // Scroll down
     await sidebar.evaluate((el) => {

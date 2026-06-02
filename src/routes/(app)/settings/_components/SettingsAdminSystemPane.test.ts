@@ -25,6 +25,7 @@ import {
 	createProvider,
 	fetchAdminSystemSkills,
 	fetchProviders,
+	updateProvider,
 	updateAdminConfig,
 	updateAdminSystemSkill,
 } from "$lib/client/api/admin";
@@ -38,6 +39,7 @@ import { createModelCapabilitySet } from "$lib/model-capabilities";
 const mockCreateProvider = createProvider as ReturnType<typeof vi.fn>;
 const mockFetchAdminSystemSkills = fetchAdminSystemSkills as ReturnType<typeof vi.fn>;
 const mockFetchProviders = fetchProviders as ReturnType<typeof vi.fn>;
+const mockUpdateProvider = updateProvider as ReturnType<typeof vi.fn>;
 const mockUpdateAdminConfig = updateAdminConfig as ReturnType<typeof vi.fn>;
 const mockUpdateAdminSystemSkill = updateAdminSystemSkill as ReturnType<typeof vi.fn>;
 const mockSaveModelIconAssetCrop = saveModelIconAssetCrop as ReturnType<typeof vi.fn>;
@@ -101,6 +103,7 @@ describe("SettingsAdminSystemPane", () => {
 		});
 		mockFetchAdminSystemSkills.mockResolvedValue([]);
 		mockFetchProviders.mockResolvedValue([]);
+		mockUpdateProvider.mockResolvedValue(undefined);
 		mockUpdateAdminConfig.mockResolvedValue(undefined);
 		mockSaveModelIconAssetCrop.mockResolvedValue({ id: "icon-crop-1" });
 		mockUploadCampaignAssetSource.mockResolvedValue({ id: "source-1" });
@@ -516,5 +519,51 @@ describe("SettingsAdminSystemPane", () => {
 		expect(adminConfig.MODEL_1_ICON_ASSET_ID).toBe("icon-1");
 		expect(mockUploadCampaignAssetSource).not.toHaveBeenCalled();
 		expect(queryByText("Crop model icon")).not.toBeInTheDocument();
+	});
+
+	it("routes provider icon uploads by provider id instead of display slug", async () => {
+		mockFetchProviders.mockResolvedValue([
+			providerFixture({ id: "provider-1", name: "firepass" }),
+		]);
+		const { getAllByLabelText, getAllByRole } = render(
+			SettingsAdminSystemPane,
+			{
+				adminConfig: {
+					COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
+					MODEL_2_ENABLED: "true",
+					DEEP_RESEARCH_ENABLED: "false",
+					DEEP_RESEARCH_WORKER_ENABLED: "false",
+				},
+				availableModels: [{ id: "model1", displayName: "Model 1" }],
+				onCheckHonchoHealth: vi.fn(),
+				onSaveAdminConfig: vi.fn(),
+			},
+		);
+
+		await waitFor(() => {
+			expect(getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(
+				2,
+			);
+		});
+		await fireEvent.click(getAllByRole("button", { name: "Edit" })[2]);
+		await waitFor(() => {
+			expect(getAllByLabelText("Upload icon").length).toBeGreaterThan(0);
+		});
+
+		await fireEvent.change(getAllByLabelText("Upload icon")[0], {
+			target: {
+				files: [
+					new File(["<svg></svg>"], "provider.svg", {
+						type: "image/svg+xml",
+					}),
+				],
+			},
+		});
+
+		await waitFor(() => {
+			expect(mockUpdateProvider).toHaveBeenCalledWith("provider-1", {
+				iconAssetId: "icon-1",
+			});
+		});
 	});
 });

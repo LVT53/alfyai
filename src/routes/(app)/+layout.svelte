@@ -9,7 +9,6 @@
 	import ServerUpdateNotice from './_components/ServerUpdateNotice.svelte';
 	import { currentConversationId, sidebarOpen, initUIListeners } from '$lib/stores/ui';
 	import {
-		conversations,
 		loadConversations,
 		reconcileConversationSnapshot,
 	} from '$lib/stores/conversations';
@@ -46,7 +45,6 @@
 	// Debounce state for conversation list refresh
 	let lastRefreshTime = $state(0);
 	const REFRESH_DEBOUNCE_MS = 2000; // 2 seconds minimum between refreshes
-	const CONVERSATION_SNAPSHOT_FRESH_MS = 30_000;
 	let previousConversationUserId = $state<string | null>(null);
 	let serverUpdateAvailable = $state(false);
 	let activeCampaign = $state<Campaign | null>(null);
@@ -127,22 +125,17 @@
 		const currentPath = page.url.pathname;
 
 		try {
-			const refreshResult = await loadConversations({
-				minIntervalMs: CONVERSATION_SNAPSHOT_FRESH_MS,
-			});
+			await loadConversations({ force: true });
 
 			// Edge case: if current conversation was deleted from another device,
-			// redirect to landing page. Do not rely solely on the sidebar list:
+			// redirect to landing page. Do not rely on the sidebar list:
 			// brand-new bootstrap conversations can exist before the list chooses to show them,
-			// while a skipped freshness refresh means a stale local row cannot prove existence.
+			// while a stale optimistic local row cannot prove existence.
 			if (currentId && currentPath === `/chat/${currentId}`) {
-				const stillExists = $conversations.some(c => c.id === currentId);
-				if (!refreshResult.refreshed || !stillExists) {
-					const exists = await conversationExists(currentId);
-					if (exists === false) {
-						removeConversationFromPersistedWorkspaceDocumentState(window.sessionStorage, currentId);
-						goto('/');
-					}
+				const exists = await conversationExists(currentId);
+				if (exists === false) {
+					removeConversationFromPersistedWorkspaceDocumentState(window.sessionStorage, currentId);
+					goto('/');
 				}
 			}
 		} catch (error) {
