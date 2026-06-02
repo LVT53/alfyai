@@ -28,6 +28,11 @@
 	import { fetchUserSettings, updateUserPreferences } from '$lib/client/api/settings';
 	import { reconcileProjectSnapshot } from '$lib/stores/projects';
 	import {
+		markServerUpdateRefreshRequested,
+		readServerUpdateRefreshSuppressedUntil,
+		SERVER_UPDATE_REFRESH_SUPPRESSION_MS,
+	} from '$lib/client/server-update-notice';
+	import {
 		initSettings,
 		setModelPreferenceAndSync,
 		setSelectedModelAndSync,
@@ -47,6 +52,8 @@
 	const REFRESH_DEBOUNCE_MS = 2000; // 2 seconds minimum between refreshes
 	let previousConversationUserId = $state<string | null>(null);
 	let serverUpdateAvailable = $state(false);
+	let serverUpdateSuppressedUntil = $state(browser ? readServerUpdateRefreshSuppressedUntil(window.sessionStorage) : 0);
+	let serverUpdateSuppressionTimeout: ReturnType<typeof window.setTimeout> | null = null;
 	let activeCampaign = $state<Campaign | null>(null);
 	let campaignMode = $state<CampaignDisplayMode>('auto');
 	let campaignSlideIndex = $state(0);
@@ -90,7 +97,7 @@
 	});
 
 	$effect(() => {
-		if (updated.current) {
+		if (updated.current && !isServerUpdateNoticeSuppressed()) {
 			serverUpdateAvailable = true;
 		}
 	});
@@ -145,7 +152,7 @@
 	}
 
 	async function checkForServerUpdate() {
-		if (!browser || serverUpdateAvailable) return;
+		if (!browser || serverUpdateAvailable || isServerUpdateNoticeSuppressed()) return;
 
 		try {
 			serverUpdateAvailable = await updated.check();
@@ -172,7 +179,27 @@
 
 	function refreshForServerUpdate() {
 		if (!browser) return;
+		markServerUpdateRefreshRequested(window.sessionStorage);
+		serverUpdateAvailable = false;
 		window.location.reload();
+	}
+
+	function isServerUpdateNoticeSuppressed() {
+		return browser && serverUpdateSuppressedUntil > Date.now();
+	}
+
+	function initializeServerUpdateSuppression() {
+		if (!browser) return;
+		serverUpdateSuppressedUntil = readServerUpdateRefreshSuppressedUntil(window.sessionStorage);
+		if (!serverUpdateSuppressedUntil) return;
+		if (serverUpdateSuppressionTimeout) {
+			window.clearTimeout(serverUpdateSuppressionTimeout);
+		}
+
+		serverUpdateSuppressionTimeout = window.setTimeout(() => {
+			serverUpdateSuppressedUntil = readServerUpdateRefreshSuppressedUntil(window.sessionStorage);
+			void checkForServerUpdate();
+		}, Math.min(SERVER_UPDATE_REFRESH_SUPPRESSION_MS, Math.max(0, serverUpdateSuppressedUntil - Date.now())));
 	}
 
 	async function recordActiveCampaignEvent(
@@ -329,6 +356,7 @@
 			uiLanguage: data.userUiLanguage,
 		});
 		initAvatar(data.user?.profilePicture ?? null);
+		initializeServerUpdateSuppression();
 		selectedCampaignModel = data.userModelPreference ?? null;
 		effectiveCampaignModel = data.userModel;
 		campaignSystemDefaultModel = data.systemDefaultModel ?? data.userModel;
@@ -361,6 +389,10 @@
 
 	onDestroy(() => {
 		if (!browser) return;
+		if (serverUpdateSuppressionTimeout) {
+			window.clearTimeout(serverUpdateSuppressionTimeout);
+			serverUpdateSuppressionTimeout = null;
+		}
 		document.removeEventListener('visibilitychange', handleVisibilityChange);
 		window.removeEventListener('focus', handleWindowFocus);
 	});
