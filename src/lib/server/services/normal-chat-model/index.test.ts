@@ -68,6 +68,7 @@ describe("Normal Chat Model Run provider resolution", () => {
 			enabled: true,
 			maxTokens: 4096,
 			reasoningEffort: "medium",
+			thinkingType: "enabled",
 		});
 
 		await expect(
@@ -81,6 +82,7 @@ describe("Normal Chat Model Run provider resolution", () => {
 			apiKey: "plain-secret",
 			maxOutputTokens: 4096,
 			reasoningEffort: "medium",
+			thinkingType: "enabled",
 		});
 		expect(mocks.decryptApiKey).toHaveBeenCalledWith(
 			"encrypted-secret",
@@ -125,7 +127,7 @@ describe("Normal Chat Model Run provider resolution", () => {
 });
 
 describe("Normal Chat Model Run provider options", () => {
-	it("uses configured reasoning effort for auto/on and suppresses it for off", () => {
+	it("uses configured reasoning effort for auto/on and disables known thinking models for off", () => {
 		const provider = {
 			id: "provider-1",
 			name: "fireworks",
@@ -137,14 +139,14 @@ describe("Normal Chat Model Run provider options", () => {
 		};
 
 		expect(buildNormalChatModelRunProviderOptions(provider, "auto")).toEqual({
-			fireworks: { reasoning_effort: "high" },
+			fireworks: { reasoningEffort: "high" },
 		});
 		expect(buildNormalChatModelRunProviderOptions(provider, "on")).toEqual({
-			fireworks: { reasoning_effort: "high" },
+			fireworks: { reasoningEffort: "high" },
 		});
-		expect(buildNormalChatModelRunProviderOptions(provider, "off")).toBe(
-			undefined,
-		);
+		expect(buildNormalChatModelRunProviderOptions(provider, "off")).toEqual({
+			fireworks: { thinking: { type: "disabled" } },
+		});
 	});
 
 	it("suppresses reasoning options when capability evidence says reasoning controls are unsupported", () => {
@@ -168,6 +170,30 @@ describe("Normal Chat Model Run provider options", () => {
 		expect(buildNormalChatModelRunProviderOptions(provider, "on")).toBe(
 			undefined,
 		);
+	});
+
+	it("uses Qwen thinking request options instead of reasoning effort", () => {
+		const provider = {
+			id: "provider-1",
+			name: "dashscope",
+			displayName: "Qwen Cloud",
+			baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			modelName: "qwen3.6-plus",
+			apiKey: "plain-secret",
+			reasoningEffort: "high" as const,
+		};
+
+		expect(buildNormalChatModelRunProviderOptions(provider, "on")).toEqual({
+			dashscope: {
+				enable_thinking: true,
+				preserve_thinking: true,
+			},
+		});
+		expect(buildNormalChatModelRunProviderOptions(provider, "off")).toEqual({
+			dashscope: {
+				enable_thinking: false,
+			},
+		});
 	});
 });
 
@@ -318,6 +344,167 @@ describe("Plain Normal Chat Model Run", () => {
 				}),
 			}),
 		);
+	});
+
+	it("serializes generic reasoning effort to the outbound OpenAI-compatible body", async () => {
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: "Plain answer",
+								},
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+		const provider = {
+			id: "provider-1",
+			name: "customhost",
+			displayName: "Custom Host",
+			baseUrl: "https://openai-compatible.example/v1",
+			modelName: "gpt-oss-120b",
+			apiKey: "plain-secret",
+			reasoningEffort: "high" as const,
+		};
+
+		await runPlainNormalChatModelRun({
+			provider,
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Hello" }],
+				},
+			],
+			providerOptions: buildNormalChatModelRunProviderOptions(provider, "on"),
+			fetch,
+		});
+
+		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		expect(body.reasoning_effort).toBe("high");
+		expect(body).not.toHaveProperty("reasoningEffort");
+		expect(body).not.toHaveProperty("thinking");
+	});
+
+	it("serializes Kimi thinking and reasoning effort to the outbound body", async () => {
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: "Plain answer",
+								},
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+		const provider = {
+			id: "provider-1",
+			name: "moonshot",
+			displayName: "Kimi",
+			baseUrl: "https://api.moonshot.ai/v1",
+			modelName: "kimi-k2.6",
+			apiKey: "plain-secret",
+			reasoningEffort: "medium" as const,
+			thinkingType: "enabled" as const,
+		};
+
+		await runPlainNormalChatModelRun({
+			provider,
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Hello" }],
+				},
+			],
+			providerOptions: buildNormalChatModelRunProviderOptions(provider, "on"),
+			fetch,
+		});
+
+		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		expect(body.reasoning_effort).toBe("medium");
+		expect(body.thinking).toEqual({ type: "enabled", keep: "all" });
+		expect(body).not.toHaveProperty("reasoningEffort");
+	});
+
+	it("serializes Qwen thinking options without reasoning effort", async () => {
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: "Plain answer",
+								},
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+		const provider = {
+			id: "provider-1",
+			name: "dashscope",
+			displayName: "Qwen Cloud",
+			baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			modelName: "qwen3.6-plus",
+			apiKey: "plain-secret",
+			reasoningEffort: "high" as const,
+		};
+
+		await runPlainNormalChatModelRun({
+			provider,
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Hello" }],
+				},
+			],
+			providerOptions: buildNormalChatModelRunProviderOptions(provider, "on"),
+			fetch,
+		});
+
+		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		expect(body.enable_thinking).toBe(true);
+		expect(body.preserve_thinking).toBe(true);
+		expect(body).not.toHaveProperty("reasoning_effort");
+		expect(body).not.toHaveProperty("reasoningEffort");
 	});
 
 	it("does not retry plain chat calls by default", async () => {
@@ -511,6 +698,214 @@ describe("Plain Normal Chat Model Run", () => {
 			type: "function",
 			function: { name: "produce_file" },
 		});
+	});
+
+	it("disables Qwen thinking when preserving a forced named tool choice", async () => {
+		const qwenProvider = {
+			id: "provider-1",
+			name: "dashscope",
+			displayName: "Qwen Cloud",
+			baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			modelName: "qwen3.6-plus",
+			apiKey: "plain-secret",
+			reasoningEffort: "high" as const,
+		};
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: "Queued the report.",
+								},
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+
+		await runPlainNormalChatModelRun({
+			provider: qwenProvider,
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Create a PDF report" }],
+				},
+			],
+			providerOptions: buildNormalChatModelRunProviderOptions(
+				qwenProvider,
+				"on",
+			),
+			tools: {
+				produce_file: tool({
+					description: "Queue a file production job.",
+					inputSchema: z.object({
+						title: z.string(),
+					}),
+					execute: vi.fn(),
+				}),
+			},
+			toolChoice: { type: "tool", toolName: "produce_file" },
+			fetch,
+		});
+
+		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		expect(body.tool_choice).toEqual({
+			type: "function",
+			function: { name: "produce_file" },
+		});
+		expect(body.enable_thinking).toBe(false);
+		expect(body).not.toHaveProperty("preserve_thinking");
+		expect(body).not.toHaveProperty("reasoning_effort");
+	});
+
+	it("adapts DeepSeek thinking tool requests before sending them to the provider", async () => {
+		const deepSeekProvider = {
+			id: "provider-1",
+			name: "deepseek",
+			displayName: "DeepSeek",
+			baseUrl: "https://api.deepseek.com/v1",
+			modelName: "deepseek-v4-pro",
+			apiKey: "plain-secret",
+			reasoningEffort: "high" as const,
+			thinkingType: "enabled" as const,
+		};
+		const toolExecute = vi.fn(async () => ({
+			jobId: "job-1",
+			title: "Quarterly report",
+		}));
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: null,
+									reasoning_content: "I should create the requested file.",
+									tool_calls: [
+										{
+											id: "call-1",
+											type: "function",
+											function: {
+												name: "produce_file",
+												arguments: JSON.stringify({
+													title: "Quarterly report",
+												}),
+											},
+										},
+									],
+								},
+								finish_reason: "tool_calls",
+							},
+						],
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-2",
+						model: "provider-returned-model",
+						created: 1_717_171_718,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: "Queued the report.",
+								},
+								finish_reason: "stop",
+							},
+						],
+						usage: {
+							prompt_tokens: 12,
+							completion_tokens: 4,
+							total_tokens: 16,
+						},
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			);
+
+		await runPlainNormalChatModelRun({
+			provider: deepSeekProvider,
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Create a PDF report" }],
+				},
+			],
+			providerOptions: buildNormalChatModelRunProviderOptions(
+				deepSeekProvider,
+				"on",
+			),
+			tools: {
+				produce_file: tool({
+					description: "Queue a file production job.",
+					inputSchema: z.object({
+						title: z.string(),
+					}),
+					execute: toolExecute,
+				}),
+			},
+			toolChoice: { type: "tool", toolName: "produce_file" },
+			fetch,
+		});
+
+		const firstBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		expect(firstBody.thinking).toEqual({ type: "enabled" });
+		expect(firstBody.reasoning_effort).toBe("high");
+		expect(firstBody).not.toHaveProperty("tool_choice");
+
+		const secondBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body));
+		expect(secondBody.messages).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					role: "assistant",
+					content: "",
+					reasoning_content: "I should create the requested file.",
+					tool_calls: [
+						expect.objectContaining({
+							id: "call-1",
+							type: "function",
+							function: expect.objectContaining({
+								name: "produce_file",
+							}),
+						}),
+					],
+				}),
+			]),
+		);
 	});
 
 	it("does not retry required tool-choice runs without tools", async () => {

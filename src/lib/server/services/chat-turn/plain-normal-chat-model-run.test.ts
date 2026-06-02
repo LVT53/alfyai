@@ -121,7 +121,7 @@ describe("runPlainNormalChatSendModel", () => {
 		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
 				providerOptions: {
-					model1: { reasoning_effort: "high" },
+					model1: { reasoningEffort: "high" },
 				},
 				abortSignal: expect.any(AbortSignal),
 			}),

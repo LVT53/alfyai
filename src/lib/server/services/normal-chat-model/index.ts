@@ -23,8 +23,13 @@ import type { ProviderUsageSnapshot } from "../analytics";
 import { decryptApiKey, getProviderWithSecrets } from "../inference-providers";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
 import { createOpenAICompatibleStreamNormalizingFetch } from "./openai-compatible-stream-normalizer";
+import {
+	buildNormalChatModelRunCompatibilityProviderOptions,
+	transformNormalChatModelRunRequestBody,
+} from "./provider-compatibility";
 
 type NormalChatReasoningEffort = NonNullable<ModelConfig["reasoningEffort"]>;
+type NormalChatThinkingType = NonNullable<ModelConfig["thinkingType"]>;
 
 export type NormalChatModelRunProvider = {
 	id: string;
@@ -38,6 +43,7 @@ export type NormalChatModelRunProvider = {
 	compactionUiThreshold?: number;
 	targetConstructedContext?: number;
 	reasoningEffort?: NormalChatReasoningEffort;
+	thinkingType?: NormalChatThinkingType;
 	capabilities?: ModelCapabilitySet;
 };
 
@@ -206,6 +212,7 @@ export async function resolveNormalChatModelRunProvider(
 		maxOutputTokens:
 			typeof provider.maxTokens === "number" ? provider.maxTokens : undefined,
 		reasoningEffort: provider.reasoningEffort ?? undefined,
+		thinkingType: provider.thinkingType ?? undefined,
 		...(provider.capabilities ? { capabilities: provider.capabilities } : {}),
 		...(hasMaxModelContext
 			? { maxModelContext: provider.maxModelContext }
@@ -242,6 +249,7 @@ function builtinModelRunProvider(
 				? modelConfig.maxTokens
 				: undefined,
 		reasoningEffort: modelConfig.reasoningEffort ?? undefined,
+		thinkingType: modelConfig.thinkingType ?? undefined,
 	};
 }
 
@@ -249,14 +257,15 @@ export function buildNormalChatModelRunProviderOptions(
 	provider: NormalChatModelRunProvider,
 	thinkingMode: ThinkingMode | undefined,
 ): Record<string, Record<string, unknown>> | undefined {
-	if (thinkingMode === "off" || !provider.reasoningEffort) return undefined;
 	if (isCapabilityUnsupported(provider, "reasoningControls")) return undefined;
 
-	return {
-		[provider.name]: {
-			reasoning_effort: provider.reasoningEffort,
-		},
-	};
+	const options = buildNormalChatModelRunCompatibilityProviderOptions(
+		provider,
+		thinkingMode,
+	);
+	if (Object.keys(options).length === 0) return undefined;
+
+	return { [provider.name]: options };
 }
 
 function isCapabilityUnsupported(
@@ -326,6 +335,8 @@ function createNormalChatOpenAICompatibleProvider(params: {
 		apiKey: params.provider.apiKey,
 		baseURL: normalizeOpenAICompatibleBaseUrl(params.provider.baseUrl),
 		includeUsage: !isCapabilityUnsupported(params.provider, "usageReporting"),
+		transformRequestBody: (body) =>
+			transformNormalChatModelRunRequestBody(body, params.provider),
 		fetch: normalizedFetch,
 	});
 }
