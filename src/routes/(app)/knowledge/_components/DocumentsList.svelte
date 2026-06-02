@@ -53,11 +53,6 @@ let sortDirection = $state<SortDirection>("desc");
 // AI-facing version expand/collapse state
 let expandedAiVersions = $state<Set<string>>(new Set());
 
-// AI-facing version content cache: promptArtifactId → { loading, text, error }
-let aiVersionContent = $state<
-	Record<string, { loading: boolean; text: string | null; error: string | null }>
->({});
-
 // Selection derived state
 const selectedCount = $derived(selectedIds.size);
 const isAllSelected = $derived.by(() => {
@@ -369,46 +364,14 @@ function toggleSort(nextSortKey: DocumentSortKey) {
 		nextSortKey === "name" || nextSortKey === "type" ? "asc" : "desc";
 }
 
-async function toggleAiVersion(documentId: string, promptArtifactId: string) {
+function toggleAiVersion(documentId: string) {
 	const next = new Set(expandedAiVersions);
 	if (next.has(documentId)) {
 		next.delete(documentId);
-		expandedAiVersions = next;
-		return;
+	} else {
+		next.add(documentId);
 	}
-
-	// Expanding — fetch the AI-facing content if not already loaded
-	next.add(documentId);
 	expandedAiVersions = next;
-
-	if (!aiVersionContent[promptArtifactId]) {
-		aiVersionContent = {
-			...aiVersionContent,
-			[promptArtifactId]: { loading: true, text: null, error: null },
-		};
-
-		try {
-			const response = await fetch(`/api/knowledge/${promptArtifactId}`);
-			if (!response.ok) {
-				throw new Error(`Failed to load content (${response.status})`);
-			}
-			const data = await response.json();
-			const text = data?.artifact?.contentText ?? null;
-			aiVersionContent = {
-				...aiVersionContent,
-				[promptArtifactId]: { loading: false, text, error: text ? null : 'No content available' },
-			};
-		} catch (err) {
-			aiVersionContent = {
-				...aiVersionContent,
-				[promptArtifactId]: {
-					loading: false,
-					text: null,
-					error: err instanceof Error ? err.message : 'Failed to load content',
-				},
-			};
-		}
-	}
 }
 
 function getAriaSort(
@@ -879,7 +842,7 @@ function SlidesIcon() {
 													: $t('knowledge.viewAiVersion')}
 												onclick={(e) => {
 													e.stopPropagation();
-													toggleAiVersion(document.id, document.promptArtifactId!);
+													toggleAiVersion(document.id);
 												}}
 											>
 												<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -950,33 +913,17 @@ function SlidesIcon() {
 								</td>
 							</tr>
 							{#if document.normalizedAvailable && document.promptArtifactId && expandedAiVersions.has(document.id)}
-							{@const promptId = document.promptArtifactId}
-							{@const content = aiVersionContent[promptId] ?? null}
-							<tr class="ai-version-row">
-								<td class="col-checkbox"></td>
-								<td class="col-icon"></td>
-								<td colspan="5" class="ai-version-cell">
-									<div class="ai-version-panel">
-										<span class="ai-version-label">{$t('knowledge.aiFacingVersion')}</span>
-										{#if content?.loading}
-											<div class="ai-version-loading">
-												<svg class="ai-version-spinner" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-													<circle cx="12" cy="12" r="10" opacity="0.25" />
-													<path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round" />
-												</svg>
-												Loading…
-											</div>
-										{:else if content?.error}
-											<div class="ai-version-error">{content.error}</div>
-										{:else if content?.text}
-											<pre class="ai-version-content">{content.text}</pre>
-										{:else}
-											<div class="ai-version-empty">No content available for preview.</div>
-										{/if}
-									</div>
-								</td>
-							</tr>
-						{/if}
+								<tr class="ai-version-row">
+									<td class="col-checkbox"></td>
+									<td class="col-icon"></td>
+									<td colspan="5" class="ai-version-cell">
+										<div class="ai-version-panel">
+											<span class="ai-version-label">{$t('knowledge.aiFacingVersion')}</span>
+											<span class="ai-version-meta">{document.promptArtifactId}</span>
+										</div>
+									</td>
+								</tr>
+							{/if}
 						{/each}
 					</tbody>
 				</table>
@@ -1492,63 +1439,23 @@ function SlidesIcon() {
 
 	.ai-version-panel {
 		display: flex;
-		flex-direction: column;
+		align-items: center;
 		gap: var(--space-md);
-		font-size: 0.8125rem;
-		color: var(--text-secondary);
-		max-height: 320px;
-		overflow-y: auto;
+		font-size: 0.75rem;
+		color: var(--text-muted);
 	}
 
 	.ai-version-label {
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		font-size: 0.75rem;
 		color: var(--accent);
 	}
 
-	.ai-version-content {
-		margin: 0;
-		padding: var(--space-md);
-		background: var(--surface-raised);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
+	.ai-version-meta {
 		font-family: var(--font-mono, monospace);
-		font-size: 0.75rem;
-		line-height: 1.5;
-		white-space: pre-wrap;
-		word-break: break-word;
-		overflow-wrap: break-word;
-		color: var(--text-primary);
-	}
-
-	.ai-version-loading {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-		font-size: 0.8125rem;
-		color: var(--text-muted);
-	}
-
-	.ai-version-spinner {
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
-
-	.ai-version-error {
-		font-size: 0.8125rem;
-		color: var(--text-danger);
-	}
-
-	.ai-version-empty {
-		font-size: 0.8125rem;
-		color: var(--text-muted);
-		font-style: italic;
+		font-size: 0.6875rem;
+		opacity: 0.7;
 	}
 
 	.col-size {
