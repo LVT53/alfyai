@@ -100,6 +100,57 @@ describe("memory context service", () => {
 		});
 	});
 
+	it("uses project report mode for folder-wide file/report requests", async () => {
+		mockGetProjectContext.mockResolvedValueOnce({
+			success: true,
+			mode: "report",
+			hasProjectContext: true,
+			source: "project_folder",
+			project: {
+				id: "folder-almalinux",
+				name: "AlmaLinux Server",
+				authority: "project_folder",
+			},
+			siblings: [],
+			omittedSiblingCount: 0,
+			reportSiblings: [],
+			evidenceCandidates: [],
+			audit: {
+				conversationId: "conv-current",
+				scope: "conversation",
+				requestedMaxSiblings: null,
+				appliedMaxSiblings: 16,
+				requestedMaxMessages: null,
+				appliedMaxMessages: 6,
+				reportConversationCount: 0,
+				includeEvidenceCandidates: true,
+			},
+		});
+		const { getMemoryContext } = await import("./memory-context");
+
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "project",
+			query:
+				"Generate a detailed PDF report with the content from AlmaLinux Server project folder",
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			mode: "project",
+			projectMode: "report",
+			project: { name: "AlmaLinux Server" },
+		});
+		expect(mockGetProjectContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mode: "report",
+				query:
+					"Generate a detailed PDF report with the content from AlmaLinux Server project folder",
+			}),
+		);
+	});
+
 	it("returns Honcho-led persona recall with a memory evidence candidate", async () => {
 		const { getMemoryContext } = await import("./memory-context");
 

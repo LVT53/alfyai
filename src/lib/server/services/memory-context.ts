@@ -124,6 +124,10 @@ const HISTORY_SNIPPET_MAX_CHARS = 700;
 const HISTORY_MESSAGE_MAX_CHARS = 1_200;
 const MIN_MAX_HISTORY_MESSAGES = 10;
 const OPERATIONAL_MAX_HISTORY_MESSAGES = 96;
+const PROJECT_REPORT_QUERY_RE =
+	/\b(report|pdf|docx?|document|export|download|file|summari[sz]e|write[- ]?up)\b/i;
+const PROJECT_FOLDER_QUERY_RE =
+	/\b(project folder|folder|project|workspace|content from|content of|memory)\b/i;
 const HISTORY_QUERY_STOPWORDS = new Set([
 	"a",
 	"about",
@@ -205,7 +209,12 @@ function buildPersonaEvidenceCandidate(params: {
 async function getProjectMemoryContext(
 	params: GetMemoryContextParams,
 ): Promise<ProjectMemoryContextResult> {
-	const projectMode = params.siblingConversationId ? "detail" : "summary";
+	const query = params.query?.trim() ?? "";
+	const projectMode = params.siblingConversationId
+		? "detail"
+		: PROJECT_REPORT_QUERY_RE.test(query) && PROJECT_FOLDER_QUERY_RE.test(query)
+			? "report"
+			: "summary";
 	const result = await getProjectContext({
 		userId: params.userId,
 		conversationId: params.conversationId,

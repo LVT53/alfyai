@@ -454,7 +454,7 @@ describe("getProjectContext", () => {
 
 	it.each([
 		["small", 50_000, 5],
-		["large", 1_000_000, 32],
+		["large", 1_000_000, 16],
 	])(
 		"applies the %s-context summary sibling cap and reports omissions",
 		async (_label, targetContext, expectedLimit) => {
@@ -487,6 +487,119 @@ describe("getProjectContext", () => {
 			);
 		},
 	);
+
+	it("returns folder-wide report context with recent messages for bounded siblings", async () => {
+		targetConstructedContext.value = 1_000_000;
+		mockGetProjectReferenceContext.mockResolvedValue({
+			source: "project_folder",
+			projectId: "project-1",
+			projectName: "AlmaLinux Server",
+			omittedSiblingCount: 1,
+			entries: [
+				{
+					conversationId: "conv-2",
+					title: "SSH hardening",
+					objective: "Lock down SSH access",
+					summary: "Discussed SSH port, keys, and firewall policy.",
+				},
+				{
+					conversationId: "conv-3",
+					title: "Cockpit and updates",
+					objective: "Set up admin UI and updates",
+					summary: "Discussed Cockpit, dnf-automatic, and storage.",
+				},
+			],
+		});
+		messageRows.push(
+			{
+				conversationId: "conv-2",
+				role: "user",
+				content: "Use key-only SSH and disable password login.",
+				createdAt: new Date("2026-05-14T09:01:00.000Z"),
+			},
+			{
+				conversationId: "conv-2",
+				role: "assistant",
+				content: "Set PasswordAuthentication no and restart sshd.",
+				createdAt: new Date("2026-05-14T09:02:00.000Z"),
+			},
+			{
+				conversationId: "conv-3",
+				role: "user",
+				content: "Enable Cockpit and unattended security updates.",
+				createdAt: new Date("2026-05-14T09:03:00.000Z"),
+			},
+			{
+				conversationId: "conv-3",
+				role: "assistant",
+				content: "Use systemctl enable --now cockpit.socket.",
+				createdAt: new Date("2026-05-14T09:04:00.000Z"),
+			},
+		);
+
+		const result = await getProjectContext({
+			userId: "user-1",
+			conversationId: "conv-1",
+			mode: "report",
+			maxSiblings: 16,
+			maxMessages: 4,
+			includeEvidenceCandidates: true,
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			mode: "report",
+			hasProjectContext: true,
+			project: {
+				name: "AlmaLinux Server",
+			},
+			omittedSiblingCount: 1,
+			audit: {
+				appliedMaxSiblings: 16,
+				appliedMaxMessages: 4,
+				reportConversationCount: 2,
+			},
+		});
+		expect(result.reportSiblings).toEqual([
+			expect.objectContaining({
+				conversationId: "conv-2",
+				title: "SSH hardening",
+				messages: [
+					expect.objectContaining({
+						content: "Use key-only SSH and disable password login.",
+					}),
+					expect.objectContaining({
+						content: "Set PasswordAuthentication no and restart sshd.",
+					}),
+				],
+			}),
+			expect.objectContaining({
+				conversationId: "conv-3",
+				title: "Cockpit and updates",
+				messages: [
+					expect.objectContaining({
+						content: "Enable Cockpit and unattended security updates.",
+					}),
+					expect.objectContaining({
+						content: "Use systemctl enable --now cockpit.socket.",
+					}),
+				],
+			}),
+		]);
+		expect(result.evidenceCandidates).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "memory-context:project-detail:conv-2",
+					snippet: expect.stringContaining("PasswordAuthentication no"),
+				}),
+				expect.objectContaining({
+					id: "memory-context:project-detail:conv-3",
+					snippet: expect.stringContaining("cockpit.socket"),
+				}),
+			]),
+		);
+		expect(queryLimits).toEqual([4, 4]);
+	});
 
 	it("rejects unsupported modes clearly", async () => {
 		await expect(

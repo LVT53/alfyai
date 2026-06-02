@@ -51,14 +51,16 @@ const memoryContextInputSchema = z.object({
 		.min(1)
 		.optional()
 		.describe(
-			"Specific lookup question or named entity. For named project folders, include the exact folder name, e.g. 'AlmaLinux Server'.",
+			"Specific lookup question or named entity. For named project folders, include the exact folder name, e.g. 'AlmaLinux Server'. Folder-wide report/export requests return bounded report context in one call.",
 		),
 	maxSiblings: z
 		.number()
 		.int()
 		.min(1)
 		.optional()
-		.describe("Maximum project sibling conversation summaries to return."),
+		.describe(
+			"Maximum project sibling conversations to return. For folder-wide reports, keep this at or below 16 and use the returned reportSiblings instead of one detail call per sibling.",
+		),
 	siblingConversationId: z
 		.string()
 		.min(1)
@@ -71,7 +73,9 @@ const memoryContextInputSchema = z.object({
 		.int()
 		.min(1)
 		.optional()
-		.describe("Maximum recent messages to return for a selected conversation."),
+		.describe(
+			"Maximum recent messages to return for a selected conversation, or per sibling for folder-wide report context.",
+		),
 	maxHistoryConversations: z
 		.number()
 		.int()
@@ -878,6 +882,7 @@ function compactMemoryContextModelPayload(
 		content: "content" in result ? result.content : undefined,
 		project: "project" in result ? result.project : undefined,
 		siblings: "siblings" in result ? result.siblings : [],
+		reportSiblings: "reportSiblings" in result ? result.reportSiblings : [],
 		selectedSibling:
 			"selectedSibling" in result ? result.selectedSibling : null,
 		omittedSiblingCount:

@@ -13,17 +13,19 @@ import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 const MIN_MAX_SIBLINGS = 5;
-const OPERATIONAL_MAX_SIBLINGS = 64;
+const OPERATIONAL_MAX_SIBLINGS = 16;
 const SIBLING_CONTEXT_TOKEN_STEP = 32_000;
 const MIN_MAX_MESSAGES = 10;
 const OPERATIONAL_MAX_MESSAGES = 96;
 const MESSAGE_CONTEXT_TOKEN_STEP = 16_000;
+const DEFAULT_REPORT_MESSAGES_PER_SIBLING = 6;
+const OPERATIONAL_MAX_REPORT_MESSAGES_PER_SIBLING = 12;
 const MESSAGE_CONTENT_MAX = 1_200;
 const DEEP_RESEARCH_RESULTS_PER_CONVERSATION = 3;
 const DEEP_RESEARCH_SUMMARY_MAX = 900;
 const DEEP_RESEARCH_CONTENT_MAX = 2_400;
 
-export type ProjectContextMode = "summary" | "detail";
+export type ProjectContextMode = "summary" | "detail" | "report";
 
 export type ProjectContextSiblingSummary = {
 	conversationId: string;
@@ -94,6 +96,7 @@ export type ProjectContextResult = {
 	siblings: ProjectContextSiblingSummary[];
 	omittedSiblingCount: number;
 	selectedSibling?: ProjectContextSelectedSiblingDetail | null;
+	reportSiblings?: ProjectContextSelectedSiblingDetail[];
 	evidenceCandidates: ToolEvidenceCandidate[];
 	audit: {
 		conversationId: string;
@@ -103,6 +106,7 @@ export type ProjectContextResult = {
 		siblingConversationId?: string | null;
 		requestedMaxMessages?: number | null;
 		appliedMaxMessages?: number;
+		reportConversationCount?: number;
 		includeEvidenceCandidates: boolean;
 		noProjectReason?: "no_memory_context";
 	};
@@ -150,6 +154,18 @@ function normalizeMaxMessages(value: number | null | undefined): number {
 		return cap;
 	}
 	return Math.max(1, Math.min(cap, Math.floor(value)));
+}
+
+function normalizeReportMessagesPerSibling(
+	value: number | null | undefined,
+): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return DEFAULT_REPORT_MESSAGES_PER_SIBLING;
+	}
+	return Math.max(
+		1,
+		Math.min(OPERATIONAL_MAX_REPORT_MESSAGES_PER_SIBLING, Math.floor(value)),
+	);
 }
 
 function deriveMaxMessagesCap(): number {
@@ -344,6 +360,15 @@ function buildDetailEvidenceCandidate(
 	};
 }
 
+function buildReportEvidenceCandidates(
+	siblings: ProjectContextSelectedSiblingDetail[],
+): ToolEvidenceCandidate[] {
+	return siblings.flatMap((sibling) => [
+		buildDetailEvidenceCandidate(sibling),
+		...buildDeepResearchEvidenceCandidates(sibling.deepResearchResults ?? []),
+	]);
+}
+
 async function listRecentDialogueMessages(params: {
 	conversationId: string;
 	maxMessages: number;
@@ -381,6 +406,92 @@ async function listRecentDialogueMessages(params: {
 	return {
 		messages: selected,
 		omittedMessageCount: Math.max(0, messageCount - selected.length),
+	};
+}
+
+async function buildReportResult(params: {
+	reference: ProjectReferenceContext;
+	userId: string;
+	conversationId: string;
+	requestedMaxSiblings: number | null;
+	appliedMaxSiblings: number;
+	requestedMaxMessages: number | null;
+	appliedMaxMessages: number;
+	includeEvidenceCandidates: boolean;
+}): Promise<ProjectContextResult> {
+	const selectedEntries = params.reference.entries.slice(
+		0,
+		params.appliedMaxSiblings,
+	);
+	const [messageDetails, deepResearchResults] = await Promise.all([
+		Promise.all(
+			selectedEntries.map((entry) =>
+				listRecentDialogueMessages({
+					conversationId: entry.conversationId,
+					maxMessages: params.appliedMaxMessages,
+				}),
+			),
+		),
+		listDeepResearchResults({
+			userId: params.userId,
+			conversationIds: selectedEntries.map((entry) => entry.conversationId),
+			includeContent: true,
+		}),
+	]);
+	const reportSiblings: ProjectContextSelectedSiblingDetail[] =
+		selectedEntries.map((entry, index) => {
+			const siblingBase: ProjectContextSiblingSummary = {
+				conversationId: entry.conversationId,
+				title: entry.title,
+				objective: entry.objective,
+				summary: entry.summary,
+			};
+			return {
+				...attachDeepResearchResults(siblingBase, deepResearchResults),
+				messages: messageDetails[index]?.messages ?? [],
+				omittedMessageCount: messageDetails[index]?.omittedMessageCount ?? 0,
+			};
+		});
+	const omittedByRequest = Math.max(
+		0,
+		params.reference.entries.length - reportSiblings.length,
+	);
+	const omittedSiblingCount =
+		params.reference.omittedSiblingCount + omittedByRequest;
+
+	return {
+		success: true,
+		mode: "report",
+		hasProjectContext: true,
+		source: params.reference.source,
+		project: {
+			id: params.reference.projectId,
+			name: params.reference.projectName,
+			authority: params.reference.source,
+		},
+		siblings: reportSiblings.map((sibling) => ({
+			conversationId: sibling.conversationId,
+			title: sibling.title,
+			objective: sibling.objective,
+			summary: sibling.summary,
+			deepResearchResults: sibling.deepResearchResults,
+			omittedDeepResearchResultCount: sibling.omittedDeepResearchResultCount,
+		})),
+		omittedSiblingCount,
+		reportSiblings,
+		evidenceCandidates: params.includeEvidenceCandidates
+			? buildReportEvidenceCandidates(reportSiblings)
+			: [],
+		audit: {
+			conversationId: params.conversationId,
+			scope: "conversation",
+			requestedMaxSiblings: params.requestedMaxSiblings,
+			appliedMaxSiblings: params.appliedMaxSiblings,
+			requestedMaxMessages: params.requestedMaxMessages,
+			appliedMaxMessages: params.appliedMaxMessages,
+			reportConversationCount: reportSiblings.length,
+			includeEvidenceCandidates: params.includeEvidenceCandidates,
+		},
 	};
 }
 
@@ -472,7 +583,7 @@ export async function getProjectContext(
 	params: GetProjectContextParams,
 ): Promise<ProjectContextResult> {
 	const mode = params.mode?.trim() || "summary";
-	if (mode !== "summary" && mode !== "detail") {
+	if (mode !== "summary" && mode !== "detail" && mode !== "report") {
 		throw new Error("Unsupported memory_context mode");
 	}
 
@@ -488,6 +599,9 @@ export async function getProjectContext(
 			? params.maxMessages
 			: null;
 	const maxMessages = normalizeMaxMessages(params.maxMessages);
+	const reportMessagesPerSibling = normalizeReportMessagesPerSibling(
+		params.maxMessages,
+	);
 	const includeEvidenceCandidates = params.includeEvidenceCandidates !== false;
 
 	const currentReference = await getProjectReferenceContext({
@@ -512,6 +626,7 @@ export async function getProjectContext(
 			siblings: [],
 			omittedSiblingCount: 0,
 			selectedSibling: mode === "detail" ? null : undefined,
+			reportSiblings: mode === "report" ? [] : undefined,
 			evidenceCandidates: [],
 			audit: {
 				conversationId: params.conversationId,
@@ -523,7 +638,9 @@ export async function getProjectContext(
 						? (params.siblingConversationId?.trim() ?? null)
 						: undefined,
 				requestedMaxMessages,
-				appliedMaxMessages: maxMessages,
+				appliedMaxMessages:
+					mode === "report" ? reportMessagesPerSibling : maxMessages,
+				reportConversationCount: mode === "report" ? 0 : undefined,
 				includeEvidenceCandidates,
 				noProjectReason: "no_memory_context",
 			},
@@ -540,6 +657,19 @@ export async function getProjectContext(
 			appliedMaxSiblings: maxSiblings,
 			requestedMaxMessages,
 			appliedMaxMessages: maxMessages,
+			includeEvidenceCandidates,
+		});
+	}
+
+	if (mode === "report") {
+		return buildReportResult({
+			reference,
+			userId: params.userId,
+			conversationId: params.conversationId,
+			requestedMaxSiblings,
+			appliedMaxSiblings: maxSiblings,
+			requestedMaxMessages,
+			appliedMaxMessages: reportMessagesPerSibling,
 			includeEvidenceCandidates,
 		});
 	}
