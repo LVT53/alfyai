@@ -289,6 +289,13 @@ function normalizeProduceFileInput(input: ProduceFileInput):
 	}
 
 	if (content) {
+		if (!hasSubstantiveContent(content)) {
+			return {
+				ok: false,
+				error:
+					"Content is too short or appears to be a template. Provide substantive content with actual data, or use explicit sourceMode with program.sourceCode or documentSource. Do not call produce_file with placeholder or template content.",
+			};
+		}
 		if (shouldUseDocumentSourceForOutputs(requestedOutputs)) {
 			return {
 				ok: true,
@@ -553,6 +560,31 @@ function markdownishTextToBlocks(text: string): Array<Record<string, unknown>> {
 	flushParagraph();
 	flushList();
 	return blocks;
+}
+
+const TEMPLATE_MARKER_RE = /\b(TODO|placeholder|content (goes )?here|to be filled|\[placeholder\]|\.\.\.\s*$|^#\s+\w+(\s+\w+){0,3}\s*\.\.\.\s*$)/im;
+const MIN_SUBSTANTIVE_CONTENT_LENGTH = 80;
+
+function hasSubstantiveContent(content: string): boolean {
+	const text = stripMarkdownFormatting(content).trim();
+	if (text.length < MIN_SUBSTANTIVE_CONTENT_LENGTH) return false;
+	if (TEMPLATE_MARKER_RE.test(text)) return false;
+	return true;
+}
+
+function stripMarkdownFormatting(content: string): string {
+	return content
+		.replace(/^#{1,6}\s+/gm, "")          // headings
+		.replace(/```[\s\S]*?```/g, "")       // code blocks
+		.replace(/`[^`\n]+`/g, "")            // inline code
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1") // links → text
+		.replace(/!\[[^\]]*\]\([^)]*\)/g, "") // images
+		.replace(/[*_~]{1,3}/g, "")           // bold/italic/strikethrough markers
+		.replace(/^[\s]*[-*+]\s+/gm, "")       // unordered list markers
+		.replace(/^[\s]*\d+\.\s+/gm, "")       // ordered list markers
+		.replace(/^>\s*/gm, "")                // blockquotes
+		.replace(/\n{2,}/g, "\n")             // collapse blank lines
+		.replace(/\s+/g, " ");                 // normalize whitespace
 }
 
 const DOCUMENT_SOURCE_METADATA_KEYS = new Set([

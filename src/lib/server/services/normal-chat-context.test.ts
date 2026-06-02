@@ -93,7 +93,7 @@ describe("prepareOutboundChatContext", () => {
 			"Prefer the simple form: `requestTitle`, `outputType` or `filename`, and `markdown`, `content`, or `text`.",
 		);
 		expect(prompt).toContain(
-			'produce_file({ requestTitle: "News summary", filename: "hungarian-parliament-news.md", markdown: "# Summary\\n..." })',
+			'produce_file({ requestTitle: "News summary", filename: "hungarian-parliament-news.md", markdown: "# Hungarian Parliament News\\n\\n## Latest Session\\n\\nThe parliament passed..." })',
 		);
 		expect(prompt).toContain(
 			"For raw provider follow-up retrieval, chain `search` calls first, then use the connected content retrieval tool if one is listed.",

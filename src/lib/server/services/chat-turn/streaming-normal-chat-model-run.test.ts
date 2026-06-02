@@ -217,7 +217,7 @@ describe("runStreamingNormalChatSendModel", () => {
 		);
 	});
 
-	it("forces the produce_file tool for explicit downloadable file requests", async () => {
+	it("leaves tool choice automatic for explicit file requests after removing produce_file auto-force", async () => {
 		await runStreamingNormalChatSendModel({
 			userId: "user-1",
 			runtimeConfig,
@@ -227,8 +227,8 @@ describe("runStreamingNormalChatSendModel", () => {
 		});
 
 		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
-			expect.objectContaining({
-				toolChoice: { type: "tool", toolName: "produce_file" },
+			expect.not.objectContaining({
+				toolChoice: expect.anything(),
 			}),
 		);
 	});

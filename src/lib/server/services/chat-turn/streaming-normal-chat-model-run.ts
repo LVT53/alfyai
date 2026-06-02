@@ -16,7 +16,6 @@ import {
 } from "$lib/server/services/normal-chat-model";
 import {
 	createNormalChatTools,
-	shouldForceProduceFileTool,
 } from "$lib/server/services/normal-chat-tools";
 import type {
 	ContextDebugState,
@@ -103,9 +102,7 @@ export async function runStreamingNormalChatSendModel(
 		conversationId: params.conversationId,
 		turnId: params.createTurnId?.() ?? randomUUID(),
 	});
-	const toolChoice = shouldForceProduceFileTool(params.message)
-		? ({ type: "tool", toolName: "produce_file" } as const)
-		: undefined;
+	const toolChoice = undefined;
 	const prefetchedToolCalls = prepared.prefetchedToolCalls ?? [];
 	const getNormalChatToolCalls = () => normalChatTools.getToolCalls();
 	const stream = runStreamingNormalChatModelRun({

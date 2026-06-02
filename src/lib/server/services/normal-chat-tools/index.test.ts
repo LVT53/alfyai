@@ -189,7 +189,7 @@ describe("createNormalChatTools", () => {
 			{
 				requestTitle: "Hungarian Parliament News",
 				filename: "hungarian-parliament-news.md",
-				markdown: "# Latest News\n\n- Parliament item with [source](https://example.com).",
+				markdown: "# Latest News\n\n- Parliament passed new legislation on digital services with cross-party support.\n- Key provisions include data protection updates and cybersecurity requirements.\n- Sources cited at [example.com](https://example.com).",
 			},
 			{
 				toolCallId: "tool-call-simple-md",
