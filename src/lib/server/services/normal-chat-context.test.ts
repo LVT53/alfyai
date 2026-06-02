@@ -90,10 +90,10 @@ describe("prepareOutboundChatContext", () => {
 		});
 
 		expect(prompt).toContain(
-			"Use one `produce_file` call per requested artifact; batch multiple output formats for the same document in `requestedOutputs`.",
+			"Prefer the simple form: `requestTitle`, `outputType` or `filename`, and `markdown`, `content`, or `text`.",
 		);
 		expect(prompt).toContain(
-			'Minimal valid `documentSource`: `{"version":1,"template":"alfyai_standard_report","title":"Title","blocks":[{"type":"paragraph","text":"Content."}]}`.',
+			'produce_file({ requestTitle: "News summary", filename: "hungarian-parliament-news.md", markdown: "# Summary\\n..." })',
 		);
 		expect(prompt).toContain(
 			"For raw provider follow-up retrieval, chain `search` calls first, then use the connected content retrieval tool if one is listed.",

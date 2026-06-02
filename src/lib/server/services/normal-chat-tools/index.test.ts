@@ -167,6 +167,55 @@ describe("createNormalChatTools", () => {
 		);
 	});
 
+	it("accepts simple markdown content without requiring program or documentSource", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({
+				id: "job-markdown",
+				title: "Hungarian Parliament News",
+				status: "queued",
+			}),
+		});
+
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		await tools.produce_file.execute(
+			{
+				requestTitle: "Hungarian Parliament News",
+				filename: "hungarian-parliament-news.md",
+				markdown: "# Latest News\n\n- Parliament item with [source](https://example.com).",
+			},
+			{
+				toolCallId: "tool-call-simple-md",
+				messages: [],
+			},
+		);
+
+		expect(submitFileProductionIntakeMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				body: expect.objectContaining({
+					conversationId: "conversation-1",
+					requestTitle: "Hungarian Parliament News",
+					requestedOutputs: [{ type: "md" }],
+					sourceMode: "program",
+					documentIntent: "data export",
+					program: expect.objectContaining({
+						language: "python",
+						filename: "hungarian-parliament-news.md",
+						sourceCode: expect.stringContaining("Latest News"),
+					}),
+				}),
+			}),
+		);
+	});
+
 	it("rejects empty document_source tool calls instead of queuing placeholder reports", async () => {
 		const { tools, getToolCalls } = createNormalChatTools({
 			userId: "user-1",

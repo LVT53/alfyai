@@ -87,19 +87,15 @@ describe("obsolete file-generation surfaces", () => {
 		);
 
 		expect(source).toContain(
-			"Tool success means the file-production request was accepted",
-		);
-		expect(source).toContain("Do not mention file-production job IDs");
-		expect(source).toContain(
-			"Prefer one `document_source` call with multiple `requestedOutputs`",
-		);
-		expect(source).toContain("`program` must be an object");
-		expect(source).toContain(
-			"`documentSource` and `program` are direct `produce_file` input object fields",
+			"Tool success means the request was accepted",
 		);
 		expect(source).toContain(
-			"`requestedOutputs` is an array of output descriptors",
+			"Prefer the simple form: `requestTitle`, `outputType` or `filename`, and `markdown`, `content`, or `text`",
 		);
+		expect(source).toContain(
+			"The server converts simple content into the correct file-production mode",
+		);
+		expect(source).toContain("Use `program` only for artifacts");
 		expect(source).not.toContain("current legacy external search flows");
 		expect(source).not.toContain(
 			"Only tell the user a file is ready after the tool succeeds.",

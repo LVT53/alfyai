@@ -111,11 +111,19 @@ const imageSearchInputSchema = z.object({
 const produceFileInputSchema = z
 	.object({
 		idempotencyKey: z.string().min(1).optional(),
-		requestTitle: z.string().min(1),
-		requestedOutputs: z.array(requestedOutputSchema).min(1),
-		sourceMode: z.enum(["program", "document_source"]),
+		requestTitle: z.string().min(1).optional(),
+		title: z.string().min(1).optional(),
+		requestedOutputs: z.array(requestedOutputSchema).min(1).optional(),
+		outputs: z.array(requestedOutputSchema).min(1).optional(),
+		outputType: z.string().min(1).optional(),
+		fileType: z.string().min(1).optional(),
+		filename: z.string().min(1).optional(),
+		sourceMode: z.enum(["program", "document_source"]).optional(),
 		documentIntent: z.string().min(1).optional(),
 		templateHint: z.string().min(1).optional(),
+		content: z.string().min(1).optional(),
+		markdown: z.string().min(1).optional(),
+		text: z.string().min(1).optional(),
 		program: z
 			.object({
 				language: z.enum(["python", "javascript"]),
@@ -125,30 +133,23 @@ const produceFileInputSchema = z
 			.optional(),
 		documentSource: z.record(z.string(), z.unknown()).optional(),
 	})
-	.refine((input) => input.sourceMode !== "program" || Boolean(input.program), {
-		message: "program is required when sourceMode is program",
-		path: ["program"],
-	})
-	.refine(
-		(input) =>
-			input.sourceMode !== "document_source" || Boolean(input.documentSource),
-		{
-			message: "documentSource is required when sourceMode is document_source",
-			path: ["documentSource"],
-		},
-	)
-	.refine(
-		(input) =>
-			input.sourceMode !== "document_source" ||
-			hasSubstantiveDocumentSource(input.documentSource),
-		{
-			message:
-				"documentSource must contain substantive content when sourceMode is document_source",
-			path: ["documentSource"],
-		},
-	);
+	.passthrough();
 
 type ProduceFileInput = z.infer<typeof produceFileInputSchema>;
+type NormalizedProduceFileInput = {
+	idempotencyKey?: string;
+	requestTitle: string;
+	requestedOutputs: Array<{ type: string }>;
+	sourceMode: "program" | "document_source";
+	documentIntent?: string;
+	templateHint?: string;
+	program?: {
+		language: "python" | "javascript";
+		sourceCode: string;
+		filename?: string;
+	};
+	documentSource?: Record<string, unknown>;
+};
 type SafeProduceFileInput = Record<string, unknown>;
 type ResearchWebInput = z.infer<typeof researchWebInputSchema>;
 type MemoryContextInput = z.infer<typeof memoryContextInputSchema>;
@@ -192,36 +193,366 @@ export function shouldForceProduceFileTool(message: string): boolean {
 	return true;
 }
 
-function normalizeProduceFileInput(input: ProduceFileInput): ProduceFileInput {
-	if (input.sourceMode !== "document_source" || !input.documentSource) {
-		return input;
+function normalizeProduceFileInput(input: ProduceFileInput):
+	| { ok: true; input: NormalizedProduceFileInput }
+	| { ok: false; error: string } {
+	const requestTitle =
+		input.requestTitle?.trim() ||
+		input.title?.trim() ||
+		titleFromFilename(input.filename) ||
+		"Generated file";
+	const requestedOutputs = normalizeToolRequestedOutputs(input);
+	const content = firstNonEmptyString(input.markdown, input.content, input.text);
+	const explicitMode = input.sourceMode;
+
+	if (explicitMode === "program" || input.program) {
+		if (!input.program) {
+			if (!content) {
+				return {
+					ok: false,
+					error: "program or content is required when sourceMode is program",
+				};
+			}
+			return {
+				ok: true,
+				input: {
+					idempotencyKey: input.idempotencyKey,
+					requestTitle,
+					requestedOutputs,
+					sourceMode: "program",
+					documentIntent: input.documentIntent,
+					templateHint: input.templateHint,
+					program: buildTextFileProgram({
+						content,
+						filename: resolveTextFilename({
+							filename: input.filename,
+							requestTitle,
+							outputType: requestedOutputs[0]?.type,
+						}),
+					}),
+				},
+			};
+		}
+		return {
+			ok: true,
+			input: {
+				idempotencyKey: input.idempotencyKey,
+				requestTitle,
+				requestedOutputs,
+				sourceMode: "program",
+				documentIntent: input.documentIntent,
+				templateHint: input.templateHint,
+				program: input.program,
+			},
+		};
+	}
+
+	if (explicitMode === "document_source" || input.documentSource) {
+		if (!input.documentSource && !content) {
+			return {
+				ok: false,
+				error: "documentSource or content is required when sourceMode is document_source",
+			};
+		}
+		if (input.documentSource && !hasSubstantiveDocumentSource(input.documentSource)) {
+			return {
+				ok: false,
+				error:
+					"documentSource must contain substantive content when sourceMode is document_source",
+			};
+		}
+		const documentSource = input.documentSource
+			? normalizeDocumentSourceEnvelope(input.documentSource, requestTitle)
+			: buildDocumentSourceFromText({
+					title: requestTitle,
+					text: content ?? "",
+				});
+		if (!hasSubstantiveDocumentSource(documentSource)) {
+			return {
+				ok: false,
+				error:
+					"documentSource must contain substantive content when sourceMode is document_source",
+			};
+		}
+		return {
+			ok: true,
+			input: {
+				idempotencyKey: input.idempotencyKey,
+				requestTitle,
+				requestedOutputs,
+				sourceMode: "document_source",
+				documentIntent: input.documentIntent,
+				templateHint: input.templateHint,
+				documentSource,
+			},
+		};
+	}
+
+	if (content) {
+		if (shouldUseDocumentSourceForOutputs(requestedOutputs)) {
+			return {
+				ok: true,
+				input: {
+					idempotencyKey: input.idempotencyKey,
+					requestTitle,
+					requestedOutputs,
+					sourceMode: "document_source",
+					documentIntent: input.documentIntent ?? "document",
+					templateHint: input.templateHint,
+					documentSource: buildDocumentSourceFromText({
+						title: requestTitle,
+						text: content,
+					}),
+				},
+			};
+		}
+		return {
+			ok: true,
+			input: {
+				idempotencyKey: input.idempotencyKey,
+				requestTitle,
+				requestedOutputs,
+				sourceMode: "program",
+				documentIntent: input.documentIntent ?? "data export",
+				templateHint: input.templateHint,
+				program: buildTextFileProgram({
+					content,
+					filename: resolveTextFilename({
+						filename: input.filename,
+						requestTitle,
+						outputType: requestedOutputs[0]?.type,
+					}),
+				}),
+			},
+		};
 	}
 
 	return {
-		...input,
-		documentSource: {
-			...input.documentSource,
-			version: 1,
-			template: "alfyai_standard_report",
-			title:
-				typeof input.documentSource.title === "string" &&
-				input.documentSource.title.trim().length > 0
-					? input.documentSource.title
-					: input.requestTitle,
-			blocks:
-				Array.isArray(input.documentSource.blocks) &&
-				input.documentSource.blocks.length > 0
-					? input.documentSource.blocks
-					: [
-							{
-								type: "paragraph",
-								text:
-									input.documentIntent?.trim() ||
-									`Generated file request: ${input.requestTitle}`,
-							},
-						],
-		},
+		ok: false,
+		error:
+			"produce_file requires content, markdown, text, documentSource, or program",
 	};
+}
+
+function normalizeDocumentSourceEnvelope(
+	documentSource: Record<string, unknown>,
+	requestTitle: string,
+): Record<string, unknown> {
+	return {
+		...documentSource,
+		version: 1,
+		template: "alfyai_standard_report",
+		title:
+			typeof documentSource.title === "string" &&
+			documentSource.title.trim().length > 0
+				? documentSource.title
+				: requestTitle,
+		blocks:
+			Array.isArray(documentSource.blocks) && documentSource.blocks.length > 0
+				? documentSource.blocks
+				: [
+						{
+							type: "paragraph",
+							text: `Generated file request: ${requestTitle}`,
+						},
+					],
+	};
+}
+
+function normalizeToolRequestedOutputs(
+	input: ProduceFileInput,
+): Array<{ type: string }> {
+	const explicitOutputs = input.requestedOutputs ?? input.outputs;
+	if (Array.isArray(explicitOutputs) && explicitOutputs.length > 0) {
+		return explicitOutputs.map((output) => ({
+			type: output.type.trim() || "file",
+		}));
+	}
+	const directType =
+		input.outputType?.trim() ||
+		input.fileType?.trim() ||
+		outputTypeFromFilename(input.filename);
+	if (directType) return [{ type: directType }];
+	if (input.markdown) return [{ type: "md" }];
+	if (input.text || input.content) return [{ type: "txt" }];
+	if (input.documentSource) return [{ type: "pdf" }];
+	return [{ type: "file" }];
+}
+
+function firstNonEmptyString(
+	...values: Array<string | undefined>
+): string | null {
+	for (const value of values) {
+		const trimmed = value?.trim();
+		if (trimmed) return trimmed;
+	}
+	return null;
+}
+
+function outputTypeFromFilename(filename?: string): string | null {
+	const trimmed = filename?.trim();
+	if (!trimmed) return null;
+	const match = /\.([a-z0-9]+)$/i.exec(trimmed);
+	return match?.[1]?.toLowerCase() ?? null;
+}
+
+function titleFromFilename(filename?: string): string | null {
+	const trimmed = filename?.trim();
+	if (!trimmed) return null;
+	const withoutExtension = trimmed.replace(/\.[a-z0-9]+$/i, "");
+	const title = withoutExtension
+		.replace(/[_-]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	return title || null;
+}
+
+function shouldUseDocumentSourceForOutputs(
+	outputs: Array<{ type: string }>,
+): boolean {
+	const documentTypes = new Set(["pdf", "docx", "html"]);
+	return outputs.every((output) =>
+		documentTypes.has(output.type.trim().toLowerCase()),
+	);
+}
+
+const OUTPUT_TYPE_EXTENSIONS: Record<string, string> = {
+	markdown: "md",
+	"text/markdown": "md",
+	md: "md",
+	txt: "txt",
+	text: "txt",
+	"text/plain": "txt",
+	json: "json",
+	"application/json": "json",
+	csv: "csv",
+	"text/csv": "csv",
+	html: "html",
+	"text/html": "html",
+	css: "css",
+	js: "js",
+	javascript: "js",
+	ts: "ts",
+	typescript: "ts",
+	sh: "sh",
+	shell: "sh",
+	svg: "svg",
+	xml: "xml",
+	yaml: "yaml",
+	yml: "yml",
+};
+
+function resolveTextFilename(params: {
+	filename?: string;
+	requestTitle: string;
+	outputType?: string;
+}): string {
+	const explicit = sanitizeFilename(params.filename);
+	if (explicit) return explicit;
+	const normalizedType =
+		OUTPUT_TYPE_EXTENSIONS[params.outputType?.trim().toLowerCase() ?? ""] ??
+		params.outputType?.trim().toLowerCase() ??
+		"txt";
+	const extension = normalizedType.replace(/^\./, "") || "txt";
+	const basename =
+		params.requestTitle
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+|-+$/g, "")
+			.slice(0, 80) || "generated-file";
+	return `${basename}.${extension}`;
+}
+
+function sanitizeFilename(value?: string): string | null {
+	const trimmed = value?.trim();
+	if (!trimmed) return null;
+	const basename = trimmed.split(/[\\/]/).filter(Boolean).pop() ?? "";
+	const safe = basename.replace(/[^a-zA-Z0-9._ -]+/g, "-").trim();
+	return safe && safe !== "." && safe !== ".." ? safe.slice(0, 120) : null;
+}
+
+function buildTextFileProgram(params: {
+	content: string;
+	filename: string;
+}): NonNullable<NormalizedProduceFileInput["program"]> {
+	const filename = sanitizeFilename(params.filename) ?? "generated-file.txt";
+	return {
+		language: "python",
+		filename,
+		sourceCode: [
+			"from pathlib import Path",
+			"output = Path('/output')",
+			"output.mkdir(parents=True, exist_ok=True)",
+			`(output / ${JSON.stringify(filename)}).write_text(${JSON.stringify(params.content)}, encoding='utf-8')`,
+			"",
+		].join("\n"),
+	};
+}
+
+function buildDocumentSourceFromText(params: {
+	title: string;
+	text: string;
+}): Record<string, unknown> {
+	const blocks = markdownishTextToBlocks(params.text);
+	return {
+		version: 1,
+		template: "alfyai_standard_report",
+		title: params.title,
+		blocks:
+			blocks.length > 0
+				? blocks
+				: [{ type: "paragraph", text: params.text || params.title }],
+	};
+}
+
+function markdownishTextToBlocks(text: string): Array<Record<string, unknown>> {
+	const blocks: Array<Record<string, unknown>> = [];
+	const paragraph: string[] = [];
+	let listItems: string[] = [];
+	const flushParagraph = () => {
+		if (paragraph.length === 0) return;
+		blocks.push({
+			type: "paragraph",
+			text: paragraph.join(" ").replace(/\s+/g, " ").trim(),
+		});
+		paragraph.length = 0;
+	};
+	const flushList = () => {
+		if (listItems.length === 0) return;
+		blocks.push({ type: "list", style: "bullet", items: listItems });
+		listItems = [];
+	};
+	for (const rawLine of text.split(/\r?\n/)) {
+		const line = rawLine.trim();
+		if (!line) {
+			flushParagraph();
+			flushList();
+			continue;
+		}
+		const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+		if (heading) {
+			flushParagraph();
+			flushList();
+			blocks.push({
+				type: "heading",
+				level: Math.min(3, Math.max(1, heading[1].length)),
+				text: heading[2].trim(),
+			});
+			continue;
+		}
+		const bullet = /^[-*]\s+(.+)$/.exec(line);
+		if (bullet) {
+			flushParagraph();
+			listItems.push(bullet[1].trim());
+			continue;
+		}
+		flushList();
+		paragraph.push(line);
+	}
+	flushParagraph();
+	flushList();
+	return blocks;
 }
 
 const DOCUMENT_SOURCE_METADATA_KEYS = new Set([
@@ -496,7 +827,27 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					);
 					return modelPayload;
 				}
-				const normalizedInput = normalizeProduceFileInput(parsedInput.data);
+				const normalized = normalizeProduceFileInput(parsedInput.data);
+				if (!normalized.ok) {
+					const safeInput = sanitizeUnsafeProduceFileInput(input);
+					const result: Extract<FileProductionIntakeResult, { ok: false }> = {
+						ok: false,
+						status: 422,
+						code: "invalid_tool_input",
+						error: normalized.error,
+					};
+					const modelPayload = compactProduceFileModelPayload(result);
+					recorder.record(
+						createProduceFileToolCallEntry({
+							callId: options.toolCallId,
+							input: safeInput,
+							result,
+							outputSummary: summarizeProduceFileResult(modelPayload),
+						}),
+					);
+					return modelPayload;
+				}
+				const normalizedInput = normalized.input;
 				const safeInput = sanitizeProduceFileInput(normalizedInput);
 				const intakeBody = {
 					...normalizedInput,
@@ -578,7 +929,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 
 function buildScopedIdempotencyKey(params: {
 	turnId: string;
-	input: ProduceFileInput;
+	input: NormalizedProduceFileInput;
 }): string {
 	const idempotencySource =
 		params.input.idempotencyKey ?? params.input.requestTitle;
@@ -595,7 +946,9 @@ function buildScopedIdempotencyKey(params: {
 	return parts.join(":").slice(0, 160);
 }
 
-function buildSameTurnProduceFileDedupeKey(input: ProduceFileInput): string {
+function buildSameTurnProduceFileDedupeKey(
+	input: NormalizedProduceFileInput,
+): string {
 	const requestedOutputs = input.requestedOutputs
 		.map((output) => output.type.trim().toLowerCase())
 		.sort();
@@ -1037,7 +1390,7 @@ function createImageSearchCandidates(
 }
 
 function sanitizeProduceFileInput(
-	input: ProduceFileInput,
+	input: NormalizedProduceFileInput,
 ): SafeProduceFileInput {
 	const safe: SafeProduceFileInput = {
 		...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
@@ -1080,12 +1433,31 @@ function sanitizeUnsafeProduceFileInput(input: unknown): SafeProduceFileInput {
 	if (typeof input.requestTitle === "string") {
 		safe.requestTitle = input.requestTitle;
 	}
+	if (typeof input.title === "string") {
+		safe.title = input.title;
+	}
 	if (Array.isArray(input.requestedOutputs)) {
 		safe.requestedOutputs = input.requestedOutputs
 			.filter(isRecord)
 			.map((output) => ({
 				...(typeof output.type === "string" ? { type: output.type } : {}),
 			}));
+	}
+	if (Array.isArray(input.outputs)) {
+		safe.outputs = input.outputs
+			.filter(isRecord)
+			.map((output) => ({
+				...(typeof output.type === "string" ? { type: output.type } : {}),
+			}));
+	}
+	if (typeof input.outputType === "string") {
+		safe.outputType = input.outputType;
+	}
+	if (typeof input.fileType === "string") {
+		safe.fileType = input.fileType;
+	}
+	if (typeof input.filename === "string") {
+		safe.filename = input.filename;
 	}
 	if (typeof input.sourceMode === "string") {
 		safe.sourceMode = input.sourceMode;
@@ -1119,6 +1491,14 @@ function sanitizeUnsafeProduceFileInput(input: unknown): SafeProduceFileInput {
 			topLevelKeyCount: Object.keys(input.documentSource).length,
 			serializedLength: serializedDocumentSource.length,
 		};
+	}
+	for (const field of ["content", "markdown", "text"] as const) {
+		if (typeof input[field] === "string") {
+			safe[field] = {
+				contentHash: shortHash(input[field]),
+				contentLength: input[field].length,
+			};
+		}
 	}
 	return safe;
 }

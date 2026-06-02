@@ -43,29 +43,16 @@ describe("prompts", () => {
 
 	it("teaches the unified produce_file contract in the built-in assistant prompt", () => {
 		expect(ALFYAI_NEMOTRON_PROMPT).toContain("produce_file");
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain("sourceMode");
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain("document_source");
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain("simple produce_file form");
 		expect(ALFYAI_NEMOTRON_PROMPT).toContain("documentSource");
 		expect(ALFYAI_NEMOTRON_PROMPT).toContain("program");
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain("markdown, content, or text");
 		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
-			"CSS, JavaScript/TypeScript, shell scripts",
+			'filename: "hungarian-parliament-news.md"',
 		);
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain('"type":"css"');
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain('"type":"js"');
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain('"type":"sh"');
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain("idempotencyKey");
 		expect(ALFYAI_NEMOTRON_PROMPT).toContain("requestTitle");
 		expect(ALFYAI_NEMOTRON_PROMPT).toContain("requestedOutputs");
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain("documentIntent");
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
-			"Pass requestedOutputs as an array of output descriptor objects",
-		);
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
-			'requestedOutputs to arrays such as [{"type":"pdf"}]',
-		);
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
-			"Pass documentSource and program as nested objects",
-		);
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain("idempotency scoping");
 		expect(ALFYAI_NEMOTRON_PROMPT).not.toMatch(/Langflow/i);
 		expect(ALFYAI_NEMOTRON_PROMPT).not.toMatch(/JSON-encoded/i);
 		expect(ALFYAI_NEMOTRON_PROMPT).not.toMatch(/JSON strings/i);
@@ -75,13 +62,6 @@ describe("prompts", () => {
 		);
 		expect(ALFYAI_NEMOTRON_PROMPT).not.toContain(
 			"rather than a nested object or array",
-		);
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain('"type": "heading"');
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain('"level": 2');
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain("headers");
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain("Chart.js-style data");
-		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
-			"directly followed by their section content",
 		);
 		expect(ALFYAI_NEMOTRON_PROMPT).not.toContain("generate_file");
 		expect(ALFYAI_NEMOTRON_PROMPT).not.toContain("export_document");
