@@ -283,6 +283,45 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
+	it("leaves tool choice automatic when a file request needs project context first", async () => {
+		await runPlainNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig: {
+				requestTimeoutMs: 1_500,
+				model1: {
+					baseUrl: "https://openai-compatible.example/v1",
+					apiKey: "model-1-secret",
+					modelName: "gpt-4.1",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: 2048,
+					reasoningEffort: "high",
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://unused.example/v1",
+					apiKey: "",
+					modelName: "unused",
+					displayName: "Unused",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as RuntimeConfig,
+			message:
+				"Could you please generate a pdf report with the content from AlmaLinux Server project folder? I want it to be detailed and long.",
+			conversationId: "conv-1",
+			modelId: "model1",
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.not.objectContaining({
+				toolChoice: expect.anything(),
+			}),
+		);
+	});
+
 	it("leaves tool choice automatic for non-file chat requests", async () => {
 		await runPlainNormalChatSendModel({
 			userId: "user-1",

@@ -83,6 +83,16 @@ const produceFileInputSchema = z
 			message: "documentSource is required when sourceMode is document_source",
 			path: ["documentSource"],
 		},
+	)
+	.refine(
+		(input) =>
+			input.sourceMode !== "document_source" ||
+			hasSubstantiveDocumentSource(input.documentSource),
+		{
+			message:
+				"documentSource must contain substantive content when sourceMode is document_source",
+			path: ["documentSource"],
+		},
 	);
 
 type ProduceFileInput = z.infer<typeof produceFileInputSchema>;
@@ -102,9 +112,10 @@ const FILE_PRODUCTION_TARGET_RE =
 	/\b(downloadable|download|file|pdf|docx?|xlsx?|csv|pptx?|powerpoint|spreadsheet|excel|word document|slide deck|presentation|html|markdown|md|txt|json|zip|archive)\b|\.[a-z0-9]{2,5}\b/i;
 const FILE_PRODUCTION_NEGATION_RE =
 	/\b(no file needed|no downloadable file|without (?:a )?(?:file|download)|do not (?:create|make|generate|produce|export|download).*file|don't (?:create|make|generate|produce|export|download).*file)\b/i;
-const INFORMATIONAL_FILE_QUESTION_RE =
-	/^\s*(how|what|why|when|where|who)\b/i;
+const INFORMATIONAL_FILE_QUESTION_RE = /^\s*(how|what|why|when|where|who)\b/i;
 const REQUEST_FOR_ME_RE = /\b(for me|please|can you|could you|would you)\b/i;
+const CONTEXT_DEPENDENT_FILE_SOURCE_RE =
+	/\b(content from|project folder|folder|workspace|knowledge|memory|context|attached|uploaded|current document|existing document|library|notes?)\b/i;
 
 export function shouldForceProduceFileTool(message: string): boolean {
 	const text = message.trim();
@@ -112,6 +123,7 @@ export function shouldForceProduceFileTool(message: string): boolean {
 	if (FILE_PRODUCTION_NEGATION_RE.test(text)) return false;
 	if (!FILE_PRODUCTION_ACTION_RE.test(text)) return false;
 	if (!FILE_PRODUCTION_TARGET_RE.test(text)) return false;
+	if (CONTEXT_DEPENDENT_FILE_SOURCE_RE.test(text)) return false;
 	if (
 		INFORMATIONAL_FILE_QUESTION_RE.test(text) &&
 		!REQUEST_FOR_ME_RE.test(text)
@@ -151,6 +163,38 @@ function normalizeProduceFileInput(input: ProduceFileInput): ProduceFileInput {
 						],
 		},
 	};
+}
+
+const DOCUMENT_SOURCE_METADATA_KEYS = new Set([
+	"template",
+	"title",
+	"type",
+	"version",
+]);
+
+function hasSubstantiveDocumentSource(value: unknown): boolean {
+	if (!isRecord(value)) return false;
+	return Object.entries(value).some(([key, item]) => {
+		if (DOCUMENT_SOURCE_METADATA_KEYS.has(key)) return false;
+		return hasSubstantiveDocumentValue(item);
+	});
+}
+
+function hasSubstantiveDocumentValue(value: unknown): boolean {
+	if (typeof value === "string") return value.trim().length > 0;
+	if (typeof value === "number") return Number.isFinite(value);
+	if (Array.isArray(value)) {
+		return value.some((item) => hasSubstantiveDocumentValue(item));
+	}
+	if (!isRecord(value)) return false;
+	return Object.entries(value).some(([key, item]) => {
+		if (DOCUMENT_SOURCE_METADATA_KEYS.has(key)) return false;
+		return hasSubstantiveDocumentValue(item);
+	});
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 export interface CreateNormalChatToolsContext {
@@ -370,7 +414,30 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 				input: ProduceFileInput,
 				options: ToolExecutionOptions,
 			) => {
-				const normalizedInput = normalizeProduceFileInput(input);
+				const parsedInput = produceFileInputSchema.safeParse(input);
+				if (!parsedInput.success) {
+					const safeInput = sanitizeUnsafeProduceFileInput(input);
+					const error =
+						parsedInput.error.issues[0]?.message ??
+						"Invalid file production tool input";
+					const result: Extract<FileProductionIntakeResult, { ok: false }> = {
+						ok: false,
+						status: 422,
+						code: "invalid_tool_input",
+						error,
+					};
+					const modelPayload = compactProduceFileModelPayload(result);
+					recorder.record(
+						createProduceFileToolCallEntry({
+							callId: options.toolCallId,
+							input: safeInput,
+							result,
+							outputSummary: summarizeProduceFileResult(modelPayload),
+						}),
+					);
+					return modelPayload;
+				}
+				const normalizedInput = normalizeProduceFileInput(parsedInput.data);
 				const safeInput = sanitizeProduceFileInput(normalizedInput);
 				const intakeBody = {
 					...normalizedInput,
@@ -454,7 +521,8 @@ function buildScopedIdempotencyKey(params: {
 	turnId: string;
 	input: ProduceFileInput;
 }): string {
-	const idempotencySource = params.input.idempotencyKey ?? params.input.requestTitle;
+	const idempotencySource =
+		params.input.idempotencyKey ?? params.input.requestTitle;
 	const parts = [
 		slugifyIdempotencyPart(params.turnId, 48),
 		"produce_file",
@@ -940,6 +1008,58 @@ function sanitizeProduceFileInput(
 		};
 	}
 
+	return safe;
+}
+
+function sanitizeUnsafeProduceFileInput(input: unknown): SafeProduceFileInput {
+	if (!isRecord(input)) return {};
+	const safe: SafeProduceFileInput = {};
+	if (typeof input.idempotencyKey === "string" && input.idempotencyKey) {
+		safe.idempotencyKey = input.idempotencyKey;
+	}
+	if (typeof input.requestTitle === "string") {
+		safe.requestTitle = input.requestTitle;
+	}
+	if (Array.isArray(input.requestedOutputs)) {
+		safe.requestedOutputs = input.requestedOutputs
+			.filter(isRecord)
+			.map((output) => ({
+				...(typeof output.type === "string" ? { type: output.type } : {}),
+			}));
+	}
+	if (typeof input.sourceMode === "string") {
+		safe.sourceMode = input.sourceMode;
+	}
+	if (typeof input.documentIntent === "string") {
+		safe.documentIntent = input.documentIntent;
+	}
+	if (typeof input.templateHint === "string") {
+		safe.templateHint = input.templateHint;
+	}
+	if (isRecord(input.program)) {
+		safe.program = {
+			...(typeof input.program.language === "string"
+				? { language: input.program.language }
+				: {}),
+			...(typeof input.program.filename === "string"
+				? { filename: input.program.filename }
+				: {}),
+			...(typeof input.program.sourceCode === "string"
+				? {
+						sourceCodeHash: shortHash(input.program.sourceCode),
+						sourceCodeLength: input.program.sourceCode.length,
+					}
+				: {}),
+		};
+	}
+	if (isRecord(input.documentSource)) {
+		const serializedDocumentSource = stableStringify(input.documentSource);
+		safe.documentSource = {
+			contentHash: shortHash(input.documentSource),
+			topLevelKeyCount: Object.keys(input.documentSource).length,
+			serializedLength: serializedDocumentSource.length,
+		};
+	}
 	return safe;
 }
 

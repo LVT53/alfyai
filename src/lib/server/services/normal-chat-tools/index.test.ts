@@ -135,7 +135,9 @@ describe("createNormalChatTools", () => {
 				requestTitle: "Smoke PDF",
 				requestedOutputs: [{ type: "pdf" }],
 				sourceMode: "document_source",
-				documentSource: {},
+				documentSource: {
+					blocks: [{ type: "paragraph", text: "Source body." }],
+				},
 			},
 			{
 				toolCallId: "tool-call-doc",
@@ -154,16 +156,58 @@ describe("createNormalChatTools", () => {
 						version: 1,
 						template: "alfyai_standard_report",
 						title: "Smoke PDF",
-						blocks: [
-							{
-								type: "paragraph",
-								text: "Generated file request: Smoke PDF",
-							},
-						],
+						blocks: [{ type: "paragraph", text: "Source body." }],
 					},
 				}),
 			}),
 		);
+	});
+
+	it("rejects empty document_source tool calls instead of queuing placeholder reports", async () => {
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.produce_file.execute(
+			{
+				requestTitle: "AlmaLinux Server report",
+				requestedOutputs: [{ type: "pdf" }],
+				sourceMode: "document_source",
+				documentIntent:
+					"Detailed long report from AlmaLinux Server project folder.",
+				documentSource: {},
+			},
+			{
+				toolCallId: "tool-call-empty-doc",
+				messages: [],
+			},
+		);
+
+		expect(submitFileProductionIntakeMock).not.toHaveBeenCalled();
+		expect(result).toEqual({
+			ok: false,
+			status: 422,
+			code: "invalid_tool_input",
+			error:
+				"documentSource must contain substantive content when sourceMode is document_source",
+		});
+		expect(getToolCalls()).toEqual([
+			expect.objectContaining({
+				callId: "tool-call-empty-doc",
+				name: "produce_file",
+				outputSummary: expect.stringContaining(
+					"documentSource must contain substantive content",
+				),
+				metadata: expect.objectContaining({
+					ok: false,
+					evidenceReady: false,
+					intakeStatus: 422,
+					code: "invalid_tool_input",
+				}),
+			}),
+		]);
 	});
 
 	it("returns a compact model payload after intake queues the job", async () => {
@@ -1038,6 +1082,15 @@ describe("shouldForceProduceFileTool", () => {
 		"Tell me whether a spreadsheet would help.",
 		"Create a brief answer about quarterly planning.",
 	])("does not force file production for informational requests: %s", (message) => {
+		expect(shouldForceProduceFileTool(message)).toBe(false);
+	});
+
+	it.each([
+		"Could you please generate a pdf report with the content from AlmaLinux Server project folder? I want it to be detailed and long.",
+		"Create a PDF report from the current project folder.",
+		"Generate a DOCX using the uploaded documents.",
+		"Make a report based on our memory context.",
+	])("leaves tool choice automatic for context-dependent file requests: %s", (message) => {
 		expect(shouldForceProduceFileTool(message)).toBe(false);
 	});
 });

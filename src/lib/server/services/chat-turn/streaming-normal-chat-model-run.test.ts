@@ -232,6 +232,23 @@ describe("runStreamingNormalChatSendModel", () => {
 		);
 	});
 
+	it("leaves tool choice automatic when a file request needs project context first", async () => {
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message:
+				"Could you please generate a pdf report with the content from AlmaLinux Server project folder? I want it to be detailed and long.",
+			conversationId: "conv-1",
+			modelId: "model1",
+		});
+
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.not.objectContaining({
+				toolChoice: expect.anything(),
+			}),
+		);
+	});
+
 	it("leaves tool choice automatic for non-file chat requests", async () => {
 		await runStreamingNormalChatSendModel({
 			userId: "user-1",
