@@ -1,13 +1,13 @@
 # AlfyAI
 
-AlfyAI is a SvelteKit chat application for Langflow-backed AI workflows. It provides streaming chat, a user-scoped knowledge base, optional Honcho-backed long-term memory, and SQLite persistence in a single Node deployment.
+AlfyAI is a SvelteKit chat application for OpenAI-compatible AI workflows through the Vercel AI SDK. It provides streaming chat, app-owned tools, a user-scoped knowledge base, optional Honcho-backed long-term memory, and SQLite persistence in a single Node deployment.
 
 ## Stack At A Glance
 
 - SvelteKit with Svelte 5 and Tailwind CSS 4
 - `@sveltejs/adapter-node` for Node server deployment
 - SQLite with `better-sqlite3` and Drizzle ORM
-- Langflow as the primary orchestration backend
+- Vercel AI SDK with OpenAI-compatible providers for Normal Chat
 - OpenAI-compatible endpoints for chat, title generation, and optional context summarization
 - Optional Hugging Face Text Embeddings Inference endpoints for embeddings and reranking
 - Optional Honcho integration for cross-conversation memory
@@ -21,7 +21,7 @@ Prerequisites:
 - git
 - a configured `.env`
 - a writable `data/` directory
-- reachable Langflow and model endpoints from the app server
+- reachable OpenAI-compatible model endpoints from the app server
 
 Quick start:
 
@@ -54,22 +54,19 @@ That script now runs `npm run db:prepare && node build`, so the standard product
 
 ### Web Research Deployment
 
-The search overhaul routes web work through the server-owned `research_web` tool. It can also enrich selected YouTube video results with transcript evidence for reviews, hands-on comparisons, and other video-backed research. Deploy it this way:
+Web work runs through the app-owned `research_web` AI SDK tool. It can also enrich selected YouTube video results with transcript evidence for reviews, hands-on comparisons, and other video-backed research. Deploy it this way:
 
 1. Deploy the app code. `scripts/deploy.sh` pulls `origin main`, so merge `dev` to `main` first or use your manual deploy flow if you are testing directly from `dev`.
-2. Set these server env vars: `EXA_API_KEY`, `BRAVE_SEARCH_API_KEY`, and `ALFYAI_API_SIGNING_KEY`. Exa is required for page opening. Brave is optional, but recommended for wider search coverage. `ALFYAI_API_SIGNING_KEY` must be the same value in AlfyAI and Langflow.
-3. Use the unified file-production custom node for generated files: `langflow_nodes/file_production_tool.py`. It exposes `produce_file` and sends durable jobs to `/api/chat/files/produce`. Its model-facing output-list field is `requestedOutputs`; do not rename it to `outputs`, because that collides with Langflow component internals.
-4. Add or update the web-research custom node in Langflow: `langflow_nodes/web_research_tool.py`. Configure `ALFYAI_API_URL` to the AlfyAI server URL reachable from Langflow, and configure the same `ALFYAI_API_SIGNING_KEY`.
-5. Connect the `File Production` and `Web Research` nodes' `Tool` outputs to the Agent node's tools input.
-6. Disconnect the old/raw Exa search tool from the Agent tools input unless you intentionally want it as a fallback. Leaving both connected gives the model two competing search tools and can make behavior less predictable.
-7. Leave the optional `WEB_RESEARCH_*` env vars at their defaults unless you need different breadth or latency. They can also be changed later in Settings > Administration > System > Web Research.
-8. Keep `TEI_RERANKER_URL` configured if you want source and evidence reranking. Search still works without TEI reranking, but diagnostics will show `sourceReranked: false` when reranking is unavailable or not confident.
-9. Restart the AlfyAI process, then reload or redeploy the Langflow flow after changing custom nodes or environment variables.
+2. Set `EXA_API_KEY` when page opening and Exa-backed search should be available. Set `BRAVE_SEARCH_API_KEY` when image search or Brave-backed supplemental web search should be available.
+3. Configure the primary Normal Chat model with `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, and `MODEL_1_NAME`, or through Settings > Administration > System. The endpoint must expose an OpenAI-compatible chat-completions surface that the AI SDK provider can call.
+4. Leave the optional `WEB_RESEARCH_*` env vars at their defaults unless you need different breadth or latency. They can also be changed later in Settings > Administration > System > Web Research.
+5. Keep `TEI_RERANKER_URL` configured if you want source and evidence reranking. Search still works without TEI reranking, but diagnostics will show `sourceReranked: false` when reranking is unavailable or not confident.
+6. Restart the AlfyAI process after changing environment variables.
 
 Post-deploy checks:
 
 - Ask for an exact page-backed value, for example a current price from a product URL.
-- Ask for a PDF report with headings, a table, and a bar chart. It should create a successful file-production card; `unsupported_document_block` means the running AlfyAI app or Langflow flow is stale or the document-source contract has drifted.
+- Ask for a PDF report with headings, a table, and a bar chart. It should create a successful file-production card; `unsupported_document_block` means the running AlfyAI app or document-source contract has drifted.
 - Ask for a product review summary that should include video evidence; if YouTube videos are selected and transcripts are exposed, diagnostics should show `youtubeTranscriptFetchedCount > 0`.
 - In the `research_web` tool result diagnostics, expect `providers.exaConfigured: true`, `openedPageCount > 0`, `selectedSourceCount > 0`, and `evidenceCandidateCount > 0`.
 - For prices, dates, availability, specs, and similar exact values, `exactEvidenceCandidateCount` should usually be greater than `0`.
@@ -81,7 +78,7 @@ Deploy-script environment variables:
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
 | `APP_DIR` | No | current working directory | Tells `scripts/deploy.sh` which checkout to deploy from | Set it when the script is invoked from outside the app directory | Script-only variable; not read by the app |
-| `PM2_APP_NAME` | No | `langflow-chat` | Printed by `scripts/deploy.sh` for operator context | Set it if your PM2 process uses a different name | Currently not used to restart or reload anything |
+| `PM2_APP_NAME` | No | script default | Printed by `scripts/deploy.sh` for operator context | Set it if your PM2 process uses a different name | Currently not used to restart or reload anything |
 
 ## Local Development
 
@@ -130,13 +127,13 @@ At a high level, AlfyAI runs as a single SvelteKit application with server route
 - Landing-page draft reuse is guarded: only empty default-title prepared conversations are reused from session storage, which prevents new sends from silently reusing an older real chat.
 - The chat page consumes any pending initial message, supports one queued follow-up turn while a response is streaming, and streams the assistant response over Server-Sent Events.
 - Authenticated chat turns automatically feed the current user account's display name and email into system-prompt assembly as scoped personalization context, so the assistant can address the user naturally even on the first message.
-- Chat-generated files are created through the unified `produce_file` tool and durable file-production jobs. The Langflow node's model-facing output-list field is `requestedOutputs`, which the node maps to the server API's `outputs` field. Document-style files should prefer `sourceMode: "document_source"` with structured `documentSource`; genuinely programmatic exports use `sourceMode: "program"` and write final files to `/output`. On a fresh host, the first program-mode run may also pull the pinned sandbox image before execution starts.
+- Chat-generated files are created through the app-owned AI SDK `produce_file` tool and durable file-production jobs. The model-facing output-list field is `requestedOutputs`. Document-style files should prefer `sourceMode: "document_source"` with structured `documentSource`; genuinely programmatic exports use `sourceMode: "program"` and write final files to `/output`. On a fresh host, the first program-mode run may also pull the pinned sandbox image before execution starts.
 - The app now uses a default-closed working-document workspace instead of separate preview silos. Generated files, chat attachments, knowledge-library documents, and search-opened documents all reuse the same shared rich previewer: embedded in a right-side pane on desktop and a full-screen layer on mobile.
 - The shared preview/workspace path now lazy-loads the heavy rich-preview stack and markdown highlighter on first open, so idle chat and knowledge pages do not pay the full document-preview cost up front.
 - The working-document workspace now carries document identity and continuity affordances directly in the shell: version history for document families, source-message jump for generated outputs, compare mode for text-like versions, and a shared historical-status badge when a generated-document family has gone dormant.
 - Generated files now become first-class working documents backed by generated-output artifacts, shared family/version metadata, and Honcho sync.
-- The shared chat-turn pipeline handles request parsing, attachment readiness, Langflow execution, memory/context updates, persistence, and response finalization.
-- Outbound Langflow prompt assembly includes a centralized date-before-search guard for freshness-sensitive searches.
+- The shared chat-turn pipeline handles request parsing, attachment readiness, Vercel AI SDK/OpenAI-compatible model execution, memory/context updates, persistence, and response finalization.
+- Outbound Normal Chat prompt assembly includes a centralized date-before-search guard for freshness-sensitive searches.
 - Knowledge-base operations, task-state continuity, and optional Honcho sync sit behind server service boundaries rather than directly in route files.
 - Runtime config comes from environment variables first, with selected values optionally overridden later through the admin settings UI and stored in SQLite.
 
@@ -153,7 +150,7 @@ At a high level, AlfyAI runs as a single SvelteKit application with server route
 
 Notes before the tables:
 
-- Only `LANGFLOW_API_KEY` and `SESSION_SECRET` are hard-required at app boot.
+- Only `SESSION_SECRET` is hard-required at app boot.
 - Some settings can also be overridden later in the admin UI and stored in the database.
 - Model and title-generator system prompts default to empty and are intended to be set in the admin UI or explicitly via env vars.
 - Legacy built-in prompt keys such as `alfyai-nemotron`, `hermes-thinking`, and `default` are still recognized if you already have them stored.
@@ -166,14 +163,9 @@ Notes before the tables:
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
-| `LANGFLOW_API_URL` | No | `http://localhost:7860` | Base URL for the Langflow service | Set it in every real deployment unless Langflow is running at the default local address | Must be reachable from the app server |
-| `LANGFLOW_API_KEY` | Yes | none | Authenticates Langflow API calls | Always set in real deployments | App boot fails if missing |
-| `LANGFLOW_FLOW_ID` | No | empty | Default Langflow flow used when a model-specific flow is not configured | Set it when you use one primary Langflow flow for chat | Model-specific flow IDs override it |
-| `LANGFLOW_WEBHOOK_SECRET` | No | empty | Shared secret for Langflow sentence webhook verification | Set it when webhook flows are exposed or shared across systems | Leave empty only in trusted/local setups |
-| `ALFYAI_API_SIGNING_KEY` | No | empty | HMAC signing secret used to verify scoped service assertions for internal Langflow tool calls | Set it on both AlfyAI and Langflow custom nodes such as file production and web research | When unset, service assertions are rejected and only session-auth requests are allowed |
+| `ALFYAI_API_SIGNING_KEY` | No | empty | HMAC signing secret for scoped internal service assertions | Set it only for trusted internal service-to-service callers | Browser session-auth requests do not need it |
 | `SESSION_SECRET` | Yes | none | Signs and protects session cookies | Always set to a long random secret in every environment | App boot fails if missing |
 | `DATABASE_PATH` | No | `./data/chat.db` | SQLite database location | Set it when the database should live outside the repo root or on a mounted volume | The parent directory must be writable |
-| `WEBHOOK_PORT` | No | `8090` | Port used by webhook-related server handling | Set it only if your deployment expects a different port | Must be numeric |
 | `REQUEST_TIMEOUT_MS` | No | `300000` | Upstream request timeout for long-running model calls | Lower it for stricter failure windows or raise it for slower models | Affects perceived reliability on slow backends |
 | `MAX_MESSAGE_LENGTH` | No | lowest enabled model cap | Global fallback maximum accepted user message length | Leave unset to derive it from the lowest enabled model Max Message Length | Can also be overridden in admin config |
 | `ATTACHMENT_TRACE_DEBUG` | No | `false` | Enables extra attachment tracing logs | Turn it on while debugging upload/readiness issues | Debug logging only; not a feature flag |
@@ -199,31 +191,27 @@ Notes before the tables:
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
-| `MODEL_1_BASEURL` | No | `http://localhost:30001/v1` | OpenAI-compatible base URL for the primary model | Set it to your main chat model endpoint | Separate from Langflow |
+| `MODEL_1_BASEURL` | No | `http://localhost:30001/v1` | OpenAI-compatible base URL for the primary model | Set it to your main chat model endpoint | Used by the Vercel AI SDK OpenAI-compatible provider |
 | `MODEL_1_API_KEY` | No | empty | API key for model 1 | Set it when your model endpoint requires auth | Empty is valid for unauthenticated local servers |
 | `MODEL_1_NAME` | No | `model-1` | Model identifier sent to model 1 | Set it to the exact served model name | Must match the upstream endpoint |
 | `MODEL_1_DISPLAY_NAME` | No | `Model 1` | Public label shown in the UI | Set it for clearer model names in the product | Cosmetic only |
 | `MODEL_1_SYSTEM_PROMPT` | No | empty | System prompt text for model 1 | Set it in admin config or env when model 1 needs a specific system prompt | Legacy built-in keys are still accepted for backwards compatibility |
-| `MODEL_1_FLOW_ID` | No | falls back to `LANGFLOW_FLOW_ID` | Model-specific Langflow flow override for model 1 | Set it when model 1 should route to a different flow | Overrides the global flow only for model 1 |
-| `MODEL_1_COMPONENT_ID` | No | empty | Langflow component/node ID that receives model 1 runtime tweaks | Set it when the flow requires component-scoped `tweaks` overrides | If unset, the app falls back to the older flat `tweaks` shape |
-| `MODEL_1_MAX_TOKENS` | No | empty | Max generation tokens passed to the Langflow model node as `max_tokens` | Set it to cap model output length | Empty leaves the Langflow node default in control |
+| `MODEL_1_MAX_TOKENS` | No | empty | Max output tokens passed to the primary model provider | Set it to cap model output length | Empty leaves provider defaults in control |
 | `MODEL_1_MAX_MODEL_CONTEXT` | No | `MAX_MODEL_CONTEXT` | Context window for model 1 | Set it when model 1 differs from the global fallback | Target and compaction defaults derive from this value when their model-specific overrides are unset |
 | `MODEL_1_COMPACTION_UI_THRESHOLD` | No | `80%` of model 1 context | UI warning threshold for model 1 | Set it only when model 1 needs an explicit threshold | Can also be overridden in admin config |
 | `MODEL_1_TARGET_CONSTRUCTED_CONTEXT` | No | `90%` of model 1 context | Target constructed prompt context for model 1 | Set it only when model 1 needs an explicit target | Can also be overridden in admin config |
-| `MODEL_1_REASONING_EFFORT` | No | empty | Optional reasoning effort passed to the Langflow model node | Set it for reasoning models such as GPT-OSS 120b | Valid values depend on the provider; GPT-OSS uses `low`, `medium`, or `high` |
+| `MODEL_1_REASONING_EFFORT` | No | empty | Optional reasoning effort passed through provider options | Set it for reasoning models such as GPT-OSS 120b | Valid values depend on the provider; GPT-OSS uses `low`, `medium`, or `high` |
 | `MODEL_1_THINKING_TYPE` | No | empty | Optional thinking type passed to compatible providers | Set it only for providers that expect `thinking.type`; GPT-OSS should use `reasoning_effort` instead | Valid values: `enabled`, `disabled` |
 | `MODEL_2_BASEURL` | No | empty | OpenAI-compatible base URL for the secondary model | Set it only if you want a second selectable model | If unset, model 2 is not useful even if enabled |
 | `MODEL_2_API_KEY` | No | empty | API key for model 2 | Set it when model 2 requires auth | Empty is valid for unauthenticated local servers |
 | `MODEL_2_NAME` | No | empty | Model identifier sent to model 2 | Set it to the exact served model name | Must match the upstream endpoint |
 | `MODEL_2_DISPLAY_NAME` | No | `Model 2` | Public label shown in the UI | Set it for a meaningful secondary model label | Cosmetic only |
 | `MODEL_2_SYSTEM_PROMPT` | No | empty | System prompt text for model 2 | Set it in admin config or env when model 2 needs a specific system prompt | Legacy built-in keys are still accepted for backwards compatibility |
-| `MODEL_2_FLOW_ID` | No | falls back to `LANGFLOW_FLOW_ID` | Model-specific Langflow flow override for model 2 | Set it when model 2 should route differently | Overrides the global flow only for model 2 |
-| `MODEL_2_COMPONENT_ID` | No | empty | Langflow component/node ID that receives model 2 runtime tweaks | Set it when the flow uses component-scoped `tweaks` overrides | If unset, the app falls back to the older flat `tweaks` shape |
-| `MODEL_2_MAX_TOKENS` | No | empty | Max generation tokens passed to the Langflow model node as `max_tokens` | Set it to cap model 2 output length | Empty leaves the Langflow node default in control |
+| `MODEL_2_MAX_TOKENS` | No | empty | Max output tokens passed to the secondary model provider | Set it to cap model 2 output length | Empty leaves provider defaults in control |
 | `MODEL_2_MAX_MODEL_CONTEXT` | No | `MAX_MODEL_CONTEXT` | Context window for model 2 | Set it when model 2 differs from the global fallback | Target and compaction defaults derive from this value when their model-specific overrides are unset |
 | `MODEL_2_COMPACTION_UI_THRESHOLD` | No | `80%` of model 2 context | UI warning threshold for model 2 | Set it only when model 2 needs an explicit threshold | Can also be overridden in admin config |
 | `MODEL_2_TARGET_CONSTRUCTED_CONTEXT` | No | `90%` of model 2 context | Target constructed prompt context for model 2 | Set it only when model 2 needs an explicit target | Can also be overridden in admin config |
-| `MODEL_2_REASONING_EFFORT` | No | empty | Optional reasoning effort passed to the Langflow model node | Set it for reasoning models such as GPT-OSS 120b | Valid values depend on the provider; GPT-OSS uses `low`, `medium`, or `high` |
+| `MODEL_2_REASONING_EFFORT` | No | empty | Optional reasoning effort passed through provider options | Set it for reasoning models such as GPT-OSS 120b | Valid values depend on the provider; GPT-OSS uses `low`, `medium`, or `high` |
 | `MODEL_2_THINKING_TYPE` | No | empty | Optional thinking type passed to compatible providers | Set it only for providers that expect `thinking.type`; GPT-OSS should use `reasoning_effort` instead | Valid values: `enabled`, `disabled` |
 | `MODEL_2_ENABLED` | No | `true` | Enables model 2 as a selectable option | Set it to `false` to hide model 2 and force fallback to model 1 | Can also be overridden in admin config |
 
@@ -270,35 +258,26 @@ Notes before the tables:
 | `HONCHO_PERSONA_CONTEXT_WAIT_MS` | No | `8000` | Timeout for auxiliary Honcho persona enrichment on chat turns, especially persona prompt context | Lower it to keep the prompt path responsive while persona clusters refresh in the background | Can also be overridden in admin config |
 | `HONCHO_OVERVIEW_WAIT_MS` | No | `10000` | Timeout for the Knowledge Base live Honcho overview refresh path | Raise it if the overview is usually available but slower than chat-path persona enrichment | Can also be overridden in admin config |
 | `MEMORY_MAINTENANCE_INTERVAL_MINUTES` | No | `0` | Enables periodic maintenance for memory/task-state cleanup | Set it to a positive number to turn on the scheduler | `0` disables the scheduler entirely |
-| `DOCUMENT_PARSER_OCR_ENABLED` | No | `true` | Enables OCR during upload normalization via Liteparse | Set `false` if you want pure non-OCR extraction | Can also be overridden in admin config |
-| `DOCUMENT_PARSER_OCR_SERVER_URL` | No | empty | Liteparse OCR endpoint URL (expects Liteparse OCR API: multipart `file` + `language`) | Leave empty to use Liteparse built-in OCR (Tesseract path); set only when you run an external OCR server that already implements Liteparse's OCR contract | Can also be overridden in admin config |
-| `DOCUMENT_PARSER_OCR_LANGUAGE` | No | `hun+eng+nld` | OCR language/profile passed to Liteparse OCR engine/server | For built-in Tesseract, prefer 3-letter codes (`hun+eng+nld`). For external OCR adapters, 2-letter profiles like `hu+en+nl` are also accepted. | Can also be overridden in admin config |
-| `DOCUMENT_PARSER_NUM_WORKERS` | No | `4` | OCR worker parallelism used by Liteparse | Raise/lower based on CPU and OCR service capacity | Can also be overridden in admin config |
-| `DOCUMENT_PARSER_MAX_PAGES` | No | `1000` | Maximum pages Liteparse processes per document | Reduce to cap resource usage on large files | Can also be overridden in admin config |
-| `DOCUMENT_PARSER_DPI` | No | `150` | Render DPI used for OCR operations | Raise for better OCR quality at higher cost | Can also be overridden in admin config |
-| `DOCUMENT_PARSER_TIMEOUT_MS` | No | falls back to `REQUEST_TIMEOUT_MS` or `300000` | Extraction timeout budget for Liteparse parsing | Tune to avoid long-running OCR stalls | Can also be overridden in admin config |
-
 ### Deployment And Runtime Wrapper Variables
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
 | `BODY_SIZE_LIMIT` | No | patched to `100M` in production builds | Controls the adapter-node request body size limit | Raise it if your deployment needs larger request bodies | Server/runtime setting, not an app feature toggle |
-| `HOST` | No | `0.0.0.0` in adapter-node, often overridden in deploy env files | Controls the adapter-node listen address | Set it to `0.0.0.0` when host-managed Docker sidecars such as Langflow must reach the app over the host bridge | If you set `127.0.0.1`, containers on the same host cannot reach the app directly |
+| `HOST` | No | `0.0.0.0` in adapter-node, often overridden in deploy env files | Controls the adapter-node listen address | Set it to `0.0.0.0` when a reverse proxy or trusted internal service must reach the app over the host bridge | If you set `127.0.0.1`, other host-managed services cannot reach the app directly |
 | `PORT` | No | `3000` in adapter-node | Controls the adapter-node listen port | Set it to match your reverse proxy or host-managed service expectations | Keep Apache/nginx/other proxy config aligned with the same port |
 | `NODE_ENV` | No | environment dependent | Controls framework/runtime production behavior | Set it to `production` in real deployments | Also affects cookie security behavior |
 | `APP_DIR` | No | current working directory | Tells `scripts/deploy.sh` where the app checkout lives | Set it when deploying from outside the repo directory | Deploy-script only |
-| `PM2_APP_NAME` | No | `langflow-chat` | Printed by `scripts/deploy.sh` for operator context | Set it if you use PM2 with a custom process name | Not currently used for restart or reload logic |
+| `PM2_APP_NAME` | No | script default | Printed by `scripts/deploy.sh` for operator context | Set it if you use PM2 with a custom process name | Not currently used for restart or reload logic |
 
 ## Operational Caveats
 
 - If you bypass `scripts/deploy.sh`, run `npm run db:prepare` before starting the production server.
 - The runtime now also contains one bounded SQLite compatibility shim for `users.honcho_peer_version` in case a deploy starts new code against an old schema. That fallback exists only to prevent login lockouts; normal deploys should still rely on `npm run db:prepare`, not on app-start schema mutation.
 - Persist the `data/` directory across deploys so chats, drafts, uploads, and SQLite data survive restarts.
-- On Linux/macOS, install `libreoffice` and `imagemagick` so Liteparse can normalize Office/image uploads consistently.
+- On Linux/macOS, install `libreoffice` and `imagemagick` so MinerU can normalize Office/image uploads consistently.
 - Knowledge/document uploads currently accept document and image extensions: `.pdf`, `.doc`, `.docx`, `.txt`, `.md`, `.json`, `.csv`, `.xlsx`, `.xls`, `.pptx`, `.ppt`, `.html`, `.htm`, `.jpg`, `.jpeg`, `.jfif`, `.png`, `.gif`, `.bmp`, `.tiff`, `.tif`, `.webp`, `.svg`, `.heic`, `.heif`, `.avif`.
-- OCR/extraction quality still depends on conversion delegates installed on the host. For HEIC/HEIF/AVIF, verify ImageMagick delegate support explicitly (see AlmaLinux notes below).
-- Liteparse built-in OCR (Tesseract path) is active when `DOCUMENT_PARSER_OCR_SERVER_URL` is empty.
-- If you set `DOCUMENT_PARSER_OCR_SERVER_URL`, Liteparse expects an OCR server contract (`POST` multipart with `file` and `language`, response JSON `{ "results": [{ "text", "bbox", "confidence" }] }`).
+- For HEIC/HEIF/AVIF uploads, verify ImageMagick delegate support on the host (see AlmaLinux notes below).
+- MinerU handles OCR natively in all backends. No separate OCR service is required.
 - `GET /api/health` exists and returns `{"status":"OK"}`.
 - Auxiliary services such as title generation and summarization can fail independently without necessarily blocking core chat.
 - A sandboxed file-production run that does not actually write a file to `/output` now returns an explicit error instead of a silent empty success response.
@@ -314,7 +293,7 @@ sudo dnf -y install epel-release dnf-plugins-core
 sudo dnf config-manager --set-enabled crb || true
 sudo dnf -y makecache
 
-# Core converters used by Liteparse upload normalization
+# Core converters used for upload normalization
 sudo dnf -y install libreoffice ImageMagick ghostscript poppler-utils librsvg2
 
 # HEIF/AVIF support packages (names vary by repo build)

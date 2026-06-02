@@ -131,7 +131,7 @@ export async function extractDocumentText(
 		const formData = new FormData();
 		formData.append('files', file);
 		formData.append('return_md', 'true');
-		formData.append('backend', 'vlm-auto-engine');
+		formData.append('backend', 'hybrid-auto-engine');
 
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), config.mineruTimeoutMs);
