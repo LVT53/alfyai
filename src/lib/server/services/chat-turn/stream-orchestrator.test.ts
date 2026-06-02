@@ -75,6 +75,14 @@ vi.mock("$lib/server/services/chat-files", () => ({
 vi.mock("$lib/server/services/file-production", () => ({
 	assignFileProductionJobsToAssistantMessage: vi.fn(),
 	listConversationFileProductionJobs: vi.fn(() => Promise.resolve([])),
+	submitFileProductionIntake: vi.fn(() =>
+		Promise.resolve({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: { id: "job-recovered-1" },
+		}),
+	),
 }));
 
 vi.mock("$lib/utils/tokens", () => ({
@@ -242,6 +250,9 @@ async function resetCompletionMocks() {
 	} = await import("$lib/server/services/chat-turn/finalize");
 	const { getChatFilesForAssistantMessage, syncGeneratedFilesToMemory } =
 		await import("$lib/server/services/chat-files");
+	const { submitFileProductionIntake } = await import(
+		"$lib/server/services/file-production"
+	);
 	const { estimateTokenCount } = await import("$lib/utils/tokens");
 
 	(touchConversation as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
@@ -267,6 +278,12 @@ async function resetCompletionMocks() {
 	(syncGeneratedFilesToMemory as ReturnType<typeof vi.fn>).mockResolvedValue(
 		undefined,
 	);
+	(submitFileProductionIntake as ReturnType<typeof vi.fn>).mockResolvedValue({
+		ok: true,
+		status: 202,
+		reused: false,
+		job: { id: "job-recovered-1" },
+	});
 	(estimateTokenCount as ReturnType<typeof vi.fn>).mockReturnValue(100);
 }
 
@@ -532,6 +549,9 @@ describe("stream-orchestrator SSE contract", () => {
 		const { runPlainNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
 		);
+		const { submitFileProductionIntake } = await import(
+			"$lib/server/services/file-production"
+		);
 		const { persistAssistantEvidence } = await import(
 			"$lib/server/services/chat-turn/finalize"
 		);
@@ -544,16 +564,6 @@ describe("stream-orchestrator SSE contract", () => {
 			status: "done" as const,
 			outputSummary: "Project memory found: AlmaLinux Server",
 			sourceType: "memory" as const,
-			candidates: [],
-			metadata: { ok: true, evidenceReady: true },
-		};
-		const recoveredFileToolCall = {
-			callId: "call-file-1",
-			name: "produce_file",
-			input: { requestTitle: "AlmaLinux Server report" },
-			status: "done" as const,
-			outputSummary: "Queued PDF generation.",
-			sourceType: "generated_file" as const,
 			candidates: [],
 			metadata: { ok: true, evidenceReady: true },
 		};
@@ -583,18 +593,6 @@ describe("stream-orchestrator SSE contract", () => {
 				{ normalChatToolCalls: [memoryToolCall] },
 			),
 		);
-		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "The PDF report request has been started.",
-			normalChatToolCalls: [recoveredFileToolCall],
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-			modelId: "model-1",
-			modelDisplayName: "Model One",
-		});
 
 		const response = runChatStreamOrchestrator({
 			user: {
@@ -615,10 +613,27 @@ describe("stream-orchestrator SSE contract", () => {
 			"data-tool-call",
 		);
 
-		expect(runPlainNormalChatSendModel).toHaveBeenCalledWith(
+		expect(runPlainNormalChatSendModel).not.toHaveBeenCalled();
+		expect(submitFileProductionIntake).toHaveBeenCalledWith(
 			expect.objectContaining({
-				message: upstreamMessage,
-				forceProduceFileTool: true,
+				userId: "u1",
+				body: expect.objectContaining({
+					conversationId: "test-conv",
+					requestTitle: "AlmaLinux Server Report",
+					requestedOutputs: [{ type: "pdf" }],
+					sourceMode: "document_source",
+					documentSource: expect.objectContaining({
+						version: 1,
+						template: "alfyai_standard_report",
+						title: "AlmaLinux Server Report",
+						blocks: expect.arrayContaining([
+							expect.objectContaining({
+								type: "paragraph",
+								text: expect.stringContaining("Project memory found"),
+							}),
+						]),
+					}),
+				}),
 			}),
 		);
 		expect(toolPayloads).toEqual(

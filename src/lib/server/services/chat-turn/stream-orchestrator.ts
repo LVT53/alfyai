@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
@@ -47,6 +48,7 @@ import { touchConversation } from "$lib/server/services/conversations";
 import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
+	submitFileProductionIntake,
 } from "$lib/server/services/file-production";
 import { createMessage } from "$lib/server/services/messages";
 import {
@@ -116,6 +118,151 @@ function buildCompletedToolCallFallbackContext(
 				.join("\n");
 		})
 		.join("\n\n");
+}
+
+function shortStableHash(value: unknown): string {
+	return createHash("sha256")
+		.update(JSON.stringify(value))
+		.digest("hex")
+		.slice(0, 12);
+}
+
+function inferRequestedFileOutputs(message: string): Array<{ type: string }> {
+	const lower = message.toLowerCase();
+	const outputs: Array<{ type: string }> = [];
+	for (const [pattern, type] of [
+		[/\bpdf\b/, "pdf"],
+		[/\bdocx?\b|\bword document\b/, "docx"],
+		[/\bhtml\b/, "html"],
+		[/\bmarkdown\b|\bmd\b/, "md"],
+		[/\btxt\b|\btext file\b/, "txt"],
+	] as const) {
+		if (pattern.test(lower) && !outputs.some((output) => output.type === type)) {
+			outputs.push({ type });
+		}
+	}
+	return outputs.length > 0 ? outputs : [{ type: "pdf" }];
+}
+
+function inferRecoveredReportTitle(message: string, toolCalls: ToolCallEntry[]): string {
+	const projectCandidate = toolCalls
+		.flatMap((toolCall) => toolCall.candidates ?? [])
+		.find((candidate) =>
+			/project|folder|conversation|memory/i.test(candidate.title ?? ""),
+		);
+	const projectInput = toolCalls
+		.map((toolCall) => asToolInput(toolCall.input))
+		.map((input) => input.query)
+		.find((query): query is string => typeof query === "string" && query.trim().length > 0);
+	const subject =
+		projectInput?.trim() ||
+		projectCandidate?.title?.trim() ||
+		message
+			.replace(/\b(could you|please|generate|create|make|pdf|report|with|the|content|from|project folder|folder)\b/gi, " ")
+			.replace(/\s+/g, " ")
+			.trim();
+	return `${subject || "Project"} Report`;
+}
+
+function truncateReportText(value: unknown, maxLength: number): string {
+	if (typeof value !== "string") return "";
+	const text = value.replace(/\s+/g, " ").trim();
+	return text.length <= maxLength ? text : `${text.slice(0, maxLength).trimEnd()}...`;
+}
+
+function buildRecoveredDocumentSource(params: {
+	message: string;
+	toolCalls: ToolCallEntry[];
+}) {
+	const completedContextCalls = params.toolCalls.filter(
+		(toolCall) =>
+			toolCall.status === "done" && !isFileProductionToolName(toolCall.name),
+	);
+	const title = inferRecoveredReportTitle(params.message, completedContextCalls);
+	const blocks: Array<Record<string, unknown>> = [
+		{
+			type: "paragraph",
+			text: "This report was generated from the available project and memory context retrieved during the chat turn. It preserves the evidence returned by the app tools instead of relying on an additional model-authored document-source JSON pass.",
+		},
+		{
+			type: "heading",
+			level: 2,
+			text: "Requested Scope",
+		},
+		{
+			type: "paragraph",
+			text: params.message,
+		},
+		{
+			type: "heading",
+			level: 2,
+			text: "Retrieved Context Summary",
+		},
+	];
+
+	for (const [index, toolCall] of completedContextCalls.slice(0, 12).entries()) {
+		const input = asToolInput(toolCall.input);
+		const query = truncateReportText(input.query, 240);
+		blocks.push({
+			type: "heading",
+			level: 3,
+			text: `${index + 1}. ${toolCall.name}${query ? `: ${query}` : ""}`,
+		});
+		if (toolCall.outputSummary) {
+			blocks.push({
+				type: "paragraph",
+				text: truncateReportText(toolCall.outputSummary, 900),
+			});
+		}
+		const candidates = (toolCall.candidates ?? [])
+			.slice(0, 8)
+			.map((candidate) => {
+				const title = truncateReportText(candidate.title, 180) || candidate.id;
+				const snippet = truncateReportText(candidate.snippet, 700);
+				return snippet ? `${title}: ${snippet}` : title;
+			})
+			.filter((item) => item.trim().length > 0);
+		if (candidates.length > 0) {
+			blocks.push({
+				type: "list",
+				style: "bullet",
+				items: candidates,
+			});
+		}
+	}
+
+	if (completedContextCalls.length === 0) {
+		blocks.push({
+			type: "callout",
+			tone: "warning",
+			title: "No recovered context",
+			text: "No completed context tool results were available when the stream ended.",
+		});
+	}
+
+	blocks.push({
+		type: "heading",
+		level: 2,
+		text: "Notes And Limitations",
+	});
+	blocks.push({
+		type: "list",
+		style: "bullet",
+		items: [
+			"The report is grounded only in context returned by completed app tools in this turn.",
+			"Conversation snippets and memory summaries may be abbreviated by retrieval limits.",
+			"Where deeper source detail is needed, request a follow-up report for a specific returned conversation or topic.",
+		],
+	});
+
+	return {
+		version: 1,
+		template: "alfyai_standard_report",
+		title,
+		subtitle: "Recovered project-context report",
+		cover: { enabled: true, eyebrow: "AlfyAI", dateLabel: "Generated report" },
+		blocks,
+	};
 }
 
 function getFirstVisibleOutputTimeoutMs(
@@ -604,6 +751,85 @@ export function runChatStreamOrchestrator(
 				}
 				return true;
 			};
+			const recoverMissingFileProductionDirectly = async (): Promise<boolean> => {
+				const contextToolCalls = completedToolCallRecords().filter(
+					(record) => !isFileProductionToolName(record.name),
+				);
+				const requestTitle = inferRecoveredReportTitle(
+					upstreamMessage,
+					contextToolCalls,
+				);
+				const requestedOutputs = inferRequestedFileOutputs(upstreamMessage);
+				const documentSource = buildRecoveredDocumentSource({
+					message: upstreamMessage,
+					toolCalls: contextToolCalls,
+				});
+				const input = {
+					idempotencyKey: `stream-recovered-file:${shortStableHash({
+						conversationId,
+						streamId,
+						upstreamMessage,
+						requestedOutputs,
+					})}`,
+					requestTitle,
+					requestedOutputs,
+					sourceMode: "document_source",
+					documentIntent: "recovered_project_report",
+					templateHint: "standard-report",
+					documentSource,
+				};
+				const recordedInput = {
+					...input,
+					documentSource: {
+						contentHash: shortStableHash(documentSource),
+						topLevelKeyCount: Object.keys(documentSource).length,
+						blockCount: documentSource.blocks.length,
+					},
+				};
+				const result = await submitFileProductionIntake({
+					userId: user.id,
+					body: {
+						...input,
+						conversationId,
+					},
+				});
+				const ok = result.ok;
+				const outputSummary = ok
+					? `Queued ${requestedOutputs.map((output) => output.type.toUpperCase()).join(", ")} generation.`
+					: result.error;
+				emitRecoveredToolCalls([
+					{
+						name: "produce_file",
+						input: recordedInput,
+						status: "done",
+						outputSummary,
+						sourceType: "tool",
+						metadata: {
+							ok,
+							evidenceReady: ok,
+							recoveredDirectly: true,
+							intakeStatus: result.status,
+							...(ok ? { jobId: result.job.id } : { error: result.error }),
+						},
+					},
+				]);
+				if (!ok) {
+					console.error("[STREAM] Direct file-production recovery failed", {
+						conversationId,
+						streamId,
+						status: result.status,
+						code: result.code,
+						error: result.error,
+					});
+					return false;
+				}
+				const outputLabel = requestedOutputs
+					.map((output) => output.type.toUpperCase())
+					.join(", ");
+				return emitChunkWithOutputHandling(
+					`\n\nThe ${outputLabel} report request has been started. The file card will update when generation finishes.`,
+				);
+			};
 			const completeOrRecoverAfterUpstreamEnd = async (
 				reason: "done_signal" | "end_event" | "stream_closed",
 			) => {
@@ -632,6 +858,10 @@ export function runChatStreamOrchestrator(
 							hasCompletedNonFileToolCall: hasCompletedNonFileToolCall(),
 						},
 					);
+					if (await recoverMissingFileProductionDirectly()) {
+						await completeSuccess();
+						return;
+					}
 					await fallbackToNonStreaming(
 						"stream_read_failure",
 						latestUpstreamAttempt,
