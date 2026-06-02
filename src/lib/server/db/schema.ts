@@ -117,6 +117,7 @@ export const messages = sqliteTable(
 		thinking: text("thinking"),
 		toolCalls: text("tool_calls"),
 		metadataJson: text("metadata_json"),
+		importSource: text("import_source"),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),
@@ -1589,6 +1590,35 @@ export const inferenceProviders = sqliteTable("inference_providers", {
 		.notNull()
 		.default(sql`(unixepoch())`),
 });
+
+export const importJobs = sqliteTable(
+	"import_jobs",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		status: text("status").notNull().default("pending"),
+		totalConversations: integer("total_conversations").notNull().default(0),
+		processedConversations: integer("processed_conversations")
+			.notNull()
+			.default(0),
+		errorLog: text("error_log"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userStatusIdx: index("import_jobs_user_status_idx").on(
+			table.userId,
+			table.status,
+			table.updatedAt,
+		),
+	}),
+);
 
 export const projects = sqliteTable(
 	"projects",

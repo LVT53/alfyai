@@ -378,7 +378,7 @@ describe('announcement campaign service', () => {
 		insertRequiredCrops('disclosure');
 		insertRequiredCrops('release');
 
-		await seedFirstRunOnboardingTemplate('admin-user', { db, ids: ['template-campaign', 'template-slide-1', 'template-slide-2', 'template-slide-3'] });
+		await seedFirstRunOnboardingTemplate('admin-user', { db, ids: ['template-campaign', 'template-slide-1', 'template-slide-2', 'template-slide-3', 'template-slide-4'] });
 		expect(await getEligibleCampaignForUser('viewer-user', { db })).toBeNull();
 
 		await createCampaignDraft(
@@ -615,25 +615,48 @@ describe('announcement campaign service', () => {
 	it('seeds the first-run onboarding template idempotently as an unpublished draft', async () => {
 		const first = await seedFirstRunOnboardingTemplate('admin-user', {
 			db,
-			ids: ['campaign-template', 'template-slide-setup', 'template-slide-feature', 'template-slide-disclosure'],
+			ids: ['campaign-template', 'template-slide-setup', 'template-slide-import', 'template-slide-feature', 'template-slide-disclosure'],
 		});
 		const second = await seedFirstRunOnboardingTemplate('admin-user', { db });
 
 		expect(first.created).toBe(true);
 		expect(second.created).toBe(false);
 		expect(first.campaign.status).toBe('draft');
-		expect(first.campaign.slides.map((slide) => slide.layoutType)).toEqual(['setup', 'standard', 'standard']);
+		expect(first.campaign.slides.map((slide) => slide.layoutType)).toEqual(['setup', 'standard', 'standard', 'standard']);
 		expect(first.campaign.slides.some((slide) => slide.semanticRole === 'data_disclosure')).toBe(true);
 		expect(await getEligibleCampaignForUser('viewer-user', { db })).toBeNull();
 	});
 
+	it('includes an import ChatGPT slide in the seeded onboarding template', async () => {
+		const seeded = await seedFirstRunOnboardingTemplate('admin-user', {
+			db,
+			ids: ['campaign-template', 't-s-1', 't-s-2', 't-s-3', 't-s-4'],
+		});
+
+		expect(seeded.created).toBe(true);
+		const slides = seeded.campaign.slides;
+		expect(slides).toHaveLength(4);
+
+		const importSlide = slides[1];
+		expect(importSlide.layoutType).toBe('standard');
+		expect(importSlide.sortOrder).toBe(2);
+		expect(importSlide.title.en).toBe('Bring Your ChatGPT History');
+		expect(importSlide.title.hu).toBe('Hozd át a ChatGPT előzményeidet');
+		expect(importSlide.body.en).toContain('Import your conversations from ChatGPT');
+		expect(importSlide.body.hu).toContain('Importáld a ChatGPT beszélgetéseidet');
+		expect(importSlide.actionLabel.en).toBe('Import from ChatGPT');
+		expect(importSlide.actionLabel.hu).toBe('Importálás ChatGPT-ből');
+		expect(importSlide.actionDestination).toBe('internal:chatgpt-import');
+	});
+
 	it('keeps a saved seeded first-run campaign publishable with setup controls and data disclosure role', async () => {
 		insertRequiredCrops('setup');
+		insertRequiredCrops('import');
 		insertRequiredCrops('feature');
 		insertRequiredCrops('disclosure');
 		const seeded = await seedFirstRunOnboardingTemplate('admin-user', {
 			db,
-			ids: ['campaign-template', 'template-slide-setup', 'template-slide-feature', 'template-slide-disclosure'],
+			ids: ['campaign-template', 'template-slide-setup', 'template-slide-import', 'template-slide-feature', 'template-slide-disclosure'],
 		});
 
 		const saved = await updateCampaignDraft(
@@ -648,20 +671,20 @@ describe('announcement campaign service', () => {
 					body: slide.body,
 					altText: slide.altText,
 					setupControls: slide.setupControls,
-					desktopCropAssetId: index === 0 ? 'setup-desktop' : index === 1 ? 'feature-desktop' : 'disclosure-desktop',
-					mobileCropAssetId: index === 0 ? 'setup-mobile' : index === 1 ? 'feature-mobile' : 'disclosure-mobile',
+					desktopCropAssetId: index === 0 ? 'setup-desktop' : index === 1 ? 'import-desktop' : index === 2 ? 'feature-desktop' : 'disclosure-desktop',
+					mobileCropAssetId: index === 0 ? 'setup-mobile' : index === 1 ? 'import-mobile' : index === 2 ? 'feature-mobile' : 'disclosure-mobile',
 				})),
 			},
 			{ db },
 		);
 
 		expect(saved.slides[0]?.setupControls).toEqual(['ui_language', 'theme', 'model_default', 'ai_style']);
-		expect(saved.slides[2]?.semanticRole).toBe('data_disclosure');
+		expect(saved.slides[3]?.semanticRole).toBe('data_disclosure');
 
 		await expect(
 			publishCampaign(saved.id, 'admin-user', {
 				db,
-				ids: ['snapshot-1', 'snap-slide-1', 'snap-slide-2', 'snap-slide-3'],
+				ids: ['snapshot-1', 'snap-slide-1', 'snap-slide-2', 'snap-slide-3', 'snap-slide-4'],
 			}),
 		).resolves.toMatchObject({ status: 'published' });
 	});

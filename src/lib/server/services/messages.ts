@@ -143,6 +143,7 @@ function mapRowToChatMessage(
 		skillControl: metadata?.skillControl,
 		forkCopy: metadata?.forkCopy,
 		forkEvidenceSnapshot: metadata?.forkEvidenceSnapshot,
+		importSource: row.importSource ?? undefined,
 	};
 }
 

@@ -103,6 +103,7 @@ const ACTION_DESTINATION_ALLOWLIST = new Set([
 	'/settings',
 	'/settings/profile',
 	'/settings/admin',
+	'internal:chatgpt-import',
 ]);
 
 function database(options: CampaignServiceOptions = {}) {
@@ -1127,6 +1128,19 @@ export async function seedFirstRunOnboardingTemplate(
 					id: nextId(),
 					layoutType: 'standard',
 					sortOrder: 2,
+					title: { en: 'Bring Your ChatGPT History', hu: 'Hozd át a ChatGPT előzményeidet' },
+					body: {
+						en: 'Import your conversations from ChatGPT to continue where you left off. You can select which chats to bring over and organize them into projects.',
+						hu: 'Importáld a ChatGPT beszélgetéseidet, hogy ott folytasd, ahol abbahagytad. Kiválaszthatod, mely beszélgetéseket hozod át, és projektekbe rendezheted őket.',
+					},
+					actionLabel: { en: 'Import from ChatGPT', hu: 'Importálás ChatGPT-ből' },
+					actionDestination: 'internal:chatgpt-import',
+					altText: { en: 'Import ChatGPT history screenshot placeholder', hu: 'ChatGPT előzmények importálása képernyőkép helyőrző' },
+				},
+				{
+					id: nextId(),
+					layoutType: 'standard',
+					sortOrder: 3,
 					title: { en: 'Introduce a released feature', hu: 'Mutass be egy kiadott funkciót' },
 					body: { en: 'Replace this draft copy with admin-authored campaign content.', hu: 'Cseréld ezt a vázlatot admin által írt kampányszövegre.' },
 					altText: { en: 'Feature screenshot placeholder', hu: 'Funkció képernyőkép helyőrző' },
@@ -1135,7 +1149,7 @@ export async function seedFirstRunOnboardingTemplate(
 					id: nextId(),
 					layoutType: 'standard',
 					semanticRole: 'data_disclosure',
-					sortOrder: 3,
+					sortOrder: 4,
 					title: { en: 'Data processing disclosure', hu: 'Adatkezelési tájékoztató' },
 					body: { en: 'Review and complete the disclosure before publishing.', hu: 'Ellenőrizd és egészítsd ki a tájékoztatót közzététel előtt.' },
 					altText: { en: 'Disclosure screenshot placeholder', hu: 'Tájékoztató képernyőkép helyőrző' },

@@ -46,6 +46,7 @@
 		onClose,
 		onSkip,
 		onFinish,
+		onInternalAction,
 	}: {
 		campaign?: Campaign | null;
 		locale?: CampaignLocale;
@@ -58,6 +59,7 @@
 		onClose?: () => void;
 		onSkip?: () => void;
 		onFinish?: () => void;
+		onInternalAction?: (action: string) => void;
 	} = $props();
 
 	let localSlideIndex = $state(0);
@@ -96,6 +98,8 @@
 	let currentDesktopUploadedImageUrl = $derived(assetUrl(currentSlide, 'desktop'));
 	let currentMobileUploadedImageUrl = $derived(assetUrl(currentSlide, 'mobile'));
 	let hasCurrentUploadedImage = $derived(Boolean(currentDesktopUploadedImageUrl || currentMobileUploadedImageUrl));
+	let currentActionDestination = $derived(currentSlide?.actionDestination ?? currentSlide?.actionUrl ?? null);
+	let isInternalAction = $derived(Boolean(currentActionDestination?.startsWith('internal:')));
 	let currentDesktopImageUrl = $derived(campaignImageUrl(currentSlide, 'desktop'));
 	let currentMobileImageUrl = $derived(campaignImageUrl(currentSlide, 'mobile'));
 	let currentImageKey = $derived(
@@ -344,16 +348,31 @@
 						<p class="text-sm leading-6 text-text-secondary">{localized(currentSlide, 'body')}</p>
 					</div>
 					{#if localized(currentSlide, 'actionLabel')}
-						<a
-							class="campaign-action-link"
-							href={currentSlide.actionDestination || currentSlide.actionUrl || '#'}
-							aria-disabled={preview || !(currentSlide.actionDestination || currentSlide.actionUrl)}
-							onclick={(event) => {
-								if (preview || !(currentSlide.actionDestination || currentSlide.actionUrl)) event.preventDefault();
-							}}
-						>
-							{localized(currentSlide, 'actionLabel')}
-						</a>
+						{#if isInternalAction}
+							<button
+								type="button"
+								class="campaign-action-link"
+								disabled={preview}
+								onclick={() => {
+									if (preview) return;
+									const action = currentActionDestination?.replace(/^internal:/, '') ?? '';
+									onInternalAction?.(action);
+								}}
+							>
+								{localized(currentSlide, 'actionLabel')}
+							</button>
+						{:else}
+							<a
+								class="campaign-action-link"
+								href={currentSlide.actionDestination || currentSlide.actionUrl || '#'}
+								aria-disabled={preview || !(currentSlide.actionDestination || currentSlide.actionUrl)}
+								onclick={(event) => {
+									if (preview || !(currentSlide.actionDestination || currentSlide.actionUrl)) event.preventDefault();
+								}}
+							>
+								{localized(currentSlide, 'actionLabel')}
+							</a>
+						{/if}
 					{/if}
 
 					{#if showSetupControls && setupPreferences}

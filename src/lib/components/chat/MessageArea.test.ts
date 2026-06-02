@@ -231,6 +231,74 @@ describe('MessageArea', () => {
 		});
 	});
 
+	it('renders an import boundary marker between imported and new messages', () => {
+		const messages: ChatMessage[] = [
+			{
+				id: 'imported-user-1',
+				role: 'user',
+				content: 'Imported question',
+				timestamp: Date.now(),
+				importSource: 'chatgpt',
+			},
+			{
+				id: 'imported-assistant-1',
+				role: 'assistant',
+				content: 'Imported answer',
+				timestamp: Date.now(),
+				importSource: 'chatgpt',
+			},
+			{
+				id: 'new-user-1',
+				role: 'user',
+				content: 'New question',
+				timestamp: Date.now(),
+			},
+			{
+				id: 'new-assistant-1',
+				role: 'assistant',
+				content: 'New answer',
+				timestamp: Date.now(),
+			},
+		];
+
+		const { getByLabelText, getByTestId, getByText, queryAllByTestId } = render(MessageArea, {
+			messages,
+			conversationId: 'conv-1',
+			isThinkingActive: false,
+			contextDebug: null,
+		});
+
+		expect(getByTestId('import-boundary-marker')).toBe(getByLabelText('Imported conversation boundary'));
+		expect(getByText('Imported from ChatGPT')).toBeInTheDocument();
+		expect(queryAllByTestId('import-boundary-marker')).toHaveLength(1);
+	});
+
+	it('does not render an import boundary marker for non-imported conversations', () => {
+		const messages: ChatMessage[] = [
+			{
+				id: 'user-1',
+				role: 'user',
+				content: 'Question',
+				timestamp: Date.now(),
+			},
+			{
+				id: 'assistant-1',
+				role: 'assistant',
+				content: 'Answer',
+				timestamp: Date.now(),
+			},
+		];
+
+		const { queryByTestId } = render(MessageArea, {
+			messages,
+			conversationId: 'conv-1',
+			isThinkingActive: false,
+			contextDebug: null,
+		});
+
+		expect(queryByTestId('import-boundary-marker')).not.toBeInTheDocument();
+	});
+
 	it('renders a fork boundary marker after the copied fork point message', () => {
 		const messages: ChatMessage[] = [
 			{

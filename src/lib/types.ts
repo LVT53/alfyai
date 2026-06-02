@@ -1028,6 +1028,7 @@ export interface ChatMessage {
 	forkCopy?: ForkCopyMetadata;
 	forkEvidenceSnapshot?: ForkEvidenceSnapshot;
 	sourceForks?: MessageSourceForks;
+	importSource?: string;
 }
 
 export type ArtifactType =
@@ -1289,6 +1290,7 @@ export interface ArtifactChunk {
 
 export type SemanticEmbeddingSubjectType =
 	| "artifact"
+	| "imported_conversation"
 	| "persona_cluster"
 	| "task_state";
 

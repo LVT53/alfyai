@@ -9,7 +9,9 @@
 	} from '$lib/utils/personality-profile-labels';
 	import PasswordField from './PasswordField.svelte';
 	import UserSkillsSettingsSurface from './UserSkillsSettingsSurface.svelte';
+	import SettingsDataImport from './SettingsDataImport.svelte';
 	import type { ModelId, UserModelPreference } from '$lib/types';
+	import type { Project } from '$lib/types';
 
 	type AvailableModel = { id: ModelId; displayName: string; iconUrl?: string | null };
 	type Theme = 'system' | 'light' | 'dark';
@@ -66,6 +68,7 @@
 		forgetEverythingLoading = false,
 		forgetEverythingError = '',
 		skillsEnabled = false,
+		projects = [],
 	}: {
 		userId: string;
 		userDisplayName: string;
@@ -116,6 +119,7 @@
 		forgetEverythingLoading?: boolean;
 		forgetEverythingError?: string;
 		skillsEnabled?: boolean;
+		projects?: Project[];
 	} = $props();
 
 	const systemDefaultModelDisplayName = $derived(
@@ -335,6 +339,8 @@
 		</div>
 	</div>
 </section>
+
+<SettingsDataImport {projects} />
 
 <UserSkillsSettingsSurface {skillsEnabled} />
 

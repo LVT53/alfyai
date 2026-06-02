@@ -7,6 +7,8 @@
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
 	import CampaignModal from '$lib/components/campaigns/CampaignModal.svelte';
 	import ServerUpdateNotice from './_components/ServerUpdateNotice.svelte';
+	import type { Component } from 'svelte';
+	let ImportChatGPTModalComponent: Component | null = $state(null);
 	import { currentConversationId, sidebarOpen, initUIListeners } from '$lib/stores/ui';
 	import {
 		loadConversations,
@@ -58,6 +60,7 @@
 	let campaignMode = $state<CampaignDisplayMode>('auto');
 	let campaignSlideIndex = $state(0);
 	let campaignViewedSlideIds = new Set<string>();
+	let showChatGPTImportModal = $state(false);
 	let selectedCampaignModel = $state<UserModelPreference>(null);
 	let effectiveCampaignModel = $state<ModelId>('model1');
 	let campaignSystemDefaultModel = $state<ModelId>('model1');
@@ -282,6 +285,16 @@
 		});
 	}
 
+	async function handleCampaignInternalAction(action: string) {
+		if (action === 'chatgpt-import') {
+			if (!ImportChatGPTModalComponent) {
+				const mod = await import('$lib/components/chat/ImportChatGPTModal.svelte');
+				ImportChatGPTModalComponent = mod.default;
+			}
+			showChatGPTImportModal = true;
+		}
+	}
+
 	async function finishActiveCampaign(reason: 'completed' | 'skipped') {
 		const campaign = activeCampaign;
 		if (!campaign) return;
@@ -438,6 +451,7 @@
 		onSlideView={handleCampaignSlideView}
 		onSkip={() => finishActiveCampaign('skipped')}
 		onFinish={() => finishActiveCampaign('completed')}
+		onInternalAction={handleCampaignInternalAction}
 		setupPreferences={{
 			availableModels: data.availableModels ?? [],
 			effectiveModel: effectiveCampaignModel,
@@ -452,6 +466,15 @@
 			onChangeModel: changeCampaignModel,
 			onChangePersonality: changeCampaignPersonality,
 		}}
+	/>
+{/if}
+
+{#if ImportChatGPTModalComponent}
+	<svelte:component
+		this={ImportChatGPTModalComponent}
+		bind:show={showChatGPTImportModal}
+		onClose={() => (showChatGPTImportModal = false)}
+		projects={data.projects ?? []}
 	/>
 {/if}
 

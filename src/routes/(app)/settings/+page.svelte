@@ -473,6 +473,7 @@ let removingPhoto = $state(false);
 				forgetEverythingError={forgetEverythingError}
 				onForgetEverything={requestForgetEverything}
 				skillsEnabled={(data as SettingsPageData).composerCommandRegistryEnabled ?? false}
+				projects={$projects}
 			/>
 		{/if}
 

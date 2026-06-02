@@ -300,6 +300,16 @@ function forkSourceHref(origin: ConversationForkOrigin): string | null {
 	return `/chat/${origin.sourceConversationId}${messageAnchor}`;
 }
 
+function shouldShowImportBoundary(messages: ChatMessage[], index: number): boolean {
+	const current = messages[index];
+	if (current.importSource === 'chatgpt') return false;
+	const hasPreviousImported = messages.slice(0, index).some((m) => m.importSource === 'chatgpt');
+	if (!hasPreviousImported) return false;
+	// Only show before the first non-imported message after imported ones
+	const previousNonImportedIndex = messages.slice(0, index).findIndex((m) => m.importSource !== 'chatgpt');
+	return previousNonImportedIndex === -1;
+}
+
 function contextCompressionMarkerLabel(marker: ContextCompressionMarker): string {
 	if (marker.status === 'running') {
 		return marker.trigger === 'automatic'
@@ -370,6 +380,23 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 				/>
 			{/each}
 			{#each dedupedMessages as message, i (message.renderKey ?? message.id)}
+				{#if shouldShowImportBoundary(dedupedMessages, i)}
+					<div
+						class="import-boundary-marker import-lineage-marker"
+						data-testid="import-boundary-marker"
+						role="note"
+						aria-label={$t('import.boundaryMarkerLabel')}
+					>
+						<div class="import-lineage-icon" aria-hidden="true">
+							<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+								<polyline points="7 10 12 15 17 10"/>
+								<line x1="12" y1="15" x2="12" y2="3"/>
+							</svg>
+						</div>
+						<span class="import-boundary-title">{$t('import.boundaryTitle')}</span>
+					</div>
+				{/if}
 				<MessageBubble
 					{message}
 					isLast={i === dedupedMessages.length - 1}
@@ -577,6 +604,37 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 	.context-compression-marker-failed {
 		border-left-color: var(--danger, #c2410c);
 		background: color-mix(in srgb, var(--surface-elevated) 88%, var(--danger, #c2410c) 12%);
+	}
+
+	.import-lineage-marker {
+		display: flex;
+		width: 100%;
+		max-width: 100%;
+		align-self: stretch;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-xs);
+		margin: var(--space-sm) 0 var(--space-md);
+		border-left: 3px solid color-mix(in srgb, var(--text-muted) 55%, var(--surface-elevated) 45%);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--surface-elevated) 92%, var(--text-muted) 8%);
+		padding: 0.42rem 0.6rem;
+		font-family: 'Nimbus Sans L', sans-serif;
+		font-size: 0.76rem;
+		line-height: 1.35;
+		color: var(--text-muted);
+	}
+
+	.import-lineage-icon {
+		display: inline-flex;
+		flex: 0 0 auto;
+		color: var(--text-subtle);
+	}
+
+	.import-boundary-title {
+		font-weight: 600;
+		color: var(--text-secondary);
+		white-space: nowrap;
 	}
 
 	.fork-lineage-link {

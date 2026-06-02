@@ -61,6 +61,7 @@ const requiredExistingTables = [
 	"announcement_campaign_snapshot_slides",
 	"announcement_campaign_user_states",
 	"announcement_campaign_events",
+	"import_jobs",
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [
@@ -75,6 +76,7 @@ const requiredExistingColumns: Array<[string, string]> = [
 	["messages", "tool_calls"],
 	["messages", "metadata_json"],
 	["messages", "message_sequence"],
+	["messages", "import_source"],
 	["users", "role"],
 	["users", "preferred_model"],
 	["users", "translation_enabled"],
