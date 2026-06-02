@@ -36,13 +36,14 @@
 	let timelineChartCanvas = $state<HTMLCanvasElement | null>(null);
 	let timelineGranularity = $state<'weekly' | 'monthly' | 'yearly'>('weekly');
 
+	// Palette aligned with app accent (#C15F3C), success (#15803D), and complementary tones
 	const CHART_COLORS = [
-		'rgba(194, 166, 106, 0.88)',
-		'rgba(107, 149, 194, 0.88)',
-		'rgba(107, 194, 149, 0.88)',
-		'rgba(194, 107, 107, 0.88)',
-		'rgba(149, 107, 194, 0.88)',
-		'rgba(194, 172, 107, 0.88)',
+		'rgba(193, 95, 60, 0.88)',     // accent terracotta
+		'rgba(100, 143, 175, 0.88)',   // muted blue
+		'rgba(21, 128, 61, 0.88)',     // success green
+		'rgba(165, 95, 95, 0.88)',     // muted rose
+		'rgba(115, 100, 160, 0.88)',   // muted violet
+		'rgba(185, 140, 65, 0.88)',    // warm amber
 	];
 
 	function destroyCharts() {
@@ -200,8 +201,8 @@
 					datasets: [{
 						label: 'Tokens',
 						data: data.map((d: any) => d.tokens),
-						borderColor: 'rgba(194, 166, 106, 0.88)',
-						backgroundColor: 'rgba(194, 166, 106, 0.08)',
+						borderColor: 'rgba(193, 95, 60, 0.88)',
+						backgroundColor: 'rgba(193, 95, 60, 0.08)',
 						fill: true,
 						tension: 0.3,
 						pointRadius: 2,
@@ -241,13 +242,13 @@
 						{
 							label: translateFn('analytics.chartMessages'),
 							data: top10.map((row: any) => row.messageCount),
-							backgroundColor: 'rgba(194, 166, 106, 0.8)',
+							backgroundColor: 'rgba(193, 95, 60, 0.8)',
 							borderRadius: 4,
 						},
 						{
 							label: translateFn('analytics.chartConversations'),
 							data: top10.map((row: any) => row.conversationCount),
-							backgroundColor: 'rgba(107, 149, 194, 0.75)',
+							backgroundColor: 'rgba(100, 143, 175, 0.75)',
 							borderRadius: 4,
 						},
 					],
