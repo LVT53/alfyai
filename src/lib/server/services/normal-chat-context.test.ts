@@ -93,7 +93,7 @@ describe("prepareOutboundChatContext", () => {
 			"Prefer the simple form: `requestTitle`, `outputType` or `filename`, and `markdown`, `content`, or `text`.",
 		);
 		expect(prompt).toContain(
-			'produce_file({ requestTitle: "News summary", filename: "hungarian-parliament-news.md", markdown: "# Hungarian Parliament News\\n\\n## Latest Session\\n\\nThe parliament passed..." })',
+			'"requestTitle": "News summary", "filename": "hungarian-parliament-news.md", "markdown": "# Hungarian Parliament News\\n\\n## Latest Session\\n\\nThe parliament passed..."',
 		);
 		expect(prompt).toContain(
 			"It handles searching, page fetching, evidence extraction, and answer-brief assembly in one call — there is no separate search or fetch step.",

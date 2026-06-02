@@ -95,6 +95,14 @@ type AutomaticContextCompressionResult = {
 	snapshotId?: string | null;
 };
 
+const JSON_FORMATTING_RULES = [
+	"Tool JSON formatting rules — all tool arguments MUST be valid JSON:",
+	"- Pass exactly the JSON object as the argument — no trailing punctuation (no period, comma, or semicolon after the closing `}`). The argument ends at `}`.",
+	"- Within JSON strings, use `\\n` to represent newlines. Do not paste raw multiline text into a JSON string — the parser will reject it.",
+	"- Only include fields listed in the tool's schema. Do not invent extra fields.",
+	"- If a tool call fails with a JSON parse error, read the error message, fix the specific issue, and retry once. Do not repeat the same malformed JSON.",
+	"- Do not add comments, markdown fences, or explanatory text inside the JSON argument.",
+].join("\n");
 const URL_LIST_TOOL_ARGUMENT_GUARD = [
 	"Tool argument safety for URL-processing tools:",
 	"- If a tool field is named `urls` or expects a list of URLs/links, always pass an array of strings.",
@@ -121,7 +129,9 @@ const FILE_GENERATION_GUARD = [
 	"- IMPORTANT: If the file content depends on web research (`research_web`), knowledge-base documents, memory context (`memory_context`), or any other tools, call those tools first and wait for their results before calling `produce_file`. Do not call `produce_file` until you have the actual data to include.",
 	"- Do NOT call `produce_file` with placeholder, template, or empty content. The server will reject `produce_file` calls with content that is too short or template-like. Provide substantive actual content.",
 	"- Prefer the simple form: `requestTitle`, `outputType` or `filename`, and `markdown`, `content`, or `text`. The server converts simple content into the correct file-production mode.",
-	"- Example: `produce_file({ requestTitle: \"News summary\", filename: \"hungarian-parliament-news.md\", markdown: \"# Hungarian Parliament News\\n\\n## Latest Session\\n\\nThe parliament passed...\" })`.",
+	"- Provide the file content as a single JSON string with `\\n` for line breaks. Do NOT paste raw multiline text into the JSON — the parser will reject unescaped newlines.",
+	"- Example — note the `\\n` newline escapes inside the markdown string: `produce_file({ \"requestTitle\": \"News summary\", \"filename\": \"hungarian-parliament-news.md\", \"markdown\": \"# Hungarian Parliament News\\n\\n## Latest Session\\n\\nThe parliament passed...\" })`.",
+	"- Another example with longer content: `produce_file({ \"requestTitle\": \"Report\", \"filename\": \"report.md\", \"markdown\": \"# Report\\n\\n## Findings\\n- Point one [Source](https://example.com)\\n- Point two\\n\\n> Note: based on retrieved evidence.\" })`.",
 	"- Use `requestedOutputs` only when the user asks for multiple formats of the same artifact.",
 	"- For polished PDF/DOCX/HTML reports, simple `markdown` or `content` is enough unless you need tables or charts. Use `documentSource` only when structured blocks materially improve the document.",
 	"- Use `program` only for artifacts that genuinely require executable generation such as XLSX, PPTX, ZIP, or custom packaged files.",
@@ -134,7 +144,7 @@ const FILE_GENERATION_GUARD = [
 const IMAGE_SEARCH_GUARD = [
 	"Image search workflow:",
 	"- When the user asks for images, call the `image_search` tool.",
-	'- The tool expects a single JSON argument: {"query": "your search terms"}.',
+	'- Pass a single JSON argument with only the `query` field: `{"query": "your search terms"}`.',
 	"- The tool returns a JSON list of image URLs.",
 	"- You MUST embed these URLs into your final text response using standard markdown syntax: `![alt text](url)` exactly where you want them to appear.",
 	"- The user cannot see the raw tool output, so if you do not write the markdown tags, the images will be invisible.",
@@ -356,6 +366,8 @@ export function buildOutboundSystemPrompt(params: {
 			];
 
 	if (!params.skipDefaultRuntimeGuidance) {
+		guidanceAdditions.push(JSON_FORMATTING_RULES);
+
 		if (containsHttpUrl(params.inputValue)) {
 			guidanceAdditions.push(URL_LIST_TOOL_ARGUMENT_GUARD);
 		}
