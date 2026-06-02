@@ -8,7 +8,7 @@ Parent: [AGENTS.md](../../../AGENTS.md) lists every service file and its role. T
 |------|------|-------|-----------|
 | 1 | `task-state.ts` | ~1,558 | Facade + task routing, evidence selection, checkpointing, steering |
 | 2 | `honcho.ts` | ~1,517 | Honcho client lifecycle, session bootstrap, context construction |
-| 3 | `stream-orchestrator.ts` | ~558 | Full chat-turn streaming pipeline, upstream retry, downstream SSE framing |
+| 3 | `stream-orchestrator.ts` | ~558 | Full chat-turn streaming pipeline, upstream retry, downstream AI SDK UI stream framing |
 | 4 | `chat-turn/stream.ts` | ~247 | Stream framing and cleanup helpers |
 | 5 | `knowledge/store/attachments.ts` | ~520 | Upload auto-rename, readiness checks, artifact linking |
 | 6 | `task-state/continuity.ts` | ~989 | Project memory, focus continuity, task-project linking |
@@ -20,7 +20,7 @@ Parent: [AGENTS.md](../../../AGENTS.md) lists every service file and its role. T
 | 12 | `chat-turn/retry-cleanup.ts` | ~190 | Idempotent cleanup of failed turn data (evidence, checkpoints, work capsules, generated outputs) |
 
 **Chat-turn sub-modules** (extracted from stream.ts):
-- `chat-turn/stream-parser.ts` — async generator for parsing Langflow SSE/JSON event streams
+- `chat-turn/stream.ts` — AI SDK UI stream framing, stream runtime cleanup, native tool-call accumulation, and stream error classification
 - `chat-turn/thinking-normalizer.ts` — thinking block/tag stripping and reasoning content extraction
 - `chat-turn/tool-call-markers.ts` — `TOOL_START/END` marker processing and tool evidence normalization
 
@@ -47,7 +47,7 @@ chat-turn/request.ts ──► chat-turn/preflight.ts
                               │
                     ┌─────────┴─────────┐
                     ▼                   ▼
-              chat send          stream-orchestrator.ts ──► stream-parser.ts, thinking-normalizer.ts, tool-call-markers.ts
+              chat send          stream-orchestrator.ts ──► stream.ts, thinking-normalizer.ts, tool-call-markers.ts
                     │                   │
                     └─────────┬─────────┘
                               ▼
@@ -62,9 +62,7 @@ chat-turn/request.ts ──► chat-turn/preflight.ts
                    └───┬───┘        │            │
                        ▼            ▼            ▼
                        │            utils/*    knowledge/store/*  chat-turn/retry-cleanup.ts
-                  attachment-trace.ts (feeds stream-orchestrator, langflow, chat-files)
-                       │
-                  webhook-buffer.ts (feeds chat-turn streaming pipeline)
+                  attachment-trace.ts (feeds stream-orchestrator, chat-files)
                        │
                   language.ts (feeds chat-turn request/title prompts)
                        │
@@ -73,14 +71,13 @@ chat-turn/request.ts ──► chat-turn/preflight.ts
 
 **Additional active services not shown above:**
 - `auth/hooks.ts` — `requireAuth`, `getBearerToken` (canonical auth boundary for API routes)
-- `prompts.ts` (src/lib/server/prompts.ts) — shared prompt configuration helpers (consumed by langflow, honcho)
+- `prompts.ts` (src/lib/server/prompts.ts) — shared prompt configuration helpers (consumed by normal-chat context, honcho)
 - `analytics.ts` — analytics event ingestion (consumed by finalize.ts)
 - `file-production/` — durable generated-file jobs, source validation, renderers, sandbox execution, retry/cancel, storage, and legacy generated-file backfill
 - `generated-file-serving.ts` — generated chat-file lookup, ownership fallback, assigned/succeeded-job eligibility, byte/type validation, and preview/download headers for chat routes and Working Document generated-output serving
-- `image-search.ts` — image search integration (tool endpoint at api/tools/image-search)
+- `image-search.ts` — image search integration used by direct normal-chat tools
 - `projects.ts` (src/lib/server/services/projects.ts) — project CRUD using db + schema.ts directly (active service, not legacy)
 - `server/api/responses.ts` — shared JSON response helpers for API routes (consumed across route files)
-- `webhook-buffer.ts` — sentence-level webhook buffering for streaming turns
 
 **Key insight**: `finalize.ts` is the fan-out point — after a turn completes, it dispatches to persistence, evidence, memory, and Honcho sync.
 
@@ -95,8 +92,7 @@ preflightChatTurn()           ← conversation exists? attachments ready?
    ▼         ▼
 send route  stream-orchestrator.ts ← diverge here; orchestrates full pipeline
    │      │
-   │    parseUpstreamEvents()  ← Langflow SSE/JSON stream → events
-   │    processToolCallMarkers()
+   │    runStreamingNormalChatSendModel() ← neutral Normal Chat stream events
    │    normalizeVisibleAssistantText()
    │    createServerChunkRuntime() → tokens, thinking, structured tool-call events, output cleanup
    │      │
@@ -141,13 +137,13 @@ knowledge.ts (facade — re-exports from below)
 
 **Capsule note**: `knowledge/capsules.ts` still summarizes workflow, but it is no longer the authority for document lineage. Keep document family/version continuity on artifact metadata plus links, not duplicated capsule payloads.
 
-**Langflow prompt note**: file-production workflow guidance belongs in `langflow.ts`. Keep its prompt contract aligned with the unified `produce_file` tool: source-first documents use `document_source`, program artifacts write final files to `/output`, successful work appears in chat as durable job-backed cards, and generic code-execution tools such as `run_python_repl` should not be used as a substitute when `produce_file` is available.
-Authenticated account-level personalization fields such as display name and email should also enter the model prompt through `langflow.ts`, using the current request's authenticated user object instead of ad hoc route-local prompt fragments.
+**Normal Chat prompt note**: file-production workflow guidance belongs in `normal-chat-context.ts` and the app-owned AI SDK tool boundary. Keep its prompt contract aligned with the unified `produce_file` tool: source-first documents use `document_source`, program artifacts write final files to `/output`, successful work appears in chat as durable job-backed cards, and generic code-execution tools such as `run_python_repl` should not be used as a substitute when `produce_file` is available.
+Authenticated account-level personalization fields such as display name and email should also enter the model prompt through the Normal Chat context boundary, using the current request's authenticated user object instead of ad hoc route-local prompt fragments.
 
-**Generated-file debug note**: when debugging missing chat files, the current server-side log prefixes are `[LANGFLOW]` for outbound request/session correlation, `[FILE_PRODUCTION]` for production job lifecycle and validation, `[CHAT_STREAM]` for tool-call summaries and end-of-stream generated-file handling, `[CHAT_FILES]` for persistence/sync failures, plus `[HONCHO]` and `[MEMORY_MAINTENANCE]` for downstream continuity issues. Extend those prefixes instead of inventing new one-off log tags.
+**Generated-file debug note**: when debugging missing chat files, the current server-side log prefixes are `[NORMAL_CHAT_CONTEXT]` for prompt-context preparation, `[FILE_PRODUCTION]` for production job lifecycle and validation, `[CHAT_STREAM]` for tool-call summaries and end-of-stream generated-file handling, `[CHAT_FILES]` for persistence/sync failures, plus `[HONCHO]` and `[MEMORY_MAINTENANCE]` for downstream continuity issues. Extend those prefixes instead of inventing new one-off log tags.
 **Selection-debug note**: document and memory observability should stay summary-level. `knowledge/context.ts` now emits `[CONTEXT] Working document selection` with the winning Working Document Selection signals and selected artifact ids, while `memory.ts` emits `[KNOWLEDGE_MEMORY] Selected overview source` after calling `knowledge/memory-overview.ts` for the Knowledge Memory overview source/status result. Extend those summaries instead of reintroducing noisy per-candidate logs.
 
-**Langflow custom-tool note**: for the `File Production` node, follow Langflow's tool-mode custom-component pattern directly. The agent must see the actual `produce_file` action as the tool; do not expose an intermediate builder method like `build_tool`, or the model may call that method without ever hitting `/api/chat/files/produce`. Keep `conversationId` resolved from the Langflow session and keep only `produce_file` contract fields model-facing.
+**Direct file-production tool note**: normal chat exposes `produce_file` through the app-owned AI SDK tool boundary. The agent must see the actual `produce_file` action as the tool, with `conversationId` supplied by the runtime and only `produce_file` contract fields model-facing.
 
 **Persona-memory note**: persona memory is delegated to Honcho in the current codebase. Do not reintroduce a local `persona-memory.ts` cluster pipeline, route-local persona caches, or a second temporal-memory subsystem.
 
@@ -180,7 +176,7 @@ Authenticated account-level personalization fields such as display name and emai
 **Persona semantic note**: the legacy `persona_cluster` embedding subject type may exist in persisted data, but current prompt-time persona recall should stay on the Honcho/memory boundary rather than a revived local semantic-search surface.
 **Task semantic note**: `task-state.ts` may use stored task-state embeddings and bounded rerank scores when deciding whether to continue, revive, or create a task for the current turn, but do not let those scores bypass deterministic status rules, locked-task precedence, or project continuity event truth in `task-state/continuity.ts`.
 **Preview-performance note**: keep heavy preview dependencies off the idle shell path. `document-workspace/DocumentWorkspace.svelte`, `FileProductionCard.svelte`, `document-workspace/DocumentPreviewRenderer.svelte`, and the `document-workspace/preview-runtime/` adapters lazy-load the rich preview component, markdown renderer, Office/PDF libraries, and PDF worker URL; do not revert those paths back to eager imports unless you re-measure the client bundle cost.
-**Transport note**: preserve `activeDocumentArtifactId` end-to-end through `streaming.ts`, `/api/chat/stream`, `/api/chat/retry`, and `langflow.ts`. Working Document Selection cannot recover a workspace-focused document if the browser/request layer drops that id.
+**Transport note**: preserve `activeDocumentArtifactId` end-to-end through `streaming.ts`, `/api/chat/stream`, `/api/chat/retry`, and the Normal Chat model-run/context boundaries. Working Document Selection cannot recover a workspace-focused document if the browser/request layer drops that id.
 **Repair-loop note**: Wave 5 repair work should reuse the existing generated-output duplicate classifier in `evidence-family.ts` and run it from `memory-maintenance.ts`. Do not invent a parallel “document cleanup” service when retrieval-class repair already compresses low-value duplicate drafts deterministically. The same repair surface now also owns dormant generated-document family downgrades to shared `documentFamilyStatus: "historical"` metadata.
 **Salience-repair note**: do not add a separate maintenance-only salience cache or a second persona-ranking subsystem while persona support is delegated to Honcho.
 
@@ -196,7 +192,7 @@ task-state.ts (facade — 1,535 lines)
   └── mappers.ts          ← row-to-type mappers (shared by above)
 ```
 
-**Context assembly path**: `langflow.ts` requests Prompt Context from `chat-turn/context-selection.ts buildConstructedContext()`; that boundary composes Honcho session/persona candidates from `honcho.ts loadHonchoPromptContext()`, Knowledge candidates, Task-State candidates, Context Budget, and Prompt Context selection. Honcho stays a memory adapter, not the prompt assembler.
+**Context assembly path**: `normal-chat-context.ts` requests Prompt Context from `chat-turn/context-selection.ts buildConstructedContext()`; that boundary composes Honcho session/persona candidates from `honcho.ts loadHonchoPromptContext()`, Knowledge candidates, Task-State candidates, Context Budget, and Prompt Context selection. Honcho stays a memory adapter, not the prompt assembler.
 
 ## Shared Utils Usage
 

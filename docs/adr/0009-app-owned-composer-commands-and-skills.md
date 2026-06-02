@@ -1,15 +1,15 @@
 # App-owned composer commands and skills
 
-AlfyAI will implement `$` skills and `/` composer commands as an app-owned Normal Chat composer registry, not as hidden prompt text, strict command syntax, or Langflow side-effect tools. Commands become structured composer state, skills become declarative app-managed definitions with optional durable Skill Sessions, and note-capable skills write living Skill Notes through bounded server-validated operations. Langflow tools remain separate model-facing capabilities for agent-side data access or side effects, while skill activation, skill drafts, user/system ownership, command UI, session state, and note persistence stay inside AlfyAI.
+AlfyAI will implement `$` skills and `/` composer commands as an app-owned Normal Chat composer registry, not as hidden prompt text, strict command syntax, or model-side side-effect tools. Commands become structured composer state, skills become declarative app-managed definitions with optional durable Skill Sessions, and note-capable skills write living Skill Notes through bounded server-validated operations. App-owned Normal Chat tools remain separate model-facing capabilities for agent-side data access or side effects, while skill activation, skill drafts, user/system ownership, command UI, session state, and note persistence stay inside AlfyAI.
 
 **Considered Options**
 
 - Treat `$` and `/` as prompt macros that paste hidden instructions into the user message.
-- Implement skills as Langflow tools or Langflow nodes that can create or update app configuration.
+- Implement skills as model-facing tools that can create or update app configuration.
 - Build a strict command language where users must know command arguments such as document names.
 - Implement an app-owned composer command registry with structured metadata, explicit UI state, and server-side validation.
 
-We chose the app-owned registry because skills and commands are user-facing product state: they need settings UI, ownership, permissioning, durable session behavior, context-selection integration, and recoverable note writes. Prompt macros would pollute transcripts and make behavior hard to audit. Langflow side effects would blur app configuration with agent execution and make retries or partial streams risky. Strict command syntax would make the feature brittle for ordinary users.
+We chose the app-owned registry because skills and commands are user-facing product state: they need settings UI, ownership, permissioning, durable session behavior, context-selection integration, and recoverable note writes. Prompt macros would pollute transcripts and make behavior hard to audit. Model-side side effects would blur app configuration with agent execution and make retries or partial streams risky. Strict command syntax would make the feature brittle for ordinary users.
 
 ADR-0017 complements this decision: `/document` creates Linked Context Sources from existing Working Documents, and Working Document Identity canonicalizes their display, prompt, family, and prompt-readiness identity before chat preflight persists or uses them.
 

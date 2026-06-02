@@ -250,7 +250,7 @@ describe('extractDocumentText', () => {
 		expect(formData.get('return_md')).toBe('true');
 		expect(formData.has('parse_method')).toBe(false);
 		expect(formData.has('backend')).toBe(true);
-		expect(formData.get('backend')).toBe('vlm-auto-engine');
+		expect(formData.get('backend')).toBe('hybrid-auto-engine');
 	});
 
 	it('produces normalized .md file name', async () => {

@@ -9,8 +9,8 @@ vi.mock("$lib/server/services/conversations", () => ({
 	touchConversation: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/langflow", () => ({
-	sendMessage: vi.fn(),
+vi.mock("$lib/server/services/chat-turn/plain-normal-chat-model-run", () => ({
+	runPlainNormalChatSendModel: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/file-production", () => ({
@@ -202,6 +202,11 @@ vi.mock("$lib/server/config-store", () => ({
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
+	getChatFilesForAssistantMessage,
+	syncGeneratedFilesToMemory,
+} from "$lib/server/services/chat-files";
+import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
+import {
 	getConversation,
 	touchConversation,
 } from "$lib/server/services/conversations";
@@ -214,15 +219,11 @@ import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
-import {
-	getChatFilesForAssistantMessage,
-	syncGeneratedFilesToMemory,
-} from "$lib/server/services/chat-files";
 import { assertPromptReadyAttachments } from "$lib/server/services/knowledge";
-import { sendMessage } from "$lib/server/services/langflow";
 import { addConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
 import {
 	createMessage,
+	updateMessageEvidence,
 	updateMessageHonchoMetadata,
 } from "$lib/server/services/messages";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
@@ -242,15 +243,17 @@ import { POST } from "./+server";
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockTouchConversation = touchConversation as ReturnType<typeof vi.fn>;
-const mockSendMessage = sendMessage as ReturnType<typeof vi.fn>;
+const mockRunPlainNormalChatSendModel =
+	runPlainNormalChatSendModel as ReturnType<typeof vi.fn>;
 const mockListFileProductionJobs =
 	listConversationFileProductionJobs as ReturnType<typeof vi.fn>;
 const mockAssignFileProductionJobs =
 	assignFileProductionJobsToAssistantMessage as ReturnType<typeof vi.fn>;
 const mockGetChatFilesForAssistantMessage =
 	getChatFilesForAssistantMessage as ReturnType<typeof vi.fn>;
-const mockSyncGeneratedFilesToMemory =
-	syncGeneratedFilesToMemory as ReturnType<typeof vi.fn>;
+const mockSyncGeneratedFilesToMemory = syncGeneratedFilesToMemory as ReturnType<
+	typeof vi.fn
+>;
 const mockAssertCanStartDeepResearchJob =
 	assertCanStartDeepResearchJob as ReturnType<typeof vi.fn>;
 const mockStartDeepResearchJobShell = startDeepResearchJobShell as ReturnType<
@@ -259,6 +262,9 @@ const mockStartDeepResearchJobShell = startDeepResearchJobShell as ReturnType<
 const mockBuildDeepResearchPlanningContext =
 	buildDeepResearchPlanningContext as ReturnType<typeof vi.fn>;
 const mockCreateMessage = createMessage as ReturnType<typeof vi.fn>;
+const mockUpdateMessageEvidence = updateMessageEvidence as ReturnType<
+	typeof vi.fn
+>;
 const mockUpdateMessageHonchoMetadata =
 	updateMessageHonchoMetadata as ReturnType<typeof vi.fn>;
 const mockAssertPromptReadyAttachments =
@@ -308,6 +314,13 @@ describe("POST /api/chat/send", () => {
 		configMockState.composerCommandRegistryEnabled = true;
 		mockRequireAuth.mockReturnValue(undefined);
 		mockTouchConversation.mockImplementation(async () => null);
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			text: "Hello from AI!",
+			contextStatus: undefined,
+			modelId: "model1",
+			modelDisplayName: "Model 1",
+			providerUsage: null,
+		});
 		mockGetProjectReferenceContext.mockResolvedValue(null);
 		mockAssertCanStartDeepResearchJob.mockResolvedValue(undefined);
 		mockCreateMessage.mockImplementation(async () => ({
@@ -449,7 +462,7 @@ describe("POST /api/chat/send", () => {
 				content: "Hello from AI!",
 				timestamp: Date.now(),
 			});
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Hello from AI!",
 			rawResponse: {},
 			contextStatus: undefined,
@@ -481,16 +494,16 @@ describe("POST /api/chat/send", () => {
 		expect(response.status).toBe(200);
 		expect(data.response.text).toBe("Hello from AI!");
 		expect(data.conversationId).toBe("conv-1");
-		expect(mockSendMessage).toHaveBeenCalledWith(
-			"Hello",
-			"conv-1",
-			"model1",
-			{
-				id: "user-1",
-				displayName: undefined,
-				email: "test@example.com",
-			},
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
 			expect.objectContaining({
+				message: "Hello",
+				conversationId: "conv-1",
+				modelId: "model1",
+				user: {
+					id: "user-1",
+					displayName: undefined,
+					email: "test@example.com",
+				},
 				attachmentIds: [],
 			}),
 		);
@@ -538,7 +551,7 @@ describe("POST /api/chat/send", () => {
 				filename: "report.pdf",
 			},
 		]);
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Done.",
 			rawResponse: {},
 			contextStatus: undefined,
@@ -555,9 +568,9 @@ describe("POST /api/chat/send", () => {
 			"user-1",
 			"conv-1",
 		);
-		expect(
-			mockListFileProductionJobs.mock.invocationCallOrder[0],
-		).toBeLessThan(mockSendMessage.mock.invocationCallOrder[0]);
+		expect(mockListFileProductionJobs.mock.invocationCallOrder[0]).toBeLessThan(
+			mockRunPlainNormalChatSendModel.mock.invocationCallOrder[0],
+		);
 		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
 			"user-1",
 			"conv-1",
@@ -576,7 +589,7 @@ describe("POST /api/chat/send", () => {
 		]);
 	});
 
-	it("passes a forced web-search turn flag into the Langflow send options", async () => {
+	it("persists prefetched forced web-search tool calls for send evidence", async () => {
 		mockGetConversation.mockResolvedValue({
 			id: "conv-1",
 			title: "Test",
@@ -596,10 +609,77 @@ describe("POST /api/chat/send", () => {
 				content: "Grounded answer",
 				timestamp: Date.now(),
 			});
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Grounded answer",
 			rawResponse: {},
 			contextStatus: undefined,
+			modelId: "model1",
+			modelDisplayName: "Model 1",
+			prefetchedToolCalls: [
+				{
+					callId: "server-prefetch:research_web:test",
+					name: "research_web",
+					input: { query: "What changed today?" },
+					status: "done",
+					outputSummary: "Server-prefetched 1 web source.",
+					sourceType: "web",
+					candidates: [
+						{
+							id: "source-1",
+							title: "Source One",
+							url: "https://example.com/source",
+							snippet: "Fresh source snippet",
+							sourceType: "web",
+							material: true,
+						},
+					],
+				},
+			],
+			toolCalls: [
+				{
+					callId: "server-prefetch:research_web:test",
+					name: "research_web",
+					input: { query: "What changed today?" },
+					status: "done",
+					outputSummary: "Server-prefetched 1 web source.",
+					sourceType: "web",
+					candidates: [
+						{
+							id: "source-1",
+							title: "Source One",
+							url: "https://example.com/source",
+							snippet: "Fresh source snippet",
+							sourceType: "web",
+							material: true,
+						},
+					],
+				},
+				{
+					callId: "call-produce-success",
+					name: "produce_file",
+					input: { requestTitle: "Successful report" },
+					status: "done",
+					outputSummary: "File production job job-success queued.",
+					sourceType: "tool",
+					metadata: {
+						ok: true,
+						jobId: "job-success",
+					},
+				},
+				{
+					callId: "call-produce-failed",
+					name: "produce_file",
+					input: { requestTitle: "Failed report" },
+					status: "done",
+					outputSummary: "FAILED_TOOL_OUTPUT_SHOULD_NOT_BE_EVIDENCE",
+					sourceType: "tool",
+					metadata: {
+						ok: false,
+						evidenceReady: false,
+						intakeStatus: 500,
+					},
+				},
+			],
 		});
 
 		const event = makeEvent({
@@ -610,14 +690,45 @@ describe("POST /api/chat/send", () => {
 		const response = await POST(event);
 
 		expect(response.status).toBe(200);
-		expect(mockSendMessage).toHaveBeenCalledWith(
-			"What changed today?",
-			"conv-1",
-			"model1",
-			expect.any(Object),
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
 			expect.objectContaining({
+				userId: "user-1",
+				message: "What changed today?",
+				conversationId: "conv-1",
+				modelId: "model1",
 				forceWebSearch: true,
 			}),
+		);
+		await vi.waitFor(() => {
+			expect(mockUpdateMessageEvidence).toHaveBeenCalledWith(
+				"assistant-msg",
+				expect.objectContaining({
+					evidenceStatus: "ready",
+					evidenceSummary: expect.objectContaining({
+						structuredWebSearch: true,
+						groups: expect.arrayContaining([
+							expect.objectContaining({
+								sourceType: "web",
+								items: expect.arrayContaining([
+									expect.objectContaining({
+										title: "Source One",
+										url: "https://example.com/source",
+									}),
+								]),
+							}),
+						]),
+					}),
+				}),
+			);
+		});
+		const evidencePayload = mockUpdateMessageEvidence.mock.calls.find(
+			([messageId]) => messageId === "assistant-msg",
+		)?.[1];
+		expect(JSON.stringify(evidencePayload)).toContain(
+			"File production job job-success queued.",
+		);
+		expect(JSON.stringify(evidencePayload)).not.toContain(
+			"FAILED_TOOL_OUTPUT_SHOULD_NOT_BE_EVIDENCE",
 		);
 	});
 
@@ -642,7 +753,7 @@ describe("POST /api/chat/send", () => {
 				content: "Hello from AI!",
 				timestamp: Date.now(),
 			});
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Hello from AI!",
 			rawResponse: {},
 			contextStatus: undefined,
@@ -695,7 +806,7 @@ describe("POST /api/chat/send", () => {
 				content: "Still works",
 				timestamp: Date.now(),
 			});
-		mockSendMessage.mockResolvedValueOnce({
+		mockRunPlainNormalChatSendModel.mockResolvedValueOnce({
 			text: "Still works",
 			rawResponse: {},
 			contextStatus: undefined,
@@ -759,7 +870,7 @@ describe("POST /api/chat/send", () => {
 				depth: "standard",
 			}),
 		);
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("does not apply linked context sources to Deep Research job startup", async () => {
@@ -809,7 +920,7 @@ describe("POST /api/chat/send", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Normal chat with linked source",
 			rawResponse: {},
 			contextStatus: undefined,
@@ -859,7 +970,7 @@ describe("POST /api/chat/send", () => {
 				}),
 			]),
 		);
-		expect(mockSendMessage).toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalled();
 	});
 
 	it("rejects normal chat linked context sources when Composer Command Registry is disabled", async () => {
@@ -895,7 +1006,7 @@ describe("POST /api/chat/send", () => {
 			code: "composer_commands_disabled",
 		});
 		expect(mockAddConversationLinkedContextSources).not.toHaveBeenCalled();
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("rejects normal chat pending skills when Composer Command Registry is disabled", async () => {
@@ -926,7 +1037,7 @@ describe("POST /api/chat/send", () => {
 			code: "composer_commands_disabled",
 		});
 		expect(mockResolveEffectiveSkillDefinition).not.toHaveBeenCalled();
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("rejects normal chat when the pending skill is no longer available", async () => {
@@ -972,7 +1083,7 @@ describe("POST /api/chat/send", () => {
 			id: "skill-1",
 			ownership: "user",
 		});
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("rejects normal chat when the pending skill definition disappears after summary validation", async () => {
@@ -1014,7 +1125,7 @@ describe("POST /api/chat/send", () => {
 			error: "Selected skill is no longer available.",
 			code: "pending_skill_unavailable",
 		});
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("rejects normal chat when a different active skill session blocks the pending session skill", async () => {
@@ -1108,7 +1219,7 @@ describe("POST /api/chat/send", () => {
 			error: "Another skill session is already active.",
 			code: "active_skill_session_conflict",
 		});
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("passes pending Skill instructions as a system appendix without changing the visible user transcript", async () => {
@@ -1131,7 +1242,7 @@ describe("POST /api/chat/send", () => {
 				content: "Question first.",
 				timestamp: Date.now(),
 			});
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Question first.",
 			rawResponse: {},
 			contextStatus: undefined,
@@ -1163,18 +1274,17 @@ describe("POST /api/chat/send", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(mockSendMessage).toHaveBeenCalledWith(
-			"Draft the plan",
-			"conv-1",
-			"model1",
-			expect.any(Object),
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
 			expect.objectContaining({
+				message: "Draft the plan",
+				conversationId: "conv-1",
+				modelId: "model1",
 				systemPromptAppendix: expect.stringContaining(
 					"Ask one concise follow-up before answering.",
 				),
 			}),
 		);
-		const options = mockSendMessage.mock.calls.at(-1)?.[4];
+		const options = mockRunPlainNormalChatSendModel.mock.calls.at(-1)?.[0];
 		expect(options.systemPromptAppendix).toContain("Discovery notes.pdf");
 		expect(options.systemPromptAppendix).toContain(
 			"displayArtifactId: display-1",
@@ -1223,7 +1333,7 @@ describe("POST /api/chat/send", () => {
 			}),
 			"</skill_control_v1>",
 		].join("\n");
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: `Visible answer.\n${envelope}`,
 			rawResponse: {},
 			contextStatus: undefined,
@@ -1271,7 +1381,7 @@ describe("POST /api/chat/send", () => {
 				content: "What deadline should I use?",
 				timestamp: Date.now(),
 			});
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: [
 				"What deadline should I use?",
 				"<skill_control_v1>",
@@ -1376,7 +1486,7 @@ describe("POST /api/chat/send", () => {
 				content: "Captured.",
 				timestamp: Date.now(),
 			});
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: [
 				"Captured.",
 				"<skill_control_v1>",
@@ -1523,7 +1633,7 @@ describe("POST /api/chat/send", () => {
 				content: "Captured.",
 				timestamp: Date.now(),
 			});
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: [
 				"Captured.",
 				"<skill_control_v1>",
@@ -1682,7 +1792,7 @@ describe("POST /api/chat/send", () => {
 				content: "Workbook queued.",
 				timestamp: Date.now(),
 			});
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Workbook queued.",
 			rawResponse: {},
 			contextStatus: undefined,
@@ -1704,7 +1814,7 @@ describe("POST /api/chat/send", () => {
 		);
 
 		expect(response.status).toBe(200);
-		const options = mockSendMessage.mock.calls.at(-1)?.[4];
+		const options = mockRunPlainNormalChatSendModel.mock.calls.at(-1)?.[0];
 		expect(options.systemPromptAppendix).toContain(
 			"Source: active skill session",
 		);
@@ -1754,7 +1864,7 @@ describe("POST /api/chat/send", () => {
 		expect(response.status).toBe(200);
 		expect(mockResolveEffectiveSkillDefinition).not.toHaveBeenCalled();
 		expect(mockStartDeepResearchJobShell).toHaveBeenCalled();
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("rejects Deep Research when the runtime feature flag is disabled", async () => {
@@ -1783,7 +1893,7 @@ describe("POST /api/chat/send", () => {
 		expect(mockAssertCanStartDeepResearchJob).not.toHaveBeenCalled();
 		expect(mockCreateMessage).not.toHaveBeenCalled();
 		expect(mockStartDeepResearchJobShell).not.toHaveBeenCalled();
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("allows normal chat when Deep Research is disabled", async () => {
@@ -1795,7 +1905,7 @@ describe("POST /api/chat/send", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Normal chat still works",
 			rawResponse: {},
 			contextStatus: undefined,
@@ -1810,12 +1920,12 @@ describe("POST /api/chat/send", () => {
 
 		expect(response.status).toBe(200);
 		expect(data.response.text).toBe("Normal chat still works");
-		expect(mockSendMessage).toHaveBeenCalledWith(
-			"Answer normally",
-			"conv-1",
-			"model1",
-			expect.any(Object),
-			expect.any(Object),
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Answer normally",
+				conversationId: "conv-1",
+				modelId: "model1",
+			}),
 		);
 		expect(mockStartDeepResearchJobShell).not.toHaveBeenCalled();
 	});
@@ -1955,7 +2065,7 @@ describe("POST /api/chat/send", () => {
 		});
 		expect(mockCreateMessage).not.toHaveBeenCalled();
 		expect(mockStartDeepResearchJobShell).not.toHaveBeenCalled();
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("rejects Deep Research when an active job exists before persisting the triggering message", async () => {
@@ -1989,7 +2099,7 @@ describe("POST /api/chat/send", () => {
 		});
 		expect(mockCreateMessage).not.toHaveBeenCalled();
 		expect(mockStartDeepResearchJobShell).not.toHaveBeenCalled();
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("passes messages through unchanged", async () => {
@@ -2000,7 +2110,7 @@ describe("POST /api/chat/send", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Hello from AI!",
 			rawResponse: {},
 			contextStatus: undefined,
@@ -2010,12 +2120,12 @@ describe("POST /api/chat/send", () => {
 		const response = await POST(event);
 		const data = await response.json();
 
-		expect(mockSendMessage).toHaveBeenCalledWith(
-			"Szia",
-			"conv-1",
-			"model1",
-			expect.any(Object),
-			expect.any(Object),
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Szia",
+				conversationId: "conv-1",
+				modelId: "model1",
+			}),
 		);
 		expect(data.response.text).toBe("Hello from AI!");
 	});
@@ -2027,7 +2137,7 @@ describe("POST /api/chat/send", () => {
 
 		expect(response.status).toBe(400);
 		expect(data.error).toMatch(/non-empty/i);
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("returns 400 when message is whitespace only", async () => {
@@ -2037,7 +2147,7 @@ describe("POST /api/chat/send", () => {
 
 		expect(response.status).toBe(400);
 		expect(data.error).toMatch(/non-empty/i);
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("returns 400 when message exceeds max length", async () => {
@@ -2048,7 +2158,7 @@ describe("POST /api/chat/send", () => {
 
 		expect(response.status).toBe(400);
 		expect(data.error).toMatch(/maximum length/i);
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("returns 404 when conversation does not exist", async () => {
@@ -2063,7 +2173,7 @@ describe("POST /api/chat/send", () => {
 
 		expect(response.status).toBe(404);
 		expect(data.error).toMatch(/not found/i);
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("returns 422 when a same-turn attachment is not prompt-ready", async () => {
@@ -2093,7 +2203,7 @@ describe("POST /api/chat/send", () => {
 		expect(response.status).toBe(422);
 		expect(data.code).toBe("attachment_not_ready");
 		expect(data.error).toMatch(/not ready/i);
-		expect(mockSendMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("returns 422 when prompt construction fails closed after preflight", async () => {
@@ -2104,7 +2214,7 @@ describe("POST /api/chat/send", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessage.mockRejectedValue({
+		mockRunPlainNormalChatSendModel.mockRejectedValue({
 			name: "AttachmentReadinessError",
 			message:
 				"Attached file content was missing from the final prompt bundle.",
@@ -2126,7 +2236,7 @@ describe("POST /api/chat/send", () => {
 		expect(data.error).toMatch(/final prompt bundle/i);
 	});
 
-	it("returns 502 when Langflow sendMessage throws", async () => {
+	it("returns 502 when the model run throws", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -2134,7 +2244,9 @@ describe("POST /api/chat/send", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessage.mockRejectedValue(new Error("Langflow down"));
+		mockRunPlainNormalChatSendModel.mockRejectedValue(
+			new Error("Normal chat model run failed"),
+		);
 
 		const event = makeEvent({ message: "Hello", conversationId: "conv-1" });
 		const response = await POST(event);

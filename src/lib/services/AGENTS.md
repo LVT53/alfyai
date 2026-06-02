@@ -5,7 +5,7 @@ Client/server shared utilities and protocol definitions. These span both environ
 ## Structure
 
 ```
-streaming.ts         - Browser stream transport (SSE parsing, token/thinking/tool_call/end handling, abort/stop)
+streaming.ts         - Browser AI SDK UI stream transport (text/reasoning/tool/data handling, abort/stop)
 stream-protocol.ts   - Shared stream text normalization (thinking tags, provider content extraction, leading output/tool diagnostic cleanup)
 markdown.ts          - Markdown rendering with Shiki highlighting (lazy init)
 table-layout.ts      - Markdown table rendering
@@ -15,7 +15,7 @@ table-layout.ts      - Markdown table rendering
 
 | Task | File |
 |------|------|
-| Browser SSE transport | `streaming.ts` |
+| Browser AI SDK UI stream transport | `streaming.ts` |
 | Stream tag parsing | `stream-protocol.ts` |
 | Markdown with highlighting | `markdown.ts` |
 | Markdown table rendering | `table-layout.ts` |
@@ -25,9 +25,9 @@ table-layout.ts      - Markdown table rendering
 | Shape | Purpose |
 |-------|---------|
 | `<thinking>`, `<think>`, ChatML thinking/analysis | Inline model thinking delimiters normalized into thinking vs visible output |
-| Provider payload text/content fields | Extract assistant text from OpenAI-style choices, Langflow payloads, content parts, and content blocks |
+| Provider payload text/content fields | Extract assistant text from OpenAI-compatible choices, plain provider text, content parts, and content blocks |
 | Leading `response` markers and leaked web-research diagnostics | Strip provider/tool artifacts from visible assistant output |
-| `tool_call` SSE events | Browser-facing structured tool-call updates emitted by `chat-turn/tool-call-markers.ts`; do not introduce textual `<tool_calls>` as a new protocol |
+| `data-tool-call` UI stream parts | Browser-facing structured tool-call updates emitted by `chat-turn/tool-call-markers.ts`; do not introduce textual `<tool_calls>` as a new protocol |
 | `[CONTEXT]`, `[MEMORY]`, `[KNOWLEDGE]` | Log prefixes only, not stream payload syntax |
 
 ## Conventions
@@ -35,7 +35,7 @@ table-layout.ts      - Markdown table rendering
 - **Lazy init for Shiki**: `markdown.ts` init is async; always check `initHighlighter()` before rendering
 - **Stream abort vs stop**: `streaming.ts` distinguishes user-requested stop from passive navigation/unmount detach
 - **No duplicate parsing**: `stream-protocol.ts` owns tag parsing; do not replicate inline thinking extraction elsewhere
-- **Type-safe SSE**: Use `StreamMetadata` type for end-of-stream event payload
+- **Type-safe stream metadata**: Use `StreamMetadata` type for terminal `data-stream-metadata` payloads
 
 ## Anti-Patterns
 

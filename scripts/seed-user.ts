@@ -5,9 +5,6 @@ import { config as dotenvConfig } from 'dotenv';
 dotenvConfig();
 
 // Set required environment variables if not set (or empty)
-if (!process.env.LANGFLOW_API_KEY) {
-  process.env.LANGFLOW_API_KEY = 'test-langflow-api-key-12345';
-}
 if (!process.env.SESSION_SECRET) {
   process.env.SESSION_SECRET = 'test-session-secret-12345678901234567890123456789012';
 }

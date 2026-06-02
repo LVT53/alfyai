@@ -1,0 +1,1043 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { submitFileProductionIntake } from "$lib/server/services/file-production";
+import { searchImages } from "$lib/server/services/image-search";
+import { getMemoryContext } from "$lib/server/services/memory-context";
+import { researchWeb } from "$lib/server/services/web-research";
+import type { FileProductionJob } from "$lib/types";
+import { createNormalChatTools, shouldForceProduceFileTool } from "./index";
+
+vi.mock("$lib/server/services/file-production", () => ({
+	submitFileProductionIntake: vi.fn(),
+}));
+vi.mock("$lib/server/services/web-research", () => ({
+	researchWeb: vi.fn(),
+}));
+vi.mock("$lib/server/services/memory-context", () => ({
+	getMemoryContext: vi.fn(),
+}));
+vi.mock("$lib/server/services/image-search", () => ({
+	searchImages: vi.fn(),
+}));
+
+const submitFileProductionIntakeMock = vi.mocked(submitFileProductionIntake);
+const researchWebMock = vi.mocked(researchWeb);
+const getMemoryContextMock = vi.mocked(getMemoryContext);
+const searchImagesMock = vi.mocked(searchImages);
+
+function makeFileProductionJob(
+	overrides: Partial<FileProductionJob>,
+): FileProductionJob {
+	return {
+		id: "job-1",
+		conversationId: "conversation-1",
+		assistantMessageId: null,
+		title: "Generated file",
+		status: "queued",
+		createdAt: 1,
+		updatedAt: 1,
+		files: [],
+		warnings: [],
+		error: null,
+		...overrides,
+	};
+}
+
+describe("createNormalChatTools", () => {
+	beforeEach(() => {
+		submitFileProductionIntakeMock.mockReset();
+		researchWebMock.mockReset();
+		getMemoryContextMock.mockReset();
+		searchImagesMock.mockReset();
+	});
+
+	it("submits produce_file intake with server-owned user, conversation, and turn idempotency scope", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({
+				id: "job-123",
+				title: "Quarterly CSV",
+				status: "queued",
+			}),
+		});
+
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		await tools.produce_file.execute(
+			{
+				idempotencyKey: "quarterly-csv",
+				requestTitle: "Quarterly CSV",
+				requestedOutputs: [{ type: "csv" }],
+				sourceMode: "program",
+				documentIntent: "data export",
+				program: {
+					language: "python",
+					sourceCode:
+						"from pathlib import Path\nPath('/output/report.csv').write_text('a,b')",
+					filename: "report.csv",
+				},
+			},
+			{
+				toolCallId: "tool-call-123",
+				messages: [],
+			},
+		);
+
+		expect(submitFileProductionIntakeMock).toHaveBeenCalledWith({
+			userId: "user-1",
+			body: {
+				conversationId: "conversation-1",
+				idempotencyKey: expect.stringMatching(
+					/^turn-1:produce_file:quarterly-csv:[a-f0-9]{12}$/,
+				),
+				requestTitle: "Quarterly CSV",
+				requestedOutputs: [{ type: "csv" }],
+				sourceMode: "program",
+				documentIntent: "data export",
+				program: {
+					language: "python",
+					sourceCode:
+						"from pathlib import Path\nPath('/output/report.csv').write_text('a,b')",
+					filename: "report.csv",
+				},
+			},
+		});
+		const body = submitFileProductionIntakeMock.mock.calls[0]?.[0]?.body;
+		expect(String(body?.idempotencyKey).length).toBeLessThanOrEqual(160);
+	});
+
+	it("normalizes document_source tool calls with the required source envelope", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({
+				id: "job-doc",
+				title: "Smoke PDF",
+				status: "queued",
+			}),
+		});
+
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		await tools.produce_file.execute(
+			{
+				requestTitle: "Smoke PDF",
+				requestedOutputs: [{ type: "pdf" }],
+				sourceMode: "document_source",
+				documentSource: {},
+			},
+			{
+				toolCallId: "tool-call-doc",
+				messages: [],
+			},
+		);
+
+		expect(submitFileProductionIntakeMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				body: expect.objectContaining({
+					conversationId: "conversation-1",
+					requestTitle: "Smoke PDF",
+					sourceMode: "document_source",
+					documentSource: {
+						version: 1,
+						template: "alfyai_standard_report",
+						title: "Smoke PDF",
+						blocks: [
+							{
+								type: "paragraph",
+								text: "Generated file request: Smoke PDF",
+							},
+						],
+					},
+				}),
+			}),
+		);
+	});
+
+	it("returns a compact model payload after intake queues the job", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: true,
+			job: makeFileProductionJob({
+				id: "job-compact",
+				title: "Compact payload",
+				status: "running",
+			}),
+		});
+
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.produce_file.execute(
+			{
+				idempotencyKey: "compact",
+				requestTitle: "Compact payload",
+				requestedOutputs: [{ type: "txt" }],
+				sourceMode: "program",
+				program: {
+					language: "python",
+					sourceCode: "secret large source",
+					filename: "compact.txt",
+				},
+			},
+			{} as never,
+		);
+
+		expect(result).toEqual({
+			ok: true,
+			status: 202,
+			jobId: "job-compact",
+			jobStatus: "running",
+			reused: true,
+		});
+		expect(JSON.stringify(result)).not.toContain("secret large source");
+		expect(JSON.stringify(result)).not.toContain("requestJson");
+	});
+
+	it("deduplicates repeated same-turn produce_file calls for the same requested artifact", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({
+				id: "job-deduped",
+				title: "Forced Tool Smoke",
+				status: "queued",
+			}),
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		const first = await tools.produce_file.execute(
+			{
+				requestTitle: "Forced Tool Smoke",
+				requestedOutputs: [{ type: "pdf" }],
+				sourceMode: "document_source",
+				documentIntent: "report",
+				documentSource: {
+					blocks: [{ type: "paragraph", text: "First draft." }],
+				},
+			},
+			{
+				toolCallId: "call-first",
+				messages: [],
+			},
+		);
+		const second = await tools.produce_file.execute(
+			{
+				requestTitle: "Forced Tool Smoke",
+				requestedOutputs: [{ type: "pdf" }],
+				sourceMode: "document_source",
+				documentIntent: "report",
+				documentSource: {
+					blocks: [{ type: "paragraph", text: "Second duplicate draft." }],
+				},
+			},
+			{
+				toolCallId: "call-second",
+				messages: [],
+			},
+		);
+
+		expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(1);
+		expect(first).toEqual({
+			ok: true,
+			status: 202,
+			jobId: "job-deduped",
+			jobStatus: "queued",
+			reused: false,
+		});
+		expect(second).toEqual({
+			ok: true,
+			status: 202,
+			jobId: "job-deduped",
+			jobStatus: "queued",
+			reused: true,
+		});
+		expect(getToolCalls()).toEqual([
+			expect.objectContaining({
+				callId: "call-first",
+				name: "produce_file",
+				metadata: expect.objectContaining({
+					jobId: "job-deduped",
+					reused: false,
+				}),
+			}),
+			expect.objectContaining({
+				callId: "call-second",
+				name: "produce_file",
+				metadata: expect.objectContaining({
+					jobId: "job-deduped",
+					reused: true,
+					dedupedSameTurn: true,
+				}),
+			}),
+		]);
+	});
+
+	it("records a downstream-compatible ToolCallEntry for produce_file", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({
+				id: "job-entry",
+				title: "Entry payload",
+				status: "queued",
+			}),
+		});
+		const input = {
+			idempotencyKey: "entry",
+			requestTitle: "Entry payload",
+			requestedOutputs: [{ type: "txt" }],
+			sourceMode: "program" as const,
+			documentIntent: "downloadable text",
+			program: {
+				language: "python" as const,
+				sourceCode:
+					"from pathlib import Path\nPath('/output/entry.txt').write_text('entry')",
+				filename: "entry.txt",
+			},
+		};
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		await tools.produce_file.execute(input, {
+			toolCallId: "call-entry",
+			messages: [],
+		});
+
+		expect(getToolCalls()).toEqual([
+			{
+				callId: "call-entry",
+				name: "produce_file",
+				input: {
+					idempotencyKey: "entry",
+					requestTitle: "Entry payload",
+					requestedOutputs: [{ type: "txt" }],
+					sourceMode: "program",
+					documentIntent: "downloadable text",
+					program: {
+						language: "python",
+						filename: "entry.txt",
+						sourceCodeHash: expect.stringMatching(/^[a-f0-9]{12}$/),
+						sourceCodeLength: input.program.sourceCode.length,
+					},
+				},
+				status: "done",
+				outputSummary:
+					"File production job job-entry queued with status queued.",
+				sourceType: "tool",
+				metadata: {
+					ok: true,
+					intakeStatus: 202,
+					jobId: "job-entry",
+					jobStatus: "queued",
+					reused: false,
+				},
+			},
+		]);
+	});
+
+	it("records failed intake responses as completed tool entries with failure metadata", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: false,
+			status: 422,
+			code: "missing_program_source",
+			error: "program.sourceCode is required",
+			job: makeFileProductionJob({
+				id: "job-failed",
+				title: "Failed payload",
+				status: "failed",
+				error: {
+					code: "missing_program_source",
+					message: "program.sourceCode is required",
+					retryable: false,
+				},
+			}),
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.produce_file.execute(
+			{
+				idempotencyKey: "failed",
+				requestTitle: "Failed payload",
+				requestedOutputs: [{ type: "txt" }],
+				sourceMode: "program",
+				program: {
+					language: "python",
+					sourceCode: "will be rejected by mocked intake",
+				},
+			},
+			{
+				toolCallId: "call-failed",
+				messages: [],
+			},
+		);
+
+		expect(result).toEqual({
+			ok: false,
+			status: 422,
+			code: "missing_program_source",
+			error: "program.sourceCode is required",
+			jobId: "job-failed",
+			jobStatus: "failed",
+		});
+		expect(getToolCalls()[0]).toMatchObject({
+			callId: "call-failed",
+			name: "produce_file",
+			status: "done",
+			outputSummary:
+				"File production intake failed for job job-failed: program.sourceCode is required",
+			metadata: {
+				ok: false,
+				intakeStatus: 422,
+				code: "missing_program_source",
+				jobId: "job-failed",
+				jobStatus: "failed",
+			},
+		});
+	});
+
+	it("does not record program source or document source in successful or failed tool calls", async () => {
+		submitFileProductionIntakeMock
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 202,
+				reused: false,
+				job: makeFileProductionJob({
+					id: "job-safe",
+					title: "Safe payload",
+					status: "queued",
+				}),
+			})
+			.mockRejectedValueOnce(new Error("intake unavailable"));
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		await tools.produce_file.execute(
+			{
+				requestTitle: "Program payload",
+				requestedOutputs: [{ type: "txt" }],
+				sourceMode: "program",
+				program: {
+					language: "python",
+					sourceCode: "SECRET_SOURCE = 'do not persist'",
+					filename: "safe.txt",
+				},
+			},
+			{
+				toolCallId: "call-safe-program",
+				messages: [],
+			},
+		);
+		await tools.produce_file.execute(
+			{
+				requestTitle: "Document payload",
+				requestedOutputs: [{ type: "pdf" }],
+				sourceMode: "document_source",
+				documentSource: {
+					secret: "DO_NOT_PERSIST_DOCUMENT_SOURCE",
+					sections: [{ body: "confidential" }],
+				},
+			},
+			{
+				toolCallId: "call-safe-document",
+				messages: [],
+			},
+		);
+
+		const serializedEntries = JSON.stringify(getToolCalls());
+		expect(serializedEntries).not.toContain("SECRET_SOURCE");
+		expect(serializedEntries).not.toContain("DO_NOT_PERSIST_DOCUMENT_SOURCE");
+		expect(getToolCalls()[0]?.input).toMatchObject({
+			requestTitle: "Program payload",
+			sourceMode: "program",
+			program: {
+				language: "python",
+				filename: "safe.txt",
+				sourceCodeHash: expect.stringMatching(/^[a-f0-9]{12}$/),
+				sourceCodeLength: "SECRET_SOURCE = 'do not persist'".length,
+			},
+		});
+		expect(getToolCalls()[1]?.input).toMatchObject({
+			requestTitle: "Document payload",
+			sourceMode: "document_source",
+			documentSource: {
+				contentHash: expect.stringMatching(/^[a-f0-9]{12}$/),
+				topLevelKeyCount: 6,
+			},
+		});
+		expect(getToolCalls()[1]?.metadata).toMatchObject({
+			ok: false,
+			evidenceReady: false,
+		});
+	});
+
+	it("research_web calls web research directly and records compact web candidates", async () => {
+		researchWebMock.mockResolvedValue({
+			query: "latest Vercel AI SDK tool API",
+			queries: [
+				{
+					query: "Vercel AI SDK tool inputSchema execute",
+					purpose: "technical",
+				},
+			],
+			sources: [
+				{
+					id: "source-1",
+					provider: "brave",
+					title: "AI SDK Tools",
+					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+					canonicalUrl:
+						"https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+					snippet: "Tools are functions that can be called by the model.",
+					highlights: ["Use inputSchema and execute."],
+					text: "FULL SOURCE TEXT SHOULD NOT BE RECORDED",
+					score: 0.93,
+					providerRank: 1,
+					query: "Vercel AI SDK tool inputSchema execute",
+					publishedAt: null,
+					updatedAt: null,
+					retrievedAt: "2026-06-01T10:00:00.000Z",
+					authorityClass: "official",
+					authorityScore: 0.95,
+				},
+			],
+			evidence: [
+				{
+					id: "evidence-1",
+					sourceId: "source-1",
+					title: "AI SDK Tools",
+					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+					provider: "brave",
+					quote: "Use inputSchema and execute.",
+					surroundingText: "RAW SURROUNDING TEXT SHOULD NOT BE RECORDED",
+					score: 0.9,
+					authorityScore: 0.95,
+				},
+			],
+			answerBrief: {
+				markdown: "Research brief with compact citation guidance.",
+				instructions: ["Use returned URLs for citations."],
+				sources: [
+					{
+						ref: "S1",
+						sourceId: "source-1",
+						title: "AI SDK Tools",
+						url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+						provider: "brave",
+						authorityClass: "official",
+						authorityScore: 0.95,
+						publishedAt: null,
+						updatedAt: null,
+					},
+				],
+				evidence: [
+					{
+						ref: "E1",
+						evidenceId: "evidence-1",
+						sourceRef: "S1",
+						sourceId: "source-1",
+						title: "AI SDK Tools",
+						url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+						quote: "Use inputSchema and execute.",
+						score: 0.9,
+					},
+				],
+			},
+			diagnostics: {
+				mode: "exact",
+				freshness: "live",
+				sourcePolicy: "technical",
+				providers: { exaConfigured: false, braveConfigured: true },
+				plannedQueryCount: 1,
+				directUrlCount: 0,
+				fetchedSourceCount: 1,
+				fusedSourceCount: 1,
+				selectedSourceCount: 1,
+				providerCalls: [],
+				contentCharBudget: 8000,
+				openedPageCount: 1,
+				sourceReranked: false,
+				evidenceCandidateCount: 1,
+				exactEvidenceCandidateCount: 1,
+				reranked: true,
+				youtubeTranscriptCandidateCount: 0,
+				youtubeTranscriptFetchedCount: 0,
+				youtubeTranscriptFailedCount: 0,
+				youtubeTranscriptErrors: [],
+				fallbackReasons: [],
+			},
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.research_web.execute(
+			{
+				query: "latest Vercel AI SDK tool API",
+				mode: "exact",
+				freshness: "live",
+				sourcePolicy: "technical",
+				maxSources: 4,
+				quoteRequired: true,
+			},
+			{
+				toolCallId: "call-research",
+				messages: [],
+			},
+		);
+
+		expect(researchWebMock).toHaveBeenCalledWith({
+			query: "latest Vercel AI SDK tool API",
+			mode: "exact",
+			freshness: "live",
+			sourcePolicy: "technical",
+			maxSources: 4,
+			quoteRequired: true,
+		});
+		expect(result).toMatchObject({
+			success: true,
+			name: "research_web",
+			sourceType: "web",
+			query: "latest Vercel AI SDK tool API",
+			answerBrief: {
+				sourceCount: 1,
+				evidenceCount: 1,
+			},
+			sources: [
+				{
+					id: "source-1",
+					title: "AI SDK Tools",
+					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+				},
+			],
+			evidence: [
+				{
+					id: "evidence-1",
+					sourceId: "source-1",
+					quote: "Use inputSchema and execute.",
+				},
+			],
+		});
+		expect(JSON.stringify(result)).not.toContain("FULL SOURCE TEXT");
+		expect(JSON.stringify(result)).not.toContain("RAW SURROUNDING TEXT");
+		expect(getToolCalls()).toEqual([
+			{
+				callId: "call-research",
+				name: "research_web",
+				input: {
+					query: "latest Vercel AI SDK tool API",
+					mode: "exact",
+					freshness: "live",
+					sourcePolicy: "technical",
+					maxSources: 4,
+					quoteRequired: true,
+				},
+				status: "done",
+				outputSummary: "Web research returned 1 source and 1 evidence snippet.",
+				sourceType: "web",
+				candidates: [
+					{
+						id: "source-1",
+						title: "AI SDK Tools",
+						url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+						snippet: "Tools are functions that can be called by the model.",
+						sourceType: "web",
+						material: true,
+						metadata: {
+							provider: "brave",
+							authorityClass: "official",
+							authorityScore: 0.95,
+							providerRank: 1,
+						},
+					},
+				],
+				metadata: {
+					ok: true,
+					evidenceReady: true,
+					sourceCount: 1,
+					evidenceCount: 1,
+					mode: "exact",
+					freshness: "live",
+					sourcePolicy: "technical",
+					selectedSourceCount: 1,
+					openedPageCount: 1,
+					reranked: true,
+					sourceReranked: false,
+				},
+			},
+		]);
+		expect(JSON.stringify(getToolCalls())).not.toContain("FULL SOURCE TEXT");
+		expect(JSON.stringify(getToolCalls())).not.toContain(
+			"RAW SURROUNDING TEXT",
+		);
+	});
+
+	it("memory_context calls memory service with server-owned scope and records bounded memory candidates", async () => {
+		getMemoryContextMock.mockResolvedValue({
+			success: true,
+			mode: "project",
+			projectMode: "summary",
+			hasProjectContext: true,
+			source: "project_folder",
+			project: {
+				id: "project-1",
+				name: "Launch Folder",
+				authority: "project_folder",
+			},
+			siblings: [
+				{
+					conversationId: "sibling-1",
+					title: "Prior launch chat",
+					objective: "Plan launch notes",
+					summary: "Discussed launch constraints.",
+				},
+			],
+			omittedSiblingCount: 2,
+			selectedSibling: null,
+			evidenceCandidates: [
+				{
+					id: "memory:sibling-1",
+					title: "Prior launch chat",
+					snippet: "Discussed launch constraints.",
+					sourceType: "memory",
+					material: true,
+				},
+				{
+					id: "memory:sibling-2",
+					title: "Older launch chat",
+					snippet: "SHOULD BE OMITTED BY MAX SIBLINGS",
+					sourceType: "memory",
+				},
+			],
+			audit: {
+				conversationId: "conversation-1",
+				scope: "conversation",
+				requestedMaxSiblings: 1,
+				appliedMaxSiblings: 1,
+				siblingConversationId: null,
+				includeEvidenceCandidates: true,
+			},
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.memory_context.execute(
+			{
+				mode: "project",
+				query: "launch constraints",
+				maxSiblings: 1,
+				includeEvidenceCandidates: true,
+			},
+			{
+				toolCallId: "call-memory",
+				messages: [],
+			},
+		);
+
+		expect(getMemoryContextMock).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			mode: "project",
+			query: "launch constraints",
+			maxSiblings: 1,
+			includeEvidenceCandidates: true,
+		});
+		expect(result).toMatchObject({
+			success: true,
+			name: "memory_context",
+			sourceType: "memory",
+			mode: "project",
+			hasProjectContext: true,
+			project: {
+				id: "project-1",
+				name: "Launch Folder",
+			},
+			omittedSiblingCount: 2,
+			evidenceCandidates: [
+				{
+					id: "memory:sibling-1",
+					title: "Prior launch chat",
+					sourceType: "memory",
+				},
+			],
+		});
+		expect(JSON.stringify(result)).not.toContain(
+			"SHOULD BE OMITTED BY MAX SIBLINGS",
+		);
+		expect(getToolCalls()).toEqual([
+			{
+				callId: "call-memory",
+				name: "memory_context",
+				input: {
+					mode: "project",
+					query: "launch constraints",
+					maxSiblings: 1,
+					includeEvidenceCandidates: true,
+				},
+				status: "done",
+				outputSummary: "Project memory found: Launch Folder",
+				sourceType: "memory",
+				candidates: [
+					{
+						id: "memory:sibling-1",
+						title: "Prior launch chat",
+						snippet: "Discussed launch constraints.",
+						sourceType: "memory",
+						material: true,
+					},
+				],
+				metadata: {
+					ok: true,
+					evidenceReady: true,
+					mode: "project",
+					status: null,
+					hasProjectContext: true,
+					omittedSiblingCount: 2,
+					omittedConversationCount: 0,
+					requestedMaxSiblings: 1,
+					appliedMaxSiblings: 1,
+				},
+			},
+		]);
+	});
+
+	it("image_search calls image search directly and records stable web candidates", async () => {
+		searchImagesMock.mockResolvedValue([
+			{
+				url: "https://example.com/images/cat.png",
+				title: "Reference cat",
+				source: "example.com",
+				thumbnail: "https://example.com/thumbs/cat.png",
+				width: 1200,
+				height: 800,
+			},
+			{
+				url: "https://cdn.example.net/dog.jpg",
+				title: "Reference dog",
+				source: "cdn.example.net",
+			},
+		]);
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.image_search.execute(
+			{ query: "visual references for pets" },
+			{
+				toolCallId: "call-images",
+				messages: [],
+			},
+		);
+
+		expect(searchImagesMock).toHaveBeenCalledWith("visual references for pets");
+		expect(result).toEqual({
+			success: true,
+			name: "image_search",
+			sourceType: "web",
+			message: "Found 2 images",
+			results: [
+				{
+					id: "image-search:4eebfc739407",
+					url: "https://example.com/images/cat.png",
+					title: "Reference cat",
+					source: "example.com",
+					thumbnail: "https://example.com/thumbs/cat.png",
+					width: 1200,
+					height: 800,
+				},
+				{
+					id: "image-search:b68acb105f16",
+					url: "https://cdn.example.net/dog.jpg",
+					title: "Reference dog",
+					source: "cdn.example.net",
+				},
+			],
+		});
+		expect(getToolCalls()).toEqual([
+			{
+				callId: "call-images",
+				name: "image_search",
+				input: {
+					query: "visual references for pets",
+				},
+				status: "done",
+				outputSummary: "Found 2 images.",
+				sourceType: "web",
+				candidates: [
+					{
+						id: "image-search:4eebfc739407",
+						title: "Reference cat",
+						url: "https://example.com/images/cat.png",
+						snippet: "example.com",
+						sourceType: "web",
+						metadata: {
+							source: "example.com",
+							thumbnail: "https://example.com/thumbs/cat.png",
+							width: 1200,
+							height: 800,
+						},
+					},
+					{
+						id: "image-search:b68acb105f16",
+						title: "Reference dog",
+						url: "https://cdn.example.net/dog.jpg",
+						snippet: "cdn.example.net",
+						sourceType: "web",
+						metadata: {
+							source: "cdn.example.net",
+						},
+					},
+				],
+				metadata: {
+					ok: true,
+					evidenceReady: true,
+					resultCount: 2,
+				},
+			},
+		]);
+	});
+
+	it("records new tool service failures without evidence-ready candidates", async () => {
+		researchWebMock.mockRejectedValueOnce(new Error("research unavailable"));
+		getMemoryContextMock.mockRejectedValueOnce(new Error("memory unavailable"));
+		searchImagesMock.mockRejectedValueOnce(
+			new Error("image search unavailable"),
+		);
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		await expect(
+			tools.research_web.execute(
+				{ query: "current docs" },
+				{ toolCallId: "call-research-failed", messages: [] },
+			),
+		).resolves.toEqual({
+			success: false,
+			error: "research unavailable",
+		});
+		await expect(
+			tools.memory_context.execute(
+				{ mode: "history", query: "old decision" },
+				{ toolCallId: "call-memory-failed", messages: [] },
+			),
+		).resolves.toEqual({
+			success: false,
+			error: "memory unavailable",
+		});
+		await expect(
+			tools.image_search.execute(
+				{ query: "reference image" },
+				{ toolCallId: "call-image-failed", messages: [] },
+			),
+		).resolves.toEqual({
+			success: false,
+			error: "image search unavailable",
+		});
+
+		expect(getToolCalls()).toEqual([
+			expect.objectContaining({
+				callId: "call-research-failed",
+				name: "research_web",
+				sourceType: "web",
+				candidates: [],
+				metadata: {
+					ok: false,
+					evidenceReady: false,
+					error: "research unavailable",
+				},
+			}),
+			expect.objectContaining({
+				callId: "call-memory-failed",
+				name: "memory_context",
+				sourceType: "memory",
+				candidates: [],
+				metadata: {
+					ok: false,
+					evidenceReady: false,
+					error: "memory unavailable",
+				},
+			}),
+			expect.objectContaining({
+				callId: "call-image-failed",
+				name: "image_search",
+				sourceType: "web",
+				candidates: [],
+				metadata: {
+					ok: false,
+					evidenceReady: false,
+					error: "image search unavailable",
+				},
+			}),
+		]);
+	});
+});
+
+describe("shouldForceProduceFileTool", () => {
+	it.each([
+		"Please create a downloadable PDF report for me.",
+		"Generate a CSV file with the cleaned rows.",
+		"Export this as an XLSX spreadsheet.",
+		"Make me a slide deck in PPTX format.",
+		"Summarize this into a DOCX document.",
+	])("detects explicit file-production request: %s", (message) => {
+		expect(shouldForceProduceFileTool(message)).toBe(true);
+	});
+
+	it.each([
+		"Explain how PDF generation works.",
+		"How do I create a CSV file myself?",
+		"Summarize this in chat, no file needed.",
+		"Tell me whether a spreadsheet would help.",
+		"Create a brief answer about quarterly planning.",
+	])("does not force file production for informational requests: %s", (message) => {
+		expect(shouldForceProduceFileTool(message)).toBe(false);
+	});
+});

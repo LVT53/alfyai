@@ -1,12 +1,12 @@
 [Unit]
-Description=Langflow Chat Application
+Description=AlfyAI Application
 After=network.target
 
 [Service]
 Type=simple
-User=langflow
-WorkingDirectory=/opt/langflow-chat
-EnvironmentFile=/opt/langflow-chat/.env
+User=alfyai
+WorkingDirectory=/opt/alfyai
+EnvironmentFile=/opt/alfyai/.env
 ExecStart=/usr/bin/npm start
 Restart=on-failure
 RestartSec=10

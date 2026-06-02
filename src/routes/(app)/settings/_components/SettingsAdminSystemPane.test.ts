@@ -33,6 +33,7 @@ import {
 	uploadCampaignAssetSource,
 	uploadModelIconAsset,
 } from "$lib/client/api/campaign-assets";
+import { createModelCapabilitySet } from "$lib/model-capabilities";
 
 const mockCreateProvider = createProvider as ReturnType<typeof vi.fn>;
 const mockFetchAdminSystemSkills = fetchAdminSystemSkills as ReturnType<typeof vi.fn>;
@@ -42,6 +43,40 @@ const mockUpdateAdminSystemSkill = updateAdminSystemSkill as ReturnType<typeof v
 const mockSaveModelIconAssetCrop = saveModelIconAssetCrop as ReturnType<typeof vi.fn>;
 const mockUploadCampaignAssetSource = uploadCampaignAssetSource as ReturnType<typeof vi.fn>;
 const mockUploadModelIconAsset = uploadModelIconAsset as ReturnType<typeof vi.fn>;
+
+function byExactTextContent(text: string) {
+	return (_content: string, element: Element | null) =>
+		element?.textContent?.replace(/\s+/g, " ").trim() === text;
+}
+
+function providerFixture(overrides: Record<string, unknown> = {}) {
+	return {
+		id: "provider-1",
+		name: "provider_1",
+		displayName: "Provider 1",
+		baseUrl: "https://provider.example/v1",
+		modelName: "provider-model",
+		reasoningEffort: null,
+		thinkingType: null,
+		enabled: true,
+		sortOrder: 0,
+		maxModelContext: 128000,
+		compactionUiThreshold: null,
+		targetConstructedContext: null,
+		maxMessageLength: null,
+		maxTokens: null,
+		iconAssetId: null,
+		iconUrl: null,
+		rateLimitFallbackEnabled: false,
+		rateLimitFallbackBaseUrl: null,
+		rateLimitFallbackModelName: null,
+		rateLimitFallbackTimeoutMs: 10000,
+		capabilities: createModelCapabilitySet(),
+		createdAt: "",
+		updatedAt: "",
+		...overrides,
+	};
+}
 
 describe("SettingsAdminSystemPane", () => {
 	beforeEach(() => {
@@ -314,6 +349,50 @@ describe("SettingsAdminSystemPane", () => {
 		expect(adminConfig.DEFAULT_NEW_USER_MODEL).toBe("provider:fire-pass");
 	});
 
+	it("shows probed provider capabilities in provider rows", async () => {
+		mockFetchProviders.mockResolvedValue([
+			providerFixture({
+				displayName: "Capability Probe",
+				capabilities: createModelCapabilitySet({
+					tools: { state: "detected", source: "probe" },
+					structuredOutput: { state: "not_detected", source: "probe" },
+					usageReporting: { state: "unknown", source: "probe" },
+					reasoningControls: {
+						state: "manual_override",
+						supported: true,
+						source: "manual_override",
+					},
+				}),
+			}),
+		]);
+
+		const { getAllByText, getByLabelText } = render(SettingsAdminSystemPane, {
+			adminConfig: {
+				COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
+				MODEL_2_ENABLED: "true",
+				DEEP_RESEARCH_ENABLED: "false",
+				DEEP_RESEARCH_WORKER_ENABLED: "false",
+			},
+			availableModels: [{ id: "model1", displayName: "Model 1" }],
+			onCheckHonchoHealth: vi.fn(),
+			onSaveAdminConfig: vi.fn(),
+		});
+
+		await waitFor(() => {
+			expect(getAllByText("Capability Probe").length).toBeGreaterThan(0);
+		});
+
+		expect(getByLabelText("Tools: Detected")).toHaveTextContent("Tools Detected");
+		expect(getByLabelText("Structured output: Not detected")).toHaveTextContent(
+			"Structured output Not detected",
+		);
+		expect(getByLabelText("Usage: Unknown")).toHaveTextContent("Usage Unknown");
+		expect(
+			getByLabelText("Reasoning: Manual override: supported"),
+		).toHaveTextContent("Reasoning Manual override: supported");
+		expect(getAllByText(byExactTextContent("Tools Detected")).length).toBe(1);
+	});
+
 	it("crops raster model icon uploads and clears the uploading label after save", async () => {
 		const adminConfig = {
 			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
@@ -325,6 +404,7 @@ describe("SettingsAdminSystemPane", () => {
 		const {
 			container,
 			getAllByLabelText,
+			getAllByRole,
 			getByRole,
 			getByText,
 			queryByText,
@@ -335,6 +415,12 @@ describe("SettingsAdminSystemPane", () => {
 			onSaveAdminConfig: vi.fn(),
 		});
 
+		await waitFor(() => {
+			expect(getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(
+				0,
+			);
+		});
+		await fireEvent.click(getAllByRole("button", { name: "Edit" })[0]);
 		await waitFor(() => {
 			expect(getAllByLabelText("Upload icon").length).toBeGreaterThan(0);
 		});
@@ -395,13 +481,22 @@ describe("SettingsAdminSystemPane", () => {
 			DEEP_RESEARCH_ENABLED: "false",
 			DEEP_RESEARCH_WORKER_ENABLED: "false",
 		};
-		const { getAllByLabelText, queryByText } = render(SettingsAdminSystemPane, {
-			adminConfig,
-			availableModels: [{ id: "model1", displayName: "Model 1" }],
-			onCheckHonchoHealth: vi.fn(),
-			onSaveAdminConfig: vi.fn(),
-		});
+		const { getAllByLabelText, getAllByRole, queryByText } = render(
+			SettingsAdminSystemPane,
+			{
+				adminConfig,
+				availableModels: [{ id: "model1", displayName: "Model 1" }],
+				onCheckHonchoHealth: vi.fn(),
+				onSaveAdminConfig: vi.fn(),
+			},
+		);
 
+		await waitFor(() => {
+			expect(getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(
+				0,
+			);
+		});
+		await fireEvent.click(getAllByRole("button", { name: "Edit" })[0]);
 		await waitFor(() => {
 			expect(getAllByLabelText("Upload icon").length).toBeGreaterThan(0);
 		});

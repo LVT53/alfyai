@@ -601,8 +601,8 @@ const builtInSystemSkills = [
 				"Creates polished XLSX workbooks with formulas, tables, assumptions, dashboards, and AlfyAI file-production delivery.",
 			instructions: [
 				"Use this skill when the user asks to create, edit, analyze, visualize, or work with spreadsheet files such as .xlsx, .xls, .csv, or .tsv.",
-				'For downloadable XLSX creation, route the work through produce_file. Use sourceMode: "program", language: "javascript", JSON-encoded requestedOutputs, JSON-encoded program, idempotencyKey, requestTitle, and documentIntent.',
-				'The JavaScript program should use exceljs and write final requested files under /output with workbook.xlsx.writeFile("/output/<name>.xlsx"). When program.filename is provided, produce exactly one final requested workbook at /output/<name>.xlsx and do not write scratch diagnostics or unrelated files under /output.',
+				'For downloadable XLSX creation, route the work through produce_file with structured tool input: sourceMode: "program", requestedOutputs: [{ "type": "xlsx" }], program: { language: "javascript", sourceCode, filename }, idempotencyKey, requestTitle, and documentIntent.',
+				'The JavaScript program.sourceCode should use exceljs and write final requested files under /output with workbook.xlsx.writeFile("/output/<name>.xlsx"). When program.filename is provided, produce exactly one final requested workbook at /output/<name>.xlsx and do not write scratch diagnostics or unrelated files under /output.',
 				"Use bounded sheets, tables, and helper ranges. Keep raw/source data, assumptions, calculations, outputs, checks, and dashboard or KPI views separated when the task is analytical.",
 				"Use formula-driven workbook logic for derived values. Avoid magic numbers in formulas; put assumptions in labeled cells or sheets and reference them.",
 				"When formulas are included, set workbook.calcProperties.fullCalcOnLoad = true. Verify only with sandbox-local assertions, formula-text/error scans, ZIP/workbook reload checks, and representative worksheet checks.",
@@ -618,8 +618,8 @@ const builtInSystemSkills = [
 				"Átgondolt XLSX munkafüzeteket készít képletekkel, táblákkal, feltételezésekkel, irányítópultokkal és AlfyAI fájl-előállítással.",
 			instructions: [
 				"Akkor használd ezt a skillt, amikor a felhasználó táblázatfájlokkal, például .xlsx, .xls, .csv vagy .tsv fájlokkal szeretne létrehozási, szerkesztési, elemzési vagy vizualizációs munkát végezni.",
-				'Letölthető XLSX létrehozásához a munkát produce_file kéréssel indítsd. Használd a sourceMode: "program", language: "javascript", JSON-kódolt requestedOutputs, JSON-kódolt program, idempotencyKey, requestTitle és documentIntent mezőket.',
-				'A JavaScript program exceljs-t használjon, és a végleges kért fájlokat a /output alá írja a workbook.xlsx.writeFile("/output/<name>.xlsx") hívással. Ha a program.filename adott, pontosan egy végleges kért munkafüzet készüljön a /output/<name>.xlsx útvonalon, és ne kerüljenek segédnaplók vagy nem kért fájlok a /output alá.',
+				'Letölthető XLSX létrehozásához a munkát strukturált produce_file eszközbemenettel indítsd: sourceMode: "program", requestedOutputs: [{ "type": "xlsx" }], program: { language: "javascript", sourceCode, filename }, idempotencyKey, requestTitle és documentIntent mezők.',
+				'A JavaScript program.sourceCode exceljs-t használjon, és a végleges kért fájlokat a /output alá írja a workbook.xlsx.writeFile("/output/<name>.xlsx") hívással. Ha a program.filename adott, pontosan egy végleges kért munkafüzet készüljön a /output/<name>.xlsx útvonalon, és ne kerüljenek segédnaplók vagy nem kért fájlok a /output alá.',
 				"Használj korlátozott méretű munkalapokat, táblákat és segédtartományokat. Elemző feladatnál válaszd szét a nyers/forrásadatokat, feltételezéseket, számításokat, kimeneteket, ellenőrzéseket és dashboard vagy KPI nézeteket.",
 				"A származtatott értékek munkafüzetbeli logikája képletekből álljon. Ne rejts üzleti feltételezéseket képletekbe; tedd őket címkézett cellákba vagy lapokra, és hivatkozz rájuk.",
 				"Ha képletek vannak a munkafüzetben, állítsd be: workbook.calcProperties.fullCalcOnLoad = true. Az ellenőrzés csak sandboxon belüli állításokra, képlet- és hibakeresésre, ZIP/munkafüzet újratöltésre és reprezentatív munkalapellenőrzésre támaszkodjon.",

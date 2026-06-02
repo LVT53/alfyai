@@ -8,6 +8,7 @@ import {
 	type StopCondition,
 	stepCountIs,
 	streamText,
+	type ToolChoice,
 	type ToolSet,
 } from "ai";
 import {
@@ -68,12 +69,14 @@ export type NormalChatModelRunBaseParams = {
 
 export type PlainNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	tools?: ToolSet;
+	toolChoice?: ToolChoice<ToolSet>;
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet>;
 };
 
 export type StreamingNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	tools?: ToolSet;
+	toolChoice?: ToolChoice<ToolSet>;
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet>;
 };
@@ -432,6 +435,7 @@ export async function runPlainNormalChatModelRun(
 		messages: params.messages,
 		system: params.system,
 		tools: params.tools,
+		toolChoice: params.toolChoice,
 		stopWhen,
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
 		maxRetries: params.maxRetries ?? 0,
@@ -444,7 +448,11 @@ export async function runPlainNormalChatModelRun(
 	try {
 		result = await generateText(request);
 	} catch (error) {
-		if (!params.tools || !isUnsupportedToolsRequestError(error)) {
+		if (
+			!params.tools ||
+			params.toolChoice ||
+			!isUnsupportedToolsRequestError(error)
+		) {
 			throw error;
 		}
 		if (isCapabilitySupported(params.provider, "tools")) {
@@ -493,6 +501,7 @@ async function* streamStreamingNormalChatModelRun(
 		messages: params.messages,
 		system: params.system,
 		tools: params.tools,
+		toolChoice: params.toolChoice,
 		stopWhen,
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
 		maxRetries: params.maxRetries ?? 0,

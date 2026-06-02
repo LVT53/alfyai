@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	BROWSER_CHAT_SSE_EVENTS,
-	decodeBrowserChatSseEvents,
-	encodeBrowserChatSseEvent,
-} from "$lib/services/stream-protocol";
+	aiSdkUiStreamContractParts,
+	encodeAiSdkUiFixtureFrames,
+	oldBrowserSseNamedEndEvent,
+} from "../../../../../tests/fixtures/ai-sdk-ui-stream-contract";
+import {
+	decodeUiMessageStreamParts,
+	streamDataPartEvent,
+	streamErrorEvent,
+	streamReasoningDeltaEvent,
+	streamReasoningStartEvent,
+	streamTextDeltaEvent,
+	streamTextStartEvent,
+	streamToolCallEvent,
+} from "./stream";
 import { doReconnect } from "./stream-reconnect";
 
 interface ReconnectBuffer {
@@ -89,8 +99,15 @@ describe("doReconnect", () => {
 
 	function enqueuedProtocolEvents() {
 		return enqueueChunk.mock.calls.flatMap(([chunk]) =>
-			decodeBrowserChatSseEvents(chunk as string),
+			decodeUiMessageStreamParts(chunk as string),
 		);
+	}
+
+	function dataParts(type: string) {
+		return enqueuedProtocolEvents()
+			.filter((event): event is Record<string, unknown> => event !== "[DONE]")
+			.filter((event) => event.type === type)
+			.map((event) => event.data);
 	}
 
 	it("enqueues SSE prelude and heartbeat comments on start", () => {
@@ -120,7 +137,7 @@ describe("doReconnect", () => {
 		callDoReconnect();
 
 		expect(enqueueChunk).toHaveBeenCalledWith(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.replayStart, {
+			streamDataPartEvent("data-replay-start", {
 				tokenCount: 2,
 				thinkingCount: 1,
 				toolCallCount: 1,
@@ -128,25 +145,17 @@ describe("doReconnect", () => {
 			}),
 		);
 
+		expect(enqueueChunk).toHaveBeenCalledWith(streamTextStartEvent());
+		expect(enqueueChunk).toHaveBeenCalledWith(streamTextDeltaEvent("Hello"));
+		expect(enqueueChunk).toHaveBeenCalledWith(streamTextDeltaEvent(" world"));
+
+		expect(enqueueChunk).toHaveBeenCalledWith(streamReasoningStartEvent());
 		expect(enqueueChunk).toHaveBeenCalledWith(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
-				text: "Hello",
-			}),
-		);
-		expect(enqueueChunk).toHaveBeenCalledWith(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
-				text: " world",
-			}),
+			streamReasoningDeltaEvent("reasoning"),
 		);
 
 		expect(enqueueChunk).toHaveBeenCalledWith(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.thinking, {
-				text: "reasoning",
-			}),
-		);
-
-		expect(enqueueChunk).toHaveBeenCalledWith(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.toolCall, {
+			streamToolCallEvent({
 				name: "search",
 				input: { q: "test" },
 				status: "done",
@@ -155,7 +164,7 @@ describe("doReconnect", () => {
 		);
 
 		expect(enqueueChunk).toHaveBeenCalledWith(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.replayEnd, {}),
+			streamDataPartEvent("data-replay-end", {}),
 		);
 	});
 
@@ -195,11 +204,9 @@ describe("doReconnect", () => {
 
 		callDoReconnect();
 
-		const toolCallEvent = enqueuedProtocolEvents().find(
-			(event) => event.event === BROWSER_CHAT_SSE_EVENTS.toolCall,
-		);
+		const toolCallEvent = dataParts("data-tool-call")[0];
 
-		expect(toolCallEvent?.data).toEqual({
+		expect(toolCallEvent).toEqual({
 			name: "web_search",
 			input: { query: "OpenAI news" },
 			status: "done",
@@ -224,9 +231,7 @@ describe("doReconnect", () => {
 		const listener = subscribeToStream.mock.calls[0][1] as (
 			chunk: string,
 		) => void;
-		const liveChunk = encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
-			text: "live",
-		});
+		const liveChunk = `${streamTextStartEvent()}${streamTextDeltaEvent("live")}`;
 		listener(liveChunk);
 
 		expect(enqueueChunk).toHaveBeenCalledWith(liveChunk);
@@ -238,11 +243,30 @@ describe("doReconnect", () => {
 		const listener = subscribeToStream.mock.calls[0][1] as (
 			chunk: string,
 		) => void;
-		listener(encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.end, {}));
+		listener(
+			encodeAiSdkUiFixtureFrames([
+				aiSdkUiStreamContractParts.metadata,
+				aiSdkUiStreamContractParts.finish,
+				"[DONE]",
+			]).join(""),
+		);
 
 		expect(unsubscribeFromStream).toHaveBeenCalledWith("test-stream", listener);
 		expect(clearInterval).toHaveBeenCalled();
 		expect(closeDownstream).toHaveBeenCalled();
+	});
+
+	it("ignores old Browser SSE named end events without closing downstream", () => {
+		callDoReconnect();
+
+		const listener = subscribeToStream.mock.calls[0][1] as (
+			chunk: string,
+		) => void;
+		listener(oldBrowserSseNamedEndEvent);
+
+		expect(enqueueChunk).toHaveBeenCalledWith(oldBrowserSseNamedEndEvent);
+		expect(unsubscribeFromStream).not.toHaveBeenCalled();
+		expect(closeDownstream).not.toHaveBeenCalled();
 	});
 
 	it("closes downstream when a forwarded live chunk contains a terminal protocol event after a comment", () => {
@@ -251,10 +275,10 @@ describe("doReconnect", () => {
 		const listener = subscribeToStream.mock.calls[0][1] as (
 			chunk: string,
 		) => void;
-		const liveChunk = `: heartbeat\n\n${encodeBrowserChatSseEvent(
-			BROWSER_CHAT_SSE_EVENTS.end,
-			{},
-		)}`;
+		const liveChunk = `: heartbeat\n\n${encodeAiSdkUiFixtureFrames([
+			aiSdkUiStreamContractParts.finish,
+			"[DONE]",
+		]).join("")}`;
 		listener(liveChunk);
 
 		expect(enqueueChunk).toHaveBeenCalledWith(liveChunk);
@@ -269,11 +293,7 @@ describe("doReconnect", () => {
 		const listener = subscribeToStream.mock.calls[0][1] as (
 			chunk: string,
 		) => void;
-		listener(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.error, {
-				code: "timeout",
-			}),
-		);
+		listener(streamErrorEvent("timeout"));
 
 		expect(unsubscribeFromStream).toHaveBeenCalledWith("test-stream", listener);
 		expect(clearInterval).toHaveBeenCalled();
@@ -300,12 +320,8 @@ describe("doReconnect", () => {
 
 		callDoReconnect();
 
-		const replayStartEvent = enqueuedProtocolEvents().find(
-			(event) => event.event === BROWSER_CHAT_SSE_EVENTS.replayStart,
-		);
-		const replayEndEvent = enqueuedProtocolEvents().find(
-			(event) => event.event === BROWSER_CHAT_SSE_EVENTS.replayEnd,
-		);
+		const replayStartEvent = dataParts("data-replay-start")[0];
+		const replayEndEvent = dataParts("data-replay-end")[0];
 		expect(replayStartEvent).toBeUndefined();
 		expect(replayEndEvent).toBeUndefined();
 	});

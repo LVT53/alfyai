@@ -40,8 +40,6 @@ export const ADMIN_CONFIG_KEYS = [
 	"MODEL_1_DISPLAY_NAME",
 	"MODEL_1_ICON_ASSET_ID",
 	"MODEL_1_SYSTEM_PROMPT",
-	"MODEL_1_FLOW_ID",
-	"MODEL_1_COMPONENT_ID",
 	"MODEL_1_MAX_TOKENS",
 	"MODEL_1_REASONING_EFFORT",
 	"MODEL_1_THINKING_TYPE",
@@ -51,8 +49,6 @@ export const ADMIN_CONFIG_KEYS = [
 	"MODEL_2_DISPLAY_NAME",
 	"MODEL_2_ICON_ASSET_ID",
 	"MODEL_2_SYSTEM_PROMPT",
-	"MODEL_2_FLOW_ID",
-	"MODEL_2_COMPONENT_ID",
 	"MODEL_2_MAX_TOKENS",
 	"MODEL_2_REASONING_EFFORT",
 	"MODEL_2_THINKING_TYPE",
@@ -136,10 +132,6 @@ export const ADMIN_CONFIG_KEYS = [
 export type AdminConfigKey = (typeof ADMIN_CONFIG_KEYS)[number];
 
 export interface RuntimeConfig {
-	langflowApiUrl: string;
-	langflowApiKey: string;
-	langflowFlowId: string;
-	langflowWebhookSecret: string;
 	attachmentTraceDebug: boolean;
 	composerCommandRegistryEnabled: boolean;
 	deepResearchEnabled: boolean;
@@ -177,7 +169,6 @@ export interface RuntimeConfig {
 	teiRerankerModel: string;
 	teiRerankerMaxTexts: number;
 	teiTimeoutMs: number;
-	webhookPort: number;
 	requestTimeoutMs: number;
 	modelTimeoutFailoverEnabled: boolean;
 	modelTimeoutFailoverTimeoutMs: number;
@@ -544,12 +535,6 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	MODEL_1_SYSTEM_PROMPT: (config, value) => {
 		config.model1.systemPrompt = normalizeSystemPromptReference(value) ?? "";
 	},
-	MODEL_1_FLOW_ID: (config, value) => {
-		config.model1.flowId = value;
-	},
-	MODEL_1_COMPONENT_ID: (config, value) => {
-		config.model1.componentId = value;
-	},
 	MODEL_1_MAX_TOKENS: (config, value) => {
 		const parsed = parseIntOverride(value);
 		config.model1.maxTokens = parsed !== undefined ? Math.max(1, parsed) : null;
@@ -577,12 +562,6 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	MODEL_2_SYSTEM_PROMPT: (config, value) => {
 		config.model2.systemPrompt = normalizeSystemPromptReference(value) ?? "";
-	},
-	MODEL_2_FLOW_ID: (config, value) => {
-		config.model2.flowId = value;
-	},
-	MODEL_2_COMPONENT_ID: (config, value) => {
-		config.model2.componentId = value;
 	},
 	MODEL_2_MAX_TOKENS: (config, value) => {
 		const parsed = parseIntOverride(value);
@@ -1101,8 +1080,6 @@ export function getResolvedAdminConfigValues(
 		MODEL_1_DISPLAY_NAME: config.model1.displayName,
 		MODEL_1_ICON_ASSET_ID: config.model1IconAssetId ?? "",
 		MODEL_1_SYSTEM_PROMPT: getSystemPrompt(config.model1.systemPrompt),
-		MODEL_1_FLOW_ID: config.model1.flowId,
-		MODEL_1_COMPONENT_ID: config.model1.componentId,
 		MODEL_1_MAX_TOKENS:
 			config.model1.maxTokens != null ? String(config.model1.maxTokens) : "",
 		MODEL_1_REASONING_EFFORT: config.model1.reasoningEffort ?? "",
@@ -1113,8 +1090,6 @@ export function getResolvedAdminConfigValues(
 		MODEL_2_DISPLAY_NAME: config.model2.displayName,
 		MODEL_2_ICON_ASSET_ID: config.model2IconAssetId ?? "",
 		MODEL_2_SYSTEM_PROMPT: getSystemPrompt(config.model2.systemPrompt),
-		MODEL_2_FLOW_ID: config.model2.flowId,
-		MODEL_2_COMPONENT_ID: config.model2.componentId,
 		MODEL_2_MAX_TOKENS:
 			config.model2.maxTokens != null ? String(config.model2.maxTokens) : "",
 		MODEL_2_REASONING_EFFORT: config.model2.reasoningEffort ?? "",

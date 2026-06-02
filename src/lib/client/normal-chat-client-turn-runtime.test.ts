@@ -5,16 +5,16 @@ import {
 	type NormalChatRuntimeSnapshot,
 } from "$lib/client/normal-chat-client-turn-runtime";
 import type {
-	ChatMessage,
-	ConversationContextStatus,
-	ModelId,
-} from "$lib/types";
-import type {
 	StreamCallbacks,
 	StreamChatOptions,
 	StreamHandle,
 	StreamMetadata,
 } from "$lib/services/streaming";
+import type {
+	ChatMessage,
+	ConversationContextStatus,
+	ModelId,
+} from "$lib/types";
 
 type StreamInvocation = {
 	message: string;
@@ -90,7 +90,13 @@ function makeAdapters(
 			if (index !== -1) messages.splice(index, 1);
 		}),
 		finalizeStreamingMessage: vi.fn(
-			({ placeholderId, metadata }: { placeholderId: string; metadata?: StreamMetadata }) => {
+			({
+				placeholderId,
+				metadata,
+			}: {
+				placeholderId: string;
+				metadata?: StreamMetadata;
+			}) => {
 				const message = messages.find((item) => item.id === placeholderId);
 				if (message) {
 					message.id = metadata?.assistantMessageId ?? message.id;
@@ -117,7 +123,8 @@ function makeAdapters(
 				: payload.pendingSkill,
 		})),
 		isPendingSkillUnavailableError: vi.fn(
-			(error) => (error as { code?: string })?.code === "pending_skill_unavailable",
+			(error) =>
+				(error as { code?: string })?.code === "pending_skill_unavailable",
 		),
 		isForkedSourceHistoryConfirmationRequired: vi.fn(
 			(error) =>
@@ -142,7 +149,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		vi.useRealTimers();
 	});
 
-	it("runs a normal send through the Browser SSE transport callbacks", () => {
+	it("runs a normal send through the browser stream transport callbacks", () => {
 		const { adapters, streamInvocations, messages, snapshots } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);
 
@@ -164,7 +171,10 @@ describe("Normal Chat Client Turn Runtime", () => {
 				skipPersistUserMessage: false,
 			},
 		});
-		expect(messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+		expect(messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+		]);
 		expect(snapshots.at(-1)).toMatchObject({
 			isSending: true,
 			active: true,
@@ -302,9 +312,9 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(adapters.setContextCompressionMarkers).toHaveBeenCalledWith(
 			contextCompressionSnapshots,
 		);
-		expect(adapters.attachFileProductionJobsToAssistantMessage).toHaveBeenCalledWith(
-			"assistant-1",
-		);
+		expect(
+			adapters.attachFileProductionJobsToAssistantMessage,
+		).toHaveBeenCalledWith("assistant-1");
 	});
 
 	it("drains queued manual compression before a queued follow-up turn after success", async () => {
@@ -694,7 +704,9 @@ describe("Normal Chat Client Turn Runtime", () => {
 		const runtime = createNormalChatClientTurnRuntime(adapters);
 
 		await runtime.reconnectToOrphanedStream("stream-1", "Resume me");
-		const capacity = new Error("Server at capacity") as Error & { code?: string };
+		const capacity = new Error("Server at capacity") as Error & {
+			code?: string;
+		};
 		capacity.code = "CAPACITY_EXCEEDED";
 		streamInvocations[0].callbacks.onError(capacity);
 

@@ -348,6 +348,7 @@ export async function refreshConversationWorkingSet(params: {
 	const existingByArtifactId = new Map(existingItems.map((item) => [item.artifactId, item]));
 	const message = params.message?.trim() ?? '';
 	const linkedSourceArtifactIds = new Set(sourceArtifactIds);
+	const attachedArtifactIds = new Set(attachmentIds);
 	const protectedArtifactIds = new Set(selection.taskEvidence.protectedArtifactIds);
 
 	const candidates: WorkingSetCandidate[] = artifactRows
@@ -355,7 +356,8 @@ export async function refreshConversationWorkingSet(params: {
 		.filter(
 			(artifact) =>
 				artifact.conversationId === params.conversationId ||
-				linkedSourceArtifactIds.has(artifact.id)
+				linkedSourceArtifactIds.has(artifact.id) ||
+				attachedArtifactIds.has(artifact.id)
 		)
 		.map((artifact) => {
 			const candidateSignals =

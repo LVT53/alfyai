@@ -7,7 +7,6 @@ import { config as dotenvConfig } from 'dotenv';
 dotenvConfig();
 
 // Set required env vars if not set
-if (!process.env.LANGFLOW_API_KEY) process.env.LANGFLOW_API_KEY = 'placeholder';
 if (!process.env.SESSION_SECRET) process.env.SESSION_SECRET = 'placeholder-secret-32-chars-long!!';
 
 import { db } from '../src/lib/server/db';

@@ -92,9 +92,9 @@ export interface Project {
 	updatedAt: number; // Unix timestamp
 }
 
-// Conversation interface: id (Langflow session_id), title, createdAt, updatedAt (Unix timestamps)
+// Conversation interface: id, title, createdAt, updatedAt (Unix timestamps)
 export interface Conversation {
-	id: string; // Langflow session_id
+	id: string;
 	title: string;
 	projectId?: string | null;
 	status?: "open" | "sealed";
@@ -1732,39 +1732,4 @@ export interface TaskSteeringPayload {
 	artifactId?: string;
 	objective?: string;
 	preference?: EvidencePreference;
-}
-
-// Langflow types
-export interface LangflowMessage {
-	text: string;
-}
-
-export interface LangflowRunRequest {
-	input_value: string;
-	input_type: string;
-	output_type: string;
-	session_id?: string;
-	background_color?: string;
-	background_icon?: string;
-}
-
-export interface LangflowRunResponse {
-	outputs: Array<{
-		outputs: Array<{
-			results: {
-				message?: LangflowMessage;
-				[key: string]: unknown;
-			};
-			[key: string]: unknown;
-		}>;
-		[key: string]: unknown;
-	}>;
-}
-
-// Webhook types
-export interface WebhookSentencePayload {
-	session_id: string;
-	sentence?: string;
-	index: number;
-	is_final: boolean;
 }

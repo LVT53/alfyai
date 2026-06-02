@@ -6,7 +6,7 @@ The read model assembles the stable `ConversationDetail` payload consumed by cha
 
 Normal Chat Turn Completion remains owned by chat-turn. Completion decides the durable result of an assistant turn, including message persistence, response-facing Context Sources, evidence, skill side effects, and continuity work. The Conversation Detail Read Model may read and project those durable results for refresh, but it must not become a second completion pipeline.
 
-The read model may compose File Production Read Model for conversation-visible File Production Card projection. It must not own job ledger transitions, worker execution, retrieval authority, preview/download authorization, Browser SSE end payload framing, or browser page state.
+The read model may compose File Production Read Model for conversation-visible File Production Card projection. It must not own job ledger transitions, worker execution, retrieval authority, preview/download authorization, AI SDK UI stream terminal framing, or browser page state.
 
 **Considered Options**
 

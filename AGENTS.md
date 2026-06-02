@@ -50,10 +50,11 @@ This file is the canonical engineering map for AlfyAI. Read it before changing c
 - `src/lib/server/services/task-state.ts` may use semantic shortlist and rerank signals when routing the current turn onto an existing task, but active/revived/candidate truth and project continuity state still remain deterministic there.
 - `src/lib/client/conversation-session.ts` owns landing-to-chat handoff state. Do not scatter raw `sessionStorage` keys across pages or components.
 - `src/lib/client/api/` owns reusable browser `fetch` logic. Stores should not become ad hoc HTTP clients.
-- `src/lib/services/stream-protocol.ts` owns shared client/server stream-tag parsing helpers, completed-response control-tag cleanup, and the Browser SSE Protocol contract for Normal Chat stream/reconnect responses: event names, payload shapes, encoding, decoding, comment tolerance, and replay framing. Do not duplicate inline thinking-tag parsing, final visible-text extraction, raw browser SSE event-string builders, or browser event line-prefix parsers across `streaming.ts`, `chat-turn/normalizer.ts`, `chat-turn/stream*.ts`, and the chat stream route.
+- `src/lib/services/stream-protocol.ts` owns shared stream-tag parsing helpers and completed-response control-tag cleanup. `src/lib/server/services/chat-turn/stream.ts` owns AI SDK UI stream framing for Normal Chat stream/reconnect responses: text, reasoning, tool/data, replay, metadata, finish, and `[DONE]` parts. Do not duplicate inline thinking-tag parsing, final visible-text extraction, UI stream frame builders, or event line-prefix parsers across `streaming.ts`, `chat-turn/normalizer.ts`, `chat-turn/stream*.ts`, and the chat stream route.
 - `src/lib/services/streaming.ts` owns the browser stream transport contract, including the distinction between a user-requested stop and a local detach during navigation/unmount. Do not collapse those paths back into one generic abort that marks background disconnects as explicit stops.
 - `src/lib/server/services/messages.ts` owns persisted assistant-message metadata such as evidence summaries and Honcho diagnostics/snapshots. Do not invent route-local shadow storage for those fields.
-- `src/lib/server/services/langflow.ts` owns outbound system-prompt assembly, including always-on date-before-search guidance. Do not reintroduce route-local prompt guards for freshness-sensitive search behavior.
+- `src/lib/server/services/normal-chat-context.ts` owns Normal Chat prompt assembly, including always-on date-before-search guidance and file-production guidance. Do not reintroduce route-local prompt guards for freshness-sensitive search behavior.
+- `src/lib/server/services/normal-chat-model/` owns Vercel AI SDK/OpenAI-compatible model execution for Normal Chat; `src/lib/server/services/normal-chat-tools/` owns app-backed AI SDK tools. Do not reintroduce a hidden external orchestration runtime for these paths.
 - `src/lib/server/services/title-generator.ts` owns language-aware title prompt selection and code-specific title prompt appendices, while the prompt text itself flows through `src/lib/server/config-store.ts` and admin settings.
 - `src/lib/server/services/task-state.ts` is the continuity boundary. Do not reintroduce a parallel `project-memory` architecture.
 - `src/lib/server/services/honcho.ts` is for Honcho-specific behavior only. Do not let it become a second generic prompt/memory engine.
@@ -132,20 +133,24 @@ Do not:
   - [`src/lib/server/services/chat-turn/normalizer.ts`](./src/lib/server/services/chat-turn/normalizer.ts)
     - Canonical assistant-output normalization for send, stream, retry, and title generation.
   - [`src/lib/server/services/chat-turn/stream-orchestrator.ts`](./src/lib/server/services/chat-turn/stream-orchestrator.ts)
-    - Orchestrates the full chat-turn streaming pipeline: upstream event parsing, tool-call marker handling, token/thinking framing, stream buffer management.
+    - Orchestrates the full chat-turn streaming pipeline: neutral Normal Chat model-run events, tool-call marker handling, token/thinking framing, stream buffer management.
     - Imported by: `src/routes/api/chat/stream/+server.ts`, `src/routes/api/chat/retry/+server.ts`
   - [`src/lib/server/services/chat-turn/stream.ts`](./src/lib/server/services/chat-turn/stream.ts)
     - Re-export hub for stream sub-modules:
-      - [`stream-parser.ts`](./src/lib/server/services/chat-turn/stream-parser.ts)
       - [`thinking-normalizer.ts`](./src/lib/server/services/chat-turn/thinking-normalizer.ts)
       - [`tool-call-markers.ts`](./src/lib/server/services/chat-turn/tool-call-markers.ts)
   - [`src/lib/server/services/chat-turn/active-streams.ts`](./src/lib/server/services/chat-turn/active-streams.ts)
   - [`src/lib/server/services/chat-turn/finalize.ts`](./src/lib/server/services/chat-turn/finalize.ts)
   - [`src/lib/server/services/chat-turn/types.ts`](./src/lib/server/services/chat-turn/types.ts)
 - Upstream integrations:
-  - [`src/lib/server/services/langflow.ts`](./src/lib/server/services/langflow.ts)
-    - Owns model-facing prompt assembly and outbound search/date guidance.
-    - Also owns authenticated account-level prompt personalization fields such as display name and email; pass them once at this boundary instead of rebuilding user identity text in routes or memory services.
+  - [`src/lib/server/services/normal-chat-context.ts`](./src/lib/server/services/normal-chat-context.ts)
+    - Owns model-facing prompt assembly, outbound search/date guidance, context fit, and authenticated account-level prompt personalization fields such as display name and email.
+  - [`src/lib/server/services/normal-chat-model/`](./src/lib/server/services/normal-chat-model/)
+    - Owns Vercel AI SDK/OpenAI-compatible plain and streaming model execution, provider usage mapping, tool-call events, and neutral model-run events.
+  - [`src/lib/server/services/normal-chat-tools/`](./src/lib/server/services/normal-chat-tools/)
+    - Owns app-backed AI SDK tools such as `produce_file`, `research_web`, `image_search`, and `memory_context`.
+  - [`src/lib/server/services/normal-chat-control-model.ts`](./src/lib/server/services/normal-chat-control-model.ts)
+    - Owns structured JSON control-model calls used by context compression and similar control tasks.
   - [`src/lib/server/services/title-generator.ts`](./src/lib/server/services/title-generator.ts)
   - [`src/lib/server/services/messages.ts`](./src/lib/server/services/messages.ts)
   - [`src/lib/server/services/message-evidence.ts`](./src/lib/server/services/message-evidence.ts)
@@ -178,7 +183,7 @@ Do not:
   - [`src/lib/server/sandbox/config.ts`](./src/lib/server/sandbox/config.ts) now ensures the sandbox runtime images exist before container creation, warms them in the background at app startup, and supports both the Python runtime (`python:3.11-slim`) and the JavaScript runtime (`node:22-bookworm-slim`)
   - [`src/lib/server/sandbox/config.ts`](./src/lib/server/sandbox/config.ts) must wait for exec inspection to report `Running === false` before the archive reader inspects `/output`; do not treat an early stream close as proof that the sandbox command has finished
   - [`src/lib/server/services/sandbox-execution.ts`](./src/lib/server/services/sandbox-execution.ts) must surface output-archive read failures as explicit execution errors instead of collapsing them into the same empty-file 422 path used for real zero-output runs
-  - File-production/server tracing now mainly uses `[FILE_PRODUCTION]`, `[CHAT_STREAM]`, `[CHAT_FILES]`, `[LANGFLOW]`, `[HONCHO]`, and `[MEMORY_MAINTENANCE]`; preserve those prefixes when extending the debugging path so node logs stay grep-friendly
+  - File-production/server tracing now mainly uses `[FILE_PRODUCTION]`, `[CHAT_STREAM]`, `[CHAT_FILES]`, `[NORMAL_CHAT_CONTEXT]`, `[HONCHO]`, and `[MEMORY_MAINTENANCE]`; preserve those prefixes when extending the debugging path so node logs stay grep-friendly
 
 Do:
 
@@ -188,18 +193,18 @@ Do:
 - let `src/lib/server/services/chat-turn/normalizer.ts` normalize assistant text through the shared stream-protocol helpers so `/send`, `/stream`, retries, and title generation use the same visible content shape
 - use `src/routes/api/chat/stream/stop/+server.ts` plus `chat-turn/active-streams.ts` for explicit user-requested aborts; do not overload passive disconnect handling for that purpose
 - keep route files thin and transport-oriented
-- preserve SSE event names and payload expectations unless the parser/UI/tests are intentionally updated together
+- preserve AI SDK UI stream part names and payload expectations unless the parser/UI/tests are intentionally updated together
 - use `FileProductionCard.svelte` for rendering AI-generated files in chat; legacy generated files should be backfilled into succeeded file-production jobs before display
 - use `document-workspace/DocumentWorkspace.svelte` plus route-owned state for in-chat document review; do not move active-document selection into generated-file rows or `DocumentPreviewRenderer.svelte`
 - use `DocumentWorkspace.svelte` as the single shell for generated files, chat attachments, library opens, and search-result opens; do not reintroduce separate modal viewers for those surfaces
 - keep the shared rich-preview stack lazy-loaded from `document-workspace/DocumentWorkspace.svelte`, `FileProductionCard.svelte`, and `document-workspace/DocumentPreviewRenderer.svelte`; do not static-import the heavy preview path back into the idle chat or knowledge shell
 - keep generated-file downloads on the canonical `/api/chat/files/[id]/download` route; do not invent conversation-scoped download URLs
 - `/api/chat/files/produce` may authenticate with either the signed-in session or a signed service assertion validated with `ALFYAI_API_SIGNING_KEY`; keep that service path conversation-scoped and internal
-- keep outbound file-production guidance in `langflow.ts` aligned with the unified `produce_file` tool contract: source-first documents use `document_source`, program artifacts write final files to `/output`, and generated files show up as durable job-backed cards
+- keep outbound file-production guidance in `normal-chat-context.ts` aligned with the unified `produce_file` tool contract: source-first documents use `document_source`, program artifacts write final files to `/output`, and generated files show up as durable job-backed cards
 - keep outbound file-production guidance explicit: when the user asks for a downloadable file and the tool exists, the model should call `produce_file` rather than merely describing a file in prose
 - keep generated-document source model-friendly at the boundary: normalize simple table shapes such as `headers` plus array `rows` into canonical columns/rows, and normalize simple Chart.js-style chart data into renderer-safe chart rows
-- keep the Langflow custom `File Production` component aligned with Langflow tool-mode docs: expose the actual `produce_file` output method as the tool and keep `conversationId` resolved from the Langflow session, not as a model-facing field
-- keep the model-facing output-list input named `requestedOutputs`, not `outputs`; `outputs` collides with Langflow component internals and can make Langflow try to JSON-serialize `Output` objects before the `/api/chat/files/produce` request is sent
+- keep the app-backed AI SDK `produce_file` tool scoped by server-owned `userId`, `conversationId`, and turn idempotency; do not expose those scope fields as model-facing inputs
+- keep the model-facing output-list input named `requestedOutputs`, not `outputs`, so generated-document guidance and tool schemas stay aligned
 - keep `produce_file` runtime guidance accurate: use `sourceMode: "document_source"` for PDF/DOCX/HTML reports from structured document source and `sourceMode: "program"` for code-generated data/office artifacts
 - generated files may offer an authenticated rich preview via `/api/chat/files/[id]/preview`; reuse the shared file viewer component instead of maintaining a second chat-only preview UI
 - working-document continuity should continue to build on generated-output artifacts plus Honcho sync.
@@ -209,11 +214,11 @@ Do:
 Do not:
 
 - duplicate turn logic between `send` and `stream`
-- add new SSE event shapes casually; this touches browser parsing and tests
+- add new AI SDK UI stream part shapes casually; this touches browser parsing and tests
 - hide persistence side effects inside route-local closures that only one endpoint can see
-- couple Langflow transport details directly into page components
+- couple provider transport details directly into page components
 - duplicate stream-tag parsing or inline-thinking extraction between the browser stream consumer and `api/chat/stream/+server.ts`
-- scatter freshness-sensitive search guards outside `langflow.ts`
+- scatter freshness-sensitive search guards outside `normal-chat-context.ts`
 
 ### Knowledge And Context
 
@@ -539,22 +544,13 @@ These services are actively imported but not documented in the feature sections 
 
 - Server utilities and helpers:
   - [`src/lib/server/auth/hooks.ts`](./src/lib/server/auth/hooks.ts) — `requireAuth`, `getBearerToken` helpers. Canonical auth enforcement point for API routes; mirrors `hooks.server.ts` logic in a reusable form.
-  - [`src/lib/server/services/attachment-trace.ts`](./src/lib/server/services/attachment-trace.ts) — logging helper for langflow/chat-file tracing. Adds `[FILE_PRODUCTION]`, `[CHAT_STREAM]`, `[CHAT_FILES]` correlation context. Consumed by stream-orchestrator and langflow.
+  - [`src/lib/server/services/attachment-trace.ts`](./src/lib/server/services/attachment-trace.ts) — logging helper for chat/file-production tracing. Adds `[FILE_PRODUCTION]`, `[CHAT_STREAM]`, `[CHAT_FILES]` correlation context. Consumed by stream-orchestrator and file-production services.
   - [`src/lib/server/services/language.ts`](./src/lib/server/services/language.ts) — language detection utilities. Consumed by chat-turn request handling and title prompt selection.
   - [`src/lib/server/services/conversation-drafts.ts`](./src/lib/server/services/conversation-drafts.ts) — draft management for conversations. Used by conversation routes for draft save/load.
-  - [`src/lib/server/services/webhook-buffer.ts`](./src/lib/server/services/webhook-buffer.ts) — sentence-level webhook buffering for streaming turns. Consumed by hooks.server.ts.
-  - [`src/lib/server/prompts.ts`](./src/lib/server/prompts.ts) — shared prompt configuration helpers. Consumed by langflow and honcho.
+  - [`src/lib/server/prompts.ts`](./src/lib/server/prompts.ts) — shared prompt configuration helpers. Consumed by Normal Chat context assembly and Honcho.
   - [`src/lib/server/api/responses.ts`](./src/lib/server/api/responses.ts) — shared JSON response helpers (`createJsonErrorResponse`, `createJsonResponse`) for API routes. Used across route files for consistent error/success formatting.
   - [`src/lib/server/services/analytics.ts`](./src/lib/server/services/analytics.ts) — analytics event ingestion. Consumed by chat-turn finalize.ts. Event ingestion endpoint at `src/routes/api/analytics/+server.ts`.
   - [`src/lib/server/services/file-production/`](./src/lib/server/services/file-production/) — durable file-production jobs, source validation, renderers, sandbox execution, retry/cancel, and legacy generated-file backfill.
-
-- Tool endpoints:
-  - [`src/routes/api/tools/image-search/+server.ts`](./src/routes/api/tools/image-search/+server.ts) — image search tool endpoint
-  - [`src/routes/api/tools/research-web/+server.ts`](./src/routes/api/tools/research-web/+server.ts) — signed web research tool endpoint
-
-- Webhook endpoints:
-  - [`src/routes/api/webhook/sentence/+server.ts`](./src/routes/api/webhook/sentence/+server.ts) — sentence webhook endpoint
-  - [`src/routes/api/stream/webhook/[sessionId]/+server.ts`](./src/routes/api/stream/webhook/[sessionId]/+server.ts) — stream webhook endpoint
 
 - Other API endpoints:
   - [`src/routes/api/chat/stream/buffer/+server.ts`](./src/routes/api/chat/stream/buffer/+server.ts) — stream buffer replay for reconnection
@@ -637,8 +633,12 @@ Do not:
 
 - New chat request/shared turn logic:
   - `src/lib/server/services/chat-turn/`
-- New Langflow transport behavior:
-  - `src/lib/server/services/langflow.ts`
+- New Normal Chat prompt/model/tool behavior:
+  - `src/lib/server/services/normal-chat-context.ts`
+  - `src/lib/server/services/normal-chat-model/`
+  - `src/lib/server/services/normal-chat-tools/`
+  - `src/lib/server/services/normal-chat-control-model.ts`
+  - `src/lib/server/services/normal-chat-failover.ts`
 - New admin-managed user account behavior:
   - `src/lib/server/services/user-admin.ts`
 - New knowledge artifact or context behavior:

@@ -2,11 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
-import {
-	BROWSER_CHAT_SSE_EVENTS,
-	decodeBrowserChatSseEvents,
-} from "$lib/services/stream-protocol";
 import type { ArtifactSummary, ContextDebugState, TaskState } from "$lib/types";
+import { decodeUiMessageStreamParts } from "./stream";
 import { completeStreamTurn } from "./stream-completion";
 
 vi.mock("$lib/server/config-store", () => ({
@@ -50,15 +47,15 @@ describe("completeStreamTurn", () => {
 
 	function getLatestEndPayload(): Record<string, unknown> {
 		const endEvent = mockEnqueueChunk.mock.calls
-			.flatMap((call: string[]) => decodeBrowserChatSseEvents(call[0] ?? ""))
+			.flatMap((call: string[]) => decodeUiMessageStreamParts(call[0] ?? ""))
 			.find(
-				(event) =>
-					event.event === BROWSER_CHAT_SSE_EVENTS.end &&
-					event.dataKind === "json",
+				(event) => event !== "[DONE]" && event.type === "data-stream-metadata",
 			);
 
 		expect(endEvent).toBeDefined();
-		return (endEvent?.data ?? {}) as Record<string, unknown>;
+		return endEvent !== "[DONE]"
+			? ((endEvent?.data ?? {}) as Record<string, unknown>)
+			: {};
 	}
 
 	function getContextSourceGroups(payload: Record<string, unknown>): unknown[] {
@@ -506,6 +503,49 @@ describe("completeStreamTurn", () => {
 		warnSpy.mockRestore();
 	});
 
+	it("starts a text part before a source-check notice when the original visible response is empty", async () => {
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await completeStreamTurn({
+			...defaultParams,
+			fullResponse: "",
+			toolCallRecords: [
+				{
+					name: "research_web",
+					input: { query: "current price" },
+					status: "done",
+					sourceType: "web",
+					candidates: [
+						{
+							id: "src-1",
+							title: "Official Product",
+							url: "https://example.com/product",
+							sourceType: "web",
+						},
+					],
+				},
+			],
+		});
+
+		const partTypes = mockEnqueueChunk.mock.calls
+			.flatMap((call: string[]) => decodeUiMessageStreamParts(call[0] ?? ""))
+			.map((event) => (event === "[DONE]" ? "[DONE]" : event.type));
+		const noticeCall = mockEnqueueChunk.mock.calls.find((call: string[]) =>
+			call[0]?.includes("Source check:"),
+		);
+		const noticeParts = decodeUiMessageStreamParts(noticeCall?.[0] ?? "");
+
+		expect(partTypes.indexOf("text-start")).toBeLessThan(
+			partTypes.indexOf("text-delta"),
+		);
+		expect(noticeParts).toEqual([
+			expect.objectContaining({ type: "text-delta" }),
+		]);
+		expect(partTypes).toEqual(expect.arrayContaining(["text-end", "finish"]));
+
+		warnSpy.mockRestore();
+	});
+
 	it("runs post-turn tasks after persistence", async () => {
 		await completeStreamTurn(defaultParams);
 
@@ -519,7 +559,7 @@ describe("completeStreamTurn", () => {
 		);
 	});
 
-	it("sends SSE event:end with correct payload shape", async () => {
+	it("sends UI stream metadata with the old end payload shape", async () => {
 		await completeStreamTurn(defaultParams);
 
 		const data = getLatestEndPayload();
@@ -535,6 +575,18 @@ describe("completeStreamTurn", () => {
 				modelDisplayName: "Model One",
 				generatedFiles: [],
 			}),
+		);
+		const partTypes = mockEnqueueChunk.mock.calls
+			.flatMap((call: string[]) => decodeUiMessageStreamParts(call[0] ?? ""))
+			.map((event) => (event === "[DONE]" ? "[DONE]" : event.type));
+		expect(partTypes).toEqual(
+			expect.arrayContaining([
+				"text-end",
+				"reasoning-end",
+				"data-stream-metadata",
+				"finish",
+				"[DONE]",
+			]),
 		);
 	});
 
@@ -732,12 +784,95 @@ describe("completeStreamTurn", () => {
 		);
 	});
 
+	it("keeps reconnect file-producing completion aligned with durable generated files", async () => {
+		mockGetStreamBuffer.mockReturnValue({ userMessage: "buffered message" });
+		mockGetFileProductionJobs.mockResolvedValue([
+			{ id: "job-existing", files: [{ id: "gf-existing" }] },
+			{ id: "job-new", files: [{ id: "gf-new" }] },
+		]);
+		mockGetChatFilesForMsg.mockResolvedValue([
+			{
+				id: "gf-new",
+				conversationId: "conv-1",
+				assistantMessageId: "asst-msg-1",
+				artifactId: "artifact-generated",
+				documentFamilyId: null,
+				documentFamilyStatus: null,
+				documentLabel: null,
+				documentRole: null,
+				versionNumber: null,
+				originConversationId: null,
+				originAssistantMessageId: null,
+				sourceChatFileId: null,
+				userId: "user-1",
+				filename: "reconnect-output.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 456,
+				storagePath: "private/conv-1/gf-new.pdf",
+				createdAt: 1_777_140_200,
+			},
+		]);
+
+		await completeStreamTurn({
+			...defaultParams,
+			isReconnect: true,
+			fileProductionJobIdsAtStart: new Set(["job-existing"]),
+			toolCallRecords: [{ name: "produce_file", status: "done" }],
+		});
+
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"user",
+			"buffered message",
+		);
+		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+			"asst-msg-1",
+			["job-new"],
+		);
+		const data = getLatestEndPayload();
+		expect(data.generatedFiles).toEqual([
+			expect.objectContaining({
+				id: "gf-new",
+				conversationId: "conv-1",
+				assistantMessageId: "asst-msg-1",
+				artifactId: "artifact-generated",
+				filename: "reconnect-output.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 456,
+				createdAt: 1_777_140_200,
+			}),
+		]);
+		expect(JSON.stringify(data.generatedFiles)).not.toContain("storagePath");
+		expect(JSON.stringify(data.generatedFiles)).not.toContain("user-1");
+	});
+
 	it("attaches produce_file jobs for completed streams with empty visible text", async () => {
 		mockGetFileProductionJobs.mockResolvedValue([
 			{ id: "job-new", files: [{ id: "gf-new" }] },
 		]);
 		mockGetChatFilesForMsg.mockResolvedValue([
-			{ id: "gf-new", name: "output.txt" },
+			{
+				id: "gf-new",
+				conversationId: "conv-1",
+				assistantMessageId: "asst-msg-1",
+				artifactId: "artifact-generated",
+				documentFamilyId: "family-1",
+				documentFamilyStatus: "active",
+				documentLabel: "Output",
+				documentRole: "primary",
+				versionNumber: 2,
+				originConversationId: "conv-1",
+				originAssistantMessageId: "asst-msg-1",
+				sourceChatFileId: null,
+				userId: "user-1",
+				filename: "output.txt",
+				mimeType: "text/plain",
+				sizeBytes: 123,
+				storagePath: "private/conv-1/gf-new.txt",
+				createdAt: 1_777_140_100,
+			},
 		]);
 
 		await completeStreamTurn({
@@ -768,7 +903,28 @@ describe("completeStreamTurn", () => {
 		);
 		const data = getLatestEndPayload();
 		expect(data.assistantMessageId).toBe("asst-msg-1");
-		expect(data.generatedFiles).toEqual([{ id: "gf-new", name: "output.txt" }]);
+		expect(data.generatedFiles).toEqual([
+			{
+				id: "gf-new",
+				conversationId: "conv-1",
+				assistantMessageId: "asst-msg-1",
+				artifactId: "artifact-generated",
+				documentFamilyId: "family-1",
+				documentFamilyStatus: "active",
+				documentLabel: "Output",
+				documentRole: "primary",
+				versionNumber: 2,
+				originConversationId: "conv-1",
+				originAssistantMessageId: "asst-msg-1",
+				sourceChatFileId: null,
+				filename: "output.txt",
+				mimeType: "text/plain",
+				sizeBytes: 123,
+				createdAt: 1_777_140_100,
+			},
+		]);
+		expect(JSON.stringify(data.generatedFiles)).not.toContain("storagePath");
+		expect(JSON.stringify(data.generatedFiles)).not.toContain("user-1");
 	});
 
 	it("attaches new file-production jobs from produce_file to the assistant message", async () => {
@@ -796,9 +952,7 @@ describe("completeStreamTurn", () => {
 
 		await completeStreamTurn({
 			...defaultParams,
-			toolCallRecords: [
-				{ name: "File Production", status: "done" },
-			],
+			toolCallRecords: [{ name: "File Production", status: "done" }],
 		});
 
 		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
@@ -814,7 +968,24 @@ describe("completeStreamTurn", () => {
 			{ id: "job-new", files: [{ id: "gf-new" }] },
 		]);
 		mockGetChatFilesForMsg.mockResolvedValue([
-			{ id: "gf-new", name: "output.txt" },
+			{
+				id: "gf-new",
+				conversationId: "conv-1",
+				assistantMessageId: "asst-msg-1",
+				artifactId: "artifact-generated",
+				documentFamilyId: null,
+				documentFamilyStatus: null,
+				documentLabel: null,
+				documentRole: null,
+				versionNumber: null,
+				originConversationId: null,
+				originAssistantMessageId: null,
+				sourceChatFileId: null,
+				filename: "output.txt",
+				mimeType: "text/plain",
+				sizeBytes: 123,
+				createdAt: 1_777_140_100,
+			},
 		]);
 
 		await completeStreamTurn({

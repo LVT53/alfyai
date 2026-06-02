@@ -4,9 +4,9 @@ AlfyAI will treat Normal Chat Client Turn Runtime as an explicit browser-side bo
 
 The runtime is a plain TypeScript client module above `streamChat`. It depends on injected page adapters for visible message updates, draft and queue state, metadata fan-out, polling, hydration, and UI-visible side effects. The chat page keeps Svelte state, route lifecycle, document workspace ownership, Deep Research controls, skill/session UI commands, and rendering.
 
-`src/lib/services/streaming.ts` remains the browser transport boundary. It starts, reconnects, detaches, stops, and decodes Browser SSE through the Browser SSE Protocol helpers. The Normal Chat Client Turn Runtime consumes decoded callbacks from that transport; it does not parse raw Browser SSE lines, define event names, or own replay framing.
+`src/lib/services/streaming.ts` remains the browser transport boundary. It starts, reconnects, detaches, stops, and decodes AI SDK UI stream parts. The Normal Chat Client Turn Runtime consumes decoded callbacks from that transport; it does not parse raw stream lines, define part names, or own replay framing.
 
-`src/lib/services/stream-protocol.ts` remains the Browser SSE Protocol grammar boundary. `src/lib/server/services/chat-turn/finalize.ts` and adjacent chat-turn modules remain the durable Normal Chat Turn Completion boundary. The runtime applies server-returned metadata through page adapters, but it does not build Context Sources or decide durable message, evidence, skill, Honcho, task, memory, or file-production completion order.
+`src/lib/server/services/chat-turn/stream.ts` owns AI SDK UI stream framing. `src/lib/server/services/chat-turn/finalize.ts` and adjacent chat-turn modules remain the durable Normal Chat Turn Completion boundary. The runtime applies server-returned metadata through page adapters, but it does not build Context Sources or decide durable message, evidence, skill, Honcho, task, memory, or file-production completion order.
 
 **Considered Options**
 
@@ -22,4 +22,4 @@ We chose a plain TypeScript runtime because the semantics are behavioral and tes
 - New browser-side Normal Chat turn transitions should enter through `src/lib/client/normal-chat-client-turn-runtime.ts`.
 - The chat page should expose adapters for visible Svelte state, route lifecycle effects, document workspace state, and UI commands instead of owning runtime sequencing inline.
 - Runtime tests should verify observable turn-state transitions through the runtime interface, not page internals.
-- The runtime should consume decoded callbacks and metadata only; Browser SSE event grammar changes belong in `src/lib/services/stream-protocol.ts`, and durable completion changes belong in chat-turn.
+- The runtime should consume decoded callbacks and metadata only; AI SDK UI stream part changes belong in `src/lib/server/services/chat-turn/stream.ts` and `src/lib/services/streaming.ts`, and durable completion changes belong in chat-turn.

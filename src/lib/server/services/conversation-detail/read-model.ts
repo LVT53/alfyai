@@ -20,6 +20,7 @@ import {
 	getConversationWorkingSet,
 	listConversationArtifacts,
 } from "$lib/server/services/knowledge";
+import { listConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
 import { listMessages } from "$lib/server/services/messages";
 import {
 	getActiveSkillSession,
@@ -83,6 +84,7 @@ export async function getConversationDetail({
 		messageHistory,
 		forkOrigin,
 		attachedArtifacts,
+		linkedSources,
 		activeWorkingSet,
 		contextStatus,
 		taskState,
@@ -99,6 +101,9 @@ export async function getConversationDetail({
 		listMessages(conversationId),
 		getConversationForkOrigin(conversationId),
 		listConversationArtifacts(userId, conversationId),
+		listConversationLinkedContextSources({ userId, conversationId }).catch(
+			() => [],
+		),
 		getConversationWorkingSet(userId, conversationId),
 		getConversationContextStatus(userId, conversationId),
 		getConversationTaskState(userId, conversationId),
@@ -133,6 +138,7 @@ export async function getConversationDetail({
 		contextStatus,
 		contextDebug,
 		attachedArtifacts,
+		linkedSources,
 		activeWorkingSet,
 		projectReference,
 	});

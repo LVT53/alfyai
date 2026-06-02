@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+	sendJsonControlMessage: vi.fn(),
+}));
+
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
 }));
@@ -24,6 +28,10 @@ vi.mock("$lib/server/services/context-compression", () => ({
 
 vi.mock("$lib/server/services/chat-turn/active-streams", () => ({
 	getOrphanedStream: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/normal-chat-control-model", () => ({
+	sendJsonControlMessage: mocks.sendJsonControlMessage,
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
@@ -131,6 +139,9 @@ describe("POST /api/conversations/[id]/context-compression", () => {
 				priorSnapshot: null,
 			}),
 		);
+		expect(
+			mockRunContextCompression.mock.calls[0]?.[0].controlMessageSender,
+		).toBe(mocks.sendJsonControlMessage);
 		expect(data.snapshot).toEqual({
 			id: "snapshot-1",
 			trigger: "manual",

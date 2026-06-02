@@ -41,9 +41,6 @@ export default async function globalSetup() {
           ...process.env,
           DATABASE_PATH: dbPath,
           SESSION_SECRET: process.env.SESSION_SECRET || 'e2e-test-session-secret-long-enough-1234567890',
-          LANGFLOW_API_KEY: process.env.LANGFLOW_API_KEY || 'test-key',
-          LANGFLOW_API_URL: process.env.LANGFLOW_API_URL || 'http://localhost:7860',
-          LANGFLOW_FLOW_ID: process.env.LANGFLOW_FLOW_ID || 'test-flow-id',
         }
       }
     );
@@ -66,9 +63,6 @@ export default async function globalSetup() {
           ...process.env,
           DATABASE_PATH: dbPath,
           SESSION_SECRET: process.env.SESSION_SECRET || 'e2e-test-session-secret-long-enough-1234567890',
-          LANGFLOW_API_KEY: process.env.LANGFLOW_API_KEY || 'test-key',
-          LANGFLOW_API_URL: process.env.LANGFLOW_API_URL || 'http://localhost:7860',
-          LANGFLOW_FLOW_ID: process.env.LANGFLOW_FLOW_ID || 'test-flow-id',
         }
       }
     );

@@ -1,21 +1,36 @@
-import { ReadableStream } from "node:stream/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { requestActiveChatStreamStop } from "$lib/server/services/chat-turn/active-streams";
 import { runChatStreamOrchestrator } from "./stream-orchestrator";
 import type { ChatTurnPreflight } from "./types";
 
 vi.mock("$lib/server/config-store", () => ({
-	getConfig: vi.fn(() => ({ requestTimeoutMs: 30000 })),
+	getConfig: vi.fn(() => ({
+		requestTimeoutMs: 30000,
+		composerCommandRegistryEnabled: true,
+		modelTimeoutFailoverEnabled: false,
+		modelTimeoutFailoverTargetModel: null,
+		modelTimeoutFailoverTimeoutMs: 1000,
+	})),
 }));
 
 vi.mock("$lib/server/services/conversations", () => ({
 	touchConversation: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock("$lib/server/services/langflow", () => ({
-	isLangflowTimeoutError: vi.fn(() => false),
-	resolveTimeoutFailoverTargetModelId: vi.fn(() => Promise.resolve(null)),
-	sendMessage: vi.fn(),
-	sendMessageStream: vi.fn(),
+vi.mock("$lib/server/services/normal-chat-failover", () => ({
+	isModelTimeoutError: vi.fn(() => false),
+	resolveModelTimeoutFailoverTargetModelId: vi.fn(() => Promise.resolve(null)),
+}));
+
+vi.mock(
+	"$lib/server/services/chat-turn/streaming-normal-chat-model-run",
+	() => ({
+		runStreamingNormalChatSendModel: vi.fn(),
+	}),
+);
+
+vi.mock("$lib/server/services/chat-turn/plain-normal-chat-model-run", () => ({
+	runPlainNormalChatSendModel: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
@@ -62,13 +77,50 @@ vi.mock("$lib/server/services/file-production", () => ({
 	listConversationFileProductionJobs: vi.fn(() => Promise.resolve([])),
 }));
 
-vi.mock("$lib/server/services/analytics", () => ({
-	extractProviderUsage: vi.fn(() => null),
-}));
-
 vi.mock("$lib/utils/tokens", () => ({
 	estimateTokenCount: vi.fn(() => 100),
 }));
+
+type NeutralStreamEvent =
+	| { type: "text_delta"; text: string }
+	| { type: "reasoning_delta"; text: string }
+	| { type: "tool_call"; callId: string; toolName: string; input: unknown }
+	| { type: "tool_result"; callId: string; toolName: string; output: unknown }
+	| { type: "tool_error"; callId: string; toolName: string; error: string }
+	| {
+			type: "usage";
+			usage: {
+				inputTokens?: number;
+				outputTokens?: number;
+				totalTokens?: number;
+			};
+	  }
+	| {
+			type: "finish";
+			finishReason: string;
+			rawFinishReason: string | undefined;
+			model: {
+				providerId: string;
+				providerName: string;
+				displayName: string;
+				requestedModelName: string;
+				responseModelName: string;
+			};
+	  }
+	| { type: "error"; error: string };
+
+const finishEvent: NeutralStreamEvent = {
+	type: "finish",
+	finishReason: "stop",
+	rawFinishReason: "stop",
+	model: {
+		providerId: "model-1",
+		providerName: "Model One",
+		displayName: "Model One",
+		requestedModelName: "model-1",
+		responseModelName: "model-1",
+	},
+};
 
 async function readSseResponse(response: Response): Promise<string[]> {
 	const reader = response.body?.getReader();
@@ -90,6 +142,32 @@ async function readSseResponse(response: Response): Promise<string[]> {
 	return chunks;
 }
 
+function parseUiStreamParts(
+	chunks: string[],
+): Array<Record<string, unknown> | "[DONE]"> {
+	return chunks.flatMap((chunk) =>
+		chunk
+			.split("\n")
+			.filter((line) => line.startsWith("data: "))
+			.map((line) => {
+				const data = line.slice("data: ".length);
+				return data === "[DONE]"
+					? "[DONE]"
+					: (JSON.parse(data) as Record<string, unknown>);
+			}),
+	);
+}
+
+function uiDataParts<T extends Record<string, unknown>>(
+	parts: Array<Record<string, unknown> | "[DONE]">,
+	type: string,
+): T[] {
+	return parts
+		.filter((part): part is Record<string, unknown> => part !== "[DONE]")
+		.filter((part) => part.type === type)
+		.map((part) => part.data as T);
+}
+
 function createTurn(
 	overrides: Partial<ChatTurnPreflight> = {},
 ): ChatTurnPreflight {
@@ -108,102 +186,46 @@ function createTurn(
 	};
 }
 
-function createTokenStream(text: string): ReadableStream<Uint8Array> {
-	const encoder = new TextEncoder();
-	return new ReadableStream({
-		start(controller) {
-			controller.enqueue(
-				encoder.encode(
-					`event: token\ndata: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`,
-				),
-			);
-			controller.enqueue(encoder.encode("event: end\ndata: [DONE]\n\n"));
-			controller.close();
-		},
-	});
-}
-
-function createErrorEventStream(message: string): ReadableStream<Uint8Array> {
-	const encoder = new TextEncoder();
-	return new ReadableStream({
-		start(controller) {
-			controller.enqueue(
-				encoder.encode(
-					`event: error\ndata: ${JSON.stringify({ message })}\n\n`,
-				),
-			);
-			controller.close();
-		},
-	});
-}
-
-function createEventBlockStream(blocks: string[]): ReadableStream<Uint8Array> {
-	const encoder = new TextEncoder();
-	return new ReadableStream({
-		start(controller) {
-			for (const block of blocks) {
-				controller.enqueue(encoder.encode(block));
-			}
-			controller.close();
-		},
-	});
-}
-
-function createHangingStream(): ReadableStream<Uint8Array> {
-	return new ReadableStream({
-		start() {
-			/* keep upstream read pending */
-		},
-	});
-}
-
-function createHangingEventBlockStream(blocks: string[]): {
-	stream: ReadableStream<Uint8Array>;
-	enqueue: (block: string) => void;
-	close: () => void;
-} {
-	const encoder = new TextEncoder();
-	let upstreamController: ReadableStreamDefaultController<Uint8Array> | null =
-		null;
-
+function createNeutralStreamingResult(
+	events: NeutralStreamEvent[],
+	overrides: Record<string, unknown> = {},
+) {
+	const normalChatToolCalls =
+		(overrides.normalChatToolCalls as unknown[] | undefined) ?? [];
 	return {
-		stream: new ReadableStream({
-			start(controller) {
-				upstreamController = controller;
-				for (const block of blocks) {
-					controller.enqueue(encoder.encode(block));
-				}
-			},
-		}),
-		enqueue(block: string) {
-			upstreamController?.enqueue(encoder.encode(block));
+		prepared: {
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			contextTraceSections: undefined,
 		},
-		close() {
-			try {
-				upstreamController?.close();
-			} catch {
-				/* stream may already be closed by the test path */
+		modelId: "model-1",
+		modelDisplayName: "Model One",
+		stream: (async function* () {
+			for (const event of events) {
+				yield event;
 			}
-		},
+		})(),
+		prefetchedToolCalls: [],
+		getNormalChatToolCalls: () => normalChatToolCalls,
+		getToolCalls: () => normalChatToolCalls,
+		...overrides,
 	};
 }
 
-function createErroredStream(
-	blocks: string[],
-	error: Error,
-): ReadableStream<Uint8Array> {
-	const encoder = new TextEncoder();
-	let index = 0;
-	return new ReadableStream({
-		pull(controller) {
-			const block = blocks[index];
-			if (block !== undefined) {
-				index += 1;
-				controller.enqueue(encoder.encode(block));
-				return;
-			}
-			controller.error(error);
+function runStream(overrides: Partial<ChatTurnPreflight> = {}) {
+	return runChatStreamOrchestrator({
+		user: {
+			id: "u1",
+			displayName: "User",
+			email: "u@test.com",
 		},
+		turn: createTurn(overrides),
+		upstreamMessage: "Hello",
+		downstreamAbortSignal: new AbortController().signal,
+		requestStartTime: Date.now(),
 	});
 }
 
@@ -258,60 +280,77 @@ describe("stream-orchestrator SSE contract", () => {
 		vi.useRealTimers();
 	});
 
-	it("produces SSE prelude comment as first chunk", async () => {
-		const { sendMessageStream } = await import("$lib/server/services/langflow");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: (async function* () {
-				yield {
-					event: "token",
-					data: { choices: [{ delta: { content: "Hi" } }] },
-				};
-				yield { event: "end", data: "[DONE]" };
-			})(),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
+	it("emits AI SDK UI message parts from neutral model stream events", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
 
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn(),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
+		const response = runStream();
 		const chunks = await readSseResponse(response);
+		const body = chunks.join("\n\n");
+		const parts = parseUiStreamParts(chunks);
+
 		expect(chunks[0]).toContain(": ");
 		expect(chunks[0]).not.toContain("event:");
+		expect(body).not.toContain("event: token");
+		expect(body).not.toContain("event: end");
+		expect(parts).toEqual(
+			expect.arrayContaining([
+				{ type: "text-start", id: "answer" },
+				{ type: "text-delta", id: "answer", delta: "Hi" },
+				{ type: "text-end", id: "answer" },
+				expect.objectContaining({
+					type: "data-stream-metadata",
+					transient: true,
+					data: expect.objectContaining({
+						responseTokenCount: 100,
+						modelId: "model-1",
+					}),
+				}),
+				{ type: "finish", finishReason: "stop" },
+				"[DONE]",
+			]),
+		);
+		expect(runStreamingNormalChatSendModel).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "u1",
+				message: "Hello",
+				conversationId: "test-conv",
+				modelId: "model-1",
+				signal: expect.any(AbortSignal),
+			}),
+		);
 	});
 
-	it("logs structured phase timing without emitting timing SSE events", async () => {
+	it("logs provider-neutral stream timing without emitting timing SSE events", async () => {
 		const infoSpy = vi
 			.spyOn(console, "info")
 			.mockImplementation(() => undefined);
 		const { getConfig } = await import("$lib/server/config-store");
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
 		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
 			requestTimeoutMs: 30000,
+			composerCommandRegistryEnabled: true,
 			contextDiagnosticsDebug: true,
 		});
-		const { sendMessageStream } = await import("$lib/server/services/langflow");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createTokenStream("Hi"),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
 
 		const response = runChatStreamOrchestrator({
 			user: {
@@ -327,21 +366,31 @@ describe("stream-orchestrator SSE contract", () => {
 		});
 
 		const chunks = await readSseResponse(response);
-		const eventNames = chunks
-			.filter((chunk) => chunk.startsWith("event: "))
-			.map((chunk) => chunk.slice("event: ".length).split("\n")[0]);
+		const body = chunks.join("\n\n");
+		const partTypes = parseUiStreamParts(chunks)
+			.filter((part): part is Record<string, unknown> => part !== "[DONE]")
+			.map((part) => part.type);
 		const phaseTimingLog = infoSpy.mock.calls.find(
 			([message]) => message === "[CHAT_STREAM] phase_timing",
 		);
 
-		expect(new Set(eventNames)).toEqual(new Set(["token", "end"]));
+		expect(body).not.toContain("event:");
+		expect(new Set(partTypes)).toEqual(
+			new Set([
+				"text-start",
+				"text-delta",
+				"text-end",
+				"data-stream-metadata",
+				"finish",
+			]),
+		);
 		expect(phaseTimingLog?.[1]).toEqual(
 			expect.objectContaining({
 				conversationId: "test-conv",
 				streamId: "test-stream",
 				route_parse_ms: expect.any(Number),
 				prelude_ms: expect.any(Number),
-				langflow_request_ms: expect.any(Number),
+				model_stream_request_ms: expect.any(Number),
 				first_upstream_event_ms: expect.any(Number),
 				first_visible_token_ms: expect.any(Number),
 				end_ms: expect.any(Number),
@@ -349,1183 +398,336 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
-	it("produces event: end with all required fields", async () => {
-		const { sendMessageStream } = await import("$lib/server/services/langflow");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createTokenStream("Hello world"),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn(),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunks = await readSseResponse(response);
-		const endChunk = chunks.find((c) => c.startsWith("event: end"));
-		expect(endChunk).toBeDefined();
-		if (!endChunk) throw new Error("Missing end chunk");
-
-		const jsonStr = endChunk.replace("event: end\ndata: ", "");
-		const payload = JSON.parse(jsonStr);
-
-		expect(payload).toHaveProperty("thinkingTokenCount");
-		expect(payload).toHaveProperty("responseTokenCount");
-		expect(payload).toHaveProperty("totalTokenCount");
-		expect(payload).toHaveProperty("wasStopped");
-		expect(payload).toHaveProperty("userMessageId");
-		expect(payload).toHaveProperty("assistantMessageId");
-		expect(payload).toHaveProperty("modelId");
-		expect(payload).toHaveProperty("modelDisplayName");
-		expect(payload).toHaveProperty("contextStatus");
-		expect(payload).toHaveProperty("contextSources");
-		expect(payload).toHaveProperty("activeWorkingSet");
-		expect(payload).toHaveProperty("taskState");
-		expect(payload).toHaveProperty("contextDebug");
-		expect(payload).toHaveProperty("generatedFiles");
-	});
-
-	it("sends event: error on upstream error", async () => {
-		const { sendMessageStream } = await import("$lib/server/services/langflow");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockRejectedValue(
-			new Error("upstream failure"),
+	it("propagates prepared context into finalization and end payload", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn(),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunks = await readSseResponse(response);
-		const errorChunk = chunks.find((c) => c.startsWith("event: error"));
-		expect(errorChunk).toBeDefined();
-		expect(errorChunk).toContain('"code"');
-	});
-
-	it("persists a concise assistant error message when Langflow emits a validation error event", async () => {
-		const { sendMessageStream } = await import("$lib/server/services/langflow");
 		const { persistAssistantTurnState } = await import(
 			"$lib/server/services/chat-turn/finalize"
 		);
-		const rawError = [
-			"1 validation error for InputSchema",
-			"documentSource",
-			"  Input should be a valid string [type=string_type, input_value={'type':'document_source','document':{'title':'Long raw source'}}, input_type=dict]",
-			"    For further information visit https://errors.pydantic.dev/2.11/v/string_type",
-			"Traceback (most recent call last):",
-			'  File "/app/.venv/lib/python3.12/site-packages/langflow/custom.py", line 99, in build',
-		].join("\n");
-
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createEventBlockStream([
-				`event: error\ndata: ${JSON.stringify({ text: rawError })}\n\n`,
-			]),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
+		const prepared = {
+			contextStatus: { mode: "constructed", tokenCount: 12 },
+			taskState: { id: "task-1", title: "Plan" },
+			contextDebug: {
+				activeTaskId: "task-1",
+				activeTaskObjective: "Plan",
+				taskLocked: false,
+				routingStage: "deterministic",
+				routingConfidence: 0.9,
+				verificationStatus: "passed",
+				selectedEvidence: [],
+				selectedEvidenceBySource: [],
+				pinnedEvidence: [],
+				excludedEvidence: [],
 			},
-			turn: createTurn({
-				conversationId: "validation-error-conv",
-				streamId: "validation-error-stream",
-			}),
-			upstreamMessage: "Create a document",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
+			honchoContext: { source: "live" },
+			honchoSnapshot: { summary: "Snapshot" },
+			contextTraceSections: [{ title: "Trace", items: [] }],
+		};
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult(
+				[{ type: "text_delta", text: "Prepared answer" }, finishEvent],
+				{ prepared },
+			),
+		);
 
-		const body = (await readSseResponse(response)).join("\n\n");
-		expect(body).toContain("event: token");
-		expect(body).toContain("I couldn't complete that request");
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(body).not.toContain("errors.pydantic.dev");
-		expect(body).not.toContain("Traceback");
-		expect(body).not.toContain("input_value=");
-		expect(body).not.toContain("documentSource");
+		const response = runStream();
+		const chunks = await readSseResponse(response);
+		const parts = parseUiStreamParts(chunks);
+		const endPayload = uiDataParts<Record<string, unknown>>(
+			parts,
+			"data-stream-metadata",
+		)[0];
 
 		expect(persistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
-				conversationId: "validation-error-conv",
-				assistantResponse: expect.stringContaining(
-					"I couldn't complete that request",
-				),
+				contextStatus: prepared.contextStatus,
+				initialTaskState: prepared.taskState,
+				initialContextDebug: prepared.contextDebug,
+				honchoContext: prepared.honchoContext,
+				honchoSnapshot: prepared.honchoSnapshot,
 			}),
 		);
-		const persistedResponse = (
-			persistAssistantTurnState as ReturnType<typeof vi.fn>
-		).mock.calls.at(-1)?.[0]?.assistantResponse;
-		expect(persistedResponse).not.toContain("errors.pydantic.dev");
-		expect(persistedResponse).not.toContain("Traceback");
-		expect(persistedResponse).not.toContain("input_value=");
-		expect(persistedResponse).not.toContain("documentSource");
+		expect(endPayload.contextStatus).toEqual(prepared.contextStatus);
 	});
 
-	it("does not replace a completed file-production tool-only stream with a generic error message", async () => {
-		const { sendMessage, sendMessageStream } = await import(
-			"$lib/server/services/langflow"
+	it("maps AI SDK tool call and result events to recorder-backed tool_call SSE metadata", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createEventBlockStream([
-				`data: ${JSON.stringify({
-					choices: [
-						{
-							delta: {
-								tool_calls: [
-									{
-										id: "file-call-1",
-										function: {
-											name: "produce_file",
-											arguments: JSON.stringify({
-												requestTitle: "Report",
-												sourceMode: "program",
-												requestedOutputs: [{ type: "pdf" }],
-											}),
-										},
-									},
-								],
-							},
-							finish_reason: "tool_calls",
-						},
-					],
-				})}\n\n`,
-				`event: error\ndata: ${JSON.stringify({ text: "Langflow emitted a late bookkeeping error" })}\n\n`,
-			]),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "file-tool-error-conv",
-				streamId: "file-tool-error-stream",
-			}),
-			upstreamMessage: "Make a file",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const body = (await readSseResponse(response)).join("\n\n");
-		expect(body).toContain("event: tool_call");
-		expect(body).toContain('"name":"produce_file"');
-		expect(body).toContain('"status":"done"');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: token");
-		expect(body).not.toContain("I couldn't complete that request");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).not.toHaveBeenCalled();
-	});
-
-	it("falls back to non-streaming when the upstream body terminates before output", async () => {
-		const { sendMessage, sendMessageStream } = await import(
-			"$lib/server/services/langflow"
-		);
-		const terminatedError = new TypeError("terminated") as Error & {
-			cause?: unknown;
+		const recorderEntry = {
+			callId: "call-1",
+			name: "research_web",
+			input: { query: "SvelteKit docs" },
+			status: "done",
+			outputSummary: "Found current SvelteKit docs.",
+			sourceType: "web",
+			candidates: [
+				{
+					id: "candidate-1",
+					title: "SvelteKit Docs",
+					sourceType: "web",
+					selected: true,
+				},
+			],
+			metadata: { ok: true, evidenceReady: true },
 		};
-		terminatedError.cause = { code: "UND_ERR_SOCKET" };
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createErroredStream([], terminatedError),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "Recovered answer",
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn(),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunks = await readSseResponse(response);
-		const body = chunks.join("\n\n");
-		expect(body).toContain('event: token\ndata: {"text":"Recovered answer"}');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).toHaveBeenCalledTimes(1);
-	});
-
-	it("falls back to non-streaming when termination leaves only buffered output", async () => {
-		const { sendMessage, sendMessageStream } = await import(
-			"$lib/server/services/langflow"
-		);
-		const terminatedError = new TypeError("terminated") as Error & {
-			cause?: unknown;
-		};
-		terminatedError.cause = { code: "UND_ERR_SOCKET" };
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createErroredStream(
-				['event: token\ndata: {"text":"Response"}\n\n'],
-				terminatedError,
-			),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "Recovered answer",
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn(),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunks = await readSseResponse(response);
-		const body = chunks.join("\n\n");
-		expect(body).toContain('event: token\ndata: {"text":"Recovered answer"}');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).toHaveBeenCalledTimes(1);
-	});
-
-	it("keeps partial streamed output when the upstream body terminates after output starts", async () => {
-		const { sendMessage, sendMessageStream } = await import(
-			"$lib/server/services/langflow"
-		);
-		const terminatedError = new TypeError("terminated") as Error & {
-			cause?: unknown;
-		};
-		terminatedError.cause = { code: "UND_ERR_SOCKET" };
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createErroredStream(
-				['event: token\ndata: {"text":"Partial answer"}\n\n'],
-				terminatedError,
-			),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn(),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunks = await readSseResponse(response);
-		const body = chunks.join("\n\n");
-		expect(body).toContain('event: token\ndata: {"text":"Partial answer"}');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).not.toHaveBeenCalled();
-	});
-
-	it("fails predictably when upstream streaming goes idle", async () => {
-		vi.useFakeTimers();
-		const { getConfig } = await import("$lib/server/config-store");
-		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-			requestTimeoutMs: 120000,
-		});
-		const { sendMessageStream } = await import("$lib/server/services/langflow");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createHangingStream(),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn(),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunksPromise = readSseResponse(response);
-		await vi.advanceTimersByTimeAsync(60_000);
-
-		const chunks = await chunksPromise;
-		const body = chunks.join("\n\n");
-		expect(body).toContain("event: error");
-		expect(body).toContain('"code":"timeout"');
-	});
-
-	it("routes idle streams with no output to the configured failover model", async () => {
-		vi.useFakeTimers();
-		const { getConfig } = await import("$lib/server/config-store");
-		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-			requestTimeoutMs: 120000,
-		});
-		const {
-			resolveTimeoutFailoverTargetModelId,
-			sendMessage,
-			sendMessageStream,
-		} = await import("$lib/server/services/langflow");
 		(
-			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
-		).mockResolvedValue("model2");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createHangingStream(),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "Backup answer",
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-			modelId: "model2",
-			modelDisplayName: "Model Two",
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "failover-conv",
-				streamId: "failover-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunksPromise = readSseResponse(response);
-		await vi.advanceTimersByTimeAsync(60_000);
-
-		const chunks = await chunksPromise;
-		const body = chunks.join("\n\n");
-		expect(body).toContain('event: token\ndata: {"text":"Backup answer"}');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).toHaveBeenCalledWith(
-			"Hello",
-			"failover-conv",
-			"model2",
-			expect.any(Object),
-			expect.any(Object),
-		);
-	});
-
-	it("uses the configured failover timeout while waiting for first visible stream output", async () => {
-		vi.useFakeTimers();
-		const { getConfig } = await import("$lib/server/config-store");
-		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-			requestTimeoutMs: 120000,
-			modelTimeoutFailoverEnabled: true,
-			modelTimeoutFailoverTimeoutMs: 10000,
-			modelTimeoutFailoverTargetModel: "model2",
-		});
-		const {
-			resolveTimeoutFailoverTargetModelId,
-			sendMessage,
-			sendMessageStream,
-		} = await import("$lib/server/services/langflow");
-		(
-			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
-		).mockResolvedValue("model2");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createHangingStream(),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "Backup answer",
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-			modelId: "model2",
-			modelDisplayName: "Model Two",
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "configured-timeout-failover-conv",
-				streamId: "configured-timeout-failover-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunksPromise = readSseResponse(response);
-		await vi.advanceTimersByTimeAsync(9999);
-		expect(sendMessage).not.toHaveBeenCalled();
-		await vi.advanceTimersByTimeAsync(1);
-
-		const chunks = await chunksPromise;
-		const body = chunks.join("\n\n");
-		expect(body).toContain('event: token\ndata: {"text":"Backup answer"}');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).toHaveBeenCalledWith(
-			"Hello",
-			"configured-timeout-failover-conv",
-			"model2",
-			expect.any(Object),
-			expect.any(Object),
-		);
-	});
-
-	it("does not start first-visible-output failover while preparing the upstream stream", async () => {
-		vi.useFakeTimers();
-		const { getConfig } = await import("$lib/server/config-store");
-		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-			requestTimeoutMs: 120000,
-			modelTimeoutFailoverEnabled: true,
-			modelTimeoutFailoverTimeoutMs: 10000,
-			modelTimeoutFailoverTargetModel: "model2",
-		});
-		const {
-			resolveTimeoutFailoverTargetModelId,
-			sendMessage,
-			sendMessageStream,
-		} = await import("$lib/server/services/langflow");
-		(
-			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
-		).mockResolvedValue("model2");
-		let resolvePreparedStream:
-			| ((
-					value: Awaited<ReturnType<typeof sendMessageStream>>,
-			  ) => void)
-			| null = null;
-		const preparedStream = new Promise<
-			Awaited<ReturnType<typeof sendMessageStream>>
-		>((resolve) => {
-			resolvePreparedStream = resolve;
-		});
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockReturnValue(
-			preparedStream,
-		);
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "Backup answer",
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-			modelId: "model2",
-			modelDisplayName: "Model Two",
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "preparing-stream-timeout-conv",
-				streamId: "preparing-stream-timeout-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunksPromise = readSseResponse(response);
-		await vi.advanceTimersByTimeAsync(10000);
-		await Promise.resolve();
-		expect(sendMessage).not.toHaveBeenCalled();
-
-		resolvePreparedStream?.({
-			stream: createTokenStream("Prepared answer"),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const chunks = await chunksPromise;
-		const body = chunks.join("\n\n");
-		expect(body).toContain('event: token\ndata: {"text":"Prepared answer"}');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).not.toHaveBeenCalled();
-	});
-
-	it("does not trigger first-visible-output failover after tool-call progress before answer text", async () => {
-		vi.useFakeTimers();
-		const { getConfig } = await import("$lib/server/config-store");
-		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-			requestTimeoutMs: 120000,
-			modelTimeoutFailoverEnabled: true,
-			modelTimeoutFailoverTimeoutMs: 10000,
-			modelTimeoutFailoverTargetModel: "model2",
-		});
-		const {
-			resolveTimeoutFailoverTargetModelId,
-			sendMessage,
-			sendMessageStream,
-		} = await import("$lib/server/services/langflow");
-		(
-			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
-		).mockResolvedValue("model2");
-		const toolCallMarker = `\u0002TOOL_START\u001f${JSON.stringify({
-			name: "web_search",
-			input: { query: "weather" },
-		})}\u0003`;
-		const toolDoneMarker = `\u0002TOOL_END\u001f${JSON.stringify({
-			name: "web_search",
-			outputSummary: "Weather results returned.",
-		})}\u0003`;
-		const upstream = createHangingEventBlockStream([
-			`event: token\ndata: ${JSON.stringify({
-				choices: [{ delta: { content: toolCallMarker } }],
-			})}\n\n`,
-		]);
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: upstream.stream,
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "Backup answer",
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-			modelId: "model2",
-			modelDisplayName: "Model Two",
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "tool-call-timeout-failover-conv",
-				streamId: "tool-call-timeout-failover-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunksPromise = readSseResponse(response);
-		try {
-			await vi.advanceTimersByTimeAsync(9999);
-			expect(sendMessage).not.toHaveBeenCalled();
-			await vi.advanceTimersByTimeAsync(1);
-			await Promise.resolve();
-			await Promise.resolve();
-			expect(sendMessage).not.toHaveBeenCalled();
-
-			upstream.enqueue(
-				`event: token\ndata: ${JSON.stringify({
-					choices: [{ delta: { content: toolDoneMarker } }],
-				})}\n\n`,
-			);
-			upstream.enqueue(
-				`event: token\ndata: ${JSON.stringify({
-					choices: [{ delta: { content: "Forecast answer." } }],
-				})}\n\n`,
-			);
-			upstream.close();
-
-			const chunks = await chunksPromise;
-			const body = chunks.join("\n\n");
-			expect(body).toContain("event: tool_call");
-			expect(body).toContain('event: token\ndata: {"text":"Forecast answer."}');
-			expect(body).toContain("event: end");
-			expect(body).not.toContain("event: error");
-		} finally {
-			upstream.close();
-			await chunksPromise.catch(() => undefined);
-		}
-	});
-
-	it("does not trigger first-visible-output failover after reasoning progress before answer text", async () => {
-		vi.useFakeTimers();
-		const { getConfig } = await import("$lib/server/config-store");
-		(getConfig as ReturnType<typeof vi.fn>).mockReturnValue({
-			requestTimeoutMs: 120000,
-			modelTimeoutFailoverEnabled: true,
-			modelTimeoutFailoverTimeoutMs: 10000,
-			modelTimeoutFailoverTargetModel: "model2",
-		});
-		const {
-			resolveTimeoutFailoverTargetModelId,
-			sendMessage,
-			sendMessageStream,
-		} = await import("$lib/server/services/langflow");
-		(
-			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
-		).mockResolvedValue("model2");
-		const upstream = createHangingEventBlockStream([
-			`event: token\ndata: ${JSON.stringify({
-				choices: [
-					{ delta: { reasoning_content: "thinking through tool use" } },
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult(
+				[
+					{
+						type: "tool_call",
+						callId: "call-1",
+						toolName: "research_web",
+						input: { query: "SvelteKit docs" },
+					},
+					{
+						type: "tool_result",
+						callId: "call-1",
+						toolName: "research_web",
+						output: { ok: true },
+					},
+					{ type: "text_delta", text: "Answer" },
+					finishEvent,
 				],
-			})}\n\n`,
-		]);
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: upstream.stream,
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "Backup answer",
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-			modelId: "model2",
-			modelDisplayName: "Model Two",
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "reasoning-progress-timeout-conv",
-				streamId: "reasoning-progress-timeout-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunksPromise = readSseResponse(response);
-		try {
-			await vi.advanceTimersByTimeAsync(10000);
-			await Promise.resolve();
-			await Promise.resolve();
-			expect(sendMessage).not.toHaveBeenCalled();
-
-			upstream.enqueue(
-				`event: token\ndata: ${JSON.stringify({
-					choices: [{ delta: { content: "Reasoned answer." } }],
-				})}\n\n`,
-			);
-			upstream.close();
-
-			const chunks = await chunksPromise;
-			const body = chunks.join("\n\n");
-			expect(body).toContain(
-				'event: thinking\ndata: {"text":"thinking through tool use"}',
-			);
-			expect(body).toContain('event: token\ndata: {"text":"Reasoned answer."}');
-			expect(body).toContain("event: end");
-			expect(body).not.toContain("event: error");
-		} finally {
-			upstream.close();
-			await chunksPromise.catch(() => undefined);
-		}
-	});
-
-	it("retries upstream ReadTimeout error events as a stream on the configured failover model before output starts", async () => {
-		const {
-			isLangflowTimeoutError,
-			resolveTimeoutFailoverTargetModelId,
-			sendMessage,
-			sendMessageStream,
-		} = await import("$lib/server/services/langflow");
-		(isLangflowTimeoutError as ReturnType<typeof vi.fn>).mockImplementation(
-			(error: unknown) =>
-				error instanceof Error &&
-				error.message.toLowerCase().includes("readtimeout"),
-		);
-		(
-			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
-		).mockResolvedValue("model2");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-			stream: createErrorEventStream(
-				"**ReadTimeout**\n - **Details: **\nhttpx.ReadTimeout",
+				{ normalChatToolCalls: [recorderEntry] },
 			),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-			stream: createTokenStream("Backup answer"),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-			modelId: "model2",
-			modelDisplayName: "Model Two",
-		});
+		);
 
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "read-timeout-failover-conv",
-				streamId: "read-timeout-failover-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
+		const response = runStream();
 		const chunks = await readSseResponse(response);
-		const body = chunks.join("\n\n");
-		expect(body).toContain('event: token\ndata: {"text":"Backup answer"}');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).not.toHaveBeenCalled();
-		expect(sendMessageStream).toHaveBeenNthCalledWith(
-			1,
-			"Hello",
-			"read-timeout-failover-conv",
-			"model1",
-			expect.any(Object),
+		const toolPayloads = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-tool-call",
 		);
-		expect(sendMessageStream).toHaveBeenNthCalledWith(
-			2,
-			"Hello",
-			"read-timeout-failover-conv",
-			"model2",
-			expect.any(Object),
-		);
+
+		expect(toolPayloads).toEqual([
+			expect.objectContaining({
+				callId: "call-1",
+				name: "research_web",
+				input: { query: "SvelteKit docs" },
+				status: "running",
+			}),
+			expect.objectContaining({
+				callId: "call-1",
+				name: "research_web",
+				input: { query: "SvelteKit docs" },
+				status: "done",
+				outputSummary: "Found current SvelteKit docs.",
+				sourceType: "web",
+				candidates: recorderEntry.candidates,
+				metadata: { ok: true, evidenceReady: true },
+			}),
+		]);
 	});
 
-	it("retries upstream ReadTimeout error events after reasoning-only output as a failover stream", async () => {
-		const {
-			isLangflowTimeoutError,
-			resolveTimeoutFailoverTargetModelId,
-			sendMessage,
-			sendMessageStream,
-		} = await import("$lib/server/services/langflow");
-		(isLangflowTimeoutError as ReturnType<typeof vi.fn>).mockImplementation(
-			(error: unknown) =>
-				error instanceof Error &&
-				error.message.toLowerCase().includes("readtimeout"),
+	it("emits failed tool events as not evidence-ready", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { persistAssistantEvidence } = await import(
+			"$lib/server/services/chat-turn/finalize"
 		);
 		(
-			resolveTimeoutFailoverTargetModelId as ReturnType<typeof vi.fn>
-		).mockResolvedValue("model2");
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-			stream: createEventBlockStream([
-				`event: token\ndata: ${JSON.stringify({
-					choices: [
-						{ delta: { reasoning_content: "working through fallback" } },
-					],
-				})}\n\n`,
-				`event: error\ndata: ${JSON.stringify({
-					message: "**ReadTimeout**\n - **Details: **\nhttpx.ReadTimeout",
-				})}\n\n`,
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{
+					type: "tool_call",
+					callId: "call-failed",
+					toolName: "research_web",
+					input: { query: "broken" },
+				},
+				{
+					type: "tool_error",
+					callId: "call-failed",
+					toolName: "research_web",
+					error: "Tool failed",
+				},
+				{ type: "text_delta", text: "Answer without tool evidence" },
+				finishEvent,
 			]),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-			stream: createTokenStream("Backup answer"),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-			modelId: "model2",
-			modelDisplayName: "Model Two",
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "reasoning-timeout-failover-conv",
-				streamId: "reasoning-timeout-failover-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunks = await readSseResponse(response);
-		const body = chunks.join("\n\n");
-		expect(body).toContain('event: token\ndata: {"text":"Backup answer"}');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).not.toHaveBeenCalled();
-		expect(sendMessageStream).toHaveBeenNthCalledWith(
-			1,
-			"Hello",
-			"reasoning-timeout-failover-conv",
-			"model1",
-			expect.any(Object),
 		);
-		expect(sendMessageStream).toHaveBeenNthCalledWith(
-			2,
-			"Hello",
-			"reasoning-timeout-failover-conv",
-			"model2",
-			expect.any(Object),
+
+		const response = runStream();
+		const chunks = await readSseResponse(response);
+		const doneToolPayload = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-tool-call",
+		).find((payload) => payload.status === "done");
+
+		expect(doneToolPayload).toEqual(
+			expect.objectContaining({
+				metadata: {
+					ok: false,
+					evidenceReady: false,
+					error: "Tool failed",
+				},
+			}),
+		);
+		expect(persistAssistantEvidence).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolCalls: expect.arrayContaining([
+					expect.objectContaining({
+						status: "done",
+						metadata: expect.objectContaining({
+							ok: false,
+							evidenceReady: false,
+						}),
+					}),
+				]),
+			}),
 		);
 	});
 
-	it("uses a Langflow end result as the answer when no visible tokens arrived", async () => {
-		const { sendMessage, sendMessageStream } = await import(
-			"$lib/server/services/langflow"
+	it("maps provider usage events into persisted analytics", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createEventBlockStream([
-				`event: end\ndata: ${JSON.stringify({
-					result: {
-						session_id: "end-result-conv",
-						message: "Final answer from end payload.",
+		const { persistAssistantTurnState } = await import(
+			"$lib/server/services/chat-turn/finalize"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{
+					type: "usage",
+					usage: { inputTokens: 11, outputTokens: 7, totalTokens: 18 },
+				},
+				{ type: "text_delta", text: "Usage answer" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream();
+		await readSseResponse(response);
+
+		expect(persistAssistantTurnState).toHaveBeenCalledWith(
+			expect.objectContaining({
+				analytics: expect.objectContaining({
+					providerUsage: {
+						promptTokens: 11,
+						completionTokens: 7,
+						totalTokens: 18,
+						source: "provider",
 					},
-				})}\n\n`,
-			]),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "end-result-conv",
-				streamId: "end-result-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
+				}),
 			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunks = await readSseResponse(response);
-		const body = chunks.join("\n\n");
-		expect(body).toContain(
-			'event: token\ndata: {"text":"Final answer from end payload."}',
 		);
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
-	it("emits an error when stream and fallback both end without visible assistant text", async () => {
-		const { sendMessage, sendMessageStream } = await import(
-			"$lib/server/services/langflow"
+	it("completes as stopped and aborts upstream on explicit stop", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createEventBlockStream([
-				`event: token\ndata: ${JSON.stringify({
-					choices: [{ delta: { reasoning_content: "thinking only" } }],
-				})}\n\n`,
-				`event: end\ndata: ${JSON.stringify({ result: {} })}\n\n`,
-			]),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
+		let upstreamSignal: AbortSignal | undefined;
+		let markStreamListening!: () => void;
+		const streamListening = new Promise<void>((resolve) => {
+			markStreamListening = resolve;
 		});
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: null,
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "empty-fallback-conv",
-				streamId: "empty-fallback-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const body = (await readSseResponse(response)).join("\n\n");
-		expect(body).toContain("event: error");
-		expect(body).toContain("backend_failure");
-		expect(body).not.toContain("event: end");
-		expect(sendMessage).toHaveBeenCalledTimes(2);
-	});
-
-	it("does not duplicate a Langflow end result after visible tokens", async () => {
-		const { sendMessage, sendMessageStream } = await import(
-			"$lib/server/services/langflow"
-		);
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createEventBlockStream([
-				`event: token\ndata: ${JSON.stringify({
-					choices: [{ delta: { content: "Visible streamed answer." } }],
-				})}\n\n`,
-				`event: end\ndata: ${JSON.stringify({
-					result: {
-						session_id: "end-duplicate-conv",
-						message: "Intro. Visible streamed answer.",
-					},
-				})}\n\n`,
-			]),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "end-duplicate-conv",
-				streamId: "end-duplicate-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
-		});
-
-		const chunks = await readSseResponse(response);
-		const body = chunks.join("\n\n");
-		expect(body).toContain(
-			'event: token\ndata: {"text":"Visible streamed answer."}',
-		);
-		expect(body).not.toContain("Intro. Visible streamed answer.");
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).not.toHaveBeenCalled();
-	});
-
-	it("falls back instead of silently completing when upstream ends after reasoning only", async () => {
-		const { sendMessage, sendMessageStream } = await import(
-			"$lib/server/services/langflow"
-		);
-		(sendMessageStream as ReturnType<typeof vi.fn>).mockResolvedValue({
-			stream: createEventBlockStream([
-				`event: token\ndata: ${JSON.stringify({
-					choices: [
-						{
-							delta: {
-								reasoning_content: "Done thinking; preparing the final answer.",
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockImplementation(async (params: { signal?: AbortSignal }) => {
+			upstreamSignal = params.signal;
+			return createNeutralStreamingResult([], {
+				stream: (async function* () {
+					await new Promise((_resolve, reject) => {
+						markStreamListening();
+						params.signal?.addEventListener(
+							"abort",
+							() => {
+								const error = new Error("upstream aborted");
+								error.name = "AbortError";
+								reject(error);
 							},
-						},
-					],
-				})}\n\n`,
-				"data: [DONE]\n\n",
-			]),
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-		});
-		(sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-			text: "Recovered visible answer",
-			contextStatus: null,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-			modelId: "model1",
-			modelDisplayName: "Model One",
+							{ once: true },
+						);
+					});
+				})(),
+			});
 		});
 
-		const response = runChatStreamOrchestrator({
-			user: {
-				id: "u1",
-				displayName: "User",
-				email: "u@test.com",
-			},
-			turn: createTurn({
-				conversationId: "reasoning-only-complete-conv",
-				streamId: "reasoning-only-complete-stream",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-			}),
-			upstreamMessage: "Hello",
-			downstreamAbortSignal: new AbortController().signal,
-			requestStartTime: Date.now(),
+		const response = runStream({
+			conversationId: "stop-conv",
+			streamId: "stop-stream",
+		});
+		const reader = response.body?.getReader();
+		if (!reader) throw new Error("Missing response body");
+
+		await expect(reader.read()).resolves.toMatchObject({ done: false });
+		await vi.waitFor(() => expect(upstreamSignal).toBeDefined());
+		await streamListening;
+		const stopped = requestActiveChatStreamStop({
+			streamId: "stop-stream",
+			userId: "u1",
+		});
+		const remainingChunks: Uint8Array[] = [];
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (value) remainingChunks.push(value);
+		}
+		const remainingBody = remainingChunks
+			.map((chunk) => new TextDecoder().decode(chunk))
+			.join("");
+
+		expect(stopped).toBe(true);
+		expect(upstreamSignal?.aborted).toBe(true);
+		expect(remainingBody).toContain('"type":"data-stream-metadata"');
+		expect(remainingBody).toContain('"wasStopped":true');
+	});
+
+	it("keeps upstream running after passive downstream cancellation", async () => {
+		const { createMessage } = await import("$lib/server/services/messages");
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		let upstreamSignal: AbortSignal | undefined;
+		let releaseEvents!: (events: NeutralStreamEvent[]) => void;
+		const eventsReady = new Promise<NeutralStreamEvent[]>((resolve) => {
+			releaseEvents = resolve;
+		});
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockImplementation(async (params: { signal?: AbortSignal }) => {
+			upstreamSignal = params.signal;
+			return createNeutralStreamingResult([], {
+				stream: (async function* () {
+					for (const event of await eventsReady) {
+						yield event;
+					}
+				})(),
+			});
 		});
 
-		const chunks = await readSseResponse(response);
-		const body = chunks.join("\n\n");
-		expect(body).toContain("event: thinking");
-		expect(body).toContain("Done thinking; preparing the final answer.");
-		expect(body).toContain(
-			'event: token\ndata: {"text":"Recovered visible answer"}',
-		);
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(sendMessage).toHaveBeenCalledWith(
-			"Hello",
-			"reasoning-only-complete-conv",
-			"model1",
-			expect.any(Object),
-			expect.any(Object),
-		);
+		const response = runStream({
+			conversationId: "passive-disconnect-conv",
+			streamId: "passive-disconnect-stream",
+		});
+		const reader = response.body?.getReader();
+		if (!reader) throw new Error("Missing response body");
+
+		await expect(reader.read()).resolves.toMatchObject({ done: false });
+		await vi.waitFor(() => expect(upstreamSignal).toBeDefined());
+		await reader.cancel();
+		expect(upstreamSignal?.aborted).toBe(false);
+
+		releaseEvents([{ type: "text_delta", text: "Still running" }, finishEvent]);
+		await vi.waitFor(() => {
+			expect(createMessage).toHaveBeenCalledWith(
+				"passive-disconnect-conv",
+				"assistant",
+				"Still running",
+				undefined,
+				undefined,
+				{ evidenceStatus: "pending", modelDisplayName: "Model One" },
+			);
+		});
+		expect(upstreamSignal?.aborted).toBe(false);
 	});
 });

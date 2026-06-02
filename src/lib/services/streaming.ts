@@ -1,8 +1,5 @@
 import {
-	BROWSER_CHAT_SSE_EVENTS,
 	createInlineThinkingState,
-	type DecodedBrowserChatSseEvent,
-	decodeBrowserChatSseEvents,
 	flushInlineThinkingState,
 	processInlineThinkingChunk,
 } from "./stream-protocol";
@@ -83,22 +80,6 @@ function toStreamError(message: string, code?: string): Error {
 const TOOL_CALLS_BLOCK_PATTERN =
 	/<tool_calls>[\r\n]*[\r\n\ta-zA-Z0-9_./:,'"{}\u4e00-\u9fff-]*?<\/tool_calls>/gi;
 
-function readTextPayload(event: DecodedBrowserChatSseEvent): string {
-	if (event.dataKind !== "json") {
-		return "";
-	}
-
-	const data = event.data as unknown;
-	if (typeof data === "string") {
-		return data;
-	}
-	if (data && typeof data === "object" && "text" in data) {
-		const text = (data as { text?: unknown }).text;
-		return typeof text === "string" ? text : "";
-	}
-	return "";
-}
-
 function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 	const parsed =
 		data && typeof data === "object" ? (data as Record<string, unknown>) : {};
@@ -169,6 +150,67 @@ function findNextSseBlockDelimiter(
 	}
 
 	return next;
+}
+
+type AiSdkUiStreamFrame =
+	| { kind: "done"; rawData: string }
+	| { kind: "part"; part: Record<string, unknown>; rawData: string };
+
+function decodeAiSdkUiStreamFrameBlock(
+	block: string,
+): AiSdkUiStreamFrame | null {
+	const dataLines: string[] = [];
+	let namedEventSeen = false;
+
+	for (const rawLine of block.split("\n")) {
+		const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+		if (!line || line.startsWith(":")) {
+			continue;
+		}
+
+		const separatorIndex = line.indexOf(":");
+		const field = separatorIndex === -1 ? line : line.slice(0, separatorIndex);
+		if (field === "event") {
+			namedEventSeen = true;
+			continue;
+		}
+		if (field !== "data") {
+			continue;
+		}
+
+		let value = separatorIndex === -1 ? "" : line.slice(separatorIndex + 1);
+		if (value.startsWith(" ")) {
+			value = value.slice(1);
+		}
+		dataLines.push(value);
+	}
+
+	if (namedEventSeen) {
+		return null;
+	}
+
+	if (dataLines.length === 0) {
+		return null;
+	}
+
+	const rawData = dataLines.join("\n").trim();
+	if (rawData === "[DONE]") {
+		return { kind: "done", rawData };
+	}
+
+	try {
+		const parsed = JSON.parse(rawData);
+		if (
+			!parsed ||
+			typeof parsed !== "object" ||
+			typeof parsed.type !== "string"
+		) {
+			return null;
+		}
+		return { kind: "part", part: parsed as Record<string, unknown>, rawData };
+	} catch {
+		return null;
+	}
 }
 
 export async function checkForOrphanedStream(
@@ -276,6 +318,9 @@ export function streamChat(
 	let stopRequested = false;
 	let detached = false;
 	let fullText = "";
+	let latestMetadata: StreamMetadata | undefined;
+	let terminalPartSeen = false;
+	let completed = false;
 	const inlineThinkingState = createInlineThinkingState();
 	let isReplaying = false;
 	const replayTokenBuffer: string[] = [];
@@ -329,6 +374,95 @@ export function streamChat(
 			outcome,
 			phases: { ...timingPhases },
 		});
+	}
+
+	function finishSuccessfully(metadata?: StreamMetadata): boolean {
+		if (completed) {
+			return true;
+		}
+		completed = true;
+		markTimingPhase("endMs");
+		flushInlineBufferAtEnd();
+		reportTiming("success");
+		callbacks.onEnd(fullText, metadata);
+		return true;
+	}
+
+	function emitThinkingChunk(rawThinking: string) {
+		const thinkingChunk = rawThinking.replace(TOOL_CALLS_BLOCK_PATTERN, "");
+		if (!thinkingChunk) {
+			return;
+		}
+		markTimingPhase("firstThinkingMs");
+		if (isReplaying) {
+			replayThinkingBuffer.push(thinkingChunk);
+		} else {
+			callbacks.onThinking(thinkingChunk);
+		}
+	}
+
+	function emitToolCall(data: unknown) {
+		const parsed =
+			data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+		markTimingPhase("firstToolCallMs");
+		callbacks.onToolCall?.(
+			parsed.name as string,
+			(parsed.input as Record<string, unknown> | undefined) ?? {},
+			parsed.status as "running" | "done",
+			{
+				callId: parsed.callId as string | undefined,
+				outputSummary: parsed.outputSummary as string | null | undefined,
+				sourceType: parsed.sourceType as
+					| import("$lib/types").EvidenceSourceType
+					| null
+					| undefined,
+				candidates: parsed.candidates as
+					| import("$lib/types").ToolEvidenceCandidate[]
+					| undefined,
+				metadata: parsed.metadata as
+					| Record<string, string | number | boolean | null>
+					| undefined,
+			},
+		);
+	}
+
+	function startReplayBuffer() {
+		isReplaying = true;
+		replayTokenBuffer.length = 0;
+		replayThinkingBuffer.length = 0;
+		console.info("[STREAM] Replay started");
+	}
+
+	function flushReplayBuffer() {
+		console.info(
+			"[STREAM] Replay ended, flushing",
+			replayTokenBuffer.length,
+			"tokens,",
+			replayThinkingBuffer.length,
+			"thinking chunks",
+		);
+		isReplaying = false;
+		for (const chunk of replayTokenBuffer) {
+			emitInlineChunk(chunk);
+		}
+		for (const chunk of replayThinkingBuffer) {
+			callbacks.onThinking(chunk);
+		}
+		void flushInlineThinkingState(inlineThinkingState, {
+			onVisible(visibleChunk) {
+				fullText += visibleChunk;
+				callbacks.onToken(visibleChunk);
+			},
+			onThinking(thinkingChunk) {
+				callbacks.onThinking(thinkingChunk);
+			},
+		});
+	}
+
+	function emitWaiting() {
+		console.info("[STREAM] Waiting for original stream to complete");
+		flushInlineBufferAtEnd();
+		callbacks.onWaiting?.();
 	}
 
 	(async () => {
@@ -406,10 +540,20 @@ export function streamChat(
 			const decoder = new TextDecoder();
 			let buffer = "";
 
-			const processEvent = (event: DecodedBrowserChatSseEvent): boolean => {
-				switch (event.event) {
-					case BROWSER_CHAT_SSE_EVENTS.token: {
-						const chunk = readTextPayload(event);
+			const processAiSdkUiFrame = (frame: AiSdkUiStreamFrame): boolean => {
+				if (frame.kind === "done") {
+					return finishSuccessfully(latestMetadata);
+				}
+
+				const { part } = frame;
+				switch (part.type) {
+					case "text-delta": {
+						const chunk =
+							typeof part.delta === "string"
+								? part.delta
+								: typeof part.text === "string"
+									? part.text
+									: "";
 						if (chunk) {
 							markTimingPhase("firstTokenMs");
 							if (isReplaying) {
@@ -421,140 +565,80 @@ export function streamChat(
 						return false;
 					}
 
-					case BROWSER_CHAT_SSE_EVENTS.thinking: {
-						const rawThinking = readTextPayload(event);
-						if (!rawThinking) return false;
-						const thinkingChunk = rawThinking.replace(
-							TOOL_CALLS_BLOCK_PATTERN,
-							"",
-						);
-						if (thinkingChunk) {
-							markTimingPhase("firstThinkingMs");
-							if (isReplaying) {
-								replayThinkingBuffer.push(thinkingChunk);
-							} else {
-								callbacks.onThinking(thinkingChunk);
-							}
-						}
+					case "reasoning-delta": {
+						const rawThinking =
+							typeof part.delta === "string"
+								? part.delta
+								: typeof part.text === "string"
+									? part.text
+									: "";
+						emitThinkingChunk(rawThinking);
 						return false;
 					}
 
-					case BROWSER_CHAT_SSE_EVENTS.toolCall: {
-						if (event.dataKind !== "json") {
-							return false;
-						}
+					case "data-stream-metadata":
+						latestMetadata = buildStreamMetadata(part.data);
+						return false;
+
+					case "data-tool-call": {
+						emitToolCall(part.data);
+						return false;
+					}
+
+					case "data-stream-error": {
 						const parsed =
-							event.data && typeof event.data === "object"
-								? (event.data as Record<string, unknown>)
+							part.data && typeof part.data === "object"
+								? (part.data as Record<string, unknown>)
 								: {};
-						markTimingPhase("firstToolCallMs");
-						callbacks.onToolCall?.(
-							parsed.name as string,
-							(parsed.input as Record<string, unknown> | undefined) ?? {},
-							parsed.status as "running" | "done",
-							{
-								callId: parsed.callId as string | undefined,
-								outputSummary: parsed.outputSummary as
-									| string
-									| null
-									| undefined,
-								sourceType: parsed.sourceType as
-									| import("$lib/types").EvidenceSourceType
-									| null
-									| undefined,
-								candidates: parsed.candidates as
-									| import("$lib/types").ToolEvidenceCandidate[]
-									| undefined,
-								metadata: parsed.metadata as
-									| Record<string, string | number | boolean | null>
-									| undefined,
-							},
-						);
-						return false;
-					}
-
-					case BROWSER_CHAT_SSE_EVENTS.end: {
-						const metadata =
-							event.dataKind === "json"
-								? buildStreamMetadata(event.data)
-								: undefined;
-						markTimingPhase("endMs");
-						flushInlineBufferAtEnd();
-						reportTiming("success");
-						callbacks.onEnd(fullText, metadata);
-						return true;
-					}
-
-					case BROWSER_CHAT_SSE_EVENTS.error: {
-						let errorMessage = "Stream error";
-						let errorCode: string | undefined;
-						if (event.dataKind === "json") {
-							const parsed =
-								event.data && typeof event.data === "object"
-									? (event.data as Record<string, unknown>)
-									: {};
-							errorMessage =
-								(typeof parsed.message === "string" && parsed.message) ||
-								(typeof parsed.error === "string" && parsed.error) ||
-								event.rawData ||
-								errorMessage;
-							errorCode =
-								typeof parsed.code === "string" ? parsed.code : undefined;
-						} else {
-							errorMessage = event.rawData || errorMessage;
-						}
+						const errorMessage =
+							(typeof part.data === "string" && part.data) ||
+							(typeof parsed.message === "string" && parsed.message) ||
+							(typeof parsed.error === "string" && parsed.error) ||
+							"Stream error";
+						const errorCode =
+							typeof parsed.code === "string" ? parsed.code : undefined;
 						markTimingPhase("errorMs");
 						reportTiming("error");
 						callbacks.onError(toStreamError(errorMessage, errorCode));
 						return true;
 					}
 
-					case BROWSER_CHAT_SSE_EVENTS.replayStart:
-						isReplaying = true;
-						replayTokenBuffer.length = 0;
-						replayThinkingBuffer.length = 0;
-						console.info("[STREAM] Replay started");
+					case "error": {
+						const errorMessage =
+							(typeof part.errorText === "string" && part.errorText) ||
+							(typeof part.error === "string" && part.error) ||
+							"Stream error";
+						markTimingPhase("errorMs");
+						reportTiming("error");
+						callbacks.onError(toStreamError(errorMessage));
+						return true;
+					}
+
+					case "data-replay-start":
+						startReplayBuffer();
 						return false;
 
-					case BROWSER_CHAT_SSE_EVENTS.replayEnd:
-						console.info(
-							"[STREAM] Replay ended, flushing",
-							replayTokenBuffer.length,
-							"tokens,",
-							replayThinkingBuffer.length,
-							"thinking chunks",
-						);
-						isReplaying = false;
-						for (const chunk of replayTokenBuffer) {
-							emitInlineChunk(chunk);
-						}
-						for (const chunk of replayThinkingBuffer) {
-							callbacks.onThinking(chunk);
-						}
-						void flushInlineThinkingState(inlineThinkingState, {
-							onVisible(visibleChunk) {
-								fullText += visibleChunk;
-								callbacks.onToken(visibleChunk);
-							},
-							onThinking(thinkingChunk) {
-								callbacks.onThinking(thinkingChunk);
-							},
-						});
+					case "data-replay-end":
+						flushReplayBuffer();
 						return false;
 
-					case BROWSER_CHAT_SSE_EVENTS.waiting:
-						console.info("[STREAM] Waiting for original stream to complete");
-						flushInlineBufferAtEnd();
-						callbacks.onWaiting?.();
+					case "data-waiting":
+						emitWaiting();
+						return false;
+
+					case "finish":
+						terminalPartSeen = true;
+						return false;
+
+					default:
 						return false;
 				}
 			};
 
 			const processEventBlock = (block: string): boolean => {
-				for (const event of decodeBrowserChatSseEvents(block)) {
-					if (processEvent(event)) {
-						return true;
-					}
+				const uiFrame = decodeAiSdkUiStreamFrameBlock(block);
+				if (uiFrame && processAiSdkUiFrame(uiFrame)) {
+					return true;
 				}
 				return false;
 			};
@@ -586,6 +670,10 @@ export function streamChat(
 					if (done) {
 						buffer += decoder.decode();
 						if (drainBuffer(true)) {
+							break;
+						}
+						if (terminalPartSeen) {
+							finishSuccessfully(latestMetadata);
 							break;
 						}
 						flushInlineBufferAtEnd();

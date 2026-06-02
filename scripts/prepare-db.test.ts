@@ -9,6 +9,7 @@ import { prepareDatabase } from './prepare-db';
 const PRE_DEEP_RESEARCH_TAG = '1777140000011_file_production_requests';
 const ADOPTION_BASELINE_TAG = '0005_flaky_famine';
 const SKILL_NOTES_TAG = '1777140000035_skill_notes';
+const PRE_LANGFLOW_RETIREMENT_TAG = '1777140000046_context_compression_snapshots';
 
 let tempDir: string | null = null;
 
@@ -184,5 +185,45 @@ describe('prepare-db script', () => {
 		expect(() => prepareDatabase(dbPath)).toThrow(
 			/missing column conversation_drafts\.pending_skill_json/,
 		);
+	});
+
+	it('removes retired Langflow admin_config overrides during prepare', () => {
+		tempDir = mkdtempSync(join(tmpdir(), 'alfyai-prepare-db-'));
+		const dbPath = join(tempDir, 'chat.db');
+		createDatabaseMigratedThroughTag(dbPath, PRE_LANGFLOW_RETIREMENT_TAG);
+
+		const seeded = new Database(dbPath);
+		try {
+			const insertOverride = seeded.prepare(
+				'INSERT INTO admin_config ("key", "value", "updated_by") VALUES (?, ?, ?)',
+			);
+			for (const key of [
+				'MODEL_1_FLOW_ID',
+				'MODEL_1_COMPONENT_ID',
+				'MODEL_2_FLOW_ID',
+				'MODEL_2_COMPONENT_ID',
+				'LANGFLOW_API_URL',
+				'LANGFLOW_API_KEY',
+				'LANGFLOW_FLOW_ID',
+				'LANGFLOW_WEBHOOK_SECRET',
+			]) {
+				insertOverride.run(key, 'legacy-value', 'test');
+			}
+			insertOverride.run('MODEL_1_NAME', 'kept-model', 'test');
+		} finally {
+			seeded.close();
+		}
+
+		prepareDatabase(dbPath);
+
+		const sqlite = new Database(dbPath, { readonly: true });
+		try {
+			const rows = sqlite
+				.prepare('SELECT "key" FROM admin_config ORDER BY "key"')
+				.all() as Array<{ key: string }>;
+			expect(rows.map((row) => row.key)).toEqual(['MODEL_1_NAME']);
+		} finally {
+			sqlite.close();
+		}
 	});
 });

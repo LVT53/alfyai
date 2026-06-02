@@ -1,7 +1,6 @@
 import { vi } from 'vitest';
 import '@testing-library/jest-dom';
 
-process.env.LANGFLOW_API_KEY = process.env.LANGFLOW_API_KEY || 'test-key';
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'test-secret';
 
 if (!Element.prototype.animate) {

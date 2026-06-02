@@ -19,10 +19,6 @@ vi.mock("$lib/server/services/auth", () => ({
 	validateSession: mockValidateSession,
 }));
 
-vi.mock("$lib/server/services/webhook-buffer", () => ({
-	webhookBuffer: { id: "test-buffer" },
-}));
-
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: mockGetConfig,
 	refreshConfig: mockRefreshConfig,
@@ -80,7 +76,7 @@ describe("hooks.server.ts", () => {
 
 		expect(resolve).toHaveBeenCalledOnce();
 		expect(event.locals.user).toBeNull();
-		expect(event.locals.webhookBuffer).toEqual({ id: "test-buffer" });
+		expect("webhookBuffer" in event.locals).toBe(false);
 	});
 
 	it("runs config-dependent startup work after runtime config is refreshed", async () => {
@@ -143,34 +139,27 @@ describe("hooks.server.ts", () => {
 		expect(event.locals.user).toBeNull();
 	});
 
-	it("allows the signed web research tool route without a browser session", async () => {
+	it.each([
+		{ segments: ["api", "tools", "image-search"] },
+		{ segments: ["api", "tools", "memory-context"] },
+		{ segments: ["api", "tools", "research-web"] },
+		{ segments: ["api", "webhook", "sentence"] },
+		{ segments: ["api", "stream", "webhook", "session-1"] },
+	])("redirects retired public route %# without a session", async ({
+		segments,
+	}) => {
 		const { handle } = await import("./hooks.server");
-		const resolve = vi.fn(async () => new Response("ok"));
+		const path = `/${segments.join("/")}`;
 		const event = {
 			cookies: { get: vi.fn(() => undefined) },
 			locals: {},
-			url: new URL("http://localhost/api/tools/research-web"),
-		} as any;
+			url: new URL(`http://localhost${path}`),
+		} as Parameters<typeof handle>[0]["event"];
 
-		await handle({ event, resolve });
-
-		expect(resolve).toHaveBeenCalledOnce();
-		expect(event.locals.user).toBeNull();
-	});
-
-	it("allows the signed memory context tool route without a browser session", async () => {
-		const { handle } = await import("./hooks.server");
-		const resolve = vi.fn(async () => new Response("ok"));
-		const event = {
-			cookies: { get: vi.fn(() => undefined) },
-			locals: {},
-			url: new URL("http://localhost/api/tools/memory-context"),
-		} as any;
-
-		await handle({ event, resolve });
-
-		expect(resolve).toHaveBeenCalledOnce();
-		expect(event.locals.user).toBeNull();
+		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
+			status: 303,
+			location: "/login",
+		});
 	});
 
 	it("redirects protected routes to /login when no user is present", async () => {

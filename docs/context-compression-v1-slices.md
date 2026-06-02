@@ -247,7 +247,7 @@ Harden failure behavior and raw-content boundaries. Failed or timed-out compress
 
 ### What to build
 
-Run the complete verification flow after implementation is merged. Verify local tests first, then deploy from git to the live service, restart the service, monitor logs, and run browser-level tests against the deployed app with the provided tester admin account. Do not store live credentials in code, docs, test files, screenshots, or logs. If any Langflow custom node code changed, stop and alert the user so they can update Langflow manually before live validation.
+Run the complete verification flow after implementation is merged. Verify local tests first, then deploy from git to the live service, restart the service, monitor logs, and run browser-level tests against the deployed app with the provided tester admin account. Do not store live credentials in code, docs, test files, screenshots, or logs. Langflow custom-node updates are no longer part of the active path; Normal Chat LLM behavior should be verified through the AI SDK model/tool services instead.
 
 ### Acceptance criteria
 

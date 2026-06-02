@@ -10,16 +10,11 @@ import { validateSession } from "$lib/server/services/auth";
 import { ensureDeepResearchWorkerScheduler } from "$lib/server/services/deep-research/worker";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
 import { ensureMemoryMaintenanceScheduler } from "$lib/server/services/memory-maintenance";
-import { webhookBuffer } from "$lib/server/services/webhook-buffer";
 
 const PUBLIC_PATHS = [
 	"/login",
 	"/api/auth/login",
-	"/api/webhook/sentence",
 	"/api/chat/files/produce",
-	"/api/tools/image-search",
-	"/api/tools/memory-context",
-	"/api/tools/research-web",
 	"/api/health",
 ];
 
@@ -94,8 +89,6 @@ export const handle: Handle = async ({ event, resolve }) => {
 		console.error("Session validation error:", err);
 		event.locals.user = null;
 	}
-
-	event.locals.webhookBuffer = webhookBuffer;
 
 	// Fire-and-forget lastSeenAt update for authenticated users.
 	if (event.locals.user) {

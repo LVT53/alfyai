@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { runNonStreamFallback } from "./stream-fallback";
 
 describe("runNonStreamFallback", () => {
-	const mockSendMessage = vi.fn();
+	const mockRunPlainNormalChatSendModel = vi.fn();
 	const mockAttachContinuity = vi.fn();
 	const mockEmitText = vi.fn();
 	const mockFlushPendingThinking = vi.fn();
@@ -18,12 +18,17 @@ describe("runNonStreamFallback", () => {
 	const mockOnProviderUsage = vi.fn();
 
 	const defaultSendParams = {
+		runtimeConfig: {
+			requestTimeoutMs: 30000,
+		},
 		upstreamMessage: "test message",
 		conversationId: "conv-1",
 		modelId: "model-1",
 		attachmentIds: ["att-1"],
 		activeDocumentArtifactId: "doc-1",
 		attachmentTraceId: "trace-1",
+		thinkingMode: "auto" as const,
+		forceWebSearch: false,
 	};
 
 	const defaultUser = {
@@ -44,7 +49,7 @@ describe("runNonStreamFallback", () => {
 
 	function callFallback(overrides: Record<string, unknown> = {}) {
 		return runNonStreamFallback({
-			sendMessage: mockSendMessage,
+			runPlainNormalChatSendModel: mockRunPlainNormalChatSendModel,
 			sendParams: defaultSendParams,
 			user: defaultUser,
 			attachContinuityToTaskState: mockAttachContinuity,
@@ -70,7 +75,7 @@ describe("runNonStreamFallback", () => {
 
 	beforeEach(() => {
 		vi.resetAllMocks();
-		mockSendMessage.mockResolvedValue(defaultFallbackResponse);
+		mockRunPlainNormalChatSendModel.mockResolvedValue(defaultFallbackResponse);
 		mockEmitText.mockResolvedValue(true);
 		mockFlushInlineThinking.mockReturnValue(true);
 		mockFlushOutput.mockReturnValue(true);
@@ -80,15 +85,20 @@ describe("runNonStreamFallback", () => {
 		);
 	});
 
-	it("calls sendMessage with correct parameters", async () => {
+	it("calls runPlainNormalChatSendModel with correct parameters", async () => {
 		await callFallback();
 
-		expect(mockSendMessage).toHaveBeenCalledWith(
-			"test message",
-			"conv-1",
-			"model-1",
-			{ id: "user-1", displayName: "Test User", email: "test@example.com" },
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
 			expect.objectContaining({
+				userId: "user-1",
+				message: "test message",
+				conversationId: "conv-1",
+				modelId: "model-1",
+				user: {
+					id: "user-1",
+					displayName: "Test User",
+					email: "test@example.com",
+				},
 				attachmentIds: ["att-1"],
 				activeDocumentArtifactId: "doc-1",
 				attachmentTraceId: "trace-1",
@@ -96,36 +106,31 @@ describe("runNonStreamFallback", () => {
 		);
 	});
 
-	it("forwards prompt modifiers to sendMessage", async () => {
+	it("forwards prompt modifiers to runPlainNormalChatSendModel", async () => {
 		await callFallback({
 			systemPromptAppendix: "retry fresh",
 			personalityPrompt: "be terse",
 			skipHonchoContext: true,
 		});
 
-		expect(mockSendMessage).toHaveBeenCalledWith(
-			expect.any(String),
-			expect.any(String),
-			expect.any(String),
-			expect.any(Object),
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
 			expect.objectContaining({
 				systemPromptAppendix: "retry fresh",
 				personalityPrompt: "be terse",
-				skipHonchoContext: true,
 			}),
 		);
 	});
 
 	it("updates context status from fallback response", async () => {
 		const status = { active: true };
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			...defaultFallbackResponse,
 			contextStatus: status,
 		});
 
 		await callFallback();
 
-		expect(mockSendMessage).toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalled();
 	});
 
 	it("attaches continuity to task state", async () => {
@@ -188,14 +193,14 @@ describe("runNonStreamFallback", () => {
 		const result = await callFallback();
 
 		expect(result).toBe(false);
-		expect(mockSendMessage).toHaveBeenCalledTimes(2);
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledTimes(2);
 		expect(mockEmitText).toHaveBeenCalledTimes(2);
 		expect(mockFlushPendingThinking).toHaveBeenCalled();
 		expect(mockCompleteSuccess).not.toHaveBeenCalled();
 	});
 
 	it("handles null taskState gracefully", async () => {
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			...defaultFallbackResponse,
 			taskState: null,
 		});
@@ -206,7 +211,7 @@ describe("runNonStreamFallback", () => {
 	});
 
 	it("handles null contextDebug gracefully", async () => {
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			...defaultFallbackResponse,
 			contextDebug: null,
 		});
@@ -215,7 +220,7 @@ describe("runNonStreamFallback", () => {
 	});
 
 	it("handles null honchoContext and honchoSnapshot gracefully", async () => {
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			...defaultFallbackResponse,
 			honchoContext: null,
 			honchoSnapshot: null,
@@ -225,7 +230,7 @@ describe("runNonStreamFallback", () => {
 	});
 
 	it("does not complete when fallback returns no assistant text", async () => {
-		mockSendMessage.mockResolvedValue({
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			...defaultFallbackResponse,
 			text: null,
 		});
@@ -234,13 +239,13 @@ describe("runNonStreamFallback", () => {
 		const result = await callFallback();
 
 		expect(result).toBe(false);
-		expect(mockSendMessage).toHaveBeenCalledTimes(2);
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledTimes(2);
 		expect(mockEmitText).not.toHaveBeenCalled();
 		expect(mockCompleteSuccess).not.toHaveBeenCalled();
 	});
 
 	it("retries once with an empty-output recovery appendix", async () => {
-		mockSendMessage
+		mockRunPlainNormalChatSendModel
 			.mockResolvedValueOnce({
 				...defaultFallbackResponse,
 				text: null,
@@ -252,13 +257,9 @@ describe("runNonStreamFallback", () => {
 		});
 
 		expect(result).toBe(true);
-		expect(mockSendMessage).toHaveBeenCalledTimes(2);
-		expect(mockSendMessage).toHaveBeenNthCalledWith(
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledTimes(2);
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenNthCalledWith(
 			2,
-			expect.any(String),
-			expect.any(String),
-			expect.any(String),
-			expect.any(Object),
 			expect.objectContaining({
 				systemPromptAppendix: expect.stringContaining(
 					"Existing appendix\n\nThe previous attempt produced no visible final answer",
@@ -277,13 +278,15 @@ describe("runNonStreamFallback", () => {
 		const result = await callFallback();
 
 		expect(result).toBe(true);
-		expect(mockSendMessage).toHaveBeenCalledTimes(2);
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledTimes(2);
 		expect(mockEmitText).toHaveBeenCalledTimes(2);
 		expect(mockCompleteSuccess).toHaveBeenCalled();
 	});
 
 	it("returns false instead of throwing when fallback send fails", async () => {
-		mockSendMessage.mockRejectedValue(new Error("Langflow API error: 502"));
+		mockRunPlainNormalChatSendModel.mockRejectedValue(
+			new Error("Provider API error: 502"),
+		);
 
 		const result = await callFallback();
 

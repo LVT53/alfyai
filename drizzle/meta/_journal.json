@@ -421,6 +421,13 @@
       "when": 1777140000046,
       "tag": "1777140000046_context_compression_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1777140000047,
+      "tag": "1777140000047_retire_langflow_admin_config",
+      "breakpoints": true
     }
 
   ]

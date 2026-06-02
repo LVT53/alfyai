@@ -6,7 +6,7 @@
 
 ## Goal
 
-Move Normal Chat browser turn-runtime semantics out of `src/routes/(app)/chat/[conversationId]/+page.svelte` into one client-side deep module above `streamChat`. The chat page should keep visible Svelte state, rendering, and UI commands, while the runtime owns send/retry/reconnect/waiting/queue/recovery transitions over the Browser SSE transport.
+Move Normal Chat browser turn-runtime semantics out of `src/routes/(app)/chat/[conversationId]/+page.svelte` into one client-side deep module above `streamChat`. The chat page should keep visible Svelte state, rendering, and UI commands, while the runtime owns send/retry/reconnect/waiting/queue/recovery transitions over the AI SDK UI stream transport.
 
 ## Documentation Check
 
@@ -18,11 +18,11 @@ Move Normal Chat browser turn-runtime semantics out of `src/routes/(app)/chat/[c
 
 ## Implementation Evidence
 
-- `src/lib/services/streaming.ts` is already a transport adapter. It handles Browser SSE decoding, inline thinking cleanup, stop versus detach, reconnect stream IDs, retry endpoint routing, and timing callbacks.
+- `src/lib/services/streaming.ts` is already a transport adapter. It handles AI SDK UI stream decoding, inline thinking cleanup, stop versus detach, reconnect stream IDs, retry endpoint routing, and timing callbacks.
 - `src/lib/client/normal-chat-client-turn-runtime.ts` now owns runtime semantics above that transport: normal send callbacks, retry callbacks, orphaned-stream reconnect, waiting-state polling handoff, queued follow-up turn drain, stopped-turn restore, background abort recovery, and completion metadata fan-out through page-provided adapters.
 - `src/routes/(app)/chat/[conversationId]/+page.svelte` keeps visible Svelte state, rendering, route lifecycle, document workspace ownership, and UI commands.
 - `src/routes/(app)/chat/[conversationId]/_helpers.ts` owns message-list reducers and small predicates that the runtime may call through page-provided adapters, but it is not the runtime authority.
-- `docs/adr/0015-normal-chat-turn-completion-boundary.md` and `docs/adr/0016-browser-sse-protocol-boundary.md` define adjacent server-completion and Browser SSE protocol boundaries; this work must not move durable completion or SSE grammar into the client runtime.
+- `docs/adr/0015-normal-chat-turn-completion-boundary.md` and the superseded `docs/adr/0016-browser-sse-protocol-boundary.md` define adjacent completion and historical transport boundaries; current work must not move durable completion or AI SDK UI stream parsing into the client runtime.
 
 ## Vertical Slices
 
@@ -38,7 +38,7 @@ Move Normal Chat browser turn-runtime semantics out of `src/routes/(app)/chat/[c
 **Acceptance criteria**
 
 - [x] One client module owns the named runtime states and commands for send, retry, reconnect, stop, queue, clear/edit queue, and drain after completion.
-- [x] The module depends on `streamChat` as the transport seam and does not parse raw Browser SSE events.
+- [x] The module depends on `streamChat` as the transport seam and does not parse raw AI SDK UI stream frames.
 - [x] The chat page provides UI-visible adapters and remains the owner of Svelte stores, `$state`, and rendering.
 - [x] Focused unit tests cover state transitions without mounting the Svelte page.
 
@@ -128,7 +128,7 @@ Move Normal Chat browser turn-runtime semantics out of `src/routes/(app)/chat/[c
 - `src/lib/client/normal-chat-client-turn-runtime.ts` owns Normal Chat Client Turn Runtime semantics above `streamChat`.
 - `src/routes/(app)/chat/[conversationId]/+page.svelte` keeps visible Svelte state, route lifecycle, document workspace ownership, and UI commands through runtime adapters.
 - `src/lib/services/streaming.ts` remains the browser transport boundary.
-- `src/lib/services/stream-protocol.ts` remains the Browser SSE Protocol grammar boundary.
+- `src/lib/services/stream-protocol.ts` remains the browser stream helper boundary, with AI SDK UI stream parsing owned by `src/lib/services/streaming.ts` and server framing owned by `src/lib/server/services/chat-turn/stream.ts`.
 - `src/lib/server/services/chat-turn/finalize.ts` and adjacent chat-turn modules remain the durable Normal Chat Turn Completion boundary.
 - The obsolete combined user-message/assistant-placeholder helper was confirmed unused and removed from the chat page helper module.
 

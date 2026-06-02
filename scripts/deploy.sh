@@ -7,7 +7,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 APP_DIR="${APP_DIR:-$(pwd)}"
-PM2_APP_NAME="${PM2_APP_NAME:-langflow-chat}"
+PM2_APP_NAME="${PM2_APP_NAME:-alfyai}"
 
 echo -e "${YELLOW}=== Starting deployment ===${NC}"
 echo "App directory: $APP_DIR"

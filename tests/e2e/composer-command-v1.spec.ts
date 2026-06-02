@@ -1,5 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
-import { login, openConversationComposer } from "./helpers";
+import {
+	buildAiSdkUiStreamBody,
+	login,
+	openConversationComposer,
+} from "./helpers";
 
 async function setComposerCommandRegistry(page: Page, enabled: boolean) {
 	const response = await page.evaluate(async (nextEnabled) => {
@@ -184,7 +188,7 @@ async function mockComposerCommandRoutes(
 				"Content-Type": "text/event-stream",
 				"Cache-Control": "no-cache",
 			},
-			body: 'event: token\ndata: {"text":"Mixed command response"}\n\nevent: end\ndata: {}\n\n',
+			body: buildAiSdkUiStreamBody("Mixed command response"),
 		});
 	});
 }
@@ -270,7 +274,7 @@ async function mockVariantComposerRoutes(
 				"Content-Type": "text/event-stream",
 				"Cache-Control": "no-cache",
 			},
-			body: 'event: token\ndata: {"text":"Variant command response"}\n\nevent: end\ndata: {}\n\n',
+			body: buildAiSdkUiStreamBody("Variant command response"),
 		});
 	});
 }
@@ -554,7 +558,7 @@ test.describe("Composer Command V1", () => {
 					"Content-Type": "text/event-stream",
 					"Cache-Control": "no-cache",
 				},
-				body: 'event: token\ndata: {"text":"Ready"}\n\nevent: end\ndata: {}\n\n',
+				body: buildAiSdkUiStreamBody("Ready"),
 			});
 		});
 		const conversationId = await createEmptyConversation(page);

@@ -1,3 +1,4 @@
+import type { ModelCapabilitySet } from "$lib/model-capabilities";
 import type { AdminManagedUserSummary, UserRole } from "$lib/types";
 import { requestJson, requestVoid } from "./http";
 
@@ -107,6 +108,7 @@ export interface InferenceProvider {
 	rateLimitFallbackBaseUrl: string | null;
 	rateLimitFallbackModelName: string | null;
 	rateLimitFallbackTimeoutMs: number;
+	capabilities?: ModelCapabilitySet | null;
 	createdAt: string;
 	updatedAt: string;
 }

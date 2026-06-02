@@ -263,6 +263,8 @@ task-state/steering.ts  (new, ~150 lines)
 
 ## Candidate 3: `chat-turn/stream-orchestrator.ts` — Undertested God Object ✅ FINISHED (2026-04-30)
 
+> **Historical note, 2026-06-02**: This candidate records a pre-AI SDK migration review of the old Browser SSE/Langflow streaming path. The active Normal Chat stream contract is now app-owned AI SDK UI stream framing; do not treat the legacy named-event details below as current deployment or implementation guidance.
+>
 > **Decision**: No shared `post-turn-orchestrator.ts`. Send and stream have fundamentally different runtime shapes (send: single string, sequential await, no tool-call records, no generated files; stream: chunkRuntime with thinking/tool-calls, Promise.all parallelism, SSE end-event broadcast). Forcing them through one shared function would require runtime branching on "am I in stream mode?" — worse than two separate sequences.
 >
 > **Revised scope**: Three targeted extractions instead of four:
@@ -272,7 +274,7 @@ task-state/steering.ts  (new, ~150 lines)
 >
 > **Not extracted**: Full retry loop (270 lines, 4 paths — too entangled with chunkRuntime accumulators), reconnect decision tree (37 lines — simple routing tied to ReadableStream control flow), translation (already dead after Candidate 6).
 >
-> **Test strategy**: Unit tests for all three extracts + one SSE contract integration test verifying end/error/replay event shapes. Playwright E2E covers browser consumption.
+> **Test strategy**: Unit tests for all three extracts + one legacy Browser SSE contract integration test verifying terminal/error/replay event shapes. Playwright E2E covers browser consumption.
 >
 > **File renamed to 977 lines** (post-Candidate 6 normalization cleanup). `completeSuccess` closure at lines 409–634.
 
@@ -282,10 +284,10 @@ task-state/steering.ts  (new, ~150 lines)
 
 `runChatStreamOrchestrator()` is a 1,031-line function returning a `Response`. The `ReadableStream.start()` closure (~900 lines) encompasses 11 distinct responsibilities:
 
-1. SSE response framing (response creation, prelude, heartbeat, encode)
+1. Legacy Browser SSE response framing (response creation, prelude, heartbeat, encode)
 2. Reconnection detection and replay (`doReconnect` — 65 lines of buffer replay + live subscription)
 3. Stream registration/lifecycle (via `active-streams.ts`)
-4. Upstream Langflow streaming (up to 2 retry attempts with URL-list validation recovery)
+4. Retired upstream Langflow streaming (up to 2 retry attempts with URL-list validation recovery)
 5. Non-stream fallback (on streaming failure, falls back to `sendMessage()`)
 6. Translation (via `StreamingHungarianTranslator`)
 7. Tool call event wiring (file-generation debug logging)
@@ -300,7 +302,7 @@ The `completeSuccess()` closure (lines 424-649, ~225 lines) is itself a sub-orch
 - Creates user and assistant messages via `createMessage()`
 - Calls `persistUserTurnAttachments()`, `persistAssistantTurnState()`, `persistAssistantEvidence()`, `runPostTurnTasks()`
 - Handles generated-file diff, assignment, and memory sync
-- Sends final `event: end` SSE payload with 15 fields
+- Sends final legacy named terminal SSE payload with 15 fields
 
 This **duplicates orchestration that lives in `send/+server.ts`** (lines 107-171), which manually sequences the same calls. Two different files orchestrate the same post-turn flow with different error handling and timing.
 
@@ -322,14 +324,14 @@ chat-turn/stream-fallback.ts  (new, ~60 lines)
   └── Calls sendMessage() → emits text → calls completeStreamTurn()
 
 chat-turn/stream-reconnect.ts  (new, ~65 lines)
-  └── doReconnect() — replay buffered tokens/thinking/tool_calls as SSE events
+  └── doReconnect() — replay buffered tokens/thinking/tool_calls as legacy SSE events
   └── Accepts: targetStreamId, enqueueChunk, buffer/stream helpers, closeDownstream
 
 Tests:
   ├── stream-completion.test.ts   (unit — mock finalize.ts, chat-files.ts, messages.ts)
   ├── stream-fallback.test.ts     (unit — mock sendMessage, chunk emitters)
   ├── stream-reconnect.test.ts    (unit — mock buffer, subscribe/unsubscribe)
-  └── stream-orchestrator.test.ts (integration — SSE contract validation)
+  └── stream-orchestrator.test.ts (integration — legacy SSE contract validation)
 ```
 
 ### Benefits
@@ -341,7 +343,7 @@ Tests:
 
 ### Risks
 
-- SSE event contract (`event: end`, `event: error`, payload shapes) must be preserved exactly — integration test guards this
+- Legacy Browser SSE event contract (terminal/error payload shapes) must be preserved exactly — integration test guards this historical behavior
 - `completeStreamTurn()` must handle both normal completion and `wasStopped = true` path
 - Extraction surface: 15+ closure-captured variables promoted to explicit parameters in `completeStreamTurn()`
 

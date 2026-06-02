@@ -85,7 +85,7 @@ const FALLBACK_SEND_ERRORS: Record<
 	network:
 		"The chat service could not stay connected to the model provider. Check the server connection and retry; if it keeps happening, the provider endpoint may be unavailable.",
 	backend_failure:
-		"The model provider or Langflow returned an error before a complete response was produced. Retry the message; if it repeats, check the model and provider logs.",
+		"The model provider returned an error before a complete response was produced. Retry the message; if it repeats, check the model and provider logs.",
 	capacity_exceeded:
 		"The chat service is already handling the maximum number of active responses. Wait a moment, then retry.",
 	file_too_large:

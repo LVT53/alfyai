@@ -156,37 +156,14 @@ test.describe('Admin prompt settings', () => {
 test.describe('Admin model routing settings', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
-    await setAdminOverrideViaApi(page, 'MODEL_1_COMPONENT_ID', '');
     await setAdminOverrideViaApi(page, 'HONCHO_CONTEXT_WAIT_MS', '');
     await setAdminOverrideViaApi(page, 'HONCHO_PERSONA_CONTEXT_WAIT_MS', '');
     await openAdministrationTab(page);
   });
 
   test.afterEach(async ({ page }) => {
-    await setAdminOverrideViaApi(page, 'MODEL_1_COMPONENT_ID', '');
     await setAdminOverrideViaApi(page, 'HONCHO_CONTEXT_WAIT_MS', '');
     await setAdminOverrideViaApi(page, 'HONCHO_PERSONA_CONTEXT_WAIT_MS', '');
-  });
-
-  test('saving the model 1 component ID persists the Langflow node override', async ({ page }) => {
-    const field = page.locator('#MODEL_1_COMPONENT_ID');
-    await field.fill('NemotronNode-123');
-
-    await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/admin/config') &&
-          response.request().method() === 'PUT' &&
-          response.status() === 200
-      ),
-      page.getByRole('button', { name: 'Save Configuration' }).click(),
-    ]);
-
-    const savedConfig = await fetchAdminConfig(page);
-    expect(savedConfig.overrides.MODEL_1_COMPONENT_ID).toBe('NemotronNode-123');
-
-    await reloadAdministrationTab(page);
-    await expect(page.locator('#MODEL_1_COMPONENT_ID')).toHaveValue('NemotronNode-123');
   });
 
   test('saving the Honcho context wait override persists the latency budget', async ({ page }) => {
@@ -408,40 +385,5 @@ test.describe('Admin user management', () => {
     ]);
 
     await expect(page.getByText(uniqueEmail)).not.toBeVisible();
-  });
-});
-
-test.describe('Flow ID auto-save', () => {
-  test.beforeEach(async ({ page }) => {
-    await login(page);
-    await setAdminOverrideViaApi(page, 'MODEL_1_FLOW_ID', '');
-    await openAdministrationTab(page);
-  });
-
-  test.afterEach(async ({ page }) => {
-    await setAdminOverrideViaApi(page, 'MODEL_1_FLOW_ID', '');
-  });
-
-  test('should persist Flow ID across page reload after saving from the built-in model modal', async ({ page }) => {
-    const model1Card = page.locator('.rounded-md.border').filter({ hasText: 'Built-in' }).filter({ hasText: 'Model 1' });
-    await model1Card.getByRole('button', { name: 'Edit' }).click();
-
-    await expect(page.locator('#form-flow-id')).toBeVisible();
-
-    const timestamp = Date.now();
-    const testFlowId = `auto-save-test-${timestamp}`;
-    await page.locator('#form-flow-id').fill(testFlowId);
-
-    await page.getByRole('button', { name: 'Save Changes' }).click();
-
-    await expect(page.locator('#form-flow-id')).not.toBeVisible();
-
-    await page.reload();
-    await page.waitForLoadState('networkidle');
-    await page.getByRole('button', { name: 'Administration' }).click();
-
-    await model1Card.getByRole('button', { name: 'Edit' }).click();
-
-    await expect(page.locator('#form-flow-id')).toHaveValue(testFlowId);
   });
 });

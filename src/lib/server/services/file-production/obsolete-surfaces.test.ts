@@ -8,8 +8,6 @@ const obsoletePaths = [
 	"src/routes/api/chat/files/generate/+server.ts",
 	"src/routes/api/chat/files/generate/generate.test.ts",
 	"src/routes/api/chat/files/export/+server.ts",
-	"langflow_nodes/file_generator_tool.py",
-	"langflow_nodes/export_document_tool.py",
 	"sandbox-helpers/create-pdf.js",
 	"src/lib/components/chat/GeneratedFile.svelte",
 	"src/lib/components/chat/GeneratedFile.test.ts",
@@ -18,7 +16,7 @@ const obsoletePaths = [
 	"scripts/verify-pdf-layout.mjs",
 ];
 
-const scannedRoots = ["src", "langflow_nodes", "local", "scripts"];
+const scannedRoots = ["src", "local", "scripts"];
 const scannedFiles = ["AGENTS.md", "README.md"];
 const obsoleteText = [
 	"generate_file",
@@ -84,7 +82,7 @@ describe("obsolete file-generation surfaces", () => {
 
 	it("keeps model guidance aligned with queued file-production jobs", () => {
 		const source = readFileSync(
-			join(root, "src/lib/server/services/langflow.ts"),
+			join(root, "src/lib/server/services/normal-chat-context.ts"),
 			"utf8",
 		);
 
@@ -97,8 +95,12 @@ describe("obsolete file-generation surfaces", () => {
 		);
 		expect(source).toContain("`program` must be an object");
 		expect(source).toContain(
-			"`documentSource` and `program` are object fields",
+			"`documentSource` and `program` are direct `produce_file` input object fields",
 		);
+		expect(source).toContain(
+			"`requestedOutputs` is an array of output descriptors",
+		);
+		expect(source).not.toContain("current Langflow Exa flows");
 		expect(source).not.toContain(
 			"Only tell the user a file is ready after the tool succeeds.",
 		);
@@ -257,13 +259,13 @@ describe("obsolete file-generation surfaces", () => {
 			);
 		}
 		for (const eagerImport of [
-			"from \"./index\"",
+			'from "./index"',
 			"from './index'",
-			"from \"./worker-runner\"",
+			'from "./worker-runner"',
 			"from './worker-runner'",
-			"from \"./execution-adapter\"",
+			'from "./execution-adapter"',
 			"from './execution-adapter'",
-			"from \"./storage-adapter\"",
+			'from "./storage-adapter"',
 			"from './storage-adapter'",
 			"$lib/server/services/chat-files",
 			"$lib/server/services/honcho",

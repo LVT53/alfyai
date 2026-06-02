@@ -1,13 +1,10 @@
 import {
-	BROWSER_CHAT_SSE_EVENTS,
 	createInlineThinkingState,
 	createLeakedToolDiagnosticsState,
-	encodeBrowserChatSseEvent,
 	FRIENDLY_STREAM_ERRORS,
 	flushInlineThinkingState,
 	getLeakedToolDiagnosticPrefixLength,
 	getSkillControlEnvelopePrefixHoldLength,
-	getTextContent,
 	looksLikeLeadingThinkingPreamble,
 	mayStartLeadingThinkingPreamble,
 	processInlineThinkingChunk,
@@ -25,15 +22,6 @@ import type {
 } from "$lib/types";
 import type { ChatTurnRequestError } from "./types";
 
-export type { UpstreamEvent } from "./stream-parser";
-export {
-	parseEventBlock,
-	parseJsonBlock,
-	parseMaybeJson,
-	// stream-parser
-	parseSseBlock,
-	parseUpstreamEvents,
-} from "./stream-parser";
 // Re-export all public symbols from sub-modules for backward compatibility
 export {
 	getReasoningContent,
@@ -58,7 +46,6 @@ import {
 	isFileProductionToolName,
 	toolCallInputKey,
 } from "$lib/utils/tool-calls";
-import { parseMaybeJson } from "./stream-parser";
 import type { StreamToolCallDetails as ImportedToolDetails } from "./tool-call-markers";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -69,10 +56,37 @@ const SSE_HEADERS = {
 	Expires: "0",
 	Connection: "keep-alive",
 	"X-Accel-Buffering": "no",
+	"X-Vercel-AI-UI-Message-Stream": "v1",
 };
 const SSE_PRELUDE_PADDING_BYTES = 8192;
 const SSE_HEARTBEAT_COMMENT = ": keep-alive\n\n";
+const UI_STREAM_TEXT_PART_ID = "answer";
+const UI_STREAM_REASONING_PART_ID = "reasoning";
 export type StreamPhaseTimings = Record<string, number>;
+
+export type UiMessageStreamPart =
+	| { type: "text-start"; id: string }
+	| { type: "text-delta"; id: string; delta: string }
+	| { type: "text-end"; id: string }
+	| { type: "reasoning-start"; id: string }
+	| { type: "reasoning-delta"; id: string; delta: string }
+	| { type: "reasoning-end"; id: string }
+	| {
+			type: `data-${string}`;
+			data: unknown;
+			id?: string;
+			transient?: boolean;
+	  }
+	| {
+			type: "finish";
+			finishReason?:
+				| "stop"
+				| "error"
+				| "length"
+				| "content-filter"
+				| "tool-calls"
+				| "other";
+	  };
 
 export type ServerStreamSegment =
 	| { type: "text"; content: string }
@@ -106,12 +120,6 @@ type NativeToolCallAccumulator = {
 	runningEmitted: boolean;
 	doneEmitted: boolean;
 };
-
-export const URL_LIST_TOOL_RECOVERY_APPENDIX = [
-	"Important retry guard for URL-processing tools:",
-	"- If a tool uses a field named `urls`, it must be a JSON array of strings.",
-	"- Even for one link, pass `[]`, never a bare string.",
-].join("\n");
 
 export function createStreamJsonErrorResponse(
 	error: ChatTurnRequestError,
@@ -151,6 +159,150 @@ export function createSseHeartbeatComment(): string {
 	return SSE_HEARTBEAT_COMMENT;
 }
 
+export function encodeUiMessageStreamPart(part: UiMessageStreamPart): string {
+	// We own this small encoder instead of wrapping createUIMessageStreamResponse so
+	// passive browser disconnects can close only this downstream response while the
+	// upstream model run continues, persists, and broadcasts exact replay frames.
+	return `data: ${JSON.stringify(part)}\n\n`;
+}
+
+export function createUiMessageStreamDoneFrame(): string {
+	return "data: [DONE]\n\n";
+}
+
+export function decodeUiMessageStreamParts(
+	chunk: string,
+): Array<UiMessageStreamPart | "[DONE]"> {
+	const parts: Array<UiMessageStreamPart | "[DONE]"> = [];
+	const blocks = chunk
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n")
+		.split(/\n\n+/)
+		.filter((block) => block.length > 0);
+
+	for (const block of blocks) {
+		const dataLines: string[] = [];
+		let namedEventSeen = false;
+
+		for (const line of block.split("\n")) {
+			if (!line || line.startsWith(":")) continue;
+			const separatorIndex = line.indexOf(":");
+			const field =
+				separatorIndex === -1 ? line : line.slice(0, separatorIndex);
+			if (field === "event") {
+				namedEventSeen = true;
+				continue;
+			}
+			if (field !== "data") continue;
+
+			let value = separatorIndex === -1 ? "" : line.slice(separatorIndex + 1);
+			if (value.startsWith(" ")) {
+				value = value.slice(1);
+			}
+			dataLines.push(value);
+		}
+
+		if (namedEventSeen || dataLines.length === 0) continue;
+
+		const data = dataLines.join("\n").trim();
+		if (data === "[DONE]") {
+			parts.push("[DONE]");
+			continue;
+		}
+		try {
+			const parsed = JSON.parse(data);
+			if (
+				parsed &&
+				typeof parsed === "object" &&
+				typeof parsed.type === "string"
+			) {
+				parts.push(parsed as UiMessageStreamPart);
+			}
+		} catch {}
+	}
+	return parts;
+}
+
+export function streamTextStartEvent(): string {
+	return encodeUiMessageStreamPart({
+		type: "text-start",
+		id: UI_STREAM_TEXT_PART_ID,
+	});
+}
+
+export function streamTextDeltaEvent(delta: string): string {
+	return encodeUiMessageStreamPart({
+		type: "text-delta",
+		id: UI_STREAM_TEXT_PART_ID,
+		delta,
+	});
+}
+
+export function streamTextEndEvent(): string {
+	return encodeUiMessageStreamPart({
+		type: "text-end",
+		id: UI_STREAM_TEXT_PART_ID,
+	});
+}
+
+export function streamReasoningStartEvent(): string {
+	return encodeUiMessageStreamPart({
+		type: "reasoning-start",
+		id: UI_STREAM_REASONING_PART_ID,
+	});
+}
+
+export function streamReasoningDeltaEvent(delta: string): string {
+	return encodeUiMessageStreamPart({
+		type: "reasoning-delta",
+		id: UI_STREAM_REASONING_PART_ID,
+		delta,
+	});
+}
+
+export function streamReasoningEndEvent(): string {
+	return encodeUiMessageStreamPart({
+		type: "reasoning-end",
+		id: UI_STREAM_REASONING_PART_ID,
+	});
+}
+
+export function streamDataPartEvent(
+	type: `data-${string}`,
+	data: unknown,
+): string {
+	return encodeUiMessageStreamPart({
+		type,
+		data,
+		transient: true,
+	});
+}
+
+export function streamToolCallEvent(data: {
+	callId?: string;
+	name: string;
+	input: Record<string, unknown>;
+	status: "running" | "done";
+	outputSummary?: string | null;
+	sourceType?: EvidenceSourceType | null;
+	candidates?: ToolEvidenceCandidate[];
+	metadata?: Record<string, string | number | boolean | null>;
+}): string {
+	return streamDataPartEvent("data-tool-call", stripUndefined(data));
+}
+
+export function streamFinishEvent(
+	finishReason:
+		| "stop"
+		| "error"
+		| "length"
+		| "content-filter"
+		| "tool-calls"
+		| "other" = "stop",
+): string {
+	return encodeUiMessageStreamPart({ type: "finish", finishReason });
+}
+
 function readNonEmptyString(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;
 	const trimmed = value.trim();
@@ -161,8 +313,20 @@ function readToolArgumentsText(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
 }
 
+function parseJsonIfString(value: unknown): unknown {
+	if (typeof value !== "string") {
+		return value;
+	}
+
+	try {
+		return JSON.parse(value);
+	} catch {
+		return value;
+	}
+}
+
 function readToolInput(value: unknown): Record<string, unknown> | undefined {
-	const parsed = typeof value === "string" ? parseMaybeJson(value) : value;
+	const parsed = parseJsonIfString(value);
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		return undefined;
 	}
@@ -172,7 +336,7 @@ function readToolInput(value: unknown): Record<string, unknown> | undefined {
 function parseToolArguments(
 	value: string,
 ): Record<string, unknown> | undefined {
-	const parsed = parseMaybeJson(value);
+	const parsed = parseJsonIfString(value);
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		return undefined;
 	}
@@ -191,7 +355,7 @@ function collectNativeToolCallFragments(
 	path = "root",
 	seen = new Set<unknown>(),
 ): { fragments: NativeToolCallFragment[]; shouldFlush: boolean } {
-	const data = parseMaybeJson(value);
+	const data = parseJsonIfString(value);
 	const payload = getNestedObject(data);
 	if (!payload || seen.has(payload)) {
 		return { fragments: [], shouldFlush: false };
@@ -345,6 +509,28 @@ export function createServerChunkRuntime({
 	let leadingOutputBuffer = "";
 	let visibleTokenBuffer = "";
 	let skillControlEnvelopeBuffer = "";
+	let textPartStarted = false;
+	let reasoningPartStarted = false;
+
+	const emitUiTextDelta = (chunk: string): boolean => {
+		const frames: string[] = [];
+		if (!textPartStarted) {
+			textPartStarted = true;
+			frames.push(streamTextStartEvent());
+		}
+		frames.push(streamTextDeltaEvent(chunk));
+		return enqueueChunk(frames.join(""));
+	};
+
+	const emitUiReasoningDelta = (chunk: string): boolean => {
+		const frames: string[] = [];
+		if (!reasoningPartStarted) {
+			reasoningPartStarted = true;
+			frames.push(streamReasoningStartEvent());
+		}
+		frames.push(streamReasoningDeltaEvent(chunk));
+		return enqueueChunk(frames.join(""));
+	};
 
 	const flushPendingThinking = (): boolean => {
 		if (!pendingThinkingBuffer) return true;
@@ -358,11 +544,7 @@ export function createServerChunkRuntime({
 			serverSegments.push({ type: "text", content: chunk });
 		}
 		if (onThinking) onThinking(chunk);
-		return enqueueChunk(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.thinking, {
-				text: chunk,
-			}),
-		);
+		return emitUiReasoningDelta(chunk);
 	};
 
 	const stripToolCallsFromThinking = (text: string): string => {
@@ -423,11 +605,7 @@ export function createServerChunkRuntime({
 
 		fullResponse += visibleChunk;
 		if (onToken) onToken(visibleChunk);
-		return enqueueChunk(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
-				text: visibleChunk,
-			}),
-		);
+		return emitUiTextDelta(visibleChunk);
 	};
 
 	const emitVisibleToken = (chunk: string) => {
@@ -576,7 +754,7 @@ export function createServerChunkRuntime({
 		if (onToolCall)
 			onToolCall(name, input, status, details?.outputSummary, details);
 		enqueueChunk(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.toolCall, {
+			streamToolCallEvent({
 				callId,
 				name,
 				input,
@@ -975,260 +1153,18 @@ export function isAbruptUpstreamTermination(error: unknown): boolean {
 }
 
 export function streamErrorEvent(code: StreamErrorCode): string {
-	return encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.error, {
-		code,
-		message: FRIENDLY_STREAM_ERRORS[code],
-	});
-}
-
-export function extractAssistantChunk(
-	eventType: string,
-	rawData: unknown,
-): string {
-	const data = parseMaybeJson(rawData);
-	if (isToolLikeStreamPayload(eventType, data)) {
-		return "";
-	}
-	const sender = getSender(data);
-	const normalizedSender = sender ? normalizeSender(sender) : null;
-
-	if (normalizedSender && ["user", "human"].includes(normalizedSender)) {
-		return "";
-	}
-
-	if (
-		normalizedSender &&
-		![
-			"assistant",
-			"ai",
-			"machine",
-			"model",
-			"language model",
-			"agent",
-			"bot",
-		].includes(normalizedSender)
-	) {
-		return "";
-	}
-
-	return getTextContent(data);
-}
-
-function isToolLikeStreamPayload(eventType: string, value: unknown): boolean {
-	const normalizedEventType = eventType.toLowerCase().trim();
-	if (
-		/\b(?:tool|retriever|retrieval)\b/.test(normalizedEventType) &&
-		normalizedEventType !== "tool_call"
-	) {
-		return true;
-	}
-
-	const payload = getNestedObject(value);
-	if (!payload) return false;
-
-	const role = readNonEmptyString(payload.role)?.toLowerCase();
-	if (role === "tool") {
-		return true;
-	}
-
-	const type = readNonEmptyString(payload.type)?.toLowerCase();
-	if (
-		type &&
-		/^(?:tool|tool_message|tool_result|tool_output|retriever|retrieval_result)$/.test(
-			type,
-		)
-	) {
-		return true;
-	}
-
-	const name = readNonEmptyString(payload.name)?.toLowerCase();
-	if (name && /^(?:produce_file|file_production)$/.test(name)) {
-		return true;
-	}
-	if (
-		name &&
-		/^(?:research_web|search|web_search|exa_search|get_contents|fetch_content|fetch|memory_context)$/.test(
-			name,
-		)
-	) {
-		return true;
-	}
-
-	if ("data" in payload) {
-		return isToolLikeStreamPayload(eventType, payload.data);
-	}
-
-	return false;
-}
-
-export function toIncrementalChunk(
-	eventType: string,
-	chunk: string,
-	lastSnapshot: string,
-	emittedText: string,
-): {
-	chunk: string;
-	lastSnapshot: string;
-	emittedText: string;
-} {
-	if (eventType === "token") {
-		return { chunk, lastSnapshot, emittedText: emittedText + chunk };
-	}
-
-	if (!chunk) {
-		return { chunk: "", lastSnapshot, emittedText };
-	}
-
-	if (emittedText) {
-		if (chunk === emittedText) {
-			return { chunk: "", lastSnapshot: chunk, emittedText };
-		}
-
-		if (chunk.startsWith(emittedText)) {
-			const delta = chunk.slice(emittedText.length);
-			return {
-				chunk: delta,
-				lastSnapshot: chunk,
-				emittedText: emittedText + delta,
-			};
-		}
-
-		if (emittedText.startsWith(chunk)) {
-			return { chunk: "", lastSnapshot: chunk, emittedText };
-		}
-	}
-
-	if (!lastSnapshot) {
-		return { chunk, lastSnapshot: chunk, emittedText: emittedText + chunk };
-	}
-
-	if (chunk === lastSnapshot) {
-		return { chunk: "", lastSnapshot, emittedText };
-	}
-
-	if (chunk.startsWith(lastSnapshot)) {
-		const delta = chunk.slice(lastSnapshot.length);
-		return {
-			chunk: delta,
-			lastSnapshot: chunk,
-			emittedText: emittedText + delta,
-		};
-	}
-
-	if (lastSnapshot.startsWith(chunk)) {
-		return { chunk: "", lastSnapshot, emittedText };
-	}
-
-	return { chunk, lastSnapshot: chunk, emittedText: emittedText + chunk };
-}
-
-export function extractErrorMessage(rawData: unknown): string {
-	const data = parseMaybeJson(rawData);
-
-	if (typeof data === "string") return data;
-
-	const payload = getNestedObject(data);
-	if (!payload) return "Streaming failed";
-
-	const direct = getDirectErrorText(payload);
-	if (direct && !isGenericLangflowErrorText(direct)) return direct;
-
-	const nested = collectNestedErrorText(payload);
-	if (nested) {
-		return direct ? `${direct}\n${nested}` : nested;
-	}
-
-	if (direct) return direct;
-	if ("data" in payload) return extractErrorMessage(payload.data);
-
-	return "Streaming failed";
-}
-
-function getDirectErrorText(payload: Record<string, unknown>): string | null {
-	for (const key of ["message", "error", "text", "detail", "reason"]) {
-		const value = payload[key];
-		if (typeof value === "string" && value.trim()) {
-			return value;
-		}
-	}
-	return null;
-}
-
-function isGenericLangflowErrorText(value: string): boolean {
-	return /^code:\s*none\s*$/i.test(value.trim());
-}
-
-function collectNestedErrorText(value: unknown, depth = 0): string | null {
-	if (depth > 8 || !value || typeof value !== "object") return null;
-
-	if (Array.isArray(value)) {
-		return (
-			value
-				.map((item) => collectNestedErrorText(item, depth + 1))
-				.filter((item): item is string => Boolean(item))
-				.join("\n")
-				.trim() || null
-		);
-	}
-
-	const payload = value as Record<string, unknown>;
-	const parts: string[] = [];
-	for (const key of ["reason", "traceback", "message", "error", "detail"]) {
-		const candidate = payload[key];
-		if (typeof candidate === "string" && candidate.trim()) {
-			parts.push(candidate);
-		}
-	}
-
-	for (const key of ["data", "content_blocks", "contents", "properties"]) {
-		if (key in payload) {
-			const nested = collectNestedErrorText(payload[key], depth + 1);
-			if (nested) parts.push(nested);
-		}
-	}
-
-	return Array.from(new Set(parts)).join("\n").trim() || null;
-}
-
-export function isUrlListValidationError(rawMessage: string): boolean {
-	const message = rawMessage.toLowerCase();
-	return (
-		message.includes("validation error") &&
-		message.includes("urls") &&
-		(message.includes("valid list") || message.includes("type=list_type"))
-	);
+	return [
+		streamDataPartEvent("data-stream-error", {
+			code,
+			message: FRIENDLY_STREAM_ERRORS[code],
+		}),
+		streamFinishEvent("error"),
+		createUiMessageStreamDoneFrame(),
+	].join("");
 }
 
 function stripUndefined<T extends Record<string, unknown>>(value: T): T {
 	return Object.fromEntries(
 		Object.entries(value).filter(([, entry]) => entry !== undefined),
 	) as T;
-}
-
-function getSender(value: unknown): string | null {
-	const payload = getNestedObject(value);
-	if (!payload) return null;
-
-	const sender =
-		typeof payload.sender === "string"
-			? payload.sender
-			: typeof payload.sender_name === "string"
-				? payload.sender_name
-				: null;
-	if (sender) {
-		return sender.toLowerCase();
-	}
-
-	if ("data" in payload) {
-		return getSender(payload.data);
-	}
-
-	return null;
-}
-
-function normalizeSender(value: string): string {
-	return value
-		.toLowerCase()
-		.replace(/[\r\n]+/g, " ")
-		.trim();
 }

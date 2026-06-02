@@ -1,4 +1,4 @@
-# Required Apache Modules for Langflow Chat UI Reverse Proxy
+# Required Apache Modules for AlfyAI Reverse Proxy
 
 This document lists the Apache modules required for the VirtualHost configuration in `apache-site.conf` and provides commands to enable them.
 
@@ -45,4 +45,4 @@ You should see the corresponding `.load` and `.conf` files for each module.
 - These modules are standard in most Apache installations
 - The `mod_proxy` and `mod_proxy_http` modules are essential for reverse proxy functionality
 - `mod_ssl` is required for HTTPS support
-- `mod_headers` and `mod_setenvif` are used for the SSE anti-buffering directives
+- `mod_headers` and `mod_setenvif` are used for the streaming response anti-buffering directives

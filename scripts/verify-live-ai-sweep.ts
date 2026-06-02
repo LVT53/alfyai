@@ -15,6 +15,9 @@ type StreamResult = {
 	thinkingLength: number;
 	metadata: Record<string, unknown> | null;
 	toolCalls: Array<Record<string, unknown>>;
+	dataParts: Array<Record<string, unknown>>;
+	finish: Record<string, unknown> | null;
+	errors: string[];
 };
 
 type ConversationDetail = {
@@ -276,6 +279,198 @@ function apiPath(value: string): string {
 	return new URL(value, baseUrl).toString();
 }
 
+type UiStreamFrame =
+	| { kind: "done" }
+	| { kind: "part"; part: Record<string, unknown> };
+
+function findNextSseBlockDelimiter(
+	value: string,
+): { index: number; length: number } | null {
+	const delimiters = ["\r\n\r\n", "\n\n", "\r\r"] as const;
+	let next: { index: number; length: number } | null = null;
+
+	for (const delimiter of delimiters) {
+		const index = value.indexOf(delimiter);
+		if (index === -1) continue;
+		if (!next || index < next.index) {
+			next = { index, length: delimiter.length };
+		}
+	}
+
+	return next;
+}
+
+function decodeUiStreamFrameBlock(block: string): UiStreamFrame | null {
+	const dataLines: string[] = [];
+	let namedEventSeen = false;
+
+	for (const rawLine of block.split("\n")) {
+		const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+		if (!line || line.startsWith(":")) continue;
+
+		const separatorIndex = line.indexOf(":");
+		const field = separatorIndex === -1 ? line : line.slice(0, separatorIndex);
+		if (field === "event") {
+			namedEventSeen = true;
+			continue;
+		}
+		if (field !== "data") continue;
+
+		let value = separatorIndex === -1 ? "" : line.slice(separatorIndex + 1);
+		if (value.startsWith(" ")) {
+			value = value.slice(1);
+		}
+		dataLines.push(value);
+	}
+
+	if (namedEventSeen || dataLines.length === 0) return null;
+
+	const rawData = dataLines.join("\n").trim();
+	if (rawData === "[DONE]") return { kind: "done" };
+
+	try {
+		const parsed: unknown = JSON.parse(rawData);
+		if (
+			!parsed ||
+			typeof parsed !== "object" ||
+			typeof (parsed as Record<string, unknown>).type !== "string"
+		) {
+			return null;
+		}
+		return { kind: "part", part: parsed as Record<string, unknown> };
+	} catch {
+		return null;
+	}
+}
+
+function createLiveAiSweepStreamParser() {
+	let buffer = "";
+	const result: StreamResult = {
+		text: "",
+		thinkingLength: 0,
+		metadata: null,
+		toolCalls: [],
+		dataParts: [],
+		finish: null,
+		errors: [],
+	};
+
+	function collectStreamError(part: Record<string, unknown>) {
+		const data = part.data;
+		const parsed = data && typeof data === "object" ? data : {};
+		const message =
+			(typeof data === "string" && data) ||
+			(typeof (parsed as Record<string, unknown>).message === "string" &&
+				((parsed as Record<string, unknown>).message as string)) ||
+			(typeof (parsed as Record<string, unknown>).error === "string" &&
+				((parsed as Record<string, unknown>).error as string)) ||
+			(typeof part.errorText === "string" && part.errorText) ||
+			(typeof part.error === "string" && part.error) ||
+			"Stream error";
+		result.errors.push(message);
+	}
+
+	function processPart(part: Record<string, unknown>) {
+		switch (part.type) {
+			case "text-delta": {
+				const chunk =
+					typeof part.delta === "string"
+						? part.delta
+						: typeof part.text === "string"
+							? part.text
+							: "";
+				result.text += chunk;
+				break;
+			}
+
+			case "reasoning-delta": {
+				const chunk =
+					typeof part.delta === "string"
+						? part.delta
+						: typeof part.text === "string"
+							? part.text
+							: "";
+				result.thinkingLength += chunk.length;
+				break;
+			}
+
+			case "data-stream-metadata":
+				result.metadata =
+					part.data && typeof part.data === "object"
+						? (part.data as Record<string, unknown>)
+						: null;
+				result.dataParts.push(part);
+				break;
+
+			case "data-tool-call":
+				if (part.data && typeof part.data === "object") {
+					result.toolCalls.push(part.data as Record<string, unknown>);
+				}
+				result.dataParts.push(part);
+				break;
+
+			case "data-stream-error":
+				result.dataParts.push(part);
+				collectStreamError(part);
+				break;
+
+			case "error":
+				collectStreamError(part);
+				break;
+
+			case "finish":
+				result.finish = part;
+				if (part.finishReason === "error") {
+					collectStreamError(part);
+				}
+				break;
+
+			default:
+				if (typeof part.type === "string" && part.type.startsWith("data-")) {
+					result.dataParts.push(part);
+				}
+				break;
+		}
+	}
+
+	function processBlock(block: string) {
+		const frame = decodeUiStreamFrameBlock(block);
+		if (!frame || frame.kind === "done") return;
+		processPart(frame.part);
+	}
+
+	function push(chunk: string, isFinalChunk = false) {
+		buffer += chunk;
+		let delimiter = findNextSseBlockDelimiter(buffer);
+		while (delimiter) {
+			const block = buffer.slice(0, delimiter.index);
+			buffer = buffer.slice(delimiter.index + delimiter.length);
+			processBlock(block);
+			delimiter = findNextSseBlockDelimiter(buffer);
+		}
+		if (isFinalChunk && buffer.trim()) {
+			processBlock(buffer);
+			buffer = "";
+		}
+	}
+
+	return {
+		push,
+		finish() {
+			push("", true);
+			return result;
+		},
+	};
+}
+
+export function parseLiveAiSweepStreamFrames(frames: string[]): StreamResult {
+	const parser = createLiveAiSweepStreamParser();
+	for (const frame of frames) {
+		parser.push(frame);
+	}
+	return parser.finish();
+}
+
 async function apiJson<T>(
 	page: Page,
 	url: string,
@@ -416,73 +611,18 @@ async function streamTurn(
 		}
 		const reader = response.body.getReader();
 		const decoder = new TextDecoder();
-		let buffer = "";
-		let currentEvent: string | null = null;
-		let text = "";
-		let thinkingLength = 0;
-		let metadata: Record<string, unknown> | null = null;
-		const toolCalls: Array<Record<string, unknown>> = [];
-		let streamError: string | null = null;
-
-		function handleData(rawData: string) {
-			if (currentEvent === "token") {
-				const parsed = JSON.parse(rawData);
-				text += parsed.text ?? (typeof parsed === "string" ? parsed : "");
-				return;
-			}
-			if (currentEvent === "thinking") {
-				const parsed = JSON.parse(rawData);
-				const chunk = parsed.text ?? (typeof parsed === "string" ? parsed : "");
-				thinkingLength += chunk.length;
-				return;
-			}
-			if (currentEvent === "tool_call") {
-				toolCalls.push(JSON.parse(rawData));
-				return;
-			}
-			if (currentEvent === "end") {
-				metadata = JSON.parse(rawData);
-				return;
-			}
-			if (currentEvent === "error") {
-				const parsed = JSON.parse(rawData);
-				streamError = parsed.error ?? rawData;
-			}
-		}
-
-		function processBlock(block: string) {
-			for (const rawLine of block.split(/\r?\n/)) {
-				const line = rawLine.trimEnd();
-				if (!line) continue;
-				if (line.startsWith("event: ")) {
-					currentEvent = line.slice("event: ".length).trim();
-					continue;
-				}
-				if (line.startsWith("data: ")) {
-					handleData(line.slice("data: ".length));
-				}
-			}
-		}
+		const parser = createLiveAiSweepStreamParser();
 
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
-			let boundary = buffer.indexOf("\n\n");
-			while (boundary >= 0) {
-				const block = buffer.slice(0, boundary);
-				buffer = buffer.slice(boundary + 2);
-				processBlock(block);
-				boundary = buffer.indexOf("\n\n");
-			}
+			parser.push(decoder.decode(value, { stream: true }));
 		}
-		if (buffer.trim()) {
-			processBlock(buffer);
+		const result = parser.finish();
+		if (result.errors.length > 0) {
+			throw new Error(result.errors.join("; "));
 		}
-		if (streamError) {
-			throw new Error(streamError);
-		}
-		return { text, thinkingLength, metadata, toolCalls };
+		return result;
 	} finally {
 		clearTimeout(timeout);
 	}

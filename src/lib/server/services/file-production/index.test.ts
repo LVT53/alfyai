@@ -105,6 +105,7 @@ describe("file production service", () => {
 	});
 
 	afterEach(async () => {
+		vi.doUnmock("./worker-runner");
 		try {
 			const { sqlite } = await import("$lib/server/db");
 			sqlite.close();
@@ -300,6 +301,40 @@ describe("file production service", () => {
 			},
 		});
 		expect(wakeWorker).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not load the worker runner when invalid intake cannot queue work", async () => {
+		let workerRunnerLoaded = false;
+		vi.doMock("./worker-runner", () => {
+			workerRunnerLoaded = true;
+			return {
+				wakeFileProductionWorker: vi.fn(),
+			};
+		});
+		const { submitFileProductionIntake } = await import("./index");
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				idempotencyKey: "turn-1:intake-missing-conversation",
+				requestTitle: "Missing conversation",
+				sourceMode: "program",
+				outputs: [{ type: "csv" }],
+				program: {
+					language: "python",
+					sourceCode:
+						'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
+				},
+			},
+			now: new Date("2026-05-03T19:31:21.000Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			status: 400,
+			code: "missing_conversation_id",
+		});
+		expect(workerRunnerLoaded).toBe(false);
 	});
 
 	it("accepts model-friendly document-source intake and stores normalized source", async () => {
@@ -799,10 +834,7 @@ describe("file production service", () => {
 			.select()
 			.from(schema.fileProductionJobs)
 			.where(
-				eq(
-					schema.fileProductionJobs.idempotencyKey,
-					baseInput.idempotencyKey,
-				),
+				eq(schema.fileProductionJobs.idempotencyKey, baseInput.idempotencyKey),
 			);
 
 		expect(first.job.id).toBe(second.job.id);
@@ -2442,10 +2474,8 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 
 	it("executes a queued document-source PDF job without using the sandbox", async () => {
 		const { db } = await import("$lib/server/db");
-		const {
-			createOrReuseFileProductionJob,
-			executeNextFileProductionJob,
-		} = await import("./index");
+		const { createOrReuseFileProductionJob, executeNextFileProductionJob } =
+			await import("./index");
 		const created = await createOrReuseFileProductionJob({
 			userId: "user-1",
 			conversationId: "conv-1",

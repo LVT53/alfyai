@@ -32,9 +32,6 @@ api/                   # API endpoints
   models/              # Available model list
   projects/            # Project CRUD
   settings/            # Account, profile, password, avatar
-  stream/webhook/      # Stream webhook endpoint
-  tools/               # Image search, signed web research
-  webhook/             # Sentence webhook
   analytics/           # Analytics ingestion
   health/              # Health check
 
@@ -84,10 +81,6 @@ logout/                # Logout page
 | `api/avatar/[userId]/+server.ts` | Avatar endpoint |
 | `api/analytics/+server.ts` | Analytics ingestion |
 | `api/health/+server.ts` | Health check |
-| `api/tools/image-search/+server.ts` | Image search tool |
-| `api/tools/research-web/+server.ts` | Signed web research tool |
-| `api/webhook/sentence/+server.ts` | Sentence webhook |
-| `api/stream/webhook/[sessionId]/+server.ts` | Stream webhook |
 | `(app)/chat/+page.server.ts` | Chat page server data |
 
 ## Conventions
@@ -107,5 +100,5 @@ logout/                # Logout page
 - Rebuilding conversation detail hydration, Context Sources projection, or active Skill Session serialization inside `api/conversations/[id]/+server.ts`
 - Fetching layout data again in child pages
 - Creating new `sessionStorage` keys outside `conversation-session.ts`
-- Adding route-local SSE event shapes without updating the browser parser
+- Adding route-local AI SDK UI stream part shapes without updating the browser parser
 - Putting raw `fetch` boilerplate in pages instead of `src/lib/client/api/`

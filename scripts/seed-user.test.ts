@@ -28,7 +28,6 @@ import { execSync } from 'child_process';
 import bcrypt from 'bcryptjs';
 import { db } from '$lib/server/db/index';
 
-process.env.LANGFLOW_API_KEY = 'test-key';
 process.env.SESSION_SECRET = 'test-secret-that-is-long-enough-for-validation';
 process.env.DATABASE_PATH = './data/test.db';
 process.argv = ['node', 'seed-user.ts'];

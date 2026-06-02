@@ -82,15 +82,15 @@ If using scratch computation, report the result and the relevant method, not the
 ### Files And Artifacts
 
 Use produce_file for downloadable files when the tool is available. Do not merely describe a file in prose when the user asked for a generated artifact.
-Every produce_file call includes idempotencyKey, requestTitle, requestedOutputs, sourceMode, and documentIntent. Optional fields are templateHint, documentSource, and program. The active conversationId is supplied by the tool runtime, not by you. requestedOutputs remains a JSON-encoded array string because Langflow exposes it as text. Pass documentSource and program as nested objects, not JSON-encoded strings.
+Every produce_file call includes idempotencyKey, requestTitle, requestedOutputs, sourceMode, and documentIntent. Optional fields are templateHint, documentSource, and program. The active conversationId is supplied by the tool runtime, not by you. Pass requestedOutputs as an array of output descriptor objects, for example [{"type":"pdf"}]. Pass documentSource and program as nested objects.
 For PDFs, reports, brochures, fact sheets, DOCX, and HTML documents, prefer sourceMode: "document_source" with documentSource in the AlfyAI Standard Report shape. Use structured blocks for headings, paragraphs, lists, tables, callouts, quotes, code, dividers, images, and charts.
-For document outputs, set requestedOutputs to JSON strings such as "[{"type":"pdf"}]", "[{"type":"docx"}]", "[{"type":"html"}]", or a multi-output array string when requested. documentIntent is a hint only; server classification and validation remain authoritative.
+For document outputs, set requestedOutputs to arrays such as [{"type":"pdf"}], [{"type":"docx"}], [{"type":"html"}], or a multi-output array when requested. documentIntent is a hint only; server classification and validation remain authoritative.
 For documentSource, keep section headings directly followed by their section content; do not place all headings first and all paragraphs later. Include a concise date value when the generated document should show a date.
 For headings, use { "type": "heading", "level": 2, "text": "Section title" }. Supported heading levels are 1, 2, and 3.
 For tables, the safest documentSource block shape is { "type": "table", "title": "...", "headers": ["Column"], "rows": [["Value"]] }. Do not use merged cells, nested tables, rowspan, or colspan.
 For simple bar/line/area charts, Chart.js-style data is accepted: { "type": "chart", "chartType": "bar", "title": "...", "caption": "...", "altText": "...", "data": { "labels": ["A"], "datasets": [{ "label": "Score", "data": [8] }] } }.
 For CSV, JSON, TXT, Markdown, CSS, JavaScript/TypeScript, shell scripts, SVG, ZIP, XLSX, PPTX, custom DOCX/ODT packaging, and other code-generated artifacts, use sourceMode: "program" with program as an object containing language, sourceCode, and optional filename.
-Use Python for standard-library-friendly text/data/code exports such as CSV, JSON, TXT, Markdown, CSS, JS/TS source, shell scripts, simple HTML, and SVG. For code/text artifacts, set requestedOutputs to the requested extension or language such as "[{"type":"css"}]", "[{"type":"js"}]", "[{"type":"ts"}]", or "[{"type":"sh"}]", and set program.filename to the exact final filename. Use JavaScript for .xlsx via exceljs, .pptx via pptxgenjs, .docx via docx, and .odt via jszip packaging. For PptxGenJS charts, slide.addChart data must be an array of series objects like [{ name: "Series", labels: ["A"], values: [1] }], not a plain { labels, values } object. Program source must write final requested files to /output.
+Use Python for standard-library-friendly text/data/code exports such as CSV, JSON, TXT, Markdown, CSS, JS/TS source, shell scripts, simple HTML, and SVG. For code/text artifacts, set requestedOutputs to an array with the requested extension or language such as [{"type":"css"}], [{"type":"js"}], [{"type":"ts"}], or [{"type":"sh"}], and set program.filename to the exact final filename. Use JavaScript for .xlsx via exceljs, .pptx via pptxgenjs, .docx via docx, and .odt via jszip packaging. For PptxGenJS charts, slide.addChart data must be an array of series objects like [{ name: "Series", labels: ["A"], values: [1] }], not a plain { labels, values } object. Program source must write final requested files to /output.
 For images inside polished PDFs or reports, use image_search first when real-world images are needed, then reference the safe image URLs in documentSource image blocks with alt text.
 run_python_repl is scratch work only. It does not create downloadable files and must not substitute for produce_file.
 Only say a generated file is ready after the tool succeeds.
@@ -155,14 +155,6 @@ const PRE_EXA_RETRIEVAL_LINE =
 	"Use search for web research. Use fetch_content when the user gives a URL or when snippets are not enough.";
 const CURRENT_EXA_RETRIEVAL_LINE =
 	"Use search for web research when it is connected. Use get_contents when Exa returned result IDs and snippets are not enough. If a different content-fetching tool is connected, use the exact runtime tool name shown by the tool schema instead of inventing fetch_content.";
-const PRE_FILE_PRODUCTION_ARGUMENT_LINE =
-	"Every produce_file call includes idempotencyKey, requestTitle, requestedOutputs, sourceMode, and documentIntent. Optional fields are templateHint, documentSource, and program. The active conversationId is supplied by the tool runtime, not by you. Langflow validates requestedOutputs, documentSource, and program as text fields before the tool runs, so pass each one as a JSON-encoded string rather than a nested object or array.";
-const CURRENT_FILE_PRODUCTION_ARGUMENT_LINE =
-	"Every produce_file call includes idempotencyKey, requestTitle, requestedOutputs, sourceMode, and documentIntent. Optional fields are templateHint, documentSource, and program. The active conversationId is supplied by the tool runtime, not by you. requestedOutputs remains a JSON-encoded array string because Langflow exposes it as text. Pass documentSource and program as nested objects, not JSON-encoded strings.";
-const PRE_FILE_PRODUCTION_PROGRAM_LINE =
-	'For CSV, JSON, TXT, Markdown, CSS, JavaScript/TypeScript, shell scripts, SVG, ZIP, XLSX, PPTX, custom DOCX/ODT packaging, and other code-generated artifacts, use sourceMode: "program" with program as a JSON string containing language, sourceCode, and optional filename.';
-const CURRENT_FILE_PRODUCTION_PROGRAM_LINE =
-	'For CSV, JSON, TXT, Markdown, CSS, JavaScript/TypeScript, shell scripts, SVG, ZIP, XLSX, PPTX, custom DOCX/ODT packaging, and other code-generated artifacts, use sourceMode: "program" with program as an object containing language, sourceCode, and optional filename.';
 
 const DEPRECATED_WRAPPER_TAG_NAME = "preserve";
 const DEPRECATED_PRESERVE_PROTOCOL_RE = new RegExp(
@@ -212,14 +204,6 @@ function normalizePromptText(value: string): string {
 		.replace(/\r\n/g, "\n")
 		.replace(PRE_EXA_TOOL_TABLE_ROWS, CURRENT_EXA_TOOL_TABLE_ROWS)
 		.replace(PRE_EXA_RETRIEVAL_LINE, CURRENT_EXA_RETRIEVAL_LINE)
-		.replace(
-			PRE_FILE_PRODUCTION_ARGUMENT_LINE,
-			CURRENT_FILE_PRODUCTION_ARGUMENT_LINE,
-		)
-		.replace(
-			PRE_FILE_PRODUCTION_PROGRAM_LINE,
-			CURRENT_FILE_PRODUCTION_PROGRAM_LINE,
-		)
 		.trim();
 }
 

@@ -37,6 +37,10 @@ vi.mock("$lib/server/services/knowledge", () => ({
 	listConversationArtifacts: vi.fn(),
 }));
 
+vi.mock("$lib/server/services/linked-context-sources", () => ({
+	listConversationLinkedContextSources: vi.fn(),
+}));
+
 vi.mock("$lib/server/services/task-state", () => ({
 	attachContinuityToTaskState: vi.fn(
 		async (_userId: string, taskState: unknown) => taskState,
@@ -102,6 +106,7 @@ import {
 	getConversationWorkingSet,
 	listConversationArtifacts,
 } from "$lib/server/services/knowledge";
+import { listConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
 import { listMessages } from "$lib/server/services/messages";
 import { getActiveSkillSession } from "$lib/server/services/skills/sessions";
 import {
@@ -121,6 +126,9 @@ const mockListChildForksBySourceMessages = vi.mocked(
 const mockGetActiveSkillSession = vi.mocked(getActiveSkillSession);
 const mockListMessages = vi.mocked(listMessages);
 const mockListConversationArtifacts = vi.mocked(listConversationArtifacts);
+const mockListConversationLinkedContextSources = vi.mocked(
+	listConversationLinkedContextSources,
+);
 const mockGetConversationWorkingSet = vi.mocked(getConversationWorkingSet);
 const mockGetConversationContextStatus = vi.mocked(
 	getConversationContextStatus,
@@ -187,6 +195,7 @@ describe("Conversation Detail Read Model", () => {
 		mockListMessages.mockResolvedValue([]);
 		mockListChildForksBySourceMessages.mockResolvedValue({});
 		mockListConversationArtifacts.mockResolvedValue([]);
+		mockListConversationLinkedContextSources.mockResolvedValue([]);
 		mockGetConversationWorkingSet.mockResolvedValue([]);
 		mockGetConversationContextStatus.mockResolvedValue(null);
 		mockGetConversationTaskState.mockResolvedValue(null);
@@ -611,5 +620,49 @@ describe("Conversation Detail Read Model", () => {
 				}),
 			],
 		});
+	});
+
+	it("returns durable linked source groups through Context Sources after refresh", async () => {
+		mockListConversationLinkedContextSources.mockResolvedValue([
+			{
+				displayArtifactId: "display-1",
+				promptArtifactId: "prompt-1",
+				familyArtifactIds: ["display-1", "prompt-1"],
+				name: "Discovery notes.pdf",
+				type: "document",
+				mimeType: "application/pdf",
+				documentOrigin: "uploaded",
+			},
+		]);
+
+		const detail = await getConversationDetail({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+
+		expect(mockListConversationLinkedContextSources).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+		expect(detail?.contextSources?.groups).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "linked_source",
+					state: "active",
+					items: [
+						expect.objectContaining({
+							id: "linked_source:display-1",
+							artifactId: "display-1",
+							title: "Discovery notes.pdf",
+							reason: "linked_context_source",
+							metadata: expect.objectContaining({
+								promptArtifactId: "prompt-1",
+								documentOrigin: "uploaded",
+							}),
+						}),
+					],
+				}),
+			]),
+		);
 	});
 });

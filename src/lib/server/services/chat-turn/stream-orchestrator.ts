@@ -1,8 +1,5 @@
 import { getConfig } from "$lib/server/config-store";
-import {
-	extractProviderUsage,
-	type ProviderUsageSnapshot,
-} from "$lib/server/services/analytics";
+import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import {
 	getChatFilesForAssistantMessage,
@@ -29,49 +26,41 @@ import {
 	persistUserTurnAttachments,
 	runPostTurnTasks,
 } from "$lib/server/services/chat-turn/finalize";
-import { normalizeAssistantOutput } from "$lib/server/services/chat-turn/normalizer";
+import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import {
 	classifyStreamError,
 	createEventStreamResponse,
 	createServerChunkRuntime,
 	createSseHeartbeatComment,
 	createSsePreludeComment,
-	extractAssistantChunk,
-	extractErrorMessage,
-	formatUpstreamErrorAsAssistantMessage,
-	getReasoningContent,
 	isAbruptUpstreamTermination,
-	isUrlListValidationError,
-	parseUpstreamEvents,
-	processToolCallMarkers,
 	type StreamErrorCode,
 	type StreamPhaseTimings,
 	streamErrorEvent,
-	toIncrementalChunk,
-	URL_LIST_TOOL_RECOVERY_APPENDIX,
 } from "$lib/server/services/chat-turn/stream";
 import { completeStreamTurn } from "$lib/server/services/chat-turn/stream-completion";
 import { runNonStreamFallback } from "$lib/server/services/chat-turn/stream-fallback";
 import { doReconnect as runReconnect } from "$lib/server/services/chat-turn/stream-reconnect";
+import { runStreamingNormalChatSendModel } from "$lib/server/services/chat-turn/streaming-normal-chat-model-run";
 import type { ChatTurnPreflight } from "$lib/server/services/chat-turn/types";
 import { touchConversation } from "$lib/server/services/conversations";
 import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
-import {
-	isLangflowTimeoutError,
-	resolveTimeoutFailoverTargetModelId,
-	sendMessage,
-	sendMessageStream,
-} from "$lib/server/services/langflow";
 import { createMessage } from "$lib/server/services/messages";
+import {
+	isModelTimeoutError,
+	resolveModelTimeoutFailoverTargetModelId,
+} from "$lib/server/services/normal-chat-failover";
+import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import {
 	attachContinuityToTaskState,
 	getContextDebugState,
 	getConversationTaskState,
 } from "$lib/server/services/task-state";
+import type { ModelId } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 
@@ -119,14 +108,41 @@ function shouldFallbackToNonStreaming(error: unknown): boolean {
 	const message = error.message.toLowerCase();
 
 	return (
+		isModelTimeoutError(error) ||
 		error.name === "AbortError" ||
-		error.name === "LangflowStreamConnectTimeoutError" ||
 		message.includes("abort") ||
 		message.includes("timed out") ||
 		message.includes("fetch failed") ||
 		message.includes("socket") ||
 		message.includes("connection") ||
 		message.includes("terminated")
+	);
+}
+
+function asToolInput(value: unknown): Record<string, unknown> {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return {};
+	}
+	return value as Record<string, unknown>;
+}
+
+function isMappedProviderUsage(value: unknown): value is ProviderUsageSnapshot {
+	return Boolean(
+		value &&
+			typeof value === "object" &&
+			("promptTokens" in value ||
+				"completionTokens" in value ||
+				"source" in value),
+	);
+}
+
+function mapModelRunUsage(
+	usage: unknown,
+): ProviderUsageSnapshot | null | undefined {
+	if (!usage) return null;
+	if (isMappedProviderUsage(usage)) return usage;
+	return mapNormalChatModelRunUsageToProviderSnapshot(
+		usage as Parameters<typeof mapNormalChatModelRunUsageToProviderSnapshot>[0],
 	);
 }
 
@@ -207,8 +223,6 @@ export function runChatStreamOrchestrator(
 			const downstreamSignal = downstreamAbortController.signal;
 			let downstreamClosed = false;
 			let ended = false;
-			let lastAssistantSnapshot = "";
-			let emittedAssistantText = "";
 
 			const closeDownstream = () => {
 				if (downstreamClosed) return;
@@ -252,7 +266,7 @@ export function runChatStreamOrchestrator(
 			const enqueueChunk = (chunk: string): boolean => {
 				// Always broadcast to reconnect listeners first, even if this downstream
 				// is already closed (e.g. reconnect client navigated away). The listener
-				// needs `event: end` to fire onEnd and finalize the UI placeholder.
+				// needs terminal UI stream parts to finalize the UI placeholder.
 				if (isMainStream && streamId) {
 					broadcastStreamChunk(streamId, chunk);
 				}
@@ -412,18 +426,13 @@ export function runChatStreamOrchestrator(
 					| undefined,
 			) => {
 				for (const record of records ?? []) {
-					emitToolCallEventWithDebug(
-						record.name,
-						record.input,
-						record.status,
-						{
-							callId: record.callId,
-							outputSummary: record.outputSummary,
-							sourceType: record.sourceType,
-							candidates: record.candidates,
-							metadata: record.metadata,
-						},
-					);
+					emitToolCallEventWithDebug(record.name, record.input, record.status, {
+						callId: record.callId,
+						outputSummary: record.outputSummary,
+						sourceType: record.sourceType,
+						candidates: record.candidates,
+						metadata: record.metadata,
+					});
 				}
 			};
 			const emitChunkWithOutputHandling = (chunk: string): boolean => {
@@ -483,14 +492,12 @@ export function runChatStreamOrchestrator(
 				Boolean(
 					chunkRuntime.fullResponse.trim() ||
 						chunkRuntime.thinkingContent.trim() ||
-						chunkRuntime.toolCallRecords.length > 0 ||
-						emittedAssistantText.trim(),
+						chunkRuntime.toolCallRecords.length > 0,
 				);
 			const hasVisibleStreamOutput = () =>
 				Boolean(
 					chunkRuntime.fullResponse.trim() ||
-						chunkRuntime.toolCallRecords.length > 0 ||
-						emittedAssistantText.trim(),
+						chunkRuntime.toolCallRecords.length > 0,
 				);
 			const hasVisibleAssistantAnswerOutput = () =>
 				Boolean(chunkRuntime.fullResponse.trim());
@@ -529,7 +536,7 @@ export function runChatStreamOrchestrator(
 					return;
 				}
 				if (hasPersistableStreamOutput()) {
-					completeSuccess();
+					await completeSuccess();
 					return;
 				}
 				if (
@@ -605,11 +612,11 @@ export function runChatStreamOrchestrator(
 			let initialContextTraceSections:
 				| LegacyContextTraceSectionInput[]
 				| undefined;
-			const completeSuccess = (wasStopped = false) => {
+			const completeSuccess = async (wasStopped = false) => {
 				if (ended) return;
 				ended = true;
 				logPhaseTiming(wasStopped ? "stopped" : "success");
-				completeStreamTurn({
+				await completeStreamTurn({
 					wasStopped,
 					conversationId,
 					streamId,
@@ -720,7 +727,9 @@ export function runChatStreamOrchestrator(
 						upstreamIdleTimedOutBeforeOutput = true;
 						void (async () => {
 							const timeoutFailoverTarget =
-								await resolveTimeoutFailoverTargetModelId(modelId ?? "model1");
+								await resolveModelTimeoutFailoverTargetModelId(
+									modelId ?? "model1",
+								);
 							if (timeoutFailoverTarget && fallbackToNonStreaming && !ended) {
 								await fallbackToNonStreaming(
 									"stream_read_failure",
@@ -763,7 +772,9 @@ export function runChatStreamOrchestrator(
 					upstreamIdleTimedOutBeforeOutput = true;
 					void (async () => {
 						const timeoutFailoverTarget =
-							await resolveTimeoutFailoverTargetModelId(modelId ?? "model1");
+							await resolveModelTimeoutFailoverTargetModelId(
+								modelId ?? "model1",
+							);
 						if (timeoutFailoverTarget && fallbackToNonStreaming && !ended) {
 							await fallbackToNonStreaming(
 								"stream_read_failure",
@@ -782,25 +793,24 @@ export function runChatStreamOrchestrator(
 				unrefTimer(firstVisibleOutputTimeoutId);
 			};
 
-			let usedUrlListRecovery = false;
 			let personalityPrompt: string | undefined;
 			let latestUpstreamAttempt = 1;
-			let currentStreamModelId = modelId;
+			let currentStreamModelId = (modelId ?? undefined) as ModelId | undefined;
 			let attemptedNonStreamFallback = false;
 			const currentSystemPromptAppendix = () => {
-				const appendices = [
-					retryAppendix,
-					usedUrlListRecovery ? URL_LIST_TOOL_RECOVERY_APPENDIX : undefined,
-				].filter((value): value is string => Boolean(value?.trim()));
+				const appendices = [retryAppendix].filter((value): value is string =>
+					Boolean(value?.trim()),
+				);
 				return appendices.length > 0 ? appendices.join("\n\n") : undefined;
 			};
 			const retryStreamOnTimeoutFailover = async (
 				attempt: number,
 				error: Error,
 			): Promise<boolean> => {
-				const timeoutFailoverTarget = await resolveTimeoutFailoverTargetModelId(
-					currentStreamModelId ?? "model1",
-				);
+				const timeoutFailoverTarget =
+					await resolveModelTimeoutFailoverTargetModelId(
+						currentStreamModelId ?? "model1",
+					);
 				if (
 					!timeoutFailoverTarget ||
 					timeoutFailoverTarget === currentStreamModelId ||
@@ -820,7 +830,7 @@ export function runChatStreamOrchestrator(
 						errorMessage: error.message,
 					},
 				);
-				currentStreamModelId = timeoutFailoverTarget;
+				currentStreamModelId = timeoutFailoverTarget as ModelId;
 				latestModelId = timeoutFailoverTarget;
 				return true;
 			};
@@ -831,8 +841,8 @@ export function runChatStreamOrchestrator(
 			): Promise<null> => {
 				attemptedNonStreamFallback = true;
 				const timeoutFailoverTarget =
-					isLangflowTimeoutError(error) || upstreamIdleTimedOutBeforeOutput
-						? await resolveTimeoutFailoverTargetModelId(
+					isModelTimeoutError(error) || upstreamIdleTimedOutBeforeOutput
+						? await resolveModelTimeoutFailoverTargetModelId(
 								currentStreamModelId ?? "model1",
 							)
 						: null;
@@ -843,8 +853,8 @@ export function runChatStreamOrchestrator(
 				}
 				console.warn(
 					reason === "stream_connect_failure"
-						? "[STREAM] Falling back to non-stream Langflow run after stream connect failure"
-						: "[STREAM] Falling back to non-stream Langflow run after stream body terminated before usable output",
+						? "[STREAM] Falling back to non-stream provider run after stream connect failure"
+						: "[STREAM] Falling back to non-stream provider run after stream body terminated before usable output",
 					{
 						conversationId,
 						attempt,
@@ -857,14 +867,15 @@ export function runChatStreamOrchestrator(
 				);
 
 				const recovered = await runNonStreamFallback({
-					sendMessage,
+					runPlainNormalChatSendModel,
 					sendParams: {
+						runtimeConfig: getConfig(),
 						upstreamMessage,
 						conversationId,
-						modelId: fallbackModelId,
+						modelId: (fallbackModelId ?? undefined) as ModelId | undefined,
 						attachmentIds: safeAttachmentIds,
-						activeDocumentArtifactId,
-						attachmentTraceId,
+						activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
+						attachmentTraceId: attachmentTraceId ?? undefined,
 						thinkingMode,
 						forceWebSearch: turn.forceWebSearch,
 					},
@@ -922,27 +933,29 @@ export function runChatStreamOrchestrator(
 
 				upstreamAttempt: for (let attempt = 1; attempt <= 2; attempt += 1) {
 					latestUpstreamAttempt = attempt;
-					const langflowRequestStartedAt = Date.now();
-					const langflowResponse = await sendMessageStream(
-						upstreamMessage,
+					const modelStreamRequestStartedAt = Date.now();
+					const modelRunParams = {
+						userId: user.id,
+						runtimeConfig: getConfig(),
+						message: upstreamMessage,
 						conversationId,
-						currentStreamModelId,
-						{
-							signal: upstreamAbortController.signal,
-							user: {
-								id: user.id,
-								displayName: user.displayName,
-								email: user.email,
-							},
-							attachmentIds: safeAttachmentIds,
-							activeDocumentArtifactId,
-							attachmentTraceId,
-							systemPromptAppendix: currentSystemPromptAppendix(),
-							personalityPrompt,
-							skipHonchoContext,
-							thinkingMode,
-							forceWebSearch: turn.forceWebSearch,
+						modelId: currentStreamModelId,
+						user: {
+							id: user.id,
+							displayName: user.displayName,
+							email: user.email,
 						},
+						attachmentIds: safeAttachmentIds,
+						activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
+						attachmentTraceId: attachmentTraceId ?? undefined,
+						systemPromptAppendix: currentSystemPromptAppendix(),
+						personalityPrompt,
+						thinkingMode,
+						forceWebSearch: turn.forceWebSearch,
+						signal: upstreamAbortController.signal,
+					};
+					const modelRun = await runStreamingNormalChatSendModel(
+						modelRunParams,
 					).catch(async (error) => {
 						if (
 							wasActiveChatStreamStopRequested(streamId) ||
@@ -958,51 +971,22 @@ export function runChatStreamOrchestrator(
 							error,
 						);
 					});
-					recordDurationPhase("langflow_request", langflowRequestStartedAt);
-					if (!langflowResponse) {
+					recordDurationPhase(
+						"model_stream_request",
+						modelStreamRequestStartedAt,
+					);
+					if (!modelRun) {
 						return;
 					}
-					latestModelId = langflowResponse.modelId ?? latestModelId;
+					latestModelId = modelRun.modelId ?? latestModelId;
 					latestModelDisplayName =
-						langflowResponse.modelDisplayName ?? latestModelDisplayName;
-					if (!langflowResponse.stream) {
-						emitPrefetchedToolCalls(langflowResponse.prefetchedToolCalls);
-						latestContextStatus = langflowResponse.contextStatus;
-						initialContextStatus = latestContextStatus;
-						latestTaskState = await attachContinuityToTaskState(
-							user.id,
-							langflowResponse.taskState ?? null,
-						).catch(() => langflowResponse.taskState ?? null);
-						initialTaskState = latestTaskState;
-						latestContextDebug = langflowResponse.contextDebug ?? null;
-						initialContextDebug = latestContextDebug;
-						latestHonchoContext = langflowResponse.honchoContext ?? null;
-						latestHonchoSnapshot = langflowResponse.honchoSnapshot ?? null;
-						latestContextTraceSections = langflowResponse.contextTraceSections;
-						initialContextTraceSections = latestContextTraceSections;
-
-						if (
-							!(await emitResolvedAssistantText(langflowResponse.text ?? ""))
-						) {
-							return;
-						}
-
-						flushPendingThinking();
-						if (!flushInlineThinkingBuffer()) {
-							return;
-						}
-						if (!flushOutputBuffer()) {
-							return;
-						}
-						completeSuccess();
-						return;
-					}
-					const langflowStream = langflowResponse.stream;
-					emitPrefetchedToolCalls(langflowResponse.prefetchedToolCalls);
-					latestContextStatus = langflowResponse.contextStatus;
+						modelRun.modelDisplayName ?? latestModelDisplayName;
+					const prepared = modelRun.prepared ?? {};
+					emitPrefetchedToolCalls(modelRun.prefetchedToolCalls);
+					latestContextStatus = prepared.contextStatus;
 					initialContextStatus = latestContextStatus;
 					latestTaskState =
-						langflowResponse.taskState ??
+						prepared.taskState ??
 						(await getConversationTaskState(user.id, conversationId).catch(
 							() => null,
 						));
@@ -1012,186 +996,125 @@ export function runChatStreamOrchestrator(
 					).catch(() => latestTaskState ?? null);
 					initialTaskState = latestTaskState;
 					latestContextDebug =
-						langflowResponse.contextDebug ??
+						prepared.contextDebug ??
 						(await getContextDebugState(user.id, conversationId).catch(
 							() => null,
 						));
 					initialContextDebug = latestContextDebug;
-					latestHonchoContext = langflowResponse.honchoContext ?? null;
-					latestHonchoSnapshot = langflowResponse.honchoSnapshot ?? null;
-					latestContextTraceSections = langflowResponse.contextTraceSections;
+					latestHonchoContext = prepared.honchoContext ?? null;
+					latestHonchoSnapshot = prepared.honchoSnapshot ?? null;
+					latestContextTraceSections = prepared.contextTraceSections;
 					initialContextTraceSections = latestContextTraceSections;
 
 					scheduleFirstVisibleOutputTimeout();
 					scheduleUpstreamIdleTimeout(attempt);
 					try {
-						for await (const upstreamEvent of parseUpstreamEvents(
-							langflowStream,
-						)) {
+						for await (const upstreamEvent of modelRun.stream) {
 							recordElapsedPhase("first_upstream_event");
 							markUpstreamActivity(attempt);
-							const { event: eventType, data } = upstreamEvent;
-							const eventUsage = extractProviderUsage(data);
-							if (eventUsage) {
-								latestProviderUsage = eventUsage;
-							}
-							if (data === "[DONE]") {
-								await completeOrRecoverAfterUpstreamEnd("done_signal");
-								return;
-							}
-							const isEndEvent = eventType === "end";
-
-							if (eventType === "error") {
-								const errorMessage = extractErrorMessage(data);
-								console.error("[STREAM] Upstream error event payload", {
-									conversationId,
-									attempt,
-									errorMessage,
-									data:
-										typeof data === "string"
-											? data
-											: JSON.stringify(data).slice(0, 2000),
-								});
-								const canRetryUrlListValidation =
-									!usedUrlListRecovery &&
-									isUrlListValidationError(errorMessage) &&
-									!hasEmittedStreamOutput();
-								if (canRetryUrlListValidation) {
-									usedUrlListRecovery = true;
-									lastAssistantSnapshot = "";
-									emittedAssistantText = "";
-									console.warn(
-										"[STREAM] Retrying upstream after URL list validation error",
+							switch (upstreamEvent.type) {
+								case "text_delta":
+									if (!emitChunkWithOutputHandling(upstreamEvent.text)) {
+										return;
+									}
+									break;
+								case "reasoning_delta":
+									if (!emitThinking(upstreamEvent.text)) {
+										return;
+									}
+									break;
+								case "tool_call":
+									emitToolCallEventWithDebug(
+										upstreamEvent.toolName,
+										asToolInput(upstreamEvent.input),
+										"running",
+										{ callId: upstreamEvent.callId },
+									);
+									break;
+								case "tool_result": {
+									const matchingToolCall = modelRun
+										.getNormalChatToolCalls()
+										.find((record) => record.callId === upstreamEvent.callId);
+									emitToolCallEventWithDebug(
+										upstreamEvent.toolName,
+										matchingToolCall?.input ?? {},
+										"done",
 										{
-											conversationId,
-											attempt,
-											errorMessage,
+											callId: upstreamEvent.callId,
+											outputSummary: matchingToolCall?.outputSummary ?? null,
+											sourceType: matchingToolCall?.sourceType ?? null,
+											candidates: matchingToolCall?.candidates ?? [],
+											metadata: matchingToolCall?.metadata ?? {},
 										},
 									);
-									continue upstreamAttempt;
+									break;
 								}
-								const upstreamError = new Error(errorMessage);
-								const errorCode = classifyStreamError(errorMessage);
-								if (
-									!hasVisibleAssistantAnswerOutput() &&
-									isLangflowTimeoutError(upstreamError)
-								) {
+								case "tool_error": {
+									const matchingToolCall = modelRun
+										.getNormalChatToolCalls()
+										.find((record) => record.callId === upstreamEvent.callId);
+									emitToolCallEventWithDebug(
+										upstreamEvent.toolName,
+										matchingToolCall?.input ?? {},
+										"done",
+										{
+											callId: upstreamEvent.callId,
+											outputSummary: null,
+											sourceType: null,
+											candidates: [],
+											metadata: {
+												ok: false,
+												evidenceReady: false,
+												error: upstreamEvent.error,
+											},
+										},
+									);
+									break;
+								}
+								case "usage": {
+									const mappedUsage = mapModelRunUsage(upstreamEvent.usage);
+									if (mappedUsage) {
+										latestProviderUsage = mappedUsage;
+									}
+									break;
+								}
+								case "finish":
+									latestModelDisplayName =
+										upstreamEvent.model.displayName ?? latestModelDisplayName;
+									await completeOrRecoverAfterUpstreamEnd("end_event");
+									return;
+								case "error": {
+									const errorMessage = upstreamEvent.error;
+									console.error("[STREAM] Upstream error event payload", {
+										conversationId,
+										attempt,
+										errorMessage,
+									});
+									const upstreamError = new Error(errorMessage);
+									const errorCode = classifyStreamError(errorMessage);
 									if (
-										await retryStreamOnTimeoutFailover(attempt, upstreamError)
+										!hasVisibleAssistantAnswerOutput() &&
+										isModelTimeoutError(upstreamError)
 									) {
-										continue upstreamAttempt;
+										if (
+											await retryStreamOnTimeoutFailover(attempt, upstreamError)
+										) {
+											continue upstreamAttempt;
+										}
+										failStream(errorCode);
+										return;
+									}
+									if (
+										hasCompletedFileProductionToolCall() &&
+										flushBufferedStreamOutput() &&
+										hasPersistableStreamOutput()
+									) {
+										await completeSuccess();
+										return;
 									}
 									failStream(errorCode);
 									return;
 								}
-								if (
-									hasCompletedFileProductionToolCall() &&
-									flushBufferedStreamOutput() &&
-									hasPersistableStreamOutput()
-								) {
-									completeSuccess();
-									return;
-								}
-								if (errorCode === "backend_failure") {
-									if (
-										!(await emitResolvedAssistantText(
-											formatUpstreamErrorAsAssistantMessage(errorMessage),
-										))
-									) {
-										return;
-									}
-									if (!flushBufferedStreamOutput()) {
-										return;
-									}
-									completeSuccess();
-									return;
-								}
-								failStream(errorCode);
-								return;
-							}
-
-							chunkRuntime.processNativeToolCalls(data);
-							const rawChunk = extractAssistantChunk(eventType, data);
-							const shouldEmitRawChunk =
-								!isEndEvent || !hasVisibleAssistantAnswerOutput();
-							const reasoningChunk = getReasoningContent(data);
-							if (reasoningChunk) {
-								if (!emitThinking(reasoningChunk)) {
-									return;
-								}
-							}
-							if (!rawChunk || !shouldEmitRawChunk) {
-								if (isEndEvent) {
-									await completeOrRecoverAfterUpstreamEnd("end_event");
-									return;
-								}
-								continue;
-							}
-
-							const previousEmittedAssistantText = emittedAssistantText;
-							const incremental = toIncrementalChunk(
-								eventType,
-								rawChunk,
-								lastAssistantSnapshot,
-								emittedAssistantText,
-							);
-							lastAssistantSnapshot = incremental.lastSnapshot;
-							emittedAssistantText = incremental.emittedText;
-							const chunk = incremental.chunk;
-							if (!chunk) {
-								if (isEndEvent) {
-									await completeOrRecoverAfterUpstreamEnd("end_event");
-									return;
-								}
-								continue;
-							}
-
-							// Suppress duplicate visible text from Langflow's final summary event.
-							// Nemotron streams tokens as "<thinking>...</thinking>visible" so
-							// emittedAssistantText includes thinking tags, but the final non-token
-							// 'message' event has only visible text (tags stripped by Langflow).
-							// toIncrementalChunk can't match them, so we guard here using fullResponse
-							// with trimmed comparison to handle trailing newline/space differences.
-							if (eventType !== "token" && previousEmittedAssistantText) {
-								const normalizedEmittedText = normalizeAssistantOutput(
-									previousEmittedAssistantText,
-								);
-								const normalizedChunk = normalizeAssistantOutput(chunk);
-								if (
-									normalizedChunk &&
-									(normalizedChunk === normalizedEmittedText ||
-										normalizedEmittedText.endsWith(normalizedChunk) ||
-										normalizedChunk.endsWith(normalizedEmittedText))
-								) {
-									if (isEndEvent) {
-										await completeOrRecoverAfterUpstreamEnd("end_event");
-										return;
-									}
-									continue;
-								}
-							}
-
-							// Strip tool call markers, emitting structured tool_call SSE events
-							const cleanedChunk = processToolCallMarkers(
-								chunk,
-								emitToolCallEventWithDebug,
-							);
-
-							if (!cleanedChunk) {
-								if (isEndEvent) {
-									await completeOrRecoverAfterUpstreamEnd("end_event");
-									return;
-								}
-								continue;
-							}
-
-							if (!emitChunkWithOutputHandling(cleanedChunk)) {
-								return;
-							}
-
-							if (eventType === "end") {
-								await completeOrRecoverAfterUpstreamEnd("end_event");
-								return;
 							}
 						}
 
@@ -1215,14 +1138,14 @@ export function runChatStreamOrchestrator(
 					(error.name === "AbortError" ||
 						error.message.toLowerCase().includes("abort"))
 				) {
-					completeSuccess(true);
+					await completeSuccess(true);
 					return;
 				}
 				if (
 					!attemptedNonStreamFallback &&
 					!wasActiveChatStreamStopRequested(streamId) &&
 					(upstreamIdleTimedOutBeforeOutput ||
-						isLangflowTimeoutError(error) ||
+						isModelTimeoutError(error) ||
 						(shouldFallbackToNonStreaming(error) &&
 							!hasVisibleStreamOutput())) &&
 					!hasVisibleAssistantAnswerOutput()
@@ -1236,7 +1159,7 @@ export function runChatStreamOrchestrator(
 				}
 				if (isAbruptUpstreamTermination(error)) {
 					if (flushBufferedStreamOutput() && hasPersistableStreamOutput()) {
-						completeSuccess();
+						await completeSuccess();
 						return;
 					}
 					if (

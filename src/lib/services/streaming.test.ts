@@ -1,38 +1,54 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	BROWSER_CHAT_SSE_EVENTS,
-	type BrowserChatSseEventName,
-	type BrowserChatSsePayload,
-	encodeBrowserChatSseEvent,
-} from "./stream-protocol";
-import type { StreamCallbacks } from "./streaming";
+	aiSdkUiStreamCloseAfterFinishSequence,
+	aiSdkUiStreamContractMetadata,
+	aiSdkUiStreamContractSequence,
+	aiSdkUiStreamContractToolCall,
+	aiSdkUiStreamReplaySequence,
+	encodeAiSdkUiFixtureFrame,
+	encodeAiSdkUiFixtureFrames,
+	malformedAiSdkUiStreamFrames,
+	oldBrowserSseNamedTokenEvent,
+} from "../../../tests/fixtures/ai-sdk-ui-stream-contract";
+import type { StreamCallbacks, StreamMetadata } from "./streaming";
 import { streamChat } from "./streaming";
 
-function sseEvent<Name extends BrowserChatSseEventName>(
-	event: Name,
-	payload: BrowserChatSsePayload<Name>,
-): string {
-	return encodeBrowserChatSseEvent(event, payload);
-}
-
 function tokenEvent(text: string): string {
-	return sseEvent(BROWSER_CHAT_SSE_EVENTS.token, { text });
+	return uiFrame({ type: "text-delta", id: "text-1", delta: text });
 }
 
 function thinkingEvent(text: string): string {
-	return sseEvent(BROWSER_CHAT_SSE_EVENTS.thinking, { text });
+	return uiFrame({ type: "reasoning-delta", id: "reasoning-1", delta: text });
 }
 
-function endEvent(
-	payload: BrowserChatSsePayload<typeof BROWSER_CHAT_SSE_EVENTS.end> = {},
-): string {
-	return sseEvent(BROWSER_CHAT_SSE_EVENTS.end, payload);
+function endEvent(payload: Partial<StreamMetadata> = {}): string {
+	const metadata =
+		Object.keys(payload).length > 0
+			? uiFrame({
+					type: "data-stream-metadata",
+					data: payload,
+					transient: true,
+				})
+			: "";
+	return `${metadata}${uiFrame({ type: "finish", finishReason: "stop" })}${uiFrame("[DONE]")}`;
 }
 
-function errorEvent(
-	payload: BrowserChatSsePayload<typeof BROWSER_CHAT_SSE_EVENTS.error>,
-): string {
-	return sseEvent(BROWSER_CHAT_SSE_EVENTS.error, payload);
+function errorEvent(payload: {
+	message?: string;
+	error?: string;
+	code?: string;
+}): string {
+	return `${uiFrame({
+		type: "data-stream-error",
+		data: payload,
+		transient: true,
+	})}${uiFrame({ type: "finish", finishReason: "error" })}${uiFrame("[DONE]")}`;
+}
+
+function uiFrame(payload: Record<string, unknown> | "[DONE]"): string {
+	return `data: ${
+		typeof payload === "string" ? payload : JSON.stringify(payload)
+	}\n\n`;
 }
 
 function buildFetchResponse(sseChunks: string[], status = 200): Response {
@@ -120,7 +136,346 @@ describe("streamChat", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("calls onToken for each SSE token chunk", async () => {
+	it("decodes the shared AI SDK UI stream contract fixture end-to-end", async () => {
+		const mockFetch = vi.mocked(fetch);
+		const onToolCall = vi.fn();
+		mockFetch.mockResolvedValue(
+			buildFetchResponse(
+				encodeAiSdkUiFixtureFrames(aiSdkUiStreamContractSequence),
+			),
+		);
+
+		const cb = {
+			...makeCallbacks(),
+			onToolCall,
+		};
+		const done = waitForStream(cb as unknown as MockCallbacks);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(cb.onThinking).toHaveBeenCalledWith("Need current evidence.");
+		expect(cb.onToken).toHaveBeenNthCalledWith(1, "Hello");
+		expect(cb.onToken).toHaveBeenNthCalledWith(2, " world");
+		expect(onToolCall).toHaveBeenCalledWith(
+			aiSdkUiStreamContractToolCall.name,
+			aiSdkUiStreamContractToolCall.input,
+			aiSdkUiStreamContractToolCall.status,
+			{
+				callId: aiSdkUiStreamContractToolCall.callId,
+				outputSummary: aiSdkUiStreamContractToolCall.outputSummary,
+				sourceType: aiSdkUiStreamContractToolCall.sourceType,
+				candidates: aiSdkUiStreamContractToolCall.candidates,
+				metadata: aiSdkUiStreamContractToolCall.metadata,
+			},
+		);
+		expect(cb.onEnd).toHaveBeenCalledWith(
+			"Hello world",
+			aiSdkUiStreamContractMetadata,
+		);
+	});
+
+	it("ignores old Browser SSE named token events without partial rendering", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				oldBrowserSseNamedTokenEvent,
+				encodeAiSdkUiFixtureFrame("[DONE]"),
+			]),
+		);
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(cb.onToken).not.toHaveBeenCalled();
+		expect(cb.onThinking).not.toHaveBeenCalled();
+		expect(cb.onEnd).toHaveBeenCalledWith("", undefined);
+		expect(cb.onError).not.toHaveBeenCalled();
+	});
+
+	it("ignores malformed AI SDK UI stream fixture frames without partial rendering", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				...malformedAiSdkUiStreamFrames,
+				encodeAiSdkUiFixtureFrame("[DONE]"),
+			]),
+		);
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(cb.onToken).not.toHaveBeenCalled();
+		expect(cb.onThinking).not.toHaveBeenCalled();
+		expect(cb.onEnd).toHaveBeenCalledWith("", undefined);
+		expect(cb.onError).not.toHaveBeenCalled();
+	});
+
+	it("finishes successfully when the stream closes after the finish fixture frame", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			buildFetchResponse(
+				encodeAiSdkUiFixtureFrames(aiSdkUiStreamCloseAfterFinishSequence),
+			),
+		);
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(cb.onEnd).toHaveBeenCalledWith("Hello", undefined);
+		expect(cb.onError).not.toHaveBeenCalled();
+	});
+
+	it("buffers the shared replay fixture until replay-end before waiting", async () => {
+		const mockFetch = vi.mocked(fetch);
+		const consoleInfo = vi
+			.spyOn(console, "info")
+			.mockImplementation(() => undefined);
+		mockFetch.mockResolvedValue(
+			buildFetchResponse(
+				encodeAiSdkUiFixtureFrames(aiSdkUiStreamReplaySequence),
+			),
+		);
+
+		const events: string[] = [];
+		const cb = {
+			...makeCallbacks(),
+			onToken: vi.fn((chunk: string) => events.push(`token:${chunk}`)),
+			onThinking: vi.fn((chunk: string) => events.push(`thinking:${chunk}`)),
+			onWaiting: vi.fn(() => events.push("waiting")),
+			onEnd: vi.fn((fullText: string) => events.push(`end:${fullText}`)),
+		};
+		const done = waitForStream(cb as unknown as MockCallbacks);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(events).toEqual([
+			"token:Hello",
+			"thinking:Need current evidence.",
+			"waiting",
+			"end:Hello",
+		]);
+		consoleInfo.mockRestore();
+	});
+
+	it("calls onToken for AI SDK UI text-delta frames and ends on [DONE]", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				uiFrame({ type: "text-delta", id: "text-1", delta: "Hello" }),
+				uiFrame({ type: "text-delta", id: "text-1", delta: " world" }),
+				uiFrame("[DONE]"),
+			]),
+		);
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(cb.onToken).toHaveBeenCalledTimes(2);
+		expect(cb.onToken).toHaveBeenNthCalledWith(1, "Hello");
+		expect(cb.onToken).toHaveBeenNthCalledWith(2, " world");
+		expect(cb.onEnd).toHaveBeenCalledWith("Hello world", undefined);
+	});
+
+	it("maps AI SDK UI reasoning, metadata, and finish frames onto existing callbacks", async () => {
+		const mockFetch = vi.mocked(fetch);
+		const metadata = {
+			thinkingTokenCount: 4,
+			responseTokenCount: 5,
+			totalTokenCount: 9,
+			assistantMessageId: "assistant-1",
+			modelDisplayName: "Model 1",
+		};
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				uiFrame({
+					type: "reasoning-delta",
+					id: "reasoning-1",
+					delta: "Need to reason",
+				}),
+				uiFrame({ type: "text-delta", id: "text-1", delta: "Answer" }),
+				uiFrame({
+					type: "data-stream-metadata",
+					data: metadata,
+					transient: true,
+				}),
+				uiFrame({ type: "finish" }),
+			]),
+		);
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(cb.onThinking).toHaveBeenCalledOnce();
+		expect(cb.onThinking).toHaveBeenCalledWith("Need to reason");
+		expect(cb.onToken).toHaveBeenCalledWith("Answer");
+		expect(cb.onEnd).toHaveBeenCalledWith("Answer", metadata);
+	});
+
+	it("calls terminal callbacks once when finish is followed by DONE", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([tokenEvent("Answer"), endEvent()]),
+		);
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(cb.onEnd).toHaveBeenCalledOnce();
+		expect(cb.onEnd).toHaveBeenCalledWith("Answer", undefined);
+		expect(cb.onError).not.toHaveBeenCalled();
+	});
+
+	it("maps AI SDK UI tool-call data parts onto the existing tool callback", async () => {
+		const mockFetch = vi.mocked(fetch);
+		const onToolCall = vi.fn();
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				uiFrame({
+					type: "data-tool-call",
+					data: {
+						callId: "call-1",
+						name: "web_search",
+						input: { query: "OpenAI news" },
+						status: "running",
+						outputSummary: null,
+						sourceType: "web",
+						candidates: [
+							{
+								id: "src-1",
+								title: "OpenAI",
+								url: "https://openai.com",
+								sourceType: "web",
+							},
+						],
+						metadata: { count: 1 },
+					},
+					transient: true,
+				}),
+				uiFrame("[DONE]"),
+			]),
+		);
+
+		const cb = {
+			...makeCallbacks(),
+			onToolCall,
+		};
+		const done = waitForStream(cb as unknown as MockCallbacks);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(onToolCall).toHaveBeenCalledWith(
+			"web_search",
+			{ query: "OpenAI news" },
+			"running",
+			{
+				callId: "call-1",
+				outputSummary: null,
+				sourceType: "web",
+				candidates: [
+					{
+						id: "src-1",
+						title: "OpenAI",
+						url: "https://openai.com",
+						sourceType: "web",
+					},
+				],
+				metadata: { count: 1 },
+			},
+		);
+	});
+
+	it("maps AI SDK UI stream-error data parts onto onError with code", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				uiFrame({
+					type: "data-stream-error",
+					data: {
+						message: "Upstream failed",
+						code: "UPSTREAM_FAILURE",
+					},
+					transient: true,
+				}),
+			]),
+		);
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		const error = cb.onError.mock.calls[0]?.[0] as
+			| (Error & { code?: string })
+			| undefined;
+		expect(error?.message).toBe("Upstream failed");
+		expect(error?.code).toBe("UPSTREAM_FAILURE");
+		expect(cb.onEnd).not.toHaveBeenCalled();
+	});
+
+	it("buffers AI SDK UI replayed chunks until replay end before waiting", async () => {
+		const mockFetch = vi.mocked(fetch);
+		const controlled = buildControlledFetchResponse();
+		const consoleInfo = vi
+			.spyOn(console, "info")
+			.mockImplementation(() => undefined);
+		mockFetch.mockResolvedValue(controlled.response);
+
+		const events: string[] = [];
+		const cb = {
+			...makeCallbacks(),
+			onToken: vi.fn((chunk: string) => events.push(`token:${chunk}`)),
+			onThinking: vi.fn((chunk: string) => events.push(`thinking:${chunk}`)),
+			onWaiting: vi.fn(() => events.push("waiting")),
+			onEnd: vi.fn((fullText: string) => events.push(`end:${fullText}`)),
+		};
+		const done = waitForStream(cb as unknown as MockCallbacks);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		controlled.enqueue(
+			uiFrame({ type: "data-replay-start", data: {}, transient: true }),
+			uiFrame({ type: "text-delta", id: "text-1", delta: "Buffered" }),
+			uiFrame({
+				type: "reasoning-delta",
+				id: "reasoning-1",
+				delta: "Reasoning",
+			}),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(cb.onToken).not.toHaveBeenCalled();
+		expect(cb.onThinking).not.toHaveBeenCalled();
+
+		controlled.enqueue(
+			uiFrame({ type: "data-replay-end", data: {}, transient: true }),
+			uiFrame({ type: "data-waiting", data: {}, transient: true }),
+			uiFrame("[DONE]"),
+		);
+		controlled.close();
+		await done;
+
+		expect(events).toEqual([
+			"token:Buffered",
+			"thinking:Reasoning",
+			"waiting",
+			"end:Buffered",
+		]);
+		consoleInfo.mockRestore();
+	});
+
+	it("calls onToken for each AI SDK UI text delta chunk", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(
 			buildFetchResponse([
@@ -140,15 +495,13 @@ describe("streamChat", () => {
 		expect(cb.onToken).toHaveBeenNthCalledWith(2, " world");
 	});
 
-	it("handles token payloads split across SSE data lines", async () => {
+	it("handles AI SDK UI frames split across network chunks", async () => {
 		const mockFetch = vi.mocked(fetch);
+		const tokenFrame = tokenEvent("Hello from split frame");
 		mockFetch.mockResolvedValue(
 			buildFetchResponse([
-				"event: token\n",
-				"data: {\n",
-				'data: "text":"Hello from split data"\n',
-				"data: }\n",
-				"\n",
+				tokenFrame.slice(0, 17),
+				tokenFrame.slice(17),
 				endEvent(),
 			]),
 		);
@@ -159,8 +512,8 @@ describe("streamChat", () => {
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledOnce();
-		expect(cb.onToken).toHaveBeenCalledWith("Hello from split data");
-		expect(cb.onEnd).toHaveBeenCalledWith("Hello from split data", undefined);
+		expect(cb.onToken).toHaveBeenCalledWith("Hello from split frame");
+		expect(cb.onEnd).toHaveBeenCalledWith("Hello from split frame", undefined);
 	});
 
 	it("includes forceWebSearch in the stream request body for the current turn", async () => {
@@ -202,7 +555,7 @@ describe("streamChat", () => {
 		expect(cb.onError).not.toHaveBeenCalled();
 	});
 
-	it("calls onThinking for thinking SSE chunks", async () => {
+	it("calls onThinking for AI SDK UI reasoning chunks", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(
 			buildFetchResponse([
@@ -227,16 +580,20 @@ describe("streamChat", () => {
 		});
 	});
 
-	it("preserves string payload fallback and strips leaked tool calls from thinking", async () => {
+	it("preserves AI SDK text-field fallback and strips leaked tool calls from reasoning", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(
 			buildFetchResponse([
-				"event: token\n",
-				'data: "Hello from string payload"\n',
-				"\n",
-				"event: thinking\n",
-				'data: "Internal<tool_calls>{}</tool_calls> reasoning"\n',
-				"\n",
+				uiFrame({
+					type: "text-delta",
+					id: "text-1",
+					text: "Hello from text field",
+				}),
+				uiFrame({
+					type: "reasoning-delta",
+					id: "reasoning-1",
+					text: "Internal<tool_calls>{}</tool_calls> reasoning",
+				}),
 				endEvent(),
 			]),
 		);
@@ -246,15 +603,12 @@ describe("streamChat", () => {
 		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
 		await done;
 
-		expect(cb.onToken).toHaveBeenCalledWith("Hello from string payload");
+		expect(cb.onToken).toHaveBeenCalledWith("Hello from text field");
 		expect(cb.onThinking).toHaveBeenCalledWith("Internal reasoning");
-		expect(cb.onEnd).toHaveBeenCalledWith(
-			"Hello from string payload",
-			undefined,
-		);
+		expect(cb.onEnd).toHaveBeenCalledWith("Hello from text field", undefined);
 	});
 
-	it("routes inline <thinking> tags from token chunks into onThinking", async () => {
+	it("routes inline <thinking> tags from text deltas into onThinking", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(
 			buildFetchResponse([
@@ -302,7 +656,7 @@ describe("streamChat", () => {
 		expect(cb.onEnd).toHaveBeenCalledWith("StartEnd", undefined);
 	});
 
-	it("parses end-event metadata from the data line", async () => {
+	it("parses AI SDK UI stream metadata from the data part", async () => {
 		const mockFetch = vi.mocked(fetch);
 		const endMetadata = {
 			thinkingTokenCount: 2,
@@ -348,7 +702,7 @@ describe("streamChat", () => {
 		expect(cb.onEnd).toHaveBeenCalledWith("Hello", endMetadata);
 	});
 
-	it("parses trailing end-event metadata when the stream closes without a final blank line", async () => {
+	it("parses trailing AI SDK UI stream metadata when the stream closes without a final blank line", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(
 			buildFetchResponse([
@@ -507,20 +861,24 @@ describe("streamChat", () => {
 		const onToolCall = vi.fn();
 		mockFetch.mockResolvedValue(
 			buildFetchResponse([
-				sseEvent(BROWSER_CHAT_SSE_EVENTS.toolCall, {
-					name: "web_search",
-					input: { query: "OpenAI news" },
-					status: "done",
-					outputSummary: "Found sources",
-					sourceType: "web",
-					candidates: [
-						{
-							id: "src-1",
-							title: "OpenAI",
-							url: "https://openai.com",
-							sourceType: "web",
-						},
-					],
+				uiFrame({
+					type: "data-tool-call",
+					transient: true,
+					data: {
+						name: "web_search",
+						input: { query: "OpenAI news" },
+						status: "done",
+						outputSummary: "Found sources",
+						sourceType: "web",
+						candidates: [
+							{
+								id: "src-1",
+								title: "OpenAI",
+								url: "https://openai.com",
+								sourceType: "web",
+							},
+						],
+					},
 				}),
 				tokenEvent("Hello"),
 				endEvent({
@@ -672,10 +1030,12 @@ describe("streamChat", () => {
 		expect(cb.onEnd).not.toHaveBeenCalled();
 	});
 
-	it("uses raw stream error data when JSON parsing fails", async () => {
+	it("maps native AI SDK UI error parts onto onError", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(
-			buildFetchResponse(["event: error\n", "data: upstream exploded\n", "\n"]),
+			buildFetchResponse([
+				uiFrame({ type: "error", errorText: "upstream exploded" }),
+			]),
 		);
 
 		const cb = makeCallbacks();
@@ -689,7 +1049,7 @@ describe("streamChat", () => {
 		expect(cb.onEnd).not.toHaveBeenCalled();
 	});
 
-	it("buffers replayed token and thinking chunks until replay_end before waiting", async () => {
+	it("buffers replayed token and thinking chunks until replay-end before waiting", async () => {
 		const mockFetch = vi.mocked(fetch);
 		const controlled = buildControlledFetchResponse();
 		const consoleInfo = vi
@@ -710,7 +1070,7 @@ describe("streamChat", () => {
 
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		controlled.enqueue(
-			sseEvent(BROWSER_CHAT_SSE_EVENTS.replayStart, {}),
+			uiFrame({ type: "data-replay-start", data: {}, transient: true }),
 			tokenEvent("Buffered"),
 			thinkingEvent("Reasoning"),
 		);
@@ -720,8 +1080,8 @@ describe("streamChat", () => {
 		expect(cb.onThinking).not.toHaveBeenCalled();
 
 		controlled.enqueue(
-			sseEvent(BROWSER_CHAT_SSE_EVENTS.replayEnd, {}),
-			sseEvent(BROWSER_CHAT_SSE_EVENTS.waiting, {}),
+			uiFrame({ type: "data-replay-end", data: {}, transient: true }),
+			uiFrame({ type: "data-waiting", data: {}, transient: true }),
 			endEvent(),
 		);
 		controlled.close();

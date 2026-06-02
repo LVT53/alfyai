@@ -8,7 +8,7 @@ import {
 	serializeContextCompressionSnapshot,
 } from "$lib/server/services/context-compression";
 import { getConversation } from "$lib/server/services/conversations";
-import { sendJsonControlMessage } from "$lib/server/services/langflow";
+import { sendJsonControlMessage } from "$lib/server/services/normal-chat-control-model";
 import type { ModelId } from "$lib/types";
 import type { RequestHandler } from "./$types";
 

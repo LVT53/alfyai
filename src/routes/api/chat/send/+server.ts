@@ -2,34 +2,35 @@ import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
+import {
+	getChatFilesForAssistantMessage,
+	syncGeneratedFilesToMemory,
+} from "$lib/server/services/chat-files";
 import { checkStreamCapacity } from "$lib/server/services/chat-turn/active-streams";
 import {
 	finalizeChatTurn,
 	persistUserTurnAttachments,
 } from "$lib/server/services/chat-turn/finalize";
 import { normalizeAssistantOutputWithSkillControl } from "$lib/server/services/chat-turn/normalizer";
+import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import { preflightChatTurn } from "$lib/server/services/chat-turn/preflight";
 import { parseChatTurnRequest } from "$lib/server/services/chat-turn/request";
 import { touchConversation } from "$lib/server/services/conversations";
-import {
-	getChatFilesForAssistantMessage,
-	syncGeneratedFilesToMemory,
-} from "$lib/server/services/chat-files";
-import {
-	assignFileProductionJobsToAssistantMessage,
-	listConversationFileProductionJobs,
-} from "$lib/server/services/file-production";
-import { isAttachmentReadinessError } from "$lib/server/services/knowledge";
 import {
 	assertCanStartDeepResearchJob,
 	isDeepResearchJobStartError,
 	startDeepResearchJobShell,
 } from "$lib/server/services/deep-research";
 import { buildDeepResearchPlanningContext } from "$lib/server/services/deep-research/planning-context";
-import { sendMessage } from "$lib/server/services/langflow";
+import {
+	assignFileProductionJobsToAssistantMessage,
+	listConversationFileProductionJobs,
+} from "$lib/server/services/file-production";
+import { isAttachmentReadinessError } from "$lib/server/services/knowledge";
 import { createMessage } from "$lib/server/services/messages";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
+import type { ToolCallEntry } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { RequestHandler } from "./$types";
 
@@ -159,10 +160,7 @@ export const POST: RequestHandler = async (event) => {
 		try {
 			fileProductionJobIdsAtStart = new Set(
 				(
-					await listConversationFileProductionJobs(
-						user.id,
-						turn.conversationId,
-					)
+					await listConversationFileProductionJobs(user.id, turn.conversationId)
 				).map((job) => job.id),
 			);
 		} catch (error) {
@@ -188,36 +186,41 @@ export const POST: RequestHandler = async (event) => {
 			personalityPrompt = profile?.promptText || undefined;
 		}
 
-		const langflowResult = await sendMessage(
-			upstreamMessage,
-			turn.conversationId,
-			turn.modelId,
-			modelUser,
+		const modelRunResult = await runPlainNormalChatSendModel({
+			userId: user.id,
+			runtimeConfig,
+			message: upstreamMessage,
+			conversationId: turn.conversationId,
+			modelId: turn.modelId,
+			user: modelUser,
+			attachmentIds: turn.attachmentIds,
+			activeDocumentArtifactId: turn.activeDocumentArtifactId,
+			attachmentTraceId: turn.attachmentTraceId,
+			systemPromptAppendix: skillSystemPromptAppendix,
+			personalityPrompt,
+			thinkingMode: turn.thinkingMode,
+			forceWebSearch: turn.forceWebSearch,
+		});
+		const text = modelRunResult.text ?? "";
+		const contextStatus = modelRunResult.contextStatus;
+		const initialTaskState = modelRunResult.taskState;
+		const initialContextDebug = modelRunResult.contextDebug;
+		const contextTraceSections = modelRunResult.contextTraceSections;
+		const honchoContext = modelRunResult.honchoContext;
+		const honchoSnapshot = modelRunResult.honchoSnapshot;
+		const normalizedAssistantOutput = normalizeAssistantOutputWithSkillControl(
+			text,
 			{
-				attachmentIds: turn.attachmentIds,
-				activeDocumentArtifactId: turn.activeDocumentArtifactId,
-				attachmentTraceId: turn.attachmentTraceId,
-				systemPromptAppendix: skillSystemPromptAppendix,
-				personalityPrompt,
-				thinkingMode: turn.thinkingMode,
-				forceWebSearch: turn.forceWebSearch,
+				skillControlEnabled: runtimeConfig.composerCommandRegistryEnabled,
 			},
 		);
-		const text = langflowResult.text ?? "";
-		const contextStatus = langflowResult.contextStatus;
-		const initialTaskState = langflowResult.taskState;
-		const initialContextDebug = langflowResult.contextDebug;
-		const contextTraceSections = langflowResult.contextTraceSections;
-		const honchoContext = langflowResult.honchoContext;
-		const honchoSnapshot = langflowResult.honchoSnapshot;
-		const normalizedAssistantOutput =
-			normalizeAssistantOutputWithSkillControl(text, {
-				skillControlEnabled: runtimeConfig.composerCommandRegistryEnabled,
-			});
 		const responseText = normalizedAssistantOutput.visibleText;
-		const effectiveModelId = langflowResult.modelId ?? turn.modelId ?? "model1";
+		const effectiveModelId = modelRunResult.modelId ?? turn.modelId ?? "model1";
 		const effectiveModelDisplayName =
-			langflowResult.modelDisplayName ?? turn.modelDisplayName;
+			modelRunResult.modelDisplayName ?? turn.modelDisplayName;
+		const finalToolCalls = (
+			modelRunResult.toolCalls ?? modelRunResult.prefetchedToolCalls
+		)?.filter(isEvidenceReadyToolCall);
 
 		const completion = await finalizeChatTurn({
 			logPrefix: "[SEND]",
@@ -236,7 +239,7 @@ export const POST: RequestHandler = async (event) => {
 			skillControlOperations: normalizedAssistantOutput.operations,
 			skillControlSessionId:
 				turn.skillPromptContext?.source === "active_session"
-					? turn.skillPromptContext.sessionId ?? null
+					? (turn.skillPromptContext.sessionId ?? null)
 					: null,
 			attachmentIds: turn.attachmentIds,
 			activeDocumentArtifactId: turn.activeDocumentArtifactId ?? null,
@@ -249,7 +252,7 @@ export const POST: RequestHandler = async (event) => {
 				promptTokens: estimateTokenCount(upstreamMessage),
 				completionTokens: estimateTokenCount(responseText),
 				generationTimeMs: undefined,
-				providerUsage: langflowResult.providerUsage,
+				providerUsage: modelRunResult.providerUsage,
 			},
 			continuitySource: "send",
 			honchoContext,
@@ -257,6 +260,7 @@ export const POST: RequestHandler = async (event) => {
 			assistantMirrorContent: text,
 			maintenanceReason: "chat_send",
 			linkedSources: turn.linkedSources,
+			toolCalls: finalToolCalls,
 			contextTraceSections,
 			persistenceMode: "strict",
 			waitForEvidenceBeforePostTurnTasks: false,
@@ -349,7 +353,7 @@ export const POST: RequestHandler = async (event) => {
 				{ status: error.status },
 			);
 		}
-		console.error("Langflow sendMessage error:", error);
+		console.error("Normal Chat Model Run send error:", error);
 		if (turn.attachmentTraceId) {
 			logAttachmentTrace("send_failure", {
 				traceId: turn.attachmentTraceId,
@@ -378,3 +382,11 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 };
+
+function isEvidenceReadyToolCall(toolCall: ToolCallEntry): boolean {
+	return (
+		toolCall.status === "done" &&
+		toolCall.metadata?.ok !== false &&
+		toolCall.metadata?.evidenceReady !== false
+	);
+}

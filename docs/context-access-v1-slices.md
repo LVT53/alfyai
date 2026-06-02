@@ -38,7 +38,7 @@ Every Normal Chat turn should start with a compact Honcho-generated Baseline Mem
 
 - Unit tests for profile budget derivation across small, 250k, and 1M context settings.
 - Service tests proving raw conclusion list serialization no longer slices to 12 for prompt memory.
-- Langflow/context-construction test proving the profile appears before tool use when Honcho succeeds.
+- AI SDK tool/context-construction test proving the profile appears before tool use when Honcho succeeds.
 - Fallback test proving chat proceeds when Honcho profile generation times out or fails.
 
 ## Slice 2: `memory_context` Tool Shell Replaces `project_context`
@@ -49,11 +49,11 @@ Every Normal Chat turn should start with a compact Honcho-generated Baseline Mem
 
 ### What to build
 
-Replace the model-facing `project_context` Langflow tool with `memory_context`. The first mode may delegate to the current project retrieval behavior so the end-to-end tool path is real immediately. Do not keep `project_context` as a model-facing alias.
+Replace the model-facing `project_context` tool with the app-backed AI SDK `memory_context` tool. The first mode may delegate to the current project retrieval behavior so the end-to-end tool path is real immediately. Do not keep `project_context` as a model-facing alias.
 
 ### Acceptance criteria
 
-- [ ] Langflow exposes a model-facing tool named `memory_context`.
+- [ ] The AI SDK Normal Chat tool registry exposes a model-facing tool named `memory_context`.
 - [ ] The old model-facing `project_context` node/tool guidance is removed.
 - [ ] `memory_context(mode: "project")` returns the current project/folder/continuity summary shape, renamed under the new tool contract.
 - [ ] The tool runtime still resolves conversation/user scope from the active session or signed service assertion, not model-provided ids.
@@ -61,7 +61,7 @@ Replace the model-facing `project_context` Langflow tool with `memory_context`. 
 
 ### Verification
 
-- Langflow node contract test asserting `memory_context` name, modes, model-facing fields, and endpoint.
+- AI SDK tool contract test asserting `memory_context` name, modes, model-facing fields, and endpoint.
 - Repository search test or static assertion proving `project_context` is not exposed as a model-facing tool.
 - Route/service tests for authenticated and signed service calls.
 - Tool marker test proving emitted events use `memory_context`.

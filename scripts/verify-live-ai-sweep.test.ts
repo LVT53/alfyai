@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+	aiSdkUiStreamContractMetadata,
+	aiSdkUiStreamContractSequence,
+	aiSdkUiStreamContractToolCall,
+	encodeAiSdkUiFixtureFrame,
+	encodeAiSdkUiFixtureFrames,
+	oldBrowserSseNamedEndEvent,
+	oldBrowserSseNamedTokenEvent,
+} from "../tests/fixtures/ai-sdk-ui-stream-contract";
+import {
 	getMissingStandardRecallNeedles,
 	parseJsonObject,
+	parseLiveAiSweepStreamFrames,
 	structuredRecallHasValue,
 } from "./verify-live-ai-sweep";
 
@@ -152,5 +162,61 @@ describe("live AI sweep structured recall validation", () => {
 
 	it("accepts standard post-compaction recall values in the expected JSON fields", () => {
 		expect(getMissingStandardRecallNeedles(standardRecallJson())).toEqual([]);
+	});
+});
+
+describe("live AI sweep stream parser", () => {
+	it("accepts current AI SDK UI stream data frames", () => {
+		const result = parseLiveAiSweepStreamFrames(
+			encodeAiSdkUiFixtureFrames(aiSdkUiStreamContractSequence),
+		);
+
+		expect(result.text).toBe("Hello world");
+		expect(result.thinkingLength).toBe("Need current evidence.".length);
+		expect(result.metadata).toEqual(aiSdkUiStreamContractMetadata);
+		expect(result.toolCalls).toEqual([aiSdkUiStreamContractToolCall]);
+	});
+
+	it("ignores named old Browser SSE events", () => {
+		const result = parseLiveAiSweepStreamFrames([
+			oldBrowserSseNamedTokenEvent,
+			oldBrowserSseNamedEndEvent,
+		]);
+
+		expect(result.text).toBe("");
+		expect(result.thinkingLength).toBe(0);
+		expect(result.metadata).toBeNull();
+		expect(result.toolCalls).toEqual([]);
+	});
+
+	it("collects current AI SDK UI stream errors and terminal finish parts", () => {
+		const result = parseLiveAiSweepStreamFrames([
+			encodeAiSdkUiFixtureFrame({
+				type: "data-stream-error",
+				data: { message: "provider failed", code: "upstream_error" },
+				transient: true,
+			}),
+			encodeAiSdkUiFixtureFrame({
+				type: "error",
+				errorText: "model run failed",
+			}),
+			encodeAiSdkUiFixtureFrame({
+				type: "finish",
+				finishReason: "error",
+				error: "finished with error",
+			}),
+			encodeAiSdkUiFixtureFrame("[DONE]"),
+		]);
+
+		expect(result.errors).toEqual([
+			"provider failed",
+			"model run failed",
+			"finished with error",
+		]);
+		expect(result.finish).toEqual({
+			type: "finish",
+			finishReason: "error",
+			error: "finished with error",
+		});
 	});
 });

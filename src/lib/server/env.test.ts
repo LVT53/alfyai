@@ -9,22 +9,24 @@ describe("Environment Configuration", () => {
 		vi.resetModules();
 	});
 
-	it("should use mock default when LANGFLOW_API_KEY is missing", async () => {
-		// Clear the env var
+	it("should not require Langflow credentials at boot", async () => {
 		delete process.env.LANGFLOW_API_KEY;
-		// Keep SESSION_SECRET set to isolate the test
+		delete process.env.LANGFLOW_API_URL;
+		delete process.env.LANGFLOW_FLOW_ID;
+		delete process.env.LANGFLOW_WEBHOOK_SECRET;
 		process.env.SESSION_SECRET =
 			"test-session-secret-12345678901234567890123456789012";
 
 		const { config } = await import("./env");
-		expect(config.langflowApiKey).toBe("mock-langflow-api-key");
+		expect(config).not.toHaveProperty("langflowApiKey");
+		expect(config).not.toHaveProperty("langflowApiUrl");
+		expect(config).not.toHaveProperty("langflowFlowId");
+		expect(config).not.toHaveProperty("langflowWebhookSecret");
 	});
 
 	it("should use mock default when SESSION_SECRET is missing", async () => {
 		// Clear the env var
 		delete process.env.SESSION_SECRET;
-		// Keep LANGFLOW_API_KEY set to isolate the test
-		process.env.LANGFLOW_API_KEY = "test-api-key";
 
 		const { config } = await import("./env");
 		expect(config.sessionSecret).toBe(
@@ -34,14 +36,10 @@ describe("Environment Configuration", () => {
 
 	it("should apply defaults when optional vars are missing", async () => {
 		// Set required vars
-		process.env.LANGFLOW_API_KEY = "test-api-key";
 		process.env.SESSION_SECRET =
 			"test-session-secret-12345678901234567890123456789012";
 
 		// Clear optional vars to test defaults
-		delete process.env.LANGFLOW_API_URL;
-		delete process.env.LANGFLOW_FLOW_ID;
-		delete process.env.LANGFLOW_WEBHOOK_SECRET;
 		delete process.env.ALFYAI_API_SIGNING_KEY;
 		delete process.env.TITLE_GEN_URL;
 		delete process.env.TITLE_GEN_API_KEY;
@@ -76,10 +74,6 @@ describe("Environment Configuration", () => {
 
 		const { config } = await import("./env");
 
-		expect(config.langflowApiUrl).toBe("http://localhost:7860");
-		expect(config.langflowApiKey).toBe("test-api-key");
-		expect(config.langflowFlowId).toBe("");
-		expect(config.langflowWebhookSecret).toBe("");
 		expect(config.alfyaiApiSigningKey).toBe("");
 		expect(config.titleGenUrl).toBe("http://localhost:30001/v1");
 		expect(config.titleGenApiKey).toBe("");
@@ -106,7 +100,6 @@ describe("Environment Configuration", () => {
 		expect(config.webResearchContentChars).toBe(12000);
 		expect(config.webResearchFreshnessHours).toBe(24);
 		expect(config.braveSearchApiKey).toBe("");
-		expect(config.webhookPort).toBe(8090);
 		expect(config.requestTimeoutMs).toBe(300000);
 		expect(config.modelTimeoutFailoverEnabled).toBe(false);
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(60000);
@@ -120,7 +113,6 @@ describe("Environment Configuration", () => {
 	});
 
 	it("should allow disabling Composer Command Registry explicitly", async () => {
-		process.env.LANGFLOW_API_KEY = "test-api-key";
 		process.env.SESSION_SECRET =
 			"test-session-secret-12345678901234567890123456789012";
 		process.env.COMPOSER_COMMAND_REGISTRY_ENABLED = "false";
@@ -131,7 +123,6 @@ describe("Environment Configuration", () => {
 	});
 
 	it("should derive unset context budget defaults from the configured model window", async () => {
-		process.env.LANGFLOW_API_KEY = "test-api-key";
 		process.env.SESSION_SECRET =
 			"test-session-secret-12345678901234567890123456789012";
 		process.env.MAX_MODEL_CONTEXT = "1000000";
@@ -159,10 +150,6 @@ describe("Environment Configuration", () => {
 
 	it("should return valid config object when all vars are present", async () => {
 		// Set all env vars to test values
-		process.env.LANGFLOW_API_URL = "http://test-langflow:8080";
-		process.env.LANGFLOW_API_KEY = "test-api-key-123";
-		process.env.LANGFLOW_FLOW_ID = "test-flow-id";
-		process.env.LANGFLOW_WEBHOOK_SECRET = "test-webhook-secret";
 		process.env.ALFYAI_API_SIGNING_KEY = "test-signing-key";
 		process.env.TITLE_GEN_URL = "http://test-nemotron:9000/v1";
 		process.env.TITLE_GEN_API_KEY = "test-nemotron-key";
@@ -191,7 +178,6 @@ describe("Environment Configuration", () => {
 		process.env.WEB_RESEARCH_CONTENT_CHARS = "16000";
 		process.env.WEB_RESEARCH_FRESHNESS_HOURS = "6";
 		process.env.BRAVE_SEARCH_API_KEY = "brave-key";
-		process.env.WEBHOOK_PORT = "3000";
 		process.env.REQUEST_TIMEOUT_MS = "5000";
 		process.env.MODEL_TIMEOUT_FAILOVER_ENABLED = "true";
 		process.env.MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS = "2500";
@@ -204,10 +190,6 @@ describe("Environment Configuration", () => {
 
 		const { config } = await import("./env");
 
-		expect(config.langflowApiUrl).toBe("http://test-langflow:8080");
-		expect(config.langflowApiKey).toBe("test-api-key-123");
-		expect(config.langflowFlowId).toBe("test-flow-id");
-		expect(config.langflowWebhookSecret).toBe("test-webhook-secret");
 		expect(config.alfyaiApiSigningKey).toBe("test-signing-key");
 		expect(config.titleGenUrl).toBe("http://test-nemotron:9000/v1");
 		expect(config.titleGenApiKey).toBe("test-nemotron-key");
@@ -238,7 +220,6 @@ describe("Environment Configuration", () => {
 		expect(config.webResearchContentChars).toBe(16000);
 		expect(config.webResearchFreshnessHours).toBe(6);
 		expect(config.braveSearchApiKey).toBe("brave-key");
-		expect(config.webhookPort).toBe(3000);
 		expect(config.requestTimeoutMs).toBe(5000);
 		expect(config.modelTimeoutFailoverEnabled).toBe(true);
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(2500);
@@ -249,5 +230,16 @@ describe("Environment Configuration", () => {
 			"test-session-secret-12345678901234567890123456789012",
 		);
 		expect(config.databasePath).toBe("./test-data/test.db");
+	});
+
+	it("should ignore retired WEBHOOK_PORT values at boot", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.WEBHOOK_PORT = "not-a-number";
+
+		const { config } = await import("./env");
+
+		expect(config).not.toHaveProperty("webhookPort");
+		expect(config.requestTimeoutMs).toBe(300000);
 	});
 });

@@ -158,9 +158,13 @@ _Avoid_: available context, all memory, workspace state
 One user request and assistant response cycle in **Normal Chat**, including **Context Selection** before the model call and **Normal Chat Turn Completion** after the assistant response.
 _Avoid_: message send, Langflow run, SSE session
 
+**Normal Chat Model Run**:
+The app-owned execution boundary that runs already-prepared model work for a **Normal Chat Turn** after **Context Selection** and before **Normal Chat Turn Completion**. It owns outbound model attempts, provider failover, tool-call lifecycle, model output, and usage metadata without deciding **Prompt Context** or durable completion.
+_Avoid_: Langflow run, Vercel run, AI SDK run, prompt assembly, AI SDK UI Stream Contract, Normal Chat Turn Completion
+
 **Langflow Model Run**:
-The outbound execution boundary for a Normal Chat model call through Langflow, owned by `src/lib/server/services/langflow-model-run.ts`. It is a deep module that runs already-assembled Langflow JSON or streaming request bodies, owns request/connect timeout handling, abort-signal cleanup, caller abort propagation for active returned streams, classifies HTTP/rate-limit failures, applies configured failover policy, extracts model text and provider usage, and emits compact run diagnostics. It receives prompt/context/tweak output from `langflow.ts`; it does not decide what context or guidance should be sent.
-_Avoid_: prompt assembly, Context Selection, Browser SSE Protocol, Normal Chat Turn Completion
+Retired historical term for the old outbound execution boundary for a Normal Chat model call through Langflow. It has been superseded by **Normal Chat Model Run**, which now uses Vercel AI SDK/OpenAI-compatible provider execution and app-owned tools.
+_Avoid_: prompt assembly, Context Selection, AI SDK UI Stream Contract, Normal Chat Turn Completion
 
 **Normal Chat Turn Completion**:
 The point where an assistant response becomes durable conversation state, including persisted messages, response-facing **Context Sources**, message evidence, skill state changes, and continuity side effects for that turn.
@@ -170,17 +174,17 @@ _Avoid_: route response assembly, stream end event, post-send cleanup
 The app-owned boundary that decides the durable result of **Normal Chat Turn Completion** before transport adapters expose it as JSON, SSE, refreshable conversation detail, or visible chat UI state.
 _Avoid_: deep module, route-local completion, stream-only finalization
 
-**Browser SSE Protocol**:
-The browser-facing streaming transport contract for **Normal Chat** stream and reconnect responses, including the allowed SSE event names, payload shapes, encoding, and decoding rules owned by `src/lib/services/stream-protocol.ts`.
-_Avoid_: Langflow stream, Normal Chat Turn Completion, route-local event string
+**AI SDK UI Stream Contract**:
+The browser-facing streaming transport contract for **Normal Chat** stream and reconnect responses, including the allowed AI SDK UI stream part names, payload shapes, encoding, replay framing, metadata, finish, and `[DONE]` rules owned by `src/lib/server/services/chat-turn/stream.ts` and decoded by `src/lib/services/streaming.ts`.
+_Avoid_: Langflow stream, Normal Chat Turn Completion, route-local stream part, legacy Browser SSE event
 
 **Normal Chat Client Turn Runtime**:
 The browser-side plain TypeScript boundary at `src/lib/client/normal-chat-client-turn-runtime.ts` that owns Normal Chat send, retry, reconnect, waiting, stop, queued follow-up, and recovery runtime semantics above `streamChat`. It consumes decoded stream callbacks and server-returned metadata through page adapters while the chat page keeps visible Svelte state, route lifecycle, document workspace state, and UI commands.
-_Avoid_: Browser SSE parser, Context Sources builder, chat page state, durable completion
+_Avoid_: AI SDK UI stream parser, Context Sources builder, chat page state, durable completion
 
 **Conversation Detail Read Model**:
 The server read-model boundary at `src/lib/server/services/conversation-detail/read-model.ts` that assembles the refreshable `ConversationDetail` payload for chat page load and browser hydration. It owns bootstrap/full detail selection, payload defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft, generated-file, File Production, Deep Research, context-compression, cost fields, and active Skill Session public serialization.
-_Avoid_: route-local hydration recipe, durable Normal Chat Turn Completion, Browser SSE end payload, page-owned payload assembly
+_Avoid_: route-local hydration recipe, durable Normal Chat Turn Completion, AI SDK UI stream terminal payload, page-owned payload assembly
 
 **Memory Access**:
 AlfyAI's ability to use durable user, conversation, project, document, and research context through Honcho-led memory and app-supplied historical context retrieval.
@@ -281,6 +285,10 @@ _Avoid_: max output tokens, response limit, prompt-only window
 **Max Output Tokens**:
 The maximum generated response size reserved for a model call.
 _Avoid_: model context, context length, prompt budget
+
+**Model Capability**:
+An admin-visible statement about which Normal Chat behaviors a configured model connection is expected to support, such as tools, streaming, structured output, reasoning controls, or usage reporting. A capability may be detected from a provider check or set by an admin override.
+_Avoid_: provider guess, endpoint toggle, hidden compatibility flag
 
 **Target Constructed Context**:
 The configured target size for a Normal Chat turn's **Prompt Context** before final model-call overhead and response space.
@@ -543,14 +551,15 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Available Context** is broader than **Prompt Context**.
 - **Prompt Context** is selected per **Normal Chat** turn.
 - **Context Selection** starts a **Normal Chat Turn** by choosing **Prompt Context** from **Available Context**.
-- **Langflow Model Run** happens after prompt/context assembly and before **Normal Chat Turn Completion**.
-- **Langflow Model Run** owns Langflow JSON/stream attempts, request and connect timeouts, abort handling for outbound Langflow calls, HTTP/rate-limit classification, configured failover, provider usage extraction, and run diagnostics; it does not select **Prompt Context** or build Langflow tweaks.
+- **Normal Chat Model Run** happens after **Context Selection** and before **Normal Chat Turn Completion**.
+- **Normal Chat Model Run** owns model/provider attempts, tool-call lifecycle, configured failover, provider usage extraction, and run diagnostics; it does not select **Prompt Context** or define durable completion.
+- **Langflow Model Run** was the Langflow-specific form of **Normal Chat Model Run** and has been retired without changing the surrounding Normal Chat domain boundaries.
 - **Normal Chat Turn Completion** ends a **Normal Chat Turn** by turning assistant output into durable conversation state and response-facing **Context Sources**.
 - Transport surfaces may expose the result of **Normal Chat Turn Completion**, but they should not redefine what completion means.
-- The **Browser SSE Protocol** exposes streaming, replay, waiting, completion, and error transport events for **Normal Chat**, but it does not own durable turn completion.
-- The **Browser SSE Protocol** does not own upstream Langflow stream attempts or failover; it only exposes browser-facing events after server-side stream orchestration.
-- **Browser SSE Protocol** event names and payload shapes should change only at the shared stream-protocol boundary with protocol tests.
-- The **Normal Chat Client Turn Runtime** sits above `streamChat`: it reacts to decoded Browser SSE callbacks, but it does not parse Browser SSE event strings or define protocol grammar.
+- The **AI SDK UI Stream Contract** exposes streaming, replay, waiting, completion, and error transport parts for **Normal Chat**, but it does not own durable turn completion.
+- The **AI SDK UI Stream Contract** does not own upstream model attempts or failover; it only exposes browser-facing parts after server-side stream orchestration.
+- **AI SDK UI Stream Contract** part names and payload shapes should change only at the shared stream/framing boundary with protocol tests.
+- The **Normal Chat Client Turn Runtime** sits above `streamChat`: it reacts to decoded stream callbacks, but it does not parse raw AI SDK UI stream lines or define protocol grammar.
 - The **Normal Chat Client Turn Runtime** applies server-returned metadata through chat-page adapters; it does not build **Context Sources** or decide **Normal Chat Turn Completion**.
 - The chat page owns visible Svelte state, route lifecycle, document workspace state, and UI commands; the **Normal Chat Client Turn Runtime** owns browser-side turn transitions and queue recovery rules.
 - The **Composer Command Registry** has separate **Skill** and **Composer Command** namespaces.
@@ -850,7 +859,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Context Selection** considers conversation, memory, attachment, workspace, task, generated-file, generated-document, and retrieval signals together.
 - `src/lib/server/services/chat-turn/context-selection.ts` is the **Normal Chat Context Selection Boundary** for constructed Prompt Context.
 - `src/lib/server/services/honcho.ts` supplies Honcho session/persona candidates through a narrow adapter seam and must not own prompt budget policy, Knowledge retrieval, Task-State selection, linked-source assembly, or Working Document Selection.
-- `src/lib/server/services/langflow.ts` may request constructed Prompt Context from the chat-turn boundary and may add model-facing runtime guidance, but it should not rebuild candidate promotion or inclusion policy.
+- `src/lib/server/services/normal-chat-context.ts` may request constructed Prompt Context from the chat-turn boundary and may add model-facing runtime guidance, but it should not rebuild candidate promotion or inclusion policy.
 - Individual subsystems may supply **Available Context** and **Context Signals**, but should not independently force large text into **Prompt Context**.
 - **Memory Access** should extend Honcho-led memory rather than replace it with a parallel local persona-memory system.
 - **Memory Access** may make historic chat details available for retrieval, but historic chats become **Prompt Context** only through **Context Selection** or an explicit model-facing retrieval result.

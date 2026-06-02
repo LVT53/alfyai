@@ -12,10 +12,6 @@ const mocks = vi.hoisted(() => ({
 	sendJsonControlMessage: vi.fn(),
 }));
 
-vi.mock("./langflow", () => {
-	throw new Error("context-compression must not import langflow");
-});
-
 vi.mock("./knowledge", () => ({
 	listMessageAttachments: vi.fn(async () => new Map()),
 }));
@@ -1150,7 +1146,7 @@ describe("context compression snapshots", () => {
 	it("marks the running snapshot failed when the compression model call throws", async () => {
 		seedConversationWithMessages();
 		mocks.sendJsonControlMessage.mockRejectedValue(
-			new Error("Langflow unavailable"),
+			new Error("Provider unavailable"),
 		);
 		const { listContextCompressionSnapshots, runContextCompression } =
 			await import("./context-compression");
@@ -1178,7 +1174,7 @@ describe("context compression snapshots", () => {
 		});
 
 		expect(result.status).toBe("failed");
-		expect(result.failureReason).toContain("Langflow unavailable");
+		expect(result.failureReason).toContain("Provider unavailable");
 		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(4);
 
 		const [stored] = await listContextCompressionSnapshots("conv-1");
@@ -1186,7 +1182,7 @@ describe("context compression snapshots", () => {
 			expect.objectContaining({
 				id: result.id,
 				status: "failed",
-				failureReason: expect.stringContaining("Langflow unavailable"),
+				failureReason: expect.stringContaining("Provider unavailable"),
 			}),
 		);
 	});

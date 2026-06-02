@@ -110,9 +110,16 @@ describe("toFriendlySendError", () => {
 	});
 
 	it("maps unknown generation failures to the descriptive backend message", () => {
-		expect(toFriendlySendError(new Error("Langflow down"), translate)).toBe(
+		expect(toFriendlySendError(new Error("provider down"), translate)).toBe(
 			"translated:chat.error.backend",
 		);
+	});
+
+	it("uses provider-neutral fallback text for unknown generation failures", () => {
+		const message = toFriendlySendError(new Error("provider down"));
+
+		expect(message).toContain("model provider");
+		expect(message).not.toMatch(/Langflow/i);
 	});
 
 	it("maps missing linked source preflight failures to a specific localized message", () => {

@@ -336,27 +336,27 @@ Verification:
 - Tests proving job execution can complete after the originating request/stream is gone.
 - End-to-end service test proving the unified endpoint creates a durable job-backed produced file.
 
-### Slice 3b: New Langflow Node And Model Guidance
+### Slice 3b: AI SDK Tool And Model Guidance
 
 Expose only the unified tool to the model.
 
 Scope:
 
-- Add the unified Langflow custom node/component named `File Production`.
+- Add or update the app-backed AI SDK tool named `produce_file`.
 - Expose the model-facing tool method as `produce_file`.
-- Use a compact structured Langflow tool input contract with `idempotencyKey`, `requestTitle`, `requestedOutputs`, `sourceMode`, `documentIntent`, optional high-level `templateHint`, `documentSource`, and optional sandbox `program`. The node maps `requestedOutputs` to the server API's `outputs` field; do not expose a Langflow input named `outputs`, because that collides with Langflow component internals.
-- Resolve `conversationId` from the Langflow session/node context rather than exposing it as a normal model-facing input.
+- Use a compact structured tool input contract with `idempotencyKey`, `requestTitle`, `requestedOutputs`, `sourceMode`, `documentIntent`, optional high-level `templateHint`, `documentSource`, and optional sandbox `program`.
+- Resolve `conversationId` from server-owned chat turn context rather than exposing it as a normal model-facing input.
 - Support `sourceMode: "document_source"` for document-like outputs and `sourceMode: "program"` for genuinely programmatic/raw outputs.
 - Treat model-provided `documentIntent` as a hint; keep server-side file/document classification authoritative.
 - Keep template selection server-owned; map any model-provided `templateHint` to supported templates or the default.
-- Remove the old `generate_file` and `export_document` nodes from the active/recommended Langflow setup.
+- Remove the old `generate_file` and `export_document` tool guidance.
 - Remove obsolete AI model guidance for `generate_file`, `export_document`, direct PDF helper usage, and split toolkit selection.
 - Replace model guidance with the unified file-production workflow and server-owned renderer/source-first rules.
 - Ensure old and new tools are not simultaneously valid model-facing tools.
 
 Verification:
 
-- Langflow node contract tests or static validation proving the exposed tool is the unified production method.
+- AI SDK tool contract tests or static validation proving the exposed tool is the unified production method.
 - Prompt/guidance tests proving obsolete tool names and old PDF-generation instructions are absent.
 - End-to-end smoke test proving a model file request creates a durable job-backed card and downloadable output through the new path.
 

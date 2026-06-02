@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+	applyModelCapabilityOverrides,
+	createModelCapabilitySet,
+	isModelCapabilitySupported,
+	isModelCapabilityUnsupported,
+} from "$lib/model-capabilities";
+
+import {
+	probeProviderModelCapabilities,
 	resolveProviderLimitDefaults,
 	validateProviderConnection,
 	validateProviderLimitConfiguration,
@@ -11,7 +19,163 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
 	globalThis.fetch = originalFetch;
+	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
+});
+
+describe("model capability normalization", () => {
+	it("preserves detected probe results while applying admin manual overrides", () => {
+		const detected = createModelCapabilitySet({
+			tools: { state: "detected", source: "probe" },
+			structuredOutput: { state: "unknown", source: "probe" },
+		});
+
+		const normalized = applyModelCapabilityOverrides(detected, {
+			tools: false,
+			structuredOutput: true,
+		});
+
+		expect(normalized.tools).toMatchObject({
+			state: "manual_override",
+			supported: false,
+			source: "manual_override",
+		});
+		expect(normalized.structuredOutput).toMatchObject({
+			state: "manual_override",
+			supported: true,
+			source: "manual_override",
+		});
+		expect(normalized.chat).toMatchObject({
+			state: "unknown",
+			supported: null,
+		});
+	});
+
+	it("treats explicit unsupported capability evidence differently from unknown", () => {
+		const capabilities = createModelCapabilitySet({
+			tools: {
+				state: "not_detected",
+				source: "probe",
+			},
+			streaming: {
+				state: "unknown",
+				source: "probe",
+			},
+		});
+
+		expect(isModelCapabilityUnsupported(capabilities, "tools")).toBe(true);
+		expect(isModelCapabilitySupported(capabilities, "tools")).toBe(false);
+		expect(isModelCapabilityUnsupported(capabilities, "streaming")).toBe(
+			false,
+		);
+		expect(isModelCapabilitySupported(capabilities, "streaming")).toBe(false);
+	});
+});
+
+describe("probeProviderModelCapabilities", () => {
+	it("detects /models validation support without inferring unstated chat behavior", async () => {
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						object: "list",
+						data: [
+							{
+								id: "provider-chat-model",
+								object: "model",
+								created: 1_686_935_002,
+								owned_by: "provider",
+							},
+						],
+					}),
+					{ status: 200 },
+				),
+		);
+		vi.stubGlobal("fetch", fetchSpy);
+
+		const result = await probeProviderModelCapabilities(
+			"https://provider.example/v1",
+			"test-key",
+			{ modelName: "provider-chat-model" },
+		);
+
+		expect(result.valid).toBe(true);
+		expect(result.capabilities.modelsEndpoint).toMatchObject({
+			state: "detected",
+			supported: true,
+		});
+		expect(result.capabilities.chat).toMatchObject({
+			state: "unknown",
+			supported: null,
+		});
+		expect(fetchSpy).toHaveBeenCalledWith(
+			"https://provider.example/v1/models",
+			expect.objectContaining({ method: "GET" }),
+		);
+	});
+
+	it("marks /models validation as not detected when the endpoint is unavailable", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(null, { status: 404 })),
+		);
+
+		const result = await probeProviderModelCapabilities(
+			"https://provider.example/v1",
+			"test-key",
+			{ modelName: "provider-chat-model" },
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.capabilities.modelsEndpoint).toMatchObject({
+			state: "not_detected",
+			supported: false,
+			source: "models_endpoint",
+		});
+	});
+
+	it("keeps provider validation valid when /models omits the configured model while exposing the capability probe mismatch", async () => {
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						object: "list",
+						data: [
+							{
+								id: "different-provider-model",
+								object: "model",
+								created: 1_686_935_002,
+								owned_by: "provider",
+							},
+						],
+					}),
+					{ status: 200 },
+				),
+		);
+		vi.stubGlobal("fetch", fetchSpy);
+
+		const validation = await validateProviderConnection(
+			"https://provider.example/v1",
+			"test-key",
+			{ modelName: "configured-provider-model" },
+		);
+		const probe = await probeProviderModelCapabilities(
+			"https://provider.example/v1",
+			"test-key",
+			{ modelName: "configured-provider-model" },
+		);
+
+		expect(validation).toEqual({ valid: true });
+		expect(probe).toMatchObject({
+			valid: true,
+			modelFound: false,
+		});
+		expect(probe.capabilities.modelsEndpoint).toMatchObject({
+			state: "detected",
+			supported: true,
+			detail: expect.stringContaining("not present"),
+		});
+	});
 });
 
 describe("validateProviderLimitOrdering", () => {

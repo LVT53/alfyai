@@ -64,7 +64,7 @@ const CODE_PATTERNS = [
 // "Here's a thinking process: 1. **Analyze User Input:** ..." as plain
 // text in the content field.  These patterns never describe valid titles.
 const THINKING_LEAK_RE =
-	/^(Here's (a thinking|my) process|Let me (think about|work through|break (this|it) down)|I('ll| will) (approach|break (this|it) down)|First,? let me (think|analyze|break down)|Okay,? let me (think|analyze|work through)|Let's think about|I need to think about|Hmm,? let me|Alright,? let me)/i;
+	/^(Here's (a thinking|my) process|Let me (think about|work through|break (this|it) down)|I('ll| will) (approach|break (this|it) down)|First,? let me (think|analyze|break down)|Okay,? let me (think|analyze|work through)|Let's think about|I need to (think|determine)|The user (is asking|asks|asked)|This (looks like|seems like|is a)|Hmm,? let me|Alright,? let me)/i;
 
 function detectLanguage(text: string): "en" | "hu" {
 	if (HUNGARIAN_CHARS.test(text)) {
@@ -196,6 +196,14 @@ function isThinkingLeak(text: string): boolean {
 	return THINKING_LEAK_RE.test(text.trim());
 }
 
+function isPlausibleTitle(text: string): boolean {
+	const normalized = text.replace(/\s+/g, " ").trim();
+	if (!normalized) return false;
+	if (normalized.length > 100) return false;
+	if (normalized.split(" ").filter(Boolean).length > 12) return false;
+	return !isThinkingLeak(normalized);
+}
+
 /**
  * Generate a fallback title from the user message
  * @param userMessage The user's message
@@ -323,7 +331,7 @@ function buildTitleMessages(
 		...buildFewShotExamples(language, isCodeRelated),
 		{
 			role: "user",
-			content: `User: ${userMessage}\nAssistant: ${assistantResponse.slice(0, 200)}`,
+			content: `Return only a concise conversation title, 3-8 words, with no explanation.\nUser: ${userMessage}\nAssistant: ${assistantResponse.slice(0, 200)}`,
 		},
 	];
 }
@@ -351,19 +359,46 @@ function buildTitleRequestBody(params: {
 	model: string;
 	messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
 	temperature: number;
+	includeVllmThinkingControls?: boolean;
 }): Record<string, unknown> {
 	const qwenThinkingOff = { enable_thinking: false };
-
-	return {
+	const body: Record<string, unknown> = {
 		model: params.model,
 		messages: params.messages,
 		max_tokens: 120,
 		temperature: params.temperature,
+	};
+
+	if (params.includeVllmThinkingControls !== false) {
 		// vLLM exposes chat_template_kwargs as a request field. The OpenAI client
 		// spelling is kept too for compatible proxies that unpack extra_body.
-		chat_template_kwargs: qwenThinkingOff,
-		extra_body: { chat_template_kwargs: qwenThinkingOff },
-	};
+		body.chat_template_kwargs = qwenThinkingOff;
+		body.extra_body = { chat_template_kwargs: qwenThinkingOff };
+	}
+
+	return body;
+}
+
+async function fetchTitleCompletion(params: {
+	url: string;
+	headers: Record<string, string>;
+	model: string;
+	messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+	temperature: number;
+	includeVllmThinkingControls?: boolean;
+}): Promise<Response> {
+	return fetch(`${params.url}/chat/completions`, {
+		method: "POST",
+		headers: params.headers,
+		body: JSON.stringify(
+			buildTitleRequestBody({
+				model: params.model,
+				messages: params.messages,
+				temperature: params.temperature,
+				includeVllmThinkingControls: params.includeVllmThinkingControls,
+			}),
+		),
+	});
 }
 
 export async function generateTitle(
@@ -400,17 +435,26 @@ export async function generateTitle(
 	if (config.titleGenApiKey)
 		headers.Authorization = `Bearer ${config.titleGenApiKey}`;
 
-	const response = await fetch(`${config.titleGenUrl}/chat/completions`, {
-		method: "POST",
+	let response = await fetchTitleCompletion({
+		url: config.titleGenUrl,
 		headers,
-		body: JSON.stringify(
-			buildTitleRequestBody({
-				model: config.titleGenModel,
-				messages,
-				temperature: 0.2,
-			}),
-		),
+		model: config.titleGenModel,
+		messages,
+		temperature: 0.2,
 	});
+	if (response.status === 400) {
+		console.info(
+			"[TITLE_GENERATE] Retrying with strict OpenAI-compatible request body",
+		);
+		response = await fetchTitleCompletion({
+			url: config.titleGenUrl,
+			headers,
+			model: config.titleGenModel,
+			messages,
+			temperature: 0.2,
+			includeVllmThinkingControls: false,
+		});
+	}
 
 	if (!response.ok) {
 		throw new Error(`Title generation failed: ${response.status}`);
@@ -422,12 +466,12 @@ export async function generateTitle(
 		typeof choice?.content === "string" ? choice.content.trim() : "";
 	const rawTitle = normalizeAssistantOutput(rawContent);
 
-	if (!rawTitle || isThinkingLeak(rawTitle)) {
+	if (!rawTitle || !isPlausibleTitle(rawTitle)) {
 		console.info("[TITLE_GENERATE] Fallback: empty rawTitle or thinking leak");
 		return fallbackTitle(userMessage);
 	}
 	const cleanedTitle = cleanTitle(rawTitle);
-	if (!cleanedTitle) {
+	if (!isPlausibleTitle(cleanedTitle)) {
 		console.info("[TITLE_GENERATE] Fallback: empty cleanedTitle");
 		return fallbackTitle(userMessage);
 	}

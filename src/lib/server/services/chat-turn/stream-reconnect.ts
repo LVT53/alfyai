@@ -1,8 +1,12 @@
 import {
-	BROWSER_CHAT_SSE_EVENTS,
-	decodeBrowserChatSseEvents,
-	encodeBrowserChatSseEvent,
-} from "$lib/services/stream-protocol";
+	decodeUiMessageStreamParts,
+	streamDataPartEvent,
+	streamReasoningDeltaEvent,
+	streamReasoningStartEvent,
+	streamTextDeltaEvent,
+	streamTextStartEvent,
+	streamToolCallEvent,
+} from "./stream";
 
 export interface ReconnectBuffer {
 	userMessage: string | null;
@@ -41,12 +45,11 @@ function unrefTimer(timer: ReturnType<typeof setInterval>) {
 	timer.unref?.();
 }
 
-function containsTerminalBrowserChatEvent(chunk: string): boolean {
-	return decodeBrowserChatSseEvents(chunk).some(
-		(event) =>
-			event.event === BROWSER_CHAT_SSE_EVENTS.end ||
-			event.event === BROWSER_CHAT_SSE_EVENTS.error,
-	);
+function containsTerminalUiMessageStreamPart(chunk: string): boolean {
+	return decodeUiMessageStreamParts(chunk).some((part) => {
+		if (part === "[DONE]") return true;
+		return part.type === "finish" || part.type === "data-stream-error";
+	});
 }
 
 export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
@@ -82,30 +85,28 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 			);
 			if (hasContent) {
 				enqueueChunk(
-					encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.replayStart, {
+					streamDataPartEvent("data-replay-start", {
 						tokenCount: buffer.tokens.length,
 						thinkingCount: buffer.thinking.length,
 						toolCallCount: buffer.toolCalls.length,
 						userMessage: buffer.userMessage,
 					}),
 				);
+				if (buffer.tokens.length > 0) {
+					enqueueChunk(streamTextStartEvent());
+				}
 				for (const token of buffer.tokens) {
-					enqueueChunk(
-						encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
-							text: token,
-						}),
-					);
+					enqueueChunk(streamTextDeltaEvent(token));
+				}
+				if (buffer.thinking.length > 0) {
+					enqueueChunk(streamReasoningStartEvent());
 				}
 				for (const thinking of buffer.thinking) {
-					enqueueChunk(
-						encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.thinking, {
-							text: thinking,
-						}),
-					);
+					enqueueChunk(streamReasoningDeltaEvent(thinking));
 				}
 				for (const toolCall of buffer.toolCalls) {
 					enqueueChunk(
-						encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.toolCall, {
+						streamToolCallEvent({
 							callId: toolCall.callId,
 							name: toolCall.name,
 							input: toolCall.input,
@@ -117,16 +118,14 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 						}),
 					);
 				}
-				enqueueChunk(
-					encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.replayEnd, {}),
-				);
+				enqueueChunk(streamDataPartEvent("data-replay-end", {}));
 			}
 		}
 
 		let reconnectHeartbeatId: ReturnType<typeof setInterval>;
 		const liveListener = (chunk: string) => {
 			enqueueChunk(chunk);
-			if (containsTerminalBrowserChatEvent(chunk)) {
+			if (containsTerminalUiMessageStreamPart(chunk)) {
 				unsubscribeFromStream(targetStreamId, liveListener);
 				clearInterval(reconnectHeartbeatId);
 				closeDownstream();

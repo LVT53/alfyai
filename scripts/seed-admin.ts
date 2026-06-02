@@ -5,7 +5,6 @@
 import { config as dotenvConfig } from 'dotenv';
 dotenvConfig();
 
-if (!process.env.LANGFLOW_API_KEY) process.env.LANGFLOW_API_KEY = 'seed-placeholder';
 if (!process.env.SESSION_SECRET) process.env.SESSION_SECRET = 'seed-placeholder-session-secret-12345678';
 if (!process.env.DATABASE_PATH) process.env.DATABASE_PATH = './data/chat.db';
 

@@ -167,7 +167,11 @@ export async function submitFileProductionIntake(
 	const [{ submitFileProductionIntakeWithDependencies }, jobLedger] =
 		await Promise.all([import("./intake"), loadJobLedger()]);
 	const wakeFileProductionWorker =
-		input.wakeWorker ?? (await loadWorkerRunner()).wakeFileProductionWorker;
+		input.wakeWorker ??
+		(async () => {
+			const { wakeFileProductionWorker } = await loadWorkerRunner();
+			return wakeFileProductionWorker();
+		});
 
 	return submitFileProductionIntakeWithDependencies(input, {
 		createOrReuseFileProductionJob: jobLedger.createOrReuseFileProductionJob,

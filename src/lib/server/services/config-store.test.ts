@@ -494,5 +494,22 @@ describe("Knowledge Store Config", () => {
 			expect(depthBudgets.standard).toBeDefined();
 			expect(depthBudgets.max).toBeDefined();
 		});
+
+		it("getResolvedAdminConfigValues() should not expose retired Langflow model routing keys", async () => {
+			adminConfigRows = [
+				{ key: "MODEL_1_FLOW_ID", value: "legacy-flow" },
+				{ key: "MODEL_1_COMPONENT_ID", value: "legacy-node" },
+				{ key: "MODEL_2_FLOW_ID", value: "legacy-flow-2" },
+				{ key: "MODEL_2_COMPONENT_ID", value: "legacy-node-2" },
+			];
+
+			await refreshConfig();
+
+			const values = getResolvedAdminConfigValues();
+			expect(values).not.toHaveProperty("MODEL_1_FLOW_ID");
+			expect(values).not.toHaveProperty("MODEL_1_COMPONENT_ID");
+			expect(values).not.toHaveProperty("MODEL_2_FLOW_ID");
+			expect(values).not.toHaveProperty("MODEL_2_COMPONENT_ID");
+		});
 	});
 });

@@ -1,3 +1,4 @@
+import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type {
 	HonchoContextInfo,
@@ -7,12 +8,13 @@ import type {
 } from "$lib/types";
 
 export interface NonStreamFallbackSendParams {
+	runtimeConfig: RuntimeConfig;
 	upstreamMessage: string;
 	conversationId: string;
-	modelId: string | null;
+	modelId: ModelId | undefined;
 	attachmentIds: string[];
-	activeDocumentArtifactId: string | null;
-	attachmentTraceId: string | null;
+	activeDocumentArtifactId: string | undefined;
+	attachmentTraceId: string | undefined;
 	thinkingMode: ThinkingMode;
 	forceWebSearch: boolean;
 }
@@ -30,23 +32,22 @@ export interface NonStreamFallbackResponse {
 }
 
 export interface NonStreamFallbackDeps {
-	sendMessage: (
-		upstreamMessage: string,
-		conversationId: string,
-		modelId: string | null,
-		user: { id: string; displayName: string | null; email: string | null },
-		options: {
-			signal?: AbortSignal;
-			attachmentIds: string[];
-			activeDocumentArtifactId: string | null;
-			attachmentTraceId: string | null;
-			systemPromptAppendix?: string;
-			personalityPrompt?: string;
-			skipHonchoContext?: boolean;
-			thinkingMode?: ThinkingMode;
-			forceWebSearch?: boolean;
-		},
-	) => Promise<NonStreamFallbackResponse>;
+	runPlainNormalChatSendModel: (params: {
+		userId: string;
+		runtimeConfig: RuntimeConfig;
+		message: string;
+		conversationId: string;
+		modelId: ModelId | undefined;
+		user?: { id: string; displayName: string | null; email: string | null };
+		attachmentIds?: string[];
+		activeDocumentArtifactId?: string;
+		attachmentTraceId?: string;
+		systemPromptAppendix?: string;
+		personalityPrompt?: string;
+		thinkingMode?: ThinkingMode;
+		forceWebSearch?: boolean;
+		signal?: AbortSignal;
+	}) => Promise<NonStreamFallbackResponse>;
 	sendParams: NonStreamFallbackSendParams;
 	user: { id: string; displayName: string | null; email: string | null };
 	attachContinuityToTaskState: (
@@ -58,7 +59,7 @@ export interface NonStreamFallbackDeps {
 	flushInlineThinkingBuffer: () => boolean;
 	flushOutputBuffer: () => boolean;
 	hasVisibleAssistantText: () => boolean;
-	completeSuccess: () => void;
+	completeSuccess: () => Promise<void> | void;
 	signal: AbortSignal;
 	systemPromptAppendix: string | undefined;
 	personalityPrompt: string | undefined;
@@ -89,7 +90,7 @@ export async function runNonStreamFallback(
 ): Promise<boolean> {
 	try {
 		const {
-			sendMessage,
+			runPlainNormalChatSendModel,
 			sendParams,
 			user,
 			attachContinuityToTaskState,
@@ -102,7 +103,6 @@ export async function runNonStreamFallback(
 			signal,
 			systemPromptAppendix,
 			personalityPrompt,
-			skipHonchoContext,
 			onContextStatus,
 			onTaskState,
 			onContextDebug,
@@ -120,23 +120,22 @@ export async function runNonStreamFallback(
 							systemPromptAppendix,
 							EMPTY_VISIBLE_OUTPUT_RECOVERY_APPENDIX,
 						);
-			const fallbackResponse = await sendMessage(
-				sendParams.upstreamMessage,
-				sendParams.conversationId,
-				sendParams.modelId,
+			const fallbackResponse = await runPlainNormalChatSendModel({
+				userId: user.id,
+				runtimeConfig: sendParams.runtimeConfig,
+				message: sendParams.upstreamMessage,
+				conversationId: sendParams.conversationId,
 				user,
-				{
-					signal,
-					attachmentIds: sendParams.attachmentIds,
-					activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
-					attachmentTraceId: sendParams.attachmentTraceId,
-					systemPromptAppendix: attemptSystemPromptAppendix,
-					personalityPrompt,
-					skipHonchoContext,
-					thinkingMode: sendParams.thinkingMode,
-					forceWebSearch: sendParams.forceWebSearch,
-				},
-			);
+				modelId: sendParams.modelId,
+				attachmentIds: sendParams.attachmentIds,
+				activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
+				attachmentTraceId: sendParams.attachmentTraceId,
+				systemPromptAppendix: attemptSystemPromptAppendix,
+				personalityPrompt,
+				thinkingMode: sendParams.thinkingMode,
+				forceWebSearch: sendParams.forceWebSearch,
+				signal,
+			});
 
 			const contextStatus = fallbackResponse.contextStatus;
 			onContextStatus(contextStatus);
@@ -196,7 +195,7 @@ export async function runNonStreamFallback(
 				return false;
 			}
 
-			completeSuccess();
+			await completeSuccess();
 			return true;
 		}
 

@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-	BROWSER_CHAT_SSE_EVENTS,
-	type BrowserChatSseEventName,
-	type BrowserChatSsePayload,
 	createInlineThinkingState,
-	decodeBrowserChatSseEvents,
-	encodeBrowserChatSseEvent,
+	FRIENDLY_STREAM_ERRORS,
 	flushInlineThinkingState,
 	getLeakedToolDiagnosticPrefixLength,
 	getTextContent,
@@ -17,155 +13,9 @@ import {
 } from "./stream-protocol";
 
 describe("stream-protocol", () => {
-	it("encodes current browser chat SSE events with the existing wire shape", () => {
-		const expectEncodedEvent = <Name extends BrowserChatSseEventName>(
-			event: Name,
-			payload: BrowserChatSsePayload<Name>,
-		) => {
-			expect(encodeBrowserChatSseEvent(event, payload)).toBe(
-				`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`,
-			);
-		};
-
-		expectEncodedEvent(BROWSER_CHAT_SSE_EVENTS.token, { text: "Hello" });
-		expectEncodedEvent(BROWSER_CHAT_SSE_EVENTS.thinking, {
-			text: "Reasoning",
-		});
-		expectEncodedEvent(BROWSER_CHAT_SSE_EVENTS.toolCall, {
-			callId: "call-1",
-			name: "search",
-			input: { query: "SSE" },
-			status: "running",
-			outputSummary: null,
-			sourceType: null,
-			candidates: [],
-			metadata: { count: 1 },
-		});
-		expectEncodedEvent(BROWSER_CHAT_SSE_EVENTS.end, {
-			thinkingTokenCount: 2,
-			responseTokenCount: 3,
-			totalTokenCount: 5,
-			thinking: "done",
-			wasStopped: false,
-			userMessageId: "user-1",
-			assistantMessageId: "assistant-1",
-			modelId: "model1",
-			modelDisplayName: "Model One",
-			contextStatus: { status: "ready" },
-			contextSources: null,
-			activeWorkingSet: [],
-			taskState: null,
-			contextDebug: null,
-			messageEvidence: null,
-			generatedFiles: [],
-			contextCompressionSnapshots: [],
-		});
-		expectEncodedEvent(BROWSER_CHAT_SSE_EVENTS.error, {
-			code: "timeout",
-			message: "Stream timed out",
-		});
-		expectEncodedEvent(BROWSER_CHAT_SSE_EVENTS.replayStart, {
-			tokenCount: 1,
-			thinkingCount: 2,
-			toolCallCount: 3,
-			userMessage: "Continue",
-		});
-		expectEncodedEvent(BROWSER_CHAT_SSE_EVENTS.replayEnd, {});
-		expectEncodedEvent(BROWSER_CHAT_SSE_EVENTS.waiting, {});
-	});
-
-	it("decodes browser SSE events and ignores comments and blank-only blocks", () => {
-		const streamText = [
-			": keep-alive",
-			"",
-			"event: token",
-			'data: {"text":"Hello"}',
-			"",
-			"",
-			": another keep-alive",
-			"",
-			"event: replay_end",
-			"data: {}",
-			"",
-		].join("\n");
-
-		expect(decodeBrowserChatSseEvents(streamText)).toEqual([
-			{
-				event: BROWSER_CHAT_SSE_EVENTS.token,
-				data: { text: "Hello" },
-				rawData: '{"text":"Hello"}',
-				dataKind: "json",
-			},
-			{
-				event: BROWSER_CHAT_SSE_EVENTS.replayEnd,
-				data: {},
-				rawData: "{}",
-				dataKind: "json",
-			},
-		]);
-	});
-
-	it("ignores named SSE blocks outside the browser chat event contract", () => {
-		expect(
-			decodeBrowserChatSseEvents('event: unrelated\ndata: {"ok":true}\n\n'),
-		).toEqual([]);
-	});
-
-	it("decodes CRLF blocks and a trailing final block without a blank-line terminator", () => {
-		const streamText = [
-			"event: token\r",
-			'data: {"text":"First"}\r',
-			"\r",
-			"event: end\r",
-			'data: {"wasStopped":false}',
-		].join("\n");
-
-		expect(decodeBrowserChatSseEvents(streamText)).toEqual([
-			{
-				event: BROWSER_CHAT_SSE_EVENTS.token,
-				data: { text: "First" },
-				rawData: '{"text":"First"}',
-				dataKind: "json",
-			},
-			{
-				event: BROWSER_CHAT_SSE_EVENTS.end,
-				data: { wasStopped: false },
-				rawData: '{"wasStopped":false}',
-				dataKind: "json",
-			},
-		]);
-	});
-
-	it("represents invalid JSON payloads without throwing", () => {
-		expect(
-			decodeBrowserChatSseEvents("event: error\ndata: not json\n\n"),
-		).toEqual([
-			{
-				event: BROWSER_CHAT_SSE_EVENTS.error,
-				data: null,
-				rawData: "not json",
-				dataKind: "invalid-json",
-			},
-		]);
-	});
-
-	it("joins multiple data lines with newlines before JSON decoding", () => {
-		const streamText = [
-			"event: token",
-			"data: {",
-			'data: "text":"Split JSON"',
-			"data: }",
-			"",
-		].join("\n");
-
-		expect(decodeBrowserChatSseEvents(streamText)).toEqual([
-			{
-				event: BROWSER_CHAT_SSE_EVENTS.token,
-				data: { text: "Split JSON" },
-				rawData: '{\n"text":"Split JSON"\n}',
-				dataKind: "json",
-			},
-		]);
+	it("uses provider-neutral fallback text for backend stream failures", () => {
+		expect(FRIENDLY_STREAM_ERRORS.backend_failure).toContain("model provider");
+		expect(FRIENDLY_STREAM_ERRORS.backend_failure).not.toMatch(/Langflow/i);
 	});
 
 	it("routes inline thinking tags into separate visible and thinking emissions", () => {
@@ -354,7 +204,7 @@ describe("stream-protocol", () => {
 		expect(getTextContent(output)).toBe("Visible answer");
 	});
 
-	it("uses the final Langflow content block output instead of concatenating tool dumps", () => {
+	it("uses the final provider content block output instead of concatenating tool dumps", () => {
 		const rawSearchDump = [
 			"Szürke rendszám - Tudj meg mindent a szürke rendszámról!",
 			"Keresés",
@@ -409,7 +259,7 @@ describe("stream-protocol", () => {
 		).toBe("Magyarországon hivatalosan szürke rendszámot lehet igényelni.");
 	});
 
-	it("prefers clean Langflow content blocks over dirty top-level add_message text", () => {
+	it("prefers clean provider content blocks over dirty top-level add_message text", () => {
 		expect(
 			getTextContent({
 				text: "get_contents output:\nRaw web page text that should not be shown.",
@@ -429,7 +279,7 @@ describe("stream-protocol", () => {
 		).toBe("The visible answer uses the fetched page without dumping it.");
 	});
 
-	it("keeps multiple Langflow assistant output blocks when none look like tool output", () => {
+	it("keeps multiple provider assistant output blocks when none look like tool output", () => {
 		expect(
 			getTextContent({
 				content_blocks: [
@@ -470,7 +320,7 @@ describe("stream-protocol", () => {
 		).toBe("Visible answer");
 	});
 
-	it("strips a leading Langflow response marker before visible output", () => {
+	it("strips a leading response marker before visible output", () => {
 		expect(
 			stripLeadingResponseMarker("responseThe United States is large."),
 		).toBe("The United States is large.");

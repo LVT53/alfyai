@@ -8,21 +8,27 @@ import {
 	serializeContextCompressionSnapshot,
 } from "$lib/server/services/context-compression";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
-import {
-	BROWSER_CHAT_SSE_EVENTS,
-	encodeBrowserChatSseEvent,
-} from "$lib/services/stream-protocol";
-import { isFileProductionToolName } from "$lib/utils/tool-calls";
 import type {
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
+	ChatGeneratedFile,
 	LinkedContextSource,
 	ToolCallEntry,
 	WebCitationAudit,
 } from "$lib/types";
+import { isFileProductionToolName } from "$lib/utils/tool-calls";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import { parseSkillControlEnvelopePayloads } from "./skill-control-envelope";
+import {
+	createUiMessageStreamDoneFrame,
+	streamDataPartEvent,
+	streamFinishEvent,
+	streamReasoningEndEvent,
+	streamTextDeltaEvent,
+	streamTextEndEvent,
+	streamTextStartEvent,
+} from "./stream";
 import type { WorkCapsuleSummary } from "./types";
 
 type PersistedStreamTurnState = {
@@ -158,7 +164,7 @@ export interface CompleteStreamTurnParams {
 	getChatFilesForAssistantMessage: (
 		conversationId: string,
 		assistantMessageId: string,
-	) => Promise<Array<{ id: string; name: string }>>;
+	) => Promise<ChatGeneratedFile[]>;
 	getFileProductionJobs: (
 		userId: string,
 		conversationId: string,
@@ -239,11 +245,10 @@ export async function completeStreamTurn(
 			? parseSkillControlEnvelopePayloads(skillControlEnvelopePayloads)
 			: { operations: [] };
 	if (citationGate?.appendedNotice) {
-		enqueueChunk(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.token, {
-				text: `\n\n${citationGate.appendedNotice}`,
-			}),
-		);
+		if (!fullResponse) {
+			enqueueChunk(streamTextStartEvent());
+		}
+		enqueueChunk(streamTextDeltaEvent(`\n\n${citationGate.appendedNotice}`));
 		console.warn("[CHAT_STREAM] Appended web citation quality notice", {
 			conversationId,
 			streamId,
@@ -261,8 +266,8 @@ export async function completeStreamTurn(
 		name: record.name,
 		status: record.status,
 	}));
-	const hadFileProductionToolCall = toolCallSummary.some(
-		(record) => isFileProductionToolName(record.name),
+	const hadFileProductionToolCall = toolCallSummary.some((record) =>
+		isFileProductionToolName(record.name),
 	);
 	let persistedTurnState: PersistedStreamTurnState | null = null;
 	let persistedContextSources: ContextSourcesState | null = null;
@@ -273,8 +278,8 @@ export async function completeStreamTurn(
 			streamId,
 			wasStopped,
 			toolCallCount: toolCallSummary.length,
-			fileProductionCallCount: toolCallSummary.filter(
-				(record) => isFileProductionToolName(record.name),
+			fileProductionCallCount: toolCallSummary.filter((record) =>
+				isFileProductionToolName(record.name),
 			).length,
 			toolCalls: toolCallSummary,
 		});
@@ -291,7 +296,7 @@ export async function completeStreamTurn(
 		userMsgId?: string,
 		assistantMsgId?: string,
 	) => {
-		let generatedFiles: Array<{ id: string; name: string }> = [];
+		let generatedFiles: ChatGeneratedFile[] = [];
 		try {
 			if (assistantMsgId && hadFileProductionToolCall) {
 				const fileProductionJobs = await getFileProductionJobs(
@@ -343,10 +348,9 @@ export async function completeStreamTurn(
 					});
 				}
 
-				generatedFiles = await getChatFilesForAssistantMessage(
-					conversationId,
-					assistantMsgId,
-				);
+				generatedFiles = (
+					await getChatFilesForAssistantMessage(conversationId, assistantMsgId)
+				).map(toPublicGeneratedFile);
 			}
 		} catch (error) {
 			console.error(
@@ -387,8 +391,14 @@ export async function completeStreamTurn(
 			? persistedTurnState.contextDebug
 			: latestContextDebug;
 
+		if (thinkingContent) {
+			enqueueChunk(streamReasoningEndEvent());
+		}
+		if (finalResponse) {
+			enqueueChunk(streamTextEndEvent());
+		}
 		enqueueChunk(
-			encodeBrowserChatSseEvent(BROWSER_CHAT_SSE_EVENTS.end, {
+			streamDataPartEvent("data-stream-metadata", {
 				thinkingTokenCount,
 				responseTokenCount,
 				totalTokenCount,
@@ -407,6 +417,8 @@ export async function completeStreamTurn(
 				contextCompressionSnapshots,
 			}),
 		);
+		enqueueChunk(streamFinishEvent("stop"));
+		enqueueChunk(createUiMessageStreamDoneFrame());
 		touchConversation(userId, conversationId).catch(() => undefined);
 		if (streamId) clearStreamBuffer(streamId);
 		closeDownstream();
@@ -485,4 +497,25 @@ export async function completeStreamTurn(
 	} catch {
 		return sendEndAndClose();
 	}
+}
+
+function toPublicGeneratedFile(file: ChatGeneratedFile): ChatGeneratedFile {
+	return {
+		id: file.id,
+		conversationId: file.conversationId,
+		assistantMessageId: file.assistantMessageId ?? null,
+		artifactId: file.artifactId ?? null,
+		documentFamilyId: file.documentFamilyId ?? null,
+		documentFamilyStatus: file.documentFamilyStatus ?? null,
+		documentLabel: file.documentLabel ?? null,
+		documentRole: file.documentRole ?? null,
+		versionNumber: file.versionNumber ?? null,
+		originConversationId: file.originConversationId ?? null,
+		originAssistantMessageId: file.originAssistantMessageId ?? null,
+		sourceChatFileId: file.sourceChatFileId ?? null,
+		filename: file.filename,
+		mimeType: file.mimeType,
+		sizeBytes: file.sizeBytes,
+		createdAt: file.createdAt,
+	};
 }

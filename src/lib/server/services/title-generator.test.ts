@@ -3,9 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../env", () => ({
 	getDatabasePath: () => "./data/test.db",
 	config: {
-		langflowApiUrl: "http://localhost:7860",
-		langflowApiKey: "test-api-key",
-		langflowFlowId: "test-flow-id",
 		titleGenUrl: "http://localhost:30001/v1",
 		titleGenApiKey: "",
 		titleGenModel: "nemotron-nano",
@@ -13,7 +10,6 @@ vi.mock("../env", () => ({
 		titleGenSystemPromptHu: "",
 		titleGenSystemPromptCodeAppendixEn: "",
 		titleGenSystemPromptCodeAppendixHu: "",
-		webhookPort: 8090,
 		requestTimeoutMs: 5000,
 		maxMessageLength: 10000,
 		sessionSecret: "test-secret",
@@ -84,9 +80,6 @@ describe("generateTitle", () => {
 		vi.doMock("../env", () => ({
 			getDatabasePath: () => "./data/test.db",
 			config: {
-				langflowApiUrl: "http://localhost:7860",
-				langflowApiKey: "test-api-key",
-				langflowFlowId: "test-flow-id",
 				titleGenUrl: "http://localhost:30001/v1",
 				titleGenApiKey: "secret-key",
 				titleGenModel: "nemotron-nano",
@@ -94,7 +87,6 @@ describe("generateTitle", () => {
 				titleGenSystemPromptHu: "",
 				titleGenSystemPromptCodeAppendixEn: "",
 				titleGenSystemPromptCodeAppendixHu: "",
-				webhookPort: 8090,
 				requestTimeoutMs: 5000,
 				maxMessageLength: 10000,
 				sessionSecret: "test-secret",
@@ -158,7 +150,7 @@ describe("generateTitle", () => {
 			typeof callArgs.body === "string" ? callArgs.body : "",
 		);
 		const lastMessage = body.messages[body.messages.length - 1];
-		expect(lastMessage.content).toContain("Assistant: " + "x".repeat(200));
+		expect(lastMessage.content).toContain(`Assistant: ${"x".repeat(200)}`);
 		expect(lastMessage.content).not.toContain("x".repeat(201));
 	});
 
@@ -219,6 +211,7 @@ describe("generateTitle", () => {
 			"Let me work through this step by step",
 			"Okay, let me think about how to summarize this conversation",
 			"Let me break this down into parts and analyze",
+			'The user is asking "How do I test Firepass?" and the assistant response is very brief. I need to determine a concise title for this internal workflow.',
 		];
 
 		for (const thinkingTitle of thinkingTitles) {
@@ -254,6 +247,51 @@ describe("generateTitle", () => {
 		await expect(generateTitle("User", "Assistant")).rejects.toThrow(
 			"Title generation failed: 500",
 		);
+	});
+
+	it("retries with a strict OpenAI-compatible body when extended title fields are rejected", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ error: "unsupported field" }), {
+					status: 400,
+				}),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						choices: [{ message: { content: "Firepass Smoke Testing" } }],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			);
+
+		await expect(
+			generateTitle("How do I test Firepass?", "Use local smoke tests."),
+		).resolves.toBe("Firepass Smoke Testing");
+
+		expect(mockFetch).toHaveBeenCalledTimes(2);
+		const firstBody = JSON.parse(
+			typeof mockFetch.mock.calls[0]?.[1]?.body === "string"
+				? mockFetch.mock.calls[0][1].body
+				: "{}",
+		);
+		const secondBody = JSON.parse(
+			typeof mockFetch.mock.calls[1]?.[1]?.body === "string"
+				? mockFetch.mock.calls[1][1].body
+				: "{}",
+		);
+		expect(firstBody.chat_template_kwargs).toEqual({ enable_thinking: false });
+		expect(firstBody.extra_body).toEqual({
+			chat_template_kwargs: { enable_thinking: false },
+		});
+		expect(secondBody).not.toHaveProperty("chat_template_kwargs");
+		expect(secondBody).not.toHaveProperty("extra_body");
+		expect(secondBody.model).toBe("nemotron-nano");
+		expect(secondBody.max_tokens).toBe(120);
 	});
 
 	it("falls back to the user message when the model returns no title", async () => {
@@ -336,9 +374,6 @@ describe("generateTitle", () => {
 		vi.doMock("../env", () => ({
 			getDatabasePath: () => "./data/test.db",
 			config: {
-				langflowApiUrl: "http://localhost:7860",
-				langflowApiKey: "test-api-key",
-				langflowFlowId: "test-flow-id",
 				titleGenUrl: "http://localhost:30001/v1",
 				titleGenApiKey: "",
 				titleGenModel: "nemotron-nano",
@@ -347,7 +382,6 @@ describe("generateTitle", () => {
 				titleGenSystemPromptCodeAppendixEn:
 					"Mention the language or framework when known.",
 				titleGenSystemPromptCodeAppendixHu: "Emlitsd a technológiát ha ismert.",
-				webhookPort: 8090,
 				requestTimeoutMs: 5000,
 				maxMessageLength: 10000,
 				sessionSecret: "test-secret",

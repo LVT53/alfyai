@@ -35,11 +35,20 @@ vi.mock("$lib/server/services/conversations", () => ({
 	touchConversation: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/langflow", () => ({
-	isLangflowTimeoutError: vi.fn(() => false),
-	resolveTimeoutFailoverTargetModelId: vi.fn(async () => null),
-	sendMessage: vi.fn(),
-	sendMessageStream: vi.fn(),
+vi.mock("$lib/server/services/normal-chat-failover", () => ({
+	isModelTimeoutError: vi.fn(() => false),
+	resolveModelTimeoutFailoverTargetModelId: vi.fn(async () => null),
+}));
+
+vi.mock(
+	"$lib/server/services/chat-turn/streaming-normal-chat-model-run",
+	() => ({
+		runStreamingNormalChatSendModel: vi.fn(),
+	}),
+);
+
+vi.mock("$lib/server/services/chat-turn/plain-normal-chat-model-run", () => ({
+	runPlainNormalChatSendModel: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
@@ -198,6 +207,8 @@ import {
 	getChatFilesForAssistantMessage,
 	syncGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
+import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
+import { runStreamingNormalChatSendModel } from "$lib/server/services/chat-turn/streaming-normal-chat-model-run";
 import {
 	getConversation,
 	touchConversation,
@@ -207,7 +218,6 @@ import {
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
 import { assertPromptReadyAttachments } from "$lib/server/services/knowledge";
-import { sendMessage, sendMessageStream } from "$lib/server/services/langflow";
 import { addConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
 import {
 	createMessage,
@@ -221,8 +231,10 @@ import { POST as stopStream } from "./stop/+server";
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockTouchConversation = touchConversation as ReturnType<typeof vi.fn>;
-const mockSendMessageStream = sendMessageStream as ReturnType<typeof vi.fn>;
-const mockSendMessage = sendMessage as ReturnType<typeof vi.fn>;
+const mockSendMessageStream = runStreamingNormalChatSendModel as ReturnType<
+	typeof vi.fn
+>;
+const mockSendMessage = runPlainNormalChatSendModel as ReturnType<typeof vi.fn>;
 const mockCreateMessage = createMessage as ReturnType<typeof vi.fn>;
 const mockUpdateMessageHonchoMetadata =
 	updateMessageHonchoMetadata as ReturnType<typeof vi.fn>;
@@ -261,10 +273,6 @@ function makeEvent(
 		}),
 		locals: {
 			user,
-			webhookBuffer: {
-				getSentences: vi.fn(() => null),
-				clearSession: vi.fn(),
-			},
 		},
 		params: {},
 		url: new URL("http://localhost/api/chat/stream"),
@@ -291,61 +299,173 @@ function makeStopEvent(body: unknown, userId = "user-1"): StopStreamPostEvent {
 	} as StopStreamPostEvent;
 }
 
-function buildSseStream(lines: string[]): {
-	stream: ReadableStream<Uint8Array>;
-	contextStatus: undefined;
-	taskState: null;
-	contextDebug: null;
-	honchoContext: null;
-	honchoSnapshot: null;
-	[Symbol.asyncIterator]: () => AsyncIterator<Uint8Array>;
-} {
-	const encoder = new TextEncoder();
-	const stream = new ReadableStream({
-		start(controller) {
-			for (const line of lines) {
-				controller.enqueue(encoder.encode(line));
-			}
-			controller.close();
-		},
-	});
+type NeutralStreamEvent =
+	| { type: "text_delta"; text: string }
+	| { type: "reasoning_delta"; text: string }
+	| { type: "tool_call"; callId: string; toolName: string; input: unknown }
+	| { type: "tool_result"; callId: string; toolName: string; output: unknown }
+	| { type: "tool_error"; callId: string; toolName: string; error: string }
+	| {
+			type: "usage";
+			usage: {
+				inputTokens?: number;
+				outputTokens?: number;
+				totalTokens?: number;
+			};
+	  }
+	| {
+			type: "finish";
+			finishReason: string;
+			rawFinishReason: string | undefined;
+			model: {
+				providerId: string;
+				providerName: string;
+				displayName: string;
+				requestedModelName: string;
+				responseModelName: string;
+			};
+	  }
+	| { type: "error"; error: string };
+
+const finishEvent: NeutralStreamEvent = {
+	type: "finish",
+	finishReason: "stop",
+	rawFinishReason: "stop",
+	model: {
+		providerId: "model1",
+		providerName: "Model 1",
+		displayName: "Model 1",
+		requestedModelName: "model1",
+		responseModelName: "model1",
+	},
+};
+
+function buildNeutralStream(
+	events: AsyncIterable<NeutralStreamEvent> | NeutralStreamEvent[],
+	overrides: Record<string, unknown> = {},
+) {
+	const prefetchedToolCalls =
+		(overrides.prefetchedToolCalls as unknown[] | undefined) ?? [];
+	const normalChatToolCalls =
+		(overrides.normalChatToolCalls as unknown[] | undefined) ?? [];
+	const stream =
+		Symbol.asyncIterator in events
+			? events
+			: (async function* () {
+					for (const event of events) {
+						yield event;
+					}
+				})();
 	return {
-		stream,
-		contextStatus: undefined,
-		taskState: null,
-		contextDebug: null,
-		honchoContext: null,
-		honchoSnapshot: null,
-		[Symbol.asyncIterator]() {
-			return stream[Symbol.asyncIterator]();
+		prepared: {
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			contextTraceSections: undefined,
+			...((overrides.prepared as Record<string, unknown> | undefined) ?? {}),
 		},
+		modelId: "model1",
+		modelDisplayName: "Model 1",
+		stream,
+		prefetchedToolCalls,
+		getNormalChatToolCalls: () => normalChatToolCalls,
+		getToolCalls: () => [...prefetchedToolCalls, ...normalChatToolCalls],
+		...overrides,
 	};
 }
 
-function buildControlledSseStream() {
-	const encoder = new TextEncoder();
-	let enqueueToken!: (text: string) => void;
-	let finish!: () => void;
-	const stream = new ReadableStream<Uint8Array>({
-		start(controller) {
-			enqueueToken = (text: string) => {
-				controller.enqueue(
-					encoder.encode(`event: token\ndata: ${JSON.stringify({ text })}\n\n`),
-				);
-			};
-			finish = () => {
-				controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-				controller.close();
-			};
-		},
-	});
+function buildTextStream(
+	chunks: string | string[],
+	overrides: Record<string, unknown> = {},
+) {
+	const textChunks = Array.isArray(chunks) ? chunks : [chunks];
+	return buildNeutralStream(
+		[
+			...textChunks.map(
+				(text): NeutralStreamEvent => ({ type: "text_delta", text }),
+			),
+			finishEvent,
+		],
+		overrides,
+	);
+}
+
+function buildErrorStream(
+	error: string,
+	overrides: Record<string, unknown> = {},
+) {
+	return buildNeutralStream([{ type: "error", error }], overrides);
+}
+
+function buildToolResultStream(params: {
+	callId: string;
+	name: string;
+	input: Record<string, unknown>;
+	outputSummary?: string;
+	text?: string;
+}) {
+	const recorderEntry = {
+		callId: params.callId,
+		name: params.name,
+		input: params.input,
+		status: "done",
+		outputSummary: params.outputSummary ?? null,
+		sourceType: "tool",
+		candidates: [],
+		metadata: { ok: true, evidenceReady: true },
+	};
+	return buildNeutralStream(
+		[
+			{
+				type: "tool_call",
+				callId: params.callId,
+				toolName: params.name,
+				input: params.input,
+			},
+			{
+				type: "tool_result",
+				callId: params.callId,
+				toolName: params.name,
+				output: { ok: true },
+			},
+			...(params.text
+				? ([{ type: "text_delta", text: params.text }] as NeutralStreamEvent[])
+				: []),
+			finishEvent,
+		],
+		{ normalChatToolCalls: [recorderEntry] },
+	);
+}
+
+function buildControlledNeutralStream() {
+	const queue: NeutralStreamEvent[] = [];
+	let notify: (() => void) | null = null;
+	let closed = false;
+	const stream = (async function* () {
+		while (!closed || queue.length > 0) {
+			const event = queue.shift();
+			if (event) {
+				yield event;
+				continue;
+			}
+			await new Promise<void>((resolve) => {
+				notify = resolve;
+			});
+		}
+	})();
+	const enqueueToken = (text: string) => {
+		queue.push({ type: "text_delta", text });
+		notify?.();
+	};
+	const finish = () => {
+		queue.push(finishEvent);
+		closed = true;
+		notify?.();
+	};
 	return {
-		stream,
-		contextStatus: undefined,
-		taskState: null,
-		contextDebug: null,
-		honchoContext: null,
-		honchoSnapshot: null,
+		...buildNeutralStream(stream),
 		enqueueToken,
 		finish,
 	};
@@ -364,6 +484,22 @@ async function readSseResponse(response: Response): Promise<string> {
 	}
 	const decoder = new TextDecoder();
 	return chunks.map((c) => decoder.decode(c)).join("");
+}
+
+function parseUiStreamParts(
+	body: string,
+): Array<Record<string, unknown> | "[DONE]"> {
+	return body.split(/\r?\n\r?\n/).flatMap((block) => {
+		const dataLines = block
+			.split(/\r?\n/)
+			.filter((line) => line.startsWith("data: "))
+			.map((line) => line.slice("data: ".length));
+		if (dataLines.length === 0) return [];
+		const data = dataLines.join("\n");
+		return data === "[DONE]"
+			? ["[DONE]" as const]
+			: [JSON.parse(data) as Record<string, unknown>];
+	});
 }
 
 describe("POST /api/chat/stream", () => {
@@ -400,18 +536,14 @@ describe("POST /api/chat/stream", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: add_message\ndata: {"text":"Hello"}\n\n',
-				"data: [DONE]\n\n",
-			]),
-		);
+		mockSendMessageStream.mockResolvedValue(buildTextStream("Hello"));
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+		expect(response.headers.get("X-Vercel-AI-UI-Message-Stream")).toBe("v1");
 	});
 
 	it("exposes route phase timings in Server-Timing without adding SSE events", async () => {
@@ -422,16 +554,12 @@ describe("POST /api/chat/stream", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: add_message\ndata: {"text":"Hello"}\n\n',
-				"data: [DONE]\n\n",
-			]),
-		);
+		mockSendMessageStream.mockResolvedValue(buildTextStream("Hello"));
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
+		const parts = parseUiStreamParts(body);
 
 		expect(response.headers.get("Server-Timing")).toEqual(
 			expect.stringContaining("route_parse;dur="),
@@ -442,7 +570,32 @@ describe("POST /api/chat/stream", () => {
 		const eventNames = Array.from(body.matchAll(/^event: ([^\n\r]+)/gm)).map(
 			(match) => match[1],
 		);
-		expect(new Set(eventNames)).toEqual(new Set(["token", "end"]));
+		expect(new Set(eventNames)).toEqual(new Set());
+		expect(
+			parts.map((part) => (part === "[DONE]" ? "[DONE]" : part.type)),
+		).toEqual([
+			"text-start",
+			"text-delta",
+			"text-end",
+			"data-stream-metadata",
+			"finish",
+			"[DONE]",
+		]);
+		expect(parts[1]).toEqual({
+			type: "text-delta",
+			id: "answer",
+			delta: "Hello",
+		});
+		expect(parts[3]).toEqual(
+			expect.objectContaining({
+				type: "data-stream-metadata",
+				transient: true,
+				data: expect.objectContaining({
+					responseTokenCount: 2,
+					modelDisplayName: "Model 1",
+				}),
+			}),
+		);
 	});
 
 	it("starts SSE responses with an ignored prelude comment to flush browser-facing proxies", async () => {
@@ -453,20 +606,15 @@ describe("POST /api/chat/stream", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: add_message\ndata: {"text":"Hello"}\n\n',
-				"data: [DONE]\n\n",
-			]),
-		);
+		mockSendMessageStream.mockResolvedValue(buildTextStream("Hello"));
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
 		expect(body.startsWith(":")).toBe(true);
-		expect(body).toContain("event: token");
-		expect(body).toContain("event: end");
+		expect(body).toContain('"type":"text-delta"');
+		expect(body).toContain('"type":"data-stream-metadata"');
 	});
 
 	it("returns 422 before streaming when a same-turn attachment is not prompt-ready", async () => {
@@ -525,11 +673,11 @@ describe("POST /api/chat/stream", () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Content-Type")).toBe("text/event-stream");
-		expect(body).toContain("event: error");
+		expect(body).toContain('"type":"data-stream-error"');
 		expect(body).toContain('"code":"backend_failure"');
 	});
 
-	it("stream contains token events with text chunks", async () => {
+	it("stream contains UI text deltas with text chunks", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -550,40 +698,39 @@ describe("POST /api/chat/stream", () => {
 				content: "Hello world",
 				timestamp: Date.now(),
 			});
-		mockSendMessageStream.mockResolvedValue({
-			...buildSseStream([
-				'event: add_message\ndata: {"text":"Hello"}\n\n',
-				'event: add_message\ndata: {"text":" world"}\n\n',
-				"data: [DONE]\n\n",
-			]),
-			honchoContext: {
-				source: "live",
-				waitedMs: 40,
-				queuePendingWorkUnits: 0,
-				queueInProgressWorkUnits: 0,
-				fallbackReason: null,
-				snapshotCreatedAt: 999,
-			},
-			honchoSnapshot: {
-				createdAt: 999,
-				summary: "Stream Honcho summary",
-				messages: [
-					{
-						role: "assistant",
-						content: "Hello world",
-						createdAt: Date.now(),
+		mockSendMessageStream.mockResolvedValue(
+			buildTextStream(["Hello", " world"], {
+				prepared: {
+					honchoContext: {
+						source: "live",
+						waitedMs: 40,
+						queuePendingWorkUnits: 0,
+						queueInProgressWorkUnits: 0,
+						fallbackReason: null,
+						snapshotCreatedAt: 999,
 					},
-				],
-			},
-		});
+					honchoSnapshot: {
+						createdAt: 999,
+						summary: "Stream Honcho summary",
+						messages: [
+							{
+								role: "assistant",
+								content: "Hello world",
+								createdAt: Date.now(),
+							},
+						],
+					},
+				},
+			}),
+		);
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: token");
-		expect(body).toContain('"text":"Hello"');
-		expect(body).toContain('"text":" world"');
+		expect(body).toContain('"type":"text-delta"');
+		expect(body).toContain('"delta":"Hello"');
+		expect(body).toContain('"delta":" world"');
 		expect(mockUpdateMessageHonchoMetadata).toHaveBeenCalledWith(
 			"assistant-msg",
 			{
@@ -617,21 +764,18 @@ describe("POST /api/chat/stream", () => {
 				timestamp: Date.now(),
 			});
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: token\ndata: {"text":"What deadline should I use?\\n<skill_control"}\n\n',
-				`event: token\ndata: ${JSON.stringify({
-					text: `_v1>${JSON.stringify({
-						version: 1,
-						operations: [
-							{
-								operationId: "stream-question",
-								kind: "session_transition",
-								transition: "awaiting_user",
-							},
-						],
-					})}</skill_control_v1>`,
-				})}\n\n`,
-				"data: [DONE]\n\n",
+			buildTextStream([
+				"What deadline should I use?\n<skill_control",
+				`_v1>${JSON.stringify({
+					version: 1,
+					operations: [
+						{
+							operationId: "stream-question",
+							kind: "session_transition",
+							transition: "awaiting_user",
+						},
+					],
+				})}</skill_control_v1>`,
 			]),
 		);
 
@@ -640,7 +784,7 @@ describe("POST /api/chat/stream", () => {
 		);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain('"text":"What deadline should I use?\\n"');
+		expect(body).toContain('"delta":"What deadline should I use?\\n"');
 		expect(body).not.toContain("skill_control_v1");
 		expect(mockCreateMessage).toHaveBeenCalledWith(
 			"conv-1",
@@ -667,7 +811,7 @@ describe("POST /api/chat/stream", () => {
 		});
 	});
 
-	it("forwards the active workspace document id into Langflow streaming calls", async () => {
+	it("forwards the active workspace document id into Normal Chat streaming calls", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -688,12 +832,7 @@ describe("POST /api/chat/stream", () => {
 				content: "Refined",
 				timestamp: Date.now(),
 			});
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: add_message\ndata: {"text":"Refined"}\n\n',
-				"data: [DONE]\n\n",
-			]),
-		);
+		mockSendMessageStream.mockResolvedValue(buildTextStream("Refined"));
 
 		const event = makeEvent({
 			message: "Refine it",
@@ -705,12 +844,12 @@ describe("POST /api/chat/stream", () => {
 		const body = await readSseResponse(response);
 
 		expect(response.status).toBe(200);
-		expect(body).toContain('"text":"Refined"');
+		expect(body).toContain('"delta":"Refined"');
 		expect(mockSendMessageStream).toHaveBeenCalledWith(
-			"Refine it",
-			"conv-1",
-			"model1",
 			expect.objectContaining({
+				message: "Refine it",
+				conversationId: "conv-1",
+				modelId: "model1",
 				activeDocumentArtifactId: "artifact-focused-1",
 				thinkingMode: "off",
 				user: {
@@ -722,7 +861,7 @@ describe("POST /api/chat/stream", () => {
 		);
 	});
 
-	it("passes a forced web-search turn flag into Langflow streaming options", async () => {
+	it("passes a forced web-search turn flag into Normal Chat streaming options", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -743,12 +882,7 @@ describe("POST /api/chat/stream", () => {
 				content: "Grounded",
 				timestamp: Date.now(),
 			});
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: add_message\ndata: {"text":"Grounded"}\n\n',
-				"data: [DONE]\n\n",
-			]),
-		);
+		mockSendMessageStream.mockResolvedValue(buildTextStream("Grounded"));
 
 		const event = makeEvent({
 			message: "What changed today?",
@@ -759,12 +893,12 @@ describe("POST /api/chat/stream", () => {
 		const body = await readSseResponse(response);
 
 		expect(response.status).toBe(200);
-		expect(body).toContain('"text":"Grounded"');
+		expect(body).toContain('"delta":"Grounded"');
 		expect(mockSendMessageStream).toHaveBeenCalledWith(
-			"What changed today?",
-			"conv-1",
-			"model1",
 			expect.objectContaining({
+				message: "What changed today?",
+				conversationId: "conv-1",
+				modelId: "model1",
 				forceWebSearch: true,
 			}),
 		);
@@ -791,12 +925,7 @@ describe("POST /api/chat/stream", () => {
 				content: "Question first.",
 				timestamp: Date.now(),
 			});
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: add_message\ndata: {"text":"Question first."}\n\n',
-				"data: [DONE]\n\n",
-			]),
-		);
+		mockSendMessageStream.mockResolvedValue(buildTextStream("Question first."));
 		const linkedSources = [
 			{
 				displayArtifactId: "display-1",
@@ -826,16 +955,16 @@ describe("POST /api/chat/stream", () => {
 		expect(response.status).toBe(200);
 		expect(body).toContain("Question first.");
 		expect(mockSendMessageStream).toHaveBeenCalledWith(
-			"Draft the plan",
-			"conv-1",
-			"model1",
 			expect.objectContaining({
+				message: "Draft the plan",
+				conversationId: "conv-1",
+				modelId: "model1",
 				systemPromptAppendix: expect.stringContaining(
 					"Ask one concise follow-up before answering.",
 				),
 			}),
 		);
-		const options = mockSendMessageStream.mock.calls.at(-1)?.[3];
+		const options = mockSendMessageStream.mock.calls.at(-1)?.[0];
 		expect(options.systemPromptAppendix).toContain("Discovery notes.pdf");
 		expect(options.systemPromptAppendix).toContain(
 			"displayArtifactId: display-1",
@@ -900,25 +1029,22 @@ describe("POST /api/chat/stream", () => {
 				timestamp: Date.now(),
 			});
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: token\ndata: {"text":"Visible answer.\\n<skill_control"}\n\n',
-				`event: token\ndata: ${JSON.stringify({
-					text: [
-						"_v1>",
-						JSON.stringify({
-							version: 1,
-							operations: [
-								{
-									operationId: "ask-deadline",
-									kind: "session_transition",
-									transition: "awaiting_user",
-								},
-							],
-						}),
-						"</skill_control_v1>",
-					].join("\n"),
-				})}\n\n`,
-				"data: [DONE]\n\n",
+			buildTextStream([
+				"Visible answer.\n<skill_control",
+				[
+					"_v1>",
+					JSON.stringify({
+						version: 1,
+						operations: [
+							{
+								operationId: "ask-deadline",
+								kind: "session_transition",
+								transition: "awaiting_user",
+							},
+						],
+					}),
+					"</skill_control_v1>",
+				].join("\n"),
 			]),
 		);
 
@@ -962,12 +1088,7 @@ describe("POST /api/chat/stream", () => {
 			return taskStateGate;
 		});
 
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: add_message\ndata: {"text":"Hello"}\n\n',
-				"data: [DONE]\n\n",
-			]),
-		);
+		mockSendMessageStream.mockResolvedValue(buildTextStream("Hello"));
 
 		const abortController = new AbortController();
 		const event = makeEvent(
@@ -1015,7 +1136,7 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 
-		const upstream = buildControlledSseStream();
+		const upstream = buildControlledNeutralStream();
 		mockSendMessageStream.mockResolvedValue(upstream);
 
 		const event = makeEvent({
@@ -1059,35 +1180,29 @@ describe("POST /api/chat/stream", () => {
 		mockGetConversation.mockResolvedValue(conversation);
 
 		let upstreamAbortSignal: AbortSignal | undefined;
+		let markStreamListening!: () => void;
+		const streamListening = new Promise<void>((resolve) => {
+			markStreamListening = resolve;
+		});
 		mockSendMessageStream.mockImplementationOnce(
-			async (
-				_message: string,
-				_conversationId: string,
-				_modelId: string,
-				options?: { signal?: AbortSignal },
-			) => {
-				upstreamAbortSignal = options?.signal;
-				const stream = new ReadableStream<Uint8Array>({
-					start(controller) {
-						options?.signal?.addEventListener(
-							"abort",
-							() => {
-								const error = new Error("upstream stream aborted");
-								error.name = "AbortError";
-								controller.error(error);
-							},
-							{ once: true },
-						);
-					},
-				});
-				return {
-					stream,
-					contextStatus: undefined,
-					taskState: null,
-					contextDebug: null,
-					honchoContext: null,
-					honchoSnapshot: null,
-				};
+			async (params: { signal?: AbortSignal }) => {
+				upstreamAbortSignal = params.signal;
+				return buildNeutralStream(
+					(async function* () {
+						await new Promise((_resolve, reject) => {
+							markStreamListening();
+							params.signal?.addEventListener(
+								"abort",
+								() => {
+									const error = new Error("upstream stream aborted");
+									error.name = "AbortError";
+									reject(error);
+								},
+								{ once: true },
+							);
+						});
+					})(),
+				);
 			},
 		);
 
@@ -1104,6 +1219,7 @@ describe("POST /api/chat/stream", () => {
 		}
 
 		await expect(reader.read()).resolves.toMatchObject({ done: false });
+		await streamListening;
 
 		const stopResponse = await stopStream(
 			makeStopEvent({ streamId: "stream-explicit-stop" }),
@@ -1122,35 +1238,9 @@ describe("POST /api/chat/stream", () => {
 		expect(stopResponse.status).toBe(200);
 		expect(stopPayload.stopped).toBe(true);
 		expect(upstreamAbortSignal?.aborted).toBe(true);
-		expect(remainingBody).toContain("event: end");
+		expect(remainingBody).toContain('"type":"data-stream-metadata"');
 		expect(remainingBody).toContain('"wasStopped":true');
 		expect(mockSendMessage).not.toHaveBeenCalled();
-	});
-
-	it("parses CRLF-delimited SSE blocks from Langflow", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: add_message\r\ndata: {"text":"Hello"}\r\n\r\n',
-				'event: add_message\r\ndata: {"text":" world"}\r\n\r\n',
-				"data: [DONE]\r\n\r\n",
-			]),
-		);
-
-		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
-		const response = await POST(event);
-		const body = await readSseResponse(response);
-
-		expect(body).toContain("event: token");
-		expect(body).toContain('"text":"Hello"');
-		expect(body).toContain('"text":" world"');
-		expect(body).toContain("event: end");
 	});
 
 	it("does not wait for generated-file memory sync before ending the stream", async () => {
@@ -1175,17 +1265,16 @@ describe("POST /api/chat/stream", () => {
 				timestamp: Date.now(),
 			});
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				`event: token\ndata: {"text":"\\u0002TOOL_START\\u001f${JSON.stringify({
-					name: "produce_file",
-					input: {
-						requestTitle: "Report",
-						outputs: [{ type: "txt" }],
-						sourceMode: "program",
-					},
-				}).replace(/"/g, '\\"')}\\u0003Done"}\n\n`,
-				"data: [DONE]\n\n",
-			]),
+			buildToolResultStream({
+				callId: "file-call-1",
+				name: "produce_file",
+				input: {
+					requestTitle: "Report",
+					requestedOutputs: [{ type: "txt" }],
+					sourceMode: "program",
+				},
+				text: "Done",
+			}),
 		);
 		mockListConversationFileProductionJobs
 			.mockResolvedValueOnce([])
@@ -1219,7 +1308,7 @@ describe("POST /api/chat/stream", () => {
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: end");
+		expect(body).toContain('"type":"data-stream-metadata"');
 		expect(body).toContain('"assistantMessageId":"assistant-msg"');
 		expect(body).toContain('"generatedFiles":[{');
 		expect(mockAssignFileProductionJobsToAssistantMessage).toHaveBeenCalledWith(
@@ -1237,244 +1326,6 @@ describe("POST /api/chat/stream", () => {
 		);
 	});
 
-	it("parses Langflow JSON event blocks and ignores echoed user messages", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'{"event":"add_message","data":{"sender":"User","text":"Hi"}}\n\n',
-				'{"event":"add_message","data":{"sender":"Machine","text":"Hello"}}\n\n',
-				'{"event":"end","data":{}}\n\n',
-			]),
-		);
-
-		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
-		const response = await POST(event);
-		const body = await readSseResponse(response);
-
-		expect(body).toContain("event: token");
-		expect(body).toContain('"text":"Hello"');
-		expect(body).not.toContain('"text":"Hi"');
-	});
-
-	it("accepts assistant add_message events from the current Language Model sender label", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'{"event":"add_message","data":{"sender":"Language Model","text":"Hello"}}\n\n',
-				'{"event":"end","data":{}}\n\n',
-			]),
-		);
-
-		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
-		const response = await POST(event);
-		const body = await readSseResponse(response);
-
-		expect(body).toContain("event: token");
-		expect(body).toContain('"text":"Hello"');
-	});
-
-	it("extracts assistant output from Langflow content_blocks when text is empty", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'{"event":"add_message","data":{"sender":"Language Model","text":"","content_blocks":[{"title":"Agent Steps","contents":[{"type":"text","text":"Tell me a story","header":{"title":"Input","icon":"MessageSquare"}},{"type":"text","text":"Final answer from Langflow.","header":{"title":"Output","icon":"Bot"}}]}]}}\n\n',
-				'{"event":"end","data":{}}\n\n',
-			]),
-		);
-
-		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
-		const response = await POST(event);
-		const body = await readSseResponse(response);
-
-		expect(body).toContain("event: token");
-		expect(body).toContain('"text":"Final answer from Langflow."');
-		expect(body).not.toContain('"text":"Tell me a story"');
-	});
-
-	it("does not leak Langflow agent-step web search and fetch outputs from content_blocks", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				`${JSON.stringify({
-					event: "add_message",
-					data: {
-						sender: "Language Model",
-						text: "",
-						content_blocks: [
-							{
-								title: "Agent Steps",
-								contents: [
-									{
-										type: "text",
-										text: "Rákeresek a vonóhorgos kerékpárszállító szabályaira.",
-										header: { title: "Output", icon: "Bot" },
-									},
-									{
-										type: "text",
-										text: [
-											"Szürke rendszám - Tudj meg mindent a szürke rendszámról!",
-											"Keresés",
-											"Kapcsolat",
-											"Belépés",
-											"Kosár",
-											"Kerékpárszállítók",
-											"Adatvédelmi nyilatkozat",
-											"Elfogadom",
-										].join("\n"),
-										header: { title: "Output", icon: "Search" },
-									},
-									{
-										type: "text",
-										text: [
-											"Bicikliszállítás az autó hátulján?",
-											"Otthon",
-											"Kirándulás",
-											"Kategóriák",
-											"Címlapon",
-											"Előző cikk",
-											"Következő cikk",
-										].join("\n"),
-										header: { title: "Output", icon: "FileText" },
-									},
-									{
-										type: "text",
-										text: "Magyarországon hivatalosan szürke rendszámot lehet igényelni.",
-										header: { title: "Output", icon: "Bot" },
-									},
-								],
-							},
-						],
-					},
-				})}\n\n`,
-				'{"event":"end","data":{}}\n\n',
-			]),
-		);
-
-		const event = makeEvent({ message: "Keress rá", conversationId: "conv-1" });
-		const response = await POST(event);
-		const body = await readSseResponse(response);
-
-		expect(body).toContain(
-			'"text":"Magyarországon hivatalosan szürke rendszámot lehet igényelni."',
-		);
-		expect(body).not.toContain("Rákeresek");
-		expect(body).not.toContain("Keresés");
-		expect(body).not.toContain("Bicikliszállítás");
-		expect(mockCreateMessage).toHaveBeenNthCalledWith(
-			2,
-			"conv-1",
-			"assistant",
-			"Magyarországon hivatalosan szürke rendszámot lehet igényelni.",
-			undefined,
-			undefined,
-			{ evidenceStatus: "pending", modelDisplayName: "Model 1" },
-		);
-	});
-
-	it("does not leak standalone fetched web page text from final Langflow message text", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		const rawFetchedPage = [
-			"Anvil Arrow - Star Citizen Wiki",
-			"Toggle search",
-			"Search",
-			"Toggle menu",
-			"Star Citizen Wiki",
-			"Navigation",
-			"Home Recent changes Random page Special pages Upload file",
-			"Vehicles",
-			"Gameplay",
-			"External",
-			"Status page",
-			"Contact us",
-			"Discord",
-			"Twitter",
-			"GitHub",
-			"Reddit",
-			"Anvil Arrow",
-			"From the Star Citizen Wiki, the fidelity encyclopedia",
-			"404Fidelity neededThis page does not exist currently. Maybe soon?",
-			"The article that you're looking for doesn't exist.",
-			"Retrieved from ",
-			"starcitizen.tools",
-			"Privacy policy",
-			"About us",
-			"Disclaimers",
-			"Cookie statement",
-			"Status page",
-			"GitHub",
-			"Patreon",
-			"Ko-fi",
-		].join("\n");
-		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				`${JSON.stringify({
-					event: "add_message",
-					data: {
-						sender: "Language Model",
-						text: rawFetchedPage,
-					},
-				})}\n\n`,
-				'{"event":"end","data":{}}\n\n',
-			]),
-		);
-		mockSendMessage.mockResolvedValue({
-			text: "The Star Citizen Wiki page for Anvil Arrow was not found.",
-			contextStatus: undefined,
-			taskState: null,
-			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
-			providerUsage: null,
-			modelId: "model1",
-			modelDisplayName: "Model 1",
-		});
-
-		const event = makeEvent({
-			message: "Fetch that page",
-			conversationId: "conv-1",
-		});
-		const response = await POST(event);
-		const body = await readSseResponse(response);
-
-		expect(body).toContain(
-			'"text":"The Star Citizen Wiki page for Anvil Arrow was not found."',
-		);
-		expect(body).not.toContain("Anvil Arrow - Star Citizen Wiki");
-		expect(body).not.toContain("Toggle search");
-		expect(body).not.toContain("Privacy policy");
-		expect(mockSendMessage).toHaveBeenCalled();
-	});
-
 	it("aggregates native streamed tool call deltas into structured tool_call events", async () => {
 		const conversation = {
 			id: "conv-1",
@@ -1484,54 +1335,19 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				`data: ${JSON.stringify({
-					choices: [
-						{
-							index: 0,
-							delta: {
-								tool_calls: [
-									{
-										index: 0,
-										id: "call-native-1",
-										type: "function",
-										function: {
-											name: "research_web",
-											arguments: '{"query":"Svelte',
-										},
-									},
-								],
-							},
-						},
-					],
-				})}\n\n`,
-				`data: ${JSON.stringify({
-					choices: [
-						{
-							index: 0,
-							delta: {
-								tool_calls: [
-									{
-										index: 0,
-										function: {
-											arguments: 'Kit docs"}',
-										},
-									},
-								],
-							},
-							finish_reason: "tool_calls",
-						},
-					],
-				})}\n\n`,
-				"data: [DONE]\n\n",
-			]),
+			buildToolResultStream({
+				callId: "call-native-1",
+				name: "research_web",
+				input: { query: "SvelteKit docs" },
+				text: "Tool answer",
+			}),
 		);
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: tool_call");
+		expect(body).toContain('"type":"data-tool-call"');
 		expect(body).toContain('"callId":"call-native-1"');
 		expect(body).toContain('"name":"research_web"');
 		expect(body).toContain('"status":"running"');
@@ -1548,24 +1364,11 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				`data: ${JSON.stringify({
-					data: {
-						chunk: {
-							tool_calls: [
-								{
-									id: "lc-call-1",
-									name: "research_web",
-									args: {
-										query: "SvelteKit docs",
-									},
-								},
-							],
-						},
-					},
-				})}\n\n`,
-				"data: [DONE]\n\n",
-			]),
+			buildToolResultStream({
+				callId: "lc-call-1",
+				name: "research_web",
+				input: { query: "SvelteKit docs" },
+			}),
 		);
 		mockSendMessage.mockResolvedValue({
 			text: "Recovered final answer",
@@ -1587,12 +1390,12 @@ describe("POST /api/chat/stream", () => {
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: tool_call");
+		expect(body).toContain('"type":"data-tool-call"');
 		expect(body).toContain('"callId":"lc-call-1"');
 		expect(body).toContain('"status":"done"');
-		expect(body).toContain("event: token");
-		expect(body).toContain('"text":"Recovered final answer"');
-		expect(body).toContain("event: end");
+		expect(body).toContain('"type":"text-delta"');
+		expect(body).toContain('"delta":"Recovered final answer"');
+		expect(body).toContain('"type":"data-stream-metadata"');
 		expect(mockSendMessage).toHaveBeenCalled();
 	});
 
@@ -1605,26 +1408,15 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				`data: ${JSON.stringify({
-					data: {
-						chunk: {
-							tool_calls: [
-								{
-									id: "file-call-1",
-									name: "produce_file",
-									args: {
-										requestTitle: "Report",
-										sourceMode: "program",
-										requestedOutputs: [{ type: "pdf" }],
-									},
-								},
-							],
-						},
-					},
-				})}\n\n`,
-				"data: [DONE]\n\n",
-			]),
+			buildToolResultStream({
+				callId: "file-call-1",
+				name: "produce_file",
+				input: {
+					requestTitle: "Report",
+					sourceMode: "program",
+					requestedOutputs: [{ type: "pdf" }],
+				},
+			}),
 		);
 
 		const event = makeEvent({
@@ -1634,12 +1426,12 @@ describe("POST /api/chat/stream", () => {
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: tool_call");
+		expect(body).toContain('"type":"data-tool-call"');
 		expect(body).toContain('"callId":"file-call-1"');
 		expect(body).toContain('"name":"produce_file"');
 		expect(body).toContain('"status":"done"');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: token");
+		expect(body).toContain('"type":"data-stream-metadata"');
+		expect(body).not.toContain('"type":"text-delta"');
 		expect(mockSendMessage).not.toHaveBeenCalled();
 	});
 
@@ -1652,40 +1444,19 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				`data: ${JSON.stringify({
-					choices: [
-						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: "",
-								tool_calls: [
-									{
-										id: "call-final-1",
-										type: "function",
-										function: {
-											name: "research_web",
-											arguments: JSON.stringify({
-												query: "OpenAI tool calls",
-											}),
-										},
-									},
-								],
-							},
-							finish_reason: "tool_calls",
-						},
-					],
-				})}\n\n`,
-				"data: [DONE]\n\n",
-			]),
+			buildToolResultStream({
+				callId: "call-final-1",
+				name: "research_web",
+				input: { query: "OpenAI tool calls" },
+				text: "Tool answer",
+			}),
 		);
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: tool_call");
+		expect(body).toContain('"type":"data-tool-call"');
 		expect(body).toContain('"callId":"call-final-1"');
 		expect(body).toContain('"name":"research_web"');
 		expect(body).toContain('"status":"running"');
@@ -1702,31 +1473,19 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				`data: ${JSON.stringify({
-					data: {
-						chunk: {
-							tool_calls: [
-								{
-									id: "lc-call-1",
-									name: "research_web",
-									args: {
-										query: "LangChain tool calls",
-									},
-								},
-							],
-						},
-					},
-				})}\n\n`,
-				"data: [DONE]\n\n",
-			]),
+			buildToolResultStream({
+				callId: "lc-call-1",
+				name: "research_web",
+				input: { query: "LangChain tool calls" },
+				text: "Tool answer",
+			}),
 		);
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: tool_call");
+		expect(body).toContain('"type":"data-tool-call"');
 		expect(body).toContain('"callId":"lc-call-1"');
 		expect(body).toContain('"name":"research_web"');
 		expect(body).toContain('"status":"running"');
@@ -1743,42 +1502,19 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				`data: ${JSON.stringify({
-					data: {
-						chunk: {
-							tool_call_chunks: [
-								{
-									id: "lc-chunk-1",
-									index: 0,
-									name: "research_web",
-									args: '{"query":"Lang',
-								},
-							],
-						},
-					},
-				})}\n\n`,
-				`data: ${JSON.stringify({
-					data: {
-						chunk: {
-							tool_call_chunks: [
-								{
-									index: 0,
-									args: 'Chain chunks"}',
-								},
-							],
-						},
-					},
-				})}\n\n`,
-				"data: [DONE]\n\n",
-			]),
+			buildToolResultStream({
+				callId: "lc-chunk-1",
+				name: "research_web",
+				input: { query: "LangChain chunks" },
+				text: "Tool answer",
+			}),
 		);
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: tool_call");
+		expect(body).toContain('"type":"data-tool-call"');
 		expect(body).toContain('"callId":"lc-chunk-1"');
 		expect(body).toContain('"name":"research_web"');
 		expect(body).toContain('"status":"running"');
@@ -1786,7 +1522,7 @@ describe("POST /api/chat/stream", () => {
 		expect(body).toContain('"query":"LangChain chunks"');
 	});
 
-	it("parses newline-delimited Langflow JSON events without blank separators", async () => {
+	it("forwards neutral reasoning deltas and persists separated thinking", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -1795,10 +1531,11 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'{"event":"add_message","data":{"sender":"Machine","text":"Hello"}}\n',
-				'{"event":"add_message","data":{"sender":"Machine","text":" world"}}\n',
-				'{"event":"end","data":{}}\n',
+			buildNeutralStream([
+				{ type: "reasoning_delta", text: "Need to break this down." },
+				{ type: "text_delta", text: "Final" },
+				{ type: "text_delta", text: " answer" },
+				finishEvent,
 			]),
 		);
 
@@ -1806,122 +1543,14 @@ describe("POST /api/chat/stream", () => {
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain('"text":"Hello"');
-		expect(body).toContain('"text":" world"');
-		expect(body).toContain("event: end");
-	});
-
-	it("emits only deltas when Langflow sends cumulative assistant snapshots", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'{"event":"add_message","data":{"sender":"Machine","text":"Hello"}}\n\n',
-				'{"event":"add_message","data":{"sender":"Machine","text":"Hello world"}}\n\n',
-				'{"event":"add_message","data":{"sender":"Machine","text":"Hello world again"}}\n\n',
-				'{"event":"end","data":{}}\n\n',
-			]),
-		);
-
-		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
-		const response = await POST(event);
-		const body = await readSseResponse(response);
-
-		expect(body).toContain('"text":"Hello"');
-		expect(body).toContain('"text":" world"');
-		expect(body).toContain('"text":" again"');
-		expect(body).not.toContain('"text":"Hello world"');
-		expect(mockCreateMessage).toHaveBeenNthCalledWith(
-			1,
-			"conv-1",
-			"user",
-			"Hi",
-		);
-		expect(mockCreateMessage).toHaveBeenNthCalledWith(
-			2,
-			"conv-1",
-			"assistant",
-			"Hello world again",
-			undefined,
-			undefined,
-			{ evidenceStatus: "pending", modelDisplayName: "Model 1" },
-		);
-	});
-
-	it("does not duplicate the final add_message after token streaming", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: token\ndata: {"text":"Hello"}\n\n',
-				'event: token\ndata: {"text":" world"}\n\n',
-				'event: add_message\ndata: {"sender":"Machine","text":"Hello world"}\n\n',
-				"data: [DONE]\n\n",
-			]),
-		);
-
-		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
-		const response = await POST(event);
-		const body = await readSseResponse(response);
-
-		expect(body).toContain('"text":"Hello"');
-		expect(body).toContain('"text":" world"');
-		expect(body.match(/event: token/g)?.length).toBe(2);
-		expect(mockCreateMessage).toHaveBeenNthCalledWith(
-			1,
-			"conv-1",
-			"user",
-			"Hi",
-		);
-		expect(mockCreateMessage).toHaveBeenNthCalledWith(
-			2,
-			"conv-1",
-			"assistant",
-			"Hello world",
-			undefined,
-			undefined,
-			{ evidenceStatus: "pending", modelDisplayName: "Model 1" },
-		);
-	});
-
-	it("extracts reasoning from OpenAI-compatible streaming delta payloads", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: token\ndata: {"choices":[{"delta":{"reasoning_content":"Need to break this down.","content":"Final"}}]}\n\n',
-				'event: token\ndata: {"choices":[{"delta":{"content":" answer"}}]}\n\n',
-				"data: [DONE]\n\n",
-			]),
-		);
-
-		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
-		const response = await POST(event);
-		const body = await readSseResponse(response);
-
-		expect(body).toContain("event: thinking");
+		expect(body).toContain('"type":"reasoning-delta"');
 		expect(body).toContain("Need to break this down.");
-		expect(body).toContain('"text":"Final"');
-		expect(body).toContain('"text":" answer"');
+		expect(body).toContain('"delta":"Final"');
+		expect(body).toContain('"delta":" answer"');
 		expect(body).toContain('"thinking":"Need to break this down."');
 	});
 
-	it("strips a leading Langflow response marker from streamed reasoning", async () => {
+	it("strips a leading response marker from streamed reasoning", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -1930,11 +1559,15 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: token\ndata: {"choices":[{"delta":{"reasoning_content":"response ","content":""}}]}\n\n',
-				'event: token\ndata: {"choices":[{"delta":{"reasoning_content":"The user wants me to answer directly.","content":"Final"}}]}\n\n',
-				'event: token\ndata: {"choices":[{"delta":{"content":" answer"}}]}\n\n',
-				"data: [DONE]\n\n",
+			buildNeutralStream([
+				{ type: "reasoning_delta", text: "response " },
+				{
+					type: "reasoning_delta",
+					text: "The user wants me to answer directly.",
+				},
+				{ type: "text_delta", text: "Final" },
+				{ type: "text_delta", text: " answer" },
+				finishEvent,
 			]),
 		);
 
@@ -1942,38 +1575,13 @@ describe("POST /api/chat/stream", () => {
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: thinking");
+		expect(body).toContain('"type":"reasoning-delta"');
 		expect(body).toContain("The user wants me to answer directly.");
-		expect(body).not.toContain('"text":"response');
-		expect(body).toContain('"text":"Final"');
+		expect(body).not.toContain('"delta":"response');
+		expect(body).toContain('"delta":"Final"');
 		expect(body).toContain(
 			'"thinking":"The user wants me to answer directly."',
 		);
-	});
-
-	it("extracts reasoning from OpenAI-compatible final message payloads", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'{"event":"add_message","data":{"choices":[{"message":{"role":"assistant","reasoning_content":"First analyze the request.","content":"Completed response."}}]}}\n\n',
-				'{"event":"end","data":{}}\n\n',
-			]),
-		);
-
-		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
-		const response = await POST(event);
-		const body = await readSseResponse(response);
-
-		expect(body).toContain("event: thinking");
-		expect(body).toContain("First analyze the request.");
-		expect(body).toContain('"text":"Completed response."');
-		expect(body).toContain('"thinking":"First analyze the request."');
 	});
 
 	it("extracts inline thinking tags from token chunks and persists separated thinking", async () => {
@@ -1985,10 +1593,9 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: token\ndata: {"text":"Before<thinking>Need to reason"}\n\n',
-				'event: token\ndata: {"text":" carefully</thinking>After"}\n\n',
-				"data: [DONE]\n\n",
+			buildTextStream([
+				"Before<thinking>Need to reason",
+				" carefully</thinking>After",
 			]),
 		);
 
@@ -1996,9 +1603,9 @@ describe("POST /api/chat/stream", () => {
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: thinking");
-		expect(body).toContain('"text":"Before"');
-		expect(body).toContain('"text":"After"');
+		expect(body).toContain('"type":"reasoning-delta"');
+		expect(body).toContain('"delta":"Before"');
+		expect(body).toContain('"delta":"After"');
 		expect(body).toContain('"thinking":"Need to reason carefully"');
 		expect(mockCreateMessage).toHaveBeenNthCalledWith(
 			1,
@@ -2026,19 +1633,16 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: token\ndata: {"text":"<think>brief</think>Answer"}\n\n',
-				"data: [DONE]\n\n",
-			]),
+			buildTextStream("<think>brief</think>Answer"),
 		);
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: thinking");
-		expect(body).toContain('"text":"brief"');
-		expect(body).toContain('"text":"Answer"');
+		expect(body).toContain('"type":"reasoning-delta"');
+		expect(body).toContain('"delta":"brief"');
+		expect(body).toContain('"delta":"Answer"');
 		expect(body).toContain('"thinking":"brief"');
 	});
 
@@ -2051,11 +1655,10 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: token\ndata: {"text":"responseThe user wants me to write 500 words about the USA. This is a straightforward content request. I will write an informative piece."}\n\n',
-				'event: token\ndata: {"text":"\\n\\nI need to wrap the content in XML-style wrapper tags and provide it in English.\\n</think>\\n\\n"}\n\n',
-				'event: token\ndata: {"text":"The United States is a large and diverse country."}\n\n',
-				"data: [DONE]\n\n",
+			buildTextStream([
+				"responseThe user wants me to write 500 words about the USA. This is a straightforward content request. I will write an informative piece.",
+				"\n\nI need to wrap the content in XML-style wrapper tags and provide it in English.\n</think>\n\n",
+				"The United States is a large and diverse country.",
 			]),
 		);
 
@@ -2066,16 +1669,16 @@ describe("POST /api/chat/stream", () => {
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: thinking");
+		expect(body).toContain('"type":"reasoning-delta"');
 		expect(body).toContain(
 			"The user wants me to write 500 words about the USA",
 		);
 		expect(body).toContain("provide it in English");
 		expect(body).not.toContain("</think>");
 		expect(body).toContain(
-			'"text":"The United States is a large and diverse country."',
+			'"delta":"The United States is a large and diverse country."',
 		);
-		expect(body).not.toContain('"text":"responseThe user wants me');
+		expect(body).not.toContain('"delta":"responseThe user wants me');
 		expect(mockCreateMessage).toHaveBeenNthCalledWith(
 			2,
 			"conv-1",
@@ -2102,10 +1705,7 @@ describe("POST /api/chat/stream", () => {
 		};
 		mockGetConversation.mockResolvedValue(conversation);
 		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'{"event":"add_message","data":{"sender":"Machine","text":"Final English answer."}}\n\n',
-				'{"event":"end","data":{}}\n\n',
-			]),
+			buildTextStream("Final English answer."),
 		);
 
 		const event = makeEvent({ message: "Szia", conversationId: "conv-1" });
@@ -2113,10 +1713,10 @@ describe("POST /api/chat/stream", () => {
 		const body = await readSseResponse(response);
 
 		expect(mockSendMessageStream).toHaveBeenCalledWith(
-			"Szia",
-			"conv-1",
-			"model1",
 			expect.objectContaining({
+				message: "Szia",
+				conversationId: "conv-1",
+				modelId: "model1",
 				signal: expect.any(Object),
 				user: {
 					id: "user-1",
@@ -2127,10 +1727,10 @@ describe("POST /api/chat/stream", () => {
 				thinkingMode: "auto",
 			}),
 		);
-		expect(body).toContain('"text":"Final English answer."');
+		expect(body).toContain('"delta":"Final English answer."');
 	});
 
-	it("stream ends with end event after [DONE]", async () => {
+	it("stream ends with metadata and finish parts after the neutral finish event", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -2138,18 +1738,15 @@ describe("POST /api/chat/stream", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue(
-			buildSseStream([
-				'event: add_message\ndata: {"text":"chunk"}\n\n',
-				"data: [DONE]\n\n",
-			]),
-		);
+		mockSendMessageStream.mockResolvedValue(buildTextStream("chunk"));
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: end");
+		expect(body).toContain('"type":"data-stream-metadata"');
+		expect(body).toContain('"type":"finish"');
+		expect(body).toContain("data: [DONE]");
 		expect(body).toContain('"thinkingTokenCount":0');
 		expect(body).toContain('"responseTokenCount":2');
 		expect(body).toContain('"totalTokenCount":2');
@@ -2177,7 +1774,7 @@ describe("POST /api/chat/stream", () => {
 		expect(data.error).toMatch(/not found/i);
 	});
 
-	it("emits error event when sendMessageStream throws", async () => {
+	it("emits error event when the neutral stream wrapper throws", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -2185,18 +1782,17 @@ describe("POST /api/chat/stream", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockRejectedValue(new Error("Langflow down"));
+		mockSendMessageStream.mockRejectedValue(new Error("Provider down"));
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: error");
+		expect(body).toContain('"type":"data-stream-error"');
 		expect(body).toContain('"code":"backend_failure"');
-		expect(body).toContain("model provider or Langflow returned an error");
 	});
 
-	it("falls back to the non-stream Langflow run when the streaming handshake aborts", async () => {
+	it("falls back to the non-stream Normal Chat run when the streaming handshake aborts", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -2227,19 +1823,20 @@ describe("POST /api/chat/stream", () => {
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: token");
-		expect(body).toContain('"text":"Recovered final answer"');
-		expect(body).toContain("event: end");
+		expect(body).toContain('"type":"text-delta"');
+		expect(body).toContain('"delta":"Recovered final answer"');
+		expect(body).toContain('"type":"data-stream-metadata"');
 		expect(mockSendMessage).toHaveBeenCalledWith(
-			"Hi",
-			"conv-1",
-			"model1",
 			expect.objectContaining({
-				id: "user-1",
-				displayName: undefined,
-				email: "test@example.com",
-			}),
-			expect.objectContaining({
+				userId: "user-1",
+				message: "Hi",
+				conversationId: "conv-1",
+				modelId: "model1",
+				user: {
+					id: "user-1",
+					displayName: undefined,
+					email: "test@example.com",
+				},
 				signal: expect.any(Object),
 				attachmentIds: [],
 				attachmentTraceId: undefined,
@@ -2248,7 +1845,7 @@ describe("POST /api/chat/stream", () => {
 		);
 	});
 
-	it("completes successfully when Langflow returns JSON instead of SSE for the stream request", async () => {
+	it("completes successfully from neutral wrapper text events", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -2256,32 +1853,23 @@ describe("POST /api/chat/stream", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream.mockResolvedValue({
-			text: "Non-stream JSON answer",
-			rawResponse: {
-				outputs: [
-					{
-						outputs: [
-							{ results: { message: { text: "Non-stream JSON answer" } } },
-						],
-					},
-				],
-			},
-			contextStatus: undefined,
-			taskState: null,
-			contextDebug: null,
-		});
+		mockSendMessageStream.mockResolvedValue(
+			buildNeutralStream([
+				{ type: "text_delta", text: "Neutral wrapper answer" },
+				finishEvent,
+			]),
+		);
 
 		const event = makeEvent({ message: "Hi", conversationId: "conv-1" });
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain("event: token");
-		expect(body).toContain('"text":"Non-stream JSON answer"');
-		expect(body).toContain("event: end");
+		expect(body).toContain('"type":"text-delta"');
+		expect(body).toContain('"delta":"Neutral wrapper answer"');
+		expect(body).toContain('"type":"data-stream-metadata"');
 	});
 
-	it("retries once with a stricter URL-list tool guard after the upstream urls validation error", async () => {
+	it("emits provider errors without URL-list retry recovery", async () => {
 		const conversation = {
 			id: "conv-1",
 			title: "Test",
@@ -2289,18 +1877,11 @@ describe("POST /api/chat/stream", () => {
 			updatedAt: 0,
 		};
 		mockGetConversation.mockResolvedValue(conversation);
-		mockSendMessageStream
-			.mockResolvedValueOnce(
-				buildSseStream([
-					'event: error\ndata: {"data":{"text":"1 validation error for InputSchema\\nurls\\n  Input should be a valid list [type=list_type, input_value=\'https://example.com\', input_type=str]\\n"}}\n\n',
-				]),
-			)
-			.mockResolvedValueOnce(
-				buildSseStream([
-					'event: token\ndata: {"text":"Recovered answer"}\n\n',
-					"data: [DONE]\n\n",
-				]),
-			);
+		mockSendMessageStream.mockResolvedValueOnce(
+			buildErrorStream(
+				"1 validation error for InputSchema\nurls\n  Input should be a valid list [type=list_type, input_value='https://example.com', input_type=str]\n",
+			),
+		);
 
 		const event = makeEvent({
 			message: "Check https://example.com",
@@ -2309,16 +1890,14 @@ describe("POST /api/chat/stream", () => {
 		const response = await POST(event);
 		const body = await readSseResponse(response);
 
-		expect(body).toContain('"text":"Recovered answer"');
-		expect(body).toContain("event: end");
-		expect(body).not.toContain("event: error");
-		expect(mockSendMessageStream).toHaveBeenCalledTimes(2);
-		expect(mockSendMessageStream).toHaveBeenNthCalledWith(
-			1,
-			"Check https://example.com",
-			"conv-1",
-			"model1",
+		expect(body).toContain('"type":"data-stream-error"');
+		expect(body).not.toContain("Recovered answer");
+		expect(mockSendMessageStream).toHaveBeenCalledTimes(1);
+		expect(mockSendMessageStream).toHaveBeenCalledWith(
 			expect.objectContaining({
+				message: "Check https://example.com",
+				conversationId: "conv-1",
+				modelId: "model1",
 				signal: expect.any(Object),
 				user: {
 					id: "user-1",
@@ -2326,22 +1905,6 @@ describe("POST /api/chat/stream", () => {
 					email: "test@example.com",
 				},
 				attachmentIds: [],
-			}),
-		);
-		expect(mockSendMessageStream).toHaveBeenNthCalledWith(
-			2,
-			"Check https://example.com",
-			"conv-1",
-			"model1",
-			expect.objectContaining({
-				signal: expect.any(Object),
-				user: {
-					id: "user-1",
-					displayName: undefined,
-					email: "test@example.com",
-				},
-				attachmentIds: [],
-				systemPromptAppendix: expect.stringContaining("field named `urls`"),
 			}),
 		);
 	});

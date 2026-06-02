@@ -1,43 +1,137 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { describe, expect, it } from "vitest";
 import {
-	BROWSER_CHAT_SSE_EVENTS,
-	decodeBrowserChatSseEvents,
-} from "$lib/services/stream-protocol";
+	aiSdkUiStreamContractSequence,
+	encodeAiSdkUiFixtureFrames,
+	malformedAiSdkUiStreamFrames,
+	oldBrowserSseNamedEndEvent,
+	oldBrowserSseNamedTokenEvent,
+} from "../../../../../tests/fixtures/ai-sdk-ui-stream-contract";
 import {
-	classifyStreamError,
 	createServerChunkRuntime,
-	extractAssistantChunk,
-	extractErrorMessage,
+	createUiMessageStreamDoneFrame,
+	decodeUiMessageStreamParts,
+	encodeUiMessageStreamPart,
 } from "./stream";
+
+describe("stream helper retirement", () => {
+	it("does not expose retired upstream stream parser helpers through the stream facade", async () => {
+		const streamFacade = await readFile(
+			join(process.cwd(), "src/lib/server/services/chat-turn/stream.ts"),
+			"utf8",
+		);
+
+		expect(streamFacade).not.toMatch(
+			/\b(parseUpstreamEvents|parseEventBlock|parseJsonBlock|parseSseBlock|parseMaybeJson|extractAssistantChunk|toIncrementalChunk|extractErrorMessage)\b/,
+		);
+	});
+});
+
+describe("AI SDK UI stream contract fixture", () => {
+	it("round-trips the allowed fixture grammar through the app-owned server encoder", () => {
+		const encodedByServer = aiSdkUiStreamContractSequence.map((payload) =>
+			payload === "[DONE]"
+				? createUiMessageStreamDoneFrame()
+				: encodeUiMessageStreamPart(
+						payload as Parameters<typeof encodeUiMessageStreamPart>[0],
+					),
+		);
+
+		expect(encodedByServer).toEqual(
+			encodeAiSdkUiFixtureFrames(aiSdkUiStreamContractSequence),
+		);
+		expect(decodeUiMessageStreamParts(encodedByServer.join(""))).toEqual(
+			aiSdkUiStreamContractSequence,
+		);
+	});
+
+	it("ignores malformed frames and old Browser SSE named events", () => {
+		const decoded = decodeUiMessageStreamParts(
+			[
+				...malformedAiSdkUiStreamFrames,
+				oldBrowserSseNamedTokenEvent,
+				oldBrowserSseNamedEndEvent,
+				createUiMessageStreamDoneFrame(),
+			].join(""),
+		);
+
+		expect(decoded).toEqual(["[DONE]"]);
+	});
+});
 
 function eventData(chunks: string[], eventName: string): unknown[] {
 	return chunks
-		.flatMap((chunk) => decodeBrowserChatSseEvents(chunk))
-		.filter((event) => event.event === eventName && event.dataKind === "json")
-		.map((event) => event.data);
+		.flatMap((chunk) => decodeUiMessageStreamParts(chunk))
+		.filter((event) => event !== "[DONE]" && event.type === eventName)
+		.map((event) => ("data" in event ? event.data : event));
 }
 
 function tokenTexts(chunks: string[]): string[] {
-	return eventData(chunks, BROWSER_CHAT_SSE_EVENTS.token).map((data) =>
-		typeof data === "object" && data !== null && "text" in data
-			? String((data as { text?: unknown }).text ?? "")
+	return eventData(chunks, "text-delta").map((data) =>
+		typeof data === "object" && data !== null && "delta" in data
+			? String((data as { delta?: unknown }).delta ?? "")
 			: "",
 	);
 }
 
 function thinkingTexts(chunks: string[]): string[] {
-	return eventData(chunks, BROWSER_CHAT_SSE_EVENTS.thinking).map((data) =>
-		typeof data === "object" && data !== null && "text" in data
-			? String((data as { text?: unknown }).text ?? "")
+	return eventData(chunks, "reasoning-delta").map((data) =>
+		typeof data === "object" && data !== null && "delta" in data
+			? String((data as { delta?: unknown }).delta ?? "")
 			: "",
 	);
 }
 
 function toolCallEvents(chunks: string[]): unknown[] {
-	return eventData(chunks, BROWSER_CHAT_SSE_EVENTS.toolCall);
+	return eventData(chunks, "data-tool-call");
 }
 
 describe("createServerChunkRuntime", () => {
+	it("keeps the app-owned encoder compatible with installed AI SDK UI stream framing", async () => {
+		const stream = createUIMessageStream({
+			execute({ writer }) {
+				writer.write({ type: "text-start", id: "answer" });
+				writer.write({ type: "text-delta", id: "answer", delta: "Hi" });
+				writer.write({
+					type: "data-stream-metadata",
+					data: { responseTokenCount: 1 },
+					transient: true,
+				});
+				writer.write({ type: "finish", finishReason: "stop" });
+			},
+		});
+		const response = createUIMessageStreamResponse({ stream });
+		const body = await response.text();
+
+		expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1");
+		expect(body).toContain(
+			encodeUiMessageStreamPart({ type: "text-start", id: "answer" }),
+		);
+		expect(body).toContain(
+			encodeUiMessageStreamPart({
+				type: "text-delta",
+				id: "answer",
+				delta: "Hi",
+			}),
+		);
+		expect(body).toContain(
+			encodeUiMessageStreamPart({
+				type: "data-stream-metadata",
+				data: { responseTokenCount: 1 },
+				transient: true,
+			}),
+		);
+		expect(body).toContain(
+			encodeUiMessageStreamPart({
+				type: "finish",
+				finishReason: "stop",
+			}),
+		);
+		expect(body.trimEnd().endsWith("data: [DONE]")).toBe(true);
+	});
+
 	it("does not emit a split DeepSeek response marker before a thinking preamble", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({
@@ -572,69 +666,5 @@ describe("createServerChunkRuntime", () => {
 				outputSummary: "Found sources",
 			}),
 		]);
-	});
-});
-
-describe("extractAssistantChunk", () => {
-	it("does not expose token text from tool senders as assistant output", () => {
-		expect(
-			extractAssistantChunk("token", {
-				sender: "Search",
-				text: "Raw fetched page text should stay in the tool channel.",
-			}),
-		).toBe("");
-		expect(
-			extractAssistantChunk("token", {
-				data: {
-					sender_name: "Tool",
-					text: "Raw tool result",
-				},
-			}),
-		).toBe("");
-	});
-
-	it("does not expose file-production payload text as assistant output", () => {
-		expect(
-			extractAssistantChunk("token", {
-				name: "produce_file",
-				text: '{"type":"paragraph","text":"Raw document source"}',
-			}),
-		).toBe("");
-		expect(
-			extractAssistantChunk("token", {
-				data: {
-					name: "file_production",
-					text: '{"type":"paragraph","text":"Raw document source"}',
-				},
-			}),
-		).toBe("");
-	});
-});
-
-describe("stream error extraction", () => {
-	it("keeps nested Langflow API connection diagnostics instead of only Code: None", () => {
-		const message = extractErrorMessage({
-			text_key: "text",
-			data: {
-				text: "Code: None\n",
-				content_blocks: [
-					{
-						title: "Error",
-						contents: [
-							{
-								reason: "**APIConnectionError**\n - **Code: None**\n",
-								traceback:
-									"Traceback...\nhttpcore connect_tcp failed: All connection attempts failed",
-							},
-						],
-					},
-				],
-			},
-		});
-
-		expect(message).toContain("Code: None");
-		expect(message).toContain("APIConnectionError");
-		expect(message).toContain("connect_tcp");
-		expect(classifyStreamError(message)).toBe("network");
 	});
 });

@@ -40,10 +40,22 @@ export async function logout(page: Page) {
 	}
 }
 
-export async function openConversationComposer(page: Page) {
+export async function openConversationComposer(
+	page: Page,
+	options: { skipIfAlreadyOpen?: boolean } = {},
+) {
+	const composer = page.getByTestId("message-input");
+	if (
+		options.skipIfAlreadyOpen === true &&
+		new URL(page.url()).pathname === "/" &&
+		(await composer.isVisible())
+	) {
+		return;
+	}
+
 	await page.click('[data-testid="new-conversation"]');
 	await expect(page).toHaveURL("/", { timeout: 10000 });
-	await page.getByTestId("message-input").waitFor({ state: "visible" });
+	await composer.waitFor({ state: "visible" });
 }
 
 export async function ensureSidebarExpanded(page: Page) {
@@ -93,6 +105,55 @@ export async function waitForAssistantResponse(page: Page, timeout = 30000) {
 		},
 		{ timeout },
 	);
+}
+
+export function buildAiSdkUiStreamBody(text: string): string {
+	const words = text.split(" ");
+	const chunks = [
+		[
+			"data: ",
+			JSON.stringify({
+				type: "text-start",
+				id: "answer",
+			}),
+			"\n\n",
+		].join(""),
+	];
+	chunks.push(
+		...words.map((word, index) =>
+			[
+				"data: ",
+				JSON.stringify({
+					type: "text-delta",
+					id: "answer",
+					delta: word + (index < words.length - 1 ? " " : ""),
+				}),
+				"\n\n",
+			].join(""),
+		),
+	);
+	chunks.push(
+		[
+			"data: ",
+			JSON.stringify({
+				type: "text-end",
+				id: "answer",
+			}),
+			"\n\n",
+			"data: ",
+			JSON.stringify({
+				type: "data-stream-metadata",
+				data: {},
+				transient: true,
+			}),
+			"\n\n",
+			"data: ",
+			JSON.stringify({ type: "finish", finishReason: "stop" }),
+			"\n\n",
+			"data: [DONE]\n\n",
+		].join(""),
+	);
+	return chunks.join("");
 }
 
 export { TEST_EMAIL, TEST_PASSWORD };

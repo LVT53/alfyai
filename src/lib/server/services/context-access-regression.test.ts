@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync, unlinkSync } from "node:fs";
-import { resolve } from "node:path";
+import { unlinkSync } from "node:fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -291,7 +290,9 @@ describe("Context Access v1 integrated regression harness", () => {
 					: [],
 		);
 
-		const { buildConstructedContext } = await import("./chat-turn/context-selection");
+		const { buildConstructedContext } = await import(
+			"./chat-turn/context-selection"
+		);
 		const { getMemoryContext } = await import("./memory-context");
 
 		const constructed = await buildConstructedContext({
@@ -349,17 +350,13 @@ describe("Context Access v1 integrated regression harness", () => {
 		expect(JSON.stringify(history)).not.toContain("bike-other-user");
 	});
 
-	it("keeps the model-facing Langflow tool contract on memory_context modes only", async () => {
-		const { buildOutboundSystemPrompt } = await import("./langflow");
+	it("keeps the model-facing direct tool contract on memory_context modes only", async () => {
+		const { buildOutboundSystemPrompt } = await import("./normal-chat-context");
 		const prompt = buildOutboundSystemPrompt({
 			basePrompt: "Base system prompt",
 			inputValue: "What do you remember about my bike setup?",
 			modelDisplayName: "Context Harness Model",
 		});
-		const nodeSource = readFileSync(
-			resolve(process.cwd(), "langflow_nodes", "memory_context_tool.py"),
-			"utf8",
-		);
 
 		expect(prompt).toContain("Memory context workflow");
 		expect(prompt).toContain("memory_context");
@@ -368,15 +365,7 @@ describe("Context Access v1 integrated regression harness", () => {
 		expect(prompt).toContain("mode `history`");
 		expect(prompt).not.toContain(["project", "context"].join("_"));
 
-		expect(nodeSource).toContain('name = "memory_context"');
-		expect(nodeSource).toContain('method="memory_context"');
-		expect(nodeSource).toContain("/api/tools/memory-context");
-		expect(nodeSource).toContain('options=["persona", "history", "project"]');
-		expect(nodeSource).toContain('value="persona"');
 		const legacyToolName = ["project", "context"].join("_");
-		const legacyToolRoute = `/api/tools/${legacyToolName.replace("_", "-")}`;
-		expect(nodeSource).not.toContain(`name = "${legacyToolName}"`);
-		expect(nodeSource).not.toContain(`method="${legacyToolName}"`);
-		expect(nodeSource).not.toContain(legacyToolRoute);
+		expect(prompt).not.toContain(legacyToolName);
 	});
 });

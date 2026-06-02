@@ -35,9 +35,9 @@ The files in this directory can still be used as examples for a more manual host
 - `deploy/apache-site.conf`
 - `deploy/apache-modules.md`
 
-Treat them as optional examples, not the canonical deployment path.
+Treat them as optional examples, not the canonical deployment path. The checked-in unit filename is retained for compatibility with existing operator notes, but the sample service account and path use AlfyAI naming and do not imply a Langflow runtime.
 
-For a host-managed setup where Dockerized sidecars such as Langflow must reach the app over the host bridge network, set `HOST=0.0.0.0` and `PORT=3001` in the environment file that systemd loads at `/opt/langflow-chat/.env` rather than hardcoding those values into the unit file itself.
+For a host-managed setup where another local process or container must reach the app over the host bridge network, set `HOST=0.0.0.0` and `PORT=3001` in the environment file that systemd loads rather than hardcoding those values into the unit file itself.
 
 That keeps Apache reverse proxying to `127.0.0.1:3001` on the host while also allowing containers to reach the host at `http://172.17.0.1:3001` when the Docker bridge uses the default subnet.
 
@@ -46,7 +46,7 @@ That keeps Apache reverse proxying to `127.0.0.1:3001` on the host while also al
 - Node.js 20+
 - npm
 - a writable `data/` directory
-- reachable Langflow and model endpoints from the app server
+- reachable OpenAI-compatible model provider endpoint(s) from the app server
 - a configured `.env`
 
 ## Health Check
@@ -61,12 +61,6 @@ Expected response:
 
 ```json
 {"status":"OK"}
-```
-
-When Langflow runs in Docker on the same host, this should also work from inside the container once the service is restarted with `HOST=0.0.0.0` in `/opt/langflow-chat/.env`:
-
-```bash
-curl -s http://172.17.0.1:3001/api/health
 ```
 
 ## Upload Body Size

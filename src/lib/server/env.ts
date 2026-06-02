@@ -18,18 +18,12 @@ export interface ModelConfig {
 	modelName: string;
 	displayName: string;
 	systemPrompt: string;
-	flowId: string;
-	componentId: string;
 	maxTokens: number | null;
 	reasoningEffort: "low" | "medium" | "high" | "max" | "xhigh" | null;
 	thinkingType: "enabled" | "disabled" | null;
 }
 
 interface Config {
-	langflowApiUrl: string;
-	langflowApiKey: string;
-	langflowFlowId: string;
-	langflowWebhookSecret: string;
 	alfyaiApiSigningKey: string;
 	attachmentTraceDebug: boolean;
 	composerCommandRegistryEnabled: boolean;
@@ -67,7 +61,6 @@ interface Config {
 	teiRerankerModel: string;
 	teiRerankerMaxTexts: number;
 	teiTimeoutMs: number;
-	webhookPort: number;
 	requestTimeoutMs: number;
 	modelTimeoutFailoverEnabled: boolean;
 	modelTimeoutFailoverTimeoutMs: number;
@@ -252,16 +245,9 @@ function buildDefaultHonchoIdentityNamespace(
 // Read and validate environment variables
 function readConfig(): Config {
 	// Required variables (mocked if missing for local dev/testing)
-	const langflowApiKey =
-		process.env.LANGFLOW_API_KEY || "mock-langflow-api-key";
 	const sessionSecret =
 		process.env.SESSION_SECRET || "mock-session-secret-for-dev-testing-only";
 
-	// Optional variables with defaults
-	const webhookPort = parseInt(process.env.WEBHOOK_PORT || "8090", 10);
-	if (Number.isNaN(webhookPort)) {
-		throw new Error("Invalid WEBHOOK_PORT: must be a valid number");
-	}
 	const databasePath = getDatabasePath();
 	const honchoWorkspace = process.env.HONCHO_WORKSPACE || "alfyai-prod";
 	const model2Enabled = process.env.MODEL_2_ENABLED !== "false";
@@ -357,10 +343,6 @@ function readConfig(): Config {
 		);
 
 	return {
-		langflowApiUrl: process.env.LANGFLOW_API_URL || "http://localhost:7860",
-		langflowApiKey,
-		langflowFlowId: process.env.LANGFLOW_FLOW_ID || "",
-		langflowWebhookSecret: process.env.LANGFLOW_WEBHOOK_SECRET || "",
 		alfyaiApiSigningKey: process.env.ALFYAI_API_SIGNING_KEY || "",
 		attachmentTraceDebug: process.env.ATTACHMENT_TRACE_DEBUG === "true",
 		composerCommandRegistryEnabled:
@@ -455,7 +437,6 @@ function readConfig(): Config {
 				10,
 			) || 300000,
 		),
-		webhookPort,
 		requestTimeoutMs: parseInt(process.env.REQUEST_TIMEOUT_MS || "300000", 10),
 		modelTimeoutFailoverEnabled:
 			process.env.MODEL_TIMEOUT_FAILOVER_ENABLED === "true",
@@ -509,8 +490,6 @@ function readConfig(): Config {
 			displayName: process.env.MODEL_1_DISPLAY_NAME || "Model 1",
 			systemPrompt:
 				process.env.SYSTEM_PROMPT || process.env.MODEL_1_SYSTEM_PROMPT || "",
-			flowId: process.env.MODEL_1_FLOW_ID || process.env.LANGFLOW_FLOW_ID || "",
-			componentId: process.env.MODEL_1_COMPONENT_ID || "",
 			maxTokens: process.env.MODEL_1_MAX_TOKENS
 				? Math.max(1, parseInt(process.env.MODEL_1_MAX_TOKENS, 10) || 1)
 				: null,
@@ -528,8 +507,6 @@ function readConfig(): Config {
 			displayName: process.env.MODEL_2_DISPLAY_NAME || "Model 2",
 			systemPrompt:
 				process.env.SYSTEM_PROMPT || process.env.MODEL_2_SYSTEM_PROMPT || "",
-			flowId: process.env.MODEL_2_FLOW_ID || process.env.LANGFLOW_FLOW_ID || "",
-			componentId: process.env.MODEL_2_COMPONENT_ID || "",
 			maxTokens: process.env.MODEL_2_MAX_TOKENS
 				? Math.max(1, parseInt(process.env.MODEL_2_MAX_TOKENS, 10) || 1)
 				: null,
