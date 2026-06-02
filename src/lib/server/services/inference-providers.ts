@@ -709,9 +709,16 @@ export async function validateProviderConnection(
 			apiKey,
 			options,
 		);
+		const capabilities = mergeKnownModelCapabilities(
+			probe.capabilities,
+			knownProviderCapabilities({
+				baseUrl,
+				modelName: options.modelName ?? "",
+			}),
+		);
 		return probe.valid
-			? { valid: true, capabilities: probe.capabilities }
-			: { valid: false, error: probe.error, capabilities: probe.capabilities };
+			? { valid: true, capabilities }
+			: { valid: false, error: probe.error, capabilities };
 	} catch (error) {
 		if (error instanceof Error) {
 			if (error.name === "TimeoutError") {
@@ -861,9 +868,10 @@ function mapRowToProvider(
 		rateLimitFallbackModelName: row.rateLimitFallbackModelName ?? null,
 		rateLimitFallbackTimeoutMs:
 			row.rateLimitFallbackTimeoutMs ?? DEFAULT_RATE_LIMIT_FALLBACK_TIMEOUT_MS,
-		capabilities: hasCapabilityEvidence(storedCapabilities)
-			? storedCapabilities
-			: knownProviderCapabilities(row) ?? storedCapabilities,
+		capabilities: mergeKnownModelCapabilities(
+			storedCapabilities,
+			knownProviderCapabilities(row),
+		),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	};
@@ -955,12 +963,6 @@ function isModelCapabilitySource(
 	);
 }
 
-function hasCapabilityEvidence(capabilities: ModelCapabilitySet): boolean {
-	return MODEL_CAPABILITY_KEYS.some(
-		(key) => capabilities[key].state !== "unknown",
-	);
-}
-
 function knownProviderCapabilities(
 	row: Pick<typeof inferenceProviders.$inferSelect, "baseUrl" | "modelName">,
 ): ModelCapabilitySet | null {
@@ -972,14 +974,63 @@ function knownProviderCapabilities(
 		) {
 			return knownFirePassKimiCapabilities();
 		}
+		if (isFireworksHost(url)) {
+			return knownFireworksOpenAICompatibleCapabilities();
+		}
 		return null;
 	} catch {
 		return null;
 	}
 }
 
+function mergeKnownModelCapabilities(
+	base: ModelCapabilitySet,
+	known: ModelCapabilitySet | null,
+): ModelCapabilitySet {
+	if (!known) return base;
+	return createModelCapabilitySet(
+		Object.fromEntries(
+			MODEL_CAPABILITY_KEYS.map((key) => [
+				key,
+				base[key].state === "unknown" ? known[key] : base[key],
+			]),
+		),
+	);
+}
+
+function knownFireworksOpenAICompatibleCapabilities(): ModelCapabilitySet {
+	return createModelCapabilitySet({
+		chat: {
+			state: "detected",
+			source: "probe",
+			detail: "Fireworks documents OpenAI-compatible chat completions for text models.",
+		},
+		streaming: {
+			state: "detected",
+			source: "probe",
+			detail: "Fireworks documents streaming chat/completion responses.",
+		},
+		tools: {
+			state: "detected",
+			source: "probe",
+			detail: "Fireworks documents OpenAI-compatible tool calling on chat completions.",
+		},
+		structuredOutput: {
+			state: "detected",
+			source: "probe",
+			detail: "Fireworks documents response_format JSON schema structured outputs.",
+		},
+		usageReporting: {
+			state: "detected",
+			source: "probe",
+			detail: "Fireworks documents token usage metrics for non-streaming and streaming responses.",
+		},
+	});
+}
+
 function knownFirePassKimiCapabilities(): ModelCapabilitySet {
 	return createModelCapabilitySet({
+		...knownFireworksOpenAICompatibleCapabilities(),
 		chat: {
 			state: "detected",
 			source: "probe",
@@ -999,6 +1050,11 @@ function knownFirePassKimiCapabilities(): ModelCapabilitySet {
 			state: "detected",
 			source: "probe",
 			detail: "Fire Pass Kimi structured JSON compatibility is supported for this scoped model.",
+		},
+		usageReporting: {
+			state: "detected",
+			source: "probe",
+			detail: "Fire Pass Kimi usage reporting follows Fireworks streaming and non-streaming usage support.",
 		},
 		modelsEndpoint: {
 			state: "not_detected",

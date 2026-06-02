@@ -307,6 +307,45 @@ describe("resolveProviderLimitDefaults", () => {
 });
 
 describe("validateProviderConnection", () => {
+	it("merges Fireworks OpenAI-compatible capability facts with /models probe evidence", async () => {
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						object: "list",
+						data: [
+							{
+								id: "accounts/fireworks/models/deepseek-v3p1",
+								object: "model",
+								created: 1_686_935_002,
+								owned_by: "fireworks",
+							},
+						],
+					}),
+					{ status: 200 },
+				),
+		);
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const result = await validateProviderConnection(
+			"https://api.fireworks.ai/inference/v1",
+			"fw_test_key",
+			{ modelName: "accounts/fireworks/models/deepseek-v3p1" },
+		);
+
+		expect(result).toMatchObject({
+			valid: true,
+			capabilities: {
+				chat: { state: "detected", supported: true },
+				streaming: { state: "detected", supported: true },
+				tools: { state: "detected", supported: true },
+				structuredOutput: { state: "detected", supported: true },
+				usageReporting: { state: "detected", supported: true },
+				modelsEndpoint: { state: "detected", supported: true },
+			},
+		});
+	});
+
 	it("accepts Fire Pass keys for the documented Kimi Turbo router without probing /models", async () => {
 		const fetchSpy = vi.fn(async () => new Response(null, { status: 403 }));
 		globalThis.fetch = fetchSpy as unknown as typeof fetch;
@@ -324,6 +363,7 @@ describe("validateProviderConnection", () => {
 				streaming: { state: "detected", supported: true },
 				tools: { state: "detected", supported: true },
 				structuredOutput: { state: "detected", supported: true },
+				usageReporting: { state: "detected", supported: true },
 				modelsEndpoint: { state: "not_detected", supported: false },
 			},
 		});
