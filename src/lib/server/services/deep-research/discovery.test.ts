@@ -14,11 +14,12 @@ const {
 
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(async () => ({
-		exaApiKey: "exa-key",
+		searxngBaseUrl: "http://127.0.0.1:8080",
 		braveSearchApiKey: "brave-key",
-		webResearchExaSearchType: "auto",
-		webResearchExaNumResults: 12,
-		webResearchBraveNumResults: 10,
+		webResearchSearxngNumResults: 12,
+		webResearchSearxngLanguage: "en",
+		webResearchSearxngSafesearch: 1,
+		webResearchSearxngCategories: "general",
 		webResearchMaxSources: 6,
 		webResearchHighlightChars: 500,
 		webResearchContentChars: 2000,
@@ -76,7 +77,7 @@ describe("public web discovery", () => {
 					url: "https://example.com/default-discovery",
 					canonicalUrl: "https://example.com/default-discovery",
 					title: "Default discovery source",
-					provider: "brave",
+					provider: "searxng",
 					snippet: "A default dependency result.",
 					publishedAt: null,
 					authorityClass: "standard",
@@ -120,7 +121,7 @@ describe("public web discovery", () => {
 				userId: "user-1",
 				url: "https://example.com/default-discovery",
 				title: "Default discovery source",
-				provider: "brave",
+				provider: "searxng",
 				snippet: "A default dependency result.",
 			}),
 		);
@@ -146,7 +147,7 @@ describe("public web discovery", () => {
 					url: "https://example.eu/ai-act",
 					canonicalUrl: "https://example.eu/ai-act",
 					title: "EU AI Act training data guidance",
-					provider: "exa",
+					provider: "searxng",
 					snippet: "Transparency obligations for general-purpose AI.",
 					publishedAt: "2026-04-30T00:00:00.000Z",
 					authorityClass: "authoritative",
@@ -200,7 +201,7 @@ describe("public web discovery", () => {
 				userId: "user-1",
 				url: "https://example.eu/ai-act",
 				title: "EU AI Act training data guidance",
-				provider: "exa",
+				provider: "searxng",
 				discoveredAt: "2026-05-05T12:00:00.000Z",
 				metadata: expect.objectContaining({
 					query: "Compare EU and US AI copyright training data rules",
@@ -296,7 +297,7 @@ describe("public web discovery", () => {
 					canonicalUrl:
 						"https://Example.com/report?utm_source=newsletter#findings",
 					title: " Market report ",
-					provider: "brave",
+					provider: "searxng",
 					snippet: "Original result.",
 					publishedAt: null,
 					authorityClass: "standard",
@@ -306,7 +307,7 @@ describe("public web discovery", () => {
 					url: "https://example.com/report/",
 					canonicalUrl: "https://example.com/report/",
 					title: "Market report duplicate",
-					provider: "exa",
+					provider: "searxng",
 					snippet: "Duplicate result.",
 					publishedAt: null,
 					authorityClass: "standard",
@@ -343,7 +344,7 @@ describe("public web discovery", () => {
 			expect.objectContaining({
 				url: "https://example.com/report",
 				title: "Market report",
-				provider: "brave",
+				provider: "searxng",
 				metadata: expect.objectContaining({
 					canonicalUrl: "https://example.com/report",
 				}),
@@ -545,7 +546,7 @@ describe("public web discovery", () => {
 					url: `https://example.com/${request.query.replace(/\s+/g, "-").toLowerCase()}`,
 					canonicalUrl: `https://example.com/${request.query.replace(/\s+/g, "-").toLowerCase()}`,
 					title: `Source for ${request.query}`,
-					provider: "exa",
+					provider: "searxng",
 					snippet: "Comparison source.",
 					publishedAt: null,
 					authorityClass: "standard",

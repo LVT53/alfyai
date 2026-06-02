@@ -56,7 +56,11 @@ let {
 }: {
 	adminConfig: Record<string, string>;
 	envDefaults?: Record<string, string>;
-	availableModels?: Array<{ id: ModelId; displayName: string; iconUrl?: string | null }>;
+	availableModels?: Array<{
+		id: ModelId;
+		displayName: string;
+		iconUrl?: string | null;
+	}>;
 	adminSaving?: boolean;
 	adminMessage?: string;
 	adminError?: string;
@@ -140,12 +144,17 @@ function errorMessage(error: unknown, fallback: string): string {
 	return error instanceof Error ? error.message : fallback;
 }
 
-function campaignAssetContentUrl(assetId: string | null | undefined): string | null {
-	return assetId ? `/api/campaign-assets/${encodeURIComponent(assetId)}/content` : null;
+function campaignAssetContentUrl(
+	assetId: string | null | undefined,
+): string | null {
+	return assetId
+		? `/api/campaign-assets/${encodeURIComponent(assetId)}/content`
+		: null;
 }
 
 function builtInIconAssetId(modelName: "model1" | "model2"): string | null {
-	const key = modelName === "model1" ? "MODEL_1_ICON_ASSET_ID" : "MODEL_2_ICON_ASSET_ID";
+	const key =
+		modelName === "model1" ? "MODEL_1_ICON_ASSET_ID" : "MODEL_2_ICON_ASSET_ID";
 	return adminConfig[key] || null;
 }
 
@@ -162,11 +171,15 @@ function uploadKeyForProvider(provider: InferenceProvider): string {
 }
 
 function uploadKeyForTarget(target: ModelIconTarget): string {
-	return target.kind === "built-in" ? target.modelName : uploadKeyForProvider(target.provider);
+	return target.kind === "built-in"
+		? target.modelName
+		: uploadKeyForProvider(target.provider);
 }
 
 function isSvgFile(file: File): boolean {
-	return file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
+	return (
+		file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg")
+	);
 }
 
 async function applyModelIconAsset(target: ModelIconTarget, assetId: string) {
@@ -224,7 +237,12 @@ async function handleModelIconFile(event: Event, target: ModelIconTarget) {
 	}
 }
 
-async function saveModelIconCrop(payload: { file: File; width: number; height: number; crop: CampaignAssetCropGeometry }) {
+async function saveModelIconCrop(payload: {
+	file: File;
+	width: number;
+	height: number;
+	crop: CampaignAssetCropGeometry;
+}) {
 	if (!modelIconCropJob) return;
 	const activeCrop = modelIconCropJob;
 	iconUploading = activeCrop.key;
@@ -283,7 +301,10 @@ async function loadSystemSkills() {
 	try {
 		systemSkills = await fetchAdminSystemSkills();
 	} catch (error: unknown) {
-		systemSkillsError = errorMessage(error, $t("admin.systemSkills.errors.load"));
+		systemSkillsError = errorMessage(
+			error,
+			$t("admin.systemSkills.errors.load"),
+		);
 	} finally {
 		systemSkillsLoading = false;
 	}
@@ -354,20 +375,29 @@ async function saveSystemSkill() {
 		resetSystemSkillDraft();
 		await loadSystemSkills();
 	} catch (error: unknown) {
-		systemSkillsError = errorMessage(error, $t("admin.systemSkills.errors.save"));
+		systemSkillsError = errorMessage(
+			error,
+			$t("admin.systemSkills.errors.save"),
+		);
 	} finally {
 		systemSkillSaving = false;
 	}
 }
 
-async function updateSystemSkillFlags(skill: AdminSystemSkill, changes: Partial<AdminSystemSkillDraft>) {
+async function updateSystemSkillFlags(
+	skill: AdminSystemSkill,
+	changes: Partial<AdminSystemSkillDraft>,
+) {
 	systemSkillsError = "";
 	try {
 		await updateAdminSystemSkill(skill.id, changes);
 		showSystemSkillsMessage($t("admin.systemSkills.updated"));
 		await loadSystemSkills();
 	} catch (error: unknown) {
-		systemSkillsError = errorMessage(error, $t("admin.systemSkills.errors.save"));
+		systemSkillsError = errorMessage(
+			error,
+			$t("admin.systemSkills.errors.save"),
+		);
 	}
 }
 
@@ -559,7 +589,10 @@ async function handleValidate(provider: InferenceProvider) {
 			if (result.capabilities) {
 				const idx = providers.findIndex((p) => p.id === provider.id);
 				if (idx >= 0) {
-					providers[idx] = { ...providers[idx], capabilities: result.capabilities };
+					providers[idx] = {
+						...providers[idx],
+						capabilities: result.capabilities,
+					};
 				}
 			}
 		} else {
@@ -706,9 +739,7 @@ function defaultNewUserModelValue(): ModelId {
 		: (options[0]?.id ?? "model1");
 }
 
-function deepResearchRoleValue(
-	role: DeepResearchModelRoleDefinition,
-): ModelId {
+function deepResearchRoleValue(role: DeepResearchModelRoleDefinition): ModelId {
 	return (adminConfig[role.configKey] ||
 		envDefaults[role.configKey] ||
 		DEFAULT_DEEP_RESEARCH_MODEL_ID) as ModelId;
@@ -738,21 +769,26 @@ function configLabelKey(key: string): string {
 		MODEL_2_SYSTEM_PROMPT: "admin.model2SystemPrompt",
 		MODEL_1_ENABLED: "admin.model1Enabled",
 		MODEL_2_ENABLED: "admin.model2Enabled",
-		COMPOSER_COMMAND_REGISTRY_ENABLED:
-			"admin.composerCommandRegistryEnabled",
+		COMPOSER_COMMAND_REGISTRY_ENABLED: "admin.composerCommandRegistryEnabled",
 		APP_VERSION_OVERRIDE: "admin.appVersionOverride",
 		DEEP_RESEARCH_ENABLED: "admin.deepResearchEnabled",
 		DEEP_RESEARCH_WORKER_ENABLED: "admin.deepResearchWorkerEnabled",
 		DEEP_RESEARCH_WORKER_INTERVAL_MS: "admin.deepResearchWorkerIntervalMs",
-		DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS: "admin.deepResearchWorkerStaleTimeoutMs",
+		DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS:
+			"admin.deepResearchWorkerStaleTimeoutMs",
 		DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS: "admin.deepResearchJobRuntimeLimitMs",
-		DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY: "admin.deepResearchWorkerGlobalConcurrency",
-		DEEP_RESEARCH_WORKER_USER_CONCURRENCY: "admin.deepResearchWorkerUserConcurrency",
-		DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT: "admin.deepResearchActiveConversationLimit",
+		DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY:
+			"admin.deepResearchWorkerGlobalConcurrency",
+		DEEP_RESEARCH_WORKER_USER_CONCURRENCY:
+			"admin.deepResearchWorkerUserConcurrency",
+		DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT:
+			"admin.deepResearchActiveConversationLimit",
 		DEEP_RESEARCH_ACTIVE_USER_LIMIT: "admin.deepResearchActiveUserLimit",
 		DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT: "admin.deepResearchActiveGlobalLimit",
-		DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY: "admin.deepResearchGlobalReasoningConcurrency",
-		DEEP_RESEARCH_USER_REASONING_CONCURRENCY: "admin.deepResearchUserReasoningConcurrency",
+		DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY:
+			"admin.deepResearchGlobalReasoningConcurrency",
+		DEEP_RESEARCH_USER_REASONING_CONCURRENCY:
+			"admin.deepResearchUserReasoningConcurrency",
 		DEEP_RESEARCH_DEPTH_BUDGETS_JSON: "admin.deepResearchDepthBudgetsJson",
 		MODEL_1_MAX_MODEL_CONTEXT: "admin.model1MaxModelContext",
 		MODEL_1_COMPACTION_UI_THRESHOLD: "admin.model1CompactionThreshold",
@@ -766,11 +802,12 @@ function configLabelKey(key: string): string {
 		TITLE_GEN_MODEL: "admin.titleGenModel",
 		CONTEXT_SUMMARIZER_URL: "admin.contextSummarizerUrl",
 		CONTEXT_SUMMARIZER_MODEL: "admin.contextSummarizerModel",
-		EXA_API_KEY: "admin.exaApiKey",
+		SEARXNG_BASE_URL: "admin.searxngBaseUrl",
 		BRAVE_SEARCH_API_KEY: "admin.braveSearchApiKey",
-		WEB_RESEARCH_EXA_SEARCH_TYPE: "admin.webResearchExaSearchType",
-		WEB_RESEARCH_EXA_NUM_RESULTS: "admin.webResearchExaNumResults",
-		WEB_RESEARCH_BRAVE_NUM_RESULTS: "admin.webResearchBraveNumResults",
+		WEB_RESEARCH_SEARXNG_NUM_RESULTS: "admin.webResearchSearxngNumResults",
+		WEB_RESEARCH_SEARXNG_LANGUAGE: "admin.webResearchSearxngLanguage",
+		WEB_RESEARCH_SEARXNG_SAFESEARCH: "admin.webResearchSearxngSafesearch",
+		WEB_RESEARCH_SEARXNG_CATEGORIES: "admin.webResearchSearxngCategories",
 		WEB_RESEARCH_MAX_SOURCES: "admin.webResearchMaxSources",
 		WEB_RESEARCH_HIGHLIGHT_CHARS: "admin.webResearchHighlightChars",
 		WEB_RESEARCH_CONTENT_CHARS: "admin.webResearchContentChars",
@@ -792,7 +829,8 @@ function configLabelKey(key: string): string {
 		REQUEST_TIMEOUT_MS: "admin.requestTimeoutMs",
 		MODEL_TIMEOUT_FAILOVER_ENABLED: "admin.modelTimeoutFailoverEnabled",
 		MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS: "admin.modelTimeoutFailoverTimeoutMs",
-		MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: "admin.modelTimeoutFailoverTargetModel",
+		MODEL_TIMEOUT_FAILOVER_TARGET_MODEL:
+			"admin.modelTimeoutFailoverTargetModel",
 		SYSTEM_PROMPT: "admin.systemPromptLabel",
 	};
 	return map[key] ?? key;
@@ -807,8 +845,8 @@ const NUMBER_KEYS = new Set([
 	"MAX_MESSAGE_LENGTH",
 	"MINERU_TIMEOUT_MS",
 	"HONCHO_PERSONA_CONTEXT_WAIT_MS",
-	"WEB_RESEARCH_EXA_NUM_RESULTS",
-	"WEB_RESEARCH_BRAVE_NUM_RESULTS",
+	"WEB_RESEARCH_SEARXNG_NUM_RESULTS",
+	"WEB_RESEARCH_SEARXNG_SAFESEARCH",
 	"WEB_RESEARCH_MAX_SOURCES",
 	"WEB_RESEARCH_HIGHLIGHT_CHARS",
 	"WEB_RESEARCH_CONTENT_CHARS",
@@ -1321,12 +1359,12 @@ function placeholderFor(key: string): string {
 	<p class="mb-3 text-xs text-text-muted">{$t('admin.webResearchDescription')}</p>
 	<div class="flex flex-col gap-4">
 		<div class="grid gap-3 md:grid-cols-2">
-			{#each ['EXA_API_KEY', 'BRAVE_SEARCH_API_KEY'] as key}
+			{#each ['SEARXNG_BASE_URL', 'BRAVE_SEARCH_API_KEY'] as key}
 				<div>
 					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
 					<input
 						id={key}
-						type="password"
+						type={key === 'BRAVE_SEARCH_API_KEY' ? 'password' : 'url'}
 						class="settings-input"
 						bind:value={adminConfig[key]}
 						placeholder={placeholderFor(key)}
@@ -1338,17 +1376,7 @@ function placeholderFor(key: string): string {
 		<p class="text-xs text-text-muted">{$t('admin.webResearchProviderDescription')}</p>
 
 		<div class="grid gap-3 md:grid-cols-3">
-			<div>
-				<label class="settings-label" for="WEB_RESEARCH_EXA_SEARCH_TYPE">{$t(configLabelKey('WEB_RESEARCH_EXA_SEARCH_TYPE'))}</label>
-				<input
-					id="WEB_RESEARCH_EXA_SEARCH_TYPE"
-					type="text"
-					class="settings-input"
-					bind:value={adminConfig.WEB_RESEARCH_EXA_SEARCH_TYPE}
-					placeholder={placeholderFor('WEB_RESEARCH_EXA_SEARCH_TYPE')}
-				/>
-			</div>
-			{#each ['WEB_RESEARCH_EXA_NUM_RESULTS', 'WEB_RESEARCH_BRAVE_NUM_RESULTS', 'WEB_RESEARCH_MAX_SOURCES'] as key}
+			{#each ['WEB_RESEARCH_SEARXNG_NUM_RESULTS', 'WEB_RESEARCH_MAX_SOURCES', 'WEB_RESEARCH_SEARXNG_SAFESEARCH'] as key}
 				<div>
 					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
 					<input
@@ -1363,6 +1391,21 @@ function placeholderFor(key: string): string {
 			{/each}
 		</div>
 		<p class="text-xs text-text-muted">{$t('admin.webResearchBreadthDescription')}</p>
+
+		<div class="grid gap-3 md:grid-cols-2">
+			{#each ['WEB_RESEARCH_SEARXNG_LANGUAGE', 'WEB_RESEARCH_SEARXNG_CATEGORIES'] as key}
+				<div>
+					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
+					<input
+						id={key}
+						type="text"
+						class="settings-input"
+						bind:value={adminConfig[key]}
+						placeholder={placeholderFor(key)}
+					/>
+				</div>
+			{/each}
+		</div>
 
 		<div class="grid gap-3 md:grid-cols-3">
 			{#each ['WEB_RESEARCH_HIGHLIGHT_CHARS', 'WEB_RESEARCH_CONTENT_CHARS', 'WEB_RESEARCH_FRESHNESS_HOURS'] as key}

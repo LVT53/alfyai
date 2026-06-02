@@ -94,10 +94,11 @@ export const ADMIN_CONFIG_KEYS = [
 	"HONCHO_OVERVIEW_WAIT_MS",
 	"MINERU_API_URL",
 	"MINERU_TIMEOUT_MS",
-	"EXA_API_KEY",
-	"WEB_RESEARCH_EXA_SEARCH_TYPE",
-	"WEB_RESEARCH_EXA_NUM_RESULTS",
-	"WEB_RESEARCH_BRAVE_NUM_RESULTS",
+	"SEARXNG_BASE_URL",
+	"WEB_RESEARCH_SEARXNG_NUM_RESULTS",
+	"WEB_RESEARCH_SEARXNG_LANGUAGE",
+	"WEB_RESEARCH_SEARXNG_SAFESEARCH",
+	"WEB_RESEARCH_SEARXNG_CATEGORIES",
 	"WEB_RESEARCH_MAX_SOURCES",
 	"WEB_RESEARCH_HIGHLIGHT_CHARS",
 	"WEB_RESEARCH_CONTENT_CHARS",
@@ -207,10 +208,11 @@ export interface RuntimeConfig {
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
 	mineruTimeoutMs: number;
-	exaApiKey: string;
-	webResearchExaSearchType: string;
-	webResearchExaNumResults: number;
-	webResearchBraveNumResults: number;
+	searxngBaseUrl: string;
+	webResearchSearxngNumResults: number;
+	webResearchSearxngLanguage: string;
+	webResearchSearxngSafesearch: number;
+	webResearchSearxngCategories: string;
 	webResearchMaxSources: number;
 	webResearchHighlightChars: number;
 	webResearchContentChars: number;
@@ -751,21 +753,25 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 			config.mineruTimeoutMs = Math.max(10000, parsed);
 		}
 	},
-	EXA_API_KEY: (config, value) => {
-		config.exaApiKey = value;
+	SEARXNG_BASE_URL: (config, value) => {
+		config.searxngBaseUrl = value.trim();
 	},
-	WEB_RESEARCH_EXA_SEARCH_TYPE: (config, value) => {
-		config.webResearchExaSearchType = value || "auto";
-	},
-	WEB_RESEARCH_EXA_NUM_RESULTS: (config, value) => {
+	WEB_RESEARCH_SEARXNG_NUM_RESULTS: (config, value) => {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined)
-			config.webResearchExaNumResults = Math.max(1, parsed);
+			config.webResearchSearxngNumResults = Math.max(1, parsed);
 	},
-	WEB_RESEARCH_BRAVE_NUM_RESULTS: (config, value) => {
+	WEB_RESEARCH_SEARXNG_LANGUAGE: (config, value) => {
+		config.webResearchSearxngLanguage = value.trim() || "en";
+	},
+	WEB_RESEARCH_SEARXNG_SAFESEARCH: (config, value) => {
 		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.webResearchBraveNumResults = Math.max(1, parsed);
+		if (parsed !== undefined) {
+			config.webResearchSearxngSafesearch = Math.max(0, Math.min(2, parsed));
+		}
+	},
+	WEB_RESEARCH_SEARXNG_CATEGORIES: (config, value) => {
+		config.webResearchSearxngCategories = value.trim() || "general";
 	},
 	WEB_RESEARCH_MAX_SOURCES: (config, value) => {
 		const parsed = parseIntOverride(value);
@@ -1161,10 +1167,15 @@ export function getResolvedAdminConfigValues(
 		HONCHO_OVERVIEW_WAIT_MS: String(config.honchoOverviewWaitMs),
 		MINERU_API_URL: config.mineruApiUrl,
 		MINERU_TIMEOUT_MS: String(config.mineruTimeoutMs),
-		EXA_API_KEY: config.exaApiKey,
-		WEB_RESEARCH_EXA_SEARCH_TYPE: config.webResearchExaSearchType,
-		WEB_RESEARCH_EXA_NUM_RESULTS: String(config.webResearchExaNumResults),
-		WEB_RESEARCH_BRAVE_NUM_RESULTS: String(config.webResearchBraveNumResults),
+		SEARXNG_BASE_URL: config.searxngBaseUrl,
+		WEB_RESEARCH_SEARXNG_NUM_RESULTS: String(
+			config.webResearchSearxngNumResults,
+		),
+		WEB_RESEARCH_SEARXNG_LANGUAGE: config.webResearchSearxngLanguage,
+		WEB_RESEARCH_SEARXNG_SAFESEARCH: String(
+			config.webResearchSearxngSafesearch,
+		),
+		WEB_RESEARCH_SEARXNG_CATEGORIES: config.webResearchSearxngCategories,
 		WEB_RESEARCH_MAX_SOURCES: String(config.webResearchMaxSources),
 		WEB_RESEARCH_HIGHLIGHT_CHARS: String(config.webResearchHighlightChars),
 		WEB_RESEARCH_CONTENT_CHARS: String(config.webResearchContentChars),

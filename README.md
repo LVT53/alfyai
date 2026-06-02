@@ -57,18 +57,19 @@ That script now runs `npm run db:prepare && node build`, so the standard product
 Web work runs through the app-owned `research_web` AI SDK tool. It can also enrich selected YouTube video results with transcript evidence for reviews, hands-on comparisons, and other video-backed research. Deploy it this way:
 
 1. Deploy the app code. `scripts/deploy.sh` pulls `origin main`, so merge `dev` to `main` first or use your manual deploy flow if you are testing directly from `dev`.
-2. Set `EXA_API_KEY` when page opening and Exa-backed search should be available. Set `BRAVE_SEARCH_API_KEY` when image search or Brave-backed supplemental web search should be available.
-3. Configure the primary Normal Chat model with `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, and `MODEL_1_NAME`, or through Settings > Administration > System. The endpoint must expose an OpenAI-compatible chat-completions surface that the AI SDK provider can call.
-4. Leave the optional `WEB_RESEARCH_*` env vars at their defaults unless you need different breadth or latency. They can also be changed later in Settings > Administration > System > Web Research.
-5. Keep `TEI_RERANKER_URL` configured if you want source and evidence reranking. Search still works without TEI reranking, but diagnostics will show `sourceReranked: false` when reranking is unavailable or not confident.
-6. Restart the AlfyAI process after changing environment variables.
+2. Run a SearXNG instance reachable by the app and set `SEARXNG_BASE_URL`, for example `http://127.0.0.1:8080` for a same-host Docker container. The SearXNG instance must allow JSON output in `settings.yml` under `search: formats: [html, json]`; otherwise `research_web` diagnostics will show provider failures with HTTP 403.
+3. Set `BRAVE_SEARCH_API_KEY` only when the separate `image_search` tool should be available.
+4. Configure the primary Normal Chat model with `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, and `MODEL_1_NAME`, or through Settings > Administration > System. The endpoint must expose an OpenAI-compatible chat-completions surface that the AI SDK provider can call.
+5. Leave the optional `WEB_RESEARCH_*` env vars at their defaults unless you need different breadth or latency. They can also be changed later in Settings > Administration > System > Web Research.
+6. Keep `TEI_RERANKER_URL` configured if you want source and evidence reranking. Search still works without TEI reranking, but diagnostics will show `sourceReranked: false` when reranking is unavailable or not confident.
+7. Restart the AlfyAI process after changing environment variables.
 
 Post-deploy checks:
 
 - Ask for an exact page-backed value, for example a current price from a product URL.
 - Ask for a PDF report with headings, a table, and a bar chart. It should create a successful file-production card; `unsupported_document_block` means the running AlfyAI app or document-source contract has drifted.
 - Ask for a product review summary that should include video evidence; if YouTube videos are selected and transcripts are exposed, diagnostics should show `youtubeTranscriptFetchedCount > 0`.
-- In the `research_web` tool result diagnostics, expect `providers.exaConfigured: true`, `openedPageCount > 0`, `selectedSourceCount > 0`, and `evidenceCandidateCount > 0`.
+- In the `research_web` tool result diagnostics, expect `providers.searxngConfigured: true`, `openedPageCount > 0`, `selectedSourceCount > 0`, and `evidenceCandidateCount > 0`.
 - For prices, dates, availability, specs, and similar exact values, `exactEvidenceCandidateCount` should usually be greater than `0`.
 - YouTube transcript access is best-effort because some videos disable captions, require age/cookie access, or block server IPs. In those cases the video can still be returned as a source, and diagnostics include `youtube_transcript_unavailable`.
 - When TEI reranking is configured and confident, `sourceReranked` and `reranked` should usually be `true`.
@@ -175,15 +176,16 @@ Notes before the tables:
 | `WORKING_SET_DOCUMENT_TOKEN_BUDGET` | No | `4000` | Token budget for working-set document snippets in prompts | Raise it if longer document excerpts should reach the model | Can also be overridden in admin config |
 | `WORKING_SET_PROMPT_TOKEN_BUDGET` | No | `20000` | Token budget for the overall working-set prompt section | Raise it if more documents should be included in context | Can also be overridden in admin config |
 | `SMALL_FILE_THRESHOLD_CHARS` | No | `5000` | Character threshold below which files are treated as small for extraction | Tune based on typical upload sizes | Can also be overridden in admin config |
-| `EXA_API_KEY` | No | empty | API key for Exa search and page-content retrieval in `research_web` | Set it when the web research tool should be enabled | Empty disables Exa-backed web research |
-| `BRAVE_SEARCH_API_KEY` | No | empty | API key for Brave Search image search and `research_web` supplemental web search | Set it when image search or Brave-backed web breadth should be enabled | Empty disables Brave-backed features |
-| `WEB_RESEARCH_EXA_SEARCH_TYPE` | No | `auto` | Exa search type used by server-owned web research | Leave as `auto` unless testing `instant`, `fast`, or a deep-search Exa plan | Can also be overridden in admin config |
-| `WEB_RESEARCH_EXA_NUM_RESULTS` | No | `12` | Results requested from Exa for each planned query | Raise for broader searches, lower to reduce provider cost | Can also be overridden in admin config |
-| `WEB_RESEARCH_BRAVE_NUM_RESULTS` | No | `10` | Results requested from Brave for each planned query | Raise for breadth when Brave quota allows it | Can also be overridden in admin config |
+| `SEARXNG_BASE_URL` | No | empty | Base URL for the SearXNG instance used by `research_web`, such as `http://127.0.0.1:8080` | Set it when the web research tool should be enabled | Empty disables SearXNG-backed web research; JSON output must be enabled in SearXNG |
+| `BRAVE_SEARCH_API_KEY` | No | empty | API key for Brave Search image search | Set it when image search should be enabled | Empty disables Brave-backed image search |
+| `WEB_RESEARCH_SEARXNG_NUM_RESULTS` | No | `12` | Results read from SearXNG for each planned query | Raise for broader searches, lower to reduce latency | Can also be overridden in admin config |
+| `WEB_RESEARCH_SEARXNG_LANGUAGE` | No | `en` | SearXNG language parameter sent with each search | Use `all`, `en`, `hu`, or another SearXNG-supported language code | Can also be overridden in admin config |
+| `WEB_RESEARCH_SEARXNG_SAFESEARCH` | No | `1` | SearXNG safe search level: `0`, `1`, or `2` | Tune for the deployment's audience | Can also be overridden in admin config |
+| `WEB_RESEARCH_SEARXNG_CATEGORIES` | No | `general` | SearXNG categories sent with each search | Use comma-separated categories supported by the instance, such as `general,news` | Can also be overridden in admin config |
 | `WEB_RESEARCH_MAX_SOURCES` | No | `8` | Max deduplicated sources returned to the model | Raise for research-heavy responses, lower for concise answers | Can also be overridden in admin config |
 | `WEB_RESEARCH_HIGHLIGHT_CHARS` | No | `4000` | Max characters kept per evidence quote/snippet | Raise if quotes are too thin | Can also be overridden in admin config |
 | `WEB_RESEARCH_CONTENT_CHARS` | No | `12000` | Max fetched page text kept per source before chunking | Raise when long pages are being missed | Exact/quote-required searches use at least `12000` even if this is set lower; can also be overridden in admin config |
-| `WEB_RESEARCH_FRESHNESS_HOURS` | No | `24` | Exa cache age limit for recent page-content retrieval | Lower for more live crawling, raise for lower cost/latency | `0` forces live crawl for live requests; `-1` uses cache only |
+| `WEB_RESEARCH_FRESHNESS_HOURS` | No | `24` | Recent-search window used to choose SearXNG `time_range` (`day`, `week`, `month`, or `year`) | Lower for more current results, raise for broader recent coverage | `auto` and `cache` freshness requests omit `time_range` |
 | `CONCURRENT_STREAM_LIMIT` | No | `3` | Max concurrent chat streams across all users | Lower it to reduce server load | Can also be overridden in admin config |
 | `PER_USER_STREAM_LIMIT` | No | `1` | Max concurrent chat streams per user | Lower it to reduce per-user load | Can also be overridden in admin config |
 

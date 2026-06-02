@@ -18,7 +18,7 @@ export type ResearchSourcePolicy =
 	| "news"
 	| "commerce"
 	| "medical_legal_financial";
-export type ResearchProvider = "exa" | "brave";
+export type ResearchProvider = "searxng" | "direct";
 export type AuthorityClass =
 	| "primary"
 	| "official"
@@ -122,8 +122,7 @@ export interface ResearchDiagnostics {
 	freshness: ResearchFreshness;
 	sourcePolicy: ResearchSourcePolicy;
 	providers: {
-		exaConfigured: boolean;
-		braveConfigured: boolean;
+		searxngConfigured: boolean;
 	};
 	plannedQueryCount: number;
 	directUrlCount: number;
@@ -164,11 +163,11 @@ export interface ResearchResult {
 }
 
 interface WebResearchConfig {
-	exaApiKey: string;
-	braveSearchApiKey: string;
-	webResearchExaSearchType: string;
-	webResearchExaNumResults: number;
-	webResearchBraveNumResults: number;
+	searxngBaseUrl: string;
+	webResearchSearxngNumResults: number;
+	webResearchSearxngLanguage: string;
+	webResearchSearxngSafesearch: number;
+	webResearchSearxngCategories: string;
 	webResearchMaxSources: number;
 	webResearchHighlightChars: number;
 	webResearchContentChars: number;
@@ -248,12 +247,14 @@ const EXACT_CONTENT_CHARS_MIN = 12_000;
 const RESEARCH_CONTENT_CHARS_MIN = 8_000;
 const MAX_YOUTUBE_TRANSCRIPTS = 3;
 const YOUTUBE_TRANSCRIPT_TIMEOUT_MS = 12_000;
+const PAGE_FETCH_TIMEOUT_MS = 8_000;
+const PAGE_OPEN_CONCURRENCY = 4;
 const DEFAULT_WEB_RESEARCH_CONFIG: WebResearchConfig = {
-	exaApiKey: "",
-	braveSearchApiKey: "",
-	webResearchExaSearchType: "auto",
-	webResearchExaNumResults: 12,
-	webResearchBraveNumResults: 10,
+	searxngBaseUrl: "",
+	webResearchSearxngNumResults: 12,
+	webResearchSearxngLanguage: "en",
+	webResearchSearxngSafesearch: 1,
+	webResearchSearxngCategories: "general",
 	webResearchMaxSources: 8,
 	webResearchHighlightChars: 4000,
 	webResearchContentChars: 12000,
@@ -290,11 +291,11 @@ function toWebResearchConfig(
 	config: RuntimeConfig | WebResearchConfig,
 ): WebResearchConfig {
 	return {
-		exaApiKey: config.exaApiKey,
-		braveSearchApiKey: config.braveSearchApiKey,
-		webResearchExaSearchType: config.webResearchExaSearchType,
-		webResearchExaNumResults: config.webResearchExaNumResults,
-		webResearchBraveNumResults: config.webResearchBraveNumResults,
+		searxngBaseUrl: config.searxngBaseUrl,
+		webResearchSearxngNumResults: config.webResearchSearxngNumResults,
+		webResearchSearxngLanguage: config.webResearchSearxngLanguage,
+		webResearchSearxngSafesearch: config.webResearchSearxngSafesearch,
+		webResearchSearxngCategories: config.webResearchSearxngCategories,
 		webResearchMaxSources: config.webResearchMaxSources,
 		webResearchHighlightChars: config.webResearchHighlightChars,
 		webResearchContentChars: config.webResearchContentChars,
@@ -564,7 +565,7 @@ function createDirectUrlSources(params: {
 	return extractDirectUrls(params.request.query)
 		.map((url, index) =>
 			createSource({
-				provider: "exa",
+				provider: "direct",
 				title: `User-provided page: ${hostOf(url) || url}`,
 				url,
 				snippet: "User-provided URL to inspect directly.",
@@ -580,36 +581,68 @@ function createDirectUrlSources(params: {
 		.filter((source): source is ResearchSource => Boolean(source));
 }
 
-async function searchExa(
+function searxngSearchUrl(baseUrl: string): URL {
+	const trimmed = baseUrl.trim();
+	const normalizedBase = trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+	return new URL("search", normalizedBase);
+}
+
+function searxngTimeRange(
+	request: NormalizedResearchRequest,
+	config: WebResearchConfig,
+): string | null {
+	if (request.freshness === "cache" || request.freshness === "auto") {
+		return null;
+	}
+	if (request.freshness === "live") return "day";
+	const hours = config.webResearchFreshnessHours;
+	if (hours <= 0 || hours <= 24) return "day";
+	if (hours <= 24 * 7) return "week";
+	if (hours <= 24 * 31) return "month";
+	return "year";
+}
+
+async function searchSearxng(
 	params: ProviderSearchParams,
 ): Promise<ResearchSource[]> {
-	if (!params.config.exaApiKey.trim()) return [];
+	if (!params.config.searxngBaseUrl.trim()) return [];
 
-	const body = {
-		query: params.query.query,
-		type: params.config.webResearchExaSearchType || "auto",
-		numResults: Math.min(
-			100,
-			Math.max(1, params.config.webResearchExaNumResults),
+	const url = searxngSearchUrl(params.config.searxngBaseUrl);
+	url.searchParams.set("q", params.query.query);
+	url.searchParams.set("format", "json");
+	url.searchParams.set("pageno", "1");
+	url.searchParams.set(
+		"categories",
+		params.config.webResearchSearxngCategories || "general",
+	);
+	url.searchParams.set(
+		"language",
+		params.config.webResearchSearxngLanguage || "en",
+	);
+	url.searchParams.set(
+		"safesearch",
+		String(
+			Math.max(0, Math.min(2, params.config.webResearchSearxngSafesearch)),
 		),
-		contents: {
-			highlights: { query: params.query.query, numSentences: 5 },
-		},
-	};
+	);
+	const timeRange = searxngTimeRange(params.request, params.config);
+	if (timeRange) url.searchParams.set("time_range", timeRange);
 
-	const response = await params.fetch("https://api.exa.ai/search", {
-		method: "POST",
+	const response = await params.fetch(url.toString(), {
+		method: "GET",
 		headers: {
-			"Content-Type": "application/json",
-			"x-api-key": params.config.exaApiKey,
+			Accept: "application/json",
 		},
-		body: JSON.stringify(body),
 	});
 
 	if (!response.ok) {
 		const text = await response.text().catch(() => "");
+		const hint =
+			response.status === 403
+				? " Check that the local SearXNG settings.yml enables the json search format."
+				: "";
 		throw new Error(
-			`Exa search failed: ${response.status} ${response.statusText}${text ? ` - ${text.slice(0, 300)}` : ""}`,
+			`SearXNG search failed: ${response.status} ${response.statusText}${text ? ` - ${text.slice(0, 300)}` : ""}${hint}`,
 		);
 	}
 
@@ -617,26 +650,42 @@ async function searchExa(
 		results?: Array<Record<string, unknown>>;
 	};
 	return (data.results ?? [])
+		.slice(
+			0,
+			Math.min(100, Math.max(1, params.config.webResearchSearxngNumResults)),
+		)
 		.map((result, index) =>
 			createSource({
-				provider: "exa",
+				provider: "searxng",
 				title: String(result.title ?? result.url ?? ""),
 				url: String(result.url ?? ""),
-				snippet: typeof result.summary === "string" ? result.summary : null,
-				highlights: Array.isArray(result.highlights)
-					? result.highlights.filter(
-							(item): item is string => typeof item === "string",
-						)
-					: [],
-				text: typeof result.text === "string" ? result.text : null,
+				snippet:
+					typeof result.content === "string"
+						? result.content
+						: typeof result.snippet === "string"
+							? result.snippet
+							: null,
+				highlights:
+					typeof result.content === "string"
+						? [result.content]
+						: typeof result.snippet === "string"
+							? [result.snippet]
+							: [],
+				text: null,
 				score: typeof result.score === "number" ? result.score : 0,
 				providerRank: index + 1,
 				query: params.query.query,
 				publishedAt:
 					typeof result.publishedDate === "string"
 						? result.publishedDate
-						: typeof result.published_at === "string"
-							? result.published_at
+						: typeof result.published_date === "string"
+							? result.published_date
+							: null,
+				updatedAt:
+					typeof result.updatedAt === "string"
+						? result.updatedAt
+						: typeof result.updated_at === "string"
+							? result.updated_at
 							: null,
 				retrievedAt: params.nowIso,
 				policy: params.request.sourcePolicy,
@@ -645,84 +694,12 @@ async function searchExa(
 		.filter((source): source is ResearchSource => Boolean(source));
 }
 
-async function searchBrave(
-	params: ProviderSearchParams,
-): Promise<ResearchSource[]> {
-	if (!params.config.braveSearchApiKey.trim()) return [];
-
-	const url = new URL("https://api.search.brave.com/res/v1/web/search");
-	url.searchParams.set("q", params.query.query);
-	url.searchParams.set(
-		"count",
-		String(Math.min(20, Math.max(1, params.config.webResearchBraveNumResults))),
-	);
-	url.searchParams.set("country", "us");
-	url.searchParams.set("search_lang", "en");
-	url.searchParams.set("extra_snippets", "true");
-	url.searchParams.set("text_decorations", "false");
-
-	if (params.request.freshness === "live") {
-		url.searchParams.set("freshness", "pd");
-	} else if (params.request.freshness === "recent") {
-		url.searchParams.set("freshness", "pw");
-	}
-
-	const response = await params.fetch(url.toString(), {
-		method: "GET",
-		headers: {
-			Accept: "application/json",
-			"Accept-Encoding": "gzip",
-			"X-Subscription-Token": params.config.braveSearchApiKey,
-		},
-	});
-
-	if (!response.ok) {
-		const text = await response.text().catch(() => "");
-		throw new Error(
-			`Brave search failed: ${response.status} ${response.statusText}${text ? ` - ${text.slice(0, 300)}` : ""}`,
-		);
-	}
-
-	const data = (await response.json()) as {
-		web?: { results?: Array<Record<string, unknown>> };
-		results?: Array<Record<string, unknown>>;
-	};
-	const rawResults = data.web?.results ?? data.results ?? [];
-	return rawResults
-		.map((result, index) => {
-			const extraSnippets = Array.isArray(result.extra_snippets)
-				? result.extra_snippets.filter(
-						(item): item is string => typeof item === "string",
-					)
-				: [];
-			return createSource({
-				provider: "brave",
-				title: String(result.title ?? result.url ?? ""),
-				url: String(result.url ?? ""),
-				snippet:
-					typeof result.description === "string" ? result.description : null,
-				highlights: extraSnippets,
-				providerRank: index + 1,
-				query: params.query.query,
-				updatedAt:
-					typeof result.page_age === "string"
-						? result.page_age
-						: typeof result.age === "string"
-							? result.age
-							: null,
-				retrievedAt: params.nowIso,
-				policy: params.request.sourcePolicy,
-			});
-		})
-		.filter((source): source is ResearchSource => Boolean(source));
-}
-
 function sourceFusionScore(
 	source: ResearchSource,
 	request: NormalizedResearchRequest,
 ): number {
 	const rankScore = 80 / (source.providerRank + 1);
-	const providerScore = source.provider === "exa" ? 8 : 5;
+	const providerScore = source.provider === "direct" ? 10 : 6;
 	const sourceText = normalizeWhitespace(
 		`${source.title} ${source.snippet ?? ""} ${source.highlights.join(" ")}`,
 	).toLowerCase();
@@ -825,7 +802,7 @@ function fuseSources(
 		byUrl.set(source.canonicalUrl, {
 			...existing,
 			provider:
-				existing.provider === "exa" ? existing.provider : source.provider,
+				existing.provider === "direct" ? existing.provider : source.provider,
 			snippet: existing.snippet ?? source.snippet,
 			highlights: [...existing.highlights, ...source.highlights].slice(0, 6),
 			text: existing.text ?? source.text,
@@ -1014,7 +991,160 @@ async function rerankSources(
 	}
 }
 
-async function openTopPagesWithExa(params: {
+function decodeHtmlEntities(value: string): string {
+	const named: Record<string, string> = {
+		amp: "&",
+		apos: "'",
+		gt: ">",
+		lt: "<",
+		nbsp: " ",
+		quot: '"',
+	};
+	return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity) => {
+		const normalized = String(entity).toLowerCase();
+		if (normalized.startsWith("#x")) {
+			const parsed = Number.parseInt(normalized.slice(2), 16);
+			return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : match;
+		}
+		if (normalized.startsWith("#")) {
+			const parsed = Number.parseInt(normalized.slice(1), 10);
+			return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : match;
+		}
+		return named[normalized] ?? match;
+	});
+}
+
+function extractHtmlTitle(html: string): string | null {
+	const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+	if (titleMatch?.[1]) {
+		return truncate(
+			decodeHtmlEntities(titleMatch[1].replace(/<[^>]+>/g, " ")),
+			300,
+		);
+	}
+	const h1Match = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
+	if (h1Match?.[1]) {
+		return truncate(
+			decodeHtmlEntities(h1Match[1].replace(/<[^>]+>/g, " ")),
+			300,
+		);
+	}
+	return null;
+}
+
+function htmlToReadableText(html: string): string {
+	const withoutNonContent = html
+		.replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+		.replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+		.replace(/<noscript\b[\s\S]*?<\/noscript>/gi, " ")
+		.replace(/<svg\b[\s\S]*?<\/svg>/gi, " ");
+	const withBreaks = withoutNonContent
+		.replace(
+			/<\/(p|div|section|article|header|footer|main|aside|li|tr|h[1-6])>/gi,
+			"\n",
+		)
+		.replace(/<br\s*\/?>/gi, "\n");
+	return normalizeWhitespace(
+		decodeHtmlEntities(withBreaks.replace(/<[^>]+>/g, " ")),
+	);
+}
+
+function buildPageHighlights(
+	text: string,
+	request: NormalizedResearchRequest,
+): string[] {
+	const terms = queryTerms(request.query);
+	return splitIntoChunks(text, 900)
+		.map((chunk, index) => {
+			EXACT_VALUE_RE.lastIndex = 0;
+			return {
+				chunk,
+				score:
+					termHitCount(chunk, terms) * 10 +
+					(EXACT_VALUE_RE.test(chunk) ? 8 : 0) -
+					index / 100,
+			};
+		})
+		.sort((left, right) => right.score - left.score)
+		.slice(0, 5)
+		.map((item) => truncate(item.chunk, 1600));
+}
+
+async function fetchPageContent(params: {
+	source: ResearchSource;
+	request: NormalizedResearchRequest;
+	config: WebResearchConfig;
+	fetch: typeof fetch;
+}): Promise<{
+	title: string | null;
+	text: string | null;
+	highlights: string[];
+} | null> {
+	try {
+		const response = await params.fetch(params.source.url, {
+			method: "GET",
+			headers: {
+				Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
+				"User-Agent": "AlfyAI-WebResearch/1.0",
+			},
+			signal: AbortSignal.timeout(PAGE_FETCH_TIMEOUT_MS),
+		});
+		if (!response.ok) return null;
+		const contentType = response.headers.get("content-type") ?? "";
+		if (
+			contentType &&
+			!/text\/html|application\/xhtml\+xml|text\/plain|application\/xml|text\/xml/i.test(
+				contentType,
+			)
+		) {
+			return null;
+		}
+
+		const rawText = await response.text();
+		const htmlLike =
+			!contentType ||
+			/html|xml/i.test(contentType) ||
+			/<html|<body|<article|<p[\s>]/i.test(rawText);
+		const text = htmlLike
+			? htmlToReadableText(rawText)
+			: normalizeWhitespace(rawText);
+		if (!text) return null;
+		const contentCharacters = contentCharacterBudget(
+			params.request,
+			params.config,
+		);
+		return {
+			title: htmlLike ? extractHtmlTitle(rawText) : null,
+			text: truncate(text, contentCharacters),
+			highlights: buildPageHighlights(text, params.request),
+		};
+	} catch {
+		return null;
+	}
+}
+
+async function mapWithConcurrency<T, R>(
+	items: T[],
+	concurrency: number,
+	mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const results: R[] = [];
+	let cursor = 0;
+	const workers = Array.from(
+		{ length: Math.min(concurrency, Math.max(1, items.length)) },
+		async () => {
+			while (cursor < items.length) {
+				const index = cursor;
+				cursor += 1;
+				results[index] = await mapper(items[index] as T);
+			}
+		},
+	);
+	await Promise.all(workers);
+	return results;
+}
+
+async function openTopPages(params: {
 	sources: ResearchSource[];
 	request: NormalizedResearchRequest;
 	config: WebResearchConfig;
@@ -1025,60 +1155,24 @@ async function openTopPagesWithExa(params: {
 		{ title: string | null; text: string | null; highlights: string[] }
 	>
 > {
-	if (!params.config.exaApiKey.trim() || params.sources.length === 0) {
+	if (params.sources.length === 0) {
 		return new Map();
 	}
 
-	const contentCharacters = contentCharacterBudget(
-		params.request,
-		params.config,
-	);
-	const urls = params.sources.map((source) => source.url);
-	const body = {
-		urls,
-		highlights: { query: params.request.query, numSentences: 5 },
-		text: { maxCharacters: contentCharacters },
-		maxAgeHours:
-			params.request.freshness === "live"
-				? 0
-				: params.request.freshness === "cache"
-					? -1
-					: params.config.webResearchFreshnessHours,
-	};
-
-	const response = await params.fetch("https://api.exa.ai/contents", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"x-api-key": params.config.exaApiKey,
-		},
-		body: JSON.stringify(body),
-	});
-
-	if (!response.ok) {
-		return new Map();
-	}
-
-	const data = (await response.json()) as {
-		results?: Array<Record<string, unknown>>;
-	};
 	const opened = new Map<
 		string,
 		{ title: string | null; text: string | null; highlights: string[] }
 	>();
-	for (const result of data.results ?? []) {
-		const url =
-			typeof result.url === "string" ? canonicalizeUrl(result.url) : null;
-		if (!url) continue;
-		opened.set(url, {
-			title: typeof result.title === "string" ? result.title : null,
-			text: typeof result.text === "string" ? result.text : null,
-			highlights: Array.isArray(result.highlights)
-				? result.highlights.filter(
-						(item): item is string => typeof item === "string",
-					)
-				: [],
-		});
+	const pageResults = await mapWithConcurrency(
+		params.sources,
+		PAGE_OPEN_CONCURRENCY,
+		async (source) => ({
+			source,
+			content: await fetchPageContent({ ...params, source }),
+		}),
+	);
+	for (const result of pageResults) {
+		if (result.content) opened.set(result.source.canonicalUrl, result.content);
 	}
 	return opened;
 }
@@ -1531,8 +1625,7 @@ export async function researchWeb(
 		freshness: normalized.freshness,
 		sourcePolicy: normalized.sourcePolicy,
 		providers: {
-			exaConfigured: Boolean(config.exaApiKey.trim()),
-			braveConfigured: Boolean(config.braveSearchApiKey.trim()),
+			searxngConfigured: Boolean(config.searxngBaseUrl.trim()),
 		},
 		plannedQueryCount: queries.length,
 		directUrlCount: 0,
@@ -1553,10 +1646,9 @@ export async function researchWeb(
 		fallbackReasons: [],
 	};
 
-	const enabledProviders: ResearchProvider[] = [
-		...(config.exaApiKey.trim() ? (["exa"] as const) : []),
-		...(config.braveSearchApiKey.trim() ? (["brave"] as const) : []),
-	];
+	const enabledProviders: ResearchProvider[] = config.searxngBaseUrl.trim()
+		? ["searxng"]
+		: [];
 	const providerCalls = queries.flatMap((query) =>
 		enabledProviders.map((provider) => ({ provider, query })),
 	);
@@ -1573,22 +1665,13 @@ export async function researchWeb(
 		providerCalls.map(async (call) => {
 			const startedAt = Date.now();
 			try {
-				const sources =
-					call.provider === "exa"
-						? await searchExa({
-								query: call.query,
-								request: normalized,
-								config,
-								fetch: fetchImpl,
-								nowIso,
-							})
-						: await searchBrave({
-								query: call.query,
-								request: normalized,
-								config,
-								fetch: fetchImpl,
-								nowIso,
-							});
+				const sources = await searchSearxng({
+					query: call.query,
+					request: normalized,
+					config,
+					fetch: fetchImpl,
+					nowIso,
+				});
 				return {
 					sources,
 					providerCall: {
@@ -1660,13 +1743,16 @@ export async function researchWeb(
 		normalized.mode === "research" ||
 		normalized.mode === "exact"
 	) {
-		const opened = await openTopPagesWithExa({
+		const opened = await openTopPages({
 			sources: selectedSources,
 			request: normalized,
 			config,
 			fetch: fetchImpl,
 		});
 		diagnostics.openedPageCount = opened.size;
+		if (selectedSources.length > 0 && opened.size === 0) {
+			diagnostics.fallbackReasons.push("page_open_failed");
+		}
 		for (const source of selectedSources) {
 			const openedContent = opened.get(source.canonicalUrl);
 			if (!openedContent) continue;

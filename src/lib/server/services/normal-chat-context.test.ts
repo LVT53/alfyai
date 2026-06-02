@@ -97,12 +97,12 @@ describe("prepareOutboundChatContext", () => {
 			"`documentSource` and `program` are direct `produce_file` input object fields.",
 		);
 		expect(prompt).toContain(
-			"For raw Exa follow-up retrieval, chain `search` calls first, then use the connected content retrieval tool.",
+			"For raw provider follow-up retrieval, chain `search` calls first, then use the connected content retrieval tool if one is listed.",
 		);
 		expect(prompt).not.toMatch(/Langflow/i);
 		expect(prompt).not.toContain("JSON string containing an array");
 		expect(prompt).not.toContain("JSON-encoded array string");
-		expect(prompt).not.toContain("current Langflow Exa flows");
+		expect(prompt).not.toContain("current legacy external search flows");
 	});
 
 	it("uses neutral trace and warning labels while preparing attachment context", async () => {

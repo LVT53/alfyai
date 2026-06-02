@@ -759,13 +759,13 @@ const dictionary = {
 		// Admin - Web Research
 		"admin.webResearch": "Web Research",
 		"admin.webResearchDescription":
-			"Server-owned search, page opening, source reranking, and citation evidence settings.",
+			"Server-owned SearXNG search, page opening, source reranking, and citation evidence settings.",
 		"admin.webResearchProviderDescription":
-			"Exa is the search and page-content provider. Brave adds wider search-result breadth when configured.",
+			"SearXNG handles web search through its local JSON API. Brave is still used separately for image search.",
 		"admin.webResearchBreadthDescription":
-			"Raise result counts and max sources for broader research; lower them to reduce latency and provider usage.",
+			"Raise SearXNG result counts and max sources for broader research; lower them to reduce latency.",
 		"admin.webResearchEvidenceDescription":
-			"Exact and quote-required searches fetch at least 12000 characters per opened page before evidence extraction.",
+			"Exact and quote-required searches fetch at least 12000 characters per opened page before evidence extraction. Freshness hours map recent searches to SearXNG day, week, month, or year ranges.",
 		// Admin - Honcho
 		"admin.honchoMemory": "Honcho Memory",
 		"admin.enableHoncho": "Enable Honcho",
@@ -841,15 +841,16 @@ const dictionary = {
 		"admin.titleGenModel": "Title Generator Model",
 		"admin.contextSummarizerUrl": "Context Summarizer URL",
 		"admin.contextSummarizerModel": "Context Summarizer Model",
-		"admin.exaApiKey": "Exa API Key",
+		"admin.searxngBaseUrl": "SearXNG Base URL",
 		"admin.braveSearchApiKey": "Brave Search API Key",
-		"admin.webResearchExaSearchType": "Exa Search Type",
-		"admin.webResearchExaNumResults": "Exa Results Per Query",
-		"admin.webResearchBraveNumResults": "Brave Results Per Query",
+		"admin.webResearchSearxngNumResults": "SearXNG Results Per Query",
+		"admin.webResearchSearxngLanguage": "SearXNG Language",
+		"admin.webResearchSearxngSafesearch": "SearXNG Safe Search",
+		"admin.webResearchSearxngCategories": "SearXNG Categories",
 		"admin.webResearchMaxSources": "Max Returned Sources",
 		"admin.webResearchHighlightChars": "Evidence Quote Characters",
 		"admin.webResearchContentChars": "Page Content Characters",
-		"admin.webResearchFreshnessHours": "Freshness Cache Hours",
+		"admin.webResearchFreshnessHours": "Recent Search Freshness Hours",
 		"admin.titleGenPromptEn": "Title Generator Prompt (English)",
 		"admin.titleGenPromptHu": "Title Generator Prompt (Hungarian)",
 		"admin.titleGenCodeAppendixEn": "Title Generator Code Appendix (English)",
@@ -2077,7 +2078,8 @@ const dictionary = {
 		// Admin - Models section
 		"admin.models": "Modellek",
 		"admin.local": "Helyi",
-		"admin.uploadModelIconDescription": "Hagyd üresen a jelenlegi ikon megtartásához.",
+		"admin.uploadModelIconDescription":
+			"Hagyd üresen a jelenlegi ikon megtartásához.",
 		"admin.addProvider": "Szolgáltató hozzáadása",
 		"admin.providerAdded": "Szolgáltató hozzáadva.",
 		"admin.providerUpdated": "Szolgáltató frissítve.",
@@ -2339,13 +2341,13 @@ const dictionary = {
 		// Admin - Web Research
 		"admin.webResearch": "Webes kutatás",
 		"admin.webResearchDescription":
-			"Szerveroldali keresés, oldalmegnyitás, forrás-újrarangsorolás és idézési bizonyítékok beállításai.",
+			"Szerveroldali SearXNG keresés, oldalmegnyitás, forrás-újrarangsorolás és idézési bizonyítékok beállításai.",
 		"admin.webResearchProviderDescription":
-			"Az Exa a keresési és oldaltartalom-szolgáltató. A Brave szélesebb találati lefedettséget ad, ha be van állítva.",
+			"A SearXNG végzi a webes keresést a helyi JSON API-n keresztül. A Brave továbbra is külön, képkereséshez használható.",
 		"admin.webResearchBreadthDescription":
-			"Növeld a találatszámokat és a maximális forrásszámot szélesebb kutatáshoz; csökkentsd őket alacsonyabb késleltetéshez és kevesebb szolgáltatóhasználathoz.",
+			"Növeld a SearXNG találatszámot és a maximális forrásszámot szélesebb kutatáshoz; csökkentsd őket alacsonyabb késleltetéshez.",
 		"admin.webResearchEvidenceDescription":
-			"A pontos, idézetet igénylő keresések legalább 12000 karaktert kérnek le megnyitott oldalanként a bizonyítékkinyerés előtt.",
+			"A pontos, idézetet igénylő keresések legalább 12000 karaktert kérnek le megnyitott oldalanként a bizonyítékkinyerés előtt. A frissességi órák a SearXNG nap, hét, hónap vagy év tartományaira képeződnek le.",
 		// Admin - Honcho
 		"admin.honchoMemory": "Honcho-memória",
 		"admin.enableHoncho": "Honcho engedélyezése",
@@ -2427,15 +2429,16 @@ const dictionary = {
 		"admin.titleGenModel": "Címgenerátor modell",
 		"admin.contextSummarizerUrl": "Kontextus-összefoglaló URL-je",
 		"admin.contextSummarizerModel": "Kontextus-összefoglaló modellje",
-		"admin.exaApiKey": "Exa API-kulcs",
+		"admin.searxngBaseUrl": "SearXNG alap URL",
 		"admin.braveSearchApiKey": "Brave Search API-kulcs",
-		"admin.webResearchExaSearchType": "Exa kereséstípus",
-		"admin.webResearchExaNumResults": "Exa találatok kérdésenként",
-		"admin.webResearchBraveNumResults": "Brave találatok kérdésenként",
+		"admin.webResearchSearxngNumResults": "SearXNG találatok kérdésenként",
+		"admin.webResearchSearxngLanguage": "SearXNG nyelv",
+		"admin.webResearchSearxngSafesearch": "SearXNG biztonságos keresés",
+		"admin.webResearchSearxngCategories": "SearXNG kategóriák",
 		"admin.webResearchMaxSources": "Visszaadott források maximuma",
 		"admin.webResearchHighlightChars": "Bizonyítékidézet karakterei",
 		"admin.webResearchContentChars": "Oldaltartalom karakterei",
-		"admin.webResearchFreshnessHours": "Frissességi cache órák",
+		"admin.webResearchFreshnessHours": "Friss keresés órái",
 		"admin.titleGenPromptEn": "Címgenerátor prompt (angol)",
 		"admin.titleGenPromptHu": "Címgenerátor prompt (magyar)",
 		"admin.titleGenCodeAppendixEn": "Címgenerátor kódfüggeléke (angol)",

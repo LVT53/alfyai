@@ -100,7 +100,7 @@ describe("obsolete file-generation surfaces", () => {
 		expect(source).toContain(
 			"`requestedOutputs` is an array of output descriptors",
 		);
-		expect(source).not.toContain("current Langflow Exa flows");
+		expect(source).not.toContain("current legacy external search flows");
 		expect(source).not.toContain(
 			"Only tell the user a file is ready after the tool succeeds.",
 		);

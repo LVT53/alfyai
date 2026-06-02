@@ -3,12 +3,12 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import {
-	defaultDeepResearchModelSelections,
 	DEEP_RESEARCH_MODEL_ROLES,
-	normalizeDeepResearchDepthBudgetPolicy,
-	normalizeConfiguredModelId,
 	type DeepResearchDepthBudgetPolicy,
 	type DeepResearchModelSelections,
+	defaultDeepResearchModelSelections,
+	normalizeConfiguredModelId,
+	normalizeDeepResearchDepthBudgetPolicy,
 } from "../deep-research-models";
 import { deriveMaxMessageLengthFromContextTokens } from "../model-limit-presets";
 
@@ -97,10 +97,11 @@ interface Config {
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
 	mineruTimeoutMs: number;
-	exaApiKey: string;
-	webResearchExaSearchType: string;
-	webResearchExaNumResults: number;
-	webResearchBraveNumResults: number;
+	searxngBaseUrl: string;
+	webResearchSearxngNumResults: number;
+	webResearchSearxngLanguage: string;
+	webResearchSearxngSafesearch: number;
+	webResearchSearxngCategories: string;
 	webResearchMaxSources: number;
 	webResearchHighlightChars: number;
 	webResearchContentChars: number;
@@ -155,7 +156,9 @@ export function parseByteSizeLimit(value: string): number {
 export function getAdapterBodySizeLimitBytes(
 	env: NodeJS.ProcessEnv = process.env,
 ): number {
-	return parseByteSizeLimit(env.BODY_SIZE_LIMIT || DEFAULT_ADAPTER_BODY_SIZE_LIMIT);
+	return parseByteSizeLimit(
+		env.BODY_SIZE_LIMIT || DEFAULT_ADAPTER_BODY_SIZE_LIMIT,
+	);
 }
 
 function normalizeModelReasoningEffort(
@@ -216,7 +219,9 @@ function deriveTargetConstructedContext(maxModelContext: number): number {
 function readDeepResearchModelSelections(): DeepResearchModelSelections {
 	const selections = defaultDeepResearchModelSelections();
 	for (const role of DEEP_RESEARCH_MODEL_ROLES) {
-		selections[role.id] = normalizeConfiguredModelId(process.env[role.configKey]);
+		selections[role.id] = normalizeConfiguredModelId(
+			process.env[role.configKey],
+		);
 	}
 	return selections;
 }
@@ -387,7 +392,10 @@ function readConfig(): Config {
 		),
 		deepResearchGlobalReasoningConcurrency: Math.max(
 			1,
-			parseIntegerEnv(process.env.DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY, 4),
+			parseIntegerEnv(
+				process.env.DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY,
+				4,
+			),
 		),
 		deepResearchUserReasoningConcurrency: Math.max(
 			0,
@@ -395,8 +403,7 @@ function readConfig(): Config {
 		),
 		deepResearchDepthBudgets: readDeepResearchDepthBudgets(),
 		deepResearchModels: readDeepResearchModelSelections(),
-		contextDiagnosticsDebug:
-			process.env.CONTEXT_DIAGNOSTICS_DEBUG === "true",
+		contextDiagnosticsDebug: process.env.CONTEXT_DIAGNOSTICS_DEBUG === "true",
 		titleGenUrl: process.env.TITLE_GEN_URL || "http://localhost:30001/v1",
 		titleGenApiKey: process.env.TITLE_GEN_API_KEY || "",
 		titleGenModel: process.env.TITLE_GEN_MODEL || "nemotron-nano",
@@ -552,17 +559,22 @@ function readConfig(): Config {
 				10,
 			) || 300000,
 		),
-		exaApiKey: process.env.EXA_API_KEY || "",
-		webResearchExaSearchType:
-			process.env.WEB_RESEARCH_EXA_SEARCH_TYPE || "auto",
-		webResearchExaNumResults: Math.max(
+		searxngBaseUrl: process.env.SEARXNG_BASE_URL || "",
+		webResearchSearxngNumResults: Math.max(
 			1,
-			parseInt(process.env.WEB_RESEARCH_EXA_NUM_RESULTS || "12", 10) || 12,
+			parseInt(process.env.WEB_RESEARCH_SEARXNG_NUM_RESULTS || "12", 10) || 12,
 		),
-		webResearchBraveNumResults: Math.max(
-			1,
-			parseInt(process.env.WEB_RESEARCH_BRAVE_NUM_RESULTS || "10", 10) || 10,
+		webResearchSearxngLanguage:
+			process.env.WEB_RESEARCH_SEARXNG_LANGUAGE || "en",
+		webResearchSearxngSafesearch: Math.max(
+			0,
+			Math.min(
+				2,
+				parseIntegerEnv(process.env.WEB_RESEARCH_SEARXNG_SAFESEARCH, 1),
+			),
 		),
+		webResearchSearxngCategories:
+			process.env.WEB_RESEARCH_SEARXNG_CATEGORIES || "general",
 		webResearchMaxSources: Math.max(
 			1,
 			parseInt(process.env.WEB_RESEARCH_MAX_SOURCES || "8", 10) || 8,
@@ -577,7 +589,7 @@ function readConfig(): Config {
 		),
 		webResearchFreshnessHours: Math.max(
 			-1,
-			parseInt(process.env.WEB_RESEARCH_FRESHNESS_HOURS || "24", 10) || 24,
+			parseIntegerEnv(process.env.WEB_RESEARCH_FRESHNESS_HOURS, 24),
 		),
 		systemPrompt: process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
@@ -600,13 +612,17 @@ function readConfig(): Config {
 		),
 		fileProductionMaxSourceJsonBytes: Math.max(
 			1024,
-			parseInt(process.env.FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES || "2097152", 10) ||
-				2097152,
+			parseInt(
+				process.env.FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES || "2097152",
+				10,
+			) || 2097152,
 		),
 		fileProductionMaxProjectionBytes: Math.max(
 			1024,
-			parseInt(process.env.FILE_PRODUCTION_MAX_PROJECTION_BYTES || "1048576", 10) ||
-				1048576,
+			parseInt(
+				process.env.FILE_PRODUCTION_MAX_PROJECTION_BYTES || "1048576",
+				10,
+			) || 1048576,
 		),
 		fileProductionMaxPdfPages: Math.max(
 			1,
@@ -614,7 +630,8 @@ function readConfig(): Config {
 		),
 		fileProductionMaxTableRows: Math.max(
 			1,
-			parseInt(process.env.FILE_PRODUCTION_MAX_TABLE_ROWS || "10000", 10) || 10000,
+			parseInt(process.env.FILE_PRODUCTION_MAX_TABLE_ROWS || "10000", 10) ||
+				10000,
 		),
 		fileProductionMaxTableColumns: Math.max(
 			1,
@@ -622,8 +639,10 @@ function readConfig(): Config {
 		),
 		fileProductionMaxChartDataPoints: Math.max(
 			1,
-			parseInt(process.env.FILE_PRODUCTION_MAX_CHART_DATA_POINTS || "20000", 10) ||
-				20000,
+			parseInt(
+				process.env.FILE_PRODUCTION_MAX_CHART_DATA_POINTS || "20000",
+				10,
+			) || 20000,
 		),
 		fileProductionMaxChartSeries: Math.max(
 			1,
@@ -640,28 +659,38 @@ function readConfig(): Config {
 		),
 		fileProductionMaxTotalImageBytes: Math.max(
 			1024,
-			parseInt(process.env.FILE_PRODUCTION_MAX_TOTAL_IMAGE_BYTES || "209715200", 10) ||
-				209715200,
+			parseInt(
+				process.env.FILE_PRODUCTION_MAX_TOTAL_IMAGE_BYTES || "209715200",
+				10,
+			) || 209715200,
 		),
 		fileProductionSandboxTimeoutMs: Math.max(
 			1000,
-			parseInt(process.env.FILE_PRODUCTION_SANDBOX_TIMEOUT_MS || "300000", 10) ||
-				300000,
+			parseInt(
+				process.env.FILE_PRODUCTION_SANDBOX_TIMEOUT_MS || "300000",
+				10,
+			) || 300000,
 		),
 		fileProductionRendererTimeoutMs: Math.max(
 			1000,
-			parseInt(process.env.FILE_PRODUCTION_RENDERER_TIMEOUT_MS || "300000", 10) ||
-				300000,
+			parseInt(
+				process.env.FILE_PRODUCTION_RENDERER_TIMEOUT_MS || "300000",
+				10,
+			) || 300000,
 		),
 		fileProductionMaxOutputFileBytes: Math.max(
 			1024,
-			parseInt(process.env.FILE_PRODUCTION_MAX_OUTPUT_FILE_BYTES || "104857600", 10) ||
-				104857600,
+			parseInt(
+				process.env.FILE_PRODUCTION_MAX_OUTPUT_FILE_BYTES || "104857600",
+				10,
+			) || 104857600,
 		),
 		fileProductionMaxTotalOutputBytes: Math.max(
 			1024,
-			parseInt(process.env.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES || "262144000", 10) ||
-				262144000,
+			parseInt(
+				process.env.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES || "262144000",
+				10,
+			) || 262144000,
 		),
 	};
 }

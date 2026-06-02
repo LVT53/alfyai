@@ -517,7 +517,7 @@ describe("createNormalChatTools", () => {
 			sources: [
 				{
 					id: "source-1",
-					provider: "brave",
+					provider: "searxng",
 					title: "AI SDK Tools",
 					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
 					canonicalUrl:
@@ -541,7 +541,7 @@ describe("createNormalChatTools", () => {
 					sourceId: "source-1",
 					title: "AI SDK Tools",
 					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
-					provider: "brave",
+					provider: "searxng",
 					quote: "Use inputSchema and execute.",
 					surroundingText: "RAW SURROUNDING TEXT SHOULD NOT BE RECORDED",
 					score: 0.9,
@@ -557,7 +557,7 @@ describe("createNormalChatTools", () => {
 						sourceId: "source-1",
 						title: "AI SDK Tools",
 						url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
-						provider: "brave",
+						provider: "searxng",
 						authorityClass: "official",
 						authorityScore: 0.95,
 						publishedAt: null,
@@ -581,7 +581,7 @@ describe("createNormalChatTools", () => {
 				mode: "exact",
 				freshness: "live",
 				sourcePolicy: "technical",
-				providers: { exaConfigured: false, braveConfigured: true },
+				providers: { searxngConfigured: true },
 				plannedQueryCount: 1,
 				directUrlCount: 0,
 				fetchedSourceCount: 1,
@@ -681,7 +681,7 @@ describe("createNormalChatTools", () => {
 						sourceType: "web",
 						material: true,
 						metadata: {
-							provider: "brave",
+							provider: "searxng",
 							authorityClass: "official",
 							authorityScore: 0.95,
 							providerRank: 1,

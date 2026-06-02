@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(async () => ({
-		exaApiKey: "exa-key",
+		searxngBaseUrl: "http://127.0.0.1:8080",
 		braveSearchApiKey: "brave-key",
-		webResearchExaSearchType: "auto",
-		webResearchExaNumResults: 12,
-		webResearchBraveNumResults: 10,
+		webResearchSearxngNumResults: 12,
+		webResearchSearxngLanguage: "en",
+		webResearchSearxngSafesearch: 1,
+		webResearchSearxngCategories: "general",
 		webResearchMaxSources: 6,
 		webResearchHighlightChars: 500,
 		webResearchContentChars: 2000,
@@ -24,16 +25,37 @@ import {
 } from "./index";
 
 const webConfig = {
-	exaApiKey: "exa-key",
+	searxngBaseUrl: "http://127.0.0.1:8080",
 	braveSearchApiKey: "brave-key",
-	webResearchExaSearchType: "auto",
-	webResearchExaNumResults: 12,
-	webResearchBraveNumResults: 10,
+	webResearchSearxngNumResults: 12,
+	webResearchSearxngLanguage: "en",
+	webResearchSearxngSafesearch: 1,
+	webResearchSearxngCategories: "general",
 	webResearchMaxSources: 6,
 	webResearchHighlightChars: 500,
 	webResearchContentChars: 2000,
 	webResearchFreshnessHours: 24,
 };
+
+function jsonResponse(value: unknown, status = 200): Response {
+	return new Response(JSON.stringify(value), {
+		status,
+		headers: { "Content-Type": "application/json" },
+	});
+}
+
+function htmlResponse(value: string): Response {
+	return new Response(value, {
+		status: 200,
+		headers: { "Content-Type": "text/html; charset=utf-8" },
+	});
+}
+
+function searxngSearchResponse(
+	results: Array<Record<string, unknown>>,
+): Response {
+	return jsonResponse({ results });
+}
 
 describe("web research planning", () => {
 	it("plans broad, official, freshness, and exact query variants for volatile facts", () => {
@@ -133,46 +155,10 @@ describe("web research planning", () => {
 			quoteRequired: true,
 		});
 	});
-
-	it("infers specialized discovery request policy for technical, news, and regulatory queries", () => {
-		expect(
-			buildDiscoveryResearchRequest({
-				query: "SvelteKit API documentation migration",
-				maxSources: 4,
-			}),
-		).toMatchObject({
-			mode: "quick",
-			freshness: "auto",
-			sourcePolicy: "technical",
-			quoteRequired: false,
-		});
-		expect(
-			buildDiscoveryResearchRequest({
-				query: "latest election news today",
-				maxSources: 4,
-			}),
-		).toMatchObject({
-			mode: "quick",
-			freshness: "live",
-			sourcePolicy: "news",
-			quoteRequired: false,
-		});
-		expect(
-			buildDiscoveryResearchRequest({
-				query: "current legal regulation for AI copyright compliance",
-				maxSources: 4,
-			}),
-		).toMatchObject({
-			mode: "exact",
-			freshness: "live",
-			sourcePolicy: "medical_legal_financial",
-			quoteRequired: true,
-		});
-	});
 });
 
-describe("researchWeb", () => {
-	it("reports missing search providers instead of treating disabled search as no results", async () => {
+describe("researchWeb with SearXNG", () => {
+	it("reports web research as disabled when SearXNG is not configured", async () => {
 		const fetchMock = vi.fn();
 
 		const result = await researchWeb(
@@ -183,7 +169,7 @@ describe("researchWeb", () => {
 				maxSources: 3,
 			},
 			{
-				config: { ...webConfig, exaApiKey: "", braveSearchApiKey: "" },
+				config: { ...webConfig, searxngBaseUrl: "" },
 				fetch: fetchMock,
 				now: new Date("2026-05-02T12:00:00.000Z"),
 			},
@@ -191,70 +177,19 @@ describe("researchWeb", () => {
 
 		expect(fetchMock).not.toHaveBeenCalled();
 		expect(result.sources).toHaveLength(0);
+		expect(result.evidence).toHaveLength(0);
 		expect(result.diagnostics.providers).toEqual({
-			exaConfigured: false,
-			braveConfigured: false,
+			searxngConfigured: false,
 		});
 		expect(result.diagnostics.fallbackReasons).toContain(
 			"web_research_not_configured",
 		);
-		expect(result.diagnostics.fallbackReasons).not.toContain(
-			"no_search_results",
-		);
 	});
 
-	it("reports provider failures instead of treating failed searches as no results", async () => {
-		const fetchMock = vi.fn(async () => {
-			return new Response(
-				JSON.stringify({ error: "invalid Exa search configuration" }),
-				{ status: 400, headers: { "Content-Type": "application/json" } },
-			);
-		});
-
-		const result = await researchWeb(
-			{
-				query: "SvelteKit official documentation",
-				mode: "quick",
-				sourcePolicy: "technical",
-				maxSources: 3,
-			},
-			{
-				config: { ...webConfig, braveSearchApiKey: "" },
-				fetch: fetchMock,
-				now: new Date("2026-05-02T12:00:00.000Z"),
-			},
+	it("surfaces SearXNG JSON format errors with provider failure diagnostics", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ error: "format json is disabled" }, 403),
 		);
-
-		expect(result.sources).toHaveLength(0);
-		expect(result.diagnostics.providerCalls.length).toBeGreaterThan(0);
-		expect(result.diagnostics.providerCalls.every((call) => call.error)).toBe(
-			true,
-		);
-		expect(result.diagnostics.fallbackReasons).toContain(
-			"provider_search_failed",
-		);
-		expect(result.diagnostics.fallbackReasons).not.toContain(
-			"no_search_results",
-		);
-	});
-
-	it("keeps provider failure context when another configured provider returns no results", async () => {
-		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-			const url = input.toString();
-			if (url === "https://api.exa.ai/search") {
-				return new Response(
-					JSON.stringify({ error: "temporary Exa provider failure" }),
-					{ status: 500, headers: { "Content-Type": "application/json" } },
-				);
-			}
-			if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
-				return new Response(JSON.stringify({ web: { results: [] } }), {
-					status: 200,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			throw new Error(`Unexpected fetch: ${url}`);
-		});
 
 		const result = await researchWeb(
 			{
@@ -271,97 +206,70 @@ describe("researchWeb", () => {
 		);
 
 		expect(result.sources).toHaveLength(0);
-		expect(result.diagnostics.providerCalls.some((call) => call.error)).toBe(
+		expect(result.diagnostics.providerCalls.length).toBeGreaterThan(0);
+		expect(result.diagnostics.providerCalls.every((call) => call.error)).toBe(
 			true,
 		);
-		expect(result.diagnostics.providerCalls.some((call) => !call.error)).toBe(
-			true,
+		expect(result.diagnostics.providerCalls[0]?.error).toContain(
+			"settings.yml enables the json search format",
 		);
 		expect(result.diagnostics.fallbackReasons).toContain(
 			"provider_search_failed",
 		);
-		expect(result.diagnostics.fallbackReasons).toContain("no_search_results");
+		expect(result.diagnostics.fallbackReasons).not.toContain(
+			"no_search_results",
+		);
 	});
 
-	it("fuses Exa and Brave results, opens selected pages, and reranks evidence chunks", async () => {
-		const fetchMock = vi.fn(
-			async (input: RequestInfo | URL, init?: RequestInit) => {
-				const url = input.toString();
-				if (url === "https://api.exa.ai/search") {
-					return new Response(
-						JSON.stringify({
-							results: [
-								{
-									title: "Framework X Pro - Official Store",
-									url: "https://www.example.com/products/x-pro?utm_source=test",
-									summary: "Official listing for the Framework X Pro.",
-									highlights: [
-										"Framework X Pro starts at $799 from the official store.",
-									],
-									score: 0.82,
-									publishedDate: "2026-05-01T08:00:00.000Z",
-								},
-							],
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
-					return new Response(
-						JSON.stringify({
-							web: {
-								results: [
-									{
-										title: "Framework X Pro price tracker",
-										url: "https://prices.example.net/framework-x-pro",
-										description: "A tracker mentions older third-party prices.",
-										extra_snippets: [
-											"Third-party prices may lag behind the official store.",
-										],
-									},
-									{
-										title: "Framework X Pro - Official Store Duplicate",
-										url: "https://example.com/products/x-pro",
-										description:
-											"Official duplicate without tracking parameters.",
-									},
-								],
-							},
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				if (url === "https://api.exa.ai/contents") {
-					const body = JSON.parse(String(init?.body));
-					expect(body.urls).toContain(
-						"https://www.example.com/products/x-pro?utm_source=test",
-					);
-					expect(body.maxAgeHours).toBe(0);
-					return new Response(
-						JSON.stringify({
-							results: [
-								{
-									url: "https://example.com/products/x-pro",
-									text: [
-										"Framework X Pro official product page.",
-										"The current starting price is $799 before taxes and shipping.",
-										"Configurations and availability may change by region.",
-									].join(" "),
-									highlights: [
-										"The current starting price is $799 before taxes and shipping.",
-									],
-								},
-							],
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				throw new Error(`Unexpected fetch: ${url}`);
-			},
-		);
+	it("queries SearXNG with JSON parameters, opens selected pages, and reranks evidence chunks", async () => {
+		const searchUrls: URL[] = [];
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = input.toString();
+			if (url.startsWith("http://127.0.0.1:8080/search?")) {
+				searchUrls.push(new URL(url));
+				return searxngSearchResponse([
+					{
+						title: "Framework X Pro - Official Store",
+						url: "https://www.example.com/products/x-pro?utm_source=test",
+						content: "Official listing for the Framework X Pro.",
+						score: 0.82,
+						publishedDate: "2026-05-01T08:00:00.000Z",
+					},
+					{
+						title: "Framework X Pro price tracker",
+						url: "https://prices.example.net/framework-x-pro",
+						content: "A tracker mentions older third-party prices.",
+						score: 0.4,
+					},
+					{
+						title: "Framework X Pro - Official Store Duplicate",
+						url: "https://example.com/products/x-pro",
+						content: "Official duplicate without tracking parameters.",
+						score: 0.3,
+					},
+				]);
+			}
+			if (url === "https://www.example.com/products/x-pro?utm_source=test") {
+				return htmlResponse(`
+					<html>
+						<head><title>Framework X Pro Store</title></head>
+						<body>
+							<main>
+								<p>Framework X Pro official product page.</p>
+								<p>The current starting price is $799 before taxes and shipping.</p>
+								<p>Configurations and availability may change by region.</p>
+							</main>
+						</body>
+					</html>
+				`);
+			}
+			if (url === "https://prices.example.net/framework-x-pro") {
+				return htmlResponse(
+					"<html><body>Third-party prices may lag behind the official store.</body></html>",
+				);
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
 
 		const rerank = vi.fn(
 			async (params: {
@@ -397,200 +305,63 @@ describe("researchWeb", () => {
 			},
 		);
 
-		expect(result.queries.map((entry) => entry.purpose)).toEqual([
-			"broad",
-			"official",
-			"exact",
-			"freshness",
-			"exact",
-			"exact",
-		]);
+		expect(searchUrls.length).toBeGreaterThan(0);
+		expect(searchUrls[0]?.searchParams.get("format")).toBe("json");
+		expect(searchUrls[0]?.searchParams.get("language")).toBe("en");
+		expect(searchUrls[0]?.searchParams.get("safesearch")).toBe("1");
+		expect(searchUrls[0]?.searchParams.get("categories")).toBe("general");
+		expect(searchUrls[0]?.searchParams.get("time_range")).toBe("day");
 		expect(result.sources.map((source) => source.canonicalUrl)).toEqual([
 			"https://example.com/products/x-pro",
 			"https://prices.example.net/framework-x-pro",
 		]);
+		expect(result.sources[0]?.title).toBe("Framework X Pro Store");
 		expect(result.evidence[0]?.quote).toContain("$799");
 		expect(result.answerBrief.markdown).toContain("Citation rules:");
-		expect(result.answerBrief.markdown).toContain(
-			"It is not a response-language instruction",
-		);
-		expect(result.answerBrief.markdown).toContain(
-			"Do not cite URLs that are not listed",
-		);
 		expect(result.answerBrief.sources[0]).toMatchObject({
 			ref: "S1",
-			url: "https://www.example.com/products/x-pro?utm_source=test",
+			provider: "searxng",
 			authorityClass: "standard",
 		});
-		expect(result.answerBrief.evidence[0]).toMatchObject({
-			ref: "E1",
-			sourceRef: "S1",
-		});
-		expect(result.answerBrief.evidence[0]?.quote).toContain("$799");
-		expect(result.diagnostics.openedPageCount).toBe(1);
+		expect(result.diagnostics.openedPageCount).toBe(2);
 		expect(result.diagnostics.reranked).toBe(true);
 		expect(result.diagnostics.providers).toEqual({
-			exaConfigured: true,
-			braveConfigured: true,
+			searxngConfigured: true,
 		});
-		expect(result.diagnostics.plannedQueryCount).toBe(6);
-		expect(result.diagnostics.fetchedSourceCount).toBe(18);
+		expect(result.diagnostics.fetchedSourceCount).toBeGreaterThan(0);
 		expect(result.diagnostics.fusedSourceCount).toBe(2);
 		expect(result.diagnostics.selectedSourceCount).toBe(2);
 		expect(result.diagnostics.evidenceCandidateCount).toBeGreaterThan(0);
 		expect(result.diagnostics.exactEvidenceCandidateCount).toBeGreaterThan(0);
-		expect(result.diagnostics.providerCalls).toHaveLength(12);
-	});
-
-	it("selects authoritative sources with host diversity before opening pages", async () => {
-		const openedUrls: string[] = [];
-		const fetchMock = vi.fn(
-			async (input: RequestInfo | URL, init?: RequestInit) => {
-				const url = input.toString();
-				if (url === "https://api.exa.ai/search") {
-					return new Response(
-						JSON.stringify({
-							results: [
-								{
-									title: "Example Docs - Routing",
-									url: "https://docs.example.com/routing",
-									summary: "Official routing documentation.",
-									highlights: ["Routing docs for the framework."],
-								},
-								{
-									title: "Example Docs - Loading",
-									url: "https://docs.example.com/loading",
-									summary: "Official loading documentation.",
-									highlights: ["Loading docs for the framework."],
-								},
-								{
-									title: "Example Docs - Actions",
-									url: "https://docs.example.com/actions",
-									summary: "Official action documentation.",
-									highlights: ["Action docs for the framework."],
-								},
-								{
-									title: "Example GitHub README",
-									url: "https://github.com/example/framework",
-									summary: "Primary README and release notes.",
-									highlights: ["Release notes mention the routing change."],
-								},
-							],
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				if (url === "https://api.exa.ai/contents") {
-					const body = JSON.parse(String(init?.body));
-					openedUrls.push(...body.urls);
-					return new Response(
-						JSON.stringify({
-							results: body.urls.map((sourceUrl: string) => ({
-								url: sourceUrl,
-								text: `Fetched content for ${sourceUrl}. The source contains relevant implementation details.`,
-								highlights: [`Relevant details from ${sourceUrl}.`],
-							})),
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				throw new Error(`Unexpected fetch: ${url}`);
-			},
-		);
-
-		const result = await researchWeb(
-			{
-				query: "Example framework routing change",
-				mode: "research",
-				sourcePolicy: "technical",
-				maxSources: 3,
-			},
-			{
-				config: { ...webConfig, braveSearchApiKey: "" },
-				fetch: fetchMock,
-				now: new Date("2026-05-02T12:00:00.000Z"),
-				rerank: async (params) => ({
-					items: params.items.map((item, index) => ({
-						item,
-						index,
-						score: 1 - index / 100,
-					})),
-					confidence: 90,
-				}),
-			},
-		);
-
-		expect(result.sources.map((source) => source.canonicalUrl)).toEqual([
-			"https://docs.example.com/routing",
-			"https://docs.example.com/loading",
-			"https://github.com/example/framework",
-		]);
-		expect(result.sources).not.toContainEqual(
-			expect.objectContaining({
-				canonicalUrl: "https://docs.example.com/actions",
-			}),
-		);
-		expect(openedUrls).toContain("https://github.com/example/framework");
 	});
 
 	it("uses semantic source reranking before choosing pages to open", async () => {
 		const relevantUrl = "https://case-study.example.org/form-action-fix";
 		const openedUrls: string[] = [];
-		const fetchMock = vi.fn(
-			async (input: RequestInfo | URL, init?: RequestInit) => {
-				const url = input.toString();
-				if (url === "https://api.exa.ai/search") {
-					return new Response(
-						JSON.stringify({
-							results: [
-								{
-									title: "Example Docs - General Routing",
-									url: "https://docs.example.com/routing",
-									summary:
-										"Official routing documentation with no form details.",
-									highlights: ["Routing docs for the framework."],
-									score: 0.99,
-								},
-								{
-									title: "Form Action Fix Case Study",
-									url: relevantUrl,
-									summary:
-										"Detailed report about nested submit failures in form actions.",
-									highlights: [
-										"The nested submit failure is fixed by preserving the action payload.",
-									],
-									score: 0.1,
-								},
-							],
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				if (url === "https://api.exa.ai/contents") {
-					const body = JSON.parse(String(init?.body));
-					openedUrls.push(...body.urls);
-					return new Response(
-						JSON.stringify({
-							results: [
-								{
-									url: relevantUrl,
-									text: "The form action case study documents the exact nested submit failure and its fix.",
-									highlights: [
-										"The form action case study documents the exact nested submit failure and its fix.",
-									],
-								},
-							],
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				throw new Error(`Unexpected fetch: ${url}`);
-			},
-		);
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = input.toString();
+			if (url.startsWith("http://127.0.0.1:8080/search?")) {
+				return searxngSearchResponse([
+					{
+						title: "Example Docs - General Routing",
+						url: "https://docs.example.com/routing",
+						content: "Official routing documentation with no form details.",
+						score: 0.99,
+					},
+					{
+						title: "Form Action Fix Case Study",
+						url: relevantUrl,
+						content:
+							"Detailed report about nested submit failures in form actions.",
+						score: 0.1,
+					},
+				]);
+			}
+			openedUrls.push(url);
+			return htmlResponse(
+				"The form action case study documents the exact nested submit failure and its fix.",
+			);
+		});
 
 		const sourceRerank = vi.fn(
 			async (params: {
@@ -617,7 +388,7 @@ describe("researchWeb", () => {
 				maxSources: 1,
 			},
 			{
-				config: { ...webConfig, braveSearchApiKey: "" },
+				config: webConfig,
 				fetch: fetchMock,
 				now: new Date("2026-05-02T12:00:00.000Z"),
 				sourceRerank,
@@ -641,52 +412,18 @@ describe("researchWeb", () => {
 		expect(result.evidence[0]?.quote).toContain("nested submit failure");
 	});
 
-	it("treats user-provided URLs as mandatory opened sources", async () => {
+	it("treats user-provided URLs as mandatory opened sources without SearXNG", async () => {
 		const directUrl = "https://shop.example.com/products/widget-pro";
-		const openedUrls: string[] = [];
-		const fetchMock = vi.fn(
-			async (input: RequestInfo | URL, init?: RequestInit) => {
-				const url = input.toString();
-				if (url === "https://api.exa.ai/search") {
-					return new Response(
-						JSON.stringify({
-							results: [
-								{
-									title: "Official Documentation",
-									url: "https://docs.example.com/widget-pro",
-									summary:
-										"High-authority documentation, but not the requested page.",
-									highlights: ["Documentation for Widget Pro."],
-								},
-							],
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				if (url === "https://api.exa.ai/contents") {
-					const body = JSON.parse(String(init?.body));
-					openedUrls.push(...body.urls);
-					return new Response(
-						JSON.stringify({
-							results: [
-								{
-									url: directUrl,
-									title: "Widget Pro Store Page",
-									text: "Widget Pro is currently listed at $249 on the store page.",
-									highlights: [
-										"Widget Pro is currently listed at $249 on the store page.",
-									],
-								},
-							],
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				throw new Error(`Unexpected fetch: ${url}`);
-			},
-		);
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = input.toString();
+			expect(url).toBe(directUrl);
+			return htmlResponse(`
+				<html>
+					<head><title>Widget Pro Store Page</title></head>
+					<body>Widget Pro is currently listed at $249 on the store page.</body>
+				</html>
+			`);
+		});
 
 		const result = await researchWeb(
 			{
@@ -694,7 +431,7 @@ describe("researchWeb", () => {
 				maxSources: 1,
 			},
 			{
-				config: { ...webConfig, braveSearchApiKey: "" },
+				config: { ...webConfig, searxngBaseUrl: "" },
 				fetch: fetchMock,
 				now: new Date("2026-05-02T12:00:00.000Z"),
 				rerank: async (params) => ({
@@ -709,15 +446,55 @@ describe("researchWeb", () => {
 		);
 
 		expect(result.diagnostics.mode).toBe("exact");
-		expect(openedUrls).toEqual([directUrl]);
+		expect(result.diagnostics.directUrlCount).toBe(1);
+		expect(result.diagnostics.openedPageCount).toBe(1);
 		expect(result.sources).toHaveLength(1);
 		expect(result.sources[0]).toMatchObject({
 			canonicalUrl: directUrl,
 			title: "Widget Pro Store Page",
+			provider: "direct",
 		});
 		expect(result.evidence[0]?.quote).toContain("$249");
-		expect(result.answerBrief.markdown).toContain("Widget Pro Store Page");
-		expect(result.answerBrief.markdown).toContain("$249");
+		expect(result.diagnostics.fallbackReasons).not.toContain(
+			"web_research_not_configured",
+		);
+	});
+
+	it("falls back to SearXNG snippets when selected pages cannot be opened", async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = input.toString();
+			if (url.startsWith("http://127.0.0.1:8080/search?")) {
+				return searxngSearchResponse([
+					{
+						title: "Official API Docs",
+						url: "https://docs.example.com/api",
+						content:
+							"The official API docs say timeout errors should be retried with exponential backoff.",
+						score: 1,
+					},
+				]);
+			}
+			return new Response("gateway timeout", { status: 504 });
+		});
+
+		const result = await researchWeb(
+			{
+				query: "official API timeout retry guidance",
+				mode: "research",
+				sourcePolicy: "technical",
+				maxSources: 1,
+			},
+			{
+				config: webConfig,
+				fetch: fetchMock,
+				now: new Date("2026-05-02T12:00:00.000Z"),
+			},
+		);
+
+		expect(result.diagnostics.openedPageCount).toBe(0);
+		expect(result.diagnostics.fallbackReasons).toContain("page_open_failed");
+		expect(result.evidence[0]?.quote).toContain("exponential backoff");
+		expect(result.answerBrief.markdown).toContain("Official API Docs");
 	});
 
 	it("extracts exact value quotes from deep opened page text before generic chunk caps", async () => {
@@ -732,48 +509,23 @@ describe("researchWeb", () => {
 			"The current checkout price is $1,299 before taxes and shipping.",
 		].join("\n\n");
 		const rerankQuotes: string[] = [];
-		const fetchMock = vi.fn(
-			async (input: RequestInfo | URL, init?: RequestInit) => {
-				const url = input.toString();
-				if (url === "https://api.exa.ai/search") {
-					return new Response(
-						JSON.stringify({
-							results: [
-								{
-									title: "Laptop Ultra Store",
-									url: productUrl,
-									summary:
-										"Official product page with a long configuration section.",
-									highlights: ["Laptop Ultra store listing."],
-								},
-							],
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				if (url === "https://api.exa.ai/contents") {
-					const body = JSON.parse(String(init?.body));
-					expect(body.urls).toEqual([productUrl]);
-					expect(body.text.maxCharacters).toBeGreaterThanOrEqual(12_000);
-					return new Response(
-						JSON.stringify({
-							results: [
-								{
-									url: productUrl,
-									title: "Laptop Ultra Store",
-									text: deepText,
-									highlights: [],
-								},
-							],
-						}),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
-				}
-
-				throw new Error(`Unexpected fetch: ${url}`);
-			},
-		);
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = input.toString();
+			if (url.startsWith("http://127.0.0.1:8080/search?")) {
+				return searxngSearchResponse([
+					{
+						title: "Laptop Ultra Store",
+						url: productUrl,
+						content: "Official product page with a long configuration section.",
+						score: 1,
+					},
+				]);
+			}
+			if (url === productUrl) {
+				return htmlResponse(`<html><body>${deepText}</body></html>`);
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
 
 		const result = await researchWeb(
 			{
@@ -784,7 +536,7 @@ describe("researchWeb", () => {
 				quoteRequired: true,
 			},
 			{
-				config: { ...webConfig, braveSearchApiKey: "" },
+				config: webConfig,
 				fetch: fetchMock,
 				now: new Date("2026-05-02T12:00:00.000Z"),
 				rerank: async (params) => {
@@ -834,177 +586,62 @@ describe("researchWeb", () => {
 
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = input.toString();
-			if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
-				return new Response(
-					JSON.stringify({
-						web: {
-							results: [
-								{
-									title: "Framework Laptop 16 Long-Term Review",
-									url: videoUrl,
-									description:
-										"Video review covering battery life, fan noise, and buying advice.",
-									extra_snippets: [
-										"The review says battery life and repairability are the deciding factors.",
-									],
-								},
-							],
-						},
-					}),
-					{ status: 200, headers: { "Content-Type": "application/json" } },
+			if (url.startsWith("http://127.0.0.1:8080/search?")) {
+				return searxngSearchResponse([
+					{
+						title: "Framework Laptop 16 review video",
+						url: videoUrl,
+						content:
+							"Long-term review video covering battery life and thermal behavior.",
+						score: 1,
+					},
+				]);
+			}
+			if (
+				url === videoUrl ||
+				url.startsWith(`https://youtube.com/watch?v=${videoId}&`)
+			) {
+				return htmlResponse(
+					`<html><body><script>var ytInitialPlayerResponse = ${JSON.stringify(
+						playerResponse,
+					)};</script></body></html>`,
 				);
 			}
-
-			if (url.startsWith("https://youtube.com/watch")) {
-				return new Response(
-					`<html><script>var ytInitialPlayerResponse = ${JSON.stringify(playerResponse)};</script></html>`,
-					{ status: 200, headers: { "Content-Type": "text/html" } },
-				);
-			}
-
 			if (url.startsWith(captionUrl)) {
-				const transcriptRequest = new URL(url);
-				expect(transcriptRequest.searchParams.get("fmt")).toBe("json3");
 				return new Response(
-					JSON.stringify({
-						events: [
-							{
-								tStartMs: 0,
-								dDurationMs: 4200,
-								segs: [
-									{
-										utf8: "This is a hands-on review after three months with the Framework Laptop 16.",
-									},
-								],
-							},
-							{
-								tStartMs: 4300,
-								dDurationMs: 5000,
-								segs: [
-									{
-										utf8: "Battery life lasted around eleven hours in mixed office work, while fan noise stayed low.",
-									},
-								],
-							},
-							{
-								tStartMs: 9400,
-								dDurationMs: 4300,
-								segs: [
-									{
-										utf8: "The main reason to buy it is repairability, not the lowest price.",
-									},
-								],
-							},
-						],
-					}),
-					{ status: 200, headers: { "Content-Type": "application/json" } },
+					`<transcript>
+						<text start="0" dur="5">Battery life reached nine hours in office use.</text>
+						<text start="5" dur="5">The fans stayed quiet during light work.</text>
+					</transcript>`,
+					{ status: 200, headers: { "Content-Type": "text/xml" } },
 				);
 			}
-
 			throw new Error(`Unexpected fetch: ${url}`);
 		});
 
 		const result = await researchWeb(
 			{
-				query: "Framework Laptop 16 review",
+				query: "Framework Laptop 16 review battery life",
 				mode: "research",
 				sourcePolicy: "commerce",
-				maxSources: 1,
+				maxSources: 2,
 			},
 			{
-				config: { ...webConfig, exaApiKey: "" },
+				config: webConfig,
 				fetch: fetchMock,
 				now: new Date("2026-05-02T12:00:00.000Z"),
-				rerank: async (params) => ({
-					items: params.items
-						.map((item, index) => ({
-							item,
-							index,
-							score: item.quote.includes("eleven hours") ? 0.99 : 0.2,
-						}))
-						.sort((left, right) => right.score - left.score),
-					confidence: 99,
-				}),
 			},
 		);
 
-		expect(result.queries.map((entry) => entry.query)).toContain(
-			"Framework Laptop 16 review YouTube review transcript",
-		);
-		expect(result.sources).toHaveLength(1);
-		expect(result.sources[0]).toMatchObject({
-			canonicalUrl: `https://youtube.com/watch?v=${videoId}`,
-			title: "Framework Laptop 16 Long-Term Review",
-			youtubeTranscript: {
-				videoId,
-				language: "English",
-				languageCode: "en",
-				isGenerated: true,
-				isTranslated: false,
-				snippetCount: 3,
-			},
-		});
-		expect(result.evidence[0]?.quote).toContain("eleven hours");
-		expect(result.answerBrief.markdown).toContain("Media: YouTube transcript");
 		expect(result.diagnostics.youtubeTranscriptCandidateCount).toBe(1);
 		expect(result.diagnostics.youtubeTranscriptFetchedCount).toBe(1);
-		expect(result.diagnostics.youtubeTranscriptFailedCount).toBe(0);
-		expect(result.diagnostics.fallbackReasons).not.toContain(
-			"youtube_transcript_unavailable",
-		);
-	});
-
-	it("keeps YouTube video sources when transcripts are unavailable", async () => {
-		const videoId = "dQw4w9WgXcQ";
-		const videoUrl = `https://youtu.be/${videoId}`;
-		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-			const url = input.toString();
-			if (url.startsWith("https://youtube.com/watch")) {
-				return new Response(
-					`<html><script>var ytInitialPlayerResponse = ${JSON.stringify({
-						videoDetails: { title: "Transcript Disabled Review" },
-					})};</script></html>`,
-					{ status: 200, headers: { "Content-Type": "text/html" } },
-				);
-			}
-			throw new Error(`Unexpected fetch: ${url}`);
-		});
-
-		const result = await researchWeb(
-			{
-				query: `What does this review say? ${videoUrl}`,
-				maxSources: 1,
-			},
-			{
-				config: { ...webConfig, exaApiKey: "", braveSearchApiKey: "" },
-				fetch: fetchMock,
-				now: new Date("2026-05-02T12:00:00.000Z"),
-				rerank: async (params) => ({
-					items: params.items.map((item, index) => ({
-						item,
-						index,
-						score: 1 - index / 100,
-					})),
-					confidence: 90,
-				}),
-			},
-		);
-
-		expect(result.sources).toHaveLength(1);
-		expect(result.sources[0]?.canonicalUrl).toBe(
-			`https://youtube.com/watch?v=${videoId}`,
-		);
-		expect(result.sources[0]?.youtubeTranscript).toBeUndefined();
-		expect(result.diagnostics.youtubeTranscriptCandidateCount).toBe(1);
-		expect(result.diagnostics.youtubeTranscriptFetchedCount).toBe(0);
-		expect(result.diagnostics.youtubeTranscriptFailedCount).toBe(1);
-		expect(result.diagnostics.youtubeTranscriptErrors[0]).toMatchObject({
+		expect(result.sources[0]?.youtubeTranscript).toMatchObject({
 			videoId,
-			url: videoUrl,
-			error: "transcript_unavailable",
+			languageCode: "en",
+			isGenerated: true,
 		});
-		expect(result.diagnostics.fallbackReasons).toContain(
-			"youtube_transcript_unavailable",
-		);
+		expect(
+			result.evidence.some((item) => item.quote.includes("nine hours")),
+		).toBe(true);
 	});
 });

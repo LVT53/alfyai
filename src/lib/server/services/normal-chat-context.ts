@@ -187,9 +187,9 @@ const WEB_RESEARCH_GUARD = [
 	"- Cite final web claims with markdown links using the returned source title and URL. Do not cite a source unless it supports the sentence.",
 	"- Never paste raw tool output into the final answer. Do not expose raw JSON, field names, diagnostics, source/evidence arrays, numbered search dumps, fetched page text dumps, or `Found N sources` summaries from `research_web`, `search`, `get_contents`, or `fetch_content`.",
 	"- If a tool returns `answerBriefMarkdown`, use it as evidence for your own concise answer; do not copy the field name or dump the raw brief.",
-	"- If `research_web` is unavailable and Exa Search is connected, its search tool is usually named `search` and expects a JSON argument: {`query`: `your search terms`}.",
-	"- For raw Exa follow-up retrieval, chain `search` calls first, then use the connected content retrieval tool.",
-	'- Raw Exa `get_contents` expects a JSON argument like {urls: ["https://example.com/page"]}; use URLs from search results unless the tool schema says otherwise.',
+	"- If `research_web` is unavailable, use only web/search tools that are explicitly listed in the runtime tool schema; otherwise say web retrieval is unavailable.",
+	"- For raw provider follow-up retrieval, chain `search` calls first, then use the connected content retrieval tool if one is listed.",
+	"- For raw content retrieval tools, follow the exact runtime schema and use URLs from search results unless the user supplied a URL.",
 	"- Use `find_similar` only when that tool is connected and the user provides a URL for similar-page discovery.",
 	"- Use the injected current date for temporal context before searching.",
 ].join("\n");
