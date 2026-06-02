@@ -107,6 +107,7 @@ const URL_LIST_TOOL_ARGUMENT_GUARD = [
 	"Tool argument safety for URL-processing tools:",
 	"- If a tool field is named `urls` or expects a list of URLs/links, always pass an array of strings.",
 	'- For a single link, use `["https://example.com"]`, never a bare string.',
+	"- To fetch the content of a user-pasted URL, call `research_web` with the URL in the query. The tool will fetch the page directly and return it as a primary source — do not use or invent a separate fetch tool.",
 ].join("\n");
 
 const DATE_BEFORE_SEARCH_GUARD = [
@@ -163,6 +164,7 @@ const WEB_RESEARCH_GUARD = [
 	'- Example for prices/availability: {"query": "iPhone 16 Pro Max price 2026", "mode": "exact", "freshness": "live", "sourcePolicy": "commerce"}',
 	'- Example for technical docs: {"query": "SvelteKit form actions API", "mode": "quick", "sourcePolicy": "technical"}',
 	'- Example for product reviews: {"query": "Framework Laptop 16 review YouTube hands-on", "mode": "research", "sourcePolicy": "commerce"}',
+	"- When the user pastes a URL, include it in the `query` and use `mode: \"exact\"`. The tool will fetch the page content directly and return it as a primary source. Do not try to use a separate fetch tool — `research_web` handles the page fetch internally.",
 	"- For product reviews, hands-on comparisons, or buying advice, include `review`, `YouTube`, or `video` in the research query when relevant so `research_web` can surface transcript-backed evidence from selected YouTube results.",
 	"- Treat `research_web.evidence` as the strongest source of page-backed facts. If an exact value is not present in evidence or source text, say that the retrieved source did not expose it.",
 	"- Cite final web claims with markdown links using the returned source title and URL. Do not cite a source unless it supports the sentence.",
