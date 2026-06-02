@@ -3,8 +3,10 @@ import {
 	APICallError,
 	type FinishReason,
 	generateText,
+	InvalidToolInputError,
 	type LanguageModelUsage,
 	type ModelMessage,
+	NoSuchToolError,
 	type StopCondition,
 	stepCountIs,
 	streamText,
@@ -21,12 +23,26 @@ import type { ModelConfig } from "$lib/server/env";
 import type { ThinkingMode } from "$lib/types";
 import type { ProviderUsageSnapshot } from "../analytics";
 import { decryptApiKey, getProviderWithSecrets } from "../inference-providers";
+import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
 import { createOpenAICompatibleStreamNormalizingFetch } from "./openai-compatible-stream-normalizer";
 import {
 	buildNormalChatModelRunCompatibilityProviderOptions,
 	transformNormalChatModelRunRequestBody,
 } from "./provider-compatibility";
+
+function toolCallRepairFunction({
+	error,
+	toolCall,
+}: {
+	error: InvalidToolInputError | NoSuchToolError;
+	toolCall: { toolCallId: string; toolName: string; input: string };
+}): { toolCallId: string; toolName: string; input: string } | null {
+	if (NoSuchToolError.isInstance(error)) return null;
+	const repaired = repairMalformedToolCallJson(toolCall.input);
+	if (!repaired) return null;
+	return { ...toolCall, input: repaired };
+}
 
 type NormalChatReasoningEffort = NonNullable<ModelConfig["reasoningEffort"]>;
 type NormalChatThinkingType = NonNullable<ModelConfig["thinkingType"]>;
@@ -455,6 +471,7 @@ export async function runPlainNormalChatModelRun(
 		abortSignal: params.abortSignal,
 		headers: params.headers,
 		providerOptions: params.providerOptions,
+		experimental_repairToolCall: toolCallRepairFunction,
 	};
 
 	let result: Awaited<ReturnType<typeof generateText>>;
@@ -521,6 +538,7 @@ async function* streamStreamingNormalChatModelRun(
 		abortSignal: params.abortSignal,
 		headers: params.headers,
 		providerOptions: params.providerOptions,
+		experimental_repairToolCall: toolCallRepairFunction,
 		onError: () => undefined,
 	});
 
