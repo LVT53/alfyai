@@ -713,6 +713,7 @@ export function runChatStreamOrchestrator(
 			let latestProviderUsage: ProviderUsageSnapshot | null = null;
 			let latestModelId = modelId ?? "model1";
 			let latestModelDisplayName = modelDisplayName;
+			let latestProviderIconUrl: string | null = null;
 			let initialContextStatus:
 				| import("$lib/types").ConversationContextStatus
 				| undefined;
@@ -735,7 +736,7 @@ export function runChatStreamOrchestrator(
 					modelId: latestModelId,
 					modelDisplayName: latestModelDisplayName,
 					providerDisplayName,
-					providerIconUrl: modelRun?.providerIconUrl ?? null,
+					providerIconUrl: latestProviderIconUrl,
 					userId: user.id,
 					normalizedMessage,
 					upstreamMessage,
@@ -1119,6 +1120,7 @@ export function runChatStreamOrchestrator(
 						modelRun = await runStreamingNormalChatSendModel(
 							modelRunParams,
 						);
+						latestProviderIconUrl = modelRun.providerIconUrl ?? null;
 					} catch (error) {
 						if (
 							wasActiveChatStreamStopRequested(streamId) ||
