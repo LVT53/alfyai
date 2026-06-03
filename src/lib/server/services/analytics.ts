@@ -5,12 +5,12 @@ import {
 	analyticsConversations,
 	conversations,
 	messageAnalytics,
-	modelPriceRules,
+	providerModels,
 	usageEvents,
 	users,
 } from '../db/schema';
-import { getConfig, getProviderById } from '../config-store';
-import { getProviderIdFromModelId, isProviderModelId } from '$lib/types';
+import { getConfig } from '../config-store';
+import { isProviderModelId } from '$lib/types';
 
 export type UsageSource = 'provider' | 'estimated' | 'legacy_estimate';
 
@@ -187,16 +187,28 @@ async function getModelSnapshot(modelId: string, fallbackDisplayName?: string | 
 		};
 	}
 
-	const providerId = isProviderModelId(modelId)
-		? getProviderIdFromModelId(modelId)
-		: null;
-	const provider = providerId ? await getProviderById(providerId).catch(() => null) : null;
+	const providerId = modelId.startsWith("provider:") ? modelId.slice("provider:".length) : modelId;
+	try {
+		const { getProviderWithSecrets } = await import('./providers');
+		const provider = await getProviderWithSecrets(providerId).catch(() => null);
+		if (provider) {
+			return {
+				modelDisplayName: fallbackDisplayName ?? provider.displayName ?? modelId,
+				providerId,
+				providerDisplayName: provider.displayName ?? fallbackDisplayName ?? null,
+				providerBaseUrl: provider.baseUrl ?? null,
+				providerModelName: provider.name ?? null,
+			};
+		}
+	} catch {
+	}
+
 	return {
-		modelDisplayName: fallbackDisplayName ?? provider?.displayName ?? modelId,
-		providerId,
-		providerDisplayName: provider?.displayName ?? fallbackDisplayName ?? null,
-		providerBaseUrl: provider?.baseUrl ?? null,
-		providerModelName: provider?.modelName ?? null,
+		modelDisplayName: fallbackDisplayName ?? modelId,
+		providerId: null,
+		providerDisplayName: null,
+		providerBaseUrl: null,
+		providerModelName: null,
 	};
 }
 
@@ -207,27 +219,20 @@ export async function findPriceRule(params: {
 }) {
 	const rows = await db
 		.select()
-		.from(modelPriceRules)
-		.where(eq(modelPriceRules.enabled, true));
+		.from(providerModels);
 
 	const normalizedModelName = params.providerModelName?.trim().toLowerCase() ?? '';
 	const normalizedModelId = params.modelId.trim().toLowerCase();
 	const normalizedProviderId = params.providerId?.trim().toLowerCase() ?? '';
 
 	return (
-		rows.find((rule) => rule.modelId?.toLowerCase() === normalizedModelId) ??
-		rows.find(
-			(rule) =>
-				rule.providerId?.toLowerCase() === normalizedProviderId &&
-				rule.modelName.toLowerCase() === normalizedModelName
-		) ??
-		rows.find((rule) => rule.modelName.toLowerCase() === normalizedModelName) ??
+		rows.find((rule) => rule.name?.toLowerCase() === normalizedModelName) ??
 		null
 	);
 }
 
 export function calculateCostUsdMicros(
-	rule: typeof modelPriceRules.$inferSelect | null,
+	rule: typeof providerModels.$inferSelect | null,
 	usage: {
 		promptTokens: number;
 		cachedInputTokens: number;

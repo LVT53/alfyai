@@ -1,16 +1,12 @@
 import { json } from "@sveltejs/kit";
 import {
 	getAvailableModels,
-	getEnabledProviders,
 	modelIconUrl,
 } from "$lib/server/config-store";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async () => {
-	const [builtInModels, oldProviders] = await Promise.all([
-		Promise.resolve(getAvailableModels()),
-		getEnabledProviders(),
-	]);
+	const builtInModels = getAvailableModels();
 
 	const { listEnabledProviders: listNewProviders } = await import(
 		"$lib/server/services/providers"
@@ -30,7 +26,6 @@ export const GET: RequestHandler = async () => {
 		models: Array<{ id: string; displayName: string }>;
 	}> = [];
 
-	// Built-in provider group
 	if (builtInModels.length > 0) {
 		providers.push({
 			id: "built-in",
@@ -45,24 +40,6 @@ export const GET: RequestHandler = async () => {
 		});
 	}
 
-	// Old inference providers
-	for (const provider of oldProviders) {
-		providers.push({
-			id: provider.id,
-			name: provider.name,
-			displayName: provider.displayName,
-			iconAssetId: provider.iconAssetId,
-			iconUrl: modelIconUrl(provider.iconAssetId),
-			models: [
-				{
-					id: `provider:${provider.id}`,
-					displayName: provider.displayName,
-				},
-			],
-		});
-	}
-
-	// New providers with their models
 	for (const provider of newProviders) {
 		const models = await listNewProviderModels(provider.id);
 		const enabledModels = models.filter((m) => m.enabled);

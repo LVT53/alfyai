@@ -1,10 +1,12 @@
 import {
 	getMaxMessageLength,
-	getProviderById,
 	normalizeModelSelection,
 	type RuntimeConfig,
 } from "$lib/server/config-store";
-import { getProviderByName } from "$lib/server/services/providers";
+import {
+	getProviderByName,
+	getProviderWithSecrets,
+} from "$lib/server/services/providers";
 import { listEnabledProviderModels } from "$lib/server/services/provider-models";
 import { createAttachmentTraceId } from "$lib/server/services/attachment-trace";
 import type {
@@ -122,7 +124,7 @@ export async function parseChatTurnRequest(
 	} else if (modelStr.startsWith("provider:")) {
 		const providerId = modelStr.slice("provider:".length);
 		if (providerId.length > 0) {
-			const provider = await getProviderById(providerId);
+			const provider = await getProviderWithSecrets(providerId).catch(() => null);
 			if (!provider || !provider.enabled) {
 				return {
 					ok: false,
@@ -134,7 +136,6 @@ export async function parseChatTurnRequest(
 			}
 			modelId = modelStr as ModelId;
 			modelDisplayName = provider.displayName;
-			resolvedMaxMessageLength = provider.maxMessageLength;
 		} else {
 			modelId = undefined;
 			modelDisplayName = runtimeConfig.model1.displayName;

@@ -1,14 +1,9 @@
 <script lang="ts">
 import {
 	createAdminSystemSkill,
-	createProvider,
-	deleteProvider,
 	fetchAdminSystemSkills,
-	fetchProviders,
 	updateAdminConfig,
-	updateProvider,
 	updateAdminSystemSkill,
-	validateProvider,
 	fetchPersonalityProfiles,
 	createProviderEntry,
 	deleteProviderEntry,
@@ -17,7 +12,6 @@ import {
 	updateProviderEntry,
 	type AdminSystemSkill,
 	type AdminSystemSkillDraft,
-	type InferenceProvider,
 	type PersonalityProfileSummary,
 	type Provider,
 } from "$lib/client/api/admin";
@@ -35,16 +29,9 @@ import {
 	DEFAULT_DEEP_RESEARCH_MODEL_ID,
 	type DeepResearchModelRoleDefinition,
 } from "$lib/deep-research-models";
-import {
-	MODEL_CAPABILITY_KEYS,
-	type ModelCapabilityKey,
-	type ModelCapabilityState,
-	type ModelCapabilityStatus,
-} from "$lib/model-capabilities";
 import type { ModelId } from "$lib/types";
 import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
-import ModelFormModal from "./ModelFormModal.svelte";
 import ProviderForm from "./ProviderForm.svelte";
 import ProviderList from "./ProviderList.svelte";
 
@@ -82,9 +69,6 @@ let {
 	onSaveAdminConfig: () => void | Promise<void>;
 } = $props();
 
-let providers = $state<InferenceProvider[]>([]);
-let providersLoading = $state(false);
-let providersError = $state("");
 let providerConfigs = $state<Provider[]>([]);
 let providerConfigsLoading = $state(false);
 let providerConfigsError = $state("");
@@ -132,8 +116,7 @@ let providersMessageTimer: ReturnType<typeof setTimeout> | undefined;
 let systemSkillsMessageTimer: ReturnType<typeof setTimeout> | undefined;
 
 type ModelIconTarget =
-	| { kind: "built-in"; modelName: "model1" | "model2" }
-	| { kind: "provider"; provider: InferenceProvider };
+	| { kind: "built-in"; modelName: "model1" | "model2" };
 
 type ModelIconCropJob = {
 	key: string;
@@ -182,20 +165,6 @@ function builtInIconUrl(modelName: "model1" | "model2"): string | null {
 	return campaignAssetContentUrl(builtInIconAssetId(modelName));
 }
 
-function providerIconUrl(provider: InferenceProvider): string | null {
-	return provider.iconUrl ?? campaignAssetContentUrl(provider.iconAssetId);
-}
-
-function uploadKeyForProvider(provider: InferenceProvider): string {
-	return `provider:${provider.id}`;
-}
-
-function uploadKeyForTarget(target: ModelIconTarget): string {
-	return target.kind === "built-in"
-		? target.modelName
-		: uploadKeyForProvider(target.provider);
-}
-
 function isSvgFile(file: File): boolean {
 	return (
 		file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg")
@@ -210,11 +179,7 @@ async function applyModelIconAsset(target: ModelIconTarget, assetId: string) {
 				: "MODEL_2_ICON_ASSET_ID";
 		adminConfig[configKey] = assetId;
 		await updateAdminConfig({ [configKey]: assetId });
-		return;
 	}
-
-	await updateProvider(target.provider.id, { iconAssetId: assetId });
-	await loadProviders();
 }
 
 async function handleModelIconFile(event: Event, target: ModelIconTarget) {
@@ -223,10 +188,10 @@ async function handleModelIconFile(event: Event, target: ModelIconTarget) {
 	input.value = "";
 	if (!file) return;
 
-	const key = uploadKeyForTarget(target);
+	const key = target.modelName;
 	iconUploading = key;
-	providersError = "";
-	providersMessage = "";
+	providerConfigsError = "";
+	providerConfigsMessage = "";
 	try {
 		if (isSvgFile(file)) {
 			const asset = await uploadModelIconAsset({ image: file });
@@ -238,7 +203,7 @@ async function handleModelIconFile(event: Event, target: ModelIconTarget) {
 		const imageSrc = URL.createObjectURL(file);
 		const sourceUpload = uploadCampaignAssetSource({ image: file });
 		sourceUpload.catch((error: unknown) => {
-			providersError = errorMessage(error, $t("admin.modelIconUploadFailed"));
+			providerConfigsError = errorMessage(error, $t("admin.modelIconUploadFailed"));
 		});
 		modelIconCropJob = {
 			key,
@@ -247,7 +212,7 @@ async function handleModelIconFile(event: Event, target: ModelIconTarget) {
 			sourceUpload,
 		};
 	} catch (error: unknown) {
-		providersError = errorMessage(error, $t("admin.modelIconUploadFailed"));
+		providerConfigsError = errorMessage(error, $t("admin.modelIconUploadFailed"));
 		if (modelIconCropJob?.key === key) {
 			URL.revokeObjectURL(modelIconCropJob.imageSrc);
 			modelIconCropJob = null;
@@ -289,30 +254,6 @@ async function saveModelIconCrop(payload: {
 function cancelModelIconCrop() {
 	if (modelIconCropJob) URL.revokeObjectURL(modelIconCropJob.imageSrc);
 	modelIconCropJob = null;
-}
-
-// Modal state
-let showModal = $state(false);
-let modalModel = $state<
-	| (InferenceProvider & {
-			isBuiltIn?: boolean;
-	  })
-	| null
->(null);
-let modalIsCreate = $state(false);
-let modalSaving = $state(false);
-let modalError = $state("");
-
-async function loadProviders() {
-	providersLoading = true;
-	providersError = "";
-	try {
-		providers = await fetchProviders();
-	} catch (error: unknown) {
-		providersError = errorMessage(error, $t("admin.failedLoadProviders"));
-	} finally {
-		providersLoading = false;
-	}
 }
 
 async function loadProviderConfigs() {
@@ -383,31 +324,6 @@ async function handleProviderFormSave(data: Record<string, unknown>) {
 	}
 }
 
-async function handleProviderFormTest(_data: Record<string, unknown>) {
-	providerFormTesting = true;
-	providerFormTestError = "";
-	providerFormTestMessage = "";
-	try {
-		const result = await validateProvider(providerFormProvider?.id ?? "");
-		if (result.valid) {
-			providerFormTestMessage = $t("admin.providerValid", {
-				name: providerFormProvider?.displayName ?? "Provider",
-			});
-		} else {
-			providerFormTestError = $t("admin.validationFailed", {
-				error: result.error ?? "Unknown error",
-			});
-		}
-	} catch (error: unknown) {
-		providerFormTestError = errorMessage(
-			error,
-			$t("admin.failedValidateProvider"),
-		);
-	} finally {
-		providerFormTesting = false;
-	}
-}
-
 async function handleDeleteProviderConfig(provider: Provider) {
 	providerConfigsMessage = "";
 	try {
@@ -451,21 +367,10 @@ async function handleTestProviderConfig(provider: Provider) {
 	providerConfigsError = "";
 	providerConfigsMessage = "";
 	try {
-		const result = await validateProvider(provider.id);
-		if (result.valid) {
-			providerConfigsMessage = $t("admin.providerValid", {
-				name: provider.displayName,
-			});
-		} else {
-			providerConfigsError = $t("admin.validationFailed", {
-				error: result.error ?? "Unknown error",
-			});
-		}
+		const models = await discoverProviderModels(provider.id);
+		providerConfigsMessage = `${models.length} model(s) discovered.`;
 	} catch (error: unknown) {
-		providerConfigsError = errorMessage(
-			error,
-			$t("admin.failedValidateProvider"),
-		);
+		providerConfigsError = errorMessage(error, "Failed to test provider.");
 	}
 }
 
@@ -575,288 +480,6 @@ async function updateSystemSkillFlags(
 	}
 }
 
-function openAddProvider() {
-	modalModel = null;
-	modalIsCreate = true;
-	modalError = "";
-	modalSaving = false;
-	showModal = true;
-}
-
-function openEditBuiltIn(modelName: string) {
-	const prefix = modelName === "model1" ? "MODEL_1" : "MODEL_2";
-	modalModel = {
-		id: modelName,
-		name: modelName,
-		displayName: adminConfig[`${prefix}_DISPLAY_NAME`] ?? "",
-		baseUrl: adminConfig[`${prefix}_BASEURL`] ?? "",
-		apiKey: adminConfig[`${prefix}_API_KEY`] ?? "",
-		modelName: adminConfig[`${prefix}_NAME`] ?? "",
-		reasoningEffort:
-			(adminConfig[`${prefix}_REASONING_EFFORT`] as
-				| "low"
-				| "medium"
-				| "high"
-				| "max"
-				| "xhigh"
-				| "") || null,
-		thinkingType:
-			(adminConfig[`${prefix}_THINKING_TYPE`] as "enabled" | "disabled" | "") ||
-			null,
-		enabled:
-			modelName === "model1"
-				? adminConfig.MODEL_1_ENABLED !== "false"
-				: adminConfig.MODEL_2_ENABLED !== "false",
-		sortOrder: 0,
-		maxModelContext: adminConfig[`${prefix}_MAX_MODEL_CONTEXT`]
-			? Number(adminConfig[`${prefix}_MAX_MODEL_CONTEXT`])
-			: null,
-		compactionUiThreshold: null,
-		targetConstructedContext: null,
-		maxMessageLength: adminConfig[`${prefix}_MAX_MESSAGE_LENGTH`]
-			? Number(adminConfig[`${prefix}_MAX_MESSAGE_LENGTH`])
-			: null,
-		maxTokens: adminConfig[`${prefix}_MAX_TOKENS`]
-			? Number(adminConfig[`${prefix}_MAX_TOKENS`])
-			: null,
-		iconAssetId: adminConfig[`${prefix}_ICON_ASSET_ID`] || null,
-		createdAt: "",
-		updatedAt: "",
-		isBuiltIn: true,
-	};
-	modalIsCreate = false;
-	modalError = "";
-	modalSaving = false;
-	showModal = true;
-}
-
-function openEditProvider(provider: InferenceProvider) {
-	modalModel = { ...provider };
-	modalIsCreate = false;
-	modalError = "";
-	modalSaving = false;
-	showModal = true;
-}
-
-function closeModal() {
-	showModal = false;
-	modalModel = null;
-	modalError = "";
-}
-
-function handleModalUploadIcon(targetKind: string, file: File) {
-	let target: ModelIconTarget;
-	if (targetKind === "model1") {
-		target = { kind: "built-in", modelName: "model1" };
-	} else if (targetKind === "model2") {
-		target = { kind: "built-in", modelName: "model2" };
-	} else {
-		const provider = providers.find(
-			(p) => p.id === targetKind || p.name === targetKind,
-		);
-		if (!provider) {
-			modalError = $t("admin.modelIconProviderMissing");
-			return;
-		}
-		target = { kind: "provider", provider };
-	}
-	const syntheticEvent = {
-		currentTarget: { files: [file], value: "" },
-	} as unknown as Event;
-	handleModelIconFile(syntheticEvent, target);
-}
-
-async function handleModalSave(data: Record<string, unknown>) {
-	modalSaving = true;
-	modalError = "";
-	providersMessage = "";
-	try {
-		if (modalIsCreate) {
-			await createProvider(data as Parameters<typeof createProvider>[0]);
-			showProvidersMessage($t("admin.providerAdded"));
-		} else if (modalModel?.isBuiltIn) {
-			// Save built-in model config via admin config keys
-			const prefix = modalModel.name === "model1" ? "MODEL_1" : "MODEL_2";
-			if (data.displayName !== undefined)
-				adminConfig[`${prefix}_DISPLAY_NAME`] = data.displayName as string;
-			if (data.baseUrl !== undefined)
-				adminConfig[`${prefix}_BASEURL`] = data.baseUrl as string;
-			if (data.apiKey !== undefined)
-				adminConfig[`${prefix}_API_KEY`] = data.apiKey as string;
-			if (data.modelName !== undefined)
-				adminConfig[`${prefix}_NAME`] = data.modelName as string;
-			if (data.maxTokens !== undefined)
-				adminConfig[`${prefix}_MAX_TOKENS`] =
-					data.maxTokens != null ? String(data.maxTokens) : "";
-			if (data.reasoningEffort !== undefined)
-				adminConfig[`${prefix}_REASONING_EFFORT`] =
-					data.reasoningEffort != null ? String(data.reasoningEffort) : "";
-			if (data.thinkingType !== undefined)
-				adminConfig[`${prefix}_THINKING_TYPE`] =
-					data.thinkingType != null ? String(data.thinkingType) : "";
-			if (data.enabled !== undefined)
-				adminConfig[`${prefix}_ENABLED`] = (data.enabled as boolean)
-					? "true"
-					: "false";
-			if (data.maxModelContext !== undefined)
-				adminConfig[`${prefix}_MAX_MODEL_CONTEXT`] =
-					data.maxModelContext != null ? String(data.maxModelContext) : "";
-			if (data.compactionUiThreshold !== undefined)
-				adminConfig[`${prefix}_COMPACTION_UI_THRESHOLD`] =
-					data.compactionUiThreshold != null
-						? String(data.compactionUiThreshold)
-						: "";
-			if (data.targetConstructedContext !== undefined)
-				adminConfig[`${prefix}_TARGET_CONSTRUCTED_CONTEXT`] =
-					data.targetConstructedContext != null
-						? String(data.targetConstructedContext)
-						: "";
-			if (data.maxMessageLength !== undefined)
-				adminConfig[`${prefix}_MAX_MESSAGE_LENGTH`] =
-					data.maxMessageLength != null ? String(data.maxMessageLength) : "";
-			await onSaveAdminConfig?.();
-			showProvidersMessage(
-				`${modalModel.displayName || modelNameDisplay(modalModel.name)} ${$t("common.updated").toLowerCase()}`,
-			);
-		} else if (modalModel) {
-			await updateProvider(
-				modalModel.id,
-				data as Parameters<typeof updateProvider>[1],
-			);
-			showProvidersMessage($t("admin.providerUpdated"));
-		}
-		closeModal();
-		await loadProviders();
-	} catch (error: unknown) {
-		modalError = errorMessage(error, $t("admin.failedSave"));
-	} finally {
-		modalSaving = false;
-	}
-}
-
-async function handleDelete(provider: InferenceProvider) {
-	if (
-		!confirm($t("admin.deleteProviderConfirm", { name: provider.displayName }))
-	)
-		return;
-	providersMessage = "";
-	try {
-		await deleteProvider(provider.id);
-		showProvidersMessage($t("admin.providerDeleted"));
-		await loadProviders();
-	} catch (error: unknown) {
-		providersError = errorMessage(error, $t("admin.failedDeleteProvider"));
-	}
-}
-
-async function handleValidate(provider: InferenceProvider) {
-	providersMessage = "";
-	providersError = "";
-	try {
-		const result = await validateProvider(provider.id);
-		if (result.valid) {
-			showProvidersMessage(
-				$t("admin.providerValid", {
-					name: provider.displayName,
-				}),
-			);
-			if (result.capabilities) {
-				const idx = providers.findIndex((p) => p.id === provider.id);
-				if (idx >= 0) {
-					providers[idx] = {
-						...providers[idx],
-						capabilities: result.capabilities,
-					};
-				}
-			}
-		} else {
-			providersError = $t("admin.validationFailed", {
-				error: result.error ?? "Unknown error",
-			});
-		}
-	} catch (error: unknown) {
-		providersError = errorMessage(error, $t("admin.failedValidateProvider"));
-	}
-}
-
-const capabilityLabelKeys: Record<ModelCapabilityKey, I18nKey> = {
-	chat: "admin.capability.chat",
-	streaming: "admin.capability.streaming",
-	tools: "admin.capability.tools",
-	structuredOutput: "admin.capability.structuredOutput",
-	reasoningControls: "admin.capability.reasoningControls",
-	usageReporting: "admin.capability.usageReporting",
-	fileMessageParts: "admin.capability.fileMessageParts",
-	imageMessageParts: "admin.capability.imageMessageParts",
-	modelsEndpoint: "admin.capability.modelsEndpoint",
-};
-
-function providerCapabilityStatuses(
-	provider: InferenceProvider,
-): ModelCapabilityStatus[] {
-	return MODEL_CAPABILITY_KEYS.map((key) => {
-		const status = provider.capabilities?.[key];
-		return (
-			status ?? {
-				key,
-				state: "unknown",
-				supported: null,
-				source: "probe",
-			}
-		);
-	});
-}
-
-function capabilityLabel(key: ModelCapabilityKey): string {
-	return $t(capabilityLabelKeys[key]);
-}
-
-function capabilityStateLabel(status: ModelCapabilityStatus): string {
-	if (status.state === "manual_override") {
-		if (status.supported === true)
-			return $t("admin.capabilityState.manualOverrideSupported");
-		if (status.supported === false)
-			return $t("admin.capabilityState.manualOverrideUnsupported");
-		return $t("admin.capabilityState.manualOverride");
-	}
-
-	const map: Record<
-		Exclude<ModelCapabilityState, "manual_override">,
-		I18nKey
-	> = {
-		detected: "admin.capabilityState.detected",
-		not_detected: "admin.capabilityState.notDetected",
-		unknown: "admin.capabilityState.unknown",
-	};
-	return $t(map[status.state]);
-}
-
-function capabilityChipClass(state: ModelCapabilityState): string {
-	const base =
-		"inline-flex max-w-full items-center gap-1.5 rounded-sm border px-1.5 py-0.5 text-[11px] leading-none";
-	const stateClass: Record<ModelCapabilityState, string> = {
-		detected: "border-success/35 bg-success/10 text-success",
-		not_detected: "border-danger/30 bg-danger/10 text-danger",
-		unknown: "border-border bg-surface-overlay text-text-muted",
-		manual_override: "border-accent/35 bg-accent/10 text-accent",
-	};
-	return `${base} ${stateClass[state]}`;
-}
-
-function capabilityDotClass(state: ModelCapabilityState): string {
-	const stateClass: Record<ModelCapabilityState, string> = {
-		detected: "bg-success",
-		not_detected: "bg-danger",
-		unknown: "bg-text-muted",
-		manual_override: "bg-accent",
-	};
-	return `h-1.5 w-1.5 shrink-0 rounded-full ${stateClass[state]}`;
-}
-
-function capabilityStatusLabel(status: ModelCapabilityStatus): string {
-	return `${capabilityLabel(status.key)}: ${capabilityStateLabel(status)}`;
-}
-
 function modelNameDisplay(name: string): string {
 	return name === "model1"
 		? adminConfig.MODEL_1_DISPLAY_NAME || "Model 1"
@@ -879,7 +502,7 @@ function deepResearchModelOptions(): Array<{
 	if (adminConfig.MODEL_2_ENABLED !== "false" && !options.has("model2")) {
 		options.set("model2", adminConfig.MODEL_2_DISPLAY_NAME || "Model 2");
 	}
-	for (const provider of providers) {
+	for (const provider of providerConfigs) {
 		if (!provider.enabled) continue;
 		options.set(`provider:${provider.id}` as ModelId, provider.displayName);
 	}
@@ -891,7 +514,7 @@ function defaultNewUserModelOptions(): Array<{
 	displayName: string;
 }> {
 	const options = new Map<ModelId, string>();
-	for (const provider of providers) {
+	for (const provider of providerConfigs) {
 		if (!provider.enabled) continue;
 		options.set(`provider:${provider.id}` as ModelId, provider.displayName);
 	}
@@ -920,15 +543,11 @@ function deepResearchRoleValue(role: DeepResearchModelRoleDefinition): ModelId {
 }
 
 $effect(() => {
-	void loadProviders();
+	void loadProviderConfigs();
 });
 
 $effect(() => {
 	void loadSystemSkills();
-});
-
-$effect(() => {
-	void loadProviderConfigs();
 });
 
 function configLabelKey(key: string): string {
@@ -1048,131 +667,6 @@ function placeholderFor(key: string): string {
 	return envDefaults[key] ?? "";
 }
 </script>
-
-<!-- Unified Models Section -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.models')}</h2>
-	<div class="flex flex-col gap-3">
-		{#if providersLoading}
-			<p class="text-sm text-text-secondary">{$t('admin.loadingModels')}</p>
-		{:else if providersError}
-			<p class="text-sm text-danger">{providersError}</p>
-		{:else}
-			<div class="flex flex-col gap-2">
-				<!-- Model 1 (built-in, always present) -->
-				<div class="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-page px-3 py-2">
-					<div class="flex min-w-0 items-center gap-3">
-						<ModelIcon iconUrl={builtInIconUrl('model1')} displayName={adminConfig.MODEL_1_DISPLAY_NAME || $t('admin.model1')} size={32} />
-						<div class="flex min-w-0 flex-col">
-							<span class="truncate text-sm font-medium text-text-primary">{adminConfig.MODEL_1_DISPLAY_NAME || $t('admin.model1')}</span>
-							<span class="truncate text-xs text-text-muted">{$t('admin.openAiCompatible')} &bull; {adminConfig.MODEL_1_NAME || 'model-1'}</span>
-						</div>
-					</div>
-					<div class="flex flex-wrap items-center justify-end gap-2">
-						<span class="inline-block h-2 w-2 rounded-full bg-success"></span>
-						<span class="text-xs text-text-muted">{$t('admin.local')}</span>
-						<button class="btn-small" onclick={() => openEditBuiltIn('model1')}>{$t('common.edit')}</button>
-					</div>
-				</div>
-
-				<!-- Model 2 (built-in) -->
-				<div class="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-page px-3 py-2">
-					<div class="flex min-w-0 items-center gap-3">
-						<ModelIcon iconUrl={builtInIconUrl('model2')} displayName={adminConfig.MODEL_2_DISPLAY_NAME || $t('admin.model2')} size={32} />
-						<div class="flex min-w-0 flex-col">
-							<span class="truncate text-sm font-medium text-text-primary">{adminConfig.MODEL_2_DISPLAY_NAME || $t('admin.model2')}</span>
-							<span class="truncate text-xs text-text-muted">{$t('admin.openAiCompatible')} &bull; {adminConfig.MODEL_2_NAME || 'model-2'}</span>
-						</div>
-					</div>
-					<div class="flex flex-wrap items-center justify-end gap-2">
-						<span class={`inline-block h-2 w-2 rounded-full ${adminConfig.MODEL_2_ENABLED !== 'false' ? 'bg-success' : 'bg-text-muted'}`}></span>
-						<span class="text-xs text-text-muted">{$t('admin.local')}</span>
-						<button class="btn-small" onclick={() => openEditBuiltIn('model2')}>{$t('common.edit')}</button>
-					</div>
-				</div>
-
-				<!-- Third-party providers -->
-				{#each providers as provider}
-					<div class="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-page px-3 py-2">
-						<div class="flex min-w-0 items-center gap-3">
-							<ModelIcon iconUrl={providerIconUrl(provider)} displayName={provider.displayName} size={32} />
-							<div class="flex min-w-0 flex-col">
-								<span class="truncate text-sm font-medium text-text-primary">{provider.displayName}</span>
-								<span class="truncate text-xs text-text-muted">{provider.baseUrl} &bull; {provider.modelName}</span>
-								{#if provider.reasoningEffort || provider.thinkingType}
-									<span class="truncate text-xs text-text-tertiary">
-										{#if provider.reasoningEffort}
-											reasoning_effort: {provider.reasoningEffort}
-										{/if}
-										{#if provider.reasoningEffort && provider.thinkingType}
-											&bull;
-										{/if}
-										{#if provider.thinkingType}
-											extra_body.thinking.type: {provider.thinkingType}
-										{/if}
-									</span>
-								{/if}
-								<div
-									class="mt-1 flex max-w-full flex-wrap gap-1"
-									aria-label={$t('admin.modelCapabilities')}
-								>
-									{#each providerCapabilityStatuses(provider) as capability (capability.key)}
-										<span
-											class={capabilityChipClass(capability.state)}
-											aria-label={capabilityStatusLabel(capability)}
-											title={capability.detail
-												? `${capabilityStatusLabel(capability)} - ${capability.detail}`
-												: capabilityStatusLabel(capability)}
-										>
-											<span
-												class={capabilityDotClass(capability.state)}
-												aria-hidden="true"
-											></span>
-											<span class="truncate">{capabilityLabel(capability.key)}</span>
-											<span class="shrink-0 font-medium">
-												{capabilityStateLabel(capability)}
-											</span>
-										</span>
-									{/each}
-								</div>
-							</div>
-						</div>
-						<div class="flex items-center justify-end gap-2">
-							<span class={`inline-block h-2 w-2 rounded-full ${provider.enabled ? 'bg-success' : 'bg-text-muted'}`}></span>
-							<button class="btn-small whitespace-nowrap" onclick={() => handleValidate(provider)}>{$t('common.test')}</button>
-							<button class="btn-small whitespace-nowrap" onclick={() => openEditProvider(provider)}>{$t('common.edit')}</button>
-							<button class="btn-small text-danger whitespace-nowrap" onclick={() => handleDelete(provider)}>{$t('common.delete')}</button>
-						</div>
-					</div>
-				{/each}
-				<div class="border-t border-border pt-3">
-					<label class="settings-label" for="DEFAULT_NEW_USER_MODEL">{$t('admin.defaultNewUserModel')}</label>
-					<select
-						id="DEFAULT_NEW_USER_MODEL"
-						class="settings-input"
-						value={defaultNewUserModelValue()}
-						onchange={(event) => {
-							adminConfig.DEFAULT_NEW_USER_MODEL = event.currentTarget.value;
-						}}
-					>
-						{#each defaultNewUserModelOptions() as model}
-							<option value={model.id}>{model.displayName}</option>
-						{/each}
-					</select>
-					<p class="mt-1 text-xs text-text-muted">{$t('admin.defaultNewUserModelDescription')}</p>
-				</div>
-			</div>
-		{/if}
-
-		{#if providersMessage}
-			<p class="text-sm text-success">{providersMessage}</p>
-		{/if}
-
-		<button class="btn-secondary w-full" onclick={openAddProvider}>
-			{$t('admin.addProvider')}
-		</button>
-	</div>
-</section>
 
 <section class="settings-card mb-4">
 	<h2 class="settings-section-title">{$t('admin.providers')}</h2>
@@ -1822,32 +1316,16 @@ function placeholderFor(key: string): string {
 </section>
 
 
-<!-- Modal -->
-{#if showModal}
-	<ModelFormModal
-		error={modalError}
-		model={modalModel}
-		isCreate={modalIsCreate}
-		saving={modalSaving}
-		{adminConfig}
-		onSave={handleModalSave}
-		onClose={closeModal}
-		onUploadIcon={handleModalUploadIcon}
-	/>
-{/if}
-
 {#if showProviderForm}
 	<ProviderForm
 		provider={providerFormProvider}
 		isCreate={providerFormIsCreate}
 		saving={providerFormSaving}
-		testing={providerFormTesting}
 		error={providerFormError}
 		testError={providerFormTestError}
 		testMessage={providerFormTestMessage}
 		onSave={handleProviderFormSave}
 		onClose={closeProviderForm}
-		onTest={handleProviderFormTest}
 	/>
 {/if}
 

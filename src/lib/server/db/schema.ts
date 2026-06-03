@@ -1626,54 +1626,6 @@ export const providerModels = sqliteTable(
 	}),
 );
 
-export const inferenceProviders = sqliteTable("inference_providers", {
-	id: text("id").primaryKey(),
-	name: text("name").notNull().unique(),
-	displayName: text("display_name").notNull(),
-	baseUrl: text("base_url").notNull(),
-	apiKeyEncrypted: text("api_key_encrypted").notNull(),
-	apiKeyIv: text("api_key_iv").notNull(),
-	modelName: text("model_name").notNull(),
-	reasoningEffort: text("reasoning_effort", {
-		enum: ["low", "medium", "high", "max", "xhigh"],
-	}),
-	thinkingType: text("thinking_type", { enum: ["enabled", "disabled"] }),
-	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-	sortOrder: integer("sort_order").notNull().default(0),
-	maxModelContext: integer("max_model_context"),
-	compactionUiThreshold: integer("compaction_ui_threshold"),
-	targetConstructedContext: integer("target_constructed_context"),
-	maxMessageLength: integer("max_message_length"),
-	maxTokens: integer("max_tokens"),
-	iconAssetId: text("icon_asset_id").references(
-		(): AnySQLiteColumn => campaignAssets.id,
-		{
-			onDelete: "set null",
-		},
-	),
-	rateLimitFallbackEnabled: integer("rate_limit_fallback_enabled", {
-		mode: "boolean",
-	})
-		.notNull()
-		.default(false),
-	rateLimitFallbackBaseUrl: text("rate_limit_fallback_base_url"),
-	rateLimitFallbackApiKeyEncrypted: text(
-		"rate_limit_fallback_api_key_encrypted",
-	),
-	rateLimitFallbackApiKeyIv: text("rate_limit_fallback_api_key_iv"),
-	rateLimitFallbackModelName: text("rate_limit_fallback_model_name"),
-	rateLimitFallbackTimeoutMs: integer("rate_limit_fallback_timeout_ms")
-		.notNull()
-		.default(10000),
-	capabilitiesJson: text("capabilities_json").notNull().default("{}"),
-	createdAt: integer("created_at", { mode: "timestamp" })
-		.notNull()
-		.default(sql`(unixepoch())`),
-	updatedAt: integer("updated_at", { mode: "timestamp" })
-		.notNull()
-		.default(sql`(unixepoch())`),
-});
-
 export const importJobs = sqliteTable(
 	"import_jobs",
 	{
@@ -1837,46 +1789,6 @@ export const usageEvents = sqliteTable(
 		modelMonthIdx: index("usage_events_model_month_idx").on(
 			table.modelId,
 			table.billingMonth,
-		),
-	}),
-);
-
-export const modelPriceRules = sqliteTable(
-	"model_price_rules",
-	{
-		id: text("id").primaryKey(),
-		providerId: text("provider_id"),
-		providerName: text("provider_name"),
-		modelId: text("model_id"),
-		modelName: text("model_name").notNull(),
-		inputUsdMicrosPer1m: integer("input_usd_micros_per_1m")
-			.notNull()
-			.default(0),
-		cachedInputUsdMicrosPer1m: integer("cached_input_usd_micros_per_1m")
-			.notNull()
-			.default(0),
-		cacheHitUsdMicrosPer1m: integer("cache_hit_usd_micros_per_1m")
-			.notNull()
-			.default(0),
-		cacheMissUsdMicrosPer1m: integer("cache_miss_usd_micros_per_1m")
-			.notNull()
-			.default(0),
-		outputUsdMicrosPer1m: integer("output_usd_micros_per_1m")
-			.notNull()
-			.default(0),
-		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-		createdAt: integer("created_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-		updatedAt: integer("updated_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-	},
-	(table) => ({
-		modelIdx: index("model_price_rules_model_idx").on(
-			table.modelId,
-			table.modelName,
-			table.enabled,
 		),
 	}),
 );

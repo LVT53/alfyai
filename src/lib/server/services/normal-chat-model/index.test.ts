@@ -7,20 +7,13 @@ const mocks = vi.hoisted(() => ({
 	decryptApiKey: vi.fn(),
 	getProviderWithSecrets: vi.fn(),
 	getProviderByName: vi.fn(),
-	getNewProviderWithSecrets: vi.fn(),
-	decryptNewProviderApiKey: vi.fn(),
 	listEnabledProviderModels: vi.fn(),
-}));
-
-vi.mock("../inference-providers", () => ({
-	decryptApiKey: mocks.decryptApiKey,
-	getProviderWithSecrets: mocks.getProviderWithSecrets,
 }));
 
 vi.mock("../providers", () => ({
 	getProviderByName: mocks.getProviderByName,
-	getProviderWithSecrets: mocks.getNewProviderWithSecrets,
-	decryptApiKey: mocks.decryptNewProviderApiKey,
+	getProviderWithSecrets: mocks.getProviderWithSecrets,
+	decryptApiKey: mocks.decryptApiKey,
 }));
 
 vi.mock("../provider-models", () => ({
@@ -76,19 +69,30 @@ describe("Normal Chat Model Run provider resolution", () => {
 	});
 
 	it("resolves an enabled OpenAI-compatible provider with a normalized base URL", async () => {
+		mocks.getProviderByName.mockResolvedValue({
+			id: "provider-1",
+			name: "fireworks",
+			displayName: "Fireworks",
+			baseUrl: "https://api.fireworks.ai/inference/v1/chat/completions",
+			enabled: true,
+		});
+		mocks.listEnabledProviderModels.mockResolvedValue([
+			{
+				name: "accounts/fireworks/models/kimi-k2p6",
+				maxTokens: 4096,
+				reasoningEffort: "medium",
+				thinkingType: "enabled",
+			},
+		]);
 		mocks.decryptApiKey.mockReturnValue("plain-secret");
 		mocks.getProviderWithSecrets.mockResolvedValue({
 			id: "provider-1",
 			name: "fireworks",
 			displayName: "Fireworks",
 			baseUrl: "https://api.fireworks.ai/inference/v1/chat/completions",
-			modelName: "accounts/fireworks/models/kimi-k2p6",
 			apiKeyEncrypted: "encrypted-secret",
 			apiKeyIv: "secret-iv",
 			enabled: true,
-			maxTokens: 4096,
-			reasoningEffort: "medium",
-			thinkingType: "enabled",
 		});
 
 		await expect(
@@ -122,19 +126,30 @@ describe("Normal Chat Model Run provider resolution", () => {
 				source: "probe",
 			},
 		});
+		mocks.getProviderByName.mockResolvedValue({
+			id: "provider-1",
+			name: "fireworks",
+			displayName: "Fireworks",
+			baseUrl: "https://api.fireworks.ai/inference/v1",
+			enabled: true,
+		});
+		mocks.listEnabledProviderModels.mockResolvedValue([
+			{
+				name: "accounts/fireworks/models/kimi-k2p6",
+				maxTokens: null,
+				reasoningEffort: "medium",
+				capabilitiesJson: JSON.stringify(capabilities),
+			},
+		]);
 		mocks.decryptApiKey.mockReturnValue("plain-secret");
 		mocks.getProviderWithSecrets.mockResolvedValue({
 			id: "provider-1",
 			name: "fireworks",
 			displayName: "Fireworks",
 			baseUrl: "https://api.fireworks.ai/inference/v1",
-			modelName: "accounts/fireworks/models/kimi-k2p6",
 			apiKeyEncrypted: "encrypted-secret",
 			apiKeyIv: "secret-iv",
 			enabled: true,
-			maxTokens: null,
-			reasoningEffort: "medium",
-			capabilities,
 		});
 
 		await expect(

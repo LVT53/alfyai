@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAdmin } from '$lib/server/auth/hooks';
-import { clearProvidersCache, refreshConfig } from '$lib/server/config-store';
+import { refreshConfig } from '$lib/server/config-store';
 import {
 	createProvider,
 	listProviders,
@@ -90,7 +90,6 @@ export const POST: RequestHandler = async (event) => {
 				typeof body.enabled === 'boolean' ? body.enabled : undefined,
 		});
 
-		clearProvidersCache();
 		await refreshConfig();
 		return json({ provider }, { status: 201 });
 	} catch (error) {

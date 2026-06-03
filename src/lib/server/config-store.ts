@@ -11,7 +11,7 @@ import {
 import { deriveMaxMessageLengthFromContextTokens } from "$lib/model-limit-presets";
 import type { ModelId } from "$lib/types";
 import { db } from "./db";
-import { adminConfig, inferenceProviders } from "./db/schema";
+import { adminConfig } from "./db/schema";
 import type { ModelConfig } from "./env";
 import { config as envConfig } from "./env";
 import { getSystemPrompt, normalizeSystemPromptReference } from "./prompts";
@@ -302,24 +302,6 @@ async function resolveLowestModelMaxMessageLength(
 			? null
 			: positiveIntegerOrNull(config.model2MaxMessageLength),
 	];
-
-	const providerRows = await db
-		.select({
-			enabled: inferenceProviders.enabled,
-			maxModelContext: inferenceProviders.maxModelContext,
-			maxMessageLength: inferenceProviders.maxMessageLength,
-		})
-		.from(inferenceProviders);
-
-	for (const provider of providerRows) {
-		if (provider.enabled === false) continue;
-		candidates.push(
-			positiveIntegerOrNull(provider.maxMessageLength) ??
-				(provider.maxModelContext != null
-					? deriveMaxMessageLengthFromContextTokens(provider.maxModelContext)
-					: null),
-		);
-	}
 
 	return Math.min(
 		...candidates.filter((value): value is number => value != null),
@@ -1002,19 +984,6 @@ export function normalizeModelSelection(
 	return "model1";
 }
 
-export async function normalizeModelSelectionWithProviders(
-	modelId: string | null | undefined,
-	config: RuntimeConfig = runtimeConfig,
-): Promise<ModelId> {
-	if (modelId?.startsWith("provider:")) {
-		const provider = await getProviderById(modelId.slice("provider:".length));
-		if (provider?.enabled) {
-			return modelId as ModelId;
-		}
-	}
-	return normalizeModelSelection(modelId, config);
-}
-
 export function modelIconUrl(
 	iconAssetId: string | null | undefined,
 ): string | null {
@@ -1237,44 +1206,6 @@ export function getEnvDefaults(): Record<AdminConfigKey, string> {
 	return getResolvedAdminConfigValues(buildDefaultConfig());
 }
 
-let cachedProviders:
-	| import("$lib/server/services/inference-providers").InferenceProvider[]
-	| null = null;
-let providersLoadTime = 0;
-const PROVIDERS_CACHE_TTL_MS = 60000;
-
-export async function getInferenceProviders(): Promise<
-	import("$lib/server/services/inference-providers").InferenceProvider[]
-> {
-	const now = Date.now();
-	if (cachedProviders && now - providersLoadTime < PROVIDERS_CACHE_TTL_MS) {
-		return cachedProviders;
-	}
-
-	const { listProviders } = await import(
-		"$lib/server/services/inference-providers"
-	);
-	cachedProviders = await listProviders();
-	providersLoadTime = now;
-	return cachedProviders;
-}
-
-export async function getEnabledProviders(): Promise<
-	import("$lib/server/services/inference-providers").InferenceProvider[]
-> {
-	const providers = await getInferenceProviders();
-	return providers.filter((p) => p.enabled);
-}
-
-export async function getProviderById(
-	id: string,
-): Promise<
-	import("$lib/server/services/inference-providers").InferenceProvider | null
-> {
-	const providers = await getInferenceProviders();
-	return providers.find((p) => p.id === id) ?? null;
-}
-
 export async function getAvailableModelsWithProviders(): Promise<
 	Array<{
 		id: ModelId;
@@ -1284,9 +1215,8 @@ export async function getAvailableModelsWithProviders(): Promise<
 		iconUrl: string | null;
 	}>
 > {
-	const [builtIn, providers, newProviders] = await Promise.all([
+	const [builtIn, newProviders] = await Promise.all([
 		Promise.resolve(getAvailableModels()),
-		getEnabledProviders(),
 		(async () => {
 			try {
 				const { listEnabledProviders } = await import(
@@ -1300,16 +1230,6 @@ export async function getAvailableModelsWithProviders(): Promise<
 	]);
 
 	const models = builtIn.map((m) => ({ ...m, isThirdParty: false }));
-
-	for (const provider of providers) {
-		models.push({
-			id: `provider:${provider.id}` as ModelId,
-			displayName: provider.displayName,
-			isThirdParty: true,
-			iconAssetId: provider.iconAssetId,
-			iconUrl: modelIconUrl(provider.iconAssetId),
-		});
-	}
 
 	for (const provider of newProviders) {
 		try {
@@ -1340,9 +1260,4 @@ export async function getAvailableModelsWithProviders(): Promise<
 	}
 
 	return models;
-}
-
-export function clearProvidersCache(): void {
-	cachedProviders = null;
-	providersLoadTime = 0;
 }

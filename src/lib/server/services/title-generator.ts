@@ -1,7 +1,62 @@
 // src/lib/server/services/title-generator.ts
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { APICallError, generateText } from "ai";
 import { getConfig } from "../config-store";
+import { normalizeOpenAICompatibleBaseUrl } from "./openai-compatible-url";
 import { normalizeAssistantOutput } from "./chat-turn/normalizer";
 import { detectLanguage } from "./language";
+
+function createTitleGenProvider(
+	config: ReturnType<typeof getConfig>,
+	includeVllmControls: boolean,
+) {
+	const qwenThinkingOff = { enable_thinking: false };
+	return createOpenAICompatible({
+		name: "title-gen",
+		apiKey: config.titleGenApiKey || undefined,
+		baseURL: normalizeOpenAICompatibleBaseUrl(config.titleGenUrl),
+		includeUsage: false,
+		transformRequestBody: includeVllmControls
+			? (args: Record<string, unknown>) => ({
+					...args,
+					chat_template_kwargs: qwenThinkingOff,
+					extra_body: { chat_template_kwargs: qwenThinkingOff },
+				})
+			: undefined,
+	});
+}
+
+async function generateTitleWithAiSdk(
+	config: ReturnType<typeof getConfig>,
+	messages: Array<{ role: string; content: string }>,
+): Promise<string> {
+	const tryCall = async (includeVllmControls: boolean): Promise<string> => {
+		const provider = createTitleGenProvider(config, includeVllmControls);
+		const result = await generateText({
+			model: provider(config.titleGenModel),
+			messages: messages as Array<{
+				role: "system" | "user" | "assistant";
+				content: string;
+			}>,
+			temperature: 0.2,
+			maxOutputTokens: 120,
+			maxRetries: 0,
+		});
+		return normalizeAssistantOutput(result.text);
+	};
+
+	try {
+		return await tryCall(true);
+	} catch (error) {
+		if (APICallError.isInstance(error) && error.statusCode === 400) {
+			console.info(
+				"[TITLE_GENERATE] Retrying with strict OpenAI-compatible request body",
+			);
+			return await tryCall(false);
+		}
+		throw error;
+	}
+}
 
 // Common misspellings dictionary for post-processing correction
 const COMMON_MISSPELLINGS: Record<string, string> = {
@@ -353,52 +408,6 @@ function resolveConfiguredTitleSystemPrompt(
 		.join("\n");
 }
 
-function buildTitleRequestBody(params: {
-	model: string;
-	messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
-	temperature: number;
-	includeVllmThinkingControls?: boolean;
-}): Record<string, unknown> {
-	const qwenThinkingOff = { enable_thinking: false };
-	const body: Record<string, unknown> = {
-		model: params.model,
-		messages: params.messages,
-		max_tokens: 120,
-		temperature: params.temperature,
-	};
-
-	if (params.includeVllmThinkingControls !== false) {
-		// vLLM exposes chat_template_kwargs as a request field. The OpenAI client
-		// spelling is kept too for compatible proxies that unpack extra_body.
-		body.chat_template_kwargs = qwenThinkingOff;
-		body.extra_body = { chat_template_kwargs: qwenThinkingOff };
-	}
-
-	return body;
-}
-
-async function fetchTitleCompletion(params: {
-	url: string;
-	headers: Record<string, string>;
-	model: string;
-	messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
-	temperature: number;
-	includeVllmThinkingControls?: boolean;
-}): Promise<Response> {
-	return fetch(`${params.url}/chat/completions`, {
-		method: "POST",
-		headers: params.headers,
-		body: JSON.stringify(
-			buildTitleRequestBody({
-				model: params.model,
-				messages: params.messages,
-				temperature: params.temperature,
-				includeVllmThinkingControls: params.includeVllmThinkingControls,
-			}),
-		),
-	});
-}
-
 export async function generateTitle(
 	userMessage: string,
 	assistantResponse: string,
@@ -419,50 +428,16 @@ export async function generateTitle(
 		hasSystemPrompt: systemPrompt.trim().length > 0,
 	});
 
-	const messages = buildTitleMessages(
+	const aiMessages = buildTitleMessages(
 		systemPrompt,
 		language,
 		codeRelated,
 		userMessage,
 		assistantResponse,
-	);
+	).map((m) => ({ role: m.role, content: m.content }));
 
-	const headers: Record<string, string> = {
-		"Content-Type": "application/json",
-	};
-	if (config.titleGenApiKey)
-		headers.Authorization = `Bearer ${config.titleGenApiKey}`;
+	const rawTitle = await generateTitleWithAiSdk(config, aiMessages);
 
-	let response = await fetchTitleCompletion({
-		url: config.titleGenUrl,
-		headers,
-		model: config.titleGenModel,
-		messages,
-		temperature: 0.2,
-	});
-	if (response.status === 400) {
-		console.info(
-			"[TITLE_GENERATE] Retrying with strict OpenAI-compatible request body",
-		);
-		response = await fetchTitleCompletion({
-			url: config.titleGenUrl,
-			headers,
-			model: config.titleGenModel,
-			messages,
-			temperature: 0.2,
-			includeVllmThinkingControls: false,
-		});
-	}
-
-	if (!response.ok) {
-		throw new Error(`Title generation failed: ${response.status}`);
-	}
-
-	const json = await response.json();
-	const choice = json.choices?.[0]?.message;
-	const rawContent =
-		typeof choice?.content === "string" ? choice.content.trim() : "";
-	const rawTitle = normalizeAssistantOutput(rawContent);
 
 	if (!rawTitle || !isPlausibleTitle(rawTitle)) {
 		console.info("[TITLE_GENERATE] Fallback: empty rawTitle or thinking leak");

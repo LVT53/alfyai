@@ -15,19 +15,20 @@ import {
 	type ToolSet,
 } from "ai";
 import {
+	createModelCapabilitySet,
 	isModelCapabilitySupported,
 	isModelCapabilityUnsupported,
+	MODEL_CAPABILITY_KEYS,
 	type ModelCapabilityKey,
 	type ModelCapabilitySet,
 } from "$lib/model-capabilities";
 import type { ModelConfig } from "$lib/server/env";
 import type { ThinkingMode } from "$lib/types";
 import type { ProviderUsageSnapshot } from "../analytics";
-import { decryptApiKey, getProviderWithSecrets } from "../inference-providers";
 import {
 	getProviderByName,
-	decryptApiKey as decryptNewProviderApiKey,
-	getProviderWithSecrets as getNewProviderWithSecrets,
+	decryptApiKey,
+	getProviderWithSecrets,
 } from "../providers";
 import { listEnabledProviderModels } from "../provider-models";
 import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
@@ -255,57 +256,15 @@ export async function resolveNormalChatModelRunProvider(
 		return builtinModelRunProvider(modelId, runtimeConfig[modelId]);
 	}
 
-	const providerId = modelId.startsWith("provider:")
-		? modelId.slice("provider:".length)
-		: modelId;
-	const provider = await getProviderWithSecrets(providerId);
-	if (!provider) {
-		throw new Error(`Normal Chat Model Run provider not found: ${providerId}`);
-	}
-	if (!provider.enabled) {
-		throw new Error(
-			`Normal Chat Model Run provider is disabled: ${providerId}`,
-		);
+	try {
+		const newProvider = await resolveBuiltinFromNewProvidersTable(modelId);
+		if (newProvider) return newProvider;
+	} catch {
 	}
 
-	const hasExplicitTarget =
-		typeof provider.targetConstructedContext === "number";
-	const hasExplicitCompaction =
-		typeof provider.compactionUiThreshold === "number";
-	const hasMaxModelContext = typeof provider.maxModelContext === "number";
-	const derivedTargetConstructedContext = hasMaxModelContext
-		? Math.floor(provider.maxModelContext * 0.9)
-		: undefined;
-	const derivedCompactionUiThreshold = hasMaxModelContext
-		? Math.floor(provider.maxModelContext * 0.8)
-		: undefined;
-
-	return {
-		id: provider.id,
-		name: provider.name,
-		displayName: provider.displayName,
-		baseUrl: normalizeOpenAICompatibleBaseUrl(provider.baseUrl),
-		modelName: provider.modelName,
-		apiKey: decryptApiKey(provider.apiKeyEncrypted, provider.apiKeyIv),
-		maxOutputTokens:
-			typeof provider.maxTokens === "number" ? provider.maxTokens : undefined,
-		reasoningEffort: provider.reasoningEffort ?? undefined,
-		thinkingType: provider.thinkingType ?? undefined,
-		...(provider.capabilities ? { capabilities: provider.capabilities } : {}),
-		...(hasMaxModelContext
-			? { maxModelContext: provider.maxModelContext }
-			: {}),
-		...(hasExplicitCompaction
-			? { compactionUiThreshold: provider.compactionUiThreshold }
-			: derivedCompactionUiThreshold !== undefined
-				? { compactionUiThreshold: derivedCompactionUiThreshold }
-				: {}),
-		...(hasExplicitTarget
-			? { targetConstructedContext: provider.targetConstructedContext }
-			: derivedTargetConstructedContext !== undefined
-				? { targetConstructedContext: derivedTargetConstructedContext }
-				: {}),
-	};
+	throw new Error(
+		`Normal Chat Model Run provider not found: ${modelId}`,
+	);
 }
 
 async function resolveBuiltinFromNewProvidersTable(
@@ -319,7 +278,7 @@ async function resolveBuiltinFromNewProvidersTable(
 		const model = models[0];
 		if (!model) return null;
 
-		const providerWithSecrets = await getNewProviderWithSecrets(provider.id);
+		const providerWithSecrets = await getProviderWithSecrets(provider.id);
 		if (!providerWithSecrets) return null;
 
 		const hasExplicitTarget =
@@ -340,7 +299,7 @@ async function resolveBuiltinFromNewProvidersTable(
 			displayName: provider.displayName,
 			baseUrl: normalizeOpenAICompatibleBaseUrl(provider.baseUrl),
 			modelName: model.name,
-			apiKey: decryptNewProviderApiKey(
+			apiKey: decryptApiKey(
 				providerWithSecrets.apiKeyEncrypted,
 				providerWithSecrets.apiKeyIv,
 			),
@@ -373,9 +332,40 @@ async function resolveBuiltinFromNewProvidersTable(
 				: derivedTargetConstructedContext !== undefined
 					? { targetConstructedContext: derivedTargetConstructedContext }
 					: {}),
+			...(parseProviderModelCapabilities(model.capabilitiesJson)
+				? {
+						capabilities: parseProviderModelCapabilities(
+							model.capabilitiesJson,
+						),
+					}
+				: {}),
 		};
 	} catch {
 		return null;
+	}
+}
+
+function parseProviderModelCapabilities(json: string): ModelCapabilitySet | undefined {
+	if (!json || json === "{}") return undefined;
+	try {
+		const parsed: unknown = JSON.parse(json);
+		if (typeof parsed !== "object" || parsed === null) return undefined;
+
+		const entries = MODEL_CAPABILITY_KEYS.filter(
+			(key) => key in (parsed as Record<string, unknown>),
+		);
+		if (entries.length === 0) return undefined;
+
+		return createModelCapabilitySet(
+			Object.fromEntries(
+				entries.map((key) => [
+					key,
+					(parsed as Record<string, unknown>)[key],
+				]),
+			),
+		);
+	} catch {
+		return undefined;
 	}
 }
 
@@ -672,13 +662,13 @@ async function* streamStreamingNormalChatModelRun(
 		(params.tools
 			? buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
 			: undefined);
-	const result = streamText({
+	const buildStreamConfig = (tools?: ToolSet, toolStopWhen?: StopCondition) => ({
 		model: provider(params.provider.modelName),
 		messages: params.messages,
 		system: params.system,
-		tools: params.tools,
+		tools,
 		toolChoice: params.toolChoice,
-		stopWhen,
+		stopWhen: toolStopWhen,
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
 		maxRetries: params.maxRetries ?? 0,
 		abortSignal: params.abortSignal,
@@ -712,26 +702,41 @@ async function* streamStreamingNormalChatModelRun(
 		other: 0,
 	};
 	let lastEventType = "";
-	try {
-		for await (const part of result.fullStream) {
+
+	const yieldStreamEvents = async function* (
+		fullStream: AsyncIterable<unknown>,
+	): AsyncGenerator<StreamingNormalChatModelRunEvent, void, undefined> {
+		for await (const part of fullStream as AsyncIterable<{
+			type: string;
+			text?: string;
+			toolCallId?: string;
+			toolName?: string;
+			input?: unknown;
+			output?: unknown;
+			error?: unknown;
+			response?: { modelId: string };
+			finishReason?: string;
+			rawFinishReason?: string;
+			totalUsage?: LanguageModelUsage;
+		}>) {
 			switch (part.type) {
 				case "text-delta":
 					eventCounts["text-delta"]++;
 					lastEventType = part.type;
-					yield { type: "text_delta", text: part.text };
+					yield { type: "text_delta", text: part.text! };
 					break;
 				case "reasoning-delta":
 					eventCounts["reasoning-delta"]++;
 					lastEventType = part.type;
-					yield { type: "reasoning_delta", text: part.text };
+					yield { type: "reasoning_delta", text: part.text! };
 					break;
 				case "tool-call":
 					eventCounts["tool-call"]++;
 					lastEventType = part.type;
 					yield {
 						type: "tool_call",
-						callId: part.toolCallId,
-						toolName: part.toolName,
+						callId: part.toolCallId!,
+						toolName: part.toolName!,
 						input: part.input,
 					};
 					break;
@@ -740,8 +745,8 @@ async function* streamStreamingNormalChatModelRun(
 					lastEventType = part.type;
 					yield {
 						type: "tool_result",
-						callId: part.toolCallId,
-						toolName: part.toolName,
+						callId: part.toolCallId!,
+						toolName: part.toolName!,
 						output: part.output,
 					};
 					break;
@@ -750,8 +755,8 @@ async function* streamStreamingNormalChatModelRun(
 					lastEventType = part.type;
 					yield {
 						type: "tool_error",
-						callId: part.toolCallId,
-						toolName: part.toolName,
+						callId: part.toolCallId!,
+						toolName: part.toolName!,
 						error: errorMessage(part.error),
 					};
 					break;
@@ -812,6 +817,45 @@ async function* streamStreamingNormalChatModelRun(
 					lastEventType = part.type;
 					break;
 			}
+		}
+	};
+
+	try {
+		try {
+			yield* yieldStreamEvents(
+				streamText(buildStreamConfig(params.tools, stopWhen)).fullStream,
+			);
+		} catch (innerError) {
+			if (
+				!params.tools ||
+				params.toolChoice ||
+				!isUnsupportedToolsRequestError(innerError)
+			) {
+				throw innerError;
+			}
+			if (isCapabilitySupported(params.provider, "tools")) {
+				throw innerError;
+			}
+
+			// Reset stream state before retry without tools
+			responseModelName = params.provider.modelName;
+			eventCounts = {
+				"text-delta": 0,
+				"reasoning-delta": 0,
+				"tool-call": 0,
+				"tool-result": 0,
+				"tool-error": 0,
+				"finish-step": 0,
+				finish: 0,
+				usage: 0,
+				error: 0,
+				other: 0,
+			};
+			lastEventType = "";
+
+			yield* yieldStreamEvents(
+				streamText(buildStreamConfig(undefined, undefined)).fullStream,
+			);
 		}
 	} catch (error) {
 		console.warn(

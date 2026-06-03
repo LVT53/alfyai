@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAdmin } from '$lib/server/auth/hooks';
-import { clearProvidersCache, refreshConfig } from '$lib/server/config-store';
+import { refreshConfig } from '$lib/server/config-store';
 import {
 	deleteProvider,
 	updateProvider,
@@ -114,7 +114,6 @@ export const PUT: RequestHandler = async (event) => {
 			return json({ error: 'Provider not found' }, { status: 404 });
 		}
 
-		clearProvidersCache();
 		await refreshConfig();
 		return json({ provider });
 	} catch (error) {
@@ -134,7 +133,6 @@ export const DELETE: RequestHandler = async (event) => {
 			return json({ error: 'Provider not found' }, { status: 404 });
 		}
 
-		clearProvidersCache();
 		await refreshConfig();
 		return json({ success: true });
 	} catch (error) {

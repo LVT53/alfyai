@@ -2,7 +2,7 @@ import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
 import {
 	decryptApiKey,
 	getProviderWithSecrets,
-} from "$lib/server/services/inference-providers";
+} from "$lib/server/services/providers";
 import { buildOpenAICompatibleUrl } from "$lib/server/services/openai-compatible-url";
 import { isProviderModelId, type ModelId } from "$lib/types";
 import {

@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAuth } from '$lib/server/auth/hooks';
 import { db } from '$lib/server/db';
-import { analyticsConversations, usageEvents, inferenceProviders } from '$lib/server/db/schema';
+import { analyticsConversations, usageEvents, providers } from '$lib/server/db/schema';
 import { eq, inArray } from 'drizzle-orm';
 import { isProviderModelId, getProviderIdFromModelId } from '$lib/types';
 import { getConfig } from '$lib/server/config-store';
@@ -102,11 +102,11 @@ async function modelBreakdown(rows: UsageRow[]) {
 	// Batch-resolve provider display names from the DB
 	const providerNames = new Map<string, string>();
 	if (providerIds.size > 0) {
-		const providers = await db
-			.select({ id: inferenceProviders.id, displayName: inferenceProviders.displayName })
-			.from(inferenceProviders)
-			.where(inArray(inferenceProviders.id, [...providerIds]));
-		for (const p of providers) {
+		const providerRows = await db
+			.select({ id: providers.id, displayName: providers.displayName })
+			.from(providers)
+			.where(inArray(providers.id, [...providerIds]));
+		for (const p of providerRows) {
 			providerNames.set(p.id, p.displayName);
 		}
 	}
@@ -155,7 +155,7 @@ async function providerBreakdown(rows: UsageRow[]) {
 		totalCostMicros: number;
 	}>();
 
-	// Collect provider IDs that need display name resolution from inference_providers
+	// Collect provider IDs that need display name resolution
 	const providerIds = new Set<string>();
 	for (const row of rows) {
 		if (row.providerId) providerIds.add(row.providerId);
@@ -164,11 +164,11 @@ async function providerBreakdown(rows: UsageRow[]) {
 	// Batch-resolve provider display names
 	const providerNames = new Map<string, string>();
 	if (providerIds.size > 0) {
-		const providers = await db
-			.select({ id: inferenceProviders.id, displayName: inferenceProviders.displayName })
-			.from(inferenceProviders)
-			.where(inArray(inferenceProviders.id, [...providerIds]));
-		for (const p of providers) {
+		const providerRows = await db
+			.select({ id: providers.id, displayName: providers.displayName })
+			.from(providers)
+			.where(inArray(providers.id, [...providerIds]));
+		for (const p of providerRows) {
 			providerNames.set(p.id, p.displayName);
 		}
 	}

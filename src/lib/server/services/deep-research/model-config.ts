@@ -5,9 +5,9 @@ import {
 } from "$lib/deep-research-models";
 import {
 	getConfig,
-	getProviderById,
 	type RuntimeConfig,
 } from "$lib/server/config-store";
+import { getProviderWithSecrets } from "$lib/server/services/providers";
 import { deriveModelContextBudget } from "$lib/server/services/chat-turn/context-budget";
 import { inferModelContextWindow } from "$lib/server/services/model-context";
 import type { ModelId } from "$lib/types";
@@ -41,15 +41,10 @@ export async function resolveDeepResearchModel(
 	const configuredModelId = config.deepResearchModels?.[role] ?? "model1";
 	if (configuredModelId.startsWith("provider:")) {
 		const providerId = configuredModelId.slice("provider:".length);
-		const provider = await getProviderById(providerId).catch(() => null);
+		const provider = await getProviderWithSecrets(providerId).catch(() => null);
 		if (provider?.enabled) {
 			const providerBudget = deriveModelContextBudget({
-				maxModelContext:
-					provider.maxModelContext ??
-					inferModelContextWindow(provider.modelName) ??
-					UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK,
-				compactionUiThreshold: provider.compactionUiThreshold,
-				targetConstructedContext: provider.targetConstructedContext,
+				maxModelContext: UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK,
 			});
 			return {
 				role,
@@ -58,14 +53,13 @@ export async function resolveDeepResearchModel(
 				providerId,
 				providerDisplayName: provider.displayName,
 				providerBaseUrl: provider.baseUrl,
-				providerModelName: provider.modelName,
+				providerModelName: provider.name,
 				limits: {
 					maxModelContext: providerBudget.maxModelContext,
 					compactionUiThreshold: providerBudget.compactionUiThreshold,
 					targetConstructedContext: providerBudget.targetConstructedContext,
-					maxMessageLength:
-						provider.maxMessageLength ?? config.maxMessageLength,
-					maxTokens: provider.maxTokens ?? null,
+					maxMessageLength: config.maxMessageLength,
+					maxTokens: null,
 				},
 			};
 		}

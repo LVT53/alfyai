@@ -1,10 +1,9 @@
 import type { RuntimeConfig } from "$lib/server/config-store";
 import { getConfig } from "$lib/server/config-store";
 import type { ModelId } from "$lib/types";
-import { getProviderWithSecrets } from "./inference-providers";
 import {
-	getProviderWithSecrets as getNewProviderWithSecrets,
-	decryptApiKey as decryptNewProviderApiKey,
+	getProviderWithSecrets,
+	decryptApiKey,
 	getProviderByName,
 } from "./providers";
 import { normalizeOpenAICompatibleBaseUrl } from "./openai-compatible-url";
@@ -133,12 +132,12 @@ export function isModelRateLimitError(error: unknown): boolean {
 export async function resolveProviderRateLimitFallback(
 	providerId: string,
 ): Promise<NormalChatModelRunProvider | null> {
-	let provider = await getNewProviderWithSecrets(providerId).catch(() => null);
+	let provider = await getProviderWithSecrets(providerId).catch(() => null);
 
 	if (!provider) {
 		const byName = await getProviderByName(providerId).catch(() => null);
 		if (!byName?.enabled) return null;
-		provider = await getNewProviderWithSecrets(byName.id).catch(() => null);
+		provider = await getProviderWithSecrets(byName.id).catch(() => null);
 	}
 
 	if (!provider?.enabled || provider.rateLimitFallbackEnabled !== true) {
@@ -157,7 +156,7 @@ export async function resolveProviderRateLimitFallback(
 		return null;
 	}
 
-	const apiKey = decryptNewProviderApiKey(
+	const apiKey = decryptApiKey(
 		provider.rateLimitFallbackApiKeyEncrypted,
 		provider.rateLimitFallbackApiKeyIv,
 	);

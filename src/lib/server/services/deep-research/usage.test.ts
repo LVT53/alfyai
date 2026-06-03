@@ -173,17 +173,15 @@ describe("research usage persistence", () => {
 		expect(records).toEqual([saved]);
 	});
 
-	it("calculates record cost from model price rules and aggregates per job and model", async () => {
+	it("calculates record cost from provider model prices and aggregates per job and model", async () => {
 		const { db } = await import("$lib/server/db");
-		await db.insert(schema.modelPriceRules).values({
-			id: "price-openrouter-claude",
+		await db.insert(schema.providerModels).values({
+			id: "model-openrouter-claude",
 			providerId: "openrouter",
-			providerName: "OpenRouter",
-			modelId: "provider:openrouter",
-			modelName: "anthropic/claude-sonnet-4",
+			name: "anthropic/claude-sonnet-4",
+			displayName: "Claude Sonnet 4",
 			inputUsdMicrosPer1m: 2_000_000,
 			outputUsdMicrosPer1m: 10_000_000,
-			enabled: true,
 		});
 
 		const sourceReview = await buildResearchUsageRecord({
