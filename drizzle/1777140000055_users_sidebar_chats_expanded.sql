@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `sidebar_chats_expanded` integer DEFAULT true NOT NULL;

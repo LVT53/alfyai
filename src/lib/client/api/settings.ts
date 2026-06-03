@@ -114,6 +114,8 @@ export async function updateUserPreferences(params: {
 	uiLanguage?: 'en' | 'hu';
 	avatarId?: number | null;
 	preferredPersonalityId?: string | null;
+	sidebarProjectsExpanded?: boolean;
+	sidebarChatsExpanded?: boolean;
 }): Promise<void> {
 	await requestJson<{ success?: boolean }>(
 		'/api/settings/preferences',

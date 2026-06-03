@@ -26,6 +26,8 @@ export const PATCH: RequestHandler = async (event) => {
     uiLanguage?: unknown;
     avatarId?: unknown;
     preferredPersonalityId?: unknown;
+    sidebarProjectsExpanded?: unknown;
+    sidebarChatsExpanded?: unknown;
   };
   try {
     body = await event.request.json();
@@ -77,6 +79,14 @@ export const PATCH: RequestHandler = async (event) => {
 
   if (body.preferredPersonalityId !== undefined) {
     updates.preferredPersonalityId = body.preferredPersonalityId === null ? null : String(body.preferredPersonalityId);
+  }
+
+  if (body.sidebarProjectsExpanded !== undefined) {
+    updates.sidebarProjectsExpanded = Boolean(body.sidebarProjectsExpanded);
+  }
+
+  if (body.sidebarChatsExpanded !== undefined) {
+    updates.sidebarChatsExpanded = Boolean(body.sidebarChatsExpanded);
   }
 
   await db.update(users).set(updates).where(eq(users.id, userId));

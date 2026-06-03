@@ -42,6 +42,8 @@ export interface UserPreferences {
 	uiLanguage: UiLanguage;
 	avatarId: number | null;
 	preferredPersonalityId: string | null;
+	sidebarProjectsExpanded: boolean;
+	sidebarChatsExpanded: boolean;
 }
 
 export interface UserSettings {
