@@ -17,6 +17,7 @@ let {
 	onToggleEnabled,
 	onDiscover,
 	onTest,
+	onManageModels,
 }: {
 	providers: Provider[];
 	loading?: boolean;
@@ -31,6 +32,7 @@ let {
 	) => void | Promise<void>;
 	onDiscover: (provider: Provider) => void | Promise<void>;
 	onTest: (provider: Provider) => void | Promise<void>;
+	onManageModels?: (providerId: string) => void;
 } = $props();
 
 let deletingId = $state<string | null>(null);
@@ -146,6 +148,14 @@ async function handleDelete(provider: Provider) {
 						>
 							{discoveringId === provider.id ? $t('common.loading') : $t('admin.discoverModels')}
 						</button>
+						{#if onManageModels}
+							<button
+								class="btn-small whitespace-nowrap"
+								onclick={() => onManageModels(provider.id)}
+							>
+								{$t('admin.manageModels')}
+							</button>
+						{/if}
 						<button class="btn-small whitespace-nowrap" onclick={() => onEdit(provider)}>
 							{$t('common.edit')}
 						</button>

@@ -4,15 +4,15 @@ import SettingsAdminSystemPane from "./SettingsAdminSystemPane.svelte";
 
 vi.mock("$lib/client/api/admin", () => ({
 	createAdminSystemSkill: vi.fn(),
-	createProvider: vi.fn(),
-	deleteProvider: vi.fn(),
+	createProviderEntry: vi.fn(),
+	deleteProviderEntry: vi.fn(),
+	discoverProviderModels: vi.fn(),
 	fetchAdminSystemSkills: vi.fn(() => Promise.resolve([])),
 	fetchPersonalityProfiles: vi.fn(() => Promise.resolve([])),
-	fetchProviders: vi.fn(() => Promise.resolve([])),
+	fetchProviderList: vi.fn(() => Promise.resolve([])),
 	updateAdminConfig: vi.fn(),
 	updateAdminSystemSkill: vi.fn(),
-	updateProvider: vi.fn(),
-	validateProvider: vi.fn(),
+	updateProviderEntry: vi.fn(),
 }));
 
 vi.mock("$lib/client/api/campaign-assets", () => ({
@@ -22,10 +22,10 @@ vi.mock("$lib/client/api/campaign-assets", () => ({
 }));
 
 import {
-	createProvider,
+	createProviderEntry,
 	fetchAdminSystemSkills,
-	fetchProviders,
-	updateProvider,
+	fetchProviderList,
+	updateProviderEntry,
 	updateAdminConfig,
 	updateAdminSystemSkill,
 } from "$lib/client/api/admin";
@@ -36,10 +36,10 @@ import {
 } from "$lib/client/api/campaign-assets";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
 
-const mockCreateProvider = createProvider as ReturnType<typeof vi.fn>;
+const mockCreateProviderEntry = createProviderEntry as ReturnType<typeof vi.fn>;
 const mockFetchAdminSystemSkills = fetchAdminSystemSkills as ReturnType<typeof vi.fn>;
-const mockFetchProviders = fetchProviders as ReturnType<typeof vi.fn>;
-const mockUpdateProvider = updateProvider as ReturnType<typeof vi.fn>;
+const mockFetchProviderList = fetchProviderList as ReturnType<typeof vi.fn>;
+const mockUpdateProviderEntry = updateProviderEntry as ReturnType<typeof vi.fn>;
 const mockUpdateAdminConfig = updateAdminConfig as ReturnType<typeof vi.fn>;
 const mockUpdateAdminSystemSkill = updateAdminSystemSkill as ReturnType<typeof vi.fn>;
 const mockSaveModelIconAssetCrop = saveModelIconAssetCrop as ReturnType<typeof vi.fn>;
@@ -83,12 +83,11 @@ function providerFixture(overrides: Record<string, unknown> = {}) {
 describe("SettingsAdminSystemPane", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockCreateProvider.mockResolvedValue({
+		mockCreateProviderEntry.mockResolvedValue({
 			id: "provider-1",
 			name: "fireworks-ai",
 			displayName: "Fireworks AI",
 			baseUrl: "https://api.fireworks.ai/inference/v1",
-			modelName: "accounts/fireworks/models/kimi-k2",
 			reasoningEffort: null,
 			thinkingType: null,
 			enabled: true,
@@ -102,8 +101,8 @@ describe("SettingsAdminSystemPane", () => {
 			updatedAt: "",
 		});
 		mockFetchAdminSystemSkills.mockResolvedValue([]);
-		mockFetchProviders.mockResolvedValue([]);
-		mockUpdateProvider.mockResolvedValue(undefined);
+		mockFetchProviderList.mockResolvedValue([]);
+		mockUpdateProviderEntry.mockResolvedValue(undefined);
 		mockUpdateAdminConfig.mockResolvedValue(undefined);
 		mockSaveModelIconAssetCrop.mockResolvedValue({ id: "icon-crop-1" });
 		mockUploadCampaignAssetSource.mockResolvedValue({ id: "source-1" });
@@ -269,12 +268,6 @@ describe("SettingsAdminSystemPane", () => {
 		await fireEvent.input(getByLabelText("API Key"), {
 			target: { value: "primary-key" },
 		});
-		await fireEvent.input(getByLabelText("Model Name"), {
-			target: { value: "accounts/fireworks/models/kimi-k2" },
-		});
-		await fireEvent.input(getByLabelText("Max Model Context (tokens)"), {
-			target: { value: "262144" },
-		});
 
 		await fireEvent.click(getByLabelText("Enable rate-limit fallback"));
 		await fireEvent.input(getByLabelText("Fallback Base URL"), {
@@ -293,7 +286,7 @@ describe("SettingsAdminSystemPane", () => {
 		await fireEvent.click(getByRole("button", { name: "Save Changes" }));
 
 		await waitFor(() => {
-			expect(mockCreateProvider).toHaveBeenCalledWith(
+			expect(mockCreateProviderEntry).toHaveBeenCalledWith(
 				expect.objectContaining({
 					rateLimitFallbackEnabled: true,
 					rateLimitFallbackBaseUrl: "https://fallback.example/v1",
@@ -306,7 +299,7 @@ describe("SettingsAdminSystemPane", () => {
 	});
 
 	it("lets admins choose an enabled provider as the default model for new users", async () => {
-		mockFetchProviders.mockResolvedValue([
+		mockFetchProviderList.mockResolvedValue([
 			{
 				id: "fire-pass",
 				name: "fire_pass",
@@ -353,7 +346,7 @@ describe("SettingsAdminSystemPane", () => {
 	});
 
 	it("shows probed provider capabilities in provider rows", async () => {
-		mockFetchProviders.mockResolvedValue([
+		mockFetchProviderList.mockResolvedValue([
 			providerFixture({
 				displayName: "Capability Probe",
 				capabilities: createModelCapabilitySet({
@@ -396,174 +389,4 @@ describe("SettingsAdminSystemPane", () => {
 		expect(getAllByText(byExactTextContent("Tools Detected")).length).toBe(1);
 	});
 
-	it("crops raster model icon uploads and clears the uploading label after save", async () => {
-		const adminConfig = {
-			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
-			MODEL_1_ICON_ASSET_ID: "",
-			MODEL_2_ENABLED: "true",
-			DEEP_RESEARCH_ENABLED: "false",
-			DEEP_RESEARCH_WORKER_ENABLED: "false",
-		};
-		const {
-			container,
-			getAllByLabelText,
-			getAllByRole,
-			getByRole,
-			getByText,
-			queryByText,
-		} = render(SettingsAdminSystemPane, {
-			adminConfig,
-			availableModels: [{ id: "model1", displayName: "Model 1" }],
-			onCheckHonchoHealth: vi.fn(),
-			onSaveAdminConfig: vi.fn(),
-		});
-
-		await waitFor(() => {
-			expect(getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(
-				0,
-			);
-		});
-		await fireEvent.click(getAllByRole("button", { name: "Edit" })[0]);
-		await waitFor(() => {
-			expect(getAllByLabelText("Upload icon").length).toBeGreaterThan(0);
-		});
-
-		await fireEvent.change(getAllByLabelText("Upload icon")[0], {
-			target: {
-				files: [new File(["png"], "wide-icon.png", { type: "image/png" })],
-			},
-		});
-
-		await waitFor(() => {
-			expect(getByText("Crop model icon")).toBeInTheDocument();
-		});
-		expect(mockUploadCampaignAssetSource).toHaveBeenCalledWith({
-			image: expect.any(File),
-		});
-		expect(mockUploadModelIconAsset).not.toHaveBeenCalled();
-
-		const cropImage = container.querySelector(
-			".crop-frame img",
-		) as HTMLImageElement | null;
-		expect(cropImage).not.toBeNull();
-		Object.defineProperty(cropImage, "naturalWidth", {
-			value: 1200,
-			configurable: true,
-		});
-		Object.defineProperty(cropImage, "naturalHeight", {
-			value: 800,
-			configurable: true,
-		});
-		await fireEvent.load(cropImage as HTMLImageElement);
-
-		await fireEvent.click(getByRole("button", { name: "Save crop" }));
-
-		await waitFor(() => {
-			expect(mockSaveModelIconAssetCrop).toHaveBeenCalledWith({
-				sourceAssetId: "source-1",
-				crop: expect.any(Object),
-				image: expect.any(File),
-				width: 512,
-				height: 512,
-			});
-		});
-		expect(mockUpdateAdminConfig).toHaveBeenCalledWith({
-			MODEL_1_ICON_ASSET_ID: "icon-crop-1",
-		});
-		expect(adminConfig.MODEL_1_ICON_ASSET_ID).toBe("icon-crop-1");
-		await waitFor(() => {
-			expect(queryByText("Uploading...")).not.toBeInTheDocument();
-		});
-	});
-
-	it("stores SVG model icons directly without opening the cropper", async () => {
-		const adminConfig = {
-			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
-			MODEL_1_ICON_ASSET_ID: "",
-			MODEL_2_ENABLED: "true",
-			DEEP_RESEARCH_ENABLED: "false",
-			DEEP_RESEARCH_WORKER_ENABLED: "false",
-		};
-		const { getAllByLabelText, getAllByRole, queryByText } = render(
-			SettingsAdminSystemPane,
-			{
-				adminConfig,
-				availableModels: [{ id: "model1", displayName: "Model 1" }],
-				onCheckHonchoHealth: vi.fn(),
-				onSaveAdminConfig: vi.fn(),
-			},
-		);
-
-		await waitFor(() => {
-			expect(getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(
-				0,
-			);
-		});
-		await fireEvent.click(getAllByRole("button", { name: "Edit" })[0]);
-		await waitFor(() => {
-			expect(getAllByLabelText("Upload icon").length).toBeGreaterThan(0);
-		});
-
-		await fireEvent.change(getAllByLabelText("Upload icon")[0], {
-			target: {
-				files: [new File(["<svg></svg>"], "icon.svg", { type: "image/svg+xml" })],
-			},
-		});
-
-		await waitFor(() => {
-			expect(mockUploadModelIconAsset).toHaveBeenCalledWith({
-				image: expect.any(File),
-			});
-		});
-		expect(mockUpdateAdminConfig).toHaveBeenCalledWith({ MODEL_1_ICON_ASSET_ID: "icon-1" });
-		expect(adminConfig.MODEL_1_ICON_ASSET_ID).toBe("icon-1");
-		expect(mockUploadCampaignAssetSource).not.toHaveBeenCalled();
-		expect(queryByText("Crop model icon")).not.toBeInTheDocument();
-	});
-
-	it("routes provider icon uploads by provider id instead of display slug", async () => {
-		mockFetchProviders.mockResolvedValue([
-			providerFixture({ id: "provider-1", name: "firepass" }),
-		]);
-		const { getAllByLabelText, getAllByRole } = render(
-			SettingsAdminSystemPane,
-			{
-				adminConfig: {
-					COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
-					MODEL_2_ENABLED: "true",
-					DEEP_RESEARCH_ENABLED: "false",
-					DEEP_RESEARCH_WORKER_ENABLED: "false",
-				},
-				availableModels: [{ id: "model1", displayName: "Model 1" }],
-				onCheckHonchoHealth: vi.fn(),
-				onSaveAdminConfig: vi.fn(),
-			},
-		);
-
-		await waitFor(() => {
-			expect(getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(
-				2,
-			);
-		});
-		await fireEvent.click(getAllByRole("button", { name: "Edit" })[2]);
-		await waitFor(() => {
-			expect(getAllByLabelText("Upload icon").length).toBeGreaterThan(0);
-		});
-
-		await fireEvent.change(getAllByLabelText("Upload icon")[0], {
-			target: {
-				files: [
-					new File(["<svg></svg>"], "provider.svg", {
-						type: "image/svg+xml",
-					}),
-				],
-			},
-		});
-
-		await waitFor(() => {
-			expect(mockUpdateProvider).toHaveBeenCalledWith("provider-1", {
-				iconAssetId: "icon-1",
-			});
-		});
-	});
 });

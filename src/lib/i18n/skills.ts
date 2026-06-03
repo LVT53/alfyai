@@ -2,13 +2,15 @@
 
 const skillsDict = {
 	en: {
-		"composerCommandRegistry.disabled": "Composer Command Registry is disabled.",
+		"composerCommandRegistry.disabled":
+			"Composer Command Registry is disabled.",
 		"composerCommandRegistry.empty": "Composer commands are not available yet.",
 		"pendingSkill.chipsLabel": "Pending skill",
 		"pendingSkill.discoveryError": "Failed to load skills.",
 		"pendingSkill.discoveryLoading": "Loading skills...",
 		"pendingSkill.pack": "Skill Pack",
-		"pendingSkill.recoveryError": "Selected skill is no longer available. Your message was restored so you can remove it or choose another skill.",
+		"pendingSkill.recoveryError":
+			"Selected skill is no longer available. Your message was restored so you can remove it or choose another skill.",
 		"pendingSkill.removeA11y": "Remove pending skill {name}",
 		"pendingSkill.system": "Skill Pack",
 		"pendingSkill.unavailable": "Unavailable",
@@ -22,13 +24,15 @@ const skillsDict = {
 		"skillDrafts.duration.nextMessage": "Next message",
 		"skillDrafts.duration.session": "Session",
 		"skillDrafts.eyebrow": "Skill draft",
-		"skillDrafts.inheritedCopyBlocked": "Inherited skill drafts from copied fork history cannot be changed.",
+		"skillDrafts.inheritedCopyBlocked":
+			"Inherited skill drafts from copied fork history cannot be changed.",
 		"skillDrafts.notFound": "Skill draft not found.",
 		"skillDrafts.notes.createPrivate": "Private notes",
 		"skillDrafts.notes.none": "No notes",
 		"skillDrafts.policyTitle": "Review before saving",
 		"skillDrafts.publish": "Publish skill",
-		"skillDrafts.publishDisabled": "Chat skill drafts can only be saved privately. Admin-wide skills must be reviewed in admin settings.",
+		"skillDrafts.publishDisabled":
+			"Chat skill drafts can only be saved privately. Admin-wide skills must be reviewed in admin settings.",
 		"skillDrafts.publishError": "Failed to publish skill draft.",
 		"skillDrafts.published": "Published",
 		"skillDrafts.question.askWhenNeeded": "Ask when needed",
@@ -38,15 +42,19 @@ const skillsDict = {
 		"skillDrafts.saved": "Saved",
 		"skillDrafts.source.currentConversation": "Current conversation",
 		"skillDrafts.source.selectedSourcesOnly": "Selected sources only",
-		"skillDrafts.warning.currentConversation": "Can use broad current-conversation context.",
+		"skillDrafts.warning.currentConversation":
+			"Can use broad current-conversation context.",
 		"skillDrafts.warning.notes": "Can write private Skill Notes.",
-		"skillDrafts.warning.selectedSources": "Uses only selected linked sources when sources are needed.",
+		"skillDrafts.warning.selectedSources":
+			"Uses only selected linked sources when sources are needed.",
 		"skillSessions.activeLabel": "Active skill",
 		"skillSessions.dismiss": "Stop skill",
-		"skillSessions.errors.activeConflict": "Mark the active skill done or stop it before starting another one.",
+		"skillSessions.errors.activeConflict":
+			"Mark the active skill done or stop it before starting another one.",
 		"skillSessions.errors.end": "Failed to end skill session.",
 		"skillSessions.errors.start": "Failed to start skill session.",
-		"skillSessions.expectedNextAction": "Expected next action: continue the chat with this skill active.",
+		"skillSessions.expectedNextAction":
+			"Expected next action: continue the chat with this skill active.",
 		"skillSessions.finish": "Mark done",
 		"skillSessions.milestones.dismissed": "Skill session dismissed.",
 		"skillSessions.milestones.ended": "Skill session ended.",
@@ -115,12 +123,15 @@ const skillsDict = {
 		"skills.validation.instructionsRequired": "Instructions are required.",
 		"skills.variant.basedOn": "Based on {name}",
 		"skills.variant.deleteConfirm": "Delete variant {name}?",
-		"skills.variant.inheritedPolicies": "Inherits activation policy, source scope, and notes behavior from the selected Skill Pack.",
-		"skills.variant.inheritedPolicyCopy": "Policy controls are inherited from the selected Skill Pack and cannot be edited on variants.",
+		"skills.variant.inheritedPolicies":
+			"Inherits activation policy, source scope, and notes behavior from the selected Skill Pack.",
+		"skills.variant.inheritedPolicyCopy":
+			"Policy controls are inherited from the selected Skill Pack and cannot be edited on variants.",
 		"skills.variant.new": "New variant",
 		"skills.variant.noPacks": "No Skill Packs are available.",
 		"skills.variant.overlay": "Variant overlay guidance",
-		"skills.variant.overlayPlaceholder": "What should this variant add or adapt?",
+		"skills.variant.overlayPlaceholder":
+			"What should this variant add or adapt?",
 		"skills.variant.pack": "Skill Pack",
 		"skills.variant.packPlaceholder": "Choose a Skill Pack",
 		"skills.variant.packUnavailable": "Selected Skill Pack is unavailable.",
@@ -129,7 +140,8 @@ const skillsDict = {
 		"skills.variant.validation.packRequired": "Choose a Skill Pack.",
 	},
 	hu: {
-		"composerCommandRegistry.disabled": "A beviteli parancsregiszter le van tiltva.",
+		"composerCommandRegistry.disabled":
+			"A beviteli parancsregiszter le van tiltva.",
 		"composerCommandRegistry.empty": "A beviteli parancsok még nem érhetők el.",
 		"pendingSkill.chipsLabel": "Függőben lévő skill",
 		"pendingSkill.discoveryError": "Nem sikerült betölteni a skilleket.",
@@ -149,13 +161,15 @@ const skillsDict = {
 		"skillDrafts.duration.nextMessage": "Következő üzenet",
 		"skillDrafts.duration.session": "Munkamenet",
 		"skillDrafts.eyebrow": "Skill vázlat",
-		"skillDrafts.inheritedCopyBlocked": "A fork másolt előzményeiből örökölt skill vázlatok nem módosíthatók.",
+		"skillDrafts.inheritedCopyBlocked":
+			"A fork másolt előzményeiből örökölt skill vázlatok nem módosíthatók.",
 		"skillDrafts.notFound": "A skill vázlat nem található.",
 		"skillDrafts.notes.createPrivate": "Privát jegyzetek",
 		"skillDrafts.notes.none": "Nincs jegyzet",
 		"skillDrafts.policyTitle": "Áttekintés mentés előtt",
 		"skillDrafts.publish": "Skill publikálása",
-		"skillDrafts.publishDisabled": "A chatbeli skill vázlatok csak privátként menthetők. Az adminszintű skilleket az admin beállításokban kell átnézni.",
+		"skillDrafts.publishDisabled":
+			"A chatbeli skill vázlatok csak privátként menthetők. Az adminszintű skilleket az admin beállításokban kell átnézni.",
 		"skillDrafts.publishError": "Nem sikerült publikálni a skill vázlatot.",
 		"skillDrafts.published": "Publikálva",
 		"skillDrafts.question.askWhenNeeded": "Kérdezhet, ha szükséges",
@@ -165,19 +179,25 @@ const skillsDict = {
 		"skillDrafts.saved": "Mentve",
 		"skillDrafts.source.currentConversation": "Aktuális beszélgetés",
 		"skillDrafts.source.selectedSourcesOnly": "Csak kijelölt források",
-		"skillDrafts.warning.currentConversation": "Tág aktuális beszélgetési kontextust használhat.",
+		"skillDrafts.warning.currentConversation":
+			"Tág aktuális beszélgetési kontextust használhat.",
 		"skillDrafts.warning.notes": "Privát Skill jegyzeteket írhat.",
-		"skillDrafts.warning.selectedSources": "Csak a kijelölt kapcsolt forrásokat használja, ha forrásokra van szükség.",
+		"skillDrafts.warning.selectedSources":
+			"Csak a kijelölt kapcsolt forrásokat használja, ha forrásokra van szükség.",
 		"skillSessions.activeLabel": "Aktív skill",
 		"skillSessions.dismiss": "Skill leállítása",
-		"skillSessions.errors.activeConflict": "Jelöld késznek vagy állítsd le az aktív skillt, mielőtt másikat indítasz.",
+		"skillSessions.errors.activeConflict":
+			"Jelöld késznek vagy állítsd le az aktív skillt, mielőtt másikat indítasz.",
 		"skillSessions.errors.end": "Nem sikerült lezárni a skill munkamenetet.",
-		"skillSessions.errors.start": "Nem sikerült elindítani a skill munkamenetet.",
-		"skillSessions.expectedNextAction": "Várt következő lépés: folytasd a chatet ezzel az aktív skillel.",
+		"skillSessions.errors.start":
+			"Nem sikerült elindítani a skill munkamenetet.",
+		"skillSessions.expectedNextAction":
+			"Várt következő lépés: folytasd a chatet ezzel az aktív skillel.",
 		"skillSessions.finish": "Késznek jelölés",
 		"skillSessions.milestones.dismissed": "Skill munkamenet elvetve.",
 		"skillSessions.milestones.ended": "Skill munkamenet lezárva.",
-		"skillSessions.milestones.failedNote": "A skill jegyzet frissítése sikertelen.",
+		"skillSessions.milestones.failedNote":
+			"A skill jegyzet frissítése sikertelen.",
 		"skillSessions.milestones.paused": "Skill munkamenet szüneteltetve.",
 		"skillSessions.milestones.started": "Skill munkamenet elindítva.",
 		"skillSessions.milestones.unavailable": "A skill már nem elérhető.",
@@ -202,7 +222,8 @@ const skillsDict = {
 		"skills.disabled": "A skilleket a munkaterület rendszergazdája letiltotta.",
 		"skills.displayName": "Megjelenített név",
 		"skills.displayNamePlaceholder": "Értekezletkritikus",
-		"skills.duplicateWarning": "Már létezik skill ezzel a megjelenített névvel.",
+		"skills.duplicateWarning":
+			"Már létezik skill ezzel a megjelenített névvel.",
 		"skills.duration.nextMessage": "Következő üzenet",
 		"skills.duration.session": "Munkamenet",
 		"skills.durationPolicy": "Időtartam-szabály",
@@ -242,15 +263,19 @@ const skillsDict = {
 		"skills.validation.instructionsRequired": "Az utasítások kötelezők.",
 		"skills.variant.basedOn": "{name} alapján",
 		"skills.variant.deleteConfirm": "Törlöd ezt a változatot: {name}?",
-		"skills.variant.inheritedPolicies": "Az aktiválási szabályt, forráskört és jegyzetviselkedést a kiválasztott skill csomagtól örökli.",
-		"skills.variant.inheritedPolicyCopy": "A szabályvezérlők a kiválasztott skill csomagtól öröklődnek, változatokon nem szerkeszthetők.",
+		"skills.variant.inheritedPolicies":
+			"Az aktiválási szabályt, forráskört és jegyzetviselkedést a kiválasztott skill csomagtól örökli.",
+		"skills.variant.inheritedPolicyCopy":
+			"A szabályvezérlők a kiválasztott skill csomagtól öröklődnek, változatokon nem szerkeszthetők.",
 		"skills.variant.new": "Új változat",
 		"skills.variant.noPacks": "Nincs elérhető skill csomag.",
 		"skills.variant.overlay": "Változat kiegészítő útmutatása",
-		"skills.variant.overlayPlaceholder": "Mit adjon hozzá vagy módosítson ez a változat?",
+		"skills.variant.overlayPlaceholder":
+			"Mit adjon hozzá vagy módosítson ez a változat?",
 		"skills.variant.pack": "Skill csomag",
 		"skills.variant.packPlaceholder": "Válassz skill csomagot",
-		"skills.variant.packUnavailable": "A kiválasztott skill csomag nem érhető el.",
+		"skills.variant.packUnavailable":
+			"A kiválasztott skill csomag nem érhető el.",
 		"skills.variant.packsLoading": "Skill csomagok betöltése...",
 		"skills.variant.unknownPack": "Nem elérhető csomag",
 		"skills.variant.validation.packRequired": "Válassz skill csomagot.",

@@ -21,7 +21,9 @@ export type CompactImageSearchResult = {
 	height?: number;
 };
 
-export function sanitizeImageSearchInput(input: ImageSearchInput): ImageSearchInput {
+export function sanitizeImageSearchInput(
+	input: ImageSearchInput,
+): ImageSearchInput {
 	return { query: input.query.trim() };
 }
 

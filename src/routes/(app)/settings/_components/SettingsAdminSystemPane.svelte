@@ -10,11 +10,16 @@ import {
 	discoverProviderModels,
 	fetchProviderList,
 	updateProviderEntry,
+	fetchProviderModels,
+	createProviderModel,
+	updateProviderModel,
+	deleteProviderModel,
 	type AdminSystemSkill,
 	type AdminSystemSkillDraft,
 	type PersonalityProfileSummary,
 	type Provider,
 } from "$lib/client/api/admin";
+import type { ProviderModel } from "$lib/client/api/models";
 import {
 	saveModelIconAssetCrop,
 	uploadCampaignAssetSource,
@@ -34,6 +39,8 @@ import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import ProviderForm from "./ProviderForm.svelte";
 import ProviderList from "./ProviderList.svelte";
+import ModelList from "./ModelList.svelte";
+import ModelForm from "./ModelForm.svelte";
 
 const tVal = get(t);
 
@@ -81,6 +88,12 @@ let providerFormError = $state("");
 let providerFormTesting = $state(false);
 let providerFormTestError = $state("");
 let providerFormTestMessage = $state("");
+let showModelList = $state(false);
+let modelListProviderId = $state("");
+let modelListKey = $state(0);
+let showModelForm = $state(false);
+let modelFormProviderId = $state("");
+let modelFormModel = $state<ProviderModel | null>(null);
 let adminPersonalities = $state<PersonalityProfileSummary[]>([]);
 let systemSkills = $state<AdminSystemSkill[]>([]);
 let systemSkillsLoading = $state(false);
@@ -372,6 +385,40 @@ async function handleTestProviderConfig(provider: Provider) {
 	} catch (error: unknown) {
 		providerConfigsError = errorMessage(error, "Failed to test provider.");
 	}
+}
+
+function handleManageModels(providerId: string) {
+	modelListProviderId = providerId;
+	showModelList = true;
+	modelListKey += 1;
+}
+
+function closeModelList() {
+	showModelList = false;
+	modelListProviderId = "";
+}
+
+function openAddModelForm(providerId: string) {
+	modelFormProviderId = providerId;
+	modelFormModel = null;
+	showModelForm = true;
+}
+
+function openEditModelForm(providerId: string, model: ProviderModel) {
+	modelFormProviderId = providerId;
+	modelFormModel = model;
+	showModelForm = true;
+}
+
+function closeModelForm() {
+	showModelForm = false;
+	modelFormModel = null;
+	modelFormProviderId = "";
+}
+
+function handleModelFormSaved() {
+	closeModelForm();
+	modelListKey += 1;
 }
 
 async function loadSystemSkills() {
@@ -674,13 +721,14 @@ function placeholderFor(key: string): string {
 		providers={providerConfigs}
 		loading={providerConfigsLoading}
 		error={providerConfigsError}
-		message={providerConfigsMessage}
+		message={providersMessage}
 		onAdd={openAddProviderConfig}
 		onEdit={openEditProviderConfig}
 		onDelete={handleDeleteProviderConfig}
 		onToggleEnabled={handleToggleProviderConfig}
 		onDiscover={handleDiscoverProviderConfig}
 		onTest={handleTestProviderConfig}
+		onManageModels={handleManageModels}
 	/>
 </section>
 
@@ -1326,6 +1374,22 @@ function placeholderFor(key: string): string {
 		testMessage={providerFormTestMessage}
 		onSave={handleProviderFormSave}
 		onClose={closeProviderForm}
+	/>
+{/if}
+
+{#if showModelList}
+	<ModelList
+		providerId={modelListProviderId}
+		onClose={closeModelList}
+	/>
+{/if}
+
+{#if showModelForm}
+	<ModelForm
+		providerId={modelFormProviderId}
+		model={modelFormModel}
+		onClose={closeModelForm}
+		onSaved={handleModelFormSaved}
 	/>
 {/if}
 

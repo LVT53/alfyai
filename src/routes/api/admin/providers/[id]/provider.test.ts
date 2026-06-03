@@ -5,7 +5,6 @@ vi.mock("$lib/server/auth/hooks", () => ({
 }));
 
 vi.mock("$lib/server/config-store", () => ({
-	clearProvidersCache: vi.fn(),
 	refreshConfig: vi.fn(),
 }));
 
@@ -22,12 +21,11 @@ vi.mock("$lib/server/services/providers", async () => {
 });
 
 import { requireAdmin } from "$lib/server/auth/hooks";
-import { clearProvidersCache, refreshConfig } from "$lib/server/config-store";
+import { refreshConfig } from "$lib/server/config-store";
 import { deleteProvider, updateProvider } from "$lib/server/services/providers";
 import { PUT, DELETE } from "./+server";
 
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
-const mockClearProvidersCache = clearProvidersCache as ReturnType<typeof vi.fn>;
 const mockRefreshConfig = refreshConfig as ReturnType<typeof vi.fn>;
 const mockUpdateProvider = updateProvider as ReturnType<typeof vi.fn>;
 const mockDeleteProvider = deleteProvider as ReturnType<typeof vi.fn>;
@@ -86,7 +84,6 @@ describe("admin provider detail route", () => {
 				"provider-1",
 				expect.objectContaining({ displayName: "Updated Name" }),
 			);
-			expect(mockClearProvidersCache).toHaveBeenCalled();
 			expect(mockRefreshConfig).toHaveBeenCalled();
 		});
 
@@ -223,7 +220,6 @@ describe("admin provider detail route", () => {
 			expect(response.status).toBe(200);
 			expect(data.success).toBe(true);
 			expect(mockDeleteProvider).toHaveBeenCalledWith("provider-1");
-			expect(mockClearProvidersCache).toHaveBeenCalled();
 			expect(mockRefreshConfig).toHaveBeenCalled();
 		});
 

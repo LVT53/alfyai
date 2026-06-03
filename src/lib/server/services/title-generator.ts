@@ -2,7 +2,6 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError, generateText } from "ai";
 import { getConfig } from "../config-store";
-import { normalizeOpenAICompatibleBaseUrl } from "./openai-compatible-url";
 import { normalizeAssistantOutput } from "./chat-turn/normalizer";
 import { detectLanguage } from "./language";
 import {
@@ -10,6 +9,7 @@ import {
 	TITLE_GEN_MAX_TOKENS,
 	TITLE_GEN_TEMPERATURE,
 } from "./normal-chat-model-config";
+import { normalizeOpenAICompatibleBaseUrl } from "./openai-compatible-url";
 
 function createTitleGenProvider(
 	config: ReturnType<typeof getConfig>,
@@ -442,7 +442,6 @@ export async function generateTitle(
 	).map((m) => ({ role: m.role, content: m.content }));
 
 	const rawTitle = await generateTitleWithAiSdk(config, aiMessages);
-
 
 	if (!rawTitle || !isPlausibleTitle(rawTitle)) {
 		console.info("[TITLE_GENERATE] Fallback: empty rawTitle or thinking leak");

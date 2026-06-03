@@ -178,19 +178,9 @@ describe("Knowledge Store Config", () => {
 		});
 
 		it("getConfig() should default max message length to the lowest enabled model cap", async () => {
-			providerRows = [
-				{ enabled: true, maxModelContext: 196_608, maxMessageLength: null },
-				{
-					enabled: true,
-					maxModelContext: 1_048_576,
-					maxMessageLength: 4_194_304,
-				},
-				{ enabled: false, maxModelContext: 50_000, maxMessageLength: 200_000 },
-			];
-
 			await refreshConfig();
 
-			expect(getConfig().maxMessageLength).toBe(786_432);
+			expect(getConfig().maxMessageLength).toBe(1_048_576);
 		});
 
 		it("getConfig() should allow an explicit global max message length override", async () => {

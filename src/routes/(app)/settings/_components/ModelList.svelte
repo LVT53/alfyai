@@ -1,0 +1,205 @@
+<script lang="ts">
+import { get } from "svelte/store";
+import { t } from "$lib/i18n";
+import {
+	fetchProviderModels,
+	createProviderModel,
+	updateProviderModel,
+	deleteProviderModel,
+	type ProviderModel,
+	type ProviderModelUpdate,
+} from "$lib/client/api/admin";
+import ModelForm from "./ModelForm.svelte";
+
+const tVal = get(t);
+
+let {
+	providerId,
+	onClose,
+}: {
+	providerId: string;
+	onClose?: () => void;
+} = $props();
+
+let models = $state<ProviderModel[]>([]);
+let loading = $state(false);
+let error = $state("");
+let message = $state("");
+let showForm = $state(false);
+let formModel = $state<ProviderModel | null>(null);
+let formSaving = $state(false);
+let formError = $state("");
+let deletingId = $state<string | null>(null);
+
+let messageTimer: ReturnType<typeof setTimeout> | undefined;
+
+function showMessage(text: string) {
+	clearTimeout(messageTimer);
+	message = text;
+	messageTimer = setTimeout(() => {
+		message = "";
+	}, 4000);
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+	return error instanceof Error ? error.message : fallback;
+}
+
+async function loadModels() {
+	loading = true;
+	error = "";
+	try {
+		models = await fetchProviderModels(providerId);
+	} catch (err: unknown) {
+		error = errorMessage(err, $t("admin.loadingModels"));
+	} finally {
+		loading = false;
+	}
+}
+
+function openAddForm() {
+	formModel = null;
+	formError = "";
+	formSaving = false;
+	showForm = true;
+}
+
+function openEditForm(model: ProviderModel) {
+	formModel = { ...model };
+	formError = "";
+	formSaving = false;
+	showForm = true;
+}
+
+function closeForm() {
+	showForm = false;
+	formModel = null;
+	formError = "";
+}
+
+async function handleSave(data: ProviderModelUpdate) {
+	formSaving = true;
+	formError = "";
+	try {
+		if (formModel) {
+			await updateProviderModel(providerId, formModel.id, data);
+			showMessage($t("admin.providerUpdated"));
+		} else {
+			await createProviderModel(
+				providerId,
+				data as Parameters<typeof createProviderModel>[1],
+			);
+			showMessage($t("admin.providerAdded"));
+		}
+		closeForm();
+		await loadModels();
+	} catch (err: unknown) {
+		formError = errorMessage(err, $t("admin.failedSave"));
+	} finally {
+		formSaving = false;
+	}
+}
+
+async function handleDelete(model: ProviderModel) {
+	if (!confirm($t("admin.deleteProviderConfirm", { name: model.displayName })))
+		return;
+	deletingId = model.id;
+	try {
+		await deleteProviderModel(providerId, model.id);
+		showMessage($t("admin.providerDeleted"));
+		await loadModels();
+	} catch (err: unknown) {
+		error = errorMessage(err, $t("admin.failedDeleteProvider"));
+	} finally {
+		deletingId = null;
+	}
+}
+
+function formatPricing(input: number, output: number): string {
+	const fmt = (n: number) => (n / 1_000_000).toFixed(6);
+	return `$${fmt(input)} / $${fmt(output)}`;
+}
+
+$effect(() => {
+	void loadModels();
+});
+</script>
+
+<div class="flex flex-col gap-3">
+	<div class="flex items-center justify-between">
+		<h3 class="text-sm font-medium text-text-primary">{$t('admin.models')}</h3>
+		<div class="flex items-center gap-2">
+			<button class="btn-small" onclick={openAddForm}>{$t('admin.addModel')}</button>
+			{#if onClose}
+				<button class="btn-small" onclick={onClose}>{$t('common.close')}</button>
+			{/if}
+		</div>
+	</div>
+
+	{#if loading}
+		<p class="text-sm text-text-secondary">{$t('common.loading')}</p>
+	{:else if error}
+		<p class="text-sm text-danger">{error}</p>
+	{:else if models.length === 0}
+		<div class="rounded-md border border-border bg-surface-page px-4 py-6 text-center">
+			<p class="text-sm text-text-muted">{$t('admin.noModelsYet')}</p>
+			<button class="btn-secondary mt-3" onclick={openAddForm}>{$t('admin.addModel')}</button>
+		</div>
+	{:else}
+		<div class="flex flex-col gap-2">
+			{#each models as model (model.id)}
+				<div
+					class="flex flex-col gap-2 rounded-md border border-border bg-surface-page px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+				>
+					<div class="flex min-w-0 items-center gap-3">
+						<span
+							class="inline-block h-2 w-2 shrink-0 rounded-full"
+							class:bg-success={model.enabled}
+							class:bg-text-muted={!model.enabled}
+						></span>
+						<div class="flex min-w-0 flex-col">
+							<span class="truncate text-sm font-medium text-text-primary">
+								{model.displayName || model.name}
+							</span>
+							<span class="truncate text-xs text-text-muted">
+								{model.name}
+								&bull;
+								{formatPricing(model.inputUsdMicrosPer1m, model.outputUsdMicrosPer1m)}
+							</span>
+						</div>
+					</div>
+					<div class="flex flex-wrap items-center gap-2">
+						<span class="text-xs text-text-muted">
+							{model.enabled ? $t('admin.enabled') : $t('admin.disabled')}
+						</span>
+						<button class="btn-small whitespace-nowrap" onclick={() => openEditForm(model)}>
+							{$t('common.edit')}
+						</button>
+						<button
+							class="btn-small whitespace-nowrap text-danger"
+							disabled={deletingId === model.id}
+							onclick={() => handleDelete(model)}
+						>
+							{deletingId === model.id ? $t('common.loading') : $t('common.delete')}
+						</button>
+					</div>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	{#if message}
+		<p class="text-sm text-success">{message}</p>
+	{/if}
+</div>
+
+{#if showForm}
+	<ModelForm
+		{providerId}
+		model={formModel}
+		saving={formSaving}
+		error={formError}
+		onSave={handleSave}
+		onClose={closeForm}
+	/>
+{/if}

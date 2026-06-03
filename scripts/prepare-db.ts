@@ -104,7 +104,6 @@ const requiredExistingColumns: Array<[string, string]> = [
 	["announcement_campaign_slides", "desktop_crop_asset_id"],
 	["announcement_campaign_snapshots", "identity_key"],
 	["announcement_campaign_snapshot_slides", "desktop_crop_asset_id"],
-	["inference_providers", "icon_asset_id"],
 	["announcement_campaign_user_states", "snapshot_id"],
 	["announcement_campaign_events", "event_type"],
 ];

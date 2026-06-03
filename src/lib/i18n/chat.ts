@@ -2,7 +2,8 @@
 
 const chatDict = {
 	en: {
-		"chat.allFilesTooLarge": "All files exceed the {max}MB maximum upload size.",
+		"chat.allFilesTooLarge":
+			"All files exceed the {max}MB maximum upload size.",
 		"chat.attachmentLabel": "Attach file",
 		"chat.characterCount": "{current}/{max}",
 		"chat.conversationReady": "Conversation Ready",
@@ -10,21 +11,28 @@ const chatDict = {
 		"chat.edit": "Edit",
 		"chat.emptyConversation": "Start a conversation",
 		"chat.error.backend": `The model provider returned an error before a complete response was produced. Retry the message; if it repeats, check the model and provider logs.`,
-		"chat.error.capacity": "The chat service is already handling the maximum number of active responses. Wait a moment, then retry.",
+		"chat.error.capacity":
+			"The chat service is already handling the maximum number of active responses. Wait a moment, then retry.",
 		"chat.error.fileTooLarge": `The uploaded file is larger than the configured upload limit. Upload a smaller file or raise the limit in admin settings.`,
-		"chat.error.linkedSourceNotFound": "One of the linked Library documents is no longer available. Remove the missing source or link it again, then retry.",
-		"chat.error.messageTooLong": "That message is longer than the configured model input limit. Shorten it or split the request into smaller parts.",
+		"chat.error.linkedSourceNotFound":
+			"One of the linked Library documents is no longer available. Remove the missing source or link it again, then retry.",
+		"chat.error.messageTooLong":
+			"That message is longer than the configured model input limit. Shorten it or split the request into smaller parts.",
 		"chat.error.network": `The chat service could not stay connected to the model provider. Check the server connection and retry; if it keeps happening, the provider endpoint may be unavailable.`,
 		"chat.error.providerToolRounds": `The provider needed too many tool-call rounds and the turn was stopped to avoid looping. Retry with a narrower request or fewer required sources.`,
 		"chat.error.timeout": `The model stopped sending updates before it finished. This usually means the provider stream stalled or the request ran too long. Retry the message; if it repeats, try a shorter prompt or another model.`,
-		"chat.extractingDocument": "Extracting document text… this can take up to ~10s for scanned PDFs.",
-		"chat.fileSizeExceeded": "File is {size}MB. Maximum allowed size is {max}MB per file.",
+		"chat.extractingDocument":
+			"Extracting document text… this can take up to ~10s for scanned PDFs.",
+		"chat.fileSizeExceeded":
+			"File is {size}MB. Maximum allowed size is {max}MB per file.",
 		"chat.fileTooLarge": "File too large",
 		"chat.fileUnsupported": "File type not supported",
 		"chat.loading": "Loading messages...",
 		"chat.messagePlaceholder": "Type a message...",
-		"chat.messageWillSendAutomatically": "Message will send automatically when file processing finishes.",
-		"chat.messagesWillAppearHere": "Your messages and generated files will appear here.",
+		"chat.messageWillSendAutomatically":
+			"Message will send automatically when file processing finishes.",
+		"chat.messagesWillAppearHere":
+			"Your messages and generated files will appear here.",
 		"chat.nextMessageQueued": "Next message queued.",
 		"chat.openComposerTools": "Open composer tools",
 		"chat.preparingResponse": "Preparing response...",
@@ -48,7 +56,8 @@ const chatDict = {
 		"chatgptImport.chatsFound": "{count} conversations found",
 		"chatgptImport.close": "Close",
 		"chatgptImport.configTitle": "Import Settings",
-		"chatgptImport.description": "Upload a ChatGPT export ZIP to import your conversations.",
+		"chatgptImport.description":
+			"Upload a ChatGPT export ZIP to import your conversations.",
 		"chatgptImport.deselectAll": "Deselect all",
 		"chatgptImport.dropHere": "Drop ZIP file here",
 		"chatgptImport.importComplete": "Import complete",
@@ -60,7 +69,8 @@ const chatDict = {
 		"chatgptImport.next": "Next",
 		"chatgptImport.noConversations": "No conversations found in this ZIP file.",
 		"chatgptImport.noProject": "No folder",
-		"chatgptImport.parseError": "Could not read conversations from the ZIP file.",
+		"chatgptImport.parseError":
+			"Could not read conversations from the ZIP file.",
 		"chatgptImport.previewTitle": "Select Conversations to Import",
 		"chatgptImport.processed": "{current} of {total} processed",
 		"chatgptImport.projectLabel": "Project folder",
@@ -68,35 +78,44 @@ const chatDict = {
 		"chatgptImport.selectAll": "Select all",
 		"chatgptImport.selectFile": "Select ZIP file",
 		"chatgptImport.settingsButton": "Import from ChatGPT",
-		"chatgptImport.settingsDescription": "Import your conversations from ChatGPT to continue where you left off.",
+		"chatgptImport.settingsDescription":
+			"Import your conversations from ChatGPT to continue where you left off.",
 		"chatgptImport.settingsTitle": "Data & Import",
 		"chatgptImport.title": "Import ChatGPT Conversations",
-		"chatgptImport.uploadPrompt": "Drag and drop your ChatGPT export ZIP here, or click to browse",
+		"chatgptImport.uploadPrompt":
+			"Drag and drop your ChatGPT export ZIP here, or click to browse",
 		"codeBlock.collapse": "Collapse code block",
 		"codeBlock.copyCode": "Copy code",
 		"codeBlock.expand": "Expand code block",
 		"composerCommands.activeAnnouncement": "Active command: {token} {label}",
-		"composerCommands.attach.description": "Open the existing file attachment flow.",
+		"composerCommands.attach.description":
+			"Open the existing file attachment flow.",
 		"composerCommands.attach.label": "Attach file",
-		"composerCommands.clear.confirm": "Clear the current draft and pending composer selections?",
+		"composerCommands.clear.confirm":
+			"Clear the current draft and pending composer selections?",
 		"composerCommands.clear.description": "Clear the current composer draft.",
 		"composerCommands.clear.label": "Clear",
 		"composerCommands.comingSoon": "Coming next",
-		"composerCommands.compact.description": "Compact older context for future turns.",
+		"composerCommands.compact.description":
+			"Compact older context for future turns.",
 		"composerCommands.compact.label": "Compact",
 		"composerCommands.deepResearchUnavailable": "Deep Research is disabled.",
-		"composerCommands.document.description": "Link a Library document as context.",
+		"composerCommands.document.description":
+			"Link a Library document as context.",
 		"composerCommands.document.label": "Document",
 		"composerCommands.empty": "No matching commands.",
 		"composerCommands.model.description": "Open the model picker.",
 		"composerCommands.model.label": "Model",
-		"composerCommands.research.description": "Toggle standard Deep Research depth for the next message.",
+		"composerCommands.research.description":
+			"Toggle standard Deep Research depth for the next message.",
 		"composerCommands.research.label": "Deep Research",
 		"composerCommands.settings.description": "Open app settings.",
 		"composerCommands.settings.label": "Settings",
-		"composerCommands.skill.description": "Open skill controls when skill discovery lands.",
+		"composerCommands.skill.description":
+			"Open skill controls when skill discovery lands.",
 		"composerCommands.skill.label": "Skill",
-		"composerCommands.skillDiscovery.description": "Skill discovery is reserved for a later slice.",
+		"composerCommands.skillDiscovery.description":
+			"Skill discovery is reserved for a later slice.",
 		"composerCommands.skillDiscovery.label": "Skills",
 		"composerCommands.source.description": "Manage linked context sources.",
 		"composerCommands.source.label": "Sources",
@@ -106,7 +125,8 @@ const chatDict = {
 		"composerCommands.thinking.label": "Thinking",
 		"composerCommands.trayLabel": "Composer commands",
 		"composerCommands.unavailable": "Unavailable",
-		"composerCommands.web.description": "Force Web search for the next message.",
+		"composerCommands.web.description":
+			"Force Web search for the next message.",
 		"composerCommands.web.label": "Web search",
 		"composerTools.activeControls": "Active composer controls",
 		"composerTools.attachFile": "Attach file",
@@ -138,7 +158,8 @@ const chatDict = {
 		"contextSources.compacted": "Compacted",
 		"contextSources.currentSelection": "Current sources",
 		"contextSources.excluded": "Excluded",
-		"contextSources.excludedFromAutoSelection": "Excluded from automatic selection",
+		"contextSources.excludedFromAutoSelection":
+			"Excluded from automatic selection",
 		"contextSources.full": "Full",
 		"contextSources.group.attachments": "Attachments",
 		"contextSources.group.conversation": "Conversation",
@@ -150,7 +171,8 @@ const chatDict = {
 		"contextSources.group.workingSet": "Working set",
 		"contextSources.inferredSources": "Inferred sources",
 		"contextSources.manage": "Manage context sources",
-		"contextSources.noActiveSources": "No active context sources are selected right now.",
+		"contextSources.noActiveSources":
+			"No active context sources are selected right now.",
 		"contextSources.noExcludedSources": "No excluded context sources.",
 		"contextSources.noPinnedSources": "No pinned context sources.",
 		"contextSources.pinned": "Pinned",
@@ -184,9 +206,11 @@ const chatDict = {
 		"contextUsageRing.noContext": "No context yet",
 		"contextUsageRing.optionalTaskName": "Optional task name",
 		"contextUsageRing.pinned": "Pinned",
-		"contextUsageRing.placeholder": "Leave empty to infer from your next message",
+		"contextUsageRing.placeholder":
+			"Leave empty to infer from your next message",
 		"contextUsageRing.promptBudget": "Prompt budget",
-		"contextUsageRing.promptBudgetUsage": "Prompt budget usage {percent}% ({tokens} tokens)",
+		"contextUsageRing.promptBudgetUsage":
+			"Prompt budget usage {percent}% ({tokens} tokens)",
 		"contextUsageRing.recentTurns": "Recent turns",
 		"contextUsageRing.selectedEvidence": "Selected evidence",
 		"contextUsageRing.start": "Start",
@@ -212,7 +236,8 @@ const chatDict = {
 		"deepResearch.estimatedCost": "Est. {cost}",
 		"deepResearch.expectedTime": "Expected time",
 		"deepResearch.finalResearchTime": "Research time {time}",
-		"deepResearch.limitedReport.body": "The report is complete, but it explicitly labels evidence limits and unresolved gaps.",
+		"deepResearch.limitedReport.body":
+			"The report is complete, but it explicitly labels evidence limits and unresolved gaps.",
 		"deepResearch.limitedReport.filenamePrefix": "Limited Research Report",
 		"deepResearch.limitedReport.heading": "Limited Research Report",
 		"deepResearch.memo.actionFailed": "Failed to open memo recovery action",
@@ -231,26 +256,38 @@ const chatDict = {
 		"deepResearch.plan.keyQuestions": "Key questions",
 		"deepResearch.planEditInstructions": "Edit plan instructions",
 		"deepResearch.planHeading": "Research Plan",
-		"deepResearch.planRevision.body": "The corrected draft is ready. Approve it to continue Deep Research, or edit it before approving.",
+		"deepResearch.planRevision.body":
+			"The corrected draft is ready. Approve it to continue Deep Research, or edit it before approving.",
 		"deepResearch.planRevision.heading": "Research Plan Revision Needed",
 		"deepResearch.planningInProgress": "Drafting research plan...",
-		"deepResearch.planningInProgressDetail": "Preparing the plan card. The draft will appear here when it is ready.",
+		"deepResearch.planningInProgressDetail":
+			"Preparing the plan card. The draft will appear here when it is ready.",
 		"deepResearch.progress.auditRepairNeeded": "Audit repair needed",
 		"deepResearch.progress.auditRepairRunning": "Audit repair in progress",
 		"deepResearch.progress.currentStage": "Current stage: {stage}",
 		"deepResearch.progress.detailsLabel": "Research progress details",
 		"deepResearch.progress.dismissDetails": "Dismiss research progress details",
-		"deepResearch.progress.meaningfulPassesCompleted": "{count} meaningful pass completed",
-		"deepResearch.progress.meaningfulPassesCompletedAndRunning": "{completed} meaningful pass completed, {running} in progress",
-		"deepResearch.progress.meaningfulPassesCompletedAndRunningPlural": "{completed} meaningful passes completed, {running} in progress",
-		"deepResearch.progress.meaningfulPassesCompletedPlural": "{count} meaningful passes completed",
-		"deepResearch.progress.meaningfulPassesRunning": "{count} meaningful pass in progress",
-		"deepResearch.progress.meaningfulPassesRunningPlural": "{count} meaningful passes in progress",
-		"deepResearch.progress.noDetailsYet": "More stage detail will appear as research state is saved.",
+		"deepResearch.progress.meaningfulPassesCompleted":
+			"{count} meaningful pass completed",
+		"deepResearch.progress.meaningfulPassesCompletedAndRunning":
+			"{completed} meaningful pass completed, {running} in progress",
+		"deepResearch.progress.meaningfulPassesCompletedAndRunningPlural":
+			"{completed} meaningful passes completed, {running} in progress",
+		"deepResearch.progress.meaningfulPassesCompletedPlural":
+			"{count} meaningful passes completed",
+		"deepResearch.progress.meaningfulPassesRunning":
+			"{count} meaningful pass in progress",
+		"deepResearch.progress.meaningfulPassesRunningPlural":
+			"{count} meaningful passes in progress",
+		"deepResearch.progress.noDetailsYet":
+			"More stage detail will appear as research state is saved.",
 		"deepResearch.progress.openCoverageGaps": "{count} open coverage gap",
-		"deepResearch.progress.openCoverageGapsPlural": "{count} open coverage gaps",
-		"deepResearch.progress.resolvedClaimConflicts": "{count} claim conflict resolved",
-		"deepResearch.progress.resolvedClaimConflictsPlural": "{count} claim conflicts resolved",
+		"deepResearch.progress.openCoverageGapsPlural":
+			"{count} open coverage gaps",
+		"deepResearch.progress.resolvedClaimConflicts":
+			"{count} claim conflict resolved",
+		"deepResearch.progress.resolvedClaimConflictsPlural":
+			"{count} claim conflicts resolved",
 		"deepResearch.progress.showDetails": "Show research progress details",
 		"deepResearch.progress.stagePrefix": "Stage: ",
 		"deepResearch.reportIntent.comparison": "Comparison",
@@ -296,20 +333,34 @@ const chatDict = {
 		"deepResearch.timeline.reviewed": "{count} reviewed",
 		"deepResearch.timeline.reviewingSources": "Reviewing sources",
 		"deepResearch.timeline.show": "Show Activity Timeline",
-		"deepResearch.timeline.summary.citationAuditCompleted": "Citation audit completed and unsupported claims were removed or retained with citations.",
-		"deepResearch.timeline.summary.citationAuditFailed": "Citation audit failed because no credible supported claims remained.",
-		"deepResearch.timeline.summary.citationAuditRepairPassCreated": "Citation audit created repair pass {passNumber} with {count} repair tasks.",
-		"deepResearch.timeline.summary.coverageInsufficient": "Coverage gaps remain before report synthesis.",
-		"deepResearch.timeline.summary.coverageLimited": "Depth budget is exhausted; incomplete coverage will be disclosed as report limitations.",
-		"deepResearch.timeline.summary.coverageSufficient": "Reviewed evidence covers the approved Research Plan key questions.",
-		"deepResearch.timeline.summary.evidenceLimitationMemoCompleted": "Research completed with an Evidence Limitation Memo because there was not enough credible topic-relevant evidence.",
-		"deepResearch.timeline.summary.planGenerated": "Research Plan drafted for approval.",
-		"deepResearch.timeline.summary.planRevisionNeeded": "Research Plan revision needed; corrected draft is ready for approval.",
-		"deepResearch.timeline.summary.researchTasksCompleted": "Research task pass {passNumber} completed with {count} completed tasks.",
-		"deepResearch.timeline.summary.sourceDiscoveryCompleted": "Discovered {count} public web source candidates.",
-		"deepResearch.timeline.summary.sourceReviewCompleted": "Source review completed for {count} reviewed sources.",
-		"deepResearch.timeline.summary.workerCancelled": "Deep Research job cancelled before further worker advancement.",
-		"deepResearch.timeline.summary.workerStaleRecovered": "Deep Research job resumed from the latest durable Research Resume Point after exceeding the stale worker timeout.",
+		"deepResearch.timeline.summary.citationAuditCompleted":
+			"Citation audit completed and unsupported claims were removed or retained with citations.",
+		"deepResearch.timeline.summary.citationAuditFailed":
+			"Citation audit failed because no credible supported claims remained.",
+		"deepResearch.timeline.summary.citationAuditRepairPassCreated":
+			"Citation audit created repair pass {passNumber} with {count} repair tasks.",
+		"deepResearch.timeline.summary.coverageInsufficient":
+			"Coverage gaps remain before report synthesis.",
+		"deepResearch.timeline.summary.coverageLimited":
+			"Depth budget is exhausted; incomplete coverage will be disclosed as report limitations.",
+		"deepResearch.timeline.summary.coverageSufficient":
+			"Reviewed evidence covers the approved Research Plan key questions.",
+		"deepResearch.timeline.summary.evidenceLimitationMemoCompleted":
+			"Research completed with an Evidence Limitation Memo because there was not enough credible topic-relevant evidence.",
+		"deepResearch.timeline.summary.planGenerated":
+			"Research Plan drafted for approval.",
+		"deepResearch.timeline.summary.planRevisionNeeded":
+			"Research Plan revision needed; corrected draft is ready for approval.",
+		"deepResearch.timeline.summary.researchTasksCompleted":
+			"Research task pass {passNumber} completed with {count} completed tasks.",
+		"deepResearch.timeline.summary.sourceDiscoveryCompleted":
+			"Discovered {count} public web source candidates.",
+		"deepResearch.timeline.summary.sourceReviewCompleted":
+			"Source review completed for {count} reviewed sources.",
+		"deepResearch.timeline.summary.workerCancelled":
+			"Deep Research job cancelled before further worker advancement.",
+		"deepResearch.timeline.summary.workerStaleRecovered":
+			"Deep Research job resumed from the latest durable Research Resume Point after exceeding the stale worker timeout.",
 		"deepResearch.timeline.synthesizing": "Synthesizing",
 		"deepResearch.timeline.warnings": "Warnings",
 		"deepResearch.timeline.writingReport": "Writing report",
@@ -321,21 +372,25 @@ const chatDict = {
 		"documentWorkspace.closeDocumentsList": "Close documents list",
 		"documentWorkspace.closeWorkspace": "Close document workspace",
 		"documentWorkspace.collapseWorkspace": "Return to docked workspace",
-		"documentWorkspace.collapseWorkspaceLabel": "Return {title} to the docked workspace",
-		"documentWorkspace.compareSummary": "{changed} changed • {added} added • {removed} removed",
+		"documentWorkspace.collapseWorkspaceLabel":
+			"Return {title} to the docked workspace",
+		"documentWorkspace.compareSummary":
+			"{changed} changed • {added} added • {removed} removed",
 		"documentWorkspace.compareVersions": "Compare versions",
 		"documentWorkspace.compareVersionsTitle": "Compare Versions",
 		"documentWorkspace.compared": "Compared",
 		"documentWorkspace.current": "Current",
 		"documentWorkspace.documentWorkspace": "Document workspace",
 		"documentWorkspace.expandWorkspace": "Expand document workspace",
-		"documentWorkspace.expandWorkspaceLabel": "Expand document workspace for {title}",
+		"documentWorkspace.expandWorkspaceLabel":
+			"Expand document workspace for {title}",
 		"documentWorkspace.fit": "Fit",
 		"documentWorkspace.fitImage": "Fit image",
 		"documentWorkspace.fromKnowledgeBase": "Knowledge Base",
 		"documentWorkspace.historical": "Historical",
 		"documentWorkspace.invalidNumber": "Please enter a valid number",
-		"documentWorkspace.invalidPageRange": "Invalid: page must be between 1 and {total}",
+		"documentWorkspace.invalidPageRange":
+			"Invalid: page must be between 1 and {total}",
 		"documentWorkspace.latest": "Latest",
 		"documentWorkspace.loadingComparison": "Loading comparison…",
 		"documentWorkspace.nextPage": "Next page",
@@ -358,26 +413,43 @@ const chatDict = {
 		"fileProduction.cancelled": "Cancelled",
 		"fileProduction.cancelledDescription": "This request was cancelled.",
 		"fileProduction.downloadLabel": "Download {filename}",
-		"fileProduction.error.chart_limit_exceeded": "A chart exceeds the configured limit.",
-		"fileProduction.error.document_render_failed": "The document could not be rendered.",
-		"fileProduction.error.image_limit_exceeded": "Images exceed the configured limit.",
-		"fileProduction.error.invalid_document_source": "The generated document source is invalid.",
-		"fileProduction.error.job_outputs_too_large": "The produced files are too large.",
-		"fileProduction.error.output_file_too_large": "A produced file is too large.",
-		"fileProduction.error.page_limit_exceeded": "The document would exceed the page limit.",
-		"fileProduction.error.pdf_font_missing": "The PDF renderer is missing its Unicode font.",
-		"fileProduction.error.projection_too_large": "The document text projection is too large.",
+		"fileProduction.error.chart_limit_exceeded":
+			"A chart exceeds the configured limit.",
+		"fileProduction.error.document_render_failed":
+			"The document could not be rendered.",
+		"fileProduction.error.image_limit_exceeded":
+			"Images exceed the configured limit.",
+		"fileProduction.error.invalid_document_source":
+			"The generated document source is invalid.",
+		"fileProduction.error.job_outputs_too_large":
+			"The produced files are too large.",
+		"fileProduction.error.output_file_too_large":
+			"A produced file is too large.",
+		"fileProduction.error.page_limit_exceeded":
+			"The document would exceed the page limit.",
+		"fileProduction.error.pdf_font_missing":
+			"The PDF renderer is missing its Unicode font.",
+		"fileProduction.error.projection_too_large":
+			"The document text projection is too large.",
 		"fileProduction.error.renderer_timeout": "Document rendering timed out.",
 		"fileProduction.error.sandbox_timeout": "Program execution timed out.",
-		"fileProduction.error.source_too_large": "The file production source is too large.",
-		"fileProduction.error.table_limit_exceeded": "A table exceeds the configured limit.",
+		"fileProduction.error.source_too_large":
+			"The file production source is too large.",
+		"fileProduction.error.table_limit_exceeded":
+			"A table exceeds the configured limit.",
 		"fileProduction.error.too_many_outputs": "Too many outputs were requested.",
-		"fileProduction.error.unsupported_chart_data": "The chart data is not supported.",
-		"fileProduction.error.unsupported_chart_type": "The document contains an unsupported chart type.",
-		"fileProduction.error.unsupported_document_block": "The document contains an unsupported block.",
-		"fileProduction.error.unsupported_output_type": "That output type is not supported for this document yet.",
-		"fileProduction.error.unsupported_pdf_block": "This PDF renderer does not support that block yet.",
-		"fileProduction.error.unsupported_table_structure": "The document contains an unsupported table structure.",
+		"fileProduction.error.unsupported_chart_data":
+			"The chart data is not supported.",
+		"fileProduction.error.unsupported_chart_type":
+			"The document contains an unsupported chart type.",
+		"fileProduction.error.unsupported_document_block":
+			"The document contains an unsupported block.",
+		"fileProduction.error.unsupported_output_type":
+			"That output type is not supported for this document yet.",
+		"fileProduction.error.unsupported_pdf_block":
+			"This PDF renderer does not support that block yet.",
+		"fileProduction.error.unsupported_table_structure":
+			"The document contains an unsupported table structure.",
 		"fileProduction.failed": "Error",
 		"fileProduction.failedDescription": "File production did not finish.",
 		"fileProduction.fileCount": "{count} files",
@@ -391,34 +463,46 @@ const chatDict = {
 		"fileProduction.retryLabel": "Retry file production",
 		"fileProduction.running": "In-progress",
 		"fileProduction.runningDescription": "Generating files in the background.",
-		"fork.activeStreamGuard": "Wait for the current response to finish, or stop it, before creating a fork.",
+		"fork.activeStreamGuard":
+			"Wait for the current response to finish, or stop it, before creating a fork.",
 		"fork.boundaryMarkerLabel": "Conversation fork boundary",
 		"fork.boundarySource": "Copied from {title}",
 		"fork.boundaryTitle": "Fork starts here",
 		"fork.creating": "Creating fork...",
-		"fork.editWarning": "Editing this message will replace source history that already has forks. Existing forks stay unchanged. Continue?",
-		"fork.errors.emptySourceMessage": "Forks require a non-empty assistant response.",
-		"fork.errors.invalidSourceMessage": "Forks can only be created from a saved assistant response.",
-		"fork.errors.requiredArtifactUnauthorized": "A document or attachment needed for this fork is not available to your account.",
-		"fork.errors.requiredArtifactUnavailable": "A document or attachment needed for this fork is no longer available.",
-		"fork.errors.requiredGeneratedWorkUnavailable": "Generated work needed for this fork is no longer available.",
-		"fork.errors.sequenceConflict": "Another fork was created at the same time. Please try again.",
-		"fork.errors.sourceConversationNotFound": "The source conversation is no longer available.",
-		"fork.errors.stoppedSourceMessage": "Stopped assistant responses cannot be forked.",
+		"fork.editWarning":
+			"Editing this message will replace source history that already has forks. Existing forks stay unchanged. Continue?",
+		"fork.errors.emptySourceMessage":
+			"Forks require a non-empty assistant response.",
+		"fork.errors.invalidSourceMessage":
+			"Forks can only be created from a saved assistant response.",
+		"fork.errors.requiredArtifactUnauthorized":
+			"A document or attachment needed for this fork is not available to your account.",
+		"fork.errors.requiredArtifactUnavailable":
+			"A document or attachment needed for this fork is no longer available.",
+		"fork.errors.requiredGeneratedWorkUnavailable":
+			"Generated work needed for this fork is no longer available.",
+		"fork.errors.sequenceConflict":
+			"Another fork was created at the same time. Please try again.",
+		"fork.errors.sourceConversationNotFound":
+			"The source conversation is no longer available.",
+		"fork.errors.stoppedSourceMessage":
+			"Stopped assistant responses cannot be forked.",
 		"fork.failed": "Failed to create fork. Please try again.",
 		"fork.openFork": "Open fork {title}",
 		"fork.openSourceConversation": "Open source conversation {title}",
 		"fork.originCountLabel": "{count} forks from this response",
 		"fork.originMarkerLabel": "Conversation forks from this response",
 		"fork.originSingleLabel": "Forked from this response",
-		"fork.regenerateWarning": "Regenerating this response will replace source history that already has forks. Existing forks stay unchanged. Continue?",
+		"fork.regenerateWarning":
+			"Regenerating this response will replace source history that already has forks. Existing forks stay unchanged. Continue?",
 		"fork.sourceUnavailable": "Source conversation unavailable",
 		"import.boundaryMarkerLabel": "Imported conversation boundary",
 		"import.boundaryTitle": "Imported from ChatGPT",
 		"linkedSources.chipsLabel": "Linked context sources",
 		"linkedSources.picker.apply": "Link selected documents",
 		"linkedSources.picker.close": "Close document picker",
-		"linkedSources.picker.description": "Choose existing documents as context sources without uploading copies.",
+		"linkedSources.picker.description":
+			"Choose existing documents as context sources without uploading copies.",
 		"linkedSources.picker.empty": "No Library documents yet.",
 		"linkedSources.picker.error": "Failed to load Library documents.",
 		"linkedSources.picker.loading": "Loading documents...",
@@ -441,13 +525,17 @@ const chatDict = {
 		"messageBubble.sendShortcut": "Cmd+Enter to send",
 		"modelSelector.availableModels": "Available models",
 		"modelSelector.selectModel": "Select model",
-		"personalityProfile.concise.description": "Terse, answer-first, minimal exposition. Engineer-to-engineer.",
+		"personalityProfile.concise.description":
+			"Terse, answer-first, minimal exposition. Engineer-to-engineer.",
 		"personalityProfile.concise.name": "Concise",
-		"personalityProfile.creative.description": "Imaginative and inspiring, uses metaphors and storytelling. Great for content creation.",
+		"personalityProfile.creative.description":
+			"Imaginative and inspiring, uses metaphors and storytelling. Great for content creation.",
 		"personalityProfile.creative.name": "Creative",
-		"personalityProfile.default.description": "Direct, grounded, thoughtful. The standard AlfyAI voice.",
+		"personalityProfile.default.description":
+			"Direct, grounded, thoughtful. The standard AlfyAI voice.",
 		"personalityProfile.default.name": "Default",
-		"personalityProfile.exploratory.description": "Curious, asks clarifying questions, explores tradeoffs. Good for brainstorming and research.",
+		"personalityProfile.exploratory.description":
+			"Curious, asks clarifying questions, explores tradeoffs. Good for brainstorming and research.",
 		"personalityProfile.exploratory.name": "Exploratory",
 		"sourceManager.addDocument": "Add document",
 		"sourceManager.clearAll": "Clear all",
@@ -458,7 +546,8 @@ const chatDict = {
 		"sourceManager.title": "Sources",
 	},
 	hu: {
-		"chat.allFilesTooLarge": "Minden fájl meghaladja a {max} MB-os maximális feltöltési méretet.",
+		"chat.allFilesTooLarge":
+			"Minden fájl meghaladja a {max} MB-os maximális feltöltési méretet.",
 		"chat.attachmentLabel": "Fájl csatolása",
 		"chat.characterCount": "{current}/{max}",
 		"chat.conversationReady": "A beszélgetés készen áll",
@@ -466,21 +555,27 @@ const chatDict = {
 		"chat.edit": "Szerkesztés",
 		"chat.emptyConversation": "Kezdj beszélgetést",
 		"chat.error.backend": `A modellszolgáltató hibát adott vissza, mielőtt teljes válasz készült volna. Próbáld újra az üzenetet; ha ismétlődik, ellenőrizd a modell- és szolgáltatói naplókat.`,
-		"chat.error.capacity": "A chatszolgáltatás már a maximális számú aktív választ kezeli. Várj egy kicsit, majd próbáld újra.",
+		"chat.error.capacity":
+			"A chatszolgáltatás már a maximális számú aktív választ kezeli. Várj egy kicsit, majd próbáld újra.",
 		"chat.error.fileTooLarge": `A feltöltött fájl nagyobb a beállított feltöltési korlátnál. Tölts fel kisebb fájlt, vagy növeld a korlátot az admin beállításokban.`,
 		"chat.error.linkedSourceNotFound": `Az egyik kapcsolt könyvtári dokumentum már nem érhető el. Távolítsd el a hiányzó forrást, vagy kapcsold újra, majd próbáld meg ismét.`,
-		"chat.error.messageTooLong": "Az üzenet hosszabb a beállított modellbemeneti korlátnál. Rövidítsd le, vagy bontsd kisebb részekre a kérést.",
+		"chat.error.messageTooLong":
+			"Az üzenet hosszabb a beállított modellbemeneti korlátnál. Rövidítsd le, vagy bontsd kisebb részekre a kérést.",
 		"chat.error.network": `A chatszolgáltatás nem tudta fenntartani a kapcsolatot a modellszolgáltatóval. Ellenőrizd a szerverkapcsolatot, majd próbáld újra; ha ismétlődik, lehet, hogy a szolgáltatói végpont nem elérhető.`,
 		"chat.error.providerToolRounds": `A szolgáltatónak túl sok eszközhívási körre volt szüksége, ezért a rendszer leállította a választ, hogy ne fusson végtelen ciklusba. Próbáld újra szűkebb kéréssel vagy kevesebb kötelező forrással.`,
 		"chat.error.timeout": `A modell a befejezés előtt nem küldött több frissítést. Ez általában szolgáltatói stream-elakadást vagy túl hosszú kérést jelez. Próbáld újra az üzenetet; ha megismétlődik, használj rövidebb promptot vagy másik modellt.`,
-		"chat.extractingDocument": "Dokumentum szövegének kinyerése… ez akár ~10 másodpercig is tarthat beolvasott PDF-eknél.",
-		"chat.fileSizeExceeded": "A fájl mérete {size} MB. A maximális megengedett méret fájlonként {max} MB.",
+		"chat.extractingDocument":
+			"Dokumentum szövegének kinyerése… ez akár ~10 másodpercig is tarthat beolvasott PDF-eknél.",
+		"chat.fileSizeExceeded":
+			"A fájl mérete {size} MB. A maximális megengedett méret fájlonként {max} MB.",
 		"chat.fileTooLarge": "A fájl túl nagy",
 		"chat.fileUnsupported": "Nem támogatott fájltípus",
 		"chat.loading": "Üzenetek betöltése...",
 		"chat.messagePlaceholder": "Írj üzenetet...",
-		"chat.messageWillSendAutomatically": "Az üzenet automatikusan elküldődik, amikor a fájlfeldolgozás befejeződik.",
-		"chat.messagesWillAppearHere": "Az üzeneteid és a generált fájlok itt fognak megjelenni.",
+		"chat.messageWillSendAutomatically":
+			"Az üzenet automatikusan elküldődik, amikor a fájlfeldolgozás befejeződik.",
+		"chat.messagesWillAppearHere":
+			"Az üzeneteid és a generált fájlok itt fognak megjelenni.",
 		"chat.nextMessageQueued": "Következő üzenet várakozik.",
 		"chat.openComposerTools": "Szerkesztőeszközök megnyitása",
 		"chat.preparingResponse": "Válasz előkészítése...",
@@ -504,7 +599,8 @@ const chatDict = {
 		"chatgptImport.chatsFound": "{count} beszélgetés található",
 		"chatgptImport.close": "Bezárás",
 		"chatgptImport.configTitle": "Importálási beállítások",
-		"chatgptImport.description": "Tölts fel egy ChatGPT export ZIP-et a beszélgetéseid importálásához.",
+		"chatgptImport.description":
+			"Tölts fel egy ChatGPT export ZIP-et a beszélgetéseid importálásához.",
 		"chatgptImport.deselectAll": "Kijelölés megszüntetése",
 		"chatgptImport.dropHere": "Ejtse ide a ZIP fájlt",
 		"chatgptImport.importComplete": "Importálás kész",
@@ -514,9 +610,11 @@ const chatDict = {
 		"chatgptImport.invalidFile": "Kérjük, válasszon érvényes ZIP fájlt.",
 		"chatgptImport.messages": "{count} üzenet",
 		"chatgptImport.next": "Tovább",
-		"chatgptImport.noConversations": "Nem található beszélgetés ebben a ZIP fájlban.",
+		"chatgptImport.noConversations":
+			"Nem található beszélgetés ebben a ZIP fájlban.",
 		"chatgptImport.noProject": "Nincs mappa",
-		"chatgptImport.parseError": "Nem sikerült beolvasni a beszélgetéseket a ZIP fájlból.",
+		"chatgptImport.parseError":
+			"Nem sikerült beolvasni a beszélgetéseket a ZIP fájlból.",
 		"chatgptImport.previewTitle": "Válassza ki az importálandó beszélgetéseket",
 		"chatgptImport.processed": "{current} / {total} feldolgozva",
 		"chatgptImport.projectLabel": "Projekt mappa",
@@ -524,45 +622,59 @@ const chatDict = {
 		"chatgptImport.selectAll": "Összes kijelölése",
 		"chatgptImport.selectFile": "ZIP fájl kiválasztása",
 		"chatgptImport.settingsButton": "Importálás ChatGPT-ből",
-		"chatgptImport.settingsDescription": "Importáld a ChatGPT beszélgetéseidet, hogy folytathasd ott, ahol abbahagytad.",
+		"chatgptImport.settingsDescription":
+			"Importáld a ChatGPT beszélgetéseidet, hogy folytathasd ott, ahol abbahagytad.",
 		"chatgptImport.settingsTitle": "Adatok és Importálás",
 		"chatgptImport.title": "ChatGPT beszélgetések importálása",
-		"chatgptImport.uploadPrompt": "Húzd ide a ChatGPT export ZIP-et, vagy kattints a tallózáshoz",
+		"chatgptImport.uploadPrompt":
+			"Húzd ide a ChatGPT export ZIP-et, vagy kattints a tallózáshoz",
 		"codeBlock.collapse": "Kódblokk összecsukása",
 		"codeBlock.copyCode": "Kód másolása",
 		"codeBlock.expand": "Kódblokk kibontása",
 		"composerCommands.activeAnnouncement": "Aktív parancs: {token} {label}",
-		"composerCommands.attach.description": "Megnyitja a meglévő fájlcsatolási folyamatot.",
+		"composerCommands.attach.description":
+			"Megnyitja a meglévő fájlcsatolási folyamatot.",
 		"composerCommands.attach.label": "Fájl csatolása",
-		"composerCommands.clear.confirm": "Törlöd az aktuális piszkozatot és a függőben lévő beviteli kijelöléseket?",
-		"composerCommands.clear.description": "Törli az aktuális beviteli piszkozatot.",
+		"composerCommands.clear.confirm":
+			"Törlöd az aktuális piszkozatot és a függőben lévő beviteli kijelöléseket?",
+		"composerCommands.clear.description":
+			"Törli az aktuális beviteli piszkozatot.",
 		"composerCommands.clear.label": "Törlés",
 		"composerCommands.comingSoon": "Következő szeletben",
-		"composerCommands.compact.description": "Régebbi kontextus tömörítése a következő körökhöz.",
+		"composerCommands.compact.description":
+			"Régebbi kontextus tömörítése a következő körökhöz.",
 		"composerCommands.compact.label": "Tömörítés",
 		"composerCommands.deepResearchUnavailable": "A Mély kutatás le van tiltva.",
-		"composerCommands.document.description": "Könyvtári dokumentum kapcsolása kontextusként.",
+		"composerCommands.document.description":
+			"Könyvtári dokumentum kapcsolása kontextusként.",
 		"composerCommands.document.label": "Dokumentum",
 		"composerCommands.empty": "Nincs egyező parancs.",
 		"composerCommands.model.description": "Megnyitja a modellválasztót.",
 		"composerCommands.model.label": "Modell",
-		"composerCommands.research.description": "Normál Mély kutatás mélységet kapcsol a következő üzenethez.",
+		"composerCommands.research.description":
+			"Normál Mély kutatás mélységet kapcsol a következő üzenethez.",
 		"composerCommands.research.label": "Mély kutatás",
-		"composerCommands.settings.description": "Megnyitja az alkalmazás beállításait.",
+		"composerCommands.settings.description":
+			"Megnyitja az alkalmazás beállításait.",
 		"composerCommands.settings.label": "Beállítások",
-		"composerCommands.skill.description": "Skill vezérlők megnyitása a felfedezés elkészülte után.",
+		"composerCommands.skill.description":
+			"Skill vezérlők megnyitása a felfedezés elkészülte után.",
 		"composerCommands.skill.label": "Skill",
-		"composerCommands.skillDiscovery.description": "A skill felfedezés egy későbbi szelet számára van fenntartva.",
+		"composerCommands.skillDiscovery.description":
+			"A skill felfedezés egy későbbi szelet számára van fenntartva.",
 		"composerCommands.skillDiscovery.label": "Skillek",
-		"composerCommands.source.description": "Kapcsolt kontextusforrások kezelése.",
+		"composerCommands.source.description":
+			"Kapcsolt kontextusforrások kezelése.",
 		"composerCommands.source.label": "Források",
 		"composerCommands.style.description": "Megnyitja a stílusválasztót.",
 		"composerCommands.style.label": "Stílus",
-		"composerCommands.thinking.description": "Megnyitja a gondolkodási mód beállításait.",
+		"composerCommands.thinking.description":
+			"Megnyitja a gondolkodási mód beállításait.",
 		"composerCommands.thinking.label": "Gondolkodás",
 		"composerCommands.trayLabel": "Beviteli parancsok",
 		"composerCommands.unavailable": "Nem érhető el",
-		"composerCommands.web.description": "Webes keresést kényszerít a következő üzenethez.",
+		"composerCommands.web.description":
+			"Webes keresést kényszerít a következő üzenethez.",
 		"composerCommands.web.label": "Webes keresés",
 		"composerTools.activeControls": "Aktív beviteli vezérlők",
 		"composerTools.attachFile": "Fájl csatolása",
@@ -594,7 +706,8 @@ const chatDict = {
 		"contextSources.compacted": "Tömörített",
 		"contextSources.currentSelection": "Jelenlegi források",
 		"contextSources.excluded": "Kizárt",
-		"contextSources.excludedFromAutoSelection": "Kizárva az automatikus kijelölésből",
+		"contextSources.excludedFromAutoSelection":
+			"Kizárva az automatikus kijelölésből",
 		"contextSources.full": "Teljes",
 		"contextSources.group.attachments": "Csatolmányok",
 		"contextSources.group.conversation": "Beszélgetés",
@@ -606,7 +719,8 @@ const chatDict = {
 		"contextSources.group.workingSet": "Munkakészlet",
 		"contextSources.inferredSources": "Kikövetkeztetett források",
 		"contextSources.manage": "Kontextusforrások kezelése",
-		"contextSources.noActiveSources": "Jelenleg nincs aktív kontextusforrás kijelölve.",
+		"contextSources.noActiveSources":
+			"Jelenleg nincs aktív kontextusforrás kijelölve.",
 		"contextSources.noExcludedSources": "Nincs kizárt kontextusforrás.",
 		"contextSources.noPinnedSources": "Nincs rögzített kontextusforrás.",
 		"contextSources.pinned": "Rögzített",
@@ -640,9 +754,11 @@ const chatDict = {
 		"contextUsageRing.noContext": "Még nincs kontextus",
 		"contextUsageRing.optionalTaskName": "Opcionális feladatnév",
 		"contextUsageRing.pinned": "Rögzített",
-		"contextUsageRing.placeholder": "Hagyd üresen, ha a következő üzenetből kell következtetni",
+		"contextUsageRing.placeholder":
+			"Hagyd üresen, ha a következő üzenetből kell következtetni",
 		"contextUsageRing.promptBudget": "Promptkeret",
-		"contextUsageRing.promptBudgetUsage": "Promptkeret-használat: {percent}% ({tokens} token)",
+		"contextUsageRing.promptBudgetUsage":
+			"Promptkeret-használat: {percent}% ({tokens} token)",
 		"contextUsageRing.recentTurns": "Legutóbbi körök",
 		"contextUsageRing.selectedEvidence": "Kijelölt bizonyíték",
 		"contextUsageRing.start": "Indítás",
@@ -653,7 +769,8 @@ const chatDict = {
 		"deepResearch.advanceWorkflowHelp": "Kézi fejlesztői/tesztelési léptetés",
 		"deepResearch.advanceWorkflowLabel": "Kutatás léptetése",
 		"deepResearch.advancingWorkflow": "Léptetés...",
-		"deepResearch.approvePlanFailed": "Nem sikerült jóváhagyni a kutatási tervet",
+		"deepResearch.approvePlanFailed":
+			"Nem sikerült jóváhagyni a kutatási tervet",
 		"deepResearch.approvePlanLabel": "Kutatási terv jóváhagyása",
 		"deepResearch.cancelLabel": "Mély kutatás megszakítása",
 		"deepResearch.cardLabel": "Mély kutatás: {title}",
@@ -668,10 +785,13 @@ const chatDict = {
 		"deepResearch.estimatedCost": "Becs. {cost}",
 		"deepResearch.expectedTime": "Várható idő",
 		"deepResearch.finalResearchTime": "Kutatási idő {time}",
-		"deepResearch.limitedReport.body": "A jelentés elkészült, de kifejezetten jelöli a bizonyítékkorlátokat és a nyitott hiányokat.",
-		"deepResearch.limitedReport.filenamePrefix": "Korlátozott kutatási jelentés",
+		"deepResearch.limitedReport.body":
+			"A jelentés elkészült, de kifejezetten jelöli a bizonyítékkorlátokat és a nyitott hiányokat.",
+		"deepResearch.limitedReport.filenamePrefix":
+			"Korlátozott kutatási jelentés",
 		"deepResearch.limitedReport.heading": "Korlátozott kutatási jelentés",
-		"deepResearch.memo.actionFailed": "Nem sikerült megnyitni a memó helyreállítási műveletét",
+		"deepResearch.memo.actionFailed":
+			"Nem sikerült megnyitni a memó helyreállítási műveletét",
 		"deepResearch.memo.actionPending": "Megnyitás...",
 		"deepResearch.memo.heading": "Bizonyítékkorlát-memó",
 		"deepResearch.memo.limitations": "Megalapozott korlátozási okok",
@@ -680,34 +800,50 @@ const chatDict = {
 		"deepResearch.memo.rejectedOrOffTopic": "{count} elutasított/témán kívüli",
 		"deepResearch.memo.reviewedScope": "Áttekintett hatókör",
 		"deepResearch.memo.topicRelevant": "{count} témához illeszkedő",
-		"deepResearch.openLimitedReportLabel": "Korlátozott kutatási jelentés megnyitása",
+		"deepResearch.openLimitedReportLabel":
+			"Korlátozott kutatási jelentés megnyitása",
 		"deepResearch.openReportLabel": "Jelentés megnyitása",
 		"deepResearch.plan.deliverables": "Eredmények",
 		"deepResearch.plan.goal": "Cél",
 		"deepResearch.plan.keyQuestions": "Kulcskérdések",
 		"deepResearch.planEditInstructions": "Terv szerkesztési utasítások",
 		"deepResearch.planHeading": "Kutatási terv",
-		"deepResearch.planRevision.body": "A javított vázlat készen áll. Hagyd jóvá a Mély kutatás folytatásához, vagy szerkeszd jóváhagyás előtt.",
+		"deepResearch.planRevision.body":
+			"A javított vázlat készen áll. Hagyd jóvá a Mély kutatás folytatásához, vagy szerkeszd jóváhagyás előtt.",
 		"deepResearch.planRevision.heading": "Kutatási terv módosítása szükséges",
 		"deepResearch.planningInProgress": "Kutatási terv készítése...",
-		"deepResearch.planningInProgressDetail": "A tervkártya előkészítése folyamatban van. A vázlat itt jelenik meg, amint elkészült.",
+		"deepResearch.planningInProgressDetail":
+			"A tervkártya előkészítése folyamatban van. A vázlat itt jelenik meg, amint elkészült.",
 		"deepResearch.progress.auditRepairNeeded": "Auditjavítás szükséges",
 		"deepResearch.progress.auditRepairRunning": "Auditjavítás folyamatban",
 		"deepResearch.progress.currentStage": "Aktuális szakasz: {stage}",
 		"deepResearch.progress.detailsLabel": "Kutatási előrehaladás részletei",
-		"deepResearch.progress.dismissDetails": "Kutatási előrehaladás részleteinek bezárása",
-		"deepResearch.progress.meaningfulPassesCompleted": "{count} érdemi menet befejezve",
-		"deepResearch.progress.meaningfulPassesCompletedAndRunning": "{completed} érdemi menet befejezve, {running} folyamatban",
-		"deepResearch.progress.meaningfulPassesCompletedAndRunningPlural": "{completed} érdemi menet befejezve, {running} folyamatban",
-		"deepResearch.progress.meaningfulPassesCompletedPlural": "{count} érdemi menet befejezve",
-		"deepResearch.progress.meaningfulPassesRunning": "{count} érdemi menet folyamatban",
-		"deepResearch.progress.meaningfulPassesRunningPlural": "{count} érdemi menet folyamatban",
-		"deepResearch.progress.noDetailsYet": "További szakaszrészletek jelennek meg, ahogy a kutatási állapot mentésre kerül.",
-		"deepResearch.progress.openCoverageGaps": "{count} nyitott lefedettségi hiány",
-		"deepResearch.progress.openCoverageGapsPlural": "{count} nyitott lefedettségi hiány",
-		"deepResearch.progress.resolvedClaimConflicts": "{count} állításütközés feloldva",
-		"deepResearch.progress.resolvedClaimConflictsPlural": "{count} állításütközés feloldva",
-		"deepResearch.progress.showDetails": "Kutatási előrehaladás részleteinek megjelenítése",
+		"deepResearch.progress.dismissDetails":
+			"Kutatási előrehaladás részleteinek bezárása",
+		"deepResearch.progress.meaningfulPassesCompleted":
+			"{count} érdemi menet befejezve",
+		"deepResearch.progress.meaningfulPassesCompletedAndRunning":
+			"{completed} érdemi menet befejezve, {running} folyamatban",
+		"deepResearch.progress.meaningfulPassesCompletedAndRunningPlural":
+			"{completed} érdemi menet befejezve, {running} folyamatban",
+		"deepResearch.progress.meaningfulPassesCompletedPlural":
+			"{count} érdemi menet befejezve",
+		"deepResearch.progress.meaningfulPassesRunning":
+			"{count} érdemi menet folyamatban",
+		"deepResearch.progress.meaningfulPassesRunningPlural":
+			"{count} érdemi menet folyamatban",
+		"deepResearch.progress.noDetailsYet":
+			"További szakaszrészletek jelennek meg, ahogy a kutatási állapot mentésre kerül.",
+		"deepResearch.progress.openCoverageGaps":
+			"{count} nyitott lefedettségi hiány",
+		"deepResearch.progress.openCoverageGapsPlural":
+			"{count} nyitott lefedettségi hiány",
+		"deepResearch.progress.resolvedClaimConflicts":
+			"{count} állításütközés feloldva",
+		"deepResearch.progress.resolvedClaimConflictsPlural":
+			"{count} állításütközés feloldva",
+		"deepResearch.progress.showDetails":
+			"Kutatási előrehaladás részleteinek megjelenítése",
 		"deepResearch.progress.stagePrefix": "Szakasz: ",
 		"deepResearch.reportIntent.comparison": "Összehasonlítás",
 		"deepResearch.reportIntent.investigation": "Vizsgálat",
@@ -747,25 +883,39 @@ const chatDict = {
 		"deepResearch.timeline.hide": "Tevékenységi idővonal elrejtése",
 		"deepResearch.timeline.planDrafted": "Terv elkészült",
 		"deepResearch.timeline.planDrafting": "Terv készítése",
-		"deepResearch.timeline.planRevisionNeeded": "Kutatási terv módosítása szükséges",
+		"deepResearch.timeline.planRevisionNeeded":
+			"Kutatási terv módosítása szükséges",
 		"deepResearch.timeline.repairingCitations": "Hivatkozások javítása",
 		"deepResearch.timeline.reviewed": "{count} áttekintett",
 		"deepResearch.timeline.reviewingSources": "Források áttekintése",
 		"deepResearch.timeline.show": "Tevékenységi idővonal megjelenítése",
 		"deepResearch.timeline.summary.citationAuditCompleted": `A hivatkozás-ellenőrzés befejeződött, a nem alátámasztott állítások eltávolításra kerültek vagy hivatkozással maradtak meg.`,
-		"deepResearch.timeline.summary.citationAuditFailed": "A hivatkozás-ellenőrzés sikertelen volt, mert nem maradt hitelesen alátámasztott állítás.",
-		"deepResearch.timeline.summary.citationAuditRepairPassCreated": "A hivatkozás-ellenőrzés létrehozta a(z) {passNumber}. javító menetet {count} javítási feladattal.",
-		"deepResearch.timeline.summary.coverageInsufficient": "A jelentésszintézis előtt még lefedettségi hiányok maradtak.",
-		"deepResearch.timeline.summary.coverageLimited": "A mélységi keret kimerült; a hiányos lefedettség jelentési korlátként jelenik meg.",
-		"deepResearch.timeline.summary.coverageSufficient": "Az áttekintett bizonyíték lefedi a jóváhagyott kutatási terv kulcskérdéseit.",
-		"deepResearch.timeline.summary.evidenceLimitationMemoCompleted": "A kutatás bizonyítékkorlát-memóval zárult, mert nem volt elég hiteles, témához illeszkedő bizonyíték.",
-		"deepResearch.timeline.summary.planGenerated": "A kutatási terv elkészült jóváhagyásra.",
-		"deepResearch.timeline.summary.planRevisionNeeded": "A kutatási terv módosítása szükséges; a javított vázlat jóváhagyásra vár.",
-		"deepResearch.timeline.summary.researchTasksCompleted": "A(z) {passNumber}. kutatási feladatmenet lezárult {count} befejezett feladattal.",
-		"deepResearch.timeline.summary.sourceDiscoveryCompleted": "{count} nyilvános webes forrásjelölt felfedezve.",
-		"deepResearch.timeline.summary.sourceReviewCompleted": "Forrásáttekintés befejezve {count} áttekintett forrással.",
-		"deepResearch.timeline.summary.workerCancelled": "A mély kutatási feladat megszakadt, mielőtt a worker tovább léptette volna.",
-		"deepResearch.timeline.summary.workerStaleRecovered": "A mély kutatási feladat a legutóbbi tartós folytatási pontról folytatódott a worker időtúllépése után.",
+		"deepResearch.timeline.summary.citationAuditFailed":
+			"A hivatkozás-ellenőrzés sikertelen volt, mert nem maradt hitelesen alátámasztott állítás.",
+		"deepResearch.timeline.summary.citationAuditRepairPassCreated":
+			"A hivatkozás-ellenőrzés létrehozta a(z) {passNumber}. javító menetet {count} javítási feladattal.",
+		"deepResearch.timeline.summary.coverageInsufficient":
+			"A jelentésszintézis előtt még lefedettségi hiányok maradtak.",
+		"deepResearch.timeline.summary.coverageLimited":
+			"A mélységi keret kimerült; a hiányos lefedettség jelentési korlátként jelenik meg.",
+		"deepResearch.timeline.summary.coverageSufficient":
+			"Az áttekintett bizonyíték lefedi a jóváhagyott kutatási terv kulcskérdéseit.",
+		"deepResearch.timeline.summary.evidenceLimitationMemoCompleted":
+			"A kutatás bizonyítékkorlát-memóval zárult, mert nem volt elég hiteles, témához illeszkedő bizonyíték.",
+		"deepResearch.timeline.summary.planGenerated":
+			"A kutatási terv elkészült jóváhagyásra.",
+		"deepResearch.timeline.summary.planRevisionNeeded":
+			"A kutatási terv módosítása szükséges; a javított vázlat jóváhagyásra vár.",
+		"deepResearch.timeline.summary.researchTasksCompleted":
+			"A(z) {passNumber}. kutatási feladatmenet lezárult {count} befejezett feladattal.",
+		"deepResearch.timeline.summary.sourceDiscoveryCompleted":
+			"{count} nyilvános webes forrásjelölt felfedezve.",
+		"deepResearch.timeline.summary.sourceReviewCompleted":
+			"Forrásáttekintés befejezve {count} áttekintett forrással.",
+		"deepResearch.timeline.summary.workerCancelled":
+			"A mély kutatási feladat megszakadt, mielőtt a worker tovább léptette volna.",
+		"deepResearch.timeline.summary.workerStaleRecovered":
+			"A mély kutatási feladat a legutóbbi tartós folytatási pontról folytatódott a worker időtúllépése után.",
 		"deepResearch.timeline.synthesizing": "Szintetizálás",
 		"deepResearch.timeline.warnings": "Figyelmeztetések",
 		"deepResearch.timeline.writingReport": "Jelentés írása",
@@ -777,21 +927,25 @@ const chatDict = {
 		"documentWorkspace.closeDocumentsList": "Dokumentumlista bezárása",
 		"documentWorkspace.closeWorkspace": "Dokumentum-munkaterület bezárása",
 		"documentWorkspace.collapseWorkspace": "Vissza a dokkolt munkaterületre",
-		"documentWorkspace.collapseWorkspaceLabel": "{title} visszahelyezése a dokkolt munkaterületre",
-		"documentWorkspace.compareSummary": "{changed} módosított • {added} hozzáadott • {removed} eltávolított",
+		"documentWorkspace.collapseWorkspaceLabel":
+			"{title} visszahelyezése a dokkolt munkaterületre",
+		"documentWorkspace.compareSummary":
+			"{changed} módosított • {added} hozzáadott • {removed} eltávolított",
 		"documentWorkspace.compareVersions": "Verziók összehasonlítása",
 		"documentWorkspace.compareVersionsTitle": "Verziók összehasonlítása",
 		"documentWorkspace.compared": "Összehasonlítva",
 		"documentWorkspace.current": "Jelenlegi",
 		"documentWorkspace.documentWorkspace": "Dokumentum-munkaterület",
 		"documentWorkspace.expandWorkspace": "Dokumentum-munkaterület kibontása",
-		"documentWorkspace.expandWorkspaceLabel": "{title} kibontása a dokumentum-munkaterületen",
+		"documentWorkspace.expandWorkspaceLabel":
+			"{title} kibontása a dokumentum-munkaterületen",
 		"documentWorkspace.fit": "Illesztés",
 		"documentWorkspace.fitImage": "Kép illesztése",
 		"documentWorkspace.fromKnowledgeBase": "Tudásbázis",
 		"documentWorkspace.historical": "Korábbi",
 		"documentWorkspace.invalidNumber": "Adj meg egy érvényes számot",
-		"documentWorkspace.invalidPageRange": "Érvénytelen: az oldalnak 1 és {total} között kell lennie",
+		"documentWorkspace.invalidPageRange":
+			"Érvénytelen: az oldalnak 1 és {total} között kell lennie",
 		"documentWorkspace.latest": "Legfrissebb",
 		"documentWorkspace.loadingComparison": "Összehasonlítás betöltése…",
 		"documentWorkspace.nextPage": "Következő oldal",
@@ -800,7 +954,8 @@ const chatDict = {
 		"documentWorkspace.openDocumentsCount": "{count} nyitva",
 		"documentWorkspace.page": "Oldal",
 		"documentWorkspace.pageOf": "/ {total}",
-		"documentWorkspace.previewLoadFailed": "A dokumentum előnézetének betöltése sikertelen.",
+		"documentWorkspace.previewLoadFailed":
+			"A dokumentum előnézetének betöltése sikertelen.",
 		"documentWorkspace.previousPage": "Előző oldal",
 		"documentWorkspace.previousSlide": "Előző dia",
 		"documentWorkspace.resizePanel": "Munkaterület átméretezése",
@@ -814,26 +969,44 @@ const chatDict = {
 		"fileProduction.cancelled": "Megszakítva",
 		"fileProduction.cancelledDescription": "Ezt a kérést megszakítottad.",
 		"fileProduction.downloadLabel": "{filename} letöltése",
-		"fileProduction.error.chart_limit_exceeded": "Egy diagram túllépi a beállított korlátot.",
-		"fileProduction.error.document_render_failed": "A dokumentumot nem sikerült renderelni.",
-		"fileProduction.error.image_limit_exceeded": "A képek túllépik a beállított korlátot.",
-		"fileProduction.error.invalid_document_source": "A generált dokumentum forrása érvénytelen.",
-		"fileProduction.error.job_outputs_too_large": "Az előállított fájlok túl nagyok.",
-		"fileProduction.error.output_file_too_large": "Egy előállított fájl túl nagy.",
-		"fileProduction.error.page_limit_exceeded": "A dokumentum túllépné az oldalkorlátot.",
-		"fileProduction.error.pdf_font_missing": "A PDF-renderelőből hiányzik a Unicode betűkészlet.",
-		"fileProduction.error.projection_too_large": "A dokumentum szöveges vetülete túl nagy.",
-		"fileProduction.error.renderer_timeout": "A dokumentum renderelése időtúllépés miatt leállt.",
-		"fileProduction.error.sandbox_timeout": "A program futása időtúllépés miatt leállt.",
+		"fileProduction.error.chart_limit_exceeded":
+			"Egy diagram túllépi a beállított korlátot.",
+		"fileProduction.error.document_render_failed":
+			"A dokumentumot nem sikerült renderelni.",
+		"fileProduction.error.image_limit_exceeded":
+			"A képek túllépik a beállított korlátot.",
+		"fileProduction.error.invalid_document_source":
+			"A generált dokumentum forrása érvénytelen.",
+		"fileProduction.error.job_outputs_too_large":
+			"Az előállított fájlok túl nagyok.",
+		"fileProduction.error.output_file_too_large":
+			"Egy előállított fájl túl nagy.",
+		"fileProduction.error.page_limit_exceeded":
+			"A dokumentum túllépné az oldalkorlátot.",
+		"fileProduction.error.pdf_font_missing":
+			"A PDF-renderelőből hiányzik a Unicode betűkészlet.",
+		"fileProduction.error.projection_too_large":
+			"A dokumentum szöveges vetülete túl nagy.",
+		"fileProduction.error.renderer_timeout":
+			"A dokumentum renderelése időtúllépés miatt leállt.",
+		"fileProduction.error.sandbox_timeout":
+			"A program futása időtúllépés miatt leállt.",
 		"fileProduction.error.source_too_large": "A fájlkészítés forrása túl nagy.",
-		"fileProduction.error.table_limit_exceeded": "Egy tábla túllépi a beállított korlátot.",
+		"fileProduction.error.table_limit_exceeded":
+			"Egy tábla túllépi a beállított korlátot.",
 		"fileProduction.error.too_many_outputs": "Túl sok kimenet lett kérve.",
-		"fileProduction.error.unsupported_chart_data": "A diagram adatai nem támogatottak.",
-		"fileProduction.error.unsupported_chart_type": "A dokumentum nem támogatott diagramtípust tartalmaz.",
-		"fileProduction.error.unsupported_document_block": "A dokumentum nem támogatott blokkot tartalmaz.",
-		"fileProduction.error.unsupported_output_type": "Ez a kimeneti típus még nem támogatott ennél a dokumentumnál.",
-		"fileProduction.error.unsupported_pdf_block": "Ez a PDF-renderelő még nem támogatja ezt a blokkot.",
-		"fileProduction.error.unsupported_table_structure": "A dokumentum nem támogatott táblaszerkezetet tartalmaz.",
+		"fileProduction.error.unsupported_chart_data":
+			"A diagram adatai nem támogatottak.",
+		"fileProduction.error.unsupported_chart_type":
+			"A dokumentum nem támogatott diagramtípust tartalmaz.",
+		"fileProduction.error.unsupported_document_block":
+			"A dokumentum nem támogatott blokkot tartalmaz.",
+		"fileProduction.error.unsupported_output_type":
+			"Ez a kimeneti típus még nem támogatott ennél a dokumentumnál.",
+		"fileProduction.error.unsupported_pdf_block":
+			"Ez a PDF-renderelő még nem támogatja ezt a blokkot.",
+		"fileProduction.error.unsupported_table_structure":
+			"A dokumentum nem támogatott táblaszerkezetet tartalmaz.",
 		"fileProduction.failed": "Hiba",
 		"fileProduction.failedDescription": "A fájlkészítés nem fejeződött be.",
 		"fileProduction.fileCount": "{count} fájl",
@@ -847,20 +1020,29 @@ const chatDict = {
 		"fileProduction.retryLabel": "Fájlkészítés újrapróbálása",
 		"fileProduction.running": "Folyamatban",
 		"fileProduction.runningDescription": "A fájlok a háttérben készülnek.",
-		"fork.activeStreamGuard": "Várd meg az aktuális választ, vagy állítsd le, mielőtt elágazást hozol létre.",
+		"fork.activeStreamGuard":
+			"Várd meg az aktuális választ, vagy állítsd le, mielőtt elágazást hozol létre.",
 		"fork.boundaryMarkerLabel": "Beszélgetéselágazás határa",
 		"fork.boundarySource": "Másolva innen: {title}",
 		"fork.boundaryTitle": "Az elágazás itt kezdődik",
 		"fork.creating": "Elágazás létrehozása...",
 		"fork.editWarning": `Az üzenet szerkesztése lecseréli azt a forráselőzményt, amelyből már készült elágazás. A meglévő elágazások változatlanok maradnak. Folytatod?`,
-		"fork.errors.emptySourceMessage": "Az elágazáshoz nem üres asszisztensválasz szükséges.",
-		"fork.errors.invalidSourceMessage": "Elágazást csak mentett asszisztensválaszból lehet létrehozni.",
-		"fork.errors.requiredArtifactUnauthorized": "Az elágazáshoz szükséges dokumentum vagy csatolmány nem érhető el a fiókod számára.",
-		"fork.errors.requiredArtifactUnavailable": "Az elágazáshoz szükséges dokumentum vagy csatolmány már nem érhető el.",
-		"fork.errors.requiredGeneratedWorkUnavailable": "Az elágazáshoz szükséges generált munka már nem érhető el.",
-		"fork.errors.sequenceConflict": "Egy másik elágazás ugyanebben az időben jött létre. Próbáld újra.",
-		"fork.errors.sourceConversationNotFound": "A forrásbeszélgetés már nem érhető el.",
-		"fork.errors.stoppedSourceMessage": "A leállított asszisztensválaszokból nem lehet elágazást létrehozni.",
+		"fork.errors.emptySourceMessage":
+			"Az elágazáshoz nem üres asszisztensválasz szükséges.",
+		"fork.errors.invalidSourceMessage":
+			"Elágazást csak mentett asszisztensválaszból lehet létrehozni.",
+		"fork.errors.requiredArtifactUnauthorized":
+			"Az elágazáshoz szükséges dokumentum vagy csatolmány nem érhető el a fiókod számára.",
+		"fork.errors.requiredArtifactUnavailable":
+			"Az elágazáshoz szükséges dokumentum vagy csatolmány már nem érhető el.",
+		"fork.errors.requiredGeneratedWorkUnavailable":
+			"Az elágazáshoz szükséges generált munka már nem érhető el.",
+		"fork.errors.sequenceConflict":
+			"Egy másik elágazás ugyanebben az időben jött létre. Próbáld újra.",
+		"fork.errors.sourceConversationNotFound":
+			"A forrásbeszélgetés már nem érhető el.",
+		"fork.errors.stoppedSourceMessage":
+			"A leállított asszisztensválaszokból nem lehet elágazást létrehozni.",
 		"fork.failed": "Nem sikerült létrehozni az elágazást. Próbáld újra.",
 		"fork.openFork": "Elágazás megnyitása: {title}",
 		"fork.openSourceConversation": "Forrásbeszélgetés megnyitása: {title}",
@@ -874,11 +1056,14 @@ const chatDict = {
 		"linkedSources.chipsLabel": "Kapcsolt kontextusforrások",
 		"linkedSources.picker.apply": "Kijelölt dokumentumok kapcsolása",
 		"linkedSources.picker.close": "Dokumentumválasztó bezárása",
-		"linkedSources.picker.description": "Meglévő dokumentumok kiválasztása kontextusforrásként új feltöltés nélkül.",
+		"linkedSources.picker.description":
+			"Meglévő dokumentumok kiválasztása kontextusforrásként új feltöltés nélkül.",
 		"linkedSources.picker.empty": "Még nincsenek könyvtári dokumentumok.",
-		"linkedSources.picker.error": "Nem sikerült betölteni a könyvtári dokumentumokat.",
+		"linkedSources.picker.error":
+			"Nem sikerült betölteni a könyvtári dokumentumokat.",
 		"linkedSources.picker.loading": "Dokumentumok betöltése...",
-		"linkedSources.picker.noMatches": "Nincs a keresésnek megfelelő dokumentum.",
+		"linkedSources.picker.noMatches":
+			"Nincs a keresésnek megfelelő dokumentum.",
 		"linkedSources.picker.results": "Könyvtári dokumentumok",
 		"linkedSources.picker.searchLabel": "Dokumentumok keresése",
 		"linkedSources.picker.searchPlaceholder": "Dokumentum keresése",
@@ -897,13 +1082,17 @@ const chatDict = {
 		"messageBubble.sendShortcut": "Cmd+Enter a küldéshez",
 		"modelSelector.availableModels": "Elérhető modellek",
 		"modelSelector.selectModel": "Modell kiválasztása",
-		"personalityProfile.concise.description": "Rövid, válasz-először szemléletű, minimális magyarázattal. Mérnöktől mérnöknek.",
+		"personalityProfile.concise.description":
+			"Rövid, válasz-először szemléletű, minimális magyarázattal. Mérnöktől mérnöknek.",
 		"personalityProfile.concise.name": "Tömör",
-		"personalityProfile.creative.description": "Képzeletgazdag és inspiráló, metaforákat és történetmesélést használ. Kiváló tartalomkészítéshez.",
+		"personalityProfile.creative.description":
+			"Képzeletgazdag és inspiráló, metaforákat és történetmesélést használ. Kiváló tartalomkészítéshez.",
 		"personalityProfile.creative.name": "Kreatív",
-		"personalityProfile.default.description": "Közvetlen, józan és átgondolt. Az AlfyAI alap hangvétele.",
+		"personalityProfile.default.description":
+			"Közvetlen, józan és átgondolt. Az AlfyAI alap hangvétele.",
 		"personalityProfile.default.name": "Alapértelmezett",
-		"personalityProfile.exploratory.description": "Kíváncsi, pontosító kérdéseket tesz fel, és feltárja a kompromisszumokat. Jó ötleteléshez és kutatáshoz.",
+		"personalityProfile.exploratory.description":
+			"Kíváncsi, pontosító kérdéseket tesz fel, és feltárja a kompromisszumokat. Jó ötleteléshez és kutatáshoz.",
 		"personalityProfile.exploratory.name": "Felfedező",
 		"sourceManager.addDocument": "Dokumentum hozzáadása",
 		"sourceManager.clearAll": "Összes törlése",

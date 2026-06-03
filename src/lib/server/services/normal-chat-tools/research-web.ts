@@ -24,7 +24,9 @@ export const researchWebInputSchema = z.object({
 
 export type ResearchWebInput = z.infer<typeof researchWebInputSchema>;
 
-export function sanitizeResearchWebInput(input: ResearchWebInput): ResearchWebInput {
+export function sanitizeResearchWebInput(
+	input: ResearchWebInput,
+): ResearchWebInput {
 	return {
 		query: input.query,
 		...(input.mode ? { mode: input.mode } : {}),

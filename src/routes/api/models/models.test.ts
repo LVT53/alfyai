@@ -106,29 +106,6 @@ describe("GET /api/models", () => {
 		]);
 	});
 
-	it("includes old inference providers", async () => {
-		mockGetEnabledProviders.mockResolvedValue([
-			{
-				id: "old-1",
-				name: "openai",
-				displayName: "OpenAI",
-				iconAssetId: "openai-icon",
-				enabled: true,
-			},
-		]);
-
-		const response = await GET({} as any);
-		const data = await response.json();
-
-		expect(data.providers).toHaveLength(2);
-		const oldProvider = data.providers[1];
-		expect(oldProvider.id).toBe("old-1");
-		expect(oldProvider.displayName).toBe("OpenAI");
-		expect(oldProvider.models).toEqual([
-			{ id: "provider:old-1", displayName: "OpenAI" },
-		]);
-	});
-
 	it("includes new providers with their models", async () => {
 		mockListEnabledProviders.mockResolvedValue([
 			{

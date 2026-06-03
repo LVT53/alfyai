@@ -5,7 +5,6 @@ vi.mock("$lib/server/auth/hooks", () => ({
 }));
 
 vi.mock("$lib/server/config-store", () => ({
-	clearProvidersCache: vi.fn(),
 	refreshConfig: vi.fn(),
 }));
 
@@ -24,7 +23,7 @@ vi.mock("$lib/server/services/providers", async () => {
 });
 
 import { requireAdmin } from "$lib/server/auth/hooks";
-import { clearProvidersCache, refreshConfig } from "$lib/server/config-store";
+import { refreshConfig } from "$lib/server/config-store";
 import {
 	createProvider,
 	listProviders,
@@ -34,7 +33,6 @@ import {
 import { GET, POST } from "./+server";
 
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
-const mockClearProvidersCache = clearProvidersCache as ReturnType<typeof vi.fn>;
 const mockRefreshConfig = refreshConfig as ReturnType<typeof vi.fn>;
 const mockCreateProvider = createProvider as ReturnType<typeof vi.fn>;
 const mockListProviders = listProviders as ReturnType<typeof vi.fn>;
@@ -148,7 +146,6 @@ describe("admin providers collection route", () => {
 					enabled: undefined,
 				}),
 			);
-			expect(mockClearProvidersCache).toHaveBeenCalled();
 			expect(mockRefreshConfig).toHaveBeenCalled();
 		});
 

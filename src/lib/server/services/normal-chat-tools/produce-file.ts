@@ -94,7 +94,9 @@ export function shouldForceProduceFileTool(message: string): boolean {
 
 // ── Input normalization ────────────────────────────────────────
 
-export function normalizeProduceFileInput(input: ProduceFileInput):
+export function normalizeProduceFileInput(
+	input: ProduceFileInput,
+):
 	| { ok: true; input: NormalizedProduceFileInput }
 	| { ok: false; error: string } {
 	const requestTitle =
@@ -103,7 +105,11 @@ export function normalizeProduceFileInput(input: ProduceFileInput):
 		titleFromFilename(input.filename) ||
 		"Generated file";
 	const requestedOutputs = normalizeToolRequestedOutputs(input);
-	const content = firstNonEmptyString(input.markdown, input.content, input.text);
+	const content = firstNonEmptyString(
+		input.markdown,
+		input.content,
+		input.text,
+	);
 	const explicitMode = input.sourceMode;
 
 	if (explicitMode === "program" || input.program) {
@@ -152,10 +158,14 @@ export function normalizeProduceFileInput(input: ProduceFileInput):
 		if (!input.documentSource && !content) {
 			return {
 				ok: false,
-				error: "documentSource or content is required when sourceMode is document_source",
+				error:
+					"documentSource or content is required when sourceMode is document_source",
 			};
 		}
-		if (input.documentSource && !hasSubstantiveDocumentSource(input.documentSource)) {
+		if (
+			input.documentSource &&
+			!hasSubstantiveDocumentSource(input.documentSource)
+		) {
 			return {
 				ok: false,
 				error:
@@ -471,7 +481,8 @@ function markdownishTextToBlocks(text: string): Array<Record<string, unknown>> {
 
 // ── Content validation ─────────────────────────────────────────
 
-const TEMPLATE_MARKER_RE = /\b(TODO|placeholder|content (goes )?here|to be filled|\[placeholder\]|\.\.\.\s*$|^#\s+\w+(\s+\w+){0,3}\s*\.\.\.\s*$)/im;
+const TEMPLATE_MARKER_RE =
+	/\b(TODO|placeholder|content (goes )?here|to be filled|\[placeholder\]|\.\.\.\s*$|^#\s+\w+(\s+\w+){0,3}\s*\.\.\.\s*$)/im;
 const MIN_SUBSTANTIVE_CONTENT_LENGTH = 80;
 
 function hasSubstantiveContent(content: string): boolean {
@@ -612,7 +623,9 @@ export function sanitizeProduceFileInput(
 	return safe;
 }
 
-export function sanitizeUnsafeProduceFileInput(input: unknown): SafeProduceFileInput {
+export function sanitizeUnsafeProduceFileInput(
+	input: unknown,
+): SafeProduceFileInput {
 	if (!isRecord(input)) return {};
 	const safe: SafeProduceFileInput = {};
 	if (typeof input.idempotencyKey === "string" && input.idempotencyKey) {
@@ -632,11 +645,9 @@ export function sanitizeUnsafeProduceFileInput(input: unknown): SafeProduceFileI
 			}));
 	}
 	if (Array.isArray(input.outputs)) {
-		safe.outputs = input.outputs
-			.filter(isRecord)
-			.map((output) => ({
-				...(typeof output.type === "string" ? { type: output.type } : {}),
-			}));
+		safe.outputs = input.outputs.filter(isRecord).map((output) => ({
+			...(typeof output.type === "string" ? { type: output.type } : {}),
+		}));
 	}
 	if (typeof input.outputType === "string") {
 		safe.outputType = input.outputType;
@@ -693,7 +704,9 @@ export function sanitizeUnsafeProduceFileInput(input: unknown): SafeProduceFileI
 
 // ── Model payload / result compaction ──────────────────────────
 
-export function compactProduceFileModelPayload(result: FileProductionIntakeResult) {
+export function compactProduceFileModelPayload(
+	result: FileProductionIntakeResult,
+) {
 	if (result.ok) {
 		return {
 			ok: true as const,

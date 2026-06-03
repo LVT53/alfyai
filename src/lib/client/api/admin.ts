@@ -379,3 +379,112 @@ export async function fetchPublicPersonalityProfiles(): Promise<
 		(profile) => !(profile.isBuiltIn && profile.name === "Default"),
 	);
 }
+
+export interface ProviderModel {
+	id: string;
+	providerId: string;
+	name: string;
+	displayName: string;
+	maxModelContext: number | null;
+	compactionUiThreshold: number | null;
+	targetConstructedContext: number | null;
+	maxMessageLength: number | null;
+	maxTokens: number | null;
+	reasoningEffort: string | null;
+	thinkingType: string | null;
+	capabilitiesJson: string;
+	inputUsdMicrosPer1m: number;
+	cachedInputUsdMicrosPer1m: number;
+	cacheHitUsdMicrosPer1m: number;
+	cacheMissUsdMicrosPer1m: number;
+	outputUsdMicrosPer1m: number;
+	enabled: boolean;
+	sortOrder: number;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export type ProviderModelInput = {
+	name: string;
+	displayName?: string;
+	maxModelContext?: number | null;
+	compactionUiThreshold?: number | null;
+	targetConstructedContext?: number | null;
+	maxMessageLength?: number | null;
+	maxTokens?: number | null;
+	reasoningEffort?: string | null;
+	thinkingType?: string | null;
+	capabilitiesJson?: string | null;
+	inputUsdMicrosPer1m?: number;
+	cachedInputUsdMicrosPer1m?: number;
+	cacheHitUsdMicrosPer1m?: number;
+	cacheMissUsdMicrosPer1m?: number;
+	outputUsdMicrosPer1m?: number;
+	enabled?: boolean;
+	sortOrder?: number;
+};
+
+export type ProviderModelUpdate = Partial<ProviderModelInput>;
+
+interface ProviderModelListResponse {
+	models: ProviderModel[];
+}
+
+interface ProviderModelDetailResponse {
+	model: ProviderModel;
+}
+
+export async function fetchProviderModels(
+	providerId: string,
+): Promise<ProviderModel[]> {
+	const response = await requestJson<ProviderModelListResponse>(
+		`/api/admin/providers/${encodeURIComponent(providerId)}/models`,
+		undefined,
+		"Failed to load provider models",
+	);
+	return response.models;
+}
+
+export async function createProviderModel(
+	providerId: string,
+	input: ProviderModelInput,
+): Promise<ProviderModel> {
+	const response = await requestJson<ProviderModelDetailResponse>(
+		`/api/admin/providers/${encodeURIComponent(providerId)}/models`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(input),
+		},
+		"Failed to create provider model",
+	);
+	return response.model;
+}
+
+export async function updateProviderModel(
+	providerId: string,
+	modelId: string,
+	input: ProviderModelUpdate,
+): Promise<ProviderModel> {
+	const response = await requestJson<ProviderModelDetailResponse>(
+		`/api/admin/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}`,
+		{
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(input),
+		},
+		"Failed to update provider model",
+	);
+	return response.model;
+}
+
+export async function deleteProviderModel(
+	providerId: string,
+	modelId: string,
+): Promise<void> {
+	await requestVoid(
+		`/api/admin/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}`,
+		{ method: "DELETE" },
+		"Failed to delete provider model",
+	);
+}

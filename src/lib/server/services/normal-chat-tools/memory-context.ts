@@ -236,7 +236,9 @@ export function createMemoryContextMetadata(
 	return metadata;
 }
 
-export function summarizeMemoryContextResult(result: MemoryContextResult): string {
+export function summarizeMemoryContextResult(
+	result: MemoryContextResult,
+): string {
 	if (result.mode === "persona") {
 		return `Persona memory status: ${result.status}`;
 	}
