@@ -197,12 +197,14 @@ function isProviderExpanded(
 			<span class="model-selector__text">Loading...</span>
 		{:else if activeProvider()}
 			{@const active = activeProvider()}
+			{@const tooltip = `${active.provider.displayName}
+${active.model.displayName}`}
 			<ModelIcon
 				iconUrl={active.model.iconUrl ?? active.provider.iconUrl ?? null}
 				displayName={active.model.displayName}
 				size={22}
 			/>
-			<span class="model-selector__text" title={`${active.provider.displayName}\n${active.model.displayName}`}>{active.model.displayName}</span>
+			<span class="model-selector__text" title={tooltip}>{active.model.displayName}</span>
 		{:else}
 			<span class="model-selector__text">Select model</span>
 		{/if}
