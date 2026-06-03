@@ -1,47 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createModelCapabilitySet } from "$lib/model-capabilities";
 
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAdmin: vi.fn(),
 }));
 
-vi.mock("$lib/server/config-store", () => ({
-	clearProvidersCache: vi.fn(),
-	refreshConfig: vi.fn(),
-}));
-
-vi.mock("$lib/server/services/inference-providers", async () => {
+vi.mock("$lib/server/services/providers", async () => {
 	const actual = await vi.importActual<
-		typeof import("$lib/server/services/inference-providers")
-	>("$lib/server/services/inference-providers");
+		typeof import("$lib/server/services/providers")
+	>("$lib/server/services/providers");
 
 	return {
 		...actual,
 		decryptApiKey: vi.fn(),
 		getProviderWithSecrets: vi.fn(),
-		updateProvider: vi.fn(),
 		validateProviderConnection: vi.fn(),
 	};
 });
 
 import { requireAdmin } from "$lib/server/auth/hooks";
-import { clearProvidersCache, refreshConfig } from "$lib/server/config-store";
 import {
 	decryptApiKey,
 	getProviderWithSecrets,
-	updateProvider,
 	validateProviderConnection,
-} from "$lib/server/services/inference-providers";
+} from "$lib/server/services/providers";
 import { POST } from "./+server";
 
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
-const mockClearProvidersCache = clearProvidersCache as ReturnType<typeof vi.fn>;
-const mockRefreshConfig = refreshConfig as ReturnType<typeof vi.fn>;
 const mockDecryptApiKey = decryptApiKey as ReturnType<typeof vi.fn>;
 const mockGetProviderWithSecrets = getProviderWithSecrets as ReturnType<
 	typeof vi.fn
 >;
-const mockUpdateProvider = updateProvider as ReturnType<typeof vi.fn>;
 const mockValidateProviderConnection = validateProviderConnection as ReturnType<
 	typeof vi.fn
 >;
@@ -65,100 +53,74 @@ describe("admin provider validation route", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockRequireAdmin.mockReturnValue(undefined);
-		mockDecryptApiKey.mockReturnValue("secret");
+		mockDecryptApiKey.mockReturnValue("decrypted-secret");
 		mockGetProviderWithSecrets.mockResolvedValue({
 			id: "provider-1",
-			name: "firepass",
-			displayName: "Fire Pass Turbo",
-			baseUrl: "https://api.fireworks.ai/inference/v1",
+			name: "test-provider",
+			displayName: "Test Provider",
+			baseUrl: "https://api.example.com/v1",
 			apiKeyEncrypted: "encrypted",
 			apiKeyIv: "iv",
-			modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+			iconAssetId: null,
+			rateLimitFallbackEnabled: false,
+			rateLimitFallbackBaseUrl: null,
+			rateLimitFallbackModelName: null,
+			rateLimitFallbackTimeoutMs: 10000,
+			sortOrder: 0,
 			enabled: true,
-			capabilities: createModelCapabilitySet(),
+			createdAt: new Date(),
+			updatedAt: new Date(),
 		});
 	});
 
-	it("returns and persists capability probe evidence", async () => {
-		const capabilities = createModelCapabilitySet({
-			chat: { state: "detected", source: "probe" },
-			streaming: { state: "detected", source: "probe" },
-			tools: { state: "detected", source: "probe" },
-		});
-		mockValidateProviderConnection.mockResolvedValue({
-			valid: true,
-			capabilities,
-		});
+	it("returns valid connection result", async () => {
+		mockValidateProviderConnection.mockResolvedValue({ valid: true });
 
 		const response = await POST(makeValidateEvent());
 		const data = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(data).toMatchObject({
-			valid: true,
-			capabilities: {
-				chat: { state: "detected", supported: true },
-				streaming: { state: "detected", supported: true },
-				tools: { state: "detected", supported: true },
-			},
-		});
-		expect(mockUpdateProvider).toHaveBeenCalledWith("provider-1", {
-			capabilities,
-		});
-		expect(mockClearProvidersCache).toHaveBeenCalled();
-		expect(mockRefreshConfig).toHaveBeenCalled();
-	});
-
-	it("forwards configured reasoning controls when refreshing capability evidence", async () => {
-		mockGetProviderWithSecrets.mockResolvedValue({
-			id: "provider-1",
-			name: "firepass",
-			displayName: "Fire Pass Turbo",
-			baseUrl: "https://api.fireworks.ai/inference/v1",
-			apiKeyEncrypted: "encrypted",
-			apiKeyIv: "iv",
-			modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
-			reasoningEffort: "high",
-			thinkingType: "enabled",
-			enabled: true,
-			capabilities: createModelCapabilitySet(),
-		});
-		const capabilities = createModelCapabilitySet({
-			reasoningControls: {
-				state: "detected",
-				source: "manual_override",
-				detail: "Admin configured reasoning controls",
-			},
-		});
-		mockValidateProviderConnection.mockResolvedValue({
-			valid: true,
-			capabilities,
-		});
-
-		const response = await POST(makeValidateEvent());
-		const data = await response.json();
-
-		expect(response.status).toBe(200);
+		expect(data).toEqual({ valid: true });
 		expect(mockValidateProviderConnection).toHaveBeenCalledWith(
-			"https://api.fireworks.ai/inference/v1",
-			"secret",
-			{
-				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
-				reasoningEffort: "high",
-				thinkingType: "enabled",
-			},
+			"https://api.example.com/v1",
+			"decrypted-secret",
 		);
-		expect(data).toMatchObject({
-			valid: true,
-			capabilities: {
-				reasoningControls: {
-					state: "detected",
-					supported: true,
-				},
-			},
+	});
+
+	it("returns invalid connection result", async () => {
+		mockValidateProviderConnection.mockResolvedValue({
+			valid: false,
+			error: "Invalid API key",
 		});
-		expect(mockUpdateProvider).toHaveBeenCalledWith("provider-1", {
-			capabilities,
+
+		const response = await POST(makeValidateEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data).toEqual({ valid: false, error: "Invalid API key" });
+	});
+
+	it("returns error on decryption failure", async () => {
+		mockDecryptApiKey.mockImplementation(() => {
+			throw new Error("cipher");
 		});
+
+		const response = await POST(makeValidateEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.valid).toBe(false);
+		expect(data.error).toBe("Failed to decrypt API key");
+		expect(mockValidateProviderConnection).not.toHaveBeenCalled();
+	});
+
+	it("returns 404 when provider not found", async () => {
+		mockGetProviderWithSecrets.mockResolvedValue(null);
+
+		const response = await POST(makeValidateEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(404);
+		expect(data.error).toBe("Provider not found");
 	});
 });

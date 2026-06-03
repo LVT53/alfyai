@@ -4,6 +4,8 @@ import {
 	normalizeModelSelection,
 	type RuntimeConfig,
 } from "$lib/server/config-store";
+import { getProviderByName } from "$lib/server/services/providers";
+import { listEnabledProviderModels } from "$lib/server/services/provider-models";
 import { createAttachmentTraceId } from "$lib/server/services/attachment-trace";
 import type {
 	DeepResearchDepth,
@@ -105,11 +107,18 @@ export async function parseChatTurnRequest(
 	const modelStr = typeof model === "string" ? model.trim() : "";
 
 	if (modelStr === "model1" || modelStr === "model2") {
-		modelId = normalizeModelSelection(modelStr, runtimeConfig);
-		modelDisplayName =
-			modelId === "model2"
-				? runtimeConfig.model2.displayName
-				: runtimeConfig.model1.displayName;
+		const newProvider = await resolveModelFromNewProvidersTable(modelStr);
+		if (newProvider) {
+			modelId = modelStr as ModelId;
+			modelDisplayName = newProvider.displayName;
+			resolvedMaxMessageLength = newProvider.maxMessageLength ?? null;
+		} else {
+			modelId = normalizeModelSelection(modelStr, runtimeConfig);
+			modelDisplayName =
+				modelId === "model2"
+					? runtimeConfig.model2.displayName
+					: runtimeConfig.model1.displayName;
+		}
 	} else if (modelStr.startsWith("provider:")) {
 		const providerId = modelStr.slice("provider:".length);
 		if (providerId.length > 0) {
@@ -263,4 +272,29 @@ function isDeepResearchDepth(value: string): value is DeepResearchDepth {
 
 function parseThinkingMode(value: unknown): ThinkingMode {
 	return value === "on" || value === "off" || value === "auto" ? value : "auto";
+}
+
+type ModelFromProvidersTable = {
+	displayName: string;
+	maxMessageLength: number | null;
+} | null;
+
+async function resolveModelFromNewProvidersTable(
+	name: string,
+): Promise<ModelFromProvidersTable> {
+	try {
+		const provider = await getProviderByName(name);
+		if (!provider || !provider.enabled) return null;
+
+		const models = await listEnabledProviderModels(provider.id);
+		const model = models[0];
+		if (!model) return null;
+
+		return {
+			displayName: model.displayName,
+			maxMessageLength: model.maxMessageLength ?? null,
+		};
+	} catch {
+		return null;
+	}
 }

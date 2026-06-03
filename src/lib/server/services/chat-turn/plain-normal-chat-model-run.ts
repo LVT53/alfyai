@@ -14,6 +14,7 @@ import {
 	mapNormalChatModelRunUsageToProviderSnapshot,
 	resolveNormalChatModelRunProvider,
 	runPlainNormalChatModelRun,
+	type NormalChatModelRunProvider,
 } from "$lib/server/services/normal-chat-model";
 import {
 	createNormalChatTools,
@@ -47,6 +48,7 @@ export type PlainNormalChatSendModelParams = {
 	signal?: AbortSignal;
 	disableTools?: boolean;
 	forceProduceFileTool?: boolean;
+	overrideProvider?: NormalChatModelRunProvider;
 };
 
 export type PlainNormalChatSendModelResult = {
@@ -63,16 +65,19 @@ export type PlainNormalChatSendModelResult = {
 	toolCalls?: ToolCallEntry[];
 	modelId: ModelId;
 	modelDisplayName: string;
+	resolvedProviderId: string;
 };
 
 export async function runPlainNormalChatSendModel(
 	params: PlainNormalChatSendModelParams,
 ): Promise<PlainNormalChatSendModelResult> {
 	const modelId = params.modelId ?? "model1";
-	const provider = await resolveNormalChatModelRunProvider(
-		modelId,
-		params.runtimeConfig,
-	);
+	const provider =
+		params.overrideProvider ??
+		(await resolveNormalChatModelRunProvider(
+			modelId,
+			params.runtimeConfig,
+		));
 	const modelConfig = resolvePromptModelConfig({
 		modelId,
 		provider,
@@ -152,6 +157,7 @@ export async function runPlainNormalChatSendModel(
 		toolCalls,
 		modelId,
 		modelDisplayName: result.model.displayName,
+		resolvedProviderId: provider.id,
 	};
 }
 
@@ -193,17 +199,23 @@ function resolvePromptModelConfig(params: {
 	};
 	runtimeConfig: RuntimeConfig;
 }): ModelConfig {
-	if (params.modelId === "model2") return params.runtimeConfig.model2;
-	if (params.modelId === "model1") return params.runtimeConfig.model1;
+	const baseModelConfig =
+		params.modelId === "model2"
+			? params.runtimeConfig.model2
+			: params.runtimeConfig.model1;
+
+	if (params.modelId === "model2") return baseModelConfig;
+	if (params.modelId === "model1") return baseModelConfig;
 
 	return {
-		...params.runtimeConfig.model1,
+		...baseModelConfig,
+		systemPrompt: params.runtimeConfig.systemPrompt || baseModelConfig.systemPrompt,
 		baseUrl: params.provider.baseUrl,
 		apiKey: params.provider.apiKey,
 		modelName: params.provider.modelName,
 		displayName: params.provider.displayName,
 		maxTokens:
-			params.provider.maxOutputTokens ?? params.runtimeConfig.model1.maxTokens,
+			params.provider.maxOutputTokens ?? baseModelConfig.maxTokens,
 	};
 }
 

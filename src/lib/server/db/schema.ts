@@ -1543,6 +1543,89 @@ export const skillNoteCheckpoints = sqliteTable(
 	}),
 );
 
+export const providers = sqliteTable("providers", {
+	id: text("id").primaryKey(),
+	name: text("name").notNull().unique(),
+	displayName: text("display_name").notNull(),
+	baseUrl: text("base_url").notNull(),
+	apiKeyEncrypted: text("api_key_encrypted").notNull(),
+	apiKeyIv: text("api_key_iv").notNull(),
+	iconAssetId: text("icon_asset_id").references(
+		(): AnySQLiteColumn => campaignAssets.id,
+		{ onDelete: "set null" },
+	),
+	rateLimitFallbackEnabled: integer("rate_limit_fallback_enabled")
+		.notNull()
+		.default(0),
+	rateLimitFallbackBaseUrl: text("rate_limit_fallback_base_url"),
+	rateLimitFallbackApiKeyEncrypted: text(
+		"rate_limit_fallback_api_key_encrypted",
+	),
+	rateLimitFallbackApiKeyIv: text("rate_limit_fallback_api_key_iv"),
+	rateLimitFallbackModelName: text("rate_limit_fallback_model_name"),
+	rateLimitFallbackTimeoutMs: integer("rate_limit_fallback_timeout_ms")
+		.notNull()
+		.default(10000),
+	sortOrder: integer("sort_order").notNull().default(0),
+	enabled: integer("enabled").notNull().default(1),
+	createdAt: integer("created_at", { mode: "timestamp" })
+		.notNull()
+		.default(sql`(unixepoch())`),
+	updatedAt: integer("updated_at", { mode: "timestamp" })
+		.notNull()
+		.default(sql`(unixepoch())`),
+});
+
+export const providerModels = sqliteTable(
+	"provider_models",
+	{
+		id: text("id").primaryKey(),
+		providerId: text("provider_id")
+			.notNull()
+			.references(() => providers.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		displayName: text("display_name").notNull(),
+		maxModelContext: integer("max_model_context"),
+		compactionUiThreshold: integer("compaction_ui_threshold"),
+		targetConstructedContext: integer("target_constructed_context"),
+		maxMessageLength: integer("max_message_length"),
+		maxTokens: integer("max_tokens"),
+		reasoningEffort: text("reasoning_effort", {
+			enum: ["low", "medium", "high", "max", "xhigh"],
+		}),
+		thinkingType: text("thinking_type", { enum: ["enabled", "disabled"] }),
+		capabilitiesJson: text("capabilities_json").notNull().default("{}"),
+		inputUsdMicrosPer1m: integer("input_usd_micros_per_1m")
+			.notNull()
+			.default(0),
+		cachedInputUsdMicrosPer1m: integer("cached_input_usd_micros_per_1m")
+			.notNull()
+			.default(0),
+		cacheHitUsdMicrosPer1m: integer("cache_hit_usd_micros_per_1m")
+			.notNull()
+			.default(0),
+		cacheMissUsdMicrosPer1m: integer("cache_miss_usd_micros_per_1m")
+			.notNull()
+			.default(0),
+		outputUsdMicrosPer1m: integer("output_usd_micros_per_1m")
+			.notNull()
+			.default(0),
+		enabled: integer("enabled").notNull().default(1),
+		sortOrder: integer("sort_order").notNull().default(0),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		providerModelUniqueIdx: uniqueIndex(
+			"provider_models_provider_id_name_unique",
+		).on(table.providerId, table.name),
+	}),
+);
+
 export const inferenceProviders = sqliteTable("inference_providers", {
 	id: text("id").primaryKey(),
 	name: text("name").notNull().unique(),

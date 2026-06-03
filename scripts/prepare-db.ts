@@ -62,6 +62,7 @@ const requiredExistingTables = [
 	"announcement_campaign_user_states",
 	"announcement_campaign_events",
 	"import_jobs",
+	"providers",
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [
@@ -641,6 +642,76 @@ function runDrizzleMigrations(): void {
 	migrate(db, { migrationsFolder: "./drizzle" });
 }
 
+function seedDefaultProvidersIfNeeded(): void {
+	if (!hasTable("providers")) return;
+	const hasProviders = Boolean(
+		sqlite
+			.prepare("SELECT 1 FROM providers LIMIT 1")
+			.get(),
+	);
+	if (hasProviders) return;
+
+	const model1BaseUrl =
+		process.env.MODEL_1_BASEURL || "http://localhost:30001/v1";
+	const model1Name = process.env.MODEL_1_NAME || "model-1";
+	const model1DisplayName =
+		process.env.MODEL_1_DISPLAY_NAME || "Model 1";
+
+	if (model1BaseUrl && model1Name) {
+		const id = crypto.randomUUID();
+		sqlite
+			.prepare(
+				`INSERT INTO providers (id, name, display_name, base_url, api_key_encrypted, api_key_iv, sort_order, enabled, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, 0, 1, unixepoch(), unixepoch())`,
+			)
+			.run(
+				id,
+				"model1",
+				model1DisplayName,
+				model1BaseUrl,
+				process.env.MODEL_1_API_KEY || "",
+				"",
+			);
+		sqlite
+			.prepare(
+				`INSERT INTO provider_models (id, provider_id, name, display_name, enabled, sort_order, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, 1, 0, unixepoch(), unixepoch())`,
+			)
+			.run(crypto.randomUUID(), id, model1Name, model1DisplayName);
+	}
+
+	const model2Enabled = process.env.MODEL_2_ENABLED !== "false";
+	const model2BaseUrl = process.env.MODEL_2_BASEURL || "";
+	const model2Name = process.env.MODEL_2_NAME || "";
+	const model2DisplayName =
+		process.env.MODEL_2_DISPLAY_NAME || "Model 2";
+
+	if (model2Enabled && model2BaseUrl && model2Name) {
+		const id = crypto.randomUUID();
+		sqlite
+			.prepare(
+				`INSERT INTO providers (id, name, display_name, base_url, api_key_encrypted, api_key_iv, sort_order, enabled, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, 1, 1, unixepoch(), unixepoch())`,
+			)
+			.run(
+				id,
+				"model2",
+				model2DisplayName,
+				model2BaseUrl,
+				process.env.MODEL_2_API_KEY || "",
+				"",
+			);
+		sqlite
+			.prepare(
+				`INSERT INTO provider_models (id, provider_id, name, display_name, enabled, sort_order, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, 1, 0, unixepoch(), unixepoch())`,
+			)
+			.run(crypto.randomUUID(), id, model2Name, model2DisplayName);
+	}
+
+	console.log("[prepare-db] Seeded default providers from env configuration.");
+}
+
 export function prepareDatabase(
 	path = process.env.DATABASE_PATH || "./data/chat.db",
 ): void {
@@ -671,6 +742,7 @@ export function prepareDatabase(
 
 			runDrizzleMigrations();
 			autoCreateMissingColumns(autoCreateColumnsAfterMigrations);
+			seedDefaultProvidersIfNeeded();
 			const schemaProblems = validateExistingRuntimeSchema();
 			if (schemaProblems.length > 0) {
 				throw new Error(
@@ -682,6 +754,7 @@ export function prepareDatabase(
 		}
 
 		runDrizzleMigrations();
+		seedDefaultProvidersIfNeeded();
 		console.log(`Database migrations are up to date for ${databasePath}.`);
 	} finally {
 		sqlite.close();

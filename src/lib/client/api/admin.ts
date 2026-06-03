@@ -222,11 +222,130 @@ export async function validateProvider(id: string): Promise<ValidateResponse> {
 	);
 }
 
+export interface Provider {
+	id: string;
+	name: string;
+	displayName: string;
+	baseUrl: string;
+	iconAssetId: string | null;
+	rateLimitFallbackEnabled: boolean;
+	rateLimitFallbackBaseUrl: string | null;
+	rateLimitFallbackModelName: string | null;
+	rateLimitFallbackTimeoutMs: number;
+	sortOrder: number;
+	enabled: boolean;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface ProviderCreateInput {
+	name: string;
+	displayName: string;
+	baseUrl: string;
+	apiKey: string;
+	iconAssetId?: string | null;
+	rateLimitFallbackEnabled?: boolean;
+	rateLimitFallbackBaseUrl?: string | null;
+	rateLimitFallbackApiKey?: string | null;
+	rateLimitFallbackModelName?: string | null;
+	rateLimitFallbackTimeoutMs?: number;
+}
+
+export interface ProviderUpdateInput {
+	displayName?: string;
+	baseUrl?: string;
+	apiKey?: string;
+	iconAssetId?: string | null;
+	rateLimitFallbackEnabled?: boolean;
+	rateLimitFallbackBaseUrl?: string | null;
+	rateLimitFallbackApiKey?: string | null;
+	rateLimitFallbackModelName?: string | null;
+	rateLimitFallbackTimeoutMs?: number;
+	enabled?: boolean;
+	sortOrder?: number;
+}
+
+interface ProviderListResponse {
+	providers: Provider[];
+}
+
+interface ProviderDetailResponse {
+	provider: Provider;
+}
+
+interface ProviderDiscoverResponse {
+	models: Array<{ id: string; name: string }>;
+}
+
+export async function fetchProviderList(): Promise<Provider[]> {
+	const response = await requestJson<ProviderListResponse>(
+		"/api/admin/providers",
+		undefined,
+		"Failed to load providers",
+	);
+	return response.providers;
+}
+
+export async function createProviderEntry(
+	input: ProviderCreateInput,
+): Promise<Provider> {
+	const response = await requestJson<ProviderDetailResponse>(
+		"/api/admin/providers",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(input),
+		},
+		"Failed to create provider",
+	);
+	return response.provider;
+}
+
+export async function updateProviderEntry(
+	id: string,
+	input: ProviderUpdateInput,
+): Promise<Provider> {
+	const response = await requestJson<ProviderDetailResponse>(
+		`/api/admin/providers/${id}`,
+		{
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(input),
+		},
+		"Failed to update provider",
+	);
+	return response.provider;
+}
+
+export async function deleteProviderEntry(id: string): Promise<void> {
+	await requestVoid(
+		`/api/admin/providers/${id}`,
+		{ method: "DELETE" },
+		"Failed to delete provider",
+	);
+}
+
+export async function discoverProviderModels(
+	id: string,
+): Promise<ProviderDiscoverResponse["models"]> {
+	const response = await requestJson<ProviderDiscoverResponse>(
+		`/api/admin/providers/${id}/discover`,
+		{ method: "POST" },
+		"Failed to discover provider models",
+	);
+	return response.models;
+}
+
 export type AdminSkillDurationPolicy = "next_message" | "session";
 export type AdminSkillQuestionPolicy = "none" | "ask_when_needed";
 export type AdminSkillNotesPolicy = "none" | "create_private_notes";
-export type AdminSkillSourceScope = "current_conversation" | "selected_sources_only";
-export type AdminSkillCreationSource = "user_created" | "ai_draft" | "system_seed";
+export type AdminSkillSourceScope =
+	| "current_conversation"
+	| "selected_sources_only";
+export type AdminSkillCreationSource =
+	| "user_created"
+	| "ai_draft"
+	| "system_seed";
 
 export interface AdminSystemSkill {
 	id: string;
@@ -281,7 +400,9 @@ export async function fetchAdminSystemSkills(): Promise<AdminSystemSkill[]> {
 	return Array.isArray(response.skills) ? response.skills : [];
 }
 
-export async function createAdminSystemSkill(data: AdminSystemSkillDraft): Promise<AdminSystemSkill> {
+export async function createAdminSystemSkill(
+	data: AdminSystemSkillDraft,
+): Promise<AdminSystemSkill> {
 	const response = await requestJson<AdminSystemSkillResponse>(
 		"/api/admin/skills",
 		{
@@ -319,14 +440,20 @@ export interface PersonalityProfileSummary {
 	createdAt: string;
 }
 
-interface AdminPersonalityListResponse { profiles: PersonalityProfileSummary[] }
-interface AdminPersonalityResponse { profile: PersonalityProfileSummary }
+interface AdminPersonalityListResponse {
+	profiles: PersonalityProfileSummary[];
+}
+interface AdminPersonalityResponse {
+	profile: PersonalityProfileSummary;
+}
 
-export async function fetchPersonalityProfiles(): Promise<PersonalityProfileSummary[]> {
+export async function fetchPersonalityProfiles(): Promise<
+	PersonalityProfileSummary[]
+> {
 	const res = await requestJson<AdminPersonalityListResponse>(
-		'/api/admin/personalities',
+		"/api/admin/personalities",
 		undefined,
-		'Failed to load personality profiles',
+		"Failed to load personality profiles",
 	);
 	return res.profiles;
 }
@@ -337,22 +464,33 @@ export async function createPersonalityProfileApi(params: {
 	promptText: string;
 }): Promise<PersonalityProfileSummary> {
 	const res = await requestJson<AdminPersonalityResponse>(
-		'/api/admin/personalities',
-		{ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) },
-		'Failed to create personality profile',
+		"/api/admin/personalities",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(params),
+		},
+		"Failed to create personality profile",
 	);
 	return res.profile;
 }
 
-export async function updatePersonalityProfileApi(id: string, params: {
-	name?: string;
-	description?: string;
-	promptText?: string;
-}): Promise<PersonalityProfileSummary> {
+export async function updatePersonalityProfileApi(
+	id: string,
+	params: {
+		name?: string;
+		description?: string;
+		promptText?: string;
+	},
+): Promise<PersonalityProfileSummary> {
 	const res = await requestJson<AdminPersonalityResponse>(
 		`/api/admin/personalities/${id}`,
-		{ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) },
-		'Failed to update personality profile',
+		{
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(params),
+		},
+		"Failed to update personality profile",
 	);
 	return res.profile;
 }
@@ -360,16 +498,20 @@ export async function updatePersonalityProfileApi(id: string, params: {
 export async function deletePersonalityProfileApi(id: string): Promise<void> {
 	await requestVoid(
 		`/api/admin/personalities/${id}`,
-		{ method: 'DELETE' },
-		'Failed to delete personality profile',
+		{ method: "DELETE" },
+		"Failed to delete personality profile",
 	);
 }
 
-export async function fetchPublicPersonalityProfiles(): Promise<PersonalityProfileSummary[]> {
+export async function fetchPublicPersonalityProfiles(): Promise<
+	PersonalityProfileSummary[]
+> {
 	const res = await requestJson<AdminPersonalityListResponse>(
-		'/api/personalities',
+		"/api/personalities",
 		undefined,
-		'Failed to load personality profiles',
+		"Failed to load personality profiles",
 	);
-	return res.profiles.filter((profile) => !(profile.isBuiltIn && profile.name === 'Default'));
+	return res.profiles.filter(
+		(profile) => !(profile.isBuiltIn && profile.name === "Default"),
+	);
 }

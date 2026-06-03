@@ -9,16 +9,17 @@ vi.mock("$lib/server/config-store", () => ({
 	refreshConfig: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/inference-providers", async () => {
+vi.mock("$lib/server/services/providers", async () => {
 	const actual = await vi.importActual<
-		typeof import("$lib/server/services/inference-providers")
-	>("$lib/server/services/inference-providers");
+		typeof import("$lib/server/services/providers")
+	>("$lib/server/services/providers");
 
 	return {
 		...actual,
 		createProvider: vi.fn(),
 		listProviders: vi.fn(),
 		validateProviderConnection: vi.fn(),
+		validateProviderName: vi.fn(),
 	};
 });
 
@@ -26,268 +27,279 @@ import { requireAdmin } from "$lib/server/auth/hooks";
 import { clearProvidersCache, refreshConfig } from "$lib/server/config-store";
 import {
 	createProvider,
+	listProviders,
 	validateProviderConnection,
-} from "$lib/server/services/inference-providers";
-import { POST } from "./+server";
+	validateProviderName,
+} from "$lib/server/services/providers";
+import { GET, POST } from "./+server";
 
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
 const mockClearProvidersCache = clearProvidersCache as ReturnType<typeof vi.fn>;
 const mockRefreshConfig = refreshConfig as ReturnType<typeof vi.fn>;
 const mockCreateProvider = createProvider as ReturnType<typeof vi.fn>;
+const mockListProviders = listProviders as ReturnType<typeof vi.fn>;
 const mockValidateProviderConnection = validateProviderConnection as ReturnType<
 	typeof vi.fn
 >;
+const mockValidateProviderName = validateProviderName as ReturnType<typeof vi.fn>;
 
-type ProviderPostEvent = Parameters<typeof POST>[0];
+type ProviderEvent = Parameters<typeof POST>[0];
 
-function makePostEvent(body: unknown): ProviderPostEvent {
+function makeEvent(body?: unknown): ProviderEvent {
 	return {
 		request: new Request("http://localhost/api/admin/providers", {
-			method: "POST",
+			method: body !== undefined ? "POST" : "GET",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(body),
+			body: body !== undefined ? JSON.stringify(body) : undefined,
 		}),
 		locals: { user: { id: "admin-1", role: "admin" } },
 		params: {},
 		url: new URL("http://localhost/api/admin/providers"),
 		route: { id: "/api/admin/providers" },
-	} as ProviderPostEvent;
+	} as ProviderEvent;
 }
 
 describe("admin providers collection route", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockRequireAdmin.mockReturnValue(undefined);
+		mockValidateProviderName.mockReturnValue(true);
 		mockValidateProviderConnection.mockResolvedValue({ valid: true });
 		mockCreateProvider.mockResolvedValue({
 			id: "provider-1",
-			name: "disabled_provider",
-			displayName: "Disabled Provider",
-			baseUrl: "https://provider.example/v1",
-			modelName: "example-model",
-			enabled: false,
-			maxModelContext: null,
-		});
-	});
-
-	it("creates a disabled third-party provider without max model context", async () => {
-		const response = await POST(
-			makePostEvent({
-				name: "disabled_provider",
-				displayName: "Disabled Provider",
-				baseUrl: "https://provider.example/v1",
-				apiKey: "test-key",
-				modelName: "example-model",
-				enabled: false,
-				maxModelContext: null,
-			}),
-		);
-		const data = await response.json();
-
-		expect(response.status).toBe(201);
-		expect(data.provider.name).toBe("disabled_provider");
-		expect(mockCreateProvider).toHaveBeenCalledWith(
-			expect.objectContaining({
-				enabled: false,
-				maxModelContext: null,
-			}),
-		);
-		expect(mockClearProvidersCache).toHaveBeenCalled();
-		expect(mockRefreshConfig).toHaveBeenCalled();
-	});
-
-	it("rejects an enabled third-party provider without max model context", async () => {
-		const response = await POST(
-			makePostEvent({
-				name: "enabled_provider",
-				displayName: "Enabled Provider",
-				baseUrl: "https://provider.example/v1",
-				apiKey: "test-key",
-				modelName: "example-model",
-				enabled: true,
-				maxModelContext: null,
-			}),
-		);
-		const data = await response.json();
-
-		expect(response.status).toBe(400);
-		expect(data.error).toBe("Max model context is required");
-		expect(mockValidateProviderConnection).not.toHaveBeenCalled();
-		expect(mockCreateProvider).not.toHaveBeenCalled();
-		expect(mockClearProvidersCache).not.toHaveBeenCalled();
-	});
-
-	it("passes the selected model name when validating a Fire Pass provider", async () => {
-		const response = await POST(
-			makePostEvent({
-				name: "firepass",
-				displayName: "Fire Pass",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				apiKey: "fpk_test_key",
-				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
-				enabled: true,
-				maxModelContext: 256000,
-			}),
-		);
-
-		expect(response.status).toBe(201);
-		expect(mockValidateProviderConnection).toHaveBeenCalledWith(
-			"https://api.fireworks.ai/inference/v1",
-			"fpk_test_key",
-			{
-				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
-				reasoningEffort: null,
-				thinkingType: null,
-			},
-		);
-	});
-
-	it("passes configured reasoning controls when validating a new provider", async () => {
-		const response = await POST(
-			makePostEvent({
-				name: "firepass",
-				displayName: "Fire Pass",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				apiKey: "fpk_test_key",
-				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
-				reasoningEffort: "high",
-				thinkingType: "enabled",
-				enabled: true,
-				maxModelContext: 256000,
-			}),
-		);
-
-		expect(response.status).toBe(201);
-		expect(mockValidateProviderConnection).toHaveBeenCalledWith(
-			"https://api.fireworks.ai/inference/v1",
-			"fpk_test_key",
-			{
-				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
-				reasoningEffort: "high",
-				thinkingType: "enabled",
-			},
-		);
-	});
-
-	it("passes fallback config when creating a provider", async () => {
-		mockCreateProvider.mockResolvedValueOnce({
-			id: "provider-1",
-			name: "firepass",
-			displayName: "Fire Pass",
-			baseUrl: "https://api.fireworks.ai/inference/v1",
-			modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
+			name: "test-provider",
+			displayName: "Test Provider",
+			baseUrl: "https://api.example.com/v1",
+			iconAssetId: null,
+			rateLimitFallbackEnabled: false,
+			rateLimitFallbackBaseUrl: null,
+			rateLimitFallbackModelName: null,
+			rateLimitFallbackTimeoutMs: 10000,
+			sortOrder: 0,
 			enabled: true,
-			maxModelContext: 262_144,
-			rateLimitFallbackEnabled: true,
-			rateLimitFallbackBaseUrl: "https://api.moonshot.ai/v1",
-			rateLimitFallbackModelName: "kimi-k2.6",
-			rateLimitFallbackTimeoutMs: 12_000,
+			createdAt: new Date("2026-06-01T12:00:00.000Z"),
+			updatedAt: new Date("2026-06-01T12:00:00.000Z"),
+		});
+		mockListProviders.mockResolvedValue([]);
+	});
+
+	describe("GET", () => {
+		it("returns the provider list", async () => {
+			mockListProviders.mockResolvedValue([
+				{
+					id: "p-1",
+					name: "a",
+					displayName: "A",
+					baseUrl: "https://a.example/v1",
+					iconAssetId: null,
+					rateLimitFallbackEnabled: false,
+					rateLimitFallbackBaseUrl: null,
+					rateLimitFallbackModelName: null,
+					rateLimitFallbackTimeoutMs: 10000,
+					sortOrder: 0,
+					enabled: true,
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				},
+			]);
+
+			const response = await GET(makeEvent());
+			const data = await response.json();
+
+			expect(response.status).toBe(200);
+			expect(data).toEqual({
+				providers: expect.arrayContaining([
+					expect.objectContaining({ id: "p-1", name: "a" }),
+				]),
+			});
 		});
 
-		const response = await POST(
-			makePostEvent({
-				name: "firepass",
-				displayName: "Fire Pass",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				apiKey: "fpk_test_key",
-				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
-				enabled: true,
-				maxModelContext: 262_144,
-				rateLimitFallbackEnabled: true,
-				rateLimitFallbackBaseUrl: "https://api.moonshot.ai/v1",
-				rateLimitFallbackApiKey: "fallback-key",
-				rateLimitFallbackModelName: "kimi-k2.6",
-				rateLimitFallbackTimeoutMs: 12_000,
-			}),
-		);
-		const data = await response.json();
+		it("returns 500 on service failure", async () => {
+			mockListProviders.mockRejectedValue(new Error("DB error"));
 
-		expect(response.status).toBe(201);
-		expect(mockCreateProvider).toHaveBeenCalledWith(
-			expect.objectContaining({
-				rateLimitFallbackEnabled: true,
-				rateLimitFallbackBaseUrl: "https://api.moonshot.ai/v1",
-				rateLimitFallbackApiKey: "fallback-key",
-				rateLimitFallbackModelName: "kimi-k2.6",
-				rateLimitFallbackTimeoutMs: 12_000,
-			}),
-		);
-		expect(data.provider).not.toHaveProperty("rateLimitFallbackApiKey");
-		expect(data.provider).not.toHaveProperty("rateLimitFallbackApiKeyEncrypted");
-		expect(mockValidateProviderConnection).toHaveBeenCalledWith(
-			"https://api.moonshot.ai/v1",
-			"fallback-key",
-			{ modelName: "kimi-k2.6" },
-		);
+			const response = await GET(makeEvent());
+			const data = await response.json();
+
+			expect(response.status).toBe(500);
+			expect(data.error).toBe("Failed to list providers");
+		});
 	});
 
-	it("rejects enabled fallback config without a fallback API key", async () => {
-		const response = await POST(
-			makePostEvent({
-				name: "firepass",
-				displayName: "Fire Pass",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				apiKey: "fpk_test_key",
-				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
-				enabled: true,
-				maxModelContext: 262_144,
-				rateLimitFallbackEnabled: true,
-				rateLimitFallbackBaseUrl: "https://api.moonshot.ai/v1",
-				rateLimitFallbackApiKey: "",
-				rateLimitFallbackModelName: "kimi-k2.6",
-				rateLimitFallbackTimeoutMs: 12_000,
-			}),
-		);
-		const data = await response.json();
+	describe("POST", () => {
+		it("creates a provider with required fields", async () => {
+			const response = await POST(
+				makeEvent({
+					name: "test-provider",
+					displayName: "Test Provider",
+					baseUrl: "https://api.example.com/v1",
+					apiKey: "sk-test-key",
+				}),
+			);
+			const data = await response.json();
 
-		expect(response.status).toBe(400);
-		expect(data.error).toBe("Rate-limit fallback API key is required");
-		expect(mockCreateProvider).not.toHaveBeenCalled();
-	});
+			expect(response.status).toBe(201);
+			expect(data.provider.name).toBe("test-provider");
+			expect(mockCreateProvider).toHaveBeenCalledWith(
+				expect.objectContaining({
+					name: "test-provider",
+					displayName: "Test Provider",
+					baseUrl: "https://api.example.com/v1",
+					apiKey: "sk-test-key",
+					enabled: undefined,
+				}),
+			);
+			expect(mockClearProvidersCache).toHaveBeenCalled();
+			expect(mockRefreshConfig).toHaveBeenCalled();
+		});
 
-	it("uses researched Fireworks limits as defaults for Fire Pass Kimi Turbo", async () => {
-		const response = await POST(
-			makePostEvent({
-				name: "firepass",
-				displayName: "Fire Pass",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				apiKey: "fpk_test_key",
-				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
-				enabled: true,
-			}),
-		);
+		it("creates a disabled provider when enabled is false", async () => {
+			mockCreateProvider.mockResolvedValue({
+				id: "provider-2",
+				name: "disabled-provider",
+				displayName: "Disabled",
+				baseUrl: "https://api.example.com/v1",
+				iconAssetId: null,
+				rateLimitFallbackEnabled: false,
+				rateLimitFallbackBaseUrl: null,
+				rateLimitFallbackModelName: null,
+				rateLimitFallbackTimeoutMs: 10000,
+				sortOrder: 0,
+				enabled: false,
+				createdAt: new Date("2026-06-01T12:00:00.000Z"),
+				updatedAt: new Date("2026-06-01T12:00:00.000Z"),
+			});
 
-		expect(response.status).toBe(201);
-		expect(mockCreateProvider).toHaveBeenCalledWith(
-			expect.objectContaining({
-				maxModelContext: 262_144,
-				maxMessageLength: 1_048_576,
-			}),
-		);
-	});
+			const response = await POST(
+				makeEvent({
+					name: "disabled-provider",
+					displayName: "Disabled",
+					baseUrl: "https://api.example.com/v1",
+					apiKey: "sk-test-key",
+					enabled: false,
+				}),
+			);
+			const data = await response.json();
 
-	it("rejects fallback timeouts below one second", async () => {
-		const response = await POST(
-			makePostEvent({
-				name: "firepass",
-				displayName: "Fire Pass",
-				baseUrl: "https://api.fireworks.ai/inference/v1",
-				apiKey: "fpk_test_key",
-				modelName: "accounts/fireworks/routers/kimi-k2p6-turbo",
-				enabled: true,
-				maxModelContext: 262_144,
-				rateLimitFallbackEnabled: true,
-				rateLimitFallbackBaseUrl: "https://api.moonshot.ai/v1",
-				rateLimitFallbackApiKey: "fallback-key",
-				rateLimitFallbackModelName: "kimi-k2.6",
-				rateLimitFallbackTimeoutMs: 999,
-			}),
-		);
-		const data = await response.json();
+			expect(response.status).toBe(201);
+			expect(data.provider.name).toBe("disabled-provider");
+			expect(mockCreateProvider).toHaveBeenCalledWith(
+				expect.objectContaining({ enabled: false }),
+			);
+		});
 
-		expect(response.status).toBe(400);
-		expect(data.error).toBe("Rate-limit fallback timeout must be at least 1000");
-		expect(mockValidateProviderConnection).not.toHaveBeenCalled();
-		expect(mockCreateProvider).not.toHaveBeenCalled();
+		it("passes rate-limit fallback fields through", async () => {
+			const response = await POST(
+				makeEvent({
+					name: "fallback-provider",
+					displayName: "Fallback",
+					baseUrl: "https://api.example.com/v1",
+					apiKey: "sk-test-key",
+					rateLimitFallbackEnabled: true,
+					rateLimitFallbackBaseUrl: "https://fallback.example/v1",
+					rateLimitFallbackApiKey: "sk-fallback",
+					rateLimitFallbackModelName: "fallback-model",
+					rateLimitFallbackTimeoutMs: 15000,
+				}),
+			);
+
+			expect(response.status).toBe(201);
+			expect(mockCreateProvider).toHaveBeenCalledWith(
+				expect.objectContaining({
+					rateLimitFallbackEnabled: true,
+					rateLimitFallbackBaseUrl: "https://fallback.example/v1",
+					rateLimitFallbackApiKey: "sk-fallback",
+					rateLimitFallbackModelName: "fallback-model",
+					rateLimitFallbackTimeoutMs: 15000,
+				}),
+			);
+		});
+
+		it("rejects missing name", async () => {
+			const response = await POST(
+				makeEvent({
+					displayName: "No Name",
+					baseUrl: "https://api.example.com/v1",
+					apiKey: "sk-test-key",
+				}),
+			);
+			const data = await response.json();
+
+			expect(response.status).toBe(400);
+			expect(data.error).toContain("required");
+		});
+
+		it("rejects invalid name format", async () => {
+			mockValidateProviderName.mockReturnValue(false);
+
+			const response = await POST(
+				makeEvent({
+					name: "invalid name!",
+					displayName: "Bad Name",
+					baseUrl: "https://api.example.com/v1",
+					apiKey: "sk-test-key",
+				}),
+			);
+			const data = await response.json();
+
+			expect(response.status).toBe(400);
+			expect(data.error).toContain("letters, numbers");
+		});
+
+		it("rejects failed connection test", async () => {
+			mockValidateProviderConnection.mockResolvedValue({
+				valid: false,
+				error: "Invalid API key",
+			});
+
+			const response = await POST(
+				makeEvent({
+					name: "bad-conn",
+					displayName: "Bad Connection",
+					baseUrl: "https://api.example.com/v1",
+					apiKey: "sk-bad",
+				}),
+			);
+			const data = await response.json();
+
+			expect(response.status).toBe(400);
+			expect(data.error).toBe("Invalid API key");
+			expect(mockCreateProvider).not.toHaveBeenCalled();
+		});
+
+		it("returns 409 on duplicate name", async () => {
+			mockCreateProvider.mockRejectedValue(
+				new Error("UNIQUE constraint failed: providers.name"),
+			);
+
+			const response = await POST(
+				makeEvent({
+					name: "duplicate",
+					displayName: "Duplicate",
+					baseUrl: "https://api.example.com/v1",
+					apiKey: "sk-test-key",
+				}),
+			);
+			const data = await response.json();
+
+			expect(response.status).toBe(409);
+			expect(data.error).toContain("already exists");
+		});
+
+		it("passes sortOrder when provided", async () => {
+			const response = await POST(
+				makeEvent({
+					name: "sorted",
+					displayName: "Sorted",
+					baseUrl: "https://api.example.com/v1",
+					apiKey: "sk-test-key",
+					sortOrder: 5,
+				}),
+			);
+
+			expect(response.status).toBe(201);
+			expect(mockCreateProvider).toHaveBeenCalledWith(
+				expect.objectContaining({ sortOrder: 5 }),
+			);
+		});
 	});
 });

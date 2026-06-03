@@ -591,7 +591,8 @@ function readConfig(): Config {
 			-1,
 			parseIntegerEnv(process.env.WEB_RESEARCH_FRESHNESS_HOURS, 24),
 		),
-		systemPrompt: process.env.SYSTEM_PROMPT || "",
+		systemPrompt:
+			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
 		concurrentStreamLimit: Math.max(
 			1,

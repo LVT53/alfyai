@@ -13,6 +13,10 @@ const MOCK_ANALYTICS = {
 			{ model: 'model1', displayName: 'Model 1', msgCount: 87, totalCostUsd: 1.42 },
 			{ model: 'model2', displayName: 'Model 2', msgCount: 34, totalCostUsd: 0.94 },
 		],
+		byProvider: [
+			{ providerId: null, displayName: 'Native Model', msgCount: 87, totalCostUsd: 1.42 },
+			{ providerId: 'provider-abc', displayName: 'OpenRouter', msgCount: 34, totalCostUsd: 0.94 },
+		],
 		totalMessages: 121,
 		avgGenerationMs: 2340,
 		promptTokens: 35800,
@@ -39,6 +43,10 @@ const MOCK_ANALYTICS = {
 		byModel: [
 			{ model: 'model1', displayName: 'Model 1', msgCount: 310, totalCostUsd: 6.1 },
 			{ model: 'model2', displayName: 'Model 2', msgCount: 120, totalCostUsd: 3.7 },
+		],
+		byProvider: [
+			{ providerId: null, displayName: 'Native Model', msgCount: 310, totalCostUsd: 6.1 },
+			{ providerId: 'provider-abc', displayName: 'OpenRouter', msgCount: 120, totalCostUsd: 3.7 },
 		],
 		monthly: [{ month: '2026-04', messages: 430, totalTokens: 352000, totalCostUsd: 9.8 }],
 	},
@@ -134,6 +142,70 @@ async function modelBreakdown(rows: UsageRow[]) {
 		.sort((left, right) => right.msgCount - left.msgCount);
 }
 
+async function providerBreakdown(rows: UsageRow[]) {
+	const grouped = new Map<string, {
+		providerId: string | null;
+		displayName: string;
+		msgCount: number;
+		promptTokens: number;
+		cachedInputTokens: number;
+		outputTokens: number;
+		reasoningTokens: number;
+		totalTokens: number;
+		totalCostMicros: number;
+	}>();
+
+	// Collect provider IDs that need display name resolution from inference_providers
+	const providerIds = new Set<string>();
+	for (const row of rows) {
+		if (row.providerId) providerIds.add(row.providerId);
+	}
+
+	// Batch-resolve provider display names
+	const providerNames = new Map<string, string>();
+	if (providerIds.size > 0) {
+		const providers = await db
+			.select({ id: inferenceProviders.id, displayName: inferenceProviders.displayName })
+			.from(inferenceProviders)
+			.where(inArray(inferenceProviders.id, [...providerIds]));
+		for (const p of providers) {
+			providerNames.set(p.id, p.displayName);
+		}
+	}
+
+	for (const row of rows) {
+		const key = row.providerId ?? '__native__';
+		const resolvedName = row.providerDisplayName ?? providerNames.get(row.providerId ?? '') ?? row.providerId ?? 'Native Model';
+
+		const current = grouped.get(key) ?? {
+			providerId: row.providerId,
+			displayName: resolvedName,
+			msgCount: 0,
+			promptTokens: 0,
+			cachedInputTokens: 0,
+			outputTokens: 0,
+			reasoningTokens: 0,
+			totalTokens: 0,
+			totalCostMicros: 0,
+		};
+		current.msgCount += 1;
+		current.promptTokens += row.promptTokens;
+		current.cachedInputTokens += row.cachedInputTokens;
+		current.outputTokens += row.completionTokens;
+		current.reasoningTokens += row.reasoningTokens;
+		current.totalTokens += row.totalTokens;
+		current.totalCostMicros += row.costUsdMicros;
+		if (current.providerId === null && row.providerId) {
+			current.providerId = row.providerId;
+		}
+		grouped.set(key, current);
+	}
+
+	return [...grouped.values()]
+		.map((row) => ({ ...row, totalCostUsd: usd(row.totalCostMicros) }))
+		.sort((left, right) => right.totalCostMicros - left.totalCostMicros);
+}
+
 function monthlyBreakdown(rows: UsageRow[]) {
 	const grouped = new Map<string, {
 		month: string;
@@ -203,7 +275,10 @@ function computeTimeline(rows: UsageRow[], granularity: 'weekly' | 'monthly' | '
 }
 
 async function summarize(rows: UsageRow[], conversations: ConversationRow[]) {
-	const byModel = await modelBreakdown(rows);
+	const [byModel, byProvider] = await Promise.all([
+		modelBreakdown(rows),
+		providerBreakdown(rows),
+	]);
 	const promptTokens = rows.reduce((sum, row) => sum + row.promptTokens, 0);
 	const cachedInputTokens = rows.reduce((sum, row) => sum + row.cachedInputTokens, 0);
 	const outputTokens = rows.reduce((sum, row) => sum + row.completionTokens, 0);
@@ -213,6 +288,7 @@ async function summarize(rows: UsageRow[], conversations: ConversationRow[]) {
 
 	return {
 		byModel,
+		byProvider,
 		totalMessages: rows.length,
 		avgGenerationMs: average(rows.map((row) => row.generationTimeMs ?? 0)),
 		promptTokens,

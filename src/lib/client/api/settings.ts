@@ -25,8 +25,17 @@ interface AnalyticsByModelRow {
 	totalCostUsd?: number;
 }
 
+interface AnalyticsByProviderRow {
+	providerId: string | null;
+	displayName: string;
+	totalCostUsd: number;
+	totalTokens: number;
+	msgCount: number;
+}
+
 interface PersonalAnalytics {
 	byModel: AnalyticsByModelRow[];
+	byProvider: AnalyticsByProviderRow[];
 	totalMessages: number;
 	avgGenerationMs: number;
 	totalTokens: number;
@@ -52,6 +61,7 @@ interface SystemAnalytics {
 	totalUsers: number;
 	totalConversations: number;
 	byModel: AnalyticsByModelRow[];
+	byProvider: AnalyticsByProviderRow[];
 }
 
 interface PerUserAnalytics {

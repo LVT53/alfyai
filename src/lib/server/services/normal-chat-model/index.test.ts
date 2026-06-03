@@ -6,11 +6,25 @@ import { createModelCapabilitySet } from "$lib/model-capabilities";
 const mocks = vi.hoisted(() => ({
 	decryptApiKey: vi.fn(),
 	getProviderWithSecrets: vi.fn(),
+	getProviderByName: vi.fn(),
+	getNewProviderWithSecrets: vi.fn(),
+	decryptNewProviderApiKey: vi.fn(),
+	listEnabledProviderModels: vi.fn(),
 }));
 
 vi.mock("../inference-providers", () => ({
 	decryptApiKey: mocks.decryptApiKey,
 	getProviderWithSecrets: mocks.getProviderWithSecrets,
+}));
+
+vi.mock("../providers", () => ({
+	getProviderByName: mocks.getProviderByName,
+	getProviderWithSecrets: mocks.getNewProviderWithSecrets,
+	decryptApiKey: mocks.decryptNewProviderApiKey,
+}));
+
+vi.mock("../provider-models", () => ({
+	listEnabledProviderModels: mocks.listEnabledProviderModels,
 }));
 
 import {
@@ -22,6 +36,12 @@ import {
 } from "./index";
 
 describe("Normal Chat Model Run provider resolution", () => {
+	beforeEach(() => {
+		mocks.getProviderByName.mockReset();
+		mocks.listEnabledProviderModels.mockReset();
+		mocks.getProviderByName.mockResolvedValue(null);
+	});
+
 	it("resolves built-in model IDs from runtime config", async () => {
 		await expect(
 			resolveNormalChatModelRunProvider("model1", {

@@ -10,6 +10,7 @@ import { validateSession } from "$lib/server/services/auth";
 import { ensureDeepResearchWorkerScheduler } from "$lib/server/services/deep-research/worker";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
 import { ensureMemoryMaintenanceScheduler } from "$lib/server/services/memory-maintenance";
+import { seedDefaultProviders } from "$lib/server/services/providers";
 
 const PUBLIC_PATHS = [
 	"/login",
@@ -56,6 +57,9 @@ function touchLastSeenAt(userId: string): void {
 
 export const init: ServerInit = async () => {
 	await ensureRuntimeConfigReady();
+	seedDefaultProviders().catch((error) =>
+		console.error("Failed to seed default providers:", error),
+	);
 	ensureMemoryMaintenanceScheduler();
 	prewarmSandboxImageInBackground();
 	await ensureFileProductionWorker();

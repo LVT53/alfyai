@@ -442,6 +442,20 @@
       "when": 1777140000049,
       "tag": "1777140000049_messages_import_source_import_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1777140000050,
+      "tag": "1777140000050_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1777140000051,
+      "tag": "1777140000051_provider_models",
+      "breakpoints": true
     }
   ]
 }

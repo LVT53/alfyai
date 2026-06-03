@@ -10,10 +10,16 @@ import {
 	updateAdminSystemSkill,
 	validateProvider,
 	fetchPersonalityProfiles,
+	createProviderEntry,
+	deleteProviderEntry,
+	discoverProviderModels,
+	fetchProviderList,
+	updateProviderEntry,
 	type AdminSystemSkill,
 	type AdminSystemSkillDraft,
 	type InferenceProvider,
 	type PersonalityProfileSummary,
+	type Provider,
 } from "$lib/client/api/admin";
 import {
 	saveModelIconAssetCrop,
@@ -39,6 +45,8 @@ import type { ModelId } from "$lib/types";
 import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import ModelFormModal from "./ModelFormModal.svelte";
+import ProviderForm from "./ProviderForm.svelte";
+import ProviderList from "./ProviderList.svelte";
 
 const tVal = get(t);
 
@@ -77,6 +85,18 @@ let {
 let providers = $state<InferenceProvider[]>([]);
 let providersLoading = $state(false);
 let providersError = $state("");
+let providerConfigs = $state<Provider[]>([]);
+let providerConfigsLoading = $state(false);
+let providerConfigsError = $state("");
+let providerConfigsMessage = $state("");
+let showProviderForm = $state(false);
+let providerFormProvider = $state<Provider | null>(null);
+let providerFormIsCreate = $state(false);
+let providerFormSaving = $state(false);
+let providerFormError = $state("");
+let providerFormTesting = $state(false);
+let providerFormTestError = $state("");
+let providerFormTestMessage = $state("");
 let adminPersonalities = $state<PersonalityProfileSummary[]>([]);
 let systemSkills = $state<AdminSystemSkill[]>([]);
 let systemSkillsLoading = $state(false);
@@ -292,6 +312,160 @@ async function loadProviders() {
 		providersError = errorMessage(error, $t("admin.failedLoadProviders"));
 	} finally {
 		providersLoading = false;
+	}
+}
+
+async function loadProviderConfigs() {
+	providerConfigsLoading = true;
+	providerConfigsError = "";
+	try {
+		providerConfigs = await fetchProviderList();
+	} catch (error: unknown) {
+		providerConfigsError = errorMessage(error, $t("admin.failedLoadProviders"));
+	} finally {
+		providerConfigsLoading = false;
+	}
+}
+
+function openAddProviderConfig() {
+	providerFormProvider = null;
+	providerFormIsCreate = true;
+	providerFormError = "";
+	providerFormTestError = "";
+	providerFormTestMessage = "";
+	providerFormSaving = false;
+	providerFormTesting = false;
+	showProviderForm = true;
+}
+
+function openEditProviderConfig(provider: Provider) {
+	providerFormProvider = { ...provider };
+	providerFormIsCreate = false;
+	providerFormError = "";
+	providerFormTestError = "";
+	providerFormTestMessage = "";
+	providerFormSaving = false;
+	providerFormTesting = false;
+	showProviderForm = true;
+}
+
+function closeProviderForm() {
+	showProviderForm = false;
+	providerFormProvider = null;
+	providerFormError = "";
+	providerFormTestError = "";
+	providerFormTestMessage = "";
+}
+
+async function handleProviderFormSave(data: Record<string, unknown>) {
+	providerFormSaving = true;
+	providerFormError = "";
+	providerConfigsMessage = "";
+	try {
+		if (providerFormIsCreate) {
+			await createProviderEntry(
+				data as Parameters<typeof createProviderEntry>[0],
+			);
+			showProvidersMessage($t("admin.providerAdded"));
+		} else if (providerFormProvider) {
+			await updateProviderEntry(
+				providerFormProvider.id,
+				data as Parameters<typeof updateProviderEntry>[1],
+			);
+			showProvidersMessage($t("admin.providerUpdated"));
+		}
+		closeProviderForm();
+		await loadProviderConfigs();
+	} catch (error: unknown) {
+		providerFormError = errorMessage(error, $t("admin.failedSave"));
+	} finally {
+		providerFormSaving = false;
+	}
+}
+
+async function handleProviderFormTest(_data: Record<string, unknown>) {
+	providerFormTesting = true;
+	providerFormTestError = "";
+	providerFormTestMessage = "";
+	try {
+		const result = await validateProvider(providerFormProvider?.id ?? "");
+		if (result.valid) {
+			providerFormTestMessage = $t("admin.providerValid", {
+				name: providerFormProvider?.displayName ?? "Provider",
+			});
+		} else {
+			providerFormTestError = $t("admin.validationFailed", {
+				error: result.error ?? "Unknown error",
+			});
+		}
+	} catch (error: unknown) {
+		providerFormTestError = errorMessage(
+			error,
+			$t("admin.failedValidateProvider"),
+		);
+	} finally {
+		providerFormTesting = false;
+	}
+}
+
+async function handleDeleteProviderConfig(provider: Provider) {
+	providerConfigsMessage = "";
+	try {
+		await deleteProviderEntry(provider.id);
+		showProvidersMessage($t("admin.providerDeleted"));
+		await loadProviderConfigs();
+	} catch (error: unknown) {
+		providerConfigsError = errorMessage(
+			error,
+			$t("admin.failedDeleteProvider"),
+		);
+	}
+}
+
+async function handleToggleProviderConfig(
+	provider: Provider,
+	enabled: boolean,
+) {
+	providerConfigsError = "";
+	try {
+		await updateProviderEntry(provider.id, { enabled });
+		showProvidersMessage($t("admin.providerUpdated"));
+		await loadProviderConfigs();
+	} catch (error: unknown) {
+		providerConfigsError = errorMessage(error, $t("admin.failedSave"));
+	}
+}
+
+async function handleDiscoverProviderConfig(provider: Provider) {
+	providerConfigsError = "";
+	providerConfigsMessage = "";
+	try {
+		const models = await discoverProviderModels(provider.id);
+		providerConfigsMessage = `${models.length} model(s) discovered.`;
+	} catch (error: unknown) {
+		providerConfigsError = errorMessage(error, "Failed to discover models.");
+	}
+}
+
+async function handleTestProviderConfig(provider: Provider) {
+	providerConfigsError = "";
+	providerConfigsMessage = "";
+	try {
+		const result = await validateProvider(provider.id);
+		if (result.valid) {
+			providerConfigsMessage = $t("admin.providerValid", {
+				name: provider.displayName,
+			});
+		} else {
+			providerConfigsError = $t("admin.validationFailed", {
+				error: result.error ?? "Unknown error",
+			});
+		}
+	} catch (error: unknown) {
+		providerConfigsError = errorMessage(
+			error,
+			$t("admin.failedValidateProvider"),
+		);
 	}
 }
 
@@ -753,6 +927,10 @@ $effect(() => {
 	void loadSystemSkills();
 });
 
+$effect(() => {
+	void loadProviderConfigs();
+});
+
 function configLabelKey(key: string): string {
 	const map: Record<string, string> = {
 		MODEL_1_BASEURL: "admin.model1BaseUrl",
@@ -994,6 +1172,22 @@ function placeholderFor(key: string): string {
 			{$t('admin.addProvider')}
 		</button>
 	</div>
+</section>
+
+<section class="settings-card mb-4">
+	<h2 class="settings-section-title">{$t('admin.providers')}</h2>
+	<ProviderList
+		providers={providerConfigs}
+		loading={providerConfigsLoading}
+		error={providerConfigsError}
+		message={providerConfigsMessage}
+		onAdd={openAddProviderConfig}
+		onEdit={openEditProviderConfig}
+		onDelete={handleDeleteProviderConfig}
+		onToggleEnabled={handleToggleProviderConfig}
+		onDiscover={handleDiscoverProviderConfig}
+		onTest={handleTestProviderConfig}
+	/>
 </section>
 
 <!-- Composer Command Registry feature flag -->
@@ -1639,6 +1833,21 @@ function placeholderFor(key: string): string {
 		onSave={handleModalSave}
 		onClose={closeModal}
 		onUploadIcon={handleModalUploadIcon}
+	/>
+{/if}
+
+{#if showProviderForm}
+	<ProviderForm
+		provider={providerFormProvider}
+		isCreate={providerFormIsCreate}
+		saving={providerFormSaving}
+		testing={providerFormTesting}
+		error={providerFormError}
+		testError={providerFormTestError}
+		testMessage={providerFormTestMessage}
+		onSave={handleProviderFormSave}
+		onClose={closeProviderForm}
+		onTest={handleProviderFormTest}
 	/>
 {/if}
 

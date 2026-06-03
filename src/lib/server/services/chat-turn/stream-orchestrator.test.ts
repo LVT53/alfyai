@@ -20,6 +20,8 @@ vi.mock("$lib/server/services/conversations", () => ({
 vi.mock("$lib/server/services/normal-chat-failover", () => ({
 	isModelTimeoutError: vi.fn(() => false),
 	resolveModelTimeoutFailoverTargetModelId: vi.fn(() => Promise.resolve(null)),
+	isModelRateLimitError: vi.fn(() => false),
+	resolveProviderRateLimitFallback: vi.fn(() => Promise.resolve(null)),
 }));
 
 vi.mock(

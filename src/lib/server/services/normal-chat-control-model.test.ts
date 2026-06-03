@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
 	getConfig: vi.fn(),
 	getSystemPrompt: vi.fn(),
+	getProviderByName: vi.fn(),
+	listEnabledProviderModels: vi.fn(),
 }));
 
 vi.mock("../config-store", () => ({
@@ -16,6 +18,14 @@ vi.mock("../prompts", async (importOriginal) => {
 		getSystemPrompt: mocks.getSystemPrompt,
 	};
 });
+
+vi.mock("./providers", () => ({
+	getProviderByName: mocks.getProviderByName,
+}));
+
+vi.mock("./provider-models", () => ({
+	listEnabledProviderModels: mocks.listEnabledProviderModels,
+}));
 
 import { sendJsonControlMessage } from "./normal-chat-control-model";
 
@@ -47,6 +57,8 @@ describe("Normal Chat JSON control model sender", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getSystemPrompt.mockReturnValue("Control task. Return only JSON.");
+		mocks.getProviderByName.mockResolvedValue(null);
+		mocks.listEnabledProviderModels.mockResolvedValue([]);
 		mockConfig();
 	});
 

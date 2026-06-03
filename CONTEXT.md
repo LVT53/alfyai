@@ -1187,6 +1187,36 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 > **Dev:** "If a chat is inside the **Project Folder** named 'Acme RFP', should that name shape project memory?"
 > **Domain expert:** "Yes. The **Project Folder** is the canonical project identity for **Project Continuity**, but its name is a label, not an instruction."
 
+## Model Provider Context
+
+### Language
+
+**Model Provider**:
+A configured connection to an external LLM service, defined by a base URL and an API key. One provider can expose multiple **Provider Models**. The built-in model1 and model2 are seeded as providers from environment variables at bootstrap but operate identically to admin-configured providers at runtime.
+_Avoid_: inference provider, model endpoint, third-party model
+
+**Provider Model**:
+A specific model name available under a **Model Provider** that an admin has chosen to make available for Normal Chat. It carries its own display name, context limits, capability flags, reasoning configuration, and pricing rules. Users select from available **Provider Models** in the chat model selector.
+_Avoid_: available model, configured model, endpoint, model
+
+**Model Connection**:
+The resolved runtime binding of a **Provider Model** for one Normal Chat turn, including the provider's base URL, decrypted API key, model name, and capability assertions. It is ephemeral — created per turn, not stored.
+_Avoid_: provider instance, model run config
+
+**Model Discovery**:
+The admin-triggered process of calling the provider's `/v1/models` endpoint to list available model IDs. The result is used to pre-populate **Provider Models** for admin selection.
+_Avoid_: model fetch, auto-detect, model scan
+
+### Relationships
+
+- A **Model Provider** has many **Provider Models**.
+- A **Provider Model** belongs to exactly one **Model Provider**.
+- A **Model Connection** is resolved from a **Provider Model** for one **Normal Chat Model Run**.
+- **Model Discovery** is triggered when a **Model Provider** is created or when an admin explicitly refreshes it.
+- **Model Capability** assertions are per **Provider Model**, probed during **Model Discovery** or validated at model creation time.
+- **Max Model Context**, **Max Output Tokens**, and **Compaction Threshold** are per **Provider Model**.
+- model1 and model2 are **Model Providers** seeded from `MODEL_1_*` / `MODEL_2_*` environment variables at bootstrap, each with one **Provider Model**.
+
 ## Knowledge Library Context
 
 ### Language

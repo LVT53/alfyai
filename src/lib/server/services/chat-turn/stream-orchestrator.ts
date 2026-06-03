@@ -52,8 +52,10 @@ import {
 	createMessage,
 } from "$lib/server/services/messages";
 import {
+	isModelRateLimitError,
 	isModelTimeoutError,
 	resolveModelTimeoutFailoverTargetModelId,
+	resolveProviderRateLimitFallback,
 } from "$lib/server/services/normal-chat-failover";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
 
@@ -905,6 +907,9 @@ export function runChatStreamOrchestrator(
 			let personalityPrompt: string | undefined;
 			let latestUpstreamAttempt = 1;
 			let currentStreamModelId = (modelId ?? undefined) as ModelId | undefined;
+			let currentOverrideProvider:
+				| import("$lib/server/services/normal-chat-model").NormalChatModelRunProvider
+				| null = null;
 			let attemptedNonStreamFallback = false;
 			const currentSystemPromptAppendix = () => {
 				const appendices = [retryAppendix].filter((value): value is string =>
@@ -941,6 +946,40 @@ export function runChatStreamOrchestrator(
 				);
 				currentStreamModelId = timeoutFailoverTarget as ModelId;
 				latestModelId = timeoutFailoverTarget;
+				return true;
+			};
+			const tryRateLimitFallbackAndContinue = async (
+				attempt: number,
+				error: unknown,
+			): Promise<boolean> => {
+				if (attempt >= 2) return false;
+				if (!isModelRateLimitError(error)) return false;
+
+				const providerLookupId =
+					currentOverrideProvider?.id ??
+					(currentStreamModelId?.startsWith("provider:")
+						? currentStreamModelId.slice("provider:".length)
+						: (currentStreamModelId ?? "model1"));
+
+				const fallbackProvider =
+					await resolveProviderRateLimitFallback(providerLookupId);
+				if (!fallbackProvider) return false;
+
+				console.warn(
+					"[STREAM] Switching to provider rate-limit fallback for retry",
+					{
+						conversationId,
+						streamId,
+						attempt,
+						fromProviderId: providerLookupId,
+						fallbackModelName: fallbackProvider.modelName,
+						fallbackBaseUrl: fallbackProvider.baseUrl,
+					},
+				);
+
+				currentOverrideProvider = fallbackProvider;
+				latestModelId = fallbackProvider.id;
+				latestModelDisplayName = fallbackProvider.displayName;
 				return true;
 			};
 			fallbackToNonStreaming = async (
@@ -1066,24 +1105,41 @@ export function runChatStreamOrchestrator(
 						thinkingMode,
 						forceWebSearch: turn.forceWebSearch,
 						signal: upstreamAbortController.signal,
+						...(currentOverrideProvider
+							? { overrideProvider: currentOverrideProvider }
+							: {}),
 					};
-					const modelRun = await runStreamingNormalChatSendModel(
-						modelRunParams,
-					).catch(async (error) => {
+					let modelRun: Awaited<
+						ReturnType<typeof runStreamingNormalChatSendModel>
+					> | null = null;
+					try {
+						modelRun = await runStreamingNormalChatSendModel(
+							modelRunParams,
+						);
+					} catch (error) {
 						if (
 							wasActiveChatStreamStopRequested(streamId) ||
-							!shouldFallbackToNonStreaming(error) ||
 							hasEmittedStreamOutput()
 						) {
 							throw error;
 						}
 
-						return fallbackToNonStreaming(
+						if (
+							await tryRateLimitFallbackAndContinue(attempt, error)
+						) {
+							continue upstreamAttempt;
+						}
+
+						if (!shouldFallbackToNonStreaming(error)) {
+							throw error;
+						}
+
+						modelRun = await fallbackToNonStreaming(
 							"stream_connect_failure",
 							attempt,
 							error,
 						);
-					});
+					}
 					recordDurationPhase(
 						"model_stream_request",
 						modelStreamRequestStartedAt,
@@ -1231,6 +1287,15 @@ export function runChatStreamOrchestrator(
 										return;
 									}
 									if (
+										!hasVisibleAssistantAnswerOutput() &&
+										(await tryRateLimitFallbackAndContinue(
+											attempt,
+											upstreamError,
+										))
+									) {
+										continue upstreamAttempt;
+									}
+									if (
 										hasSuccessfulFileProductionToolCall() &&
 										flushBufferedStreamOutput() &&
 										hasPersistableStreamOutput()
@@ -1265,6 +1330,17 @@ export function runChatStreamOrchestrator(
 						error.message.toLowerCase().includes("abort"))
 				) {
 					await completeSuccess(true);
+					return;
+				}
+				if (
+					!attemptedNonStreamFallback &&
+					!wasActiveChatStreamStopRequested(streamId) &&
+					!hasVisibleAssistantAnswerOutput() &&
+					(await tryRateLimitFallbackAndContinue(
+						latestUpstreamAttempt,
+						error,
+					))
+				) {
 					return;
 				}
 				if (

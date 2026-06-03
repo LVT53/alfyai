@@ -2,6 +2,13 @@ import type { RuntimeConfig } from "$lib/server/config-store";
 import { getConfig } from "$lib/server/config-store";
 import type { ModelId } from "$lib/types";
 import { getProviderWithSecrets } from "./inference-providers";
+import {
+	getProviderWithSecrets as getNewProviderWithSecrets,
+	decryptApiKey as decryptNewProviderApiKey,
+	getProviderByName,
+} from "./providers";
+import { normalizeOpenAICompatibleBaseUrl } from "./openai-compatible-url";
+import type { NormalChatModelRunProvider } from "./normal-chat-model";
 
 type ModelTimeoutLikeError = Error & {
 	code?: unknown;
@@ -95,4 +102,72 @@ function timeoutTextMatches(text: string): boolean {
 		text.includes("readtimeout") ||
 		text.includes("read timeout")
 	);
+}
+
+export function isModelRateLimitError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+
+	if (
+		"statusCode" in error &&
+		(error as { statusCode: unknown }).statusCode === 429
+	) {
+		return true;
+	}
+
+	const message = error.message.toLowerCase();
+	return (
+		message.includes("429") ||
+		message.includes("rate limit") ||
+		message.includes("rate_limit") ||
+		message.includes("too many requests")
+	);
+}
+
+/**
+ * Resolves a rate-limit fallback provider from the new `providers` table.
+ *
+ * Returns a fully-resolved {@link NormalChatModelRunProvider} ready for model
+ * execution, or `null` when the provider has no fallback configured, the
+ * fallback fields are incomplete, or the provider itself is disabled.
+ */
+export async function resolveProviderRateLimitFallback(
+	providerId: string,
+): Promise<NormalChatModelRunProvider | null> {
+	let provider = await getNewProviderWithSecrets(providerId).catch(() => null);
+
+	if (!provider) {
+		const byName = await getProviderByName(providerId).catch(() => null);
+		if (!byName?.enabled) return null;
+		provider = await getNewProviderWithSecrets(byName.id).catch(() => null);
+	}
+
+	if (!provider?.enabled || provider.rateLimitFallbackEnabled !== true) {
+		return null;
+	}
+
+	const baseUrl = provider.rateLimitFallbackBaseUrl?.trim();
+	const modelName = provider.rateLimitFallbackModelName?.trim();
+
+	if (
+		!baseUrl ||
+		!modelName ||
+		!provider.rateLimitFallbackApiKeyEncrypted ||
+		!provider.rateLimitFallbackApiKeyIv
+	) {
+		return null;
+	}
+
+	const apiKey = decryptNewProviderApiKey(
+		provider.rateLimitFallbackApiKeyEncrypted,
+		provider.rateLimitFallbackApiKeyIv,
+	);
+
+	return {
+		id: provider.id,
+		name: provider.name,
+		displayName: `${provider.displayName} (rate-limit fallback)`,
+		baseUrl: normalizeOpenAICompatibleBaseUrl(baseUrl),
+		modelName,
+		apiKey,
+	};
 }

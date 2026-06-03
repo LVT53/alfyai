@@ -1215,7 +1215,8 @@ export async function prepareOutboundChatContext(params: {
 	}
 
 	const configuredBasePrompt =
-		params.systemPromptOverride ?? params.modelConfig.systemPrompt;
+		params.systemPromptOverride ??
+		(getConfig().systemPrompt || params.modelConfig.systemPrompt);
 	const baseSystemPrompt =
 		params.user?.id && !params.systemPromptOverride
 			? await buildEnhancedSystemPrompt(configuredBasePrompt, {

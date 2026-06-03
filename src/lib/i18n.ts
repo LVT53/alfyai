@@ -508,6 +508,11 @@ const dictionary = {
 			"One of the linked Library documents is no longer available. Remove the missing source or link it again, then retry.",
 		// Admin - Models section
 		"admin.models": "Models",
+		"admin.providers": "Providers",
+		"admin.noProvidersYet": "No providers yet.",
+		"admin.discoverModels": "Discover models",
+		"admin.editProvider": "Edit Provider",
+		"admin.rateLimitFallback": "Rate-limit Fallback",
 		"admin.local": "Local",
 		"admin.uploadModelIconDescription": "Leave empty to keep the current icon.",
 		"admin.addProvider": "Add Provider",
@@ -2109,6 +2114,11 @@ const dictionary = {
 			"Az egyik kapcsolt könyvtári dokumentum már nem érhető el. Távolítsd el a hiányzó forrást, vagy kapcsold újra, majd próbáld meg ismét.",
 		// Admin - Models section
 		"admin.models": "Modellek",
+		"admin.providers": "Szolgáltatók",
+		"admin.noProvidersYet": "Még nincsenek szolgáltatók.",
+		"admin.discoverModels": "Modellek felfedezése",
+		"admin.editProvider": "Szolgáltató szerkesztése",
+		"admin.rateLimitFallback": "Rate-limit tartalék",
 		"admin.local": "Helyi",
 		"admin.uploadModelIconDescription":
 			"Hagyd üresen a jelenlegi ikon megtartásához.",

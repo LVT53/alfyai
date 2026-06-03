@@ -1282,9 +1282,19 @@ export async function getAvailableModelsWithProviders(): Promise<
 		iconUrl: string | null;
 	}>
 > {
-	const [builtIn, providers] = await Promise.all([
+	const [builtIn, providers, newProviders] = await Promise.all([
 		Promise.resolve(getAvailableModels()),
 		getEnabledProviders(),
+		(async () => {
+			try {
+				const { listEnabledProviders } = await import(
+					"$lib/server/services/providers"
+				);
+				return listEnabledProviders();
+			} catch {
+				return [];
+			}
+		})(),
 	]);
 
 	const models = builtIn.map((m) => ({ ...m, isThirdParty: false }));
@@ -1297,6 +1307,34 @@ export async function getAvailableModelsWithProviders(): Promise<
 			iconAssetId: provider.iconAssetId,
 			iconUrl: modelIconUrl(provider.iconAssetId),
 		});
+	}
+
+	for (const provider of newProviders) {
+		try {
+			const { listEnabledProviderModels: listModels } = await import(
+				"$lib/server/services/provider-models"
+			);
+			const providerModels = await listModels(provider.id);
+			for (const model of providerModels) {
+				if (model.enabled) {
+					models.push({
+						id: `provider:${provider.id}:${model.id}` as ModelId,
+						displayName: `${provider.displayName} - ${model.displayName}`,
+						isThirdParty: true,
+						iconAssetId: provider.iconAssetId,
+						iconUrl: modelIconUrl(provider.iconAssetId),
+					});
+				}
+			}
+		} catch {
+			models.push({
+				id: `provider:${provider.id}` as ModelId,
+				displayName: provider.displayName,
+				isThirdParty: true,
+				iconAssetId: provider.iconAssetId,
+				iconUrl: modelIconUrl(provider.iconAssetId),
+			});
+		}
 	}
 
 	return models;
