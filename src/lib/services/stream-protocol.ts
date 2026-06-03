@@ -722,6 +722,129 @@ function stripStandaloneRawWebToolOutput(value: string): string {
 		.join("");
 }
 
+const TOOL_CALL_JSON_KEYS = [
+	"query",
+	"mode",
+	"freshness",
+	"sourcePolicy",
+	"maxSources",
+	"quoteRequired",
+	"requestTitle",
+	"outputType",
+	"filename",
+	"requestedOutputs",
+	"documentSource",
+	"program",
+	"sourceMode",
+	"urls",
+	"expression",
+	"language",
+	"sourceCode",
+	"idempotencyKey",
+	"templateHint",
+	"documentIntent",
+	"markdown",
+	"content",
+	"text",
+] as const;
+
+const MARKDOWN_TOOL_CALL_BLOCK_SCAN_CHARS = 360;
+
+function countToolKeysInJsonContent(content: string): number {
+	let hits = 0;
+	for (const key of TOOL_CALL_JSON_KEYS) {
+		const keyPattern = new RegExp(`"${key}"\\s*:`);
+		if (keyPattern.test(content)) {
+			hits += 1;
+			if (hits >= 2) break;
+		}
+	}
+	return hits;
+}
+
+function hasJsonObjectBrace(content: string): boolean {
+	return /\{/.test(content.toLowerCase().replace(/\s+/g, ""));
+}
+
+function isMarkdownCodeFenceOpen(line: string): boolean {
+	const trimmed = line.trim();
+	return trimmed === "```" || trimmed === "```json";
+}
+
+function isMarkdownCodeFenceClose(line: string): boolean {
+	return line.trim() === "```";
+}
+
+function isMarkdownToolCallBlock(lines: string[]): boolean {
+	if (lines.length < 3) return false;
+	if (!isMarkdownCodeFenceOpen(lines[0] ?? "")) return false;
+	if (!isMarkdownCodeFenceClose(lines.at(-1) ?? "")) return false;
+
+	const content = lines.slice(1, -1).join("\n");
+	if (!content.trim()) return false;
+	if (countToolKeysInJsonContent(content) < 2) return false;
+	if (!hasJsonObjectBrace(content)) return false;
+
+	return true;
+}
+
+function stripMarkdownToolCallBlocks(value: string): string {
+	const lines = splitPreservingLineEndings(value);
+	let output = "";
+	let cursor = 0;
+
+	while (cursor < lines.length) {
+		const { line, lineEnding } = lines[cursor] ?? {};
+		if (line === undefined) break;
+
+		if (isMarkdownCodeFenceOpen(line)) {
+			const blockStart = cursor;
+			let blockEnd = -1;
+			for (let i = cursor + 1; i < lines.length; i += 1) {
+				if (isMarkdownCodeFenceClose(lines[i].line)) {
+					blockEnd = i;
+					break;
+				}
+			}
+			if (blockEnd === -1) {
+				output += line + lineEnding;
+				cursor += 1;
+				continue;
+			}
+
+			const blockLines = lines
+				.slice(blockStart, blockEnd + 1)
+				.map(({ line: l }) => l);
+			if (isMarkdownToolCallBlock(blockLines)) {
+				cursor = blockEnd + 1;
+				continue;
+			}
+		}
+
+		output += line + lineEnding;
+		cursor += 1;
+	}
+
+	return output;
+}
+
+function isMarkdownToolCallBlockPrefix(value: string): boolean {
+	const candidate = value.trimStart();
+	if (!candidate || candidate.length < 3) return false;
+
+	const lines = candidate.split(/\r?\n/);
+	if (lines.length < 2) return false;
+
+	if (!isMarkdownCodeFenceOpen(lines[0])) return false;
+
+	const content = lines.slice(1).join("\n");
+	if (!content.trim()) return false;
+	if (countToolKeysInJsonContent(content) < 2) return false;
+	if (!hasJsonObjectBrace(content)) return false;
+
+	return true;
+}
+
 function splitPreservingLineEndings(
 	value: string,
 ): Array<{ line: string; lineEnding: string }> {
@@ -1176,8 +1299,9 @@ export function stripLeakedToolDiagnostics(
 	value: string,
 	state: LeakedToolDiagnosticsState = createLeakedToolDiagnosticsState(),
 ): string {
+	const withoutMarkdownToolBlocks = stripMarkdownToolCallBlocks(value);
 	const withoutLeadingToolNarration = stripLeadingToolPlanningNarration(
-		value,
+		withoutMarkdownToolBlocks,
 		state,
 	);
 	const withoutFileProductionRepair = stripLeadingFileProductionRepairNarration(
@@ -1325,6 +1449,7 @@ export function getLeakedToolDiagnosticPrefixLength(value: string): number {
 				PYTHON_TOOL_DIAGNOSTIC_PREFIX_SCAN_CHARS,
 				TOOL_PLANNING_NARRATION_PREFIX_SCAN_CHARS,
 				PLAIN_SOURCE_REFERENCE_MARKER_PREFIX_SCAN_CHARS,
+				MARKDOWN_TOOL_CALL_BLOCK_SCAN_CHARS,
 			),
 	);
 	for (let index = scanStart; index < value.length; index += 1) {
@@ -1350,7 +1475,8 @@ export function getLeakedToolDiagnosticPrefixLength(value: string): number {
 			isFileProductionRepairNarrationPrefix(suffix) ||
 			isLeakedPythonToolDiagnosticPrefix(suffix) ||
 			isPlainSourceReferenceMarkerPrefix(suffix) ||
-			isFileProductionPayloadRawOutputPrefix(suffix)
+			isFileProductionPayloadRawOutputPrefix(suffix) ||
+			isMarkdownToolCallBlockPrefix(suffix)
 		) {
 			return value.length - index;
 		}
