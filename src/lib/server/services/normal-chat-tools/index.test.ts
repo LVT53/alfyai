@@ -189,7 +189,8 @@ describe("createNormalChatTools", () => {
 			{
 				requestTitle: "Hungarian Parliament News",
 				filename: "hungarian-parliament-news.md",
-				markdown: "# Latest News\n\n- Parliament passed new legislation on digital services with cross-party support.\n- Key provisions include data protection updates and cybersecurity requirements.\n- Sources cited at [example.com](https://example.com).",
+				markdown:
+					"# Latest News\n\n- Parliament passed new legislation on digital services with cross-party support.\n- Key provisions include data protection updates and cybersecurity requirements.\n- Sources cited at [example.com](https://example.com).",
 			},
 			{
 				toolCallId: "tool-call-simple-md",
@@ -720,14 +721,19 @@ describe("createNormalChatTools", () => {
 			},
 		);
 
-		expect(researchWebMock).toHaveBeenCalledWith({
-			query: "latest Vercel AI SDK tool API",
-			mode: "exact",
-			freshness: "live",
-			sourcePolicy: "technical",
-			maxSources: 4,
-			quoteRequired: true,
-		});
+		expect(researchWebMock).toHaveBeenCalledWith(
+			{
+				query: "latest Vercel AI SDK tool API",
+				mode: "exact",
+				freshness: "live",
+				sourcePolicy: "technical",
+				maxSources: 4,
+				quoteRequired: true,
+			},
+			expect.objectContaining({
+				config: { webResearchSearxngLanguage: "en" },
+			}),
+		);
 		expect(result).toMatchObject({
 			success: true,
 			name: "research_web",

@@ -6,19 +6,19 @@ import { submitFileProductionIntake } from "$lib/server/services/file-production
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { researchWeb } from "$lib/server/services/web-research";
-
-import { imageSearchInputSchema, sanitizeImageSearchInput } from "./image-search";
 import {
 	compactImageSearchResults,
 	createImageSearchCandidates,
+	imageSearchInputSchema,
+	sanitizeImageSearchInput,
 } from "./image-search";
 
 import {
-	memoryContextInputSchema,
-	memoryContextCandidateLimit,
 	compactMemoryContextCandidates,
 	compactMemoryContextModelPayload,
 	createMemoryContextMetadata,
+	memoryContextCandidateLimit,
+	memoryContextInputSchema,
 	sanitizeMemoryContextInput,
 	summarizeMemoryContextResult,
 } from "./memory-context";
@@ -36,25 +36,28 @@ import {
 } from "./produce-file";
 
 import {
-	researchWebInputSchema,
 	compactResearchWebModelPayload,
 	createResearchWebCandidates,
 	createResearchWebMetadata,
+	researchWebInputSchema,
 	sanitizeResearchWebInput,
 	summarizeResearchWebResult,
 } from "./research-web";
 
 import {
-	TOOL_TIMEOUTS_MS,
 	createToolCallRecorder,
+	TOOL_TIMEOUTS_MS,
 	withTimeout,
 } from "./shared";
 
 // ── Public re-exports ──────────────────────────────────────────
 
-export { createToolCallRecorder, recordToolCallEntry } from "./shared";
+export {
+	isProduceFileRequest,
+	shouldForceProduceFileTool,
+} from "./produce-file";
 export type { ToolCallRecorder } from "./shared";
-export { isProduceFileRequest, shouldForceProduceFileTool } from "./produce-file";
+export { createToolCallRecorder, recordToolCallEntry } from "./shared";
 
 // ── Context ────────────────────────────────────────────────────
 
@@ -68,10 +71,7 @@ export interface CreateNormalChatToolsContext {
 
 // ── I18n ───────────────────────────────────────────────────────
 
-type ToolI18n = Record<
-	string,
-	{ description: string; errorPrefix: string }
->;
+type ToolI18n = Record<string, { description: string; errorPrefix: string }>;
 
 const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 	en: {
@@ -86,8 +86,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 			errorPrefix: "Memory context lookup failed",
 		},
 		image_search: {
-			description:
-				"Search the web for image results for the current request.",
+			description: "Search the web for image results for the current request.",
 			errorPrefix: "Image search failed",
 		},
 		produce_file: {
@@ -108,8 +107,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 			errorPrefix: "A memória kontextus lekérése sikertelen",
 		},
 		image_search: {
-			description:
-				"Képkeresés az interneten az aktuális kéréshez.",
+			description: "Képkeresés az interneten az aktuális kéréshez.",
 			errorPrefix: "A képkeresés sikertelen",
 		},
 		produce_file: {
@@ -142,7 +140,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 				const safeInput = sanitizeResearchWebInput(input);
 				try {
 					const result = await withTimeout(
-						researchWeb(safeInput),
+						researchWeb(safeInput, {
+							config: { webResearchSearxngLanguage: ctx.language ?? "en" },
+						}),
 						TOOL_TIMEOUTS_MS.research_web,
 						"research_web",
 					);
@@ -290,7 +290,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					const modelPayload = {
 						success: false as const,
 						error:
-							error instanceof Error ? error.message : i18n.image_search.errorPrefix,
+							error instanceof Error
+								? error.message
+								: i18n.image_search.errorPrefix,
 					};
 					recorder.record({
 						callId: options.toolCallId,
