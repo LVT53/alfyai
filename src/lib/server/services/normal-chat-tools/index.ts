@@ -619,11 +619,94 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+const TOOL_TIMEOUTS_MS: Record<string, number> = {
+	research_web: 60_000,
+	memory_context: 15_000,
+	image_search: 30_000,
+	produce_file: 30_000,
+};
+
+async function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	toolName: string,
+): Promise<T> {
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			reject(
+				new Error(`${toolName} timed out after ${timeoutMs}ms`),
+			);
+		}, timeoutMs);
+	});
+
+	try {
+		return await Promise.race([promise, timeout]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
+type ToolI18n = Record<
+	string,
+	{ description: string; errorPrefix: string }
+>;
+
+const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
+	en: {
+		research_web: {
+			description:
+				"Search and fetch current web sources, returning compact citation-ready evidence.",
+			errorPrefix: "Web research failed",
+		},
+		memory_context: {
+			description:
+				"Retrieve bounded durable memory, named project-folder context, project continuity, persona memory, or account history for this conversation.",
+			errorPrefix: "Memory context lookup failed",
+		},
+		image_search: {
+			description:
+				"Search the web for image results for the current request.",
+			errorPrefix: "Image search failed",
+		},
+		produce_file: {
+			description:
+				"Queue generation of downloadable files for the current conversation.",
+			errorPrefix: "File production intake failed",
+		},
+	},
+	hu: {
+		research_web: {
+			description:
+				"Keresés az interneten aktuális források után, tömör, hivatkozásra kész bizonyítékokkal.",
+			errorPrefix: "A webes kutatás sikertelen",
+		},
+		memory_context: {
+			description:
+				"Tartós memória, projektmappa-kontextus, folytonosság, személyre szabott memória vagy fiókelőzmények lekérése ehhez a beszélgetéshez.",
+			errorPrefix: "A memória kontextus lekérése sikertelen",
+		},
+		image_search: {
+			description:
+				"Képkeresés az interneten az aktuális kéréshez.",
+			errorPrefix: "A képkeresés sikertelen",
+		},
+		produce_file: {
+			description:
+				"Letölthető fájlok generálásának ütemezése az aktuális beszélgetéshez.",
+			errorPrefix: "A fájl-előállítás sikertelen",
+		},
+	},
+};
+
 export interface CreateNormalChatToolsContext {
 	userId: string;
 	conversationId: string;
 	turnId: string;
 	recorder?: ToolCallRecorder;
+	language?: "en" | "hu";
 }
 
 export function createToolCallRecorder(
@@ -656,6 +739,8 @@ export function recordToolCallEntry(
 
 export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	const recorder = ctx.recorder ?? createToolCallRecorder();
+	const lang = ctx.language ?? "en";
+	const i18n = TOOL_I18N[lang];
 	const sameTurnProduceFileResults = new Map<
 		string,
 		Extract<FileProductionIntakeResult, { ok: true }>
@@ -663,8 +748,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 
 	const tools = {
 		research_web: tool({
-			description:
-				"Search and fetch current web sources, returning compact citation-ready evidence.",
+			description: i18n.research_web.description,
 			inputSchema: researchWebInputSchema,
 			execute: async (
 				input: ResearchWebInput,
@@ -672,7 +756,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 			) => {
 				const safeInput = sanitizeResearchWebInput(input);
 				try {
-					const result = await researchWeb(safeInput);
+					const result = await withTimeout(
+						researchWeb(safeInput),
+						TOOL_TIMEOUTS_MS.research_web,
+						"research_web",
+					);
 					const modelPayload = compactResearchWebModelPayload(result);
 					const candidates = createResearchWebCandidates(result);
 					recorder.record({

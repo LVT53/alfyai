@@ -1,21 +1,29 @@
-import type { ModelId } from '$lib/types';
-import { requestJson } from './http';
-import { _unwrapList } from './_utils';
+import { requestJson } from "./http";
 
-export interface AvailableModel {
-	id: ModelId;
+export interface ProviderModel {
+	id: string;
 	displayName: string;
-	isThirdParty?: boolean;
-	iconAssetId?: string | null;
-	iconUrl?: string | null;
 }
 
-export async function fetchAvailableModels(): Promise<AvailableModel[]> {
-	const payload = await requestJson<{ models?: AvailableModel[] }>(
-		'/api/models',
+export interface ModelProvider {
+	id: string;
+	name: string;
+	displayName: string;
+	iconAssetId: string | null;
+	iconUrl: string | null;
+	models: ProviderModel[];
+}
+
+export interface AvailableModelsResponse {
+	providers: ModelProvider[];
+}
+
+export async function fetchAvailableModels(): Promise<AvailableModelsResponse> {
+	const payload = await requestJson<{ providers?: ModelProvider[] }>(
+		"/api/models",
 		undefined,
-		'Failed to load models'
+		"Failed to load models",
 	);
 
-	return _unwrapList<AvailableModel>(payload, 'models');
+	return { providers: payload.providers ?? [] };
 }

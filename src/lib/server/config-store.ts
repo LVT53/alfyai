@@ -1015,7 +1015,9 @@ export async function normalizeModelSelectionWithProviders(
 	return normalizeModelSelection(modelId, config);
 }
 
-function modelIconUrl(iconAssetId: string | null | undefined): string | null {
+export function modelIconUrl(
+	iconAssetId: string | null | undefined,
+): string | null {
 	return iconAssetId
 		? `/api/campaign-assets/${encodeURIComponent(iconAssetId)}/content`
 		: null;

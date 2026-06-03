@@ -1,75 +1,237 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { t } from '$lib/i18n';
-	import ModelIcon from '$lib/components/ui/ModelIcon.svelte';
-	import { fetchAvailableModels, type AvailableModel } from '$lib/client/api/models';
-	import { selectedModel, setSelectedModel, type ModelId } from '$lib/stores/settings';
+import { onMount, tick } from "svelte";
+import { t } from "$lib/i18n";
+import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
+import {
+	fetchAvailableModels,
+	type ModelProvider,
+	type ProviderModel,
+} from "$lib/client/api/models";
+import {
+	selectedModel,
+	setSelectedModel,
+	type ModelId,
+} from "$lib/stores/settings";
 
-	let { onSelect, open = undefined, onOpenChange = undefined }: {
-		onSelect?: (payload: { modelId: ModelId }) => void;
-		open?: boolean | undefined;
-		onOpenChange?: ((open: boolean) => void) | undefined;
-	} = $props();
+let {
+	onSelect,
+	open = undefined,
+	onOpenChange = undefined,
+}: {
+	onSelect?: (payload: { modelId: ModelId }) => void;
+	open?: boolean | undefined;
+	onOpenChange?: ((open: boolean) => void) | undefined;
+} = $props();
 
-	let models = $state<AvailableModel[]>([]);
-	let internalOpen = $state(false);
-	let isLoading = $state(true);
-	let error = $state<string | null>(null);
-	let dropdownRef = $state<HTMLDivElement | undefined>(undefined);
-	let isOpen = $derived(open ?? internalOpen);
+let providers = $state<ModelProvider[]>([]);
+let internalOpen = $state(false);
+let isLoading = $state(true);
+let error = $state<string | null>(null);
+let dropdownRef = $state<HTMLDivElement | undefined>(undefined);
+let searchQuery = $state("");
+let expandedProviders = $state<Set<string>>(new Set());
+let focusedModelId = $state<string | null>(null);
+let isMobile = $state(false);
+let isOpen = $derived(open ?? internalOpen);
 
-	function setOpen(nextOpen: boolean) {
-		if (open === undefined) {
-			internalOpen = nextOpen;
-		}
-		onOpenChange?.(nextOpen);
+function setOpen(nextOpen: boolean) {
+	if (open === undefined) {
+		internalOpen = nextOpen;
 	}
+	onOpenChange?.(nextOpen);
+	if (!nextOpen) {
+		searchQuery = "";
+		focusedModelId = null;
+	}
+}
 
-	onMount(async () => {
-		try {
-			models = await fetchAvailableModels();
-			if (!models.some((model) => model.id === $selectedModel)) {
-				setSelectedModel('model1');
+function checkMobile() {
+	isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+}
+
+onMount(async () => {
+	checkMobile();
+	window.addEventListener("resize", checkMobile);
+
+	try {
+		const response = await fetchAvailableModels();
+		providers = response.providers;
+
+		const currentModelId = $selectedModel;
+		const modelExists = providers.some((p) =>
+			p.models.some((m) => m.id === currentModelId),
+		);
+		if (!modelExists && providers.length > 0) {
+			const firstProvider = providers[0];
+			const firstModel = firstProvider.models[0];
+			if (firstModel) {
+				setSelectedModel(firstModel.id as ModelId);
 			}
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to load models';
-			// Fallback to default models if API fails
-			models = [
-				{ id: 'model1', displayName: 'Model 1' },
-				{ id: 'model2', displayName: 'Model 2' }
-			];
-		} finally {
-			isLoading = false;
 		}
-
-		// Close dropdown when clicking outside
-		const handleClickOutside = (event: MouseEvent) => {
-			if (isOpen && dropdownRef && !dropdownRef.contains(event.target as Node)) {
-				setOpen(false);
-			}
-		};
-
-		document.addEventListener('click', handleClickOutside);
-		return () => document.removeEventListener('click', handleClickOutside);
-	});
-
-	function handleSelect(modelId: ModelId) {
-		setSelectedModel(modelId);
-		setOpen(false);
-		onSelect?.({ modelId });
+	} catch (err) {
+		error = err instanceof Error ? err.message : "Failed to load models";
+		providers = [
+			{
+				id: "built-in",
+				name: "built-in",
+				displayName: "AlfyAI",
+				iconAssetId: null,
+				iconUrl: null,
+				models: [
+					{ id: "model1", displayName: "Model 1" },
+					{ id: "model2", displayName: "Model 2" },
+				],
+			},
+		];
+	} finally {
+		isLoading = false;
 	}
 
-	function toggleDropdown() {
-		setOpen(!isOpen);
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') {
+	const handleClickOutside = (event: MouseEvent) => {
+		if (isOpen && dropdownRef && !dropdownRef.contains(event.target as Node)) {
 			setOpen(false);
 		}
+	};
+
+	document.addEventListener("click", handleClickOutside);
+	return () => {
+		document.removeEventListener("click", handleClickOutside);
+		window.removeEventListener("resize", checkMobile);
+	};
+});
+
+const filteredProviders = $derived(() => {
+	const query = searchQuery.trim().toLowerCase();
+	if (!query) return providers;
+
+	return providers
+		.map((provider) => {
+			const providerMatches = provider.displayName
+				.toLowerCase()
+				.includes(query);
+			const filteredModels = provider.models.filter(
+				(model) =>
+					providerMatches || model.displayName.toLowerCase().includes(query),
+			);
+			if (filteredModels.length === 0) return null;
+			return { ...provider, models: filteredModels };
+		})
+		.filter(Boolean) as ModelProvider[];
+});
+
+const activeProvider = $derived(() => {
+	const currentModelId = $selectedModel;
+	for (const provider of providers) {
+		const model = provider.models.find((m) => m.id === currentModelId);
+		if (model) return { provider, model };
+	}
+	return null;
+});
+
+function toggleProvider(providerId: string) {
+	const next = new Set(expandedProviders);
+	if (next.has(providerId)) {
+		next.delete(providerId);
+	} else {
+		next.add(providerId);
+	}
+	expandedProviders = next;
+}
+
+function expandAllMatching() {
+	const query = searchQuery.trim().toLowerCase();
+	if (!query) return;
+	const matching = new Set<string>();
+	for (const provider of filteredProviders()) {
+		matching.add(provider.id);
+	}
+	expandedProviders = matching;
+}
+
+$effect(() => {
+	if (searchQuery) {
+		expandAllMatching();
+	}
+});
+
+function handleSelect(modelId: ModelId) {
+	setSelectedModel(modelId);
+	setOpen(false);
+	onSelect?.({ modelId });
+}
+
+function toggleDropdown() {
+	setOpen(!isOpen);
+}
+
+function handleKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape") {
+		setOpen(false);
+		return;
 	}
 
-	const currentModel = $derived(models.find((model) => model.id === $selectedModel));
+	if (!isOpen) return;
+
+	const visibleProviders = filteredProviders();
+	const allVisibleModels: { providerId: string; model: ProviderModel }[] = [];
+	for (const provider of visibleProviders) {
+		if (expandedProviders.has(provider.id) || searchQuery.trim()) {
+			for (const model of provider.models) {
+				allVisibleModels.push({ providerId: provider.id, model });
+			}
+		}
+	}
+
+	if (allVisibleModels.length === 0) return;
+
+	const currentIndex = focusedModelId
+		? allVisibleModels.findIndex((item) => item.model.id === focusedModelId)
+		: -1;
+
+	if (event.key === "ArrowDown") {
+		event.preventDefault();
+		const nextIndex =
+			currentIndex + 1 < allVisibleModels.length ? currentIndex + 1 : 0;
+		focusedModelId = allVisibleModels[nextIndex].model.id;
+		scrollFocusedIntoView();
+	} else if (event.key === "ArrowUp") {
+		event.preventDefault();
+		const prevIndex =
+			currentIndex > 0 ? currentIndex - 1 : allVisibleModels.length - 1;
+		focusedModelId = allVisibleModels[prevIndex].model.id;
+		scrollFocusedIntoView();
+	} else if (event.key === "Enter" && focusedModelId) {
+		event.preventDefault();
+		handleSelect(focusedModelId as ModelId);
+	}
+}
+
+async function scrollFocusedIntoView() {
+	await tick();
+	const element = dropdownRef?.querySelector(
+		`[data-model-id="${focusedModelId}"]`,
+	);
+	if (element) {
+		element.scrollIntoView({ block: "nearest" });
+	}
+}
+
+function isProviderExpanded(
+	providerId: string,
+	providerModelsCount: number,
+): boolean {
+	if (searchQuery.trim()) return true;
+	if (expandedProviders.has(providerId)) return true;
+	// Auto-expand if this provider contains the selected model
+	const currentModelId = $selectedModel;
+	return (
+		providerModelsCount === 1 ||
+		(providerModelsCount > 0 &&
+			providers
+				.find((p) => p.id === providerId)
+				?.models.some((m) => m.id === currentModelId))
+	);
+}
 </script>
 
 <div class="model-selector" bind:this={dropdownRef} onkeydown={handleKeydown} role="presentation">
@@ -85,9 +247,14 @@
 	>
 		{#if isLoading}
 			<span class="model-selector__text">Loading...</span>
-		{:else if currentModel}
-			<ModelIcon iconUrl={currentModel.iconUrl ?? null} displayName={currentModel.displayName} size={22} />
-			<span class="model-selector__text">{currentModel.displayName}</span>
+		{:else if activeProvider()}
+			{@const active = activeProvider()}
+			<ModelIcon
+				iconUrl={active.provider.iconUrl ?? null}
+				displayName={active.provider.displayName}
+				size={22}
+			/>
+			<span class="model-selector__text">{active.model.displayName}</span>
 		{:else}
 			<span class="model-selector__text">Select model</span>
 		{/if}
@@ -108,24 +275,153 @@
 		</svg>
 	</button>
 
-	{#if isOpen && models.length > 0}
-		<ul class="model-selector__dropdown" role="listbox" aria-label={$t('modelSelector.availableModels')}>
-			{#each models as model}
-				<li
-					role="option"
-					aria-selected={$selectedModel === model.id}
-					class="model-selector__option"
-					class:model-selector__option--selected={$selectedModel === model.id}
-					onclick={() => handleSelect(model.id)}
-					onkeydown={(event) => event.key === 'Enter' && handleSelect(model.id)}
-					tabindex="0"
-					data-testid="model-option-{model.id}"
+	{#if isOpen && providers.length > 0}
+		<div
+			class="model-selector__dropdown"
+			class:model-selector__dropdown--mobile={isMobile}
+			role="listbox"
+			aria-label={$t('modelSelector.availableModels')}
+		>
+			<div class="model-selector__search">
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width="14"
+					height="14"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					class="model-selector__search-icon"
 				>
-					<ModelIcon iconUrl={model.iconUrl ?? null} displayName={model.displayName} size={22} />
-					<span class="model-selector__option-text">{model.displayName}</span>
-				</li>
-			{/each}
-		</ul>
+					<circle cx="11" cy="11" r="8" />
+					<line x1="21" y1="21" x2="16.65" y2="16.65" />
+				</svg>
+				<input
+					type="text"
+					class="model-selector__search-input"
+					placeholder="Search models..."
+					bind:value={searchQuery}
+					aria-label="Search models"
+				/>
+			</div>
+
+			<div class="model-selector__list">
+				{#each filteredProviders() as provider (provider.id)}
+					{@const expanded = isProviderExpanded(provider.id, provider.models.length)}
+					{@const hasSingleModel = provider.models.length === 1}
+					<div class="model-selector__provider">
+						{#if hasSingleModel}
+							{@const model = provider.models[0]}
+							<button
+								type="button"
+								role="option"
+								aria-selected={$selectedModel === model.id}
+								class="model-selector__provider-header model-selector__provider-header--selectable"
+								class:model-selector__provider-header--selected={$selectedModel === model.id}
+								class:model-selector__provider-header--focused={focusedModelId === model.id}
+								onclick={() => handleSelect(model.id as ModelId)}
+								data-model-id={model.id}
+								data-testid="model-option-{model.id}"
+							>
+								<ModelIcon
+									iconUrl={provider.iconUrl ?? null}
+									displayName={provider.displayName}
+									size={20}
+								/>
+								<span class="model-selector__provider-name">{provider.displayName}</span>
+								<span class="model-selector__model-name">{model.displayName}</span>
+								{#if $selectedModel === model.id}
+									<svg
+										class="model-selector__check"
+										xmlns="http://www.w3.org/2000/svg"
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="3"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<polyline points="20 6 9 17 4 12" />
+									</svg>
+								{/if}
+							</button>
+						{:else}
+							<button
+								type="button"
+								class="model-selector__provider-header"
+								aria-expanded={expanded}
+								onclick={() => toggleProvider(provider.id)}
+							>
+								<ModelIcon
+									iconUrl={provider.iconUrl ?? null}
+									displayName={provider.displayName}
+									size={20}
+								/>
+								<span class="model-selector__provider-name">{provider.displayName}</span>
+								<span class="model-selector__provider-count">{provider.models.length}</span>
+								<svg
+									class="model-selector__expand-icon"
+									class:model-selector__expand-icon--open={expanded}
+									xmlns="http://www.w3.org/2000/svg"
+									width="14"
+									height="14"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<polyline points="6 9 12 15 18 9" />
+								</svg>
+							</button>
+
+							{#if expanded}
+								<ul class="model-selector__models">
+									{#each provider.models as model (model.id)}
+										<li>
+											<button
+												type="button"
+												role="option"
+												aria-selected={$selectedModel === model.id}
+												class="model-selector__option"
+												class:model-selector__option--selected={$selectedModel === model.id}
+												class:model-selector__option--focused={focusedModelId === model.id}
+												onclick={() => handleSelect(model.id as ModelId)}
+												data-model-id={model.id}
+												data-testid="model-option-{model.id}"
+											>
+												<span class="model-selector__option-text">{model.displayName}</span>
+												{#if $selectedModel === model.id}
+													<svg
+														class="model-selector__check"
+														xmlns="http://www.w3.org/2000/svg"
+														width="14"
+														height="14"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="3"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<polyline points="20 6 9 17 4 12" />
+													</svg>
+												{/if}
+											</button>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						{/if}
+					</div>
+				{/each}
+			</div>
+		</div>
 	{/if}
 </div>
 
@@ -192,38 +488,165 @@
 		bottom: 100%;
 		left: 0;
 		margin-bottom: var(--space-xs, 4px);
-		padding: var(--space-xs, 4px);
 		background: var(--bg-primary, #ffffff);
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
 		border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
 		border-radius: var(--radius-md, 8px);
 		box-shadow: var(--shadow-lg, 0 4px 16px rgba(0, 0, 0, 0.08));
-		list-style: none;
-		min-width: 100%;
+		min-width: 280px;
+		max-width: 320px;
+		max-height: 400px;
 		z-index: 100;
 		animation: dropdownFadeIn 150ms ease-out;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
 	}
 
-	.model-selector__option {
+	.model-selector__dropdown--mobile {
+		position: fixed;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		margin-bottom: 0;
+		border-radius: var(--radius-lg, 12px) var(--radius-lg, 12px) 0 0;
+		max-width: 100%;
+		max-height: 70vh;
+		min-width: unset;
+		animation: sheetSlideUp 200ms ease-out;
+	}
+
+	.model-selector__search {
 		display: flex;
 		align-items: center;
 		gap: var(--space-sm, 8px);
-		padding: var(--space-sm, 8px) var(--space-md, 16px);
+		padding: var(--space-sm, 8px) var(--space-md, 12px);
+		border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+		flex-shrink: 0;
+	}
+
+	.model-selector__search-icon {
+		color: var(--text-secondary, #6b6b6b);
+		flex-shrink: 0;
+	}
+
+	.model-selector__search-input {
+		flex: 1;
+		border: none;
+		background: transparent;
+		font-family: 'Nimbus Sans L', sans-serif;
+		font-size: 14px;
+		color: var(--text-primary, #1a1a1a);
+		outline: none;
+		min-width: 0;
+	}
+
+	.model-selector__search-input::placeholder {
+		color: var(--text-secondary, #6b6b6b);
+	}
+
+	.model-selector__list {
+		overflow-y: auto;
+		padding: var(--space-xs, 4px);
+		flex: 1;
+	}
+
+	.model-selector__provider {
+		margin-bottom: 2px;
+	}
+
+	.model-selector__provider-header {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm, 8px);
+		width: 100%;
+		padding: var(--space-sm, 8px) var(--space-md, 12px);
 		border-radius: var(--radius-sm, 4px);
 		cursor: pointer;
 		font-family: 'Nimbus Sans L', sans-serif;
 		font-size: 14px;
 		color: var(--text-primary, #1a1a1a);
 		transition: background-color 150ms ease-out;
-		white-space: nowrap;
+		background: transparent;
+		border: none;
+		text-align: left;
 	}
 
-	.model-selector__option-text {
+	.model-selector__provider-header:hover,
+	.model-selector__provider-header:focus {
+		background: var(--bg-hover, #eeedea);
+		outline: none;
+	}
+
+	.model-selector__provider-header--selectable {
+		cursor: pointer;
+	}
+
+	.model-selector__provider-header--selected {
+		background: var(--bg-hover, #eeedea);
+		font-weight: 500;
+	}
+
+	.model-selector__provider-header--focused {
+		box-shadow: inset 0 0 0 2px var(--border-focus, #c15f3c);
+	}
+
+	.model-selector__provider-name {
+		font-weight: 500;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		flex: 1;
+	}
+
+	.model-selector__model-name {
+		color: var(--text-secondary, #6b6b6b);
+		font-size: 13px;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.model-selector__provider-count {
+		font-size: 12px;
+		color: var(--text-secondary, #6b6b6b);
+		background: var(--bg-secondary, #f5f5f5);
+		padding: 2px 6px;
+		border-radius: var(--radius-sm, 4px);
+		flex-shrink: 0;
+	}
+
+	.model-selector__expand-icon {
+		flex-shrink: 0;
+		transition: transform 200ms ease-out;
+		color: var(--text-secondary, #6b6b6b);
+	}
+
+	.model-selector__expand-icon--open {
+		transform: rotate(180deg);
+	}
+
+	.model-selector__models {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		padding-left: var(--space-md, 12px);
+	}
+
+	.model-selector__option {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm, 8px);
+		width: 100%;
+		padding: var(--space-sm, 8px) var(--space-md, 12px);
+		border-radius: var(--radius-sm, 4px);
+		cursor: pointer;
+		font-family: 'Nimbus Sans L', sans-serif;
+		font-size: 14px;
+		color: var(--text-primary, #1a1a1a);
+		transition: background-color 150ms ease-out;
+		background: transparent;
+		border: none;
+		text-align: left;
 	}
 
 	.model-selector__option:hover,
@@ -237,6 +660,22 @@
 		font-weight: 500;
 	}
 
+	.model-selector__option--focused {
+		box-shadow: inset 0 0 0 2px var(--border-focus, #c15f3c);
+	}
+
+	.model-selector__option-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		flex: 1;
+	}
+
+	.model-selector__check {
+		flex-shrink: 0;
+		color: var(--border-focus, #c15f3c);
+	}
+
 	@keyframes dropdownFadeIn {
 		from {
 			opacity: 0;
@@ -244,6 +683,15 @@
 		}
 		to {
 			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	@keyframes sheetSlideUp {
+		from {
+			transform: translateY(100%);
+		}
+		to {
 			transform: translateY(0);
 		}
 	}
@@ -263,6 +711,36 @@
 		border-color: var(--border, rgba(255, 255, 255, 0.08));
 	}
 
+	:global(.dark) .model-selector__search {
+		border-color: var(--border, rgba(255, 255, 255, 0.08));
+	}
+
+	:global(.dark) .model-selector__search-input {
+		color: var(--text-primary, #ececec);
+	}
+
+	:global(.dark) .model-selector__search-input::placeholder {
+		color: var(--text-secondary, #888888);
+	}
+
+	:global(.dark) .model-selector__provider-header {
+		color: var(--text-primary, #ececec);
+	}
+
+	:global(.dark) .model-selector__provider-header:hover,
+	:global(.dark) .model-selector__provider-header:focus {
+		background: var(--bg-hover, #333333);
+	}
+
+	:global(.dark) .model-selector__provider-header--selected {
+		background: var(--bg-hover, #333333);
+	}
+
+	:global(.dark) .model-selector__provider-count {
+		background: var(--bg-hover, #333333);
+		color: var(--text-secondary, #888888);
+	}
+
 	:global(.dark) .model-selector__option {
 		color: var(--text-primary, #ececec);
 	}
@@ -276,6 +754,10 @@
 		background: var(--bg-hover, #333333);
 	}
 
+	:global(.dark) .model-selector__model-name {
+		color: var(--text-secondary, #888888);
+	}
+
 	/* Mobile adjustments */
 	@media (max-width: 768px) {
 		.model-selector__trigger {
@@ -287,5 +769,4 @@
 			max-width: 100px;
 		}
 	}
-
 </style>
