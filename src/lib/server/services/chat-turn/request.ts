@@ -124,7 +124,6 @@ export async function parseChatTurnRequest(
 	} else if (modelStr.startsWith("provider:")) {
 		const providerId = modelStr.slice("provider:".length);
 		if (providerId.length > 0) {
-			// Parse provider:<provider-uuid>:<model-uuid> → extract just provider UUID
 			const actualProviderId = providerId.includes(":")
 				? providerId.split(":")[0]
 				: providerId;
@@ -139,7 +138,16 @@ export async function parseChatTurnRequest(
 				};
 			}
 			modelId = modelStr as ModelId;
-			modelDisplayName = provider.displayName;
+			// Resolve model displayName from provider models table
+			if (providerId.includes(":")) {
+				const modelUuid = providerId.split(":")[1];
+				const models = await listEnabledProviderModels(actualProviderId).catch(() => []);
+				const found = models.find((m) => m.id === modelUuid);
+				modelDisplayName = found?.displayName || provider.displayName;
+				if (found) resolvedMaxMessageLength = found.maxMessageLength ?? null;
+			} else {
+				modelDisplayName = provider.displayName;
+			}
 		} else {
 			modelId = undefined;
 			modelDisplayName = runtimeConfig.model1.displayName;
