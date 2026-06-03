@@ -2,7 +2,7 @@ import { previewText } from '$lib/server/utils/text';
 import { randomUUID } from 'crypto';
 import { mkdir, writeFile, readFile, unlink, access, rm } from 'fs/promises';
 import { join, extname } from 'path';
-import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, notInArray } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { artifacts, chatGeneratedFiles, conversations } from '$lib/server/db/schema';
 import { parseJsonRecord } from '$lib/server/utils/json';
@@ -959,4 +959,56 @@ export async function deleteAllChatFilesForUser(userId: string): Promise<number>
 	}
 
 	return deletedCount;
+}
+
+/**
+ * Delete chat-generated file rows whose parent conversation no longer exists.
+ * Uses a subquery to find orphan rows efficiently without pulling all IDs into memory.
+ */
+export async function deleteOrphanChatFiles(): Promise<number> {
+	try {
+		const orphanRows = await db
+			.select({
+				id: chatGeneratedFiles.id,
+				conversationId: chatGeneratedFiles.conversationId,
+				storagePath: chatGeneratedFiles.storagePath,
+			})
+			.from(chatGeneratedFiles)
+			.where(
+				notInArray(
+					chatGeneratedFiles.conversationId,
+					db.select({ id: conversations.id }).from(conversations)
+				)
+			)
+			.orderBy(desc(chatGeneratedFiles.createdAt));
+
+		if (orphanRows.length === 0) return 0;
+
+		await db
+			.delete(chatGeneratedFiles)
+			.where(inArray(chatGeneratedFiles.id, orphanRows.map((r) => r.id)));
+
+		for (const row of orphanRows) {
+			const fullPath = join(getChatFilesDir(), row.storagePath);
+			try {
+				await unlink(fullPath);
+			} catch {
+				// File may not exist on disk
+			}
+		}
+
+		const orphanConvIds = new Set(orphanRows.map((r) => r.conversationId));
+		for (const convId of orphanConvIds) {
+			try {
+				await rm(getConversationDir(convId), { recursive: true, force: true });
+			} catch {
+				// Directory cleanup is best-effort
+			}
+		}
+
+		return orphanRows.length;
+	} catch (error) {
+		console.error('[CHAT_FILES] Failed to delete orphan chat files', { error });
+		throw error;
+	}
 }

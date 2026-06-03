@@ -34,6 +34,7 @@ type ArtifactRow = {
 const {
 	mockRows,
 	mockArtifactRows,
+	mockConversationIds,
 	mockDeleteWhere,
 	mockUnlink,
 	mockRm,
@@ -47,6 +48,7 @@ const {
 } = vi.hoisted(() => {
 	const mockRows: ChatFileRow[] = [];
 	const mockArtifactRows: ArtifactRow[] = [];
+	const mockConversationIds = new Set<string>();
 
 	const mockDeleteWhere = vi.fn(async (conversationId: string, fileId?: string) => {
 		const indicesToRemove: number[] = [];
@@ -94,6 +96,7 @@ const {
 	return {
 		mockRows,
 		mockArtifactRows,
+		mockConversationIds,
 		mockDeleteWhere,
 		mockUnlink,
 		mockRm,
@@ -177,6 +180,22 @@ vi.mock('$lib/server/db', () => ({
 		})),
 		delete: vi.fn(() => ({
 			where: vi.fn((condition: unknown) => {
+				const conds = Array.isArray(condition) ? condition : [condition];
+				const idCondition = conds.find(
+					(c: { field: string; value: unknown }) =>
+						c.field === 'id' && Array.isArray(c.value)
+				);
+				if (idCondition) {
+					const idsToDelete = new Set(idCondition.value);
+					let count = 0;
+					for (let i = mockRows.length - 1; i >= 0; i--) {
+						if (idsToDelete.has(mockRows[i].id)) {
+							mockRows.splice(i, 1);
+							count++;
+						}
+					}
+					return Promise.resolve(count);
+				}
 				const conversationId = extractConversationId(condition);
 				const fileId = extractFileId(condition);
 				return Promise.resolve(mockDeleteWhere(conversationId, fileId));
@@ -271,6 +290,22 @@ function selectRowsForTable(
 	table: { __table?: string },
 	condition: unknown
 ): Array<ChatFileRow | ArtifactRow> {
+	if (table.__table === 'conversations') {
+		return Array.from(mockConversationIds).map((id) => ({ id }));
+	}
+
+	if (
+		typeof condition === 'object' &&
+		condition !== null &&
+		(condition as { operator?: string }).operator === 'notInSubquery'
+	) {
+		const cond = condition as { operator: string; conversationIdSet: Set<string> };
+		return mockRows
+			.filter((row) => !cond.conversationIdSet.has(row.conversationId))
+			.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+			.map((row) => ({ ...row }));
+	}
+
 	if (table.__table === 'artifacts') {
 		const conversationId = extractConversationId(condition);
 		const artifactId = extractFileId(condition);
@@ -342,7 +377,7 @@ vi.mock('$lib/server/db/schema', () => ({
 		storagePath: { name: 'storagePath' },
 		createdAt: { name: 'createdAt' },
 	},
-	conversations: { id: { name: 'id' } },
+	conversations: { __table: 'conversations', id: { name: 'id' } },
 	users: { id: { name: 'id' } },
 }));
 
@@ -355,6 +390,11 @@ vi.mock('drizzle-orm', () => ({
 	desc: vi.fn(() => 'desc'),
 	inArray: vi.fn((field: { name: string }, values: string[]) => ({ field: field.name, value: values })),
 	isNotNull: vi.fn((field: { name: string }) => ({ field: field.name, operator: 'isNotNull' })),
+	notInArray: vi.fn((field: { name: string }, _subquery: unknown) => ({
+		field: field.name,
+		operator: 'notInSubquery',
+		conversationIdSet: mockConversationIds,
+	})),
 	eq: vi.fn((field: { name: string }, value: string) => ({ field: field.name, value })),
 }));
 
@@ -375,6 +415,7 @@ describe('chat-files service', () => {
 	beforeEach(() => {
 		mockRows.length = 0;
 		mockArtifactRows.length = 0;
+		mockConversationIds.clear();
 		vi.clearAllMocks();
 		mockRm.mockResolvedValue(undefined);
 		vi.spyOn(console, 'info').mockImplementation(() => undefined);
@@ -997,6 +1038,105 @@ describe('chat-files service', () => {
 			const { deleteAllChatFilesForConversation } = await import('./chat-files');
 
 			const result = await deleteAllChatFilesForConversation('conv-empty');
+
+			expect(result).toBe(0);
+		});
+	});
+
+	describe('deleteOrphanChatFiles', () => {
+		it('deletes chat-generated file rows whose parent conversation no longer exists', async () => {
+			const { deleteOrphanChatFiles } = await import('./chat-files');
+
+			// conv-a exists, conv-orphan-1 and conv-orphan-2 do not
+			mockConversationIds.add('conv-a');
+			mockConversationIds.add('conv-b');
+
+			mockRows.push(
+				{
+					id: 'file-active',
+					conversationId: 'conv-a',
+					assistantMessageId: 'msg-1',
+					userId: 'user-1',
+					filename: 'active-report.pdf',
+					mimeType: 'application/pdf',
+					sizeBytes: 5000,
+					storagePath: 'conv-a/file-active.pdf',
+					createdAt: new Date('2026-01-01'),
+				},
+				{
+					id: 'file-orphan-1',
+					conversationId: 'conv-orphan-1',
+					assistantMessageId: 'msg-2',
+					userId: 'user-1',
+					filename: 'orphan-report.pdf',
+					mimeType: 'application/pdf',
+					sizeBytes: 3000,
+					storagePath: 'conv-orphan-1/file-orphan-1.pdf',
+					createdAt: new Date('2026-01-02'),
+				},
+				{
+					id: 'file-orphan-2',
+					conversationId: 'conv-orphan-2',
+					assistantMessageId: 'msg-3',
+					userId: 'user-1',
+					filename: 'orphan-report-2.pdf',
+					mimeType: 'application/pdf',
+					sizeBytes: 2000,
+					storagePath: 'conv-orphan-2/file-orphan-2.pdf',
+					createdAt: new Date('2026-01-03'),
+				}
+			);
+
+			const deletedCount = await deleteOrphanChatFiles();
+
+			expect(deletedCount).toBe(2);
+			expect(mockRows).toHaveLength(1);
+			expect(mockRows[0].id).toBe('file-active');
+		});
+
+		it('returns 0 when there are no orphan files', async () => {
+			const { deleteOrphanChatFiles } = await import('./chat-files');
+
+			mockConversationIds.add('conv-a');
+			mockConversationIds.add('conv-b');
+
+			mockRows.push(
+				{
+					id: 'file-1',
+					conversationId: 'conv-a',
+					assistantMessageId: 'msg-1',
+					userId: 'user-1',
+					filename: 'doc1.pdf',
+					mimeType: 'application/pdf',
+					sizeBytes: 1000,
+					storagePath: 'conv-a/file-1.pdf',
+					createdAt: new Date('2026-01-01'),
+				},
+				{
+					id: 'file-2',
+					conversationId: 'conv-b',
+					assistantMessageId: 'msg-2',
+					userId: 'user-1',
+					filename: 'doc2.pdf',
+					mimeType: 'application/pdf',
+					sizeBytes: 2000,
+					storagePath: 'conv-b/file-2.pdf',
+					createdAt: new Date('2026-01-02'),
+				}
+			);
+
+			const result = await deleteOrphanChatFiles();
+
+			expect(result).toBe(0);
+			expect(mockRows).toHaveLength(2);
+		});
+
+		it('returns 0 when there are no chat files at all', async () => {
+			const { deleteOrphanChatFiles } = await import('./chat-files');
+
+			mockConversationIds.add('conv-a');
+
+			const result = await deleteOrphanChatFiles();
 
 			expect(result).toBe(0);
 		});
