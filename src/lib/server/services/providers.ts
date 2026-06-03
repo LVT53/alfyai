@@ -317,6 +317,8 @@ export async function deleteProvider(id: string): Promise<boolean> {
 	return result.changes > 0;
 }
 
+const FIRE_PASS_KEY_PREFIX = "fpk_";
+
 export async function validateProviderConnection(
 	baseUrl: string,
 	apiKey: string,
@@ -328,6 +330,13 @@ export async function validateProviderConnection(
 				valid: false,
 				error: "Base URL must use HTTP or HTTPS protocol",
 			};
+		}
+
+		if (
+			apiKey.trim().startsWith(FIRE_PASS_KEY_PREFIX) &&
+			isFireworksHost(url.hostname)
+		) {
+			return { valid: true };
 		}
 
 		const modelsUrl = buildOpenAICompatibleUrl(baseUrl, "/v1/models");
@@ -400,6 +409,13 @@ export async function modelDiscovery(
 
 	try {
 		const url = new URL(baseUrl);
+
+		if (
+			apiKey.trim().startsWith(FIRE_PASS_KEY_PREFIX) &&
+			isFireworksHost(url.hostname)
+		) {
+			return [];
+		}
 
 		if (isDeepseekHost(url.hostname)) {
 			modelsUrl = `${baseUrl.replace(/\/+$/, "")}/models`;
