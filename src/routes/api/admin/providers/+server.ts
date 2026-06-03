@@ -51,9 +51,7 @@ export const POST: RequestHandler = async (event) => {
 		}
 
 		const connectionTest = await validateProviderConnection(baseUrl, apiKey);
-		if (!connectionTest.valid) {
-			return json({ error: connectionTest.error }, { status: 400 });
-		}
+		const connectionWarning = connectionTest.valid ? null : connectionTest.error ?? null;
 
 		const provider = await createProvider({
 			name,
@@ -91,7 +89,7 @@ export const POST: RequestHandler = async (event) => {
 		});
 
 		await refreshConfig();
-		return json({ provider }, { status: 201 });
+		return json({ provider, connectionWarning }, { status: 201 });
 	} catch (error) {
 		if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
 			return json(
