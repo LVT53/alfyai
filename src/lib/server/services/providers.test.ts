@@ -530,7 +530,10 @@ describe("modelDiscovery", () => {
 
 		const { modelDiscovery } = await import("./providers");
 		const models = await modelDiscovery("https://api.openai.com/v1", "sk-key");
-		expect(models).toEqual(["gpt-4", "gpt-3.5-turbo"]);
+		expect(models).toEqual([
+			{ id: "gpt-4" },
+			{ id: "gpt-3.5-turbo" },
+		]);
 	});
 
 	it("handles deepseek.com /models endpoint", async () => {
@@ -542,7 +545,7 @@ describe("modelDiscovery", () => {
 		const { modelDiscovery } = await import("./providers");
 		const models = await modelDiscovery("https://api.deepseek.com", "sk-key");
 
-		expect(models).toEqual(["deepseek-chat"]);
+		expect(models).toEqual([{ id: "deepseek-chat" }]);
 		expect(fetchSpy).toHaveBeenCalledWith(
 			expect.stringContaining("api.deepseek.com/models"),
 			expect.any(Object),
@@ -561,6 +564,7 @@ describe("modelDiscovery", () => {
 		const models = await modelDiscovery("https://api.fireworks.ai/inference/v1", "sk-key");
 
 		expect(models).toHaveLength(1);
+		expect(models[0].id).toBe("accounts/fireworks/models/mixtral-8x7b-instruct");
 		expect(fetchSpy).toHaveBeenCalledWith(
 			expect.stringContaining("/inference/v1/models"),
 			expect.any(Object),
@@ -609,6 +613,86 @@ describe("modelDiscovery", () => {
 		);
 		const { modelDiscovery } = await import("./providers");
 		const models = await modelDiscovery("https://api.custom.com/v1", "key");
-		expect(models).toEqual(["model-a", "model-b"]);
+		expect(models).toEqual([{ id: "model-a" }, { id: "model-b" }]);
+	});
+
+	it("extracts Fireworks metadata from /inference/v1/models", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					data: [
+						{
+							id: "accounts/fireworks/models/mixtral-8x7b",
+							supports_chat: true,
+							supports_tools: true,
+							context_length: 32768,
+						},
+						{
+							id: "accounts/fireworks/models/embedding-model",
+							supports_chat: false,
+							supports_tools: false,
+							context_length: 8192,
+						},
+					],
+				}),
+			),
+		);
+		const { modelDiscovery } = await import("./providers");
+		const models = await modelDiscovery(
+			"https://api.fireworks.ai/inference/v1",
+			"sk-key",
+		);
+		expect(models).toEqual([
+			{
+				id: "accounts/fireworks/models/mixtral-8x7b",
+				contextLength: 32768,
+				supportsChat: true,
+				supportsTools: true,
+			},
+			{
+				id: "accounts/fireworks/models/embedding-model",
+				contextLength: 8192,
+				supportsChat: false,
+				supportsTools: false,
+			},
+		]);
+	});
+
+	it("extracts vLLM max_model_len metadata", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					data: [
+						{ id: "meta-llama/Llama-3-70b", max_model_len: 8192 },
+						{ id: "mistralai/Mistral-7B-v0.1", max_model_len: 32768 },
+					],
+				}),
+			),
+		);
+		const { modelDiscovery } = await import("./providers");
+		const models = await modelDiscovery("https://vllm.example.com/v1", "key");
+		expect(models).toEqual([
+			{ id: "meta-llama/Llama-3-70b", contextLength: 8192 },
+			{ id: "mistralai/Mistral-7B-v0.1", contextLength: 32768 },
+		]);
+	});
+
+	it("returns models without metadata when response lacks extra fields", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					data: [
+						{ id: "gpt-4", object: "model" },
+						{ id: "gpt-3.5-turbo", object: "model" },
+					],
+				}),
+			),
+		);
+		const { modelDiscovery } = await import("./providers");
+		const models = await modelDiscovery("https://api.openai.com/v1", "sk-key");
+		expect(models).toEqual([{ id: "gpt-4" }, { id: "gpt-3.5-turbo" }]);
 	});
 });

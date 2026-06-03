@@ -405,7 +405,7 @@ function isFireworksHost(hostname: string): boolean {
 export async function modelDiscovery(
 	baseUrl: string,
 	apiKey: string,
-): Promise<string[]> {
+): Promise<DiscoveredModel[]> {
 	let modelsUrl: string;
 
 	try {
@@ -415,7 +415,7 @@ export async function modelDiscovery(
 			apiKey.trim().startsWith(FIRE_PASS_KEY_PREFIX) &&
 			isFireworksHost(url.hostname)
 		) {
-			return [FIRE_PASS_MODEL_NAME];
+			return [{ id: FIRE_PASS_MODEL_NAME }];
 		}
 
 		if (isDeepseekHost(url.hostname)) {
@@ -457,10 +457,32 @@ export async function modelDiscovery(
 
 		return models
 			.filter(
-				(model): model is { id: string } =>
+				(model): model is Record<string, unknown> =>
 					isRecord(model) && typeof model.id === "string",
 			)
-			.map((model) => model.id);
+			.map((model): DiscoveredModel => {
+				const result: DiscoveredModel = { id: model.id as string };
+
+				const contextLength =
+					typeof model.context_length === "number"
+						? model.context_length
+						: typeof model.max_model_len === "number"
+							? model.max_model_len
+							: undefined;
+				if (contextLength !== undefined) {
+					result.contextLength = contextLength;
+				}
+
+				if (typeof model.supports_chat === "boolean") {
+					result.supportsChat = model.supports_chat;
+				}
+
+				if (typeof model.supports_tools === "boolean") {
+					result.supportsTools = model.supports_tools;
+				}
+
+				return result;
+			});
 	} catch (error) {
 		if (error instanceof Error) {
 			if (error.name === "TimeoutError") {
@@ -477,6 +499,13 @@ export async function modelDiscovery(
 		}
 		throw new Error("Model discovery failed: Unknown error");
 	}
+}
+
+export interface DiscoveredModel {
+	id: string;
+	contextLength?: number;
+	supportsChat?: boolean;
+	supportsTools?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -137,8 +137,15 @@ interface ProviderDetailResponse {
 	provider: Provider;
 }
 
+export interface DiscoveredModel {
+	id: string;
+	contextLength?: number;
+	supportsChat?: boolean;
+	supportsTools?: boolean;
+}
+
 interface ProviderDiscoverResponse {
-	models: Array<{ id: string; name: string }>;
+	models: DiscoveredModel[];
 }
 
 export async function fetchProviderList(): Promise<Provider[]> {

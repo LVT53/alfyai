@@ -41,6 +41,33 @@ export const POST: RequestHandler = async (event) => {
 					{ status: 400 },
 				);
 			}
+			if (
+				entry.contextLength !== undefined &&
+				typeof entry.contextLength !== 'number'
+			) {
+				return json(
+					{ error: `models[${i}].contextLength must be a number` },
+					{ status: 400 },
+				);
+			}
+			if (
+				entry.supportsChat !== undefined &&
+				typeof entry.supportsChat !== 'boolean'
+			) {
+				return json(
+					{ error: `models[${i}].supportsChat must be a boolean` },
+					{ status: 400 },
+				);
+			}
+			if (
+				entry.supportsTools !== undefined &&
+				typeof entry.supportsTools !== 'boolean'
+			) {
+				return json(
+					{ error: `models[${i}].supportsTools must be a boolean` },
+					{ status: 400 },
+				);
+			}
 		}
 
 		const models = await batchCreateProviderModels(
@@ -50,6 +77,18 @@ export const POST: RequestHandler = async (event) => {
 				displayName:
 					typeof e.displayName === 'string'
 						? e.displayName.trim()
+						: undefined,
+				contextLength:
+					typeof e.contextLength === 'number'
+						? e.contextLength
+						: undefined,
+				supportsChat:
+					typeof e.supportsChat === 'boolean'
+						? e.supportsChat
+						: undefined,
+				supportsTools:
+					typeof e.supportsTools === 'boolean'
+						? e.supportsTools
 						: undefined,
 			})),
 		);

@@ -252,6 +252,9 @@ export async function deleteProviderModel(id: string): Promise<boolean> {
 export interface BatchModelEntry {
 	name: string;
 	displayName?: string;
+	contextLength?: number;
+	supportsChat?: boolean;
+	supportsTools?: boolean;
 }
 
 export async function batchCreateProviderModels(
@@ -274,6 +277,14 @@ export async function batchCreateProviderModels(
 			continue;
 		}
 
+		let capabilitiesJson = "{}";
+		if (entry.supportsChat !== undefined || entry.supportsTools !== undefined) {
+			const capabilities: Record<string, string> = {};
+			if (entry.supportsChat) capabilities.chat = "detected";
+			if (entry.supportsTools) capabilities.tools = "detected";
+			capabilitiesJson = JSON.stringify(capabilities);
+		}
+
 		const [model] = await db
 			.insert(providerModels)
 			.values({
@@ -281,6 +292,8 @@ export async function batchCreateProviderModels(
 				providerId,
 				name: entry.name,
 				displayName: entry.displayName ?? entry.name,
+				maxModelContext: entry.contextLength ?? null,
+				capabilitiesJson,
 				enabled: 1,
 				sortOrder: 0,
 				createdAt: now,
