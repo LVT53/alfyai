@@ -305,7 +305,8 @@ async function buildDeepResearchModelAttemptFromModelId(input: {
 		return null;
 	}
 	if (isProviderModelId(input.modelId)) {
-		const providerId = input.modelId.slice("provider:".length);
+		const raw = input.modelId.slice("provider:".length);
+		const providerId = raw.includes(":") ? raw.split(":")[0] : raw;
 		const provider = await getProviderWithSecrets(providerId).catch(() => null);
 		if (!provider?.enabled) return null;
 		const apiKey =
@@ -478,9 +479,9 @@ async function resolveModelCredentials(modelId: string): Promise<{
 		};
 	}
 	if (modelId.startsWith("provider:")) {
-		const provider = await getProviderWithSecrets(
-			modelId.slice("provider:".length),
-		);
+		const raw = modelId.slice("provider:".length);
+		const providerId = raw.includes(":") ? raw.split(":")[0] : raw;
+		const provider = await getProviderWithSecrets(providerId);
 		if (!provider) return { baseUrl: "", modelName: "", apiKey: "" };
 		return {
 			baseUrl: provider.baseUrl,

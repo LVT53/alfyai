@@ -187,7 +187,8 @@ async function getModelSnapshot(modelId: string, fallbackDisplayName?: string | 
 		};
 	}
 
-	const providerId = modelId.startsWith("provider:") ? modelId.slice("provider:".length) : modelId;
+	const rawId = modelId.startsWith("provider:") ? modelId.slice("provider:".length) : modelId;
+	const providerId = rawId.includes(":") ? rawId.split(":")[0] : rawId;
 	try {
 		const [{ getProviderWithSecrets }, { listEnabledProviderModels }] = await Promise.all([
 			import('./providers'),

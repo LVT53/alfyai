@@ -16,9 +16,20 @@ export function isProviderModelId(
 }
 
 export function getProviderIdFromModelId(modelId: ModelId): string | null {
-	if (modelId.startsWith("provider:")) {
-		return modelId.slice(9);
-	}
+	if (!modelId.startsWith("provider:")) return null;
+	const parts = modelId.split(":");
+	// Format: provider:<provider-uuid>:<model-uuid>
+	if (parts.length >= 3) return parts[2]; // model UUID
+	if (parts.length === 2) return parts[1]; // legacy provider ID
+	return null;
+}
+
+export function getProviderProviderIdFromModelId(modelId: ModelId): string | null {
+	if (!modelId.startsWith("provider:")) return null;
+	const parts = modelId.split(":");
+	// Format: provider:<provider-uuid>:<model-uuid>
+	if (parts.length >= 3) return parts[1]; // provider UUID
+	if (parts.length === 2) return parts[1]; // legacy provider ID
 	return null;
 }
 

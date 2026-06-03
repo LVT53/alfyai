@@ -272,7 +272,26 @@ async function resolveBuiltinFromNewProvidersTable(
 	name: string,
 ): Promise<NormalChatModelRunProvider | null> {
 	try {
-		const provider = await getProviderByName(name);
+		// Handle composite ID format: provider:<provider-uuid>:<model-uuid>
+		let provider: Awaited<ReturnType<typeof getProviderWithSecrets>> | null = null;
+		let modelNameFilter: string | null = null;
+
+		if (name.startsWith("provider:") && name.split(":").length >= 3) {
+			const parts = name.split(":");
+			const providerId = parts[1];
+			const modelId = parts[2];
+			provider = await getProviderWithSecrets(providerId).catch(() => null);
+			if (provider && provider.enabled) {
+				const models = await listEnabledProviderModels(provider.id);
+				const model = models.find((m) => m.id === modelId);
+				if (!model) return null;
+				return buildProviderModelRunConfig(provider, model);
+			}
+			return null;
+		}
+
+		// Legacy format: provider:<provider-name> or bare name
+		provider = await getProviderByName(name).catch(() => null);
 		if (!provider || !provider.enabled) return null;
 
 		const models = await listEnabledProviderModels(provider.id);
@@ -282,6 +301,16 @@ async function resolveBuiltinFromNewProvidersTable(
 		const providerWithSecrets = await getProviderWithSecrets(provider.id);
 		if (!providerWithSecrets) return null;
 
+		return buildProviderModelRunConfig(providerWithSecrets, model);
+	} catch {
+		return null;
+	}
+}
+
+function buildProviderModelRunConfig(
+	providerWithSecrets: Awaited<ReturnType<typeof getProviderWithSecrets>>,
+	model: Awaited<ReturnType<typeof listEnabledProviderModels>>[number],
+): NormalChatModelRunProvider {
 		const hasExplicitTarget =
 			typeof model.targetConstructedContext === "number";
 		const hasExplicitCompaction =
@@ -295,10 +324,10 @@ async function resolveBuiltinFromNewProvidersTable(
 			: undefined;
 
 		return {
-			id: provider.id,
-			name: provider.name,
-			displayName: provider.displayName,
-			baseUrl: normalizeOpenAICompatibleBaseUrl(provider.baseUrl),
+			id: providerWithSecrets.id,
+			name: providerWithSecrets.name,
+			displayName: providerWithSecrets.displayName,
+			baseUrl: normalizeOpenAICompatibleBaseUrl(providerWithSecrets.baseUrl),
 			modelName: model.name,
 			apiKey: decryptApiKey(
 				providerWithSecrets.apiKeyEncrypted,
@@ -340,9 +369,6 @@ async function resolveBuiltinFromNewProvidersTable(
 				return caps ? { capabilities: caps } : {};
 			})(),
 		};
-	} catch {
-		return null;
-	}
 }
 
 function parseProviderModelCapabilities(json: string): ModelCapabilitySet | undefined {

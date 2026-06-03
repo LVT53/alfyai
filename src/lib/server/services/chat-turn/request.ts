@@ -124,7 +124,11 @@ export async function parseChatTurnRequest(
 	} else if (modelStr.startsWith("provider:")) {
 		const providerId = modelStr.slice("provider:".length);
 		if (providerId.length > 0) {
-			const provider = await getProviderWithSecrets(providerId).catch(() => null);
+			// Parse provider:<provider-uuid>:<model-uuid> → extract just provider UUID
+			const actualProviderId = providerId.includes(":")
+				? providerId.split(":")[0]
+				: providerId;
+			const provider = await getProviderWithSecrets(actualProviderId).catch(() => null);
 			if (!provider || !provider.enabled) {
 				return {
 					ok: false,
