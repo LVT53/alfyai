@@ -41,6 +41,13 @@ $effect(() => {
 let formMaxModelContext = $state(
 	untrack(() => numToString(model?.maxModelContext)),
 );
+$effect(() => {
+	const max = stringToNum(formMaxModelContext);
+	if (max != null && formCompactionUiThreshold === "" && formTargetConstructedContext === "") {
+		formCompactionUiThreshold = String(Math.floor(max * 0.8));
+		formTargetConstructedContext = String(Math.floor(max * 0.9));
+	}
+});
 let formCompactionUiThreshold = $state(
 	untrack(() => numToString(model?.compactionUiThreshold)),
 );
@@ -81,8 +88,10 @@ function numToString(value: number | null | undefined): string {
 	return String(value);
 }
 
-function stringToNum(value: string): number | null {
-	const trimmed = value.trim();
+function stringToNum(value: string | number | null | undefined): number | null {
+	if (value == null) return null;
+	if (typeof value === "number") return Number.isNaN(value) ? null : value;
+	const trimmed = String(value).trim();
 	if (trimmed === "") return null;
 	const num = Number(trimmed);
 	if (Number.isNaN(num)) return null;
