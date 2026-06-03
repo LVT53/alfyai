@@ -29,6 +29,8 @@ export const SIDEBAR_MIN_WIDTH = 240;
 export const SIDEBAR_DEFAULT_WIDTH = 300;
 export const SIDEBAR_MAX_WIDTH = 480;
 const PROJECT_FOLDER_EXPANDED_KEY = 'projectFolderExpanded';
+const SIDEBAR_PROJECTS_EXPANDED_KEY = 'sidebarProjectsExpanded';
+const SIDEBAR_CHATS_EXPANDED_KEY = 'sidebarChatsExpanded';
 
 const isValidBool = (v: string): v is 'true' | 'false' => v === 'true' || v === 'false';
 
@@ -134,4 +136,21 @@ sidebarCollapsed.subscribe((value) => persist('sidebarCollapsed', value ? 'true'
 sidebarWidth.subscribe((value) => persist('sidebarWidth', String(clampSidebarWidth(value))));
 projectFolderExpanded.subscribe((value) =>
 	persist(PROJECT_FOLDER_EXPANDED_KEY, JSON.stringify(value))
+);
+
+const initialSidebarProjectsExpandedValue = browser
+	? read(SIDEBAR_PROJECTS_EXPANDED_KEY, 'true', isValidBool)
+	: 'true';
+export const sidebarProjectsExpanded = writable<boolean>(initialSidebarProjectsExpandedValue === 'true');
+
+const initialSidebarChatsExpandedValue = browser
+	? read(SIDEBAR_CHATS_EXPANDED_KEY, 'true', isValidBool)
+	: 'true';
+export const sidebarChatsExpanded = writable<boolean>(initialSidebarChatsExpandedValue === 'true');
+
+sidebarProjectsExpanded.subscribe((value) =>
+	persist(SIDEBAR_PROJECTS_EXPANDED_KEY, value ? 'true' : 'false')
+);
+sidebarChatsExpanded.subscribe((value) =>
+	persist(SIDEBAR_CHATS_EXPANDED_KEY, value ? 'true' : 'false')
 );

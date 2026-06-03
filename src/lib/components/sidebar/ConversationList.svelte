@@ -27,7 +27,9 @@ import {
 	currentConversationId,
 	projectFolderExpanded,
 	setProjectFolderExpanded,
+	sidebarChatsExpanded,
 	sidebarOpen,
+	sidebarProjectsExpanded,
 	SIDEBAR_DESKTOP_BREAKPOINT,
 } from "$lib/stores/ui";
 import { t } from "$lib/i18n";
@@ -82,6 +84,8 @@ onMount(() => {
 
 let openSidebarMenu = $state<OpenSidebarMenu>(null);
 const expandedProjects = $derived($projectFolderExpanded);
+const projectsSectionExpanded = $derived($sidebarProjectsExpanded);
+const chatsSectionExpanded = $derived($sidebarChatsExpanded);
 let isCreatingProject = $state(false);
 let newProjectName = $state("");
 let newProjectInputRef = $state<HTMLInputElement | undefined>(undefined);
@@ -630,6 +634,16 @@ function handleProjectMenuClose(payload?: { id: string }) {
 	}
 }
 
+// ── Section toggle handlers ────────────────────────────────────────────────
+
+function toggleProjectsSection() {
+	sidebarProjectsExpanded.update((v) => !v);
+}
+
+function toggleChatsSection() {
+	sidebarChatsExpanded.update((v) => !v);
+}
+
 // ── Create project ─────────────────────────────────────────────────────────
 
 function startCreateProject(e: MouseEvent) {
@@ -711,7 +725,18 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 		<div class="mb-0.5">
 			<!-- Section header -->
 			<div class="group flex items-center justify-between px-2 py-1">
-				<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.projects')}</span>
+				<button
+					class="flex items-center gap-1 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+					aria-label={projectsSectionExpanded ? $t('sidebar.collapseProjectsSection') : $t('sidebar.expandProjectsSection')}
+					onclick={toggleProjectsSection}
+				>
+					<span class="flex h-4 w-4 shrink-0 items-center justify-center text-icon-muted transition-transform duration-150" class:rotate-90={projectsSectionExpanded}>
+						<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+							<polyline points="9 18 15 12 9 6" />
+						</svg>
+					</span>
+					<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.projects')}</span>
+				</button>
 				<button
 					class="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-icon-muted opacity-0 transition-opacity duration-100 hover:text-icon-primary group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none"
 					title={$t('sidebar.newProject')}
@@ -724,22 +749,25 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 				</button>
 			</div>
 
-			<!-- New project input -->
-			{#if isCreatingProject}
-				<div class="px-1 pb-1">
-					<input
-						bind:this={newProjectInputRef}
-						bind:value={newProjectName}
-						onblur={commitCreateProject}
-						onkeydown={handleNewProjectKeydown}
-						placeholder={$t('sidebar.projectName')}
-						class="w-full rounded-md border border-border bg-surface-page px-2.5 py-1.5 text-[13px] font-sans text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent placeholder:text-text-muted"
-					/>
-				</div>
-			{/if}
-
 			<!-- Project list -->
-			<div class="flex flex-col gap-0 px-1">
+			{#if projectsSectionExpanded}
+				<div transition:slide={{ duration: 200 }}>
+				<!-- New project input -->
+				{#if isCreatingProject}
+					<div class="px-1 pb-1">
+						<input
+							bind:this={newProjectInputRef}
+							bind:value={newProjectName}
+							onblur={commitCreateProject}
+							onkeydown={handleNewProjectKeydown}
+							placeholder={$t('sidebar.projectName')}
+							class="w-full rounded-md border border-border bg-surface-page px-2.5 py-1.5 text-[13px] font-sans text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent placeholder:text-text-muted"
+						/>
+					</div>
+				{/if}
+
+				<!-- Project list -->
+				<div class="flex flex-col gap-0 px-1">
 				{#each sortedProjects as project, index (project.id)}
 					{@const previousProject = sortedProjects[index - 1] ?? null}
 					<div
@@ -871,6 +899,8 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 					aria-hidden="true"
 				></div>
 			</div>
+			</div>
+			{/if}
 		</div>
 
 		<!-- Divider between projects and unorganized chats -->
@@ -880,7 +910,18 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 	{:else}
 		<!-- No projects yet: header + creative empty notice -->
 		<div class="group flex items-center justify-between px-2 py-1">
-			<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.projects')}</span>
+			<button
+				class="flex items-center gap-1 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				aria-label={projectsSectionExpanded ? $t('sidebar.collapseProjectsSection') : $t('sidebar.expandProjectsSection')}
+				onclick={toggleProjectsSection}
+			>
+				<span class="flex h-4 w-4 shrink-0 items-center justify-center text-icon-muted transition-transform duration-150" class:rotate-90={projectsSectionExpanded}>
+					<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+						<polyline points="9 18 15 12 9 6" />
+					</svg>
+				</span>
+				<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.projects')}</span>
+			</button>
 			<button
 				class="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-icon-muted opacity-0 transition-opacity duration-100 hover:text-icon-primary group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none"
 				title={$t('sidebar.newProject')}
@@ -892,36 +933,40 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 				</svg>
 			</button>
 		</div>
-		{#if isCreatingProject}
-			<div class="px-1 pb-1">
-				<input
-					bind:this={newProjectInputRef}
-					bind:value={newProjectName}
-					onblur={commitCreateProject}
-					onkeydown={handleNewProjectKeydown}
-					placeholder={$t('sidebar.projectName')}
-					class="w-full rounded-md border border-border bg-surface-page px-2.5 py-1.5 text-[13px] font-sans text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent placeholder:text-text-muted"
-				/>
+		{#if projectsSectionExpanded}
+			<div transition:slide={{ duration: 200 }}>
+				{#if isCreatingProject}
+					<div class="px-1 pb-1">
+						<input
+							bind:this={newProjectInputRef}
+							bind:value={newProjectName}
+							onblur={commitCreateProject}
+							onkeydown={handleNewProjectKeydown}
+							placeholder={$t('sidebar.projectName')}
+							class="w-full rounded-md border border-border bg-surface-page px-2.5 py-1.5 text-[13px] font-sans text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent placeholder:text-text-muted"
+						/>
+					</div>
+				{:else}
+					<!-- Creative empty state: dashed folder card -->
+					<button
+						class="empty-projects-btn mx-1 mb-2 flex w-[calc(100%-0.5rem)] cursor-pointer items-center gap-2.5 rounded-lg border border-dashed px-3 py-3 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+						onclick={startCreateProject}
+						aria-label={$t('sidebar.createNewProject')}
+					>
+						<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-elevated text-icon-muted">
+							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+								<line x1="12" y1="11" x2="12" y2="17"/>
+								<line x1="9" y1="14" x2="15" y2="14"/>
+							</svg>
+						</div>
+						<div>
+							<p class="text-[12px] font-medium text-text-secondary">{$t('sidebar.noProjectsYet')}</p>
+							<p class="text-[11px] text-text-muted">{$t('sidebar.groupChatsCreateOne')}</p>
+						</div>
+					</button>
+				{/if}
 			</div>
-		{:else}
-			<!-- Creative empty state: dashed folder card -->
-			<button
-				class="empty-projects-btn mx-1 mb-2 flex w-[calc(100%-0.5rem)] cursor-pointer items-center gap-2.5 rounded-lg border border-dashed px-3 py-3 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-				onclick={startCreateProject}
-				aria-label={$t('sidebar.createNewProject')}
-			>
-				<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-elevated text-icon-muted">
-					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-						<line x1="12" y1="11" x2="12" y2="17"/>
-						<line x1="9" y1="14" x2="15" y2="14"/>
-					</svg>
-				</div>
-				<div>
-					<p class="text-[12px] font-medium text-text-secondary">{$t('sidebar.noProjectsYet')}</p>
-					<p class="text-[11px] text-text-muted">{$t('sidebar.groupChatsCreateOne')}</p>
-				</div>
-			</button>
 		{/if}
 	{/if}
 
@@ -959,34 +1004,49 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 		{#if allProjects.length > 0 || conversationsByProject.unorganized.length > 0 || canDropIntoUnorganized}
 				<div class="px-1 pb-1 pt-0.5">
 					<div class="flex items-center justify-between gap-2">
-						<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.chats')}</span>
+						<button
+							class="flex items-center gap-1 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+							aria-label={chatsSectionExpanded ? $t('sidebar.collapseChatsSection') : $t('sidebar.expandChatsSection')}
+							onclick={toggleChatsSection}
+						>
+							<span class="flex h-4 w-4 shrink-0 items-center justify-center text-icon-muted transition-transform duration-150" class:rotate-90={chatsSectionExpanded}>
+								<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+									<polyline points="9 18 15 12 9 6" />
+								</svg>
+							</span>
+							<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.chats')}</span>
+						</button>
 					</div>
 				</div>
 		{/if}
-		{#if visibleConversations.length === 0}
-			<div class="flex h-20 items-center justify-center p-4 text-sm text-text-muted">
-				{$t('sidebar.noConversationsYet')}
+		{#if chatsSectionExpanded}
+			<div transition:slide={{ duration: 200 }}>
+				{#if visibleConversations.length === 0}
+					<div class="flex h-20 items-center justify-center p-4 text-sm text-text-muted">
+						{$t('sidebar.noConversationsYet')}
+					</div>
+				{:else}
+					{#each conversationsByProject.unorganized as conversation (conversation.id)}
+						<ConversationItem
+							{conversation}
+							active={$currentConversationId === conversation.id}
+							menuOpen={isConversationMenuOpen(conversation.id)}
+							projects={allProjects}
+							dragEnabled={supportsDragAndDrop}
+							isDragging={draggedConversationId === conversation.id}
+							onSelect={handleSelect}
+							onRename={handleRename}
+							onDelete={handleDelete}
+							onTogglePin={handleConversationTogglePin}
+							onMoveToProject={handleMoveToProject}
+							onDragStart={handleConversationDragStart}
+							onDragEnd={handleConversationDragEnd}
+							onMenuToggle={handleMenuToggle}
+							onMenuClose={handleMenuClose}
+						/>
+					{/each}
+				{/if}
 			</div>
-		{:else}
-			{#each conversationsByProject.unorganized as conversation (conversation.id)}
-				<ConversationItem
-					{conversation}
-					active={$currentConversationId === conversation.id}
-					menuOpen={isConversationMenuOpen(conversation.id)}
-					projects={allProjects}
-					dragEnabled={supportsDragAndDrop}
-					isDragging={draggedConversationId === conversation.id}
-					onSelect={handleSelect}
-					onRename={handleRename}
-					onDelete={handleDelete}
-					onTogglePin={handleConversationTogglePin}
-					onMoveToProject={handleMoveToProject}
-					onDragStart={handleConversationDragStart}
-					onDragEnd={handleConversationDragEnd}
-					onMenuToggle={handleMenuToggle}
-					onMenuClose={handleMenuClose}
-				/>
-			{/each}
 		{/if}
 	</div>
 </div>
