@@ -743,6 +743,11 @@ describe("createNormalChatTools", () => {
 				maxSources: 4,
 				quoteRequired: true,
 			},
+			expect.objectContaining({
+				config: expect.objectContaining({
+					webResearchSearxngLanguage: "en",
+				}),
+			}),
 		);
 		expect(result).toMatchObject({
 			success: true,
