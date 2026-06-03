@@ -1358,7 +1358,7 @@ function placeholderFor(key: string): string {
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={closeModelList} onkeydown={(e) => e.key === 'Escape' && closeModelList()}>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-lg border border-border bg-surface-page p-6 shadow-xl" onclick={(e) => e.stopPropagation()}>
+		<div class="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-lg border border-border bg-surface-page p-6 shadow-xl" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 			{#key modelListKey}
 				<ModelList
 					providerId={modelListProviderId}

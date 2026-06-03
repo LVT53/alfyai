@@ -205,7 +205,7 @@ function handleTest() {
 				</div>
 
 				<div>
-					<label class="settings-label">{$t('admin.modelIcon')}</label>
+					<label class="settings-label" for="provider-form-icon">{$t('admin.modelIcon')}</label>
 					<div class="flex items-center gap-3">
 						{#if formIconAssetId}
 							<img
@@ -216,6 +216,7 @@ function handleTest() {
 						{/if}
 						{#if onIconFile}
 							<input
+								id="provider-form-icon"
 								type="file"
 								accept="image/*"
 								class="settings-input"
