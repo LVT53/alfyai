@@ -202,7 +202,7 @@ function isProviderExpanded(
 				displayName={active.model.displayName}
 				size={22}
 			/>
-			<span class="model-selector__text" title="{active.provider.displayName}&#10;{active.model.displayName}">{active.model.displayName}</span>
+			<span class="model-selector__text" title={`${active.provider.displayName}\n${active.model.displayName}`}>{active.model.displayName}</span>
 		{:else}
 			<span class="model-selector__text">Select model</span>
 		{/if}
