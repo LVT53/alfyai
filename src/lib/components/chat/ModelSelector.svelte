@@ -175,9 +175,7 @@ function autoExpandProviders() {
 	const next = new Set(expandedProviders);
 	const currentModelId = $selectedModel;
 	for (const provider of providers) {
-		if (provider.models.length === 1) {
-			next.add(provider.id);
-		} else if (provider.models.some((m) => m.id === currentModelId)) {
+		if (provider.models.some((m) => m.id === currentModelId)) {
 			next.add(provider.id);
 		}
 	}
