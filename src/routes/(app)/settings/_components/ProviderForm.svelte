@@ -42,6 +42,7 @@ let formBaseUrl = $state(
 	untrack(() => provider?.baseUrl ?? "https://api.fireworks.ai/inference/v1"),
 );
 let formApiKey = $state("");
+let formIconAssetId = $state(untrack(() => provider?.iconAssetId ?? ""));
 let formEnabled = $state(untrack(() => provider?.enabled ?? true));
 let formRateLimitFallbackEnabled = $state(
 	untrack(() => provider?.rateLimitFallbackEnabled ?? false),
@@ -107,6 +108,7 @@ function handleSave() {
 	const data: Record<string, unknown> = {
 		displayName: formDisplayName,
 		baseUrl: formBaseUrl,
+		iconAssetId: formIconAssetId || null,
 		enabled: formEnabled,
 		rateLimitFallbackEnabled: formRateLimitFallbackEnabled,
 		rateLimitFallbackBaseUrl: formRateLimitFallbackBaseUrl || null,
@@ -199,6 +201,17 @@ function handleTest() {
 							{showApiKey ? $t('admin.hide') : $t('admin.show')}
 						</button>
 					</div>
+				</div>
+
+				<div>
+					<label class="settings-label" for="provider-form-icon">{$t('admin.iconAssetId')}</label>
+					<input
+						id="provider-form-icon"
+						type="text"
+						class="settings-input"
+						bind:value={formIconAssetId}
+						placeholder=""
+					/>
 				</div>
 
 				<div class="flex items-center gap-2">
