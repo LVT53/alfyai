@@ -105,7 +105,6 @@ The top 8 files (all 700+ lines) represent ~40% of total server code.
 | `chat-turn/stream-parser.ts` | 150 | **None** | 🟡 Medium — easy to unit-test parser |
 | `chat-turn/preflight.ts` | 60 | **None** | 🟢 Low |
 | `chat-turn/thinking-normalizer.ts` | 60 | **None** | 🟢 Low |
-| `chat-turn/tool-call-markers.ts` | 106 | **None** | 🟡 Medium |
 
 **chat-turn/ directory overall**: 12 source files, only 2 test files (16.7% coverage). The core user-facing pipeline has the lowest test coverage in the codebase.
 
@@ -431,7 +430,6 @@ The file comment on line 28 says "Re-export all public symbols from sub-modules 
 ```typescript
 export { parseUpstreamEvents, ... } from './stream-parser';
 export { normalizeVisibleAssistantText, ... } from './thinking-normalizer';
-export { processToolCallMarkers, ... } from './tool-call-markers';
 ```
 
 **Layer 2 — Substantial implementation** (lines 43-557):
@@ -452,7 +450,7 @@ Callers importing `parseUpstreamEvents` (a parser) get `createServerChunkRuntime
 
 ```
 chat-turn/stream.ts  (reduced to ~30 lines, pure re-export barrel)
-  └── Re-exports from stream-parser, thinking-normalizer, tool-call-markers,
+  └── Re-exports from stream-parser, thinking-normalizer,
       stream-runtime, stream-response
 
 chat-turn/stream-runtime.ts  (new, ~250 lines)
@@ -485,7 +483,6 @@ chat-turn/stream-errors.ts  (new, ~100 lines)
 **Files**:
 - `src/lib/services/stream-protocol.ts` — `extractVisibleTextFromModelResponse()`
 - `src/lib/server/services/chat-turn/thinking-normalizer.ts` — `normalizeVisibleAssistantText()`
-- `src/lib/server/services/chat-turn/tool-call-markers.ts` — `processToolCallMarkers()`
 
 ### Problem
 
@@ -495,7 +492,6 @@ The `/send` and `/stream` paths normalize assistant text through **different fun
 |------|----------|----------|---------------|
 | **Send** | `extractVisibleTextFromModelResponse()` | `stream-protocol.ts` | Thinking blocks and legacy wrapper tags |
 | **Stream** | `normalizeVisibleAssistantText()` | `thinking-normalizer.ts` | Thinking blocks, standalone tags, and legacy wrapper tags |
-| **Stream** | `processToolCallMarkers()` | `tool-call-markers.ts` | `\x02TOOL_START\x1f...\x03`, `\x02TOOL_END\x1f...\x03` markers |
 
 The send path **does not** strip tool-call markers. If the non-stream Langflow response ever contains `\x02TOOL_START\x1f...\x03` markers, they would display raw to the user in the send path.
 
@@ -687,8 +683,7 @@ Routes (api/chat/send, api/chat/stream)
     │    └──► chat-turn/stream-orchestrator.ts
     │         ├──► chat-turn/stream.ts (re-export hub)
     │         │    ├──► stream-parser.ts
-    │         │    ├──► thinking-normalizer.ts
-    │         │    └──► tool-call-markers.ts
+    │         │    └──► thinking-normalizer.ts
     │         ├──► chat-turn/finalize.ts (same as send)
     │         └──► chat-turn/active-streams.ts
     │

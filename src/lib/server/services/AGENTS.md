@@ -22,7 +22,6 @@ Parent: [AGENTS.md](../../../AGENTS.md) lists every service file and its role. T
 **Chat-turn sub-modules** (extracted from stream.ts):
 - `chat-turn/stream.ts` — AI SDK UI stream framing, stream runtime cleanup, native tool-call accumulation, and stream error classification
 - `chat-turn/thinking-normalizer.ts` — thinking block/tag stripping and reasoning content extraction
-- `chat-turn/tool-call-markers.ts` — `TOOL_START/END` marker processing and tool evidence normalization
 
 ## Memory Authority Snapshot
 
@@ -47,7 +46,7 @@ chat-turn/request.ts ──► chat-turn/preflight.ts
                               │
                     ┌─────────┴─────────┐
                     ▼                   ▼
-              chat send          stream-orchestrator.ts ──► stream.ts, thinking-normalizer.ts, tool-call-markers.ts
+              chat send          stream-orchestrator.ts ──► stream.ts, thinking-normalizer.ts
                     │                   │
                     └─────────┬─────────┘
                               ▼

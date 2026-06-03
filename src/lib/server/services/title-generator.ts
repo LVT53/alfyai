@@ -5,6 +5,11 @@ import { getConfig } from "../config-store";
 import { normalizeOpenAICompatibleBaseUrl } from "./openai-compatible-url";
 import { normalizeAssistantOutput } from "./chat-turn/normalizer";
 import { detectLanguage } from "./language";
+import {
+	DEFAULT_MODEL_MAX_RETRIES,
+	TITLE_GEN_MAX_TOKENS,
+	TITLE_GEN_TEMPERATURE,
+} from "./normal-chat-model-config";
 
 function createTitleGenProvider(
 	config: ReturnType<typeof getConfig>,
@@ -38,9 +43,9 @@ async function generateTitleWithAiSdk(
 				role: "system" | "user" | "assistant";
 				content: string;
 			}>,
-			temperature: 0.2,
-			maxOutputTokens: 120,
-			maxRetries: 0,
+			temperature: TITLE_GEN_TEMPERATURE,
+			maxOutputTokens: TITLE_GEN_MAX_TOKENS,
+			maxRetries: DEFAULT_MODEL_MAX_RETRIES,
 		});
 		return normalizeAssistantOutput(result.text);
 	};

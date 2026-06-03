@@ -27,7 +27,7 @@ table-layout.ts      - Markdown table rendering
 | `<thinking>`, `<think>`, ChatML thinking/analysis | Inline model thinking delimiters normalized into thinking vs visible output |
 | Provider payload text/content fields | Extract assistant text from OpenAI-compatible choices, plain provider text, content parts, and content blocks |
 | Leading `response` markers and leaked web-research diagnostics | Strip provider/tool artifacts from visible assistant output |
-| `data-tool-call` UI stream parts | Browser-facing structured tool-call updates emitted by `chat-turn/tool-call-markers.ts`; do not introduce textual `<tool_calls>` as a new protocol |
+| `data-tool-call` UI stream parts | Browser-facing structured tool-call updates emitted by `chat-turn/stream.ts`; do not introduce textual `<tool_calls>` as a new protocol |
 | `[CONTEXT]`, `[MEMORY]`, `[KNOWLEDGE]` | Log prefixes only, not stream payload syntax |
 
 ## Conventions

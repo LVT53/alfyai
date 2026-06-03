@@ -30,7 +30,7 @@ failures → retry-cleanup.ts
 | Build constructed prompt context for Normal Chat | `context-selection.ts` |
 | Assistant output normalization | `normalizer.ts` |
 | Stream attempt orchestration, upstream retry/failover, active-stream registration | `stream-orchestrator.ts` |
-| AI SDK UI stream framing/runtime helpers, tool-call markers, thinking cleanup | `stream.ts`, `thinking-normalizer.ts`, `tool-call-markers.ts` |
+| AI SDK UI stream framing/runtime helpers, thinking cleanup | `stream.ts`, `thinking-normalizer.ts` |
 | Stream terminal persistence and `data-stream-metadata` / `finish` payloads | `stream-completion.ts` |
 | Reconnect replay and live stream subscription | `stream-reconnect.ts` |
 | Post-turn persistence fan-out (messages, honcho, task-state, knowledge) | `finalize.ts` |
