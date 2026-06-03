@@ -661,6 +661,7 @@ function configLabelKey(key: string): string {
 		MODEL_TIMEOUT_FAILOVER_TARGET_MODEL:
 			"admin.modelTimeoutFailoverTargetModel",
 		SYSTEM_PROMPT: "admin.systemPromptLabel",
+		DEFAULT_NEW_USER_MODEL: "admin.defaultNewUserModel",
 	};
 	return map[key] ?? key;
 }
@@ -714,6 +715,24 @@ function placeholderFor(key: string): string {
 		onDiscover={handleDiscoverProviderConfig}
 		onManageModels={handleManageModels}
 	/>
+</section>
+
+<!-- Default model for new users -->
+<section class="settings-card mb-4">
+	<h2 class="settings-section-title">{$t('admin.defaultNewUserModel')}</h2>
+	<p class="text-xs text-text-tertiary">{$t('admin.defaultNewUserModelDescription')}</p>
+	<select
+		id="DEFAULT_NEW_USER_MODEL"
+		class="settings-input mt-2"
+		value={defaultNewUserModelValue()}
+		onchange={(event) => {
+			adminConfig.DEFAULT_NEW_USER_MODEL = event.currentTarget.value;
+		}}
+	>
+		{#each defaultNewUserModelOptions() as model}
+			<option value={model.id}>{model.displayName}</option>
+		{/each}
+	</select>
 </section>
 
 <!-- Composer Command Registry feature flag -->

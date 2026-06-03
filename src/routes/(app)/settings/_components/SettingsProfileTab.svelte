@@ -234,7 +234,7 @@
 			<p class="settings-label">{$t('settings_defaultModel')}</p>
 			<div class="flex gap-2">
 				<button
-					class="pref-pill"
+					class="pref-pill flex flex-col items-center gap-0.5"
 					class:pref-pill-active={selectedModel === null}
 					title={$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}
 					aria-label={$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}

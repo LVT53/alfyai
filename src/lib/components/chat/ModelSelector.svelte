@@ -198,8 +198,8 @@ function isProviderExpanded(
 		{:else if activeProvider()}
 			{@const active = activeProvider()}
 			<ModelIcon
-				iconUrl={active.provider.iconUrl ?? null}
-				displayName={active.provider.displayName}
+				iconUrl={active.model.iconUrl ?? null}
+				displayName={active.model.displayName}
 				size={22}
 			/>
 			<span class="model-selector__text">{active.model.displayName}</span>
@@ -436,33 +436,12 @@ function isProviderExpanded(
 		outline: none;
 	}
 
-	.model-selector__provider-header--selectable {
-		cursor: pointer;
-	}
-
-	.model-selector__provider-header--selected {
-		background: var(--bg-hover, #eeedea);
-		font-weight: 500;
-	}
-
-	.model-selector__provider-header--focused {
-		box-shadow: inset 0 0 0 2px var(--border-focus, #c15f3c);
-	}
-
 	.model-selector__provider-name {
 		font-weight: 500;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		flex: 1;
-	}
-
-	.model-selector__model-name {
-		color: var(--text-secondary, #6b6b6b);
-		font-size: 13px;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
 	}
 
 	.model-selector__provider-count {
@@ -579,10 +558,6 @@ function isProviderExpanded(
 		background: var(--bg-hover, #333333);
 	}
 
-	:global(.dark) .model-selector__provider-header--selected {
-		background: var(--bg-hover, #333333);
-	}
-
 	:global(.dark) .model-selector__provider-count {
 		background: var(--bg-hover, #333333);
 		color: var(--text-secondary, #888888);
@@ -599,10 +574,6 @@ function isProviderExpanded(
 
 	:global(.dark) .model-selector__option--selected {
 		background: var(--bg-hover, #333333);
-	}
-
-	:global(.dark) .model-selector__model-name {
-		color: var(--text-secondary, #888888);
 	}
 
 	/* Mobile adjustments */
