@@ -243,6 +243,14 @@ const SOURCE_AUTHORITY_GUARD = [
 	"- When multiple sources agree, prefer citing the highest-authority one; when they conflict, explain the conflict and cite the higher-authority source.",
 ].join("\n");
 
+const TOOL_TERMINATION_GUARD = [
+	"Tool Termination:",
+	"- When you have fully completed the user's request and have nothing more to add, call the `done` tool to signal completion and end the turn.",
+	"- Calling `done` stops the tool loop immediately — do not call it until all needed tool work is finished and your final answer is complete.",
+	"- Do NOT call `done` after every tool. Call it once, at the very end, after you have gathered all evidence, synthesized your answer, and produced any requested files.",
+	"- If you are uncertain whether more tool calls are needed, err on the side of calling another tool rather than calling `done` prematurely.",
+].join("\n");
+
 const FORCE_WEB_SEARCH_GUARD = [
 	"Current-turn forced web retrieval:",
 	"- The user explicitly requested web grounding for this turn; use available web retrieval for this answer when a web retrieval tool is listed in the runtime tool schema.",
@@ -389,6 +397,7 @@ export function buildOutboundSystemPrompt(params: {
 			WEB_FACT_EXTRACTION_GUARD,
 			PERSONA_MEMORY_GUARD,
 			SOURCE_AUTHORITY_GUARD,
+			TOOL_TERMINATION_GUARD,
 		);
 	}
 
