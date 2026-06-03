@@ -66,6 +66,7 @@ export type StreamingNormalChatSendModelResult = {
 	prepared: StreamingNormalChatPreparedContext;
 	modelId: ModelId;
 	modelDisplayName: string;
+	providerIconUrl?: string | null;
 	resolvedProviderId: string;
 	stream: AsyncIterable<StreamingNormalChatModelRunEvent>;
 	prefetchedToolCalls: ToolCallEntry[];
@@ -150,6 +151,7 @@ export async function runStreamingNormalChatSendModel(
 		},
 		modelId,
 		modelDisplayName: provider.displayName,
+		providerIconUrl: provider.iconUrl ?? null,
 		resolvedProviderId: provider.id,
 		stream,
 		prefetchedToolCalls,
