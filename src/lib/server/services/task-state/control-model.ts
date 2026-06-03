@@ -146,11 +146,18 @@ export function parseJsonFromModel(
   }
 }
 
-function createContextSummarizerProvider(config: ReturnType<typeof getConfig>) {
+function createContextSummarizerProvider(
+	config: ReturnType<typeof getConfig>,
+	overrideProvider?: { baseUrl: string; apiKey: string },
+) {
+	const baseURL = overrideProvider
+		? normalizeOpenAICompatibleBaseUrl(overrideProvider.baseUrl)
+		: normalizeOpenAICompatibleBaseUrl(config.contextSummarizerUrl);
+	const apiKey = overrideProvider?.apiKey || config.contextSummarizerApiKey || undefined;
 	return createOpenAICompatible({
 		name: "context-summarizer",
-		apiKey: config.contextSummarizerApiKey || undefined,
-		baseURL: normalizeOpenAICompatibleBaseUrl(config.contextSummarizerUrl),
+		apiKey,
+		baseURL,
 		includeUsage: false,
 	});
 }
@@ -164,11 +171,39 @@ export async function requestContextSummarizer(params: {
 	if (!canUseContextSummarizer()) return null;
 
 	const config = getConfig();
-	const provider = createContextSummarizerProvider(config);
+
+	let resolvedModelName = config.contextSummarizerModel;
+	let overrideProvider: { baseUrl: string; apiKey: string } | undefined;
+
+	if (config.contextSummarizerModel.startsWith("provider:")) {
+		const parts = config.contextSummarizerModel.split(":");
+		if (parts.length >= 3) {
+			const providerId = parts[1];
+			const modelId = parts[2];
+			try {
+				const { getProviderWithSecrets, decryptApiKey } = await import("../providers");
+				const { listEnabledProviderModels } = await import("../provider-models");
+				const provider = await getProviderWithSecrets(providerId);
+				if (provider?.enabled) {
+					const models: Array<{ id: string; name: string }> = await listEnabledProviderModels(provider.id);
+					const model = models.find((m) => m.id === modelId);
+					if (model) {
+						resolvedModelName = model.name;
+						overrideProvider = {
+							baseUrl: provider.baseUrl,
+							apiKey: decryptApiKey(provider.apiKeyEncrypted, provider.apiKeyIv),
+						};
+					}
+				}
+			} catch { /* fall back to raw model ID */ }
+		}
+	}
+
+	const provider = createContextSummarizerProvider(config, overrideProvider);
 
 	try {
 		const result = await generateText({
-			model: provider(config.contextSummarizerModel),
+			model: provider(resolvedModelName),
 			messages: [
 				{ role: "system", content: params.system },
 				{ role: "user", content: params.user },
