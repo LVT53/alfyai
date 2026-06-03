@@ -121,7 +121,11 @@ export async function classifyMemoryBatch(
 
 export function canUseContextSummarizer(): boolean {
   const config = getConfig();
-  return Boolean(config.contextSummarizerUrl && config.contextSummarizerModel);
+  return Boolean(
+    config.contextSummarizerUrl &&
+    config.contextSummarizerUrl.includes("://") &&
+    config.contextSummarizerModel,
+  );
 }
 
 export function parseJsonFromModel(
