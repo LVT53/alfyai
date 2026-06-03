@@ -6,7 +6,7 @@ import type {
 	KnowledgeUploadResponse,
 	WorkCapsule,
 } from '$lib/types';
-import { ApiError, requestJson, requestVoid, type FetchLike } from './http';
+import { ApiError, requestJson, requestText, requestVoid, type FetchLike } from './http';
 import { _unwrapList } from './_utils';
 
 export type KnowledgeLibrary = {
@@ -339,4 +339,8 @@ export async function recordDocumentWorkspaceOpen(artifactId: string): Promise<v
 		},
 		'Failed to record document workspace behavior.'
 	);
+}
+
+export async function fetchDocumentPreviewText(url: string): Promise<string> {
+	return requestText(url, undefined, 'Failed to load document preview.');
 }

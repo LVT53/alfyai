@@ -28,7 +28,7 @@ function performRequest(
 	return init === undefined ? fetchImpl(input) : fetchImpl(input, init);
 }
 
-async function readErrorPayload(
+export async function readErrorPayload(
 	response: Response,
 	fallback: string
 ): Promise<{ message: string; code?: string; errorKey?: string; fieldErrors?: Record<string, string> }> {
@@ -102,4 +102,31 @@ export async function requestVoid(
 			status: response.status,
 		});
 	}
+}
+
+export async function requestResponse(
+	input: RequestInfo | URL,
+	init: RequestInit | undefined,
+	fetchImpl: FetchLike = fetch
+): Promise<Response> {
+	return performRequest(fetchImpl, input, init);
+}
+
+export async function requestText(
+	input: RequestInfo | URL,
+	init: RequestInit | undefined,
+	errorMessage: string,
+	fetchImpl: FetchLike = fetch
+): Promise<string> {
+	const response = await performRequest(fetchImpl, input, init);
+	if (!response.ok) {
+		const error = await readErrorPayload(response, errorMessage);
+		throw new ApiError(error.message, {
+			code: error.code,
+			errorKey: error.errorKey,
+			fieldErrors: error.fieldErrors,
+			status: response.status,
+		});
+	}
+	return response.text();
 }

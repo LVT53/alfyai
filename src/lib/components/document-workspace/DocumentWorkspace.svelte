@@ -8,6 +8,7 @@ import { summarizeTextComparison } from "$lib/utils/text-compare";
 import { renderHighlightedText } from "$lib/utils/markdown-loader";
 import type { DocumentWorkspaceItem } from "$lib/types";
 import { t } from "$lib/i18n";
+import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 
@@ -481,13 +482,7 @@ async function loadComparePreview(
 		throw new Error("Preview not available for comparison");
 	}
 
-	const response = await fetch(previewUrl);
-	if (!response.ok) {
-		throw new Error("Failed to load comparison preview");
-	}
-
-	const text = await response.text();
-	return text;
+	return fetchDocumentPreviewText(previewUrl);
 }
 
 async function ensureDocumentPreviewRendererModule() {

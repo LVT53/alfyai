@@ -13,7 +13,13 @@ import type {
 	TaskSteeringPayload,
 } from "$lib/types";
 import { _unwrapList } from "./_utils";
-import { type FetchLike, requestJson, requestVoid } from "./http";
+import {
+	readErrorPayload,
+	requestJson,
+	requestResponse,
+	requestVoid,
+	type FetchLike,
+} from "./http";
 
 type ConversationSummary = Pick<
 	ConversationListItem,
@@ -355,7 +361,7 @@ export async function fetchMessageEvidence(
 	messageId: string,
 	signal?: AbortSignal,
 ): Promise<MessageEvidenceResult> {
-	const response = await fetch(
+	const response = await requestResponse(
 		`/api/conversations/${conversationId}/messages/${messageId}/evidence`,
 		{ signal },
 	);
@@ -373,7 +379,8 @@ export async function fetchMessageEvidence(
 	}
 
 	if (!response.ok) {
-		throw new Error("Failed to load message evidence");
+		const error = await readErrorPayload(response, "Failed to load message evidence");
+		throw new Error(error.message);
 	}
 
 	const payload = (await response.json()) as {
