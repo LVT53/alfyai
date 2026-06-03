@@ -1,4 +1,39 @@
-import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
+// src/lib/server/services/deep-research/model-runner.ts
+//
+// Migration note: this file deliberately uses raw fetch() instead of the
+// shared AI SDK boundary (generateText / streamText via createOpenAICompatible).
+//
+// REASONS:
+// 1. Custom failover: the runDeepResearchModel function catches 429 rate-limit
+//    errors and switches to a failover provider (provider-level rate-limit
+//    fallback → global model-timeout failover). The AI SDK's retry/failover
+//    mechanisms are not designed for provider switching mid-turn — they retry
+//    the same endpoint.
+//
+// 2. Multi-provider credential resolution: this runner works across built-in
+//    models (model1/model2), externally configured providers (provider:xxx),
+//    and provider-level rate-limit fallback endpoints. Each requires different
+//    credential resolution (decryptApiKey for providers), different base URLs,
+//    and different request options (vLLM chat_template_kwargs are only sent
+//    for built-in models, not provider-backed ones).
+//
+// 3. Per-attempt timeout: AbortSignal.timeout() is configured per-model-attempt
+//    and differs between primary/fallback paths. The AI SDK's global timeout
+//    doesn't support per-provider timeouts.
+//
+// WHAT WOULD BE NEEDED TO MIGRATE:
+// - Extract provider-level rate-limit failover logic into the shared
+//   normal-chat-model boundary so all callers can use it (not just deep research).
+// - Make global model-timeout failover configurable per model role so
+//   generateText / streamText can switch providers on 429.
+// - Support vLLM-specific request body controls (chat_template_kwargs,
+//   extra_body) through a unified providerOptions or transformRequestBody
+//   contract that deep research can reuse.
+// - Allow per-call timeout overrides per provider attempt.
+//
+// Until those primitives exist in the shared AI SDK boundary, this file keeps
+// its own fetch()-based model runner. Do NOT attempt to inline-migrate this
+// file without first building the failover infrastructure in normal-chat-model.
 import {
 	decryptApiKey,
 	getProviderWithSecrets,

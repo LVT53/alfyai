@@ -1,4 +1,7 @@
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { APICallError, generateText } from "ai";
 import { getConfig } from "$lib/server/config-store";
+import { normalizeOpenAICompatibleBaseUrl } from "$lib/server/services/openai-compatible-url";
 
 /**
  * System prompt for batch classification of persona memory facts.
@@ -139,71 +142,48 @@ export function parseJsonFromModel(
   }
 }
 
+function createContextSummarizerProvider(config: ReturnType<typeof getConfig>) {
+	return createOpenAICompatible({
+		name: "context-summarizer",
+		apiKey: config.contextSummarizerApiKey || undefined,
+		baseURL: normalizeOpenAICompatibleBaseUrl(config.contextSummarizerUrl),
+		includeUsage: false,
+	});
+}
+
 export async function requestContextSummarizer(params: {
-  system: string;
-  user: string;
-  maxTokens: number;
-  temperature?: number;
+	system: string;
+	user: string;
+	maxTokens: number;
+	temperature?: number;
 }): Promise<string | null> {
-  if (!canUseContextSummarizer()) return null;
+	if (!canUseContextSummarizer()) return null;
 
-  const config = getConfig();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (config.contextSummarizerApiKey) {
-    headers.Authorization = `Bearer ${config.contextSummarizerApiKey}`;
-  }
+	const config = getConfig();
+	const provider = createContextSummarizerProvider(config);
 
-  let baseUrl = config.contextSummarizerUrl.replace(/\/+$/, '');
-  baseUrl = baseUrl.replace(/\/chat\/completions\/?$/i, '');
-
-  // If the URL normalized to empty or just the protocol, the summarizer is not configured
-  if (!baseUrl || !baseUrl.includes('://')) {
-    return null;
-  }
-
-  const response = await fetch(
-    `${baseUrl}/chat/completions`,
-    {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: config.contextSummarizerModel,
-        messages: [
-          { role: 'system', content: params.system },
-          { role: 'user', content: params.user },
-        ],
-        max_tokens: params.maxTokens,
-        temperature: params.temperature ?? 0.1,
-        stream: false,
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    // Read the error body so we can log exactly why vLLM rejected the request.
-    // vLLM returns JSON with { error: { message, type, param, code } }.
-    let errorDetail = '';
-    try {
-      const errorBody = await response.json();
-      errorDetail = errorBody?.error?.message ?? JSON.stringify(errorBody).slice(0, 200);
-    } catch {
-      errorDetail = await response.text().catch(() => '').then((t) => t.slice(0, 200));
-    }
-    console.warn(
-      `[CONTEXT_SUMMARIZER] Request failed: ${response.status} ${response.statusText} — ${errorDetail} ` +
-      `(url=${baseUrl}/chat/completions, model=${config.contextSummarizerModel})`,
-    );
-    return null;
-  }
-
-  const json = await response.json();
-  const content =
-    json.choices?.[0]?.message?.content ??
-    json.choices?.[0]?.text ??
-    (json.choices?.[0]?.message?.content?.[0]?.text as string | undefined);
-return typeof content === 'string' && content.trim() ? content.trim() : null;
+	try {
+		const result = await generateText({
+			model: provider(config.contextSummarizerModel),
+			messages: [
+				{ role: "system", content: params.system },
+				{ role: "user", content: params.user },
+			],
+			maxOutputTokens: params.maxTokens,
+			temperature: params.temperature ?? 0.1,
+			maxRetries: 0,
+		});
+		return result.text.trim() || null;
+	} catch (error) {
+		if (APICallError.isInstance(error)) {
+			console.warn(
+				`[CONTEXT_SUMMARIZER] Request failed: ${error.statusCode} ${error.message} ` +
+				`(url=${config.contextSummarizerUrl}, model=${config.contextSummarizerModel})`,
+			);
+			return null;
+		}
+		throw error;
+	}
 }
 
 export async function requestStructuredControlModel<

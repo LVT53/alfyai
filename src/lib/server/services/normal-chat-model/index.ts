@@ -332,13 +332,12 @@ async function resolveBuiltinFromNewProvidersTable(
 				: derivedTargetConstructedContext !== undefined
 					? { targetConstructedContext: derivedTargetConstructedContext }
 					: {}),
-			...(parseProviderModelCapabilities(model.capabilitiesJson)
-				? {
-						capabilities: parseProviderModelCapabilities(
-							model.capabilitiesJson,
-						),
-					}
-				: {}),
+			...(function () {
+				const caps = parseProviderModelCapabilities(
+					model.capabilitiesJson,
+				);
+				return caps ? { capabilities: caps } : {};
+			})(),
 		};
 	} catch {
 		return null;

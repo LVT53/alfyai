@@ -70,7 +70,9 @@ describe("generateTitle", () => {
 			expect.stringContaining("/chat/completions"),
 			expect.objectContaining({
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: expect.objectContaining({
+					"content-type": "application/json",
+				}) as unknown,
 				body: expect.stringContaining("User: Hello"),
 			}),
 		);
@@ -116,10 +118,10 @@ describe("generateTitle", () => {
 		expect(mockFetch).toHaveBeenCalledWith(
 			expect.stringContaining("/chat/completions"),
 			expect.objectContaining({
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer secret-key",
-				},
+				headers: expect.objectContaining({
+					"content-type": "application/json",
+					authorization: "Bearer secret-key",
+				}) as unknown,
 			}),
 		);
 	});
@@ -245,7 +247,7 @@ describe("generateTitle", () => {
 		mockFetch.mockResolvedValue(mockResponse);
 
 		await expect(generateTitle("User", "Assistant")).rejects.toThrow(
-			"Title generation failed: 500",
+			"Internal Server Error",
 		);
 	});
 
