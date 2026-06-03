@@ -1239,7 +1239,8 @@ async function fetchPageContent(params: {
 			method: "GET",
 			headers: {
 				Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
-				"User-Agent": "AlfyAI-WebResearch/1.0",
+				"User-Agent":
+					"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 			},
 			signal: AbortSignal.timeout(PAGE_FETCH_TIMEOUT_MS),
 		});
