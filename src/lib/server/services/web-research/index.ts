@@ -1740,8 +1740,7 @@ function buildResearchAnswerBrief(params: {
 
 	const sourceLines = sources.map((source) =>
 		[
-			` **${source.title}** `,
-			`URL: ${source.url}`,
+			`[${source.title}](${source.url})`,
 			`Authority: ${source.authorityClass} (${source.authorityScore})`,
 			`Provider: ${source.provider}`,
 			source.youtubeTranscript
@@ -1753,11 +1752,7 @@ function buildResearchAnswerBrief(params: {
 			.join("\n"),
 	);
 	const evidenceLines = evidence.map((item) =>
-		[
-			` **${item.title}** `,
-			`Quote: ${item.quote}`,
-			`Cite URL: ${item.url}`,
-		].join("\n"),
+		[`[${item.title}](${item.url})`, `Quote: ${item.quote}`].join("\n"),
 	);
 	const markdown = [
 		`Research brief for: ${params.query}`,

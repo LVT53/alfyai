@@ -30,6 +30,7 @@ import { isAttachmentReadinessError } from "$lib/server/services/knowledge";
 import { createMessage } from "$lib/server/services/messages";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
+import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
 import type { ToolCallEntry } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { RequestHandler } from "./$types";
@@ -222,6 +223,18 @@ export const POST: RequestHandler = async (event) => {
 			modelRunResult.toolCalls ?? modelRunResult.prefetchedToolCalls
 		)?.filter(isEvidenceReadyToolCall);
 
+		const citationGate = applyWebCitationQualityGate({
+			assistantResponse: responseText,
+			toolCalls: finalToolCalls,
+		});
+		const finalResponseText = citationGate.response ?? responseText;
+		if (citationGate.appendedNotice) {
+			console.warn("[CHAT_SEND] Appended web citation quality notice", {
+				conversationId: turn.conversationId,
+				status: citationGate.audit?.status,
+			});
+		}
+
 		const completion = await finalizeChatTurn({
 			logPrefix: "[SEND]",
 			userId: user.id,
@@ -230,7 +243,7 @@ export const POST: RequestHandler = async (event) => {
 			persistUserMessage: true,
 			normalizedMessage: turn.normalizedMessage,
 			upstreamMessage,
-			assistantResponse: responseText,
+			assistantResponse: finalResponseText,
 			assistantMetadata: {
 				evidenceStatus: "pending",
 				modelDisplayName: effectiveModelDisplayName,
@@ -250,7 +263,7 @@ export const POST: RequestHandler = async (event) => {
 				model: effectiveModelId,
 				modelDisplayName: effectiveModelDisplayName,
 				promptTokens: estimateTokenCount(upstreamMessage),
-				completionTokens: estimateTokenCount(responseText),
+				completionTokens: estimateTokenCount(finalResponseText),
 				generationTimeMs: undefined,
 				providerUsage: modelRunResult.providerUsage,
 			},
@@ -264,6 +277,7 @@ export const POST: RequestHandler = async (event) => {
 			contextTraceSections,
 			persistenceMode: "strict",
 			waitForEvidenceBeforePostTurnTasks: false,
+			webCitationAudit: citationGate.audit,
 		});
 		await touchConversation(user.id, turn.conversationId).catch(
 			() => undefined,
