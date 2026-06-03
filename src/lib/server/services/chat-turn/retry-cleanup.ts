@@ -25,7 +25,6 @@ import {
 	taskCheckpoints,
 	conversationTaskStates,
 	conversationWorkingSetItems,
-	semanticEmbeddings,
 	skillNoteCheckpoints,
 	skillNoteOperations,
 	skillSessionMilestones,
@@ -33,6 +32,7 @@ import {
 } from '$lib/server/db/schema';
 import { deleteMessages } from '$lib/server/services/messages';
 import { deleteConversationHonchoState } from '../honcho';
+import { deleteSemanticEmbeddingsForSubjects } from '../semantic-embeddings';
 
 export type CleanupResult = {
 	steps: CleanupStep[];
@@ -273,16 +273,11 @@ async function cleanupSkillSideEffects(params: {
 				),
 			)
 			.run();
-		await db
-			.delete(semanticEmbeddings)
-			.where(
-				and(
-					eq(semanticEmbeddings.userId, params.userId),
-					eq(semanticEmbeddings.subjectType, 'artifact'),
-					inArray(semanticEmbeddings.subjectId, rolledBackNoteArtifactIds),
-				),
-			)
-			.run();
+		await deleteSemanticEmbeddingsForSubjects({
+			userId: params.userId,
+			subjectType: 'artifact',
+			subjectIds: rolledBackNoteArtifactIds,
+		});
 	}
 
 	if (createdNoteArtifactIds.length > 0) {
@@ -315,16 +310,11 @@ async function cleanupSkillSideEffects(params: {
 				),
 			)
 			.run();
-		await db
-			.delete(semanticEmbeddings)
-			.where(
-				and(
-					eq(semanticEmbeddings.userId, params.userId),
-					eq(semanticEmbeddings.subjectType, 'artifact'),
-					inArray(semanticEmbeddings.subjectId, createdNoteArtifactIds),
-				),
-			)
-			.run();
+		await deleteSemanticEmbeddingsForSubjects({
+			userId: params.userId,
+			subjectType: 'artifact',
+			subjectIds: createdNoteArtifactIds,
+		});
 		await db
 			.delete(artifacts)
 			.where(

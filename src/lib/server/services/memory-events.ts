@@ -202,3 +202,45 @@ export async function countRecentMemoryEventsBySubject(params: {
 
 	return counts;
 }
+
+export async function pruneOldMemoryEvents(params: {
+	userId: string;
+	olderThanDays?: number;
+	keepPerSubject?: number;
+}): Promise<{ deletedCount: number }> {
+	const olderThanDays = params.olderThanDays ?? 90;
+	const keepPerSubject = params.keepPerSubject ?? 5;
+	const cutoff = new Date(Date.now() - olderThanDays * 86400000);
+
+	const allEvents = await listMemoryEvents({
+		userId: params.userId,
+		limit: 100000,
+	});
+
+	const protectedIds = new Set<string>();
+	const subjectCounters = new Map<string, number>();
+
+	for (const event of allEvents) {
+		const subjectKey = event.subjectId ?? '__no_subject__';
+		const kept = subjectCounters.get(subjectKey) ?? 0;
+		if (kept < keepPerSubject) {
+			protectedIds.add(event.id);
+			subjectCounters.set(subjectKey, kept + 1);
+		}
+	}
+
+	const idsToDelete: string[] = [];
+	for (const event of allEvents) {
+		if (event.observedAt < cutoff.getTime() && !protectedIds.has(event.id)) {
+			idsToDelete.push(event.id);
+		}
+	}
+
+	if (idsToDelete.length === 0) {
+		return { deletedCount: 0 };
+	}
+
+	await db.delete(memoryEvents).where(inArray(memoryEvents.id, idsToDelete));
+
+	return { deletedCount: idsToDelete.length };
+}

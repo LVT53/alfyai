@@ -20,7 +20,7 @@ import type {
 } from '$lib/types';
 import { getConfig } from '../config-store';
 import { db } from '../db';
-import { users } from '../db/schema';
+import { conversations, users } from '../db/schema';
 import type { ContextCompressionSourceMessage } from './context-compression';
 import { getLatestHonchoMetadata, listMessages } from './messages';
 
@@ -1246,4 +1246,120 @@ export async function checkHealth(): Promise<{
 			workspace: getConfig().honchoWorkspace,
 		};
 	}
+}
+
+/**
+ * Deletes Honcho sessions that belong to conversations no longer present
+ * in the local database.  Normal conversation deletions cascade through
+ * {@link deleteConversationHonchoState} when the thorough cleanup path
+ * runs, but direct-row deletions or Honcho-side orphans from past
+ * connectivity gaps can leave stale sessions behind.
+ *
+ * The caller (typically memory-maintenance) is responsible for respecting
+ * rate limits and debounce — this function does one pass only.
+ */
+export async function pruneOrphanHonchoSessions(): Promise<{
+	deleted: number;
+	errors: number;
+}> {
+	if (!isHonchoEnabled()) {
+		return { deleted: 0, errors: 0 };
+	}
+
+	const userRows = await db.select({ id: users.id }).from(users);
+	let totalDeleted = 0;
+	let totalErrors = 0;
+
+	for (const { id: userId } of userRows) {
+		try {
+			const result = await pruneOrphanSessionsForUser(userId);
+			totalDeleted += result.deleted;
+			totalErrors += result.errors;
+		} catch (err) {
+			console.warn('[HONCHO] pruneOrphanHonchoSessions failed for user', {
+				userId,
+				error: err instanceof Error ? err.message : String(err),
+			});
+			totalErrors++;
+		}
+	}
+
+	return { deleted: totalDeleted, errors: totalErrors };
+}
+
+async function pruneOrphanSessionsForUser(
+	userId: string,
+): Promise<{ deleted: number; errors: number }> {
+	const version = await getHonchoPeerVersion(userId);
+
+	const existingConvs = await db
+		.select({ id: conversations.id })
+		.from(conversations)
+		.where(eq(conversations.userId, userId));
+
+	const activeConversationIds = new Set(existingConvs.map((c) => c.id));
+
+	const expectedSessionIds = new Set<string>();
+
+	// Current-version hashed session IDs
+	for (const convId of activeConversationIds) {
+		expectedSessionIds.add(getHonchoSessionId(userId, convId, version));
+	}
+
+	// Legacy raw conversation IDs also served as Honcho session IDs
+	for (const convId of activeConversationIds) {
+		expectedSessionIds.add(convId);
+	}
+
+	const [userPeer, assistantPeer] = await Promise.all([
+		getUserPeer(userId),
+		getAssistantPeer(userId),
+	]);
+
+	const allSessions = new Map<string, Session>();
+	let listingErrors = 0;
+
+	try {
+		for (const session of await listPeerSessions(userPeer)) {
+			allSessions.set(session.id, session);
+		}
+	} catch (err) {
+		listingErrors++;
+		console.warn('[HONCHO] Failed to list user-peer sessions during orphan prune', {
+			userId,
+			error: err instanceof Error ? err.message : String(err),
+		});
+	}
+
+	try {
+		for (const session of await listPeerSessions(assistantPeer)) {
+			allSessions.set(session.id, session);
+		}
+	} catch (err) {
+		listingErrors++;
+		console.warn('[HONCHO] Failed to list assistant-peer sessions during orphan prune', {
+			userId,
+			error: err instanceof Error ? err.message : String(err),
+		});
+	}
+
+	let deleted = 0;
+	let errors = listingErrors;
+
+	for (const sessionId of allSessions.keys()) {
+		if (expectedSessionIds.has(sessionId)) continue;
+
+		try {
+			await deleteHonchoSession(sessionId);
+			deleted++;
+		} catch (err) {
+			console.warn('[HONCHO] Failed to delete orphan Honcho session', {
+				sessionId,
+				error: err instanceof Error ? err.message : String(err),
+			});
+			errors++;
+		}
+	}
+
+	return { deleted, errors };
 }

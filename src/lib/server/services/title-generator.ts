@@ -71,16 +71,20 @@ async function generateTitleWithAiSdk(
 
 	const tryCall = async (includeVllmControls: boolean): Promise<string> => {
 		const provider = createTitleGenProvider(config, includeVllmControls, overrideProvider);
+
+		const systemContent = messages.find(m => m.role === "system")?.content;
+		const nonSystemMessages = messages.filter(m => m.role !== "system");
+
 		const result = await generateText({
 			model: provider(resolvedModelName),
-			messages: messages as Array<{
+			system: systemContent,
+			messages: nonSystemMessages as Array<{
 				role: "system" | "user" | "assistant";
 				content: string;
 			}>,
 			temperature: TITLE_GEN_TEMPERATURE,
 			maxOutputTokens: TITLE_GEN_MAX_TOKENS,
 			maxRetries: DEFAULT_MODEL_MAX_RETRIES,
-			allowSystemInMessages: true,
 		});
 		return normalizeAssistantOutput(result.text);
 	};

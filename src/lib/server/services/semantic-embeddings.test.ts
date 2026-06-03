@@ -64,6 +64,32 @@ vi.mock('$lib/server/db', () => ({
         }),
       }),
     }),
+    delete: () => ({
+      where: vi.fn(
+        async (conditions: Array<{ field: string; value: unknown }> | { field: string; value: unknown }) => {
+          const conds = Array.isArray(conditions) ? conditions : [conditions];
+          let removed = 0;
+          // Iterate backwards to safely remove while iterating
+          for (let i = rows.length - 1; i >= 0; i--) {
+            // Every condition must match for the row to be deleted
+            const allMatch = conds.every((cond) => {
+              if (!('field' in cond)) return true;
+              const key = cond.field as keyof EmbeddingRow;
+              const condValue = cond.value;
+              if (Array.isArray(condValue)) {
+                return condValue.includes(rows[i][key]);
+              }
+              return rows[i][key] === condValue;
+            });
+            if (allMatch) {
+              rows.splice(i, 1);
+              removed++;
+            }
+          }
+          return { changes: removed };
+        }
+      ),
+    }),
   },
 }));
 
@@ -159,6 +185,136 @@ describe('semantic-embeddings service', () => {
     expect(Array.from(mapped.keys())).toEqual(expect.arrayContaining(['cluster-a', 'cluster-b']));
     expect(mapped.get('cluster-a')?.embedding).toEqual([0.1]);
     expect(mapped.get('cluster-b')?.embedding).toEqual([0.2]);
+  });
+
+  it('deletes embeddings for specific subjects', async () => {
+    const { upsertSemanticEmbedding, deleteSemanticEmbeddingsForSubjects } = await import(
+      './semantic-embeddings'
+    );
+
+    await upsertSemanticEmbedding({
+      userId: 'user-1',
+      subjectType: 'artifact',
+      subjectId: 'artifact-a',
+      modelName: 'bge-m3',
+      sourceText: 'body-a',
+      embedding: [0.1],
+    });
+    await upsertSemanticEmbedding({
+      userId: 'user-1',
+      subjectType: 'artifact',
+      subjectId: 'artifact-b',
+      modelName: 'bge-m3',
+      sourceText: 'body-b',
+      embedding: [0.2],
+    });
+    await upsertSemanticEmbedding({
+      userId: 'user-1',
+      subjectType: 'artifact',
+      subjectId: 'artifact-c',
+      modelName: 'bge-m3',
+      sourceText: 'body-c',
+      embedding: [0.3],
+    });
+
+    expect(rows).toHaveLength(3);
+
+    await deleteSemanticEmbeddingsForSubjects({
+      userId: 'user-1',
+      subjectType: 'artifact',
+      subjectIds: ['artifact-a', 'artifact-c'],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].subjectId).toBe('artifact-b');
+  });
+
+  it('deletes all embeddings for a user when subjectType and subjectIds are omitted', async () => {
+    const { upsertSemanticEmbedding, deleteSemanticEmbeddingsForSubjects } = await import(
+      './semantic-embeddings'
+    );
+
+    await upsertSemanticEmbedding({
+      userId: 'user-1',
+      subjectType: 'artifact',
+      subjectId: 'artifact-1',
+      modelName: 'bge-m3',
+      sourceText: 'body-1',
+      embedding: [0.1],
+    });
+    await upsertSemanticEmbedding({
+      userId: 'user-1',
+      subjectType: 'persona_cluster',
+      subjectId: 'cluster-1',
+      modelName: 'bge-m3',
+      sourceText: 'cluster-body',
+      embedding: [0.2],
+    });
+
+    expect(rows).toHaveLength(2);
+
+    await deleteSemanticEmbeddingsForSubjects({ userId: 'user-1' });
+
+    expect(rows).toHaveLength(0);
+  });
+
+  it('does not affect other users when deleting', async () => {
+    const { upsertSemanticEmbedding, deleteSemanticEmbeddingsForSubjects } = await import(
+      './semantic-embeddings'
+    );
+
+    await upsertSemanticEmbedding({
+      userId: 'user-1',
+      subjectType: 'artifact',
+      subjectId: 'artifact-1',
+      modelName: 'bge-m3',
+      sourceText: 'u1-body',
+      embedding: [0.1],
+    });
+    await upsertSemanticEmbedding({
+      userId: 'user-2',
+      subjectType: 'artifact',
+      subjectId: 'artifact-1',
+      modelName: 'bge-m3',
+      sourceText: 'u2-body',
+      embedding: [0.2],
+    });
+
+    expect(rows).toHaveLength(2);
+
+    await deleteSemanticEmbeddingsForSubjects({
+      userId: 'user-1',
+      subjectType: 'artifact',
+      subjectIds: ['artifact-1'],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].userId).toBe('user-2');
+  });
+
+  it('handles empty subjectIds array gracefully', async () => {
+    const { upsertSemanticEmbedding, deleteSemanticEmbeddingsForSubjects } = await import(
+      './semantic-embeddings'
+    );
+
+    await upsertSemanticEmbedding({
+      userId: 'user-1',
+      subjectType: 'artifact',
+      subjectId: 'artifact-1',
+      modelName: 'bge-m3',
+      sourceText: 'body',
+      embedding: [0.1],
+    });
+
+    expect(rows).toHaveLength(1);
+
+    await deleteSemanticEmbeddingsForSubjects({
+      userId: 'user-1',
+      subjectType: 'artifact',
+      subjectIds: [],
+    });
+
+    expect(rows).toHaveLength(1);
   });
 
   it('detects when a stored embedding should be refreshed', async () => {

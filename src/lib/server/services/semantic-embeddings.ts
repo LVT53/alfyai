@@ -138,6 +138,26 @@ export async function listSemanticEmbeddingsBySubject(params: {
   return latestBySubject;
 }
 
+export async function deleteSemanticEmbeddingsForSubjects(params: {
+  userId: string;
+  subjectType?: SemanticEmbeddingSubjectType;
+  subjectIds?: string[];
+}): Promise<number> {
+  const conditions = [eq(semanticEmbeddings.userId, params.userId)];
+
+  if (params.subjectType) {
+    conditions.push(eq(semanticEmbeddings.subjectType, params.subjectType));
+  }
+
+  if (params.subjectIds) {
+    if (params.subjectIds.length === 0) return 0;
+    conditions.push(inArray(semanticEmbeddings.subjectId, params.subjectIds));
+  }
+
+  const result = await db.delete(semanticEmbeddings).where(and(...conditions));
+  return result.changes;
+}
+
 export function needsSemanticEmbeddingRefresh(params: {
   current: Pick<SemanticEmbedding, 'sourceTextHash' | 'dimensions'> | null;
   sourceText: string;

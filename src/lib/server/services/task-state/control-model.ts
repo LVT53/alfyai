@@ -1,5 +1,5 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { APICallError, generateText } from "ai";
+import { APICallError, generateText, Output } from "ai";
 import { getConfig } from "$lib/server/config-store";
 import { normalizeOpenAICompatibleBaseUrl } from "$lib/server/services/openai-compatible-url";
 
@@ -162,16 +162,17 @@ function createContextSummarizerProvider(
 	});
 }
 
-export async function requestContextSummarizer(params: {
-	system: string;
-	user: string;
-	maxTokens: number;
-	temperature?: number;
-}): Promise<string | null> {
-	if (!canUseContextSummarizer()) return null;
-
-	const config = getConfig();
-
+/**
+ * Resolves the actual model name and optional provider override
+ * for the context summarizer. Handles `provider:` prefixed model IDs
+ * by looking up provider credentials and model mappings.
+ */
+async function resolveContextSummarizerModelAndProvider(
+	config: ReturnType<typeof getConfig>,
+): Promise<{
+	resolvedModelName: string;
+	overrideProvider?: { baseUrl: string; apiKey: string };
+}> {
 	let resolvedModelName = config.contextSummarizerModel;
 	let overrideProvider: { baseUrl: string; apiKey: string } | undefined;
 
@@ -199,27 +200,47 @@ export async function requestContextSummarizer(params: {
 		}
 	}
 
+	return { resolvedModelName, overrideProvider };
+}
+
+/** Shared error handler for context summarizer API call failures */
+function handleContextSummarizerError(
+	error: unknown,
+	config: ReturnType<typeof getConfig>,
+): void {
+	if (APICallError.isInstance(error)) {
+		console.warn(
+			`[CONTEXT_SUMMARIZER] Request failed: ${error.statusCode} ${error.message} ` +
+			`(url=${config.contextSummarizerUrl}, model=${config.contextSummarizerModel})`,
+		);
+	}
+}
+
+export async function requestContextSummarizer(params: {
+	system: string;
+	user: string;
+	maxTokens: number;
+	temperature?: number;
+}): Promise<string | null> {
+	if (!canUseContextSummarizer()) return null;
+
+	const config = getConfig();
+	const { resolvedModelName, overrideProvider } = await resolveContextSummarizerModelAndProvider(config);
 	const provider = createContextSummarizerProvider(config, overrideProvider);
 
 	try {
 		const result = await generateText({
 			model: provider(resolvedModelName),
-			messages: [
-				{ role: "system", content: params.system },
-				{ role: "user", content: params.user },
-			],
+			system: params.system,
+			messages: [{ role: "user", content: params.user }],
 			maxOutputTokens: params.maxTokens,
 			temperature: params.temperature ?? 0.1,
 			maxRetries: 0,
-			allowSystemInMessages: true,
 		});
 		return result.text.trim() || null;
 	} catch (error) {
+		handleContextSummarizerError(error, config);
 		if (APICallError.isInstance(error)) {
-			console.warn(
-				`[CONTEXT_SUMMARIZER] Request failed: ${error.statusCode} ${error.message} ` +
-				`(url=${config.contextSummarizerUrl}, model=${config.contextSummarizerModel})`,
-			);
 			return null;
 		}
 		throw error;
@@ -234,14 +255,31 @@ export async function requestStructuredControlModel<
   maxTokens: number;
   temperature?: number;
 }): Promise<T | null> {
-  let content: string | null;
+  if (!canUseContextSummarizer()) return null;
+
+  const config = getConfig();
+  const { resolvedModelName, overrideProvider } = await resolveContextSummarizerModelAndProvider(config);
+  const provider = createContextSummarizerProvider(config, overrideProvider);
+
   try {
-    content = await requestContextSummarizer(params);
+    const result = await generateText({
+      model: provider(resolvedModelName),
+      system: params.system,
+      messages: [{ role: "user", content: params.user }],
+      output: Output.json(),
+      maxOutputTokens: params.maxTokens,
+      temperature: params.temperature ?? 0.1,
+      maxRetries: 0,
+    });
+    if (!result.output) return null;
+    const output = result.output as Record<string, unknown>;
+    return output && typeof output === "object" ? (output as T) : null;
   } catch (error) {
-    console.error('[TASK_STATE] Evidence verifier failed:', error);
+    console.error('[TASK_STATE] Structured control model request failed:', error);
+    handleContextSummarizerError(error, config);
+    if (APICallError.isInstance(error)) {
+      return null;
+    }
     return null;
   }
-  if (!content) return null;
-  const parsed = parseJsonFromModel(content);
-  return parsed ? (parsed as T) : null;
 }
