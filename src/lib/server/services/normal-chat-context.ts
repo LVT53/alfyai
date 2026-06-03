@@ -131,8 +131,8 @@ const FILE_GENERATION_GUARD = [
 	"- Do NOT call `produce_file` with placeholder, template, or empty content. The server will reject `produce_file` calls with content that is too short or template-like. Provide substantive actual content.",
 	"- Prefer the simple form: `requestTitle`, `outputType` or `filename`, and `markdown`, `content`, or `text`. The server converts simple content into the correct file-production mode.",
 	"- Provide the file content as a single JSON string with `\\n` for line breaks. Do NOT paste raw multiline text into the JSON — the parser will reject unescaped newlines.",
-	"- Example — note the `\\n` newline escapes inside the markdown string: `produce_file({ \"requestTitle\": \"News summary\", \"filename\": \"hungarian-parliament-news.md\", \"markdown\": \"# Hungarian Parliament News\\n\\n## Latest Session\\n\\nThe parliament passed...\" })`.",
-	"- Another example with longer content: `produce_file({ \"requestTitle\": \"Report\", \"filename\": \"report.md\", \"markdown\": \"# Report\\n\\n## Findings\\n- Point one [Source](https://example.com)\\n- Point two\\n\\n> Note: based on retrieved evidence.\" })`.",
+	'- Example — note the `\\n` newline escapes inside the markdown string: `produce_file({ "requestTitle": "News summary", "filename": "hungarian-parliament-news.md", "markdown": "# Hungarian Parliament News\\n\\n## Latest Session\\n\\nThe parliament passed..." })`.',
+	'- Another example with longer content: `produce_file({ "requestTitle": "Report", "filename": "report.md", "markdown": "# Report\\n\\n## Findings\\n- Point one [Source](https://example.com)\\n- Point two\\n\\n> Note: based on retrieved evidence." })`.',
 	"- Use `requestedOutputs` only when the user asks for multiple formats of the same artifact.",
 	"- For polished PDF/DOCX/HTML reports, simple `markdown` or `content` is enough unless you need tables or charts. Use `documentSource` only when structured blocks materially improve the document.",
 	"- Use `program` only for artifacts that genuinely require executable generation such as XLSX, PPTX, ZIP, or custom packaged files.",
@@ -155,16 +155,16 @@ const WEB_RESEARCH_GUARD = [
 	"Web research workflow:",
 	"- If `research_web` is available, use it for current facts, prices, availability, specs, policies, page-backed claims, comparisons, and multi-source research. It handles searching, page fetching, evidence extraction, and answer-brief assembly in one call — there is no separate search or fetch step.",
 	'- Pass at least {"query": "your exact research question"}. Full input schema:',
-	'  - query (required, string): The research question.',
+	"  - query (required, string): The research question.",
 	'  - mode (optional): "quick" (fast answers), "research" (deep multi-source), "exact" (precise values like prices/dates).',
 	'  - freshness (optional): "auto", "live" (current day), "recent" (configured window), "cache" (no time restriction).',
 	'  - sourcePolicy (optional): "general", "technical" (API/docs/library), "news", "commerce" (product/purchase), "medical_legal_financial".',
-	'  - maxSources (optional, integer 1-12): Maximum sources to return.',
-	'  - quoteRequired (optional, boolean): Whether exact quotes are required.',
+	"  - maxSources (optional, integer 1-12): Maximum sources to return.",
+	"  - quoteRequired (optional, boolean): Whether exact quotes are required.",
 	'- Example for prices/availability: {"query": "iPhone 16 Pro Max price 2026", "mode": "exact", "freshness": "live", "sourcePolicy": "commerce"}',
 	'- Example for technical docs: {"query": "SvelteKit form actions API", "mode": "quick", "sourcePolicy": "technical"}',
 	'- Example for product reviews: {"query": "Framework Laptop 16 review YouTube hands-on", "mode": "research", "sourcePolicy": "commerce"}',
-	"- When the user pastes a URL, include it in the `query` and use `mode: \"exact\"`. The tool will fetch the page content directly and return it as a primary source. Do not try to use a separate fetch tool — `research_web` handles the page fetch internally.",
+	'- When the user pastes a URL, include it in the `query` and use `mode: "exact"`. The tool will fetch the page content directly and return it as a primary source. Do not try to use a separate fetch tool — `research_web` handles the page fetch internally.',
 	"- For product reviews, hands-on comparisons, or buying advice, include `review`, `YouTube`, or `video` in the research query when relevant so `research_web` can surface transcript-backed evidence from selected YouTube results.",
 	"- Treat `research_web.evidence` as the strongest source of page-backed facts. If an exact value is not present in evidence or source text, say that the retrieved source did not expose it.",
 	"- Cite final web claims with markdown links using the returned source title and URL. Do not cite a source unless it supports the sentence.",
@@ -172,6 +172,7 @@ const WEB_RESEARCH_GUARD = [
 	"- If a tool returns `answerBriefMarkdown`, use it as evidence for your own concise answer; do not copy the field name or dump the raw brief.",
 	"- If `research_web` is not available, say web retrieval is unavailable rather than attempting non-existent alternative tools.",
 	"- Use the injected current date for temporal context before searching.",
+	"- Never output raw tool call JSON in your visible text. The tool call JSON is sent through a separate channel and is never shown to the user. Do not write markdown code blocks containing `{'query': '...'}` or similar tool arguments in the final answer.",
 ].join("\n");
 
 const SOURCE_LINKING_GUARD = [
@@ -216,7 +217,7 @@ const MEMORY_CONTEXT_GUARD = [
 
 const WEB_FACT_EXTRACTION_GUARD = [
 	"Exact web facts and prices:",
-	"- For prices, availability, dates, specs, policies, contact details, addresses, numeric values, or claims from a specific webpage, use `research_web` with `mode: \"exact\"` and `freshness: \"live\"`. The tool handles page fetching and evidence extraction internally.",
+	'- For prices, availability, dates, specs, policies, contact details, addresses, numeric values, or claims from a specific webpage, use `research_web` with `mode: "exact"` and `freshness: "live"`. The tool handles page fetching and evidence extraction internally.',
 	"- Extract the exact value from the returned evidence snippets and cite the source page. If the evidence does not contain the value, say that the retrieved source did not expose it instead of guessing.",
 	"- When sources conflict, prefer the primary/original page over aggregators, ads, snippets, or third-party summaries, and mention the conflict briefly.",
 	"- Do not copy an old price, a nearby unrelated price, or a search-result preview into the final answer unless the returned evidence supports it.",

@@ -705,4 +705,87 @@ describe("stream-protocol", () => {
 			),
 		).toBeNull();
 	});
+
+	it("strips markdown JSON blocks containing raw tool call arguments", () => {
+		const cleaned = stripLeakedToolDiagnostics(
+			[
+				"Here is what I found about the bicycle.",
+				"",
+				"```json",
+				"{",
+				'  "query": "Cube Kathmandu Hybrid One11 HPC SLT 800 Carbon 2026 specifications features",',
+				'  "mode": "exact",',
+				'  "freshness": "live",',
+				'  "sourcePolicy": "commerce"',
+				"}",
+				"```",
+			].join("\n"),
+		);
+		expect(cleaned.trim()).toBe("Here is what I found about the bicycle.");
+		expect(cleaned).not.toContain("query");
+		expect(cleaned).not.toContain("```json");
+	});
+
+	it("strips multiple consecutive markdown tool call blocks", () => {
+		const cleaned = stripLeakedToolDiagnostics(
+			[
+				"Here are my searches:",
+				"",
+				"```json",
+				'{"query": "first search", "mode": "quick"}',
+				"```",
+				"",
+				"```json",
+				'{"query": "second search", "mode": "exact", "freshness": "live"}',
+				"```",
+				"",
+				"Based on the results, here is the answer.",
+			].join("\n"),
+		);
+		expect(cleaned).toBe(
+			[
+				"Here are my searches:",
+				"",
+				"",
+				"",
+				"Based on the results, here is the answer.",
+			].join("\n"),
+		);
+	});
+
+	it("keeps legitimate markdown code blocks that are not tool calls", () => {
+		const codeBlock = [
+			"Here is a valid JSON example:",
+			"",
+			"```json",
+			'{"name": "Alice", "age": 30}',
+			"```",
+		].join("\n");
+		expect(stripLeakedToolDiagnostics(codeBlock)).toBe(codeBlock);
+	});
+
+	it("keeps markdown blocks with only one tool-like key", () => {
+		const codeBlock = [
+			"Query example:",
+			"",
+			"```json",
+			'{"query": "example search"}',
+			"```",
+		].join("\n");
+		expect(stripLeakedToolDiagnostics(codeBlock)).toBe(codeBlock);
+	});
+
+	it("detects partial markdown tool call blocks for streaming buffers", () => {
+		expect(
+			getLeakedToolDiagnosticPrefixLength(
+				'Before text \n```json\n{"query": "test", "mode": "',
+			),
+		).toBe(37);
+	});
+
+	it("does not hold ordinary markdown code blocks as leaked prefixes", () => {
+		expect(
+			getLeakedToolDiagnosticPrefixLength('Here is code:\n```json\n{"a": 1}'),
+		).toBe(0);
+	});
 });
