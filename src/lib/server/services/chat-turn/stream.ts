@@ -30,13 +30,6 @@ export {
 	THINKING_BLOCK_RE,
 	THINKING_TAG_RE,
 } from "./thinking-normalizer";
-export type { StreamToolCallDetails } from "./tool-call-markers";
-export {
-	processToolCallMarkers,
-	TOOL_CALL_END_RE,
-	// tool-call-markers
-	TOOL_CALL_START_RE,
-} from "./tool-call-markers";
 
 // ---------------------------------------------------------------------------
 // Internal helpers (moved to sub-modules, retained here for local use)
