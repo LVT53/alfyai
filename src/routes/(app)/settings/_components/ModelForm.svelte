@@ -41,18 +41,12 @@ $effect(() => {
 let formMaxModelContext = $state(
 	untrack(() => numToString(model?.maxModelContext)),
 );
-$effect(() => {
-	const max = stringToNum(formMaxModelContext);
-	if (max != null && formCompactionUiThreshold === "" && formTargetConstructedContext === "") {
-		formCompactionUiThreshold = String(Math.floor(max * 0.8));
-		formTargetConstructedContext = String(Math.floor(max * 0.9));
-	}
-});
-let formCompactionUiThreshold = $state(
-	untrack(() => numToString(model?.compactionUiThreshold)),
+
+let formCompactionPreview = $derived(
+	(() => { const m = stringToNum(formMaxModelContext); return m != null ? String(Math.floor(m * 0.8)) : ""; })(),
 );
-let formTargetConstructedContext = $state(
-	untrack(() => numToString(model?.targetConstructedContext)),
+let formTargetPreview = $derived(
+	(() => { const m = stringToNum(formMaxModelContext); return m != null ? String(Math.floor(m * 0.9)) : ""; })(),
 );
 let formMaxMessageLength = $state(
 	untrack(() => numToString(model?.maxMessageLength)),
@@ -117,8 +111,8 @@ function handleSave() {
 		displayName: formDisplayName.trim(),
 		iconAssetId: formIconAssetId || null,
 		maxModelContext: maxContext,
-		compactionUiThreshold: stringToNum(formCompactionUiThreshold) ?? (maxContext != null ? Math.floor(maxContext * 0.8) : null),
-		targetConstructedContext: stringToNum(formTargetConstructedContext) ?? (maxContext != null ? Math.floor(maxContext * 0.9) : null),
+		compactionUiThreshold: maxContext != null ? Math.floor(maxContext * 0.8) : null,
+		targetConstructedContext: maxContext != null ? Math.floor(maxContext * 0.9) : null,
 		maxMessageLength: stringToNum(formMaxMessageLength),
 		maxTokens: stringToNum(formMaxTokens),
 		reasoningEffort: formReasoningEffort || null,
@@ -217,23 +211,25 @@ function handleSave() {
 							<label class="settings-label" for="model-form-compaction">{$t('admin.compactionUiThreshold')}</label>
 							<input
 								id="model-form-compaction"
-								type="number"
-								class="settings-input"
-								bind:value={formCompactionUiThreshold}
-								placeholder=""
-								min="0"
+								type="text"
+								class="settings-input text-text-muted"
+								value={formCompactionPreview}
+								disabled
+								readonly
 							/>
+							<p class="mt-1 text-xs text-text-muted">{@html $t('admin.autoCalculatedFromMaxContext')}</p>
 						</div>
 						<div>
 							<label class="settings-label" for="model-form-target">{$t('admin.targetConstructedContext')}</label>
 							<input
 								id="model-form-target"
-								type="number"
-								class="settings-input"
-								bind:value={formTargetConstructedContext}
-								placeholder=""
-								min="0"
+								type="text"
+								class="settings-input text-text-muted"
+								value={formTargetPreview}
+								disabled
+								readonly
 							/>
+							<p class="mt-1 text-xs text-text-muted">{@html $t('admin.autoCalculatedFromMaxContext')}</p>
 						</div>
 						<div>
 							<label class="settings-label" for="model-form-max-msg">{$t('admin.maxMessageLengthLabel')}</label>

@@ -282,6 +282,8 @@ const settingsDict = {
 		"admin.maxMessageLengthLabel": "Max Message Length (chars)",
 		"admin.maxModelContext": "Max Model Context (tokens)",
 		"admin.maxModelContextLabel": "Max Model Context (tokens)",
+		"admin.autoCalculatedFromMaxContext":
+			"Auto-calculated from Max Model Context",
 		"admin.maxModelContextRequired":
 			"Required for third-party providers. This is the total input plus output context window.",
 		"admin.maxTokens": "Max Tokens",
@@ -891,6 +893,8 @@ const settingsDict = {
 		"admin.maxMessageLengthLabel": "Maximális üzenethossz (karakter)",
 		"admin.maxModelContext": "Maximális modellkontextus (token)",
 		"admin.maxModelContextLabel": "Maximális modellkontextus (token)",
+		"admin.autoCalculatedFromMaxContext":
+			"Maximális modellkontextusból automatikusan számítva",
 		"admin.maxModelContextRequired":
 			"Harmadik féltől származó szolgáltatóknál kötelező. Ez a teljes bemeneti és kimeneti kontextusablak.",
 		"admin.maxTokens": "Maximális tokenek",
