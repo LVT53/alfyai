@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount, tick } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import {
@@ -74,9 +74,8 @@ onMount(async () => {
 	}
 
 	const handleClickOutside = (event: MouseEvent) => {
-		if (isOpen && dropdownRef && !dropdownRef.contains(event.target as Node)) {
-			setOpen(false);
-		}
+		if (!dropdownRef || dropdownRef.contains(event.target as Node)) return;
+		untrack(() => { if (isOpen) setOpen(false); });
 	};
 
 	document.addEventListener("click", handleClickOutside);
