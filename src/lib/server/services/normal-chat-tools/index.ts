@@ -950,6 +950,16 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 				}
 			},
 		}),
+		done: tool({
+			description:
+				"Call this when the task is fully complete and you have nothing more to add. Include a brief summary of what was accomplished. Calling this ends the agent loop — do not call it until you are truly finished.",
+			inputSchema: z.object({
+				summary: z
+					.string()
+					.describe("Brief summary of what was accomplished in this turn"),
+			}),
+			// No execute — calling this tool terminates the agent loop via stopWhen
+		}),
 	};
 
 	return {

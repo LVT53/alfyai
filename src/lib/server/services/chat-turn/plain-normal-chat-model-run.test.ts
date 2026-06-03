@@ -641,7 +641,7 @@ describe("runPlainNormalChatSendModel", () => {
 		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
 				tools,
-				maxToolSteps: 16,
+				maxToolSteps: 20,
 			}),
 		);
 		expect(result.normalChatToolCalls).toEqual(normalChatToolCalls);
@@ -688,7 +688,7 @@ describe("runPlainNormalChatSendModel", () => {
 			expect.objectContaining({
 				tools: undefined,
 				toolChoice: undefined,
-				maxToolSteps: 16,
+				maxToolSteps: 20,
 			}),
 		);
 	});

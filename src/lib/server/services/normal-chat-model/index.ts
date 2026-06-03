@@ -3,6 +3,7 @@ import {
 	APICallError,
 	type FinishReason,
 	generateText,
+	hasToolCall,
 	InvalidToolInputError,
 	type LanguageModelUsage,
 	type ModelMessage,
@@ -23,6 +24,12 @@ import type { ModelConfig } from "$lib/server/env";
 import type { ThinkingMode } from "$lib/types";
 import type { ProviderUsageSnapshot } from "../analytics";
 import { decryptApiKey, getProviderWithSecrets } from "../inference-providers";
+import {
+	getProviderByName,
+	decryptApiKey as decryptNewProviderApiKey,
+	getProviderWithSecrets as getNewProviderWithSecrets,
+} from "../providers";
+import { listEnabledProviderModels } from "../provider-models";
 import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
 import { createOpenAICompatibleStreamNormalizingFetch } from "./openai-compatible-stream-normalizer";
@@ -30,6 +37,8 @@ import {
 	buildNormalChatModelRunCompatibilityProviderOptions,
 	transformNormalChatModelRunRequestBody,
 } from "./provider-compatibility";
+
+const DEFAULT_MAX_TOOL_STEPS = 20;
 
 function toolCallRepairFunction({
 	error,
@@ -42,6 +51,59 @@ function toolCallRepairFunction({
 	const repaired = repairMalformedToolCallJson(toolCall.input);
 	if (!repaired) return null;
 	return { ...toolCall, input: repaired };
+}
+
+function stagnantProgress(): StopCondition<ToolSet> {
+	return ({ steps }) => {
+		if (steps.length < 4) return false;
+
+		const withToolResults = steps.filter(
+			(s) => (s.toolResults?.length ?? 0) > 0,
+		);
+		if (withToolResults.length < 3) return false;
+
+		const recent = withToolResults.slice(-3);
+
+		const allToolNames = new Set(
+			recent.flatMap((s) => s.toolCalls?.map((tc) => tc.toolName) ?? []),
+		);
+		if (allToolNames.size === 1 && withToolResults.length >= 5) {
+			return true;
+		}
+
+		const resultSizes = recent
+			.flatMap(
+				(s) =>
+					s.toolResults?.map((tr) =>
+						typeof tr.output === "string" ? tr.output.length : 0,
+					) ?? [],
+			)
+			.filter((n) => n > 0);
+
+		if (resultSizes.length >= 3) {
+			const last3 = resultSizes.slice(-3);
+			if (
+				last3[0] > 0 &&
+				last3.every(
+					(v, i) => i === 0 || v <= last3[i - 1] * 0.5,
+				)
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	};
+}
+
+function buildToolStopWhen(
+	maxToolSteps: number,
+): StopCondition<ToolSet>[] {
+	return [
+		hasToolCall("done"),
+		stagnantProgress(),
+		stepCountIs(maxToolSteps),
+	];
 }
 
 type NormalChatReasoningEffort = NonNullable<ModelConfig["reasoningEffort"]>;
@@ -182,6 +244,9 @@ export async function resolveNormalChatModelRunProvider(
 	runtimeConfig?: NormalChatModelRunRuntimeConfig,
 ): Promise<NormalChatModelRunProvider> {
 	if (modelId === "model1" || modelId === "model2") {
+		const newProvider = await resolveBuiltinFromNewProvidersTable(modelId);
+		if (newProvider) return newProvider;
+
 		if (!runtimeConfig) {
 			throw new Error(
 				`Normal Chat Model Run runtime config is required for ${modelId}`,
@@ -203,9 +268,6 @@ export async function resolveNormalChatModelRunProvider(
 		);
 	}
 
-	// Derive targetConstructedContext and compactionUiThreshold from maxModelContext
-	// when they are not explicitly set, so the chat pipeline uses provider-specific
-	// limits instead of falling back to global defaults.
 	const hasExplicitTarget =
 		typeof provider.targetConstructedContext === "number";
 	const hasExplicitCompaction =
@@ -244,6 +306,77 @@ export async function resolveNormalChatModelRunProvider(
 				? { targetConstructedContext: derivedTargetConstructedContext }
 				: {}),
 	};
+}
+
+async function resolveBuiltinFromNewProvidersTable(
+	name: string,
+): Promise<NormalChatModelRunProvider | null> {
+	try {
+		const provider = await getProviderByName(name);
+		if (!provider || !provider.enabled) return null;
+
+		const models = await listEnabledProviderModels(provider.id);
+		const model = models[0];
+		if (!model) return null;
+
+		const providerWithSecrets = await getNewProviderWithSecrets(provider.id);
+		if (!providerWithSecrets) return null;
+
+		const hasExplicitTarget =
+			typeof model.targetConstructedContext === "number";
+		const hasExplicitCompaction =
+			typeof model.compactionUiThreshold === "number";
+		const hasMaxModelContext = typeof model.maxModelContext === "number";
+		const derivedTargetConstructedContext = hasMaxModelContext
+			? Math.floor(model.maxModelContext * 0.9)
+			: undefined;
+		const derivedCompactionUiThreshold = hasMaxModelContext
+			? Math.floor(model.maxModelContext * 0.8)
+			: undefined;
+
+		return {
+			id: provider.id,
+			name: provider.name,
+			displayName: provider.displayName,
+			baseUrl: normalizeOpenAICompatibleBaseUrl(provider.baseUrl),
+			modelName: model.name,
+			apiKey: decryptNewProviderApiKey(
+				providerWithSecrets.apiKeyEncrypted,
+				providerWithSecrets.apiKeyIv,
+			),
+			maxOutputTokens:
+				typeof model.maxTokens === "number"
+					? model.maxTokens
+					: undefined,
+			reasoningEffort:
+				model.reasoningEffort === "low" ||
+				model.reasoningEffort === "medium" ||
+				model.reasoningEffort === "high" ||
+				model.reasoningEffort === "max" ||
+				model.reasoningEffort === "xhigh"
+					? model.reasoningEffort
+					: undefined,
+			thinkingType:
+				model.thinkingType === "enabled" || model.thinkingType === "disabled"
+					? model.thinkingType
+					: undefined,
+			...(hasMaxModelContext
+				? { maxModelContext: model.maxModelContext }
+				: {}),
+			...(hasExplicitCompaction
+				? { compactionUiThreshold: model.compactionUiThreshold }
+				: derivedCompactionUiThreshold !== undefined
+					? { compactionUiThreshold: derivedCompactionUiThreshold }
+					: {}),
+			...(hasExplicitTarget
+				? { targetConstructedContext: model.targetConstructedContext }
+				: derivedTargetConstructedContext !== undefined
+					? { targetConstructedContext: derivedTargetConstructedContext }
+					: {}),
+		};
+	} catch {
+		return null;
+	}
 }
 
 function builtinModelRunProvider(
@@ -457,7 +590,9 @@ export async function runPlainNormalChatModelRun(
 	});
 	const stopWhen =
 		params.stopWhen ??
-		(params.tools ? stepCountIs(params.maxToolSteps ?? 5) : undefined);
+		(params.tools
+			? buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
+			: undefined);
 
 	const request = {
 		model: provider(params.provider.modelName),
@@ -472,6 +607,15 @@ export async function runPlainNormalChatModelRun(
 		headers: params.headers,
 		providerOptions: params.providerOptions,
 		experimental_repairToolCall: toolCallRepairFunction,
+		onStepFinish: ({ stepNumber, finishReason, usage }) => {
+			console.warn("[NORMAL_CHAT_MODEL] plain step finish", {
+				providerId: params.provider.id,
+				stepNumber,
+				finishReason,
+				inputTokens: usage.inputTokens,
+				outputTokens: usage.outputTokens,
+			});
+		},
 	};
 
 	let result: Awaited<ReturnType<typeof generateText>>;
@@ -525,7 +669,9 @@ async function* streamStreamingNormalChatModelRun(
 	});
 	const stopWhen =
 		params.stopWhen ??
-		(params.tools ? stepCountIs(params.maxToolSteps ?? 5) : undefined);
+		(params.tools
+			? buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
+			: undefined);
 	const result = streamText({
 		model: provider(params.provider.modelName),
 		messages: params.messages,
@@ -540,6 +686,15 @@ async function* streamStreamingNormalChatModelRun(
 		providerOptions: params.providerOptions,
 		experimental_repairToolCall: toolCallRepairFunction,
 		onError: () => undefined,
+		onStepFinish: ({ stepNumber, finishReason, usage }) => {
+			console.warn("[NORMAL_CHAT_MODEL] stream step finish", {
+				providerId: params.provider.id,
+				stepNumber,
+				finishReason,
+				inputTokens: usage.inputTokens,
+				outputTokens: usage.outputTokens,
+			});
+		},
 	});
 
 	let responseModelName = params.provider.modelName;

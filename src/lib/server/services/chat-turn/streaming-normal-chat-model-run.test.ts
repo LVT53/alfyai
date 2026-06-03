@@ -212,7 +212,7 @@ describe("runStreamingNormalChatSendModel", () => {
 			expect.objectContaining({
 				tools,
 				maxOutputTokens: 777,
-				maxToolSteps: 16,
+				maxToolSteps: 20,
 			}),
 		);
 	});
