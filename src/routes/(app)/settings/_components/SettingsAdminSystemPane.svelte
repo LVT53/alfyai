@@ -385,11 +385,6 @@ async function handleDiscoverProviderConfig(provider: Provider) {
 	}
 }
 
-async function handleTestProviderConfig(_provider: Provider) {
-	providerConfigsError = "";
-	showProvidersMessage("Connection validated during provider creation.");
-}
-
 function handleManageModels(providerId: string) {
 	modelListProviderId = providerId;
 	showModelList = true;
@@ -711,7 +706,6 @@ function placeholderFor(key: string): string {
 		onDelete={handleDeleteProviderConfig}
 		onToggleEnabled={handleToggleProviderConfig}
 		onDiscover={handleDiscoverProviderConfig}
-		onTest={handleTestProviderConfig}
 		onManageModels={handleManageModels}
 	/>
 </section>

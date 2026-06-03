@@ -19,6 +19,7 @@ let {
 	error = "",
 	onSave,
 	onClose,
+	onIconFile,
 }: {
 	providerId: string;
 	model?: ProviderModel | null;
