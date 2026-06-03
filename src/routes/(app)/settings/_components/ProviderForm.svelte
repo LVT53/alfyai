@@ -23,6 +23,7 @@ let {
 	onSave,
 	onClose,
 	onTest,
+	onIconFile,
 }: {
 	provider?: Provider | null;
 	isCreate?: boolean;
