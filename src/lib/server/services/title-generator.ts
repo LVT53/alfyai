@@ -14,12 +14,17 @@ import { normalizeOpenAICompatibleBaseUrl } from "./openai-compatible-url";
 function createTitleGenProvider(
 	config: ReturnType<typeof getConfig>,
 	includeVllmControls: boolean,
+	overrideProvider?: { baseUrl: string; apiKey: string; modelName: string },
 ) {
 	const qwenThinkingOff = { enable_thinking: false };
+	const baseURL = overrideProvider
+		? normalizeOpenAICompatibleBaseUrl(overrideProvider.baseUrl)
+		: normalizeOpenAICompatibleBaseUrl(config.titleGenUrl);
+	const apiKey = overrideProvider?.apiKey || config.titleGenApiKey || undefined;
 	return createOpenAICompatible({
 		name: "title-gen",
-		apiKey: config.titleGenApiKey || undefined,
-		baseURL: normalizeOpenAICompatibleBaseUrl(config.titleGenUrl),
+		apiKey,
+		baseURL,
 		includeUsage: false,
 		transformRequestBody: includeVllmControls
 			? (args: Record<string, unknown>) => ({
@@ -35,10 +40,39 @@ async function generateTitleWithAiSdk(
 	config: ReturnType<typeof getConfig>,
 	messages: Array<{ role: string; content: string }>,
 ): Promise<string> {
+	// Resolve provider model if titleGenModel is a composite ID
+	let resolvedModelName = config.titleGenModel;
+	let overrideProvider: { baseUrl: string; apiKey: string; modelName: string } | undefined;
+
+	if (config.titleGenModel.startsWith("provider:")) {
+		const parts = config.titleGenModel.split(":");
+		if (parts.length >= 3) {
+			const providerId = parts[1];
+			const modelId = parts[2];
+			try {
+				const { getProviderWithSecrets, decryptApiKey } = await import("./providers");
+				const { listEnabledProviderModels } = await import("./provider-models");
+				const provider = await getProviderWithSecrets(providerId);
+				if (provider?.enabled) {
+					const models = await listEnabledProviderModels(provider.id);
+					const model = models.find((m) => m.id === modelId);
+					if (model) {
+						resolvedModelName = model.name;
+						overrideProvider = {
+							baseUrl: provider.baseUrl,
+							apiKey: decryptApiKey(provider.apiKeyEncrypted, provider.apiKeyIv),
+							modelName: model.name,
+						};
+					}
+				}
+			} catch { /* fall back to raw model ID */ }
+		}
+	}
+
 	const tryCall = async (includeVllmControls: boolean): Promise<string> => {
-		const provider = createTitleGenProvider(config, includeVllmControls);
+		const provider = createTitleGenProvider(config, includeVllmControls, overrideProvider);
 		const result = await generateText({
-			model: provider(config.titleGenModel),
+			model: provider(resolvedModelName),
 			messages: messages as Array<{
 				role: "system" | "user" | "assistant";
 				content: string;
