@@ -45,6 +45,9 @@ let formBaseUrl = $state(
 );
 let formApiKey = $state("");
 let formIconAssetId = $state(untrack(() => provider?.iconAssetId ?? ""));
+$effect(() => {
+	formIconAssetId = provider?.iconAssetId ?? "";
+});
 let formEnabled = $state(untrack(() => provider?.enabled ?? true));
 let formRateLimitFallbackEnabled = $state(
 	untrack(() => provider?.rateLimitFallbackEnabled ?? false),
