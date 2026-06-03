@@ -11,16 +11,11 @@ import {
 	batchCreateProviderModels,
 	fetchProviderList,
 	updateProviderEntry,
-	fetchProviderModels,
-	createProviderModel,
-	updateProviderModel,
-	deleteProviderModel,
 	type AdminSystemSkill,
 	type AdminSystemSkillDraft,
 	type PersonalityProfileSummary,
 	type Provider,
 } from "$lib/client/api/admin";
-import type { ProviderModel } from "$lib/client/api/models";
 import {
 	saveModelIconAssetCrop,
 	uploadCampaignAssetSource,
@@ -41,7 +36,6 @@ import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import ProviderForm from "./ProviderForm.svelte";
 import ProviderList from "./ProviderList.svelte";
 import ModelList from "./ModelList.svelte";
-import ModelForm from "./ModelForm.svelte";
 
 const tVal = get(t);
 
@@ -92,9 +86,6 @@ let providerFormTestMessage = $state("");
 let showModelList = $state(false);
 let modelListProviderId = $state("");
 let modelListKey = $state(0);
-let showModelForm = $state(false);
-let modelFormProviderId = $state("");
-let modelFormModel = $state<ProviderModel | null>(null);
 let adminPersonalities = $state<PersonalityProfileSummary[]>([]);
 let systemSkills = $state<AdminSystemSkill[]>([]);
 let systemSkillsLoading = $state(false);
@@ -396,29 +387,6 @@ function handleManageModels(providerId: string) {
 function closeModelList() {
 	showModelList = false;
 	modelListProviderId = "";
-}
-
-function openAddModelForm(providerId: string) {
-	modelFormProviderId = providerId;
-	modelFormModel = null;
-	showModelForm = true;
-}
-
-function openEditModelForm(providerId: string, model: ProviderModel) {
-	modelFormProviderId = providerId;
-	modelFormModel = model;
-	showModelForm = true;
-}
-
-function closeModelForm() {
-	showModelForm = false;
-	modelFormModel = null;
-	modelFormProviderId = "";
-}
-
-function handleModelFormSaved() {
-	closeModelForm();
-	modelListKey += 1;
 }
 
 async function loadSystemSkills() {
@@ -1378,21 +1346,18 @@ function placeholderFor(key: string): string {
 {/if}
 
 {#if showModelList}
-	{#key modelListKey}
-		<ModelList
-			providerId={modelListProviderId}
-			onClose={closeModelList}
-		/>
-	{/key}
-{/if}
-
-{#if showModelForm}
-	<ModelForm
-		providerId={modelFormProviderId}
-		model={modelFormModel}
-		onClose={closeModelForm}
-		onSave={handleModelFormSaved}
-	/>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={closeModelList} onkeydown={(e) => e.key === 'Escape' && closeModelList()}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-lg border border-border bg-surface-page p-6 shadow-xl" onclick={(e) => e.stopPropagation()}>
+			{#key modelListKey}
+				<ModelList
+					providerId={modelListProviderId}
+					onClose={closeModelList}
+				/>
+			{/key}
+		</div>
+	</div>
 {/if}
 
 <!-- Sticky Save button -->
