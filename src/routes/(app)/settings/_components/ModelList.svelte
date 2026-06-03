@@ -129,7 +129,7 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (modelIconAssetSaved && formModel && formModel.id === modelIconAssetSaved.modelId) {
+	if (modelIconAssetSaved && formModel && formModel.id === modelIconAssetSaved.modelId && formModel.iconAssetId !== modelIconAssetSaved.assetId) {
 		formModel = { ...formModel, iconAssetId: modelIconAssetSaved.assetId };
 	}
 });
