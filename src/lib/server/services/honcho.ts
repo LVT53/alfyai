@@ -39,6 +39,7 @@ const HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_PREFIXES = ['text/'];
 const HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_TYPES = new Set(['application/pdf', 'application/json']);
 const HONCHO_NATIVE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 const HONCHO_ID_HASH_LENGTH = 32;
+const HONCHO_MAX_MESSAGE_LENGTH = 25_000;
 
 // Authority note:
 // - Honcho is a semantic mirror/integration layer for sessions, peers, conclusions, and overview text
@@ -261,16 +262,32 @@ export async function mirrorMessage(
 		? await getAssistantPeer(userId)
 		: await getUserPeer(userId);
 
-	await session.addMessages(
-		peer.message(content, {
-			metadata: {
-				role,
-				alfyaiConversationId: conversationId,
-				alfyaiUserId: userId,
-				alfyaiHonchoIdentityNamespace: getConfig().honchoIdentityNamespace,
-			},
-		})
-	);
+	const safeContent = content.length > HONCHO_MAX_MESSAGE_LENGTH
+		? clipText(content, HONCHO_MAX_MESSAGE_LENGTH)
+		: content;
+
+	try {
+		await session.addMessages(
+			peer.message(safeContent, {
+				metadata: {
+					role,
+					alfyaiConversationId: conversationId,
+					alfyaiUserId: userId,
+					alfyaiHonchoIdentityNamespace: getConfig().honchoIdentityNamespace,
+				},
+			})
+		);
+	} catch (err) {
+		const errorBody = err && typeof err === 'object' && 'body' in err
+			? (err as { body?: unknown }).body
+			: null;
+		console.error(
+			`[HONCHO] Mirror ${role} message failed:`,
+			err,
+			errorBody ? JSON.stringify(errorBody) : '(no body)',
+		);
+		throw err;
+	}
 }
 
 export async function syncArtifactToHoncho(params: {
@@ -298,7 +315,7 @@ export async function syncArtifactToHoncho(params: {
 	const fallbackArtifact = params.fallbackTextArtifact;
 	if (fallbackArtifact?.contentText?.trim()) {
 		try {
-			const clipped = clipText(fallbackArtifact.contentText, 50_000);
+			const clipped = clipText(fallbackArtifact.contentText, HONCHO_MAX_MESSAGE_LENGTH);
 			await session.addMessages(
 				userPeer.message(clipped, {
 					metadata: {
