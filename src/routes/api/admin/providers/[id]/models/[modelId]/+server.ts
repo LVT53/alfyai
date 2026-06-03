@@ -108,7 +108,7 @@ export const PUT: RequestHandler = async (event) => {
 			}
 		}
 
-		if (body.reasoningEffort !== undefined) {
+		if (body.reasoningEffort !== undefined && body.reasoningEffort !== null) {
 			if (typeof body.reasoningEffort !== 'string') {
 				return json(
 					{ error: 'reasoningEffort must be a string' },
@@ -118,7 +118,7 @@ export const PUT: RequestHandler = async (event) => {
 			input.reasoningEffort = body.reasoningEffort || null;
 		}
 
-		if (body.thinkingType !== undefined) {
+		if (body.thinkingType !== undefined && body.thinkingType !== null) {
 			if (typeof body.thinkingType !== 'string') {
 				return json({ error: 'thinkingType must be a string' }, { status: 400 });
 			}
