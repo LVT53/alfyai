@@ -70,7 +70,13 @@ function stagnantProgress(): StopCondition<ToolSet> {
 			recent.flatMap((s) => s.toolCalls?.map((tc) => tc.toolName) ?? []),
 		);
 		if (allToolNames.size === 1 && withToolResults.length >= 5) {
-			return true;
+			const recentToolCalls = recent.flatMap((s) => s.toolCalls ?? []);
+			const uniqueArgs = new Set(
+				recentToolCalls.map((tc) => JSON.stringify(tc.args ?? {})),
+			);
+			if (uniqueArgs.size === 1) {
+				return true;
+			}
 		}
 
 		const resultSizes = recent
@@ -86,9 +92,7 @@ function stagnantProgress(): StopCondition<ToolSet> {
 			const last3 = resultSizes.slice(-3);
 			if (
 				last3[0] > 0 &&
-				last3.every(
-					(v, i) => i === 0 || v <= last3[i - 1] * 0.5,
-				)
+				last3.every((v, i) => i === 0 || v <= last3[i - 1] * 0.5)
 			) {
 				return true;
 			}
@@ -98,14 +102,8 @@ function stagnantProgress(): StopCondition<ToolSet> {
 	};
 }
 
-function buildToolStopWhen(
-	maxToolSteps: number,
-): StopCondition<ToolSet>[] {
-	return [
-		hasToolCall("done"),
-		stagnantProgress(),
-		stepCountIs(maxToolSteps),
-	];
+function buildToolStopWhen(maxToolSteps: number): StopCondition<ToolSet>[] {
+	return [hasToolCall("done"), stagnantProgress(), stepCountIs(maxToolSteps)];
 }
 
 type NormalChatReasoningEffort = NonNullable<ModelConfig["reasoningEffort"]>;
@@ -261,12 +259,9 @@ export async function resolveNormalChatModelRunProvider(
 	try {
 		const newProvider = await resolveBuiltinFromNewProvidersTable(modelId);
 		if (newProvider) return newProvider;
-	} catch {
-	}
+	} catch {}
 
-	throw new Error(
-		`Normal Chat Model Run provider not found: ${modelId}`,
-	);
+	throw new Error(`Normal Chat Model Run provider not found: ${modelId}`);
 }
 
 async function resolveBuiltinFromNewProvidersTable(
@@ -274,7 +269,8 @@ async function resolveBuiltinFromNewProvidersTable(
 ): Promise<NormalChatModelRunProvider | null> {
 	try {
 		// Handle composite ID format: provider:<provider-uuid>:<model-uuid>
-		let provider: Awaited<ReturnType<typeof getProviderWithSecrets>> | null = null;
+		let provider: Awaited<ReturnType<typeof getProviderWithSecrets>> | null =
+			null;
 		let modelNameFilter: string | null = null;
 
 		if (name.startsWith("provider:") && name.split(":").length >= 3) {
@@ -312,70 +308,64 @@ function buildProviderModelRunConfig(
 	providerWithSecrets: Awaited<ReturnType<typeof getProviderWithSecrets>>,
 	model: Awaited<ReturnType<typeof listEnabledProviderModels>>[number],
 ): NormalChatModelRunProvider {
-		const hasExplicitTarget =
-			typeof model.targetConstructedContext === "number";
-		const hasExplicitCompaction =
-			typeof model.compactionUiThreshold === "number";
-		const hasMaxModelContext = typeof model.maxModelContext === "number";
-		const derivedTargetConstructedContext = hasMaxModelContext
-			? Math.floor(model.maxModelContext * 0.9)
-			: undefined;
-		const derivedCompactionUiThreshold = hasMaxModelContext
-			? Math.floor(model.maxModelContext * 0.8)
-			: undefined;
+	const hasExplicitTarget = typeof model.targetConstructedContext === "number";
+	const hasExplicitCompaction = typeof model.compactionUiThreshold === "number";
+	const hasMaxModelContext = typeof model.maxModelContext === "number";
+	const derivedTargetConstructedContext = hasMaxModelContext
+		? Math.floor(model.maxModelContext * 0.9)
+		: undefined;
+	const derivedCompactionUiThreshold = hasMaxModelContext
+		? Math.floor(model.maxModelContext * 0.8)
+		: undefined;
 
-		return {
-			id: providerWithSecrets.id,
-			name: providerWithSecrets.name,
-			displayName: model.displayName ?? providerWithSecrets.displayName,
-			iconUrl: (providerWithSecrets as Record<string, unknown>).iconAssetId
-				? `/api/campaign-assets/${encodeURIComponent(String((providerWithSecrets as Record<string, unknown>).iconAssetId))}/content`
-				: null,
-			baseUrl: normalizeOpenAICompatibleBaseUrl(providerWithSecrets.baseUrl),
-			modelName: model.name,
-			apiKey: decryptApiKey(
-				providerWithSecrets.apiKeyEncrypted,
-				providerWithSecrets.apiKeyIv,
-			),
-			maxOutputTokens:
-				typeof model.maxTokens === "number"
-					? model.maxTokens
-					: undefined,
-			reasoningEffort:
-				model.reasoningEffort === "low" ||
-				model.reasoningEffort === "medium" ||
-				model.reasoningEffort === "high" ||
-				model.reasoningEffort === "max" ||
-				model.reasoningEffort === "xhigh"
-					? model.reasoningEffort
-					: undefined,
-			thinkingType:
-				model.thinkingType === "enabled" || model.thinkingType === "disabled"
-					? model.thinkingType
-					: undefined,
-			...(hasMaxModelContext
-				? { maxModelContext: model.maxModelContext }
+	return {
+		id: providerWithSecrets.id,
+		name: providerWithSecrets.name,
+		displayName: model.displayName ?? providerWithSecrets.displayName,
+		iconUrl: (providerWithSecrets as Record<string, unknown>).iconAssetId
+			? `/api/campaign-assets/${encodeURIComponent(String((providerWithSecrets as Record<string, unknown>).iconAssetId))}/content`
+			: null,
+		baseUrl: normalizeOpenAICompatibleBaseUrl(providerWithSecrets.baseUrl),
+		modelName: model.name,
+		apiKey: decryptApiKey(
+			providerWithSecrets.apiKeyEncrypted,
+			providerWithSecrets.apiKeyIv,
+		),
+		maxOutputTokens:
+			typeof model.maxTokens === "number" ? model.maxTokens : undefined,
+		reasoningEffort:
+			model.reasoningEffort === "low" ||
+			model.reasoningEffort === "medium" ||
+			model.reasoningEffort === "high" ||
+			model.reasoningEffort === "max" ||
+			model.reasoningEffort === "xhigh"
+				? model.reasoningEffort
+				: undefined,
+		thinkingType:
+			model.thinkingType === "enabled" || model.thinkingType === "disabled"
+				? model.thinkingType
+				: undefined,
+		...(hasMaxModelContext ? { maxModelContext: model.maxModelContext } : {}),
+		...(hasExplicitCompaction
+			? { compactionUiThreshold: model.compactionUiThreshold }
+			: derivedCompactionUiThreshold !== undefined
+				? { compactionUiThreshold: derivedCompactionUiThreshold }
 				: {}),
-			...(hasExplicitCompaction
-				? { compactionUiThreshold: model.compactionUiThreshold }
-				: derivedCompactionUiThreshold !== undefined
-					? { compactionUiThreshold: derivedCompactionUiThreshold }
-					: {}),
-			...(hasExplicitTarget
-				? { targetConstructedContext: model.targetConstructedContext }
-				: derivedTargetConstructedContext !== undefined
-					? { targetConstructedContext: derivedTargetConstructedContext }
-					: {}),
-			...(function () {
-				const caps = parseProviderModelCapabilities(
-					model.capabilitiesJson,
-				);
-				return caps ? { capabilities: caps } : {};
-			})(),
-		};
+		...(hasExplicitTarget
+			? { targetConstructedContext: model.targetConstructedContext }
+			: derivedTargetConstructedContext !== undefined
+				? { targetConstructedContext: derivedTargetConstructedContext }
+				: {}),
+		...(function () {
+			const caps = parseProviderModelCapabilities(model.capabilitiesJson);
+			return caps ? { capabilities: caps } : {};
+		})(),
+	};
 }
 
-function parseProviderModelCapabilities(json: string): ModelCapabilitySet | undefined {
+function parseProviderModelCapabilities(
+	json: string,
+): ModelCapabilitySet | undefined {
 	if (!json || json === "{}") return undefined;
 	try {
 		const parsed: unknown = JSON.parse(json);
@@ -388,10 +378,7 @@ function parseProviderModelCapabilities(json: string): ModelCapabilitySet | unde
 
 		return createModelCapabilitySet(
 			Object.fromEntries(
-				entries.map((key) => [
-					key,
-					(parsed as Record<string, unknown>)[key],
-				]),
+				entries.map((key) => [key, (parsed as Record<string, unknown>)[key]]),
 			),
 		);
 	} catch {
@@ -692,7 +679,10 @@ async function* streamStreamingNormalChatModelRun(
 		(params.tools
 			? buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
 			: undefined);
-	const buildStreamConfig = (tools?: ToolSet, toolStopWhen?: StopCondition) => ({
+	const buildStreamConfig = (
+		tools?: ToolSet,
+		toolStopWhen?: StopCondition,
+	) => ({
 		model: provider(params.provider.modelName),
 		messages: params.messages,
 		system: params.system,
@@ -888,16 +878,13 @@ async function* streamStreamingNormalChatModelRun(
 			);
 		}
 	} catch (error) {
-		console.warn(
-			"[DEBUG-diagnose-stream] normal-chat-model stream catch",
-			{
-				providerId: params.provider.id,
-				errorName: error instanceof Error ? error.name : undefined,
-				errorMessage: error instanceof Error ? error.message : String(error),
-				eventCounts,
-				lastEventType,
-			},
-		);
+		console.warn("[DEBUG-diagnose-stream] normal-chat-model stream catch", {
+			providerId: params.provider.id,
+			errorName: error instanceof Error ? error.name : undefined,
+			errorMessage: error instanceof Error ? error.message : String(error),
+			eventCounts,
+			lastEventType,
+		});
 		yield { type: "error", error: errorMessage(error) };
 	}
 }
