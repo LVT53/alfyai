@@ -49,6 +49,7 @@ function createTestTables() {
 			output_usd_micros_per_1m INTEGER NOT NULL DEFAULT 0,
 			enabled INTEGER NOT NULL DEFAULT 1,
 			sort_order INTEGER NOT NULL DEFAULT 0,
+			icon_asset_id TEXT,
 			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
 			updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
 			UNIQUE(provider_id, name)

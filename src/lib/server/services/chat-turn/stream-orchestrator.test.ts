@@ -750,7 +750,7 @@ describe("stream-orchestrator SSE contract", () => {
 				"Still running",
 				undefined,
 				undefined,
-				{ evidenceStatus: "pending", modelDisplayName: "Model One" },
+				{ evidenceStatus: "pending", modelDisplayName: "Model One", providerDisplayName: undefined, providerIconUrl: null },
 			);
 		});
 		expect(upstreamSignal?.aborted).toBe(false);

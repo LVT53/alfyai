@@ -23,6 +23,19 @@ vi.mock("$lib/server/services/memory-context", () => ({
 vi.mock("$lib/server/services/image-search", () => ({
 	searchImages: vi.fn(),
 }));
+vi.mock("$lib/server/config-store", () => ({
+	getConfig: vi.fn(() => ({
+		webResearchSearxngLanguage: "en",
+		searxngBaseUrl: "",
+		webResearchSearxngNumResults: 12,
+		webResearchSearxngSafesearch: 1,
+		webResearchSearxngCategories: "general",
+		webResearchMaxSources: 8,
+		webResearchHighlightChars: 4000,
+		webResearchContentChars: 12000,
+		webResearchFreshnessHours: 24,
+	})),
+}));
 
 const submitFileProductionIntakeMock = vi.mocked(submitFileProductionIntake);
 const researchWebMock = vi.mocked(researchWeb);
@@ -731,7 +744,9 @@ describe("createNormalChatTools", () => {
 				quoteRequired: true,
 			},
 			expect.objectContaining({
-				config: { webResearchSearxngLanguage: "en" },
+				config: expect.objectContaining({
+					webResearchSearxngLanguage: "en",
+				}),
 			}),
 		);
 		expect(result).toMatchObject({

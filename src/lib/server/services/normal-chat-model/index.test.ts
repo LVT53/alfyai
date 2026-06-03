@@ -101,6 +101,7 @@ describe("Normal Chat Model Run provider resolution", () => {
 			id: "provider-1",
 			name: "fireworks",
 			displayName: "Fireworks",
+			iconUrl: null,
 			baseUrl: "https://api.fireworks.ai/inference/v1",
 			modelName: "accounts/fireworks/models/kimi-k2p6",
 			apiKey: "plain-secret",

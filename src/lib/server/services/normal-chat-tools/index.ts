@@ -1,6 +1,7 @@
 import { type ToolExecutionOptions, tool } from "ai";
 import { z } from "zod";
 
+import { getConfig } from "$lib/server/config-store";
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
 import { searchImages } from "$lib/server/services/image-search";
