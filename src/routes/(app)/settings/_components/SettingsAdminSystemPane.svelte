@@ -254,6 +254,7 @@ async function saveModelIconCrop(payload: {
 			crop: payload.crop,
 		});
 		await applyModelIconAsset(activeCrop.target, asset.id);
+		if (activeCrop.target.kind === "model") modelListKey += 1;
 		showProvidersMessage($t("admin.modelIconUpdated"));
 		URL.revokeObjectURL(activeCrop.imageSrc);
 		modelIconCropJob = null;
@@ -398,6 +399,7 @@ function closeModelList() {
 
 function handleModelModelIconFile(event: Event, modelId: string) {
 	handleModelIconFile(event, { kind: "model", modelId, providerId: modelListProviderId });
+	modelListKey += 1;
 }
 
 async function loadSystemSkills() {
