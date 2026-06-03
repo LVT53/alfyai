@@ -1703,7 +1703,7 @@ function buildResearchAnswerBrief(params: {
 	const instructions = [
 		"Use only the sources and evidence in this brief for web-backed claims.",
 		"The brief may be written in English because it is tool context. It is not a response-language instruction; write the final visible answer in the latest user-message language unless the user explicitly requested another language.",
-		"Cite every web-backed claim with markdown links using the listed source URLs.",
+		"Cite every web-backed claim with markdown links using the listed source URLs and titles. Use the source title as the visible link text, not the S1/S2 reference.",
 		"For exact prices, dates, specs, policies, availability, or quotes, rely on evidence snippets; if the value is not in the snippets, say it was not found.",
 		"Do not cite URLs that are not listed in this brief.",
 	];
@@ -1739,7 +1739,7 @@ function buildResearchAnswerBrief(params: {
 
 	const sourceLines = sources.map((source) =>
 		[
-			`[${source.ref}] ${source.title}`,
+			` **${source.title}** `,
 			`URL: ${source.url}`,
 			`Authority: ${source.authorityClass} (${source.authorityScore})`,
 			`Provider: ${source.provider}`,
@@ -1753,7 +1753,7 @@ function buildResearchAnswerBrief(params: {
 	);
 	const evidenceLines = evidence.map((item) =>
 		[
-			`[${item.ref}] Source [${item.sourceRef}] ${item.title}`,
+			` **${item.title}** `,
 			`Quote: ${item.quote}`,
 			`Cite URL: ${item.url}`,
 		].join("\n"),
