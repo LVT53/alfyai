@@ -111,7 +111,9 @@ function handleSelect(modelId: ModelId) {
 }
 
 function toggleDropdown() {
+	const opening = !isOpen;
 	setOpen(!isOpen);
+	if (opening) autoExpandProviders();
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -165,20 +167,21 @@ async function scrollFocusedIntoView() {
 	}
 }
 
-function isProviderExpanded(
-	providerId: string,
-	providerModelsCount: number,
-): boolean {
-	if (expandedProviders.has(providerId)) return true;
-	// Auto-expand if this provider contains the selected model
+function isProviderExpanded(providerId: string): boolean {
+	return expandedProviders.has(providerId);
+}
+
+function autoExpandProviders() {
+	const next = new Set(expandedProviders);
 	const currentModelId = $selectedModel;
-	return (
-		providerModelsCount === 1 ||
-		(providerModelsCount > 0 &&
-			providers
-				.find((p) => p.id === providerId)
-				?.models.some((m) => m.id === currentModelId))
-	);
+	for (const provider of providers) {
+		if (provider.models.length === 1) {
+			next.add(provider.id);
+		} else if (provider.models.some((m) => m.id === currentModelId)) {
+			next.add(provider.id);
+		}
+	}
+	expandedProviders = next;
 }
 </script>
 
@@ -232,7 +235,7 @@ function isProviderExpanded(
 		>
 			<div class="model-selector__list">
 				{#each providers as provider (provider.id)}
-					{@const expanded = isProviderExpanded(provider.id, provider.models.length)}
+					{@const expanded = isProviderExpanded(provider.id)}
 					<div class="model-selector__provider">
 						<button
 							type="button"
