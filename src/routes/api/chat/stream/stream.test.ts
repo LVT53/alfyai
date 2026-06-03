@@ -1124,7 +1124,7 @@ describe("POST /api/chat/stream", () => {
 			"Hello",
 			undefined,
 			undefined,
-			{ evidenceStatus: "pending", modelDisplayName: "Model 1" },
+			{ evidenceStatus: "pending", modelDisplayName: "Model 1", providerDisplayName: undefined, providerIconUrl: null },
 		);
 		expect(mockTouchConversation).toHaveBeenCalledWith("user-1", "conv-1");
 	});
@@ -1166,7 +1166,7 @@ describe("POST /api/chat/stream", () => {
 				"Still running",
 				undefined,
 				undefined,
-				{ evidenceStatus: "pending", modelDisplayName: "Model 1" },
+				{ evidenceStatus: "pending", modelDisplayName: "Model 1", providerDisplayName: undefined, providerIconUrl: null },
 			);
 		});
 		expect(mockTouchConversation).toHaveBeenCalledWith("user-1", "conv-1");
@@ -1622,7 +1622,7 @@ describe("POST /api/chat/stream", () => {
 			"BeforeAfter",
 			"Need to reason carefully",
 			[{ type: "text", content: "Need to reason carefully" }],
-			{ evidenceStatus: "pending", modelDisplayName: "Model 1" },
+			{ evidenceStatus: "pending", modelDisplayName: "Model 1", providerDisplayName: undefined, providerIconUrl: null },
 		);
 	});
 
@@ -1694,7 +1694,7 @@ describe("POST /api/chat/stream", () => {
 						"The user wants me to write 500 words about the USA. This is a straightforward content request. I will write an informative piece.\n\nI need to wrap the content in XML-style wrapper tags and provide it in English.",
 				},
 			],
-			{ evidenceStatus: "pending", modelDisplayName: "Model 1" },
+			{ evidenceStatus: "pending", modelDisplayName: "Model 1", providerDisplayName: undefined, providerIconUrl: null },
 		);
 	});
 

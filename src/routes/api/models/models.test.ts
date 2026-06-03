@@ -78,8 +78,8 @@ describe("GET /api/models", () => {
 		expect(builtIn.id).toBe("built-in");
 		expect(builtIn.displayName).toBe("AlfyAI");
 		expect(builtIn.models).toEqual([
-			{ id: "model1", displayName: "Test Model 1" },
-			{ id: "model2", displayName: "Test Model 2" },
+			{ id: "model1", displayName: "Test Model 1", iconUrl: null },
+			{ id: "model2", displayName: "Test Model 2", iconUrl: null },
 		]);
 	});
 
@@ -102,7 +102,7 @@ describe("GET /api/models", () => {
 		const data = await response.json();
 
 		expect(data.providers[0].models).toEqual([
-			{ id: "model1", displayName: "Test Model 1" },
+			{ id: "model1", displayName: "Test Model 1", iconUrl: null },
 		]);
 	});
 
@@ -130,7 +130,7 @@ describe("GET /api/models", () => {
 		expect(newProvider).toBeDefined();
 		expect(newProvider.displayName).toBe("Custom Provider");
 		expect(newProvider.models).toEqual([
-			{ id: "provider:new-1:m1", displayName: "GPT-4" },
+			{ id: "provider:new-1:m1", displayName: "GPT-4", iconUrl: null },
 		]);
 	});
 });
