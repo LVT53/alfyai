@@ -34,6 +34,8 @@
 // Until those primitives exist in the shared AI SDK boundary, this file keeps
 // its own fetch()-based model runner. Do NOT attempt to inline-migrate this
 // file without first building the failover infrastructure in normal-chat-model.
+
+import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
 import {
 	decryptApiKey,
 	getProviderWithSecrets,
