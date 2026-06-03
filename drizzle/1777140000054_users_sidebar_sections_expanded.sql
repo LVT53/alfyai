@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `sidebar_projects_expanded` integer DEFAULT true NOT NULL;

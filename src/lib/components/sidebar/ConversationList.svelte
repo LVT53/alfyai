@@ -27,6 +27,8 @@ import {
 	currentConversationId,
 	projectFolderExpanded,
 	setProjectFolderExpanded,
+	setSidebarChatsExpandedAndSync,
+	setSidebarProjectsExpandedAndSync,
 	sidebarChatsExpanded,
 	sidebarOpen,
 	sidebarProjectsExpanded,
@@ -637,11 +639,13 @@ function handleProjectMenuClose(payload?: { id: string }) {
 // ── Section toggle handlers ────────────────────────────────────────────────
 
 function toggleProjectsSection() {
-	sidebarProjectsExpanded.update((v) => !v);
+	const next = !projectsSectionExpanded;
+	void setSidebarProjectsExpandedAndSync(next);
 }
 
 function toggleChatsSection() {
-	sidebarChatsExpanded.update((v) => !v);
+	const next = !chatsSectionExpanded;
+	void setSidebarChatsExpandedAndSync(next);
 }
 
 // ── Create project ─────────────────────────────────────────────────────────

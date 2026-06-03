@@ -9,7 +9,7 @@
 	import ServerUpdateNotice from './_components/ServerUpdateNotice.svelte';
 	import type { Component } from 'svelte';
 	let ImportChatGPTModalComponent: Component | null = $state(null);
-	import { currentConversationId, sidebarOpen, initUIListeners } from '$lib/stores/ui';
+	import { currentConversationId, sidebarOpen, initUIListeners, sidebarProjectsExpanded, sidebarChatsExpanded } from '$lib/stores/ui';
 	import {
 		loadConversations,
 		reconcileConversationSnapshot,
@@ -376,6 +376,8 @@
 		selectedCampaignTheme = data.userTheme as Theme;
 		selectedCampaignUiLanguage = data.userUiLanguage;
 		selectedCampaignPersonalityId = data.userPersonality ?? null;
+		sidebarProjectsExpanded.set(data.userSidebarProjectsExpanded ?? true);
+		sidebarChatsExpanded.set(data.userSidebarChatsExpanded ?? true);
 		const cleanupUIListeners = initUIListeners();
 
 		// Add event listeners for conversation list refresh

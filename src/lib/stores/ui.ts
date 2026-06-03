@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 import { read, persist } from './_local-storage';
+import { updateUserPreferences } from '$lib/client/api/settings';
 
 /**
  * BREAKPOINT CONTRACT - Single Source of Truth
@@ -154,3 +155,21 @@ sidebarProjectsExpanded.subscribe((value) =>
 sidebarChatsExpanded.subscribe((value) =>
 	persist(SIDEBAR_CHATS_EXPANDED_KEY, value ? 'true' : 'false')
 );
+
+export async function setSidebarProjectsExpandedAndSync(expanded: boolean): Promise<void> {
+	sidebarProjectsExpanded.set(expanded);
+	try {
+		await updateUserPreferences({ sidebarProjectsExpanded: expanded });
+	} catch {
+		// Non-fatal: local preference already applied
+	}
+}
+
+export async function setSidebarChatsExpandedAndSync(expanded: boolean): Promise<void> {
+	sidebarChatsExpanded.set(expanded);
+	try {
+		await updateUserPreferences({ sidebarChatsExpanded: expanded });
+	} catch {
+		// Non-fatal: local preference already applied
+	}
+}

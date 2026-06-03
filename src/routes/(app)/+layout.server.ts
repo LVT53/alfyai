@@ -56,6 +56,8 @@ export const load: ServerLoad = async (event) => {
 		userUiLanguage: (userRow?.uiLanguage ?? "en") as "en" | "hu",
 		userPersonality: userRow?.preferredPersonalityId ?? null,
 		userAvatarId: userRow?.avatarId ?? null,
+		userSidebarProjectsExpanded: userRow?.sidebarProjectsExpanded ?? true,
+		userSidebarChatsExpanded: userRow?.sidebarChatsExpanded ?? true,
 		modelNames,
 		availableModels,
 		appVersion: await getAppVersionMetadata(),

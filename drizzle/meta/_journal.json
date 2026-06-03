@@ -470,6 +470,20 @@
       "when": 1777140000053,
       "tag": "1777140000053_provider_models_icon_asset_id",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1777140000054,
+      "tag": "1777140000054_users_sidebar_sections_expanded",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1777140000055,
+      "tag": "1777140000055_users_sidebar_chats_expanded",
+      "breakpoints": true
     }
   ]
 }

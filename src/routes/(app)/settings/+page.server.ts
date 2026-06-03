@@ -31,16 +31,18 @@ export const load: ServerLoad = async (event) => {
     email: userRow.email,
     name: userRow.name,
     role: userRow.role as 'user' | 'admin',
-    preferences: {
-      preferredModel: resolvedModelPreference.preference,
-      effectiveModel: resolvedModelPreference.effectiveModel,
-      systemDefaultModel: resolvedModelPreference.systemDefaultModel,
-      theme: (userRow.theme ?? 'system') as 'system' | 'light' | 'dark',
-      titleLanguage: (userRow.titleLanguage ?? 'auto') as 'auto' | 'en' | 'hu',
-      uiLanguage: (userRow.uiLanguage ?? 'en') as 'en' | 'hu',
-      avatarId: userRow.avatarId ?? null,
-      preferredPersonalityId: userRow.preferredPersonalityId ?? null,
-    },
+      preferences: {
+        preferredModel: resolvedModelPreference.preference,
+        effectiveModel: resolvedModelPreference.effectiveModel,
+        systemDefaultModel: resolvedModelPreference.systemDefaultModel,
+        theme: (userRow.theme ?? 'system') as 'system' | 'light' | 'dark',
+        titleLanguage: (userRow.titleLanguage ?? 'auto') as 'auto' | 'en' | 'hu',
+        uiLanguage: (userRow.uiLanguage ?? 'en') as 'en' | 'hu',
+        avatarId: userRow.avatarId ?? null,
+        preferredPersonalityId: userRow.preferredPersonalityId ?? null,
+        sidebarProjectsExpanded: userRow.sidebarProjectsExpanded ?? true,
+        sidebarChatsExpanded: userRow.sidebarChatsExpanded ?? true,
+      },
     profilePicture: userRow.profilePicture ?? null,
   };
 
