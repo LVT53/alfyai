@@ -368,16 +368,15 @@ async function handleToggleProviderConfig(
 
 async function handleDiscoverProviderConfig(provider: Provider) {
 	providerConfigsError = "";
-	providerConfigsMessage = "";
 	try {
 		const models = await discoverProviderModels(provider.id);
 		if (models.length === 0) {
-			providerConfigsMessage = "No models discovered.";
+			showProvidersMessage("No models discovered.");
 			return;
 		}
-		providerConfigsMessage = `Discovered ${models.length} model(s). Creating...`;
+		showProvidersMessage(`Discovered ${models.length} model(s). Creating...`);
 		const created = await batchCreateProviderModels(provider.id, models);
-		providerConfigsMessage = `Created ${created.length} model(s). Refresh the model list to see them.`;
+		showProvidersMessage(`Created ${created.length} model(s). Refresh the model list to see them.`);
 	} catch (error: unknown) {
 		providerConfigsError = errorMessage(error, "Failed to discover models.");
 	}
@@ -385,7 +384,7 @@ async function handleDiscoverProviderConfig(provider: Provider) {
 
 async function handleTestProviderConfig(_provider: Provider) {
 	providerConfigsError = "";
-	providerConfigsMessage = "Connection validated during provider creation.";
+	showProvidersMessage("Connection validated during provider creation.");
 }
 
 function handleManageModels(providerId: string) {
