@@ -1,4 +1,3 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
 	generateText,
 	jsonSchema,
@@ -13,6 +12,7 @@ import { getSystemPrompt } from "../prompts";
 import { buildOutboundSystemPrompt } from "./normal-chat-context";
 import {
 	buildNormalChatModelRunProviderOptions,
+	createOpenAICompatibleProviderForNormalChatModelRun,
 	type NormalChatModelRunProvider,
 	resolveNormalChatModelRunProvider,
 } from "./normal-chat-model";
@@ -22,7 +22,6 @@ import {
 	CONTROL_MODEL_TEMPERATURE,
 	DEFAULT_MODEL_MAX_RETRIES,
 } from "./normal-chat-model-config";
-import { normalizeOpenAICompatibleBaseUrl } from "./openai-compatible-url";
 
 export type JsonControlResponseSchema = {
 	name: string;
@@ -52,13 +51,12 @@ function createControlModelProvider(params: {
 	provider: NormalChatModelRunProvider;
 	fetch?: typeof fetch;
 }) {
-	return createOpenAICompatible({
-		name: params.provider.name,
-		apiKey: params.provider.apiKey,
-		baseURL: normalizeOpenAICompatibleBaseUrl(params.provider.baseUrl),
+	return createOpenAICompatibleProviderForNormalChatModelRun({
+		provider: params.provider,
+		fetch: params.fetch,
 		includeUsage: true,
 		supportsStructuredOutputs: true,
-		fetch: params.fetch,
+		normalizeStreaming: false,
 	});
 }
 
@@ -78,9 +76,7 @@ function buildProviderOptions(params: {
 		? { strictJsonSchema: params.jsonSchema.strict ?? true }
 		: {};
 	const providerOptions = {
-		...(normalChatOptions.reasoningEffort
-			? { reasoningEffort: normalChatOptions.reasoningEffort }
-			: {}),
+		...normalChatOptions,
 		...schemaOptions,
 	};
 

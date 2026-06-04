@@ -158,6 +158,147 @@ describe("Normal Chat JSON control model sender", () => {
 		]);
 	});
 
+	it("preserves Qwen thinking controls when adding schema-guided JSON options", async () => {
+		mocks.getConfig.mockReturnValue({
+			requestTimeoutMs: 300_000,
+			model1: {
+				baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+				apiKey: "qwen-secret",
+				modelName: "qwen3.6-plus",
+				displayName: "Qwen Cloud",
+				maxTokens: 8192,
+				reasoningEffort: "high",
+				thinkingType: null,
+			},
+			model2: {
+				baseUrl: "",
+				apiKey: "",
+				modelName: "",
+				displayName: "Model Two",
+				maxTokens: null,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+		});
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "qwen3.6-plus",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: JSON.stringify({ ok: true }),
+								},
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+
+		await sendJsonControlMessage("Return JSON", "model1", {
+			systemPrompt: "context-compression",
+			thinkingMode: "on",
+			fetch,
+			jsonSchema: {
+				name: "control_result",
+				strict: true,
+				schema: {
+					type: "object",
+					properties: { ok: { type: "boolean" } },
+					required: ["ok"],
+					additionalProperties: false,
+				},
+			},
+		});
+
+		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		expect(body.enable_thinking).toBe(true);
+		expect(body.preserve_thinking).toBe(true);
+		expect(body).not.toHaveProperty("reasoning_effort");
+		expect(body.response_format).toEqual({
+			type: "json_schema",
+			json_schema: {
+				name: "control_result",
+				strict: true,
+				schema: {
+					type: "object",
+					properties: { ok: { type: "boolean" } },
+					required: ["ok"],
+					additionalProperties: false,
+				},
+			},
+		});
+	});
+
+	it("preserves Kimi thinking controls when thinking is disabled", async () => {
+		mocks.getConfig.mockReturnValue({
+			requestTimeoutMs: 300_000,
+			model1: {
+				baseUrl: "https://api.moonshot.ai/v1",
+				apiKey: "kimi-secret",
+				modelName: "kimi-k2.6",
+				displayName: "Kimi",
+				maxTokens: 8192,
+				reasoningEffort: "medium",
+				thinkingType: "enabled",
+			},
+			model2: {
+				baseUrl: "",
+				apiKey: "",
+				modelName: "",
+				displayName: "Model Two",
+				maxTokens: null,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+		});
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "kimi-k2.6",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: JSON.stringify({ ok: true }),
+								},
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+
+		await sendJsonControlMessage("Return JSON", "model1", {
+			systemPrompt: "context-compression",
+			thinkingMode: "off",
+			fetch,
+		});
+
+		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		expect(body.thinking).toEqual({ type: "disabled" });
+		expect(body).not.toHaveProperty("reasoning_effort");
+		expect(body).not.toHaveProperty("reasoningEffort");
+	});
+
 	it("can opt into reasoning fallback for schema-guided JSON control responses", async () => {
 		const fetch = vi.fn(
 			async () =>

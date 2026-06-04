@@ -1,4 +1,3 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
 	APICallError,
 	type FinishReason,
@@ -33,14 +32,19 @@ import {
 import { listEnabledProviderModels } from "../provider-models";
 import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
-import { createOpenAICompatibleStreamNormalizingFetch } from "./openai-compatible-stream-normalizer";
 import { DEFAULT_MODEL_MAX_RETRIES } from "../normal-chat-model-config";
 import {
 	buildNormalChatModelRunCompatibilityProviderOptions,
-	transformNormalChatModelRunRequestBody,
 } from "./provider-compatibility";
+import { createOpenAICompatibleProviderForNormalChatModelRun } from "./openai-compatible-provider";
+
+export {
+	createOpenAICompatibleProviderForNormalChatModelRun,
+	type NormalChatOpenAICompatibleProviderConfig,
+} from "./openai-compatible-provider";
 
 const DEFAULT_MAX_TOOL_STEPS = 20;
+const DONE_TOOL_NAME = "done";
 
 function toolCallRepairFunction({
 	error,
@@ -103,7 +107,51 @@ function stagnantProgress(): StopCondition<ToolSet> {
 }
 
 function buildToolStopWhen(maxToolSteps: number): StopCondition<ToolSet>[] {
-	return [hasToolCall("done"), stagnantProgress(), stepCountIs(maxToolSteps)];
+	return [
+		hasToolCall(DONE_TOOL_NAME),
+		stagnantProgress(),
+		stepCountIs(maxToolSteps),
+	];
+}
+
+function readDoneToolSummary(input: unknown): string | null {
+	if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+	const summary = (input as Record<string, unknown>).summary;
+	if (typeof summary !== "string") return null;
+	const trimmed = summary.trim();
+	return trimmed ? trimmed : null;
+}
+
+function extractDoneToolSummaryFromCalls(toolCalls: unknown): string | null {
+	if (!Array.isArray(toolCalls)) return null;
+	for (const toolCall of toolCalls) {
+		if (!toolCall || typeof toolCall !== "object" || Array.isArray(toolCall)) {
+			continue;
+		}
+		const record = toolCall as Record<string, unknown>;
+		if (record.toolName !== DONE_TOOL_NAME) continue;
+		const summary = readDoneToolSummary(record.input);
+		if (summary) return summary;
+	}
+	return null;
+}
+
+function extractDoneToolSummary(result: unknown): string | null {
+	if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+	const record = result as Record<string, unknown>;
+
+	const topLevelSummary = extractDoneToolSummaryFromCalls(record.toolCalls);
+	if (topLevelSummary) return topLevelSummary;
+
+	if (!Array.isArray(record.steps)) return null;
+	for (const step of record.steps) {
+		if (!step || typeof step !== "object" || Array.isArray(step)) continue;
+		const summary = extractDoneToolSummaryFromCalls(
+			(step as Record<string, unknown>).toolCalls,
+		);
+		if (summary) return summary;
+	}
+	return null;
 }
 
 type NormalChatReasoningEffort = NonNullable<ModelConfig["reasoningEffort"]>;
@@ -482,18 +530,10 @@ function createNormalChatOpenAICompatibleProvider(params: {
 	provider: NormalChatModelRunProvider;
 	fetch?: typeof fetch;
 }) {
-	const normalizedFetch = createOpenAICompatibleStreamNormalizingFetch(
-		params.fetch,
-	);
-
-	return createOpenAICompatible({
-		name: params.provider.name,
-		apiKey: params.provider.apiKey,
-		baseURL: normalizeOpenAICompatibleBaseUrl(params.provider.baseUrl),
+	return createOpenAICompatibleProviderForNormalChatModelRun({
+		provider: params.provider,
+		fetch: params.fetch,
 		includeUsage: !isCapabilityUnsupported(params.provider, "usageReporting"),
-		transformRequestBody: (body) =>
-			transformNormalChatModelRunRequestBody(body, params.provider),
-		fetch: normalizedFetch,
 	});
 }
 
@@ -648,7 +688,7 @@ export async function runPlainNormalChatModelRun(
 	}
 
 	return {
-		text: result.text,
+		text: result.text || extractDoneToolSummary(result) || "",
 		finishReason: result.finishReason,
 		usage: mapUsage(result.usage),
 		model: modelMetadata(params.provider, result.response.modelId),
@@ -751,6 +791,15 @@ async function* streamStreamingNormalChatModelRun(
 					yield { type: "reasoning_delta", text: part.text! };
 					break;
 				case "tool-call":
+					if (part.toolName === DONE_TOOL_NAME) {
+						const summary = readDoneToolSummary(part.input);
+						if (summary) {
+							eventCounts["text-delta"]++;
+							lastEventType = "text-delta";
+							yield { type: "text_delta", text: summary };
+						}
+						break;
+					}
 					eventCounts["tool-call"]++;
 					lastEventType = part.type;
 					yield {
@@ -761,6 +810,7 @@ async function* streamStreamingNormalChatModelRun(
 					};
 					break;
 				case "tool-result":
+					if (part.toolName === DONE_TOOL_NAME) break;
 					eventCounts["tool-result"]++;
 					lastEventType = part.type;
 					yield {
@@ -771,6 +821,7 @@ async function* streamStreamingNormalChatModelRun(
 					};
 					break;
 				case "tool-error":
+					if (part.toolName === DONE_TOOL_NAME) break;
 					eventCounts["tool-error"]++;
 					lastEventType = part.type;
 					yield {

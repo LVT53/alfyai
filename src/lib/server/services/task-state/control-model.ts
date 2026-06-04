@@ -1,7 +1,6 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError, generateText, Output } from "ai";
 import { getConfig } from "$lib/server/config-store";
-import { normalizeOpenAICompatibleBaseUrl } from "$lib/server/services/openai-compatible-url";
+import { createOpenAICompatibleProviderForNormalChatModelRun } from "$lib/server/services/normal-chat-model/openai-compatible-provider";
 
 /**
  * System prompt for batch classification of persona memory facts.
@@ -148,17 +147,20 @@ export function parseJsonFromModel(
 
 function createContextSummarizerProvider(
 	config: ReturnType<typeof getConfig>,
+	resolvedModelName: string,
 	overrideProvider?: { baseUrl: string; apiKey: string },
 ) {
-	const baseURL = overrideProvider
-		? normalizeOpenAICompatibleBaseUrl(overrideProvider.baseUrl)
-		: normalizeOpenAICompatibleBaseUrl(config.contextSummarizerUrl);
 	const apiKey = overrideProvider?.apiKey || config.contextSummarizerApiKey || undefined;
-	return createOpenAICompatible({
-		name: "context-summarizer",
-		apiKey,
-		baseURL,
+	return createOpenAICompatibleProviderForNormalChatModelRun({
+		provider: {
+			name: "context-summarizer",
+			displayName: "Context Summarizer",
+			baseUrl: overrideProvider?.baseUrl ?? config.contextSummarizerUrl,
+			modelName: resolvedModelName,
+			apiKey,
+		},
 		includeUsage: false,
+		normalizeStreaming: false,
 	});
 }
 
@@ -226,7 +228,11 @@ export async function requestContextSummarizer(params: {
 
 	const config = getConfig();
 	const { resolvedModelName, overrideProvider } = await resolveContextSummarizerModelAndProvider(config);
-	const provider = createContextSummarizerProvider(config, overrideProvider);
+	const provider = createContextSummarizerProvider(
+		config,
+		resolvedModelName,
+		overrideProvider,
+	);
 
 	try {
 		const result = await generateText({
@@ -259,7 +265,11 @@ export async function requestStructuredControlModel<
 
   const config = getConfig();
   const { resolvedModelName, overrideProvider } = await resolveContextSummarizerModelAndProvider(config);
-  const provider = createContextSummarizerProvider(config, overrideProvider);
+  const provider = createContextSummarizerProvider(
+    config,
+    resolvedModelName,
+    overrideProvider,
+  );
 
   try {
     const result = await generateText({

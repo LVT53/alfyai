@@ -1,9 +1,9 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText } from "ai";
 import { db } from "$lib/server/db";
 import { conversationSummaries } from "$lib/server/db/schema";
 import { getConfig } from "$lib/server/config-store";
 import {
+	createOpenAICompatibleProviderForNormalChatModelRun,
 	resolveNormalChatModelRunProvider,
 	type NormalChatModelRunRuntimeConfig,
 } from "$lib/server/services/normal-chat-model";
@@ -12,12 +12,15 @@ import {
 	SUMMARIZER_MAX_TOKENS,
 	SUMMARIZER_TEMPERATURE,
 } from "$lib/server/services/normal-chat-model-config";
-import { normalizeOpenAICompatibleBaseUrl } from "$lib/server/services/openai-compatible-url";
 
 const CHARS_PER_TOKEN = 4;
 const MAX_TOKENS_BEFORE_CHUNKING = 200_000;
 const MAX_CHARS_BEFORE_CHUNKING = MAX_TOKENS_BEFORE_CHUNKING * CHARS_PER_TOKEN;
 const CHUNK_CHARS = 150_000;
+type SummaryOpenAICompatibleProvider = ReturnType<
+	typeof createOpenAICompatibleProviderForNormalChatModelRun
+>;
+type SummaryLanguageModel = ReturnType<SummaryOpenAICompatibleProvider>;
 
 export function estimateChars(
 	messages: { role: string; content: string }[],
@@ -74,7 +77,7 @@ const SUMMARY_SYSTEM_PROMPT = [
 ].join(" ");
 
 async function createSummaryModelProvider(): Promise<{
-	provider: ReturnType<typeof createOpenAICompatible>;
+	provider: SummaryOpenAICompatibleProvider;
 	modelName: string;
 }> {
 	const config = getConfig();
@@ -83,11 +86,10 @@ async function createSummaryModelProvider(): Promise<{
 		config as unknown as NormalChatModelRunRuntimeConfig,
 	);
 
-	const openaiCompatible = createOpenAICompatible({
-		name: modelProvider.name,
-		apiKey: modelProvider.apiKey,
-		baseURL: normalizeOpenAICompatibleBaseUrl(modelProvider.baseUrl),
+	const openaiCompatible = createOpenAICompatibleProviderForNormalChatModelRun({
+		provider: modelProvider,
 		includeUsage: true,
+		normalizeStreaming: false,
 	});
 
 	return {
@@ -126,7 +128,7 @@ export async function summarizeConversation(
 async function summarizeDirect(
 	messages: { role: string; content: string }[],
 	title: string,
-	model: ReturnType<ReturnType<typeof createOpenAICompatible>>,
+	model: SummaryLanguageModel,
 ): Promise<string> {
 	const formatted = formatMessagesForPrompt(messages);
 
@@ -150,7 +152,7 @@ async function summarizeDirect(
 async function summarizeWithChunking(
 	messages: { role: string; content: string }[],
 	title: string,
-	model: ReturnType<ReturnType<typeof createOpenAICompatible>>,
+	model: SummaryLanguageModel,
 ): Promise<string> {
 	const chunks = chunkMessages(messages);
 
@@ -195,7 +197,7 @@ const COMBINE_SYSTEM_PROMPT = [
 async function combineChunkSummaries(
 	chunkSummaries: string[],
 	title: string,
-	model: ReturnType<ReturnType<typeof createOpenAICompatible>>,
+	model: SummaryLanguageModel,
 ): Promise<string> {
 	const combined = chunkSummaries
 		.map((summary, i) => `Summary part ${i + 1}:\n${summary}`)

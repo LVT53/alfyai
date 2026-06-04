@@ -1,15 +1,14 @@
 // src/lib/server/services/title-generator.ts
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError, generateText } from "ai";
 import { getConfig } from "../config-store";
 import { normalizeAssistantOutput } from "./chat-turn/normalizer";
 import { detectLanguage } from "./language";
+import { createOpenAICompatibleProviderForNormalChatModelRun } from "./normal-chat-model/openai-compatible-provider";
 import {
 	DEFAULT_MODEL_MAX_RETRIES,
 	TITLE_GEN_MAX_TOKENS,
 	TITLE_GEN_TEMPERATURE,
 } from "./normal-chat-model-config";
-import { normalizeOpenAICompatibleBaseUrl } from "./openai-compatible-url";
 
 function createTitleGenProvider(
 	config: ReturnType<typeof getConfig>,
@@ -17,15 +16,18 @@ function createTitleGenProvider(
 	overrideProvider?: { baseUrl: string; apiKey: string; modelName: string },
 ) {
 	const qwenThinkingOff = { enable_thinking: false };
-	const baseURL = overrideProvider
-		? normalizeOpenAICompatibleBaseUrl(overrideProvider.baseUrl)
-		: normalizeOpenAICompatibleBaseUrl(config.titleGenUrl);
 	const apiKey = overrideProvider?.apiKey || config.titleGenApiKey || undefined;
-	return createOpenAICompatible({
-		name: "title-gen",
-		apiKey,
-		baseURL,
+	const modelName = overrideProvider?.modelName ?? config.titleGenModel;
+	return createOpenAICompatibleProviderForNormalChatModelRun({
+		provider: {
+			name: "title-gen",
+			displayName: "Title Generation",
+			baseUrl: overrideProvider?.baseUrl ?? config.titleGenUrl,
+			modelName,
+			apiKey,
+		},
 		includeUsage: false,
+		normalizeStreaming: false,
 		transformRequestBody: includeVllmControls
 			? (args: Record<string, unknown>) => ({
 					...args,

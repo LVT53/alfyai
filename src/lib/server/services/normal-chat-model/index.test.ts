@@ -1303,6 +1303,80 @@ describe("Plain Normal Chat Model Run", () => {
 			]),
 		);
 	});
+
+	it("uses a done tool summary as the plain assistant text", async () => {
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: null,
+									tool_calls: [
+										{
+											id: "call-done",
+											type: "function",
+											function: {
+												name: "done",
+												arguments: JSON.stringify({
+													summary: "Finished.",
+												}),
+											},
+										},
+									],
+								},
+								finish_reason: "tool_calls",
+							},
+						],
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+
+		const result = await runPlainNormalChatModelRun({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Wrap this up" }],
+				},
+			],
+			tools: {
+				done: tool({
+					description: "Finish the assistant response.",
+					inputSchema: z.object({
+						summary: z.string(),
+					}),
+				}),
+			},
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(result.text).toBe("Finished.");
+		expect(fetch).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe("Streaming Normal Chat Model Run", () => {
@@ -1677,6 +1751,71 @@ describe("Streaming Normal Chat Model Run", () => {
 				}),
 			]),
 		);
+	});
+
+	it("emits a done tool summary as assistant text without a neutral tool event", async () => {
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					[
+						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-done","type":"function","function":{"name":"done","arguments":"{\\"summary\\":\\"Finished.\\"}"}}]},"finish_reason":null}]}',
+						"",
+						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}',
+						"",
+						"data: [DONE]",
+						"",
+					].join("\n"),
+					{
+						status: 200,
+						headers: { "Content-Type": "text/event-stream" },
+					},
+				),
+		);
+
+		const events = [];
+		for await (const event of runStreamingNormalChatModelRun({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Wrap this up" }],
+				},
+			],
+			tools: {
+				done: tool({
+					description: "Finish the assistant response.",
+					inputSchema: z.object({
+						summary: z.string(),
+					}),
+				}),
+			},
+			fetch,
+			maxRetries: 0,
+		})) {
+			events.push(event);
+		}
+
+		expect(events).toContainEqual({ type: "text_delta", text: "Finished." });
+		expect(events).not.toContainEqual(
+			expect.objectContaining({
+				type: "tool_call",
+				toolName: "done",
+			}),
+		);
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				type: "finish",
+				finishReason: "tool-calls",
+			}),
+		);
+		expect(fetch).toHaveBeenCalledTimes(1);
 	});
 
 	it("sends named tool choice for required streaming tool runs", async () => {
