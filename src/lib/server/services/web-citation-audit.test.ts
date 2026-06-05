@@ -157,6 +157,26 @@ describe("applyWebCitationQualityGate", () => {
 		expect(result.response).not.toContain("https://example.com/product");
 	});
 
+	it("appends a source-failure notice when zero-source web research is followed by a citation", () => {
+		const result = applyWebCitationQualityGate({
+			assistantResponse:
+				"Reuters says this is current: https://www.reuters.com/world/example.",
+			toolCalls: [researchTool([])],
+		});
+
+		expect(result.audit).toMatchObject({
+			status: "unsupported_citations",
+			retrievedSourceCount: 0,
+			citedUrlCount: 1,
+			unsupportedCitationCount: 1,
+			noticeAppended: true,
+		});
+		expect(result.appendedNotice).toContain("returned no retrievable sources");
+		expect(result.response).toContain(
+			"were not verified by the web research tool",
+		);
+	});
+
 	it("leaves clean citations unchanged", () => {
 		const response = "See [official page](https://example.com/product).";
 		const result = applyWebCitationQualityGate({

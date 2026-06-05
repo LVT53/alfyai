@@ -89,6 +89,11 @@ export function encryptApiKey(plaintext: string): {
 }
 
 export function decryptApiKey(encrypted: string, iv: string): string {
+	if (!iv) {
+		// Older/manual provider rows may store an unauthenticated local endpoint token
+		// directly in api_key_encrypted with an empty IV. Keep those rows runnable.
+		return encrypted;
+	}
 	const sessionSecret = config.sessionSecret;
 	const key = deriveEncryptionKey(sessionSecret);
 	const ivBuffer = Buffer.from(iv, "base64");

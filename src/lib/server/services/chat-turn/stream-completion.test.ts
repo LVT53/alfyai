@@ -546,6 +546,49 @@ describe("completeStreamTurn", () => {
 		warnSpy.mockRestore();
 	});
 
+	it("persists a source-failure notice when zero-source web research is followed by a citation", async () => {
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await completeStreamTurn({
+			...defaultParams,
+			fullResponse:
+				"Reuters says this is current: https://www.reuters.com/world/example.",
+			toolCallRecords: [
+				{
+					name: "research_web",
+					input: { query: "current reuters headline" },
+					status: "done",
+					sourceType: "web",
+					candidates: [],
+				},
+			],
+		});
+
+		const noticeCall = mockEnqueueChunk.mock.calls.find((call: string[]) =>
+			call[0]?.includes("returned no retrievable sources"),
+		);
+		expect(noticeCall).toBeDefined();
+		const assistantCreateCall = mockCreateMessage.mock.calls.find(
+			(call: unknown[]) => call[1] === "assistant",
+		);
+		expect(assistantCreateCall?.[2]).toContain(
+			"were not verified by the web research tool",
+		);
+		expect(mockPersistAssistantEvidence).toHaveBeenCalledWith(
+			expect.objectContaining({
+				webCitationAudit: expect.objectContaining({
+					status: "unsupported_citations",
+					retrievedSourceCount: 0,
+					citedUrlCount: 1,
+					unsupportedCitationCount: 1,
+					noticeAppended: true,
+				}),
+			}),
+		);
+
+		warnSpy.mockRestore();
+	});
+
 	it("runs post-turn tasks after persistence", async () => {
 		await completeStreamTurn(defaultParams);
 

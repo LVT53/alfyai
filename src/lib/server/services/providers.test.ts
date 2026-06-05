@@ -67,6 +67,11 @@ describe("encryptApiKey / decryptApiKey", () => {
 		expect(decrypted).toBe(original);
 	});
 
+	it("accepts legacy plaintext provider API keys stored without an IV", async () => {
+		const { decryptApiKey } = await import("./providers");
+		expect(decryptApiKey("legacy-local-token", "")).toBe("legacy-local-token");
+	});
+
 	it("produces unique ciphertexts for the same plaintext", async () => {
 		const { encryptApiKey } = await import("./providers");
 		const key = "same-key";

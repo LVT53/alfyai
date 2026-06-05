@@ -116,12 +116,15 @@ function buildQualityNotice(params: {
 	audit: WebCitationAudit;
 	sources: GroundedWebCitationSource[];
 }): string | null {
-	if (params.sources.length === 0) return null;
 	if (
 		params.audit.status !== "missing_citations" &&
 		params.audit.status !== "unsupported_citations"
 	) {
 		return null;
+	}
+
+	if (params.sources.length === 0) {
+		return "Source check: I attempted web research, but the tool returned no retrievable sources. Any links in the generated answer were not verified by the web research tool, so I cannot treat them as source-backed citations.";
 	}
 
 	if (params.audit.status === "missing_citations") {
@@ -143,7 +146,9 @@ export function applyWebCitationQualityGate(params: {
 }): WebCitationQualityGateResult {
 	const toolCalls = params.toolCalls ?? [];
 	const sources = extractGroundedWebCitationSources(toolCalls);
-	const citationUrls = extractAssistantWebCitationUrls(params.assistantResponse);
+	const citationUrls = extractAssistantWebCitationUrls(
+		params.assistantResponse,
+	);
 	const audit = buildAuditFromParts({ sources, citationUrls });
 	const unchanged = {
 		response: params.assistantResponse,

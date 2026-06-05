@@ -117,6 +117,52 @@ describe("Normal Chat Model Run provider resolution", () => {
 		);
 	});
 
+	it("resolves a composite provider model ID to the selected provider model row", async () => {
+		mocks.listEnabledProviderModels.mockResolvedValue([
+			{
+				id: "model-a",
+				name: "accounts/fireworks/models/other",
+				displayName: "Other Model",
+				maxTokens: 2048,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+			{
+				id: "model-b",
+				name: "qwen3-6-35b",
+				displayName: "Qwen 3.6 35B",
+				maxTokens: 24576,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+		]);
+		mocks.decryptApiKey.mockReturnValue("plain-secret");
+		mocks.getProviderWithSecrets.mockResolvedValue({
+			id: "provider-1",
+			name: "model2",
+			displayName: "AlfyAI 5000",
+			baseUrl: "http://192.168.1.96:30000/v1",
+			apiKeyEncrypted: "legacy-local-token",
+			apiKeyIv: "",
+			enabled: true,
+		});
+
+		await expect(
+			resolveNormalChatModelRunProvider("provider:provider-1:model-b"),
+		).resolves.toMatchObject({
+			id: "provider-1",
+			modelId: "provider:provider-1:model-b",
+			name: "model2",
+			displayName: "Qwen 3.6 35B",
+			baseUrl: "http://192.168.1.96:30000/v1",
+			modelName: "qwen3-6-35b",
+			apiKey: "plain-secret",
+			maxOutputTokens: 24576,
+		});
+		expect(mocks.getProviderByName).not.toHaveBeenCalled();
+		expect(mocks.decryptApiKey).toHaveBeenCalledWith("legacy-local-token", "");
+	});
+
 	it("projects provider model runtime context defaults into the model-run provider", async () => {
 		mocks.getProviderByName.mockResolvedValue({
 			id: "provider-1",
