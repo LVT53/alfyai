@@ -775,7 +775,7 @@ function createDirectUrlSources(params: {
 				provider: "direct",
 				title: `User-provided page: ${hostOf(url) || url}`,
 				url,
-				snippet: "User-provided URL to inspect directly.",
+				snippet: null,
 				highlights: [],
 				text: null,
 				score: 100,
@@ -1281,6 +1281,7 @@ function htmlToReadableText(html: string): string {
 		.replace(/<script\b[\s\S]*?<\/script>/gi, " ")
 		.replace(/<style\b[\s\S]*?<\/style>/gi, " ")
 		.replace(/<noscript\b[\s\S]*?<\/noscript>/gi, " ")
+		.replace(/<pre\b[\s\S]*?<\/pre>/gi, " ")
 		.replace(/<svg\b[\s\S]*?<\/svg>/gi, " ");
 	const withBreaks = withoutNonContent
 		.replace(
@@ -1986,7 +1987,7 @@ export async function researchWeb(
 		deps.sourceRerank ?? rerankItems<ResearchSource>,
 	);
 	diagnostics.sourceReranked = sourceRanked.reranked;
-	const selectedSources = selectResearchSources(
+	let selectedSources = selectResearchSources(
 		sourceRanked.sources,
 		normalized,
 		{
@@ -2028,6 +2029,15 @@ export async function researchWeb(
 		if (selectedSources.length > 0 && opened.size === 0) {
 			diagnostics.fallbackReasons.push("page_open_failed");
 		}
+		const failedDirectUrlSources = selectedSources.filter(
+			(source) =>
+				mandatoryCanonicalUrls.has(source.canonicalUrl) &&
+				source.provider === "direct" &&
+				!opened.has(source.canonicalUrl),
+		);
+		if (failedDirectUrlSources.length > 0) {
+			diagnostics.fallbackReasons.push("direct_url_open_failed");
+		}
 		for (const source of selectedSources) {
 			const openedContent = opened.get(source.canonicalUrl);
 			if (!openedContent) continue;
@@ -2043,6 +2053,21 @@ export async function researchWeb(
 				...source.highlights,
 			].slice(0, 8);
 		}
+		selectedSources = selectedSources.filter((source) => {
+			if (
+				!mandatoryCanonicalUrls.has(source.canonicalUrl) ||
+				source.provider !== "direct" ||
+				opened.has(source.canonicalUrl)
+			) {
+				return true;
+			}
+			return Boolean(
+				source.text?.trim() ||
+					source.snippet?.trim() ||
+					source.highlights.some((highlight) => highlight.trim()),
+			);
+		});
+		diagnostics.selectedSourceCount = selectedSources.length;
 	}
 
 	const youtubeTranscriptResult = await enrichYouTubeTranscriptSources({

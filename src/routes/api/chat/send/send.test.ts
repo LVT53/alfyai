@@ -732,6 +732,74 @@ describe("POST /api/chat/send", () => {
 		);
 	});
 
+	it("returns the same citation-gated web text that it persists", async () => {
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		mockCreateMessage
+			.mockResolvedValueOnce({
+				id: "user-msg",
+				role: "user",
+				content: "Check the current docs",
+				timestamp: Date.now(),
+			})
+			.mockResolvedValueOnce({
+				id: "assistant-msg",
+				role: "assistant",
+				content: "Grounded answer without links",
+				timestamp: Date.now(),
+			});
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			text: "Grounded answer without links",
+			rawResponse: {},
+			contextStatus: undefined,
+			modelId: "model1",
+			modelDisplayName: "Model 1",
+			toolCalls: [
+				{
+					callId: "call-web",
+					name: "research_web",
+					input: { query: "Check the current docs" },
+					status: "done",
+					outputSummary: "Found 1 source.",
+					sourceType: "web",
+					candidates: [
+						{
+							id: "source-1",
+							title: "Current Docs",
+							url: "https://example.com/docs",
+							snippet: "Current documentation excerpt",
+							sourceType: "web",
+							material: true,
+						},
+					],
+				},
+			],
+		});
+
+		const response = await POST(
+			makeEvent({ message: "Check the current docs", conversationId: "conv-1" }),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.response.text).toContain("Grounded answer without links");
+		expect(data.response.text).toContain(
+			"Source check: I used web research for this answer",
+		);
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			data.response.text,
+			undefined,
+			undefined,
+			expect.any(Object),
+		);
+	});
+
 	it("returns project folder awareness in send metadata and degrades lookup failures", async () => {
 		const conversation = {
 			id: "conv-1",

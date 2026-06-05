@@ -477,6 +477,91 @@ describe("researchWeb with SearXNG", () => {
 		);
 	});
 
+	it("prefers readable page prose over leading code blocks from pasted URLs", async () => {
+		const directUrl = "https://docs.example.com/tools";
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			expect(input.toString()).toBe(directUrl);
+			return htmlResponse(`
+				<html>
+					<head><title>Tool Calling Docs</title></head>
+					<body>
+						<main>
+							<pre><code>
+								const random = () => Math.floor(Math.random() * 21) - 10;
+								tool({ inputSchema, execute: async () => ({ value: 15 }) });
+							</code></pre>
+							<article>
+								<h1>Tool Calling</h1>
+								<p>Tool calling lets a model request a typed server-side function and then use the returned result in its final answer.</p>
+								<p>The execute callback should return compact, citation-ready evidence rather than raw internal data.</p>
+							</article>
+						</main>
+					</body>
+				</html>
+			`);
+		});
+
+		const result = await researchWeb(
+			{
+				query: `Summarize tool calling from ${directUrl}`,
+				mode: "exact",
+				sourcePolicy: "technical",
+				maxSources: 1,
+			},
+			{
+				config: { ...webConfig, searxngBaseUrl: "" },
+				fetch: fetchMock,
+				now: new Date("2026-05-02T12:00:00.000Z"),
+			},
+		);
+
+		expect(result.diagnostics.openedPageCount).toBe(1);
+		expect(result.evidence[0]?.quote).toContain(
+			"Tool calling lets a model request a typed server-side function",
+		);
+		expect(result.evidence[0]?.quote).not.toContain("Math.random");
+	});
+
+	it("does not turn an unfetchable pasted URL into fake evidence", async () => {
+		const directUrl = "https://shop.example.com/products/widget-pro";
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			expect(input.toString()).toBe(directUrl);
+			return new Response("Forbidden", {
+				status: 403,
+				statusText: "Forbidden",
+				headers: { "Content-Type": "text/plain" },
+			});
+		});
+
+		const result = await researchWeb(
+			{
+				query: `What price is shown on ${directUrl}?`,
+				maxSources: 1,
+			},
+			{
+				config: { ...webConfig, searxngBaseUrl: "" },
+				fetch: fetchMock,
+				now: new Date("2026-05-02T12:00:00.000Z"),
+			},
+		);
+
+		expect(result.diagnostics.directUrlCount).toBe(1);
+		expect(result.diagnostics.openedPageCount).toBe(0);
+		expect(result.diagnostics.fallbackReasons).toContain("page_open_failed");
+		expect(result.diagnostics.fallbackReasons).toContain(
+			"direct_url_open_failed",
+		);
+		expect(result.sources).toHaveLength(0);
+		expect(result.evidence).toHaveLength(0);
+		expect(result.answerBrief.markdown).toContain("Sources: none returned.");
+		expect(result.answerBrief.markdown).toContain(
+			"Evidence snippets: none returned.",
+		);
+		expect(result.answerBrief.markdown).not.toContain(
+			"User-provided URL to inspect directly",
+		);
+	});
+
 	it("blocks user-provided local network URLs before server-side fetch", async () => {
 		const fetchMock = vi.fn(async () =>
 			htmlResponse("<html><body>internal admin page</body></html>"),

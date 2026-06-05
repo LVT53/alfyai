@@ -322,7 +322,7 @@ export const POST: RequestHandler = async (event) => {
 						conversationId: turn.conversationId,
 						assistantMessageId,
 						fileIds: newGeneratedFileIds,
-						assistantResponse: responseText,
+						assistantResponse: finalResponseText,
 					}).catch((error) => {
 						console.error(
 							"[CHAT_SEND] Background generated-file memory sync failed",
@@ -351,7 +351,7 @@ export const POST: RequestHandler = async (event) => {
 		void completion.createPostTurnTask();
 
 		return json({
-			response: { text: responseText },
+			response: { text: finalResponseText },
 			conversationId: turn.conversationId,
 			contextStatus,
 			contextSources: completion.contextSources,

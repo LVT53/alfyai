@@ -322,10 +322,8 @@ export async function resolveNormalChatModelRunProvider(
 		return builtinModelRunProvider(modelId, runtimeConfig[modelId]);
 	}
 
-	try {
-		const newProvider = await resolveBuiltinFromNewProvidersTable(modelId);
-		if (newProvider) return newProvider;
-	} catch {}
+	const newProvider = await resolveBuiltinFromNewProvidersTable(modelId);
+	if (newProvider) return newProvider;
 
 	throw new Error(`Normal Chat Model Run provider not found: ${modelId}`);
 }
@@ -333,47 +331,43 @@ export async function resolveNormalChatModelRunProvider(
 async function resolveBuiltinFromNewProvidersTable(
 	name: string,
 ): Promise<NormalChatModelRunProvider | null> {
-	try {
-		// Handle composite ID format: provider:<provider-uuid>:<model-uuid>
-		let provider: Awaited<ReturnType<typeof getProviderWithSecrets>> | null =
-			null;
-		if (name.startsWith("provider:") && name.split(":").length >= 3) {
-			const parts = name.split(":");
-			const providerId = parts[1];
-			const modelId = parts[2];
-			provider = await getProviderWithSecrets(providerId).catch(() => null);
-			if (provider && provider.enabled) {
-				const models = await listEnabledProviderModels(provider.id);
-				const model = models.find((m) => m.id === modelId);
-				if (!model) return null;
-				return buildProviderModelRunConfig(
-					provider,
-					model,
-					providerModelRunId(provider.id, model),
-				);
-			}
-			return null;
+	// Handle composite ID format: provider:<provider-uuid>:<model-uuid>
+	let provider: Awaited<ReturnType<typeof getProviderWithSecrets>> | null =
+		null;
+	if (name.startsWith("provider:") && name.split(":").length >= 3) {
+		const parts = name.split(":");
+		const providerId = parts[1];
+		const modelId = parts[2];
+		provider = await getProviderWithSecrets(providerId);
+		if (provider && provider.enabled) {
+			const models = await listEnabledProviderModels(provider.id);
+			const model = models.find((m) => m.id === modelId);
+			if (!model) return null;
+			return buildProviderModelRunConfig(
+				provider,
+				model,
+				providerModelRunId(provider.id, model),
+			);
 		}
-
-		// Legacy format: provider:<provider-name> or bare name
-		provider = await getProviderByName(name).catch(() => null);
-		if (!provider || !provider.enabled) return null;
-
-		const models = await listEnabledProviderModels(provider.id);
-		const model = models[0];
-		if (!model) return null;
-
-		const providerWithSecrets = await getProviderWithSecrets(provider.id);
-		if (!providerWithSecrets) return null;
-
-		return buildProviderModelRunConfig(
-			providerWithSecrets,
-			model,
-			providerModelRunId(providerWithSecrets.id, model),
-		);
-	} catch {
 		return null;
 	}
+
+	// Legacy format: provider:<provider-name> or bare name
+	provider = await getProviderByName(name);
+	if (!provider || !provider.enabled) return null;
+
+	const models = await listEnabledProviderModels(provider.id);
+	const model = models[0];
+	if (!model) return null;
+
+	const providerWithSecrets = await getProviderWithSecrets(provider.id);
+	if (!providerWithSecrets) return null;
+
+	return buildProviderModelRunConfig(
+		providerWithSecrets,
+		model,
+		providerModelRunId(providerWithSecrets.id, model),
+	);
 }
 
 function providerModelRunId(
@@ -1117,20 +1111,6 @@ async function* streamStreamingNormalChatModelRunAttempt(
 
 	let responseModelName = params.provider.modelName;
 
-	let eventCounts: Record<string, number> = {
-		"text-delta": 0,
-		"reasoning-delta": 0,
-		"tool-call": 0,
-		"tool-result": 0,
-		"tool-error": 0,
-		"finish-step": 0,
-		finish: 0,
-		usage: 0,
-		error: 0,
-		other: 0,
-	};
-	let lastEventType = "";
-
 	const yieldStreamEvents = async function* (
 		fullStream: AsyncIterable<unknown>,
 	): AsyncGenerator<StreamingNormalChatModelRunEvent, void, undefined> {
@@ -1149,27 +1129,19 @@ async function* streamStreamingNormalChatModelRunAttempt(
 		}>) {
 			switch (part.type) {
 				case "text-delta":
-					eventCounts["text-delta"]++;
-					lastEventType = part.type;
 					yield { type: "text_delta", text: part.text! };
 					break;
 				case "reasoning-delta":
-					eventCounts["reasoning-delta"]++;
-					lastEventType = part.type;
 					yield { type: "reasoning_delta", text: part.text! };
 					break;
 				case "tool-call":
 					if (part.toolName === DONE_TOOL_NAME) {
 						const summary = readDoneToolSummary(part.input);
 						if (summary) {
-							eventCounts["text-delta"]++;
-							lastEventType = "text-delta";
 							yield { type: "text_delta", text: summary };
 						}
 						break;
 					}
-					eventCounts["tool-call"]++;
-					lastEventType = part.type;
 					yield {
 						type: "tool_call",
 						callId: part.toolCallId!,
@@ -1179,8 +1151,6 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					break;
 				case "tool-result":
 					if (part.toolName === DONE_TOOL_NAME) break;
-					eventCounts["tool-result"]++;
-					lastEventType = part.type;
 					yield {
 						type: "tool_result",
 						callId: part.toolCallId!,
@@ -1190,8 +1160,6 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					break;
 				case "tool-error":
 					if (part.toolName === DONE_TOOL_NAME) break;
-					eventCounts["tool-error"]++;
-					lastEventType = part.type;
 					yield {
 						type: "tool_error",
 						callId: part.toolCallId!,
@@ -1200,37 +1168,13 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					};
 					break;
 				case "finish-step":
-					eventCounts["finish-step"]++;
-					lastEventType = part.type;
 					responseModelName = part.response.modelId;
 					break;
 				case "finish":
-					eventCounts["finish"]++;
-					lastEventType = part.type;
 					yield {
 						type: "usage",
 						usage: mapUsage(part.totalUsage),
 					};
-					eventCounts["usage"]++;
-					console.warn(
-						"[DEBUG-diagnose-stream] normal-chat-model finish event",
-						{
-							providerId: params.provider.id,
-							modelName: params.provider.modelName,
-							finishReason: part.finishReason,
-							rawFinishReason: part.rawFinishReason,
-							responseModelName,
-							totalUsage: part.totalUsage
-								? {
-										inputTokens: part.totalUsage.inputTokens,
-										outputTokens: part.totalUsage.outputTokens,
-										totalTokens: part.totalUsage.totalTokens,
-									}
-								: null,
-							lastEventType,
-							eventCounts,
-						},
-					);
 					yield {
 						type: "finish",
 						finishReason: part.finishReason,
@@ -1243,21 +1187,9 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					};
 					break;
 				case "error":
-					eventCounts["error"]++;
-					lastEventType = part.type;
-					console.warn(
-						"[DEBUG-diagnose-stream] normal-chat-model error event",
-						{
-							providerId: params.provider.id,
-							errorMessage: errorMessage(part.error),
-							eventCounts,
-						},
-					);
 					yield { type: "error", error: errorMessage(part.error) };
 					break;
 				default:
-					eventCounts["other"]++;
-					lastEventType = part.type;
 					break;
 			}
 		}
@@ -1282,32 +1214,12 @@ async function* streamStreamingNormalChatModelRunAttempt(
 
 			// Reset stream state before retry without tools
 			responseModelName = params.provider.modelName;
-			eventCounts = {
-				"text-delta": 0,
-				"reasoning-delta": 0,
-				"tool-call": 0,
-				"tool-result": 0,
-				"tool-error": 0,
-				"finish-step": 0,
-				finish: 0,
-				usage: 0,
-				error: 0,
-				other: 0,
-			};
-			lastEventType = "";
 
 			yield* yieldStreamEvents(
 				streamText(buildStreamConfig(undefined, undefined)).fullStream,
 			);
 		}
 	} catch (error) {
-		console.warn("[DEBUG-diagnose-stream] normal-chat-model stream catch", {
-			providerId: params.provider.id,
-			errorName: error instanceof Error ? error.name : undefined,
-			errorMessage: error instanceof Error ? error.message : String(error),
-			eventCounts,
-			lastEventType,
-		});
 		yield { type: "error", error: errorMessage(error) };
 	}
 }

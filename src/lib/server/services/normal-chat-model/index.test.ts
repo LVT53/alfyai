@@ -32,6 +32,8 @@ describe("Normal Chat Model Run provider resolution", () => {
 	beforeEach(() => {
 		mocks.getProviderByName.mockReset();
 		mocks.listEnabledProviderModels.mockReset();
+		mocks.getProviderWithSecrets.mockReset();
+		mocks.decryptApiKey.mockReset();
 		mocks.getProviderByName.mockResolvedValue(null);
 	});
 
@@ -161,6 +163,93 @@ describe("Normal Chat Model Run provider resolution", () => {
 		});
 		expect(mocks.getProviderByName).not.toHaveBeenCalled();
 		expect(mocks.decryptApiKey).toHaveBeenCalledWith("legacy-local-token", "");
+	});
+
+	it("does not fall back to runtime config when a DB-backed built-in provider secret is invalid", async () => {
+		mocks.getProviderByName.mockResolvedValue({
+			id: "provider-1",
+			name: "model1",
+			displayName: "Primary",
+			baseUrl: "https://primary.example/v1",
+			enabled: true,
+		});
+		mocks.listEnabledProviderModels.mockResolvedValue([
+			{
+				id: "model-a",
+				name: "deepseek-v4-pro",
+				displayName: "DeepSeek V4 Pro",
+				maxTokens: 8192,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+		]);
+		mocks.getProviderWithSecrets.mockResolvedValue({
+			id: "provider-1",
+			name: "model1",
+			displayName: "Primary",
+			baseUrl: "https://primary.example/v1",
+			apiKeyEncrypted: "bad-secret",
+			apiKeyIv: "iv",
+			enabled: true,
+		});
+		mocks.decryptApiKey.mockImplementation(() => {
+			throw new Error("bad decrypt");
+		});
+
+		await expect(
+			resolveNormalChatModelRunProvider("model1", {
+				model1: {
+					baseUrl: "https://fallback.example/v1",
+					apiKey: "fallback-secret",
+					modelName: "fallback-model",
+					displayName: "Fallback Model",
+					maxTokens: 4096,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://unused.example/v1",
+					apiKey: "unused",
+					modelName: "unused",
+					displayName: "Unused",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			}),
+		).rejects.toThrow("bad decrypt");
+	});
+
+	it("surfaces composite provider secret failures instead of reporting a generic missing provider", async () => {
+		mocks.listEnabledProviderModels.mockResolvedValue([
+			{
+				id: "deepseek-model",
+				name: "deepseek-v4-pro",
+				displayName: "DeepSeek V4 Pro",
+				maxTokens: 8192,
+				reasoningEffort: "high",
+				thinkingType: null,
+			},
+		]);
+		mocks.getProviderWithSecrets.mockResolvedValue({
+			id: "deepseek-provider",
+			name: "deepseek",
+			displayName: "DeepSeek",
+			baseUrl: "https://api.deepseek.com/v1",
+			apiKeyEncrypted: "bad-secret",
+			apiKeyIv: "iv",
+			enabled: true,
+		});
+		mocks.decryptApiKey.mockImplementation(() => {
+			throw new Error("bad decrypt");
+		});
+
+		await expect(
+			resolveNormalChatModelRunProvider(
+				"provider:deepseek-provider:deepseek-model",
+			),
+		).rejects.toThrow("bad decrypt");
+		expect(mocks.getProviderByName).not.toHaveBeenCalled();
 	});
 
 	it("projects provider model runtime context defaults into the model-run provider", async () => {

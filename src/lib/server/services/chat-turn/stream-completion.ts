@@ -1,3 +1,4 @@
+import type { FinishReason } from "ai";
 import { getConfig } from "$lib/server/config-store";
 import {
 	buildChatTurnCompletionContextSources,
@@ -9,10 +10,10 @@ import {
 } from "$lib/server/services/context-compression";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
 import type {
+	ChatGeneratedFile,
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
-	ChatGeneratedFile,
 	LinkedContextSource,
 	ToolCallEntry,
 	WebCitationAudit,
@@ -70,6 +71,9 @@ export interface CompleteStreamTurnParams {
 	latestHonchoSnapshot: unknown;
 	latestContextTraceSections?: LegacyContextTraceSectionInput[];
 	latestProviderUsage: unknown;
+	upstreamFinishReason?: FinishReason | null;
+	upstreamRawFinishReason?: string | null;
+	streamClosedWithoutFinish?: boolean;
 	initialContextStatus: unknown;
 	initialTaskState: unknown;
 	initialContextDebug: unknown;
@@ -103,9 +107,9 @@ export interface CompleteStreamTurnParams {
 		assistantMessageId: string;
 		analytics: {
 			model: string;
-	modelDisplayName: string | null;
-	providerDisplayName?: string | null;
-	providerIconUrl?: string | null;
+			modelDisplayName: string | null;
+			providerDisplayName?: string | null;
+			providerIconUrl?: string | null;
 			promptTokens: number;
 			completionTokens: number;
 			reasoningTokens: number;
@@ -218,6 +222,9 @@ export async function completeStreamTurn(
 		latestHonchoSnapshot,
 		latestContextTraceSections,
 		latestProviderUsage,
+		upstreamFinishReason = "stop",
+		upstreamRawFinishReason = null,
+		streamClosedWithoutFinish = false,
 		initialTaskState,
 		initialContextDebug,
 		initialContextTraceSections,
@@ -238,20 +245,48 @@ export async function completeStreamTurn(
 		estimateTokenCount,
 	} = params;
 
+	const fileProductionFailureNotice = wasStopped
+		? null
+		: buildFileProductionFailureNotice(toolCallRecords);
+	const completionWarning = wasStopped
+		? null
+		: buildCompletionWarning({
+				upstreamFinishReason,
+				upstreamRawFinishReason,
+				streamClosedWithoutFinish,
+			});
+	const completionNotices = [
+		fileProductionFailureNotice,
+		completionWarning,
+	].filter((notice): notice is string => Boolean(notice));
+	const responseBeforeCitationNotice = appendNotices(
+		fullResponse,
+		completionNotices,
+	);
 	const citationGate = wasStopped
 		? null
 		: applyWebCitationQualityGate({
-				assistantResponse: fullResponse,
+				assistantResponse: responseBeforeCitationNotice,
 				toolCalls: toolCallRecords,
 			});
-	const finalResponse = citationGate?.response ?? fullResponse;
+	const finalResponse = citationGate?.response ?? responseBeforeCitationNotice;
 	const skillControl = wasStopped
 		? { operations: [] }
 		: skillControlEnabled
 			? parseSkillControlEnvelopePayloads(skillControlEnvelopePayloads)
 			: { operations: [] };
-	if (citationGate?.appendedNotice) {
+	if (completionNotices.length > 0) {
 		if (!fullResponse) {
+			enqueueChunk(streamTextStartEvent());
+		}
+		enqueueChunk(
+			streamTextDeltaEvent(
+				`${fullResponse.trim() ? "\n\n" : ""}${completionNotices.join("\n\n")}`,
+			),
+		);
+	}
+	if (citationGate?.appendedNotice) {
+		if (!responseBeforeCitationNotice) {
 			enqueueChunk(streamTextStartEvent());
 		}
 		enqueueChunk(streamTextDeltaEvent(`\n\n${citationGate.appendedNotice}`));
@@ -414,6 +449,14 @@ export async function completeStreamTurn(
 				totalTokenCount,
 				thinking: thinkingContent || undefined,
 				wasStopped,
+				...(completionWarning
+					? {
+							completionWarning,
+							upstreamFinishReason,
+							upstreamRawFinishReason: upstreamRawFinishReason ?? undefined,
+						}
+					: {}),
+				...(streamClosedWithoutFinish ? { streamClosedWithoutFinish } : {}),
 				userMessageId: userMsgId,
 				assistantMessageId: assistantMsgId,
 				modelId,
@@ -429,7 +472,11 @@ export async function completeStreamTurn(
 				contextCompressionSnapshots,
 			}),
 		);
-		enqueueChunk(streamFinishEvent("stop"));
+		enqueueChunk(
+			streamFinishEvent(
+				streamClosedWithoutFinish ? "error" : (upstreamFinishReason ?? "stop"),
+			),
+		);
 		enqueueChunk(createUiMessageStreamDoneFrame());
 		touchConversation(userId, conversationId).catch(() => undefined);
 		if (streamId) clearStreamBuffer(streamId);
@@ -457,6 +504,14 @@ export async function completeStreamTurn(
 				providerDisplayName: params.providerDisplayName,
 				providerIconUrl: params.providerIconUrl,
 				...(wasStopped ? { wasStopped: true } : {}),
+				...(completionWarning
+					? {
+							completionWarning,
+							upstreamFinishReason,
+							upstreamRawFinishReason: upstreamRawFinishReason ?? undefined,
+						}
+					: {}),
+				...(streamClosedWithoutFinish ? { streamClosedWithoutFinish } : {}),
 				...skillControl.metadata,
 			},
 			skillControlOperations: skillControl.operations,
@@ -510,6 +565,48 @@ export async function completeStreamTurn(
 		).then(() => completion.createPostTurnTask());
 	} catch {
 		return sendEndAndClose();
+	}
+}
+
+function appendNotices(response: string, notices: string[]): string {
+	if (notices.length === 0) return response;
+	const suffix = notices.join("\n\n");
+	return response.trim() ? `${response}\n\n${suffix}` : suffix;
+}
+
+function buildFileProductionFailureNotice(
+	toolCallRecords: ToolCallEntry[],
+): string | null {
+	const hasFailedFileProductionCall = toolCallRecords.some(
+		(record) =>
+			isFileProductionToolName(record.name) &&
+			record.status === "done" &&
+			record.metadata?.ok === false,
+	);
+	return hasFailedFileProductionCall
+		? "Note: File production failed. Check the file card for details or retry the job."
+		: null;
+}
+
+function buildCompletionWarning(params: {
+	upstreamFinishReason?: FinishReason | null;
+	upstreamRawFinishReason?: string | null;
+	streamClosedWithoutFinish?: boolean;
+}): string | null {
+	if (params.streamClosedWithoutFinish) {
+		return "Note: The upstream model stream ended before a normal completion signal, so this answer may be incomplete.";
+	}
+	switch (params.upstreamFinishReason) {
+		case "length":
+			return "Note: The model reached its output limit, so this answer may be incomplete.";
+		case "content-filter":
+			return "Note: The provider stopped part of the response because of a content filter, so this answer may be incomplete.";
+		case "error":
+			return "Note: The provider reported an error at the end of the stream, so this answer may be incomplete.";
+		case "other":
+			return "Note: The provider stopped with a non-standard finish reason, so this answer may be incomplete.";
+		default:
+			return null;
 	}
 }
 

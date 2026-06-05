@@ -15,6 +15,10 @@ export interface StreamMetadata {
 	totalTokenCount?: number;
 	thinking?: string;
 	wasStopped?: boolean;
+	completionWarning?: string;
+	upstreamFinishReason?: string;
+	upstreamRawFinishReason?: string;
+	streamClosedWithoutFinish?: boolean;
 	userMessageId?: string;
 	assistantMessageId?: string;
 	modelId?: import("$lib/types").ModelId;
@@ -102,6 +106,18 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 			| undefined,
 		thinking: parsed.thinking as StreamMetadata["thinking"] | undefined,
 		wasStopped: parsed.wasStopped as StreamMetadata["wasStopped"] | undefined,
+		completionWarning: parsed.completionWarning as
+			| StreamMetadata["completionWarning"]
+			| undefined,
+		upstreamFinishReason: parsed.upstreamFinishReason as
+			| StreamMetadata["upstreamFinishReason"]
+			| undefined,
+		upstreamRawFinishReason: parsed.upstreamRawFinishReason as
+			| StreamMetadata["upstreamRawFinishReason"]
+			| undefined,
+		streamClosedWithoutFinish: parsed.streamClosedWithoutFinish as
+			| StreamMetadata["streamClosedWithoutFinish"]
+			| undefined,
 		userMessageId: parsed.userMessageId as
 			| StreamMetadata["userMessageId"]
 			| undefined,
@@ -600,10 +616,11 @@ export function streamChat(
 							finishSuccessfully(latestMetadata);
 							break;
 						}
-						flushInlineBufferAtEnd();
 						markTimingPhase("endMs");
-						reportTiming("closed");
-						callbacks.onEnd(fullText);
+						reportTiming("error");
+						callbacks.onError(
+							toStreamError("Stream closed before a terminal completion event"),
+						);
 						break;
 					}
 

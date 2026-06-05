@@ -67,6 +67,41 @@ describe("prepareOutboundChatContext", () => {
 			previewHash: "",
 		});
 		mocks.researchWeb.mockResolvedValue({
+			query: "What changed today?",
+			queries: [{ query: "What changed today?", purpose: "exact" }],
+			sources: [
+				{
+					id: "source-1",
+					provider: "searxng",
+					title: "Official source",
+					url: "https://example.com/source",
+					canonicalUrl: "https://example.com/source",
+					snippet: "Official update details.",
+					highlights: ["Official update details."],
+					text: null,
+					score: 0.9,
+					providerRank: 1,
+					query: "What changed today?",
+					publishedAt: null,
+					updatedAt: null,
+					retrievedAt: "2026-06-05T10:00:00.000Z",
+					authorityClass: "official",
+					authorityScore: 95,
+				},
+			],
+			evidence: [
+				{
+					id: "evidence-1",
+					sourceId: "source-1",
+					title: "Official source",
+					url: "https://example.com/source",
+					provider: "searxng",
+					quote: "Official update details.",
+					surroundingText: "Official update details.",
+					score: 0.9,
+					authorityScore: 95,
+				},
+			],
 			answerBrief: {
 				markdown:
 					"Research brief for: What changed today?\n\nSources:\n[S1] Official source - https://example.com/source",
@@ -77,7 +112,41 @@ describe("prepareOutboundChatContext", () => {
 						url: "https://example.com/source",
 					},
 				],
-				evidence: [],
+				evidence: [
+					{
+						ref: "E1",
+						evidenceId: "evidence-1",
+						sourceRef: "S1",
+						sourceId: "source-1",
+						title: "Official source",
+						url: "https://example.com/source",
+						quote: "Official update details.",
+						score: 0.9,
+					},
+				],
+			},
+			diagnostics: {
+				mode: "exact",
+				freshness: "live",
+				sourcePolicy: "general",
+				providers: { searxngConfigured: true },
+				plannedQueryCount: 1,
+				directUrlCount: 0,
+				fetchedSourceCount: 1,
+				fusedSourceCount: 1,
+				selectedSourceCount: 1,
+				providerCalls: [],
+				contentCharBudget: 12000,
+				openedPageCount: 1,
+				sourceReranked: false,
+				evidenceCandidateCount: 1,
+				exactEvidenceCandidateCount: 0,
+				reranked: false,
+				youtubeTranscriptCandidateCount: 0,
+				youtubeTranscriptFetchedCount: 0,
+				youtubeTranscriptFailedCount: 0,
+				youtubeTranscriptErrors: [],
+				fallbackReasons: [],
 			},
 		});
 	});
@@ -188,7 +257,50 @@ describe("prepareOutboundChatContext", () => {
 				],
 				metadata: expect.objectContaining({
 					serverPrefetched: true,
+					prefetchReason: "forced_search",
 					sourceCount: 1,
+					evidenceReady: true,
+				}),
+			}),
+		]);
+	});
+
+	it("prefetches pasted URLs before the model run so URL questions are grounded", async () => {
+		const url = "https://example.com/source";
+
+		const prepared = await prepareOutboundChatContext({
+			message: `What does this page say? ${url}`,
+			sessionId: "conv-1",
+			modelConfig,
+			skipHonchoContext: true,
+			modelId: "model1",
+			contextLimits: {
+				maxModelContext: 262_144,
+				compactionUiThreshold: 209_715,
+				targetConstructedContext: 157_286,
+			},
+			logLabel: "provider request",
+		});
+
+		expect(mocks.researchWeb).toHaveBeenCalledWith(
+			expect.objectContaining({
+				query: `What does this page say? ${url}`,
+				mode: "exact",
+				freshness: "live",
+			}),
+		);
+		expect(prepared.inputValue).toContain("## Current Web Research");
+		expect(prepared.inputValue).toContain("because the user pasted a URL");
+		expect(prepared.inputValue).toContain(url);
+		expect(prepared.prefetchedToolCalls).toEqual([
+			expect.objectContaining({
+				name: "research_web",
+				status: "done",
+				sourceType: "web",
+				metadata: expect.objectContaining({
+					serverPrefetched: true,
+					prefetchReason: "pasted_url",
+					evidenceReady: true,
 				}),
 			}),
 		]);

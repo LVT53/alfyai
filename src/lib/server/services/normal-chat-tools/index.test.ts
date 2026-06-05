@@ -826,6 +826,104 @@ describe("createNormalChatTools", () => {
 		);
 	});
 
+	it("research_web reports pasted URL fetch failures as not evidence-ready", async () => {
+		const pastedUrl = "https://shop.example.com/products/widget-pro";
+		researchWebMock.mockResolvedValue({
+			query: `What price is shown on ${pastedUrl}?`,
+			queries: [
+				{
+					query: `What price is shown on ${pastedUrl}?`,
+					purpose: "exact",
+				},
+			],
+			sources: [],
+			evidence: [],
+			answerBrief: {
+				markdown:
+					"Research brief for: pasted URL\n\nSources: none returned.\n\nEvidence snippets: none returned.",
+				instructions: ["Use only the sources and evidence in this brief."],
+				sources: [],
+				evidence: [],
+			},
+			diagnostics: {
+				mode: "exact",
+				freshness: "live",
+				sourcePolicy: "commerce",
+				providers: { searxngConfigured: false },
+				plannedQueryCount: 1,
+				directUrlCount: 1,
+				fetchedSourceCount: 0,
+				fusedSourceCount: 1,
+				selectedSourceCount: 0,
+				providerCalls: [],
+				contentCharBudget: 12000,
+				openedPageCount: 0,
+				sourceReranked: false,
+				evidenceCandidateCount: 0,
+				exactEvidenceCandidateCount: 0,
+				reranked: false,
+				youtubeTranscriptCandidateCount: 0,
+				youtubeTranscriptFetchedCount: 0,
+				youtubeTranscriptFailedCount: 0,
+				youtubeTranscriptErrors: [],
+				fallbackReasons: ["page_open_failed", "direct_url_open_failed"],
+			},
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.research_web.execute(
+			{
+				query: `What price is shown on ${pastedUrl}?`,
+				mode: "exact",
+				freshness: "live",
+				sourcePolicy: "commerce",
+				maxSources: 1,
+			},
+			{
+				toolCallId: "call-research",
+				messages: [],
+			},
+		);
+
+		expect(result).toMatchObject({
+			success: false,
+			name: "research_web",
+			sourceType: "web",
+			answerBrief: {
+				sourceCount: 0,
+				evidenceCount: 0,
+			},
+			diagnostics: {
+				directUrlCount: 1,
+				openedPageCount: 0,
+				fallbackReasons: ["page_open_failed", "direct_url_open_failed"],
+			},
+		});
+		expect(result.instructions).toContain("No citation-ready page evidence");
+		expect(getToolCalls()).toEqual([
+			expect.objectContaining({
+				callId: "call-research",
+				name: "research_web",
+				status: "done",
+				sourceType: "web",
+				candidates: [],
+				metadata: expect.objectContaining({
+					ok: true,
+					evidenceReady: false,
+					sourceCount: 0,
+					evidenceCount: 0,
+					selectedSourceCount: 0,
+					openedPageCount: 0,
+				}),
+			}),
+		]);
+	});
+
 	it("memory_context calls memory service with server-owned scope and records bounded memory candidates", async () => {
 		getMemoryContextMock.mockResolvedValue({
 			success: true,
