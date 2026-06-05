@@ -231,6 +231,63 @@ describe("public web discovery", () => {
 		expect(result.savedSources).toHaveLength(1);
 	});
 
+	it("persists extracted Markdown source text for Deep Research review", async () => {
+		const researchWeb = vi.fn().mockResolvedValue({
+			sources: [
+				{
+					url: "https://example.eu/ai-act-markdown",
+					canonicalUrl: "https://example.eu/ai-act-markdown",
+					title: "EU AI Act training data guidance",
+					provider: "searxng",
+					snippet: "Transparency obligations for general-purpose AI.",
+					text: "Plain extraction text without tables.",
+					markdown:
+						"# EU AI Act training data guidance\n\n| Layer | Role |\n| --- | --- |\n| Source summary | Training data transparency |\n\n```text\nsource-derived evidence only\n```",
+					highlights: ["Opened page highlight."],
+					publishedAt: "2026-04-30T00:00:00.000Z",
+					authorityClass: "authoritative",
+					authorityScore: 80,
+				},
+			],
+			diagnostics: {
+				providerCalls: [],
+			},
+		});
+		const saveDiscoveredSources = vi.fn(async (sources) => sources);
+		const saveTimelineEvent = vi.fn(async (event) => ({
+			...event,
+			id: "event-1",
+			createdAt: event.occurredAt,
+		}));
+
+		await runPublicWebDiscoveryPass(
+			{
+				jobId: "job-markdown-discovery",
+				conversationId: "conversation-1",
+				userId: "user-1",
+				approvedPlan,
+				now: new Date("2026-05-05T12:00:00.000Z"),
+			},
+			{
+				researchWeb,
+				sourceRepository: { saveDiscoveredSources },
+				timelineRepository: { saveTimelineEvent },
+			},
+		);
+
+		const [savedSources] = saveDiscoveredSources.mock.calls[0] ?? [];
+		expect(savedSources?.[0]?.metadata.text).toContain(
+			"| Source summary | Training data transparency |",
+		);
+		expect(savedSources?.[0]?.metadata.text).toContain("```text");
+		expect(savedSources?.[0]?.metadata.text).toContain(
+			"Opened page highlight.",
+		);
+		expect(savedSources?.[0]?.metadata.text).not.toContain(
+			"Plain extraction text without tables.",
+		);
+	});
+
 	it("uses web research inference for discovery request controls", async () => {
 		const productScanPlan: ResearchPlan = {
 			...approvedPlan,

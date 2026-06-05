@@ -55,8 +55,18 @@ export type GroundedWebModelPayload = {
 		fetchedSourceCount: number;
 		fusedSourceCount: number;
 		selectedSourceCount: number;
-		openedPageCount: number;
-		evidenceCandidateCount: number;
+			openedPageCount: number;
+			pageExtraction: {
+				attemptedCount: number;
+				succeededCount: number;
+				cacheHitCount: number;
+				crawl4aiFallbackCount: number;
+				lowQualityCount: number;
+				blockedCount: number;
+				failedCount: number;
+				totalLatencyMs: number;
+			};
+			evidenceCandidateCount: number;
 		exactEvidenceCandidateCount: number;
 		reranked: boolean;
 		sourceReranked: boolean;
@@ -147,8 +157,9 @@ export function buildGroundedWebModelPayload(
 			fetchedSourceCount: result.diagnostics.fetchedSourceCount,
 			fusedSourceCount: result.diagnostics.fusedSourceCount,
 			selectedSourceCount: result.diagnostics.selectedSourceCount,
-			openedPageCount: result.diagnostics.openedPageCount,
-			evidenceCandidateCount: result.diagnostics.evidenceCandidateCount,
+				openedPageCount: result.diagnostics.openedPageCount,
+				pageExtraction: result.diagnostics.pageExtraction,
+				evidenceCandidateCount: result.diagnostics.evidenceCandidateCount,
 			exactEvidenceCandidateCount:
 				result.diagnostics.exactEvidenceCandidateCount,
 			reranked: result.diagnostics.reranked,

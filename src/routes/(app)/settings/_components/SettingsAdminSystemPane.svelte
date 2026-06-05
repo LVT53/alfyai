@@ -134,7 +134,9 @@ type ModelIconCropJob = {
 };
 
 let modelIconCropJob = $state<ModelIconCropJob | null>(null);
-let modelIconAssetSaved = $state<{ modelId: string; assetId: string } | null>(null);
+let modelIconAssetSaved = $state<{ modelId: string; assetId: string } | null>(
+	null,
+);
 
 function showProvidersMessage(text: string) {
 	clearTimeout(providersMessageTimer);
@@ -196,7 +198,9 @@ async function applyModelIconAsset(target: ModelIconTarget, assetId: string) {
 			if (updated) providerFormProvider = { ...updated };
 		}
 	} else if (target.kind === "model") {
-		await updateModelProvider(target.providerId, target.modelId, { iconAssetId: assetId });
+		await updateModelProvider(target.providerId, target.modelId, {
+			iconAssetId: assetId,
+		});
 		modelIconAssetSaved = { modelId: target.modelId, assetId };
 	}
 }
@@ -207,7 +211,12 @@ async function handleModelIconFile(event: Event, target: ModelIconTarget) {
 	input.value = "";
 	if (!file) return;
 
-	const key = target.kind === "built-in" ? target.modelName : target.kind === "provider" ? `provider:${target.providerId}` : `model:${target.modelId}`;
+	const key =
+		target.kind === "built-in"
+			? target.modelName
+			: target.kind === "provider"
+				? `provider:${target.providerId}`
+				: `model:${target.modelId}`;
 	iconUploading = key;
 	providerConfigsError = "";
 	providerConfigsMessage = "";
@@ -222,7 +231,10 @@ async function handleModelIconFile(event: Event, target: ModelIconTarget) {
 		const imageSrc = URL.createObjectURL(file);
 		const sourceUpload = uploadCampaignAssetSource({ image: file });
 		sourceUpload.catch((error: unknown) => {
-			providerConfigsError = errorMessage(error, $t("admin.modelIconUploadFailed"));
+			providerConfigsError = errorMessage(
+				error,
+				$t("admin.modelIconUploadFailed"),
+			);
 		});
 		modelIconCropJob = {
 			key,
@@ -231,7 +243,10 @@ async function handleModelIconFile(event: Event, target: ModelIconTarget) {
 			sourceUpload,
 		};
 	} catch (error: unknown) {
-		providerConfigsError = errorMessage(error, $t("admin.modelIconUploadFailed"));
+		providerConfigsError = errorMessage(
+			error,
+			$t("admin.modelIconUploadFailed"),
+		);
 		if (modelIconCropJob?.key === key) {
 			URL.revokeObjectURL(modelIconCropJob.imageSrc);
 			modelIconCropJob = null;
@@ -311,7 +326,10 @@ function openEditProviderConfig(provider: Provider) {
 
 function handleProviderIconFile(event: Event) {
 	if (!providerFormProvider) return;
-	handleModelIconFile(event, { kind: "provider", providerId: providerFormProvider.id });
+	handleModelIconFile(event, {
+		kind: "provider",
+		providerId: providerFormProvider.id,
+	});
 }
 function closeProviderForm() {
 	showProviderForm = false;
@@ -385,7 +403,9 @@ async function handleDiscoverProviderConfig(provider: Provider) {
 		}
 		showProvidersMessage(`Discovered ${models.length} model(s). Creating...`);
 		const created = await batchCreateProviderModels(provider.id, models);
-		showProvidersMessage(`Created ${created.length} model(s). Refresh the model list to see them.`);
+		showProvidersMessage(
+			`Created ${created.length} model(s). Refresh the model list to see them.`,
+		);
 	} catch (error: unknown) {
 		providerConfigsError = errorMessage(error, "Failed to discover models.");
 	}
@@ -397,7 +417,10 @@ function handleManageModels(providerId: string) {
 	modelListKey += 1;
 }
 
-async function handleReorderProvider(providerId: string, direction: "up" | "down") {
+async function handleReorderProvider(
+	providerId: string,
+	direction: "up" | "down",
+) {
 	const idx = providerConfigs.findIndex((p) => p.id === providerId);
 	if (idx < 0) return;
 	const targetIdx = direction === "up" ? idx - 1 : idx + 1;
@@ -426,7 +449,11 @@ function closeModelList() {
 }
 
 function handleModelModelIconFile(event: Event, modelId: string) {
-	handleModelIconFile(event, { kind: "model", modelId, providerId: modelListProviderId });
+	handleModelIconFile(event, {
+		kind: "model",
+		modelId,
+		providerId: modelListProviderId,
+	});
 }
 
 async function loadSystemSkills() {
@@ -664,6 +691,17 @@ function configLabelKey(key: string): string {
 		WEB_RESEARCH_HIGHLIGHT_CHARS: "admin.webResearchHighlightChars",
 		WEB_RESEARCH_CONTENT_CHARS: "admin.webResearchContentChars",
 		WEB_RESEARCH_FRESHNESS_HOURS: "admin.webResearchFreshnessHours",
+		WEB_RESEARCH_EXTRACTOR_MODE: "admin.webResearchExtractorMode",
+		WEB_RESEARCH_EXTRACT_TIMEOUT_MS: "admin.webResearchExtractTimeoutMs",
+		WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS:
+			"admin.webResearchExtractCacheTtlHours",
+		WEB_RESEARCH_CRAWL4AI_ENABLED: "admin.webResearchCrawl4aiEnabled",
+		WEB_RESEARCH_CRAWL4AI_BASE_URL: "admin.webResearchCrawl4aiBaseUrl",
+		WEB_RESEARCH_CRAWL4AI_TIMEOUT_MS: "admin.webResearchCrawl4aiTimeoutMs",
+		WEB_RESEARCH_CRAWL4AI_MAX_FALLBACK_SOURCES:
+			"admin.webResearchCrawl4aiMaxFallbackSources",
+		WEB_RESEARCH_CRAWL4AI_MIN_QUALITY_SCORE:
+			"admin.webResearchCrawl4aiMinQualityScore",
 		TITLE_GEN_SYSTEM_PROMPT_EN: "admin.titleGenPromptEn",
 		TITLE_GEN_SYSTEM_PROMPT_HU: "admin.titleGenPromptHu",
 		TITLE_GEN_SYSTEM_PROMPT_CODE_APPENDIX_EN: "admin.titleGenCodeAppendixEn",
@@ -704,6 +742,11 @@ const NUMBER_KEYS = new Set([
 	"WEB_RESEARCH_HIGHLIGHT_CHARS",
 	"WEB_RESEARCH_CONTENT_CHARS",
 	"WEB_RESEARCH_FRESHNESS_HOURS",
+	"WEB_RESEARCH_EXTRACT_TIMEOUT_MS",
+	"WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS",
+	"WEB_RESEARCH_CRAWL4AI_TIMEOUT_MS",
+	"WEB_RESEARCH_CRAWL4AI_MAX_FALLBACK_SOURCES",
+	"WEB_RESEARCH_CRAWL4AI_MIN_QUALITY_SCORE",
 	"MAX_FILE_UPLOAD_SIZE",
 	"REQUEST_TIMEOUT_MS",
 	"MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS",
@@ -1185,6 +1228,84 @@ function placeholderFor(key: string): string {
 			{/each}
 		</div>
 		<p class="text-xs text-text-muted">{$t('admin.webResearchEvidenceDescription')}</p>
+
+		<div class="grid gap-3 md:grid-cols-3">
+			<div>
+				<label class="settings-label" for="WEB_RESEARCH_EXTRACTOR_MODE">{$t(configLabelKey('WEB_RESEARCH_EXTRACTOR_MODE'))}</label>
+				<select
+					id="WEB_RESEARCH_EXTRACTOR_MODE"
+					class="settings-input"
+					bind:value={adminConfig.WEB_RESEARCH_EXTRACTOR_MODE}
+				>
+					<option value="">{$t('admin.unchanged')}</option>
+					<option value="readability">Readability</option>
+					<option value="auto">Auto</option>
+					<option value="basic">Basic</option>
+				</select>
+			</div>
+			{#each ['WEB_RESEARCH_EXTRACT_TIMEOUT_MS', 'WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS'] as key}
+				<div>
+					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
+					<input
+						id={key}
+						type="number"
+						min="0"
+						class="settings-input"
+						bind:value={adminConfig[key]}
+						placeholder={placeholderFor(key)}
+					/>
+				</div>
+			{/each}
+		</div>
+
+		<div class="grid gap-3">
+			<div class="flex items-center justify-between rounded-md border border-border-subtle px-3 py-2">
+				<div>
+					<label class="settings-label mb-0" for="WEB_RESEARCH_CRAWL4AI_ENABLED">{$t(configLabelKey('WEB_RESEARCH_CRAWL4AI_ENABLED'))}</label>
+				</div>
+				<label class="relative inline-flex cursor-pointer items-center">
+					<input
+						id="WEB_RESEARCH_CRAWL4AI_ENABLED"
+						type="checkbox"
+						class="peer sr-only"
+						checked={adminConfig.WEB_RESEARCH_CRAWL4AI_ENABLED === 'true'}
+						onchange={(event) => {
+							adminConfig.WEB_RESEARCH_CRAWL4AI_ENABLED = event.currentTarget.checked ? 'true' : 'false';
+						}}
+					/>
+					<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
+				</label>
+			</div>
+		</div>
+
+		<div class="grid gap-3 md:grid-cols-2">
+			<div>
+				<label class="settings-label" for="WEB_RESEARCH_CRAWL4AI_BASE_URL">{$t(configLabelKey('WEB_RESEARCH_CRAWL4AI_BASE_URL'))}</label>
+				<input
+					id="WEB_RESEARCH_CRAWL4AI_BASE_URL"
+					type="url"
+					class="settings-input"
+					bind:value={adminConfig.WEB_RESEARCH_CRAWL4AI_BASE_URL}
+					placeholder={placeholderFor('WEB_RESEARCH_CRAWL4AI_BASE_URL')}
+					autocomplete="off"
+				/>
+			</div>
+			{#each ['WEB_RESEARCH_CRAWL4AI_TIMEOUT_MS', 'WEB_RESEARCH_CRAWL4AI_MAX_FALLBACK_SOURCES', 'WEB_RESEARCH_CRAWL4AI_MIN_QUALITY_SCORE'] as key}
+				<div>
+					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
+					<input
+						id={key}
+						type="number"
+						min="0"
+						step={key === 'WEB_RESEARCH_CRAWL4AI_MIN_QUALITY_SCORE' ? '0.01' : '1'}
+						class="settings-input"
+						bind:value={adminConfig[key]}
+						placeholder={placeholderFor(key)}
+					/>
+				</div>
+			{/each}
+		</div>
+		<p class="text-xs text-text-muted">{$t('admin.webResearchExtractionDescription')}</p>
 	</div>
 </section>
 

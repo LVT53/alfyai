@@ -233,7 +233,8 @@ function mapResearchSourceToCandidate(input: {
 }
 
 function buildDiscoverySourceText(source: ResearchSource): string | null {
-	const parts = [source.text, ...(source.highlights ?? []), source.snippet]
+	const primaryText = source.markdown?.trim() ? source.markdown : source.text;
+	const parts = [primaryText, ...(source.highlights ?? []), source.snippet]
 		.map((part) => part?.trim() ?? "")
 		.filter(Boolean);
 	return parts.length > 0 ? parts.join("\n\n") : null;

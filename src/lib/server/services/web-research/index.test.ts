@@ -352,6 +352,65 @@ describe("researchWeb with SearXNG", () => {
 		expect(result.diagnostics.exactEvidenceCandidateCount).toBeGreaterThan(0);
 	});
 
+	it("preserves extracted Markdown structure through the opened-page path", async () => {
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = input.toString();
+			if (url.startsWith("http://127.0.0.1:8080/search?")) {
+				return searxngSearchResponse([
+					{
+						title: "Clean Search Extraction",
+						url: "https://docs.example.com/search-extraction",
+						content: "Source-derived Markdown extraction guidance.",
+						score: 0.9,
+					},
+				]);
+			}
+			if (url === "https://docs.example.com/search-extraction") {
+				return htmlResponse(`
+					<html>
+						<head><title>Clean Search Extraction</title></head>
+						<body>
+							<nav>Home Pricing Sign in Support</nav>
+							<article>
+								<h1>Clean Search Extraction</h1>
+								<p>Search quality improves when opened pages preserve source-derived Markdown for evidence review.</p>
+								<p>This article intentionally contains enough body text for local extraction to preserve headings, tables, and code fences while excluding navigation boilerplate.</p>
+								<table>
+									<thead><tr><th>Layer</th><th>Role</th></tr></thead>
+									<tbody><tr><td>SearXNG</td><td>Discovery</td></tr><tr><td>Readability</td><td>Extraction</td></tr></tbody>
+								</table>
+								<pre><code>const extractor = "readability";</code></pre>
+							</article>
+						</body>
+					</html>
+				`);
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+
+		const result = await researchWeb(
+			{
+				query: "Clean Search Extraction",
+				mode: "research",
+				sourcePolicy: "technical",
+				maxSources: 1,
+				quoteRequired: true,
+			},
+			{
+				config: webConfig,
+				fetch: fetchMock,
+				now: new Date("2026-05-02T12:00:00.000Z"),
+			},
+		);
+
+		expect(result.sources[0]?.markdown).toContain("\n\n| Layer | Role |");
+		expect(result.sources[0]?.markdown).toContain("\n```");
+		expect(result.sources[0]?.markdown).toContain(
+			'const extractor = "readability";',
+		);
+		expect(result.sources[0]?.markdown).not.toContain("Home Pricing Sign in");
+	});
+
 	it("uses semantic source reranking before choosing pages to open", async () => {
 		const relevantUrl = "https://case-study.example.org/form-action-fix";
 		const openedUrls: string[] = [];

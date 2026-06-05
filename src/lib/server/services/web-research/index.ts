@@ -5,11 +5,20 @@ import {
 	rerankItems,
 } from "$lib/server/services/tei-reranker";
 import {
+	extractWebResearchPage,
+	getWebResearchExtractionMetrics,
+	type WebResearchExtractionConfig,
+	type WebResearchExtractionDiagnostics,
+	type WebResearchFallbackBudget,
+} from "./extraction";
+import {
 	canonicalYouTubeUrl,
 	extractYouTubeVideoId,
 	fetchYouTubeTranscript,
 	isYouTubeVideoUrl,
 } from "./youtube";
+
+export { getWebResearchExtractionMetrics } from "./extraction";
 
 export type ResearchMode = "quick" | "research" | "exact";
 export type ResearchFreshness = "auto" | "live" | "recent" | "cache";
@@ -56,6 +65,14 @@ export interface ResearchSource {
 	snippet: string | null;
 	highlights: string[];
 	text: string | null;
+	markdown?: string | null;
+	extraction?: {
+		extractor: WebResearchExtractionDiagnostics["extractor"];
+		qualityScore: number;
+		cacheHit: boolean;
+		fallbackUsed: boolean;
+		fallbackReason: string | null;
+	};
 	score: number;
 	providerRank: number;
 	query: string;
@@ -139,6 +156,16 @@ export interface ResearchDiagnostics {
 	}>;
 	contentCharBudget: number;
 	openedPageCount: number;
+	pageExtraction: {
+		attemptedCount: number;
+		succeededCount: number;
+		cacheHitCount: number;
+		crawl4aiFallbackCount: number;
+		lowQualityCount: number;
+		blockedCount: number;
+		failedCount: number;
+		totalLatencyMs: number;
+	};
 	sourceReranked: boolean;
 	evidenceCandidateCount: number;
 	exactEvidenceCandidateCount: number;
@@ -163,7 +190,7 @@ export interface ResearchResult {
 	diagnostics: ResearchDiagnostics;
 }
 
-interface WebResearchConfig {
+interface WebResearchConfig extends WebResearchExtractionConfig {
 	searxngBaseUrl: string;
 	webResearchSearxngNumResults: number;
 	webResearchSearxngLanguage: string;
@@ -211,17 +238,6 @@ interface NormalizedResearchRequest {
 	sourcePolicy: ResearchSourcePolicy;
 	maxSources: number;
 	quoteRequired: boolean;
-}
-
-function combineAbortSignals(
-	...signals: Array<AbortSignal | undefined>
-): AbortSignal | undefined {
-	const activeSignals = signals.filter((signal): signal is AbortSignal =>
-		Boolean(signal),
-	);
-	if (activeSignals.length === 0) return undefined;
-	if (activeSignals.length === 1) return activeSignals[0];
-	return AbortSignal.any(activeSignals);
 }
 
 export interface DiscoveryResearchRequest extends ResearchRequest {
@@ -278,6 +294,15 @@ const DEFAULT_WEB_RESEARCH_CONFIG: WebResearchConfig = {
 	webResearchHighlightChars: 4000,
 	webResearchContentChars: 12000,
 	webResearchFreshnessHours: 24,
+	webResearchExtractorMode: "readability",
+	webResearchExtractTimeoutMs: PAGE_FETCH_TIMEOUT_MS,
+	webResearchExtractCacheTtlHours: 24,
+	webResearchCrawl4aiEnabled: false,
+	webResearchCrawl4aiBaseUrl: "",
+	webResearchCrawl4aiTimeoutMs: 9_000,
+	webResearchCrawl4aiMaxFallbackSources: 1,
+	webResearchCrawl4aiMinQualityScore: 0.45,
+	webResearchLlmExtractionReviewEnabled: false,
 };
 const HTTP_URL_RE = /https?:\/\/[^\s<>)\]]+/gi;
 const TRAILING_URL_PUNCTUATION_RE = /[.,;:!?]+$/;
@@ -337,6 +362,42 @@ function toWebResearchConfig(
 		webResearchHighlightChars: config.webResearchHighlightChars,
 		webResearchContentChars: config.webResearchContentChars,
 		webResearchFreshnessHours: config.webResearchFreshnessHours,
+		webResearchExtractorMode:
+			"webResearchExtractorMode" in config
+				? config.webResearchExtractorMode
+				: "readability",
+		webResearchExtractTimeoutMs:
+			"webResearchExtractTimeoutMs" in config
+				? config.webResearchExtractTimeoutMs
+				: PAGE_FETCH_TIMEOUT_MS,
+		webResearchExtractCacheTtlHours:
+			"webResearchExtractCacheTtlHours" in config
+				? config.webResearchExtractCacheTtlHours
+				: 24,
+		webResearchCrawl4aiEnabled:
+			"webResearchCrawl4aiEnabled" in config
+				? config.webResearchCrawl4aiEnabled
+				: false,
+		webResearchCrawl4aiBaseUrl:
+			"webResearchCrawl4aiBaseUrl" in config
+				? config.webResearchCrawl4aiBaseUrl
+				: "",
+		webResearchCrawl4aiTimeoutMs:
+			"webResearchCrawl4aiTimeoutMs" in config
+				? config.webResearchCrawl4aiTimeoutMs
+				: 9_000,
+		webResearchCrawl4aiMaxFallbackSources:
+			"webResearchCrawl4aiMaxFallbackSources" in config
+				? config.webResearchCrawl4aiMaxFallbackSources
+				: 1,
+		webResearchCrawl4aiMinQualityScore:
+			"webResearchCrawl4aiMinQualityScore" in config
+				? config.webResearchCrawl4aiMinQualityScore
+				: 0.45,
+		webResearchLlmExtractionReviewEnabled:
+			"webResearchLlmExtractionReviewEnabled" in config
+				? config.webResearchLlmExtractionReviewEnabled
+				: false,
 	};
 }
 
@@ -711,6 +772,16 @@ function truncate(value: string, maxLength: number): string {
 	const normalized = normalizeWhitespace(value);
 	if (normalized.length <= maxLength) return normalized;
 	return `${normalized.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+}
+
+function truncateMarkdown(value: string, maxLength: number): string {
+	const normalized = value
+		.replace(/\r\n?/g, "\n")
+		.replace(/[ \t]+\n/g, "\n")
+		.replace(/\n{4,}/g, "\n\n\n")
+		.trim();
+	if (normalized.length <= maxLength) return normalized;
+	return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
 function createSource(params: {
@@ -1178,6 +1249,7 @@ function sourceRerankText(source: ResearchSource): string {
 		source.title,
 		source.snippet ?? "",
 		source.highlights.join("\n"),
+		source.markdown ? truncate(source.markdown, 3000) : "",
 		source.text ? truncate(source.text, 3000) : "",
 		`URL: ${source.url}`,
 		`Authority: ${source.authorityClass}`,
@@ -1235,65 +1307,6 @@ async function rerankSources(
 	}
 }
 
-function decodeHtmlEntities(value: string): string {
-	const named: Record<string, string> = {
-		amp: "&",
-		apos: "'",
-		gt: ">",
-		lt: "<",
-		nbsp: " ",
-		quot: '"',
-	};
-	return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity) => {
-		const normalized = String(entity).toLowerCase();
-		if (normalized.startsWith("#x")) {
-			const parsed = Number.parseInt(normalized.slice(2), 16);
-			return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : match;
-		}
-		if (normalized.startsWith("#")) {
-			const parsed = Number.parseInt(normalized.slice(1), 10);
-			return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : match;
-		}
-		return named[normalized] ?? match;
-	});
-}
-
-function extractHtmlTitle(html: string): string | null {
-	const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
-	if (titleMatch?.[1]) {
-		return truncate(
-			decodeHtmlEntities(titleMatch[1].replace(/<[^>]+>/g, " ")),
-			300,
-		);
-	}
-	const h1Match = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
-	if (h1Match?.[1]) {
-		return truncate(
-			decodeHtmlEntities(h1Match[1].replace(/<[^>]+>/g, " ")),
-			300,
-		);
-	}
-	return null;
-}
-
-function htmlToReadableText(html: string): string {
-	const withoutNonContent = html
-		.replace(/<script\b[\s\S]*?<\/script>/gi, " ")
-		.replace(/<style\b[\s\S]*?<\/style>/gi, " ")
-		.replace(/<noscript\b[\s\S]*?<\/noscript>/gi, " ")
-		.replace(/<pre\b[\s\S]*?<\/pre>/gi, " ")
-		.replace(/<svg\b[\s\S]*?<\/svg>/gi, " ");
-	const withBreaks = withoutNonContent
-		.replace(
-			/<\/(p|div|section|article|header|footer|main|aside|li|tr|h[1-6])>/gi,
-			"\n",
-		)
-		.replace(/<br\s*\/?>/gi, "\n");
-	return normalizeWhitespace(
-		decodeHtmlEntities(withBreaks.replace(/<[^>]+>/g, " ")),
-	);
-}
-
 function buildPageHighlights(
 	text: string,
 	request: NormalizedResearchRequest,
@@ -1321,70 +1334,57 @@ async function fetchPageContent(params: {
 	config: WebResearchConfig;
 	fetch: typeof fetch;
 	signal?: AbortSignal;
+	fallbackBudget?: WebResearchFallbackBudget;
 }): Promise<{
 	title: string | null;
 	text: string | null;
+	markdown: string | null;
 	highlights: string[];
+	extraction: ResearchSource["extraction"];
 } | null> {
-	try {
-		if (!isFetchableResearchUrl(params.source.url)) {
-			return null;
-		}
-		const response = await params.fetch(params.source.url, {
-			method: "GET",
-			headers: {
-				Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
-				"User-Agent":
-					"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-			},
-			signal: combineAbortSignals(
-				params.signal,
-				AbortSignal.timeout(PAGE_FETCH_TIMEOUT_MS),
-			),
-		});
-		if (!response.ok) return null;
-		const contentType = response.headers.get("content-type") ?? "";
-		if (
-			contentType &&
-			!/text\/html|application\/xhtml\+xml|text\/plain|application\/xml|text\/xml/i.test(
-				contentType,
+	const extracted = await extractWebResearchPage({
+		url: params.source.url,
+		config: {
+			...params.config,
+			webResearchExtractCacheTtlHours: shouldBypassPageExtractionCache(
+				params.request,
 			)
-		) {
-			return null;
-		}
-
-		const rawText = await response.text();
-		const htmlLike =
-			!contentType ||
-			/html|xml/i.test(contentType) ||
-			/<html|<body|<article|<p[\s>]/i.test(rawText);
-		const text = htmlLike
-			? htmlToReadableText(rawText)
-			: normalizeWhitespace(rawText);
-		if (!text) return null;
-		if (
-			isExplicitAdultSource({
-				url: params.source.canonicalUrl,
-				title: params.source.title,
-				snippet: params.source.snippet,
-				highlights: params.source.highlights,
-				text,
-			})
-		) {
-			return null;
-		}
-		const contentCharacters = contentCharacterBudget(
-			params.request,
-			params.config,
-		);
-		return {
-			title: htmlLike ? extractHtmlTitle(rawText) : null,
-			text: truncate(text, contentCharacters),
-			highlights: buildPageHighlights(text, params.request),
-		};
-	} catch {
+				? 0
+				: params.config.webResearchExtractCacheTtlHours,
+		},
+		fetch: params.fetch,
+		signal: params.signal,
+		fallbackBudget: params.fallbackBudget,
+	});
+	if (!extracted) return null;
+	if (
+		isExplicitAdultSource({
+			url: params.source.canonicalUrl,
+			title: params.source.title,
+			snippet: params.source.snippet,
+			highlights: params.source.highlights,
+			text: extracted.plainText,
+		})
+	) {
 		return null;
 	}
+	const contentCharacters = contentCharacterBudget(
+		params.request,
+		params.config,
+	);
+	return {
+		title: extracted.title,
+		text: truncate(extracted.plainText, contentCharacters),
+		markdown: truncateMarkdown(extracted.markdown, contentCharacters),
+		highlights: buildPageHighlights(extracted.plainText, params.request),
+		extraction: {
+			extractor: extracted.diagnostics.extractor,
+			qualityScore: extracted.quality.score,
+			cacheHit: extracted.diagnostics.cacheHit,
+			fallbackUsed: extracted.diagnostics.fallbackUsed,
+			fallbackReason: extracted.diagnostics.fallbackReason,
+		},
+	};
 }
 
 async function mapWithConcurrency<T, R>(
@@ -1417,7 +1417,13 @@ async function openTopPages(params: {
 }): Promise<
 	Map<
 		string,
-		{ title: string | null; text: string | null; highlights: string[] }
+		{
+			title: string | null;
+			text: string | null;
+			markdown: string | null;
+			highlights: string[];
+			extraction: ResearchSource["extraction"];
+		}
 	>
 > {
 	if (params.sources.length === 0) {
@@ -1426,14 +1432,26 @@ async function openTopPages(params: {
 
 	const opened = new Map<
 		string,
-		{ title: string | null; text: string | null; highlights: string[] }
+		{
+			title: string | null;
+			text: string | null;
+			markdown: string | null;
+			highlights: string[];
+			extraction: ResearchSource["extraction"];
+		}
 	>();
+	const fallbackBudget: WebResearchFallbackBudget = {
+		remaining: Math.max(
+			0,
+			params.config.webResearchCrawl4aiMaxFallbackSources ?? 0,
+		),
+	};
 	const pageResults = await mapWithConcurrency(
 		params.sources,
 		PAGE_OPEN_CONCURRENCY,
 		async (source) => ({
 			source,
-			content: await fetchPageContent({ ...params, source }),
+			content: await fetchPageContent({ ...params, source, fallbackBudget }),
 		}),
 	);
 	for (const result of pageResults) {
@@ -1647,6 +1665,12 @@ function shouldExtractExactEvidence(
 	);
 }
 
+function shouldBypassPageExtractionCache(
+	request: NormalizedResearchRequest,
+): boolean {
+	return request.freshness === "live" || request.mode === "exact";
+}
+
 function buildExactEvidenceChunks(
 	source: ResearchSource,
 	request: NormalizedResearchRequest,
@@ -1730,6 +1754,7 @@ function buildEvidenceChunks(
 			...source.highlights,
 			source.snippet ?? "",
 			source.text ?? "",
+			source.markdown ?? "",
 		].filter(Boolean);
 
 		const sourceChunks = sourceTextParts.flatMap((part) =>
@@ -1905,6 +1930,16 @@ export async function researchWeb(
 		providerCalls: [],
 		contentCharBudget: contentCharacterBudget(normalized, config),
 		openedPageCount: 0,
+		pageExtraction: {
+			attemptedCount: 0,
+			succeededCount: 0,
+			cacheHitCount: 0,
+			crawl4aiFallbackCount: 0,
+			lowQualityCount: 0,
+			blockedCount: 0,
+			failedCount: 0,
+			totalLatencyMs: 0,
+		},
 		sourceReranked: false,
 		evidenceCandidateCount: 0,
 		exactEvidenceCandidateCount: 0,
@@ -2018,6 +2053,7 @@ export async function researchWeb(
 		normalized.mode === "research" ||
 		normalized.mode === "exact"
 	) {
+		const extractionMetricsBefore = getWebResearchExtractionMetrics();
 		const opened = await openTopPages({
 			sources: selectedSources,
 			request: normalized,
@@ -2025,6 +2061,33 @@ export async function researchWeb(
 			fetch: fetchImpl,
 			signal: deps.signal,
 		});
+		const extractionMetricsAfter = getWebResearchExtractionMetrics();
+		diagnostics.pageExtraction = {
+			attemptedCount:
+				extractionMetricsAfter.attemptedCount -
+				extractionMetricsBefore.attemptedCount,
+			succeededCount:
+				extractionMetricsAfter.succeededCount -
+				extractionMetricsBefore.succeededCount,
+			cacheHitCount:
+				extractionMetricsAfter.cacheHitCount -
+				extractionMetricsBefore.cacheHitCount,
+			crawl4aiFallbackCount:
+				extractionMetricsAfter.crawl4aiFallbackCount -
+				extractionMetricsBefore.crawl4aiFallbackCount,
+			lowQualityCount:
+				extractionMetricsAfter.lowQualityCount -
+				extractionMetricsBefore.lowQualityCount,
+			blockedCount:
+				extractionMetricsAfter.blockedCount -
+				extractionMetricsBefore.blockedCount,
+			failedCount:
+				extractionMetricsAfter.failedCount -
+				extractionMetricsBefore.failedCount,
+			totalLatencyMs:
+				extractionMetricsAfter.totalLatencyMs -
+				extractionMetricsBefore.totalLatencyMs,
+		};
 		diagnostics.openedPageCount = opened.size;
 		if (selectedSources.length > 0 && opened.size === 0) {
 			diagnostics.fallbackReasons.push("page_open_failed");
@@ -2048,6 +2111,10 @@ export async function researchWeb(
 			source.text = openedContent.text
 				? truncate(openedContent.text, contentCharacters)
 				: source.text;
+			source.markdown = openedContent.markdown
+				? truncateMarkdown(openedContent.markdown, contentCharacters)
+				: source.markdown;
+			source.extraction = openedContent.extraction;
 			source.highlights = [
 				...openedContent.highlights,
 				...source.highlights,

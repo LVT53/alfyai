@@ -1,0 +1,20 @@
+services:
+  crawl4ai:
+    image: ${CRAWL4AI_IMAGE:-unclecode/crawl4ai:latest}
+    container_name: crawl4ai-local
+    profiles:
+      - crawl4ai
+    ports:
+      - "127.0.0.1:11235:11235"
+    shm_size: "1gb"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:11235/health', timeout=5).read()\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s

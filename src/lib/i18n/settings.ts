@@ -463,6 +463,20 @@ const settingsDict = {
 		"admin.webResearchDescription":
 			"Server-owned SearXNG search, page opening, source reranking, and citation evidence settings.",
 		"admin.webResearchEvidenceDescription": `Exact and quote-required searches fetch at least 12000 characters per opened page before evidence extraction. Freshness hours map recent searches to SearXNG day, week, month, or year ranges.`,
+		"admin.webResearchExtractionDescription":
+			"Readability Markdown extraction is the default local path. Crawl4AI is used only as a capped fallback when enabled and local extraction quality is poor.",
+		"admin.webResearchExtractorMode": "Page Extractor Mode",
+		"admin.webResearchExtractTimeoutMs": "Page Extract Timeout (ms)",
+		"admin.webResearchExtractCacheTtlHours": "Extraction Cache TTL Hours",
+		"admin.webResearchCrawl4aiEnabled": "Enable Crawl4AI Fallback",
+		"admin.webResearchCrawl4aiBaseUrl": "Crawl4AI Base URL",
+		"admin.webResearchCrawl4aiTimeoutMs": "Crawl4AI Timeout (ms)",
+		"admin.webResearchCrawl4aiMaxFallbackSources":
+			"Crawl4AI Max Fallback Sources",
+		"admin.webResearchCrawl4aiMinQualityScore":
+			"Crawl4AI Min Local Quality Score",
+		"admin.webResearchLlmExtractionReviewEnabled":
+			"Enable Local LLM Extraction Review",
 		"admin.webResearchFreshnessHours": "Recent Search Freshness Hours",
 		"admin.webResearchHighlightChars": "Evidence Quote Characters",
 		"admin.webResearchMaxSources": "Max Returned Sources",
@@ -1083,6 +1097,20 @@ const settingsDict = {
 		"admin.webResearchDescription":
 			"Szerveroldali SearXNG keresés, oldalmegnyitás, forrás-újrarangsorolás és idézési bizonyítékok beállításai.",
 		"admin.webResearchEvidenceDescription": `A pontos, idézetet igénylő keresések legalább 12000 karaktert kérnek le megnyitott oldalanként a bizonyítékkinyerés előtt. A frissességi órák a SearXNG nap, hét, hónap vagy év tartományaira képeződnek le.`,
+		"admin.webResearchExtractionDescription":
+			"Alapértelmezésben a helyi Readability Markdown kinyerés fut. A Crawl4AI csak korlátozott tartalékút, ha engedélyezve van és a helyi kinyerés gyenge minőségű.",
+		"admin.webResearchExtractorMode": "Oldalkinyerő mód",
+		"admin.webResearchExtractTimeoutMs": "Oldalkinyerés időkorlátja (ms)",
+		"admin.webResearchExtractCacheTtlHours": "Kinyerési gyorsítótár TTL (óra)",
+		"admin.webResearchCrawl4aiEnabled": "Crawl4AI tartalék engedélyezése",
+		"admin.webResearchCrawl4aiBaseUrl": "Crawl4AI alap URL",
+		"admin.webResearchCrawl4aiTimeoutMs": "Crawl4AI időkorlát (ms)",
+		"admin.webResearchCrawl4aiMaxFallbackSources":
+			"Crawl4AI tartalék források maximuma",
+		"admin.webResearchCrawl4aiMinQualityScore":
+			"Crawl4AI minimális helyi minőségpontszám",
+		"admin.webResearchLlmExtractionReviewEnabled":
+			"Helyi LLM kinyerés-ellenőrzés engedélyezése",
 		"admin.webResearchFreshnessHours": "Friss keresés órái",
 		"admin.webResearchHighlightChars": "Bizonyítékidézet karakterei",
 		"admin.webResearchMaxSources": "Visszaadott források maximuma",

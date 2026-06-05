@@ -107,6 +107,14 @@ export const ADMIN_CONFIG_KEYS = [
 	"WEB_RESEARCH_HIGHLIGHT_CHARS",
 	"WEB_RESEARCH_CONTENT_CHARS",
 	"WEB_RESEARCH_FRESHNESS_HOURS",
+	"WEB_RESEARCH_EXTRACTOR_MODE",
+	"WEB_RESEARCH_EXTRACT_TIMEOUT_MS",
+	"WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS",
+	"WEB_RESEARCH_CRAWL4AI_ENABLED",
+	"WEB_RESEARCH_CRAWL4AI_BASE_URL",
+	"WEB_RESEARCH_CRAWL4AI_TIMEOUT_MS",
+	"WEB_RESEARCH_CRAWL4AI_MAX_FALLBACK_SOURCES",
+	"WEB_RESEARCH_CRAWL4AI_MIN_QUALITY_SCORE",
 	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
 	"SYSTEM_PROMPT",
@@ -221,6 +229,15 @@ export interface RuntimeConfig {
 	webResearchHighlightChars: number;
 	webResearchContentChars: number;
 	webResearchFreshnessHours: number;
+	webResearchExtractorMode: "readability" | "basic" | "auto";
+	webResearchExtractTimeoutMs: number;
+	webResearchExtractCacheTtlHours: number;
+	webResearchCrawl4aiEnabled: boolean;
+	webResearchCrawl4aiBaseUrl: string;
+	webResearchCrawl4aiTimeoutMs: number;
+	webResearchCrawl4aiMaxFallbackSources: number;
+	webResearchCrawl4aiMinQualityScore: number;
+	webResearchLlmExtractionReviewEnabled: boolean;
 	braveSearchApiKey: string;
 	concurrentStreamLimit: number;
 	perUserStreamLimit: number;
@@ -271,6 +288,19 @@ type OverrideApplier = (config: RuntimeConfig, value: string) => void;
 function parseIntOverride(value: string): number | undefined {
 	const parsed = parseInt(value, 10);
 	return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function parseFloatOverride(value: string): number | undefined {
+	const parsed = Number.parseFloat(value);
+	return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function normalizeWebResearchExtractorMode(
+	value: string,
+): RuntimeConfig["webResearchExtractorMode"] {
+	return value === "basic" || value === "auto" || value === "readability"
+		? value
+		: "readability";
 }
 
 function normalizeReasoningEffortOverride(
@@ -765,6 +795,45 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		if (parsed !== undefined)
 			config.webResearchFreshnessHours = Math.max(-1, parsed);
 	},
+	WEB_RESEARCH_EXTRACTOR_MODE: (config, value) => {
+		config.webResearchExtractorMode = normalizeWebResearchExtractorMode(
+			value.trim(),
+		);
+	},
+	WEB_RESEARCH_EXTRACT_TIMEOUT_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.webResearchExtractTimeoutMs = Math.max(1000, parsed);
+	},
+	WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.webResearchExtractCacheTtlHours = Math.max(0, parsed);
+	},
+	WEB_RESEARCH_CRAWL4AI_ENABLED: (config, value) => {
+		config.webResearchCrawl4aiEnabled = value === "true";
+	},
+	WEB_RESEARCH_CRAWL4AI_BASE_URL: (config, value) => {
+		config.webResearchCrawl4aiBaseUrl = value.trim();
+	},
+	WEB_RESEARCH_CRAWL4AI_TIMEOUT_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.webResearchCrawl4aiTimeoutMs = Math.max(1000, parsed);
+	},
+	WEB_RESEARCH_CRAWL4AI_MAX_FALLBACK_SOURCES: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.webResearchCrawl4aiMaxFallbackSources = Math.max(0, parsed);
+	},
+	WEB_RESEARCH_CRAWL4AI_MIN_QUALITY_SCORE: (config, value) => {
+		const parsed = parseFloatOverride(value);
+		if (parsed !== undefined)
+			config.webResearchCrawl4aiMinQualityScore = Math.max(
+				0,
+				Math.min(1, parsed),
+			);
+	},
 	BRAVE_SEARCH_API_KEY: (config, value) => {
 		config.braveSearchApiKey = value;
 	},
@@ -992,12 +1061,16 @@ export async function normalizeModelSelectionWithProviders(
 	if (!providerToken) return normalizeModelSelection(null, config);
 
 	try {
-		const [{ getProviderByName, getProviderWithSecrets }, { listEnabledProviderModels }] =
-			await Promise.all([
-				import("$lib/server/services/providers"),
-				import("$lib/server/services/provider-models"),
-			]);
-		let provider = await getProviderWithSecrets(providerToken).catch(() => null);
+		const [
+			{ getProviderByName, getProviderWithSecrets },
+			{ listEnabledProviderModels },
+		] = await Promise.all([
+			import("$lib/server/services/providers"),
+			import("$lib/server/services/provider-models"),
+		]);
+		let provider = await getProviderWithSecrets(providerToken).catch(
+			() => null,
+		);
 		if (!provider) {
 			const providerByName = await getProviderByName(providerToken).catch(
 				() => null,
@@ -1197,6 +1270,22 @@ export function getResolvedAdminConfigValues(
 		WEB_RESEARCH_HIGHLIGHT_CHARS: String(config.webResearchHighlightChars),
 		WEB_RESEARCH_CONTENT_CHARS: String(config.webResearchContentChars),
 		WEB_RESEARCH_FRESHNESS_HOURS: String(config.webResearchFreshnessHours),
+		WEB_RESEARCH_EXTRACTOR_MODE: config.webResearchExtractorMode,
+		WEB_RESEARCH_EXTRACT_TIMEOUT_MS: String(config.webResearchExtractTimeoutMs),
+		WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS: String(
+			config.webResearchExtractCacheTtlHours,
+		),
+		WEB_RESEARCH_CRAWL4AI_ENABLED: String(config.webResearchCrawl4aiEnabled),
+		WEB_RESEARCH_CRAWL4AI_BASE_URL: config.webResearchCrawl4aiBaseUrl,
+		WEB_RESEARCH_CRAWL4AI_TIMEOUT_MS: String(
+			config.webResearchCrawl4aiTimeoutMs,
+		),
+		WEB_RESEARCH_CRAWL4AI_MAX_FALLBACK_SOURCES: String(
+			config.webResearchCrawl4aiMaxFallbackSources,
+		),
+		WEB_RESEARCH_CRAWL4AI_MIN_QUALITY_SCORE: String(
+			config.webResearchCrawl4aiMinQualityScore,
+		),
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		APP_VERSION_OVERRIDE: config.appVersionOverride ?? "",
 		SYSTEM_PROMPT: getSystemPrompt(config.systemPrompt),

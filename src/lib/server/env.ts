@@ -108,11 +108,20 @@ interface Config {
 	webResearchSearxngLanguage: string;
 	webResearchSearxngSafesearch: number;
 	webResearchSearxngCategories: string;
-	webResearchMaxSources: number;
-	webResearchHighlightChars: number;
-	webResearchContentChars: number;
-	webResearchFreshnessHours: number;
-	braveSearchApiKey: string;
+		webResearchMaxSources: number;
+		webResearchHighlightChars: number;
+		webResearchContentChars: number;
+		webResearchFreshnessHours: number;
+		webResearchExtractorMode: "readability" | "basic" | "auto";
+		webResearchExtractTimeoutMs: number;
+		webResearchExtractCacheTtlHours: number;
+		webResearchCrawl4aiEnabled: boolean;
+		webResearchCrawl4aiBaseUrl: string;
+		webResearchCrawl4aiTimeoutMs: number;
+		webResearchCrawl4aiMaxFallbackSources: number;
+		webResearchCrawl4aiMinQualityScore: number;
+		webResearchLlmExtractionReviewEnabled: boolean;
+		braveSearchApiKey: string;
 	concurrentStreamLimit: number;
 	systemPrompt: string;
 	perUserStreamLimit: number;
@@ -184,6 +193,19 @@ function normalizeModelThinkingType(
 function parseIntegerEnv(value: string | undefined, fallback: number): number {
 	const parsed = parseInt(value ?? "", 10);
 	return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function parseFloatEnv(value: string | undefined, fallback: number): number {
+	const parsed = Number.parseFloat(value ?? "");
+	return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function normalizeWebResearchExtractorMode(
+	value: string | undefined,
+): Config["webResearchExtractorMode"] {
+	return value === "basic" || value === "auto" || value === "readability"
+		? value
+		: "readability";
 }
 
 function parsePositiveIntegerEnv(
@@ -569,11 +591,49 @@ function readConfig(): Config {
 			1000,
 			parseInt(process.env.WEB_RESEARCH_CONTENT_CHARS || "12000", 10) || 12000,
 		),
-		webResearchFreshnessHours: Math.max(
-			-1,
-			parseIntegerEnv(process.env.WEB_RESEARCH_FRESHNESS_HOURS, 24),
-		),
-		systemPrompt:
+			webResearchFreshnessHours: Math.max(
+				-1,
+				parseIntegerEnv(process.env.WEB_RESEARCH_FRESHNESS_HOURS, 24),
+			),
+			webResearchExtractorMode: normalizeWebResearchExtractorMode(
+				process.env.WEB_RESEARCH_EXTRACTOR_MODE,
+			),
+			webResearchExtractTimeoutMs: Math.max(
+				1000,
+				parseIntegerEnv(process.env.WEB_RESEARCH_EXTRACT_TIMEOUT_MS, 6000),
+			),
+			webResearchExtractCacheTtlHours: Math.max(
+				0,
+				parseIntegerEnv(process.env.WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS, 24),
+			),
+			webResearchCrawl4aiEnabled:
+				process.env.WEB_RESEARCH_CRAWL4AI_ENABLED === "true",
+			webResearchCrawl4aiBaseUrl:
+				process.env.WEB_RESEARCH_CRAWL4AI_BASE_URL || "",
+			webResearchCrawl4aiTimeoutMs: Math.max(
+				1000,
+				parseIntegerEnv(process.env.WEB_RESEARCH_CRAWL4AI_TIMEOUT_MS, 9000),
+			),
+			webResearchCrawl4aiMaxFallbackSources: Math.max(
+				0,
+				parseIntegerEnv(
+					process.env.WEB_RESEARCH_CRAWL4AI_MAX_FALLBACK_SOURCES,
+					1,
+				),
+			),
+			webResearchCrawl4aiMinQualityScore: Math.max(
+				0,
+				Math.min(
+					1,
+					parseFloatEnv(
+						process.env.WEB_RESEARCH_CRAWL4AI_MIN_QUALITY_SCORE,
+						0.45,
+					),
+				),
+			),
+			webResearchLlmExtractionReviewEnabled:
+				process.env.WEB_RESEARCH_LLM_EXTRACTION_REVIEW_ENABLED === "true",
+			systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
 		concurrentStreamLimit: Math.max(
