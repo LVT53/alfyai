@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import SettingsProfileTab from "./SettingsProfileTab.svelte";
 
@@ -87,5 +87,41 @@ describe("SettingsProfileTab model preference", () => {
 		await fireEvent.click(systemDefault);
 
 		expect(onChangeModel).toHaveBeenCalledWith(null);
+	});
+
+	it("renders many model choices in a shrink-safe responsive grid", () => {
+		const availableModels = [
+			{ id: "model1", displayName: "Model 1" },
+			...Array.from({ length: 12 }, (_, index) => ({
+				id: `provider:test-provider:model-${index}` as const,
+				displayName: `Provider Model With A Long Display Name ${index + 1}`,
+			})),
+		];
+
+		const { container } = render(SettingsProfileTab, {
+			...baseProps,
+			availableModels,
+			selectedModel: null,
+			effectiveModel: "model1",
+			systemDefaultModel: "model1",
+			onChangeModel: vi.fn(),
+		});
+
+		const grid = container.querySelector<HTMLElement>(
+			'[data-testid="settings-default-model-grid"]',
+		);
+		expect(grid).toBeInTheDocument();
+		expect(grid).toHaveClass("model-preference-grid");
+
+		if (!grid) throw new Error("Expected default model grid to render.");
+
+		const buttons = within(grid).getAllByRole("button");
+		expect(buttons).toHaveLength(availableModels.length);
+		for (const button of buttons) {
+			expect(button).toHaveClass("model-preference-pill");
+			expect(
+				button.querySelector(".model-preference-pill-label"),
+			).toBeInTheDocument();
+		}
 	});
 });

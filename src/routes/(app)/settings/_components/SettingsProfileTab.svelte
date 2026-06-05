@@ -232,29 +232,30 @@
 	<div class="flex flex-col gap-5">
 		<div>
 			<p class="settings-label">{$t('settings_defaultModel')}</p>
-			<div class="flex gap-2">
+			<div class="model-preference-grid" data-testid="settings-default-model-grid">
 				<button
-					class="pref-pill flex flex-col items-center gap-0.5"
+					class="pref-pill model-preference-pill model-preference-pill-system"
 					class:pref-pill-active={selectedModel === null}
 					title={$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}
 					aria-label={$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}
 					onclick={() => onChangeModel(null)}
 				>
-					<span class="inline-flex min-w-0 items-center gap-2">
+					<span class="model-preference-pill-main">
 						<ModelIcon iconUrl={availableModels.find((model) => model.id === systemDefaultModel)?.iconUrl ?? null} displayName={systemDefaultModelDisplayName} size={20} />
-						<span>{$t('settings.systemDefaultModel')}</span>
+						<span class="model-preference-pill-label">{$t('settings.systemDefaultModel')}</span>
 					</span>
-					<span class="text-xs opacity-70">{systemDefaultModelDisplayName}</span>
+					<span class="model-preference-pill-subtitle">{systemDefaultModelDisplayName}</span>
 				</button>
 				{#each explicitModelOptions as model}
 					<button
-						class="pref-pill"
+						class="pref-pill model-preference-pill"
 						class:pref-pill-active={selectedModel === model.id}
+						title={model.displayName}
 						onclick={() => onChangeModel(model.id)}
 					>
-						<span class="inline-flex min-w-0 items-center gap-2">
+						<span class="model-preference-pill-main">
 							<ModelIcon iconUrl={model.iconUrl ?? null} displayName={model.displayName} size={20} />
-							<span>{model.displayName}</span>
+							<span class="model-preference-pill-label">{model.displayName}</span>
 						</span>
 					</button>
 				{/each}
@@ -339,6 +340,55 @@
 		</div>
 	</div>
 </section>
+
+<style>
+	.model-preference-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 13.5rem), 1fr));
+		gap: 0.75rem;
+		width: 100%;
+		min-width: 0;
+	}
+
+	.model-preference-pill {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		min-width: 0;
+		min-height: 2.75rem;
+		overflow: hidden;
+		text-align: center;
+	}
+
+	.model-preference-pill-system {
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.model-preference-pill-main {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		max-width: 100%;
+		min-width: 0;
+	}
+
+	.model-preference-pill-label,
+	.model-preference-pill-subtitle {
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.model-preference-pill-subtitle {
+		font-size: 0.75rem;
+		opacity: 0.7;
+	}
+</style>
 
 <SettingsDataImport {projects} />
 
