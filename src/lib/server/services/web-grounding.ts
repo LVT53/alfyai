@@ -33,7 +33,7 @@ export type GroundedWebEvidence = {
 };
 
 export type GroundedWebModelPayload = {
-	success: true;
+	success: boolean;
 	name: "research_web";
 	sourceType: "web";
 	query: string;
@@ -51,6 +51,7 @@ export type GroundedWebModelPayload = {
 		freshness: string;
 		sourcePolicy: string;
 		plannedQueryCount: number;
+		directUrlCount: number;
 		fetchedSourceCount: number;
 		fusedSourceCount: number;
 		selectedSourceCount: number;
@@ -59,6 +60,7 @@ export type GroundedWebModelPayload = {
 		exactEvidenceCandidateCount: number;
 		reranked: boolean;
 		sourceReranked: boolean;
+		fallbackReasons: string[];
 	};
 	instructions: string;
 };
@@ -118,9 +120,10 @@ export function buildGroundedWebModelPayload(
 		quote: truncateText(item.quote, 500),
 		score: item.score,
 	}));
+	const evidenceReady = evidence.length > 0;
 
 	return {
-		success: true,
+		success: evidenceReady,
 		name: "research_web",
 		sourceType: "web",
 		query: result.query,
@@ -140,6 +143,7 @@ export function buildGroundedWebModelPayload(
 			freshness: result.diagnostics.freshness,
 			sourcePolicy: result.diagnostics.sourcePolicy,
 			plannedQueryCount: result.diagnostics.plannedQueryCount,
+			directUrlCount: result.diagnostics.directUrlCount,
 			fetchedSourceCount: result.diagnostics.fetchedSourceCount,
 			fusedSourceCount: result.diagnostics.fusedSourceCount,
 			selectedSourceCount: result.diagnostics.selectedSourceCount,
@@ -149,9 +153,11 @@ export function buildGroundedWebModelPayload(
 				result.diagnostics.exactEvidenceCandidateCount,
 			reranked: result.diagnostics.reranked,
 			sourceReranked: result.diagnostics.sourceReranked,
+			fallbackReasons: result.diagnostics.fallbackReasons.slice(0, 8),
 		},
-		instructions:
-			"Answer only from the returned answer brief, sources, and evidence. Use markdown links with returned source URLs, and never cite URLs outside the returned source list.",
+		instructions: evidenceReady
+			? "Answer only from the returned answer brief, sources, and evidence. Use markdown links with returned source URLs, and never cite URLs outside the returned source list."
+			: "No citation-ready page evidence was fetched. Say the page could not be loaded or no usable evidence was returned; do not infer facts from the URL or answer from memory.",
 	};
 }
 
@@ -187,9 +193,10 @@ export function createGroundedWebCandidates(
 export function createGroundedWebMetadata(
 	result: ResearchResult,
 ): GroundedWebMetadata {
+	const hasGroundingEvidence = result.evidence.length > 0;
 	return {
 		ok: true,
-		evidenceReady: true,
+		evidenceReady: hasGroundingEvidence,
 		sourceCount: result.sources.length,
 		evidenceCount: result.evidence.length,
 		mode: result.diagnostics.mode,
@@ -270,9 +277,7 @@ export function extractGroundedWebCitationSources(
 		.filter(isResearchWebTool)
 		.flatMap((tool) => tool.candidates ?? [])
 		.map(candidateToGroundedWebCitationSource)
-		.filter((source): source is GroundedWebCitationSource =>
-			Boolean(source),
-		)) {
+		.filter((source): source is GroundedWebCitationSource => Boolean(source))) {
 		if (!uniqueSources.has(source.canonicalUrl)) {
 			uniqueSources.set(source.canonicalUrl, source);
 		}

@@ -58,6 +58,17 @@ describe("completeStreamTurn", () => {
 			: {};
 	}
 
+	function getLatestFinishPayload(): Record<string, unknown> {
+		const finishEvent = mockEnqueueChunk.mock.calls
+			.flatMap((call: string[]) => decodeUiMessageStreamParts(call[0] ?? ""))
+			.find((event) => event !== "[DONE]" && event.type === "finish");
+
+		expect(finishEvent).toBeDefined();
+		return finishEvent !== "[DONE]"
+			? (finishEvent as Record<string, unknown>)
+			: {};
+	}
+
 	function getContextSourceGroups(payload: Record<string, unknown>): unknown[] {
 		const contextSources = payload.contextSources as
 			| { groups?: unknown[] }
@@ -232,6 +243,62 @@ describe("completeStreamTurn", () => {
 			undefined,
 			{ evidenceStatus: "pending", modelDisplayName: "Model One" },
 		);
+	});
+
+	it("warns and preserves upstream length finish reasons", async () => {
+		const warning =
+			"Note: The model reached its output limit, so this answer may be incomplete.";
+
+		await completeStreamTurn({
+			...defaultParams,
+			upstreamFinishReason: "length",
+			upstreamRawFinishReason: "max_tokens",
+		});
+
+		const assistantCall = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "assistant",
+		);
+		expect(assistantCall?.[2]).toBe(`response text\n\n${warning}`);
+		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assistantResponse: `response text\n\n${warning}`,
+			}),
+		);
+		expect(mockEnqueueChunk).toHaveBeenCalledWith(
+			expect.stringContaining(warning),
+		);
+		expect(getLatestEndPayload()).toMatchObject({
+			completionWarning: warning,
+			upstreamFinishReason: "length",
+			upstreamRawFinishReason: "max_tokens",
+		});
+		expect(getLatestFinishPayload()).toMatchObject({
+			type: "finish",
+			finishReason: "length",
+		});
+	});
+
+	it("warns when the stream completed after a non-terminal upstream close", async () => {
+		const warning =
+			"Note: The upstream model stream ended before a normal completion signal, so this answer may be incomplete.";
+
+		await completeStreamTurn({
+			...defaultParams,
+			streamClosedWithoutFinish: true,
+		});
+
+		const assistantCall = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "assistant",
+		);
+		expect(assistantCall?.[2]).toBe(`response text\n\n${warning}`);
+		expect(getLatestEndPayload()).toMatchObject({
+			completionWarning: warning,
+			streamClosedWithoutFinish: true,
+		});
+		expect(getLatestFinishPayload()).toMatchObject({
+			type: "finish",
+			finishReason: "error",
+		});
 	});
 
 	it("persists the user message before the assistant response for the same turn", async () => {
@@ -972,6 +1039,47 @@ describe("completeStreamTurn", () => {
 		]);
 		expect(JSON.stringify(data.generatedFiles)).not.toContain("storagePath");
 		expect(JSON.stringify(data.generatedFiles)).not.toContain("user-1");
+	});
+
+	it("attaches failed produce_file jobs and emits a visible failure notice", async () => {
+		const warning =
+			"Note: File production failed. Check the file card for details or retry the job.";
+		mockGetFileProductionJobs.mockResolvedValue([{ id: "job-new", files: [] }]);
+
+		await completeStreamTurn({
+			...defaultParams,
+			fullResponse: "",
+			toolCallRecords: [
+				{
+					name: "produce_file",
+					status: "done",
+					metadata: {
+						ok: false,
+						evidenceReady: false,
+						error: "Renderer failed",
+					},
+				},
+			],
+		});
+
+		const assistantCall = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "assistant",
+		);
+		expect(assistantCall?.[2]).toBe(warning);
+		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assistantResponse: warning,
+			}),
+		);
+		expect(mockEnqueueChunk).toHaveBeenCalledWith(
+			expect.stringContaining(warning),
+		);
+		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+			"asst-msg-1",
+			["job-new"],
+		);
 	});
 
 	it("attaches new file-production jobs from produce_file to the assistant message", async () => {

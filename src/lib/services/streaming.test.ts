@@ -527,8 +527,11 @@ describe("streamChat", () => {
 
 		expect(cb.onToken).not.toHaveBeenCalled();
 		expect(cb.onThinking).not.toHaveBeenCalled();
-		expect(cb.onEnd).toHaveBeenCalledWith("");
-		expect(cb.onError).not.toHaveBeenCalled();
+		expect(cb.onEnd).not.toHaveBeenCalled();
+		expect(cb.onError).toHaveBeenCalledOnce();
+		expect(cb.onError.mock.calls[0]?.[0]).toMatchObject({
+			message: "Stream closed before a terminal completion event",
+		});
 	});
 
 	it("includes forceWebSearch in the stream request body for the current turn", async () => {
@@ -1111,7 +1114,7 @@ describe("streamChat", () => {
 		consoleInfo.mockRestore();
 	});
 
-	it("calls onEnd with accumulated text when stream closes without end event", async () => {
+	it("calls onError when the stream closes without a terminal event", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(buildFetchResponse([tokenEvent("partial")]));
 
@@ -1120,8 +1123,11 @@ describe("streamChat", () => {
 		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
 		await done;
 
-		expect(cb.onEnd).toHaveBeenCalledOnce();
-		expect(cb.onEnd).toHaveBeenCalledWith("partial");
+		expect(cb.onEnd).not.toHaveBeenCalled();
+		expect(cb.onError).toHaveBeenCalledOnce();
+		expect(cb.onError.mock.calls[0]?.[0]).toMatchObject({
+			message: "Stream closed before a terminal completion event",
+		});
 	});
 
 	it("stop() requests a server stop and does not call onError", async () => {

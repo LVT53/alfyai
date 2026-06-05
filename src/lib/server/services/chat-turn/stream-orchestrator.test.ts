@@ -614,6 +614,105 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	it("recovers with non-stream fallback when provider errors after a completed non-file tool", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { runPlainNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+		);
+		const { persistAssistantEvidence } = await import(
+			"$lib/server/services/chat-turn/finalize"
+		);
+		const recorderEntry = {
+			callId: "call-research",
+			name: "research_web",
+			input: { query: "pasted url" },
+			status: "done",
+			outputSummary: "Web research returned 1 source and 1 evidence snippet.",
+			sourceType: "web",
+			candidates: [
+				{
+					id: "source-1",
+					title: "Fetched page",
+					url: "https://example.com/page",
+					sourceType: "web",
+					material: true,
+				},
+			],
+			metadata: {
+				ok: true,
+				evidenceReady: true,
+				sourceCount: 1,
+				evidenceCount: 1,
+			},
+		};
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult(
+				[
+					{
+						type: "tool_call",
+						callId: "call-research",
+						toolName: "research_web",
+						input: { query: "pasted url" },
+					},
+					{
+						type: "tool_result",
+						callId: "call-research",
+						toolName: "research_web",
+						output: { success: true },
+					},
+					{ type: "error", error: "socket terminated" },
+				],
+				{ normalChatToolCalls: [recorderEntry] },
+			),
+		);
+		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue(
+			{
+				text: "Recovered answer from fetched page.",
+				contextStatus: null,
+				taskState: null,
+				contextDebug: null,
+				honchoContext: null,
+				honchoSnapshot: null,
+				providerUsage: null,
+				normalChatToolCalls: [],
+				modelId: "model-1",
+				modelDisplayName: "Model One",
+			},
+		);
+
+		const response = runStream();
+		const chunks = await readSseResponse(response);
+		const body = chunks.join("\n\n");
+
+		expect(runPlainNormalChatSendModel).toHaveBeenCalledWith(
+			expect.objectContaining({
+				disableTools: true,
+				systemPromptAppendix: expect.stringContaining(
+					"previous streaming attempt completed these tool calls",
+				),
+			}),
+		);
+		expect(body).toContain("Recovered answer from fetched page.");
+		expect(body).not.toContain("data-stream-error");
+		expect(persistAssistantEvidence).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolCalls: expect.arrayContaining([
+					expect.objectContaining({
+						name: "research_web",
+						status: "done",
+						metadata: expect.objectContaining({
+							evidenceReady: true,
+						}),
+					}),
+				]),
+			}),
+		);
+	});
+
 	it("maps provider usage events into persisted analytics", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
@@ -710,6 +809,62 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(upstreamSignal?.aborted).toBe(true);
 		expect(remainingBody).toContain('"type":"data-stream-metadata"');
 		expect(remainingBody).toContain('"wasStopped":true');
+	});
+
+	it("keeps explicit stop semantics when upstream closes cleanly after abort", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		let upstreamSignal: AbortSignal | undefined;
+		let markStreamListening!: () => void;
+		const streamListening = new Promise<void>((resolve) => {
+			markStreamListening = resolve;
+		});
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockImplementation(async (params: { signal?: AbortSignal }) => {
+			upstreamSignal = params.signal;
+			return createNeutralStreamingResult([], {
+				stream: (async function* () {
+					yield { type: "text_delta", text: "Partial answer" };
+					await new Promise<void>((resolve) => {
+						markStreamListening();
+						params.signal?.addEventListener("abort", () => resolve(), {
+							once: true,
+						});
+					});
+				})(),
+			});
+		});
+
+		const response = runStream({
+			conversationId: "stop-clean-conv",
+			streamId: "stop-clean-stream",
+		});
+		const reader = response.body?.getReader();
+		if (!reader) throw new Error("Missing response body");
+
+		await expect(reader.read()).resolves.toMatchObject({ done: false });
+		await vi.waitFor(() => expect(upstreamSignal).toBeDefined());
+		await streamListening;
+		const stopped = requestActiveChatStreamStop({
+			streamId: "stop-clean-stream",
+			userId: "u1",
+		});
+		const remainingChunks: Uint8Array[] = [];
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (value) remainingChunks.push(value);
+		}
+		const remainingBody = remainingChunks
+			.map((chunk) => new TextDecoder().decode(chunk))
+			.join("");
+
+		expect(stopped).toBe(true);
+		expect(upstreamSignal?.aborted).toBe(true);
+		expect(remainingBody).toContain('"wasStopped":true');
+		expect(remainingBody).not.toContain("streamClosedWithoutFinish");
 	});
 
 	it("does not start a main stream when registry registration rejects the stream id", async () => {

@@ -109,6 +109,7 @@ const URL_LIST_TOOL_ARGUMENT_GUARD = [
 	'- For a single link, use `["https://example.com"]`, never a bare string.',
 	"- To fetch the content of a user-pasted URL, call `research_web` with the URL in the query. The tool will fetch the page directly and return it as a primary source — do not use or invent a separate fetch tool.",
 ].join("\n");
+const DIRECT_HTTP_URL_RE = /https?:\/\/[^\s<>)\]]+/i;
 
 const DATE_BEFORE_SEARCH_GUARD = [
 	"Time-sensitive search workflow:",
@@ -532,39 +533,52 @@ function insertContextBeforeCurrentMessage(
 		.join("\n\n");
 }
 
-async function maybePrefetchForcedWebResearch(params: {
+function containsDirectHttpUrl(value: string): boolean {
+	return DIRECT_HTTP_URL_RE.test(value);
+}
+
+async function maybePrefetchWebResearch(params: {
 	inputValue: string;
 	message: string;
 	forceWebSearch?: boolean;
 	sessionId: string;
 	modelId: ModelId | string | undefined;
 }): Promise<{ inputValue: string; prefetchedToolCalls: ToolCallEntry[] }> {
-	if (!params.forceWebSearch) {
+	const prefetchReason = params.forceWebSearch
+		? "forced_search"
+		: containsDirectHttpUrl(params.message)
+			? "pasted_url"
+			: null;
+	if (!prefetchReason) {
 		return { inputValue: params.inputValue, prefetchedToolCalls: [] };
 	}
 
 	try {
 		const { researchWeb } = await import("./web-research");
+		const {
+			createGroundedWebCandidates,
+			createGroundedWebMetadata,
+			summarizeGroundedWebResult,
+		} = await import("./web-grounding");
 		const result = await researchWeb({
 			query: params.message,
 			mode: "exact",
 			freshness: "live",
-			sourcePolicy: "general",
+			...(params.forceWebSearch ? { sourcePolicy: "general" as const } : {}),
 			maxSources: 6,
 			quoteRequired: false,
 		});
-		const sourceCandidates = result.answerBrief.sources.map((source) => ({
-			id: source.sourceId,
-			title: source.title,
-			url: source.url,
-			snippet: null,
-			sourceType: "web" as const,
-			material: true,
-		}));
-		const evidenceCount = result.answerBrief.evidence.length;
+		const sourceCandidates = createGroundedWebCandidates(result);
+		const metadata = {
+			...createGroundedWebMetadata(result),
+			serverPrefetched: true,
+			prefetchReason,
+		};
 		const webContext = [
 			"## Current Web Research",
-			"Server-prefetched web context for this forced-search turn. Use it as retrieved evidence. Do not expose raw source dumps, diagnostics, JSON, or search-result internals.",
+			prefetchReason === "pasted_url"
+				? "Server-prefetched web context because the user pasted a URL. Use it only as retrieved evidence. If it has no evidence snippets, say the page could not be loaded or no usable evidence was returned; do not infer facts from the URL."
+				: "Server-prefetched web context for this forced-search turn. Use it as retrieved evidence. Do not expose raw source dumps, diagnostics, JSON, or search-result internals.",
 			result.answerBrief.markdown,
 		].join("\n\n");
 
@@ -583,28 +597,23 @@ async function maybePrefetchForcedWebResearch(params: {
 						mode: "exact",
 						freshness: "live",
 						source: "server_prefetch",
+						prefetchReason,
 					},
 					status: "done",
-					outputSummary: `Server-prefetched ${sourceCandidates.length} web sources and ${evidenceCount} evidence snippets.`,
+					outputSummary: summarizeGroundedWebResult(result),
 					sourceType: "web",
 					candidates: sourceCandidates,
-					metadata: {
-						serverPrefetched: true,
-						sourceCount: sourceCandidates.length,
-						evidenceCount,
-					},
+					metadata,
 				},
 			],
 		};
 	} catch (error) {
-		console.warn(
-			`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Forced web prefetch failed`,
-			{
-				sessionId: params.sessionId,
-				modelId: params.modelId ?? "model1",
-				error: error instanceof Error ? error.message : String(error),
-			},
-		);
+		console.warn(`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Web prefetch failed`, {
+			sessionId: params.sessionId,
+			modelId: params.modelId ?? "model1",
+			prefetchReason,
+			error: error instanceof Error ? error.message : String(error),
+		});
 		return { inputValue: params.inputValue, prefetchedToolCalls: [] };
 	}
 }
@@ -1312,7 +1321,7 @@ export async function prepareOutboundChatContext(params: {
 			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 		});
 	}
-	const forcedWebPrefetch = await maybePrefetchForcedWebResearch({
+	const forcedWebPrefetch = await maybePrefetchWebResearch({
 		inputValue,
 		message: params.message,
 		forceWebSearch: params.forceWebSearch,

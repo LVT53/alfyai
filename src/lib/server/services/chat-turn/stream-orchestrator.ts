@@ -1,3 +1,4 @@
+import type { FinishReason } from "ai";
 import { getConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
@@ -51,7 +52,6 @@ import {
 import { createMessage } from "$lib/server/services/messages";
 import { isModelTimeoutError } from "$lib/server/services/normal-chat-failover";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
-
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import {
 	attachContinuityToTaskState,
@@ -614,12 +614,10 @@ export function runChatStreamOrchestrator(
 				chunkRuntime.toolCallRecords.filter(
 					(record) => record.status === "done",
 				);
-			const isSuccessfulFileProductionToolCall = (record: ToolCallEntry) =>
-				isFileProductionToolName(record.name) &&
-				record.status === "done" &&
-				record.metadata?.ok !== false;
-			const hasSuccessfulFileProductionToolCall = () =>
-				completedToolCallRecords().some(isSuccessfulFileProductionToolCall);
+			const isCompletedFileProductionToolCall = (record: ToolCallEntry) =>
+				isFileProductionToolName(record.name) && record.status === "done";
+			const hasCompletedFileProductionToolCall = () =>
+				completedToolCallRecords().some(isCompletedFileProductionToolCall);
 			const hasCompletedNonFileToolCall = () =>
 				completedToolCallRecords().some(
 					(record) => !isFileProductionToolName(record.name),
@@ -627,7 +625,7 @@ export function runChatStreamOrchestrator(
 			const hasPersistableStreamOutput = () =>
 				Boolean(
 					chunkRuntime.fullResponse.trim() ||
-						hasSuccessfulFileProductionToolCall() ||
+						hasCompletedFileProductionToolCall() ||
 						hasCompletedNonFileToolCall(),
 				);
 			const flushBufferedStreamOutput = () => {
@@ -647,11 +645,17 @@ export function runChatStreamOrchestrator(
 				if (!flushBufferedStreamOutput()) {
 					return;
 				}
+				if (wasStopRequested()) {
+					await completeSuccess(true);
+					return;
+				}
 				if (
 					hasVisibleAssistantAnswerOutput() ||
-					hasSuccessfulFileProductionToolCall()
+					hasCompletedFileProductionToolCall()
 				) {
-					await completeSuccess();
+					await completeSuccess(false, {
+						streamClosedWithoutFinish: reason === "stream_closed",
+					});
 					return;
 				}
 				if (hasCompletedNonFileToolCall()) {
@@ -673,29 +677,6 @@ export function runChatStreamOrchestrator(
 								hasCompletedNonFileToolCall: hasCompletedNonFileToolCall(),
 							},
 						);
-						if (getConfig().contextDiagnosticsDebug) {
-							console.warn(
-								"[DEBUG-diagnose-stream] completeOrRecoverAfterUpstreamEnd details",
-								{
-									conversationId,
-									streamId,
-									reason,
-									hasPersistableStreamOutput: hasPersistableStreamOutput(),
-									hasVisibleAssistantAnswerOutput:
-										hasVisibleAssistantAnswerOutput(),
-									hasSuccessfulFileProductionToolCall:
-										hasSuccessfulFileProductionToolCall(),
-									fullResponseLength: chunkRuntime.fullResponse.length,
-									thinkingLength: chunkRuntime.thinkingContent.length,
-									toolCallNames: chunkRuntime.toolCallRecords.map((r) => ({
-										name: r.name,
-										status: r.status,
-									})),
-									attemptedNonStreamFallback,
-									wasStopRequested: wasStopRequested(),
-								},
-							);
-						}
 						await fallbackToNonStreaming(
 							"stream_read_failure",
 							latestUpstreamAttempt,
@@ -742,6 +723,8 @@ export function runChatStreamOrchestrator(
 			let latestModelId = modelId ?? "model1";
 			let latestModelDisplayName = modelDisplayName;
 			let latestProviderIconUrl: string | null = null;
+			let latestUpstreamFinishReason: FinishReason | null = null;
+			let latestUpstreamRawFinishReason: string | null = null;
 			let initialContextStatus:
 				| import("$lib/types").ConversationContextStatus
 				| undefined;
@@ -753,10 +736,19 @@ export function runChatStreamOrchestrator(
 			let initialContextTraceSections:
 				| LegacyContextTraceSectionInput[]
 				| undefined;
-			const completeSuccess = async (wasStopped = false) => {
+			const completeSuccess = async (
+				wasStopped = false,
+				options: { streamClosedWithoutFinish?: boolean } = {},
+			) => {
 				if (ended) return;
 				ended = true;
-				logPhaseTiming(wasStopped ? "stopped" : "success");
+				logPhaseTiming(
+					options.streamClosedWithoutFinish
+						? "error"
+						: wasStopped
+							? "stopped"
+							: "success",
+				);
 				await completeStreamTurn({
 					wasStopped,
 					conversationId,
@@ -794,6 +786,9 @@ export function runChatStreamOrchestrator(
 					latestHonchoSnapshot,
 					latestContextTraceSections,
 					latestProviderUsage,
+					upstreamFinishReason: latestUpstreamFinishReason,
+					upstreamRawFinishReason: latestUpstreamRawFinishReason,
+					streamClosedWithoutFinish: options.streamClosedWithoutFinish === true,
 					initialContextStatus,
 					initialTaskState,
 					initialContextDebug,
@@ -1149,23 +1144,15 @@ export function runChatStreamOrchestrator(
 									latestModelId;
 								latestModelDisplayName =
 									upstreamEvent.model.displayName ?? latestModelDisplayName;
-								console.warn(
-									"[DEBUG-diagnose-stream] Vercel AI SDK finish event received",
-									{
-										conversationId,
-										streamId,
-										modelId,
-										finishReason: upstreamEvent.finishReason,
-										rawFinishReason: upstreamEvent.rawFinishReason,
-										fullResponseLength: chunkRuntime.fullResponse.length,
-										thinkingLength: chunkRuntime.thinkingContent.length,
-										toolCallCount: chunkRuntime.toolCallRecords.length,
-									},
-								);
+								latestUpstreamFinishReason = upstreamEvent.finishReason;
+								latestUpstreamRawFinishReason =
+									upstreamEvent.rawFinishReason ?? null;
 								await completeOrRecoverAfterUpstreamEnd("end_event");
 								return;
 							case "error": {
 								const errorMessage = upstreamEvent.error;
+								latestUpstreamFinishReason = "error";
+								latestUpstreamRawFinishReason = errorMessage;
 								console.error("[STREAM] Upstream error event payload", {
 									conversationId,
 									attempt,
@@ -1188,7 +1175,20 @@ export function runChatStreamOrchestrator(
 									return;
 								}
 								if (
-									hasSuccessfulFileProductionToolCall() &&
+									!hasVisibleAssistantAnswerOutput() &&
+									hasCompletedNonFileToolCall() &&
+									!attemptedNonStreamFallback &&
+									!wasStopRequested() &&
+									fallbackToNonStreaming
+								) {
+									await fallbackToNonStreaming(
+										"stream_read_failure",
+										attempt,
+										upstreamError,
+									);
+									return;
+								}
+								if (
 									flushBufferedStreamOutput() &&
 									hasPersistableStreamOutput()
 								) {
@@ -1241,7 +1241,9 @@ export function runChatStreamOrchestrator(
 				}
 				if (isAbruptUpstreamTermination(error)) {
 					if (flushBufferedStreamOutput() && hasPersistableStreamOutput()) {
-						await completeSuccess();
+						await completeSuccess(false, {
+							streamClosedWithoutFinish: true,
+						});
 						return;
 					}
 					if (

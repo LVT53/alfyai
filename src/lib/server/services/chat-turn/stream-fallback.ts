@@ -147,20 +147,6 @@ export async function runNonStreamFallback(
 			const shouldDisableTools =
 				(Boolean(completedToolCallContext) && !shouldAllowForcedFileTool) ||
 				attempt > 1;
-			console.warn(
-				"[DEBUG-diagnose-stream] stream-fallback attempt",
-				{
-					conversationId: sendParams.conversationId,
-					modelId: sendParams.modelId,
-					attempt,
-					thinkingMode: sendParams.thinkingMode,
-					shouldDisableTools,
-					forceProduceFileTool: shouldAllowForcedFileTool,
-					hasCompletedToolCallContext: Boolean(completedToolCallContext),
-					completedToolCallContextLength:
-						completedToolCallContext?.length ?? 0,
-				},
-			);
 			const fallbackResponse = await runPlainNormalChatSendModel({
 				userId: user.id,
 				runtimeConfig: sendParams.runtimeConfig,
@@ -180,7 +166,9 @@ export async function runNonStreamFallback(
 				forceProduceFileTool: shouldAllowForcedFileTool,
 			});
 			const fallbackToolCalls =
-				fallbackResponse.normalChatToolCalls ?? fallbackResponse.toolCalls ?? [];
+				fallbackResponse.normalChatToolCalls ??
+				fallbackResponse.toolCalls ??
+				[];
 			if (fallbackToolCalls.length > 0) {
 				onRecoveredToolCalls?.(fallbackToolCalls);
 			}
@@ -206,17 +194,6 @@ export async function runNonStreamFallback(
 			}
 
 			if (!fallbackResponse.text?.trim()) {
-				console.warn(
-					"[DEBUG-diagnose-stream] Non-stream fallback returned empty text",
-					{
-						conversationId: sendParams.conversationId,
-						modelId: sendParams.modelId,
-						attempt,
-						textLength: fallbackResponse.text?.length ?? 0,
-						thinkingMode: sendParams.thinkingMode,
-						disableTools: shouldDisableTools,
-					},
-				);
 				if (attempt < 2) {
 					console.warn("[STREAM] Non-stream fallback returned no text", {
 						conversationId: sendParams.conversationId,

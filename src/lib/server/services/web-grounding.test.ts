@@ -3,6 +3,7 @@ import type { ResearchResult } from "$lib/server/services/web-research";
 import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
+	createGroundedWebMetadata,
 	extractAssistantWebCitationUrls,
 	extractGroundedWebCitationSources,
 } from "./web-grounding";
@@ -10,9 +11,7 @@ import {
 function researchResult(): ResearchResult {
 	return {
 		query: "current product price",
-		queries: [
-			{ query: "official current product price", purpose: "official" },
-		],
+		queries: [{ query: "official current product price", purpose: "official" }],
 		sources: [
 			{
 				id: "source-1",
@@ -152,14 +151,56 @@ describe("web grounding", () => {
 		]);
 	});
 
+	it("marks zero-source research results as not evidence-ready", () => {
+		const result = researchResult();
+		result.sources = [];
+		result.evidence = [];
+
+		expect(createGroundedWebMetadata(result)).toMatchObject({
+			ok: true,
+			evidenceReady: false,
+			sourceCount: 0,
+			evidenceCount: 0,
+			mode: "exact",
+			freshness: "live",
+		});
+	});
+
+	it("marks source-only research results without snippets as not evidence-ready", () => {
+		const result = researchResult();
+		result.sources = [
+			{
+				...result.sources[0]!,
+				snippet: null,
+				highlights: [],
+				text: null,
+			},
+		];
+		result.evidence = [];
+
+		expect(createGroundedWebMetadata(result)).toMatchObject({
+			ok: true,
+			evidenceReady: false,
+			sourceCount: 1,
+			evidenceCount: 0,
+		});
+		expect(buildGroundedWebModelPayload(result)).toMatchObject({
+			success: false,
+			answerBrief: {
+				sourceCount: 1,
+				evidenceCount: 0,
+			},
+			diagnostics: {
+				fallbackReasons: [],
+			},
+		});
+	});
+
 	it("extracts markdown and bare web citation URLs for audit handoff", () => {
 		expect(
 			extractAssistantWebCitationUrls(
 				"See [official](https://example.com/product). Mirror: https://cdn.example.net/item.",
 			),
-		).toEqual([
-			"https://example.com/product",
-			"https://cdn.example.net/item.",
-		]);
+		).toEqual(["https://example.com/product", "https://cdn.example.net/item."]);
 	});
 });
