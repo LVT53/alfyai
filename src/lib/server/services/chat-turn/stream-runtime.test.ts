@@ -585,6 +585,72 @@ describe("createServerChunkRuntime", () => {
 		expect(runtime.serverSegments).toEqual([]);
 	});
 
+	it("records prefetched done-only web tool calls with citation candidates", () => {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+		});
+
+		runtime.emitToolCallEvent(
+			"research_web",
+			{ query: "Open https://example.com/" },
+			"done",
+			{
+				callId: "server-prefetch:web:1",
+				sourceType: "web",
+				outputSummary: "Server-prefetched 1 web source and 2 evidence snippets.",
+				candidates: [
+					{
+						id: "direct:https://example.com/",
+						title: "Example Domain",
+						url: "https://example.com/",
+						snippet: "Example Domain excerpt",
+						sourceType: "web",
+						material: true,
+					},
+				],
+				metadata: {
+					ok: true,
+					evidenceReady: true,
+					serverPrefetched: true,
+				},
+			},
+		);
+
+		expect(toolCallEvents(chunks)).toHaveLength(1);
+		expect(runtime.toolCallRecords).toEqual([
+			expect.objectContaining({
+				callId: "server-prefetch:web:1",
+				name: "research_web",
+				status: "done",
+				sourceType: "web",
+				candidates: [
+					expect.objectContaining({
+						title: "Example Domain",
+						url: "https://example.com/",
+						sourceType: "web",
+					}),
+				],
+			}),
+		]);
+		expect(runtime.serverSegments).toEqual([
+			expect.objectContaining({
+				callId: "server-prefetch:web:1",
+				name: "research_web",
+				status: "done",
+				candidates: [
+					expect.objectContaining({
+						title: "Example Domain",
+						url: "https://example.com/",
+					}),
+				],
+			}),
+		]);
+	});
+
 	it("coalesces duplicate tool starts by call id and completes that call", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({

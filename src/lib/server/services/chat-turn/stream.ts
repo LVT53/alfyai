@@ -745,6 +745,33 @@ export function createServerChunkRuntime({
 		}
 
 		const runningRecordIndex = findRunningRecordIndex({ matchInput: false });
+		if (runningRecordIndex === -1) {
+			const doneRecord: ToolCallEntry = {
+				...(callId ? { callId } : {}),
+				name,
+				input,
+				status: "done",
+				outputSummary: details?.outputSummary ?? null,
+				sourceType: details?.sourceType ?? null,
+				candidates: details?.candidates,
+				metadata: details?.metadata,
+			};
+			toolCallRecords.push(doneRecord);
+			if (shouldStoreThinkingSegment) {
+				serverSegments.push({
+					type: "tool_call",
+					...(callId ? { callId } : {}),
+					name,
+					input,
+					status: "done",
+					outputSummary: details?.outputSummary ?? null,
+					sourceType: details?.sourceType ?? null,
+					candidates: details?.candidates,
+					metadata: details?.metadata,
+				});
+			}
+			return;
+		}
 		for (let i = toolCallRecords.length - 1; i >= 0; i--) {
 			const toolRecord = toolCallRecords[i];
 			if (i === runningRecordIndex) {
