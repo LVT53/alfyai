@@ -1,11 +1,7 @@
 <script lang="ts">
 import { browser } from "$app/environment";
-import {
-	determinePreviewFileType,
-	getPreviewLanguage,
-} from "$lib/utils/file-preview";
+import { determinePreviewFileType } from "$lib/utils/file-preview";
 import { summarizeTextComparison } from "$lib/utils/text-compare";
-import { renderHighlightedText } from "$lib/utils/markdown-loader";
 import type { DocumentWorkspaceItem } from "$lib/types";
 import { t } from "$lib/i18n";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
@@ -48,9 +44,10 @@ let {
 } = $props();
 
 let activeDocument = $derived.by(() => {
-	if (documents.length === 0) return null;
+	if (documents.length === 0 && availableDocuments.length === 0) return null;
 	return (
 		documents.find((document) => document.id === activeDocumentId) ??
+		availableDocuments.find((document) => document.id === activeDocumentId) ??
 		documents[0] ??
 		null
 	);
@@ -341,11 +338,7 @@ function isLatestFamilyDocument(document: DocumentWorkspaceItem): boolean {
 }
 
 function handleFamilyDocumentOpen(document: DocumentWorkspaceItem) {
-	if (documents.some((entry) => entry.id === document.id)) {
-		onSelectDocument(document.id);
-		return;
-	}
-	onOpenDocument?.(document);
+	onSelectDocument(document.id);
 }
 
 function canJumpToSource(document: DocumentWorkspaceItem): boolean {
@@ -504,18 +497,66 @@ $effect(() => {
 	}
 });
 
-async function renderHighlightedCompareText(
-	document: DocumentWorkspaceItem,
-	text: string,
+function renderHighlightedCompareText(
+	currentText: string,
+	comparedText: string,
+	side: "current" | "compared",
 ) {
-	return renderHighlightedText(
-		text,
-		getPreviewLanguage(document.mimeType, document.filename),
-		browser
-			? (globalThis.document?.documentElement?.classList.contains("dark") ??
-					false)
-			: false,
-	);
+	return renderTextComparisonHtml(currentText, comparedText, side);
+}
+
+function splitCompareLines(value: string): string[] {
+	return value.replace(/\r\n/g, "\n").split("\n");
+}
+
+function escapeHtml(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#39;");
+}
+
+function renderTextComparisonHtml(
+	currentText: string,
+	comparedText: string,
+	side: "current" | "compared",
+): string {
+	const currentLines = splitCompareLines(currentText);
+	const comparedLines = splitCompareLines(comparedText);
+	const lineCount = Math.max(currentLines.length, comparedLines.length);
+	const renderedLines: string[] = [];
+
+	for (let index = 0; index < lineCount; index += 1) {
+		const currentLine = currentLines[index];
+		const comparedLine = comparedLines[index];
+		const line =
+			side === "current" ? (currentLine ?? "") : (comparedLine ?? "");
+		if (
+			(side === "current" && currentLine === undefined) ||
+			(side === "compared" && comparedLine === undefined)
+		) {
+			continue;
+		}
+		let state = "unchanged";
+		let sign = " ";
+
+		if (side === "current" && currentLine !== comparedLine) {
+			state = "added";
+			sign = "+";
+		}
+		if (side === "compared" && currentLine !== comparedLine) {
+			state = "removed";
+			sign = "-";
+		}
+
+		renderedLines.push(
+			`<span class="workspace-diff-line workspace-diff-line-${state}"><span class="workspace-diff-gutter">${sign}</span><span class="workspace-diff-content">${escapeHtml(line) || "&nbsp;"}</span></span>`,
+		);
+	}
+
+	return `<pre class="workspace-diff"><code>${renderedLines.join("\n")}</code></pre>`;
 }
 
 $effect(() => {
@@ -549,10 +590,16 @@ $effect(() => {
 				loadComparePreview(activeDocument),
 				loadComparePreview(comparedDocument),
 			]);
-			const [currentHtml, otherHtml] = await Promise.all([
-				renderHighlightedCompareText(activeDocument, currentText),
-				renderHighlightedCompareText(comparedDocument, otherText),
-			]);
+			const currentHtml = renderHighlightedCompareText(
+				currentText,
+				otherText,
+				"current",
+			);
+			const otherHtml = renderHighlightedCompareText(
+				currentText,
+				otherText,
+				"compared",
+			);
 
 			if (cancelled) return;
 			compareCurrentTextHtml = currentHtml;
@@ -697,6 +744,26 @@ $effect(() => {
 							{/if}
 							<span>{getDocumentSourceLabel(activeDocument)}</span>
 						</span>
+						{#if canCompareActiveDocument}
+							<button
+								type="button"
+								class="workspace-compare-toggle"
+								class:workspace-compare-toggle-active={compareMode}
+								onclick={() => {
+									compareMode = !compareMode;
+								}}
+								aria-label={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
+								title={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
+								aria-pressed={compareMode}
+							>
+								<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+									<path d="M8 3 4 7l4 4" />
+									<path d="M4 7h14a3 3 0 0 1 3 3v1" />
+									<path d="m16 21 4-4-4-4" />
+									<path d="M20 17H6a3 3 0 0 1-3-3v-1" />
+								</svg>
+							</button>
+						{/if}
 						{#if getDocumentLifecycleLabel(activeDocument)}
 							<span class="workspace-status-badge">
 								{getDocumentLifecycleLabel(activeDocument)}
@@ -705,20 +772,6 @@ $effect(() => {
 					</div>
 				</div>
 			</div>
-
-			{#if canCompareActiveDocument}
-				<div class="workspace-actions">
-					<button
-						type="button"
-						class="workspace-source-button"
-						onclick={() => {
-							compareMode = !compareMode;
-						}}
-					>
-						{compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
-					</button>
-				</div>
-			{/if}
 
 			<MobileDocumentsSheet
 				{documents}
@@ -744,14 +797,14 @@ $effect(() => {
 								onclick={() => handleFamilyDocumentOpen(document)}
 							>
 								<div class="workspace-history-topline">
-									<span class="workspace-history-version">
-										{getDocumentVersionLabel(document) ?? 'Version'}
+									<span
+										class="workspace-history-version"
+										class:workspace-history-version-current={isCurrentFamilyDocument(document)}
+									>
+										{getDocumentVersionLabel(document) ?? $t('documentWorkspace.version')}
 									</span>
 									{#if isLatestFamilyDocument(document)}
-										<span class="workspace-history-badge">Latest</span>
-									{/if}
-									{#if isCurrentFamilyDocument(document)}
-										<span class="workspace-history-badge workspace-history-badge-current">Current</span>
+										<span class="workspace-history-badge">{$t('documentWorkspace.latest')}</span>
 									{/if}
 								</div>
 								<div class="workspace-history-title">{getDocumentTitle(document)}</div>
@@ -766,15 +819,15 @@ $effect(() => {
 					<div class="workspace-compare">
 						<div class="workspace-compare-header">
 							<div>
-								<div class="workspace-compare-title">Compare Versions</div>
+								<div class="workspace-compare-title">{$t('documentWorkspace.compareVersionsTitle')}</div>
 								{#if compareSummary}
 									<div class="workspace-compare-summary">
-										{compareSummary.changedLines} changed • {compareSummary.addedLines} added • {compareSummary.removedLines} removed
+										{$t('documentWorkspace.compareSummary', { changed: compareSummary.changedLines, added: compareSummary.addedLines, removed: compareSummary.removedLines })}
 									</div>
 								{/if}
 							</div>
 							<label class="workspace-compare-select-wrap">
-								<span class="workspace-compare-select-label">Against</span>
+								<span class="workspace-compare-select-label">{$t('documentWorkspace.against')}</span>
 								<select
 									class="workspace-compare-select"
 									bind:value={compareDocumentId}
@@ -906,13 +959,13 @@ $effect(() => {
 								</svg>
 							</a>
 						{/if}
-						{#if showPresentationToggle}
+						{#if showPresentationToggle && presentation !== "expanded"}
 							<button
 								type="button"
 								class="btn-icon-bare workspace-expand-button"
-								onclick={presentation === "expanded" ? requestDockedPresentation : requestExpandedPresentation}
-								aria-label={presentation === "expanded" ? $t('documentWorkspace.collapseWorkspaceLabel', { title: getDocumentTitle(activeDocument) }) : $t('documentWorkspace.expandWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
-								title={presentation === "expanded" ? $t('documentWorkspace.collapseWorkspace') : $t('documentWorkspace.expandWorkspace')}
+								onclick={requestExpandedPresentation}
+								aria-label={$t('documentWorkspace.expandWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
+								title={$t('documentWorkspace.expandWorkspace')}
 							>
 								<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 									<polyline points="15 3 21 3 21 9" />
@@ -948,6 +1001,26 @@ $effect(() => {
 						{/if}
 						<span>{getDocumentSourceLabel(activeDocument)}</span>
 					</span>
+					{#if canCompareActiveDocument}
+						<button
+							type="button"
+							class="workspace-compare-toggle"
+							class:workspace-compare-toggle-active={compareMode}
+							onclick={() => {
+								compareMode = !compareMode;
+							}}
+							aria-label={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
+							title={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
+							aria-pressed={compareMode}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+								<path d="M8 3 4 7l4 4" />
+								<path d="M4 7h14a3 3 0 0 1 3 3v1" />
+								<path d="m16 21 4-4-4-4" />
+								<path d="M20 17H6a3 3 0 0 1-3-3v-1" />
+							</svg>
+						</button>
+					{/if}
 					{#if getDocumentLifecycleLabel(activeDocument)}
 						<span class="workspace-status-badge">
 							{getDocumentLifecycleLabel(activeDocument)}
@@ -956,20 +1029,6 @@ $effect(() => {
 				</div>
 			</div>
 		</div>
-
-	{#if canCompareActiveDocument}
-		<div class="workspace-actions">
-			<button
-				type="button"
-				class="workspace-source-button"
-				onclick={() => {
-					compareMode = !compareMode;
-				}}
-			>
-				{compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
-			</button>
-		</div>
-	{/if}
 
 	<div
 		class="workspace-main"
@@ -1000,14 +1059,14 @@ $effect(() => {
 						onclick={() => handleFamilyDocumentOpen(document)}
 					>
 								<div class="workspace-history-topline">
-									<span class="workspace-history-version">
+									<span
+										class="workspace-history-version"
+										class:workspace-history-version-current={isCurrentFamilyDocument(document)}
+									>
 										{getDocumentVersionLabel(document) ?? $t('documentWorkspace.version')}
 									</span>
 									{#if isLatestFamilyDocument(document)}
 										<span class="workspace-history-badge">{$t('documentWorkspace.latest')}</span>
-									{/if}
-									{#if isCurrentFamilyDocument(document)}
-										<span class="workspace-history-badge workspace-history-badge-current">{$t('documentWorkspace.current')}</span>
 									{/if}
 								</div>
 								<div class="workspace-history-title">{getDocumentTitle(document)}</div>
@@ -1179,7 +1238,8 @@ $effect(() => {
 	}
 
 	.workspace-shell-mobile .workspace-source-pill,
-	.workspace-shell-mobile .workspace-status-badge {
+	.workspace-shell-mobile .workspace-status-badge,
+	.workspace-shell-mobile .workspace-compare-toggle {
 		padding: 0.14rem 0.38rem;
 		font-size: 0.62rem;
 	}
@@ -1309,6 +1369,40 @@ $effect(() => {
 		color: var(--text-primary);
 	}
 
+	.workspace-compare-toggle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.68rem;
+		height: 1.68rem;
+		border: 1px solid var(--border-subtle);
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--surface-elevated) 66%, var(--surface-page) 34%);
+		color: var(--text-muted);
+		transition:
+			border-color var(--duration-fast) ease,
+			background-color var(--duration-fast) ease,
+			color var(--duration-fast) ease,
+			transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+
+	.workspace-compare-toggle:hover,
+	.workspace-compare-toggle:focus-visible,
+	.workspace-compare-toggle-active {
+		border-color: color-mix(in srgb, var(--accent) 52%, var(--border-default) 48%);
+		background: color-mix(in srgb, var(--accent) 12%, var(--surface-elevated) 88%);
+		color: var(--text-primary);
+	}
+
+	.workspace-compare-toggle:hover {
+		transform: translateY(-1px);
+	}
+
+	.workspace-compare-toggle:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--focus-ring) 70%, transparent 30%);
+		outline-offset: 0.16rem;
+	}
+
 	.workspace-status-badge {
 		display: inline-flex;
 		align-items: center;
@@ -1368,43 +1462,6 @@ $effect(() => {
 	}
 
 	.workspace-expand-button:hover {
-		color: var(--text-primary);
-	}
-
-	.workspace-actions {
-		display: flex;
-		justify-content: flex-start;
-		padding: 0.7rem 1rem 0;
-		border-left: 1px solid var(--border-default);
-		background: color-mix(in srgb, var(--surface-page) 96%, transparent 4%);
-	}
-
-	.workspace-shell-mobile .workspace-actions {
-		border-left: none;
-	}
-
-	.workspace-source-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.46rem 0.82rem;
-		border: 1px solid var(--border-default);
-		border-radius: 999px;
-		background: var(--surface-elevated);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.76rem;
-		font-weight: 600;
-		letter-spacing: 0.02em;
-		color: var(--text-secondary);
-		transition:
-			border-color var(--duration-fast) ease,
-			background-color var(--duration-fast) ease,
-			color var(--duration-fast) ease;
-	}
-
-	.workspace-source-button:hover {
-		border-color: var(--border-strong);
-		background: color-mix(in srgb, var(--surface-elevated) 72%, var(--surface-page) 28%);
 		color: var(--text-primary);
 	}
 
@@ -1561,11 +1618,64 @@ $effect(() => {
 		margin: 0;
 	}
 
+	.workspace-compare-panel-body :global(.workspace-diff) {
+		width: max-content;
+		min-width: 100%;
+		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+		font-size: 0.78rem;
+		line-height: 1.55;
+	}
+
+	.workspace-compare-panel-body :global(.workspace-diff code) {
+		display: block;
+		width: max-content;
+		min-width: 100%;
+	}
+
+	.workspace-compare-panel-body :global(.workspace-diff-line) {
+		display: grid;
+		grid-template-columns: 2.15rem minmax(max-content, 1fr);
+		width: max-content;
+		min-width: 100%;
+		border-left: 3px solid transparent;
+	}
+
+	.workspace-compare-panel-body :global(.workspace-diff-line-added) {
+		border-left-color: color-mix(in srgb, var(--success, #248a3d) 70%, var(--border-default) 30%);
+		background: color-mix(in srgb, var(--success, #248a3d) 14%, transparent 86%);
+	}
+
+	.workspace-compare-panel-body :global(.workspace-diff-line-removed) {
+		border-left-color: color-mix(in srgb, var(--danger) 70%, var(--border-default) 30%);
+		background: color-mix(in srgb, var(--danger) 12%, transparent 88%);
+	}
+
+	.workspace-compare-panel-body :global(.workspace-diff-gutter) {
+		position: sticky;
+		left: 0;
+		z-index: 1;
+		display: inline-flex;
+		align-items: flex-start;
+		justify-content: center;
+		background: inherit;
+		color: var(--text-muted);
+		font-weight: 700;
+		user-select: none;
+	}
+
+	.workspace-compare-panel-body :global(.workspace-diff-content) {
+		display: inline-block;
+		min-width: 0;
+		padding-right: 1rem;
+		white-space: pre;
+	}
+
 	.workspace-history {
 		display: flex;
-		align-items: center;
-		gap: 0.65rem;
-		padding: 0.55rem 0.75rem;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.42rem;
+		padding: 0.58rem 0.75rem 0.64rem;
 		border-left: 1px solid var(--border-default);
 		border-bottom: 1px solid var(--border-default);
 		background: color-mix(in srgb, var(--surface-page) 94%, transparent 6%);
@@ -1590,15 +1700,17 @@ $effect(() => {
 		min-width: 0;
 		gap: 0.35rem;
 		overflow-x: auto;
+		padding-bottom: 0.05rem;
 	}
 
 	.workspace-history-chip {
 		display: inline-flex;
-		align-items: center;
-		min-width: 0;
-		max-width: 12rem;
-		gap: 0.4rem;
-		padding: 0.3rem 0.44rem;
+		flex-direction: column;
+		align-items: stretch;
+		min-width: 8.5rem;
+		max-width: 13.5rem;
+		gap: 0.28rem;
+		padding: 0.36rem 0.48rem;
 		border: 1px solid var(--border-default);
 		border-radius: 0.5rem;
 		background: var(--surface-elevated);
@@ -1607,18 +1719,21 @@ $effect(() => {
 		transition:
 			border-color var(--duration-fast) ease,
 			background-color var(--duration-fast) ease,
-			color var(--duration-fast) ease;
+			color var(--duration-fast) ease,
+			transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+			box-shadow var(--duration-fast) ease;
 	}
 
 	.workspace-history-chip:hover {
 		border-color: var(--border-strong);
 		background: color-mix(in srgb, var(--surface-elevated) 86%, var(--surface-page) 14%);
 		color: var(--text-primary);
+		transform: translateY(-1px);
+		box-shadow: 0 8px 18px color-mix(in srgb, var(--shadow-color, #000) 10%, transparent 90%);
 	}
 
 	.workspace-version-badge {
 		flex: 0 0 auto;
-		box-shadow: none;
 	}
 
 	.workspace-history-chip-current {
@@ -1629,9 +1744,10 @@ $effect(() => {
 
 	.workspace-history-topline {
 		display: flex;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		align-items: center;
 		gap: 0.35rem;
+		min-width: 0;
 	}
 
 	.workspace-history-version,
@@ -1653,14 +1769,15 @@ $effect(() => {
 		background: var(--surface-page);
 	}
 
+	.workspace-history-version-current {
+		border-color: color-mix(in srgb, var(--accent) 68%, var(--border-default) 32%);
+		background: color-mix(in srgb, var(--accent) 16%, var(--surface-page) 84%);
+		color: var(--text-primary);
+	}
+
 	.workspace-history-badge {
 		color: var(--text-muted);
 		background: color-mix(in srgb, var(--surface-page) 85%, transparent 15%);
-	}
-
-	.workspace-history-badge-current {
-		color: var(--text-primary);
-		background: color-mix(in srgb, var(--surface-page) 70%, var(--surface-elevated) 30%);
 	}
 
 	.workspace-history-title {

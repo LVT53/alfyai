@@ -468,6 +468,11 @@ describe("DocumentWorkspace", () => {
 		expect(main).toHaveAttribute("data-presentation", "expanded");
 		expect(main).toHaveAttribute("data-layout", "rail-and-preview");
 		expect(
+			within(desktopWorkspace).queryByRole("button", {
+				name: /return .* docked workspace/i,
+			}),
+		).not.toBeInTheDocument();
+		expect(
 			within(main).getByTestId("workspace-document-column"),
 		).toBeInTheDocument();
 	});
@@ -1175,7 +1180,12 @@ describe("DocumentWorkspace", () => {
 			within(desktopWorkspace).getAllByText("Historical").length,
 		).toBeGreaterThan(0);
 		expect(within(desktopWorkspace).getByText("Latest")).toBeInTheDocument();
-		expect(within(desktopWorkspace).getByText("Current")).toBeInTheDocument();
+		expect(
+			within(desktopWorkspace).queryByText("Current"),
+		).not.toBeInTheDocument();
+		expect(
+			versionBadges[0].querySelector(".workspace-history-version"),
+		).toHaveClass("workspace-history-version-current");
 
 		await fireEvent.click(
 			within(desktopWorkspace).getByRole("button", { name: /v1/i }),
@@ -1185,7 +1195,7 @@ describe("DocumentWorkspace", () => {
 		expect(onOpenDocument).not.toHaveBeenCalled();
 	});
 
-	it("opens a related family version that is not already tabbed", async () => {
+	it("selects a related family version without opening a new workspace document", async () => {
 		const onSelectDocument = vi.fn();
 		const onOpenDocument = vi.fn();
 
@@ -1238,14 +1248,8 @@ describe("DocumentWorkspace", () => {
 			within(desktopWorkspace).getByRole("button", { name: /v3/i }),
 		);
 
-		expect(onOpenDocument).toHaveBeenCalledWith(
-			expect.objectContaining({
-				id: "doc-v3",
-				documentFamilyId: "family-brief",
-				versionNumber: 3,
-			}),
-		);
-		expect(onSelectDocument).not.toHaveBeenCalled();
+		expect(onSelectDocument).toHaveBeenCalledWith("doc-v3");
+		expect(onOpenDocument).not.toHaveBeenCalled();
 	});
 
 	it("uses the header document title as the source-message affordance for origin metadata", async () => {
@@ -1401,6 +1405,22 @@ describe("DocumentWorkspace", () => {
 				within(desktopWorkspace).getByText("Compared"),
 			).toBeInTheDocument();
 		});
+
+		const currentPanel = within(desktopWorkspace)
+			.getByText("Current")
+			.closest(".workspace-compare-panel") as HTMLElement;
+		const comparedPanel = within(desktopWorkspace)
+			.getByText("Compared")
+			.closest(".workspace-compare-panel") as HTMLElement;
+		expect(
+			currentPanel.querySelector(".workspace-diff-line-added"),
+		).toHaveTextContent("+Current draft");
+		expect(
+			comparedPanel.querySelector(".workspace-diff-line-removed"),
+		).toHaveTextContent("-Previous draft");
+		expect(
+			currentPanel.querySelector(".workspace-diff-line-unchanged"),
+		).toHaveTextContent("Title");
 
 		expect(global.fetch).toHaveBeenCalledWith(
 			"/api/knowledge/artifact-v2/preview",
