@@ -676,7 +676,7 @@
     line-height: 1.25;
     padding: 0.02em 0.3em 0.02em 0.34em;
     text-decoration: none !important;
-    vertical-align: 0.02em;
+    vertical-align: middle;
     transition:
       border-color var(--duration-micro) var(--ease-out),
       background var(--duration-micro) var(--ease-out),
