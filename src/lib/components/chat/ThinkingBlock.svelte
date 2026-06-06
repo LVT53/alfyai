@@ -13,11 +13,13 @@ let {
 	thinkingIsDone = false,
 	segments = [],
 	streaming = false,
+	thinkingDurationSeconds = 0,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
 	segments?: ThinkingSegment[];
 	streaming?: boolean;
+	thinkingDurationSeconds?: number;
 } = $props();
 
 let expanded = $state(false);
@@ -123,12 +125,13 @@ $effect(() => {
 	});
 
 const formattedThinkingTime = $derived.by(() => {
-	if (thinkingSeconds < 60) {
-		return `${thinkingSeconds} s`;
+	const seconds = thinkingIsDone ? thinkingDurationSeconds : thinkingSeconds;
+	if (seconds < 60) {
+		return `${seconds} s`;
 	}
-	const minutes = Math.floor(thinkingSeconds / 60);
-	const seconds = thinkingSeconds % 60;
-	return `${minutes}m ${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	const remainingSeconds = seconds % 60;
+	return `${minutes}m ${remainingSeconds}s`;
 });
 
 function extractHostname(raw: string): string {

@@ -485,12 +485,13 @@
 			{/key}
 		{/if}
 		{#if !isUser && (hasThinking || hasVisibleThinkingSegments || hasToolCalls)}
-			<ThinkingBlock
-				content={message.thinking ?? ''}
-				thinkingIsDone={thinkingIsDone}
-				segments={visibleThinkingSegmentsForDisplay}
-				streaming={isStreaming}
-			/>
+		<ThinkingBlock
+			content={message.thinking ?? ''}
+			thinkingIsDone={thinkingIsDone}
+			segments={visibleThinkingSegmentsForDisplay}
+			streaming={isStreaming}
+			thinkingDurationSeconds={message.generationDurationMs ? Math.round(message.generationDurationMs / 1000) : 0}
+		/>
 		{/if}
 		{#if isUser}
 			{#if isEditing}
