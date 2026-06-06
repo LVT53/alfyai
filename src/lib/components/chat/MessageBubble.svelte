@@ -691,6 +691,9 @@
 		object-fit: contain;
 		background-color: var(--surface-elevated);
 	}
+	.prose-container :global(.source-link-chip img.source-link-chip__favicon) {
+		margin: 0;
+	}
 	.prose-container :global(p),
 	.prose-container :global(li),
 	.prose-container :global(blockquote),
