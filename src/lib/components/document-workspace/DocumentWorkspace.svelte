@@ -61,11 +61,11 @@ let compareSummary = $state<ReturnType<typeof summarizeTextComparison> | null>(
 	null,
 );
 let compareLoading = $state(false);
-	let compareError = $state<string | null>(null);
-	let syncScrollEnabled = $state(false);
-	let leftPanelBody: HTMLDivElement | undefined = $state(undefined);
-	let rightPanelBody: HTMLDivElement | undefined = $state(undefined);
-	let isSyncingScroll = false;
+let compareError = $state<string | null>(null);
+let syncScrollEnabled = $state(false);
+let leftPanelBody: HTMLDivElement | undefined = $state(undefined);
+let rightPanelBody: HTMLDivElement | undefined = $state(undefined);
+let isSyncingScroll = false;
 let documentPreviewRendererModulePromise: Promise<DocumentPreviewRendererModule> | null =
 	null;
 let desktopShellElement = $state<HTMLElement | null>(null);
@@ -75,7 +75,7 @@ let isVisible = $state(false);
 let shouldRender = $state(false);
 let closeAnimationTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldShowWorkspaceShell = $derived(open && documents.length > 0);
-let lastPresentation = $state<"docked" | "expanded" | null>(null);
+let lastPresentation: "docked" | "expanded" | null = null;
 
 // Page navigation state
 let currentPage = $state(1);
@@ -662,7 +662,10 @@ $effect(() => {
 	};
 });
 
-function syncScroll(source: HTMLDivElement, target: HTMLDivElement | undefined) {
+function syncScroll(
+	source: HTMLDivElement,
+	target: HTMLDivElement | undefined,
+) {
 	if (!syncScrollEnabled || isSyncingScroll || !target) return;
 	isSyncingScroll = true;
 	target.scrollTop = source.scrollTop;
