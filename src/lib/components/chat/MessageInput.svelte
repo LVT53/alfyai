@@ -16,6 +16,7 @@ import {
 	type ComposerCommandDefinition,
 } from "$lib/composer-commands";
 import { t, type I18nKey } from "$lib/i18n";
+import { tokenizeTextLinks } from "$lib/services/linkify";
 import { currentConversationId } from "$lib/stores/ui";
 import ContextUsageRing from "./ContextUsageRing.svelte";
 import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
@@ -64,10 +65,6 @@ type DraftPayload = {
 };
 
 type DeepResearchDepth = "focused" | "standard" | "max";
-
-type ComposerTextSegment =
-	| { kind: "text"; text: string }
-	| { kind: "link"; text: string; href: string };
 
 let {
 	disabled = false,
@@ -283,7 +280,7 @@ let activeCommandAnnouncement = $derived(
 			})
 		: "",
 );
-let composerTextSegments = $derived(tokenizeComposerLinks(message));
+let composerTextSegments = $derived(tokenizeTextLinks(message));
 
 $effect(() => {
 	resolvedConversationId = conversationId;
@@ -665,43 +662,6 @@ function stop() {
 	if (isMobile()) {
 		textarea?.blur();
 	}
-}
-
-const URL_MATCH_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>"']+/gi;
-const TRAILING_URL_PUNCTUATION_PATTERN = /[),.!?:;]+$/;
-
-function tokenizeComposerLinks(text: string): ComposerTextSegment[] {
-	if (!text) return [];
-	const segments: ComposerTextSegment[] = [];
-	let currentIndex = 0;
-	let hasLink = false;
-
-	for (const match of text.matchAll(URL_MATCH_PATTERN)) {
-		const rawUrl = match[0];
-		const rawStart = match.index ?? 0;
-		const visibleUrl = rawUrl.replace(TRAILING_URL_PUNCTUATION_PATTERN, "");
-		if (!visibleUrl) continue;
-		const visibleEnd = rawStart + visibleUrl.length;
-
-		if (rawStart > currentIndex) {
-			segments.push({ kind: "text", text: text.slice(currentIndex, rawStart) });
-		}
-		segments.push({
-			kind: "link",
-			text: visibleUrl,
-			href: visibleUrl.startsWith("www.")
-				? `https://${visibleUrl}`
-				: visibleUrl,
-		});
-		hasLink = true;
-		currentIndex = visibleEnd;
-	}
-
-	if (!hasLink) return [];
-	if (currentIndex < text.length) {
-		segments.push({ kind: "text", text: text.slice(currentIndex) });
-	}
-	return segments;
 }
 
 onMount(() => {
@@ -1611,6 +1571,7 @@ async function emitDraftChange(force = false) {
 			aria-activedescendant={activeCommandRow ? `composer-command-${activeCommandRow.id}` : undefined}
 			placeholder={$t('chat.messagePlaceholder')}
 			class="composer-textarea min-h-[72px] w-full resize-none overflow-y-auto border-0 bg-transparent px-[13px] py-[7px] text-left text-[15px] leading-[1.42] font-serif text-text-primary placeholder:font-sans placeholder:text-[14px] placeholder:text-text-muted focus:outline-none focus:ring-0 md:min-h-[88px] md:px-[16px] md:py-[8px] md:text-[15px] md:leading-[1.35]"
+			class:composer-textarea--link-overlay-active={composerTextSegments.length > 0}
 			rows="1"
 		></textarea>
 		{#if composerTextSegments.length > 0}
@@ -2363,6 +2324,17 @@ async function emitDraftChange(force = false) {
 		z-index: 1;
 	}
 
+	.composer-textarea--link-overlay-active {
+		color: transparent;
+		caret-color: var(--text-primary);
+		-webkit-text-fill-color: transparent;
+	}
+
+	.composer-textarea--link-overlay-active::selection {
+		background: color-mix(in srgb, var(--focus-ring) 34%, transparent);
+		-webkit-text-fill-color: transparent;
+	}
+
 	.composer-link-highlights {
 		position: absolute;
 		top: 8px;
@@ -2374,7 +2346,7 @@ async function emitDraftChange(force = false) {
 		overflow-wrap: anywhere;
 		pointer-events: none;
 		white-space: pre-wrap;
-		color: transparent;
+		color: var(--text-primary);
 	}
 
 	.composer-link-highlights a {

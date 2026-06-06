@@ -574,15 +574,25 @@ function inlineSourceReferenceMapFromCandidates(
 	return references;
 }
 
+function sourceFaviconUrl(href: string): string | null {
+	const parsedHref = parseExternalHref(href);
+	if (!parsedHref) return null;
+	return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsedHref.hostname)}&sz=32`;
+}
+
 function renderSourceLinkChip(params: { href: string; sourceName: string }) {
 	const sourceName = escapeHtml(params.sourceName);
 	const href = escapeHtml(params.href);
+	const faviconUrl = sourceFaviconUrl(params.href);
 	const ariaLabel = escapeHtml(
 		`Open source: ${params.sourceName} - ${params.href}`,
 	);
 
 	return [
 		`<a href="${href}" class="source-link-chip" target="_blank" rel="noopener noreferrer external" aria-label="${ariaLabel}">`,
+		faviconUrl
+			? `<img class="source-link-chip__favicon" src="${escapeHtml(faviconUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" aria-hidden="true">`
+			: "",
 		`<span class="source-link-chip__label">${sourceName}</span>`,
 		'<span class="source-link-chip__icon" aria-hidden="true"></span>',
 		"</a>",

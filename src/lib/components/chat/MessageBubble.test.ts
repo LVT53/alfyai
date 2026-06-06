@@ -277,6 +277,32 @@ describe('MessageBubble', () => {
 		});
 	});
 
+	it('renders plain URLs in sent user messages as highlighted links', () => {
+		const message: ChatMessage = {
+			id: 'user-link-message',
+			renderKey: 'user-link-message',
+			role: 'user',
+			content: 'Read https://example.com/report and www.example.org.',
+			timestamp: Date.now(),
+		};
+
+		render(MessageBubble, { message });
+
+		const secureLink = screen.getByRole('link', {
+			name: 'https://example.com/report',
+		});
+		expect(secureLink).toHaveAttribute('href', 'https://example.com/report');
+		expect(secureLink).toHaveAttribute('target', '_blank');
+		expect(secureLink.getAttribute('rel')).toContain('noopener');
+		expect(secureLink.getAttribute('rel')).toContain('noreferrer');
+
+		const bareLink = screen.getByRole('link', { name: 'www.example.org' });
+		expect(bareLink).toHaveAttribute('href', 'https://www.example.org');
+		expect(screen.getByTestId('user-message')).toHaveTextContent(
+			'Read https://example.com/report and www.example.org.',
+		);
+	});
+
 	it('shows the fork action only for completed persisted assistant messages', async () => {
 		const onFork = vi.fn();
 		const assistantMessage: ChatMessage = {

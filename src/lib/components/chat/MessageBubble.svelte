@@ -3,6 +3,7 @@
 	import { t } from '$lib/i18n';
 	import { estimateTokenCount } from '$lib/utils/tokens';
 	import { isVisibleThinkingToolCall } from '$lib/utils/tool-calls';
+	import { tokenizeTextLinks } from '$lib/services/linkify';
 	import type {
 		ArtifactSummary,
 		ChatMessage,
@@ -100,6 +101,7 @@
 	);
 	let skillDrafts = $derived(message.skillDrafts ?? []);
 	let sourceForks = $derived(message.sourceForks);
+	let userMessageSegments = $derived(isUser ? tokenizeTextLinks(message.content) : []);
 
 	// Thinking is definitively done once visible response text has started streaming
 	// OR the whole message is complete. This keeps the label as "Thinking" between
@@ -333,7 +335,24 @@
 					</div>
 				{/if}
 				<div class="whitespace-pre-wrap break-words text-[15px] leading-[1.5] md:leading-[1.55]">
-					{message.content}
+					{#if userMessageSegments.length > 0}
+						{#each userMessageSegments as segment}
+							{#if segment.kind === 'link'}
+								<a
+									class="user-message-link"
+									href={segment.href}
+									target="_blank"
+									rel="noopener noreferrer external"
+								>
+									{segment.text}
+								</a>
+							{:else}
+								<span>{segment.text}</span>
+							{/if}
+						{/each}
+					{:else}
+						{message.content}
+					{/if}
 				</div>
 			{/if}
 		{:else}
@@ -625,6 +644,25 @@
 		max-width: 100%;
 		overflow-x: clip;
 		overflow-y: visible;
+	}
+
+	.user-message-link {
+		color: var(--accent);
+		font-weight: 560;
+		text-decoration-line: underline;
+		text-decoration-thickness: 0.08em;
+		text-underline-offset: 0.16em;
+	}
+
+	.user-message-link:hover,
+	.user-message-link:focus-visible {
+		color: var(--accent-hover);
+		outline: none;
+	}
+
+	.user-message-link:focus-visible {
+		border-radius: 0.18rem;
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 42%, transparent);
 	}
 
 	.prose-container :global(.prose) {

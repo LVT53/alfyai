@@ -61,6 +61,11 @@ describe("Markdown Rendering Service", () => {
 		expect(html).toContain(
 			'class="source-link-chip__label">Example Source</span>',
 		);
+		expect(html).toContain('class="source-link-chip__favicon"');
+		expect(html).toContain(
+			'src="https://www.google.com/s2/favicons?domain=example.com&amp;sz=32"',
+		);
+		expect(html).toContain('alt=""');
 		expect(html).toContain('class="source-link-chip__icon"');
 		expect(html).not.toContain(">Example Source</a>");
 	});
