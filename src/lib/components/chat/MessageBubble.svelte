@@ -226,6 +226,10 @@
 
 	let timestampLabel = $derived(isUser ? formatTimestamp(message.timestamp) : '');
 	let fullTimestampLabel = $derived(isUser ? formatFullTimestamp(message.timestamp) : '');
+	let regenerateButtonId = $derived(`regenerate-button-${message.id}`);
+	let forkButtonId = $derived(`fork-button-${message.id}`);
+	let editButtonId = $derived(`edit-button-${message.id}`);
+	let copyButtonId = $derived(`copy-button-${message.id}`);
 
 	function handleEditKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -538,43 +542,63 @@
 
 			{#if !isUser && !readOnly}
 				<!-- Regenerate button -->
-				<button
-					type="button"
-					class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
-					onclick={() => onRegenerate?.({ messageId: message.id })}
-					title={$t('messageBubble.regenerate')}
-					aria-label={$t('messageBubble.regenerate')}
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M21 2v6h-6"/>
-						<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
-						<path d="M3 22v-6h6"/>
-						<path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
-					</svg>
-				</button>
+				<div class="action-tooltip-container">
+					<button
+						id={regenerateButtonId}
+						type="button"
+						class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
+						onclick={() => onRegenerate?.({ messageId: message.id })}
+						aria-label={$t('messageBubble.regenerate')}
+						aria-describedby={`${regenerateButtonId}-tooltip`}
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M21 2v6h-6"/>
+							<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+							<path d="M3 22v-6h6"/>
+							<path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+						</svg>
+					</button>
+					<div id={`${regenerateButtonId}-tooltip`} class="action-tooltip" role="tooltip">
+						<div class="tooltip-content">
+							<div class="tooltip-row">
+								<span class="tooltip-value">{$t('messageBubble.actionRegenerate')}</span>
+							</div>
+						</div>
+					</div>
+				</div>
 			{/if}
 
 			{#if canFork}
-				<button
-					type="button"
-					class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
-					onclick={() => onFork?.({ messageId: message.id })}
-					disabled={forkBusy}
-					title={forkBusy ? $t('fork.creating') : $t('messageBubble.forkFromHere')}
-					aria-label={forkBusy ? $t('fork.creating') : $t('messageBubble.forkFromHere')}
-				>
-					{#if forkBusy}
-						<span class="mini-spinner" aria-hidden="true"></span>
-					{:else}
-						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M4 12h5"/>
-							<path d="M9 12c4 0 5-6 10-6"/>
-							<path d="M16 3l3 3-3 3"/>
-							<path d="M9 12c4 0 5 6 10 6"/>
-							<path d="M16 15l3 3-3 3"/>
-						</svg>
-					{/if}
-				</button>
+				<div class="action-tooltip-container">
+					<button
+						id={forkButtonId}
+						type="button"
+						class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
+						onclick={() => onFork?.({ messageId: message.id })}
+						disabled={forkBusy}
+						aria-label={forkBusy ? $t('fork.creating') : $t('messageBubble.forkFromHere')}
+						aria-describedby={`${forkButtonId}-tooltip`}
+					>
+						{#if forkBusy}
+							<span class="mini-spinner" aria-hidden="true"></span>
+						{:else}
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M4 12h5"/>
+								<path d="M9 12c4 0 5-6 10-6"/>
+								<path d="M16 3l3 3-3 3"/>
+								<path d="M9 12c4 0 5 6 10 6"/>
+								<path d="M16 15l3 3-3 3"/>
+							</svg>
+						{/if}
+					</button>
+					<div id={`${forkButtonId}-tooltip`} class="action-tooltip" role="tooltip">
+						<div class="tooltip-content">
+							<div class="tooltip-row">
+								<span class="tooltip-value">{forkBusy ? $t('fork.creating') : $t('messageBubble.actionFork')}</span>
+							</div>
+						</div>
+					</div>
+				</div>
 			{/if}
 
 			{#if isUser}
@@ -594,39 +618,59 @@
 				</div>
 				{#if !readOnly}
 					<!-- Edit button -->
-					<button
-						type="button"
-						class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
-						onclick={startEdit}
-						title={$t('messageBubble.editMessage')}
-						aria-label={$t('messageBubble.editMessage')}
-					>
-						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-							<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-						</svg>
-					</button>
+					<div class="action-tooltip-container">
+						<button
+							id={editButtonId}
+							type="button"
+							class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
+							onclick={startEdit}
+							aria-label={$t('messageBubble.editMessage')}
+							aria-describedby={`${editButtonId}-tooltip`}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+								<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+							</svg>
+						</button>
+						<div id={`${editButtonId}-tooltip`} class="action-tooltip" role="tooltip">
+							<div class="tooltip-content">
+								<div class="tooltip-row">
+									<span class="tooltip-value">{$t('messageBubble.actionEdit')}</span>
+								</div>
+							</div>
+						</div>
+					</div>
 				{/if}
 			{/if}
 
-			<button
-				type="button"
-				class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
-				onclick={copyToClipboard}
-				title={$t('messageBubble.copyMessage')}
-				aria-label={$t('messageBubble.copyMessage')}
-			>
-				{#if copied}
-					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-icon-primary">
-						<polyline points="20 6 9 17 4 12"></polyline>
-					</svg>
-				{:else}
-					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-						<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-					</svg>
-				{/if}
-			</button>
+			<div class="action-tooltip-container">
+				<button
+					id={copyButtonId}
+					type="button"
+					class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
+					onclick={copyToClipboard}
+					aria-label={$t('messageBubble.copyMessage')}
+					aria-describedby={`${copyButtonId}-tooltip`}
+				>
+					{#if copied}
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-icon-primary">
+							<polyline points="20 6 9 17 4 12"></polyline>
+						</svg>
+					{:else}
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+							<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+						</svg>
+					{/if}
+				</button>
+				<div id={`${copyButtonId}-tooltip`} class="action-tooltip" role="tooltip">
+					<div class="tooltip-content">
+						<div class="tooltip-row">
+							<span class="tooltip-value">{$t('messageBubble.actionCopy')}</span>
+						</div>
+					</div>
+				</div>
+			</div>
 		</div>
 	{/if}
 	{#if showLogoBelow}
@@ -970,6 +1014,11 @@
 		display: inline-flex;
 	}
 
+	.action-tooltip-container {
+		position: relative;
+		display: inline-flex;
+	}
+
 	.timestamp-label {
 		font-size: 11px;
 		color: var(--text-muted);
@@ -998,12 +1047,34 @@
 		pointer-events: none;
 	}
 
+	.action-tooltip {
+		position: absolute;
+		bottom: calc(100% + 8px);
+		left: 50%;
+		transform: translateX(-50%) translateY(4px);
+		opacity: 0;
+		visibility: hidden;
+		transition:
+			opacity var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out),
+			visibility var(--duration-standard);
+		z-index: 50;
+		pointer-events: none;
+	}
+
 	.timestamp-container:hover .timestamp-tooltip,
 	.timestamp-tooltip.visible {
 		opacity: 1;
 		visibility: visible;
 		transform: translateX(-50%) translateY(0);
 		pointer-events: auto;
+	}
+
+	.action-tooltip-container:hover .action-tooltip,
+	.action-tooltip-container:focus-within .action-tooltip {
+		opacity: 1;
+		visibility: visible;
+		transform: translateX(-50%) translateY(0);
 	}
 
 	.logo-signature {
@@ -1015,7 +1086,8 @@
 
 	@media (prefers-reduced-motion: reduce) {
 		.info-tooltip,
-		.timestamp-tooltip {
+		.timestamp-tooltip,
+		.action-tooltip {
 			transition: none;
 		}
 	}

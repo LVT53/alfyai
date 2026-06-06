@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, DocumentWorkspaceItem, FileProductionJob } from '$lib/types';
 import { renderMarkdown } from '$lib/utils/markdown-loader';
@@ -369,6 +369,43 @@ describe('MessageBubble', () => {
 			onFork,
 		});
 		expect(screen.queryByRole('button', { name: 'Fork from here' })).not.toBeInTheDocument();
+	});
+
+	it('renders styled hover tooltip labels for message action icons', () => {
+		const assistantMessage: ChatMessage = {
+			id: 'assistant-tooltip-actions',
+			role: 'assistant',
+			content: 'Completed answer.',
+			timestamp: Date.now(),
+		};
+		const userMessage: ChatMessage = {
+			id: 'user-tooltip-actions',
+			role: 'user',
+			content: 'Can you revise this?',
+			timestamp: Date.now(),
+		};
+
+		const { container: assistantContainer } = render(MessageBubble, {
+			message: assistantMessage,
+			onRegenerate: vi.fn(),
+			onFork: vi.fn(),
+		});
+
+		expect(screen.getByRole('button', { name: 'Regenerate response' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Fork from here' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Copy message' })).toBeInTheDocument();
+		expect(within(assistantContainer).getByRole('tooltip', { name: 'Regenerate' })).toBeInTheDocument();
+		expect(within(assistantContainer).getByRole('tooltip', { name: 'Fork' })).toBeInTheDocument();
+		expect(within(assistantContainer).getByRole('tooltip', { name: 'Copy' })).toBeInTheDocument();
+
+		const { container: userContainer } = render(MessageBubble, {
+			message: userMessage,
+			onEdit: vi.fn(),
+		});
+
+		expect(screen.getByRole('button', { name: 'Edit message' })).toBeInTheDocument();
+		expect(within(userContainer).getByRole('tooltip', { name: 'Edit' })).toBeInTheDocument();
+		expect(within(userContainer).getByRole('tooltip', { name: 'Copy' })).toBeInTheDocument();
 	});
 
 	it('shows a source fork marker with a direct link when one child fork exists', () => {
