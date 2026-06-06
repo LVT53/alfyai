@@ -704,7 +704,7 @@
   :global(.source-link-chip__favicon) {
     display: block;
     width: 1em;
-    min-width: 1em;
+    min-width: 1.3em;
     height: 1em;
     margin: 0;
     border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
