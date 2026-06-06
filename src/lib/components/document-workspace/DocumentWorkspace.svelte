@@ -891,12 +891,10 @@ function toggleSyncScroll() {
 								title={syncScrollEnabled ? $t('documentWorkspace.disableSyncScroll') : $t('documentWorkspace.enableSyncScroll')}
 								aria-pressed={syncScrollEnabled}
 							>
-								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<path d="M18 8v5a2 2 0 0 1-2 2H8" />
-									<path d="M8 16v-5a2 2 0 0 1 2-2h8" />
-									<path d="m15 11 3 3 3-3" />
-									<path d="m9 13-3-3-3 3" />
-								</svg>
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+								<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+							</svg>
 							</button>
 						</div>
 						<label class="workspace-compare-select-wrap">
@@ -1179,10 +1177,8 @@ function toggleSyncScroll() {
 							aria-pressed={syncScrollEnabled}
 						>
 							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M18 8v5a2 2 0 0 1-2 2H8" />
-								<path d="M8 16v-5a2 2 0 0 1 2-2h8" />
-								<path d="m15 11 3 3 3-3" />
-								<path d="m9 13-3-3-3 3" />
+								<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+								<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
 							</svg>
 						</button>
 					</div>
