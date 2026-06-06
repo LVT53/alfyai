@@ -187,11 +187,14 @@
 		if (pass === 2) return 'file';
 		return 'check';
 	});
-	let liveDepthProfile = $derived(
-		liveResponseActivityEntries.find((entry) => entry.kind === 'depth')?.detail as
-			| DepthAppliedProfile
-			| undefined,
-	);
+	function isDepthAppliedProfile(value: unknown): value is DepthAppliedProfile {
+		return value === 'off' || value === 'standard' || value === 'extended' || value === 'maximum';
+	}
+
+	let liveDepthProfile = $derived.by(() => {
+		const detail = liveResponseActivityEntries.find((entry) => entry.kind === 'depth')?.detail;
+		return isDepthAppliedProfile(detail) ? detail : undefined;
+	});
 	let resolvedDepthProfile = $derived(
 		liveDepthProfile ?? message.depthMetadata?.appliedProfile,
 	);

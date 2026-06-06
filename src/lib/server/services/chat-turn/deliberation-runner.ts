@@ -11,7 +11,7 @@ import type {
 } from "$lib/server/services/normal-chat-model";
 import { runPlainNormalChatModelRun } from "$lib/server/services/normal-chat-model";
 import type { ToolCallRecorder } from "$lib/server/services/normal-chat-tools";
-import { createNormalChatTools } from "$lib/server/services/normal-chat-tools";
+import { createNormalChatTools, createToolCallRecorder } from "$lib/server/services/normal-chat-tools";
 import type {
 	DepthMetadata,
 	ModelId,
@@ -131,12 +131,16 @@ export async function runNormalChatDeliberationPasses(
 		};
 	}
 
-	const tools = createDeliberationTools(params);
+	const deliberationRecorder = createToolCallRecorder();
+	const tools = createDeliberationTools({ ...params, recorder: deliberationRecorder });
 	const briefs: NormalChatDeliberationBrief[] = [];
 	let usage = emptyUsage();
 	const constraints: string[] = [];
 
 	for (let pass = 1; pass <= passCount; pass += 1) {
+		if (params.abortSignal?.aborted) {
+			break;
+		}
 		const kind: DeliberationPassKind =
 			pass === 1 ? "context_source_gap_review" : "answer_plan_critique";
 		params.onStatus?.(
@@ -180,7 +184,7 @@ export async function runNormalChatDeliberationPasses(
 			completedPasses: briefs.length,
 			constraints,
 		}),
-		toolCalls: params.recorder.getEntries(),
+		toolCalls: deliberationRecorder.getEntries(),
 	};
 }
 
@@ -261,7 +265,9 @@ function emptyUsage(): NormalChatModelRunUsage {
 	};
 }
 
-function createDeliberationTools(params: NormalChatDeliberationParams) {
+function createDeliberationTools(
+	params: NormalChatDeliberationParams & { recorder: ToolCallRecorder },
+) {
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -317,7 +323,10 @@ async function runDeliberationPass(
 				},
 			],
 		});
-	} catch {
+	} catch (error) {
+		if (error instanceof Error && error.name === "AbortError") {
+			throw error;
+		}
 		return {
 			brief: null,
 			usage: emptyUsage(),
@@ -388,7 +397,10 @@ async function repairDeliberationBrief(
 				},
 			],
 		});
-	} catch {
+	} catch (error) {
+		if (error instanceof Error && error.name === "AbortError") {
+			throw error;
+		}
 		return { brief: null, usage: emptyUsage() };
 	}
 	return {

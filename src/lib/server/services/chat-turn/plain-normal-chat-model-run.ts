@@ -68,6 +68,7 @@ export type PlainNormalChatSendModelParams = {
 	disableTools?: boolean;
 	forceProduceFileTool?: boolean;
 	overrideProvider?: NormalChatModelRunProvider;
+	onResponseActivity?: (entry: import("$lib/types").ResponseActivityEntry) => void;
 };
 
 export type PlainNormalChatSendModelResult = {
@@ -143,24 +144,25 @@ export async function runPlainNormalChatSendModel(
 	const recorder = normalChatTools.recorder ?? createToolCallRecorder();
 	const deliberation =
 		depthEffort && !params.disableTools && shouldRunDeliberationPasses(depthEffort)
-			? await runNormalChatDeliberationPasses({
-					userId: params.userId,
-					conversationId: params.conversationId,
-					modelId,
-					runtimeConfig: params.runtimeConfig,
-					provider,
-					depthEffort,
-					preparedInputValue: prepared.inputValue,
-					preparedSystemPrompt: prepared.systemPrompt,
-					user: params.user,
-					language: detectLanguage(params.message),
-					turnId,
-					recorder,
-					abortSignal: createRequestAbortSignal(
-						params.runtimeConfig.requestTimeoutMs,
-						params.signal,
-					),
-				})
+				? await runNormalChatDeliberationPasses({
+						userId: params.userId,
+						conversationId: params.conversationId,
+						modelId,
+						runtimeConfig: params.runtimeConfig,
+						provider,
+						depthEffort,
+						preparedInputValue: prepared.inputValue,
+						preparedSystemPrompt: prepared.systemPrompt,
+						user: params.user,
+						language: detectLanguage(params.message),
+						turnId,
+						recorder,
+						onStatus: params.onResponseActivity,
+						abortSignal: createRequestAbortSignal(
+							params.runtimeConfig.requestTimeoutMs,
+							params.signal,
+						),
+					})
 			: null;
 	const toolChoice = params.forceProduceFileTool
 		? ({ type: "tool", toolName: "produce_file" } as const)

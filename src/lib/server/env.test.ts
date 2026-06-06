@@ -279,6 +279,42 @@ describe("Environment Configuration", () => {
 		expect(config.databasePath).toBe("./test-data/test.db");
 	});
 
+	it("should reject invalid REASONING_DEPTH_CLASSIFIER_MODEL format", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.REASONING_DEPTH_CLASSIFIER_MODEL = "nonexistent-model";
+
+		const { config } = await import("./env");
+		expect(config.reasoningDepthClassifierModel).toBeNull();
+	});
+
+	it("should reject whitespace-only REASONING_DEPTH_CLASSIFIER_MODEL", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.REASONING_DEPTH_CLASSIFIER_MODEL = "   ";
+
+		const { config } = await import("./env");
+		expect(config.reasoningDepthClassifierModel).toBeNull();
+	});
+
+	it("should accept valid provider REASONING_DEPTH_CLASSIFIER_MODEL format", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.REASONING_DEPTH_CLASSIFIER_MODEL = "provider:test:model-a";
+
+		const { config } = await import("./env");
+		expect(config.reasoningDepthClassifierModel).toBe("provider:test:model-a");
+	});
+
+	it("should reject malformed provider REASONING_DEPTH_CLASSIFIER_MODEL format", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.REASONING_DEPTH_CLASSIFIER_MODEL = "provider:missing-model-id";
+
+		const { config } = await import("./env");
+		expect(config.reasoningDepthClassifierModel).toBeNull();
+	});
+
 	it("should ignore retired WEBHOOK_PORT values at boot", async () => {
 		process.env.SESSION_SECRET =
 			"test-session-secret-12345678901234567890123456789012";

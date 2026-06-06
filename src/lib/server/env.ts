@@ -191,6 +191,29 @@ function normalizeModelThinkingType(
 	return value === "enabled" || value === "disabled" ? value : null;
 }
 
+function validateReasoningDepthClassifierModel(
+	value: string | undefined,
+): string | null {
+	const trimmed = value?.trim();
+	if (!trimmed) return null;
+
+	if (trimmed === "model1" || trimmed === "model2") {
+		return trimmed;
+	}
+
+	if (trimmed.startsWith("provider:")) {
+		const parts = trimmed.split(":");
+		if (parts.length === 3 && parts[1] && parts[2]) {
+			return trimmed;
+		}
+	}
+
+	console.warn(
+		`[CONFIG] Invalid REASONING_DEPTH_CLASSIFIER_MODEL format: "${value}". Expected "model1", "model2", or "provider:<providerId>:<modelId>". Using null.`,
+	);
+	return null;
+}
+
 function parseIntegerEnv(value: string | undefined, fallback: number): number {
 	const parsed = parseInt(value ?? "", 10);
 	return Number.isNaN(parsed) ? fallback : parsed;
@@ -467,8 +490,9 @@ function readConfig(): Config {
 		defaultNewUserModel: normalizeConfiguredModelId(
 			process.env.DEFAULT_NEW_USER_MODEL || "model1",
 		),
-		reasoningDepthClassifierModel:
-			process.env.REASONING_DEPTH_CLASSIFIER_MODEL?.trim() || null,
+		reasoningDepthClassifierModel: validateReasoningDepthClassifierModel(
+			process.env.REASONING_DEPTH_CLASSIFIER_MODEL,
+		),
 		maxMessageLength,
 		maxModelContext,
 		compactionUiThreshold,

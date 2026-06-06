@@ -8,6 +8,7 @@ import type {
 	ThinkingMode,
 	DepthMetadata,
 	ToolCallEntry,
+	ResponseActivityEntry,
 } from "$lib/types";
 
 export interface NonStreamFallbackSendParams {
@@ -57,6 +58,7 @@ export interface NonStreamFallbackDeps {
 		signal?: AbortSignal;
 		disableTools?: boolean;
 		forceProduceFileTool?: boolean;
+		onResponseActivity?: (entry: ResponseActivityEntry) => void;
 	}) => Promise<NonStreamFallbackResponse>;
 	sendParams: NonStreamFallbackSendParams;
 	user: { id: string; displayName: string | null; email: string | null };
@@ -84,6 +86,7 @@ export interface NonStreamFallbackDeps {
 	onDepthMetadata?: (metadata: DepthMetadata) => void;
 	onRecoveredToolCalls?: (toolCalls: ToolCallEntry[]) => void;
 	completedToolCallContext?: string | null;
+	onResponseActivity?: (entry: ResponseActivityEntry) => void;
 }
 
 const EMPTY_VISIBLE_OUTPUT_RECOVERY_APPENDIX =
@@ -125,6 +128,7 @@ export async function runNonStreamFallback(
 			onResolvedModel,
 			onDepthMetadata,
 			onRecoveredToolCalls,
+			onResponseActivity,
 		} = deps;
 		const completedToolCallContext = deps.completedToolCallContext?.trim();
 		const shouldAllowForcedFileTool =
@@ -171,6 +175,7 @@ export async function runNonStreamFallback(
 				signal,
 				disableTools: shouldDisableTools,
 				forceProduceFileTool: shouldAllowForcedFileTool,
+				onResponseActivity,
 			});
 			const fallbackToolCalls =
 				fallbackResponse.normalChatToolCalls ??

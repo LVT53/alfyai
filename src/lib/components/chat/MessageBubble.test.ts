@@ -667,7 +667,7 @@ describe('MessageBubble', () => {
 		const detailsButton = screen.getByRole('button', { name: 'Info' });
 		expect(detailsButton).not.toHaveAttribute('aria-expanded');
 
-		const tooltip = screen.getByRole('tooltip', { name: 'Info' });
+		const tooltip = screen.getByRole('region', { name: 'Info' });
 		expect(within(tooltip).getByText('Provider')).toBeInTheDocument();
 		expect(within(tooltip).getByText('Local Provider')).toBeInTheDocument();
 		expect(within(tooltip).getByText('Model')).toBeInTheDocument();
@@ -758,7 +758,7 @@ describe('MessageBubble', () => {
 
 		render(MessageBubble, { message });
 
-		const tooltip = screen.getByRole('tooltip', { name: 'Info' });
+		const tooltip = screen.getByRole('region', { name: 'Info' });
 		expect(within(tooltip).getByText('Reasoning depth')).toBeInTheDocument();
 		expect(within(tooltip).getByText('Max / Maximum')).toBeInTheDocument();
 		expect(within(tooltip).getByText('Response tokens')).toBeInTheDocument();

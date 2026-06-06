@@ -45,6 +45,14 @@ export interface StreamTokenBuffer {
 		candidates?: ToolEvidenceCandidate[];
 		metadata?: Record<string, string | number | boolean | null>;
 	}>;
+	/** Monotonic sequence counter for event ordering during replay */
+	nextSequence: number;
+	/** Ordered timeline of events: each entry records the type and array index */
+	eventTimeline: Array<{
+		seq: number;
+		type: "token" | "thinking" | "response_activity" | "tool_call";
+		index: number;
+	}>;
 	listeners: Set<(chunk: string) => void>;
 }
 
@@ -162,6 +170,8 @@ export function getOrCreateStreamBuffer(params: {
 			thinking: [],
 			responseActivity: [],
 			toolCalls: [],
+			nextSequence: 0,
+			eventTimeline: [],
 			listeners: new Set(),
 		};
 		streamBuffers.set(params.streamId, buffer);
@@ -179,6 +189,7 @@ export type StreamBufferSnapshot =
 			tokenCount: number;
 			thinkingCount: number;
 			toolCallCount: number;
+			activityCount?: number;
 	  };
 
 export function getStreamBufferSnapshot(params: {
@@ -210,6 +221,9 @@ export function getStreamBufferSnapshot(params: {
 		tokenCount: buffer.tokens.length,
 		thinkingCount: buffer.thinking.length,
 		toolCallCount: buffer.toolCalls.length,
+		...(buffer.responseActivity.length > 0
+			? { activityCount: buffer.responseActivity.length }
+			: {}),
 	};
 }
 
@@ -235,16 +249,29 @@ export function appendToStreamBuffer(
 
 	if (event === "token" && data.text) {
 		buffer.tokens.push(data.text);
+		buffer.eventTimeline.push({
+			seq: buffer.nextSequence++,
+			type: "token",
+			index: buffer.tokens.length - 1,
+		});
 		// Cap buffer size
 		if (buffer.tokens.join("").length > BUFFER_MAX_TOKENS) {
 			buffer.tokens = buffer.tokens.slice(-Math.floor(BUFFER_MAX_TOKENS / 10));
+			// Invalidate timeline since indices shifted; fall back to batch replay
+			buffer.eventTimeline = [];
 		}
 	} else if (event === "thinking" && data.text) {
 		buffer.thinking.push(data.text);
+		buffer.eventTimeline.push({
+			seq: buffer.nextSequence++,
+			type: "thinking",
+			index: buffer.thinking.length - 1,
+		});
 		if (buffer.thinking.join("").length > BUFFER_MAX_TOKENS) {
 			buffer.thinking = buffer.thinking.slice(
 				-Math.floor(BUFFER_MAX_TOKENS / 10),
 			);
+			buffer.eventTimeline = [];
 		}
 	} else if (event === "response_activity" && data.activity) {
 		const existingIndex = buffer.responseActivity.findIndex(
@@ -252,6 +279,11 @@ export function appendToStreamBuffer(
 		);
 		if (existingIndex === -1) {
 			buffer.responseActivity.push(data.activity);
+			buffer.eventTimeline.push({
+				seq: buffer.nextSequence++,
+				type: "response_activity",
+				index: buffer.responseActivity.length - 1,
+			});
 		} else {
 			buffer.responseActivity[existingIndex] = {
 				...buffer.responseActivity[existingIndex],
@@ -279,6 +311,11 @@ export function appendToStreamBuffer(
 				sourceType: data.sourceType,
 				candidates: data.candidates,
 				metadata: data.metadata,
+			});
+			buffer.eventTimeline.push({
+				seq: buffer.nextSequence++,
+				type: "tool_call",
+				index: buffer.toolCalls.length - 1,
 			});
 		} else {
 			// Mark last matching tool_call as done

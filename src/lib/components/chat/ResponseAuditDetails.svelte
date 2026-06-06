@@ -130,7 +130,7 @@
 	}
 </script>
 
-<div class="audit-panel" role="tooltip" aria-labelledby={`response-audit-title-${message.id}`}>
+<div class="audit-panel" role="region" aria-labelledby={`response-audit-title-${message.id}`}>
 	<div class="audit-heading" id={`response-audit-title-${message.id}`}>
 		{$t('messageBubble.info')}
 	</div>

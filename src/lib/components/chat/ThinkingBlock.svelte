@@ -103,6 +103,9 @@ $effect(() => {
 		}, 500);
 	}
 	prevContentLength = totalLength;
+	return () => {
+		clearTimeout(freshTimeout);
+	};
 });
 
 function extractHostname(raw: string): string {

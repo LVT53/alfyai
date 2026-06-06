@@ -264,6 +264,53 @@ describe("Reasoning Depth Auto selection", () => {
 		});
 	});
 
+	it("falls back to the selected chat model when the configured classifier model has invalid format", async () => {
+		mocks.getConfig.mockReturnValue({
+			reasoningDepthClassifierModel: "nonexistent-model",
+		});
+		mocks.sendJsonControlMessage.mockResolvedValueOnce({
+			text: JSON.stringify({
+				appliedProfile: "standard",
+				reason: "The request is direct.",
+			}),
+			rawResponse: {},
+			modelId: "model1",
+			modelDisplayName: "Model One",
+		});
+		const { resolveReasoningDepthSelection } = await import("./depth-selection");
+
+		const result = await resolveReasoningDepthSelection({
+			userId: "user-1",
+			conversationId: "conv-1",
+			request: {
+				normalizedMessage: "Summarize this.",
+				reasoningDepth: "auto",
+				modelId: "model1",
+				modelDisplayName: "Model One",
+				attachmentIds: [],
+				linkedSources: [],
+				pendingSkill: null,
+				forceWebSearch: false,
+			},
+			listRecentMessages: async () => [],
+		});
+
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledWith(
+			expect.any(String),
+			"model1",
+			expect.any(Object),
+		);
+		expect(result.metadata).toMatchObject({
+			requested: "auto",
+			appliedProfile: "standard",
+			fallback: false,
+			classifierModelSource: "selected_chat_model",
+			classifierModelId: "model1",
+			configuredClassifierModelId: "nonexistent-model",
+			classifierModelFallbackReason: "invalid_configured_model",
+		});
+	});
+
 	it("bypasses the classifier for explicit Off and Max selections", async () => {
 		const { resolveReasoningDepthSelection } = await import("./depth-selection");
 

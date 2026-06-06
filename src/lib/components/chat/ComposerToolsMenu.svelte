@@ -157,20 +157,20 @@
 							class="model-selector__option"
 							class:model-selector__option--selected={!selectedPersonalityId}
 							onclick={() => { onPersonalityChange?.(null); closeMenu(); }}
-							onkeydown={(e) => e.key === 'Enter' && (onPersonalityChange?.(null), closeMenu())}
+						onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (onPersonalityChange?.(null), closeMenu())}
+						tabindex="0"
+					>{$t('composerTools.defaultStyle')}</li>
+					{#each personalityProfiles as profile}
+						<li
+							role="option"
+							aria-selected={selectedPersonalityId === profile.id}
+							class="model-selector__option"
+							class:model-selector__option--selected={selectedPersonalityId === profile.id}
+							title={getPersonalityProfileDisplayDescription(profile, $t)}
+							onclick={() => { onPersonalityChange?.(profile.id); closeMenu(); }}
+							onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (onPersonalityChange?.(profile.id), closeMenu())}
 							tabindex="0"
-						>{$t('composerTools.defaultStyle')}</li>
-						{#each personalityProfiles as profile}
-							<li
-								role="option"
-								aria-selected={selectedPersonalityId === profile.id}
-								class="model-selector__option"
-								class:model-selector__option--selected={selectedPersonalityId === profile.id}
-								title={getPersonalityProfileDisplayDescription(profile, $t)}
-								onclick={() => { onPersonalityChange?.(profile.id); closeMenu(); }}
-								onkeydown={(e) => e.key === 'Enter' && (onPersonalityChange?.(profile.id), closeMenu())}
-								tabindex="0"
-							>{getPersonalityProfileDisplayName(profile, $t)}</li>
+						>{getPersonalityProfileDisplayName(profile, $t)}</li>
 						{/each}
 					</ul>
 				{/if}
@@ -208,7 +208,7 @@
 						class="model-selector__option"
 						class:model-selector__option--selected={reasoningDepth === 'off'}
 						onclick={() => selectReasoningDepth('off')}
-						onkeydown={(e) => e.key === 'Enter' && selectReasoningDepth('off')}
+						onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectReasoningDepth('off')}
 						tabindex="0"
 					>{$t('composerTools.reasoningDepthOff')}</li>
 					<li
@@ -217,7 +217,7 @@
 						class="model-selector__option"
 						class:model-selector__option--selected={reasoningDepth === 'auto'}
 						onclick={() => selectReasoningDepth('auto')}
-						onkeydown={(e) => e.key === 'Enter' && selectReasoningDepth('auto')}
+						onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectReasoningDepth('auto')}
 						tabindex="0"
 					>{$t('composerTools.reasoningDepthAuto')}</li>
 					<li
@@ -226,7 +226,7 @@
 						class="model-selector__option"
 						class:model-selector__option--selected={reasoningDepth === 'max'}
 						onclick={() => selectReasoningDepth('max')}
-						onkeydown={(e) => e.key === 'Enter' && selectReasoningDepth('max')}
+						onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectReasoningDepth('max')}
 						tabindex="0"
 					>{$t('composerTools.reasoningDepthMax')}</li>
 				</ul>

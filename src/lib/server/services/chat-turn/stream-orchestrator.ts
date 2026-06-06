@@ -481,11 +481,12 @@ export function runChatStreamOrchestrator(
 					}
 				},
 			});
-			const emitResponseActivity = (entry: ResponseActivityEntry) => {
-				const activity = {
-					...entry,
-					occurredAt: entry.occurredAt ?? Date.now(),
-				};
+		const emitResponseActivity = (entry: ResponseActivityEntry) => {
+			if (ended) return;
+			const activity = {
+				...entry,
+				occurredAt: entry.occurredAt ?? Date.now(),
+			};
 				if (activity.kind === "deliberation" && activity.label) {
 					chunkRuntime.emitStatusSegment({
 						id: activity.id,
@@ -593,12 +594,12 @@ export function runChatStreamOrchestrator(
 
 			enqueueChunk(createSsePreludeComment());
 			recordDurationPhase("prelude", streamStartTime);
-			emitResponseActivity({
-				id: "depth-selected",
-				kind: "depth",
-				status: "done",
-				detail: turn.depthMetadata.appliedProfile,
-			});
+		emitResponseActivity({
+			id: "depth-selected",
+			kind: "depth",
+			status: "done",
+			detail: turn.depthMetadata?.appliedProfile ?? "standard",
+		});
 
 			let fileProductionJobIdsAtStart = new Set<string>();
 			try {
@@ -1016,6 +1017,7 @@ export function runChatStreamOrchestrator(
 						latestDepthMetadata = metadata;
 					},
 					onRecoveredToolCalls: emitRecoveredToolCalls,
+					onResponseActivity: emitResponseActivity,
 					completedToolCallContext: buildCompletedToolCallFallbackContext(
 						chunkRuntime.toolCallRecords,
 					),

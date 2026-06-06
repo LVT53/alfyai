@@ -413,6 +413,33 @@ function applyDerivedMaxMessageLengthDefaults(
 	}
 }
 
+function validateReasoningDepthClassifierModel(config: RuntimeConfig): void {
+	const modelId = config.reasoningDepthClassifierModel?.trim();
+	if (!modelId) return;
+
+	if (modelId === "model1" || modelId === "model2") {
+		if (!isModelEnabled(modelId, config)) {
+			console.warn(
+				`[CONFIG] Reasoning depth classifier model "${modelId}" is not enabled. Clearing config.`,
+			);
+			config.reasoningDepthClassifierModel = null;
+		}
+		return;
+	}
+
+	if (modelId.startsWith("provider:")) {
+		const parts = modelId.split(":");
+		if (parts.length === 3 && parts[1] && parts[2]) {
+			return;
+		}
+	}
+
+	console.warn(
+		`[CONFIG] Invalid reasoning depth classifier model format: "${modelId}". Expected "model1", "model2", or "provider:<providerId>:<modelId>". Clearing config.`,
+	);
+	config.reasoningDepthClassifierModel = null;
+}
+
 function validateContextLimitTriples(config: RuntimeConfig): void {
 	function invalidTriple(
 		max: number,
@@ -973,6 +1000,7 @@ export async function refreshConfig(): Promise<void> {
 	applyDerivedContextLimitDefaults(base, overrides);
 	validateContextLimitTriples(base);
 	applyDerivedMaxMessageLengthDefaults(base, overrides);
+	validateReasoningDepthClassifierModel(base);
 
 	if (!hasMaxMessageLengthOverride) {
 		base.maxMessageLength = await resolveLowestModelMaxMessageLength(base);

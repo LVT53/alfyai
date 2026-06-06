@@ -426,6 +426,124 @@ describe("doReconnect", () => {
 		expect(closeDownstream).toHaveBeenCalled();
 	});
 
+	it("replays events in timeline order instead of batch order", () => {
+		const buffer = makeBuffer({
+			tokens: ["Hello", "world"],
+			thinking: ["planning", "analyzing"],
+			eventTimeline: [
+				{ seq: 0, type: "thinking", index: 0 },
+				{ seq: 1, type: "token", index: 0 },
+				{ seq: 2, type: "token", index: 1 },
+				{ seq: 3, type: "thinking", index: 1 },
+			],
+		});
+		getStreamBuffer.mockReturnValue(buffer);
+
+		callDoReconnect();
+
+		const events = enqueuedProtocolEvents();
+		const typeSeq = events
+			.filter((e) => e !== "[DONE]")
+			.map((e) => (e as Record<string, unknown>).type);
+
+		const firstReasoningDelta = typeSeq.indexOf("reasoning-delta");
+		const firstTextDelta = typeSeq.indexOf("text-delta");
+		expect(firstReasoningDelta).toBeLessThan(firstTextDelta);
+
+		const secondReasoningDelta = typeSeq.indexOf(
+			"reasoning-delta",
+			firstReasoningDelta + 1,
+		);
+		const secondTextDelta = typeSeq.indexOf("text-delta", firstTextDelta + 1);
+		expect(secondTextDelta).toBeLessThan(secondReasoningDelta);
+	});
+
+	it("replays interleaved tokens, thinking, response activities, and tool calls in timeline order", () => {
+		const activity = {
+			id: "depth-selected",
+			kind: "depth" as const,
+			status: "done" as const,
+			detail: "maximum",
+		};
+		const buffer = makeBuffer({
+			tokens: ["Hello", "world", "!"],
+			thinking: ["planning", "analyzing"],
+			responseActivity: [activity],
+			toolCalls: [
+				{
+					name: "search",
+					input: { q: "test" },
+					status: "done" as const,
+					outputSummary: "found",
+				},
+			],
+			eventTimeline: [
+				{ seq: 0, type: "thinking", index: 0 },
+				{ seq: 1, type: "token", index: 0 },
+				{ seq: 2, type: "thinking", index: 1 },
+				{ seq: 3, type: "response_activity", index: 0 },
+				{ seq: 4, type: "token", index: 1 },
+				{ seq: 5, type: "tool_call", index: 0 },
+				{ seq: 6, type: "token", index: 2 },
+			],
+		});
+		getStreamBuffer.mockReturnValue(buffer);
+
+		callDoReconnect();
+
+		const events = enqueuedProtocolEvents();
+		const typeSeq = events
+			.filter((e) => e !== "[DONE]")
+			.map((e) => (e as Record<string, unknown>).type);
+
+		const reasoningDeltas = typeSeq.reduce<number[]>(
+			(acc, t, i) => (t === "reasoning-delta" ? [...acc, i] : acc),
+			[] as number[],
+		);
+		const textDeltas = typeSeq.reduce<number[]>(
+			(acc, t, i) => (t === "text-delta" ? [...acc, i] : acc),
+			[] as number[],
+		);
+		const activityIdx = typeSeq.indexOf("data-response-activity");
+		const toolCallIdx = typeSeq.indexOf("data-tool-call");
+
+		// First thinking block before first text
+		expect(reasoningDeltas[0]).toBeLessThan(textDeltas[0]);
+		// Second thinking block after first text but before tool call
+		expect(reasoningDeltas[1]).toBeGreaterThan(textDeltas[0]);
+		expect(reasoningDeltas[1]).toBeLessThan(toolCallIdx);
+		// Activity appears between second thinking and second text
+		expect(activityIdx).toBeGreaterThan(reasoningDeltas[1]);
+		expect(activityIdx).toBeLessThan(textDeltas[1]);
+		// Tool call appears before final text
+		expect(toolCallIdx).toBeLessThan(textDeltas[2]);
+	});
+
+	it("falls back to batch replay when eventTimeline is empty", () => {
+		const buffer = makeBuffer({
+			tokens: ["Hello", " world"],
+			thinking: ["reasoning"],
+			eventTimeline: [],
+		});
+		getStreamBuffer.mockReturnValue(buffer);
+
+		callDoReconnect();
+
+		// Replay start/end still emitted
+		expect(dataParts("data-replay-start")).toHaveLength(1);
+		expect(dataParts("data-replay-end")).toHaveLength(1);
+
+		// Tokens should all come before thinking (batch order)
+		const events = enqueuedProtocolEvents();
+		const typeSeq = events
+			.filter((e) => e !== "[DONE]")
+			.map((e) => (e as Record<string, unknown>).type);
+
+		const lastTextDelta = typeSeq.lastIndexOf("text-delta");
+		const firstReasoningDelta = typeSeq.indexOf("reasoning-delta");
+		expect(lastTextDelta).toBeLessThan(firstReasoningDelta);
+	});
+
 	it("sets up a 10-second heartbeat interval for reconnect", () => {
 		callDoReconnect();
 
