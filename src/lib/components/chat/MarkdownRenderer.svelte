@@ -706,6 +706,7 @@
     width: 1em;
     min-width: 1em;
     height: 1em;
+    margin: 0;
     border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
     border-radius: 999px;
     background: var(--surface-page);
