@@ -2,20 +2,24 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import chatDict from "./i18n/chat";
 
 const auditedPrefixes = [
 	"admin.composerCommandRegistry",
+	"admin.reasoningDepthClassifier",
 	"admin.systemSkills.",
 	"composerCommandRegistry.",
 	"composerCommands.",
 	"deepResearch.",
 	"linkedSources.",
+	"messageBubble.",
 	"fork.",
 	"pendingSkill.",
 	"skillDrafts.",
 	"skillSessions.",
 	"skills.",
 	"sourceManager.",
+	"toolCalls.",
 	"sidebar.failedReorderSidebar",
 	"sidebar.failedUpdateConversationPin",
 	"sidebar.forkIndicatorTooltip",
@@ -114,5 +118,29 @@ describe("i18n composer and skills namespaces", () => {
 
 		expect(keys.en).toContain("skillDrafts.inheritedCopyBlocked");
 		expect(keys.hu).toContain("skillDrafts.inheritedCopyBlocked");
+	});
+
+	it("uses localized Hungarian labels for depth profiles", () => {
+		expect(chatDict.hu["messageBubble.depthProfileExtended"]).not.toBe(
+			chatDict.en["messageBubble.depthProfileExtended"],
+		);
+		expect(chatDict.hu["messageBubble.depthProfileMaximum"]).not.toBe(
+			chatDict.en["messageBubble.depthProfileMaximum"],
+		);
+		expect(chatDict.hu["messageBubble.depthProfileStandard"]).not.toBe(
+			chatDict.en["messageBubble.depthProfileStandard"],
+		);
+	});
+
+	it("localizes the response audit details labels", () => {
+		expect(chatDict.hu["messageBubble.responseAuditDetails"]).not.toBe(
+			chatDict.en["messageBubble.responseAuditDetails"],
+		);
+		expect(chatDict.hu["messageBubble.auditSources"]).not.toBe(
+			chatDict.en["messageBubble.auditSources"],
+		);
+		expect(chatDict.hu["messageBubble.auditMaxTurns"]).not.toBe(
+			chatDict.en["messageBubble.auditMaxTurns"],
+		);
 	});
 });

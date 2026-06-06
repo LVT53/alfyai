@@ -14,12 +14,18 @@ import type {
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
+	DepthMetadata,
 	LinkedContextSource,
+	ReasoningDepth,
 	ToolCallEntry,
 	WebCitationAudit,
 } from "$lib/types";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
+import {
+	buildBaselineDepthMetadata,
+	withDepthMetadataModelInfo,
+} from "./depth-metadata";
 import { parseSkillControlEnvelopePayloads } from "./skill-control-envelope";
 import {
 	createUiMessageStreamDoneFrame,
@@ -46,6 +52,10 @@ export interface CompleteStreamTurnParams {
 	streamId: string | null;
 	modelId: string | null;
 	modelDisplayName: string | null;
+	providerDisplayName?: string | null;
+	providerIconUrl?: string | null;
+	reasoningDepth?: ReasoningDepth;
+	depthMetadata?: DepthMetadata;
 	userId: string;
 	normalizedMessage: string;
 	upstreamMessage: string;
@@ -197,6 +207,10 @@ export async function completeStreamTurn(
 		streamId,
 		modelId,
 		modelDisplayName,
+		providerDisplayName,
+		providerIconUrl,
+		reasoningDepth,
+		depthMetadata,
 		userId,
 		normalizedMessage,
 		upstreamMessage,
@@ -435,6 +449,22 @@ export async function completeStreamTurn(
 		const contextDebug = persistedTurnState
 			? persistedTurnState.contextDebug
 			: latestContextDebug;
+		const streamDepthMetadata = assistantMsgId
+			? withDepthMetadataModelInfo(
+					depthMetadata ??
+						buildBaselineDepthMetadata({
+							reasoningDepth,
+							modelId,
+							modelDisplayName,
+							providerDisplayName,
+						}),
+					{
+						modelId,
+						modelDisplayName,
+						providerDisplayName,
+					},
+				)
+			: undefined;
 
 		if (thinkingContent) {
 			enqueueChunk(streamReasoningEndEvent());
@@ -461,8 +491,9 @@ export async function completeStreamTurn(
 				assistantMessageId: assistantMsgId,
 				modelId,
 				modelDisplayName,
-				providerDisplayName: params.providerDisplayName,
-				providerIconUrl: params.providerIconUrl,
+				providerDisplayName,
+				providerIconUrl,
+				depthMetadata: streamDepthMetadata,
 				contextStatus: latestContextStatus,
 				contextSources,
 				activeWorkingSet,
@@ -503,8 +534,8 @@ export async function completeStreamTurn(
 			assistantMetadata: {
 				evidenceStatus: "pending",
 				modelDisplayName,
-				providerDisplayName: params.providerDisplayName,
-				providerIconUrl: params.providerIconUrl,
+				providerDisplayName,
+				providerIconUrl,
 				...(wasStopped ? { wasStopped: true } : {}),
 				...(completionWarning
 					? {
@@ -516,6 +547,8 @@ export async function completeStreamTurn(
 				...(streamClosedWithoutFinish ? { streamClosedWithoutFinish } : {}),
 				...skillControl.metadata,
 			},
+			reasoningDepth,
+			depthMetadata,
 			skillControlOperations: skillControl.operations,
 			skillControlSessionId: activeSkillSessionId ?? null,
 			attachmentIds,

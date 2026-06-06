@@ -19,6 +19,7 @@ import type {
 	ParsedChatTurnRequest,
 	PreflightedChatTurn,
 } from "./types";
+import { resolveReasoningDepthSelection } from "./depth-selection";
 
 type PreflightResult =
 	| { ok: true; value: PreflightedChatTurn }
@@ -195,11 +196,22 @@ export async function preflightChatTurn(params: {
 		}
 	}
 
+	const turnForDepthSelection = {
+		...request,
+		linkedSources: resolvedLinkedSources,
+	};
+	const depthSelection = await resolveReasoningDepthSelection({
+		userId,
+		conversationId: request.conversationId,
+		request: turnForDepthSelection,
+	});
+
 	return {
 		ok: true,
 		value: {
-			...request,
+			...turnForDepthSelection,
 			linkedSources: resolvedLinkedSources,
+			depthMetadata: depthSelection.metadata,
 			skillPromptContext,
 		},
 	};

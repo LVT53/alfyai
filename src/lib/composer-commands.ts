@@ -1,7 +1,7 @@
 export type ComposerCommandId =
 	| "model"
 	| "style"
-	| "thinking"
+	| "depth"
 	| "attach"
 	| "document"
 	| "source"
@@ -41,10 +41,10 @@ export const STATIC_COMPOSER_COMMANDS = [
 		availability: "available",
 	},
 	{
-		id: "thinking",
-		token: "/thinking",
-		labelKey: "composerCommands.thinking.label",
-		descriptionKey: "composerCommands.thinking.description",
+		id: "depth",
+		token: "/depth",
+		labelKey: "composerCommands.depth.label",
+		descriptionKey: "composerCommands.depth.description",
 		availability: "available",
 	},
 	{

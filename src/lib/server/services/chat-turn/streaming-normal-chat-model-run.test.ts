@@ -218,6 +218,91 @@ describe("runStreamingNormalChatSendModel", () => {
 		);
 	});
 
+	it("applies resolved depth effort before the streaming model run", async () => {
+		const depthMetadata = {
+			requested: "auto" as const,
+			appliedProfile: "maximum" as const,
+			fallback: false,
+			signals: {
+				groundingNeed: "required" as const,
+				contextBreadth: "broad" as const,
+				outputRoom: "expanded" as const,
+				toolUse: "source_heavy" as const,
+			},
+		};
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "Prepared user prompt",
+			systemPrompt: "Prepared system prompt",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			contextTraceSections: [],
+			outputTokenBudget: {
+				configuredMaxTokens: 4096,
+				effectiveMaxTokens: 3500,
+				outputReserve: 3500,
+				outputReserveClamped: true,
+			},
+		});
+
+		const result = await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "Investigate the current options with sources.",
+			conversationId: "conv-1",
+			modelId: "provider:provider-1",
+			depthMetadata,
+		});
+
+		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				contextLimits: {
+					maxModelContext: 1234,
+					targetConstructedContext: 345,
+					compactionUiThreshold: 678,
+				},
+				modelConfig: expect.objectContaining({
+					maxTokens: 4096,
+				}),
+				reasoningDepthEffort: expect.objectContaining({
+					maxToolSteps: 28,
+					webSourceBudget: {
+						maxSources: 12,
+						sourceExpansion: true,
+					},
+				}),
+			}),
+		);
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				maxOutputTokens: 3500,
+				maxToolSteps: 28,
+			}),
+		);
+		const call = mocks.runStreamingNormalChatModelRun.mock.calls[0]?.[0];
+		expect(call.resolveProviderOptions(call.provider)).toEqual({
+			fireworks: { reasoningEffort: "medium" },
+		});
+		expect(result.depthMetadata?.appliedEffort).toMatchObject({
+			outputTokens: {
+				effectiveMaxTokens: 3500,
+				outputReserve: 3500,
+				clamped: true,
+			},
+			grounding: {
+				guidance: "strict",
+				externalEvidence: "required",
+			},
+			tools: {
+				maxToolSteps: 28,
+				maxWebSources: 12,
+				sourceExpansion: true,
+			},
+		});
+	});
+
 	it("leaves tool choice automatic for explicit file requests after removing produce_file auto-force", async () => {
 		await runStreamingNormalChatSendModel({
 			userId: "user-1",

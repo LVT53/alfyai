@@ -379,6 +379,159 @@ describe('finalizeChatTurn', () => {
 		]);
 	});
 
+	it('adds baseline Depth Metadata when persisting a completed assistant message', async () => {
+		const createMessage = vi.fn(
+			async (
+				_conversationId: string,
+				role: "user" | "assistant",
+			): Promise<{ id: string }> => ({ id: `${role}-message` }),
+		);
+		const persistAssistantTurnState = vi.fn(async () => ({
+			activeWorkingSet: [],
+			taskState: null,
+			contextDebug: null,
+			workCapsule: {} as unknown as undefined,
+		}));
+		const { finalizeChatTurn } = await import('./finalize');
+
+		await finalizeChatTurn({
+			logPrefix: '[SEND]',
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			userMessageContent: 'normalized user message',
+			persistUserMessage: true,
+			normalizedMessage: 'normalized user message',
+			upstreamMessage: 'upstream prompt payload',
+			assistantResponse: 'visible assistant response',
+			assistantMetadata: {
+				evidenceStatus: 'pending',
+				modelDisplayName: 'Model One',
+			},
+			reasoningDepth: 'max',
+			skillControlOperations: [],
+			skillControlSessionId: null,
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: {
+				model: 'provider:local:model-a',
+				modelDisplayName: 'Model One',
+				promptTokens: 8,
+				completionTokens: 5,
+				generationTimeMs: undefined,
+				providerUsage: null,
+			},
+			continuitySource: 'send',
+			honchoContext: null,
+			honchoSnapshot: null,
+			assistantMirrorContent: 'assistant mirror text',
+			maintenanceReason: 'chat_send',
+			createMessage,
+			persistAssistantTurnState,
+		});
+
+		expect(createMessage).toHaveBeenCalledWith(
+			'conv-1',
+			'assistant',
+			'visible assistant response',
+			undefined,
+			undefined,
+			expect.objectContaining({
+				depthMetadata: {
+					requested: 'max',
+					appliedProfile: 'maximum',
+					fallback: false,
+					modelId: 'provider:local:model-a',
+					modelDisplayName: 'Model One',
+				},
+			}),
+		);
+	});
+
+	it('persists resolved Auto Depth Metadata from preflight instead of rebuilding the baseline', async () => {
+		const createMessage = vi.fn(
+			async (
+				_conversationId: string,
+				role: "user" | "assistant",
+			): Promise<{ id: string }> => ({ id: `${role}-message` }),
+		);
+		const persistAssistantTurnState = vi.fn(async () => ({
+			activeWorkingSet: [],
+			taskState: null,
+			contextDebug: null,
+			workCapsule: {} as unknown as undefined,
+		}));
+		const { finalizeChatTurn } = await import('./finalize');
+
+		await finalizeChatTurn({
+			logPrefix: '[SEND]',
+			userId: 'user-1',
+			conversationId: 'conv-1',
+			userMessageContent: 'normalized user message',
+			persistUserMessage: true,
+			normalizedMessage: 'normalized user message',
+			upstreamMessage: 'upstream prompt payload',
+			assistantResponse: 'visible assistant response',
+			assistantMetadata: {
+				evidenceStatus: 'pending',
+				modelDisplayName: 'Provider Model A',
+				providerDisplayName: 'Provider One',
+			},
+			reasoningDepth: 'auto',
+			depthMetadata: {
+				requested: 'auto',
+				appliedProfile: 'extended',
+				fallback: false,
+				classifierSource: 'control_model',
+				modelId: 'model1',
+				modelDisplayName: 'Model One',
+			},
+			skillControlOperations: [],
+			skillControlSessionId: null,
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: {
+				model: 'provider:local:model-a',
+				modelDisplayName: 'Provider Model A',
+				promptTokens: 8,
+				completionTokens: 5,
+				generationTimeMs: undefined,
+				providerUsage: null,
+			},
+			continuitySource: 'send',
+			honchoContext: null,
+			honchoSnapshot: null,
+			assistantMirrorContent: 'assistant mirror text',
+			maintenanceReason: 'chat_send',
+			createMessage,
+			persistAssistantTurnState,
+		});
+
+		expect(createMessage).toHaveBeenCalledWith(
+			'conv-1',
+			'assistant',
+			'visible assistant response',
+			undefined,
+			undefined,
+			expect.objectContaining({
+				depthMetadata: {
+					requested: 'auto',
+					appliedProfile: 'extended',
+					fallback: false,
+					classifierSource: 'control_model',
+					modelId: 'provider:local:model-a',
+					modelDisplayName: 'Provider Model A',
+					providerDisplayName: 'Provider One',
+				},
+			}),
+		);
+	});
+
 	it('swallows attachment persistence failures in stream mode', async () => {
 		const createMessage = vi.fn(
 			async (

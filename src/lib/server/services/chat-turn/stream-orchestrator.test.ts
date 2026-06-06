@@ -195,9 +195,18 @@ function createTurn(
 		modelDisplayName: "Model One",
 		skipPersistUserMessage: false,
 		attachmentIds: [],
+		linkedSources: [],
+		pendingSkill: null,
+		reasoningDepth: "auto",
 		thinkingMode: "auto",
-		activeDocumentArtifactId: null,
-		attachmentTraceId: null,
+		forceWebSearch: false,
+		depthMetadata: {
+			requested: "auto",
+			appliedProfile: "standard",
+			fallback: false,
+			modelId: "model-1",
+			modelDisplayName: "Model One",
+		},
 		...overrides,
 	};
 }
@@ -360,6 +369,114 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	it("emits response activity milestones for depth, context preparation, and drafting", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({
+			depthMetadata: {
+				requested: "max",
+				appliedProfile: "maximum",
+				fallback: false,
+				modelId: "model-1",
+				modelDisplayName: "Model One",
+			},
+		});
+		const chunks = await readSseResponse(response);
+		const activityPayloads = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-response-activity",
+		);
+
+		expect(activityPayloads).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "depth-selected",
+					kind: "depth",
+					status: "done",
+					detail: "maximum",
+				}),
+				expect.objectContaining({
+					id: "context-preparing",
+					kind: "context",
+					status: "running",
+				}),
+				expect.objectContaining({
+					id: "context-ready",
+					kind: "context",
+					status: "done",
+				}),
+				expect.objectContaining({
+					id: "drafting-answer",
+					kind: "drafting",
+					status: "running",
+				}),
+			]),
+		);
+	});
+
+	it("stores the original stream Reasoning depth in the reconnect buffer while running", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		let releaseEvents!: (events: NeutralStreamEvent[]) => void;
+		const eventsReady = new Promise<NeutralStreamEvent[]>((resolve) => {
+			releaseEvents = resolve;
+		});
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([], {
+				stream: (async function* () {
+					for (const event of await eventsReady) {
+						yield event;
+					}
+				})(),
+			}),
+		);
+
+		const response = runStream({
+			streamId: "depth-buffer-stream",
+			reasoningDepth: "max",
+			depthMetadata: {
+				requested: "max",
+				appliedProfile: "maximum",
+				fallback: false,
+				modelId: "model-1",
+				modelDisplayName: "Model One",
+			},
+		});
+		const reader = response.body?.getReader();
+		if (!reader) throw new Error("Missing response body");
+
+		await expect(reader.read()).resolves.toMatchObject({ done: false });
+
+		expect(
+			getStreamBuffer({
+				streamId: "depth-buffer-stream",
+				userId: "u1",
+				conversationId: "test-conv",
+			}),
+		).toMatchObject({
+			userMessage: "Hello",
+			reasoningDepth: "max",
+		});
+
+		releaseEvents([{ type: "text_delta", text: "Done" }, finishEvent]);
+		while (!(await reader.read()).done) {
+			/* drain */
+		}
+	});
+
 	it("logs provider-neutral stream timing without emitting timing SSE events", async () => {
 		const infoSpy = vi
 			.spyOn(console, "info")
@@ -410,6 +527,7 @@ describe("stream-orchestrator SSE contract", () => {
 				"text-start",
 				"text-delta",
 				"text-end",
+				"data-response-activity",
 				"data-stream-metadata",
 				"finish",
 			]),
@@ -916,6 +1034,27 @@ describe("stream-orchestrator SSE contract", () => {
 		).mockImplementation(async (params: { signal?: AbortSignal }) => {
 			upstreamSignal = params.signal;
 			return createNeutralStreamingResult([], {
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "standard",
+					fallback: false,
+					modelId: "model-1",
+					modelDisplayName: "Model One",
+					appliedEffort: {
+						dimensions: ["provider_reasoning", "tool_steps"],
+						providerReasoning: {
+							thinkingMode: "auto",
+							reasoningEffort: "low",
+							supported: true,
+							constrained: false,
+						},
+						tools: {
+							maxToolSteps: 14,
+							maxWebSources: 6,
+							sourceExpansion: false,
+						},
+					},
+				},
 				stream: (async function* () {
 					for (const event of await eventsReady) {
 						yield event;
@@ -944,12 +1083,24 @@ describe("stream-orchestrator SSE contract", () => {
 				"Still running",
 				undefined,
 				undefined,
-				{
+				expect.objectContaining({
 					evidenceStatus: "pending",
 					modelDisplayName: "Model One",
-					providerDisplayName: undefined,
-					providerIconUrl: null,
-				},
+					depthMetadata: expect.objectContaining({
+						requested: "auto",
+						appliedProfile: "standard",
+						fallback: false,
+						appliedEffort: expect.objectContaining({
+							providerReasoning: expect.objectContaining({
+								reasoningEffort: "low",
+							}),
+							tools: expect.objectContaining({
+								maxToolSteps: 14,
+								maxWebSources: 6,
+							}),
+						}),
+					}),
+				}),
 			);
 		});
 		expect(upstreamSignal?.aborted).toBe(false);

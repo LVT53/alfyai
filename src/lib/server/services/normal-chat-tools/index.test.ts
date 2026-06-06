@@ -826,6 +826,151 @@ describe("createNormalChatTools", () => {
 		);
 	});
 
+	it("caps research_web maxSources to the resolved reasoning depth source budget", async () => {
+		researchWebMock.mockResolvedValue({
+			query: "current release options",
+			queries: [{ query: "current release options", purpose: "research" }],
+			sources: [],
+			evidence: [],
+			answerBrief: {
+				markdown: "Research brief.",
+				instructions: [],
+				sources: [],
+				evidence: [],
+			},
+			diagnostics: {
+				mode: "research",
+				freshness: "live",
+				sourcePolicy: "general",
+				providers: { searxngConfigured: true },
+				plannedQueryCount: 1,
+				directUrlCount: 0,
+				fetchedSourceCount: 0,
+				fusedSourceCount: 0,
+				selectedSourceCount: 0,
+				providerCalls: [],
+				contentCharBudget: 8000,
+				openedPageCount: 0,
+				sourceReranked: false,
+				evidenceCandidateCount: 0,
+				exactEvidenceCandidateCount: 0,
+				reranked: false,
+				youtubeTranscriptCandidateCount: 0,
+				youtubeTranscriptFetchedCount: 0,
+				youtubeTranscriptFailedCount: 0,
+				youtubeTranscriptErrors: [],
+				fallbackReasons: [],
+			},
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			webSourceBudget: {
+				maxSources: 8,
+				sourceExpansion: true,
+			},
+		});
+
+		await tools.research_web.execute(
+			{
+				query: "current release options",
+				mode: "research",
+				freshness: "live",
+				maxSources: 12,
+			},
+			{
+				toolCallId: "call-research-budgeted",
+				messages: [],
+			},
+		);
+
+		expect(researchWebMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				query: "current release options",
+				maxSources: 8,
+			}),
+			{ signal: expect.any(AbortSignal) },
+		);
+		expect(getToolCalls()[0]?.input).toMatchObject({
+			query: "current release options",
+			maxSources: 8,
+		});
+	});
+
+	it("applies resolved research_web source budget when maxSources is omitted", async () => {
+		researchWebMock.mockResolvedValue({
+			query: "current release options",
+			queries: [{ query: "current release options", purpose: "research" }],
+			sources: [],
+			evidence: [],
+			answerBrief: {
+				markdown: "Research brief.",
+				instructions: [],
+				sources: [],
+				evidence: [],
+			},
+			diagnostics: {
+				mode: "research",
+				freshness: "live",
+				sourcePolicy: "general",
+				providers: { searxngConfigured: true },
+				plannedQueryCount: 1,
+				directUrlCount: 0,
+				fetchedSourceCount: 0,
+				fusedSourceCount: 0,
+				selectedSourceCount: 0,
+				providerCalls: [],
+				contentCharBudget: 8000,
+				openedPageCount: 0,
+				sourceReranked: false,
+				evidenceCandidateCount: 0,
+				exactEvidenceCandidateCount: 0,
+				reranked: false,
+				youtubeTranscriptCandidateCount: 0,
+				youtubeTranscriptFetchedCount: 0,
+				youtubeTranscriptFailedCount: 0,
+				youtubeTranscriptErrors: [],
+				fallbackReasons: [],
+			},
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			webSourceBudget: {
+				maxSources: 4,
+				sourceExpansion: false,
+			},
+		});
+
+		await tools.research_web.execute(
+			{
+				query: "current release options",
+				mode: "research",
+				freshness: "live",
+			},
+			{
+				toolCallId: "call-research-budget-default",
+				messages: [],
+			},
+		);
+
+		expect(researchWebMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				query: "current release options",
+				maxSources: 4,
+			}),
+			{ signal: expect.any(AbortSignal) },
+		);
+		expect(getToolCalls()[0]?.input).toMatchObject({
+			query: "current release options",
+			maxSources: 4,
+		});
+	});
+
 	it("research_web reports pasted URL fetch failures as not evidence-ready", async () => {
 		const pastedUrl = "https://shop.example.com/products/widget-pro";
 		researchWebMock.mockResolvedValue({

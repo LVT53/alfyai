@@ -200,6 +200,7 @@ export const POST: RequestHandler = async (event) => {
 			systemPromptAppendix: skillSystemPromptAppendix,
 			personalityPrompt,
 			thinkingMode: turn.thinkingMode,
+			depthMetadata: turn.depthMetadata,
 			forceWebSearch: turn.forceWebSearch,
 		});
 		const text = modelRunResult.text ?? "";
@@ -249,6 +250,8 @@ export const POST: RequestHandler = async (event) => {
 				modelDisplayName: effectiveModelDisplayName,
 				...normalizedAssistantOutput.metadata,
 			},
+			reasoningDepth: turn.reasoningDepth,
+			depthMetadata: modelRunResult.depthMetadata ?? turn.depthMetadata,
 			skillControlOperations: normalizedAssistantOutput.operations,
 			skillControlSessionId:
 				turn.skillPromptContext?.source === "active_session"

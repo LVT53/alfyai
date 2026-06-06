@@ -23,6 +23,7 @@ import {
 } from "$lib/services/ai-sdk-ui-stream-contract";
 import type {
 	EvidenceSourceType,
+	ResponseActivityEntry,
 	ToolCallEntry,
 	ToolEvidenceCandidate,
 } from "$lib/types";
@@ -66,6 +67,7 @@ export type StreamPhaseTimings = Record<string, number>;
 
 export type ServerStreamSegment =
 	| { type: "text"; content: string }
+	| { type: "status"; id: string; label: string; status: ResponseActivityEntry["status"] }
 	| {
 			type: "tool_call";
 			callId?: string;
@@ -226,6 +228,12 @@ export function streamToolCallEvent(data: {
 	metadata?: Record<string, string | number | boolean | null>;
 }): string {
 	return streamDataPartEvent("data-tool-call", stripUndefined(data));
+}
+
+export function streamResponseActivityEvent(
+	data: ResponseActivityEntry,
+): string {
+	return streamDataPartEvent("data-response-activity", stripUndefined(data));
 }
 
 export function streamFinishEvent(
@@ -790,6 +798,27 @@ export function createServerChunkRuntime({
 		}
 	};
 
+	const emitStatusSegment = (segment: {
+		id: string;
+		label: string;
+		status: ResponseActivityEntry["status"];
+	}) => {
+		if (!segment.label.trim()) return;
+		flushInlineThinkingBuffer();
+		flushPendingThinking();
+		const existingIndex = serverSegments.findIndex(
+			(entry) => entry.type === "status" && entry.id === segment.id,
+		);
+		if (existingIndex === -1) {
+			serverSegments.push({ type: "status", ...segment });
+			return;
+		}
+		serverSegments[existingIndex] = {
+			...serverSegments[existingIndex],
+			...segment,
+		};
+	};
+
 	const getNativeToolCallInput = (
 		accumulator: NativeToolCallAccumulator,
 	): Record<string, unknown> => {
@@ -999,6 +1028,7 @@ export function createServerChunkRuntime({
 		emitChunkWithOutputHandling,
 		emitInlineToken,
 		emitThinking,
+		emitStatusSegment,
 		emitToolCallEvent,
 		processNativeToolCalls,
 		flushNativeToolCalls,

@@ -102,26 +102,45 @@ describe("conversation-session", () => {
 			modelId: undefined,
 			personalityProfileId: null,
 			deepResearchDepth: null,
-			thinkingMode: "auto",
+			reasoningDepth: "auto",
 			forceWebSearch: false,
 		});
 		expect(hasPendingConversationMessage("conv-123")).toBe(false);
 	});
 
-	it("preserves Deep Research depth on pending bootstrap messages", () => {
+	it("preserves Deep Research and Reasoning depth on pending bootstrap messages", () => {
 		storePendingConversationMessage("conv-123", {
 			message: "Research this deeply",
 			attachmentIds: [],
 			attachments: [],
 			deepResearchDepth: "max",
-			thinkingMode: "on",
+			reasoningDepth: "max",
 		});
 
 		expect(consumePendingConversationMessage("conv-123")).toEqual(
 			expect.objectContaining({
 				message: "Research this deeply",
 				deepResearchDepth: "max",
+				reasoningDepth: "max",
+			}),
+		);
+	});
+
+	it("maps hidden legacy pending thinking mode to Reasoning depth", () => {
+		window.sessionStorage.setItem(
+			"pending-chat-message:conv-legacy",
+			JSON.stringify({
+				message: "Legacy pending message",
+				attachmentIds: [],
+				attachments: [],
 				thinkingMode: "on",
+			}),
+		);
+
+		expect(consumePendingConversationMessage("conv-legacy")).toEqual(
+			expect.objectContaining({
+				message: "Legacy pending message",
+				reasoningDepth: "max",
 			}),
 		);
 	});

@@ -38,6 +38,7 @@ import {
 	type StreamErrorCode,
 	type StreamPhaseTimings,
 	streamErrorEvent,
+	streamResponseActivityEvent,
 } from "$lib/server/services/chat-turn/stream";
 import { completeStreamTurn } from "$lib/server/services/chat-turn/stream-completion";
 import { runNonStreamFallback } from "$lib/server/services/chat-turn/stream-fallback";
@@ -58,7 +59,12 @@ import {
 	getContextDebugState,
 	getConversationTaskState,
 } from "$lib/server/services/task-state";
-import type { ModelId, ToolCallEntry } from "$lib/types";
+import type {
+	DepthMetadata,
+	ModelId,
+	ResponseActivityEntry,
+	ToolCallEntry,
+} from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 
@@ -440,6 +446,7 @@ export function runChatStreamOrchestrator(
 					userId: user.id,
 					conversationId,
 					userMessage: normalizedMessage,
+					reasoningDepth: turn.reasoningDepth,
 				});
 				isMainStream = true;
 			}
@@ -474,6 +481,25 @@ export function runChatStreamOrchestrator(
 					}
 				},
 			});
+			const emitResponseActivity = (entry: ResponseActivityEntry) => {
+				const activity = {
+					...entry,
+					occurredAt: entry.occurredAt ?? Date.now(),
+				};
+				if (activity.kind === "deliberation" && activity.label) {
+					chunkRuntime.emitStatusSegment({
+						id: activity.id,
+						label: activity.label,
+						status: activity.status,
+					});
+				}
+				if (streamId) {
+					appendToStreamBuffer(streamId, "response_activity", {
+						activity,
+					});
+				}
+				enqueueChunk(streamResponseActivityEvent(activity));
+			};
 			const emitThinking = (reasoning: string) => {
 				if (reasoning) {
 					recordElapsedPhase("first_thinking");
@@ -567,6 +593,12 @@ export function runChatStreamOrchestrator(
 
 			enqueueChunk(createSsePreludeComment());
 			recordDurationPhase("prelude", streamStartTime);
+			emitResponseActivity({
+				id: "depth-selected",
+				kind: "depth",
+				status: "done",
+				detail: turn.depthMetadata.appliedProfile,
+			});
 
 			let fileProductionJobIdsAtStart = new Set<string>();
 			try {
@@ -723,6 +755,7 @@ export function runChatStreamOrchestrator(
 			let latestModelId = modelId ?? "model1";
 			let latestModelDisplayName = modelDisplayName;
 			let latestProviderIconUrl: string | null = null;
+			let latestDepthMetadata: DepthMetadata = turn.depthMetadata;
 			let latestUpstreamFinishReason: FinishReason | null = null;
 			let latestUpstreamRawFinishReason: string | null = null;
 			let initialContextStatus:
@@ -757,6 +790,8 @@ export function runChatStreamOrchestrator(
 					modelDisplayName: latestModelDisplayName,
 					providerDisplayName,
 					providerIconUrl: latestProviderIconUrl,
+					reasoningDepth: turn.reasoningDepth,
+					depthMetadata: latestDepthMetadata,
 					userId: user.id,
 					normalizedMessage,
 					upstreamMessage,
@@ -903,6 +938,13 @@ export function runChatStreamOrchestrator(
 				error: unknown,
 			): Promise<null> => {
 				attemptedNonStreamFallback = true;
+				const fallbackActivityId = `fallback:${reason}:${attempt}`;
+				emitResponseActivity({
+					id: fallbackActivityId,
+					kind: "fallback",
+					status: "running",
+					detail: reason,
+				});
 				const fallbackModelId = currentStreamModelId;
 				console.warn(
 					reason === "stream_connect_failure"
@@ -930,6 +972,7 @@ export function runChatStreamOrchestrator(
 						activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
 						attachmentTraceId: attachmentTraceId ?? undefined,
 						thinkingMode,
+						depthMetadata: latestDepthMetadata,
 						forceWebSearch: turn.forceWebSearch,
 					},
 					user,
@@ -969,13 +1012,29 @@ export function runChatStreamOrchestrator(
 						latestModelId = resolvedModelId;
 						latestModelDisplayName = displayName;
 					},
+					onDepthMetadata: (metadata) => {
+						latestDepthMetadata = metadata;
+					},
 					onRecoveredToolCalls: emitRecoveredToolCalls,
 					completedToolCallContext: buildCompletedToolCallFallbackContext(
 						chunkRuntime.toolCallRecords,
 					),
 				});
 				if (!recovered && !ended) {
+					emitResponseActivity({
+						id: fallbackActivityId,
+						kind: "fallback",
+						status: "error",
+						detail: reason,
+					});
 					failStream("backend_failure");
+				} else if (recovered) {
+					emitResponseActivity({
+						id: fallbackActivityId,
+						kind: "fallback",
+						status: "done",
+						detail: reason,
+					});
 				}
 
 				return null;
@@ -1008,13 +1067,20 @@ export function runChatStreamOrchestrator(
 					systemPromptAppendix: currentSystemPromptAppendix(),
 					personalityPrompt,
 					thinkingMode,
+					depthMetadata: latestDepthMetadata,
 					forceWebSearch: turn.forceWebSearch,
 					signal: upstreamAbortController.signal,
+					onResponseActivity: emitResponseActivity,
 				};
 				let modelRun: Awaited<
 					ReturnType<typeof runStreamingNormalChatSendModel>
 				> | null = null;
 				try {
+					emitResponseActivity({
+						id: "context-preparing",
+						kind: "context",
+						status: "running",
+					});
 					modelRun = await runStreamingNormalChatSendModel(modelRunParams);
 					latestProviderIconUrl = modelRun.providerIconUrl ?? null;
 				} catch (error) {
@@ -1042,7 +1108,13 @@ export function runChatStreamOrchestrator(
 				latestModelId = modelRun.modelId ?? latestModelId;
 				latestModelDisplayName =
 					modelRun.modelDisplayName ?? latestModelDisplayName;
+				latestDepthMetadata = modelRun.depthMetadata ?? latestDepthMetadata;
 				const prepared = modelRun.prepared ?? {};
+				emitResponseActivity({
+					id: "context-ready",
+					kind: "context",
+					status: "done",
+				});
 				emitPrefetchedToolCalls(modelRun.prefetchedToolCalls);
 				latestContextStatus = prepared.contextStatus;
 				initialContextStatus = latestContextStatus;
@@ -1066,6 +1138,11 @@ export function runChatStreamOrchestrator(
 				latestHonchoSnapshot = prepared.honchoSnapshot ?? null;
 				latestContextTraceSections = prepared.contextTraceSections;
 				initialContextTraceSections = latestContextTraceSections;
+				emitResponseActivity({
+					id: "drafting-answer",
+					kind: "drafting",
+					status: "running",
+				});
 
 				scheduleUpstreamIdleTimeout(attempt);
 				try {

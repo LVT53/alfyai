@@ -273,6 +273,35 @@ describe("active chat streams registry", () => {
 		}
 	});
 
+	it("preserves the original stream Reasoning depth in buffer snapshots", () => {
+		getOrCreateStreamBuffer({
+			streamId: "stream-depth-buffer",
+			userId: "user-1",
+			conversationId: "conversation-depth-buffer",
+			userMessage: "private question",
+			reasoningDepth: "max",
+		});
+
+		try {
+			expect(
+				getStreamBufferSnapshot({
+					streamId: "stream-depth-buffer",
+					userId: "user-1",
+					conversationId: "conversation-depth-buffer",
+				}),
+			).toEqual({
+				exists: true,
+				userMessage: "private question",
+				reasoningDepth: "max",
+				tokenCount: 0,
+				thinkingCount: 0,
+				toolCallCount: 0,
+			});
+		} finally {
+			clearStreamBuffer("stream-depth-buffer");
+		}
+	});
+
 	it("returns reconnect buffers only for the owning user", () => {
 		getOrCreateStreamBuffer({
 			streamId: "stream-owned-reconnect-buffer",

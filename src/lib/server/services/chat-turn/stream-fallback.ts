@@ -6,6 +6,7 @@ import type {
 	HonchoContextSnapshot,
 	ModelId,
 	ThinkingMode,
+	DepthMetadata,
 	ToolCallEntry,
 } from "$lib/types";
 
@@ -18,6 +19,7 @@ export interface NonStreamFallbackSendParams {
 	activeDocumentArtifactId: string | undefined;
 	attachmentTraceId: string | undefined;
 	thinkingMode: ThinkingMode;
+	depthMetadata?: DepthMetadata;
 	forceWebSearch: boolean;
 }
 
@@ -33,6 +35,7 @@ export interface NonStreamFallbackResponse {
 	toolCalls?: ToolCallEntry[];
 	modelId?: ModelId;
 	modelDisplayName?: string;
+	depthMetadata?: DepthMetadata;
 }
 
 export interface NonStreamFallbackDeps {
@@ -49,6 +52,7 @@ export interface NonStreamFallbackDeps {
 		systemPromptAppendix?: string;
 		personalityPrompt?: string;
 		thinkingMode?: ThinkingMode;
+		depthMetadata?: DepthMetadata;
 		forceWebSearch?: boolean;
 		signal?: AbortSignal;
 		disableTools?: boolean;
@@ -77,6 +81,7 @@ export interface NonStreamFallbackDeps {
 	onHonchoSnapshot: (snap: HonchoContextSnapshot | null) => void;
 	onProviderUsage: (usage: ProviderUsageSnapshot | null) => void;
 	onResolvedModel?: (modelId: ModelId, displayName: string) => void;
+	onDepthMetadata?: (metadata: DepthMetadata) => void;
 	onRecoveredToolCalls?: (toolCalls: ToolCallEntry[]) => void;
 	completedToolCallContext?: string | null;
 }
@@ -118,6 +123,7 @@ export async function runNonStreamFallback(
 			onHonchoSnapshot,
 			onProviderUsage,
 			onResolvedModel,
+			onDepthMetadata,
 			onRecoveredToolCalls,
 		} = deps;
 		const completedToolCallContext = deps.completedToolCallContext?.trim();
@@ -160,6 +166,7 @@ export async function runNonStreamFallback(
 				systemPromptAppendix: attemptSystemPromptAppendix,
 				personalityPrompt,
 				thinkingMode: sendParams.thinkingMode,
+				depthMetadata: sendParams.depthMetadata,
 				forceWebSearch: sendParams.forceWebSearch,
 				signal,
 				disableTools: shouldDisableTools,
@@ -191,6 +198,9 @@ export async function runNonStreamFallback(
 					fallbackResponse.modelId,
 					fallbackResponse.modelDisplayName,
 				);
+			}
+			if (fallbackResponse.depthMetadata) {
+				onDepthMetadata?.(fallbackResponse.depthMetadata);
 			}
 
 			if (!fallbackResponse.text?.trim()) {

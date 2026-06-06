@@ -9,11 +9,17 @@ import {
 	getProviderByName,
 	getProviderWithSecrets,
 } from "$lib/server/services/providers";
+import {
+	isReasoningDepth,
+	reasoningDepthToThinkingMode,
+	thinkingModeToReasoningDepth,
+} from "$lib/types";
 import type {
 	DeepResearchDepth,
 	LinkedContextSource,
 	ModelId,
 	PendingSkillSelection,
+	ReasoningDepth,
 	ThinkingMode,
 } from "$lib/types";
 import type {
@@ -41,6 +47,7 @@ type RequestBody = {
 	personalityProfileId?: unknown;
 	deepResearch?: unknown;
 	deepResearchDepth?: unknown;
+	reasoningDepth?: unknown;
 	thinkingMode?: unknown;
 	forceWebSearch?: unknown;
 };
@@ -72,6 +79,7 @@ export async function parseChatTurnRequest(
 		personalityProfileId,
 		deepResearch,
 		deepResearchDepth,
+		reasoningDepth,
 		thinkingMode,
 		forceWebSearch,
 	} = body;
@@ -197,7 +205,13 @@ export async function parseChatTurnRequest(
 		deepResearch,
 		deepResearchDepth,
 	);
-	const selectedThinkingMode = parseThinkingMode(thinkingMode);
+	const selectedReasoningDepth = parseReasoningDepth(
+		reasoningDepth,
+		thinkingMode,
+	);
+	const selectedThinkingMode = reasoningDepthToThinkingMode(
+		selectedReasoningDepth,
+	);
 
 	return {
 		ok: true,
@@ -223,6 +237,7 @@ export async function parseChatTurnRequest(
 					? personalityProfileId.trim()
 					: undefined,
 			deepResearchDepth: selectedDeepResearchDepth,
+			reasoningDepth: selectedReasoningDepth,
 			thinkingMode: selectedThinkingMode,
 			forceWebSearch: forceWebSearch === true,
 			skipPersistUserMessage: skipPersistUserMessage === true,
@@ -296,6 +311,14 @@ function parseDeepResearchDepth(
 
 function isDeepResearchDepth(value: string): value is DeepResearchDepth {
 	return value === "focused" || value === "standard" || value === "max";
+}
+
+function parseReasoningDepth(
+	value: unknown,
+	legacyThinkingMode: unknown,
+): ReasoningDepth {
+	if (isReasoningDepth(value)) return value;
+	return thinkingModeToReasoningDepth(parseThinkingMode(legacyThinkingMode));
 }
 
 function parseThinkingMode(value: unknown): ThinkingMode {

@@ -3,6 +3,7 @@ import {
 	streamDataPartEvent,
 	streamReasoningDeltaEvent,
 	streamReasoningStartEvent,
+	streamResponseActivityEvent,
 	streamTextDeltaEvent,
 	streamTextStartEvent,
 	streamToolCallEvent,
@@ -12,6 +13,7 @@ export interface ReconnectBuffer {
 	userMessage: string | null;
 	tokens: string[];
 	thinking: string[];
+	responseActivity: import("$lib/types").ResponseActivityEntry[];
 	toolCalls: Array<{
 		callId?: string;
 		name: string;
@@ -86,7 +88,8 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 			const hasContent =
 				buffer.tokens.length > 0 ||
 				buffer.thinking.length > 0 ||
-				buffer.toolCalls.length > 0;
+				buffer.toolCalls.length > 0 ||
+				buffer.responseActivity.length > 0;
 			console.info(
 				"[CHAT_STREAM] Replaying buffer for stream",
 				targetStreamId,
@@ -102,6 +105,9 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 						tokenCount: buffer.tokens.length,
 						thinkingCount: buffer.thinking.length,
 						toolCallCount: buffer.toolCalls.length,
+						...(buffer.responseActivity.length > 0
+							? { activityCount: buffer.responseActivity.length }
+							: {}),
 						userMessage: buffer.userMessage,
 					}),
 				);
@@ -116,6 +122,9 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 				}
 				for (const thinking of buffer.thinking) {
 					enqueueChunk(streamReasoningDeltaEvent(thinking));
+				}
+				for (const activity of buffer.responseActivity) {
+					enqueueChunk(streamResponseActivityEvent(activity));
 				}
 				for (const toolCall of buffer.toolCalls) {
 					enqueueChunk(

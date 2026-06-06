@@ -81,6 +81,13 @@ function seedTextConversation() {
 				thinking: "Considered the source.",
 				toolCalls: JSON.stringify([{ type: "text", content: "Considered the source." }]),
 				metadataJson: JSON.stringify({
+					depthMetadata: {
+						requested: "max",
+						appliedProfile: "maximum",
+						fallback: false,
+						modelId: "model1",
+						modelDisplayName: "Model 1",
+					},
 					evidenceStatus: "ready",
 					evidenceSummary: {
 						structuredWebSearch: false,
@@ -408,6 +415,13 @@ describe("conversation forks", () => {
 			forkEvidenceSnapshot: {
 				sourceMessageId: "source-assistant-1",
 				sourceConversationId: "source-conv",
+			},
+			depthMetadata: {
+				requested: "max",
+				appliedProfile: "maximum",
+				fallback: false,
+				modelId: "model1",
+				modelDisplayName: "Model 1",
 			},
 		});
 		expect(copiedAssistantMetadata.evidenceSummary).toBeUndefined();

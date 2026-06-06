@@ -14,6 +14,7 @@ import type {
 	ForkEvidenceSnapshot,
 	HonchoContextInfo,
 	HonchoContextSnapshot,
+	DepthMetadata,
 	MessageEvidenceStatusState,
 	MessageEvidenceSummary,
 	MessageRole,
@@ -44,6 +45,7 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	modelDisplayName?: string | null;
 	providerDisplayName?: string | null;
 	providerIconUrl?: string | null;
+	depthMetadata?: DepthMetadata;
 	webCitationAudit?: WebCitationAudit | null;
 	wasStopped?: boolean;
 	forkCopy?: ChatMessage["forkCopy"];
@@ -93,11 +95,31 @@ function readEvidenceSummaryFromMetadata(
 	return null;
 }
 
+function isDepthMetadata(value: unknown): value is DepthMetadata {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value as Partial<DepthMetadata>;
+	return (
+		(candidate.requested === "off" ||
+			candidate.requested === "auto" ||
+			candidate.requested === "max") &&
+		(candidate.appliedProfile === "off" ||
+			candidate.appliedProfile === "standard" ||
+			candidate.appliedProfile === "extended" ||
+			candidate.appliedProfile === "maximum") &&
+		typeof candidate.fallback === "boolean"
+	);
+}
+
 function mapRowToChatMessage(
 	row: typeof messages.$inferSelect,
 	modelId?: string | null,
 	generationTimeMs?: number | null,
 	costUsdMicros?: number | null,
+	usageTokens?: {
+		completionTokens?: number | null;
+		reasoningTokens?: number | null;
+		totalTokens?: number | null;
+	},
 ): ChatMessage {
 	// Restore full interleaved thinkingSegments from persisted JSON.
 	// The column stores the complete segment array (text + tool_call entries in order)
@@ -133,11 +155,17 @@ function mapRowToChatMessage(
 		providerDisplayName: metadata?.providerDisplayName ?? undefined,
 		providerIconUrl: metadata?.providerIconUrl ?? undefined,
 		generationDurationMs: generationTimeMs ?? undefined,
+		thinkingTokenCount: usageTokens?.reasoningTokens ?? undefined,
+		responseTokenCount: usageTokens?.completionTokens ?? undefined,
+		totalTokenCount: usageTokens?.totalTokens ?? undefined,
 		costUsd: costUsdMicros != null ? costUsdMicros / 1_000_000 : undefined,
 		evidenceSummary,
 		webCitationAudit: metadata?.webCitationAudit ?? undefined,
 		evidencePending,
 		wasStopped: metadata?.wasStopped === true ? true : undefined,
+		depthMetadata: isDepthMetadata(metadata?.depthMetadata)
+			? metadata.depthMetadata
+			: undefined,
 		honchoContext: metadata?.honchoContext ?? undefined,
 		skillQuestion: metadata?.skillQuestion || undefined,
 		pendingSkillNoteIntents: metadata?.pendingSkillNoteIntents,
@@ -221,6 +249,9 @@ export async function listMessages(
 				modelDisplayName: usageEvents.modelDisplayName,
 				generationTimeMs: usageEvents.generationTimeMs,
 				costUsdMicros: usageEvents.costUsdMicros,
+				completionTokens: usageEvents.completionTokens,
+				reasoningTokens: usageEvents.reasoningTokens,
+				totalTokens: usageEvents.totalTokens,
 				legacyGenerationTimeMs: messageAnalytics.generationTimeMs,
 			})
 			.from(messages)
@@ -244,6 +275,11 @@ export async function listMessages(
 			row.model ?? row.legacyModel,
 			row.generationTimeMs ?? row.legacyGenerationTimeMs,
 			row.costUsdMicros,
+			{
+				completionTokens: row.completionTokens,
+				reasoningTokens: row.reasoningTokens,
+				totalTokens: row.totalTokens,
+			},
 		);
 		return {
 			...mapped,

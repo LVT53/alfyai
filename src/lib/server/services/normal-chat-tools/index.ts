@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
+import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import {
@@ -70,6 +71,7 @@ export interface CreateNormalChatToolsContext {
 	turnId: string;
 	recorder?: ToolCallRecorder;
 	language?: "en" | "hu";
+	webSourceBudget?: ReasoningDepthWebSourceBudget;
 }
 
 // ── I18n ───────────────────────────────────────────────────────
@@ -140,7 +142,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 				input: ReturnType<typeof researchWebInputSchema._output>,
 				options: ToolExecutionOptions,
 			) => {
-				const safeInput = sanitizeResearchWebInput(input);
+				const safeInput = applyResearchWebSourceBudget(
+					sanitizeResearchWebInput(input),
+					ctx.webSourceBudget,
+				);
 				return executeToolWithEnvelope({
 					toolName: "research_web",
 					timeoutMs: TOOL_TIMEOUTS_MS.research_web,
@@ -489,5 +494,20 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		tools,
 		recorder,
 		getToolCalls: () => recorder.getEntries(),
+	};
+}
+
+function applyResearchWebSourceBudget(
+	input: ReturnType<typeof sanitizeResearchWebInput>,
+	budget: ReasoningDepthWebSourceBudget | undefined,
+): ReturnType<typeof sanitizeResearchWebInput> {
+	if (!budget) return input;
+	const maxSources = Math.max(1, Math.min(12, Math.floor(budget.maxSources)));
+	if (input.maxSources === undefined) {
+		return { ...input, maxSources };
+	}
+	return {
+		...input,
+		maxSources: Math.min(input.maxSources, maxSources),
 	};
 }

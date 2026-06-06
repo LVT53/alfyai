@@ -37,8 +37,8 @@ import type {
 	LinkedContextSource,
 	ModelId,
 	PendingAttachment,
-	ThinkingMode,
 	PendingSkillSelection,
+	ReasoningDepth,
 } from "$lib/types";
 
 type SendPayload = {
@@ -49,7 +49,7 @@ type SendPayload = {
 	conversationId: string | null;
 	personalityProfileId?: string | null;
 	deepResearchDepth?: DeepResearchDepth | null;
-	thinkingMode?: ThinkingMode;
+	reasoningDepth?: ReasoningDepth;
 	linkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
 	forceWebSearch?: boolean;
@@ -100,8 +100,8 @@ let {
 	selectedPersonalityId = null,
 	onPersonalityChange = undefined,
 	onModelChange = undefined,
-	thinkingMode = "auto",
-	onThinkingModeChange = undefined,
+	reasoningDepth = "auto",
+	onReasoningDepthChange = undefined,
 	deepResearchEnabled = false,
 	composerCommandRegistryEnabled = false,
 }: {
@@ -154,8 +154,8 @@ let {
 	selectedPersonalityId?: string | null;
 	onPersonalityChange?: ((id: string | null) => void) | undefined;
 	onModelChange?: ((modelId: ModelId) => void) | undefined;
-	thinkingMode?: ThinkingMode;
-	onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
+	reasoningDepth?: ReasoningDepth;
+	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
 	deepResearchEnabled?: boolean;
 	composerCommandRegistryEnabled?: boolean;
 } = $props();
@@ -187,7 +187,7 @@ let skillDiscoveryQuery = $state("");
 let skillDiscoveryResults = $state<SkillDiscoverySummary[]>([]);
 let skillDiscoveryLoading = $state(false);
 let skillDiscoveryRequestId = 0;
-let toolsMenuInitialOpen = $state<"model" | "style" | "thinking" | null>(null);
+let toolsMenuInitialOpen = $state<"model" | "style" | "depth" | null>(null);
 let selectedDeepResearchDepth = $state<DeepResearchDepth | null>(null);
 let forceWebSearch = $state(false);
 let queuedSendAfterProcessing = $state(false);
@@ -596,7 +596,7 @@ function buildSendPayload(): SendPayload {
 		conversationId: resolvedConversationId,
 		personalityProfileId: selectedPersonalityId,
 		deepResearchDepth: deepResearchEnabled ? selectedDeepResearchDepth : null,
-		thinkingMode,
+		reasoningDepth,
 		forceWebSearch,
 	};
 }
@@ -1088,7 +1088,7 @@ function selectSkill(skill: SkillDiscoverySummary) {
 	void emitDraftChange();
 }
 
-function openComposerTools(section: "model" | "style" | "thinking") {
+function openComposerTools(section: "model" | "style" | "depth") {
 	toolsMenuInitialOpen = section;
 	showToolsMenu = true;
 	showDeepResearchMenu = false;
@@ -1139,8 +1139,8 @@ function selectCommand(command: CommandTrayRow) {
 		case "style":
 			openComposerTools("style");
 			break;
-		case "thinking":
-			openComposerTools("thinking");
+		case "depth":
+			openComposerTools("depth");
 			break;
 		case "attach":
 			openFilePicker();
@@ -1728,8 +1728,8 @@ async function emitDraftChange(force = false) {
 							{selectedPersonalityId}
 							{onPersonalityChange}
 							{onModelChange}
-							{thinkingMode}
-							{onThinkingModeChange}
+							{reasoningDepth}
+							{onReasoningDepthChange}
 							initialOpen={toolsMenuInitialOpen}
 							{forceWebSearch}
 							onForceWebSearchChange={setForceWebSearch}

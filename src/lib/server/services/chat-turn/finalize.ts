@@ -45,9 +45,15 @@ import type {
 	LinkedContextSource,
 	SkillControlOperation,
 	ToolCallEntry,
+	ReasoningDepth,
+	DepthMetadata,
 } from "$lib/types";
 import { buildContextSourcesState } from "./context-sources";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
+import {
+	buildBaselineDepthMetadata,
+	withDepthMetadataModelInfo,
+} from "./depth-metadata";
 import type {
 	PersistAssistantEvidenceParams,
 	PersistAssistantTurnStateParams,
@@ -114,6 +120,8 @@ export type FinalizeChatTurnParams = {
 	assistantThinking?: string;
 	serverSegments?: Array<unknown>;
 	assistantMetadata: Record<string, unknown>;
+	reasoningDepth?: ReasoningDepth;
+	depthMetadata?: DepthMetadata;
 	skillControlOperations: SkillControlOperation[];
 	skillControlSessionId: string | null;
 	attachmentIds: string[];
@@ -301,6 +309,37 @@ export async function finalizeChatTurn(
 	}
 
 	const shouldPersistAssistantMessage = params.persistAssistantMessage ?? true;
+	const depthMetadata = withDepthMetadataModelInfo(
+		(params.assistantMetadata.depthMetadata as DepthMetadata | undefined) ??
+			params.depthMetadata ??
+			buildBaselineDepthMetadata({
+				reasoningDepth: params.reasoningDepth,
+				modelId: params.analytics?.model,
+				modelDisplayName:
+					typeof params.assistantMetadata.modelDisplayName === "string"
+						? params.assistantMetadata.modelDisplayName
+						: params.analytics?.modelDisplayName,
+				providerDisplayName:
+					typeof params.assistantMetadata.providerDisplayName === "string"
+						? params.assistantMetadata.providerDisplayName
+						: null,
+			}),
+		{
+			modelId: params.analytics?.model,
+			modelDisplayName:
+				typeof params.assistantMetadata.modelDisplayName === "string"
+					? params.assistantMetadata.modelDisplayName
+					: params.analytics?.modelDisplayName,
+			providerDisplayName:
+				typeof params.assistantMetadata.providerDisplayName === "string"
+					? params.assistantMetadata.providerDisplayName
+					: null,
+		},
+	);
+	const assistantMetadata = {
+		...params.assistantMetadata,
+		depthMetadata,
+	};
 	const assistantMessage = shouldPersistAssistantMessage
 		? await createTurnMessage(
 				{
@@ -309,7 +348,7 @@ export async function finalizeChatTurn(
 					content: params.assistantResponse,
 					thinking: params.assistantThinking,
 					serverSegments: params.serverSegments,
-					metadata: params.assistantMetadata,
+					metadata: assistantMetadata,
 				},
 				mode,
 				createMessageImpl,

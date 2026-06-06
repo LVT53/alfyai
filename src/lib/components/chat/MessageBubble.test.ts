@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, DocumentWorkspaceItem, FileProductionJob } from '$lib/types';
 import { renderMarkdown } from '$lib/utils/markdown-loader';
@@ -119,6 +119,344 @@ describe('MessageBubble', () => {
 			fileProductionJobs: [fileProductionJob],
 		});
 		expect(screen.queryByText('Preparing response...')).not.toBeInTheDocument();
+	});
+
+	it('renders only a compact Max reasoning depth marker above the thinking disclosure', async () => {
+		const activityRows = Array.from({ length: 12 }, (_, index) => ({
+			id: `activity-${index}`,
+			kind: 'context' as const,
+			status: index === 11 ? ('running' as const) : ('done' as const),
+			detail: `Context item ${index}`,
+		}));
+		const message: ChatMessage = {
+			id: 'assistant-activity',
+			renderKey: 'assistant-activity',
+			role: 'assistant',
+			content: '',
+			timestamp: Date.now(),
+			isStreaming: true,
+			thinking: 'Checking the retrieved context.',
+			isThinkingStreaming: true,
+			responseActivity: [
+				{
+					id: 'depth-selected',
+					kind: 'depth',
+					status: 'done',
+					detail: 'maximum',
+				},
+				...activityRows,
+				{
+					id: 'source-1',
+					kind: 'source',
+					status: 'done',
+					title: 'SvelteKit Docs',
+					url: 'https://svelte.dev/docs/kit',
+					sourceType: 'web',
+				},
+				{
+					id: 'drafting-answer',
+					kind: 'drafting',
+					status: 'running',
+				},
+			],
+		};
+
+		const { container, rerender } = render(MessageBubble, { message });
+		const indicator = screen.getByTestId('reasoning-depth-indicator');
+		const thinkingBlock = container.querySelector('.thinking-block');
+
+		expect(indicator).toHaveTextContent('Max reasoning depth');
+		expect(thinkingBlock).toBeInTheDocument();
+		expect(
+			indicator.compareDocumentPosition(thinkingBlock as Element) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(screen.queryByTestId('response-activity-timeline')).not.toBeInTheDocument();
+		expect(screen.queryByText('Reasoning depth selected')).not.toBeInTheDocument();
+		expect(screen.queryByText('Drafting answer')).not.toBeInTheDocument();
+		expect(screen.queryByText('SvelteKit Docs')).not.toBeInTheDocument();
+		for (let index = 0; index < 12; index += 1) {
+			expect(screen.queryByText(`Context item ${index}`)).not.toBeInTheDocument();
+		}
+
+		await rerender({
+			message: {
+				...message,
+				isStreaming: false,
+				isThinkingStreaming: false,
+				depthMetadata: {
+					requested: 'max',
+					appliedProfile: 'maximum',
+					fallback: false,
+				},
+			},
+		});
+		expect(screen.getByText('Max reasoning depth')).toBeInTheDocument();
+	});
+
+	it('shows the compact depth marker for Extended but not Standard or Off', async () => {
+		const message: ChatMessage = {
+			id: 'assistant-depth-marker',
+			renderKey: 'assistant-depth-marker',
+			role: 'assistant',
+			content: 'Detailed answer.',
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+			thinking: 'Reasoned carefully.',
+			depthMetadata: {
+				requested: 'auto',
+				appliedProfile: 'extended',
+				fallback: false,
+			},
+		};
+
+		const { rerender } = render(MessageBubble, { message });
+
+		expect(screen.getByText('Extended reasoning depth')).toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...message,
+				depthMetadata: {
+					requested: 'auto',
+					appliedProfile: 'standard',
+					fallback: false,
+				},
+			},
+		});
+		expect(screen.queryByTestId('reasoning-depth-indicator')).not.toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...message,
+				depthMetadata: {
+					requested: 'off',
+					appliedProfile: 'off',
+					fallback: false,
+				},
+			},
+		});
+		expect(screen.queryByTestId('reasoning-depth-indicator')).not.toBeInTheDocument();
+	});
+
+	it('renders a single live deliberation status line above the thinking disclosure', async () => {
+		const message: ChatMessage = {
+			id: 'assistant-deliberation',
+			renderKey: 'assistant-deliberation',
+			role: 'assistant',
+			content: '',
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			responseActivity: [
+				{
+					id: 'depth-selected',
+					kind: 'depth',
+					status: 'done',
+					detail: 'maximum',
+				},
+				{
+					id: 'context-preparing',
+					kind: 'context',
+					status: 'running',
+					label: 'Preparing context',
+				},
+				{
+					id: 'deliberation-pass-1',
+					kind: 'deliberation',
+					status: 'running',
+					label: 'Reviewing context and sources',
+				},
+			],
+			thinkingSegments: [
+				{
+					type: 'status',
+					id: 'deliberation-pass-1',
+					status: 'running',
+					label: 'Reviewing context and sources',
+				},
+			],
+		};
+
+		const { rerender } = render(MessageBubble, { message });
+
+		expect(screen.getByTestId('deliberation-status-line')).toHaveTextContent(
+			'Reviewing context and sources',
+		);
+		expect(screen.getByTestId('reasoning-depth-indicator')).toHaveTextContent(
+			'Max reasoning depth',
+		);
+		expect(screen.getByText('Thinking')).toBeInTheDocument();
+		expect(screen.queryByText('Preparing response...')).not.toBeInTheDocument();
+		expect(screen.queryByText('Preparing context')).not.toBeInTheDocument();
+		expect(
+			screen
+				.getByTestId('deliberation-status-line')
+				.querySelector('[data-deliberation-icon="search"]'),
+		).not.toBeNull();
+		const doneMessage: ChatMessage = {
+			...message,
+			isStreaming: false,
+			isThinkingStreaming: false,
+			responseActivity: undefined,
+			thinkingSegments: [
+				{
+					type: 'status',
+					id: 'deliberation-pass-1',
+					status: 'done',
+					label: 'Reviewed context and sources',
+				},
+			],
+		};
+
+		await rerender({ message: doneMessage });
+		expect(screen.queryByTestId('deliberation-status-line')).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Thought' })).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Thought' }));
+		expect(
+			screen.getByText('Reviewed context and sources'),
+		).toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...message,
+				isStreaming: true,
+				isThinkingStreaming: false,
+				responseActivity: [
+					{
+						id: 'depth-selected',
+						kind: 'depth',
+						status: 'done',
+						detail: 'maximum',
+					},
+					{
+						id: 'deliberation-pass-2',
+						kind: 'deliberation',
+						status: 'running',
+						label: 'Synthesizing an answer structure',
+					},
+				],
+				thinkingSegments: [
+					{
+						type: 'status',
+						id: 'deliberation-pass-2',
+						status: 'running',
+						label: 'Synthesizing an answer structure',
+					},
+				],
+			},
+		});
+		expect(screen.getByTestId('deliberation-status-line')).toHaveTextContent(
+			'Synthesizing an answer structure',
+		);
+		expect(
+			screen
+				.getByTestId('deliberation-status-line')
+				.querySelector('[data-deliberation-icon="file"]'),
+		).not.toBeNull();
+	});
+
+	it('marks completed tool-only thinking surfaces as Thought instead of active Thinking', () => {
+		const message: ChatMessage = {
+			id: 'assistant-completed-tool-only',
+			renderKey: 'assistant-completed-tool-only',
+			role: 'assistant',
+			content: 'Done.',
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+			depthMetadata: {
+				requested: 'off',
+				appliedProfile: 'off',
+				fallback: false,
+			},
+			thinkingSegments: [
+				{
+					type: 'tool_call',
+					name: 'research_web',
+					input: { query: 'ignored provider thinking' },
+					status: 'done',
+					outputSummary: 'Reviewed 2 sources',
+				},
+			],
+		};
+
+		render(MessageBubble, { message });
+
+		expect(screen.getByRole('button', { name: 'Thought' })).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Thinking' })).not.toBeInTheDocument();
+	});
+
+	it('does not show a thinking surface for Off turns unless thinking or tool segments actually arrived', () => {
+		const message: ChatMessage = {
+			id: 'assistant-off-no-thinking',
+			renderKey: 'assistant-off-no-thinking',
+			role: 'assistant',
+			content: 'Answer without provider reasoning.',
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+			depthMetadata: {
+				requested: 'off',
+				appliedProfile: 'off',
+				fallback: false,
+			},
+		};
+
+		render(MessageBubble, { message });
+
+		expect(screen.queryByRole('button', { name: /Thinking|Thought/ })).not.toBeInTheDocument();
+	});
+
+	it('copies assistant content without Thought text', async () => {
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, 'clipboard', {
+			configurable: true,
+			value: { writeText },
+		});
+		const message: ChatMessage = {
+			id: 'assistant-copy',
+			renderKey: 'assistant-copy',
+			role: 'assistant',
+			content: '<thinking>Inline hidden thought.</thinking>Visible answer.',
+			thinking: 'Persisted Thought trace.',
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+		};
+
+		render(MessageBubble, { message });
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Copy message' }));
+
+		expect(writeText).toHaveBeenCalledWith('Visible answer.');
+	});
+
+	it('renders plain URLs in sent user messages as highlighted links', () => {
+		const message: ChatMessage = {
+			id: 'user-link-message',
+			renderKey: 'user-link-message',
+			role: 'user',
+			content: 'Read https://example.com/report and www.example.org.',
+			timestamp: Date.now(),
+		};
+
+		render(MessageBubble, { message });
+
+		const secureLink = screen.getByRole('link', {
+			name: 'https://example.com/report',
+		});
+		expect(secureLink).toHaveAttribute('href', 'https://example.com/report');
+		expect(secureLink).toHaveAttribute('target', '_blank');
+		expect(secureLink.getAttribute('rel')).toContain('noopener');
+		expect(secureLink.getAttribute('rel')).toContain('noreferrer');
+
+		const bareLink = screen.getByRole('link', { name: 'www.example.org' });
+		expect(bareLink).toHaveAttribute('href', 'https://www.example.org');
+		expect(screen.getByTestId('user-message')).toHaveTextContent(
+			'Read https://example.com/report and www.example.org.',
+		);
 	});
 
 	it('opens attached artifacts through the shared document workspace callback', async () => {
@@ -277,30 +615,136 @@ describe('MessageBubble', () => {
 		});
 	});
 
-	it('renders plain URLs in sent user messages as highlighted links', () => {
+	it('shows compact message info through cost without click-only expansion', () => {
 		const message: ChatMessage = {
-			id: 'user-link-message',
-			renderKey: 'user-link-message',
-			role: 'user',
-			content: 'Read https://example.com/report and www.example.org.',
+			id: 'assistant-audit-simple',
+			renderKey: 'assistant-audit-simple',
+			role: 'assistant',
+			content: 'Completed answer.',
 			timestamp: Date.now(),
+			modelDisplayName: 'Model 1',
+			providerDisplayName: 'Local Provider',
+			responseTokenCount: 128,
+			thinkingTokenCount: 12,
+			totalTokenCount: 128,
+			generationDurationMs: 1450,
+			costUsd: 0.00042,
+			depthMetadata: {
+				requested: 'max',
+				appliedProfile: 'maximum',
+				fallback: false,
+			},
 		};
 
 		render(MessageBubble, { message });
 
-		const secureLink = screen.getByRole('link', {
-			name: 'https://example.com/report',
-		});
-		expect(secureLink).toHaveAttribute('href', 'https://example.com/report');
-		expect(secureLink).toHaveAttribute('target', '_blank');
-		expect(secureLink.getAttribute('rel')).toContain('noopener');
-		expect(secureLink.getAttribute('rel')).toContain('noreferrer');
+		const detailsButton = screen.getByRole('button', { name: 'Info' });
+		expect(detailsButton).not.toHaveAttribute('aria-expanded');
 
-		const bareLink = screen.getByRole('link', { name: 'www.example.org' });
-		expect(bareLink).toHaveAttribute('href', 'https://www.example.org');
-		expect(screen.getByTestId('user-message')).toHaveTextContent(
-			'Read https://example.com/report and www.example.org.',
-		);
+		const tooltip = screen.getByRole('tooltip', { name: 'Info' });
+		expect(within(tooltip).getByText('Provider')).toBeInTheDocument();
+		expect(within(tooltip).getByText('Local Provider')).toBeInTheDocument();
+		expect(within(tooltip).getByText('Model')).toBeInTheDocument();
+		expect(within(tooltip).getByText('Model 1')).toBeInTheDocument();
+		expect(within(tooltip).getByText('Reasoning depth')).toBeInTheDocument();
+		expect(within(tooltip).getByText('Max / Maximum')).toBeInTheDocument();
+		expect(within(tooltip).getByText('Response time')).toBeInTheDocument();
+		expect(within(tooltip).getByText('1.4s')).toBeInTheDocument();
+		expect(within(tooltip).getByText('Thinking tokens')).toBeInTheDocument();
+		expect(within(tooltip).getByText('12')).toBeInTheDocument();
+		expect(within(tooltip).getByText('Response tokens')).toBeInTheDocument();
+		expect(within(tooltip).getAllByText('128')).not.toHaveLength(0);
+		expect(within(tooltip).getByText('Cost')).toBeInTheDocument();
+		expect(within(tooltip).getByText('$0.000420')).toBeInTheDocument();
+	});
+
+	it('omits secondary audit details from the info tooltip', () => {
+		const message: ChatMessage = {
+			id: 'assistant-audit-secondary-details',
+			renderKey: 'assistant-audit-secondary-details',
+			role: 'assistant',
+			content: 'Answer with extra audit metadata.',
+			timestamp: Date.now(),
+			responseTokenCount: 88,
+			totalTokenCount: 88,
+			depthMetadata: {
+				requested: 'max',
+				appliedProfile: 'maximum',
+				fallback: false,
+				fallbackReason: 'invalid_classifier_response',
+				classifierSource: 'deterministic_bypass',
+				classifierModelFallbackReason: 'configured_model_unavailable',
+				constraintNote: 'explicit_max',
+				appliedEffort: {
+					dimensions: [
+						'provider_reasoning',
+						'output_room',
+						'context_room',
+						'grounding_guidance',
+						'tool_steps',
+						'source_budget',
+					],
+					tools: {
+						maxToolSteps: 7,
+						maxWebSources: 12,
+						sourceExpansion: true,
+					},
+				},
+			},
+			evidenceSummary: {
+				structuredWebSearch: true,
+				groups: [
+					{
+						sourceType: 'web',
+						label: 'Web Search',
+						reranked: true,
+						items: [
+							{
+								id: 'source-1',
+								title: 'Official source',
+								sourceType: 'web',
+								status: 'selected',
+								url: 'https://example.com/source',
+							},
+						],
+					},
+				],
+			},
+			webCitationAudit: {
+				status: 'passed',
+				retrievedSourceCount: 1,
+				citedUrlCount: 1,
+				supportedCitationCount: 1,
+				unsupportedCitationCount: 0,
+				citations: [],
+			},
+			thinkingSegments: [
+				{ type: 'text', content: 'SECRET_THOUGHT_TRACE' },
+				{
+					type: 'tool_call',
+					name: 'research_web',
+					input: { query: 'docs' },
+					status: 'done',
+					outputSummary: '2 sources reviewed',
+				},
+			],
+		};
+
+		render(MessageBubble, { message });
+
+		const tooltip = screen.getByRole('tooltip', { name: 'Info' });
+		expect(within(tooltip).getByText('Reasoning depth')).toBeInTheDocument();
+		expect(within(tooltip).getByText('Max / Maximum')).toBeInTheDocument();
+		expect(within(tooltip).getByText('Response tokens')).toBeInTheDocument();
+		expect(within(tooltip).queryByText('Classifier')).not.toBeInTheDocument();
+		expect(within(tooltip).queryByText('Applied effort')).not.toBeInTheDocument();
+		expect(within(tooltip).queryByText('Max turns')).not.toBeInTheDocument();
+		expect(within(tooltip).queryByText('Sources')).not.toBeInTheDocument();
+		expect(within(tooltip).queryByText('Citation audit')).not.toBeInTheDocument();
+		expect(within(tooltip).queryByText('Tool calls')).not.toBeInTheDocument();
+		expect(within(tooltip).queryByText('Web search')).not.toBeInTheDocument();
+		expect(within(tooltip).queryByText('2 sources reviewed')).not.toBeInTheDocument();
+		expect(within(tooltip).queryByText('SECRET_THOUGHT_TRACE')).not.toBeInTheDocument();
 	});
 
 	it('shows the fork action only for completed persisted assistant messages', async () => {
@@ -369,6 +813,43 @@ describe('MessageBubble', () => {
 			onFork,
 		});
 		expect(screen.queryByRole('button', { name: 'Fork from here' })).not.toBeInTheDocument();
+	});
+
+	it('renders styled hover tooltip labels for message action icons', () => {
+		const assistantMessage: ChatMessage = {
+			id: 'assistant-tooltip-actions',
+			role: 'assistant',
+			content: 'Completed answer.',
+			timestamp: Date.now(),
+		};
+		const userMessage: ChatMessage = {
+			id: 'user-tooltip-actions',
+			role: 'user',
+			content: 'Can you revise this?',
+			timestamp: Date.now(),
+		};
+
+		const { container: assistantContainer } = render(MessageBubble, {
+			message: assistantMessage,
+			onRegenerate: vi.fn(),
+			onFork: vi.fn(),
+		});
+
+		expect(screen.getByRole('button', { name: 'Regenerate response' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Fork from here' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Copy message' })).toBeInTheDocument();
+		expect(within(assistantContainer).getByRole('tooltip', { name: 'Regenerate' })).toBeInTheDocument();
+		expect(within(assistantContainer).getByRole('tooltip', { name: 'Fork' })).toBeInTheDocument();
+		expect(within(assistantContainer).getByRole('tooltip', { name: 'Copy' })).toBeInTheDocument();
+
+		const { container: userContainer } = render(MessageBubble, {
+			message: userMessage,
+			onEdit: vi.fn(),
+		});
+
+		expect(screen.getByRole('button', { name: 'Edit message' })).toBeInTheDocument();
+		expect(within(userContainer).getByRole('tooltip', { name: 'Edit' })).toBeInTheDocument();
+		expect(within(userContainer).getByRole('tooltip', { name: 'Copy' })).toBeInTheDocument();
 	});
 
 	it('shows a source fork marker with a direct link when one child fork exists', () => {

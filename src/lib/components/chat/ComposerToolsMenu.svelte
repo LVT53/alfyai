@@ -6,7 +6,7 @@
 		getPersonalityProfileDisplayDescription,
 		getPersonalityProfileDisplayName,
 	} from '$lib/utils/personality-profile-labels';
-	import type { ModelId, ThinkingMode } from '$lib/types';
+	import type { ModelId, ReasoningDepth } from '$lib/types';
 
 	let {
 		canAttach = false,
@@ -17,8 +17,8 @@
 		selectedPersonalityId = null,
 		onPersonalityChange = undefined,
 		onModelChange = undefined,
-		thinkingMode = 'auto',
-		onThinkingModeChange = undefined,
+		reasoningDepth = 'auto',
+		onReasoningDepthChange = undefined,
 		initialOpen = null,
 		forceWebSearch = false,
 		onForceWebSearchChange = undefined,
@@ -31,28 +31,28 @@
 		selectedPersonalityId?: string | null;
 		onPersonalityChange?: ((id: string | null) => void) | undefined;
 		onModelChange?: ((modelId: ModelId) => void) | undefined;
-		thinkingMode?: ThinkingMode;
-		onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
-		initialOpen?: 'model' | 'style' | 'thinking' | null;
+		reasoningDepth?: ReasoningDepth;
+		onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
+		initialOpen?: 'model' | 'style' | 'depth' | null;
 		forceWebSearch?: boolean;
 		onForceWebSearchChange?: ((enabled: boolean) => void) | undefined;
 	} = $props();
 
 	let root = $state<HTMLDivElement | undefined>(undefined);
-	let activeDropdown = $state<'model' | 'style' | 'thinking' | null>(null);
-	let appliedInitialOpen = $state<'model' | 'style' | 'thinking' | null>(null);
+	let activeDropdown = $state<'model' | 'style' | 'depth' | null>(null);
+	let appliedInitialOpen = $state<'model' | 'style' | 'depth' | null>(null);
 	let styleOpen = $derived(activeDropdown === 'style');
-	let thinkingOpen = $derived(activeDropdown === 'thinking');
+	let depthOpen = $derived(activeDropdown === 'depth');
 
 	let selectedProfile = $derived(
 		personalityProfiles.find((p) => p.id === selectedPersonalityId) ?? null,
 	);
-	let selectedThinkingLabel = $derived(
-		thinkingMode === 'on'
-			? $t('composerTools.thinkingOn')
-			: thinkingMode === 'off'
-				? $t('composerTools.thinkingOff')
-				: $t('composerTools.thinkingAuto'),
+	let selectedReasoningDepthLabel = $derived(
+		reasoningDepth === 'max'
+			? $t('composerTools.reasoningDepthMax')
+			: reasoningDepth === 'off'
+				? $t('composerTools.reasoningDepthOff')
+				: $t('composerTools.reasoningDepthAuto'),
 	);
 
 	$effect(() => {
@@ -76,8 +76,8 @@
 		onClose?.();
 	}
 
-	function selectThinkingMode(mode: ThinkingMode) {
-		onThinkingModeChange?.(mode);
+	function selectReasoningDepth(depth: ReasoningDepth) {
+		onReasoningDepthChange?.(depth);
 		closeMenu();
 	}
 
@@ -179,19 +179,19 @@
 	{/if}
 
 	<div class="menu-row menu-row--static">
-		<div class="menu-label">{$t('composerTools.thinking')}</div>
+		<div class="menu-label">{$t('composerTools.reasoningDepth')}</div>
 		<div class="model-selector">
 			<button
 				type="button"
 				class="model-selector__trigger"
-				onclick={() => activeDropdown = thinkingOpen ? null : 'thinking'}
+				onclick={() => activeDropdown = depthOpen ? null : 'depth'}
 				aria-haspopup="listbox"
-				aria-expanded={thinkingOpen}
+				aria-expanded={depthOpen}
 			>
-				<span class="model-selector__text">{selectedThinkingLabel}</span>
+				<span class="model-selector__text">{selectedReasoningDepthLabel}</span>
 				<svg
 					class="model-selector__chevron"
-					class:model-selector__chevron--open={thinkingOpen}
+					class:model-selector__chevron--open={depthOpen}
 					xmlns="http://www.w3.org/2000/svg"
 					width="16" height="16" viewBox="0 0 24 24"
 					fill="none" stroke="currentColor"
@@ -200,35 +200,35 @@
 					<polyline points="6 9 12 15 18 9" />
 				</svg>
 			</button>
-			{#if thinkingOpen}
-				<ul class="model-selector__dropdown" role="listbox" aria-label={$t('composerTools.thinking')}>
+			{#if depthOpen}
+				<ul class="model-selector__dropdown" role="listbox" aria-label={$t('composerTools.reasoningDepth')}>
 					<li
 						role="option"
-						aria-selected={thinkingMode === 'auto'}
+						aria-selected={reasoningDepth === 'off'}
 						class="model-selector__option"
-						class:model-selector__option--selected={thinkingMode === 'auto'}
-						onclick={() => selectThinkingMode('auto')}
-						onkeydown={(e) => e.key === 'Enter' && selectThinkingMode('auto')}
+						class:model-selector__option--selected={reasoningDepth === 'off'}
+						onclick={() => selectReasoningDepth('off')}
+						onkeydown={(e) => e.key === 'Enter' && selectReasoningDepth('off')}
 						tabindex="0"
-					>{$t('composerTools.thinkingAuto')}</li>
+					>{$t('composerTools.reasoningDepthOff')}</li>
 					<li
 						role="option"
-						aria-selected={thinkingMode === 'on'}
+						aria-selected={reasoningDepth === 'auto'}
 						class="model-selector__option"
-						class:model-selector__option--selected={thinkingMode === 'on'}
-						onclick={() => selectThinkingMode('on')}
-						onkeydown={(e) => e.key === 'Enter' && selectThinkingMode('on')}
+						class:model-selector__option--selected={reasoningDepth === 'auto'}
+						onclick={() => selectReasoningDepth('auto')}
+						onkeydown={(e) => e.key === 'Enter' && selectReasoningDepth('auto')}
 						tabindex="0"
-					>{$t('composerTools.thinkingOn')}</li>
+					>{$t('composerTools.reasoningDepthAuto')}</li>
 					<li
 						role="option"
-						aria-selected={thinkingMode === 'off'}
+						aria-selected={reasoningDepth === 'max'}
 						class="model-selector__option"
-						class:model-selector__option--selected={thinkingMode === 'off'}
-						onclick={() => selectThinkingMode('off')}
-						onkeydown={(e) => e.key === 'Enter' && selectThinkingMode('off')}
+						class:model-selector__option--selected={reasoningDepth === 'max'}
+						onclick={() => selectReasoningDepth('max')}
+						onkeydown={(e) => e.key === 'Enter' && selectReasoningDepth('max')}
 						tabindex="0"
-					>{$t('composerTools.thinkingOff')}</li>
+					>{$t('composerTools.reasoningDepthMax')}</li>
 				</ul>
 			{/if}
 		</div>

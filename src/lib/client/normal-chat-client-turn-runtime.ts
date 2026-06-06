@@ -14,7 +14,8 @@ import type {
 	ModelId,
 	PendingAttachment,
 	PendingSkillSelection,
-	ThinkingMode,
+	ReasoningDepth,
+	ResponseActivityEntry,
 } from "$lib/types";
 
 type StreamToolCallDetails = Parameters<
@@ -32,7 +33,7 @@ export type NormalChatSendPayload = {
 	modelId?: ModelId;
 	personalityProfileId?: string | null;
 	deepResearchDepth?: "focused" | "standard" | "max" | null;
-	thinkingMode?: ThinkingMode;
+	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
 };
 
@@ -71,7 +72,7 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	getStreamBufferInfo: typeof getStreamBufferInfo;
 	getConversationId: () => string;
 	getSelectedModel: () => ModelId;
-	getThinkingMode: () => ThinkingMode;
+	getReasoningDepth: () => ReasoningDepth;
 	getPersonalityProfileId: () => string | null;
 	getActiveDocumentArtifactId: () => string | undefined;
 	getMessages: () => ChatMessage[];
@@ -112,6 +113,10 @@ export type NormalChatClientTurnRuntimeAdapters = {
 		input: Record<string, unknown>,
 		status: "running" | "done",
 		details?: StreamToolCallDetails,
+	) => void;
+	applyResponseActivityUpdate?: (
+		placeholderId: string,
+		entry: ResponseActivityEntry,
 	) => void;
 	shouldHydrateFileProductionJobsOnToolCall?: (
 		name: string,
@@ -215,6 +220,7 @@ export function createNormalChatClientTurnRuntime(
 	let queuedContextCompression = false;
 	let lastUserMessage = "";
 	let lastAssistantResponse = "";
+	let lastReasoningDepth: ReasoningDepth = "auto";
 
 	function snapshot(): NormalChatRuntimeSnapshot {
 		return {
@@ -360,6 +366,9 @@ export function createNormalChatClientTurnRuntime(
 					adapters.hydrateConversationDetail();
 				}
 			},
+			onResponseActivity(entry) {
+				adapters.applyResponseActivityUpdate?.(params.placeholderId, entry);
+			},
 			onWaiting() {
 				activeStream?.detach();
 				isPollingForCompletion = true;
@@ -420,6 +429,7 @@ export function createNormalChatClientTurnRuntime(
 								params.reconnectStreamId!,
 								params.message,
 								retryCount + 1,
+								params.streamOptions.reasoningDepth,
 							);
 						}, delay);
 						return;
@@ -516,6 +526,8 @@ export function createNormalChatClientTurnRuntime(
 		}
 
 		const modelIdForTurn = payload.modelId ?? adapters.getSelectedModel();
+		const reasoningDepthForTurn =
+			payload.reasoningDepth ?? adapters.getReasoningDepth();
 		adapters.setConversationModelSelection(modelIdForTurn);
 		const personalityProfileIdForTurn =
 			payload.personalityProfileId !== undefined
@@ -548,6 +560,7 @@ export function createNormalChatClientTurnRuntime(
 		adapters.setSuppressHydration?.(true);
 		adapters.setInitialStreamPending?.(false);
 		lastUserMessage = text;
+		lastReasoningDepth = reasoningDepthForTurn;
 		canRetry = true;
 		adapters.markHasPersistedMessages?.();
 		emitState();
@@ -617,7 +630,7 @@ export function createNormalChatClientTurnRuntime(
 					? null
 					: (payload.pendingSkill ?? null),
 				deepResearchDepth: payload.deepResearchDepth ?? null,
-				thinkingMode: payload.thinkingMode ?? adapters.getThinkingMode(),
+				reasoningDepth: reasoningDepthForTurn,
 				forceWebSearch: payload.forceWebSearch === true,
 				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
 				personalityProfileId: personalityProfileIdForTurn,
@@ -668,7 +681,7 @@ export function createNormalChatClientTurnRuntime(
 			completedUserMessage: lastUserMessage,
 			streamOptions: {
 				modelId: lastAssistantMsg?.modelId ?? adapters.getSelectedModel(),
-				thinkingMode: adapters.getThinkingMode(),
+				reasoningDepth: lastReasoningDepth,
 				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
 				personalityProfileId: adapters.getPersonalityProfileId(),
 				retryAssistantMessageId: retryAssistantMessageId ?? undefined,
@@ -735,6 +748,7 @@ export function createNormalChatClientTurnRuntime(
 		queuedContextCompression = false;
 		lastUserMessage = "";
 		lastAssistantResponse = "";
+		lastReasoningDepth = "auto";
 		emitState();
 	}
 
@@ -750,6 +764,7 @@ export function createNormalChatClientTurnRuntime(
 		streamId: string,
 		userMessage = "",
 		retryCount = 0,
+		reasoningDepth?: ReasoningDepth,
 	) {
 		if (isSending || activeStream) return false;
 
@@ -783,7 +798,7 @@ export function createNormalChatClientTurnRuntime(
 			streamOptions: {
 				reconnectToStreamId: streamId,
 				reconnectUserMessage: userMessage,
-				thinkingMode: adapters.getThinkingMode(),
+				reasoningDepth: reasoningDepth ?? adapters.getReasoningDepth(),
 			},
 		});
 		return true;
@@ -811,7 +826,12 @@ export function createNormalChatClientTurnRuntime(
 			streamId,
 			adapters.getConversationId(),
 		);
-		return reconnectToOrphanedStream(streamId, bufferInfo?.userMessage ?? "");
+		return reconnectToOrphanedStream(
+			streamId,
+			bufferInfo?.userMessage ?? "",
+			0,
+			bufferInfo?.reasoningDepth,
+		);
 	}
 
 	async function recoverBackgroundInterruptedStream() {
@@ -876,7 +896,7 @@ function cloneSendPayload(
 		modelId: payload.modelId,
 		personalityProfileId: payload.personalityProfileId ?? null,
 		deepResearchDepth: payload.deepResearchDepth ?? null,
-		thinkingMode: payload.thinkingMode,
+		reasoningDepth: payload.reasoningDepth,
 		forceWebSearch: payload.forceWebSearch === true,
 	};
 }

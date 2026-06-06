@@ -13,6 +13,7 @@ import {
 	summarizeAttachmentSectionInInput,
 } from "./attachment-trace";
 import { deriveModelContextBudget } from "./chat-turn/context-budget";
+import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
 import { buildConstructedContext } from "./chat-turn/context-selection";
 import {
 	buildLegacyContextTrace,
@@ -34,6 +35,8 @@ const NORMAL_CHAT_PROMPT_TOKEN_SAFETY_FACTOR = 1.2;
 const GPT_OSS_HIGH_REASONING_DIRECTIVE = "Reasoning: high";
 const GPT_OSS_REASONING_DIRECTIVE_RE =
 	/(^|\n)Reasoning:\s*(?:low|medium|high)\s*(?=\n|$)/i;
+const GPT_OSS_REASONING_DIRECTIVE_LINE_RE =
+	/^\s*Reasoning:\s*(?:low|medium|high)\s*$/i;
 const NORMAL_CHAT_CONTEXT_LOG_PREFIX = "[NORMAL_CHAT_CONTEXT]";
 
 export type AuthenticatedPromptUser = {
@@ -262,6 +265,56 @@ const FORCE_WEB_SEARCH_GUARD = [
 	"- If tools are unavailable, or retrieval does not expose evidence for a claim, say so instead of guessing.",
 ].join("\n");
 
+function buildReasoningDepthEffortGuard(
+	effort: ReasoningDepthEffort,
+): string {
+	const profile = effort.depthMetadata.appliedProfile;
+	const maxSources = effort.webSourceBudget.maxSources;
+	const grounding = effort.grounding.guidance;
+	const sourceExpansion = effort.webSourceBudget.sourceExpansion;
+	const depthContract =
+		profile === "maximum"
+			? [
+					"Maximum-depth reasoning contract:",
+					"- Before answering, deliberately spend extra private reasoning effort on the user's real objective, unstated constraints, edge cases, likely failure modes, and tradeoffs.",
+					"- Break the task into subproblems internally, test the strongest candidate answer against alternatives, and resolve contradictions before writing the final response.",
+					"- If the request involves code, architecture, research, product choice, study help, planning, or debugging, check assumptions and implementation details more aggressively than a normal turn.",
+					"- Do not expose chain-of-thought or scratchpad reasoning. Show only the concise conclusions, key rationale, citations when used, and any uncertainty that matters.",
+				]
+			: profile === "extended"
+				? [
+						"Extended-depth reasoning contract:",
+						"- Before answering, take an extra private pass over the user's goal, constraints, edge cases, and likely missing details.",
+						"- Decompose multi-step work internally and verify that the final answer actually satisfies each important part of the request.",
+						"- Do not expose chain-of-thought or scratchpad reasoning. Show only the useful rationale and conclusions.",
+					]
+				: profile === "standard"
+					? [
+							"Standard-depth reasoning contract:",
+							"- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.",
+						]
+					: [
+							"Off-depth reasoning contract:",
+							"- Provider-visible thinking is disabled where supported. Still answer carefully and use required tools or grounding when another instruction calls for them.",
+						];
+	return [
+		"Reasoning depth effort profile:",
+		`- Applied Normal Chat profile: ${profile}. This does not start Deep Research, does not force web search every turn, and does not make the visible answer longer by itself.`,
+		...depthContract,
+		grounding === "strict"
+			? "- Grounding pressure: strict. If current, external, disputed, high-stakes, or source-backed evidence is needed, use available retrieval and cross-check the answer against returned evidence."
+			: grounding === "careful"
+				? "- Grounding pressure: careful. Use retrieval when source-backed evidence would materially improve reliability; do not search when the answer is clearly self-contained."
+				: grounding === "minimal"
+					? "- Grounding pressure: minimal. Keep retrieval conditional; explicit web requests and pasted URLs still require normal grounding."
+					: "- Grounding pressure: standard. Use retrieval when the ordinary web/source guidance says it is needed.",
+		sourceExpansion
+			? `- Source budget: when calling research_web for this turn, you may use up to ${maxSources} sources when the evidence need justifies it. Prefer focused queries over broad sweeps.`
+			: `- Source budget: keep research_web source requests compact; do not exceed ${maxSources} sources unless another system instruction explicitly requires it.`,
+		`- Tool loop budget: the runtime can support up to ${effort.maxToolSteps} tool steps for this profile. Stop early once the answer is grounded enough.`,
+	].join("\n");
+}
+
 function buildResponseLanguageGuard(language: SupportedLanguage): string {
 	const languageLabel = language === "hu" ? "Hungarian" : "English";
 	return [
@@ -279,7 +332,32 @@ function containsHttpUrl(value: string): boolean {
 }
 
 function isGptOssModel(modelName: string): boolean {
-	return /\bgpt[-_]?oss\b/i.test(modelName);
+	return /\bgpt(?:[-_\s]?oss)\b/i.test(modelName);
+}
+
+function stripGptOssReasoningDirectives(basePromptBody: string): string {
+	return basePromptBody
+		.split("\n")
+		.filter((line) => !GPT_OSS_REASONING_DIRECTIVE_LINE_RE.test(line))
+		.join("\n")
+		.trim();
+}
+
+function resolveGptOssReasoningDirective(params: {
+	needsGptOssReasoningDirective: boolean;
+	reasoningDepthEffort?: ReasoningDepthEffort;
+}): "high" | "none" | null {
+	if (!params.needsGptOssReasoningDirective) {
+		return null;
+	}
+	const effort = params.reasoningDepthEffort;
+	if (
+		effort?.providerReasoning.thinkingMode === "off" ||
+		effort?.depthMetadata.appliedProfile === "off"
+	) {
+		return "none";
+	}
+	return "high";
 }
 
 async function buildEnhancedSystemPrompt(
@@ -334,6 +412,7 @@ export function buildOutboundSystemPrompt(params: {
 	systemPromptAppendix?: string;
 	personalityPrompt?: string;
 	forceWebSearch?: boolean;
+	reasoningDepthEffort?: ReasoningDepthEffort;
 	skipDefaultRuntimeGuidance?: boolean;
 }): string {
 	const modelHeader = params.modelDisplayName
@@ -344,16 +423,25 @@ export function buildOutboundSystemPrompt(params: {
 		params.modelDisplayName,
 	].some((value) => typeof value === "string" && isGptOssModel(value));
 	const basePromptBody = params.basePrompt.trim();
-	const normalizedBasePromptBody =
-		needsGptOssReasoningDirective &&
+	const gptOssReasoningDirective = resolveGptOssReasoningDirective({
+		needsGptOssReasoningDirective,
+		reasoningDepthEffort: params.reasoningDepthEffort,
+	});
+	let normalizedBasePromptBody = basePromptBody;
+	if (gptOssReasoningDirective === "none") {
+		normalizedBasePromptBody =
+			stripGptOssReasoningDirectives(basePromptBody);
+	} else if (
+		gptOssReasoningDirective === "high" &&
 		GPT_OSS_REASONING_DIRECTIVE_RE.test(basePromptBody)
-			? basePromptBody.replace(
-					GPT_OSS_REASONING_DIRECTIVE_RE,
-					`$1${GPT_OSS_HIGH_REASONING_DIRECTIVE}`,
-				)
-			: basePromptBody;
+	) {
+		normalizedBasePromptBody = basePromptBody.replace(
+			GPT_OSS_REASONING_DIRECTIVE_RE,
+			`$1${GPT_OSS_HIGH_REASONING_DIRECTIVE}`,
+		);
+	}
 	const promptPreamble =
-		needsGptOssReasoningDirective &&
+		gptOssReasoningDirective === "high" &&
 		!GPT_OSS_REASONING_DIRECTIVE_RE.test(normalizedBasePromptBody)
 			? GPT_OSS_HIGH_REASONING_DIRECTIVE
 			: "";
@@ -386,6 +474,12 @@ export function buildOutboundSystemPrompt(params: {
 
 		if (params.forceWebSearch === true) {
 			guidanceAdditions.push(FORCE_WEB_SEARCH_GUARD);
+		}
+
+		if (params.reasoningDepthEffort) {
+			guidanceAdditions.push(
+				buildReasoningDepthEffortGuard(params.reasoningDepthEffort),
+			);
 		}
 
 		guidanceAdditions.push(
@@ -1176,6 +1270,7 @@ export async function prepareOutboundChatContext(params: {
 	modelId?: ModelId | string;
 	contextLimits?: PromptContextLimits;
 	compressionControlMessageSender?: ContextCompressionControlSender;
+	reasoningDepthEffort?: ReasoningDepthEffort;
 	logLabel: string;
 }): Promise<PreparedOutboundChatContext> {
 	let inputValue = params.message;
@@ -1253,6 +1348,7 @@ export async function prepareOutboundChatContext(params: {
 		systemPromptAppendix: params.systemPromptAppendix,
 		personalityPrompt: params.personalityPrompt,
 		forceWebSearch: params.forceWebSearch,
+		reasoningDepthEffort: params.reasoningDepthEffort,
 		skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 	});
 	const contextLimits =
@@ -1318,6 +1414,7 @@ export async function prepareOutboundChatContext(params: {
 			systemPromptAppendix: params.systemPromptAppendix,
 			personalityPrompt: params.personalityPrompt,
 			forceWebSearch: params.forceWebSearch,
+			reasoningDepthEffort: params.reasoningDepthEffort,
 			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 		});
 	}
@@ -1340,6 +1437,7 @@ export async function prepareOutboundChatContext(params: {
 			systemPromptAppendix: params.systemPromptAppendix,
 			personalityPrompt: params.personalityPrompt,
 			forceWebSearch: params.forceWebSearch,
+			reasoningDepthEffort: params.reasoningDepthEffort,
 			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 		});
 	}

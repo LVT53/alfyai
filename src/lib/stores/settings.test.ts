@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
 	selectedModel,
+	selectedReasoningDepth,
 	initSettings,
 	setSelectedModel,
+	setSelectedReasoningDepth,
 	setSelectedModelAndSync,
 	setModelPreferenceAndSync,
 	type ModelId,
@@ -15,6 +17,7 @@ describe('settings store', () => {
 	beforeEach(() => {
 		// Reset store to default
 		selectedModel.set('model1');
+		selectedReasoningDepth.set('auto');
 		localStorageMock = {};
 		vi.restoreAllMocks();
 		vi.stubGlobal('fetch', vi.fn());
@@ -66,6 +69,22 @@ describe('settings store', () => {
 			expect(get(selectedModel)).toBe('model1');
 			expect(localStorageMock['selectedModel']).toBe('model1');
 		});
+
+		it('should load Reasoning depth from localStorage', () => {
+			localStorageMock['reasoningDepth'] = 'max';
+
+			initSettings();
+
+			expect(get(selectedReasoningDepth)).toBe('max');
+		});
+
+		it('should migrate legacy thinking mode to Reasoning depth', () => {
+			localStorageMock['thinkingMode'] = 'on';
+
+			initSettings();
+
+			expect(get(selectedReasoningDepth)).toBe('max');
+		});
 	});
 
 	describe('setSelectedModel', () => {
@@ -78,6 +97,16 @@ describe('settings store', () => {
 			setSelectedModel('model2');
 			expect(localStorage.setItem).toHaveBeenCalledWith('selectedModel', 'model2');
 			expect(localStorageMock['selectedModel']).toBe('model2');
+		});
+	});
+
+	describe('setSelectedReasoningDepth', () => {
+		it('should update and persist Reasoning depth', () => {
+			setSelectedReasoningDepth('off');
+
+			expect(get(selectedReasoningDepth)).toBe('off');
+			expect(localStorage.setItem).toHaveBeenCalledWith('reasoningDepth', 'off');
+			expect(localStorageMock['reasoningDepth']).toBe('off');
 		});
 	});
 

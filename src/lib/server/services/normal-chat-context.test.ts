@@ -173,6 +173,141 @@ describe("prepareOutboundChatContext", () => {
 		expect(prompt).not.toContain("current legacy external search flows");
 	});
 
+	it("adds depth grounding guidance without forcing web search or Deep Research", () => {
+		const prompt = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt",
+			inputValue: "Compare current release options.",
+			modelDisplayName: "Provider Model",
+			forceWebSearch: false,
+			reasoningDepthEffort: {
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "maximum",
+					fallback: false,
+				},
+				webSourceBudget: {
+					maxSources: 12,
+					sourceExpansion: true,
+				},
+				maxToolSteps: 28,
+				grounding: {
+					guidance: "strict",
+					externalEvidence: "required",
+					forceWebSearch: false,
+				},
+			} as never,
+		});
+
+		expect(prompt).toContain("Applied Normal Chat profile: maximum");
+		expect(prompt).toContain("does not start Deep Research");
+		expect(prompt).toContain("does not force web search");
+		expect(prompt).toContain("Maximum-depth reasoning contract");
+		expect(prompt).toContain("deliberately spend extra private reasoning effort");
+		expect(prompt).toContain("edge cases, likely failure modes, and tradeoffs");
+		expect(prompt).toContain("test the strongest candidate answer against alternatives");
+		expect(prompt).toContain("Do not expose chain-of-thought or scratchpad reasoning");
+		expect(prompt).toContain("you may use up to 12 sources");
+		expect(prompt).not.toContain("Current-turn forced web retrieval");
+	});
+
+	it("removes GPT-OSS reasoning directives for explicit Off depth", () => {
+		const promptWithExistingDirective = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt\nReasoning: high\nStay concise.",
+			inputValue: "Answer briefly.",
+			modelName: "gpt-oss-120b",
+			reasoningDepthEffort: {
+				depthMetadata: {
+					requested: "off",
+					appliedProfile: "off",
+					fallback: false,
+				},
+				providerReasoning: {
+					thinkingMode: "off",
+					supported: true,
+					constrained: false,
+				},
+				webSourceBudget: {
+					maxSources: 4,
+					sourceExpansion: false,
+				},
+				maxToolSteps: 8,
+				grounding: {
+					guidance: "minimal",
+					externalEvidence: "none",
+					forceWebSearch: false,
+				},
+			} as never,
+		});
+		const promptWithoutExistingDirective = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt",
+			inputValue: "Answer briefly.",
+			modelName: "gpt-oss-120b",
+			reasoningDepthEffort: {
+				depthMetadata: {
+					requested: "off",
+					appliedProfile: "off",
+					fallback: false,
+				},
+				providerReasoning: {
+					thinkingMode: "off",
+					supported: true,
+					constrained: false,
+				},
+				webSourceBudget: {
+					maxSources: 4,
+					sourceExpansion: false,
+				},
+				maxToolSteps: 8,
+				grounding: {
+					guidance: "minimal",
+					externalEvidence: "none",
+					forceWebSearch: false,
+				},
+			} as never,
+		});
+
+		expect(promptWithExistingDirective).not.toMatch(/^Reasoning:\s*high/im);
+		expect(promptWithExistingDirective).not.toMatch(/^Reasoning:\s*medium/im);
+		expect(promptWithExistingDirective).not.toMatch(/^Reasoning:\s*low/im);
+		expect(promptWithExistingDirective).toContain("Stay concise.");
+		expect(promptWithoutExistingDirective).not.toMatch(/^Reasoning:/im);
+	});
+
+	it("keeps GPT-OSS high reasoning directive for maximum depth", () => {
+		const prompt = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt\nReasoning: low\nUse constraints.",
+			inputValue: "Investigate carefully.",
+			modelDisplayName: "GPT OSS 120B",
+			reasoningDepthEffort: {
+				depthMetadata: {
+					requested: "max",
+					appliedProfile: "maximum",
+					fallback: false,
+				},
+				providerReasoning: {
+					thinkingMode: "on",
+					reasoningEffort: "high",
+					supported: true,
+					constrained: false,
+				},
+				webSourceBudget: {
+					maxSources: 12,
+					sourceExpansion: true,
+				},
+				maxToolSteps: 28,
+				grounding: {
+					guidance: "strict",
+					externalEvidence: "required",
+					forceWebSearch: false,
+				},
+			} as never,
+		});
+
+		expect(prompt).toMatch(/^Reasoning:\s*high/im);
+		expect(prompt).not.toMatch(/^Reasoning:\s*low/im);
+		expect(prompt).toContain("Applied Normal Chat profile: maximum");
+	});
+
 	it("uses neutral trace and warning labels while preparing attachment context", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 

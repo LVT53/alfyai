@@ -13,6 +13,24 @@ vi.mock("$lib/server/services/chat-turn/plain-normal-chat-model-run", () => ({
 	runPlainNormalChatSendModel: vi.fn(),
 }));
 
+vi.mock("$lib/server/services/chat-turn/depth-selection", () => ({
+	resolveReasoningDepthSelection: vi.fn(async ({ request }) => ({
+		metadata: {
+			requested: request.reasoningDepth ?? "auto",
+			appliedProfile:
+				request.reasoningDepth === "off"
+					? "off"
+					: request.reasoningDepth === "max"
+						? "maximum"
+						: "standard",
+			fallback: false,
+			modelId: request.modelId,
+			modelDisplayName: request.modelDisplayName,
+			providerDisplayName: request.providerDisplayName,
+		},
+	})),
+}));
+
 vi.mock("$lib/server/services/file-production", () => ({
 	assignFileProductionJobsToAssistantMessage: vi.fn(async () => undefined),
 	listConversationFileProductionJobs: vi.fn(async () => []),
@@ -210,6 +228,7 @@ import {
 	getConversation,
 	touchConversation,
 } from "$lib/server/services/conversations";
+import { resolveReasoningDepthSelection } from "$lib/server/services/chat-turn/depth-selection";
 import {
 	assertCanStartDeepResearchJob,
 	startDeepResearchJobShell,
@@ -245,6 +264,8 @@ const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockTouchConversation = touchConversation as ReturnType<typeof vi.fn>;
 const mockRunPlainNormalChatSendModel =
 	runPlainNormalChatSendModel as ReturnType<typeof vi.fn>;
+const mockResolveReasoningDepthSelection =
+	resolveReasoningDepthSelection as ReturnType<typeof vi.fn>;
 const mockListFileProductionJobs =
 	listConversationFileProductionJobs as ReturnType<typeof vi.fn>;
 const mockAssignFileProductionJobs =
@@ -321,6 +342,21 @@ describe("POST /api/chat/send", () => {
 			modelDisplayName: "Model 1",
 			providerUsage: null,
 		});
+		mockResolveReasoningDepthSelection.mockImplementation(async ({ request }) => ({
+			metadata: {
+				requested: request.reasoningDepth ?? "auto",
+				appliedProfile:
+					request.reasoningDepth === "off"
+						? "off"
+						: request.reasoningDepth === "max"
+							? "maximum"
+							: "standard",
+				fallback: false,
+				modelId: request.modelId,
+				modelDisplayName: request.modelDisplayName,
+				providerDisplayName: request.providerDisplayName,
+			},
+		}));
 		mockGetProjectReferenceContext.mockResolvedValue(null);
 		mockAssertCanStartDeepResearchJob.mockResolvedValue(undefined);
 		mockCreateMessage.mockImplementation(async () => ({
@@ -515,6 +551,172 @@ describe("POST /api/chat/send", () => {
 					summary: "Latest Honcho summary",
 				}),
 			},
+		);
+	});
+
+	it("persists requested Reasoning Depth metadata for non-stream sends", async () => {
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		mockCreateMessage
+			.mockResolvedValueOnce({
+				id: "user-msg",
+				role: "user",
+				content: "Use max depth",
+				timestamp: Date.now(),
+			})
+			.mockResolvedValueOnce({
+				id: "assistant-msg",
+				role: "assistant",
+				content: "Max-depth answer",
+				timestamp: Date.now(),
+			});
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			text: "Max-depth answer",
+			rawResponse: {},
+			contextStatus: undefined,
+			modelId: "provider:local:model-a",
+			modelDisplayName: "Provider Model A",
+			providerUsage: null,
+		});
+
+		const response = await POST(
+			makeEvent({
+				message: "Use max depth",
+				conversationId: "conv-1",
+				reasoningDepth: "max",
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(mockAssertCanStartDeepResearchJob).not.toHaveBeenCalled();
+		expect(mockStartDeepResearchJobShell).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
+			expect.objectContaining({
+				depthMetadata: expect.objectContaining({
+					requested: "max",
+					appliedProfile: "maximum",
+				}),
+			}),
+		);
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"Max-depth answer",
+			undefined,
+			undefined,
+			expect.objectContaining({
+				depthMetadata: {
+					requested: "max",
+					appliedProfile: "maximum",
+					fallback: false,
+					modelId: "provider:local:model-a",
+					modelDisplayName: "Provider Model A",
+				},
+			}),
+		);
+	});
+
+	it("persists classifier-resolved Auto Reasoning Depth metadata for non-stream sends", async () => {
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			title: "Test",
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		mockCreateMessage
+			.mockResolvedValueOnce({
+				id: "user-msg",
+				role: "user",
+				content: "Compare migration strategies",
+				timestamp: Date.now(),
+			})
+			.mockResolvedValueOnce({
+				id: "assistant-msg",
+				role: "assistant",
+				content: "Extended-depth answer",
+				timestamp: Date.now(),
+			});
+		mockResolveReasoningDepthSelection.mockResolvedValueOnce({
+			metadata: {
+				requested: "auto",
+				appliedProfile: "extended",
+				fallback: false,
+				classifierSource: "control_model",
+				modelId: "model1",
+				modelDisplayName: "Model 1",
+			},
+		});
+		mockRunPlainNormalChatSendModel.mockResolvedValue({
+			text: "Extended-depth answer",
+			rawResponse: {},
+			contextStatus: undefined,
+			modelId: "provider:local:model-a",
+			modelDisplayName: "Provider Model A",
+			providerUsage: null,
+			depthMetadata: {
+				requested: "auto",
+				appliedProfile: "extended",
+				fallback: false,
+				classifierSource: "control_model",
+				modelId: "provider:local:model-a",
+				modelDisplayName: "Provider Model A",
+				appliedEffort: {
+					dimensions: ["provider_reasoning", "output_room"],
+					providerReasoning: {
+						thinkingMode: "on",
+						reasoningEffort: "medium",
+						supported: true,
+						constrained: false,
+					},
+					outputTokens: {
+						configuredMaxTokens: 4096,
+						targetMaxTokens: 3500,
+						effectiveMaxTokens: 3200,
+						outputReserve: 3200,
+						clamped: true,
+					},
+				},
+			},
+		});
+
+		const response = await POST(
+			makeEvent({
+				message: "Compare migration strategies",
+				conversationId: "conv-1",
+				reasoningDepth: "auto",
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"Extended-depth answer",
+			undefined,
+			undefined,
+			expect.objectContaining({
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "extended",
+					fallback: false,
+					classifierSource: "control_model",
+					modelId: "provider:local:model-a",
+					modelDisplayName: "Provider Model A",
+					appliedEffort: expect.objectContaining({
+						providerReasoning: expect.objectContaining({
+							reasoningEffort: "medium",
+						}),
+						outputTokens: expect.objectContaining({
+							effectiveMaxTokens: 3200,
+							clamped: true,
+						}),
+					}),
+				},
+			}),
 		);
 	});
 

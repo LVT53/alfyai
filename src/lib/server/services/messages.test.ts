@@ -12,8 +12,20 @@ type MessageRow = {
 	createdAt: Date;
 };
 
+type UsageRow = {
+	messageId: string;
+	modelId?: string | null;
+	modelDisplayName?: string | null;
+	generationTimeMs?: number | null;
+	costUsdMicros?: number | null;
+	completionTokens?: number | null;
+	reasoningTokens?: number | null;
+	totalTokens?: number | null;
+};
+
 const {
 	mockRows,
+	mockUsageRows,
 	mockSelect,
 	mockInsert,
 	mockUpdate,
@@ -21,6 +33,7 @@ const {
 	mockTransaction,
 } = vi.hoisted(() => {
 	const mockRows: MessageRow[] = [];
+	const mockUsageRows: UsageRow[] = [];
 
 	const applySelection = (selection: Record<string, unknown>) => {
 		if (Object.keys(selection).length === 1 && "value" in selection) {
@@ -30,6 +43,23 @@ const {
 						Math.max(0, ...mockRows.map((row) => row.messageSequence ?? 0)) + 1,
 				},
 			];
+		}
+		if ("message" in selection) {
+			return mockRows.map((row) => {
+				const usage = mockUsageRows.find(
+					(candidate) => candidate.messageId === row.id,
+				);
+				const usageAliases: Record<string, keyof UsageRow> = {
+					model: "modelId",
+				};
+				return Object.fromEntries(
+					Object.keys(selection).map((key) => {
+						if (key === "message") return [key, row];
+						const usageKey = usageAliases[key] ?? (key as keyof UsageRow);
+						return [key, usage?.[usageKey] ?? null];
+					}),
+				);
+			});
 		}
 		return mockRows.map((row) =>
 			Object.fromEntries(
@@ -44,6 +74,7 @@ const {
 	const mockSelect = vi.fn((selection: Record<string, unknown>) => {
 		const builder = {
 			from: vi.fn(() => builder),
+			leftJoin: vi.fn(() => builder),
 			where: vi.fn(() => builder),
 			all: vi.fn(() => applySelection(selection)),
 			orderBy: vi.fn(() => Promise.resolve(applySelection(selection))),
@@ -112,6 +143,7 @@ const {
 
 	return {
 		mockRows,
+		mockUsageRows,
 		mockSelect,
 		mockInsert,
 		mockUpdate,
@@ -153,6 +185,13 @@ vi.mock("$lib/server/db/schema", () => ({
 	},
 	usageEvents: {
 		messageId: "messageId",
+		modelId: "modelId",
+		modelDisplayName: "modelDisplayName",
+		generationTimeMs: "generationTimeMs",
+		costUsdMicros: "costUsdMicros",
+		completionTokens: "completionTokens",
+		reasoningTokens: "reasoningTokens",
+		totalTokens: "totalTokens",
 	},
 }));
 
@@ -170,6 +209,7 @@ vi.mock("./knowledge", () => ({
 describe("messages Honcho metadata", () => {
 	beforeEach(() => {
 		mockRows.length = 0;
+		mockUsageRows.length = 0;
 		vi.clearAllMocks();
 	});
 
@@ -182,6 +222,44 @@ describe("messages Honcho metadata", () => {
 		expect(mockDelete).toHaveBeenCalledTimes(1);
 		expect(mockDelete).toHaveBeenCalledWith(messages);
 		expect(mockDelete).not.toHaveBeenCalledWith(usageEvents);
+	});
+
+	it("hydrates assistant response token counts from usage events when listing messages", async () => {
+		mockRows.push({
+			id: "assistant-usage-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: null,
+		});
+		mockUsageRows.push({
+			messageId: "assistant-usage-1",
+			modelId: "provider:local:model-a",
+			modelDisplayName: "Provider Model A",
+			generationTimeMs: 1250,
+			costUsdMicros: 42,
+			completionTokens: 321,
+			reasoningTokens: 17,
+			totalTokens: 700,
+		});
+
+		const { listMessages } = await import("./messages");
+
+		await expect(listMessages("conv-1")).resolves.toEqual([
+			expect.objectContaining({
+				id: "assistant-usage-1",
+				modelId: "provider:local:model-a",
+				modelDisplayName: "Provider Model A",
+				generationDurationMs: 1250,
+				costUsd: 0.000042,
+				responseTokenCount: 321,
+				thinkingTokenCount: 17,
+				totalTokenCount: 700,
+			}),
+		]);
 	});
 
 	it("preserves Honcho metadata when evidence metadata is updated", async () => {
@@ -538,6 +616,64 @@ describe("messages Honcho metadata", () => {
 		});
 		expect(JSON.parse(mockRows.at(-1)?.metadataJson ?? "{}")).toMatchObject({
 			skillQuestion: true,
+		});
+	});
+
+	it("persists and returns compact Depth Metadata on assistant messages", async () => {
+		const { createMessage } = await import("./messages");
+
+		const created = await createMessage(
+			"conv-1",
+			"assistant",
+			"Depth-aware answer",
+			undefined,
+			undefined,
+			{
+				depthMetadata: {
+					requested: "max",
+					appliedProfile: "maximum",
+					fallback: false,
+					modelId: "provider:local:model-a",
+					modelDisplayName: "Provider Model A",
+					providerDisplayName: "Local Provider",
+				},
+			},
+		);
+
+		expect(created.depthMetadata).toEqual({
+			requested: "max",
+			appliedProfile: "maximum",
+			fallback: false,
+			modelId: "provider:local:model-a",
+			modelDisplayName: "Provider Model A",
+			providerDisplayName: "Local Provider",
+		});
+		expect(JSON.parse(mockRows.at(-1)?.metadataJson ?? "{}")).toMatchObject({
+			depthMetadata: {
+				requested: "max",
+				appliedProfile: "maximum",
+				fallback: false,
+			},
+		});
+	});
+
+	it("hydrates Extended Depth Metadata from persisted assistant messages", async () => {
+		const { createMessage } = await import("./messages");
+
+		const created = await createMessage("conv-1", "assistant", "Extended-depth answer", undefined, undefined, {
+			depthMetadata: {
+				requested: "auto",
+				appliedProfile: "extended",
+				fallback: false,
+				classifierSource: "control_model",
+			},
+		});
+
+		expect(created.depthMetadata).toEqual({
+			requested: "auto",
+			appliedProfile: "extended",
+			fallback: false,
+			classifierSource: "control_model",
 		});
 	});
 

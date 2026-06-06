@@ -8,6 +8,7 @@ import {
 	flushInlineThinkingState,
 	processInlineThinkingChunk,
 } from "./stream-protocol";
+import type { ResponseActivityEntry } from "$lib/types";
 
 export interface StreamMetadata {
 	thinkingTokenCount?: number;
@@ -25,6 +26,7 @@ export interface StreamMetadata {
 	modelDisplayName?: string;
 	providerDisplayName?: string;
 	providerIconUrl?: string;
+	depthMetadata?: import("$lib/types").DepthMetadata;
 	contextStatus?: import("$lib/types").ConversationContextStatus;
 	contextSources?: import("$lib/types").ContextSourcesState | null;
 	activeWorkingSet?: import("$lib/types").ArtifactSummary[];
@@ -71,6 +73,7 @@ export interface StreamCallbacks {
 			metadata?: Record<string, string | number | boolean | null>;
 		},
 	) => void;
+	onResponseActivity?: (entry: ResponseActivityEntry) => void;
 }
 
 export type { ModelId } from "$lib/types";
@@ -134,6 +137,9 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 		providerIconUrl: parsed.providerIconUrl as
 			| StreamMetadata["providerIconUrl"]
 			| undefined,
+		depthMetadata: parsed.depthMetadata as
+			| StreamMetadata["depthMetadata"]
+			| undefined,
 		contextStatus: parsed.contextStatus as
 			| StreamMetadata["contextStatus"]
 			| undefined,
@@ -162,6 +168,74 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 		: undefined;
 }
 
+function isResponseActivityKind(
+	value: unknown,
+): value is ResponseActivityEntry["kind"] {
+	return (
+		value === "depth" ||
+		value === "deliberation" ||
+		value === "context" ||
+		value === "tool" ||
+		value === "source" ||
+		value === "drafting" ||
+		value === "fallback" ||
+		value === "file"
+	);
+}
+
+function isResponseActivityStatus(
+	value: unknown,
+): value is ResponseActivityEntry["status"] {
+	return value === "running" || value === "done" || value === "error";
+}
+
+function isResponseActivitySourceType(
+	value: unknown,
+): value is NonNullable<ResponseActivityEntry["sourceType"]> {
+	return (
+		value === "web" ||
+		value === "document" ||
+		value === "memory" ||
+		value === "tool"
+	);
+}
+
+function buildResponseActivityEntry(
+	data: unknown,
+): ResponseActivityEntry | null {
+	const parsed =
+		data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+	if (
+		typeof parsed.id !== "string" ||
+		!parsed.id ||
+		!isResponseActivityKind(parsed.kind) ||
+		!isResponseActivityStatus(parsed.status)
+	) {
+		return null;
+	}
+
+	return {
+		id: parsed.id,
+		kind: parsed.kind,
+		status: parsed.status,
+		...(typeof parsed.label === "string" ? { label: parsed.label } : {}),
+		...(typeof parsed.detail === "string" ? { detail: parsed.detail } : {}),
+		...(typeof parsed.callId === "string" ? { callId: parsed.callId } : {}),
+		...(typeof parsed.toolName === "string"
+			? { toolName: parsed.toolName }
+			: {}),
+		...(isResponseActivitySourceType(parsed.sourceType)
+			? { sourceType: parsed.sourceType }
+			: {}),
+		...(typeof parsed.title === "string" ? { title: parsed.title } : {}),
+		...(typeof parsed.url === "string" ? { url: parsed.url } : {}),
+		...(typeof parsed.count === "number" ? { count: parsed.count } : {}),
+		...(typeof parsed.occurredAt === "number"
+			? { occurredAt: parsed.occurredAt }
+			: {}),
+	};
+}
+
 export async function checkForOrphanedStream(
 	conversationId: string,
 ): Promise<string | null> {
@@ -180,6 +254,7 @@ export async function checkForOrphanedStream(
 export interface StreamBufferInfo {
 	exists: boolean;
 	userMessage?: string;
+	reasoningDepth?: import("$lib/types").ReasoningDepth;
 	tokenCount?: number;
 	thinkingCount?: number;
 	toolCallCount?: number;
@@ -219,7 +294,7 @@ export type StreamChatOptions = {
 	linkedSources?: import("$lib/types").LinkedContextSource[];
 	pendingSkill?: import("$lib/types").PendingSkillSelection | null;
 	deepResearchDepth?: import("$lib/types").DeepResearchDepth | null;
-	thinkingMode?: import("$lib/types").ThinkingMode;
+	reasoningDepth?: import("$lib/types").ReasoningDepth;
 	forceWebSearch?: boolean;
 	activeDocumentArtifactId?: string;
 	personalityProfileId?: string | null;
@@ -244,7 +319,7 @@ export function streamChat(
 		linkedSources,
 		pendingSkill,
 		deepResearchDepth,
-		thinkingMode,
+		reasoningDepth,
 		forceWebSearch,
 		activeDocumentArtifactId,
 		personalityProfileId,
@@ -376,6 +451,12 @@ export function streamChat(
 		);
 	}
 
+	function emitResponseActivity(data: unknown) {
+		const entry = buildResponseActivityEntry(data);
+		if (!entry) return;
+		callbacks.onResponseActivity?.(entry);
+	}
+
 	function startReplayBuffer() {
 		isReplaying = true;
 		replayTokenBuffer.length = 0;
@@ -429,7 +510,7 @@ export function streamChat(
 						userMessage: retryUserMessage ?? message,
 						streamId,
 						model: modelId,
-						thinkingMode,
+						reasoningDepth,
 						activeDocumentArtifactId,
 						personalityProfileId,
 						confirmForkedSourceHistoryMutation:
@@ -447,7 +528,7 @@ export function streamChat(
 						deepResearch: deepResearchDepth
 							? { depth: deepResearchDepth }
 							: undefined,
-						thinkingMode,
+						reasoningDepth,
 						forceWebSearch: forceWebSearch === true ? true : undefined,
 						activeDocumentArtifactId,
 						personalityProfileId,
@@ -534,6 +615,11 @@ export function streamChat(
 
 					case "data-tool-call": {
 						emitToolCall(part.data);
+						return false;
+					}
+
+					case "data-response-activity": {
+						emitResponseActivity(part.data);
 						return false;
 					}
 

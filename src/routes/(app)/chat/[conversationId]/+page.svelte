@@ -57,9 +57,9 @@ import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import { currentConversationId } from "$lib/stores/ui";
 import {
 	selectedModel,
-	selectedThinkingMode,
+	selectedReasoningDepth,
 	setSelectedModel,
-	setSelectedThinkingMode,
+	setSelectedReasoningDepth,
 } from "$lib/stores/settings";
 import EvidenceManager from "$lib/components/chat/EvidenceManager.svelte";
 import type {
@@ -121,6 +121,7 @@ import {
 	appendAssistantPlaceholder,
 	appendThinkingChunkToMessageList,
 	appendTokenChunkToMessageList,
+	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
 	finalizeStreamingMessageList,
@@ -295,7 +296,7 @@ function applyNormalChatRuntimeSnapshot(snapshot: NormalChatRuntimeSnapshot) {
 const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	getConversationId: () => data.conversation.id,
 	getSelectedModel: () => $selectedModel,
-	getThinkingMode: () => $selectedThinkingMode,
+	getReasoningDepth: () => $selectedReasoningDepth,
 	getPersonalityProfileId: () => selectedPersonalityId,
 	getActiveDocumentArtifactId: () => getActiveWorkspaceArtifactId(),
 	getMessages: () => $messages,
@@ -381,6 +382,11 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	appendThinkingChunk: (placeholderId, chunk) => {
 		messages.update((list) =>
 			appendThinkingChunkToMessageList(list, placeholderId, chunk),
+		);
+	},
+	applyResponseActivityUpdate: (placeholderId, entry) => {
+		messages.update((list) =>
+			applyResponseActivityEntryToMessageList(list, placeholderId, entry),
 		);
 	},
 	applyToolCallUpdate: (placeholderId, name, input, status, details) => {
@@ -2219,8 +2225,8 @@ function handleDrop(event: DragEvent) {
 				{selectedPersonalityId}
 				onPersonalityChange={setSelectedPersonalityId}
 				onModelChange={setSelectedConversationModelId}
-				thinkingMode={$selectedThinkingMode}
-				onThinkingModeChange={setSelectedThinkingMode}
+				reasoningDepth={$selectedReasoningDepth}
+				onReasoningDepthChange={setSelectedReasoningDepth}
 				draftText={conversationDraft?.draftText ?? ''}
 				draftAttachments={conversationDraft?.selectedAttachments ?? []}
 				draftLinkedSources={conversationDraft?.selectedLinkedSources ?? []}

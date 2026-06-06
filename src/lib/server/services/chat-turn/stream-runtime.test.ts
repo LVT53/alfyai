@@ -21,6 +21,7 @@ import {
 	createUiMessageStreamDoneFrame,
 	decodeUiMessageStreamParts,
 	encodeUiMessageStreamPart,
+	streamResponseActivityEvent,
 } from "./stream";
 
 describe("stream helper retirement", () => {
@@ -103,6 +104,26 @@ describe("AI SDK UI stream contract fixture", () => {
 		expect(containsTerminalAiSdkUiStreamPayload(metadataFrame)).toBe(false);
 		expect(containsTerminalAiSdkUiStreamPayload(finishFrame)).toBe(true);
 		expect(containsTerminalAiSdkUiStreamPayload(doneFrame)).toBe(true);
+	});
+
+	it("encodes response activity as a transient AI SDK UI data part", () => {
+		expect(decodeUiMessageStreamParts(streamResponseActivityEvent({
+			id: "context-ready",
+			kind: "context",
+			status: "done",
+			count: 2,
+		}))).toEqual([
+			{
+				type: "data-response-activity",
+				data: {
+					id: "context-ready",
+					kind: "context",
+					status: "done",
+					count: 2,
+				},
+				transient: true,
+			},
+		]);
 	});
 });
 

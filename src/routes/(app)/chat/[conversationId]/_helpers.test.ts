@@ -7,6 +7,7 @@ import type {
 	SkillDraftProposal,
 } from "$lib/types";
 import {
+	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
 	cloneSendPayload,
@@ -477,6 +478,152 @@ describe("file production chat helpers", () => {
 		expect(done[0].thinkingSegments).toBeUndefined();
 	});
 
+	it("merges response activity entries by id without capping the row count", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+		const withRows = Array.from({ length: 12 }, (_, index) => ({
+			id: `activity-${index}`,
+			kind: "context" as const,
+			status: "running" as const,
+			detail: `Context ${index}`,
+		})).reduce(
+			(current, entry) =>
+				applyResponseActivityEntryToMessageList(current, "assistant-1", entry),
+			list,
+		);
+
+		const updated = applyResponseActivityEntryToMessageList(
+			withRows,
+			"assistant-1",
+			{
+				id: "activity-5",
+				kind: "context",
+				status: "done",
+				detail: "Context ready",
+			},
+		);
+
+		expect(updated[0].responseActivity).toHaveLength(12);
+		expect(updated[0].responseActivity?.[5]).toMatchObject({
+			id: "activity-5",
+			status: "done",
+			detail: "Context ready",
+		});
+	});
+
+	it("mirrors deliberation activity into auditable thinking status segments", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+		const running = applyResponseActivityEntryToMessageList(
+			list,
+			"assistant-1",
+			{
+				id: "deliberation-pass-1",
+				kind: "deliberation",
+				status: "running",
+				label: "Reviewing context and sources",
+			},
+		);
+		const done = applyResponseActivityEntryToMessageList(
+			running,
+			"assistant-1",
+			{
+				id: "deliberation-pass-1",
+				kind: "deliberation",
+				status: "done",
+				label: "Reviewed context and sources",
+			},
+		);
+
+		expect(done[0].thinkingSegments).toEqual([
+			{
+				type: "status",
+				id: "deliberation-pass-1",
+				label: "Reviewed context and sources",
+				status: "done",
+			},
+		]);
+		expect(done[0].responseActivity).toEqual([
+			expect.objectContaining({
+				id: "deliberation-pass-1",
+				kind: "deliberation",
+				status: "done",
+			}),
+		]);
+	});
+
+	it("projects existing tool-call events into live tool and source activity rows", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+		const running = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "research_web",
+			input: { query: "SvelteKit streaming docs" },
+			status: "running",
+			details: { callId: "tool-call-1", sourceType: "web" },
+		});
+		const done = applyToolCallUpdateToMessageList(running, {
+			placeholderId: "assistant-1",
+			name: "research_web",
+			input: {},
+			status: "done",
+			details: {
+				callId: "tool-call-1",
+				sourceType: "web",
+				outputSummary: "Found 3 sources",
+				candidates: [
+					{
+						id: "source-1",
+						title: "SvelteKit docs",
+						url: "https://svelte.dev/docs/kit",
+						sourceType: "web",
+					},
+					{
+						id: "source-2",
+						title: "Svelte docs",
+						url: "https://svelte.dev/docs/svelte",
+						sourceType: "web",
+					},
+					{
+						id: "source-3",
+						title: "Vitest docs",
+						url: "https://vitest.dev",
+						sourceType: "web",
+					},
+				],
+			},
+		});
+
+		expect(done[0].responseActivity).toEqual([
+			expect.objectContaining({
+				id: "tool:tool-call-1",
+				kind: "tool",
+				status: "done",
+				toolName: "research_web",
+				sourceType: "web",
+				detail: "Found 3 sources",
+			}),
+			expect.objectContaining({
+				id: "source:tool-call-1:source-1",
+				kind: "source",
+				status: "done",
+				title: "SvelteKit docs",
+				url: "https://svelte.dev/docs/kit",
+			}),
+			expect.objectContaining({
+				id: "source:tool-call-1:source-2",
+				kind: "source",
+				status: "done",
+				title: "Svelte docs",
+				url: "https://svelte.dev/docs/svelte",
+			}),
+			expect.objectContaining({
+				id: "source:tool-call-1:source-3",
+				kind: "source",
+				status: "done",
+				title: "Vitest docs",
+				url: "https://vitest.dev",
+			}),
+		]);
+	});
+
 	it("keeps non-file tool calls visible in thinking segments", () => {
 		const list = [createAssistantPlaceholder("assistant-1")];
 		const updated = applyToolCallUpdateToMessageList(list, {
@@ -557,6 +704,56 @@ describe("file production chat helpers", () => {
 				status: "done",
 			}),
 		]);
+	});
+
+	it("clears live response activity when the streaming placeholder finalizes", () => {
+		const list = applyResponseActivityEntryToMessageList(
+			[createAssistantPlaceholder("assistant-1")],
+			"assistant-1",
+			{
+				id: "drafting",
+				kind: "drafting",
+				status: "running",
+			},
+		);
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: { assistantMessageId: "server-assistant-1" },
+		});
+
+		expect(finalized[0].responseActivity).toBeUndefined();
+	});
+
+	it("copies streamed Depth Metadata onto the finalized assistant message", () => {
+		const list = [createAssistantPlaceholder("assistant-placeholder")];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-placeholder",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				depthMetadata: {
+					requested: "max",
+					appliedProfile: "maximum",
+					fallback: false,
+					modelId: "model1",
+					modelDisplayName: "Model 1",
+				},
+			},
+		});
+
+		expect(finalized[0]).toMatchObject({
+			id: "server-assistant-1",
+			depthMetadata: {
+				requested: "max",
+				appliedProfile: "maximum",
+				fallback: false,
+				modelId: "model1",
+				modelDisplayName: "Model 1",
+			},
+		});
 	});
 
 	it("keeps newly produced files attached when the streaming placeholder becomes the server assistant message", () => {

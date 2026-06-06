@@ -461,6 +461,116 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
+	it("applies resolved depth effort before the plain model run", async () => {
+		const depthMetadata = {
+			requested: "auto" as const,
+			appliedProfile: "extended" as const,
+			fallback: false,
+			signals: {
+				groundingNeed: "useful" as const,
+				contextBreadth: "broad" as const,
+				outputRoom: "expanded" as const,
+				toolUse: "source_heavy" as const,
+			},
+		};
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "Prepared user prompt",
+			systemPrompt: "Prepared system prompt",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			contextTraceSections: [],
+			outputTokenBudget: {
+				configuredMaxTokens: 2048,
+				effectiveMaxTokens: 1900,
+				outputReserve: 1900,
+				outputReserveClamped: true,
+			},
+		});
+
+		const result = await runPlainNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig: {
+				requestTimeoutMs: 1_500,
+				model1MaxModelContext: 10_000,
+				model1TargetConstructedContext: 8_000,
+				model1CompactionUiThreshold: 7_000,
+				model1: {
+					baseUrl: "https://openai-compatible.example/v1",
+					apiKey: "model-1-secret",
+					modelName: "gpt-4.1",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: 2048,
+					reasoningEffort: "high",
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://unused.example/v1",
+					apiKey: "",
+					modelName: "unused",
+					displayName: "Unused",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as RuntimeConfig,
+			message: "Compare the current options with citations.",
+			conversationId: "conv-1",
+			modelId: "model1",
+			depthMetadata,
+		});
+
+		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				contextLimits: {
+					maxModelContext: 10_000,
+					targetConstructedContext: 8_000,
+					compactionUiThreshold: 7_000,
+				},
+				modelConfig: expect.objectContaining({
+					maxTokens: 2048,
+				}),
+				reasoningDepthEffort: expect.objectContaining({
+					maxToolSteps: 22,
+					webSourceBudget: {
+						maxSources: 8,
+						sourceExpansion: true,
+					},
+				}),
+			}),
+		);
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				maxOutputTokens: 1900,
+				maxToolSteps: 22,
+			}),
+		);
+		const call = mocks.runPlainNormalChatModelRun.mock.calls[0]?.[0];
+		expect(call.resolveProviderOptions(call.provider)).toEqual({
+			model1: { reasoningEffort: "medium" },
+		});
+		expect(result.depthMetadata?.appliedEffort).toMatchObject({
+			providerReasoning: {
+				thinkingMode: "on",
+				reasoningEffort: "medium",
+			},
+			outputTokens: {
+				effectiveMaxTokens: 1900,
+				outputReserve: 1900,
+				clamped: true,
+			},
+			tools: {
+				maxToolSteps: 22,
+				maxWebSources: 8,
+				sourceExpansion: true,
+			},
+		});
+	});
+
 	it("returns prefetched forced-search tool calls from prompt preparation", async () => {
 		const prefetchedToolCalls = [
 			{

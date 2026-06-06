@@ -124,6 +124,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS",
 	"MODEL_TIMEOUT_FAILOVER_TARGET_MODEL",
 	"DEFAULT_NEW_USER_MODEL",
+	"REASONING_DEPTH_CLASSIFIER_MODEL",
 	"FILE_PRODUCTION_MAX_OUTPUTS",
 	"FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES",
 	"FILE_PRODUCTION_MAX_PROJECTION_BYTES",
@@ -187,6 +188,7 @@ export interface RuntimeConfig {
 	modelTimeoutFailoverTimeoutMs: number;
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
+	reasoningDepthClassifierModel: string | null;
 	maxMessageLength: number;
 	maxModelContext: number;
 	compactionUiThreshold: number;
@@ -275,6 +277,8 @@ function buildDefaultConfig(): RuntimeConfig {
 		appVersionOverride: null,
 		model1IconAssetId: null,
 		model2IconAssetId: null,
+		reasoningDepthClassifierModel:
+			envConfig.reasoningDepthClassifierModel?.trim() || null,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
 		deepResearchEnabled: envConfig.deepResearchEnabled ?? false,
@@ -867,6 +871,9 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	DEFAULT_NEW_USER_MODEL: (config, value) => {
 		config.defaultNewUserModel = normalizeConfiguredModelId(value);
 	},
+	REASONING_DEPTH_CLASSIFIER_MODEL: (config, value) => {
+		config.reasoningDepthClassifierModel = value.trim() || null;
+	},
 	FILE_PRODUCTION_MAX_OUTPUTS: (config, value) => {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined)
@@ -1297,6 +1304,8 @@ export function getResolvedAdminConfigValues(
 		),
 		MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: config.modelTimeoutFailoverTargetModel,
 		DEFAULT_NEW_USER_MODEL: config.defaultNewUserModel,
+		REASONING_DEPTH_CLASSIFIER_MODEL:
+			config.reasoningDepthClassifierModel ?? "",
 		FILE_PRODUCTION_MAX_OUTPUTS: String(config.fileProductionMaxOutputs),
 		FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES: String(
 			config.fileProductionMaxSourceJsonBytes,

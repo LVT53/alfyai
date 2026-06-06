@@ -241,8 +241,118 @@ describe("completeStreamTurn", () => {
 			"response text",
 			"<thinking>reason</thinking>",
 			undefined,
-			{ evidenceStatus: "pending", modelDisplayName: "Model One" },
+			expect.objectContaining({
+				evidenceStatus: "pending",
+				modelDisplayName: "Model One",
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "standard",
+					fallback: false,
+					modelId: "model-1",
+					modelDisplayName: "Model One",
+				},
+			}),
 		);
+	});
+
+	it("persists and emits Depth Metadata for stopped streams that save an assistant message", async () => {
+		await completeStreamTurn({
+			...defaultParams,
+			wasStopped: true,
+			reasoningDepth: "off",
+			fullResponse: "partial answer",
+			thinkingContent: "",
+		});
+
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"partial answer",
+			undefined,
+			undefined,
+			expect.objectContaining({
+				wasStopped: true,
+				depthMetadata: {
+					requested: "off",
+					appliedProfile: "off",
+					fallback: false,
+					modelId: "model-1",
+					modelDisplayName: "Model One",
+				},
+			}),
+		);
+		expect(getLatestEndPayload()).toMatchObject({
+			assistantMessageId: "asst-msg-1",
+			depthMetadata: {
+				requested: "off",
+				appliedProfile: "off",
+				fallback: false,
+				modelId: "model-1",
+				modelDisplayName: "Model One",
+			},
+		});
+	});
+
+	it("persists and emits classifier-resolved Auto Depth Metadata for completed streams", async () => {
+		await completeStreamTurn({
+			...defaultParams,
+			modelId: "provider:local:model-a",
+			modelDisplayName: "Provider Model A",
+			depthMetadata: {
+				requested: "auto",
+				appliedProfile: "extended",
+				fallback: false,
+				classifierSource: "control_model",
+				modelId: "model1",
+				modelDisplayName: "Model One",
+			},
+		});
+
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"response text",
+			"<thinking>reason</thinking>",
+			undefined,
+			expect.objectContaining({
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "extended",
+					fallback: false,
+					classifierSource: "control_model",
+					modelId: "provider:local:model-a",
+					modelDisplayName: "Provider Model A",
+				},
+			}),
+		);
+		expect(getLatestEndPayload()).toMatchObject({
+			assistantMessageId: "asst-msg-1",
+			depthMetadata: {
+				requested: "auto",
+				appliedProfile: "extended",
+				fallback: false,
+				classifierSource: "control_model",
+				modelId: "provider:local:model-a",
+				modelDisplayName: "Provider Model A",
+			},
+		});
+	});
+
+	it("omits Depth Metadata from stream metadata when no assistant message is saved", async () => {
+		const createMessage = vi
+			.fn()
+			.mockResolvedValueOnce({ id: "user-msg-1" })
+			.mockRejectedValueOnce(new Error("assistant persistence offline"));
+
+		await completeStreamTurn({
+			...defaultParams,
+			createMessage,
+			reasoningDepth: "max",
+		});
+
+		const payload = getLatestEndPayload();
+		expect(payload.assistantMessageId).toBeUndefined();
+		expect(payload).not.toHaveProperty("depthMetadata");
 	});
 
 	it("warns and preserves upstream length finish reasons", async () => {

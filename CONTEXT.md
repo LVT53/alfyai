@@ -286,6 +286,98 @@ _Avoid_: max output tokens, response limit, prompt-only window
 The maximum generated response size reserved for a model call.
 _Avoid_: model context, context length, prompt budget
 
+**Reasoning Depth**:
+A user-facing Normal Chat composer setting that expresses how much extra answer effort AlfyAI should apply for the next turn, including provider-native reasoning effort when supported and broader Normal Chat effort such as context breadth or web grounding. It is a cost and latency preference, not a guarantee of a better answer or a request to expose private reasoning.
+_Avoid_: chain-of-thought toggle, quality mode, spinner time
+
+**Automatic Depth Selection**:
+The pre-turn decision used when **Reasoning Depth** is Auto. It may choose standard, extended, or maximum Normal Chat effort from the user's request and lightweight turn context, but it must not choose reasoning-off behavior; disabling reasoning remains an explicit user choice. It should reserve maximum effort for clearly hard or high-value turns and fall back to standard effort if the decision cannot be completed.
+_Avoid_: hidden off switch, mid-answer escalation, hardcoded keyword mode
+
+**Depth Classifier Model**:
+The model used for **Automatic Depth Selection**. By default it is the user's selected **Provider Model** for the turn, but an administrator may configure a specific available **Provider Model** for system use to make depth classification faster, cheaper, or more consistent.
+_Avoid_: hidden assistant model, second chat model, hardcoded classifier
+
+**Explicit Depth Selection**:
+A user-selected non-Auto **Reasoning Depth**, such as Off or Max, that applies directly to the next Normal Chat turn without running **Automatic Depth Selection**.
+_Avoid_: model override, classifier suggestion, hidden escalation
+
+**Off Reasoning Depth**:
+The user-selected **Reasoning Depth** that asks AlfyAI to avoid extra reasoning depth and disable provider-native thinking where supported. It should use the leanest Normal Chat effort profile, but it must not block explicitly requested tools, required freshness grounding, or evidence needed for the user's task.
+_Avoid_: no-tools mode, no-search mode, unsafe shortcut
+
+**Depth Classification Context**:
+The small, capped preflight context used only for **Automatic Depth Selection**. It may include the current user request, compact recent exchange context with bounded assistant summaries or excerpts, and bounded metadata about selected sources, attachments, active documents, model capability, and user-visible composer state, but it is separate from full **Prompt Context** and should not include raw large document bodies or trigger heavy retrieval by itself.
+_Avoid_: full prompt context, retrieval result set, hidden document dump
+
+**Depth Profile**:
+The resolved effort profile applied to a Normal Chat turn after **Reasoning Depth** and **Automatic Depth Selection** are evaluated. Some profiles may be internal, such as a middle extended profile, and should appear only in post-response metadata or diagnostics rather than as additional composer choices. Higher profiles should mainly give the model more room to reason through edge cases, implicit user needs, difficult constraints, and key details; broader grounding is added when the task benefits from external or current evidence.
+_Avoid_: visible mode list, provider tier, model name
+
+**Normal Chat Deliberation Pass**:
+A bounded extra model pass inside a **Normal Chat Turn** that lets higher **Depth Profiles** review context, sources, assumptions, draft quality, or missed edge cases before the final answer. Extended runs one deliberation pass and maximum runs two once selected, so they are expected to add latency, but they remain synchronous Normal Chat work and do not create a **Deep Research Job**, approval workflow, or report lifecycle.
+_Avoid_: Deep Research pass, hidden research job, background report
+
+**Normal Chat Deliberation Brief**:
+A compact structured result from a **Normal Chat Deliberation Pass**, carrying findings such as assumptions, evidence needs, source or memory findings, edge cases, draft risks, and final-answer instructions. It is transient working material for the final answer pass, not durable user-facing chain-of-thought.
+_Avoid_: chain-of-thought, hidden transcript, final answer draft
+
+**Deliberation Context**:
+The bounded **Prompt Context** and prior **Normal Chat Deliberation Brief** material supplied to a **Normal Chat Deliberation Pass**. The first deliberation pass may inspect the selected Prompt Context, while later passes should use compact deliberation briefs and gathered findings rather than blindly repeating every full context item.
+_Avoid_: full prompt replay, hidden document dump, unbounded context loop
+
+**Deliberation Tool Scope**:
+The read-only Normal Chat tool scope available to a **Normal Chat Deliberation Pass** for inspecting memory, web sources, and selected context before the final answer. It excludes file production, write actions, destructive tools, and **Deep Research Mode**.
+_Avoid_: full tool access, action mode, research job tools
+
+**Normal Chat Response Usage**:
+The combined token, cost, model, provider, and runtime measurements for one completed or partially completed **Normal Chat Turn** response. When higher **Depth Profiles** run **Normal Chat Deliberation Passes**, their model and tool usage is included in the same user-facing response total rather than shown as per-pass cost, hidden overhead, or **Research Usage**.
+_Avoid_: hidden pass cost, fake research usage, final-call-only cost, per-pass cost row
+
+**Depth Selection Signal**:
+A compact structured signal returned with a **Depth Profile** that explains which effort dimensions should change, such as grounding need, context breadth, or output room. It keeps depth selection decomposable rather than treating the profile as an opaque all-or-nothing mode.
+_Avoid_: hidden prompt, chain-of-thought, freeform classifier note
+
+**Depth Verbosity Discipline**:
+The rule that a higher **Depth Profile** should increase reasoning care and completeness, not automatically make the final answer longer. The final response should still follow the user's requested style, length, and format.
+_Avoid_: long answer mode, verbosity slider, always detailed
+
+**Max Reasoning Depth**:
+The highest user-selectable **Reasoning Depth** for **Normal Chat**. It raises bounded Normal Chat effort, strengthens grounding guidance, and may broaden context or web source budgets when useful, but only within the selected **Provider Model** limits. It does not guarantee web search for every turn and does not start **Deep Research Mode**.
+_Avoid_: Deep mode, Deep Research, automatic research job
+
+**Depth Metadata**:
+The user-inspectable post-response metadata that records which **Depth Profile** was applied to a Normal Chat turn and why at a compact level, including whether higher-depth deliberation was constrained or degraded. It helps users and operators understand effort tradeoffs without exposing private model reasoning.
+_Avoid_: chain-of-thought, debug dump, hidden prompt
+
+**Thinking Trace**:
+Provider-exposed or app-extracted reasoning text associated with an assistant response. It may be useful for audit and transparency when available, but it is not an authoritative explanation of the final answer and should remain secondary to the answer, sources, and structured metadata. The compact user-facing label for this trace is **Thought**. Completed Thought disclosures should stay focused on the trace itself rather than replaying tool calls or source activity.
+_Avoid_: official rationale, proof, answer explanation
+
+**Interim Thought Step**:
+A short status-like sentence or phrase emitted while a response is still being prepared or reasoned through. It should be visually separated from neighboring interim steps while live, removed from the completed answer surface, and remain inspectable later through **Thought** when it was part of the persisted **Thinking Trace**.
+_Avoid_: final answer sentence, activity event, progress estimate
+
+**Depth Observability**:
+Operational timing and outcome facts about **Automatic Depth Selection** and the resulting **Depth Profile**, such as classification latency, profile choice, and response-start timing. It supports tuning based on real traces rather than fixed product-timeout guesses.
+_Avoid_: spinner budget, hardcoded timeout, private reasoning
+
+**Reasoning Depth Evaluation Harness**:
+A focused Normal Chat evaluation set that compares standard, extended, and maximum **Depth Profiles** on representative prompts for edge-case handling, source grounding, context awareness, format discipline, latency, and cost. It exists to prove higher depth earns its added response time rather than merely making answers slower.
+_Avoid_: live demo, subjective vibe check, Deep Research evaluation
+
+**Deliberation Status Line**:
+A compact Normal Chat pending-response surface that shows one current high-level **Normal Chat Deliberation Pass** status above the inline **Thought** disclosure while higher **Depth Profiles** are running. It is driven by real pass/tool/context work, changes status with a smooth transition, and disappears from the main answer surface after completion.
+_Avoid_: activity timeline, progress percentage, debug log, chain-of-thought viewer
+
+**Deliberation Status Step**:
+A high-level status phrase from a **Normal Chat Deliberation Pass**, such as reviewing context, checking sources, reviewing edge cases, or writing the answer. Completed status steps and compact human-readable tool milestones may appear inside the **Thought** disclosure at the point where they occurred, but raw tool inputs, JSON, source diagnostics, candidate lists, and verbose tool results should not become a completed UI surface.
+_Avoid_: tool log row, source ledger, debug event, final answer sentence
+
+**Response Audit Details**:
+A user-requested post-response detail surface for inspecting compact response facts in the existing assistant-message info tooltip. It should stay visually minimal and may include **Depth Metadata**, model/provider, response time, token counts, and cost, while deliberation status steps and the persisted **Thinking Trace** remain available through the existing inline **Thought** disclosure.
+_Avoid_: permanent status card, hidden transcript, explanation of correctness, second audit UI
+
 **Model Capability**:
 An admin-visible statement about which Normal Chat behaviors a configured model connection is expected to support, such as tools, streaming, structured output, reasoning controls, or usage reporting. A capability may be detected from a provider check or set by an admin override.
 _Avoid_: provider guess, endpoint toggle, hidden compatibility flag
@@ -597,7 +689,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - `$` **Command Suggestion Rows** should not show full skill instructions; full instructions belong in the skill editor or details view.
 - A focused `$` row should use a slightly lighter dark surface plus restrained accent treatment, such as a thin border or left rail.
 - `/` **Command Suggestion Rows** should be shorter direct-action rows that show command name, direct effect, and current state where relevant.
-- `/` command current state should appear for values such as current model, style, thinking mode, Deep Research mode, or linked-source count.
+- `/` command current state should appear for values such as current model, style, **Reasoning Depth**, Deep Research mode, or linked-source count.
 - `/` rows may use familiar action icons when they improve scanning.
 - A **Composer Command** should mutate explicit app state, attach or link context, or open a user-visible flow rather than paste hidden instructions into the message.
 - Command prefix text should be consumed only after the user explicitly selects a **Skill** or **Composer Command**.
@@ -605,6 +697,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Selecting a **Skill** or **Composer Command** should preserve non-command message text already typed around the command.
 - Users may combine one pending or active **Skill**, multiple **Linked Context Sources**, uploaded attachments, and composer setting commands in one Normal Chat turn.
 - While a Normal Chat response is streaming, new command-derived composer state should apply only to the next queued turn, not the in-flight assistant response.
+- A queued turn should capture the **Reasoning Depth** selected when it is queued rather than using whatever composer setting is active when the queued turn later sends.
 - Starting a durable **Skill Session** while streaming should start with the queued turn that carries that skill, not mutate the response currently being generated.
 - If a queued turn already exists, changing command-derived state should require editing or replacing that queued turn rather than silently stacking another queued payload.
 - V1 should allow only one pending or active **Skill** at a time; selecting another **Skill** should require replacing, finishing, or dismissing the current one.
@@ -736,7 +829,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - After message submission, selected **Linked Context Sources** should become active conversation **Context Sources** until removed, a clear topic shift demotes them, or another existing context-source lifecycle rule applies.
 - Pending **Linked Context Sources** should be validated during chat-turn preflight.
 - If a pending **Linked Context Source** is deleted or inaccessible before send, AlfyAI should block the send, identify the invalid source, and let the user remove it rather than silently ignoring it.
-- The v1 composer **Composer Command** catalog includes `/model`, `/style`, `/thinking`, `/attach`, `/document`, `/source`, `/skill`, `/settings`, `/clear`, and `/research`.
+- The v1 composer **Composer Command** catalog includes `/model`, `/style`, `/depth`, `/attach`, `/document`, `/source`, `/skill`, `/settings`, `/clear`, and `/research`.
 - `/document` may add one or more **Linked Context Sources** in one flow.
 - Repeated `/document` selections should merge linked-source chips instead of replacing earlier selected sources.
 - `/document` should open a **Document Picker Modal** rather than keep multi-document selection inside the **Command Tray**.
@@ -757,6 +850,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - `/skill` pick behavior should reuse `$` skill discovery rather than introduce a second skill picker implementation.
 - `/research` is a thin bridge to the existing **Deep Research Mode** composer control when that feature is enabled.
 - `/research` does not use **Skill Sessions**, **Skill Notes**, **Skill Drafts**, or **Linked Context Sources**, and does not change the **Deep Research Job** lifecycle.
+- **Reasoning Depth** and **Depth Profiles** stay inside **Normal Chat**. They may increase Normal Chat effort, but they must not automatically start **Deep Research Mode** or create a **Deep Research Job**.
 - A **Skill Session** should be visible to the user while it can affect submitted messages.
 - V1 allows at most one active **Skill Session** per conversation composer.
 - Starting another **Skill Session** while one is active should require replacing, finishing, or dismissing the current session rather than stacking skill instructions.
@@ -779,7 +873,12 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - The desktop **Skill Session Panel** should use a compact dark surface with an accent rail, skill name, status, next action, note link when present, and finish or dismiss controls.
 - On mobile, an active **Skill Session Panel** should default to a collapsed single-row bar above the composer with status and a tap target to expand into a bottom sheet.
 - Mobile **Skill Session Panel** content should avoid pushing the composer and latest messages off-screen.
-- `/model`, `/style`, and `/thinking` should update the same current composer settings used by the existing composer tools, not create a separate one-turn override system.
+- `/model`, `/style`, and `/depth` should update the same current composer settings used by the existing composer tools, including **Reasoning Depth**, not create a separate one-turn override system.
+- `/thinking` should be removed when `/depth` replaces the old Thinking control.
+- **Reasoning Depth** should be represented consistently across composer state, request payloads, draft restoration, stream/runtime metadata, and post-response metadata rather than kept under the old thinking-mode contract.
+- **Reasoning Depth** starts as local composer state rather than a persisted user preference.
+- Landing-to-chat handoff should preserve selected **Reasoning Depth** for the first submitted turn.
+- Retrying a turn should preserve explicit **Reasoning Depth** such as Off or Max. If the original turn used Auto, retry may run **Automatic Depth Selection** again.
 - When an existing composer control already visibly reflects a setting command result, a **Setting State Chip** is not required.
 - **Skill Session Milestones** may appear in chat history for durable orientation, but ordinary internal session-state changes should not create noisy transcript entries.
 - A question-capable **Skill Session** should ask through normal assistant messages marked as **Skill Questions**, not through a separate question transport.

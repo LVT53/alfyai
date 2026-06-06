@@ -33,7 +33,7 @@ export const POST: RequestHandler = async (event) => {
 		activeDocumentArtifactId?: unknown;
 		streamId?: unknown;
 		model?: unknown;
-		thinkingMode?: unknown;
+		reasoningDepth?: unknown;
 		personalityProfileId?: unknown;
 		confirmForkedSourceHistoryMutation?: unknown;
 	};
@@ -51,7 +51,7 @@ export const POST: RequestHandler = async (event) => {
 		activeDocumentArtifactId,
 		streamId,
 		model,
-		thinkingMode,
+		reasoningDepth,
 		personalityProfileId,
 		confirmForkedSourceHistoryMutation,
 	} = body;
@@ -180,9 +180,9 @@ export const POST: RequestHandler = async (event) => {
 					? streamId.trim()
 					: undefined,
 			model: typeof model === 'string' && model.trim() ? model.trim() : undefined,
-			thinkingMode:
-				typeof thinkingMode === 'string' && thinkingMode.trim()
-					? thinkingMode.trim()
+			reasoningDepth:
+				typeof reasoningDepth === 'string' && reasoningDepth.trim()
+					? reasoningDepth.trim()
 					: undefined,
 			personalityProfileId:
 				typeof personalityProfileId === 'string' && personalityProfileId.trim()

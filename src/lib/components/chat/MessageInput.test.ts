@@ -412,6 +412,51 @@ describe("MessageInput", () => {
 		);
 	});
 
+	it("opens /depth and sends the selected Reasoning depth", async () => {
+		const sendSpy = vi.fn();
+		const reasoningDepthChangeSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, queryByRole, rerender } = render(
+			MessageInput,
+			{
+				composerCommandRegistryEnabled: true,
+				onSend: sendSpy,
+				reasoningDepth: "auto",
+				onReasoningDepthChange: reasoningDepthChangeSpy,
+			},
+		);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/depth" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		const depthPicker = getByRole("listbox", { name: "Reasoning depth" });
+		expect(within(depthPicker).getByRole("option", { name: "Off" })).toBeInTheDocument();
+		expect(within(depthPicker).getByRole("option", { name: "Auto" })).toBeInTheDocument();
+		expect(within(depthPicker).getByRole("option", { name: "Max" })).toBeInTheDocument();
+		expect(within(depthPicker).queryByRole("option", { name: "On" })).toBeNull();
+
+		await fireEvent.click(within(depthPicker).getByRole("option", { name: "Max" }));
+		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("max");
+		expect(queryByRole("listbox", { name: "Reasoning depth" })).toBeNull();
+		await rerender({
+			composerCommandRegistryEnabled: true,
+			onSend: sendSpy,
+			reasoningDepth: "max",
+			onReasoningDepthChange: reasoningDepthChangeSpy,
+		});
+		await fireEvent.input(input, { target: { value: "Use maximum reasoning" } });
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Use maximum reasoning",
+				reasoningDepth: "max",
+			}),
+		);
+	});
+
 	it("runs the /compact command without sending a chat message", async () => {
 		const sendSpy = vi.fn();
 		const compactSpy = vi.fn();
@@ -1507,7 +1552,7 @@ describe("MessageInput", () => {
 		confirmSpy.mockRestore();
 	});
 
-	it("opens existing thinking controls from the slash command", async () => {
+	it("opens Reasoning depth controls from the slash command", async () => {
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
 			composerCommandRegistryEnabled: true,
 		});
@@ -1515,33 +1560,35 @@ describe("MessageInput", () => {
 			"Type a message...",
 		) as HTMLTextAreaElement;
 
-		await fireEvent.input(input, { target: { value: "/thinking" } });
+		await fireEvent.input(input, { target: { value: "/depth" } });
 		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
 
 		expect(input.value).toBe("");
-		expect(getByRole("listbox", { name: "Thinking" })).toBeInTheDocument();
+		expect(
+			getByRole("listbox", { name: "Reasoning depth" }),
+		).toBeInTheDocument();
 		expect(getByRole("option", { name: "Off" })).toBeInTheDocument();
 	});
 
-	it("sends the selected thinking mode with the next message", async () => {
+	it("sends the selected Reasoning depth with the next message", async () => {
 		const sendSpy = vi.fn();
-		const thinkingModeChangeSpy = vi.fn();
+		const reasoningDepthChangeSpy = vi.fn();
 		const { getByPlaceholderText, getByRole, rerender } = render(MessageInput, {
 			onSend: sendSpy,
-			thinkingMode: "auto",
-			onThinkingModeChange: thinkingModeChangeSpy,
+			reasoningDepth: "auto",
+			onReasoningDepthChange: reasoningDepthChangeSpy,
 		});
 
 		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
 		await fireEvent.click(getByRole("button", { name: "Auto" }));
 		await fireEvent.click(getByRole("option", { name: "Off" }));
 
-		expect(thinkingModeChangeSpy).toHaveBeenCalledWith("off");
+		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("off");
 
 		await rerender({
 			onSend: sendSpy,
-			thinkingMode: "off",
-			onThinkingModeChange: thinkingModeChangeSpy,
+			reasoningDepth: "off",
+			onReasoningDepthChange: reasoningDepthChangeSpy,
 		});
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "Answer directly" },
@@ -1551,7 +1598,7 @@ describe("MessageInput", () => {
 		expect(sendSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				message: "Answer directly",
-				thinkingMode: "off",
+				reasoningDepth: "off",
 			}),
 		);
 	});

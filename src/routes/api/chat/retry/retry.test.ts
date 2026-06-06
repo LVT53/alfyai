@@ -59,6 +59,16 @@ vi.mock('$lib/server/services/chat-turn/request', () => ({
 				modelDisplayName: 'Model 1',
 				modelId: 'model1',
 				attachmentIds: [],
+				linkedSources: [],
+				pendingSkill: null,
+				reasoningDepth: body.reasoningDepth ?? 'auto',
+				thinkingMode:
+					body.reasoningDepth === 'off'
+						? 'off'
+						: body.reasoningDepth === 'max'
+							? 'on'
+							: 'auto',
+				forceWebSearch: false,
 				skipPersistUserMessage: true,
 			},
 		};
@@ -145,12 +155,72 @@ describe('POST /api/chat/retry', () => {
 				assistantMessageId: 'assistant-3',
 				userMessageId: 'user-3',
 				userMessage: 'latest prompt',
+				reasoningDepth: 'max',
 			}),
 		);
 
 		expect(response.status).toBe(200);
 		expect(deleteMessages).toHaveBeenCalledWith(['assistant-3']);
 		expect(capturedSyntheticBodies[0]?.message).toBe('latest prompt');
+		expect(capturedSyntheticBodies[0]?.reasoningDepth).toBe('max');
+		expect(capturedSyntheticBodies[0]).not.toHaveProperty('thinkingMode');
+	});
+
+	it('reruns preflight for Auto Reasoning Depth retries and passes resolved metadata to the stream orchestrator', async () => {
+		(preflightChatTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+			ok: true,
+			value: {
+				conversationId: 'conv-1',
+				normalizedMessage: 'latest prompt',
+				modelDisplayName: 'Model 1',
+				modelId: 'model1',
+				attachmentIds: [],
+				linkedSources: [],
+				pendingSkill: null,
+				reasoningDepth: 'auto',
+				thinkingMode: 'auto',
+				forceWebSearch: false,
+				skipPersistUserMessage: true,
+				depthMetadata: {
+					requested: 'auto',
+					appliedProfile: 'extended',
+					fallback: false,
+					classifierSource: 'control_model',
+					modelId: 'model1',
+					modelDisplayName: 'Model 1',
+				},
+			},
+		});
+
+		const response = await POST(
+			makeEvent({
+				conversationId: 'conv-1',
+				assistantMessageId: 'assistant-3',
+				userMessageId: 'user-3',
+				userMessage: 'latest prompt',
+				reasoningDepth: 'auto',
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(capturedSyntheticBodies[0]?.reasoningDepth).toBe('auto');
+		expect(preflightChatTurn).toHaveBeenCalledWith({
+			userId: 'user-1',
+			request: expect.objectContaining({
+				normalizedMessage: 'latest prompt',
+				reasoningDepth: 'auto',
+			}),
+		});
+		expect(runChatStreamOrchestrator).toHaveBeenCalledWith(
+			expect.objectContaining({
+				turn: expect.objectContaining({
+					depthMetadata: expect.objectContaining({
+						appliedProfile: 'extended',
+						classifierSource: 'control_model',
+					}),
+				}),
+			}),
+		);
 	});
 
 	it('keeps active Skill prompt context when regenerating a response', async () => {
@@ -163,6 +233,7 @@ describe('POST /api/chat/retry', () => {
 				modelId: 'model1',
 				attachmentIds: [],
 				linkedSources: [],
+				reasoningDepth: 'auto',
 				thinkingMode: 'auto',
 				skipPersistUserMessage: true,
 				skillPromptContext: {

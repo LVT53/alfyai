@@ -394,6 +394,80 @@ describe("streamChat", () => {
 		);
 	});
 
+	it("maps AI SDK UI response-activity data parts onto the activity callback", async () => {
+		const mockFetch = vi.mocked(fetch);
+		const onResponseActivity = vi.fn();
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				uiFrame({
+					type: "data-response-activity",
+					data: {
+						id: "context-ready",
+						kind: "context",
+						status: "done",
+						count: 3,
+						occurredAt: 123,
+					},
+					transient: true,
+				}),
+				uiFrame("[DONE]"),
+			]),
+		);
+
+		const cb = {
+			...makeCallbacks(),
+			onResponseActivity,
+		};
+		const done = waitForStream(cb as unknown as MockCallbacks);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(onResponseActivity).toHaveBeenCalledWith({
+			id: "context-ready",
+			kind: "context",
+			status: "done",
+			count: 3,
+			occurredAt: 123,
+		});
+	});
+
+	it("maps deliberation response-activity events onto the activity callback", async () => {
+		const mockFetch = vi.mocked(fetch);
+		const onResponseActivity = vi.fn();
+		mockFetch.mockResolvedValue(
+			buildFetchResponse([
+				uiFrame({
+					type: "data-response-activity",
+					data: {
+						id: "deliberation-pass-1",
+						kind: "deliberation",
+						status: "running",
+						label: "Reviewing context and sources",
+						occurredAt: 456,
+					},
+					transient: true,
+				}),
+				uiFrame("[DONE]"),
+			]),
+		);
+
+		const cb = {
+			...makeCallbacks(),
+			onResponseActivity,
+		};
+		const done = waitForStream(cb as unknown as MockCallbacks);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		await done;
+
+		expect(onResponseActivity).toHaveBeenCalledWith({
+			id: "deliberation-pass-1",
+			kind: "deliberation",
+			status: "running",
+			label: "Reviewing context and sources",
+			occurredAt: 456,
+		});
+	});
+
 	it("maps AI SDK UI stream-error data parts onto onError with code", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(
@@ -682,6 +756,13 @@ describe("streamChat", () => {
 			totalTokenCount: 5,
 			wasStopped: false,
 			modelDisplayName: "Model 1",
+			depthMetadata: {
+				requested: "max",
+				appliedProfile: "maximum",
+				fallback: false,
+				modelId: "model1",
+				modelDisplayName: "Model 1",
+			},
 			contextSources: {
 				conversationId: "conv-1",
 				userId: "user-1",
@@ -825,6 +906,23 @@ describe("streamChat", () => {
 		expect(parsedBody.deepResearch).toEqual({ depth: "standard" });
 	});
 
+	it("threads Reasoning depth into the streaming request body", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks, {
+			reasoningDepth: "off",
+		});
+		await done;
+
+		const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+		const parsedBody = JSON.parse(String(requestInit?.body));
+		expect(parsedBody.reasoningDepth).toBe("off");
+		expect(parsedBody).not.toHaveProperty("thinkingMode");
+	});
+
 	it("threads the active workspace document id into retry requests too", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
@@ -853,6 +951,26 @@ describe("streamChat", () => {
 		expect(parsedBody.userMessageId).toBe("user-msg-1");
 		expect(parsedBody.userMessage).toBe("historical user text");
 		expect(parsedBody.activeDocumentArtifactId).toBe("artifact-focused-2");
+	});
+
+	it("threads Reasoning depth into retry requests", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
+
+		const cb = makeCallbacks();
+		const done = waitForStream(cb);
+		streamChat("ignored", "conv-1", cb as unknown as StreamCallbacks, {
+			retryAssistantMessageId: "assistant-msg-1",
+			retryUserMessageId: "user-msg-1",
+			retryUserMessage: "historical user text",
+			reasoningDepth: "max",
+		});
+		await done;
+
+		const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+		const parsedBody = JSON.parse(String(requestInit?.body));
+		expect(parsedBody.reasoningDepth).toBe("max");
+		expect(parsedBody).not.toHaveProperty("thinkingMode");
 	});
 
 	it("threads confirmed forked source-history mutation into retry requests", async () => {

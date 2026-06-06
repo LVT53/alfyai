@@ -4,6 +4,10 @@ import {
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
 import type { FetchLike } from "$lib/client/api/http";
+import {
+	isReasoningDepth,
+	thinkingModeToReasoningDepth,
+} from "$lib/types";
 import type {
 	ArtifactSummary,
 	ConversationDraft,
@@ -12,7 +16,7 @@ import type {
 	ModelId,
 	PendingAttachment,
 	PendingSkillSelection,
-	ThinkingMode,
+	ReasoningDepth,
 } from "$lib/types";
 
 const PREVIOUS_CONVERSATION_KEY = "previous-conversation-id";
@@ -30,7 +34,7 @@ export type PendingConversationMessage = {
 	modelId?: ModelId;
 	personalityProfileId?: string | null;
 	deepResearchDepth?: DeepResearchDepth | null;
-	thinkingMode?: ThinkingMode;
+	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
 };
 
@@ -222,7 +226,7 @@ export function storePendingConversationMessage(
 			modelId: payload.modelId,
 			personalityProfileId: payload.personalityProfileId,
 			deepResearchDepth: payload.deepResearchDepth,
-			thinkingMode: payload.thinkingMode,
+			reasoningDepth: payload.reasoningDepth,
 			forceWebSearch: payload.forceWebSearch === true,
 		}),
 	);
@@ -269,12 +273,7 @@ export function consumePendingConversationMessage(
 				parsed.deepResearchDepth === "max"
 					? parsed.deepResearchDepth
 					: null,
-			thinkingMode:
-				parsed.thinkingMode === "auto" ||
-				parsed.thinkingMode === "on" ||
-				parsed.thinkingMode === "off"
-					? parsed.thinkingMode
-					: "auto",
+			reasoningDepth: parsePendingReasoningDepth(parsed),
 			forceWebSearch: parsed.forceWebSearch === true,
 		};
 	} catch {
@@ -285,10 +284,24 @@ export function consumePendingConversationMessage(
 			linkedSources: [],
 			pendingSkill: null,
 			deepResearchDepth: null,
-			thinkingMode: "auto",
+			reasoningDepth: "auto",
 			forceWebSearch: false,
 		};
 	}
+}
+
+function parsePendingReasoningDepth(
+	parsed: Record<string, unknown>,
+): ReasoningDepth {
+	if (isReasoningDepth(parsed.reasoningDepth)) return parsed.reasoningDepth;
+	if (
+		parsed.thinkingMode === "auto" ||
+		parsed.thinkingMode === "on" ||
+		parsed.thinkingMode === "off"
+	) {
+		return thinkingModeToReasoningDepth(parsed.thinkingMode);
+	}
+	return "auto";
 }
 
 export function hasMeaningfulDraft(

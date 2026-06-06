@@ -9,6 +9,8 @@ import type {
 	LinkedContextSource,
 	ModelId,
 	PendingSkillSelection,
+	ReasoningDepth,
+	DepthMetadata,
 	TaskState,
 	ThinkingMode,
 	ToolCallEntry,
@@ -38,6 +40,7 @@ export type ParsedChatTurnRequest = {
 	activeDocumentArtifactId?: string;
 	personalityProfileId?: string;
 	deepResearchDepth?: DeepResearchDepth;
+	reasoningDepth: ReasoningDepth;
 	thinkingMode: ThinkingMode;
 	forceWebSearch: boolean;
 	skipPersistUserMessage: boolean;
@@ -89,6 +92,7 @@ export interface SkillPromptContext {
 }
 
 export type PreflightedChatTurn = ParsedChatTurnRequest & {
+	depthMetadata: DepthMetadata;
 	skillPromptContext?: SkillPromptContext | null;
 };
 export type ChatTurnPreflight = PreflightedChatTurn;

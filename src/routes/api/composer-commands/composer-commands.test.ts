@@ -47,7 +47,7 @@ describe("GET /api/composer-commands", () => {
 		).toEqual([
 			"/model",
 			"/style",
-			"/thinking",
+			"/depth",
 			"/attach",
 			"/document",
 			"/source",

@@ -53,6 +53,24 @@ vi.mock("$lib/server/services/chat-turn/plain-normal-chat-model-run", () => ({
 	runPlainNormalChatSendModel: vi.fn(),
 }));
 
+vi.mock("$lib/server/services/chat-turn/depth-selection", () => ({
+	resolveReasoningDepthSelection: vi.fn(async ({ request }) => ({
+		metadata: {
+			requested: request.reasoningDepth ?? "auto",
+			appliedProfile:
+				request.reasoningDepth === "off"
+					? "off"
+					: request.reasoningDepth === "max"
+						? "maximum"
+						: "standard",
+			fallback: false,
+			modelId: request.modelId,
+			modelDisplayName: request.modelDisplayName,
+			providerDisplayName: request.providerDisplayName,
+		},
+	})),
+}));
+
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(),
 	updateMessageEvidence: vi.fn(async () => undefined),
@@ -577,22 +595,32 @@ describe("POST /api/chat/stream", () => {
 			(match) => match[1],
 		);
 		expect(new Set(eventNames)).toEqual(new Set());
-		expect(
-			parts.map((part) => (part === "[DONE]" ? "[DONE]" : part.type)),
-		).toEqual([
-			"text-start",
-			"text-delta",
-			"text-end",
-			"data-stream-metadata",
-			"finish",
-			"[DONE]",
-		]);
-		expect(parts[1]).toEqual({
+		const partTypes = parts.map((part) =>
+			part === "[DONE]" ? "[DONE]" : part.type,
+		);
+		expect(partTypes).toEqual(
+			expect.arrayContaining([
+				"data-response-activity",
+				"text-start",
+				"text-delta",
+				"text-end",
+				"data-stream-metadata",
+				"finish",
+				"[DONE]",
+			]),
+		);
+		const textDelta = parts.find(
+			(part) => part !== "[DONE]" && part.type === "text-delta",
+		);
+		expect(textDelta).toEqual({
 			type: "text-delta",
 			id: "answer",
 			delta: "Hello",
 		});
-		expect(parts[3]).toEqual(
+		const metadataPart = parts.find(
+			(part) => part !== "[DONE]" && part.type === "data-stream-metadata",
+		);
+		expect(metadataPart).toEqual(
 			expect.objectContaining({
 				type: "data-stream-metadata",
 				transient: true,
@@ -844,7 +872,7 @@ describe("POST /api/chat/stream", () => {
 			message: "Refine it",
 			conversationId: "conv-1",
 			activeDocumentArtifactId: "artifact-focused-1",
-			thinkingMode: "off",
+			reasoningDepth: "off",
 		});
 		const response = await POST(event);
 		const body = await readSseResponse(response);
@@ -1128,7 +1156,15 @@ describe("POST /api/chat/stream", () => {
 			"Hello",
 			undefined,
 			undefined,
-			{ evidenceStatus: "pending", modelDisplayName: "Model 1", providerDisplayName: undefined, providerIconUrl: null },
+			expect.objectContaining({
+				evidenceStatus: "pending",
+				modelDisplayName: "Model 1",
+				depthMetadata: expect.objectContaining({
+					requested: "auto",
+					appliedProfile: "standard",
+					fallback: false,
+				}),
+			}),
 		);
 		expect(mockTouchConversation).toHaveBeenCalledWith("user-1", "conv-1");
 	});
@@ -1170,7 +1206,15 @@ describe("POST /api/chat/stream", () => {
 				"Still running",
 				undefined,
 				undefined,
-				{ evidenceStatus: "pending", modelDisplayName: "Model 1", providerDisplayName: undefined, providerIconUrl: null },
+				expect.objectContaining({
+					evidenceStatus: "pending",
+					modelDisplayName: "Model 1",
+					depthMetadata: expect.objectContaining({
+						requested: "auto",
+						appliedProfile: "standard",
+						fallback: false,
+					}),
+				}),
 			);
 		});
 		expect(mockTouchConversation).toHaveBeenCalledWith("user-1", "conv-1");
@@ -1626,7 +1670,15 @@ describe("POST /api/chat/stream", () => {
 			"BeforeAfter",
 			"Need to reason carefully",
 			[{ type: "text", content: "Need to reason carefully" }],
-			{ evidenceStatus: "pending", modelDisplayName: "Model 1", providerDisplayName: undefined, providerIconUrl: null },
+			expect.objectContaining({
+				evidenceStatus: "pending",
+				modelDisplayName: "Model 1",
+				depthMetadata: expect.objectContaining({
+					requested: "auto",
+					appliedProfile: "standard",
+					fallback: false,
+				}),
+			}),
 		);
 	});
 
@@ -1698,7 +1750,15 @@ describe("POST /api/chat/stream", () => {
 						"The user wants me to write 500 words about the USA. This is a straightforward content request. I will write an informative piece.\n\nI need to wrap the content in XML-style wrapper tags and provide it in English.",
 				},
 			],
-			{ evidenceStatus: "pending", modelDisplayName: "Model 1", providerDisplayName: undefined, providerIconUrl: null },
+			expect.objectContaining({
+				evidenceStatus: "pending",
+				modelDisplayName: "Model 1",
+				depthMetadata: expect.objectContaining({
+					requested: "auto",
+					appliedProfile: "standard",
+					fallback: false,
+				}),
+			}),
 		);
 	});
 

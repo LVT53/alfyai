@@ -1,6 +1,8 @@
 <script lang="ts">
+import { t } from "$lib/i18n";
 import type { ThinkingSegment } from "$lib/types";
 import {
+	getHumanReadableToolNameKey,
 	isFileProductionToolName,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
@@ -10,10 +12,12 @@ let {
 	content = "",
 	thinkingIsDone = false,
 	segments = [],
+	streaming = false,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
 	segments?: ThinkingSegment[];
+	streaming?: boolean;
 } = $props();
 
 let expanded = $state(false);
@@ -25,14 +29,68 @@ let freshTimeout: ReturnType<typeof setTimeout> | undefined;
 
 const label = $derived(thinkingIsDone ? "Thought" : "Thinking");
 const isActiveThinking = $derived(!thinkingIsDone);
-const visibleSegments = $derived(segments.filter(isVisibleThinkingSegment));
+const visibleSegmentsRaw = $derived(segments.filter(isVisibleThinkingSegment));
+
+function isDeliberationStatusSegment(segment: ThinkingSegment): boolean {
+	return (
+		segment.type === "status" &&
+		segment.id.startsWith("deliberation-pass-") &&
+		segment.label.trim().length > 0
+	);
+}
+
+function getDeliberationPassIndex(segmentId: string): number {
+	const match = segmentId.match(/deliberation-pass-(\d+)/i);
+	const parsed = match ? Number.parseInt(match[1], 10) : NaN;
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function getDeliberationStatusIconType(
+	segmentId: string,
+): "search" | "file" | "check" {
+	const pass = getDeliberationPassIndex(segmentId);
+	if (pass === 1) return "search";
+	if (pass === 2) return "file";
+	return "check";
+}
+
+const latestDeliberationStatusSegment = $derived.by(() => {
+	for (let i = visibleSegmentsRaw.length - 1; i >= 0; i -= 1) {
+		if (isDeliberationStatusSegment(visibleSegmentsRaw[i])) {
+			return visibleSegmentsRaw[i];
+		}
+	}
+	return undefined;
+});
+
+const visibleSegments = $derived(
+	streaming
+		? visibleSegmentsRaw.filter((segment) => {
+			if (!isDeliberationStatusSegment(segment)) return true;
+			return latestDeliberationStatusSegment
+				? segment.id === latestDeliberationStatusSegment.id
+				: false;
+		})
+		: visibleSegmentsRaw,
+);
 const hasSegments = $derived(visibleSegments.length > 0);
-const visibleTools = $derived(segments.filter(isVisibleThinkingToolCall));
+const visibleTools = $derived(
+	thinkingIsDone ? [] : segments.filter(isVisibleThinkingToolCall),
+);
+const hasVisibleSurface = $derived(
+	content.trim().length > 0 || hasSegments || visibleTools.length > 0,
+);
 
 $effect(() => {
 	const totalLength = hasSegments
 		? visibleSegments.reduce(
-				(sum, s) => sum + (s.type === "text" ? s.content.length : 0),
+				(sum, s) =>
+					sum +
+					(s.type === "text"
+						? s.content.length
+						: s.type === "status"
+							? s.label.length
+							: 0),
 				0,
 			)
 		: content.length;
@@ -85,34 +143,23 @@ function getFetchUrls(name: string, input: Record<string, unknown>): string[] {
 	return Object.values(input).flatMap(toUrlList);
 }
 
-function getFetchedSources(
-	segment: ThinkingSegment,
-): Array<{ title: string; url: string }> {
-	if (segment.type !== "tool_call" || segment.name !== "research_web") return [];
-	return (segment.candidates ?? [])
-		.filter((candidate) => candidate.sourceType === "web" && candidate.url)
-		.slice(0, 6)
-		.map((candidate) => ({
-			title: candidate.title || extractHostname(candidate.url ?? ""),
-			url: candidate.url as string,
-		}));
-}
-
 function formatToolCall(name: string, input: Record<string, unknown>): string {
 	const n = name.toLowerCase();
 	const firstVal = () => String(Object.values(input)[0] ?? "").slice(0, 200);
+	const toolLabel = $t(getHumanReadableToolNameKey(name));
 	if (isFileProductionToolName(name)) {
-		return "produce_file";
+		return toolLabel;
 	}
 	if (n.includes("search") || n.includes("tavily")) {
 		const q = input.query ?? input.q ?? Object.values(input)[0];
-		return `Searching: "${String(q ?? "").slice(0, 200)}"`;
+		const label = n === "research_web" || n.includes("web") ? toolLabel : $t("toolCalls.search");
+		return `${label}: "${String(q ?? "").slice(0, 200)}"`;
 	}
 	if (isFetchTool(name)) {
 		const raw = String(Object.values(input)[0] ?? "");
-		return `Fetching: ${extractHostname(raw)}`;
+		return `${toolLabel}: ${extractHostname(raw)}`;
 	}
-	return firstVal() ? `${name}: ${firstVal()}` : name;
+	return firstVal() ? `${toolLabel}: ${firstVal()}` : toolLabel;
 }
 
 function getToolTitle(name: string, input: Record<string, unknown>): string {
@@ -131,6 +178,14 @@ function getToolTitle(name: string, input: Record<string, unknown>): string {
 	return String(Object.values(input)[0] ?? "");
 }
 
+function formatThinkingTextForDisplay(text: string): string {
+	return text.replace(/([a-z0-9)])([.!?])(?=[A-Z](?:[a-z]|\s))/g, "$1$2\n\n");
+}
+
+function getFormattedFreshStart(text: string, rawStart: number): number {
+	return formatThinkingTextForDisplay(text.slice(0, rawStart)).length;
+}
+
 async function toggle() {
 	await preserveScrollOnToggle(container, expanded, () => {
 		expanded = !expanded;
@@ -143,6 +198,7 @@ async function toggle() {
 	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
 </script>
 
+{#if hasVisibleSurface}
 <div class="thinking-block" bind:this={container}>
 	<button
 		type="button"
@@ -170,30 +226,7 @@ async function toggle() {
 	{#if visibleTools.length > 0}
 		<div class="tool-call-stack">
 			{#each visibleTools as tool, i (tool.callId ?? tool.name + JSON.stringify(tool.input) + '-' + i)}
-				{@const fetchedSources = getFetchedSources(tool)}
-				{#if fetchedSources.length > 0}
-					{#each fetchedSources as source}
-						<div class="tool-call-row" class:is-running={tool.status === 'running'}>
-							{#if tool.status === 'running'}
-								<span class="tool-dot"></span>
-							{:else}
-								<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
-									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-										stroke-linecap="round" stroke-linejoin="round"/>
-								</svg>
-							{/if}
-							<span class="tool-label-text">
-								Fetched:
-								<a
-									class="tool-link"
-									href={source.url}
-									target="_blank"
-									rel="noopener noreferrer"
-									onclick={(event) => event.stopPropagation()}>{source.title}</a>
-							</span>
-						</div>
-					{/each}
-				{:else if getFetchUrls(tool.name, tool.input).length > 0}
+				{#if getFetchUrls(tool.name, tool.input).length > 0}
 					{#each getFetchUrls(tool.name, tool.input) as url}
 						<div class="tool-call-row" class:is-running={tool.status === 'running'}>
 							{#if tool.status === 'running'}
@@ -201,10 +234,10 @@ async function toggle() {
 							{:else}
 								<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
 									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-										stroke-linecap="round" stroke-linejoin="round"/>
-								</svg>
-							{/if}
-							<span class="tool-label-text">Fetching: <a class="tool-link" href={url} target="_blank" rel="noopener noreferrer" onclick={(event) => event.stopPropagation()}>{extractHostname(url)}</a></span>
+									stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+						{/if}
+							<span class="tool-label-text">{$t('toolCalls.fetchPage')}: <a class="tool-link" href={url} target="_blank" rel="noopener noreferrer" onclick={(event) => event.stopPropagation()}>{extractHostname(url)}</a></span>
 						</div>
 					{/each}
 				{:else}
@@ -224,36 +257,87 @@ async function toggle() {
 		</div>
 	{/if}
 
-	{#if expanded}
+{#if expanded}
 <div class="thinking-content" class:content-fresh={contentFresh} transition:slide>
-			{#if hasSegments}
-				{#each visibleSegments as seg, i (seg.type === 'tool_call' ? (seg.callId ?? seg.name + JSON.stringify(seg.input) + '-' + i) : `text-${i}`)}
+				{#if hasSegments}
+				{#each visibleSegments as seg, i (seg.type === 'tool_call' ? (seg.callId ?? seg.name + JSON.stringify(seg.input) + '-' + i) : seg.type === 'status' ? seg.id : `text-${i}`)}
 					{#if seg.type === 'text'}
-						<pre class="thinking-text">{seg.content}</pre>
+						<pre class="thinking-text">{formatThinkingTextForDisplay(seg.content)}</pre>
+					{:else if seg.type === 'status'}
+						{@const isDeliberationStatus = isDeliberationStatusSegment(seg)}
+						<div
+							class="status-step"
+							class:status-deliberation={isDeliberationStatus}
+							class:is-running={seg.status === 'running'}
+						>
+							{#if isDeliberationStatus}
+								{@const iconType = getDeliberationStatusIconType(seg.id)}
+								{#if iconType === 'search'}
+									<svg
+										class="deliberation-status-icon"
+										data-deliberation-icon="search"
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+									>
+										<circle cx="10.5" cy="10.5" r="7.5" />
+										<path d="m20.5 20.5-4.35-4.35" />
+									</svg>
+								{:else if iconType === 'file'}
+									<svg
+										class="deliberation-status-icon"
+										data-deliberation-icon="file"
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+									>
+										<path d="M4 4h10l5 5v13H4Z" />
+										<path d="m14 4 5 5h-5Z" />
+										<path d="M7 11h9" />
+										<path d="M7 15h9" />
+									</svg>
+								{:else}
+									<svg
+										class="deliberation-status-icon"
+										data-deliberation-icon="check"
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+									>
+										<circle cx="12" cy="12" r="9" />
+										<path d="M8 12l2.5 2.5 5-5" />
+									</svg>
+								{/if}
+							{:else if seg.status === 'running'}
+								<span class="tool-dot-inline"></span>
+							{:else}
+								<svg class="check-icon" viewBox="0 0 12 12" fill="none">
+									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
+										stroke-linecap="round" stroke-linejoin="round"/>
+								</svg>
+							{/if}
+							<span class="status-step-label">{seg.label}</span>
+						</div>
 					{:else}
-						{@const fetchedSources = getFetchedSources(seg)}
-						{#if fetchedSources.length > 0}
-							{#each fetchedSources as source}
-								<div class="tool-call-item">
-									{#if seg.status === 'done'}
-										<svg class="check-icon" viewBox="0 0 12 12" fill="none">
-											<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-												stroke-linecap="round" stroke-linejoin="round"/>
-										</svg>
-									{:else}
-										<span class="tool-dot-inline"></span>
-									{/if}
-									<span class="tool-item-label">
-										Fetched:
-										<a
-											class="tool-link"
-											href={source.url}
-											target="_blank"
-											rel="noopener noreferrer">{source.title}</a>
-									</span>
-								</div>
-							{/each}
-						{:else if getFetchUrls(seg.name, seg.input).length > 0}
+						{#if getFetchUrls(seg.name, seg.input).length > 0}
 							{#each getFetchUrls(seg.name, seg.input) as url}
 								<div class="tool-call-item">
 									{#if seg.status === 'done'}
@@ -264,7 +348,7 @@ async function toggle() {
 									{:else}
 										<span class="tool-dot-inline"></span>
 									{/if}
-									<span class="tool-item-label">Fetching: <a class="tool-link" href={url} target="_blank" rel="noopener noreferrer">{extractHostname(url)}</a></span>
+									<span class="tool-item-label">{$t('toolCalls.fetchPage')}: <a class="tool-link" href={url} target="_blank" rel="noopener noreferrer">{extractHostname(url)}</a></span>
 								</div>
 							{/each}
 						{:else}
@@ -285,15 +369,18 @@ async function toggle() {
 		{:else}
 			<pre class="thinking-text">
 				{#if isActiveThinking && newCharStart > 0 && newCharStart < content.length}
-					{content.slice(0, newCharStart)}<span class="word-new">{content.slice(newCharStart)}</span>
+					{@const formattedContent = formatThinkingTextForDisplay(content)}
+					{@const formattedNewCharStart = getFormattedFreshStart(content, newCharStart)}
+					{formattedContent.slice(0, formattedNewCharStart)}<span class="word-new">{formattedContent.slice(formattedNewCharStart)}</span>
 				{:else}
-					{content}
+					{formatThinkingTextForDisplay(content)}
 				{/if}
 			</pre>
 		{/if}
 		</div>
 	{/if}
 </div>
+{/if}
 
 <style>
 	.thinking-block {
@@ -450,7 +537,18 @@ from { opacity: 0.5; }
 to   { opacity: 1; }
 }
 
-.thinking-content.content-fresh {
+	@keyframes deliberationStatusFade {
+		from {
+			opacity: 0;
+			transform: translateY(-2px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.thinking-content.content-fresh {
 animation: thinkContentFadeIn 300ms ease-out;
 }
 
@@ -475,6 +573,44 @@ animation: thinkContentFadeIn 300ms ease-out;
 		margin: var(--space-xs) 0;
 		width: 100%;
 		min-width: 0;
+	}
+
+	.status-step {
+		display: flex;
+		align-items: center;
+		gap: var(--space-xs);
+		font-family: 'Nimbus Sans L', sans-serif;
+		font-size: 12px;
+		color: var(--text-muted);
+		margin: var(--space-xs) 0;
+		width: 100%;
+		min-width: 0;
+	}
+
+	.status-step.is-running {
+		color: var(--text-secondary);
+	}
+
+	.status-step-label {
+		flex: 1 1 auto;
+		min-width: 0;
+		max-width: 100%;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		word-break: break-word;
+	}
+
+	.status-step.status-deliberation {
+		font-size: 14px;
+		font-weight: 600;
+		animation: deliberationStatusFade 220ms var(--ease-out) both;
+	}
+
+	.deliberation-status-icon {
+		color: currentColor;
+		width: 14px;
+		height: 14px;
+		flex-shrink: 0;
 	}
 
 	.tool-dot-inline {

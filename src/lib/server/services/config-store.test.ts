@@ -59,6 +59,7 @@ vi.mock("../env", () => ({
 		modelTimeoutFailoverTimeoutMs: 60000,
 		modelTimeoutFailoverTargetModel: "model2",
 		defaultNewUserModel: "model1",
+		reasoningDepthClassifierModel: null,
 		composerCommandRegistryEnabled: true,
 		searxngBaseUrl: "",
 		webResearchSearxngNumResults: 12,
@@ -119,6 +120,7 @@ vi.mock("../env", () => ({
 		modelTimeoutFailoverTimeoutMs: 60000,
 		modelTimeoutFailoverTargetModel: "model2",
 		defaultNewUserModel: "model1",
+		reasoningDepthClassifierModel: null,
 		composerCommandRegistryEnabled: true,
 		searxngBaseUrl: "",
 		webResearchSearxngNumResults: 12,
@@ -362,6 +364,29 @@ describe("Knowledge Store Config", () => {
 			await refreshConfig();
 
 			expect(getConfig().defaultNewUserModel).toBe("provider:firepass");
+		});
+
+		it("getConfig() should persist the optional Reasoning Depth classifier model", async () => {
+			expect(getConfig().reasoningDepthClassifierModel).toBeNull();
+			expect(getResolvedAdminConfigValues().REASONING_DEPTH_CLASSIFIER_MODEL).toBe(
+				"",
+			);
+
+			adminConfigRows = [
+				{
+					key: "REASONING_DEPTH_CLASSIFIER_MODEL",
+					value: "provider:classifier:model-a",
+				},
+			];
+
+			await refreshConfig();
+
+			expect(getConfig().reasoningDepthClassifierModel).toBe(
+				"provider:classifier:model-a",
+			);
+			expect(getResolvedAdminConfigValues().REASONING_DEPTH_CLASSIFIER_MODEL).toBe(
+				"provider:classifier:model-a",
+			);
 		});
 
 		it("getConfig() should apply and expose the silent app version override", async () => {

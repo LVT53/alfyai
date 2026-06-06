@@ -1,6 +1,11 @@
 import { writable } from 'svelte/store';
 import { updateUserPreferences } from '$lib/client/api/settings';
-import type { ModelId, ThinkingMode, UserModelPreference } from '$lib/types';
+import {
+	thinkingModeToReasoningDepth,
+	type ModelId,
+	type ReasoningDepth,
+	type UserModelPreference,
+} from '$lib/types';
 import { canUseStorage, persist, read } from './_local-storage';
 
 export type TitleLanguage = 'auto' | 'en' | 'hu';
@@ -10,12 +15,13 @@ export type { ModelId };
 export const selectedModel = writable<ModelId>('model1');
 export const titleLanguage = writable<TitleLanguage>('auto');
 export const uiLanguage = writable<UiLanguage>('en');
-export const selectedThinkingMode = writable<ThinkingMode>('auto');
+export const selectedReasoningDepth = writable<ReasoningDepth>('auto');
 
 const SELECTED_MODEL_KEY = 'selectedModel';
 const TITLE_LANGUAGE_KEY = 'titleLanguage';
 const UI_LANGUAGE_KEY = 'uiLanguage';
-const THINKING_MODE_KEY = 'thinkingMode';
+const REASONING_DEPTH_KEY = 'reasoningDepth';
+const LEGACY_THINKING_MODE_KEY = 'thinkingMode';
 
 export function initSettings(serverPrefs?: { model?: ModelId; titleLanguage?: TitleLanguage; uiLanguage?: UiLanguage }): void {
 	if (!canUseStorage()) {
@@ -58,12 +64,21 @@ export function initSettings(serverPrefs?: { model?: ModelId; titleLanguage?: Ti
 		}
 	}
 
-	const storedThinkingMode = read<ThinkingMode>(
-		THINKING_MODE_KEY,
-		'auto',
-		(v): v is ThinkingMode => v === 'auto' || v === 'on' || v === 'off'
+	const storedReasoningDepth = read<ReasoningDepth>(
+		REASONING_DEPTH_KEY,
+		null as ReasoningDepth | null,
+		(v): v is ReasoningDepth => v === 'auto' || v === 'max' || v === 'off'
 	);
-	selectedThinkingMode.set(storedThinkingMode);
+	if (storedReasoningDepth) {
+		selectedReasoningDepth.set(storedReasoningDepth);
+	} else {
+		const legacyThinkingMode = read<'auto' | 'on' | 'off'>(
+			LEGACY_THINKING_MODE_KEY,
+			'auto',
+			(v): v is 'auto' | 'on' | 'off' => v === 'auto' || v === 'on' || v === 'off'
+		);
+		selectedReasoningDepth.set(thinkingModeToReasoningDepth(legacyThinkingMode));
+	}
 }
 
 export function setSelectedModel(model: ModelId): void {
@@ -71,9 +86,9 @@ export function setSelectedModel(model: ModelId): void {
 	persist(SELECTED_MODEL_KEY, model);
 }
 
-export function setSelectedThinkingMode(mode: ThinkingMode): void {
-	selectedThinkingMode.set(mode);
-	persist(THINKING_MODE_KEY, mode);
+export function setSelectedReasoningDepth(depth: ReasoningDepth): void {
+	selectedReasoningDepth.set(depth);
+	persist(REASONING_DEPTH_KEY, depth);
 }
 
 export async function setSelectedModelAndSync(model: ModelId): Promise<void> {

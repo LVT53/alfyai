@@ -11,7 +11,9 @@ import type {
 	PendingAttachment,
 	PendingSkillSelection,
 	SkillDraftProposal,
-	ThinkingMode,
+	ReasoningDepth,
+	ResponseActivityEntry,
+	ThinkingSegment,
 	ToolEvidenceCandidate,
 } from "$lib/types";
 import { isOsFileDropEvent } from "$lib/utils/file-drag";
@@ -33,7 +35,7 @@ export type SendPayload = {
 	modelId?: ModelId;
 	personalityProfileId?: string | null;
 	deepResearchDepth?: "focused" | "standard" | "max" | null;
-	thinkingMode?: ThinkingMode;
+	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
 };
 
@@ -433,6 +435,161 @@ export function appendThinkingChunkToMessageList(
 	});
 }
 
+function mergeResponseActivityEntries(
+	message: ChatMessage,
+	entries: ResponseActivityEntry[],
+): ChatMessage {
+	if (entries.length === 0) return message;
+	const nextEntries = [...(message.responseActivity ?? [])];
+	for (const entry of entries) {
+		const existingIndex = nextEntries.findIndex((item) => item.id === entry.id);
+		if (existingIndex === -1) {
+			nextEntries.push(entry);
+		} else {
+			nextEntries[existingIndex] = {
+				...nextEntries[existingIndex],
+				...entry,
+			};
+		}
+	}
+	return {
+		...mergeDeliberationStatusSegments(message, entries),
+		responseActivity: nextEntries,
+	};
+}
+
+function mergeDeliberationStatusSegments(
+	message: ChatMessage,
+	entries: ResponseActivityEntry[],
+): ChatMessage {
+	const deliberationEntries = entries.filter(isDeliberationActivityEntry);
+	if (deliberationEntries.length === 0) return message;
+	const nextSegments = [...(message.thinkingSegments ?? [])];
+	for (const entry of deliberationEntries) {
+		const label = entry.label?.trim();
+		if (!label) continue;
+		const existingIndex = nextSegments.findIndex(
+			(segment) => segment.type === "status" && segment.id === entry.id,
+		);
+		const segment: ThinkingSegment = {
+			type: "status",
+			id: entry.id,
+			label,
+			status: entry.status,
+		};
+		if (existingIndex === -1) {
+			nextSegments.push(segment);
+		} else {
+			nextSegments[existingIndex] = {
+				...nextSegments[existingIndex],
+				...segment,
+			};
+		}
+	}
+	return {
+		...message,
+		thinkingSegments: nextSegments.length > 0 ? nextSegments : undefined,
+	};
+}
+
+function isDeliberationActivityEntry(
+	entry: ResponseActivityEntry,
+): entry is ResponseActivityEntry & { label: string } {
+	return entry.kind === "deliberation" && Boolean(entry.label?.trim());
+}
+
+function finalizeThinkingSegment(segment: ThinkingSegment): ThinkingSegment {
+	if (segment.type === "tool_call" && segment.status === "running") {
+		return { ...segment, status: "done" };
+	}
+	if (segment.type === "status" && segment.status === "running") {
+		return { ...segment, status: "done" };
+	}
+	return segment;
+}
+
+export function applyResponseActivityEntryToMessageList(
+	list: ChatMessage[],
+	placeholderId: string,
+	entry: ResponseActivityEntry,
+): ChatMessage[] {
+	return updateMessageById(list, placeholderId, (message) =>
+		mergeResponseActivityEntries(message, [entry]),
+	);
+}
+
+function toolActivityStatus(
+	status: "running" | "done",
+	metadata?: Record<string, string | number | boolean | null>,
+): ResponseActivityEntry["status"] {
+	if (
+		status === "done" &&
+		(metadata?.ok === false ||
+			typeof metadata?.error === "string" ||
+			typeof metadata?.errorCode === "string")
+	) {
+		return "error";
+	}
+	return status;
+}
+
+function toolActivityId(params: {
+	name: string;
+	input: Record<string, unknown>;
+	callId?: string;
+}): string {
+	return `tool:${params.callId ?? `${params.name}:${toolCallInputKey(params.input)}`}`;
+}
+
+function sourceActivityId(params: {
+	toolId: string;
+	candidate: ToolEvidenceCandidate;
+	index: number;
+}): string {
+	return `source:${params.toolId}:${params.candidate.id || params.candidate.url || params.index}`;
+}
+
+function buildResponseActivityEntriesForToolCall(params: {
+	name: string;
+	input: Record<string, unknown>;
+	status: "running" | "done";
+	details?: StreamToolCallDetails;
+}): ResponseActivityEntry[] {
+	const callId = params.details?.callId;
+	const toolId = callId ?? `${params.name}:${toolCallInputKey(params.input)}`;
+	const status = toolActivityStatus(params.status, params.details?.metadata);
+	const candidates = params.details?.candidates ?? [];
+	const toolEntry: ResponseActivityEntry = {
+		id: toolActivityId({
+			name: params.name,
+			input: params.input,
+			callId,
+		}),
+		kind: isFileProductionToolName(params.name) ? "file" : "tool",
+		status,
+		...(callId ? { callId } : {}),
+		toolName: params.name,
+		...(params.details?.sourceType
+			? { sourceType: params.details.sourceType }
+			: {}),
+		...(params.details?.outputSummary
+			? { detail: params.details.outputSummary }
+			: {}),
+		...(candidates.length > 0 ? { count: candidates.length } : {}),
+	};
+	const sourceEntries = candidates.map((candidate, index) => ({
+		id: sourceActivityId({ toolId, candidate, index }),
+		kind: "source" as const,
+		status,
+		...(callId ? { callId } : {}),
+		toolName: params.name,
+		sourceType: candidate.sourceType,
+		title: candidate.title,
+		...(candidate.url ? { url: candidate.url } : {}),
+	}));
+	return [toolEntry, ...sourceEntries];
+}
+
 export function applyToolCallUpdateToMessageList(
 	list: ChatMessage[],
 	params: {
@@ -444,8 +601,9 @@ export function applyToolCallUpdateToMessageList(
 	},
 ): ChatMessage[] {
 	return updateMessageById(list, params.placeholderId, (message) => {
+		const activityEntries = buildResponseActivityEntriesForToolCall(params);
 		if (isFileProductionToolName(params.name)) {
-			return message;
+			return mergeResponseActivityEntries(message, activityEntries);
 		}
 
 		const segments = message.thinkingSegments ?? [];
@@ -462,19 +620,22 @@ export function applyToolCallUpdateToMessageList(
 						: toolCallInputKey(segment.input) === inputKey),
 			);
 			if (duplicateRunning) return message;
-			return {
-				...message,
-				thinkingSegments: [
-					...segments,
-					{
-						type: "tool_call" as const,
-						...(callId ? { callId } : {}),
-						name: params.name,
-						input: params.input,
-						status: "running" as const,
-					},
-				],
-			};
+			return mergeResponseActivityEntries(
+				{
+					...message,
+					thinkingSegments: [
+						...segments,
+						{
+							type: "tool_call" as const,
+							...(callId ? { callId } : {}),
+							name: params.name,
+							input: params.input,
+							status: "running" as const,
+						},
+					],
+				},
+				activityEntries,
+			);
 		}
 
 		const updatedSegments = [...segments];
@@ -504,7 +665,10 @@ export function applyToolCallUpdateToMessageList(
 			};
 		}
 
-		return { ...message, thinkingSegments: updatedSegments };
+		return mergeResponseActivityEntries(
+			{ ...message, thinkingSegments: updatedSegments },
+			activityEntries,
+		);
 	});
 }
 
@@ -522,10 +686,7 @@ export function finalizeStreamingMessageList(
 	return list.map((message) => {
 		if (message.id === params.placeholderId) {
 			const finalizedThinkingSegments = message.thinkingSegments?.map(
-				(segment) =>
-					segment.type === "tool_call" && segment.status === "running"
-						? { ...segment, status: "done" as const }
-						: segment,
+				finalizeThinkingSegment,
 			);
 			return {
 				...message,
@@ -544,10 +705,13 @@ export function finalizeStreamingMessageList(
 					params.metadata?.providerDisplayName ?? message.providerDisplayName,
 				providerIconUrl:
 					params.metadata?.providerIconUrl ?? message.providerIconUrl,
+				depthMetadata:
+					params.metadata?.depthMetadata ?? message.depthMetadata,
 				thinkingTokenCount: params.metadata?.thinkingTokenCount,
 				responseTokenCount: params.metadata?.responseTokenCount,
 				totalTokenCount: params.metadata?.totalTokenCount,
 				thinkingSegments: finalizedThinkingSegments,
+				responseActivity: undefined,
 				evidenceSummary: message.evidenceSummary,
 				evidencePending: Boolean(serverAssistantId),
 			};
@@ -605,7 +769,7 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 		conversationId: payload.conversationId ?? null,
 		modelId: payload.modelId,
 		deepResearchDepth: payload.deepResearchDepth ?? null,
-		thinkingMode: payload.thinkingMode,
+		reasoningDepth: payload.reasoningDepth,
 		forceWebSearch: payload.forceWebSearch === true,
 	};
 }

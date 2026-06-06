@@ -10,6 +10,7 @@ import {
 	streamErrorEvent,
 	streamReasoningDeltaEvent,
 	streamReasoningStartEvent,
+	streamResponseActivityEvent,
 	streamTextDeltaEvent,
 	streamTextStartEvent,
 	streamToolCallEvent,
@@ -20,6 +21,13 @@ interface ReconnectBuffer {
 	userMessage: string | null;
 	tokens: string[];
 	thinking: string[];
+	responseActivity: Array<{
+		id: string;
+		kind: "depth" | "context" | "tool" | "source" | "drafting" | "fallback" | "file";
+		status: "running" | "done" | "error";
+		detail?: string;
+		count?: number;
+	}>;
 	toolCalls: Array<{
 		name: string;
 		input: Record<string, unknown>;
@@ -101,6 +109,7 @@ describe("doReconnect", () => {
 		return {
 			tokens: [],
 			thinking: [],
+			responseActivity: [],
 			toolCalls: [],
 			userMessage: null,
 			...overrides,
@@ -175,6 +184,46 @@ describe("doReconnect", () => {
 
 		expect(enqueueChunk).toHaveBeenCalledWith(
 			streamDataPartEvent("data-replay-end", {}),
+		);
+	});
+
+	it("replays buffered response activity rows with replay framing", () => {
+		const activity = [
+			{
+				id: "depth-selected",
+				kind: "depth" as const,
+				status: "done" as const,
+				detail: "maximum",
+			},
+			{
+				id: "context-ready",
+				kind: "context" as const,
+				status: "done" as const,
+				count: 4,
+			},
+		];
+		getStreamBuffer.mockReturnValue(
+			makeBuffer({
+				responseActivity: activity,
+			}),
+		);
+
+		callDoReconnect();
+
+		expect(enqueueChunk).toHaveBeenCalledWith(
+			streamDataPartEvent("data-replay-start", {
+				tokenCount: 0,
+				thinkingCount: 0,
+				toolCallCount: 0,
+				activityCount: 2,
+				userMessage: null,
+			}),
+		);
+		expect(enqueueChunk).toHaveBeenCalledWith(
+			streamResponseActivityEvent(activity[0]),
+		);
+		expect(enqueueChunk).toHaveBeenCalledWith(
+			streamResponseActivityEvent(activity[1]),
 		);
 	});
 

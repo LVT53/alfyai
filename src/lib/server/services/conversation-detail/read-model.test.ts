@@ -422,6 +422,13 @@ describe("Conversation Detail Read Model", () => {
 				role: "assistant",
 				content: "Answer",
 				createdAt: 2,
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "standard",
+					fallback: false,
+					modelId: "model1",
+					modelDisplayName: "Model 1",
+				},
 			},
 		] as never);
 		mockListChildForksBySourceMessages.mockResolvedValue({
@@ -461,6 +468,13 @@ describe("Conversation Detail Read Model", () => {
 			expect.not.objectContaining({ sourceForks: expect.anything() }),
 			expect.objectContaining({
 				id: "assistant-message-1",
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "standard",
+					fallback: false,
+					modelId: "model1",
+					modelDisplayName: "Model 1",
+				},
 				sourceForks: {
 					count: 2,
 					forks: [expect.objectContaining({ conversationId: "fork-1" })],

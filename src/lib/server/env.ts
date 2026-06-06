@@ -72,6 +72,7 @@ interface Config {
 	modelTimeoutFailoverTimeoutMs: number;
 	modelTimeoutFailoverTargetModel: import("$lib/types").ModelId;
 	defaultNewUserModel: import("$lib/types").ModelId;
+	reasoningDepthClassifierModel: string | null;
 	maxMessageLength: number;
 	maxModelContext: number;
 	compactionUiThreshold: number;
@@ -466,6 +467,8 @@ function readConfig(): Config {
 		defaultNewUserModel: normalizeConfiguredModelId(
 			process.env.DEFAULT_NEW_USER_MODEL || "model1",
 		),
+		reasoningDepthClassifierModel:
+			process.env.REASONING_DEPTH_CLASSIFIER_MODEL?.trim() || null,
 		maxMessageLength,
 		maxModelContext,
 		compactionUiThreshold,

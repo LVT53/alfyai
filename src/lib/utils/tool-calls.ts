@@ -1,4 +1,5 @@
 import type { ThinkingSegment } from "$lib/types";
+import type { I18nKey } from "$lib/i18n";
 
 function normalizeForStableJson(value: unknown): unknown {
 	if (Array.isArray(value)) {
@@ -46,5 +47,29 @@ export function isVisibleThinkingSegment(segment: ThinkingSegment): boolean {
 	if (segment.type === "text") {
 		return segment.content.trim().length > 0;
 	}
+	if (segment.type === "status") {
+		return segment.label.trim().length > 0;
+	}
 	return isVisibleThinkingToolCall(segment);
+}
+
+export function getHumanReadableToolNameKey(name: string): I18nKey {
+	const normalized = name
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_");
+	if (normalized === "research_web" || normalized.includes("web_search")) {
+		return "toolCalls.webSearch";
+	}
+	if (normalized === "image_search") return "toolCalls.imageSearch";
+	if (normalized === "memory_context") return "toolCalls.memoryLookup";
+	if (
+		normalized.includes("fetch") ||
+		normalized.includes("url") ||
+		normalized.includes("browse")
+	) {
+		return "toolCalls.fetchPage";
+	}
+	if (isFileProductionToolName(name)) return "toolCalls.createFile";
+	return "toolCalls.generic";
 }

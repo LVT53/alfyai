@@ -1,5 +1,10 @@
 import { getConfig } from "$lib/server/config-store";
-import type { EvidenceSourceType, ToolEvidenceCandidate } from "$lib/types";
+import type {
+	EvidenceSourceType,
+	ReasoningDepth,
+	ResponseActivityEntry,
+	ToolEvidenceCandidate,
+} from "$lib/types";
 import { toolCallInputKey } from "$lib/utils/tool-calls";
 
 const STOP_REQUEST_TTL_MS = 30_000;
@@ -26,8 +31,10 @@ export interface StreamTokenBuffer {
 	createdAt: number;
 	updatedAt: number;
 	userMessage: string;
+	reasoningDepth?: ReasoningDepth;
 	tokens: string[];
 	thinking: string[];
+	responseActivity: ResponseActivityEntry[];
 	toolCalls: Array<{
 		callId?: string;
 		name: string;
@@ -128,6 +135,7 @@ export function getOrCreateStreamBuffer(params: {
 	userId: string;
 	conversationId: string;
 	userMessage: string;
+	reasoningDepth?: ReasoningDepth;
 }): StreamTokenBuffer {
 	let buffer = getLiveStreamBuffer(params.streamId);
 	if (
@@ -147,8 +155,12 @@ export function getOrCreateStreamBuffer(params: {
 			createdAt: now,
 			updatedAt: now,
 			userMessage: params.userMessage,
+			...(params.reasoningDepth
+				? { reasoningDepth: params.reasoningDepth }
+				: {}),
 			tokens: [],
 			thinking: [],
+			responseActivity: [],
 			toolCalls: [],
 			listeners: new Set(),
 		};
@@ -163,6 +175,7 @@ export type StreamBufferSnapshot =
 	| {
 			exists: true;
 			userMessage: string;
+			reasoningDepth?: ReasoningDepth;
 			tokenCount: number;
 			thinkingCount: number;
 			toolCallCount: number;
@@ -191,6 +204,9 @@ export function getStreamBufferSnapshot(params: {
 	return {
 		exists: true,
 		userMessage: buffer.userMessage,
+		...(buffer.reasoningDepth
+			? { reasoningDepth: buffer.reasoningDepth }
+			: {}),
 		tokenCount: buffer.tokens.length,
 		thinkingCount: buffer.thinking.length,
 		toolCallCount: buffer.toolCalls.length,
@@ -199,9 +215,10 @@ export function getStreamBufferSnapshot(params: {
 
 export function appendToStreamBuffer(
 	streamId: string,
-	event: "token" | "thinking" | "tool_call",
+	event: "token" | "thinking" | "tool_call" | "response_activity",
 	data: {
 		text?: string;
+		activity?: ResponseActivityEntry;
 		callId?: string;
 		name?: string;
 		input?: Record<string, unknown>;
@@ -228,6 +245,18 @@ export function appendToStreamBuffer(
 			buffer.thinking = buffer.thinking.slice(
 				-Math.floor(BUFFER_MAX_TOKENS / 10),
 			);
+		}
+	} else if (event === "response_activity" && data.activity) {
+		const existingIndex = buffer.responseActivity.findIndex(
+			(entry) => entry.id === data.activity?.id,
+		);
+		if (existingIndex === -1) {
+			buffer.responseActivity.push(data.activity);
+		} else {
+			buffer.responseActivity[existingIndex] = {
+				...buffer.responseActivity[existingIndex],
+				...data.activity,
+			};
 		}
 	} else if (event === "tool_call" && data.name) {
 		if (data.status === "running") {

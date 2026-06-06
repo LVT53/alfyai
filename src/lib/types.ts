@@ -7,7 +7,132 @@ export type UiLanguage = "en" | "hu";
 
 export type ModelId = "model1" | "model2" | `provider:${string}`;
 export type UserModelPreference = ModelId | null;
+export type ReasoningDepth = "off" | "auto" | "max";
 export type ThinkingMode = "auto" | "on" | "off";
+export type DepthAppliedProfile = "off" | "standard" | "extended" | "maximum";
+export type DepthGroundingNeed = "none" | "possible" | "useful" | "required";
+export type DepthContextBreadth = "narrow" | "normal" | "broad";
+export type DepthOutputRoom = "concise" | "normal" | "expanded";
+export type DepthToolUse = "none" | "normal" | "source_heavy";
+export type ResponseActivityKind =
+	| "depth"
+	| "deliberation"
+	| "context"
+	| "tool"
+	| "source"
+	| "drafting"
+	| "fallback"
+	| "file";
+export type ResponseActivityStatus = "running" | "done" | "error";
+export type ResponseActivitySourceType = "web" | "document" | "memory" | "tool";
+
+export interface ResponseActivityEntry {
+	id: string;
+	kind: ResponseActivityKind;
+	status: ResponseActivityStatus;
+	label?: string;
+	detail?: string;
+	callId?: string;
+	toolName?: string;
+	sourceType?: ResponseActivitySourceType;
+	title?: string;
+	url?: string;
+	count?: number;
+	occurredAt?: number;
+}
+
+export interface DepthSelectionSignals {
+	groundingNeed?: DepthGroundingNeed;
+	contextBreadth?: DepthContextBreadth;
+	outputRoom?: DepthOutputRoom;
+	toolUse?: DepthToolUse;
+}
+
+export interface DepthAppliedEffortMetadata {
+	dimensions: string[];
+	providerReasoning?: {
+		thinkingMode: ThinkingMode;
+		reasoningEffort?: string;
+		supported: boolean;
+		constrained: boolean;
+	};
+	outputTokens?: {
+		configuredMaxTokens: number | null;
+		targetMaxTokens: number | null;
+		effectiveMaxTokens?: number | null;
+		outputReserve?: number;
+		clamped: boolean;
+	};
+	context?: {
+		maxModelContext: number;
+		configuredTargetConstructedContext: number;
+		targetConstructedContext: number;
+		clamped: boolean;
+	};
+	tools?: {
+		maxToolSteps: number;
+		maxWebSources: number;
+		sourceExpansion: boolean;
+	};
+	grounding?: {
+		guidance: "minimal" | "standard" | "careful" | "strict";
+		externalEvidence: "none" | "useful" | "required";
+		forceWebSearch: boolean;
+	};
+	constraints?: string[];
+	clamps?: string[];
+}
+
+export interface DepthMetadata {
+	requested: ReasoningDepth;
+	appliedProfile: DepthAppliedProfile;
+	fallback: boolean;
+	fallbackReason?: string;
+	constraintNote?: string;
+	classifierSource?: string;
+	classifierModelSource?: string;
+	classifierModelId?: string;
+	classifierModelDisplayName?: string;
+	classifierModelFallbackReason?: string;
+	configuredClassifierModelId?: string;
+	modelId?: string;
+	modelDisplayName?: string;
+	providerDisplayName?: string;
+	signals?: DepthSelectionSignals;
+	appliedEffort?: DepthAppliedEffortMetadata;
+}
+
+export function isReasoningDepth(value: unknown): value is ReasoningDepth {
+	return value === "off" || value === "auto" || value === "max";
+}
+
+export function reasoningDepthToThinkingMode(
+	reasoningDepth: ReasoningDepth | undefined,
+): ThinkingMode {
+	switch (reasoningDepth) {
+		case "off":
+			return "off";
+		case "max":
+			return "on";
+		case "auto":
+		default:
+			return "auto";
+	}
+}
+
+export function thinkingModeToReasoningDepth(
+	thinkingMode: ThinkingMode | undefined,
+): ReasoningDepth {
+	switch (thinkingMode) {
+		case "off":
+			return "off";
+		case "on":
+			return "max";
+		case "auto":
+		default:
+			return "auto";
+	}
+}
 
 export function isProviderModelId(
 	modelId: string,
@@ -843,6 +968,7 @@ export interface ToolCallEntry {
 
 export type ThinkingSegment =
 	| { type: "text"; content: string }
+	| { type: "status"; id: string; label: string; status: ResponseActivityStatus }
 	| {
 			type: "tool_call";
 			callId?: string;
@@ -1035,6 +1161,8 @@ export interface ChatMessage {
 	webCitationAudit?: WebCitationAudit;
 	evidencePending?: boolean;
 	wasStopped?: boolean;
+	depthMetadata?: DepthMetadata;
+	responseActivity?: ResponseActivityEntry[];
 	honchoContext?: HonchoContextInfo;
 	skillQuestion?: boolean;
 	pendingSkillNoteIntents?: SkillControlMessageMetadata["pendingSkillNoteIntents"];

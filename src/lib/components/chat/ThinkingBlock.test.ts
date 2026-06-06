@@ -1,10 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import type { ThinkingSegment } from '$lib/types';
 import ThinkingBlock from './ThinkingBlock.svelte';
 
 describe('ThinkingBlock', () => {
-	it('hides file-production tool calls from the thinking surface', async () => {
+	it('does not render a completed Thought disclosure for hidden tool-only activity', () => {
 		const segments: ThinkingSegment[] = [
 			{
 				type: 'tool_call',
@@ -26,16 +26,13 @@ describe('ThinkingBlock', () => {
 		});
 
 		expect(screen.queryByText('produce_file')).not.toBeInTheDocument();
-		expect(screen.queryByText(/Fetching:/)).not.toBeInTheDocument();
-
-		await fireEvent.click(screen.getByRole('button', { name: /Thought/i }));
-
-		expect(screen.queryByText('produce_file')).not.toBeInTheDocument();
-		expect(screen.queryByText(/Fetching:/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/Fetch page:/)).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Thought/i })).not.toBeInTheDocument();
 	});
 
-	it('keeps real URL-fetch tools as Fetching links', () => {
+	it('keeps completed tool activity inside completed Thought at the original trace position', async () => {
 		const segments: ThinkingSegment[] = [
+			{ type: 'text', content: 'I checked the relevant source.' },
 			{
 				type: 'tool_call',
 				name: 'fetch_url',
@@ -54,16 +51,66 @@ describe('ThinkingBlock', () => {
 			},
 		});
 
-		expect(screen.getByText('example.com')).toBeInTheDocument();
-		expect(screen.getByText(/Fetching:/)).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Thought' })).toBeInTheDocument();
+		expect(screen.queryByText('example.com')).not.toBeInTheDocument();
+		expect(screen.queryByText(/Thinking trace saved|Thought available/i)).not.toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Thought' }));
+
+		expect(screen.getByText('I checked the relevant source.')).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'example.com' })).toHaveAttribute(
+			'href',
+			'https://example.com/article',
+		);
 	});
 
-	it('renders comma-separated URL fetch inputs as separate Fetching links', () => {
+	it('separates interim thought snippets for display without changing the raw trace', async () => {
+		const rawTrace = 'gonna search the Web.I am digging deeper.';
+
+		render(ThinkingBlock, {
+			props: {
+				content: rawTrace,
+				thinkingIsDone: true,
+			},
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Thought' }));
+
+		const thoughtText = screen.getByText(/gonna search the Web\.\s+I am digging deeper\./);
+		expect(thoughtText.textContent).toContain('gonna search the Web.\n\nI am digging deeper.');
+		expect(thoughtText.textContent).not.toContain(rawTrace);
+		expect(rawTrace).toBe('gonna search the Web.I am digging deeper.');
+	});
+
+	it('separates active interim snippets when fresh text starts after punctuation', async () => {
+		const rawTrace = 'gonna search the Web.I am digging deeper.';
+
+		const { rerender } = render(ThinkingBlock, {
+			props: {
+				content: 'gonna search the Web.',
+				thinkingIsDone: false,
+			},
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Thinking' }));
+		await rerender({
+			content: rawTrace,
+			thinkingIsDone: false,
+		});
+
+		const freshText = screen.getByText('I am digging deeper.');
+		const thoughtText = freshText.closest('pre');
+		expect(thoughtText?.textContent).toContain('gonna search the Web.\n\nI am digging deeper.');
+		expect(thoughtText?.textContent).not.toContain(rawTrace);
+		expect(rawTrace).toBe('gonna search the Web.I am digging deeper.');
+	});
+
+	it('renders active comma-separated URL fetch inputs as separate Fetch page links', () => {
 		const segments: ThinkingSegment[] = [
 			{
 				type: 'tool_call',
 				name: 'fetch_url',
-				status: 'done',
+				status: 'running',
 				input: {
 					url: 'https://a.example/x, https://b.example/y',
 				},
@@ -73,25 +120,26 @@ describe('ThinkingBlock', () => {
 		render(ThinkingBlock, {
 			props: {
 				content: '',
-				thinkingIsDone: true,
+				thinkingIsDone: false,
 				segments,
 			},
 		});
 
+		expect(screen.getByRole('button', { name: 'Thinking' })).toBeInTheDocument();
 		const links = screen.getAllByRole('link', { name: /(?:a|b)\.example/ });
 
 		expect(links).toHaveLength(2);
-		expect(screen.getAllByText(/Fetching:/)).toHaveLength(2);
+		expect(screen.getAllByText(/Fetch page:/)).toHaveLength(2);
 		expect(links[0]).toHaveAttribute('href', 'https://a.example/x');
 		expect(links[1]).toHaveAttribute('href', 'https://b.example/y');
 	});
 
-	it('shows fetched web source titles from research tool candidates', () => {
+	it('summarizes web search tool calls without expanding every source diagnostic', () => {
 		const segments: ThinkingSegment[] = [
 			{
 				type: 'tool_call',
 				name: 'research_web',
-				status: 'done',
+				status: 'running',
 				input: {
 					query: 'latest pricing',
 				},
@@ -111,19 +159,140 @@ describe('ThinkingBlock', () => {
 		render(ThinkingBlock, {
 			props: {
 				content: '',
+				thinkingIsDone: false,
+				segments,
+			},
+		});
+
+		expect(screen.getByRole('button', { name: 'Thinking' })).toBeInTheDocument();
+		expect(screen.getByText('Web search: "latest pricing"')).toBeInTheDocument();
+		expect(screen.queryByRole('link', { name: 'Widget Pro Store Page' })).not.toBeInTheDocument();
+	});
+
+	it('uses different icons per deliberation pass', async () => {
+		const segments: ThinkingSegment[] = [
+			{
+				type: 'status',
+				id: 'deliberation-pass-1',
+				status: 'done',
+				label: 'Reviewing context and sources',
+			},
+			{
+				type: 'status',
+				id: 'deliberation-pass-2',
+				status: 'done',
+				label: 'Deepening source synthesis',
+			},
+			{
+				type: 'status',
+				id: 'deliberation-pass-3',
+				status: 'done',
+				label: 'Finalizing robust answer',
+			},
+		];
+
+		const { container } = render(ThinkingBlock, {
+			props: {
+				content: '',
 				thinkingIsDone: true,
 				segments,
 			},
 		});
 
-		expect(screen.getByText(/Fetched:/)).toBeInTheDocument();
-		const link = screen.getByRole('link', { name: 'Widget Pro Store Page' });
-		expect(link).toHaveAttribute(
-			'href',
-			'https://shop.example.com/products/widget-pro',
+		await fireEvent.click(screen.getByRole('button', { name: 'Thought' }));
+
+		const statusRows = container.querySelectorAll('.status-step');
+		expect(statusRows).toHaveLength(3);
+		expect(statusRows[0]?.querySelector('[data-deliberation-icon="search"]')).not.toBeNull();
+		expect(statusRows[1]?.querySelector('[data-deliberation-icon="file"]')).not.toBeNull();
+		expect(statusRows[2]?.querySelector('[data-deliberation-icon="check"]')).not.toBeNull();
+	});
+
+	it('renders deliberation status rows with the deliberation icon instead of a check icon', async () => {
+		const segments: ThinkingSegment[] = [
+			{
+				type: 'status',
+				id: 'deliberation-pass-1',
+				status: 'done',
+				label: 'Reviewed context and sources',
+			},
+			{
+				type: 'text',
+				content: 'Checked evidence and draft plan.',
+			},
+		];
+
+		render(ThinkingBlock, {
+			props: {
+				content: '',
+				thinkingIsDone: true,
+				segments,
+			},
+		});
+
+		expect(screen.getByRole('button', { name: 'Thought' })).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Thought' }));
+		await waitFor(() =>
+			expect(screen.getByText('Reviewed context and sources')).toBeInTheDocument(),
 		);
-		expect(
-			screen.queryByText('Searching: "latest pricing"'),
-		).not.toBeInTheDocument();
+
+		const statusRow = screen
+			.getByText('Reviewed context and sources')
+			.closest('.status-step');
+		expect(statusRow).not.toBeNull();
+		expect(statusRow?.querySelector('.check-icon')).toBeNull();
+		expect(statusRow?.querySelector('.deliberation-status-icon')).not.toBeNull();
+	});
+
+	it('shows only the latest deliberation status step while streaming', async () => {
+		const { rerender } = render(ThinkingBlock, {
+			props: {
+				content: '',
+				thinkingIsDone: false,
+				streaming: true,
+				segments: [
+					{
+						type: 'status',
+						id: 'deliberation-pass-1',
+						status: 'done',
+						label: 'Reviewed context and sources',
+					},
+					{
+						type: 'status',
+						id: 'deliberation-pass-2',
+						status: 'running',
+						label: 'Checking answer plan',
+					},
+				],
+			},
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Thinking' }));
+
+		expect(screen.getByText('Checking answer plan')).toBeInTheDocument();
+		expect(screen.queryByText('Reviewed context and sources')).not.toBeInTheDocument();
+
+		await rerender({
+			content: '',
+			thinkingIsDone: true,
+			streaming: false,
+			segments: [
+				{
+					type: 'status',
+					id: 'deliberation-pass-1',
+					status: 'done',
+					label: 'Reviewed context and sources',
+				},
+				{
+					type: 'status',
+					id: 'deliberation-pass-2',
+					status: 'done',
+					label: 'Checking answer plan',
+				},
+			],
+		});
+		expect(screen.getByText('Reviewed context and sources')).toBeInTheDocument();
+		expect(screen.getByText('Checking answer plan')).toBeInTheDocument();
 	});
 });

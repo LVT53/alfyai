@@ -618,6 +618,33 @@ function defaultNewUserModelValue(): ModelId {
 		: (options[0]?.id ?? "model1");
 }
 
+function reasoningDepthClassifierModelOptions(): Array<{
+	id: ModelId;
+	displayName: string;
+}> {
+	const options = new Map<ModelId, string>();
+	for (const model of availableModels) {
+		options.set(model.id, model.displayName);
+	}
+	if (!options.has("model1")) {
+		options.set("model1", adminConfig.MODEL_1_DISPLAY_NAME || "Model 1");
+	}
+	if (adminConfig.MODEL_2_ENABLED !== "false" && !options.has("model2")) {
+		options.set("model2", adminConfig.MODEL_2_DISPLAY_NAME || "Model 2");
+	}
+	return Array.from(options, ([id, displayName]) => ({ id, displayName }));
+}
+
+function reasoningDepthClassifierModelValue(): string {
+	const configured = adminConfig.REASONING_DEPTH_CLASSIFIER_MODEL || "";
+	if (!configured) return "";
+	return reasoningDepthClassifierModelOptions().some(
+		(model) => model.id === configured,
+	)
+		? configured
+		: "";
+}
+
 function deepResearchRoleValue(role: DeepResearchModelRoleDefinition): ModelId {
 	return (adminConfig[role.configKey] ||
 		envDefaults[role.configKey] ||
@@ -723,6 +750,8 @@ function configLabelKey(key: string): string {
 			"admin.modelTimeoutFailoverTargetModel",
 		SYSTEM_PROMPT: "admin.systemPromptLabel",
 		DEFAULT_NEW_USER_MODEL: "admin.defaultNewUserModel",
+		REASONING_DEPTH_CLASSIFIER_MODEL:
+			"admin.reasoningDepthClassifierModel",
 	};
 	return map[key] ?? key;
 }
@@ -800,6 +829,28 @@ function placeholderFor(key: string): string {
 			<option value={model.id}>{model.displayName}</option>
 		{/each}
 	</select>
+</section>
+
+<!-- Reasoning Depth classifier model -->
+<section class="settings-card mb-4">
+	<h2 class="settings-section-title">{$t('admin.reasoningDepthClassifier')}</h2>
+	<p class="text-xs text-text-tertiary">{$t('admin.reasoningDepthClassifierDescription')}</p>
+	<div class="mt-2">
+		<label class="settings-label" for="REASONING_DEPTH_CLASSIFIER_MODEL">{$t('admin.reasoningDepthClassifierModel')}</label>
+		<select
+			id="REASONING_DEPTH_CLASSIFIER_MODEL"
+			class="settings-input"
+			value={reasoningDepthClassifierModelValue()}
+			onchange={(event) => {
+				adminConfig.REASONING_DEPTH_CLASSIFIER_MODEL = event.currentTarget.value;
+			}}
+		>
+			<option value="">{$t('admin.reasoningDepthClassifierUseSelected')}</option>
+			{#each reasoningDepthClassifierModelOptions() as model}
+				<option value={model.id}>{model.displayName}</option>
+			{/each}
+		</select>
+	</div>
 </section>
 
 <!-- Composer Command Registry feature flag -->

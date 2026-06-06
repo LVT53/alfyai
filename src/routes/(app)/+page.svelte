@@ -17,15 +17,15 @@ import { createNewConversation, upsertConversationLocal } from '$lib/stores/conv
 import { currentConversationId } from '$lib/stores/ui';
 import {
 	selectedModel,
-	selectedThinkingMode,
-	setSelectedThinkingMode,
+	selectedReasoningDepth,
+	setSelectedReasoningDepth,
 } from '$lib/stores/settings';
 import { t } from '$lib/i18n';
 import MessageInput from '$lib/components/chat/MessageInput.svelte';
 import DropZoneOverlay from '$lib/components/chat/DropZoneOverlay.svelte';
 import { fetchPublicPersonalityProfiles } from '$lib/client/api/admin';
 import { isOsFileDropEvent } from '$lib/utils/file-drag';
-import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
+import type { ConversationDetail, ModelId, ReasoningDepth } from '$lib/types';
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import type {
 		ArtifactSummary,
@@ -75,7 +75,7 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 		pendingSkill?: import('$lib/types').PendingSkillSelection | null;
 		modelId?: ModelId;
 		deepResearchDepth?: 'focused' | 'standard' | 'max' | null;
-		thinkingMode?: ThinkingMode;
+		reasoningDepth?: ReasoningDepth;
 		forceWebSearch?: boolean;
 	};
 
@@ -294,7 +294,7 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 				modelId: payload.modelId ?? $selectedModel,
 				personalityProfileId: selectedPersonalityId,
 				deepResearchDepth: payload.deepResearchDepth ?? null,
-				thinkingMode: payload.thinkingMode ?? $selectedThinkingMode,
+				reasoningDepth: payload.reasoningDepth ?? $selectedReasoningDepth,
 				forceWebSearch: payload.forceWebSearch === true,
 			});
 			await navigateToConversationFromLanding({
@@ -449,8 +449,8 @@ import type { ConversationDetail, ModelId, ThinkingMode } from '$lib/types';
 					{personalityProfiles}
 					{selectedPersonalityId}
 					onPersonalityChange={(id) => selectedPersonalityId = id}
-					thinkingMode={$selectedThinkingMode}
-					onThinkingModeChange={setSelectedThinkingMode}
+					reasoningDepth={$selectedReasoningDepth}
+					onReasoningDepthChange={setSelectedReasoningDepth}
 				onUploadFiles={handleUploadFiles}
 				/>
 			</div>

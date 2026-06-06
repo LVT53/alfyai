@@ -337,7 +337,7 @@ test.describe("Composer Command V1", () => {
 		expect(createConversationAttempts).toBe(0);
 	});
 
-	test("mixes skill, linked sources, upload, and thinking mode in one normal chat turn", async ({
+	test("mixes skill, linked sources, upload, and Reasoning depth in one normal chat turn", async ({
 		page,
 	}) => {
 		const capture: { streamBody?: Record<string, unknown> } = {};
@@ -412,8 +412,8 @@ test.describe("Composer Command V1", () => {
 			.not.toBe("rgb(255, 255, 255)");
 		await sourceManager.getByRole("button", { name: "Close sources" }).click();
 
-		await typeComposerCommand(page, "/thinking");
-		await page.getByRole("option", { name: /\/thinking/i }).click();
+		await typeComposerCommand(page, "/depth");
+		await page.getByRole("option", { name: /\/depth/i }).click();
 		await page.getByRole("option", { name: "Off" }).click();
 
 		await typeComposerCommand(page, "/attach");
@@ -475,7 +475,7 @@ test.describe("Composer Command V1", () => {
 		expect(capture.streamBody).toMatchObject({
 			message: "Use every selected composer command in normal chat.",
 			attachmentIds: ["artifact-uploaded"],
-			thinkingMode: "off",
+			reasoningDepth: "off",
 			pendingSkill: {
 				id: "skill-interview",
 				ownership: "user",

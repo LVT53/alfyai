@@ -8,6 +8,17 @@ import {
 	resolvePromptModelConfig,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
+import {
+	appendDeliberationBriefsToInput,
+	runNormalChatDeliberationPasses,
+	shouldRunDeliberationPasses,
+	sumUsage,
+} from "$lib/server/services/chat-turn/deliberation-runner";
+import {
+	buildReasoningDepthProviderOptions,
+	resolveReasoningDepthEffort,
+	withReasoningDepthPreparedBudget,
+} from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import { detectLanguage } from "$lib/server/services/language";
 import {
 	type AuthenticatedPromptUser,
@@ -20,13 +31,18 @@ import {
 	runStreamingNormalChatModelRun,
 	type StreamingNormalChatModelRunEvent,
 } from "$lib/server/services/normal-chat-model";
-import { createNormalChatTools } from "$lib/server/services/normal-chat-tools";
+import {
+	createNormalChatTools,
+	createToolCallRecorder,
+} from "$lib/server/services/normal-chat-tools";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
+	DepthMetadata,
 	HonchoContextInfo,
 	HonchoContextSnapshot,
 	ModelId,
+	ResponseActivityEntry,
 	TaskState,
 	ThinkingMode,
 	ToolCallEntry,
@@ -45,10 +61,12 @@ export type StreamingNormalChatSendModelParams = {
 	systemPromptAppendix?: string;
 	personalityPrompt?: string;
 	thinkingMode?: ThinkingMode;
+	depthMetadata?: DepthMetadata;
 	forceWebSearch?: boolean;
 	createTurnId?: () => string;
 	signal?: AbortSignal;
 	overrideProvider?: NormalChatModelRunProvider;
+	onResponseActivity?: (entry: ResponseActivityEntry) => void;
 };
 
 export type StreamingNormalChatPreparedContext = {
@@ -70,6 +88,7 @@ export type StreamingNormalChatSendModelResult = {
 	prefetchedToolCalls: ToolCallEntry[];
 	getNormalChatToolCalls: () => ToolCallEntry[];
 	getToolCalls: () => ToolCallEntry[];
+	depthMetadata?: DepthMetadata;
 };
 
 export async function runStreamingNormalChatSendModel(
@@ -84,10 +103,26 @@ export async function runStreamingNormalChatSendModel(
 		provider,
 		runtimeConfig: params.runtimeConfig,
 	});
+	const baseContextLimits = resolvePromptContextLimits({
+		modelId,
+		provider,
+		runtimeConfig: params.runtimeConfig,
+	});
+	const depthEffort = params.depthMetadata
+		? resolveReasoningDepthEffort({
+				depthMetadata: params.depthMetadata,
+				provider,
+				baseContextLimits,
+				configuredMaxOutputTokens: modelConfig.maxTokens,
+				forceWebSearch: params.forceWebSearch,
+			})
+		: null;
 	const prepared = await prepareOutboundChatContext({
 		message: params.message,
 		sessionId: params.conversationId,
-		modelConfig,
+		modelConfig: depthEffort
+			? { ...modelConfig, maxTokens: depthEffort.modelMaxOutputTokens }
+			: modelConfig,
 		user: params.user,
 		attachmentIds: params.attachmentIds,
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
@@ -96,32 +131,60 @@ export async function runStreamingNormalChatSendModel(
 		personalityPrompt: params.personalityPrompt,
 		forceWebSearch: params.forceWebSearch,
 		modelId,
-		contextLimits: resolvePromptContextLimits({
-			modelId,
-			provider,
-			runtimeConfig: params.runtimeConfig,
-		}),
+		contextLimits: depthEffort?.contextLimits ?? baseContextLimits,
+		reasoningDepthEffort: depthEffort ?? undefined,
 		logLabel: "provider streaming request",
 	});
+	const turnId = params.createTurnId?.() ?? randomUUID();
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
-		turnId: params.createTurnId?.() ?? randomUUID(),
+		turnId,
 		language: detectLanguage(params.message),
+		...(depthEffort ? { webSourceBudget: depthEffort.webSourceBudget } : {}),
 	});
+	const recorder = normalChatTools.recorder ?? createToolCallRecorder();
+	const deliberation =
+		depthEffort && shouldRunDeliberationPasses(depthEffort)
+			? await runNormalChatDeliberationPasses({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					modelId,
+					runtimeConfig: params.runtimeConfig,
+					provider,
+					depthEffort,
+					preparedInputValue: prepared.inputValue,
+					preparedSystemPrompt: prepared.systemPrompt,
+					user: params.user,
+					language: detectLanguage(params.message),
+					turnId,
+					recorder,
+					onStatus: params.onResponseActivity,
+					abortSignal: createRequestAbortSignal(
+						params.runtimeConfig.requestTimeoutMs,
+						params.signal,
+					),
+				})
+			: null;
 	const toolChoice = undefined;
 	const prefetchedToolCalls = prepared.prefetchedToolCalls ?? [];
 	const getNormalChatToolCalls = () => normalChatTools.getToolCalls();
+	const finalInputValue = appendDeliberationBriefsToInput(
+		prepared.inputValue,
+		deliberation?.briefs ?? [],
+	);
 	const stream = runStreamingNormalChatModelRun({
 		provider,
 		modelId,
 		runtimeConfig: params.runtimeConfig,
 		system: prepared.systemPrompt,
 		resolveProviderOptions: (attemptProvider) =>
-			buildNormalChatModelRunProviderOptions(
-				attemptProvider,
-				params.thinkingMode,
-			),
+			depthEffort
+				? buildReasoningDepthProviderOptions(attemptProvider, depthEffort)
+				: buildNormalChatModelRunProviderOptions(
+						attemptProvider,
+						params.thinkingMode,
+					),
 		abortSignal: createRequestAbortSignal(
 			params.runtimeConfig.requestTimeoutMs,
 			params.signal,
@@ -129,11 +192,11 @@ export async function runStreamingNormalChatSendModel(
 		maxOutputTokens: prepared.outputTokenBudget?.effectiveMaxTokens,
 		tools: normalChatTools.tools,
 		toolChoice,
-		maxToolSteps: NORMAL_CHAT_MAX_TOOL_STEPS,
+		maxToolSteps: depthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 		messages: [
 			{
 				role: "user",
-				content: [{ type: "text", text: prepared.inputValue }],
+				content: [{ type: "text", text: finalInputValue }],
 			},
 		],
 	});
@@ -151,12 +214,43 @@ export async function runStreamingNormalChatSendModel(
 		modelDisplayName: provider.displayName,
 		providerIconUrl: provider.iconUrl ?? null,
 		resolvedProviderId: provider.id,
-		stream,
+		stream: deliberation
+			? withDeliberationUsage(stream, deliberation.usage)
+			: stream,
 		prefetchedToolCalls,
 		getNormalChatToolCalls,
 		getToolCalls: () => [
 			...prefetchedToolCalls,
 			...getNormalChatToolCalls().filter(isEvidenceReadyToolCall),
 		],
+		depthMetadata: depthEffort
+			? withReasoningDepthPreparedBudget(
+					{
+						...depthEffort,
+						depthMetadata: deliberation?.depthMetadata ?? depthEffort.depthMetadata,
+					},
+					prepared.outputTokenBudget,
+				)
+			: params.depthMetadata,
 	};
+}
+
+async function* withDeliberationUsage(
+	stream: AsyncIterable<StreamingNormalChatModelRunEvent>,
+	deliberationUsage: {
+		inputTokens?: number;
+		outputTokens?: number;
+		totalTokens?: number;
+	},
+): AsyncIterable<StreamingNormalChatModelRunEvent> {
+	for await (const event of stream) {
+		if (event.type === "usage") {
+			yield {
+				...event,
+				usage: sumUsage(deliberationUsage, event.usage),
+			};
+			continue;
+		}
+		yield event;
+	}
 }

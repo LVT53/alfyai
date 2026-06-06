@@ -13,7 +13,7 @@
 		ModelId,
 		PendingAttachment,
 		PendingSkillSelection,
-		ThinkingMode,
+		ReasoningDepth,
 	} from '$lib/types';
 	import type { DraftChangePayload, SendPayload } from '../_helpers';
 
@@ -54,8 +54,8 @@
 		selectedPersonalityId,
 		onPersonalityChange,
 		onModelChange,
-		thinkingMode,
-		onThinkingModeChange,
+		reasoningDepth,
+		onReasoningDepthChange,
 		children,
 	}: {
 		sendError: string | null;
@@ -101,8 +101,8 @@
 		selectedPersonalityId?: string | null;
 		onPersonalityChange?: ((id: string | null) => void) | undefined;
 		onModelChange?: ((modelId: ModelId) => void) | undefined;
-		thinkingMode?: ThinkingMode;
-		onThinkingModeChange?: ((mode: ThinkingMode) => void) | undefined;
+		reasoningDepth?: ReasoningDepth;
+		onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
 		children?: Snippet;
 	} = $props();
 
@@ -203,8 +203,8 @@
 			{selectedPersonalityId}
 			{onPersonalityChange}
 			{onModelChange}
-			{thinkingMode}
-			{onThinkingModeChange}
+			{reasoningDepth}
+			{onReasoningDepthChange}
 		/>
 	</div>
 </div>
