@@ -102,7 +102,7 @@ describe("MessageInput", () => {
 	});
 
 	it("renders typed URLs as clickable blank-tab links without replacing the textarea", async () => {
-		const { getByPlaceholderText, getByRole } = render(MessageInput);
+		const { container, getByPlaceholderText, getByRole } = render(MessageInput);
 		const input = getByPlaceholderText(
 			"Type a message...",
 		) as HTMLTextAreaElement;
@@ -122,6 +122,10 @@ describe("MessageInput", () => {
 		const bareLink = getByRole("link", { name: "www.example.org" });
 		expect(bareLink).toHaveAttribute("href", "https://www.example.org");
 		expect(input.value).toBe(
+			"Read https://example.com/report and www.example.org",
+		);
+		expect(input).toHaveClass("composer-textarea--link-overlay-active");
+		expect(container.querySelector(".composer-link-highlights")).toHaveTextContent(
 			"Read https://example.com/report and www.example.org",
 		);
 	});
