@@ -335,15 +335,15 @@ The resolved effort profile applied to a Normal Chat turn after **Reasoning Dept
 _Avoid_: visible mode list, provider tier, model name
 
 **Normal Chat Deliberation Pass**:
-A bounded extra model pass inside a **Normal Chat Turn** that lets higher **Depth Profiles** review context, sources, assumptions, draft quality, or missed edge cases before the final answer. Extended and maximum keep a stable baseline pass plan, while dynamic high-cost planning may choose additional bounded read-only passes such as source reconciliation, workspace synthesis, or edge-case review when depth signals justify the added latency. Deliberation remains synchronous Normal Chat work and does not create a **Deep Research Job**, approval workflow, or report lifecycle.
+A bounded extra deliberation step inside a **Normal Chat Turn** that lets higher **Depth Profiles** review context, sources, assumptions, draft quality, or missed edge cases before the final answer. The first pass reconstructs a focused workspace from the current prompt context, keeping only essential user intent, constraints, evidence needs, edge cases, and final-answer guidance before later model-backed passes run. Extended and maximum keep a stable baseline pass plan, with Maximum ending in a compact deterministic viable-alternatives preservation check over the completed deliberation briefs so the final answer stays decisive without prematurely collapsing conditional options. Dynamic high-cost planning may choose additional bounded read-only passes such as source reconciliation, workspace synthesis, or edge-case review when depth signals justify the added latency. Deliberation remains synchronous Normal Chat work and does not create a **Deep Research Job**, approval workflow, or report lifecycle.
 _Avoid_: Deep Research pass, hidden research job, background report
 
 **Normal Chat Deliberation Brief**:
-A compact structured result from a **Normal Chat Deliberation Pass**, carrying findings such as assumptions, evidence needs, source or memory findings, edge cases, draft risks, and final-answer instructions. It is transient working material for the final answer pass, not durable user-facing chain-of-thought.
+A compact structured result from a **Normal Chat Deliberation Pass**, carrying findings such as assumptions, evidence needs, source or memory findings, edge cases, viable alternatives, exit criteria, draft risks, and final-answer instructions. It is transient working material for the final answer pass, not durable user-facing chain-of-thought.
 _Avoid_: chain-of-thought, hidden transcript, final answer draft
 
 **Deliberation Context**:
-The bounded **Prompt Context** and prior **Normal Chat Deliberation Brief** material supplied to a **Normal Chat Deliberation Pass**. The first deliberation pass may inspect the selected Prompt Context, while later passes should use compact deliberation briefs and gathered findings rather than blindly repeating every full context item.
+The bounded **Prompt Context** and prior **Normal Chat Deliberation Brief** material supplied to a **Normal Chat Deliberation Pass**. The first deliberation pass reconstructs a streamlined workspace from selected Prompt Context, while later passes should use compact deliberation briefs and gathered findings rather than blindly repeating every full context item.
 _Avoid_: full prompt replay, hidden document dump, unbounded context loop
 
 **Deliberation Tool Scope**:

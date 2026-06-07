@@ -146,7 +146,7 @@ describe("Reasoning Depth evaluation harness", () => {
 					},
 					cost: {
 						latencyClass: "medium",
-						passCount: 2,
+						passCount: 3,
 						toolCallBudget: 24,
 					},
 				},
@@ -161,13 +161,14 @@ describe("Reasoning Depth evaluation harness", () => {
 					},
 					cost: {
 						latencyClass: "high",
-						passCount: 4,
-						toolCallBudget: 28,
+						passCount: 5,
+						toolCallBudget: 32,
 					},
 					addedUsefulDimensions: [
 						"source_reconciliation",
 						"workspace_synthesis",
 						"adversarial_edge_case_check",
+						"viable_alternatives_preservation",
 					],
 				},
 				minimumQualityGain: 0.14,
@@ -203,7 +204,7 @@ describe("Reasoning Depth evaluation harness", () => {
 					},
 					cost: {
 						latencyClass: "medium",
-						passCount: 2,
+						passCount: 3,
 						toolCallBudget: 24,
 					},
 				},
@@ -218,7 +219,7 @@ describe("Reasoning Depth evaluation harness", () => {
 					},
 					cost: {
 						latencyClass: "very_high",
-						passCount: 4,
+						passCount: 5,
 						toolCallBudget: 40,
 					},
 					addedUsefulDimensions: [],

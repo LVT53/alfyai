@@ -347,8 +347,8 @@ function evaluateDynamicDeliberationFixture(
 			`Dynamic latency ${fixture.dynamicPlan.cost.latencyClass} is too high relative to baseline ${fixture.currentBaselinePlan.cost.latencyClass}.`,
 		],
 	);
-	dimensions.passCount = passIf(fixture.dynamicPlan.cost.passCount <= 4, [
-		`Dynamic pass count ${fixture.dynamicPlan.cost.passCount} exceeds the bounded maximum of 4.`,
+	dimensions.passCount = passIf(fixture.dynamicPlan.cost.passCount <= 5, [
+		`Dynamic pass count ${fixture.dynamicPlan.cost.passCount} exceeds the bounded maximum of 5.`,
 	]);
 	dimensions.toolCallBudget = passIf(
 		fixture.dynamicPlan.cost.toolCallBudget <=

@@ -5,10 +5,11 @@ import type {
 	ResponseActivityEntry,
 } from "$lib/types";
 
-export const DELIBERATION_MAX_OUTPUT_TOKENS = 1_500;
-export const DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS = 900;
+export const DELIBERATION_MAX_OUTPUT_TOKENS = 2_400;
+export const DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS = 1_200;
 export const DELIBERATION_TOOL_STEPS = 8;
-export const DELIBERATION_MAX_PASS_COUNT = 4;
+export const DELIBERATION_NO_TOOL_STEPS = 0;
+export const DELIBERATION_MAX_PASS_COUNT = 5;
 
 export type DeliberationPassKind =
 	| "context_source_gap_review"
@@ -16,12 +17,14 @@ export type DeliberationPassKind =
 	| "evidence_gap_review"
 	| "source_reconciliation"
 	| "adversarial_edge_case_check"
-	| "workspace_synthesis";
+	| "workspace_synthesis"
+	| "viable_alternatives_preservation";
 
 export type DeliberationPassSchemaKind =
 	| "first_pass"
 	| "second_pass"
-	| "generic_brief";
+	| "generic_brief"
+	| "alternatives_preservation";
 
 export type DeliberationPassCatalogueEntry = {
 	kind: DeliberationPassKind;
@@ -29,6 +32,7 @@ export type DeliberationPassCatalogueEntry = {
 	maxOutputTokens: number;
 	repairMaxOutputTokens: number;
 	maxToolSteps: number;
+	useDepthProviderOptions: boolean;
 	systemFocusInstruction: string;
 	statusLabels: Record<
 		"en" | "hu",
@@ -50,6 +54,7 @@ const DELIBERATION_PASS_CATALOGUE: Record<
 		maxOutputTokens: DELIBERATION_MAX_OUTPUT_TOKENS,
 		repairMaxOutputTokens: DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS,
 		maxToolSteps: DELIBERATION_TOOL_STEPS,
+		useDepthProviderOptions: true,
 		systemFocusInstruction:
 			"Focus on user intent, assumptions, evidence needs, relevant findings, missing context, and edge cases.",
 		statusLabels: {
@@ -71,6 +76,7 @@ const DELIBERATION_PASS_CATALOGUE: Record<
 		maxOutputTokens: DELIBERATION_MAX_OUTPUT_TOKENS,
 		repairMaxOutputTokens: DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS,
 		maxToolSteps: DELIBERATION_TOOL_STEPS,
+		useDepthProviderOptions: true,
 		systemFocusInstruction:
 			"Focus on answer risks, contradictions, missed user needs, format requirements, must-include points, and things to avoid.",
 		statusLabels: {
@@ -92,6 +98,7 @@ const DELIBERATION_PASS_CATALOGUE: Record<
 		maxOutputTokens: DELIBERATION_MAX_OUTPUT_TOKENS,
 		repairMaxOutputTokens: DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS,
 		maxToolSteps: DELIBERATION_TOOL_STEPS,
+		useDepthProviderOptions: true,
 		systemFocusInstruction:
 			"Focus on evidence gaps, citation-sensitive claims, facts that need verification, unavailable evidence, and concise final-answer guidance.",
 		statusLabels: {
@@ -113,6 +120,7 @@ const DELIBERATION_PASS_CATALOGUE: Record<
 		maxOutputTokens: DELIBERATION_MAX_OUTPUT_TOKENS,
 		repairMaxOutputTokens: DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS,
 		maxToolSteps: DELIBERATION_TOOL_STEPS,
+		useDepthProviderOptions: true,
 		systemFocusInstruction:
 			"Focus on reconciling source-heavy evidence, conflicting source signals, source authority, stale or missing citations, and concise final-answer guidance.",
 		statusLabels: {
@@ -134,6 +142,7 @@ const DELIBERATION_PASS_CATALOGUE: Record<
 		maxOutputTokens: DELIBERATION_MAX_OUTPUT_TOKENS,
 		repairMaxOutputTokens: DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS,
 		maxToolSteps: DELIBERATION_TOOL_STEPS,
+		useDepthProviderOptions: true,
 		systemFocusInstruction:
 			"Focus on adversarial checks, failure-sensitive assumptions, edge cases, counterexamples, overclaiming risks, and concise final-answer guidance.",
 		statusLabels: {
@@ -155,6 +164,7 @@ const DELIBERATION_PASS_CATALOGUE: Record<
 		maxOutputTokens: DELIBERATION_MAX_OUTPUT_TOKENS,
 		repairMaxOutputTokens: DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS,
 		maxToolSteps: DELIBERATION_TOOL_STEPS,
+		useDepthProviderOptions: true,
 		systemFocusInstruction:
 			"Focus on synthesizing broad workspace context, active documents, memory context, user constraints, cross-document tensions, and concise final-answer guidance.",
 		statusLabels: {
@@ -170,6 +180,28 @@ const DELIBERATION_PASS_CATALOGUE: Record<
 			},
 		},
 	},
+	viable_alternatives_preservation: {
+		kind: "viable_alternatives_preservation",
+		schema: "alternatives_preservation",
+		maxOutputTokens: DELIBERATION_MAX_OUTPUT_TOKENS,
+		repairMaxOutputTokens: DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS,
+		maxToolSteps: DELIBERATION_NO_TOOL_STEPS,
+		useDepthProviderOptions: false,
+		systemFocusInstruction:
+			"Return a compact JSON object only. Focus on preserving viable alternatives, second-best options, conditional paths, and exit criteria so the final answer remains decisive without collapsing nuance prematurely. Do not draft final-answer prose.",
+		statusLabels: {
+			en: {
+				running: "Checking viable alternatives",
+				done: "Checked viable alternatives",
+				error: "Checked viable alternatives",
+			},
+			hu: {
+				running: "Életképes alternatívák ellenőrzése",
+				done: "Életképes alternatívák ellenőrizve",
+				error: "Életképes alternatívák ellenőrizve",
+			},
+		},
+	},
 };
 
 const DELIBERATION_PASS_PLAN_BY_PROFILE: Record<
@@ -179,7 +211,11 @@ const DELIBERATION_PASS_PLAN_BY_PROFILE: Record<
 	off: [],
 	standard: [],
 	extended: ["context_source_gap_review"],
-	maximum: ["context_source_gap_review", "answer_plan_critique"],
+	maximum: [
+		"context_source_gap_review",
+		"answer_plan_critique",
+		"viable_alternatives_preservation",
+	],
 };
 
 export function planDeliberationPasses(
@@ -218,6 +254,9 @@ function planDeliberationPassKinds(
 	}
 	if (expanded.length === 1 && profile === "maximum") {
 		expanded.push("answer_plan_critique");
+	}
+	if (profile === "maximum") {
+		expanded.push("viable_alternatives_preservation");
 	}
 	return expanded;
 }

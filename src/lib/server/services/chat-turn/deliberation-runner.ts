@@ -30,7 +30,7 @@ import {
 	shouldRunDeliberationPasses,
 } from "./deliberation-pass-catalogue";
 
-const MAX_LIST_ITEMS = 6;
+const MAX_LIST_ITEMS = 4;
 
 type EvidenceNeedStatus =
 	| "not_needed"
@@ -69,9 +69,19 @@ export type DeliberationGenericPassBrief = {
 	finalAnswerGuidance: string[];
 };
 
+export type DeliberationAlternativesPassBrief = {
+	viableAlternatives: string[];
+	dismissedAlternatives: string[];
+	recommendationBalance: string[];
+	exitCriteria: string[];
+	finalAnswerGuidance: string[];
+};
+
 type GenericDeliberationPassKind = Exclude<
 	DeliberationPassKind,
-	"context_source_gap_review" | "answer_plan_critique"
+	| "context_source_gap_review"
+	| "answer_plan_critique"
+	| "viable_alternatives_preservation"
 >;
 
 export type NormalChatDeliberationBrief =
@@ -89,6 +99,11 @@ export type NormalChatDeliberationBrief =
 			pass: number;
 			kind: GenericDeliberationPassKind;
 			brief: DeliberationGenericPassBrief;
+	  }
+	| {
+			pass: number;
+			kind: "viable_alternatives_preservation";
+			brief: DeliberationAlternativesPassBrief;
 	  };
 
 export type NormalChatDeliberationResult = {
@@ -217,6 +232,288 @@ function deliberationStatusLabel(params: {
 	return params.passSpec.statusLabels[params.language][params.status];
 }
 
+function createFocusedWorkspaceBrief(
+	passSpec: PlannedDeliberationPass,
+	params: Pick<NormalChatDeliberationParams, "preparedInputValue">,
+): NormalChatDeliberationBrief {
+	const userMessage =
+		extractMarkdownSection(params.preparedInputValue, "Current User Message") ??
+		params.preparedInputValue;
+	const normalizedRequest = normalizeWhitespace(userMessage);
+	const salientConstraints = selectSalientSentences(normalizedRequest, [
+		"constraint",
+		"must",
+		"support",
+		"avoid",
+		"cost",
+		"latency",
+		"hungarian",
+		"gdpr",
+		"privacy",
+		"citation",
+		"evidence",
+		"uploaded",
+		"document",
+		"risk",
+		"reliability",
+		"failover",
+		"switching",
+		"criteria",
+		"deadline",
+		"fastest",
+		"duplicate",
+	]);
+	const edgeCases = selectSalientSentences(normalizedRequest, [
+		"risk",
+		"avoid",
+		"uncertain",
+		"privacy",
+		"gdpr",
+		"hungarian",
+		"latency",
+		"cost",
+		"failover",
+		"fabricated",
+		"overclaiming",
+		"switching",
+		"fastest",
+		"duplicate",
+	]);
+	const finalAnswerGuidance = finalAnswerGuidanceFromRequest(normalizedRequest);
+
+	return {
+		pass: passSpec.pass,
+		kind: "context_source_gap_review",
+		brief: {
+			assumptions: assumptionsFromRequest(normalizedRequest),
+			userIntent: stringValue(normalizedRequest),
+			missingContextQuestions: [],
+			evidenceNeeds: evidenceNeedsFromRequest(normalizedRequest),
+			relevantFindings: salientConstraints,
+			edgeCases,
+			finalAnswerGuidance,
+		},
+	};
+}
+
+function createAlternativesPreservationBrief(
+	passSpec: PlannedDeliberationPass,
+	previousBriefs: NormalChatDeliberationBrief[],
+): NormalChatDeliberationBrief {
+	const viableAlternatives: string[] = [];
+	const dismissedAlternatives: string[] = [];
+	const recommendationBalance: string[] = [];
+	const exitCriteria: string[] = [];
+	const finalAnswerGuidance: string[] = [];
+
+	for (const entry of previousBriefs) {
+		if (entry.kind === "context_source_gap_review") {
+			appendUnique(
+				viableAlternatives,
+				entry.brief.edgeCases.map((item) => `Preserve if relevant: ${item}`),
+			);
+			appendUnique(
+				exitCriteria,
+				entry.brief.evidenceNeeds
+					.filter(
+						(need) =>
+							need.status === "still_needed" || need.status === "unavailable",
+					)
+					.map((need) => `Qualify or switch if unresolved: ${need.need}`),
+			);
+			appendUnique(recommendationBalance, entry.brief.finalAnswerGuidance);
+			appendUnique(finalAnswerGuidance, entry.brief.finalAnswerGuidance);
+			continue;
+		}
+
+		if (entry.kind === "answer_plan_critique") {
+			appendUnique(viableAlternatives, [
+				...entry.brief.contradictionsOrTensions.map(
+					(item) => `Keep conditional path visible: ${item}`,
+				),
+				...entry.brief.missedUserNeeds.map(
+					(item) => `Address as a possible valid user need: ${item}`,
+				),
+			]);
+			appendUnique(
+				dismissedAlternatives,
+				entry.brief.shouldAvoid.map((item) => `Avoid presenting: ${item}`),
+			);
+			appendUnique(exitCriteria, entry.brief.contradictionsOrTensions);
+			appendUnique(recommendationBalance, entry.brief.finalAnswerGuidance);
+			appendUnique(finalAnswerGuidance, entry.brief.finalAnswerGuidance);
+			continue;
+		}
+
+		appendUnique(
+			viableAlternatives,
+			entry.brief.openQuestions.map(
+				(item) => `Keep as conditional until resolved: ${item}`,
+			),
+		);
+		appendUnique(
+			dismissedAlternatives,
+			entry.brief.risks.map((item) => `Do not treat as default: ${item}`),
+		);
+		appendUnique(exitCriteria, entry.brief.openQuestions);
+		appendUnique(recommendationBalance, entry.brief.finalAnswerGuidance);
+		appendUnique(finalAnswerGuidance, entry.brief.finalAnswerGuidance);
+	}
+
+	appendUnique(finalAnswerGuidance, [
+		"Recommend one path while preserving genuinely viable alternatives.",
+		"Name switching criteria when alternatives remain materially plausible.",
+	]);
+	if (recommendationBalance.length === 0) {
+		appendUnique(recommendationBalance, [
+			"Be decisive, but do not erase material tradeoffs.",
+		]);
+	}
+
+	return {
+		pass: passSpec.pass,
+		kind: "viable_alternatives_preservation",
+		brief: {
+			viableAlternatives: viableAlternatives.slice(0, MAX_LIST_ITEMS),
+			dismissedAlternatives: dismissedAlternatives.slice(0, MAX_LIST_ITEMS),
+			recommendationBalance: recommendationBalance.slice(0, MAX_LIST_ITEMS),
+			exitCriteria: exitCriteria.slice(0, MAX_LIST_ITEMS),
+			finalAnswerGuidance: finalAnswerGuidance.slice(0, MAX_LIST_ITEMS),
+		},
+	};
+}
+
+function appendUnique(target: string[], candidates: string[]) {
+	const seen = new Set(target);
+	for (const candidate of candidates) {
+		const value = stringValue(candidate);
+		if (!value || seen.has(value)) continue;
+		target.push(value);
+		seen.add(value);
+		if (target.length >= MAX_LIST_ITEMS) return;
+	}
+}
+
+function extractMarkdownSection(input: string, title: string): string | null {
+	const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const match = input.match(
+		new RegExp(`^## ${escapedTitle}\\n([\\s\\S]*?)(?=^## |$)`, "m"),
+	);
+	const value = match?.[1]?.trim();
+	return value ? value : null;
+}
+
+function normalizeWhitespace(value: string): string {
+	return value
+		.replace(/\r/g, "\n")
+		.replace(/[ \t]+/g, " ")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
+function selectSalientSentences(value: string, keywords: string[]): string[] {
+	const lowerKeywords = keywords.map((keyword) => keyword.toLowerCase());
+	const sentences = splitSentences(value);
+	const selected = sentences.filter((sentence) => {
+		const lower = sentence.toLowerCase();
+		return lowerKeywords.some((keyword) => lower.includes(keyword));
+	});
+	const source = selected.length > 0 ? selected : sentences;
+	return source.map(stringValue).filter(Boolean).slice(0, MAX_LIST_ITEMS);
+}
+
+function splitSentences(value: string): string[] {
+	return value
+		.split(/\n+|(?<=[.!?])\s+|;\s+/)
+		.map((part) =>
+			part
+				.replace(/^[-*]\s+/, "")
+				.replace(/^\d+[.)]\s+/, "")
+				.trim(),
+		)
+		.filter((part) => part.length > 0)
+		.slice(0, 16);
+}
+
+function assumptionsFromRequest(value: string): string[] {
+	const assumptions: string[] = [];
+	const lower = value.toLowerCase();
+	if (lower.includes("do not browse")) {
+		assumptions.push(
+			"User wants reasoning from existing/general knowledge only.",
+		);
+	}
+	if (lower.includes("recommend") || lower.includes("decide")) {
+		assumptions.push("A clear recommendation is expected.");
+	}
+	if (lower.includes("hungarian")) {
+		assumptions.push("Hungarian-language users must remain first-class.");
+	}
+	if (assumptions.length === 0) {
+		assumptions.push("Use the current user request as the primary task scope.");
+	}
+	return assumptions.slice(0, MAX_LIST_ITEMS);
+}
+
+function evidenceNeedsFromRequest(
+	value: string,
+): DeliberationFirstPassBrief["evidenceNeeds"] {
+	const lower = value.toLowerCase();
+	if (lower.includes("do not browse")) {
+		return [{ need: "External web evidence", status: "not_needed" }];
+	}
+	const needs: DeliberationFirstPassBrief["evidenceNeeds"] = [];
+	if (
+		lower.includes("cite") ||
+		lower.includes("evidence") ||
+		lower.includes("source")
+	) {
+		needs.push({
+			need: "Source-backed support for citation-sensitive claims",
+			status: "still_needed",
+		});
+	}
+	if (lower.includes("uploaded") || lower.includes("document")) {
+		needs.push({
+			need: "Uploaded document content if available in context",
+			status: "still_needed",
+		});
+	}
+	if (lower.includes("current") || lower.includes("2026")) {
+		needs.push({
+			need: "Freshness-sensitive claims should be qualified or verified",
+			status: "still_needed",
+		});
+	}
+	return needs.slice(0, MAX_LIST_ITEMS);
+}
+
+function finalAnswerGuidanceFromRequest(value: string): string[] {
+	const lower = value.toLowerCase();
+	const guidance: string[] = [];
+	if (lower.includes("recommend") || lower.includes("decide")) {
+		guidance.push("Make one clear recommendation.");
+	}
+	if (
+		lower.includes("compare") ||
+		lower.includes("alternative") ||
+		lower.includes("switching") ||
+		lower.includes("criteria")
+	) {
+		guidance.push("Compare options and preserve switching criteria.");
+	}
+	if (lower.includes("risk") || lower.includes("avoid")) {
+		guidance.push("Name material risks and mitigations without overclaiming.");
+	}
+	if (lower.includes("hungarian")) {
+		guidance.push("Include Hungarian-language implications where relevant.");
+	}
+	if (guidance.length === 0) {
+		guidance.push("Answer directly and qualify uncertainty.");
+	}
+	return guidance.slice(0, MAX_LIST_ITEMS);
+}
+
 export function appendDeliberationBriefsToInput(
 	inputValue: string,
 	briefs: NormalChatDeliberationBrief[],
@@ -226,6 +523,9 @@ export function appendDeliberationBriefsToInput(
 		inputValue,
 		"## Normal Chat Deliberation Guidance",
 		"Use the following transient review notes silently to improve the final answer. Do not mention the deliberation process unless the user explicitly asks about it.",
+		"Treat these notes as private judgment, not as an output format. Answer in natural user-facing prose, bullets, and tables as appropriate; do not emit raw JSON unless the user explicitly requested JSON.",
+		"Preserve enough concrete detail, examples, and rationale for a high-quality answer instead of compressing the response into a checklist.",
+		"If the notes include viable alternatives, keep the final answer decisive while preserving conditional alternatives, second-best paths, and exit criteria that remain genuinely viable.",
 		serializeBriefsForPrompt(briefs),
 	].join("\n\n");
 }
@@ -281,6 +581,25 @@ async function runDeliberationPass(
 		tools: ReturnType<typeof createDeliberationTools>;
 	},
 ): Promise<RunPassResult> {
+	if (params.passSpec.kind === "context_source_gap_review") {
+		return {
+			brief: createFocusedWorkspaceBrief(params.passSpec, params),
+			usage: emptyUsage(),
+			constrained: false,
+		};
+	}
+
+	if (params.passSpec.kind === "viable_alternatives_preservation") {
+		return {
+			brief: createAlternativesPreservationBrief(
+				params.passSpec,
+				params.previousBriefs,
+			),
+			usage: emptyUsage(),
+			constrained: false,
+		};
+	}
+
 	let result: PlainNormalChatModelRunResult;
 	try {
 		result = await runPlainNormalChatModelRun({
@@ -289,7 +608,7 @@ async function runDeliberationPass(
 			runtimeConfig: params.runtimeConfig,
 			system: deliberationSystemPrompt(params.passSpec),
 			resolveProviderOptions: (attemptProvider) =>
-				params.depthEffort
+				params.depthEffort && params.passSpec.useDepthProviderOptions
 					? buildReasoningDepthProviderOptions(
 							attemptProvider,
 							params.depthEffort,
@@ -297,11 +616,14 @@ async function runDeliberationPass(
 					: undefined,
 			abortSignal: params.abortSignal,
 			maxOutputTokens: params.passSpec.maxOutputTokens,
-			tools: params.tools,
-			maxToolSteps: Math.min(
-				params.depthEffort?.maxToolSteps ?? params.passSpec.maxToolSteps,
-				params.passSpec.maxToolSteps,
-			),
+			tools: params.passSpec.maxToolSteps > 0 ? params.tools : undefined,
+			maxToolSteps:
+				params.passSpec.maxToolSteps > 0
+					? Math.min(
+							params.depthEffort?.maxToolSteps ?? params.passSpec.maxToolSteps,
+							params.passSpec.maxToolSteps,
+						)
+					: undefined,
 			messages: [
 				{
 					role: "user",
@@ -363,7 +685,7 @@ async function repairDeliberationBrief(
 			system:
 				"Repair the provided deliberation output into valid compact JSON only. Do not add new facts, chain-of-thought, markdown, or commentary.",
 			resolveProviderOptions: (attemptProvider) =>
-				params.depthEffort
+				params.depthEffort && params.passSpec.useDepthProviderOptions
 					? buildReasoningDepthProviderOptions(
 							attemptProvider,
 							params.depthEffort,
@@ -406,7 +728,7 @@ function deliberationSystemPrompt(passSpec: PlannedDeliberationPass): string {
 		"Return only valid JSON matching the requested schema.",
 		"Do not reveal chain-of-thought, hidden scratchpad, or private reasoning.",
 		"Use read-only tools only when they materially help inspect memory, current web evidence, or selected context.",
-		"Keep every list short. Empty arrays are better than filler.",
+		"Keep the JSON compact: each array has at most 4 short strings, each string is at most 18 words, and empty arrays are better than filler.",
 	];
 	return [...shared, passSpec.systemFocusInstruction].join("\n");
 }
@@ -418,19 +740,12 @@ function deliberationUserPrompt(
 	},
 ): string {
 	const schema = schemaShape(params.passSpec);
-	const context =
-		params.passSpec.schema === "first_pass"
-			? params.preparedInputValue
-			: [
-					"Original prepared prompt context summary:",
-					truncate(params.preparedInputValue, 7_000),
-					"Previous deliberation brief:",
-					serializeBriefsForPrompt(params.previousBriefs),
-				].join("\n\n");
+	const context = deliberationContextForPass(params);
 	return [
 		`Deliberation pass ${params.passSpec.pass}: ${params.passSpec.kind}`,
 		"Return JSON only using this schema shape:",
 		JSON.stringify(schema),
+		"Your response must begin with { and end with }. Do not include markdown, headings, commentary, or final-answer prose.",
 		"Prepared system instruction summary:",
 		truncate(params.preparedSystemPrompt, 2_000),
 		"Deliberation context:",
@@ -438,9 +753,37 @@ function deliberationUserPrompt(
 	].join("\n\n");
 }
 
+function deliberationContextForPass(
+	params: NormalChatDeliberationParams & {
+		passSpec: PlannedDeliberationPass;
+		previousBriefs: NormalChatDeliberationBrief[];
+	},
+): string {
+	if (params.passSpec.schema === "first_pass") return params.preparedInputValue;
+	if (params.passSpec.schema === "alternatives_preservation") {
+		return [
+			"Original prepared prompt context summary:",
+			truncate(params.preparedInputValue, 3_000),
+			"Previous deliberation briefs:",
+			serializeBriefsForPrompt(params.previousBriefs),
+			"Task:",
+			"Identify still-viable alternatives and exit criteria only. Do not produce the final answer.",
+		].join("\n\n");
+	}
+	return [
+		"Original prepared prompt context summary:",
+		truncate(params.preparedInputValue, 7_000),
+		"Previous deliberation brief:",
+		serializeBriefsForPrompt(params.previousBriefs),
+	].join("\n\n");
+}
+
 function schemaShape(passSpec: PlannedDeliberationPass) {
 	if (passSpec.schema === "first_pass") return firstPassSchemaShape();
 	if (passSpec.schema === "second_pass") return secondPassSchemaShape();
+	if (passSpec.schema === "alternatives_preservation") {
+		return alternativesPreservationSchemaShape();
+	}
 	return genericPassSchemaShape();
 }
 
@@ -483,6 +826,16 @@ function genericPassSchemaShape() {
 	};
 }
 
+function alternativesPreservationSchemaShape() {
+	return {
+		viableAlternatives: ["string"],
+		dismissedAlternatives: ["string"],
+		recommendationBalance: ["string"],
+		exitCriteria: ["string"],
+		finalAnswerGuidance: ["string"],
+	};
+}
+
 function parseBrief(
 	passSpec: PlannedDeliberationPass,
 	text: string,
@@ -501,6 +854,13 @@ function parseBrief(
 			pass: passSpec.pass,
 			kind: passSpec.kind as GenericDeliberationPassKind,
 			brief: normalizeGenericPassBrief(parsed),
+		};
+	}
+	if (passSpec.schema === "alternatives_preservation") {
+		return {
+			pass: passSpec.pass,
+			kind: "viable_alternatives_preservation",
+			brief: normalizeAlternativesPassBrief(parsed),
 		};
 	}
 	return {
@@ -579,8 +939,53 @@ function normalizeGenericPassBrief(
 	};
 }
 
+function normalizeAlternativesPassBrief(
+	value: Record<string, unknown>,
+): DeliberationAlternativesPassBrief {
+	return {
+		viableAlternatives: stringListFrom(value, [
+			"viableAlternatives",
+			"viable_alternatives",
+			"alternatives",
+		]),
+		dismissedAlternatives: stringListFrom(value, [
+			"dismissedAlternatives",
+			"dismissed_alternatives",
+			"nonViableAlternatives",
+			"non_viable_alternatives",
+		]),
+		recommendationBalance: stringListFrom(value, [
+			"recommendationBalance",
+			"recommendation_balance",
+			"balance",
+		]),
+		exitCriteria: stringListFrom(value, [
+			"exitCriteria",
+			"exit_criteria",
+			"switchCriteria",
+			"switch_criteria",
+		]),
+		finalAnswerGuidance: stringListFrom(value, [
+			"finalAnswerGuidance",
+			"final_answer_guidance",
+			"guidance",
+		]),
+	};
+}
+
 function stringValue(value: unknown): string {
-	return typeof value === "string" ? value.trim().slice(0, 500) : "";
+	return typeof value === "string" ? value.trim().slice(0, 300) : "";
+}
+
+function stringListFrom(
+	value: Record<string, unknown>,
+	keys: string[],
+): string[] {
+	for (const key of keys) {
+		const list = stringList(value[key]);
+		if (list.length > 0) return list;
+	}
+	return [];
 }
 
 function stringList(value: unknown): string[] {
@@ -629,7 +1034,37 @@ function evidenceStatus(value: unknown): EvidenceNeedStatus {
 function serializeBriefsForPrompt(
 	briefs: NormalChatDeliberationBrief[],
 ): string {
-	return JSON.stringify(briefs, null, 2);
+	return briefs
+		.map((entry) => {
+			const lines = [`Pass ${entry.pass}: ${entry.kind}`];
+			for (const [key, value] of Object.entries(entry.brief)) {
+				const serialized = serializeBriefValue(value);
+				if (serialized) lines.push(`- ${humanizeBriefKey(key)}: ${serialized}`);
+			}
+			return lines.join("\n");
+		})
+		.join("\n\n");
+}
+
+function serializeBriefValue(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (!Array.isArray(value)) return "";
+	const parts = value
+		.map((item) => {
+			if (typeof item === "string") return item;
+			if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+			const record = item as Record<string, unknown>;
+			if (typeof record.need === "string") {
+				return `${record.need} (${String(record.status ?? "still_needed")})`;
+			}
+			return "";
+		})
+		.filter(Boolean);
+	return parts.join("; ");
+}
+
+function humanizeBriefKey(key: string): string {
+	return key.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
 }
 
 function withDeliberationMetadata(params: {

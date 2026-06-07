@@ -149,7 +149,7 @@ describe("runNormalChatDeliberationPasses", () => {
 		mocks.createNormalChatTools.mockReset();
 	});
 
-	it("runs one structured deliberation pass for extended depth", async () => {
+	it("derives a focused workspace brief for extended depth", async () => {
 		mocks.createNormalChatTools.mockReturnValue({
 			tools: {
 				research_web: { __tool: "research_web" },
@@ -158,54 +158,34 @@ describe("runNormalChatDeliberationPasses", () => {
 			},
 			getToolCalls: () => [],
 		});
-		mocks.runPlainNormalChatModelRun.mockResolvedValueOnce({
-			text: JSON.stringify({
-				assumptions: ["The code should stay small."],
-				userIntent: "Review implementation quality.",
-				missingContextQuestions: [],
-				evidenceNeeds: [],
-				relevantFindings: ["The request is self-contained."],
-				edgeCases: ["Retries may duplicate work."],
-				finalAnswerGuidance: ["Mention lifecycle risks."],
-			}),
-			finishReason: "stop",
-			usage: {
-				inputTokens: 100,
-				outputTokens: 40,
-				totalTokens: 140,
-			},
-			model: {},
-		});
 
 		const onStatus = vi.fn();
 		const result = await runNormalChatDeliberationPasses({
 			...runParams(effort("extended")),
+			preparedInputValue:
+				"## Current User Message\nReview this implementation. Retries may duplicate work. Recommend lifecycle risks.",
 			onStatus,
 		});
 
-		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledTimes(1);
-		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
-			expect.objectContaining({
-				tools: {
-					research_web: { __tool: "research_web" },
-					memory_context: { __tool: "memory_context" },
-				},
-				maxToolSteps: 8,
-			}),
-		);
+		expect(mocks.runPlainNormalChatModelRun).not.toHaveBeenCalled();
 		expect(result.briefs).toHaveLength(1);
 		expect(result.briefs[0]).toMatchObject({
 			pass: 1,
 			kind: "context_source_gap_review",
 			brief: {
-				userIntent: "Review implementation quality.",
-				edgeCases: ["Retries may duplicate work."],
+				userIntent: expect.stringContaining("Review this implementation."),
+				edgeCases: expect.arrayContaining([
+					expect.stringContaining("Retries may duplicate work."),
+				]),
+				finalAnswerGuidance: expect.arrayContaining([
+					"Make one clear recommendation.",
+				]),
 			},
 		});
 		expect(result.usage).toEqual({
-			inputTokens: 100,
-			outputTokens: 40,
-			totalTokens: 140,
+			inputTokens: undefined,
+			outputTokens: undefined,
+			totalTokens: undefined,
 		});
 		expect(result.depthMetadata?.appliedEffort?.dimensions).toContain(
 			"deliberation_passes",
@@ -228,7 +208,7 @@ describe("runNormalChatDeliberationPasses", () => {
 		);
 	});
 
-	it("runs two structured deliberation passes for maximum depth", async () => {
+	it("runs maximum depth with a final viable alternatives preservation pass", async () => {
 		mocks.createNormalChatTools.mockReturnValue({
 			tools: {
 				research_web: { __tool: "research_web" },
@@ -237,46 +217,54 @@ describe("runNormalChatDeliberationPasses", () => {
 			},
 			getToolCalls: () => [],
 		});
-		mocks.runPlainNormalChatModelRun
-			.mockResolvedValueOnce({
-				text: JSON.stringify({
-					assumptions: [],
-					userIntent: "Compare options.",
-					missingContextQuestions: [],
-					evidenceNeeds: [],
-					relevantFindings: ["There are tradeoffs."],
-					edgeCases: ["Cost may dominate."],
-					finalAnswerGuidance: ["Compare constraints."],
-				}),
-				finishReason: "stop",
-				usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-				model: {},
-			})
-			.mockResolvedValueOnce({
-				text: JSON.stringify({
-					answerRisks: ["Overstating certainty."],
-					contradictionsOrTensions: [],
-					missedUserNeeds: ["Budget sensitivity."],
-					formatRequirements: ["Keep it concise."],
-					mustInclude: ["Tradeoff summary."],
-					shouldAvoid: ["Process narration."],
-					finalAnswerGuidance: ["State uncertainty."],
-				}),
-				finishReason: "stop",
-				usage: { inputTokens: 80, outputTokens: 30, totalTokens: 110 },
-				model: {},
-			});
+		mocks.runPlainNormalChatModelRun.mockResolvedValueOnce({
+			text: JSON.stringify({
+				answerRisks: ["Overstating certainty."],
+				contradictionsOrTensions: ["Latency and quality pull apart."],
+				missedUserNeeds: ["Budget sensitivity."],
+				formatRequirements: ["Keep it concise."],
+				mustInclude: ["Tradeoff summary."],
+				shouldAvoid: ["Process narration."],
+				finalAnswerGuidance: ["State uncertainty."],
+			}),
+			finishReason: "stop",
+			usage: { inputTokens: 80, outputTokens: 30, totalTokens: 110 },
+			model: {},
+		});
 
-		const result = await runNormalChatDeliberationPasses(
-			runParams(effort("maximum")),
+		const result = await runNormalChatDeliberationPasses({
+			...runParams(effort("maximum")),
+			preparedInputValue:
+				"## Current User Message\nCompare options with evidence about budget data. Cost may dominate. Preserve alternatives and switching criteria.",
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledTimes(1);
+		expect(result.briefs.map(({ pass, kind }) => ({ pass, kind }))).toEqual([
+			{ pass: 1, kind: "context_source_gap_review" },
+			{ pass: 2, kind: "answer_plan_critique" },
+			{ pass: 3, kind: "viable_alternatives_preservation" },
+		]);
+		expect(result.briefs[2]).toEqual(
+			expect.objectContaining({
+				brief: expect.objectContaining({
+					viableAlternatives: expect.arrayContaining([
+						expect.stringContaining("Cost may dominate."),
+						expect.stringContaining("Latency and quality pull apart."),
+						expect.stringContaining("Budget sensitivity."),
+					]),
+					exitCriteria: expect.arrayContaining([
+						expect.stringContaining("Source-backed"),
+					]),
+					finalAnswerGuidance: expect.arrayContaining([
+						expect.stringContaining("Compare options"),
+					]),
+				}),
+			}),
 		);
-
-		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledTimes(2);
-		expect(result.briefs.map((brief) => brief.pass)).toEqual([1, 2]);
 		expect(result.usage).toEqual({
-			inputTokens: 180,
-			outputTokens: 80,
-			totalTokens: 260,
+			inputTokens: 80,
+			outputTokens: 30,
+			totalTokens: 110,
 		});
 	});
 
@@ -289,33 +277,18 @@ describe("runNormalChatDeliberationPasses", () => {
 			},
 			getToolCalls: () => [],
 		});
-		mocks.runPlainNormalChatModelRun
-			.mockResolvedValueOnce({
-				text: JSON.stringify({
-					assumptions: [],
-					userIntent: "Reconcile source-heavy evidence.",
-					missingContextQuestions: [],
-					evidenceNeeds: [],
-					relevantFindings: ["The answer depends on current sources."],
-					edgeCases: [],
-					finalAnswerGuidance: ["Keep source caveats visible."],
-				}),
-				finishReason: "stop",
-				usage: { inputTokens: 90, outputTokens: 40, totalTokens: 130 },
-				model: {},
-			})
-			.mockResolvedValueOnce({
-				text: JSON.stringify({
-					focusAreas: ["Conflicting source claims"],
-					findings: ["Prefer primary sources when claims diverge."],
-					risks: ["Do not merge stale and current figures."],
-					openQuestions: ["Which source is authoritative?"],
-					finalAnswerGuidance: ["Separate confirmed facts from caveats."],
-				}),
-				finishReason: "stop",
-				usage: { inputTokens: 70, outputTokens: 25, totalTokens: 95 },
-				model: {},
-			});
+		mocks.runPlainNormalChatModelRun.mockResolvedValueOnce({
+			text: JSON.stringify({
+				focusAreas: ["Conflicting source claims"],
+				findings: ["Prefer primary sources when claims diverge."],
+				risks: ["Do not merge stale and current figures."],
+				openQuestions: ["Which source is authoritative?"],
+				finalAnswerGuidance: ["Separate confirmed facts from caveats."],
+			}),
+			finishReason: "stop",
+			usage: { inputTokens: 70, outputTokens: 25, totalTokens: 95 },
+			model: {},
+		});
 
 		const sourceHeavy = effort("extended");
 		sourceHeavy.depthMetadata.signals = {
@@ -329,7 +302,7 @@ describe("runNormalChatDeliberationPasses", () => {
 			onStatus,
 		});
 
-		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledTimes(2);
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledTimes(1);
 		expect(result.briefs).toHaveLength(2);
 		expect(result.briefs[1]).toMatchObject({
 			pass: 2,
@@ -341,9 +314,9 @@ describe("runNormalChatDeliberationPasses", () => {
 			},
 		});
 		expect(result.usage).toEqual({
-			inputTokens: 160,
-			outputTokens: 65,
-			totalTokens: 225,
+			inputTokens: 70,
+			outputTokens: 25,
+			totalTokens: 95,
 		});
 		expect(onStatus).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -361,6 +334,57 @@ describe("runNormalChatDeliberationPasses", () => {
 		);
 	});
 
+	it("derives the viable alternatives preservation pass from prior briefs", async () => {
+		mocks.createNormalChatTools.mockReturnValue({
+			tools: {
+				research_web: { __tool: "research_web" },
+				memory_context: { __tool: "memory_context" },
+			},
+			getToolCalls: () => [],
+		});
+		mocks.runPlainNormalChatModelRun.mockResolvedValueOnce({
+			text: JSON.stringify({
+				answerRisks: [],
+				contradictionsOrTensions: ["Hybrid path may preserve control."],
+				missedUserNeeds: ["Deadline sensitivity."],
+				formatRequirements: [],
+				mustInclude: [],
+				shouldAvoid: ["Pure self-hosting as default."],
+				finalAnswerGuidance: ["Preserve the second-best path."],
+			}),
+			finishReason: "stop",
+			usage: { inputTokens: 80, outputTokens: 30, totalTokens: 110 },
+			model: {},
+		});
+
+		const result = await runNormalChatDeliberationPasses({
+			...runParams(effort("maximum")),
+			preparedInputValue:
+				"## Current User Message\nCompare options. Managed API remains fastest. Evidence about procurement risk may be needed.",
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledTimes(1);
+		expect(result.briefs[2]).toMatchObject({
+			kind: "viable_alternatives_preservation",
+			brief: {
+				viableAlternatives: expect.arrayContaining([
+					expect.stringContaining("Managed API remains fastest."),
+					expect.stringContaining("Hybrid path may preserve control."),
+					expect.stringContaining("Deadline sensitivity."),
+				]),
+				dismissedAlternatives: expect.arrayContaining([
+					expect.stringContaining("Pure self-hosting as default."),
+				]),
+				exitCriteria: expect.arrayContaining([
+					expect.stringContaining("Source-backed"),
+				]),
+				finalAnswerGuidance: expect.arrayContaining([
+					expect.stringContaining("Preserve the second-best path."),
+				]),
+			},
+		});
+	});
+
 	it("marks unrepaired dynamic pass output as constrained without crashing", async () => {
 		mocks.createNormalChatTools.mockReturnValue({
 			tools: {
@@ -371,20 +395,6 @@ describe("runNormalChatDeliberationPasses", () => {
 			getToolCalls: () => [],
 		});
 		mocks.runPlainNormalChatModelRun
-			.mockResolvedValueOnce({
-				text: JSON.stringify({
-					assumptions: [],
-					userIntent: "Review evidence.",
-					missingContextQuestions: [],
-					evidenceNeeds: [],
-					relevantFindings: ["A source pass is needed."],
-					edgeCases: [],
-					finalAnswerGuidance: ["Do not overstate certainty."],
-				}),
-				finishReason: "stop",
-				usage: { inputTokens: 90, outputTokens: 40, totalTokens: 130 },
-				model: {},
-			})
 			.mockResolvedValueOnce({
 				text: "not json",
 				finishReason: "stop",
@@ -410,7 +420,7 @@ describe("runNormalChatDeliberationPasses", () => {
 			onStatus,
 		});
 
-		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledTimes(3);
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledTimes(2);
 		expect(result.briefs).toHaveLength(1);
 		expect(result.depthMetadata).toMatchObject({
 			fallback: true,
@@ -420,9 +430,9 @@ describe("runNormalChatDeliberationPasses", () => {
 			},
 		});
 		expect(result.usage).toEqual({
-			inputTokens: 180,
-			outputTokens: 75,
-			totalTokens: 255,
+			inputTokens: 90,
+			outputTokens: 35,
+			totalTokens: 125,
 		});
 		expect(onStatus).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -452,6 +462,7 @@ describe("planDeliberationPasses", () => {
 		).toEqual([
 			{ pass: 1, kind: "context_source_gap_review" },
 			{ pass: 2, kind: "answer_plan_critique" },
+			{ pass: 3, kind: "viable_alternatives_preservation" },
 		]);
 	});
 
@@ -462,6 +473,7 @@ describe("planDeliberationPasses", () => {
 		expect(ordinaryMaximum).toEqual([
 			{ pass: 1, kind: "context_source_gap_review" },
 			{ pass: 2, kind: "answer_plan_critique" },
+			{ pass: 3, kind: "viable_alternatives_preservation" },
 		]);
 
 		const sourceHeavy = effort("extended");
@@ -510,6 +522,7 @@ describe("planDeliberationPasses", () => {
 			{ pass: 2, kind: "source_reconciliation" },
 			{ pass: 3, kind: "workspace_synthesis" },
 			{ pass: 4, kind: "adversarial_edge_case_check" },
+			{ pass: 5, kind: "viable_alternatives_preservation" },
 		]);
 	});
 });
@@ -536,6 +549,7 @@ describe("deliberation prompt helpers", () => {
 		expect(input).toContain(
 			"Use the following transient review notes silently",
 		);
+		expect(input).toContain("preserving conditional alternatives");
 		expect(input).toContain("Retries may duplicate work.");
 	});
 
