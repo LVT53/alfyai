@@ -8,18 +8,25 @@ import {
 	addConversationLinkedContextSources,
 	isLinkedContextSourceError,
 } from "$lib/server/services/linked-context-sources";
+import { listMessages } from "$lib/server/services/messages";
 import {
 	resolveSkillPromptContext,
 	skillSessionToPromptContext,
 } from "$lib/server/services/skills/prompt-context";
 import { startSkillSession } from "$lib/server/services/skills/sessions";
 import { resolveEffectiveSkillDefinition } from "$lib/server/services/skills/user-skills";
+import type { DepthMetadata } from "$lib/types";
+import { resolveReasoningDepthSelection } from "./depth-selection";
 import type {
 	ChatTurnRequestError,
 	ParsedChatTurnRequest,
 	PreflightedChatTurn,
 } from "./types";
-import { resolveReasoningDepthSelection } from "./depth-selection";
+
+const DEPTH_CLARIFICATION_CARRY_FORWARD_PROFILES = new Set([
+	"extended",
+	"maximum",
+]);
 
 type PreflightResult =
 	| { ok: true; value: PreflightedChatTurn }
@@ -200,19 +207,100 @@ export async function preflightChatTurn(params: {
 		...request,
 		linkedSources: resolvedLinkedSources,
 	};
-	const depthSelection = await resolveReasoningDepthSelection({
-		userId,
+	const carriedDepthMetadata = await resolveDepthClarificationCarryForward({
 		conversationId: request.conversationId,
 		request: turnForDepthSelection,
 	});
+	const depthMetadata =
+		carriedDepthMetadata ??
+		(
+			await resolveReasoningDepthSelection({
+				userId,
+				conversationId: request.conversationId,
+				request: turnForDepthSelection,
+			})
+		).metadata;
 
 	return {
 		ok: true,
 		value: {
 			...turnForDepthSelection,
 			linkedSources: resolvedLinkedSources,
-			depthMetadata: depthSelection.metadata,
+			depthMetadata,
 			skillPromptContext,
 		},
 	};
+}
+
+async function resolveDepthClarificationCarryForward(params: {
+	conversationId: string;
+	request: Pick<
+		ParsedChatTurnRequest,
+		| "reasoningDepth"
+		| "modelId"
+		| "modelDisplayName"
+		| "providerDisplayName"
+		| "deepResearchDepth"
+	>;
+}): Promise<DepthMetadata | null> {
+	if (params.request.deepResearchDepth) return null;
+
+	const messages = await listMessages(params.conversationId).catch(() => []);
+	const previousMessage = messages.at(-1);
+	const previousDepthMetadata = previousMessage?.depthMetadata;
+	if (
+		previousMessage?.role !== "assistant" ||
+		previousDepthMetadata?.clarification?.outcome !== "ask" ||
+		previousDepthMetadata.requested !== params.request.reasoningDepth ||
+		!DEPTH_CLARIFICATION_CARRY_FORWARD_PROFILES.has(
+			previousDepthMetadata.appliedProfile,
+		)
+	) {
+		return null;
+	}
+
+	const metadata: DepthMetadata = {
+		requested: params.request.reasoningDepth,
+		appliedProfile: previousDepthMetadata.appliedProfile,
+		fallback: previousDepthMetadata.fallback,
+	};
+	if (previousDepthMetadata.fallbackReason) {
+		metadata.fallbackReason = previousDepthMetadata.fallbackReason;
+	}
+	if (previousDepthMetadata.constraintNote) {
+		metadata.constraintNote = previousDepthMetadata.constraintNote;
+	}
+	if (previousDepthMetadata.classifierSource) {
+		metadata.classifierSource = previousDepthMetadata.classifierSource;
+	}
+	if (previousDepthMetadata.classifierModelSource) {
+		metadata.classifierModelSource =
+			previousDepthMetadata.classifierModelSource;
+	}
+	if (previousDepthMetadata.classifierModelId) {
+		metadata.classifierModelId = previousDepthMetadata.classifierModelId;
+	}
+	if (previousDepthMetadata.classifierModelDisplayName) {
+		metadata.classifierModelDisplayName =
+			previousDepthMetadata.classifierModelDisplayName;
+	}
+	if (previousDepthMetadata.classifierModelFallbackReason) {
+		metadata.classifierModelFallbackReason =
+			previousDepthMetadata.classifierModelFallbackReason;
+	}
+	if (previousDepthMetadata.configuredClassifierModelId) {
+		metadata.configuredClassifierModelId =
+			previousDepthMetadata.configuredClassifierModelId;
+	}
+	if (previousDepthMetadata.signals) {
+		metadata.signals = { ...previousDepthMetadata.signals };
+	}
+	if (params.request.modelId) metadata.modelId = params.request.modelId;
+	if (params.request.modelDisplayName) {
+		metadata.modelDisplayName = params.request.modelDisplayName;
+	}
+	if (params.request.providerDisplayName) {
+		metadata.providerDisplayName = params.request.providerDisplayName;
+	}
+	return metadata;
 }

@@ -14,6 +14,15 @@ export type DepthGroundingNeed = "none" | "possible" | "useful" | "required";
 export type DepthContextBreadth = "narrow" | "normal" | "broad";
 export type DepthOutputRoom = "concise" | "normal" | "expanded";
 export type DepthToolUse = "none" | "normal" | "source_heavy";
+export type DepthOutcome =
+	| "normal_response"
+	| "clarification_requested"
+	| "proceeded_with_assumption";
+export type DepthClarificationOutcome = "ask" | "proceed_with_assumption";
+export type DepthClarificationReason =
+	| "multiple_plausible_targets"
+	| "user_requested_assumption"
+	| "classifier";
 export type ResponseActivityKind =
 	| "depth"
 	| "deliberation"
@@ -100,6 +109,15 @@ export interface DepthMetadata {
 	providerDisplayName?: string;
 	signals?: DepthSelectionSignals;
 	appliedEffort?: DepthAppliedEffortMetadata;
+	outcome?: DepthOutcome;
+	clarification?: {
+		outcome: DepthClarificationOutcome;
+		reason: DepthClarificationReason;
+		language: UiLanguage;
+		classifierSource?: string;
+		question?: string;
+		assumption?: string;
+	};
 }
 
 export function isReasoningDepth(value: unknown): value is ReasoningDepth {
@@ -149,7 +167,9 @@ export function getProviderIdFromModelId(modelId: ModelId): string | null {
 	return null;
 }
 
-export function getProviderProviderIdFromModelId(modelId: ModelId): string | null {
+export function getProviderProviderIdFromModelId(
+	modelId: ModelId,
+): string | null {
 	if (!modelId.startsWith("provider:")) return null;
 	const parts = modelId.split(":");
 	// Format: provider:<provider-uuid>:<model-uuid>
@@ -968,7 +988,12 @@ export interface ToolCallEntry {
 
 export type ThinkingSegment =
 	| { type: "text"; content: string }
-	| { type: "status"; id: string; label: string; status: ResponseActivityStatus }
+	| {
+			type: "status";
+			id: string;
+			label: string;
+			status: ResponseActivityStatus;
+	  }
 	| {
 			type: "tool_call";
 			callId?: string;

@@ -11,7 +11,10 @@ import type {
 } from "$lib/server/services/normal-chat-model";
 import { runPlainNormalChatModelRun } from "$lib/server/services/normal-chat-model";
 import type { ToolCallRecorder } from "$lib/server/services/normal-chat-tools";
-import { createNormalChatTools, createToolCallRecorder } from "$lib/server/services/normal-chat-tools";
+import {
+	createNormalChatTools,
+	createToolCallRecorder,
+} from "$lib/server/services/normal-chat-tools";
 import type {
 	DepthMetadata,
 	ModelId,
@@ -19,13 +22,15 @@ import type {
 	ToolCallEntry,
 } from "$lib/types";
 import type { AuthenticatedPromptUser } from "../normal-chat-context";
+import {
+	type DeliberationPassKind,
+	deliberationPassCount,
+	type PlannedDeliberationPass,
+	planDeliberationPasses,
+	shouldRunDeliberationPasses,
+} from "./deliberation-pass-catalogue";
 
 const MAX_LIST_ITEMS = 6;
-const DELIBERATION_MAX_OUTPUT_TOKENS = 1_500;
-const DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS = 900;
-const EXTENDED_PASS_COUNT = 1;
-const MAXIMUM_PASS_COUNT = 2;
-const DELIBERATION_TOOL_STEPS = 8;
 
 type EvidenceNeedStatus =
 	| "not_needed"
@@ -56,16 +61,34 @@ export type DeliberationSecondPassBrief = {
 	finalAnswerGuidance: string[];
 };
 
+export type DeliberationGenericPassBrief = {
+	focusAreas: string[];
+	findings: string[];
+	risks: string[];
+	openQuestions: string[];
+	finalAnswerGuidance: string[];
+};
+
+type GenericDeliberationPassKind = Exclude<
+	DeliberationPassKind,
+	"context_source_gap_review" | "answer_plan_critique"
+>;
+
 export type NormalChatDeliberationBrief =
 	| {
-			pass: 1;
+			pass: number;
 			kind: "context_source_gap_review";
 			brief: DeliberationFirstPassBrief;
 	  }
 	| {
-			pass: 2;
+			pass: number;
 			kind: "answer_plan_critique";
 			brief: DeliberationSecondPassBrief;
+	  }
+	| {
+			pass: number;
+			kind: GenericDeliberationPassKind;
+			brief: DeliberationGenericPassBrief;
 	  };
 
 export type NormalChatDeliberationResult = {
@@ -92,37 +115,23 @@ export type NormalChatDeliberationParams = {
 	abortSignal?: AbortSignal;
 };
 
-type DeliberationPassKind =
-	| "context_source_gap_review"
-	| "answer_plan_critique";
-
 type RunPassResult = {
 	brief: NormalChatDeliberationBrief | null;
 	usage: NormalChatModelRunUsage;
 	constrained: boolean;
 };
 
-export function shouldRunDeliberationPasses(
-	depthEffort: ReasoningDepthEffort | null,
-): boolean {
-	const profile = depthEffort?.depthMetadata.appliedProfile;
-	return profile === "extended" || profile === "maximum";
-}
-
-export function deliberationPassCount(
-	depthEffort: ReasoningDepthEffort | null,
-): number {
-	const profile = depthEffort?.depthMetadata.appliedProfile;
-	if (profile === "extended") return EXTENDED_PASS_COUNT;
-	if (profile === "maximum") return MAXIMUM_PASS_COUNT;
-	return 0;
-}
+export {
+	deliberationPassCount,
+	planDeliberationPasses,
+	shouldRunDeliberationPasses,
+};
 
 export async function runNormalChatDeliberationPasses(
 	params: NormalChatDeliberationParams,
 ): Promise<NormalChatDeliberationResult> {
-	const passCount = deliberationPassCount(params.depthEffort);
-	if (passCount === 0 || !params.depthEffort) {
+	const passPlan = planDeliberationPasses(params.depthEffort);
+	if (passPlan.length === 0 || !params.depthEffort) {
 		return {
 			briefs: [],
 			usage: emptyUsage(),
@@ -132,36 +141,34 @@ export async function runNormalChatDeliberationPasses(
 	}
 
 	const deliberationRecorder = createToolCallRecorder();
-	const tools = createDeliberationTools({ ...params, recorder: deliberationRecorder });
+	const tools = createDeliberationTools({
+		...params,
+		recorder: deliberationRecorder,
+	});
 	const briefs: NormalChatDeliberationBrief[] = [];
 	let usage = emptyUsage();
 	const constraints: string[] = [];
 
-	for (let pass = 1; pass <= passCount; pass += 1) {
+	for (const passSpec of passPlan) {
 		if (params.abortSignal?.aborted) {
 			break;
 		}
-		const kind: DeliberationPassKind =
-			pass === 1 ? "context_source_gap_review" : "answer_plan_critique";
 		params.onStatus?.(
 			deliberationStatusEntry({
-				pass,
-				kind,
+				passSpec,
 				status: "running",
 				language: params.language,
 			}),
 		);
 		const result = await runDeliberationPass({
 			...params,
-			pass,
-			kind,
+			passSpec,
 			previousBriefs: briefs,
 			tools,
 		});
 		params.onStatus?.(
 			deliberationStatusEntry({
-				pass,
-				kind,
+				passSpec,
 				status: result.constrained ? "error" : "done",
 				language: params.language,
 			}),
@@ -171,7 +178,7 @@ export async function runNormalChatDeliberationPasses(
 			briefs.push(result.brief);
 		}
 		if (result.constrained) {
-			constraints.push(`deliberation_pass_${pass}_constrained`);
+			constraints.push(`deliberation_pass_${passSpec.pass}_constrained`);
 		}
 	}
 
@@ -180,7 +187,7 @@ export async function runNormalChatDeliberationPasses(
 		usage,
 		depthMetadata: withDeliberationMetadata({
 			effort: params.depthEffort,
-			attemptedPasses: passCount,
+			attemptedPasses: passPlan.length,
 			completedPasses: briefs.length,
 			constraints,
 		}),
@@ -189,13 +196,12 @@ export async function runNormalChatDeliberationPasses(
 }
 
 function deliberationStatusEntry(params: {
-	pass: number;
-	kind: DeliberationPassKind;
+	passSpec: PlannedDeliberationPass;
 	status: ResponseActivityEntry["status"];
 	language: "en" | "hu";
 }): ResponseActivityEntry {
 	return {
-		id: `deliberation-pass-${params.pass}`,
+		id: `deliberation-pass-${params.passSpec.pass}`,
 		kind: "deliberation",
 		status: params.status,
 		label: deliberationStatusLabel(params),
@@ -204,25 +210,11 @@ function deliberationStatusEntry(params: {
 }
 
 function deliberationStatusLabel(params: {
-	kind: DeliberationPassKind;
+	passSpec: PlannedDeliberationPass;
 	status: ResponseActivityEntry["status"];
 	language: "en" | "hu";
 }): string {
-	const done = params.status !== "running";
-	if (params.language === "hu") {
-		if (params.kind === "context_source_gap_review") {
-			return done
-				? "Kontextus és források áttekintve"
-				: "Kontextus és források áttekintése";
-		}
-		return done ? "Választerv ellenőrizve" : "Választerv ellenőrzése";
-	}
-	if (params.kind === "context_source_gap_review") {
-		return done
-			? "Reviewed context and sources"
-			: "Reviewing context and sources";
-	}
-	return done ? "Checked answer plan" : "Checking answer plan";
+	return params.passSpec.statusLabels[params.language][params.status];
 }
 
 export function appendDeliberationBriefsToInput(
@@ -284,8 +276,7 @@ function createDeliberationTools(
 
 async function runDeliberationPass(
 	params: NormalChatDeliberationParams & {
-		pass: number;
-		kind: DeliberationPassKind;
+		passSpec: PlannedDeliberationPass;
 		previousBriefs: NormalChatDeliberationBrief[];
 		tools: ReturnType<typeof createDeliberationTools>;
 	},
@@ -296,7 +287,7 @@ async function runDeliberationPass(
 			provider: params.provider,
 			modelId: params.modelId,
 			runtimeConfig: params.runtimeConfig,
-			system: deliberationSystemPrompt(params.kind),
+			system: deliberationSystemPrompt(params.passSpec),
 			resolveProviderOptions: (attemptProvider) =>
 				params.depthEffort
 					? buildReasoningDepthProviderOptions(
@@ -305,11 +296,11 @@ async function runDeliberationPass(
 						)
 					: undefined,
 			abortSignal: params.abortSignal,
-			maxOutputTokens: DELIBERATION_MAX_OUTPUT_TOKENS,
+			maxOutputTokens: params.passSpec.maxOutputTokens,
 			tools: params.tools,
 			maxToolSteps: Math.min(
-				params.depthEffort?.maxToolSteps ?? DELIBERATION_TOOL_STEPS,
-				DELIBERATION_TOOL_STEPS,
+				params.depthEffort?.maxToolSteps ?? params.passSpec.maxToolSteps,
+				params.passSpec.maxToolSteps,
 			),
 			messages: [
 				{
@@ -334,7 +325,7 @@ async function runDeliberationPass(
 		};
 	}
 
-	const parsed = parseBrief(params.pass, result.text);
+	const parsed = parseBrief(params.passSpec, result.text);
 	if (parsed) {
 		return {
 			brief: parsed,
@@ -356,11 +347,13 @@ async function runDeliberationPass(
 
 async function repairDeliberationBrief(
 	params: NormalChatDeliberationParams & {
-		pass: number;
-		kind: DeliberationPassKind;
+		passSpec: PlannedDeliberationPass;
 		rawText: string;
 	},
-): Promise<{ brief: NormalChatDeliberationBrief | null; usage: NormalChatModelRunUsage }> {
+): Promise<{
+	brief: NormalChatDeliberationBrief | null;
+	usage: NormalChatModelRunUsage;
+}> {
 	let result: PlainNormalChatModelRunResult;
 	try {
 		result = await runPlainNormalChatModelRun({
@@ -377,7 +370,7 @@ async function repairDeliberationBrief(
 						)
 					: undefined,
 			abortSignal: params.abortSignal,
-			maxOutputTokens: DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS,
+			maxOutputTokens: params.passSpec.repairMaxOutputTokens,
 			messages: [
 				{
 					role: "user",
@@ -385,10 +378,8 @@ async function repairDeliberationBrief(
 						{
 							type: "text",
 							text: [
-								`Expected schema for pass ${params.pass}:`,
-								params.pass === 1
-									? JSON.stringify(firstPassSchemaShape())
-									: JSON.stringify(secondPassSchemaShape()),
+								`Expected schema for pass ${params.passSpec.pass}:`,
+								JSON.stringify(schemaShape(params.passSpec)),
 								"Raw output:",
 								params.rawText,
 							].join("\n\n"),
@@ -404,12 +395,12 @@ async function repairDeliberationBrief(
 		return { brief: null, usage: emptyUsage() };
 	}
 	return {
-		brief: parseBrief(params.pass, result.text),
+		brief: parseBrief(params.passSpec, result.text),
 		usage: result.usage,
 	};
 }
 
-function deliberationSystemPrompt(kind: DeliberationPassKind): string {
+function deliberationSystemPrompt(passSpec: PlannedDeliberationPass): string {
 	const shared = [
 		"You are running a bounded Normal Chat deliberation pass before the final answer.",
 		"Return only valid JSON matching the requested schema.",
@@ -417,29 +408,18 @@ function deliberationSystemPrompt(kind: DeliberationPassKind): string {
 		"Use read-only tools only when they materially help inspect memory, current web evidence, or selected context.",
 		"Keep every list short. Empty arrays are better than filler.",
 	];
-	if (kind === "context_source_gap_review") {
-		return [
-			...shared,
-			"Focus on user intent, assumptions, evidence needs, relevant findings, missing context, and edge cases.",
-		].join("\n");
-	}
-	return [
-		...shared,
-		"Focus on answer risks, contradictions, missed user needs, format requirements, must-include points, and things to avoid.",
-	].join("\n");
+	return [...shared, passSpec.systemFocusInstruction].join("\n");
 }
 
 function deliberationUserPrompt(
 	params: NormalChatDeliberationParams & {
-		pass: number;
-		kind: DeliberationPassKind;
+		passSpec: PlannedDeliberationPass;
 		previousBriefs: NormalChatDeliberationBrief[];
 	},
 ): string {
-	const schema =
-		params.pass === 1 ? firstPassSchemaShape() : secondPassSchemaShape();
+	const schema = schemaShape(params.passSpec);
 	const context =
-		params.pass === 1
+		params.passSpec.schema === "first_pass"
 			? params.preparedInputValue
 			: [
 					"Original prepared prompt context summary:",
@@ -448,7 +428,7 @@ function deliberationUserPrompt(
 					serializeBriefsForPrompt(params.previousBriefs),
 				].join("\n\n");
 	return [
-		`Deliberation pass ${params.pass}: ${params.kind}`,
+		`Deliberation pass ${params.passSpec.pass}: ${params.passSpec.kind}`,
 		"Return JSON only using this schema shape:",
 		JSON.stringify(schema),
 		"Prepared system instruction summary:",
@@ -458,12 +438,23 @@ function deliberationUserPrompt(
 	].join("\n\n");
 }
 
+function schemaShape(passSpec: PlannedDeliberationPass) {
+	if (passSpec.schema === "first_pass") return firstPassSchemaShape();
+	if (passSpec.schema === "second_pass") return secondPassSchemaShape();
+	return genericPassSchemaShape();
+}
+
 function firstPassSchemaShape() {
 	return {
 		assumptions: ["string"],
 		userIntent: "string",
 		missingContextQuestions: ["string"],
-		evidenceNeeds: [{ need: "string", status: "not_needed|satisfied|unavailable|still_needed" }],
+		evidenceNeeds: [
+			{
+				need: "string",
+				status: "not_needed|satisfied|unavailable|still_needed",
+			},
+		],
 		relevantFindings: ["string"],
 		edgeCases: ["string"],
 		finalAnswerGuidance: ["string"],
@@ -482,21 +473,38 @@ function secondPassSchemaShape() {
 	};
 }
 
+function genericPassSchemaShape() {
+	return {
+		focusAreas: ["string"],
+		findings: ["string"],
+		risks: ["string"],
+		openQuestions: ["string"],
+		finalAnswerGuidance: ["string"],
+	};
+}
+
 function parseBrief(
-	pass: number,
+	passSpec: PlannedDeliberationPass,
 	text: string,
 ): NormalChatDeliberationBrief | null {
 	const parsed = parseJsonObject(text);
 	if (!parsed) return null;
-	if (pass === 1) {
+	if (passSpec.schema === "first_pass") {
 		return {
-			pass: 1,
+			pass: passSpec.pass,
 			kind: "context_source_gap_review",
 			brief: normalizeFirstPassBrief(parsed),
 		};
 	}
+	if (passSpec.schema === "generic_brief") {
+		return {
+			pass: passSpec.pass,
+			kind: passSpec.kind as GenericDeliberationPassKind,
+			brief: normalizeGenericPassBrief(parsed),
+		};
+	}
 	return {
-		pass: 2,
+		pass: passSpec.pass,
 		kind: "answer_plan_critique",
 		brief: normalizeSecondPassBrief(parsed),
 	};
@@ -559,19 +567,30 @@ function normalizeSecondPassBrief(
 	};
 }
 
+function normalizeGenericPassBrief(
+	value: Record<string, unknown>,
+): DeliberationGenericPassBrief {
+	return {
+		focusAreas: stringList(value.focusAreas),
+		findings: stringList(value.findings),
+		risks: stringList(value.risks),
+		openQuestions: stringList(value.openQuestions),
+		finalAnswerGuidance: stringList(value.finalAnswerGuidance),
+	};
+}
+
 function stringValue(value: unknown): string {
 	return typeof value === "string" ? value.trim().slice(0, 500) : "";
 }
 
 function stringList(value: unknown): string[] {
 	if (!Array.isArray(value)) return [];
-	return value
-		.map(stringValue)
-		.filter(Boolean)
-		.slice(0, MAX_LIST_ITEMS);
+	return value.map(stringValue).filter(Boolean).slice(0, MAX_LIST_ITEMS);
 }
 
-function evidenceNeeds(value: unknown): DeliberationFirstPassBrief["evidenceNeeds"] {
+function evidenceNeeds(
+	value: unknown,
+): DeliberationFirstPassBrief["evidenceNeeds"] {
 	if (!Array.isArray(value)) return [];
 	return value
 		.map((entry) => {
@@ -607,7 +626,9 @@ function evidenceStatus(value: unknown): EvidenceNeedStatus {
 	return "still_needed";
 }
 
-function serializeBriefsForPrompt(briefs: NormalChatDeliberationBrief[]): string {
+function serializeBriefsForPrompt(
+	briefs: NormalChatDeliberationBrief[],
+): string {
 	return JSON.stringify(briefs, null, 2);
 }
 
@@ -620,7 +641,10 @@ function withDeliberationMetadata(params: {
 	const base = withReasoningDepthPreparedBudget(params.effort);
 	const appliedEffort = base.appliedEffort;
 	if (!appliedEffort) return base;
-	const constraints = mergeUnique(appliedEffort.constraints, params.constraints);
+	const constraints = mergeUnique(
+		appliedEffort.constraints,
+		params.constraints,
+	);
 	return {
 		...base,
 		...(params.completedPasses < params.attemptedPasses
@@ -631,7 +655,9 @@ function withDeliberationMetadata(params: {
 			: {}),
 		appliedEffort: {
 			...appliedEffort,
-			dimensions: mergeUnique(appliedEffort.dimensions, ["deliberation_passes"]),
+			dimensions: mergeUnique(appliedEffort.dimensions, [
+				"deliberation_passes",
+			]),
 			...(constraints.length > 0 ? { constraints } : {}),
 		},
 	};

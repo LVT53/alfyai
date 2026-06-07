@@ -294,6 +294,26 @@ _Avoid_: chain-of-thought toggle, quality mode, spinner time
 The pre-turn decision used when **Reasoning Depth** is Auto. It may choose standard, extended, or maximum Normal Chat effort from the user's request and lightweight turn context, but it must not choose reasoning-off behavior; disabling reasoning remains an explicit user choice. It should reserve maximum effort for clearly hard or high-value turns and fall back to standard effort if the decision cannot be completed.
 _Avoid_: hidden off switch, mid-answer escalation, hardcoded keyword mode
 
+**Depth Clarification**:
+A concise localized user-facing question asked as a **Normal Chat** response before high-cost **Depth Profiles** begin when multiple plausible answer targets would materially change expensive work. It asks at most one scoping question, may offer concrete interpretations plus an open-ended alternative, must not expose cost, token, pass-count, or deliberation internals, should use app-owned localized wording rather than model-authored user-facing prose, and should not create a paused or resumable turn state in v1.
+_Avoid_: context clarification, hidden assumption, English-only clarification, paused depth turn
+
+**Depth Clarification Turn**:
+A normal persisted **Normal Chat Turn** whose assistant response is a **Depth Clarification** instead of a final substantive answer. It should remain visible in conversation history and may carry compact metadata for one-follow-up **Depth Clarification Carry-forward**.
+_Avoid_: preflight error, invisible prompt rewrite, unpersisted user request, hidden retry state
+
+**Depth Clarification Gate**:
+The bounded pre-turn decision after high-cost **Reasoning Depth** effort is selected and before expensive Normal Chat work begins. It uses deterministic bypasses before any cheap model classification, asks only when the selected effort is high-cost, multiple plausible answer targets exist, and the wrong target would materially change the work, then decides whether to proceed, ask a **Depth Clarification**, or proceed with an explicit assumption.
+_Avoid_: full context selection, source-heavy precheck, deliberation pass, approval workflow, model-only gate
+
+**Depth Assumption**:
+A brief user-facing assumption stated in the final answer when a high-cost **Depth Profile** can proceed without asking a **Depth Clarification** because one interpretation is clearly dominant. It should name only assumptions that materially shaped the answer and should not mention the internal clarification gate.
+_Avoid_: hidden assumption, gate explanation, verbose preamble, weak guess
+
+**Depth Clarification Carry-forward**:
+The one-follow-up preservation of the high-cost **Depth Profile** that caused a **Depth Clarification**, so the clarified next turn can still receive the intended effort. It is not a paused turn, a durable preference, or a guarantee that the same effort applies after the user changes the visible composer depth.
+_Avoid_: paused turn resume, sticky depth preference, hidden Max mode
+
 **Depth Classifier Model**:
 The model used for **Automatic Depth Selection**. By default it is the user's selected **Provider Model** for the turn, but an administrator may configure a specific available **Provider Model** for system use to make depth classification faster, cheaper, or more consistent.
 _Avoid_: hidden assistant model, second chat model, hardcoded classifier
@@ -315,7 +335,7 @@ The resolved effort profile applied to a Normal Chat turn after **Reasoning Dept
 _Avoid_: visible mode list, provider tier, model name
 
 **Normal Chat Deliberation Pass**:
-A bounded extra model pass inside a **Normal Chat Turn** that lets higher **Depth Profiles** review context, sources, assumptions, draft quality, or missed edge cases before the final answer. Extended runs one deliberation pass and maximum runs two once selected, so they are expected to add latency, but they remain synchronous Normal Chat work and do not create a **Deep Research Job**, approval workflow, or report lifecycle.
+A bounded extra model pass inside a **Normal Chat Turn** that lets higher **Depth Profiles** review context, sources, assumptions, draft quality, or missed edge cases before the final answer. Extended and maximum keep a stable baseline pass plan, while dynamic high-cost planning may choose additional bounded read-only passes such as source reconciliation, workspace synthesis, or edge-case review when depth signals justify the added latency. Deliberation remains synchronous Normal Chat work and does not create a **Deep Research Job**, approval workflow, or report lifecycle.
 _Avoid_: Deep Research pass, hidden research job, background report
 
 **Normal Chat Deliberation Brief**:
@@ -350,6 +370,10 @@ _Avoid_: Deep mode, Deep Research, automatic research job
 The user-inspectable post-response metadata that records which **Depth Profile** was applied to a Normal Chat turn and why at a compact level, including whether higher-depth deliberation was constrained or degraded. It helps users and operators understand effort tradeoffs without exposing private model reasoning.
 _Avoid_: chain-of-thought, debug dump, hidden prompt
 
+**Depth Outcome**:
+The compact result category for a **Reasoning Depth** decision, distinguishing completed high-cost work from a **Depth Clarification Turn**, constrained deliberation, or ordinary standard response. It prevents metadata, analytics, and user-facing audit details from treating a clarification as if expensive deliberation actually ran.
+_Avoid_: fake Max completion, hidden analytics flag, pass result dump
+
 **Thinking Trace**:
 Provider-exposed or app-extracted reasoning text associated with an assistant response. It may be useful for audit and transparency when available, but it is not an authoritative explanation of the final answer and should remain secondary to the answer, sources, and structured metadata. The compact user-facing label for this trace is **Thought**. Completed Thought disclosures should stay focused on the trace itself rather than replaying tool calls or source activity.
 _Avoid_: official rationale, proof, answer explanation
@@ -363,8 +387,8 @@ Operational timing and outcome facts about **Automatic Depth Selection** and the
 _Avoid_: spinner budget, hardcoded timeout, private reasoning
 
 **Reasoning Depth Evaluation Harness**:
-A focused Normal Chat evaluation set that compares standard, extended, and maximum **Depth Profiles** on representative prompts for edge-case handling, source grounding, context awareness, format discipline, latency, and cost. It exists to prove higher depth earns its added response time rather than merely making answers slower.
-_Avoid_: live demo, subjective vibe check, Deep Research evaluation
+A focused Normal Chat evaluation set that compares standard, extended, maximum, and high-cost clarification behavior on representative prompts for edge-case handling, source grounding, context awareness, format discipline, latency, cost, and wrong-target avoidance. It exists to prove higher depth earns its added response time rather than merely making answers slower or asking unnecessary clarifying questions.
+_Avoid_: live demo, subjective vibe check, Deep Research evaluation, English-only benchmark
 
 **Deliberation Status Line**:
 A compact Normal Chat pending-response surface that shows one current high-level **Normal Chat Deliberation Pass** status above the inline **Thought** disclosure while higher **Depth Profiles** are running. It is driven by real pass/tool/context work, changes status with a smooth transition, and disappears from the main answer surface after completion.

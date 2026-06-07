@@ -31,7 +31,7 @@ let freshTimeout: ReturnType<typeof setTimeout> | undefined;
 let thinkingSeconds = $state(0);
 let thinkingTimerInterval: ReturnType<typeof setInterval> | undefined;
 
-	const isActiveThinking = $derived(!thinkingIsDone);
+const isActiveThinking = $derived(!thinkingIsDone);
 const visibleSegmentsRaw = $derived(segments.filter(isVisibleThinkingSegment));
 
 function isDeliberationStatusSegment(segment: ThinkingSegment): boolean {
@@ -69,17 +69,15 @@ const latestDeliberationStatusSegment = $derived.by(() => {
 const visibleSegments = $derived(
 	streaming
 		? visibleSegmentsRaw.filter((segment) => {
-			if (!isDeliberationStatusSegment(segment)) return true;
-			return latestDeliberationStatusSegment
-				? segment.id === latestDeliberationStatusSegment.id
-				: false;
-		})
+				if (!isDeliberationStatusSegment(segment)) return true;
+				return latestDeliberationStatusSegment
+					? segment.id === latestDeliberationStatusSegment.id
+					: false;
+			})
 		: visibleSegmentsRaw,
 );
 const hasSegments = $derived(visibleSegments.length > 0);
-const visibleTools = $derived(
-	segments.filter(isVisibleThinkingToolCall),
-);
+const visibleTools = $derived(segments.filter(isVisibleThinkingToolCall));
 const hasVisibleSurface = $derived(
 	content.trim().length > 0 || hasSegments || visibleTools.length > 0,
 );
@@ -111,23 +109,23 @@ $effect(() => {
 	};
 });
 
-	$effect(() => {
-		if (isActiveThinking) {
-			thinkingTimerInterval = setInterval(() => {
-				thinkingSeconds += 1;
-			}, 1000);
-		} else {
-			clearInterval(thinkingTimerInterval);
-		}
-		return () => {
-			clearInterval(thinkingTimerInterval);
-		};
-	});
+$effect(() => {
+	if (isActiveThinking) {
+		thinkingTimerInterval = setInterval(() => {
+			thinkingSeconds += 1;
+		}, 1000);
+	} else {
+		clearInterval(thinkingTimerInterval);
+	}
+	return () => {
+		clearInterval(thinkingTimerInterval);
+	};
+});
 
 const formattedThinkingTime = $derived.by(() => {
 	const seconds = thinkingIsDone ? thinkingDurationSeconds : thinkingSeconds;
 	if (seconds < 60) {
-		return `${seconds} s`;
+		return `${seconds}s`;
 	}
 	const minutes = Math.floor(seconds / 60);
 	const remainingSeconds = seconds % 60;
@@ -175,7 +173,8 @@ function getFetchUrls(name: string, input: Record<string, unknown>): string[] {
 function getFetchedSources(
 	segment: ThinkingSegment,
 ): Array<{ title: string; url: string }> {
-	if (segment.type !== "tool_call" || segment.name !== "research_web") return [];
+	if (segment.type !== "tool_call" || segment.name !== "research_web")
+		return [];
 	return (segment.candidates ?? [])
 		.filter((candidate) => candidate.sourceType === "web" && candidate.url)
 		.slice(0, 6)
@@ -194,7 +193,10 @@ function formatToolCall(name: string, input: Record<string, unknown>): string {
 	}
 	if (n.includes("search") || n.includes("tavily")) {
 		const q = input.query ?? input.q ?? Object.values(input)[0];
-		const label = n === "research_web" || n.includes("web") ? toolLabel : $t("toolCalls.search");
+		const label =
+			n === "research_web" || n.includes("web")
+				? toolLabel
+				: $t("toolCalls.search");
 		return `${label}: "${String(q ?? "").slice(0, 200)}"`;
 	}
 	if (isFetchTool(name)) {

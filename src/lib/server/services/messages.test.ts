@@ -262,6 +262,48 @@ describe("messages Honcho metadata", () => {
 		]);
 	});
 
+	it("hydrates Depth Clarification metadata when listing messages", async () => {
+		mockRows.push({
+			id: "assistant-depth-clarification-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "I can do that, but I need one choice first.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "maximum",
+					fallback: false,
+					outcome: "clarification_requested",
+					clarification: {
+						outcome: "ask",
+						reason: "multiple_plausible_targets",
+						language: "en",
+						question: "Which platform should I use?",
+					},
+				},
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		await expect(listMessages("conv-1")).resolves.toEqual([
+			expect.objectContaining({
+				id: "assistant-depth-clarification-1",
+				depthMetadata: expect.objectContaining({
+					outcome: "clarification_requested",
+					clarification: expect.objectContaining({
+						outcome: "ask",
+						reason: "multiple_plausible_targets",
+						language: "en",
+					}),
+				}),
+			}),
+		]);
+	});
+
 	it("preserves Honcho metadata when evidence metadata is updated", async () => {
 		mockRows.push({
 			id: "assistant-1",
@@ -660,14 +702,21 @@ describe("messages Honcho metadata", () => {
 	it("hydrates Extended Depth Metadata from persisted assistant messages", async () => {
 		const { createMessage } = await import("./messages");
 
-		const created = await createMessage("conv-1", "assistant", "Extended-depth answer", undefined, undefined, {
-			depthMetadata: {
-				requested: "auto",
-				appliedProfile: "extended",
-				fallback: false,
-				classifierSource: "control_model",
+		const created = await createMessage(
+			"conv-1",
+			"assistant",
+			"Extended-depth answer",
+			undefined,
+			undefined,
+			{
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "extended",
+					fallback: false,
+					classifierSource: "control_model",
+				},
 			},
-		});
+		);
 
 		expect(created.depthMetadata).toEqual({
 			requested: "auto",

@@ -73,6 +73,7 @@ vi.mock("$lib/server/services/chat-turn/depth-selection", () => ({
 
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(),
+	listMessages: vi.fn(async () => []),
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageHonchoMetadata: vi.fn(async () => undefined),
 }));

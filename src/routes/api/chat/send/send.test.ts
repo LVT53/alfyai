@@ -59,6 +59,7 @@ vi.mock("$lib/server/services/deep-research/planning-context", () => ({
 
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(),
+	listMessages: vi.fn(async () => []),
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageHonchoMetadata: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
@@ -223,12 +224,12 @@ import {
 	getChatFilesForAssistantMessage,
 	syncGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
+import { resolveReasoningDepthSelection } from "$lib/server/services/chat-turn/depth-selection";
 import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import {
 	getConversation,
 	touchConversation,
 } from "$lib/server/services/conversations";
-import { resolveReasoningDepthSelection } from "$lib/server/services/chat-turn/depth-selection";
 import {
 	assertCanStartDeepResearchJob,
 	startDeepResearchJobShell,
@@ -342,21 +343,23 @@ describe("POST /api/chat/send", () => {
 			modelDisplayName: "Model 1",
 			providerUsage: null,
 		});
-		mockResolveReasoningDepthSelection.mockImplementation(async ({ request }) => ({
-			metadata: {
-				requested: request.reasoningDepth ?? "auto",
-				appliedProfile:
-					request.reasoningDepth === "off"
-						? "off"
-						: request.reasoningDepth === "max"
-							? "maximum"
-							: "standard",
-				fallback: false,
-				modelId: request.modelId,
-				modelDisplayName: request.modelDisplayName,
-				providerDisplayName: request.providerDisplayName,
-			},
-		}));
+		mockResolveReasoningDepthSelection.mockImplementation(
+			async ({ request }) => ({
+				metadata: {
+					requested: request.reasoningDepth ?? "auto",
+					appliedProfile:
+						request.reasoningDepth === "off"
+							? "off"
+							: request.reasoningDepth === "max"
+								? "maximum"
+								: "standard",
+					fallback: false,
+					modelId: request.modelId,
+					modelDisplayName: request.modelDisplayName,
+					providerDisplayName: request.providerDisplayName,
+				},
+			}),
+		);
 		mockGetProjectReferenceContext.mockResolvedValue(null);
 		mockAssertCanStartDeepResearchJob.mockResolvedValue(undefined);
 		mockCreateMessage.mockImplementation(async () => ({
@@ -983,7 +986,10 @@ describe("POST /api/chat/send", () => {
 		});
 
 		const response = await POST(
-			makeEvent({ message: "Check the current docs", conversationId: "conv-1" }),
+			makeEvent({
+				message: "Check the current docs",
+				conversationId: "conv-1",
+			}),
 		);
 		const data = await response.json();
 

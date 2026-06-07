@@ -303,6 +303,50 @@ describe("runStreamingNormalChatSendModel", () => {
 		});
 	});
 
+	it("returns a synthetic clarification stream before expensive prompt preparation for high-cost ambiguous work", async () => {
+		const result = await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message:
+				"Research all viable platform options and build a complete migration plan.",
+			conversationId: "conv-1",
+			modelId: "provider:provider-1",
+			depthMetadata: {
+				requested: "auto",
+				appliedProfile: "maximum",
+				fallback: false,
+				signals: {
+					contextBreadth: "broad",
+					outputRoom: "expanded",
+					toolUse: "source_heavy",
+				},
+			},
+		});
+
+		const events = [];
+		for await (const event of result.stream) {
+			events.push(event);
+		}
+
+		expect(mocks.prepareOutboundChatContext).not.toHaveBeenCalled();
+		expect(mocks.runStreamingNormalChatModelRun).not.toHaveBeenCalled();
+		expect(events).toEqual([
+			{
+				type: "text_delta",
+				text: expect.stringContaining("I can do that, but I need one choice"),
+			},
+			{
+				type: "finish",
+				finishReason: "stop",
+			},
+		]);
+		expect(result.depthMetadata?.clarification).toMatchObject({
+			outcome: "ask",
+			reason: "multiple_plausible_targets",
+			language: "en",
+		});
+	});
+
 	it("leaves tool choice automatic for explicit file requests after removing produce_file auto-force", async () => {
 		await runStreamingNormalChatSendModel({
 			userId: "user-1",

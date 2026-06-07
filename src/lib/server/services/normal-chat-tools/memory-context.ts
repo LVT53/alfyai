@@ -68,6 +68,12 @@ export const memoryContextInputSchema = z.object({
 		.describe(
 			"Whether to include bounded evidence candidates for UI citations.",
 		),
+	includeAttachments: z
+		.boolean()
+		.optional()
+		.describe(
+			"Whether to include full attachment contents from previous messages. When true, the full text of any attached files is returned without truncation.",
+		),
 });
 
 export type MemoryContextInput = z.infer<typeof memoryContextInputSchema>;
@@ -94,6 +100,9 @@ export function sanitizeMemoryContextInput(
 			: {}),
 		...(input.includeEvidenceCandidates !== undefined
 			? { includeEvidenceCandidates: input.includeEvidenceCandidates }
+			: {}),
+		...(input.includeAttachments !== undefined
+			? { includeAttachments: input.includeAttachments }
 			: {}),
 	};
 }

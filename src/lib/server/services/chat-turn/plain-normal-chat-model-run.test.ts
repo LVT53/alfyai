@@ -571,6 +571,123 @@ describe("runPlainNormalChatSendModel", () => {
 		});
 	});
 
+	it("returns a localized clarification before expensive prompt preparation for high-cost ambiguous work", async () => {
+		const result = await runPlainNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig: {
+				requestTimeoutMs: 1_500,
+				model1MaxModelContext: 10_000,
+				model1TargetConstructedContext: 8_000,
+				model1CompactionUiThreshold: 7_000,
+				model1: {
+					baseUrl: "https://openai-compatible.example/v1",
+					apiKey: "model-1-secret",
+					modelName: "gpt-4.1",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: 2048,
+					reasoningEffort: "high",
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://unused.example/v1",
+					apiKey: "",
+					modelName: "unused",
+					displayName: "Unused",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as RuntimeConfig,
+			message:
+				"Research all viable platform options and build a complete migration plan.",
+			conversationId: "conv-1",
+			modelId: "model1",
+			depthMetadata: {
+				requested: "auto",
+				appliedProfile: "extended",
+				fallback: false,
+				signals: {
+					contextBreadth: "broad",
+					outputRoom: "expanded",
+					toolUse: "source_heavy",
+				},
+			},
+		});
+
+		expect(mocks.prepareOutboundChatContext).not.toHaveBeenCalled();
+		expect(mocks.runPlainNormalChatModelRun).not.toHaveBeenCalled();
+		expect(result.text).toContain("I can do that, but I need one choice");
+		expect(result.text).toContain(
+			"Which platform, source set, or decision criteria",
+		);
+		expect(result.depthMetadata?.clarification).toMatchObject({
+			outcome: "ask",
+			reason: "multiple_plausible_targets",
+			language: "en",
+		});
+	});
+
+	it("proceeds with a visible assumption prefix when the user asks the model to assume", async () => {
+		const result = await runPlainNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig: {
+				requestTimeoutMs: 1_500,
+				model1MaxModelContext: 10_000,
+				model1TargetConstructedContext: 8_000,
+				model1CompactionUiThreshold: 7_000,
+				model1: {
+					baseUrl: "https://openai-compatible.example/v1",
+					apiKey: "model-1-secret",
+					modelName: "gpt-4.1",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: 2048,
+					reasoningEffort: "high",
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://unused.example/v1",
+					apiKey: "",
+					modelName: "unused",
+					displayName: "Unused",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as RuntimeConfig,
+			message:
+				"Research all viable platform options and build a complete migration plan. Use your best judgment.",
+			conversationId: "conv-1",
+			modelId: "model1",
+			depthMetadata: {
+				requested: "auto",
+				appliedProfile: "maximum",
+				fallback: false,
+				signals: {
+					contextBreadth: "broad",
+					outputRoom: "expanded",
+					toolUse: "source_heavy",
+				},
+			},
+		});
+
+		expect(mocks.prepareOutboundChatContext).toHaveBeenCalled();
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalled();
+		expect(result.text).toBe(
+			"Depth Assumption: I will use the most generally useful target and decision criteria.\n\nAnswer",
+		);
+		expect(result.depthMetadata?.clarification).toMatchObject({
+			outcome: "proceed_with_assumption",
+			reason: "user_requested_assumption",
+			language: "en",
+			assumption:
+				"I will use the most generally useful target and decision criteria",
+		});
+	});
+
 	it("returns prefetched forced-search tool calls from prompt preparation", async () => {
 		const prefetchedToolCalls = [
 			{

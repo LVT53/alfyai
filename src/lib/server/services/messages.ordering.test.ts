@@ -113,6 +113,9 @@ function seedLegacyConversationDatabase() {
 			message_id text,
 			model_id text,
 			model_display_name text,
+			completion_tokens integer DEFAULT 0 NOT NULL,
+			reasoning_tokens integer DEFAULT 0 NOT NULL,
+			total_tokens integer DEFAULT 0 NOT NULL,
 			generation_time_ms integer,
 			cost_usd_micros integer
 		);

@@ -11,10 +11,10 @@ import {
 } from "$lib/server/db/schema";
 import type {
 	ChatMessage,
+	DepthMetadata,
 	ForkEvidenceSnapshot,
 	HonchoContextInfo,
 	HonchoContextSnapshot,
-	DepthMetadata,
 	MessageEvidenceStatusState,
 	MessageEvidenceSummary,
 	MessageRole,
@@ -98,7 +98,7 @@ function readEvidenceSummaryFromMetadata(
 function isDepthMetadata(value: unknown): value is DepthMetadata {
 	if (!value || typeof value !== "object") return false;
 	const candidate = value as Partial<DepthMetadata>;
-	return (
+	const hasBaseShape =
 		(candidate.requested === "off" ||
 			candidate.requested === "auto" ||
 			candidate.requested === "max") &&
@@ -106,8 +106,40 @@ function isDepthMetadata(value: unknown): value is DepthMetadata {
 			candidate.appliedProfile === "standard" ||
 			candidate.appliedProfile === "extended" ||
 			candidate.appliedProfile === "maximum") &&
-		typeof candidate.fallback === "boolean"
-	);
+		typeof candidate.fallback === "boolean";
+	if (!hasBaseShape) {
+		return false;
+	}
+	if (candidate.outcome !== undefined) {
+		if (
+			candidate.outcome !== "normal_response" &&
+			candidate.outcome !== "clarification_requested" &&
+			candidate.outcome !== "proceeded_with_assumption"
+		) {
+			return false;
+		}
+	}
+	const clarification = candidate.clarification;
+	if (clarification !== undefined) {
+		if (!clarification || typeof clarification !== "object") return false;
+		if (
+			clarification.outcome !== "ask" &&
+			clarification.outcome !== "proceed_with_assumption"
+		) {
+			return false;
+		}
+		if (
+			clarification.reason !== "multiple_plausible_targets" &&
+			clarification.reason !== "user_requested_assumption" &&
+			clarification.reason !== "classifier"
+		) {
+			return false;
+		}
+		if (clarification.language !== "en" && clarification.language !== "hu") {
+			return false;
+		}
+	}
+	return true;
 }
 
 function mapRowToChatMessage(

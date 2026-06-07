@@ -31,6 +31,7 @@ vi.mock("$lib/server/services/normal-chat-tools", async (importOriginal) => {
 
 import {
 	appendDeliberationBriefsToInput,
+	planDeliberationPasses,
 	runNormalChatDeliberationPasses,
 	sumUsage,
 } from "./deliberation-runner";
@@ -68,7 +69,9 @@ const runtimeConfig = {
 	},
 } as RuntimeConfig;
 
-function effort(profile: "extended" | "maximum"): ReasoningDepthEffort {
+function effort(
+	profile: "off" | "standard" | "extended" | "maximum",
+): ReasoningDepthEffort {
 	return {
 		depthMetadata: {
 			requested: profile === "maximum" ? "max" : "auto",
@@ -276,6 +279,239 @@ describe("runNormalChatDeliberationPasses", () => {
 			totalTokens: 260,
 		});
 	});
+
+	it("runs a dynamic read-only source pass with a compact generic brief", async () => {
+		mocks.createNormalChatTools.mockReturnValue({
+			tools: {
+				research_web: { __tool: "research_web" },
+				memory_context: { __tool: "memory_context" },
+				produce_file: { __tool: "produce_file" },
+			},
+			getToolCalls: () => [],
+		});
+		mocks.runPlainNormalChatModelRun
+			.mockResolvedValueOnce({
+				text: JSON.stringify({
+					assumptions: [],
+					userIntent: "Reconcile source-heavy evidence.",
+					missingContextQuestions: [],
+					evidenceNeeds: [],
+					relevantFindings: ["The answer depends on current sources."],
+					edgeCases: [],
+					finalAnswerGuidance: ["Keep source caveats visible."],
+				}),
+				finishReason: "stop",
+				usage: { inputTokens: 90, outputTokens: 40, totalTokens: 130 },
+				model: {},
+			})
+			.mockResolvedValueOnce({
+				text: JSON.stringify({
+					focusAreas: ["Conflicting source claims"],
+					findings: ["Prefer primary sources when claims diverge."],
+					risks: ["Do not merge stale and current figures."],
+					openQuestions: ["Which source is authoritative?"],
+					finalAnswerGuidance: ["Separate confirmed facts from caveats."],
+				}),
+				finishReason: "stop",
+				usage: { inputTokens: 70, outputTokens: 25, totalTokens: 95 },
+				model: {},
+			});
+
+		const sourceHeavy = effort("extended");
+		sourceHeavy.depthMetadata.signals = {
+			groundingNeed: "required",
+			toolUse: "source_heavy",
+		};
+		const onStatus = vi.fn();
+
+		const result = await runNormalChatDeliberationPasses({
+			...runParams(sourceHeavy),
+			onStatus,
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledTimes(2);
+		expect(result.briefs).toHaveLength(2);
+		expect(result.briefs[1]).toMatchObject({
+			pass: 2,
+			kind: "source_reconciliation",
+			brief: {
+				findings: ["Prefer primary sources when claims diverge."],
+				risks: ["Do not merge stale and current figures."],
+				finalAnswerGuidance: ["Separate confirmed facts from caveats."],
+			},
+		});
+		expect(result.usage).toEqual({
+			inputTokens: 160,
+			outputTokens: 65,
+			totalTokens: 225,
+		});
+		expect(onStatus).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "deliberation-pass-2",
+				status: "running",
+				label: "Reconciling sources",
+			}),
+		);
+		expect(onStatus).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "deliberation-pass-2",
+				status: "done",
+				label: "Reconciled sources",
+			}),
+		);
+	});
+
+	it("marks unrepaired dynamic pass output as constrained without crashing", async () => {
+		mocks.createNormalChatTools.mockReturnValue({
+			tools: {
+				research_web: { __tool: "research_web" },
+				memory_context: { __tool: "memory_context" },
+				produce_file: { __tool: "produce_file" },
+			},
+			getToolCalls: () => [],
+		});
+		mocks.runPlainNormalChatModelRun
+			.mockResolvedValueOnce({
+				text: JSON.stringify({
+					assumptions: [],
+					userIntent: "Review evidence.",
+					missingContextQuestions: [],
+					evidenceNeeds: [],
+					relevantFindings: ["A source pass is needed."],
+					edgeCases: [],
+					finalAnswerGuidance: ["Do not overstate certainty."],
+				}),
+				finishReason: "stop",
+				usage: { inputTokens: 90, outputTokens: 40, totalTokens: 130 },
+				model: {},
+			})
+			.mockResolvedValueOnce({
+				text: "not json",
+				finishReason: "stop",
+				usage: { inputTokens: 70, outputTokens: 25, totalTokens: 95 },
+				model: {},
+			})
+			.mockResolvedValueOnce({
+				text: "still not json",
+				finishReason: "stop",
+				usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+				model: {},
+			});
+
+		const sourceHeavy = effort("extended");
+		sourceHeavy.depthMetadata.signals = {
+			groundingNeed: "required",
+			toolUse: "source_heavy",
+		};
+		const onStatus = vi.fn();
+
+		const result = await runNormalChatDeliberationPasses({
+			...runParams(sourceHeavy),
+			onStatus,
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledTimes(3);
+		expect(result.briefs).toHaveLength(1);
+		expect(result.depthMetadata).toMatchObject({
+			fallback: true,
+			fallbackReason: "deliberation_constrained",
+			appliedEffort: {
+				constraints: ["deliberation_pass_2_constrained"],
+			},
+		});
+		expect(result.usage).toEqual({
+			inputTokens: 180,
+			outputTokens: 75,
+			totalTokens: 255,
+		});
+		expect(onStatus).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "deliberation-pass-2",
+				status: "error",
+				label: "Reconciled sources",
+			}),
+		);
+	});
+});
+
+describe("planDeliberationPasses", () => {
+	it("maps depth profiles to the current deliberation pass sequence", () => {
+		expect(planDeliberationPasses(effort("off"))).toEqual([]);
+		expect(planDeliberationPasses(effort("standard"))).toEqual([]);
+		expect(
+			planDeliberationPasses(effort("extended")).map(({ pass, kind }) => ({
+				pass,
+				kind,
+			})),
+		).toEqual([{ pass: 1, kind: "context_source_gap_review" }]);
+		expect(
+			planDeliberationPasses(effort("maximum")).map(({ pass, kind }) => ({
+				pass,
+				kind,
+			})),
+		).toEqual([
+			{ pass: 1, kind: "context_source_gap_review" },
+			{ pass: 2, kind: "answer_plan_critique" },
+		]);
+	});
+
+	it("expands high-cost deliberation only when depth signals warrant extra read-only passes", () => {
+		const ordinaryMaximum = planDeliberationPasses(effort("maximum")).map(
+			({ pass, kind }) => ({ pass, kind }),
+		);
+		expect(ordinaryMaximum).toEqual([
+			{ pass: 1, kind: "context_source_gap_review" },
+			{ pass: 2, kind: "answer_plan_critique" },
+		]);
+
+		const sourceHeavy = effort("extended");
+		sourceHeavy.depthMetadata.signals = {
+			groundingNeed: "required",
+			toolUse: "source_heavy",
+		};
+		expect(
+			planDeliberationPasses(sourceHeavy).map(({ pass, kind }) => ({
+				pass,
+				kind,
+			})),
+		).toEqual([
+			{ pass: 1, kind: "context_source_gap_review" },
+			{ pass: 2, kind: "source_reconciliation" },
+		]);
+
+		const evidenceUseful = effort("extended");
+		evidenceUseful.depthMetadata.signals = {
+			groundingNeed: "useful",
+		};
+		expect(
+			planDeliberationPasses(evidenceUseful).map(({ pass, kind }) => ({
+				pass,
+				kind,
+			})),
+		).toEqual([
+			{ pass: 1, kind: "context_source_gap_review" },
+			{ pass: 2, kind: "evidence_gap_review" },
+		]);
+
+		const broadMaximum = effort("maximum");
+		broadMaximum.depthMetadata.signals = {
+			groundingNeed: "required",
+			contextBreadth: "broad",
+			outputRoom: "expanded",
+			toolUse: "source_heavy",
+		};
+		expect(
+			planDeliberationPasses(broadMaximum).map(({ pass, kind }) => ({
+				pass,
+				kind,
+			})),
+		).toEqual([
+			{ pass: 1, kind: "context_source_gap_review" },
+			{ pass: 2, kind: "source_reconciliation" },
+			{ pass: 3, kind: "workspace_synthesis" },
+			{ pass: 4, kind: "adversarial_edge_case_check" },
+		]);
+	});
 });
 
 describe("deliberation prompt helpers", () => {
@@ -297,7 +533,9 @@ describe("deliberation prompt helpers", () => {
 		]);
 
 		expect(input).toContain("## Normal Chat Deliberation Guidance");
-		expect(input).toContain("Use the following transient review notes silently");
+		expect(input).toContain(
+			"Use the following transient review notes silently",
+		);
 		expect(input).toContain("Retries may duplicate work.");
 	});
 

@@ -3,23 +3,27 @@ import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import {
-	createRequestAbortSignal,
-	isEvidenceReadyToolCall,
-	resolvePromptContextLimits,
-	resolvePromptModelConfig,
-} from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
-import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
-import {
 	appendDeliberationBriefsToInput,
 	runNormalChatDeliberationPasses,
 	shouldRunDeliberationPasses,
 	sumUsage,
 } from "$lib/server/services/chat-turn/deliberation-runner";
 import {
+	type DepthClarificationClassifier,
+	evaluateDepthClarificationGate,
+} from "$lib/server/services/chat-turn/depth-clarification";
+import {
 	buildReasoningDepthProviderOptions,
 	resolveReasoningDepthEffort,
 	withReasoningDepthPreparedBudget,
 } from "$lib/server/services/chat-turn/reasoning-depth-effort";
+import {
+	createRequestAbortSignal,
+	isEvidenceReadyToolCall,
+	resolvePromptContextLimits,
+	resolvePromptModelConfig,
+} from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
+import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import { detectLanguage } from "$lib/server/services/language";
 import {
 	type AuthenticatedPromptUser,
@@ -67,8 +71,11 @@ export type PlainNormalChatSendModelParams = {
 	signal?: AbortSignal;
 	disableTools?: boolean;
 	forceProduceFileTool?: boolean;
+	depthClarificationClassifier?: DepthClarificationClassifier;
 	overrideProvider?: NormalChatModelRunProvider;
-	onResponseActivity?: (entry: import("$lib/types").ResponseActivityEntry) => void;
+	onResponseActivity?: (
+		entry: import("$lib/types").ResponseActivityEntry,
+	) => void;
 };
 
 export type PlainNormalChatSendModelResult = {
@@ -115,11 +122,42 @@ export async function runPlainNormalChatSendModel(
 				forceWebSearch: params.forceWebSearch,
 			})
 		: null;
+	const clarificationGate = await evaluateDepthClarificationGate({
+		message: params.message,
+		depthMetadata: depthEffort?.depthMetadata ?? params.depthMetadata,
+		classifier: params.depthClarificationClassifier,
+	});
+	if (clarificationGate.action === "ask") {
+		return {
+			text: clarificationGate.text,
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			contextTraceSections: [],
+			providerUsage: null,
+			prefetchedToolCalls: [],
+			normalChatToolCalls: [],
+			toolCalls: [],
+			modelId,
+			modelDisplayName: provider.displayName,
+			resolvedProviderId: provider.id,
+			depthMetadata: clarificationGate.depthMetadata,
+		};
+	}
+	const activeDepthEffort = depthEffort
+		? {
+				...depthEffort,
+				depthMetadata:
+					clarificationGate.depthMetadata ?? depthEffort.depthMetadata,
+			}
+		: null;
 	const prepared = await prepareOutboundChatContext({
 		message: params.message,
 		sessionId: params.conversationId,
-		modelConfig: depthEffort
-			? { ...modelConfig, maxTokens: depthEffort.modelMaxOutputTokens }
+		modelConfig: activeDepthEffort
+			? { ...modelConfig, maxTokens: activeDepthEffort.modelMaxOutputTokens }
 			: modelConfig,
 		user: params.user,
 		attachmentIds: params.attachmentIds,
@@ -129,8 +167,8 @@ export async function runPlainNormalChatSendModel(
 		personalityPrompt: params.personalityPrompt,
 		forceWebSearch: params.forceWebSearch,
 		modelId,
-		contextLimits: depthEffort?.contextLimits ?? baseContextLimits,
-		reasoningDepthEffort: depthEffort ?? undefined,
+		contextLimits: activeDepthEffort?.contextLimits ?? baseContextLimits,
+		reasoningDepthEffort: activeDepthEffort ?? undefined,
 		logLabel: "provider request",
 	});
 	const turnId = params.createTurnId?.() ?? randomUUID();
@@ -139,30 +177,34 @@ export async function runPlainNormalChatSendModel(
 		conversationId: params.conversationId,
 		turnId,
 		language: detectLanguage(params.message),
-		...(depthEffort ? { webSourceBudget: depthEffort.webSourceBudget } : {}),
+		...(activeDepthEffort
+			? { webSourceBudget: activeDepthEffort.webSourceBudget }
+			: {}),
 	});
 	const recorder = normalChatTools.recorder ?? createToolCallRecorder();
 	const deliberation =
-		depthEffort && !params.disableTools && shouldRunDeliberationPasses(depthEffort)
-				? await runNormalChatDeliberationPasses({
-						userId: params.userId,
-						conversationId: params.conversationId,
-						modelId,
-						runtimeConfig: params.runtimeConfig,
-						provider,
-						depthEffort,
-						preparedInputValue: prepared.inputValue,
-						preparedSystemPrompt: prepared.systemPrompt,
-						user: params.user,
-						language: detectLanguage(params.message),
-						turnId,
-						recorder,
-						onStatus: params.onResponseActivity,
-						abortSignal: createRequestAbortSignal(
-							params.runtimeConfig.requestTimeoutMs,
-							params.signal,
-						),
-					})
+		activeDepthEffort &&
+		!params.disableTools &&
+		shouldRunDeliberationPasses(activeDepthEffort)
+			? await runNormalChatDeliberationPasses({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					modelId,
+					runtimeConfig: params.runtimeConfig,
+					provider,
+					depthEffort: activeDepthEffort,
+					preparedInputValue: prepared.inputValue,
+					preparedSystemPrompt: prepared.systemPrompt,
+					user: params.user,
+					language: detectLanguage(params.message),
+					turnId,
+					recorder,
+					onStatus: params.onResponseActivity,
+					abortSignal: createRequestAbortSignal(
+						params.runtimeConfig.requestTimeoutMs,
+						params.signal,
+					),
+				})
 			: null;
 	const toolChoice = params.forceProduceFileTool
 		? ({ type: "tool", toolName: "produce_file" } as const)
@@ -178,8 +220,8 @@ export async function runPlainNormalChatSendModel(
 		runtimeConfig: params.runtimeConfig,
 		system: prepared.systemPrompt,
 		resolveProviderOptions: (attemptProvider) =>
-			depthEffort
-				? buildReasoningDepthProviderOptions(attemptProvider, depthEffort)
+			activeDepthEffort
+				? buildReasoningDepthProviderOptions(attemptProvider, activeDepthEffort)
 				: buildNormalChatModelRunProviderOptions(
 						attemptProvider,
 						params.thinkingMode,
@@ -191,7 +233,7 @@ export async function runPlainNormalChatSendModel(
 		maxOutputTokens: prepared.outputTokenBudget?.effectiveMaxTokens,
 		tools,
 		toolChoice: tools ? toolChoice : undefined,
-		maxToolSteps: depthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
+		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 		messages: [
 			{
 				role: "user",
@@ -210,7 +252,9 @@ export async function runPlainNormalChatSendModel(
 	];
 
 	return {
-		text: result.text,
+		text: clarificationGate.assumptionPrefix
+			? `${clarificationGate.assumptionPrefix}\n\n${result.text}`
+			: result.text,
 		contextStatus: prepared.contextStatus,
 		taskState: prepared.taskState,
 		contextDebug: prepared.contextDebug,
@@ -226,14 +270,15 @@ export async function runPlainNormalChatSendModel(
 		modelId: result.model.modelId as ModelId,
 		modelDisplayName: result.model.displayName,
 		resolvedProviderId: result.model.providerId,
-		depthMetadata: depthEffort
+		depthMetadata: activeDepthEffort
 			? withReasoningDepthPreparedBudget(
 					{
-						...depthEffort,
-						depthMetadata: deliberation?.depthMetadata ?? depthEffort.depthMetadata,
+						...activeDepthEffort,
+						depthMetadata:
+							deliberation?.depthMetadata ?? activeDepthEffort.depthMetadata,
 					},
 					prepared.outputTokenBudget,
 				)
-			: params.depthMetadata,
+			: clarificationGate.depthMetadata,
 	};
 }
