@@ -31,6 +31,11 @@ let freshTimeout: ReturnType<typeof setTimeout> | undefined;
 let thinkingSeconds = $state(0);
 let thinkingTimerInterval: ReturnType<typeof setInterval> | undefined;
 
+type FetchedSource = {
+	title: string;
+	url: string;
+};
+
 const isActiveThinking = $derived(!thinkingIsDone);
 const visibleSegmentsRaw = $derived(segments.filter(isVisibleThinkingSegment));
 
@@ -140,6 +145,15 @@ function extractHostname(raw: string): string {
 	}
 }
 
+function getFaviconUrl(raw: string): string | null {
+	try {
+		const parsed = new URL(raw);
+		return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=32`;
+	} catch {
+		return null;
+	}
+}
+
 function isFetchTool(name: string): boolean {
 	const n = name.toLowerCase();
 	return (
@@ -170,18 +184,44 @@ function getFetchUrls(name: string, input: Record<string, unknown>): string[] {
 	return Object.values(input).flatMap(toUrlList);
 }
 
-function getFetchedSources(
-	segment: ThinkingSegment,
-): Array<{ title: string; url: string }> {
+function getFetchedSources(segment: ThinkingSegment): FetchedSource[] {
 	if (segment.type !== "tool_call" || segment.name !== "research_web")
 		return [];
-	return (segment.candidates ?? [])
-		.filter((candidate) => candidate.sourceType === "web" && candidate.url)
-		.slice(0, 6)
-		.map((candidate) => ({
-			title: candidate.title || extractHostname(candidate.url ?? ""),
-			url: candidate.url as string,
-		}));
+	return dedupeSourcesByUrl(
+		(segment.candidates ?? [])
+			.filter((candidate) => candidate.sourceType === "web" && candidate.url)
+			.map((candidate) => ({
+				title: candidate.title || extractHostname(candidate.url ?? ""),
+				url: candidate.url as string,
+			})),
+	);
+}
+
+function getFetchUrlSources(
+	name: string,
+	input: Record<string, unknown>,
+): FetchedSource[] {
+	return dedupeSourcesByUrl(
+		getFetchUrls(name, input).map((url) => ({
+			title: extractHostname(url),
+			url,
+		})),
+	);
+}
+
+function dedupeSourcesByUrl(sources: FetchedSource[]): FetchedSource[] {
+	const seen = new Set<string>();
+	const deduped: FetchedSource[] = [];
+	for (const source of sources) {
+		if (seen.has(source.url)) continue;
+		seen.add(source.url);
+		deduped.push(source);
+	}
+	return deduped;
+}
+
+function fetchedSourceSummary(sources: FetchedSource[]): string {
+	return `Fetched: ${sources.length} ${sources.length === 1 ? "site" : "sites"}`;
 }
 
 function formatToolCall(name: string, input: Record<string, unknown>): string {
@@ -242,6 +282,40 @@ async function toggle() {
 	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
 </script>
 
+{#snippet fetchedSourceGroup(sources: FetchedSource[], summaryClass: string)}
+	<details class="fetched-source-group">
+		<summary class={summaryClass}>
+			<span class="fetched-source-summary">
+				<span class="fetched-favicon-stack" aria-hidden="true">
+					{#each sources as source}
+						{@const faviconUrl = getFaviconUrl(source.url)}
+						{#if faviconUrl}
+							<img
+								class="fetched-favicon"
+								src={faviconUrl}
+								alt=""
+								loading="lazy"
+								decoding="async"
+								referrerpolicy="no-referrer"
+							/>
+						{/if}
+					{/each}
+				</span>
+				<span>{fetchedSourceSummary(sources)}</span>
+			</span>
+		</summary>
+		<div class="fetched-source-list">
+			{#each sources as source}
+				<a
+					class="tool-link fetched-source-link"
+					href={source.url}
+					target="_blank"
+					rel="noopener noreferrer">{source.title}</a>
+			{/each}
+		</div>
+	</details>
+{/snippet}
+
 {#if hasVisibleSurface}
 <div class="thinking-block" bind:this={container}>
 	<button
@@ -282,43 +356,32 @@ async function toggle() {
 			{#each visibleTools as tool, i (tool.callId ?? tool.name + JSON.stringify(tool.input) + '-' + i)}
 				{@const fetchedSources = getFetchedSources(tool)}
 				{#if fetchedSources.length > 0}
-					{#each fetchedSources as source}
-						<div class="tool-call-row" class:is-running={tool.status === 'running'}>
-							{#if tool.status === 'running'}
-								<span class="tool-dot"></span>
+					<div class="tool-call-row" class:is-running={tool.status === 'running'}>
+						{#if tool.status === 'running'}
+							<span class="tool-dot"></span>
 							{:else}
 								<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
 									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
 										stroke-linecap="round" stroke-linejoin="round"/>
 								</svg>
 							{/if}
-							<span class="tool-label-text">
-								Fetched:
-								<a
-									class="tool-link"
-									href={source.url}
-									target="_blank"
-									rel="noopener noreferrer"
-									onclick={(event) => event.stopPropagation()}>{source.title}</a>
-							</span>
+							{@render fetchedSourceGroup(fetchedSources, 'tool-label-text')}
 						</div>
-					{/each}
-				{:else if getFetchUrls(tool.name, tool.input).length > 0}
-					{#each getFetchUrls(tool.name, tool.input) as url}
-						<div class="tool-call-row" class:is-running={tool.status === 'running'}>
-							{#if tool.status === 'running'}
-								<span class="tool-dot"></span>
-							{:else}
-								<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
-									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-									stroke-linecap="round" stroke-linejoin="round"/>
-							</svg>
-						{/if}
-							<span class="tool-label-text">{$t('toolCalls.fetchPage')}: <a class="tool-link" href={url} target="_blank" rel="noopener noreferrer" onclick={(event) => event.stopPropagation()}>{extractHostname(url)}</a></span>
-						</div>
-					{/each}
-				{:else}
+					{:else if getFetchUrlSources(tool.name, tool.input).length > 0}
+						{@const fetchUrlSources = getFetchUrlSources(tool.name, tool.input)}
 					<div class="tool-call-row" class:is-running={tool.status === 'running'}>
+						{#if tool.status === 'running'}
+							<span class="tool-dot"></span>
+						{:else}
+							<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
+									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
+										stroke-linecap="round" stroke-linejoin="round"/>
+								</svg>
+							{/if}
+							{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text')}
+						</div>
+					{:else}
+						<div class="tool-call-row" class:is-running={tool.status === 'running'}>
 						{#if tool.status === 'running'}
 							<span class="tool-dot"></span>
 						{:else}
@@ -416,40 +479,30 @@ async function toggle() {
 					{:else}
 						{@const fetchedSources = getFetchedSources(seg)}
 						{#if fetchedSources.length > 0}
-							{#each fetchedSources as source}
-								<div class="tool-call-item">
-									{#if seg.status === 'done'}
-										<svg class="check-icon" viewBox="0 0 12 12" fill="none">
-											<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-												stroke-linecap="round" stroke-linejoin="round"/>
-										</svg>
-									{:else}
-										<span class="tool-dot-inline"></span>
-									{/if}
-									<span class="tool-item-label">
-										Fetched:
-										<a
-											class="tool-link"
-											href={source.url}
-											target="_blank"
-											rel="noopener noreferrer">{source.title}</a>
-									</span>
-								</div>
-							{/each}
-						{:else if getFetchUrls(seg.name, seg.input).length > 0}
-							{#each getFetchUrls(seg.name, seg.input) as url}
-								<div class="tool-call-item">
-									{#if seg.status === 'done'}
-										<svg class="check-icon" viewBox="0 0 12 12" fill="none">
-											<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-												stroke-linecap="round" stroke-linejoin="round"/>
-										</svg>
-									{:else}
-										<span class="tool-dot-inline"></span>
-									{/if}
-									<span class="tool-item-label">{$t('toolCalls.fetchPage')}: <a class="tool-link" href={url} target="_blank" rel="noopener noreferrer">{extractHostname(url)}</a></span>
-								</div>
-							{/each}
+							<div class="tool-call-item">
+								{#if seg.status === 'done'}
+									<svg class="check-icon" viewBox="0 0 12 12" fill="none">
+										<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
+											stroke-linecap="round" stroke-linejoin="round"/>
+									</svg>
+								{:else}
+									<span class="tool-dot-inline"></span>
+								{/if}
+								{@render fetchedSourceGroup(fetchedSources, 'tool-item-label')}
+							</div>
+						{:else if getFetchUrlSources(seg.name, seg.input).length > 0}
+							{@const fetchUrlSources = getFetchUrlSources(seg.name, seg.input)}
+							<div class="tool-call-item">
+								{#if seg.status === 'done'}
+									<svg class="check-icon" viewBox="0 0 12 12" fill="none">
+										<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
+											stroke-linecap="round" stroke-linejoin="round"/>
+									</svg>
+								{:else}
+									<span class="tool-dot-inline"></span>
+								{/if}
+								{@render fetchedSourceGroup(fetchUrlSources, 'tool-item-label')}
+							</div>
 						{:else}
 							<div class="tool-call-item">
 								{#if seg.status === 'done'}
@@ -604,6 +657,64 @@ async function toggle() {
 		white-space: normal;
 		overflow-wrap: anywhere;
 		word-break: break-word;
+	}
+
+	.fetched-source-group {
+		flex: 1 1 auto;
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.fetched-source-group summary {
+		cursor: pointer;
+		list-style-position: inside;
+	}
+
+	.fetched-source-summary {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		max-width: 100%;
+		vertical-align: middle;
+	}
+
+	.fetched-favicon-stack {
+		display: inline-flex;
+		align-items: center;
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: min(260px, 45vw);
+		overflow: hidden;
+		padding: 1px 0 1px 1px;
+	}
+
+	.fetched-favicon {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		border: 1px solid var(--surface-elevated);
+		background: var(--surface-elevated);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 55%, transparent);
+		flex: 0 0 auto;
+		object-fit: cover;
+	}
+
+	.fetched-favicon + .fetched-favicon {
+		margin-left: -5px;
+	}
+
+	.fetched-source-list {
+		display: grid;
+		gap: 2px;
+		margin-top: 4px;
+		padding-left: 16px;
+	}
+
+	.fetched-source-link {
+		display: block;
+		width: fit-content;
+		max-width: 100%;
 	}
 
 	.tool-link {

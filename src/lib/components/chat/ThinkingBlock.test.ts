@@ -107,7 +107,7 @@ describe('ThinkingBlock', () => {
 		expect(rawTrace).toBe('gonna search the Web.I am digging deeper.');
 	});
 
-	it('renders active comma-separated URL fetch inputs as separate Fetch page links', () => {
+	it('groups active comma-separated URL fetch inputs behind one fetched-sites disclosure', async () => {
 		const segments: ThinkingSegment[] = [
 			{
 				type: 'tool_call',
@@ -128,12 +128,14 @@ describe('ThinkingBlock', () => {
 		});
 
 		expect(screen.getByRole('button', { name: /Thinking/ })).toBeInTheDocument();
-		const links = screen.getAllByRole('link', { name: /(?:a|b)\.example/ });
+		expect(screen.getByText('Fetched: 2 sites')).toBeInTheDocument();
 
+		await fireEvent.click(screen.getByText('Fetched: 2 sites'));
+		const links = screen.getAllByRole('link', { name: /(?:a|b)\.example/ });
 		expect(links).toHaveLength(2);
-		expect(screen.getAllByText(/Fetch page:/)).toHaveLength(2);
 		expect(links[0]).toHaveAttribute('href', 'https://a.example/x');
 		expect(links[1]).toHaveAttribute('href', 'https://b.example/y');
+		expect(document.querySelectorAll('.fetched-favicon')).toHaveLength(2);
 	});
 
 	it('summarizes web search tool calls without expanding every source diagnostic', async () => {
@@ -168,10 +170,14 @@ describe('ThinkingBlock', () => {
 
 		expect(screen.getByRole('button', { name: /Thinking/ })).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: /Thinking/ }));
-		expect(screen.getAllByText(/Fetched:/)).toHaveLength(2);
+		expect(screen.getAllByText('Fetched: 1 site')).toHaveLength(2);
+		const [firstFetchedSummary] = screen.getAllByText('Fetched: 1 site');
+		if (!firstFetchedSummary) throw new Error('Missing fetched source summary');
+		await fireEvent.click(firstFetchedSummary);
 		expect(
-			screen.getAllByRole('link', { name: 'Widget Pro Store Page' }),
-		).toHaveLength(2);
+			screen.getAllByRole('link', { name: 'Widget Pro Store Page' }).length,
+		).toBeGreaterThan(0);
+		expect(document.querySelectorAll('.fetched-favicon').length).toBeGreaterThan(0);
 		expect(screen.queryByText('Searching: "latest pricing"')).not.toBeInTheDocument();
 	});
 
@@ -334,14 +340,19 @@ describe('ThinkingBlock', () => {
 
 		await fireEvent.click(screen.getByRole('button', { name: /Thought/ }));
 
-		expect(screen.getAllByText(/Fetched:/).length).toBeGreaterThan(0);
+		expect(screen.getAllByText('Fetched: 1 site').length).toBeGreaterThan(0);
+		const [firstFetchedSummary] = screen.getAllByText('Fetched: 1 site');
+		if (!firstFetchedSummary) throw new Error('Missing fetched source summary');
+		await fireEvent.click(firstFetchedSummary);
 		const links = screen.getAllByRole('link', { name: 'Widget Pro Store Page' });
 		expect(links.length).toBeGreaterThan(0);
-		const link = links[0]!;
+		const [link] = links;
+		if (!link) throw new Error('Missing fetched source link');
 		expect(link).toHaveAttribute(
 			'href',
 			'https://shop.example.com/products/widget-pro',
 		);
+		expect(document.querySelectorAll('.fetched-favicon').length).toBeGreaterThan(0);
 		expect(
 			screen.queryByText('Searching: "latest pricing"'),
 		).not.toBeInTheDocument();
