@@ -67,7 +67,15 @@ export type StreamPhaseTimings = Record<string, number>;
 
 export type ServerStreamSegment =
 	| { type: "text"; content: string }
-	| { type: "status"; id: string; label: string; status: ResponseActivityEntry["status"] }
+	| {
+			type: "status";
+			id: string;
+			label: string;
+			status: ResponseActivityEntry["status"];
+			passIndex?: number;
+			passTotal?: number;
+			passKind?: string;
+	  }
 	| {
 			type: "tool_call";
 			callId?: string;
@@ -802,6 +810,9 @@ export function createServerChunkRuntime({
 		id: string;
 		label: string;
 		status: ResponseActivityEntry["status"];
+		passIndex?: number;
+		passTotal?: number;
+		passKind?: string;
 	}) => {
 		if (!segment.label.trim()) return;
 		flushInlineThinkingBuffer();

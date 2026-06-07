@@ -48,6 +48,166 @@ export type PlannedDeliberationPass = DeliberationPassCatalogueEntry & {
 	pass: number;
 };
 
+const DELIBERATION_RUNNING_LABEL_VARIANTS: Record<
+	DeliberationPassKind,
+	Record<"en" | "hu", string[]>
+> = {
+	context_source_gap_review: {
+		en: [
+			"Reviewing context and sources",
+			"Mapping the request and evidence",
+			"Scanning context for missing pieces",
+			"Grounding the answer setup",
+		],
+		hu: [
+			"Kontextus és források áttekintése",
+			"A kérés és a bizonyítékok feltérképezése",
+			"Hiányzó kontextusrészek keresése",
+			"A válasz alapjainak ellenőrzése",
+		],
+	},
+	answer_plan_critique: {
+		en: [
+			"Checking answer plan",
+			"Stress-testing the answer route",
+			"Reviewing the response outline",
+			"Testing the plan before drafting",
+		],
+		hu: [
+			"Választerv ellenőrzése",
+			"A válaszútvonal terheléses ellenőrzése",
+			"A válaszvázlat áttekintése",
+			"A terv ellenőrzése megfogalmazás előtt",
+		],
+	},
+	missed_user_need_check: {
+		en: [
+			"Checking missed requirements",
+			"Looking for unstated obligations",
+			"Rechecking the user's constraints",
+			"Making sure the brief is covered",
+		],
+		hu: [
+			"Hiányzó elvárások ellenőrzése",
+			"Kimondatlan kötelezettségek keresése",
+			"A felhasználói korlátok újraellenőrzése",
+			"Annak ellenőrzése, hogy a kérés teljesül-e",
+		],
+	},
+	contradiction_risk_check: {
+		en: [
+			"Checking risks and tensions",
+			"Looking for contradictions",
+			"Testing tradeoffs and failure modes",
+			"Checking where the answer could break",
+		],
+		hu: [
+			"Kockázatok és ellentmondások ellenőrzése",
+			"Ellentmondások keresése",
+			"Kompromisszumok és hibamódok tesztelése",
+			"Annak vizsgálata, hol törhet meg a válasz",
+		],
+	},
+	final_format_style_check: {
+		en: [
+			"Checking answer shape",
+			"Polishing the final structure",
+			"Checking clarity and format",
+			"Tightening the response shape",
+		],
+		hu: [
+			"Válaszforma ellenőrzése",
+			"A végső szerkezet csiszolása",
+			"Érthetőség és forma ellenőrzése",
+			"A válasz szerkezetének feszesítése",
+		],
+	},
+	hungarian_parity_check: {
+		en: [
+			"Checking Hungarian parity",
+			"Checking Hungarian-language implications",
+			"Verifying Hungarian user coverage",
+			"Reviewing localization-sensitive details",
+		],
+		hu: [
+			"Magyar paritás ellenőrzése",
+			"Magyar nyelvi következmények ellenőrzése",
+			"A magyar felhasználói lefedettség ellenőrzése",
+			"Lokalizációérzékeny részletek áttekintése",
+		],
+	},
+	evidence_gap_review: {
+		en: [
+			"Checking evidence gaps",
+			"Looking for claims that need proof",
+			"Reviewing citation-sensitive points",
+			"Checking what still needs grounding",
+		],
+		hu: [
+			"Bizonyítéki hiányok ellenőrzése",
+			"Bizonyítékot igénylő állítások keresése",
+			"Idézésérzékeny pontok áttekintése",
+			"Annak ellenőrzése, mi igényel még megalapozást",
+		],
+	},
+	source_reconciliation: {
+		en: [
+			"Reconciling sources",
+			"Comparing source signals",
+			"Checking source agreement",
+			"Sorting evidence conflicts",
+		],
+		hu: [
+			"Források egyeztetése",
+			"Forrásjelek összevetése",
+			"A források egyetértésének ellenőrzése",
+			"Bizonyítéki ütközések rendezése",
+		],
+	},
+	adversarial_edge_case_check: {
+		en: [
+			"Checking edge cases",
+			"Trying to break the answer",
+			"Testing awkward cases",
+			"Looking for counterexamples",
+		],
+		hu: [
+			"Szélső esetek ellenőrzése",
+			"A válasz megtörésének próbája",
+			"Kényelmetlen esetek tesztelése",
+			"Ellenpéldák keresése",
+		],
+	},
+	workspace_synthesis: {
+		en: [
+			"Synthesizing workspace context",
+			"Weaving workspace clues together",
+			"Combining active context signals",
+			"Resolving workspace-level context",
+		],
+		hu: [
+			"Munkaterületi kontextus szintetizálása",
+			"Munkaterületi jelek összefűzése",
+			"Aktív kontextusjelek összevonása",
+			"Munkaterületi kontextus rendezése",
+		],
+	},
+	viable_alternatives_preservation: {
+		en: [
+			"Checking viable alternatives",
+			"Preserving second-best paths",
+			"Checking conditional options",
+			"Keeping alternatives from collapsing too early",
+		],
+		hu: [
+			"Életképes alternatívák ellenőrzése",
+			"Második legjobb utak megőrzése",
+			"Feltételes opciók ellenőrzése",
+			"Alternatívák túl korai lezárásának elkerülése",
+		],
+	},
+};
+
 const DELIBERATION_PASS_CATALOGUE: Record<
 	DeliberationPassKind,
 	DeliberationPassCatalogueEntry
@@ -394,4 +554,23 @@ export function deliberationPassCount(
 	depthEffort: ReasoningDepthEffort | null,
 ): number {
 	return planDeliberationPasses(depthEffort).length;
+}
+
+export function selectDeliberationStatusLabel(params: {
+	passSpec: PlannedDeliberationPass;
+	status: ResponseActivityEntry["status"];
+	language: "en" | "hu";
+	seed: number;
+}): string {
+	if (params.status !== "running") {
+		return params.passSpec.statusLabels[params.language][params.status];
+	}
+	const variants =
+		DELIBERATION_RUNNING_LABEL_VARIANTS[params.passSpec.kind][params.language];
+	return variants[positiveModulo(params.seed, variants.length)];
+}
+
+function positiveModulo(value: number, modulo: number): number {
+	if (modulo <= 0) return 0;
+	return ((value % modulo) + modulo) % modulo;
 }

@@ -195,7 +195,10 @@ describe("runNormalChatDeliberationPasses", () => {
 				id: "deliberation-pass-1",
 				kind: "deliberation",
 				status: "running",
-				label: "Reviewing context and sources",
+				label: expect.any(String),
+				passIndex: 1,
+				passTotal: 1,
+				passKind: "context_source_gap_review",
 			}),
 		);
 		expect(onStatus).toHaveBeenCalledWith(
@@ -204,6 +207,9 @@ describe("runNormalChatDeliberationPasses", () => {
 				kind: "deliberation",
 				status: "done",
 				label: "Reviewed context and sources",
+				passIndex: 1,
+				passTotal: 1,
+				passKind: "context_source_gap_review",
 			}),
 		);
 	});
@@ -309,7 +315,10 @@ describe("runNormalChatDeliberationPasses", () => {
 			expect.objectContaining({
 				id: "deliberation-pass-2",
 				status: "running",
-				label: "Reconciling sources",
+				label: expect.any(String),
+				passIndex: 2,
+				passTotal: 2,
+				passKind: "source_reconciliation",
 			}),
 		);
 		expect(onStatus).toHaveBeenCalledWith(
@@ -317,6 +326,9 @@ describe("runNormalChatDeliberationPasses", () => {
 				id: "deliberation-pass-2",
 				status: "done",
 				label: "Reconciled sources",
+				passIndex: 2,
+				passTotal: 2,
+				passKind: "source_reconciliation",
 			}),
 		);
 	});

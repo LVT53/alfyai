@@ -27,6 +27,7 @@ import {
 	deliberationPassCount,
 	type PlannedDeliberationPass,
 	planDeliberationPasses,
+	selectDeliberationStatusLabel,
 	shouldRunDeliberationPasses,
 } from "./deliberation-pass-catalogue";
 
@@ -192,6 +193,7 @@ export async function runNormalChatDeliberationPasses(
 		params.onStatus?.(
 			deliberationStatusEntry({
 				passSpec,
+				passTotal: passPlan.length,
 				status: "running",
 				language: params.language,
 			}),
@@ -206,6 +208,7 @@ export async function runNormalChatDeliberationPasses(
 		params.onStatus?.(
 			deliberationStatusEntry({
 				passSpec,
+				passTotal: passPlan.length,
 				status: result.constrained ? "error" : "done",
 				language: params.language,
 			}),
@@ -238,24 +241,26 @@ export async function runNormalChatDeliberationPasses(
 
 function deliberationStatusEntry(params: {
 	passSpec: PlannedDeliberationPass;
+	passTotal: number;
 	status: ResponseActivityEntry["status"];
 	language: "en" | "hu";
 }): ResponseActivityEntry {
+	const occurredAt = Date.now();
 	return {
 		id: `deliberation-pass-${params.passSpec.pass}`,
 		kind: "deliberation",
 		status: params.status,
-		label: deliberationStatusLabel(params),
-		occurredAt: Date.now(),
+		label: selectDeliberationStatusLabel({
+			passSpec: params.passSpec,
+			status: params.status,
+			language: params.language,
+			seed: occurredAt + params.passSpec.pass * 17,
+		}),
+		passIndex: params.passSpec.pass,
+		passTotal: params.passTotal,
+		passKind: params.passSpec.kind,
+		occurredAt,
 	};
-}
-
-function deliberationStatusLabel(params: {
-	passSpec: PlannedDeliberationPass;
-	status: ResponseActivityEntry["status"];
-	language: "en" | "hu";
-}): string {
-	return params.passSpec.statusLabels[params.language][params.status];
 }
 
 function createFocusedWorkspaceBrief(

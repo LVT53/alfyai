@@ -9,6 +9,8 @@
 		DepthAppliedProfile,
 		DocumentWorkspaceItem,
 		FileProductionJob,
+		ResponseActivityEntry,
+		ThinkingSegment,
 	} from '$lib/types';
 	import MarkdownRenderer from './MarkdownRenderer.svelte';
 	import ThinkingBlock from './ThinkingBlock.svelte';
@@ -19,6 +21,14 @@
 	import FileProductionCard from './FileProductionCard.svelte';
 	import SkillDraftCard from './SkillDraftCard.svelte';
 	import { onDestroy, tick } from 'svelte';
+	import {
+		ClipboardCheck,
+		GitBranch,
+		Languages,
+		Layers,
+		Search,
+		ShieldAlert,
+	} from '@lucide/svelte';
 	import type { TaskSteeringPayload } from '$lib/types';
 
 	let {
@@ -172,21 +182,66 @@
 			: undefined
 	);
 	let liveDeliberationStatusLabel = $derived(liveDeliberationStatus?.label?.trim() ?? '');
-	const liveDeliberationStatusIconType = $derived.by(() => {
-		if (!liveDeliberationStatus?.id) {
-			return 'search';
+	let liveDeliberationStatusDisplayLabel = $derived.by(() => {
+		const label = liveDeliberationStatusLabel;
+		if (!label) return '';
+		const current = deliberationPassIndex(liveDeliberationStatus);
+		const total = liveDeliberationStatus?.passTotal;
+		if (
+			current &&
+			typeof total === 'number' &&
+			Number.isInteger(total) &&
+			total > 0
+		) {
+			return $t('chat.deliberatingProgress', { current, total, label });
 		}
-
-		const match = /deliberation-pass-(\d+)/i.exec(liveDeliberationStatus.id);
-		const pass = match ? Number.parseInt(match[1], 10) : NaN;
-
-		if (!Number.isInteger(pass)) {
-			return 'search';
-		}
-		if (pass === 1) return 'search';
-		if (pass === 2) return 'file';
-		return 'check';
+		return label;
 	});
+	const liveDeliberationStatusIconType = $derived.by(() => {
+		if (!liveDeliberationStatus) {
+			return 'search';
+		}
+		return deliberationIconType(liveDeliberationStatus.passKind);
+	});
+
+	function deliberationPassIndex(
+		status: ResponseActivityEntry | Extract<ThinkingSegment, { type: 'status' }> | undefined,
+	): number | null {
+		if (!status) return null;
+		if (typeof status.passIndex === 'number' && Number.isInteger(status.passIndex)) {
+			return status.passIndex;
+		}
+		const match = /deliberation-pass-(\d+)/i.exec(status.id);
+		const parsed = match ? Number.parseInt(match[1], 10) : NaN;
+		return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+	}
+
+	function deliberationIconType(passKind: string | undefined):
+		| 'search'
+		| 'clipboard-check'
+		| 'shield-alert'
+		| 'languages'
+		| 'layers'
+		| 'git-branch' {
+		if (
+			passKind === 'context_source_gap_review' ||
+			passKind === 'evidence_gap_review' ||
+			passKind === 'source_reconciliation'
+		) return 'search';
+		if (
+			passKind === 'missed_user_need_check' ||
+			passKind === 'answer_plan_critique' ||
+			passKind === 'final_format_style_check'
+		) return 'clipboard-check';
+		if (
+			passKind === 'contradiction_risk_check' ||
+			passKind === 'adversarial_edge_case_check'
+		) return 'shield-alert';
+		if (passKind === 'hungarian_parity_check') return 'languages';
+		if (passKind === 'workspace_synthesis') return 'layers';
+		if (passKind === 'viable_alternatives_preservation') return 'git-branch';
+		return 'search';
+	}
 	function isDepthAppliedProfile(value: unknown): value is DepthAppliedProfile {
 		return value === 'off' || value === 'standard' || value === 'extended' || value === 'maximum';
 	}
@@ -423,64 +478,59 @@
 				<span>{reasoningDepthIndicatorLabel}</span>
 			</div>
 		{/if}
-	{#if !isUser && liveDeliberationStatusLabel}
-		{#key `${liveDeliberationStatus?.id ?? 'deliberation'}:${liveDeliberationStatusLabel}`}
+	{#if !isUser && liveDeliberationStatusDisplayLabel}
+		{#key `${liveDeliberationStatus?.id ?? 'deliberation'}:${liveDeliberationStatusDisplayLabel}`}
 			<div class="deliberation-status-line" class:is-running={liveDeliberationStatus?.status === 'running'} data-testid="deliberation-status-line" aria-live="polite">
 				{#if liveDeliberationStatusIconType === 'search'}
-					<svg
+					<Search
 						class="deliberation-status-icon"
 						data-deliberation-icon="search"
-						width="14"
-						height="14"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
+						size={14}
+						strokeWidth={2}
 						aria-hidden="true"
-					>
-						<circle cx="10.5" cy="10.5" r="7.5" />
-						<path d="m20.5 20.5-4.35-4.35" />
-					</svg>
-				{:else if liveDeliberationStatusIconType === 'file'}
-					<svg
+					/>
+				{:else if liveDeliberationStatusIconType === 'clipboard-check'}
+					<ClipboardCheck
 						class="deliberation-status-icon"
-						data-deliberation-icon="file"
-						width="14"
-						height="14"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
+						data-deliberation-icon="clipboard-check"
+						size={14}
+						strokeWidth={2}
 						aria-hidden="true"
-					>
-						<path d="M4 4h10l5 5v13H4Z" />
-						<path d="m14 4 5 5h-5Z" />
-						<path d="M7 11h9" />
-						<path d="M7 15h9" />
-					</svg>
+					/>
+				{:else if liveDeliberationStatusIconType === 'shield-alert'}
+					<ShieldAlert
+						class="deliberation-status-icon"
+						data-deliberation-icon="shield-alert"
+						size={14}
+						strokeWidth={2}
+						aria-hidden="true"
+					/>
+				{:else if liveDeliberationStatusIconType === 'languages'}
+					<Languages
+						class="deliberation-status-icon"
+						data-deliberation-icon="languages"
+						size={14}
+						strokeWidth={2}
+						aria-hidden="true"
+					/>
+				{:else if liveDeliberationStatusIconType === 'layers'}
+					<Layers
+						class="deliberation-status-icon"
+						data-deliberation-icon="layers"
+						size={14}
+						strokeWidth={2}
+						aria-hidden="true"
+					/>
 				{:else}
-					<svg
+					<GitBranch
 						class="deliberation-status-icon"
-						data-deliberation-icon="check"
-						width="14"
-						height="14"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
+						data-deliberation-icon="git-branch"
+						size={14}
+						strokeWidth={2}
 						aria-hidden="true"
-					>
-						<circle cx="12" cy="12" r="9" />
-						<path d="M8 12l2.5 2.5 5-5" />
-					</svg>
+					/>
 				{/if}
-				<span>{liveDeliberationStatusLabel}</span>
+				<span>{liveDeliberationStatusDisplayLabel}</span>
 			</div>
 			{/key}
 		{/if}
@@ -903,7 +953,7 @@
 		color: var(--accent);
 	}
 
-	.deliberation-status-icon {
+	:global(.deliberation-status-icon) {
 		width: 14px;
 		height: 14px;
 		flex: 0 0 auto;

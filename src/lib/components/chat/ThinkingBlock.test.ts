@@ -188,18 +188,21 @@ describe('ThinkingBlock', () => {
 				id: 'deliberation-pass-1',
 				status: 'done',
 				label: 'Reviewing context and sources',
+				passKind: 'context_source_gap_review',
 			},
 			{
 				type: 'status',
 				id: 'deliberation-pass-2',
 				status: 'done',
 				label: 'Deepening source synthesis',
+				passKind: 'missed_user_need_check',
 			},
 			{
 				type: 'status',
 				id: 'deliberation-pass-3',
 				status: 'done',
 				label: 'Finalizing robust answer',
+				passKind: 'contradiction_risk_check',
 			},
 		];
 
@@ -216,8 +219,8 @@ describe('ThinkingBlock', () => {
 		const statusRows = container.querySelectorAll('.status-step');
 		expect(statusRows).toHaveLength(3);
 		expect(statusRows[0]?.querySelector('[data-deliberation-icon="search"]')).not.toBeNull();
-		expect(statusRows[1]?.querySelector('[data-deliberation-icon="file"]')).not.toBeNull();
-		expect(statusRows[2]?.querySelector('[data-deliberation-icon="check"]')).not.toBeNull();
+		expect(statusRows[1]?.querySelector('[data-deliberation-icon="clipboard-check"]')).not.toBeNull();
+		expect(statusRows[2]?.querySelector('[data-deliberation-icon="shield-alert"]')).not.toBeNull();
 	});
 
 	it('renders deliberation status rows with the deliberation icon instead of a check icon', async () => {

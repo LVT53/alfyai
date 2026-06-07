@@ -492,6 +492,9 @@ export function runChatStreamOrchestrator(
 						id: activity.id,
 						label: activity.label,
 						status: activity.status,
+						passIndex: activity.passIndex,
+						passTotal: activity.passTotal,
+						passKind: activity.passKind,
 					});
 				}
 				if (streamId) {

@@ -267,6 +267,9 @@ describe('MessageBubble', () => {
 					kind: 'deliberation',
 					status: 'running',
 					label: 'Reviewing context and sources',
+					passIndex: 1,
+					passTotal: 6,
+					passKind: 'context_source_gap_review',
 				},
 			],
 			thinkingSegments: [
@@ -275,6 +278,9 @@ describe('MessageBubble', () => {
 					id: 'deliberation-pass-1',
 					status: 'running',
 					label: 'Reviewing context and sources',
+					passIndex: 1,
+					passTotal: 6,
+					passKind: 'context_source_gap_review',
 				},
 			],
 		};
@@ -282,7 +288,7 @@ describe('MessageBubble', () => {
 		const { rerender } = render(MessageBubble, { message });
 
 		expect(screen.getByTestId('deliberation-status-line')).toHaveTextContent(
-			'Reviewing context and sources',
+			'Deliberating: 1/6 · Reviewing context and sources',
 		);
 		expect(screen.getByTestId('reasoning-depth-indicator')).toHaveTextContent(
 			'Max reasoning depth',
@@ -306,6 +312,9 @@ describe('MessageBubble', () => {
 					id: 'deliberation-pass-1',
 					status: 'done',
 					label: 'Reviewed context and sources',
+					passIndex: 1,
+					passTotal: 6,
+					passKind: 'context_source_gap_review',
 				},
 			],
 		};
@@ -315,7 +324,7 @@ describe('MessageBubble', () => {
 		expect(screen.getByRole('button', { name: /Thought/ })).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: /Thought/ }));
 		expect(
-			screen.getByText('Reviewed context and sources'),
+			screen.getByText('Deliberating: 1/6 · Reviewed context and sources'),
 		).toBeInTheDocument();
 
 		await rerender({
@@ -335,6 +344,9 @@ describe('MessageBubble', () => {
 						kind: 'deliberation',
 						status: 'running',
 						label: 'Synthesizing an answer structure',
+						passIndex: 2,
+						passTotal: 6,
+						passKind: 'missed_user_need_check',
 					},
 				],
 				thinkingSegments: [
@@ -343,17 +355,20 @@ describe('MessageBubble', () => {
 						id: 'deliberation-pass-2',
 						status: 'running',
 						label: 'Synthesizing an answer structure',
+						passIndex: 2,
+						passTotal: 6,
+						passKind: 'missed_user_need_check',
 					},
 				],
 			},
 		});
 		expect(screen.getByTestId('deliberation-status-line')).toHaveTextContent(
-			'Synthesizing an answer structure',
+			'Deliberating: 2/6 · Synthesizing an answer structure',
 		);
 		expect(
 			screen
 				.getByTestId('deliberation-status-line')
-				.querySelector('[data-deliberation-icon="file"]'),
+				.querySelector('[data-deliberation-icon="clipboard-check"]'),
 		).not.toBeNull();
 	});
 

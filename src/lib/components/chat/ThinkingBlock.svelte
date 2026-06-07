@@ -2,6 +2,14 @@
 import { t } from "$lib/i18n";
 import type { ThinkingSegment } from "$lib/types";
 import {
+	ClipboardCheck,
+	GitBranch,
+	Languages,
+	Layers,
+	Search,
+	ShieldAlert,
+} from "@lucide/svelte";
+import {
 	getHumanReadableToolNameKey,
 	isFileProductionToolName,
 	isVisibleThinkingSegment,
@@ -54,12 +62,52 @@ function getDeliberationPassIndex(segmentId: string): number {
 }
 
 function getDeliberationStatusIconType(
-	segmentId: string,
-): "search" | "file" | "check" {
-	const pass = getDeliberationPassIndex(segmentId);
+	segment: ThinkingSegment,
+):
+	| "search"
+	| "clipboard-check"
+	| "shield-alert"
+	| "languages"
+	| "layers"
+	| "git-branch" {
+	if (segment.type !== "status") return "search";
+	const passKind = segment.passKind;
+	if (
+		passKind === "context_source_gap_review" ||
+		passKind === "evidence_gap_review" ||
+		passKind === "source_reconciliation"
+	) return "search";
+	if (
+		passKind === "missed_user_need_check" ||
+		passKind === "answer_plan_critique" ||
+		passKind === "final_format_style_check"
+	) return "clipboard-check";
+	if (
+		passKind === "contradiction_risk_check" ||
+		passKind === "adversarial_edge_case_check"
+	) return "shield-alert";
+	if (passKind === "hungarian_parity_check") return "languages";
+	if (passKind === "workspace_synthesis") return "layers";
+	if (passKind === "viable_alternatives_preservation") return "git-branch";
+	const pass = getDeliberationPassIndex(segment.id);
 	if (pass === 1) return "search";
-	if (pass === 2) return "file";
-	return "check";
+	if (pass === 2) return "clipboard-check";
+	return "shield-alert";
+}
+
+function formatDeliberationStatusLabel(segment: ThinkingSegment): string {
+	if (segment.type !== "status") return "";
+	const label = segment.label.trim();
+	if (!label) return "";
+	const current =
+		typeof segment.passIndex === "number" && Number.isInteger(segment.passIndex)
+			? segment.passIndex
+			: getDeliberationPassIndex(segment.id);
+	const total = segment.passTotal;
+	if (typeof total === "number" && Number.isInteger(total) && total > 0) {
+		return $t("chat.deliberatingProgress", { current, total, label });
+	}
+	return label;
 }
 
 const latestDeliberationStatusSegment = $derived.by(() => {
@@ -409,73 +457,68 @@ async function toggle() {
 							class="status-step"
 							class:status-deliberation={isDeliberationStatus}
 							class:is-running={seg.status === 'running'}
-						>
-							{#if isDeliberationStatus}
-								{@const iconType = getDeliberationStatusIconType(seg.id)}
-								{#if iconType === 'search'}
-									<svg
-										class="deliberation-status-icon"
-										data-deliberation-icon="search"
-										width="14"
-										height="14"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										aria-hidden="true"
-									>
-										<circle cx="10.5" cy="10.5" r="7.5" />
-										<path d="m20.5 20.5-4.35-4.35" />
-									</svg>
-								{:else if iconType === 'file'}
-									<svg
-										class="deliberation-status-icon"
-										data-deliberation-icon="file"
-										width="14"
-										height="14"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										aria-hidden="true"
-									>
-										<path d="M4 4h10l5 5v13H4Z" />
-										<path d="m14 4 5 5h-5Z" />
-										<path d="M7 11h9" />
-										<path d="M7 15h9" />
-									</svg>
-								{:else}
-									<svg
-										class="deliberation-status-icon"
-										data-deliberation-icon="check"
-										width="14"
-										height="14"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										aria-hidden="true"
-									>
-										<circle cx="12" cy="12" r="9" />
-										<path d="M8 12l2.5 2.5 5-5" />
-									</svg>
-								{/if}
-							{:else if seg.status === 'running'}
-								<span class="tool-dot-inline"></span>
+							>
+								{#if isDeliberationStatus}
+									{@const iconType = getDeliberationStatusIconType(seg)}
+									{#if iconType === 'search'}
+										<Search
+											class="deliberation-status-icon"
+											data-deliberation-icon="search"
+											size={14}
+											strokeWidth={2}
+											aria-hidden="true"
+										/>
+									{:else if iconType === 'clipboard-check'}
+										<ClipboardCheck
+											class="deliberation-status-icon"
+											data-deliberation-icon="clipboard-check"
+											size={14}
+											strokeWidth={2}
+											aria-hidden="true"
+										/>
+									{:else if iconType === 'shield-alert'}
+										<ShieldAlert
+											class="deliberation-status-icon"
+											data-deliberation-icon="shield-alert"
+											size={14}
+											strokeWidth={2}
+											aria-hidden="true"
+										/>
+									{:else if iconType === 'languages'}
+										<Languages
+											class="deliberation-status-icon"
+											data-deliberation-icon="languages"
+											size={14}
+											strokeWidth={2}
+											aria-hidden="true"
+										/>
+									{:else if iconType === 'layers'}
+										<Layers
+											class="deliberation-status-icon"
+											data-deliberation-icon="layers"
+											size={14}
+											strokeWidth={2}
+											aria-hidden="true"
+										/>
+									{:else}
+										<GitBranch
+											class="deliberation-status-icon"
+											data-deliberation-icon="git-branch"
+											size={14}
+											strokeWidth={2}
+											aria-hidden="true"
+										/>
+									{/if}
+								{:else if seg.status === 'running'}
+									<span class="tool-dot-inline"></span>
 							{:else}
 								<svg class="check-icon" viewBox="0 0 12 12" fill="none">
 									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
 										stroke-linecap="round" stroke-linejoin="round"/>
-								</svg>
-							{/if}
-							<span class="status-step-label">{seg.label}</span>
-						</div>
+									</svg>
+								{/if}
+								<span class="status-step-label">{isDeliberationStatus ? formatDeliberationStatusLabel(seg) : seg.label}</span>
+							</div>
 					{:else}
 						{@const fetchedSources = getFetchedSources(seg)}
 						{#if fetchedSources.length > 0}
@@ -826,7 +869,7 @@ animation: thinkContentFadeIn 300ms ease-out;
 		animation: deliberationStatusFade 220ms var(--ease-out) both;
 	}
 
-	.deliberation-status-icon {
+	:global(.deliberation-status-icon) {
 		color: currentColor;
 		width: 14px;
 		height: 14px;

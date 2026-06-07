@@ -47,6 +47,9 @@ export interface ResponseActivityEntry {
 	title?: string;
 	url?: string;
 	count?: number;
+	passIndex?: number;
+	passTotal?: number;
+	passKind?: string;
 	occurredAt?: number;
 }
 
@@ -993,6 +996,9 @@ export type ThinkingSegment =
 			id: string;
 			label: string;
 			status: ResponseActivityStatus;
+			passIndex?: number;
+			passTotal?: number;
+			passKind?: string;
 	  }
 	| {
 			type: "tool_call";
