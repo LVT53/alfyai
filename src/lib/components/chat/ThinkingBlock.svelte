@@ -339,7 +339,24 @@ async function toggle() {
 {#snippet fetchedSourceGroup(sources: FetchedSource[], summaryClass: string)}
 	<details class="fetched-source-group">
 		<summary class={summaryClass}>
-			<span>{fetchedSourceSummary(sources)}</span>
+			<span class="fetched-source-summary">
+				<span class="fetched-favicon-stack" aria-hidden="true">
+					{#each sources as source}
+						{@const faviconUrl = getFaviconUrl(source.url)}
+						{#if faviconUrl}
+							<img
+								class="fetched-favicon"
+								src={faviconUrl}
+								alt=""
+								loading="lazy"
+								decoding="async"
+								referrerpolicy="no-referrer"
+							/>
+						{/if}
+					{/each}
+				</span>
+				<span>{fetchedSourceSummary(sources)}</span>
+			</span>
 		</summary>
 		<div class="fetched-source-list">
 			{#each sources as source}
@@ -667,7 +684,7 @@ async function toggle() {
 
 	.tool-call-row {
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		gap: var(--space-xs);
 		padding: 3px 0;
 		font-family: 'Nimbus Sans L', sans-serif;
@@ -715,6 +732,25 @@ async function toggle() {
 		list-style-position: inside;
 	}
 
+	.fetched-source-summary {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		max-width: 100%;
+		vertical-align: middle;
+	}
+
+	.fetched-favicon-stack {
+		display: inline-flex;
+		align-items: center;
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: min(260px, 45vw);
+		overflow: hidden;
+		padding: 1px 0 1px 1px;
+	}
+
 	.fetched-source-item {
 		display: flex;
 		align-items: center;
@@ -731,6 +767,10 @@ async function toggle() {
 		box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 55%, transparent);
 		flex: 0 0 auto;
 		object-fit: cover;
+	}
+
+	.fetched-favicon + .fetched-favicon {
+		margin-left: -5px;
 	}
 
 	.fetched-source-list {
