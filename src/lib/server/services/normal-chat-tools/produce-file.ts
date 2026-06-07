@@ -430,6 +430,20 @@ function buildDocumentSourceFromText(params: {
 	};
 }
 
+function stripInlineMarkdown(text: string): string {
+	return text
+		.replace(/\*\*([^*]+)\*\*/g, "$1")
+		.replace(/__([^_]+)__/g, "$1")
+		.replace(/\*([^*]+)\*/g, "$1")
+		.replace(/_([^_]+)_/g, "$1")
+		.replace(/~~([^~]+)~~/g, "$1")
+		.replace(/`([^`]+)`/g, "$1")
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+		.replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 function markdownishTextToBlocks(text: string): Array<Record<string, unknown>> {
 	const blocks: Array<Record<string, unknown>> = [];
 	const paragraph: string[] = [];
@@ -438,13 +452,17 @@ function markdownishTextToBlocks(text: string): Array<Record<string, unknown>> {
 		if (paragraph.length === 0) return;
 		blocks.push({
 			type: "paragraph",
-			text: paragraph.join(" ").replace(/\s+/g, " ").trim(),
+			text: stripInlineMarkdown(paragraph.join(" ")),
 		});
 		paragraph.length = 0;
 	};
 	const flushList = () => {
 		if (listItems.length === 0) return;
-		blocks.push({ type: "list", style: "bullet", items: listItems });
+		blocks.push({
+			type: "list",
+			style: "bullet",
+			items: listItems.map(stripInlineMarkdown),
+		});
 		listItems = [];
 	};
 	for (const rawLine of text.split(/\r?\n/)) {
@@ -461,7 +479,7 @@ function markdownishTextToBlocks(text: string): Array<Record<string, unknown>> {
 			blocks.push({
 				type: "heading",
 				level: Math.min(3, Math.max(1, heading[1].length)),
-				text: heading[2].trim(),
+				text: stripInlineMarkdown(heading[2].trim()),
 			});
 			continue;
 		}
