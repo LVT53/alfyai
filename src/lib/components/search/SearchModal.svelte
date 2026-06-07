@@ -1,131 +1,149 @@
 <script lang="ts">
-	import { onDestroy, tick } from 'svelte';
-	import { get } from 'svelte/store';
-	import { fade } from 'svelte/transition';
-	import { goto } from '$app/navigation';
-	import { browser } from '$app/environment';
-	import { conversations, loadConversations } from '$lib/stores/conversations';
-	import { projects } from '$lib/stores/projects';
-	import { currentConversationId, sidebarOpen, SIDEBAR_DESKTOP_BREAKPOINT } from '$lib/stores/ui';
+import { onDestroy, tick } from "svelte";
+import { get } from "svelte/store";
+import { fade } from "svelte/transition";
+import { goto } from "$app/navigation";
+import { browser } from "$app/environment";
+import { t } from "$lib/i18n";
+import { conversations, loadConversations } from "$lib/stores/conversations";
+import { projects } from "$lib/stores/projects";
+import {
+	currentConversationId,
+	sidebarOpen,
+	SIDEBAR_DESKTOP_BREAKPOINT,
+} from "$lib/stores/ui";
 
-	let { isOpen = false, onClose = () => {} }: {
-		isOpen?: boolean;
-		onClose?: () => void;
-	} = $props();
+let {
+	isOpen = false,
+	onClose = () => {},
+}: {
+	isOpen?: boolean;
+	onClose?: () => void;
+} = $props();
 
-	let searchQuery = $state('');
-	let conversationLoading = $state(false);
-	let modalRef = $state<HTMLDivElement | undefined>(undefined);
-	let searchInputRef = $state<HTMLInputElement | undefined>(undefined);
-	let previousFocus: HTMLElement | null = null;
-	let wasOpen = false;
+let searchQuery = $state("");
+let conversationLoading = $state(false);
+let modalRef = $state<HTMLDivElement | undefined>(undefined);
+let searchInputRef = $state<HTMLInputElement | undefined>(undefined);
+let previousFocus: HTMLElement | null = null;
+let wasOpen = false;
 
-	const focusableSelector =
-		'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const focusableSelector =
+	'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-	const trimmedSearchQuery = $derived(searchQuery.trim());
-	const normalizedSearchQuery = $derived(trimmedSearchQuery.toLowerCase());
-	const searchableConversations = $derived($conversations);
-	const projectsMap = $derived(Object.fromEntries($projects.map((project) => [project.id, project.name])));
-	const conversationResults = $derived(normalizedSearchQuery
+const trimmedSearchQuery = $derived(searchQuery.trim());
+const normalizedSearchQuery = $derived(trimmedSearchQuery.toLowerCase());
+const searchableConversations = $derived($conversations);
+const projectsMap = $derived(
+	Object.fromEntries($projects.map((project) => [project.id, project.name])),
+);
+const conversationResults = $derived(
+	normalizedSearchQuery
 		? searchableConversations.filter((conversation) =>
-				conversation.title.toLowerCase().includes(normalizedSearchQuery)
+				conversation.title.toLowerCase().includes(normalizedSearchQuery),
 			)
-		: searchableConversations.slice(0, 6));
+		: searchableConversations.slice(0, 6),
+);
 
-	function portal(node: HTMLElement) {
-		document.body.appendChild(node);
-		document.body.style.overflow = 'hidden';
-		
-		return {
-			destroy() {
-				if (node.parentNode) {
-					node.parentNode.removeChild(node);
-				}
-				document.body.style.overflow = '';
+function portal(node: HTMLElement) {
+	document.body.appendChild(node);
+	document.body.style.overflow = "hidden";
+
+	return {
+		destroy() {
+			if (node.parentNode) {
+				node.parentNode.removeChild(node);
 			}
-		};
+			document.body.style.overflow = "";
+		},
+	};
+}
+
+$effect(() => {
+	if (!browser || !isOpen || wasOpen) {
+		wasOpen = isOpen;
+		return;
 	}
 
-	$effect(() => {
-		if (!browser || !isOpen || wasOpen) {
-			wasOpen = isOpen;
-			return;
+	previousFocus =
+		document.activeElement instanceof HTMLElement
+			? document.activeElement
+			: null;
+
+	void tick().then(() => {
+		const isMobile = window.matchMedia(
+			"(hover: none) and (pointer: coarse)",
+		).matches;
+		if (!isMobile) {
+			searchInputRef?.focus();
 		}
+	});
 
-		previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-
-		void tick().then(() => {
-			const isMobile = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-			if (!isMobile) {
-				searchInputRef?.focus();
-			}
+	if (get(conversations).length === 0) {
+		conversationLoading = true;
+		void loadConversations().finally(() => {
+			conversationLoading = false;
 		});
-
-		if (get(conversations).length === 0) {
-			conversationLoading = true;
-			void loadConversations().finally(() => {
-				conversationLoading = false;
-			});
-		}
-
-		wasOpen = true;
-	});
-
-	function handleClose() {
-		searchQuery = '';
-		conversationLoading = false;
-		onClose();
-		previousFocus?.focus();
-		previousFocus = null;
 	}
 
-	function handleBackdropClick(event: MouseEvent) {
-		if (event.target === event.currentTarget) {
-			handleClose();
-		}
-	}
+	wasOpen = true;
+});
 
-	function handleKeydown(event: KeyboardEvent) {
-		if (!isOpen) return;
+function handleClose() {
+	searchQuery = "";
+	conversationLoading = false;
+	onClose();
+	previousFocus?.focus();
+	previousFocus = null;
+}
 
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			handleClose();
-			return;
-		}
-
-		if (event.key === 'Tab') {
-			const focusableElements = modalRef?.querySelectorAll<HTMLElement>(focusableSelector);
-			if (!focusableElements || focusableElements.length === 0) return;
-
-			const firstElement = focusableElements[0];
-			const lastElement = focusableElements[focusableElements.length - 1];
-
-			if (event.shiftKey && document.activeElement === firstElement) {
-				event.preventDefault();
-				lastElement.focus();
-			} else if (!event.shiftKey && document.activeElement === lastElement) {
-				event.preventDefault();
-				firstElement.focus();
-			}
-		}
-	}
-
-	async function handleSelection(id: string) {
-		currentConversationId.set(id);
+function handleBackdropClick(event: MouseEvent) {
+	if (event.target === event.currentTarget) {
 		handleClose();
-		await goto(`/chat/${id}`);
-		if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
-			sidebarOpen.set(false);
-		}
+	}
+}
+
+function handleKeydown(event: KeyboardEvent) {
+	if (!isOpen) return;
+
+	if (event.key === "Escape") {
+		event.preventDefault();
+		handleClose();
+		return;
 	}
 
-	onDestroy(() => {
-		if (browser && document.body.style.overflow === 'hidden') {
-			document.body.style.overflow = '';
+	if (event.key === "Tab") {
+		const focusableElements =
+			modalRef?.querySelectorAll<HTMLElement>(focusableSelector);
+		if (!focusableElements || focusableElements.length === 0) return;
+
+		const firstElement = focusableElements[0];
+		const lastElement = focusableElements[focusableElements.length - 1];
+
+		if (event.shiftKey && document.activeElement === firstElement) {
+			event.preventDefault();
+			lastElement.focus();
+		} else if (!event.shiftKey && document.activeElement === lastElement) {
+			event.preventDefault();
+			firstElement.focus();
 		}
-	});
+	}
+}
+
+async function handleSelection(id: string) {
+	currentConversationId.set(id);
+	handleClose();
+	await goto(`/chat/${id}`);
+	if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
+		sidebarOpen.set(false);
+	}
+}
+
+onDestroy(() => {
+	if (browser && document.body.style.overflow === "hidden") {
+		document.body.style.overflow = "";
+	}
+});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -151,14 +169,14 @@
 				<div class="flex items-center justify-between gap-3">
 					<div class="flex items-center gap-2.5">
 						<h2 id="search-dialog-title" class="text-[15px] font-sans font-semibold text-text-primary">
-							Search
+							{$t('searchModal.title')}
 						</h2>
 					</div>
 					<button
 						type="button"
 						class="search-modal-icon-button btn-icon-bare h-8 w-8 rounded-md text-icon-muted hover:text-icon-primary"
 						onclick={handleClose}
-						aria-label="Close search"
+						aria-label={$t('searchModal.close')}
 					>
 						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
 							<line x1="18" x2="6" y1="6" y2="18"></line>
@@ -178,7 +196,7 @@
 						bind:this={searchInputRef}
 						bind:value={searchQuery}
 						type="text"
-						placeholder="Search conversations..."
+						placeholder={$t('searchModal.placeholder')}
 						class="h-8 w-full bg-transparent text-[14px] font-sans text-text-primary outline-none placeholder:text-text-muted"
 					/>
 					{#if searchQuery}
@@ -186,7 +204,7 @@
 							type="button"
 							class="search-modal-icon-button btn-icon-bare h-7 w-7 rounded-md text-icon-muted hover:text-icon-primary"
 							onclick={() => (searchQuery = '')}
-							aria-label="Clear search"
+							aria-label={$t('searchModal.clear')}
 						>
 							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
 								<line x1="18" x2="6" y1="6" y2="18"></line>
@@ -205,7 +223,7 @@
 								<circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12" stroke-linecap="round"></circle>
 							</svg>
 						</div>
-						<h3 class="text-[13px] font-sans text-text-primary">Loading...</h3>
+						<h3 class="text-[13px] font-sans text-text-primary">{$t('searchModal.loading')}</h3>
 					</div>
 				{:else if conversationResults.length === 0}
 					<div class="flex flex-col items-center justify-center px-4 py-12 text-center">
@@ -215,9 +233,9 @@
 								<path d="m20 20-3.5-3.5"></path>
 							</svg>
 						</div>
-						<h3 class="text-[13px] font-sans text-text-primary">No matches found</h3>
+						<h3 class="text-[13px] font-sans text-text-primary">{$t('searchModal.noMatches')}</h3>
 						<p class="mt-1 text-[12px] font-sans text-text-muted">
-							Try a different search term
+							{$t('searchModal.noMatchesHint')}
 						</p>
 					</div>
 				{:else}
@@ -225,7 +243,7 @@
 						{#if conversationResults.length > 0}
 							<section class="space-y-1.5">
 								<div class="px-2 text-[10px] font-sans font-medium uppercase tracking-[0.12em] text-text-muted">
-									{trimmedSearchQuery ? 'Conversations' : 'Recent conversations'}
+									{$t(trimmedSearchQuery ? 'searchModal.conversations' : 'searchModal.recentConversations')}
 								</div>
 								<div class="space-y-0.5">
 									{#each conversationResults as conversation (conversation.id)}
@@ -245,7 +263,7 @@
 													{conversation.title}
 												</div>
 												{#if conversation.id === $currentConversationId}
-													<div class="mt-0.5 text-[11px] font-sans text-accent">Current conversation</div>
+													<div class="mt-0.5 text-[11px] font-sans text-accent">{$t('searchModal.currentConversation')}</div>
 												{:else if conversation.projectId && projectsMap[conversation.projectId]}
 													<div class="mt-0.5 flex items-center gap-1 text-[11px] font-sans text-text-muted">
 														<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">

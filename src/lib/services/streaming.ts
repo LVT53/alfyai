@@ -1,3 +1,4 @@
+import type { ResponseActivityEntry } from "$lib/types";
 import {
 	type AiSdkUiStreamFrame,
 	consumeAiSdkUiStreamFrames,
@@ -8,7 +9,6 @@ import {
 	flushInlineThinkingState,
 	processInlineThinkingChunk,
 } from "./stream-protocol";
-import type { ResponseActivityEntry } from "$lib/types";
 
 export interface StreamMetadata {
 	thinkingTokenCount?: number;
@@ -35,6 +35,7 @@ export interface StreamMetadata {
 	messageEvidence?: import("$lib/types").MessageEvidenceSummary | null;
 	generatedFiles?: import("$lib/types").ChatGeneratedFile[];
 	contextCompressionSnapshots?: import("$lib/types").ContextCompressionMarker[];
+	generationDurationMs?: number;
 }
 
 export interface StreamTimingSnapshot {
@@ -161,6 +162,9 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 			| undefined,
 		contextCompressionSnapshots: parsed.contextCompressionSnapshots as
 			| StreamMetadata["contextCompressionSnapshots"]
+			| undefined,
+		generationDurationMs: parsed.generationDurationMs as
+			| StreamMetadata["generationDurationMs"]
 			| undefined,
 	};
 	return Object.values(nextMetadata).some((value) => value !== undefined)

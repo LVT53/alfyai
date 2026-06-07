@@ -76,16 +76,19 @@ function getDeliberationStatusIconType(
 		passKind === "context_source_gap_review" ||
 		passKind === "evidence_gap_review" ||
 		passKind === "source_reconciliation"
-	) return "search";
+	)
+		return "search";
 	if (
 		passKind === "missed_user_need_check" ||
 		passKind === "answer_plan_critique" ||
 		passKind === "final_format_style_check"
-	) return "clipboard-check";
+	)
+		return "clipboard-check";
 	if (
 		passKind === "contradiction_risk_check" ||
 		passKind === "adversarial_edge_case_check"
-	) return "shield-alert";
+	)
+		return "shield-alert";
 	if (passKind === "hungarian_parity_check") return "languages";
 	if (passKind === "workspace_synthesis") return "layers";
 	if (passKind === "viable_alternatives_preservation") return "git-branch";
@@ -196,7 +199,7 @@ function extractHostname(raw: string): string {
 function getFaviconUrl(raw: string): string | null {
 	try {
 		const parsed = new URL(raw);
-		return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=32`;
+		return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=64`;
 	} catch {
 		return null;
 	}
@@ -269,7 +272,10 @@ function dedupeSourcesByUrl(sources: FetchedSource[]): FetchedSource[] {
 }
 
 function fetchedSourceSummary(sources: FetchedSource[]): string {
-	return `Fetched: ${sources.length} ${sources.length === 1 ? "site" : "sites"}`;
+	const count = sources.length;
+	const label =
+		count === 1 ? $t("toolCalls.fetchedSite") : $t("toolCalls.fetchedSites");
+	return `${$t("toolCalls.fetched")}: ${count} ${label}`;
 }
 
 function formatToolCall(name: string, input: Record<string, unknown>): string {
@@ -333,32 +339,28 @@ async function toggle() {
 {#snippet fetchedSourceGroup(sources: FetchedSource[], summaryClass: string)}
 	<details class="fetched-source-group">
 		<summary class={summaryClass}>
-			<span class="fetched-source-summary">
-				<span class="fetched-favicon-stack" aria-hidden="true">
-					{#each sources as source}
-						{@const faviconUrl = getFaviconUrl(source.url)}
-						{#if faviconUrl}
-							<img
-								class="fetched-favicon"
-								src={faviconUrl}
-								alt=""
-								loading="lazy"
-								decoding="async"
-								referrerpolicy="no-referrer"
-							/>
-						{/if}
-					{/each}
-				</span>
-				<span>{fetchedSourceSummary(sources)}</span>
-			</span>
+			<span>{fetchedSourceSummary(sources)}</span>
 		</summary>
 		<div class="fetched-source-list">
 			{#each sources as source}
-				<a
-					class="tool-link fetched-source-link"
-					href={source.url}
-					target="_blank"
-					rel="noopener noreferrer">{source.title}</a>
+				{@const faviconUrl = getFaviconUrl(source.url)}
+				<div class="fetched-source-item">
+					{#if faviconUrl}
+						<img
+							class="fetched-favicon"
+							src={faviconUrl}
+							alt=""
+							loading="lazy"
+							decoding="async"
+							referrerpolicy="no-referrer"
+						/>
+					{/if}
+					<a
+						class="tool-link fetched-source-link"
+						href={source.url}
+						target="_blank"
+						rel="noopener noreferrer">{source.title}</a>
+				</div>
 			{/each}
 		</div>
 	</details>
@@ -665,7 +667,7 @@ async function toggle() {
 
 	.tool-call-row {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: var(--space-xs);
 		padding: 3px 0;
 		font-family: 'Nimbus Sans L', sans-serif;
@@ -713,23 +715,11 @@ async function toggle() {
 		list-style-position: inside;
 	}
 
-	.fetched-source-summary {
-		display: inline-flex;
+	.fetched-source-item {
+		display: flex;
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
-		max-width: 100%;
-		vertical-align: middle;
-	}
-
-	.fetched-favicon-stack {
-		display: inline-flex;
-		align-items: center;
-		flex: 0 1 auto;
-		min-width: 0;
-		max-width: min(260px, 45vw);
-		overflow: hidden;
-		padding: 1px 0 1px 1px;
 	}
 
 	.fetched-favicon {
@@ -743,13 +733,9 @@ async function toggle() {
 		object-fit: cover;
 	}
 
-	.fetched-favicon + .fetched-favicon {
-		margin-left: -5px;
-	}
-
 	.fetched-source-list {
 		display: grid;
-		gap: 2px;
+		gap: 4px;
 		margin-top: 4px;
 		padding-left: 16px;
 	}

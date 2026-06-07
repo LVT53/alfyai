@@ -501,6 +501,7 @@ export async function completeStreamTurn(
 				contextDebug,
 				generatedFiles,
 				contextCompressionSnapshots,
+				generationDurationMs: genTimeMs,
 			}),
 		);
 		enqueueChunk(

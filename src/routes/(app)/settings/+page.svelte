@@ -1,395 +1,439 @@
 <script lang="ts">
-	import { goto, invalidate } from '$app/navigation';
-	import ProfilePictureEditor from '$lib/components/ui/ProfilePictureEditor.svelte';
-	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
-	import { clearConversationSessionState } from '$lib/client/conversation-session';
-	import {
-		deleteAccount,
-		deleteAvatar,
-		fetchAnalytics,
-		fetchHonchoHealth,
-		resetAccount,
-		updateAdminConfig,
-		updatePassword,
-		updateProfile,
-		updateUserPreferences,
-	} from '$lib/client/api/settings';
-	import { submitKnowledgeBulkAction } from '$lib/client/api/knowledge';
-	import { fetchPublicPersonalityProfiles } from '$lib/client/api/admin';
-	import { reconcileConversationSnapshot } from '$lib/stores/conversations';
-	import { avatarState, setAvatarRemoved, setAvatarUploaded } from '$lib/stores/avatar';
-	import { projects } from '$lib/stores/projects';
-	import {
-		setSelectedModelAndSync,
-		setModelPreferenceAndSync,
-		setTitleLanguageAndSync,
-		setUiLanguageAndSync,
-		type TitleLanguage,
-		type UiLanguage,
-	} from '$lib/stores/settings';
-	import { setThemeAndSync } from '$lib/stores/theme';
-	import { currentConversationId } from '$lib/stores/ui';
-	import { t } from '$lib/i18n';
-	import { AVATAR_COLORS, AVATAR_COUNT } from '$lib/utils/avatar';
-	import DeleteAccountModal from './_components/DeleteAccountModal.svelte';
-	import ResetAccountModal from './_components/ResetAccountModal.svelte';
-	import SettingsAdministrationTab from './_components/SettingsAdministrationTab.svelte';
-	import SettingsAnalyticsTab from './_components/SettingsAnalyticsTab.svelte';
-	import SettingsProfileTab from './_components/SettingsProfileTab.svelte';
-	import type { ModelId, UserModelPreference } from '$lib/types';
-	import type { PageProps } from './$types';
+import { goto, invalidate } from "$app/navigation";
+import ProfilePictureEditor from "$lib/components/ui/ProfilePictureEditor.svelte";
+import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+import { clearConversationSessionState } from "$lib/client/conversation-session";
+import {
+	deleteAccount,
+	deleteAvatar,
+	fetchAnalytics,
+	fetchHonchoHealth,
+	resetAccount,
+	updateAdminConfig,
+	updatePassword,
+	updateProfile,
+	updateUserPreferences,
+} from "$lib/client/api/settings";
+import { submitKnowledgeBulkAction } from "$lib/client/api/knowledge";
+import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
+import { reconcileConversationSnapshot } from "$lib/stores/conversations";
+import {
+	avatarState,
+	setAvatarRemoved,
+	setAvatarUploaded,
+} from "$lib/stores/avatar";
+import { projects } from "$lib/stores/projects";
+import {
+	setSelectedModelAndSync,
+	setModelPreferenceAndSync,
+	setTitleLanguageAndSync,
+	setUiLanguageAndSync,
+	type TitleLanguage,
+	type UiLanguage,
+} from "$lib/stores/settings";
+import { setThemeAndSync } from "$lib/stores/theme";
+import { currentConversationId } from "$lib/stores/ui";
+import { t } from "$lib/i18n";
+import { AVATAR_COLORS, AVATAR_COUNT } from "$lib/utils/avatar";
+import DeleteAccountModal from "./_components/DeleteAccountModal.svelte";
+import ResetAccountModal from "./_components/ResetAccountModal.svelte";
+import SettingsAdministrationTab from "./_components/SettingsAdministrationTab.svelte";
+import SettingsAnalyticsTab from "./_components/SettingsAnalyticsTab.svelte";
+import SettingsProfileTab from "./_components/SettingsProfileTab.svelte";
+import type { ModelId, UserModelPreference } from "$lib/types";
+import type { PageProps } from "./$types";
 
-	// Extended data interface for admin-specific properties
-	interface SettingsPageData {
-		userSettings: {
-			id: string;
-			email: string;
-			name: string | null;
-			role: 'user' | 'admin';
-			preferences: {
-				preferredModel: UserModelPreference;
-				effectiveModel: ModelId;
-				systemDefaultModel: ModelId;
-				theme: 'system' | 'light' | 'dark';
-				titleLanguage: 'auto' | 'en' | 'hu';
-				uiLanguage: 'en' | 'hu';
-				avatarId: number | null;
-			};
-			profilePicture: string | null;
+// Extended data interface for admin-specific properties
+interface SettingsPageData {
+	userSettings: {
+		id: string;
+		email: string;
+		name: string | null;
+		role: "user" | "admin";
+		preferences: {
+			preferredModel: UserModelPreference;
+			effectiveModel: ModelId;
+			systemDefaultModel: ModelId;
+			theme: "system" | "light" | "dark";
+			titleLanguage: "auto" | "en" | "hu";
+			uiLanguage: "en" | "hu";
+			avatarId: number | null;
 		};
-		currentConfigValues?: Record<string, string>;
-		modelNames?: Record<string, string>;
-		availableModels?: Array<{ id: ModelId; displayName: string; iconUrl?: string | null }>;
-		envDefaults?: Record<string, string>;
-		composerCommandRegistryEnabled?: boolean;
+		profilePicture: string | null;
+	};
+	currentConfigValues?: Record<string, string>;
+	modelNames?: Record<string, string>;
+	availableModels?: Array<{
+		id: ModelId;
+		displayName: string;
+		iconUrl?: string | null;
+		isThirdParty?: boolean;
+	}>;
+	envDefaults?: Record<string, string>;
+	composerCommandRegistryEnabled?: boolean;
+}
+
+let { data }: PageProps = $props();
+const getData = () => data;
+
+type Tab = "profile" | "analytics" | "administration";
+
+const initialUserSettings = getData().userSettings;
+const initialPreferences = initialUserSettings.preferences;
+const initialCurrentConfigValues = (getData() as SettingsPageData)
+	.currentConfigValues;
+const isAdmin = initialUserSettings.role === "admin";
+const modelNames = (getData() as SettingsPageData).modelNames ?? {
+	model1: "Model 1",
+	model2: "Model 2",
+};
+const availableModels = ((getData() as SettingsPageData).availableModels ?? [
+	{ id: "model1", displayName: modelNames.model1, isThirdParty: false },
+	{ id: "model2", displayName: modelNames.model2, isThirdParty: false },
+]) as Array<{
+	id: ModelId;
+	displayName: string;
+	iconUrl?: string | null;
+	isThirdParty?: boolean;
+}>;
+const modelIcons = Object.fromEntries(
+	availableModels.map((model) => [model.id, model.iconUrl ?? null]),
+) as Record<string, string | null>;
+const profileAvailableModels = $derived(
+	availableModels.filter((model) => model.isThirdParty !== false),
+);
+
+let activeTab = $state<Tab>("profile");
+
+let name = $state(initialUserSettings.name ?? "");
+let email = $state(initialUserSettings.email);
+let profileSaving = $state(false);
+let profileMessage = $state("");
+let profileError = $state("");
+
+let currentPassword = $state("");
+let newPassword = $state("");
+let confirmPassword = $state("");
+let passwordSaving = $state(false);
+let passwordMessage = $state("");
+let passwordError = $state("");
+let showCurrentPw = $state(false);
+let showNewPw = $state(false);
+let showConfirmPw = $state(false);
+
+let selectedModel = $state<UserModelPreference>(
+	initialPreferences.preferredModel,
+);
+let effectiveModel = $state<ModelId>(initialPreferences.effectiveModel);
+const systemDefaultModel =
+	initialPreferences.systemDefaultModel ?? initialPreferences.effectiveModel;
+let selectedTheme = $state(initialPreferences.theme);
+let selectedTitleLanguage = $state(initialPreferences.titleLanguage ?? "auto");
+let selectedUiLanguage = $state<UiLanguage>(
+	initialPreferences.uiLanguage ?? "en",
+);
+let selectedAvatar = $state(initialPreferences.avatarId);
+let selectedPersonalityId = $state<string | null>(
+	initialPreferences.preferredPersonalityId ?? null,
+);
+let personalityProfiles = $state<
+	Array<{ id: string; name: string; description: string }>
+>([]);
+
+let showDeleteModal = $state(false);
+let deletePassword = $state("");
+let deleteError = $state("");
+let deleteLoading = $state(false);
+let showDeletePw = $state(false);
+let showResetModal = $state(false);
+let resetPassword = $state("");
+let resetError = $state("");
+let resetLoading = $state(false);
+let showResetPw = $state(false);
+
+let forgetEverythingLoading = $state(false);
+let forgetEverythingError = $state("");
+let showForgetEverythingConfirm = $state(false);
+
+let adminConfig = $state<Record<string, string>>(
+	initialCurrentConfigValues ? { ...initialCurrentConfigValues } : {},
+);
+let adminSaving = $state(false);
+let adminMessage = $state("");
+let adminError = $state("");
+
+let honchoHealth = $state<{
+	enabled: boolean;
+	connected: boolean;
+	workspace: string | null;
+} | null>(null);
+let honchoLoading = $state(false);
+
+async function checkHonchoHealth() {
+	honchoLoading = true;
+	try {
+		honchoHealth = await fetchHonchoHealth();
+	} catch {
+		honchoHealth = null;
+	} finally {
+		honchoLoading = false;
 	}
+}
 
-	let { data }: PageProps = $props();
-	const getData = () => data;
+// Auto-dismiss success messages after 4 seconds
+let messageTimers: ReturnType<typeof setTimeout>[] = [];
+function showMessage(
+	field: "profileMessage" | "passwordMessage" | "adminMessage",
+	text: string,
+) {
+	if (field === "profileMessage") profileMessage = text;
+	else if (field === "passwordMessage") passwordMessage = text;
+	else adminMessage = text;
+	const timer = setTimeout(() => {
+		if (field === "profileMessage") profileMessage = "";
+		else if (field === "passwordMessage") passwordMessage = "";
+		else adminMessage = "";
+	}, 4000);
+	messageTimers.push(timer);
+}
 
-	type Tab = 'profile' | 'analytics' | 'administration';
-
-	const initialUserSettings = getData().userSettings;
-	const initialPreferences = initialUserSettings.preferences;
-	const initialCurrentConfigValues = (getData() as SettingsPageData).currentConfigValues;
-	const isAdmin = initialUserSettings.role === 'admin';
-	const modelNames = (getData() as SettingsPageData).modelNames ?? { model1: 'Model 1', model2: 'Model 2' };
-	const availableModels = ((getData() as SettingsPageData).availableModels ?? [
-		{ id: 'model1', displayName: modelNames.model1 },
-		{ id: 'model2', displayName: modelNames.model2 },
-	]) as Array<{ id: ModelId; displayName: string; iconUrl?: string | null }>;
-	const modelIcons = Object.fromEntries(
-		availableModels.map((model) => [model.id, model.iconUrl ?? null]),
-	) as Record<string, string | null>;
-
-	let activeTab = $state<Tab>('profile');
-
-	let name = $state(initialUserSettings.name ?? '');
-	let email = $state(initialUserSettings.email);
-	let profileSaving = $state(false);
-	let profileMessage = $state('');
-	let profileError = $state('');
-
-	let currentPassword = $state('');
-	let newPassword = $state('');
-	let confirmPassword = $state('');
-	let passwordSaving = $state(false);
-	let passwordMessage = $state('');
-	let passwordError = $state('');
-	let showCurrentPw = $state(false);
-	let showNewPw = $state(false);
-	let showConfirmPw = $state(false);
-
-	let selectedModel = $state<UserModelPreference>(initialPreferences.preferredModel);
-	let effectiveModel = $state<ModelId>(initialPreferences.effectiveModel);
-	const systemDefaultModel = initialPreferences.systemDefaultModel ?? initialPreferences.effectiveModel;
-	let selectedTheme = $state(initialPreferences.theme);
-	let selectedTitleLanguage = $state(initialPreferences.titleLanguage ?? 'auto');
-	let selectedUiLanguage = $state<UiLanguage>(initialPreferences.uiLanguage ?? 'en');
-	let selectedAvatar = $state(initialPreferences.avatarId);
-	let selectedPersonalityId = $state<string | null>(initialPreferences.preferredPersonalityId ?? null);
-	let personalityProfiles = $state<Array<{ id: string; name: string; description: string }>>([]);
-
-	let showDeleteModal = $state(false);
-	let deletePassword = $state('');
-	let deleteError = $state('');
-	let deleteLoading = $state(false);
-	let showDeletePw = $state(false);
-	let showResetModal = $state(false);
-	let resetPassword = $state('');
-	let resetError = $state('');
-	let resetLoading = $state(false);
-	let showResetPw = $state(false);
-
-	let forgetEverythingLoading = $state(false);
-	let forgetEverythingError = $state('');
-	let showForgetEverythingConfirm = $state(false);
-
-	let adminConfig = $state<Record<string, string>>(
-		initialCurrentConfigValues ? { ...initialCurrentConfigValues } : {}
-	);
-	let adminSaving = $state(false);
-	let adminMessage = $state('');
-	let adminError = $state('');
-
-	let honchoHealth = $state<{
-		enabled: boolean;
-		connected: boolean;
-		workspace: string | null;
-	} | null>(null);
-	let honchoLoading = $state(false);
-
-	async function checkHonchoHealth() {
-		honchoLoading = true;
-		try {
-			honchoHealth = await fetchHonchoHealth();
-		} catch {
-			honchoHealth = null;
-		} finally {
-			honchoLoading = false;
-		}
-	}
-
-	// Auto-dismiss success messages after 4 seconds
-	let messageTimers: ReturnType<typeof setTimeout>[] = [];
-	function showMessage(field: 'profileMessage' | 'passwordMessage' | 'adminMessage', text: string) {
-		if (field === 'profileMessage') profileMessage = text;
-		else if (field === 'passwordMessage') passwordMessage = text;
-		else adminMessage = text;
-		const timer = setTimeout(() => {
-			if (field === 'profileMessage') profileMessage = '';
-			else if (field === 'passwordMessage') passwordMessage = '';
-			else adminMessage = '';
-		}, 4000);
-		messageTimers.push(timer);
-	}
-
-	let analyticsData = $state<any>(null);
-	let analyticsLoading = $state(false);
-	let analyticsError = $state('');
-	let analyticsMonth = $state<string | null>(null);
+let analyticsData = $state<any>(null);
+let analyticsLoading = $state(false);
+let analyticsError = $state("");
+let analyticsMonth = $state<string | null>(null);
 let showAvatarPicker = $state(false);
 let showPictureEditor = $state(false);
 let removingPhoto = $state(false);
 
-	async function loadAnalytics(month?: string | null, timeline: string | null = 'weekly') {
-		analyticsLoading = true;
-		analyticsError = '';
-		try {
-			analyticsData = await fetchAnalytics(import.meta.env.DEV, month ?? undefined, timeline ?? undefined);
-		} catch (error: any) {
-			analyticsError = error.message;
-		} finally {
-			analyticsLoading = false;
+async function loadAnalytics(
+	month?: string | null,
+	timeline: string | null = "weekly",
+) {
+	analyticsLoading = true;
+	analyticsError = "";
+	try {
+		analyticsData = await fetchAnalytics(
+			import.meta.env.DEV,
+			month ?? undefined,
+			timeline ?? undefined,
+		);
+	} catch (error: any) {
+		analyticsError = error.message;
+	} finally {
+		analyticsLoading = false;
+	}
+}
+
+async function handleMonthChange(month: string | null) {
+	analyticsMonth = month;
+	await loadAnalytics(month, "weekly");
+}
+
+async function handleTimelineChange(granularity: string) {
+	await loadAnalytics(analyticsMonth, granularity);
+}
+
+async function removePhoto() {
+	removingPhoto = true;
+	try {
+		await deleteAvatar();
+		setAvatarRemoved();
+	} catch {
+		// Non-fatal
+	} finally {
+		removingPhoto = false;
+	}
+}
+
+async function saveProfile() {
+	profileSaving = true;
+	profileMessage = "";
+	profileError = "";
+	try {
+		await updateProfile({ name: name.trim() || null, email });
+		showMessage("profileMessage", "Profile updated.");
+	} catch (error: any) {
+		profileError = error.message;
+	} finally {
+		profileSaving = false;
+	}
+}
+
+async function savePassword() {
+	passwordError = "";
+	passwordMessage = "";
+	if (newPassword !== confirmPassword) {
+		passwordError = "New passwords do not match.";
+		return;
+	}
+	if (newPassword.length < 8) {
+		passwordError = "Password must be at least 8 characters.";
+		return;
+	}
+	passwordSaving = true;
+	try {
+		await updatePassword({ currentPassword, newPassword });
+		showMessage("passwordMessage", "Password changed.");
+		currentPassword = "";
+		newPassword = "";
+		confirmPassword = "";
+	} catch (error: any) {
+		passwordError = error.message;
+	} finally {
+		passwordSaving = false;
+	}
+}
+
+async function selectAvatar(avatarId: number) {
+	selectedAvatar = avatarId;
+	await updateUserPreferences({ avatarId }).catch(() => {});
+}
+
+async function changePersonality(id: string | null) {
+	selectedPersonalityId = id;
+	await updateUserPreferences({ preferredPersonalityId: id }).catch(() => {});
+}
+
+async function changeModel(model: UserModelPreference) {
+	selectedModel = model;
+	effectiveModel = model ?? systemDefaultModel;
+	if (model === null) {
+		await setModelPreferenceAndSync(null, systemDefaultModel);
+	} else {
+		await setSelectedModelAndSync(model);
+	}
+}
+
+async function changeTheme(theme: "system" | "light" | "dark") {
+	selectedTheme = theme;
+	await setThemeAndSync(theme);
+}
+
+async function changeTitleLanguage(lang: TitleLanguage) {
+	selectedTitleLanguage = lang;
+	await setTitleLanguageAndSync(lang);
+}
+
+async function changeUiLanguage(lang: UiLanguage) {
+	selectedUiLanguage = lang;
+	await setUiLanguageAndSync(lang);
+}
+
+function closeDeleteModal() {
+	showDeleteModal = false;
+	deletePassword = "";
+	deleteError = "";
+	showDeletePw = false;
+}
+
+function closeResetModal() {
+	showResetModal = false;
+	resetPassword = "";
+	resetError = "";
+	showResetPw = false;
+}
+
+async function confirmDeleteAccount() {
+	deleteError = "";
+	deleteLoading = true;
+	try {
+		await deleteAccount(deletePassword);
+		goto("/login");
+	} catch (error: any) {
+		deleteError = error.message;
+	} finally {
+		deleteLoading = false;
+	}
+}
+
+async function confirmResetAccount() {
+	resetError = "";
+	resetLoading = true;
+	try {
+		await resetAccount(resetPassword);
+		reconcileConversationSnapshot([], { resetLocalState: true });
+		projects.set([]);
+		currentConversationId.set(null);
+		clearConversationSessionState();
+		analyticsData = null;
+		analyticsError = "";
+		closeResetModal();
+		await goto("/login");
+	} catch (error: any) {
+		resetError = error.message;
+	} finally {
+		resetLoading = false;
+	}
+}
+
+function requestForgetEverything() {
+	showForgetEverythingConfirm = true;
+}
+
+function closeForgetEverythingConfirm() {
+	showForgetEverythingConfirm = false;
+}
+
+async function runForgetEverything() {
+	forgetEverythingError = "";
+	showForgetEverythingConfirm = false;
+
+	forgetEverythingLoading = true;
+	try {
+		const result = await submitKnowledgeBulkAction("forget_everything");
+		if (result.success === false) {
+			throw new Error(
+				result.error ?? result.message ?? "Failed to forget everything.",
+			);
 		}
+		forgetEverythingError = "";
+	} catch (error: any) {
+		forgetEverythingError = error.message;
+	} finally {
+		forgetEverythingLoading = false;
 	}
+}
 
-	async function handleMonthChange(month: string | null) {
-		analyticsMonth = month;
-		await loadAnalytics(month, 'weekly');
+async function saveAdminConfig() {
+	adminSaving = true;
+	adminMessage = "";
+	adminError = "";
+	try {
+		await updateAdminConfig(adminConfig);
+		await invalidate("app:shell");
+		showMessage("adminMessage", "Configuration saved.");
+	} catch (error: any) {
+		adminError = error.message;
+	} finally {
+		adminSaving = false;
 	}
+}
 
-	async function handleTimelineChange(granularity: string) {
-		await loadAnalytics(analyticsMonth, granularity);
+async function handleTabChange(tab: Tab) {
+	activeTab = tab;
+	if (tab === "analytics" && !analyticsData && !analyticsLoading) {
+		await loadAnalytics();
 	}
+}
 
-	async function removePhoto() {
-		removingPhoto = true;
-		try {
-			await deleteAvatar();
-			setAvatarRemoved();
-		} catch {
-			// Non-fatal
-		} finally {
-			removingPhoto = false;
-		}
+$effect(() => {
+	if (activeTab === "profile" && personalityProfiles.length === 0) {
+		void fetchPublicPersonalityProfiles()
+			.then((profiles) => {
+				personalityProfiles = profiles;
+				if (
+					selectedPersonalityId &&
+					!profiles.some((profile) => profile.id === selectedPersonalityId)
+				) {
+					selectedPersonalityId = null;
+					void updateUserPreferences({ preferredPersonalityId: null }).catch(
+						() => {},
+					);
+				}
+			})
+			.catch(() => {});
 	}
-
-	async function saveProfile() {
-		profileSaving = true;
-		profileMessage = '';
-		profileError = '';
-		try {
-			await updateProfile({ name: name.trim() || null, email });
-			showMessage('profileMessage', 'Profile updated.');
-		} catch (error: any) {
-			profileError = error.message;
-		} finally {
-			profileSaving = false;
-		}
-	}
-
-	async function savePassword() {
-		passwordError = '';
-		passwordMessage = '';
-		if (newPassword !== confirmPassword) {
-			passwordError = 'New passwords do not match.';
-			return;
-		}
-		if (newPassword.length < 8) {
-			passwordError = 'Password must be at least 8 characters.';
-			return;
-		}
-		passwordSaving = true;
-		try {
-			await updatePassword({ currentPassword, newPassword });
-			showMessage('passwordMessage', 'Password changed.');
-			currentPassword = '';
-			newPassword = '';
-			confirmPassword = '';
-		} catch (error: any) {
-			passwordError = error.message;
-		} finally {
-			passwordSaving = false;
-		}
-	}
-
-	async function selectAvatar(avatarId: number) {
-		selectedAvatar = avatarId;
-		await updateUserPreferences({ avatarId }).catch(() => {});
-	}
-
-	async function changePersonality(id: string | null) {
-		selectedPersonalityId = id;
-		await updateUserPreferences({ preferredPersonalityId: id }).catch(() => {});
-	}
-
-	async function changeModel(model: UserModelPreference) {
-		selectedModel = model;
-		effectiveModel = model ?? systemDefaultModel;
-		if (model === null) {
-			await setModelPreferenceAndSync(null, systemDefaultModel);
-		} else {
-			await setSelectedModelAndSync(model);
-		}
-	}
-
-	async function changeTheme(theme: 'system' | 'light' | 'dark') {
-		selectedTheme = theme;
-		await setThemeAndSync(theme);
-	}
-
-	async function changeTitleLanguage(lang: TitleLanguage) {
-		selectedTitleLanguage = lang;
-		await setTitleLanguageAndSync(lang);
-	}
-
-	async function changeUiLanguage(lang: UiLanguage) {
-		selectedUiLanguage = lang;
-		await setUiLanguageAndSync(lang);
-	}
-
-	function closeDeleteModal() {
-		showDeleteModal = false;
-		deletePassword = '';
-		deleteError = '';
-		showDeletePw = false;
-	}
-
-	function closeResetModal() {
-		showResetModal = false;
-		resetPassword = '';
-		resetError = '';
-		showResetPw = false;
-	}
-
-	async function confirmDeleteAccount() {
-		deleteError = '';
-		deleteLoading = true;
-		try {
-			await deleteAccount(deletePassword);
-			goto('/login');
-		} catch (error: any) {
-			deleteError = error.message;
-		} finally {
-			deleteLoading = false;
-		}
-	}
-
-	async function confirmResetAccount() {
-		resetError = '';
-		resetLoading = true;
-		try {
-			await resetAccount(resetPassword);
-			reconcileConversationSnapshot([], { resetLocalState: true });
-			projects.set([]);
-			currentConversationId.set(null);
-			clearConversationSessionState();
-			analyticsData = null;
-			analyticsError = '';
-			closeResetModal();
-			await goto('/login');
-		} catch (error: any) {
-			resetError = error.message;
-		} finally {
-			resetLoading = false;
-		}
-	}
-
-	function requestForgetEverything() {
-		showForgetEverythingConfirm = true;
-	}
-
-	function closeForgetEverythingConfirm() {
-		showForgetEverythingConfirm = false;
-	}
-
-	async function runForgetEverything() {
-		forgetEverythingError = '';
-		showForgetEverythingConfirm = false;
-
-		forgetEverythingLoading = true;
-		try {
-			const result = await submitKnowledgeBulkAction('forget_everything');
-			if (result.success === false) {
-				throw new Error(result.error ?? result.message ?? 'Failed to forget everything.');
-			}
-			forgetEverythingError = '';
-		} catch (error: any) {
-			forgetEverythingError = error.message;
-		} finally {
-			forgetEverythingLoading = false;
-		}
-	}
-
-	async function saveAdminConfig() {
-		adminSaving = true;
-		adminMessage = '';
-		adminError = '';
-		try {
-			await updateAdminConfig(adminConfig);
-			await invalidate('app:shell');
-			showMessage('adminMessage', 'Configuration saved.');
-		} catch (error: any) {
-			adminError = error.message;
-		} finally {
-			adminSaving = false;
-		}
-	}
-
-	async function handleTabChange(tab: Tab) {
-		activeTab = tab;
-		if (tab === 'analytics' && !analyticsData && !analyticsLoading) {
-			await loadAnalytics();
-		}
-	}
-
-	$effect(() => {
-		if (activeTab === 'profile' && personalityProfiles.length === 0) {
-			void fetchPublicPersonalityProfiles()
-				.then((profiles) => {
-					personalityProfiles = profiles;
-					if (
-						selectedPersonalityId &&
-						!profiles.some((profile) => profile.id === selectedPersonalityId)
-					) {
-						selectedPersonalityId = null;
-						void updateUserPreferences({ preferredPersonalityId: null }).catch(() => {});
-					}
-				})
-				.catch(() => {});
-		}
-	});
+});
 </script>
 
 <div class="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto">
@@ -453,7 +497,7 @@ let removingPhoto = $state(false);
 				{passwordMessage}
 				{passwordError}
 				onSavePassword={savePassword}
-				{availableModels}
+				availableModels={profileAvailableModels}
 				{selectedModel}
 				{effectiveModel}
 				{systemDefaultModel}

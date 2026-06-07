@@ -548,7 +548,8 @@ const chatDict = {
 		"messageBubble.auditCitationNone": "No cited web sources",
 		"messageBubble.auditCitationPassed": "Passed",
 		"messageBubble.auditCitationUnsupported": "Unsupported citations",
-		"messageBubble.auditCitationValue": "{status} · {supported}/{cited} supported",
+		"messageBubble.auditCitationValue":
+			"{status} · {supported}/{cited} supported",
 		"messageBubble.auditClassifier": "Classifier",
 		"messageBubble.auditClassifierControlModel": "Control model",
 		"messageBubble.auditClassifierFallbackValue": "Fallback ({reason})",
@@ -566,7 +567,8 @@ const chatDict = {
 		"messageBubble.auditFallbackContextError": "context unavailable",
 		"messageBubble.auditFallbackControlModelError": "control model unavailable",
 		"messageBubble.auditFallbackEmptyLiveContext": "no live memory context",
-		"messageBubble.auditFallbackInvalidClassifier": "invalid classifier response",
+		"messageBubble.auditFallbackInvalidClassifier":
+			"invalid classifier response",
 		"messageBubble.auditFallbackQueueTimeout": "queue timed out",
 		"messageBubble.auditFallbackTimeout": "timed out",
 		"messageBubble.auditFallbackUnavailable": "unavailable",
@@ -604,6 +606,9 @@ const chatDict = {
 		"toolCalls.memoryLookup": "Memory lookup",
 		"toolCalls.search": "Search",
 		"toolCalls.webSearch": "Web search",
+		"toolCalls.fetched": "Fetched",
+		"toolCalls.fetchedSite": "site",
+		"toolCalls.fetchedSites": "sites",
 		"personalityProfile.concise.description":
 			"Terse, answer-first, minimal exposition. Engineer-to-engineer.",
 		"personalityProfile.concise.name": "Concise",
@@ -741,7 +746,7 @@ const chatDict = {
 		"composerCommands.settings.label": "Beállítások",
 		"composerCommands.skill.description":
 			"Skill vezérlők megnyitása a felfedezés elkészülte után.",
-		"composerCommands.skill.label": "Skill",
+		"composerCommands.skill.label": "Készség",
 		"composerCommands.skillDiscovery.description":
 			"A skill felfedezés egy későbbi szelet számára van fenntartva.",
 		"composerCommands.skillDiscovery.label": "Skillek",
@@ -1170,7 +1175,8 @@ const chatDict = {
 		"messageBubble.depthProfileStandard": "Alap",
 		"messageBubble.depthValue": "{requested} / {applied}",
 		"messageBubble.editMessage": "Üzenet szerkesztése",
-		"messageBubble.extendedReasoningDepth": "Kiterjesztett gondolkodási mélység",
+		"messageBubble.extendedReasoningDepth":
+			"Kiterjesztett gondolkodási mélység",
 		"messageBubble.forkFromHere": "Elágazás innen",
 		"messageBubble.info": "Infó",
 		"messageBubble.maxReasoningDepth": "Max gondolkodási mélység",
@@ -1184,7 +1190,8 @@ const chatDict = {
 		"messageBubble.auditCitationNone": "Nincs idézett webes forrás",
 		"messageBubble.auditCitationPassed": "Sikeres",
 		"messageBubble.auditCitationUnsupported": "Nem támogatott hivatkozások",
-		"messageBubble.auditCitationValue": "{status} · {supported}/{cited} támogatott",
+		"messageBubble.auditCitationValue":
+			"{status} · {supported}/{cited} támogatott",
 		"messageBubble.auditClassifier": "Osztályozó",
 		"messageBubble.auditClassifierControlModel": "Kontrollmodell",
 		"messageBubble.auditClassifierFallbackValue": "Tartalék ({reason})",
@@ -1200,9 +1207,11 @@ const chatDict = {
 		"messageBubble.auditFallbackConfiguredModelUnavailable":
 			"a beállított modell nem érhető el",
 		"messageBubble.auditFallbackContextError": "a kontextus nem érhető el",
-		"messageBubble.auditFallbackControlModelError": "a kontrollmodell nem érhető el",
+		"messageBubble.auditFallbackControlModelError":
+			"a kontrollmodell nem érhető el",
 		"messageBubble.auditFallbackEmptyLiveContext": "nincs élő memóriakontextus",
-		"messageBubble.auditFallbackInvalidClassifier": "érvénytelen osztályozói válasz",
+		"messageBubble.auditFallbackInvalidClassifier":
+			"érvénytelen osztályozói válasz",
 		"messageBubble.auditFallbackQueueTimeout": "a sor várakozása lejárt",
 		"messageBubble.auditFallbackTimeout": "időtúllépés",
 		"messageBubble.auditFallbackUnavailable": "nem érhető el",
@@ -1240,6 +1249,9 @@ const chatDict = {
 		"toolCalls.memoryLookup": "Memória lekérése",
 		"toolCalls.search": "Keresés",
 		"toolCalls.webSearch": "Webes keresés",
+		"toolCalls.fetched": "Lekérve",
+		"toolCalls.fetchedSite": "oldal",
+		"toolCalls.fetchedSites": "oldal",
 		"personalityProfile.concise.description":
 			"Rövid, válasz-először szemléletű, minimális magyarázattal. Mérnöktől mérnöknek.",
 		"personalityProfile.concise.name": "Tömör",

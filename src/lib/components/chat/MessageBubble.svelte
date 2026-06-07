@@ -1,444 +1,503 @@
 <script lang="ts">
-	import { isDark } from '$lib/stores/theme';
-	import { t } from '$lib/i18n';
-	import { isVisibleThinkingSegment, isVisibleThinkingToolCall } from '$lib/utils/tool-calls';
-	import { tokenizeTextLinks } from '$lib/services/linkify';
-	import type {
-		ArtifactSummary,
-		ChatMessage,
-		DepthAppliedProfile,
-		DocumentWorkspaceItem,
-		FileProductionJob,
-		ResponseActivityEntry,
-		ThinkingSegment,
-	} from '$lib/types';
-	import MarkdownRenderer from './MarkdownRenderer.svelte';
-	import ThinkingBlock from './ThinkingBlock.svelte';
-	import ResponseAuditDetails from './ResponseAuditDetails.svelte';
-	import LogoMark from './LogoMark.svelte';
-	import FileAttachment from './FileAttachment.svelte';
-	import MessageEvidenceDetails from './MessageEvidenceDetails.svelte';
-	import FileProductionCard from './FileProductionCard.svelte';
-	import SkillDraftCard from './SkillDraftCard.svelte';
-	import { onDestroy, tick } from 'svelte';
-	import {
-		ClipboardCheck,
-		GitBranch,
-		Languages,
-		Layers,
-		Search,
-		ShieldAlert,
-	} from '@lucide/svelte';
-	import type { TaskSteeringPayload } from '$lib/types';
+import { isDark } from "$lib/stores/theme";
+import { t } from "$lib/i18n";
+import {
+	isVisibleThinkingSegment,
+	isVisibleThinkingToolCall,
+} from "$lib/utils/tool-calls";
+import { tokenizeTextLinks } from "$lib/services/linkify";
+import type {
+	ArtifactSummary,
+	ChatMessage,
+	DepthAppliedProfile,
+	DocumentWorkspaceItem,
+	FileProductionJob,
+	ResponseActivityEntry,
+	ThinkingSegment,
+} from "$lib/types";
+import MarkdownRenderer from "./MarkdownRenderer.svelte";
+import ThinkingBlock from "./ThinkingBlock.svelte";
+import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
+import LogoMark from "./LogoMark.svelte";
+import FileAttachment from "./FileAttachment.svelte";
+import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
+import FileProductionCard from "./FileProductionCard.svelte";
+import SkillDraftCard from "./SkillDraftCard.svelte";
+import { onDestroy, tick } from "svelte";
+import {
+	ClipboardCheck,
+	GitBranch,
+	Languages,
+	Layers,
+	Search,
+	ShieldAlert,
+} from "@lucide/svelte";
+import type { TaskSteeringPayload } from "$lib/types";
 
-	let {
-		message,
-		isLast = false,
-		pinnedArtifactIds = [],
-		excludedArtifactIds = [],
-		fileProductionJobs = [],
-		conversationId = null,
-		modelIcons = {},
-		readOnly = false,
-		onRegenerate = undefined,
-		onEdit = undefined,
-		onFork = undefined,
-		forkBusy = false,
-		onSteer = undefined,
-		onOpenDocument = undefined,
-		onRetryFileProductionJob = undefined,
-		onCancelFileProductionJob = undefined,
-		canPublishSkillDrafts = false,
-		skillDraftActionState = {},
-		onSaveSkillDraft = undefined,
-		onDismissSkillDraft = undefined,
-		onPublishSkillDraft = undefined,
-	}: {
-		message: ChatMessage;
-		isLast?: boolean;
-		pinnedArtifactIds?: string[];
-		excludedArtifactIds?: string[];
-		fileProductionJobs?: FileProductionJob[];
-		conversationId?: string | null;
-		modelIcons?: Record<string, string | null | undefined>;
-		readOnly?: boolean;
-		onRegenerate?: ((payload: { messageId: string }) => void) | undefined;
-		onEdit?: ((payload: { messageId: string; newText: string }) => void) | undefined;
-		onFork?: ((payload: { messageId: string }) => void | Promise<void>) | undefined;
-		forkBusy?: boolean;
-		onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
-		onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
-		onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
-		onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
-		canPublishSkillDrafts?: boolean;
-		skillDraftActionState?: Record<string, { busy?: boolean; error?: string | null }>;
-		onSaveSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
-		onDismissSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
-		onPublishSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
-	} = $props();
+let {
+	message,
+	isLast = false,
+	pinnedArtifactIds = [],
+	excludedArtifactIds = [],
+	fileProductionJobs = [],
+	conversationId = null,
+	modelIcons = {},
+	readOnly = false,
+	onRegenerate = undefined,
+	onEdit = undefined,
+	onFork = undefined,
+	forkBusy = false,
+	onSteer = undefined,
+	onOpenDocument = undefined,
+	onRetryFileProductionJob = undefined,
+	onCancelFileProductionJob = undefined,
+	canPublishSkillDrafts = false,
+	skillDraftActionState = {},
+	onSaveSkillDraft = undefined,
+	onDismissSkillDraft = undefined,
+	onPublishSkillDraft = undefined,
+}: {
+	message: ChatMessage;
+	isLast?: boolean;
+	pinnedArtifactIds?: string[];
+	excludedArtifactIds?: string[];
+	fileProductionJobs?: FileProductionJob[];
+	conversationId?: string | null;
+	modelIcons?: Record<string, string | null | undefined>;
+	readOnly?: boolean;
+	onRegenerate?: ((payload: { messageId: string }) => void) | undefined;
+	onEdit?:
+		| ((payload: { messageId: string; newText: string }) => void)
+		| undefined;
+	onFork?:
+		| ((payload: { messageId: string }) => void | Promise<void>)
+		| undefined;
+	forkBusy?: boolean;
+	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
+	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
+	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
+	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
+	canPublishSkillDrafts?: boolean;
+	skillDraftActionState?: Record<
+		string,
+		{ busy?: boolean; error?: string | null }
+	>;
+	onSaveSkillDraft?:
+		| ((payload: {
+				messageId: string;
+				draftId: string;
+		  }) => void | Promise<void>)
+		| undefined;
+	onDismissSkillDraft?:
+		| ((payload: {
+				messageId: string;
+				draftId: string;
+		  }) => void | Promise<void>)
+		| undefined;
+	onPublishSkillDraft?:
+		| ((payload: {
+				messageId: string;
+				draftId: string;
+		  }) => void | Promise<void>)
+		| undefined;
+} = $props();
 
-	let copied = $state(false);
-	let copyTimeout: ReturnType<typeof setTimeout> | undefined;
-	let isEditing = $state(false);
-	let editText = $state('');
-	let editTextarea = $state<HTMLTextAreaElement | null>(null);
-	let showTimestampTooltip = $state(false);
-	let showForkDetails = $state(false);
-	let dedupedFileProductionJobs = $derived(
-		fileProductionJobs.reduce(
-			(acc, job) => {
-				if (!acc.seen.has(job.id)) {
-					acc.seen.add(job.id);
-					acc.list.push(job);
-				}
-				return acc;
-			},
-			{ seen: new Set<string>(), list: [] as FileProductionJob[] },
-		).list,
-	);
-	let isUser = $derived(message.role === 'user');
-	let hasAttachments = $derived((message.attachments?.length ?? 0) > 0);
-	let hasThinking = $derived(Boolean(message.thinking?.trim()));
-	const isStreaming = $derived(
-		Boolean(message.isStreaming || message.isThinkingStreaming),
-	);
-	let liveResponseActivityEntries = $derived(
-		!isUser && isStreaming ? (message.responseActivity ?? []) : [],
-	);
-	let thinkingSegmentsForDisplay = $derived(message.thinkingSegments ?? []);
-	let visibleThinkingSegmentsForDisplay = $derived(
-		isStreaming
-			? (() => {
+let copied = $state(false);
+let copyTimeout: ReturnType<typeof setTimeout> | undefined;
+let isEditing = $state(false);
+let editText = $state("");
+let editTextarea = $state<HTMLTextAreaElement | null>(null);
+let showTimestampTooltip = $state(false);
+let showForkDetails = $state(false);
+let dedupedFileProductionJobs = $derived(
+	fileProductionJobs.reduce(
+		(acc, job) => {
+			if (!acc.seen.has(job.id)) {
+				acc.seen.add(job.id);
+				acc.list.push(job);
+			}
+			return acc;
+		},
+		{ seen: new Set<string>(), list: [] as FileProductionJob[] },
+	).list,
+);
+let isUser = $derived(message.role === "user");
+let hasAttachments = $derived((message.attachments?.length ?? 0) > 0);
+let hasThinking = $derived(Boolean(message.thinking?.trim()));
+const isStreaming = $derived(
+	Boolean(message.isStreaming || message.isThinkingStreaming),
+);
+let liveResponseActivityEntries = $derived(
+	!isUser && isStreaming ? (message.responseActivity ?? []) : [],
+);
+let thinkingSegmentsForDisplay = $derived(message.thinkingSegments ?? []);
+let visibleThinkingSegmentsForDisplay = $derived(
+	isStreaming
+		? (() => {
 				const latestDeliberationStatus = [...thinkingSegmentsForDisplay]
 					.reverse()
 					.find(
 						(segment) =>
-							segment.type === 'status' &&
-							segment.id.startsWith('deliberation-pass-') &&
+							segment.type === "status" &&
+							segment.id.startsWith("deliberation-pass-") &&
 							segment.label?.trim(),
 					);
 				if (!latestDeliberationStatus) {
 					return thinkingSegmentsForDisplay;
 				}
 
-				return thinkingSegmentsForDisplay.filter((segment) =>
-					segment.type !== 'status' ||
-					!segment.id.startsWith('deliberation-pass-') ||
-					segment.id === latestDeliberationStatus.id,
+				return thinkingSegmentsForDisplay.filter(
+					(segment) =>
+						segment.type !== "status" ||
+						!segment.id.startsWith("deliberation-pass-") ||
+						segment.id === latestDeliberationStatus.id,
 				);
 			})()
-			: thinkingSegmentsForDisplay,
-	);
-	let deliberationThinkingStatus = $derived(
-		[...thinkingSegmentsForDisplay]
-			.reverse()
-			.find(
-				(segment) =>
-					segment.type === "status" &&
-					segment.id.startsWith("deliberation-pass-") &&
-					segment.label?.trim(),
-			),
-	);
-	let hasVisibleThinkingSegments = $derived(
-		thinkingSegmentsForDisplay.some(isVisibleThinkingSegment)
-	);
-	let hasToolCalls = $derived(
-		thinkingSegmentsForDisplay.some(isVisibleThinkingToolCall)
-	);
-	let hasResponseAuditInfo = $derived(
-		!isUser &&
-			(message.content.trim().length > 0 ||
-				hasThinking ||
-				Boolean(message.modelDisplayName) ||
-				Boolean(message.providerDisplayName) ||
-				message.generationDurationMs != null ||
-				message.costUsd != null ||
-				message.thinkingTokenCount != null ||
-				message.responseTokenCount != null ||
-				message.totalTokenCount != null ||
-				Boolean(message.depthMetadata))
-	);
-	let messageModelIconUrl = $derived(
-		message.modelId ? (modelIcons[message.modelId] ?? null) : null,
-	);
-	let auditDetailsId = $derived(`message-info-${message.id}`);
-	let skillDrafts = $derived(message.skillDrafts ?? []);
-	let sourceForks = $derived(message.sourceForks);
-	let userMessageSegments = $derived(isUser ? tokenizeTextLinks(message.content) : []);
+		: thinkingSegmentsForDisplay,
+);
+let deliberationThinkingStatus = $derived(
+	[...thinkingSegmentsForDisplay]
+		.reverse()
+		.find(
+			(segment) =>
+				segment.type === "status" &&
+				segment.id.startsWith("deliberation-pass-") &&
+				segment.label?.trim(),
+		),
+);
+let hasVisibleThinkingSegments = $derived(
+	thinkingSegmentsForDisplay.some(isVisibleThinkingSegment),
+);
+let hasToolCalls = $derived(
+	thinkingSegmentsForDisplay.some(isVisibleThinkingToolCall),
+);
+let hasResponseAuditInfo = $derived(
+	!isUser &&
+		(message.content.trim().length > 0 ||
+			hasThinking ||
+			Boolean(message.modelDisplayName) ||
+			Boolean(message.providerDisplayName) ||
+			message.generationDurationMs != null ||
+			message.costUsd != null ||
+			message.thinkingTokenCount != null ||
+			message.responseTokenCount != null ||
+			message.totalTokenCount != null ||
+			Boolean(message.depthMetadata)),
+);
+let messageModelIconUrl = $derived(
+	message.modelId ? (modelIcons[message.modelId] ?? null) : null,
+);
+let auditDetailsId = $derived(`message-info-${message.id}`);
+let skillDrafts = $derived(message.skillDrafts ?? []);
+let sourceForks = $derived(message.sourceForks);
+let userMessageSegments = $derived(
+	isUser ? tokenizeTextLinks(message.content) : [],
+);
 
-	// Thinking is definitively done once visible response text has started streaming
-	// OR the whole message is complete. This keeps the label as "Thinking" between
-	// multi-burst thinking phases (isThinkingStreaming briefly false, but no content yet).
-	let isDone = $derived(!message.isStreaming && !message.isThinkingStreaming);
-	let isGenerating = $derived(Boolean(message.isStreaming || message.isThinkingStreaming));
-	let hasVisibleContent = $derived(message.content.trim().length > 0);
-	let hasFileProductionCards = $derived(fileProductionJobs.length > 0 && Boolean(conversationId));
-	let liveDeliberationStatus = $derived(
-		isStreaming
-			? [...liveResponseActivityEntries]
+// Thinking is definitively done once visible response text has started streaming
+// OR the whole message is complete. This keeps the label as "Thinking" between
+// multi-burst thinking phases (isThinkingStreaming briefly false, but no content yet).
+let isDone = $derived(!message.isStreaming && !message.isThinkingStreaming);
+let isGenerating = $derived(
+	Boolean(message.isStreaming || message.isThinkingStreaming),
+);
+let hasVisibleContent = $derived(message.content.trim().length > 0);
+let hasFileProductionCards = $derived(
+	fileProductionJobs.length > 0 && Boolean(conversationId),
+);
+let liveDeliberationStatus = $derived(
+	isStreaming
+		? ([...liveResponseActivityEntries]
 				.reverse()
-				.find((entry) => entry.kind === 'deliberation' && entry.label?.trim())
-				?? deliberationThinkingStatus
-			: undefined
+				.find(
+					(entry) => entry.kind === "deliberation" && entry.label?.trim(),
+				) ?? deliberationThinkingStatus)
+		: undefined,
+);
+let liveDeliberationStatusLabel = $derived(
+	liveDeliberationStatus?.label?.trim() ?? "",
+);
+let liveDeliberationStatusDisplayLabel = $derived.by(() => {
+	const label = liveDeliberationStatusLabel;
+	if (!label) return "";
+	const current = deliberationPassIndex(liveDeliberationStatus);
+	const total = liveDeliberationStatus?.passTotal;
+	if (
+		current &&
+		typeof total === "number" &&
+		Number.isInteger(total) &&
+		total > 0
+	) {
+		return $t("chat.deliberatingProgress", { current, total, label });
+	}
+	return label;
+});
+const liveDeliberationStatusIconType = $derived.by(() => {
+	if (!liveDeliberationStatus) {
+		return "search";
+	}
+	return deliberationIconType(liveDeliberationStatus.passKind);
+});
+
+function deliberationPassIndex(
+	status:
+		| ResponseActivityEntry
+		| Extract<ThinkingSegment, { type: "status" }>
+		| undefined,
+): number | null {
+	if (!status) return null;
+	if (
+		typeof status.passIndex === "number" &&
+		Number.isInteger(status.passIndex)
+	) {
+		return status.passIndex;
+	}
+	const match = /deliberation-pass-(\d+)/i.exec(status.id);
+	const parsed = match ? Number.parseInt(match[1], 10) : NaN;
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function deliberationIconType(
+	passKind: string | undefined,
+):
+	| "search"
+	| "clipboard-check"
+	| "shield-alert"
+	| "languages"
+	| "layers"
+	| "git-branch" {
+	if (
+		passKind === "context_source_gap_review" ||
+		passKind === "evidence_gap_review" ||
+		passKind === "source_reconciliation"
+	)
+		return "search";
+	if (
+		passKind === "missed_user_need_check" ||
+		passKind === "answer_plan_critique" ||
+		passKind === "final_format_style_check"
+	)
+		return "clipboard-check";
+	if (
+		passKind === "contradiction_risk_check" ||
+		passKind === "adversarial_edge_case_check"
+	)
+		return "shield-alert";
+	if (passKind === "hungarian_parity_check") return "languages";
+	if (passKind === "workspace_synthesis") return "layers";
+	if (passKind === "viable_alternatives_preservation") return "git-branch";
+	return "search";
+}
+function isDepthAppliedProfile(value: unknown): value is DepthAppliedProfile {
+	return (
+		value === "off" ||
+		value === "standard" ||
+		value === "extended" ||
+		value === "maximum"
 	);
-	let liveDeliberationStatusLabel = $derived(liveDeliberationStatus?.label?.trim() ?? '');
-	let liveDeliberationStatusDisplayLabel = $derived.by(() => {
-		const label = liveDeliberationStatusLabel;
-		if (!label) return '';
-		const current = deliberationPassIndex(liveDeliberationStatus);
-		const total = liveDeliberationStatus?.passTotal;
-		if (
-			current &&
-			typeof total === 'number' &&
-			Number.isInteger(total) &&
-			total > 0
-		) {
-			return $t('chat.deliberatingProgress', { current, total, label });
-		}
-		return label;
-	});
-	const liveDeliberationStatusIconType = $derived.by(() => {
-		if (!liveDeliberationStatus) {
-			return 'search';
-		}
-		return deliberationIconType(liveDeliberationStatus.passKind);
-	});
+}
 
-	function deliberationPassIndex(
-		status: ResponseActivityEntry | Extract<ThinkingSegment, { type: 'status' }> | undefined,
-	): number | null {
-		if (!status) return null;
-		if (typeof status.passIndex === 'number' && Number.isInteger(status.passIndex)) {
-			return status.passIndex;
-		}
-		const match = /deliberation-pass-(\d+)/i.exec(status.id);
-		const parsed = match ? Number.parseInt(match[1], 10) : NaN;
-		return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-	}
-
-	function deliberationIconType(passKind: string | undefined):
-		| 'search'
-		| 'clipboard-check'
-		| 'shield-alert'
-		| 'languages'
-		| 'layers'
-		| 'git-branch' {
-		if (
-			passKind === 'context_source_gap_review' ||
-			passKind === 'evidence_gap_review' ||
-			passKind === 'source_reconciliation'
-		) return 'search';
-		if (
-			passKind === 'missed_user_need_check' ||
-			passKind === 'answer_plan_critique' ||
-			passKind === 'final_format_style_check'
-		) return 'clipboard-check';
-		if (
-			passKind === 'contradiction_risk_check' ||
-			passKind === 'adversarial_edge_case_check'
-		) return 'shield-alert';
-		if (passKind === 'hungarian_parity_check') return 'languages';
-		if (passKind === 'workspace_synthesis') return 'layers';
-		if (passKind === 'viable_alternatives_preservation') return 'git-branch';
-		return 'search';
-	}
-	function isDepthAppliedProfile(value: unknown): value is DepthAppliedProfile {
-		return value === 'off' || value === 'standard' || value === 'extended' || value === 'maximum';
-	}
-
-	let liveDepthProfile = $derived.by(() => {
-		const detail = liveResponseActivityEntries.find((entry) => entry.kind === 'depth')?.detail;
-		return isDepthAppliedProfile(detail) ? detail : undefined;
-	});
-	let resolvedDepthProfile = $derived(
+let liveDepthProfile = $derived.by(() => {
+	const detail = liveResponseActivityEntries.find(
+		(entry) => entry.kind === "depth",
+	)?.detail;
+	return isDepthAppliedProfile(detail) ? detail : undefined;
+});
+let resolvedDepthProfile = $derived(
+	liveDepthProfile ?? message.depthMetadata?.appliedProfile,
+);
+let isDeliberativeDepthProfile = $derived(
+	resolvedDepthProfile === "extended" || resolvedDepthProfile === "maximum",
+);
+let showPreparingStatus = $derived(
+	!isUser &&
+		isGenerating &&
+		!hasVisibleContent &&
+		!hasThinking &&
+		!hasVisibleThinkingSegments &&
+		!isDeliberativeDepthProfile &&
+		!liveDeliberationStatusLabel &&
+		skillDrafts.length === 0 &&
+		!hasFileProductionCards,
+);
+let hasServerPersistedIdentity = $derived(
+	message.renderKey === undefined || message.renderKey !== message.id,
+);
+let canFork = $derived(
+	!isUser &&
+		!readOnly &&
+		Boolean(onFork) &&
+		Boolean(message.id) &&
+		hasServerPersistedIdentity &&
+		!message.wasStopped &&
+		!message.isStreaming &&
+		!message.isThinkingStreaming &&
+		message.content.trim().length > 0,
+);
+let showLogoBelow = $derived(
+	!isUser && isLast && (hasThinking || isGenerating),
+);
+let thinkingIsDone = $derived(
+	!message.isThinkingStreaming && (message.content.trim().length > 0 || isDone),
+);
+let reasoningDepthIndicatorProfile = $derived(
+	getVisibleReasoningDepthProfile(
 		liveDepthProfile ?? message.depthMetadata?.appliedProfile,
-	);
-	let isDeliberativeDepthProfile = $derived(
-		resolvedDepthProfile === 'extended' || resolvedDepthProfile === 'maximum',
-	);
-	let showPreparingStatus = $derived(
-		!isUser &&
-			isGenerating &&
-			!hasVisibleContent &&
-			!hasThinking &&
-			!hasVisibleThinkingSegments &&
-			!isDeliberativeDepthProfile &&
-			!liveDeliberationStatusLabel &&
-			skillDrafts.length === 0 &&
-			!hasFileProductionCards
-	);
-	let hasServerPersistedIdentity = $derived(
-		message.renderKey === undefined || message.renderKey !== message.id
-	);
-	let canFork = $derived(
-		!isUser &&
-			!readOnly &&
-			Boolean(onFork) &&
-			Boolean(message.id) &&
-			hasServerPersistedIdentity &&
-			!message.wasStopped &&
-			!message.isStreaming &&
-			!message.isThinkingStreaming &&
-			message.content.trim().length > 0
-	);
-	let showLogoBelow = $derived(!isUser && isLast && (hasThinking || isGenerating));
-	let thinkingIsDone = $derived(
-		!message.isThinkingStreaming && (message.content.trim().length > 0 || isDone)
-	);
-	let reasoningDepthIndicatorProfile = $derived(
-		getVisibleReasoningDepthProfile(liveDepthProfile ?? message.depthMetadata?.appliedProfile),
-	);
-	let reasoningDepthIndicatorLabel = $derived(
-		reasoningDepthIndicatorProfile === 'maximum'
-			? $t('messageBubble.maxReasoningDepth')
-			: reasoningDepthIndicatorProfile === 'extended'
-				? $t('messageBubble.extendedReasoningDepth')
-				: '',
-	);
+	),
+);
+let reasoningDepthIndicatorLabel = $derived(
+	reasoningDepthIndicatorProfile === "maximum"
+		? $t("messageBubble.maxReasoningDepth")
+		: reasoningDepthIndicatorProfile === "extended"
+			? $t("messageBubble.extendedReasoningDepth")
+			: "",
+);
 
-	function getClipboardText(content: string) {
-		return content
-			.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-			.replace(/<\/?thinking>/gi, '')
-			.trim();
+function getClipboardText(content: string) {
+	return content
+		.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+		.replace(/<\/?thinking>/gi, "")
+		.trim();
+}
+
+async function copyToClipboard() {
+	try {
+		await navigator.clipboard.writeText(getClipboardText(message.content));
+		copied = true;
+		clearTimeout(copyTimeout);
+		copyTimeout = setTimeout(() => {
+			copied = false;
+		}, 2000);
+	} catch (err) {
+		console.error("Failed to copy text: ", err);
 	}
+}
 
-	async function copyToClipboard() {
-		try {
-			await navigator.clipboard.writeText(getClipboardText(message.content));
-			copied = true;
-			clearTimeout(copyTimeout);
-			copyTimeout = setTimeout(() => {
-				copied = false;
-			}, 2000);
-		} catch (err) {
-			console.error('Failed to copy text: ', err);
-		}
+async function startEdit() {
+	editText = message.content;
+	isEditing = true;
+	await tick();
+	editTextarea?.focus();
+}
+
+function cancelEdit() {
+	isEditing = false;
+	editText = "";
+}
+
+function submitEdit() {
+	const trimmed = editText.trim();
+	if (!trimmed || trimmed === message.content) {
+		cancelEdit();
+		return;
 	}
+	onEdit?.({ messageId: message.id, newText: trimmed });
+	isEditing = false;
+	editText = "";
+}
 
-	async function startEdit() {
-		editText = message.content;
-		isEditing = true;
-		await tick();
-		editTextarea?.focus();
+function formatTimestamp(ts: number): string {
+	const date = new Date(ts);
+	const now = new Date();
+	const isToday = date.toDateString() === now.toDateString();
+
+	if (isToday) {
+		const h = String(date.getHours()).padStart(2, "0");
+		const m = String(date.getMinutes()).padStart(2, "0");
+		return `${h}:${m}`;
 	}
+	const day = date.getDate();
+	const month = date.toLocaleString("en-GB", { month: "short" });
+	return `${day} ${month}`;
+}
 
-	function cancelEdit() {
-		isEditing = false;
-		editText = '';
+function formatFullTimestamp(ts: number): string {
+	const date = new Date(ts);
+	const day = date.getDate();
+	const month = date.toLocaleString("en-GB", { month: "long" });
+	const year = date.getFullYear();
+	const h = String(date.getHours()).padStart(2, "0");
+	const m = String(date.getMinutes()).padStart(2, "0");
+	return `${day} ${month} ${year}, ${h}:${m}`;
+}
+
+function toggleTimestampTooltip(e: MouseEvent) {
+	e.stopPropagation();
+	showTimestampTooltip = !showTimestampTooltip;
+}
+
+function getVisibleReasoningDepthProfile(
+	profile: DepthAppliedProfile | undefined,
+): "extended" | "maximum" | null {
+	return profile === "extended" || profile === "maximum" ? profile : null;
+}
+
+let timestampLabel = $derived(isUser ? formatTimestamp(message.timestamp) : "");
+let fullTimestampLabel = $derived(
+	isUser ? formatFullTimestamp(message.timestamp) : "",
+);
+let regenerateButtonId = $derived(`regenerate-button-${message.id}`);
+let forkButtonId = $derived(`fork-button-${message.id}`);
+let editButtonId = $derived(`edit-button-${message.id}`);
+let copyButtonId = $derived(`copy-button-${message.id}`);
+
+function handleEditKeydown(e: KeyboardEvent) {
+	if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+		e.preventDefault();
+		submitEdit();
 	}
-
-	function submitEdit() {
-		const trimmed = editText.trim();
-		if (!trimmed || trimmed === message.content) {
-			cancelEdit();
-			return;
-		}
-		onEdit?.({ messageId: message.id, newText: trimmed });
-		isEditing = false;
-		editText = '';
+	if (e.key === "Escape") {
+		cancelEdit();
 	}
+}
 
-	function formatTimestamp(ts: number): string {
-		const date = new Date(ts);
-		const now = new Date();
-		const isToday = date.toDateString() === now.toDateString();
+$effect(() => {
+	if (!showTimestampTooltip) return;
 
-		if (isToday) {
-			const h = String(date.getHours()).padStart(2, '0');
-			const m = String(date.getMinutes()).padStart(2, '0');
-			return `${h}:${m}`;
-		}
-		const day = date.getDate();
-		const month = date.toLocaleString('en-GB', { month: 'short' });
-		return `${day} ${month}`;
+	const handleWindowClick = () => {
+		showTimestampTooltip = false;
+	};
+
+	window.addEventListener("click", handleWindowClick, { once: true });
+	return () => {
+		window.removeEventListener("click", handleWindowClick);
+	};
+});
+
+onDestroy(() => {
+	if (copyTimeout) {
+		clearTimeout(copyTimeout);
 	}
+});
 
-	function formatFullTimestamp(ts: number): string {
-		const date = new Date(ts);
-		const day = date.getDate();
-		const month = date.toLocaleString('en-GB', { month: 'long' });
-		const year = date.getFullYear();
-		const h = String(date.getHours()).padStart(2, '0');
-		const m = String(date.getMinutes()).padStart(2, '0');
-		return `${day} ${month} ${year}, ${h}:${m}`;
-	}
-
-	function toggleTimestampTooltip(e: MouseEvent) {
-		e.stopPropagation();
-		showTimestampTooltip = !showTimestampTooltip;
-	}
-
-	function getVisibleReasoningDepthProfile(
-		profile: DepthAppliedProfile | undefined,
-	): 'extended' | 'maximum' | null {
-		return profile === 'extended' || profile === 'maximum' ? profile : null;
-	}
-
-	let timestampLabel = $derived(isUser ? formatTimestamp(message.timestamp) : '');
-	let fullTimestampLabel = $derived(isUser ? formatFullTimestamp(message.timestamp) : '');
-	let regenerateButtonId = $derived(`regenerate-button-${message.id}`);
-	let forkButtonId = $derived(`fork-button-${message.id}`);
-	let editButtonId = $derived(`edit-button-${message.id}`);
-	let copyButtonId = $derived(`copy-button-${message.id}`);
-
-	function handleEditKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-			e.preventDefault();
-			submitEdit();
-		}
-		if (e.key === 'Escape') {
-			cancelEdit();
-		}
-	}
-
-	$effect(() => {
-		if (!showTimestampTooltip) return;
-
-		const handleWindowClick = () => {
-			showTimestampTooltip = false;
-		};
-
-		window.addEventListener('click', handleWindowClick, { once: true });
-		return () => {
-			window.removeEventListener('click', handleWindowClick);
-		};
+function handleViewAttachment(attachment: ArtifactSummary) {
+	if (!onOpenDocument) return;
+	onOpenDocument({
+		id: `artifact:${attachment.id}`,
+		source: "knowledge_artifact",
+		filename: attachment.name,
+		title: attachment.name,
+		mimeType: attachment.mimeType,
+		artifactId: attachment.id,
+		conversationId: attachment.conversationId,
 	});
+}
 
-	onDestroy(() => {
-		if (copyTimeout) {
-			clearTimeout(copyTimeout);
-		}
-	});
+function skillDraftPayload(draftId: string) {
+	return { messageId: message.id, draftId };
+}
 
-	function handleViewAttachment(attachment: ArtifactSummary) {
-		if (!onOpenDocument) return;
-		onOpenDocument({
-			id: `artifact:${attachment.id}`,
-			source: 'knowledge_artifact',
-			filename: attachment.name,
-			title: attachment.name,
-			mimeType: attachment.mimeType,
-			artifactId: attachment.id,
-			conversationId: attachment.conversationId,
-		});
-	}
+function skillDraftState(draftId: string) {
+	return skillDraftActionState[`${message.id}:${draftId}`] ?? {};
+}
 
-	function skillDraftPayload(draftId: string) {
-		return { messageId: message.id, draftId };
-	}
+function forkLinkLabel(title: string): string {
+	return $t("fork.openFork", { title });
+}
 
-	function skillDraftState(draftId: string) {
-		return skillDraftActionState[`${message.id}:${draftId}`] ?? {};
-	}
-
-	function forkLinkLabel(title: string): string {
-		return $t('fork.openFork', { title });
-	}
-
-	function toggleForkDetails() {
-		showForkDetails = !showForkDetails;
-	}
+function toggleForkDetails() {
+	showForkDetails = !showForkDetails;
+}
 </script>
 
 <div class="group flex w-full flex-col {isUser && !isEditing ? 'items-end' : 'items-start'} gap-md py-md fade-in">
@@ -454,7 +513,7 @@
 			: 'w-full min-w-0 max-w-full rounded-none bg-surface-page p-sm text-text-primary'}"
 	>
 		{#if !isUser && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls)}
-			<div class="reasoning-depth-indicator" data-testid="reasoning-depth-indicator">
+			<div class="reasoning-depth-indicator" class:fade-out={thinkingIsDone} data-testid="reasoning-depth-indicator">
 				<svg
 					class="reasoning-depth-icon"
 					width="14"
@@ -927,6 +986,16 @@
 		font-size: 14px;
 		font-weight: 700;
 		line-height: 1.25;
+		transition: opacity 400ms var(--ease-out), max-height 400ms var(--ease-out);
+		max-height: 999px;
+		overflow: hidden;
+	}
+
+	.reasoning-depth-indicator.fade-out {
+		opacity: 0;
+		max-height: 0;
+		margin-bottom: 0;
+		pointer-events: none;
 	}
 
 	.reasoning-depth-icon {

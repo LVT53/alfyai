@@ -10,9 +10,9 @@ import type {
 	ModelId,
 	PendingAttachment,
 	PendingSkillSelection,
-	SkillDraftProposal,
 	ReasoningDepth,
 	ResponseActivityEntry,
+	SkillDraftProposal,
 	ThinkingSegment,
 	ToolEvidenceCandidate,
 } from "$lib/types";
@@ -705,11 +705,11 @@ export function finalizeStreamingMessageList(
 					params.metadata?.providerDisplayName ?? message.providerDisplayName,
 				providerIconUrl:
 					params.metadata?.providerIconUrl ?? message.providerIconUrl,
-				depthMetadata:
-					params.metadata?.depthMetadata ?? message.depthMetadata,
+				depthMetadata: params.metadata?.depthMetadata ?? message.depthMetadata,
 				thinkingTokenCount: params.metadata?.thinkingTokenCount,
 				responseTokenCount: params.metadata?.responseTokenCount,
 				totalTokenCount: params.metadata?.totalTokenCount,
+				generationDurationMs: params.metadata?.generationDurationMs,
 				thinkingSegments: finalizedThinkingSegments,
 				responseActivity: undefined,
 				evidenceSummary: message.evidenceSummary,
