@@ -1119,7 +1119,7 @@ async function maybeRunAutomaticContextCompression(params: {
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
 		attachmentTraceId: params.attachmentTraceId,
 		modelId: params.modelId,
-		contextLimits: params.modelConfig.contextLimits,
+		contextLimits: params.contextLimits,
 	});
 	return automaticCompressionResult({
 		context,
