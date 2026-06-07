@@ -2,6 +2,8 @@ import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { getTargetConstructedContext } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { artifacts, deepResearchJobs, messages } from "$lib/server/db/schema";
+import { listMessageAttachments } from "$lib/server/services/knowledge/store/attachments";
+import { getArtifactsForUser } from "$lib/server/services/knowledge/store/core";
 import { messageOrderDesc } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import {
@@ -10,7 +12,7 @@ import {
 	type ProjectReferenceContext,
 } from "$lib/server/services/task-state";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
-import type { ToolEvidenceCandidate } from "$lib/types";
+import type { ChatAttachment, ToolEvidenceCandidate } from "$lib/types";
 
 const MIN_MAX_SIBLINGS = 5;
 const OPERATIONAL_MAX_SIBLINGS = 16;
@@ -40,6 +42,7 @@ export type ProjectContextDetailMessage = {
 	role: "user" | "assistant";
 	content: string;
 	createdAt: number;
+	attachments?: Array<{ name: string; content: string }>;
 };
 
 export type ProjectContextSelectedSiblingDetail =
@@ -121,6 +124,7 @@ export type GetProjectContextParams = {
 	siblingConversationId?: string | null;
 	maxMessages?: number | null;
 	includeEvidenceCandidates?: boolean;
+	includeAttachments?: boolean;
 };
 
 function deriveMaxSiblingsCap(): number {
@@ -372,6 +376,8 @@ function buildReportEvidenceCandidates(
 async function listRecentDialogueMessages(params: {
 	conversationId: string;
 	maxMessages: number;
+	userId?: string;
+	includeAttachments?: boolean;
 }): Promise<{
 	messages: ProjectContextDetailMessage[];
 	omittedMessageCount: number;
@@ -382,10 +388,11 @@ async function listRecentDialogueMessages(params: {
 	);
 	repairConversationMessageSequences(params.conversationId);
 
-	const [countRows, rows] = await Promise.all([
+	const [countRows, rows, attachmentMap] = await Promise.all([
 		db.select({ messageCount: count() }).from(messages).where(dialogueWhere),
 		db
 			.select({
+				id: messages.id,
 				role: messages.role,
 				content: messages.content,
 				createdAt: messages.createdAt,
@@ -394,14 +401,48 @@ async function listRecentDialogueMessages(params: {
 			.where(dialogueWhere)
 			.orderBy(...messageOrderDesc())
 			.limit(params.maxMessages),
+		params.includeAttachments && params.userId
+			? listMessageAttachments(params.conversationId)
+			: Promise.resolve(new Map<string, ChatAttachment[]>()),
 	]);
 	const messageCount = countRows[0]?.messageCount ?? rows.length;
+
+	const artifactContentMap = new Map<string, string>();
+	if (params.includeAttachments && params.userId && attachmentMap.size > 0) {
+		const artifactIds = Array.from(
+			new Set(
+				Array.from(attachmentMap.values()).flatMap((attachments) =>
+					attachments.map((a) => a.artifactId),
+				),
+			),
+		);
+		const artifacts = await getArtifactsForUser(params.userId, artifactIds);
+		for (const artifact of artifacts) {
+			if (artifact.contentText) {
+				artifactContentMap.set(artifact.id, artifact.contentText);
+			}
+		}
+	}
+
 	const selected = rows
-		.map((row) => ({
-			role: row.role as "user" | "assistant",
-			content: clipMessageContent(row.content),
-			createdAt: toTimestampMs(row.createdAt),
-		}))
+		.map((row) => {
+			const messageAttachments = attachmentMap.get(row.id);
+			const attachments =
+				messageAttachments && messageAttachments.length > 0
+					? messageAttachments
+							.map((attachment) => ({
+								name: attachment.name,
+								content: artifactContentMap.get(attachment.artifactId) ?? "",
+							}))
+							.filter((a) => a.content.length > 0)
+					: undefined;
+			return {
+				role: row.role as "user" | "assistant",
+				content: clipMessageContent(row.content),
+				createdAt: toTimestampMs(row.createdAt),
+				...(attachments && attachments.length > 0 ? { attachments } : {}),
+			};
+		})
 		.reverse();
 	return {
 		messages: selected,
@@ -418,6 +459,7 @@ async function buildReportResult(params: {
 	requestedMaxMessages: number | null;
 	appliedMaxMessages: number;
 	includeEvidenceCandidates: boolean;
+	includeAttachments?: boolean;
 }): Promise<ProjectContextResult> {
 	const selectedEntries = params.reference.entries.slice(
 		0,
@@ -429,6 +471,8 @@ async function buildReportResult(params: {
 				listRecentDialogueMessages({
 					conversationId: entry.conversationId,
 					maxMessages: params.appliedMaxMessages,
+					userId: params.userId,
+					includeAttachments: params.includeAttachments,
 				}),
 			),
 		),
@@ -505,6 +549,7 @@ async function buildDetailResult(params: {
 	requestedMaxMessages: number | null;
 	appliedMaxMessages: number;
 	includeEvidenceCandidates: boolean;
+	includeAttachments?: boolean;
 }): Promise<ProjectContextResult> {
 	const siblingConversationId = params.siblingConversationId?.trim();
 	if (!siblingConversationId) {
@@ -526,6 +571,8 @@ async function buildDetailResult(params: {
 
 	const detailMessages = await listRecentDialogueMessages({
 		conversationId: siblingConversationId,
+		userId: params.userId,
+		includeAttachments: params.includeAttachments,
 		maxMessages: params.appliedMaxMessages,
 	});
 	const deepResearchResults = await listDeepResearchResults({
@@ -660,6 +707,7 @@ export async function getProjectContext(
 			requestedMaxMessages,
 			appliedMaxMessages: maxMessages,
 			includeEvidenceCandidates,
+			includeAttachments: params.includeAttachments,
 		});
 	}
 
@@ -673,6 +721,7 @@ export async function getProjectContext(
 			requestedMaxMessages,
 			appliedMaxMessages: reportMessagesPerSibling,
 			includeEvidenceCandidates,
+			includeAttachments: params.includeAttachments,
 		});
 	}
 

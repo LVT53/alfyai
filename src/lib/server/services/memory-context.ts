@@ -19,6 +19,8 @@ import {
 	type HonchoPersonaRecallResult,
 	recallPersonaMemory,
 } from "$lib/server/services/honcho";
+import { listMessageAttachments } from "$lib/server/services/knowledge/store/attachments";
+import { getArtifactsForUser } from "$lib/server/services/knowledge/store/core";
 import {
 	getProjectContext,
 	type ProjectContextResult,
@@ -29,7 +31,7 @@ import {
 } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
-import type { ToolEvidenceCandidate } from "$lib/types";
+import type { ChatAttachment, ToolEvidenceCandidate } from "$lib/types";
 
 export type MemoryContextMode = "project" | "persona" | "history";
 
@@ -46,6 +48,7 @@ export type GetMemoryContextParams = {
 	historyConversationId?: string | null;
 	selectedConversationId?: string | null;
 	includeEvidenceCandidates?: boolean;
+	includeAttachments?: boolean;
 };
 
 export type ProjectMemoryContextResult = Omit<ProjectContextResult, "mode"> & {
@@ -71,6 +74,7 @@ export type HistoryMemoryContextMessage = {
 	role: "user" | "assistant";
 	content: string;
 	createdAt: number;
+	attachments?: Array<{ name: string; content: string }>;
 };
 
 export type HistoryMemoryContextConversation = {
@@ -224,6 +228,7 @@ async function getProjectMemoryContext(
 		siblingConversationId: params.siblingConversationId?.trim() || null,
 		maxMessages: params.maxMessages,
 		includeEvidenceCandidates: params.includeEvidenceCandidates,
+		includeAttachments: params.includeAttachments,
 	});
 
 	return {
@@ -464,6 +469,7 @@ async function loadHistoryConversationDetail(params: {
 	historyConversationId: string;
 	maxMessages: number;
 	candidate?: HistoryCandidate | null;
+	includeAttachments?: boolean;
 }): Promise<HistoryMemoryContextSelectedConversation> {
 	const db = await getDb();
 	const [conversation] = await db
@@ -505,10 +511,11 @@ async function loadHistoryConversationDetail(params: {
 		inArray(messages.role, ["user", "assistant"]),
 	);
 	repairConversationMessageSequences(params.historyConversationId);
-	const [countRows, rows] = await Promise.all([
+	const [countRows, rows, attachmentMap] = await Promise.all([
 		db.select({ messageCount: count() }).from(messages).where(dialogueWhere),
 		db
 			.select({
+				id: messages.id,
 				role: messages.role,
 				content: messages.content,
 				createdAt: messages.createdAt,
@@ -517,13 +524,47 @@ async function loadHistoryConversationDetail(params: {
 			.where(dialogueWhere)
 			.orderBy(...messageOrderDesc())
 			.limit(params.maxMessages),
+		params.includeAttachments
+			? listMessageAttachments(params.historyConversationId)
+			: Promise.resolve(new Map<string, ChatAttachment[]>()),
 	]);
+
+	const artifactContentMap = new Map<string, string>();
+	if (params.includeAttachments && attachmentMap.size > 0) {
+		const artifactIds = Array.from(
+			new Set(
+				Array.from(attachmentMap.values()).flatMap((attachments) =>
+					attachments.map((a) => a.artifactId),
+				),
+			),
+		);
+		const artifacts = await getArtifactsForUser(params.userId, artifactIds);
+		for (const artifact of artifacts) {
+			if (artifact.contentText) {
+				artifactContentMap.set(artifact.id, artifact.contentText);
+			}
+		}
+	}
+
 	const selectedMessages = rows
-		.map((row) => ({
-			role: row.role as "user" | "assistant",
-			content: clipHistoryMessage(row.content),
-			createdAt: toTimestampMs(row.createdAt),
-		}))
+		.map((row) => {
+			const messageAttachments = attachmentMap.get(row.id);
+			const attachments =
+				messageAttachments && messageAttachments.length > 0
+					? messageAttachments
+							.map((attachment) => ({
+								name: attachment.name,
+								content: artifactContentMap.get(attachment.artifactId) ?? "",
+							}))
+							.filter((a) => a.content.length > 0)
+					: undefined;
+			return {
+				role: row.role as "user" | "assistant",
+				content: clipHistoryMessage(row.content),
+				createdAt: toTimestampMs(row.createdAt),
+				...(attachments && attachments.length > 0 ? { attachments } : {}),
+			};
+		})
 		.reverse();
 	const messageCount = countRows[0]?.messageCount ?? selectedMessages.length;
 	const base = params.candidate;
@@ -607,6 +648,7 @@ async function getHistoryMemoryContext(
 				historyConversationId,
 				maxMessages,
 				candidate: selectedHistoryCandidate,
+				includeAttachments: params.includeAttachments,
 			})
 		: null;
 
