@@ -56,10 +56,16 @@ export function transformNormalChatModelRunRequestBody(
 		delete transformed.preserve_thinking;
 	}
 
+	const family = identifyProviderFamily(provider);
+	if (family === "openai" && transformed.max_tokens !== undefined) {
+		transformed.max_completion_tokens = transformed.max_tokens;
+		delete transformed.max_tokens;
+	}
+
 	return transformed;
 }
 
-type ProviderFamily = "deepseek" | "kimi" | "qwen" | "generic";
+type ProviderFamily = "openai" | "deepseek" | "kimi" | "qwen" | "generic";
 
 function identifyProviderFamily(
 	provider: NormalChatModelRunCompatibilityProvider,
@@ -73,6 +79,13 @@ function identifyProviderFamily(
 		.join(" ")
 		.toLowerCase();
 
+	if (
+		provider.baseUrl.includes("api.openai.com") ||
+		provider.name.toLowerCase() === "openai" ||
+		provider.displayName.toLowerCase() === "openai"
+	) {
+		return "openai";
+	}
 	if (/\bdeepseek\b|deepseek-|api\.deepseek\./.test(haystack)) {
 		return "deepseek";
 	}

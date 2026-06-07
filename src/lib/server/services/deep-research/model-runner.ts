@@ -36,11 +36,11 @@
 // file without first building the failover infrastructure in normal-chat-model.
 
 import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
+import { buildOpenAICompatibleUrl } from "$lib/server/services/openai-compatible-url";
 import {
 	decryptApiKey,
 	getProviderWithSecrets,
 } from "$lib/server/services/providers";
-import { buildOpenAICompatibleUrl } from "$lib/server/services/openai-compatible-url";
 import { isProviderModelId, type ModelId } from "$lib/types";
 import {
 	formatDeepResearchDiagnosticsJson,
@@ -162,11 +162,15 @@ async function runDeepResearchModelAttempt(
 	};
 	if (attempt.apiKey) headers.Authorization = `Bearer ${attempt.apiKey}`;
 	const startedAt = Date.now();
+	const isOpenAiEndpoint = /api\.openai\.com/.test(attempt.baseUrl);
+	const maxTokens = input.maxTokens ?? attempt.maxTokens ?? 1800;
 	const body: Record<string, unknown> = {
 		model: attempt.model,
 		messages: input.messages,
 		temperature: input.temperature ?? 0.2,
-		max_tokens: input.maxTokens ?? attempt.maxTokens ?? 1800,
+		...(isOpenAiEndpoint
+			? { max_completion_tokens: maxTokens }
+			: { max_tokens: maxTokens }),
 	};
 	if (attempt.includeBuiltInRequestOptions) {
 		body.chat_template_kwargs = { enable_thinking: false };
