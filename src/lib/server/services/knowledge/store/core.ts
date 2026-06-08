@@ -191,6 +191,25 @@ export function hashBinaryBuffer(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+export async function findExistingArtifactByBinaryHash(params: {
+  userId: string;
+  binaryHash: string;
+}): Promise<Artifact | null> {
+  const rows = await db
+    .select()
+    .from(artifacts)
+    .where(
+      and(
+        eq(artifacts.userId, params.userId),
+        eq(artifacts.binaryHash, params.binaryHash),
+        eq(artifacts.type, "source_document"),
+      ),
+    )
+    .limit(1);
+
+  return rows[0] ? mapArtifact(rows[0]) : null;
+}
+
 export async function createArtifact(params: {
   id?: string;
   userId: string;

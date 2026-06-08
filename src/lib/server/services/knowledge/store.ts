@@ -29,6 +29,7 @@ export {
 	getCompactionUiThreshold,
 	getMaxModelContext,
 	getNormalizedArtifactForSource,
+	findExistingArtifactByBinaryHash,
 	getSourceArtifactIdForNormalizedArtifact,
 	getTargetConstructedContext,
 	guessSummary,

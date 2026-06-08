@@ -18,6 +18,7 @@ import {
   createArtifact,
   createArtifactLink,
   fileExtension,
+  findExistingArtifactByBinaryHash,
   getArtifactsForUser,
   getNormalizedArtifactForSource,
   hashBinaryBuffer,
@@ -442,15 +443,38 @@ export async function saveUploadedArtifact(params: {
 }): Promise<{
   artifact: Artifact;
   normalizedArtifact: Artifact | null;
+  reusedExistingArtifact: boolean;
   renameInfo?: {
     originalName: string;
     wasRenamed: boolean;
   };
 }> {
   const extension = fileExtension(params.file.name);
-  const userDir = knowledgeUserDir(params.userId);
   const buffer = Buffer.from(await params.file.arrayBuffer());
   const binaryHash = hashBinaryBuffer(buffer);
+
+  const existingArtifact = await findExistingArtifactByBinaryHash({
+    userId: params.userId,
+    binaryHash,
+  });
+
+  if (existingArtifact) {
+    if (params.conversationId) {
+      await ensureConversationAttachmentLink({
+        userId: params.userId,
+        artifactId: existingArtifact.id,
+        conversationId: params.conversationId,
+      });
+    }
+
+    return {
+      artifact: existingArtifact,
+      normalizedArtifact: null,
+      reusedExistingArtifact: true,
+    };
+  }
+
+  const userDir = knowledgeUserDir(params.userId);
 
   const nameResolution = await resolveArtifactNameWithAutoRename({
     userId: params.userId,
@@ -499,6 +523,7 @@ export async function saveUploadedArtifact(params: {
   return {
     artifact,
     normalizedArtifact: null,
+    reusedExistingArtifact: false,
     ...(nameResolution.wasRenamed
       ? {
           renameInfo: {
@@ -522,12 +547,37 @@ export async function saveUploadedArtifactFromStoredFile(params: {
 }): Promise<{
   artifact: Artifact;
   normalizedArtifact: Artifact | null;
+  reusedExistingArtifact: boolean;
   renameInfo?: {
     originalName: string;
     wasRenamed: boolean;
   };
 }> {
   const extension = fileExtension(params.fileName);
+
+  const existingArtifact = await findExistingArtifactByBinaryHash({
+    userId: params.userId,
+    binaryHash: params.binaryHash,
+  });
+
+  if (existingArtifact) {
+    await unlink(params.tempPathAbsolute).catch(() => undefined);
+
+    if (params.conversationId) {
+      await ensureConversationAttachmentLink({
+        userId: params.userId,
+        artifactId: existingArtifact.id,
+        conversationId: params.conversationId,
+      });
+    }
+
+    return {
+      artifact: existingArtifact,
+      normalizedArtifact: null,
+      reusedExistingArtifact: true,
+    };
+  }
+
   const userDir = knowledgeUserDir(params.userId);
 
   const nameResolution = await resolveArtifactNameWithAutoRename({
@@ -583,6 +633,7 @@ export async function saveUploadedArtifactFromStoredFile(params: {
   return {
     artifact,
     normalizedArtifact: null,
+    reusedExistingArtifact: false,
     ...(nameResolution.wasRenamed
       ? {
           renameInfo: {

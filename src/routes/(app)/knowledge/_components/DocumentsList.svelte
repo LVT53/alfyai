@@ -4,7 +4,7 @@ import type { KnowledgeDocumentItem } from "$lib/types";
 import { formatByteSize } from "$lib/utils/format";
 import { formatMediumDateTime } from "$lib/utils/time";
 import { t } from "$lib/i18n";
-import { Archive, ChevronDown, ChevronLeft, ChevronRight, Code, File, FileText, Image, Loader, Monitor, Table, Trash2, Upload } from '@lucide/svelte';
+import { Archive, ChevronDown, ChevronLeft, ChevronRight, Code, Download, File, FileText, Image, Loader, Monitor, Table, Trash2, Upload } from '@lucide/svelte';
 
 type DocumentSortKey = "name" | "size" | "type" | "date";
 type SortDirection = "asc" | "desc";
@@ -864,7 +864,7 @@ async function handleBulkDelete(): Promise<boolean> {
 											title={$t('filePreview.download', { filename: document.name })}
 											onclick={(e) => handleDownloadClick(e, document.id)}
 										>
-										<Upload size={16} strokeWidth={2} aria-hidden="true" />
+										<Download size={16} strokeWidth={2} aria-hidden="true" />
 										</button>
 										<button
 											type="button"

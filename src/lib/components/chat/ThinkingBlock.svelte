@@ -6,7 +6,7 @@ import {
 	Check,
 	ChevronDown,
 	ClipboardCheck,
-	GitBranch,
+	Bot,
 	Languages,
 	Layers,
 	Search,
@@ -72,7 +72,7 @@ function getDeliberationStatusIconType(
 	| "shield-alert"
 	| "languages"
 	| "layers"
-	| "git-branch" {
+	| "bot" {
 	if (segment.type !== "status") return "search";
 	const passKind = segment.passKind;
 	if (
@@ -94,7 +94,7 @@ function getDeliberationStatusIconType(
 		return "shield-alert";
 	if (passKind === "hungarian_parity_check") return "languages";
 	if (passKind === "workspace_synthesis") return "layers";
-	if (passKind === "viable_alternatives_preservation") return "git-branch";
+	if (passKind === "viable_alternatives_preservation") return "bot";
 	const pass = getDeliberationPassIndex(segment.id);
 	if (pass === 1) return "search";
 	if (pass === 2) return "clipboard-check";
@@ -501,9 +501,9 @@ async function toggle() {
 											aria-hidden="true"
 										/>
 									{:else}
-										<GitBranch
+										<Bot
 											class="deliberation-status-icon"
-											data-deliberation-icon="git-branch"
+											data-deliberation-icon="bot"
 											size={14}
 											strokeWidth={2}
 											aria-hidden="true"

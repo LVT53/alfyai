@@ -25,6 +25,7 @@ import FileProductionCard from "./FileProductionCard.svelte";
 import SkillDraftCard from "./SkillDraftCard.svelte";
 import { onDestroy, tick } from "svelte";
 import {
+	Bot,
 	Brain,
 	Check,
 	ClipboardCheck,
@@ -271,7 +272,7 @@ function deliberationIconType(
 	| "shield-alert"
 	| "languages"
 	| "layers"
-	| "git-branch" {
+	| "bot" {
 	if (
 		passKind === "context_source_gap_review" ||
 		passKind === "evidence_gap_review" ||
@@ -291,7 +292,7 @@ function deliberationIconType(
 		return "shield-alert";
 	if (passKind === "hungarian_parity_check") return "languages";
 	if (passKind === "workspace_synthesis") return "layers";
-	if (passKind === "viable_alternatives_preservation") return "git-branch";
+	if (passKind === "viable_alternatives_preservation") return "bot";
 	return "search";
 }
 function isDepthAppliedProfile(value: unknown): value is DepthAppliedProfile {
@@ -568,9 +569,9 @@ function toggleForkDetails() {
 						aria-hidden="true"
 					/>
 				{:else}
-					<GitBranch
+					<Bot
 						class="deliberation-status-icon"
-						data-deliberation-icon="git-branch"
+						data-deliberation-icon="bot"
 						size={14}
 						strokeWidth={2}
 						aria-hidden="true"

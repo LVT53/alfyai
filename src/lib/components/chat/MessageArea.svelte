@@ -111,31 +111,11 @@ function chatScrollKey(cid: string | null): string {
 }
 
 $effect(() => {
-	if (conversationId && conversationId !== lastConversationId) {
-		lastConversationId = conversationId;
-		shouldAutoScroll = true;
-		lastMessageCount = 0;
-		lastFileProductionJobCount = 0;
-		lastDeepResearchJobCount = 0;
-		lastContextCompressionMarkerCount = 0;
-		pendingForkBoundaryMessageId = forkOrigin?.copiedForkPointMessageId ?? null;
-		if (pendingForkBoundaryMessageId != null) {
-			shouldJumpToConversationBottom = false;
-		} else if (browser) {
-			const key = chatScrollKey(conversationId);
-			const saved = sessionStorage.getItem(key);
-			if (saved !== null) {
-				// Page refresh — restore previous scroll position.
-				pendingRestoreScroll = Number(saved);
-				sessionStorage.removeItem(key);
-				shouldJumpToConversationBottom = false;
-			} else {
-				shouldJumpToConversationBottom = true;
-			}
-		} else {
-			shouldJumpToConversationBottom = true;
-		}
-	} else if (conversationId && forkOrigin?.copiedForkPointMessageId) {
+	// Fork-origin updates only — conversation-change detection
+	// now runs in $effect.pre before the scroll dispatch so that
+	// shouldJumpToConversationBottom and counters are always
+	// correct when the scroll orchestrator evaluates.
+	if (conversationId && forkOrigin?.copiedForkPointMessageId) {
 		const forkBoundaryJumpKey = `${conversationId}:${forkOrigin.copiedForkPointMessageId}`;
 		if (forkBoundaryJumpKey !== lastForkBoundaryJumpKey) {
 			pendingForkBoundaryMessageId = forkOrigin.copiedForkPointMessageId;
@@ -185,6 +165,36 @@ $effect.pre(() => {
 	contextCompressionMarkers.length;
 
 	if (!scrollContainer) return;
+
+	// Detect conversation change and reset before scroll dispatch.
+	// Must happen here (in $effect.pre) rather than in the regular $effect
+	// because $effect.pre runs first and needs correct counters/flags before
+	// the isNewMessage / shouldJumpToConversationBottom checks below.
+	if (conversationId && conversationId !== lastConversationId) {
+		lastConversationId = conversationId;
+		shouldAutoScroll = true;
+		lastMessageCount = 0;
+		lastFileProductionJobCount = 0;
+		lastDeepResearchJobCount = 0;
+		lastContextCompressionMarkerCount = 0;
+		pendingForkBoundaryMessageId = forkOrigin?.copiedForkPointMessageId ?? null;
+		if (pendingForkBoundaryMessageId != null) {
+			shouldJumpToConversationBottom = false;
+		} else if (browser) {
+			const key = chatScrollKey(conversationId);
+			const saved = sessionStorage.getItem(key);
+			if (saved !== null) {
+				// Page refresh — restore previous scroll position.
+				pendingRestoreScroll = Number(saved);
+				sessionStorage.removeItem(key);
+				shouldJumpToConversationBottom = false;
+			} else {
+				shouldJumpToConversationBottom = true;
+			}
+		} else {
+			shouldJumpToConversationBottom = true;
+		}
+	}
 
 	// Restore saved scroll position on page refresh.
 	if (pendingRestoreScroll !== null) {

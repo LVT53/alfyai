@@ -147,6 +147,7 @@ describe("Knowledge Upload Intake", () => {
 		mockSaveUploadedArtifact.mockResolvedValue({
 			artifact: sourceArtifact,
 			normalizedArtifact,
+			reusedExistingArtifact: false,
 		});
 		mockResolvePromptAttachmentArtifacts.mockResolvedValue({
 			displayArtifacts: [sourceArtifact],
@@ -230,6 +231,7 @@ describe("Knowledge Upload Intake", () => {
 		mockSaveUploadedArtifactFromStoredFile.mockResolvedValue({
 			artifact: sourceArtifact,
 			normalizedArtifact,
+			reusedExistingArtifact: false,
 			renameInfo: {
 				originalName: "report.pdf",
 				wasRenamed: true,
@@ -316,6 +318,7 @@ describe("Knowledge Upload Intake", () => {
 		mockSaveUploadedArtifact.mockResolvedValue({
 			artifact: sourceArtifact,
 			normalizedArtifact,
+			reusedExistingArtifact: false,
 		});
 		mockSyncArtifactToHoncho
 			.mockResolvedValueOnce({ uploaded: false, mode: "none" })
@@ -372,6 +375,7 @@ describe("Knowledge Upload Intake", () => {
 		mockSaveUploadedArtifact.mockResolvedValue({
 			artifact: sourceArtifact,
 			normalizedArtifact: null,
+			reusedExistingArtifact: false,
 		});
 		mockCreateNormalizedArtifact.mockResolvedValue(null);
 		mockSyncArtifactToHoncho.mockResolvedValue({

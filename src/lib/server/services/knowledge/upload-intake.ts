@@ -170,6 +170,7 @@ async function buildKnowledgeUploadResponse(params: {
 	normalizedArtifact: Artifact | null;
 	honcho: Awaited<ReturnType<typeof syncArtifactToHoncho>>;
 	traceId: string;
+	reusedExistingArtifact: boolean;
 	renameInfo?: UploadRenameInfo;
 }): Promise<KnowledgeUploadResponse> {
 	const resolvedAttachment = await resolvePromptAttachmentArtifacts(
@@ -198,7 +199,7 @@ async function buildKnowledgeUploadResponse(params: {
 	return {
 		artifact: params.artifact,
 		normalizedArtifact: params.normalizedArtifact,
-		reusedExistingArtifact: false,
+		reusedExistingArtifact: params.reusedExistingArtifact,
 		honcho: params.honcho,
 		promptReady,
 		promptArtifactId: promptReady
@@ -214,6 +215,7 @@ async function finishKnowledgeUpload(params: {
 	conversationId: string | null;
 	artifact: Artifact;
 	normalizedArtifact: Artifact | null;
+	reusedExistingArtifact: boolean;
 	renameInfo?: UploadRenameInfo;
 	traceId: string;
 	startedAt: number;
@@ -280,6 +282,7 @@ async function finishKnowledgeUpload(params: {
 		normalizedArtifact,
 		honcho,
 		traceId: params.traceId,
+		reusedExistingArtifact: params.reusedExistingArtifact,
 		renameInfo: params.renameInfo,
 	});
 }
@@ -307,6 +310,7 @@ export async function completeKnowledgeUploadFromFile(params: {
 		conversationId,
 		artifact: uploadResult.artifact,
 		normalizedArtifact: uploadResult.normalizedArtifact,
+		reusedExistingArtifact: uploadResult.reusedExistingArtifact,
 		renameInfo: uploadResult.renameInfo,
 		traceId: params.traceId,
 		startedAt: params.startedAt,
@@ -346,6 +350,7 @@ export async function completeKnowledgeUploadFromStoredFile(params: {
 		conversationId,
 		artifact: uploadResult.artifact,
 		normalizedArtifact: uploadResult.normalizedArtifact,
+		reusedExistingArtifact: uploadResult.reusedExistingArtifact,
 		renameInfo: uploadResult.renameInfo,
 		traceId: params.traceId,
 		startedAt: params.startedAt,

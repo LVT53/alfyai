@@ -39,7 +39,7 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 
 - **Token budgets**: `WORKING_SET_DOCUMENT_TOKEN_BUDGET` (4k), `WORKING_SET_OUTPUT_TOKEN_BUDGET` (2k), `WORKING_SET_PROMPT_TOKEN_BUDGET` (20k) live in `store/core.ts`
 - **Semantic retrieval**: `store/documents.ts` composes lexical fetch + embedding shortlist + TEI rerank; keeps deterministic filters above TEI scores
-- **Library uploads**: `conversationId` may be null; skip `attached_to_conversation` link when null. Filename conflicts auto-rename and remain separate uploaded documents; do not convert duplicate uploads into versions.
+- **Library uploads**: `conversationId` may be null; skip `attached_to_conversation` link when null. Filename conflicts auto-rename non-identical files; byte-identical (SHA256 hash) files reuse the existing artifact via `findExistingArtifactByBinaryHash`.
 - **Knowledge Upload Intake**: upload routes own auth, HTTP/body receipt, raw temp writes, and chunk assembly. `upload-intake.ts` owns shared limits, conversation validation, durable completion, normalized extraction, Honcho sync/fallback, readiness response, and upload trace output after bytes are available.
 - **Memory overview**: `memory-overview.ts` owns app-ready overview bullets, provenance-noise stripping, sensitive-value softening, source semantics, and status semantics for `memory.ts`; Knowledge page routes/views render the returned contract instead of parsing raw Honcho text.
 - **Document families**: generated-document families are metadata-driven via `store/document-metadata.ts`; `document-resolution.ts` is authority for "which generated version is current"
@@ -53,7 +53,7 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 - Do NOT duplicate document search ranking in routes; use the shared document search service
 - Do NOT put upload completion, prompt readiness, or Honcho sync back into upload routes
 - Do NOT make capsules the authority for document lineage
-- Do NOT add uploaded-file versioning or dedupe; duplicate uploads stay separate auto-renamed documents
+- Do NOT add uploaded-file versioning; byte-identical (SHA256 hash) deduplication is handled at the upload level via `findExistingArtifactByBinaryHash`. Name-based auto-rename still applies for non-identical files with conflicting names.
 - Do NOT reintroduce page-local raw Honcho overview normalization; use `memory-overview.ts`
 - Do NOT route TEI reranking through control-model chat completions
 - Do NOT add per-candidate debug logs; keep retrieval observability summary-level

@@ -45,6 +45,9 @@
 			markPreviousConversationId($currentConversationId);
 			currentConversationId.set(null);
 			mobileMenuOpen = false;
+			if (typeof window !== 'undefined' && window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
+				sidebarOpen.set(false);
+			}
 			await goto('/');
 		} catch (error) {
 			console.error('Failed to create new conversation:', error);
