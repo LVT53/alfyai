@@ -104,6 +104,7 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	memory_context: 15_000,
 	image_search: 30_000,
 	produce_file: 30_000,
+	read_generated_file: 10_000,
 };
 
 export async function withTimeout<T>(

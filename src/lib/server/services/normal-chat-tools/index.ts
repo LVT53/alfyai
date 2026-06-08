@@ -47,6 +47,15 @@ import {
 } from "./produce-file";
 
 import {
+	buildReadGeneratedFileModelPayload,
+	readGeneratedFileContent,
+	readGeneratedFileInputSchema,
+	sanitizeReadGeneratedFileInput,
+	summarizeReadGeneratedFileResult,
+	type ReadGeneratedFileResult,
+} from "./read-generated-file";
+
+import {
 	researchWebInputSchema,
 	sanitizeResearchWebInput,
 } from "./research-web";
@@ -103,6 +112,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Queue generation of downloadable files for the current conversation.",
 			errorPrefix: "File production intake failed",
 		},
+		read_generated_file: {
+			description:
+				"Read the full content of a previously generated file by filename or title, so you can review it before making surgical edits.",
+			errorPrefix: "Read generated file failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -123,6 +137,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 			description:
 				"Letölthető fájlok generálásának ütemezése az aktuális beszélgetéshez.",
 			errorPrefix: "A fájl-előállítás sikertelen",
+		},
+		read_generated_file: {
+			description:
+				"Egy korábban generált fájl teljes tartalmának beolvasása fájlnév vagy cím alapján, hogy ellenőrizhesd a tartalmát a módosítások előtt.",
+			errorPrefix: "A fájl beolvasása sikertelen",
 		},
 	},
 };
@@ -556,6 +575,83 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									evidenceReady: false,
 									intakeStatus: 500,
 									error: safeError,
+								},
+							},
+						};
+					},
+				});
+			},
+		}),
+		read_generated_file: tool({
+			description: i18n.read_generated_file.description,
+			inputSchema: readGeneratedFileInputSchema,
+			execute: async (
+				input: ReturnType<typeof readGeneratedFileInputSchema._output>,
+				options: ToolExecutionOptions,
+			) => {
+				const parsedInput = readGeneratedFileInputSchema.safeParse(input);
+				if (!parsedInput.success) {
+					const error = parsedInput.error.issues[0]?.message ?? "Invalid input";
+					return {
+						found: false,
+						error,
+					};
+				}
+				const safeInput = sanitizeReadGeneratedFileInput(parsedInput.data);
+				return executeToolWithEnvelope({
+					toolName: "read_generated_file",
+					timeoutMs: TOOL_TIMEOUTS_MS.read_generated_file,
+					options,
+					recorder,
+					run: async () => {
+						const result = await readGeneratedFileContent({
+							userId: ctx.userId,
+							conversationId: ctx.conversationId,
+							filename: parsedInput.data.filename ?? null,
+							requestTitle: parsedInput.data.requestTitle ?? null,
+						});
+						const modelPayload =
+							buildReadGeneratedFileModelPayload(result);
+						return {
+							modelPayload,
+							entry: {
+								callId: options.toolCallId,
+								name: "read_generated_file",
+								input: safeInput,
+								status: "done",
+								outputSummary:
+									summarizeReadGeneratedFileResult(result),
+								sourceType: "tool",
+								metadata: {
+									ok: !result.notFound,
+									evidenceReady: false,
+									found: !result.notFound,
+								},
+							},
+						};
+					},
+					onError: (error) => {
+						const message = modelSafeToolError(
+							error,
+							i18n.read_generated_file.errorPrefix,
+						);
+						return {
+							modelPayload: {
+								found: false,
+								error: message,
+							},
+							entry: {
+								callId: options.toolCallId,
+								name: "read_generated_file",
+								input: safeInput,
+								status: "done",
+								outputSummary: message,
+								sourceType: "tool",
+								metadata: {
+									ok: false,
+									evidenceReady: false,
+									found: false,
+									error: message,
 								},
 							},
 						};
