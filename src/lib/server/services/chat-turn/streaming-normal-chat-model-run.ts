@@ -177,6 +177,7 @@ export async function runStreamingNormalChatSendModel(
 			: {}),
 	});
 	const recorder = normalChatTools.recorder ?? createToolCallRecorder();
+	const deliberationStartMs = Date.now();
 	const deliberation =
 		activeDepthEffort && shouldRunDeliberationPasses(activeDepthEffort)
 			? await runNormalChatDeliberationPasses({
@@ -199,6 +200,8 @@ export async function runStreamingNormalChatSendModel(
 					),
 				})
 			: null;
+	const deliberationElapsedMs =
+		deliberation !== null ? Date.now() - deliberationStartMs : 0;
 	const toolChoice = undefined;
 	const prefetchedToolCalls = prepared.prefetchedToolCalls ?? [];
 	const getNormalChatToolCalls = () => normalChatTools.getToolCalls();
@@ -232,6 +235,7 @@ export async function runStreamingNormalChatSendModel(
 				content: [{ type: "text", text: finalInputValue }],
 			},
 		],
+		deliberationElapsedMs,
 	});
 
 	return {

@@ -229,6 +229,7 @@ export type StreamingNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet>;
 	firstOutputTimeoutMs?: number | null;
+	deliberationElapsedMs?: number;
 };
 
 export type PlainNormalChatModelRunResult = {
@@ -634,14 +635,35 @@ function resolveFirstOutputTimeoutMs(
 	params: StreamingNormalChatModelRunParams,
 	currentModelId: string,
 ): number | null {
+	const extraMs = Math.max(0, params.deliberationElapsedMs ?? 0);
 	if (params.firstOutputTimeoutMs !== undefined) {
-		return params.firstOutputTimeoutMs;
+		if (params.firstOutputTimeoutMs === null) return null;
+		const effective = params.firstOutputTimeoutMs + extraMs;
+		if (!params.runtimeConfig || effective <= 0) return effective;
+		const resolved = Math.min(params.runtimeConfig.requestTimeoutMs, effective);
+		console.warn("[NORMAL_CHAT_MODEL] first-output timeout adjusted", {
+			baseMs: params.firstOutputTimeoutMs,
+			extraMs,
+			resolvedMs: resolved,
+			modelId: currentModelId,
+		});
+		return resolved;
 	}
 	if (!params.runtimeConfig) return null;
-	return resolveModelStreamFirstOutputTimeoutMs(
+	const base = resolveModelStreamFirstOutputTimeoutMs(
 		currentModelId as ModelId,
 		params.runtimeConfig,
 	);
+	if (base === null) return null;
+	const effective = base + extraMs;
+	const resolved = Math.min(params.runtimeConfig.requestTimeoutMs, effective);
+	console.warn("[NORMAL_CHAT_MODEL] first-output timeout adjusted", {
+		baseMs: base,
+		extraMs,
+		resolvedMs: resolved,
+		modelId: currentModelId,
+	});
+	return resolved;
 }
 
 function requestContainsToolResult(error: unknown): boolean {
