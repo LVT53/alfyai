@@ -118,6 +118,7 @@ export function doReconnect(targetStreamId: string, deps: ReconnectDeps): void {
 							? { activityCount: buffer.responseActivity.length }
 							: {}),
 						userMessage: buffer.userMessage,
+						createdAt: buffer.createdAt,
 					}),
 				);
 

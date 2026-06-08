@@ -255,7 +255,10 @@ export function createNormalChatClientTurnRuntime(
 		setActiveStream(null);
 	}
 
-	function createAssistantPlaceholder(id: string): ChatMessage {
+	function createAssistantPlaceholder(
+		id: string,
+		generationDurationMs?: number,
+	): ChatMessage {
 		return {
 			id,
 			renderKey: id,
@@ -263,6 +266,7 @@ export function createNormalChatClientTurnRuntime(
 			content: "",
 			timestamp: Date.now(),
 			isStreaming: true,
+			...(generationDurationMs !== undefined ? { generationDurationMs } : {}),
 		};
 	}
 
@@ -765,6 +769,7 @@ export function createNormalChatClientTurnRuntime(
 		userMessage = "",
 		retryCount = 0,
 		reasoningDepth?: ReasoningDepth,
+		replayElapsedMs?: number,
 	) {
 		if (isSending || activeStream) return false;
 
@@ -784,7 +789,7 @@ export function createNormalChatClientTurnRuntime(
 			);
 		}
 		adapters.appendAssistantPlaceholder(
-			createAssistantPlaceholder(placeholderId),
+			createAssistantPlaceholder(placeholderId, replayElapsedMs),
 		);
 
 		startStream({
@@ -831,6 +836,9 @@ export function createNormalChatClientTurnRuntime(
 			bufferInfo?.userMessage ?? "",
 			0,
 			bufferInfo?.reasoningDepth,
+			bufferInfo?.createdAt
+				? Date.now() - bufferInfo.createdAt
+				: undefined,
 		);
 	}
 

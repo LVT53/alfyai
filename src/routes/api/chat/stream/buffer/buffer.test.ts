@@ -93,14 +93,15 @@ describe("GET /api/chat/stream/buffer", () => {
 			const payload = await response.json();
 
 			expect(response.status).toBe(200);
-			expect(payload).toEqual({
-				exists: true,
-				userMessage: "original question",
-				reasoningDepth: "max",
-				tokenCount: 2,
-				thinkingCount: 1,
-				toolCallCount: 1,
-			});
+		expect(payload).toEqual({
+			exists: true,
+			userMessage: "original question",
+			reasoningDepth: "max",
+			tokenCount: 2,
+			thinkingCount: 1,
+			toolCallCount: 1,
+			createdAt: expect.any(Number),
+		});
 		} finally {
 			clearStreamBuffer("stream-buffer-existing");
 		}

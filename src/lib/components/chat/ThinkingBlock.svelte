@@ -1,6 +1,7 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
 import type { ThinkingSegment } from "$lib/types";
+import { untrack } from "svelte";
 import {
 	ClipboardCheck,
 	GitBranch,
@@ -36,7 +37,7 @@ let prevContentLength = $state(0);
 let contentFresh = $state(false);
 let newCharStart = $state(-1);
 let freshTimeout: ReturnType<typeof setTimeout> | undefined;
-let thinkingSeconds = $state(0);
+let thinkingSeconds = $state(untrack(() => thinkingDurationSeconds));
 let thinkingTimerInterval: ReturnType<typeof setInterval> | undefined;
 
 type FetchedSource = {

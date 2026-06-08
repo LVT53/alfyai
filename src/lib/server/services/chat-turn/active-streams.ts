@@ -190,6 +190,7 @@ export type StreamBufferSnapshot =
 			thinkingCount: number;
 			toolCallCount: number;
 			activityCount?: number;
+			createdAt: number;
 	  };
 
 export function getStreamBufferSnapshot(params: {
@@ -224,6 +225,7 @@ export function getStreamBufferSnapshot(params: {
 		...(buffer.responseActivity.length > 0
 			? { activityCount: buffer.responseActivity.length }
 			: {}),
+		createdAt: buffer.createdAt,
 	};
 }
 

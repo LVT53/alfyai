@@ -272,6 +272,7 @@ export interface StreamBufferInfo {
 	thinkingCount?: number;
 	toolCallCount?: number;
 	activityCount?: number;
+	createdAt?: number;
 }
 
 export async function getStreamBufferInfo(
