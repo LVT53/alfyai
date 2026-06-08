@@ -481,12 +481,12 @@ export function runChatStreamOrchestrator(
 					}
 				},
 			});
-		const emitResponseActivity = (entry: ResponseActivityEntry) => {
-			if (ended) return;
-			const activity = {
-				...entry,
-				occurredAt: entry.occurredAt ?? Date.now(),
-			};
+			const emitResponseActivity = (entry: ResponseActivityEntry) => {
+				if (ended) return;
+				const activity = {
+					...entry,
+					occurredAt: entry.occurredAt ?? Date.now(),
+				};
 				if (activity.kind === "deliberation" && activity.label) {
 					chunkRuntime.emitStatusSegment({
 						id: activity.id,
@@ -597,12 +597,12 @@ export function runChatStreamOrchestrator(
 
 			enqueueChunk(createSsePreludeComment());
 			recordDurationPhase("prelude", streamStartTime);
-		emitResponseActivity({
-			id: "depth-selected",
-			kind: "depth",
-			status: "done",
-			detail: turn.depthMetadata?.appliedProfile ?? "standard",
-		});
+			emitResponseActivity({
+				id: "depth-selected",
+				kind: "depth",
+				status: "done",
+				detail: turn.depthMetadata?.appliedProfile ?? "standard",
+			});
 
 			let fileProductionJobIdsAtStart = new Set<string>();
 			try {
@@ -1151,19 +1151,30 @@ export function runChatStreamOrchestrator(
 
 				scheduleUpstreamIdleTimeout(attempt);
 				let fileProductionActive = false;
-				let fileProductionPostCapture = 0;
+				const FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS = 300;
+				let fileProductionPostCaptureChars = 0;
 				try {
 					for await (const upstreamEvent of modelRun.stream) {
 						recordElapsedPhase("first_upstream_event");
 						markUpstreamActivity(attempt);
 						switch (upstreamEvent.type) {
 							case "text_delta":
-								if (fileProductionActive || fileProductionPostCapture > 0) {
+								if (
+									fileProductionActive ||
+									fileProductionPostCaptureChars > 0
+								) {
 									if (!emitThinking(upstreamEvent.text)) {
 										return;
 									}
-									if (!fileProductionActive && fileProductionPostCapture > 0) {
-										fileProductionPostCapture -= 1;
+									if (
+										!fileProductionActive &&
+										fileProductionPostCaptureChars > 0
+									) {
+										fileProductionPostCaptureChars = Math.max(
+											0,
+											fileProductionPostCaptureChars -
+												upstreamEvent.text.length,
+										);
 									}
 								} else if (!emitChunkWithOutputHandling(upstreamEvent.text)) {
 									return;
@@ -1177,7 +1188,7 @@ export function runChatStreamOrchestrator(
 							case "tool_call":
 								if (isFileProductionToolName(upstreamEvent.toolName)) {
 									fileProductionActive = true;
-									fileProductionPostCapture = 0;
+									fileProductionPostCaptureChars = 0;
 								}
 								emitToolCallEventWithDebug(
 									upstreamEvent.toolName,
@@ -1192,7 +1203,8 @@ export function runChatStreamOrchestrator(
 									.find((record) => record.callId === upstreamEvent.callId);
 								if (isFileProductionToolName(upstreamEvent.toolName)) {
 									fileProductionActive = false;
-									fileProductionPostCapture = 2;
+									fileProductionPostCaptureChars =
+										FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS;
 								}
 								emitToolCallEventWithDebug(
 									upstreamEvent.toolName,
@@ -1214,7 +1226,8 @@ export function runChatStreamOrchestrator(
 									.find((record) => record.callId === upstreamEvent.callId);
 								if (isFileProductionToolName(upstreamEvent.toolName)) {
 									fileProductionActive = false;
-									fileProductionPostCapture = 2;
+									fileProductionPostCaptureChars =
+										FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS;
 								}
 								emitToolCallEventWithDebug(
 									upstreamEvent.toolName,

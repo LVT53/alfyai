@@ -412,7 +412,7 @@ export function appendTokenChunkToMessageList(
 			!/^\s/.test(chunk);
 		return {
 			...message,
-			content: existingContent + (needsSeparator ? "\n\n" : "") + chunk,
+			content: existingContent + (needsSeparator ? " " : "") + chunk,
 		};
 	});
 }
@@ -427,15 +427,30 @@ export function appendThinkingChunkToMessageList(
 		const lastSegment = segments[segments.length - 1];
 		const nextSegments =
 			lastSegment?.type === "text"
-				? [
-						...segments.slice(0, -1),
-						{ type: "text" as const, content: lastSegment.content + chunk },
-					]
+				? (() => {
+						const existing = lastSegment.content;
+						const gap =
+							existing.length > 0 && !/\s$/.test(existing) && !/^\s/.test(chunk)
+								? " "
+								: "";
+						return [
+							...segments.slice(0, -1),
+							{ type: "text" as const, content: existing + gap + chunk },
+						];
+					})()
 				: [...segments, { type: "text" as const, content: chunk }];
+
+		const existingThinking = message.thinking ?? "";
+		const thinkingGap =
+			existingThinking.length > 0 &&
+			!/\s$/.test(existingThinking) &&
+			!/^\s/.test(chunk)
+				? " "
+				: "";
 
 		return {
 			...message,
-			thinking: (message.thinking ?? "") + chunk,
+			thinking: existingThinking + thinkingGap + chunk,
 			thinkingSegments: nextSegments,
 			isThinkingStreaming: true,
 		};
