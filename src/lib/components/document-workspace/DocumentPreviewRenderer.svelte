@@ -5,6 +5,7 @@ import { sanitizeHtml } from "$lib/utils/html-sanitizer";
 import type { PreviewFileType } from "$lib/utils/file-preview";
 import { tick } from "svelte";
 import DocumentPreviewToolbar from "./DocumentPreviewToolbar.svelte";
+import { AlertCircle, FileText } from "@lucide/svelte";
 import {
 	loadPreviewRuntime,
 	resolvePreviewSourceUrl,
@@ -234,9 +235,7 @@ function downloadFile() {
 					</div>
 				{:else if error}
 					<div class="m-6 rounded-[1rem] border border-danger/30 bg-danger/10 px-4 py-6 text-center">
-						<svg class="mx-auto mb-3 text-danger" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-						</svg>
+						<AlertCircle class="mx-auto mb-3 text-danger" size={32} strokeWidth={2} aria-hidden="true" />
 						<p class="text-sm font-sans text-danger mb-2">{error}</p>
 						<button
 							type="button"
@@ -248,16 +247,12 @@ function downloadFile() {
 					</div>
 				{:else if missingPreviewSource}
 					<div class="m-6 rounded-[1.2rem] border border-dashed border-border bg-surface-page px-6 py-8 text-center">
-						<svg class="mx-auto mb-3 text-icon-muted" xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
-						</svg>
+						<FileText class="mx-auto mb-3 text-icon-muted" size={40} strokeWidth={1.5} aria-hidden="true" />
 						<p class="text-sm text-text-muted">{$t("filePreview.notAvailable")}</p>
 					</div>
 				{:else if fileType === "unsupported"}
 					<div class="m-6 rounded-[1.2rem] border border-dashed border-border bg-surface-page px-6 py-8 text-center">
-						<svg class="mx-auto mb-3 text-icon-muted" xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
-						</svg>
+						<FileText class="mx-auto mb-3 text-icon-muted" size={40} strokeWidth={1.5} aria-hidden="true" />
 						<p class="text-sm text-text-muted mb-1">{$t("filePreview.notAvailableType")}</p>
 						<p class="text-xs text-text-muted/70 mb-4">{$t("filePreview.downloadToView")}</p>
 						{#if content}

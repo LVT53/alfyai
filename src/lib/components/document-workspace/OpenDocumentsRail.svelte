@@ -3,6 +3,7 @@ import type { DocumentWorkspaceItem } from "$lib/types";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
 import { t } from "$lib/i18n";
+import { ArrowUpRight, Sparkles, X } from "@lucide/svelte";
 
 let {
 	documents,
@@ -124,10 +125,7 @@ function getDocumentDetailMetadata(document: DocumentWorkspaceItem): string {
 										aria-label={$t('documentWorkspace.viewSourceMessage')}
 										title={$t('documentWorkspace.viewSourceMessage')}
 									>
-										<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-											<path d="M7 17 17 7" />
-											<path d="M7 7h10v10" />
-										</svg>
+								<ArrowUpRight size={13} strokeWidth={2.1} aria-hidden="true" />
 									</button>
 								{/if}
 							</span>
@@ -138,10 +136,7 @@ function getDocumentDetailMetadata(document: DocumentWorkspaceItem): string {
 						<span class="open-documents-rail-meta">
 							<span class="open-documents-rail-source" class:open-documents-rail-source-ai={isAiGeneratedDocument(document)}>
 								{#if isAiGeneratedDocument(document)}
-									<svg class="open-documents-rail-sparkle" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-										<path d="M9.94 14.6 8.5 18l-1.44-3.4L3.7 13.1l3.36-1.5L8.5 8.2l1.44 3.4 3.36 1.5-3.36 1.5Z" />
-										<path d="M17.5 8.7 16.7 11l-.8-2.3-2.3-.8 2.3-.8.8-2.3.8 2.3 2.3.8-2.3.8Z" />
-									</svg>
+								<Sparkles class="open-documents-rail-sparkle" size={12} strokeWidth={2.1} aria-hidden="true" />
 								{/if}
 								<span>{getDocumentSourceLabel(document)}</span>
 							</span>
@@ -160,10 +155,7 @@ function getDocumentDetailMetadata(document: DocumentWorkspaceItem): string {
 					onclick={() => onCloseDocument(document.id)}
 					aria-label={$t('documentWorkspace.closeDocumentLabel', { title: getDocumentTitle(document) })}
 				>
-					<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-						<line x1="18" x2="6" y1="6" y2="18" />
-						<line x1="6" x2="18" y1="6" y2="18" />
-					</svg>
+				<X size={13} strokeWidth={2.1} aria-hidden="true" />
 				</button>
 			</div>
 		{/each}

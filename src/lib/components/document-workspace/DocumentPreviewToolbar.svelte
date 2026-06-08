@@ -1,5 +1,6 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
+import { ChevronLeft, ChevronRight } from "@lucide/svelte";
 
 let {
 	pageKind = null,
@@ -84,9 +85,7 @@ function handlePageInputKeydown(event: KeyboardEvent) {
 				disabled={currentPage <= 1}
 				aria-label={previousLabel}
 			>
-				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-					<path d="m15 18-6-6 6-6" />
-				</svg>
+				<ChevronLeft size={15} strokeWidth={2.1} aria-hidden="true" />
 			</button>
 			<label class="preview-toolbar-page-input-wrap">
 				<span>{pageLabel}</span>
@@ -109,9 +108,7 @@ function handlePageInputKeydown(event: KeyboardEvent) {
 				disabled={currentPage >= totalPages}
 				aria-label={nextLabel}
 			>
-				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-					<path d="m9 18 6-6-6-6" />
-				</svg>
+				<ChevronRight size={15} strokeWidth={2.1} aria-hidden="true" />
 			</button>
 		</div>
 	{/if}

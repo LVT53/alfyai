@@ -7,6 +7,7 @@ import { t } from "$lib/i18n";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
+import { ArrowUpRight, List, Download, Maximize2, X, Sparkles, ArrowLeftRight, Link } from "@lucide/svelte";
 
 type DocumentPreviewRendererModule =
 	typeof import("$lib/components/document-workspace/DocumentPreviewRenderer.svelte");
@@ -707,10 +708,7 @@ function toggleSyncScroll() {
 								title={$t('documentWorkspace.viewSourceMessage')}
 							>
 								<span>{getDocumentTitle(activeDocument)}</span>
-								<svg class="workspace-title-source-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-									<path d="M7 17 17 7" />
-									<path d="M7 7h10v10" />
-								</svg>
+								<ArrowUpRight size={14} strokeWidth={2.1} class="workspace-title-source-icon" aria-hidden="true" />
 							</button>
 						{:else}
 							<div class="workspace-title">
@@ -730,14 +728,7 @@ function toggleSyncScroll() {
 									title={$t('documentWorkspace.openDocuments')}
 									data-testid="mobile-documents-button"
 								>
-									<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-										<path d="M8 6h13" />
-										<path d="M8 12h13" />
-										<path d="M8 18h13" />
-										<path d="M3 6h.01" />
-										<path d="M3 12h.01" />
-										<path d="M3 18h.01" />
-									</svg>
+								<List size={18} strokeWidth={2.1} aria-hidden="true" />
 									<span aria-hidden="true">{documents.length}</span>
 								</button>
 							{/if}
@@ -750,11 +741,7 @@ function toggleSyncScroll() {
 									aria-label={$t('filePreview.download', { filename: activeDocument.filename })}
 									title={$t('filePreview.download', { filename: activeDocument.filename })}
 								>
-									<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-										<polyline points="7 10 12 15 17 10" />
-										<line x1="12" x2="12" y1="15" y2="3" />
-									</svg>
+									<Download size={18} strokeWidth={2} aria-hidden="true" />
 								</a>
 							{/if}
 							{#if showPresentationToggle}
@@ -765,12 +752,7 @@ function toggleSyncScroll() {
 									aria-label={$t('documentWorkspace.expandWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
 									title={$t('documentWorkspace.expandWorkspace')}
 								>
-									<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<polyline points="15 3 21 3 21 9" />
-										<polyline points="9 21 3 21 3 15" />
-										<line x1="21" y1="3" x2="14" y2="10" />
-										<line x1="3" y1="21" x2="10" y2="14" />
-									</svg>
+									<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
 								</button>
 							{/if}
 							<button
@@ -779,10 +761,7 @@ function toggleSyncScroll() {
 								onclick={handleCloseWorkspace}
 								aria-label={$t('documentWorkspace.closeWorkspace')}
 							>
-								<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-									<line x1="18" x2="6" y1="6" y2="18" />
-									<line x1="6" x2="18" y1="6" y2="18" />
-								</svg>
+								<X size={18} strokeWidth={2.1} aria-hidden="true" />
 							</button>
 						</div>
 					</div>
@@ -792,10 +771,7 @@ function toggleSyncScroll() {
 					<div class="workspace-meta-row" data-testid="document-provenance">
 						<span class="workspace-source-pill" class:workspace-source-pill-ai={isAiGeneratedDocument(activeDocument)}>
 							{#if isAiGeneratedDocument(activeDocument)}
-								<svg class="workspace-source-sparkle" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-									<path d="M9.94 14.6 8.5 18l-1.44-3.4L3.7 13.1l3.36-1.5L8.5 8.2l1.44 3.4 3.36 1.5-3.36 1.5Z" />
-									<path d="M17.5 8.7 16.7 11l-.8-2.3-2.3-.8 2.3-.8.8-2.3.8 2.3 2.3.8-2.3.8Z" />
-								</svg>
+								<Sparkles size={13} strokeWidth={2.1} class="workspace-source-sparkle" aria-hidden="true" />
 							{/if}
 							<span>{getDocumentSourceLabel(activeDocument)}</span>
 						</span>
@@ -811,12 +787,7 @@ function toggleSyncScroll() {
 								title={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
 								aria-pressed={compareMode}
 							>
-								<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-									<path d="M8 3 4 7l4 4" />
-									<path d="M4 7h14a3 3 0 0 1 3 3v1" />
-									<path d="m16 21 4-4-4-4" />
-									<path d="M20 17H6a3 3 0 0 1-3-3v-1" />
-								</svg>
+								<ArrowLeftRight size={13} strokeWidth={2.1} aria-hidden="true" />
 							</button>
 						{/if}
 						{#if getDocumentLifecycleLabel(activeDocument)}
@@ -891,10 +862,7 @@ function toggleSyncScroll() {
 								title={syncScrollEnabled ? $t('documentWorkspace.disableSyncScroll') : $t('documentWorkspace.enableSyncScroll')}
 								aria-pressed={syncScrollEnabled}
 							>
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-								<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-							</svg>
+							<Link size={16} strokeWidth={2} aria-hidden="true" />
 							</button>
 						</div>
 						<label class="workspace-compare-select-wrap">
@@ -1010,10 +978,7 @@ function toggleSyncScroll() {
 							title={$t('documentWorkspace.viewSourceMessage')}
 						>
 							<span>{getDocumentTitle(activeDocument)}</span>
-							<svg class="workspace-title-source-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-								<path d="M7 17 17 7" />
-								<path d="M7 7h10v10" />
-							</svg>
+							<ArrowUpRight size={14} strokeWidth={2.1} class="workspace-title-source-icon" aria-hidden="true" />
 						</button>
 					{:else}
 						<div class="workspace-title">
@@ -1030,11 +995,7 @@ function toggleSyncScroll() {
 								aria-label={$t('filePreview.download', { filename: activeDocument.filename })}
 								title={$t('filePreview.download', { filename: activeDocument.filename })}
 							>
-								<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-									<polyline points="7 10 12 15 17 10" />
-									<line x1="12" x2="12" y1="15" y2="3" />
-								</svg>
+								<Download size={18} strokeWidth={2} aria-hidden="true" />
 							</a>
 						{/if}
 						{#if showPresentationToggle && presentation !== "expanded"}
@@ -1045,12 +1006,7 @@ function toggleSyncScroll() {
 								aria-label={$t('documentWorkspace.expandWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
 								title={$t('documentWorkspace.expandWorkspace')}
 							>
-								<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<polyline points="15 3 21 3 21 9" />
-									<polyline points="9 21 3 21 3 15" />
-									<line x1="21" y1="3" x2="14" y2="10" />
-									<line x1="3" y1="21" x2="10" y2="14" />
-								</svg>
+								<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
 							</button>
 						{/if}
 						<button
@@ -1059,10 +1015,7 @@ function toggleSyncScroll() {
 							onclick={handleCloseWorkspace}
 							aria-label={$t('documentWorkspace.closeWorkspace')}
 						>
-							<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-								<line x1="18" x2="6" y1="6" y2="18" />
-								<line x1="6" x2="18" y1="6" y2="18" />
-							</svg>
+							<X size={18} strokeWidth={2.1} aria-hidden="true" />
 						</button>
 					</div>
 				</div>
@@ -1072,10 +1025,7 @@ function toggleSyncScroll() {
 				<div class="workspace-meta-row" data-testid="document-provenance">
 					<span class="workspace-source-pill" class:workspace-source-pill-ai={isAiGeneratedDocument(activeDocument)}>
 						{#if isAiGeneratedDocument(activeDocument)}
-							<svg class="workspace-source-sparkle" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-								<path d="M9.94 14.6 8.5 18l-1.44-3.4L3.7 13.1l3.36-1.5L8.5 8.2l1.44 3.4 3.36 1.5-3.36 1.5Z" />
-								<path d="M17.5 8.7 16.7 11l-.8-2.3-2.3-.8 2.3-.8.8-2.3.8 2.3 2.3.8-2.3.8Z" />
-							</svg>
+							<Sparkles size={13} strokeWidth={2.1} class="workspace-source-sparkle" aria-hidden="true" />
 						{/if}
 						<span>{getDocumentSourceLabel(activeDocument)}</span>
 					</span>
@@ -1091,12 +1041,7 @@ function toggleSyncScroll() {
 							title={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
 							aria-pressed={compareMode}
 						>
-							<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-								<path d="M8 3 4 7l4 4" />
-								<path d="M4 7h14a3 3 0 0 1 3 3v1" />
-								<path d="m16 21 4-4-4-4" />
-								<path d="M20 17H6a3 3 0 0 1-3-3v-1" />
-							</svg>
+							<ArrowLeftRight size={13} strokeWidth={2.1} aria-hidden="true" />
 						</button>
 					{/if}
 					{#if getDocumentLifecycleLabel(activeDocument)}
@@ -1176,10 +1121,7 @@ function toggleSyncScroll() {
 							title={syncScrollEnabled ? $t('documentWorkspace.disableSyncScroll') : $t('documentWorkspace.enableSyncScroll')}
 							aria-pressed={syncScrollEnabled}
 						>
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-								<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-							</svg>
+							<Link size={16} strokeWidth={2} aria-hidden="true" />
 						</button>
 					</div>
 					<label class="workspace-compare-select-wrap">
