@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { db } from "$lib/server/db";
 import { artifacts } from "$lib/server/db/schema";
+import { parseJsonRecord } from "$lib/server/utils/json";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 
 // ── Input schema ───────────────────────────────────────────────
@@ -39,6 +40,7 @@ export async function readGeneratedFileContent(params: {
 		eq(artifacts.userId, params.userId),
 		eq(artifacts.conversationId, params.conversationId),
 		eq(artifacts.type, "generated_output"),
+		eq(artifacts.retrievalClass, "durable"),
 	];
 
 	if (params.filename) {
@@ -84,7 +86,9 @@ export async function readGeneratedFileContent(params: {
 
 	if (!bestMatch && requestTitleLower) {
 		bestMatch = rows.find((row) => {
-			const metadata = parseWorkingDocumentMetadata(row.metadataJson);
+			const metadata = parseWorkingDocumentMetadata(
+				parseJsonRecord(row.metadataJson),
+			);
 			const label = metadata.documentLabel?.toLowerCase();
 			return (
 				row.name.trim().toLowerCase().includes(requestTitleLower) ||
@@ -112,7 +116,9 @@ export async function readGeneratedFileContent(params: {
 		};
 	}
 
-	const metadata = parseWorkingDocumentMetadata(bestMatch.metadataJson);
+	const metadata = parseWorkingDocumentMetadata(
+		parseJsonRecord(bestMatch.metadataJson),
+	);
 	const contentText = bestMatch.contentText?.trim() ?? null;
 	const summary = bestMatch.summary?.trim() ?? null;
 
