@@ -723,9 +723,13 @@ function resetState() {
 		data.conversation.id,
 		data.userPersonality ?? null,
 	);
+	const lastAssistantModel = data.messages
+		?.slice()
+		.reverse()
+		.find((m) => m.role === "assistant" && m.modelId)?.modelId;
 	applyConversationModelSelection(
 		data.conversation.id,
-		(data.userModel ?? "model1") as ModelId,
+		(lastAssistantModel ?? data.userModel ?? "model1") as ModelId,
 	);
 	contextStatus = data.contextStatus ?? null;
 	attachedArtifacts = data.attachedArtifacts ?? [];
@@ -986,7 +990,14 @@ async function checkForOrphanedStreamOnMount() {
 onMount(() => {
 	currentConversationId.set(data.conversation.id);
 	requestAnimationFrame(() => {
-		applyConversationModelSelection(initialConversationId, initialUserModel);
+		const lastAssistantModel = data.messages
+			?.slice()
+			.reverse()
+			.find((m) => m.role === "assistant" && m.modelId)?.modelId;
+		applyConversationModelSelection(
+			initialConversationId,
+			lastAssistantModel ?? initialUserModel,
+		);
 	});
 	triggerForkOpeningTransition();
 	document.addEventListener("visibilitychange", handleVisibilityChange);
