@@ -221,6 +221,9 @@
 		border: 0;
 		box-shadow: none;
 		isolation: isolate;
+		/* Pass mouse events through the transparent overlay to the scrollbar below.
+		   Interactive children inside .composer-shell restore pointer-events: auto. */
+		pointer-events: none;
 		/* Mobile: ensure content stays above keyboard */
 		transition: padding-bottom 150ms ease;
 	}
@@ -229,6 +232,7 @@
 		background: transparent;
 		border: 0;
 		box-shadow: none;
+		pointer-events: auto;
 	}
 
 	@media (max-width: 767px) {
