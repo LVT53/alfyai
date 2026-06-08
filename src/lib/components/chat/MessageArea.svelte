@@ -1,5 +1,6 @@
 <script lang="ts">
 import { tick } from "svelte";
+import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
 import type {
 	ChatMessage,
@@ -102,6 +103,11 @@ let lastConversationId: string | null = null;
 let shouldJumpToConversationBottom = false;
 let pendingForkBoundaryMessageId: string | null = null;
 let lastForkBoundaryJumpKey: string | null = null;
+let pendingRestoreScroll: number | null = null;
+
+function chatScrollKey(cid: string | null): string {
+	return `alfyai-chat-scroll:${cid ?? "unknown"}`;
+}
 
 $effect(() => {
 	if (conversationId && conversationId !== lastConversationId) {
@@ -112,7 +118,22 @@ $effect(() => {
 		lastDeepResearchJobCount = 0;
 		lastContextCompressionMarkerCount = 0;
 		pendingForkBoundaryMessageId = forkOrigin?.copiedForkPointMessageId ?? null;
-		shouldJumpToConversationBottom = pendingForkBoundaryMessageId == null;
+		if (pendingForkBoundaryMessageId != null) {
+			shouldJumpToConversationBottom = false;
+		} else if (browser) {
+			const key = chatScrollKey(conversationId);
+			const saved = sessionStorage.getItem(key);
+			if (saved !== null) {
+				// Page refresh — restore previous scroll position.
+				pendingRestoreScroll = Number(saved);
+				sessionStorage.removeItem(key);
+				shouldJumpToConversationBottom = false;
+			} else {
+				shouldJumpToConversationBottom = true;
+			}
+		} else {
+			shouldJumpToConversationBottom = true;
+		}
 	} else if (conversationId && forkOrigin?.copiedForkPointMessageId) {
 		const forkBoundaryJumpKey = `${conversationId}:${forkOrigin.copiedForkPointMessageId}`;
 		if (forkBoundaryJumpKey !== lastForkBoundaryJumpKey) {
@@ -120,6 +141,26 @@ $effect(() => {
 			shouldJumpToConversationBottom = false;
 		}
 	}
+});
+
+// Persist scroll position on page unload so we can restore it
+// after a full-page refresh (browser auto-restoration can't target
+// the inner scroll container since body is overflow:hidden).
+$effect(() => {
+	if (!browser || !conversationId) return;
+	const cid = conversationId;
+	const container = scrollContainer;
+
+	function saveScroll() {
+		if (!container) return;
+		sessionStorage.setItem(
+			chatScrollKey(cid),
+			String(container.scrollTop),
+		);
+	}
+
+	window.addEventListener("beforeunload", saveScroll);
+	return () => window.removeEventListener("beforeunload", saveScroll);
 });
 
 function handleScroll() {
@@ -143,6 +184,12 @@ $effect.pre(() => {
 	contextCompressionMarkers.length;
 
 	if (!scrollContainer) return;
+
+	// Restore saved scroll position on page refresh.
+	if (pendingRestoreScroll !== null) {
+		void restoreScrollToPosition(pendingRestoreScroll);
+		return;
+	}
 
 	if (messages.length === 0 && deepResearchJobs.length === 0) {
 		if (shouldJumpToConversationBottom) {
@@ -322,6 +369,20 @@ function contextCompressionMarkerLabel(marker: ContextCompressionMarker): string
 	return marker.trigger === 'automatic'
 		? $t('contextCompression.automaticValid')
 		: $t('contextCompression.manualValid');
+}
+
+async function restoreScrollToPosition(position: number) {
+	pendingRestoreScroll = null;
+	if (!scrollContainer) return;
+	await tick();
+	requestAnimationFrame(() => {
+		if (!scrollContainer) return;
+		scrollContainer.scrollTop = position;
+		// Reflect the restored scroll position in shouldAutoScroll so
+		// streaming content won't fight the user's manual scroll.
+		const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+		shouldAutoScroll = (scrollHeight - scrollTop - clientHeight) < 50;
+	});
 }
 
 async function alignToBottomAfterRender() {

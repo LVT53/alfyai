@@ -4,6 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <script>
+      // Disable browser scroll restoration. The app manages its own scroll
+      // via the MessageArea overflow container — the browser restoring
+      // window.scrollY can't work correctly on a body with overflow:hidden.
+      if ('scrollRestoration' in history) {
+        history.scrollRestoration = 'manual';
+      }
+    </script>
+    <script>
       (function() {
         const stored = localStorage.getItem('theme');
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
