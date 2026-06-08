@@ -21,7 +21,6 @@ import { tokenizeTextLinks } from "$lib/services/linkify";
 import { currentConversationId } from "$lib/stores/ui";
 import ContextUsageRing from "./ContextUsageRing.svelte";
 import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
-import FileAttachment from "./FileAttachment.svelte";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
 import LinkedSourceManager from "./LinkedSourceManager.svelte";
 import {
@@ -1591,16 +1590,20 @@ async function emitDraftChange(force = false) {
 		{/if}
 
 		{#if pendingAttachments.length > 0}
-			<div class="flex flex-wrap gap-2 px-[16px] pb-2 pt-1">
+			<ul class="linked-source-chips" aria-label={$t('linkedSources.chipsLabel')}>
 				{#each pendingAttachments as attachment (attachment.artifact.id)}
-					<FileAttachment
-						attachment={attachment.artifact}
-						variant="pending"
-						removable={true}
-						onRemove={(payload) => removePendingAttachment(payload.id)}
-					/>
+					<li class="linked-source-chip">
+						<span>{attachment.artifact.name}</span>
+						<button
+							type="button"
+							aria-label={$t('linkedSources.removeA11y', { name: attachment.artifact.name })}
+							onclick={() => removePendingAttachment(attachment.artifact.id)}
+						>
+							<span aria-hidden="true">x</span>
+						</button>
+					</li>
 				{/each}
-			</div>
+			</ul>
 		{/if}
 
 		{#if composerCommandRegistryEnabled && effectiveLinkedSources.length > 0}
