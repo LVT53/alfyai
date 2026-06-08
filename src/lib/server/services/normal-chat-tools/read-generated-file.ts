@@ -1,10 +1,134 @@
+import { readFile } from "fs/promises";
+import { join } from "path";
 import { and, desc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "$lib/server/db";
-import { artifacts } from "$lib/server/db/schema";
+import { artifacts, chatGeneratedFiles } from "$lib/server/db/schema";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
+
+// ── Memory‑text extraction ─────────────────────────────────────
+
+/**
+ * Strip the memory‑formatted wrapper added by
+ * {@link buildGeneratedFileMemoryContent} (chat‑files.ts) and return
+ * only the extracted file content section.
+ *
+ * When the artifact was copied into a forked conversation the
+ * memory wrapper still references the source conversation id and
+ * embeds the original assistant response text — both of which
+ * confuse models that use {@link read_generated_file} as a "file
+ * recall" mechanism.  Returning only the extracted content avoids
+ * leaking that fork‑specific metadata.
+ */
+const EXTRACTED_CONTENT_MARKER = "\nExtracted file content:\n";
+const NO_EXTRACTION_TEXT =
+	"No readable text could be extracted from this file. Use the filename, file type, and surrounding chat context when continuing it.";
+
+export function extractContentFromMemoryText(
+	memoryText: string | null,
+): string | null {
+	if (!memoryText) return null;
+	const markerIndex = memoryText.lastIndexOf(EXTRACTED_CONTENT_MARKER);
+	if (markerIndex < 0) {
+		// No standard marker — return the full text as a fallback.
+		const trimmed = memoryText.trim();
+		return trimmed || null;
+	}
+	const extracted = memoryText.slice(markerIndex + EXTRACTED_CONTENT_MARKER.length).trim();
+	if (!extracted || extracted === NO_EXTRACTION_TEXT) {
+		// Extraction produced nothing usable.
+		return null;
+	}
+	return extracted;
+}
+
+// ── Optional disk read ─────────────────────────────────────────
+
+const CHAT_FILES_DIR = join(process.cwd(), "data", "chat-files");
+
+/**
+ * Try to read the generated file bytes directly from disk so we
+ * return the actual file content rather than the memory‑formatted
+ * wrapper text.
+ *
+ * Falls back to `null` when the file is not on disk, is binary, or
+ * cannot be decoded as UTF‑8.
+ */
+async function readGeneratedFileBinaryContent(
+	userId: string,
+	originalChatFileId: string,
+): Promise<string | null> {
+	try {
+		const [fileRow] = await db
+			.select({
+				storagePath: chatGeneratedFiles.storagePath,
+				mimeType: chatGeneratedFiles.mimeType,
+			})
+			.from(chatGeneratedFiles)
+			.where(
+				and(
+					eq(chatGeneratedFiles.id, originalChatFileId),
+					eq(chatGeneratedFiles.userId, userId),
+				),
+			)
+			.limit(1);
+
+		if (!fileRow) return null;
+
+		const fullPath = join(CHAT_FILES_DIR, fileRow.storagePath);
+		const buffer = await readFile(fullPath);
+
+		const mimeType = fileRow.mimeType?.toLowerCase() ?? "";
+		const isTextBased =
+			mimeType.startsWith("text/") ||
+			mimeType === "application/json" ||
+			mimeType === "application/javascript" ||
+			mimeType === "application/xml" ||
+			mimeType === "application/x-yaml";
+
+		if (isTextBased || mimeType === "" || mimeType === "application/octet-stream") {
+			return buffer.toString("utf-8").trim() || null;
+		}
+		return null;
+	} catch (error) {
+		console.warn(
+			"[READ_GENERATED_FILE] Disk read failed, falling back to memory text",
+			{ originalChatFileId, userId, error },
+		);
+		return null;
+	}
+}
+
+/**
+ * Resolve the best available content for a generated‑output artifact,
+ * preferring disk bytes over memory‑wrapper text.
+ */
+async function resolveBestContent(
+	userId: string,
+	artifactContentText: string | null,
+	artifactMetadataJson: string | null,
+): Promise<string | null> {
+	const metadataRecord = parseJsonRecord(artifactMetadataJson);
+	const originalChatFileId =
+		typeof metadataRecord.originalChatFileId === "string"
+			? metadataRecord.originalChatFileId
+			: null;
+
+	if (originalChatFileId) {
+		const diskContent = await readGeneratedFileBinaryContent(
+			userId,
+			originalChatFileId,
+		);
+		if (diskContent) return diskContent;
+	}
+
+	const extracted = extractContentFromMemoryText(artifactContentText);
+	if (extracted) return extracted;
+
+	return artifactContentText?.trim() ?? null;
+}
 
 // ── Input schema ───────────────────────────────────────────────
 
@@ -119,17 +243,22 @@ export async function readGeneratedFileContent(params: {
 	const metadata = parseWorkingDocumentMetadata(
 		parseJsonRecord(bestMatch.metadataJson),
 	);
-	const contentText = bestMatch.contentText?.trim() ?? null;
+
+	const resolvedContent = await resolveBestContent(
+		params.userId,
+		bestMatch.contentText,
+		bestMatch.metadataJson,
+	);
 	const summary = bestMatch.summary?.trim() ?? null;
 
 	return {
 		filename: bestMatch.name,
 		documentLabel: metadata.documentLabel ?? null,
 		versionNumber: metadata.versionNumber ?? null,
-		contentText,
+		contentText: resolvedContent,
 		summary,
 		mimeType: bestMatch.mimeType,
-		contentLength: contentText?.length ?? 0,
+		contentLength: resolvedContent?.length ?? 0,
 		notFound: false,
 	};
 }

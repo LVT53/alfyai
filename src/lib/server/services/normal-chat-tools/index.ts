@@ -48,6 +48,7 @@ import {
 
 import {
 	buildReadGeneratedFileModelPayload,
+	extractContentFromMemoryText,
 	readGeneratedFileContent,
 	readGeneratedFileInputSchema,
 	sanitizeReadGeneratedFileInput,
@@ -698,7 +699,9 @@ async function getPreviousGeneratedFileContent(
 	requestTitle: string,
 ): Promise<string | null> {
 	const rows = await db
-		.select({ contentText: artifacts.contentText })
+		.select({
+			contentText: artifacts.contentText,
+		})
 		.from(artifacts)
 		.where(
 			and(
@@ -714,7 +717,8 @@ async function getPreviousGeneratedFileContent(
 	for (const row of rows) {
 		if (!row.contentText) continue;
 		if (row.contentText.toLowerCase().includes(normalizedTitle)) {
-			return row.contentText;
+			const extracted = extractContentFromMemoryText(row.contentText);
+			return extracted ?? row.contentText;
 		}
 	}
 
