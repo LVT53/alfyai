@@ -858,7 +858,7 @@ export async function executeCode(
 				(f) => !extractedFilenames.has(path.basename(f.relativePath)),
 			);
 			if (missingFiles.length > 0) {
-				console.warn(
+				console.info(
 					"[FILE_PRODUCTION] Archive extraction missed in-container output files; reading missing files in-container",
 					{
 						containerId: sandbox.container.id,

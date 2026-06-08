@@ -378,12 +378,32 @@ export async function completeStreamTurn(
 					);
 				}
 
-				const newGeneratedFileIds = Array.from(
+				const initialGeneratedFileIds = Array.from(
 					new Set(
 						newFileProductionJobs.flatMap((job) =>
 							(job.files ?? []).map((file) => file.id),
 						),
 					),
+				);
+
+				const refreshedJobs = await getFileProductionJobs(
+					userId,
+					conversationId,
+				);
+				const refreshedFileIds = Array.from(
+					new Set(
+						refreshedJobs
+							.filter(
+								(job) => !fileProductionJobIdsAtStart.has(job.id),
+							)
+							.flatMap((job) =>
+								(job.files ?? []).map((file) => file.id),
+							),
+					),
+				);
+
+				const newGeneratedFileIds = Array.from(
+					new Set([...initialGeneratedFileIds, ...refreshedFileIds]),
 				);
 
 				if (newGeneratedFileIds.length > 0) {

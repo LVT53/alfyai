@@ -241,32 +241,17 @@ export async function storeFileProductionOutputs(
 	return { ok: true, producedFiles };
 }
 
-const ASSISTANT_MESSAGE_RETRY_DELAY_MS = 500;
-const ASSISTANT_MESSAGE_RETRY_LIMIT = 12;
-
 async function resolveAssistantMessageId(
 	jobId: string,
 ): Promise<string | null> {
-	for (let attempt = 1; attempt <= ASSISTANT_MESSAGE_RETRY_LIMIT; attempt += 1) {
-		const [refreshed] = await db
-			.select({
-				assistantMessageId: fileProductionJobs.assistantMessageId,
-			})
-			.from(fileProductionJobs)
-			.where(eq(fileProductionJobs.id, jobId))
-			.limit(1);
-		if (refreshed?.assistantMessageId) return refreshed.assistantMessageId;
-		if (attempt > 1) {
-			console.warn(
-				"[FILE_PRODUCTION] Waiting for assistant message assignment before memory sync",
-				{ jobId, attempt },
-			);
-		}
-		await new Promise((resolve) =>
-			setTimeout(resolve, ASSISTANT_MESSAGE_RETRY_DELAY_MS),
-		);
-	}
-	return null;
+	const [refreshed] = await db
+		.select({
+			assistantMessageId: fileProductionJobs.assistantMessageId,
+		})
+		.from(fileProductionJobs)
+		.where(eq(fileProductionJobs.id, jobId))
+		.limit(1);
+	return refreshed?.assistantMessageId ?? null;
 }
 
 export async function syncFileProductionOutputsToMemory(
@@ -283,8 +268,8 @@ export async function syncFileProductionOutputsToMemory(
 	}
 
 	if (!assistantMessageId) {
-		console.warn(
-			"[FILE_PRODUCTION] Skipping memory sync — assistant message not assigned after retries",
+		console.info(
+			"[FILE_PRODUCTION] Skipping memory sync — assistant message not yet assigned, stream completion will handle it",
 			{ jobId: input.job.id },
 		);
 		return;
