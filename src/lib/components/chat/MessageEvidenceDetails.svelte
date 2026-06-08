@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
 	import EvidencePreferenceControl from './EvidencePreferenceControl.svelte';
+	import { ChevronDown } from '@lucide/svelte';
 	import type { EvidencePreference, MessageEvidenceSummary, TaskSteeringPayload } from '$lib/types';
 
 	let {
@@ -63,20 +64,7 @@
 			<span class="evidence-label">Evidence</span>
 			<span class="evidence-count">{totalItems}</span>
 		</span>
-		<svg
-			class="chevron"
-			class:expanded
-			width="14"
-			height="14"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="2"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-		>
-			<polyline points="6 9 12 15 18 9" />
-		</svg>
+		<ChevronDown size={14} strokeWidth={2} class={`chevron${expanded ? ' expanded' : ''}`} aria-hidden="true" />
 	</button>
 
 	{#if expanded}

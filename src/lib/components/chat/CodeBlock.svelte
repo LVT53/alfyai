@@ -2,6 +2,7 @@
 	import { slide } from 'svelte/transition';
 	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
 	import { t } from '$lib/i18n';
+	import { ChevronDown, Copy } from '@lucide/svelte';
 
 	let {
 		code = '',
@@ -44,21 +45,7 @@
 				onclick={toggleCollapse}
 				aria-label={collapsed ? $t('codeBlock.expand') : $t('codeBlock.collapse')}
 			>
-			<svg
-				xmlns="http://www.w3.org/2000/svg"
-				width="14"
-				height="14"
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="2"
-				stroke-linecap="round"
-				stroke-linejoin="round"
-				class="chevron"
-				class:collapsed
-			>
-				<polyline points="6 9 12 15 18 9"></polyline>
-			</svg>
+			<ChevronDown size={14} strokeWidth={2} class={`chevron${collapsed ? ' collapsed' : ''}`} aria-hidden="true" />
 			<span class="lowercase">{language ?? 'code'}</span>
 		</button>
 
@@ -73,20 +60,7 @@
 				{#if copied}
 					<span class="text-success font-sans text-[12px] font-medium">Copied!</span>
 				{:else}
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						width="16"
-						height="16"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					>
-						<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-						<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-					</svg>
+				<Copy size={16} strokeWidth={2} aria-hidden="true" />
 				{/if}
 			</button>
 		{/if}

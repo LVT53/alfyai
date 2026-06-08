@@ -1,6 +1,7 @@
 <script lang="ts">
 	import EvidencePreferenceControl from './EvidencePreferenceControl.svelte';
 	import { t } from '$lib/i18n';
+	import { X } from '@lucide/svelte';
 	import type {
 		ContextDebugState,
 		ContextSourceGroupKind,
@@ -155,10 +156,7 @@
 			<div class="panel-header">
 				<h2 class="panel-title">{$t('contextSources.manage')}</h2>
 				<button type="button" class="panel-close" aria-label={$t('contextSources.close')} onclick={close}>
-					<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-						<path d="M6 6 18 18" />
-						<path d="M18 6 6 18" />
-					</svg>
+			<X size={18} strokeWidth={2.2} aria-hidden="true" />
 				</button>
 			</div>
 

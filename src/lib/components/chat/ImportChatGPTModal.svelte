@@ -2,6 +2,7 @@
 import { tick } from "svelte";
 import JSZip from "jszip";
 import { t } from "$lib/i18n";
+import { Upload, Check, AlertCircle } from "@lucide/svelte";
 import type { Project } from "$lib/types";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { importChatGPTData } from "$lib/client/api/chatgpt-import";
@@ -271,19 +272,7 @@ function handleRetry(): void {
 						}
 					}}
 				>
-					<svg
-						class="h-10 w-10 text-icon-muted"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="1.5"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M12 16.5V4.5m0 0l-4 4m4-4l4 4M3 16.5v3a2 2 0 002 2h14a2 2 0 002-2v-3"
-						/>
-					</svg>
+					<Upload class="h-10 w-10 text-icon-muted" size={40} strokeWidth={1.5} aria-hidden="true" />
 					<p class="text-center text-sm text-text-muted">
 						{$t("chatgptImport.uploadPrompt")}
 					</p>
@@ -399,15 +388,7 @@ function handleRetry(): void {
 			{:else if state === "complete"}
 				<div class="flex flex-col items-center gap-3 py-4">
 					<div class="flex h-12 w-12 items-center justify-center rounded-full bg-success/10">
-						<svg
-							class="h-6 w-6 text-success"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-						</svg>
+						<Check class="h-6 w-6 text-success" size={24} strokeWidth={2} aria-hidden="true" />
 					</div>
 					<p class="text-center text-sm text-text-primary">
 						{importResult?.conversationIds.length ?? 0} conversations imported successfully.
@@ -421,19 +402,7 @@ function handleRetry(): void {
 			{:else if state === "error"}
 				<div class="flex flex-col items-center gap-3 py-4">
 					<div class="flex h-12 w-12 items-center justify-center rounded-full bg-danger/10">
-						<svg
-							class="h-6 w-6 text-danger"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-							/>
-						</svg>
+						<AlertCircle class="h-6 w-6 text-danger" size={24} strokeWidth={2} aria-hidden="true" />
 					</div>
 					<p class="text-center text-sm text-danger">{errorMessage}</p>
 				</div>

@@ -25,10 +25,16 @@ import FileProductionCard from "./FileProductionCard.svelte";
 import SkillDraftCard from "./SkillDraftCard.svelte";
 import { onDestroy, tick } from "svelte";
 import {
+	Brain,
+	Check,
 	ClipboardCheck,
+	Copy,
 	GitBranch,
+	Info,
 	Languages,
 	Layers,
+	Pencil,
+	RefreshCw,
 	Search,
 	ShieldAlert,
 } from "@lucide/svelte";
@@ -514,26 +520,7 @@ function toggleForkDetails() {
 	>
 		{#if !isUser && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls)}
 			<div class="reasoning-depth-indicator" class:fade-out={thinkingIsDone} data-testid="reasoning-depth-indicator">
-				<svg
-					class="reasoning-depth-icon"
-					width="14"
-					height="14"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"
-				>
-					<path d="M12 5a3 3 0 0 0-5.7-1.3 3 3 0 0 0-2.7 5.1 3 3 0 0 0 0 5.4 3 3 0 0 0 2.7 5.1A3 3 0 0 0 12 19Z" />
-					<path d="M12 5a3 3 0 0 1 5.7-1.3 3 3 0 0 1 2.7 5.1 3 3 0 0 1 0 5.4 3 3 0 0 1-2.7 5.1A3 3 0 0 1 12 19Z" />
-					<path d="M12 5v14" />
-					<path d="M8 9h1" />
-					<path d="M15 9h1" />
-					<path d="M8 15h1" />
-					<path d="M15 15h1" />
-				</svg>
+				<Brain class="reasoning-depth-icon" size={14} strokeWidth={2} aria-hidden="true" />
 				<span>{reasoningDepthIndicatorLabel}</span>
 			</div>
 		{/if}
@@ -700,13 +687,7 @@ function toggleForkDetails() {
 					aria-label={$t('fork.originMarkerLabel')}
 				>
 					<div class="fork-lineage-icon" aria-hidden="true">
-						<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M4 12h5"/>
-							<path d="M9 12c4 0 5-6 10-6"/>
-							<path d="M16 3l3 3-3 3"/>
-							<path d="M9 12c4 0 5 6 10 6"/>
-							<path d="M16 15l3 3-3 3"/>
-						</svg>
+						<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
 					</div>
 					{#if sourceForks.count === 1 && sourceForks.forks[0]}
 						{@const childFork = sourceForks.forks[0]}
@@ -773,11 +754,7 @@ function toggleForkDetails() {
 						aria-label={$t('messageBubble.info')}
 						aria-describedby={auditDetailsId}
 					>
-						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<circle cx="12" cy="12" r="10"></circle>
-							<line x1="12" y1="16" x2="12" y2="12"></line>
-							<line x1="12" y1="8" x2="12.01" y2="8"></line>
-						</svg>
+						<Info size={16} strokeWidth={2} aria-hidden="true" />
 					</button>
 					<div
 						id={auditDetailsId}
@@ -802,12 +779,7 @@ function toggleForkDetails() {
 						aria-label={$t('messageBubble.regenerate')}
 						aria-describedby={`${regenerateButtonId}-tooltip`}
 					>
-						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M21 2v6h-6"/>
-							<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
-							<path d="M3 22v-6h6"/>
-							<path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
-						</svg>
+						<RefreshCw size={16} strokeWidth={2} aria-hidden="true" />
 					</button>
 					<div
 						id={`${regenerateButtonId}-tooltip`}
@@ -837,13 +809,7 @@ function toggleForkDetails() {
 						{#if forkBusy}
 							<span class="mini-spinner" aria-hidden="true"></span>
 						{:else}
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M4 12h5"/>
-								<path d="M9 12c4 0 5-6 10-6"/>
-								<path d="M16 3l3 3-3 3"/>
-								<path d="M9 12c4 0 5 6 10 6"/>
-								<path d="M16 15l3 3-3 3"/>
-							</svg>
+							<GitBranch size={16} strokeWidth={2} aria-hidden="true" />
 						{/if}
 					</button>
 					<div
@@ -886,10 +852,7 @@ function toggleForkDetails() {
 							aria-label={$t('messageBubble.editMessage')}
 							aria-describedby={`${editButtonId}-tooltip`}
 						>
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-								<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-							</svg>
+							<Pencil size={16} strokeWidth={2} aria-hidden="true" />
 						</button>
 						<div
 							id={`${editButtonId}-tooltip`}
@@ -916,14 +879,9 @@ function toggleForkDetails() {
 					aria-describedby={`${copyButtonId}-tooltip`}
 				>
 					{#if copied}
-						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-icon-primary">
-							<polyline points="20 6 9 17 4 12"></polyline>
-						</svg>
+						<Check size={16} strokeWidth={2} class="text-icon-primary" aria-hidden="true" />
 					{:else}
-						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-							<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-						</svg>
+						<Copy size={16} strokeWidth={2} aria-hidden="true" />
 					{/if}
 				</button>
 				<div

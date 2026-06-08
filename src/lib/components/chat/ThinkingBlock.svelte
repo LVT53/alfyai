@@ -3,6 +3,8 @@ import { t } from "$lib/i18n";
 import type { ThinkingSegment } from "$lib/types";
 import { untrack } from "svelte";
 import {
+	Check,
+	ChevronDown,
 	ClipboardCheck,
 	GitBranch,
 	Languages,
@@ -403,20 +405,7 @@ async function toggle() {
 				{$t('chat.thinking')}
 			{/if}
 		</span>
-		<svg
-			class="chevron"
-			class:expanded
-			width="14"
-			height="14"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="2"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-		>
-			<polyline points="6 9 12 15 18 9" />
-		</svg>
+		<ChevronDown class={`chevron${expanded ? ' expanded' : ''}`} size={14} strokeWidth={2} aria-hidden="true" />
 	</button>
 
 	{#if visibleTools.length > 0 || thinkingIsDone}
@@ -428,11 +417,8 @@ async function toggle() {
 						{#if tool.status === 'running'}
 							<span class="tool-dot"></span>
 							{:else}
-								<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
-									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-										stroke-linecap="round" stroke-linejoin="round"/>
-								</svg>
-							{/if}
+								<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
+						{/if}
 							{@render fetchedSourceGroup(fetchedSources, 'tool-label-text')}
 						</div>
 					{:else if getFetchUrlSources(tool.name, tool.input).length > 0}
@@ -441,11 +427,8 @@ async function toggle() {
 						{#if tool.status === 'running'}
 							<span class="tool-dot"></span>
 						{:else}
-							<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
-									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-										stroke-linecap="round" stroke-linejoin="round"/>
-								</svg>
-							{/if}
+							<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
+						{/if}
 							{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text')}
 						</div>
 					{:else}
@@ -453,10 +436,7 @@ async function toggle() {
 						{#if tool.status === 'running'}
 							<span class="tool-dot"></span>
 						{:else}
-							<svg class="check-icon-header" viewBox="0 0 12 12" fill="none">
-								<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-									stroke-linecap="round" stroke-linejoin="round"/>
-							</svg>
+							<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
 						{/if}
 						<span class="tool-label-text" title={getToolTitle(tool.name, tool.input)}>{formatToolCall(tool.name, tool.input)}</span>
 					</div>
@@ -532,10 +512,7 @@ async function toggle() {
 								{:else if seg.status === 'running'}
 									<span class="tool-dot-inline"></span>
 							{:else}
-								<svg class="check-icon" viewBox="0 0 12 12" fill="none">
-									<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-										stroke-linecap="round" stroke-linejoin="round"/>
-									</svg>
+				<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
 								{/if}
 								<span class="status-step-label">{isDeliberationStatus ? formatDeliberationStatusLabel(seg) : seg.label}</span>
 							</div>
@@ -544,10 +521,7 @@ async function toggle() {
 						{#if fetchedSources.length > 0}
 							<div class="tool-call-item">
 								{#if seg.status === 'done'}
-									<svg class="check-icon" viewBox="0 0 12 12" fill="none">
-										<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-											stroke-linecap="round" stroke-linejoin="round"/>
-									</svg>
+									<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
 								{:else}
 									<span class="tool-dot-inline"></span>
 								{/if}
@@ -557,10 +531,7 @@ async function toggle() {
 							{@const fetchUrlSources = getFetchUrlSources(seg.name, seg.input)}
 							<div class="tool-call-item">
 								{#if seg.status === 'done'}
-									<svg class="check-icon" viewBox="0 0 12 12" fill="none">
-										<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-											stroke-linecap="round" stroke-linejoin="round"/>
-									</svg>
+									<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
 								{:else}
 									<span class="tool-dot-inline"></span>
 								{/if}
@@ -569,10 +540,7 @@ async function toggle() {
 						{:else}
 							<div class="tool-call-item">
 								{#if seg.status === 'done'}
-									<svg class="check-icon" viewBox="0 0 12 12" fill="none">
-										<path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5"
-											stroke-linecap="round" stroke-linejoin="round"/>
-									</svg>
+									<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
 								{:else}
 									<span class="tool-dot-inline"></span>
 								{/if}

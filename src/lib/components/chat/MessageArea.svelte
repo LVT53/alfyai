@@ -2,6 +2,7 @@
 import { tick } from "svelte";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
+import { Download, GitBranch } from "@lucide/svelte";
 import type {
 	ChatMessage,
 	ContextDebugState,
@@ -461,11 +462,7 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 						aria-label={$t('import.boundaryMarkerLabel')}
 					>
 						<div class="import-lineage-icon" aria-hidden="true">
-							<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-								<polyline points="7 10 12 15 17 10"/>
-								<line x1="12" y1="15" x2="12" y2="3"/>
-							</svg>
+							<Download size={15} strokeWidth={2} aria-hidden="true" />
 						</div>
 						<span class="import-boundary-title">{$t('import.boundaryTitle')}</span>
 					</div>
@@ -503,13 +500,7 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 						aria-label={$t('fork.boundaryMarkerLabel')}
 					>
 						<div class="fork-lineage-icon" aria-hidden="true">
-							<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M4 12h5"/>
-								<path d="M9 12c4 0 5-6 10-6"/>
-								<path d="M16 3l3 3-3 3"/>
-								<path d="M9 12c4 0 5 6 10 6"/>
-								<path d="M16 15l3 3-3 3"/>
-							</svg>
+							<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
 						</div>
 						<span class="fork-boundary-title">{$t('fork.boundaryTitle')}</span>
 						{#if forkSourceHref(forkOrigin)}

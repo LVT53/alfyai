@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import ModelSelector from './ModelSelector.svelte';
+import { onMount } from 'svelte';
+import { ChevronDown, Globe, Paperclip } from '@lucide/svelte';
+import ModelSelector from './ModelSelector.svelte';
 	import { t } from '$lib/i18n';
 	import {
 		getPersonalityProfileDisplayDescription,
@@ -138,16 +139,7 @@
 							? getPersonalityProfileDisplayName(selectedProfile, $t)
 							: $t('composerTools.defaultStyle')}
 					</span>
-					<svg
-						class="model-selector__chevron"
-						class:model-selector__chevron--open={styleOpen}
-						xmlns="http://www.w3.org/2000/svg"
-						width="16" height="16" viewBox="0 0 24 24"
-						fill="none" stroke="currentColor"
-						stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-					>
-						<polyline points="6 9 12 15 18 9" />
-					</svg>
+					<ChevronDown class={`model-selector__chevron${styleOpen ? ' model-selector__chevron--open' : ''}`} size={16} strokeWidth={2} aria-hidden="true" />
 				</button>
 				{#if styleOpen}
 					<ul class="model-selector__dropdown" role="listbox">
@@ -189,16 +181,7 @@
 				aria-expanded={depthOpen}
 			>
 				<span class="model-selector__text">{selectedReasoningDepthLabel}</span>
-				<svg
-					class="model-selector__chevron"
-					class:model-selector__chevron--open={depthOpen}
-					xmlns="http://www.w3.org/2000/svg"
-					width="16" height="16" viewBox="0 0 24 24"
-					fill="none" stroke="currentColor"
-					stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-				>
-					<polyline points="6 9 12 15 18 9" />
-				</svg>
+				<ChevronDown class={`model-selector__chevron${depthOpen ? ' model-selector__chevron--open' : ''}`} size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
 			{#if depthOpen}
 				<ul class="model-selector__dropdown" role="listbox" aria-label={$t('composerTools.reasoningDepth')}>
@@ -246,11 +229,7 @@
 		>
 			<span class="menu-label">{$t('composerTools.webSearch')}</span>
 			<span class="menu-icon" aria-hidden="true">
-				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<circle cx="12" cy="12" r="10" />
-					<path d="M2 12h20" />
-					<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-				</svg>
+				<Globe size={16} strokeWidth={2} aria-hidden="true" />
 			</span>
 		</button>
 	</div>
@@ -267,9 +246,7 @@
 		>
 			<span class="menu-label">{$t('composerTools.attachFile')}</span>
 			<span class="menu-icon" aria-hidden="true">
-				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-				</svg>
+				<Paperclip size={16} strokeWidth={2} aria-hidden="true" />
 			</span>
 		</button>
 	</div>

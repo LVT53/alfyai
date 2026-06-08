@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
+import { Check, ChevronDown } from "@lucide/svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import {
 	fetchAvailableModels,
@@ -207,21 +208,7 @@ function autoExpandProviders() {
 		{:else}
 			<span class="model-selector__text">Select model</span>
 		{/if}
-		<svg
-			class="model-selector__chevron"
-			class:model-selector__chevron--open={isOpen}
-			xmlns="http://www.w3.org/2000/svg"
-			width="16"
-			height="16"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="2"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-		>
-			<polyline points="6 9 12 15 18 9" />
-		</svg>
+		<ChevronDown class={`model-selector__chevron${isOpen ? ' model-selector__chevron--open' : ''}`} size={16} strokeWidth={2} aria-hidden="true" />
 	</button>
 
 	{#if isOpen && providers.length > 0}
@@ -248,21 +235,7 @@ function autoExpandProviders() {
 							/>
 							<span class="model-selector__provider-name">{provider.displayName}</span>
 							<span class="model-selector__provider-count">{provider.models.length}</span>
-							<svg
-								class="model-selector__expand-icon"
-								class:model-selector__expand-icon--open={expanded}
-								xmlns="http://www.w3.org/2000/svg"
-								width="14"
-								height="14"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							>
-								<polyline points="6 9 12 15 18 9" />
-							</svg>
+							<ChevronDown class={`model-selector__expand-icon${expanded ? ' model-selector__expand-icon--open' : ''}`} size={14} strokeWidth={2} aria-hidden="true" />
 						</button>
 
 						{#if expanded}
@@ -287,20 +260,7 @@ function autoExpandProviders() {
 											/>
 											<span class="model-selector__option-text">{model.displayName}</span>
 											{#if $selectedModel === model.id}
-												<svg
-													class="model-selector__check"
-													xmlns="http://www.w3.org/2000/svg"
-													width="14"
-													height="14"
-													viewBox="0 0 24 24"
-													fill="none"
-													stroke="currentColor"
-													stroke-width="3"
-													stroke-linecap="round"
-													stroke-linejoin="round"
-												>
-													<polyline points="20 6 9 17 4 12" />
-												</svg>
+												<Check class="model-selector__check" size={14} strokeWidth={3} aria-hidden="true" />
 											{/if}
 										</button>
 									</li>

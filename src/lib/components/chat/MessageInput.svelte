@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import { Plus, Search, Send, Square, X } from "@lucide/svelte";
 import { goto } from "$app/navigation";
 import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
 import {
@@ -1638,9 +1639,7 @@ async function emitDraftChange(force = false) {
 						aria-label={$t('pendingSkill.removeA11y', { name: pendingSkill.displayName })}
 						onclick={removePendingSkill}
 					>
-						<svg aria-hidden="true" viewBox="0 0 16 16" width="11" height="11">
-							<path d="M4 4l8 8M12 4l-8 8" />
-						</svg>
+					<X size={11} aria-hidden="true" />
 					</button>
 				</li>
 			</ul>
@@ -1659,9 +1658,7 @@ async function emitDraftChange(force = false) {
 						aria-label={$t('composerTools.removeWebSearch')}
 						onclick={() => setForceWebSearch(false)}
 					>
-						<svg aria-hidden="true" viewBox="0 0 16 16" width="11" height="11">
-							<path d="M4 4l8 8M12 4l-8 8" />
-						</svg>
+					<X size={11} aria-hidden="true" />
 					</button>
 				</li>
 			</ul>
@@ -1712,10 +1709,7 @@ async function emitDraftChange(force = false) {
 						aria-label={$t('chat.openComposerTools')}
 						aria-expanded={showToolsMenu}
 					>
-						<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<line x1="12" x2="12" y1="5" y2="19" />
-							<line x1="5" x2="19" y1="12" y2="12" />
-						</svg>
+					<Plus size={20} strokeWidth={2.2} aria-hidden="true" />
 					</button>
 
 					{#if showToolsMenu}
@@ -1752,10 +1746,7 @@ async function emitDraftChange(force = false) {
 							aria-expanded={showDeepResearchMenu}
 							title={$t('composerTools.deepResearch')}
 						>
-							<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-								<circle cx="11" cy="11" r="6" />
-								<path d="m16 16 4 4" />
-							</svg>
+							<Search size={20} strokeWidth={2.1} aria-hidden="true" />
 						</button>
 
 						{#if showDeepResearchMenu}
@@ -1829,9 +1820,7 @@ async function emitDraftChange(force = false) {
 						aria-label={$t('chat.stop')}
 						class="composer-stop-accent flex h-[40px] w-[40px] items-center justify-center rounded-[10px] shadow-sm animate-in"
 					>
-						<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-							<rect x="6" y="6" width="12" height="12" rx="2" />
-						</svg>
+					<Square size={18} fill="currentColor" aria-hidden="true" />
 					</button>
 				{:else}
 					<button
@@ -1842,10 +1831,7 @@ async function emitDraftChange(force = false) {
 						aria-label={$t('chat.sendMessage')}
 						class="btn-primary composer-send flex h-[40px] w-[40px] items-center justify-center rounded-[10px] shadow-sm disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-elevated disabled:text-icon-muted animate-in"
 					>
-						<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<line x1="22" x2="11" y1="2" y2="13" />
-							<polygon points="22 2 15 22 11 13 2 9 22 2" />
-						</svg>
+					<Send size={18} strokeWidth={2} aria-hidden="true" />
 					</button>
 				{/if}
 			</div>
