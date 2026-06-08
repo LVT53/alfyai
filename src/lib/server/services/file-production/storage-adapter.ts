@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { messages } from "$lib/server/db/schema";
+import { fileProductionJobs, messages } from "$lib/server/db/schema";
 import {
 	type ChatFile,
 	type FileInput,
@@ -241,10 +241,52 @@ export async function storeFileProductionOutputs(
 	return { ok: true, producedFiles };
 }
 
+const ASSISTANT_MESSAGE_RETRY_DELAY_MS = 500;
+const ASSISTANT_MESSAGE_RETRY_LIMIT = 12;
+
+async function resolveAssistantMessageId(
+	jobId: string,
+): Promise<string | null> {
+	for (let attempt = 1; attempt <= ASSISTANT_MESSAGE_RETRY_LIMIT; attempt += 1) {
+		const [refreshed] = await db
+			.select({
+				assistantMessageId: fileProductionJobs.assistantMessageId,
+			})
+			.from(fileProductionJobs)
+			.where(eq(fileProductionJobs.id, jobId))
+			.limit(1);
+		if (refreshed?.assistantMessageId) return refreshed.assistantMessageId;
+		if (attempt > 1) {
+			console.warn(
+				"[FILE_PRODUCTION] Waiting for assistant message assignment before memory sync",
+				{ jobId, attempt },
+			);
+		}
+		await new Promise((resolve) =>
+			setTimeout(resolve, ASSISTANT_MESSAGE_RETRY_DELAY_MS),
+		);
+	}
+	return null;
+}
+
 export async function syncFileProductionOutputsToMemory(
 	input: SyncFileProductionOutputsToMemoryInput,
 ): Promise<void> {
-	if (!input.job.assistantMessageId || input.producedFiles.length === 0) {
+	if (input.producedFiles.length === 0) {
+		return;
+	}
+
+	let assistantMessageId = input.job.assistantMessageId;
+
+	if (!assistantMessageId) {
+		assistantMessageId = await resolveAssistantMessageId(input.job.id);
+	}
+
+	if (!assistantMessageId) {
+		console.warn(
+			"[FILE_PRODUCTION] Skipping memory sync — assistant message not assigned after retries",
+			{ jobId: input.job.id },
+		);
 		return;
 	}
 
@@ -254,10 +296,10 @@ export async function syncFileProductionOutputsToMemory(
 		await syncGeneratedFilesToMemory({
 			userId: input.job.userId,
 			conversationId: input.job.conversationId,
-			assistantMessageId: input.job.assistantMessageId,
+			assistantMessageId,
 			fileIds: input.producedFiles.map((file) => file.id),
 			assistantResponse: await getAssistantMessageContent(
-				input.job.assistantMessageId,
+				assistantMessageId,
 			),
 		});
 	} catch (error) {
@@ -265,7 +307,7 @@ export async function syncFileProductionOutputsToMemory(
 			"[FILE_PRODUCTION] Background generated-file memory sync failed",
 			{
 				jobId: input.job.id,
-				assistantMessageId: input.job.assistantMessageId,
+				assistantMessageId,
 				fileIds: input.producedFiles.map((file) => file.id),
 				error,
 			},
