@@ -208,7 +208,9 @@ function autoExpandProviders() {
 		{:else}
 			<span class="model-selector__text">Select model</span>
 		{/if}
-		<ChevronDown class={`model-selector__chevron${isOpen ? ' model-selector__chevron--open' : ''}`} size={16} strokeWidth={2} aria-hidden="true" />
+		<span class={`model-selector__chevron${isOpen ? ' model-selector__chevron--open' : ''}`}>
+			<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
+		</span>
 	</button>
 
 	{#if isOpen && providers.length > 0}
@@ -235,7 +237,9 @@ function autoExpandProviders() {
 							/>
 							<span class="model-selector__provider-name">{provider.displayName}</span>
 							<span class="model-selector__provider-count">{provider.models.length}</span>
-							<ChevronDown class={`model-selector__expand-icon${expanded ? ' model-selector__expand-icon--open' : ''}`} size={14} strokeWidth={2} aria-hidden="true" />
+							<span class={`model-selector__expand-icon${expanded ? ' model-selector__expand-icon--open' : ''}`}>
+							<ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
+						</span>
 						</button>
 
 						{#if expanded}
@@ -260,7 +264,9 @@ function autoExpandProviders() {
 											/>
 											<span class="model-selector__option-text">{model.displayName}</span>
 											{#if $selectedModel === model.id}
-												<Check class="model-selector__check" size={14} strokeWidth={3} aria-hidden="true" />
+												<span class="model-selector__check">
+												<Check size={14} strokeWidth={3} aria-hidden="true" />
+											</span>
 											{/if}
 										</button>
 									</li>

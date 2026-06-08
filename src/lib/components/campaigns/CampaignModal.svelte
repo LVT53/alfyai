@@ -435,16 +435,18 @@
 											<option value="">
 												{$t('settings.systemDefaultModel')} · {systemDefaultModelDisplayName}
 											</option>
-											{#each explicitModelOptions as model}
-												<option value={model.id}>{model.displayName}</option>
-											{/each}
-										</select>
-										<ChevronDown class="campaign-select-arrow" size={16} strokeWidth={2.4} aria-hidden="true" />
-									</div>
-								</section>
-							{/if}
+										{#each explicitModelOptions as model}
+											<option value={model.id}>{model.displayName}</option>
+										{/each}
+									</select>
+									<span class="campaign-select-arrow">
+										<ChevronDown size={16} strokeWidth={2.4} aria-hidden="true" />
+									</span>
+								</div>
+							</section>
+						{/if}
 
-							{#if hasSetupControl('ai_style')}
+						{#if hasSetupControl('ai_style')}
 								<section class="campaign-setup-group" aria-labelledby="campaign-setup-style">
 									<p id="campaign-setup-style" class="campaign-setup-label">{$t('composerTools.defaultStyleLabel')}</p>
 									<div class="campaign-select-wrap">
@@ -455,20 +457,22 @@
 											aria-labelledby="campaign-setup-style"
 										>
 											<option value="">{$t('composerTools.defaultStyle')}</option>
-											{#each setupPreferences.personalityProfiles ?? [] as profile}
-												<option value={profile.id} title={getPersonalityProfileDisplayDescription(profile, $t)}>
-													{getPersonalityProfileDisplayName(profile, $t)}
-												</option>
-											{/each}
-										</select>
-										<ChevronDown class="campaign-select-arrow" size={16} strokeWidth={2.4} aria-hidden="true" />
-									</div>
-								</section>
-							{/if}
-						</div>
-					{/if}
-				</div>
+										{#each setupPreferences.personalityProfiles ?? [] as profile}
+											<option value={profile.id} title={getPersonalityProfileDisplayDescription(profile, $t)}>
+												{getPersonalityProfileDisplayName(profile, $t)}
+											</option>
+										{/each}
+									</select>
+									<span class="campaign-select-arrow">
+										<ChevronDown size={16} strokeWidth={2.4} aria-hidden="true" />
+									</span>
+								</div>
+							</section>
+						{/if}
+					</div>
+				{/if}
 			</div>
+		</div>
 
 			<footer class="campaign-footer">
 				<div>

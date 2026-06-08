@@ -238,7 +238,9 @@ function createConversation(e: MouseEvent) {
 			title={$t('sidebar.newChatInProject')}
 		>
 			{#if creatingConversation}
-			<Loader class="project-action-spinner" size={16} strokeWidth={2.2} aria-hidden="true" />
+			<span class="project-action-spinner">
+				<Loader size={16} strokeWidth={2.2} aria-hidden="true" />
+			</span>
 			{:else}
 			<MessageSquarePlus size={16} strokeWidth={2.1} aria-hidden="true" />
 			{/if}
@@ -273,9 +275,13 @@ function createConversation(e: MouseEvent) {
 				aria-busy={creatingConversation}
 			>
 				{#if creatingConversation}
-				<Loader class="project-option-icon project-action-spinner" size={15} strokeWidth={2.2} aria-hidden="true" />
+				<span class="project-option-icon project-action-spinner">
+					<Loader size={15} strokeWidth={2.2} aria-hidden="true" />
+				</span>
 				{:else}
-				<MessageSquarePlus class="project-option-icon" size={15} strokeWidth={2.1} aria-hidden="true" />
+				<span class="project-option-icon">
+					<MessageSquarePlus size={15} strokeWidth={2.1} aria-hidden="true" />
+				</span>
 				{/if}
 				<span>{$t('sidebar.newChatInProject')}</span>
 			</button>
@@ -284,7 +290,9 @@ function createConversation(e: MouseEvent) {
 				class="project-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				onclick={startRename}
 			>
-			<Pencil class="project-option-icon" size={15} strokeWidth={2} aria-hidden="true" />
+			<span class="project-option-icon">
+				<Pencil size={15} strokeWidth={2} aria-hidden="true" />
+			</span>
 				<span>{$t('sidebar.rename')}</span>
 			</button>
 			<button
@@ -292,7 +300,9 @@ function createConversation(e: MouseEvent) {
 				class="project-option project-option-danger flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				onclick={handleDelete}
 			>
-			<Trash2 class="project-option-icon project-option-icon-danger" size={15} strokeWidth={2} aria-hidden="true" />
+			<span class="project-option-icon project-option-icon-danger">
+				<Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+			</span>
 				<span>{$t('sidebar.delete')}</span>
 			</button>
 		</div>

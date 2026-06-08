@@ -372,7 +372,9 @@ onMount(() => {
 					class="conversation-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={handleTogglePin}
 				>
-				<Pin class="conversation-option-icon" size={15} strokeWidth={2} aria-hidden="true" />
+				<span class="conversation-option-icon">
+					<Pin size={15} strokeWidth={2} aria-hidden="true" />
+				</span>
 					<span>{conversation.sidebarPinned ? $t('sidebar.unpinFromSidebar') : $t('sidebar.pinToSidebar')}</span>
 				</button>
 				<button
@@ -381,7 +383,9 @@ onMount(() => {
 					class="conversation-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={startRename}
 				>
-				<Pencil class="conversation-option-icon" size={15} strokeWidth={2} aria-hidden="true" />
+				<span class="conversation-option-icon">
+					<Pencil size={15} strokeWidth={2} aria-hidden="true" />
+				</span>
 					<span>{$t('sidebar.rename')}</span>
 				</button>
 
@@ -392,7 +396,9 @@ onMount(() => {
 						class:conversation-option-active={showProjectSubmenu}
 						onclick={toggleProjectSubmenu}
 					>
-						<Folder class="conversation-option-icon" size={15} strokeWidth={2} aria-hidden="true" />
+						<span class="conversation-option-icon">
+							<Folder size={15} strokeWidth={2} aria-hidden="true" />
+						</span>
 					<span class="flex-1">{$t('sidebar.moveToProject')}</span>
 					<ChevronRight class="shrink-0 text-icon-muted mr-1" size={13} strokeWidth={2.5} aria-hidden="true" />
 					</button>
@@ -404,7 +410,9 @@ onMount(() => {
 					class="conversation-option conversation-option-danger flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 					onclick={handleDelete}
 				>
-				<Trash2 class="conversation-option-icon conversation-option-icon-danger" size={15} strokeWidth={2} aria-hidden="true" />
+				<span class="conversation-option-icon conversation-option-icon-danger">
+					<Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+				</span>
 					<span>{$t('sidebar.delete')}</span>
 				</button>
 			</div>
@@ -424,7 +432,9 @@ onMount(() => {
 						class:conversation-option-current={conversation.projectId === proj.id}
 						onclick={(event) => handleMoveToProject(event, proj.id)}
 					>
-						<Folder class="conversation-option-icon" size={15} strokeWidth={2} aria-hidden="true" />
+						<span class="conversation-option-icon">
+							<Folder size={15} strokeWidth={2} aria-hidden="true" />
+						</span>
 					<span class="truncate">{proj.name}</span>
 					{#if conversation.projectId === proj.id}
 						<Check class="ml-auto shrink-0 text-accent" size={14} strokeWidth={2.5} aria-hidden="true" />
@@ -437,7 +447,9 @@ onMount(() => {
 						class="conversation-option flex min-h-[30px] w-full items-center text-left font-sans text-[12px] text-text-muted transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 						onclick={(event) => handleMoveToProject(event, null)}
 					>
-				<X class="conversation-option-icon opacity-60" size={15} strokeWidth={2} aria-hidden="true" />
+				<span class="conversation-option-icon opacity-60">
+					<X size={15} strokeWidth={2} aria-hidden="true" />
+				</span>
 						<span>{$t('sidebar.removeFromProject')}</span>
 					</button>
 				{/if}

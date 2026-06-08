@@ -707,8 +707,10 @@ function toggleSyncScroll() {
 								onclick={() => onJumpToSource?.(activeDocument)}
 								title={$t('documentWorkspace.viewSourceMessage')}
 							>
-								<span>{getDocumentTitle(activeDocument)}</span>
-								<ArrowUpRight size={14} strokeWidth={2.1} class="workspace-title-source-icon" aria-hidden="true" />
+							<span>{getDocumentTitle(activeDocument)}</span>
+							<span class="workspace-title-source-icon">
+								<ArrowUpRight size={14} strokeWidth={2.1} aria-hidden="true" />
+							</span>
 							</button>
 						{:else}
 							<div class="workspace-title">
@@ -770,9 +772,11 @@ function toggleSyncScroll() {
 					{/if}
 					<div class="workspace-meta-row" data-testid="document-provenance">
 						<span class="workspace-source-pill" class:workspace-source-pill-ai={isAiGeneratedDocument(activeDocument)}>
-							{#if isAiGeneratedDocument(activeDocument)}
-								<Sparkles size={13} strokeWidth={2.1} class="workspace-source-sparkle" aria-hidden="true" />
-							{/if}
+						{#if isAiGeneratedDocument(activeDocument)}
+							<span class="workspace-source-sparkle">
+								<Sparkles size={13} strokeWidth={2.1} aria-hidden="true" />
+							</span>
+						{/if}
 							<span>{getDocumentSourceLabel(activeDocument)}</span>
 						</span>
 						{#if canCompareActiveDocument}
@@ -978,7 +982,9 @@ function toggleSyncScroll() {
 							title={$t('documentWorkspace.viewSourceMessage')}
 						>
 							<span>{getDocumentTitle(activeDocument)}</span>
-							<ArrowUpRight size={14} strokeWidth={2.1} class="workspace-title-source-icon" aria-hidden="true" />
+							<span class="workspace-title-source-icon">
+								<ArrowUpRight size={14} strokeWidth={2.1} aria-hidden="true" />
+							</span>
 						</button>
 					{:else}
 						<div class="workspace-title">
@@ -1025,7 +1031,9 @@ function toggleSyncScroll() {
 				<div class="workspace-meta-row" data-testid="document-provenance">
 					<span class="workspace-source-pill" class:workspace-source-pill-ai={isAiGeneratedDocument(activeDocument)}>
 						{#if isAiGeneratedDocument(activeDocument)}
-							<Sparkles size={13} strokeWidth={2.1} class="workspace-source-sparkle" aria-hidden="true" />
+							<span class="workspace-source-sparkle">
+								<Sparkles size={13} strokeWidth={2.1} aria-hidden="true" />
+							</span>
 						{/if}
 						<span>{getDocumentSourceLabel(activeDocument)}</span>
 					</span>

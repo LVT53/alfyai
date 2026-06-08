@@ -48,7 +48,9 @@ import { FileText, X } from '@lucide/svelte';
 	tabindex={viewable && onView ? 0 : undefined}
 	aria-label={viewable && onView ? `View ${attachment.name}` : undefined}
 >
-	<FileText class="file-icon" size={16} strokeWidth={2} aria-hidden="true" />
+	<span class="file-icon">
+		<FileText size={16} strokeWidth={2} aria-hidden="true" />
+	</span>
 	<span class="filename">{attachment.name}</span>
 	{#if removable}
 		<button

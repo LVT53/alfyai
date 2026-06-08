@@ -139,7 +139,9 @@ import ModelSelector from './ModelSelector.svelte';
 							? getPersonalityProfileDisplayName(selectedProfile, $t)
 							: $t('composerTools.defaultStyle')}
 					</span>
-					<ChevronDown class={`model-selector__chevron${styleOpen ? ' model-selector__chevron--open' : ''}`} size={16} strokeWidth={2} aria-hidden="true" />
+					<span class={`model-selector__chevron${styleOpen ? ' model-selector__chevron--open' : ''}`}>
+					<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
+				</span>
 				</button>
 				{#if styleOpen}
 					<ul class="model-selector__dropdown" role="listbox">
@@ -181,7 +183,9 @@ import ModelSelector from './ModelSelector.svelte';
 				aria-expanded={depthOpen}
 			>
 				<span class="model-selector__text">{selectedReasoningDepthLabel}</span>
-				<ChevronDown class={`model-selector__chevron${depthOpen ? ' model-selector__chevron--open' : ''}`} size={16} strokeWidth={2} aria-hidden="true" />
+				<span class={`model-selector__chevron${depthOpen ? ' model-selector__chevron--open' : ''}`}>
+					<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
+				</span>
 			</button>
 			{#if depthOpen}
 				<ul class="model-selector__dropdown" role="listbox" aria-label={$t('composerTools.reasoningDepth')}>

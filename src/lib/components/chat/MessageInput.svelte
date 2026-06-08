@@ -2055,14 +2055,6 @@ async function emitDraftChange(force = false) {
 			transform var(--duration-standard) var(--ease-out);
 	}
 
-	.pending-skill-chip__remove svg {
-		display: block;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 2;
-		stroke-linecap: round;
-	}
-
 	.pending-skill-chip__remove:hover,
 	.pending-skill-chip__remove:focus-visible {
 		background: color-mix(in srgb, var(--accent) 18%, var(--surface-page) 82%);

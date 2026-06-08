@@ -26,9 +26,9 @@
 		text: FileText,
 	};
 
-	let iconComponent = $derived(iconMap[type] ?? File);
+	let Icon = $derived(iconMap[type] ?? File);
 </script>
 
 <span aria-hidden="true">
-	<svelte:component this={iconComponent} {size} strokeWidth={2} />
+	<Icon {size} strokeWidth={2} />
 </span>

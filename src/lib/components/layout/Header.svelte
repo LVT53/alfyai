@@ -116,7 +116,9 @@
 				title={$t('header.openUserMenu')}
 				aria-expanded={mobileMenuOpen}
 			>
-			<User size={20} strokeWidth={2} class="header-option-icon" aria-hidden="true" />
+				<span class="header-option-icon">
+					<User size={20} strokeWidth={2} aria-hidden="true" />
+				</span>
 			</button>
 
 			{#if mobileMenuOpen}
@@ -130,7 +132,9 @@
 						class="header-option header-option-accent flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 						onclick={handleNewConversation}
 					>
-					<Plus size={18} strokeWidth={2.1} class="header-option-icon header-option-icon-accent" aria-hidden="true" />
+						<span class="header-option-icon header-option-icon-accent">
+						<Plus size={18} strokeWidth={2.1} aria-hidden="true" />
+					</span>
 						<span>{$t('header.newChat')}</span>
 					</button>
 					<button
@@ -140,14 +144,18 @@
 							goto('/settings');
 						}}
 					>
-					<User size={18} strokeWidth={2.1} class="header-option-icon" aria-hidden="true" />
+						<span class="header-option-icon">
+						<User size={18} strokeWidth={2.1} aria-hidden="true" />
+					</span>
 						<span>{$t('header.profileAndSettings')}</span>
 					</button>
 					<button
 						class="header-option header-option-danger flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 						onclick={handleLogout}
 					>
-					<LogOut size={18} strokeWidth={2.1} class="header-option-icon header-option-icon-danger" aria-hidden="true" />
+						<span class="header-option-icon header-option-icon-danger">
+						<LogOut size={18} strokeWidth={2.1} aria-hidden="true" />
+					</span>
 						<span>{$t('header.logout')}</span>
 					</button>
 				</div>

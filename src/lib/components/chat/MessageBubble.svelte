@@ -956,13 +956,6 @@ function toggleForkDetails() {
 		pointer-events: none;
 	}
 
-	.reasoning-depth-icon {
-		width: 14px;
-		height: 14px;
-		flex: 0 0 auto;
-		color: currentColor;
-	}
-
 	.deliberation-status-line {
 		display: inline-flex;
 		align-items: center;

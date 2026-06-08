@@ -776,6 +776,7 @@ async function handleBulkDelete(): Promise<boolean> {
 					</thead>
 					<tbody>
 						{#each paginatedDocuments as document (document.id)}
+							{@const Icon = getFileIcon(document.mimeType, document.name)}
 							<tr
 								class="document-row document-list-item"
 								class:selected={selectedIds.has(document.id)}
@@ -804,7 +805,7 @@ async function handleBulkDelete(): Promise<boolean> {
 								</td>
 								<td class="col-icon">
 									<div class="file-icon" data-testid="file-icon">
-										<svelte:component this={getFileIcon(document.mimeType, document.name)} size={18} strokeWidth={1.5} aria-hidden="true" />
+										<Icon size={18} strokeWidth={1.5} aria-hidden="true" />
 									</div>
 								</td>
 								<td class="col-name">
@@ -887,10 +888,12 @@ async function handleBulkDelete(): Promise<boolean> {
 									<div class="ai-version-panel">
 										<span class="ai-version-label">{$t('knowledge.aiFacingVersion')}</span>
 										{#if content?.loading}
-											<div class="ai-version-loading">
-												<Loader size={16} strokeWidth={2} class="ai-version-spinner" aria-hidden="true" />
-												{$t('knowledge.aiVersionLoading')}
-											</div>
+												<div class="ai-version-loading">
+													<span class="ai-version-spinner">
+														<Loader size={16} strokeWidth={2} aria-hidden="true" />
+													</span>
+													{$t('knowledge.aiVersionLoading')}
+												</div>
 										{:else if content?.error}
 											<div class="ai-version-error">{content.error}</div>
 										{:else if content?.text}

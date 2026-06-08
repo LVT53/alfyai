@@ -45,7 +45,9 @@
 				onclick={toggleCollapse}
 				aria-label={collapsed ? $t('codeBlock.expand') : $t('codeBlock.collapse')}
 			>
-			<ChevronDown size={14} strokeWidth={2} class={`chevron${collapsed ? ' collapsed' : ''}`} aria-hidden="true" />
+			<span class={`chevron${collapsed ? ' collapsed' : ''}`}>
+				<ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
+			</span>
 			<span class="lowercase">{language ?? 'code'}</span>
 		</button>
 

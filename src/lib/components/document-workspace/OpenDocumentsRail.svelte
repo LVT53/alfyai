@@ -135,9 +135,11 @@ function getDocumentDetailMetadata(document: DocumentWorkspaceItem): string {
 						</span>
 						<span class="open-documents-rail-meta">
 							<span class="open-documents-rail-source" class:open-documents-rail-source-ai={isAiGeneratedDocument(document)}>
-								{#if isAiGeneratedDocument(document)}
-								<Sparkles class="open-documents-rail-sparkle" size={12} strokeWidth={2.1} aria-hidden="true" />
-								{/if}
+							{#if isAiGeneratedDocument(document)}
+								<span class="open-documents-rail-sparkle">
+									<Sparkles size={12} strokeWidth={2.1} aria-hidden="true" />
+								</span>
+							{/if}
 								<span>{getDocumentSourceLabel(document)}</span>
 							</span>
 							{#if getDocumentDetailMetadata(document)}
