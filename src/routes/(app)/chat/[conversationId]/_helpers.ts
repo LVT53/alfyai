@@ -404,17 +404,10 @@ export function appendTokenChunkToMessageList(
 	// Setting it false on first visible token causes thinkingIsDone to become true
 	// while tool_call thinking segments may still be arriving, showing <tool_call|>
 	// artifacts in the UI before the thinking block is fully rendered.
-	return updateMessageById(list, placeholderId, (message) => {
-		const existingContent = message.content;
-		const needsSeparator =
-			existingContent.length > 0 &&
-			!/\s$/.test(existingContent) &&
-			!/^\s/.test(chunk);
-		return {
-			...message,
-			content: existingContent + (needsSeparator ? " " : "") + chunk,
-		};
-	});
+	return updateMessageById(list, placeholderId, (message) => ({
+		...message,
+		content: message.content + chunk,
+	}));
 }
 
 export function appendThinkingChunkToMessageList(
@@ -427,30 +420,15 @@ export function appendThinkingChunkToMessageList(
 		const lastSegment = segments[segments.length - 1];
 		const nextSegments =
 			lastSegment?.type === "text"
-				? (() => {
-						const existing = lastSegment.content;
-						const gap =
-							existing.length > 0 && !/\s$/.test(existing) && !/^\s/.test(chunk)
-								? " "
-								: "";
-						return [
-							...segments.slice(0, -1),
-							{ type: "text" as const, content: existing + gap + chunk },
-						];
-					})()
+				? [
+						...segments.slice(0, -1),
+						{ type: "text" as const, content: lastSegment.content + chunk },
+					]
 				: [...segments, { type: "text" as const, content: chunk }];
-
-		const existingThinking = message.thinking ?? "";
-		const thinkingGap =
-			existingThinking.length > 0 &&
-			!/\s$/.test(existingThinking) &&
-			!/^\s/.test(chunk)
-				? " "
-				: "";
 
 		return {
 			...message,
-			thinking: existingThinking + thinkingGap + chunk,
+			thinking: (message.thinking ?? "") + chunk,
 			thinkingSegments: nextSegments,
 			isThinkingStreaming: true,
 		};
