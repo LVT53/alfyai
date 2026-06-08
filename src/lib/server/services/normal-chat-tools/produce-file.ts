@@ -27,6 +27,15 @@ export const produceFileInputSchema = z
 		content: z.string().min(1).optional(),
 		markdown: z.string().min(1).optional(),
 		text: z.string().min(1).optional(),
+		patches: z
+			.array(
+				z.object({
+					oldText: z.string().min(1),
+					newText: z.string(),
+				}),
+			)
+			.min(1)
+			.optional(),
 		program: z
 			.object({
 				language: z.enum(["python", "javascript"]),
@@ -48,6 +57,7 @@ export type NormalizedProduceFileInput = {
 	sourceMode: "program" | "document_source";
 	documentIntent?: string;
 	templateHint?: string;
+	patches?: Array<{ oldText: string; newText: string }>;
 	program?: {
 		language: "python" | "javascript";
 		sourceCode: string;
@@ -90,6 +100,29 @@ export function shouldForceProduceFileTool(message: string): boolean {
 	if (!isProduceFileRequest(text)) return false;
 	if (CONTEXT_DEPENDENT_FILE_SOURCE_RE.test(text)) return false;
 	return true;
+}
+
+// ── Patch helpers ───────────────────────────────────────────────
+
+export function applyTextPatches(
+	baseText: string,
+	patches: Array<{ oldText: string; newText: string }>,
+): { ok: true; resolvedText: string } | { ok: false; error: string } {
+	let resolved = baseText;
+	for (const patch of patches) {
+		if (!resolved.includes(patch.oldText)) {
+			const preview =
+				patch.oldText.length > 100
+					? `${patch.oldText.slice(0, 100)}...`
+					: patch.oldText;
+			return {
+				ok: false,
+				error: `Could not find "${preview}" in the previous version of the file. Ensure oldText exactly matches a section of the existing file content.`,
+			};
+		}
+		resolved = resolved.replace(patch.oldText, patch.newText);
+	}
+	return { ok: true, resolvedText: resolved };
 }
 
 // ── Input normalization ────────────────────────────────────────
@@ -217,6 +250,7 @@ export function normalizeProduceFileInput(
 					sourceMode: "document_source",
 					documentIntent: input.documentIntent ?? "document",
 					templateHint: input.templateHint,
+					patches: normalizePatches(input.patches),
 					documentSource: buildDocumentSourceFromText({
 						title: requestTitle,
 						text: content,
@@ -233,6 +267,7 @@ export function normalizeProduceFileInput(
 				sourceMode: "program",
 				documentIntent: input.documentIntent ?? "data export",
 				templateHint: input.templateHint,
+				patches: normalizePatches(input.patches),
 				program: buildTextFileProgram({
 					content,
 					filename: resolveTextFilename({
@@ -245,14 +280,62 @@ export function normalizeProduceFileInput(
 		};
 	}
 
+	if (input.patches && input.patches.length > 0) {
+		const patches = normalizePatches(input.patches);
+		if (!patches) {
+			return {
+				ok: false,
+				error:
+					"Each patch.oldText must be a non-empty string that matches text in the previous version of the file.",
+			};
+		}
+		const patchedFilename = resolveTextFilename({
+			filename: input.filename,
+			requestTitle,
+			outputType: requestedOutputs[0]?.type,
+		});
+		return {
+			ok: true,
+			input: {
+				idempotencyKey: input.idempotencyKey,
+				requestTitle,
+				requestedOutputs,
+				sourceMode: "program",
+				documentIntent: input.documentIntent,
+				templateHint: input.templateHint,
+				patches,
+				program: buildTextFileProgram({
+					content: "",
+					filename: patchedFilename,
+				}),
+			},
+		};
+	}
+
 	return {
 		ok: false,
 		error:
-			"produce_file requires content, markdown, text, documentSource, or program",
+			"produce_file requires content, markdown, text, patches, documentSource, or program",
 	};
 }
 
 // ── Internal normalization helpers ─────────────────────────────
+
+function normalizePatches(
+	patches: Array<{ oldText: string; newText: string }> | undefined,
+): Array<{ oldText: string; newText: string }> | null {
+	if (!patches || patches.length === 0) return null;
+	const result: Array<{ oldText: string; newText: string }> = [];
+	for (const patch of patches) {
+		const oldText = typeof patch.oldText === "string" ? patch.oldText : "";
+		if (!oldText.trim()) return null;
+		result.push({
+			oldText,
+			newText: typeof patch.newText === "string" ? patch.newText : "",
+		});
+	}
+	return result.length > 0 ? result : null;
+}
 
 function normalizeDocumentSourceEnvelope(
 	documentSource: Record<string, unknown>,

@@ -1,7 +1,10 @@
 <script lang="ts">
 import { browser } from "$app/environment";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
-import { summarizeTextComparison } from "$lib/utils/text-compare";
+import {
+	computeSideBySideDiff,
+	summarizeTextComparison,
+} from "$lib/utils/text-compare";
 import type { DocumentWorkspaceItem } from "$lib/types";
 import { t } from "$lib/i18n";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
@@ -545,10 +548,6 @@ function renderHighlightedCompareText(
 	return renderTextComparisonHtml(currentText, comparedText, side);
 }
 
-function splitCompareLines(value: string): string[] {
-	return value.replace(/\r\n/g, "\n").split("\n");
-}
-
 function escapeHtml(value: string): string {
 	return value
 		.replace(/&/g, "&amp;")
@@ -563,36 +562,20 @@ function renderTextComparisonHtml(
 	comparedText: string,
 	side: "current" | "compared",
 ): string {
-	const currentLines = splitCompareLines(currentText);
-	const comparedLines = splitCompareLines(comparedText);
-	const lineCount = Math.max(currentLines.length, comparedLines.length);
+	const diff = computeSideBySideDiff(currentText, comparedText);
+	const lines = side === "current" ? diff.leftLines : diff.rightLines;
 	const renderedLines: string[] = [];
 
-	for (let index = 0; index < lineCount; index += 1) {
-		const currentLine = currentLines[index];
-		const comparedLine = comparedLines[index];
-		const line =
-			side === "current" ? (currentLine ?? "") : (comparedLine ?? "");
-		if (
-			(side === "current" && currentLine === undefined) ||
-			(side === "compared" && comparedLine === undefined)
-		) {
-			continue;
-		}
-		let state = "unchanged";
-		let sign = " ";
-
-		if (side === "current" && currentLine !== comparedLine) {
-			state = "added";
-			sign = "+";
-		}
-		if (side === "compared" && currentLine !== comparedLine) {
-			state = "removed";
-			sign = "-";
-		}
-
+	for (const line of lines) {
+		const cssState =
+			line.type === "add"
+				? "added"
+				: line.type === "remove"
+					? "removed"
+					: "unchanged";
+		const sign = line.type === "add" ? "+" : line.type === "remove" ? "-" : " ";
 		renderedLines.push(
-			`<span class="workspace-diff-line workspace-diff-line-${state}"><span class="workspace-diff-gutter">${sign}</span><span class="workspace-diff-content">${escapeHtml(line) || "&nbsp;"}</span></span>`,
+			`<span class="workspace-diff-line workspace-diff-line-${cssState}"><span class="workspace-diff-gutter">${sign}</span><span class="workspace-diff-content">${escapeHtml(line.text) || "&nbsp;"}</span></span>`,
 		);
 	}
 

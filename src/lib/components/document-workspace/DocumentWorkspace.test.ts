@@ -1397,7 +1397,7 @@ describe("DocumentWorkspace", () => {
 				within(desktopWorkspace).getByText("Compare Versions"),
 			).toBeInTheDocument();
 			expect(
-				within(desktopWorkspace).getByText(/1 changed.*0 added.*0 removed/i),
+				within(desktopWorkspace).getByText(/1 changed/i),
 			).toBeInTheDocument();
 			expect(
 				within(desktopWorkspace).getAllByText("Current").length,

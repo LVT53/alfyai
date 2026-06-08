@@ -1,6 +1,9 @@
 import { type ToolExecutionOptions, tool } from "ai";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { db } from "$lib/server/db";
+import { artifacts } from "$lib/server/db/schema";
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
@@ -31,6 +34,7 @@ import {
 } from "./memory-context";
 
 import {
+	applyTextPatches,
 	buildSameTurnProduceFileDedupeKey,
 	buildScopedIdempotencyKey,
 	compactProduceFileModelPayload,
@@ -395,9 +399,89 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					return modelPayload;
 				}
 				const normalizedInput = normalized.input;
+
+				// Resolve patches: if the model provided surgical edits instead of full content,
+				// fetch the previous version and apply patches to reconstruct the full file.
+				if (
+					normalizedInput.patches &&
+					normalizedInput.patches.length > 0 &&
+					normalizedInput.sourceMode === "program" &&
+					normalizedInput.program
+				) {
+					const previousContent = await getPreviousGeneratedFileContent(
+						ctx.userId,
+						ctx.conversationId,
+						normalizedInput.requestTitle,
+					);
+					if (previousContent === null) {
+						const error =
+							"No previous version of this file could be found. Use content, markdown, or text to create the initial version instead of patches.";
+						const result: Extract<
+							FileProductionIntakeResult,
+							{ ok: false }
+						> = {
+							ok: false,
+							status: 422,
+							code: "no_previous_version_for_patches",
+							error,
+						};
+						const safeInput =
+							sanitizeProduceFileInput(normalizedInput);
+						const modelPayload =
+							compactProduceFileModelPayload(result);
+						recorder.record(
+							createProduceFileToolCallEntry({
+								callId: options.toolCallId,
+								input: safeInput,
+								result,
+								outputSummary:
+									summarizeProduceFileResult(modelPayload),
+							}),
+						);
+						return modelPayload;
+					}
+					const patchResult = applyTextPatches(
+						previousContent,
+						normalizedInput.patches,
+					);
+					if (!patchResult.ok) {
+						const result: Extract<
+							FileProductionIntakeResult,
+							{ ok: false }
+						> = {
+							ok: false,
+							status: 422,
+							code: "patch_failed",
+							error: patchResult.error,
+						};
+						const safeInput =
+							sanitizeProduceFileInput(normalizedInput);
+						const modelPayload =
+							compactProduceFileModelPayload(result);
+						recorder.record(
+							createProduceFileToolCallEntry({
+								callId: options.toolCallId,
+								input: safeInput,
+								result,
+								outputSummary:
+									summarizeProduceFileResult(modelPayload),
+							}),
+						);
+						return modelPayload;
+					}
+					normalizedInput.program.sourceCode =
+						buildResolvedProgramSource(
+							normalizedInput.program.filename ??
+								"generated-file.txt",
+							patchResult.resolvedText,
+						);
+				}
+				const { patches: _patches, ...intakeNormalizedInput } =
+					normalizedInput;
+
 				const safeInput = sanitizeProduceFileInput(normalizedInput);
 				const intakeBody = {
-					...normalizedInput,
+					...intakeNormalizedInput,
 					conversationId: ctx.conversationId,
 					idempotencyKey: buildScopedIdempotencyKey({
 						turnId: ctx.turnId,
@@ -510,4 +594,48 @@ function applyResearchWebSourceBudget(
 		...input,
 		maxSources: Math.min(input.maxSources, maxSources),
 	};
+}
+
+async function getPreviousGeneratedFileContent(
+	userId: string,
+	conversationId: string,
+	requestTitle: string,
+): Promise<string | null> {
+	const rows = await db
+		.select({ contentText: artifacts.contentText })
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.userId, userId),
+				eq(artifacts.conversationId, conversationId),
+				eq(artifacts.type, "generated_output"),
+			),
+		)
+		.orderBy(desc(artifacts.updatedAt))
+		.limit(24);
+
+	const normalizedTitle = requestTitle.trim().toLowerCase();
+	for (const row of rows) {
+		if (!row.contentText) continue;
+		if (row.contentText.toLowerCase().includes(normalizedTitle)) {
+			return row.contentText;
+		}
+	}
+
+	return null;
+}
+
+function buildResolvedProgramSource(
+	filename: string,
+	content: string,
+): string {
+	const jsonFilename = JSON.stringify(filename);
+	const jsonContent = JSON.stringify(content);
+	return [
+		"from pathlib import Path",
+		"output = Path('/output')",
+		"output.mkdir(parents=True, exist_ok=True)",
+		`(output / ${jsonFilename}).write_text(${jsonContent}, encoding='utf-8')`,
+		"",
+	].join("\n");
 }

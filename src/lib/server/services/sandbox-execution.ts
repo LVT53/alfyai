@@ -845,20 +845,32 @@ export async function executeCode(
 		let extractionError: string | undefined;
 		try {
 			files = await extractFilesFromContainer(sandbox.container);
-			if (files.length === 0 && (outputInspection?.files.length ?? 0) > 0) {
-				console.warn(
-					"[FILE_PRODUCTION] Archive extraction missed in-container output files; falling back to in-container read",
-					{
-						containerId: sandbox.container.id,
-						fileCount: outputInspection?.files.length ?? 0,
-						files: outputInspection?.files ?? [],
-					},
+			const inspectionFiles = outputInspection?.files ?? [];
+			if (inspectionFiles.length > 0) {
+				const extractedFilenames = new Set(
+					files.map((f) => path.basename(f.filename)),
 				);
-				files = await readFilesFromInsideContainer(
-					sandbox.container,
-					language,
-					outputInspection?.files ?? [],
+				const missingFiles = inspectionFiles.filter(
+					(f) => !extractedFilenames.has(path.basename(f.relativePath)),
 				);
+				if (missingFiles.length > 0) {
+					console.warn(
+						"[FILE_PRODUCTION] Archive extraction missed in-container output files; reading missing files in-container",
+						{
+							containerId: sandbox.container.id,
+							totalInspectionFiles: inspectionFiles.length,
+							extractedFiles: files.length,
+							missingFiles: missingFiles.length,
+							missing: missingFiles,
+						},
+					);
+					const missingFileOutputs = await readFilesFromInsideContainer(
+						sandbox.container,
+						language,
+						missingFiles,
+					);
+					files = [...files, ...missingFileOutputs];
+				}
 			}
 		} catch (error) {
 			extractionError = error instanceof Error ? error.message : String(error);
