@@ -1360,9 +1360,9 @@ function isLeakedToolDiagnosticPrefix(value: string): boolean {
 	);
 	if (hasKnownWebToolPrefix) return true;
 
-	if (!/^found[\s\d()a-z]*$/i.test(candidate)) return false;
+	if (!/^found[\s\d()\p{L}]*$/iu.test(candidate)) return false;
 
-	const words = candidate.toLowerCase().match(/[a-z]+/g) ?? [];
+	const words = candidate.toLowerCase().match(/[\p{L}]+/gu) ?? [];
 	const [firstWord, ...restWords] = words;
 	if (!firstWord || !"found".startsWith(firstWord)) return false;
 

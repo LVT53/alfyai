@@ -163,7 +163,7 @@ function tokenizeSiblingPromotionText(value: string | null | undefined): string[
   const normalized = normalizeWhitespace(value ?? "")
     .toLowerCase()
     .replace(/['’]s\b/g, "");
-  const tokens = normalized.match(/[a-z0-9][a-z0-9-]{2,}/g) ?? [];
+  const tokens = normalized.match(/[\p{L}\p{N}][\p{L}\p{N}-]{2,}/gu) ?? [];
   return Array.from(
     new Set(
       tokens

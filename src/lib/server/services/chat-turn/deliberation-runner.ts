@@ -866,7 +866,18 @@ function finalAnswerQualityIssues(params: {
 }
 
 function mentionsHungarian(value: string): boolean {
-	return /\b(hungarian|magyar|hungary|magyarorsz[aá]g)\b/i.test(value);
+	if (/\b(hungarian|magyar|hungary|magyarorsz[aá]g|magyarul|magyar nyelv)\b/i.test(value)) {
+		return true;
+	}
+	// Hungarian-language input itself is a Hungarian signal —
+	// detect via multiple Hungarian diacritics or common function words
+	// Weight Hungarian-specific double acutes (ő, ű) more heavily to avoid
+	// false positives from French/Spanish/German shared diacritics.
+	const doubleAcutes = (value.match(/[őű]/gi) ?? []).length * 2;
+	const otherDiacritics = (value.match(/[áéíóöúü]/gi) ?? []).length;
+	const hungarianScore = doubleAcutes + otherDiacritics;
+	if (hungarianScore >= 4) return true;
+	return /\b(és|hogy|mert|akkor|kell|lehet|szeretnék|kérlek|tudsz|tudod)\b/i.test(value);
 }
 
 export function appendDeliberationBriefsToInput(

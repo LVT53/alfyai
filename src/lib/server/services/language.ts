@@ -177,7 +177,7 @@ function scoreEnglish(tokens: string[]): number {
 			score += 2;
 		}
 
-		if (/^[a-z]+$/.test(token) && !HUNGARIAN_BIGRAMS.test(token)) {
+		if (/^[\p{L}]+$/u.test(token) && !HUNGARIAN_BIGRAMS.test(token)) {
 			score += 0.25;
 		}
 	}

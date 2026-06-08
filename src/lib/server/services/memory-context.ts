@@ -294,9 +294,9 @@ function requestedLimit(value: number | null | undefined): number | null {
 function tokenizeQuery(query: string): string[] {
 	return Array.from(
 		new Set(
-			(query.toLowerCase().match(/[a-z0-9%_\\]+/gi) ?? []).filter(
-				(term) =>
-					/[a-z0-9]/i.test(term) &&
+		(query.toLowerCase().match(/[\p{L}\p{N}%_\\]+/giu) ?? []).filter(
+			(term) =>
+				/[\p{L}\p{N}]/iu.test(term) &&
 					term.length >= 2 &&
 					!HISTORY_QUERY_STOPWORDS.has(term),
 			),

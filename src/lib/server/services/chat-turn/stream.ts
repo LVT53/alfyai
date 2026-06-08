@@ -502,7 +502,7 @@ export function createServerChunkRuntime({
 
 	const stripToolCallsFromThinking = (text: string): string => {
 		return text.replace(
-			/<tool_calls>[\r\n]*[\r\n\ta-zA-Z0-9_./:,'"{}\u4e00-\u9fff-]*?<\/tool_calls>/gi,
+			/<tool_calls>[\r\n]*[\r\n\t\p{L}\p{N}_./:,'"{}\u4e00-\u9fff-]*?<\/tool_calls>/giu,
 			"",
 		);
 	};
@@ -1125,7 +1125,7 @@ function summarizeValidationError(rawMessage: string): string | null {
 
 	const field = lines
 		.slice(validationLineIndex + 1)
-		.find((line) => /^[A-Za-z_][\w.:-]*$/.test(line));
+		.find((line) => /^[\p{L}_][\p{L}\p{N}_.:-]*$/u.test(line));
 	const expectedType = lines
 		.map((line) => line.match(/\bInput should be (?:a |an )?valid ([^[.]+)/i))
 		.find((match): match is RegExpMatchArray => Boolean(match))?.[1]

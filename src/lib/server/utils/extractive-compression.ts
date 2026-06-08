@@ -46,7 +46,7 @@ function splitIntoSentences(text: string): string[] {
 function tokenizeStopwordFree(text: string): string[] {
 	return text
 		.toLowerCase()
-		.split(/[^a-zA-Z0-9]+/)
+		.split(/[^\p{L}\p{N}]+/u)
 		.filter(token => token.length > 0 && !STOPWORDS.has(token));
 }
 
