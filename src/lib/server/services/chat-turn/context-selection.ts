@@ -1,16 +1,6 @@
-import type { MemoryLayer } from "$lib/types";
-import type {
-	Artifact,
-	ContextDebugState,
-	ConversationContextStatus,
-	ForkContextProvenanceSummary,
-	HonchoContextInfo,
-	HonchoContextSnapshot,
-	LinkedContextSource,
-} from "$lib/types";
 import {
-	compactContextSections,
 	type BudgetedAttachmentContext,
+	compactContextSections,
 	dedupeById,
 	extractSerializedAttachmentBody,
 	type PromptContextSection,
@@ -27,6 +17,16 @@ import {
 	detectTopicShift,
 	shouldSuppressCarryover,
 } from "$lib/server/utils/topic-shift-detector";
+import type {
+	Artifact,
+	ContextDebugState,
+	ConversationContextStatus,
+	ForkContextProvenanceSummary,
+	HonchoContextInfo,
+	HonchoContextSnapshot,
+	LinkedContextSource,
+	MemoryLayer,
+} from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { getConfig } from "../../config-store";
 import {
@@ -120,10 +120,19 @@ export type SelectedPromptContext = {
 	sectionSelections: PromptContextSectionSelection[];
 };
 
+export type ConstructedContextReuseData = {
+	relevantArtifacts: Artifact[];
+	preparedContext: Awaited<ReturnType<typeof prepareTaskContext>>;
+	artifactSnippets: Map<string, string>;
+};
+
 export function deriveRelevantKnowledgeArtifactLimit(
 	targetConstructedContext: number,
 ): number {
-	if (!Number.isFinite(targetConstructedContext) || targetConstructedContext <= 0) {
+	if (
+		!Number.isFinite(targetConstructedContext) ||
+		targetConstructedContext <= 0
+	) {
 		return MIN_RELEVANT_KNOWLEDGE_ARTIFACTS;
 	}
 	return Math.max(
@@ -219,7 +228,9 @@ function buildContextSelectionCandidates(params: {
 		return {
 			title: section.title,
 			body: section.body,
-			source: promotedSibling ? "memory" : inferContextTraceSourceForSection(section),
+			source: promotedSibling
+				? "memory"
+				: inferContextTraceSourceForSection(section),
 			layer: section.layer,
 			protected: section.protected,
 			itemIds: isEvidenceSection
@@ -243,14 +254,17 @@ function buildContextSelectionCandidates(params: {
 							...documentContextSignalReasons,
 						]
 					: isCarriedForwardAttachmentSection &&
-						  params.carriedForwardAttachmentContext
+							params.carriedForwardAttachmentContext
 						? [
 								`attachment_context:${params.carriedForwardAttachmentContext.mode}`,
 								"attached_sources:carried_forward",
 								...documentContextSignalReasons,
 							]
 						: isLinkedSourceSection
-							? ["linked_context_source:direct", ...documentContextSignalReasons]
+							? [
+									"linked_context_source:direct",
+									...documentContextSignalReasons,
+								]
 							: isEvidenceSection && evidenceItems.some((item) => item.pinned)
 								? [
 										"pinned_evidence",
@@ -301,12 +315,15 @@ async function resolveLinkedSourcePromptArtifacts(params: {
 		params.userId,
 		Array.from(new Set(orderedPromptIds)),
 	);
-	const artifactsById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
+	const artifactsById = new Map(
+		artifacts.map((artifact) => [artifact.id, artifact]),
+	);
 	const resolved: Artifact[] = [];
 	const seen = new Set<string>();
 
 	for (const source of params.linkedSources) {
-		const promptArtifactId = source.promptArtifactId ?? source.displayArtifactId;
+		const promptArtifactId =
+			source.promptArtifactId ?? source.displayArtifactId;
 		const artifact = artifactsById.get(promptArtifactId);
 		if (!artifact || seen.has(artifact.id)) continue;
 		seen.add(artifact.id);
@@ -319,7 +336,9 @@ async function resolveLinkedSourcePromptArtifacts(params: {
 	return resolved;
 }
 
-function buildProjectFolderPromptSection(label: string | null): PromptContextSection | null {
+function buildProjectFolderPromptSection(
+	label: string | null,
+): PromptContextSection | null {
 	const trimmed = label?.trim();
 	if (!trimmed) return null;
 
@@ -399,12 +418,16 @@ function buildProjectAwarenessPromptSection(
 	const isFolder = context.source === "project_folder";
 
 	return {
-		title: isFolder ? "Project Folder Awareness" : "Project Continuity Awareness",
+		title: isFolder
+			? "Project Folder Awareness"
+			: "Project Continuity Awareness",
 		body: [
 			isFolder
 				? "Other conversations in this Project Folder, excluding the current conversation. Use as lightweight orientation, not source evidence."
 				: "Inferred from memory project/task continuity for unorganized conversations. This is lower authority than an explicit Project Folder and should be used only as lightweight orientation, not source evidence.",
-			isFolder ? null : `Memory Project: ${JSON.stringify(context.projectName)}`,
+			isFolder
+				? null
+				: `Memory Project: ${JSON.stringify(context.projectName)}`,
 			...entryBlocks,
 			omittedLine,
 		]
@@ -486,24 +509,29 @@ export function selectPromptContext(params: {
 	message: string;
 	candidates: ContextSelectionCandidate[];
 	targetTokens: number;
-	initialCompactionMode?: Parameters<typeof compactContextSections>[0]["initialCompactionMode"];
+	initialCompactionMode?: Parameters<
+		typeof compactContextSections
+	>[0]["initialCompactionMode"];
 }): SelectedPromptContext {
 	const priorityOrder = { core: 0, support: 1, awareness: 2 } as const;
 	const orderedCandidates = params.candidates
 		.map((candidate, index) => ({ candidate, index }))
 		.sort((left, right) => {
 			const leftPriority = priorityOrder[resolveBudgetPriority(left.candidate)];
-			const rightPriority = priorityOrder[resolveBudgetPriority(right.candidate)];
+			const rightPriority =
+				priorityOrder[resolveBudgetPriority(right.candidate)];
 			if (leftPriority !== rightPriority) return leftPriority - rightPriority;
 			return left.index - right.index;
 		})
 		.map(({ candidate }) => candidate);
-	const sections: PromptContextSection[] = orderedCandidates.map((candidate) => ({
-		title: candidate.title,
-		body: candidate.body,
-		layer: candidate.layer,
-		protected: candidate.protected,
-	}));
+	const sections: PromptContextSection[] = orderedCandidates.map(
+		(candidate) => ({
+			title: candidate.title,
+			body: candidate.body,
+			layer: candidate.layer,
+			protected: candidate.protected,
+		}),
+	);
 	const compacted = compactContextSections({
 		intro: params.intro,
 		message: params.message,
@@ -582,7 +610,9 @@ function summarizeForkContextProvenance(params: {
 	messages: PromptContextMessage[];
 	copiedForkPointMessageId?: string | null;
 }): ForkContextProvenanceSummary | null {
-	const inheritedMessages = params.messages.filter((message) => message.forkCopy);
+	const inheritedMessages = params.messages.filter(
+		(message) => message.forkCopy,
+	);
 	if (inheritedMessages.length === 0) return null;
 
 	const inheritedTurns = selectRecentRoleTurns(
@@ -593,7 +623,10 @@ function summarizeForkContextProvenance(params: {
 	return {
 		inheritedMessageCount: inheritedMessages.length,
 		inheritedTurnCount: inheritedTurns.length,
-		forkLocalMessageCount: Math.max(0, params.messages.length - inheritedMessages.length),
+		forkLocalMessageCount: Math.max(
+			0,
+			params.messages.length - inheritedMessages.length,
+		),
 		sourceConversationIds: Array.from(
 			new Set(
 				inheritedMessages
@@ -625,6 +658,7 @@ export async function buildConstructedContext(params: {
 		compactionUiThreshold: number;
 		targetConstructedContext: number;
 	};
+	reuseFrom?: ConstructedContextReuseData;
 }): Promise<{
 	inputValue: string;
 	contextStatus: ConversationContextStatus;
@@ -633,6 +667,7 @@ export async function buildConstructedContext(params: {
 	honchoContext: HonchoContextInfo | null;
 	honchoSnapshot: HonchoContextSnapshot | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
+	_reuseData?: ConstructedContextReuseData;
 }> {
 	const attachmentIds = params.attachmentIds ?? [];
 	const targetBudget =
@@ -672,9 +707,10 @@ export async function buildConstructedContext(params: {
 			liveContextTokens: sessionHistoryBudget.totalBudget,
 		}),
 		resolvePromptAttachmentArtifacts(params.userId, attachmentIds),
-		listConversationSourceArtifactIds(params.userId, params.conversationId).catch(
-			() => [],
-		),
+		listConversationSourceArtifactIds(
+			params.userId,
+			params.conversationId,
+		).catch(() => []),
 		listConversationLinkedContextSources({
 			userId: params.userId,
 			conversationId: params.conversationId,
@@ -723,30 +759,38 @@ export async function buildConstructedContext(params: {
 		copiedForkPointMessageId: forkOrigin?.copiedForkPointMessageId ?? null,
 	});
 	const currentAttachments = resolvedAttachments.promptArtifacts;
-	const linkedSourceArtifacts = await resolveLinkedSourcePromptArtifacts({
-		userId: params.userId,
-		linkedSources: linkedContextSources,
-	}).catch(() => []);
-	const currentAttachmentIds = new Set(currentAttachments.map((artifact) => artifact.id));
+	const currentAttachmentIds = new Set(
+		currentAttachments.map((artifact) => artifact.id),
+	);
 	const requestedAttachmentIds = new Set(attachmentIds);
 	const carriedForwardSourceIds = conversationSourceArtifactIds.filter(
 		(artifactId) =>
-			!requestedAttachmentIds.has(artifactId) && !currentAttachmentIds.has(artifactId),
+			!requestedAttachmentIds.has(artifactId) &&
+			!currentAttachmentIds.has(artifactId),
 	);
-	const carriedForwardResolution =
+
+	// Parallel: resolve linked sources and carried-forward attachments concurrently
+	const [linkedSourceArtifacts, carriedForwardResolution] = await Promise.all([
+		resolveLinkedSourcePromptArtifacts({
+			userId: params.userId,
+			linkedSources: linkedContextSources,
+		}).catch(() => [] as Artifact[]),
 		carriedForwardSourceIds.length > 0
-			? await resolvePromptAttachmentArtifacts(
+			? resolvePromptAttachmentArtifacts(
 					params.userId,
 					carriedForwardSourceIds,
 				).catch(() => ({
-					displayArtifacts: [],
-					promptArtifacts: [],
-					items: [],
-					unresolvedItems: [],
+					displayArtifacts: [] as Artifact[],
+					promptArtifacts: [] as Artifact[],
+					items: [] as Array<{ id: string; requestedArtifactId: string }>,
+					unresolvedItems: [] as Array<{ requestedArtifactId: string }>,
 				}))
-			: null;
-	const resolvedCarriedForwardAttachments = (carriedForwardResolution?.promptArtifacts ?? [])
-		.filter((artifact) => !currentAttachmentIds.has(artifact.id));
+			: Promise.resolve(null),
+	]);
+
+	const resolvedCarriedForwardAttachments = (
+		carriedForwardResolution?.promptArtifacts ?? []
+	).filter((artifact) => !currentAttachmentIds.has(artifact.id));
 	if (attachmentIds.length > 0 && getConfig().contextDiagnosticsDebug) {
 		console.info("[CONTEXT] Attachment resolution", {
 			conversationId: params.conversationId,
@@ -761,7 +805,9 @@ export async function buildConstructedContext(params: {
 	if (resolvedAttachments.unresolvedItems.length > 0) {
 		throw new AttachmentReadinessError(
 			"One or more attached files could not be prepared for chat. Remove the file or upload a supported text-readable document.",
-			resolvedAttachments.unresolvedItems.map((item) => item.requestedArtifactId),
+			resolvedAttachments.unresolvedItems.map(
+				(item) => item.requestedArtifactId,
+			),
 		);
 	}
 	const retrievalSelection = resolveWorkingDocumentSelection({
@@ -783,23 +829,25 @@ export async function buildConstructedContext(params: {
 		.reverse()
 		.find((message) => message.role === "user")?.content;
 
+	// Fire topic-shift embedding as a non-blocking background promise.
+	// If TEI resolves before we need it, we get topic-shift detection for free.
+	// If not, we skip it — fallback handles empty embeddings gracefully.
+	let topicShiftResult: number[][] | null = null;
 	if (previousUserMessage && params.message) {
-		try {
-			const embeddingsPromise = embedTexts([params.message, previousUserMessage]);
-			const timeoutPromise = new Promise<null>((resolve) =>
-				setTimeout(() => resolve(null), 2000),
-			);
-			const embeddingsResult = await Promise.race([
-				embeddingsPromise,
-				timeoutPromise,
-			]);
-			if (embeddingsResult && embeddingsResult.length >= 2) {
-				currentMessageEmbedding = embeddingsResult[0] ?? [];
-				previousMessageEmbedding = embeddingsResult[1] ?? [];
-			}
-		} catch (error) {
-			console.warn("[CONTEXT] Failed to generate topic shift embeddings:", error);
-		}
+		embedTexts([params.message, previousUserMessage])
+			.then((r) => {
+				topicShiftResult = r;
+			})
+			.catch(() => {});
+	}
+
+	// Yield a microtask tick so the .then() above can run if the promise
+	// was already resolved (e.g. TEI cache hit or extremely fast embedder).
+	await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+	if (topicShiftResult && topicShiftResult.length >= 2) {
+		currentMessageEmbedding = topicShiftResult[0] ?? [];
+		previousMessageEmbedding = topicShiftResult[1] ?? [];
 	}
 
 	const topicShift = detectTopicShift({
@@ -826,18 +874,20 @@ export async function buildConstructedContext(params: {
 		...carriedForwardAttachments.map((artifact) => artifact.id),
 	]);
 
-	const relevantArtifacts = await findRelevantKnowledgeArtifacts({
-		userId: params.userId,
-		query: params.message,
-		excludeConversationId: params.conversationId,
-		currentConversationId: params.conversationId,
-		limit: deriveRelevantKnowledgeArtifactLimit(targetBudget),
-		preferredArtifactId:
-			retrievalSelection.retrieval.preferredArtifactId ?? undefined,
-		preferredGeneratedFamilyId:
-			retrievalSelection.retrieval.preferredGeneratedFamilyId,
-		suppressGeneratedCarryover: suppressCarryover,
-	}).catch(() => []);
+	const relevantArtifacts = params.reuseFrom
+		? params.reuseFrom.relevantArtifacts
+		: await findRelevantKnowledgeArtifacts({
+				userId: params.userId,
+				query: params.message,
+				excludeConversationId: params.conversationId,
+				currentConversationId: params.conversationId,
+				limit: deriveRelevantKnowledgeArtifactLimit(targetBudget),
+				preferredArtifactId:
+					retrievalSelection.retrieval.preferredArtifactId ?? undefined,
+				preferredGeneratedFamilyId:
+					retrievalSelection.retrieval.preferredGeneratedFamilyId,
+				suppressGeneratedCarryover: suppressCarryover,
+			}).catch(() => [] as Artifact[]);
 	const contextSelection = resolveWorkingDocumentSelection({
 		artifacts: dedupeById([
 			...currentAttachments,
@@ -854,25 +904,30 @@ export async function buildConstructedContext(params: {
 	});
 	const documentFocused = contextSelection.documentFocused;
 
-	const preparedContext = await prepareTaskContext({
-		userId: params.userId,
-		conversationId: params.conversationId,
-		message: params.message,
-		attachmentIds,
-		activeDocumentArtifactId: params.activeDocumentArtifactId,
-		targetConstructedContext: targetBudget,
-		currentAttachments,
-		workingSetArtifacts,
-		relevantArtifacts,
-	}).catch(() => ({
-		taskState: null,
-		routingStage: "deterministic" as const,
-		routingConfidence: 0,
-		verificationStatus: "fallback" as const,
-		selectedArtifacts: dedupeById([...currentAttachments, ...workingSetArtifacts]),
-		pinnedArtifactIds: [],
-		excludedArtifactIds: [],
-	}));
+	const preparedContext = params.reuseFrom
+		? params.reuseFrom.preparedContext
+		: await prepareTaskContext({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				message: params.message,
+				attachmentIds,
+				activeDocumentArtifactId: params.activeDocumentArtifactId,
+				targetConstructedContext: targetBudget,
+				currentAttachments,
+				workingSetArtifacts,
+				relevantArtifacts,
+			}).catch(() => ({
+				taskState: null as import("$lib/types").TaskState | null,
+				routingStage: "deterministic" as const,
+				routingConfidence: 0,
+				verificationStatus: "fallback" as const,
+				selectedArtifacts: dedupeById([
+					...currentAttachments,
+					...workingSetArtifacts,
+				]),
+				pinnedArtifactIds: [] as string[],
+				excludedArtifactIds: [] as string[],
+			}));
 	const taskState = preparedContext.taskState;
 	const selectedEvidence = preparedContext.selectedArtifacts.filter(
 		(artifact) => !allAttachmentContextIds.has(artifact.id),
@@ -901,15 +956,17 @@ export async function buildConstructedContext(params: {
 		documentCount: promptArtifacts.size,
 		intent: documentContextIntent,
 	});
-	const artifactSnippets = await getPromptArtifactSnippets({
-		userId: params.userId,
-		artifacts: Array.from(promptArtifacts.values()),
-		query: params.message,
-		perArtifactLimit: documentDepthBudget.perArtifactLimit,
-		perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
-		totalCharBudget: documentDepthBudget.totalBudget,
-		useFullContent: documentDepthBudget.useFullContent,
-	}).catch(() => new Map<string, string>());
+	const artifactSnippets = params.reuseFrom
+		? params.reuseFrom.artifactSnippets
+		: await getPromptArtifactSnippets({
+				userId: params.userId,
+				artifacts: Array.from(promptArtifacts.values()),
+				query: params.message,
+				perArtifactLimit: documentDepthBudget.perArtifactLimit,
+				perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
+				totalCharBudget: documentDepthBudget.totalBudget,
+				useFullContent: documentDepthBudget.useFullContent,
+			}).catch(() => new Map<string, string>());
 
 	const allTurns = selectRecentRoleTurns(
 		promptSessionMessages,
@@ -931,7 +988,8 @@ export async function buildConstructedContext(params: {
 	});
 	const recentTurnCount = sessionTurnContext.includedTurnCount;
 	const sections: PromptContextSection[] = [];
-	const projectFolderSection = buildProjectFolderPromptSection(projectFolderLabel);
+	const projectFolderSection =
+		buildProjectFolderPromptSection(projectFolderLabel);
 	const projectFolderAwarenessSection = buildProjectAwarenessPromptSection(
 		projectFolderReferenceContext,
 	);
@@ -1110,7 +1168,9 @@ export async function buildConstructedContext(params: {
 				outputBudget: retrievedEvidencePerSourceBudget,
 			}),
 			layer: "working_set",
-			protected: selectedEvidence.some((artifact) => pinnedArtifactIds.has(artifact.id)),
+			protected: selectedEvidence.some((artifact) =>
+				pinnedArtifactIds.has(artifact.id),
+			),
 		});
 	}
 
@@ -1183,7 +1243,10 @@ export async function buildConstructedContext(params: {
 					return null;
 				}
 
-				const keepCount = Math.max(2, Math.min(4, Math.ceil(candidates.length / 2)));
+				const keepCount = Math.max(
+					2,
+					Math.min(4, Math.ceil(candidates.length / 2)),
+				);
 				return {
 					selectedTitles: reranked.items
 						.slice(0, keepCount)
@@ -1253,7 +1316,10 @@ export async function buildConstructedContext(params: {
 		inputValue: selectedPromptContext.inputValue,
 		contextStatus: status,
 		taskState,
-		contextDebug: await getContextDebugState(params.userId, params.conversationId)
+		contextDebug: await getContextDebugState(
+			params.userId,
+			params.conversationId,
+		)
 			.then((debug) =>
 				debug
 					? {
@@ -1297,5 +1363,8 @@ export async function buildConstructedContext(params: {
 		honchoContext,
 		honchoSnapshot,
 		contextTraceSections: selectedPromptContext.contextTraceSections,
+		_reuseData: params.reuseFrom
+			? undefined
+			: { relevantArtifacts, preparedContext, artifactSnippets },
 	};
 }

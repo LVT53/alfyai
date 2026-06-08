@@ -1,17 +1,17 @@
-import { randomUUID } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
-import { db } from '$lib/server/db';
+import { randomUUID } from "node:crypto";
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "$lib/server/db";
 import {
 	artifacts,
 	conversationContextStatus,
 	conversationWorkingSetItems,
-} from '$lib/server/db/schema';
-import { DAY_MS } from '$lib/server/utils/constants';
+} from "$lib/server/db/schema";
+import { DAY_MS } from "$lib/server/utils/constants";
 import {
 	applyConversationBoundaryPenalty,
 	isCrossConversationArtifactEligible,
-} from '$lib/server/utils/conversation-boundary-filter';
-import { parseJsonStringArray } from '$lib/server/utils/json';
+} from "$lib/server/utils/conversation-boundary-filter";
+import { parseJsonStringArray } from "$lib/server/utils/json";
 import type {
 	Artifact,
 	ArtifactSummary,
@@ -20,24 +20,26 @@ import type {
 	ConversationWorkingSetItem,
 	MemoryLayer,
 	WorkingSetReasonCode,
-} from '$lib/types';
+} from "$lib/types";
+import { getConfig } from "../../config-store";
 import {
 	getGeneratedDocumentBehaviorKey,
 	isGeneratedDocumentPromptEligible,
 	resolveRelevantGeneratedDocumentSelection,
-} from '../document-resolution';
-import { countRecentMemoryEventsBySubject } from '../memory-events';
+} from "../document-resolution";
+import { countRecentMemoryEventsBySubject } from "../memory-events";
+import { canUseTeiEmbedder, embedText } from "../tei-embedder";
 import {
 	resolveWorkingDocumentSelection,
 	type WorkingDocumentSelection,
-} from '../working-document-selection';
+} from "../working-document-selection";
 import {
 	rankWorkingSetCandidates,
 	scoreMatch,
 	WORKING_SET_ACTIVE_LIMIT,
 	WORKING_SET_PROMPT_LIMIT,
 	type WorkingSetCandidate,
-} from '../working-set';
+} from "../working-set";
 import {
 	findRelevantArtifactsByTypesDetailed,
 	getArtifactOwnershipScope,
@@ -49,9 +51,11 @@ import {
 	listConversationSourceArtifactIds,
 	mapArtifact,
 	mapArtifactSummary,
-} from './store';
+} from "./store";
 
-function mapContextStatus(row: typeof conversationContextStatus.$inferSelect): ConversationContextStatus {
+function mapContextStatus(
+	row: typeof conversationContextStatus.$inferSelect,
+): ConversationContextStatus {
 	return {
 		conversationId: row.conversationId,
 		userId: row.userId,
@@ -60,10 +64,12 @@ function mapContextStatus(row: typeof conversationContextStatus.$inferSelect): C
 		thresholdTokens: row.thresholdTokens,
 		targetTokens: row.targetTokens,
 		compactionApplied: row.compactionApplied === 1,
-		compactionMode: (row.compactionMode ?? 'none') as CompactionMode,
-		routingStage: (row.routingStage ?? 'deterministic') as ConversationContextStatus['routingStage'],
+		compactionMode: (row.compactionMode ?? "none") as CompactionMode,
+		routingStage: (row.routingStage ??
+			"deterministic") as ConversationContextStatus["routingStage"],
 		routingConfidence: row.routingConfidence ?? 0,
-		verificationStatus: (row.verificationStatus ?? 'skipped') as ConversationContextStatus['verificationStatus'],
+		verificationStatus: (row.verificationStatus ??
+			"skipped") as ConversationContextStatus["verificationStatus"],
 		layersUsed: parseJsonStringArray(row.layersUsedJson) as MemoryLayer[],
 		workingSetCount: row.workingSetCount ?? 0,
 		workingSetArtifactIds: parseJsonStringArray(row.workingSetArtifactIdsJson),
@@ -77,17 +83,20 @@ function mapContextStatus(row: typeof conversationContextStatus.$inferSelect): C
 }
 
 function mapConversationWorkingSetItem(
-	row: typeof conversationWorkingSetItems.$inferSelect
+	row: typeof conversationWorkingSetItems.$inferSelect,
 ): ConversationWorkingSetItem {
 	return {
 		id: row.id,
 		userId: row.userId,
 		conversationId: row.conversationId,
 		artifactId: row.artifactId,
-		artifactType: row.artifactType as ConversationWorkingSetItem['artifactType'],
+		artifactType:
+			row.artifactType as ConversationWorkingSetItem["artifactType"],
 		score: row.score,
-		state: row.state as ConversationWorkingSetItem['state'],
-		reasonCodes: parseJsonStringArray(row.reasonCodesJson) as WorkingSetReasonCode[],
+		state: row.state as ConversationWorkingSetItem["state"],
+		reasonCodes: parseJsonStringArray(
+			row.reasonCodesJson,
+		) as WorkingSetReasonCode[],
 		lastActivatedAt: row.lastActivatedAt ? row.lastActivatedAt.getTime() : null,
 		lastUsedAt: row.lastUsedAt ? row.lastUsedAt.getTime() : null,
 		createdAt: row.createdAt.getTime(),
@@ -96,7 +105,7 @@ function mapConversationWorkingSetItem(
 }
 
 function logWorkingDocumentSelection(params: {
-	phase: 'prompt' | 'working_set';
+	phase: "prompt" | "working_set";
 	conversationId: string;
 	activeDocumentArtifactId?: string;
 	selection: WorkingDocumentSelection;
@@ -126,7 +135,7 @@ function logWorkingDocumentSelection(params: {
 		return;
 	}
 
-	console.info('[CONTEXT] Working document selection', {
+	console.info("[CONTEXT] Working document selection", {
 		conversationId,
 		phase,
 		requestedActiveDocumentArtifactId: activeDocumentArtifactId ?? null,
@@ -146,7 +155,7 @@ function logWorkingDocumentSelection(params: {
 
 async function listConversationWorkingSetItems(
 	userId: string,
-	conversationId: string
+	conversationId: string,
 ): Promise<ConversationWorkingSetItem[]> {
 	const rows = await db
 		.select()
@@ -154,16 +163,19 @@ async function listConversationWorkingSetItems(
 		.where(
 			and(
 				eq(conversationWorkingSetItems.userId, userId),
-				eq(conversationWorkingSetItems.conversationId, conversationId)
-			)
+				eq(conversationWorkingSetItems.conversationId, conversationId),
+			),
 		)
-		.orderBy(desc(conversationWorkingSetItems.score), desc(conversationWorkingSetItems.updatedAt));
+		.orderBy(
+			desc(conversationWorkingSetItems.score),
+			desc(conversationWorkingSetItems.updatedAt),
+		);
 	return rows.map(mapConversationWorkingSetItem);
 }
 
 export async function getConversationWorkingSet(
 	userId: string,
-	conversationId: string
+	conversationId: string,
 ): Promise<ArtifactSummary[]> {
 	const ownershipScope = await getArtifactOwnershipScope(userId);
 	const rows = await db
@@ -172,15 +184,21 @@ export async function getConversationWorkingSet(
 			artifact: artifacts,
 		})
 		.from(conversationWorkingSetItems)
-		.innerJoin(artifacts, eq(conversationWorkingSetItems.artifactId, artifacts.id))
+		.innerJoin(
+			artifacts,
+			eq(conversationWorkingSetItems.artifactId, artifacts.id),
+		)
 		.where(
 			and(
 				eq(conversationWorkingSetItems.userId, userId),
 				eq(conversationWorkingSetItems.conversationId, conversationId),
-				eq(conversationWorkingSetItems.state, 'active')
-			)
+				eq(conversationWorkingSetItems.state, "active"),
+			),
 		)
-		.orderBy(desc(conversationWorkingSetItems.score), desc(conversationWorkingSetItems.updatedAt));
+		.orderBy(
+			desc(conversationWorkingSetItems.score),
+			desc(conversationWorkingSetItems.updatedAt),
+		);
 
 	return rows
 		.filter((row) =>
@@ -188,7 +206,7 @@ export async function getConversationWorkingSet(
 				userId,
 				ownershipScope,
 				artifact: row.artifact,
-			})
+			}),
 		)
 		.map((row) => mapArtifactSummary(row.artifact));
 }
@@ -198,7 +216,7 @@ export async function selectWorkingSetArtifactsForPrompt(
 	conversationId: string,
 	message: string,
 	excludeArtifactIds: string[] = [],
-	activeDocumentArtifactId?: string
+	activeDocumentArtifactId?: string,
 ): Promise<Artifact[]> {
 	const exclude = new Set(excludeArtifactIds);
 	const ownershipScope = await getArtifactOwnershipScope(userId);
@@ -208,13 +226,16 @@ export async function selectWorkingSetArtifactsForPrompt(
 			artifact: artifacts,
 		})
 		.from(conversationWorkingSetItems)
-		.innerJoin(artifacts, eq(conversationWorkingSetItems.artifactId, artifacts.id))
+		.innerJoin(
+			artifacts,
+			eq(conversationWorkingSetItems.artifactId, artifacts.id),
+		)
 		.where(
 			and(
 				eq(conversationWorkingSetItems.userId, userId),
 				eq(conversationWorkingSetItems.conversationId, conversationId),
-				eq(conversationWorkingSetItems.state, 'active')
-			)
+				eq(conversationWorkingSetItems.state, "active"),
+			),
 		);
 
 	const mappedRows = rows
@@ -223,7 +244,7 @@ export async function selectWorkingSetArtifactsForPrompt(
 				userId,
 				ownershipScope,
 				artifact: row.artifact,
-			})
+			}),
 		)
 		.map((row) => ({
 			item: row.item,
@@ -233,7 +254,7 @@ export async function selectWorkingSetArtifactsForPrompt(
 		mappedRows.map((row) => [
 			row.artifact.id,
 			parseJsonStringArray(row.item.reasonCodesJson) as WorkingSetReasonCode[],
-		])
+		]),
 	);
 	const selection = resolveWorkingDocumentSelection({
 		artifacts: mappedRows.map((row) => row.artifact),
@@ -244,7 +265,7 @@ export async function selectWorkingSetArtifactsForPrompt(
 		reasonCodesByArtifactId,
 	});
 	const promptProtectedArtifactIds = new Set(
-		selection.taskEvidence.workingDocumentProtectedArtifactIds
+		selection.taskEvidence.workingDocumentProtectedArtifactIds,
 	);
 
 	const selectedArtifacts = mappedRows
@@ -252,13 +273,13 @@ export async function selectWorkingSetArtifactsForPrompt(
 			const artifact = row.artifact;
 			const messageMatchScore = scoreMatch(
 				message,
-				`${artifact.name}\n${artifact.summary ?? ''}\n${artifact.contentText ?? ''}`
+				`${artifact.name}\n${artifact.summary ?? ""}\n${artifact.contentText ?? ""}`,
 			);
 			const reasonCodes =
 				selection.prompt.reasonCodesByArtifactId.get(artifact.id) ?? [];
 			const explicitlyRequested =
 				scoreMatch(message, artifact.name) > 0 ||
-				scoreMatch(message, artifact.summary ?? '') > 1;
+				scoreMatch(message, artifact.summary ?? "") > 1;
 			const promptEligible = isGeneratedDocumentPromptEligible({
 				artifact,
 				conversationId,
@@ -267,7 +288,7 @@ export async function selectWorkingSetArtifactsForPrompt(
 				explicitlyRequested,
 			});
 			const suppressStaleGeneratedCarryover =
-				artifact.type === 'generated_output' &&
+				artifact.type === "generated_output" &&
 				selection.retrieval.suppressGeneratedCarryover &&
 				!promptProtectedArtifactIds.has(artifact.id);
 
@@ -275,7 +296,10 @@ export async function selectWorkingSetArtifactsForPrompt(
 				artifact,
 				reasonCodes,
 				promptEligible: promptEligible && !suppressStaleGeneratedCarryover,
-				score: row.item.score + messageMatchScore * 14 + (explicitlyRequested ? 14 : 0),
+				score:
+					row.item.score +
+					messageMatchScore * 14 +
+					(explicitlyRequested ? 14 : 0),
 			};
 		})
 		.filter((entry) => !exclude.has(entry.artifact.id))
@@ -284,7 +308,7 @@ export async function selectWorkingSetArtifactsForPrompt(
 		.slice(0, WORKING_SET_PROMPT_LIMIT);
 
 	logWorkingDocumentSelection({
-		phase: 'prompt',
+		phase: "prompt",
 		conversationId,
 		activeDocumentArtifactId,
 		selection,
@@ -307,8 +331,14 @@ export async function refreshConversationWorkingSet(params: {
 	selectedGeneratedArtifactId?: string | null;
 }): Promise<ArtifactSummary[]> {
 	const attachmentIds = params.attachmentIds ?? [];
-	const existingItems = await listConversationWorkingSetItems(params.userId, params.conversationId);
-	const sourceArtifactIds = await listConversationSourceArtifactIds(params.userId, params.conversationId);
+	const existingItems = await listConversationWorkingSetItems(
+		params.userId,
+		params.conversationId,
+	);
+	const sourceArtifactIds = await listConversationSourceArtifactIds(
+		params.userId,
+		params.conversationId,
+	);
 	const outputArtifacts = await db
 		.select()
 		.from(artifacts)
@@ -316,15 +346,17 @@ export async function refreshConversationWorkingSet(params: {
 			and(
 				eq(artifacts.userId, params.userId),
 				eq(artifacts.conversationId, params.conversationId),
-				eq(artifacts.type, 'generated_output')
-			)
+				eq(artifacts.type, "generated_output"),
+			),
 		)
 		.orderBy(desc(artifacts.updatedAt))
 		.limit(8);
-	const outputArtifactModels = outputArtifacts.map((artifact) => mapArtifact(artifact));
+	const outputArtifactModels = outputArtifacts.map((artifact) =>
+		mapArtifact(artifact),
+	);
 	const selection = resolveWorkingDocumentSelection({
 		artifacts: outputArtifactModels,
-		message: params.message ?? '',
+		message: params.message ?? "",
 		attachmentIds,
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
 		preferredGeneratedArtifactId: params.selectedGeneratedArtifactId,
@@ -344,32 +376,39 @@ export async function refreshConversationWorkingSet(params: {
 		return [];
 	}
 
-	const artifactRows = await getArtifactsForUser(params.userId, Array.from(candidateIds));
-	const existingByArtifactId = new Map(existingItems.map((item) => [item.artifactId, item]));
-	const message = params.message?.trim() ?? '';
+	const artifactRows = await getArtifactsForUser(
+		params.userId,
+		Array.from(candidateIds),
+	);
+	const existingByArtifactId = new Map(
+		existingItems.map((item) => [item.artifactId, item]),
+	);
+	const message = params.message?.trim() ?? "";
 	const linkedSourceArtifactIds = new Set(sourceArtifactIds);
 	const attachedArtifactIds = new Set(attachmentIds);
-	const protectedArtifactIds = new Set(selection.taskEvidence.protectedArtifactIds);
+	const protectedArtifactIds = new Set(
+		selection.taskEvidence.protectedArtifactIds,
+	);
 
 	const candidates: WorkingSetCandidate[] = artifactRows
-		.filter((artifact) => artifact.type !== 'work_capsule')
+		.filter((artifact) => artifact.type !== "work_capsule")
 		.filter(
 			(artifact) =>
 				artifact.conversationId === params.conversationId ||
 				linkedSourceArtifactIds.has(artifact.id) ||
-				attachedArtifactIds.has(artifact.id)
+				attachedArtifactIds.has(artifact.id),
 		)
 		.map((artifact) => {
 			const candidateSignals =
 				selection.workingSet.candidateSignalsByArtifactId.get(artifact.id);
 			const suppressStaleGeneratedCarryover =
-				artifact.type === 'generated_output' &&
+				artifact.type === "generated_output" &&
 				selection.retrieval.suppressGeneratedCarryover &&
 				!protectedArtifactIds.has(artifact.id);
 			const applyWorkingDocumentSignals = !suppressStaleGeneratedCarryover;
 			return {
 				artifactId: artifact.id,
-				artifactType: artifact.type as WorkingSetCandidate['artifactType'],
+				artifactType: artifact.type as WorkingSetCandidate["artifactType"],
 				name: artifact.name,
 				summary: artifact.summary,
 				contentText: artifact.contentText,
@@ -393,7 +432,7 @@ export async function refreshConversationWorkingSet(params: {
 					message && applyWorkingDocumentSignals
 						? scoreMatch(
 								message,
-								`${artifact.name}\n${artifact.summary ?? ''}\n${artifact.contentText ?? ''}`
+								`${artifact.name}\n${artifact.summary ?? ""}\n${artifact.contentText ?? ""}`,
 							)
 						: 0,
 			};
@@ -401,16 +440,18 @@ export async function refreshConversationWorkingSet(params: {
 
 	const ranked = rankWorkingSetCandidates(candidates);
 	const now = new Date();
-	const activeIds = new Set(ranked.filter((item) => item.selected).map((item) => item.artifactId));
+	const activeIds = new Set(
+		ranked.filter((item) => item.selected).map((item) => item.artifactId),
+	);
 
 	for (const candidate of ranked) {
 		const existing = existingByArtifactId.get(candidate.artifactId);
 		const shouldTouchUsage =
-			candidate.reasonCodes.includes('attached_this_turn') ||
-			candidate.reasonCodes.includes('active_document_focus') ||
-			candidate.reasonCodes.includes('recently_refined_document_family') ||
-			candidate.reasonCodes.includes('matched_current_turn') ||
-			candidate.reasonCodes.includes('recent_user_correction');
+			candidate.reasonCodes.includes("attached_this_turn") ||
+			candidate.reasonCodes.includes("active_document_focus") ||
+			candidate.reasonCodes.includes("recently_refined_document_family") ||
+			candidate.reasonCodes.includes("matched_current_turn") ||
+			candidate.reasonCodes.includes("recent_user_correction");
 
 		if (existing) {
 			await db
@@ -455,9 +496,12 @@ export async function refreshConversationWorkingSet(params: {
 		});
 	}
 
-	const refreshed = await getConversationWorkingSet(params.userId, params.conversationId);
+	const refreshed = await getConversationWorkingSet(
+		params.userId,
+		params.conversationId,
+	);
 	logWorkingDocumentSelection({
-		phase: 'working_set',
+		phase: "working_set",
 		conversationId: params.conversationId,
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
 		selection,
@@ -480,9 +524,9 @@ export async function updateConversationContextStatus(params: {
 	estimatedTokens: number;
 	compactionApplied: boolean;
 	compactionMode?: CompactionMode;
-	routingStage?: ConversationContextStatus['routingStage'];
+	routingStage?: ConversationContextStatus["routingStage"];
 	routingConfidence?: number;
-	verificationStatus?: ConversationContextStatus['verificationStatus'];
+	verificationStatus?: ConversationContextStatus["verificationStatus"];
 	layersUsed: MemoryLayer[];
 	workingSetCount?: number;
 	workingSetArtifactIds?: string[];
@@ -497,11 +541,13 @@ export async function updateConversationContextStatus(params: {
 		targetConstructedContext: number;
 	};
 }): Promise<ConversationContextStatus> {
-	const maxContextTokens = params.contextLimits?.maxModelContext ?? getMaxModelContext();
+	const maxContextTokens =
+		params.contextLimits?.maxModelContext ?? getMaxModelContext();
 	const thresholdTokens =
 		params.contextLimits?.compactionUiThreshold ?? getCompactionUiThreshold();
 	const targetTokens =
-		params.contextLimits?.targetConstructedContext ?? getTargetConstructedContext();
+		params.contextLimits?.targetConstructedContext ??
+		getTargetConstructedContext();
 	const [row] = await db
 		.insert(conversationContextStatus)
 		.values({
@@ -512,13 +558,15 @@ export async function updateConversationContextStatus(params: {
 			thresholdTokens,
 			targetTokens,
 			compactionApplied: params.compactionApplied ? 1 : 0,
-			compactionMode: params.compactionMode ?? 'none',
-			routingStage: params.routingStage ?? 'deterministic',
+			compactionMode: params.compactionMode ?? "none",
+			routingStage: params.routingStage ?? "deterministic",
 			routingConfidence: Math.round(params.routingConfidence ?? 0),
-			verificationStatus: params.verificationStatus ?? 'skipped',
+			verificationStatus: params.verificationStatus ?? "skipped",
 			layersUsedJson: JSON.stringify(params.layersUsed),
 			workingSetCount: params.workingSetCount ?? 0,
-			workingSetArtifactIdsJson: JSON.stringify(params.workingSetArtifactIds ?? []),
+			workingSetArtifactIdsJson: JSON.stringify(
+				params.workingSetArtifactIds ?? [],
+			),
 			workingSetApplied: params.workingSetApplied ? 1 : 0,
 			taskStateApplied: params.taskStateApplied ? 1 : 0,
 			promptArtifactCount: params.promptArtifactCount ?? 0,
@@ -535,13 +583,15 @@ export async function updateConversationContextStatus(params: {
 				thresholdTokens,
 				targetTokens,
 				compactionApplied: params.compactionApplied ? 1 : 0,
-				compactionMode: params.compactionMode ?? 'none',
-				routingStage: params.routingStage ?? 'deterministic',
+				compactionMode: params.compactionMode ?? "none",
+				routingStage: params.routingStage ?? "deterministic",
 				routingConfidence: Math.round(params.routingConfidence ?? 0),
-				verificationStatus: params.verificationStatus ?? 'skipped',
+				verificationStatus: params.verificationStatus ?? "skipped",
 				layersUsedJson: JSON.stringify(params.layersUsed),
 				workingSetCount: params.workingSetCount ?? 0,
-				workingSetArtifactIdsJson: JSON.stringify(params.workingSetArtifactIds ?? []),
+				workingSetArtifactIdsJson: JSON.stringify(
+					params.workingSetArtifactIds ?? [],
+				),
 				workingSetApplied: params.workingSetApplied ? 1 : 0,
 				taskStateApplied: params.taskStateApplied ? 1 : 0,
 				promptArtifactCount: params.promptArtifactCount ?? 0,
@@ -557,7 +607,7 @@ export async function updateConversationContextStatus(params: {
 
 export async function getConversationContextStatus(
 	userId: string,
-	conversationId: string
+	conversationId: string,
 ): Promise<ConversationContextStatus | null> {
 	const [row] = await db
 		.select()
@@ -565,8 +615,8 @@ export async function getConversationContextStatus(
 		.where(
 			and(
 				eq(conversationContextStatus.userId, userId),
-				eq(conversationContextStatus.conversationId, conversationId)
-			)
+				eq(conversationContextStatus.conversationId, conversationId),
+			),
 		);
 	return row ? mapContextStatus(row) : null;
 }
@@ -583,37 +633,63 @@ export async function findRelevantKnowledgeArtifacts(params: {
 }): Promise<Artifact[]> {
 	const limit = params.limit ?? 6;
 	const recentBehaviorWindowStart = Date.now() - 14 * DAY_MS;
-	const currentConversationId = params.currentConversationId ?? '';
+	const currentConversationId = params.currentConversationId ?? "";
 
-	const [documentMatchesRaw, generatedOutputMatchesRaw, preferredArtifacts] = await Promise.all([
-		findRelevantArtifactsByTypesDetailed({
-			userId: params.userId,
-			query: params.query,
-			types: ['normalized_document'],
-			limit: limit * 3,
-			excludeConversationId: params.excludeConversationId,
-		}),
-		findRelevantArtifactsByTypesDetailed({
-			userId: params.userId,
-			query: params.query,
-			types: ['generated_output'],
-			limit: Math.max(limit * 5, 20),
-			excludeConversationId: params.excludeConversationId,
-		}),
-		params.preferredArtifactId
-			? getArtifactsForUser(params.userId, [params.preferredArtifactId])
-			: Promise.resolve([]),
-	]);
+	// Pre-compute query embedding once and share across parallel artifact-type queries.
+	// This saves one TEI embed call per turn.
+	let queryEmbedding: number[] | undefined;
+	const embedderModelName = getConfig().teiEmbedderModel?.trim();
+	if (
+		canUseTeiEmbedder() &&
+		params.query.trim().length > 0 &&
+		embedderModelName
+	) {
+		const embedderOpts: { promptName?: string } =
+			/(^|[/_-])qwen3[-_/]?embedding/i.test(embedderModelName)
+				? { promptName: "query" }
+				: {};
+		queryEmbedding =
+			(await embedText(params.query.trim(), embedderOpts).catch(() => null)) ??
+			undefined;
+	}
 
-	const processMatches = (matches: typeof documentMatchesRaw, minMatchScore: number) => {
+	const [documentMatchesRaw, generatedOutputMatchesRaw, preferredArtifacts] =
+		await Promise.all([
+			findRelevantArtifactsByTypesDetailed({
+				userId: params.userId,
+				query: params.query,
+				types: ["normalized_document"],
+				limit: limit * 3,
+				excludeConversationId: params.excludeConversationId,
+				queryEmbedding,
+			}),
+			findRelevantArtifactsByTypesDetailed({
+				userId: params.userId,
+				query: params.query,
+				types: ["generated_output"],
+				limit: Math.max(limit * 5, 20),
+				excludeConversationId: params.excludeConversationId,
+				queryEmbedding,
+			}),
+			params.preferredArtifactId
+				? getArtifactsForUser(params.userId, [params.preferredArtifactId])
+				: Promise.resolve([]),
+		]);
+
+	const processMatches = (
+		matches: typeof documentMatchesRaw,
+		minMatchScore: number,
+	) => {
 		return matches
 			.map((entry) => {
-				const isSameConversation = entry.artifact.conversationId === currentConversationId;
-				const isCrossConversation = entry.artifact.conversationId !== null && !isSameConversation;
+				const isSameConversation =
+					entry.artifact.conversationId === currentConversationId;
+				const isCrossConversation =
+					entry.artifact.conversationId !== null && !isSameConversation;
 
 				const explicitlyRequested =
 					scoreMatch(params.query, entry.artifact.name) > 0 ||
-					scoreMatch(params.query, entry.artifact.summary ?? '') > 1;
+					scoreMatch(params.query, entry.artifact.summary ?? "") > 1;
 
 				if (isCrossConversation) {
 					const eligible = isCrossConversationArtifactEligible({
@@ -628,7 +704,10 @@ export async function findRelevantKnowledgeArtifacts(params: {
 					if (!eligible) return null;
 				}
 
-				const daysSinceLastAccess = Math.max(0, (Date.now() - entry.artifact.updatedAt) / DAY_MS);
+				const daysSinceLastAccess = Math.max(
+					0,
+					(Date.now() - entry.artifact.updatedAt) / DAY_MS,
+				);
 
 				return {
 					...entry,
@@ -651,47 +730,59 @@ export async function findRelevantKnowledgeArtifacts(params: {
 			})
 			.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 			.sort((left, right) => {
-				if (right.finalScore !== left.finalScore) return right.finalScore - left.finalScore;
+				if (right.finalScore !== left.finalScore)
+					return right.finalScore - left.finalScore;
 				return right.artifact.updatedAt - left.artifact.updatedAt;
 			});
 	};
 
 	const documentMatches = processMatches(documentMatchesRaw, 2).slice(0, limit);
-	const generatedOutputMatches = processMatches(generatedOutputMatchesRaw, 3).slice(0, Math.max(limit * 3, 12));
+	const generatedOutputMatches = processMatches(
+		generatedOutputMatchesRaw,
+		3,
+	).slice(0, Math.max(limit * 3, 12));
 
 	const documents = documentMatches.map((entry) => entry.artifact);
-	const generatedOutputs = generatedOutputMatches.map((entry) => entry.artifact);
+	const generatedOutputs = generatedOutputMatches.map(
+		(entry) => entry.artifact,
+	);
 	const generatedSemanticScoresByArtifactId = new Map(
-		generatedOutputMatches.map((entry) => [entry.artifact.id, entry.semanticScore])
+		generatedOutputMatches.map((entry) => [
+			entry.artifact.id,
+			entry.semanticScore,
+		]),
 	);
 	const generatedRerankScoresByArtifactId = new Map(
-		generatedOutputMatches.map((entry) => [entry.artifact.id, entry.rerankScore])
+		generatedOutputMatches.map((entry) => [
+			entry.artifact.id,
+			entry.rerankScore,
+		]),
 	);
 
 	const preferredRelevantArtifacts = preferredArtifacts.filter(
-		(artifact) => artifact.type !== 'generated_output'
+		(artifact) => artifact.type !== "generated_output",
 	);
 	const generatedBehaviorKeys = Array.from(
 		new Set(
 			[...generatedOutputs, ...preferredArtifacts]
-				.filter((artifact) => artifact.type === 'generated_output')
-				.map((artifact) => getGeneratedDocumentBehaviorKey(artifact))
-		)
+				.filter((artifact) => artifact.type === "generated_output")
+				.map((artifact) => getGeneratedDocumentBehaviorKey(artifact)),
+		),
 	);
 	const [behaviorScoresByKey, reopenScoresByKey] =
 		generatedBehaviorKeys.length > 0
 			? await Promise.all([
 					countRecentMemoryEventsBySubject({
 						userId: params.userId,
-						domain: 'document',
-						eventTypes: ['document_refined'],
+						domain: "document",
+						eventTypes: ["document_refined"],
 						subjectIds: generatedBehaviorKeys,
 						since: recentBehaviorWindowStart,
 					}).catch(() => new Map<string, number>()),
 					countRecentMemoryEventsBySubject({
 						userId: params.userId,
-						domain: 'document',
-						eventTypes: ['document_opened'],
+						domain: "document",
+						eventTypes: ["document_opened"],
 						subjectIds: generatedBehaviorKeys,
 						since: recentBehaviorWindowStart,
 					}).catch(() => new Map<string, number>()),

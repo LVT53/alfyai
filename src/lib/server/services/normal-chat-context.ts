@@ -13,8 +13,10 @@ import {
 	summarizeAttachmentSectionInInput,
 } from "./attachment-trace";
 import { deriveModelContextBudget } from "./chat-turn/context-budget";
-import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
-import { buildConstructedContext } from "./chat-turn/context-selection";
+import {
+	buildConstructedContext,
+	type ConstructedContextReuseData,
+} from "./chat-turn/context-selection";
 import {
 	buildLegacyContextTrace,
 	type ContextTraceContextSource,
@@ -22,6 +24,7 @@ import {
 	emitContextTrace,
 	type LegacyContextTraceSectionInput,
 } from "./chat-turn/context-trace";
+import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
 import type { ContextCompressionControlSender } from "./context-compression";
 import { detectLanguage, type SupportedLanguage } from "./language";
 import { inferModelContextWindow } from "./model-context";
@@ -265,9 +268,7 @@ const FORCE_WEB_SEARCH_GUARD = [
 	"- If tools are unavailable, or retrieval does not expose evidence for a claim, say so instead of guessing.",
 ].join("\n");
 
-function buildReasoningDepthEffortGuard(
-	effort: ReasoningDepthEffort,
-): string {
+function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 	const profile = effort.depthMetadata.appliedProfile;
 	const maxSources = effort.webSourceBudget.maxSources;
 	const grounding = effort.grounding.guidance;
@@ -429,8 +430,7 @@ export function buildOutboundSystemPrompt(params: {
 	});
 	let normalizedBasePromptBody = basePromptBody;
 	if (gptOssReasoningDirective === "none") {
-		normalizedBasePromptBody =
-			stripGptOssReasoningDirectives(basePromptBody);
+		normalizedBasePromptBody = stripGptOssReasoningDirectives(basePromptBody);
 	} else if (
 		gptOssReasoningDirective === "high" &&
 		GPT_OSS_REASONING_DIRECTIVE_RE.test(basePromptBody)
@@ -982,6 +982,7 @@ async function maybeRunAutomaticContextCompression(params: {
 	activeDocumentArtifactId?: string;
 	attachmentTraceId?: string;
 	controlMessageSender?: ContextCompressionControlSender;
+	reuseFromContext?: ConstructedContextReuseData;
 }): Promise<AutomaticContextCompressionResult> {
 	if (!params.user?.id) {
 		return automaticCompressionResult({
@@ -1120,6 +1121,7 @@ async function maybeRunAutomaticContextCompression(params: {
 		attachmentTraceId: params.attachmentTraceId,
 		modelId: params.modelId,
 		contextLimits: params.contextLimits,
+		reuseFrom: params.reuseFromContext,
 	});
 	return automaticCompressionResult({
 		context,
@@ -1284,6 +1286,7 @@ export async function prepareOutboundChatContext(params: {
 		| undefined;
 	let contextTraceSections: LegacyContextTraceSectionInput[] | undefined;
 	let prefetchedToolCalls: ToolCallEntry[] = [];
+	let reuseData: ConstructedContextReuseData | undefined;
 
 	if (params.user?.id && !params.skipHonchoContext) {
 		const constructed = await buildConstructedContext({
@@ -1303,6 +1306,7 @@ export async function prepareOutboundChatContext(params: {
 		honchoContext = constructed.honchoContext;
 		honchoSnapshot = constructed.honchoSnapshot;
 		contextTraceSections = constructed.contextTraceSections;
+		reuseData = constructed._reuseData;
 	}
 
 	const attachmentSection = summarizeAttachmentSectionInInput(inputValue);
@@ -1377,6 +1381,7 @@ export async function prepareOutboundChatContext(params: {
 				activeDocumentArtifactId: params.activeDocumentArtifactId,
 				attachmentTraceId: params.attachmentTraceId,
 				controlMessageSender: params.compressionControlMessageSender,
+				reuseFromContext: reuseData,
 			}).catch((error) => {
 				console.warn(
 					`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Automatic context compression skipped`,

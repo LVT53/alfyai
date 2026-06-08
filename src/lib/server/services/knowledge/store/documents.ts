@@ -429,6 +429,7 @@ async function rankArtifactMatches(params: {
 	query: string;
 	candidates: Artifact[];
 	limit: number;
+	queryEmbedding?: number[];
 }): Promise<RankedArtifactMatch[]> {
 	if (params.candidates.length === 0) {
 		return [];
@@ -456,6 +457,7 @@ async function rankArtifactMatches(params: {
 			items: params.candidates,
 			getSubjectId: (artifact) => artifact.id,
 			limit: SEMANTIC_ARTIFACT_SHORTLIST_LIMIT,
+			queryEmbedding: params.queryEmbedding,
 			onDiagnostics: (diagnostics) => {
 				semanticDiagnostics = diagnostics;
 			},
@@ -581,6 +583,7 @@ export async function findRelevantArtifactsByTypesDetailed(params: {
 	types: ArtifactType[];
 	limit: number;
 	excludeConversationId?: string;
+	queryEmbedding?: number[];
 }): Promise<RankedArtifactMatch[]> {
 	const semanticBreadth = params.query.trim().length > 0;
 	const candidates = await selectArtifactSearchCandidates({
@@ -609,6 +612,7 @@ export async function findRelevantArtifactsByTypesDetailed(params: {
 		query: params.query,
 		candidates,
 		limit: params.limit,
+		queryEmbedding: params.queryEmbedding,
 	});
 }
 
