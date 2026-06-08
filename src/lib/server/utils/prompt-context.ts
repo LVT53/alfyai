@@ -243,9 +243,9 @@ export type BudgetedAttachmentContext = {
 };
 
 const ATTACHMENT_TASK_ACTION_RE =
-	/\b(summarize|summarise|summary|review|analyze|analyse|rewrite|revise|edit|extract|compare|translate|convert|format)\b/i;
+	/\b(summarize|summarise|summary|review|analyze|analyse|rewrite|revise|edit|extract|compare|translate|convert|format)\b|(?:összefoglal[\p{L}]*|foglal[\p{L}]*\s+össze|összegez[\p{L}]*|elemez[\p{L}]*|ellenőriz[\p{L}]*|ellenoriz[\p{L}]*|nézd\s+át|nezd\s+at|javíts[\p{L}]*|javits[\p{L}]*|írd\s+át|ird\s+at|szerkeszd|fordíts[\p{L}]*|fordits[\p{L}]*|hasonlíts[\p{L}]*|hasonlits[\p{L}]*|alakíts[\p{L}]*\s+át|alakits[\p{L}]*\s+at|exportál[\p{L}]*|exportal[\p{L}]*|készíts[\p{L}]*|keszits[\p{L}]*|mit\s+mond|mi\s+szerepel|mi\s+van\s+benne)/iu;
 const ATTACHMENT_TASK_REFERENCE_RE =
-	/\b(attachment|attached|file|document|doc|pdf|this|these|it|them)\b/i;
+	/\b(attachment|attached|file|document|doc|pdf|this|these|it|them)\b|(?:dokumentum[\p{L}]*|doksi[\p{L}]*|fájl[\p{L}]*|fajl[\p{L}]*|csatolmány[\p{L}]*|csatolmany[\p{L}]*|melléklet[\p{L}]*|melleklet[\p{L}]*|forrás[\p{L}]*|forras[\p{L}]*|ez|ezt|ebből|ebbol|abban|benne)/iu;
 
 export function selectAttachmentContextMode(params: {
 	message: string;
