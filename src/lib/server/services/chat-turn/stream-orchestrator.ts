@@ -1150,13 +1150,22 @@ export function runChatStreamOrchestrator(
 				});
 
 				scheduleUpstreamIdleTimeout(attempt);
+				let fileProductionActive = false;
+				let fileProductionPostCapture = 0;
 				try {
 					for await (const upstreamEvent of modelRun.stream) {
 						recordElapsedPhase("first_upstream_event");
 						markUpstreamActivity(attempt);
 						switch (upstreamEvent.type) {
 							case "text_delta":
-								if (!emitChunkWithOutputHandling(upstreamEvent.text)) {
+								if (fileProductionActive || fileProductionPostCapture > 0) {
+									if (!emitThinking(upstreamEvent.text)) {
+										return;
+									}
+									if (!fileProductionActive && fileProductionPostCapture > 0) {
+										fileProductionPostCapture -= 1;
+									}
+								} else if (!emitChunkWithOutputHandling(upstreamEvent.text)) {
 									return;
 								}
 								break;
@@ -1166,6 +1175,10 @@ export function runChatStreamOrchestrator(
 								}
 								break;
 							case "tool_call":
+								if (isFileProductionToolName(upstreamEvent.toolName)) {
+									fileProductionActive = true;
+									fileProductionPostCapture = 0;
+								}
 								emitToolCallEventWithDebug(
 									upstreamEvent.toolName,
 									asToolInput(upstreamEvent.input),
@@ -1177,6 +1190,10 @@ export function runChatStreamOrchestrator(
 								const matchingToolCall = modelRun
 									.getNormalChatToolCalls()
 									.find((record) => record.callId === upstreamEvent.callId);
+								if (isFileProductionToolName(upstreamEvent.toolName)) {
+									fileProductionActive = false;
+									fileProductionPostCapture = 2;
+								}
 								emitToolCallEventWithDebug(
 									upstreamEvent.toolName,
 									matchingToolCall?.input ?? {},
@@ -1195,6 +1212,10 @@ export function runChatStreamOrchestrator(
 								const matchingToolCall = modelRun
 									.getNormalChatToolCalls()
 									.find((record) => record.callId === upstreamEvent.callId);
+								if (isFileProductionToolName(upstreamEvent.toolName)) {
+									fileProductionActive = false;
+									fileProductionPostCapture = 2;
+								}
 								emitToolCallEventWithDebug(
 									upstreamEvent.toolName,
 									matchingToolCall?.input ?? {},

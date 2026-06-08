@@ -404,10 +404,17 @@ export function appendTokenChunkToMessageList(
 	// Setting it false on first visible token causes thinkingIsDone to become true
 	// while tool_call thinking segments may still be arriving, showing <tool_call|>
 	// artifacts in the UI before the thinking block is fully rendered.
-	return updateMessageById(list, placeholderId, (message) => ({
-		...message,
-		content: message.content + chunk,
-	}));
+	return updateMessageById(list, placeholderId, (message) => {
+		const existingContent = message.content;
+		const needsSeparator =
+			existingContent.length > 0 &&
+			!/\s$/.test(existingContent) &&
+			!/^\s/.test(chunk);
+		return {
+			...message,
+			content: existingContent + (needsSeparator ? "\n\n" : "") + chunk,
+		};
+	});
 }
 
 export function appendThinkingChunkToMessageList(
