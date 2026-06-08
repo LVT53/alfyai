@@ -57,6 +57,7 @@ export {
 	listConversationArtifacts,
 	listConversationOwnedArtifacts,
 	listConversationSourceArtifactIds,
+	listConversationSourceArtifactNames,
 	listMessageAttachments,
 	resolvePromptAttachmentArtifacts,
 	saveUploadedArtifact,

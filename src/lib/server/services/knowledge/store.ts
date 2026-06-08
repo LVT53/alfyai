@@ -4,6 +4,7 @@ export {
 	attachArtifactsToMessage,
 	isAttachmentReadinessError,
 	listConversationSourceArtifactIds,
+	listConversationSourceArtifactNames,
 	listMessageAttachments,
 	resolvePromptAttachmentArtifacts,
 	saveUploadedArtifact,

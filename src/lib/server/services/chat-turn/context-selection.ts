@@ -45,6 +45,7 @@ import {
 	getMaxModelContext,
 	getTargetConstructedContext,
 	listConversationSourceArtifactIds,
+	listConversationSourceArtifactNames,
 	resolvePromptAttachmentArtifacts,
 	selectWorkingSetArtifactsForPrompt,
 	updateConversationContextStatus,
@@ -692,6 +693,7 @@ export async function buildConstructedContext(params: {
 		sessionContext,
 		resolvedAttachments,
 		conversationSourceArtifactIds,
+		allSourceArtifactNames,
 		linkedContextSources,
 		workingSetArtifacts,
 		projectFolderLabel,
@@ -708,6 +710,10 @@ export async function buildConstructedContext(params: {
 		}),
 		resolvePromptAttachmentArtifacts(params.userId, attachmentIds),
 		listConversationSourceArtifactIds(
+			params.userId,
+			params.conversationId,
+		).catch(() => []),
+		listConversationSourceArtifactNames(
 			params.userId,
 			params.conversationId,
 		).catch(() => []),
@@ -1133,6 +1139,19 @@ export async function buildConstructedContext(params: {
 		sections.push({
 			title: "Attached Sources",
 			body: carriedForwardAttachmentContext.body,
+			layer: "documents",
+			protected: true,
+		});
+	}
+
+	const sourceArtifactNames = allSourceArtifactNames ?? [];
+	if (sourceArtifactNames.length > 0) {
+		const registryBody = sourceArtifactNames
+			.map((f) => `- ${f.name}`)
+			.join("\n");
+		sections.push({
+			title: "Conversation Files",
+			body: registryBody,
 			layer: "documents",
 			protected: true,
 		});

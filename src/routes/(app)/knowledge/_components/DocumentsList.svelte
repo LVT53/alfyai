@@ -4,7 +4,7 @@ import type { KnowledgeDocumentItem } from "$lib/types";
 import { formatByteSize } from "$lib/utils/format";
 import { formatMediumDateTime } from "$lib/utils/time";
 import { t } from "$lib/i18n";
-import { Archive, ChevronDown, ChevronLeft, ChevronRight, Code, File, FileText, Image, Monitor, Table, Trash2, Upload } from '@lucide/svelte';
+import { Archive, ChevronDown, ChevronLeft, ChevronRight, Code, File, FileText, Image, Loader, Monitor, Table, Trash2, Upload } from '@lucide/svelte';
 
 type DocumentSortKey = "name" | "size" | "type" | "date";
 type SortDirection = "asc" | "desc";
@@ -53,6 +53,14 @@ let sortDirection = $state<SortDirection>("desc");
 
 // AI-facing version expand/collapse state
 let expandedAiVersions = $state<Set<string>>(new Set());
+
+// AI-facing version content cache: promptArtifactId → { loading, text, error }
+let aiVersionContent = $state<
+	Record<string, { loading: boolean; text: string | null; error: string | null }>
+>({});
+
+// AbortControllers for in-flight AI-version fetches, keyed by promptArtifactId
+const aiVersionAborts = new Map<string, AbortController>();
 
 // Selection derived state
 const selectedCount = $derived(selectedIds.size);
@@ -211,15 +219,12 @@ function scoreTermMatches(
 
 function getDocumentKind(
 	document: KnowledgeDocumentItem,
-): "generated" | "skill_note" | "uploaded" | "normalized" {
+): "generated" | "skill_note" | "uploaded" {
 	if (
 		document.documentOrigin === "skill_note" ||
 		document.type === "skill_note"
 	) {
 		return "skill_note";
-	}
-	if (document.type === "normalized_document") {
-		return "normalized";
 	}
 	return document.documentOrigin === "generated" ||
 		document.type === "generated_output"
@@ -355,14 +360,58 @@ function toggleSort(nextSortKey: DocumentSortKey) {
 		nextSortKey === "name" || nextSortKey === "type" ? "asc" : "desc";
 }
 
-function toggleAiVersion(documentId: string) {
+async function toggleAiVersion(documentId: string, promptArtifactId: string) {
 	const next = new Set(expandedAiVersions);
 	if (next.has(documentId)) {
 		next.delete(documentId);
-	} else {
-		next.add(documentId);
+		expandedAiVersions = next;
+		return;
 	}
+
+	// Expanding — fetch the AI-facing content if not already loaded
+	next.add(documentId);
 	expandedAiVersions = next;
+
+	if (!aiVersionContent[promptArtifactId]) {
+		// Abort any in-flight fetch for this artifact
+		aiVersionAborts.get(promptArtifactId)?.abort();
+		const controller = new AbortController();
+		aiVersionAborts.set(promptArtifactId, controller);
+
+		aiVersionContent = {
+			...aiVersionContent,
+			[promptArtifactId]: { loading: true, text: null, error: null },
+		};
+
+		try {
+			const response = await fetch(`/api/knowledge/${promptArtifactId}`, {
+				signal: controller.signal,
+			});
+			if (!response.ok) {
+				throw new Error(`Failed to load content (${response.status})`);
+			}
+			const data = await response.json();
+			const text = data?.artifact?.contentText ?? null;
+			aiVersionContent = {
+				...aiVersionContent,
+				[promptArtifactId]: { loading: false, text, error: text ? null : 'No content available' },
+			};
+		} catch (err) {
+			if (err instanceof DOMException && err.name === 'AbortError') return;
+			aiVersionContent = {
+				...aiVersionContent,
+				[promptArtifactId]: {
+					loading: false,
+					text: null,
+					error: err instanceof Error ? err.message : 'Failed to load content',
+				},
+			};
+		} finally {
+			if (aiVersionAborts.get(promptArtifactId) === controller) {
+				aiVersionAborts.delete(promptArtifactId);
+			}
+		}
+	}
 }
 
 function getAriaSort(
@@ -381,6 +430,30 @@ function getFileExtension(filename: string | null | undefined): string {
 	const value = (filename ?? "").trim();
 	if (!value.includes(".")) return "";
 	return value.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function formatFileType(mimeType: string | null, filename: string): string {
+	const mime = (mimeType ?? "").toLowerCase();
+	const ext = getFileExtension(filename);
+
+	if (mime === "application/pdf") return "PDF";
+	if (mime.startsWith("text/") || ext === "txt" || ext === "md" || ext === "markdown") {
+		return ext.toUpperCase() || "TXT";
+	}
+	if (mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || ext === "docx") return "DOCX";
+	if (mime === "application/msword" || ext === "doc") return "DOC";
+	if (mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || ext === "xlsx") return "XLSX";
+	if (mime === "application/vnd.ms-excel" || ext === "xls") return "XLS";
+	if (mime === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || ext === "pptx") return "PPTX";
+	if (mime === "application/vnd.ms-powerpoint" || ext === "ppt") return "PPT";
+	if (mime === "text/csv" || ext === "csv") return "CSV";
+	if (mime === "application/json" || ext === "json") return "JSON";
+	if (mime.startsWith("image/") || ["png","jpg","jpeg","gif","bmp","tiff","tif","webp","svg","heic","heif","avif"].includes(ext)) {
+		return ext.toUpperCase() || "IMG";
+	}
+	if (mime === "text/html" || ext === "html" || ext === "htm") return "HTML";
+	if (ext) return ext.toUpperCase();
+	return "FILE";
 }
 
 function getFileIcon(
@@ -745,7 +818,7 @@ async function handleBulkDelete(): Promise<boolean> {
 													: $t('knowledge.viewAiVersion')}
 												onclick={(e) => {
 													e.stopPropagation();
-													toggleAiVersion(document.id);
+													toggleAiVersion(document.id, document.promptArtifactId!);
 												}}
 											>
 											{#if expandedAiVersions.has(document.id)}
@@ -771,10 +844,8 @@ async function handleBulkDelete(): Promise<boolean> {
 									<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
 								{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
 									<span class="type-badge type-generated">{$t('knowledge.generated')}</span>
-								{:else if document.normalizedAvailable && document.promptArtifactId}
-									<span class="type-badge type-ai-version">{$t('knowledge.aiFacingVersion')}</span>
 								{:else}
-									<span class="type-badge type-uploaded">{$t('knowledge.uploaded')}</span>
+									<span class="type-badge type-uploaded">{formatFileType(document.mimeType, document.name)}</span>
 								{/if}
 								</td>
 								<td class="col-size" data-mobile-label={$t('knowledge.size')}>
@@ -807,17 +878,30 @@ async function handleBulkDelete(): Promise<boolean> {
 								</td>
 							</tr>
 							{#if document.normalizedAvailable && document.promptArtifactId && expandedAiVersions.has(document.id)}
-								<tr class="ai-version-row">
-									<td class="col-checkbox"></td>
-									<td class="col-icon"></td>
-									<td colspan="5" class="ai-version-cell">
-										<div class="ai-version-panel">
-											<span class="ai-version-label">{$t('knowledge.aiFacingVersion')}</span>
-											<span class="ai-version-meta">{document.promptArtifactId}</span>
-										</div>
-									</td>
-								</tr>
-							{/if}
+							{@const promptId = document.promptArtifactId}
+							{@const content = aiVersionContent[promptId] ?? null}
+							<tr class="ai-version-row">
+								<td class="col-checkbox"></td>
+								<td class="col-icon"></td>
+								<td colspan="5" class="ai-version-cell">
+									<div class="ai-version-panel">
+										<span class="ai-version-label">{$t('knowledge.aiFacingVersion')}</span>
+										{#if content?.loading}
+											<div class="ai-version-loading">
+												<Loader size={16} strokeWidth={2} class="ai-version-spinner" aria-hidden="true" />
+												{$t('knowledge.aiVersionLoading')}
+											</div>
+										{:else if content?.error}
+											<div class="ai-version-error">{content.error}</div>
+										{:else if content?.text}
+											<pre class="ai-version-content">{content.text}</pre>
+										{:else}
+											<div class="ai-version-empty">{$t('knowledge.aiVersionNoContent')}</div>
+										{/if}
+									</div>
+								</td>
+							</tr>
+						{/if}
 						{/each}
 					</tbody>
 				</table>
@@ -845,13 +929,6 @@ async function handleBulkDelete(): Promise<boolean> {
 							onclick={clearSelection}
 						>
 							{$t('knowledge.clear')}
-						</button>
-						<button
-							type="button"
-							class="bulk-btn bulk-btn-secondary"
-							onclick={clearSelection}
-						>
-							Clear
 						</button>
 					</div>
 				</div>
@@ -1282,12 +1359,6 @@ async function handleBulkDelete(): Promise<boolean> {
 		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
 	}
 
-	.type-ai-version {
-		background: color-mix(in srgb, var(--accent) 10%, transparent);
-		color: var(--accent);
-		border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-	}
-
 	/* AI-facing version toggle */
 	.ai-version-toggle {
 		display: inline-flex;
@@ -1329,23 +1400,58 @@ async function handleBulkDelete(): Promise<boolean> {
 
 	.ai-version-panel {
 		display: flex;
-		align-items: center;
+		flex-direction: column;
 		gap: var(--space-md);
-		font-size: 0.75rem;
-		color: var(--text-muted);
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+		max-height: 320px;
+		overflow-y: auto;
 	}
 
 	.ai-version-label {
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+		font-size: 0.75rem;
 		color: var(--accent);
 	}
 
-	.ai-version-meta {
+	.ai-version-content {
+		margin: 0;
+		padding: var(--space-md);
+		background: var(--surface-raised);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
 		font-family: var(--font-mono, monospace);
-		font-size: 0.6875rem;
-		opacity: 0.7;
+		font-size: 0.75rem;
+		line-height: 1.5;
+		white-space: pre-wrap;
+		word-break: break-word;
+		overflow-wrap: break-word;
+		color: var(--text-primary);
+	}
+
+	.ai-version-loading {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		font-size: 0.8125rem;
+		color: var(--text-muted);
+	}
+
+	.ai-version-spinner {
+		animation: spin 1s linear infinite;
+	}
+
+	.ai-version-error {
+		font-size: 0.8125rem;
+		color: var(--text-danger);
+	}
+
+	.ai-version-empty {
+		font-size: 0.8125rem;
+		color: var(--text-muted);
+		font-style: italic;
 	}
 
 	.col-size {

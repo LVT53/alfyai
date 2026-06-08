@@ -682,3 +682,26 @@ export async function listConversationSourceArtifactIds(
     );
   return Array.from(new Set(rows.map((row) => row.artifactId)));
 }
+
+export async function listConversationSourceArtifactNames(
+  userId: string,
+  conversationId: string,
+): Promise<{ id: string; name: string }[]> {
+  const rows = await db
+    .select({ id: artifacts.id, name: artifacts.name })
+    .from(artifactLinks)
+    .innerJoin(artifacts, eq(artifactLinks.artifactId, artifacts.id))
+    .where(
+      and(
+        eq(artifactLinks.userId, userId),
+        eq(artifactLinks.conversationId, conversationId),
+        eq(artifactLinks.linkType, "attached_to_conversation"),
+        eq(artifacts.type, "source_document"),
+      ),
+    );
+  const seen = new Map<string, { id: string; name: string }>();
+  for (const row of rows) {
+    if (!seen.has(row.id)) seen.set(row.id, row);
+  }
+  return Array.from(seen.values());
+}

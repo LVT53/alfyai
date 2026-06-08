@@ -18,6 +18,8 @@ const knowledgeDict = {
 		"filePreview.zoomOut": "Zoom out",
 		"knowledge.actions": "Actions",
 		"knowledge.aiFacingVersion": "AI-facing version",
+		"knowledge.aiVersionLoading": "Loading…",
+		"knowledge.aiVersionNoContent": "No content available for preview.",
 		"knowledge.browseManage":
 			"Browse and manage your uploaded and generated documents",
 		"knowledge.clear": "Clear",
@@ -183,6 +185,8 @@ const knowledgeDict = {
 		"filePreview.zoomOut": "Kicsinyítés",
 		"knowledge.actions": "Műveletek",
 		"knowledge.aiFacingVersion": "AI által olvasott verzió",
+		"knowledge.aiVersionLoading": "Betöltés…",
+		"knowledge.aiVersionNoContent": "Nincs elérhető tartalom az előnézethez.",
 		"knowledge.browseManage":
 			"Böngészd és kezeld a feltöltött és generált dokumentumaidat",
 		"knowledge.clear": "Törlés",
