@@ -401,6 +401,7 @@ vi.mock('$lib/server/services/knowledge', () => ({
 	findRelevantKnowledgeArtifacts: mockFindRelevantKnowledgeArtifacts,
 	getArtifactsForUser: mockGetArtifactsForUser,
 	listConversationSourceArtifactIds: mockListConversationSourceArtifactIds,
+	listConversationSourceArtifactNames: vi.fn(async () => []),
 	resolvePromptAttachmentArtifacts: mockResolvePromptAttachmentArtifacts,
 	selectWorkingSetArtifactsForPrompt: vi.fn(async () => []),
 	updateConversationContextStatus: mockUpdateConversationContextStatus,

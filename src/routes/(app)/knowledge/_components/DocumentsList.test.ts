@@ -197,7 +197,7 @@ describe("DocumentsList", () => {
 			expect(
 				budgetRow?.querySelector('[data-mobile-label="Date"]'),
 			).not.toBeNull();
-			expect(budgetRow).toHaveTextContent("Uploaded");
+			expect(budgetRow).toHaveTextContent("PDF");
 			expect(budgetRow).toHaveTextContent("2.5 MB");
 
 			const selectCheckbox = screen.getByRole("checkbox", {
@@ -252,7 +252,7 @@ describe("DocumentsList", () => {
 				},
 			});
 
-			expect(screen.getAllByText(/uploaded/i).length).toBeGreaterThan(0);
+			expect(screen.getAllByText(/PDF|XLSX/i).length).toBeGreaterThan(0);
 			expect(screen.getAllByText(/generated/i).length).toBeGreaterThan(0);
 		});
 
