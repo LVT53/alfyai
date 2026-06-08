@@ -526,6 +526,7 @@ export function streamChat(
 						streamId,
 						model: modelId,
 						reasoningDepth,
+						attachmentIds,
 						activeDocumentArtifactId,
 						personalityProfileId,
 						confirmForkedSourceHistoryMutation:

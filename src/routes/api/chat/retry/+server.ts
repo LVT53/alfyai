@@ -31,6 +31,7 @@ export const POST: RequestHandler = async (event) => {
 		userMessageId?: unknown;
 		userMessage?: unknown;
 		activeDocumentArtifactId?: unknown;
+		attachmentIds?: unknown;
 		streamId?: unknown;
 		model?: unknown;
 		reasoningDepth?: unknown;
@@ -49,6 +50,7 @@ export const POST: RequestHandler = async (event) => {
 		userMessageId,
 		userMessage,
 		activeDocumentArtifactId,
+		attachmentIds,
 		streamId,
 		model,
 		reasoningDepth,
@@ -171,6 +173,9 @@ export const POST: RequestHandler = async (event) => {
 		body: JSON.stringify({
 			message: precedingUserMsg.content,
 			conversationId,
+			attachmentIds: Array.isArray(attachmentIds)
+				? attachmentIds.filter((id): id is string => typeof id === 'string')
+				: undefined,
 			activeDocumentArtifactId:
 				typeof activeDocumentArtifactId === 'string' && activeDocumentArtifactId.trim()
 					? activeDocumentArtifactId.trim()

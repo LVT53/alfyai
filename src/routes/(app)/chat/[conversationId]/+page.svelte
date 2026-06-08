@@ -1830,6 +1830,23 @@ function handleRegenerate(
 	if (userIdx < 0 || msgs[userIdx].role !== "user") return;
 
 	const userText = msgs[userIdx].content;
+
+	// Preserve the user message's attachments so they survive regenerate.
+	const originalAttachments = msgs[userIdx].attachments ?? [];
+	const regenAttachmentIds: string[] = originalAttachments.map((a) => a.artifactId);
+	const regenAttachments = originalAttachments.map((a) => ({
+		id: a.artifactId,
+		type: a.type,
+		retrievalClass: "durable" as const,
+		name: a.name,
+		mimeType: a.mimeType,
+		sizeBytes: a.sizeBytes,
+		conversationId: a.conversationId,
+		summary: null,
+		createdAt: a.createdAt,
+		updatedAt: a.createdAt,
+	}));
+
 	// Remove the assistant message(s) from in-memory state
 	messages.update((m) => m.slice(0, assistantIdx));
 
@@ -1837,8 +1854,8 @@ function handleRegenerate(
 	handleSend(
 		{
 			message: userText,
-			attachmentIds: [],
-			attachments: [],
+			attachmentIds: regenAttachmentIds,
+			attachments: regenAttachments,
 			pendingAttachments: [],
 		},
 		true,
@@ -1865,6 +1882,23 @@ async function handleEdit(
 	const msgs = $messages;
 	const editIdx = msgs.findIndex((m) => m.id === messageId);
 	if (editIdx === -1) return;
+
+	// Snapshot original attachments before deleting the message so they survive edit+resubmit.
+	const originalAttachments = msgs[editIdx].attachments ?? [];
+	const editAttachmentIds: string[] = originalAttachments.map((a) => a.artifactId);
+	const editAttachments = originalAttachments.map((a) => ({
+		id: a.artifactId,
+		type: a.type,
+		retrievalClass: "durable" as const,
+		name: a.name,
+		mimeType: a.mimeType,
+		sizeBytes: a.sizeBytes,
+		conversationId: a.conversationId,
+		summary: null,
+		createdAt: a.createdAt,
+		updatedAt: a.createdAt,
+	}));
+
 	const hasKnownForks = hasForkedAssistantInRange(msgs, editIdx);
 	if (
 		hasKnownForks &&
@@ -1907,8 +1941,8 @@ async function handleEdit(
 	isEditResendPending = false;
 	handleSend({
 		message: newText,
-		attachmentIds: [],
-		attachments: [],
+		attachmentIds: editAttachmentIds,
+		attachments: editAttachments,
 		pendingAttachments: [],
 	});
 }
