@@ -1,5 +1,6 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
+import { createMiMoReasoningReplayFetch } from "./mimo-reasoning-replay";
 import { createOpenAICompatibleStreamNormalizingFetch } from "./openai-compatible-stream-normalizer";
 import {
 	transformNormalChatModelRunRequestBody,
@@ -25,6 +26,10 @@ export function createOpenAICompatibleProviderForNormalChatModelRun(params: {
 		params.normalizeStreaming === false
 			? params.fetch
 			: createOpenAICompatibleStreamNormalizingFetch(params.fetch);
+	const compatibilityFetch = createMiMoReasoningReplayFetch({
+		provider: params.provider,
+		fetch: requestFetch,
+	});
 
 	return createOpenAICompatible({
 		name: params.provider.name,
@@ -41,6 +46,6 @@ export function createOpenAICompatibleProviderForNormalChatModelRun(params: {
 				? params.transformRequestBody(transformed)
 				: transformed;
 		},
-		fetch: requestFetch,
+		fetch: compatibilityFetch,
 	});
 }
