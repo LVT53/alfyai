@@ -348,7 +348,7 @@ async function toggle() {
 						{@const faviconUrl = getFaviconUrl(source.url)}
 						{#if faviconUrl}
 							<img
-								class="fetched-favicon"
+								class="fetched-favicon-stack-icon"
 								src={faviconUrl}
 								alt=""
 								loading="lazy"
@@ -720,6 +720,21 @@ async function toggle() {
 		padding: 1px 0 1px 1px;
 	}
 
+	.fetched-favicon-stack-icon {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		border: 1px solid var(--surface-elevated);
+		background: var(--surface-elevated);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 55%, transparent);
+		flex: 0 0 auto;
+		object-fit: cover;
+	}
+
+	.fetched-favicon-stack-icon + .fetched-favicon-stack-icon {
+		margin-left: -5px;
+	}
+
 	.fetched-source-item {
 		display: flex;
 		align-items: center;
@@ -736,10 +751,6 @@ async function toggle() {
 		box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 55%, transparent);
 		flex: 0 0 auto;
 		object-fit: cover;
-	}
-
-	.fetched-favicon + .fetched-favicon {
-		margin-left: -5px;
 	}
 
 	.fetched-source-list {

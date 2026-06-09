@@ -877,6 +877,10 @@ export async function executeCode(
 					files = [...files, ...missingFileOutputs];
 					extractionError = undefined;
 				} catch (fallbackError) {
+					extractionError =
+						fallbackError instanceof Error
+							? fallbackError.message
+							: String(fallbackError);
 					console.warn(
 						"[FILE_PRODUCTION] In-container fallback read also failed; will attempt re-inspection if applicable",
 						{

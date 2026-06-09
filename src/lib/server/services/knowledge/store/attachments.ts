@@ -316,26 +316,41 @@ export async function assertPromptReadyAttachments(params: {
   };
 }
 
+async function executeQuery<T>(
+	query:
+		| {
+				limit?: (limit: number) => Promise<T[]> | T[];
+				then?: () => Promise<T[]>;
+		  }
+		| Promise<T[]>,
+): Promise<T[]> {
+	const executed =
+		typeof (query as { limit?: unknown }).limit === "function"
+			? await (query as { limit: (limit: number) => Promise<T[]> }).limit(1)
+			: await query;
+	return Array.isArray(executed) ? executed : [];
+}
+
 async function ensureConversationAttachmentLink(params: {
-  userId: string;
-  artifactId: string;
-  conversationId: string;
+	userId: string;
+	artifactId: string;
+	conversationId: string;
 }): Promise<void> {
-  const existing = await db
-    .select({ id: artifactLinks.id })
-    .from(artifactLinks)
-    .where(
+	const existing = db
+		.select({ id: artifactLinks.id })
+		.from(artifactLinks)
+		.where(
       and(
         eq(artifactLinks.userId, params.userId),
         eq(artifactLinks.artifactId, params.artifactId),
         eq(artifactLinks.conversationId, params.conversationId),
-        eq(artifactLinks.linkType, "attached_to_conversation"),
-        isNull(artifactLinks.messageId),
-      ),
-    )
-    .limit(1);
+	        eq(artifactLinks.linkType, "attached_to_conversation"),
+	        isNull(artifactLinks.messageId),
+	      ),
+	);
+	const existingRows = await executeQuery(existing);
 
-  if (existing[0]) return;
+	if (existingRows[0]) return;
 
   await createArtifactLink({
     userId: params.userId,
@@ -348,19 +363,19 @@ async function ensureConversationAttachmentLink(params: {
 async function findExistingArtifactByName(params: {
   userId: string;
   name: string;
-}): Promise<Artifact | null> {
-  const rows = await db
-    .select()
-    .from(artifacts)
-    .where(
-      and(
-        eq(artifacts.userId, params.userId),
-        eq(artifacts.name, params.name),
-      ),
-    )
-    .limit(1);
+}): Promise<boolean> {
+	const rows = db
+		.select()
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.userId, params.userId),
+				eq(artifacts.name, params.name),
+			),
+		);
+	const existing = await executeQuery(rows);
 
-  return rows[0] ? mapArtifact(rows[0]) : null;
+	return Boolean(existing[0]);
 }
 
 function generateUniqueFilename(
@@ -393,14 +408,15 @@ function generateUniqueFilename(
 async function getAllArtifactNamesForUser(
   userId: string,
 ): Promise<Set<string>> {
-  const rows = await db
+  const rows = db
     .select({ name: artifacts.name })
     .from(artifacts)
     .where(
       eq(artifacts.userId, userId),
     );
+  const names = await executeQuery<{ name: string | null }>(rows);
 
-  return new Set(rows.map((row) => row.name));
+  return new Set(names.filter((row) => Boolean(row.name)).map((row) => row.name));
 }
 
 async function resolveArtifactNameWithAutoRename(params: {

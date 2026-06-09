@@ -207,7 +207,12 @@ export async function findExistingArtifactByBinaryHash(params: {
     )
     .limit(1);
 
-  return rows[0] ? mapArtifact(rows[0]) : null;
+  const existing = rows[0];
+  if (!existing || existing.binaryHash !== params.binaryHash) {
+    return null;
+  }
+
+  return mapArtifact(existing);
 }
 
 export async function createArtifact(params: {

@@ -135,7 +135,7 @@ describe('ThinkingBlock', () => {
 		expect(links).toHaveLength(2);
 		expect(links[0]).toHaveAttribute('href', 'https://a.example/x');
 		expect(links[1]).toHaveAttribute('href', 'https://b.example/y');
-		expect(document.querySelectorAll('.fetched-favicon')).toHaveLength(4);
+		expect(document.querySelectorAll('.fetched-favicon')).toHaveLength(2);
 	});
 
 	it('summarizes web search tool calls without expanding every source diagnostic', async () => {

@@ -119,7 +119,7 @@ describe('MessageArea', () => {
 			contextDebug: null,
 		});
 
-		await fireEvent.click(getByRole('button', { name: 'Thought for 0s' }));
+		await fireEvent.click(getByRole('button', { name: /Thought for 0s?/ }));
 		expect(getByText(/step one\s+step two/)).toBeTruthy();
 
 		await rerender({
