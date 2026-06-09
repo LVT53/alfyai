@@ -1,7 +1,7 @@
 import type { NormalChatModelRunCompatibilityProvider } from "./provider-compatibility";
 import { isMiMoProvider } from "./provider-compatibility";
 
-type MiMoReasoningReplayState = {
+export type MiMoReasoningReplayState = {
 	reasoningByToolCallId: Map<string, string>;
 };
 
