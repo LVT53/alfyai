@@ -93,11 +93,11 @@ const MAX_RELEVANT_KNOWLEDGE_ARTIFACTS = 64;
 const RELEVANT_KNOWLEDGE_ARTIFACT_TARGET_TOKEN_STEP = 32_768;
 const PROJECT_FOLDER_PROMPT_LABEL_MAX_CHARS = 160;
 const DOCUMENT_TASK_INTENT_RE =
-	/\b(summarize|summarise|summary|compare|extract|review|check|rewrite|revise|edit|analyze|analyse|translate|convert|outline)\b|what\s+does\s+(it|this|that|the\s+[\w\s-]{0,80}?(document|doc|file|pdf|policy|report|brief))\s+say\s+about/i;
+	/\b(summarize|summarise|summary|compare|extract|review|check|rewrite|revise|edit|analyze|analyse|translate|convert|outline)\b|what\s+does\s+(it|this|that|the\s+[\w\s-]{0,80}?(document|doc|file|pdf|policy|report|brief))\s+say\s+about|(?:összefoglal[\p{L}]*|foglal[\p{L}]*\s+össze|összegez[\p{L}]*|elemez[\p{L}]*|ellenőriz[\p{L}]*|ellenoriz[\p{L}]*|nézd\s+át|nezd\s+at|javíts[\p{L}]*|javits[\p{L}]*|írd\s+át|ird\s+at|szerkeszd|fordíts[\p{L}]*|fordits[\p{L}]*|hasonlíts[\p{L}]*|hasonlits[\p{L}]*|alakíts[\p{L}]*\s+át|alakits[\p{L}]*\s+at|exportál[\p{L}]*|exportal[\p{L}]*|készíts[\p{L}]*|keszits[\p{L}]*|mit\s+mond|mi\s+szerepel|mi\s+van\s+benne)/iu;
 const DOCUMENT_ANSWER_INTENT_RE =
-	/\b(according to|based on|from the|from this|from that|what|when|where|who|why|how|which)\b/i;
+	/\b(according to|based on|from the|from this|from that|what|when|where|who|why|how|which)\b|(?:mire|miért|hogyan|mikor|hol|kit|kinek)\b/iu;
 const DOCUMENT_REFERENCE_RE =
-	/\b(attachment|attached|source|document|doc|file|pdf|policy|report|brief|workspace|this|that|it)\b|\/document\b/i;
+	/\b(attachment|attached|source|document|doc|file|pdf|policy|report|brief|workspace|this|that|it)\b|(?:dokumentum[\p{L}]*|doksi[\p{L}]*|fájl[\p{L}]*|fajl[\p{L}]*|csatolmány[\p{L}]*|csatolmany[\p{L}]*|melléklet[\p{L}]*|melleklet[\p{L}]*|forrás[\p{L}]*|forras[\p{L}]*|ez|ezt|ebből|ebbol|abban|benne|itt|ott)|\/document\b/iu;
 
 export type ContextSelectionCandidate = {
 	title: string;

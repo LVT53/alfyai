@@ -129,9 +129,9 @@ const HISTORY_MESSAGE_MAX_CHARS = 1_200;
 const MIN_MAX_HISTORY_MESSAGES = 10;
 const OPERATIONAL_MAX_HISTORY_MESSAGES = 96;
 const PROJECT_REPORT_QUERY_RE =
-	/\b(report|pdf|docx?|document|export|download|file|summari[sz]e|write[- ]?up)\b/i;
+	/\b(report|pdf|docx?|document|export|download|file|summari[sz]e|write[- ]?up)\b|(?:jelentés|jelentes|riport|dokumentum|fájl|fajl|letöltés|letoltes|összefoglal(?:ó|o)?|foglalj\s+össze|foglalj\s+ossze|írd\s+meg|ird\s+meg|készíts|keszits)/iu;
 const PROJECT_FOLDER_QUERY_RE =
-	/\b(project folder|folder|project|workspace|content from|content of|memory)\b/i;
+	/\b(project folder|folder|project|workspace|content from|content of|memory)\b|(?:projektmappa|projekt[\p{L}]*|mappa|munkaterület|munkaterulet|memória|memoria|korábbi\s+beszélgetések|korabbi\s+beszelgetesek|kapcsolódó\s+beszélgetések|kapcsolodo\s+beszelgetesek)/iu;
 const HISTORY_QUERY_STOPWORDS = new Set([
 	"a",
 	"about",
@@ -189,6 +189,49 @@ const HISTORY_QUERY_STOPWORDS = new Set([
 	"would",
 	"you",
 	"your",
+	"az",
+	"egy",
+	"és",
+	"vagy",
+	"hogy",
+	"de",
+	"ha",
+	"akkor",
+	"mert",
+	"nem",
+	"van",
+	"volt",
+	"lesz",
+	"ezt",
+	"azt",
+	"itt",
+	"ott",
+	"nekem",
+	"neki",
+	"róla",
+	"rola",
+	"erről",
+	"errol",
+	"arról",
+	"arrol",
+	"kérlek",
+	"kerlek",
+	"tudsz",
+	"tudnál",
+	"tudnal",
+	"mondd",
+	"mondj",
+	"mi",
+	"mit",
+	"milyen",
+	"hogyan",
+	"hol",
+	"mikor",
+	"melyik",
+	"keress",
+	"keres",
+	"rá",
+	"ra",
 ]);
 
 function buildPersonaEvidenceCandidate(params: {
@@ -210,15 +253,24 @@ function buildPersonaEvidenceCandidate(params: {
 	];
 }
 
+export function resolveProjectMemoryContextMode(params: {
+	query?: string | null;
+	siblingConversationId?: string | null;
+}): ProjectContextResult["mode"] {
+	const query = params.query?.trim() ?? "";
+	if (params.siblingConversationId?.trim()) return "detail";
+	return PROJECT_REPORT_QUERY_RE.test(query) && PROJECT_FOLDER_QUERY_RE.test(query)
+		? "report"
+		: "summary";
+}
+
 async function getProjectMemoryContext(
 	params: GetMemoryContextParams,
 ): Promise<ProjectMemoryContextResult> {
-	const query = params.query?.trim() ?? "";
-	const projectMode = params.siblingConversationId
-		? "detail"
-		: PROJECT_REPORT_QUERY_RE.test(query) && PROJECT_FOLDER_QUERY_RE.test(query)
-			? "report"
-			: "summary";
+	const projectMode = resolveProjectMemoryContextMode({
+		query: params.query,
+		siblingConversationId: params.siblingConversationId,
+	});
 	const result = await getProjectContext({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -291,12 +343,11 @@ function requestedLimit(value: number | null | undefined): number | null {
 	return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function tokenizeQuery(query: string): string[] {
+export function tokenizeQuery(query: string): string[] {
 	return Array.from(
 		new Set(
-		(query.toLowerCase().match(/[\p{L}\p{N}%_\\]+/giu) ?? []).filter(
-			(term) =>
-				/[\p{L}\p{N}]/iu.test(term) &&
+			(query.toLowerCase().match(/[\p{L}\p{N}%_\\]+/giu) ?? []).filter(
+				(term) => /[\p{L}\p{N}]/iu.test(term) &&
 					term.length >= 2 &&
 					!HISTORY_QUERY_STOPWORDS.has(term),
 			),
