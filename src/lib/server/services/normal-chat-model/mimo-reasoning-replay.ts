@@ -78,7 +78,7 @@ export function replayMiMoReasoningContentInRequestBody(
 	body: unknown,
 	state: MiMoReasoningReplayState,
 ): unknown {
-	if (!isRecord(body) || !isMiMoThinkingEnabled(body)) return body;
+	if (!isRecord(body)) return body;
 	const messages = body.messages;
 	if (!Array.isArray(messages)) return body;
 
@@ -101,11 +101,6 @@ export function replayMiMoReasoningContentInRequestBody(
 	});
 
 	return changed ? { ...body, messages: replayedMessages } : body;
-}
-
-function isMiMoThinkingEnabled(body: Record<string, unknown>): boolean {
-	const thinking = body.thinking;
-	return isRecord(thinking) && thinking.type === "enabled";
 }
 
 function resolveReasoningContentForToolCalls(
