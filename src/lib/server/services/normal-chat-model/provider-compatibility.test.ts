@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildNormalChatModelRunCompatibilityProviderOptions,
+	isMiMoProvider,
 	transformNormalChatModelRunRequestBody,
 	type NormalChatModelRunCompatibilityProvider,
 } from "./provider-compatibility";
@@ -47,6 +48,27 @@ describe("Xiaomi MiMo provider compatibility", () => {
 
 		expect(transformed).toMatchObject({ max_completion_tokens: 1024 });
 		expect(transformed).not.toHaveProperty("max_tokens");
+	});
+
+	it("detects MiMo V2.5 Pro UltraSpeed from the model name", () => {
+		const provider = {
+			name: "model1",
+			displayName: "Primary Model",
+			baseUrl: "https://gateway.example.test/v1",
+			modelName: "mimo-v2.5-pro-ultraspeed",
+		};
+
+		expect(isMiMoProvider(provider)).toBe(true);
+		expect(
+			transformNormalChatModelRunRequestBody(
+				{
+					model: "mimo-v2.5-pro-ultraspeed",
+					messages: [{ role: "user", content: "Hello" }],
+					max_tokens: 131_072,
+				},
+				provider,
+			),
+		).toMatchObject({ max_completion_tokens: 131_072 });
 	});
 
 	it("leaves MiMo reasoning controls under model/UI configuration", () => {
