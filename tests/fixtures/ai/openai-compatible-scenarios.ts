@@ -24,4 +24,5 @@ export const AI_SMOKE_SCENARIOS = {
 	rateLimit: "rate-limit",
 	serverError: "server-error",
 	mimoRejectsMaxTokens: "mimo-rejects-max-tokens",
+	mimoReasoningToolRoundtrip: "mimo-reasoning-tool-roundtrip",
 } as const;
