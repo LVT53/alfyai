@@ -4,7 +4,6 @@ import { replayMiMoReasoningContentInRequestBody } from "./mimo-reasoning-replay
 describe("MiMo reasoning content replay", () => {
 	it("injects captured reasoning_content into assistant tool-call messages", () => {
 		const body = {
-			thinking: { type: "enabled" },
 			messages: [
 				{ role: "user", content: "Look up the weather." },
 				{
@@ -43,9 +42,8 @@ describe("MiMo reasoning content replay", () => {
 		});
 	});
 
-	it("does not inject when MiMo thinking is disabled", () => {
+	it("does not inject when no captured reasoning matches the tool call", () => {
 		const body = {
-			thinking: { type: "disabled" },
 			messages: [
 				{
 					role: "assistant",
@@ -56,14 +54,13 @@ describe("MiMo reasoning content replay", () => {
 
 		expect(
 			replayMiMoReasoningContentInRequestBody(body, {
-				reasoningByToolCallId: new Map([["call_weather", "Reasoning"]]),
+				reasoningByToolCallId: new Map([["other_call", "Reasoning"]]),
 			}),
 		).toBe(body);
 	});
 
 	it("does not overwrite existing reasoning_content", () => {
 		const body = {
-			thinking: { type: "enabled" },
 			messages: [
 				{
 					role: "assistant",
