@@ -57,7 +57,7 @@ export function transformNormalChatModelRunRequestBody(
 	}
 
 	const family = identifyProviderFamily(provider);
-	if (family === "openai" && transformed.max_tokens !== undefined) {
+	if (usesMaxCompletionTokens(family) && transformed.max_tokens !== undefined) {
 		transformed.max_completion_tokens = transformed.max_tokens;
 		delete transformed.max_tokens;
 	}
@@ -74,7 +74,13 @@ export function transformNormalChatModelRunRequestBody(
 	return transformed;
 }
 
-type ProviderFamily = "openai" | "deepseek" | "kimi" | "qwen" | "generic";
+type ProviderFamily =
+	| "openai"
+	| "deepseek"
+	| "kimi"
+	| "qwen"
+	| "mimo"
+	| "generic";
 
 function identifyProviderFamily(
 	provider: NormalChatModelRunCompatibilityProvider,
@@ -104,7 +110,14 @@ function identifyProviderFamily(
 	if (/\bqwen\b|qwen-|dashscope|qwencloud|aliyun|alibaba/.test(haystack)) {
 		return "qwen";
 	}
+	if (/\bmimo\b|mimo-|xiaomimimo|api\.xiaomimimo\./.test(haystack)) {
+		return "mimo";
+	}
 	return "generic";
+}
+
+function usesMaxCompletionTokens(family: ProviderFamily): boolean {
+	return family === "openai" || family === "mimo";
 }
 
 function resolveThinkingType(

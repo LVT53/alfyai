@@ -23,4 +23,5 @@ export const AI_SMOKE_SCENARIOS = {
 	timeoutAbort: "timeout-abort",
 	rateLimit: "rate-limit",
 	serverError: "server-error",
+	mimoRejectsMaxTokens: "mimo-rejects-max-tokens",
 } as const;
