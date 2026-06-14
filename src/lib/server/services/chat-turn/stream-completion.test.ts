@@ -1023,8 +1023,37 @@ describe("completeStreamTurn", () => {
 	it("keeps reconnect file-producing completion aligned with durable generated files", async () => {
 		mockGetStreamBuffer.mockReturnValue({ userMessage: "buffered message" });
 		mockGetFileProductionJobs.mockResolvedValue([
-			{ id: "job-existing", files: [{ id: "gf-existing" }] },
-			{ id: "job-new", files: [{ id: "gf-new" }] },
+			{
+				id: "job-existing",
+				conversationId: "conv-1",
+				assistantMessageId: null,
+				title: "Existing",
+				status: "succeeded",
+				createdAt: 1,
+				updatedAt: 2,
+				files: [{ id: "gf-existing" }],
+				warnings: [],
+			},
+			{
+				id: "job-new",
+				conversationId: "conv-1",
+				assistantMessageId: "asst-msg-1",
+				title: "Reconnect output",
+				status: "succeeded",
+				createdAt: 3,
+				updatedAt: 4,
+				files: [
+					{
+						id: "gf-new",
+						filename: "reconnect-output.pdf",
+						mimeType: "application/pdf",
+						sizeBytes: 456,
+						downloadUrl: "/api/chat/files/gf-new/download",
+						previewUrl: "/api/chat/files/gf-new/preview",
+					},
+				],
+				warnings: [],
+			},
 		]);
 		mockGetChatFilesForMsg.mockResolvedValue([
 			{
@@ -1078,6 +1107,19 @@ describe("completeStreamTurn", () => {
 				mimeType: "application/pdf",
 				sizeBytes: 456,
 				createdAt: 1_777_140_200,
+			}),
+		]);
+		expect(data.fileProductionJobs).toEqual([
+			expect.objectContaining({
+				id: "job-new",
+				assistantMessageId: "asst-msg-1",
+				status: "succeeded",
+				files: [
+					expect.objectContaining({
+						id: "gf-new",
+						filename: "reconnect-output.pdf",
+					}),
+				],
 			}),
 		]);
 		expect(JSON.stringify(data.generatedFiles)).not.toContain("storagePath");

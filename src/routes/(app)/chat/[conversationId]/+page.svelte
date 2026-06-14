@@ -495,6 +495,12 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		const newFiles = files.filter((file) => !existingIds.has(file.id));
 		generatedFiles = [...generatedFiles, ...newFiles];
 	},
+	mergeFileProductionJobs: (jobs) => {
+		fileProductionJobs = jobs.reduce(
+			(currentJobs, job) => mergeFileProductionJob(currentJobs, job),
+			fileProductionJobs,
+		);
+	},
 	setContextCompressionMarkers: (markers) => {
 		contextCompressionMarkers = markers;
 	},

@@ -1,12 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { StreamMetadata } from "$lib/services/streaming";
 import type { DeepResearchJob } from "$lib/types";
 
 const runtimeHarness = vi.hoisted(() => ({
 	streamInvocations: [] as Array<{
 		message: string;
 		callbacks: {
+			onToken: (chunk: string) => void;
 			onWaiting?: () => void;
+			onEnd: (fullText: string, metadata?: StreamMetadata) => void;
 			onError: (error: Error) => void;
 		};
 	}>,
@@ -41,6 +44,7 @@ vi.mock("$lib/client/api/conversations", () => ({
 	applyTaskSteering: vi.fn(),
 	createConversationFork: vi.fn(),
 	deleteConversation: vi.fn(),
+	deletePreparedConversation: vi.fn(async () => undefined),
 	deleteConversationDraft: vi.fn(),
 	deleteConversationMessages: vi.fn(),
 	endConversationSkillSession: vi.fn(),
@@ -123,7 +127,7 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 import { fetchConversationDetail } from "$lib/client/api/conversations";
 import Page from "./+page.svelte";
 
-function pageData() {
+function pageData(overrides: Record<string, unknown> = {}) {
 	return {
 		conversation: {
 			id: "conv-1",
@@ -156,6 +160,7 @@ function pageData() {
 		maxMessageLength: 12000,
 		deepResearchEnabled: true,
 		composerCommandRegistryEnabled: false,
+		...overrides,
 	};
 }
 
@@ -192,6 +197,22 @@ describe("chat page runtime integration", () => {
 			configurable: true,
 			value: "visible",
 		});
+	});
+
+	it("renders while layout model metadata is still resolving", async () => {
+		render(Page, {
+			data: pageData({
+				availableModels: Promise.resolve([
+					{
+						id: "model1",
+						displayName: "Model 1",
+						iconUrl: "/api/campaign-assets/model-1-icon/content",
+					},
+				]),
+			}),
+		});
+
+		expect(screen.getByTestId("message-input")).toBeInTheDocument();
 	});
 
 	it("keeps Deep Research handoff sends visible to the runtime queue adapter", async () => {
@@ -272,6 +293,75 @@ describe("chat page runtime integration", () => {
 		});
 		expect(runtimeHarness.streamInvocations[1].message).toBe(
 			"Queued after waiting",
+		);
+	});
+
+	it("applies normal stream completion deltas without hydrating conversation detail", async () => {
+		render(Page, { data: pageData() });
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Make a report" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		runtimeHarness.streamInvocations[0].callbacks.onToken("Created");
+		const detailCallsBeforeCompletion = vi.mocked(fetchConversationDetail).mock
+			.calls.length;
+		runtimeHarness.streamInvocations[0].callbacks.onEnd("Created", {
+			userMessageId: "server-user-1",
+			assistantMessageId: "assistant-1",
+			generatedFiles: [
+				{
+					id: "file-1",
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-1",
+					artifactId: "artifact-1",
+					documentFamilyId: null,
+					documentFamilyStatus: null,
+					documentLabel: null,
+					documentRole: null,
+					versionNumber: null,
+					originConversationId: null,
+					originAssistantMessageId: null,
+					sourceChatFileId: null,
+					filename: "report.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 123,
+					createdAt: 1,
+				},
+			],
+			fileProductionJobs: [
+				{
+					id: "job-1",
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-1",
+					title: "Report",
+					status: "succeeded",
+					createdAt: 1,
+					updatedAt: 2,
+					files: [
+						{
+							id: "file-1",
+							filename: "report.pdf",
+							mimeType: "application/pdf",
+							sizeBytes: 123,
+							downloadUrl: "/api/chat/files/file-1/download",
+							previewUrl: "/api/chat/files/file-1/preview",
+						},
+					],
+					warnings: [],
+				},
+			],
+			generationDurationMs: 250,
+			totalTokenCount: 42,
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("Created")).toBeInTheDocument();
+		});
+		expect(fetchConversationDetail).toHaveBeenCalledTimes(
+			detailCallsBeforeCompletion,
 		);
 	});
 

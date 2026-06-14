@@ -15,6 +15,7 @@ import type {
 	ContextSourcesState,
 	ConversationContextStatus,
 	DepthMetadata,
+	FileProductionJob,
 	LinkedContextSource,
 	ReasoningDepth,
 	ToolCallEntry,
@@ -188,7 +189,7 @@ export interface CompleteStreamTurnParams {
 	getFileProductionJobs: (
 		userId: string,
 		conversationId: string,
-	) => Promise<Array<{ id: string; files?: Array<{ id: string }> }>>;
+	) => Promise<FileProductionJob[]>;
 	assignFileProductionJobsToAssistantMessage: (
 		userId: string,
 		conversationId: string,
@@ -327,6 +328,7 @@ export async function completeStreamTurn(
 	let persistedTurnState: PersistedStreamTurnState | null = null;
 	let persistedContextSources: ContextSourcesState | null = null;
 	let persistedGeneratedFiles: ChatGeneratedFile[] = [];
+	let persistedFileProductionJobs: FileProductionJob[] = [];
 
 	if (getConfig().contextDiagnosticsDebug) {
 		console.info("[CHAT_STREAM] Tool-call summary", {
@@ -434,6 +436,7 @@ export async function completeStreamTurn(
 				taskState,
 				contextDebug,
 				generatedFiles: persistedGeneratedFiles,
+				fileProductionJobs: persistedFileProductionJobs,
 				contextCompressionSnapshots,
 				generationDurationMs: genTimeMs,
 			}),
@@ -530,6 +533,14 @@ export async function completeStreamTurn(
 				: undefined,
 		});
 		persistedGeneratedFiles = completion.generatedFiles;
+		persistedFileProductionJobs =
+			hadFileProductionToolCall && completion.assistantMessage
+				? (
+						await getFileProductionJobs(userId, conversationId).catch(
+							() => [] as FileProductionJob[],
+						)
+					).filter((job) => !fileProductionJobIdsAtStart.has(job.id))
+				: [];
 		persistedTurnState = completion.turnState
 			? {
 					activeWorkingSet: completion.turnState.activeWorkingSet,

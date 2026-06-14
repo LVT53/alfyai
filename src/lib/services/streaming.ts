@@ -34,6 +34,7 @@ export interface StreamMetadata {
 	contextDebug?: import("$lib/types").ContextDebugState | null;
 	messageEvidence?: import("$lib/types").MessageEvidenceSummary | null;
 	generatedFiles?: import("$lib/types").ChatGeneratedFile[];
+	fileProductionJobs?: import("$lib/types").FileProductionJob[];
 	contextCompressionSnapshots?: import("$lib/types").ContextCompressionMarker[];
 	generationDurationMs?: number;
 }
@@ -159,6 +160,9 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 			| undefined,
 		generatedFiles: parsed.generatedFiles as
 			| StreamMetadata["generatedFiles"]
+			| undefined,
+		fileProductionJobs: parsed.fileProductionJobs as
+			| StreamMetadata["fileProductionJobs"]
 			| undefined,
 		contextCompressionSnapshots: parsed.contextCompressionSnapshots as
 			| StreamMetadata["contextCompressionSnapshots"]

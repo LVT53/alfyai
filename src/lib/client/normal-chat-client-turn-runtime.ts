@@ -143,6 +143,9 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	mergeGeneratedFiles?: (
 		files: NonNullable<StreamMetadata["generatedFiles"]>,
 	) => void;
+	mergeFileProductionJobs?: (
+		jobs: NonNullable<StreamMetadata["fileProductionJobs"]>,
+	) => void;
 	setContextCompressionMarkers?: (
 		markers: NonNullable<StreamMetadata["contextCompressionSnapshots"]>,
 	) => void;
@@ -302,7 +305,9 @@ export function createNormalChatClientTurnRuntime(
 		adapters.applyStreamMetadata(metadata);
 		if (metadata?.generatedFiles) {
 			adapters.mergeGeneratedFiles?.(metadata.generatedFiles);
-			adapters.hydrateConversationDetail();
+		}
+		if (metadata?.fileProductionJobs) {
+			adapters.mergeFileProductionJobs?.(metadata.fileProductionJobs);
 		}
 		if (metadata?.contextCompressionSnapshots) {
 			adapters.setContextCompressionMarkers?.(
@@ -400,7 +405,6 @@ export function createNormalChatClientTurnRuntime(
 				completeTurn();
 				if (serverAssistantId) {
 					adapters.pollMessageEvidence(serverAssistantId);
-					adapters.refreshMessageCost(serverAssistantId);
 				}
 
 				adapters.maybeTriggerTitleGeneration(

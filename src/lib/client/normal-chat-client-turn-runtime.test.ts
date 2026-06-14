@@ -198,7 +198,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			metadata,
 		});
 		expect(adapters.pollMessageEvidence).toHaveBeenCalledWith("assistant-1");
-		expect(adapters.refreshMessageCost).toHaveBeenCalledWith("assistant-1");
+		expect(adapters.refreshMessageCost).not.toHaveBeenCalled();
 		expect(adapters.maybeTriggerTitleGeneration).toHaveBeenCalledWith(
 			"Hello",
 			"Hi",
@@ -319,6 +319,23 @@ describe("Normal Chat Client Turn Runtime", () => {
 				estimatedTokens: 500,
 			},
 		];
+		const fileProductionJobs: NonNullable<
+			StreamMetadata["fileProductionJobs"]
+		> = [
+			{
+				id: "job-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				title: "Report",
+				status: "succeeded",
+				createdAt: 1,
+				updatedAt: 2,
+				files: [],
+				warnings: [],
+			},
+		];
+		const mergeFileProductionJobs = vi.fn();
+		adapters.mergeFileProductionJobs = mergeFileProductionJobs;
 
 		runtime.send({
 			message: "Make a file",
@@ -329,11 +346,13 @@ describe("Normal Chat Client Turn Runtime", () => {
 		streamInvocations[0].callbacks.onEnd("Done", {
 			assistantMessageId: "assistant-1",
 			generatedFiles,
+			fileProductionJobs,
 			contextCompressionSnapshots,
 		});
 
 		expect(adapters.mergeGeneratedFiles).toHaveBeenCalledWith(generatedFiles);
-		expect(adapters.hydrateConversationDetail).toHaveBeenCalledTimes(1);
+		expect(mergeFileProductionJobs).toHaveBeenCalledWith(fileProductionJobs);
+		expect(adapters.hydrateConversationDetail).not.toHaveBeenCalled();
 		expect(adapters.setContextCompressionMarkers).toHaveBeenCalledWith(
 			contextCompressionSnapshots,
 		);
