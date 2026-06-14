@@ -90,6 +90,12 @@ test.describe("Chat send/receive messages", () => {
 	test("landing-page send still works when conversation creation resolves after send", async ({
 		page,
 	}) => {
+		let releaseConversationCreate: (() => void) | null = null;
+		let conversationCreateStarted = false;
+		const conversationCreateCanContinue = new Promise<void>((resolve) => {
+			releaseConversationCreate = resolve;
+		});
+
 		await page.unroute("**/api/conversations");
 		await page.route("**/api/conversations", async (route) => {
 			if (route.request().method() !== "POST") {
@@ -97,13 +103,17 @@ test.describe("Chat send/receive messages", () => {
 				return;
 			}
 
-			await page.waitForTimeout(250);
+			conversationCreateStarted = true;
+			await conversationCreateCanContinue;
 			await route.continue();
 		});
 
 		await openConversationComposer(page);
 		await page.getByTestId("message-input").fill("Race condition message");
-		await page.getByTestId("message-input").press("Enter");
+		const sendAction = page.getByTestId("message-input").press("Enter");
+		await expect.poll(() => conversationCreateStarted).toBe(true);
+		releaseConversationCreate?.();
+		await sendAction;
 
 		await page.waitForURL(/\/chat\//, { timeout: 15000 });
 		await expect(page.getByTestId("user-message").first()).toContainText(
@@ -168,7 +178,9 @@ test.describe("Chat send/receive messages", () => {
 			await expect(page.getByTestId("message-input")).toBeVisible({
 				timeout: 15000,
 			});
-			await page.waitForTimeout(300);
+			await page.evaluate(
+				() => new Promise((resolve) => requestAnimationFrame(resolve)),
+			);
 
 			expect(stopRequests).toBe(0);
 		} finally {

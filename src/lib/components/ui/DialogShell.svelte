@@ -1,65 +1,67 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { fade, scale } from 'svelte/transition';
-  import type { Snippet } from 'svelte';
-  import { t } from '$lib/i18n';
+import { onMount, onDestroy } from "svelte";
+import { fade, scale } from "svelte/transition";
+import type { Snippet } from "svelte";
+import { t } from "$lib/i18n";
 
-  let {
-    title,
-    description,
-    onClose,
-    children,
-    maxWidthClass = 'max-w-[480px]',
-    zIndexClass = 'z-50',
-  }: {
-    title: string;
-    description?: string;
-    onClose?: () => void;
-    children: Snippet;
-    maxWidthClass?: string;
-    zIndexClass?: string;
-  } = $props();
+let {
+	title,
+	description,
+	onClose,
+	children,
+	maxWidthClass = "max-w-[480px]",
+	zIndexClass = "z-50",
+}: {
+	title: string;
+	description?: string;
+	onClose?: () => void;
+	children: Snippet;
+	maxWidthClass?: string;
+	zIndexClass?: string;
+} = $props();
 
-  let dialogRef = $state<HTMLDivElement | undefined>(undefined);
-  let previousFocus: HTMLElement | null = null;
+let dialogRef = $state<HTMLDivElement | undefined>(undefined);
+let previousFocus: HTMLElement | null = null;
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      onClose?.();
-      return;
-    }
+function handleKeydown(e: KeyboardEvent) {
+	if (e.key === "Escape") {
+		e.preventDefault();
+		onClose?.();
+		return;
+	}
 
-    if (e.key === 'Tab') {
-      const focusableElements = dialogRef?.querySelectorAll(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      );
-      if (!focusableElements || focusableElements.length === 0) return;
+	if (e.key === "Tab") {
+		const focusableElements = dialogRef?.querySelectorAll(
+			'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+		);
+		if (!focusableElements || focusableElements.length === 0) return;
 
-      const firstElement = focusableElements[0] as HTMLElement;
-      const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+		const firstElement = focusableElements[0] as HTMLElement;
+		const lastElement = focusableElements[
+			focusableElements.length - 1
+		] as HTMLElement;
 
-      if (e.shiftKey) {
-        if (document.activeElement === firstElement) {
-          lastElement.focus();
-          e.preventDefault();
-        }
-      } else if (document.activeElement === lastElement) {
-        firstElement.focus();
-        e.preventDefault();
-      }
-    }
-  }
+		if (e.shiftKey) {
+			if (document.activeElement === firstElement) {
+				lastElement.focus();
+				e.preventDefault();
+			}
+		} else if (document.activeElement === lastElement) {
+			firstElement.focus();
+			e.preventDefault();
+		}
+	}
+}
 
-  onMount(() => {
-    previousFocus = document.activeElement as HTMLElement;
-    document.body.style.overflow = 'hidden';
-  });
+onMount(() => {
+	previousFocus = document.activeElement as HTMLElement;
+	document.body.style.overflow = "hidden";
+});
 
-  onDestroy(() => {
-    if (previousFocus) previousFocus.focus();
-    document.body.style.overflow = '';
-  });
+onDestroy(() => {
+	if (previousFocus) previousFocus.focus();
+	document.body.style.overflow = "";
+});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />

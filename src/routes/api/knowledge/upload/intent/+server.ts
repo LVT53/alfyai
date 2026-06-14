@@ -47,7 +47,7 @@ function parseUploadIntent(value: unknown): {
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const traceId = createAttachmentTraceId("upload");
 	const limits = resolveKnowledgeUploadLimits();
 	const requestBodyLimit = limits.multipartBodyLimit;

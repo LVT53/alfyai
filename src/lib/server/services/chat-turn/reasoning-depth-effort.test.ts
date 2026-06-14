@@ -181,8 +181,11 @@ describe("resolveReasoningDepthEffort", () => {
 		expect(standard.contextLimits.targetConstructedContext).toBeLessThan(
 			extendedWithoutEvidence.contextLimits.targetConstructedContext,
 		);
-		expect(extendedWithoutEvidence.contextLimits.targetConstructedContext)
-			.toBeLessThan(maximumWithoutEvidence.contextLimits.targetConstructedContext);
+		expect(
+			extendedWithoutEvidence.contextLimits.targetConstructedContext,
+		).toBeLessThan(
+			maximumWithoutEvidence.contextLimits.targetConstructedContext,
+		);
 		expect(extendedWithoutEvidence.webSourceBudget).toEqual({
 			maxSources: 6,
 			sourceExpansion: false,

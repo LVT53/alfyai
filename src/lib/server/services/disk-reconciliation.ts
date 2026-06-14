@@ -1,13 +1,13 @@
-import { readdir, stat } from 'fs/promises';
-import { join, relative } from 'path';
-import { isNotNull } from 'drizzle-orm';
-import { db } from '$lib/server/db';
-import { artifacts, chatGeneratedFiles } from '$lib/server/db/schema';
+import { readdir, stat } from "node:fs/promises";
+import { join, relative } from "node:path";
+import { isNotNull } from "drizzle-orm";
+import { db } from "$lib/server/db";
+import { artifacts, chatGeneratedFiles } from "$lib/server/db/schema";
 
 export interface OrphanFile {
 	path: string;
 	sizeBytes: number;
-	category: 'knowledge' | 'chat-files';
+	category: "knowledge" | "chat-files";
 }
 
 export interface OrphanReport {
@@ -38,7 +38,7 @@ async function walkDir(dir: string): Promise<string[]> {
 }
 
 function normalizeKnowledgeDbPath(dbPath: string): string | null {
-	const markers = ['/knowledge/', '\\knowledge\\'];
+	const markers = ["/knowledge/", "\\knowledge\\"];
 	for (const marker of markers) {
 		const idx = dbPath.indexOf(marker);
 		if (idx !== -1) {
@@ -51,9 +51,9 @@ function normalizeKnowledgeDbPath(dbPath: string): string | null {
 export async function findOrphanFiles(opts?: {
 	dataDir?: string;
 }): Promise<OrphanReport> {
-	const dataDir = opts?.dataDir ?? join(process.cwd(), 'data');
-	const knowledgeDir = join(dataDir, 'knowledge');
-	const chatFilesDir = join(dataDir, 'chat-files');
+	const dataDir = opts?.dataDir ?? join(process.cwd(), "data");
+	const knowledgeDir = join(dataDir, "knowledge");
+	const chatFilesDir = join(dataDir, "chat-files");
 
 	const knowledgeDiskFiles = await walkDir(knowledgeDir);
 	const chatFilesDiskFiles = await walkDir(chatFilesDir);
@@ -69,7 +69,8 @@ export async function findOrphanFiles(opts?: {
 
 	const knownKnowledgePaths = new Set<string>();
 	for (const row of artifactRows) {
-		const rel = normalizeKnowledgeDbPath(row.storagePath!);
+		if (!row.storagePath) continue;
+		const rel = normalizeKnowledgeDbPath(row.storagePath);
 		if (rel) knownKnowledgePaths.add(rel);
 	}
 
@@ -78,13 +79,17 @@ export async function findOrphanFiles(opts?: {
 		knownChatFilePaths.add(row.storagePath);
 	}
 
-	const diskEntries: { relPath: string; absPath: string; category: 'knowledge' | 'chat-files' }[] = [];
+	const diskEntries: {
+		relPath: string;
+		absPath: string;
+		category: "knowledge" | "chat-files";
+	}[] = [];
 
 	for (const absPath of knowledgeDiskFiles) {
 		diskEntries.push({
 			relPath: relative(knowledgeDir, absPath),
 			absPath,
-			category: 'knowledge',
+			category: "knowledge",
 		});
 	}
 
@@ -92,7 +97,7 @@ export async function findOrphanFiles(opts?: {
 		diskEntries.push({
 			relPath: relative(chatFilesDir, absPath),
 			absPath,
-			category: 'chat-files',
+			category: "chat-files",
 		});
 	}
 
@@ -111,7 +116,7 @@ export async function findOrphanFiles(opts?: {
 		totalSizeBytes += fileSize;
 
 		const isKnown =
-			entry.category === 'knowledge'
+			entry.category === "knowledge"
 				? knownKnowledgePaths.has(entry.relPath)
 				: knownChatFilePaths.has(entry.relPath);
 
@@ -126,7 +131,10 @@ export async function findOrphanFiles(opts?: {
 
 	orphanFiles.sort((a, b) => a.path.localeCompare(b.path));
 
-	const orphanTotalSizeBytes = orphanFiles.reduce((sum, f) => sum + f.sizeBytes, 0);
+	const orphanTotalSizeBytes = orphanFiles.reduce(
+		(sum, f) => sum + f.sizeBytes,
+		0,
+	);
 
 	return {
 		totalFileCount: diskEntries.length,

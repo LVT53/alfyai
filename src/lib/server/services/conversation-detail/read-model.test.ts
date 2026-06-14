@@ -87,9 +87,7 @@ vi.mock("$lib/server/services/analytics", () => ({
 }));
 
 import { getConversationCostSummary } from "$lib/server/services/analytics";
-import {
-	listContextCompressionSnapshots,
-} from "$lib/server/services/context-compression";
+import { listContextCompressionSnapshots } from "$lib/server/services/context-compression";
 import { getConversationDraft } from "$lib/server/services/conversation-drafts";
 import {
 	getConversationForkOrigin,
@@ -312,7 +310,8 @@ describe("Conversation Detail Read Model", () => {
 			{
 				id: "generated-file-1",
 				filename: "report.docx",
-				mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				mimeType:
+					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 				sizeBytes: 4096,
 				downloadUrl: "/api/chat/files/generated-file-1/download",
 			},
@@ -358,9 +357,7 @@ describe("Conversation Detail Read Model", () => {
 		});
 
 		expect(mockListMessages).toHaveBeenCalledWith("conv-1");
-		expect(mockListConversationGeneratedFiles).toHaveBeenCalledWith(
-			"conv-1",
-		);
+		expect(mockListConversationGeneratedFiles).toHaveBeenCalledWith("conv-1");
 		expect(mockAttachContinuityToTaskState).toHaveBeenCalledWith("user-1", {
 			id: "task-1",
 			objective: "Draft the report",
@@ -615,7 +612,9 @@ describe("Conversation Detail Read Model", () => {
 			compacted: true,
 		});
 		expect(
-			detail?.contextSources?.groups.map((group: { kind: string }) => group.kind),
+			detail?.contextSources?.groups.map(
+				(group: { kind: string }) => group.kind,
+			),
 		).toEqual(["attachments", "working_set", "pinned", "project_folder"]);
 		expect(detail?.contextSources?.groups.at(-1)).toMatchObject({
 			kind: "project_folder",

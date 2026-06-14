@@ -1,6 +1,6 @@
 <script lang="ts">
-import { goto } from '$app/navigation';
-import { fade, fly } from 'svelte/transition';
+import { goto } from "$app/navigation";
+import { fade, fly } from "svelte/transition";
 import {
 	cleanupPreparedConversation,
 	consumePreviousConversationId,
@@ -10,369 +10,409 @@ import {
 	setConversationPersonalitySelection,
 	setLandingDraftConversationId,
 	storePendingConversationMessage,
-} from '$lib/client/conversation-session';
-import { fetchConversationDetail } from '$lib/client/api/conversations';
-import { uploadKnowledgeAttachment } from '$lib/client/api/knowledge';
-import { createNewConversation, upsertConversationLocal } from '$lib/stores/conversations';
-import { currentConversationId } from '$lib/stores/ui';
+} from "$lib/client/conversation-session";
+import { fetchConversationDetail } from "$lib/client/api/conversations";
+import { uploadKnowledgeAttachment } from "$lib/client/api/knowledge";
+import {
+	createNewConversation,
+	upsertConversationLocal,
+} from "$lib/stores/conversations";
+import { currentConversationId } from "$lib/stores/ui";
 import {
 	selectedModel,
 	selectedReasoningDepth,
 	setSelectedReasoningDepth,
-} from '$lib/stores/settings';
-import { t } from '$lib/i18n';
-import MessageInput from '$lib/components/chat/MessageInput.svelte';
-import DropZoneOverlay from '$lib/components/chat/DropZoneOverlay.svelte';
-import { fetchPublicPersonalityProfiles } from '$lib/client/api/admin';
-import { isOsFileDropEvent } from '$lib/utils/file-drag';
-import type { ConversationDetail, ModelId, ReasoningDepth } from '$lib/types';
-	import { onDestroy, onMount, untrack } from 'svelte';
-	import type {
-		ArtifactSummary,
-		ConversationDraft,
-		LinkedContextSource,
-		PendingAttachment,
-	} from '$lib/types';
+} from "$lib/stores/settings";
+import { t } from "$lib/i18n";
+import MessageInput from "$lib/components/chat/MessageInput.svelte";
+import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
+import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
+import { isOsFileDropEvent } from "$lib/utils/file-drag";
+import type { ConversationDetail, ModelId, ReasoningDepth } from "$lib/types";
+import { onDestroy, onMount, untrack } from "svelte";
+import type {
+	ArtifactSummary,
+	ConversationDraft,
+	LinkedContextSource,
+	PendingAttachment,
+} from "$lib/types";
 
-	function canReuseLandingPreparedConversation(
-		detail: Pick<ConversationDetail, 'conversation' | 'messages' | 'generatedFiles'>
-	): boolean {
-		return (
-			detail.conversation.title === 'New Conversation' &&
-			(detail.messages?.length ?? 0) === 0 &&
-			(detail.generatedFiles?.length ?? 0) === 0
-		);
-	}
-
-	async function navigateToConversationFromLanding(params: {
-		conversationId: string;
-		goto: (href: string) => Promise<void>;
-		hardNavigate?: ((href: string) => void) | null;
-		bootstrap?: boolean;
-	}): Promise<void> {
-		const href = `/chat/${params.conversationId}${params.bootstrap ? '?view=bootstrap' : ''}`;
-
-		// The landing-to-chat bootstrap path is vulnerable to stale SPA state after deploys
-		// or restarts. Prefer a full document navigation when available so the browser cannot
-		// remain visually stuck on the landing surface while the new chat is already running.
-		if (params.hardNavigate) {
-			params.hardNavigate(href);
-			return;
-		}
-
-		await params.goto(href);
-	}
-	import type { PageProps } from './$types';
-
-	let { data }: PageProps = $props();
-
-	type MessageInputSendPayload = {
-		message: string;
-		attachmentIds: string[];
-		attachments: ArtifactSummary[];
-		conversationId: string | null;
-		linkedSources?: LinkedContextSource[];
-		pendingSkill?: import('$lib/types').PendingSkillSelection | null;
-		modelId?: ModelId;
-		deepResearchDepth?: 'focused' | 'standard' | 'max' | null;
-		reasoningDepth?: ReasoningDepth;
-		forceWebSearch?: boolean;
-	};
-
-	type MessageInputDraftPayload = {
-		conversationId: string | null;
-		draftText: string;
-		selectedAttachmentIds: string[];
-		selectedAttachments: PendingAttachment[];
-		selectedLinkedSources: LinkedContextSource[];
-		pendingSkill: import('$lib/types').PendingSkillSelection | null;
-	};
-
-	let hasStarted = $state(false);
-	let creating = $state(false);
-	let error = $state<string | null>(null);
-	let isFromChat = $state(false);
-	let animateIn = $state(false);
-	let pendingMessagePreview = $state('');
-	let greetingIndex = $state(0);
-	let preparedConversationId = $state<string | null>(null);
-	let preparedConversationPromise: Promise<string> | null = null;
-	let preparedConversationValidationPromise: Promise<void> | null = null;
-	let conversationDraft = $state<ConversationDraft | null>(null);
-	const draftPersistence = createDraftPersistence();
-
-	const greetingName = $derived(
-		data.user?.displayName?.trim() ||
-			data.user?.email?.split('@')[0]?.trim() ||
-			''
+function canReuseLandingPreparedConversation(
+	detail: Pick<
+		ConversationDetail,
+		"conversation" | "messages" | "generatedFiles"
+	>,
+): boolean {
+	return (
+		detail.conversation.title === "New Conversation" &&
+		(detail.messages?.length ?? 0) === 0 &&
+		(detail.generatedFiles?.length ?? 0) === 0
 	);
-	const greetingOptions = $derived([
-		greetingName ? $t('landingGreetingNamed', { name: greetingName }) : $t('landingGreeting'),
-		greetingName ? $t('landingReadyNamed', { name: greetingName }) : $t('landingReady'),
-		greetingName ? $t('landingWorkNamed', { name: greetingName }) : $t('landingWork'),
-		greetingName ? $t('landingWhatsOnMindNamed', { name: greetingName }) : $t('landingWhatsOnMind'),
-		greetingName ? $t('landingAskMeNamed', { name: greetingName }) : $t('landingAskMe'),
-		greetingName ? $t('landingGettingStartedNamed', { name: greetingName }) : $t('landingGettingStarted'),
-		greetingName ? $t('landingListeningNamed', { name: greetingName }) : $t('landingListening'),
-	]);
-	const activeGreeting = $derived(greetingOptions[greetingIndex % greetingOptions.length]);
-	let fileDragActive = $state(false);
-	let fileDragRejected = $state(false);
-	let personalityProfiles = $state<Array<{ id: string; name: string; description: string }>>([]);
-	let selectedPersonalityId = $state<string | null>(untrack(() => data.userPersonality) ?? null);
-	let dragEnterCount = 0;
-	let uploadFilesFn: ((files: FileList | null) => Promise<void>) | null = null;
+}
 
-	function handleUploadReady(uploadFn: (files: FileList | null) => Promise<void>) {
-		uploadFilesFn = uploadFn;
+async function navigateToConversationFromLanding(params: {
+	conversationId: string;
+	goto: (href: string) => Promise<void>;
+	hardNavigate?: ((href: string) => void) | null;
+	bootstrap?: boolean;
+}): Promise<void> {
+	const href = `/chat/${params.conversationId}${params.bootstrap ? "?view=bootstrap" : ""}`;
+
+	// The landing-to-chat bootstrap path is vulnerable to stale SPA state after deploys
+	// or restarts. Prefer a full document navigation when available so the browser cannot
+	// remain visually stuck on the landing surface while the new chat is already running.
+	if (params.hardNavigate) {
+		params.hardNavigate(href);
+		return;
 	}
 
-	type UploadFileResult =
-		| { success: true; attachment: import('$lib/types').PendingAttachment }
-		| { success: false; fileName: string; error: string };
+	await params.goto(href);
+}
+import type { PageProps } from "./$types";
 
-	async function uploadSingleFile(
-		file: File,
-		conversationId: string,
-	): Promise<UploadFileResult> {
-		try {
-			const result = await uploadKnowledgeAttachment(file, conversationId);
-			if (result?.artifact) {
-				return {
-					success: true,
-					attachment: {
-						artifact: result.artifact,
-						promptReady: Boolean(result.promptReady),
-						promptArtifactId:
-							typeof result.promptArtifactId === 'string'
-								? result.promptArtifactId
-								: null,
-						readinessError:
-							typeof result.readinessError === 'string' &&
-							result.readinessError.trim()
-								? result.readinessError
-								: null,
-					},
-				};
-			}
-			return { success: false, fileName: file.name, error: 'Upload failed' };
-		} catch (err) {
+let { data }: PageProps = $props();
+
+type MessageInputSendPayload = {
+	message: string;
+	attachmentIds: string[];
+	attachments: ArtifactSummary[];
+	conversationId: string | null;
+	linkedSources?: LinkedContextSource[];
+	pendingSkill?: import("$lib/types").PendingSkillSelection | null;
+	modelId?: ModelId;
+	deepResearchDepth?: "focused" | "standard" | "max" | null;
+	reasoningDepth?: ReasoningDepth;
+	forceWebSearch?: boolean;
+};
+
+type MessageInputDraftPayload = {
+	conversationId: string | null;
+	draftText: string;
+	selectedAttachmentIds: string[];
+	selectedAttachments: PendingAttachment[];
+	selectedLinkedSources: LinkedContextSource[];
+	pendingSkill: import("$lib/types").PendingSkillSelection | null;
+};
+
+let hasStarted = $state(false);
+let creating = $state(false);
+let error = $state<string | null>(null);
+let isFromChat = $state(false);
+let animateIn = $state(false);
+let pendingMessagePreview = $state("");
+let greetingIndex = $state(0);
+let preparedConversationId = $state<string | null>(null);
+let preparedConversationPromise: Promise<string> | null = null;
+let preparedConversationValidationPromise: Promise<void> | null = null;
+let conversationDraft = $state<ConversationDraft | null>(null);
+const draftPersistence = createDraftPersistence();
+
+const greetingName = $derived(
+	data.user?.displayName?.trim() ||
+		data.user?.email?.split("@")[0]?.trim() ||
+		"",
+);
+const greetingOptions = $derived([
+	greetingName
+		? $t("landingGreetingNamed", { name: greetingName })
+		: $t("landingGreeting"),
+	greetingName
+		? $t("landingReadyNamed", { name: greetingName })
+		: $t("landingReady"),
+	greetingName
+		? $t("landingWorkNamed", { name: greetingName })
+		: $t("landingWork"),
+	greetingName
+		? $t("landingWhatsOnMindNamed", { name: greetingName })
+		: $t("landingWhatsOnMind"),
+	greetingName
+		? $t("landingAskMeNamed", { name: greetingName })
+		: $t("landingAskMe"),
+	greetingName
+		? $t("landingGettingStartedNamed", { name: greetingName })
+		: $t("landingGettingStarted"),
+	greetingName
+		? $t("landingListeningNamed", { name: greetingName })
+		: $t("landingListening"),
+]);
+const activeGreeting = $derived(
+	greetingOptions[greetingIndex % greetingOptions.length],
+);
+let fileDragActive = $state(false);
+let fileDragRejected = $state(false);
+let personalityProfiles = $state<
+	Array<{ id: string; name: string; description: string }>
+>([]);
+let selectedPersonalityId = $state<string | null>(
+	untrack(() => data.userPersonality) ?? null,
+);
+let dragEnterCount = 0;
+let uploadFilesFn: ((files: FileList | null) => Promise<void>) | null = null;
+
+function handleUploadReady(
+	uploadFn: (files: FileList | null) => Promise<void>,
+) {
+	uploadFilesFn = uploadFn;
+}
+
+type UploadFileResult =
+	| { success: true; attachment: import("$lib/types").PendingAttachment }
+	| { success: false; fileName: string; error: string };
+
+async function uploadSingleFile(
+	file: File,
+	conversationId: string,
+): Promise<UploadFileResult> {
+	try {
+		const result = await uploadKnowledgeAttachment(file, conversationId);
+		if (result?.artifact) {
 			return {
-				success: false,
-				fileName: file.name,
-				error: err instanceof Error ? err.message : 'Upload failed',
+				success: true,
+				attachment: {
+					artifact: result.artifact,
+					promptReady: Boolean(result.promptReady),
+					promptArtifactId:
+						typeof result.promptArtifactId === "string"
+							? result.promptArtifactId
+							: null,
+					readinessError:
+						typeof result.readinessError === "string" &&
+						result.readinessError.trim()
+							? result.readinessError
+							: null,
+				},
 			};
 		}
+		return { success: false, fileName: file.name, error: "Upload failed" };
+	} catch (err) {
+		return {
+			success: false,
+			fileName: file.name,
+			error: err instanceof Error ? err.message : "Upload failed",
+		};
 	}
+}
 
-	function handleUploadFiles(payload: {
-		files: File[];
-		conversationId: string;
-		done: (result: UploadFileResult) => void;
-	}) {
-		for (const file of payload.files) {
-			uploadSingleFile(file, payload.conversationId).then(payload.done);
-		}
+function handleUploadFiles(payload: {
+	files: File[];
+	conversationId: string;
+	done: (result: UploadFileResult) => void;
+}) {
+	for (const file of payload.files) {
+		uploadSingleFile(file, payload.conversationId).then(payload.done);
 	}
+}
 
-	function handleDragEnter(event: DragEvent) {
-		if (!isOsFileDropEvent(event)) return;
-		event.preventDefault();
-		dragEnterCount += 1;
-		fileDragActive = true;
-		fileDragRejected = false;
+function handleDragEnter(event: DragEvent) {
+	if (!isOsFileDropEvent(event)) return;
+	event.preventDefault();
+	dragEnterCount += 1;
+	fileDragActive = true;
+	fileDragRejected = false;
+}
+
+function handleDragOver(event: DragEvent) {
+	if (!isOsFileDropEvent(event)) return;
+	event.preventDefault();
+	if (event.dataTransfer) {
+		event.dataTransfer.dropEffect = "copy";
 	}
+}
 
-	function handleDragOver(event: DragEvent) {
-		if (!isOsFileDropEvent(event)) return;
-		event.preventDefault();
-		if (event.dataTransfer) {
-			event.dataTransfer.dropEffect = 'copy';
-		}
-	}
-
-	function handleDragLeave(event: DragEvent) {
-		if (!isOsFileDropEvent(event)) return;
-		dragEnterCount -= 1;
-		if (dragEnterCount <= 0) {
-			dragEnterCount = 0;
-			fileDragActive = false;
-			fileDragRejected = false;
-		}
-	}
-
-	function handleDrop(event: DragEvent) {
+function handleDragLeave(event: DragEvent) {
+	if (!isOsFileDropEvent(event)) return;
+	dragEnterCount -= 1;
+	if (dragEnterCount <= 0) {
 		dragEnterCount = 0;
 		fileDragActive = false;
 		fileDragRejected = false;
-		if (!isOsFileDropEvent(event)) return;
-		event.preventDefault();
-		const files = event.dataTransfer?.files;
-		if (!files || files.length === 0) return;
-		void uploadFilesFn?.(files);
+	}
+}
+
+function handleDrop(event: DragEvent) {
+	dragEnterCount = 0;
+	fileDragActive = false;
+	fileDragRejected = false;
+	if (!isOsFileDropEvent(event)) return;
+	event.preventDefault();
+	const files = event.dataTransfer?.files;
+	if (!files || files.length === 0) return;
+	void uploadFilesFn?.(files);
+}
+
+onMount(() => {
+	const previousId = consumePreviousConversationId();
+	if (previousId) {
+		isFromChat = true;
+		setTimeout(() => {
+			animateIn = true;
+		}, 50);
+	} else {
+		animateIn = true;
 	}
 
-	onMount(() => {
-		const previousId = consumePreviousConversationId();
-		if (previousId) {
-			isFromChat = true;
-			setTimeout(() => {
-				animateIn = true;
-			}, 50);
-		} else {
-			animateIn = true;
-		}
+	const storedConversationId = getLandingDraftConversationId();
+	if (storedConversationId) {
+		preparedConversationId = storedConversationId;
+		preparedConversationValidationPromise = restorePreparedConversation(
+			storedConversationId,
+		).finally(() => {
+			preparedConversationValidationPromise = null;
+		});
+	}
 
-		const storedConversationId = getLandingDraftConversationId();
-		if (storedConversationId) {
-			preparedConversationId = storedConversationId;
-			preparedConversationValidationPromise = restorePreparedConversation(storedConversationId)
-				.finally(() => {
-					preparedConversationValidationPromise = null;
-				});
-		}
+	// Static random greeting per page load (no rotation)
+	greetingIndex = Math.floor(Math.random() * 7);
 
-		// Static random greeting per page load (no rotation)
-		greetingIndex = Math.floor(Math.random() * 7);
+	void fetchPublicPersonalityProfiles()
+		.then((p) => (personalityProfiles = p))
+		.catch(() => {});
+});
 
-		void fetchPublicPersonalityProfiles().then(p => personalityProfiles = p).catch(() => {});
-	});
+onDestroy(() => {
+	void draftPersistence.flush();
+});
 
-	onDestroy(() => {
-		void draftPersistence.flush();
-	});
-
-	async function ensurePreparedConversation(): Promise<string> {
-		if (preparedConversationValidationPromise) {
-			await preparedConversationValidationPromise;
-		}
-		if (preparedConversationId) {
-			return preparedConversationId;
-		}
-		if (!preparedConversationPromise) {
-			preparedConversationPromise = createNewConversation().then((id) => {
+async function ensurePreparedConversation(): Promise<string> {
+	if (preparedConversationValidationPromise) {
+		await preparedConversationValidationPromise;
+	}
+	if (preparedConversationId) {
+		return preparedConversationId;
+	}
+	if (!preparedConversationPromise) {
+		preparedConversationPromise = createNewConversation()
+			.then((id) => {
 				preparedConversationId = id;
 				setLandingDraftConversationId(id);
 				return id;
-			}).finally(() => {
+			})
+			.finally(() => {
 				preparedConversationPromise = null;
 			});
-		}
-		return preparedConversationPromise;
 	}
+	return preparedConversationPromise;
+}
 
-	async function handleSend(payload: MessageInputSendPayload) {
-		if (creating) return;
-		const text = payload.message;
+async function handleSend(payload: MessageInputSendPayload) {
+	if (creating) return;
+	const text = payload.message;
 
-		hasStarted = true;
-		creating = true;
-		error = null;
-		pendingMessagePreview = text;
+	hasStarted = true;
+	creating = true;
+	error = null;
+	pendingMessagePreview = text;
 
-		try {
-			const id = payload.conversationId ?? await ensurePreparedConversation();
-			currentConversationId.set(id);
-			upsertConversationLocal(id, 'New Conversation', Date.now() / 1000);
-			setConversationPersonalitySelection(id, selectedPersonalityId);
-			setLandingDraftConversationId(null);
-			conversationDraft = null;
-			draftPersistence.clear();
-			void draftPersistence.persist({
+	try {
+		const id = payload.conversationId ?? (await ensurePreparedConversation());
+		currentConversationId.set(id);
+		upsertConversationLocal(id, "New Conversation", Date.now() / 1000);
+		setConversationPersonalitySelection(id, selectedPersonalityId);
+		setLandingDraftConversationId(null);
+		conversationDraft = null;
+		draftPersistence.clear();
+		void draftPersistence.persist(
+			{
 				conversationId: id,
-				draftText: '',
+				draftText: "",
 				selectedAttachmentIds: [],
 				selectedLinkedSources: [],
 				pendingSkill: null,
-			}, true);
-			storePendingConversationMessage(id, {
-				message: text,
-				attachmentIds: payload.attachmentIds,
-				attachments: payload.attachments,
-				linkedSources: payload.deepResearchDepth ? [] : payload.linkedSources ?? [],
-				pendingSkill: payload.deepResearchDepth ? null : payload.pendingSkill ?? null,
-				modelId: payload.modelId ?? $selectedModel,
-				personalityProfileId: selectedPersonalityId,
-				deepResearchDepth: payload.deepResearchDepth ?? null,
-				reasoningDepth: payload.reasoningDepth ?? $selectedReasoningDepth,
-				forceWebSearch: payload.forceWebSearch === true,
-			});
-			await navigateToConversationFromLanding({
-				conversationId: id,
-				goto: (href) => goto(href),
-				hardNavigate:
-					typeof window !== 'undefined'
-						? (href) => window.location.assign(href)
-						: null,
-				bootstrap: true,
-			});
-		} catch {
-			error = 'Failed to create conversation. Please try again.';
-			hasStarted = false;
-			pendingMessagePreview = '';
-		} finally {
-			creating = false;
-		}
-	}
-
-	async function restorePreparedConversation(conversationId: string) {
-		try {
-			const payload = await fetchConversationDetail(conversationId);
-			if (!canReuseLandingPreparedConversation(payload)) {
-				preparedConversationId = null;
-				conversationDraft = null;
-				setLandingDraftConversationId(null);
-				return;
-			}
-			conversationDraft = payload.draft ?? null;
-		} catch {
-			preparedConversationId = null;
-			conversationDraft = null;
-			setLandingDraftConversationId(null);
-		}
-	}
-
-	function handleDraftChange(payload: MessageInputDraftPayload) {
-		const nextDraft = createConversationDraftRecord({
-			conversationId: payload.conversationId,
-			fallbackConversationId: preparedConversationId,
-			draftText: payload.draftText,
-			selectedAttachmentIds: payload.selectedAttachmentIds,
-			selectedAttachments: payload.selectedAttachments,
-			selectedLinkedSources: payload.selectedLinkedSources,
-			pendingSkill: payload.pendingSkill,
+			},
+			true,
+		);
+		storePendingConversationMessage(id, {
+			message: text,
+			attachmentIds: payload.attachmentIds,
+			attachments: payload.attachments,
+			linkedSources: payload.deepResearchDepth
+				? []
+				: (payload.linkedSources ?? []),
+			pendingSkill: payload.deepResearchDepth
+				? null
+				: (payload.pendingSkill ?? null),
+			modelId: payload.modelId ?? $selectedModel,
+			personalityProfileId: selectedPersonalityId,
+			deepResearchDepth: payload.deepResearchDepth ?? null,
+			reasoningDepth: payload.reasoningDepth ?? $selectedReasoningDepth,
+			forceWebSearch: payload.forceWebSearch === true,
 		});
-		const stalePreparedConversationId =
-			(payload.conversationId ?? preparedConversationId) ?? null;
+		await navigateToConversationFromLanding({
+			conversationId: id,
+			goto: (href) => goto(href),
+			hardNavigate:
+				typeof window !== "undefined"
+					? (href) => window.location.assign(href)
+					: null,
+			bootstrap: true,
+		});
+	} catch {
+		error = "Failed to create conversation. Please try again.";
+		hasStarted = false;
+		pendingMessagePreview = "";
+	} finally {
+		creating = false;
+	}
+}
 
-		if (!nextDraft) {
-			conversationDraft = null;
-			if (hasStarted || creating) {
-				return;
-			}
+async function restorePreparedConversation(conversationId: string) {
+	try {
+		const payload = await fetchConversationDetail(conversationId);
+		if (!canReuseLandingPreparedConversation(payload)) {
 			preparedConversationId = null;
+			conversationDraft = null;
 			setLandingDraftConversationId(null);
-			if (stalePreparedConversationId) {
-				cleanupPreparedConversation({
-					conversationId: stalePreparedConversationId,
-				});
-			}
 			return;
 		}
-
-		conversationDraft = nextDraft;
-		if (nextDraft.conversationId !== 'draft') {
-			preparedConversationId = nextDraft.conversationId;
-			setLandingDraftConversationId(nextDraft.conversationId);
-		}
-		void draftPersistence.persist({
-			conversationId: nextDraft.conversationId,
-			draftText: payload.draftText,
-			selectedAttachmentIds: payload.selectedAttachmentIds,
-			selectedLinkedSources: payload.selectedLinkedSources,
-			pendingSkill: payload.pendingSkill,
-		});
+		conversationDraft = payload.draft ?? null;
+	} catch {
+		preparedConversationId = null;
+		conversationDraft = null;
+		setLandingDraftConversationId(null);
 	}
+}
+
+function handleDraftChange(payload: MessageInputDraftPayload) {
+	const nextDraft = createConversationDraftRecord({
+		conversationId: payload.conversationId,
+		fallbackConversationId: preparedConversationId,
+		draftText: payload.draftText,
+		selectedAttachmentIds: payload.selectedAttachmentIds,
+		selectedAttachments: payload.selectedAttachments,
+		selectedLinkedSources: payload.selectedLinkedSources,
+		pendingSkill: payload.pendingSkill,
+	});
+	const stalePreparedConversationId =
+		payload.conversationId ?? preparedConversationId ?? null;
+
+	if (!nextDraft) {
+		conversationDraft = null;
+		if (hasStarted || creating) {
+			return;
+		}
+		preparedConversationId = null;
+		setLandingDraftConversationId(null);
+		if (stalePreparedConversationId) {
+			cleanupPreparedConversation({
+				conversationId: stalePreparedConversationId,
+			});
+		}
+		return;
+	}
+
+	conversationDraft = nextDraft;
+	if (nextDraft.conversationId !== "draft") {
+		preparedConversationId = nextDraft.conversationId;
+		setLandingDraftConversationId(nextDraft.conversationId);
+	}
+	void draftPersistence.persist({
+		conversationId: nextDraft.conversationId,
+		draftText: payload.draftText,
+		selectedAttachmentIds: payload.selectedAttachmentIds,
+		selectedLinkedSources: payload.selectedLinkedSources,
+		pendingSkill: payload.pendingSkill,
+	});
+}
 </script>
 
 <svelte:head>

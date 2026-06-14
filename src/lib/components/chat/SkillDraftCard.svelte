@@ -1,63 +1,63 @@
 <script lang="ts">
-	import { t } from "$lib/i18n";
-	import type { SkillDraftProposal } from "$lib/types";
+import { t } from "$lib/i18n";
+import type { SkillDraftProposal } from "$lib/types";
 
-	let {
-		draft,
-		canPublishSystem = false,
-		busy = false,
-		actionError = null,
-		onSave = undefined,
-		onDismiss = undefined,
-		onPublish = undefined,
-	}: {
-		draft: SkillDraftProposal;
-		canPublishSystem?: boolean;
-		busy?: boolean;
-		actionError?: string | null;
-		onSave?: ((draftId: string) => void | Promise<void>) | undefined;
-		onDismiss?: ((draftId: string) => void | Promise<void>) | undefined;
-		onPublish?: ((draftId: string) => void | Promise<void>) | undefined;
-	} = $props();
+let {
+	draft,
+	canPublishSystem = false,
+	busy = false,
+	actionError = null,
+	onSave = undefined,
+	onDismiss = undefined,
+	onPublish = undefined,
+}: {
+	draft: SkillDraftProposal;
+	canPublishSystem?: boolean;
+	busy?: boolean;
+	actionError?: string | null;
+	onSave?: ((draftId: string) => void | Promise<void>) | undefined;
+	onDismiss?: ((draftId: string) => void | Promise<void>) | undefined;
+	onPublish?: ((draftId: string) => void | Promise<void>) | undefined;
+} = $props();
 
-	let isFinal = $derived(draft.status !== "proposed");
-	let statusLabel = $derived(
-		draft.status === "saved"
-			? $t("skillDrafts.saved")
-			: draft.status === "dismissed"
-				? $t("skillDrafts.dismissed")
-				: draft.status === "published"
-					? $t("skillDrafts.published")
-					: "",
-	);
-	let durationLabel = $derived(
-		draft.durationPolicy === "session"
-			? $t("skillDrafts.duration.session")
-			: $t("skillDrafts.duration.nextMessage"),
-	);
-	let questionLabel = $derived(
-		draft.questionPolicy === "ask_when_needed"
-			? $t("skillDrafts.question.askWhenNeeded")
-			: $t("skillDrafts.question.none"),
-	);
-	let notesLabel = $derived(
-		draft.notesPolicy === "create_private_notes"
-			? $t("skillDrafts.notes.createPrivate")
-			: $t("skillDrafts.notes.none"),
-	);
-	let sourceLabel = $derived(
-		draft.sourceScope === "current_conversation"
-			? $t("skillDrafts.source.currentConversation")
-			: $t("skillDrafts.source.selectedSourcesOnly"),
-	);
-	let warnings = $derived([
-		...(draft.notesPolicy === "create_private_notes"
-			? [$t("skillDrafts.warning.notes")]
-			: []),
-		draft.sourceScope === "current_conversation"
-			? $t("skillDrafts.warning.currentConversation")
-			: $t("skillDrafts.warning.selectedSources"),
-	]);
+let isFinal = $derived(draft.status !== "proposed");
+let statusLabel = $derived(
+	draft.status === "saved"
+		? $t("skillDrafts.saved")
+		: draft.status === "dismissed"
+			? $t("skillDrafts.dismissed")
+			: draft.status === "published"
+				? $t("skillDrafts.published")
+				: "",
+);
+let durationLabel = $derived(
+	draft.durationPolicy === "session"
+		? $t("skillDrafts.duration.session")
+		: $t("skillDrafts.duration.nextMessage"),
+);
+let questionLabel = $derived(
+	draft.questionPolicy === "ask_when_needed"
+		? $t("skillDrafts.question.askWhenNeeded")
+		: $t("skillDrafts.question.none"),
+);
+let notesLabel = $derived(
+	draft.notesPolicy === "create_private_notes"
+		? $t("skillDrafts.notes.createPrivate")
+		: $t("skillDrafts.notes.none"),
+);
+let sourceLabel = $derived(
+	draft.sourceScope === "current_conversation"
+		? $t("skillDrafts.source.currentConversation")
+		: $t("skillDrafts.source.selectedSourcesOnly"),
+);
+let warnings = $derived([
+	...(draft.notesPolicy === "create_private_notes"
+		? [$t("skillDrafts.warning.notes")]
+		: []),
+	draft.sourceScope === "current_conversation"
+		? $t("skillDrafts.warning.currentConversation")
+		: $t("skillDrafts.warning.selectedSources"),
+]);
 </script>
 
 <article

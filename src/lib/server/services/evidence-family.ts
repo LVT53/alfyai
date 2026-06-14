@@ -1,13 +1,17 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import { db } from '$lib/server/db';
-import { artifactLinks, artifacts, taskStateEvidenceLinks } from '$lib/server/db/schema';
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { db } from "$lib/server/db";
+import {
+	artifactLinks,
+	artifacts,
+	taskStateEvidenceLinks,
+} from "$lib/server/db/schema";
 import {
 	getGeneratedOutputFamilyKey,
 	parseWorkingDocumentMetadata,
 	resolveGeneratedDocumentFamilyStatus,
-} from '$lib/server/services/knowledge/store';
-import { parseJsonRecord } from '$lib/server/utils/json';
-import type { Artifact, ArtifactRetrievalClass } from '$lib/types';
+} from "$lib/server/services/knowledge/store";
+import { parseJsonRecord } from "$lib/server/utils/json";
+import type { Artifact, ArtifactRetrievalClass } from "$lib/types";
 
 const generatedOutputBackfillDone = new Set<string>();
 const generatedOutputBackfillInFlight = new Map<string, Promise<void>>();
@@ -32,22 +36,26 @@ type GeneratedOutputArtifactRow = {
 	updatedAt: Date;
 };
 
-function parseArtifactMetadataJson(metadataJson: string | null): Record<string, unknown> | null {
-	return metadataJson && typeof metadataJson === 'string'
+function parseArtifactMetadataJson(
+	metadataJson: string | null,
+): Record<string, unknown> | null {
+	return metadataJson && typeof metadataJson === "string"
 		? (JSON.parse(metadataJson) as Record<string, unknown>)
 		: null;
 }
 
 function mapGeneratedOutputArtifactRow(
 	row: GeneratedOutputArtifactRow,
-	metadata: Record<string, unknown> | null = parseArtifactMetadataJson(row.metadataJson)
+	metadata: Record<string, unknown> | null = parseArtifactMetadataJson(
+		row.metadataJson,
+	),
 ): Artifact {
 	return {
 		id: row.id,
 		userId: row.userId,
 		conversationId: row.conversationId ?? null,
-		type: row.type as Artifact['type'],
-		retrievalClass: (row.retrievalClass ?? 'durable') as ArtifactRetrievalClass,
+		type: row.type as Artifact["type"],
+		retrievalClass: (row.retrievalClass ?? "durable") as ArtifactRetrievalClass,
 		name: row.name,
 		mimeType: row.mimeType ?? null,
 		sizeBytes: row.sizeBytes ?? null,
@@ -62,17 +70,17 @@ function mapGeneratedOutputArtifactRow(
 }
 
 export function normalizeSimilarityText(text: string): string {
-	return text.toLowerCase().replace(/\s+/g, ' ').trim();
+	return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 export function buildShingles(text: string, size = 5): Set<string> {
 	const words = normalizeSimilarityText(text).split(/\s+/).filter(Boolean);
 	if (words.length === 0) return new Set();
-	if (words.length <= size) return new Set([words.join(' ')]);
+	if (words.length <= size) return new Set([words.join(" ")]);
 
 	const shingles = new Set<string>();
 	for (let index = 0; index <= words.length - size; index += 1) {
-		shingles.add(words.slice(index, index + size).join(' '));
+		shingles.add(words.slice(index, index + size).join(" "));
 	}
 	return shingles;
 }
@@ -87,7 +95,10 @@ function jaccardSimilarity(left: Set<string>, right: Set<string>): number {
 	return union === 0 ? 0 : intersection / union;
 }
 
-export function areNearDuplicateArtifactTexts(left: string, right: string): boolean {
+export function areNearDuplicateArtifactTexts(
+	left: string,
+	right: string,
+): boolean {
 	const normalizedLeft = normalizeSimilarityText(left);
 	const normalizedRight = normalizeSimilarityText(right);
 	if (!normalizedLeft || !normalizedRight) return false;
@@ -106,7 +117,12 @@ export function prefersWorkflowEvidence(query: string): boolean {
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
 	return Array.from(
-		new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0))
+		new Set(
+			values.filter(
+				(value): value is string =>
+					typeof value === "string" && value.length > 0,
+			),
+		),
 	);
 }
 
@@ -117,19 +133,29 @@ async function loadFamilyContext(params: {
 	derivedMap: Map<string, string>;
 	usedByArtifactId: Map<string, string[]>;
 	capsuleMembersByArtifactId: Map<string, string[]>;
-	relatedArtifactInfoById: Map<string, { type: Artifact['type']; metadata: Artifact['metadata'] }>;
+	relatedArtifactInfoById: Map<
+		string,
+		{ type: Artifact["type"]; metadata: Artifact["metadata"] }
+	>;
 }> {
 	const metadataSourceIds = params.artifacts.flatMap((artifact) => {
 		const sourceIds = Array.isArray(artifact.metadata?.sourceArtifactIds)
-			? artifact.metadata.sourceArtifactIds.filter((value): value is string => typeof value === 'string')
+			? artifact.metadata.sourceArtifactIds.filter(
+					(value): value is string => typeof value === "string",
+				)
 			: [];
 		const outputIds = Array.isArray(artifact.metadata?.outputArtifactIds)
-			? artifact.metadata.outputArtifactIds.filter((value): value is string => typeof value === 'string')
+			? artifact.metadata.outputArtifactIds.filter(
+					(value): value is string => typeof value === "string",
+				)
 			: [];
 		return [...sourceIds, ...outputIds];
 	});
 
-	const initialIds = uniqueStrings([...params.artifacts.map((artifact) => artifact.id), ...metadataSourceIds]);
+	const initialIds = uniqueStrings([
+		...params.artifacts.map((artifact) => artifact.id),
+		...metadataSourceIds,
+	]);
 	if (initialIds.length === 0) {
 		return {
 			derivedMap: new Map(),
@@ -149,8 +175,8 @@ async function loadFamilyContext(params: {
 			and(
 				eq(artifactLinks.userId, params.userId),
 				inArray(artifactLinks.artifactId, initialIds),
-				eq(artifactLinks.linkType, 'used_in_output')
-			)
+				eq(artifactLinks.linkType, "used_in_output"),
+			),
 		);
 
 	const capsuleRows = await db
@@ -163,10 +189,12 @@ async function loadFamilyContext(params: {
 			and(
 				eq(artifactLinks.userId, params.userId),
 				inArray(artifactLinks.artifactId, initialIds),
-				eq(artifactLinks.linkType, 'captured_by_capsule')
-			)
+				eq(artifactLinks.linkType, "captured_by_capsule"),
+			),
 		);
-	const relatedArtifactIds = uniqueStrings(capsuleRows.map((row) => row.relatedArtifactId ?? null));
+	const relatedArtifactIds = uniqueStrings(
+		capsuleRows.map((row) => row.relatedArtifactId ?? null),
+	);
 	const relatedArtifactRows =
 		relatedArtifactIds.length === 0
 			? []
@@ -177,7 +205,12 @@ async function loadFamilyContext(params: {
 						metadataJson: artifacts.metadataJson,
 					})
 					.from(artifacts)
-					.where(and(eq(artifacts.userId, params.userId), inArray(artifacts.id, relatedArtifactIds)));
+					.where(
+						and(
+							eq(artifacts.userId, params.userId),
+							inArray(artifacts.id, relatedArtifactIds),
+						),
+					);
 
 	const idsForDerived = uniqueStrings([
 		...initialIds,
@@ -196,8 +229,8 @@ async function loadFamilyContext(params: {
 						and(
 							eq(artifactLinks.userId, params.userId),
 							inArray(artifactLinks.artifactId, idsForDerived),
-							eq(artifactLinks.linkType, 'derived_from')
-						)
+							eq(artifactLinks.linkType, "derived_from"),
+						),
 					);
 
 	const derivedMap = new Map<string, string>();
@@ -225,57 +258,71 @@ async function loadFamilyContext(params: {
 
 	const relatedArtifactInfoById = new Map<
 		string,
-		{ type: Artifact['type']; metadata: Artifact['metadata'] }
+		{ type: Artifact["type"]; metadata: Artifact["metadata"] }
 	>();
 	for (const row of relatedArtifactRows) {
 		relatedArtifactInfoById.set(row.id, {
-			type: row.type as Artifact['type'],
+			type: row.type as Artifact["type"],
 			metadata: parseJsonRecord(row.metadataJson ?? null),
 		});
 	}
 
-	return { derivedMap, usedByArtifactId, capsuleMembersByArtifactId, relatedArtifactInfoById };
+	return {
+		derivedMap,
+		usedByArtifactId,
+		capsuleMembersByArtifactId,
+		relatedArtifactInfoById,
+	};
 }
 
-function baseArtifactId(artifactId: string, derivedMap: Map<string, string>): string {
+function baseArtifactId(
+	artifactId: string,
+	derivedMap: Map<string, string>,
+): string {
 	return derivedMap.get(artifactId) ?? artifactId;
 }
 
 function resolveGeneratedOutputMembers(
 	artifactId: string,
 	usedByArtifactId: Map<string, string[]>,
-	derivedMap: Map<string, string>
+	derivedMap: Map<string, string>,
 ): string[] {
 	const relatedIds = usedByArtifactId.get(artifactId) ?? [];
 	if (relatedIds.length === 0) {
 		return [artifactId];
 	}
-	return uniqueStrings(relatedIds.map((value) => baseArtifactId(value, derivedMap))).sort();
+	return uniqueStrings(
+		relatedIds.map((value) => baseArtifactId(value, derivedMap)),
+	).sort();
 }
 
 export async function resolveArtifactFamilyKeys(
 	userId: string,
-	artifactList: Artifact[]
+	artifactList: Artifact[],
 ): Promise<Map<string, string>> {
-	const { derivedMap, usedByArtifactId, capsuleMembersByArtifactId, relatedArtifactInfoById } =
-		await loadFamilyContext({
-			userId,
-			artifacts: artifactList,
-		});
+	const {
+		derivedMap,
+		usedByArtifactId,
+		capsuleMembersByArtifactId,
+		relatedArtifactInfoById,
+	} = await loadFamilyContext({
+		userId,
+		artifacts: artifactList,
+	});
 	const keys = new Map<string, string>();
 
 	for (const artifact of artifactList) {
 		let key = `${artifact.type}:${artifact.id}`;
 
-		if (artifact.type === 'source_document') {
+		if (artifact.type === "source_document") {
 			key = `source:${artifact.id}`;
-		} else if (artifact.type === 'normalized_document') {
+		} else if (artifact.type === "normalized_document") {
 			key = `source:${baseArtifactId(artifact.id, derivedMap)}`;
-		} else if (artifact.type === 'generated_output') {
+		} else if (artifact.type === "generated_output") {
 			key =
 				getGeneratedOutputFamilyKey(artifact) ??
-				`output:${resolveGeneratedOutputMembers(artifact.id, usedByArtifactId, derivedMap).join('|')}`;
-		} else if (artifact.type === 'work_capsule') {
+				`output:${resolveGeneratedOutputMembers(artifact.id, usedByArtifactId, derivedMap).join("|")}`;
+		} else if (artifact.type === "work_capsule") {
 			const members = uniqueStrings(
 				(capsuleMembersByArtifactId.get(artifact.id) ?? []).flatMap((value) => {
 					const relatedArtifact =
@@ -283,11 +330,14 @@ export async function resolveArtifactFamilyKeys(
 						(relatedArtifactInfoById.has(value)
 							? {
 									id: value,
-									type: relatedArtifactInfoById.get(value)?.type ?? 'source_document',
-									metadata: relatedArtifactInfoById.get(value)?.metadata ?? null,
+									type:
+										relatedArtifactInfoById.get(value)?.type ??
+										"source_document",
+									metadata:
+										relatedArtifactInfoById.get(value)?.metadata ?? null,
 								}
 							: null);
-					if (relatedArtifact?.type === 'generated_output') {
+					if (relatedArtifact?.type === "generated_output") {
 						const familyKey = getGeneratedOutputFamilyKey({
 							id: value,
 							metadata: relatedArtifact.metadata,
@@ -295,12 +345,19 @@ export async function resolveArtifactFamilyKeys(
 						if (familyKey) {
 							return [familyKey];
 						}
-						return resolveGeneratedOutputMembers(value, usedByArtifactId, derivedMap);
+						return resolveGeneratedOutputMembers(
+							value,
+							usedByArtifactId,
+							derivedMap,
+						);
 					}
 					return [baseArtifactId(value, derivedMap)];
-				})
+				}),
 			).sort();
-			key = members.length > 0 ? `capsule:${members.join('|')}` : `capsule:${artifact.conversationId ?? artifact.id}`;
+			key =
+				members.length > 0
+					? `capsule:${members.join("|")}`
+					: `capsule:${artifact.conversationId ?? artifact.id}`;
 		}
 
 		keys.set(artifact.id, key);
@@ -316,28 +373,30 @@ function compareFamilyRepresentative(params: {
 	right: Artifact;
 }): number {
 	const preferWorkflow = prefersWorkflowEvidence(params.query);
-	const leftPinnedConversation = params.left.conversationId === params.conversationId ? 1 : 0;
-	const rightPinnedConversation = params.right.conversationId === params.conversationId ? 1 : 0;
+	const leftPinnedConversation =
+		params.left.conversationId === params.conversationId ? 1 : 0;
+	const rightPinnedConversation =
+		params.right.conversationId === params.conversationId ? 1 : 0;
 	if (leftPinnedConversation !== rightPinnedConversation) {
 		return rightPinnedConversation - leftPinnedConversation;
 	}
 
-	const leftDurable = params.left.retrievalClass === 'durable' ? 1 : 0;
-	const rightDurable = params.right.retrievalClass === 'durable' ? 1 : 0;
+	const leftDurable = params.left.retrievalClass === "durable" ? 1 : 0;
+	const rightDurable = params.right.retrievalClass === "durable" ? 1 : 0;
 	if (leftDurable !== rightDurable) {
 		return rightDurable - leftDurable;
 	}
 
 	const artifactTypeRank = (artifact: Artifact): number => {
 		if (preferWorkflow) {
-			if (artifact.type === 'generated_output') return 0;
-			if (artifact.type === 'normalized_document') return 1;
-			if (artifact.type === 'source_document') return 2;
+			if (artifact.type === "generated_output") return 0;
+			if (artifact.type === "normalized_document") return 1;
+			if (artifact.type === "source_document") return 2;
 			return 3;
 		}
-		if (artifact.type === 'normalized_document') return 0;
-		if (artifact.type === 'source_document') return 1;
-		if (artifact.type === 'generated_output') return 2;
+		if (artifact.type === "normalized_document") return 0;
+		if (artifact.type === "source_document") return 1;
+		if (artifact.type === "generated_output") return 2;
 		return 3;
 	};
 
@@ -364,7 +423,10 @@ export async function collapseArtifactsByFamily(params: {
 	const pinnedIds = params.pinnedIds ?? new Set<string>();
 	const currentAttachmentIds = params.currentAttachmentIds ?? new Set<string>();
 	const protectedIds = params.protectedIds ?? new Set<string>();
-	const familyKeys = await resolveArtifactFamilyKeys(params.userId, params.artifacts);
+	const familyKeys = await resolveArtifactFamilyKeys(
+		params.userId,
+		params.artifacts,
+	);
 	const preserved: Artifact[] = [];
 	const grouped = new Map<string, Artifact[]>();
 
@@ -378,31 +440,38 @@ export async function collapseArtifactsByFamily(params: {
 			continue;
 		}
 
-		const familyKey = familyKeys.get(artifact.id) ?? `${artifact.type}:${artifact.id}`;
+		const familyKey =
+			familyKeys.get(artifact.id) ?? `${artifact.type}:${artifact.id}`;
 		const items = grouped.get(familyKey) ?? [];
 		items.push(artifact);
 		grouped.set(familyKey, items);
 	}
 
-	const representatives = Array.from(grouped.values()).map((items) =>
-		items
-			.slice()
-			.sort((left, right) =>
+	const representatives = Array.from(grouped.values()).map(
+		(items) =>
+			items.slice().sort((left, right) =>
 				compareFamilyRepresentative({
 					query: params.query,
 					conversationId: params.conversationId,
 					left,
 					right,
-				})
-			)[0]
+				}),
+			)[0],
 	);
 
-	return Array.from(new Map([...preserved, ...representatives].map((artifact) => [artifact.id, artifact])).values());
+	return Array.from(
+		new Map(
+			[...preserved, ...representatives].map((artifact) => [
+				artifact.id,
+				artifact,
+			]),
+		).values(),
+	);
 }
 
 async function setArtifactRetrievalClass(
 	artifactId: string,
-	retrievalClass: ArtifactRetrievalClass
+	retrievalClass: ArtifactRetrievalClass,
 ): Promise<void> {
 	await db
 		.update(artifacts)
@@ -416,7 +485,7 @@ async function setArtifactRetrievalClass(
 async function setGeneratedDocumentFamilyStatus(params: {
 	artifactId: string;
 	metadata: Record<string, unknown> | null;
-	status: 'active' | 'historical';
+	status: "active" | "historical";
 }): Promise<void> {
 	const currentMetadata = params.metadata ?? {};
 	if (currentMetadata.documentFamilyStatus === params.status) {
@@ -436,15 +505,17 @@ async function setGeneratedDocumentFamilyStatus(params: {
 
 async function backfillGeneratedOutputRetrievalClasses(
 	userId: string,
-	artifacts: GeneratedOutputArtifactRow[]
+	artifacts: GeneratedOutputArtifactRow[],
 ): Promise<void> {
 	const outputs = artifacts.map((row) => ({
 		...row,
-		retrievalClass: (row.retrievalClass ?? 'durable') as ArtifactRetrievalClass,
+		retrievalClass: (row.retrievalClass ?? "durable") as ArtifactRetrievalClass,
 	}));
 	if (outputs.length === 0) return;
 
-	const artifactObjects = outputs.map((row) => mapGeneratedOutputArtifactRow(row));
+	const artifactObjects = outputs.map((row) =>
+		mapGeneratedOutputArtifactRow(row),
+	);
 
 	const pinnedRows = await db
 		.select({ artifactId: taskStateEvidenceLinks.artifactId })
@@ -452,9 +523,9 @@ async function backfillGeneratedOutputRetrievalClasses(
 		.where(
 			and(
 				eq(taskStateEvidenceLinks.userId, userId),
-				eq(taskStateEvidenceLinks.role, 'pinned'),
-				eq(taskStateEvidenceLinks.origin, 'user')
-			)
+				eq(taskStateEvidenceLinks.role, "pinned"),
+				eq(taskStateEvidenceLinks.origin, "user"),
+			),
 		);
 	const pinnedIds = new Set(pinnedRows.map((row) => row.artifactId));
 	const familyKeys = await resolveArtifactFamilyKeys(userId, artifactObjects);
@@ -469,21 +540,23 @@ async function backfillGeneratedOutputRetrievalClasses(
 
 	for (const items of byFamily.values()) {
 		const kept: Artifact[] = [];
-		for (const artifact of items.sort((left, right) => right.updatedAt - left.updatedAt)) {
-			let nextClass: ArtifactRetrievalClass = 'durable';
+		for (const artifact of items.sort(
+			(left, right) => right.updatedAt - left.updatedAt,
+		)) {
+			let nextClass: ArtifactRetrievalClass = "durable";
 			if (!pinnedIds.has(artifact.id)) {
 				const duplicateOfKept = kept.some((existing) =>
 					areNearDuplicateArtifactTexts(
-						artifact.contentText ?? artifact.summary ?? '',
-						existing.contentText ?? existing.summary ?? ''
-					)
+						artifact.contentText ?? artifact.summary ?? "",
+						existing.contentText ?? existing.summary ?? "",
+					),
 				);
 				if (duplicateOfKept) {
-					nextClass = 'archived_duplicate';
+					nextClass = "archived_duplicate";
 				}
 			}
 
-			if (nextClass === 'durable') {
+			if (nextClass === "durable") {
 				kept.push({ ...artifact, retrievalClass: nextClass });
 			}
 
@@ -496,7 +569,7 @@ async function backfillGeneratedOutputRetrievalClasses(
 
 async function backfillGeneratedOutputFamilyStatuses(
 	userId: string,
-	artifacts: GeneratedOutputArtifactRow[]
+	artifacts: GeneratedOutputArtifactRow[],
 ): Promise<void> {
 	const outputs = artifacts.map((row) => {
 		const metadata = parseJsonRecord(row.metadataJson ?? null);
@@ -507,7 +580,9 @@ async function backfillGeneratedOutputFamilyStatuses(
 	});
 	if (outputs.length === 0) return;
 
-	const artifactObjects = outputs.map((row) => mapGeneratedOutputArtifactRow(row, row.metadata));
+	const artifactObjects = outputs.map((row) =>
+		mapGeneratedOutputArtifactRow(row, row.metadata),
+	);
 
 	const familyKeys = await resolveArtifactFamilyKeys(userId, artifactObjects);
 	const latestByFamily = new Map<
@@ -532,7 +607,9 @@ async function backfillGeneratedOutputFamilyStatuses(
 	}
 
 	for (const latest of latestByFamily.values()) {
-		const workingDocumentMetadata = parseWorkingDocumentMetadata(latest.metadata);
+		const workingDocumentMetadata = parseWorkingDocumentMetadata(
+			latest.metadata,
+		);
 		if (!workingDocumentMetadata.documentFamilyId) {
 			continue;
 		}
@@ -551,7 +628,7 @@ async function backfillGeneratedOutputFamilyStatuses(
 
 export async function repairGeneratedOutputRetrievalClasses(
 	userId: string,
-	artifacts: GeneratedOutputArtifactRow[]
+	artifacts: GeneratedOutputArtifactRow[],
 ): Promise<void> {
 	await backfillGeneratedOutputRetrievalClasses(userId, artifacts);
 	generatedOutputBackfillDone.add(userId);
@@ -559,12 +636,14 @@ export async function repairGeneratedOutputRetrievalClasses(
 
 export async function repairGeneratedOutputFamilyStatuses(
 	userId: string,
-	artifacts: GeneratedOutputArtifactRow[]
+	artifacts: GeneratedOutputArtifactRow[],
 ): Promise<void> {
 	await backfillGeneratedOutputFamilyStatuses(userId, artifacts);
 }
 
-export async function ensureGeneratedOutputRetrievalBackfill(userId: string): Promise<void> {
+export async function ensureGeneratedOutputRetrievalBackfill(
+	userId: string,
+): Promise<void> {
 	if (generatedOutputBackfillDone.has(userId)) return;
 	const running = generatedOutputBackfillInFlight.get(userId);
 	if (running) {
@@ -575,10 +654,15 @@ export async function ensureGeneratedOutputRetrievalBackfill(userId: string): Pr
 	const generatedOutputArtifacts = await db
 		.select()
 		.from(artifacts)
-		.where(and(eq(artifacts.userId, userId), eq(artifacts.type, 'generated_output')))
+		.where(
+			and(eq(artifacts.userId, userId), eq(artifacts.type, "generated_output")),
+		)
 		.orderBy(desc(artifacts.updatedAt));
 
-	const promise = repairGeneratedOutputRetrievalClasses(userId, generatedOutputArtifacts)
+	const promise = repairGeneratedOutputRetrievalClasses(
+		userId,
+		generatedOutputArtifacts,
+	)
 		.then(() => {
 			generatedOutputBackfillDone.add(userId);
 		})
@@ -602,29 +686,41 @@ export async function classifyGeneratedOutputArtifact(params: {
 	const rows = await db
 		.select()
 		.from(artifacts)
-		.where(and(eq(artifacts.userId, params.userId), eq(artifacts.type, 'generated_output')))
+		.where(
+			and(
+				eq(artifacts.userId, params.userId),
+				eq(artifacts.type, "generated_output"),
+			),
+		)
 		.orderBy(desc(artifacts.updatedAt));
 
 	const candidates = rows
-		.filter((row) => row.id !== params.artifact.id && (row.retrievalClass ?? 'durable') === 'durable')
+		.filter(
+			(row) =>
+				row.id !== params.artifact.id &&
+				(row.retrievalClass ?? "durable") === "durable",
+		)
 		.map((row) => mapGeneratedOutputArtifactRow(row));
 
-	if (candidates.length === 0) return 'durable';
+	if (candidates.length === 0) return "durable";
 
-	const familyKeys = await resolveArtifactFamilyKeys(params.userId, [params.artifact, ...candidates]);
+	const familyKeys = await resolveArtifactFamilyKeys(params.userId, [
+		params.artifact,
+		...candidates,
+	]);
 	const targetFamily = familyKeys.get(params.artifact.id);
-	if (!targetFamily) return 'durable';
+	if (!targetFamily) return "durable";
 
 	const latestDurable = candidates
 		.filter((artifact) => familyKeys.get(artifact.id) === targetFamily)
 		.sort((left, right) => right.updatedAt - left.updatedAt)[0];
 
-	if (!latestDurable) return 'durable';
+	if (!latestDurable) return "durable";
 
 	return areNearDuplicateArtifactTexts(
-		params.artifact.contentText ?? params.artifact.summary ?? '',
-		latestDurable.contentText ?? latestDurable.summary ?? ''
+		params.artifact.contentText ?? params.artifact.summary ?? "",
+		latestDurable.contentText ?? latestDurable.summary ?? "",
 	)
-		? 'ephemeral_followup'
-		: 'durable';
+		? "ephemeral_followup"
+		: "durable";
 }

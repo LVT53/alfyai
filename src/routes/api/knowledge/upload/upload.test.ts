@@ -38,6 +38,7 @@ const mockIsKnowledgeUploadConversationError =
 const mockResolveKnowledgeUploadLimits =
 	resolveKnowledgeUploadLimits as ReturnType<typeof vi.fn>;
 let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
+type KnowledgeUploadEvent = Parameters<typeof POST>[0];
 
 function uploadResponse(overrides: Record<string, unknown> = {}) {
 	return {
@@ -63,7 +64,7 @@ function uploadResponse(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-function makeEventWithFormData(formData: FormData) {
+function makeEventWithFormData(formData: FormData): KnowledgeUploadEvent {
 	return {
 		request: {
 			formData: vi.fn().mockResolvedValue(formData),
@@ -75,7 +76,7 @@ function makeEventWithFormData(formData: FormData) {
 		params: {},
 		url: new URL("http://localhost/api/knowledge/upload"),
 		route: { id: "/api/knowledge/upload" },
-	} as any;
+	} as KnowledgeUploadEvent;
 }
 
 describe("POST /api/knowledge/upload", () => {
@@ -318,7 +319,7 @@ describe("POST /api/knowledge/upload", () => {
 			params: {},
 			url: new URL("http://localhost/api/knowledge/upload"),
 			route: { id: "/api/knowledge/upload" },
-		} as any;
+		} as KnowledgeUploadEvent;
 
 		const response = await POST(event);
 		const data = await response.json();
@@ -344,7 +345,7 @@ describe("POST /api/knowledge/upload", () => {
 			params: {},
 			url: new URL("http://localhost/api/knowledge/upload"),
 			route: { id: "/api/knowledge/upload" },
-		} as any;
+		} as KnowledgeUploadEvent;
 
 		const response = await POST(event);
 		const data = await response.json();
@@ -391,7 +392,7 @@ describe("POST /api/knowledge/upload", () => {
 			params: {},
 			url: new URL("http://localhost/api/knowledge/upload"),
 			route: { id: "/api/knowledge/upload" },
-		} as any;
+		} as KnowledgeUploadEvent;
 
 		try {
 			const response = await POST(event);
@@ -430,7 +431,7 @@ describe("POST /api/knowledge/upload", () => {
 			params: {},
 			url: new URL("http://localhost/api/knowledge/upload"),
 			route: { id: "/api/knowledge/upload" },
-		} as any;
+		} as KnowledgeUploadEvent;
 
 		const response = await POST(event);
 		const data = await response.json();

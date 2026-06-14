@@ -1,53 +1,53 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent, screen } from '@testing-library/svelte';
-import CodeBlock from './CodeBlock.svelte';
+import { fireEvent, render, screen } from "@testing-library/svelte";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import CodeBlock from "./CodeBlock.svelte";
 
 Object.assign(navigator, {
 	clipboard: {
-		writeText: vi.fn().mockImplementation(() => Promise.resolve())
-	}
+		writeText: vi.fn().mockImplementation(() => Promise.resolve()),
+	},
 });
 
-describe('CodeBlock', () => {
+describe("CodeBlock", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
 
-	it('renders correctly with language', () => {
+	it("renders correctly with language", () => {
 		render(CodeBlock, {
 			props: {
 				code: 'print("hello world")',
-				language: 'python'
-			}
+				language: "python",
+			},
 		});
 
-		expect(screen.getByText('python')).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy();
+		expect(screen.getByText("python")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Copy code" })).toBeTruthy();
 	});
 
-	it('renders without language', () => {
+	it("renders without language", () => {
 		render(CodeBlock, {
 			props: {
-				code: 'print("hello world")'
-			}
+				code: 'print("hello world")',
+			},
 		});
 
-		expect(screen.queryByText('python')).toBeNull();
-		expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy();
+		expect(screen.queryByText("python")).toBeNull();
+		expect(screen.getByRole("button", { name: "Copy code" })).toBeTruthy();
 	});
 
-	it('copies code to clipboard when clicking copy button', async () => {
+	it("copies code to clipboard when clicking copy button", async () => {
 		render(CodeBlock, {
 			props: {
-				code: 'const a = 1;'
-			}
+				code: "const a = 1;",
+			},
 		});
 
-		const copyButton = screen.getByRole('button', { name: 'Copy code' });
+		const copyButton = screen.getByRole("button", { name: "Copy code" });
 		await fireEvent.click(copyButton);
 
-		expect(navigator.clipboard.writeText).toHaveBeenCalledWith('const a = 1;');
-		
-		expect(screen.getByText('Copied!')).toBeTruthy();
+		expect(navigator.clipboard.writeText).toHaveBeenCalledWith("const a = 1;");
+
+		expect(screen.getByText("Copied!")).toBeTruthy();
 	});
 });

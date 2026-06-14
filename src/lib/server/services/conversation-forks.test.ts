@@ -1,20 +1,20 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
 	existsSync,
 	mkdirSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import { messageOrderAsc } from "./message-ordering";
 
@@ -79,7 +79,9 @@ function seedTextConversation() {
 				role: "assistant",
 				content: "Assistant answer to fork from",
 				thinking: "Considered the source.",
-				toolCalls: JSON.stringify([{ type: "text", content: "Considered the source." }]),
+				toolCalls: JSON.stringify([
+					{ type: "text", content: "Considered the source." },
+				]),
 				metadataJson: JSON.stringify({
 					depthMetadata: {
 						requested: "max",
@@ -151,12 +153,18 @@ function readSideEffectCounts() {
 	const counts = {
 		usageEvents: db.select().from(schema.usageEvents).all().length,
 		messageAnalytics: db.select().from(schema.messageAnalytics).all().length,
-		analyticsConversations: db.select().from(schema.analyticsConversations).all().length,
-		conversationSummaries: db.select().from(schema.conversationSummaries).all().length,
+		analyticsConversations: db
+			.select()
+			.from(schema.analyticsConversations)
+			.all().length,
+		conversationSummaries: db.select().from(schema.conversationSummaries).all()
+			.length,
 		taskStates: db.select().from(schema.conversationTaskStates).all().length,
-		workingSetItems: db.select().from(schema.conversationWorkingSetItems).all().length,
+		workingSetItems: db.select().from(schema.conversationWorkingSetItems).all()
+			.length,
 		generatedFiles: db.select().from(schema.chatGeneratedFiles).all().length,
-		fileProductionJobs: db.select().from(schema.fileProductionJobs).all().length,
+		fileProductionJobs: db.select().from(schema.fileProductionJobs).all()
+			.length,
 		generatedArtifacts: db
 			.select()
 			.from(schema.artifacts)
@@ -201,12 +209,19 @@ function readAllForkArtifacts() {
 	const forkMessages = db
 		.select()
 		.from(schema.messages)
-		.where(eq(schema.messages.conversationId, forkConversations[0]?.id ?? "missing"))
+		.where(
+			eq(schema.messages.conversationId, forkConversations[0]?.id ?? "missing"),
+		)
 		.all();
 	const forkLinks = db
 		.select()
 		.from(schema.artifactLinks)
-		.where(eq(schema.artifactLinks.conversationId, forkConversations[0]?.id ?? "missing"))
+		.where(
+			eq(
+				schema.artifactLinks.conversationId,
+				forkConversations[0]?.id ?? "missing",
+			),
+		)
 		.all();
 	sqlite.close();
 	return { forkConversations, forkMessages, forkLinks };
@@ -233,7 +248,10 @@ function readStoredChatFile(storagePath: string) {
 	return readFileSync(join(chatFilesRoot(), storagePath), "utf8");
 }
 
-function listStoredChatFilePaths(root = chatFilesRoot(), prefix = ""): string[] {
+function listStoredChatFilePaths(
+	root = chatFilesRoot(),
+	prefix = "",
+): string[] {
 	if (!existsSync(root)) return [];
 	const paths: string[] = [];
 	for (const entry of readdirSync(root)) {
@@ -302,7 +320,9 @@ function readForkRowsAfterFailure() {
 		.from(schema.conversations)
 		.where(eq(schema.conversations.title, "Source title (fork 1)"))
 		.all();
-	const forkConversationIds = forkConversations.map((conversation) => conversation.id);
+	const forkConversationIds = forkConversations.map(
+		(conversation) => conversation.id,
+	);
 	const generatedFiles = db
 		.select()
 		.from(schema.chatGeneratedFiles)
@@ -317,14 +337,22 @@ function readForkRowsAfterFailure() {
 		.select()
 		.from(schema.artifacts)
 		.all()
-		.filter((artifact) => forkConversationIds.includes(artifact.conversationId ?? ""));
+		.filter((artifact) =>
+			forkConversationIds.includes(artifact.conversationId ?? ""),
+		);
 	const forkMessages = db
 		.select()
 		.from(schema.messages)
 		.all()
 		.filter((message) => forkConversationIds.includes(message.conversationId));
 	sqlite.close();
-	return { forkConversations, forkMessages, generatedFiles, fileProductionJobs, generatedArtifacts };
+	return {
+		forkConversations,
+		forkMessages,
+		generatedFiles,
+		fileProductionJobs,
+		generatedArtifacts,
+	};
 }
 
 describe("conversation forks", () => {
@@ -404,7 +432,9 @@ describe("conversation forks", () => {
 		expect(forkMessages[1]?.toolCalls).toBe(
 			JSON.stringify([{ type: "text", content: "Considered the source." }]),
 		);
-		const copiedAssistantMetadata = JSON.parse(String(forkMessages[1]?.metadataJson));
+		const copiedAssistantMetadata = JSON.parse(
+			String(forkMessages[1]?.metadataJson),
+		);
 		expect(copiedAssistantMetadata).toMatchObject({
 			forkCopy: {
 				sourceMessageId: "source-assistant-1",
@@ -434,7 +464,9 @@ describe("conversation forks", () => {
 			forkSequence: 1,
 			userId: "user-1",
 		});
-		await expect(getConversationForkOrigin(result.conversation.id)).resolves.toMatchObject({
+		await expect(
+			getConversationForkOrigin(result.conversation.id),
+		).resolves.toMatchObject({
 			copiedForkPointMessageId: forkMessages[1]?.id,
 			sourceTitle: "Source title",
 		});
@@ -472,7 +504,10 @@ describe("conversation forks", () => {
 		const copiedAssistant = listedMessages[1];
 		const { getMessageEvidenceState } = await import("./messages");
 		await expect(
-			getMessageEvidenceState(result.conversation.id, copiedAssistant?.id ?? ""),
+			getMessageEvidenceState(
+				result.conversation.id,
+				copiedAssistant?.id ?? "",
+			),
 		).resolves.toMatchObject({
 			status: "ready",
 			evidenceSummary: {
@@ -514,7 +549,9 @@ describe("conversation forks", () => {
 				eventType: "conversation_fork_created",
 				subjectId: result.conversation.id,
 				relatedId: "source-conv",
-				payloadJson: expect.stringContaining('"sourceAssistantMessageId":"source-assistant-1"'),
+				payloadJson: expect.stringContaining(
+					'"sourceAssistantMessageId":"source-assistant-1"',
+				),
 			}),
 		]);
 	});
@@ -607,7 +644,9 @@ describe("conversation forks", () => {
 			sourceMessageId: "source-assistant-1",
 		});
 		const { forkMessages } = readForkRows(result.conversation.id);
-		const copiedAssistantMetadata = JSON.parse(String(forkMessages[1]?.metadataJson));
+		const copiedAssistantMetadata = JSON.parse(
+			String(forkMessages[1]?.metadataJson),
+		);
 
 		expect(copiedAssistantMetadata).toMatchObject({
 			modelDisplayName: "Source Model",
@@ -630,7 +669,9 @@ describe("conversation forks", () => {
 		expect(copiedAssistantMetadata.skillDrafts).toBeUndefined();
 		expect(copiedAssistantMetadata.skillControl).toBeUndefined();
 
-		const { listMessages, getMessageEvidenceState } = await import("./messages");
+		const { listMessages, getMessageEvidenceState } = await import(
+			"./messages"
+		);
 		const listedMessages = await listMessages(result.conversation.id);
 		expect(listedMessages[1]).toMatchObject({
 			modelDisplayName: "Source Model",
@@ -648,7 +689,10 @@ describe("conversation forks", () => {
 		expect(listedMessages[1]?.skillDrafts).toBeUndefined();
 		expect(listedMessages[1]?.skillControl).toBeUndefined();
 		await expect(
-			getMessageEvidenceState(result.conversation.id, forkMessages[1]?.id ?? ""),
+			getMessageEvidenceState(
+				result.conversation.id,
+				forkMessages[1]?.id ?? "",
+			),
 		).resolves.toMatchObject({
 			status: "none",
 			evidenceSummary: null,
@@ -737,7 +781,8 @@ describe("conversation forks", () => {
 			.run();
 
 		expect(() =>
-			db.insert(schema.conversationForks)
+			db
+				.insert(schema.conversationForks)
 				.values({
 					id: "lineage-two",
 					forkConversationId: "fork-conv-two",
@@ -795,7 +840,9 @@ describe("conversation forks", () => {
 		});
 		const { forkMessages } = readForkRows(result.conversation.id);
 		const copiedUserMessageId = forkMessages[0]?.id ?? "";
-		const forkAttachments = await listMessageAttachments(result.conversation.id);
+		const forkAttachments = await listMessageAttachments(
+			result.conversation.id,
+		);
 		const { artifacts, links } = readArtifactRows();
 
 		expect(forkAttachments.get(copiedUserMessageId)).toEqual([
@@ -806,7 +853,9 @@ describe("conversation forks", () => {
 				type: "source_document",
 			}),
 		]);
-		expect(artifacts.filter((artifact) => artifact.id === "attachment-source-doc")).toHaveLength(1);
+		expect(
+			artifacts.filter((artifact) => artifact.id === "attachment-source-doc"),
+		).toHaveLength(1);
 		expect(links).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -1041,9 +1090,8 @@ describe("conversation forks", () => {
 			.run();
 		sqlite.close();
 		const { createConversationFork } = await import("./conversation-forks");
-		const { listConversationSourceArtifactIds, refreshConversationWorkingSet } = await import(
-			"./knowledge"
-		);
+		const { listConversationSourceArtifactIds, refreshConversationWorkingSet } =
+			await import("./knowledge");
 
 		const result = await createConversationFork({
 			userId: "user-1",
@@ -1066,8 +1114,12 @@ describe("conversation forks", () => {
 		expect(workingSet.map((artifact) => artifact.id)).toEqual(
 			expect.arrayContaining(["normalized-doc-visible", "source-doc-visible"]),
 		);
-		expect(artifacts.filter((artifact) => artifact.id === "source-doc-visible")).toHaveLength(1);
-		expect(artifacts.filter((artifact) => artifact.id === "normalized-doc-visible")).toHaveLength(1);
+		expect(
+			artifacts.filter((artifact) => artifact.id === "source-doc-visible"),
+		).toHaveLength(1);
+		expect(
+			artifacts.filter((artifact) => artifact.id === "normalized-doc-visible"),
+		).toHaveLength(1);
 		expect(links).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -1115,7 +1167,9 @@ describe("conversation forks", () => {
 				origin: "tool",
 				retryable: false,
 				idempotencyKey: "source-idempotency-key",
-				requestJson: JSON.stringify({ requestedOutputs: [{ filename: "report.txt" }] }),
+				requestJson: JSON.stringify({
+					requestedOutputs: [{ filename: "report.txt" }],
+				}),
 				sourceMode: "program",
 				documentIntent: "report",
 				completedAt: new Date("2026-05-15T10:00:03.000Z"),
@@ -1158,8 +1212,12 @@ describe("conversation forks", () => {
 		trackStoredChatPath(copiedFile?.storagePath);
 		expect(copiedFile?.id).not.toBe("source-file-1");
 		expect(copiedFile?.storagePath).not.toBe("source-conv/source-file-1.txt");
-		expect(copiedFile?.storagePath.startsWith(`${result.conversation.id}/`)).toBe(true);
-		expect(readStoredChatFile(copiedFile?.storagePath ?? "")).toBe("fork me as bytes");
+		expect(
+			copiedFile?.storagePath.startsWith(`${result.conversation.id}/`),
+		).toBe(true);
+		expect(readStoredChatFile(copiedFile?.storagePath ?? "")).toBe(
+			"fork me as bytes",
+		);
 		expect(forkGeneratedWork.fileProductionJobs).toEqual([
 			expect.objectContaining({
 				conversationId: result.conversation.id,
@@ -1172,7 +1230,9 @@ describe("conversation forks", () => {
 				documentIntent: "report",
 			}),
 		]);
-		expect(forkGeneratedWork.fileProductionJobs[0]?.id).not.toBe("source-job-1");
+		expect(forkGeneratedWork.fileProductionJobs[0]?.id).not.toBe(
+			"source-job-1",
+		);
 		expect(forkGeneratedWork.fileProductionJobs[0]?.idempotencyKey).not.toBe(
 			"source-idempotency-key",
 		);
@@ -1183,7 +1243,9 @@ describe("conversation forks", () => {
 				sortOrder: 0,
 			}),
 		]);
-		expect(existsSync(join(chatFilesRoot(), "source-conv/source-file-1.txt"))).toBe(true);
+		expect(
+			existsSync(join(chatFilesRoot(), "source-conv/source-file-1.txt")),
+		).toBe(true);
 
 		const sourceCleanup = openDatabase();
 		sourceCleanup.db
@@ -1191,9 +1253,13 @@ describe("conversation forks", () => {
 			.where(eq(schema.chatGeneratedFiles.id, "source-file-1"))
 			.run();
 		sourceCleanup.sqlite.close();
-		rmSync(join(chatFilesRoot(), "source-conv/source-file-1.txt"), { force: true });
+		rmSync(join(chatFilesRoot(), "source-conv/source-file-1.txt"), {
+			force: true,
+		});
 		const { getChatFiles } = await import("./chat-files");
-		const { listConversationFileProductionJobs } = await import("./file-production");
+		const { listConversationFileProductionJobs } = await import(
+			"./file-production"
+		);
 		await expect(getChatFiles(result.conversation.id)).resolves.toEqual([
 			expect.objectContaining({
 				id: copiedFile?.id,
@@ -1214,7 +1280,9 @@ describe("conversation forks", () => {
 				],
 			}),
 		]);
-		expect(readStoredChatFile(copiedFile?.storagePath ?? "")).toBe("fork me as bytes");
+		expect(readStoredChatFile(copiedFile?.storagePath ?? "")).toBe(
+			"fork me as bytes",
+		);
 	});
 
 	it("fails clearly without creating a fork when copied history has non-terminal file-production work", async () => {
@@ -1233,7 +1301,9 @@ describe("conversation forks", () => {
 				origin: "tool",
 				retryable: false,
 				idempotencyKey: "source-queued-idempotency-key",
-				requestJson: JSON.stringify({ requestedOutputs: [{ filename: "queued.pdf" }] }),
+				requestJson: JSON.stringify({
+					requestedOutputs: [{ filename: "queued.pdf" }],
+				}),
 				sourceMode: "program",
 				documentIntent: "report",
 				createdAt: freshJobTime,
@@ -1279,7 +1349,9 @@ describe("conversation forks", () => {
 				origin: "tool",
 				retryable: false,
 				idempotencyKey: "source-stale-queued-idempotency-key",
-				requestJson: JSON.stringify({ requestedOutputs: [{ filename: "queued.pdf" }] }),
+				requestJson: JSON.stringify({
+					requestedOutputs: [{ filename: "queued.pdf" }],
+				}),
 				sourceMode: "program",
 				documentIntent: "report",
 				createdAt: staleJobTime,
@@ -1315,7 +1387,9 @@ describe("conversation forks", () => {
 				retryable: true,
 			}),
 		]);
-		expect(forkRows.fileProductionJobs[0]?.id).not.toBe("source-job-stale-queued");
+		expect(forkRows.fileProductionJobs[0]?.id).not.toBe(
+			"source-job-stale-queued",
+		);
 	});
 
 	it("snapshots cancelled file-production jobs as terminal copied history", async () => {
@@ -1333,7 +1407,9 @@ describe("conversation forks", () => {
 				origin: "tool",
 				retryable: false,
 				idempotencyKey: "source-cancelled-idempotency-key",
-				requestJson: JSON.stringify({ requestedOutputs: [{ filename: "cancelled.pdf" }] }),
+				requestJson: JSON.stringify({
+					requestedOutputs: [{ filename: "cancelled.pdf" }],
+				}),
 				sourceMode: "program",
 				documentIntent: "report",
 				cancelRequestedAt: new Date("2026-05-15T10:00:02.500Z"),
@@ -1829,7 +1905,9 @@ describe("conversation forks", () => {
 				(path) => !storedPathsBeforeFork.includes(path),
 			),
 		).toEqual([]);
-		expect(readStoredChatFile("source-conv/source-file-1.txt")).toBe("first copied bytes");
+		expect(readStoredChatFile("source-conv/source-file-1.txt")).toBe(
+			"first copied bytes",
+		);
 	});
 
 	it("fails clearly and rolls back when a visible copied attachment is not owned by the user", async () => {
@@ -2025,7 +2103,9 @@ describe("conversation forks", () => {
 			id: fork.conversation.id,
 			title: "Source title (fork 1)",
 		});
-		await expect(getConversationForkOrigin(fork.conversation.id)).resolves.toMatchObject({
+		await expect(
+			getConversationForkOrigin(fork.conversation.id),
+		).resolves.toMatchObject({
 			sourceConversationId: "source-conv",
 			sourceAssistantMessageId: "source-assistant-1",
 			sourceConversationIdAvailable: false,
@@ -2061,11 +2141,15 @@ describe("conversation forks", () => {
 			preservedArtifactIds: [],
 		});
 
-		await expect(getConversationForkOrigin(fork.conversation.id)).resolves.toBeNull();
+		await expect(
+			getConversationForkOrigin(fork.conversation.id),
+		).resolves.toBeNull();
 		await expect(
 			listChildForksBySourceMessages("user-1", ["source-assistant-1"]),
 		).resolves.toEqual({});
-		await expect(listMessages("source-conv")).resolves.toEqual(sourceBeforeDelete);
+		await expect(listMessages("source-conv")).resolves.toEqual(
+			sourceBeforeDelete,
+		);
 	});
 
 	it("rejects user, empty, and stopped assistant messages as fork points", async () => {

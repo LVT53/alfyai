@@ -277,7 +277,7 @@ describe("runNonStreamFallback", () => {
 		const result = await callFallback({
 			systemPromptAppendix: "Existing appendix",
 			completedToolCallContext:
-				"Tool 1: memory_context\nInput: {\"mode\":\"project\",\"query\":\"AlmaLinux Server\"}\nSummary: Project memory found: AlmaLinux Server",
+				'Tool 1: memory_context\nInput: {"mode":"project","query":"AlmaLinux Server"}\nSummary: Project memory found: AlmaLinux Server',
 		});
 
 		expect(result).toBe(true);

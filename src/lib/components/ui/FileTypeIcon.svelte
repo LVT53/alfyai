@@ -1,32 +1,33 @@
 <script lang="ts">
-	/**
-	 * Shared file type icon component.
-	 *
-	 * Renders a Lucide icon for a given file type.
-	 * Supports: pdf, docx, xlsx, pptx, odt, image, text, unsupported
-	 *
-	 * Usage:
-	 * ```svelte
-	 * <FileTypeIcon type="pdf" />
-	 * <FileTypeIcon type="docx" size={20} class="text-icon-muted" />
-	 * ```
-	 */
+/**
+ * Shared file type icon component.
+ *
+ * Renders a Lucide icon for a given file type.
+ * Supports: pdf, docx, xlsx, pptx, odt, image, text, unsupported
+ *
+ * Usage:
+ * ```svelte
+ * <FileTypeIcon type="pdf" />
+ * <FileTypeIcon type="docx" size={20} class="text-icon-muted" />
+ * ```
+ */
 
-	import { File, FileText, Image, Presentation, Table } from '@lucide/svelte';
+import { File, FileText, Image, Presentation, Table } from "@lucide/svelte";
 
-	let { type = 'unsupported', size = 16 }: { type?: string; size?: number } = $props();
+let { type = "unsupported", size = 16 }: { type?: string; size?: number } =
+	$props();
 
-	const iconMap: Record<string, typeof File> = {
-		pdf: FileText,
-		docx: FileText,
-		xlsx: Table,
-		pptx: Presentation,
-		odt: FileText,
-		image: Image,
-		text: FileText,
-	};
+const iconMap: Record<string, typeof File> = {
+	pdf: FileText,
+	docx: FileText,
+	xlsx: Table,
+	pptx: Presentation,
+	odt: FileText,
+	image: Image,
+	text: FileText,
+};
 
-	let Icon = $derived(iconMap[type] ?? File);
+let Icon = $derived(iconMap[type] ?? File);
 </script>
 
 <span aria-hidden="true">

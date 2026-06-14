@@ -16,7 +16,7 @@ export function portal(node: HTMLElement): { destroy: () => void } {
 			if (node.parentNode) {
 				node.parentNode.removeChild(node);
 			}
-		}
+		},
 	};
 }
 
@@ -25,9 +25,9 @@ export function portal(node: HTMLElement): { destroy: () => void } {
  * Call this before calculating position to ensure the correct background is applied.
  */
 export function setMenuBaseBackground(): string {
-	if (typeof document === 'undefined') return '';
-	const isDark = document.documentElement.classList.contains('dark');
-	return isDark ? 'rgb(33 35 38 / 1)' : 'rgb(241 239 235 / 1)';
+	if (typeof document === "undefined") return "";
+	const isDark = document.documentElement.classList.contains("dark");
+	return isDark ? "rgb(33 35 38 / 1)" : "rgb(241 239 235 / 1)";
 }
 
 /**
@@ -42,18 +42,23 @@ export function updateMenuPosition(
 	triggerRef: HTMLElement | null,
 	setPositionStyle: (style: string) => void,
 	menuWidth = 190,
-	verticalOffset = 8
+	verticalOffset = 8,
 ): void {
 	if (!triggerRef) return;
-	const background = setMenuBaseBackground();
+	const _background = setMenuBaseBackground();
 	const rect = triggerRef.getBoundingClientRect();
 	const viewportPadding = 12;
 	const left = Math.min(
 		window.innerWidth - menuWidth - viewportPadding,
-		Math.max(viewportPadding, rect.right - menuWidth)
+		Math.max(viewportPadding, rect.right - menuWidth),
 	);
-	const top = Math.min(window.innerHeight - viewportPadding, rect.bottom + verticalOffset);
-	setPositionStyle(`position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`);
+	const top = Math.min(
+		window.innerHeight - viewportPadding,
+		rect.bottom + verticalOffset,
+	);
+	setPositionStyle(
+		`position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`,
+	);
 }
 
 /**
@@ -62,15 +67,15 @@ export function updateMenuPosition(
  */
 export function setupMenuSync(
 	isMenuOpen: () => boolean,
-	updatePosition: () => void
+	updatePosition: () => void,
 ): () => void {
 	const sync = () => {
 		if (isMenuOpen()) updatePosition();
 	};
-	window.addEventListener('resize', sync);
-	window.addEventListener('scroll', sync, true);
+	window.addEventListener("resize", sync);
+	window.addEventListener("scroll", sync, true);
 	return () => {
-		window.removeEventListener('resize', sync);
-		window.removeEventListener('scroll', sync, true);
+		window.removeEventListener("resize", sync);
+		window.removeEventListener("scroll", sync, true);
 	};
 }

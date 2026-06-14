@@ -1,133 +1,142 @@
-<script lang=ts>
-	import clsx from 'clsx';
-	import AvatarCircle from '$lib/components/ui/AvatarCircle.svelte';
-	import ModelIcon from '$lib/components/ui/ModelIcon.svelte';
-	import { t } from '$lib/i18n';
-	import {
-		getPersonalityProfileDisplayDescription,
-		getPersonalityProfileDisplayName,
-	} from '$lib/utils/personality-profile-labels';
-	import PasswordField from './PasswordField.svelte';
-	import UserSkillsSettingsSurface from './UserSkillsSettingsSurface.svelte';
-	import SettingsDataImport from './SettingsDataImport.svelte';
-	import type { ModelId, UserModelPreference } from '$lib/types';
-	import type { Project } from '$lib/types';
+<script lang="ts">
+import clsx from "clsx";
+import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
+import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
+import { t } from "$lib/i18n";
+import {
+	getPersonalityProfileDisplayDescription,
+	getPersonalityProfileDisplayName,
+} from "$lib/utils/personality-profile-labels";
+import PasswordField from "./PasswordField.svelte";
+import UserSkillsSettingsSurface from "./UserSkillsSettingsSurface.svelte";
+import SettingsDataImport from "./SettingsDataImport.svelte";
+import type { ModelId, UserModelPreference } from "$lib/types";
+import type { Project } from "$lib/types";
 
-	type AvailableModel = { id: ModelId; displayName: string; iconUrl?: string | null };
-	type Theme = 'system' | 'light' | 'dark';
-	type TitleLanguage = 'auto' | 'en' | 'hu';
-	type UiLanguage = 'en' | 'hu';
+type AvailableModel = {
+	id: ModelId;
+	displayName: string;
+	iconUrl?: string | null;
+};
+type Theme = "system" | "light" | "dark";
+type TitleLanguage = "auto" | "en" | "hu";
+type UiLanguage = "en" | "hu";
 
-	let {
-		userId,
-		userDisplayName,
-		userEmail,
-		profilePicture = null,
-		cacheBuster = 0,
-		avatarColors,
-		avatarCount,
-		selectedAvatar,
-		showAvatarPicker = $bindable(false),
-		removingPhoto = false,
-		onOpenPictureEditor,
-		onRemovePhoto,
-		onSelectAvatar,
-		name = $bindable(''),
-		email = $bindable(''),
-		profileSaving = false,
-		profileMessage = '',
-		profileError = '',
-		onSaveProfile,
-		currentPassword = $bindable(''),
-		newPassword = $bindable(''),
-		confirmPassword = $bindable(''),
-		showCurrentPw = $bindable(false),
-		showNewPw = $bindable(false),
-		showConfirmPw = $bindable(false),
-		passwordSaving = false,
-		passwordMessage = '',
-		passwordError = '',
-		onSavePassword,
-		availableModels,
-		selectedModel,
-		effectiveModel,
-		systemDefaultModel = effectiveModel,
-		selectedTheme,
-		selectedTitleLanguage,
-		selectedUiLanguage,
-		onChangeModel,
-		onChangeTheme,
-		onChangeTitleLanguage,
-		onChangeUiLanguage,
-		personalityProfiles = [],
-		selectedPersonalityId = null,
-		onChangePersonality = undefined,
-		onOpenResetModal,
-		onOpenDeleteModal,
-		onForgetEverything,
-		forgetEverythingLoading = false,
-		forgetEverythingError = '',
-		skillsEnabled = false,
-		projects = [],
-	}: {
-		userId: string;
-		userDisplayName: string;
-		userEmail: string;
-		profilePicture?: string | null;
-		cacheBuster?: number;
-		avatarColors: string[];
-		avatarCount: number;
-		selectedAvatar: number;
-		showAvatarPicker: boolean;
-		removingPhoto?: boolean;
-		onOpenPictureEditor: () => void;
-		onRemovePhoto: () => void | Promise<void>;
-		onSelectAvatar: (avatarId: number) => void | Promise<void>;
+let {
+	userId,
+	userDisplayName,
+	userEmail,
+	profilePicture = null,
+	cacheBuster = 0,
+	avatarColors,
+	avatarCount,
+	selectedAvatar,
+	showAvatarPicker = $bindable(false),
+	removingPhoto = false,
+	onOpenPictureEditor,
+	onRemovePhoto,
+	onSelectAvatar,
+	name = $bindable(""),
+	email = $bindable(""),
+	profileSaving = false,
+	profileMessage = "",
+	profileError = "",
+	onSaveProfile,
+	currentPassword = $bindable(""),
+	newPassword = $bindable(""),
+	confirmPassword = $bindable(""),
+	showCurrentPw = $bindable(false),
+	showNewPw = $bindable(false),
+	showConfirmPw = $bindable(false),
+	passwordSaving = false,
+	passwordMessage = "",
+	passwordError = "",
+	onSavePassword,
+	availableModels,
+	selectedModel,
+	effectiveModel,
+	systemDefaultModel = effectiveModel,
+	selectedTheme,
+	selectedTitleLanguage,
+	selectedUiLanguage,
+	onChangeModel,
+	onChangeTheme,
+	onChangeTitleLanguage,
+	onChangeUiLanguage,
+	personalityProfiles = [],
+	selectedPersonalityId = null,
+	onChangePersonality = undefined,
+	onOpenResetModal,
+	onOpenDeleteModal,
+	onForgetEverything,
+	forgetEverythingLoading = false,
+	forgetEverythingError = "",
+	skillsEnabled = false,
+	projects = [],
+}: {
+	userId: string;
+	userDisplayName: string;
+	userEmail: string;
+	profilePicture?: string | null;
+	cacheBuster?: number;
+	avatarColors: string[];
+	avatarCount: number;
+	selectedAvatar: number;
+	showAvatarPicker: boolean;
+	removingPhoto?: boolean;
+	onOpenPictureEditor: () => void;
+	onRemovePhoto: () => void | Promise<void>;
+	onSelectAvatar: (avatarId: number) => void | Promise<void>;
+	name: string;
+	email: string;
+	profileSaving?: boolean;
+	profileMessage?: string;
+	profileError?: string;
+	onSaveProfile: () => void | Promise<void>;
+	currentPassword: string;
+	newPassword: string;
+	confirmPassword: string;
+	showCurrentPw: boolean;
+	showNewPw: boolean;
+	showConfirmPw: boolean;
+	passwordSaving?: boolean;
+	passwordMessage?: string;
+	passwordError?: string;
+	onSavePassword: () => void | Promise<void>;
+	availableModels: AvailableModel[];
+	selectedModel: UserModelPreference;
+	effectiveModel: ModelId;
+	systemDefaultModel?: ModelId;
+	selectedTheme: Theme;
+	selectedTitleLanguage: TitleLanguage;
+	selectedUiLanguage: UiLanguage;
+	onChangeModel: (model: UserModelPreference) => void | Promise<void>;
+	onChangeTheme: (theme: Theme) => void | Promise<void>;
+	onChangeTitleLanguage: (lang: TitleLanguage) => void | Promise<void>;
+	onChangeUiLanguage: (lang: UiLanguage) => void | Promise<void>;
+	personalityProfiles?: Array<{
+		id: string;
 		name: string;
-		email: string;
-		profileSaving?: boolean;
-		profileMessage?: string;
-		profileError?: string;
-		onSaveProfile: () => void | Promise<void>;
-		currentPassword: string;
-		newPassword: string;
-		confirmPassword: string;
-		showCurrentPw: boolean;
-		showNewPw: boolean;
-		showConfirmPw: boolean;
-		passwordSaving?: boolean;
-		passwordMessage?: string;
-		passwordError?: string;
-		onSavePassword: () => void | Promise<void>;
-		availableModels: AvailableModel[];
-		selectedModel: UserModelPreference;
-		effectiveModel: ModelId;
-		systemDefaultModel?: ModelId;
-		selectedTheme: Theme;
-		selectedTitleLanguage: TitleLanguage;
-		selectedUiLanguage: UiLanguage;
-		onChangeModel: (model: UserModelPreference) => void | Promise<void>;
-		onChangeTheme: (theme: Theme) => void | Promise<void>;
-		onChangeTitleLanguage: (lang: TitleLanguage) => void | Promise<void>;
-		onChangeUiLanguage: (lang: UiLanguage) => void | Promise<void>;
-		personalityProfiles?: Array<{ id: string; name: string; description: string }>;
-		selectedPersonalityId?: string | null;
-		onChangePersonality?: ((id: string | null) => void) | undefined;
-		onOpenResetModal: () => void;
-		onOpenDeleteModal: () => void;
-		onForgetEverything: () => void | Promise<void>;
-		forgetEverythingLoading?: boolean;
-		forgetEverythingError?: string;
-		skillsEnabled?: boolean;
-		projects?: Project[];
-	} = $props();
+		description: string;
+	}>;
+	selectedPersonalityId?: string | null;
+	onChangePersonality?: ((id: string | null) => void) | undefined;
+	onOpenResetModal: () => void;
+	onOpenDeleteModal: () => void;
+	onForgetEverything: () => void | Promise<void>;
+	forgetEverythingLoading?: boolean;
+	forgetEverythingError?: string;
+	skillsEnabled?: boolean;
+	projects?: Project[];
+} = $props();
 
-	const systemDefaultModelDisplayName = $derived(
-		availableModels.find((model) => model.id === systemDefaultModel)?.displayName ?? systemDefaultModel
-	);
-	const explicitModelOptions = $derived(
-		availableModels.filter((model) => model.id !== systemDefaultModel)
-	);
+const systemDefaultModelDisplayName = $derived(
+	availableModels.find((model) => model.id === systemDefaultModel)
+		?.displayName ?? systemDefaultModel,
+);
+const explicitModelOptions = $derived(
+	availableModels.filter((model) => model.id !== systemDefaultModel),
+);
 </script>
 
 <section class="settings-card mb-4">

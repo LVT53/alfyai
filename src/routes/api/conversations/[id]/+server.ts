@@ -19,9 +19,7 @@ export const GET: RequestHandler = async (event) => {
 	try {
 		const { id } = event.params;
 		const view =
-			event.url.searchParams.get("view") === "bootstrap"
-				? "bootstrap"
-				: "full";
+			event.url.searchParams.get("view") === "bootstrap" ? "bootstrap" : "full";
 
 		const detail = await getConversationDetail({
 			userId: user.id,

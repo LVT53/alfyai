@@ -5,15 +5,16 @@ import {
 	type NormalChatModelRunProvider,
 } from "$lib/server/services/normal-chat-model";
 import type {
+	DepthAppliedEffortMetadata,
 	DepthAppliedProfile,
 	DepthMetadata,
-	DepthAppliedEffortMetadata,
 	DepthSelectionSignals,
 	ThinkingMode,
 } from "$lib/types";
-import { NORMAL_CHAT_MAX_TOOL_STEPS } from "./tool-step-budget";
 
-type ReasoningEffort = NonNullable<NormalChatModelRunProvider["reasoningEffort"]>;
+type ReasoningEffort = NonNullable<
+	NormalChatModelRunProvider["reasoningEffort"]
+>;
 
 export type ReasoningDepthExternalEvidence = "none" | "useful" | "required";
 export type ReasoningDepthGroundingGuidance =
@@ -106,8 +107,7 @@ export function resolveReasoningDepthEffort(params: {
 		(profile === "extended" || profile === "maximum") &&
 		externalEvidence !== "none";
 	const webSourceBudget = resolveWebSourceBudget(profile, sourceExpansion);
-	const maxToolSteps =
-		PROFILE_TOOL_STEPS[profile] + (sourceExpansion ? 4 : 0);
+	const maxToolSteps = PROFILE_TOOL_STEPS[profile] + (sourceExpansion ? 4 : 0);
 	const modelMaxOutputTokens = resolveModelMaxOutputTokens({
 		profile,
 		signals,
@@ -149,8 +149,7 @@ export function resolveReasoningDepthEffort(params: {
 					maxModelContext: params.baseContextLimits.maxModelContext,
 					configuredTargetConstructedContext:
 						params.baseContextLimits.targetConstructedContext,
-					targetConstructedContext:
-						contextLimits.targetConstructedContext,
+					targetConstructedContext: contextLimits.targetConstructedContext,
 					clamped:
 						contextLimits.targetConstructedContext !==
 						params.baseContextLimits.targetConstructedContext,
@@ -319,9 +318,7 @@ function resolveContextLimits(params: {
 		1,
 		Math.min(
 			params.baseContextLimits.targetConstructedContext,
-			Math.floor(
-				params.baseContextLimits.targetConstructedContext * ratio,
-			),
+			Math.floor(params.baseContextLimits.targetConstructedContext * ratio),
 		),
 	);
 	return {

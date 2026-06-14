@@ -1,20 +1,20 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from "vitest";
 import {
 	deriveBalancedColumnWidths,
 	getTableColumnCount,
 	hasExtremeUnbreakableContent,
 	resolveTableOverflowMode,
-} from './table-layout';
+} from "./table-layout";
 
 function createTable(markup: string): HTMLTableElement {
 	document.body.innerHTML = markup;
-	return document.querySelector('table') as HTMLTableElement;
+	return document.querySelector("table") as HTMLTableElement;
 }
 
-describe('table-layout', () => {
-	it('counts columns from the first row', () => {
+describe("table-layout", () => {
+	it("counts columns from the first row", () => {
 		const table = createTable(`
 			<table>
 				<thead>
@@ -26,7 +26,7 @@ describe('table-layout', () => {
 		expect(getTableColumnCount(table)).toBe(3);
 	});
 
-	it('derives balanced widths that give more room to longer columns', () => {
+	it("derives balanced widths that give more room to longer columns", () => {
 		const table = createTable(`
 			<table>
 				<thead>
@@ -47,7 +47,7 @@ describe('table-layout', () => {
 		expect(numeric.reduce((sum, value) => sum + value, 0)).toBeCloseTo(100, 1);
 	});
 
-	it('detects extreme unbreakable content', () => {
+	it("detects extreme unbreakable content", () => {
 		const table = createTable(`
 			<table>
 				<tbody>
@@ -59,23 +59,23 @@ describe('table-layout', () => {
 		expect(hasExtremeUnbreakableContent(table)).toBe(true);
 	});
 
-	it('falls back to scroll when measured width still overflows', () => {
+	it("falls back to scroll when measured width still overflows", () => {
 		expect(
 			resolveTableOverflowMode({
 				columnCount: 3,
 				wrapperWidth: 300,
 				tableWidth: 360,
-			})
-		).toBe('scroll');
+			}),
+		).toBe("scroll");
 	});
 
-	it('keeps fit mode for ordinary 3-column tables inside the container width', () => {
+	it("keeps fit mode for ordinary 3-column tables inside the container width", () => {
 		expect(
 			resolveTableOverflowMode({
 				columnCount: 3,
 				wrapperWidth: 360,
 				tableWidth: 360,
-			})
-		).toBe('fit');
+			}),
+		).toBe("fit");
 	});
 });

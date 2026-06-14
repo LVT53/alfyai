@@ -4,7 +4,22 @@ import type { KnowledgeDocumentItem } from "$lib/types";
 import { formatByteSize } from "$lib/utils/format";
 import { formatMediumDateTime } from "$lib/utils/time";
 import { t } from "$lib/i18n";
-import { Archive, ChevronDown, ChevronLeft, ChevronRight, Code, Download, File, FileText, Image, Loader, Monitor, Table, Trash2, Upload } from '@lucide/svelte';
+import {
+	Archive,
+	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
+	Code,
+	Download,
+	File,
+	FileText,
+	Image,
+	Loader,
+	Monitor,
+	Table,
+	Trash2,
+	Upload,
+} from "@lucide/svelte";
 
 type DocumentSortKey = "name" | "size" | "type" | "date";
 type SortDirection = "asc" | "desc";
@@ -56,7 +71,10 @@ let expandedAiVersions = $state<Set<string>>(new Set());
 
 // AI-facing version content cache: promptArtifactId → { loading, text, error }
 let aiVersionContent = $state<
-	Record<string, { loading: boolean; text: string | null; error: string | null }>
+	Record<
+		string,
+		{ loading: boolean; text: string | null; error: string | null }
+	>
 >({});
 
 // AbortControllers for in-flight AI-version fetches, keyed by promptArtifactId
@@ -394,16 +412,20 @@ async function toggleAiVersion(documentId: string, promptArtifactId: string) {
 			const text = data?.artifact?.contentText ?? null;
 			aiVersionContent = {
 				...aiVersionContent,
-				[promptArtifactId]: { loading: false, text, error: text ? null : 'No content available' },
+				[promptArtifactId]: {
+					loading: false,
+					text,
+					error: text ? null : "No content available",
+				},
 			};
 		} catch (err) {
-			if (err instanceof DOMException && err.name === 'AbortError') return;
+			if (err instanceof DOMException && err.name === "AbortError") return;
 			aiVersionContent = {
 				...aiVersionContent,
 				[promptArtifactId]: {
 					loading: false,
 					text: null,
-					error: err instanceof Error ? err.message : 'Failed to load content',
+					error: err instanceof Error ? err.message : "Failed to load content",
 				},
 			};
 		} finally {
@@ -437,18 +459,54 @@ function formatFileType(mimeType: string | null, filename: string): string {
 	const ext = getFileExtension(filename);
 
 	if (mime === "application/pdf") return "PDF";
-	if (mime.startsWith("text/") || ext === "txt" || ext === "md" || ext === "markdown") {
+	if (
+		mime.startsWith("text/") ||
+		ext === "txt" ||
+		ext === "md" ||
+		ext === "markdown"
+	) {
 		return ext.toUpperCase() || "TXT";
 	}
-	if (mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || ext === "docx") return "DOCX";
+	if (
+		mime ===
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+		ext === "docx"
+	)
+		return "DOCX";
 	if (mime === "application/msword" || ext === "doc") return "DOC";
-	if (mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || ext === "xlsx") return "XLSX";
+	if (
+		mime ===
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+		ext === "xlsx"
+	)
+		return "XLSX";
 	if (mime === "application/vnd.ms-excel" || ext === "xls") return "XLS";
-	if (mime === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || ext === "pptx") return "PPTX";
+	if (
+		mime ===
+			"application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+		ext === "pptx"
+	)
+		return "PPTX";
 	if (mime === "application/vnd.ms-powerpoint" || ext === "ppt") return "PPT";
 	if (mime === "text/csv" || ext === "csv") return "CSV";
 	if (mime === "application/json" || ext === "json") return "JSON";
-	if (mime.startsWith("image/") || ["png","jpg","jpeg","gif","bmp","tiff","tif","webp","svg","heic","heif","avif"].includes(ext)) {
+	if (
+		mime.startsWith("image/") ||
+		[
+			"png",
+			"jpg",
+			"jpeg",
+			"gif",
+			"bmp",
+			"tiff",
+			"tif",
+			"webp",
+			"svg",
+			"heic",
+			"heif",
+			"avif",
+		].includes(ext)
+	) {
 		return ext.toUpperCase() || "IMG";
 	}
 	if (mime === "text/html" || ext === "html" || ext === "htm") return "HTML";
@@ -456,10 +514,7 @@ function formatFileType(mimeType: string | null, filename: string): string {
 	return "FILE";
 }
 
-function getFileIcon(
-	mimeType: string | null,
-	filename: string,
-): typeof File {
+function getFileIcon(mimeType: string | null, filename: string): typeof File {
 	const mime = normalizeText(mimeType);
 	const extension = getFileExtension(filename);
 
@@ -626,7 +681,6 @@ async function handleBulkDelete(): Promise<boolean> {
 		return false;
 	}
 }
-
 </script>
 
 <div

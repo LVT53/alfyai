@@ -135,7 +135,6 @@ export function reasoningDepthToThinkingMode(
 			return "off";
 		case "max":
 			return "on";
-		case "auto":
 		default:
 			return "auto";
 	}
@@ -149,7 +148,6 @@ export function thinkingModeToReasoningDepth(
 			return "off";
 		case "on":
 			return "max";
-		case "auto":
 		default:
 			return "auto";
 	}

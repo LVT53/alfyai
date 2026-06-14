@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { t } from '$lib/i18n';
-	import ImportChatGPTModal from '$lib/components/chat/ImportChatGPTModal.svelte';
-	import type { Project } from '$lib/types';
+import { t } from "$lib/i18n";
+import ImportChatGPTModal from "$lib/components/chat/ImportChatGPTModal.svelte";
+import type { Project } from "$lib/types";
 
-	let showImportModal = $state(false);
-	let { projects = [] }: { projects?: Project[] } = $props();
+let showImportModal = $state(false);
+let { projects = [] }: { projects?: Project[] } = $props();
 </script>
 
 <section class="settings-card mb-4">

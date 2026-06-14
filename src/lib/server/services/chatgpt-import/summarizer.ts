@@ -1,11 +1,11 @@
 import { generateText } from "ai";
+import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { conversationSummaries } from "$lib/server/db/schema";
-import { getConfig } from "$lib/server/config-store";
 import {
 	createOpenAICompatibleProviderForNormalChatModelRun,
-	resolveNormalChatModelRunProvider,
 	type NormalChatModelRunRuntimeConfig,
+	resolveNormalChatModelRunProvider,
 } from "$lib/server/services/normal-chat-model";
 import {
 	SUMMARIZER_MAX_RETRIES,
@@ -266,10 +266,7 @@ export async function syncSummaryToHoncho(
 		const content = `[Conversation Summary: "${title}"]\n\n${summary}`;
 		await mirrorMessage(userId, conversationId, "assistant", content);
 	} catch (err) {
-		console.error(
-			"[CHATGPT_IMPORT] Failed to sync summary to Honcho:",
-			err,
-		);
+		console.error("[CHATGPT_IMPORT] Failed to sync summary to Honcho:", err);
 	}
 }
 
@@ -288,15 +285,13 @@ export async function summarizeAndStoreConversation(
 		const summary = await summarizeConversation(messages, title);
 		await storeConversationSummary(userId, conversationId, summary);
 
-		syncSummaryToHoncho(userId, conversationId, summary, title).catch(
-			(err) => {
-				console.error(
-					"[CHATGPT_IMPORT] Honcho sync failed for conversation",
-					conversationId,
-					err,
-				);
-			},
-		);
+		syncSummaryToHoncho(userId, conversationId, summary, title).catch((err) => {
+			console.error(
+				"[CHATGPT_IMPORT] Honcho sync failed for conversation",
+				conversationId,
+				err,
+			);
+		});
 	} catch (err) {
 		console.error(
 			"[CHATGPT_IMPORT] Summarization failed for conversation",

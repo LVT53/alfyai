@@ -866,7 +866,11 @@ function finalAnswerQualityIssues(params: {
 }
 
 function mentionsHungarian(value: string): boolean {
-	if (/\b(hungarian|magyar|hungary|magyarorsz[aá]g|magyarul|magyar nyelv)\b/i.test(value)) {
+	if (
+		/\b(hungarian|magyar|hungary|magyarorsz[aá]g|magyarul|magyar nyelv)\b/i.test(
+			value,
+		)
+	) {
 		return true;
 	}
 	// Hungarian-language input itself is a Hungarian signal —
@@ -877,7 +881,9 @@ function mentionsHungarian(value: string): boolean {
 	const otherDiacritics = (value.match(/[áéíóöúü]/gi) ?? []).length;
 	const hungarianScore = doubleAcutes + otherDiacritics;
 	if (hungarianScore >= 4) return true;
-	return /\b(és|hogy|mert|akkor|kell|lehet|szeretnék|kérlek|tudsz|tudod)\b/i.test(value);
+	return /\b(és|hogy|mert|akkor|kell|lehet|szeretnék|kérlek|tudsz|tudod)\b/i.test(
+		value,
+	);
 }
 
 export function appendDeliberationBriefsToInput(

@@ -8,12 +8,9 @@ import {
 	projects,
 } from "$lib/server/db/schema";
 import { createConversation } from "$lib/server/services/conversations";
-import {
-	parseConversationsJson,
-	type ParseResult,
-} from "./parser";
-import { summarizeAndStoreConversation } from "./summarizer";
 import { generateImportEmbeddings } from "./embeddings";
+import { type ParseResult, parseConversationsJson } from "./parser";
+import { summarizeAndStoreConversation } from "./summarizer";
 
 interface ImportOptions {
 	projectId?: string | null;
@@ -44,10 +41,7 @@ async function validateImportProjectId(
 		.select({ id: projects.id })
 		.from(projects)
 		.where(
-			and(
-				eq(projects.id, normalizedProjectId),
-				eq(projects.userId, userId),
-			),
+			and(eq(projects.id, normalizedProjectId), eq(projects.userId, userId)),
 		)
 		.limit(1);
 

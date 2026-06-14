@@ -1,26 +1,31 @@
 export type GeneratedDocumentBlock =
-	| { type: 'heading'; level: 1 | 2 | 3; text: string }
-	| { type: 'paragraph'; text: string }
-	| { type: 'list'; style: 'bullet' | 'numbered'; items: string[] }
-	| { type: 'callout'; tone: 'info' | 'warning' | 'tip' | 'note'; title?: string | null; text: string }
-	| { type: 'code'; language?: string | null; text: string }
-	| { type: 'quote'; text: string; citation?: string | null }
-	| { type: 'divider' }
+	| { type: "heading"; level: 1 | 2 | 3; text: string }
+	| { type: "paragraph"; text: string }
+	| { type: "list"; style: "bullet" | "numbered"; items: string[] }
+	| {
+			type: "callout";
+			tone: "info" | "warning" | "tip" | "note";
+			title?: string | null;
+			text: string;
+	  }
+	| { type: "code"; language?: string | null; text: string }
+	| { type: "quote"; text: string; citation?: string | null }
+	| { type: "divider" }
 	| GeneratedDocumentTableBlock
 	| GeneratedDocumentChartBlock
 	| GeneratedDocumentImageBlock
-	| { type: 'pageBreak' };
+	| { type: "pageBreak" };
 
 export type GeneratedDocumentScalar = string | number | boolean | null;
 
 export interface GeneratedDocumentTableColumn {
 	key: string;
 	label: string;
-	kind: 'text' | 'number' | 'currency' | 'percent' | 'date' | 'boolean';
+	kind: "text" | "number" | "currency" | "percent" | "date" | "boolean";
 }
 
 export interface GeneratedDocumentTableBlock {
-	type: 'table';
+	type: "table";
 	title?: string | null;
 	caption?: string | null;
 	columns: GeneratedDocumentTableColumn[];
@@ -28,16 +33,16 @@ export interface GeneratedDocumentTableBlock {
 }
 
 export type GeneratedDocumentChartType =
-	| 'bar'
-	| 'stackedBar'
-	| 'line'
-	| 'area'
-	| 'pie'
-	| 'scatter'
-	| 'donut';
+	| "bar"
+	| "stackedBar"
+	| "line"
+	| "area"
+	| "pie"
+	| "scatter"
+	| "donut";
 
 export interface GeneratedDocumentChartBlock {
-	type: 'chart';
+	type: "chart";
 	chartType: GeneratedDocumentChartType;
 	title?: string | null;
 	caption?: string | null;
@@ -53,13 +58,17 @@ export interface GeneratedDocumentChartBlock {
 }
 
 export type GeneratedDocumentImageSource =
-	| { kind: 'https'; url: string }
-	| { kind: 'artifact'; artifactId: string }
-	| { kind: 'generated_file'; fileId: string }
-	| { kind: 'data'; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; data: string };
+	| { kind: "https"; url: string }
+	| { kind: "artifact"; artifactId: string }
+	| { kind: "generated_file"; fileId: string }
+	| {
+			kind: "data";
+			mimeType: "image/png" | "image/jpeg" | "image/webp";
+			data: string;
+	  };
 
 export interface GeneratedDocumentImageBlock {
-	type: 'image';
+	type: "image";
 	source: GeneratedDocumentImageSource;
 	altText: string;
 	caption?: string | null;
@@ -68,7 +77,7 @@ export interface GeneratedDocumentImageBlock {
 
 export interface GeneratedDocumentSource {
 	version: 1;
-	template: 'alfyai_standard_report';
+	template: "alfyai_standard_report";
 	title: string;
 	subtitle?: string | null;
 	date?: string | null;
@@ -81,12 +90,12 @@ export type GeneratedDocumentSourceValidationResult =
 	| { ok: false; code: string; message: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null;
+	return typeof value === "object" && value !== null;
 }
 
 function cleanText(value: unknown): string | null {
-	if (typeof value !== 'string') return null;
-	const trimmed = value.replace(/\s+/g, ' ').trim();
+	if (typeof value !== "string") return null;
+	const trimmed = value.replace(/\s+/g, " ").trim();
 	return trimmed.length > 0 ? trimmed : null;
 }
 
@@ -98,34 +107,43 @@ function cleanKey(value: unknown): string | null {
 function isScalar(value: unknown): value is GeneratedDocumentScalar {
 	return (
 		value === null ||
-		typeof value === 'string' ||
-		typeof value === 'number' ||
-		typeof value === 'boolean'
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
 	);
 }
 
-function normalizeScalarRecord(value: unknown): Record<string, GeneratedDocumentScalar> | null {
+function normalizeScalarRecord(
+	value: unknown,
+): Record<string, GeneratedDocumentScalar> | null {
 	if (!isRecord(value)) return null;
 
 	const normalized: Record<string, GeneratedDocumentScalar> = {};
 	for (const [key, cellValue] of Object.entries(value)) {
-		if (key === 'colspan' || key === 'rowspan') return null;
+		if (key === "colspan" || key === "rowspan") return null;
 		if (!isScalar(cellValue)) return null;
-		normalized[key] = typeof cellValue === 'string' ? cellValue.replace(/\s+/g, ' ').trim() : cellValue;
+		normalized[key] =
+			typeof cellValue === "string"
+				? cellValue.replace(/\s+/g, " ").trim()
+				: cellValue;
 	}
 	return normalized;
 }
 
 type TableColumnDraft = GeneratedDocumentTableColumn & { sourceKeys: string[] };
 
-function makeColumnKey(label: string, index: number, usedKeys: Set<string>): string {
+function makeColumnKey(
+	label: string,
+	index: number,
+	usedKeys: Set<string>,
+): string {
 	const base =
 		label
-			.normalize('NFD')
-			.replace(/[\u0300-\u036f]/g, '')
+			.normalize("NFD")
+			.replace(/[\u0300-\u036f]/g, "")
 			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '_')
-			.replace(/^_+|_+$/g, '') || `col_${index + 1}`;
+			.replace(/[^a-z0-9]+/g, "_")
+			.replace(/^_+|_+$/g, "") || `col_${index + 1}`;
 	let key = base;
 	let suffix = 2;
 	while (usedKeys.has(key)) {
@@ -136,7 +154,11 @@ function makeColumnKey(label: string, index: number, usedKeys: Set<string>): str
 	return key;
 }
 
-function normalizeTableColumn(value: unknown, index: number, usedKeys: Set<string>): TableColumnDraft | null {
+function normalizeTableColumn(
+	value: unknown,
+	index: number,
+	usedKeys: Set<string>,
+): TableColumnDraft | null {
 	const columnRecord = isRecord(value) ? value : null;
 	const label =
 		cleanText(columnRecord?.label) ??
@@ -153,13 +175,13 @@ function normalizeTableColumn(value: unknown, index: number, usedKeys: Set<strin
 			: makeColumnKey(label, index, usedKeys);
 	if (explicitKey && key === explicitKey) usedKeys.add(explicitKey);
 	const kind =
-		columnRecord?.kind === 'number' ||
-		columnRecord?.kind === 'currency' ||
-		columnRecord?.kind === 'percent' ||
-		columnRecord?.kind === 'date' ||
-		columnRecord?.kind === 'boolean'
+		columnRecord?.kind === "number" ||
+		columnRecord?.kind === "currency" ||
+		columnRecord?.kind === "percent" ||
+		columnRecord?.kind === "date" ||
+		columnRecord?.kind === "boolean"
 			? columnRecord.kind
-			: 'text';
+			: "text";
 	const sourceKeys = Array.from(
 		new Set(
 			[
@@ -170,8 +192,8 @@ function normalizeTableColumn(value: unknown, index: number, usedKeys: Set<strin
 				cleanText(columnRecord?.key),
 				label,
 				key,
-			].filter((sourceKey): sourceKey is string => Boolean(sourceKey))
-		)
+			].filter((sourceKey): sourceKey is string => Boolean(sourceKey)),
+		),
 	);
 	return { key, label, kind, sourceKeys };
 }
@@ -185,7 +207,8 @@ function getTableColumnSource(block: Record<string, unknown>): unknown {
 		if (Array.isArray(block.data.headers)) return block.data.headers;
 		if (Array.isArray(block.data.header)) return block.data.header;
 	}
-	if (Array.isArray(block.data) && Array.isArray(block.data[0])) return block.data[0];
+	if (Array.isArray(block.data) && Array.isArray(block.data[0]))
+		return block.data[0];
 	return null;
 }
 
@@ -198,13 +221,14 @@ function getTableRowsSource(block: Record<string, unknown>): unknown {
 		if (Array.isArray(block.data.body)) return block.data.body;
 		if (Array.isArray(block.data.cells)) return block.data.cells;
 	}
-	if (Array.isArray(block.data) && Array.isArray(block.data[0])) return block.data.slice(1);
+	if (Array.isArray(block.data) && Array.isArray(block.data[0]))
+		return block.data.slice(1);
 	return null;
 }
 
 function normalizeTableRows(
 	rowsSource: unknown,
-	columns: TableColumnDraft[]
+	columns: TableColumnDraft[],
 ): Record<string, GeneratedDocumentScalar>[] {
 	if (!Array.isArray(rowsSource)) return [];
 
@@ -217,7 +241,8 @@ function normalizeTableRows(
 			for (const [index, column] of columns.entries()) {
 				const value = rowSource[index] ?? null;
 				if (!isScalar(value)) return [];
-				row[column.key] = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : value;
+				row[column.key] =
+					typeof value === "string" ? value.replace(/\s+/g, " ").trim() : value;
 			}
 			rows.push(row);
 			continue;
@@ -237,22 +262,25 @@ function normalizeTableRows(
 			}
 			row[column.key] = value;
 		}
-		if (matchedCellCount === 0 && Object.keys(scalarRecord).length > 0) return [];
+		if (matchedCellCount === 0 && Object.keys(scalarRecord).length > 0)
+			return [];
 		rows.push(row);
 	}
 	return rows;
 }
 
 function cleanChartLabel(value: unknown, fallback: string): string {
-	if (typeof value === 'string') return value.replace(/\s+/g, ' ').trim() || fallback;
-	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+	if (typeof value === "string")
+		return value.replace(/\s+/g, " ").trim() || fallback;
+	if (typeof value === "number" || typeof value === "boolean")
+		return String(value);
 	return fallback;
 }
 
 function numericChartValue(value: unknown): number | null {
-	if (typeof value === 'number' && Number.isFinite(value)) return value;
-	if (typeof value === 'string' && value.trim()) {
-		const parsed = Number(value.trim().replace(/,/g, ''));
+	if (typeof value === "number" && Number.isFinite(value)) return value;
+	if (typeof value === "string" && value.trim()) {
+		const parsed = Number(value.trim().replace(/,/g, ""));
 		return Number.isFinite(parsed) ? parsed : null;
 	}
 	if (isRecord(value)) {
@@ -263,31 +291,31 @@ function numericChartValue(value: unknown): number | null {
 
 function normalizeChartJsData(
 	block: Record<string, unknown>,
-	chartType: GeneratedDocumentChartType
-):
-	| {
-			data: Record<string, GeneratedDocumentScalar>[];
-			xKey?: string | null;
-			yKey?: string | null;
-			labelKey?: string | null;
-			valueKey?: string | null;
-			seriesKey?: string | null;
-			units?: string | null;
-	  }
-	| null {
+	chartType: GeneratedDocumentChartType,
+): {
+	data: Record<string, GeneratedDocumentScalar>[];
+	xKey?: string | null;
+	yKey?: string | null;
+	labelKey?: string | null;
+	valueKey?: string | null;
+	seriesKey?: string | null;
+	units?: string | null;
+} | null {
 	if (!isRecord(block.data) || !Array.isArray(block.data.datasets)) return null;
 
 	const labels = Array.isArray(block.data.labels) ? block.data.labels : [];
-	const datasets = block.data.datasets.filter((dataset): dataset is Record<string, unknown> =>
-		isRecord(dataset)
+	const datasets = block.data.datasets.filter(
+		(dataset): dataset is Record<string, unknown> => isRecord(dataset),
 	);
 	if (datasets.length === 0) return null;
 
 	const firstDataset = datasets[0];
-	const firstDatasetData = Array.isArray(firstDataset.data) ? firstDataset.data : [];
-	const firstDatasetLabel = cleanText(firstDataset.label) ?? 'value';
+	const firstDatasetData = Array.isArray(firstDataset.data)
+		? firstDataset.data
+		: [];
+	const firstDatasetLabel = cleanText(firstDataset.label) ?? "value";
 
-	if (chartType === 'pie' || chartType === 'donut') {
+	if (chartType === "pie" || chartType === "donut") {
 		const rows = firstDatasetData
 			.map((value, index) => {
 				const numericValue = numericChartValue(value);
@@ -300,11 +328,16 @@ function normalizeChartJsData(
 			})
 			.filter((row): row is { label: string; value: number } => Boolean(row));
 		return rows.length > 0
-			? { data: rows, labelKey: 'label', valueKey: 'value', units: firstDatasetLabel }
+			? {
+					data: rows,
+					labelKey: "label",
+					valueKey: "value",
+					units: firstDatasetLabel,
+				}
 			: null;
 	}
 
-	if (chartType === 'stackedBar') {
+	if (chartType === "stackedBar") {
 		const rows = datasets.flatMap((dataset, datasetIndex) => {
 			const series = cleanText(dataset.label) ?? `Series ${datasetIndex + 1}`;
 			const values = Array.isArray(dataset.data) ? dataset.data : [];
@@ -319,14 +352,23 @@ function normalizeChartJsData(
 								value: numericValue,
 							};
 				})
-				.filter((row): row is { label: string; series: string; value: number } => Boolean(row));
+				.filter(
+					(row): row is { label: string; series: string; value: number } =>
+						Boolean(row),
+				);
 		});
 		return rows.length > 0
-			? { data: rows, xKey: 'label', yKey: 'value', seriesKey: 'series', units: firstDatasetLabel }
+			? {
+					data: rows,
+					xKey: "label",
+					yKey: "value",
+					seriesKey: "series",
+					units: firstDatasetLabel,
+				}
 			: null;
 	}
 
-	if (chartType === 'scatter') {
+	if (chartType === "scatter") {
 		const rows = firstDatasetData
 			.map((value, index) => {
 				const x = isRecord(value) ? numericChartValue(value.x) : index + 1;
@@ -339,8 +381,12 @@ function normalizeChartJsData(
 							value: y,
 						};
 			})
-			.filter((row): row is { label: string; x: number; value: number } => Boolean(row));
-		return rows.length > 0 ? { data: rows, xKey: 'x', yKey: 'value', units: firstDatasetLabel } : null;
+			.filter((row): row is { label: string; x: number; value: number } =>
+				Boolean(row),
+			);
+		return rows.length > 0
+			? { data: rows, xKey: "x", yKey: "value", units: firstDatasetLabel }
+			: null;
 	}
 
 	const rows = firstDatasetData
@@ -354,14 +400,18 @@ function normalizeChartJsData(
 					};
 		})
 		.filter((row): row is { label: string; value: number } => Boolean(row));
-	return rows.length > 0 ? { data: rows, xKey: 'label', yKey: 'value', units: firstDatasetLabel } : null;
+	return rows.length > 0
+		? { data: rows, xKey: "label", yKey: "value", units: firstDatasetLabel }
+		: null;
 }
 
 type BlockNormalizationResult =
 	| { ok: true; block: GeneratedDocumentBlock }
 	| { ok: false; code: string; message: string };
 
-function normalizeTableBlock(block: Record<string, unknown>): BlockNormalizationResult {
+function normalizeTableBlock(
+	block: Record<string, unknown>,
+): BlockNormalizationResult {
 	const usedKeys = new Set<string>();
 	const columnSource = getTableColumnSource(block);
 	const columns = Array.isArray(columnSource)
@@ -380,15 +430,16 @@ function normalizeTableBlock(block: Record<string, unknown>): BlockNormalization
 	) {
 		return {
 			ok: false,
-			code: 'unsupported_table_structure',
-			message: 'Generated document source contains an unsupported table structure.',
+			code: "unsupported_table_structure",
+			message:
+				"Generated document source contains an unsupported table structure.",
 		};
 	}
 
 	return {
 		ok: true,
 		block: {
-			type: 'table',
+			type: "table",
 			title: cleanText(block.title),
 			caption: cleanText(block.caption),
 			columns: columns.map(({ sourceKeys: _sourceKeys, ...column }) => column),
@@ -397,38 +448,46 @@ function normalizeTableBlock(block: Record<string, unknown>): BlockNormalization
 	};
 }
 
-function normalizeChartBlock(block: Record<string, unknown>): BlockNormalizationResult {
+function normalizeChartBlock(
+	block: Record<string, unknown>,
+): BlockNormalizationResult {
 	const chartType =
-		block.chartType === 'bar' ||
-		block.chartType === 'stackedBar' ||
-		block.chartType === 'line' ||
-		block.chartType === 'area' ||
-		block.chartType === 'pie' ||
-		block.chartType === 'scatter' ||
-		block.chartType === 'donut'
+		block.chartType === "bar" ||
+		block.chartType === "stackedBar" ||
+		block.chartType === "line" ||
+		block.chartType === "area" ||
+		block.chartType === "pie" ||
+		block.chartType === "scatter" ||
+		block.chartType === "donut"
 			? block.chartType
 			: null;
 
 	if (!chartType) {
 		return {
 			ok: false,
-			code: 'unsupported_chart_type',
-			message: 'Generated document source contains an unsupported chart type.',
+			code: "unsupported_chart_type",
+			message: "Generated document source contains an unsupported chart type.",
 		};
 	}
 
 	const chartJsData = normalizeChartJsData(block, chartType);
 	const dataSource = Array.isArray(block.data) ? block.data : chartJsData?.data;
 	const data = Array.isArray(dataSource)
-		? dataSource.map(normalizeScalarRecord).filter((row): row is Record<string, GeneratedDocumentScalar> =>
-				Boolean(row)
-			)
+		? dataSource
+				.map(normalizeScalarRecord)
+				.filter((row): row is Record<string, GeneratedDocumentScalar> =>
+					Boolean(row),
+				)
 		: [];
-	if (data.length === 0 || !Array.isArray(dataSource) || data.length !== dataSource.length) {
+	if (
+		data.length === 0 ||
+		!Array.isArray(dataSource) ||
+		data.length !== dataSource.length
+	) {
 		return {
 			ok: false,
-			code: 'unsupported_chart_data',
-			message: 'Generated document source contains unsupported chart data.',
+			code: "unsupported_chart_data",
+			message: "Generated document source contains unsupported chart data.",
 		};
 	}
 
@@ -444,36 +503,40 @@ function normalizeChartBlock(block: Record<string, unknown>): BlockNormalization
 	if (!title || !caption || !altText || !units) {
 		return {
 			ok: false,
-			code: 'unsupported_chart_data',
-			message: 'Generated document charts require title, caption, units, and alt text.',
+			code: "unsupported_chart_data",
+			message:
+				"Generated document charts require title, caption, units, and alt text.",
 		};
 	}
-	if ((chartType === 'pie' || chartType === 'donut') && !(labelKey && valueKey)) {
+	if (
+		(chartType === "pie" || chartType === "donut") &&
+		!(labelKey && valueKey)
+	) {
 		return {
 			ok: false,
-			code: 'unsupported_chart_data',
-			message: 'Pie-style charts require labelKey and valueKey fields.',
+			code: "unsupported_chart_data",
+			message: "Pie-style charts require labelKey and valueKey fields.",
 		};
 	}
-	if (chartType !== 'pie' && chartType !== 'donut' && !(xKey && yKey)) {
+	if (chartType !== "pie" && chartType !== "donut" && !(xKey && yKey)) {
 		return {
 			ok: false,
-			code: 'unsupported_chart_data',
-			message: 'Generated document charts require xKey and yKey fields.',
+			code: "unsupported_chart_data",
+			message: "Generated document charts require xKey and yKey fields.",
 		};
 	}
-	if (chartType === 'stackedBar' && !seriesKey) {
+	if (chartType === "stackedBar" && !seriesKey) {
 		return {
 			ok: false,
-			code: 'unsupported_chart_data',
-			message: 'Stacked bar charts require a seriesKey field.',
+			code: "unsupported_chart_data",
+			message: "Stacked bar charts require a seriesKey field.",
 		};
 	}
 
 	return {
 		ok: true,
 		block: {
-			type: 'chart',
+			type: "chart",
 			chartType,
 			title,
 			caption,
@@ -490,49 +553,54 @@ function normalizeChartBlock(block: Record<string, unknown>): BlockNormalization
 	};
 }
 
-function normalizeImageBlock(block: Record<string, unknown>): BlockNormalizationResult {
+function normalizeImageBlock(
+	block: Record<string, unknown>,
+): BlockNormalizationResult {
 	if (!isRecord(block.source)) {
 		return {
 			ok: false,
-			code: 'image_limit_exceeded',
-			message: 'Generated document image source is invalid.',
+			code: "image_limit_exceeded",
+			message: "Generated document image source is invalid.",
 		};
 	}
 
 	let source: GeneratedDocumentImageSource | null = null;
-	if (block.source.kind === 'https') {
+	if (block.source.kind === "https") {
 		const url = cleanText(block.source.url);
-		source = url && url.startsWith('https://') ? { kind: 'https', url } : null;
-	} else if (block.source.kind === 'artifact') {
+		source = url?.startsWith("https://") ? { kind: "https", url } : null;
+	} else if (block.source.kind === "artifact") {
 		const artifactId = cleanText(block.source.artifactId);
-		source = artifactId ? { kind: 'artifact', artifactId } : null;
-	} else if (block.source.kind === 'generated_file') {
+		source = artifactId ? { kind: "artifact", artifactId } : null;
+	} else if (block.source.kind === "generated_file") {
 		const fileId = cleanText(block.source.fileId);
-		source = fileId ? { kind: 'generated_file', fileId } : null;
-	} else if (block.source.kind === 'data') {
+		source = fileId ? { kind: "generated_file", fileId } : null;
+	} else if (block.source.kind === "data") {
 		const mimeType =
-			block.source.mimeType === 'image/png' ||
-			block.source.mimeType === 'image/jpeg' ||
-			block.source.mimeType === 'image/webp'
+			block.source.mimeType === "image/png" ||
+			block.source.mimeType === "image/jpeg" ||
+			block.source.mimeType === "image/webp"
 				? block.source.mimeType
 				: null;
-		const data = typeof block.source.data === 'string' && block.source.data.length > 0 ? block.source.data : null;
-		source = mimeType && data ? { kind: 'data', mimeType, data } : null;
+		const data =
+			typeof block.source.data === "string" && block.source.data.length > 0
+				? block.source.data
+				: null;
+		source = mimeType && data ? { kind: "data", mimeType, data } : null;
 	}
 
 	const altText = cleanText(block.altText);
 	if (!source || !altText) {
 		return {
 			ok: false,
-			code: 'image_limit_exceeded',
-			message: 'Generated document image source is invalid.',
+			code: "image_limit_exceeded",
+			message: "Generated document image source is invalid.",
 		};
 	}
 
 	return {
 		ok: true,
 		block: {
-			type: 'image',
+			type: "image",
 			source,
 			altText,
 			caption: cleanText(block.caption),
@@ -542,122 +610,127 @@ function normalizeImageBlock(block: Record<string, unknown>): BlockNormalization
 }
 
 function normalizeBlock(block: unknown): BlockNormalizationResult {
-	if (!isRecord(block) || typeof block.type !== 'string') {
+	if (!isRecord(block) || typeof block.type !== "string") {
 		return {
 			ok: false,
-			code: 'unsupported_document_block',
-			message: 'Generated document source contains an unsupported block.',
+			code: "unsupported_document_block",
+			message: "Generated document source contains an unsupported block.",
 		};
 	}
 
 	switch (block.type) {
-		case 'heading': {
+		case "heading": {
 			const text = cleanText(block.text);
 			const hasExplicitLevel =
-				Object.hasOwn(block, 'level') && block.level !== undefined;
+				Object.hasOwn(block, "level") && block.level !== undefined;
 			const level = !hasExplicitLevel
 				? 2
 				: block.level === 1 || block.level === 2 || block.level === 3
 					? block.level
 					: null;
 			return text && level
-				? { ok: true, block: { type: 'heading', level, text } }
+				? { ok: true, block: { type: "heading", level, text } }
 				: {
 						ok: false,
-						code: 'unsupported_document_block',
-						message: 'Generated document source contains an unsupported block.',
+						code: "unsupported_document_block",
+						message: "Generated document source contains an unsupported block.",
 					};
 		}
-		case 'paragraph': {
+		case "paragraph": {
 			const text = cleanText(block.text);
 			return text
-				? { ok: true, block: { type: 'paragraph', text } }
+				? { ok: true, block: { type: "paragraph", text } }
 				: {
 						ok: false,
-						code: 'unsupported_document_block',
-						message: 'Generated document source contains an unsupported block.',
+						code: "unsupported_document_block",
+						message: "Generated document source contains an unsupported block.",
 					};
 		}
-		case 'list': {
-			const style = block.style === 'numbered' ? 'numbered' : 'bullet';
+		case "list": {
+			const style = block.style === "numbered" ? "numbered" : "bullet";
 			const items = Array.isArray(block.items)
-				? block.items.map(cleanText).filter((item): item is string => Boolean(item))
+				? block.items
+						.map(cleanText)
+						.filter((item): item is string => Boolean(item))
 				: [];
 			return items.length > 0
-				? { ok: true, block: { type: 'list', style, items } }
+				? { ok: true, block: { type: "list", style, items } }
 				: {
 						ok: false,
-						code: 'unsupported_document_block',
-						message: 'Generated document source contains an unsupported block.',
+						code: "unsupported_document_block",
+						message: "Generated document source contains an unsupported block.",
 					};
 		}
-		case 'callout': {
+		case "callout": {
 			const text = cleanText(block.text);
 			const title = cleanText(block.title);
 			const tone =
-				block.tone === 'info' ||
-				block.tone === 'warning' ||
-				block.tone === 'tip' ||
-				block.tone === 'note'
+				block.tone === "info" ||
+				block.tone === "warning" ||
+				block.tone === "tip" ||
+				block.tone === "note"
 					? block.tone
-					: 'note';
+					: "note";
 			return text
-				? { ok: true, block: { type: 'callout', tone, title, text } }
+				? { ok: true, block: { type: "callout", tone, title, text } }
 				: {
 						ok: false,
-						code: 'unsupported_document_block',
-						message: 'Generated document source contains an unsupported block.',
+						code: "unsupported_document_block",
+						message: "Generated document source contains an unsupported block.",
 					};
 		}
-		case 'code': {
-			const text = typeof block.text === 'string' && block.text.trim() ? block.text.trimEnd() : null;
+		case "code": {
+			const text =
+				typeof block.text === "string" && block.text.trim()
+					? block.text.trimEnd()
+					: null;
 			const language = cleanText(block.language);
 			return text
-				? { ok: true, block: { type: 'code', language, text } }
+				? { ok: true, block: { type: "code", language, text } }
 				: {
 						ok: false,
-						code: 'unsupported_document_block',
-						message: 'Generated document source contains an unsupported block.',
+						code: "unsupported_document_block",
+						message: "Generated document source contains an unsupported block.",
 					};
 		}
-		case 'quote': {
+		case "quote": {
 			const text = cleanText(block.text);
 			const citation = cleanText(block.citation);
 			return text
-				? { ok: true, block: { type: 'quote', text, citation } }
+				? { ok: true, block: { type: "quote", text, citation } }
 				: {
 						ok: false,
-						code: 'unsupported_document_block',
-						message: 'Generated document source contains an unsupported block.',
+						code: "unsupported_document_block",
+						message: "Generated document source contains an unsupported block.",
 					};
 		}
-		case 'divider':
-			return { ok: true, block: { type: 'divider' } };
-		case 'table':
+		case "divider":
+			return { ok: true, block: { type: "divider" } };
+		case "table":
 			return normalizeTableBlock(block);
-		case 'chart':
+		case "chart":
 			return normalizeChartBlock(block);
-		case 'image':
+		case "image":
 			return normalizeImageBlock(block);
-		case 'pageBreak':
-			return { ok: true, block: { type: 'pageBreak' } };
+		case "pageBreak":
+			return { ok: true, block: { type: "pageBreak" } };
 		default:
 			return {
 				ok: false,
-				code: 'unsupported_document_block',
-				message: 'Generated document source contains an unsupported block.',
+				code: "unsupported_document_block",
+				message: "Generated document source contains an unsupported block.",
 			};
 	}
 }
 
 export function validateGeneratedDocumentSource(
-	value: unknown
+	value: unknown,
 ): GeneratedDocumentSourceValidationResult {
 	if (!isRecord(value)) {
 		return {
 			ok: false,
-			code: 'invalid_document_source',
-			message: 'Generated document source must be an object.',
+			code: "invalid_document_source",
+			message: "Generated document source must be an object.",
 		};
 	}
 
@@ -667,14 +740,14 @@ export function validateGeneratedDocumentSource(
 	if (version !== 1) {
 		return {
 			ok: false,
-			code: 'invalid_document_source',
-			message: 'Generated document source requires version: 1.',
+			code: "invalid_document_source",
+			message: "Generated document source requires version: 1.",
 		};
 	}
-	if (template !== 'alfyai_standard_report') {
+	if (template !== "alfyai_standard_report") {
 		return {
 			ok: false,
-			code: 'invalid_document_source',
+			code: "invalid_document_source",
 			message:
 				'Generated document source requires template: "alfyai_standard_report".',
 		};
@@ -682,16 +755,16 @@ export function validateGeneratedDocumentSource(
 	if (!title) {
 		return {
 			ok: false,
-			code: 'invalid_document_source',
-			message: 'Generated document source requires a title.',
+			code: "invalid_document_source",
+			message: "Generated document source requires a title.",
 		};
 	}
 
 	if (!Array.isArray(value.blocks)) {
 		return {
 			ok: false,
-			code: 'invalid_document_source',
-			message: 'Generated document source requires blocks.',
+			code: "invalid_document_source",
+			message: "Generated document source requires blocks.",
 		};
 	}
 
@@ -720,7 +793,7 @@ export function validateGeneratedDocumentSource(
 		ok: true,
 		source: {
 			version: 1,
-			template: 'alfyai_standard_report',
+			template: "alfyai_standard_report",
 			title,
 			subtitle: cleanText(value.subtitle),
 			date: cleanText(value.date),
@@ -730,7 +803,9 @@ export function validateGeneratedDocumentSource(
 	};
 }
 
-export function buildGeneratedDocumentProjection(source: GeneratedDocumentSource): string {
+export function buildGeneratedDocumentProjection(
+	source: GeneratedDocumentSource,
+): string {
 	const lines: string[] = [source.title];
 	if (source.subtitle) {
 		lines.push(source.subtitle);
@@ -739,65 +814,82 @@ export function buildGeneratedDocumentProjection(source: GeneratedDocumentSource
 		lines.push(source.date);
 	}
 	if (source.cover) {
-		lines.push(source.cover.eyebrow ? `Cover: ${source.cover.eyebrow}` : 'Cover');
+		lines.push(
+			source.cover.eyebrow ? `Cover: ${source.cover.eyebrow}` : "Cover",
+		);
 		if (source.cover.dateLabel) lines.push(source.cover.dateLabel);
 	}
-	lines.push('');
+	lines.push("");
 
 	for (const block of source.blocks) {
 		switch (block.type) {
-			case 'heading':
-				lines.push(`${'#'.repeat(block.level)} ${block.text}`);
+			case "heading":
+				lines.push(`${"#".repeat(block.level)} ${block.text}`);
 				break;
-			case 'paragraph':
+			case "paragraph":
 				lines.push(block.text);
 				break;
-			case 'list':
+			case "list":
 				block.items.forEach((item, index) => {
-					lines.push(block.style === 'numbered' ? `${index + 1}. ${item}` : `- ${item}`);
+					lines.push(
+						block.style === "numbered" ? `${index + 1}. ${item}` : `- ${item}`,
+					);
 				});
 				break;
-			case 'callout': {
+			case "callout": {
 				const label = block.tone.charAt(0).toUpperCase() + block.tone.slice(1);
 				lines.push(block.title ? `${label}: ${block.title}` : `${label}:`);
 				lines.push(block.text);
 				break;
 			}
-			case 'code':
-				lines.push(block.language ? `Code (${block.language}):` : 'Code:');
+			case "code":
+				lines.push(block.language ? `Code (${block.language}):` : "Code:");
 				lines.push(block.text);
 				break;
-			case 'quote':
-				lines.push(block.citation ? `> ${block.text} -- ${block.citation}` : `> ${block.text}`);
+			case "quote":
+				lines.push(
+					block.citation
+						? `> ${block.text} -- ${block.citation}`
+						: `> ${block.text}`,
+				);
 				break;
-			case 'divider':
-				lines.push('---');
+			case "divider":
+				lines.push("---");
 				break;
-			case 'table':
+			case "table":
 				if (block.title) lines.push(`Table: ${block.title}`);
-				lines.push(block.columns.map((column) => column.label).join(' | '));
+				lines.push(block.columns.map((column) => column.label).join(" | "));
 				block.rows.forEach((row) => {
-					lines.push(block.columns.map((column) => String(row[column.key] ?? '')).join(' | '));
+					lines.push(
+						block.columns
+							.map((column) => String(row[column.key] ?? ""))
+							.join(" | "),
+					);
 				});
 				if (block.caption) lines.push(`Caption: ${block.caption}`);
 				break;
-			case 'chart': {
-				const label = block.title ? `${block.chartType}: ${block.title}` : block.chartType;
+			case "chart": {
+				const label = block.title
+					? `${block.chartType}: ${block.title}`
+					: block.chartType;
 				lines.push(`Chart: ${label}`);
 				if (block.altText) lines.push(`Alt text: ${block.altText}`);
 				if (block.caption) lines.push(`Caption: ${block.caption}`);
 				lines.push(`Data points: ${block.data.length}`);
 				break;
 			}
-			case 'image':
+			case "image":
 				lines.push(`Image: ${block.altText}`);
 				if (block.caption) lines.push(`Caption: ${block.caption}`);
 				break;
-			case 'pageBreak':
-				lines.push('[Page break]');
+			case "pageBreak":
+				lines.push("[Page break]");
 				break;
 		}
 	}
 
-	return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+	return lines
+		.join("\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
 }

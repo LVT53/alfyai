@@ -1,594 +1,770 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
-	import { onMount } from 'svelte';
-	import CampaignCropModal from '$lib/components/campaign-admin/CampaignCropModal.svelte';
-	import CampaignModal from '$lib/components/campaigns/CampaignModal.svelte';
-	import {
-		archiveAdminCampaign,
-		createAdminCampaign,
-		deleteAdminCampaignDraft,
-		duplicateAdminCampaign,
-		fetchAdminCampaign,
-		fetchAdminCampaigns,
-		publishAdminCampaign,
-		seedFirstRunCampaign,
-		updateAdminCampaign,
-		type Campaign,
-		type CampaignSlide,
-		type CampaignSlideDraft,
-		type CampaignSlideKind,
-		type CampaignStatus,
-		type CampaignType,
-		type CampaignValidationIssue,
-	} from '$lib/client/api/campaigns';
-	import {
-		saveCampaignAssetCrop,
-		uploadCampaignAssetSource,
-		type CampaignAssetVariant,
-		type CampaignAssetCropGeometry,
-	} from '$lib/client/api/campaign-assets';
-	import { ApiError } from '$lib/client/api/http';
-	import { t } from '$lib/i18n';
+import { invalidateAll } from "$app/navigation";
+import { onMount } from "svelte";
+import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.svelte";
+import CampaignModal from "$lib/components/campaigns/CampaignModal.svelte";
+import {
+	archiveAdminCampaign,
+	createAdminCampaign,
+	deleteAdminCampaignDraft,
+	duplicateAdminCampaign,
+	fetchAdminCampaign,
+	fetchAdminCampaigns,
+	publishAdminCampaign,
+	seedFirstRunCampaign,
+	updateAdminCampaign,
+	type Campaign,
+	type CampaignSlide,
+	type CampaignSlideDraft,
+	type CampaignSlideKind,
+	type CampaignStatus,
+	type CampaignType,
+	type CampaignValidationIssue,
+} from "$lib/client/api/campaigns";
+import {
+	saveCampaignAssetCrop,
+	uploadCampaignAssetSource,
+	type CampaignAssetVariant,
+	type CampaignAssetCropGeometry,
+} from "$lib/client/api/campaign-assets";
+import { ApiError } from "$lib/client/api/http";
+import { t } from "$lib/i18n";
 
-	type EditableSlide = CampaignSlide & {
-		localId: string;
-		kind: CampaignSlideKind;
-	};
+type EditableSlide = CampaignSlide & {
+	localId: string;
+	kind: CampaignSlideKind;
+};
 
-	type DraftState = {
-		id: string;
-		type: CampaignType;
-		name: string;
-		releaseVersion: string;
-		version: Campaign['version'];
-		status: CampaignStatus;
-		updatedAt: Campaign['updatedAt'];
-		createdAt: Campaign['createdAt'];
-		publishedAt: Campaign['publishedAt'];
-		archivedAt: Campaign['archivedAt'];
-		analyticsSummary: Campaign['analyticsSummary'];
-		validationErrors: CampaignValidationIssue[];
-		slides: EditableSlide[];
-	};
+type DraftState = {
+	id: string;
+	type: CampaignType;
+	name: string;
+	releaseVersion: string;
+	version: Campaign["version"];
+	status: CampaignStatus;
+	updatedAt: Campaign["updatedAt"];
+	createdAt: Campaign["createdAt"];
+	publishedAt: Campaign["publishedAt"];
+	archivedAt: Campaign["archivedAt"];
+	analyticsSummary: Campaign["analyticsSummary"];
+	validationErrors: CampaignValidationIssue[];
+	slides: EditableSlide[];
+};
 
-	type CropJob = {
-		slideLocalId: string;
-		variant: CampaignAssetVariant;
-		imageSrc: string;
-		sourceUpload: Promise<{ id: string }>;
-	};
+type CropJob = {
+	slideLocalId: string;
+	variant: CampaignAssetVariant;
+	imageSrc: string;
+	sourceUpload: Promise<{ id: string }>;
+};
 
-	let campaigns = $state<Campaign[]>([]);
-	let draft = $state<DraftState | null>(null);
-	let selectedCampaignId = $state<string | null>(null);
-	let loading = $state(false);
-	let detailLoading = $state(false);
-	let saving = $state(false);
-	let actionLoading = $state(false);
-	let assetLoading = $state<string | null>(null);
-	let errorMessage = $state('');
-	let successMessage = $state('');
-	let createName = $state('');
-	let createType = $state<CampaignType>('first_run_onboarding');
-	let createReleaseVersion = $state('');
-	let previewLocale = $state<'en' | 'hu'>('en');
-	let previewSlideIndex = $state(0);
-	let cropJob = $state<CropJob | null>(null);
+let campaigns = $state<Campaign[]>([]);
+let draft = $state<DraftState | null>(null);
+let selectedCampaignId = $state<string | null>(null);
+let loading = $state(false);
+let detailLoading = $state(false);
+let saving = $state(false);
+let actionLoading = $state(false);
+let assetLoading = $state<string | null>(null);
+let errorMessage = $state("");
+let successMessage = $state("");
+let createName = $state("");
+let createType = $state<CampaignType>("first_run_onboarding");
+let createReleaseVersion = $state("");
+let previewLocale = $state<"en" | "hu">("en");
+let previewSlideIndex = $state(0);
+let cropJob = $state<CropJob | null>(null);
 
-	let localSlideCounter = 0;
+let localSlideCounter = 0;
 
-	let previewCampaign = $derived<Campaign | null>(
-		draft
-			? {
-					id: draft.id,
-					type: draft.type,
-					name: draft.name,
-					releaseVersion: draft.releaseVersion,
-					version: draft.version,
-					status: draft.status,
-					slides: draft.slides,
-				}
-			: null,
-	);
-
-	let isDraftEditable = $derived(draft?.status === 'draft');
-	let clientValidationErrors = $derived(draft && isDraftEditable ? publishReadinessIssues(draft) : []);
-	let validationErrors = $derived(clientValidationErrors.length > 0 ? clientValidationErrors : (draft?.validationErrors ?? []));
-	let canSave = $derived(Boolean(draft && isDraftEditable && !saving && !detailLoading));
-	let canPublish = $derived(Boolean(draft && isDraftEditable && clientValidationErrors.length === 0 && !actionLoading && !saving));
-	let canArchive = $derived(Boolean(draft?.status === 'published' && !actionLoading && !saving));
-	let canDuplicate = $derived(Boolean(draft && !actionLoading && !saving));
-
-	function slideLocalId(slide: CampaignSlide) {
-		return slide.id ?? `local-slide-${++localSlideCounter}`;
-	}
-
-	function normalizeSlides(slides: CampaignSlide[] = []): EditableSlide[] {
-		return [...slides]
-			.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-			.map((slide, index) => ({
-				...slide,
-				localId: slideLocalId(slide),
-				kind: (slide.layoutType ?? slide.kind ?? slide.type ?? (index === 0 ? 'setup' : 'standard')) as CampaignSlideKind,
-				sortOrder: slide.sortOrder ?? index + 1,
-				semanticRole: slide.semanticRole ?? 'feature',
-				titleEn: slide.titleEn ?? slide.title?.en ?? '',
-				titleHu: slide.titleHu ?? slide.title?.hu ?? '',
-				bodyEn: slide.bodyEn ?? slide.body?.en ?? '',
-				bodyHu: slide.bodyHu ?? slide.body?.hu ?? '',
-				altEn: slide.altEn ?? slide.altText?.en ?? '',
-				altHu: slide.altHu ?? slide.altText?.hu ?? '',
-				actionLabelEn: slide.actionLabelEn ?? slide.actionLabel?.en ?? '',
-				actionLabelHu: slide.actionLabelHu ?? slide.actionLabel?.hu ?? '',
-				actionUrl: slide.actionUrl ?? slide.actionDestination ?? '',
-				desktopAssetId: slide.desktopAssetId ?? slide.desktopCropAssetId ?? null,
-				mobileAssetId: slide.mobileAssetId ?? slide.mobileCropAssetId ?? null,
-				setupControls: slide.setupControls ?? [],
-			}));
-	}
-
-	function draftFromCampaign(campaign: Campaign): DraftState {
-		return {
-			id: campaign.id,
-			type: campaign.type,
-			name: campaign.name ?? '',
-			releaseVersion: campaign.releaseVersion ?? '',
-			version: campaign.version ?? null,
-			status: campaign.status,
-			updatedAt: campaign.updatedAt ?? null,
-			createdAt: campaign.createdAt ?? null,
-			publishedAt: campaign.publishedAt ?? null,
-			archivedAt: campaign.archivedAt ?? null,
-			analyticsSummary: campaign.analyticsSummary ?? null,
-			validationErrors: campaign.validationErrors ?? campaign.validationIssues ?? [],
-			slides: normalizeSlides(campaign.slides ?? []),
-		};
-	}
-
-	function fallbackCampaignName(campaign: Campaign) {
-		return campaign.name?.trim() || `${campaign.type} v${campaign.version ?? 1}`;
-	}
-
-	function formatDate(value: Campaign['updatedAt']) {
-		if (!value) return $t('admin.campaigns.dateMissing');
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return String(value);
-		return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
-	}
-
-	function statusLabel(status: CampaignStatus) {
-		if (status === 'draft') return $t('admin.campaigns.status.draft');
-		if (status === 'published') return $t('admin.campaigns.status.published');
-		if (status === 'archived') return $t('admin.campaigns.status.archived');
-		return status;
-	}
-
-	function slideKindLabel(kind: CampaignSlideKind) {
-		return kind === 'setup' ? $t('admin.campaigns.slideKind.setup') : $t('admin.campaigns.slideKind.standard');
-	}
-
-	function slideTitle(slide: EditableSlide) {
-		return slide.titleEn?.trim() || slide.titleHu?.trim() || slideKindLabel(slide.kind);
-	}
-
-	function showSuccess(message: string) {
-		successMessage = message;
-		errorMessage = '';
-	}
-
-	function showError(error: unknown, fallback: string) {
-		errorMessage = error instanceof Error ? error.message : fallback;
-		successMessage = '';
-	}
-
-	function validationErrorsFromFieldErrors(fieldErrors: Record<string, string>): CampaignValidationIssue[] {
-		return Object.entries(fieldErrors).map(([path, message]) => ({ path, message }));
-	}
-
-	const allowedActionDestinations = new Set(['/', '/chat', '/knowledge', '/settings', '/settings/profile', '/settings/admin']);
-	const allowedSetupControls = new Set(['ui_language', 'theme', 'model_default', 'ai_style']);
-
-	function issue(path: string, message: string): CampaignValidationIssue {
-		return { path, message };
-	}
-
-	function publishReadinessIssues(campaign: DraftState): CampaignValidationIssue[] {
-		const issues: CampaignValidationIssue[] = [];
-		if (!campaign.name.trim()) {
-			issues.push(issue('name', $t('admin.campaigns.validation.nameRequired')));
-		}
-		if (campaign.type !== 'first_run_onboarding' && campaign.type !== 'release_update') {
-			issues.push(issue('type', $t('admin.campaigns.validation.typeInvalid')));
-		}
-		if (campaign.type === 'release_update' && !campaign.releaseVersion.trim()) {
-			issues.push(issue('releaseVersion', $t('admin.campaigns.validation.releaseVersionRequired')));
-		}
-		if (campaign.slides.length === 0) {
-			issues.push(issue('slides', $t('admin.campaigns.validation.slideRequired')));
-		}
-
-		const sortOrders = new Set<number>();
-		let setupCount = 0;
-		let dataDisclosureCount = 0;
-
-		for (const [index, slide] of campaign.slides.entries()) {
-			const prefix = `slides.${slide.id ?? slide.localId ?? index + 1}`;
-			if (slide.kind !== 'setup' && slide.kind !== 'standard') {
-				issues.push(issue(`${prefix}.layoutType`, $t('admin.campaigns.validation.slideLayoutInvalid')));
+let previewCampaign = $derived<Campaign | null>(
+	draft
+		? {
+				id: draft.id,
+				type: draft.type,
+				name: draft.name,
+				releaseVersion: draft.releaseVersion,
+				version: draft.version,
+				status: draft.status,
+				slides: draft.slides,
 			}
-			if (slide.semanticRole !== 'feature' && slide.semanticRole !== 'data_disclosure') {
-				issues.push(issue(`${prefix}.semanticRole`, $t('admin.campaigns.validation.semanticRoleInvalid')));
-			}
-			const sortOrder = Number(slide.sortOrder ?? index + 1);
-			if (!Number.isInteger(sortOrder) || sortOrder <= 0 || sortOrders.has(sortOrder)) {
-				issues.push(issue(`${prefix}.sortOrder`, $t('admin.campaigns.validation.sortOrderInvalid')));
-			}
-			sortOrders.add(sortOrder);
+		: null,
+);
 
-			for (const [field, value] of [
-				['title.en', slide.titleEn],
-				['title.hu', slide.titleHu],
-				['body.en', slide.bodyEn],
-				['body.hu', slide.bodyHu],
-			]) {
-				if (!value?.trim()) {
-					issues.push(issue(`${prefix}.${field}`, $t('admin.campaigns.validation.localizedContentRequired')));
-				}
-			}
+let isDraftEditable = $derived(draft?.status === "draft");
+let clientValidationErrors = $derived(
+	draft && isDraftEditable ? publishReadinessIssues(draft) : [],
+);
+let validationErrors = $derived(
+	clientValidationErrors.length > 0
+		? clientValidationErrors
+		: (draft?.validationErrors ?? []),
+);
+let canSave = $derived(
+	Boolean(draft && isDraftEditable && !saving && !detailLoading),
+);
+let canPublish = $derived(
+	Boolean(
+		draft &&
+			isDraftEditable &&
+			clientValidationErrors.length === 0 &&
+			!actionLoading &&
+			!saving,
+	),
+);
+let canArchive = $derived(
+	Boolean(draft?.status === "published" && !actionLoading && !saving),
+);
+let canDuplicate = $derived(Boolean(draft && !actionLoading && !saving));
 
-			const hasUploadedImage = Boolean(slide.desktopAssetId || slide.mobileAssetId);
-			if (hasUploadedImage) {
-				for (const [field, value] of [
-					['altText.en', slide.altEn],
-					['altText.hu', slide.altHu],
-				]) {
-					if (!value?.trim()) {
-						issues.push(issue(`${prefix}.${field}`, $t('admin.campaigns.validation.imageAltRequired')));
-					}
-				}
-			}
-			if (slide.actionUrl && !allowedActionDestinations.has(slide.actionUrl)) {
-				issues.push(issue(`${prefix}.actionDestination`, $t('admin.campaigns.validation.actionDestinationInvalid')));
-			}
-			if (slide.actionUrl && (!slide.actionLabelEn?.trim() || !slide.actionLabelHu?.trim())) {
-				issues.push(issue(`${prefix}.actionLabel`, $t('admin.campaigns.validation.actionLabelsRequired')));
-			}
+function slideLocalId(slide: CampaignSlide) {
+	return slide.id ?? `local-slide-${++localSlideCounter}`;
+}
 
-			const setupControls = slide.setupControls ?? [];
-			if (slide.kind === 'setup') setupCount += 1;
-			if (slide.kind === 'standard' && slide.semanticRole === 'data_disclosure') dataDisclosureCount += 1;
-			if (setupControls.length > 0 && (campaign.type !== 'first_run_onboarding' || slide.kind !== 'setup')) {
-				issues.push(issue(`${prefix}.setupControls`, $t('admin.campaigns.validation.setupControlsPlacementInvalid')));
-			}
-			if (setupControls.some((control) => !allowedSetupControls.has(control))) {
-				issues.push(issue(`${prefix}.setupControls`, $t('admin.campaigns.validation.setupControlsUnsupported')));
-			}
-		}
-
-		if (campaign.type === 'first_run_onboarding') {
-			if (setupCount !== 1) {
-				issues.push(issue('setupSlide', $t('admin.campaigns.validation.setupSlideRequired')));
-			}
-			if (dataDisclosureCount < 1) {
-				issues.push(issue('dataDisclosure', $t('admin.campaigns.validation.dataDisclosureRequired')));
-			}
-		}
-
-		return issues;
-	}
-
-	async function loadCampaigns(preferredId: string | null = selectedCampaignId) {
-		loading = true;
-		errorMessage = '';
-		try {
-			campaigns = await fetchAdminCampaigns();
-			const nextId = preferredId && campaigns.some((campaign) => campaign.id === preferredId)
-				? preferredId
-				: campaigns[0]?.id ?? null;
-			if (nextId) {
-				await selectCampaign(nextId, false);
-			} else {
-				selectedCampaignId = null;
-				draft = null;
-			}
-		} catch (error) {
-			showError(error, $t('admin.campaigns.errors.load'));
-		} finally {
-			loading = false;
-		}
-	}
-
-	async function selectCampaign(id: string, clearMessage = true) {
-		selectedCampaignId = id;
-		detailLoading = true;
-		if (clearMessage) {
-			errorMessage = '';
-			successMessage = '';
-		}
-		try {
-			const campaign = await fetchAdminCampaign(id);
-			draft = draftFromCampaign(campaign);
-			previewSlideIndex = 0;
-		} catch (error) {
-			showError(error, $t('admin.campaigns.errors.detail'));
-		} finally {
-			detailLoading = false;
-		}
-	}
-
-	function newSlide(kind: CampaignSlideKind = 'standard'): EditableSlide {
-		return {
-			localId: `new-slide-${++localSlideCounter}`,
-			kind,
-			sortOrder: draft?.slides.length ?? 0,
-			titleEn: '',
-			titleHu: '',
-			bodyEn: '',
-			bodyHu: '',
-			altEn: '',
-			altHu: '',
-			actionLabelEn: '',
-			actionLabelHu: '',
-			actionUrl: '',
-		};
-	}
-
-	function addSlide(kind: CampaignSlideKind) {
-		if (!draft || !isDraftEditable) return;
-		draft.slides = [...draft.slides, newSlide(kind)].map((slide, index) => ({ ...slide, sortOrder: index + 1 }));
-		previewSlideIndex = draft.slides.length - 1;
-	}
-
-	function moveSlide(index: number, direction: -1 | 1) {
-		if (!draft || !isDraftEditable) return;
-		const target = index + direction;
-		if (target < 0 || target >= draft.slides.length) return;
-		const slides = [...draft.slides];
-		const [slide] = slides.splice(index, 1);
-		slides.splice(target, 0, slide);
-		draft.slides = slides.map((item, index) => ({ ...item, sortOrder: index + 1 }));
-		previewSlideIndex = target;
-	}
-
-	function removeSlide(index: number) {
-		if (!draft || !isDraftEditable) return;
-		draft.slides = draft.slides
-			.filter((_, slideIndex) => slideIndex !== index)
-			.map((slide, index) => ({ ...slide, sortOrder: index + 1 }));
-		previewSlideIndex = Math.min(previewSlideIndex, Math.max(draft.slides.length - 1, 0));
-	}
-
-	function slidePayload(): CampaignSlideDraft[] {
-		return (draft?.slides ?? []).map((slide, sortOrder) => ({
-			id: slide.id,
-			kind: slide.kind,
-			layoutType: slide.kind,
-			semanticRole: slide.semanticRole ?? 'feature',
-			sortOrder: sortOrder + 1,
-			title: { en: slide.titleEn ?? '', hu: slide.titleHu ?? '' },
-			titleEn: slide.titleEn ?? '',
-			titleHu: slide.titleHu ?? '',
-			body: { en: slide.bodyEn ?? '', hu: slide.bodyHu ?? '' },
-			bodyEn: slide.bodyEn ?? '',
-			bodyHu: slide.bodyHu ?? '',
-			altText: { en: slide.altEn ?? '', hu: slide.altHu ?? '' },
-			altEn: slide.altEn ?? '',
-			altHu: slide.altHu ?? '',
-			actionLabel: { en: slide.actionLabelEn ?? '', hu: slide.actionLabelHu ?? '' },
-			actionLabelEn: slide.actionLabelEn ?? '',
-			actionLabelHu: slide.actionLabelHu ?? '',
-			actionDestination: slide.actionUrl ?? '',
-			actionUrl: slide.actionUrl ?? '',
-			desktopCropAssetId: slide.desktopAssetId ?? null,
-			desktopAssetId: slide.desktopAssetId ?? null,
-			mobileCropAssetId: slide.mobileAssetId ?? null,
-			mobileAssetId: slide.mobileAssetId ?? null,
-			desktopSourceAssetId: slide.desktopSourceAssetId ?? null,
-			mobileSourceAssetId: slide.mobileSourceAssetId ?? null,
+function normalizeSlides(slides: CampaignSlide[] = []): EditableSlide[] {
+	return [...slides]
+		.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+		.map((slide, index) => ({
+			...slide,
+			localId: slideLocalId(slide),
+			kind: (slide.layoutType ??
+				slide.kind ??
+				slide.type ??
+				(index === 0 ? "setup" : "standard")) as CampaignSlideKind,
+			sortOrder: slide.sortOrder ?? index + 1,
+			semanticRole: slide.semanticRole ?? "feature",
+			titleEn: slide.titleEn ?? slide.title?.en ?? "",
+			titleHu: slide.titleHu ?? slide.title?.hu ?? "",
+			bodyEn: slide.bodyEn ?? slide.body?.en ?? "",
+			bodyHu: slide.bodyHu ?? slide.body?.hu ?? "",
+			altEn: slide.altEn ?? slide.altText?.en ?? "",
+			altHu: slide.altHu ?? slide.altText?.hu ?? "",
+			actionLabelEn: slide.actionLabelEn ?? slide.actionLabel?.en ?? "",
+			actionLabelHu: slide.actionLabelHu ?? slide.actionLabel?.hu ?? "",
+			actionUrl: slide.actionUrl ?? slide.actionDestination ?? "",
+			desktopAssetId: slide.desktopAssetId ?? slide.desktopCropAssetId ?? null,
+			mobileAssetId: slide.mobileAssetId ?? slide.mobileCropAssetId ?? null,
 			setupControls: slide.setupControls ?? [],
 		}));
+}
+
+function draftFromCampaign(campaign: Campaign): DraftState {
+	return {
+		id: campaign.id,
+		type: campaign.type,
+		name: campaign.name ?? "",
+		releaseVersion: campaign.releaseVersion ?? "",
+		version: campaign.version ?? null,
+		status: campaign.status,
+		updatedAt: campaign.updatedAt ?? null,
+		createdAt: campaign.createdAt ?? null,
+		publishedAt: campaign.publishedAt ?? null,
+		archivedAt: campaign.archivedAt ?? null,
+		analyticsSummary: campaign.analyticsSummary ?? null,
+		validationErrors:
+			campaign.validationErrors ?? campaign.validationIssues ?? [],
+		slides: normalizeSlides(campaign.slides ?? []),
+	};
+}
+
+function fallbackCampaignName(campaign: Campaign) {
+	return campaign.name?.trim() || `${campaign.type} v${campaign.version ?? 1}`;
+}
+
+function formatDate(value: Campaign["updatedAt"]) {
+	if (!value) return $t("admin.campaigns.dateMissing");
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return String(value);
+	return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
+		date,
+	);
+}
+
+function statusLabel(status: CampaignStatus) {
+	if (status === "draft") return $t("admin.campaigns.status.draft");
+	if (status === "published") return $t("admin.campaigns.status.published");
+	if (status === "archived") return $t("admin.campaigns.status.archived");
+	return status;
+}
+
+function slideKindLabel(kind: CampaignSlideKind) {
+	return kind === "setup"
+		? $t("admin.campaigns.slideKind.setup")
+		: $t("admin.campaigns.slideKind.standard");
+}
+
+function slideTitle(slide: EditableSlide) {
+	return (
+		slide.titleEn?.trim() || slide.titleHu?.trim() || slideKindLabel(slide.kind)
+	);
+}
+
+function showSuccess(message: string) {
+	successMessage = message;
+	errorMessage = "";
+}
+
+function showError(error: unknown, fallback: string) {
+	errorMessage = error instanceof Error ? error.message : fallback;
+	successMessage = "";
+}
+
+function validationErrorsFromFieldErrors(
+	fieldErrors: Record<string, string>,
+): CampaignValidationIssue[] {
+	return Object.entries(fieldErrors).map(([path, message]) => ({
+		path,
+		message,
+	}));
+}
+
+const allowedActionDestinations = new Set([
+	"/",
+	"/chat",
+	"/knowledge",
+	"/settings",
+	"/settings/profile",
+	"/settings/admin",
+]);
+const allowedSetupControls = new Set([
+	"ui_language",
+	"theme",
+	"model_default",
+	"ai_style",
+]);
+
+function issue(path: string, message: string): CampaignValidationIssue {
+	return { path, message };
+}
+
+function publishReadinessIssues(
+	campaign: DraftState,
+): CampaignValidationIssue[] {
+	const issues: CampaignValidationIssue[] = [];
+	if (!campaign.name.trim()) {
+		issues.push(issue("name", $t("admin.campaigns.validation.nameRequired")));
+	}
+	if (
+		campaign.type !== "first_run_onboarding" &&
+		campaign.type !== "release_update"
+	) {
+		issues.push(issue("type", $t("admin.campaigns.validation.typeInvalid")));
+	}
+	if (campaign.type === "release_update" && !campaign.releaseVersion.trim()) {
+		issues.push(
+			issue(
+				"releaseVersion",
+				$t("admin.campaigns.validation.releaseVersionRequired"),
+			),
+		);
+	}
+	if (campaign.slides.length === 0) {
+		issues.push(
+			issue("slides", $t("admin.campaigns.validation.slideRequired")),
+		);
 	}
 
-	function campaignPayload() {
-		if (!draft) return null;
-		return {
-			name: draft.name.trim() || null,
-			type: draft.type,
-			releaseVersion: draft.releaseVersion.trim() || null,
-			slides: slidePayload(),
-		};
-	}
+	const sortOrders = new Set<number>();
+	let setupCount = 0;
+	let dataDisclosureCount = 0;
 
-	async function saveDraft() {
-		if (!draft || !isDraftEditable) return;
-		saving = true;
-		try {
-			const payload = campaignPayload();
-			if (!payload) return;
-			const campaign = await updateAdminCampaign(draft.id, payload);
-			draft = draftFromCampaign({ ...campaign, validationErrors: campaign.validationErrors ?? draft.validationErrors });
-			campaigns = campaigns.map((item) => (item.id === campaign.id ? { ...item, ...campaign } : item));
-			showSuccess($t('admin.campaigns.messages.saved'));
-		} catch (error) {
-			showError(error, $t('admin.campaigns.errors.save'));
-		} finally {
-			saving = false;
+	for (const [index, slide] of campaign.slides.entries()) {
+		const prefix = `slides.${slide.id ?? slide.localId ?? index + 1}`;
+		if (slide.kind !== "setup" && slide.kind !== "standard") {
+			issues.push(
+				issue(
+					`${prefix}.layoutType`,
+					$t("admin.campaigns.validation.slideLayoutInvalid"),
+				),
+			);
 		}
-	}
-
-	async function createCampaign() {
-		actionLoading = true;
-		try {
-			const campaign = await createAdminCampaign({
-				type: createType,
-				name: createName.trim() || null,
-				releaseVersion: createReleaseVersion.trim() || null,
-			});
-			createName = '';
-			createReleaseVersion = '';
-			showSuccess($t('admin.campaigns.messages.created'));
-			await loadCampaigns(campaign.id);
-		} catch (error) {
-			showError(error, $t('admin.campaigns.errors.create'));
-		} finally {
-			actionLoading = false;
+		if (
+			slide.semanticRole !== "feature" &&
+			slide.semanticRole !== "data_disclosure"
+		) {
+			issues.push(
+				issue(
+					`${prefix}.semanticRole`,
+					$t("admin.campaigns.validation.semanticRoleInvalid"),
+				),
+			);
 		}
-	}
-
-	async function seedFirstRun() {
-		actionLoading = true;
-		try {
-			const result = await seedFirstRunCampaign();
-			showSuccess(result.created ? $t('admin.campaigns.messages.seeded') : $t('admin.campaigns.messages.seedExists'));
-			await loadCampaigns(result.campaign.id);
-		} catch (error) {
-			showError(error, $t('admin.campaigns.errors.seed'));
-		} finally {
-			actionLoading = false;
+		const sortOrder = Number(slide.sortOrder ?? index + 1);
+		if (
+			!Number.isInteger(sortOrder) ||
+			sortOrder <= 0 ||
+			sortOrders.has(sortOrder)
+		) {
+			issues.push(
+				issue(
+					`${prefix}.sortOrder`,
+					$t("admin.campaigns.validation.sortOrderInvalid"),
+				),
+			);
 		}
-	}
+		sortOrders.add(sortOrder);
 
-	async function publishCampaign() {
-		if (!draft || !isDraftEditable || clientValidationErrors.length > 0) return;
-		actionLoading = true;
-		try {
-			const payload = campaignPayload();
-			if (!payload) return;
-			const saved = await updateAdminCampaign(draft.id, payload);
-			const campaign = await publishAdminCampaign(saved.id);
-			draft = draftFromCampaign({ ...campaign, validationErrors: campaign.validationErrors ?? [] });
-			campaigns = campaigns.map((item) => (item.id === campaign.id ? { ...item, ...campaign } : item));
-			if (campaign.type === 'release_update') {
-				await invalidateAll();
+		for (const [field, value] of [
+			["title.en", slide.titleEn],
+			["title.hu", slide.titleHu],
+			["body.en", slide.bodyEn],
+			["body.hu", slide.bodyHu],
+		]) {
+			if (!value?.trim()) {
+				issues.push(
+					issue(
+						`${prefix}.${field}`,
+						$t("admin.campaigns.validation.localizedContentRequired"),
+					),
+				);
 			}
-			showSuccess($t('admin.campaigns.messages.published'));
-		} catch (error) {
-			if (error instanceof ApiError && error.fieldErrors && draft) {
-				draft.validationErrors = validationErrorsFromFieldErrors(error.fieldErrors);
+		}
+
+		const hasUploadedImage = Boolean(
+			slide.desktopAssetId || slide.mobileAssetId,
+		);
+		if (hasUploadedImage) {
+			for (const [field, value] of [
+				["altText.en", slide.altEn],
+				["altText.hu", slide.altHu],
+			]) {
+				if (!value?.trim()) {
+					issues.push(
+						issue(
+							`${prefix}.${field}`,
+							$t("admin.campaigns.validation.imageAltRequired"),
+						),
+					);
+				}
 			}
-			showError(error, $t('admin.campaigns.errors.publish'));
-		} finally {
-			actionLoading = false;
+		}
+		if (slide.actionUrl && !allowedActionDestinations.has(slide.actionUrl)) {
+			issues.push(
+				issue(
+					`${prefix}.actionDestination`,
+					$t("admin.campaigns.validation.actionDestinationInvalid"),
+				),
+			);
+		}
+		if (
+			slide.actionUrl &&
+			(!slide.actionLabelEn?.trim() || !slide.actionLabelHu?.trim())
+		) {
+			issues.push(
+				issue(
+					`${prefix}.actionLabel`,
+					$t("admin.campaigns.validation.actionLabelsRequired"),
+				),
+			);
+		}
+
+		const setupControls = slide.setupControls ?? [];
+		if (slide.kind === "setup") setupCount += 1;
+		if (slide.kind === "standard" && slide.semanticRole === "data_disclosure")
+			dataDisclosureCount += 1;
+		if (
+			setupControls.length > 0 &&
+			(campaign.type !== "first_run_onboarding" || slide.kind !== "setup")
+		) {
+			issues.push(
+				issue(
+					`${prefix}.setupControls`,
+					$t("admin.campaigns.validation.setupControlsPlacementInvalid"),
+				),
+			);
+		}
+		if (setupControls.some((control) => !allowedSetupControls.has(control))) {
+			issues.push(
+				issue(
+					`${prefix}.setupControls`,
+					$t("admin.campaigns.validation.setupControlsUnsupported"),
+				),
+			);
 		}
 	}
 
-	async function archiveCampaign(label: string) {
-		if (!draft) return;
-		const confirmed = window.confirm(label);
-		if (!confirmed) return;
-		actionLoading = true;
-		try {
-			const campaign = await archiveAdminCampaign(draft.id);
-			draft = draftFromCampaign(campaign);
-			campaigns = campaigns.map((item) => (item.id === campaign.id ? { ...item, ...campaign } : item));
-			showSuccess($t('admin.campaigns.messages.archived'));
-		} catch (error) {
-			showError(error, $t('admin.campaigns.errors.archive'));
-		} finally {
-			actionLoading = false;
+	if (campaign.type === "first_run_onboarding") {
+		if (setupCount !== 1) {
+			issues.push(
+				issue(
+					"setupSlide",
+					$t("admin.campaigns.validation.setupSlideRequired"),
+				),
+			);
+		}
+		if (dataDisclosureCount < 1) {
+			issues.push(
+				issue(
+					"dataDisclosure",
+					$t("admin.campaigns.validation.dataDisclosureRequired"),
+				),
+			);
 		}
 	}
 
-	async function deleteOrArchiveCampaign(label: string) {
-		if (!draft) return;
-		if (draft.status !== 'draft') {
-			await archiveCampaign(label);
-			return;
-		}
-		const confirmed = window.confirm(label);
-		if (!confirmed) return;
-		actionLoading = true;
-		try {
-			await deleteAdminCampaignDraft(draft.id);
-			const deletedId = draft.id;
-			draft = null;
+	return issues;
+}
+
+async function loadCampaigns(preferredId: string | null = selectedCampaignId) {
+	loading = true;
+	errorMessage = "";
+	try {
+		campaigns = await fetchAdminCampaigns();
+		const nextId =
+			preferredId && campaigns.some((campaign) => campaign.id === preferredId)
+				? preferredId
+				: (campaigns[0]?.id ?? null);
+		if (nextId) {
+			await selectCampaign(nextId, false);
+		} else {
 			selectedCampaignId = null;
-			showSuccess($t('admin.campaigns.messages.deleted'));
-			await loadCampaigns(campaigns.find((item) => item.id !== deletedId)?.id ?? null);
-		} catch (error) {
-			showError(error, $t('admin.campaigns.errors.delete'));
-		} finally {
-			actionLoading = false;
+			draft = null;
 		}
+	} catch (error) {
+		showError(error, $t("admin.campaigns.errors.load"));
+	} finally {
+		loading = false;
 	}
+}
 
-	async function duplicateCampaign() {
-		if (!draft) return;
-		actionLoading = true;
-		try {
-			const campaign = await duplicateAdminCampaign(draft.id);
-			showSuccess($t('admin.campaigns.messages.duplicated'));
-			await loadCampaigns(campaign.id);
-		} catch (error) {
-			showError(error, $t('admin.campaigns.errors.duplicate'));
-		} finally {
-			actionLoading = false;
+async function selectCampaign(id: string, clearMessage = true) {
+	selectedCampaignId = id;
+	detailLoading = true;
+	if (clearMessage) {
+		errorMessage = "";
+		successMessage = "";
+	}
+	try {
+		const campaign = await fetchAdminCampaign(id);
+		draft = draftFromCampaign(campaign);
+		previewSlideIndex = 0;
+	} catch (error) {
+		showError(error, $t("admin.campaigns.errors.detail"));
+	} finally {
+		detailLoading = false;
+	}
+}
+
+function newSlide(kind: CampaignSlideKind = "standard"): EditableSlide {
+	return {
+		localId: `new-slide-${++localSlideCounter}`,
+		kind,
+		sortOrder: draft?.slides.length ?? 0,
+		titleEn: "",
+		titleHu: "",
+		bodyEn: "",
+		bodyHu: "",
+		altEn: "",
+		altHu: "",
+		actionLabelEn: "",
+		actionLabelHu: "",
+		actionUrl: "",
+	};
+}
+
+function addSlide(kind: CampaignSlideKind) {
+	if (!draft || !isDraftEditable) return;
+	draft.slides = [...draft.slides, newSlide(kind)].map((slide, index) => ({
+		...slide,
+		sortOrder: index + 1,
+	}));
+	previewSlideIndex = draft.slides.length - 1;
+}
+
+function moveSlide(index: number, direction: -1 | 1) {
+	if (!draft || !isDraftEditable) return;
+	const target = index + direction;
+	if (target < 0 || target >= draft.slides.length) return;
+	const slides = [...draft.slides];
+	const [slide] = slides.splice(index, 1);
+	slides.splice(target, 0, slide);
+	draft.slides = slides.map((item, index) => ({
+		...item,
+		sortOrder: index + 1,
+	}));
+	previewSlideIndex = target;
+}
+
+function removeSlide(index: number) {
+	if (!draft || !isDraftEditable) return;
+	draft.slides = draft.slides
+		.filter((_, slideIndex) => slideIndex !== index)
+		.map((slide, index) => ({ ...slide, sortOrder: index + 1 }));
+	previewSlideIndex = Math.min(
+		previewSlideIndex,
+		Math.max(draft.slides.length - 1, 0),
+	);
+}
+
+function slidePayload(): CampaignSlideDraft[] {
+	return (draft?.slides ?? []).map((slide, sortOrder) => ({
+		id: slide.id,
+		kind: slide.kind,
+		layoutType: slide.kind,
+		semanticRole: slide.semanticRole ?? "feature",
+		sortOrder: sortOrder + 1,
+		title: { en: slide.titleEn ?? "", hu: slide.titleHu ?? "" },
+		titleEn: slide.titleEn ?? "",
+		titleHu: slide.titleHu ?? "",
+		body: { en: slide.bodyEn ?? "", hu: slide.bodyHu ?? "" },
+		bodyEn: slide.bodyEn ?? "",
+		bodyHu: slide.bodyHu ?? "",
+		altText: { en: slide.altEn ?? "", hu: slide.altHu ?? "" },
+		altEn: slide.altEn ?? "",
+		altHu: slide.altHu ?? "",
+		actionLabel: {
+			en: slide.actionLabelEn ?? "",
+			hu: slide.actionLabelHu ?? "",
+		},
+		actionLabelEn: slide.actionLabelEn ?? "",
+		actionLabelHu: slide.actionLabelHu ?? "",
+		actionDestination: slide.actionUrl ?? "",
+		actionUrl: slide.actionUrl ?? "",
+		desktopCropAssetId: slide.desktopAssetId ?? null,
+		desktopAssetId: slide.desktopAssetId ?? null,
+		mobileCropAssetId: slide.mobileAssetId ?? null,
+		mobileAssetId: slide.mobileAssetId ?? null,
+		desktopSourceAssetId: slide.desktopSourceAssetId ?? null,
+		mobileSourceAssetId: slide.mobileSourceAssetId ?? null,
+		setupControls: slide.setupControls ?? [],
+	}));
+}
+
+function campaignPayload() {
+	if (!draft) return null;
+	return {
+		name: draft.name.trim() || null,
+		type: draft.type,
+		releaseVersion: draft.releaseVersion.trim() || null,
+		slides: slidePayload(),
+	};
+}
+
+async function saveDraft() {
+	if (!draft || !isDraftEditable) return;
+	saving = true;
+	try {
+		const payload = campaignPayload();
+		if (!payload) return;
+		const campaign = await updateAdminCampaign(draft.id, payload);
+		draft = draftFromCampaign({
+			...campaign,
+			validationErrors: campaign.validationErrors ?? draft.validationErrors,
+		});
+		campaigns = campaigns.map((item) =>
+			item.id === campaign.id ? { ...item, ...campaign } : item,
+		);
+		showSuccess($t("admin.campaigns.messages.saved"));
+	} catch (error) {
+		showError(error, $t("admin.campaigns.errors.save"));
+	} finally {
+		saving = false;
+	}
+}
+
+async function createCampaign() {
+	actionLoading = true;
+	try {
+		const campaign = await createAdminCampaign({
+			type: createType,
+			name: createName.trim() || null,
+			releaseVersion: createReleaseVersion.trim() || null,
+		});
+		createName = "";
+		createReleaseVersion = "";
+		showSuccess($t("admin.campaigns.messages.created"));
+		await loadCampaigns(campaign.id);
+	} catch (error) {
+		showError(error, $t("admin.campaigns.errors.create"));
+	} finally {
+		actionLoading = false;
+	}
+}
+
+async function seedFirstRun() {
+	actionLoading = true;
+	try {
+		const result = await seedFirstRunCampaign();
+		showSuccess(
+			result.created
+				? $t("admin.campaigns.messages.seeded")
+				: $t("admin.campaigns.messages.seedExists"),
+		);
+		await loadCampaigns(result.campaign.id);
+	} catch (error) {
+		showError(error, $t("admin.campaigns.errors.seed"));
+	} finally {
+		actionLoading = false;
+	}
+}
+
+async function publishCampaign() {
+	if (!draft || !isDraftEditable || clientValidationErrors.length > 0) return;
+	actionLoading = true;
+	try {
+		const payload = campaignPayload();
+		if (!payload) return;
+		const saved = await updateAdminCampaign(draft.id, payload);
+		const campaign = await publishAdminCampaign(saved.id);
+		draft = draftFromCampaign({
+			...campaign,
+			validationErrors: campaign.validationErrors ?? [],
+		});
+		campaigns = campaigns.map((item) =>
+			item.id === campaign.id ? { ...item, ...campaign } : item,
+		);
+		if (campaign.type === "release_update") {
+			await invalidateAll();
 		}
+		showSuccess($t("admin.campaigns.messages.published"));
+	} catch (error) {
+		if (error instanceof ApiError && error.fieldErrors && draft) {
+			draft.validationErrors = validationErrorsFromFieldErrors(
+				error.fieldErrors,
+			);
+		}
+		showError(error, $t("admin.campaigns.errors.publish"));
+	} finally {
+		actionLoading = false;
 	}
+}
 
-	async function handleAssetFile(event: Event, slideLocalId: string, variant: CampaignAssetVariant) {
-		if (!isDraftEditable) return;
-		const input = event.currentTarget as HTMLInputElement;
-		const file = input.files?.[0];
-		input.value = '';
-		if (!file) return;
+async function archiveCampaign(label: string) {
+	if (!draft) return;
+	const confirmed = window.confirm(label);
+	if (!confirmed) return;
+	actionLoading = true;
+	try {
+		const campaign = await archiveAdminCampaign(draft.id);
+		draft = draftFromCampaign(campaign);
+		campaigns = campaigns.map((item) =>
+			item.id === campaign.id ? { ...item, ...campaign } : item,
+		);
+		showSuccess($t("admin.campaigns.messages.archived"));
+	} catch (error) {
+		showError(error, $t("admin.campaigns.errors.archive"));
+	} finally {
+		actionLoading = false;
+	}
+}
 
-		const loadingKey = `${slideLocalId}:${variant}`;
-		const imageSrc = URL.createObjectURL(file);
-		const sourceUpload = uploadCampaignAssetSource({ image: file });
-		assetLoading = loadingKey;
-		sourceUpload
-			.catch((error) => {
-				showError(error, $t('admin.campaigns.errors.assetUpload'));
-			})
-			.finally(() => {
-				if (assetLoading === loadingKey) assetLoading = null;
-			});
-		cropJob = {
-			slideLocalId,
-			variant,
-			imageSrc,
-			sourceUpload,
+async function deleteOrArchiveCampaign(label: string) {
+	if (!draft) return;
+	if (draft.status !== "draft") {
+		await archiveCampaign(label);
+		return;
+	}
+	const confirmed = window.confirm(label);
+	if (!confirmed) return;
+	actionLoading = true;
+	try {
+		await deleteAdminCampaignDraft(draft.id);
+		const deletedId = draft.id;
+		draft = null;
+		selectedCampaignId = null;
+		showSuccess($t("admin.campaigns.messages.deleted"));
+		await loadCampaigns(
+			campaigns.find((item) => item.id !== deletedId)?.id ?? null,
+		);
+	} catch (error) {
+		showError(error, $t("admin.campaigns.errors.delete"));
+	} finally {
+		actionLoading = false;
+	}
+}
+
+async function duplicateCampaign() {
+	if (!draft) return;
+	actionLoading = true;
+	try {
+		const campaign = await duplicateAdminCampaign(draft.id);
+		showSuccess($t("admin.campaigns.messages.duplicated"));
+		await loadCampaigns(campaign.id);
+	} catch (error) {
+		showError(error, $t("admin.campaigns.errors.duplicate"));
+	} finally {
+		actionLoading = false;
+	}
+}
+
+async function handleAssetFile(
+	event: Event,
+	slideLocalId: string,
+	variant: CampaignAssetVariant,
+) {
+	if (!isDraftEditable) return;
+	const input = event.currentTarget as HTMLInputElement;
+	const file = input.files?.[0];
+	input.value = "";
+	if (!file) return;
+
+	const loadingKey = `${slideLocalId}:${variant}`;
+	const imageSrc = URL.createObjectURL(file);
+	const sourceUpload = uploadCampaignAssetSource({ image: file });
+	assetLoading = loadingKey;
+	sourceUpload
+		.catch((error) => {
+			showError(error, $t("admin.campaigns.errors.assetUpload"));
+		})
+		.finally(() => {
+			if (assetLoading === loadingKey) assetLoading = null;
+		});
+	cropJob = {
+		slideLocalId,
+		variant,
+		imageSrc,
+		sourceUpload,
+	};
+}
+
+function attachCrop(
+	slideLocalId: string,
+	variant: CampaignAssetVariant,
+	sourceAssetId: string,
+	cropAssetId: string,
+) {
+	if (!draft || !isDraftEditable) return;
+	draft.slides = draft.slides.map((slide) => {
+		if (slide.localId !== slideLocalId) return slide;
+		return {
+			...slide,
+			[variant === "desktop" ? "desktopAssetId" : "mobileAssetId"]: cropAssetId,
+			[variant === "desktop" ? "desktopSourceAssetId" : "mobileSourceAssetId"]:
+				sourceAssetId,
 		};
-	}
-
-	function attachCrop(slideLocalId: string, variant: CampaignAssetVariant, sourceAssetId: string, cropAssetId: string) {
-		if (!draft || !isDraftEditable) return;
-		draft.slides = draft.slides.map((slide) => {
-			if (slide.localId !== slideLocalId) return slide;
-			return {
-				...slide,
-				[variant === 'desktop' ? 'desktopAssetId' : 'mobileAssetId']: cropAssetId,
-				[variant === 'desktop' ? 'desktopSourceAssetId' : 'mobileSourceAssetId']: sourceAssetId,
-			};
-		});
-	}
-
-	async function saveCrop(payload: { file: File; width: number; height: number; crop: CampaignAssetCropGeometry }) {
-		if (!cropJob) return;
-		const activeCrop = cropJob;
-		const source = await activeCrop.sourceUpload;
-		const crop = await saveCampaignAssetCrop({
-			sourceAssetId: source.id,
-			variant: activeCrop.variant,
-			image: payload.file,
-			width: payload.width,
-			height: payload.height,
-			crop: payload.crop,
-		});
-		attachCrop(activeCrop.slideLocalId, activeCrop.variant, source.id, crop.id);
-		URL.revokeObjectURL(activeCrop.imageSrc);
-		cropJob = null;
-	}
-
-	function cancelCrop() {
-		if (cropJob) URL.revokeObjectURL(cropJob.imageSrc);
-		cropJob = null;
-	}
-
-	onMount(() => {
-		void loadCampaigns();
 	});
+}
+
+async function saveCrop(payload: {
+	file: File;
+	width: number;
+	height: number;
+	crop: CampaignAssetCropGeometry;
+}) {
+	if (!cropJob) return;
+	const activeCrop = cropJob;
+	const source = await activeCrop.sourceUpload;
+	const crop = await saveCampaignAssetCrop({
+		sourceAssetId: source.id,
+		variant: activeCrop.variant,
+		image: payload.file,
+		width: payload.width,
+		height: payload.height,
+		crop: payload.crop,
+	});
+	attachCrop(activeCrop.slideLocalId, activeCrop.variant, source.id, crop.id);
+	URL.revokeObjectURL(activeCrop.imageSrc);
+	cropJob = null;
+}
+
+function cancelCrop() {
+	if (cropJob) URL.revokeObjectURL(cropJob.imageSrc);
+	cropJob = null;
+}
+
+onMount(() => {
+	void loadCampaigns();
+});
 </script>
 
 <section class="space-y-lg" aria-labelledby="admin-campaigns-heading">

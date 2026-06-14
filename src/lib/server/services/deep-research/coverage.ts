@@ -139,19 +139,21 @@ export type ResearchCoverageBudgetState = {
 export function assessResearchCoverage(
 	input: AssessResearchCoverageInput,
 ): ResearchCoverageAssessment {
-	const gaps = input.plan.keyQuestions.flatMap((keyQuestion) =>
-		assessKeyQuestionCoverage({
-			plan: input.plan,
-			keyQuestion,
-			supportingSources: findSupportingSources(
-				input.reviewedSources,
+	const gaps = input.plan.keyQuestions
+		.flatMap((keyQuestion) =>
+			assessKeyQuestionCoverage({
+				plan: input.plan,
 				keyQuestion,
-			),
-			evidenceNotes: input.evidenceNotes,
-			synthesisClaims: input.synthesisClaims,
-			signals: input.signals ?? {},
-		}),
-	).concat(assessComparisonCoverage(input.plan, input.reviewedSources));
+				supportingSources: findSupportingSources(
+					input.reviewedSources,
+					keyQuestion,
+				),
+				evidenceNotes: input.evidenceNotes,
+				synthesisClaims: input.synthesisClaims,
+				signals: input.signals ?? {},
+			}),
+		)
+		.concat(assessComparisonCoverage(input.plan, input.reviewedSources));
 
 	const status: ResearchCoverageStatus =
 		gaps.length === 0 ? "sufficient" : "insufficient";
@@ -392,7 +394,7 @@ function findSupportingSources(
 					normalizeQuestion(supportedQuestion) ===
 					normalizeQuestion(keyQuestion),
 			),
-		);
+	);
 }
 
 function assessComparisonCoverage(

@@ -87,7 +87,9 @@ describe("GET /api/chat/stream/status", () => {
 		});
 
 		try {
-			const response = await GET(makeEvent("?conversationId=conv-status-shared"));
+			const response = await GET(
+				makeEvent("?conversationId=conv-status-shared"),
+			);
 			const payload = await response.json();
 
 			expect(response.status).toBe(200);

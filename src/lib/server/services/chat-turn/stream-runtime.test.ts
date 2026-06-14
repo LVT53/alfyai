@@ -107,12 +107,16 @@ describe("AI SDK UI stream contract fixture", () => {
 	});
 
 	it("encodes response activity as a transient AI SDK UI data part", () => {
-		expect(decodeUiMessageStreamParts(streamResponseActivityEvent({
-			id: "context-ready",
-			kind: "context",
-			status: "done",
-			count: 2,
-		}))).toEqual([
+		expect(
+			decodeUiMessageStreamParts(
+				streamResponseActivityEvent({
+					id: "context-ready",
+					kind: "context",
+					status: "done",
+					count: 2,
+				}),
+			),
+		).toEqual([
 			{
 				type: "data-response-activity",
 				data: {
@@ -622,7 +626,8 @@ describe("createServerChunkRuntime", () => {
 			{
 				callId: "server-prefetch:web:1",
 				sourceType: "web",
-				outputSummary: "Server-prefetched 1 web source and 2 evidence snippets.",
+				outputSummary:
+					"Server-prefetched 1 web source and 2 evidence snippets.",
 				candidates: [
 					{
 						id: "direct:https://example.com/",

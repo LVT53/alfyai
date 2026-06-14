@@ -148,8 +148,8 @@ async function listGeneratedOutputArtifactIdsByChatFile(
 		);
 		const chatFileIds = Array.from(
 			new Set(
-				[chatFileId, ...renderedChatFileIds].filter(
-					(id): id is string => Boolean(id),
+				[chatFileId, ...renderedChatFileIds].filter((id): id is string =>
+					Boolean(id),
 				),
 			),
 		);
@@ -176,7 +176,7 @@ async function listGeneratedOutputArtifactIdsByChatFile(
 					documentMetadata.originAssistantMessageId ?? null,
 				sourceChatFileId: renderedChatFileIds.includes(id)
 					? id
-					: documentMetadata.sourceChatFileId ?? null,
+					: (documentMetadata.sourceChatFileId ?? null),
 			});
 		}
 	}
@@ -215,7 +215,8 @@ async function listConversationReadModelChatFiles(
 			artifactIdsByChatFile.get(row.id)?.originConversationId ?? null,
 		originAssistantMessageId:
 			artifactIdsByChatFile.get(row.id)?.originAssistantMessageId ?? null,
-		sourceChatFileId: artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
+		sourceChatFileId:
+			artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
 	}));
 }
 
@@ -264,7 +265,10 @@ export async function hasSucceededFileProductionJobForChatFile(input: {
 		)
 		.where(
 			and(
-				eq(fileProductionJobFiles.chatGeneratedFileId, input.chatGeneratedFileId),
+				eq(
+					fileProductionJobFiles.chatGeneratedFileId,
+					input.chatGeneratedFileId,
+				),
 				eq(fileProductionJobs.userId, input.userId),
 				eq(fileProductionJobs.conversationId, input.conversationId),
 				eq(fileProductionJobs.status, "succeeded"),
@@ -299,21 +303,21 @@ async function getReadModelChatFilesByIdsForConversation(
 	]);
 
 	return rows.map((row) => ({
-			...mapRowToReadModelChatFile(row),
-			artifactId: artifactIdsByChatFile.get(row.id)?.artifactId ?? null,
-			documentFamilyId:
-				artifactIdsByChatFile.get(row.id)?.documentFamilyId ?? null,
-			documentFamilyStatus:
-				artifactIdsByChatFile.get(row.id)?.documentFamilyStatus ?? null,
-			documentLabel: artifactIdsByChatFile.get(row.id)?.documentLabel ?? null,
-			documentRole: artifactIdsByChatFile.get(row.id)?.documentRole ?? null,
-			versionNumber: artifactIdsByChatFile.get(row.id)?.versionNumber ?? null,
-			originConversationId:
-				artifactIdsByChatFile.get(row.id)?.originConversationId ?? null,
-			originAssistantMessageId:
-				artifactIdsByChatFile.get(row.id)?.originAssistantMessageId ?? null,
-			sourceChatFileId:
-				artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
+		...mapRowToReadModelChatFile(row),
+		artifactId: artifactIdsByChatFile.get(row.id)?.artifactId ?? null,
+		documentFamilyId:
+			artifactIdsByChatFile.get(row.id)?.documentFamilyId ?? null,
+		documentFamilyStatus:
+			artifactIdsByChatFile.get(row.id)?.documentFamilyStatus ?? null,
+		documentLabel: artifactIdsByChatFile.get(row.id)?.documentLabel ?? null,
+		documentRole: artifactIdsByChatFile.get(row.id)?.documentRole ?? null,
+		versionNumber: artifactIdsByChatFile.get(row.id)?.versionNumber ?? null,
+		originConversationId:
+			artifactIdsByChatFile.get(row.id)?.originConversationId ?? null,
+		originAssistantMessageId:
+			artifactIdsByChatFile.get(row.id)?.originAssistantMessageId ?? null,
+		sourceChatFileId:
+			artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
 	}));
 }
 
@@ -331,7 +335,9 @@ async function ensureLegacyJobs(files: ReadModelChatFile[]): Promise<void> {
 	const linkedFileIds = new Set(
 		existingLinks.map((link) => link.chatGeneratedFileId),
 	);
-	const missingFiles = legacyFiles.filter((file) => !linkedFileIds.has(file.id));
+	const missingFiles = legacyFiles.filter(
+		(file) => !linkedFileIds.has(file.id),
+	);
 
 	for (const file of missingFiles) {
 		const createdAt = new Date(file.createdAt);

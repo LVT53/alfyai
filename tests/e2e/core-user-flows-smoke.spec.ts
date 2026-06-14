@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import {
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_MODEL_ID,
@@ -78,7 +78,9 @@ test.describe("Core user flows smoke", () => {
 				.filter((request) => request.path === "/v1/chat/completions");
 			expect(
 				streamedRequests.some((request) =>
-					JSON.stringify(request.body).includes("Smoke test the main chat path."),
+					JSON.stringify(request.body).includes(
+						"Smoke test the main chat path.",
+					),
 				),
 			).toBe(true);
 		} finally {
@@ -165,7 +167,10 @@ test.describe("Core user flows smoke", () => {
 			.first();
 		await expect(filteredDocumentRow).toBeVisible({ timeout: 10000 });
 
-		const workspaceTarget = await firstKnowledgeWorkspaceTarget(page, documentName);
+		const workspaceTarget = await firstKnowledgeWorkspaceTarget(
+			page,
+			documentName,
+		);
 		await page.goto(
 			`/knowledge?open_artifact=${encodeURIComponent(workspaceTarget.artifactId)}&open_filename=${encodeURIComponent(workspaceTarget.filename)}&open_mime=${encodeURIComponent(workspaceTarget.mimeType ?? "")}`,
 			{ waitUntil: "domcontentloaded" },
@@ -246,7 +251,9 @@ test.describe("Core user flows smoke", () => {
 			await Promise.all([
 				page.waitForResponse(
 					(response) =>
-						response.url().endsWith(`/api/admin/providers/${providerId}/validate`) &&
+						response
+							.url()
+							.endsWith(`/api/admin/providers/${providerId}/validate`) &&
 						response.request().method() === "POST" &&
 						response.status() === 200,
 				),
@@ -346,7 +353,9 @@ async function updateUserModelPreference(
 	).toBe(true);
 }
 
-async function snapshotBrowserSelectedModel(page: Page): Promise<string | null> {
+async function snapshotBrowserSelectedModel(
+	page: Page,
+): Promise<string | null> {
 	return page.evaluate(() => localStorage.getItem("selectedModel"));
 }
 

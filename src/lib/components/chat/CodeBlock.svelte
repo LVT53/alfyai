@@ -1,40 +1,42 @@
 <script lang="ts">
-	import { slide } from 'svelte/transition';
-	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
-	import { t } from '$lib/i18n';
-	import { ChevronDown, Copy } from '@lucide/svelte';
+import { slide } from "svelte/transition";
+import { preserveScrollOnToggle } from "$lib/actions/preserve-scroll";
+import { t } from "$lib/i18n";
+import { ChevronDown, Copy } from "@lucide/svelte";
 
-	let {
-		code = '',
-		language = undefined,
-		contentHtml = ''
-	}: {
-		code?: string;
-		language?: string;
-		contentHtml?: string;
-	} = $props();
+let {
+	code = "",
+	language = undefined,
+	contentHtml = "",
+}: {
+	code?: string;
+	language?: string;
+	contentHtml?: string;
+} = $props();
 
-	let copied = $state(false);
-	let collapsed = $state(false);
-	let container = $state<HTMLDivElement | undefined>(undefined);
-	let copyTimeout: ReturnType<typeof setTimeout> | undefined;
+let copied = $state(false);
+let collapsed = $state(false);
+let container = $state<HTMLDivElement | undefined>(undefined);
+let copyTimeout: ReturnType<typeof setTimeout> | undefined;
 
-	async function toggleCollapse() {
-		await preserveScrollOnToggle(container, collapsed, () => { collapsed = !collapsed; });
+async function toggleCollapse() {
+	await preserveScrollOnToggle(container, collapsed, () => {
+		collapsed = !collapsed;
+	});
+}
+
+async function copyToClipboard() {
+	try {
+		await navigator.clipboard.writeText(code);
+		copied = true;
+		clearTimeout(copyTimeout);
+		copyTimeout = setTimeout(() => {
+			copied = false;
+		}, 2000);
+	} catch (err) {
+		console.error("Failed to copy code: ", err);
 	}
-
-	async function copyToClipboard() {
-		try {
-			await navigator.clipboard.writeText(code);
-			copied = true;
-			clearTimeout(copyTimeout);
-			copyTimeout = setTimeout(() => {
-				copied = false;
-			}, 2000);
-		} catch (err) {
-			console.error('Failed to copy code: ', err);
-		}
-	}
+}
 </script>
 
 <div class="code-block relative my-md w-full font-mono text-[14px]" bind:this={container}>

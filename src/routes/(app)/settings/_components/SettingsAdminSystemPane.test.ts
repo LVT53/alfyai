@@ -25,9 +25,9 @@ import {
 	createProviderEntry,
 	fetchAdminSystemSkills,
 	fetchProviderList,
-	updateProviderEntry,
 	updateAdminConfig,
 	updateAdminSystemSkill,
+	updateProviderEntry,
 } from "$lib/client/api/admin";
 import {
 	saveModelIconAssetCrop,
@@ -37,21 +37,31 @@ import {
 import { createModelCapabilitySet } from "$lib/model-capabilities";
 
 const mockCreateProviderEntry = createProviderEntry as ReturnType<typeof vi.fn>;
-const mockFetchAdminSystemSkills = fetchAdminSystemSkills as ReturnType<typeof vi.fn>;
+const mockFetchAdminSystemSkills = fetchAdminSystemSkills as ReturnType<
+	typeof vi.fn
+>;
 const mockFetchProviderList = fetchProviderList as ReturnType<typeof vi.fn>;
 const mockUpdateProviderEntry = updateProviderEntry as ReturnType<typeof vi.fn>;
 const mockUpdateAdminConfig = updateAdminConfig as ReturnType<typeof vi.fn>;
-const mockUpdateAdminSystemSkill = updateAdminSystemSkill as ReturnType<typeof vi.fn>;
-const mockSaveModelIconAssetCrop = saveModelIconAssetCrop as ReturnType<typeof vi.fn>;
-const mockUploadCampaignAssetSource = uploadCampaignAssetSource as ReturnType<typeof vi.fn>;
-const mockUploadModelIconAsset = uploadModelIconAsset as ReturnType<typeof vi.fn>;
+const mockUpdateAdminSystemSkill = updateAdminSystemSkill as ReturnType<
+	typeof vi.fn
+>;
+const mockSaveModelIconAssetCrop = saveModelIconAssetCrop as ReturnType<
+	typeof vi.fn
+>;
+const mockUploadCampaignAssetSource = uploadCampaignAssetSource as ReturnType<
+	typeof vi.fn
+>;
+const mockUploadModelIconAsset = uploadModelIconAsset as ReturnType<
+	typeof vi.fn
+>;
 
-function byExactTextContent(text: string) {
+function _byExactTextContent(text: string) {
 	return (_content: string, element: Element | null) =>
 		element?.textContent?.replace(/\s+/g, " ").trim() === text;
 }
 
-function providerFixture(overrides: Record<string, unknown> = {}) {
+function _providerFixture(overrides: Record<string, unknown> = {}) {
 	return {
 		id: "provider-1",
 		name: "provider_1",
@@ -177,9 +187,7 @@ describe("SettingsAdminSystemPane", () => {
 		await fireEvent.input(getByLabelText("App version override"), {
 			target: { value: "2026.05-admin" },
 		});
-		await fireEvent.click(
-			getByRole("button", { name: "Save Configuration" }),
-		);
+		await fireEvent.click(getByRole("button", { name: "Save Configuration" }));
 
 		expect(adminConfig.APP_VERSION_OVERRIDE).toBe("2026.05-admin");
 		expect(onSaveAdminConfig).toHaveBeenCalledTimes(1);
@@ -199,7 +207,10 @@ describe("SettingsAdminSystemPane", () => {
 			envDefaults: { REASONING_DEPTH_CLASSIFIER_MODEL: "" },
 			availableModels: [
 				{ id: "model1", displayName: "Model 1" },
-				{ id: "provider:provider-1:classifier-1", displayName: "Classifier Mini" },
+				{
+					id: "provider:provider-1:classifier-1",
+					displayName: "Classifier Mini",
+				},
 			],
 			onCheckHonchoHealth: vi.fn(),
 			onSaveAdminConfig: vi.fn(),
@@ -264,10 +275,12 @@ describe("SettingsAdminSystemPane", () => {
 
 		await fireEvent.click(getByRole("button", { name: "Publish Interview" }));
 
-		expect(mockUpdateAdminSystemSkill).toHaveBeenCalledWith("system:interview", {
-			published: true,
-			enabled: true,
-		});
+		expect(mockUpdateAdminSystemSkill).toHaveBeenCalledWith(
+			"system:interview",
+			{
+				published: true,
+				enabled: true,
+			},
+		);
 	});
-
 });

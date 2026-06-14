@@ -2,9 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/services/providers", () => ({
 	getProviderByName: vi.fn(async (name: string) =>
-		name === "openrouter"
-			? { id: "provider-1", enabled: true }
-			: null,
+		name === "openrouter" ? { id: "provider-1", enabled: true } : null,
 	),
 	getProviderWithSecrets: vi.fn(async (id: string) =>
 		id === "provider-1"
@@ -24,8 +22,8 @@ vi.mock("$lib/server/services/provider-models", () => ({
 	),
 }));
 
-import { resolveUserModelPreference } from "./model-preferences";
 import type { RuntimeConfig } from "$lib/server/config-store";
+import { resolveUserModelPreference } from "./model-preferences";
 
 const config = {
 	defaultNewUserModel: "model2",
@@ -36,7 +34,9 @@ const config = {
 
 describe("model preference inheritance", () => {
 	it("resolves system-mode users to the live default without requiring nullable storage", async () => {
-		await expect(resolveUserModelPreference("model1", "system", config)).resolves.toEqual({
+		await expect(
+			resolveUserModelPreference("model1", "system", config),
+		).resolves.toEqual({
 			preference: null,
 			effectiveModel: "model2",
 			systemDefaultModel: "model2",
@@ -44,7 +44,9 @@ describe("model preference inheritance", () => {
 	});
 
 	it("normalizes legacy rows whose stored model equals the current default to inherited", async () => {
-		await expect(resolveUserModelPreference("model2", null, config)).resolves.toEqual({
+		await expect(
+			resolveUserModelPreference("model2", null, config),
+		).resolves.toEqual({
 			preference: null,
 			effectiveModel: "model2",
 			systemDefaultModel: "model2",
@@ -52,7 +54,9 @@ describe("model preference inheritance", () => {
 	});
 
 	it("preserves explicit non-default model choices", async () => {
-		await expect(resolveUserModelPreference("model1", "explicit", config)).resolves.toEqual({
+		await expect(
+			resolveUserModelPreference("model1", "explicit", config),
+		).resolves.toEqual({
 			preference: "model1",
 			effectiveModel: "model1",
 			systemDefaultModel: "model2",
@@ -60,7 +64,9 @@ describe("model preference inheritance", () => {
 	});
 
 	it("preserves explicit choices even when they currently match the admin default", async () => {
-		await expect(resolveUserModelPreference("model2", "explicit", config)).resolves.toEqual({
+		await expect(
+			resolveUserModelPreference("model2", "explicit", config),
+		).resolves.toEqual({
 			preference: "model2",
 			effectiveModel: "model2",
 			systemDefaultModel: "model2",

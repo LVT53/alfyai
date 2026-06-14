@@ -22,7 +22,7 @@ describe("getOrCreateMetrics", () => {
 
 	it("returns the same entry on subsequent calls", () => {
 		const first = getOrCreateMetrics("user-1");
-		(first.steps as Record<string, unknown>)["test-step"] = {} as any;
+		(first.steps as Record<string, unknown>)["test-step"] = {};
 		const second = getOrCreateMetrics("user-1");
 		expect(second).toBe(first);
 		expect(second.steps["test-step"]).toBeDefined();
@@ -43,7 +43,7 @@ describe("recordStepStart", () => {
 		expect(startTime).toBeGreaterThan(0);
 
 		const metrics = getOrCreateMetrics("user-1");
-		const step = metrics.steps["cleanup"];
+		const step = metrics.steps.cleanup;
 		expect(step).toBeDefined();
 		expect(step.stepName).toBe("cleanup");
 		expect(step.totalRuns).toBe(1);
@@ -57,9 +57,9 @@ describe("recordStepStart", () => {
 		recordStepStart("user-1", "cleanup");
 
 		const metrics = getOrCreateMetrics("user-1");
-		expect(metrics.steps["cleanup"].totalRuns).toBe(3);
-		expect(metrics.steps["cleanup"].totalSuccesses).toBe(0);
-		expect(metrics.steps["cleanup"].totalFailures).toBe(0);
+		expect(metrics.steps.cleanup.totalRuns).toBe(3);
+		expect(metrics.steps.cleanup.totalSuccesses).toBe(0);
+		expect(metrics.steps.cleanup.totalFailures).toBe(0);
 	});
 });
 
@@ -74,7 +74,7 @@ describe("recordStepSuccess", () => {
 		expect(step.totalSuccesses).toBe(1);
 		expect(step.totalFailures).toBe(0);
 		expect(step.lastDurationMs).not.toBeNull();
-		expect(step.lastDurationMs!).toBeGreaterThanOrEqual(0);
+		expect(step.lastDurationMs).toBeGreaterThanOrEqual(0);
 		expect(step.lastRunAt).not.toBeNull();
 		expect(step.lastError).toBeNull();
 	});
@@ -84,7 +84,7 @@ describe("recordStepSuccess", () => {
 		recordStepSuccess("user-1", "dedup", startTime, 42);
 
 		const metrics = getOrCreateMetrics("user-1");
-		const step = metrics.steps["dedup"];
+		const step = metrics.steps.dedup;
 		expect(step.totalRowsAffected).toBe(42);
 	});
 
@@ -96,7 +96,7 @@ describe("recordStepSuccess", () => {
 		recordStepSuccess("user-1", "dedup", start, 20);
 
 		const metrics = getOrCreateMetrics("user-1");
-		expect(metrics.steps["dedup"].totalRowsAffected).toBe(30);
+		expect(metrics.steps.dedup.totalRowsAffected).toBe(30);
 	});
 
 	it("updates lastRunAt and lastDurationMs", () => {
@@ -107,7 +107,7 @@ describe("recordStepSuccess", () => {
 		const metrics = getOrCreateMetrics("user-1");
 		const step = metrics.steps["slow-step"];
 		expect(step.lastRunAt).toBeGreaterThan(0);
-		expect(step.lastDurationMs!).toBeGreaterThanOrEqual(4000);
+		expect(step.lastDurationMs).toBeGreaterThanOrEqual(4000);
 	});
 });
 
@@ -187,10 +187,10 @@ describe("mixed success/failure scenarios", () => {
 		const user1Metrics = getOrCreateMetrics("user-1");
 		const user2Metrics = getOrCreateMetrics("user-2");
 
-		expect(user1Metrics.steps["cleanup"].totalSuccesses).toBe(1);
-		expect(user1Metrics.steps["cleanup"].totalFailures).toBe(0);
-		expect(user2Metrics.steps["cleanup"].totalSuccesses).toBe(0);
-		expect(user2Metrics.steps["cleanup"].totalFailures).toBe(1);
+		expect(user1Metrics.steps.cleanup.totalSuccesses).toBe(1);
+		expect(user1Metrics.steps.cleanup.totalFailures).toBe(0);
+		expect(user2Metrics.steps.cleanup.totalSuccesses).toBe(0);
+		expect(user2Metrics.steps.cleanup.totalFailures).toBe(1);
 	});
 });
 
@@ -222,8 +222,8 @@ describe("getUserMetrics", () => {
 
 		const metrics = getUserMetrics("user-1");
 		expect(metrics).not.toBeNull();
-		expect(metrics!.userId).toBe("user-1");
-		expect(metrics!.steps["step-a"]).toBeDefined();
+		expect(metrics?.userId).toBe("user-1");
+		expect(metrics?.steps["step-a"]).toBeDefined();
 	});
 });
 

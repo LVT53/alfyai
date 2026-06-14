@@ -2,9 +2,9 @@ import {
 	findRelevantKnowledgeArtifacts,
 	resolvePromptAttachmentArtifacts,
 	selectWorkingSetArtifactsForPrompt,
-} from '$lib/server/services/knowledge';
-import type { Artifact } from '$lib/types';
-import type { PlanningContextItem } from './planning';
+} from "$lib/server/services/knowledge";
+import type { Artifact } from "$lib/types";
+import type { PlanningContextItem } from "./planning";
 
 export type BuildDeepResearchPlanningContextInput = {
 	userId: string;
@@ -55,7 +55,8 @@ export async function buildDeepResearchPlanningContext(
 
 	if (attachmentIds.length > 0) {
 		const resolvedAttachments = await (
-			dependencies.resolvePromptAttachmentArtifacts ?? resolvePromptAttachmentArtifacts
+			dependencies.resolvePromptAttachmentArtifacts ??
+			resolvePromptAttachmentArtifacts
 		)(input.userId, attachmentIds);
 
 		for (const item of resolvedAttachments.items) {
@@ -64,7 +65,7 @@ export async function buildDeepResearchPlanningContext(
 				contextItems,
 				seenArtifactIds,
 				artifactToPlanningContextItem(item.promptArtifact, {
-					type: 'attachment',
+					type: "attachment",
 					includeAsResearchSource: true,
 					maxSummaryLength,
 				}),
@@ -75,13 +76,17 @@ export async function buildDeepResearchPlanningContext(
 
 	if (contextItems.length >= maxItems) return contextItems;
 
-	const knowledgeArtifacts = await collectKnowledgeArtifacts(input, dependencies, attachmentIds);
+	const knowledgeArtifacts = await collectKnowledgeArtifacts(
+		input,
+		dependencies,
+		attachmentIds,
+	);
 	for (const artifact of knowledgeArtifacts) {
 		appendContextItem(
 			contextItems,
 			seenArtifactIds,
 			artifactToPlanningContextItem(artifact, {
-				type: 'knowledge',
+				type: "knowledge",
 				includeAsResearchSource: false,
 				maxSummaryLength,
 			}),
@@ -99,9 +104,11 @@ async function collectKnowledgeArtifacts(
 	attachmentIds: string[],
 ): Promise<Artifact[]> {
 	const selectWorkingSet =
-		dependencies.selectWorkingSetArtifactsForPrompt ?? selectWorkingSetArtifactsForPrompt;
+		dependencies.selectWorkingSetArtifactsForPrompt ??
+		selectWorkingSetArtifactsForPrompt;
 	const findRelevant =
-		dependencies.findRelevantKnowledgeArtifacts ?? findRelevantKnowledgeArtifacts;
+		dependencies.findRelevantKnowledgeArtifacts ??
+		findRelevantKnowledgeArtifacts;
 
 	const [workingSetArtifacts, relevantArtifacts] = await Promise.all([
 		selectWorkingSet(
@@ -127,7 +134,7 @@ async function collectKnowledgeArtifacts(
 function artifactToPlanningContextItem(
 	artifact: Artifact,
 	options: {
-		type: PlanningContextItem['type'];
+		type: PlanningContextItem["type"];
 		includeAsResearchSource: boolean;
 		maxSummaryLength: number;
 	},
@@ -155,10 +162,13 @@ function appendContextItem(
 	items.push(item);
 }
 
-function summarizeArtifact(artifact: Artifact, maxSummaryLength: number): string {
+function summarizeArtifact(
+	artifact: Artifact,
+	maxSummaryLength: number,
+): string {
 	const rawSummary =
 		artifact.summary?.trim() || artifact.contentText?.trim() || artifact.name;
-	const collapsed = rawSummary.replace(/\s+/g, ' ');
+	const collapsed = rawSummary.replace(/\s+/g, " ");
 	if (collapsed.length <= maxSummaryLength) return collapsed;
 	return `${collapsed.slice(0, Math.max(0, maxSummaryLength - 1)).trimEnd()}…`;
 }

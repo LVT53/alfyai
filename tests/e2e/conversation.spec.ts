@@ -22,6 +22,14 @@ async function createConversationTransfer(page: Page, conversationId: string) {
 	);
 }
 
+function requireConversationId(
+	conversationId: string | null | undefined,
+): string {
+	expect(conversationId).toBeTruthy();
+	if (!conversationId) throw new Error("Expected created conversation id");
+	return conversationId;
+}
+
 test.describe("Conversation CRUD operations", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
@@ -85,7 +93,8 @@ test.describe("Conversation CRUD operations", () => {
 		});
 
 		const item = page.getByTestId("conversation-item").first();
-		const originalTitle = (await item.locator(".truncate").textContent()) ?? "";
+		const _originalTitle =
+			(await item.locator(".truncate").textContent()) ?? "";
 
 		await item.hover();
 		await item.getByRole("button", { name: "Conversation options" }).click();
@@ -164,7 +173,7 @@ test.describe("Conversation CRUD operations", () => {
 		await projectInput.fill(projectName);
 		await projectInput.press("Enter");
 
-		const conversationItem = page.locator(
+		const _conversationItem = page.locator(
 			`[data-conversation-id="${conversationId}"]`,
 		);
 		const projectTarget = page
@@ -186,7 +195,7 @@ test.describe("Conversation CRUD operations", () => {
 
 		const dataTransfer = await createConversationTransfer(
 			page,
-			conversationId!,
+			requireConversationId(conversationId),
 		);
 		await projectTarget.dispatchEvent("dragover", { dataTransfer });
 		await projectTarget.dispatchEvent("drop", { dataTransfer });
@@ -230,7 +239,7 @@ test.describe("Conversation CRUD operations", () => {
 			.getByTestId("project-drop-target")
 			.filter({ hasText: secondProjectName })
 			.first();
-		const conversationItem = page.locator(
+		const _conversationItem = page.locator(
 			`[data-conversation-id="${conversationId}"]`,
 		);
 
@@ -251,7 +260,7 @@ test.describe("Conversation CRUD operations", () => {
 
 		const firstTransfer = await createConversationTransfer(
 			page,
-			conversationId!,
+			requireConversationId(conversationId),
 		);
 		await firstProjectTarget.dispatchEvent("dragover", {
 			dataTransfer: firstTransfer,
@@ -278,7 +287,7 @@ test.describe("Conversation CRUD operations", () => {
 
 		const secondTransfer = await createConversationTransfer(
 			page,
-			conversationId!,
+			requireConversationId(conversationId),
 		);
 		await movedConversationItem.dispatchEvent("dragstart", {
 			dataTransfer: secondTransfer,
@@ -324,7 +333,7 @@ test.describe("Conversation CRUD operations", () => {
 			.filter({ hasText: projectName })
 			.first();
 		const unorganizedTarget = page.getByTestId("unorganized-drop-target");
-		const conversationItem = page.locator(
+		const _conversationItem = page.locator(
 			`[data-conversation-id="${conversationId}"]`,
 		);
 
@@ -341,7 +350,7 @@ test.describe("Conversation CRUD operations", () => {
 
 		const intoProjectTransfer = await createConversationTransfer(
 			page,
-			conversationId!,
+			requireConversationId(conversationId),
 		);
 		await projectTarget.dispatchEvent("dragover", {
 			dataTransfer: intoProjectTransfer,
@@ -367,7 +376,7 @@ test.describe("Conversation CRUD operations", () => {
 
 		const backTransfer = await createConversationTransfer(
 			page,
-			conversationId!,
+			requireConversationId(conversationId),
 		);
 		await movedConversationItem.dispatchEvent("dragstart", {
 			dataTransfer: backTransfer,

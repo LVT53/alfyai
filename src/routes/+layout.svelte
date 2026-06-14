@@ -1,13 +1,13 @@
 <script>
-	import '../app.css';
-	import { onMount } from 'svelte';
-	import { initTheme } from '$lib/stores/theme';
+import "../app.css";
+import { onMount } from "svelte";
+import { initTheme } from "$lib/stores/theme";
 
-	let { children } = $props();
+let { children } = $props();
 
-	onMount(() => {
-		initTheme();
-	});
+onMount(() => {
+	initTheme();
+});
 </script>
 
 {@render children()}

@@ -15,24 +15,24 @@
  *   - All deletions are idempotent.
  */
 
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import { db } from '$lib/server/db';
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { db } from "$lib/server/db";
 import {
-	artifacts,
 	artifactChunks,
 	artifactLinks,
-	taskStateEvidenceLinks,
-	taskCheckpoints,
+	artifacts,
 	conversationTaskStates,
 	conversationWorkingSetItems,
 	skillNoteCheckpoints,
 	skillNoteOperations,
 	skillSessionMilestones,
 	skillSessions,
-} from '$lib/server/db/schema';
-import { deleteMessages } from '$lib/server/services/messages';
-import { deleteConversationHonchoState } from '../honcho';
-import { deleteSemanticEmbeddingsForSubjects } from '../semantic-embeddings';
+	taskCheckpoints,
+	taskStateEvidenceLinks,
+} from "$lib/server/db/schema";
+import { deleteMessages } from "$lib/server/services/messages";
+import { deleteConversationHonchoState } from "../honcho";
+import { deleteSemanticEmbeddingsForSubjects } from "../semantic-embeddings";
 
 export type CleanupResult = {
 	steps: CleanupStep[];
@@ -82,12 +82,12 @@ export async function cleanupFailedTurn(params: {
 					),
 				)
 				.run();
-			log('delete evidence links', true, `taskId=${taskStateRow[0].taskId}`);
+			log("delete evidence links", true, `taskId=${taskStateRow[0].taskId}`);
 		} else {
-			log('delete evidence links', true, 'no task state — skipped');
+			log("delete evidence links", true, "no task state — skipped");
 		}
 	} catch (error) {
-		log('delete evidence links', false, String(error));
+		log("delete evidence links", false, String(error));
 		warnings.push(`evidence-links: ${String(error)}`);
 	}
 
@@ -103,12 +103,12 @@ export async function cleanupFailedTurn(params: {
 					),
 				)
 				.run();
-			log('delete checkpoints', true, `taskId=${taskStateRow[0].taskId}`);
+			log("delete checkpoints", true, `taskId=${taskStateRow[0].taskId}`);
 		} else {
-			log('delete checkpoints', true, 'no task state — skipped');
+			log("delete checkpoints", true, "no task state — skipped");
 		}
 	} catch (error) {
-		log('delete checkpoints', false, String(error));
+		log("delete checkpoints", false, String(error));
 		warnings.push(`checkpoints: ${String(error)}`);
 	}
 
@@ -120,7 +120,7 @@ export async function cleanupFailedTurn(params: {
 				and(
 					eq(artifacts.userId, userId),
 					eq(artifacts.conversationId, conversationId),
-					eq(artifacts.type, 'generated_output'),
+					eq(artifacts.type, "generated_output"),
 				),
 			);
 
@@ -149,16 +149,20 @@ export async function cleanupFailedTurn(params: {
 					and(
 						eq(artifacts.userId, userId),
 						eq(artifacts.conversationId, conversationId),
-						eq(artifacts.type, 'generated_output'),
+						eq(artifacts.type, "generated_output"),
 					),
 				)
 				.run();
-			log('delete generated_output artifacts', true, `count=${idsToDelete.length}`);
+			log(
+				"delete generated_output artifacts",
+				true,
+				`count=${idsToDelete.length}`,
+			);
 		} else {
-			log('delete generated_output artifacts', true, 'none found — skipped');
+			log("delete generated_output artifacts", true, "none found — skipped");
 		}
 	} catch (error) {
-		log('delete generated_output artifacts', false, String(error));
+		log("delete generated_output artifacts", false, String(error));
 		warnings.push(`generated-output: ${String(error)}`);
 	}
 
@@ -169,13 +173,13 @@ export async function cleanupFailedTurn(params: {
 				and(
 					eq(artifacts.userId, userId),
 					eq(artifacts.conversationId, conversationId),
-					eq(artifacts.type, 'work_capsule'),
+					eq(artifacts.type, "work_capsule"),
 				),
 			)
 			.run();
-		log('delete work capsule', true);
+		log("delete work capsule", true);
 	} catch (error) {
-		log('delete work capsule', false, String(error));
+		log("delete work capsule", false, String(error));
 		warnings.push(`work-capsule: ${String(error)}`);
 	}
 
@@ -185,25 +189,25 @@ export async function cleanupFailedTurn(params: {
 			conversationId,
 			assistantMessageId,
 		});
-		log('cleanup skill side effects', true);
+		log("cleanup skill side effects", true);
 	} catch (error) {
-		log('cleanup skill side effects', false, String(error));
+		log("cleanup skill side effects", false, String(error));
 		warnings.push(`skill-side-effects: ${String(error)}`);
 	}
 
 	try {
 		await deleteConversationHonchoState(userId, conversationId);
-		log('delete Honcho session state', true);
+		log("delete Honcho session state", true);
 	} catch (error) {
-		log('delete Honcho session state', false, String(error));
+		log("delete Honcho session state", false, String(error));
 		warnings.push(`honcho-cleanup: ${String(error)}`);
 	}
 
 	try {
 		await deleteMessages([assistantMessageId]);
-		log('delete assistant message', true, `id=${assistantMessageId}`);
+		log("delete assistant message", true, `id=${assistantMessageId}`);
 	} catch (error) {
-		log('delete assistant message', false, String(error));
+		log("delete assistant message", false, String(error));
 		warnings.push(`assistant-message: ${String(error)}`);
 	}
 
@@ -237,7 +241,7 @@ async function cleanupSkillSideEffects(params: {
 		)
 		.orderBy(desc(skillNoteCheckpoints.createdAt));
 	const createdNoteArtifactIds = noteOperations
-		.filter((operation) => operation.action === 'create')
+		.filter((operation) => operation.action === "create")
 		.map((operation) => operation.artifactId);
 	const rolledBackNoteArtifactIds = Array.from(
 		new Set(checkpoints.map((checkpoint) => checkpoint.noteArtifactId)),
@@ -248,7 +252,7 @@ async function cleanupSkillSideEffects(params: {
 			.update(artifacts)
 			.set({
 				contentText: checkpoint.previousBody,
-				sizeBytes: Buffer.byteLength(checkpoint.previousBody, 'utf8'),
+				sizeBytes: Buffer.byteLength(checkpoint.previousBody, "utf8"),
 				metadataJson: checkpoint.previousMetadataJson,
 				updatedAt: new Date(),
 			})
@@ -257,7 +261,7 @@ async function cleanupSkillSideEffects(params: {
 					eq(artifacts.id, checkpoint.noteArtifactId),
 					eq(artifacts.userId, params.userId),
 					eq(artifacts.conversationId, params.conversationId),
-					eq(artifacts.type, 'skill_note'),
+					eq(artifacts.type, "skill_note"),
 				),
 			)
 			.run();
@@ -275,7 +279,7 @@ async function cleanupSkillSideEffects(params: {
 			.run();
 		await deleteSemanticEmbeddingsForSubjects({
 			userId: params.userId,
-			subjectType: 'artifact',
+			subjectType: "artifact",
 			subjectIds: rolledBackNoteArtifactIds,
 		});
 	}
@@ -296,7 +300,10 @@ async function cleanupSkillSideEffects(params: {
 				and(
 					eq(conversationWorkingSetItems.userId, params.userId),
 					eq(conversationWorkingSetItems.conversationId, params.conversationId),
-					inArray(conversationWorkingSetItems.artifactId, createdNoteArtifactIds),
+					inArray(
+						conversationWorkingSetItems.artifactId,
+						createdNoteArtifactIds,
+					),
 				),
 			)
 			.run();
@@ -312,7 +319,7 @@ async function cleanupSkillSideEffects(params: {
 			.run();
 		await deleteSemanticEmbeddingsForSubjects({
 			userId: params.userId,
-			subjectType: 'artifact',
+			subjectType: "artifact",
 			subjectIds: createdNoteArtifactIds,
 		});
 		await db
@@ -321,7 +328,7 @@ async function cleanupSkillSideEffects(params: {
 				and(
 					eq(artifacts.userId, params.userId),
 					eq(artifacts.conversationId, params.conversationId),
-					eq(artifacts.type, 'skill_note'),
+					eq(artifacts.type, "skill_note"),
 					inArray(artifacts.id, createdNoteArtifactIds),
 				),
 			)
@@ -364,12 +371,17 @@ async function cleanupSkillSideEffects(params: {
 			params.assistantMessageId,
 		),
 	);
-	const milestoneIdsToDelete = milestonesToDelete.map((milestone) => milestone.id);
+	const milestoneIdsToDelete = milestonesToDelete.map(
+		(milestone) => milestone.id,
+	);
 	if (milestoneIdsToDelete.length > 0) {
 		const terminalSessionIds = Array.from(
 			new Set(
 				milestonesToDelete
-					.filter((milestone) => milestone.kind === 'ended' || milestone.kind === 'dismissed')
+					.filter(
+						(milestone) =>
+							milestone.kind === "ended" || milestone.kind === "dismissed",
+					)
 					.map((milestone) => milestone.sessionId),
 			),
 		);
@@ -381,7 +393,7 @@ async function cleanupSkillSideEffects(params: {
 			await db
 				.update(skillSessions)
 				.set({
-					status: 'active',
+					status: "active",
 					endReason: null,
 					endedAt: null,
 					updatedAt: new Date(),
@@ -399,10 +411,11 @@ function milestoneReferencesAssistantMessage(
 	try {
 		const parsed = JSON.parse(messageParamsJson) as unknown;
 		return (
-			typeof parsed === 'object' &&
+			typeof parsed === "object" &&
 			parsed !== null &&
-			'assistantMessageId' in parsed &&
-			(parsed as { assistantMessageId?: unknown }).assistantMessageId === assistantMessageId
+			"assistantMessageId" in parsed &&
+			(parsed as { assistantMessageId?: unknown }).assistantMessageId ===
+				assistantMessageId
 		);
 	} catch {
 		return messageParamsJson.includes(assistantMessageId);

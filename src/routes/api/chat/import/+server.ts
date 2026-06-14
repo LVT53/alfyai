@@ -8,7 +8,7 @@ import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user!;
+	const user = event.locals.user;
 
 	let formData: FormData;
 	try {

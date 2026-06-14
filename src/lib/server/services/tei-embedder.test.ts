@@ -1,112 +1,130 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockRuntimeConfig } = vi.hoisted(() => ({
-  mockRuntimeConfig: {
-    teiEmbedderUrl: 'http://localhost:8081',
-    teiEmbedderApiKey: '',
-    teiEmbedderModel: 'bge-m3',
-    teiEmbedderBatchSize: 32,
-    teiRerankerUrl: '',
-    teiRerankerApiKey: '',
-    teiRerankerModel: '',
-    teiRerankerMaxTexts: 32,
-    teiTimeoutMs: 5000,
-  },
+	mockRuntimeConfig: {
+		teiEmbedderUrl: "http://localhost:8081",
+		teiEmbedderApiKey: "",
+		teiEmbedderModel: "bge-m3",
+		teiEmbedderBatchSize: 32,
+		teiRerankerUrl: "",
+		teiRerankerApiKey: "",
+		teiRerankerModel: "",
+		teiRerankerMaxTexts: 32,
+		teiTimeoutMs: 5000,
+	},
 }));
 
-vi.mock('$lib/server/config-store', () => ({
-  getConfig: () => mockRuntimeConfig,
+vi.mock("$lib/server/config-store", () => ({
+	getConfig: () => mockRuntimeConfig,
 }));
 
-vi.stubGlobal('fetch', vi.fn());
+vi.stubGlobal("fetch", vi.fn());
 
-describe('tei-embedder service', () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
-    mockRuntimeConfig.teiEmbedderUrl = 'http://localhost:8081';
-    mockRuntimeConfig.teiEmbedderApiKey = '';
-    mockRuntimeConfig.teiEmbedderModel = 'bge-m3';
-    mockRuntimeConfig.teiEmbedderBatchSize = 32;
-    mockRuntimeConfig.teiTimeoutMs = 5000;
-  });
+function firstFetchRequest(): RequestInit | undefined {
+	const firstCall = vi.mocked(fetch).mock.calls[0];
+	expect(firstCall).toBeDefined();
+	if (!firstCall) throw new Error("Expected fetch to be called");
+	return firstCall[1];
+}
 
-  it('returns null without calling fetch when the embedder is not configured', async () => {
-    mockRuntimeConfig.teiEmbedderUrl = '';
+describe("tei-embedder service", () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		mockRuntimeConfig.teiEmbedderUrl = "http://localhost:8081";
+		mockRuntimeConfig.teiEmbedderApiKey = "";
+		mockRuntimeConfig.teiEmbedderModel = "bge-m3";
+		mockRuntimeConfig.teiEmbedderBatchSize = 32;
+		mockRuntimeConfig.teiTimeoutMs = 5000;
+	});
 
-    const { embedTexts, canUseTeiEmbedder } = await import('./tei-embedder');
-    const result = await embedTexts(['alpha']);
+	it("returns null without calling fetch when the embedder is not configured", async () => {
+		mockRuntimeConfig.teiEmbedderUrl = "";
 
-    expect(canUseTeiEmbedder()).toBe(false);
-    expect(result).toBeNull();
-    expect(fetch).not.toHaveBeenCalled();
-  });
+		const { embedTexts, canUseTeiEmbedder } = await import("./tei-embedder");
+		const result = await embedTexts(["alpha"]);
 
-  it('posts batched inputs to /embed and parses embeddings objects', async () => {
-    mockRuntimeConfig.teiEmbedderApiKey = 'secret';
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify({ embeddings: [[0.1, 0.2], [0.3, 0.4]] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
+		expect(canUseTeiEmbedder()).toBe(false);
+		expect(result).toBeNull();
+		expect(fetch).not.toHaveBeenCalled();
+	});
 
-    const { embedTexts } = await import('./tei-embedder');
-    const result = await embedTexts(['alpha', 'beta'], { normalize: false, truncate: false });
+	it("posts batched inputs to /embed and parses embeddings objects", async () => {
+		mockRuntimeConfig.teiEmbedderApiKey = "secret";
+		vi.mocked(fetch).mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					embeddings: [
+						[0.1, 0.2],
+						[0.3, 0.4],
+					],
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
+		);
 
-    expect(result).toEqual([
-      [0.1, 0.2],
-      [0.3, 0.4],
-    ]);
-    expect(fetch).toHaveBeenCalledWith(
-      'http://localhost:8081/embed',
-      expect.objectContaining({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer secret',
-        },
-      })
-    );
+		const { embedTexts } = await import("./tei-embedder");
+		const result = await embedTexts(["alpha", "beta"], {
+			normalize: false,
+			truncate: false,
+		});
 
-    const [, request] = vi.mocked(fetch).mock.calls[0]!;
-    expect(JSON.parse(String(request?.body))).toEqual({
-      inputs: ['alpha', 'beta'],
-      normalize: false,
-      truncate: false,
-    });
-  });
+		expect(result).toEqual([
+			[0.1, 0.2],
+			[0.3, 0.4],
+		]);
+		expect(fetch).toHaveBeenCalledWith(
+			"http://localhost:8081/embed",
+			expect.objectContaining({
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer secret",
+				},
+			}),
+		);
 
-  it('normalizes a single-vector array response into a matrix', async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify([0.5, 0.6, 0.7]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
+		const request = firstFetchRequest();
+		expect(JSON.parse(String(request?.body))).toEqual({
+			inputs: ["alpha", "beta"],
+			normalize: false,
+			truncate: false,
+		});
+	});
 
-    const { embedText } = await import('./tei-embedder');
-    const result = await embedText('single');
+	it("normalizes a single-vector array response into a matrix", async () => {
+		vi.mocked(fetch).mockResolvedValue(
+			new Response(JSON.stringify([0.5, 0.6, 0.7]), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
 
-    expect(result).toEqual([0.5, 0.6, 0.7]);
-  });
+		const { embedText } = await import("./tei-embedder");
+		const result = await embedText("single");
 
-  it('passes an embedding prompt name when requested', async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify([[0.1, 0.2]]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
+		expect(result).toEqual([0.5, 0.6, 0.7]);
+	});
 
-    const { embedText } = await import('./tei-embedder');
-    await embedText('semantic query', { promptName: 'query' });
+	it("passes an embedding prompt name when requested", async () => {
+		vi.mocked(fetch).mockResolvedValue(
+			new Response(JSON.stringify([[0.1, 0.2]]), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
 
-    const [, request] = vi.mocked(fetch).mock.calls[0]!;
-    expect(JSON.parse(String(request?.body))).toEqual({
-      inputs: ['semantic query'],
-      normalize: true,
-      truncate: true,
-      prompt_name: 'query',
-    });
-  });
+		const { embedText } = await import("./tei-embedder");
+		await embedText("semantic query", { promptName: "query" });
+
+		const request = firstFetchRequest();
+		expect(JSON.parse(String(request?.body))).toEqual({
+			inputs: ["semantic query"],
+			normalize: true,
+			truncate: true,
+			prompt_name: "query",
+		});
+	});
 });

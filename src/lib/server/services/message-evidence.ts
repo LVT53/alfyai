@@ -1,3 +1,5 @@
+import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
+import { clipText } from "$lib/server/utils/text";
 import type {
 	ArtifactSummary,
 	ContextDebugState,
@@ -12,11 +14,9 @@ import type {
 	ToolEvidenceCandidate,
 } from "$lib/types";
 import type { LegacyContextTraceSectionInput } from "./chat-turn/context-trace";
+import { resolveArtifactFamilyKeys } from "./evidence-family";
 import { getArtifactsForUser } from "./knowledge";
 import { canUseTeiReranker, rerankItems } from "./tei-reranker";
-import { resolveArtifactFamilyKeys } from "./evidence-family";
-import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
-import { clipText } from "$lib/server/utils/text";
 
 const GROUP_LABELS: Record<EvidenceSourceType, string> = {
 	web: "Web Search",
@@ -74,7 +74,10 @@ function candidateMatchesSelectedMemoryId(
 ): boolean {
 	if (selectedIds.size === 0) return false;
 	for (const selectedId of selectedIds) {
-		if (candidate.id === selectedId || candidate.id.endsWith(`:${selectedId}`)) {
+		if (
+			candidate.id === selectedId ||
+			candidate.id.endsWith(`:${selectedId}`)
+		) {
 			return true;
 		}
 	}

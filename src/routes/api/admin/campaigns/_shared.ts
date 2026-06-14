@@ -1,5 +1,5 @@
-import { json } from '@sveltejs/kit';
-import { AnnouncementCampaignValidationError } from '$lib/server/services/announcement-campaigns';
+import { json } from "@sveltejs/kit";
+import { AnnouncementCampaignValidationError } from "$lib/server/services/announcement-campaigns";
 
 export function campaignErrorResponse(error: unknown, fallbackMessage: string) {
 	if (error instanceof AnnouncementCampaignValidationError) {
@@ -8,6 +8,6 @@ export function campaignErrorResponse(error: unknown, fallbackMessage: string) {
 			{ status: error.status },
 		);
 	}
-	console.error('[ANNOUNCEMENT_CAMPAIGNS] Route failure:', error);
+	console.error("[ANNOUNCEMENT_CAMPAIGNS] Route failure:", error);
 	return json({ error: fallbackMessage }, { status: 500 });
 }

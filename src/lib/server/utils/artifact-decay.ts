@@ -8,7 +8,14 @@ export interface DecayParams {
 }
 
 export function computeDecayScore(params: DecayParams): number {
-	const { importance, ageSeconds, staleSeconds, queryOverlap, queryLength, decayRate = 0.001 } = params;
+	const {
+		importance,
+		ageSeconds,
+		staleSeconds,
+		queryOverlap,
+		queryLength,
+		decayRate = 0.001,
+	} = params;
 
 	const ageDecay = Math.exp(-decayRate * ageSeconds);
 	const stalePenalty = Math.exp(-0.01 * staleSeconds);
@@ -28,7 +35,9 @@ export interface CrossDecayParams {
 	isSameConversation: boolean;
 }
 
-export function computeCrossConversationDecay(params: CrossDecayParams): number {
+export function computeCrossConversationDecay(
+	params: CrossDecayParams,
+): number {
 	const { baseScore, daysSinceLastAccess, isSameConversation } = params;
 
 	if (isSameConversation) {

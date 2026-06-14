@@ -75,7 +75,12 @@ function readForks(sourceConversationId: string) {
 	const rows = db
 		.select()
 		.from(schema.conversationForks)
-		.where(eq(schema.conversationForks.sourceConversationIdSnapshot, sourceConversationId))
+		.where(
+			eq(
+				schema.conversationForks.sourceConversationIdSnapshot,
+				sourceConversationId,
+			),
+		)
 		.orderBy(schema.conversationForks.forkSequence)
 		.all();
 	sqlite.close();
@@ -101,9 +106,21 @@ function makeParsedConversation(
 		updatedAt: new Date("2024-01-15T12:30:00Z"),
 		gizmoId: null,
 		messages: [
-			{ role: "user", content: "Hello", createdAt: new Date("2024-01-15T12:00:00Z") },
-			{ role: "assistant", content: "Hi there!", createdAt: new Date("2024-01-15T12:00:05Z") },
-			{ role: "user", content: "How are you?", createdAt: new Date("2024-01-15T12:01:00Z") },
+			{
+				role: "user",
+				content: "Hello",
+				createdAt: new Date("2024-01-15T12:00:00Z"),
+			},
+			{
+				role: "assistant",
+				content: "Hi there!",
+				createdAt: new Date("2024-01-15T12:00:05Z"),
+			},
+			{
+				role: "user",
+				content: "How are you?",
+				createdAt: new Date("2024-01-15T12:01:00Z"),
+			},
 		],
 		...overrides,
 	};
@@ -155,7 +172,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 
 		expect(result.conversationIds).toHaveLength(1);
 		expect(result.errors).toHaveLength(0);
@@ -190,7 +210,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 
 		expect(result.conversationIds).toHaveLength(2);
 		expect(result.errors).toHaveLength(0);
@@ -213,9 +236,13 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"), {
-			projectId: "proj-1",
-		});
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+			{
+				projectId: "proj-1",
+			},
+		);
 
 		expect(result.conversationIds).toHaveLength(1);
 		expect(result.errors).toHaveLength(0);
@@ -269,7 +296,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 		const msgs = readMessages(result.conversationIds[0]);
 
 		expect(msgs[0].createdAt).toEqual(new Date("2023-06-15T08:00:00Z"));
@@ -279,9 +309,7 @@ describe("importConversations", () => {
 		seedUser();
 		const before = new Date();
 		const parsed = makeParsedConversation({
-			messages: [
-				{ role: "user", content: "No timestamp" },
-			],
+			messages: [{ role: "user", content: "No timestamp" }],
 		});
 
 		const { parseConversationsJson } = await import("./parser");
@@ -292,12 +320,19 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 		const after = new Date();
 
 		const msgs = readMessages(result.conversationIds[0]);
-		expect(msgs[0].createdAt!.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
-		expect(msgs[0].createdAt!.getTime()).toBeLessThanOrEqual(after.getTime() + 1000);
+		expect(msgs[0].createdAt?.getTime()).toBeGreaterThanOrEqual(
+			before.getTime() - 1000,
+		);
+		expect(msgs[0].createdAt?.getTime()).toBeLessThanOrEqual(
+			after.getTime() + 1000,
+		);
 	});
 
 	it("calls onProgress callback for each conversation", async () => {
@@ -316,7 +351,8 @@ describe("importConversations", () => {
 
 		const progressCalls: { processed: number; total: number }[] = [];
 		await importConversations("test-user", Buffer.from("fake-zip"), {
-			onProgress: (processed, total) => progressCalls.push({ processed, total }),
+			onProgress: (processed, total) =>
+				progressCalls.push({ processed, total }),
 		});
 
 		expect(progressCalls).toEqual([
@@ -330,11 +366,16 @@ describe("importConversations", () => {
 		seedUser();
 
 		const { parseConversationsJson } = await import("./parser");
-		vi.mocked(parseConversationsJson).mockRejectedValue(new Error("Invalid ZIP format"));
+		vi.mocked(parseConversationsJson).mockRejectedValue(
+			new Error("Invalid ZIP format"),
+		);
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("corrupt"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("corrupt"),
+		);
 
 		expect(result.conversationIds).toHaveLength(0);
 		expect(result.errors).toHaveLength(1);
@@ -359,7 +400,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 
 		expect(result.conversationIds).toHaveLength(1);
 		expect(result.errors).toHaveLength(1);
@@ -378,7 +422,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("empty-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("empty-zip"),
+		);
 
 		expect(result.conversationIds).toHaveLength(0);
 		expect(result.errors).toHaveLength(0);
@@ -401,7 +448,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 
 		expect(result.conversationIds).toHaveLength(2);
 		expect(result.errors).toHaveLength(0);
@@ -419,7 +469,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 
 		expect(result.conversationIds).toHaveLength(1);
 
@@ -454,7 +507,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 		const msgs = readMessages(result.conversationIds[0]);
 
 		expect(msgs).toHaveLength(4);
@@ -481,7 +537,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 		const msgs = readMessages(result.conversationIds[0]);
 
 		expect(msgs[0].messageSequence).toBe(1);
@@ -516,13 +575,19 @@ describe("importConversations", () => {
 	it("creates a fork conversation for each detected branch", async () => {
 		seedUser();
 		const branchMessages: ParsedMessage[] = [
-			{ role: "user", content: "Hello", createdAt: new Date("2024-01-15T12:00:00Z") },
-			{ role: "assistant", content: "Alternative response", createdAt: new Date("2024-01-15T12:00:05Z") },
+			{
+				role: "user",
+				content: "Hello",
+				createdAt: new Date("2024-01-15T12:00:00Z"),
+			},
+			{
+				role: "assistant",
+				content: "Alternative response",
+				createdAt: new Date("2024-01-15T12:00:05Z"),
+			},
 		];
 		const parsed = makeParsedConversation({
-			branches: [
-				makeBranch("div-n1", "branch-n1", 0.5, branchMessages),
-			],
+			branches: [makeBranch("div-n1", "branch-n1", 0.5, branchMessages)],
 		});
 
 		const { parseConversationsJson } = await import("./parser");
@@ -533,7 +598,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 
 		expect(result.conversationIds).toHaveLength(1);
 		expect(result.errors).toHaveLength(0);
@@ -547,7 +615,9 @@ describe("importConversations", () => {
 		expect(forks).toHaveLength(1);
 		expect(forks[0].forkSequence).toBe(1);
 		expect(forks[0].sourceTitle).toBe("Test Conversation");
-		expect(forks[0].sourceConversationIdSnapshot).toBe(result.conversationIds[0]);
+		expect(forks[0].sourceConversationIdSnapshot).toBe(
+			result.conversationIds[0],
+		);
 
 		const forkMsgs = readMessages(forks[0].forkConversationId);
 		expect(forkMsgs).toHaveLength(2);
@@ -560,18 +630,36 @@ describe("importConversations", () => {
 	it("sets fork point to the last shared message", async () => {
 		seedUser();
 		const branchMessages: ParsedMessage[] = [
-			{ role: "user", content: "Hello", createdAt: new Date("2024-01-15T12:00:00Z") },
-			{ role: "assistant", content: "Branch-only reply", createdAt: new Date("2024-01-15T12:00:05Z") },
+			{
+				role: "user",
+				content: "Hello",
+				createdAt: new Date("2024-01-15T12:00:00Z"),
+			},
+			{
+				role: "assistant",
+				content: "Branch-only reply",
+				createdAt: new Date("2024-01-15T12:00:05Z"),
+			},
 		];
 		const parsed = makeParsedConversation({
 			messages: [
-				{ role: "user", content: "Hello", createdAt: new Date("2024-01-15T12:00:00Z") },
-				{ role: "assistant", content: "Primary reply", createdAt: new Date("2024-01-15T12:00:05Z") },
-				{ role: "user", content: "Follow-up", createdAt: new Date("2024-01-15T12:01:00Z") },
+				{
+					role: "user",
+					content: "Hello",
+					createdAt: new Date("2024-01-15T12:00:00Z"),
+				},
+				{
+					role: "assistant",
+					content: "Primary reply",
+					createdAt: new Date("2024-01-15T12:00:05Z"),
+				},
+				{
+					role: "user",
+					content: "Follow-up",
+					createdAt: new Date("2024-01-15T12:01:00Z"),
+				},
 			],
-			branches: [
-				makeBranch("div-n1", "branch-n1", 0.5, branchMessages),
-			],
+			branches: [makeBranch("div-n1", "branch-n1", 0.5, branchMessages)],
 		});
 
 		const { parseConversationsJson } = await import("./parser");
@@ -582,13 +670,18 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 
 		const forks = readForks(result.conversationIds[0]);
 		expect(forks).toHaveLength(1);
 
 		const forkMsgs = readMessages(forks[0].forkConversationId);
-		const forkPointMsg = forkMsgs.find((m) => m.id === forks[0].copiedForkPointMessageId);
+		const forkPointMsg = forkMsgs.find(
+			(m) => m.id === forks[0].copiedForkPointMessageId,
+		);
 		expect(forkPointMsg).toBeTruthy();
 		expect(forkPointMsg?.content).toBe("Hello");
 		expect(forkPointMsg?.role).toBe("user");
@@ -619,7 +712,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 
 		const forks = readForks(result.conversationIds[0]);
 		expect(forks).toHaveLength(2);
@@ -645,7 +741,10 @@ describe("importConversations", () => {
 
 		const { importConversations } = await import("./index");
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 
 		expect(result.conversationIds).toHaveLength(1);
 		const forks = readForks(result.conversationIds[0]);
@@ -672,7 +771,10 @@ describe("importConversations", () => {
 		const { generateImportEmbeddings } = await import("./embeddings");
 		const mockGenerate = vi.mocked(generateImportEmbeddings);
 
-		const result = await importConversations("test-user", Buffer.from("fake-zip"));
+		const result = await importConversations(
+			"test-user",
+			Buffer.from("fake-zip"),
+		);
 
 		expect(mockGenerate).toHaveBeenCalledTimes(1);
 		expect(mockGenerate).toHaveBeenCalledWith(

@@ -45,32 +45,33 @@ export type DeepResearchModelRoleDefinition = {
 
 export const DEFAULT_DEEP_RESEARCH_MODEL_ID: ModelId = "model1";
 
-export const DEFAULT_DEEP_RESEARCH_DEPTH_BUDGETS: DeepResearchDepthBudgetPolicy = {
-	focused: {
-		sourceReviewCeiling: 24,
-		meaningfulPassFloor: 2,
-		meaningfulPassCeiling: 3,
-		repairPassCeiling: 1,
-		sourceProcessingConcurrency: 6,
-		modelReasoningConcurrency: 2,
-	},
-	standard: {
-		sourceReviewCeiling: 75,
-		meaningfulPassFloor: 3,
-		meaningfulPassCeiling: 5,
-		repairPassCeiling: 2,
-		sourceProcessingConcurrency: 12,
-		modelReasoningConcurrency: 4,
-	},
-	max: {
-		sourceReviewCeiling: 200,
-		meaningfulPassFloor: 5,
-		meaningfulPassCeiling: 8,
-		repairPassCeiling: 3,
-		sourceProcessingConcurrency: 24,
-		modelReasoningConcurrency: 8,
-	},
-};
+export const DEFAULT_DEEP_RESEARCH_DEPTH_BUDGETS: DeepResearchDepthBudgetPolicy =
+	{
+		focused: {
+			sourceReviewCeiling: 24,
+			meaningfulPassFloor: 2,
+			meaningfulPassCeiling: 3,
+			repairPassCeiling: 1,
+			sourceProcessingConcurrency: 6,
+			modelReasoningConcurrency: 2,
+		},
+		standard: {
+			sourceReviewCeiling: 75,
+			meaningfulPassFloor: 3,
+			meaningfulPassCeiling: 5,
+			repairPassCeiling: 2,
+			sourceProcessingConcurrency: 12,
+			modelReasoningConcurrency: 4,
+		},
+		max: {
+			sourceReviewCeiling: 200,
+			meaningfulPassFloor: 5,
+			meaningfulPassCeiling: 8,
+			repairPassCeiling: 3,
+			sourceProcessingConcurrency: 24,
+			modelReasoningConcurrency: 8,
+		},
+	};
 
 export const DEEP_RESEARCH_MODEL_ROLES = [
 	{

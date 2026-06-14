@@ -67,30 +67,61 @@ let {
 	onEdit?:
 		| ((payload: { messageId: string; newText: string }) => void)
 		| undefined;
-	onFork?: ((payload: { messageId: string }) => void | Promise<void>) | undefined;
+	onFork?:
+		| ((payload: { messageId: string }) => void | Promise<void>)
+		| undefined;
 	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
 	canPublishSkillDrafts?: boolean;
-	skillDraftActionState?: Record<string, { busy?: boolean; error?: string | null }>;
-	onSaveSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
-	onDismissSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
-	onPublishSkillDraft?: ((payload: { messageId: string; draftId: string }) => void | Promise<void>) | undefined;
+	skillDraftActionState?: Record<
+		string,
+		{ busy?: boolean; error?: string | null }
+	>;
+	onSaveSkillDraft?:
+		| ((payload: {
+				messageId: string;
+				draftId: string;
+		  }) => void | Promise<void>)
+		| undefined;
+	onDismissSkillDraft?:
+		| ((payload: {
+				messageId: string;
+				draftId: string;
+		  }) => void | Promise<void>)
+		| undefined;
+	onPublishSkillDraft?:
+		| ((payload: {
+				messageId: string;
+				draftId: string;
+		  }) => void | Promise<void>)
+		| undefined;
 	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
-	onCancelDeepResearchJob?: ((jobId: string) => void | Promise<void>) | undefined;
+	onCancelDeepResearchJob?:
+		| ((jobId: string) => void | Promise<void>)
+		| undefined;
 	onEditDeepResearchPlan?:
 		| ((
 				jobId: string,
 				instructions: string,
-				reportIntent?: DeepResearchReportIntent
-			) => void | Promise<void>)
+				reportIntent?: DeepResearchReportIntent,
+		  ) => void | Promise<void>)
 		| undefined;
-	onApproveDeepResearchPlan?: ((jobId: string) => void | Promise<void>) | undefined;
-	onDiscussDeepResearchReport?: ((jobId: string) => void | Promise<void>) | undefined;
+	onApproveDeepResearchPlan?:
+		| ((jobId: string) => void | Promise<void>)
+		| undefined;
+	onDiscussDeepResearchReport?:
+		| ((jobId: string) => void | Promise<void>)
+		| undefined;
 	onResearchFurtherFromDeepResearchReport?:
-		| ((jobId: string, options?: { depth?: DeepResearchJob['depth'] }) => void | Promise<void>)
+		| ((
+				jobId: string,
+				options?: { depth?: DeepResearchJob["depth"] },
+		  ) => void | Promise<void>)
 		| undefined;
-	onAdvanceDeepResearchWorkflow?: ((jobId: string) => void | Promise<void>) | undefined;
+	onAdvanceDeepResearchWorkflow?:
+		| ((jobId: string) => void | Promise<void>)
+		| undefined;
 } = $props();
 
 let scrollContainer = $state<HTMLDivElement | null>(null);
@@ -134,10 +165,7 @@ $effect(() => {
 
 	function saveScroll() {
 		if (!container) return;
-		sessionStorage.setItem(
-			chatScrollKey(cid),
-			String(container.scrollTop),
-		);
+		sessionStorage.setItem(chatScrollKey(cid), String(container.scrollTop));
 	}
 
 	window.addEventListener("beforeunload", saveScroll);
@@ -223,7 +251,8 @@ $effect.pre(() => {
 	const isNewMessage = hasNewMessage(dedupedMessages);
 	const hasNewFileProductionJobs =
 		fileProductionJobs.length > lastFileProductionJobCount;
-	const hasNewDeepResearchJobs = deepResearchJobs.length > lastDeepResearchJobCount;
+	const hasNewDeepResearchJobs =
+		deepResearchJobs.length > lastDeepResearchJobCount;
 	const hasNewContextCompressionMarkers =
 		contextCompressionMarkers.length > lastContextCompressionMarkerCount;
 
@@ -283,8 +312,11 @@ let dedupedMessages = $derived(
 let currentStreamingAssistantMessageId = $derived(
 	[...dedupedMessages]
 		.reverse()
-		.find((message) => message.role === 'assistant' && (message.isStreaming || message.isThinkingStreaming))
-		?.id ?? null,
+		.find(
+			(message) =>
+				message.role === "assistant" &&
+				(message.isStreaming || message.isThinkingStreaming),
+		)?.id ?? null,
 );
 
 let deepResearchJobsByAnchorMessageKey = $derived(
@@ -295,7 +327,7 @@ let deepResearchJobsByAnchorMessageKey = $derived(
 		jobs.push(job);
 		jobsByMessageId.set(anchorKey, jobs);
 		return jobsByMessageId;
-	}, new Map<string, DeepResearchJob[]>())
+	}, new Map<string, DeepResearchJob[]>()),
 );
 
 let contextCompressionMarkersBySourceEndMessageId = $derived(
@@ -304,13 +336,13 @@ let contextCompressionMarkersBySourceEndMessageId = $derived(
 		markers.push(marker);
 		markersByMessageId.set(marker.sourceEndMessageId, markers);
 		return markersByMessageId;
-	}, new Map<string, ContextCompressionMarker[]>())
+	}, new Map<string, ContextCompressionMarker[]>()),
 );
 
 let unanchoredDeepResearchJobs = $derived(
 	deepResearchJobs.filter((job) => {
 		return !findDeepResearchAnchorMessageKey(job, dedupedMessages);
-	})
+	}),
 );
 
 function messageRenderKey(message: ChatMessage): string {
@@ -330,27 +362,33 @@ function findDeepResearchAnchorMessageKey(
 		if (exactMatch) return messageRenderKey(exactMatch);
 	}
 
-	const request = normalizeAnchorText(job.userRequest ?? '');
+	const request = normalizeAnchorText(job.userRequest ?? "");
 	if (!request) return null;
 	const matchingUserMessage = [...messageList]
 		.reverse()
 		.find(
 			(message) =>
-				message.role === 'user' &&
+				message.role === "user" &&
 				normalizeAnchorText(message.content) === request,
 		);
 	return matchingUserMessage ? messageRenderKey(matchingUserMessage) : null;
 }
 
 function normalizeAnchorText(value: string): string {
-	return value.replace(/\s+/g, ' ').trim();
+	return value.replace(/\s+/g, " ").trim();
 }
 
-function getFileProductionJobsForMessage(message: ChatMessage): FileProductionJob[] {
+function getFileProductionJobsForMessage(
+	message: ChatMessage,
+): FileProductionJob[] {
 	return fileProductionJobs.filter((job) => {
 		if (job.assistantMessageId === message.id) return true;
 		if (job.assistantMessageId != null) return false;
-		if (message.role !== 'assistant' || message.id !== currentStreamingAssistantMessageId) return false;
+		if (
+			message.role !== "assistant" ||
+			message.id !== currentStreamingAssistantMessageId
+		)
+			return false;
 		if (conversationId && job.conversationId !== conversationId) return false;
 		return job.createdAt >= message.timestamp - 1000;
 	});
@@ -360,32 +398,41 @@ function forkSourceHref(origin: ConversationForkOrigin): string | null {
 	if (!origin.sourceConversationIdAvailable) return null;
 	const messageAnchor = origin.sourceAssistantMessageIdAvailable
 		? `#message-${origin.sourceAssistantMessageId}`
-		: '';
+		: "";
 	return `/chat/${origin.sourceConversationId}${messageAnchor}`;
 }
 
-function shouldShowImportBoundary(messages: ChatMessage[], index: number): boolean {
+function shouldShowImportBoundary(
+	messages: ChatMessage[],
+	index: number,
+): boolean {
 	const current = messages[index];
-	if (current.importSource === 'chatgpt') return false;
-	const hasPreviousImported = messages.slice(0, index).some((m) => m.importSource === 'chatgpt');
+	if (current.importSource === "chatgpt") return false;
+	const hasPreviousImported = messages
+		.slice(0, index)
+		.some((m) => m.importSource === "chatgpt");
 	if (!hasPreviousImported) return false;
 	// Only show before the first non-imported message after imported ones
-	const previousNonImportedIndex = messages.slice(0, index).findIndex((m) => m.importSource !== 'chatgpt');
+	const previousNonImportedIndex = messages
+		.slice(0, index)
+		.findIndex((m) => m.importSource !== "chatgpt");
 	return previousNonImportedIndex === -1;
 }
 
-function contextCompressionMarkerLabel(marker: ContextCompressionMarker): string {
-	if (marker.status === 'running') {
-		return marker.trigger === 'automatic'
-			? $t('contextCompression.automaticRunning')
-			: $t('contextCompression.manualRunning');
+function contextCompressionMarkerLabel(
+	marker: ContextCompressionMarker,
+): string {
+	if (marker.status === "running") {
+		return marker.trigger === "automatic"
+			? $t("contextCompression.automaticRunning")
+			: $t("contextCompression.manualRunning");
 	}
-	if (marker.status === 'failed') {
-		return $t('contextCompression.failed');
+	if (marker.status === "failed") {
+		return $t("contextCompression.failed");
 	}
-	return marker.trigger === 'automatic'
-		? $t('contextCompression.automaticValid')
-		: $t('contextCompression.manualValid');
+	return marker.trigger === "automatic"
+		? $t("contextCompression.automaticValid")
+		: $t("contextCompression.manualValid");
 }
 
 async function restoreScrollToPosition(position: number) {
@@ -403,7 +450,7 @@ async function restoreScrollToPosition(position: number) {
 		// Reflect the restored scroll position in shouldAutoScroll so
 		// streaming content won't fight the user's manual scroll.
 		const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-		shouldAutoScroll = (scrollHeight - scrollTop - clientHeight) < 50;
+		shouldAutoScroll = scrollHeight - scrollTop - clientHeight < 50;
 		pendingRestoreScroll = null;
 	});
 }
@@ -428,7 +475,9 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 		const markerRect = forkBoundaryMarker.getBoundingClientRect();
 		scrollContainer.scrollTop += markerRect.top - scrollContainerRect.top;
 		pendingForkBoundaryMessageId = null;
-		lastForkBoundaryJumpKey = conversationId ? `${conversationId}:${messageId}` : null;
+		lastForkBoundaryJumpKey = conversationId
+			? `${conversationId}:${messageId}`
+			: null;
 		shouldAutoScroll = false;
 	});
 }

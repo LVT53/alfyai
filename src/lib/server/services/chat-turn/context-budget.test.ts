@@ -220,9 +220,7 @@ describe("deriveModelContextBudget", () => {
 			perArtifactLimit: 8,
 			useFullContent: true,
 		});
-		expect(directDepth.perArtifactCharBudget).toBeGreaterThanOrEqual(
-			20_000,
-		);
+		expect(directDepth.perArtifactCharBudget).toBeGreaterThanOrEqual(20_000);
 
 		const broadTaskDepth = deriveDocumentContextDepthBudget({
 			contextBudget: largeContext,

@@ -24,7 +24,9 @@ export function tokenizeTextLinks(text: string): TextLinkSegment[] {
 		segments.push({
 			kind: "link",
 			text: visibleUrl,
-			href: visibleUrl.startsWith("www.") ? `https://${visibleUrl}` : visibleUrl,
+			href: visibleUrl.startsWith("www.")
+				? `https://${visibleUrl}`
+				: visibleUrl,
 		});
 		hasLink = true;
 		currentIndex = visibleEnd;

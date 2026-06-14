@@ -1,7 +1,7 @@
 <script lang="ts">
 import type { DocumentWorkspaceItem, KnowledgeDocumentItem } from "$lib/types";
 import type { LibraryModal } from "../_helpers";
-import { X } from '@lucide/svelte';
+import { X } from "@lucide/svelte";
 import {
 	getLibraryBulkKey,
 	getLibraryBulkLabel,

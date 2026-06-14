@@ -43,7 +43,9 @@ describe("Reasoning Depth Auto selection", () => {
 			modelId: "model1",
 			modelDisplayName: "Model One",
 		});
-		const { resolveReasoningDepthSelection } = await import("./depth-selection");
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
 
 		const result = await resolveReasoningDepthSelection({
 			userId: "user-1",
@@ -92,7 +94,8 @@ describe("Reasoning Depth Auto selection", () => {
 		mocks.sendJsonControlMessage.mockResolvedValueOnce({
 			text: JSON.stringify({
 				appliedProfile: "extended",
-				reason: "The request needs current external evidence and broader context.",
+				reason:
+					"The request needs current external evidence and broader context.",
 				groundingNeed: "useful",
 				contextBreadth: "broad",
 				outputRoom: "expanded",
@@ -102,7 +105,9 @@ describe("Reasoning Depth Auto selection", () => {
 			modelId: "model1",
 			modelDisplayName: "Model One",
 		});
-		const { resolveReasoningDepthSelection } = await import("./depth-selection");
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
 
 		const result = await resolveReasoningDepthSelection({
 			userId: "user-1",
@@ -174,7 +179,9 @@ describe("Reasoning Depth Auto selection", () => {
 			modelId: "provider:provider-1:classifier-1",
 			modelDisplayName: "Classifier Mini",
 		});
-		const { resolveReasoningDepthSelection } = await import("./depth-selection");
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
 
 		const result = await resolveReasoningDepthSelection({
 			userId: "user-1",
@@ -230,7 +237,9 @@ describe("Reasoning Depth Auto selection", () => {
 			modelId: "model2",
 			modelDisplayName: "Answer Model",
 		});
-		const { resolveReasoningDepthSelection } = await import("./depth-selection");
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
 
 		const result = await resolveReasoningDepthSelection({
 			userId: "user-1",
@@ -277,7 +286,9 @@ describe("Reasoning Depth Auto selection", () => {
 			modelId: "model1",
 			modelDisplayName: "Model One",
 		});
-		const { resolveReasoningDepthSelection } = await import("./depth-selection");
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
 
 		const result = await resolveReasoningDepthSelection({
 			userId: "user-1",
@@ -312,7 +323,9 @@ describe("Reasoning Depth Auto selection", () => {
 	});
 
 	it("bypasses the classifier for explicit Off and Max selections", async () => {
-		const { resolveReasoningDepthSelection } = await import("./depth-selection");
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
 
 		const off = await resolveReasoningDepthSelection({
 			userId: "user-1",
@@ -361,7 +374,9 @@ describe("Reasoning Depth Auto selection", () => {
 	});
 
 	it("bypasses the classifier for Deep Research turns", async () => {
-		const { resolveReasoningDepthSelection } = await import("./depth-selection");
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
 
 		const result = await resolveReasoningDepthSelection({
 			userId: "user-1",
@@ -396,7 +411,9 @@ describe("Reasoning Depth Auto selection", () => {
 			modelId: "model1",
 			modelDisplayName: "Model One",
 		});
-		const { resolveReasoningDepthSelection } = await import("./depth-selection");
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
 
 		const result = await resolveReasoningDepthSelection({
 			userId: "user-1",
@@ -427,7 +444,9 @@ describe("Reasoning Depth Auto selection", () => {
 		mocks.sendJsonControlMessage.mockRejectedValueOnce(
 			new Error("provider unavailable"),
 		);
-		const { resolveReasoningDepthSelection } = await import("./depth-selection");
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
 
 		const result = await resolveReasoningDepthSelection({
 			userId: "user-1",
@@ -455,10 +474,8 @@ describe("Reasoning Depth Auto selection", () => {
 	});
 
 	it("builds a small capped classification context from lightweight turn metadata", async () => {
-		const {
-			buildDepthClassificationContext,
-			formatDepthClassificationPrompt,
-		} = await import("./depth-selection");
+		const { buildDepthClassificationContext, formatDepthClassificationPrompt } =
+			await import("./depth-selection");
 		const longText = "x".repeat(10_000);
 		const context = buildDepthClassificationContext({
 			request: {
@@ -492,9 +509,7 @@ describe("Reasoning Depth Auto selection", () => {
 		expect(context.userRequest.length).toBeLessThanOrEqual(2_000);
 		expect(context.recentMessages).toHaveLength(4);
 		expect(
-			context.recentMessages.every(
-				(message) => message.content.length <= 500,
-			),
+			context.recentMessages.every((message) => message.content.length <= 500),
 		).toBe(true);
 		expect(context.selectedSources).toHaveLength(8);
 		expect(

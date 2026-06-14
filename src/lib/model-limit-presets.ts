@@ -5,7 +5,9 @@ export interface ModelLimitPreset {
 
 const APPROX_CHARS_PER_CONTEXT_TOKEN = 4;
 
-export function deriveMaxMessageLengthFromContextTokens(tokens: number): number {
+export function deriveMaxMessageLengthFromContextTokens(
+	tokens: number,
+): number {
 	return Math.max(1, Math.floor(tokens * APPROX_CHARS_PER_CONTEXT_TOKEN));
 }
 

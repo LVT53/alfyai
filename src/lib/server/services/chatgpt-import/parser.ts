@@ -170,9 +170,7 @@ export function stripUnicodeControls(text: string): string {
 	return text.replace(UNICODE_CONTROL_RE, "");
 }
 
-export function isDeletedMessage(
-	message: ChatGPTMessage,
-): boolean {
+export function isDeletedMessage(message: ChatGPTMessage): boolean {
 	const status = message.status?.toLowerCase() ?? "";
 	if (
 		status === "deleted" ||
@@ -226,12 +224,14 @@ export function extractContent(content: ChatGPTMessageContent): string | null {
 
 		case "multimodal_text": {
 			const multiContent = content as ChatGPTMultimodalTextContent;
-			if (!multiContent.parts || !Array.isArray(multiContent.parts)) return null;
+			if (!multiContent.parts || !Array.isArray(multiContent.parts))
+				return null;
 			const textParts = multiContent.parts
-				.filter((p): p is ChatGPTTextPart =>
-					typeof p === "object" &&
-					p !== null &&
-					(p as Record<string, unknown>).content_type === "text",
+				.filter(
+					(p): p is ChatGPTTextPart =>
+						typeof p === "object" &&
+						p !== null &&
+						(p as Record<string, unknown>).content_type === "text",
 				)
 				.map((p) => (p as ChatGPTTextPart).text)
 				.filter((t): t is string => typeof t === "string");
@@ -295,10 +295,7 @@ export function reconstructThread(
 
 		if (isDeletedMessage(msg)) continue;
 
-		if (
-			msg.author.role === "system" ||
-			msg.author.role === "tool"
-		) {
+		if (msg.author.role === "system" || msg.author.role === "tool") {
 			continue;
 		}
 
@@ -314,9 +311,7 @@ export function reconstructThread(
 		const parsedMsg: ParsedMessage = {
 			role,
 			content: trimmed,
-			createdAt: msg.create_time
-				? new Date(msg.create_time * 1000)
-				: undefined,
+			createdAt: msg.create_time ? new Date(msg.create_time * 1000) : undefined,
 			metadata: {
 				model: msg.metadata?.model_slug ?? msg.metadata?.default_model_slug,
 				weight: msg.weight,
@@ -409,7 +404,8 @@ export async function parseConversationsJson(
 
 	if (!Array.isArray(raw)) {
 		errors.push({
-			reason: "conversations.json is not an array. Expected a ChatGPT export format.",
+			reason:
+				"conversations.json is not an array. Expected a ChatGPT export format.",
 		});
 		return { conversations, errors };
 	}
@@ -423,7 +419,8 @@ export async function parseConversationsJson(
 				errors.push({
 					rawId: entry.id,
 					rawTitle: entry.title,
-					reason: "Conversation produced no messages after reconstruction (empty or all deleted).",
+					reason:
+						"Conversation produced no messages after reconstruction (empty or all deleted).",
 				});
 			}
 		} catch (err) {
@@ -528,7 +525,11 @@ function parseSingleConversation(
 	entry: ChatGPTConversation,
 ): ParsedConversation | null {
 	const mapping = entry.mapping ?? {};
-	if (!mapping || typeof mapping !== "object" || Object.keys(mapping).length === 0) {
+	if (
+		!mapping ||
+		typeof mapping !== "object" ||
+		Object.keys(mapping).length === 0
+	) {
 		return null;
 	}
 

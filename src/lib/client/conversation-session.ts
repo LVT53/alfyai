@@ -4,10 +4,6 @@ import {
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
 import type { FetchLike } from "$lib/client/api/http";
-import {
-	isReasoningDepth,
-	thinkingModeToReasoningDepth,
-} from "$lib/types";
 import type {
 	ArtifactSummary,
 	ConversationDraft,
@@ -18,6 +14,7 @@ import type {
 	PendingSkillSelection,
 	ReasoningDepth,
 } from "$lib/types";
+import { isReasoningDepth, thinkingModeToReasoningDepth } from "$lib/types";
 
 const PREVIOUS_CONVERSATION_KEY = "previous-conversation-id";
 const LANDING_DRAFT_CONVERSATION_KEY = "landing-draft-conversation-id";

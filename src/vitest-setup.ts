@@ -1,10 +1,10 @@
-import { vi } from 'vitest';
-import '@testing-library/jest-dom';
+import { vi } from "vitest";
+import "@testing-library/jest-dom";
 
-process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'test-secret';
+process.env.SESSION_SECRET = process.env.SESSION_SECRET || "test-secret";
 
 if (!Element.prototype.animate) {
-	Object.defineProperty(Element.prototype, 'animate', {
+	Object.defineProperty(Element.prototype, "animate", {
 		writable: true,
 		value: vi.fn(() => ({
 			finished: Promise.resolve(),
@@ -20,7 +20,7 @@ if (!Element.prototype.animate) {
 	});
 }
 
-Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
 	writable: true,
 	value: vi.fn(() => ({
 		clearRect: vi.fn(),
@@ -40,14 +40,14 @@ Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
 });
 
 if (!URL.createObjectURL) {
-	Object.defineProperty(URL, 'createObjectURL', {
+	Object.defineProperty(URL, "createObjectURL", {
 		writable: true,
-		value: vi.fn(() => 'blob:mock-url'),
+		value: vi.fn(() => "blob:mock-url"),
 	});
 }
 
 if (!URL.revokeObjectURL) {
-	Object.defineProperty(URL, 'revokeObjectURL', {
+	Object.defineProperty(URL, "revokeObjectURL", {
 		writable: true,
 		value: vi.fn(),
 	});
@@ -60,11 +60,11 @@ class MockIntersectionObserver {
 	disconnect = vi.fn();
 	takeRecords = vi.fn(() => []);
 	root = null;
-	rootMargin = '';
+	rootMargin = "";
 	thresholds = [];
 }
 
-Object.defineProperty(global, 'IntersectionObserver', {
+Object.defineProperty(global, "IntersectionObserver", {
 	writable: true,
 	value: MockIntersectionObserver,
 });
@@ -90,7 +90,7 @@ const localStorageMock = (() => {
 	};
 })();
 
-Object.defineProperty(global, 'localStorage', {
+Object.defineProperty(global, "localStorage", {
 	writable: true,
 	value: localStorageMock,
 });

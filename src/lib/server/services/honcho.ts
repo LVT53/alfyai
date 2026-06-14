@@ -1,28 +1,28 @@
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import type { Message, Peer } from '@honcho-ai/sdk';
-import { Honcho } from '@honcho-ai/sdk';
-import type { ConclusionScope } from '@honcho-ai/sdk/dist/conclusions';
-import type { Session } from '@honcho-ai/sdk/dist/session';
-import { eq } from 'drizzle-orm';
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { Message, Peer } from "@honcho-ai/sdk";
+import { Honcho } from "@honcho-ai/sdk";
+import type { ConclusionScope } from "@honcho-ai/sdk/dist/conclusions";
+import type { Session } from "@honcho-ai/sdk/dist/session";
+import { eq } from "drizzle-orm";
 import {
 	serializePeerContext,
 	truncateToTokenBudget,
-} from '$lib/server/utils/prompt-context';
-import { clipText } from '$lib/server/utils/text';
+} from "$lib/server/utils/prompt-context";
+import { clipText } from "$lib/server/utils/text";
 import type {
 	Artifact,
 	ChatMessage,
 	ForkCopyMetadata,
 	HonchoContextInfo,
 	HonchoContextSnapshot,
-} from '$lib/types';
-import { getConfig } from '../config-store';
-import { db } from '../db';
-import { conversations, users } from '../db/schema';
-import type { ContextCompressionSourceMessage } from './context-compression';
-import { getLatestHonchoMetadata, listMessages } from './messages';
+} from "$lib/types";
+import { getConfig } from "../config-store";
+import { db } from "../db";
+import { conversations, users } from "../db/schema";
+import type { ContextCompressionSourceMessage } from "./context-compression";
+import { getLatestHonchoMetadata, listMessages } from "./messages";
 
 let client: Honcho | null = null;
 
@@ -30,13 +30,19 @@ const peerCache = new Map<string, Peer>();
 const sessionCache = new Map<string, Session>();
 const sessionOwnerCache = new Map<string, string>();
 const honchoPeerVersionCache = new Map<string, number>();
-const peerContextCache = new Map<string, { value: string | null; expiresAt: number }>();
+const peerContextCache = new Map<
+	string,
+	{ value: string | null; expiresAt: number }
+>();
 const PEER_CONTEXT_CACHE_TTL_MS = 30_000;
 const HONCHO_PEER_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const HONCHO_SAFE_ID_MAX_LENGTH = 48;
 const HONCHO_LIVE_CONTEXT_TOKENS = 2_000;
-const HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_PREFIXES = ['text/'];
-const HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_TYPES = new Set(['application/pdf', 'application/json']);
+const HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_PREFIXES = ["text/"];
+const HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_TYPES = new Set([
+	"application/pdf",
+	"application/json",
+]);
 const HONCHO_NATIVE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 const HONCHO_ID_HASH_LENGTH = 32;
 const HONCHO_MAX_MESSAGE_LENGTH = 25_000;
@@ -56,7 +62,7 @@ function normalizePeerIdFragment(rawId: string): string {
 		return trimmed;
 	}
 
-	const digest = createHash('sha256').update(rawId).digest('hex').slice(0, 32);
+	const digest = createHash("sha256").update(rawId).digest("hex").slice(0, 32);
 	return `h_${digest}`;
 }
 
@@ -64,11 +70,14 @@ function buildHonchoPeerSeed(userId: string, version: number): string {
 	return version > 0 ? `${userId}_v${version}` : userId;
 }
 
-function buildNamespacedHonchoId(prefix: 'u' | 'a' | 's', parts: string[]): string {
+function buildNamespacedHonchoId(
+	prefix: "u" | "a" | "s",
+	parts: string[],
+): string {
 	const config = getConfig();
-	const digest = createHash('sha256')
-		.update([config.honchoIdentityNamespace, ...parts].join('\0'))
-		.digest('hex')
+	const digest = createHash("sha256")
+		.update([config.honchoIdentityNamespace, ...parts].join("\0"))
+		.digest("hex")
 		.slice(0, HONCHO_ID_HASH_LENGTH);
 	return `${prefix}_${digest}`;
 }
@@ -77,7 +86,10 @@ function getLegacyHonchoUserPeerId(userId: string, version: number): string {
 	return normalizePeerIdFragment(buildHonchoPeerSeed(userId, version));
 }
 
-function getLegacyHonchoAssistantPeerId(userId: string, version: number): string {
+function getLegacyHonchoAssistantPeerId(
+	userId: string,
+	version: number,
+): string {
 	return `assistant_${normalizePeerIdFragment(buildHonchoPeerSeed(userId, version))}`;
 }
 
@@ -87,7 +99,7 @@ function getCachedHonchoPeerVersion(userId: string): number {
 
 async function getHonchoPeerVersion(userId: string): Promise<number> {
 	const cached = honchoPeerVersionCache.get(userId);
-	if (typeof cached === 'number') {
+	if (typeof cached === "number") {
 		return cached;
 	}
 
@@ -108,29 +120,40 @@ function deletePeerCacheEntries(userId: string, version: number): void {
 	peerCache.delete(getLegacyHonchoAssistantPeerId(userId, version));
 }
 
-export function getHonchoUserPeerId(userId: string, version = getCachedHonchoPeerVersion(userId)): string {
-	return buildNamespacedHonchoId('u', ['user', userId, String(version)]);
+export function getHonchoUserPeerId(
+	userId: string,
+	version = getCachedHonchoPeerVersion(userId),
+): string {
+	return buildNamespacedHonchoId("u", ["user", userId, String(version)]);
 }
 
 export function getHonchoAssistantPeerId(
 	userId: string,
-	version = getCachedHonchoPeerVersion(userId)
+	version = getCachedHonchoPeerVersion(userId),
 ): string {
-	return buildNamespacedHonchoId('a', ['assistant', userId, String(version)]);
+	return buildNamespacedHonchoId("a", ["assistant", userId, String(version)]);
 }
 
 export function getHonchoSessionId(
 	userId: string,
 	conversationId: string,
-	version = getCachedHonchoPeerVersion(userId)
+	version = getCachedHonchoPeerVersion(userId),
 ): string {
-	return buildNamespacedHonchoId('s', ['session', userId, String(version), conversationId]);
+	return buildNamespacedHonchoId("s", [
+		"session",
+		userId,
+		String(version),
+		conversationId,
+	]);
 }
 
-function roleForMessage(message: Message, userId: string): 'user' | 'assistant' {
+function roleForMessage(
+	message: Message,
+	userId: string,
+): "user" | "assistant" {
 	const metadataRole =
-		typeof message.metadata?.role === 'string' ? message.metadata.role : null;
-	if (metadataRole === 'assistant' || metadataRole === 'user') {
+		typeof message.metadata?.role === "string" ? message.metadata.role : null;
+	if (metadataRole === "assistant" || metadataRole === "user") {
 		return metadataRole;
 	}
 	const version = getCachedHonchoPeerVersion(userId);
@@ -139,7 +162,7 @@ function roleForMessage(message: Message, userId: string): 'user' | 'assistant' 
 		getLegacyHonchoAssistantPeerId(userId, version),
 		getLegacyHonchoAssistantPeerId(userId, 0),
 	]);
-	return assistantPeerIds.has(message.peerId) ? 'assistant' : 'user';
+	return assistantPeerIds.has(message.peerId) ? "assistant" : "user";
 }
 
 export function isHonchoEnabled(): boolean {
@@ -150,13 +173,13 @@ async function ensureClient(): Promise<Honcho> {
 	if (client) return client;
 
 	const config = getConfig();
-  client = new Honcho({
-		apiKey: config.honchoApiKey || 'no-auth',
+	client = new Honcho({
+		apiKey: config.honchoApiKey || "no-auth",
 		baseURL: config.honchoBaseUrl,
 		workspaceId: config.honchoWorkspace,
 	});
 
-  return client;
+	return client;
 }
 
 async function getPeerById(peerId: string): Promise<Peer> {
@@ -170,14 +193,20 @@ async function getPeerById(peerId: string): Promise<Peer> {
 }
 
 export async function getUserPeer(userId: string): Promise<Peer> {
-	return getPeerById(getHonchoUserPeerId(userId, await getHonchoPeerVersion(userId)));
+	return getPeerById(
+		getHonchoUserPeerId(userId, await getHonchoPeerVersion(userId)),
+	);
 }
 
 export async function getAssistantPeer(userId: string): Promise<Peer> {
-	return getPeerById(getHonchoAssistantPeerId(userId, await getHonchoPeerVersion(userId)));
+	return getPeerById(
+		getHonchoAssistantPeerId(userId, await getHonchoPeerVersion(userId)),
+	);
 }
 
-export async function rotateHonchoPeerIdentity(userId: string): Promise<number> {
+export async function rotateHonchoPeerIdentity(
+	userId: string,
+): Promise<number> {
 	const currentVersion = await getHonchoPeerVersion(userId);
 	const nextVersion = currentVersion + 1;
 
@@ -196,7 +225,10 @@ export async function rotateHonchoPeerIdentity(userId: string): Promise<number> 
 	return nextVersion;
 }
 
-async function getSession(userId: string, conversationId: string): Promise<Session> {
+async function getSession(
+	userId: string,
+	conversationId: string,
+): Promise<Session> {
 	const version = await getHonchoPeerVersion(userId);
 	const honchoSessionId = getHonchoSessionId(userId, conversationId, version);
 	const cached = sessionCache.get(honchoSessionId);
@@ -230,12 +262,18 @@ async function getSession(userId: string, conversationId: string): Promise<Sessi
 			[assistantPeer.id, { observeMe: false, observeOthers: true }],
 		]);
 	} catch (err: unknown) {
-		const honchoError = err && typeof err === 'object' ? (err as { code?: unknown; status?: unknown }) : {};
-		const is404 = honchoError.status === 404 || honchoError.code === 'not_found';
+		const honchoError =
+			err && typeof err === "object"
+				? (err as { code?: unknown; status?: unknown })
+				: {};
+		const is404 =
+			honchoError.status === 404 || honchoError.code === "not_found";
 		if (is404) {
-			console.warn(`[HONCHO] Session ${honchoSessionId} not yet created — will be initialized on first message`);
+			console.warn(
+				`[HONCHO] Session ${honchoSessionId} not yet created — will be initialized on first message`,
+			);
 		} else {
-			console.error('[HONCHO] Failed to attach peers to session:', err);
+			console.error("[HONCHO] Failed to attach peers to session:", err);
 		}
 	}
 
@@ -244,7 +282,10 @@ async function getSession(userId: string, conversationId: string): Promise<Sessi
 	return session;
 }
 
-export async function getOrCreateSession(userId: string, conversationId: string): Promise<string> {
+export async function getOrCreateSession(
+	userId: string,
+	conversationId: string,
+): Promise<string> {
 	const session = await getSession(userId, conversationId);
 	return session.id;
 }
@@ -252,19 +293,21 @@ export async function getOrCreateSession(userId: string, conversationId: string)
 export async function mirrorMessage(
 	userId: string,
 	conversationId: string,
-	role: 'user' | 'assistant',
-	content: string
+	role: "user" | "assistant",
+	content: string,
 ): Promise<void> {
 	if (!isHonchoEnabled() || !content.trim()) return;
 
 	const session = await getSession(userId, conversationId);
-	const peer = role === 'assistant'
-		? await getAssistantPeer(userId)
-		: await getUserPeer(userId);
+	const peer =
+		role === "assistant"
+			? await getAssistantPeer(userId)
+			: await getUserPeer(userId);
 
-	const safeContent = content.length > HONCHO_MAX_MESSAGE_LENGTH
-		? clipText(content, HONCHO_MAX_MESSAGE_LENGTH)
-		: content;
+	const safeContent =
+		content.length > HONCHO_MAX_MESSAGE_LENGTH
+			? clipText(content, HONCHO_MAX_MESSAGE_LENGTH)
+			: content;
 
 	try {
 		await session.addMessages(
@@ -275,16 +318,17 @@ export async function mirrorMessage(
 					alfyaiUserId: userId,
 					alfyaiHonchoIdentityNamespace: getConfig().honchoIdentityNamespace,
 				},
-			})
+			}),
 		);
 	} catch (err) {
-		const errorBody = err && typeof err === 'object' && 'body' in err
-			? (err as { body?: unknown }).body
-			: null;
+		const errorBody =
+			err && typeof err === "object" && "body" in err
+				? (err as { body?: unknown }).body
+				: null;
 		console.error(
 			`[HONCHO] Mirror ${role} message failed:`,
 			err,
-			errorBody ? JSON.stringify(errorBody) : '(no body)',
+			errorBody ? JSON.stringify(errorBody) : "(no body)",
 		);
 		throw err;
 	}
@@ -296,14 +340,14 @@ export async function syncArtifactToHoncho(params: {
 	artifact: Artifact;
 	file?: File;
 	fallbackTextArtifact?: Artifact | null;
-}): Promise<{ uploaded: boolean; mode: 'native' | 'normalized' | 'none' }> {
+}): Promise<{ uploaded: boolean; mode: "native" | "normalized" | "none" }> {
 	if (!isHonchoEnabled()) {
-		return { uploaded: false, mode: 'none' };
+		return { uploaded: false, mode: "none" };
 	}
 
 	// Skip Honcho sync if no conversation is attached.
-	if (params.conversationId == null || params.conversationId.trim() === '') {
-		return { uploaded: false, mode: 'none' };
+	if (params.conversationId == null || params.conversationId.trim() === "") {
+		return { uploaded: false, mode: "none" };
 	}
 
 	const session = await getSession(params.userId, params.conversationId);
@@ -315,11 +359,14 @@ export async function syncArtifactToHoncho(params: {
 	const fallbackArtifact = params.fallbackTextArtifact;
 	if (fallbackArtifact?.contentText?.trim()) {
 		try {
-			const clipped = clipText(fallbackArtifact.contentText, HONCHO_MAX_MESSAGE_LENGTH);
+			const clipped = clipText(
+				fallbackArtifact.contentText,
+				HONCHO_MAX_MESSAGE_LENGTH,
+			);
 			await session.addMessages(
 				userPeer.message(clipped, {
 					metadata: {
-						role: 'user',
+						role: "user",
 						artifactId: fallbackArtifact.id,
 						artifactType: fallbackArtifact.type,
 						sourceArtifactId: params.artifact.id,
@@ -327,41 +374,54 @@ export async function syncArtifactToHoncho(params: {
 						alfyaiUserId: params.userId,
 						alfyaiHonchoIdentityNamespace: getConfig().honchoIdentityNamespace,
 					},
-				})
+				}),
 			);
-			return { uploaded: true, mode: 'normalized' };
+			return { uploaded: true, mode: "normalized" };
 		} catch (error) {
-			console.error('[HONCHO] Fallback text sync failed:', error);
+			console.error("[HONCHO] Fallback text sync failed:", error);
 		}
 	}
 
-	const nativeMimeType = (params.file?.type || params.artifact.mimeType || 'application/octet-stream')
+	const nativeMimeType = (
+		params.file?.type ||
+		params.artifact.mimeType ||
+		"application/octet-stream"
+	)
 		.trim()
 		.toLowerCase();
 	const nativeUploadSupported =
 		HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_TYPES.has(nativeMimeType) ||
-		HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_PREFIXES.some((prefix) => nativeMimeType.startsWith(prefix));
+		HONCHO_NATIVE_UPLOAD_ALLOWED_MIME_PREFIXES.some((prefix) =>
+			nativeMimeType.startsWith(prefix),
+		);
 
 	if (!nativeUploadSupported) {
-		return { uploaded: false, mode: 'none' };
+		return { uploaded: false, mode: "none" };
 	}
 
-	const nativeUploadSize = params.file?.size ?? params.artifact.sizeBytes ?? null;
-	if (nativeUploadSize !== null && nativeUploadSize > HONCHO_NATIVE_UPLOAD_MAX_BYTES) {
-		console.info('[HONCHO] Skipped native artifact upload above Honcho size limit', {
-			artifactId: params.artifact.id,
-			fileName: params.file?.name ?? params.artifact.name,
-			sizeBytes: nativeUploadSize,
-			maxBytes: HONCHO_NATIVE_UPLOAD_MAX_BYTES,
-		});
-		return { uploaded: false, mode: 'none' };
+	const nativeUploadSize =
+		params.file?.size ?? params.artifact.sizeBytes ?? null;
+	if (
+		nativeUploadSize !== null &&
+		nativeUploadSize > HONCHO_NATIVE_UPLOAD_MAX_BYTES
+	) {
+		console.info(
+			"[HONCHO] Skipped native artifact upload above Honcho size limit",
+			{
+				artifactId: params.artifact.id,
+				fileName: params.file?.name ?? params.artifact.name,
+				sizeBytes: nativeUploadSize,
+				maxBytes: HONCHO_NATIVE_UPLOAD_MAX_BYTES,
+			},
+		);
+		return { uploaded: false, mode: "none" };
 	}
 
 	try {
 		if (params.file) {
 			await session.uploadFile(params.file, userPeer, {
 				metadata: {
-					role: 'user',
+					role: "user",
 					artifactId: params.artifact.id,
 					artifactType: params.artifact.type,
 					alfyaiConversationId: params.conversationId,
@@ -369,10 +429,12 @@ export async function syncArtifactToHoncho(params: {
 					alfyaiHonchoIdentityNamespace: getConfig().honchoIdentityNamespace,
 				},
 			});
-			return { uploaded: true, mode: 'native' };
+			return { uploaded: true, mode: "native" };
 		}
 		if (params.artifact.storagePath) {
-			const buffer = await readFile(join(process.cwd(), params.artifact.storagePath));
+			const buffer = await readFile(
+				join(process.cwd(), params.artifact.storagePath),
+			);
 			await session.uploadFile(
 				{
 					filename: params.artifact.name,
@@ -382,22 +444,22 @@ export async function syncArtifactToHoncho(params: {
 				userPeer,
 				{
 					metadata: {
-						role: 'user',
+						role: "user",
 						artifactId: params.artifact.id,
 						artifactType: params.artifact.type,
 						alfyaiConversationId: params.conversationId,
 						alfyaiUserId: params.userId,
 						alfyaiHonchoIdentityNamespace: getConfig().honchoIdentityNamespace,
 					},
-				}
+				},
 			);
-			return { uploaded: true, mode: 'native' };
+			return { uploaded: true, mode: "native" };
 		}
 	} catch (error) {
-		console.error('[HONCHO] Native artifact upload failed:', error);
+		console.error("[HONCHO] Native artifact upload failed:", error);
 	}
 
-	return { uploaded: false, mode: 'none' };
+	return { uploaded: false, mode: "none" };
 }
 
 export async function mirrorWorkCapsuleConclusion(params: {
@@ -411,20 +473,28 @@ export async function mirrorWorkCapsuleConclusion(params: {
 		const version = await getHonchoPeerVersion(params.userId);
 		await peer.conclusions.create({
 			content: truncateToTokenBudget(params.content, 800),
-			sessionId: getHonchoSessionId(params.userId, params.conversationId, version),
+			sessionId: getHonchoSessionId(
+				params.userId,
+				params.conversationId,
+				version,
+			),
 		});
 	} catch (error) {
 		if (isHonchoMissingError(error)) {
-			console.warn('[HONCHO] Skipped mirroring work capsule — session not found (may have been cleaned up during retry)');
+			console.warn(
+				"[HONCHO] Skipped mirroring work capsule — session not found (may have been cleaned up during retry)",
+			);
 			return;
 		}
-		console.error('[HONCHO] Failed to mirror work capsule conclusion:', error);
+		console.error("[HONCHO] Failed to mirror work capsule conclusion:", error);
 	}
 }
 
 function isHonchoMissingError(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
-	return /\b404\b|not found|does not exist|unknown peer|unknown session/i.test(message);
+	return /\b404\b|not found|does not exist|unknown peer|unknown session/i.test(
+		message,
+	);
 }
 
 async function listPeerSessions(peer: Peer): Promise<Session[]> {
@@ -439,10 +509,19 @@ async function listPeerSessions(peer: Peer): Promise<Session[]> {
 
 async function listScopeConclusions(
 	scope: ConclusionScope,
-	sessionId?: string
-): Promise<Array<{ id: string; content: string; sessionId: string | null; createdAt: string }>> {
+	sessionId?: string,
+): Promise<
+	Array<{
+		id: string;
+		content: string;
+		sessionId: string | null;
+		createdAt: string;
+	}>
+> {
 	try {
-		const page = await scope.list(sessionId ? { session: sessionId } : undefined);
+		const page = await scope.list(
+			sessionId ? { session: sessionId } : undefined,
+		);
 		return await page.toArray();
 	} catch (error) {
 		if (isHonchoMissingError(error)) return [];
@@ -452,7 +531,7 @@ async function listScopeConclusions(
 
 async function deleteScopeConclusions(
 	scope: ConclusionScope,
-	conclusionIds: string[]
+	conclusionIds: string[],
 ): Promise<void> {
 	for (const conclusionId of conclusionIds) {
 		try {
@@ -464,7 +543,10 @@ async function deleteScopeConclusions(
 	}
 }
 
-async function clearPeerCard(peer: Peer, target?: string | Peer): Promise<void> {
+async function clearPeerCard(
+	peer: Peer,
+	target?: string | Peer,
+): Promise<void> {
 	try {
 		await peer.setCard([], target);
 	} catch (error) {
@@ -473,7 +555,10 @@ async function clearPeerCard(peer: Peer, target?: string | Peer): Promise<void> 
 	}
 }
 
-async function clearAllPeerCards(userPeer: Peer, assistantPeer: Peer): Promise<void> {
+async function clearAllPeerCards(
+	userPeer: Peer,
+	assistantPeer: Peer,
+): Promise<void> {
 	await Promise.all([
 		clearPeerCard(userPeer),
 		clearPeerCard(assistantPeer),
@@ -505,12 +590,15 @@ function clearPeerContextCacheForUser(userId: string): void {
 	}
 }
 
-export function clearHonchoCaches(params: { userId?: string; conversationId?: string }): void {
+export function clearHonchoCaches(params: {
+	userId?: string;
+	conversationId?: string;
+}): void {
 	if (params.userId) {
 		const cachedVersion = honchoPeerVersionCache.get(params.userId);
 		deletePeerCacheEntries(params.userId, 0);
 		clearPeerContextCacheForUser(params.userId);
-		if (typeof cachedVersion === 'number' && cachedVersion !== 0) {
+		if (typeof cachedVersion === "number" && cachedVersion !== 0) {
 			deletePeerCacheEntries(params.userId, cachedVersion);
 		}
 		for (const [sessionId, ownerUserId] of sessionOwnerCache.entries()) {
@@ -525,9 +613,17 @@ export function clearHonchoCaches(params: { userId?: string; conversationId?: st
 		sessionOwnerCache.delete(params.conversationId);
 		if (params.userId) {
 			const cachedVersion = honchoPeerVersionCache.get(params.userId);
-			const versions = new Set([0, cachedVersion].filter((value): value is number => typeof value === 'number'));
+			const versions = new Set(
+				[0, cachedVersion].filter(
+					(value): value is number => typeof value === "number",
+				),
+			);
 			for (const version of versions) {
-				const honchoSessionId = getHonchoSessionId(params.userId, params.conversationId, version);
+				const honchoSessionId = getHonchoSessionId(
+					params.userId,
+					params.conversationId,
+					version,
+				);
 				sessionCache.delete(honchoSessionId);
 				sessionOwnerCache.delete(honchoSessionId);
 			}
@@ -543,12 +639,14 @@ function normalizeConclusionTimestamp(value: string): number {
 export type HonchoPersonaMemoryRecord = {
 	id: string;
 	content: string;
-	scope: 'self' | 'assistant_about_user';
+	scope: "self" | "assistant_about_user";
 	sessionId: string | null;
 	createdAt: number;
 };
 
-async function listVisiblePersonaMemoryRecords(userId: string): Promise<HonchoPersonaMemoryRecord[]> {
+async function listVisiblePersonaMemoryRecords(
+	userId: string,
+): Promise<HonchoPersonaMemoryRecord[]> {
 	if (!isHonchoEnabled()) return [];
 
 	const [userPeer, assistantPeer] = await Promise.all([
@@ -566,26 +664,32 @@ async function listVisiblePersonaMemoryRecords(userId: string): Promise<HonchoPe
 		...selfConclusions.map((item) => ({
 			id: item.id,
 			content: item.content,
-			scope: 'self' as const,
+			scope: "self" as const,
 			sessionId: item.sessionId,
 			createdAt: normalizeConclusionTimestamp(item.createdAt),
 		})),
 		...assistantAboutUserConclusions.map((item) => ({
 			id: item.id,
 			content: item.content,
-			scope: 'assistant_about_user' as const,
+			scope: "assistant_about_user" as const,
 			sessionId: item.sessionId,
 			createdAt: normalizeConclusionTimestamp(item.createdAt),
 		})),
 	].sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function listPersonaMemories(userId: string): Promise<HonchoPersonaMemoryRecord[]> {
+export async function listPersonaMemories(
+	userId: string,
+): Promise<HonchoPersonaMemoryRecord[]> {
 	return listVisiblePersonaMemoryRecords(userId);
 }
 
-function sanitizePersonaMemoryText(text: string, userId: string, userDisplayName?: string | null): string {
-	const replacement = userDisplayName?.trim() || 'the user';
+function sanitizePersonaMemoryText(
+	text: string,
+	userId: string,
+	userDisplayName?: string | null,
+): string {
+	const replacement = userDisplayName?.trim() || "the user";
 	let sanitized = text.trim();
 	const candidateIds = new Set<string>([
 		userId,
@@ -600,10 +704,13 @@ function sanitizePersonaMemoryText(text: string, userId: string, userDisplayName
 		sanitized = sanitized.split(candidateId).join(replacement);
 	}
 
-	return sanitized.replace(/\s+/g, ' ').trim();
+	return sanitized.replace(/\s+/g, " ").trim();
 }
 
-export async function forgetPersonaMemory(userId: string, conclusionId: string): Promise<boolean> {
+export async function forgetPersonaMemory(
+	userId: string,
+	conclusionId: string,
+): Promise<boolean> {
 	if (!isHonchoEnabled()) return false;
 
 	const [userPeer, assistantPeer] = await Promise.all([
@@ -615,7 +722,7 @@ export async function forgetPersonaMemory(userId: string, conclusionId: string):
 	const record = records.find((item) => item.id === conclusionId);
 	if (!record) return false;
 
-	if (record.scope === 'self') {
+	if (record.scope === "self") {
 		await deleteScopeConclusions(userPeer.conclusions, [conclusionId]);
 	} else {
 		await deleteScopeConclusions(assistantAboutUserScope, [conclusionId]);
@@ -624,7 +731,9 @@ export async function forgetPersonaMemory(userId: string, conclusionId: string):
 	return true;
 }
 
-export async function forgetAllPersonaMemories(userId: string): Promise<number> {
+export async function forgetAllPersonaMemories(
+	userId: string,
+): Promise<number> {
 	if (!isHonchoEnabled()) return 0;
 
 	const [userPeer, assistantPeer] = await Promise.all([
@@ -633,9 +742,11 @@ export async function forgetAllPersonaMemories(userId: string): Promise<number> 
 	]);
 	const assistantAboutUserScope = assistantPeer.conclusionsOf(userPeer);
 	const records = await listVisiblePersonaMemoryRecords(userId);
-	const selfIds = records.filter((item) => item.scope === 'self').map((item) => item.id);
+	const selfIds = records
+		.filter((item) => item.scope === "self")
+		.map((item) => item.id);
 	const assistantIds = records
-		.filter((item) => item.scope === 'assistant_about_user')
+		.filter((item) => item.scope === "assistant_about_user")
 		.map((item) => item.id);
 
 	await Promise.all([
@@ -647,7 +758,10 @@ export async function forgetAllPersonaMemories(userId: string): Promise<number> 
 	return records.length;
 }
 
-export async function deleteConversationHonchoState(userId: string, conversationId: string): Promise<void> {
+export async function deleteConversationHonchoState(
+	userId: string,
+	conversationId: string,
+): Promise<void> {
 	if (!isHonchoEnabled()) {
 		clearHonchoCaches({ conversationId, userId });
 		return;
@@ -673,7 +787,7 @@ export async function deleteConversationHonchoState(userId: string, conversation
 		];
 		await deleteScopeConclusions(
 			scope,
-			Array.from(new Set(conclusions.map((item) => item.id)))
+			Array.from(new Set(conclusions.map((item) => item.id))),
 		);
 	}
 
@@ -682,7 +796,9 @@ export async function deleteConversationHonchoState(userId: string, conversation
 	clearHonchoCaches({ conversationId, userId });
 }
 
-export async function deleteAllHonchoStateForUser(userId: string): Promise<void> {
+export async function deleteAllHonchoStateForUser(
+	userId: string,
+): Promise<void> {
 	if (!isHonchoEnabled()) {
 		clearHonchoCaches({ userId });
 		return;
@@ -703,7 +819,7 @@ export async function deleteAllHonchoStateForUser(userId: string): Promise<void>
 		const conclusions = await listScopeConclusions(scope);
 		await deleteScopeConclusions(
 			scope,
-			conclusions.map((item) => item.id)
+			conclusions.map((item) => item.id),
 		);
 	}
 
@@ -725,7 +841,7 @@ export async function deleteAllHonchoStateForUser(userId: string): Promise<void>
 
 export type PromptContextMessage = {
 	id?: string;
-	role: 'user' | 'assistant';
+	role: "user" | "assistant";
 	content: string;
 	createdAt: number;
 	messageSequence?: number;
@@ -734,7 +850,7 @@ export type PromptContextMessage = {
 
 function mapHonchoMessagesToPromptContext(
 	messages: Message[],
-	userId: string
+	userId: string,
 ): PromptContextMessage[] {
 	return messages
 		.map((message) => ({
@@ -747,10 +863,10 @@ function mapHonchoMessagesToPromptContext(
 
 function mapStoredMessagesToPromptContextWithSequences(
 	messages: ChatMessage[],
-	sourceMessages: ContextCompressionSourceMessage[]
+	sourceMessages: ContextCompressionSourceMessage[],
 ): PromptContextMessage[] {
 	const sequenceByMessageId = new Map(
-		sourceMessages.map((message) => [message.id, message.messageSequence])
+		sourceMessages.map((message) => [message.id, message.messageSequence]),
 	);
 	return messages
 		.map((message) => ({
@@ -765,20 +881,20 @@ function mapStoredMessagesToPromptContextWithSequences(
 }
 
 async function loadFallbackPromptContextMessages(
-	conversationId: string
+	conversationId: string,
 ): Promise<PromptContextMessage[]> {
 	const [storedMessages, sourceMessages] = await Promise.all([
 		listMessages(conversationId),
-		import('./context-compression')
+		import("./context-compression")
 			.then(({ listContextCompressionSourceMessages }) =>
-				listContextCompressionSourceMessages(conversationId)
+				listContextCompressionSourceMessages(conversationId),
 			)
 			.catch(() => [] as ContextCompressionSourceMessage[]),
 	]);
 
 	return mapStoredMessagesToPromptContextWithSequences(
 		storedMessages,
-		sourceMessages
+		sourceMessages,
 	);
 }
 
@@ -798,7 +914,7 @@ export type HonchoPromptContext = {
 };
 
 function mapSnapshotMessagesToPromptContext(
-	messages: HonchoContextSnapshot['messages']
+	messages: HonchoContextSnapshot["messages"],
 ): PromptContextMessage[] {
 	return messages
 		.map((message) => ({
@@ -842,30 +958,33 @@ async function resolveWithTimeout<T>(
 		label: string;
 		conversationId?: string;
 		userId?: string;
-	}
+	},
 ): Promise<TimedResolution<T>> {
-	const timeoutMs = Math.max(1, params.timeoutMs ?? getConfig().honchoContextWaitMs);
+	const timeoutMs = Math.max(
+		1,
+		params.timeoutMs ?? getConfig().honchoContextWaitMs,
+	);
 	let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
 	try {
 		const outcome = await Promise.race([
 			promise
-				.then((value) => ({ kind: 'value' as const, value }))
-				.catch((error) => ({ kind: 'error' as const, error })),
-			new Promise<{ kind: 'timeout' }>((resolve) => {
-				timeoutId = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
+				.then((value) => ({ kind: "value" as const, value }))
+				.catch((error) => ({ kind: "error" as const, error })),
+			new Promise<{ kind: "timeout" }>((resolve) => {
+				timeoutId = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
 			}),
 		]);
 
-		if (outcome.kind === 'value') {
+		if (outcome.kind === "value") {
 			return { value: outcome.value, timedOut: false, error: null };
 		}
 
-		if (outcome.kind === 'error') {
+		if (outcome.kind === "error") {
 			return { value: null, timedOut: false, error: outcome.error };
 		}
 
-		console.warn('[CONTEXT] Timed out waiting for Honcho context', {
+		console.warn("[CONTEXT] Timed out waiting for Honcho context", {
 			label: params.label,
 			conversationId: params.conversationId,
 			userId: params.userId,
@@ -889,13 +1008,13 @@ async function loadPersonaContext(params: {
 		getPeerContext(params.userId, undefined, { timeoutMs: personaTimeoutMs }),
 		{
 			timeoutMs: personaTimeoutMs,
-			label: 'persona prompt context',
+			label: "persona prompt context",
 			conversationId: params.conversationId,
 			userId: params.userId,
-		}
+		},
 	);
 
-	return typeof result.value === 'string' ? result.value : '';
+	return typeof result.value === "string" ? result.value : "";
 }
 
 export async function loadHonchoPromptContext(params: {
@@ -917,7 +1036,7 @@ export async function loadHonchoPromptContext(params: {
 			sessionMessages: fallbackSessionMessages,
 			storedMessages: fallbackSessionMessages,
 			summary: null,
-			peerContext: '',
+			peerContext: "",
 			honchoContext: null,
 			honchoSnapshot: latestHonchoMetadata.honchoSnapshot,
 		};
@@ -934,11 +1053,11 @@ export async function loadHonchoPromptContext(params: {
 			summary: null,
 			peerContext: await loadPersonaContext(params),
 			honchoContext: {
-				source: 'persisted_fallback',
+				source: "persisted_fallback",
 				waitedMs: 0,
 				queuePendingWorkUnits: 0,
 				queueInProgressWorkUnits: 0,
-				fallbackReason: 'empty_live_context',
+				fallbackReason: "empty_live_context",
 				snapshotCreatedAt: null,
 			},
 			honchoSnapshot: latestHonchoMetadata.honchoSnapshot,
@@ -947,8 +1066,8 @@ export async function loadHonchoPromptContext(params: {
 
 	const startedAt = Date.now();
 	const fallbackToStoredContext = async (
-		source: HonchoContextInfo['source'],
-		fallbackReason: HonchoContextInfo['fallbackReason']
+		source: HonchoContextInfo["source"],
+		fallbackReason: HonchoContextInfo["fallbackReason"],
 	): Promise<HonchoPromptContext> => {
 		const snapshot = latestHonchoMetadata.honchoSnapshot;
 		const snapshotMessages = snapshot
@@ -982,32 +1101,32 @@ export async function loadHonchoPromptContext(params: {
 	const sessionResult = await resolveWithTimeout(
 		getSession(params.userId, params.conversationId),
 		{
-			label: 'Honcho session bootstrap',
+			label: "Honcho session bootstrap",
 			conversationId: params.conversationId,
 			userId: params.userId,
-		}
+		},
 	);
 
 	if (!sessionResult.value) {
 		return fallbackToStoredContext(
-			latestHonchoMetadata.honchoSnapshot ? 'snapshot' : 'persisted_fallback',
-			sessionResult.timedOut ? 'timeout' : 'context_error'
+			latestHonchoMetadata.honchoSnapshot ? "snapshot" : "persisted_fallback",
+			sessionResult.timedOut ? "timeout" : "context_error",
 		);
 	}
 
 	const peersResult = await resolveWithTimeout(
 		Promise.all([getUserPeer(params.userId), getAssistantPeer(params.userId)]),
 		{
-			label: 'Honcho peer bootstrap',
+			label: "Honcho peer bootstrap",
 			conversationId: params.conversationId,
 			userId: params.userId,
-		}
+		},
 	);
 
 	if (!peersResult.value) {
 		return fallbackToStoredContext(
-			latestHonchoMetadata.honchoSnapshot ? 'snapshot' : 'persisted_fallback',
-			peersResult.timedOut ? 'timeout' : 'context_error'
+			latestHonchoMetadata.honchoSnapshot ? "snapshot" : "persisted_fallback",
+			peersResult.timedOut ? "timeout" : "context_error",
 		);
 	}
 
@@ -1024,22 +1143,22 @@ export async function loadHonchoPromptContext(params: {
 			limitToSession: true,
 		}),
 		{
-			label: 'Honcho session context',
+			label: "Honcho session context",
 			conversationId: params.conversationId,
 			userId: params.userId,
-		}
+		},
 	);
 
 	if (!liveContextResult.value) {
 		return fallbackToStoredContext(
-			latestHonchoMetadata.honchoSnapshot ? 'snapshot' : 'persisted_fallback',
-			liveContextResult.timedOut ? 'timeout' : 'context_error'
+			latestHonchoMetadata.honchoSnapshot ? "snapshot" : "persisted_fallback",
+			liveContextResult.timedOut ? "timeout" : "context_error",
 		);
 	}
 
 	const liveSessionMessages = mapHonchoMessagesToPromptContext(
 		liveContextResult.value.messages,
-		params.userId
+		params.userId,
 	);
 	const sessionMessages =
 		fallbackSessionMessages.length > 0
@@ -1051,8 +1170,8 @@ export async function loadHonchoPromptContext(params: {
 
 	if (sessionMessages.length === 0 && !summary) {
 		return fallbackToStoredContext(
-			latestHonchoMetadata.honchoSnapshot ? 'snapshot' : 'persisted_fallback',
-			'empty_live_context'
+			latestHonchoMetadata.honchoSnapshot ? "snapshot" : "persisted_fallback",
+			"empty_live_context",
 		);
 	}
 
@@ -1068,7 +1187,7 @@ export async function loadHonchoPromptContext(params: {
 		summary,
 		peerContext,
 		honchoContext: {
-			source: 'live',
+			source: "live",
 			waitedMs: Date.now() - startedAt,
 			queuePendingWorkUnits: 0,
 			queueInProgressWorkUnits: 0,
@@ -1082,11 +1201,11 @@ export async function loadHonchoPromptContext(params: {
 export async function getPeerContext(
 	userId: string,
 	userDisplayName?: string | null,
-	options?: { timeoutMs?: number; force?: boolean; throwOnError?: boolean }
+	options?: { timeoutMs?: number; force?: boolean; throwOnError?: boolean },
 ): Promise<string | null> {
 	if (!isHonchoEnabled()) return null;
 
-	const cacheKey = `${userId}:${userDisplayName ?? ''}`;
+	const cacheKey = `${userId}:${userDisplayName ?? ""}`;
 	const cached = options?.force ? null : peerContextCache.get(cacheKey);
 	if (cached && Date.now() < cached.expiresAt) {
 		return cached.value;
@@ -1099,16 +1218,16 @@ export async function getPeerContext(
 					assistantPeer.context({
 						target: userPeer,
 						includeMostFrequent: true,
-					})
+					}),
 			),
 			{
 				timeoutMs: Math.max(
 					1,
-					options?.timeoutMs ?? getConfig().honchoPersonaContextWaitMs
+					options?.timeoutMs ?? getConfig().honchoPersonaContextWaitMs,
 				),
-				label: 'Honcho scoped persona conclusions',
+				label: "Honcho scoped persona conclusions",
 				userId,
-			}
+			},
 		);
 
 		let result: string | null = null;
@@ -1123,31 +1242,34 @@ export async function getPeerContext(
 			if (options?.throwOnError) {
 				return Promise.reject(response.error);
 			}
-			console.error('[HONCHO] getPeerContext failed:', response.error);
+			console.error("[HONCHO] getPeerContext failed:", response.error);
 		} else if (response.timedOut && options?.throwOnError) {
 			return Promise.reject(
-				new Error('Timed out waiting for Honcho scoped persona conclusions')
+				new Error("Timed out waiting for Honcho scoped persona conclusions"),
 			);
 		} else if (!response.timedOut) {
 			cacheable = true;
 		}
 
 		if (cacheable) {
-			peerContextCache.set(cacheKey, { value: result, expiresAt: Date.now() + PEER_CONTEXT_CACHE_TTL_MS });
+			peerContextCache.set(cacheKey, {
+				value: result,
+				expiresAt: Date.now() + PEER_CONTEXT_CACHE_TTL_MS,
+			});
 		}
 		return result;
 	} catch (err) {
 		if (options?.throwOnError) {
 			throw err;
 		}
-		console.error('[HONCHO] getPeerContext failed:', err);
+		console.error("[HONCHO] getPeerContext failed:", err);
 		return null;
 	}
 }
 
 export type HonchoPersonaRecallResult = {
-	status: 'ok' | 'empty' | 'disabled' | 'error';
-	source: 'honcho_peer_chat' | 'none';
+	status: "ok" | "empty" | "disabled" | "error";
+	source: "honcho_peer_chat" | "none";
 	content: string | null;
 	error?: string;
 };
@@ -1159,65 +1281,71 @@ export async function recallPersonaMemory(params: {
 	timeoutMs?: number;
 }): Promise<HonchoPersonaRecallResult> {
 	if (!isHonchoEnabled()) {
-		return { status: 'disabled', source: 'none', content: null };
+		return { status: "disabled", source: "none", content: null };
 	}
 
 	const query = params.query.trim();
 	if (!query) {
-		return { status: 'empty', source: 'none', content: null };
+		return { status: "empty", source: "none", content: null };
 	}
 
 	try {
 		const response = await resolveWithTimeout(
-			Promise.all([getUserPeer(params.userId), getAssistantPeer(params.userId)]).then(
-				async ([userPeer, assistantPeer]) =>
-					assistantPeer.chat(query, {
-						target: userPeer,
-						reasoningLevel: 'medium',
-					})
+			Promise.all([
+				getUserPeer(params.userId),
+				getAssistantPeer(params.userId),
+			]).then(async ([userPeer, assistantPeer]) =>
+				assistantPeer.chat(query, {
+					target: userPeer,
+					reasoningLevel: "medium",
+				}),
 			),
 			{
 				timeoutMs: Math.max(
 					1,
 					params.timeoutMs ?? getConfig().honchoPersonaContextWaitMs,
 				),
-				label: 'Honcho persona recall',
+				label: "Honcho persona recall",
 				userId: params.userId,
 			},
 		);
 		if (response.error) {
-			console.error('[HONCHO] Persona recall failed:', response.error);
+			console.error("[HONCHO] Persona recall failed:", response.error);
 			return {
-				status: 'error',
-				source: 'none',
+				status: "error",
+				source: "none",
 				content: null,
 				error:
 					response.error instanceof Error
 						? response.error.message
-						: 'Honcho persona recall failed',
+						: "Honcho persona recall failed",
 			};
 		}
 		const content =
-			typeof response.value === 'string' ? response.value.trim() : '';
+			typeof response.value === "string" ? response.value.trim() : "";
 		const sanitizedContent = content
-			? sanitizePersonaMemoryText(content, params.userId, params.userDisplayName)
-			: '';
+			? sanitizePersonaMemoryText(
+					content,
+					params.userId,
+					params.userDisplayName,
+				)
+			: "";
 		if (!sanitizedContent) {
-			return { status: 'empty', source: 'honcho_peer_chat', content: null };
+			return { status: "empty", source: "honcho_peer_chat", content: null };
 		}
 		return {
-			status: 'ok',
-			source: 'honcho_peer_chat',
+			status: "ok",
+			source: "honcho_peer_chat",
 			content: sanitizedContent,
 		};
 	} catch (error) {
-		console.error('[HONCHO] Persona recall failed:', error);
+		console.error("[HONCHO] Persona recall failed:", error);
 		return {
-			status: 'error',
-			source: 'none',
+			status: "error",
+			source: "none",
 			content: null,
 			error:
-				error instanceof Error ? error.message : 'Honcho persona recall failed',
+				error instanceof Error ? error.message : "Honcho persona recall failed",
 		};
 	}
 }
@@ -1276,7 +1404,7 @@ export async function pruneOrphanHonchoSessions(): Promise<{
 			totalDeleted += result.deleted;
 			totalErrors += result.errors;
 		} catch (err) {
-			console.warn('[HONCHO] pruneOrphanHonchoSessions failed for user', {
+			console.warn("[HONCHO] pruneOrphanHonchoSessions failed for user", {
 				userId,
 				error: err instanceof Error ? err.message : String(err),
 			});
@@ -1325,10 +1453,13 @@ async function pruneOrphanSessionsForUser(
 		}
 	} catch (err) {
 		listingErrors++;
-		console.warn('[HONCHO] Failed to list user-peer sessions during orphan prune', {
-			userId,
-			error: err instanceof Error ? err.message : String(err),
-		});
+		console.warn(
+			"[HONCHO] Failed to list user-peer sessions during orphan prune",
+			{
+				userId,
+				error: err instanceof Error ? err.message : String(err),
+			},
+		);
 	}
 
 	try {
@@ -1337,10 +1468,13 @@ async function pruneOrphanSessionsForUser(
 		}
 	} catch (err) {
 		listingErrors++;
-		console.warn('[HONCHO] Failed to list assistant-peer sessions during orphan prune', {
-			userId,
-			error: err instanceof Error ? err.message : String(err),
-		});
+		console.warn(
+			"[HONCHO] Failed to list assistant-peer sessions during orphan prune",
+			{
+				userId,
+				error: err instanceof Error ? err.message : String(err),
+			},
+		);
 	}
 
 	let deleted = 0;
@@ -1353,7 +1487,7 @@ async function pruneOrphanSessionsForUser(
 			await deleteHonchoSession(sessionId);
 			deleted++;
 		} catch (err) {
-			console.warn('[HONCHO] Failed to delete orphan Honcho session', {
+			console.warn("[HONCHO] Failed to delete orphan Honcho session", {
 				sessionId,
 				error: err instanceof Error ? err.message : String(err),
 			});

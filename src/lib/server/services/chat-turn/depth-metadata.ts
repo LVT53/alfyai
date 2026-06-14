@@ -25,7 +25,8 @@ export function buildBaselineDepthMetadata(params: {
 		fallback: false,
 	};
 	if (params.modelId) metadata.modelId = params.modelId;
-	if (params.modelDisplayName) metadata.modelDisplayName = params.modelDisplayName;
+	if (params.modelDisplayName)
+		metadata.modelDisplayName = params.modelDisplayName;
 	if (params.providerDisplayName) {
 		metadata.providerDisplayName = params.providerDisplayName;
 	}

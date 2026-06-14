@@ -1,4 +1,4 @@
-import { requestJson } from './http';
+import { requestJson } from "./http";
 
 interface LoginResponse {
 	user?: {
@@ -11,27 +11,27 @@ interface LoginResponse {
 export async function login(
 	email: string,
 	password: string,
-	rememberMe = false
+	rememberMe = false,
 ): Promise<LoginResponse> {
 	return requestJson<LoginResponse>(
-		'/api/auth/login',
+		"/api/auth/login",
 		{
-			method: 'POST',
+			method: "POST",
 			headers: {
-				'Content-Type': 'application/json',
+				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({ email, password, rememberMe }),
 		},
-		'Login failed. Please check your credentials.'
+		"Login failed. Please check your credentials.",
 	);
 }
 
 export async function logout(): Promise<void> {
 	await requestJson<{ success?: boolean }>(
-		'/api/auth/logout',
+		"/api/auth/logout",
 		{
-			method: 'POST',
+			method: "POST",
 		},
-		'Logout failed'
+		"Logout failed",
 	);
 }

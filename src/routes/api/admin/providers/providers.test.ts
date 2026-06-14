@@ -39,7 +39,9 @@ const mockListProviders = listProviders as ReturnType<typeof vi.fn>;
 const mockValidateProviderConnection = validateProviderConnection as ReturnType<
 	typeof vi.fn
 >;
-const mockValidateProviderName = validateProviderName as ReturnType<typeof vi.fn>;
+const mockValidateProviderName = validateProviderName as ReturnType<
+	typeof vi.fn
+>;
 
 type ProviderEvent = Parameters<typeof POST>[0];
 

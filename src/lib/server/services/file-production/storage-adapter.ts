@@ -283,9 +283,7 @@ export async function syncFileProductionOutputsToMemory(
 			conversationId: input.job.conversationId,
 			assistantMessageId,
 			fileIds: input.producedFiles.map((file) => file.id),
-			assistantResponse: await getAssistantMessageContent(
-				assistantMessageId,
-			),
+			assistantResponse: await getAssistantMessageContent(assistantMessageId),
 		});
 	} catch (error) {
 		console.error(

@@ -1,5 +1,4 @@
 import { json } from "@sveltejs/kit";
-import type { RequestHandler } from "./$types";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import {
@@ -7,6 +6,7 @@ import {
 	localizeSkillDiscoverySummary,
 	seedBuiltInSystemSkillDefinitions,
 } from "$lib/server/services/skills/user-skills";
+import type { RequestHandler } from "./$types";
 
 function disabledResponse() {
 	return json(
@@ -26,8 +26,12 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	const query = event.url.searchParams.get("q") ?? "";
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	await seedBuiltInSystemSkillDefinitions(user.id);
 	const skills = await discoverSkillSummaries(user.id, query);
-	return json({ skills: skills.map((skill) => localizeSkillDiscoverySummary(skill, user.uiLanguage)) });
+	return json({
+		skills: skills.map((skill) =>
+			localizeSkillDiscoverySummary(skill, user.uiLanguage),
+		),
+	});
 };

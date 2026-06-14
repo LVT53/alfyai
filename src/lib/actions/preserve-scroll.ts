@@ -45,7 +45,7 @@ export interface PreserveScrollOptions {
 	extraCheck?: (
 		scrollContainer: HTMLElement,
 		containerEl: HTMLElement,
-		groupsEl: HTMLElement | null
+		groupsEl: HTMLElement | null,
 	) => number;
 }
 
@@ -59,10 +59,12 @@ export interface PreserveScrollOptions {
  */
 export async function preserveScrollOnToggle(
 	container: HTMLElement | undefined,
-	expandedState: boolean,
-	onToggle: () => void
+	_expandedState: boolean,
+	onToggle: () => void,
 ): Promise<void> {
-	const scrollEl = container?.closest('.scroll-container') as HTMLElement | null;
+	const scrollEl = container?.closest(
+		".scroll-container",
+	) as HTMLElement | null;
 	const blockTop = container?.getBoundingClientRect().top ?? 0;
 	onToggle();
 	if (!scrollEl || container === undefined) return;

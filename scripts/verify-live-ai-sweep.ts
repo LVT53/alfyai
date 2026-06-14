@@ -128,9 +128,13 @@ export function structuredRecallHasValue(params: {
 	);
 	const rawValue = params.parsed?.[params.field];
 	const normalizedFieldValue =
-		typeof rawValue === "string" ? normalizeStructuredRecallValue(rawValue) : "";
+		typeof rawValue === "string"
+			? normalizeStructuredRecallValue(rawValue)
+			: "";
 
-	return normalizedAcceptedValues.some((value) => normalizedFieldValue === value);
+	return normalizedAcceptedValues.some(
+		(value) => normalizedFieldValue === value,
+	);
 }
 
 function normalizeStructuredRecallValue(value: string): string {

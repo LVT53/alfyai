@@ -577,9 +577,7 @@ describe("researchWeb with SearXNG", () => {
 
 		expect(result.diagnostics.openedPageCount).toBe(1);
 		expect(result.answerBrief.markdown).toContain("Fetched page excerpts:");
-		expect(result.answerBrief.markdown).toContain(
-			"Section 21 retained detail",
-		);
+		expect(result.answerBrief.markdown).toContain("Section 21 retained detail");
 	});
 
 	it("prefers readable page prose over leading code blocks from pasted URLs", async () => {

@@ -7,7 +7,7 @@
  * Check whether localStorage is available in the current environment.
  */
 export function canUseStorage(): boolean {
-	return typeof window !== 'undefined';
+	return typeof window !== "undefined";
 }
 
 /**
@@ -27,11 +27,15 @@ export function persist(key: string, value: string): void {
  * @param fallback - value to return when the key is missing or doesn't match the validator
  * @param isValid - optional validator; return true to accept the stored value
  */
-export function read<T>(key: string, fallback: T, isValid?: (value: string) => value is T): T {
+export function read<T>(
+	key: string,
+	fallback: T,
+	isValid?: (value: string) => value is T,
+): T {
 	if (!canUseStorage()) return fallback;
 
 	const stored = localStorage.getItem(key);
 	if (stored === null) return fallback;
-	if (isValid) return isValid(stored) ? stored as T : fallback;
+	if (isValid) return isValid(stored) ? (stored as T) : fallback;
 	return fallback;
 }

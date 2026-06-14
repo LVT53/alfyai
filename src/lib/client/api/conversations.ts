@@ -14,11 +14,11 @@ import type {
 } from "$lib/types";
 import { _unwrapList } from "./_utils";
 import {
+	type FetchLike,
 	readErrorPayload,
 	requestJson,
 	requestResponse,
 	requestVoid,
-	type FetchLike,
 } from "./http";
 
 type ConversationSummary = Pick<
@@ -379,7 +379,10 @@ export async function fetchMessageEvidence(
 	}
 
 	if (!response.ok) {
-		const error = await readErrorPayload(response, "Failed to load message evidence");
+		const error = await readErrorPayload(
+			response,
+			"Failed to load message evidence",
+		);
 		throw new Error(error.message);
 	}
 

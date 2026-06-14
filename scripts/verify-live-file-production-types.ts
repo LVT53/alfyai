@@ -146,7 +146,9 @@ async function pollForJob(
 			lastJob;
 		if (
 			lastJob &&
-			["succeeded", "failed", "cancelled"].includes(String(lastJob.status ?? ""))
+			["succeeded", "failed", "cancelled"].includes(
+				String(lastJob.status ?? ""),
+			)
 		) {
 			return lastJob;
 		}
@@ -419,12 +421,17 @@ async function postProduceFile(
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
 	});
-	const data = (await response.json()) as { job?: FileProductionJob; error?: string };
+	const data = (await response.json()) as {
+		job?: FileProductionJob;
+		error?: string;
+	};
 	if (!response.ok) {
 		return {
 			id: data.job?.id ?? "missing-job",
 			status: data.job?.status ?? "request_failed",
-			error: data.job?.error ?? { message: data.error ?? `HTTP ${response.status}` },
+			error: data.job?.error ?? {
+				message: data.error ?? `HTTP ${response.status}`,
+			},
 			files: data.job?.files ?? [],
 		};
 	}
@@ -466,15 +473,16 @@ async function main() {
 		conversationId = await createConversation(page);
 
 		for (const testCase of cases) {
-			const accepted = await postProduceFile(page, testCase.body(conversationId));
+			const accepted = await postProduceFile(
+				page,
+				testCase.body(conversationId),
+			);
 			const terminal =
 				accepted.id === "missing-job" || accepted.status === "failed"
 					? accepted
 					: await pollForJob(page, conversationId, accepted.id);
 			const file = terminal.files?.[0] ?? null;
-			const download = file
-				? await verifyDownload(page, file, testCase)
-				: null;
+			const download = file ? await verifyDownload(page, file, testCase) : null;
 			const ok =
 				terminal.status === "succeeded" &&
 				Boolean(file) &&

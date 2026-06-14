@@ -108,7 +108,7 @@ export const GET: RequestHandler = async (event) => {
 		return disabledResponse();
 	}
 
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const skill = await getUserSkillDefinition(user.id, event.params.id);
 	if (!skill) {
 		const variant = await getUserSkillVariantDefinition(
@@ -133,7 +133,7 @@ export const PATCH: RequestHandler = async (event) => {
 		return disabledResponse();
 	}
 
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const body = await event.request.json().catch(() => ({}));
 	try {
 		if (isRecord(body) && body.skillKind === "skill_variant") {
@@ -177,7 +177,7 @@ export const DELETE: RequestHandler = async (event) => {
 		return disabledResponse();
 	}
 
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const deleted = await deleteUserSkillDefinition(user.id, event.params.id);
 	if (
 		!deleted &&

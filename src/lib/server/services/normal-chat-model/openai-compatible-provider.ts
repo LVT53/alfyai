@@ -3,8 +3,8 @@ import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
 import { createMiMoReasoningReplayFetch } from "./mimo-reasoning-replay";
 import { createOpenAICompatibleStreamNormalizingFetch } from "./openai-compatible-stream-normalizer";
 import {
-	transformNormalChatModelRunRequestBody,
 	type NormalChatModelRunCompatibilityProvider,
+	transformNormalChatModelRunRequestBody,
 } from "./provider-compatibility";
 
 export type NormalChatOpenAICompatibleProviderConfig =

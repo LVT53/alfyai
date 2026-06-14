@@ -17,11 +17,11 @@
  *   1 = issues found
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import * as fs from "node:fs";
+import * as path from "node:path";
 
-const I18N_DIR = path.resolve('src/lib/i18n');
-const MODULES = ['chat', 'common', 'knowledge', 'settings', 'skills'] as const;
+const I18N_DIR = path.resolve("src/lib/i18n");
+const MODULES = ["chat", "common", "knowledge", "settings", "skills"] as const;
 
 function parseI18n() {
 	const en: Record<string, string> = {};
@@ -29,38 +29,40 @@ function parseI18n() {
 
 	function extractBracedBlock(text: string, startIdx: number): string {
 		let depth = 0;
-		let start = text.indexOf('{', startIdx);
-		if (start === -1) return '';
+		const start = text.indexOf("{", startIdx);
+		if (start === -1) return "";
 		depth = 1;
 		let i = start + 1;
 		while (depth > 0 && i < text.length) {
-			if (text[i] === '{') depth++;
-			else if (text[i] === '}') depth--;
+			if (text[i] === "{") depth++;
+			else if (text[i] === "}") depth--;
 			i++;
 		}
 		return text.slice(start + 1, i - 1);
 	}
 
 	function extractKeyValues(block: string, target: Record<string, string>) {
-		const regex = /(?:["'])?([\w.]+)(?:["'])?\s*:\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`]*)`)/g;
-		let match;
-		while ((match = regex.exec(block)) !== null) {
+		const regex =
+			/(?:["'])?([\w.]+)(?:["'])?\s*:\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`]*)`)/g;
+		let match: RegExpExecArray | null = regex.exec(block);
+		while (match !== null) {
 			const key = match[1];
-			const value = (match[2] ?? match[3] ?? '').trim();
+			const value = (match[2] ?? match[3] ?? "").trim();
 			if (key && value !== undefined) target[key] = value;
+			match = regex.exec(block);
 		}
 	}
 
 	for (const mod of MODULES) {
 		const filePath = path.join(I18N_DIR, `${mod}.ts`);
 		if (!fs.existsSync(filePath)) continue;
-		const content = fs.readFileSync(filePath, 'utf-8');
+		const content = fs.readFileSync(filePath, "utf-8");
 
-		for (const lang of ['en', 'hu'] as const) {
+		for (const lang of ["en", "hu"] as const) {
 			const idx = content.search(new RegExp(`\\b${lang}\\s*:`));
 			if (idx === -1) continue;
 			const block = extractBracedBlock(content, idx);
-			extractKeyValues(block, lang === 'en' ? en : hu);
+			extractKeyValues(block, lang === "en" ? en : hu);
 		}
 	}
 
@@ -96,21 +98,30 @@ function extractParams(value: string): Set<string> {
 	const params = new Set<string>();
 	let cleanValue = value;
 	const icuPattern = /\{(\w+),\s*\w+,/g;
-	let icuMatch;
-	while ((icuMatch = icuPattern.exec(cleanValue)) !== null) {
+	let icuMatch: RegExpExecArray | null = icuPattern.exec(cleanValue);
+	while (icuMatch !== null) {
 		let depth = 1;
 		let end = icuMatch.index + icuMatch[0].length;
 		while (depth > 0 && end < cleanValue.length) {
-			if (cleanValue[end] === '{') depth++;
-			else if (cleanValue[end] === '}') depth--;
+			if (cleanValue[end] === "{") depth++;
+			else if (cleanValue[end] === "}") depth--;
 			end++;
 		}
-		cleanValue = cleanValue.slice(0, icuMatch.index) + '{' + icuMatch[1] + '}' + cleanValue.slice(end);
+		cleanValue =
+			cleanValue.slice(0, icuMatch.index) +
+			"{" +
+			icuMatch[1] +
+			"}" +
+			cleanValue.slice(end);
 		icuPattern.lastIndex = 0;
+		icuMatch = icuPattern.exec(cleanValue);
 	}
 	const regex = /\{(\w+)\}/g;
-	let match;
-	while ((match = regex.exec(cleanValue)) !== null) params.add(match[1]);
+	let match: RegExpExecArray | null = regex.exec(cleanValue);
+	while (match !== null) {
+		params.add(match[1]);
+		match = regex.exec(cleanValue);
+	}
 	return params;
 }
 
@@ -133,7 +144,9 @@ function validate() {
 
 	for (const key of huKeys) {
 		if (!enKeys.has(key)) {
-			issues.push(`[WARN] Extra HU key (no EN equivalent): "${key}" (HU: "${hu[key]}")`);
+			issues.push(
+				`[WARN] Extra HU key (no EN equivalent): "${key}" (HU: "${hu[key]}")`,
+			);
 			warnings++;
 		}
 	}
@@ -144,40 +157,53 @@ function validate() {
 		const huVal = hu[key].trim();
 		const sim = similarity(enVal, huVal);
 
-		if (huVal === '') {
-			issues.push(`[ERROR] Empty HU translation for key "${key}" (EN: "${enVal}")`);
+		if (huVal === "") {
+			issues.push(
+				`[ERROR] Empty HU translation for key "${key}" (EN: "${enVal}")`,
+			);
 			errors++;
 			continue;
 		}
 
 		if (enVal === huVal) {
-			issues.push(`[WARN] Untranslated key "${key}" — HU equals EN: "${enVal}"`);
+			issues.push(
+				`[WARN] Untranslated key "${key}" — HU equals EN: "${enVal}"`,
+			);
 			warnings++;
 			continue;
 		}
 
 		if (sim > 0.85 && enVal.length > 10) {
-			issues.push(`[WARN] Suspiciously similar (${(sim * 100).toFixed(0)}% match) key "${key}": EN="${enVal}" / HU="${huVal}"`);
+			issues.push(
+				`[WARN] Suspiciously similar (${(sim * 100).toFixed(0)}% match) key "${key}": EN="${enVal}" / HU="${huVal}"`,
+			);
 			warnings++;
 		}
 
 		const enParams = extractParams(enVal);
 		const huParams = extractParams(huVal);
-		if (enParams.size !== huParams.size || ![...enParams].every((p) => huParams.has(p))) {
-			issues.push(`[ERROR] Parameter mismatch for key "${key}": EN params=[${[...enParams].join(',')}] HU params=[${[...huParams].join(',')}]`);
+		if (
+			enParams.size !== huParams.size ||
+			![...enParams].every((p) => huParams.has(p))
+		) {
+			issues.push(
+				`[ERROR] Parameter mismatch for key "${key}": EN params=[${[...enParams].join(",")}] HU params=[${[...huParams].join(",")}]`,
+			);
 			errors++;
 		}
 	}
 
 	console.log(`\n📊 i18n Translation Quality Report`);
-	console.log(`   ${'='.repeat(40)}`);
+	console.log(`   ${"=".repeat(40)}`);
 	console.log(`   Total EN keys: ${enKeys.size}`);
 	console.log(`   Total HU keys: ${huKeys.size}`);
-	console.log(`   Coverage: ${((huKeys.size / enKeys.size) * 100).toFixed(1)}%`);
-	console.log(`   ${'='.repeat(40)}\n`);
+	console.log(
+		`   Coverage: ${((huKeys.size / enKeys.size) * 100).toFixed(1)}%`,
+	);
+	console.log(`   ${"=".repeat(40)}\n`);
 
 	if (issues.length === 0) {
-		console.log('✅ No issues found — translations look clean!');
+		console.log("✅ No issues found — translations look clean!");
 		return 0;
 	}
 

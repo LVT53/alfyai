@@ -1,40 +1,40 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <script lang="ts">
-	import type { ArtifactSummary } from '$lib/types';
-import { FileText, X } from '@lucide/svelte';
+import type { ArtifactSummary } from "$lib/types";
+import { FileText, X } from "@lucide/svelte";
 
-	let {
-		attachment,
-		removable = false,
-		variant = 'compact',
-		viewable = false,
-		onRemove,
-		onView,
-	}: {
-		attachment: ArtifactSummary;
-		removable?: boolean;
-		variant?: 'compact' | 'pending';
-		viewable?: boolean;
-		onRemove?: (payload: { id: string }) => void;
-		onView?: (attachment: ArtifactSummary) => void;
-	} = $props();
+let {
+	attachment,
+	removable = false,
+	variant = "compact",
+	viewable = false,
+	onRemove,
+	onView,
+}: {
+	attachment: ArtifactSummary;
+	removable?: boolean;
+	variant?: "compact" | "pending";
+	viewable?: boolean;
+	onRemove?: (payload: { id: string }) => void;
+	onView?: (attachment: ArtifactSummary) => void;
+} = $props();
 
-	function handleRemove() {
-		onRemove?.({ id: attachment.id });
+function handleRemove() {
+	onRemove?.({ id: attachment.id });
+}
+
+function handleClick() {
+	if (viewable && onView) {
+		onView(attachment);
 	}
+}
 
-	function handleClick() {
-		if (viewable && onView) {
-			onView(attachment);
-		}
+function handleKeydown(event: KeyboardEvent) {
+	if (viewable && onView && (event.key === "Enter" || event.key === " ")) {
+		event.preventDefault();
+		onView(attachment);
 	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (viewable && onView && (event.key === 'Enter' || event.key === ' ')) {
-			event.preventDefault();
-			onView(attachment);
-		}
-	}
+}
 </script>
 
 <div

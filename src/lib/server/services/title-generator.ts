@@ -44,7 +44,9 @@ async function generateTitleWithAiSdk(
 ): Promise<string> {
 	// Resolve provider model if titleGenModel is a composite ID
 	let resolvedModelName = config.titleGenModel;
-	let overrideProvider: { baseUrl: string; apiKey: string; modelName: string } | undefined;
+	let overrideProvider:
+		| { baseUrl: string; apiKey: string; modelName: string }
+		| undefined;
 
 	if (config.titleGenModel.startsWith("provider:")) {
 		const parts = config.titleGenModel.split(":");
@@ -52,7 +54,9 @@ async function generateTitleWithAiSdk(
 			const providerId = parts[1];
 			const modelId = parts[2];
 			try {
-				const { getProviderWithSecrets, decryptApiKey } = await import("./providers");
+				const { getProviderWithSecrets, decryptApiKey } = await import(
+					"./providers"
+				);
 				const { listEnabledProviderModels } = await import("./provider-models");
 				const provider = await getProviderWithSecrets(providerId);
 				if (provider?.enabled) {
@@ -62,20 +66,29 @@ async function generateTitleWithAiSdk(
 						resolvedModelName = model.name;
 						overrideProvider = {
 							baseUrl: provider.baseUrl,
-							apiKey: decryptApiKey(provider.apiKeyEncrypted, provider.apiKeyIv),
+							apiKey: decryptApiKey(
+								provider.apiKeyEncrypted,
+								provider.apiKeyIv,
+							),
 							modelName: model.name,
 						};
 					}
 				}
-			} catch { /* fall back to raw model ID */ }
+			} catch {
+				/* fall back to raw model ID */
+			}
 		}
 	}
 
 	const tryCall = async (includeVllmControls: boolean): Promise<string> => {
-		const provider = createTitleGenProvider(config, includeVllmControls, overrideProvider);
+		const provider = createTitleGenProvider(
+			config,
+			includeVllmControls,
+			overrideProvider,
+		);
 
-		const systemContent = messages.find(m => m.role === "system")?.content;
-		const nonSystemMessages = messages.filter(m => m.role !== "system");
+		const systemContent = messages.find((m) => m.role === "system")?.content;
+		const nonSystemMessages = messages.filter((m) => m.role !== "system");
 
 		const result = await generateText({
 			model: provider(resolvedModelName),

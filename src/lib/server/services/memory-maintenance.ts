@@ -1,32 +1,39 @@
-import { and, desc, eq, inArray, isNotNull, notInArray } from 'drizzle-orm';
-import { db } from '$lib/server/db';
+import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { getConfig } from "$lib/server/config-store";
+import { db } from "$lib/server/db";
 import {
-	artifacts,
 	artifactChunks,
+	artifacts,
 	conversationSummaries,
-	conversationTaskStates,
 	conversations,
+	conversationTaskStates,
 	memoryProjects,
 	memoryProjectTaskLinks,
 	projects,
 	semanticEmbeddings,
 	taskCheckpoints,
 	users,
-} from '$lib/server/db/schema';
-import { getConfig } from '$lib/server/config-store';
+} from "$lib/server/db/schema";
+import { DAY_MS } from "$lib/server/utils/constants";
+import { deleteOrphanChatFiles } from "./chat-files";
+import { findOrphanFiles } from "./disk-reconciliation";
 import {
 	repairGeneratedOutputFamilyStatuses,
 	repairGeneratedOutputRetrievalClasses,
-} from './evidence-family';
-import { backfillSemanticEmbeddingsForUser } from './semantic-embedding-refresh';
-import { DAY_MS } from '$lib/server/utils/constants';
-import { pruneOrphanProjectMemory, updateProjectMemoryStatuses } from './task-state';
-import { pruneOldMemoryEvents } from './memory-events';
-import { deleteSemanticEmbeddingsForSubjects } from './semantic-embeddings';
-import { pruneOrphanHonchoSessions } from './honcho';
-import { deleteOrphanChatFiles } from './chat-files';
-import { findOrphanFiles } from './disk-reconciliation';
-import { recordStepStart, recordStepSuccess, recordStepFailure } from './maintenance-metrics';
+} from "./evidence-family";
+import { pruneOrphanHonchoSessions } from "./honcho";
+import {
+	recordStepFailure,
+	recordStepStart,
+	recordStepSuccess,
+} from "./maintenance-metrics";
+import { pruneOldMemoryEvents } from "./memory-events";
+import { backfillSemanticEmbeddingsForUser } from "./semantic-embedding-refresh";
+import { deleteSemanticEmbeddingsForSubjects } from "./semantic-embeddings";
+import {
+	pruneOrphanProjectMemory,
+	updateProjectMemoryStatuses,
+} from "./task-state";
 
 const KEEP_MICRO_CHECKPOINTS = 6;
 const KEEP_STABLE_CHECKPOINTS = 3;
@@ -36,13 +43,16 @@ const EMBEDDING_BACKFILL_COOLDOWN_MS = 24 * 60 * 60_000;
 
 let schedulerStarted = false;
 let schedulerHandle: ReturnType<typeof setInterval> | null = null;
-const userMaintenanceStates = new Map<string, {
-	inFlight: Promise<void> | null;
-	rerunRequested: boolean;
-	lastCompletedAt: number;
-	scheduledReason: string | null;
-	timer: ReturnType<typeof setTimeout> | null;
-}>();
+const userMaintenanceStates = new Map<
+	string,
+	{
+		inFlight: Promise<void> | null;
+		rerunRequested: boolean;
+		lastCompletedAt: number;
+		scheduledReason: string | null;
+		timer: ReturnType<typeof setTimeout> | null;
+	}
+>();
 
 const userLastBackfill = new Map<string, number>();
 
@@ -64,12 +74,12 @@ async function pruneTaskCheckpoints(userId: string): Promise<void> {
 
 	for (const row of rows) {
 		const current = counts.get(row.taskId) ?? { micro: 0, stable: 0 };
-		if (row.checkpointType === 'micro') {
+		if (row.checkpointType === "micro") {
 			if (current.micro < KEEP_MICRO_CHECKPOINTS) {
 				keepIds.add(row.id);
 				current.micro += 1;
 			}
-		} else if (row.checkpointType === 'stable') {
+		} else if (row.checkpointType === "stable") {
 			if (current.stable < KEEP_STABLE_CHECKPOINTS) {
 				keepIds.add(row.id);
 				current.stable += 1;
@@ -80,12 +90,19 @@ async function pruneTaskCheckpoints(userId: string): Promise<void> {
 		counts.set(row.taskId, current);
 	}
 
-	const idsToDelete = rows.map((row) => row.id).filter((id) => !keepIds.has(id));
+	const idsToDelete = rows
+		.map((row) => row.id)
+		.filter((id) => !keepIds.has(id));
 	if (idsToDelete.length === 0) return;
 
 	await db
 		.delete(taskCheckpoints)
-		.where(and(eq(taskCheckpoints.userId, userId), inArray(taskCheckpoints.id, idsToDelete)));
+		.where(
+			and(
+				eq(taskCheckpoints.userId, userId),
+				inArray(taskCheckpoints.id, idsToDelete),
+			),
+		);
 }
 
 async function archiveStaleTaskMemory(userId: string): Promise<void> {
@@ -99,25 +116,27 @@ async function archiveStaleTaskMemory(userId: string): Promise<void> {
 		.where(eq(conversationTaskStates.userId, userId));
 
 	const staleIds = rows
-		.filter((row) => row.status !== 'archived' && taskIsStale(row.updatedAt))
+		.filter((row) => row.status !== "archived" && taskIsStale(row.updatedAt))
 		.map((row) => row.taskId);
 	if (staleIds.length === 0) return;
 
 	await db
 		.update(conversationTaskStates)
 		.set({
-			status: 'archived',
+			status: "archived",
 			updatedAt: new Date(),
 		})
 		.where(
 			and(
 				eq(conversationTaskStates.userId, userId),
-				inArray(conversationTaskStates.taskId, staleIds)
-			)
+				inArray(conversationTaskStates.taskId, staleIds),
+			),
 		);
 }
 
-async function pruneOrphanConversationSummaries(userId: string): Promise<number> {
+async function pruneOrphanConversationSummaries(
+	userId: string,
+): Promise<number> {
 	const orphanRows = await db
 		.select({ conversationId: conversationSummaries.conversationId })
 		.from(conversationSummaries)
@@ -126,24 +145,25 @@ async function pruneOrphanConversationSummaries(userId: string): Promise<number>
 				eq(conversationSummaries.userId, userId),
 				notInArray(
 					conversationSummaries.conversationId,
-					db.select({ id: conversations.id }).from(conversations).where(eq(conversations.userId, userId))
-				)
-			)
+					db
+						.select({ id: conversations.id })
+						.from(conversations)
+						.where(eq(conversations.userId, userId)),
+				),
+			),
 		);
 
 	if (orphanRows.length === 0) return 0;
 
-	const result = await db
-		.delete(conversationSummaries)
-		.where(
-			and(
-				eq(conversationSummaries.userId, userId),
-				inArray(
-					conversationSummaries.conversationId,
-					orphanRows.map((r) => r.conversationId)
-				)
-			)
-		);
+	const result = await db.delete(conversationSummaries).where(
+		and(
+			eq(conversationSummaries.userId, userId),
+			inArray(
+				conversationSummaries.conversationId,
+				orphanRows.map((r) => r.conversationId),
+			),
+		),
+	);
 
 	return result.changes;
 }
@@ -157,24 +177,25 @@ async function pruneOrphanArtifactChunks(userId: string): Promise<number> {
 				eq(artifactChunks.userId, userId),
 				notInArray(
 					artifactChunks.artifactId,
-					db.select({ id: artifacts.id }).from(artifacts).where(eq(artifacts.userId, userId))
-				)
-			)
+					db
+						.select({ id: artifacts.id })
+						.from(artifacts)
+						.where(eq(artifacts.userId, userId)),
+				),
+			),
 		);
 
 	if (orphanRows.length === 0) return 0;
 
-	const result = await db
-		.delete(artifactChunks)
-		.where(
-			and(
-				eq(artifactChunks.userId, userId),
-				inArray(
-					artifactChunks.id,
-					orphanRows.map((r) => r.id)
-				)
-			)
-		);
+	const result = await db.delete(artifactChunks).where(
+		and(
+			eq(artifactChunks.userId, userId),
+			inArray(
+				artifactChunks.id,
+				orphanRows.map((r) => r.id),
+			),
+		),
+	);
 
 	return result.changes;
 }
@@ -188,22 +209,26 @@ async function pruneOrphanMemoryProjects(userId: string): Promise<number> {
 				eq(memoryProjects.userId, userId),
 				notInArray(
 					memoryProjects.projectId,
-					db.select({ projectId: memoryProjectTaskLinks.projectId })
+					db
+						.select({ projectId: memoryProjectTaskLinks.projectId })
 						.from(memoryProjectTaskLinks)
-						.where(eq(memoryProjectTaskLinks.userId, userId))
+						.where(eq(memoryProjectTaskLinks.userId, userId)),
 				),
 				notInArray(
 					memoryProjects.projectId,
-					db.select({ canonicalMemoryProjectId: projects.canonicalMemoryProjectId })
+					db
+						.select({
+							canonicalMemoryProjectId: projects.canonicalMemoryProjectId,
+						})
 						.from(projects)
 						.where(
 							and(
 								eq(projects.userId, userId),
-								isNotNull(projects.canonicalMemoryProjectId)
-							)
-						)
-				)
-			)
+								isNotNull(projects.canonicalMemoryProjectId),
+							),
+						),
+				),
+			),
 		);
 
 	const orphanIds = orphanRows.map((r) => r.projectId);
@@ -214,8 +239,8 @@ async function pruneOrphanMemoryProjects(userId: string): Promise<number> {
 		.where(
 			and(
 				eq(memoryProjects.userId, userId),
-				inArray(memoryProjects.projectId, orphanIds)
-			)
+				inArray(memoryProjects.projectId, orphanIds),
+			),
 		);
 
 	return result.changes;
@@ -237,47 +262,64 @@ function getUserMaintenanceState(userId: string) {
 }
 
 function shouldDebounceMaintenanceReason(reason: string): boolean {
-	return reason === 'chat_send' || reason === 'chat_stream';
+	return reason === "chat_send" || reason === "chat_stream";
 }
 
-function clearScheduledMaintenance(state: ReturnType<typeof getUserMaintenanceState>): void {
+function clearScheduledMaintenance(
+	state: ReturnType<typeof getUserMaintenanceState>,
+): void {
 	if (state.timer) {
 		clearTimeout(state.timer);
 		state.timer = null;
 	}
 }
 
-function scheduleDeferredUserMaintenance(userId: string, reason: string, delayMs: number): void {
+function scheduleDeferredUserMaintenance(
+	userId: string,
+	reason: string,
+	delayMs: number,
+): void {
 	const state = getUserMaintenanceState(userId);
 	state.scheduledReason = reason;
 	if (state.timer) return;
 
-	state.timer = setTimeout(() => {
-		state.timer = null;
-		const scheduledReason = state.scheduledReason ?? reason;
-		state.scheduledReason = null;
-		void startUserMemoryMaintenance(userId, scheduledReason, { bypassDebounce: true });
-	}, Math.max(0, delayMs));
+	state.timer = setTimeout(
+		() => {
+			state.timer = null;
+			const scheduledReason = state.scheduledReason ?? reason;
+			state.scheduledReason = null;
+			void startUserMemoryMaintenance(userId, scheduledReason, {
+				bypassDebounce: true,
+			});
+		},
+		Math.max(0, delayMs),
+	);
 	state.timer.unref?.();
 }
 
-async function runGlobalCleanupOnce(key: string, fn: () => Promise<void>): Promise<void> {
+async function runGlobalCleanupOnce(
+	key: string,
+	fn: () => Promise<void>,
+): Promise<void> {
 	if (_globalCleanupRun.has(key)) return;
 	_globalCleanupRun.add(key);
 	try {
 		await fn();
 	} catch (error) {
-		console.warn('[MEMORY_MAINTENANCE] Global cleanup failed', { key, error });
+		console.warn("[MEMORY_MAINTENANCE] Global cleanup failed", { key, error });
 	}
 }
 
 async function performUserMemoryMaintenance(
 	userId: string,
-	reason = 'manual'
+	reason = "manual",
 ): Promise<void> {
 	const errors: string[] = [];
 
-	const safe = async <T>(label: string, fn: () => Promise<T>): Promise<T | undefined> => {
+	const safe = async <T>(
+		label: string,
+		fn: () => Promise<T>,
+	): Promise<T | undefined> => {
 		const startTime = recordStepStart(userId, label);
 		try {
 			const result = await fn();
@@ -285,25 +327,32 @@ async function performUserMemoryMaintenance(
 			return result;
 		} catch (error) {
 			recordStepFailure(userId, label, startTime, error);
-			errors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+			errors.push(
+				`${label}: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			return undefined;
 		}
 	};
 
-	const generatedOutputArtifacts = await safe('fetch artifacts', () =>
+	const generatedOutputArtifacts = await safe("fetch artifacts", () =>
 		db
 			.select()
 			.from(artifacts)
-			.where(and(eq(artifacts.userId, userId), eq(artifacts.type, 'generated_output')))
-			.orderBy(desc(artifacts.updatedAt))
+			.where(
+				and(
+					eq(artifacts.userId, userId),
+					eq(artifacts.type, "generated_output"),
+				),
+			)
+			.orderBy(desc(artifacts.updatedAt)),
 	);
 
 	if (generatedOutputArtifacts) {
-		await safe('repair retrieval classes', () =>
-			repairGeneratedOutputRetrievalClasses(userId, generatedOutputArtifacts)
+		await safe("repair retrieval classes", () =>
+			repairGeneratedOutputRetrievalClasses(userId, generatedOutputArtifacts),
 		);
-		await safe('repair family statuses', () =>
-			repairGeneratedOutputFamilyStatuses(userId, generatedOutputArtifacts)
+		await safe("repair family statuses", () =>
+			repairGeneratedOutputFamilyStatuses(userId, generatedOutputArtifacts),
 		);
 	}
 
@@ -311,76 +360,87 @@ async function performUserMemoryMaintenance(
 	const lastBackfill = userLastBackfill.get(userId) ?? 0;
 	const now = Date.now();
 	if (now - lastBackfill >= EMBEDDING_BACKFILL_COOLDOWN_MS) {
-		const backfillResult = await safe('semantic backfill', () =>
-			backfillSemanticEmbeddingsForUser(userId)
+		const backfillResult = await safe("semantic backfill", () =>
+			backfillSemanticEmbeddingsForUser(userId),
 		);
 		userLastBackfill.set(userId, now);
 		if (backfillResult) {
-			console.info('[MEMORY_MAINTENANCE] Semantic backfill', {
+			console.info("[MEMORY_MAINTENANCE] Semantic backfill", {
 				userId,
 				...backfillResult,
 			});
 		}
 	}
 
-	await safe('prune checkpoints', () => pruneTaskCheckpoints(userId));
-	await safe('archive stale tasks', () => archiveStaleTaskMemory(userId));
-	await safe('update project statuses', () => updateProjectMemoryStatuses(userId));
-	await safe('prune orphan project memory', () => pruneOrphanProjectMemory(userId));
+	await safe("prune checkpoints", () => pruneTaskCheckpoints(userId));
+	await safe("archive stale tasks", () => archiveStaleTaskMemory(userId));
+	await safe("update project statuses", () =>
+		updateProjectMemoryStatuses(userId),
+	);
+	await safe("prune orphan project memory", () =>
+		pruneOrphanProjectMemory(userId),
+	);
 
 	// New cleanup steps
-	await safe('prune old memory events', () => pruneOldMemoryEvents({ userId }));
-	await safe('delete orphan semantic embeddings', async () => {
+	await safe("prune old memory events", () => pruneOldMemoryEvents({ userId }));
+	await safe("delete orphan semantic embeddings", async () => {
 		const orphanRows = await db
 			.select({ subjectId: semanticEmbeddings.subjectId })
 			.from(semanticEmbeddings)
 			.where(
 				and(
 					eq(semanticEmbeddings.userId, userId),
-					eq(semanticEmbeddings.subjectType, 'artifact'),
+					eq(semanticEmbeddings.subjectType, "artifact"),
 					notInArray(
 						semanticEmbeddings.subjectId,
-						db.select({ id: artifacts.id }).from(artifacts).where(eq(artifacts.userId, userId))
-					)
-				)
+						db
+							.select({ id: artifacts.id })
+							.from(artifacts)
+							.where(eq(artifacts.userId, userId)),
+					),
+				),
 			);
 
 		const orphanIds = [...new Set(orphanRows.map((r) => r.subjectId))];
 		await deleteSemanticEmbeddingsForSubjects({
 			userId,
-			subjectType: 'artifact',
+			subjectType: "artifact",
 			subjectIds: orphanIds,
 		});
 	});
 
-	await safe('prune orphan summaries', () => pruneOrphanConversationSummaries(userId));
-	await safe('prune orphan chunks', () => pruneOrphanArtifactChunks(userId));
-	await safe('prune orphan memory projects', () => pruneOrphanMemoryProjects(userId));
+	await safe("prune orphan summaries", () =>
+		pruneOrphanConversationSummaries(userId),
+	);
+	await safe("prune orphan chunks", () => pruneOrphanArtifactChunks(userId));
+	await safe("prune orphan memory projects", () =>
+		pruneOrphanMemoryProjects(userId),
+	);
 
 	// Global cleanup (run once per process lifetime)
-	await runGlobalCleanupOnce('deleteOrphanChatFiles', async () => {
+	await runGlobalCleanupOnce("deleteOrphanChatFiles", async () => {
 		const deleted = await deleteOrphanChatFiles();
-		console.info('[MEMORY_MAINTENANCE] Orphan chat files deleted', { deleted });
+		console.info("[MEMORY_MAINTENANCE] Orphan chat files deleted", { deleted });
 	});
 
-	await runGlobalCleanupOnce('pruneOrphanHonchoSessions', async () => {
+	await runGlobalCleanupOnce("pruneOrphanHonchoSessions", async () => {
 		const result = await pruneOrphanHonchoSessions();
-		console.info('[MEMORY_MAINTENANCE] Orphan Honcho sessions pruned', result);
+		console.info("[MEMORY_MAINTENANCE] Orphan Honcho sessions pruned", result);
 	});
 
-	await runGlobalCleanupOnce('findOrphanFiles', async () => {
+	await runGlobalCleanupOnce("findOrphanFiles", async () => {
 		const report = await findOrphanFiles();
-		console.info('[MEMORY_MAINTENANCE] Disk reconciliation report', report);
+		console.info("[MEMORY_MAINTENANCE] Disk reconciliation report", report);
 	});
 
 	if (errors.length > 0) {
-		console.warn('[MEMORY_MAINTENANCE] Completed with errors', {
+		console.warn("[MEMORY_MAINTENANCE] Completed with errors", {
 			userId,
 			reason,
 			errors,
 		});
 	} else {
-		console.info('[MEMORY_MAINTENANCE] Completed', {
+		console.info("[MEMORY_MAINTENANCE] Completed", {
 			userId,
 			reason,
 		});
@@ -390,7 +450,7 @@ async function performUserMemoryMaintenance(
 async function startUserMemoryMaintenance(
 	userId: string,
 	reason: string,
-	options?: { bypassDebounce?: boolean }
+	options?: { bypassDebounce?: boolean },
 ): Promise<void> {
 	const state = getUserMaintenanceState(userId);
 	if (!options?.bypassDebounce) {
@@ -398,17 +458,21 @@ async function startUserMemoryMaintenance(
 		state.scheduledReason = null;
 	}
 
-	const runPromise = performUserMemoryMaintenance(userId, reason).finally(() => {
-		state.inFlight = null;
-		state.lastCompletedAt = Date.now();
+	const runPromise = performUserMemoryMaintenance(userId, reason).finally(
+		() => {
+			state.inFlight = null;
+			state.lastCompletedAt = Date.now();
 
-		if (state.rerunRequested) {
-			const rerunReason = state.scheduledReason ?? reason;
-			state.rerunRequested = false;
-			state.scheduledReason = null;
-			void startUserMemoryMaintenance(userId, rerunReason, { bypassDebounce: true });
-		}
-	});
+			if (state.rerunRequested) {
+				const rerunReason = state.scheduledReason ?? reason;
+				state.rerunRequested = false;
+				state.scheduledReason = null;
+				void startUserMemoryMaintenance(userId, rerunReason, {
+					bypassDebounce: true,
+				});
+			}
+		},
+	);
 
 	state.inFlight = runPromise;
 	await runPromise;
@@ -416,7 +480,7 @@ async function startUserMemoryMaintenance(
 
 export async function runUserMemoryMaintenance(
 	userId: string,
-	reason = 'manual'
+	reason = "manual",
 ): Promise<void> {
 	const state = getUserMaintenanceState(userId);
 	const debounceReason = shouldDebounceMaintenanceReason(reason);
@@ -433,7 +497,7 @@ export async function runUserMemoryMaintenance(
 			scheduleDeferredUserMaintenance(
 				userId,
 				reason,
-				CHAT_MAINTENANCE_DEBOUNCE_MS - elapsedMs
+				CHAT_MAINTENANCE_DEBOUNCE_MS - elapsedMs,
 			);
 			return;
 		}
@@ -442,7 +506,9 @@ export async function runUserMemoryMaintenance(
 	await startUserMemoryMaintenance(userId, reason);
 }
 
-export async function runAllUsersMemoryMaintenance(reason = 'scheduler'): Promise<void> {
+export async function runAllUsersMemoryMaintenance(
+	reason = "scheduler",
+): Promise<void> {
 	_globalCleanupRun.clear();
 
 	const rows = await db.select({ id: users.id }).from(users);
@@ -461,10 +527,10 @@ export function ensureMemoryMaintenanceScheduler(): void {
 
 	schedulerStarted = true;
 	schedulerHandle = setInterval(() => {
-		void runAllUsersMemoryMaintenance('scheduler');
+		void runAllUsersMemoryMaintenance("scheduler");
 	}, intervalMinutes * 60_000);
 	schedulerHandle.unref?.();
-	console.info('[MEMORY_MAINTENANCE] Scheduler enabled', { intervalMinutes });
+	console.info("[MEMORY_MAINTENANCE] Scheduler enabled", { intervalMinutes });
 }
 
 export function stopMemoryMaintenanceScheduler(): void {

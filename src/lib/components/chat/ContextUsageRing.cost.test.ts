@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
-import ContextUsageRing from './ContextUsageRing.svelte';
+import { fireEvent, render, screen } from "@testing-library/svelte";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import ContextUsageRing from "./ContextUsageRing.svelte";
 
-vi.mock('$lib/i18n', () => ({
+vi.mock("$lib/i18n", () => ({
 	t: {
 		subscribe: vi.fn((cb: (v: (key: string) => string) => void) => {
 			const fn = (key: string) => key;
@@ -26,40 +26,40 @@ function renderRing(props: Record<string, unknown> = {}) {
 	});
 }
 
-describe('ContextUsageRing cost display', () => {
+describe("ContextUsageRing cost display", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
 
-	it('renders cost row when totalCostUsd and totalTokens are provided', () => {
+	it("renders cost row when totalCostUsd and totalTokens are provided", () => {
 		renderRing({ totalCostUsd: 0.42, totalTokens: 12400 });
 
 		expect(screen.getByText(/\$0\.42/)).toBeTruthy();
 		expect(screen.getByText(/12[,.]?4K/)).toBeTruthy();
 	});
 
-	it('does not render cost section when totalCostUsd is 0', () => {
+	it("does not render cost section when totalCostUsd is 0", () => {
 		renderRing({ totalCostUsd: 0, totalTokens: 0 });
 
 		expect(screen.queryByText(/\$/)).toBeNull();
 	});
 
-	it('omits the unused focus section and task control buttons', () => {
+	it("omits the unused focus section and task control buttons", () => {
 		renderRing({
 			taskState: {
-				id: 'task-1',
-				conversationId: 'conversation-1',
-				userId: 'user-1',
-				objective: 'Prepare launch brief',
-				status: 'active',
+				id: "task-1",
+				conversationId: "conversation-1",
+				userId: "user-1",
+				objective: "Prepare launch brief",
+				status: "active",
 				createdAt: Date.now(),
 				updatedAt: Date.now(),
 			},
 			contextDebug: {
-				routingStage: 'deterministic',
+				routingStage: "deterministic",
 				routingConfidence: 100,
-				verificationStatus: 'skipped',
-				activeTaskObjective: 'Prepare launch brief',
+				verificationStatus: "skipped",
+				activeTaskObjective: "Prepare launch brief",
 				taskLocked: true,
 				selectedEvidence: [],
 				pinnedEvidence: [],
@@ -68,34 +68,34 @@ describe('ContextUsageRing cost display', () => {
 			onSteer: vi.fn(),
 		});
 
-		expect(screen.queryByText('contextUsageRing.focus')).toBeNull();
-		expect(screen.queryByText('Prepare launch brief')).toBeNull();
-		expect(screen.queryByText('contextUsageRing.unlockTask')).toBeNull();
-		expect(screen.queryByText('contextUsageRing.startNewTask')).toBeNull();
-		expect(screen.queryByText('contextUsageRing.manageEvidence')).toBeNull();
+		expect(screen.queryByText("contextUsageRing.focus")).toBeNull();
+		expect(screen.queryByText("Prepare launch brief")).toBeNull();
+		expect(screen.queryByText("contextUsageRing.unlockTask")).toBeNull();
+		expect(screen.queryByText("contextUsageRing.startNewTask")).toBeNull();
+		expect(screen.queryByText("contextUsageRing.manageEvidence")).toBeNull();
 	});
 
-	it('opens context source management without restoring task controls', async () => {
+	it("opens context source management without restoring task controls", async () => {
 		const manageEvidence = vi.fn();
 		renderRing({ onManageEvidence: manageEvidence });
 
-		await fireEvent.click(screen.getByLabelText('contextUsageRing.noContext'));
+		await fireEvent.click(screen.getByLabelText("contextUsageRing.noContext"));
 		await fireEvent.click(
-			screen.getByRole('button', { name: 'contextUsageRing.manageEvidence' }),
+			screen.getByRole("button", { name: "contextUsageRing.manageEvidence" }),
 		);
 
 		expect(manageEvidence).toHaveBeenCalledTimes(1);
-		expect(screen.queryByText('contextUsageRing.unlockTask')).toBeNull();
-		expect(screen.queryByText('contextUsageRing.startNewTask')).toBeNull();
+		expect(screen.queryByText("contextUsageRing.unlockTask")).toBeNull();
+		expect(screen.queryByText("contextUsageRing.startNewTask")).toBeNull();
 	});
 
-	it('removes across chats section even when continuity exists', () => {
+	it("removes across chats section even when continuity exists", () => {
 		renderRing({
 			taskState: {
 				continuity: {
-					name: 'Test Project',
-					summary: 'A test',
-					status: 'active',
+					name: "Test Project",
+					summary: "A test",
+					status: "active",
 					linkedTaskCount: 3,
 				},
 			},
@@ -106,16 +106,16 @@ describe('ContextUsageRing cost display', () => {
 		expect(screen.queryByText(/across chats/i)).toBeNull();
 	});
 
-	it('removes compaction and routing stat rows from context section', () => {
+	it("removes compaction and routing stat rows from context section", () => {
 		renderRing({
 			contextStatus: {
 				estimatedTokens: 5000,
 				targetTokens: 157286,
 				thresholdTokens: 209715,
-				compactionMode: 'none',
-				routingStage: 'deterministic',
+				compactionMode: "none",
+				routingStage: "deterministic",
 				routingConfidence: 100,
-				verificationStatus: 'skipped',
+				verificationStatus: "skipped",
 				layersUsed: [],
 				recentTurnCount: 5,
 				workingSetCount: 3,
@@ -127,9 +127,9 @@ describe('ContextUsageRing cost display', () => {
 				updatedAt: Date.now(),
 			},
 			contextDebug: {
-				routingStage: 'deterministic',
+				routingStage: "deterministic",
 				routingConfidence: 100,
-				verificationStatus: 'skipped',
+				verificationStatus: "skipped",
 				selectedEvidence: [],
 				pinnedEvidence: [],
 				excludedEvidence: [],
@@ -143,16 +143,16 @@ describe('ContextUsageRing cost display', () => {
 		expect(screen.queryByText(/verification/i)).toBeNull();
 	});
 
-	it('uses contextSources for source counts and reduced state when available', () => {
+	it("uses contextSources for source counts and reduced state when available", () => {
 		renderRing({
 			contextStatus: {
 				estimatedTokens: 5000,
 				targetTokens: 157286,
 				thresholdTokens: 209715,
-				compactionMode: 'none',
-				routingStage: 'deterministic',
+				compactionMode: "none",
+				routingStage: "deterministic",
 				routingConfidence: 100,
-				verificationStatus: 'skipped',
+				verificationStatus: "skipped",
 				layersUsed: [],
 				recentTurnCount: 5,
 				workingSetCount: 3,
@@ -164,16 +164,16 @@ describe('ContextUsageRing cost display', () => {
 				updatedAt: Date.now(),
 			},
 			contextDebug: {
-				routingStage: 'deterministic',
+				routingStage: "deterministic",
 				routingConfidence: 100,
-				verificationStatus: 'skipped',
+				verificationStatus: "skipped",
 				selectedEvidence: [],
 				pinnedEvidence: [],
 				excludedEvidence: [],
 			},
 			contextSources: {
-				conversationId: 'conversation-1',
-				userId: 'user-1',
+				conversationId: "conversation-1",
+				userId: "user-1",
 				activeCount: 2,
 				inferredCount: 0,
 				selectedCount: 2,
@@ -186,26 +186,26 @@ describe('ContextUsageRing cost display', () => {
 			},
 		});
 
-		expect(screen.getByText('contextSources.currentSelection')).toBeTruthy();
-		expect(screen.getByText('contextSources.state')).toBeTruthy();
-		expect(screen.getByText('contextSources.reduced')).toBeTruthy();
-		expect(screen.getByText('contextSources.pinned')).toBeTruthy();
-		expect(screen.getByText('contextSources.excluded')).toBeTruthy();
+		expect(screen.getByText("contextSources.currentSelection")).toBeTruthy();
+		expect(screen.getByText("contextSources.state")).toBeTruthy();
+		expect(screen.getByText("contextSources.reduced")).toBeTruthy();
+		expect(screen.getByText("contextSources.pinned")).toBeTruthy();
+		expect(screen.getByText("contextSources.excluded")).toBeTruthy();
 	});
 
-	it('formats sub-dollar cost with 4 decimal places', () => {
+	it("formats sub-dollar cost with 4 decimal places", () => {
 		renderRing({ totalCostUsd: 0.0042, totalTokens: 500 });
 
 		expect(screen.getByText(/\$0\.0042/)).toBeTruthy();
 	});
 
-	it('formats multi-dollar cost with 2 decimal places', () => {
+	it("formats multi-dollar cost with 2 decimal places", () => {
 		renderRing({ totalCostUsd: 2.36, totalTokens: 96400 });
 
 		expect(screen.getByText(/\$2\.36/)).toBeTruthy();
 	});
 
-	it('formats millions of tokens as M', () => {
+	it("formats millions of tokens as M", () => {
 		renderRing({ totalCostUsd: 1, totalTokens: 1_240_000 });
 
 		expect(screen.getByText(/1\.2M/)).toBeTruthy();

@@ -46,8 +46,12 @@ const mockValidateKnowledgeUploadConversation =
 	validateKnowledgeUploadConversation as ReturnType<typeof vi.fn>;
 let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
 let consoleWarnSpy: ReturnType<typeof vi.spyOn> | null = null;
+type ChunkUploadEvent = Parameters<typeof POST>[0];
 
-function makeChunkEvent(body: BodyInit, headers: Record<string, string>) {
+function makeChunkEvent(
+	body: BodyInit,
+	headers: Record<string, string>,
+): ChunkUploadEvent {
 	return {
 		request: new Request("http://localhost/api/knowledge/upload/chunk", {
 			method: "POST",
@@ -58,7 +62,7 @@ function makeChunkEvent(body: BodyInit, headers: Record<string, string>) {
 		params: {},
 		url: new URL("http://localhost/api/knowledge/upload/chunk"),
 		route: { id: "/api/knowledge/upload/chunk" },
-	} as any;
+	} as ChunkUploadEvent;
 }
 
 function chunkHeaders(overrides: Record<string, string> = {}) {

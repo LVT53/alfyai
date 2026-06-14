@@ -1,6 +1,5 @@
+import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { readFileSync } from "fs";
-import { join } from "path";
 import {
 	buildAiSdkUiStreamBody,
 	login,
@@ -87,7 +86,7 @@ async function getAssistantResponseText(
 	await page.waitForFunction(
 		() => {
 			const msg = document.querySelector('[data-testid="assistant-message"]');
-			return msg && msg.textContent && msg.textContent.trim().length > 0;
+			return msg?.textContent && msg.textContent.trim().length > 0;
 		},
 		{ timeout },
 	);

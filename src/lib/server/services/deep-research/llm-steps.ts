@@ -1,4 +1,19 @@
-import { tryRunAndRecordDeepResearchModel } from "./model-runner";
+import type {
+	DeepResearchEvidenceNote,
+	DeepResearchJob,
+	DeepResearchSource,
+	DeepResearchSynthesisClaim,
+	DeepResearchTask,
+	DeepResearchTaskOutput,
+} from "$lib/types";
+import type {
+	CitationAuditClaimReviewResult,
+	CitationAuditSource,
+	DeepResearchCitationAuditVerdict,
+	DeepResearchCitationAuditVerdictStatus,
+	DeepResearchClaimGraphReviewer,
+	DeepResearchReportDraft,
+} from "./citation-audit";
 import {
 	booleanValue,
 	numberValue,
@@ -8,14 +23,7 @@ import {
 	stringArrayValue,
 	stringValue,
 } from "./llm-json";
-import type {
-	CitationAuditClaimReviewResult,
-	CitationAuditSource,
-	DeepResearchCitationAuditVerdict,
-	DeepResearchCitationAuditVerdictStatus,
-	DeepResearchClaimGraphReviewer,
-	DeepResearchReportDraft,
-} from "./citation-audit";
+import { tryRunAndRecordDeepResearchModel } from "./model-runner";
 import type {
 	ReportIntent,
 	ResearchLanguage,
@@ -23,7 +31,16 @@ import type {
 	ResearchPlanIncludedSource,
 } from "./planning";
 import type { ResearchReportDraft } from "./report-writer";
-import { writeResearchReport, type WriteResearchReportInput } from "./report-writer";
+import {
+	type WriteResearchReportInput,
+	writeResearchReport,
+} from "./report-writer";
+import { classifyDeepResearchClaimType } from "./source-quality";
+import type {
+	PersistedReviewedResearchSourceNotes,
+	ReviewSourceResult,
+	SourceReviewCandidate,
+} from "./source-review";
 import type {
 	CompletedResearchTaskOutput,
 	ResearchSourceReference,
@@ -31,20 +48,6 @@ import type {
 	SynthesisNotes,
 } from "./synthesis";
 import { buildSynthesisNotes } from "./synthesis";
-import { classifyDeepResearchClaimType } from "./source-quality";
-import type {
-	PersistedReviewedResearchSourceNotes,
-	SourceReviewCandidate,
-	ReviewSourceResult,
-} from "./source-review";
-import type {
-	DeepResearchEvidenceNote,
-	DeepResearchJob,
-	DeepResearchSource,
-	DeepResearchSynthesisClaim,
-	DeepResearchTask,
-	DeepResearchTaskOutput,
-} from "$lib/types";
 
 const MAX_SOURCE_REVIEW_FINDINGS = 12;
 const MAX_SOURCE_REVIEW_CLAIMS = 16;
@@ -196,14 +199,21 @@ export async function reviewSourceWithLlm(input: {
 	const parsed = result ? parseModelJsonObject(result.content) : null;
 	if (!parsed) return null;
 	return {
-		summary: stringValue(parsed.summary) ?? input.source.snippet ?? input.source.title,
-		keyFindings: stringArrayValue(parsed.keyFindings).slice(0, MAX_SOURCE_REVIEW_FINDINGS),
+		summary:
+			stringValue(parsed.summary) ?? input.source.snippet ?? input.source.title,
+		keyFindings: stringArrayValue(parsed.keyFindings).slice(
+			0,
+			MAX_SOURCE_REVIEW_FINDINGS,
+		),
 		extractedText: stringValue(parsed.extractedText),
 		relevanceScore: numberValue(parsed.relevanceScore) ?? undefined,
 		supportedKeyQuestions: stringArrayValue(parsed.supportedKeyQuestions),
 		comparedEntity: stringValue(parsed.comparedEntity),
 		comparisonAxis: stringValue(parsed.comparisonAxis),
-		extractedClaims: stringArrayValue(parsed.extractedClaims).slice(0, MAX_SOURCE_REVIEW_CLAIMS),
+		extractedClaims: stringArrayValue(parsed.extractedClaims).slice(
+			0,
+			MAX_SOURCE_REVIEW_CLAIMS,
+		),
 		rejectedReason: stringValue(parsed.rejectedReason),
 	};
 }
@@ -254,13 +264,17 @@ export async function executeResearchTaskWithLlm(input: {
 	});
 	const parsed = result ? parseModelJsonObject(result.content) : null;
 	if (!parsed) return null;
-	const allowedSourceIds = new Set(input.reviewedSources.map((source) => source.id));
+	const allowedSourceIds = new Set(
+		input.reviewedSources.map((source) => source.id),
+	);
 	const sourceIds = stringArrayValue(parsed.sourceIds).filter((sourceId) =>
 		allowedSourceIds.has(sourceId),
 	);
 	return {
 		summary:
-			stringValue(parsed.summary) ?? input.task.keyQuestion ?? input.task.assignment,
+			stringValue(parsed.summary) ??
+			input.task.keyQuestion ??
+			input.task.assignment,
 		findings: stringArrayValue(parsed.findings).slice(0, 10),
 		sourceIds,
 	};
@@ -326,10 +340,22 @@ export async function buildSynthesisNotesWithLlm(input: {
 	});
 	const parsed = result ? parseModelJsonObject(result.content) : null;
 	if (!parsed) return fallback;
-	const supportedFindings = mapLlmFindings(parsed.supportedFindings, "supported", sourceRefsById);
+	const supportedFindings = mapLlmFindings(
+		parsed.supportedFindings,
+		"supported",
+		sourceRefsById,
+	);
 	if (supportedFindings.length === 0) return fallback;
-	const conflicts = mapLlmFindings(parsed.conflicts, "conflict", sourceRefsById);
-	const assumptions = mapLlmFindings(parsed.assumptions, "assumption", sourceRefsById);
+	const conflicts = mapLlmFindings(
+		parsed.conflicts,
+		"conflict",
+		sourceRefsById,
+	);
+	const assumptions = mapLlmFindings(
+		parsed.assumptions,
+		"assumption",
+		sourceRefsById,
+	);
 	const reportLimitations = mapLlmFindings(
 		parsed.reportLimitations,
 		"report_limitation",
@@ -337,7 +363,12 @@ export async function buildSynthesisNotesWithLlm(input: {
 	);
 	return {
 		jobId: input.context.jobId,
-		findings: [...supportedFindings, ...conflicts, ...assumptions, ...reportLimitations],
+		findings: [
+			...supportedFindings,
+			...conflicts,
+			...assumptions,
+			...reportLimitations,
+		],
 		supportedFindings,
 		conflicts,
 		assumptions,
@@ -349,7 +380,9 @@ export async function buildCitationClaimReviewerWithLlm(input: {
 	context: LlmStepContext;
 	report: DeepResearchReportDraft;
 	citedSources: CitationAuditSource[];
-}): Promise<((claimId: string) => CitationAuditClaimReviewResult | null) | null> {
+}): Promise<
+	((claimId: string) => CitationAuditClaimReviewResult | null) | null
+> {
 	const result = await tryRunAndRecordDeepResearchModel({
 		role: "citation_audit",
 		jobId: input.context.jobId,
@@ -401,12 +434,16 @@ export async function buildCitationClaimReviewerWithLlm(input: {
 	for (const item of objectArrayValue(parsed.claims)) {
 		const claimId = stringValue(item.claimId);
 		const status = stringValue(item.status);
-		if (!claimId || !["supported", "repaired", "unsupported"].includes(status ?? "")) {
+		if (
+			!claimId ||
+			!["supported", "repaired", "unsupported"].includes(status ?? "")
+		) {
 			continue;
 		}
 		reviews.set(claimId, {
 			status: status as CitationAuditClaimReviewResult["status"],
-			reason: stringValue(item.reason) ?? "Citation audit model reviewed this claim.",
+			reason:
+				stringValue(item.reason) ?? "Citation audit model reviewed this claim.",
 			text: stringValue(item.text) ?? undefined,
 			citationSourceIds: stringArrayValue(item.citationSourceIds),
 		});
@@ -773,7 +810,9 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 	return chunks;
 }
 
-function reportIntentValue(value: string | null): ResearchPlan["reportIntent"] | null {
+function reportIntentValue(
+	value: string | null,
+): ResearchPlan["reportIntent"] | null {
 	if (
 		value === "comparison" ||
 		value === "recommendation" ||

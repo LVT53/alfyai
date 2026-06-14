@@ -163,7 +163,9 @@ export function normalizeSourceQualitySignals(
 	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 	const record = value as Partial<DeepResearchSourceQualitySignals>;
 	const signals: DeepResearchSourceQualitySignals = {
-		sourceType: sourceTypeValues.has(record.sourceType as DeepResearchSourceType)
+		sourceType: sourceTypeValues.has(
+			record.sourceType as DeepResearchSourceType,
+		)
 			? (record.sourceType as DeepResearchSourceType)
 			: "unknown",
 		independence: independenceValues.has(
@@ -171,10 +173,14 @@ export function normalizeSourceQualitySignals(
 		)
 			? (record.independence as DeepResearchSourceIndependence)
 			: "unknown",
-		freshness: freshnessValues.has(record.freshness as DeepResearchSourceFreshness)
+		freshness: freshnessValues.has(
+			record.freshness as DeepResearchSourceFreshness,
+		)
 			? (record.freshness as DeepResearchSourceFreshness)
 			: "unknown",
-		directness: directnessValues.has(record.directness as DeepResearchSourceDirectness)
+		directness: directnessValues.has(
+			record.directness as DeepResearchSourceDirectness,
+		)
 			? (record.directness as DeepResearchSourceDirectness)
 			: "unknown",
 		extractionConfidence: extractionConfidenceValues.has(
@@ -194,18 +200,23 @@ function inferSourceType(url: string, text: string): DeepResearchSourceType {
 	if (hostname.endsWith(".gov") || hostname.includes(".gov.")) {
 		return "official_government";
 	}
-	if (hostname.endsWith(".edu") || hostname.includes(".edu.")) return "academic";
+	if (hostname.endsWith(".edu") || hostname.includes(".edu."))
+		return "academic";
 	if (/\b(peer reviewed|journal|doi|methodology|citations)\b/i.test(text)) {
 		return "academic";
 	}
 	if (/\b(forum|reddit|community|owner report|user review)\b/i.test(text)) {
 		return "forum";
 	}
-	if (/\b(independent|review|benchmark|consumer report|analyst)\b/i.test(text)) {
+	if (
+		/\b(independent|review|benchmark|consumer report|analyst)\b/i.test(text)
+	) {
 		return "independent_analysis";
 	}
 	if (/\b(news|press|reported)\b/i.test(text)) return "news";
-	if (/\b(official|specification|specifications|manual|warranty)\b/i.test(text)) {
+	if (
+		/\b(official|specification|specifications|manual|warranty)\b/i.test(text)
+	) {
 		return "official_vendor";
 	}
 	if (
@@ -263,10 +274,18 @@ function inferExtractionConfidence(input: {
 }): DeepResearchExtractionConfidence {
 	const textLength = input.sourceText?.trim().length ?? 0;
 	const relevanceScore = input.relevanceScore ?? 0;
-	if (textLength >= 80 && input.keyFindings.length > 0 && relevanceScore >= 80) {
+	if (
+		textLength >= 80 &&
+		input.keyFindings.length > 0 &&
+		relevanceScore >= 80
+	) {
 		return "high";
 	}
-	if (textLength >= 20 || input.keyFindings.length > 0 || relevanceScore >= 55) {
+	if (
+		textLength >= 20 ||
+		input.keyFindings.length > 0 ||
+		relevanceScore >= 55
+	) {
 		return "medium";
 	}
 	return "low";
@@ -373,8 +392,7 @@ function isPriceAvailabilityClaim(normalized: string): boolean {
 	return (
 		/\b(price|prices|pricing|cost|costs|msrp|discount|available|availability|stock|in stock|sold out|shipping|delivery)\b/.test(
 			normalized,
-		) ||
-		/[$€£]\s?\d/.test(normalized)
+		) || /[$€£]\s?\d/.test(normalized)
 	);
 }
 

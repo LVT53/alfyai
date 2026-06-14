@@ -9,11 +9,6 @@ import {
 	getProviderByName,
 	getProviderWithSecrets,
 } from "$lib/server/services/providers";
-import {
-	isReasoningDepth,
-	reasoningDepthToThinkingMode,
-	thinkingModeToReasoningDepth,
-} from "$lib/types";
 import type {
 	DeepResearchDepth,
 	LinkedContextSource,
@@ -21,6 +16,11 @@ import type {
 	PendingSkillSelection,
 	ReasoningDepth,
 	ThinkingMode,
+} from "$lib/types";
+import {
+	isReasoningDepth,
+	reasoningDepthToThinkingMode,
+	thinkingModeToReasoningDepth,
 } from "$lib/types";
 import type {
 	ChatTurnRequestError,
@@ -150,7 +150,7 @@ export async function parseChatTurnRequest(
 			const provider = await getProviderWithSecrets(actualProviderId).catch(
 				() => null,
 			);
-			if (!provider || !provider.enabled) {
+			if (!provider?.enabled) {
 				return {
 					ok: false,
 					error: {
@@ -335,7 +335,7 @@ async function resolveModelFromNewProvidersTable(
 ): Promise<ModelFromProvidersTable> {
 	try {
 		const provider = await getProviderByName(name);
-		if (!provider || !provider.enabled) return null;
+		if (!provider?.enabled) return null;
 
 		const models = await listEnabledProviderModels(provider.id);
 		const model = models[0];

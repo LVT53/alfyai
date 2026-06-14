@@ -13,8 +13,8 @@ vi.mock("$lib/server/services/skills/user-skills", () => ({
 	updateSystemSkillDefinition: vi.fn(),
 }));
 
-import { getConfig } from "$lib/server/config-store";
 import { requireAdmin } from "$lib/server/auth/hooks";
+import { getConfig } from "$lib/server/config-store";
 import {
 	getSystemSkillDefinition,
 	updateSystemSkillDefinition,
@@ -23,16 +23,22 @@ import { GET, PATCH } from "./+server";
 
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
-const mockGetSystemSkillDefinition = getSystemSkillDefinition as ReturnType<typeof vi.fn>;
-const mockUpdateSystemSkillDefinition = updateSystemSkillDefinition as ReturnType<typeof vi.fn>;
+const mockGetSystemSkillDefinition = getSystemSkillDefinition as ReturnType<
+	typeof vi.fn
+>;
+const mockUpdateSystemSkillDefinition =
+	updateSystemSkillDefinition as ReturnType<typeof vi.fn>;
 
 function makeEvent(body?: unknown) {
 	return {
-		request: new Request("http://localhost/api/admin/skills/system%3Ainterview", {
-			method: body === undefined ? "GET" : "PATCH",
-			headers: { "Content-Type": "application/json" },
-			body: body === undefined ? undefined : JSON.stringify(body),
-		}),
+		request: new Request(
+			"http://localhost/api/admin/skills/system%3Ainterview",
+			{
+				method: body === undefined ? "GET" : "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: body === undefined ? undefined : JSON.stringify(body),
+			},
+		),
 		locals: { user: { id: "admin-user", role: "admin" } },
 		params: { id: "system:interview" },
 		url: new URL("http://localhost/api/admin/skills/system%3Ainterview"),
@@ -94,7 +100,9 @@ describe("/api/admin/skills/[id]", () => {
 			id: "system:interview",
 			instructions: "System instructions.",
 		});
-		expect(mockGetSystemSkillDefinition).toHaveBeenCalledWith("system:interview");
+		expect(mockGetSystemSkillDefinition).toHaveBeenCalledWith(
+			"system:interview",
+		);
 		expect(patchResponse.status).toBe(200);
 		expect(patchData.skill).toMatchObject({
 			id: "system:interview",

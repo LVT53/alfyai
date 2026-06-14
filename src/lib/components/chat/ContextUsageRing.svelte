@@ -1,156 +1,169 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { t } from '$lib/i18n';
-	import type {
-		ArtifactSummary,
-		ContextDebugState,
-		ContextSourcesState,
-		ConversationContextStatus,
-		MemoryLayer,
-	} from '$lib/types';
+import { onMount } from "svelte";
+import { t } from "$lib/i18n";
+import type {
+	ArtifactSummary,
+	ContextDebugState,
+	ContextSourcesState,
+	ConversationContextStatus,
+	MemoryLayer,
+} from "$lib/types";
 
-	let {
-		contextStatus = null,
-		attachedArtifacts = [],
-		contextDebug = null,
-		contextSources = null,
-		totalCostUsd = 0,
-		totalTokens = 0,
-		onManageEvidence = undefined,
-	}: {
-		contextStatus?: ConversationContextStatus | null;
-		attachedArtifacts?: ArtifactSummary[];
-		contextDebug?: ContextDebugState | null;
-		contextSources?: ContextSourcesState | null;
-		totalCostUsd?: number;
-		totalTokens?: number;
-		onManageEvidence?: (() => void) | undefined;
-	} = $props();
+let {
+	contextStatus = null,
+	attachedArtifacts = [],
+	contextDebug = null,
+	contextSources = null,
+	totalCostUsd = 0,
+	totalTokens = 0,
+	onManageEvidence = undefined,
+}: {
+	contextStatus?: ConversationContextStatus | null;
+	attachedArtifacts?: ArtifactSummary[];
+	contextDebug?: ContextDebugState | null;
+	contextSources?: ContextSourcesState | null;
+	totalCostUsd?: number;
+	totalTokens?: number;
+	onManageEvidence?: (() => void) | undefined;
+} = $props();
 
-	let root = $state<HTMLDivElement | null>(null);
-	let isOpen = $state(false);
-	let mobile = $state(false);
+let root = $state<HTMLDivElement | null>(null);
+let isOpen = $state(false);
+let mobile = $state(false);
 
-	const size = 38;
-	const strokeWidth = 3;
-	const radius = (size - strokeWidth) / 2;
-	const circumference = 2 * Math.PI * radius;
+const size = 38;
+const strokeWidth = 3;
+const radius = (size - strokeWidth) / 2;
+const circumference = 2 * Math.PI * radius;
 
-	function detectMobile() {
-		if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-			mobile = false;
-			return;
+function detectMobile() {
+	if (
+		typeof window === "undefined" ||
+		typeof window.matchMedia !== "function"
+	) {
+		mobile = false;
+		return;
+	}
+
+	mobile = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+}
+
+onMount(() => {
+	detectMobile();
+	window.addEventListener("resize", detectMobile);
+
+	const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+		if (root && !root.contains(event.target as Node)) {
+			isOpen = false;
 		}
+	};
 
-		mobile = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+	document.addEventListener("mousedown", handlePointerDown);
+	document.addEventListener("touchstart", handlePointerDown, { passive: true });
+
+	return () => {
+		window.removeEventListener("resize", detectMobile);
+		document.removeEventListener("mousedown", handlePointerDown);
+		document.removeEventListener("touchstart", handlePointerDown);
+	};
+});
+
+function handleClick() {
+	isOpen = !isOpen;
+}
+
+function handleManageEvidence() {
+	onManageEvidence?.();
+	isOpen = false;
+}
+
+function formatLayer(layer: MemoryLayer): string {
+	switch (layer) {
+		case "session":
+			return $t("contextUsageRing.layer.session");
+		case "capsule":
+			return $t("contextUsageRing.layer.capsule");
+		case "documents":
+			return $t("contextUsageRing.layer.documents");
+		case "outputs":
+			return $t("contextUsageRing.layer.outputs");
+		case "working_set":
+			return $t("contextUsageRing.layer.workingSet");
+		case "task_state":
+			return $t("contextUsageRing.layer.taskState");
 	}
+}
 
-	onMount(() => {
-		detectMobile();
-		window.addEventListener('resize', detectMobile);
-
-		const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-			if (root && !root.contains(event.target as Node)) {
-				isOpen = false;
-			}
-		};
-
-		document.addEventListener('mousedown', handlePointerDown);
-		document.addEventListener('touchstart', handlePointerDown, { passive: true });
-
-		return () => {
-			window.removeEventListener('resize', detectMobile);
-			document.removeEventListener('mousedown', handlePointerDown);
-			document.removeEventListener('touchstart', handlePointerDown);
-		};
-	});
-
-	function handleClick() {
-		isOpen = !isOpen;
+function formatCompactionMode(
+	mode: ConversationContextStatus["compactionMode"] | undefined,
+): string {
+	switch (mode) {
+		case "deterministic":
+			return $t("contextUsageRing.compaction.deterministic");
+		case "llm_fallback":
+			return $t("contextUsageRing.compaction.llmFallback");
+		default:
+			return $t("contextUsageRing.compaction.notNeeded");
 	}
+}
 
-	function handleManageEvidence() {
-		onManageEvidence?.();
-		isOpen = false;
-	}
+function formatSourceState(): string {
+	if (contextSources?.compacted) return $t("contextSources.compacted");
+	if (contextSources?.reduced) return $t("contextSources.reduced");
+	return $t("contextSources.full");
+}
 
-	function formatLayer(layer: MemoryLayer): string {
-		switch (layer) {
-			case 'session':
-				return $t('contextUsageRing.layer.session');
-			case 'capsule':
-				return $t('contextUsageRing.layer.capsule');
-			case 'documents':
-				return $t('contextUsageRing.layer.documents');
-			case 'outputs':
-				return $t('contextUsageRing.layer.outputs');
-			case 'working_set':
-				return $t('contextUsageRing.layer.workingSet');
-			case 'task_state':
-				return $t('contextUsageRing.layer.taskState');
-		}
-	}
+function formatCostUsd(costUsd: number): string {
+	return `$${costUsd.toFixed(costUsd < 1 ? 4 : 2)}`;
+}
 
-	function formatCompactionMode(mode: ConversationContextStatus['compactionMode'] | undefined): string {
-		switch (mode) {
-			case 'deterministic':
-				return $t('contextUsageRing.compaction.deterministic');
-			case 'llm_fallback':
-				return $t('contextUsageRing.compaction.llmFallback');
-			default:
-				return $t('contextUsageRing.compaction.notNeeded');
-		}
-	}
+function formatTokenCount(tokens: number): string {
+	if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+	if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
+	return tokens.toLocaleString();
+}
 
-	function formatSourceState(): string {
-		if (contextSources?.compacted) return $t('contextSources.compacted');
-		if (contextSources?.reduced) return $t('contextSources.reduced');
-		return $t('contextSources.full');
-	}
+let showCost = $derived(totalCostUsd > 0 || totalTokens > 0);
+let costText = $derived(
+	showCost
+		? `${formatCostUsd(totalCostUsd)} \u00b7 ${formatTokenCount(totalTokens)} ${$t("contextUsageRing.tokens")}`
+		: "",
+);
 
-	function formatCostUsd(costUsd: number): string {
-		return `$${costUsd.toFixed(costUsd < 1 ? 4 : 2)}`;
-	}
-
-	function formatTokenCount(tokens: number): string {
-		if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-		if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
-		return tokens.toLocaleString();
-	}
-
-	let showCost = $derived(totalCostUsd > 0 || totalTokens > 0);
-	let costText = $derived(showCost ? `${formatCostUsd(totalCostUsd)} \u00b7 ${formatTokenCount(totalTokens)} ${$t('contextUsageRing.tokens')}` : '');
-
-	let promptBudget = $derived(contextStatus ? Math.max(contextStatus.targetTokens, 1) : 1);
-	let ratio = $derived(
-		contextStatus
+let promptBudget = $derived(
+	contextStatus ? Math.max(contextStatus.targetTokens, 1) : 1,
+);
+let ratio = $derived(
+	contextStatus
 		? Math.max(0, Math.min(1, contextStatus.estimatedTokens / promptBudget))
-		: 0
-	);
-	let dashOffset = $derived(circumference * (1 - ratio));
-	let percent = $derived(Math.round(ratio * 100));
-	let selectedSourceCount = $derived(
-		contextSources?.selectedCount ?? contextDebug?.selectedEvidence.length ?? 0
-	);
-	let pinnedSourceCount = $derived(
-		contextSources?.pinnedCount ?? contextDebug?.pinnedEvidence.length ?? 0
-	);
-	let excludedSourceCount = $derived(
-		contextSources?.excludedCount ?? contextDebug?.excludedEvidence.length ?? 0
-	);
-	let toneClass = $derived(
-		!contextStatus
-			? 'ring-button--idle'
-			: contextSources?.compacted || contextStatus.compactionMode === 'llm_fallback'
-				? 'ring-button--compact'
-				: contextSources?.reduced || contextStatus.compactionMode === 'deterministic'
-					? 'ring-button--high'
-					: ratio >= 0.9
-						? 'ring-button--high'
-						: ratio >= 0.75
-							? 'ring-button--medium'
-							: 'ring-button--normal'
-	);
+		: 0,
+);
+let dashOffset = $derived(circumference * (1 - ratio));
+let percent = $derived(Math.round(ratio * 100));
+let selectedSourceCount = $derived(
+	contextSources?.selectedCount ?? contextDebug?.selectedEvidence.length ?? 0,
+);
+let pinnedSourceCount = $derived(
+	contextSources?.pinnedCount ?? contextDebug?.pinnedEvidence.length ?? 0,
+);
+let excludedSourceCount = $derived(
+	contextSources?.excludedCount ?? contextDebug?.excludedEvidence.length ?? 0,
+);
+let toneClass = $derived(
+	!contextStatus
+		? "ring-button--idle"
+		: contextSources?.compacted ||
+				contextStatus.compactionMode === "llm_fallback"
+			? "ring-button--compact"
+			: contextSources?.reduced ||
+					contextStatus.compactionMode === "deterministic"
+				? "ring-button--high"
+				: ratio >= 0.9
+					? "ring-button--high"
+					: ratio >= 0.75
+						? "ring-button--medium"
+						: "ring-button--normal",
+);
 </script>
 
 <div

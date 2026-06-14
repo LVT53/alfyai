@@ -1,55 +1,66 @@
 <script lang="ts">
-	import { onDestroy, onMount } from "svelte";
-	import { t } from "$lib/i18n";
-	import type { SkillSession } from "$lib/types";
+import { onDestroy, onMount } from "svelte";
+import { t } from "$lib/i18n";
+import type { SkillSession } from "$lib/types";
 
-	interface Props {
-		session: SkillSession;
-		busy?: boolean;
-		error?: string | null;
-		onFinish: () => void | Promise<void>;
-		onDismiss: () => void | Promise<void>;
-	}
+interface Props {
+	session: SkillSession;
+	busy?: boolean;
+	error?: string | null;
+	onFinish: () => void | Promise<void>;
+	onDismiss: () => void | Promise<void>;
+}
 
-	let { session, busy = false, error = null, onFinish, onDismiss }: Props = $props();
+let {
+	session,
+	busy = false,
+	error = null,
+	onFinish,
+	onDismiss,
+}: Props = $props();
 
-	const latestNoteFailure = $derived(
-		session.milestones
-			.filter((milestone) => milestone.kind === "failed_note")
-			.at(-1),
+const latestNoteFailure = $derived(
+	session.milestones
+		.filter((milestone) => milestone.kind === "failed_note")
+		.at(-1),
+);
+const latestNoteFailureMessage = $derived(
+	typeof latestNoteFailure?.messageParams.errorMessage === "string"
+		? latestNoteFailure.messageParams.errorMessage
+		: $t("skillSessions.noteFailureFallback"),
+);
+
+let panelElement = $state<HTMLElement | null>(null);
+let resizeObserver: ResizeObserver | null = null;
+let heightHost: HTMLElement | null = null;
+
+function syncPanelHeight() {
+	if (!panelElement || typeof window === "undefined") return;
+	const host =
+		panelElement.closest<HTMLElement>(".chat-main") ??
+		panelElement.parentElement;
+	if (!host) return;
+	heightHost = host;
+	host.style.setProperty(
+		"--active-skill-session-height",
+		`${panelElement.offsetHeight}px`,
 	);
-	const latestNoteFailureMessage = $derived(
-		typeof latestNoteFailure?.messageParams.errorMessage === "string"
-			? latestNoteFailure.messageParams.errorMessage
-			: $t("skillSessions.noteFailureFallback"),
-	);
+}
 
-	let panelElement = $state<HTMLElement | null>(null);
-	let resizeObserver: ResizeObserver | null = null;
-	let heightHost: HTMLElement | null = null;
-
-	function syncPanelHeight() {
-		if (!panelElement || typeof window === "undefined") return;
-		const host = panelElement.closest<HTMLElement>(".chat-main") ?? panelElement.parentElement;
-		if (!host) return;
-		heightHost = host;
-		host.style.setProperty("--active-skill-session-height", `${panelElement.offsetHeight}px`);
+onMount(() => {
+	syncPanelHeight();
+	if (typeof ResizeObserver !== "undefined" && panelElement) {
+		resizeObserver = new ResizeObserver(syncPanelHeight);
+		resizeObserver.observe(panelElement);
 	}
+	const frame = requestAnimationFrame(syncPanelHeight);
+	return () => cancelAnimationFrame(frame);
+});
 
-	onMount(() => {
-		syncPanelHeight();
-		if (typeof ResizeObserver !== "undefined" && panelElement) {
-			resizeObserver = new ResizeObserver(syncPanelHeight);
-			resizeObserver.observe(panelElement);
-		}
-		const frame = requestAnimationFrame(syncPanelHeight);
-		return () => cancelAnimationFrame(frame);
-	});
-
-	onDestroy(() => {
-		resizeObserver?.disconnect();
-		heightHost?.style.removeProperty("--active-skill-session-height");
-	});
+onDestroy(() => {
+	resizeObserver?.disconnect();
+	heightHost?.style.removeProperty("--active-skill-session-height");
+});
 </script>
 
 <section bind:this={panelElement} class="skill-session-panel" aria-label={$t("skillSessions.panelLabel")}>

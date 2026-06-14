@@ -47,8 +47,12 @@ const mockValidateKnowledgeUploadConversation =
 	validateKnowledgeUploadConversation as ReturnType<typeof vi.fn>;
 let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
 let consoleWarnSpy: ReturnType<typeof vi.spyOn> | null = null;
+type RawUploadEvent = Parameters<typeof POST>[0];
 
-function makeRawUploadEvent(body: BodyInit, headers: Record<string, string>) {
+function makeRawUploadEvent(
+	body: BodyInit,
+	headers: Record<string, string>,
+): RawUploadEvent {
 	return {
 		request: new Request("http://localhost/api/knowledge/upload/raw", {
 			method: "POST",
@@ -59,7 +63,7 @@ function makeRawUploadEvent(body: BodyInit, headers: Record<string, string>) {
 		params: {},
 		url: new URL("http://localhost/api/knowledge/upload/raw"),
 		route: { id: "/api/knowledge/upload/raw" },
-	} as any;
+	} as RawUploadEvent;
 }
 
 describe("POST /api/knowledge/upload/raw", () => {

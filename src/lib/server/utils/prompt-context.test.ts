@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
+import type { Artifact } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	compactContextSections,
 	selectPromptSessionTurns,
-	serializeBudgetedRoleTurns,
 	serializeBudgetedAttachments,
+	serializeBudgetedRoleTurns,
 	serializeWorkingSetArtifacts,
 } from "./prompt-context";
-import type { Artifact } from "$lib/types";
 
 function makeAttachment(overrides: Partial<Artifact> = {}): Artifact {
 	return {
@@ -295,7 +295,10 @@ describe("serializeBudgetedRoleTurns", () => {
 			{
 				messages: [
 					{ role: "user" as const, content: "Latest implementation question." },
-					{ role: "assistant" as const, content: "Latest implementation answer." },
+					{
+						role: "assistant" as const,
+						content: "Latest implementation answer.",
+					},
 				],
 			},
 		];
@@ -402,7 +405,10 @@ describe("serializeWorkingSetArtifacts", () => {
 		);
 		const expectedHeaderCount = artifacts.reduce(
 			(state, artifact) => {
-				const candidateHeaders = [...state.headers, `Document: ${artifact.name}`];
+				const candidateHeaders = [
+					...state.headers,
+					`Document: ${artifact.name}`,
+				];
 				if (estimateTokenCount(candidateHeaders.join("\n\n")) <= totalBudget) {
 					state.headers = candidateHeaders;
 				}

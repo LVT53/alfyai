@@ -1,16 +1,15 @@
-import type { ModelId, UserModelPreference, UserSettings } from '$lib/types';
-import { requestJson, type FetchLike } from './http';
+import type { UserModelPreference, UserSettings } from "$lib/types";
+import { type FetchLike, requestJson } from "./http";
 
 // Re-export admin functions for backward compatibility
 export {
-	fetchAdminUsers,
 	createAdminUser,
-	updateAdminUserRole,
 	deleteAdminUser,
+	fetchAdminUsers,
 	revokeAdminUserSessions,
 	updateAdminConfig,
-} from './admin';
-
+	updateAdminUserRole,
+} from "./admin";
 
 export interface HonchoHealth {
 	enabled: boolean;
@@ -46,7 +45,12 @@ interface PersonalAnalytics {
 	totalCostUsd: number;
 	favoriteModel: string | null;
 	chatCount: number;
-	monthly?: Array<{ month: string; messages: number; totalTokens: number; totalCostUsd: number }>;
+	monthly?: Array<{
+		month: string;
+		messages: number;
+		totalTokens: number;
+		totalCostUsd: number;
+	}>;
 }
 
 interface SystemAnalytics {
@@ -88,11 +92,13 @@ export interface AnalyticsResponse {
 	timeline?: Array<{ label: string; tokens: number }>;
 }
 
-export async function fetchUserSettings(fetchImpl?: FetchLike): Promise<UserSettings> {
+export async function fetchUserSettings(
+	fetchImpl?: FetchLike,
+): Promise<UserSettings> {
 	return requestJson<UserSettings>(
-		'/api/settings',
+		"/api/settings",
 		undefined,
-		'Failed to load settings',
+		"Failed to load settings",
 		fetchImpl,
 	);
 }
@@ -109,111 +115,123 @@ interface PasswordUpdateParams {
 
 export async function updateUserPreferences(params: {
 	preferredModel?: UserModelPreference;
-	theme?: 'system' | 'light' | 'dark';
-	titleLanguage?: 'auto' | 'en' | 'hu';
-	uiLanguage?: 'en' | 'hu';
+	theme?: "system" | "light" | "dark";
+	titleLanguage?: "auto" | "en" | "hu";
+	uiLanguage?: "en" | "hu";
 	avatarId?: number | null;
 	preferredPersonalityId?: string | null;
 	sidebarProjectsExpanded?: boolean;
 	sidebarChatsExpanded?: boolean;
 }): Promise<void> {
 	await requestJson<{ success?: boolean }>(
-		'/api/settings/preferences',
+		"/api/settings/preferences",
 		{
-			method: 'PATCH',
-			headers: { 'Content-Type': 'application/json' },
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(params),
 		},
-		'Failed to update preferences'
+		"Failed to update preferences",
 	);
 }
 
 export async function fetchHonchoHealth(): Promise<HonchoHealth> {
 	return requestJson<HonchoHealth>(
-		'/api/admin/honcho',
+		"/api/admin/honcho",
 		undefined,
-		'Failed to load Honcho health'
+		"Failed to load Honcho health",
 	);
 }
 
-export async function fetchAnalytics(useMockData = false, month?: string, timeline?: string): Promise<AnalyticsResponse> {
+export async function fetchAnalytics(
+	useMockData = false,
+	month?: string,
+	timeline?: string,
+): Promise<AnalyticsResponse> {
 	const params = new URLSearchParams();
-	if (useMockData) params.set('mock', '1');
-	if (month) params.set('month', month);
-	if (timeline) params.set('timeline', timeline);
+	if (useMockData) params.set("mock", "1");
+	if (month) params.set("month", month);
+	if (timeline) params.set("timeline", timeline);
 	const qs = params.toString();
-	const endpoint = qs ? `/api/analytics?${qs}` : '/api/analytics';
-	return requestJson<AnalyticsResponse>(endpoint, undefined, 'Failed to load analytics');
+	const endpoint = qs ? `/api/analytics?${qs}` : "/api/analytics";
+	return requestJson<AnalyticsResponse>(
+		endpoint,
+		undefined,
+		"Failed to load analytics",
+	);
 }
 
 export async function deleteAvatar(): Promise<void> {
 	await requestJson<{ success?: boolean }>(
-		'/api/settings/avatar',
+		"/api/settings/avatar",
 		{
-			method: 'DELETE',
+			method: "DELETE",
 		},
-		'Failed to remove photo'
+		"Failed to remove photo",
 	);
 }
 
 export async function uploadAvatar(image: Blob): Promise<void> {
 	const formData = new FormData();
-	formData.append('image', image, 'avatar.webp');
+	formData.append("image", image, "avatar.webp");
 
 	await requestJson<{ success?: boolean }>(
-		'/api/settings/avatar',
+		"/api/settings/avatar",
 		{
-			method: 'POST',
+			method: "POST",
 			body: formData,
 		},
-		'Upload failed'
+		"Upload failed",
 	);
 }
 
-export async function updateProfile(params: ProfileUpdateParams): Promise<void> {
+export async function updateProfile(
+	params: ProfileUpdateParams,
+): Promise<void> {
 	await requestJson<{ name: string | null; email: string }>(
-		'/api/settings/profile',
+		"/api/settings/profile",
 		{
-			method: 'PATCH',
-			headers: { 'Content-Type': 'application/json' },
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(params),
 		},
-		'Failed to update profile'
+		"Failed to update profile",
 	);
 }
 
-export async function updatePassword(params: PasswordUpdateParams): Promise<void> {
+export async function updatePassword(
+	params: PasswordUpdateParams,
+): Promise<void> {
 	await requestJson<{ success?: boolean }>(
-		'/api/settings/password',
+		"/api/settings/password",
 		{
-			method: 'PATCH',
-			headers: { 'Content-Type': 'application/json' },
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(params),
 		},
-		'Failed to change password'
+		"Failed to change password",
 	);
 }
 
 export async function deleteAccount(password: string): Promise<void> {
 	await requestJson<{ success?: boolean }>(
-		'/api/settings/account',
+		"/api/settings/account",
 		{
-			method: 'DELETE',
-			headers: { 'Content-Type': 'application/json' },
+			method: "DELETE",
+			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ password }),
 		},
-		'Failed to delete account'
+		"Failed to delete account",
 	);
 }
 
 export async function resetAccount(password: string): Promise<void> {
 	await requestJson<{ success?: boolean }>(
-		'/api/settings/account',
+		"/api/settings/account",
 		{
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ password }),
 		},
-		'Failed to reset account'
+		"Failed to reset account",
 	);
 }

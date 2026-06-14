@@ -1,9 +1,12 @@
 import { getConfig } from "$lib/server/config-store";
 import {
-	upsertSemanticEmbedding,
 	type SemanticEmbeddingInput,
+	upsertSemanticEmbedding,
 } from "$lib/server/services/semantic-embeddings";
-import { canUseTeiEmbedder, embedText } from "$lib/server/services/tei-embedder";
+import {
+	canUseTeiEmbedder,
+	embedText,
+} from "$lib/server/services/tei-embedder";
 
 function buildImportSourceText(
 	title: string,

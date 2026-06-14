@@ -261,20 +261,20 @@ describe("active chat streams registry", () => {
 					streamId: "stream-owned-buffer",
 					userId: "user-1",
 				}),
-		).toEqual({
-			exists: true,
-			userMessage: "private question",
-			tokenCount: 1,
-			thinkingCount: 0,
-			toolCallCount: 0,
-			createdAt: expect.any(Number),
-		});
-	} finally {
-		clearStreamBuffer("stream-owned-buffer");
-	}
-});
+			).toEqual({
+				exists: true,
+				userMessage: "private question",
+				tokenCount: 1,
+				thinkingCount: 0,
+				toolCallCount: 0,
+				createdAt: expect.any(Number),
+			});
+		} finally {
+			clearStreamBuffer("stream-owned-buffer");
+		}
+	});
 
-it("preserves the original stream Reasoning depth in buffer snapshots", () => {
+	it("preserves the original stream Reasoning depth in buffer snapshots", () => {
 		getOrCreateStreamBuffer({
 			streamId: "stream-depth-buffer",
 			userId: "user-1",
@@ -290,15 +290,15 @@ it("preserves the original stream Reasoning depth in buffer snapshots", () => {
 					userId: "user-1",
 					conversationId: "conversation-depth-buffer",
 				}),
-		).toEqual({
-			exists: true,
-			userMessage: "private question",
-			reasoningDepth: "max",
-			tokenCount: 0,
-			thinkingCount: 0,
-			toolCallCount: 0,
-			createdAt: expect.any(Number),
-		});
+			).toEqual({
+				exists: true,
+				userMessage: "private question",
+				reasoningDepth: "max",
+				tokenCount: 0,
+				thinkingCount: 0,
+				toolCallCount: 0,
+				createdAt: expect.any(Number),
+			});
 		} finally {
 			clearStreamBuffer("stream-depth-buffer");
 		}
@@ -440,14 +440,14 @@ it("preserves the original stream Reasoning depth in buffer snapshots", () => {
 					streamId: "stream-colliding-buffer",
 					userId: "user-2",
 				}),
-		).toEqual({
-			exists: true,
-			userMessage: "new owner question",
-			tokenCount: 0,
-			thinkingCount: 0,
-			toolCallCount: 0,
-			createdAt: expect.any(Number),
-		});
+			).toEqual({
+				exists: true,
+				userMessage: "new owner question",
+				tokenCount: 0,
+				thinkingCount: 0,
+				toolCallCount: 0,
+				createdAt: expect.any(Number),
+			});
 		} finally {
 			clearStreamBuffer("stream-colliding-buffer");
 		}

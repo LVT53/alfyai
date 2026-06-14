@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { buildAiSdkUiStreamBody } from "./helpers";
+import {
+	buildAiSdkUiStreamBody,
+	login,
+	openConversationComposer,
+} from "./helpers";
 
 test.use({
 	viewport: { width: 375, height: 667 },
@@ -11,16 +15,7 @@ test.use({
 
 test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 	test.beforeEach(async ({ page }) => {
-		await page.goto("/");
-
-		if (page.url().includes("/login")) {
-			await page.waitForLoadState("domcontentloaded");
-			await page.waitForSelector('input[name="email"]', { state: "visible" });
-			await page.fill('input[name="email"]', "admin@local");
-			await page.fill('input[name="password"]', "admin123");
-			await page.click('button[type="submit"]');
-			await page.waitForURL("**/");
-		}
+		await login(page);
 	});
 
 	test("Task 2.1-2.2: Message content and input font sizes are 16px on mobile", async ({
@@ -40,9 +35,7 @@ test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 			await route.fulfill({ json: { title: "Mobile Scale Test" } });
 		});
 
-		await page.waitForSelector('button:has-text("New Conversation")');
-		await page.click('button:has-text("New Conversation")');
-		await page.waitForURL("**/chat/**", { timeout: 5000 });
+		await openConversationComposer(page);
 
 		const textarea = page.locator('[data-testid="message-input"]');
 		await expect(textarea).toBeVisible();
@@ -50,7 +43,7 @@ test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 		const inputFontSize = await textarea.evaluate((node) => {
 			return window.getComputedStyle(node).fontSize;
 		});
-		expect(parseInt(inputFontSize)).toBeGreaterThanOrEqual(16);
+		expect(parseInt(inputFontSize, 10)).toBeGreaterThanOrEqual(16);
 
 		await textarea.fill("Test message for font size verification");
 		const sendBtn = page.locator('[data-testid="send-button"]');
@@ -70,7 +63,7 @@ test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 		const messageFontSize = await messageContent.evaluate((node) => {
 			return window.getComputedStyle(node).fontSize;
 		});
-		expect(parseInt(messageFontSize)).toBeGreaterThanOrEqual(16);
+		expect(parseInt(messageFontSize, 10)).toBeGreaterThanOrEqual(16);
 	});
 
 	test("Task 2.6: Code blocks are 14px minimum on mobile", async ({ page }) => {
@@ -88,9 +81,7 @@ test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 			await route.fulfill({ json: { title: "Code Block Test" } });
 		});
 
-		await page.waitForSelector('button:has-text("New Conversation")');
-		await page.click('button:has-text("New Conversation")');
-		await page.waitForURL("**/chat/**", { timeout: 5000 });
+		await openConversationComposer(page);
 
 		const textarea = page.locator('[data-testid="message-input"]');
 		await textarea.fill("Show me some code");
@@ -108,15 +99,13 @@ test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 		const codeFontSize = await codeBlock.evaluate((node) => {
 			return window.getComputedStyle(node).fontSize;
 		});
-		expect(parseInt(codeFontSize)).toBeGreaterThanOrEqual(14);
+		expect(parseInt(codeFontSize, 10)).toBeGreaterThanOrEqual(14);
 	});
 
 	test("Task 2.9: Primary buttons have 48px touch targets on mobile", async ({
 		page,
 	}) => {
-		await page.waitForSelector('button:has-text("New Conversation")');
-		await page.click('button:has-text("New Conversation")');
-		await page.waitForURL("**/chat/**", { timeout: 5000 });
+		await openConversationComposer(page);
 
 		const sendBtn = page.locator('[data-testid="send-button"]');
 		await expect(sendBtn).toBeVisible();
@@ -150,9 +139,7 @@ test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 			await route.fulfill({ json: { title: "Overflow Test" } });
 		});
 
-		await page.waitForSelector('button:has-text("New Conversation")');
-		await page.click('button:has-text("New Conversation")');
-		await page.waitForURL("**/chat/**", { timeout: 5000 });
+		await openConversationComposer(page);
 
 		const textarea = page.locator('[data-testid="message-input"]');
 		await textarea.fill("Test overflow behavior with a long message");
@@ -186,22 +173,21 @@ test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 	}) => {
 		const hamburger = page.locator('button[aria-label="Toggle sidebar"]');
 		await hamburger.click();
-		await page.waitForTimeout(300);
 
 		const sidebar = page.locator("aside");
-		await expect(sidebar).toBeVisible();
+		await expect(sidebar).toHaveClass(/.*translate-x-0.*/);
 
 		const sidebarFontSize = await sidebar.evaluate((node) => {
 			const firstText = node.querySelector("p, span, div");
 			return firstText ? window.getComputedStyle(firstText).fontSize : null;
 		});
 		if (sidebarFontSize) {
-			expect(parseInt(sidebarFontSize)).toBeGreaterThanOrEqual(14);
+			expect(parseInt(sidebarFontSize, 10)).toBeGreaterThanOrEqual(14);
 		}
 
 		const closeBtn = page.locator('button[aria-label="Close sidebar"]');
 		await closeBtn.click();
-		await page.waitForTimeout(300);
+		await expect(sidebar).toHaveClass(/.*-translate-x-\[105%\].*/);
 
 		const header = page.locator("header");
 		await expect(header).toBeVisible();
@@ -211,7 +197,7 @@ test.describe("Mobile CSS Scale-Up (Task 2)", () => {
 			return firstText ? window.getComputedStyle(firstText).fontSize : null;
 		});
 		if (headerFontSize) {
-			expect(parseInt(headerFontSize)).toBeGreaterThanOrEqual(15);
+			expect(parseInt(headerFontSize, 10)).toBeGreaterThanOrEqual(15);
 		}
 	});
 });
@@ -226,28 +212,17 @@ test.describe("Mobile CSS Scale-Up - 320px viewport (small phone)", () => {
 	});
 
 	test.beforeEach(async ({ page }) => {
-		await page.goto("/");
-
-		if (page.url().includes("/login")) {
-			await page.waitForLoadState("domcontentloaded");
-			await page.waitForSelector('input[name="email"]', { state: "visible" });
-			await page.fill('input[name="email"]', "admin@local");
-			await page.fill('input[name="password"]', "admin123");
-			await page.click('button[type="submit"]');
-			await page.waitForURL("**/");
-		}
+		await login(page);
 	});
 
 	test("Font sizes remain readable on 320px viewport", async ({ page }) => {
-		await page.waitForSelector('button:has-text("New Conversation")');
-		await page.click('button:has-text("New Conversation")');
-		await page.waitForURL("**/chat/**", { timeout: 5000 });
+		await openConversationComposer(page);
 
 		const textarea = page.locator('[data-testid="message-input"]');
 		const inputFontSize = await textarea.evaluate((node) => {
 			return window.getComputedStyle(node).fontSize;
 		});
-		expect(parseInt(inputFontSize)).toBeGreaterThanOrEqual(16);
+		expect(parseInt(inputFontSize, 10)).toBeGreaterThanOrEqual(16);
 
 		const hasHorizontalOverflow = await page.evaluate(() => {
 			return (

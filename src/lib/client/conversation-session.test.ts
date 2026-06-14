@@ -17,8 +17,10 @@ import {
 	storePendingConversationMessage,
 } from "./conversation-session";
 
-function flushAsyncWork(): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, 0));
+async function flushMicrotasks(turns = 3): Promise<void> {
+	for (let index = 0; index < turns; index += 1) {
+		await Promise.resolve();
+	}
 }
 
 describe("conversation-session", () => {
@@ -399,7 +401,13 @@ describe("conversation-session", () => {
 		const fetchMock = vi
 			.fn()
 			.mockResolvedValue(new Response(null, { status: 200 }));
-		const removeLocal = vi.fn();
+		let resolveRemoved!: (conversationId: string) => void;
+		const removed = new Promise<string>((resolve) => {
+			resolveRemoved = resolve;
+		});
+		const removeLocal = vi.fn((conversationId: string) => {
+			resolveRemoved(conversationId);
+		});
 
 		cleanupPreparedConversation({
 			conversationId: "conv-123",
@@ -411,7 +419,7 @@ describe("conversation-session", () => {
 			method: "DELETE",
 			keepalive: true,
 		});
-		await flushAsyncWork();
+		await expect(removed).resolves.toBe("conv-123");
 		expect(removeLocal).toHaveBeenCalledWith("conv-123");
 	});
 
@@ -432,7 +440,7 @@ describe("conversation-session", () => {
 			fetchImpl: fetchMock,
 		});
 
-		await flushAsyncWork();
+		await flushMicrotasks();
 
 		expect(removeLocal).not.toHaveBeenCalled();
 	});

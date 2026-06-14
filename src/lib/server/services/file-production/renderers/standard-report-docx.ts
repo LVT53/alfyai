@@ -8,31 +8,36 @@ import {
 	TableRow,
 	TextRun,
 	WidthType,
-} from 'docx';
-import type { GeneratedDocumentBlock, GeneratedDocumentSource } from '../source-schema';
+} from "docx";
+import type {
+	GeneratedDocumentBlock,
+	GeneratedDocumentSource,
+} from "../source-schema";
 
 export interface StandardReportDocxRenderResult {
 	filename: string;
-	mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+	mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 	content: Buffer;
 }
 
 function slugifyFilename(title: string, extension: string): string {
 	const slug = title
-		.normalize('NFD')
-		.replace(/[\u0300-\u036f]/g, '')
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
 		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '')
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
 		.slice(0, 80);
-	return `${slug || 'document'}.${extension}`;
+	return `${slug || "document"}.${extension}`;
 }
 
 function paragraph(text: string): Paragraph {
 	return new Paragraph({ children: [new TextRun(text)] });
 }
 
-function renderTable(block: Extract<GeneratedDocumentBlock, { type: 'table' }>): Table {
+function renderTable(
+	block: Extract<GeneratedDocumentBlock, { type: "table" }>,
+): Table {
 	return new Table({
 		width: { size: 100, type: WidthType.PERCENTAGE },
 		rows: [
@@ -41,8 +46,12 @@ function renderTable(block: Extract<GeneratedDocumentBlock, { type: 'table' }>):
 				children: block.columns.map(
 					(column) =>
 						new TableCell({
-							children: [new Paragraph({ children: [new TextRun({ text: column.label, bold: true })] })],
-						})
+							children: [
+								new Paragraph({
+									children: [new TextRun({ text: column.label, bold: true })],
+								}),
+							],
+						}),
 				),
 			}),
 			...block.rows.map(
@@ -51,10 +60,10 @@ function renderTable(block: Extract<GeneratedDocumentBlock, { type: 'table' }>):
 						children: block.columns.map(
 							(column) =>
 								new TableCell({
-									children: [paragraph(String(row[column.key] ?? ''))],
-								})
+									children: [paragraph(String(row[column.key] ?? ""))],
+								}),
 						),
-					})
+					}),
 			),
 		],
 	});
@@ -62,7 +71,7 @@ function renderTable(block: Extract<GeneratedDocumentBlock, { type: 'table' }>):
 
 function renderBlock(block: GeneratedDocumentBlock): Paragraph | Table {
 	switch (block.type) {
-		case 'heading':
+		case "heading":
 			return new Paragraph({
 				text: block.text,
 				heading:
@@ -72,38 +81,51 @@ function renderBlock(block: GeneratedDocumentBlock): Paragraph | Table {
 							? HeadingLevel.HEADING_2
 							: HeadingLevel.HEADING_3,
 			});
-		case 'paragraph':
+		case "paragraph":
 			return paragraph(block.text);
-		case 'list':
-			return new Paragraph({
-				children: [new TextRun(block.items.map((item) => `• ${item}`).join('\n'))],
-			});
-		case 'callout':
+		case "list":
 			return new Paragraph({
 				children: [
-					new TextRun({ text: block.title ? `${block.title}: ` : `${block.tone}: `, bold: true }),
+					new TextRun(block.items.map((item) => `• ${item}`).join("\n")),
+				],
+			});
+		case "callout":
+			return new Paragraph({
+				children: [
+					new TextRun({
+						text: block.title ? `${block.title}: ` : `${block.tone}: `,
+						bold: true,
+					}),
 					new TextRun(block.text),
 				],
 			});
-		case 'code':
-			return new Paragraph({ children: [new TextRun({ text: block.text, font: 'Courier New' })] });
-		case 'quote':
-			return paragraph(block.citation ? `${block.text} — ${block.citation}` : block.text);
-		case 'divider':
-			return paragraph('---');
-		case 'pageBreak':
-			return paragraph('');
-		case 'table':
+		case "code":
+			return new Paragraph({
+				children: [new TextRun({ text: block.text, font: "Courier New" })],
+			});
+		case "quote":
+			return paragraph(
+				block.citation ? `${block.text} — ${block.citation}` : block.text,
+			);
+		case "divider":
+			return paragraph("---");
+		case "pageBreak":
+			return paragraph("");
+		case "table":
 			return renderTable(block);
-		case 'chart':
-			return paragraph(`Chart: ${block.title ?? block.chartType}. ${block.altText ?? ''}`);
-		case 'image':
-			return paragraph(`Image: ${block.altText}${block.caption ? ` — ${block.caption}` : ''}`);
+		case "chart":
+			return paragraph(
+				`Chart: ${block.title ?? block.chartType}. ${block.altText ?? ""}`,
+			);
+		case "image":
+			return paragraph(
+				`Image: ${block.altText}${block.caption ? ` — ${block.caption}` : ""}`,
+			);
 	}
 }
 
 export async function renderStandardReportDocx(
-	source: GeneratedDocumentSource
+	source: GeneratedDocumentSource,
 ): Promise<StandardReportDocxRenderResult> {
 	const children: Array<Paragraph | Table> = [
 		new Paragraph({ text: source.title, heading: HeadingLevel.TITLE }),
@@ -111,15 +133,16 @@ export async function renderStandardReportDocx(
 		...source.blocks.map(renderBlock),
 	];
 	const document = new Document({
-		creator: 'AlfyAI',
+		creator: "AlfyAI",
 		title: source.title,
-		description: 'AlfyAI Standard Report',
+		description: "AlfyAI Standard Report",
 		sections: [{ children }],
 	});
 
 	return {
-		filename: slugifyFilename(source.title, 'docx'),
-		mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+		filename: slugifyFilename(source.title, "docx"),
+		mimeType:
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		content: Buffer.from(await Packer.toBuffer(document)),
 	};
 }

@@ -1,10 +1,11 @@
 export function formatRelativeTime(unixTimestamp: number): string {
 	const now = Date.now();
-	const timestampMs = unixTimestamp < 10000000000 ? unixTimestamp * 1000 : unixTimestamp;
+	const timestampMs =
+		unixTimestamp < 10000000000 ? unixTimestamp * 1000 : unixTimestamp;
 	const diffMs = now - timestampMs;
 
 	if (diffMs < 30000) {
-		return 'just now';
+		return "just now";
 	}
 
 	const diffMins = Math.round(diffMs / 60000);
@@ -18,20 +19,25 @@ export function formatRelativeTime(unixTimestamp: number): string {
 	}
 
 	if (diffHours >= 24 && diffHours < 48) {
-		return 'Yesterday';
+		return "Yesterday";
 	}
 
 	const date = new Date(timestampMs);
-	return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date);
+	return new Intl.DateTimeFormat("en-US", {
+		month: "short",
+		day: "numeric",
+	}).format(date);
 }
 
-export function formatMediumDateTime(timestamp: number | null | undefined): string {
-	if (timestamp == null || !isFinite(timestamp)) {
-		return '—';
+export function formatMediumDateTime(
+	timestamp: number | null | undefined,
+): string {
+	if (timestamp == null || !Number.isFinite(timestamp)) {
+		return "—";
 	}
 
 	return new Intl.DateTimeFormat(undefined, {
-		dateStyle: 'medium',
-		timeStyle: 'short',
+		dateStyle: "medium",
+		timeStyle: "short",
 	}).format(timestamp);
 }

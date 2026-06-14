@@ -91,7 +91,9 @@ describe("deep-research client API", () => {
 				),
 		);
 
-		await expect(advanceDeepResearchWorkflow("job-1", fetchMock)).resolves.toMatchObject({
+		await expect(
+			advanceDeepResearchWorkflow("job-1", fetchMock),
+		).resolves.toMatchObject({
 			advanced: true,
 			outcome: "discovery_completed",
 			job: {
@@ -146,11 +148,16 @@ describe("deep-research client API", () => {
 			id: "job-1",
 			plan: { version: 2, renderedPlan: "Revised Research Plan" },
 		});
-		expect(fetchMock).toHaveBeenCalledWith("/api/deep-research/jobs/job-1/plan/edit", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ editInstruction: "Focus on recent enforcement." }),
-		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/deep-research/jobs/job-1/plan/edit",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					editInstruction: "Focus on recent enforcement.",
+				}),
+			},
+		);
 	});
 
 	it("posts Report Intent revisions with Plan Edit requests", async () => {
@@ -176,14 +183,17 @@ describe("deep-research client API", () => {
 
 		await editDeepResearchPlan("job-1", "", "recommendation", fetchMock);
 
-		expect(fetchMock).toHaveBeenCalledWith("/api/deep-research/jobs/job-1/plan/edit", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				editInstruction: "",
-				reportIntent: "recommendation",
-			}),
-		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/deep-research/jobs/job-1/plan/edit",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					editInstruction: "",
+					reportIntent: "recommendation",
+				}),
+			},
+		);
 	});
 
 	it("posts plan approval and returns the updated job", async () => {

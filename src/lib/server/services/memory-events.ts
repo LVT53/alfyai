@@ -1,9 +1,13 @@
-import { randomUUID } from 'crypto';
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import { db } from '$lib/server/db';
-import { memoryEvents } from '$lib/server/db/schema';
-import type { MemoryEvent, MemoryEventDomain, MemoryEventType } from '$lib/types';
-import { parseJsonRecord } from '$lib/server/utils/json';
+import { randomUUID } from "node:crypto";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { db } from "$lib/server/db";
+import { memoryEvents } from "$lib/server/db/schema";
+import { parseJsonRecord } from "$lib/server/utils/json";
+import type {
+	MemoryEvent,
+	MemoryEventDomain,
+	MemoryEventType,
+} from "$lib/types";
 
 type MemoryEventPayload = Record<string, unknown>;
 
@@ -24,7 +28,7 @@ function normalizeObservedAt(value?: number | Date): Date {
 	if (value instanceof Date) {
 		return value;
 	}
-	if (typeof value === 'number' && Number.isFinite(value)) {
+	if (typeof value === "number" && Number.isFinite(value)) {
 		return new Date(value);
 	}
 	return new Date();
@@ -58,7 +62,9 @@ function mapMemoryEventRow(row: typeof memoryEvents.$inferSelect): MemoryEvent {
 	};
 }
 
-export async function recordMemoryEvent(params: MemoryEventInput): Promise<void> {
+export async function recordMemoryEvent(
+	params: MemoryEventInput,
+): Promise<void> {
 	await db
 		.insert(memoryEvents)
 		.values({
@@ -79,7 +85,9 @@ export async function recordMemoryEvent(params: MemoryEventInput): Promise<void>
 		});
 }
 
-export async function recordMemoryEvents(params: MemoryEventInput[]): Promise<void> {
+export async function recordMemoryEvents(
+	params: MemoryEventInput[],
+): Promise<void> {
 	if (params.length === 0) {
 		return;
 	}
@@ -99,7 +107,7 @@ export async function recordMemoryEvents(params: MemoryEventInput[]): Promise<vo
 				relatedId: event.relatedId ?? null,
 				observedAt: normalizeObservedAt(event.observedAt),
 				payloadJson: event.payload ? JSON.stringify(event.payload) : null,
-			}))
+			})),
 		)
 		.onConflictDoNothing({
 			target: memoryEvents.eventKey,
@@ -154,7 +162,10 @@ export async function listLatestMemoryEventsBySubject(params: {
 		domain: params.domain,
 		eventTypes: params.eventTypes,
 		subjectIds: params.subjectIds,
-		limit: Math.max(params.subjectIds.length * (params.limitPerSubject ?? 4), params.subjectIds.length),
+		limit: Math.max(
+			params.subjectIds.length * (params.limitPerSubject ?? 4),
+			params.subjectIds.length,
+		),
 	});
 
 	const latestBySubject = new Map<string, MemoryEvent>();
@@ -181,7 +192,7 @@ export async function countRecentMemoryEventsBySubject(params: {
 	const sinceTimestamp =
 		params.since instanceof Date
 			? params.since.getTime()
-			: typeof params.since === 'number' && Number.isFinite(params.since)
+			: typeof params.since === "number" && Number.isFinite(params.since)
 				? params.since
 				: null;
 
@@ -190,7 +201,10 @@ export async function countRecentMemoryEventsBySubject(params: {
 		domain: params.domain,
 		eventTypes: params.eventTypes,
 		subjectIds: params.subjectIds,
-		limit: Math.max(params.subjectIds.length * (params.limitPerSubject ?? 8), params.subjectIds.length),
+		limit: Math.max(
+			params.subjectIds.length * (params.limitPerSubject ?? 8),
+			params.subjectIds.length,
+		),
 	});
 
 	const counts = new Map<string, number>();
@@ -221,7 +235,7 @@ export async function pruneOldMemoryEvents(params: {
 	const subjectCounters = new Map<string, number>();
 
 	for (const event of allEvents) {
-		const subjectKey = event.subjectId ?? '__no_subject__';
+		const subjectKey = event.subjectId ?? "__no_subject__";
 		const kept = subjectCounters.get(subjectKey) ?? 0;
 		if (kept < keepPerSubject) {
 			protectedIds.add(event.id);

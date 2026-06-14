@@ -14,7 +14,7 @@ async function seedPersistedConversation() {
 		.limit(1);
 	expect(user?.id).toBeTruthy();
 
-	const source = await createConversation(user!.id, `Fork smoke ${Date.now()}`);
+	const source = await createConversation(user?.id, `Fork smoke ${Date.now()}`);
 	await createMessage(source.id, "user", "Original fork question");
 	const assistant = await createMessage(
 		source.id,

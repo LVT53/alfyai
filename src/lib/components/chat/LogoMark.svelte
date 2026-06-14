@@ -1,11 +1,11 @@
 <script lang="ts">
-	let {
-		animated = false,
-		size = 20
-	}: {
-		animated?: boolean;
-		size?: number;
-	} = $props();
+let {
+	animated = false,
+	size = 20,
+}: {
+	animated?: boolean;
+	size?: number;
+} = $props();
 </script>
 
 {#if animated}

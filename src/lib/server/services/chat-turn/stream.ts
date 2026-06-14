@@ -1,4 +1,10 @@
 import {
+	decodeAiSdkUiStreamPayloads,
+	encodeAiSdkUiStreamDoneFrame,
+	encodeAiSdkUiStreamPart,
+	type UiMessageStreamPart,
+} from "$lib/services/ai-sdk-ui-stream-contract";
+import {
 	createInlineThinkingState,
 	createLeakedToolDiagnosticsState,
 	FRIENDLY_STREAM_ERRORS,
@@ -15,12 +21,6 @@ import {
 	stripLeadingResponseMarker,
 	stripLeakedToolDiagnostics,
 } from "$lib/services/stream-protocol";
-import {
-	decodeAiSdkUiStreamPayloads,
-	encodeAiSdkUiStreamDoneFrame,
-	encodeAiSdkUiStreamPart,
-	type UiMessageStreamPart,
-} from "$lib/services/ai-sdk-ui-stream-contract";
 import type {
 	EvidenceSourceType,
 	ResponseActivityEntry,
@@ -29,6 +29,7 @@ import type {
 } from "$lib/types";
 import type { ChatTurnRequestError } from "./types";
 
+export type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
 // Re-export all public symbols from sub-modules for backward compatibility
 export {
 	getReasoningContent,
@@ -37,8 +38,6 @@ export {
 	THINKING_BLOCK_RE,
 	THINKING_TAG_RE,
 } from "./thinking-normalizer";
-
-export type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
 
 // ---------------------------------------------------------------------------
 // Internal helpers (moved to sub-modules, retained here for local use)

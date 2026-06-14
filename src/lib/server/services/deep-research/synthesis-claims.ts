@@ -480,7 +480,8 @@ function matchingEvidenceNotesForFinding(
 		return sourceSupportIds.some((sourceId) => sourceIds.has(sourceId));
 	});
 	const exactMatches = sourceMatchedNotes.filter(
-		(note) => normalizeText(note.findingText).toLowerCase() === findingStatement,
+		(note) =>
+			normalizeText(note.findingText).toLowerCase() === findingStatement,
 	);
 	if (exactMatches.length > 0) return exactMatches;
 	const textMatches = sourceMatchedNotes.filter((note) =>

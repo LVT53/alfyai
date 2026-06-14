@@ -1,12 +1,17 @@
-import bcrypt from 'bcryptjs';
-import { randomUUID } from 'crypto';
-import { count, eq, inArray, sql } from 'drizzle-orm';
-import { db } from '$lib/server/db';
-import { analyticsConversations, sessions, usageEvents, users } from '$lib/server/db/schema';
-import { getConfig } from '$lib/server/config-store';
-import type { AdminManagedUserSummary, UserRole } from '$lib/types';
-import { deleteUserAccountAsAdminWithCleanup } from './cleanup';
-import { modelPreferenceStorageForSystemDefault } from './model-preferences';
+import { randomUUID } from "node:crypto";
+import bcrypt from "bcryptjs";
+import { count, eq, inArray, sql } from "drizzle-orm";
+import { getConfig } from "$lib/server/config-store";
+import { db } from "$lib/server/db";
+import {
+	analyticsConversations,
+	sessions,
+	usageEvents,
+	users,
+} from "$lib/server/db/schema";
+import type { AdminManagedUserSummary, UserRole } from "$lib/types";
+import { deleteUserAccountAsAdminWithCleanup } from "./cleanup";
+import { modelPreferenceStorageForSystemDefault } from "./model-preferences";
 
 export interface CreateManagedUserInput {
 	email: string;
@@ -20,13 +25,17 @@ function normalizeEmail(email: string): string {
 }
 
 function normalizeName(name: string | null | undefined): string | null {
-	if (typeof name !== 'string') return null;
+	if (typeof name !== "string") return null;
 	const trimmed = name.trim();
 	return trimmed ? trimmed : null;
 }
 
 async function getUserById(userId: string) {
-	const [row] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+	const [row] = await db
+		.select()
+		.from(users)
+		.where(eq(users.id, userId))
+		.limit(1);
 	return row ?? null;
 }
 
@@ -34,17 +43,17 @@ async function countAdmins(): Promise<number> {
 	const rows = await db
 		.select({ count: count(users.id) })
 		.from(users)
-		.where(eq(users.role, 'admin'));
+		.where(eq(users.role, "admin"));
 	return Number(rows[0]?.count ?? 0);
 }
 
 async function ensureNotLastAdmin(userId: string): Promise<void> {
 	const user = await getUserById(userId);
-	if (!user || user.role !== 'admin') return;
+	if (!user || user.role !== "admin") return;
 
 	const adminCount = await countAdmins();
 	if (adminCount <= 1) {
-		throw new Error('The last admin account cannot be removed or demoted.');
+		throw new Error("The last admin account cannot be removed or demoted.");
 	}
 }
 
@@ -106,7 +115,7 @@ export async function listManagedUsers(): Promise<AdminManagedUserSummary[]> {
 			{
 				conversationCount: Number(row.conversationCount ?? 0),
 			},
-		])
+		]),
 	);
 	const analyticsByUser = new Map(
 		analyticsRows.map((row) => [
@@ -120,13 +129,16 @@ export async function listManagedUsers(): Promise<AdminManagedUserSummary[]> {
 				completionTokens: Number(row.completionTokens ?? 0),
 				reasoningTokens: Number(row.reasoningTokens ?? 0),
 			},
-		])
+		]),
 	);
 	const sessionsByUser = new Map(
-		sessionRows.map((row) => [row.userId, Number(row.activeSessionCount ?? 0)])
+		sessionRows.map((row) => [row.userId, Number(row.activeSessionCount ?? 0)]),
 	);
 
-	const favoriteModelByUser = new Map<string, { model: string; messageCount: number }>();
+	const favoriteModelByUser = new Map<
+		string,
+		{ model: string; messageCount: number }
+	>();
 	for (const row of favoriteModelRows) {
 		const current = favoriteModelByUser.get(row.userId);
 		const next = {
@@ -152,7 +164,7 @@ export async function listManagedUsers(): Promise<AdminManagedUserSummary[]> {
 				id: row.id,
 				email: row.email,
 				name: row.name ?? null,
-				role: (row.role ?? 'user') as UserRole,
+				role: (row.role ?? "user") as UserRole,
 				createdAt: Number(row.createdAt),
 				updatedAt: Number(row.updatedAt),
 				conversationCount: conversation?.conversationCount ?? 0,
@@ -163,26 +175,36 @@ export async function listManagedUsers(): Promise<AdminManagedUserSummary[]> {
 				cacheMissTokens,
 				completionTokens,
 				reasoningTokens,
-				totalTokenCount: promptTokens + cachedInputTokens + cacheHitTokens + cacheMissTokens + completionTokens + reasoningTokens,
+				totalTokenCount:
+					promptTokens +
+					cachedInputTokens +
+					cacheHitTokens +
+					cacheMissTokens +
+					completionTokens +
+					reasoningTokens,
 				favoriteModel: favoriteModelByUser.get(row.id)?.model ?? null,
 				activeSessionCount: sessionsByUser.get(row.id) ?? 0,
-				lastActiveAt: row.lastSeenAt ? Number(row.lastSeenAt) : Number(row.createdAt),
+				lastActiveAt: row.lastSeenAt
+					? Number(row.lastSeenAt)
+					: Number(row.createdAt),
 			} satisfies AdminManagedUserSummary;
 		})
 		.sort((left, right) => right.lastActiveAt - left.lastActiveAt);
 }
 
-export async function createManagedUser(input: CreateManagedUserInput): Promise<AdminManagedUserSummary> {
+export async function createManagedUser(
+	input: CreateManagedUserInput,
+): Promise<AdminManagedUserSummary> {
 	const email = normalizeEmail(input.email);
 	const password = input.password;
-	const role = input.role === 'admin' ? 'admin' : 'user';
+	const role = input.role === "admin" ? "admin" : "user";
 	const name = normalizeName(input.name);
 
-	if (!email || !email.includes('@')) {
-		throw new Error('A valid email address is required.');
+	if (!email?.includes("@")) {
+		throw new Error("A valid email address is required.");
 	}
 	if (password.length < 8) {
-		throw new Error('Password must be at least 8 characters.');
+		throw new Error("Password must be at least 8 characters.");
 	}
 
 	const existing = await db
@@ -191,10 +213,12 @@ export async function createManagedUser(input: CreateManagedUserInput): Promise<
 		.where(eq(users.email, email))
 		.limit(1);
 	if (existing.length > 0) {
-		throw new Error('A user with that email already exists.');
+		throw new Error("A user with that email already exists.");
 	}
 
-	const modelPreferenceStorage = await modelPreferenceStorageForSystemDefault(getConfig());
+	const modelPreferenceStorage = await modelPreferenceStorageForSystemDefault(
+		getConfig(),
+	);
 
 	await db.insert(users).values({
 		id: randomUUID(),
@@ -209,7 +233,7 @@ export async function createManagedUser(input: CreateManagedUserInput): Promise<
 	const allUsers = await listManagedUsers();
 	const created = allUsers.find((user) => user.email === email);
 	if (!created) {
-		throw new Error('User was created but could not be reloaded.');
+		throw new Error("User was created but could not be reloaded.");
 	}
 
 	return created;
@@ -221,22 +245,24 @@ export async function updateManagedUserRole(params: {
 	role: UserRole;
 }): Promise<AdminManagedUserSummary> {
 	if (params.actorUserId === params.targetUserId) {
-		throw new Error('Use your own account settings to manage your own admin access.');
+		throw new Error(
+			"Use your own account settings to manage your own admin access.",
+		);
 	}
 
 	const target = await getUserById(params.targetUserId);
 	if (!target) {
-		throw new Error('User not found.');
+		throw new Error("User not found.");
 	}
 
 	if (target.role === params.role) {
 		const allUsers = await listManagedUsers();
 		const existing = allUsers.find((user) => user.id === params.targetUserId);
-		if (!existing) throw new Error('User not found.');
+		if (!existing) throw new Error("User not found.");
 		return existing;
 	}
 
-	if (params.role !== 'admin') {
+	if (params.role !== "admin") {
 		await ensureNotLastAdmin(params.targetUserId);
 	}
 
@@ -248,16 +274,18 @@ export async function updateManagedUserRole(params: {
 	const allUsers = await listManagedUsers();
 	const updated = allUsers.find((user) => user.id === params.targetUserId);
 	if (!updated) {
-		throw new Error('User was updated but could not be reloaded.');
+		throw new Error("User was updated but could not be reloaded.");
 	}
 
 	return updated;
 }
 
-export async function revokeManagedUserSessions(targetUserId: string): Promise<void> {
+export async function revokeManagedUserSessions(
+	targetUserId: string,
+): Promise<void> {
 	const target = await getUserById(targetUserId);
 	if (!target) {
-		throw new Error('User not found.');
+		throw new Error("User not found.");
 	}
 
 	await db.delete(sessions).where(eq(sessions.userId, targetUserId));
@@ -268,12 +296,14 @@ export async function deleteManagedUser(params: {
 	targetUserId: string;
 }): Promise<void> {
 	if (params.actorUserId === params.targetUserId) {
-		throw new Error('Use your own account settings to delete your own account.');
+		throw new Error(
+			"Use your own account settings to delete your own account.",
+		);
 	}
 
 	const target = await getUserById(params.targetUserId);
 	if (!target) {
-		throw new Error('User not found.');
+		throw new Error("User not found.");
 	}
 
 	await ensureNotLastAdmin(params.targetUserId);

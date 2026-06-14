@@ -55,17 +55,40 @@ const mocks = vi.hoisted(() => {
 		string,
 		{
 			id: string;
-			sessions: () => Promise<{ toArray: () => Promise<Array<{ id: string }>> }>;
+			sessions: () => Promise<{
+				toArray: () => Promise<Array<{ id: string }>>;
+			}>;
 			conclusions: {
-				list: () => Promise<{ toArray: () => Promise<Array<{ id: string; content: string; sessionId: string | null; createdAt: string }>> }>;
+				list: () => Promise<{
+					toArray: () => Promise<
+						Array<{
+							id: string;
+							content: string;
+							sessionId: string | null;
+							createdAt: string;
+						}>
+					>;
+				}>;
 				delete: (id: string) => Promise<void>;
 			};
 			conclusionsOf: (target: unknown) => {
-				list: () => Promise<{ toArray: () => Promise<Array<{ id: string; content: string; sessionId: string | null; createdAt: string }>> }>;
+				list: () => Promise<{
+					toArray: () => Promise<
+						Array<{
+							id: string;
+							content: string;
+							sessionId: string | null;
+							createdAt: string;
+						}>
+					>;
+				}>;
 				delete: (id: string) => Promise<void>;
 			};
 			setCard: () => Promise<void>;
-			message: (content: string, options?: { metadata?: Record<string, unknown> }) => {
+			message: (
+				content: string,
+				options?: { metadata?: Record<string, unknown> },
+			) => {
 				content: string;
 				metadata: Record<string, unknown>;
 				peerId: string;
@@ -74,7 +97,7 @@ const mocks = vi.hoisted(() => {
 		}
 	>();
 
-	function makeSessionList(peerId: string) {
+	function makeSessionList(_peerId: string) {
 		return async () => {
 			const sessions = Array.from(registeredSessions.values()).filter(
 				(s) => !s.deleted,
@@ -130,7 +153,9 @@ const mocks = vi.hoisted(() => {
 		if (!peers.has(id)) {
 			peers.set(id, makePeer(id));
 		}
-		return peers.get(id)!;
+		const peer = peers.get(id);
+		if (!peer) throw new Error(`Expected peer ${id}`);
+		return peer;
 	}
 
 	function Honcho(_opts?: unknown) {
@@ -376,14 +401,15 @@ describe("pruneOrphanHonchoSessions", () => {
 
 		// Make peer.sessions() throw for this user
 		const { getOrCreatePeer } = mocks;
-		const { getHonchoUserPeerId, getHonchoAssistantPeerId } =
-			await import("./honcho");
+		const { getHonchoUserPeerId, getHonchoAssistantPeerId } = await import(
+			"./honcho"
+		);
 
 		const userPeerId = getHonchoUserPeerId("user-err", 0);
-		const assistantPeerId = getHonchoAssistantPeerId("user-err", 0);
+		const _assistantPeerId = getHonchoAssistantPeerId("user-err", 0);
 
 		const userPeer = getOrCreatePeer(userPeerId);
-		const origUserSessions = userPeer.sessions;
+		const _origUserSessions = userPeer.sessions;
 		userPeer.sessions = async () => {
 			throw new Error("Honcho is down");
 		};
@@ -430,8 +456,9 @@ describe("pruneOrphanHonchoSessions", () => {
 			])
 			.run();
 
-		const { pruneOrphanHonchoSessions, getHonchoSessionId } =
-			await import("./honcho");
+		const { pruneOrphanHonchoSessions, getHonchoSessionId } = await import(
+			"./honcho"
+		);
 
 		// Register matching sessions only
 		for (const convId of ["clean-1", "clean-2"]) {

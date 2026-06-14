@@ -61,7 +61,8 @@ export async function upsertResearchResumePoint(
 		.limit(1);
 
 	if (existing) {
-		if (existing.status === "completed") return mapResearchResumePointRow(existing);
+		if (existing.status === "completed")
+			return mapResearchResumePointRow(existing);
 		const [row] = await db
 			.update(deepResearchResumePoints)
 			.set({
@@ -213,7 +214,9 @@ function mapResearchResumePointRow(
 	};
 }
 
-function stringifyOptionalJson(value: Record<string, unknown> | null | undefined) {
+function stringifyOptionalJson(
+	value: Record<string, unknown> | null | undefined,
+) {
 	return value ? JSON.stringify(value) : null;
 }
 

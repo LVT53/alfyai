@@ -8,25 +8,25 @@ import { createOpenAICompatibleProviderForNormalChatModelRun } from "$lib/server
  * FOREIGN facts (textbook definitions, generic reference docs, code examples).
  */
 const MEMORY_BATCH_CLASSIFIER_SYSTEM_PROMPT =
-	'You are a classifier that distinguishes PERSONAL facts about the user from FOREIGN/generic reference material.\n\n' +
-	'PERSONAL facts describe the user\'s preferences, projects, life, or identity. Examples:\n' +
+	"You are a classifier that distinguishes PERSONAL facts about the user from FOREIGN/generic reference material.\n\n" +
+	"PERSONAL facts describe the user's preferences, projects, life, or identity. Examples:\n" +
 	'- "I love React" (personal preference)\n' +
 	'- "My project uses Vite" (user\'s project context)\n' +
 	'- "I prefer TypeScript over JavaScript" (personal preference)\n' +
 	'- "I live in Budapest" (personal fact)\n' +
 	'- "I need this done by Friday" (personal constraint)\n\n' +
-	'FOREIGN facts are generic knowledge, textbook definitions, API docs, or code examples that don\'t reveal anything specific about the user. Examples:\n' +
+	"FOREIGN facts are generic knowledge, textbook definitions, API docs, or code examples that don't reveal anything specific about the user. Examples:\n" +
 	'- "React is a JavaScript library for building UIs" (generic definition)\n' +
 	'- "Vite is a build tool created by Evan You" (generic fact)\n' +
 	'- "TypeScript adds static types to JavaScript" (language feature description)\n' +
 	'- "PDF file contains API documentation for the payment gateway" (reference doc)\n' +
 	'- "function calculateTotal() { return a + b; }" (code example without user context)\n\n' +
-	'Edge cases:\n' +
+	"Edge cases:\n" +
 	'- Facts mentioning "I" or "my" are usually PERSONAL, but if they\'re just quoting generic text (e.g., "The docs say I should use..."), classify as FOREIGN.\n' +
-	'- Code snippets without user-specific context are FOREIGN.\n' +
-	'- API documentation descriptions are FOREIGN.\n\n' +
+	"- Code snippets without user-specific context are FOREIGN.\n" +
+	"- API documentation descriptions are FOREIGN.\n\n" +
 	'Return strict JSON only: an array of objects with fields: id (string), status ("PERSONAL" or "FOREIGN"), confidence (number 0-100). ' +
-	'Confidence reflects how certain you are: 90-100 for clear cases, 60-80 for ambiguous cases, below 60 for very uncertain.';
+	"Confidence reflects how certain you are: 90-100 for clear cases, 60-80 for ambiguous cases, below 60 for very uncertain.";
 
 /** Input type for a single memory fact to classify */
 export type MemoryFactInput = {
@@ -49,7 +49,7 @@ export type MemoryClassificationResult = {
 /**
  * Batch classifier for persona memory facts.
  * Classifies up to 20 facts at once as PERSONAL (user-specific) or FOREIGN (generic reference).
- * 
+ *
  * @param facts - Array of memory facts with id and content (max 20 items)
  * @returns Array of classification results, or null if the classifier is unavailable
  * @throws Error if the model request fails (caller should handle and default to PERSONAL)
@@ -84,7 +84,7 @@ export async function classifyMemoryBatch(
 
 	if (!response?.classifications || !Array.isArray(response.classifications)) {
 		// Fallback: treat all as PERSONAL (safer than losing real memories)
-		return batch.map(fact => ({
+		return batch.map((fact) => ({
 			id: fact.id,
 			status: "PERSONAL",
 			confidence: 50,
@@ -93,22 +93,23 @@ export async function classifyMemoryBatch(
 
 	// Map results back to input ids, ensuring all inputs have an output
 	const resultMap = new Map<string, MemoryClassificationResult>();
-	
+
 	for (const item of response.classifications) {
-		if (typeof item.id === 'string' && typeof item.status === 'string') {
-			const status = item.status.toUpperCase() === 'FOREIGN' ? 'FOREIGN' : 'PERSONAL';
-			const confidence = typeof item.confidence === 'number' 
-				? Math.max(0, Math.min(100, Math.round(item.confidence)))
-				: 70;
+		if (typeof item.id === "string" && typeof item.status === "string") {
+			const status =
+				item.status.toUpperCase() === "FOREIGN" ? "FOREIGN" : "PERSONAL";
+			const confidence =
+				typeof item.confidence === "number"
+					? Math.max(0, Math.min(100, Math.round(item.confidence)))
+					: 70;
 			resultMap.set(item.id, { id: item.id, status, confidence });
 		}
 	}
 
 	// Ensure every input has a result (default to PERSONAL if missing)
-	return batch.map(fact => {
-		if (resultMap.has(fact.id)) {
-			return resultMap.get(fact.id)!;
-		}
+	return batch.map((fact) => {
+		const result = resultMap.get(fact.id);
+		if (result) return result;
 		// Missing classification - default to PERSONAL
 		return {
 			id: fact.id,
@@ -119,30 +120,29 @@ export async function classifyMemoryBatch(
 }
 
 export function canUseContextSummarizer(): boolean {
-  const config = getConfig();
-  return Boolean(
-    config.contextSummarizerUrl &&
-    config.contextSummarizerUrl.includes("://") &&
-    config.contextSummarizerModel,
-  );
+	const config = getConfig();
+	return Boolean(
+		config.contextSummarizerUrl?.includes("://") &&
+			config.contextSummarizerModel,
+	);
 }
 
 export function parseJsonFromModel(
-  content: string,
+	content: string,
 ): Record<string, unknown> | null {
-  const trimmed = content.trim();
-  const withoutFence = trimmed
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/\s*```$/, "")
-    .trim();
+	const trimmed = content.trim();
+	const withoutFence = trimmed
+		.replace(/^```json\s*/i, "")
+		.replace(/^```\s*/i, "")
+		.replace(/\s*```$/, "")
+		.trim();
 
-  try {
-    const parsed = JSON.parse(withoutFence) as Record<string, unknown>;
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
+	try {
+		const parsed = JSON.parse(withoutFence) as Record<string, unknown>;
+		return parsed && typeof parsed === "object" ? parsed : null;
+	} catch {
+		return null;
+	}
 }
 
 function createContextSummarizerProvider(
@@ -150,7 +150,8 @@ function createContextSummarizerProvider(
 	resolvedModelName: string,
 	overrideProvider?: { baseUrl: string; apiKey: string },
 ) {
-	const apiKey = overrideProvider?.apiKey || config.contextSummarizerApiKey || undefined;
+	const apiKey =
+		overrideProvider?.apiKey || config.contextSummarizerApiKey || undefined;
 	return createOpenAICompatibleProviderForNormalChatModelRun({
 		provider: {
 			name: "context-summarizer",
@@ -184,21 +185,31 @@ async function resolveContextSummarizerModelAndProvider(
 			const providerId = parts[1];
 			const modelId = parts[2];
 			try {
-				const { getProviderWithSecrets, decryptApiKey } = await import("../providers");
-				const { listEnabledProviderModels } = await import("../provider-models");
+				const { getProviderWithSecrets, decryptApiKey } = await import(
+					"../providers"
+				);
+				const { listEnabledProviderModels } = await import(
+					"../provider-models"
+				);
 				const provider = await getProviderWithSecrets(providerId);
 				if (provider?.enabled) {
-					const models: Array<{ id: string; name: string }> = await listEnabledProviderModels(provider.id);
+					const models: Array<{ id: string; name: string }> =
+						await listEnabledProviderModels(provider.id);
 					const model = models.find((m) => m.id === modelId);
 					if (model) {
 						resolvedModelName = model.name;
 						overrideProvider = {
 							baseUrl: provider.baseUrl,
-							apiKey: decryptApiKey(provider.apiKeyEncrypted, provider.apiKeyIv),
+							apiKey: decryptApiKey(
+								provider.apiKeyEncrypted,
+								provider.apiKeyIv,
+							),
 						};
 					}
 				}
-			} catch { /* fall back to raw model ID */ }
+			} catch {
+				/* fall back to raw model ID */
+			}
 		}
 	}
 
@@ -213,7 +224,7 @@ function handleContextSummarizerError(
 	if (APICallError.isInstance(error)) {
 		console.warn(
 			`[CONTEXT_SUMMARIZER] Request failed: ${error.statusCode} ${error.message} ` +
-			`(url=${config.contextSummarizerUrl}, model=${config.contextSummarizerModel})`,
+				`(url=${config.contextSummarizerUrl}, model=${config.contextSummarizerModel})`,
 		);
 	}
 }
@@ -227,7 +238,8 @@ export async function requestContextSummarizer(params: {
 	if (!canUseContextSummarizer()) return null;
 
 	const config = getConfig();
-	const { resolvedModelName, overrideProvider } = await resolveContextSummarizerModelAndProvider(config);
+	const { resolvedModelName, overrideProvider } =
+		await resolveContextSummarizerModelAndProvider(config);
 	const provider = createContextSummarizerProvider(
 		config,
 		resolvedModelName,
@@ -254,42 +266,46 @@ export async function requestContextSummarizer(params: {
 }
 
 export async function requestStructuredControlModel<
-  T extends Record<string, unknown>,
+	T extends Record<string, unknown>,
 >(params: {
-  system: string;
-  user: string;
-  maxTokens: number;
-  temperature?: number;
+	system: string;
+	user: string;
+	maxTokens: number;
+	temperature?: number;
 }): Promise<T | null> {
-  if (!canUseContextSummarizer()) return null;
+	if (!canUseContextSummarizer()) return null;
 
-  const config = getConfig();
-  const { resolvedModelName, overrideProvider } = await resolveContextSummarizerModelAndProvider(config);
-  const provider = createContextSummarizerProvider(
-    config,
-    resolvedModelName,
-    overrideProvider,
-  );
+	const config = getConfig();
+	const { resolvedModelName, overrideProvider } =
+		await resolveContextSummarizerModelAndProvider(config);
+	const provider = createContextSummarizerProvider(
+		config,
+		resolvedModelName,
+		overrideProvider,
+	);
 
-  try {
-    const result = await generateText({
-      model: provider(resolvedModelName),
-      system: params.system,
-      messages: [{ role: "user", content: params.user }],
-      output: Output.json(),
-      maxOutputTokens: params.maxTokens,
-      temperature: params.temperature ?? 0.1,
-      maxRetries: 0,
-    });
-    if (!result.output) return null;
-    const output = result.output as Record<string, unknown>;
-    return output && typeof output === "object" ? (output as T) : null;
-  } catch (error) {
-    console.error('[TASK_STATE] Structured control model request failed:', error);
-    handleContextSummarizerError(error, config);
-    if (APICallError.isInstance(error)) {
-      return null;
-    }
-    return null;
-  }
+	try {
+		const result = await generateText({
+			model: provider(resolvedModelName),
+			system: params.system,
+			messages: [{ role: "user", content: params.user }],
+			output: Output.json(),
+			maxOutputTokens: params.maxTokens,
+			temperature: params.temperature ?? 0.1,
+			maxRetries: 0,
+		});
+		if (!result.output) return null;
+		const output = result.output as Record<string, unknown>;
+		return output && typeof output === "object" ? (output as T) : null;
+	} catch (error) {
+		console.error(
+			"[TASK_STATE] Structured control model request failed:",
+			error,
+		);
+		handleContextSummarizerError(error, config);
+		if (APICallError.isInstance(error)) {
+			return null;
+		}
+		return null;
+	}
 }

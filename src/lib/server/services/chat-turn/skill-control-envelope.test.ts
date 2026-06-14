@@ -209,7 +209,8 @@ describe("skill control envelopes", () => {
 				status: "proposed",
 				displayName: "Meeting critic",
 				description: "Review meeting notes for weak follow-ups.",
-				instructions: "Find missing owners, vague deadlines, and risky assumptions.",
+				instructions:
+					"Find missing owners, vague deadlines, and risky assumptions.",
 				activationExamples: ["review these meeting notes"],
 				durationPolicy: "next_message",
 				questionPolicy: "none",

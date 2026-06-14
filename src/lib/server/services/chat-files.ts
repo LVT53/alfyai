@@ -1,21 +1,32 @@
-import { previewText } from '$lib/server/utils/text';
-import { randomUUID } from 'crypto';
-import { mkdir, writeFile, readFile, unlink, access, rm } from 'fs/promises';
-import { join, extname } from 'path';
-import { and, desc, eq, inArray, isNotNull, notInArray } from 'drizzle-orm';
-import { db } from '$lib/server/db';
-import { artifacts, chatGeneratedFiles, conversations } from '$lib/server/db/schema';
-import { parseJsonRecord } from '$lib/server/utils/json';
-import type { Artifact } from '$lib/types';
-import { mapArtifact } from '$lib/server/services/knowledge/store/core';
+import { randomUUID } from "node:crypto";
+import {
+	access,
+	mkdir,
+	readFile,
+	rm,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
+import { extname, join } from "node:path";
+import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { db } from "$lib/server/db";
+import {
+	artifacts,
+	chatGeneratedFiles,
+	conversations,
+} from "$lib/server/db/schema";
+import { GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY } from "$lib/server/services/file-production/source-persistence";
+import { mapArtifact } from "$lib/server/services/knowledge/store/core";
 import {
 	buildGeneratedOutputDocumentMetadata,
 	parseWorkingDocumentMetadata,
 	resolveGeneratedDocumentFamilyContext,
-} from '$lib/server/services/knowledge/store/document-metadata';
-import { GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY } from '$lib/server/services/file-production/source-persistence';
-import { recordMemoryEvent } from '$lib/server/services/memory-events';
-import { extractDocumentText } from './document-extraction';
+} from "$lib/server/services/knowledge/store/document-metadata";
+import { recordMemoryEvent } from "$lib/server/services/memory-events";
+import { parseJsonRecord } from "$lib/server/utils/json";
+import { previewText } from "$lib/server/utils/text";
+import type { Artifact } from "$lib/types";
+import { extractDocumentText } from "./document-extraction";
 
 const chatGeneratedFileSelection = {
 	id: chatGeneratedFiles.id,
@@ -35,7 +46,7 @@ export interface ChatFile {
 	assistantMessageId: string | null;
 	artifactId: string | null;
 	documentFamilyId?: string | null;
-	documentFamilyStatus?: 'active' | 'historical' | null;
+	documentFamilyStatus?: "active" | "historical" | null;
 	documentLabel?: string | null;
 	documentRole?: string | null;
 	versionNumber?: number | null;
@@ -65,17 +76,18 @@ interface GeneratedFileVersionRecord {
 	contentText: string | null;
 	conversationId: string | null;
 	documentFamilyId: string | null;
-	documentFamilyStatus: 'active' | 'historical' | null;
+	documentFamilyStatus: "active" | "historical" | null;
 	documentLabel: string | null;
 	documentRole: string | null;
 }
 
-
 function buildGeneratedFileArtifactName(filename: string): string {
-  return filename;
+	return filename;
 }
 
-function buildGeneratedFileVersionExcerpt(version: GeneratedFileVersionRecord): string | null {
+function buildGeneratedFileVersionExcerpt(
+	version: GeneratedFileVersionRecord,
+): string | null {
 	const summarySnippet = previewText(version.summary, 220);
 	const contentSnippet = previewText(version.contentText, 320);
 	return summarySnippet ?? contentSnippet;
@@ -90,51 +102,52 @@ function buildGeneratedFileMemoryContent(params: {
 }): string {
 	const lines = [
 		`Generated file: ${params.file.filename}`,
-		`File type: ${params.file.mimeType ?? 'application/octet-stream'}`,
+		`File type: ${params.file.mimeType ?? "application/octet-stream"}`,
 		`Chat file id: ${params.file.id}`,
 		`Generated in conversation: ${params.file.conversationId}`,
 		`Generated file version: v${params.versionNumber}`,
 	];
 
 	if (params.recentVersions.length > 0) {
-		lines.push('', 'Recent prior versions:');
+		lines.push("", "Recent prior versions:");
 		for (const version of params.recentVersions) {
 			const timestamp = new Date(version.updatedAt).toISOString();
 			const location =
-				version.conversationId && version.conversationId !== params.file.conversationId
+				version.conversationId &&
+				version.conversationId !== params.file.conversationId
 					? ` in conversation ${version.conversationId}`
-					: '';
+					: "";
 			const excerpt = buildGeneratedFileVersionExcerpt(version);
 			lines.push(
 				excerpt
 					? `- v${version.version} from ${timestamp}${location}: ${excerpt}`
-					: `- v${version.version} from ${timestamp}${location}`
+					: `- v${version.version} from ${timestamp}${location}`,
 			);
 		}
 	}
 
 	const responseSnippet = previewText(params.assistantResponse, 900);
 	if (responseSnippet) {
-		lines.push('', 'Assistant response context:', responseSnippet);
+		lines.push("", "Assistant response context:", responseSnippet);
 	}
 
 	const extractedSnippet = previewText(params.extractedText, 6000);
 	if (extractedSnippet) {
-		lines.push('', 'Extracted file content:', extractedSnippet);
+		lines.push("", "Extracted file content:", extractedSnippet);
 	} else {
 		lines.push(
-			'',
-			'Extracted file content: No readable text could be extracted from this file. Use the filename, file type, and surrounding chat context when continuing it.'
+			"",
+			"Extracted file content: No readable text could be extracted from this file. Use the filename, file type, and surrounding chat context when continuing it.",
 		);
 	}
 
-	return lines.join('\n');
+	return lines.join("\n");
 }
 
 async function listRecentGeneratedFileVersions(
 	userId: string,
 	filename: string,
-	limit = 4
+	limit = 4,
 ): Promise<GeneratedFileVersionRecord[]> {
 	const rows = await db
 		.select({
@@ -148,10 +161,7 @@ async function listRecentGeneratedFileVersions(
 		})
 		.from(artifacts)
 		.where(
-			and(
-				eq(artifacts.userId, userId),
-				eq(artifacts.type, 'generated_output')
-			)
+			and(eq(artifacts.userId, userId), eq(artifacts.type, "generated_output")),
 		)
 		.orderBy(desc(artifacts.updatedAt))
 		.limit(Math.max(limit * 12, 24));
@@ -180,7 +190,9 @@ async function listRecentGeneratedFileVersions(
 			}
 
 			const generatedFilename =
-				typeof metadata?.generatedFilename === 'string' ? metadata.generatedFilename.trim() : null;
+				typeof metadata?.generatedFilename === "string"
+					? metadata.generatedFilename.trim()
+					: null;
 			const documentMetadata = parseWorkingDocumentMetadata(metadata);
 			return (
 				generatedFilename === filename ||
@@ -193,16 +205,20 @@ async function listRecentGeneratedFileVersions(
 	return matchingRows.map(({ row, metadata }, index) => {
 		const documentMetadata = parseWorkingDocumentMetadata(metadata);
 		const storedVersion =
-			typeof documentMetadata.versionNumber === 'number' && Number.isFinite(documentMetadata.versionNumber)
+			typeof documentMetadata.versionNumber === "number" &&
+			Number.isFinite(documentMetadata.versionNumber)
 				? Math.trunc(documentMetadata.versionNumber)
-				: typeof metadata?.generatedFileVersion === 'number' &&
-					  Number.isFinite(metadata.generatedFileVersion)
+				: typeof metadata?.generatedFileVersion === "number" &&
+						Number.isFinite(metadata.generatedFileVersion)
 					? Math.trunc(metadata.generatedFileVersion)
-				: null;
+					: null;
 
 		return {
 			artifactId: row.id,
-			version: storedVersion && storedVersion > 0 ? storedVersion : matchingRows.length - index,
+			version:
+				storedVersion && storedVersion > 0
+					? storedVersion
+					: matchingRows.length - index,
 			updatedAt: row.updatedAt.getTime(),
 			summary: row.summary ?? null,
 			contentText: row.contentText ?? null,
@@ -215,7 +231,9 @@ async function listRecentGeneratedFileVersions(
 	});
 }
 
-function mapRowToChatFile(row: typeof chatGeneratedFiles.$inferSelect): ChatFile {
+function mapRowToChatFile(
+	row: typeof chatGeneratedFiles.$inferSelect,
+): ChatFile {
 	return {
 		id: row.id,
 		conversationId: row.conversationId,
@@ -235,20 +253,20 @@ function readStringArray(value: unknown): string[] {
 		return [];
 	}
 	return value
-		.filter((item): item is string => typeof item === 'string')
+		.filter((item): item is string => typeof item === "string")
 		.map((item) => item.trim())
 		.filter(Boolean);
 }
 
 async function listGeneratedOutputArtifactIdsByChatFile(
-	conversationId: string
+	conversationId: string,
 ): Promise<
 	Map<
 		string,
 		{
 			artifactId: string;
 			documentFamilyId: string | null;
-			documentFamilyStatus: 'active' | 'historical' | null;
+			documentFamilyStatus: "active" | "historical" | null;
 			documentLabel: string | null;
 			documentRole: string | null;
 			versionNumber: number | null;
@@ -266,8 +284,8 @@ async function listGeneratedOutputArtifactIdsByChatFile(
 		.where(
 			and(
 				eq(artifacts.conversationId, conversationId),
-				eq(artifacts.type, 'generated_output')
-			)
+				eq(artifacts.type, "generated_output"),
+			),
 		)
 		.orderBy(desc(artifacts.updatedAt));
 
@@ -276,7 +294,7 @@ async function listGeneratedOutputArtifactIdsByChatFile(
 		{
 			artifactId: string;
 			documentFamilyId: string | null;
-			documentFamilyStatus: 'active' | 'historical' | null;
+			documentFamilyStatus: "active" | "historical" | null;
 			documentLabel: string | null;
 			documentRole: string | null;
 			versionNumber: number | null;
@@ -290,14 +308,19 @@ async function listGeneratedOutputArtifactIdsByChatFile(
 	for (const row of rows) {
 		const metadata = parseJsonRecord(row.metadataJson ?? null);
 		const chatFileId =
-			typeof metadata?.originalChatFileId === 'string' && metadata.originalChatFileId.trim()
+			typeof metadata?.originalChatFileId === "string" &&
+			metadata.originalChatFileId.trim()
 				? metadata.originalChatFileId.trim()
 				: null;
 		const renderedChatFileIds = readStringArray(
-			metadata?.[GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY]
+			metadata?.[GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY],
 		);
 		const chatFileIds = Array.from(
-			new Set([chatFileId, ...renderedChatFileIds].filter((id): id is string => Boolean(id)))
+			new Set(
+				[chatFileId, ...renderedChatFileIds].filter((id): id is string =>
+					Boolean(id),
+				),
+			),
 		);
 		if (chatFileIds.length === 0) continue;
 
@@ -317,15 +340,16 @@ async function listGeneratedOutputArtifactIdsByChatFile(
 				documentLabel: documentMetadata.documentLabel ?? null,
 				documentRole: documentMetadata.documentRole ?? null,
 				versionNumber:
-					typeof documentMetadata.versionNumber === 'number' &&
+					typeof documentMetadata.versionNumber === "number" &&
 					Number.isFinite(documentMetadata.versionNumber)
 						? Math.trunc(documentMetadata.versionNumber)
 						: null,
 				originConversationId: documentMetadata.originConversationId ?? null,
-				originAssistantMessageId: documentMetadata.originAssistantMessageId ?? null,
+				originAssistantMessageId:
+					documentMetadata.originAssistantMessageId ?? null,
 				sourceChatFileId: renderedChatFileIds.includes(id)
 					? id
-					: documentMetadata.sourceChatFileId ?? null,
+					: (documentMetadata.sourceChatFileId ?? null),
 				sourceArtifact,
 				isGeneratedDocumentSource,
 			});
@@ -336,7 +360,7 @@ async function listGeneratedOutputArtifactIdsByChatFile(
 }
 
 function getChatFilesDir(): string {
-	return join(process.cwd(), 'data', 'chat-files');
+	return join(process.cwd(), "data", "chat-files");
 }
 
 function getConversationDir(conversationId: string): string {
@@ -345,7 +369,7 @@ function getConversationDir(conversationId: string): string {
 
 function getFileExtension(filename: string): string {
 	const ext = extname(filename).toLowerCase();
-	return ext ? ext.slice(1) : 'bin';
+	return ext ? ext.slice(1) : "bin";
 }
 
 /**
@@ -355,13 +379,15 @@ function getFileExtension(filename: string): string {
 export async function storeGeneratedFile(
 	conversationId: string,
 	userId: string,
-	file: FileInput
+	file: FileInput,
 ): Promise<ChatFile> {
 	const id = randomUUID();
 	const ext = getFileExtension(file.filename);
 	const storagePath = join(conversationId, `${id}.${ext}`);
 	const fullPath = join(getChatFilesDir(), storagePath);
-	const buffer = Buffer.isBuffer(file.content) ? file.content : Buffer.from(file.content);
+	const buffer = Buffer.isBuffer(file.content)
+		? file.content
+		: Buffer.from(file.content);
 
 	try {
 		// Ensure directory exists
@@ -389,7 +415,7 @@ export async function storeGeneratedFile(
 		const storedFile = mapRowToChatFile(row);
 		return storedFile;
 	} catch (error) {
-		console.error('[CHAT_FILES] Failed to store generated file', {
+		console.error("[CHAT_FILES] Failed to store generated file", {
 			conversationId,
 			userId,
 			fileId: id,
@@ -405,47 +431,8 @@ export async function storeGeneratedFile(
  * Get all files for a conversation.
  * Returns only files belonging to the specified conversation.
  */
-export async function getChatFiles(conversationId: string): Promise<ChatFile[]> {
-	try {
-		const [rows, artifactIdsByChatFile] = await Promise.all([
-			db
-				.select(chatGeneratedFileSelection)
-				.from(chatGeneratedFiles)
-				.where(
-					and(
-						eq(chatGeneratedFiles.conversationId, conversationId),
-						isNotNull(chatGeneratedFiles.assistantMessageId)
-					)
-				)
-				.orderBy(desc(chatGeneratedFiles.createdAt)),
-			listGeneratedOutputArtifactIdsByChatFile(conversationId),
-		]);
-
-		return rows.map((row) => ({
-			...mapRowToChatFile(row),
-			artifactId: artifactIdsByChatFile.get(row.id)?.artifactId ?? null,
-			documentFamilyId: artifactIdsByChatFile.get(row.id)?.documentFamilyId ?? null,
-			documentFamilyStatus: artifactIdsByChatFile.get(row.id)?.documentFamilyStatus ?? null,
-			documentLabel: artifactIdsByChatFile.get(row.id)?.documentLabel ?? null,
-			documentRole: artifactIdsByChatFile.get(row.id)?.documentRole ?? null,
-			versionNumber: artifactIdsByChatFile.get(row.id)?.versionNumber ?? null,
-			originConversationId: artifactIdsByChatFile.get(row.id)?.originConversationId ?? null,
-			originAssistantMessageId:
-				artifactIdsByChatFile.get(row.id)?.originAssistantMessageId ?? null,
-			sourceChatFileId: artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
-		}));
-	} catch (error) {
-		console.error('[CHAT_FILES] Failed to list generated files', {
-			conversationId,
-			error,
-		});
-		throw error;
-	}
-}
-
-export async function getChatFilesForAssistantMessage(
+export async function getChatFiles(
 	conversationId: string,
-	assistantMessageId: string
 ): Promise<ChatFile[]> {
 	try {
 		const [rows, artifactIdsByChatFile] = await Promise.all([
@@ -455,8 +442,8 @@ export async function getChatFilesForAssistantMessage(
 				.where(
 					and(
 						eq(chatGeneratedFiles.conversationId, conversationId),
-						eq(chatGeneratedFiles.assistantMessageId, assistantMessageId)
-					)
+						isNotNull(chatGeneratedFiles.assistantMessageId),
+					),
 				)
 				.orderBy(desc(chatGeneratedFiles.createdAt)),
 			listGeneratedOutputArtifactIdsByChatFile(conversationId),
@@ -465,29 +452,81 @@ export async function getChatFilesForAssistantMessage(
 		return rows.map((row) => ({
 			...mapRowToChatFile(row),
 			artifactId: artifactIdsByChatFile.get(row.id)?.artifactId ?? null,
-			documentFamilyId: artifactIdsByChatFile.get(row.id)?.documentFamilyId ?? null,
-			documentFamilyStatus: artifactIdsByChatFile.get(row.id)?.documentFamilyStatus ?? null,
+			documentFamilyId:
+				artifactIdsByChatFile.get(row.id)?.documentFamilyId ?? null,
+			documentFamilyStatus:
+				artifactIdsByChatFile.get(row.id)?.documentFamilyStatus ?? null,
 			documentLabel: artifactIdsByChatFile.get(row.id)?.documentLabel ?? null,
 			documentRole: artifactIdsByChatFile.get(row.id)?.documentRole ?? null,
 			versionNumber: artifactIdsByChatFile.get(row.id)?.versionNumber ?? null,
-			originConversationId: artifactIdsByChatFile.get(row.id)?.originConversationId ?? null,
+			originConversationId:
+				artifactIdsByChatFile.get(row.id)?.originConversationId ?? null,
 			originAssistantMessageId:
 				artifactIdsByChatFile.get(row.id)?.originAssistantMessageId ?? null,
-			sourceChatFileId: artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
+			sourceChatFileId:
+				artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
 		}));
 	} catch (error) {
-		console.error('[CHAT_FILES] Failed to list assistant-scoped generated files', {
+		console.error("[CHAT_FILES] Failed to list generated files", {
 			conversationId,
-			assistantMessageId,
 			error,
 		});
 		throw error;
 	}
 }
 
+export async function getChatFilesForAssistantMessage(
+	conversationId: string,
+	assistantMessageId: string,
+): Promise<ChatFile[]> {
+	try {
+		const [rows, artifactIdsByChatFile] = await Promise.all([
+			db
+				.select(chatGeneratedFileSelection)
+				.from(chatGeneratedFiles)
+				.where(
+					and(
+						eq(chatGeneratedFiles.conversationId, conversationId),
+						eq(chatGeneratedFiles.assistantMessageId, assistantMessageId),
+					),
+				)
+				.orderBy(desc(chatGeneratedFiles.createdAt)),
+			listGeneratedOutputArtifactIdsByChatFile(conversationId),
+		]);
+
+		return rows.map((row) => ({
+			...mapRowToChatFile(row),
+			artifactId: artifactIdsByChatFile.get(row.id)?.artifactId ?? null,
+			documentFamilyId:
+				artifactIdsByChatFile.get(row.id)?.documentFamilyId ?? null,
+			documentFamilyStatus:
+				artifactIdsByChatFile.get(row.id)?.documentFamilyStatus ?? null,
+			documentLabel: artifactIdsByChatFile.get(row.id)?.documentLabel ?? null,
+			documentRole: artifactIdsByChatFile.get(row.id)?.documentRole ?? null,
+			versionNumber: artifactIdsByChatFile.get(row.id)?.versionNumber ?? null,
+			originConversationId:
+				artifactIdsByChatFile.get(row.id)?.originConversationId ?? null,
+			originAssistantMessageId:
+				artifactIdsByChatFile.get(row.id)?.originAssistantMessageId ?? null,
+			sourceChatFileId:
+				artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
+		}));
+	} catch (error) {
+		console.error(
+			"[CHAT_FILES] Failed to list assistant-scoped generated files",
+			{
+				conversationId,
+				assistantMessageId,
+				error,
+			},
+		);
+		throw error;
+	}
+}
+
 export async function getChatFilesByIdsForConversation(
 	conversationId: string,
-	fileIds: string[]
+	fileIds: string[],
 ): Promise<ChatFile[]> {
 	const uniqueFileIds = Array.from(new Set(fileIds.filter(Boolean)));
 	if (uniqueFileIds.length === 0) {
@@ -510,18 +549,22 @@ export async function getChatFilesByIdsForConversation(
 			.map((row) => ({
 				...mapRowToChatFile(row),
 				artifactId: artifactIdsByChatFile.get(row.id)?.artifactId ?? null,
-				documentFamilyId: artifactIdsByChatFile.get(row.id)?.documentFamilyId ?? null,
-				documentFamilyStatus: artifactIdsByChatFile.get(row.id)?.documentFamilyStatus ?? null,
+				documentFamilyId:
+					artifactIdsByChatFile.get(row.id)?.documentFamilyId ?? null,
+				documentFamilyStatus:
+					artifactIdsByChatFile.get(row.id)?.documentFamilyStatus ?? null,
 				documentLabel: artifactIdsByChatFile.get(row.id)?.documentLabel ?? null,
 				documentRole: artifactIdsByChatFile.get(row.id)?.documentRole ?? null,
 				versionNumber: artifactIdsByChatFile.get(row.id)?.versionNumber ?? null,
-				originConversationId: artifactIdsByChatFile.get(row.id)?.originConversationId ?? null,
+				originConversationId:
+					artifactIdsByChatFile.get(row.id)?.originConversationId ?? null,
 				originAssistantMessageId:
 					artifactIdsByChatFile.get(row.id)?.originAssistantMessageId ?? null,
-				sourceChatFileId: artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
+				sourceChatFileId:
+					artifactIdsByChatFile.get(row.id)?.sourceChatFileId ?? null,
 			}));
 	} catch (error) {
-		console.error('[CHAT_FILES] Failed to list generated files by id', {
+		console.error("[CHAT_FILES] Failed to list generated files by id", {
 			conversationId,
 			fileIds: uniqueFileIds,
 			error,
@@ -533,7 +576,7 @@ export async function getChatFilesByIdsForConversation(
 export async function assignGeneratedFilesToAssistantMessage(
 	conversationId: string,
 	assistantMessageId: string,
-	fileIds: string[]
+	fileIds: string[],
 ): Promise<void> {
 	if (fileIds.length === 0) {
 		return;
@@ -545,8 +588,8 @@ export async function assignGeneratedFilesToAssistantMessage(
 		.where(
 			and(
 				eq(chatGeneratedFiles.conversationId, conversationId),
-				inArray(chatGeneratedFiles.id, fileIds)
-			)
+				inArray(chatGeneratedFiles.id, fileIds),
+			),
 		);
 }
 
@@ -562,13 +605,13 @@ export async function syncGeneratedFilesToMemory(params: {
 	}
 
 	const { createArtifactLink, createGeneratedOutputArtifact } = await import(
-		'$lib/server/services/knowledge'
+		"$lib/server/services/knowledge"
 	);
-	const { syncArtifactToHoncho } = await import('$lib/server/services/honcho');
+	const { syncArtifactToHoncho } = await import("$lib/server/services/honcho");
 
 	const uniqueFileIds = Array.from(new Set(params.fileIds));
 	const artifactIdsByChatFile = await listGeneratedOutputArtifactIdsByChatFile(
-		params.conversationId
+		params.conversationId,
 	);
 	const syncedSourceArtifactIds = new Set<string>();
 
@@ -606,31 +649,41 @@ export async function syncGeneratedFilesToMemory(params: {
 				const extraction = await extractDocumentText(
 					join(getChatFilesDir(), file.storagePath),
 					file.mimeType,
-					file.filename
+					file.filename,
 				);
 				extractedText = extraction.text;
 			} catch (error) {
-				console.warn('[CHAT_FILES] Generated file text extraction failed; preserving version metadata', {
-					conversationId: params.conversationId,
-					fileId: file.id,
-					filename: file.filename,
-					error,
-				});
+				console.warn(
+					"[CHAT_FILES] Generated file text extraction failed; preserving version metadata",
+					{
+						conversationId: params.conversationId,
+						fileId: file.id,
+						filename: file.filename,
+						error,
+					},
+				);
 			}
 
-			const recentVersions = await listRecentGeneratedFileVersions(params.userId, file.filename, 4);
+			const recentVersions = await listRecentGeneratedFileVersions(
+				params.userId,
+				file.filename,
+				4,
+			);
 			const previousVersion = recentVersions[0] ?? null;
 			const previousVersionNumbers = recentVersions
 				.map((version) => version.version)
 				.filter((version) => Number.isFinite(version) && version > 0);
 			const versionNumber =
-				previousVersionNumbers.length > 0 ? Math.max(...previousVersionNumbers) + 1 : 1;
-			const documentFamilyId = previousVersion?.documentFamilyId ?? randomUUID();
+				previousVersionNumbers.length > 0
+					? Math.max(...previousVersionNumbers) + 1
+					: 1;
+			const documentFamilyId =
+				previousVersion?.documentFamilyId ?? randomUUID();
 			const documentLabel = previousVersion?.documentLabel ?? file.filename;
 			const documentRole = previousVersion?.documentRole ?? null;
 			const workingDocumentMetadata = buildGeneratedOutputDocumentMetadata({
 				familyId: documentFamilyId,
-				familyStatus: 'active',
+				familyStatus: "active",
 				label: documentLabel,
 				role: documentRole,
 				versionNumber,
@@ -661,7 +714,9 @@ export async function syncGeneratedFilesToMemory(params: {
 					assistantMessageId: params.assistantMessageId,
 					generatedFileVersion: versionNumber,
 					previousGeneratedArtifactId: previousVersion?.artifactId ?? null,
-					recentGeneratedVersionIds: recentVersions.map((version) => version.artifactId),
+					recentGeneratedVersionIds: recentVersions.map(
+						(version) => version.artifactId,
+					),
 					...workingDocumentMetadata,
 				},
 			});
@@ -677,7 +732,7 @@ export async function syncGeneratedFilesToMemory(params: {
 					relatedArtifactId: previousVersion.artifactId,
 					conversationId: params.conversationId,
 					messageId: params.assistantMessageId,
-					linkType: 'supersedes',
+					linkType: "supersedes",
 				});
 
 				await recordMemoryEvent({
@@ -685,8 +740,8 @@ export async function syncGeneratedFilesToMemory(params: {
 					userId: params.userId,
 					conversationId: params.conversationId,
 					messageId: params.assistantMessageId,
-					domain: 'document',
-					eventType: 'document_superseded',
+					domain: "document",
+					eventType: "document_superseded",
 					subjectId: memoryArtifact.id,
 					relatedId: previousVersion.artifactId,
 					payload: {
@@ -701,7 +756,7 @@ export async function syncGeneratedFilesToMemory(params: {
 			}
 
 			const binaryFile = new File([new Uint8Array(content)], file.filename, {
-				type: file.mimeType ?? 'application/octet-stream',
+				type: file.mimeType ?? "application/octet-stream",
 			});
 
 			const syncResult = await syncArtifactToHoncho({
@@ -720,7 +775,7 @@ export async function syncGeneratedFilesToMemory(params: {
 				});
 			}
 		} catch (error) {
-			console.error('[CHAT_FILES] Failed to sync generated file to memory', {
+			console.error("[CHAT_FILES] Failed to sync generated file to memory", {
 				conversationId: params.conversationId,
 				assistantMessageId: params.assistantMessageId,
 				fileId,
@@ -736,7 +791,7 @@ export async function syncGeneratedFilesToMemory(params: {
  */
 export async function getChatFile(
 	conversationId: string,
-	fileId: string
+	fileId: string,
 ): Promise<ChatFile | null> {
 	const [row] = await db
 		.select(chatGeneratedFileSelection)
@@ -744,8 +799,8 @@ export async function getChatFile(
 		.where(
 			and(
 				eq(chatGeneratedFiles.id, fileId),
-				eq(chatGeneratedFiles.conversationId, conversationId)
-			)
+				eq(chatGeneratedFiles.conversationId, conversationId),
+			),
 		)
 		.limit(1);
 
@@ -758,7 +813,7 @@ export async function getChatFile(
  */
 export async function getChatFileByUser(
 	fileId: string,
-	userId: string
+	userId: string,
 ): Promise<ChatFile | null> {
 	const [row] = await db
 		.select(chatGeneratedFileSelection)
@@ -766,8 +821,8 @@ export async function getChatFileByUser(
 		.where(
 			and(
 				eq(chatGeneratedFiles.id, fileId),
-				eq(chatGeneratedFiles.userId, userId)
-			)
+				eq(chatGeneratedFiles.userId, userId),
+			),
 		)
 		.limit(1);
 
@@ -776,7 +831,7 @@ export async function getChatFileByUser(
 
 export async function getChatFileByConversationOwner(
 	fileId: string,
-	userId: string
+	userId: string,
 ): Promise<ChatFile | null> {
 	const [row] = await db
 		.select({
@@ -791,8 +846,13 @@ export async function getChatFileByConversationOwner(
 			createdAt: chatGeneratedFiles.createdAt,
 		})
 		.from(chatGeneratedFiles)
-		.innerJoin(conversations, eq(chatGeneratedFiles.conversationId, conversations.id))
-		.where(and(eq(chatGeneratedFiles.id, fileId), eq(conversations.userId, userId)))
+		.innerJoin(
+			conversations,
+			eq(chatGeneratedFiles.conversationId, conversations.id),
+		)
+		.where(
+			and(eq(chatGeneratedFiles.id, fileId), eq(conversations.userId, userId)),
+		)
 		.limit(1);
 
 	return row ? mapRowToChatFile(row) : null;
@@ -814,7 +874,7 @@ async function readStoredChatFile(file: ChatFile): Promise<Buffer | null> {
  */
 export async function readChatFileContent(
 	conversationId: string,
-	fileId: string
+	fileId: string,
 ): Promise<Buffer | null> {
 	const file = await getChatFile(conversationId, fileId);
 	if (!file) return null;
@@ -828,7 +888,7 @@ export async function readChatFileContent(
  */
 export async function readChatFileContentByUser(
 	fileId: string,
-	userId: string
+	userId: string,
 ): Promise<Buffer | null> {
 	const file = await getChatFileByUser(fileId, userId);
 	if (!file) return null;
@@ -838,7 +898,7 @@ export async function readChatFileContentByUser(
 
 export async function readChatFileContentByConversationOwner(
 	fileId: string,
-	userId: string
+	userId: string,
 ): Promise<Buffer | null> {
 	const file = await getChatFileByConversationOwner(fileId, userId);
 	if (!file) return null;
@@ -852,7 +912,7 @@ export async function readChatFileContentByConversationOwner(
  */
 export async function deleteChatFile(
 	conversationId: string,
-	fileId: string
+	fileId: string,
 ): Promise<boolean> {
 	const file = await getChatFile(conversationId, fileId);
 	if (!file) return false;
@@ -863,8 +923,8 @@ export async function deleteChatFile(
 		.where(
 			and(
 				eq(chatGeneratedFiles.id, fileId),
-				eq(chatGeneratedFiles.conversationId, conversationId)
-			)
+				eq(chatGeneratedFiles.conversationId, conversationId),
+			),
 		);
 
 	// Delete from disk
@@ -882,7 +942,9 @@ export async function deleteChatFile(
  * Delete all files for a conversation.
  * Used when a conversation is deleted.
  */
-export async function deleteAllChatFilesForConversation(conversationId: string): Promise<number> {
+export async function deleteAllChatFilesForConversation(
+	conversationId: string,
+): Promise<number> {
 	let files: Array<typeof chatGeneratedFiles.$inferSelect> = [];
 	try {
 		files = await db
@@ -891,10 +953,13 @@ export async function deleteAllChatFilesForConversation(conversationId: string):
 			.where(eq(chatGeneratedFiles.conversationId, conversationId))
 			.orderBy(desc(chatGeneratedFiles.createdAt));
 	} catch (error) {
-		console.error('[CHAT_FILES] Failed to list files for conversation cleanup', {
-			conversationId,
-			error,
-		});
+		console.error(
+			"[CHAT_FILES] Failed to list files for conversation cleanup",
+			{
+				conversationId,
+				error,
+			},
+		);
 	}
 
 	try {
@@ -902,10 +967,13 @@ export async function deleteAllChatFilesForConversation(conversationId: string):
 			.delete(chatGeneratedFiles)
 			.where(eq(chatGeneratedFiles.conversationId, conversationId));
 	} catch (error) {
-		console.error('[CHAT_FILES] Failed to delete file rows for conversation cleanup', {
-			conversationId,
-			error,
-		});
+		console.error(
+			"[CHAT_FILES] Failed to delete file rows for conversation cleanup",
+			{
+				conversationId,
+				error,
+			},
+		);
 	}
 
 	// Delete files from disk
@@ -921,7 +989,10 @@ export async function deleteAllChatFilesForConversation(conversationId: string):
 	}
 
 	try {
-		await rm(getConversationDir(conversationId), { recursive: true, force: true });
+		await rm(getConversationDir(conversationId), {
+			recursive: true,
+			force: true,
+		});
 	} catch {
 		// Directory cleanup is best-effort
 	}
@@ -929,13 +1000,17 @@ export async function deleteAllChatFilesForConversation(conversationId: string):
 	return deletedCount;
 }
 
-export async function deleteAllChatFilesForUser(userId: string): Promise<number> {
+export async function deleteAllChatFilesForUser(
+	userId: string,
+): Promise<number> {
 	const files = await db
 		.select(chatGeneratedFileSelection)
 		.from(chatGeneratedFiles)
 		.where(eq(chatGeneratedFiles.userId, userId));
 
-	await db.delete(chatGeneratedFiles).where(eq(chatGeneratedFiles.userId, userId));
+	await db
+		.delete(chatGeneratedFiles)
+		.where(eq(chatGeneratedFiles.userId, userId));
 
 	let deletedCount = 0;
 	const conversationIds = new Set<string>();
@@ -952,7 +1027,10 @@ export async function deleteAllChatFilesForUser(userId: string): Promise<number>
 
 	for (const conversationId of conversationIds) {
 		try {
-			await rm(getConversationDir(conversationId), { recursive: true, force: true });
+			await rm(getConversationDir(conversationId), {
+				recursive: true,
+				force: true,
+			});
 		} catch {
 			// Directory cleanup is best-effort
 		}
@@ -977,16 +1055,19 @@ export async function deleteOrphanChatFiles(): Promise<number> {
 			.where(
 				notInArray(
 					chatGeneratedFiles.conversationId,
-					db.select({ id: conversations.id }).from(conversations)
-				)
+					db.select({ id: conversations.id }).from(conversations),
+				),
 			)
 			.orderBy(desc(chatGeneratedFiles.createdAt));
 
 		if (orphanRows.length === 0) return 0;
 
-		await db
-			.delete(chatGeneratedFiles)
-			.where(inArray(chatGeneratedFiles.id, orphanRows.map((r) => r.id)));
+		await db.delete(chatGeneratedFiles).where(
+			inArray(
+				chatGeneratedFiles.id,
+				orphanRows.map((r) => r.id),
+			),
+		);
 
 		for (const row of orphanRows) {
 			const fullPath = join(getChatFilesDir(), row.storagePath);
@@ -1008,7 +1089,7 @@ export async function deleteOrphanChatFiles(): Promise<number> {
 
 		return orphanRows.length;
 	} catch (error) {
-		console.error('[CHAT_FILES] Failed to delete orphan chat files', { error });
+		console.error("[CHAT_FILES] Failed to delete orphan chat files", { error });
 		throw error;
 	}
 }

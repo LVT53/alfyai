@@ -1,29 +1,31 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { requireAdmin } from '$lib/server/auth/hooks';
+import { json } from "@sveltejs/kit";
+import { requireAdmin } from "$lib/server/auth/hooks";
 import {
 	CampaignAssetValidationError,
 	storeModelIconAsset,
-} from '$lib/server/services/campaign-assets';
+} from "$lib/server/services/campaign-assets";
+import type { RequestHandler } from "./$types";
 
-function parseOptionalPositiveInteger(value: FormDataEntryValue | null): number | undefined {
-	if (typeof value !== 'string' || value.trim() === '') return undefined;
+function parseOptionalPositiveInteger(
+	value: FormDataEntryValue | null,
+): number | undefined {
+	if (typeof value !== "string" || value.trim() === "") return undefined;
 	const parsed = Number(value);
 	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function isUploadFile(value: FormDataEntryValue | null): value is File {
 	return (
-		typeof value === 'object' &&
+		typeof value === "object" &&
 		value !== null &&
-		typeof (value as File).arrayBuffer === 'function' &&
-		typeof (value as File).name === 'string'
+		typeof (value as File).arrayBuffer === "function" &&
+		typeof (value as File).name === "string"
 	);
 }
 
 function uploadMimeType(file: File): string {
 	if (file.type) return file.type;
-	return file.name.toLowerCase().endsWith('.svg') ? 'image/svg+xml' : file.type;
+	return file.name.toLowerCase().endsWith(".svg") ? "image/svg+xml" : file.type;
 }
 
 export const POST: RequestHandler = async (event) => {
@@ -33,22 +35,31 @@ export const POST: RequestHandler = async (event) => {
 	try {
 		formData = await event.request.formData();
 	} catch {
-		return json({ error: 'Invalid form data', fieldErrors: { form: 'Invalid form data.' } }, { status: 400 });
+		return json(
+			{
+				error: "Invalid form data",
+				fieldErrors: { form: "Invalid form data." },
+			},
+			{ status: 400 },
+		);
 	}
 
-	const image = formData.get('image');
+	const image = formData.get("image");
 	if (!isUploadFile(image)) {
 		return json(
-			{ error: 'Invalid model icon upload', fieldErrors: { image: 'Model icon image is required.' } },
+			{
+				error: "Invalid model icon upload",
+				fieldErrors: { image: "Model icon image is required." },
+			},
 			{ status: 400 },
 		);
 	}
 
 	try {
-		const width = parseOptionalPositiveInteger(formData.get('width'));
-		const height = parseOptionalPositiveInteger(formData.get('height'));
+		const width = parseOptionalPositiveInteger(formData.get("width"));
+		const height = parseOptionalPositiveInteger(formData.get("height"));
 		const asset = await storeModelIconAsset({
-			uploadedByUserId: event.locals.user!.id,
+			uploadedByUserId: event.locals.user?.id,
 			file: {
 				filename: image.name,
 				mimeType: uploadMimeType(image),
@@ -65,7 +76,7 @@ export const POST: RequestHandler = async (event) => {
 				{ status: 400 },
 			);
 		}
-		console.error('[CAMPAIGN_ASSETS] Failed to upload model icon:', error);
-		return json({ error: 'Failed to upload model icon.' }, { status: 500 });
+		console.error("[CAMPAIGN_ASSETS] Failed to upload model icon:", error);
+		return json({ error: "Failed to upload model icon." }, { status: 500 });
 	}
 };

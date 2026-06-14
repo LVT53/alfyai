@@ -64,7 +64,10 @@ function handleSelectKeydown(event: KeyboardEvent, documentId: string) {
 	onSelectDocument(documentId);
 }
 
-function handleJumpToSource(event: MouseEvent, document: DocumentWorkspaceItem) {
+function handleJumpToSource(
+	event: MouseEvent,
+	document: DocumentWorkspaceItem,
+) {
 	event.stopPropagation();
 	onJumpToSource?.(document);
 }
@@ -76,14 +79,15 @@ function getDocumentSourceLabel(document: DocumentWorkspaceItem): string {
 }
 
 function getDocumentDetailMetadata(document: DocumentWorkspaceItem): string {
-	return (
-		[
-			determinePreviewFileType(document.mimeType, document.filename).toUpperCase(),
-			formatRoleLabel(document.documentRole),
-		]
-			.filter(Boolean)
-			.join(" • ")
-	);
+	return [
+		determinePreviewFileType(
+			document.mimeType,
+			document.filename,
+		).toUpperCase(),
+		formatRoleLabel(document.documentRole),
+	]
+		.filter(Boolean)
+		.join(" • ");
 }
 </script>
 

@@ -26,7 +26,9 @@ import {
 import { POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
-const mockCreateConversationFork = createConversationFork as ReturnType<typeof vi.fn>;
+const mockCreateConversationFork = createConversationFork as ReturnType<
+	typeof vi.fn
+>;
 
 function makeEvent(body: unknown, id = "source-conv") {
 	return {

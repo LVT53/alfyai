@@ -1,4 +1,8 @@
 import type {
+	ProjectFolderReferenceContext,
+	ProjectReferenceContext,
+} from "$lib/server/services/task-state/continuity";
+import type {
 	ArtifactSummary,
 	ContextDebugEvidenceItem,
 	ContextDebugState,
@@ -11,10 +15,6 @@ import type {
 	LinkedContextSource,
 	ToolCallEntry,
 } from "$lib/types";
-import type {
-	ProjectFolderReferenceContext,
-	ProjectReferenceContext,
-} from "$lib/server/services/task-state/continuity";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 
 export type BuildContextSourcesStateInput = {
@@ -91,8 +91,12 @@ export function buildContextSourcesState(
 		input.contextStatus?.compactionApplied ||
 			(input.contextStatus && input.contextStatus.compactionMode !== "none"),
 	);
-	const traceReduced = (input.contextTraceSections ?? []).some(isReducedTraceSection);
-	const toolReduced = (input.toolCalls ?? []).some(isReducedMemoryContextToolCall);
+	const traceReduced = (input.contextTraceSections ?? []).some(
+		isReducedTraceSection,
+	);
+	const toolReduced = (input.toolCalls ?? []).some(
+		isReducedMemoryContextToolCall,
+	);
 	const reduced = compacted || traceReduced || toolReduced;
 
 	return {
@@ -145,8 +149,7 @@ function buildForkHistoryGroup(
 					forkLocalMessageCount: provenance.forkLocalMessageCount,
 					sourceConversationCount: provenance.sourceConversationIds.length,
 					sourceMessageCount: provenance.sourceMessageIds.length,
-					copiedForkPointMessageId:
-						provenance.copiedForkPointMessageId ?? null,
+					copiedForkPointMessageId: provenance.copiedForkPointMessageId ?? null,
 				},
 			},
 		],
@@ -350,7 +353,10 @@ function isMemoryContextToolCall(toolCall: ToolCallEntry): boolean {
 }
 
 function isReducedMemoryContextToolCall(toolCall: ToolCallEntry): boolean {
-	return isMemoryContextToolCall(toolCall) && hasPositiveOmittedCount(toolCall.metadata);
+	return (
+		isMemoryContextToolCall(toolCall) &&
+		hasPositiveOmittedCount(toolCall.metadata)
+	);
 }
 
 function hasPositiveOmittedCount(
@@ -373,8 +379,10 @@ function buildProjectReferenceGroup(
 	}
 
 	const isFolder = projectFolderReference.source === "project_folder";
-	const kind: Extract<ContextSourceGroupKind, "project_folder" | "project_continuity"> =
-		isFolder ? "project_folder" : "project_continuity";
+	const kind: Extract<
+		ContextSourceGroupKind,
+		"project_folder" | "project_continuity"
+	> = isFolder ? "project_folder" : "project_continuity";
 	const includedSiblingCount = projectFolderReference.entries.length;
 	const siblingCount =
 		includedSiblingCount + projectFolderReference.omittedSiblingCount;
@@ -427,8 +435,13 @@ function countUniqueItems(groups: ContextSourceGroup[]): number {
 	return ids.size;
 }
 
-function toSourceType(artifactType: ArtifactSummary["type"]): EvidenceSourceType {
-	if (artifactType === "conversation_summary" || artifactType === "work_capsule") {
+function toSourceType(
+	artifactType: ArtifactSummary["type"],
+): EvidenceSourceType {
+	if (
+		artifactType === "conversation_summary" ||
+		artifactType === "work_capsule"
+	) {
 		return "memory";
 	}
 	return "document";

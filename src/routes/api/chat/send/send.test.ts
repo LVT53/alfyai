@@ -326,7 +326,7 @@ function makeEvent(
 		params: {},
 		url: new URL("http://localhost/api/chat/send"),
 		route: { id: "/api/chat/send" },
-	} as any;
+	} as unknown as Parameters<typeof POST>[0];
 }
 
 describe("POST /api/chat/send", () => {
@@ -2543,7 +2543,7 @@ describe("POST /api/chat/send", () => {
 			params: {},
 			url: new URL("http://localhost/api/chat/send"),
 			route: { id: "/api/chat/send" },
-		} as any;
+		} as unknown as Parameters<typeof POST>[0];
 
 		const response = await POST(event);
 		const data = await response.json();

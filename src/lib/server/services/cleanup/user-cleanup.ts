@@ -43,7 +43,7 @@ export type ResetUserAccountResult =
 	| { status: "incorrect_password" };
 
 export async function purgeUserData(userId: string): Promise<void> {
-  await deleteAllHonchoStateForUser(userId);
+	await deleteAllHonchoStateForUser(userId);
 	await deleteAllChatFilesForUser(userId);
 
 	const ownershipScope = await getArtifactOwnershipScope(userId);

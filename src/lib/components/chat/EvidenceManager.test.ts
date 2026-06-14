@@ -1,8 +1,8 @@
 import { render } from "@testing-library/svelte";
 import { afterEach, describe, expect, it } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
-import EvidenceManager from "./EvidenceManager.svelte";
 import type { ContextDebugState, ContextSourcesState } from "$lib/types";
+import EvidenceManager from "./EvidenceManager.svelte";
 
 describe("EvidenceManager context source labels", () => {
 	afterEach(() => {
@@ -16,7 +16,9 @@ describe("EvidenceManager context source labels", () => {
 			contextSources: makeContextSources(),
 		});
 
-		expect(getByRole("dialog", { name: "Context Sources" })).toBeInTheDocument();
+		expect(
+			getByRole("dialog", { name: "Context Sources" }),
+		).toBeInTheDocument();
 		expect(getByText("Manage context sources")).toBeInTheDocument();
 		expect(getByText("Current sources")).toBeInTheDocument();
 		expect(getByText("Active sources")).toBeInTheDocument();
@@ -34,12 +36,16 @@ describe("EvidenceManager context source labels", () => {
 			contextSources: makeContextSources(),
 		});
 
-		expect(getByRole("dialog", { name: "Kontextusforrások" })).toBeInTheDocument();
+		expect(
+			getByRole("dialog", { name: "Kontextusforrások" }),
+		).toBeInTheDocument();
 		expect(getByText("Kontextusforrások kezelése")).toBeInTheDocument();
 		expect(getByText("Jelenlegi források")).toBeInTheDocument();
 		expect(getByText("Aktív források")).toBeInTheDocument();
 		expect(getByText("Csökkentett")).toBeInTheDocument();
-		expect(getAllByText("Kontextusforrás-preferencia").length).toBeGreaterThan(0);
+		expect(getAllByText("Kontextusforrás-preferencia").length).toBeGreaterThan(
+			0,
+		);
 		expect(getAllByText("Automatikus").length).toBeGreaterThan(0);
 	});
 
@@ -62,7 +68,9 @@ describe("EvidenceManager context source labels", () => {
 			contextSources: makeInferredOnlyContextSources(),
 		});
 
-		expect(getByText("No active context sources are selected right now.")).toBeInTheDocument();
+		expect(
+			getByText("No active context sources are selected right now."),
+		).toBeInTheDocument();
 		expect(getByText("Inferred sources")).toBeInTheDocument();
 		expect(getByText("Draft reference")).toBeInTheDocument();
 	});

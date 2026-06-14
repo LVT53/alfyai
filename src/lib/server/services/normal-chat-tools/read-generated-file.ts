@@ -1,12 +1,12 @@
-import { readFile } from "fs/promises";
-import { join } from "path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { and, desc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "$lib/server/db";
 import { artifacts, chatGeneratedFiles } from "$lib/server/db/schema";
-import { parseJsonRecord } from "$lib/server/utils/json";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
+import { parseJsonRecord } from "$lib/server/utils/json";
 
 // ── Memory‑text extraction ─────────────────────────────────────
 
@@ -36,7 +36,9 @@ export function extractContentFromMemoryText(
 		const trimmed = memoryText.trim();
 		return trimmed || null;
 	}
-	const extracted = memoryText.slice(markerIndex + EXTRACTED_CONTENT_MARKER.length).trim();
+	const extracted = memoryText
+		.slice(markerIndex + EXTRACTED_CONTENT_MARKER.length)
+		.trim();
 	if (!extracted || extracted === NO_EXTRACTION_TEXT) {
 		// Extraction produced nothing usable.
 		return null;
@@ -88,7 +90,11 @@ async function readGeneratedFileBinaryContent(
 			mimeType === "application/xml" ||
 			mimeType === "application/x-yaml";
 
-		if (isTextBased || mimeType === "" || mimeType === "application/octet-stream") {
+		if (
+			isTextBased ||
+			mimeType === "" ||
+			mimeType === "application/octet-stream"
+		) {
 			return buffer.toString("utf-8").trim() || null;
 		}
 		return null;
@@ -170,11 +176,7 @@ export async function readGeneratedFileContent(params: {
 	if (params.filename) {
 		const trimmed = params.filename.trim();
 		if (trimmed) {
-			conditions.push(
-				or(
-					eq(artifacts.name, trimmed),
-				),
-			);
+			conditions.push(or(eq(artifacts.name, trimmed)));
 		}
 	}
 
@@ -216,7 +218,7 @@ export async function readGeneratedFileContent(params: {
 			const label = metadata.documentLabel?.toLowerCase();
 			return (
 				row.name.trim().toLowerCase().includes(requestTitleLower) ||
-				(label && label.includes(requestTitleLower)) ||
+				label?.includes(requestTitleLower) ||
 				(row.contentText?.toLowerCase().includes(requestTitleLower) ?? false)
 			);
 		});
@@ -307,9 +309,7 @@ export function summarizeReadGeneratedFileResult(
 	}
 	const label = result.documentLabel ?? result.filename ?? "file";
 	const version = result.versionNumber ? ` v${result.versionNumber}` : "";
-	const length = result.contentLength
-		? ` (${result.contentLength} chars)`
-		: "";
+	const length = result.contentLength ? ` (${result.contentLength} chars)` : "";
 	return `Found "${label}"${version}${length}.`;
 }
 

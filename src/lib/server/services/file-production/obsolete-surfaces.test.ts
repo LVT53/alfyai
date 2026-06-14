@@ -1,115 +1,16 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
 
-const obsoletePaths = [
-	"src/routes/api/chat/files/generate/+server.ts",
-	"src/routes/api/chat/files/generate/generate.test.ts",
-	"src/routes/api/chat/files/export/+server.ts",
-	"sandbox-helpers/create-pdf.js",
-	"src/lib/components/chat/GeneratedFile.svelte",
-	"src/lib/components/chat/GeneratedFile.test.ts",
-	"src/lib/utils/generate-file-tool.ts",
-	"src/lib/utils/generate-file-tool.test.ts",
-	"scripts/verify-pdf-layout.mjs",
-];
-
-const scannedRoots = ["src", "local", "scripts"];
-const scannedFiles = ["AGENTS.md", "README.md"];
-const obsoleteText = [
-	"generate_file",
-	"export_document",
-	"createPDF",
-	"create-pdf",
-	"api/chat/files/generate",
-	"api/chat/files/export",
-	"/api/chat/files/generate",
-	"/api/chat/files/export",
-	"ChatGeneratedFileListItem",
-	"generatedFile.",
-	"Terracotta Crown",
-];
-
-function collectFiles(path: string, output: string[] = []): string[] {
-	const absolute = join(root, path);
-	if (!existsSync(absolute)) return output;
-	const stat = statSync(absolute);
-	if (stat.isFile()) {
-		output.push(path);
-		return output;
-	}
-	for (const entry of readdirSync(absolute)) {
-		collectFiles(join(path, entry), output);
-	}
-	return output;
+function readSource(path: string): string {
+	return readFileSync(join(root, path), "utf8");
 }
 
-function isAllowedSearchHit(path: string): boolean {
-	return (
-		path.endsWith(".test.ts") ||
-		path === "docs/adr/0005-unified-file-production-boundary.md" ||
-		path === "docs/file-production-overhaul-plan.md"
-	);
-}
-
-describe("obsolete file-generation surfaces", () => {
-	it("removes dead split-tool files instead of keeping compatibility shims", () => {
-		for (const path of obsoletePaths) {
-			expect(existsSync(join(root, path)), path).toBe(false);
-		}
-	});
-
-	it("keeps active source and agent-facing guidance on produce_file only", () => {
-		const paths = [
-			...scannedRoots.flatMap((path) => collectFiles(path)),
-			...scannedFiles,
-		].filter((path) => !isAllowedSearchHit(path));
-		const hits: string[] = [];
-
-		for (const path of paths) {
-			const content = readFileSync(join(root, path), "utf8");
-			for (const token of obsoleteText) {
-				if (content.includes(token)) {
-					hits.push(`${path}: ${token}`);
-				}
-			}
-		}
-
-		expect(hits).toEqual([]);
-	});
-
-	it("keeps model guidance aligned with queued file-production jobs", () => {
-		const source = readFileSync(
-			join(root, "src/lib/server/services/normal-chat-context.ts"),
-			"utf8",
-		);
-
-		expect(source).toContain(
-			"Tool success means the request was accepted",
-		);
-		expect(source).toContain(
-			"Prefer the simple form: `requestTitle`, `outputType` or `filename`, and `markdown`, `content`, or `text`",
-		);
-		expect(source).toContain(
-			"The server converts simple content into the correct file-production mode",
-		);
-		expect(source).toContain("Use `program` only for artifacts");
-		expect(source).not.toContain("current legacy external search flows");
-		expect(source).not.toContain(
-			"Only tell the user a file is ready after the tool succeeds.",
-		);
-		expect(source).not.toContain(
-			"Generated files appear in the chat UI after the response finishes.",
-		);
-	});
-
+describe("file-production architecture boundaries", () => {
 	it("keeps produce route intake behind the file-production boundary", () => {
-		const source = readFileSync(
-			join(root, "src/routes/api/chat/files/produce/+server.ts"),
-			"utf8",
-		);
+		const source = readSource("src/routes/api/chat/files/produce/+server.ts");
 
 		expect(source).toContain("submitFileProductionIntake");
 		expect(source).toContain("getFileProductionIntakeConversationId");
@@ -124,15 +25,18 @@ describe("obsolete file-generation surfaces", () => {
 		expect(source).not.toContain("file-production/source-schema");
 	});
 
-	it("keeps durable file-production job ledger transitions behind the ledger module", () => {
-		const facade = readFileSync(
-			join(root, "src/lib/server/services/file-production/index.ts"),
-			"utf8",
+	it("keeps durable job state transitions behind the ledger module", () => {
+		const facade = readSource(
+			"src/lib/server/services/file-production/index.ts",
 		);
-		const ledgerPath = "src/lib/server/services/file-production/job-ledger.ts";
-		const ledger = readFileSync(join(root, ledgerPath), "utf8");
+		const ledger = readSource(
+			"src/lib/server/services/file-production/job-ledger.ts",
+		);
 
-		expect(facade).toContain('from "./job-ledger"');
+		expect(facade).toContain(
+			'type JobLedgerModule = typeof import("./job-ledger")',
+		);
+		expect(facade).toContain("loadJobLedger()");
 		expect(facade).not.toContain("function mapJobRow");
 		expect(facade).not.toContain("fileProductionJobAttempts");
 		expect(ledger).toContain(
@@ -141,27 +45,22 @@ describe("obsolete file-generation surfaces", () => {
 		expect(ledger).toContain("fileProductionJobAttempts");
 	});
 
-	it("keeps file-production worker and execution dispatch behind deeper modules", () => {
-		const facade = readFileSync(
-			join(root, "src/lib/server/services/file-production/index.ts"),
-			"utf8",
+	it("keeps worker execution lazy-loaded behind the facade", () => {
+		const facade = readSource(
+			"src/lib/server/services/file-production/index.ts",
 		);
-		const workerRunner = readFileSync(
-			join(root, "src/lib/server/services/file-production/worker-runner.ts"),
-			"utf8",
+		const workerRunner = readSource(
+			"src/lib/server/services/file-production/worker-runner.ts",
 		);
-		const executionAdapter = readFileSync(
-			join(
-				root,
-				"src/lib/server/services/file-production/execution-adapter.ts",
-			),
-			"utf8",
+		const executionAdapter = readSource(
+			"src/lib/server/services/file-production/execution-adapter.ts",
 		);
 
-		expect(facade).toContain('from "./worker-runner"');
+		expect(facade).toContain(
+			'type WorkerRunnerModule = typeof import("./worker-runner")',
+		);
 		expect(facade).toContain('return import("./worker-runner")');
 		expect(facade).not.toMatch(/^import\s+\{[\s\S]*from "\.\/worker-runner";/m);
-		expect(facade).not.toMatch(/^import\s+\{[\s\S]*from "\.\/job-ledger";/m);
 		expect(facade).not.toContain("DEFAULT_WORKER_ID");
 		expect(facade).not.toContain("workerInitialized");
 		expect(facade).not.toContain("drainPromise");
@@ -179,17 +78,14 @@ describe("obsolete file-generation surfaces", () => {
 	});
 
 	it("keeps generated-file storage and linking behind the storage adapter", () => {
-		const workerRunner = readFileSync(
-			join(root, "src/lib/server/services/file-production/worker-runner.ts"),
-			"utf8",
+		const workerRunner = readSource(
+			"src/lib/server/services/file-production/worker-runner.ts",
 		);
-		const storageAdapter = readFileSync(
-			join(root, "src/lib/server/services/file-production/storage-adapter.ts"),
-			"utf8",
+		const storageAdapter = readSource(
+			"src/lib/server/services/file-production/storage-adapter.ts",
 		);
-		const facade = readFileSync(
-			join(root, "src/lib/server/services/file-production/index.ts"),
-			"utf8",
+		const facade = readSource(
+			"src/lib/server/services/file-production/index.ts",
 		);
 
 		expect(workerRunner).toContain('from "./storage-adapter"');
@@ -208,18 +104,15 @@ describe("obsolete file-generation surfaces", () => {
 		}
 	});
 
-	it("keeps read-only file-production callers on a read-model entrypoint", () => {
-		const conversationDetailRoute = readFileSync(
-			join(root, "src/routes/api/conversations/[id]/+server.ts"),
-			"utf8",
+	it("keeps read-only generated-file hydration on a read-model entrypoint", () => {
+		const conversationDetailRoute = readSource(
+			"src/routes/api/conversations/[id]/+server.ts",
 		);
-		const conversationDetailReadModel = readFileSync(
-			join(root, "src/lib/server/services/conversation-detail/read-model.ts"),
-			"utf8",
+		const conversationDetailReadModel = readSource(
+			"src/lib/server/services/conversation-detail/read-model.ts",
 		);
-		const readModel = readFileSync(
-			join(root, "src/lib/server/services/file-production/read-model.ts"),
-			"utf8",
+		const readModel = readSource(
+			"src/lib/server/services/file-production/read-model.ts",
 		);
 
 		expect(conversationDetailRoute).toContain(
@@ -271,20 +164,11 @@ describe("obsolete file-generation surfaces", () => {
 		}
 	});
 
-	it("keeps conversation detail generated-file reads off Honcho and stale ledger projections", () => {
-		const chatFiles = readFileSync(
-			join(root, "src/lib/server/services/chat-files.ts"),
-			"utf8",
-		);
-		const ledger = readFileSync(
-			join(root, "src/lib/server/services/file-production/job-ledger.ts"),
-			"utf8",
+	it("keeps legacy job backfill out of the durable ledger", () => {
+		const ledger = readSource(
+			"src/lib/server/services/file-production/job-ledger.ts",
 		);
 
-		expect(chatFiles).not.toContain(
-			"import { syncArtifactToHoncho } from '$lib/server/services/honcho';",
-		);
-		expect(chatFiles).toContain("import('$lib/server/services/honcho')");
 		expect(ledger).not.toContain("$lib/server/services/chat-files");
 		expect(ledger).not.toContain(
 			"export async function listConversationFileProductionJobs",

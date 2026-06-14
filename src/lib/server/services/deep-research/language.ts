@@ -1,5 +1,5 @@
-import type { ResearchLanguage } from "./planning";
 import { detectLanguage } from "../language";
+import type { ResearchLanguage } from "./planning";
 
 export type ResolveResearchLanguageInput = {
 	userRequest: string;

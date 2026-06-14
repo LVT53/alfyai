@@ -1,6 +1,16 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { Check, ChevronRight, EllipsisVertical, Folder, GitBranch, Pencil, Pin, Trash2, X } from "@lucide/svelte";
+import {
+	Check,
+	ChevronRight,
+	EllipsisVertical,
+	Folder,
+	GitBranch,
+	Pencil,
+	Pin,
+	Trash2,
+	X,
+} from "@lucide/svelte";
 import type { ConversationListItem, Project } from "$lib/types";
 import { t } from "$lib/i18n";
 import {

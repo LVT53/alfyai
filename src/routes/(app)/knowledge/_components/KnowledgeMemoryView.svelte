@@ -1,51 +1,51 @@
 <script lang="ts">
-	import type {
-		KnowledgeMemoryOverviewSource,
-		KnowledgeMemoryOverviewStatus,
-	} from '$lib/types';
-	import { formatMediumDateTime } from '$lib/utils/time';
-	import { t } from '$lib/i18n';
-	import { Loader, RefreshCw } from '@lucide/svelte';
+import type {
+	KnowledgeMemoryOverviewSource,
+	KnowledgeMemoryOverviewStatus,
+} from "$lib/types";
+import { formatMediumDateTime } from "$lib/utils/time";
+import { t } from "$lib/i18n";
+import { Loader, RefreshCw } from "@lucide/svelte";
 
-	let {
-		memoryLoading,
-		memoryLoaded,
-		memoryLoadError,
-		personaMemoryCount,
-		focusContinuityItemCount,
-		honchoEnabled,
-		overviewBullets,
-		overviewSource,
-		overviewStatus,
-		overviewUpdatedAt,
-		overviewLastAttemptAt,
-		durablePersonaCount,
-		activeConstraintCount,
-		currentProjectContextCount,
-		liveOverviewRefreshing,
-		onRetryLoadMemory,
-		onRetryLiveOverview,
-		onOpenMemoryModal,
-	}: {
-		memoryLoading: boolean;
-		memoryLoaded: boolean;
-		memoryLoadError: string;
-		personaMemoryCount: number;
-		focusContinuityItemCount: number;
-		honchoEnabled: boolean;
-		overviewBullets: string[];
-		overviewSource: KnowledgeMemoryOverviewSource;
-		overviewStatus: KnowledgeMemoryOverviewStatus;
-		overviewUpdatedAt: number | null;
-		overviewLastAttemptAt: number | null;
-		durablePersonaCount: number;
-		activeConstraintCount: number;
-		currentProjectContextCount: number;
-		liveOverviewRefreshing: boolean;
-		onRetryLoadMemory: () => void | Promise<void>;
-		onRetryLiveOverview: () => void | Promise<void>;
-		onOpenMemoryModal: (kind: 'persona' | 'focus') => void;
-	} = $props();
+let {
+	memoryLoading,
+	memoryLoaded,
+	memoryLoadError,
+	personaMemoryCount,
+	focusContinuityItemCount,
+	honchoEnabled,
+	overviewBullets,
+	overviewSource,
+	overviewStatus,
+	overviewUpdatedAt,
+	overviewLastAttemptAt,
+	durablePersonaCount,
+	activeConstraintCount,
+	currentProjectContextCount,
+	liveOverviewRefreshing,
+	onRetryLoadMemory,
+	onRetryLiveOverview,
+	onOpenMemoryModal,
+}: {
+	memoryLoading: boolean;
+	memoryLoaded: boolean;
+	memoryLoadError: string;
+	personaMemoryCount: number;
+	focusContinuityItemCount: number;
+	honchoEnabled: boolean;
+	overviewBullets: string[];
+	overviewSource: KnowledgeMemoryOverviewSource;
+	overviewStatus: KnowledgeMemoryOverviewStatus;
+	overviewUpdatedAt: number | null;
+	overviewLastAttemptAt: number | null;
+	durablePersonaCount: number;
+	activeConstraintCount: number;
+	currentProjectContextCount: number;
+	liveOverviewRefreshing: boolean;
+	onRetryLoadMemory: () => void | Promise<void>;
+	onRetryLiveOverview: () => void | Promise<void>;
+	onOpenMemoryModal: (kind: "persona" | "focus") => void;
+} = $props();
 </script>
 
 {#if memoryLoading && !memoryLoaded}

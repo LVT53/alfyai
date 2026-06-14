@@ -5,9 +5,15 @@ import type {
 	KnowledgeMemoryPayload,
 	KnowledgeUploadResponse,
 	WorkCapsule,
-} from '$lib/types';
-import { ApiError, requestJson, requestText, requestVoid, type FetchLike } from './http';
-import { _unwrapList } from './_utils';
+} from "$lib/types";
+import { _unwrapList } from "./_utils";
+import {
+	ApiError,
+	type FetchLike,
+	requestJson,
+	requestText,
+	requestVoid,
+} from "./http";
 
 export type KnowledgeLibrary = {
 	documents: KnowledgeDocumentItem[];
@@ -16,17 +22,21 @@ export type KnowledgeLibrary = {
 };
 
 export type KnowledgeMemoryActionPayload =
-	| { action: 'forget_persona_memory'; clusterId?: string; conclusionId?: string }
-	| { action: 'forget_all_persona_memory' }
-	| { action: 'forget_task_memory'; taskId: string }
-	| { action: 'forget_focus_continuity'; continuityId: string }
-	| { action: 'forget_project_memory'; projectId: string };
+	| {
+			action: "forget_persona_memory";
+			clusterId?: string;
+			conclusionId?: string;
+	  }
+	| { action: "forget_all_persona_memory" }
+	| { action: "forget_task_memory"; taskId: string }
+	| { action: "forget_focus_continuity"; continuityId: string }
+	| { action: "forget_project_memory"; projectId: string };
 
 export type KnowledgeBulkAction =
-	| 'forget_all_documents'
-	| 'forget_all_results'
-	| 'forget_all_workflows'
-	| 'forget_everything';
+	| "forget_all_documents"
+	| "forget_all_results"
+	| "forget_all_workflows"
+	| "forget_everything";
 
 type KnowledgeActionResult = {
 	success?: boolean;
@@ -43,17 +53,17 @@ type KnowledgeDeleteResult = {
 };
 
 const UPLOAD_INTERRUPTED_MESSAGE =
-	'Upload was interrupted before it completed. Try again; if it keeps happening, the server or reverse proxy may be closing large uploads before AlfyAI receives them.';
+	"Upload was interrupted before it completed. Try again; if it keeps happening, the server or reverse proxy may be closing large uploads before AlfyAI receives them.";
 const UPLOAD_GATEWAY_STATUSES = new Set([502, 503, 504]);
-const UPLOAD_NAME_HEADER = 'X-AlfyAI-Upload-Name';
-const UPLOAD_SIZE_HEADER = 'X-AlfyAI-Upload-Size';
-const UPLOAD_TRACE_HEADER = 'X-AlfyAI-Upload-Trace-Id';
-const UPLOAD_CONVERSATION_HEADER = 'X-AlfyAI-Conversation-Id';
-const UPLOAD_CHUNK_INDEX_HEADER = 'X-AlfyAI-Chunk-Index';
-const UPLOAD_CHUNK_TOTAL_HEADER = 'X-AlfyAI-Chunk-Total';
-const UPLOAD_CHUNK_START_HEADER = 'X-AlfyAI-Chunk-Start';
-const UPLOAD_CHUNK_SIZE_HEADER = 'X-AlfyAI-Chunk-Size';
-const UPLOAD_CHUNK_FINAL_HEADER = 'X-AlfyAI-Chunk-Final';
+const UPLOAD_NAME_HEADER = "X-AlfyAI-Upload-Name";
+const UPLOAD_SIZE_HEADER = "X-AlfyAI-Upload-Size";
+const UPLOAD_TRACE_HEADER = "X-AlfyAI-Upload-Trace-Id";
+const UPLOAD_CONVERSATION_HEADER = "X-AlfyAI-Conversation-Id";
+const UPLOAD_CHUNK_INDEX_HEADER = "X-AlfyAI-Chunk-Index";
+const UPLOAD_CHUNK_TOTAL_HEADER = "X-AlfyAI-Chunk-Total";
+const UPLOAD_CHUNK_START_HEADER = "X-AlfyAI-Chunk-Start";
+const UPLOAD_CHUNK_SIZE_HEADER = "X-AlfyAI-Chunk-Size";
+const UPLOAD_CHUNK_FINAL_HEADER = "X-AlfyAI-Chunk-Final";
 const CHUNKED_UPLOAD_THRESHOLD_BYTES = 2 * 1024 * 1024;
 const UPLOAD_CHUNK_BYTES = 256 * 1024;
 
@@ -93,12 +103,16 @@ function uploadGatewayMessage(file: File, status: number): string {
 	return `Upload gateway failed with HTTP ${status} while receiving "${file.name}" (${formatUploadBytes(file.size)}). AlfyAI did not finish receiving the file, so extraction did not start. Check reverse proxy body limits/timeouts and whether the Node server restarted while streaming the upload body.`;
 }
 
-function buildUploadHeaders(file: File, traceId: string, conversationId?: string | null): Record<string, string> {
+function buildUploadHeaders(
+	file: File,
+	traceId: string,
+	conversationId?: string | null,
+): Record<string, string> {
 	const headers: Record<string, string> = {
 		[UPLOAD_NAME_HEADER]: encodeUploadHeaderValue(file.name),
 		[UPLOAD_SIZE_HEADER]: String(file.size),
 		[UPLOAD_TRACE_HEADER]: traceId,
-		'Content-Type': file.type || 'application/octet-stream',
+		"Content-Type": file.type || "application/octet-stream",
 	};
 	if (conversationId) {
 		headers[UPLOAD_CONVERSATION_HEADER] = conversationId;
@@ -107,9 +121,12 @@ function buildUploadHeaders(file: File, traceId: string, conversationId?: string
 }
 
 function errorName(error: unknown): string {
-	return typeof error === 'object' && error !== null && 'name' in error && typeof (error as { name?: unknown }).name === 'string'
+	return typeof error === "object" &&
+		error !== null &&
+		"name" in error &&
+		typeof (error as { name?: unknown }).name === "string"
 		? (error as { name: string }).name
-		: '';
+		: "";
 }
 
 function errorMessage(error: unknown): string {
@@ -120,13 +137,15 @@ function isUploadTransportAbort(error: unknown): boolean {
 	const name = errorName(error);
 	const message = errorMessage(error);
 	return (
-		name === 'AbortError' ||
-		/\baborted\b|operation was aborted|failed to fetch|load failed|networkerror|network request failed|fetch failed/i.test(message)
+		name === "AbortError" ||
+		/\baborted\b|operation was aborted|failed to fetch|load failed|networkerror|network request failed|fetch failed/i.test(
+			message,
+		)
 	);
 }
 
 function positiveFiniteBytes(value: number | undefined): number | null {
-	if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+	if (typeof value !== "number" || !Number.isFinite(value)) return null;
 	const bytes = Math.floor(value);
 	return bytes > 0 ? bytes : null;
 }
@@ -146,7 +165,7 @@ function resolveChunkSize(intent: KnowledgeUploadIntentResponse): number {
 			: positiveFiniteBytes(intent.chunkBodyLimit);
 	if (chunkBodyLimit === null) {
 		throw new Error(
-			'Upload chunk size limit is too low for this file. Ask an administrator to increase the server upload body limit.'
+			"Upload chunk size limit is too low for this file. Ask an administrator to increase the server upload body limit.",
 		);
 	}
 	return Math.min(UPLOAD_CHUNK_BYTES, chunkBodyLimit);
@@ -154,90 +173,92 @@ function resolveChunkSize(intent: KnowledgeUploadIntentResponse): number {
 
 export async function fetchKnowledgeLibrary(): Promise<KnowledgeLibrary> {
 	const payload = await requestJson<Partial<KnowledgeLibrary>>(
-		'/api/knowledge',
+		"/api/knowledge",
 		undefined,
-		'Failed to refresh the Knowledge Base.'
+		"Failed to refresh the Knowledge Base.",
 	);
 
 	return {
-		documents: _unwrapList<KnowledgeDocumentItem>(payload, 'documents'),
-		results: _unwrapList<ArtifactSummary>(payload, 'results'),
-		workflows: _unwrapList<WorkCapsule>(payload, 'workflows'),
+		documents: _unwrapList<KnowledgeDocumentItem>(payload, "documents"),
+		results: _unwrapList<ArtifactSummary>(payload, "results"),
+		workflows: _unwrapList<WorkCapsule>(payload, "workflows"),
 	};
 }
 
 export async function fetchKnowledgeMemory(): Promise<KnowledgeMemoryPayload> {
 	return requestJson<KnowledgeMemoryPayload>(
-		'/api/knowledge/memory',
+		"/api/knowledge/memory",
 		undefined,
-		'Failed to load memory profile.'
+		"Failed to load memory profile.",
 	);
 }
 
 export async function fetchKnowledgeMemoryOverview(
-	options: { force?: boolean } = {}
+	options: { force?: boolean } = {},
 ): Promise<KnowledgeMemoryOverviewPayload> {
-	const query = options.force ? '?force=1' : '';
+	const query = options.force ? "?force=1" : "";
 	return requestJson<KnowledgeMemoryOverviewPayload>(
 		`/api/knowledge/memory/overview${query}`,
 		undefined,
-		'Failed to refresh the live memory overview.'
+		"Failed to refresh the live memory overview.",
 	);
 }
 
 export async function submitKnowledgeMemoryAction(
-	payload: KnowledgeMemoryActionPayload
+	payload: KnowledgeMemoryActionPayload,
 ): Promise<KnowledgeMemoryPayload> {
 	return requestJson<KnowledgeMemoryPayload>(
-		'/api/knowledge/memory/actions',
+		"/api/knowledge/memory/actions",
 		{
-			method: 'POST',
+			method: "POST",
 			headers: {
-				'Content-Type': 'application/json',
+				"Content-Type": "application/json",
 			},
 			body: JSON.stringify(payload),
 		},
-		'Failed to update memory profile.'
+		"Failed to update memory profile.",
 	);
 }
 
 export async function submitKnowledgeBulkAction(
-	action: KnowledgeBulkAction
+	action: KnowledgeBulkAction,
 ): Promise<KnowledgeActionResult> {
 	return requestJson<KnowledgeActionResult>(
-		'/api/knowledge/actions',
+		"/api/knowledge/actions",
 		{
-			method: 'POST',
+			method: "POST",
 			headers: {
-				'Content-Type': 'application/json',
+				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({ action }),
 		},
-		'Failed to update the Knowledge Base.'
+		"Failed to update the Knowledge Base.",
 	);
 }
 
-export async function deleteKnowledgeArtifact(id: string): Promise<KnowledgeDeleteResult> {
+export async function deleteKnowledgeArtifact(
+	id: string,
+): Promise<KnowledgeDeleteResult> {
 	return requestJson<KnowledgeDeleteResult>(
 		`/api/knowledge/${id}`,
 		{
-			method: 'DELETE',
+			method: "DELETE",
 		},
-		'Failed to remove artifact.'
+		"Failed to remove artifact.",
 	);
 }
 
 export async function uploadKnowledgeAttachment(
 	file: File,
 	conversationId?: string | null,
-	fetchImpl: FetchLike = fetch
+	fetchImpl: FetchLike = fetch,
 ): Promise<KnowledgeUploadResponse> {
 	const intent = await requestJson<KnowledgeUploadIntentResponse>(
-		'/api/knowledge/upload/intent',
+		"/api/knowledge/upload/intent",
 		{
-			method: 'POST',
+			method: "POST",
 			headers: {
-				'Content-Type': 'application/json',
+				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
 				fileName: file.name,
@@ -246,8 +267,8 @@ export async function uploadKnowledgeAttachment(
 				conversationId: conversationId ?? null,
 			}),
 		},
-		'Failed to prepare upload.',
-		fetchImpl
+		"Failed to prepare upload.",
+		fetchImpl,
 	);
 	try {
 		if (file.size > resolveRawUploadLimit(intent)) {
@@ -256,21 +277,24 @@ export async function uploadKnowledgeAttachment(
 				intent.traceId,
 				conversationId,
 				fetchImpl,
-				resolveChunkSize(intent)
+				resolveChunkSize(intent),
 			);
 		}
 		return await requestJson<KnowledgeUploadResponse>(
-			'/api/knowledge/upload/raw',
+			"/api/knowledge/upload/raw",
 			{
-				method: 'POST',
+				method: "POST",
 				headers: buildUploadHeaders(file, intent.traceId, conversationId),
 				body: file,
 			},
-			'Failed to upload attachment.',
-			fetchImpl
+			"Failed to upload attachment.",
+			fetchImpl,
 		);
 	} catch (error) {
-		if (error instanceof ApiError && UPLOAD_GATEWAY_STATUSES.has(error.status)) {
+		if (
+			error instanceof ApiError &&
+			UPLOAD_GATEWAY_STATUSES.has(error.status)
+		) {
 			throw new Error(uploadGatewayMessage(file, error.status));
 		}
 		if (isUploadTransportAbort(error)) {
@@ -285,7 +309,7 @@ async function uploadChunkedKnowledgeAttachment(
 	traceId: string,
 	conversationId: string | null | undefined,
 	fetchImpl: FetchLike,
-	chunkSize: number
+	chunkSize: number,
 ): Promise<KnowledgeUploadResponse> {
 	const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
 	let finalResponse: KnowledgeUploadResponse | null = null;
@@ -293,24 +317,28 @@ async function uploadChunkedKnowledgeAttachment(
 	for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
 		const start = chunkIndex * chunkSize;
 		const end = Math.min(file.size, start + chunkSize);
-		const chunk = file.slice(start, end, file.type || 'application/octet-stream');
+		const chunk = file.slice(
+			start,
+			end,
+			file.type || "application/octet-stream",
+		);
 		const isFinal = chunkIndex === totalChunks - 1;
 		const response = await requestJson<ChunkUploadResponse>(
-			'/api/knowledge/upload/chunk',
+			"/api/knowledge/upload/chunk",
 			{
-				method: 'POST',
+				method: "POST",
 				headers: {
 					...buildUploadHeaders(file, traceId, conversationId),
 					[UPLOAD_CHUNK_INDEX_HEADER]: String(chunkIndex),
 					[UPLOAD_CHUNK_TOTAL_HEADER]: String(totalChunks),
 					[UPLOAD_CHUNK_START_HEADER]: String(start),
 					[UPLOAD_CHUNK_SIZE_HEADER]: String(end - start),
-					[UPLOAD_CHUNK_FINAL_HEADER]: isFinal ? 'true' : 'false',
+					[UPLOAD_CHUNK_FINAL_HEADER]: isFinal ? "true" : "false",
 				},
 				body: chunk,
 			},
-			'Failed to upload attachment.',
-			fetchImpl
+			"Failed to upload attachment.",
+			fetchImpl,
 		);
 
 		if (response.complete) {
@@ -319,28 +347,30 @@ async function uploadChunkedKnowledgeAttachment(
 	}
 
 	if (!finalResponse) {
-		throw new Error('Upload finished without a completed server response.');
+		throw new Error("Upload finished without a completed server response.");
 	}
 	return finalResponse;
 }
 
-export async function recordDocumentWorkspaceOpen(artifactId: string): Promise<void> {
+export async function recordDocumentWorkspaceOpen(
+	artifactId: string,
+): Promise<void> {
 	await requestVoid(
-		'/api/knowledge/documents/behavior',
+		"/api/knowledge/documents/behavior",
 		{
-			method: 'POST',
+			method: "POST",
 			headers: {
-				'Content-Type': 'application/json',
+				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
-				action: 'workspace_opened',
+				action: "workspace_opened",
 				artifactId,
 			}),
 		},
-		'Failed to record document workspace behavior.'
+		"Failed to record document workspace behavior.",
 	);
 }
 
 export async function fetchDocumentPreviewText(url: string): Promise<string> {
-	return requestText(url, undefined, 'Failed to load document preview.');
+	return requestText(url, undefined, "Failed to load document preview.");
 }

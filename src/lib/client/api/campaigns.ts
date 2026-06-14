@@ -1,20 +1,28 @@
-import { requestJson, requestVoid, type FetchLike } from './http';
+import { type FetchLike, requestJson, requestVoid } from "./http";
 
-export type CampaignLocale = 'en' | 'hu';
-export type CampaignAssetVariant = 'desktop' | 'mobile';
-export type CampaignStatus = 'draft' | 'published' | 'archived' | (string & {});
-export type CampaignType = 'first_run_onboarding' | 'release_update' | (string & {});
-export type CampaignSlideKind = 'setup' | 'standard' | (string & {});
-export type CampaignSetupControl = 'ui_language' | 'theme' | 'model_default' | 'ai_style' | (string & {});
-export type CampaignEventType =
-	| 'auto_shown'
-	| 'slide_viewed'
-	| 'completed'
-	| 'skipped'
-	| 'replay_opened'
-	| 'setup_preference_changed'
+export type CampaignLocale = "en" | "hu";
+export type CampaignAssetVariant = "desktop" | "mobile";
+export type CampaignStatus = "draft" | "published" | "archived" | (string & {});
+export type CampaignType =
+	| "first_run_onboarding"
+	| "release_update"
 	| (string & {});
-export type CampaignCompletionReason = 'completed' | 'skipped';
+export type CampaignSlideKind = "setup" | "standard" | (string & {});
+export type CampaignSetupControl =
+	| "ui_language"
+	| "theme"
+	| "model_default"
+	| "ai_style"
+	| (string & {});
+export type CampaignEventType =
+	| "auto_shown"
+	| "slide_viewed"
+	| "completed"
+	| "skipped"
+	| "replay_opened"
+	| "setup_preference_changed"
+	| (string & {});
+export type CampaignCompletionReason = "completed" | "skipped";
 
 export type CampaignValidationIssue = {
 	path?: string;
@@ -98,7 +106,10 @@ export type Campaign = {
 	archivedAt?: string | number | Date | null;
 };
 
-export type CampaignSlideDraft = Omit<CampaignSlide, 'campaignId' | 'createdAt' | 'updatedAt'>;
+export type CampaignSlideDraft = Omit<
+	CampaignSlide,
+	"campaignId" | "createdAt" | "updatedAt"
+>;
 
 export type CampaignDraftPayload = {
 	type?: CampaignType;
@@ -135,13 +146,15 @@ export type SeedFirstRunCampaignResponse = {
 	created: boolean;
 };
 
-const jsonHeaders = { 'Content-Type': 'application/json' };
+const jsonHeaders = { "Content-Type": "application/json" };
 
-export async function fetchAdminCampaigns(fetchImpl: FetchLike = fetch): Promise<Campaign[]> {
+export async function fetchAdminCampaigns(
+	fetchImpl: FetchLike = fetch,
+): Promise<Campaign[]> {
 	const response = await requestJson<CampaignListResponse>(
-		'/api/admin/campaigns',
+		"/api/admin/campaigns",
 		undefined,
-		'Failed to load campaigns',
+		"Failed to load campaigns",
 		fetchImpl,
 	);
 	return response.campaigns;
@@ -152,23 +165,26 @@ export async function createAdminCampaign(
 	fetchImpl: FetchLike = fetch,
 ): Promise<Campaign> {
 	const response = await requestJson<CampaignResponse>(
-		'/api/admin/campaigns',
+		"/api/admin/campaigns",
 		{
-			method: 'POST',
+			method: "POST",
 			headers: jsonHeaders,
 			body: JSON.stringify(payload),
 		},
-		'Failed to create campaign',
+		"Failed to create campaign",
 		fetchImpl,
 	);
 	return response.campaign;
 }
 
-export async function fetchAdminCampaign(id: string, fetchImpl: FetchLike = fetch): Promise<Campaign> {
+export async function fetchAdminCampaign(
+	id: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<Campaign> {
 	const response = await requestJson<CampaignResponse>(
 		`/api/admin/campaigns/${encodeURIComponent(id)}`,
 		undefined,
-		'Failed to load campaign',
+		"Failed to load campaign",
 		fetchImpl,
 	);
 	return response.campaign;
@@ -182,50 +198,62 @@ export async function updateAdminCampaign(
 	const response = await requestJson<CampaignResponse>(
 		`/api/admin/campaigns/${encodeURIComponent(id)}`,
 		{
-			method: 'PATCH',
+			method: "PATCH",
 			headers: jsonHeaders,
 			body: JSON.stringify(payload),
 		},
-		'Failed to save campaign',
+		"Failed to save campaign",
 		fetchImpl,
 	);
 	return response.campaign;
 }
 
-export async function publishAdminCampaign(id: string, fetchImpl: FetchLike = fetch): Promise<Campaign> {
+export async function publishAdminCampaign(
+	id: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<Campaign> {
 	const response = await requestJson<CampaignResponse>(
 		`/api/admin/campaigns/${encodeURIComponent(id)}/publish`,
-		{ method: 'POST' },
-		'Failed to publish campaign',
+		{ method: "POST" },
+		"Failed to publish campaign",
 		fetchImpl,
 	);
 	return response.campaign;
 }
 
-export async function archiveAdminCampaign(id: string, fetchImpl: FetchLike = fetch): Promise<Campaign> {
+export async function archiveAdminCampaign(
+	id: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<Campaign> {
 	const response = await requestJson<CampaignResponse>(
 		`/api/admin/campaigns/${encodeURIComponent(id)}/archive`,
-		{ method: 'POST' },
-		'Failed to archive campaign',
+		{ method: "POST" },
+		"Failed to archive campaign",
 		fetchImpl,
 	);
 	return response.campaign;
 }
 
-export async function deleteAdminCampaignDraft(id: string, fetchImpl: FetchLike = fetch): Promise<void> {
+export async function deleteAdminCampaignDraft(
+	id: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<void> {
 	await requestVoid(
 		`/api/admin/campaigns/${encodeURIComponent(id)}`,
-		{ method: 'DELETE' },
-		'Failed to delete campaign draft',
+		{ method: "DELETE" },
+		"Failed to delete campaign draft",
 		fetchImpl,
 	);
 }
 
-export async function duplicateAdminCampaign(id: string, fetchImpl: FetchLike = fetch): Promise<Campaign> {
+export async function duplicateAdminCampaign(
+	id: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<Campaign> {
 	const response = await requestJson<CampaignResponse>(
 		`/api/admin/campaigns/${encodeURIComponent(id)}/duplicate`,
-		{ method: 'POST' },
-		'Failed to duplicate campaign',
+		{ method: "POST" },
+		"Failed to duplicate campaign",
 		fetchImpl,
 	);
 	return response.campaign;
@@ -235,28 +263,32 @@ export async function seedFirstRunCampaign(
 	fetchImpl: FetchLike = fetch,
 ): Promise<SeedFirstRunCampaignResponse> {
 	return requestJson<SeedFirstRunCampaignResponse>(
-		'/api/admin/campaigns/seed-first-run',
-		{ method: 'POST' },
-		'Failed to seed first-run campaign',
+		"/api/admin/campaigns/seed-first-run",
+		{ method: "POST" },
+		"Failed to seed first-run campaign",
 		fetchImpl,
 	);
 }
 
-export async function fetchEligibleCampaign(fetchImpl: FetchLike = fetch): Promise<Campaign | null> {
+export async function fetchEligibleCampaign(
+	fetchImpl: FetchLike = fetch,
+): Promise<Campaign | null> {
 	const response = await requestJson<CampaignResponse>(
-		'/api/campaigns/eligible',
+		"/api/campaigns/eligible",
 		undefined,
-		'Failed to load campaign',
+		"Failed to load campaign",
 		fetchImpl,
 	);
 	return response.campaign ?? null;
 }
 
-export async function fetchLatestCampaign(fetchImpl: FetchLike = fetch): Promise<Campaign | null> {
+export async function fetchLatestCampaign(
+	fetchImpl: FetchLike = fetch,
+): Promise<Campaign | null> {
 	const response = await requestJson<CampaignResponse>(
-		'/api/campaigns/latest',
+		"/api/campaigns/latest",
 		undefined,
-		'Failed to load campaign',
+		"Failed to load campaign",
 		fetchImpl,
 	);
 	return response.campaign ?? null;
@@ -264,17 +296,21 @@ export async function fetchLatestCampaign(fetchImpl: FetchLike = fetch): Promise
 
 export async function recordCampaignEvent(
 	campaignId: string,
-	payload: { eventType: CampaignEventType; slideId?: string | null; metadata?: Record<string, unknown> },
+	payload: {
+		eventType: CampaignEventType;
+		slideId?: string | null;
+		metadata?: Record<string, unknown>;
+	},
 	fetchImpl: FetchLike = fetch,
 ): Promise<unknown> {
 	const response = await requestJson<CampaignEventResponse>(
 		`/api/campaigns/${encodeURIComponent(campaignId)}/events`,
 		{
-			method: 'POST',
+			method: "POST",
 			headers: jsonHeaders,
 			body: JSON.stringify(payload),
 		},
-		'Failed to record campaign event',
+		"Failed to record campaign event",
 		fetchImpl,
 	);
 	return response.event;
@@ -288,11 +324,11 @@ export async function completeCampaign(
 	const response = await requestJson<CampaignCompletionResponse>(
 		`/api/campaigns/${encodeURIComponent(campaignId)}/complete`,
 		{
-			method: 'POST',
+			method: "POST",
 			headers: jsonHeaders,
 			body: JSON.stringify({ reason }),
 		},
-		'Failed to complete campaign',
+		"Failed to complete campaign",
 		fetchImpl,
 	);
 	return response.state;

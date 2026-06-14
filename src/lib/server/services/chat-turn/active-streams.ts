@@ -216,9 +216,7 @@ export function getStreamBufferSnapshot(params: {
 	return {
 		exists: true,
 		userMessage: buffer.userMessage,
-		...(buffer.reasoningDepth
-			? { reasoningDepth: buffer.reasoningDepth }
-			: {}),
+		...(buffer.reasoningDepth ? { reasoningDepth: buffer.reasoningDepth } : {}),
 		tokenCount: buffer.tokens.length,
 		thinkingCount: buffer.thinking.length,
 		toolCallCount: buffer.toolCalls.length,
@@ -548,10 +546,8 @@ export function wasActiveChatStreamStopRequested(params: {
 	streamId: string | null | undefined;
 	userId: string;
 }): boolean {
-	return (
-		Boolean(params.streamId) &&
-		pendingStops.has(pendingStopKey(params.userId, params.streamId!))
-	);
+	if (!params.streamId) return false;
+	return pendingStops.has(pendingStopKey(params.userId, params.streamId));
 }
 
 export interface StreamCapacityCheck {

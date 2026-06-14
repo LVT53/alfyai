@@ -1,17 +1,17 @@
 <script lang="ts">
-	let {
-		iconUrl = null,
-		displayName = '',
-		size = 24,
-	}: {
-		iconUrl?: string | null;
-		displayName?: string | null;
-		size?: number;
-	} = $props();
+let {
+	iconUrl = null,
+	displayName = "",
+	size = 24,
+}: {
+	iconUrl?: string | null;
+	displayName?: string | null;
+	size?: number;
+} = $props();
 
-	let failed = $state(false);
-	let initial = $derived((displayName?.trim()?.[0] ?? 'M').toUpperCase());
-	let sizeValue = $derived(`${size}px`);
+let failed = $state(false);
+let initial = $derived((displayName?.trim()?.[0] ?? "M").toUpperCase());
+let sizeValue = $derived(`${size}px`);
 </script>
 
 <span class="model-icon" style={`--model-icon-size: ${sizeValue};`} aria-hidden="true">

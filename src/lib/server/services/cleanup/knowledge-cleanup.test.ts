@@ -88,9 +88,16 @@ describe("resetKnowledgeBaseState", () => {
 		mockDeleteAllHonchoStateForUser.mockResolvedValue(undefined);
 		mockRotateHonchoPeerIdentity.mockResolvedValue(2);
 		mockClearMessageEvidenceForUser.mockResolvedValue(undefined);
-		mockGetArtifactOwnershipScope.mockResolvedValue({ conversationIds: new Set() });
-		mockBuildArtifactVisibilityCondition.mockReturnValue({ field: "scope", value: "user-1" });
-		mockHardDeleteArtifactsForUser.mockResolvedValue({ deletedArtifactIds: ["artifact-1"] });
+		mockGetArtifactOwnershipScope.mockResolvedValue({
+			conversationIds: new Set(),
+		});
+		mockBuildArtifactVisibilityCondition.mockReturnValue({
+			field: "scope",
+			value: "user-1",
+		});
+		mockHardDeleteArtifactsForUser.mockResolvedValue({
+			deletedArtifactIds: ["artifact-1"],
+		});
 		mockSelect.mockReturnValue({
 			from: vi.fn().mockReturnValue({
 				where: vi.fn().mockResolvedValue([{ id: "artifact-1" }]),
@@ -116,7 +123,9 @@ describe("resetKnowledgeBaseState", () => {
 		expect(result.deletedArtifactIds).toEqual(["artifact-1"]);
 		expect(mockDeleteAllHonchoStateForUser).toHaveBeenCalledWith("user-1");
 		expect(mockRotateHonchoPeerIdentity).toHaveBeenCalledWith("user-1");
-		expect(mockHardDeleteArtifactsForUser).toHaveBeenCalledWith("user-1", ["artifact-1"]);
+		expect(mockHardDeleteArtifactsForUser).toHaveBeenCalledWith("user-1", [
+			"artifact-1",
+		]);
 		expect(mockTransaction).toHaveBeenCalledTimes(1);
 		expect(mockClearMessageEvidenceForUser).toHaveBeenCalledWith("user-1");
 	});

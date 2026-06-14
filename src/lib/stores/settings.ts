@@ -1,29 +1,33 @@
-import { writable } from 'svelte/store';
-import { updateUserPreferences } from '$lib/client/api/settings';
+import { writable } from "svelte/store";
+import { updateUserPreferences } from "$lib/client/api/settings";
 import {
-	thinkingModeToReasoningDepth,
 	type ModelId,
 	type ReasoningDepth,
+	thinkingModeToReasoningDepth,
 	type UserModelPreference,
-} from '$lib/types';
-import { canUseStorage, persist, read } from './_local-storage';
+} from "$lib/types";
+import { canUseStorage, persist, read } from "./_local-storage";
 
-export type TitleLanguage = 'auto' | 'en' | 'hu';
-export type UiLanguage = 'en' | 'hu';
+export type TitleLanguage = "auto" | "en" | "hu";
+export type UiLanguage = "en" | "hu";
 export type { ModelId };
 
-export const selectedModel = writable<ModelId>('model1');
-export const titleLanguage = writable<TitleLanguage>('auto');
-export const uiLanguage = writable<UiLanguage>('en');
-export const selectedReasoningDepth = writable<ReasoningDepth>('auto');
+export const selectedModel = writable<ModelId>("model1");
+export const titleLanguage = writable<TitleLanguage>("auto");
+export const uiLanguage = writable<UiLanguage>("en");
+export const selectedReasoningDepth = writable<ReasoningDepth>("auto");
 
-const SELECTED_MODEL_KEY = 'selectedModel';
-const TITLE_LANGUAGE_KEY = 'titleLanguage';
-const UI_LANGUAGE_KEY = 'uiLanguage';
-const REASONING_DEPTH_KEY = 'reasoningDepth';
-const LEGACY_THINKING_MODE_KEY = 'thinkingMode';
+const SELECTED_MODEL_KEY = "selectedModel";
+const TITLE_LANGUAGE_KEY = "titleLanguage";
+const UI_LANGUAGE_KEY = "uiLanguage";
+const REASONING_DEPTH_KEY = "reasoningDepth";
+const LEGACY_THINKING_MODE_KEY = "thinkingMode";
 
-export function initSettings(serverPrefs?: { model?: ModelId; titleLanguage?: TitleLanguage; uiLanguage?: UiLanguage }): void {
+export function initSettings(serverPrefs?: {
+	model?: ModelId;
+	titleLanguage?: TitleLanguage;
+	uiLanguage?: UiLanguage;
+}): void {
 	if (!canUseStorage()) {
 		return;
 	}
@@ -32,8 +36,13 @@ export function initSettings(serverPrefs?: { model?: ModelId; titleLanguage?: Ti
 		selectedModel.set(serverPrefs.model);
 		persist(SELECTED_MODEL_KEY, serverPrefs.model);
 	} else {
-		const storedModel = read<ModelId>(SELECTED_MODEL_KEY, null as ModelId | null, (v): v is ModelId =>
-			v === 'model1' || v === 'model2' || (typeof v === 'string' && v.startsWith('provider:'))
+		const storedModel = read<ModelId>(
+			SELECTED_MODEL_KEY,
+			null as ModelId | null,
+			(v): v is ModelId =>
+				v === "model1" ||
+				v === "model2" ||
+				(typeof v === "string" && v.startsWith("provider:")),
 		);
 		if (storedModel) {
 			selectedModel.set(storedModel);
@@ -44,8 +53,10 @@ export function initSettings(serverPrefs?: { model?: ModelId; titleLanguage?: Ti
 		titleLanguage.set(serverPrefs.titleLanguage);
 		persist(TITLE_LANGUAGE_KEY, serverPrefs.titleLanguage);
 	} else {
-		const storedTitleLang = read<TitleLanguage>(TITLE_LANGUAGE_KEY, null as TitleLanguage | null, (v): v is TitleLanguage =>
-			v === 'auto' || v === 'en' || v === 'hu'
+		const storedTitleLang = read<TitleLanguage>(
+			TITLE_LANGUAGE_KEY,
+			null as TitleLanguage | null,
+			(v): v is TitleLanguage => v === "auto" || v === "en" || v === "hu",
 		);
 		if (storedTitleLang) {
 			titleLanguage.set(storedTitleLang);
@@ -56,8 +67,10 @@ export function initSettings(serverPrefs?: { model?: ModelId; titleLanguage?: Ti
 		uiLanguage.set(serverPrefs.uiLanguage);
 		persist(UI_LANGUAGE_KEY, serverPrefs.uiLanguage);
 	} else {
-		const storedUiLanguage = read<UiLanguage>(UI_LANGUAGE_KEY, null as UiLanguage | null, (v): v is UiLanguage =>
-			v === 'en' || v === 'hu'
+		const storedUiLanguage = read<UiLanguage>(
+			UI_LANGUAGE_KEY,
+			null as UiLanguage | null,
+			(v): v is UiLanguage => v === "en" || v === "hu",
 		);
 		if (storedUiLanguage) {
 			uiLanguage.set(storedUiLanguage);
@@ -67,17 +80,20 @@ export function initSettings(serverPrefs?: { model?: ModelId; titleLanguage?: Ti
 	const storedReasoningDepth = read<ReasoningDepth>(
 		REASONING_DEPTH_KEY,
 		null as ReasoningDepth | null,
-		(v): v is ReasoningDepth => v === 'auto' || v === 'max' || v === 'off'
+		(v): v is ReasoningDepth => v === "auto" || v === "max" || v === "off",
 	);
 	if (storedReasoningDepth) {
 		selectedReasoningDepth.set(storedReasoningDepth);
 	} else {
-		const legacyThinkingMode = read<'auto' | 'on' | 'off'>(
+		const legacyThinkingMode = read<"auto" | "on" | "off">(
 			LEGACY_THINKING_MODE_KEY,
-			'auto',
-			(v): v is 'auto' | 'on' | 'off' => v === 'auto' || v === 'on' || v === 'off'
+			"auto",
+			(v): v is "auto" | "on" | "off" =>
+				v === "auto" || v === "on" || v === "off",
 		);
-		selectedReasoningDepth.set(thinkingModeToReasoningDepth(legacyThinkingMode));
+		selectedReasoningDepth.set(
+			thinkingModeToReasoningDepth(legacyThinkingMode),
+		);
 	}
 }
 
@@ -112,7 +128,9 @@ export async function setModelPreferenceAndSync(
 	}
 }
 
-export async function setTitleLanguageAndSync(lang: TitleLanguage): Promise<void> {
+export async function setTitleLanguageAndSync(
+	lang: TitleLanguage,
+): Promise<void> {
 	titleLanguage.set(lang);
 	persist(TITLE_LANGUAGE_KEY, lang);
 	try {

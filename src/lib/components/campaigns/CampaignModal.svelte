@@ -1,276 +1,335 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
-	import { t } from '$lib/i18n';
-	import { ChevronDown } from '@lucide/svelte';
-	import {
-		getPersonalityProfileDisplayDescription,
-		getPersonalityProfileDisplayName,
-		type PersonalityProfileLabelSource,
-	} from '$lib/utils/personality-profile-labels';
-	import type {
-		Campaign,
-		CampaignLocale,
-		CampaignSetupControl,
-		CampaignSlide,
-	} from '$lib/client/api/campaigns';
-	import type { ModelId, UserModelPreference } from '$lib/types';
+import { onDestroy, onMount } from "svelte";
+import { t } from "$lib/i18n";
+import { ChevronDown } from "@lucide/svelte";
+import {
+	getPersonalityProfileDisplayDescription,
+	getPersonalityProfileDisplayName,
+	type PersonalityProfileLabelSource,
+} from "$lib/utils/personality-profile-labels";
+import type {
+	Campaign,
+	CampaignLocale,
+	CampaignSetupControl,
+	CampaignSlide,
+} from "$lib/client/api/campaigns";
+import type { ModelId, UserModelPreference } from "$lib/types";
 
-	type Theme = 'system' | 'light' | 'dark';
-	type UiLanguage = 'en' | 'hu';
-	const CAMPAIGN_FALLBACK_DESKTOP_IMAGE = '/campaign-fallbacks/alfyai-brand-desktop.png';
-	const CAMPAIGN_FALLBACK_MOBILE_IMAGE = '/campaign-fallbacks/alfyai-brand-mobile.png';
+type Theme = "system" | "light" | "dark";
+type UiLanguage = "en" | "hu";
+const CAMPAIGN_FALLBACK_DESKTOP_IMAGE =
+	"/campaign-fallbacks/alfyai-brand-desktop.png";
+const CAMPAIGN_FALLBACK_MOBILE_IMAGE =
+	"/campaign-fallbacks/alfyai-brand-mobile.png";
 
-	type SetupPreferences = {
-		availableModels: Array<{ id: ModelId; displayName: string }>;
-		effectiveModel: ModelId;
-		systemDefaultModel?: ModelId;
-		selectedModel: UserModelPreference;
-		selectedTheme: Theme;
-		selectedUiLanguage: UiLanguage;
-		personalityProfiles?: Array<PersonalityProfileLabelSource & { id: string }>;
-		selectedPersonalityId?: string | null;
-		onChangeUiLanguage: (language: UiLanguage) => void | Promise<void>;
-		onChangeTheme: (theme: Theme) => void | Promise<void>;
-		onChangeModel: (model: UserModelPreference) => void | Promise<void>;
-		onChangePersonality?: (id: string | null) => void | Promise<void>;
-	};
+type SetupPreferences = {
+	availableModels: Array<{ id: ModelId; displayName: string }>;
+	effectiveModel: ModelId;
+	systemDefaultModel?: ModelId;
+	selectedModel: UserModelPreference;
+	selectedTheme: Theme;
+	selectedUiLanguage: UiLanguage;
+	personalityProfiles?: Array<PersonalityProfileLabelSource & { id: string }>;
+	selectedPersonalityId?: string | null;
+	onChangeUiLanguage: (language: UiLanguage) => void | Promise<void>;
+	onChangeTheme: (theme: Theme) => void | Promise<void>;
+	onChangeModel: (model: UserModelPreference) => void | Promise<void>;
+	onChangePersonality?: (id: string | null) => void | Promise<void>;
+};
 
-	let {
-		campaign = null,
-		locale = 'en',
-		preview = false,
-		inline = false,
-		slideIndex = 0,
-		setupPreferences = undefined,
-		onSlideChange,
-		onSlideView,
-		onClose,
-		onSkip,
-		onFinish,
-		onInternalAction,
-	}: {
-		campaign?: Campaign | null;
-		locale?: CampaignLocale;
-		preview?: boolean;
-		inline?: boolean;
-		slideIndex?: number;
-		setupPreferences?: SetupPreferences;
-		onSlideChange?: (index: number) => void;
-		onSlideView?: (slide: CampaignSlide, index: number) => void;
-		onClose?: () => void;
-		onSkip?: () => void;
-		onFinish?: () => void;
-		onInternalAction?: (action: string) => void;
-	} = $props();
+let {
+	campaign = null,
+	locale = "en",
+	preview = false,
+	inline = false,
+	slideIndex = 0,
+	setupPreferences = undefined,
+	onSlideChange,
+	onSlideView,
+	onClose,
+	onSkip,
+	onFinish,
+	onInternalAction,
+}: {
+	campaign?: Campaign | null;
+	locale?: CampaignLocale;
+	preview?: boolean;
+	inline?: boolean;
+	slideIndex?: number;
+	setupPreferences?: SetupPreferences;
+	onSlideChange?: (index: number) => void;
+	onSlideView?: (slide: CampaignSlide, index: number) => void;
+	onClose?: () => void;
+	onSkip?: () => void;
+	onFinish?: () => void;
+	onInternalAction?: (action: string) => void;
+} = $props();
 
-	let localSlideIndex = $state(0);
-	let dialogRef = $state<HTMLElement | null>(null);
-	let initialFocusRef = $state<HTMLButtonElement | null>(null);
-	let previousFocus: HTMLElement | null = null;
+let localSlideIndex = $state(0);
+let dialogRef = $state<HTMLElement | null>(null);
+let initialFocusRef = $state<HTMLButtonElement | null>(null);
+let previousFocus: HTMLElement | null = null;
 
-	$effect(() => {
-		localSlideIndex = slideIndex;
-	});
+$effect(() => {
+	localSlideIndex = slideIndex;
+});
 
-	let slides = $derived(
-		[...(campaign?.slides ?? [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
-	);
-	let safeSlideIndex = $derived(Math.min(Math.max(localSlideIndex, 0), Math.max(slides.length - 1, 0)));
-	let currentSlide = $derived(slides[safeSlideIndex] ?? null);
-	let isFinalSlide = $derived(safeSlideIndex >= slides.length - 1);
-	let isSetupSlide = $derived(
-		Boolean(
-			currentSlide &&
-				campaign?.type === 'first_run_onboarding' &&
-				(currentSlide.layoutType ?? currentSlide.kind ?? currentSlide.type) === 'setup',
-		),
-	);
-	let enabledSetupControls = $derived<CampaignSetupControl[]>(currentSlide?.setupControls ?? []);
-	let showSetupControls = $derived(Boolean(isSetupSlide && setupPreferences && enabledSetupControls.length > 0));
-	let systemDefaultModel = $derived(setupPreferences?.systemDefaultModel ?? setupPreferences?.effectiveModel);
-	let systemDefaultModelDisplayName = $derived(
-		setupPreferences?.availableModels.find((model) => model.id === systemDefaultModel)?.displayName ??
-			systemDefaultModel ??
-			'',
-	);
-	let explicitModelOptions = $derived(
-		setupPreferences?.availableModels.filter((model) => model.id !== systemDefaultModel) ?? [],
-	);
-	let currentDesktopUploadedImageUrl = $derived(assetUrl(currentSlide, 'desktop'));
-	let currentMobileUploadedImageUrl = $derived(assetUrl(currentSlide, 'mobile'));
-	let hasCurrentUploadedImage = $derived(Boolean(currentDesktopUploadedImageUrl || currentMobileUploadedImageUrl));
-	let currentActionDestination = $derived(currentSlide?.actionDestination ?? currentSlide?.actionUrl ?? null);
-	let isInternalAction = $derived(Boolean(currentActionDestination?.startsWith('internal:')));
-	let currentDesktopImageUrl = $derived(campaignImageUrl(currentSlide, 'desktop'));
-	let currentMobileImageUrl = $derived(campaignImageUrl(currentSlide, 'mobile'));
-	let currentImageKey = $derived(
-		currentSlide
-			? `${currentSlide.id ?? safeSlideIndex}:${currentDesktopImageUrl}:${currentMobileImageUrl}`
-			: '',
-	);
-	let settledImageKey = $state('');
-	let trackedImageKey = $state('');
-	const preloadedImageUrls = new Set<string>();
-	const preloadedImages: HTMLImageElement[] = [];
+let slides = $derived(
+	[...(campaign?.slides ?? [])].sort(
+		(a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+	),
+);
+let safeSlideIndex = $derived(
+	Math.min(Math.max(localSlideIndex, 0), Math.max(slides.length - 1, 0)),
+);
+let currentSlide = $derived(slides[safeSlideIndex] ?? null);
+let isFinalSlide = $derived(safeSlideIndex >= slides.length - 1);
+let isSetupSlide = $derived(
+	Boolean(
+		currentSlide &&
+			campaign?.type === "first_run_onboarding" &&
+			(currentSlide.layoutType ?? currentSlide.kind ?? currentSlide.type) ===
+				"setup",
+	),
+);
+let enabledSetupControls = $derived<CampaignSetupControl[]>(
+	currentSlide?.setupControls ?? [],
+);
+let showSetupControls = $derived(
+	Boolean(isSetupSlide && setupPreferences && enabledSetupControls.length > 0),
+);
+let systemDefaultModel = $derived(
+	setupPreferences?.systemDefaultModel ?? setupPreferences?.effectiveModel,
+);
+let systemDefaultModelDisplayName = $derived(
+	setupPreferences?.availableModels.find(
+		(model) => model.id === systemDefaultModel,
+	)?.displayName ??
+		systemDefaultModel ??
+		"",
+);
+let explicitModelOptions = $derived(
+	setupPreferences?.availableModels.filter(
+		(model) => model.id !== systemDefaultModel,
+	) ?? [],
+);
+let currentDesktopUploadedImageUrl = $derived(
+	assetUrl(currentSlide, "desktop"),
+);
+let currentMobileUploadedImageUrl = $derived(assetUrl(currentSlide, "mobile"));
+let hasCurrentUploadedImage = $derived(
+	Boolean(currentDesktopUploadedImageUrl || currentMobileUploadedImageUrl),
+);
+let currentActionDestination = $derived(
+	currentSlide?.actionDestination ?? currentSlide?.actionUrl ?? null,
+);
+let isInternalAction = $derived(
+	Boolean(currentActionDestination?.startsWith("internal:")),
+);
+let currentDesktopImageUrl = $derived(
+	campaignImageUrl(currentSlide, "desktop"),
+);
+let currentMobileImageUrl = $derived(campaignImageUrl(currentSlide, "mobile"));
+let currentImageKey = $derived(
+	currentSlide
+		? `${currentSlide.id ?? safeSlideIndex}:${currentDesktopImageUrl}:${currentMobileImageUrl}`
+		: "",
+);
+let settledImageKey = $state("");
+let trackedImageKey = $state("");
+const preloadedImageUrls = new Set<string>();
+const preloadedImages: HTMLImageElement[] = [];
 
-	$effect(() => {
-		if (!currentSlide || preview) return;
-		onSlideView?.(currentSlide, safeSlideIndex);
-	});
+$effect(() => {
+	if (!currentSlide || preview) return;
+	onSlideView?.(currentSlide, safeSlideIndex);
+});
 
-	$effect(() => {
-		if (currentImageKey === trackedImageKey) return;
-		trackedImageKey = currentImageKey;
-		settledImageKey = '';
-	});
+$effect(() => {
+	if (currentImageKey === trackedImageKey) return;
+	trackedImageKey = currentImageKey;
+	settledImageKey = "";
+});
 
-	$effect(() => {
-		const nextSlide = slides[safeSlideIndex + 1] ?? null;
-		preloadCampaignImage(campaignImageUrl(nextSlide, 'desktop'));
-		preloadCampaignImage(campaignImageUrl(nextSlide, 'mobile'));
-	});
+$effect(() => {
+	const nextSlide = slides[safeSlideIndex + 1] ?? null;
+	preloadCampaignImage(campaignImageUrl(nextSlide, "desktop"));
+	preloadCampaignImage(campaignImageUrl(nextSlide, "mobile"));
+});
 
-	function localized(slide: CampaignSlide | null, field: 'title' | 'body' | 'alt' | 'actionLabel') {
-		if (!slide) return '';
-		const suffix = locale === 'hu' ? 'Hu' : 'En';
-		const fallbackSuffix = locale === 'hu' ? 'En' : 'Hu';
-		const objectField = field === 'alt' ? 'altText' : field;
-		const localizedObject = slide[objectField as keyof CampaignSlide] as
-			| Partial<Record<CampaignLocale, string | null>>
+function localized(
+	slide: CampaignSlide | null,
+	field: "title" | "body" | "alt" | "actionLabel",
+) {
+	if (!slide) return "";
+	const suffix = locale === "hu" ? "Hu" : "En";
+	const fallbackSuffix = locale === "hu" ? "En" : "Hu";
+	const objectField = field === "alt" ? "altText" : field;
+	const localizedObject = slide[objectField as keyof CampaignSlide] as
+		| Partial<Record<CampaignLocale, string | null>>
+		| null
+		| undefined;
+	return (
+		localizedObject?.[locale] ??
+		localizedObject?.[locale === "hu" ? "en" : "hu"] ??
+		(slide[`${field}${suffix}` as keyof CampaignSlide] as
+			| string
 			| null
-			| undefined;
-		return (
-			localizedObject?.[locale] ??
-			localizedObject?.[locale === 'hu' ? 'en' : 'hu'] ??
-			(slide[`${field}${suffix}` as keyof CampaignSlide] as string | null | undefined) ??
-			(slide[`${field}${fallbackSuffix}` as keyof CampaignSlide] as string | null | undefined) ??
-			''
-		);
+			| undefined) ??
+		(slide[`${field}${fallbackSuffix}` as keyof CampaignSlide] as
+			| string
+			| null
+			| undefined) ??
+		""
+	);
+}
+
+function assetUrl(
+	slide: CampaignSlide | null,
+	preferredVariant: "desktop" | "mobile" = "desktop",
+) {
+	if (!slide) return "";
+	const primary =
+		preferredVariant === "desktop" ? slide.desktopAsset : slide.mobileAsset;
+	const fallback =
+		preferredVariant === "desktop" ? slide.mobileAsset : slide.desktopAsset;
+	const asset =
+		primary?.url ??
+		fallback?.url ??
+		slide.assets?.find((candidate) => candidate.variant === preferredVariant)
+			?.url ??
+		slide.assets?.[0]?.url;
+	if (asset) return asset;
+	const assetId =
+		(preferredVariant === "desktop"
+			? (slide.desktopCropAssetId ??
+				slide.desktopAssetId ??
+				slide.desktopAsset?.id)
+			: (slide.mobileCropAssetId ??
+				slide.mobileAssetId ??
+				slide.mobileAsset?.id)) ??
+		(preferredVariant === "desktop"
+			? (slide.mobileCropAssetId ??
+				slide.mobileAssetId ??
+				slide.mobileAsset?.id)
+			: (slide.desktopCropAssetId ??
+				slide.desktopAssetId ??
+				slide.desktopAsset?.id)) ??
+		slide.assets?.find((candidate) => candidate.variant === preferredVariant)
+			?.id ??
+		slide.assets?.[0]?.id;
+	return assetId
+		? `/api/campaign-assets/${encodeURIComponent(assetId)}/content`
+		: "";
+}
+
+function campaignImageUrl(
+	slide: CampaignSlide | null,
+	preferredVariant: "desktop" | "mobile",
+) {
+	if (!slide) return "";
+	return (
+		assetUrl(slide, preferredVariant) ||
+		(preferredVariant === "desktop"
+			? CAMPAIGN_FALLBACK_DESKTOP_IMAGE
+			: CAMPAIGN_FALLBACK_MOBILE_IMAGE)
+	);
+}
+
+function markImageSettled(key: string) {
+	if (key === currentImageKey) settledImageKey = key;
+}
+
+function preloadCampaignImage(url: string) {
+	if (!url || preloadedImageUrls.has(url) || typeof Image === "undefined")
+		return;
+	preloadedImageUrls.add(url);
+	const image = new Image();
+	image.src = url;
+	preloadedImages.push(image);
+}
+
+function goTo(index: number) {
+	if (slides.length === 0) return;
+	localSlideIndex = Math.min(Math.max(index, 0), slides.length - 1);
+	onSlideChange?.(localSlideIndex);
+}
+
+function closeAsSkip() {
+	onSkip?.();
+	onClose?.();
+	restoreFocus();
+}
+
+function hasSetupControl(control: CampaignSetupControl) {
+	return enabledSetupControls.includes(control);
+}
+
+function handlePersonalitySelect(event: Event) {
+	const value = (event.currentTarget as HTMLSelectElement).value;
+	void setupPreferences?.onChangePersonality?.(value || null);
+}
+
+function handleModelSelect(event: Event) {
+	const value = (event.currentTarget as HTMLSelectElement).value;
+	void setupPreferences?.onChangeModel(
+		value ? (value as UserModelPreference) : null,
+	);
+}
+
+function focusableElements() {
+	return Array.from(
+		dialogRef?.querySelectorAll<HTMLElement>(
+			'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
+		) ?? [],
+	).filter((element) => !element.hasAttribute("aria-hidden"));
+}
+
+function restoreFocus() {
+	if (inline) return;
+	previousFocus?.focus?.();
+	previousFocus = null;
+}
+
+function handleKeydown(event: KeyboardEvent) {
+	if (inline) return;
+	if (event.key === "Escape") {
+		event.preventDefault();
+		closeAsSkip();
+		return;
 	}
+	if (event.key !== "Tab") return;
 
-	function assetUrl(slide: CampaignSlide | null, preferredVariant: 'desktop' | 'mobile' = 'desktop') {
-		if (!slide) return '';
-		const primary = preferredVariant === 'desktop' ? slide.desktopAsset : slide.mobileAsset;
-		const fallback = preferredVariant === 'desktop' ? slide.mobileAsset : slide.desktopAsset;
-		const asset =
-			primary?.url ??
-			fallback?.url ??
-			slide.assets?.find((candidate) => candidate.variant === preferredVariant)?.url ??
-			slide.assets?.[0]?.url;
-		if (asset) return asset;
-		const assetId =
-			(preferredVariant === 'desktop'
-				? (slide.desktopCropAssetId ?? slide.desktopAssetId ?? slide.desktopAsset?.id)
-				: (slide.mobileCropAssetId ?? slide.mobileAssetId ?? slide.mobileAsset?.id)) ??
-			(preferredVariant === 'desktop'
-				? (slide.mobileCropAssetId ?? slide.mobileAssetId ?? slide.mobileAsset?.id)
-				: (slide.desktopCropAssetId ?? slide.desktopAssetId ?? slide.desktopAsset?.id)) ??
-			slide.assets?.find((candidate) => candidate.variant === preferredVariant)?.id ??
-			slide.assets?.[0]?.id;
-		return assetId ? `/api/campaign-assets/${encodeURIComponent(assetId)}/content` : '';
+	const focusable = focusableElements();
+	if (focusable.length === 0) {
+		event.preventDefault();
+		return;
 	}
-
-	function campaignImageUrl(slide: CampaignSlide | null, preferredVariant: 'desktop' | 'mobile') {
-		if (!slide) return '';
-		return (
-			assetUrl(slide, preferredVariant) ||
-			(preferredVariant === 'desktop'
-				? CAMPAIGN_FALLBACK_DESKTOP_IMAGE
-				: CAMPAIGN_FALLBACK_MOBILE_IMAGE)
-		);
+	const first = focusable[0];
+	const last = focusable[focusable.length - 1];
+	if (event.shiftKey && document.activeElement === first) {
+		last.focus();
+		event.preventDefault();
+	} else if (!event.shiftKey && document.activeElement === last) {
+		first.focus();
+		event.preventDefault();
+	} else if (!dialogRef?.contains(document.activeElement)) {
+		first.focus();
+		event.preventDefault();
 	}
+}
 
-	function markImageSettled(key: string) {
-		if (key === currentImageKey) settledImageKey = key;
-	}
+onMount(() => {
+	if (inline) return;
+	previousFocus = document.activeElement as HTMLElement | null;
+	setTimeout(() => {
+		(initialFocusRef ?? focusableElements()[0])?.focus();
+	}, 0);
+});
 
-	function preloadCampaignImage(url: string) {
-		if (!url || preloadedImageUrls.has(url) || typeof Image === 'undefined') return;
-		preloadedImageUrls.add(url);
-		const image = new Image();
-		image.src = url;
-		preloadedImages.push(image);
-	}
-
-	function goTo(index: number) {
-		if (slides.length === 0) return;
-		localSlideIndex = Math.min(Math.max(index, 0), slides.length - 1);
-		onSlideChange?.(localSlideIndex);
-	}
-
-	function closeAsSkip() {
-		onSkip?.();
-		onClose?.();
-		restoreFocus();
-	}
-
-	function hasSetupControl(control: CampaignSetupControl) {
-		return enabledSetupControls.includes(control);
-	}
-
-	function handlePersonalitySelect(event: Event) {
-		const value = (event.currentTarget as HTMLSelectElement).value;
-		void setupPreferences?.onChangePersonality?.(value || null);
-	}
-
-	function handleModelSelect(event: Event) {
-		const value = (event.currentTarget as HTMLSelectElement).value;
-		void setupPreferences?.onChangeModel(value ? (value as UserModelPreference) : null);
-	}
-
-	function focusableElements() {
-		return Array.from(
-			dialogRef?.querySelectorAll<HTMLElement>(
-				'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
-			) ?? [],
-		).filter((element) => !element.hasAttribute('aria-hidden'));
-	}
-
-	function restoreFocus() {
-		if (inline) return;
-		previousFocus?.focus?.();
-		previousFocus = null;
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (inline) return;
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			closeAsSkip();
-			return;
-		}
-		if (event.key !== 'Tab') return;
-
-		const focusable = focusableElements();
-		if (focusable.length === 0) {
-			event.preventDefault();
-			return;
-		}
-		const first = focusable[0];
-		const last = focusable[focusable.length - 1];
-		if (event.shiftKey && document.activeElement === first) {
-			last.focus();
-			event.preventDefault();
-		} else if (!event.shiftKey && document.activeElement === last) {
-			first.focus();
-			event.preventDefault();
-		} else if (!dialogRef?.contains(document.activeElement)) {
-			first.focus();
-			event.preventDefault();
-		}
-	}
-
-	onMount(() => {
-		if (inline) return;
-		previousFocus = document.activeElement as HTMLElement | null;
-		setTimeout(() => {
-			(initialFocusRef ?? focusableElements()[0])?.focus();
-		}, 0);
-	});
-
-	onDestroy(() => {
-		restoreFocus();
-	});
+onDestroy(() => {
+	restoreFocus();
+});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />

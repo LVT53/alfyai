@@ -1,59 +1,65 @@
 <script lang="ts">
-	import { fade } from 'svelte/transition';
+import { fade } from "svelte/transition";
 
-	let {
-		text,
-		delay = 0,
-		speed = 6,
-		onComplete
-	}: {
-		text: string;
-		delay?: number;
-		speed?: number;
-		onComplete?: () => void;
-	} = $props();
+let {
+	text,
+	delay = 0,
+	speed = 6,
+	onComplete,
+}: {
+	text: string;
+	delay?: number;
+	speed?: number;
+	onComplete?: () => void;
+} = $props();
 
-	let displayedChars = $state<string[]>([]);
-	let isAnimating = $state(false);
-	let animationKey = $state(0);
-	let animationSeed = 0;
+let displayedChars = $state<string[]>([]);
+let isAnimating = $state(false);
+let animationKey = $state(0);
+let animationSeed = 0;
 
-	$effect(() => {
-		if (!text) {
-			displayedChars = [];
-			isAnimating = false;
-			return;
-		}
-
-		animationSeed += 1;
-		animationKey = animationSeed;
+$effect(() => {
+	if (!text) {
 		displayedChars = [];
-		isAnimating = true;
+		isAnimating = false;
+		return;
+	}
 
-		const chars = text.split('');
-		const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+	animationSeed += 1;
+	animationKey = animationSeed;
+	displayedChars = [];
+	isAnimating = true;
 
-		chars.forEach((_, index) => {
-			timeoutIds.push(
-				setTimeout(() => {
-					displayedChars = chars.slice(0, index + 1);
-				}, delay + index * speed)
-			);
-		});
+	const chars = text.split("");
+	const timeoutIds: ReturnType<typeof setTimeout>[] = [];
 
+	chars.forEach((_, index) => {
 		timeoutIds.push(
-			setTimeout(() => {
+			setTimeout(
+				() => {
+					displayedChars = chars.slice(0, index + 1);
+				},
+				delay + index * speed,
+			),
+		);
+	});
+
+	timeoutIds.push(
+		setTimeout(
+			() => {
 				isAnimating = false;
 				onComplete?.();
-			}, delay + text.length * speed + 200)
-		);
+			},
+			delay + text.length * speed + 200,
+		),
+	);
 
-		return () => {
-			for (const timeoutId of timeoutIds) {
-				clearTimeout(timeoutId);
-			}
-		};
-	});
+	return () => {
+		for (const timeoutId of timeoutIds) {
+			clearTimeout(timeoutId);
+		}
+	};
+});
 </script>
 
 <span class="typewriter-text" class:animating={isAnimating}>

@@ -18,7 +18,9 @@ beforeEach(() => {
 	});
 });
 
-function renderComposerPanel(props: Partial<Parameters<typeof render>[1]> = {}) {
+function renderComposerPanel(
+	props: Partial<Parameters<typeof render>[1]> = {},
+) {
 	return render(ChatComposerPanel, {
 		sendError: null,
 		onRetry: vi.fn(),
@@ -70,9 +72,11 @@ describe("ChatComposerPanel", () => {
 	});
 
 	it("passes the Composer Command Registry feature flag into the composer", async () => {
-		const { getByPlaceholderText, queryByRole, rerender } = renderComposerPanel({
-			composerCommandRegistryEnabled: false,
-		});
+		const { getByPlaceholderText, queryByRole, rerender } = renderComposerPanel(
+			{
+				composerCommandRegistryEnabled: false,
+			},
+		);
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "/" },
@@ -87,7 +91,9 @@ describe("ChatComposerPanel", () => {
 			target: { value: "/" },
 		});
 
-		expect(queryByRole("listbox", { name: "Composer commands" })).not.toBeNull();
+		expect(
+			queryByRole("listbox", { name: "Composer commands" }),
+		).not.toBeNull();
 	});
 
 	it("forwards the context source management action into the composer ring", async () => {
@@ -126,8 +132,12 @@ describe("ChatComposerPanel", () => {
 
 		expect(getByText("Wrapper source.md")).toBeInTheDocument();
 		expect(getByText("Wrapper Skill")).toBeInTheDocument();
-		expect(getByRole("button", { name: "Remove Wrapper source.md" })).toBeInTheDocument();
-		expect(getByRole("button", { name: "Remove pending skill Wrapper Skill" })).toBeInTheDocument();
+		expect(
+			getByRole("button", { name: "Remove Wrapper source.md" }),
+		).toBeInTheDocument();
+		expect(
+			getByRole("button", { name: "Remove pending skill Wrapper Skill" }),
+		).toBeInTheDocument();
 	});
 
 	it("passes the selected Deep Research depth through chat sends", async () => {
@@ -138,7 +148,9 @@ describe("ChatComposerPanel", () => {
 		});
 
 		await fireEvent.click(getByRole("button", { name: "Deep Research" }));
-		await fireEvent.click(getByRole("button", { name: "Focused Deep Research" }));
+		await fireEvent.click(
+			getByRole("button", { name: "Focused Deep Research" }),
+		);
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "Research battery recycling policy" },
 		});

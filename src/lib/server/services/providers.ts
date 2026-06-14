@@ -134,9 +134,7 @@ function mapRowToProvider(row: ProviderRow): Provider {
 	};
 }
 
-function mapRowToProviderWithSecrets(
-	row: ProviderRow,
-): ProviderWithSecrets {
+function mapRowToProviderWithSecrets(row: ProviderRow): ProviderWithSecrets {
 	return {
 		...mapRowToProvider(row),
 		apiKeyEncrypted: row.apiKeyEncrypted,
@@ -175,13 +173,10 @@ export async function createProvider(
 			iconAssetId: input.iconAssetId ?? null,
 			rateLimitFallbackEnabled: input.rateLimitFallbackEnabled ? 1 : 0,
 			rateLimitFallbackBaseUrl: input.rateLimitFallbackBaseUrl ?? null,
-			rateLimitFallbackApiKeyEncrypted:
-				fallbackApiKey?.encrypted ?? null,
+			rateLimitFallbackApiKeyEncrypted: fallbackApiKey?.encrypted ?? null,
 			rateLimitFallbackApiKeyIv: fallbackApiKey?.iv ?? null,
-			rateLimitFallbackModelName:
-				input.rateLimitFallbackModelName ?? null,
-			rateLimitFallbackTimeoutMs:
-				input.rateLimitFallbackTimeoutMs ?? 10000,
+			rateLimitFallbackModelName: input.rateLimitFallbackModelName ?? null,
+			rateLimitFallbackTimeoutMs: input.rateLimitFallbackTimeoutMs ?? 10000,
 			sortOrder: input.sortOrder ?? 0,
 			enabled: input.enabled === false ? 0 : 1,
 			createdAt: now,
@@ -192,13 +187,8 @@ export async function createProvider(
 	return mapRowToProvider(provider);
 }
 
-export async function getProvider(
-	id: string,
-): Promise<Provider | null> {
-	const [row] = await db
-		.select()
-		.from(providers)
-		.where(eq(providers.id, id));
+export async function getProvider(id: string): Promise<Provider | null> {
+	const [row] = await db.select().from(providers).where(eq(providers.id, id));
 
 	return row ? mapRowToProvider(row) : null;
 }
@@ -206,10 +196,7 @@ export async function getProvider(
 export async function getProviderWithSecrets(
 	id: string,
 ): Promise<ProviderWithSecrets | null> {
-	const [row] = await db
-		.select()
-		.from(providers)
-		.where(eq(providers.id, id));
+	const [row] = await db.select().from(providers).where(eq(providers.id, id));
 
 	return row ? mapRowToProviderWithSecrets(row) : null;
 }
@@ -226,10 +213,7 @@ export async function getProviderByName(
 }
 
 export async function listProviders(): Promise<Provider[]> {
-	const rows = await db
-		.select()
-		.from(providers)
-		.orderBy(providers.sortOrder);
+	const rows = await db.select().from(providers).orderBy(providers.sortOrder);
 
 	return rows.map(mapRowToProvider);
 }
@@ -267,8 +251,7 @@ export async function updateProvider(
 	if (input.baseUrl !== undefined) updates.baseUrl = input.baseUrl;
 	if (input.iconAssetId !== undefined) updates.iconAssetId = input.iconAssetId;
 	if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder;
-	if (input.enabled !== undefined)
-		updates.enabled = input.enabled ? 1 : 0;
+	if (input.enabled !== undefined) updates.enabled = input.enabled ? 1 : 0;
 
 	if (input.apiKey !== undefined) {
 		const { encrypted, iv } = encryptApiKey(input.apiKey);
@@ -277,13 +260,10 @@ export async function updateProvider(
 	}
 
 	if (input.rateLimitFallbackEnabled !== undefined) {
-		updates.rateLimitFallbackEnabled = input.rateLimitFallbackEnabled
-			? 1
-			: 0;
+		updates.rateLimitFallbackEnabled = input.rateLimitFallbackEnabled ? 1 : 0;
 	}
 	if (input.rateLimitFallbackBaseUrl !== undefined) {
-		updates.rateLimitFallbackBaseUrl =
-			input.rateLimitFallbackBaseUrl;
+		updates.rateLimitFallbackBaseUrl = input.rateLimitFallbackBaseUrl;
 	}
 	if (input.rateLimitFallbackApiKey !== undefined) {
 		const trimmed = input.rateLimitFallbackApiKey?.trim();
@@ -297,8 +277,7 @@ export async function updateProvider(
 		}
 	}
 	if (input.rateLimitFallbackModelName !== undefined) {
-		updates.rateLimitFallbackModelName =
-			input.rateLimitFallbackModelName;
+		updates.rateLimitFallbackModelName = input.rateLimitFallbackModelName;
 	}
 	if (input.rateLimitFallbackTimeoutMs !== undefined) {
 		updates.rateLimitFallbackTimeoutMs =
@@ -315,9 +294,7 @@ export async function updateProvider(
 }
 
 export async function deleteProvider(id: string): Promise<boolean> {
-	const result = await db
-		.delete(providers)
-		.where(eq(providers.id, id));
+	const result = await db.delete(providers).where(eq(providers.id, id));
 
 	return result.changes > 0;
 }
@@ -395,16 +372,11 @@ export async function validateProviderConnection(
 }
 
 function isDeepseekHost(hostname: string): boolean {
-	return (
-		hostname === "api.deepseek.com" || hostname.endsWith(".deepseek.com")
-	);
+	return hostname === "api.deepseek.com" || hostname.endsWith(".deepseek.com");
 }
 
 function isFireworksHost(hostname: string): boolean {
-	return (
-		hostname === "api.fireworks.ai" ||
-		hostname.endsWith(".fireworks.ai")
-	);
+	return hostname === "api.fireworks.ai" || hostname.endsWith(".fireworks.ai");
 }
 
 export async function modelDiscovery(
@@ -547,28 +519,24 @@ export async function seedDefaultProviders(): Promise<void> {
 				})
 				.returning();
 
-			await db
-				.insert(providerModels)
-				.values({
-					id: randomUUID(),
-					providerId: provider1.id,
-					name: model1Config.modelName,
-					displayName: model1Config.displayName,
-					maxTokens: model1Config.maxTokens ?? null,
-					reasoningEffort: model1Config.reasoningEffort ?? null,
-					thinkingType: model1Config.thinkingType ?? null,
-					enabled: 1,
-					sortOrder: 0,
-					createdAt: now,
-					updatedAt: now,
-				});
+			await db.insert(providerModels).values({
+				id: randomUUID(),
+				providerId: provider1.id,
+				name: model1Config.modelName,
+				displayName: model1Config.displayName,
+				maxTokens: model1Config.maxTokens ?? null,
+				reasoningEffort: model1Config.reasoningEffort ?? null,
+				thinkingType: model1Config.thinkingType ?? null,
+				enabled: 1,
+				sortOrder: 0,
+				createdAt: now,
+				updatedAt: now,
+			});
 		}
 
 		const model2Enabled = process.env.MODEL_2_ENABLED !== "false";
 		if (model2Enabled && model2Config.baseUrl && model2Config.modelName) {
-			const { encrypted: enc2, iv: iv2 } = encryptApiKey(
-				model2Config.apiKey,
-			);
+			const { encrypted: enc2, iv: iv2 } = encryptApiKey(model2Config.apiKey);
 			const [provider2] = await db
 				.insert(providers)
 				.values({
@@ -585,21 +553,19 @@ export async function seedDefaultProviders(): Promise<void> {
 				})
 				.returning();
 
-			await db
-				.insert(providerModels)
-				.values({
-					id: randomUUID(),
-					providerId: provider2.id,
-					name: model2Config.modelName,
-					displayName: model2Config.displayName,
-					maxTokens: model2Config.maxTokens ?? null,
-					reasoningEffort: model2Config.reasoningEffort ?? null,
-					thinkingType: model2Config.thinkingType ?? null,
-					enabled: 1,
-					sortOrder: 0,
-					createdAt: now,
-					updatedAt: now,
-				});
+			await db.insert(providerModels).values({
+				id: randomUUID(),
+				providerId: provider2.id,
+				name: model2Config.modelName,
+				displayName: model2Config.displayName,
+				maxTokens: model2Config.maxTokens ?? null,
+				reasoningEffort: model2Config.reasoningEffort ?? null,
+				thinkingType: model2Config.thinkingType ?? null,
+				enabled: 1,
+				sortOrder: 0,
+				createdAt: now,
+				updatedAt: now,
+			});
 		}
 
 		console.log("[providers] Seeded default providers from env configuration.");

@@ -1,18 +1,18 @@
-import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
-import type { Artifact } from '$lib/types';
-import { db } from '$lib/server/db';
-import { artifacts } from '$lib/server/db/schema';
-import { parseJsonRecord } from '$lib/server/utils/json';
+import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
+import { db } from "$lib/server/db";
+import { artifacts } from "$lib/server/db/schema";
 import {
 	createArtifact,
 	mapArtifact,
-} from '$lib/server/services/knowledge/store/core';
+} from "$lib/server/services/knowledge/store/core";
+import { parseJsonRecord } from "$lib/server/utils/json";
+import type { Artifact } from "$lib/types";
 import {
 	buildGeneratedDocumentProjection,
-	validateGeneratedDocumentSource,
 	type GeneratedDocumentSource,
-} from './source-schema';
+	validateGeneratedDocumentSource,
+} from "./source-schema";
 
 export interface PersistGeneratedDocumentSourceInput {
 	userId: string;
@@ -25,18 +25,18 @@ export interface PersistGeneratedDocumentSourceInput {
 }
 
 export const GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY =
-	'generatedDocumentRenderedChatFileIds';
+	"generatedDocumentRenderedChatFileIds";
 export const GENERATED_DOCUMENT_SOURCE_STATUS_KEY =
-	'generatedDocumentSourceStatus';
+	"generatedDocumentSourceStatus";
 
-type GeneratedDocumentSourceStatus = 'pending' | 'succeeded' | 'failed';
+type GeneratedDocumentSourceStatus = "pending" | "succeeded" | "failed";
 
 function readStringArray(value: unknown): string[] {
 	if (!Array.isArray(value)) {
 		return [];
 	}
 	return value
-		.filter((item): item is string => typeof item === 'string')
+		.filter((item): item is string => typeof item === "string")
 		.map((item) => item.trim())
 		.filter(Boolean);
 }
@@ -53,7 +53,7 @@ async function findGeneratedDocumentSourceArtifactForJob(input: {
 			and(
 				eq(artifacts.userId, input.userId),
 				eq(artifacts.conversationId, input.conversationId),
-				eq(artifacts.type, 'generated_output'),
+				eq(artifacts.type, "generated_output"),
 			),
 		);
 
@@ -91,16 +91,17 @@ async function updateGeneratedDocumentSourceArtifactStatus(input: {
 		[GENERATED_DOCUMENT_SOURCE_STATUS_KEY]: input.status,
 	};
 
-	if (input.status === 'failed') {
+	if (input.status === "failed") {
 		nextMetadata.generatedDocumentSourceErrorCode = input.errorCode ?? null;
-		nextMetadata.generatedDocumentSourceErrorMessage = input.errorMessage ?? null;
+		nextMetadata.generatedDocumentSourceErrorMessage =
+			input.errorMessage ?? null;
 	}
 
 	const [updated] = await db
 		.update(artifacts)
 		.set({
 			retrievalClass:
-				input.status === 'succeeded' ? 'durable' : 'ephemeral_followup',
+				input.status === "succeeded" ? "durable" : "ephemeral_followup",
 			metadataJson: JSON.stringify(nextMetadata),
 			updatedAt: new Date(),
 		})
@@ -117,12 +118,12 @@ export async function markGeneratedDocumentSourceArtifactFailed(input: {
 }): Promise<Artifact | null> {
 	return updateGeneratedDocumentSourceArtifactStatus({
 		...input,
-		status: 'failed',
+		status: "failed",
 	});
 }
 
 export async function persistGeneratedDocumentSourceArtifact(
-	input: PersistGeneratedDocumentSourceInput
+	input: PersistGeneratedDocumentSourceInput,
 ): Promise<Artifact> {
 	const validation = validateGeneratedDocumentSource(input.source);
 	if (!validation.ok) {
@@ -142,8 +143,8 @@ export async function persistGeneratedDocumentSourceArtifact(
 		);
 		if (
 			existing.metadata?.[GENERATED_DOCUMENT_SOURCE_STATUS_KEY] ===
-				'succeeded' ||
-			typeof existing.metadata?.sourceChatFileId === 'string' ||
+				"succeeded" ||
+			typeof existing.metadata?.sourceChatFileId === "string" ||
 			existingRenderedIds.length > 0
 		) {
 			return existing;
@@ -151,7 +152,7 @@ export async function persistGeneratedDocumentSourceArtifact(
 		return (
 			(await updateGeneratedDocumentSourceArtifactStatus({
 				artifactId: existing.id,
-				status: 'pending',
+				status: "pending",
 			})) ?? existing
 		);
 	}
@@ -162,23 +163,23 @@ export async function persistGeneratedDocumentSourceArtifact(
 		id: artifactId,
 		userId: input.userId,
 		conversationId: input.conversationId,
-		type: 'generated_output',
-		retrievalClass: 'ephemeral_followup',
+		type: "generated_output",
+		retrievalClass: "ephemeral_followup",
 		name: input.title,
-		mimeType: 'application/vnd.alfyai.generated-document+json',
-		extension: 'alfyidoc.json',
+		mimeType: "application/vnd.alfyai.generated-document+json",
+		extension: "alfyidoc.json",
 		contentText: projection,
 		summary: source.subtitle ?? source.title,
 		metadata: {
 			generatedDocumentSourceVersion: source.version,
-			[GENERATED_DOCUMENT_SOURCE_STATUS_KEY]: 'pending',
+			[GENERATED_DOCUMENT_SOURCE_STATUS_KEY]: "pending",
 			generatedDocumentSource: source,
 			fileProductionJobId: input.fileProductionJobId,
 			originConversationId: input.conversationId,
 			originAssistantMessageId: input.assistantMessageId ?? null,
-			documentOrigin: 'generated',
+			documentOrigin: "generated",
 			documentFamilyId: artifactId,
-			documentFamilyStatus: 'active',
+			documentFamilyStatus: "active",
 			documentLabel: source.title,
 			documentRole: input.documentIntent ?? null,
 			versionNumber: 1,
@@ -220,12 +221,12 @@ export async function attachGeneratedDocumentSourceArtifactToRenderedFiles(input
 		new Set([...existingRenderedIds, ...renderedChatFileIds]),
 	);
 	const firstRenderedChatFileId =
-		typeof metadata.originalChatFileId === 'string' &&
+		typeof metadata.originalChatFileId === "string" &&
 		metadata.originalChatFileId.trim()
 			? metadata.originalChatFileId.trim()
 			: nextRenderedIds[0];
 	const sourceChatFileId =
-		typeof metadata.sourceChatFileId === 'string' &&
+		typeof metadata.sourceChatFileId === "string" &&
 		metadata.sourceChatFileId.trim()
 			? metadata.sourceChatFileId.trim()
 			: firstRenderedChatFileId;
@@ -233,10 +234,10 @@ export async function attachGeneratedDocumentSourceArtifactToRenderedFiles(input
 	const [updated] = await db
 		.update(artifacts)
 		.set({
-			retrievalClass: 'durable',
+			retrievalClass: "durable",
 			metadataJson: JSON.stringify({
 				...baseMetadata,
-				[GENERATED_DOCUMENT_SOURCE_STATUS_KEY]: 'succeeded',
+				[GENERATED_DOCUMENT_SOURCE_STATUS_KEY]: "succeeded",
 				originalChatFileId: firstRenderedChatFileId,
 				sourceChatFileId,
 				[GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY]: nextRenderedIds,

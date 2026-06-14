@@ -239,8 +239,10 @@ describe("Deep Research worker tick and scheduler", () => {
 			.mockImplementation(() => undefined);
 		const recoverStaleJobs = vi.fn(async () => ({ recoveredJobs: [] }));
 		const advanceWorkflowStep = vi.fn(async () => null);
-		const { ensureDeepResearchWorkerScheduler, stopDeepResearchWorkerScheduler } =
-			await import("./worker");
+		const {
+			ensureDeepResearchWorkerScheduler,
+			stopDeepResearchWorkerScheduler,
+		} = await import("./worker");
 
 		ensureDeepResearchWorkerScheduler(() => ({
 			enabled: true,
@@ -426,7 +428,7 @@ describe("Deep Research worker cleanup and recovery", () => {
 				stage: event.stage,
 				kind: event.kind,
 				summary: event.summary,
-			warnings: event.warnings,
+				warnings: event.warnings,
 			})),
 		).toContainEqual({
 			stage: "report_completion",
@@ -597,19 +599,21 @@ describe("real Deep Research workflow worker", () => {
 			createdAt: new Date("2026-05-05T10:02:00.000Z"),
 			approvedAt: new Date("2026-05-05T10:07:00.000Z"),
 		});
-		const workflowStep = vi.fn(async (input: { userId: string; jobId: string }) => {
-			const { listConversationDeepResearchJobs } = await import("./index");
-			const conversationId = input.jobId === older.id ? "conv-1" : "conv-2";
-			const jobs = await listConversationDeepResearchJobs(
-				input.userId,
-				conversationId,
-			);
-			return {
-				job: jobs.find((job) => job.id === input.jobId) ?? older,
-				advanced: true,
-				outcome: "discovery_completed" as const,
-			};
-		});
+		const workflowStep = vi.fn(
+			async (input: { userId: string; jobId: string }) => {
+				const { listConversationDeepResearchJobs } = await import("./index");
+				const conversationId = input.jobId === older.id ? "conv-1" : "conv-2";
+				const jobs = await listConversationDeepResearchJobs(
+					input.userId,
+					conversationId,
+				);
+				return {
+					job: jobs.find((job) => job.id === input.jobId) ?? older,
+					advanced: true,
+					outcome: "discovery_completed" as const,
+				};
+			},
+		);
 		const { runNextDeepResearchWorkflowWorkerStep } = await import("./worker");
 
 		const result = await runNextDeepResearchWorkflowWorkerStep({
@@ -708,21 +712,23 @@ describe("real Deep Research workflow worker", () => {
 			createdAt: new Date("2026-05-05T10:02:00.000Z"),
 			approvedAt: new Date("2026-05-05T10:07:00.000Z"),
 		});
-		const workflowStep = vi.fn(async (input: { userId: string; jobId: string }) => {
-			const { listConversationDeepResearchJobs } = await import("./index");
-			const conversationId = input.jobId === running.id ? "conv-1" : "conv-2";
-			const jobs = await listConversationDeepResearchJobs(
-				input.userId,
-				conversationId,
-			);
-			const job = jobs.find((candidate) => candidate.id === input.jobId);
-			if (!job) throw new Error("Expected job to reload");
-			return {
-				job,
-				advanced: true,
-				outcome: "report_completed" as const,
-			};
-		});
+		const workflowStep = vi.fn(
+			async (input: { userId: string; jobId: string }) => {
+				const { listConversationDeepResearchJobs } = await import("./index");
+				const conversationId = input.jobId === running.id ? "conv-1" : "conv-2";
+				const jobs = await listConversationDeepResearchJobs(
+					input.userId,
+					conversationId,
+				);
+				const job = jobs.find((candidate) => candidate.id === input.jobId);
+				if (!job) throw new Error("Expected job to reload");
+				return {
+					job,
+					advanced: true,
+					outcome: "report_completed" as const,
+				};
+			},
+		);
 		const {
 			triggerDeepResearchWorkflowWorkerForJob,
 			runNextDeepResearchWorkflowWorkerStep,

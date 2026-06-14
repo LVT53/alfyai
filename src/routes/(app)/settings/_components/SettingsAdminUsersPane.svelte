@@ -57,7 +57,7 @@ function formatCount(value: number): string {
 }
 
 function formatDate(timestamp: number | null | undefined): string {
-	if (timestamp == null || !isFinite(timestamp)) {
+	if (timestamp == null || !Number.isFinite(timestamp)) {
 		return "—";
 	}
 	return new Date(timestamp).toLocaleString();

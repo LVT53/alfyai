@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { buildAiSdkUiStreamBody } from "./helpers";
+import {
+	buildAiSdkUiStreamBody,
+	login,
+	openConversationComposer,
+} from "./helpers";
 
 test.use({
 	viewport: { width: 375, height: 667 },
@@ -11,16 +15,7 @@ test.use({
 
 test.describe("Mobile Design Polish", () => {
 	test.beforeEach(async ({ page }) => {
-		await page.goto("/");
-
-		if (page.url().includes("/login")) {
-			await page.waitForLoadState("domcontentloaded");
-			await page.waitForSelector('input[name="email"]', { state: "visible" });
-			await page.fill('input[name="email"]', "admin@local");
-			await page.fill('input[name="password"]', "admin123");
-			await page.click('button[type="submit"]');
-			await page.waitForURL("**/");
-		}
+		await login(page);
 	});
 
 	test("Layout and Touch Targets - iPhone SE", async ({ page }) => {
@@ -42,8 +37,6 @@ test.describe("Mobile Design Polish", () => {
 		await expect(sidebar).toHaveClass(/.*-translate-x-\[105%\].*/);
 
 		await hamburger.click();
-		await page.waitForTimeout(300);
-
 		await expect(sidebar).toHaveClass(/.*translate-x-0.*/);
 
 		const closeBtn = page.locator('button[aria-label="Close sidebar"]');
@@ -52,7 +45,7 @@ test.describe("Mobile Design Polish", () => {
 		expect(closeBox?.height).toBeGreaterThanOrEqual(44);
 
 		await closeBtn.click();
-		await page.waitForTimeout(300);
+		await expect(sidebar).toHaveClass(/.*-translate-x-\[105%\].*/);
 	});
 
 	test("Chat Area and Input Area", async ({ page }) => {
@@ -70,20 +63,10 @@ test.describe("Mobile Design Polish", () => {
 			await route.fulfill({ json: { title: "Mocked Title" } });
 		});
 
-		await page.waitForSelector('button:has-text("New Conversation")');
-		await page.click('button:has-text("New Conversation")');
-		try {
-			await page.waitForURL("**/chat/**", { timeout: 3000 });
-		} catch (e) {
-			if (await page.isVisible('button:has-text("New Conversation")')) {
-				await page.click('button:has-text("New Conversation")');
-				await page.waitForURL("**/chat/**");
-			} else {
-				throw e;
-			}
-		}
+		await openConversationComposer(page);
 
 		const textarea = page.locator('[data-testid="message-input"]');
+		await expect(textarea).toBeVisible();
 		const textareaBox = await textarea.boundingBox();
 		expect(textareaBox?.height).toBeGreaterThanOrEqual(44);
 
@@ -97,8 +80,6 @@ test.describe("Mobile Design Polish", () => {
 		expect(attachBox?.width).toBeGreaterThanOrEqual(44);
 		expect(attachBox?.height).toBeGreaterThanOrEqual(44);
 
-		await page.waitForTimeout(1000);
-
 		await textarea.fill(
 			'```python\ndef test_horizontal_scroll_with_a_very_long_line_of_code_that_should_wrap_or_scroll_horizontally():\n    return "This string is exceptionally long and will definitely trigger horizontal scrolling on a small screen like the iPhone SE"\n```',
 		);
@@ -109,7 +90,6 @@ test.describe("Mobile Design Polish", () => {
 			state: "visible",
 			timeout: 5000,
 		});
-		await page.waitForTimeout(2000);
 
 		const userMessage = page.locator('[data-testid="user-message"]').last();
 		await expect(userMessage).toBeVisible({ timeout: 10000 });
@@ -145,16 +125,7 @@ test.describe("Mobile Design Polish - iPhone 14", () => {
 	});
 
 	test.beforeEach(async ({ page }) => {
-		await page.goto("/");
-
-		if (page.url().includes("/login")) {
-			await page.waitForLoadState("domcontentloaded");
-			await page.waitForSelector('input[name="email"]', { state: "visible" });
-			await page.fill('input[name="email"]', "admin@local");
-			await page.fill('input[name="password"]', "admin123");
-			await page.click('button[type="submit"]');
-			await page.waitForURL("**/");
-		}
+		await login(page);
 	});
 
 	test("Check prefers-reduced-motion", async ({ page }) => {

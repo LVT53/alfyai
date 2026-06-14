@@ -23,7 +23,14 @@ interface ReconnectBuffer {
 	thinking: string[];
 	responseActivity: Array<{
 		id: string;
-		kind: "depth" | "context" | "tool" | "source" | "drafting" | "fallback" | "file";
+		kind:
+			| "depth"
+			| "context"
+			| "tool"
+			| "source"
+			| "drafting"
+			| "fallback"
+			| "file";
 		status: "running" | "done" | "error";
 		detail?: string;
 		count?: number;
@@ -496,14 +503,14 @@ describe("doReconnect", () => {
 			.filter((e) => e !== "[DONE]")
 			.map((e) => (e as Record<string, unknown>).type);
 
-		const reasoningDeltas = typeSeq.reduce<number[]>(
-			(acc, t, i) => (t === "reasoning-delta" ? [...acc, i] : acc),
-			[] as number[],
-		);
-		const textDeltas = typeSeq.reduce<number[]>(
-			(acc, t, i) => (t === "text-delta" ? [...acc, i] : acc),
-			[] as number[],
-		);
+		const reasoningDeltas = typeSeq.reduce<number[]>((acc, t, i) => {
+			if (t === "reasoning-delta") acc.push(i);
+			return acc;
+		}, []);
+		const textDeltas = typeSeq.reduce<number[]>((acc, t, i) => {
+			if (t === "text-delta") acc.push(i);
+			return acc;
+		}, []);
 		const activityIdx = typeSeq.indexOf("data-response-activity");
 		const toolCallIdx = typeSeq.indexOf("data-tool-call");
 

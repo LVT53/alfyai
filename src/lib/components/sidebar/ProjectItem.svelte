@@ -1,6 +1,15 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { ChevronRight, EllipsisVertical, Folder, FolderOpen, Loader, MessageSquarePlus, Pencil, Trash2 } from "@lucide/svelte";
+import {
+	ChevronRight,
+	EllipsisVertical,
+	Folder,
+	FolderOpen,
+	Loader,
+	MessageSquarePlus,
+	Pencil,
+	Trash2,
+} from "@lucide/svelte";
 import type { Project } from "$lib/types";
 import { t } from "$lib/i18n";
 import {

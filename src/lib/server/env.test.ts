@@ -242,7 +242,7 @@ describe("Environment Configuration", () => {
 		expect(config.webResearchExtractorMode).toBe("auto");
 		expect(config.webResearchExtractTimeoutMs).toBe(7000);
 		expect(config.webResearchExtractCacheTtlHours).toBe(2);
-				expect(config.webResearchLlmExtractionReviewEnabled).toBe(true);
+		expect(config.webResearchLlmExtractionReviewEnabled).toBe(true);
 		expect(config.braveSearchApiKey).toBe("brave-key");
 		expect(config.requestTimeoutMs).toBe(5000);
 		expect(config.modelTimeoutFailoverEnabled).toBe(true);

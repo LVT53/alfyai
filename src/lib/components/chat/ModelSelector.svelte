@@ -76,7 +76,9 @@ onMount(async () => {
 
 	const handleClickOutside = (event: MouseEvent) => {
 		if (!dropdownRef || dropdownRef.contains(event.target as Node)) return;
-		untrack(() => { if (isOpen) setOpen(false); });
+		untrack(() => {
+			if (isOpen) setOpen(false);
+		});
 	};
 
 	document.addEventListener("click", handleClickOutside);

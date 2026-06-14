@@ -3,8 +3,8 @@ import type {
 	ConversationContextStatus,
 	MemoryLayer,
 	WorkCapsule,
-} from '$lib/types';
-import { estimateTokenCount } from '$lib/utils/tokens';
+} from "$lib/types";
+import { estimateTokenCount } from "$lib/utils/tokens";
 
 export type PromptContextSection = {
 	title: string;
@@ -20,7 +20,7 @@ export type PromptContextSectionSelection = {
 	layer?: MemoryLayer;
 	protected: boolean;
 	trimmed: boolean;
-	inclusionLevel: 'full' | 'trimmed' | 'omitted';
+	inclusionLevel: "full" | "trimmed" | "omitted";
 	estimatedTokens: number;
 };
 
@@ -34,16 +34,16 @@ type HistoricalSectionReranker = (params: {
 
 export function truncateToTokenBudget(text: string, maxTokens: number): string {
 	if (estimateTokenCount(text) <= maxTokens) return text;
-	if (maxTokens <= 0) return '';
+	if (maxTokens <= 0) return "";
 
-	const suffix = '\n...[truncated]';
+	const suffix = "\n...[truncated]";
 	const suffixTokens = estimateTokenCount(suffix);
 	const contentBudget = Math.max(0, maxTokens - suffixTokens);
-	if (contentBudget <= 0) return '[truncated]';
+	if (contentBudget <= 0) return "[truncated]";
 
 	let low = 0;
 	let high = text.length;
-	let best = '';
+	let best = "";
 
 	while (low <= high) {
 		const mid = Math.floor((low + high) / 2);
@@ -57,12 +57,12 @@ export function truncateToTokenBudget(text: string, maxTokens: number): string {
 		}
 	}
 
-	return best ? `${best}${suffix}` : '[truncated]';
+	return best ? `${best}${suffix}` : "[truncated]";
 }
 
 export function buildContextSection(title: string, body: string): string {
 	const trimmed = body.trim();
-	return trimmed ? `## ${title}\n${trimmed}` : '';
+	return trimmed ? `## ${title}\n${trimmed}` : "";
 }
 
 export function dedupeById<T extends { id: string }>(items: T[]): T[] {
@@ -71,14 +71,17 @@ export function dedupeById<T extends { id: string }>(items: T[]): T[] {
 
 export function serializeRoleMessages<T>(
 	messages: T[],
-	resolveRole: (message: T) => 'user' | 'assistant',
+	resolveRole: (message: T) => "user" | "assistant",
 	resolveContent: (message: T) => string,
-	limit = messages.length
+	limit = messages.length,
 ): string {
 	return messages
 		.slice(-limit)
-		.map((message) => `${resolveRole(message).toUpperCase()}: ${resolveContent(message).trim()}`)
-		.join('\n\n');
+		.map(
+			(message) =>
+				`${resolveRole(message).toUpperCase()}: ${resolveContent(message).trim()}`,
+		)
+		.join("\n\n");
 }
 
 export type BudgetedRoleTurnContext = {
@@ -91,13 +94,13 @@ export type BudgetedRoleTurnContext = {
 
 export function serializeBudgetedRoleTurns<T>(params: {
 	turns: Array<{ messages: T[] }>;
-	resolveRole: (message: T) => 'user' | 'assistant';
+	resolveRole: (message: T) => "user" | "assistant";
 	resolveContent: (message: T) => string;
 	maxTokens: number;
 }): BudgetedRoleTurnContext {
 	if (params.turns.length === 0) {
 		return {
-			body: '',
+			body: "",
 			includedTurnCount: 0,
 			omittedTurnCount: params.turns.length,
 			trimmed: false,
@@ -110,10 +113,10 @@ export function serializeBudgetedRoleTurns<T>(params: {
 			turn.messages,
 			params.resolveRole,
 			params.resolveContent,
-			turn.messages.length
-		)
+			turn.messages.length,
+		),
 	);
-	const body = serializedTurns.join('\n\n');
+	const body = serializedTurns.join("\n\n");
 	return {
 		body,
 		includedTurnCount: params.turns.length,
@@ -125,15 +128,15 @@ export function serializeBudgetedRoleTurns<T>(params: {
 
 export function selectRecentRoleTurns<T>(
 	messages: T[],
-	resolveRole: (message: T) => 'user' | 'assistant',
-	limit: number
+	resolveRole: (message: T) => "user" | "assistant",
+	limit: number,
 ): Array<{ messages: T[] }> {
 	const turns: Array<{ messages: T[] }> = [];
 	let currentTurn: T[] = [];
 
 	for (const message of messages) {
 		const role = resolveRole(message);
-		if (role === 'user') {
+		if (role === "user") {
 			if (currentTurn.length > 0) {
 				turns.push({ messages: currentTurn });
 			}
@@ -180,9 +183,9 @@ export function serializePeerContext(peerContext: {
 		parts.push(peerContext.representation.trim());
 	}
 	if (peerContext.peerCard?.length) {
-		parts.push(`Peer card:\n- ${peerContext.peerCard.join('\n- ')}`);
+		parts.push(`Peer card:\n- ${peerContext.peerCard.join("\n- ")}`);
 	}
-	return parts.join('\n\n');
+	return parts.join("\n\n");
 }
 
 export function serializeWorkCapsules(capsules: WorkCapsule[]): string {
@@ -193,15 +196,15 @@ export function serializeWorkCapsules(capsules: WorkCapsule[]): string {
 				capsule.taskSummary ? `Task: ${capsule.taskSummary}` : null,
 				capsule.workflowSummary ? `Summary: ${capsule.workflowSummary}` : null,
 				capsule.keyConclusions.length > 0
-					? `Key conclusions: ${capsule.keyConclusions.join(' ')}`
+					? `Key conclusions: ${capsule.keyConclusions.join(" ")}`
 					: null,
 				capsule.reusablePatterns.length > 0
-					? `Reusable patterns: ${capsule.reusablePatterns.join(' ')}`
+					? `Reusable patterns: ${capsule.reusablePatterns.join(" ")}`
 					: null,
 			].filter((line): line is string => Boolean(line));
-			return lines.join('\n');
+			return lines.join("\n");
 		})
-		.join('\n\n');
+		.join("\n\n");
 }
 
 export function serializeArtifacts(params: {
@@ -216,21 +219,24 @@ export function serializeArtifacts(params: {
 	return params.artifacts
 		.map((artifact) => {
 			const excerptSource =
-				snippets.get(artifact.id) ?? artifact.contentText ?? artifact.summary ?? artifact.name;
+				snippets.get(artifact.id) ??
+				artifact.contentText ??
+				artifact.summary ??
+				artifact.name;
 			return `${params.label}: ${artifact.name}\n${truncateToTokenBudget(
 				excerptSource,
-				excerptTokenBudget
+				excerptTokenBudget,
 			)}`;
 		})
-		.join('\n\n');
+		.join("\n\n");
 }
 
-export type BudgetedAttachmentContextMode = 'excerpt' | 'task';
+export type BudgetedAttachmentContextMode = "excerpt" | "task";
 
 export type BudgetedAttachmentContextItem = {
 	id: string;
 	title: string;
-	inclusionLevel: BudgetedAttachmentContextMode | 'omitted';
+	inclusionLevel: BudgetedAttachmentContextMode | "omitted";
 	estimatedTokens: number;
 	trimmed: boolean;
 };
@@ -251,11 +257,11 @@ export function selectAttachmentContextMode(params: {
 	message: string;
 	attachmentCount: number;
 }): BudgetedAttachmentContextMode {
-	if (params.attachmentCount === 0) return 'excerpt';
+	if (params.attachmentCount === 0) return "excerpt";
 	return ATTACHMENT_TASK_ACTION_RE.test(params.message) &&
 		ATTACHMENT_TASK_REFERENCE_RE.test(params.message)
-		? 'task'
-		: 'excerpt';
+		? "task"
+		: "excerpt";
 }
 
 export function serializeBudgetedAttachments(params: {
@@ -273,10 +279,10 @@ export function serializeBudgetedAttachments(params: {
 	});
 	const perAttachmentBudget = Math.max(
 		80,
-		Math.floor(params.totalBudget / Math.max(1, params.artifacts.length))
+		Math.floor(params.totalBudget / Math.max(1, params.artifacts.length)),
 	);
 	const modeBudget =
-		mode === 'task'
+		mode === "task"
 			? (params.taskPerAttachmentBudget ?? 2400)
 			: (params.excerptPerAttachmentBudget ?? 600);
 	let remainingBudget = params.totalBudget;
@@ -288,22 +294,29 @@ export function serializeBudgetedAttachments(params: {
 			items.push({
 				id: artifact.id,
 				title: artifact.name,
-				inclusionLevel: 'omitted',
+				inclusionLevel: "omitted",
 				estimatedTokens: 0,
 				trimmed: false,
 			});
 			continue;
 		}
 
-		const itemBudget = Math.min(modeBudget, perAttachmentBudget, remainingBudget);
+		const itemBudget = Math.min(
+			modeBudget,
+			perAttachmentBudget,
+			remainingBudget,
+		);
 		const header = [
 			`Attachment: ${artifact.name}`,
-			`Context mode: ${mode === 'task' ? 'Task Context' : 'Excerpt Context'}`,
-		].join('\n');
+			`Context mode: ${mode === "task" ? "Task Context" : "Excerpt Context"}`,
+		].join("\n");
 		const headerTokens = estimateTokenCount(header);
 		const contentBudget = Math.max(0, itemBudget - headerTokens);
 		const source =
-			snippets.get(artifact.id) ?? artifact.contentText ?? artifact.summary ?? artifact.name;
+			snippets.get(artifact.id) ??
+			artifact.contentText ??
+			artifact.summary ??
+			artifact.name;
 		const excerpt = truncateToTokenBudget(source, contentBudget);
 		const itemText = `${header}\n${excerpt}`;
 		const estimatedTokens = estimateTokenCount(itemText);
@@ -312,7 +325,7 @@ export function serializeBudgetedAttachments(params: {
 			items.push({
 				id: artifact.id,
 				title: artifact.name,
-				inclusionLevel: 'omitted',
+				inclusionLevel: "omitted",
 				estimatedTokens: 0,
 				trimmed: false,
 			});
@@ -330,7 +343,7 @@ export function serializeBudgetedAttachments(params: {
 		});
 	}
 
-	const body = parts.join('\n\n');
+	const body = parts.join("\n\n");
 	return {
 		body,
 		mode,
@@ -341,9 +354,9 @@ export function serializeBudgetedAttachments(params: {
 
 export function extractSerializedAttachmentBody(serialized: string): string {
 	return serialized
-		.split('\n')
-		.filter((line) => !line.startsWith('Attachment: '))
-		.join('\n')
+		.split("\n")
+		.filter((line) => !line.startsWith("Attachment: "))
+		.join("\n")
 		.trim();
 }
 
@@ -365,14 +378,19 @@ export function serializeWorkingSetArtifacts(params: {
 
 	for (const artifact of params.artifacts) {
 		const excerptSource =
-			snippets.get(artifact.id) ?? artifact.contentText ?? artifact.summary ?? artifact.name;
+			snippets.get(artifact.id) ??
+			artifact.contentText ??
+			artifact.summary ??
+			artifact.name;
 		const perArtifactBudget =
-			artifact.type === 'generated_output' ? params.outputBudget : params.documentBudget;
-		const kind = artifact.type === 'generated_output' ? 'Result' : 'Document';
+			artifact.type === "generated_output"
+				? params.outputBudget
+				: params.documentBudget;
+		const kind = artifact.type === "generated_output" ? "Result" : "Document";
 		const header = `${kind}: ${artifact.name}`;
 		const candidateParts = [...parts, header];
 
-		if (estimateTokenCount(candidateParts.join('\n\n')) > params.totalBudget) {
+		if (estimateTokenCount(candidateParts.join("\n\n")) > params.totalBudget) {
 			continue;
 		}
 
@@ -385,9 +403,9 @@ export function serializeWorkingSetArtifacts(params: {
 		});
 	}
 
-	if (selected.length === 0) return '';
+	if (selected.length === 0) return "";
 
-	const headerTokens = estimateTokenCount(parts.join('\n\n'));
+	const headerTokens = estimateTokenCount(parts.join("\n\n"));
 	const contentBudget = Math.max(0, params.totalBudget - headerTokens);
 	const fairShareBudget = Math.floor(contentBudget / selected.length);
 	let remainderBudget = contentBudget % selected.length;
@@ -395,7 +413,7 @@ export function serializeWorkingSetArtifacts(params: {
 	for (const item of selected) {
 		const itemBudget = Math.min(
 			item.excerptBudget,
-			fairShareBudget + (remainderBudget > 0 ? 1 : 0)
+			fairShareBudget + (remainderBudget > 0 ? 1 : 0),
 		);
 		if (remainderBudget > 0) remainderBudget -= 1;
 		if (itemBudget <= 0) continue;
@@ -406,7 +424,7 @@ export function serializeWorkingSetArtifacts(params: {
 		parts[item.partIndex] = `${item.header}\n${excerpt}`;
 	}
 
-	return parts.join('\n\n');
+	return parts.join("\n\n");
 }
 
 export async function rerankHistoricalSections(params: {
@@ -423,8 +441,8 @@ export async function rerankHistoricalSections(params: {
 		(section) =>
 			!section.protected &&
 			section.llmCompactible &&
-			(section.layer === 'session' || section.layer === 'capsule') &&
-			section.body.trim()
+			(section.layer === "session" || section.layer === "capsule") &&
+			section.body.trim(),
 	);
 
 	if (candidateSections.length <= 2) {
@@ -438,18 +456,25 @@ export async function rerankHistoricalSections(params: {
 				`User message: ${params.message}`,
 			]
 				.filter((value): value is string => Boolean(value))
-				.join('\n\n'),
+				.join("\n\n"),
 			candidates: candidateSections,
 		});
 
-		if (!(reranked && typeof reranked.confidence === 'number' && reranked.confidence >= 64)) {
+		if (
+			!(
+				reranked &&
+				typeof reranked.confidence === "number" &&
+				reranked.confidence >= 64
+			)
+		) {
 			return params.sections;
 		}
 
 		const selectedTitles = new Set(
-			(Array.isArray(reranked.selectedTitles) ? reranked.selectedTitles : []).filter(
-				(value): value is string => typeof value === 'string'
-			)
+			(Array.isArray(reranked.selectedTitles)
+				? reranked.selectedTitles
+				: []
+			).filter((value): value is string => typeof value === "string"),
 		);
 		if (selectedTitles.size === 0) {
 			return params.sections;
@@ -459,10 +484,13 @@ export async function rerankHistoricalSections(params: {
 			(section) =>
 				section.protected ||
 				!candidateSections.includes(section) ||
-				selectedTitles.has(section.title)
+				selectedTitles.has(section.title),
 		);
 	} catch (error) {
-		console.error(`${params.logPrefix ?? '[CONTEXT]'} Historical section reranker failed:`, error);
+		console.error(
+			`${params.logPrefix ?? "[CONTEXT]"} Historical section reranker failed:`,
+			error,
+		);
 		return params.sections;
 	}
 }
@@ -472,11 +500,11 @@ export function compactContextSections(params: {
 	message: string;
 	sections: PromptContextSection[];
 	targetTokens: number;
-	initialCompactionMode?: ConversationContextStatus['compactionMode'];
+	initialCompactionMode?: ConversationContextStatus["compactionMode"];
 }): {
 	inputValue: string;
 	compactionApplied: boolean;
-	compactionMode: ConversationContextStatus['compactionMode'];
+	compactionMode: ConversationContextStatus["compactionMode"];
 	layersUsed: MemoryLayer[];
 	estimatedTokens: number;
 	sectionSelections: PromptContextSectionSelection[];
@@ -485,19 +513,17 @@ export function compactContextSections(params: {
 	const sectionSelections: PromptContextSectionSelection[] = [];
 	const layersUsed = new Set<MemoryLayer>();
 	let compactionApplied = false;
-	let compactionMode = params.initialCompactionMode ?? 'none';
-	const userMessageSection = buildContextSection('Current User Message', params.message);
+	let compactionMode = params.initialCompactionMode ?? "none";
+	const userMessageSection = buildContextSection(
+		"Current User Message",
+		params.message,
+	);
 
 	function estimateWithSection(sectionText?: string): number {
 		return estimateTokenCount(
-			[
-				params.intro,
-				...bodyParts,
-				sectionText,
-				userMessageSection,
-			]
+			[params.intro, ...bodyParts, sectionText, userMessageSection]
 				.filter((value): value is string => Boolean(value))
-				.join('\n\n')
+				.join("\n\n"),
 		);
 	}
 
@@ -514,7 +540,7 @@ export function compactContextSections(params: {
 				layer: section.layer,
 				protected: section.protected ?? false,
 				trimmed: false,
-				inclusionLevel: 'full',
+				inclusionLevel: "full",
 				estimatedTokens: candidateTokens,
 			});
 			if (section.layer) layersUsed.add(section.layer);
@@ -523,22 +549,20 @@ export function compactContextSections(params: {
 
 		sectionSelections.push({
 			title: section.title,
-			body: '',
+			body: "",
 			layer: section.layer,
 			protected: false,
 			trimmed: false,
-			inclusionLevel: 'omitted',
+			inclusionLevel: "omitted",
 			estimatedTokens: 0,
 		});
 		compactionApplied = true;
-		if (compactionMode === 'none') compactionMode = 'deterministic';
+		if (compactionMode === "none") compactionMode = "deterministic";
 	}
 
-	const inputValue = [
-		params.intro,
-		...bodyParts,
-		userMessageSection,
-	].join('\n\n');
+	const inputValue = [params.intro, ...bodyParts, userMessageSection].join(
+		"\n\n",
+	);
 
 	return {
 		inputValue,

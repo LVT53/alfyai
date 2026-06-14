@@ -259,7 +259,8 @@ export function resolveProjectMemoryContextMode(params: {
 }): ProjectContextResult["mode"] {
 	const query = params.query?.trim() ?? "";
 	if (params.siblingConversationId?.trim()) return "detail";
-	return PROJECT_REPORT_QUERY_RE.test(query) && PROJECT_FOLDER_QUERY_RE.test(query)
+	return PROJECT_REPORT_QUERY_RE.test(query) &&
+		PROJECT_FOLDER_QUERY_RE.test(query)
 		? "report"
 		: "summary";
 }
@@ -347,7 +348,8 @@ export function tokenizeQuery(query: string): string[] {
 	return Array.from(
 		new Set(
 			(query.toLowerCase().match(/[\p{L}\p{N}%_\\]+/giu) ?? []).filter(
-				(term) => /[\p{L}\p{N}]/iu.test(term) &&
+				(term) =>
+					/[\p{L}\p{N}]/iu.test(term) &&
 					term.length >= 2 &&
 					!HISTORY_QUERY_STOPWORDS.has(term),
 			),

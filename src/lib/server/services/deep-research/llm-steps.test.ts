@@ -8,8 +8,8 @@ vi.mock("./model-runner", () => ({
 	tryRunAndRecordDeepResearchModel: vi.fn(),
 }));
 
-import { tryRunAndRecordDeepResearchModel } from "./model-runner";
 import { buildClaimGraphCitationReviewerWithLlm } from "./llm-steps";
+import { tryRunAndRecordDeepResearchModel } from "./model-runner";
 
 const modelRunResult = (content: string) => ({
 	content,
@@ -91,7 +91,8 @@ describe("buildClaimGraphCitationReviewerWithLlm", () => {
 							id: "claim-1",
 							status: "supported",
 							evidenceNotes: [{ id: "note-1" }],
-							explanation: "The linked official evidence directly supports the claim.",
+							explanation:
+								"The linked official evidence directly supports the claim.",
 						},
 					],
 				}),

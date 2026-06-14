@@ -1,29 +1,30 @@
 <script lang="ts">
-	import { t } from '$lib/i18n';
-	import type { EvidencePreference, TaskSteeringPayload } from '$lib/types';
+import { t } from "$lib/i18n";
+import type { EvidencePreference, TaskSteeringPayload } from "$lib/types";
 
-	let {
+let {
+	artifactId,
+	preference = "auto",
+	label = undefined,
+	onSteer,
+}: {
+	artifactId: string;
+	preference?: EvidencePreference;
+	label?: string | undefined;
+	onSteer?: (payload: TaskSteeringPayload) => void;
+} = $props();
+
+let resolvedLabel = $derived(label ?? $t("contextSources.sourcePreference"));
+
+function handleChange(event: Event) {
+	const nextPreference = (event.currentTarget as HTMLSelectElement)
+		.value as EvidencePreference;
+	onSteer?.({
+		action: "set_artifact_preference",
 		artifactId,
-		preference = 'auto',
-		label = undefined,
-		onSteer
-	}: {
-		artifactId: string;
-		preference?: EvidencePreference;
-		label?: string | undefined;
-		onSteer?: (payload: TaskSteeringPayload) => void;
-	} = $props();
-
-	let resolvedLabel = $derived(label ?? $t('contextSources.sourcePreference'));
-
-	function handleChange(event: Event) {
-		const nextPreference = (event.currentTarget as HTMLSelectElement).value as EvidencePreference;
-		onSteer?.({
-			action: 'set_artifact_preference',
-			artifactId,
-			preference: nextPreference,
-		});
-	}
+		preference: nextPreference,
+	});
+}
 </script>
 
 <label class="preference-shell">

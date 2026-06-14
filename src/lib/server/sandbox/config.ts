@@ -47,9 +47,7 @@ const SANDBOX_RUNTIME_CONFIG: Record<SandboxLanguage, SandboxRuntimeConfig> = {
 		idleCommand: ["node", "-e", "process.stdin.resume()"],
 		execCommand: (code: string) => ["node", "-e", code],
 		workingDir: "/workspace",
-		binds: [
-			`${JAVASCRIPT_NODE_MODULES_DIR}:/workspace/node_modules:ro`,
-		],
+		binds: [`${JAVASCRIPT_NODE_MODULES_DIR}:/workspace/node_modules:ro`],
 	},
 };
 

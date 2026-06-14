@@ -125,9 +125,9 @@ describe("MessageInput", () => {
 			"Read https://example.com/report and www.example.org",
 		);
 		expect(input).toHaveClass("composer-textarea--link-overlay-active");
-		expect(container.querySelector(".composer-link-highlights")).toHaveTextContent(
-			"Read https://example.com/report and www.example.org",
-		);
+		expect(
+			container.querySelector(".composer-link-highlights"),
+		).toHaveTextContent("Read https://example.com/report and www.example.org");
 	});
 
 	it("shows the Deep Research composer control only when enabled", () => {
@@ -432,12 +432,22 @@ describe("MessageInput", () => {
 		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
 
 		const depthPicker = getByRole("listbox", { name: "Reasoning depth" });
-		expect(within(depthPicker).getByRole("option", { name: "Off" })).toBeInTheDocument();
-		expect(within(depthPicker).getByRole("option", { name: "Auto" })).toBeInTheDocument();
-		expect(within(depthPicker).getByRole("option", { name: "Max" })).toBeInTheDocument();
-		expect(within(depthPicker).queryByRole("option", { name: "On" })).toBeNull();
+		expect(
+			within(depthPicker).getByRole("option", { name: "Off" }),
+		).toBeInTheDocument();
+		expect(
+			within(depthPicker).getByRole("option", { name: "Auto" }),
+		).toBeInTheDocument();
+		expect(
+			within(depthPicker).getByRole("option", { name: "Max" }),
+		).toBeInTheDocument();
+		expect(
+			within(depthPicker).queryByRole("option", { name: "On" }),
+		).toBeNull();
 
-		await fireEvent.click(within(depthPicker).getByRole("option", { name: "Max" }));
+		await fireEvent.click(
+			within(depthPicker).getByRole("option", { name: "Max" }),
+		);
 		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("max");
 		expect(queryByRole("listbox", { name: "Reasoning depth" })).toBeNull();
 		await rerender({
@@ -446,7 +456,9 @@ describe("MessageInput", () => {
 			reasoningDepth: "max",
 			onReasoningDepthChange: reasoningDepthChangeSpy,
 		});
-		await fireEvent.input(input, { target: { value: "Use maximum reasoning" } });
+		await fireEvent.input(input, {
+			target: { value: "Use maximum reasoning" },
+		});
 		await fireEvent.click(getByRole("button", { name: "Send message" }));
 
 		expect(sendSpy).toHaveBeenCalledWith(

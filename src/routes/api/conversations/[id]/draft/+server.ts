@@ -60,7 +60,7 @@ function parsePendingSkill(
 
 export const PUT: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const { id } = event.params;
 
 	const conversation = await getConversation(user.id, id);
@@ -130,7 +130,7 @@ export const PUT: RequestHandler = async (event) => {
 
 export const DELETE: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const { id } = event.params;
 
 	await clearConversationDraft(user.id, id);

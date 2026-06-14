@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
-import SkillSessionPanel from "./SkillSessionPanel.svelte";
 import type { SkillSession } from "$lib/types";
+import SkillSessionPanel from "./SkillSessionPanel.svelte";
 
 const session: SkillSession = {
 	id: "session-1",
@@ -41,15 +41,23 @@ describe("SkillSessionPanel", () => {
 		const panel = getByRole("region", { name: "Skill session" });
 		expect(panel).toBeInTheDocument();
 		expect(panel).toHaveClass("skill-session-panel");
-		expect(panel.querySelector(".skill-session-panel__status")).not.toBeInTheDocument();
+		expect(
+			panel.querySelector(".skill-session-panel__status"),
+		).not.toBeInTheDocument();
 		expect(panel.querySelector(".skill-session-panel__marker")).toHaveClass(
 			"skill-session-panel__marker--active",
 		);
 		expect(getByText("Meeting critic")).toBeInTheDocument();
 		expect(queryByText("Active")).not.toBeInTheDocument();
 		expect(queryByText("Active skill")).not.toBeInTheDocument();
-		expect(queryByText("Selected sources only · Private notes")).not.toBeInTheDocument();
-		expect(queryByText("Expected next action: continue the chat with this skill active.")).not.toBeInTheDocument();
+		expect(
+			queryByText("Selected sources only · Private notes"),
+		).not.toBeInTheDocument();
+		expect(
+			queryByText(
+				"Expected next action: continue the chat with this skill active.",
+			),
+		).not.toBeInTheDocument();
 
 		await fireEvent.click(getByRole("button", { name: "Mark done" }));
 		await fireEvent.click(getByRole("button", { name: "Stop skill" }));
@@ -71,7 +79,8 @@ describe("SkillSessionPanel", () => {
 						kind: "failed_note",
 						messageKey: "skillSessions.milestones.failedNote",
 						messageParams: {
-							errorMessage: "Skill note operations can only mutate Skill Notes.",
+							errorMessage:
+								"Skill note operations can only mutate Skill Notes.",
 						},
 						createdAt: 2,
 					},

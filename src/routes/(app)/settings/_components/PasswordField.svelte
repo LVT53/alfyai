@@ -1,22 +1,22 @@
 <script lang="ts">
-	import { t } from '$lib/i18n';
-	import { Eye, EyeOff } from '@lucide/svelte';
+import { t } from "$lib/i18n";
+import { Eye, EyeOff } from "@lucide/svelte";
 
-	let {
-		id,
-		label,
-		value = $bindable(''),
-		shown = $bindable(false),
-		autocomplete,
-		placeholder = '',
-	}: {
-		id: string;
-		label: string;
-		value: string;
-		shown: boolean;
-		autocomplete?: string;
-		placeholder?: string;
-	} = $props();
+let {
+	id,
+	label,
+	value = $bindable(""),
+	shown = $bindable(false),
+	autocomplete,
+	placeholder = "",
+}: {
+	id: string;
+	label: string;
+	value: string;
+	shown: boolean;
+	autocomplete?: string;
+	placeholder?: string;
+} = $props();
 </script>
 
 <div>

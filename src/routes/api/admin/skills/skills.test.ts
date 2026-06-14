@@ -14,8 +14,8 @@ vi.mock("$lib/server/services/skills/user-skills", () => ({
 	seedBuiltInSystemSkillDefinitions: vi.fn(),
 }));
 
-import { getConfig } from "$lib/server/config-store";
 import { requireAdmin } from "$lib/server/auth/hooks";
+import { getConfig } from "$lib/server/config-store";
 import {
 	createSystemSkillDefinition,
 	listAdminSystemSkillDefinitions,
@@ -25,13 +25,12 @@ import { GET, POST } from "./+server";
 
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
-const mockCreateSystemSkillDefinition = createSystemSkillDefinition as ReturnType<typeof vi.fn>;
-const mockListAdminSystemSkillDefinitions = listAdminSystemSkillDefinitions as ReturnType<
-	typeof vi.fn
->;
-const mockSeedBuiltInSystemSkillDefinitions = seedBuiltInSystemSkillDefinitions as ReturnType<
-	typeof vi.fn
->;
+const mockCreateSystemSkillDefinition =
+	createSystemSkillDefinition as ReturnType<typeof vi.fn>;
+const mockListAdminSystemSkillDefinitions =
+	listAdminSystemSkillDefinitions as ReturnType<typeof vi.fn>;
+const mockSeedBuiltInSystemSkillDefinitions =
+	seedBuiltInSystemSkillDefinitions as ReturnType<typeof vi.fn>;
 
 function makeEvent(body?: unknown) {
 	return {
@@ -81,7 +80,9 @@ describe("/api/admin/skills", () => {
 		const data = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(mockSeedBuiltInSystemSkillDefinitions).toHaveBeenCalledWith("admin-user");
+		expect(mockSeedBuiltInSystemSkillDefinitions).toHaveBeenCalledWith(
+			"admin-user",
+		);
 		expect(data.skills).toEqual([
 			{
 				id: "system:interview",

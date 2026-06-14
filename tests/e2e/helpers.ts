@@ -91,20 +91,16 @@ export async function sendMessage(page: Page, text: string) {
 }
 
 export async function waitForAssistantResponse(page: Page, timeout = 30000) {
-	await page.waitForFunction(
-		() => {
-			const msgs = document.querySelectorAll(
-				'[data-testid="assistant-message"]',
-			);
-			for (const msg of msgs) {
-				if (msg.textContent && msg.textContent.trim().length > 0) {
-					return true;
-				}
-			}
-			return false;
-		},
-		{ timeout },
-	);
+	await expect(
+		page.getByTestId("assistant-message").filter({ hasText: /\S/ }).first(),
+	).toBeVisible({ timeout });
+}
+
+export async function advancePastConversationRefreshDebounce(page: Page) {
+	await page.evaluate(() => {
+		const currentNow = Date.now();
+		Date.now = () => currentNow + 2100;
+	});
 }
 
 export function buildAiSdkUiStreamBody(text: string): string {

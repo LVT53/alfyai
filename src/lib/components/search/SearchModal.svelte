@@ -5,7 +5,14 @@ import { fade } from "svelte/transition";
 import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
-import { X, Search, Loader, MessageSquare, Folder, ChevronRight } from "@lucide/svelte";
+import {
+	X,
+	Search,
+	Loader,
+	MessageSquare,
+	Folder,
+	ChevronRight,
+} from "@lucide/svelte";
 import { conversations, loadConversations } from "$lib/stores/conversations";
 import { projects } from "$lib/stores/projects";
 import {

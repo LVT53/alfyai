@@ -5,12 +5,14 @@ vi.mock("$lib/server/services/task-state", () => ({
 	getProjectReferenceContext: vi.fn(),
 }));
 
-const { artifactRows, deepResearchRows, messageRows, queryLimits } = vi.hoisted(() => ({
-	artifactRows: [] as Array<Record<string, any>>,
-	deepResearchRows: [] as Array<Record<string, any>>,
-	messageRows: [] as Array<Record<string, any>>,
-	queryLimits: [] as number[],
-}));
+const { artifactRows, deepResearchRows, messageRows, queryLimits } = vi.hoisted(
+	() => ({
+		artifactRows: [] as Array<Record<string, unknown>>,
+		deepResearchRows: [] as Array<Record<string, unknown>>,
+		messageRows: [] as Array<Record<string, unknown>>,
+		queryLimits: [] as number[],
+	}),
+);
 
 const { targetConstructedContext } = vi.hoisted(() => ({
 	targetConstructedContext: { value: 250_000 },
@@ -28,7 +30,10 @@ type MockCondition =
 
 type MockOrder = { direction: "asc" | "desc"; field: string };
 
-function matchesCondition(row: Record<string, any>, condition: MockCondition): boolean {
+function matchesCondition(
+	row: Record<string, unknown>,
+	condition: MockCondition,
+): boolean {
 	if (!condition) return true;
 	if (Array.isArray(condition)) {
 		return condition.every((nested) => matchesCondition(row, nested));
@@ -48,7 +53,10 @@ function readComparable(value: unknown): string | number {
 	return String(value ?? "");
 }
 
-function mapSelectedRows(rows: Array<Record<string, any>>, shape?: Record<string, any>) {
+function mapSelectedRows(
+	rows: Array<Record<string, unknown>>,
+	shape?: Record<string, unknown>,
+) {
 	if (!shape) return rows;
 	if (Object.values(shape).some((field) => field?.kind === "count")) {
 		return [
@@ -70,7 +78,10 @@ function mapSelectedRows(rows: Array<Record<string, any>>, shape?: Record<string
 	);
 }
 
-function createQuery(rows: Array<Record<string, any>>, shape?: Record<string, any>) {
+function createQuery(
+	rows: Array<Record<string, unknown>>,
+	shape?: Record<string, unknown>,
+) {
 	let currentRows = [...rows];
 	const chain = {
 		from: () => chain,
@@ -85,7 +96,9 @@ function createQuery(rows: Array<Record<string, any>>, shape?: Record<string, an
 			return chain;
 		},
 		where: (condition: MockCondition) => {
-			currentRows = currentRows.filter((row) => matchesCondition(row, condition));
+			currentRows = currentRows.filter((row) =>
+				matchesCondition(row, condition),
+			);
 			return chain;
 		},
 		orderBy: (...orders: MockOrder[]) => {
@@ -104,15 +117,22 @@ function createQuery(rows: Array<Record<string, any>>, shape?: Record<string, an
 			queryLimits.push(limit);
 			return mapSelectedRows(currentRows.slice(0, limit), shape);
 		},
-		then: (onFulfilled: (value: unknown[]) => unknown, onRejected?: (reason: unknown) => unknown) =>
-			Promise.resolve(mapSelectedRows(currentRows, shape)).then(onFulfilled, onRejected),
+		// biome-ignore lint/suspicious/noThenProperty: This mock intentionally behaves like Drizzle's awaitable query builder.
+		then: (
+			onFulfilled: (value: unknown[]) => unknown,
+			onRejected?: (reason: unknown) => unknown,
+		) =>
+			Promise.resolve(mapSelectedRows(currentRows, shape)).then(
+				onFulfilled,
+				onRejected,
+			),
 	};
 	return chain;
 }
 
 vi.mock("$lib/server/db", () => ({
 	db: {
-		select: (shape?: Record<string, any>) => ({
+		select: (shape?: Record<string, unknown>) => ({
 			from: (table: { __name?: string }) => {
 				if (table?.__name === "messages") {
 					return createQuery(messageRows, shape);
@@ -161,7 +181,10 @@ vi.mock("$lib/server/db/schema", () => ({
 vi.mock("drizzle-orm", () => ({
 	and: vi.fn((...conditions: unknown[]) => conditions),
 	count: vi.fn(() => ({ kind: "count" })),
-	desc: vi.fn((field: { name: string }) => ({ direction: "desc", field: field.name })),
+	desc: vi.fn((field: { name: string }) => ({
+		direction: "desc",
+		field: field.name,
+	})),
 	eq: vi.fn((field: { name: string }, value: unknown) => ({
 		operator: "eq",
 		field: field.name,
@@ -180,8 +203,9 @@ import {
 } from "$lib/server/services/task-state";
 import { getProjectContext } from "./project";
 
-const mockGetProjectReferenceContext =
-	getProjectReferenceContext as ReturnType<typeof vi.fn>;
+const mockGetProjectReferenceContext = getProjectReferenceContext as ReturnType<
+	typeof vi.fn
+>;
 const mockFindProjectFolderReferenceContextByQuery =
 	findProjectFolderReferenceContextByQuery as ReturnType<typeof vi.fn>;
 
@@ -333,7 +357,9 @@ describe("getProjectContext", () => {
 				},
 			]),
 		);
-		expect(JSON.stringify(result)).not.toContain("Full report body should only");
+		expect(JSON.stringify(result)).not.toContain(
+			"Full report body should only",
+		);
 	});
 
 	it("returns an explicit non-error result when no folder or continuity exists", async () => {
@@ -460,38 +486,33 @@ describe("getProjectContext", () => {
 	it.each([
 		["small", 50_000, 5],
 		["large", 1_000_000, 16],
-	])(
-		"applies the %s-context summary sibling cap and reports omissions",
-		async (_label, targetContext, expectedLimit) => {
-			targetConstructedContext.value = targetContext;
-			const entries = Array.from({ length: 40 }, (_, index) => ({
-				conversationId: `conv-${index + 2}`,
-				title: `Sibling ${index + 1}`,
-				objective: `Objective ${index + 1}`,
-				summary: `Summary ${index + 1}`,
-			}));
-			mockGetProjectReferenceContext.mockResolvedValue({
-				source: "project_folder",
-				projectId: "project-1",
-				projectName: "Launch Plan",
-				omittedSiblingCount: 3,
-				entries,
-			});
+	])("applies the %s-context summary sibling cap and reports omissions", async (_label, targetContext, expectedLimit) => {
+		targetConstructedContext.value = targetContext;
+		const entries = Array.from({ length: 40 }, (_, index) => ({
+			conversationId: `conv-${index + 2}`,
+			title: `Sibling ${index + 1}`,
+			objective: `Objective ${index + 1}`,
+			summary: `Summary ${index + 1}`,
+		}));
+		mockGetProjectReferenceContext.mockResolvedValue({
+			source: "project_folder",
+			projectId: "project-1",
+			projectName: "Launch Plan",
+			omittedSiblingCount: 3,
+			entries,
+		});
 
-			const result = await getProjectContext({
-				userId: "user-1",
-				conversationId: "conv-1",
-				mode: "summary",
-				maxSiblings: 999,
-			});
+		const result = await getProjectContext({
+			userId: "user-1",
+			conversationId: "conv-1",
+			mode: "summary",
+			maxSiblings: 999,
+		});
 
-			expect(result.audit.appliedMaxSiblings).toBe(expectedLimit);
-			expect(result.siblings).toHaveLength(expectedLimit);
-			expect(result.omittedSiblingCount).toBe(
-				3 + entries.length - expectedLimit,
-			);
-		},
-	);
+		expect(result.audit.appliedMaxSiblings).toBe(expectedLimit);
+		expect(result.siblings).toHaveLength(expectedLimit);
+		expect(result.omittedSiblingCount).toBe(3 + entries.length - expectedLimit);
+	});
 
 	it("returns folder-wide report context with recent messages for bounded siblings", async () => {
 		targetConstructedContext.value = 1_000_000;

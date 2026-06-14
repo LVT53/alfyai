@@ -175,9 +175,7 @@ function hasDocumentFollowUpSignal(message: string): boolean {
 	);
 }
 
-function hasUserCorrectionSignal(
-	message: string | null | undefined,
-): boolean {
+function hasUserCorrectionSignal(message: string | null | undefined): boolean {
 	if (!message?.trim()) return false;
 	return USER_CORRECTION_RE.test(message);
 }
@@ -361,8 +359,9 @@ function buildWorkingDocumentSignalState(params: {
 	currentConversationId?: string | null;
 }): WorkingDocumentSignalState {
 	const hasContextResetSignal = hasActiveContextResetSignal(params.message);
-	const hasNewGeneratedDocumentRequest =
-		hasNewGeneratedDocumentRequestSignal(params.message);
+	const hasNewGeneratedDocumentRequest = hasNewGeneratedDocumentRequestSignal(
+		params.message,
+	);
 	const hasExplicitDocumentInputReference =
 		hasExplicitDocumentInputReferenceSignal(params.message);
 	const shouldContinueDocumentState = !hasContextResetSignal;

@@ -174,7 +174,10 @@ function slowStreamResponse(signal: AbortSignal): Response {
 	});
 }
 
-function timeoutAbortStreamResponse(captured: CapturedOpenAICompatibleRequest, signal: AbortSignal): Response {
+function timeoutAbortStreamResponse(
+	captured: CapturedOpenAICompatibleRequest,
+	signal: AbortSignal,
+): Response {
 	const encoder = new TextEncoder();
 	const stream = new ReadableStream<Uint8Array>({
 		start: (controller) => {
@@ -187,10 +190,14 @@ function timeoutAbortStreamResponse(captured: CapturedOpenAICompatibleRequest, s
 				);
 			};
 			signal.addEventListener("abort", markAbort, { once: true });
-			controller.enqueue(encoder.encode(": fake provider holding stream open\\n\\n"));
+			controller.enqueue(
+				encoder.encode(": fake provider holding stream open\\n\\n"),
+			);
 			setTimeout(() => {
 				if (!captured.aborted) {
-					controller.enqueue(encoder.encode(": still waiting for client abort\\n\\n"));
+					controller.enqueue(
+						encoder.encode(": still waiting for client abort\\n\\n"),
+					);
 				}
 			}, AI_SMOKE_ABORT_DELAY_MS).unref?.();
 		},
@@ -488,15 +495,18 @@ export function createOpenAICompatibleProviderHarness(
 				return originalFetch(input as RequestInfo, init);
 			}
 
-			const request = input instanceof globalThis.Request ? input : new Request(input, init);
+			const request =
+				input instanceof globalThis.Request ? input : new Request(input, init);
 			const requestUrl = new URL(request.url);
 			if (requestUrl.origin !== origin) {
 				return originalFetch(input as RequestInfo, init);
 			}
 
 			if (request.signal?.aborted) {
-				throw request.signal.reason ??
-					new DOMException("The operation was aborted.", "AbortError");
+				throw (
+					request.signal.reason ??
+					new DOMException("The operation was aborted.", "AbortError")
+				);
 			}
 
 			const method = request.method.toUpperCase();
@@ -538,7 +548,7 @@ export function createOpenAICompatibleProviderHarness(
 			}
 
 			if (method === "GET" && path === "/v1/models") {
-				const captured = captureRequest();
+				captureRequest();
 				return jsonResponse({
 					object: "list",
 					data: [
@@ -597,7 +607,9 @@ export function createOpenAICompatibleProviderHarness(
 						return buildToolCallWithoutIdStreamResponse();
 					}
 					if (scenario === AI_SMOKE_SCENARIOS.slowChunks) {
-						return slowStreamResponse(request.signal ?? new AbortController().signal);
+						return slowStreamResponse(
+							request.signal ?? new AbortController().signal,
+						);
 					}
 					if (scenario === AI_SMOKE_SCENARIOS.emptyOutput) {
 						return buildEmptyStreamResponse();
@@ -663,7 +675,9 @@ export function createOpenAICompatibleProviderHarness(
 			origin = "";
 			throw error instanceof Error
 				? error
-				: new Error(`Fake OpenAI-compatible provider failed to listen: ${String(error)}`);
+				: new Error(
+						`Fake OpenAI-compatible provider failed to listen: ${String(error)}`,
+					);
 		}
 
 		active = true;
@@ -689,7 +703,9 @@ export function createOpenAICompatibleProviderHarness(
 	return {
 		get origin() {
 			if (!origin) {
-				throw new Error("Fake OpenAI-compatible provider has not been started.");
+				throw new Error(
+					"Fake OpenAI-compatible provider has not been started.",
+				);
 			}
 			return origin;
 		},

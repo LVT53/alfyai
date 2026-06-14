@@ -43,7 +43,8 @@ function transitionConflictResponse(error: SkillDraftTransitionError) {
 function inheritedCopyResponse() {
 	return json(
 		{
-			error: "Inherited Skill Drafts on copied fork messages cannot be changed.",
+			error:
+				"Inherited Skill Drafts on copied fork messages cannot be changed.",
 			errorKey: "skillDrafts.inheritedCopyBlocked",
 		},
 		{ status: 409 },
@@ -57,7 +58,7 @@ export const POST: RequestHandler = async (event) => {
 		return disabledResponse();
 	}
 
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const conversation = await getConversation(user.id, event.params.id);
 	if (!conversation) {
 		return json({ error: "Conversation not found." }, { status: 404 });
@@ -122,7 +123,9 @@ export const POST: RequestHandler = async (event) => {
 			});
 		} catch (error) {
 			if (error instanceof SkillDraftTransitionError) {
-				await deleteUserSkillDefinition(user.id, skill.id).catch(() => undefined);
+				await deleteUserSkillDefinition(user.id, skill.id).catch(
+					() => undefined,
+				);
 			}
 			throw error;
 		}
@@ -138,7 +141,10 @@ export const POST: RequestHandler = async (event) => {
 				updatedDraft.savedSkillId,
 			);
 			return json(
-				{ skill: existingSkill ?? { id: updatedDraft.savedSkillId }, draft: updatedDraft },
+				{
+					skill: existingSkill ?? { id: updatedDraft.savedSkillId },
+					draft: updatedDraft,
+				},
 				{ status: 200 },
 			);
 		}

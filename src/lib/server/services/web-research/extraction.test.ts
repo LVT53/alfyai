@@ -87,8 +87,7 @@ describe("web research extraction", () => {
 							<p>The important regression is that the visible relative date keeps the machine-readable year from the datetime attribute.</p>
 						</article>
 					</body>
-				</html>`,
-			),
+				</html>`),
 		);
 
 		const result = await extractWebResearchPage({
@@ -100,9 +99,7 @@ describe("web research extraction", () => {
 			fetch: fetchMock,
 		});
 
-		expect(result?.markdown).toContain(
-			"27 May 17:47 (2026-05-27T17:47:41Z)",
-		);
+		expect(result?.markdown).toContain("27 May 17:47 (2026-05-27T17:47:41Z)");
 		expect(result?.plainText).toContain("2026-05-27T17:47:41Z");
 	});
 
@@ -172,5 +169,4 @@ describe("web research extraction", () => {
 			lastErrorCode: "unsafe_redirect",
 		});
 	});
-
 });

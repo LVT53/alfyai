@@ -74,7 +74,10 @@ export function resolveKnowledgeUploadLimits(): {
 		multipartBodyLimit: effectiveLimit(multipartAppLimit, adapterBodySizeLimit),
 		storedFileLimit,
 		chunkFileLimit: maxFileUploadSize,
-		chunkBodyLimit: effectiveLimit(CHUNK_BODY_LIMIT_BYTES, adapterBodySizeLimit),
+		chunkBodyLimit: effectiveLimit(
+			CHUNK_BODY_LIMIT_BYTES,
+			adapterBodySizeLimit,
+		),
 		multipartOverheadAllowance: MULTIPART_OVERHEAD_ALLOWANCE_BYTES,
 	};
 }

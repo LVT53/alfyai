@@ -155,6 +155,10 @@ test.describe("SSE streaming verification", () => {
 		page,
 	}) => {
 		let callCount = 0;
+		let releaseFirstStream: (() => void) | null = null;
+		const firstStreamCanFinish = new Promise<void>((resolve) => {
+			releaseFirstStream = resolve;
+		});
 		const receivedMessages: string[] = [];
 
 		await page.route("**/api/chat/stream", async (route) => {
@@ -164,7 +168,7 @@ test.describe("SSE streaming verification", () => {
 			receivedMessages.push(message);
 
 			if (callCount === 1) {
-				await new Promise((resolve) => setTimeout(resolve, 1200));
+				await firstStreamCanFinish;
 			}
 
 			await route.fulfill({
@@ -191,9 +195,9 @@ test.describe("SSE streaming verification", () => {
 		await expect(page.getByTestId("queued-message-banner")).toContainText(
 			"Second queued test",
 		);
-		await page.waitForTimeout(150);
 		expect(callCount).toBe(1);
 
+		releaseFirstStream?.();
 		await expect.poll(() => callCount, { timeout: 10000 }).toBe(2);
 		await expect(page.getByTestId("queued-message-banner")).toHaveCount(0);
 		await expect(page.getByTestId("user-message")).toHaveCount(2, {
@@ -261,7 +265,6 @@ test.describe("SSE streaming verification", () => {
 		await expect(page.getByTestId("message-input")).toHaveValue(
 			"Queued after stop",
 		);
-		await page.waitForTimeout(150);
 		expect(callCount).toBe(1);
 	});
 
@@ -326,10 +329,14 @@ test.describe("SSE streaming verification", () => {
 		page,
 	}) => {
 		let callCount = 0;
+		let releaseFailure: (() => void) | null = null;
+		const failureCanFinish = new Promise<void>((resolve) => {
+			releaseFailure = resolve;
+		});
 
 		await page.route("**/api/chat/stream", async (route) => {
 			callCount += 1;
-			await new Promise((resolve) => setTimeout(resolve, 1000));
+			await failureCanFinish;
 			await route.fulfill({
 				status: 500,
 				headers: { "Content-Type": "application/json" },
@@ -350,7 +357,9 @@ test.describe("SSE streaming verification", () => {
 		await expect(page.getByTestId("queued-message-banner")).toContainText(
 			"Queued after error",
 		);
+		expect(callCount).toBe(1);
 
+		releaseFailure?.();
 		await expect(page.getByRole("button", { name: /retry/i })).toBeVisible({
 			timeout: 15000,
 		});
@@ -358,6 +367,5 @@ test.describe("SSE streaming verification", () => {
 		await expect(page.getByTestId("message-input")).toHaveValue(
 			"Queued after error",
 		);
-		expect(callCount).toBe(1);
 	});
 });

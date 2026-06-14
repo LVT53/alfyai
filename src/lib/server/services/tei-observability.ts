@@ -1,6 +1,11 @@
-import { getConfig } from '../config-store';
+import { getConfig } from "../config-store";
 
-export type TeiWinningMode = 'deterministic' | 'lexical' | 'semantic' | 'rerank' | 'none';
+export type TeiWinningMode =
+	| "deterministic"
+	| "lexical"
+	| "semantic"
+	| "rerank"
+	| "none";
 
 export type SemanticShortlistDiagnostics = {
 	queryLength: number;
@@ -27,15 +32,15 @@ export function determineTeiWinningMode(params: {
 	rerankScore?: number;
 	deterministic?: boolean;
 }): TeiWinningMode {
-	if (params.deterministic) return 'deterministic';
-	if ((params.rerankScore ?? 0) > 0) return 'rerank';
-	if ((params.semanticScore ?? 0) > 0) return 'semantic';
-	if ((params.lexicalScore ?? 0) > 0) return 'lexical';
-	return 'none';
+	if (params.deterministic) return "deterministic";
+	if ((params.rerankScore ?? 0) > 0) return "rerank";
+	if ((params.semanticScore ?? 0) > 0) return "semantic";
+	if ((params.lexicalScore ?? 0) > 0) return "lexical";
+	return "none";
 }
 
 export function logTeiRetrievalSummary(params: {
-	scope: 'documents' | 'persona_prompt' | 'task_routing';
+	scope: "documents" | "persona_prompt" | "task_routing";
 	userId?: string;
 	conversationId?: string;
 	queryLength: number;
@@ -54,14 +59,18 @@ export function logTeiRetrievalSummary(params: {
 		return;
 	}
 
-	const semanticUsed = Boolean(params.semantic && params.semantic.matchCount > 0);
+	const semanticUsed = Boolean(
+		params.semantic && params.semantic.matchCount > 0,
+	);
 	const rerankUsed = Boolean(params.rerank && params.rerank.outputCount > 0);
-	const fellBack = Boolean(params.semantic?.fallbackReason || params.rerank?.fallbackReason);
+	const fellBack = Boolean(
+		params.semantic?.fallbackReason || params.rerank?.fallbackReason,
+	);
 	if (!semanticUsed && !rerankUsed && !fellBack) {
 		return;
 	}
 
-	console.info('[TEI] Retrieval summary', {
+	console.info("[TEI] Retrieval summary", {
 		scope: params.scope,
 		userId: params.userId ?? null,
 		conversationId: params.conversationId ?? null,

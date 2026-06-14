@@ -743,8 +743,7 @@ function configLabelKey(key: string): string {
 			"admin.modelTimeoutFailoverTargetModel",
 		SYSTEM_PROMPT: "admin.systemPromptLabel",
 		DEFAULT_NEW_USER_MODEL: "admin.defaultNewUserModel",
-		REASONING_DEPTH_CLASSIFIER_MODEL:
-			"admin.reasoningDepthClassifierModel",
+		REASONING_DEPTH_CLASSIFIER_MODEL: "admin.reasoningDepthClassifierModel",
 	};
 	return map[key] ?? key;
 }

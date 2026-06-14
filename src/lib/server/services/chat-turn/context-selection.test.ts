@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { estimateTokenCount } from "$lib/utils/tokens";
-import { buildConstructedContext, selectPromptContext } from "./context-selection";
+import {
+	buildConstructedContext,
+	selectPromptContext,
+} from "./context-selection";
 
 const mocks = vi.hoisted(() => ({
 	loadHonchoPromptContext: vi.fn(),
@@ -53,7 +56,8 @@ vi.mock("../knowledge", () => ({
 	getMaxModelContext: mocks.getMaxModelContext,
 	getTargetConstructedContext: mocks.getTargetConstructedContext,
 	listConversationSourceArtifactIds: mocks.listConversationSourceArtifactIds,
-	listConversationSourceArtifactNames: mocks.listConversationSourceArtifactNames,
+	listConversationSourceArtifactNames:
+		mocks.listConversationSourceArtifactNames,
 	resolvePromptAttachmentArtifacts: mocks.resolvePromptAttachmentArtifacts,
 	selectWorkingSetArtifactsForPrompt: mocks.selectWorkingSetArtifactsForPrompt,
 	updateConversationContextStatus: mocks.updateConversationContextStatus,
@@ -63,7 +67,8 @@ vi.mock("../knowledge", () => ({
 }));
 
 vi.mock("../linked-context-sources", () => ({
-	listConversationLinkedContextSources: mocks.listConversationLinkedContextSources,
+	listConversationLinkedContextSources:
+		mocks.listConversationLinkedContextSources,
 }));
 
 vi.mock("../messages", () => ({
@@ -85,7 +90,8 @@ vi.mock("../task-state", () => ({
 	getProjectReferenceContext: mocks.getProjectReferenceContext,
 	getPromptArtifactSnippets: mocks.getPromptArtifactSnippets,
 	prepareTaskContext: mocks.prepareTaskContext,
-	selectProjectFolderSiblingPromotion: mocks.selectProjectFolderSiblingPromotion,
+	selectProjectFolderSiblingPromotion:
+		mocks.selectProjectFolderSiblingPromotion,
 }));
 
 vi.mock("../tei-embedder", () => ({
@@ -376,7 +382,9 @@ describe("buildConstructedContext", () => {
 		});
 
 		expect(constructed.inputValue).toContain("## Task State");
-		expect(constructed.inputValue).toContain("Task objective: Ship the launch plan");
+		expect(constructed.inputValue).toContain(
+			"Task objective: Ship the launch plan",
+		);
 		expect(constructed.inputValue).toContain("## Current Attachments");
 		expect(constructed.inputValue).toContain("launch-plan.md");
 		expect(constructed.inputValue).toContain("## Retrieved Evidence");

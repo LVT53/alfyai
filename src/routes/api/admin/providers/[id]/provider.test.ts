@@ -23,7 +23,7 @@ vi.mock("$lib/server/services/providers", async () => {
 import { requireAdmin } from "$lib/server/auth/hooks";
 import { refreshConfig } from "$lib/server/config-store";
 import { deleteProvider, updateProvider } from "$lib/server/services/providers";
-import { PUT, DELETE } from "./+server";
+import { DELETE, PUT } from "./+server";
 
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
 const mockRefreshConfig = refreshConfig as ReturnType<typeof vi.fn>;
@@ -32,16 +32,16 @@ const mockDeleteProvider = deleteProvider as ReturnType<typeof vi.fn>;
 
 type ProviderDetailEvent = Parameters<typeof PUT>[0];
 
-function makeEvent(method: "PUT" | "DELETE", body?: unknown): ProviderDetailEvent {
+function makeEvent(
+	method: "PUT" | "DELETE",
+	body?: unknown,
+): ProviderDetailEvent {
 	return {
-		request: new Request(
-			"http://localhost/api/admin/providers/provider-1",
-			{
-				method,
-				headers: { "Content-Type": "application/json" },
-				body: body !== undefined ? JSON.stringify(body) : undefined,
-			},
-		),
+		request: new Request("http://localhost/api/admin/providers/provider-1", {
+			method,
+			headers: { "Content-Type": "application/json" },
+			body: body !== undefined ? JSON.stringify(body) : undefined,
+		}),
 		locals: { user: { id: "admin-1", role: "admin" } },
 		params: { id: "provider-1" },
 		url: new URL("http://localhost/api/admin/providers/provider-1"),
@@ -104,9 +104,7 @@ describe("admin provider detail route", () => {
 				updatedAt: new Date(),
 			});
 
-			const response = await PUT(
-				makeEvent("PUT", { enabled: false }),
-			);
+			const response = await PUT(makeEvent("PUT", { enabled: false }));
 			const data = await response.json();
 
 			expect(response.status).toBe(200);
@@ -130,9 +128,7 @@ describe("admin provider detail route", () => {
 		});
 
 		it("updates API key", async () => {
-			const response = await PUT(
-				makeEvent("PUT", { apiKey: "sk-new-key" }),
-			);
+			const response = await PUT(makeEvent("PUT", { apiKey: "sk-new-key" }));
 
 			expect(response.status).toBe(200);
 			expect(mockUpdateProvider).toHaveBeenCalledWith(
@@ -166,9 +162,7 @@ describe("admin provider detail route", () => {
 		});
 
 		it("updates sortOrder", async () => {
-			const response = await PUT(
-				makeEvent("PUT", { sortOrder: 3 }),
-			);
+			const response = await PUT(makeEvent("PUT", { sortOrder: 3 }));
 
 			expect(response.status).toBe(200);
 			expect(mockUpdateProvider).toHaveBeenCalledWith(
@@ -178,9 +172,7 @@ describe("admin provider detail route", () => {
 		});
 
 		it("clears iconAssetId when empty string is passed", async () => {
-			const response = await PUT(
-				makeEvent("PUT", { iconAssetId: "" }),
-			);
+			const response = await PUT(makeEvent("PUT", { iconAssetId: "" }));
 
 			expect(response.status).toBe(200);
 			expect(mockUpdateProvider).toHaveBeenCalledWith(
@@ -192,9 +184,7 @@ describe("admin provider detail route", () => {
 		it("returns 404 when provider not found", async () => {
 			mockUpdateProvider.mockResolvedValue(null);
 
-			const response = await PUT(
-				makeEvent("PUT", { displayName: "Ghost" }),
-			);
+			const response = await PUT(makeEvent("PUT", { displayName: "Ghost" }));
 			const data = await response.json();
 
 			expect(response.status).toBe(404);

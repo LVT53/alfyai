@@ -2,13 +2,13 @@ import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 import type {
+	DepthMetadata,
 	HonchoContextInfo,
 	HonchoContextSnapshot,
 	ModelId,
-	ThinkingMode,
-	DepthMetadata,
-	ToolCallEntry,
 	ResponseActivityEntry,
+	ThinkingMode,
+	ToolCallEntry,
 } from "$lib/types";
 
 export interface NonStreamFallbackSendParams {

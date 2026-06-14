@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { error, redirect } from "@sveltejs/kit";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
@@ -27,7 +27,9 @@ import type { RequestEvent } from "./$types";
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockGetConversationDetail = vi.mocked(getConversationDetail);
 const mockMoveConversationToProject = vi.mocked(moveConversationToProject);
-const mockSetConversationSidebarPinned = vi.mocked(setConversationSidebarPinned);
+const mockSetConversationSidebarPinned = vi.mocked(
+	setConversationSidebarPinned,
+);
 
 function makeEvent(
 	user: { id: string } | null = { id: "user-1" },

@@ -1,59 +1,57 @@
 <script lang="ts">
-  import { goto, invalidateAll } from '$app/navigation';
-  import { login } from '$lib/client/api/auth';
-  import { clearClientAccountState } from '$lib/client/session-boundary';
-  import { t } from '$lib/i18n';
-  import { Eye, EyeOff, Loader } from '@lucide/svelte';
+import { goto, invalidateAll } from "$app/navigation";
+import { login } from "$lib/client/api/auth";
+import { clearClientAccountState } from "$lib/client/session-boundary";
+import { t } from "$lib/i18n";
+import { Eye, EyeOff, Loader } from "@lucide/svelte";
 
-  let email = $state('');
-  let password = $state('');
-  let error = $state('');
-  let loading = $state(false);
-  let hydrated = $state(false);
-  let showPassword = $state(false);
-  let rememberMe = $state(false);
-  let formRef = $state<HTMLFormElement | null>(null);
+let email = $state("");
+let password = $state("");
+let error = $state("");
+let loading = $state(false);
+let hydrated = $state(false);
+let showPassword = $state(false);
+let rememberMe = $state(false);
+let formRef = $state<HTMLFormElement | null>(null);
 
-  $effect(() => {
-    hydrated = true;
-  });
+$effect(() => {
+	hydrated = true;
+});
 
-  async function handleSubmit(event: SubmitEvent) {
-    event.preventDefault();
+async function handleSubmit(event: SubmitEvent) {
+	event.preventDefault();
 
-    if (!email.trim() || !password.trim()) {
-      error = $t('login.pleaseFillAllFields');
-      return;
-    }
+	if (!email.trim() || !password.trim()) {
+		error = $t("login.pleaseFillAllFields");
+		return;
+	}
 
-    error = '';
-    loading = true;
+	error = "";
+	loading = true;
 
-    try {
-      await login(email, password, rememberMe);
-      clearClientAccountState();
-      await invalidateAll();
-      await goto('/', { invalidateAll: true });
-    } catch (err) {
-      error = err instanceof Error
-        ? err.message
-        : $t('login.unexpectedError');
-    } finally {
-      loading = false;
-    }
-  }
+	try {
+		await login(email, password, rememberMe);
+		clearClientAccountState();
+		await invalidateAll();
+		await goto("/", { invalidateAll: true });
+	} catch (err) {
+		error = err instanceof Error ? err.message : $t("login.unexpectedError");
+	} finally {
+		loading = false;
+	}
+}
 
-  function handleFormKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Enter' || event.shiftKey || loading) return;
+function handleFormKeydown(event: KeyboardEvent) {
+	if (event.key !== "Enter" || event.shiftKey || loading) return;
 
-    const target = event.target;
-    if (target instanceof HTMLButtonElement && target.type === 'button') {
-      return;
-    }
+	const target = event.target;
+	if (target instanceof HTMLButtonElement && target.type === "button") {
+		return;
+	}
 
-    event.preventDefault();
-    formRef?.requestSubmit();
-  }
+	event.preventDefault();
+	formRef?.requestSubmit();
+}
 </script>
 
 <svelte:head>

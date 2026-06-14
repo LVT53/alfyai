@@ -93,7 +93,7 @@ function isUploadAbortError(error: unknown, message: string) {
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const traceId =
 		sanitizeUploadTraceId(event.request.headers.get(UPLOAD_TRACE_HEADER)) ??
 		createAttachmentTraceId("upload");

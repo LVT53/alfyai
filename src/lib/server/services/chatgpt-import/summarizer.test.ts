@@ -71,9 +71,10 @@ vi.mock("$lib/server/config-store", () => ({
 }));
 
 vi.mock("$lib/server/services/normal-chat-model", async (importOriginal) => {
-	const actual = await importOriginal<
-		typeof import("$lib/server/services/normal-chat-model")
-	>();
+	const actual =
+		await importOriginal<
+			typeof import("$lib/server/services/normal-chat-model")
+		>();
 	return {
 		...actual,
 		resolveNormalChatModelRunProvider: vi.fn(async () => ({
@@ -154,9 +155,7 @@ describe("summarizer — pure helpers", () => {
 			{ role: "user", content: "Q" },
 			{ role: "assistant", content: "A" },
 		];
-		expect(formatMessagesForPrompt(messages)).toBe(
-			"user: Q\n\nassistant: A",
-		);
+		expect(formatMessagesForPrompt(messages)).toBe("user: Q\n\nassistant: A");
 	});
 });
 
@@ -191,11 +190,7 @@ describe("summarizer — storeConversationSummary", () => {
 
 		const { storeConversationSummary } = await import("./summarizer");
 
-		await storeConversationSummary(
-			"test-user",
-			"conv-1",
-			"Test summary text",
-		);
+		await storeConversationSummary("test-user", "conv-1", "Test summary text");
 
 		const row = readSummary("conv-1");
 		expect(row).toBeTruthy();
@@ -220,16 +215,8 @@ describe("summarizer — storeConversationSummary", () => {
 
 		const { storeConversationSummary } = await import("./summarizer");
 
-		await storeConversationSummary(
-			"test-user",
-			"conv-2",
-			"First summary",
-		);
-		await storeConversationSummary(
-			"test-user",
-			"conv-2",
-			"Updated summary",
-		);
+		await storeConversationSummary("test-user", "conv-2", "First summary");
+		await storeConversationSummary("test-user", "conv-2", "Updated summary");
 
 		const row = readSummary("conv-2");
 		expect(row?.summary).toBe("Updated summary");
@@ -272,17 +259,15 @@ describe("summarizer — summarizeConversation", () => {
 		];
 
 		const summary = await summarizeConversation(messages, "TS Chat");
-		expect(summary).toBe(
-			"This is a concise summary of the conversation.",
-		);
+		expect(summary).toBe("This is a concise summary of the conversation.");
 		expect(mockGenerateText).toHaveBeenCalledTimes(1);
 	});
 
 	it("throws for empty messages", async () => {
 		const { summarizeConversation } = await import("./summarizer");
-		await expect(
-			summarizeConversation([], "Empty"),
-		).rejects.toThrow("Cannot summarize empty conversation");
+		await expect(summarizeConversation([], "Empty")).rejects.toThrow(
+			"Cannot summarize empty conversation",
+		);
 	});
 
 	it("uses chunking for long conversations", async () => {
@@ -303,17 +288,15 @@ describe("summarizer — summarizeConversation", () => {
 	});
 
 	it("propagates generateText errors", async () => {
-		mockGenerateText.mockRejectedValueOnce(
-			new Error("Model unavailable"),
-		);
+		mockGenerateText.mockRejectedValueOnce(new Error("Model unavailable"));
 
 		const { summarizeConversation } = await import("./summarizer");
 
 		const messages = [{ role: "user", content: "Hello" }];
 
-		await expect(
-			summarizeConversation(messages, "Error Chat"),
-		).rejects.toThrow("Model unavailable");
+		await expect(summarizeConversation(messages, "Error Chat")).rejects.toThrow(
+			"Model unavailable",
+		);
 	});
 });
 
@@ -354,9 +337,7 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 			})
 			.run();
 
-		const { summarizeAndStoreConversation } = await import(
-			"./summarizer"
-		);
+		const { summarizeAndStoreConversation } = await import("./summarizer");
 
 		const messages = [
 			{ role: "user", content: "Hello" },
@@ -398,9 +379,7 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 			})
 			.run();
 
-		const { summarizeAndStoreConversation } = await import(
-			"./summarizer"
-		);
+		const { summarizeAndStoreConversation } = await import("./summarizer");
 
 		const messages = [{ role: "user", content: "Hello" }];
 
@@ -418,9 +397,7 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 	});
 
 	it("does not throw when Honcho sync fails", async () => {
-		mockMirrorMessage.mockRejectedValue(
-			new Error("Honcho unavailable"),
-		);
+		mockMirrorMessage.mockRejectedValue(new Error("Honcho unavailable"));
 
 		seedUser();
 		const { db } = openSeedDatabase();
@@ -435,9 +412,7 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 			})
 			.run();
 
-		const { summarizeAndStoreConversation } = await import(
-			"./summarizer"
-		);
+		const { summarizeAndStoreConversation } = await import("./summarizer");
 
 		const messages = [{ role: "user", content: "Test" }];
 

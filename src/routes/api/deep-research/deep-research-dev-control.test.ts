@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import type { RequestEvent } from "@sveltejs/kit";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -7,57 +8,62 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
-vi.mock("$lib/server/services/deep-research/discovery", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("$lib/server/services/deep-research/discovery")>();
-	return {
-		...actual,
-		runPublicWebDiscoveryPass: vi.fn(async (input) => {
-			const { saveDiscoveredResearchSource } = await import(
-				"$lib/server/services/deep-research/sources"
-			);
-			const { saveResearchTimelineEvent } = await import(
-				"$lib/server/services/deep-research/timeline"
-			);
-			const now = input.now ?? new Date("2026-05-05T10:07:00.000Z");
-			const source = await saveDiscoveredResearchSource({
-				jobId: input.jobId,
-				conversationId: input.conversationId,
-				userId: input.userId,
-				url: "https://agency.example.test/ai-copyright-training-data",
-				title: "Agency AI copyright training data briefing",
-				provider: "public_web",
-				snippet: "Agency briefing on AI copyright training data rules.",
-				discoveredAt: now,
-			});
-			await saveResearchTimelineEvent({
-				jobId: input.jobId,
-				conversationId: input.conversationId,
-				userId: input.userId,
-				taskId: null,
-				stage: "source_discovery",
-				kind: "stage_completed",
-				occurredAt: now.toISOString(),
-				messageKey: "deepResearch.timeline.sourceDiscoveryCompleted",
-				messageParams: { discovered: 1 },
-				sourceCounts: {
-					discovered: 1,
-					reviewed: 0,
-					cited: 0,
-				},
-				assumptions: [],
-				warnings: [],
-				summary: "Public web discovery found 1 candidate source.",
-			});
-			return {
-				queries: [input.approvedPlan.goal],
-				discoveredCount: 1,
-				savedSources: [source],
-				warnings: [],
-			};
-		}),
-	};
-});
+vi.mock(
+	"$lib/server/services/deep-research/discovery",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("$lib/server/services/deep-research/discovery")
+			>();
+		return {
+			...actual,
+			runPublicWebDiscoveryPass: vi.fn(async (input) => {
+				const { saveDiscoveredResearchSource } = await import(
+					"$lib/server/services/deep-research/sources"
+				);
+				const { saveResearchTimelineEvent } = await import(
+					"$lib/server/services/deep-research/timeline"
+				);
+				const now = input.now ?? new Date("2026-05-05T10:07:00.000Z");
+				const source = await saveDiscoveredResearchSource({
+					jobId: input.jobId,
+					conversationId: input.conversationId,
+					userId: input.userId,
+					url: "https://agency.example.test/ai-copyright-training-data",
+					title: "Agency AI copyright training data briefing",
+					provider: "public_web",
+					snippet: "Agency briefing on AI copyright training data rules.",
+					discoveredAt: now,
+				});
+				await saveResearchTimelineEvent({
+					jobId: input.jobId,
+					conversationId: input.conversationId,
+					userId: input.userId,
+					taskId: null,
+					stage: "source_discovery",
+					kind: "stage_completed",
+					occurredAt: now.toISOString(),
+					messageKey: "deepResearch.timeline.sourceDiscoveryCompleted",
+					messageParams: { discovered: 1 },
+					sourceCounts: {
+						discovered: 1,
+						reviewed: 0,
+						cited: 0,
+					},
+					assumptions: [],
+					warnings: [],
+					summary: "Public web discovery found 1 candidate source.",
+				});
+				return {
+					queries: [input.approvedPlan.goal],
+					discoveredCount: 1,
+					savedSources: [source],
+					warnings: [],
+				};
+			}),
+		};
+	},
+);
 
 vi.mock("$lib/server/services/deep-research/planning-context", () => ({
 	buildDeepResearchPlanningContext: vi.fn(),
@@ -67,9 +73,8 @@ import { buildDeepResearchPlanningContext } from "$lib/server/services/deep-rese
 
 let dbPath: string;
 let previousDeepResearchEnabled: string | undefined;
-const mockBuildDeepResearchPlanningContext = buildDeepResearchPlanningContext as ReturnType<
-	typeof vi.fn
->;
+const mockBuildDeepResearchPlanningContext =
+	buildDeepResearchPlanningContext as ReturnType<typeof vi.fn>;
 
 const signedInUser = {
 	id: "user-1",
@@ -159,22 +164,27 @@ async function seedPromptReadyAttachment() {
 	sqlite.close();
 }
 
-function makeJsonEvent(path: string, body?: unknown, params: Record<string, string> = {}) {
+function makeJsonEvent(
+	path: string,
+	body?: unknown,
+	params: Record<string, string> = {},
+): RequestEvent {
 	return {
 		request: new Request(`http://localhost${path}`, {
 			method: "POST",
-			headers: body === undefined ? undefined : { "content-type": "application/json" },
+			headers:
+				body === undefined ? undefined : { "content-type": "application/json" },
 			body: body === undefined ? undefined : JSON.stringify(body),
 		}),
 		locals: { user: signedInUser },
 		params,
 		url: new URL(`http://localhost${path}`),
 		route: { id: path },
-	} as any;
+	} as unknown as RequestEvent;
 }
 
 async function readJson(response: Response) {
-	return (await response.json()) as Record<string, any>;
+	return (await response.json()) as Record<string, unknown>;
 }
 
 async function loadConversationStatus(conversationId: string) {
@@ -192,8 +202,12 @@ async function loadConversationStatus(conversationId: string) {
 
 async function startApproveAndCompleteThroughDevRoutes() {
 	const { POST: sendChat } = await import("../chat/send/+server");
-	const { POST: approvePlan } = await import("./jobs/[id]/plan/approve/+server");
-	const { POST: advanceWorker } = await import("./jobs/[id]/worker/advance/+server");
+	const { POST: approvePlan } = await import(
+		"./jobs/[id]/plan/approve/+server"
+	);
+	const { POST: advanceWorker } = await import(
+		"./jobs/[id]/worker/advance/+server"
+	);
 
 	const startResponse = await sendChat(
 		makeJsonEvent("/api/chat/send", {
@@ -206,16 +220,14 @@ async function startApproveAndCompleteThroughDevRoutes() {
 	const jobId = started.deepResearchJob.id as string;
 
 	const approvalResponse = await approvePlan(
-		makeJsonEvent(
-			`/api/deep-research/jobs/${jobId}/plan/approve`,
-			undefined,
-			{ id: jobId },
-		),
+		makeJsonEvent(`/api/deep-research/jobs/${jobId}/plan/approve`, undefined, {
+			id: jobId,
+		}),
 	);
 	const approved = await readJson(approvalResponse);
 
-	const advanceSnapshots: Array<Record<string, any>> = [];
-	let completed: Record<string, any> | null = null;
+	const advanceSnapshots: Array<Record<string, unknown>> = [];
+	let completed: Record<string, unknown> | null = null;
 	let completionResponse: Response | null = null;
 	const maxAdvances = 12;
 	for (let index = 0; index < maxAdvances; index += 1) {
@@ -323,9 +335,9 @@ describe("Deep Research dev-control acceptance path", () => {
 
 		expect(advanceSnapshots.length).toBeGreaterThan(0);
 		expect(advanceSnapshots.some((snapshot) => snapshot.advanced)).toBe(true);
-		expect(advanceSnapshots.every((snapshot) => snapshot.job?.id === jobId)).toBe(
-			true,
-		);
+		expect(
+			advanceSnapshots.every((snapshot) => snapshot.job?.id === jobId),
+		).toBe(true);
 		expect(
 			advanceSnapshots.some(
 				(snapshot) =>
@@ -365,13 +377,18 @@ describe("Deep Research dev-control acceptance path", () => {
 		]);
 
 		const { POST: sendChat } = await import("../chat/send/+server");
-		const { POST: approvePlan } = await import("./jobs/[id]/plan/approve/+server");
-		const { listResearchSources } = await import("$lib/server/services/deep-research/sources");
+		const { POST: approvePlan } = await import(
+			"./jobs/[id]/plan/approve/+server"
+		);
+		const { listResearchSources } = await import(
+			"$lib/server/services/deep-research/sources"
+		);
 
 		const startResponse = await sendChat(
 			makeJsonEvent("/api/chat/send", {
 				conversationId: "conv-1",
-				message: "  Compare EU and US AI copyright training data rules using my memo.  ",
+				message:
+					"  Compare EU and US AI copyright training data rules using my memo.  ",
 				attachmentIds: ["source-attachment-1"],
 				activeDocumentArtifactId: "active-document-1",
 				deepResearch: { depth: "focused" },
@@ -379,13 +396,15 @@ describe("Deep Research dev-control acceptance path", () => {
 		);
 		const started = await readJson(startResponse);
 		const jobId = started.deepResearchJob.id as string;
-		const renderedPlan = started.deepResearchJob.currentPlan.renderedPlan as string;
+		const renderedPlan = started.deepResearchJob.currentPlan
+			.renderedPlan as string;
 
 		expect(startResponse.status).toBe(200);
 		expect(mockBuildDeepResearchPlanningContext).toHaveBeenCalledWith({
 			userId: signedInUser.id,
 			conversationId: "conv-1",
-			userRequest: "Compare EU and US AI copyright training data rules using my memo.",
+			userRequest:
+				"Compare EU and US AI copyright training data rules using my memo.",
 			attachmentIds: ["source-attachment-1"],
 			activeDocumentArtifactId: "active-document-1",
 		});
@@ -424,7 +443,8 @@ describe("Deep Research dev-control acceptance path", () => {
 		const { POST: researchFurther } = await import(
 			"./jobs/[id]/report-actions/research-further/+server"
 		);
-		const { jobId, completed } = await startApproveAndCompleteThroughDevRoutes();
+		const { jobId, completed } =
+			await startApproveAndCompleteThroughDevRoutes();
 		const reportArtifactId = completed.job.reportArtifactId as string;
 
 		const discussResponse = await discussReport(
@@ -465,7 +485,8 @@ describe("Deep Research dev-control acceptance path", () => {
 			sourceJobId: jobId,
 			reportArtifactId,
 			conversation: {
-				title: "Research further: Compare EU and US AI copyright training data rules",
+				title:
+					"Research further: Compare EU and US AI copyright training data rules",
 			},
 			messageId: expect.any(String),
 			job: {

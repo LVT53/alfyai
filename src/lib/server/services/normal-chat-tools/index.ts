@@ -4,9 +4,9 @@ import { z } from "zod";
 
 import { db } from "$lib/server/db";
 import { artifacts } from "$lib/server/db/schema";
+import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
-import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import {
@@ -53,7 +53,6 @@ import {
 	readGeneratedFileInputSchema,
 	sanitizeReadGeneratedFileInput,
 	summarizeReadGeneratedFileResult,
-	type ReadGeneratedFileResult,
 } from "./read-generated-file";
 
 import {
@@ -436,26 +435,20 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					if (previousContent === null) {
 						const error =
 							"No previous version of this file could be found. Use content, markdown, or text to create the initial version instead of patches.";
-						const result: Extract<
-							FileProductionIntakeResult,
-							{ ok: false }
-						> = {
+						const result: Extract<FileProductionIntakeResult, { ok: false }> = {
 							ok: false,
 							status: 422,
 							code: "no_previous_version_for_patches",
 							error,
 						};
-						const safeInput =
-							sanitizeProduceFileInput(normalizedInput);
-						const modelPayload =
-							compactProduceFileModelPayload(result);
+						const safeInput = sanitizeProduceFileInput(normalizedInput);
+						const modelPayload = compactProduceFileModelPayload(result);
 						recorder.record(
 							createProduceFileToolCallEntry({
 								callId: options.toolCallId,
 								input: safeInput,
 								result,
-								outputSummary:
-									summarizeProduceFileResult(modelPayload),
+								outputSummary: summarizeProduceFileResult(modelPayload),
 							}),
 						);
 						return modelPayload;
@@ -465,39 +458,30 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						normalizedInput.patches,
 					);
 					if (!patchResult.ok) {
-						const result: Extract<
-							FileProductionIntakeResult,
-							{ ok: false }
-						> = {
+						const result: Extract<FileProductionIntakeResult, { ok: false }> = {
 							ok: false,
 							status: 422,
 							code: "patch_failed",
 							error: patchResult.error,
 						};
-						const safeInput =
-							sanitizeProduceFileInput(normalizedInput);
-						const modelPayload =
-							compactProduceFileModelPayload(result);
+						const safeInput = sanitizeProduceFileInput(normalizedInput);
+						const modelPayload = compactProduceFileModelPayload(result);
 						recorder.record(
 							createProduceFileToolCallEntry({
 								callId: options.toolCallId,
 								input: safeInput,
 								result,
-								outputSummary:
-									summarizeProduceFileResult(modelPayload),
+								outputSummary: summarizeProduceFileResult(modelPayload),
 							}),
 						);
 						return modelPayload;
 					}
-					normalizedInput.program.sourceCode =
-						buildResolvedProgramSource(
-							normalizedInput.program.filename ??
-								"generated-file.txt",
-							patchResult.resolvedText,
-						);
+					normalizedInput.program.sourceCode = buildResolvedProgramSource(
+						normalizedInput.program.filename ?? "generated-file.txt",
+						patchResult.resolvedText,
+					);
 				}
-				const { patches: _patches, ...intakeNormalizedInput } =
-					normalizedInput;
+				const { patches: _patches, ...intakeNormalizedInput } = normalizedInput;
 
 				const safeInput = sanitizeProduceFileInput(normalizedInput);
 				const intakeBody = {
@@ -611,8 +595,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							filename: parsedInput.data.filename ?? null,
 							requestTitle: parsedInput.data.requestTitle ?? null,
 						});
-						const modelPayload =
-							buildReadGeneratedFileModelPayload(result);
+						const modelPayload = buildReadGeneratedFileModelPayload(result);
 						return {
 							modelPayload,
 							entry: {
@@ -620,8 +603,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								name: "read_generated_file",
 								input: safeInput,
 								status: "done",
-								outputSummary:
-									summarizeReadGeneratedFileResult(result),
+								outputSummary: summarizeReadGeneratedFileResult(result),
 								sourceType: "tool",
 								metadata: {
 									ok: !result.notFound,
@@ -725,10 +707,7 @@ async function getPreviousGeneratedFileContent(
 	return null;
 }
 
-function buildResolvedProgramSource(
-	filename: string,
-	content: string,
-): string {
+function buildResolvedProgramSource(filename: string, content: string): string {
 	const jsonFilename = JSON.stringify(filename);
 	const jsonContent = JSON.stringify(content);
 	return [

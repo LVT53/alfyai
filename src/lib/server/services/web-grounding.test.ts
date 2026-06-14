@@ -113,6 +113,9 @@ describe("web grounding", () => {
 
 	it("creates citation-ready candidates and deduped canonical audit sources", () => {
 		const candidates = createGroundedWebCandidates(researchResult());
+		const firstCandidate = candidates[0];
+		expect(firstCandidate).toBeDefined();
+		if (!firstCandidate) throw new Error("Expected grounded web candidate");
 		const sources = extractGroundedWebCitationSources([
 			{
 				callId: "call-1",
@@ -124,7 +127,7 @@ describe("web grounding", () => {
 				candidates: [
 					...candidates,
 					{
-						...candidates[0]!,
+						...firstCandidate,
 						id: "duplicate-source",
 						url: "https://example.com/product?utm_campaign=chat",
 					},
@@ -168,9 +171,12 @@ describe("web grounding", () => {
 
 	it("marks source-only research results without snippets as not evidence-ready", () => {
 		const result = researchResult();
+		const firstSource = result.sources[0];
+		expect(firstSource).toBeDefined();
+		if (!firstSource) throw new Error("Expected research source");
 		result.sources = [
 			{
-				...result.sources[0]!,
+				...firstSource,
 				snippet: null,
 				highlights: [],
 				text: null,

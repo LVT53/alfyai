@@ -51,11 +51,11 @@ import type {
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
+	DepthMetadata,
 	LinkedContextSource,
+	ReasoningDepth,
 	SkillControlOperation,
 	ToolCallEntry,
-	ReasoningDepth,
-	DepthMetadata,
 } from "$lib/types";
 import { buildContextSourcesState } from "./context-sources";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
@@ -383,9 +383,7 @@ async function reconcileGeneratedOutputsForAssistantMessage(params: {
 	}
 }
 
-function getUniqueGeneratedFileIds(
-	jobs: FileProductionJobSummary[],
-): string[] {
+function getUniqueGeneratedFileIds(jobs: FileProductionJobSummary[]): string[] {
 	return Array.from(
 		new Set(jobs.flatMap((job) => (job.files ?? []).map((file) => file.id))),
 	);
@@ -425,15 +423,15 @@ export async function finalizeChatTurn(
 		params.persistAssistantEvidence ?? persistAssistantEvidence;
 	const runPostTurnTasksImpl = params.runPostTurnTasks ?? runPostTurnTasks;
 	const buildCompletionContextSourcesImpl =
-		params.buildCompletionContextSources ?? buildChatTurnCompletionContextSources;
+		params.buildCompletionContextSources ??
+		buildChatTurnCompletionContextSources;
 	const persistUserAttachmentsBeforeAssistantMessage =
 		params.persistUserAttachmentsBeforeAssistantMessage ?? true;
 	const waitForEvidenceBeforePostTurnTasks =
 		params.waitForEvidenceBeforePostTurnTasks ?? true;
 	let attachedArtifacts: WorkingSetItem[] | undefined;
-	let attachmentTask: Promise<WorkingSetItem[] | undefined> = Promise.resolve(
-		undefined,
-	);
+	let attachmentTask: Promise<WorkingSetItem[] | undefined> =
+		Promise.resolve(undefined);
 
 	const userMessage = params.persistUserMessage
 		? await createTurnMessage(
@@ -614,21 +612,9 @@ export async function finalizeChatTurn(
 
 	const createPostTurnTask = () =>
 		assistantMessage && turnState
-			? (waitForEvidenceBeforePostTurnTasks
-					? evidenceTask.then(() =>
-							runPostTurnTasksImpl({
-								logPrefix: params.logPrefix,
-								userId: params.userId,
-								conversationId: params.conversationId,
-								upstreamMessage: params.upstreamMessage,
-								userMessage: params.normalizedMessage,
-								assistantResponse: params.assistantResponse,
-								assistantMirrorContent: params.assistantMirrorContent,
-								workCapsule: turnState.workCapsule,
-								maintenanceReason: params.maintenanceReason,
-							}),
-						)
-					: runPostTurnTasksImpl({
+			? waitForEvidenceBeforePostTurnTasks
+				? evidenceTask.then(() =>
+						runPostTurnTasksImpl({
 							logPrefix: params.logPrefix,
 							userId: params.userId,
 							conversationId: params.conversationId,
@@ -638,7 +624,19 @@ export async function finalizeChatTurn(
 							assistantMirrorContent: params.assistantMirrorContent,
 							workCapsule: turnState.workCapsule,
 							maintenanceReason: params.maintenanceReason,
-							}))
+						}),
+					)
+				: runPostTurnTasksImpl({
+						logPrefix: params.logPrefix,
+						userId: params.userId,
+						conversationId: params.conversationId,
+						upstreamMessage: params.upstreamMessage,
+						userMessage: params.normalizedMessage,
+						assistantResponse: params.assistantResponse,
+						assistantMirrorContent: params.assistantMirrorContent,
+						workCapsule: turnState.workCapsule,
+						maintenanceReason: params.maintenanceReason,
+					})
 			: Promise.resolve();
 
 	const resolvedAttachedArtifacts = attachedArtifacts ?? (await attachmentTask);

@@ -1,64 +1,64 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import fontkit from '@pdf-lib/fontkit';
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import fontkit from "@pdf-lib/fontkit";
 import {
 	LineCapStyle,
-	PDFDocument,
 	PageSizes,
-	rgb,
+	PDFDocument,
 	type PDFFont,
 	type PDFImage,
 	type PDFPage,
 	type RGB,
-} from 'pdf-lib';
+	rgb,
+} from "pdf-lib";
 import {
-	loadGeneratedDocumentImage,
 	type GeneratedDocumentImageLoadResult,
-} from '../image-loader';
+	loadGeneratedDocumentImage,
+} from "../image-loader";
 import type {
 	GeneratedDocumentBlock,
 	GeneratedDocumentChartBlock,
 	GeneratedDocumentSource,
-} from '../source-schema';
-import { renderChartSvg } from './chart-svg';
+} from "../source-schema";
+import { renderChartSvg } from "./chart-svg";
 
 const MM_TO_PT = 72 / 25.4;
 const A4 = PageSizes.A4;
 const APP_FONT_ROOTS = [
-	resolve(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts'),
-	resolve(process.cwd(), 'static/fonts'),
-	resolve(process.cwd(), 'build/client/fonts'),
-	resolve(process.cwd(), 'client/fonts'),
+	resolve(process.cwd(), "node_modules/pdfjs-dist/standard_fonts"),
+	resolve(process.cwd(), "static/fonts"),
+	resolve(process.cwd(), "build/client/fonts"),
+	resolve(process.cwd(), "client/fonts"),
 ] as const;
 const APP_FONT_FILES = {
-	body: 'LiberationSans-Regular.ttf',
-	bodyBold: 'LiberationSans-Bold.ttf',
-	title: 'LiberationSans-Regular.ttf',
-	titleBold: 'LiberationSans-Bold.ttf',
+	body: "LiberationSans-Regular.ttf",
+	bodyBold: "LiberationSans-Bold.ttf",
+	title: "LiberationSans-Regular.ttf",
+	titleBold: "LiberationSans-Bold.ttf",
 } as const;
-const APP_BRAND_LOGO_SOURCE = 'ui-vector-transparent-logo';
+const APP_BRAND_LOGO_SOURCE = "ui-vector-transparent-logo";
 const LOGO_VIEWBOX_HEIGHT = 112;
 const LOGO_VIEWBOX_WIDTH = 100;
 const HEADER_LOGO_HEIGHT_PT = 10;
 const APP_FONT_DIAGNOSTICS = {
-	body: 'Liberation Sans',
-	bodyBold: 'Liberation Sans Bold',
-	title: 'Liberation Sans',
-	titleBold: 'Liberation Sans Bold',
-	code: 'Liberation Sans',
-	source: 'pdfjs-dist bundled TrueType fonts',
+	body: "Liberation Sans",
+	bodyBold: "Liberation Sans Bold",
+	title: "Liberation Sans",
+	titleBold: "Liberation Sans Bold",
+	code: "Liberation Sans",
+	source: "pdfjs-dist bundled TrueType fonts",
 } as const;
 
 const THEME = {
-	text: '#1B1815',
-	paragraphText: '#3E3933',
-	secondaryText: '#6F6860',
-	accent: '#B65F3D',
-	pageBackground: '#FAF8F4',
-	panelBackground: '#F0EAE2',
-	rule: '#DED6CB',
-	codeBackground: '#ECE6DC',
-	calloutBackground: '#F5EFE6',
+	text: "#1B1815",
+	paragraphText: "#3E3933",
+	secondaryText: "#6F6860",
+	accent: "#B65F3D",
+	pageBackground: "#FAF8F4",
+	panelBackground: "#F0EAE2",
+	rule: "#DED6CB",
+	codeBackground: "#ECE6DC",
+	calloutBackground: "#F5EFE6",
 } as const;
 
 const LAYOUT = {
@@ -70,57 +70,60 @@ const LAYOUT = {
 	paragraphGapPt: 5,
 } as const;
 const MONTH_NAMES = [
-	'January',
-	'February',
-	'March',
-	'April',
-	'May',
-	'June',
-	'July',
-	'August',
-	'September',
-	'October',
-	'November',
-	'December',
+	"January",
+	"February",
+	"March",
+	"April",
+	"May",
+	"June",
+	"July",
+	"August",
+	"September",
+	"October",
+	"November",
+	"December",
 ] as const;
 const MONTH_NAMES_BY_KEY: Record<string, string> = {
-	jan: 'January',
-	feb: 'February',
-	mar: 'March',
-	apr: 'April',
-	may: 'May',
-	jun: 'June',
-	jul: 'July',
-	aug: 'August',
-	sep: 'September',
-	oct: 'October',
-	nov: 'November',
-	dec: 'December',
+	jan: "January",
+	feb: "February",
+	mar: "March",
+	apr: "April",
+	may: "May",
+	jun: "June",
+	jul: "July",
+	aug: "August",
+	sep: "September",
+	oct: "October",
+	nov: "November",
+	dec: "December",
 };
 
 export interface StandardReportPdfRenderResult {
 	filename: string;
-	mimeType: 'application/pdf';
+	mimeType: "application/pdf";
 	content: Buffer;
 	diagnostics: {
-		template: 'alfyai_standard_report';
-		pageFormat: 'A4';
+		template: "alfyai_standard_report";
+		pageFormat: "A4";
 		bodyFontPt: typeof LAYOUT.bodyFontPt;
 		paragraphColor: typeof THEME.paragraphText;
 		lineHeight: typeof LAYOUT.lineHeight;
 		brandLogo: {
 			source: typeof APP_BRAND_LOGO_SOURCE;
 			headerHeightPt: typeof HEADER_LOGO_HEIGHT_PT;
-			coverPlacement: 'none';
-			documentTitlePlacement: 'none';
-			headerPlacement: 'logo-and-text';
+			coverPlacement: "none";
+			documentTitlePlacement: "none";
+			headerPlacement: "logo-and-text";
 		};
 		firstPageDateLabel: string | null;
 		marginMm: typeof LAYOUT.marginMm;
-		colors: Pick<typeof THEME, 'text' | 'secondaryText' | 'accent' | 'pageBackground'>;
+		colors: Pick<
+			typeof THEME,
+			"text" | "secondaryText" | "accent" | "pageBackground"
+		>;
 		fonts: typeof APP_FONT_DIAGNOSTICS;
 		coverPage: boolean;
-		blockTypes: GeneratedDocumentBlock['type'][];
+		blockTypes: GeneratedDocumentBlock["type"][];
 		pageCount: number;
 		tables: Array<{
 			title: string | null;
@@ -138,7 +141,7 @@ export interface StandardReportPdfRenderResult {
 		}>;
 		charts: Array<{
 			title: string | null;
-			chartType: GeneratedDocumentChartBlock['chartType'];
+			chartType: GeneratedDocumentChartBlock["chartType"];
 			dataPointCount: number;
 			edgeInsetPt: number;
 			captionLineCount: number;
@@ -155,7 +158,7 @@ export interface StandardReportPdfRenderResult {
 
 export interface StandardReportPdfRenderOptions {
 	imageLoader?: (
-		source: Extract<GeneratedDocumentBlock, { type: 'image' }>['source']
+		source: Extract<GeneratedDocumentBlock, { type: "image" }>["source"],
 	) => Promise<GeneratedDocumentImageLoadResult>;
 	now?: Date;
 }
@@ -163,10 +166,10 @@ export interface StandardReportPdfRenderOptions {
 export class StandardReportPdfRenderError extends Error {
 	constructor(
 		public readonly code: string,
-		message: string
+		message: string,
 	) {
 		super(message);
-		this.name = 'StandardReportPdfRenderError';
+		this.name = "StandardReportPdfRenderError";
 	}
 }
 
@@ -183,7 +186,7 @@ function mm(value: number): number {
 }
 
 function hexColor(hex: string): RGB {
-	const value = hex.replace('#', '');
+	const value = hex.replace("#", "");
 	const red = Number.parseInt(value.slice(0, 2), 16) / 255;
 	const green = Number.parseInt(value.slice(2, 4), 16) / 255;
 	const blue = Number.parseInt(value.slice(4, 6), 16) / 255;
@@ -195,8 +198,8 @@ function findBundledFont(filename: string): Uint8Array {
 	const fontPath = candidates.find((candidate) => existsSync(candidate));
 	if (!fontPath) {
 		throw new StandardReportPdfRenderError(
-			'pdf_font_missing',
-			`AlfyAI Standard Report PDF rendering requires bundled PDF font ${filename}.`
+			"pdf_font_missing",
+			`AlfyAI Standard Report PDF rendering requires bundled PDF font ${filename}.`,
 		);
 	}
 	const buffer = readFileSync(fontPath);
@@ -205,31 +208,41 @@ function findBundledFont(filename: string): Uint8Array {
 
 function slugifyFilename(title: string): string {
 	const slug = title
-		.normalize('NFD')
-		.replace(/[\u0300-\u036f]/g, '')
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
 		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '')
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
 		.slice(0, 80);
-	return `${slug || 'document'}.pdf`;
+	return `${slug || "document"}.pdf`;
 }
 
 function sanitizePdfText(text: string): string {
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: PDF text output must strip control characters.
-	return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+	return Array.from(text)
+		.filter((character) => {
+			const codePoint = character.codePointAt(0) ?? 0;
+			return (
+				codePoint === 0x09 ||
+				codePoint === 0x0a ||
+				codePoint === 0x0d ||
+				(codePoint >= 0x20 && codePoint !== 0x7f)
+			);
+		})
+		.join("")
+		.trim();
 }
 
 function ordinalDay(day: number): string {
 	const suffix =
 		day % 100 >= 11 && day % 100 <= 13
-			? 'th'
+			? "th"
 			: day % 10 === 1
-				? 'st'
+				? "st"
 				: day % 10 === 2
-					? 'nd'
+					? "nd"
 					: day % 10 === 3
-						? 'rd'
-						: 'th';
+						? "rd"
+						: "th";
 	return `${day}${suffix}`;
 }
 
@@ -239,14 +252,17 @@ function formatGeneratedDateLabel(date: Date): string {
 }
 
 function normalizeDocumentDateLabel(value?: string | null): string | null {
-	const text = sanitizePdfText(value ?? '');
+	const text = sanitizePdfText(value ?? "");
 	if (!text) return null;
 	const stripped = text
-		.replace(/^(?:generated\s+(?:on|at)|generated|created\s+(?:on|at)|created|date)\s*[:,-]?\s*/i, '')
+		.replace(
+			/^(?:generated\s+(?:on|at)|generated|created\s+(?:on|at)|created|date)\s*[:,-]?\s*/i,
+			"",
+		)
 		.trim();
 	const candidate = stripped || text;
 	const monthDayMatch = candidate.match(
-		/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})\b/i
+		/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})\b/i,
 	);
 	if (monthDayMatch) {
 		const monthKey = monthDayMatch[1].slice(0, 3).toLowerCase();
@@ -267,9 +283,14 @@ function normalizeDocumentDateLabel(value?: string | null): string | null {
 	return candidate;
 }
 
-function breakLongWord(word: string, font: PDFFont, size: number, maxWidth: number): string[] {
+function breakLongWord(
+	word: string,
+	font: PDFFont,
+	size: number,
+	maxWidth: number,
+): string[] {
 	const parts: string[] = [];
-	let current = '';
+	let current = "";
 	for (const char of Array.from(word)) {
 		const next = `${current}${char}`;
 		if (current && font.widthOfTextAtSize(next, size) > maxWidth) {
@@ -283,7 +304,12 @@ function breakLongWord(word: string, font: PDFFont, size: number, maxWidth: numb
 	return parts;
 }
 
-function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+function wrapText(
+	text: string,
+	font: PDFFont,
+	size: number,
+	maxWidth: number,
+): string[] {
 	const paragraphs = sanitizePdfText(text)
 		.split(/\n/)
 		.map((line) => line.trimEnd());
@@ -292,11 +318,11 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
 	for (const paragraph of paragraphs) {
 		const words = paragraph.split(/\s+/).filter(Boolean);
 		if (words.length === 0) {
-			lines.push('');
+			lines.push("");
 			continue;
 		}
 
-		let current = '';
+		let current = "";
 		for (const word of words) {
 			const pieces =
 				font.widthOfTextAtSize(word, size) > maxWidth
@@ -318,34 +344,42 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
 	return lines;
 }
 
-function fitTextToWidth(text: string, font: PDFFont, size: number, maxWidth: number): string {
+function fitTextToWidth(
+	text: string,
+	font: PDFFont,
+	size: number,
+	maxWidth: number,
+): string {
 	const cleanText = sanitizePdfText(text);
-	if (!cleanText || maxWidth <= 0) return '';
+	if (!cleanText || maxWidth <= 0) return "";
 	if (font.widthOfTextAtSize(cleanText, size) <= maxWidth) return cleanText;
 
-	const suffix = '...';
+	const suffix = "...";
 	const suffixWidth = font.widthOfTextAtSize(suffix, size);
-	if (suffixWidth > maxWidth) return '';
+	if (suffixWidth > maxWidth) return "";
 
-	let fitted = '';
+	let fitted = "";
 	for (const char of Array.from(cleanText)) {
 		const candidate = `${fitted}${char}`;
 		if (font.widthOfTextAtSize(candidate, size) + suffixWidth > maxWidth) break;
 		fitted = candidate;
 	}
-	return fitted.trimEnd() ? `${fitted.trimEnd()}${suffix}` : '';
+	return fitted.trimEnd() ? `${fitted.trimEnd()}${suffix}` : "";
 }
 
-function formatChartLabel(value: string | null | undefined, fallback: string): string {
-	const text = sanitizePdfText(value ?? '')
-		.replace(/[_.-]+/g, ' ')
-		.replace(/\s+/g, ' ')
+function formatChartLabel(
+	value: string | null | undefined,
+	fallback: string,
+): string {
+	const text = sanitizePdfText(value ?? "")
+		.replace(/[_.-]+/g, " ")
+		.replace(/\s+/g, " ")
 		.trim();
 	if (!text || /^label$/i.test(text)) return fallback;
 	if (/^value$/i.test(text)) return fallback;
 
 	return text
-		.split(' ')
+		.split(" ")
 		.filter(Boolean)
 		.map((word, index) => {
 			if (word.length <= 2 && word === word.toUpperCase()) return word;
@@ -354,17 +388,26 @@ function formatChartLabel(value: string | null | undefined, fallback: string): s
 				? lower.charAt(0).toUpperCase() + lower.slice(1)
 				: lower;
 		})
-		.join(' ');
+		.join(" ");
 }
 
 function formatChartNumber(value: number): string {
-	const rounded = Math.abs(value) >= 100 ? Math.round(value) : Number(value.toFixed(1));
-	return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(rounded);
+	const rounded =
+		Math.abs(value) >= 100 ? Math.round(value) : Number(value.toFixed(1));
+	return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(
+		rounded,
+	);
 }
 
-function drawAlfyAiLogo(page: PDFPage, x: number, y: number, height: number, opacity = 1): number {
+function drawAlfyAiLogo(
+	page: PDFPage,
+	x: number,
+	y: number,
+	height: number,
+	opacity = 1,
+): number {
 	const scale = height / LOGO_VIEWBOX_HEIGHT;
-	const color = hexColor('#C8A882');
+	const color = hexColor("#C8A882");
 	const pathOptions = {
 		x,
 		y: y + height,
@@ -373,11 +416,11 @@ function drawAlfyAiLogo(page: PDFPage, x: number, y: number, height: number, opa
 		borderLineCap: LineCapStyle.Round,
 		borderOpacity: opacity,
 	};
-	page.drawSvgPath('M50 19 C46 40 36 64 24 88', {
+	page.drawSvgPath("M50 19 C46 40 36 64 24 88", {
 		...pathOptions,
 		borderWidth: 4.2,
 	});
-	page.drawSvgPath('M50 19 C54 40 64 64 76 88', {
+	page.drawSvgPath("M50 19 C54 40 64 64 76 88", {
 		...pathOptions,
 		borderWidth: 4.2,
 	});
@@ -428,15 +471,18 @@ function drawAlfyAiLogo(page: PDFPage, x: number, y: number, height: number, opa
 class StandardReportPdfLayout {
 	private page: PDFPage;
 	private y: number;
-	private readonly tableDiagnostics: StandardReportPdfRenderResult['diagnostics']['tables'] = [];
-	private readonly imageDiagnostics: StandardReportPdfRenderResult['diagnostics']['images'] = [];
-	private readonly chartDiagnostics: StandardReportPdfRenderResult['diagnostics']['charts'] = [];
+	private readonly tableDiagnostics: StandardReportPdfRenderResult["diagnostics"]["tables"] =
+		[];
+	private readonly imageDiagnostics: StandardReportPdfRenderResult["diagnostics"]["images"] =
+		[];
+	private readonly chartDiagnostics: StandardReportPdfRenderResult["diagnostics"]["charts"] =
+		[];
 
 	constructor(
 		private readonly pdfDoc: PDFDocument,
 		private readonly source: GeneratedDocumentSource,
 		private readonly fonts: FontSet,
-		private readonly generatedAt: Date
+		private readonly generatedAt: Date,
 	) {
 		this.page = this.createPage();
 		this.y = this.contentTop();
@@ -515,7 +561,7 @@ class StandardReportPdfLayout {
 		const width = this.contentWidth();
 		const top = A4[1] - mm(54);
 		this.y = top;
-		const eyebrow = this.source.cover?.eyebrow ?? 'AlfyAI Standard Report';
+		const eyebrow = this.source.cover?.eyebrow ?? "AlfyAI Standard Report";
 		this.page.drawText(eyebrow.toUpperCase(), {
 			x,
 			y: this.y,
@@ -607,12 +653,17 @@ class StandardReportPdfLayout {
 		this.y -= LAYOUT.paragraphGapPt;
 	}
 
-	drawList(style: 'bullet' | 'numbered', items: string[]): void {
+	drawList(style: "bullet" | "numbered", items: string[]): void {
 		const indent = 18;
 		const lineHeight = LAYOUT.bodyFontPt * LAYOUT.lineHeight;
 		for (const [index, item] of items.entries()) {
-			const marker = style === 'numbered' ? `${index + 1}.` : '•';
-			const lines = wrapText(item, this.fonts.regular, LAYOUT.bodyFontPt, this.contentWidth() - indent);
+			const marker = style === "numbered" ? `${index + 1}.` : "•";
+			const lines = wrapText(
+				item,
+				this.fonts.regular,
+				LAYOUT.bodyFontPt,
+				this.contentWidth() - indent,
+			);
 			this.ensureSpace(lines.length * lineHeight + 4);
 			this.page.drawText(marker, {
 				x: this.contentX(),
@@ -636,14 +687,27 @@ class StandardReportPdfLayout {
 		this.y -= 6;
 	}
 
-	drawCallout(block: Extract<GeneratedDocumentBlock, { type: 'callout' }>): void {
+	drawCallout(
+		block: Extract<GeneratedDocumentBlock, { type: "callout" }>,
+	): void {
 		const x = this.contentX();
 		const width = this.contentWidth();
 		const padding = 12;
 		const title = block.title ? `${block.title}` : block.tone.toUpperCase();
-		const titleLines = wrapText(title, this.fonts.bold, 10, width - padding * 2);
-		const bodyLines = wrapText(block.text, this.fonts.regular, 10.5, width - padding * 2);
-		const height = 18 + titleLines.length * 14 + bodyLines.length * 15 + padding;
+		const titleLines = wrapText(
+			title,
+			this.fonts.bold,
+			10,
+			width - padding * 2,
+		);
+		const bodyLines = wrapText(
+			block.text,
+			this.fonts.regular,
+			10.5,
+			width - padding * 2,
+		);
+		const height =
+			18 + titleLines.length * 14 + bodyLines.length * 15 + padding;
 		this.ensureSpace(height + 8);
 		const top = this.y + 6;
 		this.page.drawRectangle({
@@ -714,7 +778,7 @@ class StandardReportPdfLayout {
 			textY -= labelHeight;
 		}
 		for (const line of lines) {
-			this.page.drawText(line || ' ', {
+			this.page.drawText(line || " ", {
 				x: x + padding,
 				y: textY,
 				size,
@@ -731,7 +795,9 @@ class StandardReportPdfLayout {
 		const width = this.contentWidth();
 		const paddingLeft = 14;
 		const lines = wrapText(text, this.fonts.regular, 11.5, width - paddingLeft);
-		const citationLines = citation ? wrapText(citation, this.fonts.regular, 9.5, width - paddingLeft) : [];
+		const citationLines = citation
+			? wrapText(citation, this.fonts.regular, 9.5, width - paddingLeft)
+			: [];
 		const height = lines.length * 17 + citationLines.length * 13 + 14;
 		this.ensureSpace(height + 8);
 		this.page.drawRectangle({
@@ -781,31 +847,36 @@ class StandardReportPdfLayout {
 
 	private formatTableValue(
 		value: unknown,
-		kind: Extract<GeneratedDocumentBlock, { type: 'table' }>['columns'][number]['kind']
+		kind: Extract<
+			GeneratedDocumentBlock,
+			{ type: "table" }
+		>["columns"][number]["kind"],
 	): string {
-		if (value === null || value === undefined) return '';
-		if (kind === 'boolean') return value === true ? 'Yes' : value === false ? 'No' : String(value);
-		if (typeof value === 'number') {
-			if (kind === 'percent') return `${(value * 100).toFixed(1)}%`;
-			if (kind === 'currency') {
-				return new Intl.NumberFormat('en-US', {
-					style: 'currency',
-					currency: 'USD',
+		if (value === null || value === undefined) return "";
+		if (kind === "boolean")
+			return value === true ? "Yes" : value === false ? "No" : String(value);
+		if (typeof value === "number") {
+			if (kind === "percent") return `${(value * 100).toFixed(1)}%`;
+			if (kind === "currency") {
+				return new Intl.NumberFormat("en-US", {
+					style: "currency",
+					currency: "USD",
 					maximumFractionDigits: 0,
 				}).format(value);
 			}
-			if (kind === 'number') return new Intl.NumberFormat('en-US').format(value);
+			if (kind === "number")
+				return new Intl.NumberFormat("en-US").format(value);
 		}
-		if (kind === 'date' && typeof value === 'string') {
+		if (kind === "date" && typeof value === "string") {
 			const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
 				? new Date(`${value}T00:00:00.000Z`)
 				: null;
 			if (parsed && !Number.isNaN(parsed.getTime())) {
-				return new Intl.DateTimeFormat('en-US', {
-					year: 'numeric',
-					month: 'short',
-					day: 'numeric',
-					timeZone: 'UTC',
+				return new Intl.DateTimeFormat("en-US", {
+					year: "numeric",
+					month: "short",
+					day: "numeric",
+					timeZone: "UTC",
 				}).format(parsed);
 			}
 		}
@@ -822,15 +893,15 @@ class StandardReportPdfLayout {
 		lineHeight: number;
 		font: PDFFont;
 		color: RGB;
-		align: 'left' | 'right' | 'center';
+		align: "left" | "right" | "center";
 	}): void {
 		let textY = params.yTop - params.padding - params.size;
 		for (const line of params.lines) {
 			const lineWidth = params.font.widthOfTextAtSize(line, params.size);
 			const textX =
-				params.align === 'right'
+				params.align === "right"
 					? params.x + params.width - params.padding - lineWidth
-					: params.align === 'center'
+					: params.align === "center"
 						? params.x + (params.width - lineWidth) / 2
 						: params.x + params.padding;
 			this.page.drawText(line, {
@@ -844,11 +915,11 @@ class StandardReportPdfLayout {
 		}
 	}
 
-	drawTable(block: Extract<GeneratedDocumentBlock, { type: 'table' }>): void {
+	drawTable(block: Extract<GeneratedDocumentBlock, { type: "table" }>): void {
 		if (block.columns.length > 8) {
 			throw new StandardReportPdfRenderError(
-				'table_limit_exceeded',
-				'Tables with more than 8 columns are not supported in the v1 portrait template.'
+				"table_limit_exceeded",
+				"Tables with more than 8 columns are not supported in the v1 portrait template.",
 			);
 		}
 
@@ -860,34 +931,49 @@ class StandardReportPdfLayout {
 		const headerLineHeight = 11;
 		const bodyLineHeight = 12;
 		const weights = block.columns.map((column) =>
-			column.kind === 'text' ? 1.35 : column.kind === 'date' ? 0.95 : 0.8
+			column.kind === "text" ? 1.35 : column.kind === "date" ? 0.95 : 0.8,
 		);
 		const totalWeight = weights.reduce((total, value) => total + value, 0);
-		const columnWidths = weights.map((weight) => (width * weight) / totalWeight);
-		const titleLines = block.title ? wrapText(block.title, this.fonts.bold, 11, width) : [];
+		const columnWidths = weights.map(
+			(weight) => (width * weight) / totalWeight,
+		);
+		const titleLines = block.title
+			? wrapText(block.title, this.fonts.bold, 11, width)
+			: [];
 		const captionLines = block.caption
 			? wrapText(block.caption, this.fonts.regular, 9.2, width)
 			: [];
 		const headerLines = block.columns.map((column, index) =>
-			wrapText(column.label, this.fonts.bold, headerSize, columnWidths[index] - padding * 2)
+			wrapText(
+				column.label,
+				this.fonts.bold,
+				headerSize,
+				columnWidths[index] - padding * 2,
+			),
 		);
 		const headerHeight =
-			Math.max(...headerLines.map((lines) => lines.length), 1) * headerLineHeight + padding * 2;
+			Math.max(...headerLines.map((lines) => lines.length), 1) *
+				headerLineHeight +
+			padding * 2;
 		const firstRowLines = block.rows[0]
 			? block.columns.map((column, index) =>
 					wrapText(
 						this.formatTableValue(block.rows[0][column.key], column.kind),
 						this.fonts.regular,
 						bodySize,
-						columnWidths[index] - padding * 2
-					)
+						columnWidths[index] - padding * 2,
+					),
 				)
 			: [[]];
 		const firstRowHeight =
-			Math.max(...firstRowLines.map((lines) => lines.length), 1) * bodyLineHeight + padding * 2;
+			Math.max(...firstRowLines.map((lines) => lines.length), 1) *
+				bodyLineHeight +
+			padding * 2;
 		const captionHeight = captionLines.length * 12;
 		const titleHeight = titleLines.length * 15;
-		this.ensureSpace(titleHeight + captionHeight + headerHeight + firstRowHeight + 24);
+		this.ensureSpace(
+			titleHeight + captionHeight + headerHeight + firstRowHeight + 24,
+		);
 
 		if (titleLines.length > 0) {
 			for (const line of titleLines) {
@@ -938,7 +1024,7 @@ class StandardReportPdfLayout {
 					lineHeight: headerLineHeight,
 					font: this.fonts.bold,
 					color: hexColor(THEME.text),
-					align: column.kind === 'text' ? 'left' : 'right',
+					align: column.kind === "text" ? "left" : "right",
 				});
 				cellX += columnWidths[index];
 			}
@@ -952,22 +1038,24 @@ class StandardReportPdfLayout {
 		};
 
 		drawHeader(false);
-		const maxRowHeight = this.contentTop() - this.contentBottom() - headerHeight - 12;
+		const maxRowHeight =
+			this.contentTop() - this.contentBottom() - headerHeight - 12;
 		for (const [rowIndex, row] of block.rows.entries()) {
 			const rowLines = block.columns.map((column, index) =>
 				wrapText(
 					this.formatTableValue(row[column.key], column.kind),
 					this.fonts.regular,
 					bodySize,
-					columnWidths[index] - padding * 2
-				)
+					columnWidths[index] - padding * 2,
+				),
 			);
 			const rowHeight =
-				Math.max(...rowLines.map((lines) => lines.length), 1) * bodyLineHeight + padding * 2;
+				Math.max(...rowLines.map((lines) => lines.length), 1) * bodyLineHeight +
+				padding * 2;
 			if (rowHeight > maxRowHeight) {
 				throw new StandardReportPdfRenderError(
-					'table_limit_exceeded',
-					'A table row is too tall to render safely without clipping.'
+					"table_limit_exceeded",
+					"A table row is too tall to render safely without clipping.",
 				);
 			}
 			if (this.y - rowHeight < this.contentBottom()) {
@@ -981,7 +1069,7 @@ class StandardReportPdfLayout {
 					y: top - rowHeight,
 					width,
 					height: rowHeight,
-					color: hexColor('#F6F2EB'),
+					color: hexColor("#F6F2EB"),
 				});
 			}
 
@@ -997,7 +1085,8 @@ class StandardReportPdfLayout {
 					lineHeight: bodyLineHeight,
 					font: this.fonts.regular,
 					color: hexColor(THEME.text),
-					align: column.kind === 'text' || column.kind === 'date' ? 'left' : 'right',
+					align:
+						column.kind === "text" || column.kind === "date" ? "left" : "right",
 				});
 				cellX += columnWidths[index];
 			}
@@ -1019,21 +1108,26 @@ class StandardReportPdfLayout {
 		});
 	}
 
-	private async embedImage(image: GeneratedDocumentImageLoadResult & { ok: true }): Promise<PDFImage> {
+	private async embedImage(
+		image: GeneratedDocumentImageLoadResult & { ok: true },
+	): Promise<PDFImage> {
 		const bytes = new Uint8Array(image.image.bytes);
-		if (image.image.mimeType === 'image/png') {
+		if (image.image.mimeType === "image/png") {
 			return this.pdfDoc.embedPng(bytes);
 		}
-		if (image.image.mimeType === 'image/jpeg') {
+		if (image.image.mimeType === "image/jpeg") {
 			return this.pdfDoc.embedJpg(bytes);
 		}
 		throw new StandardReportPdfRenderError(
-			'image_limit_exceeded',
-			'PDF rendering supports PNG and JPEG images.'
+			"image_limit_exceeded",
+			"PDF rendering supports PNG and JPEG images.",
 		);
 	}
 
-	private drawImagePlaceholder(block: Extract<GeneratedDocumentBlock, { type: 'image' }>, code: string): void {
+	private drawImagePlaceholder(
+		block: Extract<GeneratedDocumentBlock, { type: "image" }>,
+		code: string,
+	): void {
 		const x = this.contentX();
 		const width = this.contentWidth();
 		const height = 96;
@@ -1048,7 +1142,7 @@ class StandardReportPdfLayout {
 			borderColor: hexColor(THEME.rule),
 			borderWidth: 0.8,
 		});
-		this.page.drawText('Image unavailable', {
+		this.page.drawText("Image unavailable", {
 			x: x + 14,
 			y: top - 34,
 			size: 10,
@@ -1083,8 +1177,8 @@ class StandardReportPdfLayout {
 	}
 
 	async drawImageBlock(
-		block: Extract<GeneratedDocumentBlock, { type: 'image' }>,
-		imageLoader: NonNullable<StandardReportPdfRenderOptions['imageLoader']>
+		block: Extract<GeneratedDocumentBlock, { type: "image" }>,
+		imageLoader: NonNullable<StandardReportPdfRenderOptions["imageLoader"]>,
 	): Promise<void> {
 		const loaded = await imageLoader(block.source);
 		if (!loaded.ok) {
@@ -1100,11 +1194,16 @@ class StandardReportPdfLayout {
 			embedded = await this.embedImage(loaded);
 		} catch (error) {
 			const code =
-				error instanceof StandardReportPdfRenderError ? error.code : 'image_limit_exceeded';
+				error instanceof StandardReportPdfRenderError
+					? error.code
+					: "image_limit_exceeded";
 			if (block.critical) {
 				throw error instanceof StandardReportPdfRenderError
 					? error
-					: new StandardReportPdfRenderError(code, 'Image could not be embedded.');
+					: new StandardReportPdfRenderError(
+							code,
+							"Image could not be embedded.",
+						);
 			}
 			this.drawImagePlaceholder(block, code);
 			return;
@@ -1112,7 +1211,11 @@ class StandardReportPdfLayout {
 
 		const maxWidth = this.contentWidth();
 		const maxHeight = 280;
-		const scale = Math.min(maxWidth / embedded.width, maxHeight / embedded.height, 1);
+		const scale = Math.min(
+			maxWidth / embedded.width,
+			maxHeight / embedded.height,
+			1,
+		);
 		const width = embedded.width * scale;
 		const height = embedded.height * scale;
 		const captionLines = block.caption
@@ -1147,23 +1250,35 @@ class StandardReportPdfLayout {
 		});
 	}
 
-	drawChart(block: Extract<GeneratedDocumentBlock, { type: 'chart' }>): void {
+	drawChart(block: Extract<GeneratedDocumentBlock, { type: "chart" }>): void {
 		const renderedSvg = renderChartSvg(block);
 		const x = this.contentX();
 		const width = this.contentWidth();
-		const titleLines = wrapText(block.title ?? 'Chart', this.fonts.bold, 12, width - 28);
+		const titleLines = wrapText(
+			block.title ?? "Chart",
+			this.fonts.bold,
+			12,
+			width - 28,
+		);
 		const captionLines = block.caption
 			? wrapText(block.caption, this.fonts.regular, 9, width - 28)
 			: [];
 		const headerOffset =
-			24 + titleLines.length * 15 + (captionLines.length > 0 ? 4 + captionLines.length * 12 : 0) + 14;
+			24 +
+			titleLines.length * 15 +
+			(captionLines.length > 0 ? 4 + captionLines.length * 12 : 0) +
+			14;
 		const plotHeight = 142;
 		const tickLabelHeight = 18;
 		const axisLabelHeight = 14;
 		const bottomPadding = 18;
 		const height = Math.max(
 			260,
-			headerOffset + plotHeight + tickLabelHeight + axisLabelHeight + bottomPadding
+			headerOffset +
+				plotHeight +
+				tickLabelHeight +
+				axisLabelHeight +
+				bottomPadding,
 		);
 		this.ensureSpace(height + 34);
 		const top = this.y + 6;
@@ -1203,34 +1318,37 @@ class StandardReportPdfLayout {
 		const chartTop = top - headerOffset;
 		const chartBottom = chartTop - plotHeight;
 
-		if (block.chartType === 'pie' || block.chartType === 'donut') {
+		if (block.chartType === "pie" || block.chartType === "donut") {
 			const { labelKey, valueKey } = block;
 			if (!labelKey || !valueKey) {
 				throw new StandardReportPdfRenderError(
-					'unsupported_chart_data',
-					'Pie and donut charts require labelKey and valueKey.'
+					"unsupported_chart_data",
+					"Pie and donut charts require labelKey and valueKey.",
 				);
 			}
 			const rows = block.data
 				.map((row) => {
 					const value = row[valueKey];
 					return {
-						label: String(row[labelKey] ?? ''),
-						value: typeof value === 'number' ? value : null,
+						label: String(row[labelKey] ?? ""),
+						value: typeof value === "number" ? value : null,
 					};
 				})
-				.filter((row): row is { label: string; value: number } => row.value !== null && row.value > 0);
+				.filter(
+					(row): row is { label: string; value: number } =>
+						row.value !== null && row.value > 0,
+				);
 			const total = rows.reduce((sum, row) => sum + row.value, 0) || 1;
 			const centerX = x + 130;
 			const centerY = chartBottom + plotHeight / 2;
 			this.page.drawCircle({
 				x: centerX,
 				y: centerY,
-				size: block.chartType === 'donut' ? 58 : 68,
+				size: block.chartType === "donut" ? 58 : 68,
 				color: hexColor(THEME.accent),
 				opacity: 0.2,
 			});
-			if (block.chartType === 'donut') {
+			if (block.chartType === "donut") {
 				this.page.drawCircle({
 					x: centerX,
 					y: centerY,
@@ -1245,15 +1363,20 @@ class StandardReportPdfLayout {
 					y: legendY - 8,
 					width: 34 + (row.value / total) * 90,
 					height: 9,
-					color: hexColor(['#B65F3D', '#4D7188', '#7A7F42', '#C29A3D', '#6F6860'][index % 5]),
+					color: hexColor(
+						["#B65F3D", "#4D7188", "#7A7F42", "#C29A3D", "#6F6860"][index % 5],
+					),
 				});
-				this.page.drawText(`${row.label} ${Math.round((row.value / total) * 100)}%`, {
-					x: x + 250,
-					y: legendY + 4,
-					size: 8.5,
-					font: this.fonts.regular,
-					color: hexColor(THEME.text),
-				});
+				this.page.drawText(
+					`${row.label} ${Math.round((row.value / total) * 100)}%`,
+					{
+						x: x + 250,
+						y: legendY + 4,
+						size: 8.5,
+						font: this.fonts.regular,
+						color: hexColor(THEME.text),
+					},
+				);
 			}
 			this.y = top - height - 14;
 			this.chartDiagnostics.push({
@@ -1264,7 +1387,7 @@ class StandardReportPdfLayout {
 				captionLineCount: captionLines.length,
 				axisLabels: {
 					x: null,
-					y: formatChartLabel(block.units, 'Value'),
+					y: formatChartLabel(block.units, "Value"),
 				},
 				categoryLabels: rows.map((row) => row.label),
 				clipped: false,
@@ -1276,8 +1399,8 @@ class StandardReportPdfLayout {
 		const { xKey, yKey } = block;
 		if (!xKey || !yKey) {
 			throw new StandardReportPdfRenderError(
-				'unsupported_chart_data',
-				'Line charts require xKey and yKey.'
+				"unsupported_chart_data",
+				"Line charts require xKey and yKey.",
 			);
 		}
 
@@ -1285,15 +1408,17 @@ class StandardReportPdfLayout {
 			.map((row) => {
 				const value = row[yKey];
 				return {
-					label: String(row[xKey] ?? ''),
-					value: typeof value === 'number' ? value : null,
+					label: String(row[xKey] ?? ""),
+					value: typeof value === "number" ? value : null,
 				};
 			})
-			.filter((row): row is { label: string; value: number } => row.value !== null);
+			.filter(
+				(row): row is { label: string; value: number } => row.value !== null,
+			);
 		if (rows.length === 0) {
 			throw new StandardReportPdfRenderError(
-				'unsupported_chart_data',
-				'Chart data has no numeric values.'
+				"unsupported_chart_data",
+				"Chart data has no numeric values.",
 			);
 		}
 
@@ -1307,18 +1432,23 @@ class StandardReportPdfLayout {
 		const max = Math.max(...values);
 		const min = Math.min(0, ...values);
 		const span = max - min || 1;
-		const xAxisLabel = formatChartLabel(xKey, 'Category');
-		const yAxisLabel = formatChartLabel(block.units || yKey, 'Value');
-		const isBarChart = block.chartType === 'bar' || block.chartType === 'stackedBar';
-		const pointRadius = block.chartType === 'scatter' ? 4 : 3;
-		const barWidth = isBarChart ? Math.max(12, plot.width / Math.max(rows.length, 1) * 0.5) : 0;
+		const xAxisLabel = formatChartLabel(xKey, "Category");
+		const yAxisLabel = formatChartLabel(block.units || yKey, "Value");
+		const isBarChart =
+			block.chartType === "bar" || block.chartType === "stackedBar";
+		const pointRadius = block.chartType === "scatter" ? 4 : 3;
+		const barWidth = isBarChart
+			? Math.max(12, (plot.width / Math.max(rows.length, 1)) * 0.5)
+			: 0;
 		const edgeInset = isBarChart ? barWidth / 2 + 3 : pointRadius + 3;
 		const drawableWidth = Math.max(1, plot.width - edgeInset * 2);
 		const point = (row: { value: number }, index: number) => ({
 			x:
 				plot.x +
 				edgeInset +
-				(rows.length === 1 ? drawableWidth / 2 : (index / (rows.length - 1)) * drawableWidth),
+				(rows.length === 1
+					? drawableWidth / 2
+					: (index / (rows.length - 1)) * drawableWidth),
 			y: plot.y + ((row.value - min) / span) * plot.height,
 		});
 		for (let index = 0; index <= 4; index += 1) {
@@ -1368,7 +1498,7 @@ class StandardReportPdfLayout {
 			color: hexColor(THEME.secondaryText),
 		});
 		const points = rows.map(point);
-		if (block.chartType === 'area' && points.length > 1) {
+		if (block.chartType === "area" && points.length > 1) {
 			for (const [index, current] of Array.from(points.entries()).slice(1)) {
 				const previous = points[index - 1];
 				this.page.drawLine({
@@ -1387,10 +1517,10 @@ class StandardReportPdfLayout {
 					y: plot.y,
 					width: barWidth,
 					height: Math.max(1, current.y - plot.y),
-					color: hexColor(index % 2 === 0 ? THEME.accent : '#4D7188'),
+					color: hexColor(index % 2 === 0 ? THEME.accent : "#4D7188"),
 				});
 			}
-		} else if (block.chartType === 'line' || block.chartType === 'area') {
+		} else if (block.chartType === "line" || block.chartType === "area") {
 			for (let index = 1; index < points.length; index += 1) {
 				this.page.drawLine({
 					start: points[index - 1],
@@ -1404,16 +1534,24 @@ class StandardReportPdfLayout {
 			this.page.drawCircle({
 				x: current.x,
 				y: current.y,
-				size: block.chartType === 'scatter' ? 4 : 3,
+				size: block.chartType === "scatter" ? 4 : 3,
 				color: hexColor(THEME.accent),
 			});
 		}
 		const maxVisibleLabels = Math.max(1, Math.floor(plot.width / 52));
 		const labelEvery = Math.max(1, Math.ceil(rows.length / maxVisibleLabels));
-		const categoryLabelWidth = Math.max(30, plot.width / Math.max(rows.length, 1) - 4);
+		const categoryLabelWidth = Math.max(
+			30,
+			plot.width / Math.max(rows.length, 1) - 4,
+		);
 		for (const [index, row] of rows.entries()) {
 			if (index % labelEvery !== 0 && index !== rows.length - 1) continue;
-			const label = fitTextToWidth(row.label, this.fonts.regular, 7.6, categoryLabelWidth);
+			const label = fitTextToWidth(
+				row.label,
+				this.fonts.regular,
+				7.6,
+				categoryLabelWidth,
+			);
 			if (!label) continue;
 			const labelWidth = this.fonts.regular.widthOfTextAtSize(label, 7.6);
 			this.page.drawText(label, {
@@ -1443,16 +1581,17 @@ class StandardReportPdfLayout {
 
 	drawUnsupported(blockType: string): never {
 		throw new StandardReportPdfRenderError(
-			'unsupported_pdf_block',
-			`AlfyAI Standard Report PDF rendering does not yet support ${blockType} blocks.`
+			"unsupported_pdf_block",
+			`AlfyAI Standard Report PDF rendering does not yet support ${blockType} blocks.`,
 		);
 	}
 
 	drawHeadersAndFooters(): void {
 		const pages = this.pdfDoc.getPages();
 		const firstPageDateLabel =
-			normalizeDocumentDateLabel(this.source.cover?.dateLabel ?? this.source.date) ??
-			formatGeneratedDateLabel(this.generatedAt);
+			normalizeDocumentDateLabel(
+				this.source.cover?.dateLabel ?? this.source.date,
+			) ?? formatGeneratedDateLabel(this.generatedAt);
 		for (const [index, page] of pages.entries()) {
 			const pageNumber = index + 1;
 			const headerY = A4[1] - mm(10);
@@ -1465,16 +1604,27 @@ class StandardReportPdfLayout {
 				headerX,
 				logoY,
 				HEADER_LOGO_HEIGHT_PT,
-				0.9
+				0.9,
 			);
-			const brandText = 'AlfyAI';
-			const brandWidth = this.fonts.bold.widthOfTextAtSize(brandText, headerSize);
+			const brandText = "AlfyAI";
+			const brandWidth = this.fonts.bold.widthOfTextAtSize(
+				brandText,
+				headerSize,
+			);
 			const dateText = pageNumber === 1 ? firstPageDateLabel : null;
 			let titleRight = headerRight;
 			if (dateText) {
-				const fittedDate = fitTextToWidth(dateText, this.fonts.regular, headerSize, 132);
+				const fittedDate = fitTextToWidth(
+					dateText,
+					this.fonts.regular,
+					headerSize,
+					132,
+				);
 				if (fittedDate) {
-					const dateWidth = this.fonts.regular.widthOfTextAtSize(fittedDate, headerSize);
+					const dateWidth = this.fonts.regular.widthOfTextAtSize(
+						fittedDate,
+						headerSize,
+					);
 					const dateX = headerRight - dateWidth;
 					titleRight = dateX - 18;
 					page.drawText(fittedDate, {
@@ -1499,7 +1649,7 @@ class StandardReportPdfLayout {
 				this.source.title,
 				this.fonts.regular,
 				headerSize,
-				titleRight - titleX
+				titleRight - titleX,
 			);
 			if (title) {
 				page.drawText(title, {
@@ -1528,15 +1678,15 @@ class StandardReportPdfLayout {
 		}
 	}
 
-	getTableDiagnostics(): StandardReportPdfRenderResult['diagnostics']['tables'] {
+	getTableDiagnostics(): StandardReportPdfRenderResult["diagnostics"]["tables"] {
 		return this.tableDiagnostics;
 	}
 
-	getImageDiagnostics(): StandardReportPdfRenderResult['diagnostics']['images'] {
+	getImageDiagnostics(): StandardReportPdfRenderResult["diagnostics"]["images"] {
 		return this.imageDiagnostics;
 	}
 
-	getChartDiagnostics(): StandardReportPdfRenderResult['diagnostics']['charts'] {
+	getChartDiagnostics(): StandardReportPdfRenderResult["diagnostics"]["charts"] {
 		return this.chartDiagnostics;
 	}
 }
@@ -1547,28 +1697,37 @@ async function embedFonts(pdfDoc: PDFDocument): Promise<FontSet> {
 	// PDF.js but has poor compatibility in external PDF readers.
 	const [regular, bold, title, titleBold] = await Promise.all([
 		pdfDoc.embedFont(findBundledFont(APP_FONT_FILES.body), { subset: false }),
-		pdfDoc.embedFont(findBundledFont(APP_FONT_FILES.bodyBold), { subset: false }),
+		pdfDoc.embedFont(findBundledFont(APP_FONT_FILES.bodyBold), {
+			subset: false,
+		}),
 		pdfDoc.embedFont(findBundledFont(APP_FONT_FILES.title), { subset: false }),
-		pdfDoc.embedFont(findBundledFont(APP_FONT_FILES.titleBold), { subset: false }),
+		pdfDoc.embedFont(findBundledFont(APP_FONT_FILES.titleBold), {
+			subset: false,
+		}),
 	]);
 	return { regular, bold, mono: regular, title, titleBold };
 }
 
 export async function renderStandardReportPdf(
 	source: GeneratedDocumentSource,
-	options: StandardReportPdfRenderOptions = {}
+	options: StandardReportPdfRenderOptions = {},
 ): Promise<StandardReportPdfRenderResult> {
 	const pdfDoc = await PDFDocument.create();
 	pdfDoc.setTitle(source.title);
-	pdfDoc.setAuthor('AlfyAI');
-	pdfDoc.setCreator('AlfyAI file production');
-	pdfDoc.setProducer('pdf-lib');
-	pdfDoc.setSubject('AlfyAI Standard Report');
-	pdfDoc.setKeywords(['AlfyAI', 'generated document', 'standard report']);
+	pdfDoc.setAuthor("AlfyAI");
+	pdfDoc.setCreator("AlfyAI file production");
+	pdfDoc.setProducer("pdf-lib");
+	pdfDoc.setSubject("AlfyAI Standard Report");
+	pdfDoc.setKeywords(["AlfyAI", "generated document", "standard report"]);
 
 	const fonts = await embedFonts(pdfDoc);
 	const generatedAt = options.now ?? new Date();
-	const layout = new StandardReportPdfLayout(pdfDoc, source, fonts, generatedAt);
+	const layout = new StandardReportPdfLayout(
+		pdfDoc,
+		source,
+		fonts,
+		generatedAt,
+	);
 	if (source.cover) {
 		layout.drawCover();
 	} else {
@@ -1578,37 +1737,37 @@ export async function renderStandardReportPdf(
 	const imageLoader = options.imageLoader ?? loadGeneratedDocumentImage;
 	for (const block of source.blocks) {
 		switch (block.type) {
-			case 'heading':
+			case "heading":
 				layout.drawHeading(block.level, block.text);
 				break;
-			case 'paragraph':
+			case "paragraph":
 				layout.drawParagraph(block.text);
 				break;
-			case 'list':
+			case "list":
 				layout.drawList(block.style, block.items);
 				break;
-			case 'callout':
+			case "callout":
 				layout.drawCallout(block);
 				break;
-			case 'code':
+			case "code":
 				layout.drawCode(block.text, block.language);
 				break;
-			case 'quote':
+			case "quote":
 				layout.drawQuote(block.text, block.citation);
 				break;
-			case 'divider':
+			case "divider":
 				layout.drawDivider();
 				break;
-			case 'pageBreak':
+			case "pageBreak":
 				layout.drawPageBreak();
 				break;
-			case 'table':
+			case "table":
 				layout.drawTable(block);
 				break;
-			case 'image':
+			case "image":
 				await layout.drawImageBlock(block, imageLoader);
 				break;
-			case 'chart':
+			case "chart":
 				layout.drawChart(block);
 				break;
 		}
@@ -1618,20 +1777,20 @@ export async function renderStandardReportPdf(
 	const content = Buffer.from(await pdfDoc.save());
 	return {
 		filename: slugifyFilename(source.title),
-		mimeType: 'application/pdf',
+		mimeType: "application/pdf",
 		content,
 		diagnostics: {
-			template: 'alfyai_standard_report',
-			pageFormat: 'A4',
+			template: "alfyai_standard_report",
+			pageFormat: "A4",
 			bodyFontPt: LAYOUT.bodyFontPt,
 			paragraphColor: THEME.paragraphText,
 			lineHeight: LAYOUT.lineHeight,
 			brandLogo: {
 				source: APP_BRAND_LOGO_SOURCE,
 				headerHeightPt: HEADER_LOGO_HEIGHT_PT,
-				coverPlacement: 'none',
-				documentTitlePlacement: 'none',
-				headerPlacement: 'logo-and-text',
+				coverPlacement: "none",
+				documentTitlePlacement: "none",
+				headerPlacement: "logo-and-text",
 			},
 			firstPageDateLabel:
 				normalizeDocumentDateLabel(source.cover?.dateLabel ?? source.date) ??

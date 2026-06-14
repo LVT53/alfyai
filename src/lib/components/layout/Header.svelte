@@ -1,94 +1,111 @@
 <script lang="ts">
-	import { goto, invalidateAll } from '$app/navigation';
-	import { onMount } from 'svelte';
-	import { logout } from '$lib/client/api/auth';
-	import { clearClientAccountState } from '$lib/client/session-boundary';
-	import { t } from '$lib/i18n';
-	import { Menu, User, Plus, LogOut } from '@lucide/svelte';
-	import { markPreviousConversationId } from '$lib/client/conversation-session';
-	import { portal, setMenuBaseBackground, updateMenuPosition, setupMenuSync } from '$lib/utils/popup-menu';
-	import {
-		sidebarOpen,
-		sidebarCollapsed,
-		currentConversationId,
-		SIDEBAR_DESKTOP_BREAKPOINT
-	} from '$lib/stores/ui';
-	let mobileMenuOpen = $state(false);
-	let menuRef = $state<HTMLDivElement | undefined>(undefined);
-	let triggerRef = $state<HTMLButtonElement | undefined>(undefined);
-	let menuPositionStyle = $state('');
-	let menuBaseBackground = $state('var(--surface-elevated)');
+import { goto, invalidateAll } from "$app/navigation";
+import { onMount } from "svelte";
+import { logout } from "$lib/client/api/auth";
+import { clearClientAccountState } from "$lib/client/session-boundary";
+import { t } from "$lib/i18n";
+import { Menu, User, Plus, LogOut } from "@lucide/svelte";
+import { markPreviousConversationId } from "$lib/client/conversation-session";
+import {
+	portal,
+	setMenuBaseBackground,
+	updateMenuPosition,
+	setupMenuSync,
+} from "$lib/utils/popup-menu";
+import {
+	sidebarOpen,
+	sidebarCollapsed,
+	currentConversationId,
+	SIDEBAR_DESKTOP_BREAKPOINT,
+} from "$lib/stores/ui";
+let mobileMenuOpen = $state(false);
+let menuRef = $state<HTMLDivElement | undefined>(undefined);
+let triggerRef = $state<HTMLButtonElement | undefined>(undefined);
+let menuPositionStyle = $state("");
+let menuBaseBackground = $state("var(--surface-elevated)");
 
-	async function handleLogout() {
-		try {
-			await logout();
-			clearClientAccountState();
-			mobileMenuOpen = false;
-			await goto('/login', { invalidateAll: true });
-			await invalidateAll();
-		} catch (error) {
-			console.error('Logout failed:', error);
-		}
-	}
-
-	function toggleSidebar() {
-		if (typeof window !== 'undefined' && window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT) {
-			sidebarCollapsed.update((collapsed) => !collapsed);
-			return;
-		}
-
-		sidebarOpen.update((open) => !open);
-	}
-
-	async function handleNewConversation() {
-		try {
-			markPreviousConversationId($currentConversationId);
-			currentConversationId.set(null);
-			mobileMenuOpen = false;
-			if (typeof window !== 'undefined' && window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
-				sidebarOpen.set(false);
-			}
-			await goto('/');
-		} catch (error) {
-			console.error('Failed to create new conversation:', error);
-			alert('Failed to create new conversation. Please try again.');
-		}
-	}
-
-	function doUpdatePosition() {
-		if (!triggerRef) return;
-		menuBaseBackground = setMenuBaseBackground() || 'var(--surface-elevated)';
-		updateMenuPosition(triggerRef, (style) => { menuPositionStyle = style; }, 188);
-	}
-
-	function toggleMobileMenu(event: MouseEvent) {
-		event.stopPropagation();
-		if (!mobileMenuOpen) {
-			doUpdatePosition();
-		}
-		mobileMenuOpen = !mobileMenuOpen;
-	}
-
-	function closeMobileMenu() {
+async function handleLogout() {
+	try {
+		await logout();
+		clearClientAccountState();
 		mobileMenuOpen = false;
+		await goto("/login", { invalidateAll: true });
+		await invalidateAll();
+	} catch (error) {
+		console.error("Logout failed:", error);
+	}
+}
+
+function toggleSidebar() {
+	if (
+		typeof window !== "undefined" &&
+		window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT
+	) {
+		sidebarCollapsed.update((collapsed) => !collapsed);
+		return;
 	}
 
-	function handleOutsideClick(event: MouseEvent) {
-		const target = event.target as Node;
+	sidebarOpen.update((open) => !open);
+}
+
+async function handleNewConversation() {
+	try {
+		markPreviousConversationId($currentConversationId);
+		currentConversationId.set(null);
+		mobileMenuOpen = false;
 		if (
-			mobileMenuOpen &&
-			menuRef &&
-			triggerRef &&
-			!menuRef.contains(target) &&
-			!triggerRef.contains(target)
+			typeof window !== "undefined" &&
+			window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT
 		) {
-			closeMobileMenu();
+			sidebarOpen.set(false);
 		}
+		await goto("/");
+	} catch (error) {
+		console.error("Failed to create new conversation:", error);
+		alert("Failed to create new conversation. Please try again.");
 	}
+}
 
-	onMount(() => {
-		return setupMenuSync(() => mobileMenuOpen, doUpdatePosition);
-	});
+function doUpdatePosition() {
+	if (!triggerRef) return;
+	menuBaseBackground = setMenuBaseBackground() || "var(--surface-elevated)";
+	updateMenuPosition(
+		triggerRef,
+		(style) => {
+			menuPositionStyle = style;
+		},
+		188,
+	);
+}
+
+function toggleMobileMenu(event: MouseEvent) {
+	event.stopPropagation();
+	if (!mobileMenuOpen) {
+		doUpdatePosition();
+	}
+	mobileMenuOpen = !mobileMenuOpen;
+}
+
+function closeMobileMenu() {
+	mobileMenuOpen = false;
+}
+
+function handleOutsideClick(event: MouseEvent) {
+	const target = event.target as Node;
+	if (
+		mobileMenuOpen &&
+		menuRef &&
+		triggerRef &&
+		!menuRef.contains(target) &&
+		!triggerRef.contains(target)
+	) {
+		closeMobileMenu();
+	}
+}
+
+onMount(() => {
+	return setupMenuSync(() => mobileMenuOpen, doUpdatePosition);
+});
 </script>
 
 <svelte:window onclick={handleOutsideClick} />

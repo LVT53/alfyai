@@ -104,8 +104,7 @@ describe("deep research pass state", () => {
 					reason: "insufficient_reviewed_sources",
 					reviewedSourceCount: 0,
 					severity: "critical",
-					recommendedNextAction:
-						"Review additional EU regulator sources.",
+					recommendedNextAction: "Review additional EU regulator sources.",
 				},
 				{
 					keyQuestion: "Which US litigation is still unresolved?",
@@ -196,7 +195,8 @@ describe("deep research pass state", () => {
 			userId: "user-1",
 			checkpointId: checkpoint.id,
 			nextDecision: "publish_evidence_limitation_memo",
-			decisionSummary: "Publish a memo because no reviewed evidence is available.",
+			decisionSummary:
+				"Publish a memo because no reviewed evidence is available.",
 			now: new Date("2026-05-05T10:12:00.000Z"),
 		});
 

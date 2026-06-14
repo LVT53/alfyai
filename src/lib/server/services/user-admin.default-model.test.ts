@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
 let dbPath: string;
@@ -28,7 +28,11 @@ function prepareDatabaseWithDefaultModel(defaultModel: string) {
 function readUserByEmail(email: string) {
 	const sqlite = new Database(dbPath);
 	const db = drizzle(sqlite, { schema });
-	const user = db.select().from(schema.users).where(eq(schema.users.email, email)).get();
+	const user = db
+		.select()
+		.from(schema.users)
+		.where(eq(schema.users.email, email))
+		.get();
 	sqlite.close();
 	return user;
 }

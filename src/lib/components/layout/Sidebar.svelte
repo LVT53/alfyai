@@ -1,141 +1,156 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import { logout } from '$lib/client/api/auth';
-	import { clearClientAccountState } from '$lib/client/session-boundary';
-	import { t } from '$lib/i18n';
-	import {
-		sidebarOpen,
-		sidebarCollapsed,
-		sidebarWidth,
-		clampSidebarWidth,
-		SIDEBAR_DEFAULT_WIDTH,
-		SIDEBAR_DESKTOP_BREAKPOINT,
-		currentConversationId
-	} from '$lib/stores/ui';
-	import { goto, invalidateAll } from '$app/navigation';
-	import { navigating } from '$app/stores';
-	import { fade } from 'svelte/transition';
-	import { markPreviousConversationId } from '$lib/client/conversation-session';
-	import ConversationList from '../sidebar/ConversationList.svelte';
-	import SearchModal from '../search/SearchModal.svelte';
-	import AvatarCircle from '../ui/AvatarCircle.svelte';
-	import AppVersionBadge from './AppVersionBadge.svelte';
-	import { ChevronRight, ChevronLeft, X, FilePen, Search, Loader, BookOpen, LogOut } from '@lucide/svelte';
-	import type { ConversationListItem, SessionUser, Project } from '$lib/types';
-	import { avatarState } from '$lib/stores/avatar';
+import { onMount } from "svelte";
+import { browser } from "$app/environment";
+import { logout } from "$lib/client/api/auth";
+import { clearClientAccountState } from "$lib/client/session-boundary";
+import { t } from "$lib/i18n";
+import {
+	sidebarOpen,
+	sidebarCollapsed,
+	sidebarWidth,
+	clampSidebarWidth,
+	SIDEBAR_DEFAULT_WIDTH,
+	SIDEBAR_DESKTOP_BREAKPOINT,
+	currentConversationId,
+} from "$lib/stores/ui";
+import { goto, invalidateAll } from "$app/navigation";
+import { navigating } from "$app/stores";
+import { fade } from "svelte/transition";
+import { markPreviousConversationId } from "$lib/client/conversation-session";
+import ConversationList from "../sidebar/ConversationList.svelte";
+import SearchModal from "../search/SearchModal.svelte";
+import AvatarCircle from "../ui/AvatarCircle.svelte";
+import AppVersionBadge from "./AppVersionBadge.svelte";
+import {
+	ChevronRight,
+	ChevronLeft,
+	X,
+	FilePen,
+	Search,
+	Loader,
+	BookOpen,
+	LogOut,
+} from "@lucide/svelte";
+import type { ConversationListItem, SessionUser, Project } from "$lib/types";
+import { avatarState } from "$lib/stores/avatar";
 
-	let {
-		open = false,
-		conversationsData = [],
-		projectsData = [],
-		user = null,
-		appVersion = null,
-		onAppVersionClick = undefined,
-	}: {
-		open?: boolean;
-		conversationsData?: ConversationListItem[];
-		projectsData?: Project[];
-		user?: SessionUser | null;
-		appVersion?: { compact: string; full: string } | null;
-		onAppVersionClick?: (() => void) | undefined;
-	} = $props();
+let {
+	open = false,
+	conversationsData = [],
+	projectsData = [],
+	user = null,
+	appVersion = null,
+	onAppVersionClick = undefined,
+}: {
+	open?: boolean;
+	conversationsData?: ConversationListItem[];
+	projectsData?: Project[];
+	user?: SessionUser | null;
+	appVersion?: { compact: string; full: string } | null;
+	onAppVersionClick?: (() => void) | undefined;
+} = $props();
 
-	let isDesktop = $state(browser ? window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT : false);
-	let showSearchModal = $state(false);
-	let transitionsEnabled = $state(false);
-	let resizing = $state(false);
+let isDesktop = $state(
+	browser ? window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT : false,
+);
+let showSearchModal = $state(false);
+let transitionsEnabled = $state(false);
+let resizing = $state(false);
 
-	const isCollapsed = $derived(isDesktop && $sidebarCollapsed);
-	const knowledgePending = $derived($navigating?.to?.url.pathname === '/knowledge');
+const isCollapsed = $derived(isDesktop && $sidebarCollapsed);
+const knowledgePending = $derived(
+	$navigating?.to?.url.pathname === "/knowledge",
+);
 
-	async function handleNewConversation() {
-		markPreviousConversationId($currentConversationId);
-		currentConversationId.set(null);
-		if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
-			sidebarOpen.set(false);
-		}
-		await goto('/');
+async function handleNewConversation() {
+	markPreviousConversationId($currentConversationId);
+	currentConversationId.set(null);
+	if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
+		sidebarOpen.set(false);
 	}
+	await goto("/");
+}
 
-	function openSearchModal() {
-		showSearchModal = true;
+function openSearchModal() {
+	showSearchModal = true;
+}
+
+function closeSearchModal() {
+	showSearchModal = false;
+}
+
+function toggleCollapse() {
+	if (isDesktop) {
+		sidebarCollapsed.update((v) => !v);
 	}
+}
 
-	function closeSearchModal() {
-		showSearchModal = false;
+function startResize(event: PointerEvent) {
+	if (!isDesktop || isCollapsed) return;
+	resizing = true;
+	const startX = event.clientX;
+	const startWidth = $sidebarWidth;
+	const target = event.currentTarget as HTMLElement;
+	target.setPointerCapture(event.pointerId);
+
+	const handleMove = (moveEvent: PointerEvent) => {
+		sidebarWidth.set(
+			clampSidebarWidth(startWidth + moveEvent.clientX - startX),
+		);
+	};
+	const handleUp = () => {
+		resizing = false;
+		window.removeEventListener("pointermove", handleMove);
+		window.removeEventListener("pointerup", handleUp);
+	};
+	window.addEventListener("pointermove", handleMove);
+	window.addEventListener("pointerup", handleUp, { once: true });
+}
+
+function handleResizeKeydown(event: KeyboardEvent) {
+	if (!isDesktop || isCollapsed) return;
+	if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+		event.preventDefault();
+		const delta = event.key === "ArrowRight" ? 16 : -16;
+		sidebarWidth.set(clampSidebarWidth($sidebarWidth + delta));
 	}
-
-	function toggleCollapse() {
-		if (isDesktop) {
-			sidebarCollapsed.update((v) => !v);
-		}
+	if (event.key === "Home") {
+		event.preventDefault();
+		sidebarWidth.set(SIDEBAR_DEFAULT_WIDTH);
 	}
+}
 
-	function startResize(event: PointerEvent) {
-		if (!isDesktop || isCollapsed) return;
-		resizing = true;
-		const startX = event.clientX;
-		const startWidth = $sidebarWidth;
-		const target = event.currentTarget as HTMLElement;
-		target.setPointerCapture(event.pointerId);
-
-		const handleMove = (moveEvent: PointerEvent) => {
-			sidebarWidth.set(clampSidebarWidth(startWidth + moveEvent.clientX - startX));
-		};
-		const handleUp = () => {
-			resizing = false;
-			window.removeEventListener('pointermove', handleMove);
-			window.removeEventListener('pointerup', handleUp);
-		};
-		window.addEventListener('pointermove', handleMove);
-		window.addEventListener('pointerup', handleUp, { once: true });
+function navigateAndClose(path: string) {
+	if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
+		sidebarOpen.set(false);
 	}
+	goto(path);
+}
 
-	function handleResizeKeydown(event: KeyboardEvent) {
-		if (!isDesktop || isCollapsed) return;
-		if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-			event.preventDefault();
-			const delta = event.key === 'ArrowRight' ? 16 : -16;
-			sidebarWidth.set(clampSidebarWidth($sidebarWidth + delta));
-		}
-		if (event.key === 'Home') {
-			event.preventDefault();
-			sidebarWidth.set(SIDEBAR_DEFAULT_WIDTH);
-		}
+async function handleLogout() {
+	try {
+		await logout();
+		clearClientAccountState();
+		await goto("/login", { invalidateAll: true });
+		await invalidateAll();
+	} catch (error) {
+		console.error("Logout failed:", error);
 	}
+}
 
-	function navigateAndClose(path: string) {
-		if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
-			sidebarOpen.set(false);
-		}
-		goto(path);
-	}
+onMount(() => {
+	const syncViewportState = () => {
+		isDesktop = window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT;
+	};
 
-	async function handleLogout() {
-		try {
-			await logout();
-			clearClientAccountState();
-			await goto('/login', { invalidateAll: true });
-			await invalidateAll();
-		} catch (error) {
-			console.error('Logout failed:', error);
-		}
-	}
-
-	onMount(() => {
-		const syncViewportState = () => {
-			isDesktop = window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT;
-		};
-
-		syncViewportState();
-		requestAnimationFrame(() => {
-			transitionsEnabled = true;
-		});
-		window.addEventListener('resize', syncViewportState);
-
-		return () => window.removeEventListener('resize', syncViewportState);
+	syncViewportState();
+	requestAnimationFrame(() => {
+		transitionsEnabled = true;
 	});
+	window.addEventListener("resize", syncViewportState);
+
+	return () => window.removeEventListener("resize", syncViewportState);
+});
 </script>
 
 <!-- Mobile Overlay -->

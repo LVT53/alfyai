@@ -54,7 +54,7 @@ function skillSessionErrorResponse(error: unknown) {
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const body = await event.request.json().catch(() => null);
 	const pendingSkill = parsePendingSkill(
 		(body as Record<string, unknown> | null)?.pendingSkill,
@@ -79,7 +79,7 @@ export const POST: RequestHandler = async (event) => {
 
 export const DELETE: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const body = await event.request.json().catch(() => ({}));
 	const reason =
 		(body as Record<string, unknown> | null)?.reason === "dismissed"

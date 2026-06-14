@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock('$lib/server/auth/hooks', () => ({
+vi.mock("$lib/server/auth/hooks", () => ({
 	requireAdmin: vi.fn(),
 }));
 
-vi.mock('$lib/server/services/announcement-campaigns', () => {
+vi.mock("$lib/server/services/announcement-campaigns", () => {
 	class AnnouncementCampaignValidationError extends Error {
 		constructor(
 			message: string,
@@ -22,15 +22,15 @@ vi.mock('$lib/server/services/announcement-campaigns', () => {
 	};
 });
 
-import { GET, POST } from './+server';
-import { POST as PUBLISH } from './[id]/publish/+server';
-import { requireAdmin } from '$lib/server/auth/hooks';
+import { requireAdmin } from "$lib/server/auth/hooks";
 import {
 	AnnouncementCampaignValidationError,
 	createCampaignDraft,
 	listCampaigns,
 	publishCampaign,
-} from '$lib/server/services/announcement-campaigns';
+} from "$lib/server/services/announcement-campaigns";
+import { GET, POST } from "./+server";
+import { POST as PUBLISH } from "./[id]/publish/+server";
 
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
 const mockListCampaigns = listCampaigns as ReturnType<typeof vi.fn>;
@@ -43,70 +43,82 @@ function makeEvent(body: unknown = {}, params: Record<string, string> = {}) {
 			json: vi.fn().mockResolvedValue(body),
 			headers: { get: vi.fn().mockReturnValue(null) },
 		},
-		locals: { user: { id: 'admin-user', role: 'admin' } },
+		locals: { user: { id: "admin-user", role: "admin" } },
 		params,
-		url: new URL('http://localhost/api/admin/campaigns'),
-		route: { id: '/api/admin/campaigns' },
-	} as any;
+		url: new URL("http://localhost/api/admin/campaigns"),
+		route: { id: "/api/admin/campaigns" },
+	} as unknown as Parameters<typeof POST>[0];
 }
 
-describe('admin announcement campaign routes', () => {
+describe("admin announcement campaign routes", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockRequireAdmin.mockReturnValue(undefined);
 	});
 
-	it('lists campaigns behind admin authorization', async () => {
-		mockListCampaigns.mockResolvedValue([{ id: 'campaign-1', status: 'draft' }]);
+	it("lists campaigns behind admin authorization", async () => {
+		mockListCampaigns.mockResolvedValue([
+			{ id: "campaign-1", status: "draft" },
+		]);
 
 		const response = await GET(makeEvent());
 		const body = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(body).toEqual({ campaigns: [{ id: 'campaign-1', status: 'draft' }] });
+		expect(body).toEqual({
+			campaigns: [{ id: "campaign-1", status: "draft" }],
+		});
 		expect(mockRequireAdmin).toHaveBeenCalledTimes(1);
 	});
 
-	it('creates a system-identified draft campaign for the current admin', async () => {
+	it("creates a system-identified draft campaign for the current admin", async () => {
 		mockCreateCampaignDraft.mockResolvedValue({
-			id: 'campaign-1',
-			identityKey: 'release_update:0.2.0:r1',
-			status: 'draft',
+			id: "campaign-1",
+			identityKey: "release_update:0.2.0:r1",
+			status: "draft",
 		});
 
-		const response = await POST(makeEvent({
-			type: 'release_update',
-			releaseVersion: '0.2.0',
-			name: 'Release update',
-			identityKey: 'malicious-admin-key',
-		}));
+		const response = await POST(
+			makeEvent({
+				type: "release_update",
+				releaseVersion: "0.2.0",
+				name: "Release update",
+				identityKey: "malicious-admin-key",
+			}),
+		);
 		const body = await response.json();
 
 		expect(response.status).toBe(201);
-		expect(body.campaign.identityKey).toBe('release_update:0.2.0:r1');
+		expect(body.campaign.identityKey).toBe("release_update:0.2.0:r1");
 		expect(mockCreateCampaignDraft).toHaveBeenCalledWith({
-			type: 'release_update',
-			releaseVersion: '0.2.0',
-			name: 'Release update',
-			createdByUserId: 'admin-user',
+			type: "release_update",
+			releaseVersion: "0.2.0",
+			name: "Release update",
+			createdByUserId: "admin-user",
 		});
 	});
 
-	it('maps publish validation errors to field-error JSON', async () => {
+	it("maps publish validation errors to field-error JSON", async () => {
 		mockPublishCampaign.mockRejectedValue(
-			new AnnouncementCampaignValidationError('Campaign is not ready to publish.', {
-				slides: 'At least one slide is required.',
-			}),
+			new AnnouncementCampaignValidationError(
+				"Campaign is not ready to publish.",
+				{
+					slides: "At least one slide is required.",
+				},
+			),
 		);
 
-		const response = await PUBLISH(makeEvent({}, { id: 'campaign-1' }));
+		const response = await PUBLISH(makeEvent({}, { id: "campaign-1" }));
 		const body = await response.json();
 
 		expect(response.status).toBe(400);
 		expect(body).toEqual({
-			error: 'Campaign is not ready to publish.',
-			fieldErrors: { slides: 'At least one slide is required.' },
+			error: "Campaign is not ready to publish.",
+			fieldErrors: { slides: "At least one slide is required." },
 		});
-		expect(mockPublishCampaign).toHaveBeenCalledWith('campaign-1', 'admin-user');
+		expect(mockPublishCampaign).toHaveBeenCalledWith(
+			"campaign-1",
+			"admin-user",
+		);
 	});
 });

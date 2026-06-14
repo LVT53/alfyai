@@ -1,56 +1,65 @@
 <script lang="ts">
-	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
-	import EvidencePreferenceControl from './EvidencePreferenceControl.svelte';
-	import { ChevronDown } from '@lucide/svelte';
-	import type { EvidencePreference, MessageEvidenceSummary, TaskSteeringPayload } from '$lib/types';
+import { preserveScrollOnToggle } from "$lib/actions/preserve-scroll";
+import EvidencePreferenceControl from "./EvidencePreferenceControl.svelte";
+import { ChevronDown } from "@lucide/svelte";
+import type {
+	EvidencePreference,
+	MessageEvidenceSummary,
+	TaskSteeringPayload,
+} from "$lib/types";
 
-	let {
-		evidenceSummary,
-		pinnedArtifactIds = [],
-		excludedArtifactIds = [],
-		onSteer = undefined,
-	}: {
-		evidenceSummary: MessageEvidenceSummary;
-		pinnedArtifactIds?: string[];
-		excludedArtifactIds?: string[];
-		onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
-	} = $props();
+let {
+	evidenceSummary,
+	pinnedArtifactIds = [],
+	excludedArtifactIds = [],
+	onSteer = undefined,
+}: {
+	evidenceSummary: MessageEvidenceSummary;
+	pinnedArtifactIds?: string[];
+	excludedArtifactIds?: string[];
+	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
+} = $props();
 
-	let expanded = $state(false);
-	let container = $state<HTMLDivElement | null>(null);
-	let groupsPanel = $state<HTMLDivElement | null>(null);
+let expanded = $state(false);
+let container = $state<HTMLDivElement | null>(null);
+let groupsPanel = $state<HTMLDivElement | null>(null);
 
-	let totalItems = $derived(
-		evidenceSummary.groups.reduce((count, group) => count + group.items.length, 0)
-	);
-	let pinnedIds = $derived(new Set(pinnedArtifactIds));
-	let excludedIds = $derived(new Set(excludedArtifactIds));
+let totalItems = $derived(
+	evidenceSummary.groups.reduce(
+		(count, group) => count + group.items.length,
+		0,
+	),
+);
+let pinnedIds = $derived(new Set(pinnedArtifactIds));
+let excludedIds = $derived(new Set(excludedArtifactIds));
 
-	function steer(payload: TaskSteeringPayload) {
-		onSteer?.(payload);
+function steer(payload: TaskSteeringPayload) {
+	onSteer?.(payload);
+}
+
+function preferenceFor(artifactId: string): EvidencePreference {
+	if (excludedIds.has(artifactId)) {
+		return "excluded";
 	}
-
-	function preferenceFor(artifactId: string): EvidencePreference {
-		if (excludedIds.has(artifactId)) {
-			return 'excluded';
-		}
-		if (pinnedIds.has(artifactId)) {
-			return 'pinned';
-		}
-		return 'auto';
+	if (pinnedIds.has(artifactId)) {
+		return "pinned";
 	}
+	return "auto";
+}
 
-	function formatChannel(channel: string): string {
-		if (channel === 'attached') return 'Attached';
-		if (channel === 'retrieved') return 'Retrieved';
-		if (channel === 'web') return 'Web';
-		if (channel === 'memory') return 'Memory';
-		return 'Tool';
-	}
+function formatChannel(channel: string): string {
+	if (channel === "attached") return "Attached";
+	if (channel === "retrieved") return "Retrieved";
+	if (channel === "web") return "Web";
+	if (channel === "memory") return "Memory";
+	return "Tool";
+}
 
-	async function toggle() {
-		await preserveScrollOnToggle(container, expanded, () => { expanded = !expanded; });
-	}
+async function toggle() {
+	await preserveScrollOnToggle(container, expanded, () => {
+		expanded = !expanded;
+	});
+}
 </script>
 
 <div class="evidence-shell" bind:this={container}>

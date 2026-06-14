@@ -1,239 +1,278 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
-	import { fade, scale } from 'svelte/transition';
-	import type { CampaignAssetCropGeometry, CampaignAssetVariant } from '$lib/client/api/campaign-assets';
-	import { t } from '$lib/i18n';
+import { onDestroy, onMount } from "svelte";
+import { fade, scale } from "svelte/transition";
+import type {
+	CampaignAssetCropGeometry,
+	CampaignAssetVariant,
+} from "$lib/client/api/campaign-assets";
+import { t } from "$lib/i18n";
 
-	type SavePayload = {
-		file: File;
-		width: number;
-		height: number;
-		crop: CampaignAssetCropGeometry;
+type SavePayload = {
+	file: File;
+	width: number;
+	height: number;
+	crop: CampaignAssetCropGeometry;
+};
+
+let {
+	imageSrc,
+	ratio,
+	variant = "desktop",
+	title = undefined,
+	metadata = undefined,
+	outputFilename = undefined,
+	outputWidth,
+	outputHeight,
+	onSave,
+	onCancel,
+}: {
+	imageSrc: string;
+	ratio: number;
+	variant?: CampaignAssetVariant;
+	title?: string;
+	metadata?: string;
+	outputFilename?: string;
+	outputWidth?: number;
+	outputHeight?: number;
+	onSave?: (payload: SavePayload) => void | Promise<void>;
+	onCancel?: () => void;
+} = $props();
+
+const FRAME_LONG_EDGE = 520;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 3;
+
+let dialogRef = $state<HTMLDivElement | null>(null);
+let imageEl = $state<HTMLImageElement | null>(null);
+let previewCanvas = $state<HTMLCanvasElement | null>(null);
+let previousFocus: HTMLElement | null = null;
+
+let naturalWidth = $state(0);
+let naturalHeight = $state(0);
+let imageReady = $state(false);
+let zoom = $state(1);
+let panX = $state(0);
+let panY = $state(0);
+let isDragging = $state(false);
+let isSaving = $state(false);
+let errorMessage = $state("");
+
+let dragStartX = 0;
+let dragStartY = 0;
+let dragStartPanX = 0;
+let dragStartPanY = 0;
+
+let frameWidth = $derived(
+	ratio >= 1 ? FRAME_LONG_EDGE : Math.round(FRAME_LONG_EDGE * ratio),
+);
+let frameHeight = $derived(
+	ratio >= 1 ? Math.round(FRAME_LONG_EDGE / ratio) : FRAME_LONG_EDGE,
+);
+let dialogTitle = $derived(title ?? $t("campaignCrop.title"));
+let cropMetadata = $derived(
+	metadata ??
+		(variant === "desktop"
+			? $t("campaignCrop.desktopMetadata")
+			: $t("campaignCrop.mobileMetadata")),
+);
+let defaultOutputWidth = $derived(variant === "mobile" ? 1080 : 1600);
+let finalOutputWidth = $derived(outputWidth ?? defaultOutputWidth);
+let finalOutputHeight = $derived(
+	outputHeight ?? Math.round(finalOutputWidth / ratio),
+);
+let baseScale = $derived(
+	naturalWidth > 0 && naturalHeight > 0
+		? Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight)
+		: 1,
+);
+let displayWidth = $derived(naturalWidth * baseScale * zoom);
+let displayHeight = $derived(naturalHeight * baseScale * zoom);
+
+function resetCrop() {
+	zoom = 1;
+	panX = 0;
+	panY = 0;
+	errorMessage = "";
+	drawPreview();
+}
+
+function handleImageLoad(event: Event) {
+	const image = event.currentTarget as HTMLImageElement;
+	naturalWidth = image.naturalWidth;
+	naturalHeight = image.naturalHeight;
+	imageReady = naturalWidth > 0 && naturalHeight > 0;
+	resetCrop();
+}
+
+function clampCrop(value: number, min: number, max: number) {
+	return Math.min(Math.max(value, min), max);
+}
+
+function currentCrop(): CampaignAssetCropGeometry {
+	const scale = baseScale * zoom || 1;
+	const left = frameWidth / 2 + panX - displayWidth / 2;
+	const top = frameHeight / 2 + panY - displayHeight / 2;
+	const x = clampCrop((0 - left) / scale, 0, naturalWidth);
+	const y = clampCrop((0 - top) / scale, 0, naturalHeight);
+	const width = clampCrop(frameWidth / scale, 0, naturalWidth - x);
+	const height = clampCrop(frameHeight / scale, 0, naturalHeight - y);
+
+	return {
+		x,
+		y,
+		width,
+		height,
+		zoom,
 	};
+}
 
-	let {
-		imageSrc,
-		ratio,
-		variant = 'desktop',
-		title = undefined,
-		metadata = undefined,
-		outputFilename = undefined,
-		outputWidth,
-		outputHeight,
-		onSave,
-		onCancel,
-	}: {
-		imageSrc: string;
-		ratio: number;
-		variant?: CampaignAssetVariant;
-		title?: string;
-		metadata?: string;
-		outputFilename?: string;
-		outputWidth?: number;
-		outputHeight?: number;
-		onSave?: (payload: SavePayload) => void | Promise<void>;
-		onCancel?: () => void;
-	} = $props();
-
-	const FRAME_LONG_EDGE = 520;
-	const MIN_ZOOM = 1;
-	const MAX_ZOOM = 3;
-
-	let dialogRef = $state<HTMLDivElement | null>(null);
-	let imageEl = $state<HTMLImageElement | null>(null);
-	let previewCanvas = $state<HTMLCanvasElement | null>(null);
-	let previousFocus: HTMLElement | null = null;
-
-	let naturalWidth = $state(0);
-	let naturalHeight = $state(0);
-	let imageReady = $state(false);
-	let zoom = $state(1);
-	let panX = $state(0);
-	let panY = $state(0);
-	let isDragging = $state(false);
-	let isSaving = $state(false);
-	let errorMessage = $state('');
-
-	let dragStartX = 0;
-	let dragStartY = 0;
-	let dragStartPanX = 0;
-	let dragStartPanY = 0;
-
-	let frameWidth = $derived(ratio >= 1 ? FRAME_LONG_EDGE : Math.round(FRAME_LONG_EDGE * ratio));
-	let frameHeight = $derived(ratio >= 1 ? Math.round(FRAME_LONG_EDGE / ratio) : FRAME_LONG_EDGE);
-	let dialogTitle = $derived(title ?? $t('campaignCrop.title'));
-	let cropMetadata = $derived(
-		metadata ?? (variant === 'desktop' ? $t('campaignCrop.desktopMetadata') : $t('campaignCrop.mobileMetadata')),
+function drawPreview() {
+	if (!previewCanvas || !imageEl || !imageReady) return;
+	const ctx = previewCanvas.getContext("2d");
+	if (!ctx) return;
+	ctx.clearRect(0, 0, finalOutputWidth, finalOutputHeight);
+	ctx.drawImage(
+		imageEl,
+		currentCrop().x,
+		currentCrop().y,
+		currentCrop().width,
+		currentCrop().height,
+		0,
+		0,
+		finalOutputWidth,
+		finalOutputHeight,
 	);
-	let defaultOutputWidth = $derived(variant === 'mobile' ? 1080 : 1600);
-	let finalOutputWidth = $derived(outputWidth ?? defaultOutputWidth);
-	let finalOutputHeight = $derived(outputHeight ?? Math.round(finalOutputWidth / ratio));
-	let baseScale = $derived(
-		naturalWidth > 0 && naturalHeight > 0
-			? Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight)
-			: 1,
+}
+
+$effect(() => {
+	zoom;
+	panX;
+	panY;
+	imageReady;
+	drawPreview();
+});
+
+function handlePointerDown(event: PointerEvent) {
+	if (!imageReady || isSaving) return;
+	isDragging = true;
+	dragStartX = event.clientX;
+	dragStartY = event.clientY;
+	dragStartPanX = panX;
+	dragStartPanY = panY;
+	(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+}
+
+function handlePointerMove(event: PointerEvent) {
+	if (!isDragging || isSaving) return;
+	panX = dragStartPanX + event.clientX - dragStartX;
+	panY = dragStartPanY + event.clientY - dragStartY;
+}
+
+function handlePointerUp(event: PointerEvent) {
+	isDragging = false;
+	(event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(
+		event.pointerId,
 	);
-	let displayWidth = $derived(naturalWidth * baseScale * zoom);
-	let displayHeight = $derived(naturalHeight * baseScale * zoom);
+}
 
-	function resetCrop() {
-		zoom = 1;
-		panX = 0;
-		panY = 0;
-		errorMessage = '';
-		drawPreview();
+function handleZoomInput(event: Event) {
+	zoom = Number((event.currentTarget as HTMLInputElement).value);
+}
+
+async function saveCrop() {
+	if (!imageEl || !imageReady || isSaving) return;
+	isSaving = true;
+	errorMessage = "";
+
+	const canvas = document.createElement("canvas");
+	canvas.width = finalOutputWidth;
+	canvas.height = finalOutputHeight;
+	const ctx = canvas.getContext("2d");
+	if (!ctx) {
+		errorMessage = $t("campaignCrop.prepareError");
+		isSaving = false;
+		return;
 	}
 
-	function handleImageLoad(event: Event) {
-		const image = event.currentTarget as HTMLImageElement;
-		naturalWidth = image.naturalWidth;
-		naturalHeight = image.naturalHeight;
-		imageReady = naturalWidth > 0 && naturalHeight > 0;
-		resetCrop();
+	const crop = currentCrop();
+	ctx.drawImage(
+		imageEl,
+		crop.x,
+		crop.y,
+		crop.width,
+		crop.height,
+		0,
+		0,
+		finalOutputWidth,
+		finalOutputHeight,
+	);
+
+	canvas.toBlob(
+		async (blob) => {
+			if (!blob) {
+				errorMessage = $t("campaignCrop.prepareError");
+				isSaving = false;
+				return;
+			}
+
+			try {
+				await onSave?.({
+					file: new File(
+						[blob],
+						outputFilename ?? `${variant}-campaign-crop.webp`,
+						{ type: "image/webp" },
+					),
+					width: finalOutputWidth,
+					height: finalOutputHeight,
+					crop,
+				});
+				isSaving = false;
+			} catch (error) {
+				errorMessage =
+					error instanceof Error ? error.message : $t("campaignCrop.saveError");
+				isSaving = false;
+			}
+		},
+		"image/webp",
+		0.9,
+	);
+}
+
+function handleBackdropClick() {
+	if (!isSaving) onCancel?.();
+}
+
+function handleKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape" && !isSaving) {
+		event.preventDefault();
+		onCancel?.();
+		return;
 	}
+	if (event.key !== "Tab") return;
 
-	function clampCrop(value: number, min: number, max: number) {
-		return Math.min(Math.max(value, min), max);
+	const focusable = dialogRef?.querySelectorAll<HTMLElement>(
+		'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+	);
+	if (!focusable || focusable.length === 0) return;
+	const first = focusable[0];
+	const last = focusable[focusable.length - 1];
+	if (event.shiftKey && document.activeElement === first) {
+		last.focus();
+		event.preventDefault();
+	} else if (!event.shiftKey && document.activeElement === last) {
+		first.focus();
+		event.preventDefault();
 	}
+}
 
-	function currentCrop(): CampaignAssetCropGeometry {
-		const scale = baseScale * zoom || 1;
-		const left = frameWidth / 2 + panX - displayWidth / 2;
-		const top = frameHeight / 2 + panY - displayHeight / 2;
-		const x = clampCrop((0 - left) / scale, 0, naturalWidth);
-		const y = clampCrop((0 - top) / scale, 0, naturalHeight);
-		const width = clampCrop(frameWidth / scale, 0, naturalWidth - x);
-		const height = clampCrop(frameHeight / scale, 0, naturalHeight - y);
+onMount(() => {
+	previousFocus = document.activeElement as HTMLElement;
+	setTimeout(() => dialogRef?.focus({ preventScroll: true }), 0);
+});
 
-		return {
-			x,
-			y,
-			width,
-			height,
-			zoom,
-		};
-	}
-
-	function drawPreview() {
-		if (!previewCanvas || !imageEl || !imageReady) return;
-		const ctx = previewCanvas.getContext('2d');
-		if (!ctx) return;
-		ctx.clearRect(0, 0, finalOutputWidth, finalOutputHeight);
-		ctx.drawImage(imageEl, currentCrop().x, currentCrop().y, currentCrop().width, currentCrop().height, 0, 0, finalOutputWidth, finalOutputHeight);
-	}
-
-	$effect(() => {
-		zoom;
-		panX;
-		panY;
-		imageReady;
-		drawPreview();
-	});
-
-	function handlePointerDown(event: PointerEvent) {
-		if (!imageReady || isSaving) return;
-		isDragging = true;
-		dragStartX = event.clientX;
-		dragStartY = event.clientY;
-		dragStartPanX = panX;
-		dragStartPanY = panY;
-		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-	}
-
-	function handlePointerMove(event: PointerEvent) {
-		if (!isDragging || isSaving) return;
-		panX = dragStartPanX + event.clientX - dragStartX;
-		panY = dragStartPanY + event.clientY - dragStartY;
-	}
-
-	function handlePointerUp(event: PointerEvent) {
-		isDragging = false;
-		(event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(event.pointerId);
-	}
-
-	function handleZoomInput(event: Event) {
-		zoom = Number((event.currentTarget as HTMLInputElement).value);
-	}
-
-	async function saveCrop() {
-		if (!imageEl || !imageReady || isSaving) return;
-		isSaving = true;
-		errorMessage = '';
-
-		const canvas = document.createElement('canvas');
-		canvas.width = finalOutputWidth;
-		canvas.height = finalOutputHeight;
-		const ctx = canvas.getContext('2d');
-		if (!ctx) {
-			errorMessage = $t('campaignCrop.prepareError');
-			isSaving = false;
-			return;
-		}
-
-		const crop = currentCrop();
-		ctx.drawImage(imageEl, crop.x, crop.y, crop.width, crop.height, 0, 0, finalOutputWidth, finalOutputHeight);
-
-		canvas.toBlob(
-			async (blob) => {
-				if (!blob) {
-					errorMessage = $t('campaignCrop.prepareError');
-					isSaving = false;
-					return;
-				}
-
-				try {
-					await onSave?.({
-						file: new File([blob], outputFilename ?? `${variant}-campaign-crop.webp`, { type: 'image/webp' }),
-						width: finalOutputWidth,
-						height: finalOutputHeight,
-						crop,
-					});
-					isSaving = false;
-				} catch (error) {
-					errorMessage = error instanceof Error ? error.message : $t('campaignCrop.saveError');
-					isSaving = false;
-				}
-			},
-			'image/webp',
-			0.9,
-		);
-	}
-
-	function handleBackdropClick() {
-		if (!isSaving) onCancel?.();
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && !isSaving) {
-			event.preventDefault();
-			onCancel?.();
-			return;
-		}
-		if (event.key !== 'Tab') return;
-
-		const focusable = dialogRef?.querySelectorAll<HTMLElement>(
-			'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-		);
-		if (!focusable || focusable.length === 0) return;
-		const first = focusable[0];
-		const last = focusable[focusable.length - 1];
-		if (event.shiftKey && document.activeElement === first) {
-			last.focus();
-			event.preventDefault();
-		} else if (!event.shiftKey && document.activeElement === last) {
-			first.focus();
-			event.preventDefault();
-		}
-	}
-
-	onMount(() => {
-		previousFocus = document.activeElement as HTMLElement;
-		setTimeout(() => dialogRef?.focus({ preventScroll: true }), 0);
-	});
-
-	onDestroy(() => {
-		previousFocus?.focus({ preventScroll: true });
-	});
+onDestroy(() => {
+	previousFocus?.focus({ preventScroll: true });
+});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />

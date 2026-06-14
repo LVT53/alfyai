@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import SettingsDataImport from "./SettingsDataImport.svelte";
 
 vi.mock("$lib/components/chat/ImportChatGPTModal.svelte", async () => {
-	const { default: MockModal } = await import("./__mocks__/ImportChatGPTModal.svelte");
+	const { default: MockModal } = await import(
+		"./__mocks__/ImportChatGPTModal.svelte"
+	);
 	return { default: MockModal };
 });
 

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import {
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_MODEL_ID,
@@ -81,7 +81,9 @@ test.describe("fake OpenAI-compatible provider app journey", () => {
 						request.body.stream === true,
 				);
 			const userChatRequest = streamedChatRequests.find((request) =>
-				JSON.stringify(request.body).includes("Say hello through the fake provider."),
+				JSON.stringify(request.body).includes(
+					"Say hello through the fake provider.",
+				),
 			);
 			expect(userChatRequest).toBeTruthy();
 			expect(userChatRequest).toMatchObject({
@@ -172,7 +174,9 @@ async function updateUserModelPreference(
 	).toBe(true);
 }
 
-async function snapshotBrowserSelectedModel(page: Page): Promise<string | null> {
+async function snapshotBrowserSelectedModel(
+	page: Page,
+): Promise<string | null> {
 	return page.evaluate(() => localStorage.getItem("selectedModel"));
 }
 

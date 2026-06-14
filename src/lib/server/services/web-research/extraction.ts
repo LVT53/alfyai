@@ -560,8 +560,6 @@ function scoreQuality(
 	};
 }
 
-
-
 async function hasSafeDnsResolution(value: string): Promise<boolean> {
 	try {
 		const hostname = normalizeUrlHostname(new URL(value).hostname);
@@ -625,7 +623,6 @@ async function fetchSafeSource(params: {
 	}
 	return { response: null, url: currentUrl, errorCode: "too_many_redirects" };
 }
-
 
 function buildResult(params: {
 	title: string | null;

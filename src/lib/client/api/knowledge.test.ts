@@ -100,16 +100,16 @@ describe("knowledge client API", () => {
 
 	it("uploads large attachments in small chunks to avoid long request timeouts", async () => {
 		const fileBytes = new Uint8Array(2 * 1024 * 1024 + 1);
-		const file = new File([fileBytes], "large.pdf", { type: "application/pdf" });
+		const file = new File([fileBytes], "large.pdf", {
+			type: "application/pdf",
+		});
 		const totalChunks = 9;
-		const fetchImpl = vi
-			.fn()
-			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ traceId: "trace-upload" }), {
-					status: 200,
-					headers: { "Content-Type": "application/json" },
-				}),
-			);
+		const fetchImpl = vi.fn().mockResolvedValueOnce(
+			new Response(JSON.stringify({ traceId: "trace-upload" }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
 		for (let index = 0; index < totalChunks - 1; index += 1) {
 			fetchImpl.mockResolvedValueOnce(
 				new Response(
@@ -418,8 +418,8 @@ describe("knowledge client API", () => {
 			);
 		const file = new File(["x"], "large.pdf", { type: "application/pdf" });
 
-		await expect(uploadKnowledgeAttachment(file, null, fetchImpl)).rejects.toThrow(
-			/reverse proxy body limits\/timeouts/i,
-		);
+		await expect(
+			uploadKnowledgeAttachment(file, null, fetchImpl),
+		).rejects.toThrow(/reverse proxy body limits\/timeouts/i);
 	});
 });

@@ -16,12 +16,12 @@ import {
 	deleteAllHonchoStateForUser,
 	rotateHonchoPeerIdentity,
 } from "../honcho";
-import { clearMessageEvidenceForUser } from "../messages";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
 	hardDeleteArtifactsForUser,
 } from "../knowledge";
+import { clearMessageEvidenceForUser } from "../messages";
 
 export async function resetKnowledgeBaseState(userId: string): Promise<{
 	deletedArtifactIds: string[];

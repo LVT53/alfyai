@@ -88,13 +88,16 @@ vi.mock("$lib/client/api/skills", () => ({
 vi.mock("$lib/utils/markdown-loader", () => ({
 	collectSourceReferenceCandidates: async () => [],
 	prepareCodeHighlighting: async () => undefined,
-	renderCodeBlock: async (content: string) => `<pre><code>${content}</code></pre>`,
+	renderCodeBlock: async (content: string) =>
+		`<pre><code>${content}</code></pre>`,
 	renderHighlightedText: async (content: string) => content,
-	renderMarkdown: async (content: string) => content.replace(/\*\*(.*?)\*\*/g, "$1"),
+	renderMarkdown: async (content: string) =>
+		content.replace(/\*\*(.*?)\*\*/g, "$1"),
 }));
 
 vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
-	type RuntimeModule = typeof import("$lib/client/normal-chat-client-turn-runtime");
+	type RuntimeModule =
+		typeof import("$lib/client/normal-chat-client-turn-runtime");
 	const actual = await vi.importActual<RuntimeModule>(
 		"$lib/client/normal-chat-client-turn-runtime",
 	);
@@ -117,8 +120,8 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 	};
 });
 
-import Page from "./+page.svelte";
 import { fetchConversationDetail } from "$lib/client/api/conversations";
+import Page from "./+page.svelte";
 
 function pageData() {
 	return {
@@ -194,7 +197,9 @@ describe("chat page runtime integration", () => {
 	it("keeps Deep Research handoff sends visible to the runtime queue adapter", async () => {
 		render(Page, { data: pageData() });
 
-		await fireEvent.click(screen.getByRole("button", { name: "Deep Research" }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Deep Research" }),
+		);
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Focused Deep Research" }),
 		);

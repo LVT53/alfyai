@@ -1,6 +1,6 @@
-import { requestJson, type FetchLike } from './http';
+import { type FetchLike, requestJson } from "./http";
 
-export type CampaignAssetVariant = 'desktop' | 'mobile';
+export type CampaignAssetVariant = "desktop" | "mobile";
 
 export type CampaignAssetCropGeometry = {
 	x: number;
@@ -14,9 +14,9 @@ export type CampaignAsset = {
 	id: string;
 	uploadedByUserId?: string;
 	sourceAssetId?: string | null;
-	assetKind: 'source' | 'crop' | 'model_icon';
+	assetKind: "source" | "crop" | "model_icon";
 	variant?: CampaignAssetVariant | null;
-	status: 'draft' | 'published';
+	status: "draft" | "published";
 	originalFilename?: string;
 	mimeType: string;
 	sizeBytes: number;
@@ -46,14 +46,14 @@ export async function uploadCampaignAssetSource(
 	fetchImpl: FetchLike = fetch,
 ): Promise<CampaignAsset> {
 	const formData = new FormData();
-	formData.set('image', input.image);
-	if (input.width) formData.set('width', String(input.width));
-	if (input.height) formData.set('height', String(input.height));
+	formData.set("image", input.image);
+	if (input.width) formData.set("width", String(input.width));
+	if (input.height) formData.set("height", String(input.height));
 
 	const response = await requestJson<CampaignAssetResponse>(
-		'/api/admin/campaigns/assets/upload',
-		{ method: 'POST', body: formData },
-		'Failed to upload campaign screenshot',
+		"/api/admin/campaigns/assets/upload",
+		{ method: "POST", body: formData },
+		"Failed to upload campaign screenshot",
 		fetchImpl,
 	);
 	return response.asset;
@@ -68,14 +68,14 @@ export async function uploadModelIconAsset(
 	fetchImpl: FetchLike = fetch,
 ): Promise<CampaignAsset> {
 	const formData = new FormData();
-	formData.set('image', input.image);
-	if (input.width) formData.set('width', String(input.width));
-	if (input.height) formData.set('height', String(input.height));
+	formData.set("image", input.image);
+	if (input.width) formData.set("width", String(input.width));
+	if (input.height) formData.set("height", String(input.height));
 
 	const response = await requestJson<CampaignAssetResponse>(
-		'/api/admin/model-icons/upload',
-		{ method: 'POST', body: formData },
-		'Failed to upload model icon',
+		"/api/admin/model-icons/upload",
+		{ method: "POST", body: formData },
+		"Failed to upload model icon",
 		fetchImpl,
 	);
 	return response.asset;
@@ -92,15 +92,15 @@ export async function saveModelIconAssetCrop(
 	fetchImpl: FetchLike = fetch,
 ): Promise<CampaignAsset> {
 	const formData = new FormData();
-	formData.set('image', input.image);
-	formData.set('crop', JSON.stringify(input.crop));
-	if (input.width) formData.set('width', String(input.width));
-	if (input.height) formData.set('height', String(input.height));
+	formData.set("image", input.image);
+	formData.set("crop", JSON.stringify(input.crop));
+	if (input.width) formData.set("width", String(input.width));
+	if (input.height) formData.set("height", String(input.height));
 
 	const response = await requestJson<CampaignAssetResponse>(
 		`/api/admin/model-icons/${encodeURIComponent(input.sourceAssetId)}/crop`,
-		{ method: 'POST', body: formData },
-		'Failed to save model icon crop',
+		{ method: "POST", body: formData },
+		"Failed to save model icon crop",
 		fetchImpl,
 	);
 	return response.asset;
@@ -118,16 +118,16 @@ export async function saveCampaignAssetCrop(
 	fetchImpl: FetchLike = fetch,
 ): Promise<CampaignAsset> {
 	const formData = new FormData();
-	formData.set('image', input.image);
-	formData.set('variant', input.variant);
-	formData.set('crop', JSON.stringify(input.crop));
-	if (input.width) formData.set('width', String(input.width));
-	if (input.height) formData.set('height', String(input.height));
+	formData.set("image", input.image);
+	formData.set("variant", input.variant);
+	formData.set("crop", JSON.stringify(input.crop));
+	if (input.width) formData.set("width", String(input.width));
+	if (input.height) formData.set("height", String(input.height));
 
 	const response = await requestJson<CampaignAssetResponse>(
 		`/api/admin/campaigns/assets/${encodeURIComponent(input.sourceAssetId)}/crop`,
-		{ method: 'POST', body: formData },
-		'Failed to save campaign screenshot crop',
+		{ method: "POST", body: formData },
+		"Failed to save campaign screenshot crop",
 		fetchImpl,
 	);
 	return response.asset;

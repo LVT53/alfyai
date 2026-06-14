@@ -41,8 +41,9 @@ const mockResolveKnowledgeUploadLimits =
 const mockValidateKnowledgeUploadConversation =
 	validateKnowledgeUploadConversation as ReturnType<typeof vi.fn>;
 let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
+type UploadIntentEvent = Parameters<typeof POST>[0];
 
-function makeEvent(payload: unknown) {
+function makeEvent(payload: unknown): UploadIntentEvent {
 	return {
 		request: {
 			json: vi.fn().mockResolvedValue(payload),
@@ -51,7 +52,7 @@ function makeEvent(payload: unknown) {
 		params: {},
 		url: new URL("http://localhost/api/knowledge/upload/intent"),
 		route: { id: "/api/knowledge/upload/intent" },
-	} as any;
+	} as UploadIntentEvent;
 }
 
 describe("POST /api/knowledge/upload/intent", () => {

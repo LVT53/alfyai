@@ -403,11 +403,7 @@ function normalizePositiveInteger(
 	value: number | null | undefined,
 	fallback: number,
 ): number {
-	return normalizeModelContextTokens(
-		value,
-		fallback,
-		MIN_MODEL_CONTEXT_TOKENS,
-	);
+	return normalizeModelContextTokens(value, fallback, MIN_MODEL_CONTEXT_TOKENS);
 }
 
 function normalizeOptionalLimit(

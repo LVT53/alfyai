@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	buildNormalChatModelRunCompatibilityProviderOptions,
 	isMiMoProvider,
-	transformNormalChatModelRunRequestBody,
 	type NormalChatModelRunCompatibilityProvider,
+	transformNormalChatModelRunRequestBody,
 } from "./provider-compatibility";
 
 const mimoProvider: NormalChatModelRunCompatibilityProvider = {

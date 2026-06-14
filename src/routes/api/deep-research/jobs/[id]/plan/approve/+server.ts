@@ -1,16 +1,16 @@
-import { json } from '@sveltejs/kit';
-import { requireAuth } from '$lib/server/auth/hooks';
+import { json } from "@sveltejs/kit";
+import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	approveDeepResearchPlan,
 	isDeepResearchPlanActionError,
-} from '$lib/server/services/deep-research';
-import type { RequestHandler } from './$types';
+} from "$lib/server/services/deep-research";
+import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
 	const user = event.locals.user;
 	if (!user) {
-		return json({ error: 'Unauthorized' }, { status: 401 });
+		return json({ error: "Unauthorized" }, { status: 401 });
 	}
 
 	try {
@@ -20,13 +20,16 @@ export const POST: RequestHandler = async (event) => {
 		});
 
 		if (!job) {
-			return json({ error: 'Deep Research job not found' }, { status: 404 });
+			return json({ error: "Deep Research job not found" }, { status: 404 });
 		}
 
 		return json({ job });
 	} catch (error) {
 		if (isDeepResearchPlanActionError(error)) {
-			return json({ error: error.message, code: error.code }, { status: error.status });
+			return json(
+				{ error: error.message, code: error.code },
+				{ status: error.status },
+			);
 		}
 		throw error;
 	}

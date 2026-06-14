@@ -8,10 +8,7 @@ vi.mock("../../config-store", () => ({
 	getConfig: mocks.getConfig,
 }));
 
-import {
-	buildLegacyContextTrace,
-	emitContextTrace,
-} from "./context-trace";
+import { buildLegacyContextTrace, emitContextTrace } from "./context-trace";
 
 describe("Context Trace", () => {
 	it("does not emit traces unless context diagnostics are enabled", () => {

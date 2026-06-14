@@ -1,43 +1,43 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
-import CampaignModal from './CampaignModal.svelte';
-import type { Campaign } from '$lib/client/api/campaigns';
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import type { Campaign } from "$lib/client/api/campaigns";
+import CampaignModal from "./CampaignModal.svelte";
 
 const campaign: Campaign = {
-	id: 'campaign-1',
-	type: 'first_run_onboarding',
-	status: 'published',
-	name: 'Welcome tour',
+	id: "campaign-1",
+	type: "first_run_onboarding",
+	status: "published",
+	name: "Welcome tour",
 	slides: [
 		{
-			id: 'slide-setup',
-			layoutType: 'setup',
+			id: "slide-setup",
+			layoutType: "setup",
 			sortOrder: 1,
-			title: { en: 'Set up AlfyAI', hu: 'AlfyAI beállítása' },
-			body: { en: 'Choose your defaults.', hu: 'Válaszd ki az alapokat.' },
-			altText: { en: 'Setup screenshot', hu: 'Beállítás képernyőkép' },
-			desktopCropAssetId: 'asset-desktop-1',
-			mobileCropAssetId: 'asset-mobile-1',
-			setupControls: ['ui_language', 'theme', 'model_default', 'ai_style'],
+			title: { en: "Set up AlfyAI", hu: "AlfyAI beállítása" },
+			body: { en: "Choose your defaults.", hu: "Válaszd ki az alapokat." },
+			altText: { en: "Setup screenshot", hu: "Beállítás képernyőkép" },
+			desktopCropAssetId: "asset-desktop-1",
+			mobileCropAssetId: "asset-mobile-1",
+			setupControls: ["ui_language", "theme", "model_default", "ai_style"],
 		},
 		{
-			id: 'slide-feature',
-			layoutType: 'standard',
+			id: "slide-feature",
+			layoutType: "standard",
 			sortOrder: 2,
-			title: { en: 'Start chatting', hu: 'Kezdj beszélgetni' },
-			body: { en: 'Ask a question.', hu: 'Tegyél fel egy kérdést.' },
-			altText: { en: 'Chat screenshot', hu: 'Chat képernyőkép' },
-			desktopCropAssetId: 'asset-desktop-2',
-			mobileCropAssetId: 'asset-mobile-2',
-			actionLabel: { en: 'Open chat', hu: 'Chat megnyitása' },
-			actionDestination: '/chat',
+			title: { en: "Start chatting", hu: "Kezdj beszélgetni" },
+			body: { en: "Ask a question.", hu: "Tegyél fel egy kérdést." },
+			altText: { en: "Chat screenshot", hu: "Chat képernyőkép" },
+			desktopCropAssetId: "asset-desktop-2",
+			mobileCropAssetId: "asset-mobile-2",
+			actionLabel: { en: "Open chat", hu: "Chat megnyitása" },
+			actionDestination: "/chat",
 		},
 	],
 };
 
-describe('CampaignModal', () => {
-	it('lets users navigate, records viewed slides, skips, and finishes', async () => {
+describe("CampaignModal", () => {
+	it("lets users navigate, records viewed slides, skips, and finishes", async () => {
 		const onSlideView = vi.fn();
 		const onSkip = vi.fn();
 		const onFinish = vi.fn();
@@ -45,58 +45,78 @@ describe('CampaignModal', () => {
 		render(CampaignModal, {
 			props: {
 				campaign,
-				locale: 'en',
+				locale: "en",
 				onSlideView,
 				onSkip,
 				onFinish,
 			},
 		});
 
-		const firstImage = screen.getByRole('img', { name: 'Setup screenshot' });
+		const firstImage = screen.getByRole("img", { name: "Setup screenshot" });
 		expect(firstImage).toHaveAttribute(
-			'src',
-			'/api/campaign-assets/asset-desktop-1/content',
+			"src",
+			"/api/campaign-assets/asset-desktop-1/content",
 		);
-		expect(firstImage.closest('.campaign-image-frame')).toBeInTheDocument();
-		expect(screen.getByRole('heading', { name: 'Set up AlfyAI' })).toBeInTheDocument();
-		expect(screen.queryByText('Setup')).not.toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument();
+		expect(firstImage.closest(".campaign-image-frame")).toBeInTheDocument();
+		expect(
+			screen.getByRole("heading", { name: "Set up AlfyAI" }),
+		).toBeInTheDocument();
+		expect(screen.queryByText("Setup")).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Skip" })).toBeInTheDocument();
 
 		await waitFor(() => {
-			expect(onSlideView).toHaveBeenCalledWith(expect.objectContaining({ id: 'slide-setup' }), 0);
+			expect(onSlideView).toHaveBeenCalledWith(
+				expect.objectContaining({ id: "slide-setup" }),
+				0,
+			);
 		});
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-		expect(screen.getByRole('heading', { name: 'Start chatting' })).toBeInTheDocument();
-		const secondImage = screen.getByRole('img', { name: 'Chat screenshot' });
-		expect(secondImage).toHaveAttribute('src', '/api/campaign-assets/asset-desktop-2/content');
+		await fireEvent.click(screen.getByRole("button", { name: "Next" }));
+		expect(
+			screen.getByRole("heading", { name: "Start chatting" }),
+		).toBeInTheDocument();
+		const secondImage = screen.getByRole("img", { name: "Chat screenshot" });
+		expect(secondImage).toHaveAttribute(
+			"src",
+			"/api/campaign-assets/asset-desktop-2/content",
+		);
 		expect(secondImage).not.toBe(firstImage);
-		expect(screen.getByRole('link', { name: 'Open chat' })).toHaveClass('campaign-action-link');
-		expect(screen.queryByRole('button', { name: 'Skip' })).not.toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Finish' })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: "Open chat" })).toHaveClass(
+			"campaign-action-link",
+		);
+		expect(
+			screen.queryByRole("button", { name: "Skip" }),
+		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Finish" })).toBeInTheDocument();
 		await waitFor(() => {
-			expect(onSlideView).toHaveBeenCalledWith(expect.objectContaining({ id: 'slide-feature' }), 1);
+			expect(onSlideView).toHaveBeenCalledWith(
+				expect.objectContaining({ id: "slide-feature" }),
+				1,
+			);
 		});
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Finish' }));
+		await fireEvent.click(screen.getByRole("button", { name: "Finish" }));
 		expect(onFinish).toHaveBeenCalledTimes(1);
 		expect(onSkip).not.toHaveBeenCalled();
 	});
 
-	it('uses app-native fallback images with empty alt text when a slide has no uploaded image', () => {
+	it("uses app-native fallback images with empty alt text when a slide has no uploaded image", () => {
 		const fallbackCampaign: Campaign = {
-			id: 'campaign-fallback',
-			type: 'release_update',
-			status: 'published',
-			name: 'Fallback images',
+			id: "campaign-fallback",
+			type: "release_update",
+			status: "published",
+			name: "Fallback images",
 			slides: [
 				{
-					id: 'slide-no-image',
-					layoutType: 'standard',
+					id: "slide-no-image",
+					layoutType: "standard",
 					sortOrder: 1,
-					title: { en: 'New release', hu: 'Új kiadás' },
-					body: { en: 'No screenshot needed.', hu: 'Nincs szükség képernyőképre.' },
-					altText: { en: '', hu: '' },
+					title: { en: "New release", hu: "Új kiadás" },
+					body: {
+						en: "No screenshot needed.",
+						hu: "Nincs szükség képernyőképre.",
+					},
+					altText: { en: "", hu: "" },
 				},
 			],
 		};
@@ -104,23 +124,32 @@ describe('CampaignModal', () => {
 		const { container } = render(CampaignModal, {
 			props: {
 				campaign: fallbackCampaign,
-				locale: 'en',
+				locale: "en",
 			},
 		});
 
-		const image = container.querySelector('img');
-		const source = container.querySelector('source');
+		const image = container.querySelector("img");
+		const source = container.querySelector("source");
 		expect(image).not.toBeNull();
 		expect(source).not.toBeNull();
-		if (!(image instanceof HTMLImageElement) || !(source instanceof HTMLSourceElement)) {
-			throw new Error('Expected fallback campaign media elements to render.');
+		if (
+			!(image instanceof HTMLImageElement) ||
+			!(source instanceof HTMLSourceElement)
+		) {
+			throw new Error("Expected fallback campaign media elements to render.");
 		}
-		expect(image).toHaveAttribute('src', '/campaign-fallbacks/alfyai-brand-desktop.png');
-		expect(image).toHaveAttribute('alt', '');
-		expect(source).toHaveAttribute('srcset', '/campaign-fallbacks/alfyai-brand-mobile.png');
+		expect(image).toHaveAttribute(
+			"src",
+			"/campaign-fallbacks/alfyai-brand-desktop.png",
+		);
+		expect(image).toHaveAttribute("alt", "");
+		expect(source).toHaveAttribute(
+			"srcset",
+			"/campaign-fallbacks/alfyai-brand-mobile.png",
+		);
 	});
 
-	it('treats close as skip and renders setup controls through preference callbacks', async () => {
+	it("treats close as skip and renders setup controls through preference callbacks", async () => {
 		const onSkip = vi.fn();
 		const onChangeUiLanguage = vi.fn();
 		const onChangeTheme = vi.fn();
@@ -130,19 +159,21 @@ describe('CampaignModal', () => {
 		render(CampaignModal, {
 			props: {
 				campaign,
-				locale: 'en',
+				locale: "en",
 				onSkip,
 				setupPreferences: {
 					availableModels: [
-						{ id: 'model1', displayName: 'Model 1' },
-						{ id: 'model2', displayName: 'Model 2' },
+						{ id: "model1", displayName: "Model 1" },
+						{ id: "model2", displayName: "Model 2" },
 					],
-					effectiveModel: 'model2',
-					systemDefaultModel: 'model2',
+					effectiveModel: "model2",
+					systemDefaultModel: "model2",
 					selectedModel: null,
-					selectedTheme: 'system',
-					selectedUiLanguage: 'en',
-					personalityProfiles: [{ id: 'concise', name: 'Concise', description: 'Short answers' }],
+					selectedTheme: "system",
+					selectedUiLanguage: "en",
+					personalityProfiles: [
+						{ id: "concise", name: "Concise", description: "Short answers" },
+					],
 					selectedPersonalityId: null,
 					onChangeUiLanguage,
 					onChangeTheme,
@@ -152,51 +183,59 @@ describe('CampaignModal', () => {
 			},
 		});
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Hungarian' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
-		await fireEvent.change(screen.getByRole('combobox', { name: 'Default model' }), {
-			target: { value: 'model1' },
-		});
-		await fireEvent.change(screen.getByRole('combobox', { name: 'Default style' }), {
-			target: { value: 'concise' },
-		});
-		await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+		await fireEvent.click(screen.getByRole("button", { name: "Hungarian" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Dark" }));
+		await fireEvent.change(
+			screen.getByRole("combobox", { name: "Default model" }),
+			{
+				target: { value: "model1" },
+			},
+		);
+		await fireEvent.change(
+			screen.getByRole("combobox", { name: "Default style" }),
+			{
+				target: { value: "concise" },
+			},
+		);
+		await fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-		expect(onChangeUiLanguage).toHaveBeenCalledWith('hu');
-		expect(onChangeTheme).toHaveBeenCalledWith('dark');
-		expect(onChangeModel).toHaveBeenCalledWith('model1');
-		expect(onChangePersonality).toHaveBeenCalledWith('concise');
+		expect(onChangeUiLanguage).toHaveBeenCalledWith("hu");
+		expect(onChangeTheme).toHaveBeenCalledWith("dark");
+		expect(onChangeModel).toHaveBeenCalledWith("model1");
+		expect(onChangePersonality).toHaveBeenCalledWith("concise");
 		expect(onSkip).toHaveBeenCalledTimes(1);
 	});
 
-	it('keeps keyboard focus inside the dialog and restores focus when Escape skips it', async () => {
+	it("keeps keyboard focus inside the dialog and restores focus when Escape skips it", async () => {
 		const user = userEvent.setup();
 		const onSkip = vi.fn();
-		const opener = document.createElement('button');
-		opener.textContent = 'Open campaign';
+		const opener = document.createElement("button");
+		opener.textContent = "Open campaign";
 		document.body.append(opener);
 		opener.focus();
 
 		render(CampaignModal, {
 			props: {
 				campaign,
-				locale: 'en',
+				locale: "en",
 				onSkip,
 			},
 		});
 
-		const dialog = screen.getByRole('dialog', { name: 'Campaign announcement' });
-		const closeButton = screen.getByRole('button', { name: 'Close' });
+		const dialog = screen.getByRole("dialog", {
+			name: "Campaign announcement",
+		});
+		const closeButton = screen.getByRole("button", { name: "Close" });
 
 		await waitFor(() => {
 			expect(closeButton).toHaveFocus();
 		});
 
 		closeButton.focus();
-		await user.keyboard('{Shift>}{Tab}{/Shift}');
+		await user.keyboard("{Shift>}{Tab}{/Shift}");
 		expect(dialog).toContainElement(document.activeElement as HTMLElement);
 
-		await user.keyboard('{Escape}');
+		await user.keyboard("{Escape}");
 
 		expect(onSkip).toHaveBeenCalledTimes(1);
 		await waitFor(() => {

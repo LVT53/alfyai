@@ -143,7 +143,7 @@ export const GET: RequestHandler = async (event) => {
 		return disabledResponse();
 	}
 
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	await seedBuiltInSystemSkillDefinitions(user.id);
 	const [skills, variants, systemSkills] = await Promise.all([
 		listUserSkillDefinitions(user.id),
@@ -168,7 +168,7 @@ export const POST: RequestHandler = async (event) => {
 		return disabledResponse();
 	}
 
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const body = await event.request.json().catch(() => ({}));
 	try {
 		if (isRecord(body) && body.skillKind === "skill_variant") {

@@ -426,11 +426,12 @@ export function createNormalChatClientTurnRuntime(
 					const retryCount = params.reconnectRetryCount ?? 0;
 					if (retryCount < 3 && params.reconnectStreamId) {
 						const delay = 2 ** retryCount * 500;
+						const reconnectStreamId = params.reconnectStreamId;
 						completeTurn();
 						adapters.removeMessage(params.placeholderId);
 						adapters.schedule(() => {
 							void reconnectToOrphanedStream(
-								params.reconnectStreamId!,
+								reconnectStreamId,
 								params.message,
 								retryCount + 1,
 								params.streamOptions.reasoningDepth,
@@ -836,9 +837,7 @@ export function createNormalChatClientTurnRuntime(
 			bufferInfo?.userMessage ?? "",
 			0,
 			bufferInfo?.reasoningDepth,
-			bufferInfo?.createdAt
-				? Date.now() - bufferInfo.createdAt
-				: undefined,
+			bufferInfo?.createdAt ? Date.now() - bufferInfo.createdAt : undefined,
 		);
 	}
 

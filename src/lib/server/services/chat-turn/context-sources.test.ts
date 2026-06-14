@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildContextSourcesState } from "./context-sources";
 import type {
 	ArtifactSummary,
 	ContextDebugState,
 	ConversationContextStatus,
 	LinkedContextSource,
 } from "$lib/types";
+import { buildContextSourcesState } from "./context-sources";
 
 describe("buildContextSourcesState", () => {
 	it("keeps linked source documents distinct from uploaded attachments", () => {
@@ -22,7 +22,9 @@ describe("buildContextSourcesState", () => {
 			"attachments",
 			"linked_source",
 		]);
-		expect(state.groups.find((group) => group.kind === "linked_source")).toEqual(
+		expect(
+			state.groups.find((group) => group.kind === "linked_source"),
+		).toEqual(
 			expect.objectContaining({
 				kind: "linked_source",
 				state: "active",
@@ -554,7 +556,9 @@ describe("buildContextSourcesState", () => {
 			reduced: true,
 			compacted: true,
 		});
-		expect(state.groups.find((group) => group.kind === "task_evidence")).toMatchObject({
+		expect(
+			state.groups.find((group) => group.kind === "task_evidence"),
+		).toMatchObject({
 			state: "inferred",
 			items: [
 				expect.objectContaining({
@@ -693,7 +697,10 @@ function artifact(id: string, name: string): ArtifactSummary {
 	};
 }
 
-function linkedSource(displayArtifactId: string, name: string): LinkedContextSource {
+function linkedSource(
+	displayArtifactId: string,
+	name: string,
+): LinkedContextSource {
 	return {
 		displayArtifactId,
 		promptArtifactId: `prompt-${displayArtifactId}`,

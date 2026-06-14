@@ -1,14 +1,14 @@
 import { json } from "@sveltejs/kit";
-import type { RequestHandler } from "./$types";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	ConversationForkError,
 	createConversationFork,
 } from "$lib/server/services/conversation-forks";
+import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const body = await event.request.json().catch(() => null);
 	const messageId =
 		body && typeof body.messageId === "string" ? body.messageId.trim() : "";
@@ -35,6 +35,9 @@ export const POST: RequestHandler = async (event) => {
 			);
 		}
 		console.error("[CONVERSATION_FORK] Failed to create fork:", error);
-		return json({ error: "Failed to create conversation fork" }, { status: 500 });
+		return json(
+			{ error: "Failed to create conversation fork" },
+			{ status: 500 },
+		);
 	}
 };

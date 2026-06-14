@@ -38,8 +38,9 @@ import { DELETE } from "./+server";
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
-const mockIsAssistantMessageForkCopy =
-	isAssistantMessageForkCopy as ReturnType<typeof vi.fn>;
+const mockIsAssistantMessageForkCopy = isAssistantMessageForkCopy as ReturnType<
+	typeof vi.fn
+>;
 const mockUpdateAssistantMessageSkillDraftStatus =
 	updateAssistantMessageSkillDraftStatus as ReturnType<typeof vi.fn>;
 

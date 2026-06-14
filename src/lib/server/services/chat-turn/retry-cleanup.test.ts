@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
 vi.mock("$lib/server/services/honcho", () => ({
@@ -77,7 +77,9 @@ describe("retry cleanup skill side effects", () => {
 	it("rolls back note replacements and removes skill milestones tied to the retried assistant message", async () => {
 		seedBaseData();
 		const { createUserSkillDefinition } = await import("../skills/user-skills");
-		const { startSkillSession, applySkillControlOperations } = await import("../skills/sessions");
+		const { startSkillSession, applySkillControlOperations } = await import(
+			"../skills/sessions"
+		);
 		const { applySkillNoteOperations } = await import("../skills/notes");
 		const { cleanupFailedTurn } = await import("./retry-cleanup");
 		const { db } = await import("$lib/server/db");
@@ -159,9 +161,9 @@ describe("retry cleanup skill side effects", () => {
 			"note-create-0",
 		]);
 		expect(checkpoints).toEqual([]);
-		expect(milestones.map((milestone) => milestone.messageParamsJson).join("\n")).not.toContain(
-			"assistant-1",
-		);
+		expect(
+			milestones.map((milestone) => milestone.messageParamsJson).join("\n"),
+		).not.toContain("assistant-1");
 	});
 
 	it("rolls back note appends tied to the retried assistant message", async () => {

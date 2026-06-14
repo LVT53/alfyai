@@ -1,377 +1,408 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
-	import { fade, scale } from 'svelte/transition';
-	import { uploadAvatar } from '$lib/client/api/settings';
-	import { Upload, Loader, RotateCcw, RotateCw, ZoomOut, ZoomIn } from '@lucide/svelte';
+import { onDestroy, onMount } from "svelte";
+import { fade, scale } from "svelte/transition";
+import { uploadAvatar } from "$lib/client/api/settings";
+import {
+	Upload,
+	Loader,
+	RotateCcw,
+	RotateCw,
+	ZoomOut,
+	ZoomIn,
+} from "@lucide/svelte";
 
-	let {
-		onClose = undefined,
-		onUploaded = undefined
-	}: {
-		onClose?: (() => void) | undefined;
-		onUploaded?: (() => void) | undefined;
-	} = $props();
+let {
+	onClose = undefined,
+	onUploaded = undefined,
+}: {
+	onClose?: (() => void) | undefined;
+	onUploaded?: (() => void) | undefined;
+} = $props();
 
-	// ── State ──────────────────────────────────────────────────────────────────
-	type Step = 'drop' | 'edit' | 'uploading';
-	let step = $state<Step>('drop');
+// ── State ──────────────────────────────────────────────────────────────────
+type Step = "drop" | "edit" | "uploading";
+let step = $state<Step>("drop");
 
-	let fileInput = $state<HTMLInputElement | null>(null);
-	let canvasEl = $state<HTMLCanvasElement | null>(null);
-	let dialogRef = $state<HTMLDivElement | null>(null);
-	let previousFocus: HTMLElement | null = null;
+let fileInput = $state<HTMLInputElement | null>(null);
+let canvasEl = $state<HTMLCanvasElement | null>(null);
+let dialogRef = $state<HTMLDivElement | null>(null);
+let previousFocus: HTMLElement | null = null;
 
-	let isDraggingOver = $state(false);
-	let uploadError = $state('');
+let isDraggingOver = $state(false);
+let uploadError = $state("");
 
-	// Image source
-	let img = $state<HTMLImageElement | null>(null);
+// Image source
+let img = $state<HTMLImageElement | null>(null);
 
-	// Editor state
-	let rotation = $state(0); // 0–360 degrees, arbitrary precision
-	let zoom = $state(1.0);
-	let panX = $state(0);
-	let panY = $state(0);
+// Editor state
+let rotation = $state(0); // 0–360 degrees, arbitrary precision
+let zoom = $state(1.0);
+let panX = $state(0);
+let panY = $state(0);
 
-	// Canvas dimensions (square crop area)
-	const CANVAS_SIZE = 320;
-	const PREVIEW_SIZE = 64;
+// Canvas dimensions (square crop area)
+const CANVAS_SIZE = 320;
+const PREVIEW_SIZE = 64;
 
-	// Drag tracking
-	let isDragging = $state(false);
-	let dragStartX = 0;
-	let dragStartY = 0;
-	let dragStartPanX = 0;
-	let dragStartPanY = 0;
+// Drag tracking
+let isDragging = $state(false);
+let dragStartX = 0;
+let dragStartY = 0;
+let dragStartPanX = 0;
+let dragStartPanY = 0;
 
-	// Preview canvas
-	let previewCanvas = $state<HTMLCanvasElement | null>(null);
+// Preview canvas
+let previewCanvas = $state<HTMLCanvasElement | null>(null);
 
-	// ── Helpers ────────────────────────────────────────────────────────────────
-	function loadFile(file: File) {
-		if (!file.type.startsWith('image/')) {
-			uploadError = 'Please select an image file.';
-			return;
-		}
-		if (file.size > 20 * 1024 * 1024) {
-			uploadError = 'File is too large. Maximum size is 20MB.';
-			return;
-		}
-		uploadError = '';
+// ── Helpers ────────────────────────────────────────────────────────────────
+function loadFile(file: File) {
+	if (!file.type.startsWith("image/")) {
+		uploadError = "Please select an image file.";
+		return;
+	}
+	if (file.size > 20 * 1024 * 1024) {
+		uploadError = "File is too large. Maximum size is 20MB.";
+		return;
+	}
+	uploadError = "";
 
-		const reader = new FileReader();
-		reader.onload = (e) => {
-			const src = e.target?.result as string;
-			const image = new Image();
-			image.onload = () => {
-				img = image;
-				// Reset editor state for new image
-				rotation = 0;
-				zoom = 1.0;
-				panX = 0;
-				panY = 0;
-				step = 'edit';
-				setTimeout(drawCanvas, 0);
-			};
-			image.src = src;
+	const reader = new FileReader();
+	reader.onload = (e) => {
+		const src = e.target?.result as string;
+		const image = new Image();
+		image.onload = () => {
+			img = image;
+			// Reset editor state for new image
+			rotation = 0;
+			zoom = 1.0;
+			panX = 0;
+			panY = 0;
+			step = "edit";
+			setTimeout(drawCanvas, 0);
 		};
-		reader.readAsDataURL(file);
+		image.src = src;
+	};
+	reader.readAsDataURL(file);
+}
+
+// Compute the base scale so the image (at the given rotation) covers the W×H canvas.
+function computeBaseScale(
+	iw: number,
+	ih: number,
+	angleRad: number,
+	W: number,
+	H: number,
+) {
+	const cos = Math.abs(Math.cos(angleRad));
+	const sin = Math.abs(Math.sin(angleRad));
+	const bboxW = iw * cos + ih * sin || 1;
+	const bboxH = iw * sin + ih * cos || 1;
+	return Math.max(W / bboxW, H / bboxH);
+}
+
+function drawCanvas() {
+	if (!canvasEl || !img) return;
+	const ctx = canvasEl.getContext("2d");
+	if (!ctx) return;
+
+	const W = CANVAS_SIZE;
+	const H = CANVAS_SIZE;
+	ctx.clearRect(0, 0, W, H);
+
+	const angleRad = (rotation * Math.PI) / 180;
+
+	ctx.save();
+	ctx.translate(W / 2 + panX, H / 2 + panY);
+	ctx.rotate(angleRad);
+	ctx.scale(zoom, zoom);
+
+	const baseScale = computeBaseScale(
+		img.naturalWidth,
+		img.naturalHeight,
+		angleRad,
+		W,
+		H,
+	);
+	const dw = img.naturalWidth * baseScale;
+	const dh = img.naturalHeight * baseScale;
+	ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+	ctx.restore();
+
+	// Dimming mask outside crop circle (evenodd punches the circle out of the rect)
+	ctx.save();
+	ctx.fillStyle = "rgba(0,0,0,0.45)";
+	ctx.beginPath();
+	ctx.rect(0, 0, W, H);
+	ctx.arc(W / 2, H / 2, W / 2 - 2, 0, Math.PI * 2);
+	ctx.fill("evenodd");
+	ctx.restore();
+
+	// Crop circle border
+	ctx.save();
+	ctx.strokeStyle = "rgba(255,255,255,0.8)";
+	ctx.lineWidth = 2;
+	ctx.beginPath();
+	ctx.arc(W / 2, H / 2, W / 2 - 2, 0, Math.PI * 2);
+	ctx.stroke();
+	ctx.restore();
+
+	drawPreview();
+}
+
+function drawPreview() {
+	if (!previewCanvas || !img) return;
+	const pctx = previewCanvas.getContext("2d");
+	if (!pctx) return;
+
+	const P = PREVIEW_SIZE;
+	pctx.clearRect(0, 0, P, P);
+
+	pctx.save();
+	pctx.beginPath();
+	pctx.arc(P / 2, P / 2, P / 2, 0, Math.PI * 2);
+	pctx.clip();
+
+	const ratio = P / CANVAS_SIZE;
+	pctx.scale(ratio, ratio);
+	pctx.drawImage(canvasEl, 0, 0);
+	pctx.restore();
+}
+
+function rotateLeft() {
+	rotation = (rotation - 90 + 360) % 360;
+	drawCanvas();
+}
+
+function rotateRight() {
+	rotation = (rotation + 90) % 360;
+	drawCanvas();
+}
+
+function zoomOut() {
+	zoom = Math.max(0.5, parseFloat((zoom - 0.1).toFixed(2)));
+	drawCanvas();
+}
+
+function zoomIn() {
+	zoom = Math.min(3, parseFloat((zoom + 0.1).toFixed(2)));
+	drawCanvas();
+}
+
+$effect(() => {
+	if (step !== "edit" || !canvasEl || !img) return;
+
+	rotation;
+	zoom;
+	panX;
+	panY;
+	previewCanvas;
+
+	drawCanvas();
+});
+
+// ── Canvas drag (pan) ──────────────────────────────────────────────────────
+function onMouseDown(e: MouseEvent) {
+	isDragging = true;
+	dragStartX = e.clientX;
+	dragStartY = e.clientY;
+	dragStartPanX = panX;
+	dragStartPanY = panY;
+}
+
+function onMouseMove(e: MouseEvent) {
+	if (!isDragging) return;
+	panX = dragStartPanX + (e.clientX - dragStartX);
+	panY = dragStartPanY + (e.clientY - dragStartY);
+	drawCanvas();
+}
+
+function onMouseUp() {
+	isDragging = false;
+}
+
+function onTouchStart(e: TouchEvent) {
+	const t = e.touches[0];
+	isDragging = true;
+	dragStartX = t.clientX;
+	dragStartY = t.clientY;
+	dragStartPanX = panX;
+	dragStartPanY = panY;
+}
+
+function onTouchMove(e: TouchEvent) {
+	if (!isDragging) return;
+	e.preventDefault();
+	const t = e.touches[0];
+	panX = dragStartPanX + (t.clientX - dragStartX);
+	panY = dragStartPanY + (t.clientY - dragStartY);
+	drawCanvas();
+}
+
+function onTouchEnd() {
+	isDragging = false;
+}
+
+function nonPassiveTouchMove(node: HTMLCanvasElement) {
+	const handleTouchMove = (event: Event) => {
+		onTouchMove(event as TouchEvent);
+	};
+
+	node.addEventListener("touchmove", handleTouchMove, { passive: false });
+
+	return {
+		destroy() {
+			node.removeEventListener("touchmove", handleTouchMove);
+		},
+	};
+}
+
+// ── Upload (with compression pipeline) ─────────────────────────────────────
+async function handleUpload() {
+	if (!canvasEl || !img) return;
+	step = "uploading";
+	uploadError = "";
+
+	// Draw final output to an offscreen 512×512 canvas (circle-cropped)
+	const offscreen = document.createElement("canvas");
+	offscreen.width = 512;
+	offscreen.height = 512;
+	const ctx = offscreen.getContext("2d");
+	if (!ctx) {
+		uploadError = "Failed to process image.";
+		step = "edit";
+		return;
 	}
 
-	// Compute the base scale so the image (at the given rotation) covers the W×H canvas.
-	function computeBaseScale(iw: number, ih: number, angleRad: number, W: number, H: number) {
-		const cos = Math.abs(Math.cos(angleRad));
-		const sin = Math.abs(Math.sin(angleRad));
-		const bboxW = iw * cos + ih * sin || 1;
-		const bboxH = iw * sin + ih * cos || 1;
-		return Math.max(W / bboxW, H / bboxH);
-	}
+	const angleRad = (rotation * Math.PI) / 180;
+	const ratio = 512 / CANVAS_SIZE;
 
-	function drawCanvas() {
-		if (!canvasEl || !img) return;
-		const ctx = canvasEl.getContext('2d');
-		if (!ctx) return;
+	ctx.save();
+	ctx.beginPath();
+	ctx.arc(256, 256, 256, 0, Math.PI * 2);
+	ctx.clip();
 
-		const W = CANVAS_SIZE;
-		const H = CANVAS_SIZE;
-		ctx.clearRect(0, 0, W, H);
+	ctx.translate(256 + panX * ratio, 256 + panY * ratio);
+	ctx.rotate(angleRad);
+	ctx.scale(zoom, zoom);
 
-		const angleRad = (rotation * Math.PI) / 180;
+	const baseScale = computeBaseScale(
+		img.naturalWidth,
+		img.naturalHeight,
+		angleRad,
+		512,
+		512,
+	);
+	const dw = img.naturalWidth * baseScale;
+	const dh = img.naturalHeight * baseScale;
+	ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+	ctx.restore();
 
-		ctx.save();
-		ctx.translate(W / 2 + panX, H / 2 + panY);
-		ctx.rotate(angleRad);
-		ctx.scale(zoom, zoom);
-
-		const baseScale = computeBaseScale(img.naturalWidth, img.naturalHeight, angleRad, W, H);
-		const dw = img.naturalWidth * baseScale;
-		const dh = img.naturalHeight * baseScale;
-		ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
-		ctx.restore();
-
-		// Dimming mask outside crop circle (evenodd punches the circle out of the rect)
-		ctx.save();
-		ctx.fillStyle = 'rgba(0,0,0,0.45)';
-		ctx.beginPath();
-		ctx.rect(0, 0, W, H);
-		ctx.arc(W / 2, H / 2, W / 2 - 2, 0, Math.PI * 2);
-		ctx.fill('evenodd');
-		ctx.restore();
-
-		// Crop circle border
-		ctx.save();
-		ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-		ctx.lineWidth = 2;
-		ctx.beginPath();
-		ctx.arc(W / 2, H / 2, W / 2 - 2, 0, Math.PI * 2);
-		ctx.stroke();
-		ctx.restore();
-
-		drawPreview();
-	}
-
-	function drawPreview() {
-		if (!previewCanvas || !img) return;
-		const pctx = previewCanvas.getContext('2d');
-		if (!pctx) return;
-
-		const P = PREVIEW_SIZE;
-		pctx.clearRect(0, 0, P, P);
-
-		pctx.save();
-		pctx.beginPath();
-		pctx.arc(P / 2, P / 2, P / 2, 0, Math.PI * 2);
-		pctx.clip();
-
-		const ratio = P / CANVAS_SIZE;
-		pctx.scale(ratio, ratio);
-		pctx.drawImage(canvasEl, 0, 0);
-		pctx.restore();
-	}
-
-	function rotateLeft() {
-		rotation = (rotation - 90 + 360) % 360;
-		drawCanvas();
-	}
-
-	function rotateRight() {
-		rotation = (rotation + 90) % 360;
-		drawCanvas();
-	}
-
-	function zoomOut() {
-		zoom = Math.max(0.5, parseFloat((zoom - 0.1).toFixed(2)));
-		drawCanvas();
-	}
-
-	function zoomIn() {
-		zoom = Math.min(3, parseFloat((zoom + 0.1).toFixed(2)));
-		drawCanvas();
-	}
-
-	$effect(() => {
-		if (step !== 'edit' || !canvasEl || !img) return;
-
-		rotation;
-		zoom;
-		panX;
-		panY;
-		previewCanvas;
-
-		drawCanvas();
-	});
-
-	// ── Canvas drag (pan) ──────────────────────────────────────────────────────
-	function onMouseDown(e: MouseEvent) {
-		isDragging = true;
-		dragStartX = e.clientX;
-		dragStartY = e.clientY;
-		dragStartPanX = panX;
-		dragStartPanY = panY;
-	}
-
-	function onMouseMove(e: MouseEvent) {
-		if (!isDragging) return;
-		panX = dragStartPanX + (e.clientX - dragStartX);
-		panY = dragStartPanY + (e.clientY - dragStartY);
-		drawCanvas();
-	}
-
-	function onMouseUp() {
-		isDragging = false;
-	}
-
-	function onTouchStart(e: TouchEvent) {
-		const t = e.touches[0];
-		isDragging = true;
-		dragStartX = t.clientX;
-		dragStartY = t.clientY;
-		dragStartPanX = panX;
-		dragStartPanY = panY;
-	}
-
-	function onTouchMove(e: TouchEvent) {
-		if (!isDragging) return;
-		e.preventDefault();
-		const t = e.touches[0];
-		panX = dragStartPanX + (t.clientX - dragStartX);
-		panY = dragStartPanY + (t.clientY - dragStartY);
-		drawCanvas();
-	}
-
-	function onTouchEnd() {
-		isDragging = false;
-	}
-
-	function nonPassiveTouchMove(node: HTMLCanvasElement) {
-		const handleTouchMove = (event: Event) => {
-			onTouchMove(event as TouchEvent);
-		};
-
-		node.addEventListener('touchmove', handleTouchMove, { passive: false });
-
-		return {
-			destroy() {
-				node.removeEventListener('touchmove', handleTouchMove);
+	// Compress: export as WebP at quality 0.88 — regardless of input size,
+	// the output is a 512×512 WebP which is typically 50–200 KB.
+	offscreen.toBlob(
+		async (blob) => {
+			if (!blob) {
+				uploadError = "Failed to process image.";
+				step = "edit";
+				return;
 			}
-		};
+			try {
+				await uploadAvatar(blob);
+				onUploaded?.();
+				onClose?.();
+			} catch (e: unknown) {
+				uploadError =
+					e instanceof Error ? e.message : "Failed to upload image.";
+				step = "edit";
+			}
+		},
+		"image/webp",
+		0.88,
+	);
+}
+
+// ── Drag-and-drop ──────────────────────────────────────────────────────────
+function onDragOver(e: DragEvent) {
+	e.preventDefault();
+	isDraggingOver = true;
+}
+
+function onDragLeave() {
+	isDraggingOver = false;
+}
+
+function onDrop(e: DragEvent) {
+	e.preventDefault();
+	isDraggingOver = false;
+	const file = e.dataTransfer?.files[0];
+	if (file) loadFile(file);
+}
+
+function onFileInput(e: Event) {
+	const file = (e.target as HTMLInputElement).files?.[0];
+	if (file) loadFile(file);
+}
+
+function handleBackdropClick() {
+	if (step !== "uploading") {
+		onClose?.();
 	}
+}
 
-	// ── Upload (with compression pipeline) ─────────────────────────────────────
-	async function handleUpload() {
-		if (!canvasEl || !img) return;
-		step = 'uploading';
-		uploadError = '';
+function openSelectedFile() {
+	fileInput?.click();
+}
 
-		// Draw final output to an offscreen 512×512 canvas (circle-cropped)
-		const offscreen = document.createElement('canvas');
-		offscreen.width = 512;
-		offscreen.height = 512;
-		const ctx = offscreen.getContext('2d')!;
+function handleDropZoneKeydown(event: KeyboardEvent) {
+	if (event.key === "Enter" || event.key === " ") {
+		event.preventDefault();
+		openSelectedFile();
+	}
+}
 
-		const angleRad = (rotation * Math.PI) / 180;
-		const ratio = 512 / CANVAS_SIZE;
+function chooseDifferentImage() {
+	step = "drop";
+	img = null;
+	if (fileInput) {
+		fileInput.value = "";
+	}
+}
 
-		ctx.save();
-		ctx.beginPath();
-		ctx.arc(256, 256, 256, 0, Math.PI * 2);
-		ctx.clip();
-
-		ctx.translate(256 + panX * ratio, 256 + panY * ratio);
-		ctx.rotate(angleRad);
-		ctx.scale(zoom, zoom);
-
-		const baseScale = computeBaseScale(img.naturalWidth, img.naturalHeight, angleRad, 512, 512);
-		const dw = img.naturalWidth * baseScale;
-		const dh = img.naturalHeight * baseScale;
-		ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
-		ctx.restore();
-
-		// Compress: export as WebP at quality 0.88 — regardless of input size,
-		// the output is a 512×512 WebP which is typically 50–200 KB.
-		offscreen.toBlob(
-			async (blob) => {
-				if (!blob) {
-					uploadError = 'Failed to process image.';
-					step = 'edit';
-					return;
-				}
-				try {
-					await uploadAvatar(blob);
-					onUploaded?.();
-					onClose?.();
-				} catch (e: any) {
-					uploadError = e.message;
-					step = 'edit';
-				}
-			},
-			'image/webp',
-			0.88
+// ── Keyboard & focus ───────────────────────────────────────────────────────
+function handleKeydown(e: KeyboardEvent) {
+	if (e.key === "Escape") {
+		e.preventDefault();
+		if (step !== "uploading") onClose?.();
+	} else if (e.key === "Tab") {
+		const focusable = dialogRef?.querySelectorAll<HTMLElement>(
+			'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
 		);
-	}
-
-	// ── Drag-and-drop ──────────────────────────────────────────────────────────
-	function onDragOver(e: DragEvent) {
-		e.preventDefault();
-		isDraggingOver = true;
-	}
-
-	function onDragLeave() {
-		isDraggingOver = false;
-	}
-
-	function onDrop(e: DragEvent) {
-		e.preventDefault();
-		isDraggingOver = false;
-		const file = e.dataTransfer?.files[0];
-		if (file) loadFile(file);
-	}
-
-	function onFileInput(e: Event) {
-		const file = (e.target as HTMLInputElement).files?.[0];
-		if (file) loadFile(file);
-	}
-
-	function handleBackdropClick() {
-		if (step !== 'uploading') {
-			onClose?.();
-		}
-	}
-
-	function openSelectedFile() {
-		fileInput?.click();
-	}
-
-	function handleDropZoneKeydown(event: KeyboardEvent) {
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-			openSelectedFile();
-		}
-	}
-
-	function chooseDifferentImage() {
-		step = 'drop';
-		img = null;
-		if (fileInput) {
-			fileInput.value = '';
-		}
-	}
-
-	// ── Keyboard & focus ───────────────────────────────────────────────────────
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') {
-			e.preventDefault();
-			if (step !== 'uploading') onClose?.();
-		} else if (e.key === 'Tab') {
-			const focusable = dialogRef?.querySelectorAll<HTMLElement>(
-				'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-			);
-			if (!focusable || focusable.length === 0) return;
-			const first = focusable[0];
-			const last = focusable[focusable.length - 1];
-			if (e.shiftKey) {
-				if (document.activeElement === first) {
-					last.focus();
-					e.preventDefault();
-				}
-			} else {
-				if (document.activeElement === last) {
-					first.focus();
-					e.preventDefault();
-				}
+		if (!focusable || focusable.length === 0) return;
+		const first = focusable[0];
+		const last = focusable[focusable.length - 1];
+		if (e.shiftKey) {
+			if (document.activeElement === first) {
+				last.focus();
+				e.preventDefault();
+			}
+		} else {
+			if (document.activeElement === last) {
+				first.focus();
+				e.preventDefault();
 			}
 		}
 	}
+}
 
-	onMount(() => {
-		previousFocus = document.activeElement as HTMLElement;
-		document.body.style.overflow = 'hidden';
-	});
+onMount(() => {
+	previousFocus = document.activeElement as HTMLElement;
+	document.body.style.overflow = "hidden";
+});
 
-	onDestroy(() => {
-		if (previousFocus) previousFocus.focus();
-		document.body.style.overflow = '';
-	});
+onDestroy(() => {
+	if (previousFocus) previousFocus.focus();
+	document.body.style.overflow = "";
+});
 </script>
 
 <svelte:window onkeydown={handleKeydown} onmouseup={onMouseUp} />

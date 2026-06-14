@@ -1,5 +1,5 @@
-import type { ThinkingSegment } from "$lib/types";
 import type { I18nKey } from "$lib/i18n";
+import type { ThinkingSegment } from "$lib/types";
 
 function normalizeForStableJson(value: unknown): unknown {
 	if (Array.isArray(value)) {

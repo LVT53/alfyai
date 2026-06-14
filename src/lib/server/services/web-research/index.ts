@@ -159,7 +159,7 @@ export interface ResearchDiagnostics {
 		attemptedCount: number;
 		succeededCount: number;
 		cacheHitCount: number;
-			lowQualityCount: number;
+		lowQualityCount: number;
 		blockedCount: number;
 		failedCount: number;
 		totalLatencyMs: number;

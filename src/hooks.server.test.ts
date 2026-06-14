@@ -1,4 +1,7 @@
+import type { Handle } from "@sveltejs/kit";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+type HookEvent = Parameters<Handle>[0]["event"];
 
 const mockValidateSession = vi.fn();
 const mockRefreshConfig = vi.fn(async () => undefined);
@@ -52,6 +55,14 @@ function deferred<T = void>() {
 	return { promise, resolve };
 }
 
+function makeHookEvent(path: string, sessionToken?: string): HookEvent {
+	return {
+		cookies: { get: vi.fn(() => sessionToken) },
+		locals: {},
+		url: new URL(`http://localhost${path}`),
+	} as HookEvent;
+}
+
 describe("hooks.server.ts", () => {
 	beforeEach(() => {
 		vi.resetModules();
@@ -66,11 +77,7 @@ describe("hooks.server.ts", () => {
 		const resolve = vi.fn(
 			async ({ locals }) => new Response(JSON.stringify({ user: locals.user })),
 		);
-		const event = {
-			cookies: { get: vi.fn(() => undefined) },
-			locals: {},
-			url: new URL("http://localhost/api/auth/login"),
-		} as any;
+		const event = makeHookEvent("/api/auth/login");
 
 		await handle({ event, resolve });
 
@@ -106,11 +113,7 @@ describe("hooks.server.ts", () => {
 		mockRefreshConfig.mockReturnValue(refresh.promise);
 		const { handle } = await import("./hooks.server");
 		const resolve = vi.fn(async () => new Response("ok"));
-		const event = {
-			cookies: { get: vi.fn(() => undefined) },
-			locals: {},
-			url: new URL("http://localhost/api/health"),
-		} as Parameters<typeof handle>[0]["event"];
+		const event = makeHookEvent("/api/health");
 
 		const handlePromise = handle({ event, resolve });
 
@@ -127,11 +130,7 @@ describe("hooks.server.ts", () => {
 	it("allows the health check route without a session", async () => {
 		const { handle } = await import("./hooks.server");
 		const resolve = vi.fn(async () => new Response("ok"));
-		const event = {
-			cookies: { get: vi.fn(() => undefined) },
-			locals: {},
-			url: new URL("http://localhost/api/health"),
-		} as any;
+		const event = makeHookEvent("/api/health");
 
 		await handle({ event, resolve });
 
@@ -150,11 +149,7 @@ describe("hooks.server.ts", () => {
 	}) => {
 		const { handle } = await import("./hooks.server");
 		const path = `/${segments.join("/")}`;
-		const event = {
-			cookies: { get: vi.fn(() => undefined) },
-			locals: {},
-			url: new URL(`http://localhost${path}`),
-		} as Parameters<typeof handle>[0]["event"];
+		const event = makeHookEvent(path);
 
 		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
 			status: 303,
@@ -164,11 +159,7 @@ describe("hooks.server.ts", () => {
 
 	it("redirects protected routes to /login when no user is present", async () => {
 		const { handle } = await import("./hooks.server");
-		const event = {
-			cookies: { get: vi.fn(() => undefined) },
-			locals: {},
-			url: new URL("http://localhost/"),
-		} as any;
+		const event = makeHookEvent("/");
 
 		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
 			status: 303,
@@ -188,11 +179,7 @@ describe("hooks.server.ts", () => {
 		};
 		mockValidateSession.mockResolvedValue(sessionUser);
 		const resolve = vi.fn(async () => new Response("ok"));
-		const event = {
-			cookies: { get: vi.fn(() => "session-token") },
-			locals: {},
-			url: new URL("http://localhost/"),
-		} as any;
+		const event = makeHookEvent("/", "session-token");
 
 		await handle({ event, resolve });
 
@@ -216,11 +203,7 @@ describe("hooks.server.ts", () => {
 			profilePicture: null,
 		});
 		const resolve = vi.fn(async () => new Response("ok"));
-		const event = {
-			cookies: { get: vi.fn(() => "session-token") },
-			locals: {},
-			url: new URL("http://localhost/chat/conversation-1"),
-		} as Parameters<typeof handle>[0]["event"];
+		const event = makeHookEvent("/chat/conversation-1", "session-token");
 
 		await handle({ event, resolve });
 
@@ -255,11 +238,7 @@ describe("hooks.server.ts", () => {
 			avatarId: null,
 			profilePicture: null,
 		});
-		const event = {
-			cookies: { get: vi.fn(() => "session-token") },
-			locals: {},
-			url: new URL("http://localhost/login"),
-		} as any;
+		const event = makeHookEvent("/login", "session-token");
 
 		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
 			status: 303,

@@ -143,7 +143,7 @@ async function assembleChunks(params: {
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
-	const user = event.locals.user!;
+	const user = event.locals.user;
 	const startedAt = Date.now();
 	const limits = resolveKnowledgeUploadLimits();
 	const traceId =

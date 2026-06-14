@@ -3,12 +3,6 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import {
-	DEFAULT_MAX_MODEL_CONTEXT_TOKENS,
-	MIN_MODEL_CONTEXT_TOKENS,
-	deriveDefaultCompactionUiThreshold as deriveCompactionUiThreshold,
-	deriveDefaultTargetConstructedContext as deriveTargetConstructedContext,
-} from "../model-context-defaults";
-import {
 	DEEP_RESEARCH_MODEL_ROLES,
 	type DeepResearchDepthBudgetPolicy,
 	type DeepResearchModelSelections,
@@ -16,6 +10,12 @@ import {
 	normalizeConfiguredModelId,
 	normalizeDeepResearchDepthBudgetPolicy,
 } from "../deep-research-models";
+import {
+	DEFAULT_MAX_MODEL_CONTEXT_TOKENS,
+	deriveDefaultCompactionUiThreshold as deriveCompactionUiThreshold,
+	deriveDefaultTargetConstructedContext as deriveTargetConstructedContext,
+	MIN_MODEL_CONTEXT_TOKENS,
+} from "../model-context-defaults";
 import { deriveMaxMessageLengthFromContextTokens } from "../model-limit-presets";
 
 export interface ModelConfig {
@@ -109,15 +109,15 @@ interface Config {
 	webResearchSearxngLanguage: string;
 	webResearchSearxngSafesearch: number;
 	webResearchSearxngCategories: string;
-		webResearchMaxSources: number;
-		webResearchHighlightChars: number;
-		webResearchContentChars: number;
-		webResearchFreshnessHours: number;
-		webResearchExtractorMode: "readability" | "basic" | "auto";
-		webResearchExtractTimeoutMs: number;
-		webResearchExtractCacheTtlHours: number;
-		webResearchLlmExtractionReviewEnabled: boolean;
-		braveSearchApiKey: string;
+	webResearchMaxSources: number;
+	webResearchHighlightChars: number;
+	webResearchContentChars: number;
+	webResearchFreshnessHours: number;
+	webResearchExtractorMode: "readability" | "basic" | "auto";
+	webResearchExtractTimeoutMs: number;
+	webResearchExtractCacheTtlHours: number;
+	webResearchLlmExtractionReviewEnabled: boolean;
+	braveSearchApiKey: string;
 	concurrentStreamLimit: number;
 	systemPrompt: string;
 	perUserStreamLimit: number;
@@ -213,7 +213,6 @@ function parseIntegerEnv(value: string | undefined, fallback: number): number {
 	const parsed = parseInt(value ?? "", 10);
 	return Number.isNaN(parsed) ? fallback : parsed;
 }
-
 
 function normalizeWebResearchExtractorMode(
 	value: string | undefined,
@@ -609,24 +608,24 @@ function readConfig(): Config {
 			1000,
 			parseInt(process.env.WEB_RESEARCH_CONTENT_CHARS || "12000", 10) || 12000,
 		),
-			webResearchFreshnessHours: Math.max(
-				-1,
-				parseIntegerEnv(process.env.WEB_RESEARCH_FRESHNESS_HOURS, 24),
-			),
-			webResearchExtractorMode: normalizeWebResearchExtractorMode(
-				process.env.WEB_RESEARCH_EXTRACTOR_MODE,
-			),
-			webResearchExtractTimeoutMs: Math.max(
-				1000,
-				parseIntegerEnv(process.env.WEB_RESEARCH_EXTRACT_TIMEOUT_MS, 6000),
-			),
-			webResearchExtractCacheTtlHours: Math.max(
-				0,
-				parseIntegerEnv(process.env.WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS, 24),
-			),
-			webResearchLlmExtractionReviewEnabled:
-				process.env.WEB_RESEARCH_LLM_EXTRACTION_REVIEW_ENABLED === "true",
-			systemPrompt:
+		webResearchFreshnessHours: Math.max(
+			-1,
+			parseIntegerEnv(process.env.WEB_RESEARCH_FRESHNESS_HOURS, 24),
+		),
+		webResearchExtractorMode: normalizeWebResearchExtractorMode(
+			process.env.WEB_RESEARCH_EXTRACTOR_MODE,
+		),
+		webResearchExtractTimeoutMs: Math.max(
+			1000,
+			parseIntegerEnv(process.env.WEB_RESEARCH_EXTRACT_TIMEOUT_MS, 6000),
+		),
+		webResearchExtractCacheTtlHours: Math.max(
+			0,
+			parseIntegerEnv(process.env.WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS, 24),
+		),
+		webResearchLlmExtractionReviewEnabled:
+			process.env.WEB_RESEARCH_LLM_EXTRACTION_REVIEW_ENABLED === "true",
+		systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
 		concurrentStreamLimit: Math.max(

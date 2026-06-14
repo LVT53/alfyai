@@ -1,116 +1,120 @@
 <script lang="ts">
-import { onMount } from 'svelte';
-import { ChevronDown, Globe, Paperclip } from '@lucide/svelte';
-import ModelSelector from './ModelSelector.svelte';
-	import { t } from '$lib/i18n';
-	import {
-		getPersonalityProfileDisplayDescription,
-		getPersonalityProfileDisplayName,
-	} from '$lib/utils/personality-profile-labels';
-	import type { ModelId, ReasoningDepth } from '$lib/types';
+import { onMount } from "svelte";
+import { ChevronDown, Globe, Paperclip } from "@lucide/svelte";
+import ModelSelector from "./ModelSelector.svelte";
+import { t } from "$lib/i18n";
+import {
+	getPersonalityProfileDisplayDescription,
+	getPersonalityProfileDisplayName,
+} from "$lib/utils/personality-profile-labels";
+import type { ModelId, ReasoningDepth } from "$lib/types";
 
-	let {
-		canAttach = false,
-		attachmentsEnabled = false,
-		onClose,
-		onAttach,
-		personalityProfiles = [],
-		selectedPersonalityId = null,
-		onPersonalityChange = undefined,
-		onModelChange = undefined,
-		reasoningDepth = 'auto',
-		onReasoningDepthChange = undefined,
-		initialOpen = null,
-		forceWebSearch = false,
-		onForceWebSearchChange = undefined,
-	}: {
-		canAttach?: boolean;
-		attachmentsEnabled?: boolean;
-		onClose?: () => void;
-		onAttach?: () => void;
-		personalityProfiles?: Array<{ id: string; name: string; description: string }>;
-		selectedPersonalityId?: string | null;
-		onPersonalityChange?: ((id: string | null) => void) | undefined;
-		onModelChange?: ((modelId: ModelId) => void) | undefined;
-		reasoningDepth?: ReasoningDepth;
-		onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
-		initialOpen?: 'model' | 'style' | 'depth' | null;
-		forceWebSearch?: boolean;
-		onForceWebSearchChange?: ((enabled: boolean) => void) | undefined;
-	} = $props();
+let {
+	canAttach = false,
+	attachmentsEnabled = false,
+	onClose,
+	onAttach,
+	personalityProfiles = [],
+	selectedPersonalityId = null,
+	onPersonalityChange = undefined,
+	onModelChange = undefined,
+	reasoningDepth = "auto",
+	onReasoningDepthChange = undefined,
+	initialOpen = null,
+	forceWebSearch = false,
+	onForceWebSearchChange = undefined,
+}: {
+	canAttach?: boolean;
+	attachmentsEnabled?: boolean;
+	onClose?: () => void;
+	onAttach?: () => void;
+	personalityProfiles?: Array<{
+		id: string;
+		name: string;
+		description: string;
+	}>;
+	selectedPersonalityId?: string | null;
+	onPersonalityChange?: ((id: string | null) => void) | undefined;
+	onModelChange?: ((modelId: ModelId) => void) | undefined;
+	reasoningDepth?: ReasoningDepth;
+	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
+	initialOpen?: "model" | "style" | "depth" | null;
+	forceWebSearch?: boolean;
+	onForceWebSearchChange?: ((enabled: boolean) => void) | undefined;
+} = $props();
 
-	let root = $state<HTMLDivElement | undefined>(undefined);
-	let activeDropdown = $state<'model' | 'style' | 'depth' | null>(null);
-	let appliedInitialOpen = $state<'model' | 'style' | 'depth' | null>(null);
-	let styleOpen = $derived(activeDropdown === 'style');
-	let depthOpen = $derived(activeDropdown === 'depth');
+let root = $state<HTMLDivElement | undefined>(undefined);
+let activeDropdown = $state<"model" | "style" | "depth" | null>(null);
+let appliedInitialOpen = $state<"model" | "style" | "depth" | null>(null);
+let styleOpen = $derived(activeDropdown === "style");
+let depthOpen = $derived(activeDropdown === "depth");
 
-	let selectedProfile = $derived(
-		personalityProfiles.find((p) => p.id === selectedPersonalityId) ?? null,
-	);
-	let selectedReasoningDepthLabel = $derived(
-		reasoningDepth === 'max'
-			? $t('composerTools.reasoningDepthMax')
-			: reasoningDepth === 'off'
-				? $t('composerTools.reasoningDepthOff')
-				: $t('composerTools.reasoningDepthAuto'),
-	);
+let selectedProfile = $derived(
+	personalityProfiles.find((p) => p.id === selectedPersonalityId) ?? null,
+);
+let selectedReasoningDepthLabel = $derived(
+	reasoningDepth === "max"
+		? $t("composerTools.reasoningDepthMax")
+		: reasoningDepth === "off"
+			? $t("composerTools.reasoningDepthOff")
+			: $t("composerTools.reasoningDepthAuto"),
+);
 
-	$effect(() => {
-		if (initialOpen === appliedInitialOpen) return;
-		activeDropdown = initialOpen;
-		appliedInitialOpen = initialOpen;
-	});
+$effect(() => {
+	if (initialOpen === appliedInitialOpen) return;
+	activeDropdown = initialOpen;
+	appliedInitialOpen = initialOpen;
+});
 
-	function closeMenu() {
-		activeDropdown = null;
-		onClose?.();
-	}
+function closeMenu() {
+	activeDropdown = null;
+	onClose?.();
+}
 
-	function selectModel(payload: { modelId: ModelId }) {
-		onModelChange?.(payload.modelId);
-		closeMenu();
-	}
+function selectModel(payload: { modelId: ModelId }) {
+	onModelChange?.(payload.modelId);
+	closeMenu();
+}
 
-	function handleAttach() {
-		onAttach?.();
-		onClose?.();
-	}
+function handleAttach() {
+	onAttach?.();
+	onClose?.();
+}
 
-	function selectReasoningDepth(depth: ReasoningDepth) {
-		onReasoningDepthChange?.(depth);
-		closeMenu();
-	}
+function selectReasoningDepth(depth: ReasoningDepth) {
+	onReasoningDepthChange?.(depth);
+	closeMenu();
+}
 
-	function toggleWebSearch() {
-		onForceWebSearchChange?.(!forceWebSearch);
-		onClose?.();
-	}
+function toggleWebSearch() {
+	onForceWebSearchChange?.(!forceWebSearch);
+	onClose?.();
+}
 
-	onMount(() => {
-		const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-			if (root && !root.contains(event.target as Node)) {
-				activeDropdown = null;
-				onClose?.();
-			}
-		};
+onMount(() => {
+	const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+		if (root && !root.contains(event.target as Node)) {
+			activeDropdown = null;
+			onClose?.();
+		}
+	};
 
-		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key === 'Escape') {
-				onClose?.();
-			}
-		};
+	const handleKeyDown = (event: KeyboardEvent) => {
+		if (event.key === "Escape") {
+			onClose?.();
+		}
+	};
 
-		document.addEventListener('mousedown', handlePointerDown);
-		document.addEventListener('touchstart', handlePointerDown, { passive: true });
-		window.addEventListener('keydown', handleKeyDown);
+	document.addEventListener("mousedown", handlePointerDown);
+	document.addEventListener("touchstart", handlePointerDown, { passive: true });
+	window.addEventListener("keydown", handleKeyDown);
 
-		return () => {
-			document.removeEventListener('mousedown', handlePointerDown);
-			document.removeEventListener('touchstart', handlePointerDown);
-			window.removeEventListener('keydown', handleKeyDown);
-		};
-	});
+	return () => {
+		document.removeEventListener("mousedown", handlePointerDown);
+		document.removeEventListener("touchstart", handlePointerDown);
+		window.removeEventListener("keydown", handleKeyDown);
+	};
+});
 </script>
 
 <div bind:this={root} class="tools-menu" role="menu" aria-label={$t('composerTools.menu')}>

@@ -31,9 +31,7 @@ export type UiMessageStreamPart = KnownUiMessageStreamPart & {
 	[key: string]: unknown;
 };
 
-export type AiSdkUiStreamPayload =
-	| UiMessageStreamPart
-	| AiSdkUiStreamDone;
+export type AiSdkUiStreamPayload = UiMessageStreamPart | AiSdkUiStreamDone;
 
 export type AiSdkUiStreamFrame =
 	| { kind: "done"; rawData: AiSdkUiStreamDone }
@@ -150,9 +148,7 @@ export function consumeAiSdkUiStreamFrames(
 	return { frames, remaining };
 }
 
-export function decodeAiSdkUiStreamFrames(
-	value: string,
-): AiSdkUiStreamFrame[] {
+export function decodeAiSdkUiStreamFrames(value: string): AiSdkUiStreamFrame[] {
 	return consumeAiSdkUiStreamFrames(value).frames;
 }
 

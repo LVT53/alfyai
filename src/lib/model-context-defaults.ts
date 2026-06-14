@@ -47,9 +47,7 @@ export function deriveDefaultCompactionUiThreshold(
 		1,
 		Math.min(
 			maxModelContext - 1,
-			Math.floor(
-				maxModelContext * DEFAULT_COMPACTION_UI_THRESHOLD_RATIO,
-			),
+			Math.floor(maxModelContext * DEFAULT_COMPACTION_UI_THRESHOLD_RATIO),
 		),
 	);
 }

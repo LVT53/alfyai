@@ -10,7 +10,16 @@ import { t } from "$lib/i18n";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
-import { ArrowUpRight, List, Download, Maximize2, X, Sparkles, ArrowLeftRight, Link } from "@lucide/svelte";
+import {
+	ArrowUpRight,
+	List,
+	Download,
+	Maximize2,
+	X,
+	Sparkles,
+	ArrowLeftRight,
+	Link,
+} from "@lucide/svelte";
 
 type DocumentPreviewRendererModule =
 	typeof import("$lib/components/document-workspace/DocumentPreviewRenderer.svelte");

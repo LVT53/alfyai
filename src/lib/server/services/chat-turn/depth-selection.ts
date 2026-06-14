@@ -9,8 +9,8 @@ import { getProviderWithSecrets } from "$lib/server/services/providers";
 import type {
 	DeepResearchDepth,
 	DepthAppliedProfile,
-	DepthSelectionSignals,
 	DepthMetadata,
+	DepthSelectionSignals,
 	LinkedContextSource,
 	ModelId,
 	PendingSkillSelection,
@@ -420,8 +420,7 @@ async function resolveDepthClassifierModel(
 async function validateConfiguredClassifierModel(
 	modelId: string,
 ): Promise<
-	| { ok: true; modelDisplayName?: string | null }
-	| { ok: false; reason: string }
+	{ ok: true; modelDisplayName?: string | null } | { ok: false; reason: string }
 > {
 	const config = getConfig();
 	if (modelId === "model1" || modelId === "model2") {
@@ -462,9 +461,10 @@ async function validateConfiguredClassifierModel(
 	}
 }
 
-function parseClassifierResult(
-	text: string,
-): { appliedProfile: DepthAppliedProfile; signals: DepthSelectionSignals } | null {
+function parseClassifierResult(text: string): {
+	appliedProfile: DepthAppliedProfile;
+	signals: DepthSelectionSignals;
+} | null {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(text);
@@ -474,9 +474,7 @@ function parseClassifierResult(
 	if (!parsed || typeof parsed !== "object") return null;
 	const profile = (parsed as { appliedProfile?: unknown }).appliedProfile;
 	const appliedProfile =
-		profile === "standard" ||
-		profile === "extended" ||
-		profile === "maximum"
+		profile === "standard" || profile === "extended" || profile === "maximum"
 			? profile
 			: null;
 	if (!appliedProfile) return null;

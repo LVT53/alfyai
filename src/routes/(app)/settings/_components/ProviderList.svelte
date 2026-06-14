@@ -2,7 +2,7 @@
 import { untrack } from "svelte";
 import { get } from "svelte/store";
 import { t } from "$lib/i18n";
-import { ChevronDown, ChevronUp, Pencil, Trash2 } from '@lucide/svelte';
+import { ChevronDown, ChevronUp, Pencil, Trash2 } from "@lucide/svelte";
 import type { Provider } from "$lib/client/api/admin";
 
 const tVal = get(t);
@@ -33,26 +33,29 @@ let {
 	) => void | Promise<void>;
 	onDiscover: (provider: Provider) => void | Promise<void>;
 	onManageModels?: (providerId: string) => void;
-	onReorder?: (providerId: string, direction: "up" | "down") => void | Promise<void>;
+	onReorder?: (
+		providerId: string,
+		direction: "up" | "down",
+	) => void | Promise<void>;
 } = $props();
 
 let deletingId = $state<string | null>(null);
-	let togglingId = $state<string | null>(null);
-	let discoveringId = $state<string | null>(null);
-	let movingId = $state<string | null>(null);
+let togglingId = $state<string | null>(null);
+let discoveringId = $state<string | null>(null);
+let movingId = $state<string | null>(null);
 
-	function truncateUrl(url: string, max = 48): string {
-		return url.length > max ? `${url.slice(0, max)}…` : url;
-	}
+function truncateUrl(url: string, max = 48): string {
+	return url.length > max ? `${url.slice(0, max)}…` : url;
+}
 
-	async function handleMove(provider: Provider, direction: "up" | "down") {
-		movingId = provider.id;
-		try {
-			await onReorder?.(provider.id, direction);
-		} finally {
-			movingId = null;
-		}
+async function handleMove(provider: Provider, direction: "up" | "down") {
+	movingId = provider.id;
+	try {
+		await onReorder?.(provider.id, direction);
+	} finally {
+		movingId = null;
 	}
+}
 
 async function handleToggle(provider: Provider) {
 	togglingId = provider.id;

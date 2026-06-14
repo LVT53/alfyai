@@ -1,143 +1,158 @@
 <script lang="ts">
-	import EvidencePreferenceControl from './EvidencePreferenceControl.svelte';
-	import { t } from '$lib/i18n';
-	import { X } from '@lucide/svelte';
-	import type {
-		ContextDebugState,
-		ContextSourceGroupKind,
-		ContextSourceItem,
-		ContextSourcesState,
-		EvidencePreference,
-		TaskSteeringPayload,
-	} from '$lib/types';
+import EvidencePreferenceControl from "./EvidencePreferenceControl.svelte";
+import { t } from "$lib/i18n";
+import { X } from "@lucide/svelte";
+import type {
+	ContextDebugState,
+	ContextSourceGroupKind,
+	ContextSourceItem,
+	ContextSourcesState,
+	EvidencePreference,
+	TaskSteeringPayload,
+} from "$lib/types";
 
-	let {
-		open = false,
-		contextDebug = null,
-		contextSources = null,
-		onClose = undefined,
-		onSteer = undefined,
-	}: {
-		open?: boolean;
-		contextDebug?: ContextDebugState | null;
-		contextSources?: ContextSourcesState | null;
-		onClose?: (() => void) | undefined;
-		onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
-	} = $props();
+let {
+	open = false,
+	contextDebug = null,
+	contextSources = null,
+	onClose = undefined,
+	onSteer = undefined,
+}: {
+	open?: boolean;
+	contextDebug?: ContextDebugState | null;
+	contextSources?: ContextSourcesState | null;
+	onClose?: (() => void) | undefined;
+	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
+} = $props();
 
-	function close() {
-		onClose?.();
+function close() {
+	onClose?.();
+}
+
+function handleBackdropClick(event: MouseEvent) {
+	if (event.target === event.currentTarget) {
+		close();
 	}
+}
 
-	function handleBackdropClick(event: MouseEvent) {
-		if (event.target === event.currentTarget) {
-			close();
-		}
+function handleKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape" && open) {
+		close();
 	}
+}
 
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && open) {
-			close();
-		}
+function preferenceFor(artifactId: string): EvidencePreference {
+	if (
+		contextDebug?.excludedEvidence.some(
+			(item) => item.artifactId === artifactId,
+		)
+	) {
+		return "excluded";
 	}
-
-	function preferenceFor(artifactId: string): EvidencePreference {
-		if (contextDebug?.excludedEvidence.some((item) => item.artifactId === artifactId)) {
-			return 'excluded';
-		}
-		if (contextDebug?.pinnedEvidence.some((item) => item.artifactId === artifactId)) {
-			return 'pinned';
-		}
-		return 'auto';
+	if (
+		contextDebug?.pinnedEvidence.some((item) => item.artifactId === artifactId)
+	) {
+		return "pinned";
 	}
+	return "auto";
+}
 
-	let pinnedIds = $derived(new Set(contextDebug?.pinnedEvidence.map((item) => item.artifactId) ?? []));
-	let excludedIds = $derived(
-		new Set(contextDebug?.excludedEvidence.map((item) => item.artifactId) ?? [])
-	);
-	let selectedRows = $derived(
-		contextSources
-			? contextSources.groups
-				.filter((group) => group.state === 'active')
+let pinnedIds = $derived(
+	new Set(contextDebug?.pinnedEvidence.map((item) => item.artifactId) ?? []),
+);
+let excludedIds = $derived(
+	new Set(contextDebug?.excludedEvidence.map((item) => item.artifactId) ?? []),
+);
+let selectedRows = $derived(
+	contextSources
+		? contextSources.groups
+				.filter((group) => group.state === "active")
 				.flatMap((group) => group.items)
-				.filter((item) => item.state === 'active')
-			: contextDebug?.selectedEvidence.filter(
-				(item) => !pinnedIds.has(item.artifactId) && !excludedIds.has(item.artifactId)
-			) ?? []
-	);
-	let inferredRows = $derived(
-		contextSources
-			? contextSources.groups
-				.filter((group) => group.state === 'inferred')
+				.filter((item) => item.state === "active")
+		: (contextDebug?.selectedEvidence.filter(
+				(item) =>
+					!pinnedIds.has(item.artifactId) && !excludedIds.has(item.artifactId),
+			) ?? []),
+);
+let inferredRows = $derived(
+	contextSources
+		? contextSources.groups
+				.filter((group) => group.state === "inferred")
 				.flatMap((group) => group.items)
-				.filter((item) => item.state === 'inferred')
-			: []
-	);
-	let pinnedRows = $derived(
-		contextSources?.groups.find((group) => group.kind === 'pinned')?.items ??
-			contextDebug?.pinnedEvidence ??
-			[]
-	);
-	let excludedRows = $derived(
-		contextSources?.groups.find((group) => group.kind === 'excluded')?.items ??
-			contextDebug?.excludedEvidence ??
-			[]
-	);
+				.filter((item) => item.state === "inferred")
+		: [],
+);
+let pinnedRows = $derived(
+	contextSources?.groups.find((group) => group.kind === "pinned")?.items ??
+		contextDebug?.pinnedEvidence ??
+		[],
+);
+let excludedRows = $derived(
+	contextSources?.groups.find((group) => group.kind === "excluded")?.items ??
+		contextDebug?.excludedEvidence ??
+		[],
+);
 
-	function steer(payload: TaskSteeringPayload) {
-		onSteer?.(payload);
-	}
+function steer(payload: TaskSteeringPayload) {
+	onSteer?.(payload);
+}
 
-	function itemId(item: ContextSourceItem | { artifactId: string }): string {
-		return 'id' in item ? item.id : item.artifactId;
-	}
+function itemId(item: ContextSourceItem | { artifactId: string }): string {
+	return "id" in item ? item.id : item.artifactId;
+}
 
-	function itemArtifactId(item: ContextSourceItem | { artifactId: string }): string | null {
-		return item.artifactId ?? null;
-	}
+function itemArtifactId(
+	item: ContextSourceItem | { artifactId: string },
+): string | null {
+	return item.artifactId ?? null;
+}
 
-	function itemTitle(item: ContextSourceItem | { name: string }): string {
-		return 'title' in item ? item.title : item.name;
-	}
+function itemTitle(item: ContextSourceItem | { name: string }): string {
+	return "title" in item ? item.title : item.name;
+}
 
-	function itemSourceType(item: ContextSourceItem | { sourceType: string }): string {
-		return item.sourceType;
-	}
+function itemSourceType(
+	item: ContextSourceItem | { sourceType: string },
+): string {
+	return item.sourceType;
+}
 
-	function itemReason(item: ContextSourceItem | { reason?: string | null }): string | null {
-		return item.reason ?? null;
-	}
+function itemReason(
+	item: ContextSourceItem | { reason?: string | null },
+): string | null {
+	return item.reason ?? null;
+}
 
-	function formatSourceState(): string {
-		if (contextSources?.compacted) return $t('contextSources.compacted');
-		if (contextSources?.reduced) return $t('contextSources.reduced');
-		return $t('contextSources.full');
-	}
+function formatSourceState(): string {
+	if (contextSources?.compacted) return $t("contextSources.compacted");
+	if (contextSources?.reduced) return $t("contextSources.reduced");
+	return $t("contextSources.full");
+}
 
-	function formatGroupKind(kind: ContextSourceGroupKind): string {
-		switch (kind) {
-			case 'attachments':
-				return $t('contextSources.group.attachments');
-			case 'linked_source':
-				return $t('contextSources.group.linkedSource');
-			case 'working_set':
-				return $t('contextSources.group.workingSet');
-			case 'task_evidence':
-				return $t('contextSources.group.taskEvidence');
-			case 'pinned':
-				return $t('contextSources.pinned');
-			case 'excluded':
-				return $t('contextSources.excluded');
-			case 'memory':
-				return $t('contextSources.group.memory');
-			case 'project_folder':
-				return $t('contextSources.group.projectFolder');
-			case 'project_continuity':
-				return $t('contextSources.group.projectContinuity');
-			case 'conversation':
-				return $t('contextSources.group.conversation');
-		}
+function formatGroupKind(kind: ContextSourceGroupKind): string {
+	switch (kind) {
+		case "attachments":
+			return $t("contextSources.group.attachments");
+		case "linked_source":
+			return $t("contextSources.group.linkedSource");
+		case "working_set":
+			return $t("contextSources.group.workingSet");
+		case "task_evidence":
+			return $t("contextSources.group.taskEvidence");
+		case "pinned":
+			return $t("contextSources.pinned");
+		case "excluded":
+			return $t("contextSources.excluded");
+		case "memory":
+			return $t("contextSources.group.memory");
+		case "project_folder":
+			return $t("contextSources.group.projectFolder");
+		case "project_continuity":
+			return $t("contextSources.group.projectContinuity");
+		case "conversation":
+			return $t("contextSources.group.conversation");
 	}
+}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />

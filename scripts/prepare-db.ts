@@ -675,17 +675,14 @@ function runDrizzleMigrations(): void {
 function seedDefaultProvidersIfNeeded(): void {
 	if (!hasTable("providers")) return;
 	const hasProviders = Boolean(
-		sqlite
-			.prepare("SELECT 1 FROM providers LIMIT 1")
-			.get(),
+		sqlite.prepare("SELECT 1 FROM providers LIMIT 1").get(),
 	);
 	if (hasProviders) return;
 
 	const model1BaseUrl =
 		process.env.MODEL_1_BASEURL || "http://localhost:30001/v1";
 	const model1Name = process.env.MODEL_1_NAME || "model-1";
-	const model1DisplayName =
-		process.env.MODEL_1_DISPLAY_NAME || "Model 1";
+	const model1DisplayName = process.env.MODEL_1_DISPLAY_NAME || "Model 1";
 
 	if (model1BaseUrl && model1Name) {
 		const id = randomUUID();
@@ -716,8 +713,7 @@ function seedDefaultProvidersIfNeeded(): void {
 	const model2Enabled = process.env.MODEL_2_ENABLED !== "false";
 	const model2BaseUrl = process.env.MODEL_2_BASEURL || "";
 	const model2Name = process.env.MODEL_2_NAME || "";
-	const model2DisplayName =
-		process.env.MODEL_2_DISPLAY_NAME || "Model 2";
+	const model2DisplayName = process.env.MODEL_2_DISPLAY_NAME || "Model 2";
 
 	if (model2Enabled && model2BaseUrl && model2Name) {
 		const id = randomUUID();

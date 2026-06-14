@@ -1,5 +1,5 @@
-import { estimateTokenCount } from '$lib/utils/tokens';
-import type { PromptContextSection } from './prompt-context';
+import { estimateTokenCount } from "$lib/utils/tokens";
+import type { PromptContextSection } from "./prompt-context";
 
 export type BuildContextPacketParams = {
 	systemPrompt: string;
@@ -19,7 +19,6 @@ export type BuildContextPacketResult = {
 export class TokenBudget {
 	private remainingTokens: number;
 	private slotUsage: Map<string, number>;
-	private totalBudget: number;
 
 	constructor(totalBudget: number) {
 		this.totalBudget = totalBudget;
@@ -51,14 +50,23 @@ export class TokenBudget {
 	}
 }
 
-export function buildContextPacket(params: BuildContextPacketParams): BuildContextPacketResult {
-	const { systemPrompt, historySections, docSections, userMessage, totalBudget, targetBudget } = params;
+export function buildContextPacket(
+	params: BuildContextPacketParams,
+): BuildContextPacketResult {
+	const {
+		systemPrompt,
+		historySections,
+		docSections,
+		userMessage,
+		totalBudget,
+		targetBudget,
+	} = params;
 
 	const budget = targetBudget ?? totalBudget;
 	const budgetInstance = new TokenBudget(budget);
 
-	const systemTokens = estimateTokenCount(systemPrompt);
-	budgetInstance.reserve('system', systemPrompt);
+	const _systemTokens = estimateTokenCount(systemPrompt);
+	budgetInstance.reserve("system", systemPrompt);
 
 	const historyParts: string[] = [];
 	for (const section of historySections) {
@@ -108,7 +116,7 @@ export function buildContextPacket(params: BuildContextPacketParams): BuildConte
 		parts.push(`## Current User Message\n${userMessage.trim()}`);
 	}
 
-	const inputValue = parts.join('\n\n');
+	const inputValue = parts.join("\n\n");
 	const estimatedTokens = estimateTokenCount(inputValue);
 
 	return {

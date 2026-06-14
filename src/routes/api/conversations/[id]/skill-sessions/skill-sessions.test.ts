@@ -15,7 +15,7 @@ vi.mock("$lib/server/services/skills/sessions", () => ({
 		}
 	},
 	endSkillSession: vi.fn(),
-	serializePublicSkillSession: (session: any) => {
+	serializePublicSkillSession: (session: Record<string, unknown> | null) => {
 		if (!session) return null;
 		const { skillInstructions: _skillInstructions, ...publicSession } = session;
 		return publicSession;
@@ -33,13 +33,14 @@ import { DELETE, POST } from "./+server";
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockStartSkillSession = startSkillSession as ReturnType<typeof vi.fn>;
 const mockEndSkillSession = endSkillSession as ReturnType<typeof vi.fn>;
+type SkillSessionEvent = Parameters<typeof POST>[0];
 
 function makeEvent(
 	method: string,
 	body: unknown,
 	user = { id: "user-1" },
 	id = "conv-1",
-) {
+): SkillSessionEvent {
 	return {
 		request: new Request(
 			`http://localhost/api/conversations/${id}/skill-sessions`,
@@ -53,7 +54,7 @@ function makeEvent(
 		params: { id },
 		url: new URL(`http://localhost/api/conversations/${id}/skill-sessions`),
 		route: { id: "/api/conversations/[id]/skill-sessions" },
-	} as any;
+	} as SkillSessionEvent;
 }
 
 describe("/api/conversations/[id]/skill-sessions", () => {

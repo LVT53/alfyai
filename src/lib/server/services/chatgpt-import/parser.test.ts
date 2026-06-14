@@ -1,26 +1,26 @@
-import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
+import { describe, expect, it } from "vitest";
 import {
-	stripUnicodeControls,
-	isDeletedMessage,
-	extractContent,
-	reconstructThread,
-	detectBranches,
-	parseConversationsJson,
+	type ChatGPTCodeContent,
 	type ChatGPTConversation,
+	type ChatGPTExecutionOutputContent,
+	type ChatGPTImagePart,
 	type ChatGPTMappingNode,
 	type ChatGPTMessage,
 	type ChatGPTMessageContent,
-	type ChatGPTTextContent,
-	type ChatGPTCodeContent,
-	type ChatGPTExecutionOutputContent,
 	type ChatGPTMultimodalTextContent,
-	type ChatGPTTextPart,
-	type ChatGPTImagePart,
-	type ChatGPTUserEditableContextContent,
-	type ChatGPTThoughtsContent,
 	type ChatGPTReasoningRecapContent,
 	type ChatGPTSystemErrorContent,
+	type ChatGPTTextContent,
+	type ChatGPTTextPart,
+	type ChatGPTThoughtsContent,
+	type ChatGPTUserEditableContextContent,
+	detectBranches,
+	extractContent,
+	isDeletedMessage,
+	parseConversationsJson,
+	reconstructThread,
+	stripUnicodeControls,
 } from "./parser";
 
 function makeMessage(overrides: Partial<ChatGPTMessage> = {}): ChatGPTMessage {
@@ -142,7 +142,9 @@ describe("isDeletedMessage", () => {
 describe("extractContent", () => {
 	describe("null / non-object inputs", () => {
 		it("returns null for null content", () => {
-			expect(extractContent(null as unknown as ChatGPTMessageContent)).toBeNull();
+			expect(
+				extractContent(null as unknown as ChatGPTMessageContent),
+			).toBeNull();
 		});
 
 		it("returns null for undefined content", () => {
@@ -224,9 +226,7 @@ describe("extractContent", () => {
 				language: "python",
 				text: "print('hello')",
 			};
-			expect(extractContent(content)).toBe(
-				"```python\nprint('hello')\n```",
-			);
+			expect(extractContent(content)).toBe("```python\nprint('hello')\n```");
 		});
 
 		it("handles empty language", () => {
@@ -235,9 +235,7 @@ describe("extractContent", () => {
 				language: "",
 				text: "console.log('hi')",
 			};
-			expect(extractContent(content)).toBe(
-				"```\nconsole.log('hi')\n```",
-			);
+			expect(extractContent(content)).toBe("```\nconsole.log('hi')\n```");
 		});
 
 		it("handles missing language field", () => {
@@ -1122,7 +1120,9 @@ describe("parseConversationsJson", () => {
 	});
 
 	it("skips conversations with empty mapping", async () => {
-		const conv = makeConversation({ mapping: {} as Record<string, ChatGPTMappingNode> });
+		const conv = makeConversation({
+			mapping: {} as Record<string, ChatGPTMappingNode>,
+		});
 		const buffer = await makeZipWithConversations([conv]);
 		const result = await parseConversationsJson(buffer);
 
@@ -1160,9 +1160,7 @@ describe("parseConversationsJson", () => {
 	it("returns error when conversations.json is missing", async () => {
 		const zip = new JSZip();
 		zip.file("other.json", "{}");
-		const buffer = Buffer.from(
-			await zip.generateAsync({ type: "nodebuffer" }),
-		);
+		const buffer = Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
 		const result = await parseConversationsJson(buffer);
 
 		expect(result.conversations).toHaveLength(0);
@@ -1173,9 +1171,7 @@ describe("parseConversationsJson", () => {
 	it("returns error when conversations.json is invalid JSON", async () => {
 		const zip = new JSZip();
 		zip.file("conversations.json", "not valid json {{{");
-		const buffer = Buffer.from(
-			await zip.generateAsync({ type: "nodebuffer" }),
-		);
+		const buffer = Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
 		const result = await parseConversationsJson(buffer);
 
 		expect(result.conversations).toHaveLength(0);
@@ -1186,9 +1182,7 @@ describe("parseConversationsJson", () => {
 	it("returns error when conversations.json is not an array", async () => {
 		const zip = new JSZip();
 		zip.file("conversations.json", JSON.stringify({ not: "an array" }));
-		const buffer = Buffer.from(
-			await zip.generateAsync({ type: "nodebuffer" }),
-		);
+		const buffer = Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
 		const result = await parseConversationsJson(buffer);
 
 		expect(result.conversations).toHaveLength(0);
@@ -1287,8 +1281,6 @@ describe("parseConversationsJson", () => {
 		expect(result.conversations[0].messages[0].role).toBe("user");
 		expect(result.conversations[0].messages[0].content).toBe("User question");
 		expect(result.conversations[0].messages[1].role).toBe("assistant");
-		expect(result.conversations[0].messages[1].content).toBe(
-			"Assistant reply",
-		);
+		expect(result.conversations[0].messages[1].content).toBe("Assistant reply");
 	});
 });

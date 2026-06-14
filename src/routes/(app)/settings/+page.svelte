@@ -13,6 +13,7 @@ import {
 	updatePassword,
 	updateProfile,
 	updateUserPreferences,
+	type AnalyticsResponse,
 } from "$lib/client/api/settings";
 import { submitKnowledgeBulkAction } from "$lib/client/api/knowledge";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
@@ -197,13 +198,17 @@ function showMessage(
 	messageTimers.push(timer);
 }
 
-let analyticsData = $state<any>(null);
+let analyticsData = $state<AnalyticsResponse | null>(null);
 let analyticsLoading = $state(false);
 let analyticsError = $state("");
 let analyticsMonth = $state<string | null>(null);
 let showAvatarPicker = $state(false);
 let showPictureEditor = $state(false);
 let removingPhoto = $state(false);
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
 
 async function loadAnalytics(
 	month?: string | null,
@@ -217,8 +222,8 @@ async function loadAnalytics(
 			month ?? undefined,
 			timeline ?? undefined,
 		);
-	} catch (error: any) {
-		analyticsError = error.message;
+	} catch (error: unknown) {
+		analyticsError = errorMessage(error);
 	} finally {
 		analyticsLoading = false;
 	}
@@ -252,8 +257,8 @@ async function saveProfile() {
 	try {
 		await updateProfile({ name: name.trim() || null, email });
 		showMessage("profileMessage", "Profile updated.");
-	} catch (error: any) {
-		profileError = error.message;
+	} catch (error: unknown) {
+		profileError = errorMessage(error);
 	} finally {
 		profileSaving = false;
 	}
@@ -277,8 +282,8 @@ async function savePassword() {
 		currentPassword = "";
 		newPassword = "";
 		confirmPassword = "";
-	} catch (error: any) {
-		passwordError = error.message;
+	} catch (error: unknown) {
+		passwordError = errorMessage(error);
 	} finally {
 		passwordSaving = false;
 	}
@@ -339,8 +344,8 @@ async function confirmDeleteAccount() {
 	try {
 		await deleteAccount(deletePassword);
 		goto("/login");
-	} catch (error: any) {
-		deleteError = error.message;
+	} catch (error: unknown) {
+		deleteError = errorMessage(error);
 	} finally {
 		deleteLoading = false;
 	}
@@ -359,8 +364,8 @@ async function confirmResetAccount() {
 		analyticsError = "";
 		closeResetModal();
 		await goto("/login");
-	} catch (error: any) {
-		resetError = error.message;
+	} catch (error: unknown) {
+		resetError = errorMessage(error);
 	} finally {
 		resetLoading = false;
 	}
@@ -387,8 +392,8 @@ async function runForgetEverything() {
 			);
 		}
 		forgetEverythingError = "";
-	} catch (error: any) {
-		forgetEverythingError = error.message;
+	} catch (error: unknown) {
+		forgetEverythingError = errorMessage(error);
 	} finally {
 		forgetEverythingLoading = false;
 	}
@@ -402,8 +407,8 @@ async function saveAdminConfig() {
 		await updateAdminConfig(adminConfig);
 		await invalidate("app:shell");
 		showMessage("adminMessage", "Configuration saved.");
-	} catch (error: any) {
-		adminError = error.message;
+	} catch (error: unknown) {
+		adminError = errorMessage(error);
 	} finally {
 		adminSaving = false;
 	}

@@ -1,7 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
 	buildAiSdkUiStreamBody,
-	createConversation,
 	login,
 	openConversationComposer,
 	sendMessage,
@@ -274,7 +273,7 @@ test.describe("Scenario 3: Persona Memory - Personalization Works", () => {
 
 		// Open a new conversation
 		await openConversationComposer(page);
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			// The AI should recognize and address the user by name
 			return "Hello Admin User! How can I help you today?";
 		});
@@ -296,7 +295,7 @@ test.describe("Scenario 3: Persona Memory - Personalization Works", () => {
 		await login(page);
 
 		await openConversationComposer(page);
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "You are currently signed in as an administrator. You have access to all administrative features including user management, system configuration, and security settings.";
 		});
 
@@ -317,7 +316,7 @@ test.describe("Scenario 3: Persona Memory - Personalization Works", () => {
 		await login(page);
 
 		await openConversationComposer(page);
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Noted! I will keep in mind that you prefer detailed explanations with code examples. Your preference has been recorded for our conversation.";
 		});
 
@@ -335,7 +334,7 @@ test.describe("Scenario 3: Persona Memory - Personalization Works", () => {
 		);
 
 		// Send follow-up message in same conversation
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Understood! I will continue providing detailed explanations with code examples as you requested. This is the second message in our conversation.";
 		});
 
@@ -359,7 +358,7 @@ test.describe("Scenario 4: Explicit Cross-Conversation Retrieval", () => {
 
 		// Conversation 1: Create a document about TypeScript
 		await openConversationComposer(page);
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "I have created a TypeScript best practices document. The document covers type safety, interfaces, generics, and advanced TypeScript features for enterprise applications.";
 		});
 
@@ -413,7 +412,7 @@ test.describe("Scenario 4: Explicit Cross-Conversation Retrieval", () => {
 
 		// Conversation 1: Topic about React hooks
 		await openConversationComposer(page);
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "React useEffect hook allows you to perform side effects in function components. Common use cases include data fetching, subscriptions, and DOM manipulation. The dependency array controls when the effect runs.";
 		});
 
@@ -473,7 +472,7 @@ test.describe("Scenario 4: Explicit Cross-Conversation Retrieval", () => {
 		);
 
 		// Follow-up referencing the previous topic
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Common use cases for decorators include logging, authentication, caching, and timing functions. Decorators wrap the original function, adding functionality before or after the wrapped function executes.";
 		});
 
@@ -498,7 +497,7 @@ test.describe("Scenario 5: Topic Shift Detection", () => {
 		await openConversationComposer(page);
 
 		// First message: Python decorators
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Python decorators are functions that modify the behavior of other functions. They use the @ syntax and are commonly used for logging, timing, and authentication. Decorators wrap a function and can execute code before and after the wrapped function runs.";
 		});
 
@@ -513,7 +512,7 @@ test.describe("Scenario 5: Topic Shift Detection", () => {
 		);
 
 		// Second message: Completely different topic (weather in Tokyo)
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			// Should NOT mention Python decorators - this is a topic shift
 			return "The weather in Tokyo is humid subtropical. In spring, you can expect cherry blossoms and mild temperatures around 15-20°C. Summer is hot and humid with temperatures reaching 30-35°C. Autumn is pleasant with colorful foliage.";
 		});
@@ -548,7 +547,7 @@ test.describe("Scenario 5: Topic Shift Detection", () => {
 		await openConversationComposer(page);
 
 		// First message: Database indexing
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Database indexes improve query performance by allowing the database to find rows quickly without scanning the entire table. Common types include B-tree indexes for range queries and hash indexes for exact matches.";
 		});
 
@@ -559,7 +558,7 @@ test.describe("Scenario 5: Topic Shift Detection", () => {
 		);
 
 		// Second message: Different topic (Italian cuisine)
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Italian cuisine is known for its diversity and regional specialties. Northern Italy favors creamy risottos and polenta, while southern regions use olive oil and fresh tomatoes. Pasta, pizza, and gelato are popular across the country.";
 		});
 
@@ -587,7 +586,7 @@ test.describe("Scenario 5: Topic Shift Detection", () => {
 		await openConversationComposer(page);
 
 		// First message: React state management
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "React useState hook is used to add state to functional components. It returns an array with the current state value and a function to update it. State changes trigger a re-render of the component.";
 		});
 
@@ -598,7 +597,7 @@ test.describe("Scenario 5: Topic Shift Detection", () => {
 		);
 
 		// Second message: Same topic (React state management follow-up)
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "In React, for multiple state values, you can call useState multiple times. Unlike class components where all state is in one object, functional components with useState keep each piece of state independent. This makes state management clearer for simple values.";
 		});
 
@@ -629,7 +628,7 @@ test.describe("Scenario 5: Topic Shift Detection", () => {
 		await openConversationComposer(page);
 
 		// First message: Create a project document
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "I have created a project specification document covering the requirements, architecture, and implementation plan. The document is ready for review and can be saved to your knowledge base.";
 		});
 
@@ -640,7 +639,7 @@ test.describe("Scenario 5: Topic Shift Detection", () => {
 		);
 
 		// Second message: Explicit move-on to different topic
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			// Should NOT reference the project document since user explicitly moved on
 			return "React 18 introduced several new features including automatic batching, concurrent rendering, and new hooks like useTransition and useDeferredValue. These features help build more responsive applications.";
 		});
@@ -680,7 +679,7 @@ test.describe("Context-Relevance Combined Integration Test", () => {
 
 		// Step 1: Conversation A - personal topic (hiking)
 		await openConversationComposer(page);
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Hiking is a wonderful outdoor activity that provides exercise and connection with nature. Popular hiking destinations include national parks, mountain trails, and forest paths. Always carry water and appropriate gear.";
 		});
 
@@ -695,7 +694,7 @@ test.describe("Context-Relevance Combined Integration Test", () => {
 		await page.waitForURL("/", { timeout: 10000 });
 		await page.getByTestId("message-input").waitFor({ state: "visible" });
 
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Docker is a platform for developing, shipping, and running applications in containers. Containers package up code and all its dependencies so the application runs quickly and reliably from one computing environment to another.";
 		});
 
@@ -719,7 +718,7 @@ test.describe("Context-Relevance Combined Integration Test", () => {
 		await page.waitForURL("/", { timeout: 10000 });
 		await page.getByTestId("message-input").waitFor({ state: "visible" });
 
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Hello Admin User! You are signed in as an administrator with full access to user management, system settings, and security configurations.";
 		});
 
@@ -747,7 +746,7 @@ test.describe("Context-Relevance Combined Integration Test", () => {
 		await page.waitForURL("/", { timeout: 10000 });
 		await page.getByTestId("message-input").waitFor({ state: "visible" });
 
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Machine learning is a subset of artificial intelligence where computers learn patterns from data. Key concepts include supervised learning, unsupervised learning, and reinforcement learning.";
 		});
 
@@ -758,7 +757,7 @@ test.describe("Context-Relevance Combined Integration Test", () => {
 		);
 
 		// Topic shift to music
-		await mockStreamRouteWithHandler(page, (message) => {
+		await mockStreamRouteWithHandler(page, (_message) => {
 			return "Jazz music originated in the United States in the late 19th and early 20th centuries. It combines African American musical traditions with European harmonic structures. Key characteristics include improvisation, syncopation, and blue notes.";
 		});
 

@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import { and, desc, eq } from "drizzle-orm";
 import {
 	getConfig,
-	refreshConfig,
 	type RuntimeConfig,
+	refreshConfig,
 } from "$lib/server/config-store";
 import { db as defaultDb } from "$lib/server/db";
 import { adminConfig, announcementCampaigns } from "$lib/server/db/schema";
@@ -55,7 +55,9 @@ function compareVersions(left: string, right: string): number {
 }
 
 async function clearAppVersionOverride(db: AppVersionDb): Promise<void> {
-	db.delete(adminConfig).where(eq(adminConfig.key, "APP_VERSION_OVERRIDE")).run();
+	db.delete(adminConfig)
+		.where(eq(adminConfig.key, "APP_VERSION_OVERRIDE"))
+		.run();
 	await refreshConfig();
 }
 

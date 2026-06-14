@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
-import { db as defaultDb } from '$lib/server/db';
+import { randomUUID } from "node:crypto";
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { db as defaultDb } from "$lib/server/db";
 import {
 	announcementCampaignEvents,
 	announcementCampaignSlides,
@@ -9,22 +9,24 @@ import {
 	announcementCampaigns,
 	announcementCampaignUserStates,
 	campaignAssets,
-} from '$lib/server/db/schema';
+} from "$lib/server/db/schema";
 
 type CampaignDb = typeof defaultDb;
 
-export type AnnouncementCampaignType = 'first_run_onboarding' | 'release_update';
-export type AnnouncementCampaignStatus = 'draft' | 'published' | 'archived';
-export type AnnouncementCampaignSlideLayout = 'setup' | 'standard';
-export type AnnouncementCampaignSlideRole = 'feature' | 'data_disclosure';
-export type CampaignCompletionReason = 'completed' | 'skipped';
+export type AnnouncementCampaignType =
+	| "first_run_onboarding"
+	| "release_update";
+export type AnnouncementCampaignStatus = "draft" | "published" | "archived";
+export type AnnouncementCampaignSlideLayout = "setup" | "standard";
+export type AnnouncementCampaignSlideRole = "feature" | "data_disclosure";
+export type CampaignCompletionReason = "completed" | "skipped";
 export type CampaignEventType =
-	| 'auto_shown'
-	| 'slide_viewed'
-	| 'completed'
-	| 'skipped'
-	| 'replay_opened'
-	| 'setup_preference_changed';
+	| "auto_shown"
+	| "slide_viewed"
+	| "completed"
+	| "skipped"
+	| "replay_opened"
+	| "setup_preference_changed";
 
 type LocalizedInput = {
 	en?: unknown;
@@ -72,7 +74,7 @@ export class AnnouncementCampaignValidationError extends Error {
 		public readonly status = 400,
 	) {
 		super(message);
-		this.name = 'AnnouncementCampaignValidationError';
+		this.name = "AnnouncementCampaignValidationError";
 	}
 }
 
@@ -82,28 +84,39 @@ type SnapshotRow = typeof announcementCampaignSnapshots.$inferSelect;
 type SnapshotSlideRow = typeof announcementCampaignSnapshotSlides.$inferSelect;
 
 const CAMPAIGN_TYPES = new Set<AnnouncementCampaignType>([
-	'first_run_onboarding',
-	'release_update',
+	"first_run_onboarding",
+	"release_update",
 ]);
-const LAYOUT_TYPES = new Set<AnnouncementCampaignSlideLayout>(['setup', 'standard']);
-const SEMANTIC_ROLES = new Set<AnnouncementCampaignSlideRole>(['feature', 'data_disclosure']);
+const LAYOUT_TYPES = new Set<AnnouncementCampaignSlideLayout>([
+	"setup",
+	"standard",
+]);
+const SEMANTIC_ROLES = new Set<AnnouncementCampaignSlideRole>([
+	"feature",
+	"data_disclosure",
+]);
 const EVENT_TYPES = new Set<CampaignEventType>([
-	'auto_shown',
-	'slide_viewed',
-	'completed',
-	'skipped',
-	'replay_opened',
-	'setup_preference_changed',
+	"auto_shown",
+	"slide_viewed",
+	"completed",
+	"skipped",
+	"replay_opened",
+	"setup_preference_changed",
 ]);
-const SETUP_CONTROLS = new Set(['ui_language', 'theme', 'model_default', 'ai_style']);
+const SETUP_CONTROLS = new Set([
+	"ui_language",
+	"theme",
+	"model_default",
+	"ai_style",
+]);
 const ACTION_DESTINATION_ALLOWLIST = new Set([
-	'/',
-	'/chat',
-	'/knowledge',
-	'/settings',
-	'/settings/profile',
-	'/settings/admin',
-	'internal:chatgpt-import',
+	"/",
+	"/chat",
+	"/knowledge",
+	"/settings",
+	"/settings/profile",
+	"/settings/admin",
+	"internal:chatgpt-import",
 ]);
 
 function database(options: CampaignServiceOptions = {}) {
@@ -116,7 +129,7 @@ function idFactory(options: CampaignServiceOptions = {}) {
 }
 
 function trimString(value: unknown): string {
-	return typeof value === 'string' ? value.trim() : '';
+	return typeof value === "string" ? value.trim() : "";
 }
 
 function nullableTrimString(value: unknown): string | null {
@@ -124,19 +137,32 @@ function nullableTrimString(value: unknown): string | null {
 	return trimmed.length > 0 ? trimmed : null;
 }
 
-function readLocalized(input: CampaignSlideInput, key: 'title' | 'body' | 'actionLabel' | 'altText') {
+function readLocalized(
+	input: CampaignSlideInput,
+	key: "title" | "body" | "actionLabel" | "altText",
+) {
 	const localized = input[key];
 	const enField = `${key}En` as keyof CampaignSlideInput;
 	const huField = `${key}Hu` as keyof CampaignSlideInput;
 	return {
-		en: trimString((localized && typeof localized === 'object' ? localized.en : undefined) ?? input[enField]),
-		hu: trimString((localized && typeof localized === 'object' ? localized.hu : undefined) ?? input[huField]),
+		en: trimString(
+			(localized && typeof localized === "object" ? localized.en : undefined) ??
+				input[enField],
+		),
+		hu: trimString(
+			(localized && typeof localized === "object" ? localized.hu : undefined) ??
+				input[huField],
+		),
 	};
 }
 
 function parseSetupControls(value: unknown): string[] {
 	if (!Array.isArray(value)) return [];
-	return [...new Set(value.filter((item): item is string => typeof item === 'string'))];
+	return [
+		...new Set(
+			value.filter((item): item is string => typeof item === "string"),
+		),
+	];
 }
 
 function parseSetupControlsJson(value: string | null): string[] {
@@ -149,23 +175,33 @@ function parseSetupControlsJson(value: string | null): string[] {
 	}
 }
 
-function identityFor(type: AnnouncementCampaignType, version: string, revision: number): string {
+function identityFor(
+	type: AnnouncementCampaignType,
+	version: string,
+	revision: number,
+): string {
 	return `${type}:${version}:r${revision}`;
 }
 
-function defaultVersionFor(type: AnnouncementCampaignType, releaseVersion?: string | null): string {
-	if (type === 'release_update') {
-		return releaseVersion?.trim() || 'unversioned';
+function defaultVersionFor(
+	type: AnnouncementCampaignType,
+	releaseVersion?: string | null,
+): string {
+	if (type === "release_update") {
+		return releaseVersion?.trim() || "unversioned";
 	}
-	return 'v1';
+	return "v1";
 }
 
 function assertType(value: unknown): AnnouncementCampaignType {
-	if (typeof value === 'string' && CAMPAIGN_TYPES.has(value as AnnouncementCampaignType)) {
+	if (
+		typeof value === "string" &&
+		CAMPAIGN_TYPES.has(value as AnnouncementCampaignType)
+	) {
 		return value as AnnouncementCampaignType;
 	}
-	throw new AnnouncementCampaignValidationError('Invalid campaign type.', {
-		type: 'Campaign type must be first_run_onboarding or release_update.',
+	throw new AnnouncementCampaignValidationError("Invalid campaign type.", {
+		type: "Campaign type must be first_run_onboarding or release_update.",
 	});
 }
 
@@ -179,8 +215,8 @@ function mapDraftSlide(row: DraftSlideRow) {
 		title: { en: row.titleEn, hu: row.titleHu },
 		body: { en: row.bodyEn, hu: row.bodyHu },
 		actionLabel: {
-			en: row.actionLabelEn ?? '',
-			hu: row.actionLabelHu ?? '',
+			en: row.actionLabelEn ?? "",
+			hu: row.actionLabelHu ?? "",
 		},
 		altText: { en: row.altTextEn, hu: row.altTextHu },
 		desktopCropAssetId: row.desktopCropAssetId,
@@ -202,8 +238,8 @@ function mapSnapshotSlide(row: SnapshotSlideRow) {
 		title: { en: row.titleEn, hu: row.titleHu },
 		body: { en: row.bodyEn, hu: row.bodyHu },
 		actionLabel: {
-			en: row.actionLabelEn ?? '',
-			hu: row.actionLabelHu ?? '',
+			en: row.actionLabelEn ?? "",
+			hu: row.actionLabelHu ?? "",
 		},
 		altText: { en: row.altTextEn, hu: row.altTextHu },
 		desktopCropAssetId: row.desktopCropAssetId,
@@ -230,7 +266,11 @@ function mapSnapshot(row: SnapshotRow, slides: SnapshotSlideRow[]) {
 	};
 }
 
-function mapCampaign(row: DraftRow, slides: DraftSlideRow[], snapshot?: ReturnType<typeof mapSnapshot> | null) {
+function mapCampaign(
+	row: DraftRow,
+	slides: DraftSlideRow[],
+	snapshot?: ReturnType<typeof mapSnapshot> | null,
+) {
 	return {
 		id: row.id,
 		type: row.type as AnnouncementCampaignType,
@@ -270,7 +310,10 @@ async function getSnapshotForCampaign(campaignId: string, db: CampaignDb) {
 	return mapSnapshot(snapshot, slides);
 }
 
-export async function getCampaignById(campaignId: string, options: CampaignServiceOptions = {}) {
+export async function getCampaignById(
+	campaignId: string,
+	options: CampaignServiceOptions = {},
+) {
 	const db = database(options);
 	const campaign = db
 		.select()
@@ -284,7 +327,11 @@ export async function getCampaignById(campaignId: string, options: CampaignServi
 		.where(eq(announcementCampaignSlides.campaignId, campaignId))
 		.orderBy(asc(announcementCampaignSlides.sortOrder))
 		.all();
-	return mapCampaign(campaign, slides, await getSnapshotForCampaign(campaignId, db));
+	return mapCampaign(
+		campaign,
+		slides,
+		await getSnapshotForCampaign(campaignId, db),
+	);
 }
 
 export async function listCampaigns(options: CampaignServiceOptions = {}) {
@@ -345,13 +392,17 @@ export async function createCampaignDraft(
 	const revision = nextRevision(db, type, campaignVersion);
 	const id = nextId();
 	const identityKey = identityFor(type, campaignVersion, revision);
-	const name = trimString(input.name) || (type === 'first_run_onboarding' ? 'First-run onboarding' : `Release ${releaseVersion ?? ''}`.trim());
+	const name =
+		trimString(input.name) ||
+		(type === "first_run_onboarding"
+			? "First-run onboarding"
+			: `Release ${releaseVersion ?? ""}`.trim());
 
 	db.insert(announcementCampaigns)
 		.values({
 			id,
 			type,
-			status: 'draft',
+			status: "draft",
 			identityKey,
 			name,
 			campaignVersion,
@@ -362,18 +413,20 @@ export async function createCampaignDraft(
 		.run();
 
 	const campaign = await getCampaignById(id, { db });
-	if (!campaign) throw new Error('Failed to create campaign draft.');
+	if (!campaign) throw new Error("Failed to create campaign draft.");
 	return campaign;
 }
 
 function normalizeSlide(input: CampaignSlideInput, nextId: () => string) {
-	const layoutType = typeof input.layoutType === 'string' ? input.layoutType : '';
-	const semanticRole = typeof input.semanticRole === 'string' ? input.semanticRole : 'feature';
+	const layoutType =
+		typeof input.layoutType === "string" ? input.layoutType : "";
+	const semanticRole =
+		typeof input.semanticRole === "string" ? input.semanticRole : "feature";
 	const sortOrder = Number(input.sortOrder);
-	const title = readLocalized(input, 'title');
-	const body = readLocalized(input, 'body');
-	const actionLabel = readLocalized(input, 'actionLabel');
-	const altText = readLocalized(input, 'altText');
+	const title = readLocalized(input, "title");
+	const body = readLocalized(input, "body");
+	const actionLabel = readLocalized(input, "actionLabel");
+	const altText = readLocalized(input, "altText");
 	return {
 		id: trimString(input.id) || nextId(),
 		layoutType,
@@ -403,12 +456,19 @@ export async function updateCampaignDraft(
 		.where(eq(announcementCampaigns.id, campaignId))
 		.get();
 	if (!campaign) {
-		throw new AnnouncementCampaignValidationError('Campaign not found.', { campaign: 'Campaign not found.' }, 404);
+		throw new AnnouncementCampaignValidationError(
+			"Campaign not found.",
+			{ campaign: "Campaign not found." },
+			404,
+		);
 	}
-	if (campaign.status !== 'draft') {
-		throw new AnnouncementCampaignValidationError('Published campaigns are read-only.', {
-			status: 'Only draft campaigns can be edited.',
-		});
+	if (campaign.status !== "draft") {
+		throw new AnnouncementCampaignValidationError(
+			"Published campaigns are read-only.",
+			{
+				status: "Only draft campaigns can be edited.",
+			},
+		);
 	}
 
 	const updates: Partial<typeof announcementCampaigns.$inferInsert> = {
@@ -418,14 +478,26 @@ export async function updateCampaignDraft(
 		const name = trimString(input.name);
 		if (name) updates.name = name;
 	}
-	if (input.releaseVersion !== undefined && campaign.type === 'release_update') {
+	if (
+		input.releaseVersion !== undefined &&
+		campaign.type === "release_update"
+	) {
 		const releaseVersion = nullableTrimString(input.releaseVersion);
-		const campaignVersion = defaultVersionFor('release_update', releaseVersion);
-		const revision = nextRevision(db, 'release_update', campaignVersion, campaignId);
+		const campaignVersion = defaultVersionFor("release_update", releaseVersion);
+		const revision = nextRevision(
+			db,
+			"release_update",
+			campaignVersion,
+			campaignId,
+		);
 		updates.releaseVersion = releaseVersion;
 		updates.campaignVersion = campaignVersion;
 		updates.revision = revision;
-		updates.identityKey = identityFor('release_update', campaignVersion, revision);
+		updates.identityKey = identityFor(
+			"release_update",
+			campaignVersion,
+			revision,
+		);
 	}
 
 	db.transaction((tx) => {
@@ -438,13 +510,15 @@ export async function updateCampaignDraft(
 			tx.delete(announcementCampaignSlides)
 				.where(eq(announcementCampaignSlides.campaignId, campaignId))
 				.run();
-			for (const slide of input.slides.map((item) => normalizeSlide(item, nextId))) {
+			for (const slide of input.slides.map((item) =>
+				normalizeSlide(item, nextId),
+			)) {
 				tx.insert(announcementCampaignSlides)
 					.values({
 						id: slide.id,
 						campaignId,
-						layoutType: slide.layoutType || 'standard',
-						semanticRole: slide.semanticRole || 'feature',
+						layoutType: slide.layoutType || "standard",
+						semanticRole: slide.semanticRole || "feature",
 						sortOrder: Number.isInteger(slide.sortOrder) ? slide.sortOrder : 0,
 						titleEn: slide.title.en,
 						titleHu: slide.title.hu,
@@ -457,7 +531,10 @@ export async function updateCampaignDraft(
 						desktopCropAssetId: slide.desktopCropAssetId,
 						mobileCropAssetId: slide.mobileCropAssetId,
 						actionDestination: slide.actionDestination,
-						setupControlsJson: slide.setupControls.length > 0 ? JSON.stringify(slide.setupControls) : null,
+						setupControlsJson:
+							slide.setupControls.length > 0
+								? JSON.stringify(slide.setupControls)
+								: null,
 						updatedAt: new Date(),
 					})
 					.run();
@@ -466,11 +543,14 @@ export async function updateCampaignDraft(
 	});
 
 	const updated = await getCampaignById(campaignId, { db });
-	if (!updated) throw new Error('Failed to update campaign draft.');
+	if (!updated) throw new Error("Failed to update campaign draft.");
 	return updated;
 }
 
-export async function deleteCampaignDraft(campaignId: string, options: CampaignServiceOptions = {}) {
+export async function deleteCampaignDraft(
+	campaignId: string,
+	options: CampaignServiceOptions = {},
+) {
 	const db = database(options);
 	const campaign = db
 		.select()
@@ -478,12 +558,19 @@ export async function deleteCampaignDraft(campaignId: string, options: CampaignS
 		.where(eq(announcementCampaigns.id, campaignId))
 		.get();
 	if (!campaign) {
-		throw new AnnouncementCampaignValidationError('Campaign not found.', { campaign: 'Campaign not found.' }, 404);
+		throw new AnnouncementCampaignValidationError(
+			"Campaign not found.",
+			{ campaign: "Campaign not found." },
+			404,
+		);
 	}
-	if (campaign.status !== 'draft') {
-		throw new AnnouncementCampaignValidationError('Published campaign history cannot be deleted.', {
-			status: 'Only draft campaigns can be deleted.',
-		});
+	if (campaign.status !== "draft") {
+		throw new AnnouncementCampaignValidationError(
+			"Published campaign history cannot be deleted.",
+			{
+				status: "Only draft campaigns can be deleted.",
+			},
+		);
 	}
 	db.delete(announcementCampaigns)
 		.where(eq(announcementCampaigns.id, campaignId))
@@ -491,14 +578,18 @@ export async function deleteCampaignDraft(campaignId: string, options: CampaignS
 	return true;
 }
 
-function addFieldError(errors: Record<string, string>, key: string, message: string) {
+function addFieldError(
+	errors: Record<string, string>,
+	key: string,
+	message: string,
+) {
 	if (!errors[key]) errors[key] = message;
 }
 
 function validateActionDestination(value: string | null): boolean {
 	if (!value) return true;
-	if (!value.startsWith('/') || value.startsWith('//')) return false;
-	return ACTION_DESTINATION_ALLOWLIST.has(value.split('?')[0]);
+	if (!value.startsWith("/") || value.startsWith("//")) return false;
+	return ACTION_DESTINATION_ALLOWLIST.has(value.split("?")[0]);
 }
 
 function validatePublishInput(
@@ -508,19 +599,27 @@ function validatePublishInput(
 ) {
 	const errors: Record<string, string> = {};
 	if (!trimString(campaign.name)) {
-		errors.name = 'Campaign name is required.';
+		errors.name = "Campaign name is required.";
 	}
 	if (!CAMPAIGN_TYPES.has(campaign.type as AnnouncementCampaignType)) {
-		errors.type = 'Campaign type must be first_run_onboarding or release_update.';
+		errors.type =
+			"Campaign type must be first_run_onboarding or release_update.";
 	}
-	if (!trimString(campaign.campaignVersion) || campaign.campaignVersion === 'unversioned') {
-		errors.campaignVersion = 'Campaign version is required.';
+	if (
+		!trimString(campaign.campaignVersion) ||
+		campaign.campaignVersion === "unversioned"
+	) {
+		errors.campaignVersion = "Campaign version is required.";
 	}
-	if (campaign.type === 'release_update' && !trimString(campaign.releaseVersion)) {
-		errors.releaseVersion = 'Release/update campaigns require a linked app version.';
+	if (
+		campaign.type === "release_update" &&
+		!trimString(campaign.releaseVersion)
+	) {
+		errors.releaseVersion =
+			"Release/update campaigns require a linked app version.";
 	}
 	if (slides.length === 0) {
-		errors.slides = 'At least one slide is required.';
+		errors.slides = "At least one slide is required.";
 	}
 
 	const orderSet = new Set<number>();
@@ -530,86 +629,154 @@ function validatePublishInput(
 
 	for (const slide of slides) {
 		const prefix = `slides.${slide.id}`;
-		if (!LAYOUT_TYPES.has(slide.layoutType as AnnouncementCampaignSlideLayout)) {
-			addFieldError(errors, `${prefix}.layoutType`, 'Slide layout must be setup or standard.');
+		if (
+			!LAYOUT_TYPES.has(slide.layoutType as AnnouncementCampaignSlideLayout)
+		) {
+			addFieldError(
+				errors,
+				`${prefix}.layoutType`,
+				"Slide layout must be setup or standard.",
+			);
 		}
-		if (!SEMANTIC_ROLES.has(slide.semanticRole as AnnouncementCampaignSlideRole)) {
-			addFieldError(errors, `${prefix}.semanticRole`, 'Slide semantic role is invalid.');
+		if (
+			!SEMANTIC_ROLES.has(slide.semanticRole as AnnouncementCampaignSlideRole)
+		) {
+			addFieldError(
+				errors,
+				`${prefix}.semanticRole`,
+				"Slide semantic role is invalid.",
+			);
 		}
-		if (!Number.isInteger(slide.sortOrder) || slide.sortOrder <= 0 || orderSet.has(slide.sortOrder)) {
-			addFieldError(errors, `${prefix}.sortOrder`, 'Slide order must use unique positive integers.');
+		if (
+			!Number.isInteger(slide.sortOrder) ||
+			slide.sortOrder <= 0 ||
+			orderSet.has(slide.sortOrder)
+		) {
+			addFieldError(
+				errors,
+				`${prefix}.sortOrder`,
+				"Slide order must use unique positive integers.",
+			);
 		}
 		orderSet.add(slide.sortOrder);
 
 		for (const [field, value] of [
-			['title.en', slide.titleEn],
-			['title.hu', slide.titleHu],
-			['body.en', slide.bodyEn],
-			['body.hu', slide.bodyHu],
+			["title.en", slide.titleEn],
+			["title.hu", slide.titleHu],
+			["body.en", slide.bodyEn],
+			["body.hu", slide.bodyHu],
 		]) {
 			if (!value.trim()) {
-				addFieldError(errors, `${prefix}.${field}`, 'Localized EN/HU title and body are required.');
+				addFieldError(
+					errors,
+					`${prefix}.${field}`,
+					"Localized EN/HU title and body are required.",
+				);
 			}
 		}
 
-		const hasUploadedImage = Boolean(slide.desktopCropAssetId || slide.mobileCropAssetId);
+		const hasUploadedImage = Boolean(
+			slide.desktopCropAssetId || slide.mobileCropAssetId,
+		);
 		if (hasUploadedImage) {
 			for (const [field, value] of [
-				['altText.en', slide.altTextEn],
-				['altText.hu', slide.altTextHu],
+				["altText.en", slide.altTextEn],
+				["altText.hu", slide.altTextHu],
 			]) {
 				if (!value.trim()) {
-					addFieldError(errors, `${prefix}.${field}`, 'Localized EN/HU alt text is required when an image is uploaded.');
+					addFieldError(
+						errors,
+						`${prefix}.${field}`,
+						"Localized EN/HU alt text is required when an image is uploaded.",
+					);
 				}
 			}
 		}
 
 		if (slide.desktopCropAssetId) {
 			const asset = assetMap.get(slide.desktopCropAssetId);
-			if (!asset || asset.assetKind !== 'crop' || asset.variant !== 'desktop') {
-				addFieldError(errors, `${prefix}.desktopCropAssetId`, 'Desktop crop asset must be a campaign desktop crop.');
+			if (!asset || asset.assetKind !== "crop" || asset.variant !== "desktop") {
+				addFieldError(
+					errors,
+					`${prefix}.desktopCropAssetId`,
+					"Desktop crop asset must be a campaign desktop crop.",
+				);
 			}
 		}
 		if (slide.mobileCropAssetId) {
 			const asset = assetMap.get(slide.mobileCropAssetId);
-			if (!asset || asset.assetKind !== 'crop' || asset.variant !== 'mobile') {
-				addFieldError(errors, `${prefix}.mobileCropAssetId`, 'Mobile crop asset must be a campaign mobile crop.');
+			if (!asset || asset.assetKind !== "crop" || asset.variant !== "mobile") {
+				addFieldError(
+					errors,
+					`${prefix}.mobileCropAssetId`,
+					"Mobile crop asset must be a campaign mobile crop.",
+				);
 			}
 		}
 
 		if (!validateActionDestination(slide.actionDestination)) {
-			addFieldError(errors, `${prefix}.actionDestination`, 'Action destination must be an allowlisted internal route.');
+			addFieldError(
+				errors,
+				`${prefix}.actionDestination`,
+				"Action destination must be an allowlisted internal route.",
+			);
 		}
-		if (slide.actionDestination && (!slide.actionLabelEn?.trim() || !slide.actionLabelHu?.trim())) {
-			addFieldError(errors, `${prefix}.actionLabel`, 'Action labels are required in English and Hungarian when an action is configured.');
+		if (
+			slide.actionDestination &&
+			(!slide.actionLabelEn?.trim() || !slide.actionLabelHu?.trim())
+		) {
+			addFieldError(
+				errors,
+				`${prefix}.actionLabel`,
+				"Action labels are required in English and Hungarian when an action is configured.",
+			);
 		}
 
 		const setupControls = parseSetupControlsJson(slide.setupControlsJson);
-		if (slide.layoutType === 'setup') setupCount += 1;
-		if (slide.layoutType === 'standard' && slide.semanticRole === 'data_disclosure') {
+		if (slide.layoutType === "setup") setupCount += 1;
+		if (
+			slide.layoutType === "standard" &&
+			slide.semanticRole === "data_disclosure"
+		) {
 			dataDisclosureCount += 1;
 		}
-		if (setupControls.length > 0 && (campaign.type !== 'first_run_onboarding' || slide.layoutType !== 'setup')) {
-			addFieldError(errors, `${prefix}.setupControls`, 'Setup controls are only allowed on first-run setup slides.');
+		if (
+			setupControls.length > 0 &&
+			(campaign.type !== "first_run_onboarding" || slide.layoutType !== "setup")
+		) {
+			addFieldError(
+				errors,
+				`${prefix}.setupControls`,
+				"Setup controls are only allowed on first-run setup slides.",
+			);
 		}
 		for (const control of setupControls) {
 			if (!SETUP_CONTROLS.has(control)) {
-				addFieldError(errors, `${prefix}.setupControls`, 'Setup controls include an unsupported preference control.');
+				addFieldError(
+					errors,
+					`${prefix}.setupControls`,
+					"Setup controls include an unsupported preference control.",
+				);
 			}
 		}
 	}
 
-	if (campaign.type === 'first_run_onboarding') {
+	if (campaign.type === "first_run_onboarding") {
 		if (setupCount !== 1) {
-			errors.setupSlide = 'First-run onboarding requires exactly one setup slide.';
+			errors.setupSlide =
+				"First-run onboarding requires exactly one setup slide.";
 		}
 		if (dataDisclosureCount < 1) {
-			errors.dataDisclosure = 'First-run onboarding requires at least one data-disclosure standard slide.';
+			errors.dataDisclosure =
+				"First-run onboarding requires at least one data-disclosure standard slide.";
 		}
 	}
 
 	if (Object.keys(errors).length > 0) {
-		throw new AnnouncementCampaignValidationError('Campaign is not ready to publish.', errors);
+		throw new AnnouncementCampaignValidationError(
+			"Campaign is not ready to publish.",
+			errors,
+		);
 	}
 }
 
@@ -626,12 +793,19 @@ export async function publishCampaign(
 		.where(eq(announcementCampaigns.id, campaignId))
 		.get();
 	if (!campaign) {
-		throw new AnnouncementCampaignValidationError('Campaign not found.', { campaign: 'Campaign not found.' }, 404);
+		throw new AnnouncementCampaignValidationError(
+			"Campaign not found.",
+			{ campaign: "Campaign not found." },
+			404,
+		);
 	}
-	if (campaign.status !== 'draft') {
-		throw new AnnouncementCampaignValidationError('Only draft campaigns can be published.', {
-			status: 'Only draft campaigns can be published.',
-		});
+	if (campaign.status !== "draft") {
+		throw new AnnouncementCampaignValidationError(
+			"Only draft campaigns can be published.",
+			{
+				status: "Only draft campaigns can be published.",
+			},
+		);
 	}
 	const slides = db
 		.select()
@@ -641,12 +815,18 @@ export async function publishCampaign(
 		.all();
 	const assetIds = [
 		...new Set(
-			slides.flatMap((slide) => [slide.desktopCropAssetId, slide.mobileCropAssetId]).filter((id): id is string => Boolean(id)),
+			slides
+				.flatMap((slide) => [slide.desktopCropAssetId, slide.mobileCropAssetId])
+				.filter((id): id is string => Boolean(id)),
 		),
 	];
 	const assetRows = assetIds.length
 		? db
-				.select({ id: campaignAssets.id, assetKind: campaignAssets.assetKind, variant: campaignAssets.variant })
+				.select({
+					id: campaignAssets.id,
+					assetKind: campaignAssets.assetKind,
+					variant: campaignAssets.variant,
+				})
 				.from(campaignAssets)
 				.where(inArray(campaignAssets.id, assetIds))
 				.all()
@@ -698,7 +878,7 @@ export async function publishCampaign(
 		}
 		tx.update(announcementCampaigns)
 			.set({
-				status: 'published',
+				status: "published",
 				publishedByUserId,
 				publishedSnapshotId: snapshotId,
 				publishedAt: now,
@@ -708,18 +888,21 @@ export async function publishCampaign(
 			.run();
 		if (assetIds.length > 0) {
 			tx.update(campaignAssets)
-				.set({ status: 'published', updatedAt: now })
+				.set({ status: "published", updatedAt: now })
 				.where(inArray(campaignAssets.id, assetIds))
 				.run();
 		}
 	});
 
 	const published = await getCampaignById(campaignId, { db });
-	if (!published) throw new Error('Failed to publish campaign.');
+	if (!published) throw new Error("Failed to publish campaign.");
 	return published;
 }
 
-export async function archiveCampaign(campaignId: string, options: CampaignServiceOptions = {}) {
+export async function archiveCampaign(
+	campaignId: string,
+	options: CampaignServiceOptions = {},
+) {
 	const db = database(options);
 	const campaign = db
 		.select()
@@ -727,28 +910,37 @@ export async function archiveCampaign(campaignId: string, options: CampaignServi
 		.where(eq(announcementCampaigns.id, campaignId))
 		.get();
 	if (!campaign) {
-		throw new AnnouncementCampaignValidationError('Campaign not found.', { campaign: 'Campaign not found.' }, 404);
+		throw new AnnouncementCampaignValidationError(
+			"Campaign not found.",
+			{ campaign: "Campaign not found." },
+			404,
+		);
 	}
-	if (campaign.status !== 'published') {
-		throw new AnnouncementCampaignValidationError('Only published campaigns can be archived.', {
-			status: 'Only published campaigns can be archived.',
-		});
+	if (campaign.status !== "published") {
+		throw new AnnouncementCampaignValidationError(
+			"Only published campaigns can be archived.",
+			{
+				status: "Only published campaigns can be archived.",
+			},
+		);
 	}
 	const now = new Date();
 	db.transaction((tx) => {
 		tx.update(announcementCampaigns)
-			.set({ status: 'archived', archivedAt: now, updatedAt: now })
+			.set({ status: "archived", archivedAt: now, updatedAt: now })
 			.where(eq(announcementCampaigns.id, campaignId))
 			.run();
 		if (campaign.publishedSnapshotId) {
 			tx.update(announcementCampaignSnapshots)
 				.set({ archivedAt: now })
-				.where(eq(announcementCampaignSnapshots.id, campaign.publishedSnapshotId))
+				.where(
+					eq(announcementCampaignSnapshots.id, campaign.publishedSnapshotId),
+				)
 				.run();
 		}
 	});
 	const archived = await getCampaignById(campaignId, { db });
-	if (!archived) throw new Error('Failed to archive campaign.');
+	if (!archived) throw new Error("Failed to archive campaign.");
 	return archived;
 }
 
@@ -761,12 +953,19 @@ export async function duplicateCampaignAsDraft(
 	const nextId = idFactory(options);
 	const source = await getCampaignById(campaignId, { db });
 	if (!source) {
-		throw new AnnouncementCampaignValidationError('Campaign not found.', { campaign: 'Campaign not found.' }, 404);
+		throw new AnnouncementCampaignValidationError(
+			"Campaign not found.",
+			{ campaign: "Campaign not found." },
+			404,
+		);
 	}
-	if (source.status !== 'published' && source.status !== 'archived') {
-		throw new AnnouncementCampaignValidationError('Only published or archived campaigns can be duplicated.', {
-			status: 'Only published or archived campaigns can be duplicated.',
-		});
+	if (source.status !== "published" && source.status !== "archived") {
+		throw new AnnouncementCampaignValidationError(
+			"Only published or archived campaigns can be duplicated.",
+			{
+				status: "Only published or archived campaigns can be duplicated.",
+			},
+		);
 	}
 	const campaignVersion = source.campaignVersion;
 	const revision = nextRevision(db, source.type, campaignVersion);
@@ -778,7 +977,7 @@ export async function duplicateCampaignAsDraft(
 			.values({
 				id: newCampaignId,
 				type: source.type,
-				status: 'draft',
+				status: "draft",
 				identityKey: identityFor(source.type, campaignVersion, revision),
 				name: `${source.name} copy`,
 				campaignVersion,
@@ -807,14 +1006,17 @@ export async function duplicateCampaignAsDraft(
 					desktopCropAssetId: slide.desktopCropAssetId,
 					mobileCropAssetId: slide.mobileCropAssetId,
 					actionDestination: slide.actionDestination,
-					setupControlsJson: slide.setupControls.length > 0 ? JSON.stringify(slide.setupControls) : null,
+					setupControlsJson:
+						slide.setupControls.length > 0
+							? JSON.stringify(slide.setupControls)
+							: null,
 				})
 				.run();
 		}
 	});
 
 	const duplicate = await getCampaignById(newCampaignId, { db });
-	if (!duplicate) throw new Error('Failed to duplicate campaign.');
+	if (!duplicate) throw new Error("Failed to duplicate campaign.");
 	return duplicate;
 }
 
@@ -835,17 +1037,32 @@ async function getPublishedCampaignFromRow(campaign: DraftRow, db: CampaignDb) {
 	};
 }
 
-async function latestPublishedByType(type: AnnouncementCampaignType, db: CampaignDb) {
+async function latestPublishedByType(
+	type: AnnouncementCampaignType,
+	db: CampaignDb,
+) {
 	const campaign = db
 		.select()
 		.from(announcementCampaigns)
-		.where(and(eq(announcementCampaigns.type, type), eq(announcementCampaigns.status, 'published')))
-		.orderBy(desc(announcementCampaigns.publishedAt), desc(announcementCampaigns.revision))
+		.where(
+			and(
+				eq(announcementCampaigns.type, type),
+				eq(announcementCampaigns.status, "published"),
+			),
+		)
+		.orderBy(
+			desc(announcementCampaigns.publishedAt),
+			desc(announcementCampaigns.revision),
+		)
 		.get();
 	return campaign ? getPublishedCampaignFromRow(campaign, db) : null;
 }
 
-async function userHasFinishedSnapshot(userId: string, snapshotId: string, db: CampaignDb) {
+async function userHasFinishedSnapshot(
+	userId: string,
+	snapshotId: string,
+	db: CampaignDb,
+) {
 	const row = db
 		.select({ id: announcementCampaignUserStates.id })
 		.from(announcementCampaignUserStates)
@@ -859,32 +1076,48 @@ async function userHasFinishedSnapshot(userId: string, snapshotId: string, db: C
 	return Boolean(row);
 }
 
-export async function getEligibleCampaignForUser(userId: string, options: CampaignServiceOptions = {}) {
+export async function getEligibleCampaignForUser(
+	userId: string,
+	options: CampaignServiceOptions = {},
+) {
 	const db = database(options);
-	const onboarding = await latestPublishedByType('first_run_onboarding', db);
-	if (onboarding && !(await userHasFinishedSnapshot(userId, onboarding.snapshotId, db))) {
+	const onboarding = await latestPublishedByType("first_run_onboarding", db);
+	if (
+		onboarding &&
+		!(await userHasFinishedSnapshot(userId, onboarding.snapshotId, db))
+	) {
 		return onboarding;
 	}
-	const release = await latestPublishedByType('release_update', db);
-	if (release && !(await userHasFinishedSnapshot(userId, release.snapshotId, db))) {
+	const release = await latestPublishedByType("release_update", db);
+	if (
+		release &&
+		!(await userHasFinishedSnapshot(userId, release.snapshotId, db))
+	) {
 		return release;
 	}
 	return null;
 }
 
-export async function getLatestPublishedCampaign(options: CampaignServiceOptions = {}) {
+export async function getLatestPublishedCampaign(
+	options: CampaignServiceOptions = {},
+) {
 	const db = database(options);
 	const row = db
 		.select()
 		.from(announcementCampaigns)
-		.where(eq(announcementCampaigns.status, 'published'))
-		.orderBy(desc(announcementCampaigns.publishedAt), desc(announcementCampaigns.revision))
+		.where(eq(announcementCampaigns.status, "published"))
+		.orderBy(
+			desc(announcementCampaigns.publishedAt),
+			desc(announcementCampaigns.revision),
+		)
 		.get();
 	return row ? getPublishedCampaignFromRow(row, db) : null;
 }
 
-function eventTypeForCompletion(reason: CampaignCompletionReason): CampaignEventType {
-	return reason === 'completed' ? 'completed' : 'skipped';
+function eventTypeForCompletion(
+	reason: CampaignCompletionReason,
+): CampaignEventType {
+	return reason === "completed" ? "completed" : "skipped";
 }
 
 export async function completeCampaignForUser(
@@ -897,9 +1130,13 @@ export async function completeCampaignForUser(
 	const nextId = idFactory(options);
 	const campaign = await getCampaignById(campaignId, { db });
 	if (!campaign?.snapshot) {
-		throw new AnnouncementCampaignValidationError('Published campaign not found.', {
-			campaign: 'Published campaign not found.',
-		}, 404);
+		throw new AnnouncementCampaignValidationError(
+			"Published campaign not found.",
+			{
+				campaign: "Published campaign not found.",
+			},
+			404,
+		);
 	}
 	const existing = db
 		.select()
@@ -913,10 +1150,10 @@ export async function completeCampaignForUser(
 		.get();
 	const now = new Date();
 	const state = {
-		status: reason === 'completed' ? 'completed' : 'dismissed',
+		status: reason === "completed" ? "completed" : "dismissed",
 		reason,
-		completedAt: reason === 'completed' ? now : null,
-		dismissedAt: reason === 'skipped' ? now : null,
+		completedAt: reason === "completed" ? now : null,
+		dismissedAt: reason === "skipped" ? now : null,
 		updatedAt: now,
 	};
 	if (existing) {
@@ -928,7 +1165,7 @@ export async function completeCampaignForUser(
 				id: nextId(),
 				userId,
 				campaignId,
-				snapshotId: campaign.snapshot!.id,
+				snapshotId: campaign.snapshot?.id,
 				...state,
 				createdAt: now,
 			})
@@ -938,7 +1175,7 @@ export async function completeCampaignForUser(
 				id: nextId(),
 				userId,
 				campaignId,
-				snapshotId: campaign.snapshot!.id,
+				snapshotId: campaign.snapshot?.id,
 				eventType: eventTypeForCompletion(reason),
 				createdAt: now,
 			})
@@ -957,13 +1194,16 @@ export async function completeCampaignForUser(
 		.get();
 }
 
-function sanitizeMetadata(eventType: CampaignEventType, metadata: unknown): string | null {
-	if (eventType !== 'setup_preference_changed') return null;
-	if (!metadata || typeof metadata !== 'object') return null;
+function sanitizeMetadata(
+	eventType: CampaignEventType,
+	metadata: unknown,
+): string | null {
+	if (eventType !== "setup_preference_changed") return null;
+	if (!metadata || typeof metadata !== "object") return null;
 	const record = metadata as Record<string, unknown>;
 	const allowed: Record<string, string> = {};
-	for (const key of ['preference', 'value']) {
-		if (typeof record[key] === 'string' && record[key].trim().length > 0) {
+	for (const key of ["preference", "value"]) {
+		if (typeof record[key] === "string" && record[key].trim().length > 0) {
 			allowed[key] = record[key].trim();
 		}
 	}
@@ -983,23 +1223,36 @@ export async function recordCampaignEvent(
 	const db = database(options);
 	const nextId = idFactory(options);
 	if (!EVENT_TYPES.has(input.eventType)) {
-		throw new AnnouncementCampaignValidationError('Invalid campaign event type.', {
-			eventType: 'Campaign event type is invalid.',
-		});
+		throw new AnnouncementCampaignValidationError(
+			"Invalid campaign event type.",
+			{
+				eventType: "Campaign event type is invalid.",
+			},
+		);
 	}
 	const campaign = await getCampaignById(input.campaignId, { db });
 	if (!campaign?.snapshot) {
-		throw new AnnouncementCampaignValidationError('Published campaign not found.', {
-			campaign: 'Published campaign not found.',
-		}, 404);
+		throw new AnnouncementCampaignValidationError(
+			"Published campaign not found.",
+			{
+				campaign: "Published campaign not found.",
+			},
+			404,
+		);
 	}
 	const slideId = nullableTrimString(input.slideId);
-	if (slideId && !campaign.snapshot.slides.some((slide) => slide.id === slideId)) {
-		throw new AnnouncementCampaignValidationError('Campaign event slide is invalid.', {
-			slideId: 'Slide does not belong to the active campaign snapshot.',
-		});
+	if (
+		slideId &&
+		!campaign.snapshot.slides.some((slide) => slide.id === slideId)
+	) {
+		throw new AnnouncementCampaignValidationError(
+			"Campaign event slide is invalid.",
+			{
+				slideId: "Slide does not belong to the active campaign snapshot.",
+			},
+		);
 	}
-	if (input.eventType === 'slide_viewed' && slideId) {
+	if (input.eventType === "slide_viewed" && slideId) {
 		const existing = db
 			.select()
 			.from(announcementCampaignEvents)
@@ -1007,7 +1260,7 @@ export async function recordCampaignEvent(
 				and(
 					eq(announcementCampaignEvents.userId, input.userId),
 					eq(announcementCampaignEvents.snapshotId, campaign.snapshot.id),
-					eq(announcementCampaignEvents.eventType, 'slide_viewed'),
+					eq(announcementCampaignEvents.eventType, "slide_viewed"),
 					eq(announcementCampaignEvents.slideId, slideId),
 				),
 			)
@@ -1030,7 +1283,10 @@ export async function recordCampaignEvent(
 	return row;
 }
 
-export async function getCampaignAnalyticsSummary(campaignId: string, options: CampaignServiceOptions = {}) {
+export async function getCampaignAnalyticsSummary(
+	campaignId: string,
+	options: CampaignServiceOptions = {},
+) {
 	const db = database(options);
 	const campaign = await getCampaignById(campaignId, { db });
 	if (!campaign?.snapshot) {
@@ -1053,14 +1309,22 @@ export async function getCampaignAnalyticsSummary(campaignId: string, options: C
 		.from(announcementCampaignUserStates)
 		.where(eq(announcementCampaignUserStates.snapshotId, campaign.snapshot.id))
 		.all();
-	const countType = (type: CampaignEventType) => events.filter((event) => event.eventType === type).length;
-	const completed = terminalStates.filter((state) => state.reason === 'completed').length;
-	const skipped = terminalStates.filter((state) => state.reason === 'skipped').length;
+	const countType = (type: CampaignEventType) =>
+		events.filter((event) => event.eventType === type).length;
+	const completed = terminalStates.filter(
+		(state) => state.reason === "completed",
+	).length;
+	const skipped = terminalStates.filter(
+		(state) => state.reason === "skipped",
+	).length;
 	const terminal = completed + skipped;
 	const slideViewCounts = new Map<string, number>();
 	for (const event of events) {
-		if (event.eventType === 'slide_viewed' && event.slideId) {
-			slideViewCounts.set(event.slideId, (slideViewCounts.get(event.slideId) ?? 0) + 1);
+		if (event.eventType === "slide_viewed" && event.slideId) {
+			slideViewCounts.set(
+				event.slideId,
+				(slideViewCounts.get(event.slideId) ?? 0) + 1,
+			);
 		}
 	}
 	const slideViews = campaign.snapshot.slides
@@ -1071,10 +1335,10 @@ export async function getCampaignAnalyticsSummary(campaignId: string, options: C
 		}))
 		.filter((slide) => slide.views > 0);
 	return {
-		autoShown: countType('auto_shown'),
+		autoShown: countType("auto_shown"),
 		completed,
 		skipped,
-		replayOpened: countType('replay_opened'),
+		replayOpened: countType("replay_opened"),
 		completionRate: terminal > 0 ? completed / terminal : 0,
 		slideViews,
 	};
@@ -1090,23 +1354,24 @@ export async function seedFirstRunOnboardingTemplate(
 		.from(announcementCampaigns)
 		.where(
 			and(
-				eq(announcementCampaigns.type, 'first_run_onboarding'),
-				inArray(announcementCampaigns.status, ['draft', 'published']),
+				eq(announcementCampaigns.type, "first_run_onboarding"),
+				inArray(announcementCampaigns.status, ["draft", "published"]),
 			),
 		)
 		.orderBy(desc(announcementCampaigns.updatedAt))
 		.get();
 	if (existing) {
 		const campaign = await getCampaignById(existing.id, { db });
-		if (!campaign) throw new Error('Failed to load existing onboarding campaign.');
+		if (!campaign)
+			throw new Error("Failed to load existing onboarding campaign.");
 		return { campaign, created: false };
 	}
 
 	const nextId = idFactory(options);
 	const campaign = await createCampaignDraft(
 		{
-			type: 'first_run_onboarding',
-			name: 'First-run onboarding template',
+			type: "first_run_onboarding",
+			name: "First-run onboarding template",
 			createdByUserId,
 		},
 		{ db, ids: [nextId()] },
@@ -1117,42 +1382,75 @@ export async function seedFirstRunOnboardingTemplate(
 			slides: [
 				{
 					id: nextId(),
-					layoutType: 'setup',
+					layoutType: "setup",
 					sortOrder: 1,
-					title: { en: 'Set up AlfyAI', hu: 'AlfyAI beállítása' },
-					body: { en: 'Choose the defaults to review before publishing.', hu: 'Válaszd ki a közzététel előtt ellenőrizendő alapokat.' },
-					altText: { en: 'Setup slide screenshot placeholder', hu: 'Beállító dia képernyőkép helyőrző' },
-					setupControls: ['ui_language', 'theme', 'model_default', 'ai_style'],
-				},
-				{
-					id: nextId(),
-					layoutType: 'standard',
-					sortOrder: 2,
-					title: { en: 'Bring Your ChatGPT History', hu: 'Hozd át a ChatGPT előzményeidet' },
+					title: { en: "Set up AlfyAI", hu: "AlfyAI beállítása" },
 					body: {
-						en: 'Import your conversations from ChatGPT to continue where you left off. You can select which chats to bring over and organize them into projects.',
-						hu: 'Importáld a ChatGPT beszélgetéseidet, hogy ott folytasd, ahol abbahagytad. Kiválaszthatod, mely beszélgetéseket hozod át, és projektekbe rendezheted őket.',
+						en: "Choose the defaults to review before publishing.",
+						hu: "Válaszd ki a közzététel előtt ellenőrizendő alapokat.",
 					},
-					actionLabel: { en: 'Import from ChatGPT', hu: 'Importálás ChatGPT-ből' },
-					actionDestination: 'internal:chatgpt-import',
-					altText: { en: 'Import ChatGPT history screenshot placeholder', hu: 'ChatGPT előzmények importálása képernyőkép helyőrző' },
+					altText: {
+						en: "Setup slide screenshot placeholder",
+						hu: "Beállító dia képernyőkép helyőrző",
+					},
+					setupControls: ["ui_language", "theme", "model_default", "ai_style"],
 				},
 				{
 					id: nextId(),
-					layoutType: 'standard',
+					layoutType: "standard",
+					sortOrder: 2,
+					title: {
+						en: "Bring Your ChatGPT History",
+						hu: "Hozd át a ChatGPT előzményeidet",
+					},
+					body: {
+						en: "Import your conversations from ChatGPT to continue where you left off. You can select which chats to bring over and organize them into projects.",
+						hu: "Importáld a ChatGPT beszélgetéseidet, hogy ott folytasd, ahol abbahagytad. Kiválaszthatod, mely beszélgetéseket hozod át, és projektekbe rendezheted őket.",
+					},
+					actionLabel: {
+						en: "Import from ChatGPT",
+						hu: "Importálás ChatGPT-ből",
+					},
+					actionDestination: "internal:chatgpt-import",
+					altText: {
+						en: "Import ChatGPT history screenshot placeholder",
+						hu: "ChatGPT előzmények importálása képernyőkép helyőrző",
+					},
+				},
+				{
+					id: nextId(),
+					layoutType: "standard",
 					sortOrder: 3,
-					title: { en: 'Introduce a released feature', hu: 'Mutass be egy kiadott funkciót' },
-					body: { en: 'Replace this draft copy with admin-authored campaign content.', hu: 'Cseréld ezt a vázlatot admin által írt kampányszövegre.' },
-					altText: { en: 'Feature screenshot placeholder', hu: 'Funkció képernyőkép helyőrző' },
+					title: {
+						en: "Introduce a released feature",
+						hu: "Mutass be egy kiadott funkciót",
+					},
+					body: {
+						en: "Replace this draft copy with admin-authored campaign content.",
+						hu: "Cseréld ezt a vázlatot admin által írt kampányszövegre.",
+					},
+					altText: {
+						en: "Feature screenshot placeholder",
+						hu: "Funkció képernyőkép helyőrző",
+					},
 				},
 				{
 					id: nextId(),
-					layoutType: 'standard',
-					semanticRole: 'data_disclosure',
+					layoutType: "standard",
+					semanticRole: "data_disclosure",
 					sortOrder: 4,
-					title: { en: 'Data processing disclosure', hu: 'Adatkezelési tájékoztató' },
-					body: { en: 'Review and complete the disclosure before publishing.', hu: 'Ellenőrizd és egészítsd ki a tájékoztatót közzététel előtt.' },
-					altText: { en: 'Disclosure screenshot placeholder', hu: 'Tájékoztató képernyőkép helyőrző' },
+					title: {
+						en: "Data processing disclosure",
+						hu: "Adatkezelési tájékoztató",
+					},
+					body: {
+						en: "Review and complete the disclosure before publishing.",
+						hu: "Ellenőrizd és egészítsd ki a tájékoztatót közzététel előtt.",
+					},
+					altText: {
+						en: "Disclosure screenshot placeholder",
+						hu: "Tájékoztató képernyőkép helyőrző",
+					},
 				},
 			],
 		},

@@ -1,13 +1,13 @@
 import { json } from "@sveltejs/kit";
-import type { RequestHandler } from "./$types";
 import { requireAdmin } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import {
 	getSystemSkillDefinition,
-	updateSystemSkillDefinition,
-	UserSkillValidationError,
 	type UpdateSystemSkillDefinitionInput,
+	UserSkillValidationError,
+	updateSystemSkillDefinition,
 } from "$lib/server/services/skills/user-skills";
+import type { RequestHandler } from "./$types";
 
 function disabledResponse() {
 	return json(
@@ -26,9 +26,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readUpdateInput(body: unknown): UpdateSystemSkillDefinitionInput {
 	const record = isRecord(body) ? body : {};
 	const input: UpdateSystemSkillDefinitionInput = {};
-	if (typeof record.displayName === "string") input.displayName = record.displayName;
-	if (typeof record.description === "string") input.description = record.description;
-	if (typeof record.instructions === "string") input.instructions = record.instructions;
+	if (typeof record.displayName === "string")
+		input.displayName = record.displayName;
+	if (typeof record.description === "string")
+		input.description = record.description;
+	if (typeof record.instructions === "string")
+		input.instructions = record.instructions;
 	if (Array.isArray(record.activationExamples)) {
 		input.activationExamples = record.activationExamples.filter(
 			(item): item is string => typeof item === "string",
@@ -37,25 +40,33 @@ function readUpdateInput(body: unknown): UpdateSystemSkillDefinitionInput {
 	if (typeof record.enabled === "boolean") input.enabled = record.enabled;
 	if (typeof record.published === "boolean") input.published = record.published;
 	if (typeof record.durationPolicy === "string") {
-		input.durationPolicy = record.durationPolicy as UpdateSystemSkillDefinitionInput["durationPolicy"];
+		input.durationPolicy =
+			record.durationPolicy as UpdateSystemSkillDefinitionInput["durationPolicy"];
 	}
 	if (typeof record.questionPolicy === "string") {
-		input.questionPolicy = record.questionPolicy as UpdateSystemSkillDefinitionInput["questionPolicy"];
+		input.questionPolicy =
+			record.questionPolicy as UpdateSystemSkillDefinitionInput["questionPolicy"];
 	}
 	if (typeof record.notesPolicy === "string") {
-		input.notesPolicy = record.notesPolicy as UpdateSystemSkillDefinitionInput["notesPolicy"];
+		input.notesPolicy =
+			record.notesPolicy as UpdateSystemSkillDefinitionInput["notesPolicy"];
 	}
 	if (typeof record.sourceScope === "string") {
-		input.sourceScope = record.sourceScope as UpdateSystemSkillDefinitionInput["sourceScope"];
+		input.sourceScope =
+			record.sourceScope as UpdateSystemSkillDefinitionInput["sourceScope"];
 	}
 	if (typeof record.creationSource === "string") {
-		input.creationSource = record.creationSource as UpdateSystemSkillDefinitionInput["creationSource"];
+		input.creationSource =
+			record.creationSource as UpdateSystemSkillDefinitionInput["creationSource"];
 	}
 	return input;
 }
 
 function validationResponse(error: UserSkillValidationError) {
-	return json({ error: error.message, errorKey: error.code }, { status: error.status });
+	return json(
+		{ error: error.message, errorKey: error.code },
+		{ status: error.status },
+	);
 }
 
 export const GET: RequestHandler = async (event) => {
@@ -67,7 +78,10 @@ export const GET: RequestHandler = async (event) => {
 
 	const skill = await getSystemSkillDefinition(event.params.id);
 	if (!skill) {
-		return json({ error: "Skill not found.", errorKey: "skills.notFound" }, { status: 404 });
+		return json(
+			{ error: "Skill not found.", errorKey: "skills.notFound" },
+			{ status: 404 },
+		);
 	}
 	return json({ skill });
 };
@@ -81,9 +95,15 @@ export const PATCH: RequestHandler = async (event) => {
 
 	const body = await event.request.json().catch(() => ({}));
 	try {
-		const skill = await updateSystemSkillDefinition(event.params.id, readUpdateInput(body));
+		const skill = await updateSystemSkillDefinition(
+			event.params.id,
+			readUpdateInput(body),
+		);
 		if (!skill) {
-			return json({ error: "Skill not found.", errorKey: "skills.notFound" }, { status: 404 });
+			return json(
+				{ error: "Skill not found.", errorKey: "skills.notFound" },
+				{ status: 404 },
+			);
 		}
 		return json({ skill });
 	} catch (error) {

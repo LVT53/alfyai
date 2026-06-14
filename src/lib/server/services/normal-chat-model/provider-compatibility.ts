@@ -210,9 +210,7 @@ function isNamedToolChoice(value: unknown): boolean {
 }
 
 function isGpt5ReasoningModel(modelName: string): boolean {
-	return (
-		modelName.startsWith("gpt-5") && !modelName.startsWith("gpt-5-chat")
-	);
+	return modelName.startsWith("gpt-5") && !modelName.startsWith("gpt-5-chat");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

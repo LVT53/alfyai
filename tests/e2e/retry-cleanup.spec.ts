@@ -122,8 +122,8 @@ test.describe("Atomic retry with cleanup", () => {
 			},
 		);
 		expect(capturedRetryBody).toBeTruthy();
-		expect(capturedRetryBody!.conversationId).toBeTruthy();
-		expect(capturedRetryBody!.assistantMessageId).toBeTruthy();
+		expect(capturedRetryBody?.conversationId).toBeTruthy();
+		expect(capturedRetryBody?.assistantMessageId).toBeTruthy();
 	});
 
 	test("retry after error shows fresh response", async ({ page }) => {

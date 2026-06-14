@@ -25,8 +25,12 @@ import { DELETE } from "./+server";
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockDeleteConversationWithCleanup =
 	deleteConversationWithCleanup as ReturnType<typeof vi.fn>;
+type DeleteConversationEvent = Parameters<typeof DELETE>[0];
 
-function makeEvent(user = { id: "user-1" }, id = "conv-1") {
+function makeEvent(
+	user = { id: "user-1" },
+	id = "conv-1",
+): DeleteConversationEvent {
 	return {
 		request: new Request(`http://localhost/api/conversations/${id}`, {
 			method: "DELETE",
@@ -35,7 +39,7 @@ function makeEvent(user = { id: "user-1" }, id = "conv-1") {
 		params: { id },
 		url: new URL(`http://localhost/api/conversations/${id}`),
 		route: { id: "/api/conversations/[id]" },
-	} as any;
+	} as DeleteConversationEvent;
 }
 
 describe("DELETE /api/conversations/[id]", () => {

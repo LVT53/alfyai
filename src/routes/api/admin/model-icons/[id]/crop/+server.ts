@@ -1,37 +1,41 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { requireAdmin } from '$lib/server/auth/hooks';
+import { json } from "@sveltejs/kit";
+import { requireAdmin } from "$lib/server/auth/hooks";
 import {
 	CampaignAssetValidationError,
-	saveModelIconAsset,
 	type CampaignCropGeometry,
-} from '$lib/server/services/campaign-assets';
+	saveModelIconAsset,
+} from "$lib/server/services/campaign-assets";
+import type { RequestHandler } from "./$types";
 
-function parseOptionalPositiveInteger(value: FormDataEntryValue | null): number | undefined {
-	if (typeof value !== 'string' || value.trim() === '') return undefined;
+function parseOptionalPositiveInteger(
+	value: FormDataEntryValue | null,
+): number | undefined {
+	if (typeof value !== "string" || value.trim() === "") return undefined;
 	const parsed = Number(value);
 	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function isUploadFile(value: FormDataEntryValue | null): value is File {
 	return (
-		typeof value === 'object' &&
+		typeof value === "object" &&
 		value !== null &&
-		typeof (value as File).arrayBuffer === 'function' &&
-		typeof (value as File).name === 'string'
+		typeof (value as File).arrayBuffer === "function" &&
+		typeof (value as File).name === "string"
 	);
 }
 
-function parseCropGeometry(value: FormDataEntryValue | null): CampaignCropGeometry | null {
-	if (typeof value !== 'string' || !value.trim()) return null;
+function parseCropGeometry(
+	value: FormDataEntryValue | null,
+): CampaignCropGeometry | null {
+	if (typeof value !== "string" || !value.trim()) return null;
 	try {
 		const parsed = JSON.parse(value) as Partial<CampaignCropGeometry>;
 		if (
-			typeof parsed.x !== 'number' ||
-			typeof parsed.y !== 'number' ||
-			typeof parsed.width !== 'number' ||
-			typeof parsed.height !== 'number' ||
-			typeof parsed.zoom !== 'number'
+			typeof parsed.x !== "number" ||
+			typeof parsed.y !== "number" ||
+			typeof parsed.width !== "number" ||
+			typeof parsed.height !== "number" ||
+			typeof parsed.zoom !== "number"
 		) {
 			return null;
 		}
@@ -54,30 +58,42 @@ export const POST: RequestHandler = async (event) => {
 	try {
 		formData = await event.request.formData();
 	} catch {
-		return json({ error: 'Invalid form data', fieldErrors: { form: 'Invalid form data.' } }, { status: 400 });
-	}
-
-	const image = formData.get('image');
-	if (!isUploadFile(image)) {
 		return json(
-			{ error: 'Invalid model icon crop', fieldErrors: { image: 'Model icon crop image is required.' } },
+			{
+				error: "Invalid form data",
+				fieldErrors: { form: "Invalid form data." },
+			},
 			{ status: 400 },
 		);
 	}
 
-	const crop = parseCropGeometry(formData.get('crop'));
+	const image = formData.get("image");
+	if (!isUploadFile(image)) {
+		return json(
+			{
+				error: "Invalid model icon crop",
+				fieldErrors: { image: "Model icon crop image is required." },
+			},
+			{ status: 400 },
+		);
+	}
+
+	const crop = parseCropGeometry(formData.get("crop"));
 	if (!crop) {
 		return json(
-			{ error: 'Invalid model icon crop', fieldErrors: { crop: 'Crop geometry is required.' } },
+			{
+				error: "Invalid model icon crop",
+				fieldErrors: { crop: "Crop geometry is required." },
+			},
 			{ status: 400 },
 		);
 	}
 
 	try {
-		const width = parseOptionalPositiveInteger(formData.get('width'));
-		const height = parseOptionalPositiveInteger(formData.get('height'));
+		const width = parseOptionalPositiveInteger(formData.get("width"));
+		const height = parseOptionalPositiveInteger(formData.get("height"));
 		const asset = await saveModelIconAsset({
-			uploadedByUserId: event.locals.user!.id,
+			uploadedByUserId: event.locals.user?.id,
 			sourceAssetId: event.params.id,
 			file: {
 				filename: image.name,
@@ -96,7 +112,7 @@ export const POST: RequestHandler = async (event) => {
 				{ status: 400 },
 			);
 		}
-		console.error('[CAMPAIGN_ASSETS] Failed to save model icon crop:', error);
-		return json({ error: 'Failed to save model icon crop.' }, { status: 500 });
+		console.error("[CAMPAIGN_ASSETS] Failed to save model icon crop:", error);
+		return json({ error: "Failed to save model icon crop." }, { status: 500 });
 	}
 };

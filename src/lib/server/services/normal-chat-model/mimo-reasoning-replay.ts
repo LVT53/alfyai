@@ -52,7 +52,10 @@ function prepareMiMoReplayRequest(
 	const parsedBody = parseJsonRequestBody(init?.body);
 	if (parsedBody === OMIT_JSON_BODY) return { input, init };
 
-	const replayedBody = replayMiMoReasoningContentInRequestBody(parsedBody, state);
+	const replayedBody = replayMiMoReasoningContentInRequestBody(
+		parsedBody,
+		state,
+	);
 	if (replayedBody === parsedBody) return { input, init };
 
 	return {
@@ -108,7 +111,9 @@ function resolveReasoningContentForToolCalls(
 	state: MiMoReasoningReplayState,
 ): string | null {
 	const reasoningValues = extractToolCallIds(toolCalls)
-		.map((toolCallId) => state.reasoningByToolCallId.get(toolCallId)?.trim() ?? "")
+		.map(
+			(toolCallId) => state.reasoningByToolCallId.get(toolCallId)?.trim() ?? "",
+		)
 		.filter(Boolean);
 
 	const uniqueReasoningValues = Array.from(new Set(reasoningValues));
@@ -128,15 +133,19 @@ function observeMiMoReasoningEventStream(
 		toolCallIdsByChoice: new Map(),
 	};
 
-	const observedBody = response.body!.pipeThrough(
+	const observedBody = response.body?.pipeThrough(
 		new TransformStream<Uint8Array, Uint8Array>({
 			transform(chunk, controller) {
 				buffer += decoder.decode(chunk, { stream: true });
-				processCompleteServerSentEvents(buffer, (consumedChars) => {
-					buffer = buffer.slice(consumedChars);
-				}, (rawEvent) => {
-					observeServerSentEvent(rawEvent, activeResponse, state);
-				});
+				processCompleteServerSentEvents(
+					buffer,
+					(consumedChars) => {
+						buffer = buffer.slice(consumedChars);
+					},
+					(rawEvent) => {
+						observeServerSentEvent(rawEvent, activeResponse, state);
+					},
+				);
 				controller.enqueue(chunk);
 			},
 			flush() {
@@ -226,11 +235,7 @@ function observeServerSentEvent(
 	if (!payload || payload === "[DONE]") return;
 
 	try {
-		captureMiMoReasoningFromChunk(
-			JSON.parse(payload),
-			activeResponse,
-			state,
-		);
+		captureMiMoReasoningFromChunk(JSON.parse(payload), activeResponse, state);
 	} catch {
 		// Keep the stream transparent when a provider emits non-JSON SSE data.
 	}
@@ -292,7 +297,8 @@ function appendReasoningDelta(
 	activeResponse: ActiveMiMoResponseState,
 	state: MiMoReasoningReplayState,
 ): void {
-	const reasoning = (activeResponse.reasoningByChoice.get(choiceKey) ?? "") + delta;
+	const reasoning =
+		(activeResponse.reasoningByChoice.get(choiceKey) ?? "") + delta;
 	activeResponse.reasoningByChoice.set(choiceKey, reasoning);
 
 	const toolCallIds = activeResponse.toolCallIdsByChoice.get(choiceKey);
@@ -342,11 +348,14 @@ function isEventStreamResponse(response: Response): boolean {
 
 function isJsonResponse(response: Response): boolean {
 	return (
-		response.headers.get("content-type")?.toLowerCase().includes("json") ?? false
+		response.headers.get("content-type")?.toLowerCase().includes("json") ??
+		false
 	);
 }
 
-function withoutContentLength(headers: HeadersInit | undefined): HeadersInit | undefined {
+function withoutContentLength(
+	headers: HeadersInit | undefined,
+): HeadersInit | undefined {
 	if (!headers) return headers;
 	const nextHeaders = new Headers(headers);
 	nextHeaders.delete("content-length");

@@ -25,8 +25,14 @@ export const users = sqliteTable("users", {
 	preferredPersonalityId: text("preferred_personality_id"),
 	avatarId: integer("avatar_id"),
 	profilePicture: text("profile_picture"),
-	sidebarProjectsExpanded: integer("sidebar_projects_expanded", { mode: "boolean" }).notNull().default(true),
-	sidebarChatsExpanded: integer("sidebar_chats_expanded", { mode: "boolean" }).notNull().default(true),
+	sidebarProjectsExpanded: integer("sidebar_projects_expanded", {
+		mode: "boolean",
+	})
+		.notNull()
+		.default(true),
+	sidebarChatsExpanded: integer("sidebar_chats_expanded", { mode: "boolean" })
+		.notNull()
+		.default(true),
 	lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()

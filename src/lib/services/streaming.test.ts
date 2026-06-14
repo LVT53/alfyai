@@ -125,6 +125,12 @@ async function waitForStream(cb: MockCallbacks): Promise<void> {
 	});
 }
 
+async function flushMicrotasks(turns = 3): Promise<void> {
+	for (let index = 0; index < turns; index += 1) {
+		await Promise.resolve();
+	}
+}
+
 describe("streamChat", () => {
 	beforeEach(() => {
 		vi.stubGlobal("fetch", vi.fn());
@@ -515,7 +521,7 @@ describe("streamChat", () => {
 		const done = waitForStream(cb as unknown as MockCallbacks);
 		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
 
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		await flushMicrotasks();
 		controlled.enqueue(
 			uiFrame({ type: "data-replay-start", data: {}, transient: true }),
 			uiFrame({ type: "text-delta", id: "text-1", delta: "Buffered" }),
@@ -525,7 +531,7 @@ describe("streamChat", () => {
 				delta: "Reasoning",
 			}),
 		);
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		await flushMicrotasks();
 
 		expect(cb.onToken).not.toHaveBeenCalled();
 		expect(cb.onThinking).not.toHaveBeenCalled();
@@ -1204,13 +1210,13 @@ describe("streamChat", () => {
 		const done = waitForStream(cb as unknown as MockCallbacks);
 		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
 
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		await flushMicrotasks();
 		controlled.enqueue(
 			uiFrame({ type: "data-replay-start", data: {}, transient: true }),
 			tokenEvent("Buffered"),
 			thinkingEvent("Reasoning"),
 		);
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		await flushMicrotasks();
 
 		expect(cb.onToken).not.toHaveBeenCalled();
 		expect(cb.onThinking).not.toHaveBeenCalled();
@@ -1252,6 +1258,7 @@ describe("streamChat", () => {
 		const mockFetch = vi.mocked(fetch);
 
 		let abortReject!: (err: Error) => void;
+		let streamFetchPromise!: Promise<Response>;
 		mockFetch.mockImplementation((input) => {
 			if (typeof input === "string" && input === "/api/chat/stream/stop") {
 				return Promise.resolve(
@@ -1262,9 +1269,10 @@ describe("streamChat", () => {
 				);
 			}
 
-			return new Promise<Response>((_resolve, reject) => {
+			streamFetchPromise = new Promise<Response>((_resolve, reject) => {
 				abortReject = reject;
 			});
+			return streamFetchPromise;
 		});
 
 		const cb = makeCallbacks();
@@ -1274,12 +1282,12 @@ describe("streamChat", () => {
 			cb as unknown as StreamCallbacks,
 		);
 
-		await new Promise((r) => setTimeout(r, 10));
 		handle.stop();
 
 		abortReject(new DOMException("The user aborted a request.", "AbortError"));
 
-		await new Promise((r) => setTimeout(r, 30));
+		await streamFetchPromise.catch(() => undefined);
+		await flushMicrotasks();
 
 		expect(cb.onError).not.toHaveBeenCalled();
 		expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -1306,12 +1314,13 @@ describe("streamChat", () => {
 		const mockFetch = vi.mocked(fetch);
 
 		let abortReject!: (err: Error) => void;
-		mockFetch.mockImplementation(
-			() =>
-				new Promise<Response>((_resolve, reject) => {
-					abortReject = reject;
-				}),
-		);
+		let streamFetchPromise!: Promise<Response>;
+		mockFetch.mockImplementation(() => {
+			streamFetchPromise = new Promise<Response>((_resolve, reject) => {
+				abortReject = reject;
+			});
+			return streamFetchPromise;
+		});
 
 		const cb = makeCallbacks();
 		const handle = streamChat(
@@ -1320,12 +1329,12 @@ describe("streamChat", () => {
 			cb as unknown as StreamCallbacks,
 		);
 
-		await new Promise((r) => setTimeout(r, 10));
 		handle.detach();
 
 		abortReject(new DOMException("The user aborted a request.", "AbortError"));
 
-		await new Promise((r) => setTimeout(r, 30));
+		await streamFetchPromise.catch(() => undefined);
+		await flushMicrotasks();
 
 		expect(mockFetch).toHaveBeenCalledTimes(1);
 		expect(cb.onEnd).not.toHaveBeenCalled();

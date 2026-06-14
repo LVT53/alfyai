@@ -28,8 +28,7 @@ describe("Hungarian memory context query handling", () => {
 	it("routes Hungarian project report requests to report mode", () => {
 		expect(
 			resolveProjectMemoryContextMode({
-				query:
-					"Készíts jelentést a projektmappa korábbi beszélgetéseiből.",
+				query: "Készíts jelentést a projektmappa korábbi beszélgetéseiből.",
 			}),
 		).toBe("report");
 		expect(

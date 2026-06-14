@@ -1,8 +1,8 @@
 import type {
 	DeepResearchDepth,
 	DeepResearchJob,
-	DeepResearchReportIntent,
 	DeepResearchReportActionResult,
+	DeepResearchReportIntent,
 	DeepResearchResearchFurtherActionResult,
 	ModelId,
 } from "$lib/types";
@@ -89,7 +89,10 @@ export async function cancelDeepResearchJob(
 export async function editDeepResearchPlan(
 	jobId: string,
 	instructions: string,
-	reportIntentOrFetch: DeepResearchReportIntent | FetchLike | undefined = undefined,
+	reportIntentOrFetch:
+		| DeepResearchReportIntent
+		| FetchLike
+		| undefined = undefined,
 	fetchImpl: FetchLike = fetch,
 ): Promise<DeepResearchJob> {
 	const reportIntent =
@@ -139,11 +142,16 @@ export async function discussDeepResearchReport(
 
 export async function researchFurtherFromDeepResearchReport(
 	jobId: string,
-	optionsOrFetch: FetchLike | { depth?: DeepResearchDepth; fetchImpl?: FetchLike } = fetch,
+	optionsOrFetch:
+		| FetchLike
+		| { depth?: DeepResearchDepth; fetchImpl?: FetchLike } = fetch,
 ): Promise<DeepResearchResearchFurtherActionResult> {
 	const fetchImpl =
-		typeof optionsOrFetch === "function" ? optionsOrFetch : optionsOrFetch.fetchImpl ?? fetch;
-	const depth = typeof optionsOrFetch === "function" ? undefined : optionsOrFetch.depth;
+		typeof optionsOrFetch === "function"
+			? optionsOrFetch
+			: (optionsOrFetch.fetchImpl ?? fetch);
+	const depth =
+		typeof optionsOrFetch === "function" ? undefined : optionsOrFetch.depth;
 	return requestJson<DeepResearchResearchFurtherActionResult>(
 		`/api/deep-research/jobs/${encodeURIComponent(jobId)}/report-actions/research-further`,
 		{

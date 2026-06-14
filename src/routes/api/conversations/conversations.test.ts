@@ -14,9 +14,12 @@ vi.mock("$lib/server/services/projects", () => ({
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
-import { createConversation, listConversations } from "$lib/server/services/conversations";
+import {
+	createConversation,
+	listConversations,
+} from "$lib/server/services/conversations";
 import { getProject } from "$lib/server/services/projects";
-import { GET, POST } from "./+server";
+import { type GET, POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockCreateConversation = createConversation as ReturnType<typeof vi.fn>;
@@ -62,9 +65,13 @@ describe("/api/conversations", () => {
 		expect(response.status).toBe(201);
 		expect(data).toMatchObject({ id: "conv-1", projectId: "project-1" });
 		expect(mockGetProject).toHaveBeenCalledWith("owner-user", "project-1");
-		expect(mockCreateConversation).toHaveBeenCalledWith("owner-user", undefined, {
-			projectId: "project-1",
-		});
+		expect(mockCreateConversation).toHaveBeenCalledWith(
+			"owner-user",
+			undefined,
+			{
+				projectId: "project-1",
+			},
+		);
 	});
 
 	it("rejects unknown project folders before creating a conversation", async () => {

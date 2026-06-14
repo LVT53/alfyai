@@ -1,12 +1,12 @@
 <script lang="ts">
 import { AlertCircle, Upload } from "@lucide/svelte";
-	let {
-		active = false,
-		rejected = false,
-	}: {
-		active?: boolean;
-		rejected?: boolean;
-	} = $props();
+let {
+	active = false,
+	rejected = false,
+}: {
+	active?: boolean;
+	rejected?: boolean;
+} = $props();
 </script>
 
 {#if active}

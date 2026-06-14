@@ -29,7 +29,13 @@ const auditedPrefixes = [
 	"sidebar.unpinFromSidebar",
 ] as const;
 
-const I18N_MODULES = ["chat", "common", "knowledge", "settings", "skills"] as const;
+const I18N_MODULES = [
+	"chat",
+	"common",
+	"knowledge",
+	"settings",
+	"skills",
+] as const;
 
 function collectDictionaryKeys(): Record<"en" | "hu", string[]> {
 	const keys: Record<"en" | "hu", string[]> = { en: [], hu: [] };
@@ -50,8 +56,14 @@ function collectDictionaryKeys(): Record<"en" | "hu", string[]> {
 		for (const node of sourceFile.statements) {
 			if (!ts.isVariableStatement(node)) continue;
 			for (const decl of node.declarationList.declarations) {
-				if (ts.isIdentifier(decl.name) && decl.name.text.endsWith("Dict") && decl.initializer) {
-					const init = ts.isAsExpression(decl.initializer) ? decl.initializer.expression : decl.initializer;
+				if (
+					ts.isIdentifier(decl.name) &&
+					decl.name.text.endsWith("Dict") &&
+					decl.initializer
+				) {
+					const init = ts.isAsExpression(decl.initializer)
+						? decl.initializer.expression
+						: decl.initializer;
 					if (ts.isObjectLiteralExpression(init)) {
 						dictObj = init;
 					}
@@ -74,7 +86,7 @@ function collectDictionaryKeys(): Record<"en" | "hu", string[]> {
 				let key: string | null = null;
 				if (ts.isStringLiteral(p.name)) key = p.name.text;
 				else if (ts.isIdentifier(p.name)) key = p.name.text;
-				if (key && auditedPrefixes.some((prefix) => key!.startsWith(prefix))) {
+				if (key && auditedPrefixes.some((prefix) => key?.startsWith(prefix))) {
 					keys[lang].push(key);
 				}
 			}

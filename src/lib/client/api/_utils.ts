@@ -11,7 +11,7 @@
  * @param key - The key to extract from the response
  */
 export function _unwrapList<T>(response: unknown, key: string): T[] {
-	if (typeof response !== 'object' || response === null) return [];
+	if (typeof response !== "object" || response === null) return [];
 	const payload = response as Record<string, unknown>;
 	return Array.isArray(payload[key]) ? (payload[key] as T[]) : [];
 }

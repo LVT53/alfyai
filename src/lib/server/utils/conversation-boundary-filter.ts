@@ -21,7 +21,10 @@ export function isCrossConversationArtifactEligible(params: {
 		minRerankScore = 0.75,
 	} = params;
 
-	if (artifactConversationId === null || artifactConversationId === currentConversationId) {
+	if (
+		artifactConversationId === null ||
+		artifactConversationId === currentConversationId
+	) {
 		return true;
 	}
 

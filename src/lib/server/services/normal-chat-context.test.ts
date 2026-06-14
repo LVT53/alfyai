@@ -202,10 +202,16 @@ describe("prepareOutboundChatContext", () => {
 		expect(prompt).toContain("does not start Deep Research");
 		expect(prompt).toContain("does not force web search");
 		expect(prompt).toContain("Maximum-depth reasoning contract");
-		expect(prompt).toContain("deliberately spend extra private reasoning effort");
+		expect(prompt).toContain(
+			"deliberately spend extra private reasoning effort",
+		);
 		expect(prompt).toContain("edge cases, likely failure modes, and tradeoffs");
-		expect(prompt).toContain("test the strongest candidate answer against alternatives");
-		expect(prompt).toContain("Do not expose chain-of-thought or scratchpad reasoning");
+		expect(prompt).toContain(
+			"test the strongest candidate answer against alternatives",
+		);
+		expect(prompt).toContain(
+			"Do not expose chain-of-thought or scratchpad reasoning",
+		);
 		expect(prompt).toContain("you may use up to 12 sources");
 		expect(prompt).not.toContain("Current-turn forced web retrieval");
 	});

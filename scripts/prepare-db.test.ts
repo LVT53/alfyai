@@ -1,22 +1,27 @@
-import { createDecipheriv, pbkdf2Sync } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import Database from 'better-sqlite3';
-import { readMigrationFiles } from 'drizzle-orm/migrator';
-import { afterEach, describe, expect, it } from 'vitest';
-import { prepareDatabase } from './prepare-db';
+import { createDecipheriv, pbkdf2Sync } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import Database from "better-sqlite3";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { afterEach, describe, expect, it } from "vitest";
+import { prepareDatabase } from "./prepare-db";
 
-const PRE_DEEP_RESEARCH_TAG = '1777140000011_file_production_requests';
-const ADOPTION_BASELINE_TAG = '0005_flaky_famine';
-const SKILL_NOTES_TAG = '1777140000035_skill_notes';
-const PRE_LANGFLOW_RETIREMENT_TAG = '1777140000046_context_compression_snapshots';
+const PRE_DEEP_RESEARCH_TAG = "1777140000011_file_production_requests";
+const ADOPTION_BASELINE_TAG = "0005_flaky_famine";
+const SKILL_NOTES_TAG = "1777140000035_skill_notes";
+const PRE_LANGFLOW_RETIREMENT_TAG =
+	"1777140000046_context_compression_snapshots";
 
 let tempDir: string | null = null;
 
-function applyMigrationsThroughTag(dbPath: string, tag: string, recordJournal: boolean): void {
+function applyMigrationsThroughTag(
+	dbPath: string,
+	tag: string,
+	recordJournal: boolean,
+): void {
 	const sqlite = new Database(dbPath);
-	sqlite.pragma('foreign_keys = ON');
+	sqlite.pragma("foreign_keys = ON");
 
 	if (recordJournal) {
 		sqlite.exec(`
@@ -28,7 +33,9 @@ function applyMigrationsThroughTag(dbPath: string, tag: string, recordJournal: b
 		`);
 	}
 
-	const journal = JSON.parse(readFileSync('./drizzle/meta/_journal.json', 'utf8')) as {
+	const journal = JSON.parse(
+		readFileSync("./drizzle/meta/_journal.json", "utf8"),
+	) as {
 		entries: Array<{ tag: string }>;
 	};
 	const targetIndex = journal.entries.findIndex((entry) => entry.tag === tag);
@@ -36,10 +43,9 @@ function applyMigrationsThroughTag(dbPath: string, tag: string, recordJournal: b
 		throw new Error(`Cannot find migration tag ${tag}`);
 	}
 
-	const migrations = readMigrationFiles({ migrationsFolder: './drizzle' }).slice(
-		0,
-		targetIndex + 1,
-	);
+	const migrations = readMigrationFiles({
+		migrationsFolder: "./drizzle",
+	}).slice(0, targetIndex + 1);
 	const insertMigration = recordJournal
 		? sqlite.prepare(
 				'INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)',
@@ -61,14 +67,19 @@ function createDatabaseMigratedThroughTag(dbPath: string, tag: string): void {
 	applyMigrationsThroughTag(dbPath, tag, true);
 }
 
-function createDatabaseSchemaThroughTagWithoutJournal(dbPath: string, tag: string): void {
+function createDatabaseSchemaThroughTagWithoutJournal(
+	dbPath: string,
+	tag: string,
+): void {
 	applyMigrationsThroughTag(dbPath, tag, false);
 }
 
 function hasTable(sqlite: Database.Database, tableName: string): boolean {
 	return Boolean(
 		sqlite
-			.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1")
+			.prepare(
+				"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+			)
 			.get(tableName),
 	);
 }
@@ -85,17 +96,17 @@ function decryptSeededProviderApiKey(
 	iv: string,
 	secret: string,
 ): string {
-	const key = pbkdf2Sync(secret, 'alfyai-providers', 100000, 32, 'sha256');
-	const ivBuffer = Buffer.from(iv, 'base64');
-	const encryptedBuffer = Buffer.from(encrypted, 'base64');
+	const key = pbkdf2Sync(secret, "alfyai-providers", 100000, 32, "sha256");
+	const ivBuffer = Buffer.from(iv, "base64");
+	const encryptedBuffer = Buffer.from(encrypted, "base64");
 	const authTag = encryptedBuffer.slice(-16);
 	const ciphertext = encryptedBuffer.slice(0, -16);
-	const decipher = createDecipheriv('aes-256-gcm', key, ivBuffer);
+	const decipher = createDecipheriv("aes-256-gcm", key, ivBuffer);
 	decipher.setAuthTag(authTag);
-	return decipher.update(ciphertext).toString('utf8') + decipher.final('utf8');
+	return decipher.update(ciphertext).toString("utf8") + decipher.final("utf8");
 }
 
-describe('prepare-db script', () => {
+describe("prepare-db script", () => {
 	afterEach(() => {
 		if (tempDir) {
 			rmSync(tempDir, { recursive: true, force: true });
@@ -103,42 +114,42 @@ describe('prepare-db script', () => {
 		}
 	});
 
-	it('applies pending Deep Research migrations to a journaled pre-Deep-Research database', () => {
-		tempDir = mkdtempSync(join(tmpdir(), 'alfyai-prepare-db-'));
-		const dbPath = join(tempDir, 'chat.db');
+	it("applies pending Deep Research migrations to a journaled pre-Deep-Research database", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
+		const dbPath = join(tempDir, "chat.db");
 		createDatabaseMigratedThroughTag(dbPath, PRE_DEEP_RESEARCH_TAG);
 
 		prepareDatabase(dbPath);
 
 		const sqlite = new Database(dbPath, { readonly: true });
 		try {
-			expect(hasTable(sqlite, 'deep_research_jobs')).toBe(true);
-			expect(hasTable(sqlite, 'deep_research_plan_versions')).toBe(true);
-			expect(hasTable(sqlite, 'deep_research_timeline_events')).toBe(true);
-			expect(hasTable(sqlite, 'deep_research_usage_records')).toBe(true);
-			expect(hasTable(sqlite, 'deep_research_sources')).toBe(true);
-			expect(hasTable(sqlite, 'deep_research_tasks')).toBe(true);
-			expect(listColumns(sqlite, 'conversations')).toEqual(
-				expect.arrayContaining(['status', 'sealed_at']),
+			expect(hasTable(sqlite, "deep_research_jobs")).toBe(true);
+			expect(hasTable(sqlite, "deep_research_plan_versions")).toBe(true);
+			expect(hasTable(sqlite, "deep_research_timeline_events")).toBe(true);
+			expect(hasTable(sqlite, "deep_research_usage_records")).toBe(true);
+			expect(hasTable(sqlite, "deep_research_sources")).toBe(true);
+			expect(hasTable(sqlite, "deep_research_tasks")).toBe(true);
+			expect(listColumns(sqlite, "conversations")).toEqual(
+				expect.arrayContaining(["status", "sealed_at"]),
 			);
-			expect(listColumns(sqlite, 'deep_research_jobs')).toContain(
-				'report_artifact_id',
+			expect(listColumns(sqlite, "deep_research_jobs")).toContain(
+				"report_artifact_id",
 			);
 		} finally {
 			sqlite.close();
 		}
 	});
 
-	it('adopts an existing baseline app database before applying post-baseline Deep Research migrations', () => {
-		tempDir = mkdtempSync(join(tmpdir(), 'alfyai-prepare-db-'));
-		const dbPath = join(tempDir, 'chat.db');
+	it("adopts an existing baseline app database before applying post-baseline Deep Research migrations", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
+		const dbPath = join(tempDir, "chat.db");
 		createDatabaseSchemaThroughTagWithoutJournal(dbPath, ADOPTION_BASELINE_TAG);
 
 		const beforePrepare = new Database(dbPath, { readonly: true });
 		try {
-			expect(hasTable(beforePrepare, '__drizzle_migrations')).toBe(false);
-			expect(hasTable(beforePrepare, 'conversations')).toBe(true);
-			expect(hasTable(beforePrepare, 'deep_research_jobs')).toBe(false);
+			expect(hasTable(beforePrepare, "__drizzle_migrations")).toBe(false);
+			expect(hasTable(beforePrepare, "conversations")).toBe(true);
+			expect(hasTable(beforePrepare, "deep_research_jobs")).toBe(false);
 		} finally {
 			beforePrepare.close();
 		}
@@ -147,21 +158,21 @@ describe('prepare-db script', () => {
 
 		const sqlite = new Database(dbPath, { readonly: true });
 		try {
-			expect(hasTable(sqlite, '__drizzle_migrations')).toBe(true);
-			expect(hasTable(sqlite, 'deep_research_jobs')).toBe(true);
-			expect(hasTable(sqlite, 'deep_research_sources')).toBe(true);
-			expect(hasTable(sqlite, 'deep_research_synthesis_claims')).toBe(true);
-			expect(listColumns(sqlite, 'deep_research_jobs')).toContain(
-				'report_artifact_id',
+			expect(hasTable(sqlite, "__drizzle_migrations")).toBe(true);
+			expect(hasTable(sqlite, "deep_research_jobs")).toBe(true);
+			expect(hasTable(sqlite, "deep_research_sources")).toBe(true);
+			expect(hasTable(sqlite, "deep_research_synthesis_claims")).toBe(true);
+			expect(listColumns(sqlite, "deep_research_jobs")).toContain(
+				"report_artifact_id",
 			);
 		} finally {
 			sqlite.close();
 		}
 	});
 
-	it('adopts a no-journal baseline database after an earlier compatibility column repair', () => {
-		tempDir = mkdtempSync(join(tmpdir(), 'alfyai-prepare-db-'));
-		const dbPath = join(tempDir, 'chat.db');
+	it("adopts a no-journal baseline database after an earlier compatibility column repair", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
+		const dbPath = join(tempDir, "chat.db");
 		createDatabaseSchemaThroughTagWithoutJournal(dbPath, ADOPTION_BASELINE_TAG);
 
 		const repairedBeforeAdoption = new Database(dbPath);
@@ -177,23 +188,25 @@ describe('prepare-db script', () => {
 
 		const sqlite = new Database(dbPath, { readonly: true });
 		try {
-			expect(hasTable(sqlite, 'deep_research_jobs')).toBe(true);
-			expect(listColumns(sqlite, 'users')).toEqual(
-				expect.arrayContaining(['title_language', 'honcho_peer_version']),
+			expect(hasTable(sqlite, "deep_research_jobs")).toBe(true);
+			expect(listColumns(sqlite, "users")).toEqual(
+				expect.arrayContaining(["title_language", "honcho_peer_version"]),
 			);
 		} finally {
 			sqlite.close();
 		}
 	});
 
-	it('rejects a journaled Composer Command V1 schema with a missing required draft column', () => {
-		tempDir = mkdtempSync(join(tmpdir(), 'alfyai-prepare-db-'));
-		const dbPath = join(tempDir, 'chat.db');
+	it("rejects a journaled Composer Command V1 schema with a missing required draft column", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
+		const dbPath = join(tempDir, "chat.db");
 		createDatabaseMigratedThroughTag(dbPath, SKILL_NOTES_TAG);
 
 		const corrupted = new Database(dbPath);
 		try {
-			corrupted.exec('ALTER TABLE conversation_drafts DROP COLUMN pending_skill_json');
+			corrupted.exec(
+				"ALTER TABLE conversation_drafts DROP COLUMN pending_skill_json",
+			);
 		} finally {
 			corrupted.close();
 		}
@@ -203,9 +216,9 @@ describe('prepare-db script', () => {
 		);
 	});
 
-	it('removes retired Langflow admin_config overrides during prepare', () => {
-		tempDir = mkdtempSync(join(tmpdir(), 'alfyai-prepare-db-'));
-		const dbPath = join(tempDir, 'chat.db');
+	it("removes retired Langflow admin_config overrides during prepare", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
+		const dbPath = join(tempDir, "chat.db");
 		createDatabaseMigratedThroughTag(dbPath, PRE_LANGFLOW_RETIREMENT_TAG);
 
 		const seeded = new Database(dbPath);
@@ -214,18 +227,18 @@ describe('prepare-db script', () => {
 				'INSERT INTO admin_config ("key", "value", "updated_by") VALUES (?, ?, ?)',
 			);
 			for (const key of [
-				'MODEL_1_FLOW_ID',
-				'MODEL_1_COMPONENT_ID',
-				'MODEL_2_FLOW_ID',
-				'MODEL_2_COMPONENT_ID',
-				'LANGFLOW_API_URL',
-				'LANGFLOW_API_KEY',
-				'LANGFLOW_FLOW_ID',
-				'LANGFLOW_WEBHOOK_SECRET',
+				"MODEL_1_FLOW_ID",
+				"MODEL_1_COMPONENT_ID",
+				"MODEL_2_FLOW_ID",
+				"MODEL_2_COMPONENT_ID",
+				"LANGFLOW_API_URL",
+				"LANGFLOW_API_KEY",
+				"LANGFLOW_FLOW_ID",
+				"LANGFLOW_WEBHOOK_SECRET",
 			]) {
-				insertOverride.run(key, 'legacy-value', 'test');
+				insertOverride.run(key, "legacy-value", "test");
 			}
-			insertOverride.run('MODEL_1_NAME', 'kept-model', 'test');
+			insertOverride.run("MODEL_1_NAME", "kept-model", "test");
 		} finally {
 			seeded.close();
 		}
@@ -237,21 +250,21 @@ describe('prepare-db script', () => {
 			const rows = sqlite
 				.prepare('SELECT "key" FROM admin_config ORDER BY "key"')
 				.all() as Array<{ key: string }>;
-			expect(rows.map((row) => row.key)).toEqual(['MODEL_1_NAME']);
+			expect(rows.map((row) => row.key)).toEqual(["MODEL_1_NAME"]);
 		} finally {
 			sqlite.close();
 		}
 	});
 
-	it('seeds default provider API keys using the provider encryption format', () => {
-		tempDir = mkdtempSync(join(tmpdir(), 'alfyai-prepare-db-'));
-		const dbPath = join(tempDir, 'chat.db');
+	it("seeds default provider API keys using the provider encryption format", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
+		const dbPath = join(tempDir, "chat.db");
 		const previousSessionSecret = process.env.SESSION_SECRET;
 		const previousModel1ApiKey = process.env.MODEL_1_API_KEY;
 		const previousModel2Enabled = process.env.MODEL_2_ENABLED;
-		process.env.SESSION_SECRET = 'prepare-db-test-secret';
-		process.env.MODEL_1_API_KEY = 'sk-seeded-provider';
-		process.env.MODEL_2_ENABLED = 'false';
+		process.env.SESSION_SECRET = "prepare-db-test-secret";
+		process.env.MODEL_1_API_KEY = "sk-seeded-provider";
+		process.env.MODEL_2_ENABLED = "false";
 
 		try {
 			prepareDatabase(dbPath);
@@ -267,15 +280,18 @@ describe('prepare-db script', () => {
 					| undefined;
 
 				expect(row).toBeTruthy();
-				expect(row?.api_key_encrypted).not.toBe('sk-seeded-provider');
+				if (!row) {
+					throw new Error("Expected seeded model1 provider row");
+				}
+				expect(row?.api_key_encrypted).not.toBe("sk-seeded-provider");
 				expect(row?.api_key_iv).toBeTruthy();
 				expect(
 					decryptSeededProviderApiKey(
-						row!.api_key_encrypted,
-						row!.api_key_iv,
-						'prepare-db-test-secret',
+						row.api_key_encrypted,
+						row.api_key_iv,
+						"prepare-db-test-secret",
 					),
-				).toBe('sk-seeded-provider');
+				).toBe("sk-seeded-provider");
 			} finally {
 				sqlite.close();
 			}

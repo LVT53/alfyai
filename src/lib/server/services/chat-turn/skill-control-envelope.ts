@@ -169,7 +169,8 @@ function parseOperation(value: unknown): SkillControlOperation | null {
 export function parseSkillControlEnvelopeFromAssistantText(
 	text: string,
 ): ParsedSkillControlEnvelope {
-	const { visibleText, envelopes } = stripCompleteSkillControlEnvelopeBlocks(text);
+	const { visibleText, envelopes } =
+		stripCompleteSkillControlEnvelopeBlocks(text);
 	const parsed = parseSkillControlEnvelopePayloads(
 		envelopes.map((envelope) => envelope.rawJson),
 	);
@@ -210,15 +211,17 @@ export function parseSkillControlEnvelopePayloads(
 			operation.transition === "awaiting_user",
 	);
 	const pendingNoteIntents = operations.filter(
-		(operation): operation is Extract<SkillControlOperation, { kind: "note_intent" }> =>
+		(
+			operation,
+		): operation is Extract<SkillControlOperation, { kind: "note_intent" }> =>
 			operation.kind === "note_intent",
 	);
 	const skillDrafts = operations
 		.filter(
-			(operation): operation is Extract<
-				SkillControlOperation,
-				{ kind: "skill_draft" }
-			> => operation.kind === "skill_draft",
+			(
+				operation,
+			): operation is Extract<SkillControlOperation, { kind: "skill_draft" }> =>
+				operation.kind === "skill_draft",
 		)
 		.map((operation) => operation.draft);
 

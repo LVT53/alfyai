@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { t } from "$lib/i18n";
+import { t } from "$lib/i18n";
 
-	let {
-		compactVersion,
-		fullVersion,
-		onClick,
-	}: {
-		compactVersion: string;
-		fullVersion: string;
-		onClick?: () => void;
-	} = $props();
+let {
+	compactVersion,
+	fullVersion,
+	onClick,
+}: {
+	compactVersion: string;
+	fullVersion: string;
+	onClick?: () => void;
+} = $props();
 </script>
 
 <button

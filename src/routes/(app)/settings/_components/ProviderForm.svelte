@@ -132,7 +132,8 @@ function handleSave() {
 	}
 
 	if (formRateLimitFallbackEnabled) {
-		if (formRateLimitFallbackApiKey) data.rateLimitFallbackApiKey = formRateLimitFallbackApiKey;
+		if (formRateLimitFallbackApiKey)
+			data.rateLimitFallbackApiKey = formRateLimitFallbackApiKey;
 	}
 
 	onSave?.(data);

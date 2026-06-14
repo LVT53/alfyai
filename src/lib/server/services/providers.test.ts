@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import Database from "better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const originalFetch = globalThis.fetch;
 
@@ -142,13 +142,17 @@ describe("Provider CRUD", () => {
 			expect(provider.updatedAt).toBeInstanceOf(Date);
 
 			// Public interface must not leak key material
-			expect((provider as Record<string, unknown>).apiKeyEncrypted).toBeUndefined();
+			expect(
+				(provider as Record<string, unknown>).apiKeyEncrypted,
+			).toBeUndefined();
 			expect((provider as Record<string, unknown>).apiKeyIv).toBeUndefined();
 			expect((provider as Record<string, unknown>).apiKey).toBeUndefined();
 		});
 
 		it("persists optional rate-limit fallback fields", async () => {
-			const { createProvider, getProviderWithSecrets } = await import("./providers");
+			const { createProvider, getProviderWithSecrets } = await import(
+				"./providers"
+			);
 
 			const provider = await createProvider({
 				name: "with-fallback",
@@ -168,7 +172,9 @@ describe("Provider CRUD", () => {
 			);
 
 			expect(secrets.rateLimitFallbackEnabled).toBe(true);
-			expect(secrets.rateLimitFallbackBaseUrl).toBe("https://api.fallback.com/v1");
+			expect(secrets.rateLimitFallbackBaseUrl).toBe(
+				"https://api.fallback.com/v1",
+			);
 			expect(secrets.rateLimitFallbackModelName).toBe("fallback-model");
 			expect(secrets.rateLimitFallbackTimeoutMs).toBe(15000);
 			expect(secrets.rateLimitFallbackApiKeyEncrypted).toBeTruthy();
@@ -177,7 +183,10 @@ describe("Provider CRUD", () => {
 			// Decrypt fallback key
 			const { decryptApiKey } = await import("./providers");
 			const decryptedFallback = decryptApiKey(
-				assertDefined(secrets.rateLimitFallbackApiKeyEncrypted, "fallback encrypted"),
+				assertDefined(
+					secrets.rateLimitFallbackApiKeyEncrypted,
+					"fallback encrypted",
+				),
 				assertDefined(secrets.rateLimitFallbackApiKeyIv, "fallback iv"),
 			);
 			expect(decryptedFallback).toBe("fk-456");
@@ -206,7 +215,9 @@ describe("Provider CRUD", () => {
 
 	describe("getProvider / getProviderWithSecrets", () => {
 		it("returns null for unknown id", async () => {
-			const { getProvider, getProviderWithSecrets } = await import("./providers");
+			const { getProvider, getProviderWithSecrets } = await import(
+				"./providers"
+			);
 			expect(await getProvider("nonexistent")).toBeNull();
 			expect(await getProviderWithSecrets("nonexistent")).toBeNull();
 		});
@@ -221,9 +232,14 @@ describe("Provider CRUD", () => {
 				apiKey: "sk-secret-key",
 			});
 
-			const fetched = assertDefined(await getProvider(created.id), "fetched provider");
+			const fetched = assertDefined(
+				await getProvider(created.id),
+				"fetched provider",
+			);
 			expect(fetched.name).toBe("getter-test");
-			expect((fetched as Record<string, unknown>).apiKeyEncrypted).toBeUndefined();
+			expect(
+				(fetched as Record<string, unknown>).apiKeyEncrypted,
+			).toBeUndefined();
 		});
 
 		it("getProviderWithSecrets includes encrypted fields and decrypts", async () => {
@@ -300,7 +316,9 @@ describe("Provider CRUD", () => {
 		});
 
 		it("filters disabled providers in listEnabledProviders", async () => {
-			const { createProvider, listEnabledProviders } = await import("./providers");
+			const { createProvider, listEnabledProviders } = await import(
+				"./providers"
+			);
 
 			await createProvider({
 				name: "enabled-one",
@@ -329,8 +347,12 @@ describe("Provider CRUD", () => {
 
 	describe("updateProvider", () => {
 		it("updates display name without touching encrypted fields", async () => {
-			const { createProvider, updateProvider, getProviderWithSecrets, decryptApiKey } =
-				await import("./providers");
+			const {
+				createProvider,
+				updateProvider,
+				getProviderWithSecrets,
+				decryptApiKey,
+			} = await import("./providers");
 
 			const created = await createProvider({
 				name: "update-display",
@@ -350,12 +372,18 @@ describe("Provider CRUD", () => {
 				await getProviderWithSecrets(created.id),
 				"secrets after update",
 			);
-			expect(decryptApiKey(secrets.apiKeyEncrypted, secrets.apiKeyIv)).toBe("old-key");
+			expect(decryptApiKey(secrets.apiKeyEncrypted, secrets.apiKeyIv)).toBe(
+				"old-key",
+			);
 		});
 
 		it("re-encrypts API key when changed", async () => {
-			const { createProvider, updateProvider, getProviderWithSecrets, decryptApiKey } =
-				await import("./providers");
+			const {
+				createProvider,
+				updateProvider,
+				getProviderWithSecrets,
+				decryptApiKey,
+			} = await import("./providers");
 
 			const created = await createProvider({
 				name: "rotate-key",
@@ -370,7 +398,9 @@ describe("Provider CRUD", () => {
 				await getProviderWithSecrets(created.id),
 				"secrets after rotation",
 			);
-			expect(decryptApiKey(secrets.apiKeyEncrypted, secrets.apiKeyIv)).toBe("new-key");
+			expect(decryptApiKey(secrets.apiKeyEncrypted, secrets.apiKeyIv)).toBe(
+				"new-key",
+			);
 		});
 
 		it("clears fallback key when set to empty", async () => {
@@ -415,7 +445,9 @@ describe("Provider CRUD", () => {
 
 		it("returns null for non-existent provider", async () => {
 			const { updateProvider } = await import("./providers");
-			expect(await updateProvider("nonexistent", { displayName: "Nope" })).toBeNull();
+			expect(
+				await updateProvider("nonexistent", { displayName: "Nope" }),
+			).toBeNull();
 		});
 
 		it("partially updates rate-limit fallback config", async () => {
@@ -439,13 +471,17 @@ describe("Provider CRUD", () => {
 				"secrets after partial fallback update",
 			);
 			expect(secrets.rateLimitFallbackEnabled).toBe(true);
-			expect(secrets.rateLimitFallbackBaseUrl).toBe("https://fb.example.com/v1");
+			expect(secrets.rateLimitFallbackBaseUrl).toBe(
+				"https://fb.example.com/v1",
+			);
 		});
 	});
 
 	describe("deleteProvider", () => {
 		it("deletes an existing provider", async () => {
-			const { createProvider, deleteProvider, getProvider } = await import("./providers");
+			const { createProvider, deleteProvider, getProvider } = await import(
+				"./providers"
+			);
 
 			const created = await createProvider({
 				name: "delete-me",
@@ -495,16 +531,25 @@ describe("validateProviderConnection", () => {
 	});
 
 	it("returns invalid for 401 response", async () => {
-		vi.stubGlobal("fetch", vi.fn(async () => new Response("Unauthorized", { status: 401 })));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("Unauthorized", { status: 401 })),
+		);
 		const { validateProviderConnection } = await import("./providers");
-		const result = await validateProviderConnection("https://api.example.com/v1", "bad-key");
+		const result = await validateProviderConnection(
+			"https://api.example.com/v1",
+			"bad-key",
+		);
 		expect(result.valid).toBe(false);
 		expect(result.error).toBe("Invalid API key");
 	});
 
 	it("returns invalid for non-http protocol", async () => {
 		const { validateProviderConnection } = await import("./providers");
-		const result = await validateProviderConnection("ftp://api.example.com/v1", "key");
+		const result = await validateProviderConnection(
+			"ftp://api.example.com/v1",
+			"key",
+		);
 		expect(result.valid).toBe(false);
 		expect(result.error).toContain("HTTP");
 	});
@@ -535,10 +580,7 @@ describe("modelDiscovery", () => {
 
 		const { modelDiscovery } = await import("./providers");
 		const models = await modelDiscovery("https://api.openai.com/v1", "sk-key");
-		expect(models).toEqual([
-			{ id: "gpt-4" },
-			{ id: "gpt-3.5-turbo" },
-		]);
+		expect(models).toEqual([{ id: "gpt-4" }, { id: "gpt-3.5-turbo" }]);
 	});
 
 	it("handles deepseek.com /models endpoint", async () => {
@@ -566,10 +608,15 @@ describe("modelDiscovery", () => {
 		vi.stubGlobal("fetch", fetchSpy);
 
 		const { modelDiscovery } = await import("./providers");
-		const models = await modelDiscovery("https://api.fireworks.ai/inference/v1", "sk-key");
+		const models = await modelDiscovery(
+			"https://api.fireworks.ai/inference/v1",
+			"sk-key",
+		);
 
 		expect(models).toHaveLength(1);
-		expect(models[0].id).toBe("accounts/fireworks/models/mixtral-8x7b-instruct");
+		expect(models[0].id).toBe(
+			"accounts/fireworks/models/mixtral-8x7b-instruct",
+		);
 		expect(fetchSpy).toHaveBeenCalledWith(
 			expect.stringContaining("/inference/v1/models"),
 			expect.any(Object),
@@ -577,7 +624,10 @@ describe("modelDiscovery", () => {
 	});
 
 	it("throws on 401 with Invalid API key message", async () => {
-		vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 401 })));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(null, { status: 401 })),
+		);
 		const { modelDiscovery } = await import("./providers");
 		await expect(
 			modelDiscovery("https://api.example.com/v1", "bad-key"),
@@ -585,7 +635,10 @@ describe("modelDiscovery", () => {
 	});
 
 	it("throws on 404 with endpoint not supported message", async () => {
-		vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 404 })));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(null, { status: 404 })),
+		);
 		const { modelDiscovery } = await import("./providers");
 		await expect(
 			modelDiscovery("https://api.example.com/v1", "key"),

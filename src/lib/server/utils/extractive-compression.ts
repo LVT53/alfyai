@@ -1,8 +1,39 @@
 const STOPWORDS = new Set([
-	'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of',
-	'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-	'have', 'has', 'had', 'do', 'does', 'did',
-	'will', 'would', 'should', 'could', 'can', 'may', 'might', 'must'
+	"a",
+	"an",
+	"the",
+	"and",
+	"or",
+	"but",
+	"in",
+	"on",
+	"at",
+	"to",
+	"for",
+	"of",
+	"with",
+	"by",
+	"is",
+	"are",
+	"was",
+	"were",
+	"be",
+	"been",
+	"being",
+	"have",
+	"has",
+	"had",
+	"do",
+	"does",
+	"did",
+	"will",
+	"would",
+	"should",
+	"could",
+	"can",
+	"may",
+	"might",
+	"must",
 ]);
 
 export interface ExtractiveCompressionResult {
@@ -47,7 +78,7 @@ function tokenizeStopwordFree(text: string): string[] {
 	return text
 		.toLowerCase()
 		.split(/[^\p{L}\p{N}]+/u)
-		.filter(token => token.length > 0 && !STOPWORDS.has(token));
+		.filter((token) => token.length > 0 && !STOPWORDS.has(token));
 }
 
 export function sentenceTokenOverlap(query: string, sentence: string): number {
@@ -55,7 +86,7 @@ export function sentenceTokenOverlap(query: string, sentence: string): number {
 	if (queryTokens.length === 0) return 0;
 
 	const sentenceTokens = new Set(tokenizeStopwordFree(sentence));
-	return queryTokens.filter(token => sentenceTokens.has(token)).length;
+	return queryTokens.filter((token) => sentenceTokens.has(token)).length;
 }
 
 /**
@@ -71,19 +102,24 @@ function scoreSentence(query: string, sentence: string): number {
 	return overlap / queryTokens.length;
 }
 
-export function extractiveCompress(params: ExtractiveCompressionParams): ExtractiveCompressionResult {
+export function extractiveCompress(
+	params: ExtractiveCompressionParams,
+): ExtractiveCompressionResult {
 	const { chunks, query, maxChars } = params;
 
 	if (chunks.length === 0) {
-		return { text: '', compressionRatio: 0 };
+		return { text: "", compressionRatio: 0 };
 	}
 
 	if (maxChars <= 0) {
-		return { text: '', compressionRatio: 1 };
+		return { text: "", compressionRatio: 1 };
 	}
 
 	// Calculate original total chars
-	const originalTotalChars = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+	const originalTotalChars = chunks.reduce(
+		(sum, chunk) => sum + chunk.length,
+		0,
+	);
 
 	// Extract all sentences with their positions
 	const allSentences: SentenceWithMeta[] = [];
@@ -96,7 +132,7 @@ export function extractiveCompress(params: ExtractiveCompressionParams): Extract
 			allSentences.push({
 				text: sentence,
 				score,
-				originalPosition: globalPosition++
+				originalPosition: globalPosition++,
 			});
 		}
 	}
@@ -114,11 +150,12 @@ export function extractiveCompress(params: ExtractiveCompressionParams): Extract
 			charCount += sentence.text.length;
 		}
 
-		const compressedText = selected.join(' ');
+		const compressedText = selected.join(" ");
 		const compressedChars = compressedText.length;
-		const compressionRatio = originalTotalChars > 0
-			? (originalTotalChars - compressedChars) / originalTotalChars
-			: 0;
+		const compressionRatio =
+			originalTotalChars > 0
+				? (originalTotalChars - compressedChars) / originalTotalChars
+				: 0;
 
 		return { text: compressedText, compressionRatio };
 	}
@@ -141,11 +178,12 @@ export function extractiveCompress(params: ExtractiveCompressionParams): Extract
 	// Sort selected sentences back into ORIGINAL document order
 	selected.sort((a, b) => a.originalPosition - b.originalPosition);
 
-	const compressedText = selected.map(s => s.text).join(' ');
+	const compressedText = selected.map((s) => s.text).join(" ");
 	const compressedChars = compressedText.length;
-	const compressionRatio = originalTotalChars > 0
-		? (originalTotalChars - compressedChars) / originalTotalChars
-		: 0;
+	const compressionRatio =
+		originalTotalChars > 0
+			? (originalTotalChars - compressedChars) / originalTotalChars
+			: 0;
 
 	return { text: compressedText, compressionRatio };
 }

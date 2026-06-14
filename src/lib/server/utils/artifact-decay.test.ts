@@ -1,9 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { computeDecayScore, computeCrossConversationDecay } from './artifact-decay';
+import { describe, expect, it } from "vitest";
+import {
+	computeCrossConversationDecay,
+	computeDecayScore,
+} from "./artifact-decay";
 
-describe('artifact-decay', () => {
-	describe('computeDecayScore', () => {
-		it('old artifact with no query match returns heavily decayed value', () => {
+describe("artifact-decay", () => {
+	describe("computeDecayScore", () => {
+		it("old artifact with no query match returns heavily decayed value", () => {
 			const score = computeDecayScore({
 				importance: 1.0,
 				ageSeconds: 86400,
@@ -14,7 +17,7 @@ describe('artifact-decay', () => {
 			expect(score).toBeLessThan(0.5);
 		});
 
-		it('fresh artifact with high query match returns strong value', () => {
+		it("fresh artifact with high query match returns strong value", () => {
 			const score = computeDecayScore({
 				importance: 2.5,
 				ageSeconds: 0,
@@ -25,7 +28,7 @@ describe('artifact-decay', () => {
 			expect(score).toBeGreaterThan(2.0);
 		});
 
-		it('uses default decayRate of 0.001 when not specified', () => {
+		it("uses default decayRate of 0.001 when not specified", () => {
 			const score = computeDecayScore({
 				importance: 1.0,
 				ageSeconds: 1000,
@@ -36,7 +39,7 @@ describe('artifact-decay', () => {
 			expect(score).toBeCloseTo(0.368, 2);
 		});
 
-		it('applies custom decayRate when specified', () => {
+		it("applies custom decayRate when specified", () => {
 			const score = computeDecayScore({
 				importance: 1.0,
 				ageSeconds: 1000,
@@ -48,7 +51,7 @@ describe('artifact-decay', () => {
 			expect(score).toBeCloseTo(0.000045, 5);
 		});
 
-		it('query overlap boost is 0 when queryLength is 0', () => {
+		it("query overlap boost is 0 when queryLength is 0", () => {
 			const score = computeDecayScore({
 				importance: 1.0,
 				ageSeconds: 0,
@@ -59,7 +62,7 @@ describe('artifact-decay', () => {
 			expect(score).toBe(1.0);
 		});
 
-		it('stale penalty compounds with age decay', () => {
+		it("stale penalty compounds with age decay", () => {
 			const notStale = computeDecayScore({
 				importance: 1.0,
 				ageSeconds: 100,
@@ -78,8 +81,8 @@ describe('artifact-decay', () => {
 		});
 	});
 
-	describe('computeCrossConversationDecay', () => {
-		it('same conversation returns baseScore unchanged', () => {
+	describe("computeCrossConversationDecay", () => {
+		it("same conversation returns baseScore unchanged", () => {
 			const score = computeCrossConversationDecay({
 				baseScore: 10,
 				daysSinceLastAccess: 0,
@@ -88,7 +91,7 @@ describe('artifact-decay', () => {
 			expect(score).toBe(10.0);
 		});
 
-		it('same conversation ignores daysSinceLastAccess', () => {
+		it("same conversation ignores daysSinceLastAccess", () => {
 			const score = computeCrossConversationDecay({
 				baseScore: 10,
 				daysSinceLastAccess: 30,
@@ -97,7 +100,7 @@ describe('artifact-decay', () => {
 			expect(score).toBe(10.0);
 		});
 
-		it('cross conversation 7 days decays significantly', () => {
+		it("cross conversation 7 days decays significantly", () => {
 			const score = computeCrossConversationDecay({
 				baseScore: 10,
 				daysSinceLastAccess: 7,
@@ -107,7 +110,7 @@ describe('artifact-decay', () => {
 			expect(score).toBeGreaterThan(0);
 		});
 
-		it('cross conversation with 0 days has no penalty', () => {
+		it("cross conversation with 0 days has no penalty", () => {
 			const score = computeCrossConversationDecay({
 				baseScore: 10,
 				daysSinceLastAccess: 0,
@@ -116,7 +119,7 @@ describe('artifact-decay', () => {
 			expect(score).toBe(10.0);
 		});
 
-		it('cross conversation floor is 0', () => {
+		it("cross conversation floor is 0", () => {
 			const score = computeCrossConversationDecay({
 				baseScore: 10,
 				daysSinceLastAccess: 100,
@@ -126,7 +129,7 @@ describe('artifact-decay', () => {
 			expect(score).toBeLessThan(1);
 		});
 
-		it('cross conversation decay is monotonic with days', () => {
+		it("cross conversation decay is monotonic with days", () => {
 			const day0 = computeCrossConversationDecay({
 				baseScore: 10,
 				daysSinceLastAccess: 0,

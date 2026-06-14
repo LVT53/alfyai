@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
+	advancePastConversationRefreshDebounce,
 	buildAiSdkUiStreamBody,
 	login,
 	openConversationComposer,
@@ -113,7 +114,7 @@ test.describe("Big Patch integration — cross-feature workflow", () => {
 		await page.locator(".chat-page").dispatchEvent("dragleave", {
 			dataTransfer: { types: ["Files"] },
 		});
-		await expect(page.getByTestId("drop-zone-overlay")).not.toBeVisible();
+		await expect(page.getByTestId("drop-zone-overlay")).toBeHidden();
 
 		// ── Step 4: Upload file via input (Playwright can't do real OS DnD in headless) ──
 		const fileInput = page.locator('input[type="file"]');
@@ -160,7 +161,7 @@ test.describe("Big Patch integration — cross-feature workflow", () => {
 
 		// ── Step 7: Close the modal via Escape ──
 		await page.keyboard.press("Escape");
-		await expect(page.locator('[role="dialog"]')).not.toBeVisible({
+		await expect(page.locator('[role="dialog"]')).toBeHidden({
 			timeout: 5000,
 		});
 	});
@@ -213,12 +214,20 @@ test.describe("Big Patch integration — cross-feature workflow", () => {
 		await sendMessage(page2, "Second context conversation");
 		await page2.waitForURL(/\/chat\//, { timeout: 15000 });
 
+		await advancePastConversationRefreshDebounce(page);
+		const refreshResponse = page.waitForResponse(
+			(candidate) =>
+				candidate.url().endsWith("/api/conversations") &&
+				candidate.request().method() === "GET",
+			{ timeout: 10000 },
+		);
 		await triggerVisibilityChange(page);
-		await page.waitForTimeout(2500);
+		expect((await refreshResponse).status()).toBe(200);
 
 		const conversationItems = page.getByTestId("conversation-item");
-		const count = await conversationItems.count();
-		expect(count).toBeGreaterThanOrEqual(2);
+		await expect
+			.poll(() => conversationItems.count(), { timeout: 10000 })
+			.toBeGreaterThanOrEqual(2);
 
 		await page2.close();
 	});
@@ -236,6 +245,9 @@ test.describe("Big Patch integration — cross-feature workflow", () => {
 
 		const adminUser = beforeActivity.find((u) => u.email === "admin@local");
 		expect(adminUser).toBeDefined();
+		if (!adminUser) {
+			throw new Error("Expected admin user before activity");
+		}
 
 		await page.goto("/");
 		await page.waitForLoadState("networkidle");
@@ -252,8 +264,11 @@ test.describe("Big Patch integration — cross-feature workflow", () => {
 
 		const adminUserAfter = afterActivity.find((u) => u.email === "admin@local");
 		expect(adminUserAfter).toBeDefined();
-		expect(adminUserAfter!.lastActiveAt).toBeGreaterThanOrEqual(
-			adminUser!.lastActiveAt,
+		if (!adminUserAfter) {
+			throw new Error("Expected admin user after activity");
+		}
+		expect(adminUserAfter.lastActiveAt).toBeGreaterThanOrEqual(
+			adminUser.lastActiveAt,
 		);
 
 		await page.getByRole("button", { name: "Administration" }).click();

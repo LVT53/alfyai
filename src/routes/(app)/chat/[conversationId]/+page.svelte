@@ -174,9 +174,11 @@ const initialUserPersonality = getData().userPersonality ?? null;
 const initialUserModel = (getData().userModel ?? "model1") as ModelId;
 const modelIcons = $derived.by(() => {
 	const models =
-		((data as typeof data & {
-			availableModels?: Array<{ id: string; iconUrl?: string | null }>;
-		}).availableModels ?? []);
+		(
+			data as typeof data & {
+				availableModels?: Array<{ id: string; iconUrl?: string | null }>;
+			}
+		).availableModels ?? [];
 	return Object.fromEntries(
 		models.map((model) => [model.id, model.iconUrl ?? null]),
 	) as Record<string, string | null>;
@@ -342,9 +344,16 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	startPendingSkillSession: async (payload) => {
 		try {
 			skillSessionError = null;
+			const pendingSkill = payload.pendingSkill;
+			if (!pendingSkill) {
+				return {
+					ok: false,
+					errorMessage: $t("skillSessions.errors.start"),
+				};
+			}
 			activeSkillSession = await startConversationSkillSession(
 				data.conversation.id,
-				payload.pendingSkill!,
+				pendingSkill,
 			);
 			return { ok: true };
 		} catch (error) {
@@ -404,7 +413,11 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	removeMessage: (messageId) => {
 		messages.update((list) => removeMessageById(list, messageId));
 	},
-	finalizeStreamingMessage: ({ placeholderId, clientUserMessageId, metadata }) => {
+	finalizeStreamingMessage: ({
+		placeholderId,
+		clientUserMessageId,
+		metadata,
+	}) => {
 		messages.update((list) =>
 			finalizeStreamingMessageList(list, {
 				placeholderId,
@@ -667,7 +680,9 @@ function applyConversationModelSelection(
 	conversationId: string,
 	profileDefault: ModelId,
 ) {
-	setSelectedModel(getConversationModelSelection(conversationId, profileDefault));
+	setSelectedModel(
+		getConversationModelSelection(conversationId, profileDefault),
+	);
 }
 
 function setSelectedConversationModelId(modelId: ModelId) {
@@ -695,7 +710,7 @@ function maybeSendPendingInitialMessage() {
 			replaceState(url, page.state);
 		});
 	}
-	if (!pendingDraft || !pendingDraft.message.trim()) {
+	if (!pendingDraft?.message.trim()) {
 		initialStreamPending = false;
 		return;
 	}
@@ -740,11 +755,11 @@ function resetState() {
 	conversationDraft = data.draft ?? null;
 	forkOrigin = data.forkOrigin ?? null;
 	triggerForkOpeningTransition();
-		generatedFiles = data.generatedFiles ?? [];
-		fileProductionJobs = data.fileProductionJobs ?? [];
-		deepResearchJobs = data.deepResearchJobs ?? [];
-		contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
-		conversationStatus = data.conversation.status ?? "open";
+	generatedFiles = data.generatedFiles ?? [];
+	fileProductionJobs = data.fileProductionJobs ?? [];
+	deepResearchJobs = data.deepResearchJobs ?? [];
+	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
+	conversationStatus = data.conversation.status ?? "open";
 	totalCostUsdMicros = data.totalCostUsdMicros ?? 0;
 	totalTokens = data.totalTokens ?? 0;
 	restorePersistedWorkspaceState();
@@ -837,11 +852,7 @@ async function pollForCompletion(
 	if (!detail) {
 		setTimeout(
 			() =>
-				void pollForCompletion(
-					placeholderId,
-					clientUserMessageId,
-					attempt + 1,
-				),
+				void pollForCompletion(placeholderId, clientUserMessageId, attempt + 1),
 			pollInterval,
 		);
 		return;
@@ -1070,16 +1081,16 @@ async function hydrateConversationDetail(conversationId: string) {
 		conversationDraft = payload.draft ?? conversationDraft;
 		forkOrigin = payload.forkOrigin ?? forkOrigin;
 		generatedFiles = payload.generatedFiles ?? generatedFiles;
-			fileProductionJobs = payload.fileProductionJobs ?? fileProductionJobs;
-			deepResearchJobs = payload.deepResearchJobs
-				? mergeDeepResearchJobsForHydration(
-						deepResearchJobs,
-						payload.deepResearchJobs,
-					)
-				: deepResearchJobs;
-			contextCompressionMarkers =
-				payload.contextCompressionSnapshots ?? contextCompressionMarkers;
-			activeSkillSession = payload.activeSkillSession ?? null;
+		fileProductionJobs = payload.fileProductionJobs ?? fileProductionJobs;
+		deepResearchJobs = payload.deepResearchJobs
+			? mergeDeepResearchJobsForHydration(
+					deepResearchJobs,
+					payload.deepResearchJobs,
+				)
+			: deepResearchJobs;
+		contextCompressionMarkers =
+			payload.contextCompressionSnapshots ?? contextCompressionMarkers;
+		activeSkillSession = payload.activeSkillSession ?? null;
 		conversationStatus = payload.conversation?.status ?? conversationStatus;
 		bootstrapMode = false;
 
@@ -1347,10 +1358,11 @@ async function startDeepResearchTurn(params: {
 			personalityProfileId: params.personalityProfileId,
 		});
 		if (params.clientUserMessageId && job.triggerMessageId) {
+			const clientUserMessageId = params.clientUserMessageId;
 			messages.update((list) =>
-				updateMessageById(list, params.clientUserMessageId!, (message) => ({
+				updateMessageById(list, clientUserMessageId, (message) => ({
 					...message,
-					renderKey: message.renderKey ?? params.clientUserMessageId!,
+					renderKey: message.renderKey ?? clientUserMessageId,
 					id: job.triggerMessageId ?? message.id,
 				})),
 			);
@@ -1597,7 +1609,7 @@ async function pollMessageEvidence(messageId: string) {
 async function refreshMessageCost(messageId: string) {
 	try {
 		const detail = await fetchConversationDetail(data.conversation.id);
-		const msg = detail.messages.find((m: any) => m.id === messageId);
+		const msg = detail.messages.find((m) => m.id === messageId);
 		if (msg && (msg.costUsd != null || msg.generationDurationMs != null)) {
 			messages.update((list) =>
 				updateMessageById(list, messageId, (message) => ({
@@ -1626,7 +1638,7 @@ function patchSkillDraftFromResponse(
 	messages.update((list) =>
 		patchSkillDraftInMessageList(list, {
 			messageId,
-			draft: response.draft!,
+			draft: response.draft,
 		}),
 	);
 }
@@ -1833,7 +1845,9 @@ function handleRegenerate(
 
 	// Preserve the user message's attachments so they survive regenerate.
 	const originalAttachments = msgs[userIdx].attachments ?? [];
-	const regenAttachmentIds: string[] = originalAttachments.map((a) => a.artifactId);
+	const regenAttachmentIds: string[] = originalAttachments.map(
+		(a) => a.artifactId,
+	);
 	const regenAttachments = originalAttachments.map((a) => ({
 		id: a.artifactId,
 		type: a.type,
@@ -1885,7 +1899,9 @@ async function handleEdit(
 
 	// Snapshot original attachments before deleting the message so they survive edit+resubmit.
 	const originalAttachments = msgs[editIdx].attachments ?? [];
-	const editAttachmentIds: string[] = originalAttachments.map((a) => a.artifactId);
+	const editAttachmentIds: string[] = originalAttachments.map(
+		(a) => a.artifactId,
+	);
 	const editAttachments = originalAttachments.map((a) => ({
 		id: a.artifactId,
 		type: a.type,
@@ -1952,7 +1968,9 @@ function handleStop() {
 }
 
 function latestTimelineMessageId(): string | null {
-	return [...$messages].reverse().find((message) => Boolean(message.id))?.id ?? null;
+	return (
+		[...$messages].reverse().find((message) => Boolean(message.id))?.id ?? null
+	);
 }
 
 function upsertContextCompressionMarker(marker: ContextCompressionMarker) {

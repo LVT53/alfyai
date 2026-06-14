@@ -1,7 +1,7 @@
 <script lang="ts">
 import { get } from "svelte/store";
 import { t } from "$lib/i18n";
-import { Pencil, Trash2 } from '@lucide/svelte';
+import { Pencil, Trash2 } from "@lucide/svelte";
 import {
 	fetchProviderModels,
 	createProviderModel,
@@ -130,7 +130,12 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (modelIconAssetSaved && formModel && formModel.id === modelIconAssetSaved.modelId && formModel.iconAssetId !== modelIconAssetSaved.assetId) {
+	if (
+		modelIconAssetSaved &&
+		formModel &&
+		formModel.id === modelIconAssetSaved.modelId &&
+		formModel.iconAssetId !== modelIconAssetSaved.assetId
+	) {
 		formModel = { ...formModel, iconAssetId: modelIconAssetSaved.assetId };
 	}
 });

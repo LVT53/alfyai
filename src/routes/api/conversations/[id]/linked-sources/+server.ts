@@ -1,25 +1,26 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { requireAuth } from '$lib/server/auth/hooks';
-import { getConfig } from '$lib/server/config-store';
+import { json } from "@sveltejs/kit";
+import { requireAuth } from "$lib/server/auth/hooks";
+import { getConfig } from "$lib/server/config-store";
 import {
 	addConversationLinkedContextSources,
 	isLinkedContextSourceError,
-} from '$lib/server/services/linked-context-sources';
-import type { LinkedContextSource } from '$lib/types';
+} from "$lib/server/services/linked-context-sources";
+import type { LinkedContextSource } from "$lib/types";
+import type { RequestHandler } from "./$types";
 
 function parseLinkedSources(value: unknown): LinkedContextSource[] | null {
 	if (!Array.isArray(value)) return null;
 	const sources: LinkedContextSource[] = [];
 	for (const item of value) {
-		if (typeof item !== 'object' || item === null) return null;
+		if (typeof item !== "object" || item === null) return null;
 		const record = item as Record<string, unknown>;
 		if (
-			typeof record.displayArtifactId !== 'string' ||
-			(record.promptArtifactId !== null && typeof record.promptArtifactId !== 'string') ||
+			typeof record.displayArtifactId !== "string" ||
+			(record.promptArtifactId !== null &&
+				typeof record.promptArtifactId !== "string") ||
 			!Array.isArray(record.familyArtifactIds) ||
-			typeof record.name !== 'string' ||
-			record.type !== 'document'
+			typeof record.name !== "string" ||
+			record.type !== "document"
 		) {
 			return null;
 		}
@@ -27,13 +28,14 @@ function parseLinkedSources(value: unknown): LinkedContextSource[] | null {
 			displayArtifactId: record.displayArtifactId,
 			promptArtifactId: record.promptArtifactId,
 			familyArtifactIds: record.familyArtifactIds.filter(
-				(value): value is string => typeof value === 'string'
+				(value): value is string => typeof value === "string",
 			),
 			name: record.name,
-			type: 'document',
-			mimeType: typeof record.mimeType === 'string' ? record.mimeType : null,
+			type: "document",
+			mimeType: typeof record.mimeType === "string" ? record.mimeType : null,
 			documentOrigin:
-				record.documentOrigin === 'uploaded' || record.documentOrigin === 'generated'
+				record.documentOrigin === "uploaded" ||
+				record.documentOrigin === "generated"
 					? record.documentOrigin
 					: undefined,
 		});
@@ -43,7 +45,7 @@ function parseLinkedSources(value: unknown): LinkedContextSource[] | null {
 
 function parseStringArray(value: unknown): string[] | null {
 	if (!Array.isArray(value)) return null;
-	return value.filter((item): item is string => typeof item === 'string');
+	return value.filter((item): item is string => typeof item === "string");
 }
 
 export const POST: RequestHandler = async (event) => {
@@ -52,27 +54,33 @@ export const POST: RequestHandler = async (event) => {
 	if (!getConfig().composerCommandRegistryEnabled) {
 		return json(
 			{
-				error: 'Composer Command Registry is disabled.',
-				errorKey: 'composerCommandRegistry.disabled',
+				error: "Composer Command Registry is disabled.",
+				errorKey: "composerCommandRegistry.disabled",
 			},
-			{ status: 404 }
+			{ status: 404 },
 		);
 	}
 
 	const body = await event.request.json().catch(() => null);
-	if (!body || typeof body !== 'object') {
-		return json({ error: 'Invalid linked source payload' }, { status: 400 });
+	if (!body || typeof body !== "object") {
+		return json({ error: "Invalid linked source payload" }, { status: 400 });
 	}
 
-	const linkedSources = parseLinkedSources((body as Record<string, unknown>).linkedSources);
+	const linkedSources = parseLinkedSources(
+		(body as Record<string, unknown>).linkedSources,
+	);
 	if (!linkedSources) {
-		return json({ error: 'linkedSources must be an array of linked documents' }, { status: 400 });
+		return json(
+			{ error: "linkedSources must be an array of linked documents" },
+			{ status: 400 },
+		);
 	}
-	const attachmentIds = parseStringArray((body as Record<string, unknown>).attachmentIds) ?? [];
+	const attachmentIds =
+		parseStringArray((body as Record<string, unknown>).attachmentIds) ?? [];
 
 	try {
 		const resolved = await addConversationLinkedContextSources({
-			userId: event.locals.user!.id,
+			userId: event.locals.user?.id,
 			conversationId: event.params.id,
 			linkedSources,
 			attachmentIds,
@@ -80,7 +88,10 @@ export const POST: RequestHandler = async (event) => {
 		return json({ linkedSources: resolved });
 	} catch (error) {
 		if (isLinkedContextSourceError(error)) {
-			return json({ error: error.message, code: error.code }, { status: error.status });
+			return json(
+				{ error: error.message, code: error.code },
+				{ status: error.status },
+			);
 		}
 		throw error;
 	}

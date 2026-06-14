@@ -1,17 +1,17 @@
-import { getConfig, type RuntimeConfig } from '$lib/server/config-store';
+import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
 
 export const FILE_PRODUCTION_LIMIT_ERROR_CODES = [
-	'too_many_outputs',
-	'source_too_large',
-	'projection_too_large',
-	'page_limit_exceeded',
-	'table_limit_exceeded',
-	'chart_limit_exceeded',
-	'image_limit_exceeded',
-	'renderer_timeout',
-	'sandbox_timeout',
-	'output_file_too_large',
-	'job_outputs_too_large',
+	"too_many_outputs",
+	"source_too_large",
+	"projection_too_large",
+	"page_limit_exceeded",
+	"table_limit_exceeded",
+	"chart_limit_exceeded",
+	"image_limit_exceeded",
+	"renderer_timeout",
+	"sandbox_timeout",
+	"output_file_too_large",
+	"job_outputs_too_large",
 ] as const;
 
 export type FileProductionLimitErrorCode =
@@ -45,7 +45,9 @@ export interface FileProductionLimitFailure {
 	unit: string;
 }
 
-export type FileProductionLimitResult = { ok: true } | FileProductionLimitFailure;
+export type FileProductionLimitResult =
+	| { ok: true }
+	| FileProductionLimitFailure;
 
 type FileProductionRuntimeLimitConfig = Partial<RuntimeConfig> & {
 	fileProductionMaxOutputs?: number;
@@ -84,68 +86,74 @@ const DEFAULT_LIMITS: FileProductionLimits = {
 };
 
 function positiveInteger(value: unknown, fallback: number): number {
-	return typeof value === 'number' && Number.isFinite(value) && value > 0
+	return typeof value === "number" && Number.isFinite(value) && value > 0
 		? Math.trunc(value)
 		: fallback;
 }
 
 export function getFileProductionLimits(
-	config: FileProductionRuntimeLimitConfig = getConfig()
+	config: FileProductionRuntimeLimitConfig = getConfig(),
 ): FileProductionLimits {
 	return {
 		maxRequestedOutputs: positiveInteger(
 			config.fileProductionMaxOutputs,
-			DEFAULT_LIMITS.maxRequestedOutputs
+			DEFAULT_LIMITS.maxRequestedOutputs,
 		),
 		maxSourceJsonBytes: positiveInteger(
 			config.fileProductionMaxSourceJsonBytes,
-			DEFAULT_LIMITS.maxSourceJsonBytes
+			DEFAULT_LIMITS.maxSourceJsonBytes,
 		),
 		maxProjectionBytes: positiveInteger(
 			config.fileProductionMaxProjectionBytes,
-			DEFAULT_LIMITS.maxProjectionBytes
+			DEFAULT_LIMITS.maxProjectionBytes,
 		),
-		maxPdfPages: positiveInteger(config.fileProductionMaxPdfPages, DEFAULT_LIMITS.maxPdfPages),
-		maxTableRows: positiveInteger(config.fileProductionMaxTableRows, DEFAULT_LIMITS.maxTableRows),
+		maxPdfPages: positiveInteger(
+			config.fileProductionMaxPdfPages,
+			DEFAULT_LIMITS.maxPdfPages,
+		),
+		maxTableRows: positiveInteger(
+			config.fileProductionMaxTableRows,
+			DEFAULT_LIMITS.maxTableRows,
+		),
 		maxTableColumns: positiveInteger(
 			config.fileProductionMaxTableColumns,
-			DEFAULT_LIMITS.maxTableColumns
+			DEFAULT_LIMITS.maxTableColumns,
 		),
 		maxChartDataPoints: positiveInteger(
 			config.fileProductionMaxChartDataPoints,
-			DEFAULT_LIMITS.maxChartDataPoints
+			DEFAULT_LIMITS.maxChartDataPoints,
 		),
 		maxChartSeries: positiveInteger(
 			config.fileProductionMaxChartSeries,
-			DEFAULT_LIMITS.maxChartSeries
+			DEFAULT_LIMITS.maxChartSeries,
 		),
 		maxImageCount: positiveInteger(
 			config.fileProductionMaxImageCount,
-			DEFAULT_LIMITS.maxImageCount
+			DEFAULT_LIMITS.maxImageCount,
 		),
 		maxImageBytes: positiveInteger(
 			config.fileProductionMaxImageBytes,
-			DEFAULT_LIMITS.maxImageBytes
+			DEFAULT_LIMITS.maxImageBytes,
 		),
 		maxTotalImageBytes: positiveInteger(
 			config.fileProductionMaxTotalImageBytes,
-			DEFAULT_LIMITS.maxTotalImageBytes
+			DEFAULT_LIMITS.maxTotalImageBytes,
 		),
 		sandboxTimeoutMs: positiveInteger(
 			config.fileProductionSandboxTimeoutMs,
-			DEFAULT_LIMITS.sandboxTimeoutMs
+			DEFAULT_LIMITS.sandboxTimeoutMs,
 		),
 		rendererTimeoutMs: positiveInteger(
 			config.fileProductionRendererTimeoutMs,
-			DEFAULT_LIMITS.rendererTimeoutMs
+			DEFAULT_LIMITS.rendererTimeoutMs,
 		),
 		maxOutputFileBytes: positiveInteger(
 			config.fileProductionMaxOutputFileBytes,
-			DEFAULT_LIMITS.maxOutputFileBytes
+			DEFAULT_LIMITS.maxOutputFileBytes,
 		),
 		maxTotalOutputBytes: positiveInteger(
 			config.fileProductionMaxTotalOutputBytes,
-			DEFAULT_LIMITS.maxTotalOutputBytes
+			DEFAULT_LIMITS.maxTotalOutputBytes,
 		),
 	};
 }
@@ -177,21 +185,21 @@ export function validateFileProductionStaticLimits(params: {
 	const limits = params.limits ?? getFileProductionLimits();
 	if (params.outputCount > limits.maxRequestedOutputs) {
 		return failure({
-			code: 'too_many_outputs',
-			message: 'Too many outputs were requested.',
+			code: "too_many_outputs",
+			message: "Too many outputs were requested.",
 			limit: limits.maxRequestedOutputs,
 			actual: params.outputCount,
-			unit: 'outputs',
+			unit: "outputs",
 		});
 	}
 
 	if (params.sourceJsonBytes > limits.maxSourceJsonBytes) {
 		return failure({
-			code: 'source_too_large',
-			message: 'The file production source is too large.',
+			code: "source_too_large",
+			message: "The file production source is too large.",
 			limit: limits.maxSourceJsonBytes,
 			actual: params.sourceJsonBytes,
-			unit: 'bytes',
+			unit: "bytes",
 		});
 	}
 
@@ -203,25 +211,27 @@ export function validateFileProductionOutputLimits(params: {
 	limits?: FileProductionLimits;
 }): FileProductionLimitResult {
 	const limits = params.limits ?? getFileProductionLimits();
-	const oversizedFile = params.fileSizes.find((size) => size > limits.maxOutputFileBytes);
+	const oversizedFile = params.fileSizes.find(
+		(size) => size > limits.maxOutputFileBytes,
+	);
 	if (oversizedFile !== undefined) {
 		return failure({
-			code: 'output_file_too_large',
-			message: 'A produced file is larger than the configured limit.',
+			code: "output_file_too_large",
+			message: "A produced file is larger than the configured limit.",
 			limit: limits.maxOutputFileBytes,
 			actual: oversizedFile,
-			unit: 'bytes',
+			unit: "bytes",
 		});
 	}
 
 	const totalBytes = params.fileSizes.reduce((sum, size) => sum + size, 0);
 	if (totalBytes > limits.maxTotalOutputBytes) {
 		return failure({
-			code: 'job_outputs_too_large',
-			message: 'The produced files are larger than the configured job limit.',
+			code: "job_outputs_too_large",
+			message: "The produced files are larger than the configured job limit.",
 			limit: limits.maxTotalOutputBytes,
 			actual: totalBytes,
-			unit: 'bytes',
+			unit: "bytes",
 		});
 	}
 

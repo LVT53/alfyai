@@ -25,10 +25,14 @@ describe("composer command parser", () => {
 			end: 5,
 		});
 
-		expect(findActiveComposerCommandToken("https://example.com/a", 9)).toBeNull();
+		expect(
+			findActiveComposerCommandToken("https://example.com/a", 9),
+		).toBeNull();
 		expect(findActiveComposerCommandToken("It costs $12", 12)).toBeNull();
 		expect(findActiveComposerCommandToken("literal/path", 12)).toBeNull();
-		expect(findActiveComposerCommandToken("mention /model here", 19)).toBeNull();
+		expect(
+			findActiveComposerCommandToken("mention /model here", 19),
+		).toBeNull();
 	});
 
 	it("replaces only the active command token and preserves surrounding text", () => {
@@ -56,7 +60,9 @@ describe("composer command parser", () => {
 			"",
 		);
 
-		expect(findActiveComposerCommandToken("Please /research now", 11)).toMatchObject({
+		expect(
+			findActiveComposerCommandToken("Please /research now", 11),
+		).toMatchObject({
 			prefix: "/",
 			query: "res",
 			start: 7,

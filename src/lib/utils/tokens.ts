@@ -7,7 +7,9 @@ export function estimateTokenCount(text: string): number {
 
 	for (const segment of segments) {
 		if (/^[\p{L}\p{N}]+$/u.test(segment)) {
-			const isAscii = /^[\x00-\x7F]+$/.test(segment);
+			const isAscii = Array.from(segment).every(
+				(character) => (character.codePointAt(0) ?? 0) <= 0x7f,
+			);
 			estimated += Math.max(1, Math.ceil(segment.length / (isAscii ? 4 : 2)));
 			continue;
 		}

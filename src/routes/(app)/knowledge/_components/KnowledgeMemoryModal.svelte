@@ -1,89 +1,93 @@
 <script lang="ts">
-	import type {
-		FocusContinuityItem,
-		PersonaMemoryItem,
-		TaskMemoryItem,
-	} from '$lib/types';
-	import type {
-		FocusContinuityView,
-		MemoryModal,
-		PersonaMemoryFilter,
-	} from '../_helpers';
-	import {
-		formatMemoryTimestamp,
-		formatPersonaActor,
-		formatPersonaClass,
-		formatPersonaOrigin,
-		formatPersonaSource,
-		getPersonaRowKey,
-		personaMemoryFilters,
-	} from '../_helpers';
-	import { t } from '$lib/i18n';
-	import { X } from '@lucide/svelte';
+import type {
+	FocusContinuityItem,
+	PersonaMemoryItem,
+	TaskMemoryItem,
+} from "$lib/types";
+import type {
+	FocusContinuityView,
+	MemoryModal,
+	PersonaMemoryFilter,
+} from "../_helpers";
+import {
+	formatMemoryTimestamp,
+	formatPersonaActor,
+	formatPersonaClass,
+	formatPersonaOrigin,
+	formatPersonaSource,
+	getPersonaRowKey,
+	personaMemoryFilters,
+} from "../_helpers";
+import { t } from "$lib/i18n";
+import { X } from "@lucide/svelte";
 
-	let {
-		activeMemoryModal,
-		memoryLoading,
-		memoryLoaded,
-		memoryLoadError,
-		honchoEnabled,
-		personaMemories,
-		filteredPersonaMemories,
-		personaMemoryFilter,
-		personaMemoryStateCounts,
-		selectedPersonaMemoryIds,
-		taskMemories,
-		selectedTaskMemoryIds,
-		focusContinuities,
-		selectedFocusContinuityIds,
-		focusContinuityView,
-		userDisplayName,
-		isMemoryActionPending,
-		onClose,
-		onSetPersonaMemoryFilter,
-		onSetFocusContinuityView,
-		onTogglePersonaSelection,
-		onToggleAllPersonaSelections,
-		onToggleTaskSelection,
-		onToggleAllTaskSelections,
-		onToggleFocusContinuitySelection,
-		onToggleAllFocusContinuitySelections,
-		onRunBulkPersonaForget,
-		onRunBulkTaskForget,
-		onRunBulkFocusContinuityForget,
-		onRunMemoryAction,
-	}: {
-		activeMemoryModal: Exclude<MemoryModal, null>;
-		memoryLoading: boolean;
-		memoryLoaded: boolean;
-		memoryLoadError: string;
-		honchoEnabled: boolean;
-		personaMemories: PersonaMemoryItem[];
-		filteredPersonaMemories: PersonaMemoryItem[];
-		personaMemoryFilter: PersonaMemoryFilter;
-		personaMemoryStateCounts: Record<PersonaMemoryFilter, number>;
-		selectedPersonaMemoryIds: string[];
-		taskMemories: TaskMemoryItem[];
-		selectedTaskMemoryIds: string[];
-		focusContinuities: FocusContinuityItem[];
-		selectedFocusContinuityIds: string[];
-		focusContinuityView: FocusContinuityView;
-		userDisplayName: string;
-		isMemoryActionPending: (key: string) => boolean;
-		onClose: () => void;
-		onSetPersonaMemoryFilter: (filter: PersonaMemoryFilter) => void;
-		onSetFocusContinuityView: (view: FocusContinuityView) => void;
-		onTogglePersonaSelection: (id: string) => void;
-		onToggleAllPersonaSelections: () => void;
-		onToggleTaskSelection: (id: string) => void;
-		onToggleAllTaskSelections: () => void;
-		onToggleFocusContinuitySelection: (id: string) => void;
-		onToggleAllFocusContinuitySelections: () => void;
-		onRunBulkPersonaForget: () => void | Promise<void>;
-		onRunBulkTaskForget: () => void | Promise<void>;
-		onRunBulkFocusContinuityForget: () => void | Promise<void>;
-		onRunMemoryAction: (payload: any, key: string, confirmationMessage?: string) => void | Promise<void>;
-	} = $props();
+let {
+	activeMemoryModal,
+	memoryLoading,
+	memoryLoaded,
+	memoryLoadError,
+	honchoEnabled,
+	personaMemories,
+	filteredPersonaMemories,
+	personaMemoryFilter,
+	personaMemoryStateCounts,
+	selectedPersonaMemoryIds,
+	taskMemories,
+	selectedTaskMemoryIds,
+	focusContinuities,
+	selectedFocusContinuityIds,
+	focusContinuityView,
+	userDisplayName,
+	isMemoryActionPending,
+	onClose,
+	onSetPersonaMemoryFilter,
+	onSetFocusContinuityView,
+	onTogglePersonaSelection,
+	onToggleAllPersonaSelections,
+	onToggleTaskSelection,
+	onToggleAllTaskSelections,
+	onToggleFocusContinuitySelection,
+	onToggleAllFocusContinuitySelections,
+	onRunBulkPersonaForget,
+	onRunBulkTaskForget,
+	onRunBulkFocusContinuityForget,
+	onRunMemoryAction,
+}: {
+	activeMemoryModal: Exclude<MemoryModal, null>;
+	memoryLoading: boolean;
+	memoryLoaded: boolean;
+	memoryLoadError: string;
+	honchoEnabled: boolean;
+	personaMemories: PersonaMemoryItem[];
+	filteredPersonaMemories: PersonaMemoryItem[];
+	personaMemoryFilter: PersonaMemoryFilter;
+	personaMemoryStateCounts: Record<PersonaMemoryFilter, number>;
+	selectedPersonaMemoryIds: string[];
+	taskMemories: TaskMemoryItem[];
+	selectedTaskMemoryIds: string[];
+	focusContinuities: FocusContinuityItem[];
+	selectedFocusContinuityIds: string[];
+	focusContinuityView: FocusContinuityView;
+	userDisplayName: string;
+	isMemoryActionPending: (key: string) => boolean;
+	onClose: () => void;
+	onSetPersonaMemoryFilter: (filter: PersonaMemoryFilter) => void;
+	onSetFocusContinuityView: (view: FocusContinuityView) => void;
+	onTogglePersonaSelection: (id: string) => void;
+	onToggleAllPersonaSelections: () => void;
+	onToggleTaskSelection: (id: string) => void;
+	onToggleAllTaskSelections: () => void;
+	onToggleFocusContinuitySelection: (id: string) => void;
+	onToggleAllFocusContinuitySelections: () => void;
+	onRunBulkPersonaForget: () => void | Promise<void>;
+	onRunBulkTaskForget: () => void | Promise<void>;
+	onRunBulkFocusContinuityForget: () => void | Promise<void>;
+	onRunMemoryAction: (
+		payload: Record<string, unknown>,
+		key: string,
+		confirmationMessage?: string,
+	) => void | Promise<void>;
+} = $props();
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->

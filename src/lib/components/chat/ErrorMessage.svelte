@@ -1,16 +1,16 @@
 <script lang="ts">
-	import { t } from "$lib/i18n";
-	import { AlertCircle, X } from "@lucide/svelte";
+import { t } from "$lib/i18n";
+import { AlertCircle, X } from "@lucide/svelte";
 
-	let {
-		error,
-		onRetry,
-		onClose
-	}: {
-		error: string;
-		onRetry: () => void;
-		onClose: () => void;
-	} = $props();
+let {
+	error,
+	onRetry,
+	onClose,
+}: {
+	error: string;
+	onRetry: () => void;
+	onClose: () => void;
+} = $props();
 </script>
 
 <div class="error-toast" role="alert" aria-live="assertive">
