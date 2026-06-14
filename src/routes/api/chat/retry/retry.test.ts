@@ -1,342 +1,178 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockConversationMessages, capturedSyntheticBodies } = vi.hoisted(() => ({
-	mockConversationMessages: [] as Array<{ id: string; role: string; content: string }>,
-	capturedSyntheticBodies: [] as Array<Record<string, unknown>>,
-}));
-
-vi.mock('$lib/server/auth/hooks', () => ({
+vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
 }));
 
-vi.mock('$lib/server/services/conversations', () => ({
-	getConversation: vi.fn(async () => ({ id: 'conv-1' })),
-}));
-
-vi.mock('$lib/server/db', () => ({
-	db: {
-		select: vi.fn(() => ({
-			from: vi.fn(() => ({
-				where: vi.fn(() => ({
-					orderBy: vi.fn(async () => mockConversationMessages),
-				})),
-			})),
-		})),
-	},
-}));
-
-vi.mock('$lib/server/services/messages', () => ({
-	deleteMessages: vi.fn(async () => undefined),
-}));
-
-vi.mock('$lib/server/services/conversation-forks', () => ({
-	listChildForksBySourceMessages: vi.fn(async () => ({})),
-}));
-
-vi.mock('$lib/server/config-store', () => ({
+vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({
 		maxMessageLength: 10000,
 		model1MaxMessageLength: 10000,
 		model2MaxMessageLength: 10000,
-		model1: { displayName: 'Model 1' },
-		model2: { displayName: 'Model 2' },
+		model1: { displayName: "Model 1" },
+		model2: { displayName: "Model 2" },
 	})),
 }));
 
-vi.mock('$lib/server/services/chat-turn/retry-cleanup', () => ({
-	cleanupFailedTurn: vi.fn(async () => ({ steps: [], warnings: [] })),
-}));
-
-vi.mock('$lib/server/services/chat-turn/request', () => ({
-	parseChatTurnRequest: vi.fn(async (request: Request) => {
-		const body = await request.json();
-		capturedSyntheticBodies.push(body);
-		return {
-			ok: true,
-			value: {
-				conversationId: body.conversationId,
-				normalizedMessage: body.message,
-				modelDisplayName: 'Model 1',
-				modelId: 'model1',
-				attachmentIds: [],
-				linkedSources: [],
-				pendingSkill: null,
-				reasoningDepth: body.reasoningDepth ?? 'auto',
-				thinkingMode:
-					body.reasoningDepth === 'off'
-						? 'off'
-						: body.reasoningDepth === 'max'
-							? 'on'
-							: 'auto',
-				forceWebSearch: false,
-				skipPersistUserMessage: true,
-			},
-		};
-	}),
-}));
-
-vi.mock('$lib/server/services/chat-turn/preflight', () => ({
-	preflightChatTurn: vi.fn(async ({ request }) => ({
+vi.mock("$lib/server/services/chat-turn/retry", () => ({
+	prepareRetryChatTurn: vi.fn(async () => ({
 		ok: true,
-		value: request,
+		value: {
+			orchestratorInput: {
+				turn: {
+					conversationId: "conv-1",
+					normalizedMessage: "retry prompt",
+					modelDisplayName: "Model 1",
+					modelId: "model1",
+					attachmentIds: [],
+					linkedSources: [],
+					pendingSkill: null,
+					reasoningDepth: "auto",
+					thinkingMode: "auto",
+					forceWebSearch: false,
+					skipPersistUserMessage: true,
+					depthMetadata: {
+						requested: "auto",
+						appliedProfile: "standard",
+						fallback: false,
+					},
+				},
+				upstreamMessage: "retry prompt",
+				isReconnect: false,
+				systemPromptAppendix: "retry fresh",
+			},
+		},
 	})),
 }));
 
-vi.mock('$lib/server/services/chat-turn/stream-orchestrator', () => ({
-	runChatStreamOrchestrator: vi.fn(async () => new Response('retry stream')),
+vi.mock("$lib/server/services/chat-turn/stream-orchestrator", () => ({
+	runChatStreamOrchestrator: vi.fn(() => new Response("retry stream")),
 }));
 
-import { POST } from './+server';
-import { cleanupFailedTurn } from '$lib/server/services/chat-turn/retry-cleanup';
-import { preflightChatTurn } from '$lib/server/services/chat-turn/preflight';
-import { runChatStreamOrchestrator } from '$lib/server/services/chat-turn/stream-orchestrator';
-import { deleteMessages } from '$lib/server/services/messages';
-import { listChildForksBySourceMessages } from '$lib/server/services/conversation-forks';
+import { getConfig } from "$lib/server/config-store";
+import { prepareRetryChatTurn } from "$lib/server/services/chat-turn/retry";
+import { runChatStreamOrchestrator } from "$lib/server/services/chat-turn/stream-orchestrator";
+import { POST } from "./+server";
 
 function makeEvent(body: Record<string, unknown>) {
 	return {
-		request: new Request('http://localhost/api/chat/retry', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+		request: new Request("http://localhost/api/chat/retry", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
 		}),
 		locals: {
 			user: {
-				id: 'user-1',
-				email: 'user@example.com',
-				displayName: 'User',
+				id: "user-1",
+				email: "user@example.com",
+				displayName: "User",
 			},
 		},
 		params: {},
 	} as never;
 }
 
-describe('POST /api/chat/retry', () => {
+describe("POST /api/chat/retry", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		capturedSyntheticBodies.length = 0;
-		mockConversationMessages.splice(
-			0,
-			mockConversationMessages.length,
-			{ id: 'user-1', role: 'user', content: 'first prompt' },
-			{ id: 'assistant-1', role: 'assistant', content: 'first answer' },
-			{ id: 'user-2', role: 'user', content: 'historical prompt' },
-			{ id: 'assistant-2', role: 'assistant', content: 'historical answer' },
-			{ id: 'user-3', role: 'user', content: 'latest prompt' },
-			{ id: 'assistant-3', role: 'assistant', content: 'latest answer' },
-		);
-		(listChildForksBySourceMessages as ReturnType<typeof vi.fn>).mockResolvedValue({});
 	});
 
-	it('regenerates a historical assistant turn using its preceding user message', async () => {
+	it("delegates retry preparation to chat-turn and streams the prepared orchestrator input", async () => {
 		const response = await POST(
 			makeEvent({
-				conversationId: 'conv-1',
-				assistantMessageId: 'assistant-2',
-				userMessageId: 'user-2',
-				userMessage: 'historical prompt',
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				userMessageId: "user-1",
+				userMessage: "retry prompt",
+				reasoningDepth: "auto",
 			}),
 		);
 
 		expect(response.status).toBe(200);
-		expect(cleanupFailedTurn).toHaveBeenCalledWith({
-			userId: 'user-1',
-			conversationId: 'conv-1',
-			assistantMessageId: 'assistant-2',
-		});
-		expect(deleteMessages).toHaveBeenCalledWith(['assistant-2', 'user-3', 'assistant-3']);
-		expect(capturedSyntheticBodies[0]?.message).toBe('historical prompt');
-	});
-
-	it('regenerates the latest assistant turn without selecting an older user message', async () => {
-		const response = await POST(
-			makeEvent({
-				conversationId: 'conv-1',
-				assistantMessageId: 'assistant-3',
-				userMessageId: 'user-3',
-				userMessage: 'latest prompt',
-				reasoningDepth: 'max',
-			}),
-		);
-
-		expect(response.status).toBe(200);
-		expect(deleteMessages).toHaveBeenCalledWith(['assistant-3']);
-		expect(capturedSyntheticBodies[0]?.message).toBe('latest prompt');
-		expect(capturedSyntheticBodies[0]?.reasoningDepth).toBe('max');
-		expect(capturedSyntheticBodies[0]).not.toHaveProperty('thinkingMode');
-	});
-
-	it('reruns preflight for Auto Reasoning Depth retries and passes resolved metadata to the stream orchestrator', async () => {
-		(preflightChatTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-			ok: true,
-			value: {
-				conversationId: 'conv-1',
-				normalizedMessage: 'latest prompt',
-				modelDisplayName: 'Model 1',
-				modelId: 'model1',
-				attachmentIds: [],
-				linkedSources: [],
-				pendingSkill: null,
-				reasoningDepth: 'auto',
-				thinkingMode: 'auto',
-				forceWebSearch: false,
-				skipPersistUserMessage: true,
-				depthMetadata: {
-					requested: 'auto',
-					appliedProfile: 'extended',
-					fallback: false,
-					classifierSource: 'control_model',
-					modelId: 'model1',
-					modelDisplayName: 'Model 1',
-				},
-			},
-		});
-
-		const response = await POST(
-			makeEvent({
-				conversationId: 'conv-1',
-				assistantMessageId: 'assistant-3',
-				userMessageId: 'user-3',
-				userMessage: 'latest prompt',
-				reasoningDepth: 'auto',
-			}),
-		);
-
-		expect(response.status).toBe(200);
-		expect(capturedSyntheticBodies[0]?.reasoningDepth).toBe('auto');
-		expect(preflightChatTurn).toHaveBeenCalledWith({
-			userId: 'user-1',
-			request: expect.objectContaining({
-				normalizedMessage: 'latest prompt',
-				reasoningDepth: 'auto',
+		expect(await response.text()).toBe("retry stream");
+		expect(prepareRetryChatTurn).toHaveBeenCalledWith({
+			userId: "user-1",
+			runtimeConfig: getConfig(),
+			body: expect.objectContaining({
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				userMessage: "retry prompt",
 			}),
 		});
 		expect(runChatStreamOrchestrator).toHaveBeenCalledWith(
 			expect.objectContaining({
-				turn: expect.objectContaining({
-					depthMetadata: expect.objectContaining({
-						appliedProfile: 'extended',
-						classifierSource: 'control_model',
-					}),
-				}),
-			}),
-		);
-	});
-
-	it('keeps active Skill prompt context when regenerating a response', async () => {
-		(preflightChatTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-			ok: true,
-			value: {
-				conversationId: 'conv-1',
-				normalizedMessage: 'latest prompt',
-				modelDisplayName: 'Model 1',
-				modelId: 'model1',
-				attachmentIds: [],
-				linkedSources: [],
-				reasoningDepth: 'auto',
-				thinkingMode: 'auto',
-				skipPersistUserMessage: true,
-				skillPromptContext: {
-					source: 'active_session',
-					sessionId: 'session-1',
-					sessionStatus: 'active',
-					skillId: 'skill-1',
-					skillOwnership: 'user',
-					skillDisplayName: 'Meeting critic',
-					skillDescription: 'Reviews notes',
-					skillInstructions: 'Capture decisions before answering.',
-					durationPolicy: 'session',
-					questionPolicy: 'none',
-					notesPolicy: 'create_private_notes',
-					sourceScope: 'selected_sources_only',
-					skillVersion: 1,
-					linkedSources: [],
+				user: {
+					id: "user-1",
+					displayName: "User",
+					email: "user@example.com",
 				},
+				upstreamMessage: "retry prompt",
+				isReconnect: false,
+				systemPromptAppendix: "retry fresh",
+				requestStartTime: expect.any(Number),
+				downstreamAbortSignal: expect.any(AbortSignal),
+			}),
+		);
+	});
+
+	it("maps retry preparation JSON errors without invoking the stream orchestrator", async () => {
+		(prepareRetryChatTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+			ok: false,
+			error: {
+				status: 409,
+				error: "Forked source history requires confirmation",
+				code: "forked_source_history_confirmation_required",
+				errorKey: "fork.regenerateWarning",
+				responseShape: "json",
 			},
 		});
 
 		const response = await POST(
 			makeEvent({
-				conversationId: 'conv-1',
-				assistantMessageId: 'assistant-3',
-				userMessageId: 'user-3',
-				userMessage: 'latest prompt',
-			}),
-		);
-
-		expect(response.status).toBe(200);
-		const options = (runChatStreamOrchestrator as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
-		expect(options.systemPromptAppendix).toContain('Active Skill Context');
-		expect(options.systemPromptAppendix).toContain('Capture decisions before answering.');
-		expect(options.systemPromptAppendix).toContain('regenerating their last request');
-	});
-
-	it('rejects a mismatched user/assistant retry target', async () => {
-		const response = await POST(
-			makeEvent({
-				conversationId: 'conv-1',
-				assistantMessageId: 'assistant-2',
-				userMessageId: 'user-3',
-				userMessage: 'latest prompt',
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				userMessageId: "user-1",
+				userMessage: "retry prompt",
 			}),
 		);
 
 		expect(response.status).toBe(409);
-		expect(cleanupFailedTurn).not.toHaveBeenCalled();
-		expect(deleteMessages).not.toHaveBeenCalled();
+		expect(await response.json()).toEqual({
+			error: "Forked source history requires confirmation",
+			code: "forked_source_history_confirmation_required",
+			errorKey: "fork.regenerateWarning",
+		});
+		expect(runChatStreamOrchestrator).not.toHaveBeenCalled();
 	});
 
-	it('requires explicit confirmation before regenerating source history with child forks', async () => {
-		(listChildForksBySourceMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
-			'assistant-2': {
-				count: 1,
-				forks: [
-					{
-						conversationId: 'fork-1',
-						title: 'Source (fork 1)',
-						forkSequence: 1,
-						createdAt: 1,
-					},
-				],
+	it("maps retry preparation stream-json errors with the shared stream error shape", async () => {
+		(prepareRetryChatTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+			ok: false,
+			error: {
+				status: 422,
+				error: "Attachment is not ready",
+				code: "attachment_not_ready",
+				attachmentIds: ["att-1"],
+				responseShape: "stream-json",
 			},
 		});
 
 		const response = await POST(
 			makeEvent({
-				conversationId: 'conv-1',
-				assistantMessageId: 'assistant-2',
-				userMessageId: 'user-2',
-				userMessage: 'historical prompt',
-			}),
-		);
-		const data = await response.json();
-
-		expect(response.status).toBe(409);
-		expect(data).toEqual({
-			error: 'Forked source history requires confirmation',
-			code: 'forked_source_history_confirmation_required',
-			errorKey: 'fork.regenerateWarning',
-		});
-		expect(cleanupFailedTurn).not.toHaveBeenCalled();
-		expect(deleteMessages).not.toHaveBeenCalled();
-	});
-
-	it('regenerates forked source history after explicit confirmation', async () => {
-		(listChildForksBySourceMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
-			'assistant-2': { count: 1, forks: [] },
-		});
-
-		const response = await POST(
-			makeEvent({
-				conversationId: 'conv-1',
-				assistantMessageId: 'assistant-2',
-				userMessageId: 'user-2',
-				userMessage: 'historical prompt',
-				confirmForkedSourceHistoryMutation: true,
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				userMessageId: "user-1",
+				userMessage: "retry prompt",
 			}),
 		);
 
-		expect(response.status).toBe(200);
-		expect(deleteMessages).toHaveBeenCalledWith(['assistant-2', 'user-3', 'assistant-3']);
+		expect(response.status).toBe(422);
+		expect(await response.json()).toEqual({
+			status: 422,
+			error: "Attachment is not ready",
+			code: "attachment_not_ready",
+			attachmentIds: ["att-1"],
+		});
+		expect(runChatStreamOrchestrator).not.toHaveBeenCalled();
 	});
 });
