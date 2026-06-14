@@ -1,7 +1,13 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { requireAdmin } from '$lib/server/auth/hooks';
-import { batchCreateProviderModels } from '$lib/server/services/provider-models';
+import { json } from "@sveltejs/kit";
+import { requireAdmin } from "$lib/server/auth/hooks";
+import { batchCreateProviderModelsFromPayload } from "$lib/server/services/provider-models";
+import type { RequestHandler } from "./$types";
+
+function isProviderModelValidationError(error: unknown): error is Error {
+	return (
+		error instanceof Error && error.name === "ProviderModelValidationError"
+	);
+}
 
 export const POST: RequestHandler = async (event) => {
 	try {
@@ -12,98 +18,22 @@ export const POST: RequestHandler = async (event) => {
 		try {
 			body = await event.request.json();
 		} catch {
-			return json({ error: 'Invalid JSON' }, { status: 400 });
+			return json({ error: "Invalid JSON" }, { status: 400 });
 		}
 
-		if (!Array.isArray(body.models)) {
-			return json(
-				{ error: 'models must be an array' },
-				{ status: 400 },
-			);
-		}
-
-		const entries = body.models as Array<Record<string, unknown>>;
-
-		for (let i = 0; i < entries.length; i++) {
-			const entry = entries[i];
-			if (typeof entry.name !== 'string' || !entry.name.trim()) {
-				return json(
-					{ error: `models[${i}].name is required and must be a non-empty string` },
-					{ status: 400 },
-				);
-			}
-			if (
-				entry.displayName !== undefined &&
-				typeof entry.displayName !== 'string'
-			) {
-				return json(
-					{ error: `models[${i}].displayName must be a string` },
-					{ status: 400 },
-				);
-			}
-			if (
-				entry.contextLength !== undefined &&
-				typeof entry.contextLength !== 'number'
-			) {
-				return json(
-					{ error: `models[${i}].contextLength must be a number` },
-					{ status: 400 },
-				);
-			}
-			if (
-				entry.supportsChat !== undefined &&
-				typeof entry.supportsChat !== 'boolean'
-			) {
-				return json(
-					{ error: `models[${i}].supportsChat must be a boolean` },
-					{ status: 400 },
-				);
-			}
-			if (
-				entry.supportsTools !== undefined &&
-				typeof entry.supportsTools !== 'boolean'
-			) {
-				return json(
-					{ error: `models[${i}].supportsTools must be a boolean` },
-					{ status: 400 },
-				);
-			}
-		}
-
-		const models = await batchCreateProviderModels(
-			id,
-			entries.map((e) => ({
-				name: (e.name as string).trim(),
-				displayName:
-					typeof e.displayName === 'string'
-						? e.displayName.trim()
-						: undefined,
-				contextLength:
-					typeof e.contextLength === 'number'
-						? e.contextLength
-						: undefined,
-				supportsChat:
-					typeof e.supportsChat === 'boolean'
-						? e.supportsChat
-						: undefined,
-				supportsTools:
-					typeof e.supportsTools === 'boolean'
-						? e.supportsTools
-						: undefined,
-			})),
-		);
+		const models = await batchCreateProviderModelsFromPayload(id, body);
 
 		return json({ models }, { status: 201 });
 	} catch (error) {
-		if (
-			error instanceof Error &&
-			error.message.includes('does not exist')
-		) {
+		if (isProviderModelValidationError(error)) {
+			return json({ error: error.message }, { status: 400 });
+		}
+		if (error instanceof Error && error.message.includes("does not exist")) {
 			return json({ error: error.message }, { status: 404 });
 		}
-		console.error('[ADMIN] Failed to batch create provider models:', error);
+		console.error("[ADMIN] Failed to batch create provider models:", error);
 		return json(
-			{ error: 'Failed to batch create provider models' },
+			{ error: "Failed to batch create provider models" },
 			{ status: 500 },
 		);
 	}

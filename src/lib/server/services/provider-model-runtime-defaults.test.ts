@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	resolveProviderModelPersistenceContextDefaults,
+	resolveProviderModelPersistenceDefaults,
 	resolveProviderModelRuntimeDefaults,
 } from "./provider-model-runtime-defaults";
 
@@ -52,6 +53,24 @@ describe("Provider Model Runtime Defaults", () => {
 			maxModelContext: null,
 			compactionUiThreshold: null,
 			targetConstructedContext: null,
+		});
+	});
+
+	it("projects persistence defaults for context, output, reasoning, and thinking", () => {
+		expect(
+			resolveProviderModelPersistenceDefaults({
+				maxModelContext: 64_000,
+				maxTokens: 2048,
+				reasoningEffort: "medium",
+				thinkingType: "disabled",
+			}),
+		).toEqual({
+			maxModelContext: 64_000,
+			compactionUiThreshold: 51_200,
+			targetConstructedContext: 57_600,
+			maxTokens: 2048,
+			reasoningEffort: "medium",
+			thinkingType: "disabled",
 		});
 	});
 });

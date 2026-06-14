@@ -7,17 +7,23 @@ vi.mock("$lib/server/auth/hooks", () => ({
 vi.mock("$lib/server/services/provider-models", async () => {
 	return {
 		batchCreateProviderModels: vi.fn(),
+		batchCreateProviderModelsFromPayload: vi.fn(),
 	};
 });
 
 import { requireAdmin } from "$lib/server/auth/hooks";
-import { batchCreateProviderModels } from "$lib/server/services/provider-models";
+import {
+	batchCreateProviderModels,
+	batchCreateProviderModelsFromPayload,
+} from "$lib/server/services/provider-models";
 import { POST } from "./+server";
 
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
 const mockBatchCreateProviderModels = batchCreateProviderModels as ReturnType<
 	typeof vi.fn
 >;
+const mockBatchCreateProviderModelsFromPayload =
+	batchCreateProviderModelsFromPayload as ReturnType<typeof vi.fn>;
 
 type BatchEvent = Parameters<typeof POST>[0];
 
@@ -38,6 +44,12 @@ function makeEvent(body?: unknown): BatchEvent {
 		),
 		route: { id: "/api/admin/providers/[id]/models/batch" },
 	} as BatchEvent;
+}
+
+function validationError(message: string): Error {
+	const error = new Error(message);
+	error.name = "ProviderModelValidationError";
+	return error;
 }
 
 function makeModelEntry(id: number) {
@@ -71,6 +83,7 @@ describe("admin provider models batch route", () => {
 		vi.clearAllMocks();
 		mockRequireAdmin.mockReturnValue(undefined);
 		mockBatchCreateProviderModels.mockResolvedValue([]);
+		mockBatchCreateProviderModelsFromPayload.mockResolvedValue([]);
 	});
 
 	it("batch creates models", async () => {
@@ -78,34 +91,30 @@ describe("admin provider models batch route", () => {
 			makeModelEntry(1),
 			makeModelEntry(2),
 		]);
+		mockBatchCreateProviderModelsFromPayload.mockResolvedValue([
+			makeModelEntry(1),
+			makeModelEntry(2),
+		]);
+		const payload = {
+			models: [{ name: "gpt-4" }, { name: "gpt-3.5", displayName: "GPT 3.5" }],
+		};
 
-		const response = await POST(
-			makeEvent({
-				models: [
-					{ name: "gpt-4" },
-					{ name: "gpt-3.5", displayName: "GPT 3.5" },
-				],
-			}),
-		);
+		const response = await POST(makeEvent(payload));
 		const data = await response.json();
 
 		expect(response.status).toBe(201);
 		expect(data.models).toHaveLength(2);
-		expect(mockBatchCreateProviderModels).toHaveBeenCalledWith(
+		expect(mockBatchCreateProviderModelsFromPayload).toHaveBeenCalledWith(
 			"provider-1",
-			[
-				{ name: "gpt-4", displayName: undefined },
-				{ name: "gpt-3.5", displayName: "GPT 3.5" },
-			],
+			payload,
 		);
+		expect(mockBatchCreateProviderModels).not.toHaveBeenCalled();
 	});
 
 	it("returns empty array for no models", async () => {
-		mockBatchCreateProviderModels.mockResolvedValue([]);
+		mockBatchCreateProviderModelsFromPayload.mockResolvedValue([]);
 
-		const response = await POST(
-			makeEvent({ models: [] }),
-		);
+		const response = await POST(makeEvent({ models: [] }));
 		const data = await response.json();
 
 		expect(response.status).toBe(201);
@@ -113,6 +122,9 @@ describe("admin provider models batch route", () => {
 	});
 
 	it("rejects missing models array", async () => {
+		mockBatchCreateProviderModelsFromPayload.mockRejectedValue(
+			validationError("models must be an array"),
+		);
 		const response = await POST(makeEvent({}));
 		const data = await response.json();
 
@@ -121,6 +133,9 @@ describe("admin provider models batch route", () => {
 	});
 
 	it("rejects non-array models", async () => {
+		mockBatchCreateProviderModelsFromPayload.mockRejectedValue(
+			validationError("models must be an array"),
+		);
 		const response = await POST(makeEvent({ models: "not-array" }));
 		const data = await response.json();
 
@@ -129,11 +144,14 @@ describe("admin provider models batch route", () => {
 	});
 
 	it("rejects entry with missing name", async () => {
+		mockBatchCreateProviderModelsFromPayload.mockRejectedValue(
+			validationError(
+				"models[0].name is required and must be a non-empty string",
+			),
+		);
 		const response = await POST(
 			makeEvent({
-				models: [
-					{ displayName: "No Name" },
-				],
+				models: [{ displayName: "No Name" }],
 			}),
 		);
 		const data = await response.json();
@@ -143,11 +161,14 @@ describe("admin provider models batch route", () => {
 	});
 
 	it("rejects entry with empty name", async () => {
+		mockBatchCreateProviderModelsFromPayload.mockRejectedValue(
+			validationError(
+				"models[0].name is required and must be a non-empty string",
+			),
+		);
 		const response = await POST(
 			makeEvent({
-				models: [
-					{ name: "   " },
-				],
+				models: [{ name: "   " }],
 			}),
 		);
 		const data = await response.json();
@@ -157,11 +178,12 @@ describe("admin provider models batch route", () => {
 	});
 
 	it("rejects entry with invalid displayName type", async () => {
+		mockBatchCreateProviderModelsFromPayload.mockRejectedValue(
+			validationError("models[0].displayName must be a string"),
+		);
 		const response = await POST(
 			makeEvent({
-				models: [
-					{ name: "ok", displayName: 123 },
-				],
+				models: [{ name: "ok", displayName: 123 }],
 			}),
 		);
 		const data = await response.json();
@@ -171,13 +193,11 @@ describe("admin provider models batch route", () => {
 	});
 
 	it("returns 404 when provider does not exist", async () => {
-		mockBatchCreateProviderModels.mockRejectedValue(
+		mockBatchCreateProviderModelsFromPayload.mockRejectedValue(
 			new Error('Provider with id "provider-1" does not exist'),
 		);
 
-		const response = await POST(
-			makeEvent({ models: [{ name: "ghost" }] }),
-		);
+		const response = await POST(makeEvent({ models: [{ name: "ghost" }] }));
 		const data = await response.json();
 
 		expect(response.status).toBe(404);
@@ -185,11 +205,11 @@ describe("admin provider models batch route", () => {
 	});
 
 	it("returns 500 on unexpected service failure", async () => {
-		mockBatchCreateProviderModels.mockRejectedValue(new Error("DB error"));
-
-		const response = await POST(
-			makeEvent({ models: [{ name: "broken" }] }),
+		mockBatchCreateProviderModelsFromPayload.mockRejectedValue(
+			new Error("DB error"),
 		);
+
+		const response = await POST(makeEvent({ models: [{ name: "broken" }] }));
 		const data = await response.json();
 
 		expect(response.status).toBe(500);

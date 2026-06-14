@@ -2,6 +2,7 @@
 import { untrack } from "svelte";
 import { get } from "svelte/store";
 import { t } from "$lib/i18n";
+import { deriveModelContextLimits } from "$lib/model-context-defaults";
 import type { ProviderModel, ProviderModelUpdate } from "$lib/client/api/admin";
 
 const tVal = get(t);
@@ -42,11 +43,23 @@ let formMaxModelContext = $state(
 	untrack(() => numToString(model?.maxModelContext)),
 );
 
+let formContextPreview = $derived(
+	(() => {
+		const maxModelContext = stringToNum(formMaxModelContext);
+		return maxModelContext != null && maxModelContext > 0
+			? deriveModelContextLimits({ maxModelContext })
+			: null;
+	})(),
+);
 let formCompactionPreview = $derived(
-	(() => { const m = stringToNum(formMaxModelContext); return m != null ? String(Math.floor(m * 0.8)) : ""; })(),
+	formContextPreview != null
+		? String(formContextPreview.compactionUiThreshold)
+		: "",
 );
 let formTargetPreview = $derived(
-	(() => { const m = stringToNum(formMaxModelContext); return m != null ? String(Math.floor(m * 0.9)) : ""; })(),
+	formContextPreview != null
+		? String(formContextPreview.targetConstructedContext)
+		: "",
 );
 let formMaxMessageLength = $state(
 	untrack(() => numToString(model?.maxMessageLength)),
@@ -122,8 +135,8 @@ function handleSave() {
 		displayName: formDisplayName.trim(),
 		iconAssetId: formIconAssetId || null,
 		maxModelContext: maxContext,
-		compactionUiThreshold: maxContext != null ? Math.floor(maxContext * 0.8) : null,
-		targetConstructedContext: maxContext != null ? Math.floor(maxContext * 0.9) : null,
+		compactionUiThreshold: null,
+		targetConstructedContext: null,
 		maxMessageLength: stringToNum(formMaxMessageLength),
 		maxTokens: stringToNum(formMaxTokens),
 		reasoningEffort: formReasoningEffort || null,

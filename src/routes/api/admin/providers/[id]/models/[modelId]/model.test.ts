@@ -8,6 +8,7 @@ vi.mock("$lib/server/services/provider-models", async () => {
 	return {
 		deleteProviderModel: vi.fn(),
 		updateProviderModel: vi.fn(),
+		updateProviderModelFromPayload: vi.fn(),
 	};
 });
 
@@ -15,11 +16,14 @@ import { requireAdmin } from "$lib/server/auth/hooks";
 import {
 	deleteProviderModel,
 	updateProviderModel,
+	updateProviderModelFromPayload,
 } from "$lib/server/services/provider-models";
-import { PUT, DELETE } from "./+server";
+import { DELETE, PUT } from "./+server";
 
 const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
 const mockUpdateProviderModel = updateProviderModel as ReturnType<typeof vi.fn>;
+const mockUpdateProviderModelFromPayload =
+	updateProviderModelFromPayload as ReturnType<typeof vi.fn>;
 const mockDeleteProviderModel = deleteProviderModel as ReturnType<typeof vi.fn>;
 
 type ModelDetailEvent = Parameters<typeof PUT>[0];
@@ -41,6 +45,12 @@ function makeEvent(method: "PUT" | "DELETE", body?: unknown): ModelDetailEvent {
 		),
 		route: { id: "/api/admin/providers/[id]/models/[modelId]" },
 	} as ModelDetailEvent;
+}
+
+function validationError(message: string): Error {
+	const error = new Error(message);
+	error.name = "ProviderModelValidationError";
+	return error;
 }
 
 describe("admin provider model detail route", () => {
@@ -70,26 +80,49 @@ describe("admin provider model detail route", () => {
 			createdAt: new Date("2026-06-01T12:00:00.000Z"),
 			updatedAt: new Date("2026-06-01T12:00:00.000Z"),
 		});
+		mockUpdateProviderModelFromPayload.mockResolvedValue({
+			id: "model-1",
+			providerId: "provider-1",
+			name: "test-model",
+			displayName: "Test Model",
+			maxModelContext: 262144,
+			compactionUiThreshold: 209715,
+			targetConstructedContext: 157286,
+			maxMessageLength: null,
+			maxTokens: null,
+			reasoningEffort: null,
+			thinkingType: null,
+			capabilitiesJson: "{}",
+			inputUsdMicrosPer1m: 0,
+			cachedInputUsdMicrosPer1m: 0,
+			cacheHitUsdMicrosPer1m: 0,
+			cacheMissUsdMicrosPer1m: 0,
+			outputUsdMicrosPer1m: 0,
+			enabled: true,
+			sortOrder: 0,
+			createdAt: new Date("2026-06-01T12:00:00.000Z"),
+			updatedAt: new Date("2026-06-01T12:00:00.000Z"),
+		});
 		mockDeleteProviderModel.mockResolvedValue(true);
 	});
 
 	describe("PUT", () => {
 		it("updates display name", async () => {
-			const response = await PUT(
-				makeEvent("PUT", { displayName: "Updated Name" }),
-			);
+			const payload = { displayName: "Updated Name" };
+			const response = await PUT(makeEvent("PUT", payload));
 			const data = await response.json();
 
 			expect(response.status).toBe(200);
 			expect(data.model.displayName).toBe("Test Model");
-			expect(mockUpdateProviderModel).toHaveBeenCalledWith(
+			expect(mockUpdateProviderModelFromPayload).toHaveBeenCalledWith(
 				"model-1",
-				expect.objectContaining({ displayName: "Updated Name" }),
+				payload,
 			);
+			expect(mockUpdateProviderModel).not.toHaveBeenCalled();
 		});
 
 		it("updates enabled flag", async () => {
-			mockUpdateProviderModel.mockResolvedValue({
+			mockUpdateProviderModelFromPayload.mockResolvedValue({
 				id: "model-1",
 				providerId: "provider-1",
 				name: "test-model",
@@ -113,144 +146,113 @@ describe("admin provider model detail route", () => {
 				updatedAt: new Date(),
 			});
 
-			const response = await PUT(
-				makeEvent("PUT", { enabled: false }),
-			);
+			const response = await PUT(makeEvent("PUT", { enabled: false }));
 			const data = await response.json();
 
 			expect(response.status).toBe(200);
 			expect(data.model.enabled).toBe(false);
-			expect(mockUpdateProviderModel).toHaveBeenCalledWith(
+			expect(mockUpdateProviderModelFromPayload).toHaveBeenCalledWith(
 				"model-1",
-				expect.objectContaining({ enabled: false }),
+				{ enabled: false },
 			);
 		});
 
 		it("updates context window settings", async () => {
-			const response = await PUT(
-				makeEvent("PUT", {
-					maxModelContext: 128000,
-					compactionUiThreshold: 102400,
-					targetConstructedContext: 76800,
-				}),
-			);
+			const payload = {
+				maxModelContext: 128000,
+				compactionUiThreshold: 102400,
+				targetConstructedContext: 76800,
+			};
+			const response = await PUT(makeEvent("PUT", payload));
 
 			expect(response.status).toBe(200);
-			expect(mockUpdateProviderModel).toHaveBeenCalledWith(
+			expect(mockUpdateProviderModelFromPayload).toHaveBeenCalledWith(
 				"model-1",
-				expect.objectContaining({
-					maxModelContext: 128000,
-					compactionUiThreshold: 102400,
-					targetConstructedContext: 76800,
-				}),
+				payload,
 			);
 		});
 
 		it("updates max tokens and message length", async () => {
-			const response = await PUT(
-				makeEvent("PUT", { maxTokens: 4096, maxMessageLength: 100000 }),
-			);
+			const payload = { maxTokens: 4096, maxMessageLength: 100000 };
+			const response = await PUT(makeEvent("PUT", payload));
 
 			expect(response.status).toBe(200);
-			expect(mockUpdateProviderModel).toHaveBeenCalledWith(
+			expect(mockUpdateProviderModelFromPayload).toHaveBeenCalledWith(
 				"model-1",
-				expect.objectContaining({
-					maxTokens: 4096,
-					maxMessageLength: 100000,
-				}),
+				payload,
 			);
 		});
 
 		it("updates reasoning and thinking settings", async () => {
-			const response = await PUT(
-				makeEvent("PUT", {
-					reasoningEffort: "medium",
-					thinkingType: "enabled",
-				}),
-			);
+			const payload = {
+				reasoningEffort: "medium",
+				thinkingType: "enabled",
+			};
+			const response = await PUT(makeEvent("PUT", payload));
 
 			expect(response.status).toBe(200);
-			expect(mockUpdateProviderModel).toHaveBeenCalledWith(
+			expect(mockUpdateProviderModelFromPayload).toHaveBeenCalledWith(
 				"model-1",
-				expect.objectContaining({
-					reasoningEffort: "medium",
-					thinkingType: "enabled",
-				}),
+				payload,
 			);
 		});
 
 		it("updates pricing fields", async () => {
-			const response = await PUT(
-				makeEvent("PUT", {
-					inputUsdMicrosPer1m: 15,
-					outputUsdMicrosPer1m: 60,
-					cacheHitUsdMicrosPer1m: 5,
-					cacheMissUsdMicrosPer1m: 10,
-				}),
-			);
+			const payload = {
+				inputUsdMicrosPer1m: 15,
+				outputUsdMicrosPer1m: 60,
+				cacheHitUsdMicrosPer1m: 5,
+				cacheMissUsdMicrosPer1m: 10,
+			};
+			const response = await PUT(makeEvent("PUT", payload));
 
 			expect(response.status).toBe(200);
-			expect(mockUpdateProviderModel).toHaveBeenCalledWith(
+			expect(mockUpdateProviderModelFromPayload).toHaveBeenCalledWith(
 				"model-1",
-				expect.objectContaining({
-					inputUsdMicrosPer1m: 15,
-					outputUsdMicrosPer1m: 60,
-					cacheHitUsdMicrosPer1m: 5,
-					cacheMissUsdMicrosPer1m: 10,
-				}),
+				payload,
 			);
 		});
 
 		it("updates capabilities JSON", async () => {
-			const response = await PUT(
-				makeEvent("PUT", { capabilitiesJson: '{"vision":true,"tools":true}' }),
-			);
+			const payload = { capabilitiesJson: '{"vision":true,"tools":true}' };
+			const response = await PUT(makeEvent("PUT", payload));
 
 			expect(response.status).toBe(200);
-			expect(mockUpdateProviderModel).toHaveBeenCalledWith(
+			expect(mockUpdateProviderModelFromPayload).toHaveBeenCalledWith(
 				"model-1",
-				expect.objectContaining({
-					capabilitiesJson: '{"vision":true,"tools":true}',
-				}),
+				payload,
 			);
 		});
 
 		it("updates sort order", async () => {
-			const response = await PUT(
-				makeEvent("PUT", { sortOrder: 5 }),
-			);
+			const payload = { sortOrder: 5 };
+			const response = await PUT(makeEvent("PUT", payload));
 
 			expect(response.status).toBe(200);
-			expect(mockUpdateProviderModel).toHaveBeenCalledWith(
+			expect(mockUpdateProviderModelFromPayload).toHaveBeenCalledWith(
 				"model-1",
-				expect.objectContaining({ sortOrder: 5 }),
+				payload,
 			);
 		});
 
 		it("sets nullable fields to null", async () => {
-			const response = await PUT(
-				makeEvent("PUT", {
-					maxModelContext: null,
-					compactionUiThreshold: null,
-				}),
-			);
+			const payload = {
+				maxModelContext: null,
+				compactionUiThreshold: null,
+			};
+			const response = await PUT(makeEvent("PUT", payload));
 
 			expect(response.status).toBe(200);
-			expect(mockUpdateProviderModel).toHaveBeenCalledWith(
+			expect(mockUpdateProviderModelFromPayload).toHaveBeenCalledWith(
 				"model-1",
-				expect.objectContaining({
-					maxModelContext: null,
-					compactionUiThreshold: null,
-				}),
+				payload,
 			);
 		});
 
 		it("returns 404 when model not found", async () => {
-			mockUpdateProviderModel.mockResolvedValue(null);
+			mockUpdateProviderModelFromPayload.mockResolvedValue(null);
 
-			const response = await PUT(
-				makeEvent("PUT", { displayName: "Ghost" }),
-			);
+			const response = await PUT(makeEvent("PUT", { displayName: "Ghost" }));
 			const data = await response.json();
 
 			expect(response.status).toBe(404);
@@ -258,6 +260,9 @@ describe("admin provider model detail route", () => {
 		});
 
 		it("rejects invalid enabled type", async () => {
+			mockUpdateProviderModelFromPayload.mockRejectedValue(
+				validationError("enabled must be a boolean"),
+			);
 			const response = await PUT(
 				makeEvent("PUT", { enabled: "not-a-boolean" }),
 			);
@@ -268,9 +273,10 @@ describe("admin provider model detail route", () => {
 		});
 
 		it("rejects invalid sortOrder type", async () => {
-			const response = await PUT(
-				makeEvent("PUT", { sortOrder: "first" }),
+			mockUpdateProviderModelFromPayload.mockRejectedValue(
+				validationError("sortOrder must be a number"),
 			);
+			const response = await PUT(makeEvent("PUT", { sortOrder: "first" }));
 			const data = await response.json();
 
 			expect(response.status).toBe(400);
@@ -278,9 +284,12 @@ describe("admin provider model detail route", () => {
 		});
 
 		it("rejects negative maxModelContext", async () => {
-			const response = await PUT(
-				makeEvent("PUT", { maxModelContext: -1 }),
+			mockUpdateProviderModelFromPayload.mockRejectedValue(
+				validationError(
+					"maxModelContext must be a non-negative number or null",
+				),
 			);
+			const response = await PUT(makeEvent("PUT", { maxModelContext: -1 }));
 			const data = await response.json();
 
 			expect(response.status).toBe(400);
@@ -288,9 +297,10 @@ describe("admin provider model detail route", () => {
 		});
 
 		it("rejects invalid reasoningEffort type", async () => {
-			const response = await PUT(
-				makeEvent("PUT", { reasoningEffort: 123 }),
+			mockUpdateProviderModelFromPayload.mockRejectedValue(
+				validationError("reasoningEffort must be a string"),
 			);
+			const response = await PUT(makeEvent("PUT", { reasoningEffort: 123 }));
 			const data = await response.json();
 
 			expect(response.status).toBe(400);

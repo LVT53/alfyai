@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import Database from "better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let dbPath: string;
 
@@ -76,7 +76,10 @@ function assertDefined<T>(value: T | undefined | null, label: string): T {
 
 // ─── Helpers ───────────────────────────────────────────────────
 
-async function seedProvider(name = "test-provider", displayName = "Test Provider") {
+async function seedProvider(
+	name = "test-provider",
+	displayName = "Test Provider",
+) {
 	const { createProvider } = await import("./providers");
 	return createProvider({
 		name,
@@ -106,6 +109,33 @@ describe("ProviderModel CRUD", () => {
 	});
 
 	describe("createProviderModel", () => {
+		it("creates a model from an admin payload with server-owned defaults", async () => {
+			const { createProviderModelFromPayload } = await import(
+				"./provider-models"
+			);
+			const provider = await seedProvider();
+
+			const model = await createProviderModelFromPayload(provider.id, {
+				name: "  payload-model  ",
+				displayName: "  Payload Model  ",
+				maxModelContext: 200_000,
+				maxTokens: 4096,
+				reasoningEffort: "high",
+				thinkingType: "enabled",
+				inputUsdMicrosPer1m: 15,
+			});
+
+			expect(model.name).toBe("payload-model");
+			expect(model.displayName).toBe("Payload Model");
+			expect(model.maxModelContext).toBe(200_000);
+			expect(model.compactionUiThreshold).toBe(160_000);
+			expect(model.targetConstructedContext).toBe(180_000);
+			expect(model.maxTokens).toBe(4096);
+			expect(model.reasoningEffort).toBe("high");
+			expect(model.thinkingType).toBe("enabled");
+			expect(model.inputUsdMicrosPer1m).toBe(15);
+		});
+
 		it("creates a model with default values", async () => {
 			const { createProviderModel } = await import("./provider-models");
 			const provider = await seedProvider();
@@ -258,8 +288,9 @@ describe("ProviderModel CRUD", () => {
 
 	describe("getProviderModel", () => {
 		it("returns a model by id", async () => {
-			const { createProviderModel, getProviderModel } =
-				await import("./provider-models");
+			const { createProviderModel, getProviderModel } = await import(
+				"./provider-models"
+			);
 			const provider = await seedProvider();
 
 			const created = await createProviderModel({
@@ -284,8 +315,9 @@ describe("ProviderModel CRUD", () => {
 
 	describe("getProviderModelByName", () => {
 		it("finds a model by provider + name", async () => {
-			const { createProviderModel, getProviderModelByName } =
-				await import("./provider-models");
+			const { createProviderModel, getProviderModelByName } = await import(
+				"./provider-models"
+			);
 			const provider = await seedProvider();
 
 			await createProviderModel({
@@ -311,8 +343,9 @@ describe("ProviderModel CRUD", () => {
 		});
 
 		it("returns null when the model exists under a different provider", async () => {
-			const { createProviderModel, getProviderModelByName } =
-				await import("./provider-models");
+			const { createProviderModel, getProviderModelByName } = await import(
+				"./provider-models"
+			);
 			const provider1 = await seedProvider("p1", "P1");
 			const provider2 = await seedProvider("p2", "P2");
 
@@ -331,8 +364,9 @@ describe("ProviderModel CRUD", () => {
 
 	describe("listProviderModels", () => {
 		it("lists all models across all providers ordered by sort_order", async () => {
-			const { createProviderModel, listProviderModels } =
-				await import("./provider-models");
+			const { createProviderModel, listProviderModels } = await import(
+				"./provider-models"
+			);
 			const provider = await seedProvider();
 
 			await createProviderModel({
@@ -357,8 +391,9 @@ describe("ProviderModel CRUD", () => {
 		});
 
 		it("filters models by provider when providerId is provided", async () => {
-			const { createProviderModel, listProviderModels } =
-				await import("./provider-models");
+			const { createProviderModel, listProviderModels } = await import(
+				"./provider-models"
+			);
 			const provider1 = await seedProvider("p1", "P1");
 			const provider2 = await seedProvider("p2", "P2");
 
@@ -389,8 +424,9 @@ describe("ProviderModel CRUD", () => {
 
 	describe("listEnabledProviderModels", () => {
 		it("returns only enabled models", async () => {
-			const { createProviderModel, listEnabledProviderModels } =
-				await import("./provider-models");
+			const { createProviderModel, listEnabledProviderModels } = await import(
+				"./provider-models"
+			);
 			const provider = await seedProvider();
 
 			await createProviderModel({
@@ -413,8 +449,9 @@ describe("ProviderModel CRUD", () => {
 		});
 
 		it("filters by provider when providerId is provided", async () => {
-			const { createProviderModel, listEnabledProviderModels } =
-				await import("./provider-models");
+			const { createProviderModel, listEnabledProviderModels } = await import(
+				"./provider-models"
+			);
 			const provider1 = await seedProvider("p1-e", "P1 Enabled");
 			const provider2 = await seedProvider("p2-e", "P2 Enabled");
 
@@ -438,9 +475,41 @@ describe("ProviderModel CRUD", () => {
 	});
 
 	describe("updateProviderModel", () => {
-		it("updates display name and context limits", async () => {
-			const { createProviderModel, updateProviderModel } =
+		it("updates a model from an admin payload with nullable fields", async () => {
+			const { createProviderModel, updateProviderModelFromPayload } =
 				await import("./provider-models");
+			const provider = await seedProvider();
+
+			const created = await createProviderModel({
+				providerId: provider.id,
+				name: "payload-update",
+				displayName: "Payload Update",
+				maxModelContext: 32_000,
+				maxTokens: 2048,
+			});
+
+			const updated = assertDefined(
+				await updateProviderModelFromPayload(created.id, {
+					displayName: "  Payload Updated  ",
+					maxModelContext: 128_000,
+					maxTokens: null,
+					reasoningEffort: "",
+				}),
+				"updated model from payload",
+			);
+
+			expect(updated.displayName).toBe("Payload Updated");
+			expect(updated.maxModelContext).toBe(128_000);
+			expect(updated.compactionUiThreshold).toBe(102_400);
+			expect(updated.targetConstructedContext).toBe(115_200);
+			expect(updated.maxTokens).toBeNull();
+			expect(updated.reasoningEffort).toBeNull();
+		});
+
+		it("updates display name and context limits", async () => {
+			const { createProviderModel, updateProviderModel } = await import(
+				"./provider-models"
+			);
 			const provider = await seedProvider();
 
 			const created = await createProviderModel({
@@ -525,8 +594,11 @@ describe("ProviderModel CRUD", () => {
 		});
 
 		it("disables a model", async () => {
-			const { createProviderModel, updateProviderModel, listEnabledProviderModels } =
-				await import("./provider-models");
+			const {
+				createProviderModel,
+				updateProviderModel,
+				listEnabledProviderModels,
+			} = await import("./provider-models");
 			const provider = await seedProvider();
 
 			const created = await createProviderModel({
@@ -599,9 +671,42 @@ describe("ProviderModel CRUD", () => {
 	});
 
 	describe("batchCreateProviderModels", () => {
+		it("batch creates models from an admin discovery payload", async () => {
+			const { batchCreateProviderModelsFromPayload } = await import(
+				"./provider-models"
+			);
+			const provider = await seedProvider();
+
+			const models = await batchCreateProviderModelsFromPayload(provider.id, {
+				models: [
+					{
+						name: "  discovered-a  ",
+						displayName: "  Discovered A  ",
+						contextLength: 64_000,
+						supportsChat: true,
+						supportsTools: true,
+					},
+					{ name: "discovered-b" },
+				],
+			});
+
+			expect(models.map((model) => model.name)).toEqual([
+				"discovered-a",
+				"discovered-b",
+			]);
+			expect(models[0].displayName).toBe("Discovered A");
+			expect(models[0].maxModelContext).toBe(64_000);
+			expect(models[0].compactionUiThreshold).toBe(51_200);
+			expect(models[0].targetConstructedContext).toBe(57_600);
+			expect(models[0].capabilitiesJson).toBe(
+				JSON.stringify({ chat: "detected", tools: "detected" }),
+			);
+		});
+
 		it("creates multiple models at once from a name list", async () => {
-			const { batchCreateProviderModels, listProviderModels } =
-				await import("./provider-models");
+			const { batchCreateProviderModels, listProviderModels } = await import(
+				"./provider-models"
+			);
 			const provider = await seedProvider();
 
 			const models = await batchCreateProviderModels(provider.id, [
@@ -611,7 +716,11 @@ describe("ProviderModel CRUD", () => {
 			]);
 
 			expect(models).toHaveLength(3);
-			expect(models.map((m) => m.name)).toEqual(["model-a", "model-b", "model-c"]);
+			expect(models.map((m) => m.name)).toEqual([
+				"model-a",
+				"model-b",
+				"model-c",
+			]);
 			expect(models[0].maxModelContext).toBe(64000);
 			expect(models[0].compactionUiThreshold).toBe(51200);
 			expect(models[0].targetConstructedContext).toBe(57600);

@@ -24,7 +24,16 @@ export type ProviderModelPersistenceContextDefaults = {
 	targetConstructedContext: number | null;
 };
 
-function finitePositiveInteger(value: number | null | undefined): number | null {
+export type ProviderModelPersistenceDefaults =
+	ProviderModelPersistenceContextDefaults & {
+		maxTokens: number | null;
+		reasoningEffort: ProviderModelRuntimeDefaults["reasoningEffort"] | null;
+		thinkingType: ProviderModelRuntimeDefaults["thinkingType"] | null;
+	};
+
+function finitePositiveInteger(
+	value: number | null | undefined,
+): number | null {
 	return typeof value === "number" && Number.isFinite(value) && value >= 1
 		? Math.floor(value)
 		: null;
@@ -122,5 +131,16 @@ export function resolveProviderModelPersistenceContextDefaults(
 		maxModelContext: contextLimits.maxModelContext,
 		compactionUiThreshold: contextLimits.compactionUiThreshold,
 		targetConstructedContext: contextLimits.targetConstructedContext,
+	};
+}
+
+export function resolveProviderModelPersistenceDefaults(
+	model: ProviderModelRuntimeDefaultInput,
+): ProviderModelPersistenceDefaults {
+	return {
+		...resolveProviderModelPersistenceContextDefaults(model),
+		maxTokens: finitePositiveInteger(model.maxTokens),
+		reasoningEffort: normalizeReasoningEffort(model.reasoningEffort) ?? null,
+		thinkingType: normalizeThinkingType(model.thinkingType) ?? null,
 	};
 }
