@@ -68,10 +68,6 @@ export function projectBuiltInAvailableModels(
 	return models;
 }
 
-function enabledProviderModels(models: ProviderModel[]): ProviderModel[] {
-	return models.filter((model) => model.enabled !== false);
-}
-
 function providerModelId(provider: Provider, model: ProviderModel): ModelId {
 	return `provider:${provider.id}:${model.id}` as ModelId;
 }
@@ -117,9 +113,7 @@ export async function getAvailableModelsWithProvidersForSettings(
 
 	for (const provider of providers) {
 		try {
-			const providerModels = enabledProviderModels(
-				await listEnabledProviderModels(provider.id),
-			);
+			const providerModels = await listEnabledProviderModels(provider.id);
 			for (const model of providerModels) {
 				models.push(projectProviderModelForSettings(provider, model));
 			}
@@ -162,9 +156,7 @@ export async function getAvailableModelProviderGroups(
 	}
 
 	for (const provider of providers) {
-		const providerModels = enabledProviderModels(
-			await listEnabledProviderModels(provider.id),
-		);
+		const providerModels = await listEnabledProviderModels(provider.id);
 		if (providerModels.length === 0) continue;
 
 		groups.push({

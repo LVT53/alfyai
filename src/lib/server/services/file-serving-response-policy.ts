@@ -5,6 +5,8 @@ export interface FileServingResponsePolicyParams {
 	contentLength: number;
 	contentType: string;
 	filename: string;
+	safetyFilenames?: readonly (string | null | undefined)[];
+	restrictedPreview?: boolean;
 }
 
 const RESTRICTED_PREVIEW_CSP =
@@ -30,15 +32,21 @@ function isRestrictedPreview(params: {
 	mode: FileServingMode;
 	contentType: string;
 	filename: string;
+	safetyFilenames?: readonly (string | null | undefined)[];
+	restrictedPreview?: boolean;
 }): boolean {
 	if (params.mode !== "preview") {
 		return false;
 	}
 
 	return (
+		params.restrictedPreview === true ||
 		params.contentType === "text/html; charset=utf-8" ||
 		params.contentType === "image/svg+xml" ||
-		hasSvgFilename(params.filename)
+		hasSvgFilename(params.filename) ||
+		(params.safetyFilenames ?? []).some(
+			(filename) => typeof filename === "string" && hasSvgFilename(filename),
+		)
 	);
 }
 

@@ -49,7 +49,6 @@ type RetryPreparationResult =
 	| {
 			ok: true;
 			value: {
-				upstreamMessage: string;
 				orchestratorInput: RetryOrchestratorInput;
 			};
 	  }
@@ -246,7 +245,6 @@ export async function prepareRetryChatTurn(params: {
 	return {
 		ok: true,
 		value: {
-			upstreamMessage,
 			orchestratorInput: {
 				turn,
 				upstreamMessage,

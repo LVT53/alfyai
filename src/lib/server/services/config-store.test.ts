@@ -195,9 +195,10 @@ vi.mock("./providers", () => ({
 
 vi.mock("./provider-models", () => ({
 	listEnabledProviderModels: vi.fn(async (providerId?: string) =>
-		providerId
+		(providerId
 			? (enabledProviderModelRowsByProvider.get(providerId) ?? [])
-			: Array.from(enabledProviderModelRowsByProvider.values()).flat(),
+			: Array.from(enabledProviderModelRowsByProvider.values()).flat()
+		).filter((model) => model.enabled !== false),
 	),
 }));
 

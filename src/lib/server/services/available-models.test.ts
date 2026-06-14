@@ -67,12 +67,6 @@ describe("available model projection", () => {
 				iconAssetId: "model-icon",
 				enabled: true,
 			} as Awaited<ReturnType<typeof listEnabledProviderModels>>[number],
-			{
-				id: "model-b",
-				displayName: "Model B",
-				iconAssetId: null,
-				enabled: false,
-			} as Awaited<ReturnType<typeof listEnabledProviderModels>>[number],
 		]);
 	});
 

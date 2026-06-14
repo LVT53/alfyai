@@ -433,4 +433,41 @@ describe("resolveWorkingDocumentFileServing", () => {
 		expect(result.headers["Referrer-Policy"]).toBe("no-referrer");
 		expect(Buffer.from(result.body)).toEqual(htmlBody);
 	});
+
+	it("serves stored SVG previews with restricted headers when the display name omits the extension", async () => {
+		const svgBody = Buffer.from("<svg></svg>");
+		await writeKnowledgeFile(
+			"data/knowledge/resolver-user-123/diagram.svg",
+			svgBody,
+		);
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "svg-artifact-123",
+			name: "Diagram",
+			storagePath: "data/knowledge/resolver-user-123/diagram.svg",
+			contentText: null,
+			mimeType: "application/xml",
+			extension: "svg",
+			type: "source_document",
+			metadata: null,
+		});
+
+		const result = await resolveWorkingDocumentFileServing({
+			userId,
+			artifactId: "svg-artifact-123",
+			mode: "preview",
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("expected successful resolution");
+		expect(result.headers["Content-Type"]).toBe("application/xml");
+		expect(result.headers["Content-Disposition"]).toBe(
+			'inline; filename="Diagram"',
+		);
+		expect(result.headers["Content-Security-Policy"]).toBe(
+			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+		);
+		expect(result.headers["X-Content-Type-Options"]).toBe("nosniff");
+		expect(result.headers["Referrer-Policy"]).toBe("no-referrer");
+		expect(Buffer.from(result.body)).toEqual(svgBody);
+	});
 });

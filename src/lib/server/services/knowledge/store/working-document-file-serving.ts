@@ -94,7 +94,8 @@ function isUnrenderedGeneratedDocumentSource(artifact: Artifact): boolean {
 	}
 
 	return (
-		isGeneratedDocumentSourceMetadata(metadata) && !readSourceChatFileId(metadata)
+		isGeneratedDocumentSourceMetadata(metadata) &&
+		!readSourceChatFileId(metadata)
 	);
 }
 
@@ -166,6 +167,7 @@ async function resolveStoredArtifact(params: {
 				contentLength: textBuffer.length,
 				contentType: "text/plain; charset=utf-8",
 				filename: params.mode === "preview" ? safeName : downloadName,
+				safetyFilenames: [downloadName],
 			}),
 		};
 	}
@@ -217,6 +219,7 @@ async function resolveStoredArtifact(params: {
 						? getPreviewContentType(previewName, params.artifact.mimeType)
 						: params.artifact.mimeType || "application/octet-stream",
 				filename: params.mode === "preview" ? safeName : downloadName,
+				safetyFilenames: [previewName, params.artifact.storagePath],
 			}),
 		};
 	} catch (error: unknown) {

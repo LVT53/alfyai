@@ -149,7 +149,7 @@ describe("prepareRetryChatTurn", () => {
 				skipPersistUserMessage: true,
 			}),
 		);
-		expect(result.value.upstreamMessage).toBe("historical prompt");
+		expect(result.value).not.toHaveProperty("upstreamMessage");
 		expect(result.value.orchestratorInput).toEqual(
 			expect.objectContaining({
 				turn: expect.objectContaining({

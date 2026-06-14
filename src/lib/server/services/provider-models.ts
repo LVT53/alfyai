@@ -122,7 +122,8 @@ function readOptionalRuntimeString<T extends string>(
 	key: string,
 ): T | null | undefined {
 	const value = body[key];
-	if (value === undefined || value === null) return undefined;
+	if (value === undefined) return undefined;
+	if (value === null) return null;
 	if (typeof value !== "string") {
 		throw new ProviderModelValidationError(`${key} must be a string`);
 	}
@@ -201,25 +202,31 @@ export function parseCreateProviderModelPayload(
 	const displayName = readOptionalString(body, "displayName");
 	if (displayName !== undefined) input.displayName = displayName;
 
-	const maxModelContext = readNonNegativeNumber(body, "maxModelContext");
+	const maxModelContext = readNullableNonNegativeNumber(
+		body,
+		"maxModelContext",
+	);
 	if (maxModelContext !== undefined) input.maxModelContext = maxModelContext;
-	const compactionUiThreshold = readNonNegativeNumber(
+	const compactionUiThreshold = readNullableNonNegativeNumber(
 		body,
 		"compactionUiThreshold",
 	);
 	if (compactionUiThreshold !== undefined) {
 		input.compactionUiThreshold = compactionUiThreshold;
 	}
-	const targetConstructedContext = readNonNegativeNumber(
+	const targetConstructedContext = readNullableNonNegativeNumber(
 		body,
 		"targetConstructedContext",
 	);
 	if (targetConstructedContext !== undefined) {
 		input.targetConstructedContext = targetConstructedContext;
 	}
-	const maxMessageLength = readNonNegativeNumber(body, "maxMessageLength");
+	const maxMessageLength = readNullableNonNegativeNumber(
+		body,
+		"maxMessageLength",
+	);
 	if (maxMessageLength !== undefined) input.maxMessageLength = maxMessageLength;
-	const maxTokens = readNonNegativeNumber(body, "maxTokens");
+	const maxTokens = readNullableNonNegativeNumber(body, "maxTokens");
 	if (maxTokens !== undefined) input.maxTokens = maxTokens;
 
 	const reasoningEffort = readOptionalRuntimeString<ReasoningEffort>(
@@ -235,9 +242,9 @@ export function parseCreateProviderModelPayload(
 
 	const capabilitiesJson = body.capabilitiesJson;
 	if (capabilitiesJson !== undefined) {
-		if (typeof capabilitiesJson !== "string") {
+		if (capabilitiesJson !== null && typeof capabilitiesJson !== "string") {
 			throw new ProviderModelValidationError(
-				"capabilitiesJson must be a string",
+				"capabilitiesJson must be a string or null",
 			);
 		}
 		input.capabilitiesJson = capabilitiesJson || null;
@@ -339,9 +346,9 @@ export function parseUpdateProviderModelPayload(
 
 	const capabilitiesJson = body.capabilitiesJson;
 	if (capabilitiesJson !== undefined) {
-		if (typeof capabilitiesJson !== "string") {
+		if (capabilitiesJson !== null && typeof capabilitiesJson !== "string") {
 			throw new ProviderModelValidationError(
-				"capabilitiesJson must be a string",
+				"capabilitiesJson must be a string or null",
 			);
 		}
 		input.capabilitiesJson = capabilitiesJson || "{}";

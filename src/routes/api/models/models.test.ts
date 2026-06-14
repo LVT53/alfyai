@@ -9,7 +9,7 @@ vi.mock("$lib/server/services/providers", () => ({
 }));
 
 vi.mock("$lib/server/services/provider-models", () => ({
-	listEnabledProviderModels: vi.fn(),
+	listEnabledProviderModels: vi.fn(async () => []),
 }));
 
 import { getConfig } from "$lib/server/config-store";
@@ -48,7 +48,7 @@ describe("GET /api/models", () => {
 			model2Enabled: true,
 		});
 		mockListEnabledProviders.mockResolvedValue([]);
-		mockListEnabledProviderModels.mockResolvedValue([]);
+		mockListEnabledProviderModels.mockImplementation(async () => []);
 	});
 
 	it("returns 200 with grouped providers", async () => {
@@ -108,10 +108,17 @@ describe("GET /api/models", () => {
 				enabled: true,
 			},
 		]);
-		mockListEnabledProviderModels.mockResolvedValue([
-			{ id: "m1", name: "gpt-4", displayName: "GPT-4", enabled: true },
-			{ id: "m2", name: "gpt-3.5", displayName: "GPT-3.5", enabled: false },
-		]);
+		mockListEnabledProviderModels.mockImplementation(async () =>
+			[
+				{ id: "m1", name: "gpt-4", displayName: "GPT-4", enabled: true },
+				{
+					id: "m2",
+					name: "gpt-3.5",
+					displayName: "GPT-3.5",
+					enabled: false,
+				},
+			].filter((model) => model.enabled !== false),
+		);
 
 		const response = await GET(routeEvent());
 		const data = await response.json();

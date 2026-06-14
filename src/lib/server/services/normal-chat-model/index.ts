@@ -144,7 +144,8 @@ function extractDoneToolSummaryFromCalls(toolCalls: unknown): string | null {
 }
 
 function extractDoneToolSummary(result: unknown): string | null {
-	if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+	if (!result || typeof result !== "object" || Array.isArray(result))
+		return null;
 	const record = result as Record<string, unknown>;
 
 	const topLevelSummary = extractDoneToolSummaryFromCalls(record.toolCalls);
@@ -335,12 +336,14 @@ async function resolveBuiltinFromNewProvidersTable(
 	// Handle composite ID format: provider:<provider-uuid>:<model-uuid>
 	let provider: Awaited<ReturnType<typeof getProviderWithSecrets>> | null =
 		null;
-	if (name.startsWith("provider:") && name.split(":").length >= 3) {
-		const parts = name.split(":");
-		const providerId = parts[1];
-		const modelId = parts[2];
+	const providerModelIdParts = name.startsWith("provider:")
+		? name.split(":")
+		: null;
+	if (providerModelIdParts && providerModelIdParts.length >= 3) {
+		const providerId = providerModelIdParts[1];
+		const modelId = providerModelIdParts[2];
 		provider = await getProviderWithSecrets(providerId);
-		if (provider && provider.enabled) {
+		if (provider?.enabled) {
 			const models = await listEnabledProviderModels(provider.id);
 			const model = models.find((m) => m.id === modelId);
 			if (!model) return null;
@@ -353,9 +356,21 @@ async function resolveBuiltinFromNewProvidersTable(
 		return null;
 	}
 
+	if (providerModelIdParts && providerModelIdParts.length === 2) {
+		const providerId = providerModelIdParts[1];
+		provider = await getProviderWithSecrets(providerId);
+		if (provider?.enabled) {
+			const models = await listEnabledProviderModels(provider.id);
+			const model = models[0];
+			if (!model) return null;
+
+			return buildProviderModelRunConfig(provider, model, name as ModelId);
+		}
+	}
+
 	// Legacy format: provider:<provider-name> or bare name
 	provider = await getProviderByName(name);
-	if (!provider || !provider.enabled) return null;
+	if (!provider?.enabled) return null;
 
 	const models = await listEnabledProviderModels(provider.id);
 	const model = models[0];
@@ -707,10 +722,11 @@ export async function runPlainNormalChatModelRun(
 	let attemptedRateLimitFallback = false;
 
 	for (;;) {
-		const failoverTarget = params.runtimeConfig
+		const runtimeConfig = params.runtimeConfig;
+		const failoverTarget = runtimeConfig
 			? await resolveModelTimeoutFailoverTargetModelId(
 					currentModelId as ModelId,
-					params.runtimeConfig,
+					runtimeConfig,
 				)
 			: null;
 		const attemptTimeoutController =
@@ -725,8 +741,8 @@ export async function runPlainNormalChatModelRun(
 						attemptTimeoutController.abort(createModelAttemptTimeoutError());
 					},
 					Math.min(
-						params.runtimeConfig!.requestTimeoutMs,
-						Math.max(1000, params.runtimeConfig!.modelTimeoutFailoverTimeoutMs),
+						runtimeConfig.requestTimeoutMs,
+						Math.max(1000, runtimeConfig.modelTimeoutFailoverTimeoutMs),
 					),
 				)
 			: null;
@@ -913,16 +929,14 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 			params,
 			currentModelId,
 		);
-		const attemptAbortController =
-			firstOutputTimeoutMs && firstOutputTimeoutMs > 0
-				? new AbortController()
-				: null;
+		const timeoutMs = firstOutputTimeoutMs ?? 0;
+		const attemptAbortController = timeoutMs > 0 ? new AbortController() : null;
 		let firstOutputTimedOut = false;
 		const firstOutputTimeoutId = attemptAbortController
 			? setTimeout(() => {
 					firstOutputTimedOut = true;
 					attemptAbortController.abort(createFirstOutputTimeoutError());
-				}, firstOutputTimeoutMs!)
+				}, timeoutMs)
 			: null;
 		firstOutputTimeoutId?.unref?.();
 		const clearFirstOutputTimeout = () => {
@@ -1151,10 +1165,14 @@ async function* streamStreamingNormalChatModelRunAttempt(
 		}>) {
 			switch (part.type) {
 				case "text-delta":
-					yield { type: "text_delta", text: part.text! };
+					if (typeof part.text === "string") {
+						yield { type: "text_delta", text: part.text };
+					}
 					break;
 				case "reasoning-delta":
-					yield { type: "reasoning_delta", text: part.text! };
+					if (typeof part.text === "string") {
+						yield { type: "reasoning_delta", text: part.text };
+					}
 					break;
 				case "tool-call":
 					if (part.toolName === DONE_TOOL_NAME) {
@@ -1164,28 +1182,46 @@ async function* streamStreamingNormalChatModelRunAttempt(
 						}
 						break;
 					}
+					if (
+						typeof part.toolCallId !== "string" ||
+						typeof part.toolName !== "string"
+					) {
+						break;
+					}
 					yield {
 						type: "tool_call",
-						callId: part.toolCallId!,
-						toolName: part.toolName!,
+						callId: part.toolCallId,
+						toolName: part.toolName,
 						input: part.input,
 					};
 					break;
 				case "tool-result":
 					if (part.toolName === DONE_TOOL_NAME) break;
+					if (
+						typeof part.toolCallId !== "string" ||
+						typeof part.toolName !== "string"
+					) {
+						break;
+					}
 					yield {
 						type: "tool_result",
-						callId: part.toolCallId!,
-						toolName: part.toolName!,
+						callId: part.toolCallId,
+						toolName: part.toolName,
 						output: part.output,
 					};
 					break;
 				case "tool-error":
 					if (part.toolName === DONE_TOOL_NAME) break;
+					if (
+						typeof part.toolCallId !== "string" ||
+						typeof part.toolName !== "string"
+					) {
+						break;
+					}
 					yield {
 						type: "tool_error",
-						callId: part.toolCallId!,
-						toolName: part.toolName!,
+						callId: part.toolCallId,
+						toolName: part.toolName,
 						error: errorMessage(part.error),
 					};
 					break;

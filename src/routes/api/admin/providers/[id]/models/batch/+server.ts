@@ -1,13 +1,8 @@
 import { json } from "@sveltejs/kit";
 import { requireAdmin } from "$lib/server/auth/hooks";
 import { batchCreateProviderModelsFromPayload } from "$lib/server/services/provider-models";
+import { isProviderModelValidationError } from "../provider-model-route-errors";
 import type { RequestHandler } from "./$types";
-
-function isProviderModelValidationError(error: unknown): error is Error {
-	return (
-		error instanceof Error && error.name === "ProviderModelValidationError"
-	);
-}
 
 export const POST: RequestHandler = async (event) => {
 	try {

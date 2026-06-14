@@ -64,7 +64,10 @@ export async function resolveGeneratedFileServing(params: {
 
 	const fileContent =
 		(await readChatFileContentByUser(params.fileId, params.userId)) ??
-		(await readChatFileContentByConversationOwner(params.fileId, params.userId));
+		(await readChatFileContentByConversationOwner(
+			params.fileId,
+			params.userId,
+		));
 	if (!fileContent) {
 		return {
 			ok: false,
@@ -87,7 +90,10 @@ export async function resolveGeneratedFileServing(params: {
 	}
 
 	const filename = params.displayFilename || chatFile.filename;
-	const contentType = getPreviewContentType(chatFile.filename, chatFile.mimeType);
+	const contentType = getPreviewContentType(
+		chatFile.filename,
+		chatFile.mimeType,
+	);
 
 	return {
 		ok: true,
@@ -97,6 +103,7 @@ export async function resolveGeneratedFileServing(params: {
 			contentLength: fileContent.length,
 			contentType,
 			filename,
+			safetyFilenames: [chatFile.filename],
 		}),
 	};
 }

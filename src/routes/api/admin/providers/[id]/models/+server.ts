@@ -5,12 +5,7 @@ import {
 	listProviderModels,
 } from "$lib/server/services/provider-models";
 import type { RequestHandler } from "./$types";
-
-function isProviderModelValidationError(error: unknown): error is Error {
-	return (
-		error instanceof Error && error.name === "ProviderModelValidationError"
-	);
-}
+import { isProviderModelValidationError } from "./provider-model-route-errors";
 
 export const GET: RequestHandler = async (event) => {
 	try {

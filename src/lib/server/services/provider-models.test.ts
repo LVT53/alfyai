@@ -136,6 +136,43 @@ describe("ProviderModel CRUD", () => {
 			expect(model.inputUsdMicrosPer1m).toBe(15);
 		});
 
+		it("creates a model from the client form payload when blank optional fields are null", async () => {
+			const { createProviderModelFromPayload } = await import(
+				"./provider-models"
+			);
+			const provider = await seedProvider();
+
+			const model = await createProviderModelFromPayload(provider.id, {
+				name: "  nullable-create  ",
+				displayName: "  Nullable Create  ",
+				maxModelContext: null,
+				compactionUiThreshold: null,
+				targetConstructedContext: null,
+				maxMessageLength: null,
+				maxTokens: null,
+				reasoningEffort: null,
+				thinkingType: null,
+				capabilitiesJson: null,
+				inputUsdMicrosPer1m: 0,
+				cachedInputUsdMicrosPer1m: 0,
+				cacheHitUsdMicrosPer1m: 0,
+				cacheMissUsdMicrosPer1m: 0,
+				outputUsdMicrosPer1m: 0,
+				enabled: true,
+			});
+
+			expect(model.name).toBe("nullable-create");
+			expect(model.displayName).toBe("Nullable Create");
+			expect(model.maxModelContext).toBeNull();
+			expect(model.compactionUiThreshold).toBeNull();
+			expect(model.targetConstructedContext).toBeNull();
+			expect(model.maxMessageLength).toBeNull();
+			expect(model.maxTokens).toBeNull();
+			expect(model.reasoningEffort).toBeNull();
+			expect(model.thinkingType).toBeNull();
+			expect(model.capabilitiesJson).toBe("{}");
+		});
+
 		it("creates a model with default values", async () => {
 			const { createProviderModel } = await import("./provider-models");
 			const provider = await seedProvider();
@@ -591,6 +628,34 @@ describe("ProviderModel CRUD", () => {
 			);
 			expect(fetched.reasoningEffort).toBe("medium");
 			expect(fetched.thinkingType).toBe("enabled");
+		});
+
+		it("clears reasoning, thinking, and capabilities from a nullable admin payload", async () => {
+			const { createProviderModel, updateProviderModelFromPayload } =
+				await import("./provider-models");
+			const provider = await seedProvider();
+
+			const created = await createProviderModel({
+				providerId: provider.id,
+				name: "nullable-runtime-update",
+				displayName: "Nullable Runtime Update",
+				reasoningEffort: "high",
+				thinkingType: "enabled",
+				capabilitiesJson: '{"vision":true}',
+			});
+
+			const updated = assertDefined(
+				await updateProviderModelFromPayload(created.id, {
+					reasoningEffort: null,
+					thinkingType: null,
+					capabilitiesJson: null,
+				}),
+				"updated model with cleared runtime fields",
+			);
+
+			expect(updated.reasoningEffort).toBeNull();
+			expect(updated.thinkingType).toBeNull();
+			expect(updated.capabilitiesJson).toBe("{}");
 		});
 
 		it("disables a model", async () => {
