@@ -59,8 +59,9 @@ export {
 	createNormalizedArtifact,
 	findRelevantArtifactsByTypes,
 	findRelevantArtifactsByTypesDetailed,
-	listLogicalDocumentsPage,
+	getLogicalDocumentForArtifact,
 	listLogicalDocuments,
+	listLogicalDocumentsPage,
 } from "./store/documents";
 export type {
 	LinkedContextSourceIdentityInput,

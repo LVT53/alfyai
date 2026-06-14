@@ -63,6 +63,7 @@ vi.mock("$lib/server/db/schema", () => ({
 
 vi.mock("drizzle-orm", () => ({
 	and: vi.fn((...conditions: unknown[]) => conditions),
+	asc: vi.fn(() => "asc"),
 	desc: vi.fn(() => "desc"),
 	eq: vi.fn((field: { name: string }, value: unknown) => ({
 		field: field.name,
@@ -71,6 +72,10 @@ vi.mock("drizzle-orm", () => ({
 	inArray: vi.fn((field: { name: string }, value: unknown[]) => ({
 		field: field.name,
 		value,
+	})),
+	isNull: vi.fn((field: { name: string }) => ({
+		field: field.name,
+		isNull: true,
 	})),
 	like: vi.fn(),
 	ne: vi.fn(),
@@ -552,6 +557,102 @@ describe("knowledge documents store", () => {
 			(d) => d.type === "normalized_document",
 		);
 		expect(normalizedDocs).toHaveLength(0);
+	});
+
+	it("bounds the no-query date-sorted page in the database before building logical document details", async () => {
+		const pageRows = [
+			{
+				id: "source-new",
+				userId: "user-1",
+				type: "source_document",
+				retrievalClass: "durable",
+				name: "new.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 100,
+				conversationId: null,
+				summary: "New upload",
+				metadataJson: null,
+				createdAt: new Date("2026-04-05T10:00:00Z"),
+				updatedAt: new Date("2026-04-05T10:00:00Z"),
+			},
+			{
+				id: "source-old",
+				userId: "user-1",
+				type: "source_document",
+				retrievalClass: "durable",
+				name: "old.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 100,
+				conversationId: null,
+				summary: "Old upload",
+				metadataJson: null,
+				createdAt: new Date("2026-04-04T10:00:00Z"),
+				updatedAt: new Date("2026-04-04T10:00:00Z"),
+			},
+		];
+		const limitSpy = vi.fn(() => ({
+			offset: vi.fn(async () => pageRows),
+		}));
+		const unboundedOrderBySpy = vi.fn(() => {
+			throw new Error("full logical document scan should not run");
+		});
+
+		let selectCall = 0;
+		mockSelect.mockImplementation((selection?: Record<string, unknown>) => {
+			selectCall += 1;
+			if (selectCall === 1) {
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(async () => []),
+					})),
+				};
+			}
+
+			if (selection && "normalizedArtifactId" in selection) {
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(async () => []),
+					})),
+				};
+			}
+
+			if (selection && "total" in selection) {
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(() => ({
+							get: vi.fn(async () => ({ total: 5 })),
+						})),
+					})),
+				};
+			}
+
+			return {
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						orderBy: vi.fn(() => ({
+							limit: limitSpy,
+						})),
+					})),
+				})),
+				orderBy: unboundedOrderBySpy,
+			};
+		});
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+		const result = await listLogicalDocumentsPage("user-1", {
+			includeGeneratedOutputs: true,
+			sortKey: "date",
+			sortDirection: "desc",
+			offset: 20,
+			limit: 2,
+		});
+
+		expect(limitSpy).toHaveBeenCalledWith(2);
+		expect(result.totalItems).toBe(5);
+		expect(result.documents.map((document) => document.id)).toEqual([
+			"source-new",
+			"source-old",
+		]);
 	});
 
 	it("prefers semantic and reranked artifact matches when lexical scores are weak", async () => {

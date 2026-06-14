@@ -7,6 +7,10 @@ const { replaceStateMock } = vi.hoisted(() => ({
 	replaceStateMock: vi.fn(),
 }));
 
+const { fetchKnowledgeWorkspaceDocumentMock } = vi.hoisted(() => ({
+	fetchKnowledgeWorkspaceDocumentMock: vi.fn(),
+}));
+
 vi.mock("$app/state", () => ({
 	page: {
 		url: new URL(
@@ -28,12 +32,14 @@ vi.mock("$app/environment", () => ({
 }));
 
 vi.mock("$lib/client/api/knowledge", () => ({
+	fetchKnowledgeWorkspaceDocument: fetchKnowledgeWorkspaceDocumentMock,
 	recordDocumentWorkspaceOpen: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("KnowledgeWorkspaceCoordinator", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		fetchKnowledgeWorkspaceDocumentMock.mockResolvedValue(null);
 		global.fetch = vi.fn(() => new Promise(() => undefined)) as typeof fetch;
 	});
 
@@ -159,6 +165,44 @@ describe("KnowledgeWorkspaceCoordinator", () => {
 				(download) =>
 					download.getAttribute("href") ===
 					"/api/knowledge/display-docx-1/download",
+			),
+		).toBe(true);
+	});
+
+	it("resolves URL handoff artifacts that are not on the current library page", async () => {
+		fetchKnowledgeWorkspaceDocumentMock.mockResolvedValue({
+			id: "off-page-doc",
+			name: "Off page notes.md",
+			type: "source_document",
+			mimeType: "text/markdown",
+			sizeBytes: 120,
+			createdAt: 1,
+			displayArtifactId: "display-off-page",
+			promptArtifactId: "artifact-1",
+			familyArtifactIds: ["display-off-page", "artifact-1"],
+			normalizedAvailable: true,
+		});
+
+		render(KnowledgeWorkspaceCoordinator, {
+			props: {
+				documents: [],
+			},
+		});
+
+		await waitFor(() => {
+			expect(fetchKnowledgeWorkspaceDocumentMock).toHaveBeenCalledWith(
+				"artifact-1",
+			);
+		});
+
+		const downloads = await screen.findAllByRole("link", {
+			name: /download off page notes\.md/i,
+		});
+		expect(
+			downloads.some(
+				(download) =>
+					download.getAttribute("href") ===
+					"/api/knowledge/display-off-page/download",
 			),
 		).toBe(true);
 	});

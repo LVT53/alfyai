@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { and, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactLinks, artifacts } from "$lib/server/db/schema";
 import { parseJsonRecord } from "$lib/server/utils/json";
@@ -67,6 +67,7 @@ export interface LogicalDocumentPageResult {
 
 type LogicalDocumentArtifactRow = Parameters<typeof mapArtifactSummary>[0] & {
 	id: string;
+	userId: string;
 	metadataJson?: string | null;
 };
 
@@ -88,7 +89,9 @@ interface LogicalDocumentRecord {
 	sourceChatFileId?: string | null;
 }
 
-function mapLogicalDocumentItem(params: LogicalDocumentRecord): KnowledgeDocumentItem {
+function mapLogicalDocumentItem(
+	params: LogicalDocumentRecord,
+): KnowledgeDocumentItem {
 	const document: KnowledgeDocumentItem = {
 		id: params.displayArtifact.id,
 		type: params.displayArtifact.type,
@@ -124,7 +127,9 @@ function mapLogicalDocumentItem(params: LogicalDocumentRecord): KnowledgeDocumen
 	};
 }
 
-function normalizeLogicalDocumentQuery(value: string | null | undefined): string {
+function normalizeLogicalDocumentQuery(
+	value: string | null | undefined,
+): string {
 	return (value ?? "").toLowerCase().trim();
 }
 
@@ -493,6 +498,181 @@ async function buildLogicalDocumentRecordsFromRows(params: {
 	return records.sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
+function hasGeneratedFileSource(
+	metadataJson: string | null | undefined,
+): boolean {
+	const metadata = parseWorkingDocumentMetadata(
+		parseJsonRecord(metadataJson ?? null),
+	);
+	return Boolean(metadata.sourceChatFileId);
+}
+
+function getGeneratedDocumentFamilyId(row: LogicalDocumentArtifactRow): string {
+	const metadata = parseWorkingDocumentMetadata(
+		parseJsonRecord(row.metadataJson ?? null),
+	);
+	return metadata.documentFamilyId ?? row.id;
+}
+
+function buildGeneratedFileArtifactCondition() {
+	return and(
+		eq(artifacts.type, "generated_output"),
+		eq(artifacts.retrievalClass, "durable"),
+		sql`json_extract(${artifacts.metadataJson}, '$.sourceChatFileId') IS NOT NULL`,
+	);
+}
+
+function buildLatestGeneratedFamilyArtifactCondition() {
+	return and(
+		buildGeneratedFileArtifactCondition(),
+		sql`NOT EXISTS (
+			SELECT 1
+			FROM artifacts newer
+			WHERE newer.type = 'generated_output'
+				AND newer.retrieval_class = 'durable'
+				AND json_extract(newer.metadata_json, '$.sourceChatFileId') IS NOT NULL
+				AND coalesce(json_extract(newer.metadata_json, '$.documentFamilyId'), newer.id) = coalesce(json_extract(${artifacts.metadataJson}, '$.documentFamilyId'), ${artifacts.id})
+				AND (
+					newer.updated_at > ${artifacts.updatedAt}
+					OR (newer.updated_at = ${artifacts.updatedAt} AND newer.id > ${artifacts.id})
+				)
+		)`,
+	);
+}
+
+function buildLogicalDocumentDisplayArtifactCondition(
+	includeGeneratedOutputs: boolean,
+) {
+	if (!includeGeneratedOutputs) {
+		return eq(artifacts.type, "source_document");
+	}
+
+	return or(
+		eq(artifacts.type, "source_document"),
+		eq(artifacts.type, "skill_note"),
+		buildLatestGeneratedFamilyArtifactCondition(),
+	);
+}
+
+async function selectRowsByArtifactIds(
+	ids: string[],
+): Promise<LogicalDocumentArtifactRow[]> {
+	if (ids.length === 0) return [];
+	return db
+		.select(knowledgeArtifactListSelection)
+		.from(artifacts)
+		.where(inArray(artifacts.id, Array.from(new Set(ids))));
+}
+
+function uniqueLogicalDocumentRows(
+	rows: LogicalDocumentArtifactRow[],
+): LogicalDocumentArtifactRow[] {
+	const byId = new Map<string, LogicalDocumentArtifactRow>();
+	for (const row of rows) {
+		byId.set(row.id, row);
+	}
+	return Array.from(byId.values());
+}
+
+function readCountValue(row: { total?: unknown } | undefined): number {
+	const total = row?.total;
+	if (typeof total === "number" && Number.isFinite(total)) {
+		return total;
+	}
+	if (typeof total === "string" && total.trim()) {
+		const parsed = Number(total);
+		return Number.isFinite(parsed) ? parsed : 0;
+	}
+	return 0;
+}
+
+async function expandLogicalDocumentCandidateRows(params: {
+	userId: string;
+	rows: LogicalDocumentArtifactRow[];
+	includeGeneratedOutputs: boolean;
+	ownershipScope: Awaited<ReturnType<typeof getArtifactOwnershipScope>>;
+}): Promise<LogicalDocumentArtifactRow[]> {
+	const selectedRows = params.rows.filter((row) =>
+		isArtifactCanonicallyOwned({
+			userId: params.userId,
+			ownershipScope: params.ownershipScope,
+			artifact: row,
+		}),
+	);
+	if (selectedRows.length === 0) return [];
+
+	const sourceIds = selectedRows
+		.filter((row) => row.type === "source_document")
+		.map((row) => row.id);
+	const generatedFamilyIds = params.includeGeneratedOutputs
+		? Array.from(
+				new Set(
+					selectedRows
+						.filter(
+							(row) =>
+								row.type === "generated_output" &&
+								hasGeneratedFileSource(row.metadataJson),
+						)
+						.map(getGeneratedDocumentFamilyId),
+				),
+			)
+		: [];
+
+	const [derivedRows, generatedFamilyRows] = await Promise.all([
+		sourceIds.length === 0
+			? Promise.resolve([])
+			: db
+					.select({
+						normalizedArtifactId: artifactLinks.artifactId,
+					})
+					.from(artifactLinks)
+					.where(
+						and(
+							eq(artifactLinks.userId, params.userId),
+							inArray(artifactLinks.relatedArtifactId, sourceIds),
+							eq(artifactLinks.linkType, "derived_from"),
+						),
+					),
+		generatedFamilyIds.length === 0
+			? Promise.resolve([])
+			: db
+					.select(knowledgeArtifactListSelection)
+					.from(artifacts)
+					.where(
+						and(
+							buildArtifactVisibilityCondition({
+								userId: params.userId,
+								ownershipScope: params.ownershipScope,
+							}),
+							buildGeneratedFileArtifactCondition(),
+							or(
+								...generatedFamilyIds.map(
+									(familyId) =>
+										sql`coalesce(json_extract(${artifacts.metadataJson}, '$.documentFamilyId'), ${artifacts.id}) = ${familyId}`,
+								),
+							),
+						),
+					),
+	]);
+	const normalizedRows = await selectRowsByArtifactIds(
+		derivedRows
+			.map((row) => row.normalizedArtifactId)
+			.filter((value): value is string => Boolean(value)),
+	);
+
+	return uniqueLogicalDocumentRows([
+		...selectedRows,
+		...normalizedRows,
+		...generatedFamilyRows.filter((row) =>
+			isArtifactCanonicallyOwned({
+				userId: params.userId,
+				ownershipScope: params.ownershipScope,
+				artifact: row,
+			}),
+		),
+	]);
+}
+
 export async function listLogicalDocuments(
 	userId: string,
 	options?: {
@@ -501,12 +681,17 @@ export async function listLogicalDocuments(
 ): Promise<KnowledgeDocumentItem[]> {
 	const includeGeneratedOutputs = options?.includeGeneratedOutputs ?? false;
 	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const visibilityCondition = buildArtifactVisibilityCondition({
+		userId,
+		ownershipScope,
+	});
+
 	const rows = await db
 		.select(knowledgeArtifactListSelection)
 		.from(artifacts)
 		.where(
 			and(
-				buildArtifactVisibilityCondition({ userId, ownershipScope }),
+				visibilityCondition,
 				inArray(
 					artifacts.type,
 					includeGeneratedOutputs
@@ -551,6 +736,59 @@ export async function listLogicalDocumentsPage(
 	const offset = Math.max(0, Math.floor(options.offset ?? 0));
 	const limit = Math.max(1, Math.floor(options.limit ?? 20));
 	const ownershipScope = await getArtifactOwnershipScope(userId);
+
+	if (!query && sortKey === "date") {
+		const displayArtifactCondition =
+			buildLogicalDocumentDisplayArtifactCondition(includeGeneratedOutputs);
+		const whereCondition = and(
+			buildArtifactVisibilityCondition({ userId, ownershipScope }),
+			displayArtifactCondition,
+		);
+		const [countRow, rows] = await Promise.all([
+			db
+				.select({
+					total: sql<number>`cast(count(${artifacts.id}) as integer)`,
+				})
+				.from(artifacts)
+				.where(whereCondition)
+				.get(),
+			db
+				.select(knowledgeArtifactListSelection)
+				.from(artifacts)
+				.where(whereCondition)
+				.orderBy(
+					sortDirection === "asc"
+						? asc(artifacts.createdAt)
+						: desc(artifacts.createdAt),
+					asc(artifacts.id),
+				)
+				.limit(limit)
+				.offset(offset),
+		]);
+		const detailRows = await expandLogicalDocumentCandidateRows({
+			userId,
+			rows,
+			includeGeneratedOutputs,
+			ownershipScope,
+		});
+		const records = await buildLogicalDocumentRecordsFromRows({
+			userId,
+			rows: detailRows,
+			includeGeneratedOutputs,
+		});
+		const sortedRecords = sortLogicalDocumentRecordEntries(
+			records.map((record) => ({ record, score: 1 })),
+			{ query, sortKey, sortDirection },
+		);
+
+		return {
+			documents: sortedRecords.map(mapLogicalDocumentItem),
+			totalItems: readCountValue(countRow),
+		};
+	}
+
+	// Search relevance, non-date sort keys, and full generated-family grouping need
+	// the complete logical-document set before slicing.
 	const rows = await db
 		.select(knowledgeArtifactListSelection)
 		.from(artifacts)
@@ -604,6 +842,88 @@ export async function listLogicalDocumentsPage(
 			.map(mapLogicalDocumentItem),
 		totalItems: sortedRecords.length,
 	};
+}
+
+export async function getLogicalDocumentForArtifact(
+	userId: string,
+	artifactId: string,
+): Promise<KnowledgeDocumentItem | null> {
+	const trimmedArtifactId = artifactId.trim();
+	if (!trimmedArtifactId) return null;
+
+	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const targetRows = await db
+		.select(knowledgeArtifactListSelection)
+		.from(artifacts)
+		.where(
+			and(
+				buildArtifactVisibilityCondition({ userId, ownershipScope }),
+				eq(artifacts.id, trimmedArtifactId),
+				inArray(artifacts.type, [
+					"source_document",
+					"normalized_document",
+					"generated_output",
+					"skill_note",
+				]),
+			),
+		)
+		.limit(1);
+	const targetRow = targetRows[0] ?? null;
+	if (
+		!targetRow ||
+		!isArtifactCanonicallyOwned({
+			userId,
+			ownershipScope,
+			artifact: targetRow,
+		})
+	) {
+		return null;
+	}
+
+	let candidateRows: LogicalDocumentArtifactRow[] = [targetRow];
+	if (targetRow.type === "normalized_document") {
+		const sourceLinks = await db
+			.select({
+				sourceArtifactId: artifactLinks.relatedArtifactId,
+			})
+			.from(artifactLinks)
+			.where(
+				and(
+					eq(artifactLinks.userId, userId),
+					eq(artifactLinks.artifactId, targetRow.id),
+					eq(artifactLinks.linkType, "derived_from"),
+				),
+			);
+		candidateRows = [
+			...candidateRows,
+			...(await selectRowsByArtifactIds(
+				sourceLinks
+					.map((row) => row.sourceArtifactId)
+					.filter((value): value is string => Boolean(value)),
+			)),
+		];
+	}
+
+	const detailRows = await expandLogicalDocumentCandidateRows({
+		userId,
+		rows: candidateRows,
+		includeGeneratedOutputs: true,
+		ownershipScope,
+	});
+	const records = await buildLogicalDocumentRecordsFromRows({
+		userId,
+		rows: detailRows,
+		includeGeneratedOutputs: true,
+	});
+	const targetRecord =
+		records.find(
+			(record) =>
+				record.displayArtifact.id === targetRow.id ||
+				record.promptArtifactId === targetRow.id ||
+				record.familyArtifactIds.includes(targetRow.id),
+		) ?? null;
+
+	return targetRecord ? mapLogicalDocumentItem(targetRecord) : null;
 }
 
 function buildArtifactSearchBody(artifact: Artifact): string {

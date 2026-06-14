@@ -529,6 +529,35 @@ async function listScopeConclusions(
 	}
 }
 
+async function getScopeConclusionsPage(
+	scope: ConclusionScope,
+	options: { size: number },
+): Promise<{
+	total: number;
+	items: Array<{
+		id: string;
+		content: string;
+		sessionId: string | null;
+		createdAt: string;
+	}>;
+}> {
+	try {
+		const page = await scope.list({ size: options.size });
+		return {
+			total: page.total,
+			items: page.items.map((item) => ({
+				id: item.id,
+				content: item.content,
+				sessionId: item.sessionId,
+				createdAt: item.createdAt,
+			})),
+		};
+	} catch (error) {
+		if (isHonchoMissingError(error)) return { total: 0, items: [] };
+		throw error;
+	}
+}
+
 async function deleteScopeConclusions(
 	scope: ConclusionScope,
 	conclusionIds: string[],
@@ -682,6 +711,35 @@ export async function listPersonaMemories(
 	userId: string,
 ): Promise<HonchoPersonaMemoryRecord[]> {
 	return listVisiblePersonaMemoryRecords(userId);
+}
+
+export async function getPersonaMemoryOverviewSummary(
+	userId: string,
+): Promise<{ count: number; fallbackTexts: string[] }> {
+	if (!isHonchoEnabled()) return { count: 0, fallbackTexts: [] };
+
+	const [userPeer, assistantPeer] = await Promise.all([
+		getUserPeer(userId),
+		getAssistantPeer(userId),
+	]);
+	const assistantAboutUserScope = assistantPeer.conclusionsOf(userPeer);
+	const [selfPage, assistantAboutUserPage] = await Promise.all([
+		getScopeConclusionsPage(userPeer.conclusions, { size: 3 }),
+		getScopeConclusionsPage(assistantAboutUserScope, { size: 3 }),
+	]);
+	const fallbackTexts = [...selfPage.items, ...assistantAboutUserPage.items]
+		.sort(
+			(left, right) =>
+				normalizeConclusionTimestamp(right.createdAt) -
+				normalizeConclusionTimestamp(left.createdAt),
+		)
+		.slice(0, 3)
+		.map((item) => item.content);
+
+	return {
+		count: selfPage.total + assistantAboutUserPage.total,
+		fallbackTexts,
+	};
 }
 
 function sanitizePersonaMemoryText(

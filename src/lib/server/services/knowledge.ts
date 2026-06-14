@@ -11,6 +11,7 @@ import { mapWorkCapsuleFromArtifactRow } from "./knowledge/capsules";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
+	getLogicalDocumentForArtifact,
 	guessSummary,
 	isArtifactCanonicallyOwned,
 	knowledgeArtifactListSelection,
@@ -193,6 +194,13 @@ export async function getKnowledgeLibraryPage(
 			totalPages,
 		},
 	};
+}
+
+export async function resolveKnowledgeWorkspaceDocument(
+	userId: string,
+	artifactId: string,
+): Promise<KnowledgeDocumentItem | null> {
+	return getLogicalDocumentForArtifact(userId, artifactId);
 }
 
 export async function listKnowledgeArtifacts(userId: string): Promise<{

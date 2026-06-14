@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	KnowledgeMemoryOverviewPayload,
 	KnowledgeMemoryPayload,
@@ -57,6 +57,16 @@ const memoryOverviewPayload = {
 		overviewUpdatedAt: 1_700_000_000_000,
 		overviewLastAttemptAt: 1_700_000_000_000,
 		durablePersonaCount: 2,
+	},
+} satisfies KnowledgeMemoryOverviewPayload;
+
+const fallbackMemoryOverviewPayload = {
+	summary: {
+		...memoryOverviewPayload.summary,
+		overview: "Fallback memory.",
+		overviewBullets: ["Fallback memory."],
+		overviewSource: "persona_fallback",
+		overviewStatus: "temporarily_unavailable",
 	},
 } satisfies KnowledgeMemoryOverviewPayload;
 
@@ -129,6 +139,10 @@ describe("Knowledge page memory loading", () => {
 		});
 	});
 
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	it("loads the lightweight memory overview first and defers full memory until management opens", async () => {
 		render(Page, { data: pageData() });
 
@@ -147,5 +161,29 @@ describe("Knowledge page memory loading", () => {
 		await waitFor(() => {
 			expect(fetchKnowledgeMemory).toHaveBeenCalledTimes(1);
 		});
+	});
+
+	it("lets the 20 second timer drive live overview polling instead of retrying on state flips", async () => {
+		vi.useFakeTimers();
+		vi.mocked(fetchKnowledgeMemoryOverview).mockResolvedValue(
+			fallbackMemoryOverviewPayload,
+		);
+
+		render(Page, { data: pageData() });
+
+		await waitFor(() => {
+			expect(fetchKnowledgeMemoryOverview).toHaveBeenCalledTimes(1);
+		});
+
+		await vi.advanceTimersByTimeAsync(19_999);
+		expect(fetchKnowledgeMemoryOverview).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(1);
+		await waitFor(() => {
+			expect(fetchKnowledgeMemoryOverview).toHaveBeenCalledTimes(2);
+		});
+
+		await vi.advanceTimersByTimeAsync(1);
+		expect(fetchKnowledgeMemoryOverview).toHaveBeenCalledTimes(2);
 	});
 });

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetPeerContext = vi.fn();
 const mockListPersonaMemories = vi.fn();
+const mockGetPersonaMemoryOverviewSummary = vi.fn();
 const mockForgetAllPersonaMemories = vi.fn();
 const mockForgetPersonaMemory = vi.fn();
 const mockRotateHonchoPeerIdentity = vi.fn();
@@ -21,6 +22,7 @@ vi.mock("./honcho", () => ({
 	forgetAllPersonaMemories: mockForgetAllPersonaMemories,
 	forgetPersonaMemory: mockForgetPersonaMemory,
 	getPeerContext: mockGetPeerContext,
+	getPersonaMemoryOverviewSummary: mockGetPersonaMemoryOverviewSummary,
 	isHonchoEnabled: mockIsHonchoEnabled,
 	listPersonaMemories: mockListPersonaMemories,
 	rotateHonchoPeerIdentity: mockRotateHonchoPeerIdentity,
@@ -40,6 +42,10 @@ describe("knowledge memory service", () => {
 		vi.clearAllMocks();
 		mockIsHonchoEnabled.mockReturnValue(true);
 		mockGetPeerContext.mockResolvedValue(null);
+		mockGetPersonaMemoryOverviewSummary.mockResolvedValue({
+			count: 0,
+			fallbackTexts: [],
+		});
 		mockListPersonaMemories.mockResolvedValue([]);
 		mockListTaskMemoryItems.mockResolvedValue([]);
 		mockListFocusContinuityItems.mockResolvedValue([]);
@@ -183,7 +189,7 @@ describe("knowledge memory service", () => {
 		}
 	});
 
-	it("returns overview summary counts without full management rows", async () => {
+	it("returns overview summary counts without full management rows or full persona conclusions", async () => {
 		mockListPersonaMemories.mockResolvedValue([
 			{
 				id: "conclusion-1",
@@ -193,12 +199,18 @@ describe("knowledge memory service", () => {
 				createdAt: 1234,
 			},
 		]);
+		mockGetPersonaMemoryOverviewSummary.mockResolvedValue({
+			count: 1,
+			fallbackTexts: ["Prefers concise responses."],
+		});
 		mockCountTaskMemoryItems.mockResolvedValue(2);
 		mockCountFocusContinuityItems.mockResolvedValue(1);
 
 		const { getKnowledgeMemoryOverview } = await import("./memory");
 		const payload = await getKnowledgeMemoryOverview("user-1", "Test User");
 
+		expect(mockListPersonaMemories).not.toHaveBeenCalled();
+		expect(mockGetPersonaMemoryOverviewSummary).toHaveBeenCalledWith("user-1");
 		expect(mockListTaskMemoryItems).not.toHaveBeenCalled();
 		expect(mockListFocusContinuityItems).not.toHaveBeenCalled();
 		expect(mockCountTaskMemoryItems).toHaveBeenCalledWith("user-1");

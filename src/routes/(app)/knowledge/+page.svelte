@@ -1,5 +1,6 @@
 <script lang="ts">
 import { goto, invalidateAll } from "$app/navigation";
+import { untrack } from "svelte";
 import {
 	deleteKnowledgeArtifact,
 	fetchKnowledgeMemory,
@@ -952,37 +953,19 @@ $effect(() => {
 		return;
 	}
 
-	let cancelled = false;
-	let intervalId: number | null = null;
-
-	const startPolling = async () => {
-		await refreshLiveOverview(false);
-		if (
-			cancelled ||
-			overviewSource === "honcho_live" ||
-			overviewSource === "honcho_scoped"
-		)
-			return;
-		intervalId = window.setInterval(() => {
-			if (cancelled || liveOverviewRefreshing) return;
+	const intervalId = window.setInterval(() => {
+		untrack(() => {
+			if (liveOverviewRefreshing) return;
 			if (liveOverviewPollAttempts >= OVERVIEW_POLL_MAX_ATTEMPTS) {
-				if (intervalId) {
-					window.clearInterval(intervalId);
-					intervalId = null;
-				}
+				window.clearInterval(intervalId);
 				return;
 			}
 			void refreshLiveOverview(false);
-		}, OVERVIEW_POLL_INTERVAL_MS);
-	};
-
-	void startPolling();
+		});
+	}, OVERVIEW_POLL_INTERVAL_MS);
 
 	return () => {
-		cancelled = true;
-		if (intervalId) {
-			window.clearInterval(intervalId);
-		}
+		window.clearInterval(intervalId);
 	};
 });
 

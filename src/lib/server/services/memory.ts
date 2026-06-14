@@ -9,6 +9,7 @@ import {
 	forgetAllPersonaMemories,
 	forgetPersonaMemory,
 	getPeerContext,
+	getPersonaMemoryOverviewSummary,
 	type HonchoPersonaMemoryRecord,
 	isHonchoEnabled,
 	listPersonaMemories,
@@ -190,12 +191,12 @@ export async function getKnowledgeMemoryOverview(
 	userDisplayName: string,
 	options: { awaitLive?: boolean; force?: boolean } = {},
 ): Promise<KnowledgeMemoryOverviewPayload> {
-	const [peerOverview, personaRecords, taskCount, focusContinuityCount] =
+	const [peerOverview, personaOverview, taskCount, focusContinuityCount] =
 		await Promise.all([
 			loadPeerContextOverview(userId, userDisplayName, {
 				force: options.force,
 			}),
-			listPersonaMemories(userId),
+			getPersonaMemoryOverviewSummary(userId),
 			countTaskMemoryItems(userId),
 			countFocusContinuityItems(userId),
 		]);
@@ -203,8 +204,8 @@ export async function getKnowledgeMemoryOverview(
 	return {
 		summary: buildKnowledgeMemorySummary(
 			peerOverview.text,
-			personaRecords.map((record) => record.content),
-			personaRecords.length,
+			personaOverview.fallbackTexts,
+			personaOverview.count,
 			0,
 			0,
 			taskCount,

@@ -371,6 +371,21 @@ export async function recordDocumentWorkspaceOpen(
 	);
 }
 
+export async function fetchKnowledgeWorkspaceDocument(
+	artifactId: string,
+): Promise<KnowledgeDocumentItem | null> {
+	const payload = await requestJson<{
+		document?: KnowledgeDocumentItem | null;
+	}>(
+		`/api/knowledge/documents/resolve?artifactId=${encodeURIComponent(
+			artifactId,
+		)}`,
+		undefined,
+		"Failed to resolve Knowledge document.",
+	);
+	return payload.document ?? null;
+}
+
 export async function fetchDocumentPreviewText(url: string): Promise<string> {
 	return requestText(url, undefined, "Failed to load document preview.");
 }

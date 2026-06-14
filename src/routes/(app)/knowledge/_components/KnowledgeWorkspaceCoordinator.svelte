@@ -15,7 +15,10 @@ import {
 	reduceWorkspaceDocumentOpen,
 	WORKSPACE_CONVERSATION_DELETED_EVENT,
 } from "$lib/client/document-workspace-state";
-import { recordDocumentWorkspaceOpen } from "$lib/client/api/knowledge";
+import {
+	fetchKnowledgeWorkspaceDocument,
+	recordDocumentWorkspaceOpen,
+} from "$lib/client/api/knowledge";
 import DocumentWorkspace from "$lib/components/document-workspace/DocumentWorkspace.svelte";
 import { getWorkspaceDocumentForArtifact } from "../_helpers";
 import { toWorkspaceDocument } from "../_helpers";
@@ -59,19 +62,41 @@ $effect(() => {
 		return;
 	}
 
-	openDocument(
-		handoffDoc.artifactId
-			? (getWorkspaceDocumentForArtifact(documents, handoffDoc.artifactId) ??
-					handoffDoc)
-			: handoffDoc,
-	);
 	lastHandoffKey = key;
+	void openHandoffDocument(handoffDoc);
 	if (browser) {
 		requestAnimationFrame(() => {
 			replaceState(clearKnowledgeWorkspaceParams(page.url), page.state);
 		});
 	}
 });
+
+async function openHandoffDocument(handoffDoc: DocumentWorkspaceItem) {
+	if (!handoffDoc.artifactId) {
+		openDocument(handoffDoc);
+		return;
+	}
+
+	const localDocument = getWorkspaceDocumentForArtifact(
+		documents,
+		handoffDoc.artifactId,
+	);
+	if (localDocument) {
+		openDocument(localDocument);
+		return;
+	}
+
+	try {
+		const resolvedDocument = await fetchKnowledgeWorkspaceDocument(
+			handoffDoc.artifactId,
+		);
+		openDocument(
+			resolvedDocument ? toWorkspaceDocument(resolvedDocument) : handoffDoc,
+		);
+	} catch {
+		openDocument(handoffDoc);
+	}
+}
 
 function openDocument(doc: DocumentWorkspaceItem) {
 	const result = reduceWorkspaceDocumentOpen(workspaceDocuments, doc);
