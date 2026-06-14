@@ -14,6 +14,51 @@ vi.mock("$lib/client/conversation-session", () => ({
 import { load } from "./+page";
 
 describe("chat conversation page load", () => {
+	it("starts first-render detail loading before waiting for parent layout data", async () => {
+		let resolveParent: (data: Record<string, unknown>) => void = () => {};
+		const parent = vi.fn(
+			() =>
+				new Promise<Record<string, unknown>>((resolve) => {
+					resolveParent = resolve;
+				}),
+		);
+		const fetch = vi.fn(async () => {
+			return new Response(
+				JSON.stringify({
+					conversation: {
+						id: "conv-1",
+						title: "Fast first render",
+						projectId: null,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+					messages: [],
+				}),
+				{ status: 200 },
+			);
+		});
+
+		const event = {
+			params: { conversationId: "conv-1" },
+			fetch: fetch as unknown as typeof globalThis.fetch,
+			parent,
+			url: new URL("http://localhost/chat/conv-1"),
+			depends: vi.fn(),
+		} as Parameters<typeof load>[0];
+		const loadPromise = load(event);
+		await Promise.resolve();
+
+		expect(fetch).toHaveBeenCalledWith(
+			"/api/conversations/conv-1?view=first-render",
+		);
+		expect(parent).toHaveBeenCalledOnce();
+
+		resolveParent({ deepResearchEnabled: true });
+		const data = await loadPromise;
+		expect(data.conversation.title).toBe("Fast first render");
+		expect(data.deepResearchEnabled).toBe(true);
+	});
+
 	it("registers the conversation detail dependency for targeted reloads", async () => {
 		const fetch = vi.fn(async () => {
 			return new Response(
@@ -87,7 +132,9 @@ describe("chat conversation page load", () => {
 		} as Parameters<typeof load>[0];
 		const data = await load(event);
 
-		expect(fetch).toHaveBeenCalledWith("/api/conversations/conv-1");
+		expect(fetch).toHaveBeenCalledWith(
+			"/api/conversations/conv-1?view=first-render",
+		);
 		expect(data.deepResearchJobs).toEqual(deepResearchJobs);
 	});
 

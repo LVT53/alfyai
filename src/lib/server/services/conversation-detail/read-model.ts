@@ -32,14 +32,31 @@ import {
 	getConversationTaskState,
 	getProjectReferenceContext,
 } from "$lib/server/services/task-state";
-import type { ConversationDetail } from "$lib/types";
+import type { ChatMessage, ConversationDetail } from "$lib/types";
 
-export type ConversationDetailView = "full" | "bootstrap";
+export type ConversationDetailView = "full" | "bootstrap" | "first-render";
 
 export interface GetConversationDetailInput {
 	userId: string;
 	conversationId: string;
 	view?: ConversationDetailView;
+}
+
+async function attachSourceForksToAssistantMessages(
+	userId: string,
+	messageHistory: ChatMessage[],
+): Promise<ChatMessage[]> {
+	const sourceForksByMessageId = await listChildForksBySourceMessages(
+		userId,
+		messageHistory
+			.filter((message) => message.role === "assistant")
+			.map((message) => message.id),
+	).catch(() => ({}));
+	return messageHistory.map((message) => {
+		if (message.role !== "assistant") return message;
+		const sourceForks = sourceForksByMessageId[message.id];
+		return sourceForks ? { ...message, sourceForks } : message;
+	});
 }
 
 export async function getConversationDetail({
@@ -77,6 +94,48 @@ export async function getConversationDetail({
 			contextCompressionSnapshots: [],
 			activeSkillSession: serializePublicSkillSession(activeSkillSession),
 			bootstrap: true,
+			sidecarPending: false,
+		};
+	}
+
+	if (view === "first-render") {
+		const [
+			messageHistory,
+			forkOrigin,
+			draft,
+			activeSkillSession,
+			deepResearchJobs,
+		] = await Promise.all([
+			listMessages(conversationId),
+			getConversationForkOrigin(conversationId),
+			getConversationDraft(userId, conversationId),
+			getActiveSkillSession(userId, conversationId).catch(() => null),
+			listConversationDeepResearchJobs(userId, conversationId),
+		]);
+		const messagesWithSourceForks = await attachSourceForksToAssistantMessages(
+			userId,
+			messageHistory,
+		);
+		return {
+			conversation,
+			messages: messagesWithSourceForks,
+			forkOrigin,
+			attachedArtifacts: [],
+			activeWorkingSet: [],
+			contextStatus: null,
+			contextSources: null,
+			taskState: null,
+			contextDebug: null,
+			draft,
+			generatedFiles: [],
+			fileProductionJobs: [],
+			deepResearchJobs,
+			contextCompressionSnapshots: [],
+			activeSkillSession: serializePublicSkillSession(activeSkillSession),
+			bootstrap: false,
+			sidecarPending: true,
+			totalCostUsdMicros: 0,
+			totalTokens: 0,
 		};
 	}
 
@@ -121,17 +180,10 @@ export async function getConversationDetail({
 		userId,
 		taskState,
 	).catch(() => taskState);
-	const sourceForksByMessageId = await listChildForksBySourceMessages(
+	const messagesWithSourceForks = await attachSourceForksToAssistantMessages(
 		userId,
-		messageHistory
-			.filter((message) => message.role === "assistant")
-			.map((message) => message.id),
-	).catch(() => ({}));
-	const messagesWithSourceForks = messageHistory.map((message) => {
-		if (message.role !== "assistant") return message;
-		const sourceForks = sourceForksByMessageId[message.id];
-		return sourceForks ? { ...message, sourceForks } : message;
-	});
+		messageHistory,
+	);
 	const contextSources = buildContextSourcesState({
 		userId,
 		conversationId,
@@ -161,6 +213,7 @@ export async function getConversationDetail({
 		),
 		activeSkillSession: serializePublicSkillSession(activeSkillSession),
 		bootstrap: false,
+		sidecarPending: false,
 		totalCostUsdMicros: costSummary.totalCostUsdMicros,
 		totalTokens: costSummary.totalTokens,
 	};

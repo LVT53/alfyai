@@ -18,8 +18,11 @@ export const GET: RequestHandler = async (event) => {
 
 	try {
 		const { id } = event.params;
+		const requestedView = event.url.searchParams.get("view");
 		const view =
-			event.url.searchParams.get("view") === "bootstrap" ? "bootstrap" : "full";
+			requestedView === "bootstrap" || requestedView === "first-render"
+				? requestedView
+				: "full";
 
 		const detail = await getConversationDetail({
 			userId: user.id,

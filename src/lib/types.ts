@@ -930,6 +930,7 @@ export interface ConversationDetail {
 	activeSkillSession?: SkillSession | null;
 	totalCostUsdMicros?: number;
 	totalTokens?: number;
+	sidecarPending?: boolean;
 }
 
 export type ContextCompressionTrigger = "manual" | "automatic";

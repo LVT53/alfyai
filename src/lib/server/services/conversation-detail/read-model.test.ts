@@ -259,6 +259,105 @@ describe("Conversation Detail Read Model", () => {
 		expect(JSON.stringify(detail)).not.toContain("SYSTEM_SENTINEL");
 	});
 
+	it("returns first-render chat detail without waiting for sidecar depth", async () => {
+		mockListMessages.mockResolvedValue([
+			{
+				id: "user-message-1",
+				conversationId: "conv-1",
+				role: "user",
+				content: "Draft a report",
+				createdAt: 1,
+			},
+			{
+				id: "assistant-message-1",
+				conversationId: "conv-1",
+				role: "assistant",
+				content: "Working on it",
+				createdAt: 2,
+			},
+		] as never);
+		mockListChildForksBySourceMessages.mockResolvedValue({
+			"assistant-message-1": {
+				count: 1,
+				forks: [
+					{
+						conversationId: "fork-1",
+						title: "Forked answer",
+						forkSequence: 1,
+						createdAt: 2,
+					},
+				],
+			},
+		});
+		mockListConversationDeepResearchJobs.mockResolvedValue([
+			{
+				id: "research-job-1",
+				conversationId: "conv-1",
+				status: "awaiting_plan",
+				title: "Research battery policy",
+			},
+		] as never);
+
+		const detail = await getConversationDetail({
+			userId: "user-1",
+			conversationId: "conv-1",
+			view: "first-render",
+		});
+
+		expect(mockListMessages).toHaveBeenCalledWith("conv-1");
+		expect(mockListChildForksBySourceMessages).toHaveBeenCalledWith("user-1", [
+			"assistant-message-1",
+		]);
+		expect(mockGetConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
+		expect(mockGetConversationForkOrigin).toHaveBeenCalledWith("conv-1");
+		expect(mockGetActiveSkillSession).toHaveBeenCalledWith("user-1", "conv-1");
+		expect(mockListConversationDeepResearchJobs).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+		);
+		expect(mockListConversationArtifacts).not.toHaveBeenCalled();
+		expect(mockListConversationLinkedContextSources).not.toHaveBeenCalled();
+		expect(mockGetConversationWorkingSet).not.toHaveBeenCalled();
+		expect(mockGetConversationContextStatus).not.toHaveBeenCalled();
+		expect(mockGetConversationTaskState).not.toHaveBeenCalled();
+		expect(mockGetContextDebugState).not.toHaveBeenCalled();
+		expect(mockAttachContinuityToTaskState).not.toHaveBeenCalled();
+		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
+		expect(mockListConversationGeneratedFiles).not.toHaveBeenCalled();
+		expect(mockListConversationFileProductionJobs).not.toHaveBeenCalled();
+		expect(mockListContextCompressionSnapshots).not.toHaveBeenCalled();
+		expect(mockGetConversationCostSummary).not.toHaveBeenCalled();
+		expect(detail).toMatchObject({
+			conversation: {
+				id: "conv-1",
+			},
+			messages: [
+				expect.objectContaining({ id: "user-message-1" }),
+				expect.objectContaining({
+					id: "assistant-message-1",
+					sourceForks: expect.objectContaining({ count: 1 }),
+				}),
+			],
+			attachedArtifacts: [],
+			activeWorkingSet: [],
+			contextStatus: null,
+			contextSources: null,
+			taskState: null,
+			contextDebug: null,
+			fileProductionJobs: [],
+			deepResearchJobs: [expect.objectContaining({ id: "research-job-1" })],
+			contextCompressionSnapshots: [],
+			bootstrap: false,
+			sidecarPending: true,
+		});
+		expect(detail?.draft?.draftText).toBe("Continue from here");
+		expect(detail?.activeSkillSession).toMatchObject({
+			id: "skill-session-1",
+			skillDisplayName: "Meeting critic",
+		});
+		expect(JSON.stringify(detail)).not.toContain("SYSTEM_SENTINEL");
+	});
+
 	it("returns full conversation detail payload pieces from read services", async () => {
 		mockListMessages.mockResolvedValue([
 			{

@@ -149,6 +149,25 @@ import {
 
 let { data }: PageProps = $props();
 const getData = () => data;
+type ChatAvailableModel = { id: string; iconUrl?: string | null };
+type AvailableModelsValue =
+	| ChatAvailableModel[]
+	| Promise<ChatAvailableModel[]>
+	| null
+	| undefined;
+type ChatPageDataWithAvailableModels = Omit<
+	PageProps["data"],
+	"availableModels"
+> & {
+	availableModels?: AvailableModelsValue;
+};
+
+function getAvailableModelsValue(
+	source: PageProps["data"],
+): AvailableModelsValue {
+	return (source as ChatPageDataWithAvailableModels).availableModels;
+}
+
 const initialMessages = getData().messages ?? [];
 const initialHasPersistedMessages = initialMessages.length > 0;
 const initialContextStatus = getData().contextStatus ?? null;
@@ -168,17 +187,38 @@ const initialDeepResearchJobs = getData().deepResearchJobs ?? [];
 const initialContextCompressionSnapshots =
 	getData().contextCompressionSnapshots ?? [];
 const initialActiveSkillSession = getData().activeSkillSession ?? null;
+const initialSidecarPending = getData().sidecarPending ?? false;
 const initialConversationId = getData().conversation.id;
 const initialConversationStatus = getData().conversation.status ?? "open";
 const initialUserPersonality = getData().userPersonality ?? null;
 const initialUserModel = (getData().userModel ?? "model1") as ModelId;
-const modelIcons = $derived.by(() => {
-	const models =
-		(
-			data as typeof data & {
-				availableModels?: Array<{ id: string; iconUrl?: string | null }>;
+let availableModelsForIcons = $state<ChatAvailableModel[]>([]);
+let availableModelsSequence = 0;
+
+$effect(() => {
+	const sequence = ++availableModelsSequence;
+	const nextAvailableModels = getAvailableModelsValue(data);
+	if (Array.isArray(nextAvailableModels)) {
+		availableModelsForIcons = nextAvailableModels;
+		return;
+	}
+
+	Promise.resolve(nextAvailableModels ?? [])
+		.then((models) => {
+			if (sequence === availableModelsSequence && Array.isArray(models)) {
+				availableModelsForIcons = models;
 			}
-		).availableModels ?? [];
+		})
+		.catch((error) => {
+			console.warn("Failed to resolve chat model metadata:", error);
+		});
+});
+
+const modelIcons = $derived.by(() => {
+	const currentAvailableModels = getAvailableModelsValue(data);
+	const models = Array.isArray(currentAvailableModels)
+		? currentAvailableModels
+		: availableModelsForIcons;
 	return Object.fromEntries(
 		models.map((model) => [model.id, model.iconUrl ?? null]),
 	) as Record<string, string | null>;
@@ -282,6 +322,7 @@ let selectedPersonalityId = $state<string | null>(
 	),
 );
 let bootstrapMode = initialBootstrapMode;
+let sidecarPending = initialSidecarPending;
 let hydratingConversation = false;
 let suppressHydration = $state(false);
 // Set to true when we're waiting for the initial pending message to be sent (landing page transition)
@@ -764,6 +805,7 @@ function resetState() {
 	totalTokens = data.totalTokens ?? 0;
 	restorePersistedWorkspaceState();
 	bootstrapMode = data.bootstrap ?? false;
+	sidecarPending = data.sidecarPending ?? false;
 	hydratingConversation = false;
 	suppressHydration = false;
 	evidenceManagerOpen = false;
@@ -776,7 +818,7 @@ function resetState() {
 			maybeSendPendingInitialMessage();
 		});
 	}
-	if (bootstrapMode) {
+	if (bootstrapMode || sidecarPending) {
 		void hydrateConversationDetail(data.conversation.id);
 	}
 }
@@ -1093,6 +1135,7 @@ async function hydrateConversationDetail(conversationId: string) {
 		activeSkillSession = payload.activeSkillSession ?? null;
 		conversationStatus = payload.conversation?.status ?? conversationStatus;
 		bootstrapMode = false;
+		sidecarPending = false;
 
 		if (
 			!normalChatRuntimeActive &&
