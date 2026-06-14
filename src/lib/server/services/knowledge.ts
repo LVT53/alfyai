@@ -15,6 +15,7 @@ import {
 	isArtifactCanonicallyOwned,
 	knowledgeArtifactListSelection,
 	listLogicalDocuments,
+	listLogicalDocumentsPage,
 	mapArtifact,
 	mapArtifactSummary,
 } from "./knowledge/store";
@@ -113,83 +114,6 @@ function normalizeLibraryQuery(value: string | null | undefined): string {
 	return (value ?? "").toLowerCase().trim();
 }
 
-function tokenizeLibraryQuery(query: string): string[] {
-	return Array.from(
-		new Set(
-			normalizeLibraryQuery(query)
-				.split(/\s+/)
-				.filter((term) => term.length > 1),
-		),
-	);
-}
-
-function scoreLibraryTermMatches(
-	target: string,
-	terms: string[],
-	weight: number,
-): number {
-	if (!target || terms.length === 0) return 0;
-	let score = 0;
-	for (const term of terms) {
-		if (target.includes(term)) {
-			score += weight;
-		}
-	}
-	return score;
-}
-
-function getLibraryDocumentKind(
-	document: KnowledgeDocumentItem,
-): "generated" | "skill_note" | "uploaded" {
-	if (
-		document.documentOrigin === "skill_note" ||
-		document.type === "skill_note"
-	) {
-		return "skill_note";
-	}
-	return document.documentOrigin === "generated" ||
-		document.type === "generated_output"
-		? "generated"
-		: "uploaded";
-}
-
-function scoreLibraryDocumentForSearch(
-	document: KnowledgeDocumentItem,
-	query: string,
-): number {
-	const normalizedQuery = normalizeLibraryQuery(query);
-	if (!normalizedQuery) return 1;
-
-	const terms = tokenizeLibraryQuery(normalizedQuery);
-	const name = normalizeLibraryQuery(document.name);
-	const label = normalizeLibraryQuery(document.documentLabel ?? null);
-	const role = normalizeLibraryQuery(document.documentRole ?? null);
-	const summary = normalizeLibraryQuery(document.summary ?? null);
-	const kind = getLibraryDocumentKind(document);
-
-	let score = 0;
-
-	if (name.includes(normalizedQuery)) score += 70;
-	if (label.includes(normalizedQuery)) score += 60;
-	if (summary.includes(normalizedQuery)) score += 28;
-	if (role.includes(normalizedQuery)) score += 18;
-	if (kind.includes(normalizedQuery)) score += 12;
-
-	score += scoreLibraryTermMatches(name, terms, 18);
-	score += scoreLibraryTermMatches(label, terms, 15);
-	score += scoreLibraryTermMatches(summary, terms, 6);
-	score += scoreLibraryTermMatches(role, terms, 5);
-
-	return score;
-}
-
-function compareLibraryText(left: string, right: string): number {
-	return left.localeCompare(right, undefined, {
-		sensitivity: "base",
-		numeric: true,
-	});
-}
-
 function resolveLibrarySortKey(
 	value: KnowledgeLibraryPageOptions["sortKey"],
 ): KnowledgeLibrarySortKey {
@@ -218,61 +142,6 @@ function resolveLibraryPage(value: number | null | undefined): number {
 	return Math.max(1, Math.floor(value));
 }
 
-function sortLibraryDocuments(
-	entries: Array<{ document: KnowledgeDocumentItem; score: number }>,
-	options: {
-		query: string;
-		sortKey: KnowledgeLibrarySortKey;
-		sortDirection: KnowledgeLibrarySortDirection;
-	},
-): KnowledgeDocumentItem[] {
-	const direction = options.sortDirection === "asc" ? 1 : -1;
-	const sorted = [...entries];
-
-	sorted.sort((leftEntry, rightEntry) => {
-		const left = leftEntry.document;
-		const right = rightEntry.document;
-
-		if (options.query && leftEntry.score !== rightEntry.score) {
-			return rightEntry.score - leftEntry.score;
-		}
-
-		if (options.sortKey === "name") {
-			const byName = compareLibraryText(left.name, right.name) * direction;
-			if (byName !== 0) return byName;
-		}
-
-		if (options.sortKey === "size") {
-			const bySize =
-				((left.sizeBytes ?? 0) - (right.sizeBytes ?? 0)) * direction;
-			if (bySize !== 0) return bySize;
-		}
-
-		if (options.sortKey === "type") {
-			const byType =
-				compareLibraryText(
-					getLibraryDocumentKind(left),
-					getLibraryDocumentKind(right),
-				) * direction;
-			if (byType !== 0) return byType;
-		}
-
-		if (options.sortKey === "date") {
-			const byDate =
-				((left.createdAt ?? 0) - (right.createdAt ?? 0)) * direction;
-			if (byDate !== 0) return byDate;
-		}
-
-		const byNameTie = compareLibraryText(left.name, right.name);
-		if (byNameTie !== 0) return byNameTie;
-		const byDateTie = (right.createdAt ?? 0) - (left.createdAt ?? 0);
-		if (byDateTie !== 0) return byDateTie;
-		return compareLibraryText(left.id, right.id);
-	});
-
-	return sorted.map((entry) => entry.document);
-}
-
 export async function getKnowledgeLibraryPage(
 	userId: string,
 	options: KnowledgeLibraryPageOptions = {},
@@ -284,30 +153,34 @@ export async function getKnowledgeLibraryPage(
 	const sortDirection = resolveLibrarySortDirection(options.sortDirection);
 	const pageSize = resolveLibraryPageSize(options.pageSize);
 	const requestedPage = resolveLibraryPage(options.page);
+	const requestedOffset = (requestedPage - 1) * pageSize;
 
-	const logicalDocuments = await listLogicalDocuments(userId, {
+	let libraryPage = await listLogicalDocumentsPage(userId, {
 		includeGeneratedOutputs: true,
-	});
-	const searchedDocuments = logicalDocuments
-		.filter((document) => document.type !== "normalized_document")
-		.map((document) => ({
-			document,
-			score: scoreLibraryDocumentForSearch(document, query),
-		}))
-		.filter((entry) => !query || entry.score > 0);
-	const sortedDocuments = sortLibraryDocuments(searchedDocuments, {
 		query,
 		sortKey,
 		sortDirection,
+		offset: requestedOffset,
+		limit: pageSize,
 	});
-
-	const totalItems = sortedDocuments.length;
+	const totalItems = libraryPage.totalItems;
 	const totalPages = Math.ceil(totalItems / pageSize);
 	const page = totalPages > 0 ? Math.min(requestedPage, totalPages) : 1;
-	const start = (page - 1) * pageSize;
+	const offset = (page - 1) * pageSize;
+
+	if (offset !== requestedOffset) {
+		libraryPage = await listLogicalDocumentsPage(userId, {
+			includeGeneratedOutputs: true,
+			query,
+			sortKey,
+			sortDirection,
+			offset,
+			limit: pageSize,
+		});
+	}
 
 	return {
-		documents: sortedDocuments.slice(start, start + pageSize),
+		documents: libraryPage.documents,
 		query,
 		sort: {
 			key: sortKey,

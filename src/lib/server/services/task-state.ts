@@ -70,6 +70,8 @@ export {
 export {
 	applyProjectContinuitySignalFromMessage,
 	attachContinuityToTaskState,
+	countFocusContinuityItems,
+	countTaskMemoryItems,
 	deleteAllProjectMemory,
 	detectProjectContinuitySignal,
 	findProjectFolderReferenceContextByQuery,

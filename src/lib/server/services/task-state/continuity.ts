@@ -1266,6 +1266,15 @@ export async function listTaskMemoryItems(
 	});
 }
 
+export async function countTaskMemoryItems(userId: string): Promise<number> {
+	const [row] = await db
+		.select({ itemCount: count() })
+		.from(conversationTaskStates)
+		.where(eq(conversationTaskStates.userId, userId));
+
+	return row?.itemCount ?? 0;
+}
+
 export async function forgetTaskMemory(
 	userId: string,
 	taskId: string,
@@ -1758,6 +1767,17 @@ export async function listFocusContinuityItems(
 		...item,
 		conversationTitles: item.conversationTitles.slice(0, 3),
 	}));
+}
+
+export async function countFocusContinuityItems(
+	userId: string,
+): Promise<number> {
+	const [row] = await db
+		.select({ itemCount: count() })
+		.from(memoryProjects)
+		.where(eq(memoryProjects.userId, userId));
+
+	return row?.itemCount ?? 0;
 }
 
 async function getContinuitySummaryForTask(params: {

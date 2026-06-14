@@ -59,6 +59,7 @@ export {
 	createNormalizedArtifact,
 	findRelevantArtifactsByTypes,
 	findRelevantArtifactsByTypesDetailed,
+	listLogicalDocumentsPage,
 	listLogicalDocuments,
 } from "./store/documents";
 export type {

@@ -8,6 +8,8 @@ const mockRotateHonchoPeerIdentity = vi.fn();
 const mockIsHonchoEnabled = vi.fn();
 const mockListTaskMemoryItems = vi.fn();
 const mockListFocusContinuityItems = vi.fn();
+const mockCountTaskMemoryItems = vi.fn();
+const mockCountFocusContinuityItems = vi.fn();
 const mockForgetFocusContinuity = vi.fn();
 const mockForgetTaskMemory = vi.fn();
 
@@ -27,6 +29,8 @@ vi.mock("./honcho", () => ({
 vi.mock("./task-state", () => ({
 	forgetFocusContinuity: mockForgetFocusContinuity,
 	forgetTaskMemory: mockForgetTaskMemory,
+	countFocusContinuityItems: mockCountFocusContinuityItems,
+	countTaskMemoryItems: mockCountTaskMemoryItems,
 	listFocusContinuityItems: mockListFocusContinuityItems,
 	listTaskMemoryItems: mockListTaskMemoryItems,
 }));
@@ -39,6 +43,8 @@ describe("knowledge memory service", () => {
 		mockListPersonaMemories.mockResolvedValue([]);
 		mockListTaskMemoryItems.mockResolvedValue([]);
 		mockListFocusContinuityItems.mockResolvedValue([]);
+		mockCountTaskMemoryItems.mockResolvedValue(0);
+		mockCountFocusContinuityItems.mockResolvedValue(0);
 		mockForgetAllPersonaMemories.mockResolvedValue(0);
 		mockForgetPersonaMemory.mockResolvedValue(true);
 		mockRotateHonchoPeerIdentity.mockResolvedValue(1);
@@ -187,23 +193,16 @@ describe("knowledge memory service", () => {
 				createdAt: 1234,
 			},
 		]);
-		mockListTaskMemoryItems.mockResolvedValue([
-			{
-				taskId: "task-1",
-			},
-			{
-				taskId: "task-2",
-			},
-		]);
-		mockListFocusContinuityItems.mockResolvedValue([
-			{
-				continuityId: "continuity-1",
-			},
-		]);
+		mockCountTaskMemoryItems.mockResolvedValue(2);
+		mockCountFocusContinuityItems.mockResolvedValue(1);
 
 		const { getKnowledgeMemoryOverview } = await import("./memory");
 		const payload = await getKnowledgeMemoryOverview("user-1", "Test User");
 
+		expect(mockListTaskMemoryItems).not.toHaveBeenCalled();
+		expect(mockListFocusContinuityItems).not.toHaveBeenCalled();
+		expect(mockCountTaskMemoryItems).toHaveBeenCalledWith("user-1");
+		expect(mockCountFocusContinuityItems).toHaveBeenCalledWith("user-1");
 		expect(payload).not.toHaveProperty("personaMemories");
 		expect(payload).not.toHaveProperty("taskMemories");
 		expect(payload).not.toHaveProperty("focusContinuities");

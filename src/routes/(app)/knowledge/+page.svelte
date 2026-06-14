@@ -146,8 +146,11 @@ function coerceDocumentPaginationLimit(
 	return value === 50 || value === 100 ? value : 20;
 }
 
+const initialDocumentPaginationLimit = coerceDocumentPaginationLimit(
+	initialLibrary?.pagination.pageSize,
+);
 let documentPaginationLimit = $state<20 | 50 | 100>(
-	coerceDocumentPaginationLimit(initialLibrary?.pagination.pageSize),
+	initialDocumentPaginationLimit,
 );
 let documentCurrentPage = $state(initialLibrary?.pagination.page ?? 1);
 let documentTotalItems = $state(
@@ -155,7 +158,7 @@ let documentTotalItems = $state(
 );
 let documentTotalPages = $state(
 	initialLibrary?.pagination.totalPages ??
-		Math.ceil(initialDocuments.length / documentPaginationLimit),
+		Math.ceil(initialDocuments.length / initialDocumentPaginationLimit),
 );
 let documentSearchQuery = $state(initialLibrary?.query ?? "");
 let documentSortKey = $state<DocumentSortKey>(
@@ -534,6 +537,14 @@ async function ensureMemoryLoaded(force = false) {
 	} finally {
 		memoryLoading = false;
 	}
+}
+
+function retryMemoryLoad() {
+	if (activeMemoryModal) {
+		void ensureMemoryLoaded(true);
+		return;
+	}
+	void ensureMemoryOverviewLoaded(true);
 }
 
 function shouldPollLiveOverview(): boolean {
@@ -1066,7 +1077,7 @@ $effect(() => {
 			{activeConstraintCount}
 			{currentProjectContextCount}
 			{liveOverviewRefreshing}
-			onRetryLoadMemory={() => void ensureMemoryLoaded(true)}
+			onRetryLoadMemory={retryMemoryLoad}
 			onRetryLiveOverview={() => void refreshLiveOverview(true)}
 			onOpenMemoryModal={openMemoryModal}
 		/>

@@ -48,7 +48,29 @@ export interface RankedArtifactMatch {
 	finalScore: number;
 }
 
-function mapLogicalDocumentItem(params: {
+export type LogicalDocumentSortKey = "name" | "size" | "type" | "date";
+export type LogicalDocumentSortDirection = "asc" | "desc";
+
+export interface LogicalDocumentPageOptions {
+	includeGeneratedOutputs?: boolean;
+	query?: string;
+	sortKey?: LogicalDocumentSortKey;
+	sortDirection?: LogicalDocumentSortDirection;
+	offset?: number;
+	limit?: number;
+}
+
+export interface LogicalDocumentPageResult {
+	documents: KnowledgeDocumentItem[];
+	totalItems: number;
+}
+
+type LogicalDocumentArtifactRow = Parameters<typeof mapArtifactSummary>[0] & {
+	id: string;
+	metadataJson?: string | null;
+};
+
+interface LogicalDocumentRecord {
 	displayArtifact: ArtifactSummary;
 	promptArtifactId: string | null;
 	familyArtifactIds: string[];
@@ -64,7 +86,9 @@ function mapLogicalDocumentItem(params: {
 	originConversationId?: string | null;
 	originAssistantMessageId?: string | null;
 	sourceChatFileId?: string | null;
-}): KnowledgeDocumentItem {
+}
+
+function mapLogicalDocumentItem(params: LogicalDocumentRecord): KnowledgeDocumentItem {
 	const document: KnowledgeDocumentItem = {
 		id: params.displayArtifact.id,
 		type: params.displayArtifact.type,
@@ -98,6 +122,167 @@ function mapLogicalDocumentItem(params: {
 		familyArtifactIds: identity.family.artifactIds,
 		sourceChatFileId: identity.preview.sourceChatFileId,
 	};
+}
+
+function normalizeLogicalDocumentQuery(value: string | null | undefined): string {
+	return (value ?? "").toLowerCase().trim();
+}
+
+function tokenizeLogicalDocumentQuery(query: string): string[] {
+	return Array.from(
+		new Set(
+			normalizeLogicalDocumentQuery(query)
+				.split(/\s+/)
+				.filter((term) => term.length > 1),
+		),
+	);
+}
+
+function scoreLogicalDocumentTermMatches(
+	target: string,
+	terms: string[],
+	weight: number,
+): number {
+	if (!target || terms.length === 0) return 0;
+	let score = 0;
+	for (const term of terms) {
+		if (target.includes(term)) {
+			score += weight;
+		}
+	}
+	return score;
+}
+
+function getLogicalDocumentKind(
+	document: Pick<KnowledgeDocumentItem, "documentOrigin" | "type">,
+): "generated" | "skill_note" | "uploaded" {
+	if (
+		document.documentOrigin === "skill_note" ||
+		document.type === "skill_note"
+	) {
+		return "skill_note";
+	}
+	return document.documentOrigin === "generated" ||
+		document.type === "generated_output"
+		? "generated"
+		: "uploaded";
+}
+
+function getLogicalDocumentRecordKind(
+	record: LogicalDocumentRecord,
+): "generated" | "skill_note" | "uploaded" {
+	return getLogicalDocumentKind({
+		documentOrigin: record.documentOrigin,
+		type: record.displayArtifact.type,
+	});
+}
+
+function scoreLogicalDocumentRecordForSearch(
+	record: LogicalDocumentRecord,
+	query: string,
+): number {
+	const normalizedQuery = normalizeLogicalDocumentQuery(query);
+	if (!normalizedQuery) return 1;
+
+	const terms = tokenizeLogicalDocumentQuery(normalizedQuery);
+	const name = normalizeLogicalDocumentQuery(record.displayArtifact.name);
+	const label = normalizeLogicalDocumentQuery(record.documentLabel ?? null);
+	const role = normalizeLogicalDocumentQuery(record.documentRole ?? null);
+	const summary = normalizeLogicalDocumentQuery(record.summary ?? null);
+	const kind = getLogicalDocumentRecordKind(record);
+
+	let score = 0;
+
+	if (name.includes(normalizedQuery)) score += 70;
+	if (label.includes(normalizedQuery)) score += 60;
+	if (summary.includes(normalizedQuery)) score += 28;
+	if (role.includes(normalizedQuery)) score += 18;
+	if (kind.includes(normalizedQuery)) score += 12;
+
+	score += scoreLogicalDocumentTermMatches(name, terms, 18);
+	score += scoreLogicalDocumentTermMatches(label, terms, 15);
+	score += scoreLogicalDocumentTermMatches(summary, terms, 6);
+	score += scoreLogicalDocumentTermMatches(role, terms, 5);
+
+	return score;
+}
+
+function compareLogicalDocumentText(left: string, right: string): number {
+	return left.localeCompare(right, undefined, {
+		sensitivity: "base",
+		numeric: true,
+	});
+}
+
+function sortLogicalDocumentRecordEntries(
+	entries: Array<{ record: LogicalDocumentRecord; score: number }>,
+	options: {
+		query: string;
+		sortKey: LogicalDocumentSortKey;
+		sortDirection: LogicalDocumentSortDirection;
+	},
+): LogicalDocumentRecord[] {
+	const direction = options.sortDirection === "asc" ? 1 : -1;
+	const sorted = [...entries];
+
+	sorted.sort((leftEntry, rightEntry) => {
+		const left = leftEntry.record;
+		const right = rightEntry.record;
+
+		if (options.query && leftEntry.score !== rightEntry.score) {
+			return rightEntry.score - leftEntry.score;
+		}
+
+		if (options.sortKey === "name") {
+			const byName =
+				compareLogicalDocumentText(
+					left.displayArtifact.name,
+					right.displayArtifact.name,
+				) * direction;
+			if (byName !== 0) return byName;
+		}
+
+		if (options.sortKey === "size") {
+			const bySize =
+				((left.displayArtifact.sizeBytes ?? 0) -
+					(right.displayArtifact.sizeBytes ?? 0)) *
+				direction;
+			if (bySize !== 0) return bySize;
+		}
+
+		if (options.sortKey === "type") {
+			const byType =
+				compareLogicalDocumentText(
+					getLogicalDocumentRecordKind(left),
+					getLogicalDocumentRecordKind(right),
+				) * direction;
+			if (byType !== 0) return byType;
+		}
+
+		if (options.sortKey === "date") {
+			const byDate =
+				((left.displayArtifact.createdAt ?? 0) -
+					(right.displayArtifact.createdAt ?? 0)) *
+				direction;
+			if (byDate !== 0) return byDate;
+		}
+
+		const byNameTie = compareLogicalDocumentText(
+			left.displayArtifact.name,
+			right.displayArtifact.name,
+		);
+		if (byNameTie !== 0) return byNameTie;
+		const byDateTie =
+			(right.displayArtifact.createdAt ?? 0) -
+			(left.displayArtifact.createdAt ?? 0);
+		if (byDateTie !== 0) return byDateTie;
+		return compareLogicalDocumentText(
+			left.displayArtifact.id,
+			right.displayArtifact.id,
+		);
+	});
+
+	return sorted.map((entry) => entry.record);
 }
 
 export async function createNormalizedArtifact(params: {
@@ -145,46 +330,15 @@ export async function createNormalizedArtifact(params: {
 	return artifact;
 }
 
-export async function listLogicalDocuments(
-	userId: string,
-	options?: {
-		includeGeneratedOutputs?: boolean;
-	},
-): Promise<KnowledgeDocumentItem[]> {
-	const includeGeneratedOutputs = options?.includeGeneratedOutputs ?? false;
-	const ownershipScope = await getArtifactOwnershipScope(userId);
-	const rows = await db
-		.select(knowledgeArtifactListSelection)
-		.from(artifacts)
-		.where(
-			and(
-				buildArtifactVisibilityCondition({ userId, ownershipScope }),
-				inArray(
-					artifacts.type,
-					includeGeneratedOutputs
-						? [
-								"source_document",
-								"normalized_document",
-								"generated_output",
-								"skill_note",
-							]
-						: ["source_document", "normalized_document"],
-				),
-			),
-		)
-		.orderBy(desc(artifacts.updatedAt));
+async function buildLogicalDocumentRecordsFromRows(params: {
+	userId: string;
+	rows: LogicalDocumentArtifactRow[];
+	includeGeneratedOutputs: boolean;
+}): Promise<LogicalDocumentRecord[]> {
+	const { includeGeneratedOutputs, rows, userId } = params;
+	if (rows.length === 0) return [];
 
-	const scopedRows = rows.filter((row) =>
-		isArtifactCanonicallyOwned({
-			userId,
-			ownershipScope,
-			artifact: row,
-		}),
-	);
-
-	if (scopedRows.length === 0) return [];
-
-	const summaries = scopedRows.map(mapArtifactSummary);
+	const summaries = rows.map(mapArtifactSummary);
 	const byId = new Map(summaries.map((item) => [item.id, item]));
 	const sourceArtifacts = summaries.filter(
 		(item) => item.type === "source_document",
@@ -199,7 +353,7 @@ export async function listLogicalDocuments(
 		(item) => item.type === "skill_note",
 	);
 	const metadataById = new Map(
-		scopedRows.map((row) => [
+		rows.map((row) => [
 			row.id,
 			parseWorkingDocumentMetadata(parseJsonRecord(row.metadataJson ?? null)),
 		]),
@@ -226,49 +380,43 @@ export async function listLogicalDocuments(
 					);
 
 	const normalizedBySourceId = new Map<string, ArtifactSummary>();
-	const sourceByNormalizedId = new Map<string, string>();
 	for (const row of derivedRows) {
 		if (!(row.sourceArtifactId && row.normalizedArtifactId)) continue;
 		const normalized = byId.get(row.normalizedArtifactId);
 		if (!normalized) continue;
 		normalizedBySourceId.set(row.sourceArtifactId, normalized);
-		sourceByNormalizedId.set(row.normalizedArtifactId, row.sourceArtifactId);
 	}
 
-	const documents: KnowledgeDocumentItem[] = [];
+	const records: LogicalDocumentRecord[] = [];
 	for (const source of sourceArtifacts) {
 		const normalized = normalizedBySourceId.get(source.id) ?? null;
-		documents.push(
-			mapLogicalDocumentItem({
-				displayArtifact: source,
-				promptArtifactId: normalized?.id ?? null,
-				familyArtifactIds: [source.id, normalized?.id ?? null].filter(
-					(value): value is string => Boolean(value),
-				),
-				normalizedAvailable: Boolean(normalized),
-				summary: normalized?.summary ?? source.summary,
-				updatedAt: Math.max(
-					source.updatedAt,
-					normalized?.updatedAt ?? source.updatedAt,
-				),
-				documentOrigin: getArtifactDocumentOrigin(source.type) ?? undefined,
-			}),
-		);
+		records.push({
+			displayArtifact: source,
+			promptArtifactId: normalized?.id ?? null,
+			familyArtifactIds: [source.id, normalized?.id ?? null].filter(
+				(value): value is string => Boolean(value),
+			),
+			normalizedAvailable: Boolean(normalized),
+			summary: normalized?.summary ?? source.summary,
+			updatedAt: Math.max(
+				source.updatedAt,
+				normalized?.updatedAt ?? source.updatedAt,
+			),
+			documentOrigin: getArtifactDocumentOrigin(source.type) ?? undefined,
+		});
 	}
 
 	if (includeGeneratedOutputs) {
 		for (const note of skillNoteArtifacts) {
-			documents.push(
-				mapLogicalDocumentItem({
-					displayArtifact: note,
-					promptArtifactId: note.id,
-					familyArtifactIds: [note.id],
-					normalizedAvailable: true,
-					summary: note.summary,
-					updatedAt: note.updatedAt,
-					documentOrigin: "skill_note",
-				}),
-			);
+			records.push({
+				displayArtifact: note,
+				promptArtifactId: note.id,
+				familyArtifactIds: [note.id],
+				normalizedAvailable: true,
+				summary: note.summary,
+				updatedAt: note.updatedAt,
+				documentOrigin: "skill_note",
+			});
 		}
 
 		const generatedByFamily = new Map<
@@ -321,30 +469,141 @@ export async function listLogicalDocuments(
 			const versionNumber =
 				versionCandidates.length > 0 ? Math.max(...versionCandidates) : null;
 
-			documents.push(
-				mapLogicalDocumentItem({
-					displayArtifact: group.latest,
-					promptArtifactId: group.latest.id,
-					familyArtifactIds: group.artifacts.map((artifact) => artifact.id),
-					normalizedAvailable: true,
-					summary: group.latest.summary,
-					updatedAt: group.latest.updatedAt,
-					documentOrigin: "generated",
-					documentFamilyId: familyId,
-					documentFamilyStatus: group.metadata.documentFamilyStatus ?? null,
-					documentLabel: group.metadata.documentLabel ?? group.latest.name,
-					documentRole: group.metadata.documentRole ?? null,
-					versionNumber,
-					originConversationId: group.metadata.originConversationId ?? null,
-					originAssistantMessageId:
-						group.metadata.originAssistantMessageId ?? null,
-					sourceChatFileId: group.metadata.sourceChatFileId ?? null,
-				}),
-			);
+			records.push({
+				displayArtifact: group.latest,
+				promptArtifactId: group.latest.id,
+				familyArtifactIds: group.artifacts.map((artifact) => artifact.id),
+				normalizedAvailable: true,
+				summary: group.latest.summary,
+				updatedAt: group.latest.updatedAt,
+				documentOrigin: "generated",
+				documentFamilyId: familyId,
+				documentFamilyStatus: group.metadata.documentFamilyStatus ?? null,
+				documentLabel: group.metadata.documentLabel ?? group.latest.name,
+				documentRole: group.metadata.documentRole ?? null,
+				versionNumber,
+				originConversationId: group.metadata.originConversationId ?? null,
+				originAssistantMessageId:
+					group.metadata.originAssistantMessageId ?? null,
+				sourceChatFileId: group.metadata.sourceChatFileId ?? null,
+			});
 		}
 	}
 
-	return documents.sort((left, right) => right.updatedAt - left.updatedAt);
+	return records.sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+export async function listLogicalDocuments(
+	userId: string,
+	options?: {
+		includeGeneratedOutputs?: boolean;
+	},
+): Promise<KnowledgeDocumentItem[]> {
+	const includeGeneratedOutputs = options?.includeGeneratedOutputs ?? false;
+	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const rows = await db
+		.select(knowledgeArtifactListSelection)
+		.from(artifacts)
+		.where(
+			and(
+				buildArtifactVisibilityCondition({ userId, ownershipScope }),
+				inArray(
+					artifacts.type,
+					includeGeneratedOutputs
+						? [
+								"source_document",
+								"normalized_document",
+								"generated_output",
+								"skill_note",
+							]
+						: ["source_document", "normalized_document"],
+				),
+			),
+		)
+		.orderBy(desc(artifacts.updatedAt));
+
+	const scopedRows = rows.filter((row) =>
+		isArtifactCanonicallyOwned({
+			userId,
+			ownershipScope,
+			artifact: row,
+		}),
+	);
+
+	if (scopedRows.length === 0) return [];
+
+	const records = await buildLogicalDocumentRecordsFromRows({
+		userId,
+		rows: scopedRows,
+		includeGeneratedOutputs,
+	});
+	return records.map(mapLogicalDocumentItem);
+}
+
+export async function listLogicalDocumentsPage(
+	userId: string,
+	options: LogicalDocumentPageOptions = {},
+): Promise<LogicalDocumentPageResult> {
+	const includeGeneratedOutputs = options.includeGeneratedOutputs ?? false;
+	const query = normalizeLogicalDocumentQuery(options.query);
+	const sortKey = options.sortKey ?? "date";
+	const sortDirection = options.sortDirection ?? "desc";
+	const offset = Math.max(0, Math.floor(options.offset ?? 0));
+	const limit = Math.max(1, Math.floor(options.limit ?? 20));
+	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const rows = await db
+		.select(knowledgeArtifactListSelection)
+		.from(artifacts)
+		.where(
+			and(
+				buildArtifactVisibilityCondition({ userId, ownershipScope }),
+				inArray(
+					artifacts.type,
+					includeGeneratedOutputs
+						? [
+								"source_document",
+								"normalized_document",
+								"generated_output",
+								"skill_note",
+							]
+						: ["source_document", "normalized_document"],
+				),
+			),
+		)
+		.orderBy(desc(artifacts.updatedAt));
+
+	const scopedRows = rows.filter((row) =>
+		isArtifactCanonicallyOwned({
+			userId,
+			ownershipScope,
+			artifact: row,
+		}),
+	);
+
+	const logicalDocumentRecords = await buildLogicalDocumentRecordsFromRows({
+		userId,
+		rows: scopedRows,
+		includeGeneratedOutputs,
+	});
+	const searchedDocuments = logicalDocumentRecords
+		.filter((record) => record.displayArtifact.type !== "normalized_document")
+		.map((record) => ({
+			record,
+			score: scoreLogicalDocumentRecordForSearch(record, query),
+		}))
+		.filter((entry) => !query || entry.score > 0);
+	const sortedRecords = sortLogicalDocumentRecordEntries(searchedDocuments, {
+		query,
+		sortKey,
+		sortDirection,
+	});
+
+	return {
+		documents: sortedRecords
+			.slice(offset, offset + limit)
+			.map(mapLogicalDocumentItem),
+		totalItems: sortedRecords.length,
+	};
 }
 
 function buildArtifactSearchBody(artifact: Artifact): string {

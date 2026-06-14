@@ -5,6 +5,7 @@ const mockGetArtifactOwnershipScope = vi.fn();
 const mockBuildArtifactVisibilityCondition = vi.fn();
 const mockIsArtifactCanonicallyOwned = vi.fn();
 const mockListLogicalDocuments = vi.fn();
+const mockListLogicalDocumentsPage = vi.fn();
 const mockMapArtifactSummary = vi.fn();
 const mockMapWorkCapsuleFromArtifactRow = vi.fn();
 
@@ -34,6 +35,8 @@ vi.mock("./knowledge/store", () => ({
 	knowledgeArtifactListSelection: {},
 	listLogicalDocuments: (...args: unknown[]) =>
 		mockListLogicalDocuments(...args),
+	listLogicalDocumentsPage: (...args: unknown[]) =>
+		mockListLogicalDocumentsPage(...args),
 	mapArtifactSummary: (...args: unknown[]) => mockMapArtifactSummary(...args),
 }));
 
@@ -99,54 +102,27 @@ describe("knowledge service getKnowledgeLibraryPage", () => {
 		vi.clearAllMocks();
 
 		mockRunUserMemoryMaintenance.mockResolvedValue(undefined);
-		mockListLogicalDocuments.mockResolvedValue([
-			{
-				id: "doc-older",
-				displayArtifactId: "doc-older",
-				promptArtifactId: null,
-				familyArtifactIds: ["doc-older"],
-				name: "Alpha onboarding.pdf",
-				mimeType: "application/pdf",
-				sizeBytes: 300,
-				conversationId: null,
-				summary: "Alpha onboarding",
-				normalizedAvailable: false,
-				documentOrigin: "uploaded",
-				createdAt: 100,
-				updatedAt: 100,
-			},
-			{
-				id: "doc-larger",
-				displayArtifactId: "doc-larger",
-				promptArtifactId: null,
-				familyArtifactIds: ["doc-larger"],
-				name: "Beta onboarding.docx",
-				mimeType:
-					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-				sizeBytes: 500,
-				conversationId: null,
-				summary: "Beta onboarding",
-				normalizedAvailable: false,
-				documentOrigin: "uploaded",
-				createdAt: 200,
-				updatedAt: 200,
-			},
-			{
-				id: "doc-unmatched",
-				displayArtifactId: "doc-unmatched",
-				promptArtifactId: null,
-				familyArtifactIds: ["doc-unmatched"],
-				name: "Quarterly plan.pdf",
-				mimeType: "application/pdf",
-				sizeBytes: 100,
-				conversationId: null,
-				summary: "Roadmap",
-				normalizedAvailable: false,
-				documentOrigin: "uploaded",
-				createdAt: 300,
-				updatedAt: 300,
-			},
-		]);
+		mockListLogicalDocumentsPage.mockResolvedValue({
+			documents: [
+				{
+					id: "doc-larger",
+					displayArtifactId: "doc-larger",
+					promptArtifactId: null,
+					familyArtifactIds: ["doc-larger"],
+					name: "Beta onboarding.docx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					sizeBytes: 500,
+					conversationId: null,
+					summary: "Beta onboarding",
+					normalizedAvailable: false,
+					documentOrigin: "uploaded",
+					createdAt: 200,
+					updatedAt: 200,
+				},
+			],
+			totalItems: 2,
+		});
 	});
 
 	it("returns a searched, sorted, paged library document projection", async () => {
@@ -158,8 +134,14 @@ describe("knowledge service getKnowledgeLibraryPage", () => {
 			pageSize: 1,
 		});
 
-		expect(mockListLogicalDocuments).toHaveBeenCalledWith("user-1", {
+		expect(mockListLogicalDocuments).not.toHaveBeenCalled();
+		expect(mockListLogicalDocumentsPage).toHaveBeenCalledWith("user-1", {
 			includeGeneratedOutputs: true,
+			query: "onboarding",
+			sortKey: "size",
+			sortDirection: "desc",
+			offset: 0,
+			limit: 1,
 		});
 		expect(result.documents.map((document) => document.id)).toEqual([
 			"doc-larger",

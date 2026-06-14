@@ -16,6 +16,8 @@ import {
 } from "./honcho";
 import { buildKnowledgeMemoryOverview } from "./knowledge/memory-overview";
 import {
+	countFocusContinuityItems,
+	countTaskMemoryItems,
 	forgetFocusContinuity,
 	forgetTaskMemory,
 	listFocusContinuityItems,
@@ -188,14 +190,14 @@ export async function getKnowledgeMemoryOverview(
 	userDisplayName: string,
 	options: { awaitLive?: boolean; force?: boolean } = {},
 ): Promise<KnowledgeMemoryOverviewPayload> {
-	const [peerOverview, personaRecords, taskMemories, focusContinuities] =
+	const [peerOverview, personaRecords, taskCount, focusContinuityCount] =
 		await Promise.all([
 			loadPeerContextOverview(userId, userDisplayName, {
 				force: options.force,
 			}),
 			listPersonaMemories(userId),
-			listTaskMemoryItems(userId),
-			listFocusContinuityItems(userId),
+			countTaskMemoryItems(userId),
+			countFocusContinuityItems(userId),
 		]);
 
 	return {
@@ -205,8 +207,8 @@ export async function getKnowledgeMemoryOverview(
 			personaRecords.length,
 			0,
 			0,
-			taskMemories.length,
-			focusContinuities.length,
+			taskCount,
+			focusContinuityCount,
 			peerOverview.unavailable,
 		),
 	};
