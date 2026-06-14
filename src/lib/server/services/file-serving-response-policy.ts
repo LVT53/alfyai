@@ -9,6 +9,12 @@ export interface FileServingResponsePolicyParams {
 	restrictedPreview?: boolean;
 }
 
+export interface FileServingRangeResult {
+	status: 200 | 206 | 416;
+	body: Uint8Array;
+	headers: Record<string, string>;
+}
+
 const RESTRICTED_PREVIEW_CSP =
 	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
@@ -57,6 +63,7 @@ export function buildFileServingResponseHeaders(
 	const headers: Record<string, string> = {
 		"Content-Type": contentType,
 		"Content-Length": params.contentLength.toString(),
+		"Accept-Ranges": "bytes",
 		"Content-Disposition":
 			params.mode === "preview"
 				? `inline; filename="${encodeURIComponent(params.filename)}"`
@@ -72,4 +79,100 @@ export function buildFileServingResponseHeaders(
 	}
 
 	return headers;
+}
+
+export function applyFileServingRange(params: {
+	body: Uint8Array;
+	headers: Record<string, string>;
+	rangeHeader?: string | null;
+}): FileServingRangeResult {
+	const totalLength = params.body.byteLength;
+	const range = parseSingleByteRange(params.rangeHeader, totalLength);
+	if (!range) {
+		return {
+			status: 200,
+			body: params.body,
+			headers: params.headers,
+		};
+	}
+
+	if (range.unsatisfiable) {
+		return {
+			status: 416,
+			body: new Uint8Array(0),
+			headers: {
+				...params.headers,
+				"Content-Length": "0",
+				"Content-Range": `bytes */${totalLength}`,
+			},
+		};
+	}
+
+	const body = params.body.subarray(range.start, range.end + 1);
+	return {
+		status: 206,
+		body,
+		headers: {
+			...params.headers,
+			"Content-Length": body.byteLength.toString(),
+			"Content-Range": `bytes ${range.start}-${range.end}/${totalLength}`,
+		},
+	};
+}
+
+function parseSingleByteRange(
+	rangeHeader: string | null | undefined,
+	totalLength: number,
+):
+	| { start: number; end: number; unsatisfiable?: false }
+	| { unsatisfiable: true }
+	| null {
+	const range = rangeHeader?.trim();
+	if (!range?.startsWith("bytes=") || range.includes(",")) {
+		return null;
+	}
+
+	const spec = range.slice("bytes=".length).trim();
+	const match = /^(\d*)-(\d*)$/.exec(spec);
+	if (!match) {
+		return null;
+	}
+
+	const [, rawStart, rawEnd] = match;
+	if (!rawStart && !rawEnd) {
+		return null;
+	}
+
+	if (totalLength <= 0) {
+		return { unsatisfiable: true };
+	}
+
+	if (!rawStart) {
+		const suffixLength = Number(rawEnd);
+		if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) {
+			return null;
+		}
+		const start = Math.max(totalLength - suffixLength, 0);
+		return { start, end: totalLength - 1 };
+	}
+
+	const start = Number(rawStart);
+	const requestedEnd = rawEnd ? Number(rawEnd) : totalLength - 1;
+	if (
+		!Number.isSafeInteger(start) ||
+		!Number.isSafeInteger(requestedEnd) ||
+		start < 0 ||
+		requestedEnd < start
+	) {
+		return null;
+	}
+
+	if (start >= totalLength) {
+		return { unsatisfiable: true };
+	}
+
+	return {
+		start,
+		end: Math.min(requestedEnd, totalLength - 1),
+	};
 }

@@ -15,17 +15,19 @@ export const GET: RequestHandler = async (event) => {
 		return json({ error: "Unauthorized" }, { status: 401 });
 	}
 	const fileId = event.params.id;
+	const rangeHeader = event.request?.headers.get("range") ?? null;
 	const result = await resolveGeneratedFileServing({
 		userId: user.id,
 		fileId,
 		mode: "preview",
+		...(rangeHeader ? { rangeHeader } : {}),
 	});
 	if (!result.ok) {
 		return json({ error: result.error }, { status: result.status });
 	}
 
 	return new Response(result.body, {
-		status: 200,
+		status: result.status,
 		headers: result.headers,
 	});
 };

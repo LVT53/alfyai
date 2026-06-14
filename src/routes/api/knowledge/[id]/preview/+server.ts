@@ -16,18 +16,20 @@ export const GET: RequestHandler = async (event) => {
 		return createJsonErrorResponse("Unauthorized", 401);
 	}
 	const artifactId = event.params.id;
+	const rangeHeader = event.request?.headers.get("range") ?? null;
 
 	const resolved = await resolveWorkingDocumentFileServing({
 		userId: user.id,
 		artifactId,
 		mode: "preview",
+		...(rangeHeader ? { rangeHeader } : {}),
 	});
 	if (!resolved.ok) {
 		return createJsonErrorResponse(resolved.error, resolved.status);
 	}
 
 	return new Response(resolved.body, {
-		status: 200,
+		status: resolved.status,
 		headers: resolved.headers,
 	});
 };

@@ -67,16 +67,44 @@ describe("resolveGeneratedFileServing", () => {
 
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
+		expect(result.status).toBe(200);
 		expect(Buffer.from(result.body).toString()).toBe("hello world");
 		expect(result.headers).toEqual({
 			"Content-Type": "text/plain",
 			"Content-Length": "11",
+			"Accept-Ranges": "bytes",
 			"Content-Disposition": 'inline; filename="notes.txt"',
 			"Cache-Control": "private, max-age=3600",
 		});
 		expect(mockGetChatFileByUser).toHaveBeenCalledWith("file-1", "user-1");
 		expect(mockGetChatFileByConversationOwner).not.toHaveBeenCalled();
 		expect(mockHasSucceededFileProductionJobForChatFile).not.toHaveBeenCalled();
+	});
+
+	it("serves a valid byte range for generated preview requests", async () => {
+		mockGetChatFileByUser.mockResolvedValue(chatFile());
+		mockReadChatFileContentByUser.mockResolvedValue(Buffer.from("hello world"));
+
+		const result = await resolveGeneratedFileServing({
+			userId: "user-1",
+			fileId: "file-1",
+			mode: "preview",
+			rangeHeader: "bytes=6-10",
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.status).toBe(206);
+		expect(Buffer.from(result.body).toString()).toBe("world");
+		expect(result.headers).toMatchObject({
+			"Accept-Ranges": "bytes",
+			"Content-Length": "5",
+			"Content-Range": "bytes 6-10/11",
+			"Content-Type": "text/plain",
+		});
+		expect(result.headers["Content-Disposition"]).toBe(
+			'inline; filename="notes.txt"',
+		);
 	});
 
 	it("serves generated HTML previews with restrictive browser headers", async () => {

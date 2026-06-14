@@ -9,13 +9,17 @@ import {
 	validateGeneratedOutputFile,
 } from "$lib/server/services/file-production/output-validation";
 import { hasSucceededFileProductionJobForChatFile } from "$lib/server/services/file-production/read-model";
-import { buildFileServingResponseHeaders } from "$lib/server/services/file-serving-response-policy";
+import {
+	applyFileServingRange,
+	buildFileServingResponseHeaders,
+} from "$lib/server/services/file-serving-response-policy";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 
 export type GeneratedFileServingMode = "preview" | "download";
 
 export interface GeneratedFileServingSuccess {
 	ok: true;
+	status: 200 | 206 | 416;
 	body: Uint8Array;
 	headers: Record<string, string>;
 }
@@ -35,6 +39,7 @@ export async function resolveGeneratedFileServing(params: {
 	fileId: string;
 	mode: GeneratedFileServingMode;
 	displayFilename?: string | null;
+	rangeHeader?: string | null;
 }): Promise<GeneratedFileServingResult> {
 	const chatFile =
 		(await getChatFileByUser(params.fileId, params.userId)) ??
@@ -95,9 +100,9 @@ export async function resolveGeneratedFileServing(params: {
 		chatFile.mimeType,
 	);
 
-	return {
-		ok: true,
-		body: new Uint8Array(fileContent),
+	const rangedResponse = applyFileServingRange({
+		body: fileContent,
+		rangeHeader: params.rangeHeader,
 		headers: buildFileServingResponseHeaders({
 			mode: params.mode,
 			contentLength: fileContent.length,
@@ -105,5 +110,10 @@ export async function resolveGeneratedFileServing(params: {
 			filename,
 			safetyFilenames: [chatFile.filename],
 		}),
+	});
+
+	return {
+		ok: true,
+		...rangedResponse,
 	};
 }

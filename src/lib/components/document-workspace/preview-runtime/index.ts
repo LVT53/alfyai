@@ -3,6 +3,8 @@ import {
 	getPreviewLanguage,
 	type PreviewFileType,
 } from "$lib/utils/file-preview";
+import type { OfficePreviewRenderResult } from "./office";
+import type { TextPreviewRenderResult } from "./text";
 
 export type TextPreviewKind = "csv" | "markdown" | "highlighted";
 
@@ -53,6 +55,15 @@ export type PreviewRuntimeLoadInput = {
 export type PreviewSourceInput = Pick<
 	PreviewRuntimeLoadInput,
 	"artifactId" | "previewUrl"
+>;
+
+export type PdfPreviewComponent =
+	typeof import("./pdf/PdfPreview.svelte").default;
+export type ImagePreviewComponent =
+	typeof import("./image/ImagePreview.svelte").default;
+export type OfficePreviewReady = Extract<
+	OfficePreviewRenderResult,
+	{ status: "ready" }
 >;
 
 const GENERIC_MIME_TYPES = new Set([
@@ -120,6 +131,32 @@ export async function loadPreviewRuntime(
 			error: err instanceof Error ? err.message : "Failed to load file",
 		};
 	}
+}
+
+export async function loadPdfPreviewComponent(): Promise<PdfPreviewComponent> {
+	return (await import("./pdf/PdfPreview.svelte")).default;
+}
+
+export async function loadImagePreviewComponent(): Promise<ImagePreviewComponent> {
+	return (await import("./image/ImagePreview.svelte")).default;
+}
+
+export async function renderPreviewTextAdapter(
+	adapter: Extract<PreviewRuntimeAdapter, { kind: "text" | "html" }>,
+	options: { isDark?: boolean } = {},
+): Promise<TextPreviewRenderResult> {
+	const { renderTextPreview } = await import("./text");
+	return renderTextPreview(adapter, options);
+}
+
+export async function renderPreviewOfficeAdapter(
+	adapter: Extract<
+		PreviewRuntimeAdapter,
+		{ kind: "docx" | "xlsx" | "pptx" | "odt" }
+	>,
+): Promise<OfficePreviewRenderResult> {
+	const { renderOfficePreview } = await import("./office");
+	return renderOfficePreview(adapter);
 }
 
 export async function resolvePreviewFileType({

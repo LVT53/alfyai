@@ -39,6 +39,7 @@ function serviceSuccess(
 ) {
 	return {
 		ok: true as const,
+		status: 200 as const,
 		body: Buffer.from(body),
 		headers,
 	};

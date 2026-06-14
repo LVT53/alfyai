@@ -7,25 +7,18 @@ import { tick } from "svelte";
 import DocumentPreviewToolbar from "./DocumentPreviewToolbar.svelte";
 import { AlertCircle, FileText } from "@lucide/svelte";
 import {
+	loadImagePreviewComponent,
+	loadPdfPreviewComponent,
 	loadPreviewRuntime,
+	renderPreviewOfficeAdapter,
+	renderPreviewTextAdapter,
 	resolvePreviewSourceUrl,
+	type ImagePreviewComponent as ImagePreviewComponentType,
+	type OfficePreviewReady,
+	type PdfPreviewComponent as PdfPreviewComponentType,
 	type PreviewRuntimeAdapter,
-} from "./preview-runtime";
-import ImagePreview from "./preview-runtime/image/ImagePreview.svelte";
-import {
-	renderOfficePreview,
-	type OfficePreviewRenderResult,
-} from "./preview-runtime/office";
-import PdfPreview from "./preview-runtime/pdf/PdfPreview.svelte";
-import {
-	renderTextPreview,
 	type TextPreviewRenderResult,
-} from "./preview-runtime/text";
-
-type OfficePreviewReady = Extract<
-	OfficePreviewRenderResult,
-	{ status: "ready" }
->;
+} from "./preview-runtime";
 
 let {
 	open,
@@ -56,6 +49,8 @@ let error = $state<string | null>(null);
 let fileType = $state<PreviewFileType>("unsupported");
 let officePreviewRef = $state<HTMLDivElement | null>(null);
 let missingPreviewSource = $state(false);
+let PdfPreviewComponent = $state<PdfPreviewComponentType | null>(null);
+let ImagePreviewComponent = $state<ImagePreviewComponentType | null>(null);
 let previewLoadToken = 0;
 
 $effect(() => {
@@ -112,6 +107,8 @@ function resetPreviewState() {
 	error = null;
 	fileType = "unsupported";
 	missingPreviewSource = false;
+	PdfPreviewComponent = null;
+	ImagePreviewComponent = null;
 	currentPage = 1;
 	totalPages = 0;
 }
@@ -152,7 +149,7 @@ async function fetchFile(loadToken: number) {
 		fileType = result.fileType;
 
 		if (result.adapter.kind === "text" || result.adapter.kind === "html") {
-			const renderedText = await renderTextPreview(result.adapter, {
+			const renderedText = await renderPreviewTextAdapter(result.adapter, {
 				isDark: isDarkTheme(),
 			});
 			if (isStalePreviewLoad(loadToken)) return;
@@ -160,8 +157,22 @@ async function fetchFile(loadToken: number) {
 			return;
 		}
 
+		if (result.adapter.kind === "pdf") {
+			const PdfComponent = await loadPdfPreviewComponent();
+			if (isStalePreviewLoad(loadToken)) return;
+			PdfPreviewComponent = PdfComponent;
+			return;
+		}
+
+		if (result.adapter.kind === "image") {
+			const ImageComponent = await loadImagePreviewComponent();
+			if (isStalePreviewLoad(loadToken)) return;
+			ImagePreviewComponent = ImageComponent;
+			return;
+		}
+
 		if (isOfficeAdapter(result.adapter)) {
-			const renderedOffice = await renderOfficePreview(result.adapter);
+			const renderedOffice = await renderPreviewOfficeAdapter(result.adapter);
 			if (isStalePreviewLoad(loadToken)) return;
 			if (renderedOffice.status === "error") {
 				throw new Error(renderedOffice.error);
@@ -266,8 +277,8 @@ function downloadFile() {
 						{/if}
 					</div>
 				{:else if fileType === "pdf"}
-					{#if content && adapter?.kind === "pdf"}
-						<PdfPreview
+					{#if content && adapter?.kind === "pdf" && PdfPreviewComponent}
+						<PdfPreviewComponent
 							blob={content}
 							{filename}
 							bind:currentPage
@@ -276,8 +287,8 @@ function downloadFile() {
 						/>
 					{/if}
 				{:else if fileType === "image"}
-					{#if content && adapter?.kind === "image"}
-						<ImagePreview blob={content} {filename} />
+					{#if content && adapter?.kind === "image" && ImagePreviewComponent}
+						<ImagePreviewComponent blob={content} {filename} />
 					{/if}
 				{:else if fileType === "text"}
 					{#if textPreview}

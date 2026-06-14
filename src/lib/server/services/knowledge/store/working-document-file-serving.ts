@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { buildFileServingResponseHeaders } from "$lib/server/services/file-serving-response-policy";
+import {
+	applyFileServingRange,
+	buildFileServingResponseHeaders,
+} from "$lib/server/services/file-serving-response-policy";
 import { resolveGeneratedFileServing } from "$lib/server/services/generated-file-serving";
 import type { Artifact } from "$lib/types";
 import { getPreviewContentType } from "$lib/utils/file-preview";
@@ -13,6 +16,7 @@ export type WorkingDocumentFileServingMode = "preview" | "download";
 
 export interface WorkingDocumentFileServingSuccess {
 	ok: true;
+	status: 200 | 206 | 416;
 	body: Uint8Array;
 	headers: Record<string, string>;
 }
@@ -31,6 +35,7 @@ export async function resolveWorkingDocumentFileServing(params: {
 	userId: string;
 	artifactId: string;
 	mode: WorkingDocumentFileServingMode;
+	rangeHeader?: string | null;
 }): Promise<WorkingDocumentFileServingResolution> {
 	let artifact = await getArtifactForUser(params.userId, params.artifactId);
 	if (!artifact) {
@@ -58,6 +63,7 @@ export async function resolveWorkingDocumentFileServing(params: {
 		userId: params.userId,
 		artifact,
 		mode: params.mode,
+		rangeHeader: params.rangeHeader,
 	});
 	if (generatedSource) {
 		return generatedSource;
@@ -79,6 +85,7 @@ export async function resolveWorkingDocumentFileServing(params: {
 		artifact,
 		filenameArtifact: params.mode === "download" ? requestedArtifact : artifact,
 		mode: params.mode,
+		rangeHeader: params.rangeHeader,
 	});
 }
 
@@ -121,6 +128,7 @@ async function resolveGeneratedOutputSource(params: {
 	userId: string;
 	artifact: Artifact;
 	mode: WorkingDocumentFileServingMode;
+	rangeHeader?: string | null;
 }): Promise<WorkingDocumentFileServingResolution | null> {
 	if (
 		params.artifact.type !== "generated_output" ||
@@ -139,6 +147,7 @@ async function resolveGeneratedOutputSource(params: {
 		fileId: sourceChatFileId,
 		mode: params.mode,
 		displayFilename: params.artifact.name || null,
+		rangeHeader: params.rangeHeader,
 	});
 }
 
@@ -148,6 +157,7 @@ async function resolveStoredArtifact(params: {
 	artifact: Artifact;
 	filenameArtifact: Artifact;
 	mode: WorkingDocumentFileServingMode;
+	rangeHeader?: string | null;
 }): Promise<WorkingDocumentFileServingResolution> {
 	const filenameArtifact =
 		params.mode === "download" ? params.filenameArtifact : params.artifact;
@@ -159,9 +169,9 @@ async function resolveStoredArtifact(params: {
 
 	if (params.artifact.contentText) {
 		const textBuffer = Buffer.from(params.artifact.contentText, "utf-8");
-		return {
-			ok: true,
+		const rangedResponse = applyFileServingRange({
 			body: textBuffer,
+			rangeHeader: params.rangeHeader,
 			headers: buildFileServingResponseHeaders({
 				mode: params.mode,
 				contentLength: textBuffer.length,
@@ -169,6 +179,10 @@ async function resolveStoredArtifact(params: {
 				filename: params.mode === "preview" ? safeName : downloadName,
 				safetyFilenames: [downloadName],
 			}),
+		});
+		return {
+			ok: true,
+			...rangedResponse,
 		};
 	}
 
@@ -208,9 +222,9 @@ async function resolveStoredArtifact(params: {
 				? safeName
 				: `${safeName}.${params.artifact.extension}`;
 
-		return {
-			ok: true,
+		const rangedResponse = applyFileServingRange({
 			body: fileBuffer,
+			rangeHeader: params.rangeHeader,
 			headers: buildFileServingResponseHeaders({
 				mode: params.mode,
 				contentLength: fileBuffer.length,
@@ -221,6 +235,11 @@ async function resolveStoredArtifact(params: {
 				filename: params.mode === "preview" ? safeName : downloadName,
 				safetyFilenames: [previewName, params.artifact.storagePath],
 			}),
+		});
+
+		return {
+			ok: true,
+			...rangedResponse,
 		};
 	} catch (error: unknown) {
 		const errorCode =

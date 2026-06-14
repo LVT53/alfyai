@@ -21,9 +21,12 @@ function makeEvent(
 		id: "user-1",
 		email: "test@example.com",
 	},
+	headers?: HeadersInit,
 ) {
 	return {
-		request: new Request(`http://localhost/api/chat/files/${fileId}/preview`),
+		request: new Request(`http://localhost/api/chat/files/${fileId}/preview`, {
+			headers,
+		}),
 		locals: { user },
 		params: { id: fileId },
 		url: new URL(`http://localhost/api/chat/files/${fileId}/preview`),
@@ -42,6 +45,7 @@ function serviceSuccess(
 ) {
 	return {
 		ok: true as const,
+		status: 200 as const,
 		body: Buffer.from(body),
 		headers,
 	};
@@ -128,6 +132,40 @@ describe("GET /api/chat/files/[id]/preview", () => {
 		expect(Buffer.from(await response.arrayBuffer()).toString()).toBe(
 			"hello world",
 		);
+	});
+
+	it("passes byte range requests through and preserves partial response status", async () => {
+		mockResolveGeneratedFileServing.mockResolvedValue({
+			...serviceSuccess("world", {
+				"Content-Type": "text/plain",
+				"Content-Length": "5",
+				"Content-Range": "bytes 6-10/11",
+				"Accept-Ranges": "bytes",
+				"Content-Disposition": 'inline; filename="notes.txt"',
+				"Cache-Control": "private, max-age=3600",
+			}),
+			status: 206,
+		});
+
+		const response = await GET(
+			makeEvent(
+				"file-1",
+				{ id: "user-1", email: "test@example.com" },
+				{
+					Range: "bytes=6-10",
+				},
+			),
+		);
+
+		expect(response.status).toBe(206);
+		expect(response.headers.get("Content-Range")).toBe("bytes 6-10/11");
+		expect(await response.text()).toBe("world");
+		expect(mockResolveGeneratedFileServing).toHaveBeenCalledWith({
+			userId: "user-1",
+			fileId: "file-1",
+			mode: "preview",
+			rangeHeader: "bytes=6-10",
+		});
 	});
 
 	it("returns legacy conversation-owner fallback bytes resolved by the service", async () => {
