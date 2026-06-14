@@ -1,8 +1,7 @@
 <script lang="ts">
-import { goto } from "$app/navigation";
+import { goto, invalidateAll } from "$app/navigation";
 import {
 	deleteKnowledgeArtifact,
-	fetchKnowledgeLibrary,
 	fetchKnowledgeMemory,
 	fetchKnowledgeMemoryOverview,
 	submitKnowledgeBulkAction,
@@ -19,8 +18,10 @@ import { t } from "$lib/i18n";
 import KnowledgeMemoryModal from "./_components/KnowledgeMemoryModal.svelte";
 import KnowledgeMemoryView from "./_components/KnowledgeMemoryView.svelte";
 import DocumentsList from "./_components/DocumentsList.svelte";
-import type KnowledgeWorkspaceCoordinator from "./_components/KnowledgeWorkspaceCoordinator.svelte";
+// biome-ignore lint/style/useImportType: this component must remain a runtime import for SSR rendering.
+import KnowledgeWorkspaceCoordinatorComponent from "./_components/KnowledgeWorkspaceCoordinator.svelte";
 import type {
+	DocumentWorkspaceItem,
 	FocusContinuityItem,
 	KnowledgeDocumentItem,
 	KnowledgeMemoryPayload,
@@ -42,10 +43,16 @@ import type { PageProps } from "./$types";
 const OVERVIEW_POLL_INTERVAL_MS = 20_000;
 const OVERVIEW_POLL_MAX_ATTEMPTS = 15;
 const MEMORY_UPDATE_ERROR_MESSAGE = "Failed to update memory profile.";
+type DocumentSortKey = "name" | "size" | "type" | "date";
+type SortDirection = "asc" | "desc";
+type KnowledgeWorkspaceCoordinator = InstanceType<
+	typeof KnowledgeWorkspaceCoordinatorComponent
+>;
 
 let { data }: PageProps = $props();
 const getData = () => data;
 const initialDocuments = (getData().documents ?? []) as KnowledgeDocumentItem[];
+const initialLibrary = getData().library;
 
 let documents = $state<KnowledgeDocumentItem[]>(initialDocuments);
 let personaMemories = $state<PersonaMemoryItem[]>([]);
@@ -71,6 +78,11 @@ let deletingArtifactIds = $state(new Set<string>());
 
 // Coordinator bridge for workspace document management
 let workspaceCoordinator: KnowledgeWorkspaceCoordinator | undefined = $state();
+let workspaceOpenRequestSequence = 0;
+let workspaceOpenRequest = $state<{
+	sequence: number;
+	document: DocumentWorkspaceItem;
+} | null>(null);
 
 let pendingMemoryActionKey = $state<string | null>(null);
 let pendingKnowledgeActionKey = $state<string | null>(null);
@@ -127,8 +139,30 @@ let focusContinuityView = $state<FocusContinuityView>("tasks");
 const userDisplayName = getData().userDisplayName?.trim() || "You";
 
 // Documents section state
-let documentPaginationLimit = $state<20 | 50 | 100>(20);
-let documentCurrentPage = $state(1);
+function coerceDocumentPaginationLimit(
+	value: number | null | undefined,
+): 20 | 50 | 100 {
+	return value === 50 || value === 100 ? value : 20;
+}
+
+let documentPaginationLimit = $state<20 | 50 | 100>(
+	coerceDocumentPaginationLimit(initialLibrary?.pagination.pageSize),
+);
+let documentCurrentPage = $state(initialLibrary?.pagination.page ?? 1);
+let documentTotalItems = $state(
+	initialLibrary?.pagination.totalItems ?? initialDocuments.length,
+);
+let documentTotalPages = $state(
+	initialLibrary?.pagination.totalPages ??
+		Math.ceil(initialDocuments.length / documentPaginationLimit),
+);
+let documentSearchQuery = $state(initialLibrary?.query ?? "");
+let documentSortKey = $state<DocumentSortKey>(
+	initialLibrary?.sort.key ?? "date",
+);
+let documentSortDirection = $state<SortDirection>(
+	initialLibrary?.sort.direction ?? "desc",
+);
 let documentDeleteCandidateId = $state<string | null>(null);
 let bulkDeleteCandidateIds = $state<string[] | null>(null);
 let bulkDeleteSuccessVersion = $state(0);
@@ -159,16 +193,100 @@ let currentProjectContextCount = $derived(
 );
 
 // Documents section handlers
+function buildKnowledgeLibraryUrl(params: {
+	query?: string;
+	sortKey?: DocumentSortKey;
+	sortDirection?: SortDirection;
+	page?: number;
+	pageSize?: number;
+}): string {
+	const searchParams = browser
+		? new URLSearchParams(window.location.search)
+		: new URLSearchParams();
+	const query = params.query ?? documentSearchQuery;
+	const sortKey = params.sortKey ?? documentSortKey;
+	const sortDirection = params.sortDirection ?? documentSortDirection;
+	const page = params.page ?? documentCurrentPage;
+	const pageSize = params.pageSize ?? documentPaginationLimit;
+
+	if (query.trim()) {
+		searchParams.set("q", query.trim());
+	} else {
+		searchParams.delete("q");
+	}
+	if (sortKey === "date") {
+		searchParams.delete("sort");
+	} else {
+		searchParams.set("sort", sortKey);
+	}
+	if (sortDirection === "desc") {
+		searchParams.delete("dir");
+	} else {
+		searchParams.set("dir", sortDirection);
+	}
+	if (page > 1) {
+		searchParams.set("page", String(page));
+	} else {
+		searchParams.delete("page");
+	}
+	if (pageSize !== 20) {
+		searchParams.set("pageSize", String(pageSize));
+	} else {
+		searchParams.delete("pageSize");
+	}
+
+	const queryString = searchParams.toString();
+	const hash = browser ? window.location.hash : "";
+	return queryString ? `/knowledge?${queryString}${hash}` : `/knowledge${hash}`;
+}
+
+async function updateKnowledgeLibraryParams(params: {
+	query?: string;
+	sortKey?: DocumentSortKey;
+	sortDirection?: SortDirection;
+	page?: number;
+	pageSize?: number;
+}) {
+	if (!browser) return;
+	await goto(buildKnowledgeLibraryUrl(params), {
+		keepFocus: true,
+		noScroll: true,
+	});
+}
+
 function handleDocumentPaginationLimitChange(limit: number) {
-	documentPaginationLimit = limit as 20 | 50 | 100;
+	const nextLimit = coerceDocumentPaginationLimit(limit);
+	documentPaginationLimit = nextLimit;
+	documentCurrentPage = 1;
+	void updateKnowledgeLibraryParams({ pageSize: nextLimit, page: 1 });
 }
 
 function handleDocumentPageChange(page: number) {
 	documentCurrentPage = page;
+	void updateKnowledgeLibraryParams({ page });
+}
+
+function handleDocumentSearchQueryChange(query: string) {
+	documentSearchQuery = query;
+	documentCurrentPage = 1;
+	void updateKnowledgeLibraryParams({ query, page: 1 });
+}
+
+function handleDocumentSortChange(
+	sortKey: DocumentSortKey,
+	sortDirection: SortDirection,
+) {
+	documentSortKey = sortKey;
+	documentSortDirection = sortDirection;
+	documentCurrentPage = 1;
+	void updateKnowledgeLibraryParams({ sortKey, sortDirection, page: 1 });
 }
 
 function handleDocumentSelect(document: KnowledgeDocumentItem) {
-	workspaceCoordinator?.handleOpenDocument(toWorkspaceDocument(document));
+	workspaceOpenRequest = {
+		sequence: ++workspaceOpenRequestSequence,
+		document: toWorkspaceDocument(document),
+	};
 }
 
 function closeWorkspaceDocument(documentId?: string) {
@@ -509,8 +627,7 @@ function setFocusContinuityView(view: FocusContinuityView) {
 }
 
 async function refreshKnowledgeLibrary() {
-	const result = await fetchKnowledgeLibrary();
-	documents = result.documents ?? [];
+	await invalidateAll();
 }
 
 async function submitMemoryAction(
@@ -830,6 +947,20 @@ $effect(() => {
 });
 
 $effect(() => {
+	const library = data.library;
+	documents = library.documents ?? [];
+	documentPaginationLimit = coerceDocumentPaginationLimit(
+		library.pagination.pageSize,
+	);
+	documentCurrentPage = library.pagination.page;
+	documentTotalItems = library.pagination.totalItems;
+	documentTotalPages = library.pagination.totalPages;
+	documentSearchQuery = library.query;
+	documentSortKey = library.sort.key;
+	documentSortDirection = library.sort.direction;
+});
+
+$effect(() => {
 	void ensureMemoryLoaded();
 });
 </script>
@@ -871,9 +1002,17 @@ $effect(() => {
 				documents={documents}
 				paginationLimit={documentPaginationLimit}
 				currentPage={documentCurrentPage}
+				totalDocuments={documentTotalItems}
+				totalPages={documentTotalPages}
+				searchQuery={documentSearchQuery}
+				sortKey={documentSortKey}
+				sortDirection={documentSortDirection}
+				serverManaged={true}
 				bulkDeleteSuccessVersion={bulkDeleteSuccessVersion}
 				onPaginationLimitChange={handleDocumentPaginationLimitChange}
 				onPageChange={handleDocumentPageChange}
+				onSearchQueryChange={handleDocumentSearchQueryChange}
+				onSortChange={handleDocumentSortChange}
 				onSelect={handleDocumentSelect}
 				onDelete={handleDocumentDelete}
 				onBulkDelete={handleBulkDocumentDelete}
@@ -905,9 +1044,10 @@ $effect(() => {
 		</div>
 	</div>
 
-	<KnowledgeWorkspaceCoordinator
+	<KnowledgeWorkspaceCoordinatorComponent
 		bind:this={workspaceCoordinator}
 		{documents}
+		openRequest={workspaceOpenRequest}
 		onJumpToSource={jumpToWorkspaceSource}
 	/>
 </div>

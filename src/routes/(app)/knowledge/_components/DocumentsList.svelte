@@ -29,9 +29,20 @@ interface DocumentsListProps {
 	loading?: boolean;
 	paginationLimit?: 20 | 50 | 100;
 	currentPage?: number;
+	totalDocuments?: number;
+	totalPages?: number;
+	searchQuery?: string;
+	sortKey?: DocumentSortKey;
+	sortDirection?: SortDirection;
+	serverManaged?: boolean;
 	bulkDeleteSuccessVersion?: number;
 	onPaginationLimitChange?: (limit: number) => void;
 	onPageChange?: (page: number) => void;
+	onSearchQueryChange?: (query: string) => void;
+	onSortChange?: (
+		sortKey: DocumentSortKey,
+		sortDirection: SortDirection,
+	) => void;
 	onSelect?: (document: KnowledgeDocumentItem) => void;
 	onDelete?: (documentId: string) => void;
 	onBulkDelete?: (documentIds: string[]) => Promise<boolean>;
@@ -44,9 +55,17 @@ let {
 	loading = false,
 	paginationLimit = 20,
 	currentPage = 1,
+	totalDocuments,
+	totalPages: serverTotalPages,
+	searchQuery = "",
+	sortKey = "date",
+	sortDirection = "desc",
+	serverManaged = false,
 	bulkDeleteSuccessVersion = 0,
 	onPaginationLimitChange,
 	onPageChange,
+	onSearchQueryChange,
+	onSortChange,
 	onSelect,
 	onDelete,
 	onBulkDelete,
@@ -62,9 +81,10 @@ let isDragOver = $state(false);
 let dragCounter = $state(0);
 let fileInputRef = $state<HTMLInputElement | undefined>(undefined);
 let isUploading = $state(false);
-let searchQuery = $state("");
-let sortKey = $state<DocumentSortKey>("date");
-let sortDirection = $state<SortDirection>("desc");
+let localSearchQuery = $state("");
+let activeSortKey = $state<DocumentSortKey>("date");
+let activeSortDirection = $state<SortDirection>("desc");
+let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
 // AI-facing version expand/collapse state
 let expandedAiVersions = $state<Set<string>>(new Set());
@@ -94,6 +114,23 @@ const isIndeterminate = $derived.by(() => {
 	return selectedOnPage > 0 && selectedOnPage < paginatedDocuments.length;
 });
 const hasSelection = $derived(selectedIds.size > 0);
+
+$effect(() => {
+	localSearchQuery = searchQuery;
+});
+
+$effect(() => {
+	activeSortKey = sortKey;
+	activeSortDirection = sortDirection;
+});
+
+$effect(() => {
+	return () => {
+		if (searchDebounce) {
+			clearTimeout(searchDebounce);
+		}
+	};
+});
 
 // Clear selection when page changes (explicit, non-looping)
 $effect(() => {
@@ -281,7 +318,10 @@ function scoreDocumentForSearch(
 }
 
 const searchedDocuments = $derived.by(() => {
-	const query = normalizeText(searchQuery);
+	if (serverManaged) {
+		return documents.map((document) => ({ document, score: 0 }));
+	}
+	const query = normalizeText(localSearchQuery);
 	if (!query) {
 		return documents.map((document) => ({ document, score: 0 }));
 	}
@@ -302,7 +342,10 @@ function compareText(left: string, right: string): number {
 }
 
 const sortedDocuments = $derived.by(() => {
-	const direction = sortDirection === "asc" ? 1 : -1;
+	if (serverManaged) {
+		return documents;
+	}
+	const direction = activeSortDirection === "asc" ? 1 : -1;
 	const entries = [...searchedDocuments];
 
 	entries.sort((leftEntry, rightEntry) => {
@@ -310,28 +353,31 @@ const sortedDocuments = $derived.by(() => {
 		const right = rightEntry.document;
 
 		// When searching, preserve relevance as highest priority.
-		if (searchQuery.trim().length > 0 && leftEntry.score !== rightEntry.score) {
+		if (
+			localSearchQuery.trim().length > 0 &&
+			leftEntry.score !== rightEntry.score
+		) {
 			return rightEntry.score - leftEntry.score;
 		}
 
-		if (sortKey === "name") {
+		if (activeSortKey === "name") {
 			const byName = compareText(left.name, right.name) * direction;
 			if (byName !== 0) return byName;
 		}
 
-		if (sortKey === "size") {
+		if (activeSortKey === "size") {
 			const bySize =
 				((left.sizeBytes ?? 0) - (right.sizeBytes ?? 0)) * direction;
 			if (bySize !== 0) return bySize;
 		}
 
-		if (sortKey === "type") {
+		if (activeSortKey === "type") {
 			const byType =
 				compareText(getDocumentKind(left), getDocumentKind(right)) * direction;
 			if (byType !== 0) return byType;
 		}
 
-		if (sortKey === "date") {
+		if (activeSortKey === "date") {
 			const byDate =
 				((left.createdAt ?? 0) - (right.createdAt ?? 0)) * direction;
 			if (byDate !== 0) return byDate;
@@ -352,30 +398,61 @@ const sortedDocuments = $derived.by(() => {
 const displayDocuments = $derived(
 	sortedDocuments.filter((doc) => doc.type !== "normalized_document"),
 );
+const displayDocumentCount = $derived(
+	serverManaged
+		? (totalDocuments ?? displayDocuments.length)
+		: displayDocuments.length,
+);
 
 // Pagination
 const totalPages = $derived(
-	Math.ceil(displayDocuments.length / paginationLimit),
+	serverManaged
+		? (serverTotalPages ?? Math.ceil(displayDocumentCount / paginationLimit))
+		: Math.ceil(displayDocuments.length / paginationLimit),
 );
 const paginatedDocuments = $derived.by(() => {
+	if (serverManaged) {
+		return displayDocuments;
+	}
 	const start = (currentPage - 1) * paginationLimit;
 	const end = start + paginationLimit;
 	return displayDocuments.slice(start, end);
 });
 
-const showingFrom = $derived((currentPage - 1) * paginationLimit + 1);
+const showingFrom = $derived(
+	displayDocumentCount === 0 ? 0 : (currentPage - 1) * paginationLimit + 1,
+);
 const showingTo = $derived(
-	Math.min(currentPage * paginationLimit, displayDocuments.length),
+	Math.min(currentPage * paginationLimit, displayDocumentCount),
+);
+const showInitialEmptyState = $derived(
+	documents.length === 0 &&
+		displayDocumentCount === 0 &&
+		localSearchQuery.trim().length === 0,
 );
 
 function toggleSort(nextSortKey: DocumentSortKey) {
-	if (sortKey === nextSortKey) {
-		sortDirection = sortDirection === "asc" ? "desc" : "asc";
-		return;
+	let nextDirection: SortDirection;
+	if (activeSortKey === nextSortKey) {
+		nextDirection = activeSortDirection === "asc" ? "desc" : "asc";
+	} else {
+		nextDirection =
+			nextSortKey === "name" || nextSortKey === "type" ? "asc" : "desc";
 	}
-	sortKey = nextSortKey;
-	sortDirection =
-		nextSortKey === "name" || nextSortKey === "type" ? "asc" : "desc";
+	activeSortKey = nextSortKey;
+	activeSortDirection = nextDirection;
+	onSortChange?.(nextSortKey, nextDirection);
+}
+
+function handleSearchInput() {
+	if (!serverManaged) return;
+	if (searchDebounce) {
+		clearTimeout(searchDebounce);
+	}
+	searchDebounce = setTimeout(() => {
+		searchDebounce = null;
+		onSearchQueryChange?.(localSearchQuery);
+	}, 250);
 }
 
 async function toggleAiVersion(documentId: string, promptArtifactId: string) {
@@ -439,13 +516,13 @@ async function toggleAiVersion(documentId: string, promptArtifactId: string) {
 function getAriaSort(
 	column: DocumentSortKey,
 ): "none" | "ascending" | "descending" {
-	if (sortKey !== column) return "none";
-	return sortDirection === "asc" ? "ascending" : "descending";
+	if (activeSortKey !== column) return "none";
+	return activeSortDirection === "asc" ? "ascending" : "descending";
 }
 
 function getSortIndicator(column: DocumentSortKey): string {
-	if (sortKey !== column) return "↕";
-	return sortDirection === "asc" ? "↑" : "↓";
+	if (activeSortKey !== column) return "↕";
+	return activeSortDirection === "asc" ? "↑" : "↓";
 }
 
 function getFileExtension(filename: string | null | undefined): string {
@@ -718,7 +795,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			data-testid="file-input"
 		/>
 	{/if}
-	{#if documents.length === 0}
+	{#if showInitialEmptyState}
 		{#if onUpload}
 			<button
 				type="button"
@@ -750,7 +827,8 @@ async function handleBulkDelete(): Promise<boolean> {
 					type="search"
 					class="documents-search-input"
 					placeholder={$t('knowledge.searchPlaceholder')}
-					bind:value={searchQuery}
+					bind:value={localSearchQuery}
+					oninput={handleSearchInput}
 					aria-label={$t('knowledge.searchDocuments')}
 				/>
 			</div>
@@ -776,7 +854,7 @@ async function handleBulkDelete(): Promise<boolean> {
 				{#if sortedDocuments.length === 0}
 			<div class="empty-state">
 			<p class="empty-title">
-				{searchQuery.trim().length > 0
+				{localSearchQuery.trim().length > 0
 					? $t('knowledge.noDocumentsMatch')
 					: $t('knowledge.noDocumentsAvailable')}
 				</p>
@@ -991,10 +1069,10 @@ async function handleBulkDelete(): Promise<boolean> {
 				</div>
 			{/if}
 
-			{#if displayDocuments.length > paginationLimit}
+			{#if displayDocumentCount > paginationLimit}
 				<nav class="pagination" aria-label="Pagination">
 					<div class="pagination-info">
-						<span>{$t('knowledge.showing', { from: showingFrom, to: showingTo, total: displayDocuments.length })}</span>
+						<span>{$t('knowledge.showing', { from: showingFrom, to: showingTo, total: displayDocumentCount })}</span>
 						<select
 							class="page-size-select"
 							aria-label={$t('knowledge.itemsPerPage')}

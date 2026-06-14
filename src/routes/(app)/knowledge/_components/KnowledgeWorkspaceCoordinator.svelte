@@ -22,9 +22,11 @@ import { toWorkspaceDocument } from "../_helpers";
 
 let {
 	documents,
+	openRequest = null,
 	onJumpToSource,
 }: {
 	documents: KnowledgeDocumentItem[];
+	openRequest?: { sequence: number; document: DocumentWorkspaceItem } | null;
 	onJumpToSource?: (document: DocumentWorkspaceItem) => void | Promise<void>;
 } = $props();
 
@@ -32,8 +34,15 @@ let workspaceDocuments = $state<DocumentWorkspaceItem[]>([]);
 let activeWorkspaceDocumentId = $state<string | null>(null);
 let workspaceOpen = $state(false);
 let lastHandoffKey = $state<string | null>(null);
+let lastOpenRequestSequence = $state<number | null>(null);
 
 let availableWorkspaceDocuments = $derived(documents.map(toWorkspaceDocument));
+
+$effect(() => {
+	if (!openRequest || openRequest.sequence === lastOpenRequestSequence) return;
+	lastOpenRequestSequence = openRequest.sequence;
+	openDocument(openRequest.document);
+});
 
 // URL handoff effect
 $effect(() => {

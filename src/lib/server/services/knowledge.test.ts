@@ -42,7 +42,7 @@ vi.mock("./knowledge/capsules", () => ({
 		mockMapWorkCapsuleFromArtifactRow(...args),
 }));
 
-import { listKnowledgeArtifacts } from "./knowledge";
+import { getKnowledgeLibraryPage, listKnowledgeArtifacts } from "./knowledge";
 
 describe("knowledge service listKnowledgeArtifacts", () => {
 	beforeEach(() => {
@@ -91,6 +91,87 @@ describe("knowledge service listKnowledgeArtifacts", () => {
 
 		resolveMaintenance?.();
 		await maintenancePromise;
+	});
+});
+
+describe("knowledge service getKnowledgeLibraryPage", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+
+		mockRunUserMemoryMaintenance.mockResolvedValue(undefined);
+		mockListLogicalDocuments.mockResolvedValue([
+			{
+				id: "doc-older",
+				displayArtifactId: "doc-older",
+				promptArtifactId: null,
+				familyArtifactIds: ["doc-older"],
+				name: "Alpha onboarding.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 300,
+				conversationId: null,
+				summary: "Alpha onboarding",
+				normalizedAvailable: false,
+				documentOrigin: "uploaded",
+				createdAt: 100,
+				updatedAt: 100,
+			},
+			{
+				id: "doc-larger",
+				displayArtifactId: "doc-larger",
+				promptArtifactId: null,
+				familyArtifactIds: ["doc-larger"],
+				name: "Beta onboarding.docx",
+				mimeType:
+					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				sizeBytes: 500,
+				conversationId: null,
+				summary: "Beta onboarding",
+				normalizedAvailable: false,
+				documentOrigin: "uploaded",
+				createdAt: 200,
+				updatedAt: 200,
+			},
+			{
+				id: "doc-unmatched",
+				displayArtifactId: "doc-unmatched",
+				promptArtifactId: null,
+				familyArtifactIds: ["doc-unmatched"],
+				name: "Quarterly plan.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 100,
+				conversationId: null,
+				summary: "Roadmap",
+				normalizedAvailable: false,
+				documentOrigin: "uploaded",
+				createdAt: 300,
+				updatedAt: 300,
+			},
+		]);
+	});
+
+	it("returns a searched, sorted, paged library document projection", async () => {
+		const result = await getKnowledgeLibraryPage("user-1", {
+			query: "onboarding",
+			sortKey: "size",
+			sortDirection: "desc",
+			page: 1,
+			pageSize: 1,
+		});
+
+		expect(mockListLogicalDocuments).toHaveBeenCalledWith("user-1", {
+			includeGeneratedOutputs: true,
+		});
+		expect(result.documents.map((document) => document.id)).toEqual([
+			"doc-larger",
+		]);
+		expect(result.pagination).toEqual({
+			page: 1,
+			pageSize: 1,
+			totalItems: 2,
+			totalPages: 2,
+		});
+		expect(result.query).toBe("onboarding");
+		expect(result.sort).toEqual({ key: "size", direction: "desc" });
 	});
 });
 
