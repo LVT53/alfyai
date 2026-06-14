@@ -333,6 +333,35 @@ describe("GET /api/knowledge/[id]/preview", () => {
 		expect(response.headers.get("Content-Type")).toBe("text/plain");
 	});
 
+	it("returns shared restricted browser headers for stored HTML previews", async () => {
+		const fileBuffer = Buffer.from("<!doctype html><h1>Knowledge report</h1>");
+		await writePreviewFile("data/knowledge/user-123/report.html", fileBuffer);
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "artifact-123",
+			name: "report.html",
+			storagePath: "data/knowledge/user-123/report.html",
+			mimeType: "text/html",
+			extension: "html",
+		});
+
+		const response = await GET(makePreviewEvent());
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).toBe(
+			"text/html; charset=utf-8",
+		);
+		expect(response.headers.get("Content-Disposition")).toBe(
+			'inline; filename="report.html"',
+		);
+		expect(response.headers.get("Cache-Control")).toBe("private, max-age=3600");
+		expect(response.headers.get("Content-Security-Policy")).toBe(
+			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+		);
+		expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+		expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+		expect(Buffer.from(await response.arrayBuffer())).toEqual(fileBuffer);
+	});
+
 	it("encodes filename in Content-Disposition header", async () => {
 		const fileBuffer = Buffer.from("PDF content");
 		await writePreviewFile("data/knowledge/user-123/document.pdf", fileBuffer);

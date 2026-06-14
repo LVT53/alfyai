@@ -44,6 +44,32 @@ describe("GET /api/knowledge/[id]/download", () => {
 		mockReadChatFileContentByUser.mockResolvedValue(null);
 	});
 
+	it("returns text artifact downloads with attachment and no-store headers", async () => {
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "skill-note-123",
+			name: "Skill Note",
+			storagePath: null,
+			contentText: "Private note content",
+			mimeType: "text/plain",
+			extension: "md",
+			type: "skill_note",
+			metadata: null,
+		});
+
+		const response = await GET(makeDownloadEvent("skill-note-123"));
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).toBe(
+			"text/plain; charset=utf-8",
+		);
+		expect(response.headers.get("Content-Disposition")).toBe(
+			"attachment; filename*=UTF-8''Skill%20Note.md",
+		);
+		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+		expect(response.headers.get("Content-Security-Policy")).toBeNull();
+		expect(await response.text()).toBe("Private note content");
+	});
+
 	it("rejects invalid generated_output XLSX source chat files before download", async () => {
 		mockGetArtifactForUser.mockResolvedValue({
 			id: "generated-123",

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { buildFileServingResponseHeaders } from "$lib/server/services/file-serving-response-policy";
 import { resolveGeneratedFileServing } from "$lib/server/services/generated-file-serving";
 import type { Artifact } from "$lib/types";
 import { getPreviewContentType } from "$lib/utils/file-preview";
@@ -160,18 +161,12 @@ async function resolveStoredArtifact(params: {
 		return {
 			ok: true,
 			body: textBuffer,
-			headers: {
-				"Content-Type": "text/plain; charset=utf-8",
-				"Content-Length": textBuffer.length.toString(),
-				"Content-Disposition":
-					params.mode === "preview"
-						? `inline; filename="${encodeURIComponent(safeName)}"`
-						: `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
-				"Cache-Control":
-					params.mode === "preview"
-						? "private, max-age=3600"
-						: "private, no-store",
-			},
+			headers: buildFileServingResponseHeaders({
+				mode: params.mode,
+				contentLength: textBuffer.length,
+				contentType: "text/plain; charset=utf-8",
+				filename: params.mode === "preview" ? safeName : downloadName,
+			}),
 		};
 	}
 
@@ -214,21 +209,15 @@ async function resolveStoredArtifact(params: {
 		return {
 			ok: true,
 			body: fileBuffer,
-			headers: {
-				"Content-Type":
+			headers: buildFileServingResponseHeaders({
+				mode: params.mode,
+				contentLength: fileBuffer.length,
+				contentType:
 					params.mode === "preview"
 						? getPreviewContentType(previewName, params.artifact.mimeType)
 						: params.artifact.mimeType || "application/octet-stream",
-				"Content-Length": fileBuffer.length.toString(),
-				"Content-Disposition":
-					params.mode === "preview"
-						? `inline; filename="${encodeURIComponent(safeName)}"`
-						: `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
-				"Cache-Control":
-					params.mode === "preview"
-						? "private, max-age=3600"
-						: "private, no-store",
-			},
+				filename: params.mode === "preview" ? safeName : downloadName,
+			}),
 		};
 	} catch (error: unknown) {
 		const errorCode =

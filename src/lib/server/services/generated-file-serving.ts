@@ -9,6 +9,7 @@ import {
 	validateGeneratedOutputFile,
 } from "$lib/server/services/file-production/output-validation";
 import { hasSucceededFileProductionJobForChatFile } from "$lib/server/services/file-production/read-model";
+import { buildFileServingResponseHeaders } from "$lib/server/services/file-serving-response-policy";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 
 export type GeneratedFileServingMode = "preview" | "download";
@@ -28,13 +29,6 @@ export interface GeneratedFileServingError {
 export type GeneratedFileServingResult =
 	| GeneratedFileServingSuccess
 	| GeneratedFileServingError;
-
-const RESTRICTED_PREVIEW_CSP =
-	"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
-
-function hasSvgFilename(filename: string): boolean {
-	return filename.toLowerCase().endsWith(".svg");
-}
 
 export async function resolveGeneratedFileServing(params: {
 	userId: string;
@@ -94,30 +88,15 @@ export async function resolveGeneratedFileServing(params: {
 
 	const filename = params.displayFilename || chatFile.filename;
 	const contentType = getPreviewContentType(chatFile.filename, chatFile.mimeType);
-	const isHtmlPreview = params.mode === "preview" && contentType === "text/html";
-	const isSvgPreview =
-		params.mode === "preview" &&
-		(contentType === "image/svg+xml" || hasSvgFilename(chatFile.filename));
-	const isRestrictedPreview = isHtmlPreview || isSvgPreview;
-	const headers: Record<string, string> = {
-		"Content-Type": isHtmlPreview ? "text/html; charset=utf-8" : contentType,
-		"Content-Length": fileContent.length.toString(),
-		"Content-Disposition":
-			params.mode === "preview"
-				? `inline; filename="${encodeURIComponent(filename)}"`
-				: `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
-		"Cache-Control":
-			params.mode === "preview" ? "private, max-age=3600" : "private, no-store",
-	};
-	if (isRestrictedPreview) {
-		headers["Content-Security-Policy"] = RESTRICTED_PREVIEW_CSP;
-		headers["X-Content-Type-Options"] = "nosniff";
-		headers["Referrer-Policy"] = "no-referrer";
-	}
 
 	return {
 		ok: true,
 		body: new Uint8Array(fileContent),
-		headers,
+		headers: buildFileServingResponseHeaders({
+			mode: params.mode,
+			contentLength: fileContent.length,
+			contentType,
+			filename,
+		}),
 	};
 }

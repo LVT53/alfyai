@@ -395,4 +395,42 @@ describe("resolveWorkingDocumentFileServing", () => {
 		expect(result.headers["Cache-Control"]).toBe("private, no-store");
 		expect(Buffer.from(result.body).toString()).toBe(contentText);
 	});
+
+	it("serves stored HTML previews with the shared restricted browser policy", async () => {
+		const htmlBody = Buffer.from("<!doctype html><h1>Knowledge report</h1>");
+		await writeKnowledgeFile(
+			"data/knowledge/resolver-user-123/report.html",
+			htmlBody,
+		);
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "html-artifact-123",
+			name: "report.html",
+			storagePath: "data/knowledge/resolver-user-123/report.html",
+			contentText: null,
+			mimeType: "text/html",
+			extension: "html",
+			type: "source_document",
+			metadata: null,
+		});
+
+		const result = await resolveWorkingDocumentFileServing({
+			userId,
+			artifactId: "html-artifact-123",
+			mode: "preview",
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("expected successful resolution");
+		expect(result.headers["Content-Type"]).toBe("text/html; charset=utf-8");
+		expect(result.headers["Content-Disposition"]).toBe(
+			'inline; filename="report.html"',
+		);
+		expect(result.headers["Cache-Control"]).toBe("private, max-age=3600");
+		expect(result.headers["Content-Security-Policy"]).toBe(
+			"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+		);
+		expect(result.headers["X-Content-Type-Options"]).toBe("nosniff");
+		expect(result.headers["Referrer-Policy"]).toBe("no-referrer");
+		expect(Buffer.from(result.body)).toEqual(htmlBody);
+	});
 });
