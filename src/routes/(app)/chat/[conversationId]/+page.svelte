@@ -473,6 +473,8 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		activeWorkingSet = metadata?.activeWorkingSet ?? activeWorkingSet;
 		taskState = metadata?.taskState ?? taskState;
 		contextDebug = metadata?.contextDebug ?? contextDebug;
+		totalCostUsdMicros = metadata?.totalCostUsdMicros ?? totalCostUsdMicros;
+		totalTokens = metadata?.totalTokens ?? totalTokens;
 	},
 	attachFileProductionJobsToAssistantMessage,
 	pollMessageEvidence: (assistantMessageId) => {
@@ -1118,6 +1120,12 @@ async function hydrateConversationDetail(conversationId: string) {
 
 	try {
 		const payload = await fetchConversationDetail(conversationId);
+		if (
+			conversationId !== data.conversation.id ||
+			payload.conversation?.id !== data.conversation.id
+		) {
+			return;
+		}
 		if (!suppressHydration) {
 			attachedArtifacts = payload.attachedArtifacts ?? attachedArtifacts;
 		}
@@ -1140,6 +1148,8 @@ async function hydrateConversationDetail(conversationId: string) {
 			payload.contextCompressionSnapshots ?? contextCompressionMarkers;
 		activeSkillSession = payload.activeSkillSession ?? null;
 		conversationStatus = payload.conversation?.status ?? conversationStatus;
+		totalCostUsdMicros = payload.totalCostUsdMicros ?? totalCostUsdMicros;
+		totalTokens = payload.totalTokens ?? totalTokens;
 		bootstrapMode = false;
 		sidecarPending = false;
 

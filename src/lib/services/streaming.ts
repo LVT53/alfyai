@@ -14,6 +14,8 @@ export interface StreamMetadata {
 	thinkingTokenCount?: number;
 	responseTokenCount?: number;
 	totalTokenCount?: number;
+	totalCostUsdMicros?: number;
+	totalTokens?: number;
 	thinking?: string;
 	wasStopped?: boolean;
 	completionWarning?: string;
@@ -108,6 +110,12 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 			| undefined,
 		totalTokenCount: parsed.totalTokenCount as
 			| StreamMetadata["totalTokenCount"]
+			| undefined,
+		totalCostUsdMicros: parsed.totalCostUsdMicros as
+			| StreamMetadata["totalCostUsdMicros"]
+			| undefined,
+		totalTokens: parsed.totalTokens as
+			| StreamMetadata["totalTokens"]
 			| undefined,
 		thinking: parsed.thinking as StreamMetadata["thinking"] | undefined,
 		wasStopped: parsed.wasStopped as StreamMetadata["wasStopped"] | undefined,

@@ -43,12 +43,17 @@ export interface AppShellData {
 	appVersion: Promise<AppVersionMetadata>;
 }
 
+function markStreamedPromiseHandled<T>(promise: Promise<T>): Promise<T> {
+	promise.catch(() => undefined);
+	return promise;
+}
+
 export async function getAuthenticatedAppShellData(
 	user: SessionUser,
 ): Promise<AppShellData> {
-	const conversations = listConversations(user.id);
-	const projects = listProjects(user.id);
-	const appVersion = getAppVersionMetadata();
+	const conversations = markStreamedPromiseHandled(listConversations(user.id));
+	const projects = markStreamedPromiseHandled(listProjects(user.id));
+	const appVersion = markStreamedPromiseHandled(getAppVersionMetadata());
 	const availableModels = getAvailableModelsWithProviders();
 	const [[userRow], availableModelsList, config] = await Promise.all([
 		db.select().from(users).where(eq(users.id, user.id)),

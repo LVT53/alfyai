@@ -73,6 +73,9 @@ const { load } = await import("./+layout.server");
 const { listConversations } = await import(
 	"$lib/server/services/conversations"
 );
+const { getAppVersionMetadata } = await import(
+	"$lib/server/services/app-version"
+);
 
 function createAuthenticatedLoadEvent() {
 	return {
@@ -126,6 +129,40 @@ describe("(app) layout load", () => {
 		await expect(earlyResult.result.conversations).resolves.toEqual([
 			{ id: "conv-1", title: "Sidebar chat", updatedAt: 1 },
 		]);
+	});
+
+	it("marks manually streamed app shell promises as handled before returning load data", async () => {
+		const conversationsPromise = new Promise<
+			Array<{ id: string; title: string; updatedAt: number }>
+		>(() => undefined);
+		const projectsPromise = new Promise<Array<{ id: string; name: string }>>(
+			() => undefined,
+		);
+		const appVersionPromise = new Promise<{ compact: string; full: string }>(
+			() => undefined,
+		);
+		const conversationsCatch = vi.spyOn(conversationsPromise, "catch");
+		const projectsCatch = vi.spyOn(projectsPromise, "catch");
+		const appVersionCatch = vi.spyOn(appVersionPromise, "catch");
+		vi.mocked(listConversations).mockReturnValueOnce(
+			conversationsPromise as ReturnType<typeof listConversations>,
+		);
+		const { listProjects } = await import("$lib/server/services/projects");
+		vi.mocked(listProjects).mockReturnValueOnce(
+			projectsPromise as ReturnType<typeof listProjects>,
+		);
+		vi.mocked(getAppVersionMetadata).mockReturnValueOnce(
+			appVersionPromise as ReturnType<typeof getAppVersionMetadata>,
+		);
+
+		const result = await load(createAuthenticatedLoadEvent());
+
+		expect(result.conversations).toBe(conversationsPromise);
+		expect(result.projects).toBe(projectsPromise);
+		expect(result.appVersion).toBe(appVersionPromise);
+		expect(conversationsCatch).toHaveBeenCalledWith(expect.any(Function));
+		expect(projectsCatch).toHaveBeenCalledWith(expect.any(Function));
+		expect(appVersionCatch).toHaveBeenCalledWith(expect.any(Function));
 	});
 
 	it("registers app shell dependencies for targeted reloads", async () => {

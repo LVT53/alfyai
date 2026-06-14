@@ -1,5 +1,6 @@
 import type { FinishReason } from "ai";
 import { getConfig } from "$lib/server/config-store";
+import { getConversationCostSummary } from "$lib/server/services/analytics";
 import {
 	buildChatTurnCompletionContextSources,
 	finalizeChatTurn,
@@ -376,6 +377,9 @@ export async function completeStreamTurn(
 		)
 			.then((snapshots) => snapshots.map(serializeContextCompressionSnapshot))
 			.catch(() => []);
+		const costSummary = await getConversationCostSummary(conversationId).catch(
+			() => null,
+		);
 		const activeWorkingSet = persistedTurnState
 			? persistedTurnState.activeWorkingSet
 			: latestActiveWorkingSet;
@@ -413,6 +417,12 @@ export async function completeStreamTurn(
 				thinkingTokenCount,
 				responseTokenCount,
 				totalTokenCount,
+				...(costSummary
+					? {
+							totalCostUsdMicros: costSummary.totalCostUsdMicros,
+							totalTokens: costSummary.totalTokens,
+						}
+					: {}),
 				thinking: thinkingContent || undefined,
 				wasStopped,
 				...(completionWarning

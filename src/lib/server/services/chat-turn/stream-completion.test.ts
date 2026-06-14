@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { getConversationCostSummary } from "$lib/server/services/analytics";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
@@ -8,6 +9,14 @@ import { completeStreamTurn } from "./stream-completion";
 
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({ contextDiagnosticsDebug: false })),
+}));
+
+vi.mock("$lib/server/services/analytics", () => ({
+	getConversationCostSummary: vi.fn(async () => ({
+		totalCostUsdMicros: 0,
+		totalTokens: 0,
+	})),
+	recordMessageAnalytics: vi.fn(async () => undefined),
 }));
 
 vi.mock("$lib/server/services/task-state", () => ({
@@ -38,6 +47,8 @@ describe("completeStreamTurn", () => {
 	const mockGetFileProductionJobs = vi.fn();
 	const mockAssignFileProductionJobs = vi.fn();
 	const mockEstimateTokenCount = vi.fn().mockReturnValue(100);
+	const mockGetConversationCostSummary =
+		getConversationCostSummary as ReturnType<typeof vi.fn>;
 	const mockGetProjectReferenceContext =
 		getProjectReferenceContext as ReturnType<typeof vi.fn>;
 	const mockApplySkillControlOperations =
@@ -102,6 +113,10 @@ describe("completeStreamTurn", () => {
 		mockAssignFileProductionJobs.mockResolvedValue(undefined);
 		mockEnqueueChunk.mockReturnValue(true);
 		mockEstimateTokenCount.mockReturnValue(100);
+		mockGetConversationCostSummary.mockResolvedValue({
+			totalCostUsdMicros: 0,
+			totalTokens: 0,
+		});
 		mockGetProjectReferenceContext.mockResolvedValue(null);
 	});
 
@@ -807,6 +822,23 @@ describe("completeStreamTurn", () => {
 				"finish",
 				"[DONE]",
 			]),
+		);
+	});
+
+	it("sends persisted conversation cost totals in UI stream metadata", async () => {
+		mockGetConversationCostSummary.mockResolvedValueOnce({
+			totalCostUsdMicros: 420_000,
+			totalTokens: 42,
+		});
+
+		await completeStreamTurn(defaultParams);
+
+		expect(mockGetConversationCostSummary).toHaveBeenCalledWith("conv-1");
+		expect(getLatestEndPayload()).toEqual(
+			expect.objectContaining({
+				totalCostUsdMicros: 420_000,
+				totalTokens: 42,
+			}),
 		);
 	});
 

@@ -355,14 +355,95 @@ describe("chat page runtime integration", () => {
 			],
 			generationDurationMs: 250,
 			totalTokenCount: 42,
+			totalCostUsdMicros: 420_000,
+			totalTokens: 42,
 		});
 
 		await waitFor(() => {
 			expect(screen.getByText("Created")).toBeInTheDocument();
 		});
+		await fireEvent.click(screen.getByRole("button", { name: "No context yet" }));
+		expect(screen.getByText("$0.4200 · 42 tokens")).toBeInTheDocument();
 		expect(fetchConversationDetail).toHaveBeenCalledTimes(
 			detailCallsBeforeCompletion,
 		);
+	});
+
+	it("ignores stale first-render sidecar detail after navigating to another conversation", async () => {
+		let resolveFirstDetail: (
+			value: Awaited<ReturnType<typeof fetchConversationDetail>>,
+		) => void = () => {};
+		vi.mocked(fetchConversationDetail).mockReturnValueOnce(
+			new Promise((resolve) => {
+				resolveFirstDetail = resolve;
+			}),
+		);
+		const view = render(Page, {
+			data: pageData({ sidecarPending: true }),
+		});
+		await waitFor(() => {
+			expect(fetchConversationDetail).toHaveBeenCalledWith("conv-1");
+		});
+
+		await view.rerender({
+			data: pageData({
+				conversation: {
+					id: "conv-2",
+					title: "Second chat",
+					projectId: null,
+					status: "open" as const,
+					createdAt: 2,
+					updatedAt: 2,
+				},
+				sidecarPending: false,
+			}),
+		});
+		resolveFirstDetail({
+			conversation: { id: "conv-1", title: "Chat", status: "open" },
+			messages: [
+				{
+					id: "wrong-assistant",
+					role: "assistant",
+					content: "Wrong conversation sidecar",
+					timestamp: 1,
+				},
+			],
+			totalCostUsdMicros: 990_000,
+			totalTokens: 99,
+		});
+
+		await Promise.resolve();
+		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(
+			screen.queryByText("Wrong conversation sidecar"),
+		).not.toBeInTheDocument();
+	});
+
+	it("updates cost and token totals from first-render sidecar detail", async () => {
+		vi.mocked(fetchConversationDetail).mockResolvedValueOnce({
+			conversation: { id: "conv-1", title: "Chat", status: "open" },
+			messages: [],
+			totalCostUsdMicros: 420_000,
+			totalTokens: 42,
+		});
+		render(Page, {
+			data: pageData({
+				sidecarPending: true,
+				totalCostUsdMicros: 0,
+				totalTokens: 0,
+			}),
+		});
+
+		await waitFor(() => {
+			expect(fetchConversationDetail).toHaveBeenCalledWith("conv-1");
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "No context yet" }));
+
+		await waitFor(() => {
+			expect(screen.getByText("$0.4200 · 42 tokens")).toBeInTheDocument();
+		});
 	});
 
 	it("preserves a restored queued draft when background recovery falls back to persisted detail", async () => {
