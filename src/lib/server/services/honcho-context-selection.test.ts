@@ -1846,6 +1846,94 @@ describe("chat-turn context selection - buildConstructedContext", () => {
 		});
 	});
 
+	it("preserves fork provenance for terse shallow turns", async () => {
+		mockConfig.honchoEnabled = true;
+		mockListMessages.mockResolvedValueOnce([
+			{
+				id: "fork-user-1",
+				role: "user",
+				content: "Inherited source question",
+				timestamp: Date.parse("2026-05-15T10:00:01.000Z"),
+				forkCopy: {
+					sourceMessageId: "source-user-1",
+					sourceConversationId: "source-conv",
+					sourceRole: "user",
+					sourceCreatedAt: "2026-05-15T10:00:01.000Z",
+				},
+			},
+			{
+				id: "fork-assistant-1",
+				role: "assistant",
+				content: "Inherited source answer",
+				timestamp: Date.parse("2026-05-15T10:00:02.000Z"),
+				forkCopy: {
+					sourceMessageId: "source-assistant-1",
+					sourceConversationId: "source-conv",
+					sourceRole: "assistant",
+					sourceCreatedAt: "2026-05-15T10:00:02.000Z",
+				},
+			},
+			{
+				id: "fork-user-2",
+				role: "user",
+				content: "Fork-local follow-up",
+				timestamp: Date.parse("2026-05-15T10:05:00.000Z"),
+				forkCopy: null,
+			},
+		]);
+		mockSessionContext.mockResolvedValueOnce({
+			messages: [
+				{
+					content:
+						"HONCHO SELECTED LIVE MESSAGE SHOULD NOT REPLACE STORED TRANSCRIPT",
+					peerId: "user-1",
+					createdAt: "2026-05-15T10:05:00.000Z",
+					metadata: { role: "user" },
+				},
+			],
+			summary: null,
+		});
+		mockGetConversationForkOrigin.mockResolvedValueOnce({
+			forkConversationId: "fork-conv",
+			sourceConversationId: "source-conv",
+			sourceAssistantMessageId: "source-assistant-1",
+			sourceConversationIdAvailable: true,
+			sourceAssistantMessageIdAvailable: true,
+			copiedForkPointMessageId: "fork-assistant-1",
+			sourceTitle: "Source title",
+			forkSequence: 1,
+			createdAt: Date.now(),
+		});
+		renderSectionsInCompactionMock();
+		const { buildConstructedContext } = await import(
+			"./chat-turn/context-selection"
+		);
+
+		const result = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "fork-conv",
+			message: "Thanks.",
+		});
+
+		expect(result.inputValue).toContain("## Honcho Session Context");
+		expect(result.inputValue).toContain("Inherited source question");
+		expect(result.inputValue).toContain("Inherited source answer");
+		expect(result.inputValue).toContain("Fork-local follow-up");
+		expect(result.inputValue).toContain(
+			"[Inherited copied turn from source conversation source-conv; source message source-assistant-1]",
+		);
+		expect(result.contextDebug?.forkProvenance).toMatchObject({
+			inheritedMessageCount: 2,
+			inheritedTurnCount: 1,
+			forkLocalMessageCount: 1,
+			sourceConversationIds: ["source-conv"],
+			sourceMessageIds: ["source-user-1", "source-assistant-1"],
+			copiedForkPointMessageId: "fork-assistant-1",
+		});
+		expect(mockPrepareTaskContext).not.toHaveBeenCalled();
+		expect(mockFindRelevantKnowledgeArtifacts).not.toHaveBeenCalled();
+	});
+
 	it("uses the persisted transcript instead of token-bounded live Honcho messages", async () => {
 		mockConfig.honchoEnabled = true;
 		mockListMessages.mockResolvedValueOnce([

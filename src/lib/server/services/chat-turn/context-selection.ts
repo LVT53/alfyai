@@ -666,6 +666,14 @@ function summarizeForkContextProvenance(params: {
 	};
 }
 
+function serializePromptMessageContent(message: PromptContextMessage): string {
+	if (!message.forkCopy) return message.content;
+	return [
+		`[Inherited copied turn from source conversation ${message.forkCopy.sourceConversationId}; source message ${message.forkCopy.sourceMessageId}]`,
+		message.content,
+	].join("\n");
+}
+
 function resolveContextLatencyTier(params: {
 	message: string;
 	attachmentIds: string[];
@@ -734,31 +742,61 @@ async function buildShallowConstructedContext(params: {
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	_reuseData?: ConstructedContextReuseData;
 }> {
-	const sessionContext = await loadHonchoPromptContext({
-		userId: params.userId,
-		conversationId: params.conversationId,
-		message: params.message,
-		liveContextTokens: params.sessionHistoryBudget.totalBudget,
-	});
+	const [sessionContext, contextCompressionPromptSnapshot] = await Promise.all([
+		loadHonchoPromptContext({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			message: params.message,
+			liveContextTokens: params.sessionHistoryBudget.totalBudget,
+		}),
+		loadContextCompressionPromptSnapshot({
+			userId: params.userId,
+			conversationId: params.conversationId,
+		}).catch(() => null),
+	]);
 	const {
 		sessionMessages,
+		storedMessages,
 		summary: sessionSummary,
 		peerContext,
 		honchoContext,
 		honchoSnapshot,
 	} = sessionContext;
+	const promptSessionMessages = contextCompressionPromptSnapshot
+		? selectRawSessionMessagesAfterCompressionSnapshot({
+				storedMessages,
+				snapshot: contextCompressionPromptSnapshot.snapshot,
+			})
+		: sessionMessages;
+	const forkOrigin = promptSessionMessages.some((message) => message.forkCopy)
+		? await getConversationForkOrigin(params.conversationId).catch(() => null)
+		: null;
+	const forkProvenance = summarizeForkContextProvenance({
+		messages: sessionMessages,
+		copiedForkPointMessageId: forkOrigin?.copiedForkPointMessageId ?? null,
+	});
 	const allTurns = selectRecentRoleTurns(
-		sessionMessages,
+		promptSessionMessages,
 		(message) => message.role,
-		sessionMessages.length,
+		promptSessionMessages.length,
 	);
 	const sessionTurnContext = serializeBudgetedRoleTurns({
 		turns: allTurns,
 		resolveRole: (message) => message.role,
-		resolveContent: (message) => message.content,
+		resolveContent: serializePromptMessageContent,
 		maxTokens: params.sessionHistoryBudget.totalBudget,
 	});
 	const sections: PromptContextSection[] = [];
+
+	if (contextCompressionPromptSnapshot) {
+		sections.push({
+			title: "Context Compression Snapshot",
+			body: contextCompressionPromptSnapshot.body,
+			layer: "session",
+			protected: true,
+			llmCompactible: true,
+		});
+	}
 
 	if (sessionSummary?.trim()) {
 		sections.push({
@@ -834,7 +872,10 @@ async function buildShallowConstructedContext(params: {
 		inputValue: selectedPromptContext.inputValue,
 		contextStatus: status,
 		taskState: null,
-		contextDebug: buildMinimalContextDebugState({ honchoContext }),
+		contextDebug: buildMinimalContextDebugState({
+			honchoContext,
+			forkProvenance,
+		}),
 		honchoContext,
 		honchoSnapshot,
 		contextTraceSections: selectedPromptContext.contextTraceSections,
@@ -1196,13 +1237,7 @@ export async function buildConstructedContext(params: {
 	const sessionTurnContext = serializeBudgetedRoleTurns({
 		turns: allTurns,
 		resolveRole: (message) => message.role,
-		resolveContent: (message) =>
-			message.forkCopy
-				? [
-						`[Inherited copied turn from source conversation ${message.forkCopy.sourceConversationId}; source message ${message.forkCopy.sourceMessageId}]`,
-						message.content,
-					].join("\n")
-				: message.content,
+		resolveContent: serializePromptMessageContent,
 		maxTokens: sessionHistoryBudget.totalBudget,
 	});
 	const recentTurnCount = sessionTurnContext.includedTurnCount;

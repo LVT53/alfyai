@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 	canUseTeiReranker: vi.fn(),
 	rerankItems: vi.fn(),
 	resolveWorkingDocumentSelection: vi.fn(),
+	getLatestValidContextCompressionSnapshot: vi.fn(),
 }));
 
 vi.mock("../honcho", () => ({
@@ -105,6 +106,35 @@ vi.mock("../tei-reranker", () => ({
 
 vi.mock("../working-document-selection", () => ({
 	resolveWorkingDocumentSelection: mocks.resolveWorkingDocumentSelection,
+}));
+
+vi.mock("../context-compression", () => ({
+	getLatestValidContextCompressionSnapshot:
+		mocks.getLatestValidContextCompressionSnapshot,
+	formatContextCompressionSnapshotForPrompt: (snapshot: {
+		snapshot: {
+			goal?: string;
+			currentState?: string;
+			importantFacts?: string[];
+		};
+		sourceStartMessageSequence: number;
+		sourceEndMessageSequence: number;
+	}) =>
+		[
+			snapshot.snapshot.goal ? `Goal: ${snapshot.snapshot.goal}` : null,
+			snapshot.snapshot.currentState
+				? `Current State: ${snapshot.snapshot.currentState}`
+				: null,
+			snapshot.snapshot.importantFacts?.length
+				? [
+						"Important Facts:",
+						...snapshot.snapshot.importantFacts.map((fact) => `- ${fact}`),
+					].join("\n")
+				: null,
+			`Source Coverage: messages #${snapshot.sourceStartMessageSequence} through #${snapshot.sourceEndMessageSequence}`,
+		]
+			.filter((value): value is string => Boolean(value))
+			.join("\n\n"),
 }));
 
 function artifact(overrides: {
@@ -235,6 +265,7 @@ function resetConstructedContextMocks() {
 	mocks.getContextDebugState.mockResolvedValue(null);
 	mocks.embedTexts.mockResolvedValue([]);
 	mocks.canUseTeiReranker.mockReturnValue(false);
+	mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue(null);
 	mocks.resolveWorkingDocumentSelection.mockReturnValue({
 		documentFocused: true,
 		retrieval: {
@@ -410,6 +441,13 @@ describe("buildConstructedContext", () => {
 		expect(mocks.resolveWorkingDocumentSelection).not.toHaveBeenCalled();
 		expect(mocks.canUseTeiReranker).not.toHaveBeenCalled();
 		expect(mocks.rerankItems).not.toHaveBeenCalled();
+		expect(mocks.getLatestValidContextCompressionSnapshot).toHaveBeenCalledWith(
+			{
+				userId: "user-1",
+				conversationId: "conversation-1",
+			},
+		);
+		expect(mocks.getConversationForkOrigin).not.toHaveBeenCalled();
 		expect(mocks.updateConversationContextStatus).toHaveBeenCalledWith(
 			expect.objectContaining({
 				conversationId: "conversation-1",
@@ -422,6 +460,118 @@ describe("buildConstructedContext", () => {
 				promptArtifactCount: 0,
 			}),
 		);
+	});
+
+	it("uses valid compression snapshots for terse shallow turns without replaying covered raw messages", async () => {
+		resetConstructedContextMocks();
+		mocks.loadHonchoPromptContext.mockResolvedValue({
+			sessionMessages: [
+				{
+					id: "old-user",
+					role: "user",
+					content: "OLD_RAW_SECRET_USER_CONTENT",
+					createdAt: 1,
+					messageSequence: 1,
+				},
+				{
+					id: "old-assistant",
+					role: "assistant",
+					content: "OLD_RAW_SECRET_ASSISTANT_CONTENT",
+					createdAt: 2,
+					messageSequence: 2,
+				},
+				{
+					id: "new-user",
+					role: "user",
+					content: "NEW_RAW_RECENT_CONTENT",
+					createdAt: 3,
+					messageSequence: 3,
+				},
+			],
+			storedMessages: [
+				{
+					id: "old-user",
+					role: "user",
+					content: "OLD_RAW_SECRET_USER_CONTENT",
+					createdAt: 1,
+					messageSequence: 1,
+				},
+				{
+					id: "old-assistant",
+					role: "assistant",
+					content: "OLD_RAW_SECRET_ASSISTANT_CONTENT",
+					createdAt: 2,
+					messageSequence: 2,
+				},
+				{
+					id: "new-user",
+					role: "user",
+					content: "NEW_RAW_RECENT_CONTENT",
+					createdAt: 3,
+					messageSequence: 3,
+				},
+			],
+			summary: null,
+			peerContext: "",
+			honchoContext: null,
+			honchoSnapshot: null,
+		});
+		mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue({
+			id: "snapshot-1",
+			conversationId: "conversation-1",
+			userId: "user-1",
+			trigger: "manual",
+			status: "valid",
+			modelId: "model-1",
+			sourceStartMessageId: "old-user",
+			sourceEndMessageId: "old-assistant",
+			sourceStartMessageSequence: 1,
+			sourceEndMessageSequence: 2,
+			snapshot: {
+				goal: "Keep compressed continuity.",
+				currentState: "Old exchange is represented by the snapshot.",
+				importantFacts: ["COMPRESSED_FACT_FROM_OLD_TURNS"],
+			},
+			sourceCoverage: {},
+			sourceRefs: [],
+			estimatedTokens: 64,
+			sourceTokenEstimate: 128,
+			failureReason: null,
+			createdAt: new Date("2026-05-15T10:00:00.000Z"),
+			updatedAt: new Date("2026-05-15T10:00:00.000Z"),
+		});
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Thanks.",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		});
+
+		expect(constructed.inputValue).toContain("## Context Compression Snapshot");
+		expect(constructed.inputValue).toContain("COMPRESSED_FACT_FROM_OLD_TURNS");
+		expect(constructed.inputValue).toContain("NEW_RAW_RECENT_CONTENT");
+		expect(constructed.inputValue).not.toContain("OLD_RAW_SECRET_USER_CONTENT");
+		expect(constructed.inputValue).not.toContain(
+			"OLD_RAW_SECRET_ASSISTANT_CONTENT",
+		);
+		expect(constructed.contextTraceSections).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: "Current User Message",
+					signalReasons: expect.arrayContaining([
+						"context_latency_tier:shallow",
+					]),
+				}),
+			]),
+		);
+		expect(mocks.prepareTaskContext).not.toHaveBeenCalled();
+		expect(mocks.selectWorkingSetArtifactsForPrompt).not.toHaveBeenCalled();
 	});
 
 	it("combines Honcho, task, attachment, and evidence candidates from the chat-turn boundary", async () => {

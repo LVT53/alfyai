@@ -64,7 +64,7 @@ describe("Context Assembly Integration Tests", () => {
 		testConversationId = conversation.id;
 	});
 
-	it("uses a valid context compression snapshot instead of covered raw session turns", async () => {
+	it("uses a valid context compression snapshot for terse turns instead of covered raw session turns", async () => {
 		const oldUser = await createMessage(
 			testConversationId,
 			"user",
@@ -114,7 +114,7 @@ describe("Context Assembly Integration Tests", () => {
 		const result = await buildConstructedContext({
 			userId: testUserId,
 			conversationId: testConversationId,
-			message: "Continue the work",
+			message: "Thanks.",
 		});
 
 		expect(result.inputValue).toContain("## Context Compression Snapshot");
