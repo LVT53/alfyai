@@ -100,6 +100,12 @@ const DOCUMENT_REFERENCE_RE =
 	/\b(attachment|attached|source|document|doc|file|pdf|policy|report|brief|workspace|this|that|it)\b|(?:dokumentum[\p{L}]*|doksi[\p{L}]*|fájl[\p{L}]*|fajl[\p{L}]*|csatolmány[\p{L}]*|csatolmany[\p{L}]*|melléklet[\p{L}]*|melleklet[\p{L}]*|forrás[\p{L}]*|forras[\p{L}]*|ez|ezt|ebből|ebbol|abban|benne|itt|ott)|\/document\b/iu;
 const DEEP_CONTEXT_INTENT_RE =
 	/\b(attachment|attached|source|sources|document|doc|file|pdf|policy|report|brief|workspace|evidence|cite|citation|according to|based on|summarize|summarise|summary|compare|extract|review|check|rewrite|revise|edit|analyze|analyse|translate|convert|outline|project|task|plan|decision|decisions|remember|memory|earlier|previous|before|continue)\b|(?:dokumentum[\p{L}]*|doksi[\p{L}]*|fájl[\p{L}]*|fajl[\p{L}]*|csatolmány[\p{L}]*|csatolmany[\p{L}]*|melléklet[\p{L}]*|melleklet[\p{L}]*|forrás[\p{L}]*|forras[\p{L}]*|bizonyíték[\p{L}]*|bizonyitek[\p{L}]*|idéz[\p{L}]*|idez[\p{L}]*|összefoglal[\p{L}]*|foglal[\p{L}]*\s+össze|összegez[\p{L}]*|hasonlíts[\p{L}]*|hasonlits[\p{L}]*|elemez[\p{L}]*|ellenőriz[\p{L}]*|ellenoriz[\p{L}]*|javíts[\p{L}]*|javits[\p{L}]*|írd\s+át|ird\s+at|fordíts[\p{L}]*|fordits[\p{L}]*|projekt[\p{L}]*|feladat[\p{L}]*|terv[\p{L}]*|döntés[\p{L}]*|dontes[\p{L}]*|emléksz[\p{L}]*|emleksz[\p{L}]*|korábbi|korabbi|előző|elozo|folytasd)/iu;
+const META_CONTEXT_INTENT_RE =
+	/\b(context|current\s+(query|question|message|turn|prompt)|chat\s+context|conversation\s+context)\b/iu;
+const EVIDENCE_ANSWER_INTENT_RE =
+	/\b(what|which|who|when|where|why|how)\b[\s\S]{0,120}\b(predicts?|causes?|drivers?|factors?|reasons?|risks?|trouble|indicates?|signals?|patterns?)\b/iu;
+const REFINEMENT_FOLLOWUP_INTENT_RE =
+	/\b(shorten|shorter|condense|trim|tighten|longer|expand|polish|improve|refine|update|fix|correct|adjust|change|simplify|clarify|concise)\b|(?:rövidebb|rovidebb|hosszabb|tömöríts[\p{L}]*|tomorits[\p{L}]*|pontosíts[\p{L}]*|pontosit[\p{L}]*)/iu;
 const SHALLOW_CONTEXT_MAX_MESSAGE_CHARS = 280;
 
 export type ContextSelectionCandidate = {
@@ -674,7 +680,12 @@ function resolveContextLatencyTier(params: {
 	if (trimmedMessage.length > SHALLOW_CONTEXT_MAX_MESSAGE_CHARS) {
 		reasons.push("long_message");
 	}
-	if (DEEP_CONTEXT_INTENT_RE.test(trimmedMessage)) {
+	if (
+		DEEP_CONTEXT_INTENT_RE.test(trimmedMessage) ||
+		META_CONTEXT_INTENT_RE.test(trimmedMessage) ||
+		EVIDENCE_ANSWER_INTENT_RE.test(trimmedMessage) ||
+		REFINEMENT_FOLLOWUP_INTENT_RE.test(trimmedMessage)
+	) {
 		reasons.push("context_sensitive_intent");
 	}
 
