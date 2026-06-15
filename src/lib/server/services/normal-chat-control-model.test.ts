@@ -158,6 +158,77 @@ describe("Normal Chat JSON control model sender", () => {
 		]);
 	});
 
+	it("falls back to plain JSON output when a provider rejects strict JSON schema response format", async () => {
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						error: {
+							message: "This response_format type is unavailable now",
+							type: "invalid_request_error",
+							code: "invalid_request_error",
+						},
+					}),
+					{
+						status: 400,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-2",
+						model: "provider-returned-model",
+						created: 1_717_171_718,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: JSON.stringify({ ok: true }),
+								},
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			);
+
+		const result = await sendJsonControlMessage("Return JSON", "model1", {
+			systemPrompt: "context-compression",
+			thinkingMode: "off",
+			fetch,
+			jsonSchema: {
+				name: "control_result",
+				strict: true,
+				schema: {
+					type: "object",
+					properties: { ok: { type: "boolean" } },
+					required: ["ok"],
+					additionalProperties: false,
+				},
+			},
+		});
+
+		expect(result.text).toBe(JSON.stringify({ ok: true }));
+		expect(fetch).toHaveBeenCalledTimes(2);
+		const strictBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const fallbackBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body));
+		expect(strictBody.response_format).toMatchObject({
+			type: "json_schema",
+		});
+		expect(fallbackBody.response_format).toMatchObject({
+			type: "json_object",
+		});
+		expect(fallbackBody).not.toHaveProperty("strictJsonSchema");
+	});
+
 	it("preserves Qwen thinking controls when adding schema-guided JSON options", async () => {
 		mocks.getConfig.mockReturnValue({
 			requestTimeoutMs: 300_000,

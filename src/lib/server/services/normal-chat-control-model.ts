@@ -100,6 +100,14 @@ function buildOutput(options: Pick<JsonControlMessageOptions, "jsonSchema">) {
 	});
 }
 
+function buildJsonFallbackOutput(
+	options: Pick<JsonControlMessageOptions, "jsonSchema">,
+) {
+	return Output.json({
+		name: options.jsonSchema?.name ?? "json_control_message",
+	});
+}
+
 function resultText(params: {
 	text: string;
 	output: unknown;
@@ -146,6 +154,21 @@ function extractRawResponseBody(response: unknown): unknown {
 	return record && "body" in record ? record.body : response;
 }
 
+function isUnsupportedStructuredOutputError(error: unknown): boolean {
+	const record =
+		error && typeof error === "object" ? (error as Record<string, unknown>) : {};
+	const message = typeof record.message === "string" ? record.message : "";
+	const responseBody =
+		typeof record.responseBody === "string" ? record.responseBody : "";
+	const detail = `${message}\n${responseBody}`;
+	return (
+		/response_format/i.test(detail) &&
+		/(unavailable|unsupported|not supported|json_schema|invalid_request)/i.test(
+			detail,
+		)
+	);
+}
+
 export async function sendJsonControlMessage(
 	message: string,
 	modelId: ModelId | undefined,
@@ -173,13 +196,14 @@ export async function sendJsonControlMessage(
 		fetch: options.fetch,
 	});
 	const messages: ModelMessage[] = [{ role: "user", content: message }];
-	let result: Awaited<ReturnType<typeof generateText>>;
-	try {
-		result = await generateText({
+	const generate = (params: { useJsonFallbackOutput?: boolean }) =>
+		generateText({
 			model: openaiCompatible(provider.modelName),
 			system: systemPrompt,
 			messages,
-			output: buildOutput(options),
+			output: params.useJsonFallbackOutput
+				? buildJsonFallbackOutput(options)
+				: buildOutput(options),
 			temperature: options.temperature ?? CONTROL_MODEL_TEMPERATURE,
 			maxOutputTokens:
 				options.maxTokens ??
@@ -192,11 +216,16 @@ export async function sendJsonControlMessage(
 			providerOptions: buildProviderOptions({
 				provider,
 				thinkingMode: options.thinkingMode,
-				jsonSchema: options.jsonSchema,
+				jsonSchema: params.useJsonFallbackOutput ? undefined : options.jsonSchema,
 			}),
 		});
+	let result: Awaited<ReturnType<typeof generateText>>;
+	try {
+		result = await generate({ useJsonFallbackOutput: false });
 	} catch (error) {
-		if (
+		if (options.jsonSchema && isUnsupportedStructuredOutputError(error)) {
+			result = await generate({ useJsonFallbackOutput: true });
+		} else if (
 			options.allowReasoningFallback &&
 			NoObjectGeneratedError.isInstance(error)
 		) {
@@ -210,8 +239,9 @@ export async function sendJsonControlMessage(
 					modelDisplayName: provider.displayName,
 				};
 			}
+		} else {
+			throw error;
 		}
-		throw error;
 	}
 
 	return {
