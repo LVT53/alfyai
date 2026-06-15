@@ -1562,6 +1562,8 @@ export const providers = sqliteTable("providers", {
 		(): AnySQLiteColumn => campaignAssets.id,
 		{ onDelete: "set null" },
 	),
+	processingRegionCode: text("processing_region_code"),
+	privacyPolicyUrl: text("privacy_policy_url"),
 	rateLimitFallbackEnabled: integer("rate_limit_fallback_enabled")
 		.notNull()
 		.default(0),
@@ -1597,6 +1599,9 @@ export const providerModels = sqliteTable(
 			(): AnySQLiteColumn => campaignAssets.id,
 			{ onDelete: "set null" },
 		),
+		guideNoteEn: text("guide_note_en"),
+		guideNoteHu: text("guide_note_hu"),
+		guideBadge: text("guide_badge", { enum: ["intelligent", "fast"] }),
 		fallbackProviderModelId: text("fallback_provider_model_id").references(
 			(): AnySQLiteColumn => providerModels.id,
 			{ onDelete: "set null" },

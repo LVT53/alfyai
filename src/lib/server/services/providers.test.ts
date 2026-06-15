@@ -19,6 +19,8 @@ function createProvidersTable() {
 			api_key_encrypted TEXT NOT NULL,
 			api_key_iv TEXT NOT NULL,
 			icon_asset_id TEXT,
+			processing_region_code TEXT,
+			privacy_policy_url TEXT,
 			rate_limit_fallback_enabled INTEGER NOT NULL DEFAULT 0,
 			rate_limit_fallback_base_url TEXT,
 			rate_limit_fallback_api_key_encrypted TEXT,
@@ -136,6 +138,8 @@ describe("Provider CRUD", () => {
 			expect(provider.name).toBe("test-openai");
 			expect(provider.displayName).toBe("Test OpenAI");
 			expect(provider.baseUrl).toBe("https://api.openai.com/v1");
+			expect(provider.processingRegionCode).toBeNull();
+			expect(provider.privacyPolicyUrl).toBeNull();
 			expect(provider.enabled).toBe(true);
 			expect(provider.sortOrder).toBe(0);
 			expect(provider.createdAt).toBeInstanceOf(Date);
@@ -189,6 +193,46 @@ describe("Provider CRUD", () => {
 				assertDefined(secrets.rateLimitFallbackApiKeyIv, "fallback iv"),
 			);
 			expect(decryptedFallback).toBe("fk-456");
+		});
+
+		it("persists optional processing region and privacy policy metadata", async () => {
+			const { createProvider } = await import("./providers");
+
+			const provider = await createProvider({
+				name: "with-privacy",
+				displayName: "Privacy Provider",
+				baseUrl: "https://api.privacy.com/v1",
+				apiKey: "pk-123",
+				processingRegionCode: " cn ",
+				privacyPolicyUrl: "https://privacy.example/policy",
+			});
+
+			expect(provider.processingRegionCode).toBe("CN");
+			expect(provider.privacyPolicyUrl).toBe("https://privacy.example/policy");
+		});
+
+		it("rejects invalid processing region and privacy policy metadata", async () => {
+			const { createProvider } = await import("./providers");
+
+			await expect(
+				createProvider({
+					name: "bad-region",
+					displayName: "Bad Region",
+					baseUrl: "https://api.bad.com/v1",
+					apiKey: "key",
+					processingRegionCode: "china",
+				}),
+			).rejects.toThrow("Processing region");
+
+			await expect(
+				createProvider({
+					name: "bad-privacy",
+					displayName: "Bad Privacy",
+					baseUrl: "https://api.bad.com/v1",
+					apiKey: "key",
+					privacyPolicyUrl: "mailto:privacy@example.com",
+				}),
+			).rejects.toThrow("Privacy policy URL");
 		});
 
 		it("rejects duplicate names", async () => {

@@ -13,6 +13,9 @@ export interface ProviderModel {
 	name: string;
 	displayName: string;
 	iconAssetId: string | null;
+	guideNoteEn: string | null;
+	guideNoteHu: string | null;
+	guideBadge: "intelligent" | "fast" | null;
 	fallbackProviderModelId: string | null;
 	maxModelContext: number | null;
 	compactionUiThreshold: number | null;
@@ -38,6 +41,9 @@ export interface CreateProviderModelInput {
 	name: string;
 	displayName?: string;
 	iconAssetId?: string | null;
+	guideNoteEn?: string | null;
+	guideNoteHu?: string | null;
+	guideBadge?: "intelligent" | "fast" | null;
 	fallbackProviderModelId?: string | null;
 	maxModelContext?: number | null;
 	compactionUiThreshold?: number | null;
@@ -59,6 +65,9 @@ export interface CreateProviderModelInput {
 export interface UpdateProviderModelInput {
 	displayName?: string;
 	iconAssetId?: string | null;
+	guideNoteEn?: string | null;
+	guideNoteHu?: string | null;
+	guideBadge?: "intelligent" | "fast" | null;
 	fallbackProviderModelId?: string | null;
 	maxModelContext?: number | null;
 	compactionUiThreshold?: number | null;
@@ -87,9 +96,13 @@ export class ProviderModelValidationError extends Error {
 type ProviderModelBody = Record<string, unknown>;
 type ReasoningEffort = NonNullable<CreateProviderModelInput["reasoningEffort"]>;
 type ThinkingType = NonNullable<CreateProviderModelInput["thinkingType"]>;
+type ModelGuideBadge = NonNullable<CreateProviderModelInput["guideBadge"]>;
 type ProviderModelPayloadFields = Partial<{
 	displayName: string;
 	iconAssetId: string | null;
+	guideNoteEn: string | null;
+	guideNoteHu: string | null;
+	guideBadge: ModelGuideBadge | null;
 	fallbackProviderModelId: string | null;
 	maxModelContext: number | null;
 	compactionUiThreshold: number | null;
@@ -123,6 +136,9 @@ const pricingFields = [
 	"cacheMissUsdMicrosPer1m",
 	"outputUsdMicrosPer1m",
 ] as const;
+
+const GUIDE_NOTE_MAX_LENGTH = 180;
+const GUIDE_BADGES = new Set<ModelGuideBadge>(["intelligent", "fast"]);
 
 function objectBody(payload: unknown): ProviderModelBody {
 	return payload !== null &&
@@ -223,6 +239,34 @@ function readNullableString(
 	return value.trim();
 }
 
+function readGuideNote(
+	body: ProviderModelBody,
+	key: "guideNoteEn" | "guideNoteHu",
+): string | null | undefined {
+	const value = readNullableString(body, key);
+	if (value === undefined || value === null) return value;
+	if (value.length > GUIDE_NOTE_MAX_LENGTH) {
+		throw new ProviderModelValidationError(
+			`${key} must be ${GUIDE_NOTE_MAX_LENGTH} characters or fewer`,
+		);
+	}
+	return value.length > 0 ? value : null;
+}
+
+function readGuideBadge(
+	body: ProviderModelBody,
+): ModelGuideBadge | null | undefined {
+	const value = body.guideBadge;
+	if (value === undefined) return undefined;
+	if (value === null || value === "") return null;
+	if (typeof value !== "string" || !GUIDE_BADGES.has(value as ModelGuideBadge)) {
+		throw new ProviderModelValidationError(
+			"guideBadge must be intelligent, fast, or null",
+		);
+	}
+	return value as ModelGuideBadge;
+}
+
 function assignParsedValue<K extends keyof ProviderModelPayloadFields>(
 	input: ProviderModelPayloadFields,
 	key: K,
@@ -265,6 +309,9 @@ function applyProviderModelPayloadFields(
 			readNullableString(body, "iconAssetId"),
 		);
 	}
+	assignParsedValue(input, "guideNoteEn", readGuideNote(body, "guideNoteEn"));
+	assignParsedValue(input, "guideNoteHu", readGuideNote(body, "guideNoteHu"));
+	assignParsedValue(input, "guideBadge", readGuideBadge(body));
 	const fallbackProviderModelId = readNullableString(
 		body,
 		"fallbackProviderModelId",
@@ -343,6 +390,9 @@ function mapRowToModel(row: ProviderModelRow): ProviderModel {
 		name: row.name,
 		displayName: row.displayName,
 		iconAssetId: row.iconAssetId ?? null,
+		guideNoteEn: row.guideNoteEn ?? null,
+		guideNoteHu: row.guideNoteHu ?? null,
+		guideBadge: row.guideBadge ?? null,
 		fallbackProviderModelId: row.fallbackProviderModelId ?? null,
 		maxModelContext: row.maxModelContext ?? null,
 		compactionUiThreshold: row.compactionUiThreshold ?? null,
@@ -483,6 +533,9 @@ export async function createProviderModel(
 			name: input.name,
 			displayName,
 			iconAssetId: input.iconAssetId ?? null,
+			guideNoteEn: input.guideNoteEn ?? null,
+			guideNoteHu: input.guideNoteHu ?? null,
+			guideBadge: input.guideBadge ?? null,
 			fallbackProviderModelId: input.fallbackProviderModelId ?? null,
 			maxModelContext: persistenceDefaults.maxModelContext,
 			compactionUiThreshold: persistenceDefaults.compactionUiThreshold,
@@ -656,6 +709,9 @@ export async function updateProviderModel(
 
 	if (input.displayName !== undefined) updates.displayName = input.displayName;
 	if (input.iconAssetId !== undefined) updates.iconAssetId = input.iconAssetId;
+	if (input.guideNoteEn !== undefined) updates.guideNoteEn = input.guideNoteEn;
+	if (input.guideNoteHu !== undefined) updates.guideNoteHu = input.guideNoteHu;
+	if (input.guideBadge !== undefined) updates.guideBadge = input.guideBadge;
 	if (input.fallbackProviderModelId !== undefined)
 		updates.fallbackProviderModelId = input.fallbackProviderModelId;
 	if (

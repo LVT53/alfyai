@@ -359,6 +359,13 @@ const settingsDict = {
 		"admin.modelTimeoutFailoverTimeoutMs": "Fallback timeout (ms)",
 		"admin.manageModels": "Manage models",
 		"admin.models": "Models",
+		"admin.modelGuide": "Model guide",
+		"admin.modelGuideBadge": "Guide badge",
+		"admin.modelGuideDescription":
+			"Short user-facing guidance only. These fields do not affect routing, fallback, prompts, or costs.",
+		"admin.modelGuideNoteEn": "English guide note",
+		"admin.modelGuideNoteHu": "Hungarian guide note",
+		"admin.modelGuideNotePlaceholder": "Best for long document work.",
 		"admin.mostChats": "Most chats",
 		"admin.mostMessages": "Most messages",
 		"admin.mostRecent": "Most recent",
@@ -394,6 +401,14 @@ const settingsDict = {
 		"admin.providerDeleted": "Provider deleted.",
 		"admin.providerUpdated": "Provider updated.",
 		"admin.providerValid": '"{name}" is valid.',
+		"admin.providerPrivacyPolicy": "Privacy policy URL",
+		"admin.providerPrivacyPolicyDescription":
+			"Optional link shown from the model guide, not in the compact selector.",
+		"admin.providerPrivacyPolicyPlaceholder": "https://provider.example/privacy",
+		"admin.providerProcessingRegion": "Processing region",
+		"admin.providerProcessingRegionDescription":
+			"Optional two-letter country code used as a compact privacy cue.",
+		"admin.providerProcessingRegionPlaceholder": "CN",
 		"admin.providers": "Providers",
 		"admin.rateLimitFallback": "Rate-limit Fallback",
 		"admin.rateLimitFallbackApiKey": "Fallback API Key",
@@ -1010,6 +1025,13 @@ const settingsDict = {
 		"admin.modelTimeoutFailoverTimeoutMs": "Tartalék időkorlát (ms)",
 		"admin.manageModels": "Modellek kezelése",
 		"admin.models": "Modellek",
+		"admin.modelGuide": "Modellútmutató",
+		"admin.modelGuideBadge": "Útmutató jelvény",
+		"admin.modelGuideDescription":
+			"Csak rövid, felhasználóknak szóló útmutatás. Ezek a mezők nem befolyásolják az útválasztást, a tartalék modellt, a promptokat vagy a költségeket.",
+		"admin.modelGuideNoteEn": "Angol útmutató megjegyzés",
+		"admin.modelGuideNoteHu": "Magyar útmutató megjegyzés",
+		"admin.modelGuideNotePlaceholder": "Hosszú dokumentumos munkához ajánlott.",
 		"admin.mostChats": "Legtöbb beszélgetés",
 		"admin.mostMessages": "Legtöbb üzenet",
 		"admin.mostRecent": "Legfrissebb",
@@ -1046,6 +1068,15 @@ const settingsDict = {
 		"admin.providerDeleted": "Szolgáltató törölve.",
 		"admin.providerUpdated": "Szolgáltató frissítve.",
 		"admin.providerValid": 'A(z) "{name}" érvényes.',
+		"admin.providerPrivacyPolicy": "Adatvédelmi irányelv URL",
+		"admin.providerPrivacyPolicyDescription":
+			"Opcionális link, amely a modellútmutatóból érhető el, nem a kompakt választóban.",
+		"admin.providerPrivacyPolicyPlaceholder":
+			"https://provider.example/privacy",
+		"admin.providerProcessingRegion": "Adatfeldolgozási régió",
+		"admin.providerProcessingRegionDescription":
+			"Opcionális kétbetűs országkód kompakt adatvédelmi jelzésként.",
+		"admin.providerProcessingRegionPlaceholder": "CN",
 		"admin.providers": "Szolgáltatók",
 		"admin.rateLimitFallback": "Rate-limit tartalék",
 		"admin.rateLimitFallbackApiKey": "Tartalék API-kulcs",

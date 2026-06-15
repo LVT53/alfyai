@@ -83,6 +83,8 @@ function provider(overrides: Partial<Provider> = {}): Provider {
 		rateLimitFallbackBaseUrl: null,
 		rateLimitFallbackModelName: null,
 		rateLimitFallbackTimeoutMs: 10_000,
+		processingRegionCode: null,
+		privacyPolicyUrl: null,
 		sortOrder: 0,
 		enabled: true,
 		createdAt: new Date("2026-06-01T00:00:00.000Z"),

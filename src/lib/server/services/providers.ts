@@ -19,6 +19,8 @@ export interface Provider {
 	displayName: string;
 	baseUrl: string;
 	iconAssetId: string | null;
+	processingRegionCode: string | null;
+	privacyPolicyUrl: string | null;
 	rateLimitFallbackEnabled: boolean;
 	rateLimitFallbackBaseUrl: string | null;
 	rateLimitFallbackModelName: string | null;
@@ -42,6 +44,8 @@ export interface CreateProviderInput {
 	baseUrl: string;
 	apiKey: string;
 	iconAssetId?: string | null;
+	processingRegionCode?: string | null;
+	privacyPolicyUrl?: string | null;
 	rateLimitFallbackEnabled?: boolean;
 	rateLimitFallbackBaseUrl?: string | null;
 	rateLimitFallbackApiKey?: string | null;
@@ -56,6 +60,8 @@ export interface UpdateProviderInput {
 	baseUrl?: string;
 	apiKey?: string;
 	iconAssetId?: string | null;
+	processingRegionCode?: string | null;
+	privacyPolicyUrl?: string | null;
 	rateLimitFallbackEnabled?: boolean;
 	rateLimitFallbackBaseUrl?: string | null;
 	rateLimitFallbackApiKey?: string | null;
@@ -109,6 +115,34 @@ export function validateProviderName(name: string): boolean {
 	return /^[a-zA-Z0-9_-]+$/.test(name) && name.length > 0;
 }
 
+export function normalizeProcessingRegionCode(
+	code: string | null | undefined,
+): string | null {
+	const trimmed = code?.trim().toUpperCase() ?? "";
+	if (!trimmed) return null;
+	if (!/^[A-Z]{2}$/.test(trimmed)) {
+		throw new Error("Processing region must be a two-letter country code");
+	}
+	return trimmed;
+}
+
+export function normalizePrivacyPolicyUrl(
+	url: string | null | undefined,
+): string | null {
+	const trimmed = url?.trim() ?? "";
+	if (!trimmed) return null;
+	let parsed: URL;
+	try {
+		parsed = new URL(trimmed);
+	} catch {
+		throw new Error("Privacy policy URL must be a valid URL");
+	}
+	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+		throw new Error("Privacy policy URL must use HTTP or HTTPS protocol");
+	}
+	return trimmed;
+}
+
 function validateBaseUrlProtocol(url: string): void {
 	const parsed = new URL(url);
 	if (!parsed.protocol.startsWith("http")) {
@@ -123,6 +157,8 @@ function mapRowToProvider(row: ProviderRow): Provider {
 		displayName: row.displayName,
 		baseUrl: row.baseUrl,
 		iconAssetId: row.iconAssetId ?? null,
+		processingRegionCode: row.processingRegionCode ?? null,
+		privacyPolicyUrl: row.privacyPolicyUrl ?? null,
 		rateLimitFallbackEnabled: row.rateLimitFallbackEnabled === 1,
 		rateLimitFallbackBaseUrl: row.rateLimitFallbackBaseUrl ?? null,
 		rateLimitFallbackModelName: row.rateLimitFallbackModelName ?? null,
@@ -154,6 +190,10 @@ export async function createProvider(
 		);
 	}
 	validateBaseUrlProtocol(input.baseUrl);
+	const processingRegionCode = normalizeProcessingRegionCode(
+		input.processingRegionCode,
+	);
+	const privacyPolicyUrl = normalizePrivacyPolicyUrl(input.privacyPolicyUrl);
 
 	const { encrypted, iv } = encryptApiKey(input.apiKey);
 	const fallbackApiKey = input.rateLimitFallbackApiKey?.trim()
@@ -171,6 +211,8 @@ export async function createProvider(
 			apiKeyEncrypted: encrypted,
 			apiKeyIv: iv,
 			iconAssetId: input.iconAssetId ?? null,
+			processingRegionCode,
+			privacyPolicyUrl,
 			rateLimitFallbackEnabled: input.rateLimitFallbackEnabled ? 1 : 0,
 			rateLimitFallbackBaseUrl: input.rateLimitFallbackBaseUrl ?? null,
 			rateLimitFallbackApiKeyEncrypted: fallbackApiKey?.encrypted ?? null,
@@ -250,6 +292,16 @@ export async function updateProvider(
 	if (input.displayName !== undefined) updates.displayName = input.displayName;
 	if (input.baseUrl !== undefined) updates.baseUrl = input.baseUrl;
 	if (input.iconAssetId !== undefined) updates.iconAssetId = input.iconAssetId;
+	if (input.processingRegionCode !== undefined) {
+		updates.processingRegionCode = normalizeProcessingRegionCode(
+			input.processingRegionCode,
+		);
+	}
+	if (input.privacyPolicyUrl !== undefined) {
+		updates.privacyPolicyUrl = normalizePrivacyPolicyUrl(
+			input.privacyPolicyUrl,
+		);
+	}
 	if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder;
 	if (input.enabled !== undefined) updates.enabled = input.enabled ? 1 : 0;
 

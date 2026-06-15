@@ -1322,9 +1322,45 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 A configured connection to an external LLM service, defined by a base URL and an API key. One provider can expose multiple **Provider Models**. The built-in model1 and model2 are seeded as providers from environment variables at bootstrap but operate identically to admin-configured providers at runtime.
 _Avoid_: inference provider, model endpoint, third-party model
 
+**Provider Processing Region**:
+An admin-declared country or region marker for where a **Model Provider** is expected to process inference data. It is a compact user-facing privacy cue, commonly shown as a flag in tight model-selection UI with the full country or region name available on hover or focus; it is not a full claim about provider incorporation, storage location, retention behavior, or subprocessors.
+_Avoid_: provider country, company country, data residency guarantee, retention policy
+
+**Provider Privacy Policy Link**:
+An optional admin-provided link to the privacy or data-processing policy for a **Model Provider**. It carries deeper third-party policy detail in the **Model Selection Guide** through an unobtrusive icon affordance while the compact model selector stays focused on choosing a model.
+_Avoid_: provider documentation dump, legal summary, model guide essay
+
 **Provider Model**:
 A specific model name available under a **Model Provider** that an admin has chosen to make available for Normal Chat. It carries its own display name, context limits, capability flags, reasoning configuration, and pricing rules. Users select from available **Provider Models** in the chat model selector.
 _Avoid_: available model, configured model, endpoint, model
+
+**Model Selection Guide**:
+A contextual, reopenable informational comparison modal launched from Provider Model selection. It supplements the existing model selector with compact structured model facts and short admin-authored guidance for all currently enabled **Provider Models**, without replacing the selector, allowing model selection, or becoming an **Announcement Campaign**.
+_Avoid_: campaign slide, release note, onboarding popup, static model list, enhanced selector
+
+**Model Guide Launcher**:
+The compact question-mark help control shown beside the chat model selector trigger. It reopens the **Model Selection Guide** without requiring the user to open the selector dropdown first.
+_Avoid_: dropdown item, onboarding replay, campaign button
+
+**Model Guidance Note**:
+A short localized admin-authored recommendation for one **Provider Model**, used by the **Model Selection Guide** to express the model's best-fit use cases in at most a couple lines. Objective facts such as pricing, context size, and capability indicators should remain structured model metadata instead of being buried in this note.
+_Avoid_: model marketing copy, long introduction, pricing text, capability prose, campaign body
+
+**Model Guide Badge**:
+An optional saved display label in the **Model Selection Guide** that labels a **Provider Model** as either Intelligent or Fast. It is a lightweight presentation cue only and must not affect model routing, fallback, context selection, pricing, or provider behavior.
+_Avoid_: benchmark score, intelligence ranking, routing hint, model capability
+
+**Model Cost Indicator**:
+A compact user-facing cost label in the **Model Selection Guide**, derived from the **Provider Model** pricing rules. It should communicate relative cost at a glance, with exact token pricing available on hover or focus rather than shown as primary row text.
+_Avoid_: billing rule, admin pricing field, cost accounting, exact price column
+
+**Model Guide Row**:
+The compact per-model entry in the **Model Selection Guide**. It shows the Provider Model identity, provider and processing-region cues, lightweight badges, relative cost, notable context capacity when useful, and at most a short **Model Guidance Note**; it is informational only and should not expose raw provider configuration, fallback policy, capability JSON, or long descriptions.
+_Avoid_: model detail page, provider configuration row, capability dump, benchmark card
+
+**Model Guidance Authoring**:
+The admin workflow for maintaining **Model Guidance Notes** and any explicit positioning fields that help users choose among **Provider Models**. It belongs with Provider Model configuration rather than Announcement Campaign authoring.
+_Avoid_: campaign authoring, release-note editing, onboarding copy
 
 **Model Connection**:
 The resolved runtime binding of a **Provider Model** for one Normal Chat turn, including the provider's base URL, decrypted API key, model name, and capability assertions. It is ephemeral — created per turn, not stored.
@@ -1366,6 +1402,15 @@ _Avoid_: model fetch, auto-detect, model scan
 
 - A **Model Provider** has many **Provider Models**.
 - A **Provider Model** belongs to exactly one **Model Provider**.
+- A **Model Selection Guide** explains all currently enabled **Provider Models** without replacing the chat model selector.
+- A **Model Selection Guide** preserves **Model Provider** grouping, **Provider Processing Region**, and **Provider Privacy Policy Link** cues because providers may carry user-facing privacy or jurisdiction meaning.
+- A **Model Selection Guide** does not select or change the active Provider Model; the existing model selector remains the selection surface.
+- A **Model Guide Launcher** opens the **Model Selection Guide** from beside the model selector trigger.
+- A **Model Guidance Note** belongs to one **Provider Model** and complements structured model metadata.
+- A **Model Guide Badge** may label a **Provider Model** for user understanding, but it has no runtime authority.
+- A **Model Cost Indicator** summarizes existing Provider Model pricing for users without replacing admin cost accounting.
+- A **Model Guide Row** is informational and compact, not a provider or model administration surface.
+- **Model Guidance Authoring** is part of Provider Model administration, not Announcement Campaign administration.
 - A **Model Connection** is resolved from a **Provider Model** for one **Normal Chat Model Run**.
 - A **Provider Model** may define one model-specific **Model Fallback** to another Provider Model.
 - The global **Model Fallback** is used only when the selected Provider Model has no model-specific fallback.

@@ -68,8 +68,28 @@ describe("GET /api/models", () => {
 		expect(builtIn.id).toBe("built-in");
 		expect(builtIn.displayName).toBe("AlfyAI");
 		expect(builtIn.models).toEqual([
-			{ id: "model1", displayName: "Test Model 1", iconUrl: null },
-			{ id: "model2", displayName: "Test Model 2", iconUrl: null },
+			{
+				id: "model1",
+				displayName: "Test Model 1",
+				iconUrl: null,
+				guideNoteEn: null,
+				guideNoteHu: null,
+				guideBadge: null,
+				maxModelContext: null,
+				inputUsdMicrosPer1m: 0,
+				outputUsdMicrosPer1m: 0,
+			},
+			{
+				id: "model2",
+				displayName: "Test Model 2",
+				iconUrl: null,
+				guideNoteEn: null,
+				guideNoteHu: null,
+				guideBadge: null,
+				maxModelContext: null,
+				inputUsdMicrosPer1m: 0,
+				outputUsdMicrosPer1m: 0,
+			},
 		]);
 	});
 
@@ -94,7 +114,17 @@ describe("GET /api/models", () => {
 		const data = await response.json();
 
 		expect(data.providers[0].models).toEqual([
-			{ id: "model1", displayName: "Test Model 1", iconUrl: null },
+			{
+				id: "model1",
+				displayName: "Test Model 1",
+				iconUrl: null,
+				guideNoteEn: null,
+				guideNoteHu: null,
+				guideBadge: null,
+				maxModelContext: null,
+				inputUsdMicrosPer1m: 0,
+				outputUsdMicrosPer1m: 0,
+			},
 		]);
 	});
 
@@ -105,12 +135,25 @@ describe("GET /api/models", () => {
 				name: "custom",
 				displayName: "Custom Provider",
 				iconAssetId: "custom-icon",
+				processingRegionCode: "CN",
+				privacyPolicyUrl: "https://example.com/privacy",
 				enabled: true,
 			},
 		]);
 		mockListEnabledProviderModels.mockImplementation(async () =>
 			[
-				{ id: "m1", name: "gpt-4", displayName: "GPT-4", enabled: true },
+				{
+					id: "m1",
+					name: "gpt-4",
+					displayName: "GPT-4",
+					enabled: true,
+					guideNoteEn: "Best for hard tasks.",
+					guideNoteHu: null,
+					guideBadge: "intelligent",
+					maxModelContext: 128000,
+					inputUsdMicrosPer1m: 1000,
+					outputUsdMicrosPer1m: 2000,
+				},
 				{
 					id: "m2",
 					name: "gpt-3.5",
@@ -128,8 +171,20 @@ describe("GET /api/models", () => {
 		);
 		expect(newProvider).toBeDefined();
 		expect(newProvider.displayName).toBe("Custom Provider");
+		expect(newProvider.processingRegionCode).toBe("CN");
+		expect(newProvider.privacyPolicyUrl).toBe("https://example.com/privacy");
 		expect(newProvider.models).toEqual([
-			{ id: "provider:new-1:m1", displayName: "GPT-4", iconUrl: null },
+			{
+				id: "provider:new-1:m1",
+				displayName: "GPT-4",
+				iconUrl: null,
+				guideNoteEn: "Best for hard tasks.",
+				guideNoteHu: null,
+				guideBadge: "intelligent",
+				maxModelContext: 128000,
+				inputUsdMicrosPer1m: 1000,
+				outputUsdMicrosPer1m: 2000,
+			},
 		]);
 	});
 });

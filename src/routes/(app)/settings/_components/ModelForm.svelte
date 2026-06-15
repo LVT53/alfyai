@@ -50,6 +50,18 @@ let formIconAssetId = $state(untrack(() => model?.iconAssetId ?? null));
 $effect(() => {
 	formIconAssetId = model?.iconAssetId ?? null;
 });
+let formGuideNoteEn = $state(untrack(() => model?.guideNoteEn ?? ""));
+$effect(() => {
+	formGuideNoteEn = model?.guideNoteEn ?? "";
+});
+let formGuideNoteHu = $state(untrack(() => model?.guideNoteHu ?? ""));
+$effect(() => {
+	formGuideNoteHu = model?.guideNoteHu ?? "";
+});
+let formGuideBadge = $state(untrack(() => model?.guideBadge ?? ""));
+$effect(() => {
+	formGuideBadge = model?.guideBadge ?? "";
+});
 let formFallbackProviderModelId = $state(
 	untrack(() => model?.fallbackProviderModelId ?? ""),
 );
@@ -173,6 +185,12 @@ function handleSave() {
 	const data: ProviderModelUpdate & { name?: string } = {
 		displayName: formDisplayName.trim(),
 		iconAssetId: formIconAssetId || null,
+		guideNoteEn: formGuideNoteEn.trim() || null,
+		guideNoteHu: formGuideNoteHu.trim() || null,
+		guideBadge:
+			formGuideBadge === "intelligent" || formGuideBadge === "fast"
+				? formGuideBadge
+				: null,
 		maxModelContext: maxContext,
 		compactionUiThreshold: null,
 		targetConstructedContext: null,
@@ -273,6 +291,45 @@ function handleSave() {
 								onchange={onIconFile}
 							/>
 						{/if}
+					</div>
+				</div>
+
+				<div class="mt-2 border-t border-border pt-3">
+					<h3 class="text-sm font-medium text-text-primary">{$t('admin.modelGuide')}</h3>
+					<p class="text-xs text-text-muted">{$t('admin.modelGuideDescription')}</p>
+					<div class="mt-3 grid gap-3 md:grid-cols-2">
+						<div>
+							<label class="settings-label" for="model-form-guide-badge">{$t('admin.modelGuideBadge')}</label>
+							<select
+								id="model-form-guide-badge"
+								class="settings-input"
+								bind:value={formGuideBadge}
+							>
+								<option value="">{$t('admin.none')}</option>
+								<option value="intelligent">{$t('modelSelector.badge.intelligent')}</option>
+								<option value="fast">{$t('modelSelector.badge.fast')}</option>
+							</select>
+						</div>
+						<div>
+							<label class="settings-label" for="model-form-guide-note-en">{$t('admin.modelGuideNoteEn')}</label>
+							<textarea
+								id="model-form-guide-note-en"
+								class="settings-input min-h-20"
+								bind:value={formGuideNoteEn}
+								maxlength="180"
+								placeholder={$t('admin.modelGuideNotePlaceholder')}
+							></textarea>
+						</div>
+						<div class="md:col-span-2">
+							<label class="settings-label" for="model-form-guide-note-hu">{$t('admin.modelGuideNoteHu')}</label>
+							<textarea
+								id="model-form-guide-note-hu"
+								class="settings-input min-h-20"
+								bind:value={formGuideNoteHu}
+								maxlength="180"
+								placeholder={$t('admin.modelGuideNotePlaceholder')}
+							></textarea>
+						</div>
 					</div>
 				</div>
 

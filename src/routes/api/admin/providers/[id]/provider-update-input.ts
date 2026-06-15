@@ -36,7 +36,11 @@ function parseOptionalNullableTrimmedStringField(
 	body: Record<string, unknown>,
 	field: keyof Pick<
 		UpdateProviderInput,
-		"iconAssetId" | "rateLimitFallbackBaseUrl" | "rateLimitFallbackModelName"
+		| "iconAssetId"
+		| "processingRegionCode"
+		| "privacyPolicyUrl"
+		| "rateLimitFallbackBaseUrl"
+		| "rateLimitFallbackModelName"
 	>,
 ): ParsedField<string | null> {
 	const value = body[field];
@@ -161,6 +165,20 @@ export function buildProviderUpdateInput(
 				parseOptionalNullableTrimmedStringField(body, "iconAssetId"),
 				(value) => {
 					input.iconAssetId = value;
+				},
+			),
+		() =>
+			applyParsedField(
+				parseOptionalNullableTrimmedStringField(body, "processingRegionCode"),
+				(value) => {
+					input.processingRegionCode = value;
+				},
+			),
+		() =>
+			applyParsedField(
+				parseOptionalNullableTrimmedStringField(body, "privacyPolicyUrl"),
+				(value) => {
+					input.privacyPolicyUrl = value;
 				},
 			),
 		() =>

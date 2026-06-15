@@ -68,6 +68,14 @@ export const POST: RequestHandler = async (event) => {
 				typeof body.iconAssetId === "string" && body.iconAssetId.trim()
 					? body.iconAssetId.trim()
 					: null,
+			processingRegionCode:
+				typeof body.processingRegionCode === "string"
+					? body.processingRegionCode.trim()
+					: null,
+			privacyPolicyUrl:
+				typeof body.privacyPolicyUrl === "string"
+					? body.privacyPolicyUrl.trim()
+					: null,
 			rateLimitFallbackEnabled:
 				typeof body.rateLimitFallbackEnabled === "boolean"
 					? body.rateLimitFallbackEnabled
@@ -101,6 +109,13 @@ export const POST: RequestHandler = async (event) => {
 				{ error: "A provider with this name already exists" },
 				{ status: 409 },
 			);
+		}
+		if (
+			error instanceof Error &&
+			(error.message.includes("Processing region") ||
+				error.message.includes("Privacy policy URL"))
+		) {
+			return json({ error: error.message }, { status: 400 });
 		}
 		console.error("[ADMIN] Failed to create provider:", error);
 		return json({ error: "Failed to create provider" }, { status: 500 });

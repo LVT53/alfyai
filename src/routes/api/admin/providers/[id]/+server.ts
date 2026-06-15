@@ -32,6 +32,13 @@ export const PUT: RequestHandler = async (event) => {
 		await refreshConfig();
 		return json({ provider });
 	} catch (error) {
+		if (
+			error instanceof Error &&
+			(error.message.includes("Processing region") ||
+				error.message.includes("Privacy policy URL"))
+		) {
+			return json({ error: error.message }, { status: 400 });
+		}
 		console.error("[ADMIN] Failed to update provider:", error);
 		return json({ error: "Failed to update provider" }, { status: 500 });
 	}

@@ -92,6 +92,8 @@ export interface Provider {
 	displayName: string;
 	baseUrl: string;
 	iconAssetId: string | null;
+	processingRegionCode: string | null;
+	privacyPolicyUrl: string | null;
 	rateLimitFallbackEnabled: boolean;
 	rateLimitFallbackBaseUrl: string | null;
 	rateLimitFallbackModelName: string | null;
@@ -108,6 +110,8 @@ export interface ProviderCreateInput {
 	baseUrl: string;
 	apiKey: string;
 	iconAssetId?: string | null;
+	processingRegionCode?: string | null;
+	privacyPolicyUrl?: string | null;
 	rateLimitFallbackEnabled?: boolean;
 	rateLimitFallbackBaseUrl?: string | null;
 	rateLimitFallbackApiKey?: string | null;
@@ -120,6 +124,8 @@ export interface ProviderUpdateInput {
 	baseUrl?: string;
 	apiKey?: string;
 	iconAssetId?: string | null;
+	processingRegionCode?: string | null;
+	privacyPolicyUrl?: string | null;
 	rateLimitFallbackEnabled?: boolean;
 	rateLimitFallbackBaseUrl?: string | null;
 	rateLimitFallbackApiKey?: string | null;
@@ -393,6 +399,9 @@ export interface ProviderModel {
 	name: string;
 	displayName: string;
 	iconAssetId: string | null;
+	guideNoteEn: string | null;
+	guideNoteHu: string | null;
+	guideBadge: "intelligent" | "fast" | null;
 	fallbackProviderModelId: string | null;
 	maxModelContext: number | null;
 	compactionUiThreshold: number | null;
@@ -417,6 +426,9 @@ export type ProviderModelInput = {
 	name: string;
 	displayName?: string;
 	iconAssetId?: string | null;
+	guideNoteEn?: string | null;
+	guideNoteHu?: string | null;
+	guideBadge?: "intelligent" | "fast" | null;
 	fallbackProviderModelId?: string | null;
 	maxModelContext?: number | null;
 	compactionUiThreshold?: number | null;

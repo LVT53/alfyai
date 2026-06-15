@@ -23,6 +23,8 @@ function createTestTables() {
 			rate_limit_fallback_api_key_iv TEXT,
 			rate_limit_fallback_model_name TEXT,
 			rate_limit_fallback_timeout_ms INTEGER NOT NULL DEFAULT 10000,
+			processing_region_code TEXT,
+			privacy_policy_url TEXT,
 			sort_order INTEGER NOT NULL DEFAULT 0,
 			enabled INTEGER NOT NULL DEFAULT 1,
 			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -34,6 +36,9 @@ function createTestTables() {
 			provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
 			name TEXT NOT NULL,
 			display_name TEXT NOT NULL,
+			guide_note_en TEXT,
+			guide_note_hu TEXT,
+			guide_badge TEXT,
 			max_model_context INTEGER,
 			compaction_ui_threshold INTEGER,
 			target_constructed_context INTEGER,
@@ -86,6 +91,9 @@ describe("ProviderModel payload parsing", () => {
 				name: "  parser-model  ",
 				displayName: "  Parser Model  ",
 				iconAssetId: "  ignored-icon  ",
+				guideNoteEn: "  Best for hard work.  ",
+				guideNoteHu: "  Magyar útmutató.  ",
+				guideBadge: "intelligent",
 				fallbackProviderModelId: "  ",
 				maxModelContext: 128000,
 				compactionUiThreshold: null,
@@ -107,6 +115,9 @@ describe("ProviderModel payload parsing", () => {
 			providerId: "provider-id",
 			name: "parser-model",
 			displayName: "Parser Model",
+			guideNoteEn: "Best for hard work.",
+			guideNoteHu: "Magyar útmutató.",
+			guideBadge: "intelligent",
 			fallbackProviderModelId: null,
 			maxModelContext: 128000,
 			compactionUiThreshold: null,
@@ -135,6 +146,9 @@ describe("ProviderModel payload parsing", () => {
 			parseUpdateProviderModelPayload({
 				displayName: "  Parser Update  ",
 				iconAssetId: "  icon-asset  ",
+				guideNoteEn: "",
+				guideNoteHu: "  Gyors válaszokhoz.  ",
+				guideBadge: "fast",
 				fallbackProviderModelId: "  ",
 				maxModelContext: 64000,
 				compactionUiThreshold: null,
@@ -155,6 +169,9 @@ describe("ProviderModel payload parsing", () => {
 		).toEqual({
 			displayName: "Parser Update",
 			iconAssetId: "icon-asset",
+			guideNoteEn: null,
+			guideNoteHu: "Gyors válaszokhoz.",
+			guideBadge: "fast",
 			fallbackProviderModelId: null,
 			maxModelContext: 64000,
 			compactionUiThreshold: null,
@@ -172,6 +189,19 @@ describe("ProviderModel payload parsing", () => {
 			enabled: true,
 			sortOrder: 7,
 		});
+	});
+
+	it("rejects invalid guide metadata", async () => {
+		const { parseUpdateProviderModelPayload } = await import(
+			"./provider-models"
+		);
+
+		expect(() =>
+			parseUpdateProviderModelPayload({ guideBadge: "smart" }),
+		).toThrow("guideBadge");
+		expect(() =>
+			parseUpdateProviderModelPayload({ guideNoteEn: "x".repeat(181) }),
+		).toThrow("guideNoteEn");
 	});
 });
 
@@ -219,6 +249,8 @@ describe("ProviderModel CRUD", () => {
 			const model = await createProviderModelFromPayload(provider.id, {
 				name: "  payload-model  ",
 				displayName: "  Payload Model  ",
+				guideNoteEn: "Best for careful tasks.",
+				guideBadge: "intelligent",
 				maxModelContext: 200_000,
 				maxTokens: 4096,
 				reasoningEffort: "high",
@@ -228,6 +260,9 @@ describe("ProviderModel CRUD", () => {
 
 			expect(model.name).toBe("payload-model");
 			expect(model.displayName).toBe("Payload Model");
+			expect(model.guideNoteEn).toBe("Best for careful tasks.");
+			expect(model.guideNoteHu).toBeNull();
+			expect(model.guideBadge).toBe("intelligent");
 			expect(model.maxModelContext).toBe(200_000);
 			expect(model.compactionUiThreshold).toBe(160_000);
 			expect(model.targetConstructedContext).toBe(180_000);

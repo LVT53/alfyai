@@ -4,6 +4,12 @@ export interface ProviderModel {
 	id: string;
 	displayName: string;
 	iconUrl: string | null;
+	guideNoteEn: string | null;
+	guideNoteHu: string | null;
+	guideBadge: "intelligent" | "fast" | null;
+	maxModelContext: number | null;
+	inputUsdMicrosPer1m: number;
+	outputUsdMicrosPer1m: number;
 }
 
 export interface ModelProvider {
@@ -12,6 +18,8 @@ export interface ModelProvider {
 	displayName: string;
 	iconAssetId: string | null;
 	iconUrl: string | null;
+	processingRegionCode: string | null;
+	privacyPolicyUrl: string | null;
 	models: ProviderModel[];
 }
 

@@ -491,6 +491,13 @@
       "when": 1777140000056,
       "tag": "1777140000056_provider_models_fallback_provider_model_id",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1777140000057,
+      "tag": "1777140000057_model_selection_guide_metadata",
+      "breakpoints": true
     }
   ]
 }

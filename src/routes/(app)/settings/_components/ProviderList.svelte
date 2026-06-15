@@ -10,6 +10,10 @@ import {
 	Trash2,
 } from "@lucide/svelte";
 import type { Provider, ProviderModel } from "$lib/client/api/admin";
+import {
+	regionCodeToFlag,
+	regionDisplayName,
+} from "$lib/services/processing-region";
 import { providerHasFallbackWarning } from "./model-fallback";
 
 const tVal = get(t);
@@ -130,6 +134,19 @@ async function handleDelete(provider: Provider) {
 								<span class="truncate text-sm font-medium text-text-primary">
 									{provider.displayName}
 								</span>
+								{#if provider.processingRegionCode}
+									<span
+										class="shrink-0 text-sm"
+										title={$t('modelSelector.processingRegion', {
+											region: regionDisplayName(provider.processingRegionCode),
+										})}
+										aria-label={$t('modelSelector.processingRegion', {
+											region: regionDisplayName(provider.processingRegionCode),
+										})}
+									>
+										{regionCodeToFlag(provider.processingRegionCode)}
+									</span>
+								{/if}
 								{#if providerHasFallbackWarning(provider.id, providerModels)}
 									<span
 										class="inline-flex shrink-0 text-danger"

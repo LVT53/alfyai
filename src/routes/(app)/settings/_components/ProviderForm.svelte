@@ -51,6 +51,18 @@ let formIconAssetId = $state(untrack(() => provider?.iconAssetId ?? ""));
 $effect(() => {
 	formIconAssetId = provider?.iconAssetId ?? "";
 });
+let formProcessingRegionCode = $state(
+	untrack(() => provider?.processingRegionCode ?? ""),
+);
+$effect(() => {
+	formProcessingRegionCode = provider?.processingRegionCode ?? "";
+});
+let formPrivacyPolicyUrl = $state(
+	untrack(() => provider?.privacyPolicyUrl ?? ""),
+);
+$effect(() => {
+	formPrivacyPolicyUrl = provider?.privacyPolicyUrl ?? "";
+});
 let formEnabled = $state(untrack(() => provider?.enabled ?? true));
 let formRateLimitFallbackEnabled = $state(
 	untrack(() => provider?.rateLimitFallbackEnabled ?? false),
@@ -117,6 +129,8 @@ function handleSave() {
 		displayName: formDisplayName,
 		baseUrl: formBaseUrl,
 		iconAssetId: formIconAssetId || null,
+		processingRegionCode: formProcessingRegionCode || null,
+		privacyPolicyUrl: formPrivacyPolicyUrl || null,
 		enabled: formEnabled,
 		rateLimitFallbackEnabled: formRateLimitFallbackEnabled,
 		rateLimitFallbackBaseUrl: formRateLimitFallbackBaseUrl || null,
@@ -231,6 +245,37 @@ function handleTest() {
 								onchange={onIconFile}
 							/>
 						{/if}
+					</div>
+				</div>
+
+				<div class="grid gap-3 md:grid-cols-2">
+					<div>
+						<label class="settings-label" for="provider-form-processing-region">
+							{$t('admin.providerProcessingRegion')}
+						</label>
+						<input
+							id="provider-form-processing-region"
+							type="text"
+							class="settings-input uppercase"
+							bind:value={formProcessingRegionCode}
+							placeholder={$t('admin.providerProcessingRegionPlaceholder')}
+							maxlength="2"
+						/>
+						<p class="mt-1 text-xs text-text-muted">{$t('admin.providerProcessingRegionDescription')}</p>
+					</div>
+
+					<div>
+						<label class="settings-label" for="provider-form-privacy-policy">
+							{$t('admin.providerPrivacyPolicy')}
+						</label>
+						<input
+							id="provider-form-privacy-policy"
+							type="url"
+							class="settings-input"
+							bind:value={formPrivacyPolicyUrl}
+							placeholder={$t('admin.providerPrivacyPolicyPlaceholder')}
+						/>
+						<p class="mt-1 text-xs text-text-muted">{$t('admin.providerPrivacyPolicyDescription')}</p>
 					</div>
 				</div>
 

@@ -62,6 +62,8 @@ describe("admin provider validation route", () => {
 			apiKeyEncrypted: "encrypted",
 			apiKeyIv: "iv",
 			iconAssetId: null,
+			processingRegionCode: null,
+			privacyPolicyUrl: null,
 			rateLimitFallbackEnabled: false,
 			rateLimitFallbackBaseUrl: null,
 			rateLimitFallbackModelName: null,

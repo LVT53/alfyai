@@ -1,13 +1,18 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
-import { Check, ChevronDown } from "@lucide/svelte";
+import { Check, ChevronDown, CircleHelp } from "@lucide/svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
+import ModelSelectionGuideModal from "./ModelSelectionGuideModal.svelte";
 import {
 	fetchAvailableModels,
 	type ModelProvider,
 	type ProviderModel,
 } from "$lib/client/api/models";
+import {
+	regionCodeToFlag,
+	regionDisplayName,
+} from "$lib/services/processing-region";
 import {
 	selectedModel,
 	setSelectedModel,
@@ -34,6 +39,7 @@ let menuRef: HTMLDivElement | null = $state(null);
 let expandedProviders: Set<string> = $state(new Set());
 let focusedModelId: string | null = $state(null);
 let isMobile = $state(false);
+let guideOpen = $state(false);
 let isOpen = $derived(open ?? internalOpen);
 let dropdownPosition = $state({
 	top: 0,
@@ -160,6 +166,15 @@ function toggleDropdown() {
 	const opening = !isOpen;
 	setOpen(!isOpen);
 	if (opening) autoExpandProviders();
+}
+
+function openGuide() {
+	guideOpen = true;
+}
+
+function providerRegionTitle(provider: ModelProvider): string {
+	const region = regionDisplayName(provider.processingRegionCode);
+	return region ? $t("modelSelector.processingRegion", { region }) : "";
 }
 
 async function updateDropdownPosition() {
@@ -301,34 +316,46 @@ function autoExpandProviders() {
 </script>
 
 <div class="model-selector" bind:this={dropdownRef} onkeydown={handleKeydown} role="presentation">
-	<button
-		bind:this={triggerRef}
-		type="button"
-		class="model-selector__trigger"
-		onclick={toggleDropdown}
-		aria-haspopup="listbox"
-		aria-expanded={isOpen}
-		aria-label={$t('modelSelector.selectModel')}
-		disabled={isLoading}
-		data-testid="model-selector-trigger"
-	>
-		{#if isLoading}
-			<span class="model-selector__text">Loading...</span>
-		{:else if activeProvider}
-			{@const active = activeProvider}
-			<ModelIcon
-				iconUrl={active.model.iconUrl ?? active.provider.iconUrl ?? null}
-				displayName={active.model.displayName}
-				size={22}
-			/>
-			<span class="model-selector__text">{active.model.displayName}</span>
-		{:else}
-			<span class="model-selector__text">Select model</span>
-		{/if}
-		<span class={`model-selector__chevron${isOpen ? ' model-selector__chevron--open' : ''}`}>
-			<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
-		</span>
-	</button>
+	<div class="model-selector__controls">
+		<button
+			bind:this={triggerRef}
+			type="button"
+			class="model-selector__trigger"
+			onclick={toggleDropdown}
+			aria-haspopup="listbox"
+			aria-expanded={isOpen}
+			aria-label={$t('modelSelector.selectModel')}
+			disabled={isLoading}
+			data-testid="model-selector-trigger"
+		>
+			{#if isLoading}
+				<span class="model-selector__text">Loading...</span>
+			{:else if activeProvider}
+				{@const active = activeProvider}
+				<ModelIcon
+					iconUrl={active.model.iconUrl ?? active.provider.iconUrl ?? null}
+					displayName={active.model.displayName}
+					size={22}
+				/>
+				<span class="model-selector__text">{active.model.displayName}</span>
+			{:else}
+				<span class="model-selector__text">Select model</span>
+			{/if}
+			<span class={`model-selector__chevron${isOpen ? ' model-selector__chevron--open' : ''}`}>
+				<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
+			</span>
+		</button>
+		<button
+			type="button"
+			class="model-selector__guide-trigger"
+			onclick={openGuide}
+			aria-label={$t('modelSelector.openGuide')}
+			title={$t('modelSelector.openGuide')}
+			disabled={isLoading}
+		>
+			<CircleHelp size={16} strokeWidth={2} aria-hidden="true" />
+		</button>
+	</div>
 
 	{#if isOpen && providers.length > 0}
 		<div
@@ -356,6 +383,15 @@ function autoExpandProviders() {
 								size={20}
 							/>
 							<span class="model-selector__provider-name">{provider.displayName}</span>
+							{#if provider.processingRegionCode}
+								<span
+									class="model-selector__provider-region"
+									title={providerRegionTitle(provider)}
+									aria-label={providerRegionTitle(provider)}
+								>
+									{regionCodeToFlag(provider.processingRegionCode)}
+								</span>
+							{/if}
 							<span class="model-selector__provider-count">{provider.models.length}</span>
 							<span class={`model-selector__expand-icon${expanded ? ' model-selector__expand-icon--open' : ''}`}>
 							<ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
@@ -398,12 +434,22 @@ function autoExpandProviders() {
 			</div>
 		</div>
 	{/if}
+
+	{#if guideOpen}
+		<ModelSelectionGuideModal {providers} onClose={() => (guideOpen = false)} />
+	{/if}
 </div>
 
 <style>
 	.model-selector {
 		position: relative;
 		display: inline-block;
+	}
+
+	.model-selector__controls {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 	}
 
 	.model-selector__trigger {
@@ -435,6 +481,36 @@ function autoExpandProviders() {
 	}
 
 	.model-selector__trigger:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.model-selector__guide-trigger {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 34px;
+		min-width: 34px;
+		height: 36px;
+		border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+		border-radius: var(--radius-md, 8px);
+		background: transparent;
+		color: var(--text-secondary, #6b6b6b);
+		cursor: pointer;
+		transition: all 150ms ease-out;
+	}
+
+	.model-selector__guide-trigger:hover:not(:disabled) {
+		background: var(--bg-hover, #eeedea);
+		color: var(--text-primary, #1a1a1a);
+	}
+
+	.model-selector__guide-trigger:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--border-focus, #c15f3c);
+	}
+
+	.model-selector__guide-trigger:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
@@ -539,6 +615,12 @@ function autoExpandProviders() {
 		flex-shrink: 0;
 	}
 
+	.model-selector__provider-region {
+		flex-shrink: 0;
+		font-size: 15px;
+		line-height: 1;
+	}
+
 	.model-selector__expand-icon {
 		flex-shrink: 0;
 		transition: transform 200ms ease-out;
@@ -637,8 +719,18 @@ function autoExpandProviders() {
 		border-color: var(--border, rgba(255, 255, 255, 0.08));
 	}
 
+	:global(.dark) .model-selector__guide-trigger {
+		color: var(--text-secondary, #888888);
+		border-color: var(--border, rgba(255, 255, 255, 0.08));
+	}
+
 	:global(.dark) .model-selector__trigger:hover:not(:disabled) {
 		background: var(--bg-hover, #333333);
+	}
+
+	:global(.dark) .model-selector__guide-trigger:hover:not(:disabled) {
+		background: var(--bg-hover, #333333);
+		color: var(--text-primary, #ececec);
 	}
 
 	:global(.dark) .model-selector__dropdown {
@@ -678,6 +770,12 @@ function autoExpandProviders() {
 		.model-selector__trigger {
 			min-height: 44px;
 			padding: var(--space-sm, 8px) var(--space-md, 12px);
+		}
+
+		.model-selector__guide-trigger {
+			width: 44px;
+			min-width: 44px;
+			height: 44px;
 		}
 
 		.model-selector__text {

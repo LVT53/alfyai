@@ -23,10 +23,18 @@ export interface AvailableModelProviderGroup {
 	displayName: string;
 	iconAssetId: string | null;
 	iconUrl: string | null;
+	processingRegionCode: string | null;
+	privacyPolicyUrl: string | null;
 	models: Array<{
 		id: ModelId;
 		displayName: string;
 		iconUrl: string | null;
+		guideNoteEn: string | null;
+		guideNoteHu: string | null;
+		guideBadge: "intelligent" | "fast" | null;
+		maxModelContext: number | null;
+		inputUsdMicrosPer1m: number;
+		outputUsdMicrosPer1m: number;
 	}>;
 }
 
@@ -147,10 +155,18 @@ export async function getAvailableModelProviderGroups(
 			displayName: "AlfyAI",
 			iconAssetId: null,
 			iconUrl: null,
+			processingRegionCode: null,
+			privacyPolicyUrl: null,
 			models: visibleBuiltIns.map((model) => ({
 				id: model.id,
 				displayName: model.displayName,
 				iconUrl: model.iconUrl ?? null,
+				guideNoteEn: null,
+				guideNoteHu: null,
+				guideBadge: null,
+				maxModelContext: null,
+				inputUsdMicrosPer1m: 0,
+				outputUsdMicrosPer1m: 0,
 			})),
 		});
 	}
@@ -165,10 +181,18 @@ export async function getAvailableModelProviderGroups(
 			displayName: provider.displayName,
 			iconAssetId: provider.iconAssetId,
 			iconUrl: modelIconUrl(provider.iconAssetId),
+			processingRegionCode: provider.processingRegionCode,
+			privacyPolicyUrl: provider.privacyPolicyUrl,
 			models: providerModels.map((model) => ({
 				id: providerModelId(provider, model),
 				displayName: model.displayName,
 				iconUrl: modelIconUrl(model.iconAssetId),
+				guideNoteEn: model.guideNoteEn,
+				guideNoteHu: model.guideNoteHu,
+				guideBadge: model.guideBadge,
+				maxModelContext: model.maxModelContext,
+				inputUsdMicrosPer1m: model.inputUsdMicrosPer1m,
+				outputUsdMicrosPer1m: model.outputUsdMicrosPer1m,
 			})),
 		});
 	}
