@@ -227,7 +227,7 @@ export function seedConversation(
 	});
 }
 
-export function seedDefaultConversationMessages(
+function seedDefaultConversationMessages(
 	mockCreateMessage: ReturnType<typeof vi.fn>,
 	input: {
 		userMessage?: Partial<typeof testUserMessage>;
@@ -249,6 +249,26 @@ export function seedDefaultConversationMessages(
 			id: input.assistantMessageId ?? testAssistantMessage.id,
 			...input.assistantMessage,
 		});
+}
+
+export function seedConversationTurn(
+	mockGetConversation: ReturnType<typeof vi.fn>,
+	mockCreateMessage: ReturnType<typeof vi.fn>,
+	input: {
+		conversation?: Parameters<typeof seedConversation>[1];
+		userMessage?: Partial<typeof testUserMessage>;
+		assistantMessage?: Partial<typeof testAssistantMessage>;
+		userMessageId?: string;
+		assistantMessageId?: string;
+	} = {},
+) {
+	seedConversation(mockGetConversation, input.conversation);
+	seedDefaultConversationMessages(mockCreateMessage, {
+		userMessage: input.userMessage,
+		assistantMessage: input.assistantMessage,
+		userMessageId: input.userMessageId,
+		assistantMessageId: input.assistantMessageId,
+	});
 }
 
 export function seedUserConversationMessage(

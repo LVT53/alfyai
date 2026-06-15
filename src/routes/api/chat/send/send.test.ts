@@ -8,11 +8,11 @@ import {
 	buildReasoningDepthMetadata,
 	linkedSourceFixture,
 	makeEvent,
-	seedConversation as makeSeedConversation,
-	seedDefaultConversationMessages as makeSeedDefaultConversationMessages,
-	seedUserConversationMessage as makeSeedUserConversationMessage,
 	missingPendingSkill,
 	noteCreateDecisionOperation,
+	seedConversation,
+	seedConversationTurn,
+	seedUserConversationMessage,
 	skillAwaitingUserOperation,
 	skillControlEnvelope,
 } from "./send.test-helpers";
@@ -258,15 +258,6 @@ const mockStartSkillSession = startSkillSession as ReturnType<typeof vi.fn>;
 const mockCommitSkillNoteOperations =
 	commitSkillNoteOperationsAfterAssistantMessage as ReturnType<typeof vi.fn>;
 
-const seedConversationFixture = (
-	overrides: Parameters<typeof makeSeedConversation>[1] = {},
-) => makeSeedConversation(mockGetConversation, overrides);
-const seedMessagesFixture = (
-	input: Parameters<typeof makeSeedDefaultConversationMessages>[1] = {},
-) => makeSeedDefaultConversationMessages(mockCreateMessage, input);
-const seedUserMessageFixture = (content: string, id?: string) =>
-	makeSeedUserConversationMessage(mockCreateMessage, content, id);
-
 describe("POST /api/chat/send", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -324,8 +315,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns AI response text for a valid request", async () => {
-		seedConversationFixture();
-		seedMessagesFixture({
+		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Hello" },
 			assistantMessage: { content: "Hello from AI!" },
 		});
@@ -386,8 +376,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("persists requested Reasoning Depth metadata for non-stream sends", async () => {
-		seedConversationFixture();
-		seedMessagesFixture({
+		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Use max depth" },
 			assistantMessage: { content: "Max-depth answer" },
 		});
@@ -438,8 +427,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("persists classifier-resolved Auto Reasoning Depth metadata for non-stream sends", async () => {
-		seedConversationFixture();
-		seedMessagesFixture({
+		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Compare migration strategies" },
 			assistantMessage: { content: "Extended-depth answer" },
 		});
@@ -524,8 +512,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("assigns file-production jobs created during non-stream sends to the persisted assistant message", async () => {
-		seedConversationFixture();
-		seedMessagesFixture({
+		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Create a report" },
 			assistantMessage: { content: "Done." },
 		});
@@ -581,8 +568,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("persists prefetched forced web-search tool calls for send evidence", async () => {
-		seedConversationFixture();
-		seedMessagesFixture({
+		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "What changed today?" },
 			assistantMessage: { content: "Grounded answer" },
 		});
@@ -710,8 +696,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns the same citation-gated web text that it persists", async () => {
-		seedConversationFixture();
-		seedMessagesFixture({
+		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Check the current docs" },
 			assistantMessage: { content: "Grounded answer without links" },
 		});
@@ -767,8 +752,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns project folder awareness in send metadata and degrades lookup failures", async () => {
-		seedConversationFixture();
-		seedMessagesFixture({
+		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Hello" },
 			assistantMessage: { content: "Hello from AI!" },
 		});
@@ -812,7 +796,7 @@ describe("POST /api/chat/send", () => {
 		]);
 
 		mockCreateMessage.mockClear();
-		seedMessagesFixture({
+		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessageId: "user-msg-2",
 			assistantMessageId: "assistant-msg-2",
 			userMessage: { content: "Hello again" },
@@ -837,8 +821,9 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("starts a Deep Research job shell instead of a normal assistant answer", async () => {
-		seedConversationFixture();
-		seedUserMessageFixture(
+		seedConversation(mockGetConversation);
+		seedUserConversationMessage(
+			mockCreateMessage,
 			"Compare EU and US AI copyright training data rules",
 		);
 
@@ -877,8 +862,11 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("does not apply linked context sources to Deep Research job startup", async () => {
-		seedConversationFixture();
-		seedUserMessageFixture("Research this with normal Deep Research behavior");
+		seedConversation(mockGetConversation);
+		seedUserConversationMessage(
+			mockCreateMessage,
+			"Research this with normal Deep Research behavior",
+		);
 
 		const response = await POST(
 			makeEvent({
@@ -897,7 +885,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("applies linked context sources to normal chat send turns", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Normal chat with linked source",
 			rawResponse: {},
@@ -946,7 +934,7 @@ describe("POST /api/chat/send", () => {
 
 	it("rejects normal chat linked context sources when Composer Command Registry is disabled", async () => {
 		configMockState.composerCommandRegistryEnabled = false;
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 
 		const response = await POST(
 			makeEvent({
@@ -968,7 +956,7 @@ describe("POST /api/chat/send", () => {
 
 	it("rejects normal chat pending skills when Composer Command Registry is disabled", async () => {
 		configMockState.composerCommandRegistryEnabled = false;
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 
 		const response = await POST(
 			makeEvent({
@@ -993,7 +981,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("rejects normal chat when the pending skill is no longer available", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockResolveEffectiveSkillDefinition.mockResolvedValue({
 			...missingPendingSkill,
 		});
@@ -1024,7 +1012,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("rejects normal chat when the pending skill definition disappears after summary validation", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockResolveEffectiveSkillDefinition.mockResolvedValue({
 			...missingPendingSkill,
 		});
@@ -1051,7 +1039,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("rejects normal chat when a different active skill session blocks the pending session skill", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockGetAvailableSkillDefinition.mockResolvedValue({
 			id: "skill-2",
 			ownership: "user",
@@ -1140,7 +1128,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("passes pending Skill instructions as a system appendix without changing the visible user transcript", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockCreateMessage
 			.mockResolvedValueOnce({
 				id: "user-msg",
@@ -1209,7 +1197,7 @@ describe("POST /api/chat/send", () => {
 
 	it("treats Skill Control Envelopes as plain assistant output when Composer Command Registry is disabled", async () => {
 		configMockState.composerCommandRegistryEnabled = false;
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockCreateMessage
 			.mockResolvedValueOnce({
 				id: "user-msg",
@@ -1253,7 +1241,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("strips Skill Control Envelopes, persists metadata, and applies transitions after assistant persistence", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockCreateMessage
 			.mockResolvedValueOnce({
 				id: "user-msg",
@@ -1311,7 +1299,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("commits note operations after the assistant message exists", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockGetActiveSkillSession.mockResolvedValue({
 			id: "session-1",
 			userId: "user-1",
@@ -1374,7 +1362,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("commits first-response note operations to the session started from a pending skill", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockGetAvailableSkillDefinition.mockResolvedValue({
 			id: "skill-1",
 			ownership: "user",
@@ -1511,7 +1499,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("preserves started variant session metadata and managed pack resources in the prompt appendix", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockResolveEffectiveSkillDefinition.mockResolvedValue({
 			available: true,
 			availabilityReason: "available",
@@ -1655,8 +1643,11 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("does not apply pending skills to Deep Research job startup", async () => {
-		seedConversationFixture();
-		seedUserMessageFixture("Research this with normal Deep Research behavior");
+		seedConversation(mockGetConversation);
+		seedUserConversationMessage(
+			mockCreateMessage,
+			"Research this with normal Deep Research behavior",
+		);
 
 		const response = await POST(
 			makeEvent({
@@ -1679,7 +1670,7 @@ describe("POST /api/chat/send", () => {
 
 	it("rejects Deep Research when the runtime feature flag is disabled", async () => {
 		configMockState.deepResearchEnabled = false;
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 
 		const event = makeEvent({
 			message: "Research this policy area deeply",
@@ -1702,7 +1693,7 @@ describe("POST /api/chat/send", () => {
 
 	it("allows normal chat when Deep Research is disabled", async () => {
 		configMockState.deepResearchEnabled = false;
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Normal chat still works",
 			rawResponse: {},
@@ -1729,7 +1720,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("passes prompt-ready attachment planning context into the Deep Research job shell", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockAssertPromptReadyAttachments.mockResolvedValue({
 			displayArtifacts: [{ id: "source-attachment-1" }],
 			promptArtifacts: [{ id: "normalized-attachment-1" }],
@@ -1743,7 +1734,10 @@ describe("POST /api/chat/send", () => {
 				includeAsResearchSource: true,
 			},
 		]);
-		seedUserMessageFixture("Research the market using my uploaded brief");
+		seedUserConversationMessage(
+			mockCreateMessage,
+			"Research the market using my uploaded brief",
+		);
 		mockStartDeepResearchJobShell.mockResolvedValueOnce({
 			id: "research-job-1",
 			conversationId: "conv-1",
@@ -1822,7 +1816,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("rejects Deep Research in a sealed conversation before persisting the triggering message", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		const error = {
 			name: "DeepResearchJobStartError",
 			code: "conversation_sealed",
@@ -1850,7 +1844,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("rejects Deep Research when an active job exists before persisting the triggering message", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		const error = {
 			name: "DeepResearchJobStartError",
 			code: "active_job_exists",
@@ -1878,7 +1872,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("passes messages through unchanged", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Hello from AI!",
 			rawResponse: {},
@@ -1946,7 +1940,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns 422 when a same-turn attachment is not prompt-ready", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockAssertPromptReadyAttachments.mockRejectedValue({
 			name: "AttachmentReadinessError",
 			message: "Attached file is not ready for chat.",
@@ -1970,7 +1964,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns 422 when prompt construction fails closed after preflight", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockRunPlainNormalChatSendModel.mockRejectedValue({
 			name: "AttachmentReadinessError",
 			message:
@@ -1994,7 +1988,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns 502 when the model run throws", async () => {
-		seedConversationFixture();
+		seedConversation(mockGetConversation);
 		mockRunPlainNormalChatSendModel.mockRejectedValue(
 			new Error("Normal chat model run failed"),
 		);
