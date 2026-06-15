@@ -158,36 +158,6 @@ export const skillControlEnvelope = (operations: unknown[]) =>
 		"</skill_control_v1>",
 	].join("\n");
 
-function buildSkillDefinition(overrides: Record<string, unknown> = {}) {
-	return {
-		...baseUserSkillDefinition,
-		...overrides,
-	};
-}
-
-function buildResolvedSkillDefinition(
-	overrides: Record<string, unknown> = {},
-) {
-	return {
-		...baseResolvedSkillDefinition,
-		...overrides,
-	};
-}
-
-function buildSkillSummary(overrides: Record<string, unknown> = {}) {
-	return {
-		...baseSkillSummary,
-		...overrides,
-	};
-}
-
-function buildBaseSkillSession(overrides: Record<string, unknown> = {}) {
-	return {
-		...baseSkillSession,
-		...overrides,
-	};
-}
-
 export function makeEvent(
 	body: unknown,
 	user = { id: "user-1", email: "test@example.com" },
