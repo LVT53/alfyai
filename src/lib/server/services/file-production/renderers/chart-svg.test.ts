@@ -151,4 +151,33 @@ describe("generated document chart SVG renderer", () => {
 			expect(first.dataPointCount).toBeGreaterThan(0);
 		}
 	});
+
+	it("throws for missing cartesian axis keys", () => {
+		expect(() =>
+			renderChartSvg({
+				type: "chart",
+				chartType: "line",
+				title: "Missing keys",
+				xKey: null,
+				yKey: "value",
+				data: [{ value: 12 }],
+			}),
+		).toThrow("Cartesian charts require xKey and yKey.");
+	});
+
+	it("throws for stacked bar charts without a series key", () => {
+		expect(() =>
+			renderChartSvg({
+				type: "chart",
+				chartType: "stackedBar",
+				title: "Missing series",
+				xKey: "label",
+				yKey: "value",
+				data: [
+					{ label: "A", value: 10 },
+					{ label: "B", value: 5 },
+				],
+			}),
+		).toThrow("Stacked bar charts require seriesKey.");
+	});
 });

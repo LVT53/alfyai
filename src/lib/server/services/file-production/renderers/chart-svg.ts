@@ -95,167 +95,57 @@ function baseSvg(params: {
 	};
 }
 
+interface CartesianChartRow {
+	label: string;
+	value: number;
+	series: string;
+	xValue: number;
+}
+
+interface CartesianChartState {
+	chart: GeneratedDocumentChartBlock;
+	width: number;
+	height: number;
+	margin: { top: number; right: number; bottom: number; left: number };
+	plotWidth: number;
+	plotHeight: number;
+	rawRows: CartesianChartRow[];
+	labels: string[];
+	series: string[];
+	ticks: number[];
+	isBarChart: boolean;
+	groupWidth: number;
+	pointInset: number;
+	drawablePlotWidth: number;
+	unitLabel: string;
+	scaleY: (value: number) => number;
+	scaleX: (index: number) => number;
+	xScale: (index: number) => number;
+}
+
 function renderCartesianChart(
 	chart: GeneratedDocumentChartBlock,
 	width: number,
 	height: number,
 ): RenderedChartSvg {
-	if (!chart.xKey || !chart.yKey) {
-		throw new Error("Cartesian charts require xKey and yKey.");
-	}
-	const xKey = chart.xKey;
-	const yKey = chart.yKey;
-
-	const margin = { top: 54, right: 28, bottom: 54, left: 68 };
-	const plotWidth = width - margin.left - margin.right;
-	const plotHeight = height - margin.top - margin.bottom;
-	const rawRows = chart.data
-		.map((row) => ({
-			label: labelValue(row[xKey]),
-			value: numberValue(row[yKey]),
-			series: chart.seriesKey ? labelValue(row[chart.seriesKey]) : "Value",
-		}))
-		.filter(
-			(row): row is { label: string; value: number; series: string } =>
-				row.value !== null,
-		);
-
-	if (rawRows.length === 0) {
-		throw new Error("Chart data has no numeric values.");
-	}
-	const labels = Array.from(new Set(rawRows.map((row) => row.label)));
-	const series = Array.from(new Set(rawRows.map((row) => row.series)));
-	if (chart.chartType === "stackedBar" && !chart.seriesKey) {
-		throw new Error("Stacked bar charts require seriesKey.");
-	}
-	const stackedTotals = labels.map((label) =>
-		rawRows
-			.filter((row) => row.label === label)
-			.reduce((sum, row) => sum + Math.max(row.value, 0), 0),
-	);
-	const values =
-		chart.chartType === "stackedBar"
-			? stackedTotals
-			: rawRows.map((row) => row.value);
-	const minValue = Math.min(0, ...values);
-	const maxValue = Math.max(...values);
-	const ticks = niceTicks(minValue, maxValue);
-	const isBarChart =
-		chart.chartType === "bar" || chart.chartType === "stackedBar";
-	const groupWidth = isBarChart
-		? Math.max(18, (plotWidth / Math.max(labels.length, 1)) * 0.66)
-		: 0;
-	const pointInset = isBarChart
-		? groupWidth / 2 + 4
-		: chart.chartType === "scatter"
-			? 6
-			: 5;
-	const drawablePlotWidth = Math.max(1, plotWidth - pointInset * 2);
-	const scaleIndex = (index: number, count: number) =>
-		margin.left +
-		pointInset +
-		(count === 1
-			? drawablePlotWidth / 2
-			: (index / (count - 1)) * drawablePlotWidth);
-	const scaleY = (value: number) => {
-		const tickMin = ticks[0];
-		const tickMax = ticks[ticks.length - 1];
-		return (
-			margin.top +
-			plotHeight -
-			((value - tickMin) / (tickMax - tickMin || 1)) * plotHeight
-		);
-	};
-	const scaleX = (index: number) => scaleIndex(index, rawRows.length);
-	const points = rawRows
-		.map(
-			(row, index) =>
-				`${scaleX(index).toFixed(1)},${scaleY(row.value).toFixed(1)}`,
-		)
-		.join(" ");
-	const areaPoints =
-		chart.chartType === "area"
-			? `${scaleX(0).toFixed(1)},${(margin.top + plotHeight).toFixed(1)} ${points} ${scaleX(rawRows.length - 1).toFixed(1)},${(margin.top + plotHeight).toFixed(1)}`
-			: null;
-	const unitLabel = chart.units ? ` (${chart.units})` : "";
-	const xLabels = labels.map((label, index) => {
-		const x = scaleIndex(index, labels.length);
-		return `<text x="${x.toFixed(1)}" y="${height - 22}" text-anchor="middle" font-size="10" fill="${CHART_THEME.secondaryText}">${escapeXml(label)}</text>`;
-	});
-	const yGrid = ticks.map((tick) => {
-		const y = scaleY(tick);
-		return [
-			`<line x1="${margin.left}" y1="${y.toFixed(1)}" x2="${margin.left + plotWidth}" y2="${y.toFixed(1)}" stroke="${CHART_THEME.rule}" stroke-width="1"/>`,
-			`<text x="${margin.left - 10}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="${CHART_THEME.secondaryText}">${escapeXml(new Intl.NumberFormat("en-US").format(tick))}</text>`,
-		].join("");
-	});
-	const markers = rawRows.map((row, index) => {
-		const x = scaleX(index);
-		const y = scaleY(row.value);
-		return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="${CHART_THEME.accent}"><title>${escapeXml(`${row.label}: ${row.value}${unitLabel}`)}</title></circle>`;
-	});
-	const bars: string[] = [];
-	if (isBarChart) {
-		for (const [labelIndex, label] of labels.entries()) {
-			const groupX = scaleIndex(labelIndex, labels.length) - groupWidth / 2;
-			if (chart.chartType === "stackedBar") {
-				let stackedY = margin.top + plotHeight;
-				for (const [seriesIndex, seriesName] of series.entries()) {
-					const value =
-						rawRows.find(
-							(row) => row.label === label && row.series === seriesName,
-						)?.value ?? 0;
-					const barHeight =
-						((Math.max(value, 0) - 0) / (ticks[ticks.length - 1] || 1)) *
-						plotHeight;
-					stackedY -= barHeight;
-					bars.push(
-						`<rect x="${groupX.toFixed(1)}" y="${stackedY.toFixed(1)}" width="${groupWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" fill="${SERIES_PALETTE[seriesIndex % SERIES_PALETTE.length]}"><title>${escapeXml(`${label} ${seriesName}: ${value}${unitLabel}`)}</title></rect>`,
-					);
-				}
-			} else {
-				const value = rawRows.find((row) => row.label === label)?.value ?? 0;
-				const y = scaleY(value);
-				const zero = scaleY(0);
-				bars.push(
-					`<rect x="${groupX.toFixed(1)}" y="${Math.min(y, zero).toFixed(1)}" width="${groupWidth.toFixed(1)}" height="${Math.abs(zero - y).toFixed(1)}" fill="${CHART_THEME.accent}"><title>${escapeXml(`${label}: ${value}${unitLabel}`)}</title></rect>`,
-				);
-			}
-		}
-	}
-	const scatterMarkers =
-		chart.chartType === "scatter"
-			? rawRows.map((row, index) => {
-					const xNumber = numberValue(chart.data[index][xKey]) ?? index;
-					const xMin = Math.min(
-						...chart.data.map(
-							(dataRow, rowIndex) => numberValue(dataRow[xKey]) ?? rowIndex,
-						),
-					);
-					const xMax = Math.max(
-						...chart.data.map(
-							(dataRow, rowIndex) => numberValue(dataRow[xKey]) ?? rowIndex,
-						),
-					);
-					const x =
-						margin.left +
-						pointInset +
-						((xNumber - xMin) / (xMax - xMin || 1)) * drawablePlotWidth;
-					const y = scaleY(row.value);
-					return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${CHART_THEME.accent}"><title>${escapeXml(`${xNumber}: ${row.value}${unitLabel}`)}</title></circle>`;
-				})
-			: [];
+	const state = buildCartesianChartState(chart, width, height);
+	const { points, areaPoints } = buildCartesianLineAndAreaGeometry(state);
+	const xLabels = buildCartesianXAxisLabels(state);
+	const yGrid = buildCartesianYAxisGrid(state);
+	const markers = buildCartesianLineMarkers(state);
+	const bars = buildCartesianBars(state);
+	const scatterMarkers = buildCartesianScatter(state);
 
 	return baseSvg({
 		chart,
 		width,
 		height,
-		dataPointCount: rawRows.length,
+		dataPointCount: state.rawRows.length,
 		body: [
-			`<text x="${margin.left - 44}" y="${margin.top - 18}" font-size="10" fill="${CHART_THEME.secondaryText}">${escapeXml(chart.units ?? "")}</text>`,
+			`<text x="${state.margin.left - 44}" y="${state.margin.top - 18}" font-size="10" fill="${CHART_THEME.secondaryText}">${escapeXml(chart.units ?? "")}</text>`,
 			...yGrid,
-			`<line x1="${margin.left}" y1="${margin.top + plotHeight}" x2="${margin.left + plotWidth}" y2="${margin.top + plotHeight}" stroke="${CHART_THEME.secondaryText}" stroke-width="1"/>`,
-			`<line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + plotHeight}" stroke="${CHART_THEME.secondaryText}" stroke-width="1"/>`,
+			`<line x1="${state.margin.left}" y1="${state.margin.top + state.plotHeight}" x2="${state.margin.left + state.plotWidth}" y2="${state.margin.top + state.plotHeight}" stroke="${CHART_THEME.secondaryText}" stroke-width="1"/>`,
+			`<line x1="${state.margin.left}" y1="${state.margin.top}" x2="${state.margin.left}" y2="${state.margin.top + state.plotHeight}" stroke="${CHART_THEME.secondaryText}" stroke-width="1"/>`,
 			...bars,
 			...(chart.chartType === "area" && areaPoints
 				? [
@@ -271,6 +161,205 @@ function renderCartesianChart(
 			...scatterMarkers,
 			...xLabels,
 		],
+	});
+}
+
+function buildCartesianChartState(
+	chart: GeneratedDocumentChartBlock,
+	width: number,
+	height: number,
+): CartesianChartState {
+	if (!chart.xKey || !chart.yKey) {
+		throw new Error("Cartesian charts require xKey and yKey.");
+	}
+	if (chart.chartType === "stackedBar" && !chart.seriesKey) {
+		throw new Error("Stacked bar charts require seriesKey.");
+	}
+
+	const rows: CartesianChartRow[] = chartRowsFromData(chart);
+	const labels = Array.from(new Set(rows.map((row) => row.label)));
+	const series = Array.from(new Set(rows.map((row) => row.series)));
+	const isBarChart =
+		chart.chartType === "bar" || chart.chartType === "stackedBar";
+	const margin = { top: 54, right: 28, bottom: 54, left: 68 };
+	const plotWidth = width - margin.left - margin.right;
+	const plotHeight = height - margin.top - margin.bottom;
+
+	const stackedTotals = labels.map((label) =>
+		rows
+			.filter((row) => row.label === label)
+			.reduce((sum, row) => sum + Math.max(row.value, 0), 0),
+	);
+	const values =
+		isBarChart && chart.chartType === "stackedBar"
+			? stackedTotals
+			: rows.map((row) => row.value);
+	const minValue = Math.min(0, ...values);
+	const maxValue = Math.max(...values);
+	const ticks = niceTicks(minValue, maxValue);
+
+	const groupWidth = isBarChart
+		? Math.max(18, (plotWidth / Math.max(labels.length, 1)) * 0.66)
+		: 0;
+	const pointInset = isBarChart
+		? groupWidth / 2 + 4
+		: chart.chartType === "scatter"
+			? 6
+			: 5;
+	const drawablePlotWidth = Math.max(1, plotWidth - pointInset * 2);
+	const scaleY = (value: number) => {
+		const tickMin = ticks[0];
+		const tickMax = ticks[ticks.length - 1];
+		return (
+			margin.top +
+			plotHeight -
+			((value - tickMin) / (tickMax - tickMin || 1)) * plotHeight
+		);
+	};
+	const scaleIndex = (index: number, count: number) =>
+		margin.left +
+		pointInset +
+		(count === 1
+			? drawablePlotWidth / 2
+			: (index / (count - 1)) * drawablePlotWidth);
+
+	return {
+		chart,
+		width,
+		height,
+		margin,
+		plotWidth,
+		plotHeight,
+		rawRows: rows,
+		labels,
+		series,
+		ticks,
+		isBarChart,
+		groupWidth,
+		pointInset,
+		drawablePlotWidth,
+		unitLabel: chart.units ? ` (${chart.units})` : "",
+		scaleY,
+		scaleX: (index: number) => scaleIndex(index, rows.length),
+		xScale: (index: number) => scaleIndex(index, labels.length),
+	};
+}
+
+function chartRowsFromData(
+	chart: GeneratedDocumentChartBlock,
+): CartesianChartRow[] {
+	if (!chart.xKey || !chart.yKey) {
+		throw new Error("Cartesian charts require xKey and yKey.");
+	}
+	const xKey = chart.xKey;
+	const yKey = chart.yKey;
+
+	const rows = chart.data
+		.map((row, sourceIndex) => ({
+			label: labelValue(row[xKey]),
+			value: numberValue(row[yKey]),
+			series: chart.seriesKey ? labelValue(row[chart.seriesKey]) : "Value",
+			xValue: numberValue(row[xKey]) ?? sourceIndex,
+		}))
+		.filter((row): row is CartesianChartRow => row.value !== null);
+
+	if (rows.length === 0) {
+		throw new Error("Chart data has no numeric values.");
+	}
+
+	return rows;
+}
+
+function buildCartesianXAxisLabels(state: CartesianChartState): string[] {
+	return state.labels.map((label, index) => {
+		const x = state.xScale(index);
+		return `<text x="${x.toFixed(1)}" y="${state.height - 22}" text-anchor="middle" font-size="10" fill="${CHART_THEME.secondaryText}">${escapeXml(label)}</text>`;
+	});
+}
+
+function buildCartesianYAxisGrid(state: CartesianChartState): string[] {
+	return state.ticks.map((tick) => {
+		const y = state.scaleY(tick);
+		return [
+			`<line x1="${state.margin.left}" y1="${y.toFixed(1)}" x2="${state.margin.left + state.plotWidth}" y2="${y.toFixed(1)}" stroke="${CHART_THEME.rule}" stroke-width="1"/>`,
+			`<text x="${state.margin.left - 10}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="${CHART_THEME.secondaryText}">${escapeXml(new Intl.NumberFormat("en-US").format(tick))}</text>`,
+		].join("");
+	});
+}
+
+function buildCartesianLineAndAreaGeometry(state: CartesianChartState): {
+	points: string;
+	areaPoints: string | null;
+} {
+	const points = state.rawRows
+		.map(
+			(row, index) =>
+				`${state.scaleX(index).toFixed(1)},${state.scaleY(row.value).toFixed(1)}`,
+		)
+		.join(" ");
+	const areaPoints =
+		state.chart.chartType === "area"
+			? `${state.scaleX(0).toFixed(1)},${(state.margin.top + state.plotHeight).toFixed(1)} ${points} ${state.scaleX(state.rawRows.length - 1).toFixed(1)},${(state.margin.top + state.plotHeight).toFixed(1)}`
+			: null;
+	return { points, areaPoints };
+}
+
+function buildCartesianLineMarkers(state: CartesianChartState): string[] {
+	return state.rawRows.map((row, index) => {
+		const x = state.scaleX(index);
+		const y = state.scaleY(row.value);
+		return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="${CHART_THEME.accent}"><title>${escapeXml(`${row.label}: ${row.value}${state.unitLabel}`)}</title></circle>`;
+	});
+}
+
+function buildCartesianBars(state: CartesianChartState): string[] {
+	if (!state.isBarChart) return [];
+
+	const bars: string[] = [];
+	for (const [labelIndex, label] of state.labels.entries()) {
+		const groupX = state.xScale(labelIndex) - state.groupWidth / 2;
+		if (state.chart.chartType === "stackedBar") {
+			let stackedY = state.margin.top + state.plotHeight;
+			for (const [seriesIndex, seriesName] of state.series.entries()) {
+				const value =
+					state.rawRows.find(
+						(row) => row.label === label && row.series === seriesName,
+					)?.value ?? 0;
+				const barHeight =
+					((Math.max(value, 0) - 0) /
+						(state.ticks[state.ticks.length - 1] || 1)) *
+					state.plotHeight;
+				stackedY -= barHeight;
+				bars.push(
+					`<rect x="${groupX.toFixed(1)}" y="${stackedY.toFixed(1)}" width="${state.groupWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" fill="${SERIES_PALETTE[seriesIndex % SERIES_PALETTE.length]}"><title>${escapeXml(`${label} ${seriesName}: ${value}${state.unitLabel}`)}</title></rect>`,
+				);
+			}
+		} else {
+			const value =
+				state.rawRows.find((row) => row.label === label)?.value ?? 0;
+			const y = state.scaleY(value);
+			const zero = state.scaleY(0);
+			bars.push(
+				`<rect x="${groupX.toFixed(1)}" y="${Math.min(y, zero).toFixed(1)}" width="${state.groupWidth.toFixed(1)}" height="${Math.abs(zero - y).toFixed(1)}" fill="${CHART_THEME.accent}"><title>${escapeXml(`${label}: ${value}${state.unitLabel}`)}</title></rect>`,
+			);
+		}
+	}
+	return bars;
+}
+
+function buildCartesianScatter(state: CartesianChartState): string[] {
+	if (state.chart.chartType !== "scatter") return [];
+
+	const xMin = Math.min(...state.rawRows.map((row) => row.xValue));
+	const xMax = Math.max(...state.rawRows.map((row) => row.xValue));
+
+	return state.rawRows.map((row) => {
+		const x =
+			state.margin.left +
+			state.pointInset +
+			((row.xValue - xMin) / (xMax - xMin || 1)) * state.drawablePlotWidth;
+		const y = state.scaleY(row.value);
+		return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${CHART_THEME.accent}"><title>${escapeXml(`${row.xValue}: ${row.value}${state.unitLabel}`)}</title></circle>`;
 	});
 }
 

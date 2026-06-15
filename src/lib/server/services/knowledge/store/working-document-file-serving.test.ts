@@ -136,6 +136,87 @@ describe("resolveWorkingDocumentFileServing", () => {
 		});
 	});
 
+	it("returns 416 for unsatisfiable byte ranges on stored files", async () => {
+		const pdfBuffer = Buffer.from("0123456789");
+		await writeKnowledgeFile(
+			"data/knowledge/resolver-user-123/short.pdf",
+			pdfBuffer,
+		);
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "source-short",
+			name: "short.pdf",
+			storagePath: "data/knowledge/resolver-user-123/short.pdf",
+			contentText: null,
+			mimeType: "application/pdf",
+			extension: "pdf",
+			type: "source_document",
+			metadata: null,
+		});
+
+		const result = await resolveWorkingDocumentFileServing({
+			userId,
+			artifactId: "source-short",
+			mode: "preview",
+			rangeHeader: "bytes=10-20",
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("expected successful response");
+		expect(result.status).toBe(416);
+		expect(result.body.byteLength).toBe(0);
+		expect(result.headers["Content-Range"]).toBe("bytes */10");
+	});
+
+	it("returns 404 when stored artifact path is missing from disk", async () => {
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "source-missing",
+			name: "missing.pdf",
+			storagePath: "data/knowledge/resolver-user-123/nope.pdf",
+			contentText: null,
+			mimeType: "application/pdf",
+			extension: "pdf",
+			type: "source_document",
+			metadata: null,
+		});
+
+		const result = await resolveWorkingDocumentFileServing({
+			userId,
+			artifactId: "source-missing",
+			mode: "download",
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			status: 404,
+			error: "File not found on disk",
+		});
+	});
+
+	it("blocks unsafe absolute and traversal paths for stored files", async () => {
+		mockGetArtifactForUser.mockResolvedValue({
+			id: "source-unsafe",
+			name: "unsafe.pdf",
+			storagePath: "../outside.pdf",
+			contentText: null,
+			mimeType: "application/pdf",
+			extension: "pdf",
+			type: "source_document",
+			metadata: null,
+		});
+
+		const result = await resolveWorkingDocumentFileServing({
+			userId,
+			artifactId: "source-unsafe",
+			mode: "preview",
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			status: 400,
+			error: "Invalid path",
+		});
+	});
+
 	it("serves stored working-document ranges without reading the full file", async () => {
 		const pdfBuffer = Buffer.from("0123456789");
 		await writeKnowledgeFile(

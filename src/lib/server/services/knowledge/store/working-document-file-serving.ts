@@ -160,34 +160,20 @@ async function resolveStoredArtifact(params: {
 	mode: WorkingDocumentFileServingMode;
 	rangeHeader?: string | null;
 }): Promise<WorkingDocumentFileServingResolution> {
-	const filenameArtifact =
-		params.mode === "download" ? params.filenameArtifact : params.artifact;
-	const safeName = filenameArtifact.name || "document";
-	const downloadName =
-		safeName.includes(".") || !filenameArtifact.extension
-			? safeName
-			: `${safeName}.${filenameArtifact.extension}`;
+	const filenames = resolveStoredArtifactFilenames({
+		artifact: params.artifact,
+		filenameArtifact:
+			params.mode === "download" ? params.filenameArtifact : params.artifact,
+	});
 
 	if (params.artifact.contentText) {
-		// DB-backed text artifacts do not have a partial storage read path. The
-		// shared range policy still copies partial responses to avoid retaining the
-		// full backing buffer.
-		const textBuffer = Buffer.from(params.artifact.contentText, "utf-8");
-		const rangedResponse = applyFileServingRange({
-			body: textBuffer,
+		return resolveStoredTextArtifact({
+			mode: params.mode,
+			artifactText: params.artifact.contentText,
 			rangeHeader: params.rangeHeader,
-			headers: buildFileServingResponseHeaders({
-				mode: params.mode,
-				contentLength: textBuffer.length,
-				contentType: "text/plain; charset=utf-8",
-				filename: params.mode === "preview" ? safeName : downloadName,
-				safetyFilenames: [downloadName],
-			}),
+			safeName: filenames.safeName,
+			downloadName: filenames.downloadName,
 		});
-		return {
-			ok: true,
-			...rangedResponse,
-		};
 	}
 
 	if (!params.artifact.storagePath) {
@@ -201,10 +187,7 @@ async function resolveStoredArtifact(params: {
 		};
 	}
 
-	if (
-		params.artifact.storagePath.includes("..") ||
-		params.artifact.storagePath.startsWith("/")
-	) {
+	if (isUnsafeStoredArtifactPath(params.artifact.storagePath)) {
 		console.error(
 			params.mode === "preview"
 				? "[PREVIEW] Path traversal attempt blocked:"
@@ -218,16 +201,87 @@ async function resolveStoredArtifact(params: {
 		return { ok: false, status: 400, error: "Invalid path" };
 	}
 
+	return resolveStoredArtifactFromFile({
+		mode: params.mode,
+		userId: params.userId,
+		requestedArtifactId: params.requestedArtifactId,
+		artifact: params.artifact,
+		storagePath: params.artifact.storagePath,
+		safeName: filenames.safeName,
+		downloadName: filenames.downloadName,
+		previewName: filenames.previewContentName,
+		rangeHeader: params.rangeHeader,
+	});
+}
+
+function resolveStoredArtifactFilenames(params: {
+	artifact: Artifact;
+	filenameArtifact: Artifact;
+}): { safeName: string; downloadName: string; previewContentName: string } {
+	const safeName = params.filenameArtifact.name || "document";
+	const downloadName =
+		safeName.includes(".") || !params.filenameArtifact.extension
+			? safeName
+			: `${safeName}.${params.filenameArtifact.extension}`;
+	const previewContentName =
+		safeName.includes(".") || !params.artifact.extension
+			? safeName
+			: `${safeName}.${params.artifact.extension}`;
+
+	return { safeName, downloadName, previewContentName };
+}
+
+function isUnsafeStoredArtifactPath(storagePath: string): boolean {
+	return storagePath.includes("..") || storagePath.startsWith("/");
+}
+
+function resolveStoredTextArtifact(params: {
+	mode: WorkingDocumentFileServingMode;
+	artifactText: string;
+	rangeHeader?: string | null;
+	safeName: string;
+	downloadName: string;
+}): WorkingDocumentFileServingResolution {
+	const textBuffer = Buffer.from(params.artifactText, "utf-8");
+	const headers = buildFileServingResponseHeaders({
+		mode: params.mode,
+		contentLength: textBuffer.length,
+		contentType: "text/plain; charset=utf-8",
+		filename: params.mode === "preview" ? params.safeName : params.downloadName,
+		safetyFilenames: [params.downloadName],
+	});
+	const rangedResponse = applyFileServingRange({
+		body: textBuffer,
+		rangeHeader: params.rangeHeader,
+		headers,
+	});
+
+	return {
+		ok: true,
+		...rangedResponse,
+	};
+}
+
+async function resolveStoredArtifactFromFile(params: {
+	mode: WorkingDocumentFileServingMode;
+	userId: string;
+	requestedArtifactId: string;
+	artifact: Artifact;
+	storagePath: string;
+	safeName: string;
+	downloadName: string;
+	previewName: string;
+	rangeHeader?: string | null;
+}): Promise<WorkingDocumentFileServingResolution> {
+	const contentType =
+		params.mode === "preview"
+			? getPreviewContentType(params.previewName, params.artifact.mimeType)
+			: params.artifact.mimeType || "application/octet-stream";
+	const filename =
+		params.mode === "preview" ? params.safeName : params.downloadName;
+	const filePath = join(process.cwd(), params.storagePath);
+
 	try {
-		const filePath = join(process.cwd(), params.artifact.storagePath);
-		const previewName =
-			safeName.includes(".") || !params.artifact.extension
-				? safeName
-				: `${safeName}.${params.artifact.extension}`;
-		const contentType =
-			params.mode === "preview"
-				? getPreviewContentType(previewName, params.artifact.mimeType)
-				: params.artifact.mimeType || "application/octet-stream";
 		const totalLength = await getStoredFileLength(filePath);
 		const partialResponse = await resolveStoredArtifactPartialRange({
 			filePath,
@@ -235,8 +289,8 @@ async function resolveStoredArtifact(params: {
 			rangeHeader: params.rangeHeader,
 			totalLength,
 			contentType,
-			filename: params.mode === "preview" ? safeName : downloadName,
-			safetyFilenames: [previewName, params.artifact.storagePath],
+			filename,
+			safetyFilenames: [params.previewName, params.storagePath],
 		});
 		if (partialResponse) {
 			return partialResponse;
@@ -251,8 +305,8 @@ async function resolveStoredArtifact(params: {
 				mode: params.mode,
 				contentLength: fileBuffer.length,
 				contentType,
-				filename: params.mode === "preview" ? safeName : downloadName,
-				safetyFilenames: [previewName, params.artifact.storagePath],
+				filename,
+				safetyFilenames: [params.previewName, params.storagePath],
 			}),
 		});
 
@@ -272,7 +326,7 @@ async function resolveStoredArtifact(params: {
 			{
 				userId: params.userId,
 				artifactId: params.requestedArtifactId,
-				storagePath: params.artifact.storagePath,
+				storagePath: params.storagePath,
 				error: error instanceof Error ? error.message : error,
 			},
 		);
