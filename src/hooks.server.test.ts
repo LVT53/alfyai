@@ -17,6 +17,46 @@ const mockPrewarmSandboxImageInBackground = vi.fn();
 const mockEnsureRuntimeSchemaCompatibility = vi.fn(async () => undefined);
 const mockEnsureFileProductionWorker = vi.fn(async () => undefined);
 const mockEnsureDeepResearchWorkerScheduler = vi.fn();
+const mockSentryInit = vi.fn();
+const mockSentrySetUser = vi.fn();
+const mockSentryHandle = vi.fn<() => Handle>(
+	() =>
+		async ({ event, resolve }) => {
+			return resolve(event);
+		},
+);
+const mockHandleErrorWithSentry = vi.fn((handler) => handler ?? vi.fn());
+
+vi.mock("@sentry/sveltekit", () => ({
+	init: mockSentryInit,
+	setUser: mockSentrySetUser,
+	sentryHandle: mockSentryHandle,
+	handleErrorWithSentry: mockHandleErrorWithSentry,
+}));
+
+vi.mock("@sveltejs/kit/hooks", () => ({
+	sequence:
+		(...handlers: Handle[]): Handle =>
+		async ({ event, resolve }) => {
+			const run = (
+				index: number,
+				currentEvent: HookEvent,
+			): ReturnType<Handle> => {
+				const handler = handlers[index];
+				if (!handler) return resolve(currentEvent);
+
+				return handler({
+					event: currentEvent,
+					resolve:
+						index === handlers.length - 1
+							? resolve
+							: (nextEvent) => run(index + 1, nextEvent),
+				});
+			};
+
+			return run(0, event);
+		},
+}));
 
 vi.mock("$lib/server/services/auth", () => ({
 	validateSession: mockValidateSession,
@@ -85,6 +125,7 @@ describe("hooks.server.ts", () => {
 		expect(resolve).toHaveBeenCalledOnce();
 		expect(event.locals.user).toBeNull();
 		expect("webhookBuffer" in event.locals).toBe(false);
+		expect(mockSentrySetUser).toHaveBeenCalledWith(null);
 	});
 
 	it("runs config-dependent startup work after runtime config is refreshed", async () => {
@@ -199,6 +240,11 @@ describe("hooks.server.ts", () => {
 		).toBeLessThan(mockValidateSession.mock.invocationCallOrder[0]);
 		expect(mockValidateSession).toHaveBeenCalledWith("session-token");
 		expect(event.locals.user).toEqual(sessionUser);
+		expect(mockSentrySetUser).toHaveBeenCalledWith({
+			id: "user-1",
+			email: "test@example.com",
+			username: "Test User",
+		});
 		expect(resolve).toHaveBeenCalledOnce();
 	});
 

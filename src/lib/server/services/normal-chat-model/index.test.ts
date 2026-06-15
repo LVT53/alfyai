@@ -1138,7 +1138,9 @@ describe("Plain Normal Chat Model Run", () => {
 		const fallbackBody = parseRequestBody(fetch, 1);
 		expect(fallbackBody.model).toBe("accounts/fireworks/models/kimi-k2p6");
 		expect(mocks.getProviderWithSecrets).toHaveBeenCalledWith("provider-1");
-		expect(mocks.getProviderByName).not.toHaveBeenCalledWith("provider:provider-1");
+		expect(mocks.getProviderByName).not.toHaveBeenCalledWith(
+			"provider:provider-1",
+		);
 	});
 
 	it("does not retry a plain chat call for a permanent unavailable error", async () => {
@@ -1343,13 +1345,13 @@ describe("Plain Normal Chat Model Run", () => {
 		expect(parseRequestBody(fetch, 1).model).toBe(
 			"accounts/fireworks/models/fallback-model",
 		);
-	expect(result.model).toMatchObject({
-		modelId: "provider:provider-1:fallback-model",
-		providerId: "provider-1",
-		displayName: "Fallback Model",
-		requestedModelName: "accounts/fireworks/models/fallback-model",
-		responseModelName: "provider-returned-model",
-	});
+		expect(result.model).toMatchObject({
+			modelId: "provider:provider-1:fallback-model",
+			providerId: "provider-1",
+			displayName: "Fallback Model",
+			requestedModelName: "accounts/fireworks/models/fallback-model",
+			responseModelName: "provider-returned-model",
+		});
 	});
 
 	it("uses a compatible cross-provider provider-model fallback once", async () => {
@@ -1421,33 +1423,35 @@ describe("Plain Normal Chat Model Run", () => {
 			}
 			return null;
 		});
-		mocks.listEnabledProviderModels.mockImplementation(async (providerId: string) => {
-			if (providerId === "provider-1") {
-				return [
-					{
-						id: "source-model",
-						name: "source-model",
-						displayName: "Source Model",
-						maxTokens: 4096,
-						reasoningEffort: null,
-						thinkingType: null,
-					},
-				];
-			}
-			if (providerId === "provider-2") {
-				return [
-					{
-						id: "fallback-model",
-						name: "fallback-model",
-						displayName: "Fallback Model",
-						maxTokens: 4096,
-						reasoningEffort: null,
-						thinkingType: null,
-					},
-				];
-			}
-			return [];
-		});
+		mocks.listEnabledProviderModels.mockImplementation(
+			async (providerId: string) => {
+				if (providerId === "provider-1") {
+					return [
+						{
+							id: "source-model",
+							name: "source-model",
+							displayName: "Source Model",
+							maxTokens: 4096,
+							reasoningEffort: null,
+							thinkingType: null,
+						},
+					];
+				}
+				if (providerId === "provider-2") {
+					return [
+						{
+							id: "fallback-model",
+							name: "fallback-model",
+							displayName: "Fallback Model",
+							maxTokens: 4096,
+							reasoningEffort: null,
+							thinkingType: null,
+						},
+					];
+				}
+				return [];
+			},
+		);
 		mocks.decryptApiKey.mockImplementation((encrypted: string) => {
 			if (encrypted === "encrypted-source") return "source-secret";
 			if (encrypted === "encrypted-fallback") return "fallback-secret";

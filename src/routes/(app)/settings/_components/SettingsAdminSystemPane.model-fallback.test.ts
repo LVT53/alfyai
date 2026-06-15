@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import SettingsAdminSystemPane from "./SettingsAdminSystemPane.svelte";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
+import SettingsAdminSystemPane from "./SettingsAdminSystemPane.svelte";
 
 vi.mock("$lib/client/api/admin", () => ({
 	createAdminSystemSkill: vi.fn(),
@@ -24,10 +24,7 @@ vi.mock("$lib/client/api/campaign-assets", () => ({
 	uploadModelIconAsset: vi.fn(),
 }));
 
-import {
-	fetchProviderList,
-	fetchProviderModels,
-} from "$lib/client/api/admin";
+import { fetchProviderList, fetchProviderModels } from "$lib/client/api/admin";
 
 const mockFetchProviderList = fetchProviderList as ReturnType<typeof vi.fn>;
 const mockFetchProviderModels = fetchProviderModels as ReturnType<typeof vi.fn>;
@@ -144,9 +141,7 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 
 	it("shows fallback compatibility warnings and disables incompatible fallback targets", async () => {
 		const { getByRole, getByText, getByTitle, getAllByTitle, getAllByRole } =
-			render(
-			SettingsAdminSystemPane,
-			{
+			render(SettingsAdminSystemPane, {
 				adminConfig: {
 					COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
 					DEEP_RESEARCH_ENABLED: "false",
@@ -157,8 +152,7 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 				availableModels: [{ id: "model1", displayName: "Model 1" }],
 				onCheckHonchoHealth: vi.fn(),
 				onSaveAdminConfig: vi.fn(),
-			},
-		);
+			});
 
 		await waitFor(() => {
 			expect(
@@ -166,9 +160,7 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 			).not.toHaveLength(0);
 		});
 
-		await fireEvent.click(
-			getAllByRole("button", { name: "Manage models" })[0],
-		);
+		await fireEvent.click(getAllByRole("button", { name: "Manage models" })[0]);
 		await waitFor(() => {
 			expect(getByText("Source Model")).toBeInTheDocument();
 		});
@@ -178,12 +170,20 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 		const editButtons = getAllByRole("button", { name: "Edit" });
 		await fireEvent.click(editButtons[editButtons.length - 1]);
 		await waitFor(() => {
-			expect(getByText("No compatible model-specific fallback is available for this model.")).toBeInTheDocument();
+			expect(
+				getByText(
+					"No compatible model-specific fallback is available for this model.",
+				),
+			).toBeInTheDocument();
 		});
 
-		const select = getByRole("combobox", { name: "Model-specific fallback" }) as HTMLSelectElement;
+		const select = getByRole("combobox", {
+			name: "Model-specific fallback",
+		}) as HTMLSelectElement;
 		expect(select.options).toHaveLength(2);
-		expect(select.options[0].textContent?.trim()).toBe("No model-specific fallback");
+		expect(select.options[0].textContent?.trim()).toBe(
+			"No model-specific fallback",
+		);
 		expect(select.options[1].disabled).toBe(true);
 		expect(select.options[1].textContent?.replace(/\s+/g, " ").trim()).toBe(
 			"Fallback Model — Model is disabled.",
@@ -197,8 +197,7 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 				DEEP_RESEARCH_ENABLED: "false",
 				DEEP_RESEARCH_WORKER_ENABLED: "false",
 				MODEL_2_ENABLED: "true",
-				MODEL_TIMEOUT_FAILOVER_TARGET_MODEL:
-					"provider:provider-1:model-1",
+				MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: "provider:provider-1:model-1",
 			},
 			envDefaults: {},
 			availableModels: [
@@ -218,11 +217,13 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 			name: "Global fallback model",
 		}) as HTMLSelectElement;
 		await waitFor(() => {
-			expect(getAllByRole("button", { name: "Manage models" })).not.toHaveLength(
-				0,
-			);
+			expect(
+				getAllByRole("button", { name: "Manage models" }),
+			).not.toHaveLength(0);
 		});
-		const manageModelsButton = getAllByRole("button", { name: "Manage models" })[0];
+		const manageModelsButton = getAllByRole("button", {
+			name: "Manage models",
+		})[0];
 
 		expect(
 			select.compareDocumentPosition(manageModelsButton) &
@@ -234,8 +235,10 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 			"model2",
 			"provider:provider-1:model-1",
 		]);
-		expect(Array.from(select.options).some((option) => option.value === "provider:provider-1")).toBe(
-			false,
-		);
+		expect(
+			Array.from(select.options).some(
+				(option) => option.value === "provider:provider-1",
+			),
+		).toBe(false);
 	});
 });

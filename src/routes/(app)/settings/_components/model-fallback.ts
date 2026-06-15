@@ -1,9 +1,9 @@
 import type { ProviderModel } from "$lib/client/api/admin";
+import type { ModelCapabilityKey } from "$lib/model-capabilities";
 import {
 	canUseProviderModelFallback,
 	type ProviderModelFallbackCompatibilityInput,
 } from "$lib/model-fallback-compatibility";
-import type { ModelCapabilityKey } from "$lib/model-capabilities";
 
 export type FallbackCompatibilityReason =
 	| {
@@ -89,7 +89,9 @@ export function getProviderModelFallbackOptions(
 			return {
 				model,
 				compatible: result.compatible,
-				reason: result.compatible ? null : parseFallbackCompatibilityReason(result.reason),
+				reason: result.compatible
+					? null
+					: parseFallbackCompatibilityReason(result.reason),
 			};
 		})
 		.sort((a, b) => {

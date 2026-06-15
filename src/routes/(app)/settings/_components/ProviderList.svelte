@@ -2,7 +2,13 @@
 import { untrack } from "svelte";
 import { get } from "svelte/store";
 import { t } from "$lib/i18n";
-import { AlertTriangle, ChevronDown, ChevronUp, Pencil, Trash2 } from "@lucide/svelte";
+import {
+	AlertTriangle,
+	ChevronDown,
+	ChevronUp,
+	Pencil,
+	Trash2,
+} from "@lucide/svelte";
 import type { Provider, ProviderModel } from "$lib/client/api/admin";
 import { providerHasFallbackWarning } from "./model-fallback";
 

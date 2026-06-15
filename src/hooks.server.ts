@@ -1,6 +1,13 @@
+import * as Sentry from "@sentry/sveltekit";
 import type { Handle, ServerInit } from "@sveltejs/kit";
 import { redirect } from "@sveltejs/kit";
+import { sequence } from "@sveltejs/kit/hooks";
 import { eq } from "drizzle-orm";
+import {
+	cleanSentryEnvValue,
+	parseSentryTracePropagationTargets,
+	parseSentryTracesSampleRate,
+} from "$lib/sentry-config";
 import { getConfig, refreshConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { ensureRuntimeSchemaCompatibility } from "$lib/server/db/compat";
@@ -18,6 +25,24 @@ const PUBLIC_PATHS = [
 	"/api/chat/files/produce",
 	"/api/health",
 ];
+
+const sentryDsn = cleanSentryEnvValue(
+	process.env.SENTRY_DSN ?? process.env.PUBLIC_SENTRY_DSN,
+);
+
+Sentry.init({
+	dsn: sentryDsn,
+	enabled: Boolean(sentryDsn),
+	environment: cleanSentryEnvValue(
+		process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV,
+	),
+	tracesSampleRate: parseSentryTracesSampleRate(
+		process.env.SENTRY_TRACES_SAMPLE_RATE,
+	),
+	tracePropagationTargets: parseSentryTracePropagationTargets(
+		process.env.SENTRY_TRACE_PROPAGATION_TARGETS,
+	),
+});
 
 // Throttled lastSeenAt tracking: fire-and-forget writes with 5-minute TTL per user.
 const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000;
@@ -77,7 +102,7 @@ export const init: ServerInit = async () => {
 	});
 };
 
-export const handle: Handle = async ({ event, resolve }) => {
+const appHandle: Handle = async ({ event, resolve }) => {
 	await ensureRuntimeConfigReady();
 
 	try {
@@ -97,6 +122,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// Fire-and-forget lastSeenAt update for authenticated users.
 	if (event.locals.user) {
 		touchLastSeenAt(event.locals.user.id);
+		Sentry.setUser({
+			id: event.locals.user.id,
+			email: event.locals.user.email,
+			username: event.locals.user.displayName,
+		});
+	} else {
+		Sentry.setUser(null);
 	}
 
 	const path = event.url.pathname;
@@ -113,3 +145,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		preload: ({ type }) => type === "js",
 	});
 };
+
+export const handle = sequence(Sentry.sentryHandle(), appHandle);
+
+export const handleError = Sentry.handleErrorWithSentry();

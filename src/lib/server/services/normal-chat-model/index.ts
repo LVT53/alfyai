@@ -682,7 +682,9 @@ async function resolveFirstOutputTimeoutMs(
 		params.runtimeConfig,
 	);
 	if (!fallbackTarget) return null;
-	const effective = Math.max(1000, params.runtimeConfig.modelTimeoutFailoverTimeoutMs) + extraMs;
+	const effective =
+		Math.max(1000, params.runtimeConfig.modelTimeoutFailoverTimeoutMs) +
+		extraMs;
 	const resolved = Math.min(params.runtimeConfig.requestTimeoutMs, effective);
 	console.warn("[NORMAL_CHAT_MODEL] first-output timeout adjusted", {
 		baseMs: Math.max(1000, params.runtimeConfig.modelTimeoutFailoverTimeoutMs),
@@ -1084,7 +1086,8 @@ async function resolveNormalChatFallbackProvider(params: {
 		params.currentModelId as ModelId,
 		params.runtimeConfig,
 	);
-	if (!fallbackModelId || fallbackModelId === params.currentModelId) return null;
+	if (!fallbackModelId || fallbackModelId === params.currentModelId)
+		return null;
 
 	const provider = await resolveNormalChatModelRunProvider(
 		fallbackModelId,

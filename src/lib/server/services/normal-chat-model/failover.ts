@@ -1,14 +1,17 @@
+import { canUseProviderModelFallback } from "$lib/model-fallback-compatibility";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import { getConfig } from "$lib/server/config-store";
-import { canUseProviderModelFallback } from "$lib/model-fallback-compatibility";
 import type { ModelId } from "$lib/types";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
+import {
+	getProviderModel,
+	listEnabledProviderModels,
+} from "../provider-models";
 import {
 	decryptApiKey,
 	getProviderByName,
 	getProviderWithSecrets,
 } from "../providers";
-import { getProviderModel, listEnabledProviderModels } from "../provider-models";
 import type { NormalChatModelRunProvider } from "./index";
 
 type ModelTimeoutLikeError = Error & {
@@ -165,13 +168,15 @@ export async function resolveNormalChatFallbackTargetModelId(
 	config: RuntimeConfig = getConfig(),
 ): Promise<ModelId | null> {
 	const sourceModelId = modelId ?? "model1";
-	const sourceProviderModel = await resolveCompositeProviderModelRow(sourceModelId);
+	const sourceProviderModel =
+		await resolveCompositeProviderModelRow(sourceModelId);
 
 	if (sourceProviderModel?.fallbackProviderModelId) {
-		const modelSpecificFallback = await resolveProviderModelFallbackTargetModelId(
-			sourceProviderModel,
-			sourceProviderModel.fallbackProviderModelId,
-		);
+		const modelSpecificFallback =
+			await resolveProviderModelFallbackTargetModelId(
+				sourceProviderModel,
+				sourceProviderModel.fallbackProviderModelId,
+			);
 		if (modelSpecificFallback) return modelSpecificFallback;
 	}
 
@@ -269,13 +274,16 @@ async function resolveCompositeProviderModelRow(
 	if (!provider?.enabled) return null;
 
 	const row = await getProviderModel(parsed.providerModelId).catch(() => null);
-	if (!row || row.providerId !== provider.id || row.enabled !== true) return null;
+	if (!row || row.providerId !== provider.id || row.enabled !== true)
+		return null;
 
 	return row;
 }
 
 async function resolveProviderModelFallbackTargetModelId(
-	source: NonNullable<Awaited<ReturnType<typeof resolveCompositeProviderModelRow>>>,
+	source: NonNullable<
+		Awaited<ReturnType<typeof resolveCompositeProviderModelRow>>
+	>,
 	fallbackProviderModelId: string,
 ): Promise<ModelId | null> {
 	if (fallbackProviderModelId === source.id) return null;
@@ -311,19 +319,22 @@ async function resolveProviderModelFallbackTargetModelId(
 
 async function resolveGlobalFallbackTargetModelId(params: {
 	sourceModelId: ModelId;
-	sourceProviderModel: Awaited<ReturnType<typeof resolveCompositeProviderModelRow>>;
+	sourceProviderModel: Awaited<
+		ReturnType<typeof resolveCompositeProviderModelRow>
+	>;
 	candidateModelId: ModelId;
 	config: RuntimeConfig;
 }): Promise<ModelId | null> {
-	const { candidateModelId, config, sourceModelId, sourceProviderModel } = params;
+	const { candidateModelId, config, sourceModelId, sourceProviderModel } =
+		params;
 
 	if (candidateModelId.startsWith("provider:")) {
 		const parsed = parseCompositeProviderModelId(candidateModelId);
 		if (!parsed?.providerModelId) return null;
 
-		const targetProvider = await getProviderWithSecrets(parsed.providerId).catch(
-			() => null,
-		);
+		const targetProvider = await getProviderWithSecrets(
+			parsed.providerId,
+		).catch(() => null);
 		if (!targetProvider?.enabled) return null;
 
 		if (parsed.providerModelId) {
@@ -351,9 +362,9 @@ async function resolveGlobalFallbackTargetModelId(params: {
 			return `provider:${parsed.providerId}:${targetRow.id}` as ModelId;
 		}
 
-		const enabledModels = await listEnabledProviderModels(targetProvider.id).catch(
-			() => [],
-		);
+		const enabledModels = await listEnabledProviderModels(
+			targetProvider.id,
+		).catch(() => []);
 		if (enabledModels.length === 0) return null;
 		return candidateModelId;
 	}

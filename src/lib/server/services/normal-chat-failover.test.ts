@@ -183,9 +183,7 @@ describe("resolveNormalChatFallbackTargetModelId", () => {
 				}),
 			),
 		).resolves.toBeNull();
-		expect(mocks.getProviderWithSecrets).not.toHaveBeenCalledWith(
-			"provider-1",
-		);
+		expect(mocks.getProviderWithSecrets).not.toHaveBeenCalledWith("provider-1");
 	});
 
 	it("treats an incompatible global provider-model fallback as unavailable", async () => {
@@ -428,9 +426,9 @@ describe("resolveNormalChatFallbackTargetModelId", () => {
 
 describe("isRetryableNormalChatFallbackError", () => {
 	it("does not retry permanent unavailable phrasing", () => {
-		expect(isRetryableNormalChatFallbackError(new Error("model unavailable"))).toBe(
-			false,
-		);
+		expect(
+			isRetryableNormalChatFallbackError(new Error("model unavailable")),
+		).toBe(false);
 		expect(
 			isRetryableNormalChatFallbackError(new Error("feature unavailable")),
 		).toBe(false);
@@ -441,13 +439,11 @@ describe("isRetryableNormalChatFallbackError", () => {
 
 	it("still retries explicit temporary service availability failures", () => {
 		expect(
-			isRetryableNormalChatFallbackError(
-				new Error("temporarily unavailable"),
-			),
+			isRetryableNormalChatFallbackError(new Error("temporarily unavailable")),
 		).toBe(true);
-		expect(isRetryableNormalChatFallbackError(new Error("service unavailable"))).toBe(
-			true,
-		);
+		expect(
+			isRetryableNormalChatFallbackError(new Error("service unavailable")),
+		).toBe(true);
 		expect(isRetryableNormalChatFallbackError(new Error("overloaded"))).toBe(
 			true,
 		);

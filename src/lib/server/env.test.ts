@@ -198,8 +198,7 @@ describe("Environment Configuration", () => {
 		process.env.REQUEST_TIMEOUT_MS = "5000";
 		process.env.MODEL_TIMEOUT_FAILOVER_ENABLED = "true";
 		process.env.MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS = "2500";
-		process.env.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL =
-			"provider:backup:model-a";
+		process.env.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL = "provider:backup:model-a";
 		process.env.REASONING_DEPTH_CLASSIFIER_MODEL =
 			"provider:classifier:model-a";
 		process.env.COMPOSER_COMMAND_REGISTRY_ENABLED = "true";
