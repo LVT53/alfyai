@@ -104,162 +104,230 @@ function appendSystemPromptAppendix(
 		.join("\n\n");
 }
 
+interface FallbackAttemptContext {
+	attempt: number;
+	user: NonStreamFallbackDeps["user"];
+	sendParams: NonStreamFallbackSendParams;
+	systemPromptAppendix: string | undefined;
+	personalityPrompt: string | undefined;
+	sendSignal: AbortSignal;
+	completedToolCallContext: string | null;
+	shouldAllowForcedFileTool: boolean;
+	onResponseActivity?: (entry: ResponseActivityEntry) => void;
+}
+
+function parseSendTurnFailureMetadata(error: unknown) {
+	return {
+		errorName: error instanceof Error ? error.name : undefined,
+		errorMessage: error instanceof Error ? error.message : String(error),
+	};
+}
+
+function selectFallbackToolCalls(response: NonStreamFallbackResponse) {
+	return response.normalChatToolCalls ?? response.toolCalls ?? [];
+}
+
+function buildFallbackAttemptSystemPrompt(
+	context: FallbackAttemptContext,
+): string {
+	const { attempt, systemPromptAppendix, completedToolCallContext } = context;
+	const contextualAppendix = completedToolCallContext
+		? appendSystemPromptAppendix(
+				systemPromptAppendix ?? "",
+				[
+					context.shouldAllowForcedFileTool
+						? "The previous streaming attempt completed these tool calls before ending without a final answer. Use this compact tool context to create the requested file now; do not call more context/search tools."
+						: "The previous streaming attempt completed these tool calls before ending without a final answer. Use this compact tool context to answer now; do not call more tools unless the context is unusable.",
+					completedToolCallContext,
+				].join("\n\n"),
+			)
+		: (systemPromptAppendix ?? "");
+	return attempt === 1
+		? contextualAppendix
+		: appendSystemPromptAppendix(
+				contextualAppendix,
+				EMPTY_VISIBLE_OUTPUT_RECOVERY_APPENDIX,
+			);
+}
+
+function buildFallbackAttemptParams(
+	context: FallbackAttemptContext,
+): Parameters<NonStreamFallbackDeps["runPlainNormalChatSendModel"]>[0] {
+	const {
+		user,
+		sendParams,
+		sendSignal,
+		personalityPrompt,
+		onResponseActivity,
+	} = context;
+	const attemptSystemPromptAppendix = buildFallbackAttemptSystemPrompt(context);
+	const shouldDisableTools =
+		(Boolean(context.completedToolCallContext) &&
+			!context.shouldAllowForcedFileTool) ||
+		context.attempt > 1;
+
+	return {
+		userId: user.id,
+		runtimeConfig: sendParams.runtimeConfig,
+		message: sendParams.upstreamMessage,
+		conversationId: sendParams.conversationId,
+		user,
+		modelId: sendParams.modelId,
+		attachmentIds: sendParams.attachmentIds,
+		activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
+		attachmentTraceId: sendParams.attachmentTraceId,
+		systemPromptAppendix: attemptSystemPromptAppendix,
+		personalityPrompt,
+		thinkingMode: sendParams.thinkingMode,
+		depthMetadata: sendParams.depthMetadata,
+		forceWebSearch: sendParams.forceWebSearch,
+		signal: sendSignal,
+		disableTools: shouldDisableTools,
+		forceProduceFileTool: context.shouldAllowForcedFileTool,
+		onResponseActivity,
+	};
+}
+
+function applyFallbackModelSideEffects(
+	deps: NonStreamFallbackDeps,
+	response: NonStreamFallbackResponse,
+): Promise<TaskState | null> {
+	const {
+		attachContinuityToTaskState,
+		onContextStatus,
+		onTaskState,
+		onContextDebug,
+		onHonchoContext,
+		onHonchoSnapshot,
+		onProviderUsage,
+		onResolvedModel,
+		onDepthMetadata,
+		onRecoveredToolCalls,
+	} = deps;
+
+	const fallbackToolCalls = selectFallbackToolCalls(response);
+	if (fallbackToolCalls.length > 0) {
+		onRecoveredToolCalls?.(fallbackToolCalls);
+	}
+
+	const contextStatus = response.contextStatus ?? undefined;
+	onContextStatus(contextStatus);
+
+	return attachContinuityToTaskState(deps.user.id, response.taskState ?? null)
+		.catch(() => response.taskState ?? null)
+		.then((taskState) => {
+			onTaskState(taskState);
+			onContextDebug(response.contextDebug ?? null);
+			onHonchoContext(response.honchoContext ?? null);
+			onHonchoSnapshot(response.honchoSnapshot ?? null);
+			onProviderUsage(response.providerUsage ?? null);
+			if (response.modelId && response.modelDisplayName) {
+				onResolvedModel?.(response.modelId, response.modelDisplayName);
+			}
+			if (response.depthMetadata) {
+				onDepthMetadata?.(response.depthMetadata);
+			}
+			return taskState;
+		});
+}
+
+async function runFallbackAttempt(
+	deps: NonStreamFallbackDeps,
+	context: FallbackAttemptContext,
+): Promise<NonStreamFallbackResponse> {
+	const params = buildFallbackAttemptParams(context);
+	return deps.runPlainNormalChatSendModel(params);
+}
+
+function shouldContinueFallbackAfterMissingVisibleText(
+	attemptContext: FallbackAttemptContext,
+): boolean {
+	return attemptContext.attempt < 2;
+}
+
+async function handleFallbackTextEmission(
+	deps: NonStreamFallbackDeps,
+	fallbackResponse: NonStreamFallbackResponse,
+): Promise<boolean> {
+	if (!(await deps.emitResolvedAssistantText(fallbackResponse.text))) {
+		return false;
+	}
+
+	deps.flushPendingThinking();
+	if (!deps.flushInlineThinkingBuffer()) {
+		return false;
+	}
+	if (!deps.flushOutputBuffer()) {
+		return false;
+	}
+	return true;
+}
+
 export async function runNonStreamFallback(
 	deps: NonStreamFallbackDeps,
 ): Promise<boolean> {
 	try {
-		const {
-			runPlainNormalChatSendModel,
-			sendParams,
-			user,
-			attachContinuityToTaskState,
-			emitResolvedAssistantText,
-			flushPendingThinking,
-			flushInlineThinkingBuffer,
-			flushOutputBuffer,
-			hasVisibleAssistantText,
-			completeSuccess,
-			signal,
-			systemPromptAppendix,
-			personalityPrompt,
-			onContextStatus,
-			onTaskState,
-			onContextDebug,
-			onHonchoContext,
-			onHonchoSnapshot,
-			onProviderUsage,
-			onResolvedModel,
-			onDepthMetadata,
-			onRecoveredToolCalls,
-			onResponseActivity,
-		} = deps;
-		const completedToolCallContext = deps.completedToolCallContext?.trim();
-		const shouldAllowForcedFileTool =
-			Boolean(completedToolCallContext) &&
-			isProduceFileRequest(sendParams.upstreamMessage);
+		const attemptContext = {
+			sendParams: deps.sendParams,
+			user: deps.user,
+			systemPromptAppendix: deps.systemPromptAppendix,
+			personalityPrompt: deps.personalityPrompt,
+			sendSignal: deps.signal,
+			completedToolCallContext: deps.completedToolCallContext?.trim() ?? null,
+			shouldAllowForcedFileTool:
+				Boolean(deps.completedToolCallContext?.trim()) &&
+				isProduceFileRequest(deps.sendParams.upstreamMessage),
+			onResponseActivity: deps.onResponseActivity,
+			attempt: 1,
+		};
 
 		for (let attempt = 1; attempt <= 2; attempt += 1) {
-			const contextualAppendix = completedToolCallContext
-				? appendSystemPromptAppendix(
-						systemPromptAppendix,
-						[
-							shouldAllowForcedFileTool
-								? "The previous streaming attempt completed these tool calls before ending without a final answer. Use this compact tool context to create the requested file now; do not call more context/search tools."
-								: "The previous streaming attempt completed these tool calls before ending without a final answer. Use this compact tool context to answer now; do not call more tools unless the context is unusable.",
-							completedToolCallContext,
-						].join("\n\n"),
-					)
-				: systemPromptAppendix;
-			const attemptSystemPromptAppendix =
-				attempt === 1
-					? contextualAppendix
-					: appendSystemPromptAppendix(
-							contextualAppendix,
-							EMPTY_VISIBLE_OUTPUT_RECOVERY_APPENDIX,
-						);
-			const shouldDisableTools =
-				(Boolean(completedToolCallContext) && !shouldAllowForcedFileTool) ||
-				attempt > 1;
-			const fallbackResponse = await runPlainNormalChatSendModel({
-				userId: user.id,
-				runtimeConfig: sendParams.runtimeConfig,
-				message: sendParams.upstreamMessage,
-				conversationId: sendParams.conversationId,
-				user,
-				modelId: sendParams.modelId,
-				attachmentIds: sendParams.attachmentIds,
-				activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
-				attachmentTraceId: sendParams.attachmentTraceId,
-				systemPromptAppendix: attemptSystemPromptAppendix,
-				personalityPrompt,
-				thinkingMode: sendParams.thinkingMode,
-				depthMetadata: sendParams.depthMetadata,
-				forceWebSearch: sendParams.forceWebSearch,
-				signal,
-				disableTools: shouldDisableTools,
-				forceProduceFileTool: shouldAllowForcedFileTool,
-				onResponseActivity,
-			});
-			const fallbackToolCalls =
-				fallbackResponse.normalChatToolCalls ??
-				fallbackResponse.toolCalls ??
-				[];
-			if (fallbackToolCalls.length > 0) {
-				onRecoveredToolCalls?.(fallbackToolCalls);
-			}
-
-			const contextStatus = fallbackResponse.contextStatus ?? undefined;
-			onContextStatus(contextStatus);
-
-			const taskState = await attachContinuityToTaskState(
-				user.id,
-				fallbackResponse.taskState ?? null,
-			).catch(() => fallbackResponse.taskState ?? null);
-			onTaskState(taskState);
-
-			onContextDebug(fallbackResponse.contextDebug ?? null);
-			onHonchoContext(fallbackResponse.honchoContext ?? null);
-			onHonchoSnapshot(fallbackResponse.honchoSnapshot ?? null);
-			onProviderUsage(fallbackResponse.providerUsage ?? null);
-			if (fallbackResponse.modelId && fallbackResponse.modelDisplayName) {
-				onResolvedModel?.(
-					fallbackResponse.modelId,
-					fallbackResponse.modelDisplayName,
-				);
-			}
-			if (fallbackResponse.depthMetadata) {
-				onDepthMetadata?.(fallbackResponse.depthMetadata);
-			}
+			const iterationContext = {
+				...attemptContext,
+				attempt,
+			};
+			const fallbackResponse = await runFallbackAttempt(deps, iterationContext);
+			await applyFallbackModelSideEffects(deps, fallbackResponse);
 
 			if (!fallbackResponse.text?.trim()) {
 				if (attempt < 2) {
 					console.warn("[STREAM] Non-stream fallback returned no text", {
-						conversationId: sendParams.conversationId,
-						modelId: sendParams.modelId,
+						conversationId: deps.sendParams.conversationId,
+						modelId: deps.sendParams.modelId,
 						attempt,
 					});
 					continue;
 				}
 				return false;
 			}
-
-			if (!(await emitResolvedAssistantText(fallbackResponse.text))) {
+			if (!(await handleFallbackTextEmission(deps, fallbackResponse))) {
 				return false;
 			}
-
-			flushPendingThinking();
-			if (!flushInlineThinkingBuffer()) {
-				return false;
-			}
-			if (!flushOutputBuffer()) {
-				return false;
-			}
-			if (!hasVisibleAssistantText()) {
-				if (attempt < 2) {
-					console.warn(
-						"[STREAM] Non-stream fallback normalized to no visible text",
-						{
-							conversationId: sendParams.conversationId,
-							modelId: sendParams.modelId,
-							attempt,
-						},
-					);
-					continue;
+			if (!deps.hasVisibleAssistantText()) {
+				console.warn(
+					"[STREAM] Non-stream fallback normalized to no visible text",
+					{
+						conversationId: deps.sendParams.conversationId,
+						modelId: deps.sendParams.modelId,
+						attempt,
+					},
+				);
+				if (!shouldContinueFallbackAfterMissingVisibleText(iterationContext)) {
+					return false;
 				}
-				return false;
+				continue;
 			}
 
-			await completeSuccess();
+			await deps.completeSuccess();
 			return true;
 		}
 
 		return false;
 	} catch (error) {
 		console.warn("[STREAM] Non-stream fallback failed", {
+			...parseSendTurnFailureMetadata(error),
 			conversationId: deps.sendParams.conversationId,
 			modelId: deps.sendParams.modelId,
-			errorName: error instanceof Error ? error.name : undefined,
-			errorMessage: error instanceof Error ? error.message : String(error),
 		});
 		return false;
 	}

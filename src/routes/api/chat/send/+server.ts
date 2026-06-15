@@ -28,6 +28,9 @@ import type { ToolCallEntry } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { RequestHandler } from "./$types";
 
+type PreflightChatTurnResult = Awaited<ReturnType<typeof preflightChatTurn>>;
+type SendTurn = Extract<PreflightChatTurnResult, { ok: true }>["value"];
+
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
 	const user = event.locals.user;
@@ -35,32 +38,12 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: "Unauthorized" }, { status: 401 });
 	}
 
-	// Check capacity limits before processing
-	const capacity = checkStreamCapacity(user.id);
-	if (!capacity.allowed) {
-		console.warn("[CHAT_SEND] Rejected due to capacity", {
-			userId: user.id,
-			reason: capacity.reason,
-			retryAfterSeconds: capacity.retryAfterSeconds,
-			currentGlobalCount: capacity.currentGlobalCount,
-			currentUserCount: capacity.currentUserCount,
-		});
-
-		return json(
-			{
-				error: "Server at capacity. Please try again later.",
-				code: "CAPACITY_EXCEEDED",
-				reason: capacity.reason,
-				retryAfter: capacity.retryAfterSeconds,
-			},
-			{
-				status: 503,
-				headers: {
-					"Retry-After": String(capacity.retryAfterSeconds ?? 10),
-					"Cache-Control": "no-store",
-				},
-			},
-		);
+	const capacityResponse = buildChatSendCapacityResponse(
+		checkStreamCapacity(user.id),
+		user.id,
+	);
+	if (capacityResponse) {
+		return capacityResponse;
 	}
 
 	const runtimeConfig = getConfig();
@@ -95,204 +78,17 @@ export const POST: RequestHandler = async (event) => {
 
 	try {
 		if (turn.deepResearchDepth) {
-			if (!runtimeConfig.deepResearchEnabled) {
-				return json(
-					{
-						error: "Deep Research is disabled",
-						code: "deep_research_disabled",
-					},
-					{ status: 403 },
-				);
-			}
-			await assertCanStartDeepResearchJob({
+			return await runDeepResearchTurn({
 				userId: user.id,
-				conversationId: turn.conversationId,
-			});
-			const userMessage = await createMessage(
-				turn.conversationId,
-				"user",
-				turn.normalizedMessage,
-			);
-			await persistUserTurnAttachments({
-				userId: user.id,
-				conversationId: turn.conversationId,
-				messageId: userMessage.id,
-				normalizedMessage: turn.normalizedMessage,
-				attachmentIds: turn.attachmentIds,
-			});
-			const planningContext = await buildDeepResearchPlanningContext({
-				userId: user.id,
-				conversationId: turn.conversationId,
-				userRequest: turn.normalizedMessage,
-				attachmentIds: turn.attachmentIds,
-				activeDocumentArtifactId: turn.activeDocumentArtifactId,
-			});
-			const deepResearchJob = await startDeepResearchJobShell({
-				userId: user.id,
-				conversationId: turn.conversationId,
-				triggerMessageId: userMessage.id,
-				userRequest: turn.normalizedMessage,
-				depth: turn.deepResearchDepth,
-				planningContext,
-			});
-			await touchConversation(user.id, turn.conversationId).catch(
-				() => undefined,
-			);
-
-			return json({
-				response: null,
-				conversationId: turn.conversationId,
-				deepResearchJob,
+				turn,
+				runtimeConfig,
 			});
 		}
 
-		const upstreamMessage = turn.normalizedMessage;
-		const skillSystemPromptAppendix = buildSkillSystemPromptAppendix(
-			turn.skillPromptContext,
-		);
-		let fileProductionJobIdsAtStart = new Set<string>();
-		try {
-			fileProductionJobIdsAtStart = new Set(
-				(
-					await listConversationFileProductionJobs(user.id, turn.conversationId)
-				).map((job) => job.id),
-			);
-		} catch (error) {
-			console.warn(
-				"[CHAT_SEND] Failed to snapshot file-production jobs at send start",
-				{
-					conversationId: turn.conversationId,
-					error,
-				},
-			);
-		}
-		const modelUser = {
-			id: user.id,
-			displayName: user.displayName,
-			email: user.email,
-		};
-
-		let personalityPrompt: string | undefined;
-		if (turn.personalityProfileId) {
-			const profile = await getPersonalityProfile(
-				turn.personalityProfileId,
-			).catch(() => null);
-			personalityPrompt = profile?.promptText || undefined;
-		}
-
-		const modelRunResult = await runPlainNormalChatSendModel({
-			userId: user.id,
+		return await runStandardSendTurn({
+			user,
+			turn,
 			runtimeConfig,
-			message: upstreamMessage,
-			conversationId: turn.conversationId,
-			modelId: turn.modelId,
-			user: modelUser,
-			attachmentIds: turn.attachmentIds,
-			activeDocumentArtifactId: turn.activeDocumentArtifactId,
-			attachmentTraceId: turn.attachmentTraceId,
-			systemPromptAppendix: skillSystemPromptAppendix,
-			personalityPrompt,
-			thinkingMode: turn.thinkingMode,
-			depthMetadata: turn.depthMetadata,
-			forceWebSearch: turn.forceWebSearch,
-		});
-		const text = modelRunResult.text ?? "";
-		const contextStatus = modelRunResult.contextStatus;
-		const initialTaskState = modelRunResult.taskState;
-		const initialContextDebug = modelRunResult.contextDebug;
-		const contextTraceSections = modelRunResult.contextTraceSections;
-		const honchoContext = modelRunResult.honchoContext;
-		const honchoSnapshot = modelRunResult.honchoSnapshot;
-		const normalizedAssistantOutput = normalizeAssistantOutputWithSkillControl(
-			text,
-			{
-				skillControlEnabled: runtimeConfig.composerCommandRegistryEnabled,
-			},
-		);
-		const responseText = normalizedAssistantOutput.visibleText;
-		const effectiveModelId = modelRunResult.modelId ?? turn.modelId ?? "model1";
-		const effectiveModelDisplayName =
-			modelRunResult.modelDisplayName ?? turn.modelDisplayName;
-		const finalToolCalls = (
-			modelRunResult.toolCalls ?? modelRunResult.prefetchedToolCalls
-		)?.filter(isEvidenceReadyToolCall);
-
-		const citationGate = applyWebCitationQualityGate({
-			assistantResponse: responseText,
-			toolCalls: finalToolCalls,
-		});
-		const finalResponseText = citationGate.response ?? responseText;
-		if (citationGate.appendedNotice) {
-			console.warn("[CHAT_SEND] Appended web citation quality notice", {
-				conversationId: turn.conversationId,
-				status: citationGate.audit?.status,
-			});
-		}
-
-		const completion = await finalizeChatTurn({
-			logPrefix: "[SEND]",
-			userId: user.id,
-			conversationId: turn.conversationId,
-			userMessageContent: turn.normalizedMessage,
-			persistUserMessage: true,
-			normalizedMessage: turn.normalizedMessage,
-			upstreamMessage,
-			assistantResponse: finalResponseText,
-			assistantMetadata: {
-				evidenceStatus: "pending",
-				modelDisplayName: effectiveModelDisplayName,
-				...normalizedAssistantOutput.metadata,
-			},
-			reasoningDepth: turn.reasoningDepth,
-			depthMetadata: modelRunResult.depthMetadata ?? turn.depthMetadata,
-			skillControlOperations: normalizedAssistantOutput.operations,
-			skillControlSessionId:
-				turn.skillPromptContext?.source === "active_session"
-					? (turn.skillPromptContext.sessionId ?? null)
-					: null,
-			attachmentIds: turn.attachmentIds,
-			activeDocumentArtifactId: turn.activeDocumentArtifactId ?? null,
-			contextStatus,
-			initialTaskState,
-			initialContextDebug,
-			analytics: {
-				model: effectiveModelId,
-				modelDisplayName: effectiveModelDisplayName,
-				promptTokens: estimateTokenCount(upstreamMessage),
-				completionTokens: estimateTokenCount(finalResponseText),
-				generationTimeMs: undefined,
-				providerUsage: modelRunResult.providerUsage,
-			},
-			continuitySource: "send",
-			honchoContext,
-			honchoSnapshot,
-			assistantMirrorContent: text,
-			maintenanceReason: "chat_send",
-			linkedSources: turn.linkedSources,
-			toolCalls: finalToolCalls,
-			contextTraceSections,
-			persistenceMode: "strict",
-			waitForEvidenceBeforePostTurnTasks: false,
-			webCitationAudit: citationGate.audit,
-			generatedOutputReconciliation: {
-				fileProductionJobIdsAtStart,
-			},
-		});
-		await touchConversation(user.id, turn.conversationId).catch(
-			() => undefined,
-		);
-		void completion.evidenceTask;
-		void completion.createPostTurnTask();
-
-		return json({
-			response: { text: finalResponseText },
-			conversationId: turn.conversationId,
-			contextStatus,
-			contextSources: completion.contextSources,
-			activeWorkingSet: completion.turnState?.activeWorkingSet,
-			taskState: completion.turnState?.taskState,
-			contextDebug: completion.turnState?.contextDebug,
-			generatedFiles: completion.generatedFiles,
 		});
 	} catch (error) {
 		if (isDeepResearchJobStartError(error)) {
@@ -330,6 +126,303 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 };
+
+function buildChatSendCapacityResponse(
+	capacity: ReturnType<typeof checkStreamCapacity>,
+	userId: string,
+): Response | null {
+	if (capacity.allowed) {
+		return null;
+	}
+
+	console.warn("[CHAT_SEND] Rejected due to capacity", {
+		userId,
+		reason: capacity.reason,
+		retryAfterSeconds: capacity.retryAfterSeconds,
+		currentGlobalCount: capacity.currentGlobalCount,
+		currentUserCount: capacity.currentUserCount,
+	});
+
+	return json(
+		{
+			error: "Server at capacity. Please try again later.",
+			code: "CAPACITY_EXCEEDED",
+			reason: capacity.reason,
+			retryAfter: capacity.retryAfterSeconds,
+		},
+		{
+			status: 503,
+			headers: {
+				"Retry-After": String(capacity.retryAfterSeconds ?? 10),
+				"Cache-Control": "no-store",
+			},
+		},
+	);
+}
+
+async function runDeepResearchTurn(params: {
+	userId: string;
+	turn: SendTurn;
+	runtimeConfig: ReturnType<typeof getConfig>;
+}): Promise<Response> {
+	if (!params.runtimeConfig.deepResearchEnabled) {
+		return json(
+			{
+				error: "Deep Research is disabled",
+				code: "deep_research_disabled",
+			},
+			{ status: 403 },
+		);
+	}
+
+	await assertCanStartDeepResearchJob({
+		userId: params.userId,
+		conversationId: params.turn.conversationId,
+	});
+	const deepResearchDepth = params.turn.deepResearchDepth as NonNullable<
+		SendTurn["deepResearchDepth"]
+	>;
+	const userMessage = await createMessage(
+		params.turn.conversationId,
+		"user",
+		params.turn.normalizedMessage,
+	);
+	await persistUserTurnAttachments({
+		userId: params.userId,
+		conversationId: params.turn.conversationId,
+		messageId: userMessage.id,
+		normalizedMessage: params.turn.normalizedMessage,
+		attachmentIds: params.turn.attachmentIds,
+	});
+	const planningContext = await buildDeepResearchPlanningContext({
+		userId: params.userId,
+		conversationId: params.turn.conversationId,
+		userRequest: params.turn.normalizedMessage,
+		attachmentIds: params.turn.attachmentIds,
+		activeDocumentArtifactId: params.turn.activeDocumentArtifactId,
+	});
+	const deepResearchJob = await startDeepResearchJobShell({
+		userId: params.userId,
+		conversationId: params.turn.conversationId,
+		triggerMessageId: userMessage.id,
+		userRequest: params.turn.normalizedMessage,
+		depth: deepResearchDepth,
+		planningContext,
+	});
+	await touchConversation(params.userId, params.turn.conversationId).catch(
+		() => undefined,
+	);
+
+	return json({
+		response: null,
+		conversationId: params.turn.conversationId,
+		deepResearchJob,
+	});
+}
+
+async function runStandardSendTurn({
+	user,
+	turn,
+	runtimeConfig,
+}: {
+	user: { id: string; displayName: string | null; email: string | null };
+	turn: SendTurn;
+	runtimeConfig: ReturnType<typeof getConfig>;
+}): Promise<Response> {
+	const upstreamMessage = turn.normalizedMessage;
+	const skillSystemPromptAppendix = buildSkillSystemPromptAppendix(
+		turn.skillPromptContext,
+	);
+	const fileProductionJobIdsAtStart = await snapshotConversationFileJobs({
+		userId: user.id,
+		conversationId: turn.conversationId,
+	});
+	const personalityPrompt = await resolvePersonalityPrompt(
+		turn.personalityProfileId,
+	);
+
+	const modelRunResult = await runPlainNormalChatSendModel({
+		userId: user.id,
+		runtimeConfig,
+		message: upstreamMessage,
+		conversationId: turn.conversationId,
+		modelId: turn.modelId,
+		user: buildModelUser(user),
+		attachmentIds: turn.attachmentIds,
+		activeDocumentArtifactId: turn.activeDocumentArtifactId,
+		attachmentTraceId: turn.attachmentTraceId,
+		systemPromptAppendix: skillSystemPromptAppendix,
+		personalityPrompt,
+		thinkingMode: turn.thinkingMode,
+		depthMetadata: turn.depthMetadata,
+		forceWebSearch: turn.forceWebSearch,
+	});
+
+	const modelRunArtifacts = normalizeModelRunOutput({
+		runtimeConfig,
+		turn,
+		modelRunResultText: modelRunResult.text ?? "",
+		modelRunResult,
+	});
+	const finalResponseText =
+		modelRunArtifacts.citationGate.response ?? modelRunArtifacts.responseText;
+	const contextStatus = modelRunResult.contextStatus;
+
+	const completion = await finalizeChatTurn({
+		logPrefix: "[SEND]",
+		userId: user.id,
+		conversationId: turn.conversationId,
+		userMessageContent: turn.normalizedMessage,
+		persistUserMessage: true,
+		normalizedMessage: turn.normalizedMessage,
+		upstreamMessage,
+		assistantResponse: finalResponseText,
+		assistantMetadata: {
+			evidenceStatus: "pending",
+			modelDisplayName: modelRunArtifacts.effectiveModelDisplayName,
+			...modelRunArtifacts.normalizedAssistantOutput.metadata,
+		},
+		reasoningDepth: turn.reasoningDepth,
+		depthMetadata: modelRunResult.depthMetadata ?? turn.depthMetadata,
+		skillControlOperations:
+			modelRunArtifacts.normalizedAssistantOutput.operations,
+		skillControlSessionId:
+			turn.skillPromptContext?.source === "active_session"
+				? (turn.skillPromptContext.sessionId ?? null)
+				: null,
+		attachmentIds: turn.attachmentIds,
+		activeDocumentArtifactId: turn.activeDocumentArtifactId ?? null,
+		contextStatus,
+		initialTaskState: modelRunResult.taskState,
+		initialContextDebug: modelRunResult.contextDebug,
+		analytics: {
+			model: modelRunArtifacts.effectiveModelId,
+			modelDisplayName: modelRunArtifacts.effectiveModelDisplayName,
+			promptTokens: estimateTokenCount(upstreamMessage),
+			completionTokens: estimateTokenCount(finalResponseText),
+			generationTimeMs: undefined,
+			providerUsage: modelRunResult.providerUsage,
+		},
+		continuitySource: "send",
+		honchoContext: modelRunResult.honchoContext,
+		honchoSnapshot: modelRunResult.honchoSnapshot,
+		assistantMirrorContent: modelRunResult.text ?? "",
+		maintenanceReason: "chat_send",
+		linkedSources: turn.linkedSources,
+		toolCalls: modelRunArtifacts.finalToolCalls,
+		contextTraceSections: modelRunResult.contextTraceSections,
+		persistenceMode: "strict",
+		waitForEvidenceBeforePostTurnTasks: false,
+		webCitationAudit: modelRunArtifacts.citationGate.audit,
+		generatedOutputReconciliation: {
+			fileProductionJobIdsAtStart,
+		},
+	});
+	await touchConversation(user.id, turn.conversationId).catch(() => undefined);
+	void completion.evidenceTask;
+	void completion.createPostTurnTask();
+
+	return json({
+		response: { text: finalResponseText },
+		conversationId: turn.conversationId,
+		contextStatus,
+		contextSources: completion.contextSources,
+		activeWorkingSet: completion.turnState?.activeWorkingSet,
+		taskState: completion.turnState?.taskState,
+		contextDebug: completion.turnState?.contextDebug,
+		generatedFiles: completion.generatedFiles,
+	});
+}
+
+async function snapshotConversationFileJobs({
+	userId,
+	conversationId,
+}: {
+	userId: string;
+	conversationId: string;
+}): Promise<Set<string>> {
+	try {
+		const jobs = await listConversationFileProductionJobs(
+			userId,
+			conversationId,
+		);
+		return new Set(jobs.map((job) => job.id));
+	} catch (error) {
+		console.warn(
+			"[CHAT_SEND] Failed to snapshot file-production jobs at send start",
+			{
+				conversationId,
+				error,
+			},
+		);
+		return new Set();
+	}
+}
+
+async function resolvePersonalityPrompt(
+	personalityProfileId: string | null | undefined,
+) {
+	if (!personalityProfileId) return undefined;
+	const profile = await getPersonalityProfile(personalityProfileId).catch(
+		() => null,
+	);
+	return profile?.promptText || undefined;
+}
+
+function buildModelUser(user: {
+	id: string;
+	displayName: string | null;
+	email: string | null;
+}) {
+	return {
+		id: user.id,
+		displayName: user.displayName,
+		email: user.email,
+	};
+}
+
+function normalizeModelRunOutput({
+	runtimeConfig,
+	turn,
+	modelRunResultText,
+	modelRunResult,
+}: {
+	runtimeConfig: ReturnType<typeof getConfig>;
+	turn: SendTurn;
+	modelRunResultText: string;
+	modelRunResult: Awaited<ReturnType<typeof runPlainNormalChatSendModel>>;
+}) {
+	const normalizedAssistantOutput = normalizeAssistantOutputWithSkillControl(
+		modelRunResultText,
+		{
+			skillControlEnabled: runtimeConfig.composerCommandRegistryEnabled,
+		},
+	);
+	const responseText = normalizedAssistantOutput.visibleText;
+	const finalToolCalls = (
+		modelRunResult.toolCalls ?? modelRunResult.prefetchedToolCalls
+	)?.filter(isEvidenceReadyToolCall);
+	const citationGate = applyWebCitationQualityGate({
+		assistantResponse: responseText,
+		toolCalls: finalToolCalls,
+	});
+	if (citationGate.appendedNotice) {
+		console.warn("[CHAT_SEND] Appended web citation quality notice", {
+			conversationId: turn.conversationId,
+			status: citationGate.audit?.status,
+		});
+	}
+
+	return {
+		normalizedAssistantOutput,
+		responseText,
+		citationGate,
+		finalToolCalls,
+		effectiveModelId: modelRunResult.modelId ?? turn.modelId ?? "model1",
+		effectiveModelDisplayName:
+			modelRunResult.modelDisplayName ?? turn.modelDisplayName,
+	};
+}
 
 function isEvidenceReadyToolCall(toolCall: ToolCallEntry): boolean {
 	return (
