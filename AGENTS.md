@@ -21,6 +21,12 @@ This file is the canonical engineering map for AlfyAI. Read it before changing c
 - Do not add broad `ignoreExports`, `ignorePatterns`, or rule suppressions just to make the report green. Every new ignore must describe a real public boundary, dynamic loader, standalone script, or false positive.
 - If a change intentionally affects the remaining circular-dependency debt, rerun Fallow and report whether the five known cycle findings changed.
 
+## Typecheck Gate
+
+- Before calling a patch finished, run `npm run check` and keep it fully clean: 0 errors and 0 warnings.
+- Treat new `svelte-check` diagnostics as regressions. Fix them in the same patch unless the user explicitly asks to defer them.
+- If `npm run check` fails because of pre-existing diagnostics unrelated to the patch, report the exact current count and files, and do not introduce any new diagnostics.
+
 ## Svelte 5 Migration Rules
 
 - Prefer Svelte 5 callback props over `createEventDispatcher` for component-to-parent communication.
