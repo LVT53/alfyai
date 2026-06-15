@@ -312,6 +312,209 @@ const mockStartSkillSession = startSkillSession as ReturnType<typeof vi.fn>;
 const mockCommitSkillNoteOperations =
 	commitSkillNoteOperationsAfterAssistantMessage as ReturnType<typeof vi.fn>;
 
+const defaultConversationFixture = {
+	id: "conv-1",
+	title: "Test",
+	createdAt: 0,
+	updatedAt: 0,
+} as const;
+
+const missingPendingSkill = {
+	available: false,
+	availabilityReason: "not_found",
+	id: "skill-1",
+	ownership: "user",
+	skillKind: null,
+	displayName: null,
+	description: null,
+	effectiveInstructions: "",
+	effectiveInstructionsHash: null,
+	publicSummary: null,
+	sourceIds: null,
+} as const;
+
+const skillControlEnvelope = (operations: unknown[]) =>
+	[
+		"<skill_control_v1>",
+		JSON.stringify({
+			version: 1,
+			operations,
+		}),
+		"</skill_control_v1>",
+	].join("\n");
+
+const testUserMessage: {
+	id: string;
+	role: "user";
+	content: string;
+	timestamp: number;
+} = {
+	id: "user-msg",
+	role: "user",
+	content: "Hello",
+	timestamp: 0,
+};
+
+const testAssistantMessage: {
+	id: string;
+	role: "assistant";
+	content: string;
+	timestamp: number;
+} = {
+	id: "assistant-msg",
+	role: "assistant",
+	content: "Hello from AI!",
+	timestamp: 0,
+};
+
+const skillAwaitingUserOperation = {
+	operationId: "ask-deadline",
+	kind: "session_transition",
+	transition: "awaiting_user",
+} as const;
+
+const noteCreateDecisionOperation = {
+	operationId: "note-create-1",
+	kind: "note_intent",
+	action: "create",
+	title: "Decision",
+	body: "Use the short plan.",
+} as const;
+
+function seedConversation(
+	overrides: Partial<typeof defaultConversationFixture> = {},
+) {
+	mockGetConversation.mockResolvedValue({
+		...defaultConversationFixture,
+		...overrides,
+	});
+}
+
+function seedDefaultConversationMessages(
+	input: {
+		userMessage?: Partial<typeof testUserMessage>;
+		assistantMessage?: Partial<typeof testAssistantMessage>;
+		userMessageId?: string;
+		assistantMessageId?: string;
+	} = {},
+) {
+	mockCreateMessage
+		.mockResolvedValueOnce({
+			...testUserMessage,
+			timestamp: Date.now(),
+			id: input.userMessageId ?? testUserMessage.id,
+			...input.userMessage,
+		})
+		.mockResolvedValueOnce({
+			...testAssistantMessage,
+			timestamp: Date.now(),
+			id: input.assistantMessageId ?? testAssistantMessage.id,
+			...input.assistantMessage,
+		});
+}
+
+function seedUserConversationMessage(content: string, id = "user-msg") {
+	mockCreateMessage.mockResolvedValueOnce({
+		...testUserMessage,
+		id,
+		content,
+		timestamp: Date.now(),
+	});
+}
+
+const baseSkillSummary = {
+	id: "skill-1",
+	ownership: "user" as const,
+	displayName: "Interview coach",
+};
+
+const baseUserSkillDefinition = {
+	id: "skill-1",
+	ownership: "user",
+	displayName: "Interview coach",
+	description: "Asks useful questions.",
+	instructions: "Ask one concise follow-up before answering.",
+	activationExamples: ["interview me first"],
+	enabled: true,
+	durationPolicy: "next_message",
+	questionPolicy: "ask_when_needed",
+	notesPolicy: "none",
+	sourceScope: "selected_sources_only",
+	creationSource: "user_created",
+	version: 1,
+	createdAt: 1,
+	updatedAt: 2,
+} as const;
+
+const baseResolvedSkillDefinition = {
+	available: true,
+	availabilityReason: "available",
+	id: "skill-1",
+	ownership: "user",
+	skillKind: "user_skill",
+	displayName: "Interview coach",
+	description: "Asks useful questions.",
+	effectiveInstructions: "Ask one concise follow-up before answering.",
+	effectiveInstructionsHash: "test-hash",
+	publicSummary: {
+		id: "skill-1",
+		ownership: "user",
+		skillKind: "user_skill",
+		baseSkillId: null,
+		baseSkillVersion: null,
+		displayName: "Interview coach",
+		description: "Asks useful questions.",
+		activationExamples: ["interview me first"],
+		enabled: true,
+		durationPolicy: "next_message",
+		questionPolicy: "ask_when_needed",
+		notesPolicy: "none",
+		sourceScope: "selected_sources_only",
+		creationSource: "user_created",
+		version: 1,
+		createdAt: 1,
+		updatedAt: 2,
+	},
+	durationPolicy: "next_message",
+	questionPolicy: "ask_when_needed",
+	notesPolicy: "none",
+	sourceScope: "selected_sources_only",
+	sourceIds: {
+		skillId: "skill-1",
+		skillVersion: 1,
+		packSkillId: null,
+		packSkillVersion: null,
+		variantSkillId: null,
+		variantSkillVersion: null,
+	},
+} as const;
+
+const baseSkillSession = {
+	id: "session-1",
+	userId: "user-1",
+	conversationId: "conv-1",
+	skillId: "skill-1",
+	skillOwnership: "user",
+	status: "active",
+	pauseReason: null,
+	endReason: null,
+	skillDisplayName: "Interview coach",
+	skillDescription: "Asks useful questions.",
+	skillInstructions: "Ask one concise follow-up before answering.",
+	activationExamples: [],
+	durationPolicy: "session",
+	questionPolicy: "none",
+	notesPolicy: "create_private_notes",
+	sourceScope: "selected_sources_only",
+	skillVersion: 1,
+	startedFrom: "pending_skill",
+	startedAt: 1,
+	updatedAt: 1,
+	pausedAt: null,
+	endedAt: null,
+	milestones: [],
+} as const;
+
 function makeEvent(
 	body: unknown,
 	user = { id: "user-1", email: "test@example.com" },
@@ -388,119 +591,21 @@ describe("POST /api/chat/send", () => {
 		mockGetChatFilesForAssistantMessage.mockResolvedValue([]);
 		mockSyncGeneratedFilesToMemory.mockResolvedValue(undefined);
 		mockBuildDeepResearchPlanningContext.mockResolvedValue([]);
-		mockGetAvailableSkillSummary.mockResolvedValue({
-			id: "skill-1",
-			ownership: "user",
-			displayName: "Interview coach",
-		});
-		mockResolveEffectiveSkillDefinition.mockResolvedValue({
-			available: true,
-			availabilityReason: "available",
-			id: "skill-1",
-			ownership: "user",
-			skillKind: "user_skill",
-			displayName: "Interview coach",
-			description: "Asks useful questions.",
-			effectiveInstructions: "Ask one concise follow-up before answering.",
-			effectiveInstructionsHash: "test-hash",
-			publicSummary: {
-				id: "skill-1",
-				ownership: "user",
-				skillKind: "user_skill",
-				baseSkillId: null,
-				baseSkillVersion: null,
-				displayName: "Interview coach",
-				description: "Asks useful questions.",
-				activationExamples: ["interview me first"],
-				enabled: true,
-				durationPolicy: "next_message",
-				questionPolicy: "ask_when_needed",
-				notesPolicy: "none",
-				sourceScope: "selected_sources_only",
-				creationSource: "user_created",
-				version: 1,
-				createdAt: 1,
-				updatedAt: 2,
-			},
-			durationPolicy: "next_message",
-			questionPolicy: "ask_when_needed",
-			notesPolicy: "none",
-			sourceScope: "selected_sources_only",
-			sourceIds: {
-				skillId: "skill-1",
-				skillVersion: 1,
-				packSkillId: null,
-				packSkillVersion: null,
-				variantSkillId: null,
-				variantSkillVersion: null,
-			},
-		});
-		mockGetAvailableSkillDefinition.mockResolvedValue({
-			id: "skill-1",
-			ownership: "user",
-			displayName: "Interview coach",
-			description: "Asks useful questions.",
-			instructions: "Ask one concise follow-up before answering.",
-			activationExamples: ["interview me first"],
-			enabled: true,
-			durationPolicy: "next_message",
-			questionPolicy: "ask_when_needed",
-			notesPolicy: "none",
-			sourceScope: "selected_sources_only",
-			creationSource: "user_created",
-			version: 1,
-			createdAt: 1,
-			updatedAt: 2,
-		});
+		mockGetAvailableSkillSummary.mockResolvedValue(baseSkillSummary);
+		mockResolveEffectiveSkillDefinition.mockResolvedValue(
+			baseResolvedSkillDefinition,
+		);
+		mockGetAvailableSkillDefinition.mockResolvedValue(baseUserSkillDefinition);
 		mockGetActiveSkillSession.mockResolvedValue(null);
-		mockStartSkillSession.mockResolvedValue({
-			id: "session-1",
-			userId: "user-1",
-			conversationId: "conv-1",
-			skillId: "skill-1",
-			skillOwnership: "user",
-			status: "active",
-			pauseReason: null,
-			endReason: null,
-			skillDisplayName: "Interview coach",
-			skillDescription: "Asks useful questions.",
-			skillInstructions: "Ask one concise follow-up before answering.",
-			activationExamples: ["interview me first"],
-			durationPolicy: "session",
-			questionPolicy: "ask_when_needed",
-			notesPolicy: "create_private_notes",
-			sourceScope: "selected_sources_only",
-			skillVersion: 1,
-			startedFrom: "pending_skill",
-			startedAt: 1,
-			updatedAt: 1,
-			pausedAt: null,
-			endedAt: null,
-			milestones: [],
-		});
+		mockStartSkillSession.mockResolvedValue(baseSkillSession);
 	});
 
 	it("returns AI response text for a valid request", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg",
-				role: "user",
-				content: "Hello",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg",
-				role: "assistant",
-				content: "Hello from AI!",
-				timestamp: Date.now(),
-			});
+		seedConversation();
+		seedDefaultConversationMessages({
+			userMessage: { content: "Hello" },
+			assistantMessage: { content: "Hello from AI!" },
+		});
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Hello from AI!",
 			rawResponse: {},
@@ -558,25 +663,11 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("persists requested Reasoning Depth metadata for non-stream sends", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
+		seedConversation();
+		seedDefaultConversationMessages({
+			userMessage: { content: "Use max depth" },
+			assistantMessage: { content: "Max-depth answer" },
 		});
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg",
-				role: "user",
-				content: "Use max depth",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg",
-				role: "assistant",
-				content: "Max-depth answer",
-				timestamp: Date.now(),
-			});
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Max-depth answer",
 			rawResponse: {},
@@ -624,25 +715,11 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("persists classifier-resolved Auto Reasoning Depth metadata for non-stream sends", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
+		seedConversation();
+		seedDefaultConversationMessages({
+			userMessage: { content: "Compare migration strategies" },
+			assistantMessage: { content: "Extended-depth answer" },
 		});
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg",
-				role: "user",
-				content: "Compare migration strategies",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg",
-				role: "assistant",
-				content: "Extended-depth answer",
-				timestamp: Date.now(),
-			});
 		mockResolveReasoningDepthSelection.mockResolvedValueOnce({
 			metadata: {
 				requested: "auto",
@@ -724,25 +801,11 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("assigns file-production jobs created during non-stream sends to the persisted assistant message", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
+		seedConversation();
+		seedDefaultConversationMessages({
+			userMessage: { content: "Create a report" },
+			assistantMessage: { content: "Done." },
 		});
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg",
-				role: "user",
-				content: "Create a report",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg",
-				role: "assistant",
-				content: "Done.",
-				timestamp: Date.now(),
-			});
 		mockListFileProductionJobs
 			.mockResolvedValueOnce([{ id: "job-existing", files: [] }])
 			.mockResolvedValueOnce([
@@ -795,25 +858,11 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("persists prefetched forced web-search tool calls for send evidence", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
+		seedConversation();
+		seedDefaultConversationMessages({
+			userMessage: { content: "What changed today?" },
+			assistantMessage: { content: "Grounded answer" },
 		});
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg",
-				role: "user",
-				content: "What changed today?",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg",
-				role: "assistant",
-				content: "Grounded answer",
-				timestamp: Date.now(),
-			});
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Grounded answer",
 			rawResponse: {},
@@ -938,25 +987,11 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns the same citation-gated web text that it persists", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
+		seedConversation();
+		seedDefaultConversationMessages({
+			userMessage: { content: "Check the current docs" },
+			assistantMessage: { content: "Grounded answer without links" },
 		});
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg",
-				role: "user",
-				content: "Check the current docs",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg",
-				role: "assistant",
-				content: "Grounded answer without links",
-				timestamp: Date.now(),
-			});
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Grounded answer without links",
 			rawResponse: {},
@@ -1009,26 +1044,11 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns project folder awareness in send metadata and degrades lookup failures", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg",
-				role: "user",
-				content: "Hello",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg",
-				role: "assistant",
-				content: "Hello from AI!",
-				timestamp: Date.now(),
-			});
+		seedConversation();
+		seedDefaultConversationMessages({
+			userMessage: { content: "Hello" },
+			assistantMessage: { content: "Hello from AI!" },
+		});
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Hello from AI!",
 			rawResponse: {},
@@ -1069,19 +1089,12 @@ describe("POST /api/chat/send", () => {
 		]);
 
 		mockCreateMessage.mockClear();
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg-2",
-				role: "user",
-				content: "Hello again",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg-2",
-				role: "assistant",
-				content: "Still works",
-				timestamp: Date.now(),
-			});
+		seedDefaultConversationMessages({
+			userMessageId: "user-msg-2",
+			assistantMessageId: "assistant-msg-2",
+			userMessage: { content: "Hello again" },
+			assistantMessage: { content: "Still works" },
+		});
 		mockRunPlainNormalChatSendModel.mockResolvedValueOnce({
 			text: "Still works",
 			rawResponse: {},
@@ -1101,19 +1114,10 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("starts a Deep Research job shell instead of a normal assistant answer", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockCreateMessage.mockResolvedValueOnce({
-			id: "user-msg",
-			role: "user",
-			content: "Compare EU and US AI copyright training data rules",
-			timestamp: Date.now(),
-		});
+		seedConversation();
+		seedUserConversationMessage(
+			"Compare EU and US AI copyright training data rules",
+		);
 
 		const event = makeEvent({
 			message: "Compare EU and US AI copyright training data rules",
@@ -1150,19 +1154,10 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("does not apply linked context sources to Deep Research job startup", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
-		mockCreateMessage.mockResolvedValueOnce({
-			id: "user-msg",
-			role: "user",
-			content: "Research this with normal Deep Research behavior",
-			timestamp: Date.now(),
-		});
+		seedConversation();
+		seedUserConversationMessage(
+			"Research this with normal Deep Research behavior",
+		);
 
 		const response = await POST(
 			makeEvent({
@@ -1189,13 +1184,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("applies linked context sources to normal chat send turns", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Normal chat with linked source",
 			rawResponse: {},
@@ -1251,13 +1240,7 @@ describe("POST /api/chat/send", () => {
 
 	it("rejects normal chat linked context sources when Composer Command Registry is disabled", async () => {
 		configMockState.composerCommandRegistryEnabled = false;
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 
 		const response = await POST(
 			makeEvent({
@@ -1287,12 +1270,7 @@ describe("POST /api/chat/send", () => {
 
 	it("rejects normal chat pending skills when Composer Command Registry is disabled", async () => {
 		configMockState.composerCommandRegistryEnabled = false;
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
+		seedConversation();
 
 		const response = await POST(
 			makeEvent({
@@ -1317,24 +1295,9 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("rejects normal chat when the pending skill is no longer available", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
+		seedConversation();
 		mockResolveEffectiveSkillDefinition.mockResolvedValue({
-			available: false,
-			availabilityReason: "not_found",
-			id: "skill-1",
-			ownership: "user",
-			skillKind: null,
-			displayName: null,
-			description: null,
-			effectiveInstructions: "",
-			effectiveInstructionsHash: null,
-			publicSummary: null,
-			sourceIds: null,
+			...missingPendingSkill,
 		});
 
 		const response = await POST(
@@ -1363,24 +1326,9 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("rejects normal chat when the pending skill definition disappears after summary validation", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
+		seedConversation();
 		mockResolveEffectiveSkillDefinition.mockResolvedValue({
-			available: false,
-			availabilityReason: "not_found",
-			id: "skill-1",
-			ownership: "user",
-			skillKind: null,
-			displayName: null,
-			description: null,
-			effectiveInstructions: "",
-			effectiveInstructionsHash: null,
-			publicSummary: null,
-			sourceIds: null,
+			...missingPendingSkill,
 		});
 
 		const response = await POST(
@@ -1405,12 +1353,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("rejects normal chat when a different active skill session blocks the pending session skill", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
+		seedConversation();
 		mockGetAvailableSkillDefinition.mockResolvedValue({
 			id: "skill-2",
 			ownership: "user",
@@ -1499,12 +1442,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("passes pending Skill instructions as a system appendix without changing the visible user transcript", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
+		seedConversation();
 		mockCreateMessage
 			.mockResolvedValueOnce({
 				id: "user-msg",
@@ -1576,12 +1514,7 @@ describe("POST /api/chat/send", () => {
 
 	it("treats Skill Control Envelopes as plain assistant output when Composer Command Registry is disabled", async () => {
 		configMockState.composerCommandRegistryEnabled = false;
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
+		seedConversation();
 		mockCreateMessage
 			.mockResolvedValueOnce({
 				id: "user-msg",
@@ -1595,20 +1528,7 @@ describe("POST /api/chat/send", () => {
 				content: "Visible answer.",
 				timestamp: Date.now(),
 			});
-		const envelope = [
-			"<skill_control_v1>",
-			JSON.stringify({
-				version: 1,
-				operations: [
-					{
-						operationId: "ask-deadline",
-						kind: "session_transition",
-						transition: "awaiting_user",
-					},
-				],
-			}),
-			"</skill_control_v1>",
-		].join("\n");
+		const envelope = skillControlEnvelope([skillAwaitingUserOperation]);
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: `Visible answer.\n${envelope}`,
 			rawResponse: {},
@@ -1638,12 +1558,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("strips Skill Control Envelopes, persists metadata, and applies transitions after assistant persistence", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
+		seedConversation();
 		mockCreateMessage
 			.mockResolvedValueOnce({
 				id: "user-msg",
@@ -1660,18 +1575,7 @@ describe("POST /api/chat/send", () => {
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: [
 				"What deadline should I use?",
-				"<skill_control_v1>",
-				JSON.stringify({
-					version: 1,
-					operations: [
-						{
-							operationId: "ask-deadline",
-							kind: "session_transition",
-							transition: "awaiting_user",
-						},
-					],
-				}),
-				"</skill_control_v1>",
+				skillControlEnvelope([skillAwaitingUserOperation]),
 			].join("\n"),
 			rawResponse: {},
 			contextStatus: undefined,
@@ -1696,8 +1600,8 @@ describe("POST /api/chat/send", () => {
 				skillControl: expect.objectContaining({
 					operations: [
 						expect.objectContaining({
-							operationId: "ask-deadline",
-							transition: "awaiting_user",
+							operationId: skillAwaitingUserOperation.operationId,
+							transition: skillAwaitingUserOperation.transition,
 						}),
 					],
 				}),
@@ -1707,23 +1611,12 @@ describe("POST /api/chat/send", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			assistantMessageId: "assistant-msg",
-			operations: [
-				{
-					operationId: "ask-deadline",
-					kind: "session_transition",
-					transition: "awaiting_user",
-				},
-			],
+			operations: [skillAwaitingUserOperation],
 		});
 	});
 
 	it("commits note operations after the assistant message exists", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
+		seedConversation();
 		mockGetActiveSkillSession.mockResolvedValue({
 			id: "session-1",
 			userId: "user-1",
@@ -1765,20 +1658,7 @@ describe("POST /api/chat/send", () => {
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: [
 				"Captured.",
-				"<skill_control_v1>",
-				JSON.stringify({
-					version: 1,
-					operations: [
-						{
-							operationId: "note-create-1",
-							kind: "note_intent",
-							action: "create",
-							title: "Decision",
-							body: "Use the short plan.",
-						},
-					],
-				}),
-				"</skill_control_v1>",
+				skillControlEnvelope([noteCreateDecisionOperation]),
 			].join("\n"),
 			rawResponse: {},
 			contextStatus: undefined,
@@ -1794,25 +1674,12 @@ describe("POST /api/chat/send", () => {
 			conversationId: "conv-1",
 			sessionId: "session-1",
 			assistantMessageId: "assistant-msg",
-			operations: [
-				{
-					operationId: "note-create-1",
-					kind: "note_intent",
-					action: "create",
-					title: "Decision",
-					body: "Use the short plan.",
-				},
-			],
+			operations: [noteCreateDecisionOperation],
 		});
 	});
 
 	it("commits first-response note operations to the session started from a pending skill", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
+		seedConversation();
 		mockGetAvailableSkillDefinition.mockResolvedValue({
 			id: "skill-1",
 			ownership: "user",
@@ -1912,20 +1779,7 @@ describe("POST /api/chat/send", () => {
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: [
 				"Captured.",
-				"<skill_control_v1>",
-				JSON.stringify({
-					version: 1,
-					operations: [
-						{
-							operationId: "note-create-1",
-							kind: "note_intent",
-							action: "create",
-							title: "Decision",
-							body: "Use the short plan.",
-						},
-					],
-				}),
-				"</skill_control_v1>",
+				skillControlEnvelope([noteCreateDecisionOperation]),
 			].join("\n"),
 			rawResponse: {},
 			contextStatus: undefined,
@@ -1962,12 +1816,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("preserves started variant session metadata and managed pack resources in the prompt appendix", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
+		seedConversation();
 		mockResolveEffectiveSkillDefinition.mockResolvedValue({
 			available: true,
 			availabilityReason: "available",
@@ -2111,18 +1960,10 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("does not apply pending skills to Deep Research job startup", async () => {
-		mockGetConversation.mockResolvedValue({
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		});
-		mockCreateMessage.mockResolvedValueOnce({
-			id: "user-msg",
-			role: "user",
-			content: "Research this with normal Deep Research behavior",
-			timestamp: Date.now(),
-		});
+		seedConversation();
+		seedUserConversationMessage(
+			"Research this with normal Deep Research behavior",
+		);
 
 		const response = await POST(
 			makeEvent({
@@ -2145,13 +1986,7 @@ describe("POST /api/chat/send", () => {
 
 	it("rejects Deep Research when the runtime feature flag is disabled", async () => {
 		configMockState.deepResearchEnabled = false;
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 
 		const event = makeEvent({
 			message: "Research this policy area deeply",
@@ -2174,13 +2009,7 @@ describe("POST /api/chat/send", () => {
 
 	it("allows normal chat when Deep Research is disabled", async () => {
 		configMockState.deepResearchEnabled = false;
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Normal chat still works",
 			rawResponse: {},
@@ -2207,13 +2036,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("passes prompt-ready attachment planning context into the Deep Research job shell", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 		mockAssertPromptReadyAttachments.mockResolvedValue({
 			displayArtifacts: [{ id: "source-attachment-1" }],
 			promptArtifacts: [{ id: "normalized-attachment-1" }],
@@ -2227,12 +2050,7 @@ describe("POST /api/chat/send", () => {
 				includeAsResearchSource: true,
 			},
 		]);
-		mockCreateMessage.mockResolvedValueOnce({
-			id: "user-msg",
-			role: "user",
-			content: "Research the market using my uploaded brief",
-			timestamp: Date.now(),
-		});
+		seedUserConversationMessage("Research the market using my uploaded brief");
 		mockStartDeepResearchJobShell.mockResolvedValueOnce({
 			id: "research-job-1",
 			conversationId: "conv-1",
@@ -2311,13 +2129,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("rejects Deep Research in a sealed conversation before persisting the triggering message", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 		const error = {
 			name: "DeepResearchJobStartError",
 			code: "conversation_sealed",
@@ -2345,13 +2157,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("rejects Deep Research when an active job exists before persisting the triggering message", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 		const error = {
 			name: "DeepResearchJobStartError",
 			code: "active_job_exists",
@@ -2379,13 +2185,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("passes messages through unchanged", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Hello from AI!",
 			rawResponse: {},
@@ -2453,13 +2253,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns 422 when a same-turn attachment is not prompt-ready", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 		mockAssertPromptReadyAttachments.mockRejectedValue({
 			name: "AttachmentReadinessError",
 			message: "Attached file is not ready for chat.",
@@ -2483,13 +2277,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns 422 when prompt construction fails closed after preflight", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 		mockRunPlainNormalChatSendModel.mockRejectedValue({
 			name: "AttachmentReadinessError",
 			message:
@@ -2513,13 +2301,7 @@ describe("POST /api/chat/send", () => {
 	});
 
 	it("returns 502 when the model run throws", async () => {
-		const conversation = {
-			id: "conv-1",
-			title: "Test",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		mockGetConversation.mockResolvedValue(conversation);
+		seedConversation();
 		mockRunPlainNormalChatSendModel.mockRejectedValue(
 			new Error("Normal chat model run failed"),
 		);

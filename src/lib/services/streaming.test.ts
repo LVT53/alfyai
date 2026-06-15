@@ -103,6 +103,24 @@ interface MockCallbacks {
 	onError: ReturnType<typeof vi.fn>;
 }
 
+type StreamRequestBody = {
+	activeDocumentArtifactId?: string;
+	conversationId?: string;
+	deepResearch?: {
+		depth: string;
+	};
+	reasoningDepth?: string;
+	retryAssistantMessageId?: string;
+	retryUserMessageId?: string;
+	retryUserMessage?: string;
+	userMessage?: string;
+	assistantMessageId?: string;
+	thinkingMode?: unknown;
+	confirmForkedSourceHistoryMutation?: boolean;
+	forceWebSearch?: boolean;
+	[key: string]: unknown;
+};
+
 function makeCallbacks(): MockCallbacks {
 	return {
 		onToken: vi.fn(),
@@ -125,6 +143,29 @@ async function waitForStream(cb: MockCallbacks): Promise<void> {
 			resolve();
 		});
 	});
+}
+
+function parseLastStreamRequestBody(
+	mockFetch: ReturnType<typeof vi.fn>,
+): StreamRequestBody {
+	const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+	return JSON.parse(String(requestInit?.body ?? "{}")) as StreamRequestBody;
+}
+
+function runStreamAndWait(
+	message: string,
+	conversationId: string,
+	callbacks: MockCallbacks | StreamCallbacks,
+	options?: Parameters<typeof streamChat>[3],
+) {
+	const done = waitForStream(callbacks as MockCallbacks);
+	streamChat(
+		message,
+		conversationId,
+		callbacks as unknown as StreamCallbacks,
+		options,
+	);
+	return done;
 }
 
 async function flushMicrotasks(turns = 3): Promise<void> {
@@ -621,13 +662,15 @@ describe("streamChat", () => {
 		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks, {
-			forceWebSearch: true,
-		});
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+			{ forceWebSearch: true },
+		);
 		await done;
 
-		const requestBody = JSON.parse(String(mockFetch.mock.calls[0]?.[1]?.body));
+		const requestBody = parseLastStreamRequestBody(mockFetch);
 		expect(requestBody).toMatchObject({
 			message: "test message",
 			conversationId: "conv-1",
@@ -878,10 +921,12 @@ describe("streamChat", () => {
 		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks, {
-			activeDocumentArtifactId: "artifact-focused-1",
-		});
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+			{ activeDocumentArtifactId: "artifact-focused-1" },
+		);
 		await done;
 
 		expect(mockFetch).toHaveBeenCalledWith(
@@ -892,8 +937,7 @@ describe("streamChat", () => {
 				body: expect.any(String),
 			}),
 		);
-		const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
-		const parsedBody = JSON.parse(String(requestInit?.body));
+		const parsedBody = parseLastStreamRequestBody(mockFetch);
 		expect(parsedBody.activeDocumentArtifactId).toBe("artifact-focused-1");
 		expect(parsedBody.conversationId).toBe("conv-1");
 	});
@@ -903,14 +947,15 @@ describe("streamChat", () => {
 		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("research this", "conv-1", cb as unknown as StreamCallbacks, {
-			deepResearchDepth: "standard",
-		});
+		const done = runStreamAndWait(
+			"research this",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+			{ deepResearchDepth: "standard" },
+		);
 		await done;
 
-		const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
-		const parsedBody = JSON.parse(String(requestInit?.body));
+		const parsedBody = parseLastStreamRequestBody(mockFetch);
 		expect(parsedBody.deepResearch).toEqual({ depth: "standard" });
 	});
 
@@ -919,14 +964,15 @@ describe("streamChat", () => {
 		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks, {
-			reasoningDepth: "off",
-		});
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+			{ reasoningDepth: "off" },
+		);
 		await done;
 
-		const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
-		const parsedBody = JSON.parse(String(requestInit?.body));
+		const parsedBody = parseLastStreamRequestBody(mockFetch);
 		expect(parsedBody.reasoningDepth).toBe("off");
 		expect(parsedBody).not.toHaveProperty("thinkingMode");
 	});
@@ -936,13 +982,17 @@ describe("streamChat", () => {
 		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("ignored", "conv-1", cb as unknown as StreamCallbacks, {
-			retryAssistantMessageId: "assistant-msg-1",
-			retryUserMessageId: "user-msg-1",
-			retryUserMessage: "historical user text",
-			activeDocumentArtifactId: "artifact-focused-2",
-		});
+		const done = runStreamAndWait(
+			"ignored",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+			{
+				retryAssistantMessageId: "assistant-msg-1",
+				retryUserMessageId: "user-msg-1",
+				retryUserMessage: "historical user text",
+				activeDocumentArtifactId: "artifact-focused-2",
+			},
+		);
 		await done;
 
 		expect(mockFetch).toHaveBeenCalledWith(
@@ -953,8 +1003,7 @@ describe("streamChat", () => {
 				body: expect.any(String),
 			}),
 		);
-		const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
-		const parsedBody = JSON.parse(String(requestInit?.body));
+		const parsedBody = parseLastStreamRequestBody(mockFetch);
 		expect(parsedBody.assistantMessageId).toBe("assistant-msg-1");
 		expect(parsedBody.userMessageId).toBe("user-msg-1");
 		expect(parsedBody.userMessage).toBe("historical user text");
@@ -966,17 +1015,20 @@ describe("streamChat", () => {
 		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("ignored", "conv-1", cb as unknown as StreamCallbacks, {
-			retryAssistantMessageId: "assistant-msg-1",
-			retryUserMessageId: "user-msg-1",
-			retryUserMessage: "historical user text",
-			reasoningDepth: "max",
-		});
+		const done = runStreamAndWait(
+			"ignored",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+			{
+				retryAssistantMessageId: "assistant-msg-1",
+				retryUserMessageId: "user-msg-1",
+				retryUserMessage: "historical user text",
+				reasoningDepth: "max",
+			},
+		);
 		await done;
 
-		const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
-		const parsedBody = JSON.parse(String(requestInit?.body));
+		const parsedBody = parseLastStreamRequestBody(mockFetch);
 		expect(parsedBody.reasoningDepth).toBe("max");
 		expect(parsedBody).not.toHaveProperty("thinkingMode");
 	});
@@ -986,17 +1038,20 @@ describe("streamChat", () => {
 		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("ignored", "conv-1", cb as unknown as StreamCallbacks, {
-			retryAssistantMessageId: "assistant-msg-1",
-			retryUserMessageId: "user-msg-1",
-			retryUserMessage: "historical user text",
-			confirmForkedSourceHistoryMutation: true,
-		});
+		const done = runStreamAndWait(
+			"ignored",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+			{
+				retryAssistantMessageId: "assistant-msg-1",
+				retryUserMessageId: "user-msg-1",
+				retryUserMessage: "historical user text",
+				confirmForkedSourceHistoryMutation: true,
+			},
+		);
 		await done;
 
-		const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
-		const parsedBody = JSON.parse(String(requestInit?.body));
+		const parsedBody = parseLastStreamRequestBody(mockFetch);
 		expect(parsedBody.confirmForkedSourceHistoryMutation).toBe(true);
 	});
 

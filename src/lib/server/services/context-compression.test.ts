@@ -24,14 +24,24 @@ function openSeedDatabase() {
 	return { sqlite, db };
 }
 
-function seedConversationWithMessages() {
+function seedConversation(base: {
+	email: string;
+	title: string;
+	messages: Array<{
+		id: string;
+		role: "user" | "assistant";
+		content: string;
+		messageSequence?: number;
+		createdAtOffsetMs?: number;
+	}>;
+}): void {
 	const { sqlite, db } = openSeedDatabase();
 	const now = new Date("2026-05-25T10:00:00.000Z");
 	try {
 		db.insert(schema.users)
 			.values({
 				id: "user-1",
-				email: "context-compression@example.com",
+				email: base.email,
 				passwordHash: "hash",
 				createdAt: now,
 				updatedAt: now,
@@ -41,93 +51,87 @@ function seedConversationWithMessages() {
 			.values({
 				id: "conv-1",
 				userId: "user-1",
-				title: "Compression persistence",
+				title: base.title,
 				createdAt: now,
 				updatedAt: now,
 			})
 			.run();
 		db.insert(schema.messages)
-			.values([
-				{
-					id: "message-1",
+			.values(
+				base.messages.map((message, index) => ({
+					id: message.id,
 					conversationId: "conv-1",
-					messageSequence: 1,
-					role: "user",
-					content: "First question",
-					createdAt: now,
-				},
-				{
-					id: "message-2",
-					conversationId: "conv-1",
-					messageSequence: 2,
-					role: "assistant",
-					content: "First answer",
-					createdAt: new Date(now.getTime() + 1000),
-				},
-			])
+					messageSequence: message.messageSequence ?? index + 1,
+					role: message.role,
+					content: message.content,
+					createdAt: new Date(
+						now.getTime() + (message.createdAtOffsetMs ?? index * 1000),
+					),
+				})),
+			)
 			.run();
 	} finally {
 		sqlite.close();
 	}
 }
 
+const defaultCompressionSourceMessages = [
+	{
+		id: "message-1",
+		role: "user" as const,
+		content: "First question",
+		messageSequence: 1,
+	},
+	{
+		id: "message-2",
+		role: "assistant" as const,
+		content: "First answer",
+		messageSequence: 2,
+	},
+] as const;
+
+const defaultLegacyCompressionSourceMessages = [
+	...defaultCompressionSourceMessages,
+	{
+		id: "message-3",
+		role: "user" as const,
+		content: "Follow-up question",
+		messageSequence: 3,
+		createdAtOffsetMs: 2000,
+	},
+	{
+		id: "message-4",
+		role: "assistant" as const,
+		content: "Follow-up answer",
+		messageSequence: 4,
+		createdAtOffsetMs: 3000,
+	},
+] as const;
+
+function createDefaultSourceMessages() {
+	return defaultCompressionSourceMessages.map((message) => ({ ...message }));
+}
+
+function createLegacySourceMessages() {
+	return defaultLegacyCompressionSourceMessages.map((message) => ({
+		...message,
+	}));
+}
+
+function seedConversationWithMessages() {
+	seedConversation({
+		email: "context-compression@example.com",
+		title: "Compression persistence",
+		messages: [...defaultCompressionSourceMessages],
+	});
+}
+
 function seedConversationWithLegacyUnsequencedMessages() {
-	const { sqlite, db } = openSeedDatabase();
-	const now = new Date("2026-05-25T10:00:00.000Z");
-	try {
-		db.insert(schema.users)
-			.values({
-				id: "user-1",
-				email: "context-compression-legacy@example.com",
-				passwordHash: "hash",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.run();
-		db.insert(schema.conversations)
-			.values({
-				id: "conv-1",
-				userId: "user-1",
-				title: "Compression deletion cleanup",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.run();
-		db.insert(schema.messages)
-			.values([
-				{
-					id: "message-1",
-					conversationId: "conv-1",
-					role: "user",
-					content: "First question",
-					createdAt: now,
-				},
-				{
-					id: "message-2",
-					conversationId: "conv-1",
-					role: "assistant",
-					content: "First answer",
-					createdAt: new Date(now.getTime() + 1000),
-				},
-				{
-					id: "message-3",
-					conversationId: "conv-1",
-					role: "user",
-					content: "Follow-up question",
-					createdAt: new Date(now.getTime() + 2000),
-				},
-				{
-					id: "message-4",
-					conversationId: "conv-1",
-					role: "assistant",
-					content: "Follow-up answer",
-					createdAt: new Date(now.getTime() + 3000),
-				},
-			])
-			.run();
-	} finally {
-		sqlite.close();
-	}
+	seedConversation({
+		email: "context-compression-legacy@example.com",
+		title: "Compression deletion cleanup",
+		messages: [...createLegacySourceMessages()],
+	});
 }
 
 describe("context compression snapshots", () => {
@@ -406,20 +410,7 @@ describe("context compression snapshots", () => {
 			trigger: "manual",
 			selectedModelId: "model2",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 			sourceTokenEstimate: 24,
 			targetTokenEstimate: 12,
 		});
@@ -493,20 +484,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("valid");
@@ -550,20 +528,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("valid");
@@ -601,20 +566,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("valid");
@@ -671,20 +623,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("valid");
@@ -753,20 +692,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("valid");
@@ -844,20 +770,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("valid");
@@ -925,20 +838,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("valid");
@@ -985,20 +885,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("valid");
@@ -1036,20 +923,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("valid");
@@ -1113,20 +987,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("failed");
@@ -1157,20 +1018,7 @@ describe("context compression snapshots", () => {
 			trigger: "automatic",
 			selectedModelId: "model1",
 			controlMessageSender: mocks.sendJsonControlMessage,
-			sourceMessages: [
-				{
-					id: "message-1",
-					role: "user",
-					content: "First question",
-					messageSequence: 1,
-				},
-				{
-					id: "message-2",
-					role: "assistant",
-					content: "First answer",
-					messageSequence: 2,
-				},
-			],
+			sourceMessages: createDefaultSourceMessages(),
 		});
 
 		expect(result.status).toBe("failed");

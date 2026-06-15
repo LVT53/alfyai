@@ -28,6 +28,75 @@ import {
 	runStreamingNormalChatModelRun,
 } from "./index";
 
+type ChatCompletionMessage = {
+	role: "assistant";
+	content?: string | Array<{ type: string; text: string }> | null;
+	tool_calls?: unknown;
+	reasoning_content?: string;
+};
+
+type RunPlainNormalChatModelRunArgs = Parameters<
+	typeof runPlainNormalChatModelRun
+>[0];
+type ChatRunMessage = RunPlainNormalChatModelRunArgs["messages"][number];
+
+function userTextMessage(content: string): ChatRunMessage {
+	return {
+		role: "user",
+		content: [{ type: "text", text: content }],
+	} as ChatRunMessage;
+}
+
+function createMockChatCompletionResponse({
+	message,
+	model = "provider-returned-model",
+	responseId = "chatcmpl-1",
+	created = 1_717_171_717,
+	finishReason = "stop",
+	usage = {
+		prompt_tokens: 11,
+		completion_tokens: 7,
+		total_tokens: 18,
+	},
+	status = 200,
+	errorMessage,
+}: {
+	message: ChatCompletionMessage;
+	model?: string;
+	responseId?: string;
+	created?: number;
+	finishReason?: string;
+	usage?: {
+		prompt_tokens: number;
+		completion_tokens: number;
+		total_tokens: number;
+	} | null;
+	status?: number;
+	errorMessage?: { message: string; type: string };
+}) {
+	const payload = errorMessage
+		? { error: errorMessage }
+		: {
+				id: responseId,
+				model,
+				created,
+				choices: [
+					{
+						index: 0,
+						message,
+						finish_reason: finishReason,
+					},
+				],
+				...(usage === null ? {} : { usage }),
+			};
+	return new Response(JSON.stringify(payload), {
+		status,
+		headers: {
+			"Content-Type": errorMessage ? "application/json" : "application/json",
+		},
+	});
+}
+
 describe("Normal Chat Model Run provider resolution", () => {
 	beforeEach(() => {
 		mocks.getProviderByName.mockReset();
@@ -483,34 +552,15 @@ describe("Plain Normal Chat Model Run", () => {
 	});
 
 	it("maps generated text, usage, and model metadata from an OpenAI-compatible response", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(
-			async () =>
-				new Response(
-					JSON.stringify({
-						id: "chatcmpl-1",
-						model: "provider-returned-model",
-						created: 1_717_171_717,
-						choices: [
-							{
-								index: 0,
-								message: {
-									role: "assistant",
-									content: "Plain answer",
-								},
-								finish_reason: "stop",
-							},
-						],
-						usage: {
-							prompt_tokens: 11,
-							completion_tokens: 7,
-							total_tokens: 18,
-						},
-					}),
-					{
-						status: 200,
-						headers: { "Content-Type": "application/json" },
-					},
-				),
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: { role: "assistant", content: "Plain answer" },
+				usage: {
+					prompt_tokens: 11,
+					completion_tokens: 7,
+					total_tokens: 18,
+				},
+			}),
 		);
 
 		const result = await runPlainNormalChatModelRun({
@@ -523,12 +573,7 @@ describe("Plain Normal Chat Model Run", () => {
 				apiKey: "plain-secret",
 				maxOutputTokens: 2048,
 			},
-			messages: [
-				{
-					role: "user",
-					content: [{ type: "text", text: "Hello" }],
-				},
-			],
+			messages: [userTextMessage("Hello")],
 			fetch,
 		});
 
@@ -562,29 +607,14 @@ describe("Plain Normal Chat Model Run", () => {
 	});
 
 	it("serializes generic reasoning effort to the outbound OpenAI-compatible body", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(
-			async () =>
-				new Response(
-					JSON.stringify({
-						id: "chatcmpl-1",
-						model: "provider-returned-model",
-						created: 1_717_171_717,
-						choices: [
-							{
-								index: 0,
-								message: {
-									role: "assistant",
-									content: "Plain answer",
-								},
-								finish_reason: "stop",
-							},
-						],
-					}),
-					{
-						status: 200,
-						headers: { "Content-Type": "application/json" },
-					},
-				),
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: {
+					role: "assistant",
+					content: "Plain answer",
+				},
+				usage: null,
+			}),
 		);
 		const provider = {
 			id: "provider-1",
@@ -598,12 +628,7 @@ describe("Plain Normal Chat Model Run", () => {
 
 		await runPlainNormalChatModelRun({
 			provider,
-			messages: [
-				{
-					role: "user",
-					content: [{ type: "text", text: "Hello" }],
-				},
-			],
+			messages: [userTextMessage("Hello")],
 			providerOptions: buildNormalChatModelRunProviderOptions(provider, "on"),
 			fetch,
 		});
@@ -615,29 +640,14 @@ describe("Plain Normal Chat Model Run", () => {
 	});
 
 	it("serializes Kimi thinking and reasoning effort to the outbound body", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(
-			async () =>
-				new Response(
-					JSON.stringify({
-						id: "chatcmpl-1",
-						model: "provider-returned-model",
-						created: 1_717_171_717,
-						choices: [
-							{
-								index: 0,
-								message: {
-									role: "assistant",
-									content: "Plain answer",
-								},
-								finish_reason: "stop",
-							},
-						],
-					}),
-					{
-						status: 200,
-						headers: { "Content-Type": "application/json" },
-					},
-				),
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: {
+					role: "assistant",
+					content: "Plain answer",
+				},
+				usage: null,
+			}),
 		);
 		const provider = {
 			id: "provider-1",
@@ -652,12 +662,7 @@ describe("Plain Normal Chat Model Run", () => {
 
 		await runPlainNormalChatModelRun({
 			provider,
-			messages: [
-				{
-					role: "user",
-					content: [{ type: "text", text: "Hello" }],
-				},
-			],
+			messages: [userTextMessage("Hello")],
 			providerOptions: buildNormalChatModelRunProviderOptions(provider, "on"),
 			fetch,
 		});
@@ -669,29 +674,14 @@ describe("Plain Normal Chat Model Run", () => {
 	});
 
 	it("serializes Qwen thinking options without reasoning effort", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(
-			async () =>
-				new Response(
-					JSON.stringify({
-						id: "chatcmpl-1",
-						model: "provider-returned-model",
-						created: 1_717_171_717,
-						choices: [
-							{
-								index: 0,
-								message: {
-									role: "assistant",
-									content: "Plain answer",
-								},
-								finish_reason: "stop",
-							},
-						],
-					}),
-					{
-						status: 200,
-						headers: { "Content-Type": "application/json" },
-					},
-				),
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: {
+					role: "assistant",
+					content: "Plain answer",
+				},
+				usage: null,
+			}),
 		);
 		const provider = {
 			id: "provider-1",
@@ -705,12 +695,7 @@ describe("Plain Normal Chat Model Run", () => {
 
 		await runPlainNormalChatModelRun({
 			provider,
-			messages: [
-				{
-					role: "user",
-					content: [{ type: "text", text: "Hello" }],
-				},
-			],
+			messages: [userTextMessage("Hello")],
 			providerOptions: buildNormalChatModelRunProviderOptions(provider, "on"),
 			fetch,
 		});
@@ -840,12 +825,7 @@ describe("Plain Normal Chat Model Run", () => {
 					thinkingType: null,
 				},
 			} as never,
-			messages: [
-				{
-					role: "user",
-					content: [{ type: "text", text: "Hello" }],
-				},
-			],
+			messages: [userTextMessage("Hello")],
 			fetch,
 			maxRetries: 0,
 		});
@@ -901,27 +881,15 @@ describe("Plain Normal Chat Model Run", () => {
 			.fn()
 			.mockRejectedValueOnce(timeoutError)
 			.mockResolvedValueOnce(
-				new Response(
-					JSON.stringify({
-						id: "chatcmpl-provider-fallback",
-						model: "provider-returned-model",
-						created: 1_717_171_718,
-						choices: [
-							{
-								index: 0,
-								message: {
-									role: "assistant",
-									content: "Provider fallback answer",
-								},
-								finish_reason: "stop",
-							},
-						],
-					}),
-					{
-						status: 200,
-						headers: { "Content-Type": "application/json" },
+				createMockChatCompletionResponse({
+					responseId: "chatcmpl-provider-fallback",
+					message: {
+						role: "assistant",
+						content: "Provider fallback answer",
 					},
-				),
+					created: 1_717_171_718,
+					usage: null,
+				}),
 			);
 
 		const result = await runPlainNormalChatModelRun({
@@ -961,12 +929,7 @@ describe("Plain Normal Chat Model Run", () => {
 					thinkingType: null,
 				},
 			} as never,
-			messages: [
-				{
-					role: "user",
-					content: [{ type: "text", text: "Hello" }],
-				},
-			],
+			messages: [userTextMessage("Hello")],
 			fetch,
 			maxRetries: 0,
 		});
