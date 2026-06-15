@@ -1,10 +1,7 @@
-import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import {
 	type ChatGPTCodeContent,
-	type ChatGPTConversation,
 	type ChatGPTExecutionOutputContent,
-	type ChatGPTImagePart,
 	type ChatGPTMappingNode,
 	type ChatGPTMessage,
 	type ChatGPTMessageContent,
@@ -12,7 +9,6 @@ import {
 	type ChatGPTReasoningRecapContent,
 	type ChatGPTSystemErrorContent,
 	type ChatGPTTextContent,
-	type ChatGPTTextPart,
 	type ChatGPTThoughtsContent,
 	type ChatGPTUserEditableContextContent,
 	detectBranches,
@@ -22,32 +18,22 @@ import {
 	reconstructThread,
 	stripUnicodeControls,
 } from "./parser";
-
-function makeMessage(overrides: Partial<ChatGPTMessage> = {}): ChatGPTMessage {
-	return {
-		id: "msg-1",
-		author: { role: "user", name: null, metadata: {} },
-		create_time: 1000000,
-		update_time: null,
-		content: { content_type: "text", parts: ["Hello"] },
-		status: "finished_successfully",
-		end_turn: true,
-		weight: 1,
-		metadata: {},
-		recipient: "all",
-		channel: null,
-		...overrides,
-	};
-}
-
-function makeNode(
-	id: string,
-	message: ChatGPTMessage | null,
-	parent: string | null,
-	children: string[],
-): ChatGPTMappingNode {
-	return { id, message, parent, children };
-}
+import {
+	makeCodeContent,
+	makeCodeMessage,
+	makeConversation,
+	makeExecutionOutputContent,
+	makeImagePart,
+	makeMessage,
+	makeMultimodalTextContent,
+	makeNode,
+	makeTextContent,
+	makeTextMessage,
+	makeTextPart,
+	makeZipBuffer,
+	makeZipWithConversations,
+	reconstructFromSingleNode,
+} from "./parser.test-helpers";
 
 // ─── stripUnicodeControls ────────────────────────────────────────────
 
@@ -166,18 +152,12 @@ describe("extractContent", () => {
 
 	describe("text content_type", () => {
 		it("joins parts with newline separator", () => {
-			const content: ChatGPTTextContent = {
-				content_type: "text",
-				parts: ["Hello", "World", "How are you?"],
-			};
+			const content = makeTextContent(["Hello", "World", "How are you?"]);
 			expect(extractContent(content)).toBe("Hello\nWorld\nHow are you?");
 		});
 
 		it("returns single part without newline", () => {
-			const content: ChatGPTTextContent = {
-				content_type: "text",
-				parts: ["Single message"],
-			};
+			const content = makeTextContent(["Single message"]);
 			expect(extractContent(content)).toBe("Single message");
 		});
 
@@ -203,10 +183,7 @@ describe("extractContent", () => {
 		});
 
 		it("strips Unicode control characters from joined text", () => {
-			const content: ChatGPTTextContent = {
-				content_type: "text",
-				parts: ["Hello\u{e200}", "\u{e201}World"],
-			};
+			const content = makeTextContent(["Hello\u{e200}", "\u{e201}World"]);
 			expect(extractContent(content)).toBe("Hello\nWorld");
 		});
 
@@ -221,20 +198,12 @@ describe("extractContent", () => {
 
 	describe("code content_type", () => {
 		it("wraps code in triple-backtick fenced block with language", () => {
-			const content: ChatGPTCodeContent = {
-				content_type: "code",
-				language: "python",
-				text: "print('hello')",
-			};
+			const content = makeCodeContent("python", "print('hello')");
 			expect(extractContent(content)).toBe("```python\nprint('hello')\n```");
 		});
 
 		it("handles empty language", () => {
-			const content: ChatGPTCodeContent = {
-				content_type: "code",
-				language: "",
-				text: "console.log('hi')",
-			};
+			const content = makeCodeContent("", "console.log('hi')");
 			expect(extractContent(content)).toBe("```\nconsole.log('hi')\n```");
 		});
 
@@ -247,49 +216,37 @@ describe("extractContent", () => {
 		});
 
 		it("handles empty text", () => {
-			const content: ChatGPTCodeContent = {
-				content_type: "code",
-				language: "typescript",
-				text: "",
-			};
+			const content = makeCodeContent("typescript", "");
 			expect(extractContent(content)).toBe("```typescript\n\n```");
 		});
 
 		it("handles multiline code", () => {
-			const content: ChatGPTCodeContent = {
-				content_type: "code",
-				language: "javascript",
-				text: "function a() {\n  return 1;\n}",
-			};
+			const content = makeCodeContent(
+				"javascript",
+				"function a() {\n  return 1;\n}",
+			);
 			expect(extractContent(content)).toBe(
 				"```javascript\nfunction a() {\n  return 1;\n}\n```",
 			);
 		});
 
 		it("strips Unicode control characters in code blocks", () => {
-			const content: ChatGPTCodeContent = {
-				content_type: "code",
-				language: "python",
-				text: "x\u{e201} = 1",
-			};
+			const content = makeCodeContent("python", "x\u{e201} = 1");
 			expect(extractContent(content)).toBe("```python\nx = 1\n```");
 		});
 	});
 
 	describe("execution_output content_type", () => {
 		it("joins parts with newline separator", () => {
-			const content: ChatGPTExecutionOutputContent = {
-				content_type: "execution_output",
-				parts: ["line1", "line2", "line3"],
-			};
+			const content = makeExecutionOutputContent(["line1", "line2", "line3"]);
 			expect(extractContent(content)).toBe("line1\nline2\nline3");
 		});
 
 		it("filters non-string parts", () => {
-			const content = {
-				content_type: "execution_output",
-				parts: ["ok", 42 as unknown as string],
-			} as ChatGPTExecutionOutputContent;
+			const content = makeExecutionOutputContent([
+				"ok",
+				42 as unknown as string,
+			]);
 			expect(extractContent(content)).toBe("ok");
 		});
 
@@ -311,56 +268,30 @@ describe("extractContent", () => {
 
 	describe("multimodal_text content_type", () => {
 		it("extracts only text parts, preserving order", () => {
-			const textPart: ChatGPTTextPart = {
-				content_type: "text",
-				text: "Hello from image analysis",
-			};
-			const imagePart: ChatGPTImagePart = {
-				content_type: "image_asset_pointer",
-				asset_pointer: "file-abc123",
-				size_bytes: 1024,
-				width: 800,
-				height: 600,
-				fovea: null,
-				metadata: null,
-			};
-			const content: ChatGPTMultimodalTextContent = {
-				content_type: "multimodal_text",
-				parts: [textPart, imagePart],
-			};
+			const content = makeMultimodalTextContent([
+				makeTextPart("Hello from image analysis"),
+				makeImagePart(),
+			]);
 			expect(extractContent(content)).toBe("Hello from image analysis");
 		});
 
 		it("joins multiple text parts with empty string", () => {
-			const part1: ChatGPTTextPart = {
-				content_type: "text",
-				text: "First part ",
-			};
-			const part2: ChatGPTTextPart = {
-				content_type: "text",
-				text: "Second part",
-			};
-			const content: ChatGPTMultimodalTextContent = {
-				content_type: "multimodal_text",
-				parts: [part1, part2],
-			};
+			const content = makeMultimodalTextContent([
+				makeTextPart("First part "),
+				makeTextPart("Second part"),
+			]);
 			expect(extractContent(content)).toBe("First part Second part");
 		});
 
 		it("returns empty string when there are no text parts", () => {
-			const imagePart: ChatGPTImagePart = {
-				content_type: "image_asset_pointer",
-				asset_pointer: "file-xyz",
-				size_bytes: 500,
-				width: 400,
-				height: 300,
-				fovea: null,
-				metadata: null,
-			};
-			const content: ChatGPTMultimodalTextContent = {
-				content_type: "multimodal_text",
-				parts: [imagePart],
-			};
+			const content = makeMultimodalTextContent([
+				makeImagePart({
+					asset_pointer: "file-xyz",
+					size_bytes: 500,
+					width: 400,
+					height: 300,
+				}),
+			]);
 			expect(extractContent(content)).toBe("");
 		});
 
@@ -372,26 +303,17 @@ describe("extractContent", () => {
 		});
 
 		it("filters unknown part types", () => {
-			const textPart: ChatGPTTextPart = {
-				content_type: "text",
-				text: "Visible text",
-			};
-			const content = {
-				content_type: "multimodal_text",
-				parts: [textPart, { content_type: "unknown_type", data: "x" }],
-			} as ChatGPTMultimodalTextContent;
+			const content = makeMultimodalTextContent([
+				makeTextPart("Visible text"),
+				{ content_type: "unknown_type", data: "x" },
+			]);
 			expect(extractContent(content)).toBe("Visible text");
 		});
 
 		it("strips Unicode control characters from text parts", () => {
-			const textPart: ChatGPTTextPart = {
-				content_type: "text",
-				text: "Hello\u{e200}World",
-			};
-			const content: ChatGPTMultimodalTextContent = {
-				content_type: "multimodal_text",
-				parts: [textPart],
-			};
+			const content = makeMultimodalTextContent([
+				makeTextPart("Hello\u{e200}World"),
+			]);
 			expect(extractContent(content)).toBe("HelloWorld");
 		});
 	});
@@ -454,24 +376,21 @@ describe("extractContent", () => {
 
 describe("reconstructThread", () => {
 	it("returns messages in chronological order (oldest first)", () => {
-		const msg1 = makeMessage({
+		const msg1 = makeTextMessage("First", {
 			id: "m1",
 			author: { role: "user", name: null, metadata: {} },
-			content: { content_type: "text", parts: ["First"] },
 			create_time: 1000,
 			weight: 1,
 		});
-		const msg2 = makeMessage({
+		const msg2 = makeTextMessage("Second", {
 			id: "m2",
 			author: { role: "assistant", name: null, metadata: {} },
-			content: { content_type: "text", parts: ["Second"] },
 			create_time: 2000,
 			weight: 2,
 		});
-		const msg3 = makeMessage({
+		const msg3 = makeTextMessage("Third", {
 			id: "m3",
 			author: { role: "user", name: null, metadata: {} },
-			content: { content_type: "text", parts: ["Third"] },
 			create_time: 3000,
 			weight: 3,
 		});
@@ -490,93 +409,63 @@ describe("reconstructThread", () => {
 	});
 
 	it("sets correct role for user messages", () => {
-		const msg = makeMessage({
+		const msg = makeTextMessage("Hi", {
 			author: { role: "user", name: null, metadata: {} },
-			content: { content_type: "text", parts: ["Hi"] },
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result[0].role).toBe("user");
 	});
 
 	it("sets correct role for assistant messages", () => {
-		const msg = makeMessage({
+		const msg = makeTextMessage("Hi", {
 			author: { role: "assistant", name: null, metadata: {} },
-			content: { content_type: "text", parts: ["Hi"] },
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result[0].role).toBe("assistant");
 	});
 
 	it("sets createdAt from create_time (epoch seconds)", () => {
-		const msg = makeMessage({
+		const msg = makeTextMessage("Hi", {
 			create_time: 1700000000,
-			content: { content_type: "text", parts: ["Hi"] },
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result[0].createdAt).toEqual(new Date(1700000000 * 1000));
 	});
 
 	it("does not set createdAt when create_time is null", () => {
-		const msg = makeMessage({
+		const msg = makeTextMessage("Hi", {
 			create_time: null,
-			content: { content_type: "text", parts: ["Hi"] },
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result[0].createdAt).toBeUndefined();
 	});
 
 	it("sets metadata.model from model_slug", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Hi"] },
+		const msg = makeTextMessage("Hi", {
 			metadata: { model_slug: "gpt-4" },
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result[0].metadata?.model).toBe("gpt-4");
 	});
 
 	it("falls back to default_model_slug for metadata.model", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Hi"] },
+		const msg = makeTextMessage("Hi", {
 			metadata: { default_model_slug: "gpt-3.5" },
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result[0].metadata?.model).toBe("gpt-3.5");
 	});
 
 	it("sets metadata.weight", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Hi"] },
+		const msg = makeTextMessage("Hi", {
 			weight: 42,
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result[0].metadata?.weight).toBe(42);
 	});
 
 	it("skips nodes with null message", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Visible"] },
-		});
+		const msg = makeTextMessage("Visible");
 		const mapping: Record<string, ChatGPTMappingNode> = {
 			root: makeNode("root", null, null, ["visible"]),
 			visible: makeNode("visible", msg, "root", []),
@@ -587,50 +476,34 @@ describe("reconstructThread", () => {
 	});
 
 	it("skips deleted messages (by status)", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Should be skipped"] },
+		const msg = makeTextMessage("Should be skipped", {
 			status: "deleted",
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result).toHaveLength(0);
 	});
 
 	it("skips hidden messages (by metadata flag)", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Hidden"] },
+		const msg = makeTextMessage("Hidden", {
 			metadata: { is_visually_hidden_from_conversation: true },
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result).toHaveLength(0);
 	});
 
 	it("skips system role messages", () => {
-		const msg = makeMessage({
+		const msg = makeTextMessage("System prompt", {
 			author: { role: "system", name: null, metadata: {} },
-			content: { content_type: "text", parts: ["System prompt"] },
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result).toHaveLength(0);
 	});
 
 	it("skips tool role messages", () => {
-		const msg = makeMessage({
+		const msg = makeTextMessage("Tool result", {
 			author: { role: "tool", name: null, metadata: {} },
-			content: { content_type: "text", parts: ["Tool result"] },
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result).toHaveLength(0);
 	});
 
@@ -650,31 +523,19 @@ describe("reconstructThread", () => {
 	});
 
 	it("skips messages with empty content after trim", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["   "] },
-		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const msg = makeTextMessage("   ");
+		const result = reconstructFromSingleNode(msg);
 		expect(result).toHaveLength(0);
 	});
 
 	it("trims whitespace from content", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["  Hello  "] },
-		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const msg = makeTextMessage("  Hello  ");
+		const result = reconstructFromSingleNode(msg);
 		expect(result[0].content).toBe("Hello");
 	});
 
 	it("handles missing mapping node gracefully", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Orphan"] },
-		});
+		const msg = makeTextMessage("Orphan");
 		const mapping: Record<string, ChatGPTMappingNode> = {
 			n1: makeNode("n1", msg, "non-existent-parent", []),
 		};
@@ -683,14 +544,12 @@ describe("reconstructThread", () => {
 	});
 
 	it("detects and breaks on cycles in the parent chain", () => {
-		const msg1 = makeMessage({
+		const msg1 = makeTextMessage("A", {
 			id: "m1",
-			content: { content_type: "text", parts: ["A"] },
 			weight: 1,
 		});
-		const msg2 = makeMessage({
+		const msg2 = makeTextMessage("B", {
 			id: "m2",
-			content: { content_type: "text", parts: ["B"] },
 			weight: 2,
 		});
 
@@ -710,14 +569,12 @@ describe("reconstructThread", () => {
 	});
 
 	it("uses highest-weight leaf as fallback when current_node is null", () => {
-		const msgLow = makeMessage({
+		const msgLow = makeTextMessage("Low weight", {
 			id: "low",
-			content: { content_type: "text", parts: ["Low weight"] },
 			weight: 1,
 		});
-		const msgHigh = makeMessage({
+		const msgHigh = makeTextMessage("High weight", {
 			id: "high",
-			content: { content_type: "text", parts: ["High weight"] },
 			weight: 10,
 		});
 
@@ -732,10 +589,7 @@ describe("reconstructThread", () => {
 	});
 
 	it("skips leaf nodes that have no message when finding fallback", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Only valid"] },
-			weight: 5,
-		});
+		const msg = makeTextMessage("Only valid", { weight: 5 });
 
 		const mapping: Record<string, ChatGPTMappingNode> = {
 			empty: makeNode("empty", null, null, []),
@@ -748,14 +602,12 @@ describe("reconstructThread", () => {
 	});
 
 	it("ignores non-leaf nodes when finding fallback (only leaf nodes used)", () => {
-		const msgParent = makeMessage({
+		const msgParent = makeTextMessage("Parent", {
 			id: "parent",
-			content: { content_type: "text", parts: ["Parent"] },
 			weight: 100,
 		});
-		const msgChild = makeMessage({
+		const msgChild = makeTextMessage("Child", {
 			id: "child",
-			content: { content_type: "text", parts: ["Child"] },
 			weight: 1,
 		});
 
@@ -771,31 +623,23 @@ describe("reconstructThread", () => {
 	});
 
 	it("handles a single-node conversation", () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Solo"] },
-		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const msg = makeTextMessage("Solo");
+		const result = reconstructFromSingleNode(msg);
 		expect(result).toHaveLength(1);
 		expect(result[0].content).toBe("Solo");
 	});
 
 	it("walks backward via parent pointers, NOT forward via children", () => {
-		const msg1 = makeMessage({
+		const msg1 = makeTextMessage("Start", {
 			id: "m1",
-			content: { content_type: "text", parts: ["Start"] },
 			weight: 1,
 		});
-		const msg2 = makeMessage({
+		const msg2 = makeTextMessage("Middle", {
 			id: "m2",
-			content: { content_type: "text", parts: ["Middle"] },
 			weight: 2,
 		});
-		const msg3 = makeMessage({
+		const msg3 = makeTextMessage("End", {
 			id: "m3",
-			content: { content_type: "text", parts: ["End"] },
 			weight: 3,
 		});
 
@@ -812,18 +656,10 @@ describe("reconstructThread", () => {
 	});
 
 	it("includes code content messages with correct fenced formatting", () => {
-		const msg = makeMessage({
+		const msg = makeCodeMessage("python", "print('hello')", {
 			author: { role: "assistant", name: null, metadata: {} },
-			content: {
-				content_type: "code",
-				language: "python",
-				text: "print('hello')",
-			},
 		});
-		const mapping: Record<string, ChatGPTMappingNode> = {
-			n1: makeNode("n1", msg, null, []),
-		};
-		const result = reconstructThread(mapping, "n1");
+		const result = reconstructFromSingleNode(msg);
 		expect(result[0].content).toBe("```python\nprint('hello')\n```");
 	});
 });
@@ -837,10 +673,9 @@ describe("detectBranches", () => {
 		text: string,
 		weight = 1.0,
 	): ChatGPTMessage {
-		return makeMessage({
+		return makeTextMessage(text, {
 			id,
 			author: { role, name: null, metadata: {} },
-			content: { content_type: "text", parts: [text] },
 			weight,
 		});
 	}
@@ -994,46 +829,6 @@ describe("detectBranches", () => {
 // ─── parseConversationsJson ──────────────────────────────────────────
 
 describe("parseConversationsJson", () => {
-	async function makeZipWithConversations(
-		conversations: ChatGPTConversation[],
-	): Promise<Buffer> {
-		const zip = new JSZip();
-		zip.file("conversations.json", JSON.stringify(conversations));
-		return Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
-	}
-
-	function makeConversation(
-		overrides: Partial<ChatGPTConversation> = {},
-	): ChatGPTConversation {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Hello"] },
-		});
-		const node = makeNode("leaf", msg, null, []);
-		return {
-			id: "conv-1",
-			title: "Test Conversation",
-			create_time: 1700000000,
-			update_time: 1700001000,
-			mapping: { leaf: node },
-			current_node: "leaf",
-			conversation_id: "conv-1",
-			moderation_results: [],
-			plugin_ids: null,
-			conversation_template_id: null,
-			gizmo_id: null,
-			gizmo_type: null,
-			is_archived: false,
-			is_starred: null,
-			safe_urls: [],
-			default_model_slug: null,
-			conversation_origin: null,
-			voice: null,
-			async_status: null,
-			disabled_tool_ids: [],
-			...overrides,
-		};
-	}
-
 	it("parses a ZIP with a single conversation", async () => {
 		const conv = makeConversation();
 		const buffer = await makeZipWithConversations([conv]);
@@ -1158,9 +953,9 @@ describe("parseConversationsJson", () => {
 	});
 
 	it("returns error when conversations.json is missing", async () => {
-		const zip = new JSZip();
-		zip.file("other.json", "{}");
-		const buffer = Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
+		const buffer = await makeZipBuffer((zip) => {
+			zip.file("other.json", "{}");
+		});
 		const result = await parseConversationsJson(buffer);
 
 		expect(result.conversations).toHaveLength(0);
@@ -1169,9 +964,9 @@ describe("parseConversationsJson", () => {
 	});
 
 	it("returns error when conversations.json is invalid JSON", async () => {
-		const zip = new JSZip();
-		zip.file("conversations.json", "not valid json {{{");
-		const buffer = Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
+		const buffer = await makeZipBuffer((zip) => {
+			zip.file("conversations.json", "not valid json {{{");
+		});
 		const result = await parseConversationsJson(buffer);
 
 		expect(result.conversations).toHaveLength(0);
@@ -1180,9 +975,9 @@ describe("parseConversationsJson", () => {
 	});
 
 	it("returns error when conversations.json is not an array", async () => {
-		const zip = new JSZip();
-		zip.file("conversations.json", JSON.stringify({ not: "an array" }));
-		const buffer = Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
+		const buffer = await makeZipBuffer((zip) => {
+			zip.file("conversations.json", JSON.stringify({ not: "an array" }));
+		});
 		const result = await parseConversationsJson(buffer);
 
 		expect(result.conversations).toHaveLength(0);
@@ -1216,10 +1011,7 @@ describe("parseConversationsJson", () => {
 	});
 
 	it("handles missing current_node by using highest-weight leaf fallback", async () => {
-		const msg = makeMessage({
-			content: { content_type: "text", parts: ["Surviving"] },
-			weight: 1,
-		});
+		const msg = makeTextMessage("Surviving", { weight: 1 });
 		const node = makeNode("leaf", msg, null, []);
 		const conv = makeConversation({
 			mapping: { leaf: node },
@@ -1244,22 +1036,19 @@ describe("parseConversationsJson", () => {
 	});
 
 	it("handles conversations with system messages skipped from output", async () => {
-		const userMsg = makeMessage({
+		const userMsg = makeTextMessage("User question", {
 			id: "u1",
 			author: { role: "user", name: null, metadata: {} },
-			content: { content_type: "text", parts: ["User question"] },
 			weight: 1,
 		});
-		const sysMsg = makeMessage({
+		const sysMsg = makeTextMessage("System prompt", {
 			id: "s1",
 			author: { role: "system", name: null, metadata: {} },
-			content: { content_type: "text", parts: ["System prompt"] },
 			weight: 2,
 		});
-		const assMsg = makeMessage({
+		const assMsg = makeTextMessage("Assistant reply", {
 			id: "a1",
 			author: { role: "assistant", name: null, metadata: {} },
-			content: { content_type: "text", parts: ["Assistant reply"] },
 			weight: 3,
 		});
 
