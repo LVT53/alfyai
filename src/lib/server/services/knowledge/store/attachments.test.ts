@@ -1,4 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	makeArtifactRow,
+	makeFileFixture,
+	makeInsertChain,
+	makeSelectLimitResult,
+	makeSelectResult,
+	queueMockResponses,
+} from "./test-fixtures";
 
 // Mock fs/promises
 vi.mock("node:fs/promises", async () => {
@@ -98,48 +106,28 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 
 	describe("saveUploadedArtifact", () => {
 		it("should not rename when no conflict exists", async () => {
-			const mockFile = {
-				name: "report.pdf",
-				size: 1024,
-				type: "application/pdf",
-				arrayBuffer: vi.fn(() => Promise.resolve(new ArrayBuffer(1024))),
-			} as unknown as File;
+			const mockFile = makeFileFixture("report.pdf", "application/pdf", 1024);
 
-			// No existing artifact with same name
-			mockDb.select.mockReturnValue({
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						limit: vi.fn(() => Promise.resolve([])),
-					})),
-				})),
-			});
+			mockDb.select.mockReturnValue(makeSelectLimitResult([]));
 
-			mockDb.insert.mockReturnValue({
-				values: vi.fn(() => ({
-					returning: vi.fn(() =>
-						Promise.resolve([
-							{
-								id: "artifact-uuid-123",
-								userId: "user-1",
-								conversationId: "conv-1",
-								type: "source_document",
-								name: "report.pdf",
-								mimeType: "application/pdf",
-								extension: "pdf",
-								sizeBytes: 1024,
-								binaryHash: "mock-hash-123",
-								storagePath: "data/knowledge/user-1/artifact-uuid-123.pdf",
-								contentText: null,
-								summary: "report.pdf",
-								metadataJson: JSON.stringify({ uploadSource: "chat" }),
-								retrievalClass: "durable",
-								createdAt: new Date("2024-01-01"),
-								updatedAt: new Date("2024-01-01"),
-							},
-						]),
-					),
-				})),
-			});
+			mockDb.insert.mockReturnValue(
+				makeInsertChain([
+					makeArtifactRow({
+						id: "artifact-uuid-123",
+						userId: "user-1",
+						conversationId: "conv-1",
+						name: "report.pdf",
+						mimeType: "application/pdf",
+						extension: "pdf",
+						sizeBytes: 1024,
+						binaryHash: "mock-hash-123",
+						storagePath: "data/knowledge/user-1/artifact-uuid-123.pdf",
+						summary: "report.pdf",
+						metadataJson: JSON.stringify({ uploadSource: "chat" }),
+						retrievalClass: "durable",
+					}),
+				]),
+			);
 
 			const result = await saveUploadedArtifact({
 				userId: "user-1",
@@ -152,101 +140,56 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 		});
 
 		it("should auto-rename when filename conflict exists across all user artifacts", async () => {
-			const mockFile = {
-				name: "report.pdf",
-				size: 1024,
-				type: "application/pdf",
-				arrayBuffer: vi.fn(() => Promise.resolve(new ArrayBuffer(1024))),
-			} as unknown as File;
+			const mockFile = makeFileFixture("report.pdf", "application/pdf", 1024);
 
-			let callCount = 0;
-			mockDb.select.mockImplementation(() => {
-				callCount++;
-				if (callCount === 1) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() => ({
-								limit: vi.fn(() =>
-									Promise.resolve([
-										{
-											id: "existing-artifact",
-											userId: "user-1",
-											name: "report.pdf",
-											type: "source_document",
-											binaryHash: "different-hash",
-											createdAt: new Date("2024-01-01"),
-											updatedAt: new Date("2024-01-01"),
-										},
-									]),
-								),
-							})),
-						})),
-					};
-				}
-				if (callCount === 2) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() =>
-								Promise.resolve([
-									{ name: "report.pdf" },
-									{ name: "other.pdf" },
-									{ name: "doc.pdf" },
-								]),
-							),
-						})),
-					};
-				}
-				return {
-					from: vi.fn(() => ({
-						where: vi.fn(() => ({
-							limit: vi.fn(() =>
-								Promise.resolve([
-									{
-										id: "existing-link",
-										userId: "user-1",
-										name: "report.pdf",
-										type: "source_document",
-										binaryHash: "different-hash",
-										createdAt: new Date("2024-01-01"),
-										updatedAt: new Date("2024-01-01"),
-									},
-								]),
-							),
-						})),
-					})),
-				};
-			});
+			queueMockResponses(mockDb.select, [
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing-artifact",
+						userId: "user-1",
+						name: "report.pdf",
+						type: "source_document",
+						binaryHash: "different-hash",
+					}),
+				]),
+				makeSelectResult([
+					{ name: "report.pdf" },
+					{ name: "other.pdf" },
+					{ name: "doc.pdf" },
+				]),
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing-link",
+						userId: "user-1",
+						name: "report.pdf",
+						type: "source_document",
+						binaryHash: "different-hash",
+					}),
+				]),
+			]);
 
-			mockDb.insert.mockReturnValue({
-				values: vi.fn(() => ({
-					returning: vi.fn(() =>
-						Promise.resolve([
-							{
-								id: "artifact-uuid-123",
-								userId: "user-1",
-								conversationId: "conv-1",
-								type: "source_document",
-								name: "report_1.pdf",
-								mimeType: "application/pdf",
-								extension: "pdf",
-								sizeBytes: 1024,
-								binaryHash: "mock-hash-123",
-								storagePath: "data/knowledge/user-1/artifact-uuid-123.pdf",
-								contentText: null,
-								summary: "report_1.pdf",
-								metadataJson: JSON.stringify({
-									uploadSource: "chat",
-									originalName: "report.pdf",
-									renamed: true,
-								}),
-								retrievalClass: "durable",
-								createdAt: new Date("2024-01-01"),
-								updatedAt: new Date("2024-01-01"),
-							},
-						]),
-					),
-				})),
-			});
+			mockDb.insert.mockReturnValue(
+				makeInsertChain([
+					makeArtifactRow({
+						id: "artifact-uuid-123",
+						userId: "user-1",
+						conversationId: "conv-1",
+						name: "report_1.pdf",
+						mimeType: "application/pdf",
+						extension: "pdf",
+						sizeBytes: 1024,
+						binaryHash: "mock-hash-123",
+						storagePath: "data/knowledge/user-1/artifact-uuid-123.pdf",
+						summary: "report_1.pdf",
+						metadataJson: JSON.stringify({
+							uploadSource: "chat",
+							originalName: "report.pdf",
+							renamed: true,
+						}),
+						retrievalClass: "durable",
+					}),
+				]),
+			);
 
 			const result = await saveUploadedArtifact({
 				userId: "user-1",
@@ -262,126 +205,65 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 		});
 
 		it("should increment counter for multiple duplicates", async () => {
-			const mockFile = {
-				name: "report.pdf",
-				size: 1024,
-				type: "application/pdf",
-				arrayBuffer: vi.fn(() => Promise.resolve(new ArrayBuffer(1024))),
-			} as unknown as File;
+			const mockFile = makeFileFixture("report.pdf", "application/pdf", 1024);
 
-			let callCount = 0;
-			mockDb.select.mockImplementation(() => {
-				callCount++;
-				if (callCount === 1) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() => ({
-								limit: vi.fn(() =>
-									Promise.resolve([
-										{
-											id: "existing-artifact",
-											userId: "user-1",
-											name: "report.pdf",
-											type: "source_document",
-											binaryHash: "different-hash",
-											createdAt: new Date("2024-01-01"),
-											updatedAt: new Date("2024-01-01"),
-										},
-									]),
-								),
-							})),
-						})),
-					};
-				}
-				if (callCount === 2) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() => ({
-								limit: vi.fn(() =>
-									Promise.resolve([
-										{
-											id: "existing-name-conflict",
-											userId: "user-1",
-											name: "report.pdf",
-											type: "source_document",
-											binaryHash: "different-hash",
-											createdAt: new Date("2024-01-01"),
-											updatedAt: new Date("2024-01-01"),
-										},
-									]),
-								),
-							})),
-						})),
-					};
-				}
-				if (callCount === 3) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() =>
-								Promise.resolve([
-									{ name: "report.pdf" },
-									{ name: "report_1.pdf" },
-									{ name: "report_2.pdf" },
-								]),
-							),
-						})),
-					};
-				}
-				return {
-					from: vi.fn(() => ({
-						where: vi.fn(() => ({
-							limit: vi.fn(() =>
-								Promise.resolve([
-									{
-										id: "existing-link",
-										userId: "user-1",
-										name: "report.pdf",
-										type: "source_document",
-										binaryHash: "different-hash",
-										createdAt: new Date("2024-01-01"),
-										updatedAt: new Date("2024-01-01"),
-									},
-								]),
-							),
-						})),
-					})),
-				};
-			});
+			queueMockResponses(mockDb.select, [
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing-artifact",
+						userId: "user-1",
+						name: "report.pdf",
+						type: "source_document",
+						binaryHash: "different-hash",
+					}),
+				]),
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing-name-conflict",
+						userId: "user-1",
+						name: "report.pdf",
+						type: "source_document",
+						binaryHash: "different-hash",
+					}),
+				]),
+				makeSelectResult([
+					{ name: "report.pdf" },
+					{ name: "report_1.pdf" },
+					{ name: "report_2.pdf" },
+				]),
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing-link",
+						userId: "user-1",
+						name: "report.pdf",
+						type: "source_document",
+						binaryHash: "different-hash",
+					}),
+				]),
+			]);
 
-			const insertValues = vi.fn(
-				(insertedArtifact: {
-					name: string;
-					summary: string;
-					metadataJson: string;
-				}) => ({
-					returning: vi.fn(() =>
-						Promise.resolve([
-							{
-								id: "artifact-uuid-123",
-								userId: "user-1",
-								conversationId: "conv-1",
-								type: "source_document",
-								name: insertedArtifact.name,
-								mimeType: "application/pdf",
-								extension: "pdf",
-								sizeBytes: 1024,
-								binaryHash: "mock-hash-123",
-								storagePath: "data/knowledge/user-1/artifact-uuid-123.pdf",
-								contentText: null,
-								summary: insertedArtifact.summary,
-								metadataJson: insertedArtifact.metadataJson,
-								retrievalClass: "durable",
-								createdAt: new Date("2024-01-01"),
-								updatedAt: new Date("2024-01-01"),
-							},
-						]),
-					),
+			const insertChain = makeInsertChain([
+				makeArtifactRow({
+					id: "artifact-uuid-123",
+					userId: "user-1",
+					conversationId: "conv-1",
+					name: "report_3.pdf",
+					mimeType: "application/pdf",
+					extension: "pdf",
+					sizeBytes: 1024,
+					binaryHash: "mock-hash-123",
+					storagePath: "data/knowledge/user-1/artifact-uuid-123.pdf",
+					summary: "report_3.pdf",
+					metadataJson: JSON.stringify({
+						uploadSource: "chat",
+						originalName: "report.pdf",
+						renamed: true,
+					}),
+					retrievalClass: "durable",
 				}),
-			);
+			]);
 
-			mockDb.insert.mockReturnValue({
-				values: insertValues,
-			});
+			mockDb.insert.mockReturnValue(insertChain);
 
 			const result = await saveUploadedArtifact({
 				userId: "user-1",
@@ -393,7 +275,7 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 			expect(result.renameInfo?.wasRenamed).toBe(true);
 			expect(result.renameInfo?.originalName).toBe("report.pdf");
 
-			const firstInsertCall = insertValues.mock.calls[0];
+			const firstInsertCall = insertChain.values.mock.calls[0];
 			if (!firstInsertCall) throw new Error("Expected artifact insert call");
 			const insertedArtifact = firstInsertCall[0];
 			expect(insertedArtifact).toMatchObject({
@@ -407,72 +289,40 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 		});
 
 		it("should store original name in metadata when renamed", async () => {
-			const mockFile = {
-				name: "document.docx",
-				size: 2048,
-				type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-				arrayBuffer: vi.fn(() => Promise.resolve(new ArrayBuffer(2048))),
-			} as unknown as File;
+			const mockFile = makeFileFixture(
+				"document.docx",
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				2048,
+			);
 
-			let callCount = 0;
-			mockDb.select.mockImplementation(() => {
-				callCount++;
-				if (callCount === 1) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() => ({
-								limit: vi.fn(() =>
-									Promise.resolve([
-										{
-											id: "existing",
-											userId: "user-1",
-											name: "document.docx",
-											type: "source_document",
-											binaryHash: "different",
-											createdAt: new Date("2024-01-01"),
-											updatedAt: new Date("2024-01-01"),
-										},
-									]),
-								),
-							})),
-						})),
-					};
-				}
-				if (callCount === 2) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() => Promise.resolve([{ name: "document.docx" }])),
-						})),
-					};
-				}
-				return {
-					from: vi.fn(() => ({
-						where: vi.fn(() => ({
-							limit: vi.fn(() =>
-								Promise.resolve([
-									{
-										id: "existing-link",
-										userId: "user-1",
-										name: "document.docx",
-										type: "source_document",
-										binaryHash: "different",
-										createdAt: new Date("2024-01-01"),
-										updatedAt: new Date("2024-01-01"),
-									},
-								]),
-							),
-						})),
-					})),
-				};
-			});
+			queueMockResponses(mockDb.select, [
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing",
+						userId: "user-1",
+						name: "document.docx",
+						type: "source_document",
+						binaryHash: "different",
+					}),
+				]),
+				makeSelectResult([{ name: "document.docx" }]),
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing-link",
+						userId: "user-1",
+						name: "document.docx",
+						type: "source_document",
+						binaryHash: "different",
+					}),
+				]),
+			]);
 
-			const insertMock = vi.fn(() =>
-				Promise.resolve([
-					{
+			mockDb.insert.mockReturnValue(
+				makeInsertChain([
+					makeArtifactRow({
 						id: "artifact-uuid-123",
 						userId: "user-1",
 						conversationId: "conv-1",
-						type: "source_document",
 						name: "document_1.docx",
 						mimeType:
 							"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -480,7 +330,6 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 						sizeBytes: 2048,
 						binaryHash: "mock-hash-123",
 						storagePath: "data/knowledge/user-1/artifact-uuid-123.docx",
-						contentText: null,
 						summary: "document_1.docx",
 						metadataJson: JSON.stringify({
 							uploadSource: "chat",
@@ -488,17 +337,9 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 							renamed: true,
 						}),
 						retrievalClass: "durable",
-						createdAt: new Date("2024-01-01"),
-						updatedAt: new Date("2024-01-01"),
-					},
+					}),
 				]),
 			);
-
-			mockDb.insert.mockReturnValue({
-				values: vi.fn(() => ({
-					returning: insertMock,
-				})),
-			});
 
 			const result = await saveUploadedArtifact({
 				userId: "user-1",
@@ -514,100 +355,52 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 		});
 
 		it("should auto-rename for conversation-scoped uploads when conflict exists across user artifacts", async () => {
-			const mockFile = {
-				name: "report.pdf",
-				size: 1024,
-				type: "application/pdf",
-				arrayBuffer: vi.fn(() => Promise.resolve(new ArrayBuffer(1024))),
-			} as unknown as File;
+			const mockFile = makeFileFixture("report.pdf", "application/pdf", 1024);
 
-			let callCount = 0;
-			mockDb.select.mockImplementation(() => {
-				callCount++;
-				if (callCount === 1) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() => ({
-								limit: vi.fn(() =>
-									Promise.resolve([
-										{
-											id: "existing-artifact",
-											userId: "user-1",
-											name: "report.pdf",
-											type: "source_document",
-											binaryHash: "different-hash",
-											createdAt: new Date("2024-01-01"),
-											updatedAt: new Date("2024-01-01"),
-										},
-									]),
-								),
-							})),
-						})),
-					};
-				}
-				if (callCount === 2) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() =>
-								Promise.resolve([
-									{ name: "report.pdf" },
-									{ name: "other.pdf" },
-								]),
-							),
-						})),
-					};
-				}
-				return {
-					from: vi.fn(() => ({
-						where: vi.fn(() => ({
-							limit: vi.fn(() =>
-								Promise.resolve([
-									{
-										id: "existing-link",
-										userId: "user-1",
-										name: "README",
-										type: "source_document",
-										binaryHash: "different",
-										createdAt: new Date("2024-01-01"),
-										updatedAt: new Date("2024-01-01"),
-									},
-								]),
-							),
-						})),
-					})),
-				};
-			});
+			queueMockResponses(mockDb.select, [
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing-artifact",
+						userId: "user-1",
+						name: "report.pdf",
+						type: "source_document",
+						binaryHash: "different-hash",
+					}),
+				]),
+				makeSelectResult([{ name: "report.pdf" }, { name: "other.pdf" }]),
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing-link",
+						userId: "user-1",
+						name: "README",
+						type: "source_document",
+						binaryHash: "different",
+					}),
+				]),
+			]);
 
-			mockDb.insert.mockReturnValue({
-				values: vi.fn(() => ({
-					returning: vi.fn(() =>
-						Promise.resolve([
-							{
-								id: "artifact-uuid-123",
-								userId: "user-1",
-								conversationId: "conv-1",
-								type: "source_document",
-								name: "report_1.pdf",
-								mimeType: "application/pdf",
-								extension: "pdf",
-								sizeBytes: 1024,
-								binaryHash: "mock-hash-123",
-								storagePath: "data/knowledge/user-1/artifact-uuid-123.pdf",
-								contentText: null,
-								summary: "report_1.pdf",
-								metadataJson: JSON.stringify({
-									uploadSource: "chat",
-									originalName: "report.pdf",
-									renamed: true,
-								}),
-								retrievalClass: "durable",
-								createdAt: new Date("2024-01-01"),
-								updatedAt: new Date("2024-01-01"),
-							},
-						]),
-					),
-				})),
-			});
+			mockDb.insert.mockReturnValue(
+				makeInsertChain([
+					makeArtifactRow({
+						id: "artifact-uuid-123",
+						userId: "user-1",
+						conversationId: "conv-1",
+						name: "report_1.pdf",
+						mimeType: "application/pdf",
+						extension: "pdf",
+						sizeBytes: 1024,
+						binaryHash: "mock-hash-123",
+						storagePath: "data/knowledge/user-1/artifact-uuid-123.pdf",
+						summary: "report_1.pdf",
+						metadataJson: JSON.stringify({
+							uploadSource: "chat",
+							originalName: "report.pdf",
+							renamed: true,
+						}),
+						retrievalClass: "durable",
+					}),
+				]),
+			);
 
 			const result = await saveUploadedArtifact({
 				userId: "user-1",
@@ -621,95 +414,52 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 		});
 
 		it("should handle files without extension", async () => {
-			const mockFile = {
-				name: "README",
-				size: 1024,
-				type: "text/plain",
-				arrayBuffer: vi.fn(() => Promise.resolve(new ArrayBuffer(1024))),
-			} as unknown as File;
+			const mockFile = makeFileFixture("README", "text/plain", 1024);
 
-			let callCount = 0;
-			mockDb.select.mockImplementation(() => {
-				callCount++;
-				if (callCount === 1) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() => ({
-								limit: vi.fn(() =>
-									Promise.resolve([
-										{
-											id: "existing",
-											userId: "user-1",
-											name: "README",
-											type: "source_document",
-											binaryHash: "different",
-											createdAt: new Date("2024-01-01"),
-											updatedAt: new Date("2024-01-01"),
-										},
-									]),
-								),
-							})),
-						})),
-					};
-				}
-				if (callCount === 2) {
-					return {
-						from: vi.fn(() => ({
-							where: vi.fn(() => Promise.resolve([{ name: "README" }])),
-						})),
-					};
-				}
-				return {
-					from: vi.fn(() => ({
-						where: vi.fn(() => ({
-							limit: vi.fn(() =>
-								Promise.resolve([
-									{
-										id: "existing-link",
-										userId: "user-1",
-										name: "README",
-										type: "source_document",
-										binaryHash: "different",
-										createdAt: new Date("2024-01-01"),
-										updatedAt: new Date("2024-01-01"),
-									},
-								]),
-							),
-						})),
-					})),
-				};
-			});
+			queueMockResponses(mockDb.select, [
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing",
+						userId: "user-1",
+						name: "README",
+						type: "source_document",
+						binaryHash: "different",
+					}),
+				]),
+				makeSelectResult([{ name: "README" }]),
+				makeSelectLimitResult([
+					makeArtifactRow({
+						id: "existing-link",
+						userId: "user-1",
+						name: "README",
+						type: "source_document",
+						binaryHash: "different",
+					}),
+				]),
+			]);
 
-			mockDb.insert.mockReturnValue({
-				values: vi.fn(() => ({
-					returning: vi.fn(() =>
-						Promise.resolve([
-							{
-								id: "artifact-uuid-123",
-								userId: "user-1",
-								conversationId: "conv-1",
-								type: "source_document",
-								name: "README_1",
-								mimeType: "text/plain",
-								extension: null,
-								sizeBytes: 1024,
-								binaryHash: "mock-hash-123",
-								storagePath: "data/knowledge/user-1/artifact-uuid-123",
-								contentText: null,
-								summary: "README_1",
-								metadataJson: JSON.stringify({
-									uploadSource: "chat",
-									originalName: "README",
-									renamed: true,
-								}),
-								retrievalClass: "durable",
-								createdAt: new Date("2024-01-01"),
-								updatedAt: new Date("2024-01-01"),
-							},
-						]),
-					),
-				})),
-			});
+			mockDb.insert.mockReturnValue(
+				makeInsertChain([
+					makeArtifactRow({
+						id: "artifact-uuid-123",
+						userId: "user-1",
+						conversationId: "conv-1",
+						name: "README_1",
+						mimeType: "text/plain",
+						extension: null,
+						sizeBytes: 1024,
+						binaryHash: "mock-hash-123",
+						storagePath: "data/knowledge/user-1/artifact-uuid-123",
+						summary: "README_1",
+						metadataJson: JSON.stringify({
+							uploadSource: "chat",
+							originalName: "README",
+							renamed: true,
+						}),
+						retrievalClass: "durable",
+					}),
+				]),
+			);
 
 			const result = await saveUploadedArtifact({
 				userId: "user-1",

@@ -1,4 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	makeArtifactRow,
+	makeSelectResult,
+	makeTransactionStub,
+	queueMockResponses,
+} from "./test-fixtures";
 
 const {
 	mockArtifacts,
@@ -104,6 +110,12 @@ vi.mock("./documents", () => ({
 	listLogicalDocuments: vi.fn(async () => []),
 }));
 
+function installTransactionStub() {
+	const { transaction, tx } = makeTransactionStub();
+	mockTransaction.mockImplementation(transaction);
+	return tx;
+}
+
 describe("knowledge store cleanup", () => {
 	beforeEach(() => {
 		mockArtifacts.length = 0;
@@ -124,30 +136,21 @@ describe("knowledge store cleanup", () => {
 		it("awaits the transaction before returning", async () => {
 			const { hardDeleteArtifactsForUser } = await import("./cleanup");
 
-			mockSelect.mockReturnValue({
-				from: vi.fn().mockReturnValue({
-					where: vi.fn().mockResolvedValue([
-						{
-							id: "artifact-1",
-							userId: "user-1",
-							type: "generated_output",
-							conversationId: "conv-1",
-							storagePath: null,
-						},
-					]),
-				}),
-			});
+			mockSelect.mockReturnValue(
+				makeSelectResult([
+					makeArtifactRow({
+						id: "artifact-1",
+						userId: "user-1",
+						type: "generated_output",
+						conversationId: "conv-1",
+					}),
+				]),
+			);
 
 			let transactionResolved = false;
+			const tx = installTransactionStub();
 			mockTransaction.mockImplementation(
 				async (callback: (tx: unknown) => Promise<void>) => {
-					const tx = {
-						delete: vi.fn().mockReturnValue({
-							where: vi.fn().mockReturnValue({
-								run: vi.fn(),
-							}),
-						}),
-					};
 					await callback(tx);
 					transactionResolved = true;
 				},
@@ -163,11 +166,7 @@ describe("knowledge store cleanup", () => {
 		it("returns empty arrays when no artifacts match", async () => {
 			const { hardDeleteArtifactsForUser } = await import("./cleanup");
 
-			mockSelect.mockReturnValue({
-				from: vi.fn().mockReturnValue({
-					where: vi.fn().mockResolvedValue([]),
-				}),
-			});
+			mockSelect.mockReturnValue(makeSelectResult([]));
 
 			const result = await hardDeleteArtifactsForUser("user-1", [
 				"nonexistent",
@@ -198,78 +197,52 @@ describe("knowledge store cleanup", () => {
 			});
 
 			const familyArtifacts = [
-				{
+				makeArtifactRow({
 					id: "artifact-1",
 					userId: "user-1",
 					type: "generated_output",
 					conversationId: "conv-1",
-					storagePath: null,
 					metadataJson: JSON.stringify({
 						documentFamilyId: "family-abc",
 						documentLabel: "report.md",
 						versionNumber: 2,
 					}),
-				},
-				{
+				}),
+				makeArtifactRow({
 					id: "artifact-2",
 					userId: "user-1",
 					type: "generated_output",
 					conversationId: "conv-1",
-					storagePath: null,
 					metadataJson: JSON.stringify({
 						documentFamilyId: "family-abc",
 						documentLabel: "report.md",
 						versionNumber: 1,
 					}),
-				},
-				{
+				}),
+				makeArtifactRow({
 					id: "artifact-3",
 					userId: "user-1",
 					type: "generated_output",
 					conversationId: "conv-1",
-					storagePath: null,
 					metadataJson: JSON.stringify({
 						documentFamilyId: "family-xyz",
 						documentLabel: "other.md",
 						versionNumber: 1,
 					}),
-				},
+				}),
 			];
 
-			// First call: family expansion query in deleteArtifactForUser
-			// Returns all generated_output artifacts for the user
-			mockSelect.mockReturnValueOnce({
-				from: vi.fn().mockReturnValue({
-					where: vi.fn().mockResolvedValue(familyArtifacts),
-				}),
-			});
+			queueMockResponses(mockSelect, [
+				makeSelectResult(familyArtifacts),
+				makeSelectResult(
+					familyArtifacts.filter(
+						(artifact) =>
+							artifact.id === "artifact-1" || artifact.id === "artifact-2",
+					),
+				),
+			]);
 
-			// Second call: hardDeleteArtifactsForUser query
-			// Should only return artifacts that match the IDs passed to it
-			mockSelect.mockReturnValueOnce({
-				from: vi.fn().mockReturnValue({
-					where: vi
-						.fn()
-						.mockResolvedValue(
-							familyArtifacts.filter(
-								(a) => a.id === "artifact-1" || a.id === "artifact-2",
-							),
-						),
-				}),
-			});
-
-			mockTransaction.mockImplementation(
-				async (callback: (tx: unknown) => Promise<void>) => {
-					const tx = {
-						delete: vi.fn().mockReturnValue({
-							where: vi.fn().mockReturnValue({
-								run: vi.fn(),
-							}),
-						}),
-					};
-					await callback(tx);
-				},
-			);
+			installTransactionStub();
 
 			const result = await deleteArtifactForUser("user-1", "artifact-1");
 
@@ -294,36 +267,22 @@ describe("knowledge store cleanup", () => {
 				},
 			});
 
-			mockSelect.mockReturnValue({
-				from: vi.fn().mockReturnValue({
-					where: vi.fn().mockResolvedValue([
-						{
-							id: "artifact-1",
-							userId: "user-1",
-							type: "generated_output",
-							conversationId: "conv-1",
-							storagePath: null,
-							metadataJson: JSON.stringify({
-								documentLabel: "report.md",
-								versionNumber: 1,
-							}),
-						},
-					]),
-				}),
-			});
-
-			mockTransaction.mockImplementation(
-				async (callback: (tx: unknown) => Promise<void>) => {
-					const tx = {
-						delete: vi.fn().mockReturnValue({
-							where: vi.fn().mockReturnValue({
-								run: vi.fn(),
-							}),
+			mockSelect.mockReturnValue(
+				makeSelectResult([
+					makeArtifactRow({
+						id: "artifact-1",
+						userId: "user-1",
+						type: "generated_output",
+						conversationId: "conv-1",
+						metadataJson: JSON.stringify({
+							documentLabel: "report.md",
+							versionNumber: 1,
 						}),
-					};
-					await callback(tx);
-				},
+					}),
+				]),
 			);
+
+			installTransactionStub();
 
 			const result = await deleteArtifactForUser("user-1", "artifact-1");
 
@@ -348,37 +307,31 @@ describe("knowledge store cleanup", () => {
 			});
 
 			const familyArtifacts = [
-				{
+				makeArtifactRow({
 					id: "artifact-1",
 					userId: "user-1",
 					type: "generated_output",
 					conversationId: "conv-1",
-					storagePath: null,
 					metadataJson: JSON.stringify({
 						documentFamilyId: "family-abc",
 						documentLabel: "report.md",
 						versionNumber: 2,
 					}),
-				},
-				{
+				}),
+				makeArtifactRow({
 					id: "artifact-2",
 					userId: "user-2",
 					type: "generated_output",
 					conversationId: "conv-2",
-					storagePath: null,
 					metadataJson: JSON.stringify({
 						documentFamilyId: "family-abc",
 						documentLabel: "report.md",
 						versionNumber: 1,
 					}),
-				},
+				}),
 			];
 
-			mockSelect.mockReturnValue({
-				from: vi.fn().mockReturnValue({
-					where: vi.fn().mockResolvedValue(familyArtifacts),
-				}),
-			});
+			mockSelect.mockReturnValue(makeSelectResult(familyArtifacts));
 
 			mockIsArtifactCanonicallyOwned.mockImplementation(
 				(params: { artifact: { userId: string } }) => {
@@ -386,18 +339,7 @@ describe("knowledge store cleanup", () => {
 				},
 			);
 
-			mockTransaction.mockImplementation(
-				async (callback: (tx: unknown) => Promise<void>) => {
-					const tx = {
-						delete: vi.fn().mockReturnValue({
-							where: vi.fn().mockReturnValue({
-								run: vi.fn(),
-							}),
-						}),
-					};
-					await callback(tx);
-				},
-			);
+			installTransactionStub();
 
 			const result = await deleteArtifactForUser("user-1", "artifact-1");
 
@@ -421,45 +363,25 @@ describe("knowledge store cleanup", () => {
 		it("deletes generated output artifacts for result bulk actions", async () => {
 			const { deleteKnowledgeArtifactsByAction } = await import("./cleanup");
 			const resultArtifacts = [
-				{
+				makeArtifactRow({
 					id: "result-1",
 					userId: "user-1",
 					type: "generated_output",
 					conversationId: "conv-1",
-					storagePath: null,
-				},
-				{
+				}),
+				makeArtifactRow({
 					id: "result-2",
 					userId: "user-1",
 					type: "generated_output",
 					conversationId: "conv-2",
-					storagePath: null,
-				},
+				}),
 			];
 
-			mockSelect
-				.mockReturnValueOnce({
-					from: vi.fn().mockReturnValue({
-						where: vi.fn().mockResolvedValue(resultArtifacts),
-					}),
-				})
-				.mockReturnValueOnce({
-					from: vi.fn().mockReturnValue({
-						where: vi.fn().mockResolvedValue(resultArtifacts),
-					}),
-				});
-			mockTransaction.mockImplementation(
-				async (callback: (tx: unknown) => Promise<void>) => {
-					const tx = {
-						delete: vi.fn().mockReturnValue({
-							where: vi.fn().mockReturnValue({
-								run: vi.fn(),
-							}),
-						}),
-					};
-					await callback(tx);
-				},
-			);
+			queueMockResponses(mockSelect, [
+				makeSelectResult(resultArtifacts),
+				makeSelectResult(resultArtifacts),
+			]);
+			installTransactionStub();
 
 			const result = await deleteKnowledgeArtifactsByAction(
 				"user-1",
@@ -472,38 +394,19 @@ describe("knowledge store cleanup", () => {
 		it("deletes work capsule artifacts for workflow bulk actions", async () => {
 			const { deleteKnowledgeArtifactsByAction } = await import("./cleanup");
 			const workflowArtifacts = [
-				{
+				makeArtifactRow({
 					id: "workflow-1",
 					userId: "user-1",
 					type: "work_capsule",
 					conversationId: "conv-1",
-					storagePath: null,
-				},
+				}),
 			];
 
-			mockSelect
-				.mockReturnValueOnce({
-					from: vi.fn().mockReturnValue({
-						where: vi.fn().mockResolvedValue(workflowArtifacts),
-					}),
-				})
-				.mockReturnValueOnce({
-					from: vi.fn().mockReturnValue({
-						where: vi.fn().mockResolvedValue(workflowArtifacts),
-					}),
-				});
-			mockTransaction.mockImplementation(
-				async (callback: (tx: unknown) => Promise<void>) => {
-					const tx = {
-						delete: vi.fn().mockReturnValue({
-							where: vi.fn().mockReturnValue({
-								run: vi.fn(),
-							}),
-						}),
-					};
-					await callback(tx);
-				},
-			);
+			queueMockResponses(mockSelect, [
+				makeSelectResult(workflowArtifacts),
+				makeSelectResult(workflowArtifacts),
+			]);
+			installTransactionStub();
 
 			const result = await deleteKnowledgeArtifactsByAction(
 				"user-1",
