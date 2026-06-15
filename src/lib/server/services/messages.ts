@@ -105,7 +105,15 @@ function readEvidenceSummaryFromMetadata(
 function isDepthMetadata(value: unknown): value is DepthMetadata {
 	if (!value || typeof value !== "object") return false;
 	const candidate = value as Partial<DepthMetadata>;
-	const hasBaseShape =
+	return (
+		hasValidDepthMetadataBase(candidate) &&
+		hasValidDepthMetadataOutcome(candidate.outcome) &&
+		hasValidDepthMetadataClarification(candidate.clarification)
+	);
+}
+
+function hasValidDepthMetadataBase(candidate: Partial<DepthMetadata>): boolean {
+	return (
 		(candidate.requested === "off" ||
 			candidate.requested === "auto" ||
 			candidate.requested === "max") &&
@@ -113,40 +121,58 @@ function isDepthMetadata(value: unknown): value is DepthMetadata {
 			candidate.appliedProfile === "standard" ||
 			candidate.appliedProfile === "extended" ||
 			candidate.appliedProfile === "maximum") &&
-		typeof candidate.fallback === "boolean";
-	if (!hasBaseShape) {
-		return false;
+		typeof candidate.fallback === "boolean"
+	);
+}
+
+function hasValidDepthMetadataOutcome(
+	outcome: DepthMetadata["outcome"] | undefined,
+): boolean {
+	if (outcome === undefined) return true;
+	return (
+		outcome === "normal_response" ||
+		outcome === "clarification_requested" ||
+		outcome === "proceeded_with_assumption"
+	);
+}
+
+function hasValidDepthMetadataClarification(
+	clarification: DepthMetadata["clarification"] | undefined,
+): boolean {
+	if (clarification === undefined) return true;
+	if (!clarification || typeof clarification !== "object") return false;
+	return (
+		(clarification.outcome === "ask" ||
+			clarification.outcome === "proceed_with_assumption") &&
+		(clarification.reason === "multiple_plausible_targets" ||
+			clarification.reason === "user_requested_assumption" ||
+			clarification.reason === "classifier") &&
+		(clarification.language === "en" || clarification.language === "hu")
+	);
+}
+
+function readThinkingSegmentsFromRow(
+	row: Pick<typeof messages.$inferSelect, "toolCalls">,
+): ChatMessage["thinkingSegments"] {
+	if (!row.toolCalls) return undefined;
+	try {
+		const parsed = JSON.parse(row.toolCalls) as ThinkingSegment[];
+		if (Array.isArray(parsed) && parsed.length > 0) {
+			return parsed;
+		}
+	} catch {
+		// Malformed JSON — silently ignore, fall back to flat thinking text
 	}
-	if (candidate.outcome !== undefined) {
-		if (
-			candidate.outcome !== "normal_response" &&
-			candidate.outcome !== "clarification_requested" &&
-			candidate.outcome !== "proceeded_with_assumption"
-		) {
-			return false;
-		}
+	return undefined;
+}
+
+function readDepthMetadataFromMetadata(
+	metadata: PersistedMessageMetadata | null,
+): DepthMetadata | undefined {
+	if (isDepthMetadata(metadata?.depthMetadata)) {
+		return metadata.depthMetadata;
 	}
-	const clarification = candidate.clarification;
-	if (clarification !== undefined) {
-		if (!clarification || typeof clarification !== "object") return false;
-		if (
-			clarification.outcome !== "ask" &&
-			clarification.outcome !== "proceed_with_assumption"
-		) {
-			return false;
-		}
-		if (
-			clarification.reason !== "multiple_plausible_targets" &&
-			clarification.reason !== "user_requested_assumption" &&
-			clarification.reason !== "classifier"
-		) {
-			return false;
-		}
-		if (clarification.language !== "en" && clarification.language !== "hu") {
-			return false;
-		}
-	}
-	return true;
+	return undefined;
 }
 
 function mapRowToChatMessage(
@@ -160,33 +186,19 @@ function mapRowToChatMessage(
 		totalTokens?: number | null;
 	},
 ): ChatMessage {
-	// Restore full interleaved thinkingSegments from persisted JSON.
-	// The column stores the complete segment array (text + tool_call entries in order)
-	// so the expanded ThinkingBlock view is identical to what was shown during streaming.
-	let thinkingSegments: ChatMessage["thinkingSegments"];
-	if (row.toolCalls) {
-		try {
-			const parsed = JSON.parse(row.toolCalls) as ThinkingSegment[];
-			if (Array.isArray(parsed) && parsed.length > 0) {
-				thinkingSegments = parsed;
-			}
-		} catch {
-			// Malformed JSON — silently ignore, fall back to flat thinking text
-		}
-	}
-
 	const metadata = parseMetadata(row.metadataJson);
 	const evidenceSummary =
 		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
 	const evidencePending =
 		metadata?.evidenceStatus === "pending" && !evidenceSummary;
+	const depthMetadata = readDepthMetadataFromMetadata(metadata);
 
 	return {
 		id: row.id,
 		role: row.role as MessageRole,
 		content: row.content,
 		thinking: row.thinking ?? undefined,
-		thinkingSegments,
+		thinkingSegments: readThinkingSegmentsFromRow(row),
 		timestamp: row.createdAt.getTime(),
 		modelId: modelId as ChatMessage["modelId"],
 		modelDisplayName:
@@ -202,9 +214,7 @@ function mapRowToChatMessage(
 		webCitationAudit: metadata?.webCitationAudit ?? undefined,
 		evidencePending,
 		wasStopped: metadata?.wasStopped === true ? true : undefined,
-		depthMetadata: isDepthMetadata(metadata?.depthMetadata)
-			? metadata.depthMetadata
-			: undefined,
+		depthMetadata,
 		honchoContext: metadata?.honchoContext ?? undefined,
 		skillQuestion: metadata?.skillQuestion || undefined,
 		pendingSkillNoteIntents: metadata?.pendingSkillNoteIntents,

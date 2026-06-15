@@ -304,6 +304,35 @@ describe("messages Honcho metadata", () => {
 		]);
 	});
 
+	it("ignores malformed depth metadata when listing messages", async () => {
+		mockRows.push({
+			id: "assistant-depth-invalid-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "maximum",
+					fallback: false,
+					outcome: "unexpected_outcome",
+				},
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		await expect(listMessages("conv-1")).resolves.toEqual([
+			expect.objectContaining({
+				id: "assistant-depth-invalid-1",
+				depthMetadata: undefined,
+			}),
+		]);
+	});
+
 	it("preserves Honcho metadata when evidence metadata is updated", async () => {
 		mockRows.push({
 			id: "assistant-1",
