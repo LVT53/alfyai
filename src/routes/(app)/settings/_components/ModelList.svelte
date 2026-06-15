@@ -6,6 +6,7 @@ import {
 	createProviderModel,
 	updateProviderModel,
 	deleteProviderModel,
+	type Provider,
 	type ProviderModel,
 	type ProviderModelUpdate,
 } from "$lib/client/api/admin";
@@ -18,6 +19,7 @@ let {
 	providerId,
 	models = [],
 	allModels = [],
+	allProviders = [],
 	onClose,
 	onIconFile,
 	onRefresh,
@@ -26,6 +28,7 @@ let {
 	providerId: string;
 	models?: ProviderModel[];
 	allModels?: ProviderModel[];
+	allProviders?: Provider[];
 	onClose?: () => void;
 	onIconFile?: (event: Event, modelId: string) => void;
 	onRefresh?: () => void | Promise<void>;
@@ -230,6 +233,7 @@ $effect(() => {
 	{providerId}
 	model={formModel}
 	allModels={allModels}
+	allProviders={allProviders}
 	saving={formSaving}
 	error={formError}
 	onSave={handleSave}

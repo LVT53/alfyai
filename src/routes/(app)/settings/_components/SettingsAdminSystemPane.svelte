@@ -1573,6 +1573,7 @@ function placeholderFor(key: string): string {
 					providerId={modelListProviderId}
 					models={allProviderModels}
 					allModels={allProviderModels}
+					allProviders={providerConfigs}
 					onClose={closeModelList}
 					onIconFile={handleModelModelIconFile}
 					onRefresh={loadProviderConfigs}

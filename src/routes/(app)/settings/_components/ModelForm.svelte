@@ -3,7 +3,11 @@ import { untrack } from "svelte";
 import { get } from "svelte/store";
 import { t } from "$lib/i18n";
 import { deriveModelContextLimits } from "$lib/model-context-defaults";
-import type { ProviderModel, ProviderModelUpdate } from "$lib/client/api/admin";
+import type {
+	Provider,
+	ProviderModel,
+	ProviderModelUpdate,
+} from "$lib/client/api/admin";
 import {
 	getProviderModelFallbackOptions,
 	type FallbackCompatibilityReason,
@@ -21,6 +25,7 @@ let {
 	providerId,
 	model = null,
 	allModels = [],
+	allProviders = [],
 	saving = false,
 	error = "",
 	onSave,
@@ -30,6 +35,7 @@ let {
 	providerId: string;
 	model?: ProviderModel | null;
 	allModels?: ProviderModel[];
+	allProviders?: Provider[];
 	saving?: boolean;
 	error?: string;
 	onSave?: (data: ProviderModelUpdate) => void | Promise<void>;
@@ -155,6 +161,18 @@ function fallbackReasonLabel(reason: FallbackCompatibilityReason): string {
 function fallbackOptions() {
 	if (isCreate || !model) return [];
 	return getProviderModelFallbackOptions(model, allModels);
+}
+
+function providerDisplayName(providerModel: ProviderModel): string {
+	return (
+		allProviders.find((provider) => provider.id === providerModel.providerId)
+			?.displayName ??
+		providerModel.providerId
+	);
+}
+
+function fallbackOptionLabel(providerModel: ProviderModel): string {
+	return `${providerDisplayName(providerModel)} - ${providerModel.displayName || providerModel.name}`;
 }
 
 function hasCompatibleFallbackOption(): boolean {
@@ -374,7 +392,7 @@ function handleSave() {
 									value={fallbackOption.model.id}
 									disabled={!fallbackOption.compatible}
 								>
-									{fallbackOption.model.displayName || fallbackOption.model.name}
+									{fallbackOptionLabel(fallbackOption.model)}
 									{#if !fallbackOption.compatible}
 										{" — "}
 										{fallbackReasonLabel(

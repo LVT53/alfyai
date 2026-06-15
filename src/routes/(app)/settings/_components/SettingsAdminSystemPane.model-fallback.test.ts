@@ -186,7 +186,7 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 		);
 		expect(select.options[1].disabled).toBe(true);
 		expect(select.options[1].textContent?.replace(/\s+/g, " ").trim()).toBe(
-			"Fallback Model — Model is disabled.",
+			"Provider 2 - Fallback Model — Model is disabled.",
 		);
 	});
 
