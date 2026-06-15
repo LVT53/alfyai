@@ -1,10 +1,18 @@
 import { unlinkSync } from "node:fs";
-import Database from "better-sqlite3";
 import { count, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import {
+	CONTEXT_COMPRESSION_SOURCE_MESSAGES,
+	CONTEXT_COMPRESSION_TEST_EMAIL,
+	CONTEXT_COMPRESSION_TEST_LEGACY_EMAIL,
+	CONTEXT_COMPRESSION_TEST_TITLE,
+	createCompressionControlResponse,
+	createDefaultSourceMessages,
+	createLegacySourceMessages,
+	openSeedDatabase,
+	seedContextCompressionConversation,
+} from "./context-compression.test-fixtures";
 
 let dbPath: string;
 
@@ -16,119 +24,17 @@ vi.mock("./knowledge", () => ({
 	listMessageAttachments: vi.fn(async () => new Map()),
 }));
 
-function openSeedDatabase() {
-	const sqlite = new Database(dbPath);
-	sqlite.pragma("foreign_keys = ON");
-	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: "./drizzle" });
-	return { sqlite, db };
-}
-
-function seedConversation(base: {
-	email: string;
-	title: string;
-	messages: Array<{
-		id: string;
-		role: "user" | "assistant";
-		content: string;
-		messageSequence?: number;
-		createdAtOffsetMs?: number;
-	}>;
-}): void {
-	const { sqlite, db } = openSeedDatabase();
-	const now = new Date("2026-05-25T10:00:00.000Z");
-	try {
-		db.insert(schema.users)
-			.values({
-				id: "user-1",
-				email: base.email,
-				passwordHash: "hash",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.run();
-		db.insert(schema.conversations)
-			.values({
-				id: "conv-1",
-				userId: "user-1",
-				title: base.title,
-				createdAt: now,
-				updatedAt: now,
-			})
-			.run();
-		db.insert(schema.messages)
-			.values(
-				base.messages.map((message, index) => ({
-					id: message.id,
-					conversationId: "conv-1",
-					messageSequence: message.messageSequence ?? index + 1,
-					role: message.role,
-					content: message.content,
-					createdAt: new Date(
-						now.getTime() + (message.createdAtOffsetMs ?? index * 1000),
-					),
-				})),
-			)
-			.run();
-	} finally {
-		sqlite.close();
-	}
-}
-
-const defaultCompressionSourceMessages = [
-	{
-		id: "message-1",
-		role: "user" as const,
-		content: "First question",
-		messageSequence: 1,
-	},
-	{
-		id: "message-2",
-		role: "assistant" as const,
-		content: "First answer",
-		messageSequence: 2,
-	},
-] as const;
-
-const defaultLegacyCompressionSourceMessages = [
-	...defaultCompressionSourceMessages,
-	{
-		id: "message-3",
-		role: "user" as const,
-		content: "Follow-up question",
-		messageSequence: 3,
-		createdAtOffsetMs: 2000,
-	},
-	{
-		id: "message-4",
-		role: "assistant" as const,
-		content: "Follow-up answer",
-		messageSequence: 4,
-		createdAtOffsetMs: 3000,
-	},
-] as const;
-
-function createDefaultSourceMessages() {
-	return defaultCompressionSourceMessages.map((message) => ({ ...message }));
-}
-
-function createLegacySourceMessages() {
-	return defaultLegacyCompressionSourceMessages.map((message) => ({
-		...message,
-	}));
-}
-
 function seedConversationWithMessages() {
-	seedConversation({
-		email: "context-compression@example.com",
-		title: "Compression persistence",
-		messages: [...defaultCompressionSourceMessages],
+	seedContextCompressionConversation(dbPath, {
+		email: CONTEXT_COMPRESSION_TEST_EMAIL,
+		title: CONTEXT_COMPRESSION_TEST_TITLE,
+		messages: [...CONTEXT_COMPRESSION_SOURCE_MESSAGES],
 	});
 }
 
 function seedConversationWithLegacyUnsequencedMessages() {
-	seedConversation({
-		email: "context-compression-legacy@example.com",
+	seedContextCompressionConversation(dbPath, {
+		email: CONTEXT_COMPRESSION_TEST_LEGACY_EMAIL,
 		title: "Compression deletion cleanup",
 		messages: [...createLegacySourceMessages()],
 	});
@@ -217,7 +123,7 @@ describe("context compression snapshots", () => {
 			}),
 		]);
 
-		const { sqlite, db } = openSeedDatabase();
+		const { sqlite, db } = openSeedDatabase(dbPath);
 		try {
 			const [messageCount] = db
 				.select({ value: count() })
@@ -351,7 +257,7 @@ describe("context compression snapshots", () => {
 			sourceCoverage: { messageIds: ["message-1", "message-2"] },
 		});
 
-		const { sqlite, db } = openSeedDatabase();
+		const { sqlite, db } = openSeedDatabase(dbPath);
 		try {
 			db.delete(schema.conversations)
 				.where(eq(schema.conversations.id, "conv-1"))
@@ -368,8 +274,8 @@ describe("context compression snapshots", () => {
 	it("runs context compression through the selected response model and persists a validated snapshot", async () => {
 		seedConversationWithMessages();
 		mocks.sendJsonControlMessage.mockResolvedValueOnce({
-			text: `<thinking>Reasoning may quote payload JSON like {"task":"context_compression"} before the final answer.</thinking>${JSON.stringify(
-				{
+			text: `<thinking>Reasoning may quote payload JSON like {"task":"context_compression"} before the final answer.</thinking>${
+				createCompressionControlResponse({
 					goal: "Keep answering the user's original question.",
 					currentState: "The assistant has answered the first exchange.",
 					importantDecisions: [
@@ -381,7 +287,6 @@ describe("context compression snapshots", () => {
 					openTasks: [
 						"Continue from the first answer when the user follows up.",
 					],
-					openQuestions: [],
 					toolUseAndEvidenceRefs: [
 						{
 							kind: "source",
@@ -395,8 +300,8 @@ describe("context compression snapshots", () => {
 							{ startMessageId: "message-1", endMessageId: "message-2" },
 						],
 					},
-				},
-			)}`,
+				}).text
+			}`,
 			modelId: "model2",
 			modelDisplayName: "Selected Model",
 			rawResponse: {},
@@ -463,8 +368,8 @@ describe("context compression snapshots", () => {
 
 	it("accepts a meaningful compression snapshot when the model omits app-owned empty fields and source coverage", async () => {
 		seedConversationWithMessages();
-		mocks.sendJsonControlMessage.mockResolvedValue({
-			text: JSON.stringify({
+		mocks.sendJsonControlMessage.mockResolvedValue(
+			createCompressionControlResponse({
 				goal: "Keep answering the user's original question from the first exchange.",
 				currentState:
 					"The assistant has answered the initial question and future turns should continue from that answer.",
@@ -472,10 +377,7 @@ describe("context compression snapshots", () => {
 					"The covered source contains one user question and one assistant answer.",
 				],
 			}),
-			modelId: "model1",
-			modelDisplayName: "Selected Model",
-			rawResponse: {},
-		});
+		);
 		const { runContextCompression } = await import("./context-compression");
 
 		const result = await runContextCompression({
@@ -546,18 +448,15 @@ describe("context compression snapshots", () => {
 
 	it("derives a blank current state from meaningful goal content", async () => {
 		seedConversationWithMessages();
-		mocks.sendJsonControlMessage.mockResolvedValue({
-			text: JSON.stringify({
+		mocks.sendJsonControlMessage.mockResolvedValue(
+			createCompressionControlResponse({
 				goal: "Keep the compacted conversation focused on the first user question and the assistant answer so later turns can continue without replaying raw history.",
 				currentState: "   ",
 				importantDecisions: [
 					"Use the context compression snapshot as the prompt continuity source.",
 				],
 			}),
-			modelId: "model1",
-			modelDisplayName: "Selected Model",
-			rawResponse: {},
-		});
+		);
 		const { runContextCompression } = await import("./context-compression");
 
 		const result = await runContextCompression({
@@ -584,17 +483,15 @@ describe("context compression snapshots", () => {
 
 	it("repairs or filters malformed evidence refs without rejecting a meaningful snapshot", async () => {
 		seedConversationWithMessages();
-		mocks.sendJsonControlMessage.mockResolvedValue({
-			text: JSON.stringify({
+		mocks.sendJsonControlMessage.mockResolvedValue(
+			createCompressionControlResponse({
 				goal: "Keep the first exchange available as compact context.",
 				currentState:
 					"The assistant has answered the initial question and the next turn should preserve that answer.",
-				importantDecisions: [],
 				importantFacts: [
 					"The first assistant answer is useful evidence for follow-up turns.",
 				],
 				openTasks: ["Continue from the initial answer if the user follows up."],
-				openQuestions: [],
 				toolUseAndEvidenceRefs: [
 					{
 						label: "First exchange evidence",
@@ -611,10 +508,7 @@ describe("context compression snapshots", () => {
 					messageIds: ["message-1", "message-2"],
 				},
 			}),
-			modelId: "model1",
-			modelDisplayName: "Selected Model",
-			rawResponse: {},
-		});
+		);
 		const { runContextCompression } = await import("./context-compression");
 
 		const result = await runContextCompression({
@@ -647,39 +541,32 @@ describe("context compression snapshots", () => {
 		seedConversationWithMessages();
 		mocks.sendJsonControlMessage
 			.mockResolvedValueOnce({
-				text: JSON.stringify({
+				text: createCompressionControlResponse({
 					goal: "Too little",
 					currentState: "Missing coverage",
-					importantDecisions: [],
-					importantFacts: [],
-					openTasks: [],
-					openQuestions: [],
-					toolUseAndEvidenceRefs: [],
 					sourceCoverage: {
 						messageIds: ["message-1"],
 					},
-				}),
+				}).text,
 				modelId: "model1",
 				modelDisplayName: "Selected Model",
 				rawResponse: {},
 			})
 			.mockResolvedValueOnce({
-				text: JSON.stringify({
+				text: createCompressionControlResponse({
 					goal: "Keep the discussion anchored to the first exchange.",
 					currentState:
 						"The repaired snapshot now covers both source messages.",
 					importantDecisions: ["Use the repaired structured snapshot."],
 					importantFacts: ["Both source messages are represented in coverage."],
 					openTasks: ["Continue from the first exchange."],
-					openQuestions: [],
-					toolUseAndEvidenceRefs: [],
 					sourceCoverage: {
 						messageIds: ["message-1", "message-2"],
 						ranges: [
 							{ startMessageId: "message-1", endMessageId: "message-2" },
 						],
 					},
-				}),
+				}).text,
 				modelId: "model1",
 				modelDisplayName: "Selected Model",
 				rawResponse: {},
@@ -710,7 +597,7 @@ describe("context compression snapshots", () => {
 		seedConversationWithMessages();
 		mocks.sendJsonControlMessage
 			.mockResolvedValueOnce({
-				text: JSON.stringify({
+				text: createCompressionControlResponse({
 					goal: "string",
 					currentState: "string",
 					importantDecisions: ["string"],
@@ -729,13 +616,13 @@ describe("context compression snapshots", () => {
 						messageIds: ["all covered source message ids"],
 						ranges: [{ startMessageId: "id", endMessageId: "id" }],
 					},
-				}),
+				}).text,
 				modelId: "model1",
 				modelDisplayName: "Selected Model",
 				rawResponse: {},
 			})
 			.mockResolvedValueOnce({
-				text: JSON.stringify({
+				text: createCompressionControlResponse({
 					goal: "Keep the actual first exchange available after compression.",
 					currentState:
 						"The repaired snapshot summarizes the real user question and assistant answer.",
@@ -746,7 +633,6 @@ describe("context compression snapshots", () => {
 						"The covered source messages are message-1 and message-2.",
 					],
 					openTasks: ["Continue from the real first exchange."],
-					openQuestions: [],
 					toolUseAndEvidenceRefs: [
 						{
 							kind: "source",
@@ -757,7 +643,7 @@ describe("context compression snapshots", () => {
 					sourceCoverage: {
 						messageIds: ["message-1", "message-2"],
 					},
-				}),
+				}).text,
 				modelId: "model1",
 				modelDisplayName: "Selected Model",
 				rawResponse: {},
@@ -787,7 +673,7 @@ describe("context compression snapshots", () => {
 		seedConversationWithMessages();
 		mocks.sendJsonControlMessage
 			.mockResolvedValueOnce({
-				text: JSON.stringify({
+				text: createCompressionControlResponse({
 					goal: "Keep the real first exchange available after compression.",
 					currentState:
 						"The snapshot text is meaningful but the model cited the wrong coverage ids.",
@@ -798,18 +684,16 @@ describe("context compression snapshots", () => {
 						"The real source messages are message-1 and message-2.",
 					],
 					openTasks: ["Continue from the validated source window."],
-					openQuestions: [],
-					toolUseAndEvidenceRefs: [],
 					sourceCoverage: {
 						messageIds: ["message-1", "ghost-message"],
 					},
-				}),
+				}).text,
 				modelId: "model1",
 				modelDisplayName: "Selected Model",
 				rawResponse: {},
 			})
 			.mockResolvedValueOnce({
-				text: JSON.stringify({
+				text: createCompressionControlResponse({
 					goal: "Keep the real first exchange available after compression.",
 					currentState:
 						"The repaired snapshot cites exactly the expected source messages.",
@@ -820,12 +704,10 @@ describe("context compression snapshots", () => {
 						"The real source messages are message-1 and message-2.",
 					],
 					openTasks: ["Continue from the validated source window."],
-					openQuestions: [],
-					toolUseAndEvidenceRefs: [],
 					sourceCoverage: {
 						messageIds: ["message-1", "message-2"],
 					},
-				}),
+				}).text,
 				modelId: "model1",
 				modelDisplayName: "Selected Model",
 				rawResponse: {},
@@ -861,18 +743,16 @@ describe("context compression snapshots", () => {
 				new Error("Could not extract message text from control model response"),
 			)
 			.mockResolvedValueOnce({
-				text: JSON.stringify({
+				text: createCompressionControlResponse({
 					goal: "Keep the discussion anchored after transient empty outputs.",
 					currentState: "The third structured response produced valid JSON.",
 					importantDecisions: ["Retry context compression control output."],
 					importantFacts: ["Both source messages are represented."],
 					openTasks: ["Continue from the repaired compression snapshot."],
-					openQuestions: [],
-					toolUseAndEvidenceRefs: [],
 					sourceCoverage: {
 						messageIds: ["message-1", "message-2"],
 					},
-				}),
+				}).text,
 				modelId: "model1",
 				modelDisplayName: "Selected Model",
 				rawResponse: {},
@@ -898,23 +778,15 @@ describe("context compression snapshots", () => {
 
 	it("repairs empty semantic compression fields to a valid covered snapshot", async () => {
 		seedConversationWithMessages();
-		mocks.sendJsonControlMessage.mockResolvedValueOnce({
-			text: JSON.stringify({
+		mocks.sendJsonControlMessage.mockResolvedValueOnce(
+			createCompressionControlResponse({
 				goal: "",
 				currentState: "",
-				importantDecisions: [],
-				importantFacts: [],
-				openTasks: [],
-				openQuestions: [],
-				toolUseAndEvidenceRefs: [],
 				sourceCoverage: {
 					messageIds: ["message-1", "message-2"],
 				},
 			}),
-			modelId: "model1",
-			modelDisplayName: "Selected Model",
-			rawResponse: {},
-		});
+		);
 		const { runContextCompression } = await import("./context-compression");
 
 		const result = await runContextCompression({
@@ -944,40 +816,30 @@ describe("context compression snapshots", () => {
 				modelDisplayName: "Selected Model",
 				rawResponse: {},
 			})
-			.mockResolvedValueOnce({
-				text: JSON.stringify({
+			.mockResolvedValueOnce(
+				createCompressionControlResponse({
 					goal: "This still leaks <thinking>private</thinking> text.",
 					currentState: "The validator must reject leaked reasoning tags.",
 					importantDecisions: ["Do not persist invalid snapshots."],
 					importantFacts: ["The raw transcript remains untouched."],
 					openTasks: ["Surface the compression failure."],
-					openQuestions: [],
-					toolUseAndEvidenceRefs: [],
 					sourceCoverage: {
 						messageIds: ["message-1", "message-2"],
 					},
 				}),
-				modelId: "model1",
-				modelDisplayName: "Selected Model",
-				rawResponse: {},
-			})
-			.mockResolvedValue({
-				text: JSON.stringify({
+			)
+			.mockResolvedValue(
+				createCompressionControlResponse({
 					goal: "This still leaks <thinking>private</thinking> text.",
 					currentState: "The validator must reject leaked reasoning tags.",
 					importantDecisions: ["Do not persist invalid snapshots."],
 					importantFacts: ["The raw transcript remains untouched."],
 					openTasks: ["Surface the compression failure."],
-					openQuestions: [],
-					toolUseAndEvidenceRefs: [],
 					sourceCoverage: {
 						messageIds: ["message-1", "message-2"],
 					},
 				}),
-				modelId: "model1",
-				modelDisplayName: "Selected Model",
-				rawResponse: {},
-			});
+			);
 		const { listContextCompressionSnapshots, runContextCompression } =
 			await import("./context-compression");
 
