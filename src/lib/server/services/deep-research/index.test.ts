@@ -1,262 +1,29 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
-import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
-import type { SynthesisNotes } from "./synthesis";
+import {
+	assignConversationToResearchProject,
+	seedAdditionalConversation,
+	seedDeepResearchConversation,
+	completeApprovedJobWithAuditedReport as sharedCompleteApprovedJobWithAuditedReport,
+	completeApprovedJobWithEvidenceLimitationMemo as sharedCompleteApprovedJobWithEvidenceLimitationMemo,
+} from "./test-helpers";
 
 let dbPath: string;
 
-async function seedConversation() {
-	const sqlite = new Database(dbPath);
-	sqlite.pragma("foreign_keys = ON");
-	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: "./drizzle" });
-
-	const now = new Date("2026-05-05T10:00:00.000Z");
-	db.insert(schema.users)
-		.values({
-			id: "user-1",
-			email: "user@example.com",
-			passwordHash: "hash",
-		})
-		.run();
-	db.insert(schema.conversations)
-		.values({
-			id: "conv-1",
-			userId: "user-1",
-			title: "Research conversation",
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
-	db.insert(schema.messages)
-		.values({
-			id: "user-msg-1",
-			conversationId: "conv-1",
-			role: "user",
-			content: "Compare EU and US AI copyright training data rules",
-			createdAt: now,
-		})
-		.run();
-
-	sqlite.close();
-}
-
-async function seedAdditionalConversation(input: {
-	conversationId: string;
-	messageId: string;
-	userId?: string;
-}) {
-	const sqlite = new Database(dbPath);
-	sqlite.pragma("foreign_keys = ON");
-	const db = drizzle(sqlite, { schema });
-
-	const now = new Date("2026-05-05T10:00:00.000Z");
-	db.insert(schema.conversations)
-		.values({
-			id: input.conversationId,
-			userId: input.userId ?? "user-1",
-			title: "Research conversation",
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
-	db.insert(schema.messages)
-		.values({
-			id: input.messageId,
-			conversationId: input.conversationId,
-			role: "user",
-			content: "Compare EU and US AI copyright training data rules",
-			createdAt: now,
-		})
-		.run();
-
-	sqlite.close();
-}
-
-async function assignSourceConversationToProject() {
-	const sqlite = new Database(dbPath);
-	sqlite.pragma("foreign_keys = ON");
-	const db = drizzle(sqlite, { schema });
-
-	const now = new Date("2026-05-05T10:00:00.000Z");
-	db.insert(schema.projects)
-		.values({
-			id: "project-1",
-			userId: "user-1",
-			name: "Research folder",
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
-	db.update(schema.conversations)
-		.set({ projectId: "project-1" })
-		.where(eq(schema.conversations.id, "conv-1"))
-		.run();
-
-	sqlite.close();
-}
-
-async function seedCompletedMeaningfulPasses(jobId: string, count: number) {
-	const { upsertResearchPassCheckpoint, completeResearchPassCheckpoint } =
-		await import("./pass-state");
-	for (let index = 0; index < count; index += 1) {
-		const passNumber = index + 1;
-		const checkpoint = await upsertResearchPassCheckpoint({
-			userId: "user-1",
-			jobId,
-			conversationId: "conv-1",
-			passNumber,
-			searchIntent:
-				passNumber === 1
-					? "Initial approved-plan source review"
-					: `Targeted follow-up for pass ${passNumber - 1} Coverage Gaps`,
-			reviewedSourceIds: [],
-			now: new Date(`2026-05-05T10:${10 + index}:00.000Z`),
-		});
-		await completeResearchPassCheckpoint({
-			userId: "user-1",
-			checkpointId: checkpoint.id,
-			nextDecision: "synthesize_report",
-			decisionSummary: "Fixture completed meaningful research pass.",
-			now: new Date(`2026-05-05T10:${10 + index}:30.000Z`),
-		});
-	}
-}
-
-async function completeApprovedJobWithAuditedReport(input?: {
-	userRequest?: string;
-	depth?: "focused" | "standard" | "max";
-}) {
-	const {
-		approveDeepResearchPlan,
-		completeDeepResearchJobWithAuditedReport,
-		startDeepResearchJobShell,
-	} = await import("./index");
-	const { markResearchSourceReviewed, saveDiscoveredResearchSource } =
-		await import("./sources");
-	const userRequest =
-		input?.userRequest ?? "Compare EU and US AI copyright training data rules";
-	const created = await startDeepResearchJobShell({
-		userId: "user-1",
-		conversationId: "conv-1",
-		triggerMessageId: "user-msg-1",
-		userRequest,
-		depth: input?.depth ?? "standard",
-		now: new Date("2026-05-05T10:01:00.000Z"),
-	});
-	await approveDeepResearchPlan({
-		userId: "user-1",
-		jobId: created.id,
-		now: new Date("2026-05-05T10:06:00.000Z"),
-	});
-	await seedCompletedMeaningfulPasses(
-		created.id,
-		input?.depth === "max" ? 5 : input?.depth === "focused" ? 2 : 3,
-	);
-	const source = await saveDiscoveredResearchSource({
-		userId: "user-1",
-		conversationId: "conv-1",
-		jobId: created.id,
-		url: "https://agency.example.test/ai-copyright-training-data",
-		title: "Agency AI copyright training data briefing",
-		provider: "public_web",
-		snippet: "Agency briefing on AI copyright training data rules.",
-		discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-	});
-	const reviewedSource = await markResearchSourceReviewed({
-		userId: "user-1",
-		sourceId: source.id,
-		reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-		reviewedNote:
-			"EU and US AI copyright training data rules require provenance records and rights-risk review.",
-	});
-	const synthesisNotes = buildSupportedSynthesisNotes({
-		jobId: created.id,
-		sourceId: reviewedSource.id,
-		url: reviewedSource.url,
-		title: reviewedSource.title ?? "Agency briefing",
-	});
-	const completed = await completeDeepResearchJobWithAuditedReport({
-		userId: "user-1",
-		jobId: created.id,
-		synthesisNotes,
-		now: new Date("2026-05-05T10:20:00.000Z"),
-	});
-	return { created, completed };
-}
-
-async function completeApprovedJobWithEvidenceLimitationMemo(input?: {
-	userRequest?: string;
-	depth?: "focused" | "standard" | "max";
-}) {
-	const {
-		approveDeepResearchPlan,
-		completeDeepResearchJobWithEvidenceLimitationMemo,
-		startDeepResearchJobShell,
-	} = await import("./index");
-	const created = await startDeepResearchJobShell({
-		userId: "user-1",
-		conversationId: "conv-1",
-		triggerMessageId: "user-msg-1",
-		userRequest:
-			input?.userRequest ?? "Assess unverified battery recycling claims",
-		depth: input?.depth ?? "focused",
-		now: new Date("2026-05-05T10:01:00.000Z"),
-	});
-	await approveDeepResearchPlan({
-		userId: "user-1",
-		jobId: created.id,
-		now: new Date("2026-05-05T10:06:00.000Z"),
-	});
-	const completed = await completeDeepResearchJobWithEvidenceLimitationMemo({
-		userId: "user-1",
-		jobId: created.id,
-		limitations: ["No useful accepted evidence supported the approved plan."],
-		now: new Date("2026-05-05T10:20:00.000Z"),
-	});
-	return { created, completed };
-}
-
-function buildSupportedSynthesisNotes(input: {
-	jobId: string;
-	sourceId: string;
-	url: string;
-	title: string;
-}): SynthesisNotes {
-	const finding = {
-		kind: "supported" as const,
-		statement:
-			"EU and US AI copyright training data rules require provenance records and rights-risk review.",
-		sourceRefs: [
-			{
-				reviewedSourceId: input.sourceId,
-				discoveredSourceId: input.sourceId,
-				canonicalUrl: input.url,
-				title: input.title,
-			},
-		],
-	};
-	return {
-		jobId: input.jobId,
-		findings: [finding],
-		supportedFindings: [finding],
-		conflicts: [],
-		assumptions: [],
-		reportLimitations: [],
-	};
-}
+const completeApprovedJobWithAuditedReport =
+	sharedCompleteApprovedJobWithAuditedReport;
+const completeApprovedJobWithEvidenceLimitationMemo =
+	sharedCompleteApprovedJobWithEvidenceLimitationMemo;
 
 describe("deep research job shell service", () => {
 	beforeEach(async () => {
 		dbPath = `/tmp/alfyai-deep-research-${randomUUID()}.db`;
 		process.env.DATABASE_PATH = dbPath;
 		vi.resetModules();
-		await seedConversation();
+		await seedDeepResearchConversation({ dbPath });
 	});
 
 	afterEach(async () => {
@@ -713,11 +480,11 @@ describe("deep research job shell service", () => {
 	});
 
 	it("rejects a third active Deep Research Job for one user by default", async () => {
-		await seedAdditionalConversation({
+		await seedAdditionalConversation(dbPath, {
 			conversationId: "conv-2",
 			messageId: "user-msg-2",
 		});
-		await seedAdditionalConversation({
+		await seedAdditionalConversation(dbPath, {
 			conversationId: "conv-3",
 			messageId: "user-msg-3",
 		});
@@ -1443,7 +1210,7 @@ describe("deep research job shell service", () => {
 		const { db } = await import("$lib/server/db");
 		const { discussDeepResearchReport } = await import("./index");
 		const { created, completed } = await completeApprovedJobWithAuditedReport();
-		await assignSourceConversationToProject();
+		await assignConversationToResearchProject(dbPath);
 
 		const action = await discussDeepResearchReport({
 			userId: "user-1",
@@ -1516,7 +1283,7 @@ describe("deep research job shell service", () => {
 		const { db } = await import("$lib/server/db");
 		const { researchFurtherFromDeepResearchReport } = await import("./index");
 		const { created, completed } = await completeApprovedJobWithAuditedReport();
-		await assignSourceConversationToProject();
+		await assignConversationToResearchProject(dbPath);
 
 		const action = await researchFurtherFromDeepResearchReport({
 			userId: "user-1",

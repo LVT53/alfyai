@@ -1,71 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
-import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import type { DeepResearchJob } from "$lib/types";
+import {
+	createApprovedDeepResearchJob,
+	seedDeepResearchConversation,
+} from "./test-helpers";
 
 let dbPath: string;
-
-async function seedConversation() {
-	const sqlite = new Database(dbPath);
-	sqlite.pragma("foreign_keys = ON");
-	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: "./drizzle" });
-
-	const now = new Date("2026-05-05T10:00:00.000Z");
-	db.insert(schema.users)
-		.values({
-			id: "user-1",
-			email: "user@example.com",
-			passwordHash: "hash",
-		})
-		.run();
-	db.insert(schema.conversations)
-		.values({
-			id: "conv-1",
-			userId: "user-1",
-			title: "Research conversation",
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
-	db.insert(schema.messages)
-		.values({
-			id: "user-msg-1",
-			conversationId: "conv-1",
-			role: "user",
-			content: "Compare EU and US AI copyright training data rules",
-			createdAt: now,
-		})
-		.run();
-
-	sqlite.close();
-}
-
-async function createApprovedResearchJob() {
-	const { approveDeepResearchPlan, startDeepResearchJobShell } = await import(
-		"./index"
-	);
-	const created = await startDeepResearchJobShell({
-		userId: "user-1",
-		conversationId: "conv-1",
-		triggerMessageId: "user-msg-1",
-		userRequest: "Compare EU and US AI copyright training data rules",
-		depth: "focused",
-		now: new Date("2026-05-05T10:01:00.000Z"),
-	});
-	const approved = await approveDeepResearchPlan({
-		userId: "user-1",
-		jobId: created.id,
-		now: new Date("2026-05-05T10:06:00.000Z"),
-	});
-	if (!approved) throw new Error("Expected approval to return the job");
-	return approved;
-}
+const createApprovedResearchJob = createApprovedDeepResearchJob;
 
 async function createApprovedPoisonedArchitectureJob() {
 	const { approveDeepResearchPlan, startDeepResearchJobShell } = await import(
@@ -146,7 +91,7 @@ describe("real Deep Research workflow stepper", () => {
 		dbPath = `/tmp/alfyai-deep-research-workflow-${randomUUID()}.db`;
 		process.env.DATABASE_PATH = dbPath;
 		vi.resetModules();
-		await seedConversation();
+		await seedDeepResearchConversation({ dbPath });
 	});
 
 	afterEach(async () => {

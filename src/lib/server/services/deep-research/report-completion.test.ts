@@ -1,90 +1,39 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
-import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import type { DeepResearchSynthesisClaim } from "$lib/types";
 import { evaluateDeepResearchRun } from "./evaluation";
 import type { SynthesisNotes } from "./synthesis";
+import {
+	buildSupportingFindingsForSources,
+	seedCompletedMeaningfulPasses,
+	seedDeepResearchConversation,
+} from "./test-helpers";
 
 let dbPath: string;
 
-async function seedConversation() {
-	const sqlite = new Database(dbPath);
-	sqlite.pragma("foreign_keys = ON");
-	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: "./drizzle" });
-
-	const now = new Date("2026-05-05T10:00:00.000Z");
-	db.insert(schema.users)
-		.values({
-			id: "user-1",
-			email: "user@example.com",
-			passwordHash: "hash",
-		})
-		.run();
-	db.insert(schema.conversations)
-		.values({
-			id: "conv-1",
-			userId: "user-1",
-			title: "Research conversation",
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
-	db.insert(schema.messages)
-		.values({
-			id: "user-msg-1",
-			conversationId: "conv-1",
-			role: "user",
-			content: "Compare EU and US AI copyright training data rules",
-			createdAt: now,
-		})
-		.run();
-
-	sqlite.close();
-}
-
-async function seedCompletedMeaningfulPasses(
+const buildSynthesisNotes = (
 	jobId: string,
-	count: number,
-	startPassNumber = 1,
-) {
-	const { upsertResearchPassCheckpoint, completeResearchPassCheckpoint } =
-		await import("./pass-state");
-	for (let index = 0; index < count; index += 1) {
-		const passNumber = startPassNumber + index;
-		const checkpoint = await upsertResearchPassCheckpoint({
-			userId: "user-1",
-			jobId,
-			conversationId: "conv-1",
-			passNumber,
-			searchIntent:
-				passNumber === 1
-					? "Initial approved-plan source review"
-					: `Targeted follow-up for pass ${passNumber - 1} Coverage Gaps`,
-			reviewedSourceIds: [],
-			now: new Date(`2026-05-05T10:${10 + index}:00.000Z`),
-		});
-		await completeResearchPassCheckpoint({
-			userId: "user-1",
-			checkpointId: checkpoint.id,
-			nextDecision: "synthesize_report",
-			decisionSummary: "Fixture completed meaningful research pass.",
-			now: new Date(`2026-05-05T10:${10 + index}:30.000Z`),
-		});
-	}
-}
+	findings: Array<{
+		statement: string;
+		sourceId: string;
+		url: string;
+		title: string;
+	}>,
+): SynthesisNotes =>
+	buildSupportingFindingsForSources({
+		jobId,
+		findings,
+	});
 
 describe("audited Deep Research report completion", () => {
 	beforeEach(async () => {
 		dbPath = `/tmp/alfyai-deep-research-report-completion-${randomUUID()}.db`;
 		process.env.DATABASE_PATH = dbPath;
 		vi.resetModules();
-		await seedConversation();
+		await seedDeepResearchConversation({ dbPath });
 	});
 
 	afterEach(async () => {
@@ -423,7 +372,9 @@ describe("audited Deep Research report completion", () => {
 			jobId: created.id,
 			now: new Date("2026-05-05T10:06:00.000Z"),
 		});
-		await seedCompletedMeaningfulPasses(created.id, 3, 2);
+		await seedCompletedMeaningfulPasses(created.id, 3, {
+			startPassNumber: 2,
+		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
 			jobId: created.id,
@@ -590,7 +541,9 @@ describe("audited Deep Research report completion", () => {
 			jobId: created.id,
 			now: new Date("2026-05-05T10:06:00.000Z"),
 		});
-		await seedCompletedMeaningfulPasses(created.id, 3, 2);
+		await seedCompletedMeaningfulPasses(created.id, 3, {
+			startPassNumber: 2,
+		});
 		const source = await saveDiscoveredResearchSource({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -730,7 +683,9 @@ describe("audited Deep Research report completion", () => {
 			jobId: created.id,
 			now: new Date("2026-05-05T10:06:00.000Z"),
 		});
-		await seedCompletedMeaningfulPasses(created.id, 3, 2);
+		await seedCompletedMeaningfulPasses(created.id, 3, {
+			startPassNumber: 2,
+		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
 			jobId: created.id,
@@ -1195,7 +1150,9 @@ describe("audited Deep Research report completion", () => {
 			jobId: created.id,
 			now: new Date("2026-05-05T10:06:00.000Z"),
 		});
-		await seedCompletedMeaningfulPasses(created.id, 3, 2);
+		await seedCompletedMeaningfulPasses(created.id, 3, {
+			startPassNumber: 2,
+		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
 			jobId: created.id,
@@ -1339,7 +1296,9 @@ describe("audited Deep Research report completion", () => {
 			jobId: created.id,
 			now: new Date("2026-05-05T10:06:00.000Z"),
 		});
-		await seedCompletedMeaningfulPasses(created.id, 3, 2);
+		await seedCompletedMeaningfulPasses(created.id, 3, {
+			startPassNumber: 2,
+		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
 			jobId: created.id,
@@ -1447,7 +1406,9 @@ describe("audited Deep Research report completion", () => {
 			jobId: created.id,
 			now: new Date("2026-05-05T10:06:00.000Z"),
 		});
-		await seedCompletedMeaningfulPasses(created.id, 3, 2);
+		await seedCompletedMeaningfulPasses(created.id, 3, {
+			startPassNumber: 2,
+		});
 		const reviewedSource = await markResearchSourceReviewed({
 			userId: "user-1",
 			sourceId: (
@@ -1632,7 +1593,9 @@ describe("audited Deep Research report completion", () => {
 			jobId: created.id,
 			now: new Date("2026-05-05T10:06:00.000Z"),
 		});
-		await seedCompletedMeaningfulPasses(created.id, 3, 2);
+		await seedCompletedMeaningfulPasses(created.id, 3, {
+			startPassNumber: 2,
+		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
 			jobId: created.id,
@@ -1736,7 +1699,9 @@ describe("audited Deep Research report completion", () => {
 			jobId: created.id,
 			now: new Date("2026-05-05T10:06:00.000Z"),
 		});
-		await seedCompletedMeaningfulPasses(created.id, 3, 2);
+		await seedCompletedMeaningfulPasses(created.id, 3, {
+			startPassNumber: 2,
+		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
 			jobId: created.id,
@@ -2352,35 +2317,3 @@ describe("audited Deep Research report completion", () => {
 		expect(generatedArtifacts).toEqual([]);
 	});
 });
-
-function buildSynthesisNotes(
-	jobId: string,
-	findings: Array<{
-		statement: string;
-		sourceId: string;
-		url: string;
-		title: string;
-	}>,
-): SynthesisNotes {
-	const supportedFindings = findings.map((finding) => ({
-		kind: "supported" as const,
-		statement: finding.statement,
-		sourceRefs: [
-			{
-				reviewedSourceId: finding.sourceId,
-				discoveredSourceId: finding.sourceId,
-				canonicalUrl: finding.url,
-				title: finding.title,
-			},
-		],
-	}));
-
-	return {
-		jobId,
-		findings: supportedFindings,
-		supportedFindings,
-		conflicts: [],
-		assumptions: [],
-		reportLimitations: [],
-	};
-}
