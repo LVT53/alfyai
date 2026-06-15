@@ -39,12 +39,147 @@ type RunPlainNormalChatModelRunArgs = Parameters<
 	typeof runPlainNormalChatModelRun
 >[0];
 type ChatRunMessage = RunPlainNormalChatModelRunArgs["messages"][number];
+type FetchMock = ReturnType<typeof vi.fn<typeof globalThis.fetch>>;
+type StreamRunArgs = Parameters<typeof runStreamingNormalChatModelRun>[0];
+type StreamUsage = {
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+};
+
+const produceFileSchema = z.object({
+	title: z.string(),
+});
+
+const doneToolSchema = z.object({
+	summary: z.string(),
+});
 
 function userTextMessage(content: string): ChatRunMessage {
 	return {
 		role: "user",
 		content: [{ type: "text", text: content }],
 	} as ChatRunMessage;
+}
+
+function createProduceFileTool(
+	execute: (
+		input: { title: string },
+		context?: { toolCallId?: string },
+	) => unknown = vi.fn(),
+) {
+	return tool({
+		description: "Queue a file production job.",
+		inputSchema: produceFileSchema,
+		execute,
+	});
+}
+
+function createDoneTool() {
+	return tool({
+		description: "Finish the assistant response.",
+		inputSchema: doneToolSchema,
+	});
+}
+
+function parseRequestBody(fetchMock: FetchMock, callIndex = 0) {
+	return JSON.parse(String(fetchMock.mock.calls[callIndex]?.[1]?.body));
+}
+
+function createStreamChunk(input: {
+	id?: string;
+	model?: string;
+	created?: number;
+	content?: string;
+	reasoningContent?: string;
+	toolCalls?: Array<{
+		id: string;
+		name: string;
+		arguments: string;
+	}>;
+	finishReason?: string | null;
+	usage?: StreamUsage;
+}) {
+	const {
+		id = "chatcmpl-1",
+		model = "stream-model",
+		created = 1_717_171_717,
+	} = input;
+	const message: {
+		content?: string;
+		reasoning_content?: string;
+		tool_calls?: Array<{
+			index: number;
+			id: string;
+			type: "function";
+			function: {
+				name: string;
+				arguments: string;
+			};
+		}>;
+	} = {};
+
+	if (input.content !== undefined) {
+		message.content = input.content;
+	}
+
+	if (input.reasoningContent !== undefined) {
+		message.reasoning_content = input.reasoningContent;
+	}
+
+	if (input.toolCalls && input.toolCalls.length > 0) {
+		message.tool_calls = input.toolCalls.map((toolCall, index) => ({
+			index,
+			type: "function",
+			id: toolCall.id,
+			function: {
+				name: toolCall.name,
+				arguments: toolCall.arguments,
+			},
+		}));
+	}
+
+	return {
+		id,
+		object: "chat.completion.chunk",
+		created,
+		model,
+		choices: [
+			{
+				index: 0,
+				delta: message,
+				finish_reason: input.finishReason ?? null,
+			},
+		],
+		...(input.usage ? { usage: input.usage } : {}),
+	};
+}
+
+function createStreamResponse(
+	chunks: Parameters<typeof createStreamChunk>[0][],
+) {
+	return new Response(
+		[
+			...chunks.flatMap((chunk) => [
+				`data: ${JSON.stringify(createStreamChunk(chunk))}`,
+				"",
+			]),
+			"data: [DONE]",
+			"",
+		].join("\n"),
+		{
+			status: 200,
+			headers: { "Content-Type": "text/event-stream" },
+		},
+	);
+}
+
+async function collectStreamingEvents(args: StreamRunArgs) {
+	const events = [];
+	for await (const event of runStreamingNormalChatModelRun(args)) {
+		events.push(event);
+	}
+	return events;
 }
 
 function createMockChatCompletionResponse({
@@ -535,13 +670,7 @@ describe("Plain Normal Chat Model Run", () => {
 					},
 				],
 				tools: {
-					produce_file: tool({
-						description: "Queue a file production job.",
-						inputSchema: z.object({
-							title: z.string(),
-						}),
-						execute: vi.fn(),
-					}),
+					produce_file: createProduceFileTool(),
 				},
 				fetch,
 			}),
@@ -633,7 +762,7 @@ describe("Plain Normal Chat Model Run", () => {
 			fetch,
 		});
 
-		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const body = parseRequestBody(fetch);
 		expect(body.reasoning_effort).toBe("high");
 		expect(body).not.toHaveProperty("reasoningEffort");
 		expect(body).not.toHaveProperty("thinking");
@@ -667,7 +796,7 @@ describe("Plain Normal Chat Model Run", () => {
 			fetch,
 		});
 
-		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const body = parseRequestBody(fetch);
 		expect(body.reasoning_effort).toBe("medium");
 		expect(body.thinking).toEqual({ type: "enabled", keep: "all" });
 		expect(body).not.toHaveProperty("reasoningEffort");
@@ -700,7 +829,7 @@ describe("Plain Normal Chat Model Run", () => {
 			fetch,
 		});
 
-		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const body = parseRequestBody(fetch);
 		expect(body.enable_thinking).toBe(true);
 		expect(body.preserve_thinking).toBe(true);
 		expect(body).not.toHaveProperty("reasoning_effort");
@@ -946,7 +1075,7 @@ describe("Plain Normal Chat Model Run", () => {
 		expect(fetch.mock.calls[1]?.[0]).toBe(
 			"https://api.fireworks.ai/inference/v1/chat/completions",
 		);
-		const fallbackBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body));
+		const fallbackBody = parseRequestBody(fetch, 1);
 		expect(fallbackBody.model).toBe("accounts/fireworks/models/kimi-k2p6");
 		expect(mocks.getProviderWithSecrets).toHaveBeenCalledWith("provider-1");
 		expect(mocks.getProviderByName).not.toHaveBeenCalledWith(
@@ -1016,13 +1145,7 @@ describe("Plain Normal Chat Model Run", () => {
 				},
 			],
 			tools: {
-				produce_file: tool({
-					description: "Queue a file production job.",
-					inputSchema: z.object({
-						title: z.string(),
-					}),
-					execute: vi.fn(),
-				}),
+				produce_file: createProduceFileTool(),
 			},
 			fetch,
 		});
@@ -1030,7 +1153,7 @@ describe("Plain Normal Chat Model Run", () => {
 		expect(result.text).toBe("Plain fallback answer");
 		expect(fetch).toHaveBeenCalledTimes(2);
 
-		const firstBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const firstBody = parseRequestBody(fetch);
 		expect(firstBody.tools).toEqual([
 			expect.objectContaining({
 				type: "function",
@@ -1038,7 +1161,7 @@ describe("Plain Normal Chat Model Run", () => {
 			}),
 		]);
 
-		const fallbackBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body));
+		const fallbackBody = parseRequestBody(fetch, 1);
 		expect(fallbackBody).not.toHaveProperty("tools");
 	});
 
@@ -1089,19 +1212,13 @@ describe("Plain Normal Chat Model Run", () => {
 				},
 			],
 			tools: {
-				produce_file: tool({
-					description: "Queue a file production job.",
-					inputSchema: z.object({
-						title: z.string(),
-					}),
-					execute: vi.fn(),
-				}),
+				produce_file: createProduceFileTool(),
 			},
 			toolChoice: { type: "tool", toolName: "produce_file" },
 			fetch,
 		});
 
-		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const body = parseRequestBody(fetch);
 		expect(body.tool_choice).toEqual({
 			type: "function",
 			function: { name: "produce_file" },
@@ -1156,19 +1273,13 @@ describe("Plain Normal Chat Model Run", () => {
 				"on",
 			),
 			tools: {
-				produce_file: tool({
-					description: "Queue a file production job.",
-					inputSchema: z.object({
-						title: z.string(),
-					}),
-					execute: vi.fn(),
-				}),
+				produce_file: createProduceFileTool(),
 			},
 			toolChoice: { type: "tool", toolName: "produce_file" },
 			fetch,
 		});
 
-		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const body = parseRequestBody(fetch);
 		expect(body.tool_choice).toEqual({
 			type: "function",
 			function: { name: "produce_file" },
@@ -1278,24 +1389,18 @@ describe("Plain Normal Chat Model Run", () => {
 				"on",
 			),
 			tools: {
-				produce_file: tool({
-					description: "Queue a file production job.",
-					inputSchema: z.object({
-						title: z.string(),
-					}),
-					execute: toolExecute,
-				}),
+				produce_file: createProduceFileTool(toolExecute),
 			},
 			toolChoice: { type: "tool", toolName: "produce_file" },
 			fetch,
 		});
 
-		const firstBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const firstBody = parseRequestBody(fetch);
 		expect(firstBody.thinking).toEqual({ type: "enabled" });
 		expect(firstBody.reasoning_effort).toBe("high");
 		expect(firstBody).not.toHaveProperty("tool_choice");
 
-		const secondBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body));
+		const secondBody = parseRequestBody(fetch, 1);
 		expect(secondBody.messages).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -1350,13 +1455,7 @@ describe("Plain Normal Chat Model Run", () => {
 					},
 				],
 				tools: {
-					produce_file: tool({
-						description: "Queue a file production job.",
-						inputSchema: z.object({
-							title: z.string(),
-						}),
-						execute: vi.fn(),
-					}),
+					produce_file: createProduceFileTool(),
 				},
 				toolChoice: { type: "tool", toolName: "produce_file" },
 				fetch,
@@ -1406,13 +1505,7 @@ describe("Plain Normal Chat Model Run", () => {
 					},
 				],
 				tools: {
-					produce_file: tool({
-						description: "Queue a file production job.",
-						inputSchema: z.object({
-							title: z.string(),
-						}),
-						execute: vi.fn(),
-					}),
+					produce_file: createProduceFileTool(),
 				},
 				fetch,
 			}),
@@ -1471,13 +1564,7 @@ describe("Plain Normal Chat Model Run", () => {
 					},
 				],
 				tools: {
-					produce_file: tool({
-						description: "Queue a file production job.",
-						inputSchema: z.object({
-							title: z.string(),
-						}),
-						execute: vi.fn(),
-					}),
+					produce_file: createProduceFileTool(),
 				},
 				fetch,
 			}),
@@ -1537,7 +1624,7 @@ describe("Plain Normal Chat Model Run", () => {
 			fetch,
 		});
 
-		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const body = parseRequestBody(fetch);
 		expect(body.max_tokens).toBe(777);
 	});
 
@@ -1639,13 +1726,7 @@ describe("Plain Normal Chat Model Run", () => {
 				},
 			],
 			tools: {
-				produce_file: tool({
-					description: "Queue a file production job.",
-					inputSchema: z.object({
-						title: z.string(),
-					}),
-					execute: toolExecute,
-				}),
+				produce_file: createProduceFileTool(toolExecute),
 			},
 			fetch,
 		});
@@ -1657,7 +1738,7 @@ describe("Plain Normal Chat Model Run", () => {
 		);
 		expect(fetch).toHaveBeenCalledTimes(2);
 
-		const firstBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const firstBody = parseRequestBody(fetch);
 		expect(firstBody.tools).toEqual([
 			expect.objectContaining({
 				type: "function",
@@ -1665,7 +1746,7 @@ describe("Plain Normal Chat Model Run", () => {
 			}),
 		]);
 
-		const secondBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body));
+		const secondBody = parseRequestBody(fetch, 1);
 		expect(secondBody.messages).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -1735,12 +1816,7 @@ describe("Plain Normal Chat Model Run", () => {
 				},
 			],
 			tools: {
-				done: tool({
-					description: "Finish the assistant response.",
-					inputSchema: z.object({
-						summary: z.string(),
-					}),
-				}),
+				done: createDoneTool(),
 			},
 			fetch,
 			maxRetries: 0,
@@ -1787,28 +1863,22 @@ describe("Streaming Normal Chat Model Run", () => {
 	});
 
 	it("emits neutral text, usage, and finish events from an OpenAI-compatible stream", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(
-			async () =>
-				new Response(
-					[
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{"content":"Plain "},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{"content":"stream"},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
-					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createStreamResponse([
+				{ content: "Plain " },
+				{ content: "stream" },
+				{
+					finishReason: "stop",
+					usage: {
+						prompt_tokens: 5,
+						completion_tokens: 2,
+						total_tokens: 7,
 					},
-				),
+				},
+			]),
 		);
 
-		const events = [];
-		for await (const event of runStreamingNormalChatModelRun({
+		const events = await collectStreamingEvents({
 			provider: {
 				id: "provider-1",
 				name: "fireworks",
@@ -1825,9 +1895,7 @@ describe("Streaming Normal Chat Model Run", () => {
 				},
 			],
 			fetch,
-		})) {
-			events.push(event);
-		}
+		});
 
 		expect(events).toEqual([
 			{ type: "text_delta", text: "Plain " },
@@ -1867,28 +1935,22 @@ describe("Streaming Normal Chat Model Run", () => {
 	});
 
 	it("emits neutral reasoning delta events when the provider streams reasoning", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(
-			async () =>
-				new Response(
-					[
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{"reasoning_content":"Thinking"},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{"content":"Answer"},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
-					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createStreamResponse([
+				{ reasoningContent: "Thinking" },
+				{ content: "Answer" },
+				{
+					finishReason: "stop",
+					usage: {
+						prompt_tokens: 5,
+						completion_tokens: 2,
+						total_tokens: 7,
 					},
-				),
+				},
+			]),
 		);
 
-		const events = [];
-		for await (const event of runStreamingNormalChatModelRun({
+		const events = await collectStreamingEvents({
 			provider: {
 				id: "provider-1",
 				name: "fireworks",
@@ -1904,9 +1966,7 @@ describe("Streaming Normal Chat Model Run", () => {
 				},
 			],
 			fetch,
-		})) {
-			events.push(event);
-		}
+		});
 
 		expect(events).toContainEqual({
 			type: "reasoning_delta",
@@ -1916,26 +1976,11 @@ describe("Streaming Normal Chat Model Run", () => {
 	});
 
 	it("does not request streaming usage when usage reporting is unsupported", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(
-			async () =>
-				new Response(
-					[
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{"content":"Answer"},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
-					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
-					},
-				),
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createStreamResponse([{ content: "Answer" }, { finishReason: "stop" }]),
 		);
 
-		const events = [];
-		for await (const event of runStreamingNormalChatModelRun({
+		const events = await collectStreamingEvents({
 			provider: {
 				id: "provider-1",
 				name: "fireworks",
@@ -1958,12 +2003,10 @@ describe("Streaming Normal Chat Model Run", () => {
 				},
 			],
 			fetch,
-		})) {
-			events.push(event);
-		}
+		});
 
 		expect(events).toContainEqual({ type: "text_delta", text: "Answer" });
-		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const body = parseRequestBody(fetch);
 		expect(body.stream_options).toBeUndefined();
 	});
 
@@ -1987,8 +2030,7 @@ describe("Streaming Normal Chat Model Run", () => {
 				),
 		);
 
-		const events = [];
-		for await (const event of runStreamingNormalChatModelRun({
+		const events = await collectStreamingEvents({
 			provider: {
 				id: "provider-1",
 				name: "fireworks",
@@ -2004,9 +2046,7 @@ describe("Streaming Normal Chat Model Run", () => {
 				},
 			],
 			fetch,
-		})) {
-			events.push(event);
-		}
+		});
 
 		expect(fetch).toHaveBeenCalledTimes(1);
 		expect(consoleError).not.toHaveBeenCalled();
@@ -2048,26 +2088,22 @@ describe("Streaming Normal Chat Model Run", () => {
 				),
 			)
 			.mockResolvedValueOnce(
-				new Response(
-					[
-						'data: {"id":"chatcmpl-fallback","object":"chat.completion.chunk","created":1717171717,"model":"fallback-returned-model","choices":[{"index":0,"delta":{"content":"Fallback "},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-fallback","object":"chat.completion.chunk","created":1717171717,"model":"fallback-returned-model","choices":[{"index":0,"delta":{"content":"stream"},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-fallback","object":"chat.completion.chunk","created":1717171717,"model":"fallback-returned-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
+				createStreamResponse([
+					{ model: "fallback-returned-model", content: "Fallback " },
+					{ model: "fallback-returned-model", content: "stream" },
 					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
+						model: "fallback-returned-model",
+						finishReason: "stop",
+						usage: {
+							prompt_tokens: 5,
+							completion_tokens: 2,
+							total_tokens: 7,
+						},
 					},
-				),
+				]),
 			);
 
-		const events = [];
-		for await (const event of runStreamingNormalChatModelRun({
+		const events = await collectStreamingEvents({
 			provider: {
 				id: "provider-1",
 				name: "fireworks",
@@ -2084,15 +2120,13 @@ describe("Streaming Normal Chat Model Run", () => {
 			],
 			fetch,
 			maxRetries: 0,
-		})) {
-			events.push(event);
-		}
+		});
 
 		expect(fetch).toHaveBeenCalledTimes(2);
 		expect(fetch.mock.calls[1]?.[0]).toBe(
 			"https://fallback.fireworks.example/v1/chat/completions",
 		);
-		const fallbackBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body));
+		const fallbackBody = parseRequestBody(fetch, 1);
 		expect(fallbackBody.model).toBe("fallback-model");
 		expect(fetch.mock.calls[1]?.[1]?.headers).toEqual(
 			expect.objectContaining({
@@ -2130,24 +2164,24 @@ describe("Streaming Normal Chat Model Run", () => {
 			.fn()
 			.mockRejectedValueOnce(timeoutError)
 			.mockResolvedValueOnce(
-				new Response(
-					[
-						'data: {"id":"chatcmpl-timeout-fallback","object":"chat.completion.chunk","created":1717171717,"model":"provider-returned-model-2","choices":[{"index":0,"delta":{"content":"Model 2 answer"},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-timeout-fallback","object":"chat.completion.chunk","created":1717171717,"model":"provider-returned-model-2","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":6,"completion_tokens":3,"total_tokens":9}}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
+				createStreamResponse([
 					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
+						model: "provider-returned-model-2",
+						content: "Model 2 answer",
 					},
-				),
+					{
+						model: "provider-returned-model-2",
+						finishReason: "stop",
+						usage: {
+							prompt_tokens: 6,
+							completion_tokens: 3,
+							total_tokens: 9,
+						},
+					},
+				]),
 			);
 
-		const events = [];
-		for await (const event of runStreamingNormalChatModelRun({
+		const events = await collectStreamingEvents({
 			provider: {
 				id: "model1",
 				name: "model1",
@@ -2192,9 +2226,7 @@ describe("Streaming Normal Chat Model Run", () => {
 			],
 			fetch,
 			maxRetries: 0,
-		})) {
-			events.push(event);
-		}
+		});
 
 		expect(fetch).toHaveBeenCalledTimes(2);
 		expect(fetch.mock.calls[0]?.[0]).toBe(
@@ -2240,24 +2272,24 @@ describe("Streaming Normal Chat Model Run", () => {
 				});
 			})
 			.mockResolvedValueOnce(
-				new Response(
-					[
-						'data: {"id":"chatcmpl-first-output-fallback","object":"chat.completion.chunk","created":1717171717,"model":"provider-returned-model-2","choices":[{"index":0,"delta":{"content":"Timed fallback"},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-first-output-fallback","object":"chat.completion.chunk","created":1717171717,"model":"provider-returned-model-2","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":6,"completion_tokens":3,"total_tokens":9}}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
+				createStreamResponse([
 					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
+						model: "provider-returned-model-2",
+						content: "Timed fallback",
 					},
-				),
+					{
+						model: "provider-returned-model-2",
+						finishReason: "stop",
+						usage: {
+							prompt_tokens: 6,
+							completion_tokens: 3,
+							total_tokens: 9,
+						},
+					},
+				]),
 			);
 
-		const events = [];
-		for await (const event of runStreamingNormalChatModelRun({
+		const events = await collectStreamingEvents({
 			provider: {
 				id: "model1",
 				name: "model1",
@@ -2303,9 +2335,7 @@ describe("Streaming Normal Chat Model Run", () => {
 			],
 			fetch,
 			maxRetries: 0,
-		})) {
-			events.push(event);
-		}
+		});
 
 		expect(fetch).toHaveBeenCalledTimes(2);
 		expect(fetch.mock.calls[1]?.[0]).toBe(
@@ -2339,20 +2369,27 @@ describe("Streaming Normal Chat Model Run", () => {
 		const fetch = vi
 			.fn()
 			.mockResolvedValueOnce(
-				new Response(
-					[
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"produce_file","arguments":"{\\"title\\":\\"Quarterly report\\"}"}}]},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
+				createStreamResponse([
 					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
+						model: "stream-model",
+						toolCalls: [
+							{
+								id: "call-1",
+								name: "produce_file",
+								arguments: JSON.stringify({ title: "Quarterly report" }),
+							},
+						],
 					},
-				),
+					{
+						model: "stream-model",
+						finishReason: "tool_calls",
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					},
+				]),
 			)
 			.mockResolvedValueOnce(
 				new Response(
@@ -2369,8 +2406,7 @@ describe("Streaming Normal Chat Model Run", () => {
 				),
 			);
 
-		const events = [];
-		for await (const event of runStreamingNormalChatModelRun({
+		const events = await collectStreamingEvents({
 			provider: {
 				id: "provider-1",
 				name: "fireworks",
@@ -2386,26 +2422,10 @@ describe("Streaming Normal Chat Model Run", () => {
 				},
 			],
 			tools: {
-				produce_file: tool({
-					description: "Queue a file production job.",
-					inputSchema: z.object({
-						title: z.string(),
-					}),
-					execute: toolExecute,
-				}),
+				produce_file: createProduceFileTool(toolExecute),
 			},
 			fetch,
 			maxRetries: 0,
-		})) {
-			events.push(event);
-		}
-
-		expect(fetch).toHaveBeenCalledTimes(2);
-		expect(events).toContainEqual({
-			type: "tool_call",
-			callId: "call-1",
-			toolName: "produce_file",
-			input: { title: "Quarterly report" },
 		});
 		expect(events).toContainEqual({
 			type: "tool_result",
@@ -2427,40 +2447,47 @@ describe("Streaming Normal Chat Model Run", () => {
 		const fetch = vi
 			.fn()
 			.mockResolvedValueOnce(
-				new Response(
-					[
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"produce_file","arguments":"{\\"title\\":\\"Quarterly report\\"}"}}]},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
+				createStreamResponse([
 					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
+						model: "stream-model",
+						toolCalls: [
+							{
+								id: "call-1",
+								name: "produce_file",
+								arguments: JSON.stringify({ title: "Quarterly report" }),
+							},
+						],
 					},
-				),
+					{
+						model: "stream-model",
+						finishReason: "tool_calls",
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					},
+				]),
 			)
 			.mockResolvedValueOnce(
-				new Response(
-					[
-						'data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":1717171718,"model":"stream-model","choices":[{"index":0,"delta":{"content":"Queued the report."},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-2","object":"chat.completion.chunk","created":1717171718,"model":"stream-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":13,"completion_tokens":5,"total_tokens":18}}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
+				createStreamResponse([
 					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
+						model: "stream-model",
+						content: "Queued the report.",
 					},
-				),
+					{
+						model: "stream-model",
+						finishReason: "stop",
+						usage: {
+							prompt_tokens: 13,
+							completion_tokens: 5,
+							total_tokens: 18,
+						},
+					},
+				]),
 			);
 
-		const events = [];
-		for await (const event of runStreamingNormalChatModelRun({
+		const events = await collectStreamingEvents({
 			provider: {
 				id: "provider-1",
 				name: "fireworks",
@@ -2476,18 +2503,10 @@ describe("Streaming Normal Chat Model Run", () => {
 				},
 			],
 			tools: {
-				produce_file: tool({
-					description: "Queue a file production job.",
-					inputSchema: z.object({
-						title: z.string(),
-					}),
-					execute: toolExecute,
-				}),
+				produce_file: createProduceFileTool(toolExecute),
 			},
 			fetch,
-		})) {
-			events.push(event);
-		}
+		});
 
 		expect(events).toContainEqual({
 			type: "tool_call",
@@ -2510,7 +2529,7 @@ describe("Streaming Normal Chat Model Run", () => {
 			expect.objectContaining({ toolCallId: "call-1" }),
 		);
 
-		const firstBody = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const firstBody = parseRequestBody(fetch);
 		expect(firstBody.tools).toEqual([
 			expect.objectContaining({
 				type: "function",
@@ -2518,7 +2537,7 @@ describe("Streaming Normal Chat Model Run", () => {
 			}),
 		]);
 
-		const secondBody = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body));
+		const secondBody = parseRequestBody(fetch, 1);
 		expect(secondBody.messages).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -2530,26 +2549,29 @@ describe("Streaming Normal Chat Model Run", () => {
 	});
 
 	it("emits a done tool summary as assistant text without a neutral tool event", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(
-			async () =>
-				new Response(
-					[
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-done","type":"function","function":{"name":"done","arguments":"{\\"summary\\":\\"Finished.\\"}"}}]},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
-					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createStreamResponse([
+				{
+					toolCalls: [
+						{
+							id: "call-done",
+							name: "done",
+							arguments: JSON.stringify({ summary: "Finished." }),
+						},
+					],
+				},
+				{
+					finishReason: "tool_calls",
+					usage: {
+						prompt_tokens: 11,
+						completion_tokens: 7,
+						total_tokens: 18,
 					},
-				),
+				},
+			]),
 		);
 
-		const events = [];
-		for await (const event of runStreamingNormalChatModelRun({
+		const events = await collectStreamingEvents({
 			provider: {
 				id: "provider-1",
 				name: "fireworks",
@@ -2565,18 +2587,11 @@ describe("Streaming Normal Chat Model Run", () => {
 				},
 			],
 			tools: {
-				done: tool({
-					description: "Finish the assistant response.",
-					inputSchema: z.object({
-						summary: z.string(),
-					}),
-				}),
+				done: createDoneTool(),
 			},
 			fetch,
 			maxRetries: 0,
-		})) {
-			events.push(event);
-		}
+		});
 
 		expect(events).toContainEqual({ type: "text_delta", text: "Finished." });
 		expect(events).not.toContainEqual(
@@ -2595,25 +2610,11 @@ describe("Streaming Normal Chat Model Run", () => {
 	});
 
 	it("sends named tool choice for required streaming tool runs", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(
-			async () =>
-				new Response(
-					[
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{"content":"Queued the report."},"finish_reason":null}]}',
-						"",
-						'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1717171717,"model":"stream-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
-						"",
-						"data: [DONE]",
-						"",
-					].join("\n"),
-					{
-						status: 200,
-						headers: { "Content-Type": "text/event-stream" },
-					},
-				),
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createStreamResponse([{ content: "Answer" }, { finishReason: "stop" }]),
 		);
 
-		for await (const _event of runStreamingNormalChatModelRun({
+		await collectStreamingEvents({
 			provider: {
 				id: "provider-1",
 				name: "fireworks",
@@ -2629,21 +2630,13 @@ describe("Streaming Normal Chat Model Run", () => {
 				},
 			],
 			tools: {
-				produce_file: tool({
-					description: "Queue a file production job.",
-					inputSchema: z.object({
-						title: z.string(),
-					}),
-					execute: vi.fn(),
-				}),
+				produce_file: createProduceFileTool(),
 			},
 			toolChoice: { type: "tool", toolName: "produce_file" },
 			fetch,
-		})) {
-			// Drain the stream so AI SDK performs the request.
-		}
+		});
 
-		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		const body = parseRequestBody(fetch);
 		expect(body.tool_choice).toEqual({
 			type: "function",
 			function: { name: "produce_file" },
