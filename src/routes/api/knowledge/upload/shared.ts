@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { once } from "node:events";
+import { createWriteStream } from "node:fs";
+import { unlink } from "node:fs/promises";
 import { json } from "@sveltejs/kit";
 import {
 	isKnowledgeUploadConversationError,
@@ -17,6 +21,20 @@ export type KnowledgeUploadRequestMetadata = {
 	mimeType: string | null;
 };
 
+export type KnowledgeUploadByteSinkParams = {
+	source: AsyncIterable<Uint8Array>;
+	tempPathAbsolute: string;
+	expectedSize?: number | null;
+	onChunk?: (params: {
+		chunk: Uint8Array;
+		receivedBytes: number;
+	}) => Promise<void> | void;
+	createSizeMismatchError?: (params: {
+		expectedSize: number;
+		receivedBytes: number;
+	}) => Error;
+};
+
 export function parseContentLength(value: string | null): number | null {
 	if (!value) return null;
 	const parsed = Number(value);
@@ -33,6 +51,29 @@ export function formatBytes(value: number | null): string {
 	if (value === null || !Number.isFinite(value)) return "unlimited";
 	const mb = value / (1024 * 1024);
 	return `${Number.isInteger(mb) ? mb : mb.toFixed(1)}MB`;
+}
+
+async function writeChunk(
+	writer: ReturnType<typeof createWriteStream>,
+	chunk: Uint8Array,
+): Promise<void> {
+	if (!writer.write(Buffer.from(chunk))) {
+		await once(writer, "drain");
+	}
+}
+
+async function finishWriter(
+	writer: ReturnType<typeof createWriteStream>,
+): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		writer.once("finish", resolve);
+		writer.once("error", reject);
+		writer.end();
+	});
+}
+
+async function cleanupWrittenUpload(tempPathAbsolute: string): Promise<void> {
+	await unlink(tempPathAbsolute).catch(() => undefined);
 }
 
 function decodeHeaderValue(value: string | null): string | null {
@@ -71,6 +112,51 @@ export function readKnowledgeUploadRequestMetadata(
 		),
 		mimeType:
 			request.headers.get("content-type")?.split(";")[0]?.trim() || null,
+	};
+}
+
+export async function writeKnowledgeUploadBytes(
+	params: KnowledgeUploadByteSinkParams,
+): Promise<{ receivedBytes: number; binaryHash: string }> {
+	const writer = createWriteStream(params.tempPathAbsolute, { flags: "wx" });
+	const hash = createHash("sha256");
+	let receivedBytes = 0;
+
+	try {
+		for await (const chunk of params.source) {
+			receivedBytes += chunk.byteLength;
+			await params.onChunk?.({
+				chunk,
+				receivedBytes,
+			});
+			hash.update(chunk);
+			await writeChunk(writer, chunk);
+		}
+
+		await finishWriter(writer);
+	} catch (error) {
+		writer.destroy();
+		await cleanupWrittenUpload(params.tempPathAbsolute);
+		throw error;
+	}
+
+	if (
+		params.expectedSize !== null &&
+		params.expectedSize !== undefined &&
+		receivedBytes !== params.expectedSize
+	) {
+		await cleanupWrittenUpload(params.tempPathAbsolute);
+		throw (
+			params.createSizeMismatchError?.({
+				expectedSize: params.expectedSize,
+				receivedBytes,
+			}) ?? new Error("Knowledge upload size mismatch.")
+		);
+	}
+
+	return {
+		receivedBytes,
+		binaryHash: hash.digest("hex"),
 	};
 }
 

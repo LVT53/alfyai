@@ -1,6 +1,4 @@
-import { createHash } from "node:crypto";
-import { once } from "node:events";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream } from "node:fs";
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { json } from "@sveltejs/kit";
@@ -16,6 +14,7 @@ import {
 	parseNonNegativeInteger,
 	readKnowledgeUploadRequestMetadata,
 	resolveKnowledgeUploadConversation,
+	writeKnowledgeUploadBytes,
 } from "../shared";
 import type { RequestHandler } from "./$types";
 
@@ -39,33 +38,28 @@ async function countReceivedBytes(uploadDir: string): Promise<number> {
 	return total;
 }
 
-async function pipePartToWriter(
-	partPath: string,
-	writer: ReturnType<typeof createWriteStream>,
-	hash: ReturnType<typeof createHash>,
-): Promise<number> {
-	const reader = createReadStream(partPath);
-	let bytes = 0;
-	reader.on("data", (chunk: Buffer) => {
-		bytes += chunk.length;
-		hash.update(chunk);
-		if (!writer.write(chunk)) {
-			reader.pause();
-			void once(writer, "drain").then(() => reader.resume());
+async function* iterateChunkUploadBytes(params: {
+	uploadDir: string;
+	totalChunks: number;
+}): AsyncGenerator<Uint8Array, void, void> {
+	for (let index = 0; index < params.totalChunks; index += 1) {
+		const partPath = join(params.uploadDir, partName(index));
+		const info = await stat(partPath).catch(() => null);
+		if (!info?.isFile()) {
+			throw new Error(
+				`Missing upload chunk ${index + 1} of ${params.totalChunks}.`,
+			);
 		}
-	});
-	await once(reader, "end");
-	return bytes;
-}
 
-async function finishWriter(
-	writer: ReturnType<typeof createWriteStream>,
-): Promise<void> {
-	await new Promise<void>((resolve, reject) => {
-		writer.once("finish", resolve);
-		writer.once("error", reject);
-		writer.end();
-	});
+		const reader = createReadStream(partPath);
+		try {
+			for await (const chunk of reader) {
+				yield chunk;
+			}
+		} finally {
+			reader.destroy();
+		}
+	}
 }
 
 async function assembleChunks(params: {
@@ -74,39 +68,18 @@ async function assembleChunks(params: {
 	totalChunks: number;
 	totalSize: number;
 }): Promise<{ receivedBytes: number; binaryHash: string }> {
-	const writer = createWriteStream(params.tempPathAbsolute, { flags: "wx" });
-	const hash = createHash("sha256");
-	let receivedBytes = 0;
-
-	try {
-		for (let index = 0; index < params.totalChunks; index += 1) {
-			const partPath = join(params.uploadDir, partName(index));
-			const info = await stat(partPath).catch(() => null);
-			if (!info?.isFile()) {
-				throw new Error(
-					`Missing upload chunk ${index + 1} of ${params.totalChunks}.`,
-				);
-			}
-			receivedBytes += await pipePartToWriter(partPath, writer, hash);
-		}
-		await finishWriter(writer);
-	} catch (error) {
-		writer.destroy();
-		await rm(params.tempPathAbsolute, { force: true }).catch(() => undefined);
-		throw error;
-	}
-
-	if (receivedBytes !== params.totalSize) {
-		await rm(params.tempPathAbsolute, { force: true }).catch(() => undefined);
-		throw new Error(
-			`Upload size mismatch. Browser declared ${params.totalSize} bytes but the server assembled ${receivedBytes} bytes.`,
-		);
-	}
-
-	return {
-		receivedBytes,
-		binaryHash: hash.digest("hex"),
-	};
+	return writeKnowledgeUploadBytes({
+		source: iterateChunkUploadBytes({
+			uploadDir: params.uploadDir,
+			totalChunks: params.totalChunks,
+		}),
+		tempPathAbsolute: params.tempPathAbsolute,
+		expectedSize: params.totalSize,
+		createSizeMismatchError: ({ expectedSize, receivedBytes }) =>
+			new Error(
+				`Upload size mismatch. Browser declared ${expectedSize} bytes but the server assembled ${receivedBytes} bytes.`,
+			),
+	});
 }
 
 export const POST: RequestHandler = async (event) => {

@@ -146,6 +146,47 @@ describe("POST /api/knowledge/upload/chunk", () => {
 		expect(mockCompleteKnowledgeUploadFromStoredFile).not.toHaveBeenCalled();
 	});
 
+	it("reports cumulative received bytes across multiple non-final chunks", async () => {
+		const firstResponse = await POST(
+			makeChunkEvent(
+				Buffer.from("hello"),
+				chunkHeaders({
+					"x-alfyai-chunk-index": "0",
+					"x-alfyai-chunk-start": "0",
+					"x-alfyai-chunk-size": "5",
+					"x-alfyai-chunk-final": "false",
+				}),
+			),
+		);
+		const firstData = await firstResponse.json();
+		const secondResponse = await POST(
+			makeChunkEvent(
+				Buffer.from("world"),
+				chunkHeaders({
+					"x-alfyai-chunk-index": "1",
+					"x-alfyai-chunk-start": "5",
+					"x-alfyai-chunk-size": "5",
+					"x-alfyai-chunk-final": "false",
+				}),
+			),
+		);
+		const secondData = await secondResponse.json();
+
+		expect(firstResponse.status).toBe(200);
+		expect(firstData).toMatchObject({ complete: false, receivedBytes: 5 });
+		expect(secondResponse.status).toBe(200);
+		expect(secondData).toMatchObject({ complete: false, receivedBytes: 10 });
+		expect(consoleInfoSpy).toHaveBeenCalledWith(
+			"[KNOWLEDGE] Chunked upload part received",
+			expect.objectContaining({
+				chunkIndex: 1,
+				receivedBytes: 10,
+				totalSize: 10,
+			}),
+		);
+		expect(mockCompleteKnowledgeUploadFromStoredFile).not.toHaveBeenCalled();
+	});
+
 	it("rejects an invalid conversation before writing a non-final chunk", async () => {
 		const error = new Error("Conversation not found or access denied");
 		mockValidateKnowledgeUploadConversation.mockRejectedValueOnce(error);

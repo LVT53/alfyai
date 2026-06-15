@@ -1,6 +1,3 @@
-import { createHash } from "node:crypto";
-import { once } from "node:events";
-import { createWriteStream } from "node:fs";
 import { mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { json } from "@sveltejs/kit";
@@ -16,6 +13,7 @@ import {
 	parseContentLength,
 	readKnowledgeUploadRequestMetadata,
 	resolveKnowledgeUploadConversation,
+	writeKnowledgeUploadBytes,
 } from "../shared";
 import type { RequestHandler } from "./$types";
 
@@ -51,23 +49,27 @@ function isAbortError(error: unknown): boolean {
 	);
 }
 
-async function writeChunk(
-	writer: ReturnType<typeof createWriteStream>,
-	chunk: Uint8Array,
-): Promise<void> {
-	if (!writer.write(Buffer.from(chunk))) {
-		await once(writer, "drain");
-	}
-}
+async function* iterateRawUploadBody(
+	body: ReadableStream<Uint8Array>,
+): AsyncGenerator<Uint8Array, void, void> {
+	const reader = body.getReader();
+	let completed = false;
 
-async function finishWriter(
-	writer: ReturnType<typeof createWriteStream>,
-): Promise<void> {
-	await new Promise<void>((resolve, reject) => {
-		writer.once("finish", resolve);
-		writer.once("error", reject);
-		writer.end();
-	});
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) {
+				completed = true;
+				return;
+			}
+			yield value;
+		}
+	} finally {
+		if (!completed) {
+			await reader.cancel().catch(() => undefined);
+		}
+		reader.releaseLock();
+	}
 }
 
 async function receiveRawUpload(params: {
@@ -82,15 +84,12 @@ async function receiveRawUpload(params: {
 	signal?: AbortSignal;
 	startedAt: number;
 }): Promise<{ receivedBytes: number; binaryHash: string }> {
-	const reader = params.body.getReader();
-	const writer = createWriteStream(params.tempPathAbsolute, { flags: "wx" });
-	const hash = createHash("sha256");
-	let receivedBytes = 0;
 	let nextProgressBytes = PROGRESS_BYTES;
 	let lastProgressAt = Date.now();
 	let abortLogged = false;
+	let receivedBytes = 0;
 
-	const logProgress = (reason: "bytes" | "interval") => {
+	const logProgress = (reason: "bytes" | "interval", receivedBytes: number) => {
 		console.info("[KNOWLEDGE] Raw upload receive progress", {
 			traceId: params.traceId,
 			userId: params.userId,
@@ -120,36 +119,37 @@ async function receiveRawUpload(params: {
 	params.signal?.addEventListener("abort", onAbort, { once: true });
 
 	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			receivedBytes += value.byteLength;
-			if (receivedBytes > params.requestBodyLimit) {
-				throw new RawUploadLimitError(
-					uploadBodyLimitMessage(params.requestBodyLimit),
-				);
-			}
-			hash.update(value);
-			await writeChunk(writer, value);
-
-			const now = Date.now();
-			if (receivedBytes >= nextProgressBytes) {
-				logProgress("bytes");
-				while (receivedBytes >= nextProgressBytes) {
-					nextProgressBytes += PROGRESS_BYTES;
+		const result = await writeKnowledgeUploadBytes({
+			source: iterateRawUploadBody(params.body),
+			tempPathAbsolute: params.tempPathAbsolute,
+			expectedSize: params.declaredFileSize,
+			onChunk: ({ receivedBytes: chunkReceivedBytes }) => {
+				receivedBytes = chunkReceivedBytes;
+				if (chunkReceivedBytes > params.requestBodyLimit) {
+					throw new RawUploadLimitError(
+						uploadBodyLimitMessage(params.requestBodyLimit),
+					);
 				}
-				lastProgressAt = now;
-			} else if (now - lastProgressAt >= PROGRESS_MS) {
-				logProgress("interval");
-				lastProgressAt = now;
-			}
-		}
 
-		await finishWriter(writer);
+				const now = Date.now();
+				if (chunkReceivedBytes >= nextProgressBytes) {
+					logProgress("bytes", chunkReceivedBytes);
+					while (chunkReceivedBytes >= nextProgressBytes) {
+						nextProgressBytes += PROGRESS_BYTES;
+					}
+					lastProgressAt = now;
+				} else if (now - lastProgressAt >= PROGRESS_MS) {
+					logProgress("interval", chunkReceivedBytes);
+					lastProgressAt = now;
+				}
+			},
+			createSizeMismatchError: ({ expectedSize, receivedBytes }) =>
+				new RawUploadSizeMismatchError(
+					`Upload size mismatch. Browser declared ${expectedSize} bytes but the server received ${receivedBytes} bytes.`,
+				),
+		});
+		return result;
 	} catch (error) {
-		writer.destroy();
-		await reader.cancel().catch(() => undefined);
-		await unlink(params.tempPathAbsolute).catch(() => undefined);
 		if (!abortLogged && isAbortError(error)) {
 			onAbort();
 		}
@@ -157,21 +157,6 @@ async function receiveRawUpload(params: {
 	} finally {
 		params.signal?.removeEventListener("abort", onAbort);
 	}
-
-	if (
-		params.declaredFileSize !== null &&
-		receivedBytes !== params.declaredFileSize
-	) {
-		await unlink(params.tempPathAbsolute).catch(() => undefined);
-		throw new RawUploadSizeMismatchError(
-			`Upload size mismatch. Browser declared ${params.declaredFileSize} bytes but the server received ${receivedBytes} bytes.`,
-		);
-	}
-
-	return {
-		receivedBytes,
-		binaryHash: hash.digest("hex"),
-	};
 }
 
 export const POST: RequestHandler = async (event) => {
