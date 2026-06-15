@@ -1,12 +1,13 @@
-import { randomUUID } from "node:crypto";
-import { unlinkSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import type { DeepResearchJob } from "$lib/types";
 import {
+	cleanupDeepResearchTestDb,
 	createApprovedDeepResearchJob,
-	seedDeepResearchConversation,
+	seedDefaultReviewedAiCopyrightSource,
+	seedDiscoveredSourceWithReview,
+	setupDeepResearchTestDb,
 } from "./test-helpers";
 
 let dbPath: string;
@@ -88,31 +89,17 @@ async function seedCompletedMeaningfulPass(jobId: string, passNumber = 1) {
 
 describe("real Deep Research workflow stepper", () => {
 	beforeEach(async () => {
-		dbPath = `/tmp/alfyai-deep-research-workflow-${randomUUID()}.db`;
-		process.env.DATABASE_PATH = dbPath;
+		dbPath = await setupDeepResearchTestDb("workflow");
 		vi.resetModules();
-		await seedDeepResearchConversation({ dbPath });
 	});
 
 	afterEach(async () => {
-		try {
-			const { sqlite } = await import("$lib/server/db");
-			sqlite.close();
-		} catch {
-			// The DB module may not have been imported if a test failed early.
-		}
-		try {
-			unlinkSync(dbPath);
-		} catch {
-			// Temporary DB cleanup is best-effort.
-		}
+		await cleanupDeepResearchTestDb(dbPath);
 	});
 
 	it("runs discovery for an approved job and persists source and timeline progress", async () => {
 		const approved = await createApprovedResearchJob();
-		const { saveDiscoveredResearchSource, listResearchSources } = await import(
-			"./sources"
-		);
+		const { listResearchSources } = await import("./sources");
 		const { saveResearchTimelineEvent, listResearchTimelineEvents } =
 			await import("./timeline");
 		const { runDeepResearchWorkflowStep } = await import("./workflow");
@@ -126,7 +113,7 @@ describe("real Deep Research workflow stepper", () => {
 			{
 				discovery: {
 					runPublicWebDiscoveryPass: async (input) => {
-						const savedSource = await saveDiscoveredResearchSource({
+						const { source } = await seedDiscoveredSourceWithReview({
 							userId: input.userId,
 							conversationId: input.conversationId,
 							jobId: input.jobId,
@@ -158,7 +145,7 @@ describe("real Deep Research workflow stepper", () => {
 						return {
 							queries: [input.approvedPlan.goal],
 							discoveredCount: 1,
-							savedSources: [savedSource],
+							savedSources: [source],
 							warnings: [],
 						};
 					},
@@ -209,30 +196,14 @@ describe("real Deep Research workflow stepper", () => {
 	it("continues research instead of publishing when the minimum pass floor is unmet", async () => {
 		const approved = await createApprovedResearchJob();
 		const { db } = await import("$lib/server/db");
-		const {
-			saveDiscoveredResearchSource,
-			markResearchSourceReviewed,
-			listResearchSources,
-		} = await import("./sources");
+		const { listResearchSources } = await import("./sources");
 		const { listResearchTasks } = await import("./tasks");
 		const { runDeepResearchWorkflowStep } = await import("./workflow");
 
-		const discoveredSource = await saveDiscoveredResearchSource({
+		const { source } = await seedDefaultReviewedAiCopyrightSource({
+			jobId: approved.id,
 			userId: "user-1",
 			conversationId: "conv-1",
-			jobId: approved.id,
-			url: "https://agency.example.test/ai-copyright-training-data",
-			title: "Agency AI copyright training data briefing",
-			provider: "public_web",
-			snippet: "Agency briefing on AI copyright training data rules.",
-			discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-		});
-		await markResearchSourceReviewed({
-			userId: "user-1",
-			sourceId: discoveredSource.id,
-			reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-			reviewedNote:
-				"EU and US AI copyright training data rules require provenance records and rights-risk review.",
 		});
 		await db
 			.update(schema.deepResearchJobs)
@@ -280,7 +251,7 @@ describe("real Deep Research workflow stepper", () => {
 		});
 		expect(sources).toEqual([
 			expect.objectContaining({
-				id: discoveredSource.id,
+				id: source.id,
 				status: "reviewed",
 				reviewedAt: "2026-05-05T10:08:00.000Z",
 				citedAt: null,
@@ -309,8 +280,6 @@ describe("real Deep Research workflow stepper", () => {
 			})
 			.where(eq(schema.deepResearchPlanVersions.jobId, approved.id));
 		const primaryQuestion = singlePassPlan.keyQuestions[0];
-		const { saveDiscoveredResearchSource, markResearchSourceReviewed } =
-			await import("./sources");
 		const {
 			upsertResearchPassCheckpoint,
 			completeResearchPassCheckpoint,
@@ -328,7 +297,7 @@ describe("real Deep Research workflow stepper", () => {
 			}),
 		);
 
-		const source = await saveDiscoveredResearchSource({
+		const { source } = await seedDiscoveredSourceWithReview({
 			userId: "user-1",
 			conversationId: "conv-1",
 			jobId: approved.id,
@@ -337,17 +306,15 @@ describe("real Deep Research workflow stepper", () => {
 			provider: "public_web",
 			snippet: "Agency briefing on AI copyright training data rules.",
 			discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-		});
-		await markResearchSourceReviewed({
-			userId: "user-1",
-			sourceId: source.id,
-			reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-			reviewedNote:
-				"EU and US AI copyright training data rules require provenance records and rights-risk review.",
-			supportedKeyQuestions: singlePassPlan.keyQuestions,
-			extractedClaims: [
-				"EU and US AI copyright training data rules require provenance records and rights-risk review.",
-			],
+			reviewed: {
+				reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
+				reviewedNote:
+					"EU and US AI copyright training data rules require provenance records and rights-risk review.",
+				supportedKeyQuestions: singlePassPlan.keyQuestions,
+				extractedClaims: [
+					"EU and US AI copyright training data rules require provenance records and rights-risk review.",
+				],
+			},
 		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
@@ -549,16 +516,13 @@ describe("real Deep Research workflow stepper", () => {
 	it("feeds only accepted reviewed sources to research task and synthesis prompts", async () => {
 		const approved = await createApprovedResearchJob();
 		const { db } = await import("$lib/server/db");
-		const {
-			saveDiscoveredResearchSource,
-			markResearchSourceRejected,
-			markResearchSourceReviewed,
-		} = await import("./sources");
+		const { saveDiscoveredResearchSource, markResearchSourceRejected } =
+			await import("./sources");
 		const { upsertResearchPassCheckpoint } = await import("./pass-state");
 		const { createResearchTasksFromCoverageGaps } = await import("./tasks");
 		const { runDeepResearchWorkflowStep } = await import("./workflow");
 
-		const accepted = await saveDiscoveredResearchSource({
+		const { source: accepted } = await seedDiscoveredSourceWithReview({
 			userId: "user-1",
 			conversationId: "conv-1",
 			jobId: approved.id,
@@ -568,18 +532,17 @@ describe("real Deep Research workflow stepper", () => {
 			snippet:
 				"EU and US AI copyright training data rules require provenance records.",
 			discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-		});
-		await markResearchSourceReviewed({
-			userId: "user-1",
-			sourceId: accepted.id,
-			reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-			reviewedNote:
-				"AI copyright training data rules require provenance records.",
-			topicRelevant: true,
-			supportedKeyQuestions: approved.currentPlan?.rawPlan?.keyQuestions ?? [],
-			extractedClaims: [
-				"AI copyright training data rules require provenance records.",
-			],
+			reviewed: {
+				reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
+				reviewedNote:
+					"AI copyright training data rules require provenance records.",
+				topicRelevant: true,
+				supportedKeyQuestions:
+					approved.currentPlan?.rawPlan?.keyQuestions ?? [],
+				extractedClaims: [
+					"AI copyright training data rules require provenance records.",
+				],
+			},
 		});
 		const rejected = await saveDiscoveredResearchSource({
 			userId: "user-1",
@@ -1238,13 +1201,11 @@ describe("real Deep Research workflow stepper", () => {
 	it("reviews discovered sources during the source review step and records timeline progress", async () => {
 		const approved = await createApprovedResearchJob();
 		const { db } = await import("$lib/server/db");
-		const { saveDiscoveredResearchSource, listResearchSources } = await import(
-			"./sources"
-		);
+		const { listResearchSources } = await import("./sources");
 		const { listResearchTimelineEvents } = await import("./timeline");
 		const { runDeepResearchWorkflowStep } = await import("./workflow");
 
-		const discoveredSource = await saveDiscoveredResearchSource({
+		const { source: discoveredSource } = await seedDiscoveredSourceWithReview({
 			userId: "user-1",
 			conversationId: "conv-1",
 			jobId: approved.id,
@@ -2207,14 +2168,11 @@ describe("real Deep Research workflow stepper", () => {
 		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
 		const { completeResearchPassCheckpoint, upsertResearchPassCheckpoint } =
 			await import("./pass-state");
-		const { saveDiscoveredResearchSource, markResearchSourceReviewed } =
-			await import("./sources");
 		const { saveDeepResearchSynthesisClaims } = await import(
 			"./synthesis-claims"
 		);
-		const { runDeepResearchWorkflowStep } = await import("./workflow");
 
-		const poisonedSource = await saveDiscoveredResearchSource({
+		const { source: poisonedSource } = await seedDiscoveredSourceWithReview({
 			userId: "user-1",
 			conversationId: "conv-1",
 			jobId: approved.id,
@@ -2223,16 +2181,14 @@ describe("real Deep Research workflow stepper", () => {
 			provider: "public_web",
 			snippet: "Vehicle trim evidence from the poisoned run.",
 			discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-		});
-		await markResearchSourceReviewed({
-			userId: "user-1",
-			sourceId: poisonedSource.id,
-			reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-			reviewedNote: "Vehicle trims are available from dealer listings.",
-			supportedKeyQuestions: [
-				"Which manufacturers and trim differences matter most?",
-			],
-			extractedClaims: ["Vehicle trims are available from dealer listings."],
+			reviewed: {
+				reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
+				reviewedNote: "Vehicle trims are available from dealer listings.",
+				supportedKeyQuestions: [
+					"Which manufacturers and trim differences matter most?",
+				],
+				extractedClaims: ["Vehicle trims are available from dealer listings."],
+			},
 		});
 		const poisonedCheckpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
@@ -2316,6 +2272,8 @@ describe("real Deep Research workflow stepper", () => {
 		if (!correctedPlan || !correctedApproval.currentPlan?.id) {
 			throw new Error("Expected corrected plan approval");
 		}
+		const { markResearchSourceReviewed, saveDiscoveredResearchSource } =
+			await import("./sources");
 		await db
 			.update(schema.deepResearchPlanVersions)
 			.set({
@@ -2334,6 +2292,7 @@ describe("real Deep Research workflow stepper", () => {
 					correctedApproval.currentPlan.id,
 				),
 			);
+		const { runDeepResearchWorkflowStep } = await import("./workflow");
 
 		const correctedSource = await saveDiscoveredResearchSource({
 			userId: "user-1",
@@ -2448,15 +2407,13 @@ describe("real Deep Research workflow stepper", () => {
 	it("completes with report limitations when source review budget is exhausted after reviewed evidence", async () => {
 		const approved = await createApprovedResearchJob();
 		const { db } = await import("$lib/server/db");
-		const { saveDiscoveredResearchSource, markResearchSourceReviewed } =
-			await import("./sources");
 		const { listResearchTimelineEvents } = await import("./timeline");
 		const { runDeepResearchWorkflowStep } = await import("./workflow");
 		const { getArtifactForUser } = await import(
 			"$lib/server/services/knowledge/store"
 		);
 
-		const source = await saveDiscoveredResearchSource({
+		await seedDiscoveredSourceWithReview({
 			userId: "user-1",
 			conversationId: "conv-1",
 			jobId: approved.id,
@@ -2465,13 +2422,11 @@ describe("real Deep Research workflow stepper", () => {
 			provider: "public_web",
 			snippet: "Agency briefing on AI copyright training data rules.",
 			discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-		});
-		await markResearchSourceReviewed({
-			userId: "user-1",
-			sourceId: source.id,
-			reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-			reviewedNote:
-				"EU and US AI copyright training data rules require provenance records and rights-risk review.",
+			reviewed: {
+				reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
+				reviewedNote:
+					"EU and US AI copyright training data rules require provenance records and rights-risk review.",
+			},
 		});
 		await db
 			.update(schema.deepResearchJobs)
@@ -2704,8 +2659,6 @@ describe("real Deep Research workflow stepper", () => {
 		const approved = await createApprovedResearchJob();
 		await seedCompletedMeaningfulPass(approved.id, 1);
 		const { db } = await import("$lib/server/db");
-		const { saveDiscoveredResearchSource, markResearchSourceReviewed } =
-			await import("./sources");
 		const { createResearchTasksFromCoverageGaps, listResearchTasks } =
 			await import("./tasks");
 		const { listResearchTimelineEvents } = await import("./timeline");
@@ -2714,7 +2667,7 @@ describe("real Deep Research workflow stepper", () => {
 			"$lib/server/services/knowledge/store"
 		);
 
-		const source = await saveDiscoveredResearchSource({
+		const { source } = await seedDiscoveredSourceWithReview({
 			userId: "user-1",
 			conversationId: "conv-1",
 			jobId: approved.id,
@@ -2723,13 +2676,11 @@ describe("real Deep Research workflow stepper", () => {
 			provider: "public_web",
 			snippet: "Agency briefing on AI copyright training data rules.",
 			discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-		});
-		await markResearchSourceReviewed({
-			userId: "user-1",
-			sourceId: source.id,
-			reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-			reviewedNote:
-				"EU and US rules both make source provenance central to AI training data risk review.",
+			reviewed: {
+				reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
+				reviewedNote:
+					"EU and US rules both make source provenance central to AI training data risk review.",
+			},
 		});
 		await createResearchTasksFromCoverageGaps({
 			userId: "user-1",
@@ -3118,8 +3069,6 @@ describe("real Deep Research workflow stepper", () => {
 		const approved = await createApprovedResearchJob();
 		await seedCompletedMeaningfulPass(approved.id, 1);
 		const { db } = await import("$lib/server/db");
-		const { saveDiscoveredResearchSource, markResearchSourceReviewed } =
-			await import("./sources");
 		const {
 			claimResearchTasks,
 			createResearchTasksFromCoverageGaps,
@@ -3128,7 +3077,7 @@ describe("real Deep Research workflow stepper", () => {
 		const { listResearchResumePoints } = await import("./resume-points");
 		const { runDeepResearchWorkflowStep } = await import("./workflow");
 
-		const source = await saveDiscoveredResearchSource({
+		const { source } = await seedDiscoveredSourceWithReview({
 			userId: "user-1",
 			conversationId: "conv-1",
 			jobId: approved.id,
@@ -3137,13 +3086,11 @@ describe("real Deep Research workflow stepper", () => {
 			provider: "public_web",
 			snippet: "Agency briefing on AI copyright training data rules.",
 			discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-		});
-		await markResearchSourceReviewed({
-			userId: "user-1",
-			sourceId: source.id,
-			reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-			reviewedNote:
-				"EU and US rules both make source provenance central to AI training data risk review.",
+			reviewed: {
+				reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
+				reviewedNote:
+					"EU and US rules both make source provenance central to AI training data risk review.",
+			},
 		});
 		const [task] = await createResearchTasksFromCoverageGaps({
 			userId: "user-1",
@@ -3226,11 +3173,9 @@ describe("real Deep Research workflow stepper", () => {
 		await seedCompletedMeaningfulPass(approved.id, 1);
 		await seedCompletedMeaningfulPass(approved.id, 2);
 		const { db } = await import("$lib/server/db");
-		const { saveDiscoveredResearchSource, markResearchSourceReviewed } =
-			await import("./sources");
 		const { runDeepResearchWorkflowStep } = await import("./workflow");
 
-		const source = await saveDiscoveredResearchSource({
+		await seedDiscoveredSourceWithReview({
 			userId: "user-1",
 			conversationId: "conv-1",
 			jobId: approved.id,
@@ -3239,13 +3184,11 @@ describe("real Deep Research workflow stepper", () => {
 			provider: "public_web",
 			snippet: "Agency briefing on AI copyright training data rules.",
 			discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-		});
-		await markResearchSourceReviewed({
-			userId: "user-1",
-			sourceId: source.id,
-			reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-			reviewedNote:
-				"EU and US AI copyright training data rules require provenance records and rights-risk review.",
+			reviewed: {
+				reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
+				reviewedNote:
+					"EU and US AI copyright training data rules require provenance records and rights-risk review.",
+			},
 		});
 		await db
 			.update(schema.deepResearchJobs)
@@ -3473,8 +3416,6 @@ describe("real Deep Research workflow stepper", () => {
 		const approved = await createApprovedResearchJob();
 		await seedCompletedMeaningfulPass(approved.id, 1);
 		const { db } = await import("$lib/server/db");
-		const { saveDiscoveredResearchSource, markResearchSourceReviewed } =
-			await import("./sources");
 		const { createResearchTasksFromCoverageGaps, recordResearchTaskFailure } =
 			await import("./tasks");
 		const { runDeepResearchWorkflowStep } = await import("./workflow");
@@ -3482,7 +3423,7 @@ describe("real Deep Research workflow stepper", () => {
 			"$lib/server/services/knowledge/store"
 		);
 
-		const source = await saveDiscoveredResearchSource({
+		await seedDiscoveredSourceWithReview({
 			userId: "user-1",
 			conversationId: "conv-1",
 			jobId: approved.id,
@@ -3491,13 +3432,11 @@ describe("real Deep Research workflow stepper", () => {
 			provider: "public_web",
 			snippet: "Agency briefing on AI copyright training data rules.",
 			discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-		});
-		await markResearchSourceReviewed({
-			userId: "user-1",
-			sourceId: source.id,
-			reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-			reviewedNote:
-				"EU and US AI copyright training data rules require provenance records and rights-risk review.",
+			reviewed: {
+				reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
+				reviewedNote:
+					"EU and US AI copyright training data rules require provenance records and rights-risk review.",
+			},
 		});
 		const [task] = await createResearchTasksFromCoverageGaps({
 			userId: "user-1",

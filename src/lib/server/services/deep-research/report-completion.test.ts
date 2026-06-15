@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { unlinkSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
@@ -8,8 +6,10 @@ import { evaluateDeepResearchRun } from "./evaluation";
 import type { SynthesisNotes } from "./synthesis";
 import {
 	buildSupportingFindingsForSources,
+	cleanupDeepResearchTestDb,
 	seedCompletedMeaningfulPasses,
-	seedDeepResearchConversation,
+	seedDefaultReviewedAiCopyrightSource,
+	setupDeepResearchTestDb,
 } from "./test-helpers";
 
 let dbPath: string;
@@ -30,27 +30,15 @@ const buildSynthesisNotes = (
 
 describe("audited Deep Research report completion", () => {
 	beforeEach(async () => {
-		dbPath = `/tmp/alfyai-deep-research-report-completion-${randomUUID()}.db`;
-		process.env.DATABASE_PATH = dbPath;
+		dbPath = await setupDeepResearchTestDb("report-completion");
 		vi.resetModules();
-		await seedDeepResearchConversation({ dbPath });
 	});
 
 	afterEach(async () => {
 		vi.doUnmock("./llm-steps");
 		vi.doUnmock("./report-writer");
 		vi.restoreAllMocks();
-		try {
-			const { sqlite } = await import("$lib/server/db");
-			sqlite.close();
-		} catch {
-			// The DB module may not have been imported if a test failed early.
-		}
-		try {
-			unlinkSync(dbPath);
-		} catch {
-			// Temporary DB cleanup is best-effort.
-		}
+		await cleanupDeepResearchTestDb(dbPath);
 	});
 
 	it("writes an audited Research Report artifact from supported findings and seals the conversation", async () => {
@@ -84,23 +72,12 @@ describe("audited Deep Research report completion", () => {
 			now: new Date("2026-05-05T10:06:00.000Z"),
 		});
 		await seedCompletedMeaningfulPasses(created.id, 3);
-		const source = await saveDiscoveredResearchSource({
-			userId: "user-1",
-			conversationId: "conv-1",
-			jobId: created.id,
-			url: "https://agency.example.test/ai-copyright-training-data",
-			title: "Agency AI copyright training data briefing",
-			provider: "public_web",
-			snippet: "Agency briefing on AI copyright training data rules.",
-			discoveredAt: new Date("2026-05-05T10:07:00.000Z"),
-		});
-		const reviewedSource = await markResearchSourceReviewed({
-			userId: "user-1",
-			sourceId: source.id,
-			reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
-			reviewedNote:
-				"EU and US AI copyright training data rules require provenance records and rights-risk review.",
-		});
+		const { source, reviewedSource } =
+			await seedDefaultReviewedAiCopyrightSource({
+				jobId: created.id,
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
 		const synthesisNotes: SynthesisNotes = {
 			jobId: created.id,
 			findings: [

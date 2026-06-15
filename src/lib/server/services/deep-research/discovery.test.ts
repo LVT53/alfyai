@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	ResearchRequest,
 	ResearchResult,
-	ResearchSource,
 } from "$lib/server/services/web-research";
 import type {
 	DiscoveredResearchSourceCandidate,
@@ -11,6 +10,12 @@ import type {
 import { runPublicWebDiscoveryPass } from "./discovery";
 import type { ResearchPlan } from "./planning";
 import type { SaveDiscoveredResearchSourceInput } from "./sources";
+import {
+	makeResearchSource,
+	makeSavedDiscoveredSource,
+	makeSavedDiscoveredSourceFromInput,
+	mockTimelineEvent,
+} from "./test-helpers";
 import type { ResearchTimelineEvent } from "./timeline";
 
 const {
@@ -32,12 +37,22 @@ const {
 		(
 			event: ResearchTimelineEvent,
 		) => Promise<ResearchTimelineEvent & { id: string; createdAt: string }>
-	>(async (event) => ({
-		...event,
-		id: "event-1",
-		createdAt: event.occurredAt,
-	})),
+	>(async (event) => mockTimelineEvent(event)),
 }));
+
+function makeSavedDiscoveredSources(
+	sources: DiscoveredResearchSourceCandidate[],
+): ReturnType<typeof makeSavedDiscoveredSource>[] {
+	return sources.map((source, index) =>
+		makeSavedDiscoveredSource(source, index + 1),
+	);
+}
+
+function createMockSaveDiscoveredSources() {
+	return vi.fn(async (sources: DiscoveredResearchSourceCandidate[]) =>
+		makeSavedDiscoveredSources(sources),
+	);
+}
 
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(async () => ({
@@ -96,75 +111,6 @@ const approvedPlan: ResearchPlan = {
 	constraints: ["Use current public sources."],
 	deliverables: ["Cited Research Report"],
 };
-
-function makeResearchSource(
-	overrides: Partial<ResearchSource> = {},
-): ResearchSource {
-	return {
-		id: "source-1",
-		provider: "searxng",
-		title: "Default discovery source",
-		url: "https://example.com/default-discovery",
-		canonicalUrl: "https://example.com/default-discovery",
-		snippet: "A default dependency result.",
-		highlights: [],
-		text: null,
-		score: 1,
-		providerRank: 1,
-		query: "Compare EU and US AI copyright training data rules",
-		publishedAt: null,
-		updatedAt: null,
-		retrievedAt: "2026-05-05T12:00:00.000Z",
-		authorityClass: "standard",
-		authorityScore: 55,
-		...overrides,
-	};
-}
-
-function makeSavedDiscoveredSource(
-	source: DiscoveredResearchSourceCandidate,
-	index = 1,
-): SavedDiscoveredResearchSource {
-	return {
-		id: `source-${index}`,
-		jobId: source.jobId,
-		conversationId: source.conversationId,
-		userId: source.userId,
-		status: "discovered",
-		url: source.url,
-		title: source.title,
-		provider: source.provider,
-		snippet: source.metadata.snippet,
-		sourceText: source.metadata.text,
-		intendedComparedEntity: source.metadata.intendedComparedEntity,
-		intendedComparisonAxis: source.metadata.intendedComparisonAxis,
-		discoveredAt: source.discoveredAt,
-		reviewedAt: null,
-		citedAt: null,
-		metadata: source.metadata,
-	};
-}
-
-function makeSavedDiscoveredSourceFromInput(
-	source: SaveDiscoveredResearchSourceInput,
-): SavedDiscoveredResearchSource {
-	const discoveredAt = (source.discoveredAt ?? new Date()).toISOString();
-	return {
-		id: "source-1",
-		jobId: source.jobId,
-		conversationId: source.conversationId,
-		userId: source.userId,
-		status: "discovered",
-		url: source.url,
-		title: source.title ?? null,
-		provider: source.provider,
-		snippet: source.snippet ?? null,
-		sourceText: source.sourceText ?? null,
-		discoveredAt,
-		reviewedAt: null,
-		citedAt: null,
-	};
-}
 
 describe("public web discovery", () => {
 	beforeEach(() => {
@@ -235,12 +181,7 @@ describe("public web discovery", () => {
 				}),
 			],
 		});
-		const saveDiscoveredSources = vi.fn(
-			async (sources: DiscoveredResearchSourceCandidate[]) =>
-				sources.map((source, index) =>
-					makeSavedDiscoveredSource(source, index + 1),
-				),
-		);
+		const saveDiscoveredSources = createMockSaveDiscoveredSources();
 
 		const result = await runPublicWebDiscoveryPass(
 			{
@@ -323,12 +264,7 @@ describe("public web discovery", () => {
 				}),
 			],
 		});
-		const saveDiscoveredSources = vi.fn(
-			async (sources: DiscoveredResearchSourceCandidate[]) =>
-				sources.map((source, index) =>
-					makeSavedDiscoveredSource(source, index + 1),
-				),
-		);
+		const saveDiscoveredSources = createMockSaveDiscoveredSources();
 
 		await runPublicWebDiscoveryPass(
 			{
@@ -376,12 +312,7 @@ describe("public web discovery", () => {
 		const researchWeb = vi.fn().mockResolvedValue({
 			sources: [],
 		});
-		const saveDiscoveredSources = vi.fn(
-			async (sources: DiscoveredResearchSourceCandidate[]) =>
-				sources.map((source, index) =>
-					makeSavedDiscoveredSource(source, index + 1),
-				),
-		);
+		const saveDiscoveredSources = createMockSaveDiscoveredSources();
 
 		await runPublicWebDiscoveryPass(
 			{
@@ -440,12 +371,7 @@ describe("public web discovery", () => {
 				}),
 			],
 		});
-		const saveDiscoveredSources = vi.fn(
-			async (sources: DiscoveredResearchSourceCandidate[]) =>
-				sources.map((source, index) =>
-					makeSavedDiscoveredSource(source, index + 1),
-				),
-		);
+		const saveDiscoveredSources = createMockSaveDiscoveredSources();
 
 		await runPublicWebDiscoveryPass(
 			{
@@ -489,12 +415,7 @@ describe("public web discovery", () => {
 		const researchWeb = vi
 			.fn()
 			.mockRejectedValue(new Error("provider unavailable"));
-		const saveDiscoveredSources = vi.fn(
-			async (sources: DiscoveredResearchSourceCandidate[]) =>
-				sources.map((source, index) =>
-					makeSavedDiscoveredSource(source, index + 1),
-				),
-		);
+		const saveDiscoveredSources = createMockSaveDiscoveredSources();
 
 		const result = await runPublicWebDiscoveryPass(
 			{
@@ -549,12 +470,7 @@ describe("public web discovery", () => {
 			],
 		};
 		const researchWeb = vi.fn().mockResolvedValue({ sources: [] });
-		const saveDiscoveredSources = vi.fn(
-			async (sources: DiscoveredResearchSourceCandidate[]) =>
-				sources.map((source, index) =>
-					makeSavedDiscoveredSource(source, index + 1),
-				),
-		);
+		const saveDiscoveredSources = createMockSaveDiscoveredSources();
 
 		const result = await runPublicWebDiscoveryPass(
 			{
@@ -621,12 +537,7 @@ describe("public web discovery", () => {
 		const researchWeb = vi.fn().mockResolvedValue({
 			sources: [],
 		});
-		const saveDiscoveredSources = vi.fn(
-			async (sources: DiscoveredResearchSourceCandidate[]) =>
-				sources.map((source, index) =>
-					makeSavedDiscoveredSource(source, index + 1),
-				),
-		);
+		const saveDiscoveredSources = createMockSaveDiscoveredSources();
 		const saveTimelineEvent = vi.fn(async (event: ResearchTimelineEvent) => ({
 			...event,
 			id: "event-1",
@@ -680,12 +591,7 @@ describe("public web discovery", () => {
 				}),
 			],
 		}));
-		const saveDiscoveredSources = vi.fn(
-			async (sources: DiscoveredResearchSourceCandidate[]) =>
-				sources.map((source, index) =>
-					makeSavedDiscoveredSource(source, index + 1),
-				),
-		);
+		const saveDiscoveredSources = createMockSaveDiscoveredSources();
 		const saveTimelineEvent = vi.fn(async (event: ResearchTimelineEvent) => ({
 			...event,
 			id: "event-1",
@@ -754,12 +660,7 @@ describe("public web discovery", () => {
 		const researchWeb = vi.fn().mockResolvedValue({
 			sources: [],
 		});
-		const saveDiscoveredSources = vi.fn(
-			async (sources: DiscoveredResearchSourceCandidate[]) =>
-				sources.map((source, index) =>
-					makeSavedDiscoveredSource(source, index + 1),
-				),
-		);
+		const saveDiscoveredSources = createMockSaveDiscoveredSources();
 		const saveTimelineEvent = vi.fn(async (event: ResearchTimelineEvent) => ({
 			...event,
 			id: "event-1",
@@ -813,12 +714,7 @@ describe("public web discovery", () => {
 		const researchWeb = vi.fn().mockResolvedValue({
 			sources: [],
 		});
-		const saveDiscoveredSources = vi.fn(
-			async (sources: DiscoveredResearchSourceCandidate[]) =>
-				sources.map((source, index) =>
-					makeSavedDiscoveredSource(source, index + 1),
-				),
-		);
+		const saveDiscoveredSources = createMockSaveDiscoveredSources();
 		const saveTimelineEvent = vi.fn(async (event: ResearchTimelineEvent) => ({
 			...event,
 			id: "event-1",

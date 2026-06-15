@@ -1,10 +1,25 @@
+import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import * as schema from "$lib/server/db/schema";
-import type { DeepResearchJob, DeepResearchPassDecision } from "$lib/types";
+import type { ResearchSource } from "$lib/server/services/web-research";
+import type {
+	DeepResearchJob,
+	DeepResearchPassDecision,
+	DeepResearchSource,
+} from "$lib/types";
+import type {
+	DiscoveredResearchSourceCandidate,
+	SavedDiscoveredResearchSource,
+} from "./discovery";
+import type {
+	MarkResearchSourceReviewedInput,
+	SaveDiscoveredResearchSourceInput,
+} from "./sources";
 import type { SynthesisNotes } from "./synthesis";
+import type { ResearchTimelineEvent } from "./timeline";
 
 interface DeepResearchConversationSeedInput {
 	dbPath: string;
@@ -25,6 +40,205 @@ export const deepResearchDefaultUserRequest =
 function toDateTime(value: Date | string | number): Date {
 	if (value instanceof Date) return value;
 	return new Date(value);
+}
+
+const deepResearchTestNow = new Date("2026-05-05T10:07:00.000Z");
+
+export const deepResearchDefaultDbPrefix = "alfyai-deep-research";
+
+export const deepResearchDefaultDiscoveredSource = {
+	url: "https://agency.example.test/ai-copyright-training-data",
+	title: "Agency AI copyright training data briefing",
+	provider: "public_web",
+	snippet: "Agency briefing on AI copyright training data rules.",
+	discoveredAt: deepResearchTestNow,
+	reviewedAt: new Date("2026-05-05T10:08:00.000Z"),
+	reviewedNote:
+		"EU and US AI copyright training data rules require provenance records and rights-risk review.",
+};
+
+export function makeResearchSource(
+	overrides: Partial<ResearchSource> = {},
+): ResearchSource {
+	return {
+		id: "source-1",
+		provider: "searxng",
+		title: "Default discovery source",
+		url: "https://example.com/default-discovery",
+		canonicalUrl: "https://example.com/default-discovery",
+		snippet: "A default dependency result.",
+		highlights: [],
+		text: null,
+		score: 1,
+		providerRank: 1,
+		query: "Compare EU and US AI copyright training data rules",
+		publishedAt: null,
+		updatedAt: null,
+		retrievedAt: "2026-05-05T12:00:00.000Z",
+		authorityClass: "standard",
+		authorityScore: 55,
+		...overrides,
+	};
+}
+
+export function makeSavedDiscoveredSource(
+	source: DiscoveredResearchSourceCandidate,
+	index = 1,
+): SavedDiscoveredResearchSource {
+	return {
+		id: `source-${index}`,
+		jobId: source.jobId,
+		conversationId: source.conversationId,
+		userId: source.userId,
+		status: "discovered",
+		url: source.url,
+		title: source.title,
+		provider: source.provider,
+		snippet: source.metadata.snippet,
+		sourceText: source.metadata.text,
+		intendedComparedEntity: source.metadata.intendedComparedEntity,
+		intendedComparisonAxis: source.metadata.intendedComparisonAxis,
+		discoveredAt: source.discoveredAt,
+		reviewedAt: null,
+		citedAt: null,
+		metadata: source.metadata,
+	};
+}
+
+export function makeSavedDiscoveredSourceFromInput(
+	source: SaveDiscoveredResearchSourceInput,
+): SavedDiscoveredResearchSource & {
+	id: string;
+	jobId: string;
+	conversationId: string;
+	userId: string;
+	status: "discovered";
+	url: string;
+	title: string | null;
+	provider: string;
+	snippet: string | null;
+	sourceText: string | null;
+	discoveredAt: string;
+	reviewedAt: null;
+	citedAt: null;
+} {
+	const discoveredAt = (source.discoveredAt ?? new Date()).toISOString();
+	return {
+		id: "source-1",
+		jobId: source.jobId,
+		conversationId: source.conversationId,
+		userId: source.userId,
+		status: "discovered",
+		url: source.url,
+		title: source.title ?? null,
+		provider: source.provider,
+		snippet: source.snippet ?? null,
+		sourceText: source.sourceText ?? null,
+		discoveredAt,
+		reviewedAt: null,
+		citedAt: null,
+	};
+}
+
+export function mockTimelineEvent(event: ResearchTimelineEvent) {
+	return {
+		...event,
+		id: "event-1",
+		createdAt: event.occurredAt,
+	};
+}
+
+export function createDeepResearchTestDbPath(
+	prefix = deepResearchDefaultDbPrefix,
+): string {
+	return `/tmp/${prefix}-${randomUUID()}.db`;
+}
+
+export async function setupDeepResearchTestDb(
+	prefix = deepResearchDefaultDbPrefix,
+) {
+	const dbPath = createDeepResearchTestDbPath(prefix);
+	process.env.DATABASE_PATH = dbPath;
+	await seedDeepResearchConversation({ dbPath });
+	return dbPath;
+}
+
+export async function cleanupDeepResearchTestDb(dbPath: string): Promise<void> {
+	try {
+		const { sqlite } = await import("$lib/server/db");
+		sqlite.close();
+	} catch {
+		// The DB module may not have been imported if a test failed before it was loaded.
+	}
+	try {
+		const { unlinkSync } = await import("node:fs");
+		unlinkSync(dbPath);
+	} catch {
+		// Temporary DB cleanup is best-effort.
+	}
+}
+
+type SeedReviewOptions = Omit<
+	MarkResearchSourceReviewedInput,
+	"userId" | "sourceId"
+>;
+
+export type SeedDiscoveredSourceInput = SaveDiscoveredResearchSourceInput & {
+	reviewed?: SeedReviewOptions;
+};
+
+export async function seedDiscoveredSourceWithReview(
+	input: SeedDiscoveredSourceInput,
+): Promise<{
+	source: DeepResearchSource;
+	reviewedSource: DeepResearchSource | null;
+}> {
+	const { saveDiscoveredResearchSource, markResearchSourceReviewed } =
+		await import("./sources");
+	const { reviewed, ...discovered } = input;
+	const source = await saveDiscoveredResearchSource({
+		...discovered,
+	});
+	if (!reviewed) return { source, reviewedSource: null };
+	const reviewedSource = await markResearchSourceReviewed({
+		userId: discovered.userId,
+		sourceId: source.id,
+		...reviewed,
+	});
+	return { source, reviewedSource };
+}
+
+export async function seedDefaultReviewedAiCopyrightSource(
+	input: Omit<
+		SeedDiscoveredSourceInput,
+		"url" | "title" | "reviewed" | "provider"
+	> & {
+		reviewed?: SeedReviewOptions;
+		provider?: string;
+	},
+): Promise<{
+	source: DeepResearchSource;
+	reviewedSource: DeepResearchSource;
+}> {
+	const sourceInput: SeedDiscoveredSourceInput = {
+		...deepResearchDefaultDiscoveredSource,
+		...input,
+		provider: input.provider ?? deepResearchDefaultDiscoveredSource.provider,
+		reviewed: {
+			reviewedAt:
+				input.reviewed?.reviewedAt ??
+				deepResearchDefaultDiscoveredSource.reviewedAt,
+			reviewedNote:
+				input.reviewed?.reviewedNote ??
+				deepResearchDefaultDiscoveredSource.reviewedNote,
+			...input.reviewed,
+		},
+	};
+	const seeded = await seedDiscoveredSourceWithReview(sourceInput);
+	if (!seeded.reviewedSource) {
+		throw new Error("Expected reviewed source");
+	}
+	return { source: seeded.source, reviewedSource: seeded.reviewedSource };
 }
 
 export async function seedDeepResearchConversation(
