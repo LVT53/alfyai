@@ -1,49 +1,73 @@
-export function repairMalformedToolCallJson(input: string): string | null {
-	if (!input) return null;
+function normalizeToolCallInput(input: string): string {
+	const trimmed = input.trim();
+	return trimmed === "" ? "" : trimmed;
+}
 
-	let repaired = input.trim();
+function stripByteOrderMarker(input: string): string {
+	return input.charCodeAt(0) === 0xfeff ? input.slice(1).trim() : input;
+}
 
-	if (!repaired) return null;
-
-	if (repaired.charCodeAt(0) === 0xfeff) {
-		repaired = repaired.slice(1).trim();
-	}
-
-	repaired = repaired.replace(/\}([.,;:])\s*$/, "}");
-	repaired = repaired.replace(/\}\s*\.\s*$/, "}");
-
+function balanceClosingBraces(input: string): string {
 	let openBraces = 0;
 	let closeBraces = 0;
-	for (const ch of repaired) {
+	for (const ch of input) {
 		if (ch === "{") openBraces += 1;
 		if (ch === "}") closeBraces += 1;
 	}
-	if (openBraces > closeBraces) {
-		repaired += "}".repeat(openBraces - closeBraces);
+	if (openBraces <= closeBraces) return input;
+	return input + "}".repeat(openBraces - closeBraces);
+}
+
+function trimTrailingNoise(input: string): string {
+	return input.replace(/\}([.,;:])\s*$/, "}").replace(/\}\s*\.\s*$/, "}");
+}
+
+function hasEqualBraceBalance(input: string): boolean {
+	let openBraces = 0;
+	let closeBraces = 0;
+	for (const ch of input) {
+		if (ch === "{") openBraces += 1;
+		if (ch === "}") closeBraces += 1;
+	}
+	return openBraces === closeBraces;
+}
+
+function canParseJson(input: string): boolean {
+	try {
+		JSON.parse(input);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function stripTrailingSuffixAfterLastBrace(input: string): string {
+	const lastBrace = input.lastIndexOf("}");
+	if (lastBrace < 0 || lastBrace === input.length - 1) {
+		return input;
+	}
+	const truncated = input.slice(0, lastBrace + 1);
+	return hasEqualBraceBalance(truncated) ? truncated : input;
+}
+
+export function repairMalformedToolCallJson(input: string): string | null {
+	if (!input) return null;
+
+	let repaired = normalizeToolCallInput(input);
+
+	if (!repaired) return null;
+
+	repaired = stripByteOrderMarker(repaired);
+	repaired = trimTrailingNoise(repaired);
+	repaired = balanceClosingBraces(repaired);
+
+	if (canParseJson(repaired)) {
+		return repaired === input ? null : repaired;
 	}
 
-	try {
-		JSON.parse(repaired);
-	} catch {
-		const lastBrace = repaired.lastIndexOf("}");
-		if (lastBrace >= 0 && lastBrace < repaired.length - 1) {
-			const truncated = repaired.slice(0, lastBrace + 1);
-			let truncatedOpen = 0;
-			let truncatedClose = 0;
-			for (const ch of truncated) {
-				if (ch === "{") truncatedOpen += 1;
-				if (ch === "}") truncatedClose += 1;
-			}
-			if (truncatedOpen === truncatedClose) {
-				repaired = truncated;
-			}
-		}
-
-		try {
-			JSON.parse(repaired);
-		} catch {
-			return null;
-		}
+	repaired = stripTrailingSuffixAfterLastBrace(repaired);
+	if (!canParseJson(repaired)) {
+		return null;
 	}
 
 	return repaired === input ? null : repaired;

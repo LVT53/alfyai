@@ -61,6 +61,40 @@ const TEXT_EXTENSIONS = new Set([
 	"r",
 ]);
 
+const PREVIEWABLE_TEXT_MIME_TYPES = new Set([
+	"text/markdown",
+	"application/json",
+	"application/csv",
+	"application/xml",
+	"application/rtf",
+	"application/javascript",
+	"text/javascript",
+	"text/jsx",
+	"text/x-python",
+	"application/typescript",
+	"text/tsx",
+	"application/yaml",
+	"application/x-sh",
+	"text/x-shellscript",
+	"application/sql",
+	"application/graphql",
+	"application/toml",
+	"text/x-scss",
+	"text/x-sass",
+	"text/x-less",
+	"text/x-ruby",
+	"text/rust",
+	"text/x-go",
+	"text/x-java-source",
+	"text/x-kotlin",
+	"text/x-swift",
+	"text/x-csharp",
+	"text/x-c++src",
+	"text/x-csrc",
+	"application/x-httpd-php",
+	"text/x-r-source",
+]);
+
 const GENERIC_MIME_TYPES = new Set([
 	"application/octet-stream",
 	"application/download",
@@ -155,23 +189,154 @@ const EXTENSION_CONTENT_TYPES: Record<string, string> = {
 	zip: "application/zip",
 };
 
+const TRUSTED_PREVIEW_EXTENSIONS: Record<string, PreviewFileType> = {
+	pdf: "pdf",
+	docx: "docx",
+	xlsx: "xlsx",
+	pptx: "pptx",
+	odt: "odt",
+	html: "html",
+	htm: "html",
+};
+
+const MIME_TO_PREVIEW_TYPE: Array<{
+	readonly type: PreviewFileType;
+	readonly test: (mime: string) => boolean;
+}> = [
+	{
+		type: "pdf",
+		test: (mime) => mime.includes("pdf"),
+	},
+	{
+		type: "docx",
+		test: (mime) => mime.includes("wordprocessingml"),
+	},
+	{
+		type: "xlsx",
+		test: (mime) => mime.includes("spreadsheetml"),
+	},
+	{
+		type: "pptx",
+		test: (mime) => mime.includes("presentationml"),
+	},
+	{
+		type: "odt",
+		test: (mime) => mime === "application/vnd.oasis.opendocument.text",
+	},
+	{
+		type: "image",
+		test: (mime) => mime.startsWith("image/"),
+	},
+	{
+		type: "html",
+		test: (mime) => mime === "text/html",
+	},
+	{
+		type: "text",
+		test: (mime) =>
+			mime.startsWith("text/") || PREVIEWABLE_TEXT_MIME_TYPES.has(mime),
+	},
+];
+
+const EXTENSION_TO_PREVIEW_LANGUAGE: Record<string, string> = {
+	py: "python",
+	js: "javascript",
+	mjs: "javascript",
+	cjs: "javascript",
+	jsx: "jsx",
+	ts: "typescript",
+	tsx: "tsx",
+	json: "json",
+	html: "html",
+	htm: "html",
+	css: "css",
+	scss: "scss",
+	sass: "sass",
+	less: "less",
+	md: "markdown",
+	markdown: "markdown",
+	xml: "xml",
+	svg: "xml",
+	yaml: "yaml",
+	yml: "yaml",
+	sh: "bash",
+	bash: "bash",
+	zsh: "bash",
+	sql: "sql",
+	graphql: "graphql",
+	gql: "graphql",
+	toml: "toml",
+	ini: "ini",
+	env: "ini",
+	conf: "ini",
+	rb: "ruby",
+	rs: "rust",
+	go: "go",
+	java: "java",
+	kt: "kotlin",
+	kts: "kotlin",
+	swift: "swift",
+	cs: "csharp",
+	cpp: "cpp",
+	cxx: "cpp",
+	cc: "cpp",
+	hpp: "cpp",
+	c: "c",
+	h: "c",
+	php: "php",
+	r: "r",
+};
+
+const MIME_TO_PREVIEW_LANGUAGE: Record<string, string> = {
+	"application/json": "json",
+	"application/xml": "xml",
+	"text/html": "html",
+	"text/css": "css",
+	"text/x-scss": "scss",
+	"text/x-sass": "sass",
+	"text/x-less": "less",
+	"application/javascript": "javascript",
+	"text/javascript": "javascript",
+	"text/jsx": "jsx",
+	"text/markdown": "markdown",
+	"text/x-python": "python",
+	"application/typescript": "typescript",
+	"text/tsx": "tsx",
+	"application/yaml": "yaml",
+	"application/x-sh": "bash",
+	"text/x-shellscript": "bash",
+	"application/sql": "sql",
+	"application/graphql": "graphql",
+	"application/toml": "toml",
+	"text/x-ruby": "ruby",
+	"text/rust": "rust",
+	"text/x-go": "go",
+	"text/x-java-source": "java",
+	"text/x-kotlin": "kotlin",
+	"text/x-swift": "swift",
+	"text/x-csharp": "csharp",
+	"text/x-c++src": "cpp",
+	"text/x-csrc": "c",
+	"application/x-httpd-php": "php",
+	"text/x-r-source": "r",
+};
+
 function getTrustedPreviewTypeFromExtension(
 	ext: string | null,
 ): PreviewFileType | null {
 	if (!ext) return null;
-	if (ext === "pdf") return "pdf";
-	if (ext === "docx") return "docx";
-	if (ext === "xlsx") return "xlsx";
-	if (ext === "pptx") return "pptx";
-	if (ext === "odt") return "odt";
+	if (TRUSTED_PREVIEW_EXTENSIONS[ext]) return TRUSTED_PREVIEW_EXTENSIONS[ext];
 	if (IMAGE_EXTENSIONS.has(ext)) return "image";
-	if (ext === "html" || ext === "htm") return "html";
 	return null;
 }
 
 function getExtension(name: string): string | null {
 	const ext = name.split(".").pop()?.toLowerCase().trim();
 	return ext ? ext : null;
+}
+
+function isExtensionPreviewableAsText(ext: string | null): boolean {
+	return Boolean(ext && TEXT_EXTENSIONS.has(ext));
 }
 
 function normalizeMimeType(mimeType: string | null): string | null {
@@ -184,6 +349,11 @@ function isGenericMimeType(mimeType: string | null): boolean {
 	return !normalized || GENERIC_MIME_TYPES.has(normalized);
 }
 
+function resolvePreviewContentTypeFromFilename(ext: string | null): string {
+	if (!ext) return "application/octet-stream";
+	return EXTENSION_CONTENT_TYPES[ext] ?? "application/octet-stream";
+}
+
 export function getPreviewContentType(
 	filename: string,
 	mimeType: string | null,
@@ -193,8 +363,7 @@ export function getPreviewContentType(
 		return normalizedMimeType;
 	}
 	const ext = getExtension(filename);
-	if (!ext) return "application/octet-stream";
-	return EXTENSION_CONTENT_TYPES[ext] ?? "application/octet-stream";
+	return resolvePreviewContentTypeFromFilename(ext);
 }
 
 export function determinePreviewFileType(
@@ -207,54 +376,15 @@ export function determinePreviewFileType(
 	if (trustedType) return trustedType;
 
 	if (!mime) {
-		if (ext && TEXT_EXTENSIONS.has(ext)) return "text";
+		if (isExtensionPreviewableAsText(ext)) return "text";
 		return "unsupported";
 	}
 
-	if (mime.includes("pdf")) return "pdf";
-	if (mime.includes("wordprocessingml")) return "docx";
-	if (mime.includes("spreadsheetml")) return "xlsx";
-	if (mime.includes("presentationml")) return "pptx";
-	if (mime === "application/vnd.oasis.opendocument.text") return "odt";
-	if (mime.startsWith("image/")) return "image";
-	if (mime === "text/html") return "html";
-	if (
-		mime.startsWith("text/") ||
-		mime === "application/json" ||
-		mime === "application/csv" ||
-		mime === "application/xml" ||
-		mime === "application/rtf" ||
-		mime === "application/javascript" ||
-		mime === "text/javascript" ||
-		mime === "text/jsx" ||
-		mime === "text/x-python" ||
-		mime === "application/typescript" ||
-		mime === "text/tsx" ||
-		mime === "application/yaml" ||
-		mime === "application/x-sh" ||
-		mime === "text/x-shellscript" ||
-		mime === "application/sql" ||
-		mime === "application/graphql" ||
-		mime === "application/toml" ||
-		mime === "text/x-scss" ||
-		mime === "text/x-sass" ||
-		mime === "text/x-less" ||
-		mime === "text/x-ruby" ||
-		mime === "text/rust" ||
-		mime === "text/x-go" ||
-		mime === "text/x-java-source" ||
-		mime === "text/x-kotlin" ||
-		mime === "text/x-swift" ||
-		mime === "text/x-csharp" ||
-		mime === "text/x-c++src" ||
-		mime === "text/x-csrc" ||
-		mime === "application/x-httpd-php" ||
-		mime === "text/x-r-source"
-	) {
-		return "text";
+	for (const rule of MIME_TO_PREVIEW_TYPE) {
+		if (rule.test(mime)) return rule.type;
 	}
 
-	if (ext && TEXT_EXTENSIONS.has(ext)) return "text";
+	if (isExtensionPreviewableAsText(ext)) return "text";
 	return "unsupported";
 }
 
@@ -271,70 +401,14 @@ export function getPreviewLanguage(
 ): string | undefined {
 	const ext = getExtension(filename);
 
-	if (ext === "py") return "python";
-	if (ext === "js" || ext === "mjs" || ext === "cjs") return "javascript";
-	if (ext === "jsx") return "jsx";
-	if (ext === "ts") return "typescript";
-	if (ext === "tsx") return "tsx";
-	if (ext === "json") return "json";
-	if (ext === "html" || ext === "htm") return "html";
-	if (ext === "css") return "css";
-	if (ext === "scss") return "scss";
-	if (ext === "sass") return "sass";
-	if (ext === "less") return "less";
-	if (ext === "md" || ext === "markdown") return "markdown";
-	if (ext === "xml" || ext === "svg") return "xml";
-	if (ext === "yaml" || ext === "yml") return "yaml";
-	if (ext === "sh" || ext === "bash" || ext === "zsh") return "bash";
-	if (ext === "sql") return "sql";
-	if (ext === "graphql" || ext === "gql") return "graphql";
-	if (ext === "toml") return "toml";
-	if (ext === "ini" || ext === "env" || ext === "conf") return "ini";
-	if (ext === "rb") return "ruby";
-	if (ext === "rs") return "rust";
-	if (ext === "go") return "go";
-	if (ext === "java") return "java";
-	if (ext === "kt" || ext === "kts") return "kotlin";
-	if (ext === "swift") return "swift";
-	if (ext === "cs") return "csharp";
-	if (ext === "cpp" || ext === "cxx" || ext === "cc" || ext === "hpp")
-		return "cpp";
-	if (ext === "c" || ext === "h") return "c";
-	if (ext === "php") return "php";
-	if (ext === "r") return "r";
+	if (ext && EXTENSION_TO_PREVIEW_LANGUAGE[ext]) {
+		return EXTENSION_TO_PREVIEW_LANGUAGE[ext];
+	}
 
 	const mime = normalizeMimeType(mimeType);
-	if (mime === "application/json") return "json";
-	if (mime === "application/xml") return "xml";
-	if (mime === "text/html") return "html";
-	if (mime === "text/css") return "css";
-	if (mime === "text/x-scss") return "scss";
-	if (mime === "text/x-sass") return "sass";
-	if (mime === "text/x-less") return "less";
-	if (mime === "application/javascript" || mime === "text/javascript")
-		return "javascript";
-	if (mime === "text/jsx") return "jsx";
-	if (mime === "text/markdown") return "markdown";
-	if (mime === "text/x-python") return "python";
-	if (mime === "application/typescript") return "typescript";
-	if (mime === "text/tsx") return "tsx";
-	if (mime === "application/yaml") return "yaml";
-	if (mime === "application/x-sh" || mime === "text/x-shellscript")
-		return "bash";
-	if (mime === "application/sql") return "sql";
-	if (mime === "application/graphql") return "graphql";
-	if (mime === "application/toml") return "toml";
-	if (mime === "text/x-ruby") return "ruby";
-	if (mime === "text/rust") return "rust";
-	if (mime === "text/x-go") return "go";
-	if (mime === "text/x-java-source") return "java";
-	if (mime === "text/x-kotlin") return "kotlin";
-	if (mime === "text/x-swift") return "swift";
-	if (mime === "text/x-csharp") return "csharp";
-	if (mime === "text/x-c++src") return "cpp";
-	if (mime === "text/x-csrc") return "c";
-	if (mime === "application/x-httpd-php") return "php";
-	if (mime === "text/x-r-source") return "r";
+	if (mime && MIME_TO_PREVIEW_LANGUAGE[mime]) {
+		return MIME_TO_PREVIEW_LANGUAGE[mime];
+	}
 
 	return undefined;
 }

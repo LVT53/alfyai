@@ -1,6 +1,13 @@
 import type { I18nKey } from "$lib/i18n";
 import type { ThinkingSegment } from "$lib/types";
 
+function normalizeToolNameForComparison(name: string): string {
+	return name
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_");
+}
+
 function normalizeForStableJson(value: unknown): unknown {
 	if (Array.isArray(value)) {
 		return value.map(normalizeForStableJson);
@@ -24,10 +31,7 @@ export function toolCallInputKey(input: Record<string, unknown> = {}): string {
 }
 
 export function isFileProductionToolName(name: string): boolean {
-	const normalized = name
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "_");
+	const normalized = normalizeToolNameForComparison(name);
 	return (
 		normalized === "produce_file" ||
 		normalized === "producefile" ||
@@ -54,10 +58,7 @@ export function isVisibleThinkingSegment(segment: ThinkingSegment): boolean {
 }
 
 export function getHumanReadableToolNameKey(name: string): I18nKey {
-	const normalized = name
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "_");
+	const normalized = normalizeToolNameForComparison(name);
 	if (normalized === "research_web" || normalized.includes("web_search")) {
 		return "toolCalls.webSearch";
 	}
