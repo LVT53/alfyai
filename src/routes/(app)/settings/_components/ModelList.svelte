@@ -1,33 +1,37 @@
 <script lang="ts">
 import { get } from "svelte/store";
 import { t } from "$lib/i18n";
-import { Pencil, Trash2 } from "@lucide/svelte";
+import { AlertTriangle, Pencil, Trash2 } from "@lucide/svelte";
 import {
-	fetchProviderModels,
 	createProviderModel,
 	updateProviderModel,
 	deleteProviderModel,
 	type ProviderModel,
 	type ProviderModelUpdate,
 } from "$lib/client/api/admin";
+import { getProviderModelFallbackOptions } from "./model-fallback";
 import ModelForm from "./ModelForm.svelte";
 
 const tVal = get(t);
 
 let {
 	providerId,
+	models = [],
+	allModels = [],
 	onClose,
 	onIconFile,
+	onRefresh,
 	modelIconAssetSaved = null,
 }: {
 	providerId: string;
+	models?: ProviderModel[];
+	allModels?: ProviderModel[];
 	onClose?: () => void;
 	onIconFile?: (event: Event, modelId: string) => void;
+	onRefresh?: () => void | Promise<void>;
 	modelIconAssetSaved?: { modelId: string; assetId: string } | null;
 } = $props();
 
-let models = $state<ProviderModel[]>([]);
-let loading = $state(false);
 let error = $state("");
 let message = $state("");
 let showForm = $state(false);
@@ -49,18 +53,6 @@ function showMessage(text: string) {
 
 function errorMessage(error: unknown, fallback: string): string {
 	return error instanceof Error ? error.message : fallback;
-}
-
-async function loadModels() {
-	loading = true;
-	error = "";
-	try {
-		models = await fetchProviderModels(providerId);
-	} catch (err: unknown) {
-		error = errorMessage(err, $t("admin.loadingModels"));
-	} finally {
-		loading = false;
-	}
 }
 
 function openAddForm() {
@@ -98,7 +90,7 @@ async function handleSave(data: ProviderModelUpdate) {
 			showMessage($t("admin.providerAdded"));
 		}
 		closeForm();
-		await loadModels();
+		await onRefresh?.();
 	} catch (err: unknown) {
 		formError = errorMessage(err, $t("admin.failedSave"));
 	} finally {
@@ -112,8 +104,8 @@ async function handleDelete(model: ProviderModel) {
 	deletingId = model.id;
 	try {
 		await deleteProviderModel(providerId, model.id);
+		await onRefresh?.();
 		showMessage($t("admin.providerDeleted"));
-		await loadModels();
 	} catch (err: unknown) {
 		error = errorMessage(err, $t("admin.failedDeleteProvider"));
 	} finally {
@@ -126,9 +118,14 @@ function formatPricing(input: number, output: number): string {
 	return `$${fmt(input)} / $${fmt(output)}`;
 }
 
-$effect(() => {
-	void loadModels();
-});
+function hasFallbackWarning(model: ProviderModel): boolean {
+	return (
+		model.enabled &&
+		!getProviderModelFallbackOptions(model, allModels).some(
+			(option) => option.compatible,
+		)
+	);
+}
 
 $effect(() => {
 	if (
@@ -153,18 +150,16 @@ $effect(() => {
 		</div>
 	</div>
 
-	{#if loading}
-		<p class="text-sm text-text-secondary">{$t('common.loading')}</p>
-	{:else if error}
+	{#if error}
 		<p class="text-sm text-danger">{error}</p>
-	{:else if models.length === 0}
+	{:else if models.filter((model) => model.providerId === providerId).length === 0}
 		<div class="rounded-md border border-border bg-surface-page px-4 py-6 text-center">
 			<p class="text-sm text-text-muted">{$t('admin.noModelsYet')}</p>
 			<button class="btn-secondary mt-3" onclick={openAddForm}>{$t('admin.addModel')}</button>
 		</div>
 	{:else}
 		<div class="flex flex-col gap-2">
-			{#each models as model (model.id)}
+			{#each models.filter((model) => model.providerId === providerId) as model (model.id)}
 				<div
 					class="flex flex-col gap-2 rounded-md border border-border bg-surface-page px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
 				>
@@ -178,8 +173,20 @@ $effect(() => {
 							<img src={`/api/campaign-assets/${encodeURIComponent(model.iconAssetId)}/content`} alt="" class="h-6 w-6 rounded object-cover shrink-0" />
 						{/if}
 						<div class="flex min-w-0 flex-col">
-							<span class="truncate text-sm font-medium text-text-primary">
-								{model.displayName || model.name}
+							<span class="flex min-w-0 items-center gap-2">
+								<span class="truncate text-sm font-medium text-text-primary">
+									{model.displayName || model.name}
+								</span>
+								{#if hasFallbackWarning(model)}
+									<span
+										class="inline-flex shrink-0 text-danger"
+										title={$t('admin.modelFallbackModelWarning')}
+										aria-label={$t('admin.modelFallbackModelWarning')}
+										role="img"
+									>
+										<AlertTriangle class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
+									</span>
+								{/if}
 							</span>
 							<span class="truncate text-xs text-text-muted">
 								{model.name}
@@ -222,6 +229,7 @@ $effect(() => {
 	<ModelForm
 	{providerId}
 	model={formModel}
+	allModels={allModels}
 	saving={formSaving}
 	error={formError}
 	onSave={handleSave}

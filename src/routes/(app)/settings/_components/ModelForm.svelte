@@ -4,6 +4,10 @@ import { get } from "svelte/store";
 import { t } from "$lib/i18n";
 import { deriveModelContextLimits } from "$lib/model-context-defaults";
 import type { ProviderModel, ProviderModelUpdate } from "$lib/client/api/admin";
+import {
+	getProviderModelFallbackOptions,
+	type FallbackCompatibilityReason,
+} from "./model-fallback";
 
 const tVal = get(t);
 
@@ -16,6 +20,7 @@ function handleKeydown(e: KeyboardEvent) {
 let {
 	providerId,
 	model = null,
+	allModels = [],
 	saving = false,
 	error = "",
 	onSave,
@@ -24,6 +29,7 @@ let {
 }: {
 	providerId: string;
 	model?: ProviderModel | null;
+	allModels?: ProviderModel[];
 	saving?: boolean;
 	error?: string;
 	onSave?: (data: ProviderModelUpdate) => void | Promise<void>;
@@ -38,6 +44,12 @@ let formDisplayName = $state(untrack(() => model?.displayName ?? ""));
 let formIconAssetId = $state(untrack(() => model?.iconAssetId ?? null));
 $effect(() => {
 	formIconAssetId = model?.iconAssetId ?? null;
+});
+let formFallbackProviderModelId = $state(
+	untrack(() => model?.fallbackProviderModelId ?? ""),
+);
+$effect(() => {
+	formFallbackProviderModelId = model?.fallbackProviderModelId ?? "";
 });
 let formMaxModelContext = $state(
 	untrack(() => numToString(model?.maxModelContext)),
@@ -116,6 +128,39 @@ function dollarsToMicros(dollars: string | number | null | undefined): number {
 	return Math.round(num * 1_000_000);
 }
 
+function fallbackReasonLabel(reason: FallbackCompatibilityReason): string {
+	if (reason.kind === "disabled-target") {
+		return $t("admin.modelFallbackReasonDisabledTarget");
+	}
+
+	if (reason.kind === "capability") {
+		const key =
+			reason.role === "source"
+				? "admin.modelFallbackReasonCapabilitySource"
+				: "admin.modelFallbackReasonCapabilityFallback";
+		return $t(key, {
+			capability: $t(`admin.capability.${reason.capability}`),
+		});
+	}
+
+	if (reason.kind === "unknown-source-capability") {
+		return $t("admin.modelFallbackReasonUnknownSourceCapability", {
+			capability: $t(`admin.capability.${reason.capability}`),
+		});
+	}
+
+	return $t("admin.modelFallbackReasonGeneric");
+}
+
+function fallbackOptions() {
+	if (isCreate || !model) return [];
+	return getProviderModelFallbackOptions(model, allModels);
+}
+
+function hasCompatibleFallbackOption(): boolean {
+	return fallbackOptions().some((option) => option.compatible);
+}
+
 function handleSave() {
 	localError = "";
 
@@ -141,6 +186,8 @@ function handleSave() {
 		maxTokens: stringToNum(formMaxTokens),
 		reasoningEffort: formReasoningEffort || null,
 		thinkingType: formThinkingType || null,
+		fallbackProviderModelId:
+			isCreate || !model ? undefined : formFallbackProviderModelId || null,
 		capabilitiesJson: formCapabilitiesJson || null,
 		inputUsdMicrosPer1m: dollarsToMicros(formInputUsdPer1m),
 		cachedInputUsdMicrosPer1m: dollarsToMicros(formCachedInputUsdPer1m),
@@ -312,6 +359,45 @@ function handleSave() {
 						</div>
 					</div>
 				</div>
+
+				{#if !isCreate}
+					<div class="mt-2 border-t border-border pt-3">
+						<label class="settings-label" for="model-form-fallback">{$t('admin.modelFallbackLabel')}</label>
+						<select
+							id="model-form-fallback"
+							class="settings-input"
+							bind:value={formFallbackProviderModelId}
+						>
+							<option value="">{ $t('admin.modelFallbackNone') }</option>
+							{#each fallbackOptions() as fallbackOption (fallbackOption.model.id)}
+								<option
+									value={fallbackOption.model.id}
+									disabled={!fallbackOption.compatible}
+								>
+									{fallbackOption.model.displayName || fallbackOption.model.name}
+									{#if !fallbackOption.compatible}
+										{" — "}
+										{fallbackReasonLabel(
+											fallbackOption.reason ?? {
+												kind: "unparsed",
+												message: $t("admin.modelFallbackReasonGeneric"),
+											},
+										)}
+									{/if}
+								</option>
+							{/each}
+						</select>
+						{#if !hasCompatibleFallbackOption()}
+							<p class="mt-1 text-xs text-danger">
+								{$t('admin.modelFallbackNoCompatibleOptions')}
+							</p>
+						{:else}
+							<p class="mt-1 text-xs text-text-muted">
+								{$t('admin.modelFallbackDescription')}
+							</p>
+						{/if}
+					</div>
+				{/if}
 
 				<div class="mt-2 border-t border-border pt-3">
 					<h3 class="text-sm font-medium text-text-primary">{$t('admin.pricing')}</h3>

@@ -29,8 +29,33 @@ The system already probes `/v1/models` when creating a provider (to validate the
 - The `model_price_rules` table is removed; pricing fields (`input_usd_micros_per_1m`, `output_usd_micros_per_1m`, cache hit/miss rates) move to `provider_models`.
 - The system prompt is extracted from model1's grip into a global config field.
 - `DEFAULT_NEW_USER_MODEL` defaults to the first available Provider Model (by sort order).
-- Rate-limit fallback lives at the Provider level (one per provider) with optional per-model overrides, and is implemented for Normal Chat (previously Deep Research only).
+- Normal Chat **Model Fallback** belongs to the selected Provider Model first, then the global fallback if no model-specific fallback is configured. Provider-wide fallback is retired from the routing contract and should be treated as migration debt rather than current design.
 - `usage_events.providerId` references `providers.id` (existing analytics rows are not migrated — they keep their historical values).
 - `seed-prices.ts` script is retired; an admin UI for per-model pricing replaces it. Historical `usage_events.costUsdMicros` values are unaffected since costs are computed at write time.
 - No backward compatibility for the `inference_providers` table or `model_price_rules` table — this is a breaking DB migration.
 - **Model Discovery** is triggered when a Provider is created or when an admin explicitly refreshes it, calling the provider's `/v1/models` endpoint.
+
+## Superseding fallback clarification, 2026-06-15
+
+The original Provider-level rate-limit fallback consequence is superseded. The current contract is:
+
+- A Provider Model may define one model-specific **Model Fallback** to another Provider Model.
+- If no model-specific fallback is configured, Normal Chat may use the global Model Fallback.
+- Provider-wide fallback is not part of Normal Chat routing.
+- Fallback applies only to retryable infrastructure or model-availability failures, not auth/configuration/schema/user-abort/refusal cases.
+- Fallback does not chain. If the selected fallback attempt fails, the model run stops through the existing error path.
+- Fallback configuration is strict for model-specific choices: admin surfaces should block incompatible fallback choices and unknown capability state should require probing or explicit override. A global fallback may be saved even when incompatible with some enabled Provider Models, but it applies only to compatible inheriting models and incompatible models must be visibly warned in admin surfaces.
+- Fallback compatibility requires the same hard Normal Chat capabilities as the source Provider Model: chat, streaming, tools, structured output/JSON mode, file/image message parts when applicable, and provider-native reasoning controls when enabled on the source model. Usage reporting is not a fallback blocker.
+- If no compatible fallback exists for an enabled Provider Model, the admin UI should show a compact warning on the provider/model row and a short explanation in the model edit modal. This warning is configuration visibility, not end-user chat UI.
+- At runtime, if the selected Provider Model has no compatible model-specific fallback and cannot inherit a compatible global fallback, Normal Chat makes no fallback attempt and follows the existing error path with diagnostics.
+- Model Fallback applies to the main Normal Chat answer Model Run only. Depth Classification, structured control-model calls, and schema-repair paths keep their own constrained fallback behavior.
+- Model Fallback is admin-only configuration. End users choose the primary Provider Model and do not choose, override, or see fallback policy during normal chat.
+
+Implementation guardrails:
+
+- Do not reintroduce provider-wide fallback into Normal Chat routing.
+- Do not store fallback as a raw provider URL, model name, or API key tuple; fallback targets are Provider Models.
+- Do not resolve fallback by partially swapping the provider URL or model name under the original Provider Model. Resolve the fallback Provider Model into its own Model Connection.
+- Do not silently inherit an incompatible global fallback. Global fallback applies only to compatible inheriting Provider Models.
+- Do not make fallback chains. The selected Provider Model gets at most one fallback attempt.
+- Do not hide fallback compatibility problems until a live user turn. Admin surfaces should expose incompatible or missing fallback choices before runtime.

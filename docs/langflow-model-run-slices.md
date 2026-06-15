@@ -3,6 +3,8 @@
 **Status:** Implemented
 **Last reviewed:** 2026-05-31
 
+**Current fallback note, 2026-06-15:** this document records the retired Langflow-era implementation. Current Normal Chat fallback language is **Model Fallback**: selected Provider Model fallback first, global fallback second, no provider-wide fallback. Provider-level fallback references below are historical and should not be copied into current Normal Chat design.
+
 Source: `/private/var/folders/6c/llmb9__97ngcxtc26hvg8jzh0000gn/T/architecture-review-20260529-195600.html`, section `Deepen Langflow Model Run`.
 
 ## Implementation Status

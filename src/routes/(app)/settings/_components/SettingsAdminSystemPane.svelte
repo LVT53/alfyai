@@ -10,12 +10,14 @@ import {
 	discoverProviderModels,
 	batchCreateProviderModels,
 	fetchProviderList,
+	fetchProviderModels,
 	updateProviderEntry,
 	updateProviderModel as updateModelProvider,
 	type AdminSystemSkill,
 	type AdminSystemSkillDraft,
 	type PersonalityProfileSummary,
 	type Provider,
+	type ProviderModel,
 } from "$lib/client/api/admin";
 import {
 	saveModelIconAssetCrop,
@@ -76,6 +78,7 @@ let providerConfigs: Provider[] = $state([]);
 let providerConfigsLoading = $state(false);
 let providerConfigsError = $state("");
 let providerConfigsMessage = $state("");
+let allProviderModels: ProviderModel[] = $state([]);
 let showProviderForm = $state(false);
 let providerFormProvider: Provider | null = $state(null);
 let providerFormIsCreate = $state(false);
@@ -294,8 +297,19 @@ async function loadProviderConfigs() {
 	providerConfigsError = "";
 	try {
 		providerConfigs = await fetchProviderList();
+		const modelGroups = await Promise.all(
+			providerConfigs.map(async (provider) => {
+				try {
+					return await fetchProviderModels(provider.id);
+				} catch {
+					return [];
+				}
+			}),
+		);
+		allProviderModels = modelGroups.flat();
 	} catch (error: unknown) {
 		providerConfigsError = errorMessage(error, $t("admin.failedLoadProviders"));
+		allProviderModels = [];
 	} finally {
 		providerConfigsLoading = false;
 	}
@@ -590,6 +604,36 @@ function deepResearchModelOptions(): Array<{
 	return Array.from(options, ([id, displayName]) => ({ id, displayName }));
 }
 
+function isExplicitProviderModelId(modelId: ModelId): boolean {
+	return modelId.startsWith("provider:") && modelId.split(":").length >= 3;
+}
+
+function timeoutFailoverTargetModelOptions(): Array<{
+	id: ModelId;
+	displayName: string;
+}> {
+	return availableModels
+		.filter(
+			(model) =>
+				model.id === "model1" ||
+				model.id === "model2" ||
+				isExplicitProviderModelId(model.id),
+		)
+		.map((model) => ({
+			id: model.id,
+			displayName: model.displayName,
+		}));
+}
+
+function timeoutFailoverTargetModelValue(): ModelId {
+	const configured = adminConfig.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL || "";
+	const options = timeoutFailoverTargetModelOptions();
+	if (options.some((model) => model.id === configured)) {
+		return configured as ModelId;
+	}
+	return options[0]?.id ?? "model2";
+}
+
 function defaultNewUserModelOptions(): Array<{
 	id: ModelId;
 	displayName: string;
@@ -788,6 +832,7 @@ function placeholderFor(key: string): string {
 	<h2 class="settings-section-title">{$t('admin.providers')}</h2>
 	<ProviderList
 		providers={providerConfigs}
+		providerModels={allProviderModels}
 		loading={providerConfigsLoading}
 		error={providerConfigsError}
 		message={providersMessage}
@@ -1487,12 +1532,12 @@ function placeholderFor(key: string): string {
 					<select
 						id="MODEL_TIMEOUT_FAILOVER_TARGET_MODEL"
 						class="settings-input"
-						value={adminConfig.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL || placeholderFor('MODEL_TIMEOUT_FAILOVER_TARGET_MODEL')}
+						value={timeoutFailoverTargetModelValue()}
 						onchange={(event) => {
 							adminConfig.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL = event.currentTarget.value;
 						}}
 					>
-						{#each deepResearchModelOptions() as model}
+						{#each timeoutFailoverTargetModelOptions() as model}
 							<option value={model.id}>{model.displayName}</option>
 						{/each}
 					</select>
@@ -1526,8 +1571,11 @@ function placeholderFor(key: string): string {
 			{#key modelListKey}
 				<ModelList
 					providerId={modelListProviderId}
+					models={allProviderModels}
+					allModels={allProviderModels}
 					onClose={closeModelList}
 					onIconFile={handleModelModelIconFile}
+					onRefresh={loadProviderConfigs}
 					modelIconAssetSaved={modelIconAssetSaved}
 				/>
 			{/key}

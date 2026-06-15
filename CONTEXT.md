@@ -1330,6 +1330,34 @@ _Avoid_: available model, configured model, endpoint, model
 The resolved runtime binding of a **Provider Model** for one Normal Chat turn, including the provider's base URL, decrypted API key, model name, and capability assertions. It is ephemeral — created per turn, not stored.
 _Avoid_: provider instance, model run config
 
+**Model Fallback**:
+The retry target used when a selected **Provider Model** fails in a retryable way during a **Normal Chat Model Run**. A model-specific fallback takes priority; if the selected Provider Model has no fallback, the global fallback may apply. Provider-wide fallback is not part of the model-routing contract.
+
+Model Fallback applies only to retryable infrastructure or model-availability failures: connect timeout, request timeout, provider rate limit, provider 5xx, premature stream completion before a usable assistant answer, or a provider response indicating the selected model is temporarily unavailable. It should not apply to authentication failures, bad API keys, user aborts, prompt/schema validation errors, unsupported response-format compatibility issues, or normal model refusals.
+
+When a Model Fallback is used, the fallback Provider Model's own runtime settings apply: provider connection, context limits, tool support, reasoning/thinking settings, response-format compatibility, pricing, and display metadata. Fallback is a new resolved Model Connection, not a partial swap of URL or model name under the original Provider Model.
+
+Model Fallback is operational behavior, not a new end-user interaction. It should be recorded in diagnostics, logs, usage metadata, or admin-facing traces where appropriate, but it should not introduce visible chat UI changes or fallback banners for end users.
+
+Model Fallback does not chain in v1. A selected Provider Model may use its model-specific fallback, or the global fallback when no model-specific fallback is configured. If that fallback attempt fails, the Normal Chat Model Run should stop and report the failure through the existing error path; it should not continue through the fallback model's own fallback.
+
+Model Fallback must not resolve to the same selected Provider Model. Self-fallback should be rejected at configuration time where possible; at runtime, a self-resolved fallback should be treated as unconfigured and recorded as invalid fallback configuration.
+
+Normal Chat Model Fallback resolution order is: selected Provider Model fallback first, global fallback second, no fallback third. Provider-wide fallback is legacy migration debt and should not be part of Normal Chat routing once model-specific fallback is available.
+
+Model Fallback configuration should be strict for model-specific fallback choices. Admin surfaces should prevent choosing an incompatible fallback Provider Model instead of allowing a misconfigured fallback to fail later during a user turn. Unknown capability state should count as incompatible until an admin explicitly probes or overrides that capability. A global fallback may be saved even when it is incompatible with some enabled Provider Models, but it applies only to compatible inheriting Provider Models and incompatible models must be visibly warned in admin surfaces.
+
+Fallback compatibility means the fallback Provider Model supports the same hard Normal Chat capabilities as the source Provider Model: chat, streaming, tools, structured output/JSON mode, file/image message parts when those can be sent to the source model, and provider-native reasoning controls when the source model has reasoning controls enabled. Usage reporting is not a fallback blocker; missing usage should degrade diagnostics/cost accounting rather than answer generation.
+
+If no compatible fallback Provider Model exists for an enabled Provider Model, admin surfaces should make that visible without forcing an immediate configuration choice: show a compact warning indicator on the provider/model row, and show a short reason in the model edit modal explaining which required capabilities prevent fallback compatibility. This remains admin-facing only and should not create end-user chat UI.
+
+At runtime, if the selected Provider Model has no compatible model-specific fallback and cannot inherit a compatible global fallback, Normal Chat should make no fallback attempt. Retryable failures should follow the existing error path with diagnostics indicating that no compatible Model Fallback was configured or inherited.
+
+Model Fallback applies to the main Normal Chat answer Model Run. It should not be reused for Depth Classification, structured control-model calls, or schema-repair paths, which have their own constrained fallback behavior and diagnostics.
+
+Model Fallback is admin-only configuration. End users select the primary Provider Model; they do not choose, override, or see fallback policy during normal chat.
+_Avoid_: provider fallback, failover provider, backup endpoint
+
 **Model Discovery**:
 The admin-triggered process of calling the provider's `/v1/models` endpoint to list available model IDs. The result is used to pre-populate **Provider Models** for admin selection.
 _Avoid_: model fetch, auto-detect, model scan
@@ -1339,6 +1367,8 @@ _Avoid_: model fetch, auto-detect, model scan
 - A **Model Provider** has many **Provider Models**.
 - A **Provider Model** belongs to exactly one **Model Provider**.
 - A **Model Connection** is resolved from a **Provider Model** for one **Normal Chat Model Run**.
+- A **Provider Model** may define one model-specific **Model Fallback** to another Provider Model.
+- The global **Model Fallback** is used only when the selected Provider Model has no model-specific fallback.
 - **Model Discovery** is triggered when a **Model Provider** is created or when an admin explicitly refreshes it.
 - **Model Capability** assertions are per **Provider Model**, probed during **Model Discovery** or validated at model creation time.
 - **Max Model Context**, **Max Output Tokens**, and **Compaction Threshold** are per **Provider Model**.

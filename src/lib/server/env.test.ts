@@ -198,7 +198,8 @@ describe("Environment Configuration", () => {
 		process.env.REQUEST_TIMEOUT_MS = "5000";
 		process.env.MODEL_TIMEOUT_FAILOVER_ENABLED = "true";
 		process.env.MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS = "2500";
-		process.env.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL = "provider:backup";
+		process.env.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL =
+			"provider:backup:model-a";
 		process.env.REASONING_DEPTH_CLASSIFIER_MODEL =
 			"provider:classifier:model-a";
 		process.env.COMPOSER_COMMAND_REGISTRY_ENABLED = "true";
@@ -247,7 +248,9 @@ describe("Environment Configuration", () => {
 		expect(config.requestTimeoutMs).toBe(5000);
 		expect(config.modelTimeoutFailoverEnabled).toBe(true);
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(2500);
-		expect(config.modelTimeoutFailoverTargetModel).toBe("provider:backup");
+		expect(config.modelTimeoutFailoverTargetModel).toBe(
+			"provider:backup:model-a",
+		);
 		expect(config.reasoningDepthClassifierModel).toBe(
 			"provider:classifier:model-a",
 		);

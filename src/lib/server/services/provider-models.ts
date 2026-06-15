@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
+import { canUseProviderModelFallback } from "$lib/model-fallback-compatibility";
 import { db } from "../db";
 import { providerModels, providers } from "../db/schema";
 import { resolveProviderModelPersistenceDefaults } from "./provider-model-runtime-defaults";
@@ -12,6 +13,7 @@ export interface ProviderModel {
 	name: string;
 	displayName: string;
 	iconAssetId: string | null;
+	fallbackProviderModelId: string | null;
 	maxModelContext: number | null;
 	compactionUiThreshold: number | null;
 	targetConstructedContext: number | null;
@@ -36,6 +38,7 @@ export interface CreateProviderModelInput {
 	name: string;
 	displayName?: string;
 	iconAssetId?: string | null;
+	fallbackProviderModelId?: string | null;
 	maxModelContext?: number | null;
 	compactionUiThreshold?: number | null;
 	targetConstructedContext?: number | null;
@@ -56,6 +59,7 @@ export interface CreateProviderModelInput {
 export interface UpdateProviderModelInput {
 	displayName?: string;
 	iconAssetId?: string | null;
+	fallbackProviderModelId?: string | null;
 	maxModelContext?: number | null;
 	compactionUiThreshold?: number | null;
 	targetConstructedContext?: number | null;
@@ -202,6 +206,14 @@ export function parseCreateProviderModelPayload(
 	const displayName = readOptionalString(body, "displayName");
 	if (displayName !== undefined) input.displayName = displayName;
 
+	const fallbackProviderModelId = readNullableString(
+		body,
+		"fallbackProviderModelId",
+	);
+	if (fallbackProviderModelId !== undefined) {
+		input.fallbackProviderModelId = fallbackProviderModelId || null;
+	}
+
 	const maxModelContext = readNullableNonNegativeNumber(
 		body,
 		"maxModelContext",
@@ -306,6 +318,14 @@ export function parseUpdateProviderModelPayload(
 	const iconAssetId = readNullableString(body, "iconAssetId");
 	if (iconAssetId !== undefined) input.iconAssetId = iconAssetId;
 
+	const fallbackProviderModelId = readNullableString(
+		body,
+		"fallbackProviderModelId",
+	);
+	if (fallbackProviderModelId !== undefined) {
+		input.fallbackProviderModelId = fallbackProviderModelId || null;
+	}
+
 	const maxModelContext = readNullableNonNegativeNumber(
 		body,
 		"maxModelContext",
@@ -405,6 +425,7 @@ function mapRowToModel(row: ProviderModelRow): ProviderModel {
 		name: row.name,
 		displayName: row.displayName,
 		iconAssetId: row.iconAssetId ?? null,
+		fallbackProviderModelId: row.fallbackProviderModelId ?? null,
 		maxModelContext: row.maxModelContext ?? null,
 		compactionUiThreshold: row.compactionUiThreshold ?? null,
 		targetConstructedContext: row.targetConstructedContext ?? null,
@@ -425,6 +446,86 @@ function mapRowToModel(row: ProviderModelRow): ProviderModel {
 	};
 }
 
+type ProviderModelCompatibilityFields = Pick<
+	ProviderModel,
+	"capabilitiesJson" | "reasoningEffort" | "thinkingType"
+>;
+
+function buildFallbackCompatibilityInput(
+	model: ProviderModelCompatibilityFields,
+): {
+	capabilitiesJson: string;
+	reasoningEffort: string | null;
+	thinkingType: string | null;
+} {
+	return {
+		capabilitiesJson: model.capabilitiesJson || "{}",
+		reasoningEffort: model.reasoningEffort,
+		thinkingType: model.thinkingType,
+	};
+}
+
+function assertFallbackCompatibility(
+	source: ProviderModelCompatibilityFields,
+	fallback: ProviderModelCompatibilityFields,
+): void {
+	const result = canUseProviderModelFallback(
+		buildFallbackCompatibilityInput(source),
+		buildFallbackCompatibilityInput(fallback),
+	);
+
+	if (!result.compatible) {
+		throw new ProviderModelValidationError(result.reason);
+	}
+}
+
+async function getProviderModelRowById(
+	id: string,
+): Promise<ProviderModelRow | null> {
+	const [row] = await db.select().from(providerModels).where(eq(providerModels.id, id));
+	return row ?? null;
+}
+
+async function getProviderModelRowsReferencingFallbackModel(
+	id: string,
+): Promise<ProviderModelRow[]> {
+	return db
+		.select()
+		.from(providerModels)
+		.where(eq(providerModels.fallbackProviderModelId, id));
+}
+
+async function validateModelFallbackConfiguration(params: {
+	source: ProviderModelCompatibilityFields;
+	fallbackProviderModelId: string | null | undefined;
+	sourceId?: string;
+	requireEnabledFallback?: boolean;
+}): Promise<void> {
+	const fallbackProviderModelId = params.fallbackProviderModelId ?? null;
+	if (!fallbackProviderModelId) return;
+
+	if (params.sourceId && fallbackProviderModelId === params.sourceId) {
+		throw new ProviderModelValidationError(
+			"fallbackProviderModelId cannot reference the model itself",
+		);
+	}
+
+	const fallback = await getProviderModelRowById(fallbackProviderModelId);
+	if (!fallback) {
+		throw new ProviderModelValidationError(
+			"fallbackProviderModelId must reference an existing provider model",
+		);
+	}
+
+	if (params.requireEnabledFallback && !fallback.enabled) {
+		throw new ProviderModelValidationError(
+			"fallbackProviderModelId must reference an enabled provider model",
+		);
+	}
+
+	assertFallbackCompatibility(params.source, fallback);
+}
+
 async function providerExists(providerId: string): Promise<boolean> {
 	const [existing] = await db
 		.select({ id: providers.id })
@@ -443,6 +544,15 @@ export async function createProviderModel(
 	const now = new Date();
 	const displayName = input.displayName ?? input.name;
 	const persistenceDefaults = resolveProviderModelPersistenceDefaults(input);
+	await validateModelFallbackConfiguration({
+		source: {
+			capabilitiesJson: input.capabilitiesJson ?? "{}",
+			reasoningEffort: persistenceDefaults.reasoningEffort ?? null,
+			thinkingType: persistenceDefaults.thinkingType ?? null,
+		},
+		fallbackProviderModelId: input.fallbackProviderModelId ?? null,
+		requireEnabledFallback: true,
+	});
 
 	const [model] = await db
 		.insert(providerModels)
@@ -452,6 +562,7 @@ export async function createProviderModel(
 			name: input.name,
 			displayName,
 			iconAssetId: input.iconAssetId ?? null,
+			fallbackProviderModelId: input.fallbackProviderModelId ?? null,
 			maxModelContext: persistenceDefaults.maxModelContext,
 			compactionUiThreshold: persistenceDefaults.compactionUiThreshold,
 			targetConstructedContext: persistenceDefaults.targetConstructedContext,
@@ -551,6 +662,67 @@ export async function updateProviderModel(
 		.where(eq(providerModels.id, id));
 
 	if (!existing) return null;
+	const nextEnabled = input.enabled !== undefined ? input.enabled : existing.enabled === 1;
+	const fallbackProviderModelId =
+		input.fallbackProviderModelId !== undefined
+			? input.fallbackProviderModelId
+			: existing.fallbackProviderModelId ?? null;
+
+	const sourceCompatibility: ProviderModelCompatibilityFields = {
+		capabilitiesJson:
+			input.capabilitiesJson !== undefined
+				? input.capabilitiesJson
+				: existing.capabilitiesJson,
+		reasoningEffort:
+			input.reasoningEffort !== undefined
+				? resolveProviderModelPersistenceDefaults({
+						reasoningEffort: input.reasoningEffort,
+				  }).reasoningEffort ?? null
+				: existing.reasoningEffort ?? null,
+		thinkingType:
+			input.thinkingType !== undefined
+				? resolveProviderModelPersistenceDefaults({
+						thinkingType: input.thinkingType,
+				  }).thinkingType ?? null
+				: existing.thinkingType ?? null,
+	};
+
+	if (nextEnabled || input.fallbackProviderModelId !== undefined) {
+		await validateModelFallbackConfiguration({
+			source: sourceCompatibility,
+			fallbackProviderModelId,
+			sourceId: id,
+			requireEnabledFallback:
+				nextEnabled || input.fallbackProviderModelId !== undefined,
+		});
+	}
+
+	if (existing.enabled === 1 && input.enabled === false) {
+		const dependentRows = await getProviderModelRowsReferencingFallbackModel(id);
+		const enabledDependents = dependentRows.filter((dependent) => dependent.enabled === 1);
+
+		if (enabledDependents.length > 0) {
+			throw new ProviderModelValidationError(
+				"cannot disable a provider model while enabled models reference it as fallback",
+			);
+		}
+	}
+
+	if (nextEnabled) {
+		const dependentRows = await getProviderModelRowsReferencingFallbackModel(id);
+		for (const dependent of dependentRows) {
+			if (dependent.enabled !== 1) continue;
+
+			assertFallbackCompatibility(
+				{
+					capabilitiesJson: dependent.capabilitiesJson ?? "{}",
+					reasoningEffort: dependent.reasoningEffort ?? null,
+					thinkingType: dependent.thinkingType ?? null,
+				},
+				sourceCompatibility,
+			);
+		}
+	}
 
 	const updates: Partial<typeof providerModels.$inferInsert> = {
 		updatedAt: new Date(),
@@ -558,6 +730,8 @@ export async function updateProviderModel(
 
 	if (input.displayName !== undefined) updates.displayName = input.displayName;
 	if (input.iconAssetId !== undefined) updates.iconAssetId = input.iconAssetId;
+	if (input.fallbackProviderModelId !== undefined)
+		updates.fallbackProviderModelId = input.fallbackProviderModelId;
 	if (
 		input.maxModelContext !== undefined ||
 		input.compactionUiThreshold !== undefined ||

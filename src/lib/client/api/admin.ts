@@ -393,6 +393,7 @@ export interface ProviderModel {
 	name: string;
 	displayName: string;
 	iconAssetId: string | null;
+	fallbackProviderModelId: string | null;
 	maxModelContext: number | null;
 	compactionUiThreshold: number | null;
 	targetConstructedContext: number | null;
@@ -416,6 +417,7 @@ export type ProviderModelInput = {
 	name: string;
 	displayName?: string;
 	iconAssetId?: string | null;
+	fallbackProviderModelId?: string | null;
 	maxModelContext?: number | null;
 	compactionUiThreshold?: number | null;
 	targetConstructedContext?: number | null;

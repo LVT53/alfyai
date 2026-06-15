@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	decryptApiKey: vi.fn(),
 	getProviderWithSecrets: vi.fn(),
 	getProviderByName: vi.fn(),
+	getProviderModel: vi.fn(),
 	listEnabledProviderModels: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ vi.mock("../providers", () => ({
 }));
 
 vi.mock("../provider-models", () => ({
+	getProviderModel: mocks.getProviderModel,
 	listEnabledProviderModels: mocks.listEnabledProviderModels,
 }));
 
@@ -80,6 +82,53 @@ function createDoneTool() {
 		description: "Finish the assistant response.",
 		inputSchema: doneToolSchema,
 	});
+}
+
+function createProviderModelRow(params: {
+	id: string;
+	providerId?: string;
+	name: string;
+	displayName: string;
+	fallbackProviderModelId?: string | null;
+	capabilitiesJson?: string;
+}) {
+	return {
+		id: params.id,
+		providerId: params.providerId ?? "provider-1",
+		name: params.name,
+		displayName: params.displayName,
+		iconAssetId: null,
+		fallbackProviderModelId: params.fallbackProviderModelId ?? null,
+		maxModelContext: null,
+		compactionUiThreshold: null,
+		targetConstructedContext: null,
+		maxMessageLength: null,
+		maxTokens: 4096,
+		reasoningEffort: null,
+		thinkingType: null,
+		capabilitiesJson:
+			params.capabilitiesJson ??
+			JSON.stringify({
+				chat: true,
+				streaming: true,
+				tools: false,
+				structuredOutput: false,
+				reasoningControls: false,
+				usageReporting: false,
+				fileMessageParts: false,
+				imageMessageParts: false,
+				modelsEndpoint: false,
+			}),
+		inputUsdMicrosPer1m: 1,
+		cachedInputUsdMicrosPer1m: 1,
+		cacheHitUsdMicrosPer1m: 1,
+		cacheMissUsdMicrosPer1m: 1,
+		outputUsdMicrosPer1m: 1,
+		enabled: true,
+		sortOrder: 0,
+		createdAt: new Date("2026-01-01T00:00:00.000Z"),
+		updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+	};
 }
 
 function parseRequestBody(fetchMock: FetchMock, callIndex = 0) {
@@ -237,6 +286,7 @@ describe("Normal Chat Model Run provider resolution", () => {
 		mocks.getProviderByName.mockReset();
 		mocks.listEnabledProviderModels.mockReset();
 		mocks.getProviderWithSecrets.mockReset();
+		mocks.getProviderModel.mockReset();
 		mocks.decryptApiKey.mockReset();
 		mocks.getProviderByName.mockResolvedValue(null);
 	});
@@ -975,7 +1025,7 @@ describe("Plain Normal Chat Model Run", () => {
 		);
 	});
 
-	it("retries a plain chat call on a provider-level timeout failover target", async () => {
+	it("retries a plain chat call on a provider-model timeout failover target", async () => {
 		mocks.getProviderByName.mockResolvedValue(null);
 		mocks.getProviderWithSecrets.mockImplementation(async (providerId) => {
 			if (providerId !== "provider-1") return null;
@@ -988,6 +1038,16 @@ describe("Plain Normal Chat Model Run", () => {
 				apiKeyIv: "secret-iv",
 				enabled: true,
 			};
+		});
+		mocks.getProviderModel.mockImplementation(async (id: string) => {
+			if (id === "model-a") {
+				return createProviderModelRow({
+					id: "model-a",
+					name: "accounts/fireworks/models/kimi-k2p6",
+					displayName: "Kimi K2",
+				});
+			}
+			return null;
 		});
 		mocks.listEnabledProviderModels.mockResolvedValue([
 			{
@@ -1034,7 +1094,7 @@ describe("Plain Normal Chat Model Run", () => {
 			runtimeConfig: {
 				requestTimeoutMs: 30_000,
 				modelTimeoutFailoverEnabled: true,
-				modelTimeoutFailoverTargetModel: "provider:provider-1",
+				modelTimeoutFailoverTargetModel: "provider:provider-1:model-a",
 				modelTimeoutFailoverTimeoutMs: 1_000,
 				model2Enabled: true,
 				model1: {
@@ -1065,7 +1125,7 @@ describe("Plain Normal Chat Model Run", () => {
 
 		expect(result.text).toBe("Provider fallback answer");
 		expect(result.model).toMatchObject({
-			modelId: "provider:provider-1",
+			modelId: "provider:provider-1:model-a",
 			providerId: "provider-1",
 			displayName: "Kimi K2",
 			requestedModelName: "accounts/fireworks/models/kimi-k2p6",
@@ -1078,9 +1138,391 @@ describe("Plain Normal Chat Model Run", () => {
 		const fallbackBody = parseRequestBody(fetch, 1);
 		expect(fallbackBody.model).toBe("accounts/fireworks/models/kimi-k2p6");
 		expect(mocks.getProviderWithSecrets).toHaveBeenCalledWith("provider-1");
-		expect(mocks.getProviderByName).not.toHaveBeenCalledWith(
-			"provider:provider-1",
+		expect(mocks.getProviderByName).not.toHaveBeenCalledWith("provider:provider-1");
+	});
+
+	it("does not retry a plain chat call for a permanent unavailable error", async () => {
+		mocks.getProviderByName.mockResolvedValue(null);
+		mocks.getProviderWithSecrets.mockResolvedValue({
+			id: "provider-1",
+			name: "fireworks",
+			displayName: "Fireworks",
+			baseUrl: "https://api.fireworks.ai/inference/v1/chat/completions",
+			apiKeyEncrypted: "encrypted-secret",
+			apiKeyIv: "secret-iv",
+			enabled: true,
+		});
+		mocks.getProviderModel.mockImplementation(async (id: string) => {
+			if (id === "model-a") {
+				return createProviderModelRow({
+					id: "model-a",
+					name: "accounts/fireworks/models/kimi-k2p6",
+					displayName: "Kimi K2",
+				});
+			}
+			return null;
+		});
+		const unavailableError = new Error("model unavailable");
+		const fetch = vi.fn().mockRejectedValueOnce(unavailableError);
+
+		await expect(
+			runPlainNormalChatModelRun({
+				provider: {
+					id: "model1",
+					name: "model1",
+					displayName: "Model One",
+					baseUrl: "https://model-one.example/v1",
+					modelName: "model-one",
+					apiKey: "model-one-secret",
+				},
+				modelId: "model1",
+				runtimeConfig: {
+					requestTimeoutMs: 30_000,
+					modelTimeoutFailoverEnabled: true,
+					modelTimeoutFailoverTargetModel: "provider:provider-1:model-a",
+					modelTimeoutFailoverTimeoutMs: 1_000,
+					model2Enabled: true,
+					model1: {
+						baseUrl: "https://model-one.example/v1",
+						apiKey: "model-one-secret",
+						modelName: "model-one",
+						displayName: "Model One",
+						systemPrompt: "",
+						maxTokens: null,
+						reasoningEffort: null,
+						thinkingType: null,
+					},
+					model2: {
+						baseUrl: "https://unused.example/v1",
+						apiKey: "unused",
+						modelName: "unused",
+						displayName: "Unused",
+						systemPrompt: "",
+						maxTokens: null,
+						reasoningEffort: null,
+						thinkingType: null,
+					},
+				} as never,
+				messages: [userTextMessage("Hello")],
+				fetch,
+				maxRetries: 0,
+			}),
+		).rejects.toThrow("model unavailable");
+
+		expect(fetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("uses the source provider model fallback once and does not chain to the global target", async () => {
+		mocks.getProviderByName.mockResolvedValue(null);
+		mocks.getProviderWithSecrets.mockImplementation(async (providerId) => {
+			if (providerId !== "provider-1") return null;
+			return {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1/chat/completions",
+				apiKeyEncrypted: "encrypted-secret",
+				apiKeyIv: "secret-iv",
+				enabled: true,
+			};
+		});
+		mocks.getProviderModel.mockImplementation(async (id: string) => {
+			if (id === "source-model") {
+				return createProviderModelRow({
+					id: "source-model",
+					name: "source-model",
+					displayName: "Source Model",
+					fallbackProviderModelId: "fallback-model",
+				});
+			}
+			if (id === "fallback-model") {
+				return createProviderModelRow({
+					id: "fallback-model",
+					name: "fallback-model",
+					displayName: "Fallback Model",
+				});
+			}
+			return null;
+		});
+		mocks.listEnabledProviderModels.mockResolvedValue([
+			{
+				id: "source-model",
+				name: "accounts/fireworks/models/source-model",
+				displayName: "Source Model",
+				maxTokens: 4096,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+			{
+				id: "fallback-model",
+				name: "accounts/fireworks/models/fallback-model",
+				displayName: "Fallback Model",
+				maxTokens: 4096,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+			{
+				id: "global-model",
+				name: "accounts/fireworks/models/global-model",
+				displayName: "Global Model",
+				maxTokens: 4096,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+		]);
+		mocks.decryptApiKey.mockReturnValue("plain-secret");
+		const rateLimitError = Object.assign(new Error("Too many requests"), {
+			statusCode: 429,
+		});
+		const fetch = vi
+			.fn()
+			.mockRejectedValueOnce(rateLimitError)
+			.mockResolvedValueOnce(
+				createMockChatCompletionResponse({
+					responseId: "chatcmpl-provider-fallback",
+					message: {
+						role: "assistant",
+						content: "Fallback answer",
+					},
+					created: 1_717_171_719,
+					usage: null,
+				}),
+			);
+
+		const result = await runPlainNormalChatModelRun({
+			provider: {
+				id: "provider-1",
+				modelId: "provider:provider-1:source-model",
+				name: "fireworks",
+				displayName: "Source Model",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/source-model",
+				apiKey: "model-secret",
+			},
+			modelId: "provider:provider-1:source-model",
+			runtimeConfig: {
+				requestTimeoutMs: 30_000,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: "provider:provider-1:global-model",
+				modelTimeoutFailoverTimeoutMs: 1_000,
+				model2Enabled: true,
+				model1: {
+					baseUrl: "https://model-one.example/v1",
+					apiKey: "model-one-secret",
+					modelName: "model-one",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://model-two.example/v1",
+					apiKey: "model-two-secret",
+					modelName: "model-two",
+					displayName: "Model Two",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as never,
+			messages: [userTextMessage("Hello")],
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(result.text).toBe("Fallback answer");
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(fetch.mock.calls[0]?.[0]).toBe(
+			"https://api.fireworks.ai/inference/v1/chat/completions",
 		);
+		expect(fetch.mock.calls[1]?.[0]).toBe(
+			"https://api.fireworks.ai/inference/v1/chat/completions",
+		);
+		expect(parseRequestBody(fetch, 1).model).toBe(
+			"accounts/fireworks/models/fallback-model",
+		);
+	expect(result.model).toMatchObject({
+		modelId: "provider:provider-1:fallback-model",
+		providerId: "provider-1",
+		displayName: "Fallback Model",
+		requestedModelName: "accounts/fireworks/models/fallback-model",
+		responseModelName: "provider-returned-model",
+	});
+	});
+
+	it("uses a compatible cross-provider provider-model fallback once", async () => {
+		mocks.getProviderByName.mockResolvedValue(null);
+		mocks.getProviderWithSecrets.mockImplementation(async (providerId) => {
+			if (providerId === "provider-1") {
+				return {
+					id: "provider-1",
+					name: "source-provider",
+					displayName: "Source Provider",
+					baseUrl: "https://source.example/v1/chat/completions",
+					apiKeyEncrypted: "encrypted-source",
+					apiKeyIv: "source-iv",
+					enabled: true,
+				};
+			}
+			if (providerId === "provider-2") {
+				return {
+					id: "provider-2",
+					name: "fallback-provider",
+					displayName: "Fallback Provider",
+					baseUrl: "https://fallback.example/v1/chat/completions",
+					apiKeyEncrypted: "encrypted-fallback",
+					apiKeyIv: "fallback-iv",
+					enabled: true,
+				};
+			}
+			return null;
+		});
+		mocks.getProviderModel.mockImplementation(async (id: string) => {
+			if (id === "source-model") {
+				return createProviderModelRow({
+					id: "source-model",
+					providerId: "provider-1",
+					name: "source-model",
+					displayName: "Source Model",
+					fallbackProviderModelId: "fallback-model",
+					capabilitiesJson: JSON.stringify({
+						chat: true,
+						streaming: true,
+						tools: true,
+						structuredOutput: true,
+						reasoningControls: false,
+						usageReporting: false,
+						fileMessageParts: false,
+						imageMessageParts: false,
+						modelsEndpoint: false,
+					}),
+				});
+			}
+			if (id === "fallback-model") {
+				return createProviderModelRow({
+					id: "fallback-model",
+					providerId: "provider-2",
+					name: "fallback-model",
+					displayName: "Fallback Model",
+					capabilitiesJson: JSON.stringify({
+						chat: true,
+						streaming: true,
+						tools: true,
+						structuredOutput: true,
+						reasoningControls: false,
+						usageReporting: false,
+						fileMessageParts: false,
+						imageMessageParts: false,
+						modelsEndpoint: false,
+					}),
+				});
+			}
+			return null;
+		});
+		mocks.listEnabledProviderModels.mockImplementation(async (providerId: string) => {
+			if (providerId === "provider-1") {
+				return [
+					{
+						id: "source-model",
+						name: "source-model",
+						displayName: "Source Model",
+						maxTokens: 4096,
+						reasoningEffort: null,
+						thinkingType: null,
+					},
+				];
+			}
+			if (providerId === "provider-2") {
+				return [
+					{
+						id: "fallback-model",
+						name: "fallback-model",
+						displayName: "Fallback Model",
+						maxTokens: 4096,
+						reasoningEffort: null,
+						thinkingType: null,
+					},
+				];
+			}
+			return [];
+		});
+		mocks.decryptApiKey.mockImplementation((encrypted: string) => {
+			if (encrypted === "encrypted-source") return "source-secret";
+			if (encrypted === "encrypted-fallback") return "fallback-secret";
+			return "plain-secret";
+		});
+		const rateLimitError = Object.assign(new Error("Too many requests"), {
+			statusCode: 429,
+		});
+		const fetch = vi
+			.fn()
+			.mockRejectedValueOnce(rateLimitError)
+			.mockResolvedValueOnce(
+				createMockChatCompletionResponse({
+					responseId: "chatcmpl-provider-fallback",
+					message: {
+						role: "assistant",
+						content: "Cross-provider fallback answer",
+					},
+					created: 1_717_171_720,
+					usage: null,
+				}),
+			);
+
+		const result = await runPlainNormalChatModelRun({
+			provider: {
+				id: "provider-1",
+				modelId: "provider:provider-1:source-model",
+				name: "source-provider",
+				displayName: "Source Model",
+				baseUrl: "https://source.example/v1",
+				modelName: "source-model",
+				apiKey: "source-secret",
+			},
+			modelId: "provider:provider-1:source-model",
+			runtimeConfig: {
+				requestTimeoutMs: 30_000,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: "model2",
+				modelTimeoutFailoverTimeoutMs: 1_000,
+				model2Enabled: true,
+				model1: {
+					baseUrl: "https://model-one.example/v1",
+					apiKey: "model-one-secret",
+					modelName: "model-one",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://model-two.example/v1",
+					apiKey: "model-two-secret",
+					modelName: "model-two",
+					displayName: "Model Two",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as never,
+			messages: [userTextMessage("Hello")],
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(parseRequestBody(fetch, 1).model).toBe("fallback-model");
+		expect(result.model).toMatchObject({
+			modelId: "provider:provider-2:fallback-model",
+			providerId: "provider-2",
+			displayName: "Fallback Model",
+			requestedModelName: "fallback-model",
+			responseModelName: "provider-returned-model",
+		});
 	});
 
 	it("retries a plain chat call once without tools when the provider rejects tools", async () => {
@@ -2056,7 +2498,7 @@ describe("Streaming Normal Chat Model Run", () => {
 		consoleError.mockRestore();
 	});
 
-	it("switches a streaming chat call to the configured provider rate-limit fallback", async () => {
+	it("does not use provider-wide rate-limit fallback in Normal Chat", async () => {
 		mocks.getProviderByName.mockResolvedValue(null);
 		mocks.getProviderWithSecrets.mockResolvedValue({
 			id: "provider-1",
@@ -2122,36 +2564,10 @@ describe("Streaming Normal Chat Model Run", () => {
 			maxRetries: 0,
 		});
 
-		expect(fetch).toHaveBeenCalledTimes(2);
-		expect(fetch.mock.calls[1]?.[0]).toBe(
-			"https://fallback.fireworks.example/v1/chat/completions",
-		);
-		const fallbackBody = parseRequestBody(fetch, 1);
-		expect(fallbackBody.model).toBe("fallback-model");
-		expect(fetch.mock.calls[1]?.[1]?.headers).toEqual(
-			expect.objectContaining({
-				authorization: "Bearer fallback-secret",
-			}),
-		);
-		expect(events).toContainEqual({
-			type: "text_delta",
-			text: "Fallback ",
-		});
-		expect(events).toContainEqual({
-			type: "text_delta",
-			text: "stream",
-		});
-		expect(events).toContainEqual(
-			expect.objectContaining({
-				type: "finish",
-				model: expect.objectContaining({
-					providerId: "provider-1",
-					displayName: "Fireworks (rate-limit fallback)",
-					requestedModelName: "fallback-model",
-					responseModelName: "fallback-returned-model",
-				}),
-			}),
-		);
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(events).toEqual([
+			{ type: "error", error: expect.stringContaining("rate limited") },
+		]);
 	});
 
 	it("switches a streaming chat call to the configured timeout failover model", async () => {

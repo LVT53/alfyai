@@ -10,9 +10,11 @@ vi.mock("$lib/client/api/admin", () => ({
 	fetchAdminSystemSkills: vi.fn(() => Promise.resolve([])),
 	fetchPersonalityProfiles: vi.fn(() => Promise.resolve([])),
 	fetchProviderList: vi.fn(() => Promise.resolve([])),
+	fetchProviderModels: vi.fn(() => Promise.resolve([])),
 	updateAdminConfig: vi.fn(),
 	updateAdminSystemSkill: vi.fn(),
 	updateProviderEntry: vi.fn(),
+	updateProviderModel: vi.fn(),
 }));
 
 vi.mock("$lib/client/api/campaign-assets", () => ({
@@ -25,9 +27,11 @@ import {
 	createProviderEntry,
 	fetchAdminSystemSkills,
 	fetchProviderList,
+	fetchProviderModels,
 	updateAdminConfig,
 	updateAdminSystemSkill,
 	updateProviderEntry,
+	updateProviderModel,
 } from "$lib/client/api/admin";
 import {
 	saveModelIconAssetCrop,
@@ -41,11 +45,13 @@ const mockFetchAdminSystemSkills = fetchAdminSystemSkills as ReturnType<
 	typeof vi.fn
 >;
 const mockFetchProviderList = fetchProviderList as ReturnType<typeof vi.fn>;
+const mockFetchProviderModels = fetchProviderModels as ReturnType<typeof vi.fn>;
 const mockUpdateProviderEntry = updateProviderEntry as ReturnType<typeof vi.fn>;
 const mockUpdateAdminConfig = updateAdminConfig as ReturnType<typeof vi.fn>;
 const mockUpdateAdminSystemSkill = updateAdminSystemSkill as ReturnType<
 	typeof vi.fn
 >;
+const mockUpdateProviderModel = updateProviderModel as ReturnType<typeof vi.fn>;
 const mockSaveModelIconAssetCrop = saveModelIconAssetCrop as ReturnType<
 	typeof vi.fn
 >;
@@ -112,8 +118,10 @@ describe("SettingsAdminSystemPane", () => {
 		});
 		mockFetchAdminSystemSkills.mockResolvedValue([]);
 		mockFetchProviderList.mockResolvedValue([]);
+		mockFetchProviderModels.mockResolvedValue([]);
 		mockUpdateProviderEntry.mockResolvedValue(undefined);
 		mockUpdateAdminConfig.mockResolvedValue(undefined);
+		mockUpdateProviderModel.mockResolvedValue(undefined);
 		mockSaveModelIconAssetCrop.mockResolvedValue({ id: "icon-crop-1" });
 		mockUploadCampaignAssetSource.mockResolvedValue({ id: "source-1" });
 		mockUploadModelIconAsset.mockResolvedValue({ id: "icon-1" });

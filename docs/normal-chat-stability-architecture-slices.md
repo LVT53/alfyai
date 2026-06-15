@@ -76,14 +76,16 @@ Make the Active Stream Registry the authority for active stream ownership, aged 
 **Blocked by:** Slice 1
 **Status:** Complete on 2026-06-04.
 
+**Fallback contract update, 2026-06-15:** current Normal Chat **Model Fallback** routing is Provider Model first, global fallback second, and no provider-wide fallback. The 2026-06-04 implementation evidence below records the state of the completed slice at that time; provider-level fallback language should not be used as the forward design.
+
 ### What to build
 
-Move streaming and plain provider-attempt/failover decisions into the Normal Chat Model Run boundary so `/send` and `/stream` use the same capability, timeout, fallback-target, and rate-limit policy. The stream orchestrator should consume neutral model-run events and no longer own provider retry policy.
+Move streaming and plain provider-attempt/failover decisions into the Normal Chat Model Run boundary so `/send` and `/stream` use the same capability, timeout, model-fallback, and rate-limit policy. The stream orchestrator should consume neutral model-run events and no longer own provider retry policy.
 
 ### Acceptance criteria
 
 - [x] Plain and streaming Normal Chat runs share one failover policy surface.
-- [x] First-visible-output timeout, rate-limit fallback, provider timeout fallback, and unsupported-tool fallback are decided inside Normal Chat Model Run.
+- [x] First-visible-output timeout, rate-limit fallback, model/global timeout fallback, and unsupported-tool fallback are decided inside Normal Chat Model Run.
 - [x] Stream orchestration adapts neutral model-run events into downstream stream frames and persistence, while keeping model-preserving non-stream recovery for transport failures.
 - [x] Tests cover plain fallback, streaming fallback, timeout fallback, rate-limit fallback, and no-fallback terminal errors.
 
@@ -92,7 +94,7 @@ Move streaming and plain provider-attempt/failover decisions into the Normal Cha
 - Focused Vitest coverage for Normal Chat Model Run and stream orchestrator integration.
 - A real-provider smoke for a basic streaming turn and a tool-enabled turn after focused tests pass.
 
-**Verification evidence, 2026-06-04:** `src/lib/server/services/normal-chat-model/failover.ts` now owns timeout/rate-limit classification, model timeout target resolution, provider rate-limit fallback resolution, and first-output timeout calculation. `runPlainNormalChatModelRun` and `runStreamingNormalChatModelRun` share retry policy through the Normal Chat Model Run boundary; the chat-turn wrappers pass `modelId`, runtime config, and dynamic provider-option resolvers into that boundary. `stream-orchestrator.ts` no longer imports rate-limit fallback or timeout-target resolvers and now consumes neutral model-run events while preserving stream lifecycle, persistence, and model-preserving non-stream recovery. Focused verification passed with `npx vitest run src/lib/server/services/normal-chat-model/index.test.ts src/lib/server/services/normal-chat-failover.test.ts src/lib/server/services/chat-turn/stream-orchestrator.test.ts src/lib/server/services/chat-turn/stream-fallback.test.ts`, `npx vitest run src/lib/server/services/chat-turn/plain-normal-chat-model-run.test.ts src/lib/server/services/chat-turn/streaming-normal-chat-model-run.test.ts src/routes/api/chat/send/send.test.ts src/routes/api/chat/stream/stream.test.ts src/routes/api/chat/retry/retry.test.ts`, and the active-stream/context-compression focused set. `npm run check`, `git diff --check`, and escalated `npm run test:unit` also passed.
+**Verification evidence, 2026-06-04:** `src/lib/server/services/normal-chat-model/failover.ts` owned timeout/rate-limit classification, model timeout target resolution, the then-current provider rate-limit fallback resolution, and first-output timeout calculation. `runPlainNormalChatModelRun` and `runStreamingNormalChatModelRun` share retry policy through the Normal Chat Model Run boundary; the chat-turn wrappers pass `modelId`, runtime config, and dynamic provider-option resolvers into that boundary. `stream-orchestrator.ts` no longer imports rate-limit fallback or timeout-target resolvers and now consumes neutral model-run events while preserving stream lifecycle, persistence, and model-preserving non-stream recovery. Focused verification passed with `npx vitest run src/lib/server/services/normal-chat-model/index.test.ts src/lib/server/services/normal-chat-failover.test.ts src/lib/server/services/chat-turn/stream-orchestrator.test.ts src/lib/server/services/chat-turn/stream-fallback.test.ts`, `npx vitest run src/lib/server/services/chat-turn/plain-normal-chat-model-run.test.ts src/lib/server/services/chat-turn/streaming-normal-chat-model-run.test.ts src/routes/api/chat/send/send.test.ts src/routes/api/chat/stream/stream.test.ts src/routes/api/chat/retry/retry.test.ts`, and the active-stream/context-compression focused set. `npm run check`, `git diff --check`, and escalated `npm run test:unit` also passed.
 
 ## Slice 4: Add Tool Execution Envelope
 

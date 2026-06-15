@@ -2,13 +2,15 @@
 import { untrack } from "svelte";
 import { get } from "svelte/store";
 import { t } from "$lib/i18n";
-import { ChevronDown, ChevronUp, Pencil, Trash2 } from "@lucide/svelte";
-import type { Provider } from "$lib/client/api/admin";
+import { AlertTriangle, ChevronDown, ChevronUp, Pencil, Trash2 } from "@lucide/svelte";
+import type { Provider, ProviderModel } from "$lib/client/api/admin";
+import { providerHasFallbackWarning } from "./model-fallback";
 
 const tVal = get(t);
 
 let {
 	providers = [],
+	providerModels = [],
 	loading = false,
 	error = "",
 	message = "",
@@ -21,6 +23,7 @@ let {
 	onReorder,
 }: {
 	providers: Provider[];
+	providerModels?: ProviderModel[];
 	loading?: boolean;
 	error?: string;
 	message?: string;
@@ -105,7 +108,7 @@ async function handleDelete(provider: Provider) {
 			<button class="btn-secondary mt-3" onclick={onAdd}>{$t('admin.addProvider')}</button>
 		</div>
 	{:else}
-		<div class="flex flex-col gap-2">
+	<div class="flex flex-col gap-2">
 			{#each providers as provider (provider.id)}
 				<div
 					class="flex flex-col gap-2 rounded-md border border-border bg-surface-page px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
@@ -117,8 +120,20 @@ async function handleDelete(provider: Provider) {
 							class:bg-text-muted={!provider.enabled}
 						></span>
 						<div class="flex min-w-0 flex-col">
-							<span class="truncate text-sm font-medium text-text-primary">
-								{provider.displayName}
+							<span class="flex min-w-0 items-center gap-2">
+								<span class="truncate text-sm font-medium text-text-primary">
+									{provider.displayName}
+								</span>
+								{#if providerHasFallbackWarning(provider.id, providerModels)}
+									<span
+										class="inline-flex shrink-0 text-danger"
+										title={$t('admin.modelFallbackProviderWarning')}
+										aria-label={$t('admin.modelFallbackProviderWarning')}
+										role="img"
+									>
+										<AlertTriangle class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
+									</span>
+								{/if}
 							</span>
 							<span class="truncate text-xs text-text-muted">
 								{provider.name} &bull; {truncateUrl(provider.baseUrl)}

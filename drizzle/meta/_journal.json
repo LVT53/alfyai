@@ -484,6 +484,13 @@
       "when": 1777140000055,
       "tag": "1777140000055_users_sidebar_chats_expanded",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1777140000056,
+      "tag": "1777140000056_provider_models_fallback_provider_model_id",
+      "breakpoints": true
     }
   ]
 }

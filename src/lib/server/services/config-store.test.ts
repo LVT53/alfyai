@@ -467,7 +467,7 @@ describe("Knowledge Store Config", () => {
 				{ key: "MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS", value: "250" },
 				{
 					key: "MODEL_TIMEOUT_FAILOVER_TARGET_MODEL",
-					value: "provider:backup",
+					value: "provider:backup:model-a",
 				},
 			];
 
@@ -476,7 +476,9 @@ describe("Knowledge Store Config", () => {
 			const config = getConfig();
 			expect(config.modelTimeoutFailoverEnabled).toBe(true);
 			expect(config.modelTimeoutFailoverTimeoutMs).toBe(1000);
-			expect(config.modelTimeoutFailoverTargetModel).toBe("provider:backup");
+			expect(config.modelTimeoutFailoverTargetModel).toBe(
+				"provider:backup:model-a",
+			);
 		});
 
 		it("getConfig() should allow a provider as the default model for new users", async () => {

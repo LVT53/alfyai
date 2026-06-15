@@ -50,6 +50,7 @@ function createTestTables() {
 			enabled INTEGER NOT NULL DEFAULT 1,
 			sort_order INTEGER NOT NULL DEFAULT 0,
 			icon_asset_id TEXT,
+			fallback_provider_model_id TEXT REFERENCES provider_models(id) ON DELETE SET NULL,
 			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
 			updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
 			UNIQUE(provider_id, name)
@@ -238,6 +239,106 @@ describe("ProviderModel CRUD", () => {
 			expect(model.outputUsdMicrosPer1m).toBe(7500);
 			expect(model.enabled).toBe(true);
 			expect(model.sortOrder).toBe(5);
+		});
+
+		it("creates a model with a compatible fallback provider model id", async () => {
+			const { createProviderModel } = await import("./provider-models");
+			const provider = await seedProvider();
+			const compatibleCapabilities = JSON.stringify({
+				chat: "detected",
+				streaming: "detected",
+				tools: "detected",
+				structuredOutput: "detected",
+				fileMessageParts: "detected",
+				imageMessageParts: "detected",
+				reasoningControls: "detected",
+			});
+
+			const fallback = await createProviderModel({
+				providerId: provider.id,
+				name: "fallback-model",
+				displayName: "Fallback Model",
+				capabilitiesJson: compatibleCapabilities,
+			});
+
+			const model = await createProviderModel({
+				providerId: provider.id,
+				name: "primary-model",
+				displayName: "Primary Model",
+				reasoningEffort: "medium",
+				fallbackProviderModelId: fallback.id,
+				capabilitiesJson: compatibleCapabilities,
+			});
+
+			expect(model.fallbackProviderModelId).toBe(fallback.id);
+		});
+
+		it("rejects an incompatible fallback provider model id", async () => {
+			const { createProviderModel } = await import("./provider-models");
+			const provider = await seedProvider();
+			const compatibleCapabilities = JSON.stringify({
+				chat: "detected",
+				streaming: "detected",
+				tools: "detected",
+				structuredOutput: "detected",
+				fileMessageParts: "detected",
+				imageMessageParts: "detected",
+			});
+
+			const fallback = await createProviderModel({
+				providerId: provider.id,
+				name: "fallback-model",
+				displayName: "Fallback Model",
+				capabilitiesJson: compatibleCapabilities,
+			});
+
+			await expect(
+				createProviderModel({
+					providerId: provider.id,
+					name: "primary-model",
+					displayName: "Primary Model",
+					reasoningEffort: "medium",
+					fallbackProviderModelId: fallback.id,
+					capabilitiesJson: compatibleCapabilities,
+				}),
+			).rejects.toThrow(
+				"fallback model must explicitly support reasoningControls",
+			);
+		});
+
+		it("rejects a disabled fallback provider model id", async () => {
+			const { createProviderModel } = await import("./provider-models");
+			const provider = await seedProvider();
+			const compatibleCapabilities = JSON.stringify({
+				chat: "detected",
+				streaming: "detected",
+				tools: "detected",
+				structuredOutput: "detected",
+				fileMessageParts: "detected",
+				imageMessageParts: "detected",
+				reasoningControls: "detected",
+			});
+
+			const fallback = await createProviderModel({
+				providerId: provider.id,
+				name: "disabled-fallback",
+				displayName: "Disabled Fallback",
+				capabilitiesJson: compatibleCapabilities,
+				enabled: false,
+			});
+
+			await expect(
+				createProviderModel({
+					providerId: provider.id,
+					name: "primary-model",
+					displayName: "Primary Model",
+					reasoningEffort: "medium",
+					fallbackProviderModelId: fallback.id,
+					capabilitiesJson: compatibleCapabilities,
+				}),
+			).rejects.toThrow(
+				"fallbackProviderModelId must reference an enabled provider model",
+			);
 		});
 
 		it("keeps explicit context defaults authoritative when creating a model", async () => {
@@ -709,6 +810,121 @@ describe("ProviderModel CRUD", () => {
 			expect(fetched.displayName).toBe("Updated Name");
 			expect(fetched.maxModelContext).toBe(32000);
 			expect(fetched.inputUsdMicrosPer1m).toBe(500);
+		});
+
+		it("rejects self fallback on update", async () => {
+			const { createProviderModel, updateProviderModel } = await import(
+				"./provider-models"
+			);
+			const provider = await seedProvider();
+			const compatibleCapabilities = JSON.stringify({
+				chat: "detected",
+				streaming: "detected",
+				tools: "detected",
+				structuredOutput: "detected",
+				fileMessageParts: "detected",
+				imageMessageParts: "detected",
+			});
+
+			const created = await createProviderModel({
+				providerId: provider.id,
+				name: "self-fallback",
+				displayName: "Self Fallback",
+				capabilitiesJson: compatibleCapabilities,
+			});
+
+			await expect(
+				updateProviderModel(created.id, {
+					fallbackProviderModelId: created.id,
+				}),
+			).rejects.toThrow("fallbackProviderModelId cannot reference the model itself");
+		});
+
+		it("rejects updates that would break dependent fallback compatibility", async () => {
+			const { createProviderModel, updateProviderModel } = await import(
+				"./provider-models"
+			);
+			const provider = await seedProvider();
+			const compatibleCapabilities = JSON.stringify({
+				chat: "detected",
+				streaming: "detected",
+				tools: "detected",
+				structuredOutput: "detected",
+				fileMessageParts: "detected",
+				imageMessageParts: "detected",
+				reasoningControls: "detected",
+			});
+
+			const fallback = await createProviderModel({
+				providerId: provider.id,
+				name: "fallback-target",
+				displayName: "Fallback Target",
+				capabilitiesJson: compatibleCapabilities,
+			});
+
+			await createProviderModel({
+				providerId: provider.id,
+				name: "dependent-model",
+				displayName: "Dependent Model",
+				reasoningEffort: "medium",
+				fallbackProviderModelId: fallback.id,
+				capabilitiesJson: compatibleCapabilities,
+			});
+
+			await expect(
+				updateProviderModel(fallback.id, {
+					capabilitiesJson: JSON.stringify({
+						chat: "detected",
+						streaming: "detected",
+						tools: "detected",
+						structuredOutput: "detected",
+						fileMessageParts: "detected",
+						imageMessageParts: "detected",
+					}),
+				}),
+			).rejects.toThrow(
+				"fallback model must explicitly support reasoningControls",
+			);
+		});
+
+		it("rejects disabling a fallback target that enabled models still reference", async () => {
+			const { createProviderModel, updateProviderModel } = await import(
+				"./provider-models"
+			);
+			const provider = await seedProvider();
+			const compatibleCapabilities = JSON.stringify({
+				chat: "detected",
+				streaming: "detected",
+				tools: "detected",
+				structuredOutput: "detected",
+				fileMessageParts: "detected",
+				imageMessageParts: "detected",
+				reasoningControls: "detected",
+			});
+
+			const fallback = await createProviderModel({
+				providerId: provider.id,
+				name: "fallback-target",
+				displayName: "Fallback Target",
+				capabilitiesJson: compatibleCapabilities,
+			});
+
+			await createProviderModel({
+				providerId: provider.id,
+				name: "dependent-model",
+				displayName: "Dependent Model",
+				reasoningEffort: "medium",
+				fallbackProviderModelId: fallback.id,
+				capabilitiesJson: compatibleCapabilities,
+			});
+
+			await expect(
+				updateProviderModel(fallback.id, {
+					enabled: false,
+				}),
+			).rejects.toThrow(
+				"cannot disable a provider model while enabled models reference it as fallback",
+			);
 		});
 	});
 

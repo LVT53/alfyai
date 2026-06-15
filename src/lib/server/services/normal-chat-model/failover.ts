@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "$lib/server/config-store";
 import { getConfig } from "$lib/server/config-store";
+import { canUseProviderModelFallback } from "$lib/model-fallback-compatibility";
 import type { ModelId } from "$lib/types";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
 import {
@@ -7,6 +8,7 @@ import {
 	getProviderByName,
 	getProviderWithSecrets,
 } from "../providers";
+import { getProviderModel, listEnabledProviderModels } from "../provider-models";
 import type { NormalChatModelRunProvider } from "./index";
 
 type ModelTimeoutLikeError = Error & {
@@ -81,20 +83,15 @@ async function resolveValidatedModelFailoverTargetModelId(
 	}
 
 	if (candidate.startsWith("provider:")) {
-		const providerId = extractProviderId(candidate);
-		if (!providerId) return null;
-		const provider = await getProviderWithSecrets(providerId).catch(() => null);
+		const parsed = parseCompositeProviderModelId(candidate);
+		if (!parsed?.providerModelId) return null;
+		const provider = await getProviderWithSecrets(parsed.providerId).catch(
+			() => null,
+		);
 		if (!provider?.enabled) return null;
 	}
 
 	return candidate;
-}
-
-function extractProviderId(modelId: string): string | null {
-	if (!modelId.startsWith("provider:")) return modelId || null;
-	const parts = modelId.split(":");
-	if (parts.length >= 3) return parts[1] || null;
-	return modelId.slice("provider:".length) || null;
 }
 
 function isModelTimeoutErrorInner(error: unknown, seen: Set<unknown>): boolean {
@@ -137,6 +134,242 @@ function timeoutTextMatches(text: string): boolean {
 
 export function isModelRateLimitError(error: unknown): boolean {
 	return isModelRateLimitErrorInner(error, new Set<unknown>());
+}
+
+export function isRetryableNormalChatFallbackError(error: unknown): boolean {
+	if (isModelTimeoutError(error) || isModelRateLimitError(error)) {
+		return true;
+	}
+
+	const statusCode = readHttpStatusCode(error);
+	if (statusCode !== null) {
+		if (statusCode >= 500) return true;
+		if (statusCode === 429) return true;
+		return false;
+	}
+
+	if (!(error instanceof Error)) return false;
+
+	const message = error.message.toLowerCase();
+	if (isNonRetryableFallbackMessage(message)) return false;
+
+	return (
+		isRetryableTransportMessage(message) ||
+		isRetryableUnavailableMessage(message) ||
+		isRetryablePrematureCompletionMessage(message)
+	);
+}
+
+export async function resolveNormalChatFallbackTargetModelId(
+	modelId?: ModelId | null,
+	config: RuntimeConfig = getConfig(),
+): Promise<ModelId | null> {
+	const sourceModelId = modelId ?? "model1";
+	const sourceProviderModel = await resolveCompositeProviderModelRow(sourceModelId);
+
+	if (sourceProviderModel?.fallbackProviderModelId) {
+		const modelSpecificFallback = await resolveProviderModelFallbackTargetModelId(
+			sourceProviderModel,
+			sourceProviderModel.fallbackProviderModelId,
+		);
+		if (modelSpecificFallback) return modelSpecificFallback;
+	}
+
+	if (!config.modelTimeoutFailoverEnabled) return null;
+
+	const globalTarget = config.modelTimeoutFailoverTargetModel;
+	if (!globalTarget || globalTarget === sourceModelId) return null;
+
+	return resolveGlobalFallbackTargetModelId({
+		sourceModelId,
+		sourceProviderModel,
+		candidateModelId: globalTarget,
+		config,
+	});
+}
+
+function readHttpStatusCode(error: unknown): number | null {
+	if (typeof error !== "object" || error === null) return null;
+	const maybe = error as ModelRateLimitLikeError;
+	if (typeof maybe.statusCode === "number") return maybe.statusCode;
+	if (typeof maybe.status === "number") return maybe.status;
+	return null;
+}
+
+function isRetryableTransportMessage(message: string): boolean {
+	return (
+		message.includes("connect") ||
+		message.includes("connection") ||
+		message.includes("fetch failed") ||
+		message.includes("socket hang up") ||
+		message.includes("network error") ||
+		message.includes("econnreset") ||
+		message.includes("econnrefused") ||
+		message.includes("eai_again") ||
+		message.includes("request timeout") ||
+		message.includes("read timeout")
+	);
+}
+
+function isRetryableUnavailableMessage(message: string): boolean {
+	return (
+		message.includes("temporarily unavailable") ||
+		message.includes("service unavailable") ||
+		message.includes("overloaded") ||
+		message.includes("overload")
+	);
+}
+
+function isRetryablePrematureCompletionMessage(message: string): boolean {
+	return (
+		message.includes("premature") ||
+		message.includes("before any output") ||
+		message.includes("before usable assistant answer") ||
+		message.includes("stream ended unexpectedly") ||
+		message.includes("stream closed unexpectedly")
+	);
+}
+
+function isNonRetryableFallbackMessage(message: string): boolean {
+	return (
+		message.includes("invalid api key") ||
+		message.includes("authentication") ||
+		message.includes("unauthorized") ||
+		message.includes("forbidden") ||
+		message.includes("prompt") ||
+		message.includes("schema") ||
+		message.includes("response_format") ||
+		message.includes("refusal") ||
+		message.includes("abort")
+	);
+}
+
+function parseCompositeProviderModelId(modelId: string): {
+	providerId: string;
+	providerModelId: string | null;
+} | null {
+	if (!modelId.startsWith("provider:")) return null;
+	const parts = modelId.split(":");
+	if (parts.length < 2) return null;
+	return {
+		providerId: parts[1] || "",
+		providerModelId: parts.length >= 3 ? parts[2] || null : null,
+	};
+}
+
+async function resolveCompositeProviderModelRow(
+	modelId: string,
+): Promise<Awaited<ReturnType<typeof getProviderModel>> | null> {
+	const parsed = parseCompositeProviderModelId(modelId);
+	if (!parsed?.providerId || !parsed.providerModelId) return null;
+
+	const provider = await getProviderWithSecrets(parsed.providerId).catch(
+		() => null,
+	);
+	if (!provider?.enabled) return null;
+
+	const row = await getProviderModel(parsed.providerModelId).catch(() => null);
+	if (!row || row.providerId !== provider.id || row.enabled !== true) return null;
+
+	return row;
+}
+
+async function resolveProviderModelFallbackTargetModelId(
+	source: NonNullable<Awaited<ReturnType<typeof resolveCompositeProviderModelRow>>>,
+	fallbackProviderModelId: string,
+): Promise<ModelId | null> {
+	if (fallbackProviderModelId === source.id) return null;
+
+	const fallback = await getProviderModel(fallbackProviderModelId).catch(
+		() => null,
+	);
+	if (!fallback || fallback.enabled !== true) return null;
+
+	const fallbackProvider = await getProviderWithSecrets(
+		fallback.providerId,
+	).catch(() => null);
+	if (!fallbackProvider?.enabled) return null;
+
+	const compatibility = canUseProviderModelFallback(
+		{
+			capabilitiesJson: source.capabilitiesJson || "{}",
+			reasoningEffort: source.reasoningEffort,
+			thinkingType: source.thinkingType,
+		},
+		{
+			capabilitiesJson: fallback.capabilitiesJson || "{}",
+			reasoningEffort: fallback.reasoningEffort,
+			thinkingType: fallback.thinkingType,
+		},
+	);
+	if (!compatibility.compatible) {
+		return null;
+	}
+
+	return `provider:${fallback.providerId}:${fallback.id}` as ModelId;
+}
+
+async function resolveGlobalFallbackTargetModelId(params: {
+	sourceModelId: ModelId;
+	sourceProviderModel: Awaited<ReturnType<typeof resolveCompositeProviderModelRow>>;
+	candidateModelId: ModelId;
+	config: RuntimeConfig;
+}): Promise<ModelId | null> {
+	const { candidateModelId, config, sourceModelId, sourceProviderModel } = params;
+
+	if (candidateModelId.startsWith("provider:")) {
+		const parsed = parseCompositeProviderModelId(candidateModelId);
+		if (!parsed?.providerModelId) return null;
+
+		const targetProvider = await getProviderWithSecrets(parsed.providerId).catch(
+			() => null,
+		);
+		if (!targetProvider?.enabled) return null;
+
+		if (parsed.providerModelId) {
+			const targetRow = await getProviderModel(parsed.providerModelId).catch(
+				() => null,
+			);
+			if (!targetRow || targetRow.enabled !== true) return null;
+
+			if (sourceProviderModel) {
+				const compatibility = canUseProviderModelFallback(
+					{
+						capabilitiesJson: sourceProviderModel.capabilitiesJson || "{}",
+						reasoningEffort: sourceProviderModel.reasoningEffort,
+						thinkingType: sourceProviderModel.thinkingType,
+					},
+					{
+						capabilitiesJson: targetRow.capabilitiesJson || "{}",
+						reasoningEffort: targetRow.reasoningEffort,
+						thinkingType: targetRow.thinkingType,
+					},
+				);
+				if (!compatibility.compatible) return null;
+			}
+
+			return `provider:${parsed.providerId}:${targetRow.id}` as ModelId;
+		}
+
+		const enabledModels = await listEnabledProviderModels(targetProvider.id).catch(
+			() => [],
+		);
+		if (enabledModels.length === 0) return null;
+		return candidateModelId;
+	}
+
+	if (candidateModelId === "model2") {
+		if (config.model2Enabled === false) return null;
+		if (!config.model2?.baseUrl || !config.model2?.modelName) return null;
+		return candidateModelId;
+	}
+
+	if (candidateModelId === "model1") {
+		if (!config.model1?.baseUrl || !config.model1?.modelName) return null;
+		return candidateModelId;
+	}
+
+	return candidateModelId !== sourceModelId ? candidateModelId : null;
 }
 
 function isModelRateLimitErrorInner(

@@ -1597,6 +1597,10 @@ export const providerModels = sqliteTable(
 			(): AnySQLiteColumn => campaignAssets.id,
 			{ onDelete: "set null" },
 		),
+		fallbackProviderModelId: text("fallback_provider_model_id").references(
+			(): AnySQLiteColumn => providerModels.id,
+			{ onDelete: "set null" },
+		),
 		maxModelContext: integer("max_model_context"),
 		compactionUiThreshold: integer("compaction_ui_threshold"),
 		targetConstructedContext: integer("target_constructed_context"),

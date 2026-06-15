@@ -38,11 +38,8 @@ import {
 	getProviderWithSecrets,
 } from "../providers";
 import {
-	isModelRateLimitError,
-	isModelTimeoutError,
-	resolveModelStreamFirstOutputTimeoutMs,
-	resolveModelTimeoutFailoverTargetModelId,
-	resolveProviderRateLimitFallback,
+	isRetryableNormalChatFallbackError,
+	resolveNormalChatFallbackTargetModelId,
 } from "./failover";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "./openai-compatible-provider";
 import { buildNormalChatModelRunCompatibilityProviderOptions } from "./provider-compatibility";
@@ -658,10 +655,13 @@ function createModelAttemptTimeoutError(): Error {
 	);
 }
 
-function resolveFirstOutputTimeoutMs(
+async function resolveFirstOutputTimeoutMs(
 	params: StreamingNormalChatModelRunParams,
 	currentModelId: string,
-): number | null {
+	allowFallbackAttempt: boolean,
+): Promise<number | null> {
+	if (!allowFallbackAttempt) return null;
+
 	const extraMs = Math.max(0, params.deliberationElapsedMs ?? 0);
 	if (params.firstOutputTimeoutMs !== undefined) {
 		if (params.firstOutputTimeoutMs === null) return null;
@@ -677,15 +677,15 @@ function resolveFirstOutputTimeoutMs(
 		return resolved;
 	}
 	if (!params.runtimeConfig) return null;
-	const base = resolveModelStreamFirstOutputTimeoutMs(
+	const fallbackTarget = await resolveNormalChatFallbackTargetModelId(
 		currentModelId as ModelId,
 		params.runtimeConfig,
 	);
-	if (base === null) return null;
-	const effective = base + extraMs;
+	if (!fallbackTarget) return null;
+	const effective = Math.max(1000, params.runtimeConfig.modelTimeoutFailoverTimeoutMs) + extraMs;
 	const resolved = Math.min(params.runtimeConfig.requestTimeoutMs, effective);
 	console.warn("[NORMAL_CHAT_MODEL] first-output timeout adjusted", {
-		baseMs: base,
+		baseMs: Math.max(1000, params.runtimeConfig.modelTimeoutFailoverTimeoutMs),
 		extraMs,
 		resolvedMs: resolved,
 		modelId: currentModelId,
@@ -728,23 +728,25 @@ export async function runPlainNormalChatModelRun(
 	params: PlainNormalChatModelRunParams,
 ): Promise<PlainNormalChatModelRunResult> {
 	let currentProvider = params.provider;
-	let currentModelId =
+	const originalModelId =
 		params.modelId ?? params.provider.modelId ?? params.provider.id;
-	const attemptedModelIds = new Set<string>([currentModelId]);
-	let attemptedRateLimitFallback = false;
+	let currentModelId = originalModelId;
+	let attemptedFallback = false;
 
 	for (;;) {
 		const runtimeConfig = params.runtimeConfig;
-		const failoverTarget = runtimeConfig
-			? await resolveModelTimeoutFailoverTargetModelId(
-					currentModelId as ModelId,
-					runtimeConfig,
-				)
-			: null;
+		const fallbackTarget =
+			runtimeConfig && !attemptedFallback
+				? await resolveNormalChatFallbackTargetModelId(
+						currentModelId as ModelId,
+						runtimeConfig,
+					)
+				: null;
 		const shouldArmAttemptTimeout =
 			Boolean(runtimeConfig) &&
-			failoverTarget !== null &&
-			!attemptedModelIds.has(failoverTarget);
+			currentModelId === originalModelId &&
+			!attemptedFallback &&
+			fallbackTarget !== null;
 		const attemptTimeoutMs = runtimeConfig
 			? Math.min(
 					runtimeConfig.requestTimeoutMs,
@@ -786,27 +788,23 @@ export async function runPlainNormalChatModelRun(
 				throw error;
 			}
 
-			if (isModelTimeoutError(retryableError) && params.runtimeConfig) {
-				if (failoverTarget && !attemptedModelIds.has(failoverTarget)) {
+			if (
+				currentModelId === originalModelId &&
+				!attemptedFallback &&
+				params.runtimeConfig &&
+				isRetryableNormalChatFallbackError(retryableError)
+			) {
+				const fallbackModelId = await resolveNormalChatFallbackTargetModelId(
+					currentModelId as ModelId,
+					params.runtimeConfig,
+				);
+				if (fallbackModelId) {
 					currentProvider = await resolveNormalChatModelRunProvider(
-						failoverTarget,
+						fallbackModelId,
 						params.runtimeConfig,
 					);
-					currentModelId = failoverTarget;
-					attemptedModelIds.add(failoverTarget);
-					continue;
-				}
-			}
-
-			if (isModelRateLimitError(error) && !attemptedRateLimitFallback) {
-				const fallbackProvider = await resolveProviderRateLimitFallback(
-					currentProvider.id,
-				);
-				if (fallbackProvider) {
-					currentProvider = fallbackProvider;
-					currentModelId = fallbackProvider.modelId ?? fallbackProvider.id;
-					attemptedModelIds.add(currentModelId);
-					attemptedRateLimitFallback = true;
+					currentModelId = fallbackModelId;
+					attemptedFallback = true;
 					continue;
 				}
 			}
@@ -938,15 +936,16 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 	params: StreamingNormalChatModelRunParams,
 ): AsyncIterable<StreamingNormalChatModelRunEvent> {
 	let currentProvider = params.provider;
-	let currentModelId =
+	const originalModelId =
 		params.modelId ?? params.provider.modelId ?? params.provider.id;
-	const attemptedModelIds = new Set<string>([currentModelId]);
-	let attemptedRateLimitFallback = false;
+	let currentModelId = originalModelId;
+	let attemptedFallback = false;
 
 	attemptLoop: for (;;) {
-		const firstOutputTimeoutMs = resolveFirstOutputTimeoutMs(
+		const firstOutputTimeoutMs = await resolveFirstOutputTimeoutMs(
 			params,
 			currentModelId,
+			currentModelId === originalModelId && !attemptedFallback,
 		);
 		const timeoutMs = firstOutputTimeoutMs ?? 0;
 		const attemptAbortController = timeoutMs > 0 ? new AbortController() : null;
@@ -996,18 +995,17 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 					const upstreamError = firstOutputTimedOut
 						? createFirstOutputTimeoutError()
 						: new Error(event.error);
-					const retry = await resolveModelRunRetryProvider({
+					const retry = await resolveNormalChatFallbackProvider({
 						error: upstreamError,
-						currentProvider,
 						currentModelId,
 						runtimeConfig: params.runtimeConfig,
-						attemptedModelIds,
-						attemptedRateLimitFallback,
+						allowFallbackAttempt:
+							currentModelId === originalModelId && !attemptedFallback,
 					});
 					if (retry) {
 						currentProvider = retry.provider;
 						currentModelId = retry.modelId;
-						attemptedRateLimitFallback = retry.attemptedRateLimitFallback;
+						attemptedFallback = true;
 						continue attemptLoop;
 					}
 
@@ -1023,18 +1021,17 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 			}
 			if (firstOutputTimedOut) {
 				const upstreamError = createFirstOutputTimeoutError();
-				const retry = await resolveModelRunRetryProvider({
+				const retry = await resolveNormalChatFallbackProvider({
 					error: upstreamError,
-					currentProvider,
 					currentModelId,
 					runtimeConfig: params.runtimeConfig,
-					attemptedModelIds,
-					attemptedRateLimitFallback,
+					allowFallbackAttempt:
+						currentModelId === originalModelId && !attemptedFallback,
 				});
 				if (retry) {
 					currentProvider = retry.provider;
 					currentModelId = retry.modelId;
-					attemptedRateLimitFallback = retry.attemptedRateLimitFallback;
+					attemptedFallback = true;
 					continue;
 				}
 				yield { type: "error", error: upstreamError.message };
@@ -1049,18 +1046,17 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 				return;
 			}
 
-			const retry = await resolveModelRunRetryProvider({
+			const retry = await resolveNormalChatFallbackProvider({
 				error: terminalError,
-				currentProvider,
 				currentModelId,
 				runtimeConfig: params.runtimeConfig,
-				attemptedModelIds,
-				attemptedRateLimitFallback,
+				allowFallbackAttempt:
+					currentModelId === originalModelId && !attemptedFallback,
 			});
 			if (retry) {
 				currentProvider = retry.provider;
 				currentModelId = retry.modelId;
-				attemptedRateLimitFallback = retry.attemptedRateLimitFallback;
+				attemptedFallback = true;
 				continue;
 			}
 
@@ -1072,56 +1068,33 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 	}
 }
 
-async function resolveModelRunRetryProvider(params: {
+async function resolveNormalChatFallbackProvider(params: {
 	error: unknown;
-	currentProvider: NormalChatModelRunProvider;
 	currentModelId: string;
 	runtimeConfig?: RuntimeConfig;
-	attemptedModelIds: Set<string>;
-	attemptedRateLimitFallback: boolean;
+	allowFallbackAttempt: boolean;
 }): Promise<{
 	provider: NormalChatModelRunProvider;
 	modelId: string;
-	attemptedRateLimitFallback: boolean;
 } | null> {
-	if (isModelTimeoutError(params.error) && params.runtimeConfig) {
-		const failoverTarget = await resolveModelTimeoutFailoverTargetModelId(
-			params.currentModelId as ModelId,
-			params.runtimeConfig,
-		);
-		if (failoverTarget && !params.attemptedModelIds.has(failoverTarget)) {
-			const provider = await resolveNormalChatModelRunProvider(
-				failoverTarget,
-				params.runtimeConfig,
-			);
-			params.attemptedModelIds.add(failoverTarget);
-			return {
-				provider,
-				modelId: failoverTarget,
-				attemptedRateLimitFallback: params.attemptedRateLimitFallback,
-			};
-		}
-	}
+	if (!params.allowFallbackAttempt || !params.runtimeConfig) return null;
+	if (!isRetryableNormalChatFallbackError(params.error)) return null;
 
-	if (
-		isModelRateLimitError(params.error) &&
-		!params.attemptedRateLimitFallback
-	) {
-		const fallbackProvider = await resolveProviderRateLimitFallback(
-			params.currentProvider.id,
-		);
-		if (fallbackProvider) {
-			const fallbackModelId = fallbackProvider.modelId ?? fallbackProvider.id;
-			params.attemptedModelIds.add(fallbackModelId);
-			return {
-				provider: fallbackProvider,
-				modelId: fallbackModelId,
-				attemptedRateLimitFallback: true,
-			};
-		}
-	}
+	const fallbackModelId = await resolveNormalChatFallbackTargetModelId(
+		params.currentModelId as ModelId,
+		params.runtimeConfig,
+	);
+	if (!fallbackModelId || fallbackModelId === params.currentModelId) return null;
 
-	return null;
+	const provider = await resolveNormalChatModelRunProvider(
+		fallbackModelId,
+		params.runtimeConfig,
+	);
+
+	return {
+		provider,
+		modelId: fallbackModelId,
+	};
 }
 
 async function* streamStreamingNormalChatModelRunAttempt(

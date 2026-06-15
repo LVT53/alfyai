@@ -338,6 +338,23 @@ const settingsDict = {
 		"admin.modelNamePlaceholderBuiltIn": "e.g. model-1",
 		"admin.modelNamePlaceholderProvider":
 			"e.g. accounts/fireworks/models/llama-v3-70b",
+		"admin.modelFallbackLabel": "Model-specific fallback",
+		"admin.modelFallbackNone": "No model-specific fallback",
+		"admin.modelFallbackDescription":
+			"Choose a compatible model-specific fallback. Incompatible targets are disabled.",
+		"admin.modelFallbackNoCompatibleOptions":
+			"No compatible model-specific fallback is available for this model.",
+		"admin.modelFallbackProviderWarning":
+			"Some models have no compatible fallback",
+		"admin.modelFallbackModelWarning": "No compatible fallback",
+		"admin.modelFallbackReasonDisabledTarget": "Model is disabled.",
+		"admin.modelFallbackReasonCapabilitySource":
+			"Source model needs {capability}.",
+		"admin.modelFallbackReasonCapabilityFallback":
+			"Fallback model needs {capability}.",
+		"admin.modelFallbackReasonUnknownSourceCapability":
+			"Source model capability {capability} is unknown.",
+		"admin.modelFallbackReasonGeneric": "Incompatible",
 		"admin.modelTimeoutFailoverDescription": `If the selected model produces no response before the failover timeout, retry the turn once with the configured fallback model.`,
 		"admin.modelTimeoutFailoverEnabled": "Enable model timeout failover",
 		"admin.modelTimeoutFailoverTargetModel": "Failover Model",
@@ -968,6 +985,23 @@ const settingsDict = {
 		"admin.modelNamePlaceholderBuiltIn": "pl. model-1",
 		"admin.modelNamePlaceholderProvider":
 			"pl. accounts/fireworks/models/llama-v3-70b",
+		"admin.modelFallbackLabel": "Modellspecifikus tartalék",
+		"admin.modelFallbackNone": "Nincs modellspecifikus tartalék",
+		"admin.modelFallbackDescription":
+			"Válassz egy kompatibilis modellspecifikus tartalékot. Az inkompatibilis célok le vannak tiltva.",
+		"admin.modelFallbackNoCompatibleOptions":
+			"Ehhez a modellhez nincs elérhető kompatibilis modellspecifikus tartalék.",
+		"admin.modelFallbackProviderWarning":
+			"Vannak olyan modellek, amelyekhez nincs kompatibilis tartalék",
+		"admin.modelFallbackModelWarning": "Nincs kompatibilis tartalék",
+		"admin.modelFallbackReasonDisabledTarget": "A modell le van tiltva.",
+		"admin.modelFallbackReasonCapabilitySource":
+			"A forrásmodellnek támogatnia kell ezt: {capability}.",
+		"admin.modelFallbackReasonCapabilityFallback":
+			"A tartalék modellnek támogatnia kell ezt: {capability}.",
+		"admin.modelFallbackReasonUnknownSourceCapability":
+			"A forrásmodell {capability} képessége ismeretlen.",
+		"admin.modelFallbackReasonGeneric": "Inkompatibilis",
 		"admin.modelTimeoutFailoverDescription": `Ha a kiválasztott modell nem ad választ a tartalék időkorlát előtt, a rendszer egyszer újrapróbálja a kört a beállított tartalék modellel.`,
 		"admin.modelTimeoutFailoverEnabled":
 			"Modell időkorlátos tartalék út engedélyezése",
