@@ -5,6 +5,7 @@ import { sequence } from "@sveltejs/kit/hooks";
 import { eq } from "drizzle-orm";
 import {
 	cleanSentryEnvValue,
+	filterSentryEvent,
 	parseSentryTracePropagationTargets,
 	parseSentryTracesSampleRate,
 } from "$lib/sentry-config";
@@ -42,6 +43,7 @@ Sentry.init({
 	tracePropagationTargets: parseSentryTracePropagationTargets(
 		process.env.SENTRY_TRACE_PROPAGATION_TARGETS,
 	),
+	beforeSend: filterSentryEvent,
 });
 
 // Throttled lastSeenAt tracking: fire-and-forget writes with 5-minute TTL per user.

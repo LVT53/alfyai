@@ -128,6 +128,46 @@ describe("hooks.server.ts", () => {
 		expect(mockSentrySetUser).toHaveBeenCalledWith(null);
 	});
 
+	it("drops SvelteKit redirect captures from server-side Sentry events", async () => {
+		await import("./hooks.server");
+
+		const initOptions = mockSentryInit.mock.calls[0]?.[0];
+		const beforeSend = initOptions?.beforeSend;
+
+		expect(beforeSend).toBeTypeOf("function");
+		expect(
+			beforeSend(
+				{
+					exception: {
+						values: [
+							{
+								type: "Error",
+								value: "'Redirect' captured as exception with keys: location, status",
+							},
+						],
+					},
+				},
+				{
+					originalException: { status: 303, location: "/login" },
+				},
+			),
+		).toBeNull();
+		expect(
+			beforeSend(
+				{
+					exception: {
+						values: [{ type: "Error", value: "Database unavailable" }],
+					},
+				},
+				{ originalException: new Error("Database unavailable") },
+			),
+		).toEqual({
+			exception: {
+				values: [{ type: "Error", value: "Database unavailable" }],
+			},
+		});
+	});
+
 	it("runs config-dependent startup work after runtime config is refreshed", async () => {
 		const { init } = await import("./hooks.server");
 

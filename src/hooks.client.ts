@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/sveltekit";
 import {
 	cleanSentryEnvValue,
+	filterSentryEvent,
 	parseSentryReplayErrorSampleRate,
 	parseSentryReplaySessionSampleRate,
 	parseSentryTracePropagationTargets,
@@ -19,6 +20,7 @@ if (sentryDsn) {
 		tracePropagationTargets: parseSentryTracePropagationTargets(
 			import.meta.env.PUBLIC_SENTRY_TRACE_PROPAGATION_TARGETS,
 		),
+		beforeSend: filterSentryEvent,
 		replaysSessionSampleRate: parseSentryReplaySessionSampleRate(
 			import.meta.env.PUBLIC_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
 		),
