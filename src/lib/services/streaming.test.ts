@@ -5,174 +5,25 @@ import {
 	aiSdkUiStreamContractSequence,
 	aiSdkUiStreamContractToolCall,
 	aiSdkUiStreamReplaySequence,
-	encodeAiSdkUiFixtureFrame,
 	encodeAiSdkUiFixtureFrames,
 	malformedAiSdkUiStreamFrames,
 	oldBrowserSseNamedTokenEvent,
 } from "../../../tests/fixtures/ai-sdk-ui-stream-contract";
 import type { StreamCallbacks, StreamMetadata } from "./streaming";
 import { streamChat } from "./streaming";
-
-function tokenEvent(text: string): string {
-	return uiFrame({ type: "text-delta", id: "text-1", delta: text });
-}
-
-function thinkingEvent(text: string): string {
-	return uiFrame({ type: "reasoning-delta", id: "reasoning-1", delta: text });
-}
-
-function endEvent(payload: Partial<StreamMetadata> = {}): string {
-	const metadata =
-		Object.keys(payload).length > 0
-			? uiFrame({
-					type: "data-stream-metadata",
-					data: payload,
-					transient: true,
-				})
-			: "";
-	return `${metadata}${uiFrame({ type: "finish", finishReason: "stop" })}${uiFrame("[DONE]")}`;
-}
-
-function errorEvent(payload: {
-	message?: string;
-	error?: string;
-	code?: string;
-}): string {
-	return `${uiFrame({
-		type: "data-stream-error",
-		data: payload,
-		transient: true,
-	})}${uiFrame({ type: "finish", finishReason: "error" })}${uiFrame("[DONE]")}`;
-}
-
-function uiFrame(
-	payload: Parameters<typeof encodeAiSdkUiFixtureFrame>[0],
-): string {
-	return encodeAiSdkUiFixtureFrame(payload);
-}
-
-function buildFetchResponse(sseChunks: string[], status = 200): Response {
-	const encoder = new TextEncoder();
-	const stream = new ReadableStream<Uint8Array>({
-		start(controller) {
-			for (const chunk of sseChunks) {
-				controller.enqueue(encoder.encode(chunk));
-			}
-			controller.close();
-		},
-	});
-	return new Response(stream, {
-		status,
-		headers: { "Content-Type": "text/event-stream" },
-	});
-}
-
-function buildControlledFetchResponse(): {
-	response: Response;
-	enqueue: (...chunks: string[]) => void;
-	close: () => void;
-} {
-	const encoder = new TextEncoder();
-	let streamController!: ReadableStreamDefaultController<Uint8Array>;
-	const stream = new ReadableStream<Uint8Array>({
-		start(controller) {
-			streamController = controller;
-		},
-	});
-
-	return {
-		response: new Response(stream, {
-			status: 200,
-			headers: { "Content-Type": "text/event-stream" },
-		}),
-		enqueue(...chunks: string[]) {
-			for (const chunk of chunks) {
-				streamController.enqueue(encoder.encode(chunk));
-			}
-		},
-		close() {
-			streamController.close();
-		},
-	};
-}
-
-interface MockCallbacks {
-	onToken: ReturnType<typeof vi.fn>;
-	onThinking: ReturnType<typeof vi.fn>;
-	onEnd: ReturnType<typeof vi.fn>;
-	onError: ReturnType<typeof vi.fn>;
-}
-
-type StreamRequestBody = {
-	activeDocumentArtifactId?: string;
-	conversationId?: string;
-	deepResearch?: {
-		depth: string;
-	};
-	reasoningDepth?: string;
-	retryAssistantMessageId?: string;
-	retryUserMessageId?: string;
-	retryUserMessage?: string;
-	userMessage?: string;
-	assistantMessageId?: string;
-	thinkingMode?: unknown;
-	confirmForkedSourceHistoryMutation?: boolean;
-	forceWebSearch?: boolean;
-	[key: string]: unknown;
-};
-
-function makeCallbacks(): MockCallbacks {
-	return {
-		onToken: vi.fn(),
-		onThinking: vi.fn(),
-		onEnd: vi.fn(),
-		onError: vi.fn(),
-	};
-}
-
-async function waitForStream(cb: MockCallbacks): Promise<void> {
-	return new Promise<void>((resolve) => {
-		const originalOnEnd = cb.onEnd as (...args: unknown[]) => void;
-		const originalOnError = cb.onError as (...args: unknown[]) => void;
-		cb.onEnd = vi.fn((...args: unknown[]) => {
-			originalOnEnd(...args);
-			resolve();
-		});
-		cb.onError = vi.fn((...args: unknown[]) => {
-			originalOnError(...args);
-			resolve();
-		});
-	});
-}
-
-function parseLastStreamRequestBody(
-	mockFetch: ReturnType<typeof vi.fn>,
-): StreamRequestBody {
-	const requestInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
-	return JSON.parse(String(requestInit?.body ?? "{}")) as StreamRequestBody;
-}
-
-function runStreamAndWait(
-	message: string,
-	conversationId: string,
-	callbacks: MockCallbacks | StreamCallbacks,
-	options?: Parameters<typeof streamChat>[3],
-) {
-	const done = waitForStream(callbacks as MockCallbacks);
-	streamChat(
-		message,
-		conversationId,
-		callbacks as unknown as StreamCallbacks,
-		options,
-	);
-	return done;
-}
-
-async function flushMicrotasks(turns = 3): Promise<void> {
-	for (let index = 0; index < turns; index += 1) {
-		await Promise.resolve();
-	}
-}
+import {
+	buildControlledFetchResponse,
+	buildFetchResponse,
+	endEvent,
+	errorEvent,
+	flushMicrotasks,
+	makeCallbacks,
+	parseLastStreamRequestBody,
+	runStreamAndWait,
+	thinkingEvent,
+	tokenEvent,
+	uiFrame,
+} from "./streaming.test-helpers";
 
 describe("streamChat", () => {
 	beforeEach(() => {
@@ -196,8 +47,11 @@ describe("streamChat", () => {
 			...makeCallbacks(),
 			onToolCall,
 		};
-		const done = waitForStream(cb as unknown as MockCallbacks);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onThinking).toHaveBeenCalledWith("Need current evidence.");
@@ -224,15 +78,15 @@ describe("streamChat", () => {
 	it("ignores old Browser SSE named token events without partial rendering", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(
-			buildFetchResponse([
-				oldBrowserSseNamedTokenEvent,
-				encodeAiSdkUiFixtureFrame("[DONE]"),
-			]),
+			buildFetchResponse([oldBrowserSseNamedTokenEvent, uiFrame("[DONE]")]),
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onToken).not.toHaveBeenCalled();
@@ -244,15 +98,15 @@ describe("streamChat", () => {
 	it("ignores malformed AI SDK UI stream fixture frames without partial rendering", async () => {
 		const mockFetch = vi.mocked(fetch);
 		mockFetch.mockResolvedValue(
-			buildFetchResponse([
-				...malformedAiSdkUiStreamFrames,
-				encodeAiSdkUiFixtureFrame("[DONE]"),
-			]),
+			buildFetchResponse([...malformedAiSdkUiStreamFrames, uiFrame("[DONE]")]),
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onToken).not.toHaveBeenCalled();
@@ -270,8 +124,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onEnd).toHaveBeenCalledWith("Hello", undefined);
@@ -297,8 +154,11 @@ describe("streamChat", () => {
 			onWaiting: vi.fn(() => events.push("waiting")),
 			onEnd: vi.fn((fullText: string) => events.push(`end:${fullText}`)),
 		};
-		const done = waitForStream(cb as unknown as MockCallbacks);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(events).toEqual([
@@ -321,8 +181,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledTimes(2);
@@ -358,8 +221,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onThinking).toHaveBeenCalledOnce();
@@ -375,8 +241,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onEnd).toHaveBeenCalledOnce();
@@ -418,8 +287,11 @@ describe("streamChat", () => {
 			...makeCallbacks(),
 			onToolCall,
 		};
-		const done = waitForStream(cb as unknown as MockCallbacks);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(onToolCall).toHaveBeenCalledWith(
@@ -467,8 +339,11 @@ describe("streamChat", () => {
 			...makeCallbacks(),
 			onResponseActivity,
 		};
-		const done = waitForStream(cb as unknown as MockCallbacks);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(onResponseActivity).toHaveBeenCalledWith({
@@ -504,8 +379,11 @@ describe("streamChat", () => {
 			...makeCallbacks(),
 			onResponseActivity,
 		};
-		const done = waitForStream(cb as unknown as MockCallbacks);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(onResponseActivity).toHaveBeenCalledWith({
@@ -533,8 +411,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		const error = cb.onError.mock.calls[0]?.[0] as
@@ -561,8 +442,11 @@ describe("streamChat", () => {
 			onWaiting: vi.fn(() => events.push("waiting")),
 			onEnd: vi.fn((fullText: string) => events.push(`end:${fullText}`)),
 		};
-		const done = waitForStream(cb as unknown as MockCallbacks);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 
 		await flushMicrotasks();
 		controlled.enqueue(
@@ -607,8 +491,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledTimes(2);
@@ -628,8 +515,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledOnce();
@@ -644,8 +534,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onToken).not.toHaveBeenCalled();
@@ -689,8 +582,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onEnd).toHaveBeenCalledOnce();
@@ -712,8 +608,11 @@ describe("streamChat", () => {
 			...makeCallbacks(),
 			onThinking: vi.fn(),
 		};
-		const done = waitForStream(cb as unknown as MockCallbacks);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onThinking).toHaveBeenCalledOnce();
@@ -742,8 +641,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledWith("Hello from text field");
@@ -761,8 +663,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledTimes(2);
@@ -786,8 +691,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledTimes(2);
@@ -845,8 +753,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onEnd).toHaveBeenCalledWith("Hello", endMetadata);
@@ -865,8 +776,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onEnd).toHaveBeenCalledWith("Hello", {
@@ -893,8 +807,11 @@ describe("streamChat", () => {
 			...makeCallbacks(),
 			onTiming: vi.fn(),
 		};
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledWith("Hello");
@@ -1109,8 +1026,11 @@ describe("streamChat", () => {
 			...makeCallbacks(),
 			onToolCall,
 		};
-		const done = waitForStream(cb as unknown as MockCallbacks);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(onToolCall).toHaveBeenCalledWith(
@@ -1159,8 +1079,11 @@ describe("streamChat", () => {
 		mockFetch.mockRejectedValue(new Error("Network failure"));
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onError).toHaveBeenCalledOnce();
@@ -1180,8 +1103,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onError).toHaveBeenCalledOnce();
@@ -1197,8 +1123,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onError).toHaveBeenCalledOnce();
@@ -1217,8 +1146,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		const error = cb.onError.mock.calls[0]?.[0] as
@@ -1238,8 +1170,11 @@ describe("streamChat", () => {
 		);
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onError).toHaveBeenCalledWith(
@@ -1264,8 +1199,11 @@ describe("streamChat", () => {
 			onWaiting: vi.fn(() => events.push("waiting")),
 			onEnd: vi.fn((fullText: string) => events.push(`end:${fullText}`)),
 		};
-		const done = waitForStream(cb as unknown as MockCallbacks);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 
 		await flushMicrotasks();
 		controlled.enqueue(
@@ -1300,8 +1238,11 @@ describe("streamChat", () => {
 		mockFetch.mockResolvedValue(buildFetchResponse([tokenEvent("partial")]));
 
 		const cb = makeCallbacks();
-		const done = waitForStream(cb);
-		streamChat("test message", "conv-1", cb as unknown as StreamCallbacks);
+		const done = runStreamAndWait(
+			"test message",
+			"conv-1",
+			cb as unknown as StreamCallbacks,
+		);
 		await done;
 
 		expect(cb.onEnd).not.toHaveBeenCalled();
