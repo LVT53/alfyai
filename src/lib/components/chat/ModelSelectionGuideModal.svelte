@@ -1,4 +1,5 @@
 <script lang="ts">
+import { onMount } from "svelte";
 import { ExternalLink, X } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import { uiLanguage } from "$lib/stores/settings";
@@ -20,6 +21,18 @@ let {
 	onClose?: () => void;
 } = $props();
 
+let backdropRef = $state<HTMLDivElement | undefined>(undefined);
+
+onMount(() => {
+	if (backdropRef && backdropRef.parentNode !== document.body) {
+		document.body.appendChild(backdropRef);
+	}
+
+	return () => {
+		backdropRef?.remove();
+	};
+});
+
 function handleKeydown(event: KeyboardEvent) {
 	if (event.key === "Escape") onClose?.();
 }
@@ -35,6 +48,10 @@ function dollars(micros: number): string {
 }
 
 function exactCostLabel(model: ProviderModel): string {
+	if (model.guideNoCost) return $t("modelSelector.costNoCostExact");
+	if (model.inputUsdMicrosPer1m + model.outputUsdMicrosPer1m <= 0) {
+		return $t("modelSelector.costUnknownExact");
+	}
 	return $t("modelSelector.costExact", {
 		input: dollars(model.inputUsdMicrosPer1m),
 		output: dollars(model.outputUsdMicrosPer1m),
@@ -42,6 +59,7 @@ function exactCostLabel(model: ProviderModel): string {
 }
 
 function costIndicator(model: ProviderModel): string {
+	if (model.guideNoCost) return $t("modelSelector.costNoCost");
 	const total = model.inputUsdMicrosPer1m + model.outputUsdMicrosPer1m;
 	if (total <= 0) return $t("modelSelector.costUnknown");
 	if (total <= 2_000_000) return $t("modelSelector.costLow");
@@ -59,8 +77,11 @@ function badgeLabel(model: ProviderModel): string {
 	return "";
 }
 
-function hasLargeContext(model: ProviderModel): boolean {
-	return (model.maxModelContext ?? 0) >= 128_000;
+function contextIndicator(model: ProviderModel): string {
+	const context = model.maxModelContext ?? 0;
+	if (context >= 1_000_000) return $t("modelSelector.massiveContext");
+	if (context >= 128_000) return $t("modelSelector.largeContext");
+	return "";
 }
 
 function formatContext(value: number | null): string {
@@ -78,7 +99,7 @@ function regionTitle(provider: ModelProvider): string {
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="model-guide-backdrop" role="presentation">
+<div bind:this={backdropRef} class="model-guide-backdrop" role="presentation">
 	<div
 		class="model-guide-modal"
 		role="dialog"
@@ -126,7 +147,7 @@ function regionTitle(provider: ModelProvider): string {
 							</div>
 							{#if provider.privacyPolicyUrl}
 								<a
-									class="model-guide-policy"
+									class="model-guide-icon-button model-guide-policy"
 									href={provider.privacyPolicyUrl}
 									target="_blank"
 									rel="noopener noreferrer"
@@ -156,20 +177,23 @@ function regionTitle(provider: ModelProvider): string {
 													</span>
 												{/if}
 												<span
-													class="model-guide-cost"
-													title={exactCostLabel(model)}
+													class="model-guide-pill model-guide-cost"
+													data-tooltip={exactCostLabel(model)}
 													aria-label={exactCostLabel(model)}
 												>
 													{costIndicator(model)}
 												</span>
-												{#if hasLargeContext(model)}
+												{#if contextIndicator(model)}
 													<span
-														class="model-guide-context"
-														title={$t('modelSelector.contextExact', {
+														class="model-guide-pill model-guide-context"
+														data-tooltip={$t('modelSelector.contextExact', {
+															context: formatContext(model.maxModelContext),
+														})}
+														aria-label={$t('modelSelector.contextExact', {
 															context: formatContext(model.maxModelContext),
 														})}
 													>
-														{$t('modelSelector.largeContext')}
+														{contextIndicator(model)}
 													</span>
 												{/if}
 											</div>
@@ -203,8 +227,8 @@ function regionTitle(provider: ModelProvider): string {
 
 	.model-guide-modal {
 		display: flex;
-		width: min(760px, 100%);
-		max-height: min(760px, calc(100vh - 48px));
+		width: min(980px, 100%);
+		max-height: min(780px, calc(100vh - 48px));
 		flex-direction: column;
 		overflow: hidden;
 		border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
@@ -238,7 +262,7 @@ function regionTitle(provider: ModelProvider): string {
 	}
 
 	.model-guide-close,
-	.model-guide-policy {
+	.model-guide-icon-button {
 		display: inline-flex;
 		min-height: 32px;
 		min-width: 32px;
@@ -251,14 +275,19 @@ function regionTitle(provider: ModelProvider): string {
 		cursor: pointer;
 	}
 
-	.model-guide-close:hover,
-	.model-guide-policy:hover {
+	.model-guide-close:hover {
+		border-color: color-mix(in srgb, var(--border-focus, #c15f3c) 42%, transparent);
+		background: color-mix(in srgb, var(--border-focus, #c15f3c) 12%, transparent);
+		color: var(--border-focus, #c15f3c);
+	}
+
+	.model-guide-icon-button:hover {
 		background: var(--bg-hover, #eeedea);
 		color: var(--text-primary, #1a1a1a);
 	}
 
 	.model-guide-close:focus-visible,
-	.model-guide-policy:focus-visible {
+	.model-guide-icon-button:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--border-focus, #c15f3c);
 	}
@@ -305,17 +334,21 @@ function regionTitle(provider: ModelProvider): string {
 
 	.model-guide-rows {
 		display: grid;
-		gap: 6px;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: 8px;
 	}
 
 	.model-guide-row {
+		position: relative;
 		border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
 		border-radius: var(--radius-sm, 4px);
 		background: var(--surface-page, #fafafa);
 		padding: 10px;
+		overflow: visible;
 	}
 
 	.model-guide-row-main {
+		align-items: flex-start;
 		gap: 10px;
 		min-width: 0;
 	}
@@ -341,9 +374,9 @@ function regionTitle(provider: ModelProvider): string {
 	}
 
 	.model-guide-badge,
-	.model-guide-cost,
-	.model-guide-context {
+	.model-guide-pill {
 		display: inline-flex;
+		position: relative;
 		align-items: center;
 		border-radius: var(--radius-sm, 4px);
 		padding: 2px 6px;
@@ -357,10 +390,40 @@ function regionTitle(provider: ModelProvider): string {
 		color: var(--border-focus, #c15f3c);
 	}
 
-	.model-guide-cost,
-	.model-guide-context {
+	.model-guide-pill {
 		background: var(--bg-secondary, #f5f5f5);
 		color: var(--text-secondary, #6b6b6b);
+	}
+
+	.model-guide-pill[data-tooltip]::after {
+		position: absolute;
+		z-index: 4;
+		bottom: calc(100% + 6px);
+		left: 50%;
+		width: max-content;
+		max-width: min(280px, 72vw);
+		padding: 6px 8px;
+		border-radius: var(--radius-sm, 4px);
+		background: var(--text-primary, #1a1a1a);
+		color: var(--bg-primary, #fff);
+		box-shadow: var(--shadow-md, 0 6px 18px rgba(0, 0, 0, 0.18));
+		content: attr(data-tooltip);
+		font-size: 11px;
+		font-weight: 500;
+		line-height: 1.35;
+		opacity: 0;
+		pointer-events: none;
+		text-align: center;
+		transform: translate(-50%, 4px);
+		transition:
+			opacity 120ms ease-out,
+			transform 120ms ease-out;
+		white-space: normal;
+	}
+
+	.model-guide-pill[data-tooltip]:hover::after {
+		opacity: 1;
+		transform: translate(-50%, 0);
 	}
 
 	.model-guide-note {
@@ -393,9 +456,14 @@ function regionTitle(provider: ModelProvider): string {
 		background: var(--surface-page, #202020);
 	}
 
-	:global(.dark) .model-guide-cost,
-	:global(.dark) .model-guide-context {
+	:global(.dark) .model-guide-pill {
 		background: var(--bg-hover, #333);
+	}
+
+	:global(.dark) .model-guide-pill[data-tooltip]::after {
+		background: var(--bg-primary, #1a1a1a);
+		color: var(--text-primary, #ececec);
+		border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
 	}
 
 	@media (max-width: 768px) {
@@ -416,6 +484,10 @@ function regionTitle(provider: ModelProvider): string {
 
 		.model-guide-content {
 			padding: 10px;
+		}
+
+		.model-guide-rows {
+			grid-template-columns: 1fr;
 		}
 
 		.model-guide-model-name {

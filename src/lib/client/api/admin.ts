@@ -402,6 +402,7 @@ export interface ProviderModel {
 	guideNoteEn: string | null;
 	guideNoteHu: string | null;
 	guideBadge: "intelligent" | "fast" | null;
+	guideNoCost: boolean;
 	fallbackProviderModelId: string | null;
 	maxModelContext: number | null;
 	compactionUiThreshold: number | null;
@@ -429,6 +430,7 @@ export type ProviderModelInput = {
 	guideNoteEn?: string | null;
 	guideNoteHu?: string | null;
 	guideBadge?: "intelligent" | "fast" | null;
+	guideNoCost?: boolean;
 	fallbackProviderModelId?: string | null;
 	maxModelContext?: number | null;
 	compactionUiThreshold?: number | null;

@@ -498,6 +498,13 @@
       "when": 1777140000057,
       "tag": "1777140000057_model_selection_guide_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1777140000058,
+      "tag": "1777140000058_provider_model_guide_no_cost",
+      "breakpoints": true
     }
   ]
 }

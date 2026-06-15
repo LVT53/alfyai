@@ -363,6 +363,9 @@ const settingsDict = {
 		"admin.modelGuideBadge": "Guide badge",
 		"admin.modelGuideDescription":
 			"Short user-facing guidance only. These fields do not affect routing, fallback, prompts, or costs.",
+		"admin.modelGuideNoCost": "Show as no cost",
+		"admin.modelGuideNoCostDescription":
+			"Use for local or bundled models where the guide should not show unknown cost.",
 		"admin.modelGuideNoteEn": "English guide note",
 		"admin.modelGuideNoteHu": "Hungarian guide note",
 		"admin.modelGuideNotePlaceholder": "Best for long document work.",
@@ -1029,6 +1032,9 @@ const settingsDict = {
 		"admin.modelGuideBadge": "Útmutató jelvény",
 		"admin.modelGuideDescription":
 			"Csak rövid, felhasználóknak szóló útmutatás. Ezek a mezők nem befolyásolják az útválasztást, a tartalék modellt, a promptokat vagy a költségeket.",
+		"admin.modelGuideNoCost": "Költségmentesként jelenjen meg",
+		"admin.modelGuideNoCostDescription":
+			"Helyi vagy csomagban lévő modellekhez, amikor az útmutatóban ne ismeretlen költség jelenjen meg.",
 		"admin.modelGuideNoteEn": "Angol útmutató megjegyzés",
 		"admin.modelGuideNoteHu": "Magyar útmutató megjegyzés",
 		"admin.modelGuideNotePlaceholder": "Hosszú dokumentumos munkához ajánlott.",

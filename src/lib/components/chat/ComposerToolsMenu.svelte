@@ -351,6 +351,32 @@ onMount(() => {
 		color: var(--text-primary);
 	}
 
+	.menu-row--static :global(.model-selector) {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.menu-row--static :global(.model-selector__controls) {
+		width: 100%;
+		min-width: 0;
+	}
+
+	.menu-row--static :global(.model-selector__trigger) {
+		flex: 1;
+		min-width: 0;
+		padding-inline: 0.44rem;
+	}
+
+	.menu-row--static :global(.model-selector__guide-trigger) {
+		width: 30px;
+		min-width: 30px;
+		height: 30px;
+	}
+
+	.menu-row--static :global(.model-selector__text) {
+		max-width: none;
+	}
+
 	.model-selector {
 		position: relative;
 		display: inline-block;

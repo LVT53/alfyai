@@ -1602,6 +1602,7 @@ export const providerModels = sqliteTable(
 		guideNoteEn: text("guide_note_en"),
 		guideNoteHu: text("guide_note_hu"),
 		guideBadge: text("guide_badge", { enum: ["intelligent", "fast"] }),
+		guideNoCost: integer("guide_no_cost").notNull().default(0),
 		fallbackProviderModelId: text("fallback_provider_model_id").references(
 			(): AnySQLiteColumn => providerModels.id,
 			{ onDelete: "set null" },

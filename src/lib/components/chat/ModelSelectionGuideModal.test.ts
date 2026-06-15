@@ -12,7 +12,9 @@ function model(index: number): ModelProvider["models"][number] {
 		guideNoteEn: `Short guidance note ${index}.`,
 		guideNoteHu: null,
 		guideBadge: index % 2 === 0 ? "fast" : "intelligent",
-		maxModelContext: index % 3 === 0 ? 256_000 : 64_000,
+		guideNoCost: index === 1,
+		maxModelContext:
+			index === 12 ? 1_000_000 : index % 3 === 0 ? 256_000 : 64_000,
 		inputUsdMicrosPer1m: index * 500_000,
 		outputUsdMicrosPer1m: index * 1_000_000,
 	};
@@ -47,13 +49,13 @@ describe("ModelSelectionGuideModal", () => {
 	it("renders a compact informational guide for a dozen enabled models", async () => {
 		uiLanguage.set("en");
 		const onClose = vi.fn();
-		const { container } = render(ModelSelectionGuideModal, {
+		render(ModelSelectionGuideModal, {
 			providers: providers(),
 			onClose,
 		});
 
 		expect(screen.getByRole("dialog", { name: "Model guide" })).toBeTruthy();
-		expect(container.querySelectorAll(".model-guide-row")).toHaveLength(12);
+		expect(document.body.querySelectorAll(".model-guide-row")).toHaveLength(12);
 		expect(screen.getByText("Provider EU")).toBeTruthy();
 		expect(screen.getByText("🇳🇱")).toHaveAttribute(
 			"title",
@@ -63,9 +65,17 @@ describe("ModelSelectionGuideModal", () => {
 			.toHaveAttribute("href", "https://example.com/privacy");
 		expect(screen.getAllByText("Fast").length).toBeGreaterThan(0);
 		expect(screen.getAllByText("Intelligent").length).toBeGreaterThan(0);
+		expect(screen.getByText("No cost")).toBeTruthy();
 		expect(screen.getAllByText("Large context").length).toBeGreaterThan(0);
+		expect(screen.getByText("Massive context")).toBeTruthy();
+		expect(document.body.querySelector(".model-guide-rows")).toBeTruthy();
 		expect(
-			container.querySelector('[aria-label="Input $0.5000 / output $1.0000 per 1M tokens"]'),
+			document.body.querySelector(
+				'[data-tooltip="Input $1.0000 / output $2.0000 per 1M tokens"]',
+			),
+		).toBeTruthy();
+		expect(
+			document.body.querySelector('[data-tooltip="Marked as no-cost for users"]'),
 		).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Guide Model 1" })).toBeNull();
 

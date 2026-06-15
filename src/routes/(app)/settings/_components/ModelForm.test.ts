@@ -21,6 +21,7 @@ function modelFixture(overrides: Record<string, unknown> = {}) {
 		guideNoteEn: null,
 		guideNoteHu: null,
 		guideBadge: null,
+		guideNoCost: false,
 		inputUsdMicrosPer1m: 1_000_000,
 		cachedInputUsdMicrosPer1m: 100_000,
 		cacheHitUsdMicrosPer1m: 999_000,
@@ -121,6 +122,27 @@ describe("ModelForm pricing fields", () => {
 		expect(onSave).toHaveBeenCalledWith(
 			expect.objectContaining({
 				cacheMissUsdMicrosPer1m: 750_000,
+			}),
+		);
+	});
+
+	it("saves the guide no-cost display flag", async () => {
+		const onSave = vi.fn();
+		const { getByRole } = render(ModelForm, {
+			providerId: "provider-1",
+			model: modelFixture(),
+			onSave,
+			onClose: vi.fn(),
+		});
+
+		await fireEvent.click(
+			getByRole("checkbox", { name: /Show as no cost/ }),
+		);
+		await fireEvent.click(getByRole("button", { name: "Save Changes" }));
+
+		expect(onSave).toHaveBeenCalledWith(
+			expect.objectContaining({
+				guideNoCost: true,
 			}),
 		);
 	});

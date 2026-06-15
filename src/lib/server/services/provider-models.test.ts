@@ -39,6 +39,7 @@ function createTestTables() {
 			guide_note_en TEXT,
 			guide_note_hu TEXT,
 			guide_badge TEXT,
+			guide_no_cost INTEGER NOT NULL DEFAULT 0,
 			max_model_context INTEGER,
 			compaction_ui_threshold INTEGER,
 			target_constructed_context INTEGER,
@@ -94,6 +95,7 @@ describe("ProviderModel payload parsing", () => {
 				guideNoteEn: "  Best for hard work.  ",
 				guideNoteHu: "  Magyar útmutató.  ",
 				guideBadge: "intelligent",
+				guideNoCost: true,
 				fallbackProviderModelId: "  ",
 				maxModelContext: 128000,
 				compactionUiThreshold: null,
@@ -118,6 +120,7 @@ describe("ProviderModel payload parsing", () => {
 			guideNoteEn: "Best for hard work.",
 			guideNoteHu: "Magyar útmutató.",
 			guideBadge: "intelligent",
+			guideNoCost: true,
 			fallbackProviderModelId: null,
 			maxModelContext: 128000,
 			compactionUiThreshold: null,
@@ -149,6 +152,7 @@ describe("ProviderModel payload parsing", () => {
 				guideNoteEn: "",
 				guideNoteHu: "  Gyors válaszokhoz.  ",
 				guideBadge: "fast",
+				guideNoCost: false,
 				fallbackProviderModelId: "  ",
 				maxModelContext: 64000,
 				compactionUiThreshold: null,
@@ -172,6 +176,7 @@ describe("ProviderModel payload parsing", () => {
 			guideNoteEn: null,
 			guideNoteHu: "Gyors válaszokhoz.",
 			guideBadge: "fast",
+			guideNoCost: false,
 			fallbackProviderModelId: null,
 			maxModelContext: 64000,
 			compactionUiThreshold: null,
@@ -202,6 +207,9 @@ describe("ProviderModel payload parsing", () => {
 		expect(() =>
 			parseUpdateProviderModelPayload({ guideNoteEn: "x".repeat(181) }),
 		).toThrow("guideNoteEn");
+		expect(() =>
+			parseUpdateProviderModelPayload({ guideNoCost: "yes" }),
+		).toThrow("guideNoCost");
 	});
 });
 
@@ -251,6 +259,7 @@ describe("ProviderModel CRUD", () => {
 				displayName: "  Payload Model  ",
 				guideNoteEn: "Best for careful tasks.",
 				guideBadge: "intelligent",
+				guideNoCost: true,
 				maxModelContext: 200_000,
 				maxTokens: 4096,
 				reasoningEffort: "high",
@@ -263,6 +272,7 @@ describe("ProviderModel CRUD", () => {
 			expect(model.guideNoteEn).toBe("Best for careful tasks.");
 			expect(model.guideNoteHu).toBeNull();
 			expect(model.guideBadge).toBe("intelligent");
+			expect(model.guideNoCost).toBe(true);
 			expect(model.maxModelContext).toBe(200_000);
 			expect(model.compactionUiThreshold).toBe(160_000);
 			expect(model.targetConstructedContext).toBe(180_000);

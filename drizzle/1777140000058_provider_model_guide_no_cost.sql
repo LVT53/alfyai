@@ -1,0 +1,1 @@
+ALTER TABLE `provider_models` ADD `guide_no_cost` integer DEFAULT 0 NOT NULL;

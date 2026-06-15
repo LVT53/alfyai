@@ -62,6 +62,10 @@ let formGuideBadge = $state(untrack(() => model?.guideBadge ?? ""));
 $effect(() => {
 	formGuideBadge = model?.guideBadge ?? "";
 });
+let formGuideNoCost = $state(untrack(() => model?.guideNoCost ?? false));
+$effect(() => {
+	formGuideNoCost = model?.guideNoCost ?? false;
+});
 let formFallbackProviderModelId = $state(
 	untrack(() => model?.fallbackProviderModelId ?? ""),
 );
@@ -191,6 +195,7 @@ function handleSave() {
 			formGuideBadge === "intelligent" || formGuideBadge === "fast"
 				? formGuideBadge
 				: null,
+		guideNoCost: formGuideNoCost,
 		maxModelContext: maxContext,
 		compactionUiThreshold: null,
 		targetConstructedContext: null,
@@ -310,6 +315,17 @@ function handleSave() {
 								<option value="fast">{$t('modelSelector.badge.fast')}</option>
 							</select>
 						</div>
+						<label class="flex items-center gap-3 rounded border border-border px-3 py-2 text-sm text-text-primary">
+							<input
+								id="model-form-guide-no-cost"
+								type="checkbox"
+								bind:checked={formGuideNoCost}
+							/>
+							<span>
+								<span class="block font-medium">{$t('admin.modelGuideNoCost')}</span>
+								<span class="block text-xs text-text-muted">{$t('admin.modelGuideNoCostDescription')}</span>
+							</span>
+						</label>
 						<div>
 							<label class="settings-label" for="model-form-guide-note-en">{$t('admin.modelGuideNoteEn')}</label>
 							<textarea

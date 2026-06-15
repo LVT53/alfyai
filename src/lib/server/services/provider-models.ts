@@ -16,6 +16,7 @@ export interface ProviderModel {
 	guideNoteEn: string | null;
 	guideNoteHu: string | null;
 	guideBadge: "intelligent" | "fast" | null;
+	guideNoCost: boolean;
 	fallbackProviderModelId: string | null;
 	maxModelContext: number | null;
 	compactionUiThreshold: number | null;
@@ -44,6 +45,7 @@ export interface CreateProviderModelInput {
 	guideNoteEn?: string | null;
 	guideNoteHu?: string | null;
 	guideBadge?: "intelligent" | "fast" | null;
+	guideNoCost?: boolean;
 	fallbackProviderModelId?: string | null;
 	maxModelContext?: number | null;
 	compactionUiThreshold?: number | null;
@@ -68,6 +70,7 @@ export interface UpdateProviderModelInput {
 	guideNoteEn?: string | null;
 	guideNoteHu?: string | null;
 	guideBadge?: "intelligent" | "fast" | null;
+	guideNoCost?: boolean;
 	fallbackProviderModelId?: string | null;
 	maxModelContext?: number | null;
 	compactionUiThreshold?: number | null;
@@ -103,6 +106,7 @@ type ProviderModelPayloadFields = Partial<{
 	guideNoteEn: string | null;
 	guideNoteHu: string | null;
 	guideBadge: ModelGuideBadge | null;
+	guideNoCost: boolean;
 	fallbackProviderModelId: string | null;
 	maxModelContext: number | null;
 	compactionUiThreshold: number | null;
@@ -312,6 +316,11 @@ function applyProviderModelPayloadFields(
 	assignParsedValue(input, "guideNoteEn", readGuideNote(body, "guideNoteEn"));
 	assignParsedValue(input, "guideNoteHu", readGuideNote(body, "guideNoteHu"));
 	assignParsedValue(input, "guideBadge", readGuideBadge(body));
+	assignParsedValue(
+		input,
+		"guideNoCost",
+		readOptionalBoolean(body, "guideNoCost"),
+	);
 	const fallbackProviderModelId = readNullableString(
 		body,
 		"fallbackProviderModelId",
@@ -393,6 +402,7 @@ function mapRowToModel(row: ProviderModelRow): ProviderModel {
 		guideNoteEn: row.guideNoteEn ?? null,
 		guideNoteHu: row.guideNoteHu ?? null,
 		guideBadge: row.guideBadge ?? null,
+		guideNoCost: row.guideNoCost === 1,
 		fallbackProviderModelId: row.fallbackProviderModelId ?? null,
 		maxModelContext: row.maxModelContext ?? null,
 		compactionUiThreshold: row.compactionUiThreshold ?? null,
@@ -536,6 +546,7 @@ export async function createProviderModel(
 			guideNoteEn: input.guideNoteEn ?? null,
 			guideNoteHu: input.guideNoteHu ?? null,
 			guideBadge: input.guideBadge ?? null,
+			guideNoCost: input.guideNoCost ? 1 : 0,
 			fallbackProviderModelId: input.fallbackProviderModelId ?? null,
 			maxModelContext: persistenceDefaults.maxModelContext,
 			compactionUiThreshold: persistenceDefaults.compactionUiThreshold,
@@ -712,6 +723,8 @@ export async function updateProviderModel(
 	if (input.guideNoteEn !== undefined) updates.guideNoteEn = input.guideNoteEn;
 	if (input.guideNoteHu !== undefined) updates.guideNoteHu = input.guideNoteHu;
 	if (input.guideBadge !== undefined) updates.guideBadge = input.guideBadge;
+	if (input.guideNoCost !== undefined)
+		updates.guideNoCost = input.guideNoCost ? 1 : 0;
 	if (input.fallbackProviderModelId !== undefined)
 		updates.fallbackProviderModelId = input.fallbackProviderModelId;
 	if (

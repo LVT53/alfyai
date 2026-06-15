@@ -7,6 +7,7 @@ export interface ProviderModel {
 	guideNoteEn: string | null;
 	guideNoteHu: string | null;
 	guideBadge: "intelligent" | "fast" | null;
+	guideNoCost: boolean;
 	maxModelContext: number | null;
 	inputUsdMicrosPer1m: number;
 	outputUsdMicrosPer1m: number;

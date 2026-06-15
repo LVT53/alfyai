@@ -81,7 +81,14 @@ onMount(() => {
 	window.addEventListener("scroll", updateDropdownPosition, true);
 
 	const handleClickOutside = (event: MouseEvent) => {
-		if (!dropdownRef || dropdownRef.contains(event.target as Node)) return;
+		const target = event.target as Node;
+		if (
+			!dropdownRef ||
+			dropdownRef.contains(target) ||
+			menuRef?.contains(target)
+		) {
+			return;
+		}
 		untrack(() => {
 			if (isOpen) setOpen(false);
 		});
@@ -237,15 +244,40 @@ async function updateDropdownPosition() {
 					triggerRect.bottom + DESKTOP_DROPDOWN_GAP,
 					viewportHeight - DESKTOP_DROPDOWN_MARGIN - measuredHeight,
 				);
+	const fixedContainingBlockOffset = getFixedContainingBlockOffset();
 
 	dropdownPosition = {
-		top,
-		left,
+		top: top - fixedContainingBlockOffset.top,
+		left: left - fixedContainingBlockOffset.left,
 		width,
 		maxHeight,
 		placement,
 		ready: true,
 	};
+}
+
+function getFixedContainingBlockOffset(): { top: number; left: number } {
+	let element = menuRef?.parentElement ?? null;
+	while (element && element !== document.documentElement) {
+		const style = getComputedStyle(element);
+		const createsFixedContainingBlock =
+			style.transform !== "none" ||
+			style.perspective !== "none" ||
+			style.filter !== "none" ||
+			style.backdropFilter !== "none" ||
+			style.contain.includes("layout") ||
+			style.contain.includes("paint") ||
+			style.willChange.includes("transform");
+
+		if (createsFixedContainingBlock) {
+			const rect = element.getBoundingClientRect();
+			return { top: rect.top, left: rect.left };
+		}
+
+		element = element.parentElement;
+	}
+
+	return { top: 0, left: 0 };
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -291,9 +323,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 async function scrollFocusedIntoView() {
 	await tick();
-	const element = dropdownRef?.querySelector(
-		`[data-model-id="${focusedModelId}"]`,
-	);
+	const element = menuRef?.querySelector(`[data-model-id="${focusedModelId}"]`);
 	if (element) {
 		element.scrollIntoView({ block: "nearest" });
 	}
@@ -366,6 +396,7 @@ function autoExpandProviders() {
 			style={isMobile ? undefined : dropdownStyle}
 			role="listbox"
 			aria-label={$t('modelSelector.availableModels')}
+			tabindex="-1"
 		>
 			<div class="model-selector__list">
 				{#each providers as provider (provider.id)}
