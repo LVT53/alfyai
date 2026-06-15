@@ -8,25 +8,23 @@ vi.mock("$lib/server/services/auth", () => ({
 	clearSessionCookie: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/cleanup", () => ({
-	deleteUserAccountWithCleanup: vi.fn(),
-	resetUserAccountStateWithCleanup: vi.fn(),
+vi.mock("$lib/server/services/privacy-controls", () => ({
+	eraseUserAccount: vi.fn(),
+	clearWorkspaceData: vi.fn(),
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import { clearSessionCookie } from "$lib/server/services/auth";
 import {
-	deleteUserAccountWithCleanup,
-	resetUserAccountStateWithCleanup,
-} from "$lib/server/services/cleanup";
+	eraseUserAccount,
+	clearWorkspaceData,
+} from "$lib/server/services/privacy-controls";
 import { DELETE, POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockClearSessionCookie = clearSessionCookie as ReturnType<typeof vi.fn>;
-const mockDeleteUserAccountWithCleanup =
-	deleteUserAccountWithCleanup as ReturnType<typeof vi.fn>;
-const mockResetUserAccountStateWithCleanup =
-	resetUserAccountStateWithCleanup as ReturnType<typeof vi.fn>;
+const mockEraseUserAccount = eraseUserAccount as ReturnType<typeof vi.fn>;
+const mockClearWorkspaceData = clearWorkspaceData as ReturnType<typeof vi.fn>;
 type AccountRouteEvent = Parameters<typeof DELETE>[0];
 
 function makeEvent(
@@ -57,7 +55,7 @@ describe("DELETE /api/settings/account", () => {
 	});
 
 	it("deletes the user account and clears the session cookie on success", async () => {
-		mockDeleteUserAccountWithCleanup.mockResolvedValue({ status: "deleted" });
+		mockEraseUserAccount.mockResolvedValue({ status: "deleted" });
 		const event = makeEvent({ password: "secret" });
 
 		const response = await DELETE(event);
@@ -65,7 +63,7 @@ describe("DELETE /api/settings/account", () => {
 
 		expect(response.status).toBe(200);
 		expect(data.success).toBe(true);
-		expect(mockDeleteUserAccountWithCleanup).toHaveBeenCalledWith(
+		expect(mockEraseUserAccount).toHaveBeenCalledWith(
 			"user-1",
 			"secret",
 		);
@@ -73,7 +71,7 @@ describe("DELETE /api/settings/account", () => {
 	});
 
 	it("returns 401 when the password is incorrect", async () => {
-		mockDeleteUserAccountWithCleanup.mockResolvedValue({
+		mockEraseUserAccount.mockResolvedValue({
 			status: "incorrect_password",
 		});
 
@@ -86,9 +84,7 @@ describe("DELETE /api/settings/account", () => {
 	});
 
 	it("returns 500 when cleanup fails", async () => {
-		mockDeleteUserAccountWithCleanup.mockRejectedValue(
-			new Error("honcho down"),
-		);
+		mockEraseUserAccount.mockRejectedValue(new Error("honcho down"));
 
 		const response = await DELETE(makeEvent({ password: "secret" }));
 		const data = await response.json();
@@ -105,8 +101,8 @@ describe("POST /api/settings/account", () => {
 		mockRequireAuth.mockReturnValue(undefined);
 	});
 
-	it("resets the user account state and preserves the session on success", async () => {
-		mockResetUserAccountStateWithCleanup.mockResolvedValue({ status: "reset" });
+	it("clears workspace data and clears the session cookie on success", async () => {
+		mockClearWorkspaceData.mockResolvedValue({ status: "reset" });
 		const event = makeEvent({ password: "secret" }, "POST");
 
 		const response = await POST(event);
@@ -114,7 +110,7 @@ describe("POST /api/settings/account", () => {
 
 		expect(response.status).toBe(200);
 		expect(data.success).toBe(true);
-		expect(mockResetUserAccountStateWithCleanup).toHaveBeenCalledWith(
+		expect(mockClearWorkspaceData).toHaveBeenCalledWith(
 			"user-1",
 			"secret",
 		);
@@ -122,7 +118,7 @@ describe("POST /api/settings/account", () => {
 	});
 
 	it("returns 401 when the reset password is incorrect", async () => {
-		mockResetUserAccountStateWithCleanup.mockResolvedValue({
+		mockClearWorkspaceData.mockResolvedValue({
 			status: "incorrect_password",
 		});
 
@@ -134,9 +130,7 @@ describe("POST /api/settings/account", () => {
 	});
 
 	it("returns 500 when reset cleanup fails", async () => {
-		mockResetUserAccountStateWithCleanup.mockRejectedValue(
-			new Error("db locked"),
-		);
+		mockClearWorkspaceData.mockRejectedValue(new Error("db locked"));
 
 		const response = await POST(makeEvent({ password: "secret" }, "POST"));
 		const data = await response.json();

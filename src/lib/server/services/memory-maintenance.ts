@@ -520,6 +520,22 @@ export async function runAllUsersMemoryMaintenance(
 	}
 }
 
+export async function quiesceUserMemoryMaintenance(
+	userId: string,
+): Promise<void> {
+	const state = userMaintenanceStates.get(userId);
+	if (!state) return;
+
+	clearScheduledMaintenance(state);
+	state.scheduledReason = null;
+	state.rerunRequested = false;
+	if (state.inFlight) {
+		await state.inFlight;
+	}
+	userMaintenanceStates.delete(userId);
+	userLastBackfill.delete(userId);
+}
+
 export function ensureMemoryMaintenanceScheduler(): void {
 	if (schedulerStarted) return;
 	const intervalMinutes = getConfig().memoryMaintenanceIntervalMinutes;

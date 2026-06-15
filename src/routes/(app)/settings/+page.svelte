@@ -1,21 +1,22 @@
 <script lang="ts">
 import { goto, invalidate } from "$app/navigation";
 import ProfilePictureEditor from "$lib/components/ui/ProfilePictureEditor.svelte";
-import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import { clearConversationSessionState } from "$lib/client/conversation-session";
 import {
+	clearMemoryAndKnowledge,
+	clearWorkspaceData,
 	deleteAccount,
 	deleteAvatar,
+	downloadAccountDataArchive,
 	fetchAnalytics,
 	fetchHonchoHealth,
-	resetAccount,
+	saveBlobAsDownload,
 	updateAdminConfig,
 	updatePassword,
 	updateProfile,
 	updateUserPreferences,
 	type AnalyticsResponse,
 } from "$lib/client/api/settings";
-import { submitKnowledgeBulkAction } from "$lib/client/api/knowledge";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import { reconcileConversationSnapshot } from "$lib/stores/conversations";
 import {
@@ -36,8 +37,9 @@ import { setThemeAndSync } from "$lib/stores/theme";
 import { currentConversationId } from "$lib/stores/ui";
 import { t } from "$lib/i18n";
 import { AVATAR_COLORS, AVATAR_COUNT } from "$lib/utils/avatar";
-import DeleteAccountModal from "./_components/DeleteAccountModal.svelte";
-import ResetAccountModal from "./_components/ResetAccountModal.svelte";
+import PrivacyActionModal, {
+	type PrivacyAction,
+} from "./_components/PrivacyActionModal.svelte";
 import SettingsAdministrationTab from "./_components/SettingsAdministrationTab.svelte";
 import SettingsAnalyticsTab from "./_components/SettingsAnalyticsTab.svelte";
 import SettingsProfileTab from "./_components/SettingsProfileTab.svelte";
@@ -141,20 +143,21 @@ let personalityProfiles = $state<
 	Array<{ id: string; name: string; description: string }>
 >([]);
 
-let showDeleteModal = $state(false);
-let deletePassword = $state("");
-let deleteError = $state("");
-let deleteLoading = $state(false);
-let showDeletePw = $state(false);
-let showResetModal = $state(false);
-let resetPassword = $state("");
-let resetError = $state("");
-let resetLoading = $state(false);
-let showResetPw = $state(false);
-
-let forgetEverythingLoading = $state(false);
-let forgetEverythingError = $state("");
-let showForgetEverythingConfirm = $state(false);
+let privacyAction = $state<PrivacyAction | null>(null);
+let privacyPassword = $state("");
+let privacyError = $state("");
+let privacyMessage = $state("");
+let privacyLoading = $state(false);
+let showPrivacyPw = $state(false);
+const archiveLoading = $derived(
+	privacyLoading && privacyAction === "archive",
+);
+const clearMemoryLoading = $derived(
+	privacyLoading && privacyAction === "clearMemory",
+);
+const clearWorkspaceLoading = $derived(
+	privacyLoading && privacyAction === "clearWorkspace",
+);
 
 let adminConfig = $state<Record<string, string>>(
 	initialCurrentConfigValues ? { ...initialCurrentConfigValues } : {},
@@ -324,78 +327,82 @@ async function changeUiLanguage(lang: UiLanguage) {
 	await setUiLanguageAndSync(lang);
 }
 
-function closeDeleteModal() {
-	showDeleteModal = false;
-	deletePassword = "";
-	deleteError = "";
-	showDeletePw = false;
+function openPrivacyAction(action: PrivacyAction) {
+	privacyAction = action;
+	privacyPassword = "";
+	privacyError = "";
+	privacyMessage = "";
+	showPrivacyPw = false;
 }
 
-function closeResetModal() {
-	showResetModal = false;
-	resetPassword = "";
-	resetError = "";
-	showResetPw = false;
+function closePrivacyAction() {
+	privacyAction = null;
+	privacyPassword = "";
+	privacyError = "";
+	showPrivacyPw = false;
 }
 
-async function confirmDeleteAccount() {
-	deleteError = "";
-	deleteLoading = true;
+function clearWorkspaceClientState() {
+	reconcileConversationSnapshot([], { resetLocalState: true });
+	projects.set([]);
+	currentConversationId.set(null);
+	clearConversationSessionState();
+	analyticsData = null;
+	analyticsError = "";
+}
+
+async function downloadArchive(password: string) {
+	const archive = await downloadAccountDataArchive(password);
+	saveBlobAsDownload(archive.blob, archive.filename);
+}
+
+async function confirmPrivacyAction() {
+	if (!privacyAction) return;
+	privacyError = "";
+	privacyLoading = true;
+	const action = privacyAction;
 	try {
-		await deleteAccount(deletePassword);
-		goto("/login");
-	} catch (error: unknown) {
-		deleteError = errorMessage(error);
-	} finally {
-		deleteLoading = false;
-	}
-}
-
-async function confirmResetAccount() {
-	resetError = "";
-	resetLoading = true;
-	try {
-		await resetAccount(resetPassword);
-		reconcileConversationSnapshot([], { resetLocalState: true });
-		projects.set([]);
-		currentConversationId.set(null);
-		clearConversationSessionState();
-		analyticsData = null;
-		analyticsError = "";
-		closeResetModal();
+		if (action === "archive") {
+			await downloadArchive(privacyPassword);
+			privacyMessage = $t("settings_archiveDownloaded");
+			closePrivacyAction();
+			return;
+		}
+		if (action === "clearMemory") {
+			await clearMemoryAndKnowledge(privacyPassword);
+			privacyMessage = $t("settings_clearMemorySuccess");
+			closePrivacyAction();
+			return;
+		}
+		if (action === "clearWorkspace") {
+			await clearWorkspaceData(privacyPassword);
+			clearWorkspaceClientState();
+			closePrivacyAction();
+			await goto("/login");
+			return;
+		}
+		await deleteAccount(privacyPassword);
+		clearWorkspaceClientState();
+		closePrivacyAction();
 		await goto("/login");
 	} catch (error: unknown) {
-		resetError = errorMessage(error);
+		privacyError = errorMessage(error);
 	} finally {
-		resetLoading = false;
+		privacyLoading = false;
 	}
 }
 
-function requestForgetEverything() {
-	showForgetEverythingConfirm = true;
-}
-
-function closeForgetEverythingConfirm() {
-	showForgetEverythingConfirm = false;
-}
-
-async function runForgetEverything() {
-	forgetEverythingError = "";
-	showForgetEverythingConfirm = false;
-
-	forgetEverythingLoading = true;
+async function downloadArchiveFromDestructiveModal() {
+	if (!privacyPassword || privacyLoading) return;
+	privacyError = "";
+	privacyLoading = true;
 	try {
-		const result = await submitKnowledgeBulkAction("forget_everything");
-		if (result.success === false) {
-			throw new Error(
-				result.error ?? result.message ?? "Failed to forget everything.",
-			);
-		}
-		forgetEverythingError = "";
+		await downloadArchive(privacyPassword);
+		privacyMessage = $t("settings_archiveDownloaded");
 	} catch (error: unknown) {
-		forgetEverythingError = errorMessage(error);
+		privacyError = errorMessage(error);
 	} finally {
-		forgetEverythingLoading = false;
+		privacyLoading = false;
 	}
 }
 
@@ -516,11 +523,15 @@ $effect(() => {
 				{personalityProfiles}
 				{selectedPersonalityId}
 				onChangePersonality={changePersonality}
-				onOpenResetModal={() => (showResetModal = true)}
-				onOpenDeleteModal={() => (showDeleteModal = true)}
-				forgetEverythingLoading={forgetEverythingLoading}
-				forgetEverythingError={forgetEverythingError}
-				onForgetEverything={requestForgetEverything}
+				onOpenDownloadArchive={() => openPrivacyAction('archive')}
+				onOpenClearMemory={() => openPrivacyAction('clearMemory')}
+				onOpenClearWorkspace={() => openPrivacyAction('clearWorkspace')}
+				onOpenDeleteModal={() => openPrivacyAction('deleteAccount')}
+				{archiveLoading}
+				{clearMemoryLoading}
+				{clearWorkspaceLoading}
+				privacyControlsError={privacyError}
+				privacyControlsMessage={privacyMessage}
 				skillsEnabled={(data as SettingsPageData).composerCommandRegistryEnabled ?? false}
 				projects={$projects}
 			/>
@@ -570,40 +581,16 @@ $effect(() => {
 	/>
 {/if}
 
-{#if showDeleteModal}
-	<DeleteAccountModal
-		bind:deletePassword
-		{deleteError}
-		{deleteLoading}
-		bind:showDeletePw
-		onConfirm={confirmDeleteAccount}
-		onCancel={closeDeleteModal}
-	/>
-{/if}
-
-{#if showResetModal}
-	<ResetAccountModal
-		bind:resetPassword
-		{resetError}
-		{resetLoading}
-		bind:showResetPw
-		onConfirm={confirmResetAccount}
-		onCancel={closeResetModal}
-	/>
-{/if}
-
-{#if showForgetEverythingConfirm}
-	<ConfirmDialog
-		title={$t('settings_resetMemory')}
-		message={$t('settings_resetMemoryMessage')}
-		confirmText={forgetEverythingLoading ? $t('settings_resetting') : $t('settings_resetMemory')}
-		confirmVariant="danger"
-		onCancel={closeForgetEverythingConfirm}
-		onConfirm={() => {
-			if (!forgetEverythingLoading) {
-				void runForgetEverything();
-			}
-		}}
+{#if privacyAction}
+	<PrivacyActionModal
+		action={privacyAction}
+		bind:password={privacyPassword}
+		error={privacyError}
+		loading={privacyLoading}
+		bind:showPassword={showPrivacyPw}
+		onConfirm={confirmPrivacyAction}
+		onCancel={closePrivacyAction}
+		onDownloadArchive={downloadArchiveFromDestructiveModal}
 	/>
 {/if}
 

@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Open AlfyAI Data Archive</title>
+	<style>
+		:root {
+			--surface-page: #fafaf8;
+			--surface-elevated: #f4f3ee;
+			--surface-overlay: #f7f6f2;
+			--surface-plain: #ffffff;
+			--surface-accent: #fff7f2;
+			--text-primary: #1a1a1a;
+			--text-muted: #6b6b6b;
+			--border-default: rgba(0, 0, 0, 0.08);
+			--border-strong: rgba(0, 0, 0, 0.16);
+			--accent: #c15f3c;
+			--accent-quiet: rgba(193, 95, 60, 0.1);
+			--gold: #c8a882;
+			--green: #2f7d57;
+			--blue: #376b8f;
+			--danger: #b91c1c;
+			--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+			--shadow-md: 0 2px 10px rgba(0, 0, 0, 0.06);
+			--radius-sm: 5px;
+			--radius-md: 6px;
+			--radius-lg: 8px;
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		html {
+			background: var(--surface-page);
+			color: var(--text-primary);
+			font-family: "Nimbus Sans L", Arial, sans-serif;
+			font-size: 16px;
+			letter-spacing: 0;
+		}
+
+		body {
+			margin: 0;
+			background: var(--surface-page);
+		}
+
+		a {
+			color: inherit;
+			text-decoration: none;
+		}
+
+		.archive-shell {
+			display: grid;
+			grid-template-columns: 17rem minmax(0, 1fr);
+			min-height: 100vh;
+		}
+
+		.archive-shell > * {
+			min-width: 0;
+		}
+
+		.sidebar {
+			position: sticky;
+			top: 0;
+			height: 100vh;
+			min-width: 0;
+			padding: 1.25rem;
+			border-right: 1px solid var(--border-default);
+			background: rgba(250, 250, 248, 0.9);
+			backdrop-filter: blur(12px);
+		}
+
+		.brand {
+			display: flex;
+			align-items: center;
+			gap: 0.7rem;
+			margin-bottom: 1.5rem;
+		}
+
+		.logo-box {
+			display: grid;
+			place-items: center;
+			width: 2.35rem;
+			height: 2.35rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: var(--surface-overlay);
+		}
+
+		.brand-title {
+			margin: 0;
+			font-size: 1rem;
+			font-weight: 700;
+			line-height: 1.1;
+		}
+
+		.brand-subtitle {
+			margin: 0.2rem 0 0;
+			color: var(--text-muted);
+			font-size: 0.78rem;
+		}
+
+		.nav-label {
+			margin: 0 0 0.55rem;
+			color: var(--text-muted);
+			font-size: 0.72rem;
+			font-weight: 700;
+			text-transform: uppercase;
+		}
+
+		.nav-wrap {
+			min-width: 0;
+		}
+
+		.nav {
+			display: grid;
+			gap: 0.2rem;
+			max-width: 100%;
+			min-width: 0;
+		}
+
+		.nav a {
+			display: flex;
+			align-items: center;
+			gap: 0.55rem;
+			min-width: 0;
+			min-height: 2.2rem;
+			padding: 0.45rem 0.55rem;
+			border-radius: var(--radius-md);
+			color: var(--text-muted);
+			font-size: 0.92rem;
+			transition: background 150ms ease, color 150ms ease;
+		}
+
+		.nav a:first-child,
+		.nav a:hover {
+			background: var(--accent-quiet);
+			color: var(--text-primary);
+		}
+
+		.nav-dot {
+			width: 0.45rem;
+			height: 0.45rem;
+			border-radius: 999px;
+			background: var(--gold);
+		}
+
+		.sidebar-note {
+			margin-top: 1.6rem;
+			padding: 0.85rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-lg);
+			background: var(--surface-overlay);
+			color: var(--text-muted);
+			font-size: 0.82rem;
+			line-height: 1.45;
+		}
+
+		main {
+			min-width: 0;
+			padding: 2.75rem 2rem;
+		}
+
+		.content {
+			width: min(100%, 72rem);
+			min-width: 0;
+			margin: 0 auto;
+		}
+
+		.hero {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			gap: 1.5rem;
+			align-items: end;
+			padding: 0 0 1.6rem;
+			border-bottom: 1px solid var(--border-default);
+		}
+
+		h1 {
+			margin: 0;
+			font-size: clamp(2rem, 5vw, 3.55rem);
+			line-height: 0.95;
+			letter-spacing: 0;
+			overflow-wrap: anywhere;
+		}
+
+		.hero-copy {
+			max-width: 44rem;
+			margin: 1rem 0 0;
+			color: var(--text-muted);
+			font-size: 1rem;
+			line-height: 1.65;
+		}
+
+		.archive-stamp {
+			min-width: 14rem;
+			padding: 1rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-lg);
+			background: var(--surface-plain);
+			box-shadow: var(--shadow-sm);
+		}
+
+		.stamp-label {
+			color: var(--text-muted);
+			font-size: 0.78rem;
+		}
+
+		.stamp-value {
+			margin-top: 0.2rem;
+			font-weight: 700;
+		}
+
+		.summary-grid {
+			display: grid;
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+			gap: 0.85rem;
+			margin: 1.5rem 0 1.75rem;
+		}
+
+		.metric {
+			padding: 1rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-lg);
+			background: var(--surface-plain);
+		}
+
+		.metric-value {
+			font-size: 1.45rem;
+			font-weight: 700;
+		}
+
+		.metric-label {
+			margin-top: 0.25rem;
+			color: var(--text-muted);
+			font-size: 0.82rem;
+		}
+
+		.section {
+			margin: 0 0 0.85rem;
+			padding: 0;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-lg);
+			background: rgba(255, 255, 255, 0.55);
+			box-shadow: var(--shadow-sm);
+			overflow: clip;
+		}
+
+		.section[open] {
+			background: rgba(255, 255, 255, 0.72);
+		}
+
+		.section-header {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: center;
+			gap: 0.9rem;
+			padding: 1rem 1.1rem;
+			cursor: pointer;
+			list-style: none;
+		}
+
+		.section-header::-webkit-details-marker {
+			display: none;
+		}
+
+		.section-header::after {
+			content: "+";
+			display: grid;
+			place-items: center;
+			width: 1.6rem;
+			height: 1.6rem;
+			border: 1px solid var(--border-default);
+			border-radius: 999px;
+			color: var(--text-muted);
+			font-weight: 700;
+		}
+
+		.section[open] .section-header::after {
+			content: "-";
+			color: var(--accent);
+			border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+			background: var(--accent-quiet);
+		}
+
+		.section-body {
+			padding: 0 1.1rem 1.1rem;
+		}
+
+		h2 {
+			margin: 0;
+			font-size: 1.18rem;
+			line-height: 1.2;
+		}
+
+		.section-subtitle {
+			margin: 0.35rem 0 0;
+			color: var(--text-muted);
+			font-size: 0.9rem;
+			line-height: 1.45;
+		}
+
+		.avatar-card {
+			display: grid;
+			grid-template-columns: auto minmax(0, 1fr);
+			gap: 0.8rem;
+			align-items: center;
+			grid-column: span 2;
+		}
+
+		.avatar-image {
+			width: 3.25rem;
+			height: 3.25rem;
+			border: 1px solid var(--border-default);
+			border-radius: 999px;
+			background:
+				radial-gradient(circle at 35% 30%, #ffe3d6 0 18%, transparent 19%),
+				linear-gradient(135deg, #c15f3c, #c8a882);
+			object-fit: cover;
+		}
+
+		.profile-grid,
+		.file-grid,
+		.memory-grid {
+			display: grid;
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			gap: 0.7rem;
+		}
+
+		.field,
+		.file-tile,
+		.memory-item {
+			min-width: 0;
+			padding: 0.75rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: var(--surface-plain);
+		}
+
+		.field-label,
+		.file-kind,
+		.memory-source {
+			color: var(--text-muted);
+			font-size: 0.75rem;
+			text-transform: uppercase;
+		}
+
+		.field-value,
+		.file-name,
+		.memory-text {
+			margin-top: 0.25rem;
+			overflow-wrap: anywhere;
+			font-weight: 700;
+		}
+
+		.file-meta,
+		.memory-meta {
+			margin-top: 0.25rem;
+			color: var(--text-muted);
+			font-size: 0.78rem;
+		}
+
+		.chat-list {
+			display: grid;
+			gap: 0.7rem;
+		}
+
+		.chat-row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			gap: 0.8rem;
+			align-items: center;
+			padding: 0.82rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: var(--surface-plain);
+		}
+
+		.chat-row > * {
+			min-width: 0;
+		}
+
+		.chat-title {
+			margin: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			font-weight: 700;
+		}
+
+		.chat-preview {
+			margin: 0.25rem 0 0;
+			color: var(--text-muted);
+			font-size: 0.88rem;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.chat-meta {
+			color: var(--text-muted);
+			font-size: 0.78rem;
+			text-align: right;
+			white-space: nowrap;
+		}
+
+		.analytics-layout {
+			display: grid;
+			grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+			gap: 0.8rem;
+		}
+
+		table {
+			width: 100%;
+			border-collapse: collapse;
+			overflow: hidden;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: var(--surface-plain);
+			font-size: 0.88rem;
+		}
+
+		th,
+		td {
+			padding: 0.65rem 0.7rem;
+			border-bottom: 1px solid var(--border-default);
+			text-align: left;
+		}
+
+		th {
+			color: var(--text-muted);
+			font-size: 0.72rem;
+			text-transform: uppercase;
+		}
+
+		tr:last-child td {
+			border-bottom: 0;
+		}
+
+		.timeline {
+			display: grid;
+			gap: 0.55rem;
+			padding: 0.75rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: var(--surface-plain);
+		}
+
+		.bar-row {
+			display: grid;
+			grid-template-columns: 5rem minmax(0, 1fr) 3rem;
+			gap: 0.55rem;
+			align-items: center;
+			color: var(--text-muted);
+			font-size: 0.82rem;
+		}
+
+		.bar-track {
+			height: 0.55rem;
+			border-radius: 999px;
+			background: var(--surface-elevated);
+			overflow: hidden;
+		}
+
+		.bar-fill {
+			height: 100%;
+			border-radius: inherit;
+			background: var(--accent);
+		}
+
+		.bar-fill.green {
+			background: var(--green);
+		}
+
+		.bar-fill.blue {
+			background: var(--blue);
+		}
+
+		.notice {
+			padding: 0.85rem;
+			border: 1px solid rgba(185, 28, 28, 0.22);
+			border-radius: var(--radius-md);
+			background: rgba(185, 28, 28, 0.055);
+			color: #5f1717;
+			line-height: 1.45;
+		}
+
+		.footer {
+			margin: 1.5rem 0 0;
+			padding: 1rem 0 0;
+			border-top: 1px solid var(--border-default);
+			color: var(--text-muted);
+			font-size: 0.82rem;
+			line-height: 1.5;
+		}
+
+		@media (max-width: 940px) {
+			.archive-shell {
+				grid-template-columns: 1fr;
+			}
+
+			.sidebar {
+				position: static;
+				height: auto;
+				border-right: 0;
+				border-bottom: 1px solid var(--border-default);
+			}
+
+			.nav {
+				grid-template-columns: repeat(4, minmax(0, 1fr));
+			}
+
+			.nav a {
+				justify-content: center;
+			}
+
+			.nav-dot {
+				display: none;
+			}
+
+			.sidebar-note {
+				display: none;
+			}
+
+			.hero {
+				grid-template-columns: 1fr;
+			}
+
+			.summary-grid,
+			.profile-grid,
+			.file-grid,
+			.memory-grid,
+			.analytics-layout {
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+			}
+		}
+
+		@media (max-width: 640px) {
+			main {
+				padding: 1.15rem 1rem 1.5rem;
+			}
+
+			.sidebar {
+				display: contents;
+			}
+
+			.brand {
+				margin: 0;
+				padding: 1rem;
+				border-bottom: 1px solid var(--border-default);
+				background: var(--surface-page);
+			}
+
+			.nav-wrap {
+				position: sticky;
+				top: 0;
+				z-index: 25;
+				margin: 0;
+				padding: 0.7rem 1rem 0.55rem;
+				border-bottom: 1px solid var(--border-default);
+				background: rgba(250, 250, 248, 0.97);
+				backdrop-filter: blur(14px);
+			}
+
+			.nav {
+				display: flex;
+				gap: 0.35rem;
+				overflow-x: auto;
+				padding-bottom: 0.2rem;
+			}
+
+			.nav a {
+				flex: 0 0 auto;
+				min-height: 2.75rem;
+				padding-inline: 0.8rem;
+			}
+
+			.summary-grid,
+			.profile-grid,
+			.file-grid,
+			.memory-grid,
+			.analytics-layout {
+				grid-template-columns: 1fr;
+			}
+
+			.section-header,
+			.chat-row {
+				grid-template-columns: 1fr;
+			}
+
+			.section-header {
+				grid-template-columns: minmax(0, 1fr) auto;
+				align-items: start;
+			}
+
+			.chat-meta {
+				text-align: left;
+				white-space: normal;
+			}
+
+			.chat-preview {
+				overflow: visible;
+				text-overflow: clip;
+				white-space: normal;
+			}
+
+			.bar-row {
+				grid-template-columns: 4rem minmax(0, 1fr) 2.4rem;
+			}
+
+			.avatar-card {
+				grid-column: auto;
+			}
+		}
+	</style>
+</head>
+<body>
+	<div class="archive-shell">
+		<aside class="sidebar">
+			<div class="brand" aria-label="AlfyAI">
+				<div class="logo-box">
+					<svg width="28" height="31" viewBox="0 0 100 112" aria-hidden="true">
+						<path fill="none" stroke="#C8A882" stroke-width="4.2" stroke-linecap="round" d="M50 19 C46 40 36 64 24 88"/>
+						<path fill="none" stroke="#C8A882" stroke-width="4.2" stroke-linecap="round" d="M50 19 C54 40 64 64 76 88"/>
+						<line x1="27" y1="57" x2="73" y2="57" stroke="#C8A882" stroke-width="2.2" stroke-linecap="round"/>
+						<line x1="27" y1="52" x2="27" y2="62" stroke="#C8A882" stroke-width="1.8" stroke-linecap="round" opacity="0.75"/>
+						<line x1="73" y1="52" x2="73" y2="62" stroke="#C8A882" stroke-width="1.8" stroke-linecap="round" opacity="0.75"/>
+						<line x1="14" y1="90" x2="36" y2="90" stroke="#C8A882" stroke-width="3.2" stroke-linecap="round"/>
+						<line x1="64" y1="90" x2="86" y2="90" stroke="#C8A882" stroke-width="3.2" stroke-linecap="round"/>
+						<circle cx="50" cy="19" r="3.5" fill="#C8A882"/>
+					</svg>
+				</div>
+				<div>
+					<p class="brand-title">AlfyAI</p>
+					<p class="brand-subtitle">Data Archive</p>
+				</div>
+			</div>
+			<div class="nav-wrap">
+				<p class="nav-label">Archive sections</p>
+				<nav class="nav" aria-label="Archive sections">
+					<a href="#profile"><span class="nav-dot"></span>Profile</a>
+					<a href="#chats"><span class="nav-dot"></span>Chats</a>
+					<a href="#files"><span class="nav-dot"></span>Files</a>
+					<a href="#memory"><span class="nav-dot"></span>Memory</a>
+					<a href="#analytics"><span class="nav-dot"></span>Usage</a>
+					<a href="#excluded"><span class="nav-dot"></span>Not included</a>
+				</nav>
+			</div>
+			<div class="sidebar-note">
+				Links in the finished archive open files stored inside the same ZIP.
+			</div>
+		</aside>
+
+		<main>
+			<div class="content">
+				<header id="overview" class="hero">
+					<div>
+						<h1>Your AlfyAI data archive</h1>
+						<p class="hero-copy">A readable copy of the AlfyAI data stored for this account when the archive was created. Use the sections below to review your profile, chats, files, memory, and usage.</p>
+					</div>
+					<div class="archive-stamp" aria-label="Archive details">
+						<div class="stamp-label">Prepared for</div>
+						<div class="stamp-value">Alex Example</div>
+						<div class="stamp-label" style="margin-top:0.65rem;">Created</div>
+						<div class="stamp-value">June 15, 2026</div>
+					</div>
+				</header>
+
+				<section class="summary-grid" aria-label="Archive summary">
+					<div class="metric">
+						<div class="metric-value">128</div>
+						<div class="metric-label">Chat messages</div>
+					</div>
+					<div class="metric">
+						<div class="metric-value">24</div>
+						<div class="metric-label">Original files</div>
+					</div>
+					<div class="metric">
+						<div class="metric-value">17</div>
+						<div class="metric-label">Memory records</div>
+					</div>
+					<div class="metric">
+						<div class="metric-value">$4.82</div>
+						<div class="metric-label">Estimated usage cost</div>
+					</div>
+				</section>
+
+				<details id="profile" class="section" open>
+					<summary class="section-header">
+						<div>
+							<h2>Profile and preferences</h2>
+							<p class="section-subtitle">Your account details and the settings you chose.</p>
+						</div>
+					</summary>
+					<div class="section-body">
+					<div class="profile-grid">
+						<div class="field avatar-card">
+							<img class="avatar-image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop stop-color='%23c15f3c'/%3E%3Cstop offset='1' stop-color='%23c8a882'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='96' height='96' rx='48' fill='url(%23g)'/%3E%3Ccircle cx='48' cy='35' r='16' fill='%23fff7f2'/%3E%3Cpath d='M22 82c5-19 18-29 26-29s21 10 26 29' fill='%23fff7f2'/%3E%3C/svg%3E" alt="Profile avatar" />
+							<div>
+								<div class="field-label">Avatar</div>
+								<div class="field-value">Profile/avatar.webp</div>
+							</div>
+						</div>
+						<div class="field">
+							<div class="field-label">Email</div>
+							<div class="field-value">alex@example.com</div>
+						</div>
+						<div class="field">
+							<div class="field-label">Display name</div>
+							<div class="field-value">Alex Example</div>
+						</div>
+						<div class="field">
+							<div class="field-label">Interface language</div>
+							<div class="field-value">English</div>
+						</div>
+						<div class="field">
+							<div class="field-label">Theme</div>
+							<div class="field-value">Light</div>
+						</div>
+						<div class="field">
+							<div class="field-label">Default model</div>
+							<div class="field-value">System default</div>
+						</div>
+					</div>
+					</div>
+				</details>
+
+				<details id="chats" class="section">
+					<summary class="section-header">
+						<div>
+							<h2>Chats</h2>
+							<p class="section-subtitle">Your chat messages, assistant replies, and links to files used in each chat.</p>
+						</div>
+					</summary>
+					<div class="section-body">
+					<div class="chat-list">
+						<a class="chat-row" href="chat-quarterly-roadmap-planning.html">
+							<div>
+								<p class="chat-title">Quarterly roadmap planning</p>
+								<p class="chat-preview">Can you turn these priorities into a focused execution plan?</p>
+							</div>
+							<div class="chat-meta">42 messages<br>3 files</div>
+						</a>
+						<a class="chat-row" href="#">
+							<div>
+								<p class="chat-title">Hiring scorecard draft</p>
+								<p class="chat-preview">Assistant response with linked generated document: hiring-scorecard.docx</p>
+							</div>
+							<div class="chat-meta">31 messages<br>1 file</div>
+						</a>
+						<a class="chat-row" href="#">
+							<div>
+								<p class="chat-title">Imported ChatGPT conversation</p>
+								<p class="chat-preview">Imported from ChatGPT export. Original importer package is not included.</p>
+							</div>
+							<div class="chat-meta">18 messages<br>0 files</div>
+						</a>
+					</div>
+					</div>
+				</details>
+
+				<details id="files" class="section">
+					<summary class="section-header">
+						<div>
+							<h2>Files</h2>
+							<p class="section-subtitle">Uploaded files and files created for you, with readable previews when available.</p>
+						</div>
+					</summary>
+					<div class="section-body">
+					<div class="file-grid">
+						<a class="file-tile" href="#">
+							<div class="file-kind">Uploaded PDF</div>
+							<div class="file-name">Files/Uploaded/tax-notes.pdf</div>
+							<div class="file-meta">Linked from Knowledge Base</div>
+						</a>
+						<a class="file-tile" href="#">
+							<div class="file-kind">Generated DOCX</div>
+							<div class="file-name">Files/Generated/project-plan.docx</div>
+							<div class="file-meta">Linked from chat transcript</div>
+						</a>
+						<a class="file-tile" href="#">
+							<div class="file-kind">Extracted text</div>
+							<div class="file-name">Files/Text/tax-notes.html</div>
+							<div class="file-meta">Readable document text</div>
+						</a>
+					</div>
+					</div>
+				</details>
+
+				<details id="memory" class="section">
+					<summary class="section-header">
+						<div>
+							<h2>Memory</h2>
+							<p class="section-subtitle">Things AlfyAI remembered to help personalize future chats.</p>
+						</div>
+					</summary>
+					<div class="section-body">
+					<div class="memory-grid">
+						<a class="memory-item" href="memory-compact-planning-documents.html">
+							<div class="memory-source">Preference</div>
+							<div class="memory-text">Prefers compact planning documents with clear next actions.</div>
+							<div class="memory-meta">Last updated May 28, 2026</div>
+						</a>
+						<div class="memory-item">
+							<div class="memory-source">Project continuity</div>
+							<div class="memory-text">Currently working on privacy controls for the AlfyAI profile page.</div>
+							<div class="memory-meta">Active workspace context</div>
+						</div>
+						<div class="memory-item">
+							<div class="memory-source">Knowledge note</div>
+							<div class="memory-text">Uses English stable filenames for exported archive structure.</div>
+							<div class="memory-meta">Detailed record available</div>
+						</div>
+					</div>
+					</div>
+				</details>
+
+				<details id="analytics" class="section">
+					<summary class="section-header">
+						<div>
+							<h2>Usage summary</h2>
+							<p class="section-subtitle">A simple view of your message, token, and estimated cost totals.</p>
+						</div>
+					</summary>
+					<div class="section-body">
+					<div class="analytics-layout">
+						<table aria-label="Monthly usage">
+							<thead>
+								<tr>
+									<th>Month</th>
+									<th>Messages</th>
+									<th>Tokens</th>
+									<th>Cost</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td>2026-06</td>
+									<td>57</td>
+									<td>92,400</td>
+									<td>$2.41</td>
+								</tr>
+								<tr>
+									<td>2026-05</td>
+									<td>48</td>
+									<td>71,800</td>
+									<td>$1.64</td>
+								</tr>
+								<tr>
+									<td>2026-04</td>
+									<td>23</td>
+									<td>32,900</td>
+									<td>$0.77</td>
+								</tr>
+							</tbody>
+						</table>
+						<div class="timeline" aria-label="Model usage">
+							<div class="bar-row">
+								<span>Model A</span>
+								<span class="bar-track"><span class="bar-fill" style="width:76%"></span></span>
+								<span>76%</span>
+							</div>
+							<div class="bar-row">
+								<span>Model B</span>
+								<span class="bar-track"><span class="bar-fill green" style="width:18%"></span></span>
+								<span>18%</span>
+							</div>
+							<div class="bar-row">
+								<span>Other</span>
+								<span class="bar-track"><span class="bar-fill blue" style="width:6%"></span></span>
+								<span>6%</span>
+							</div>
+						</div>
+					</div>
+					</div>
+				</details>
+
+				<details id="excluded" class="section">
+					<summary class="section-header">
+						<div>
+							<h2>What is not included</h2>
+							<p class="section-subtitle">A short list of data that is not part of this archive.</p>
+						</div>
+					</summary>
+					<div class="section-body">
+					<div class="notice">
+						Deep Research is not included yet. This archive also leaves out passwords, active logins, private server settings, server logs, and data kept only by outside AI services.
+					</div>
+					</div>
+				</details>
+
+				<footer class="footer">
+					This archive reflects data saved at the time it was created. If memory, knowledge, or workspace data was cleared earlier, deleted content is not recovered here.
+				</footer>
+			</div>
+		</main>
+	</div>
+</body>
+</html>

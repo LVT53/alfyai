@@ -542,6 +542,19 @@ export function requestActiveChatStreamStop(params: {
 	return true;
 }
 
+export function requestActiveChatStreamsStopForUser(userId: string): {
+	stopped: number;
+} {
+	let stopped = 0;
+	for (const [streamId, activeStream] of activeStreams) {
+		if (activeStream.userId !== userId) continue;
+		markPendingStop({ streamId, userId });
+		activeStream.controller.abort();
+		stopped += 1;
+	}
+	return { stopped };
+}
+
 export function wasActiveChatStreamStopRequested(params: {
 	streamId: string | null | undefined;
 	userId: string;

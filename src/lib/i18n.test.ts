@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import chatDict from "./i18n/chat";
+import settingsDict from "./i18n/settings";
 import { collectDictionaryKeys } from "./i18n.test-helpers";
 
 describe("i18n composer and skills namespaces", () => {
@@ -58,6 +59,34 @@ describe("i18n composer and skills namespaces", () => {
 		expect(chatDict.hu["messageBubble.auditMaxTurns"]).not.toBe(
 			chatDict.en["messageBubble.auditMaxTurns"],
 		);
+	});
+
+	it("localizes approved Privacy and Data Controls labels", () => {
+		expect(settingsDict.en.settings_privacyControls).toBe(
+			"Privacy and Data Controls",
+		);
+		expect(settingsDict.en.settings_downloadMyData).toBe("Download my data");
+		expect(settingsDict.en.settings_clearMemoryAndKnowledge).toBe(
+			"Clear memory and knowledge",
+		);
+		expect(settingsDict.en.settings_clearWorkspaceData).toBe(
+			"Clear workspace data",
+		);
+		expect(settingsDict.en.settings_deleteAccountPrivacy).toBe(
+			"Delete account",
+		);
+
+		expect(settingsDict.hu.settings_privacyControls).toBe(
+			"Adatvédelmi és adatkezelési vezérlők",
+		);
+		expect(settingsDict.hu.settings_downloadMyData).toBe("Adataim letöltése");
+		expect(settingsDict.hu.settings_clearMemoryAndKnowledge).toBe(
+			"Memória és tudás törlése",
+		);
+		expect(settingsDict.hu.settings_clearWorkspaceData).toBe(
+			"Munkaterületi adatok törlése",
+		);
+		expect(settingsDict.hu.settings_deleteAccountPrivacy).toBe("Fiók törlése");
 	});
 
 	it("collects and sorts i18n keys for both languages", () => {

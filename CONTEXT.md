@@ -142,6 +142,34 @@ _Avoid_: hidden configuration step, feature enablement, tutorial task
 A required first-run onboarding slide that plainly explains that AlfyAI is not fully local, may process messages and files through configured model providers and integrations, and stores memory or analytics according to the deployment's configuration. It is an acknowledgement disclosure unless the product offers a real opt-out.
 _Avoid_: privacy consent toggle, local-only claim, legal fine print
 
+## Privacy Controls
+
+### Language
+
+**Account Erasure**:
+The user-requested deletion of an AlfyAI account and the personal workspace data that can identify or belong to that user, including app-controlled external memory state. Non-identifying aggregate usage and cost totals may remain, but retained records should not preserve the erased user's email, name, user identity, conversation titles, message identity, or other person-linked traces.
+_Avoid_: account cleanup, soft delete, analytics-preserving delete
+
+**Account Data Archive**:
+A user-requested downloadable ZIP archive that helps a person review the personal data AlfyAI stores about them, including chat messages, app-controlled memory, original uploaded files, generated files, analytics, and related workspace records. It is meant to be comprehensive, human-readable, and easy to navigate by a person, using stable English folder and file names beginning with `Open AlfyAI Data Archive.html` while preserving stored user content in its original language, not a machine-importable backup, restore format, diagnostic trace, or raw structured-data dump for AlfyAI.
+_Avoid_: app backup, restore export, importable snapshot, raw database dump, developer export
+
+**Data Archive Exclusion Note**:
+A plain-language disclosure inside an **Account Data Archive** for a known product area that is intentionally left out of the archive scope. In v1, Deep Research data is excluded and should be named in the archive rather than silently omitted.
+_Avoid_: hidden limitation, missing export, internal TODO
+
+**Privacy and Data Controls**:
+The profile settings section where every signed-in user manages personal data lifecycle actions: downloading an **Account Data Archive**, **Clear Memory and Knowledge**, **Clear Workspace Data**, and **Account Erasure**. It replaces vague danger-zone wording with concrete action names.
+_Avoid_: danger zone, account reset area, GDPR menu, data tools
+
+**Clear Memory and Knowledge**:
+The user action that removes remembered context, Knowledge Base content, document-derived context, continuity state, and stored evidence traces while keeping the user's chat conversations and account. It is narrower than **Clear Workspace Data** and is not **Account Erasure**.
+_Avoid_: reset memory, forget everything, knowledge reset, account reset
+
+**Clear Workspace Data**:
+The user action that removes a user's chats, Knowledge Base content, app-controlled memory, generated files, and workspace continuity while keeping their login, profile settings, avatar, and identifiable historical analytics. It is a workspace wipe for continued use of the same account, not **Account Erasure**.
+_Avoid_: reset account, delete account, factory reset, privacy deletion
+
 ## Normal Chat Context
 
 ### Language

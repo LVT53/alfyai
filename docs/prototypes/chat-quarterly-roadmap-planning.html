@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Quarterly Roadmap Planning - AlfyAI Data Archive</title>
+	<style>
+		:root {
+			--surface-page: #fafaf8;
+			--surface-elevated: #f4f3ee;
+			--surface-overlay: #f7f6f2;
+			--surface-plain: #ffffff;
+			--surface-accent: #fff7f2;
+			--text-primary: #1a1a1a;
+			--text-muted: #6b6b6b;
+			--border-default: rgba(0, 0, 0, 0.08);
+			--border-strong: rgba(0, 0, 0, 0.16);
+			--accent: #c15f3c;
+			--accent-quiet: rgba(193, 95, 60, 0.1);
+			--gold: #c8a882;
+			--green: #2f7d57;
+			--radius-md: 6px;
+			--radius-lg: 8px;
+			--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		html {
+			background: var(--surface-page);
+			color: var(--text-primary);
+			font-family: "Nimbus Sans L", Arial, sans-serif;
+			font-size: 16px;
+			letter-spacing: 0;
+		}
+
+		body {
+			margin: 0;
+			background: var(--surface-page);
+		}
+
+		a {
+			color: inherit;
+			text-decoration: none;
+		}
+
+		.page-shell {
+			min-height: 100vh;
+		}
+
+		.topbar {
+			position: sticky;
+			top: 0;
+			z-index: 10;
+			border-bottom: 1px solid var(--border-default);
+			background: rgba(250, 250, 248, 0.96);
+			backdrop-filter: blur(14px);
+		}
+
+		.topbar-inner {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 1rem;
+			width: min(100%, 72rem);
+			margin: 0 auto;
+			padding: 0.85rem 2rem;
+		}
+
+		.brand {
+			display: flex;
+			align-items: center;
+			gap: 0.65rem;
+			min-width: 0;
+		}
+
+		.logo-box {
+			display: grid;
+			place-items: center;
+			width: 2.1rem;
+			height: 2.1rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: var(--surface-overlay);
+		}
+
+		.brand-text {
+			min-width: 0;
+			font-weight: 700;
+			white-space: nowrap;
+		}
+
+		.back-link {
+			display: inline-flex;
+			align-items: center;
+			min-height: 2.35rem;
+			padding: 0.45rem 0.65rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: var(--surface-plain);
+			color: var(--text-muted);
+			font-size: 0.9rem;
+		}
+
+		main {
+			width: min(100%, 72rem);
+			margin: 0 auto;
+			padding: 2rem;
+		}
+
+		.hero {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) minmax(14rem, 18rem);
+			gap: 1.25rem;
+			align-items: end;
+			padding-bottom: 1.4rem;
+			border-bottom: 1px solid var(--border-default);
+		}
+
+		h1 {
+			margin: 0;
+			font-size: clamp(2rem, 5vw, 3.35rem);
+			line-height: 0.98;
+			letter-spacing: 0;
+			overflow-wrap: anywhere;
+		}
+
+		.hero-copy {
+			max-width: 42rem;
+			margin: 1rem 0 0;
+			color: var(--text-muted);
+			line-height: 1.65;
+		}
+
+		.metadata {
+			display: grid;
+			gap: 0.65rem;
+			padding: 1rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-lg);
+			background: var(--surface-plain);
+			box-shadow: var(--shadow-sm);
+		}
+
+		.meta-row {
+			display: grid;
+			grid-template-columns: 6.5rem minmax(0, 1fr);
+			gap: 0.75rem;
+			font-size: 0.9rem;
+		}
+
+		.meta-label {
+			color: var(--text-muted);
+		}
+
+		.meta-value {
+			font-weight: 700;
+			overflow-wrap: anywhere;
+		}
+
+		.content-grid {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) 18rem;
+			gap: 1rem;
+			align-items: start;
+			margin-top: 1.35rem;
+		}
+
+		.panel {
+			min-width: 0;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-lg);
+			background: rgba(255, 255, 255, 0.7);
+			box-shadow: var(--shadow-sm);
+		}
+
+		.panel-header {
+			padding: 1rem 1.1rem;
+			border-bottom: 1px solid var(--border-default);
+		}
+
+		h2 {
+			margin: 0;
+			font-size: 1.12rem;
+		}
+
+		.panel-copy {
+			margin: 0.35rem 0 0;
+			color: var(--text-muted);
+			font-size: 0.9rem;
+			line-height: 1.45;
+		}
+
+		.transcript {
+			display: grid;
+			gap: 0.85rem;
+			padding: 1rem;
+		}
+
+		.message {
+			display: grid;
+			gap: 0.4rem;
+			max-width: 48rem;
+			padding: 0.9rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-lg);
+			background: var(--surface-plain);
+		}
+
+		.message.user {
+			margin-left: auto;
+			border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+			background: var(--surface-accent);
+		}
+
+		.message-meta {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.45rem 0.75rem;
+			color: var(--text-muted);
+			font-size: 0.78rem;
+		}
+
+		.speaker {
+			color: var(--text-primary);
+			font-weight: 700;
+		}
+
+		.message p {
+			margin: 0;
+			line-height: 1.58;
+		}
+
+		.message ul {
+			margin: 0;
+			padding-left: 1.2rem;
+			line-height: 1.55;
+		}
+
+		.side-panel {
+			display: grid;
+			gap: 0.85rem;
+		}
+
+		.small-card {
+			padding: 0.9rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-lg);
+			background: var(--surface-plain);
+		}
+
+		.small-label {
+			color: var(--text-muted);
+			font-size: 0.75rem;
+			text-transform: uppercase;
+		}
+
+		.small-title {
+			margin: 0.25rem 0 0;
+			font-weight: 700;
+			overflow-wrap: anywhere;
+		}
+
+		.small-copy {
+			margin: 0.25rem 0 0;
+			color: var(--text-muted);
+			font-size: 0.86rem;
+			line-height: 1.45;
+		}
+
+		.file-link {
+			display: block;
+			margin-top: 0.65rem;
+			padding: 0.65rem;
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: var(--surface-overlay);
+			color: var(--accent);
+			font-size: 0.88rem;
+			font-weight: 700;
+			overflow-wrap: anywhere;
+		}
+
+		@media (max-width: 860px) {
+			.hero,
+			.content-grid {
+				grid-template-columns: 1fr;
+			}
+		}
+
+		@media (max-width: 640px) {
+			.topbar-inner {
+				align-items: stretch;
+				flex-direction: column;
+				padding: 0.85rem 1rem;
+			}
+
+			.back-link {
+				justify-content: center;
+			}
+
+			main {
+				padding: 1.2rem 1rem 1.5rem;
+			}
+
+			.meta-row {
+				grid-template-columns: 1fr;
+				gap: 0.15rem;
+			}
+
+			.message {
+				max-width: 100%;
+			}
+		}
+	</style>
+</head>
+<body>
+	<div class="page-shell">
+		<header class="topbar">
+			<div class="topbar-inner">
+				<a class="brand" href="account-data-archive.html" aria-label="AlfyAI data archive home">
+					<span class="logo-box">
+						<svg width="25" height="28" viewBox="0 0 100 112" aria-hidden="true">
+							<path fill="none" stroke="#C8A882" stroke-width="4.2" stroke-linecap="round" d="M50 19 C46 40 36 64 24 88"/>
+							<path fill="none" stroke="#C8A882" stroke-width="4.2" stroke-linecap="round" d="M50 19 C54 40 64 64 76 88"/>
+							<line x1="27" y1="57" x2="73" y2="57" stroke="#C8A882" stroke-width="2.2" stroke-linecap="round"/>
+							<line x1="14" y1="90" x2="36" y2="90" stroke="#C8A882" stroke-width="3.2" stroke-linecap="round"/>
+							<line x1="64" y1="90" x2="86" y2="90" stroke="#C8A882" stroke-width="3.2" stroke-linecap="round"/>
+							<circle cx="50" cy="19" r="3.5" fill="#C8A882"/>
+						</svg>
+					</span>
+					<span class="brand-text">AlfyAI Data Archive</span>
+				</a>
+				<a class="back-link" href="account-data-archive.html#chats">Back to chats</a>
+			</div>
+		</header>
+
+		<main>
+			<section class="hero">
+				<div>
+					<h1>Quarterly roadmap planning</h1>
+					<p class="hero-copy">A readable transcript of the chat messages saved for this conversation. File links open the copies included in this archive.</p>
+				</div>
+				<div class="metadata" aria-label="Chat details">
+					<div class="meta-row">
+						<div class="meta-label">Created</div>
+						<div class="meta-value">May 28, 2026</div>
+					</div>
+					<div class="meta-row">
+						<div class="meta-label">Messages</div>
+						<div class="meta-value">42</div>
+					</div>
+					<div class="meta-row">
+						<div class="meta-label">Files</div>
+						<div class="meta-value">3</div>
+					</div>
+				</div>
+			</section>
+
+			<div class="content-grid">
+				<section class="panel" aria-labelledby="messages-title">
+					<div class="panel-header">
+						<h2 id="messages-title">Chat messages</h2>
+						<p class="panel-copy">Only your messages and AlfyAI responses are shown here.</p>
+					</div>
+					<div class="transcript">
+						<article class="message user">
+							<div class="message-meta">
+								<span class="speaker">Alex Example</span>
+								<span>May 28, 2026, 09:14</span>
+							</div>
+							<p>Can you turn these priorities into a focused execution plan for next quarter?</p>
+						</article>
+
+						<article class="message">
+							<div class="message-meta">
+								<span class="speaker">AlfyAI</span>
+								<span>May 28, 2026, 09:15</span>
+							</div>
+							<p>Yes. I would group the work into three tracks so the plan stays easy to review and update.</p>
+							<ul>
+								<li>Privacy controls: finalize export, memory clearing, workspace clearing, and account deletion.</li>
+								<li>Archive experience: keep the ZIP readable, navigable, and clear about what is not included.</li>
+								<li>Operational checks: confirm cleanup behavior and usage summaries before release.</li>
+							</ul>
+						</article>
+
+						<article class="message user">
+							<div class="message-meta">
+								<span class="speaker">Alex Example</span>
+								<span>May 28, 2026, 09:22</span>
+							</div>
+							<p>Make it shorter and include a downloadable draft.</p>
+						</article>
+
+						<article class="message">
+							<div class="message-meta">
+								<span class="speaker">AlfyAI</span>
+								<span>May 28, 2026, 09:23</span>
+							</div>
+							<p>I created a shorter draft with clear milestones and owners.</p>
+							<a class="file-link" href="#">Files/Generated/quarterly-roadmap-plan.docx</a>
+						</article>
+					</div>
+				</section>
+
+				<aside class="side-panel" aria-label="Chat summary">
+					<div class="small-card">
+						<div class="small-label">Summary</div>
+						<p class="small-title">Planning conversation for the privacy-controls release.</p>
+						<p class="small-copy">The chat includes roadmap shaping, export decisions, and one generated planning document.</p>
+					</div>
+					<div class="small-card">
+						<div class="small-label">Files in this chat</div>
+						<a class="file-link" href="#">quarterly-roadmap-plan.docx</a>
+						<a class="file-link" href="#">privacy-controls-notes.pdf</a>
+						<a class="file-link" href="#">release-checklist.html</a>
+					</div>
+					<div class="small-card">
+						<div class="small-label">Memory used later</div>
+						<p class="small-title">Prefers compact planning documents with clear next actions.</p>
+						<p class="small-copy">This memory item has its own page in the archive.</p>
+					</div>
+				</aside>
+			</div>
+		</main>
+	</div>
+</body>
+</html>

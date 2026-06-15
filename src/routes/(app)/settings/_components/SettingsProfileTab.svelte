@@ -66,11 +66,15 @@ let {
 	personalityProfiles = [],
 	selectedPersonalityId = null,
 	onChangePersonality = undefined,
-	onOpenResetModal,
+	onOpenDownloadArchive,
+	onOpenClearMemory,
+	onOpenClearWorkspace,
 	onOpenDeleteModal,
-	onForgetEverything,
-	forgetEverythingLoading = false,
-	forgetEverythingError = "",
+	archiveLoading = false,
+	clearMemoryLoading = false,
+	clearWorkspaceLoading = false,
+	privacyControlsError = "",
+	privacyControlsMessage = "",
 	skillsEnabled = false,
 	projects = [],
 }: {
@@ -121,11 +125,15 @@ let {
 	}>;
 	selectedPersonalityId?: string | null;
 	onChangePersonality?: ((id: string | null) => void) | undefined;
-	onOpenResetModal: () => void;
+	onOpenDownloadArchive: () => void;
+	onOpenClearMemory: () => void;
+	onOpenClearWorkspace: () => void;
 	onOpenDeleteModal: () => void;
-	onForgetEverything: () => void | Promise<void>;
-	forgetEverythingLoading?: boolean;
-	forgetEverythingError?: string;
+	archiveLoading?: boolean;
+	clearMemoryLoading?: boolean;
+	clearWorkspaceLoading?: boolean;
+	privacyControlsError?: string;
+	privacyControlsMessage?: string;
 	skillsEnabled?: boolean;
 	projects?: Project[];
 } = $props();
@@ -403,23 +411,29 @@ const explicitModelOptions = $derived(
 
 <UserSkillsSettingsSurface {skillsEnabled} />
 
-<section class="settings-card settings-card-danger mb-4">
-	<h2 class="settings-section-title text-danger">{$t('settings_dangerZone')}</h2>
+<section class="settings-card mb-4">
+	<h2 class="settings-section-title">{$t('settings_privacyControls')}</h2>
 	<p class="mb-4 text-sm text-text-secondary">
-		{$t('settings_resetDescription')}
+		{$t('settings_privacyControlsDescription')}
 	</p>
-	{#if forgetEverythingError}
-		<p class="mb-3 text-sm text-danger">{forgetEverythingError}</p>
+	{#if privacyControlsError}
+		<p class="mb-3 text-sm text-danger">{privacyControlsError}</p>
+	{/if}
+	{#if privacyControlsMessage}
+		<p class="mb-3 text-sm text-success">{privacyControlsMessage}</p>
 	{/if}
 	<div class="flex flex-wrap gap-2">
-		<button class="btn-secondary" onclick={onOpenResetModal}>
-			{$t('settings_resetAccount')}
+		<button class="btn-secondary" onclick={onOpenDownloadArchive} disabled={archiveLoading}>
+			{archiveLoading ? $t('settings_downloadingData') : $t('settings_downloadMyData')}
+		</button>
+		<button class="btn-secondary" onclick={onOpenClearMemory} disabled={clearMemoryLoading}>
+			{clearMemoryLoading ? $t('settings_clearing') : $t('settings_clearMemoryAndKnowledge')}
+		</button>
+		<button class="btn-secondary" onclick={onOpenClearWorkspace} disabled={clearWorkspaceLoading}>
+			{clearWorkspaceLoading ? $t('settings_clearing') : $t('settings_clearWorkspaceData')}
 		</button>
 		<button class="btn-danger text-sm" onclick={onOpenDeleteModal}>
-			{$t('settings_deleteAccount')}
-		</button>
-		<button class="btn-secondary" style="border-color: var(--danger); color: var(--danger);" onclick={onForgetEverything} disabled={forgetEverythingLoading}>
-			{forgetEverythingLoading ? $t('settings_resetting') : $t('settings_resetMemory')}
+			{$t('settings_deleteAccountPrivacy')}
 		</button>
 	</div>
 </section>

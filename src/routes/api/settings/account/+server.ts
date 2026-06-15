@@ -2,11 +2,11 @@ import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { clearSessionCookie } from "$lib/server/services/auth";
 import {
-	type DeleteUserAccountResult,
-	deleteUserAccountWithCleanup,
-	type ResetUserAccountResult,
-	resetUserAccountStateWithCleanup,
-} from "$lib/server/services/cleanup";
+	type AccountErasureResult,
+	eraseUserAccount,
+	type ClearWorkspaceDataResult,
+	clearWorkspaceData,
+} from "$lib/server/services/privacy-controls";
 import type { RequestHandler } from "./$types";
 
 function parsePasswordBody(body: unknown): string | null {
@@ -39,9 +39,9 @@ export const DELETE: RequestHandler = async (event) => {
 		return json({ error: "password is required" }, { status: 400 });
 	}
 
-	let result: DeleteUserAccountResult;
+	let result: AccountErasureResult;
 	try {
-		result = await deleteUserAccountWithCleanup(userId, password);
+		result = await eraseUserAccount(userId, password);
 	} catch (error) {
 		console.error(
 			"[ACCOUNT_DELETE] Failed to fully delete user account:",
@@ -80,9 +80,9 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: "password is required" }, { status: 400 });
 	}
 
-	let result: ResetUserAccountResult;
+	let result: ClearWorkspaceDataResult;
 	try {
-		result = await resetUserAccountStateWithCleanup(userId, password);
+		result = await clearWorkspaceData(userId, password);
 	} catch (error) {
 		console.error("[ACCOUNT_RESET] Failed to fully reset user account:", error);
 		return json(

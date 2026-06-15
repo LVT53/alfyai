@@ -10,7 +10,10 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import type { AdminManagedUserSummary, UserRole } from "$lib/types";
-import { deleteUserAccountAsAdminWithCleanup } from "./cleanup";
+import {
+	DETACHED_SHARED_CONTENT_OWNER_ID,
+	eraseUserAccountAsAdmin,
+} from "./privacy-controls";
 import { modelPreferenceStorageForSystemDefault } from "./model-preferences";
 
 export interface CreateManagedUserInput {
@@ -58,7 +61,9 @@ async function ensureNotLastAdmin(userId: string): Promise<void> {
 }
 
 export async function listManagedUsers(): Promise<AdminManagedUserSummary[]> {
-	const userRows = await db.select().from(users);
+	const userRows = (await db.select().from(users)).filter(
+		(row) => row.id !== DETACHED_SHARED_CONTENT_OWNER_ID,
+	);
 
 	if (userRows.length === 0) {
 		return [];
@@ -307,5 +312,5 @@ export async function deleteManagedUser(params: {
 	}
 
 	await ensureNotLastAdmin(params.targetUserId);
-	await deleteUserAccountAsAdminWithCleanup(params.targetUserId);
+	await eraseUserAccountAsAdmin(params.targetUserId);
 }

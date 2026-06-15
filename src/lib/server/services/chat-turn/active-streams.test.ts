@@ -9,6 +9,7 @@ import {
 	getStreamBufferSnapshot,
 	isStreamActive,
 	registerActiveChatStream,
+	requestActiveChatStreamsStopForUser,
 	requestActiveChatStreamStop,
 	subscribeToStream,
 	unregisterActiveChatStream,
@@ -38,6 +39,41 @@ describe("active chat streams registry", () => {
 		expect(controller.signal.aborted).toBe(true);
 
 		unregisterActiveChatStream("stream-1", controller);
+	});
+
+	it("aborts all active controllers for one user without stopping another user", () => {
+		const firstController = new AbortController();
+		const secondController = new AbortController();
+		const otherController = new AbortController();
+		registerActiveChatStream({
+			streamId: "stream-user-stop-1",
+			userId: "user-1",
+			controller: firstController,
+			conversationId: "conversation-user-stop-1",
+		});
+		registerActiveChatStream({
+			streamId: "stream-user-stop-2",
+			userId: "user-1",
+			controller: secondController,
+			conversationId: "conversation-user-stop-2",
+		});
+		registerActiveChatStream({
+			streamId: "stream-other-user",
+			userId: "user-2",
+			controller: otherController,
+			conversationId: "conversation-other-user",
+		});
+
+		const result = requestActiveChatStreamsStopForUser("user-1");
+
+		expect(result).toEqual({ stopped: 2 });
+		expect(firstController.signal.aborted).toBe(true);
+		expect(secondController.signal.aborted).toBe(true);
+		expect(otherController.signal.aborted).toBe(false);
+
+		unregisterActiveChatStream("stream-user-stop-1", firstController);
+		unregisterActiveChatStream("stream-user-stop-2", secondController);
+		unregisterActiveChatStream("stream-other-user", otherController);
 	});
 
 	it("aborts a controller that registers after an early stop request", () => {

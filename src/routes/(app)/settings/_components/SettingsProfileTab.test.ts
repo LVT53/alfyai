@@ -34,12 +34,90 @@ const baseProps = {
 	onChangeTheme: vi.fn(),
 	onChangeTitleLanguage: vi.fn(),
 	onChangeUiLanguage: vi.fn(),
-	onOpenResetModal: vi.fn(),
+	onOpenDownloadArchive: vi.fn(),
+	onOpenClearMemory: vi.fn(),
+	onOpenClearWorkspace: vi.fn(),
 	onOpenDeleteModal: vi.fn(),
-	onForgetEverything: vi.fn(),
 };
 
 describe("SettingsProfileTab model preference", () => {
+	it("shows approved Privacy and Data Controls labels and action callbacks", async () => {
+		const onOpenDownloadArchive = vi.fn();
+		const onOpenClearMemory = vi.fn();
+		const onOpenClearWorkspace = vi.fn();
+		const onOpenDeleteModal = vi.fn();
+
+		render(SettingsProfileTab, {
+			...baseProps,
+			selectedModel: null,
+			effectiveModel: "model1",
+			systemDefaultModel: "model1",
+			onChangeModel: vi.fn(),
+			onOpenDownloadArchive,
+			onOpenClearMemory,
+			onOpenClearWorkspace,
+			onOpenDeleteModal,
+		});
+
+		expect(
+			screen.getByRole("heading", { name: "Privacy and Data Controls" }),
+		).toBeInTheDocument();
+		const changePasswordHeading = screen.getByRole("heading", {
+			name: "Change Password",
+		});
+		const privacyHeading = screen.getByRole("heading", {
+			name: "Privacy and Data Controls",
+		});
+		const preferencesHeading = screen.getByRole("heading", {
+			name: "Preferences",
+		});
+		const dataImportHeading = screen.getByRole("heading", {
+			name: "Data & Import",
+		});
+		const skillsHeading = screen.getByRole("heading", {
+			name: "Private skills",
+		});
+		expect(
+			changePasswordHeading.compareDocumentPosition(privacyHeading) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			preferencesHeading.compareDocumentPosition(privacyHeading) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			dataImportHeading.compareDocumentPosition(privacyHeading) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			skillsHeading.compareDocumentPosition(privacyHeading) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(screen.queryByText("Danger Zone")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Reset Account" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Reset Memory" }),
+		).not.toBeInTheDocument();
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Download my data" }),
+		);
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Clear memory and knowledge" }),
+		);
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Clear workspace data" }),
+		);
+		await fireEvent.click(screen.getByRole("button", { name: "Delete account" }));
+
+		expect(onOpenDownloadArchive).toHaveBeenCalledOnce();
+		expect(onOpenClearMemory).toHaveBeenCalledOnce();
+		expect(onOpenClearWorkspace).toHaveBeenCalledOnce();
+		expect(onOpenDeleteModal).toHaveBeenCalledOnce();
+	});
+
 	it("shows System default first with the resolved model and emits null for inheritance", async () => {
 		const onChangeModel = vi.fn();
 

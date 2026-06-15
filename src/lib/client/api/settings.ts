@@ -1,5 +1,11 @@
 import type { UserModelPreference, UserSettings } from "$lib/types";
-import { type FetchLike, requestJson } from "./http";
+import {
+	ApiError,
+	type FetchLike,
+	readErrorPayload,
+	requestJson,
+	requestResponse,
+} from "./http";
 
 // Re-export admin functions for backward compatibility
 export {
@@ -212,7 +218,10 @@ export async function updatePassword(
 	);
 }
 
-export async function deleteAccount(password: string): Promise<void> {
+export async function deleteAccount(
+	password: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<void> {
 	await requestJson<{ success?: boolean }>(
 		"/api/settings/account",
 		{
@@ -221,10 +230,99 @@ export async function deleteAccount(password: string): Promise<void> {
 			body: JSON.stringify({ password }),
 		},
 		"Failed to delete account",
+		fetchImpl,
 	);
 }
 
-export async function resetAccount(password: string): Promise<void> {
+export interface AccountDataArchiveDownload {
+	blob: Blob;
+	filename: string;
+}
+
+const DEFAULT_ARCHIVE_FILENAME = "AlfyAI Data Archive.zip";
+
+function filenameFromContentDisposition(header: string | null): string {
+	if (!header) return DEFAULT_ARCHIVE_FILENAME;
+
+	const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(header);
+	if (utf8Match?.[1]) {
+		try {
+			return decodeURIComponent(utf8Match[1].trim().replace(/^"|"$/g, ""));
+		} catch {
+			return utf8Match[1].trim().replace(/^"|"$/g, "");
+		}
+	}
+
+	const filenameMatch = /filename="?([^";]+)"?/i.exec(header);
+	return filenameMatch?.[1]?.trim() || DEFAULT_ARCHIVE_FILENAME;
+}
+
+export function saveBlobAsDownload(blob: Blob, filename: string): void {
+	const url = URL.createObjectURL(blob);
+	const anchor = document.createElement("a");
+	anchor.href = url;
+	anchor.download = filename;
+	anchor.style.display = "none";
+	document.body.appendChild(anchor);
+	anchor.click();
+	document.body.removeChild(anchor);
+	URL.revokeObjectURL(url);
+}
+
+export async function downloadAccountDataArchive(
+	password: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<AccountDataArchiveDownload> {
+	const response = await requestResponse(
+		"/api/settings/account/archive",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ password }),
+		},
+		fetchImpl,
+	);
+	if (!response.ok) {
+		const error = await readErrorPayload(
+			response,
+			"Failed to download account data archive",
+		);
+		throw new ApiError(error.message, {
+			code: error.code,
+			errorKey: error.errorKey,
+			fieldErrors: error.fieldErrors,
+			status: response.status,
+		});
+	}
+
+	return {
+		blob: await response.blob(),
+		filename: filenameFromContentDisposition(
+			response.headers.get("Content-Disposition"),
+		),
+	};
+}
+
+export async function clearMemoryAndKnowledge(
+	password: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<void> {
+	await requestJson<{ success?: boolean }>(
+		"/api/settings/account/clear-memory",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ password }),
+		},
+		"Failed to clear memory and knowledge",
+		fetchImpl,
+	);
+}
+
+export async function clearWorkspaceData(
+	password: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<void> {
 	await requestJson<{ success?: boolean }>(
 		"/api/settings/account",
 		{
@@ -232,6 +330,11 @@ export async function resetAccount(password: string): Promise<void> {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ password }),
 		},
-		"Failed to reset account",
+		"Failed to clear workspace data",
+		fetchImpl,
 	);
+}
+
+export async function resetAccount(password: string): Promise<void> {
+	await clearWorkspaceData(password);
 }

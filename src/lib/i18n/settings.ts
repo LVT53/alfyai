@@ -608,6 +608,18 @@ const settingsDict = {
 		settings_createUserTitle: "Create User",
 		settings_creating: "Creating…",
 		settings_currentPassword: "Current password",
+		settings_archiveDescription:
+			"Confirm your password to prepare a transient ZIP archive for your signed-in account.",
+		settings_archiveDownloaded: "Your data archive download has started.",
+		settings_clearMemoryAndKnowledge: "Clear memory and knowledge",
+		settings_clearMemoryDescription:
+			"This clears remembered context, Knowledge Base documents, document-derived context, continuity state, embeddings, working-set/context status, and stored evidence traces. Your chats stay available and you stay signed in.",
+		settings_clearMemorySuccess:
+			"Memory and knowledge have been cleared. Your chats are still available.",
+		settings_clearWorkspaceData: "Clear workspace data",
+		settings_clearWorkspaceDescription:
+			"This clears chats, Knowledge Base content, app-controlled memory, generated files, and workspace continuity while keeping your login, profile settings, avatar, and historical analytics. You will be signed out after it finishes.",
+		settings_clearing: "Clearing...",
 		settings_dangerZone: "Danger Zone",
 		settings_dark: "Dark",
 		settings_defaultModel: "Default model",
@@ -633,6 +645,16 @@ const settingsDict = {
 		settings_optionalDisplayName: "Optional display name",
 		settings_passwordLabel: "Password",
 		settings_preferences: "Preferences",
+		settings_privacyControls: "Privacy and Data Controls",
+		settings_privacyControlsDescription:
+			"Download your account archive or clear data from this workspace. Each action requires your password before anything changes.",
+		settings_deleteAccountPrivacy: "Delete account",
+		settings_deleteAccountPrivacyDescription:
+			"This permanently deletes your account and personal workspace data after stopping user-owned running work. Only anonymous aggregate usage and cost totals may remain. You will be signed out after it finishes.",
+		settings_downloadBeforeDestructive:
+			"You can download your data before continuing. The destructive action is still available whether or not you download an archive.",
+		settings_downloadMyData: "Download my data",
+		settings_downloadingData: "Preparing download...",
 		settings_profileInformation: "Profile Information",
 		settings_removePhoto: "Remove photo",
 		settings_removing: "Removing...",
@@ -1283,6 +1305,18 @@ const settingsDict = {
 		settings_createUserTitle: "Felhasználó létrehozása",
 		settings_creating: "Létrehozás...",
 		settings_currentPassword: "Jelenlegi jelszó",
+		settings_archiveDescription:
+			"Erősítsd meg a jelszavad, hogy elkészüljön a bejelentkezett fiókod ideiglenes ZIP-archívuma.",
+		settings_archiveDownloaded: "Elindult az adatarchívum letöltése.",
+		settings_clearMemoryAndKnowledge: "Memória és tudás törlése",
+		settings_clearMemoryDescription:
+			"Ez törli a megjegyzett kontextust, a Tudásbázis dokumentumait, a dokumentumokból származó kontextust, a folytonossági állapotot, a beágyazásokat, a munkakészlet- és kontextusállapotot, valamint a tárolt bizonyítéknyomokat. A beszélgetéseid megmaradnak, és bejelentkezve maradsz.",
+		settings_clearMemorySuccess:
+			"A memória és a tudás törölve. A beszélgetéseid továbbra is elérhetők.",
+		settings_clearWorkspaceData: "Munkaterületi adatok törlése",
+		settings_clearWorkspaceDescription:
+			"Ez törli a beszélgetéseket, a Tudásbázis tartalmát, az alkalmazás által kezelt memóriát, a generált fájlokat és a munkaterületi folytonosságot, miközben megtartja a bejelentkezést, a profilbeállításokat, az avatart és a korábbi analitikai adatokat. A befejezés után kijelentkeztetünk.",
+		settings_clearing: "Törlés...",
 		settings_dangerZone: "Veszélyzóna",
 		settings_dark: "Sötét",
 		settings_defaultModel: "Alapértelmezett modell",
@@ -1307,6 +1341,16 @@ const settingsDict = {
 		settings_optionalDisplayName: "Opcionális megjelenítési név",
 		settings_passwordLabel: "Jelszó",
 		settings_preferences: "Beállítások",
+		settings_privacyControls: "Adatvédelmi és adatkezelési vezérlők",
+		settings_privacyControlsDescription:
+			"Töltsd le a fiókarchívumodat, vagy törölj adatokat ebből a munkaterületből. Minden művelethez meg kell adnod a jelszavad, mielőtt bármi változna.",
+		settings_deleteAccountPrivacy: "Fiók törlése",
+		settings_deleteAccountPrivacyDescription:
+			"Ez véglegesen törli a fiókodat és a személyes munkaterületi adataidat, miután leállítja a hozzád tartozó futó munkákat. Csak névtelenített összesített használati és költségadatok maradhatnak meg. A befejezés után kijelentkeztetünk.",
+		settings_downloadBeforeDestructive:
+			"A folytatás előtt letöltheted az adataidat. A törlő művelet akkor is elérhető marad, ha nem töltesz le archívumot.",
+		settings_downloadMyData: "Adataim letöltése",
+		settings_downloadingData: "Letöltés előkészítése...",
 		settings_profileInformation: "Profiladatok",
 		settings_removePhoto: "Kép eltávolítása",
 		settings_removing: "Eltávolítás...",
