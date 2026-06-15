@@ -243,6 +243,57 @@ describe("generated document source schema", () => {
 		}
 	});
 
+	it("matches object rows by explicit table column aliases", () => {
+		const result = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Alias table report",
+			blocks: [
+				{
+					type: "table",
+					columns: [{ label: "Topic", key: "topic_name" }, { label: "Score" }],
+					rows: [{ topic_name: "Profile Inquiry", Score: 6 }],
+				},
+			],
+		});
+
+		expect(result).toMatchObject({ ok: true });
+		if (!result.ok) return;
+
+		expect(result.source.blocks[0]).toMatchObject({
+			type: "table",
+			columns: [
+				{ key: "topic_name", label: "Topic", kind: "text" },
+				{ key: "score", label: "Score", kind: "text" },
+			],
+			rows: [{ topic_name: "Profile Inquiry", score: 6 }],
+		});
+	});
+
+	it("accepts explicit object row aliases with null values", () => {
+		const result = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Null alias table report",
+			blocks: [
+				{
+					type: "table",
+					columns: [{ label: "Score", key: "score" }],
+					rows: [{ score: null }],
+				},
+			],
+		});
+
+		expect(result).toMatchObject({ ok: true });
+		if (!result.ok) return;
+
+		expect(result.source.blocks[0]).toMatchObject({
+			type: "table",
+			columns: [{ key: "score", label: "Score", kind: "text" }],
+			rows: [{ score: null }],
+		});
+	});
+
 	it("accepts Chart.js-style bar chart data and normalizes it for renderers", () => {
 		const result = validateGeneratedDocumentSource({
 			version: 1,

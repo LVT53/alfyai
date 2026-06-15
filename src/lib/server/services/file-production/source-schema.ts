@@ -126,10 +126,7 @@ function normalizeScalarRecord(
 	for (const [key, cellValue] of Object.entries(value)) {
 		if (key === "colspan" || key === "rowspan") return null;
 		if (!isScalar(cellValue)) return null;
-		normalized[key] =
-			typeof cellValue === "string"
-				? cellValue.replace(/\s+/g, " ").trim()
-				: cellValue;
+		normalized[key] = normalizeTableScalar(cellValue);
 	}
 	return normalized;
 }
@@ -158,35 +155,58 @@ function makeColumnKey(
 	return key;
 }
 
-function normalizeTableColumn(
+function normalizeTableScalar(
+	value: GeneratedDocumentScalar,
+): GeneratedDocumentScalar {
+	return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : value;
+}
+
+function getTableColumnLabel(
+	columnRecord: Record<string, unknown> | null,
 	value: unknown,
-	index: number,
-	usedKeys: Set<string>,
-): TableColumnDraft | null {
-	const columnRecord = isRecord(value) ? value : null;
-	const label =
+): string | null {
+	return (
 		cleanText(columnRecord?.label) ??
 		cleanText(columnRecord?.header) ??
 		cleanText(columnRecord?.name) ??
 		cleanText(columnRecord?.key) ??
-		cleanText(value);
-	if (!label) return null;
+		cleanText(value)
+	);
+}
 
+function getTableColumnKey(
+	columnRecord: Record<string, unknown> | null,
+	label: string,
+	index: number,
+	usedKeys: Set<string>,
+): string {
 	const explicitKey = cleanKey(columnRecord?.key);
-	const key =
-		explicitKey && !usedKeys.has(explicitKey)
-			? explicitKey
-			: makeColumnKey(label, index, usedKeys);
-	if (explicitKey && key === explicitKey) usedKeys.add(explicitKey);
-	const kind =
-		columnRecord?.kind === "number" ||
+	if (explicitKey && !usedKeys.has(explicitKey)) {
+		usedKeys.add(explicitKey);
+		return explicitKey;
+	}
+	return makeColumnKey(label, index, usedKeys);
+}
+
+function getTableColumnKind(
+	columnRecord: Record<string, unknown> | null,
+): GeneratedDocumentTableColumn["kind"] {
+	return columnRecord?.kind === "number" ||
 		columnRecord?.kind === "currency" ||
 		columnRecord?.kind === "percent" ||
 		columnRecord?.kind === "date" ||
 		columnRecord?.kind === "boolean"
-			? columnRecord.kind
-			: "text";
-	const sourceKeys = Array.from(
+		? columnRecord.kind
+		: "text";
+}
+
+function getTableColumnSourceKeys(
+	columnRecord: Record<string, unknown> | null,
+	label: string,
+	key: string,
+): string[] {
+	const explicitKey = cleanKey(columnRecord?.key);
+	return Array.from(
 		new Set(
 			[
 				explicitKey,
@@ -199,35 +219,104 @@ function normalizeTableColumn(
 			].filter((sourceKey): sourceKey is string => Boolean(sourceKey)),
 		),
 	);
-	return { key, label, kind, sourceKeys };
+}
+
+function normalizeTableColumn(
+	value: unknown,
+	index: number,
+	usedKeys: Set<string>,
+): TableColumnDraft | null {
+	const columnRecord = isRecord(value) ? value : null;
+	const label = getTableColumnLabel(columnRecord, value);
+	if (!label) return null;
+
+	const key = getTableColumnKey(columnRecord, label, index, usedKeys);
+	return {
+		key,
+		label,
+		kind: getTableColumnKind(columnRecord),
+		sourceKeys: getTableColumnSourceKeys(columnRecord, label, key),
+	};
+}
+
+function getTableArraySource(value: unknown, keys: readonly string[]): unknown {
+	if (!isRecord(value)) return null;
+	for (const key of keys) {
+		if (Array.isArray(value[key])) return value[key];
+	}
+	return null;
 }
 
 function getTableColumnSource(block: Record<string, unknown>): unknown {
-	if (Array.isArray(block.columns)) return block.columns;
-	if (Array.isArray(block.headers)) return block.headers;
-	if (Array.isArray(block.header)) return block.header;
-	if (isRecord(block.data)) {
-		if (Array.isArray(block.data.columns)) return block.data.columns;
-		if (Array.isArray(block.data.headers)) return block.data.headers;
-		if (Array.isArray(block.data.header)) return block.data.header;
-	}
-	if (Array.isArray(block.data) && Array.isArray(block.data[0]))
-		return block.data[0];
-	return null;
+	return (
+		getTableArraySource(block, ["columns", "headers", "header"]) ??
+		getTableArraySource(block.data, ["columns", "headers", "header"]) ??
+		(Array.isArray(block.data) && Array.isArray(block.data[0])
+			? block.data[0]
+			: null)
+	);
 }
 
 function getTableRowsSource(block: Record<string, unknown>): unknown {
-	if (Array.isArray(block.rows)) return block.rows;
-	if (Array.isArray(block.body)) return block.body;
-	if (Array.isArray(block.cells)) return block.cells;
-	if (isRecord(block.data)) {
-		if (Array.isArray(block.data.rows)) return block.data.rows;
-		if (Array.isArray(block.data.body)) return block.data.body;
-		if (Array.isArray(block.data.cells)) return block.data.cells;
+	return (
+		getTableArraySource(block, ["rows", "body", "cells"]) ??
+		getTableArraySource(block.data, ["rows", "body", "cells"]) ??
+		(Array.isArray(block.data) && Array.isArray(block.data[0])
+			? block.data.slice(1)
+			: null)
+	);
+}
+
+function normalizeTableRowCell(
+	value: GeneratedDocumentScalar,
+): GeneratedDocumentScalar {
+	return normalizeTableScalar(value);
+}
+
+function normalizeTableArrayRow(
+	rowSource: unknown[],
+	columns: TableColumnDraft[],
+): Record<string, GeneratedDocumentScalar> | null {
+	if (rowSource.length > columns.length) return null;
+	const row: Record<string, GeneratedDocumentScalar> = {};
+	for (const [index, column] of columns.entries()) {
+		const value = rowSource[index] ?? null;
+		if (!isScalar(value)) return null;
+		row[column.key] = normalizeTableRowCell(value);
 	}
-	if (Array.isArray(block.data) && Array.isArray(block.data[0]))
-		return block.data.slice(1);
-	return null;
+	return row;
+}
+
+function findTableColumnValue(
+	rowSource: Record<string, GeneratedDocumentScalar>,
+	column: TableColumnDraft,
+): { found: boolean; value: GeneratedDocumentScalar } {
+	const hasOwn = Object.prototype.hasOwnProperty;
+	for (const sourceKey of column.sourceKeys) {
+		if (hasOwn.call(rowSource, sourceKey)) {
+			return { found: true, value: rowSource[sourceKey] };
+		}
+	}
+	return { found: false, value: null };
+}
+
+function normalizeTableObjectRow(
+	rowSource: unknown,
+	columns: TableColumnDraft[],
+): Record<string, GeneratedDocumentScalar> | null {
+	const scalarRecord = normalizeScalarRecord(rowSource);
+	if (!scalarRecord) return null;
+
+	const row: Record<string, GeneratedDocumentScalar> = {};
+	let matchedCellCount = 0;
+	for (const column of columns) {
+		const { found, value } = findTableColumnValue(scalarRecord, column);
+		if (found) matchedCellCount += 1;
+		row[column.key] = value;
+	}
+	if (matchedCellCount === 0 && Object.keys(scalarRecord).length > 0)
+		return null;
+	return row;
 }
 
 function normalizeTableRows(
@@ -236,38 +325,17 @@ function normalizeTableRows(
 ): Record<string, GeneratedDocumentScalar>[] {
 	if (!Array.isArray(rowsSource)) return [];
 
-	const hasOwn = Object.prototype.hasOwnProperty;
 	const rows: Record<string, GeneratedDocumentScalar>[] = [];
 	for (const rowSource of rowsSource) {
-		const row: Record<string, GeneratedDocumentScalar> = {};
 		if (Array.isArray(rowSource)) {
-			if (rowSource.length > columns.length) return [];
-			for (const [index, column] of columns.entries()) {
-				const value = rowSource[index] ?? null;
-				if (!isScalar(value)) return [];
-				row[column.key] =
-					typeof value === "string" ? value.replace(/\s+/g, " ").trim() : value;
-			}
+			const row = normalizeTableArrayRow(rowSource, columns);
+			if (!row) return [];
 			rows.push(row);
 			continue;
 		}
 
-		const scalarRecord = normalizeScalarRecord(rowSource);
-		if (!scalarRecord) return [];
-		let matchedCellCount = 0;
-		for (const column of columns) {
-			let value: GeneratedDocumentScalar = null;
-			for (const sourceKey of column.sourceKeys) {
-				if (hasOwn.call(scalarRecord, sourceKey)) {
-					value = scalarRecord[sourceKey];
-					matchedCellCount += 1;
-					break;
-				}
-			}
-			row[column.key] = value;
-		}
-		if (matchedCellCount === 0 && Object.keys(scalarRecord).length > 0)
-			return [];
+		const row = normalizeTableObjectRow(rowSource, columns);
+		if (!row) return [];
 		rows.push(row);
 	}
 	return rows;
