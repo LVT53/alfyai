@@ -7,10 +7,15 @@ import type { SynthesisNotes } from "./synthesis";
 import {
 	buildSupportingFindingsForSources,
 	cleanupDeepResearchTestDb,
+	createApprovedDeepResearchJob,
+	createApprovedDeepResearchJobWithReviewedSource,
 	seedCompletedMeaningfulPasses,
-	seedDefaultReviewedAiCopyrightSource,
 	setupDeepResearchTestDb,
 } from "./test-helpers";
+import {
+	listDeepResearchGeneratedOutputIds,
+	readDeepResearchConversationState,
+} from "./test-read-model";
 
 let dbPath: string;
 
@@ -28,6 +33,51 @@ const buildSynthesisNotes = (
 		findings,
 	});
 
+async function createApprovedReportJob(input?: {
+	userId?: string;
+	conversationId?: string;
+	triggerMessageId?: string;
+	userRequest?: string;
+	depth?: "focused" | "standard" | "max";
+	now?: Date;
+	meaningfulPassCount?: number;
+	meaningfulPassOptions?: {
+		startPassNumber?: number;
+	};
+}) {
+	const approved = await createApprovedDeepResearchJob({
+		...input,
+		meaningfulPassCount: 0,
+	});
+	const meaningfulPassCount = input?.meaningfulPassCount ?? 3;
+	if (meaningfulPassCount > 0) {
+		await seedCompletedMeaningfulPasses(approved.id, meaningfulPassCount, {
+			userId: approved.userId,
+			conversationId: approved.conversationId,
+			...input?.meaningfulPassOptions,
+		});
+	}
+	return approved;
+}
+
+async function createApprovedReportJobWithReviewedSource(input?: {
+	userId?: string;
+	conversationId?: string;
+	triggerMessageId?: string;
+	userRequest?: string;
+	depth?: "focused" | "standard" | "max";
+	now?: Date;
+	meaningfulPassCount?: number;
+	source?: Parameters<
+		typeof createApprovedDeepResearchJobWithReviewedSource
+	>[0]["source"];
+}) {
+	return createApprovedDeepResearchJobWithReviewedSource({
+		...input,
+		meaningfulPassCount: input?.meaningfulPassCount ?? 3,
+	});
+}
+
 describe("audited Deep Research report completion", () => {
 	beforeEach(async () => {
 		dbPath = await setupDeepResearchTestDb("report-completion");
@@ -42,12 +92,9 @@ describe("audited Deep Research report completion", () => {
 	});
 
 	it("writes an audited Research Report artifact from supported findings and seals the conversation", async () => {
-		const { db } = await import("$lib/server/db");
 		const {
-			approveDeepResearchPlan,
 			completeDeepResearchJobWithAuditedReport,
 			listConversationDeepResearchJobs,
-			startDeepResearchJobShell,
 		} = await import("./index");
 		const {
 			listResearchSources,
@@ -58,25 +105,10 @@ describe("audited Deep Research report completion", () => {
 			"$lib/server/services/knowledge/store"
 		);
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
-			userRequest: "Compare EU and US AI copyright training data rules",
-			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
-		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 3);
-		const { source, reviewedSource } =
-			await seedDefaultReviewedAiCopyrightSource({
-				jobId: created.id,
-				userId: "user-1",
-				conversationId: "conv-1",
+		const { created, source, reviewedSource } =
+			await createApprovedReportJobWithReviewedSource({
+				userRequest: "Compare EU and US AI copyright training data rules",
+				depth: "standard",
 			});
 		const synthesisNotes: SynthesisNotes = {
 			jobId: created.id,
@@ -124,17 +156,11 @@ describe("audited Deep Research report completion", () => {
 		const reportArtifact = completed?.reportArtifactId
 			? await getArtifactForUser("user-1", completed.reportArtifactId)
 			: null;
-		const [conversation] = await db
-			.select({
-				status: schema.conversations.status,
-				sealedAt: schema.conversations.sealedAt,
-			})
-			.from(schema.conversations)
-			.where(eq(schema.conversations.id, "conv-1"));
 		const sources = await listResearchSources({
 			userId: "user-1",
 			jobId: created.id,
 		});
+		const conversation = await readDeepResearchConversationState("conv-1");
 
 		expect(completed).toMatchObject({
 			id: created.id,
@@ -226,31 +252,20 @@ describe("audited Deep Research report completion", () => {
 
 	it("turns unsupported claims into visible limitations and still completes when supported findings remain", async () => {
 		const { db } = await import("$lib/server/db");
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { markResearchSourceReviewed, saveDiscoveredResearchSource } =
 			await import("./sources");
 		const { getArtifactForUser } = await import(
 			"$lib/server/services/knowledge/store"
 		);
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Assess battery cost and supply risk trends",
 			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
+			meaningfulPassCount: 3,
 		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 3);
 		const source = await saveDiscoveredResearchSource({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -320,11 +335,9 @@ describe("audited Deep Research report completion", () => {
 
 	it("writes a Limited Research Report artifact from partial cited central claims and seals the conversation", async () => {
 		const { db } = await import("$lib/server/db");
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
 		const { upsertResearchPassCheckpoint } = await import("./pass-state");
 		const { markResearchSourceReviewed, saveDiscoveredResearchSource } =
@@ -336,21 +349,11 @@ describe("audited Deep Research report completion", () => {
 			"$lib/server/services/knowledge/store"
 		);
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Compare private AI coding assistants",
 			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
-		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 3, {
-			startPassNumber: 2,
+			meaningfulPassCount: 3,
+			meaningfulPassOptions: { startPassNumber: 2 },
 		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
@@ -489,11 +492,9 @@ describe("audited Deep Research report completion", () => {
 	});
 
 	it("assembles the completed report from verified Synthesis Claims instead of source-note synthesis text", async () => {
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
 		const { upsertResearchPassCheckpoint } = await import("./pass-state");
 		const { markResearchSourceReviewed, saveDiscoveredResearchSource } =
@@ -505,21 +506,11 @@ describe("audited Deep Research report completion", () => {
 			"$lib/server/services/knowledge/store"
 		);
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Compare private AI coding assistants",
 			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
-		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 3, {
-			startPassNumber: 2,
+			meaningfulPassCount: 3,
+			meaningfulPassOptions: { startPassNumber: 2 },
 		});
 		const source = await saveDiscoveredResearchSource({
 			userId: "user-1",
@@ -631,11 +622,9 @@ describe("audited Deep Research report completion", () => {
 	});
 
 	it("publishes an Evidence Limitation Memo instead of throwing when audited claims are source-note titles", async () => {
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
 		const { upsertResearchPassCheckpoint } = await import("./pass-state");
 		const { markResearchSourceReviewed, saveDiscoveredResearchSource } =
@@ -647,21 +636,11 @@ describe("audited Deep Research report completion", () => {
 			"$lib/server/services/knowledge/store"
 		);
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Compare Cube Nulane and Cube Kathmandu bikes",
 			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
-		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 3, {
-			startPassNumber: 2,
+			meaningfulPassCount: 3,
+			meaningfulPassOptions: { startPassNumber: 2 },
 		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
@@ -789,7 +768,6 @@ describe("audited Deep Research report completion", () => {
 		const {
 			approveDeepResearchPlan,
 			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
 		} = await import("./index");
 		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
 		const {
@@ -804,10 +782,7 @@ describe("audited Deep Research report completion", () => {
 			"$lib/server/services/knowledge/store"
 		);
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Compare Product A and Product B",
 			depth: "standard",
 			now: new Date("2026-05-05T10:01:00.000Z"),
@@ -819,7 +794,6 @@ describe("audited Deep Research report completion", () => {
 			jobId: created.id,
 			now: new Date("2026-05-05T10:06:00.000Z"),
 		});
-		await seedCompletedMeaningfulPasses(created.id, 3);
 		const sourceA = await saveDiscoveredResearchSource({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -1098,11 +1072,9 @@ describe("audited Deep Research report completion", () => {
 					}),
 			};
 		});
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
 		const { upsertResearchPassCheckpoint } = await import("./pass-state");
 		const { markResearchSourceReviewed, saveDiscoveredResearchSource } =
@@ -1114,21 +1086,11 @@ describe("audited Deep Research report completion", () => {
 			"$lib/server/services/knowledge/store"
 		);
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Check Model X specifications",
 			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
-		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 3, {
-			startPassNumber: 2,
+			meaningfulPassCount: 3,
+			meaningfulPassOptions: { startPassNumber: 2 },
 		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
@@ -1248,11 +1210,9 @@ describe("audited Deep Research report completion", () => {
 					}),
 			};
 		});
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
 		const { upsertResearchPassCheckpoint } = await import("./pass-state");
 		const { saveDeepResearchSynthesisClaims } = await import(
@@ -1260,21 +1220,11 @@ describe("audited Deep Research report completion", () => {
 		);
 		const { listResearchTasks } = await import("./tasks");
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Check Model X specifications",
 			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
-		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 3, {
-			startPassNumber: 2,
+			meaningfulPassCount: 3,
+			meaningfulPassOptions: { startPassNumber: 2 },
 		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
@@ -1354,11 +1304,9 @@ describe("audited Deep Research report completion", () => {
 	});
 
 	it("renders an audited report from supported claims when repair budget is exhausted", async () => {
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
 		const { upsertResearchPassCheckpoint } = await import("./pass-state");
 		const { saveDeepResearchSynthesisClaims } = await import(
@@ -1370,21 +1318,11 @@ describe("audited Deep Research report completion", () => {
 			"$lib/server/services/knowledge/store"
 		);
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Compare Model X and Model Y specifications",
 			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
-		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 3, {
-			startPassNumber: 2,
+			meaningfulPassCount: 3,
+			meaningfulPassOptions: { startPassNumber: 2 },
 		});
 		const reviewedSource = await markResearchSourceReviewed({
 			userId: "user-1",
@@ -1545,11 +1483,9 @@ describe("audited Deep Research report completion", () => {
 				buildClaimGraphCitationReviewerWithLlm: async () => null,
 			};
 		});
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
 		const { upsertResearchPassCheckpoint } = await import("./pass-state");
 		const { saveDeepResearchSynthesisClaims } = await import(
@@ -1557,21 +1493,11 @@ describe("audited Deep Research report completion", () => {
 		);
 		const { listResearchTasks } = await import("./tasks");
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Check Model X specifications",
 			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
-		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 3, {
-			startPassNumber: 2,
+			meaningfulPassCount: 3,
+			meaningfulPassOptions: { startPassNumber: 2 },
 		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
@@ -1651,11 +1577,9 @@ describe("audited Deep Research report completion", () => {
 
 	it("creates a repair pass instead of rendering Markdown when claim-graph audit needs repair", async () => {
 		const { db } = await import("$lib/server/db");
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { saveDeepResearchEvidenceNotes } = await import("./evidence-notes");
 		const { upsertResearchPassCheckpoint } = await import("./pass-state");
 		const { saveDeepResearchSynthesisClaims } = await import(
@@ -1663,21 +1587,11 @@ describe("audited Deep Research report completion", () => {
 		);
 		const { listResearchTasks } = await import("./tasks");
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Check Model X official specifications",
 			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
-		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 3, {
-			startPassNumber: 2,
+			meaningfulPassCount: 3,
+			meaningfulPassOptions: { startPassNumber: 2 },
 		});
 		const checkpoint = await upsertResearchPassCheckpoint({
 			userId: "user-1",
@@ -1780,31 +1694,20 @@ describe("audited Deep Research report completion", () => {
 	});
 
 	it("keeps the final audited report in Hungarian when the research prompt is Hungarian", async () => {
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { markResearchSourceReviewed, saveDiscoveredResearchSource } =
 			await import("./sources");
 		const { getArtifactForUser } = await import(
 			"$lib/server/services/knowledge/store"
 		);
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Kérlek kutass a magyar AI piac 2025-os trendjeiről",
 			depth: "focused",
-			now: new Date("2026-05-05T10:01:00.000Z"),
+			meaningfulPassCount: 2,
 		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 2);
 		const source = await saveDiscoveredResearchSource({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -1859,14 +1762,11 @@ describe("audited Deep Research report completion", () => {
 	});
 
 	it("publishes an Evidence Limitation Memo without sealing the conversation when no credible supported claims remain", async () => {
-		const { db } = await import("$lib/server/db");
 		const {
-			approveDeepResearchPlan,
 			completeDeepResearchJobWithAuditedReport,
 			discussDeepResearchReport,
 			listConversationDeepResearchJobs,
 			researchFurtherFromDeepResearchReport,
-			startDeepResearchJobShell,
 		} = await import("./index");
 		const { listResearchSources, saveDiscoveredResearchSource } = await import(
 			"./sources"
@@ -1875,20 +1775,11 @@ describe("audited Deep Research report completion", () => {
 			"$lib/server/services/knowledge/store"
 		);
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Assess unverified battery recycling claims",
 			depth: "focused",
-			now: new Date("2026-05-05T10:01:00.000Z"),
+			meaningfulPassCount: 2,
 		});
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
-		await seedCompletedMeaningfulPasses(created.id, 2);
 		const source = await saveDiscoveredResearchSource({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -1917,21 +1808,12 @@ describe("audited Deep Research report completion", () => {
 		const memoArtifact = completedMemo?.reportArtifactId
 			? await getArtifactForUser("user-1", completedMemo.reportArtifactId)
 			: null;
-		const [conversation] = await db
-			.select({
-				status: schema.conversations.status,
-				sealedAt: schema.conversations.sealedAt,
-			})
-			.from(schema.conversations)
-			.where(eq(schema.conversations.id, "conv-1"));
-		const generatedArtifacts = await db
-			.select({ id: schema.artifacts.id })
-			.from(schema.artifacts)
-			.where(eq(schema.artifacts.type, "generated_output"));
 		const sources = await listResearchSources({
 			userId: "user-1",
 			jobId: created.id,
 		});
+		const conversation = await readDeepResearchConversationState("conv-1");
+		const generatedArtifacts = await listDeepResearchGeneratedOutputIds();
 		const [listedMemoJob] = await listConversationDeepResearchJobs(
 			"user-1",
 			"conv-1",
@@ -2090,28 +1972,17 @@ describe("audited Deep Research report completion", () => {
 				},
 			};
 		});
-		const {
-			approveDeepResearchPlan,
-			completeDeepResearchJobWithAuditedReport,
-			startDeepResearchJobShell,
-		} = await import("./index");
+		const { completeDeepResearchJobWithAuditedReport } = await import(
+			"./index"
+		);
 		const { markResearchSourceReviewed, saveDiscoveredResearchSource } =
 			await import("./sources");
 
-		const created = await startDeepResearchJobShell({
-			userId: "user-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg-1",
+		const created = await createApprovedReportJob({
 			userRequest: "Compare EU and US AI copyright training data rules",
 			depth: "standard",
-			now: new Date("2026-05-05T10:01:00.000Z"),
 		});
 		activeJobId = created.id;
-		await approveDeepResearchPlan({
-			userId: "user-1",
-			jobId: created.id,
-			now: new Date("2026-05-05T10:06:00.000Z"),
-		});
 		await db
 			.update(schema.deepResearchJobs)
 			.set({
@@ -2120,7 +1991,6 @@ describe("audited Deep Research report completion", () => {
 				updatedAt: new Date("2026-05-05T10:18:00.000Z"),
 			})
 			.where(eq(schema.deepResearchJobs.id, created.id));
-		await seedCompletedMeaningfulPasses(created.id, 3);
 		const source = await saveDiscoveredResearchSource({
 			userId: "user-1",
 			conversationId: "conv-1",

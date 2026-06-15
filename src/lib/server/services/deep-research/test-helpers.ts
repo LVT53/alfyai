@@ -496,6 +496,11 @@ export async function createApprovedDeepResearchJob(input?: {
 	userRequest?: string;
 	depth?: "focused" | "standard" | "max";
 	now?: Date;
+	meaningfulPassCount?: number;
+	meaningfulPassOptions?: Omit<
+		Parameters<typeof seedCompletedMeaningfulPasses>[2],
+		"userId" | "conversationId"
+	>;
 }): Promise<DeepResearchJob> {
 	const {
 		userId = deepResearchDefaultUserId,
@@ -504,6 +509,8 @@ export async function createApprovedDeepResearchJob(input?: {
 		userRequest = deepResearchDefaultUserRequest,
 		depth = "focused",
 		now = new Date("2026-05-05T10:01:00.000Z"),
+		meaningfulPassCount,
+		meaningfulPassOptions,
 	} = input ?? {};
 	const { approveDeepResearchPlan, startDeepResearchJobShell } = await import(
 		"./index"
@@ -522,7 +529,80 @@ export async function createApprovedDeepResearchJob(input?: {
 		now: new Date("2026-05-05T10:06:00.000Z"),
 	});
 	if (!approved) throw new Error("Expected approval to return the job");
+	if (meaningfulPassCount) {
+		await seedCompletedMeaningfulPasses(created.id, meaningfulPassCount, {
+			userId,
+			conversationId,
+			...meaningfulPassOptions,
+		});
+	}
 	return approved;
+}
+
+type ApprovedDeepResearchSourceInput = Omit<
+	SeedDiscoveredSourceInput,
+	"userId" | "conversationId" | "jobId" | "reviewed"
+> & {
+	reviewed?: SeedReviewOptions;
+};
+
+export async function createApprovedDeepResearchJobWithReviewedSource(input?: {
+	userId?: string;
+	conversationId?: string;
+	triggerMessageId?: string;
+	userRequest?: string;
+	depth?: "focused" | "standard" | "max";
+	now?: Date;
+	meaningfulPassCount?: number;
+	source?: ApprovedDeepResearchSourceInput;
+}): Promise<{
+	created: DeepResearchJob;
+	source: DeepResearchSource;
+	reviewedSource: DeepResearchSource;
+}> {
+	const {
+		userId = deepResearchDefaultUserId,
+		conversationId = deepResearchDefaultConversationId,
+		triggerMessageId = deepResearchDefaultMessageId,
+		userRequest = deepResearchDefaultUserRequest,
+		depth = "focused",
+		now = new Date("2026-05-05T10:01:00.000Z"),
+		meaningfulPassCount = 0,
+		source,
+	} = input ?? {};
+	const created = await createApprovedDeepResearchJob({
+		userId,
+		conversationId,
+		triggerMessageId,
+		userRequest,
+		depth,
+		now,
+		meaningfulPassCount,
+	});
+	const { reviewed, ...sourceOverrides } = source ?? {};
+	const seeded = await seedDiscoveredSourceWithReview({
+		userId,
+		conversationId,
+		jobId: created.id,
+		...deepResearchDefaultDiscoveredSource,
+		...sourceOverrides,
+		reviewed: {
+			reviewedAt:
+				reviewed?.reviewedAt ?? deepResearchDefaultDiscoveredSource.reviewedAt,
+			reviewedNote:
+				reviewed?.reviewedNote ??
+				deepResearchDefaultDiscoveredSource.reviewedNote,
+			...reviewed,
+		},
+	});
+	if (!seeded.reviewedSource) {
+		throw new Error("Expected reviewed source");
+	}
+	return {
+		created,
+		source: seeded.source,
+		reviewedSource: seeded.reviewedSource,
+	};
 }
 
 export async function completeApprovedJobWithAuditedReport(input?: {
