@@ -201,6 +201,16 @@ function getLatestArtifactForGeneratedFamily(
 	);
 }
 
+type GeneratedArtifactSelectionContext = {
+	query: string;
+	limit: number;
+	currentConversationId?: string | null;
+	behaviorScoresByKey?: Map<string, number>;
+	reopenScoresByKey?: Map<string, number>;
+	semanticScoresByArtifactId?: Map<string, number>;
+	rerankScoresByArtifactId?: Map<string, number>;
+};
+
 function rankLatestGeneratedDocumentArtifacts(
 	params: GeneratedArtifactMatchParams,
 ): GeneratedDocumentResolution[] {
@@ -223,6 +233,94 @@ function rankLatestGeneratedDocumentArtifacts(
 			if (right.score !== left.score) return right.score - left.score;
 			return right.artifact.updatedAt - left.artifact.updatedAt;
 		});
+}
+
+function getQueryBoundResolvedArtifacts(
+	params: GeneratedArtifactSelectionContext,
+	generatedArtifacts: Artifact[],
+): GeneratedDocumentResolution[] {
+	return resolveRelevantGeneratedDocumentArtifacts({
+		artifacts: generatedArtifacts,
+		query: params.query,
+		limit: Math.max(params.limit, 1),
+		currentConversationId: params.currentConversationId,
+		behaviorScoresByKey: params.behaviorScoresByKey,
+		reopenScoresByKey: params.reopenScoresByKey,
+		semanticScoresByArtifactId: params.semanticScoresByArtifactId,
+		rerankScoresByArtifactId: params.rerankScoresByArtifactId,
+	});
+}
+
+function choosePrimaryArtifactFromPreference(
+	params: {
+		preferredArtifact: Artifact | null;
+		preferredFamilyArtifact: Artifact | null;
+		suppressCarryoverWhenUnfocused?: boolean;
+		primaryResolution: GeneratedDocumentResolution | null;
+	},
+	orderedArtifacts: Artifact[],
+	seenArtifactIds: Set<string>,
+): Artifact | null {
+	if (params.preferredArtifact) {
+		orderedArtifacts.push(params.preferredArtifact);
+		seenArtifactIds.add(params.preferredArtifact.id);
+		return params.preferredArtifact;
+	}
+
+	if (params.preferredFamilyArtifact) {
+		orderedArtifacts.push(params.preferredFamilyArtifact);
+		seenArtifactIds.add(params.preferredFamilyArtifact.id);
+		return params.preferredFamilyArtifact;
+	}
+
+	if (!params.suppressCarryoverWhenUnfocused) {
+		const primaryArtifact = params.primaryResolution?.artifact ?? null;
+		if (primaryArtifact) {
+			orderedArtifacts.push(primaryArtifact);
+			seenArtifactIds.add(primaryArtifact.id);
+			return primaryArtifact;
+		}
+	}
+
+	return null;
+}
+
+function fillCarryoverArtifactsForRelevantSelection(params: {
+	limit: number;
+	suppressCarryoverWhenUnfocused?: boolean;
+	preferredFamilyId: string | null;
+	resolutions: GeneratedDocumentResolution[];
+	orderedArtifacts: Artifact[];
+	seenArtifactIds: Set<string>;
+}) {
+	if (params.suppressCarryoverWhenUnfocused) return;
+
+	for (const resolution of params.resolutions) {
+		if (params.seenArtifactIds.has(resolution.artifact.id)) continue;
+		if (
+			params.preferredFamilyId &&
+			resolution.familyId === params.preferredFamilyId
+		) {
+			continue;
+		}
+		params.orderedArtifacts.push(resolution.artifact);
+		params.seenArtifactIds.add(resolution.artifact.id);
+		if (params.orderedArtifacts.length >= params.limit) break;
+	}
+}
+
+function getPrimaryReasonCodesForRelevantSelection(params: {
+	preferredArtifact: Artifact | null;
+	preferredFamilyArtifact: Artifact | null;
+	primaryResolution: GeneratedDocumentResolution | null;
+	orderedArtifacts: Artifact[];
+}): string[] {
+	if (params.preferredArtifact) return ["preferred_artifact"];
+	if (params.preferredFamilyArtifact)
+		return ["recently_refined_document_family"];
+	return params.orderedArtifacts.length > 0
+		? (params.primaryResolution?.reasonCodes ?? [])
+		: [];
 }
 
 function hasExplicitGeneratedDocumentQueryMatch(
@@ -319,7 +417,8 @@ export function resolveRelevantGeneratedDocumentSelection(params: {
 			) ?? null)
 		: null;
 	const preferredFamilyId = preferredArtifact
-		? parseWorkingDocumentMetadata(preferredArtifact.metadata).documentFamilyId
+		? (parseWorkingDocumentMetadata(preferredArtifact.metadata)
+				.documentFamilyId ?? null)
 		: (params.preferredFamilyId ?? null);
 	const preferredFamilyArtifact =
 		!preferredArtifact && preferredFamilyId
@@ -328,52 +427,47 @@ export function resolveRelevantGeneratedDocumentSelection(params: {
 					preferredFamilyId,
 				)
 			: null;
-	const resolutions = resolveRelevantGeneratedDocumentArtifacts({
-		artifacts: generatedArtifacts,
-		query: params.query,
-		limit: Math.max(params.limit, 1),
-		currentConversationId: params.currentConversationId,
-		behaviorScoresByKey: params.behaviorScoresByKey,
-		reopenScoresByKey: params.reopenScoresByKey,
-		semanticScoresByArtifactId: params.semanticScoresByArtifactId,
-		rerankScoresByArtifactId: params.rerankScoresByArtifactId,
-	});
+	const resolutions = getQueryBoundResolvedArtifacts(
+		{
+			query: params.query,
+			limit: params.limit,
+			currentConversationId: params.currentConversationId,
+			behaviorScoresByKey: params.behaviorScoresByKey,
+			reopenScoresByKey: params.reopenScoresByKey,
+			semanticScoresByArtifactId: params.semanticScoresByArtifactId,
+			rerankScoresByArtifactId: params.rerankScoresByArtifactId,
+		},
+		generatedArtifacts,
+	);
 	const orderedArtifacts: Artifact[] = [];
 	const seenArtifactIds = new Set<string>();
 	const primaryResolution = resolutions[0] ?? null;
 
-	if (preferredArtifact) {
-		orderedArtifacts.push(preferredArtifact);
-		seenArtifactIds.add(preferredArtifact.id);
-	} else if (preferredFamilyArtifact) {
-		orderedArtifacts.push(preferredFamilyArtifact);
-		seenArtifactIds.add(preferredFamilyArtifact.id);
-	} else if (!params.suppressCarryoverWhenUnfocused) {
-		const primaryArtifact = primaryResolution?.artifact ?? null;
-		if (primaryArtifact) {
-			orderedArtifacts.push(primaryArtifact);
-			seenArtifactIds.add(primaryArtifact.id);
-		}
-	}
+	choosePrimaryArtifactFromPreference(
+		{
+			preferredArtifact,
+			preferredFamilyArtifact,
+			suppressCarryoverWhenUnfocused: params.suppressCarryoverWhenUnfocused,
+			primaryResolution,
+		},
+		orderedArtifacts,
+		seenArtifactIds,
+	);
+	fillCarryoverArtifactsForRelevantSelection({
+		limit: params.limit,
+		suppressCarryoverWhenUnfocused: params.suppressCarryoverWhenUnfocused,
+		preferredFamilyId,
+		resolutions,
+		orderedArtifacts,
+		seenArtifactIds,
+	});
 
-	if (!params.suppressCarryoverWhenUnfocused) {
-		for (const resolution of resolutions) {
-			if (seenArtifactIds.has(resolution.artifact.id)) continue;
-			if (preferredFamilyId && resolution.familyId === preferredFamilyId)
-				continue;
-			orderedArtifacts.push(resolution.artifact);
-			seenArtifactIds.add(resolution.artifact.id);
-			if (orderedArtifacts.length >= params.limit) break;
-		}
-	}
-
-	const primaryReasonCodes = preferredArtifact
-		? ["preferred_artifact"]
-		: preferredFamilyArtifact
-			? ["recently_refined_document_family"]
-			: orderedArtifacts.length > 0
-				? (primaryResolution?.reasonCodes ?? [])
-				: [];
+	const primaryReasonCodes = getPrimaryReasonCodesForRelevantSelection({
+		preferredArtifact,
+		preferredFamilyArtifact,
+		primaryResolution,
+		orderedArtifacts,
+	});
 
 	return {
 		orderedArtifacts,

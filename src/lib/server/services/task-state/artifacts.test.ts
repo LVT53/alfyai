@@ -500,6 +500,81 @@ describe("artifacts", () => {
 	});
 
 	describe("REGRESSION: Snippet selection for large files", () => {
+		it("enforces total-char budget across multiple artifacts", async () => {
+			const artifacts: Artifact[] = [
+				{
+					id: "budget-artifact-1",
+					userId: "test-user",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "Budgeted Document 1",
+					mimeType: "text/plain",
+					sizeBytes: 15000,
+					conversationId: null,
+					summary: null,
+					contentText: null,
+					extension: "txt",
+					storagePath: null,
+					metadata: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				{
+					id: "budget-artifact-2",
+					userId: "test-user",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "Budgeted Document 2",
+					mimeType: "text/plain",
+					sizeBytes: 15000,
+					conversationId: null,
+					summary: null,
+					contentText: null,
+					extension: "txt",
+					storagePath: null,
+					metadata: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+			];
+
+			const mockChunkRows = [
+				{
+					id: "chunk-1-0",
+					artifactId: "budget-artifact-1",
+					userId: "test-user",
+					conversationId: null,
+					chunkIndex: 0,
+					contentText: "First document first chunk for budget checks.",
+					tokenEstimate: 10,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				{
+					id: "chunk-2-0",
+					artifactId: "budget-artifact-2",
+					userId: "test-user",
+					conversationId: null,
+					chunkIndex: 0,
+					contentText: "Second document first chunk for budget checks.",
+					tokenEstimate: 10,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+			];
+			mockOrderBy.mockResolvedValueOnce(mockChunkRows);
+
+			const snippets = await getPromptArtifactSnippets({
+				userId: "test-user",
+				artifacts,
+				query: "",
+				totalCharBudget: 10,
+			});
+
+			expect(snippets.get("budget-artifact-1")?.length).toBeLessThanOrEqual(10);
+			expect(snippets.get("budget-artifact-2")).toBe("");
+		});
+
 		it("returns ranked chunks based on query relevance", async () => {
 			const artifact: Artifact = {
 				id: "ranked-chunks-artifact",
@@ -567,6 +642,65 @@ describe("artifacts", () => {
 			const result = snippets.get(artifact.id);
 			expect(result).toBeDefined();
 			expect(result).toContain("Machine learning");
+		});
+
+		it("falls back to first chunk when query is empty", async () => {
+			const artifact: Artifact = {
+				id: "empty-query-chunks-artifact",
+				userId: "test-user",
+				type: "source_document",
+				retrievalClass: "durable",
+				name: "Empty Query Document",
+				mimeType: "text/plain",
+				sizeBytes: 15000,
+				conversationId: null,
+				summary: "Summary text.",
+				contentText: null,
+				extension: "txt",
+				storagePath: null,
+				metadata: null,
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			};
+
+			const mockChunkRows = [
+				{
+					id: "empty-query-chunk-0",
+					artifactId: artifact.id,
+					userId: "test-user",
+					conversationId: null,
+					chunkIndex: 0,
+					contentText: "First chunk content should be used.",
+					tokenEstimate: 10,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				{
+					id: "empty-query-chunk-1",
+					artifactId: artifact.id,
+					userId: "test-user",
+					conversationId: null,
+					chunkIndex: 1,
+					contentText: "Second chunk content should not be preferred.",
+					tokenEstimate: 10,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+			];
+			mockOrderBy.mockResolvedValueOnce(mockChunkRows);
+
+			const snippets = await getPromptArtifactSnippets({
+				userId: "test-user",
+				artifacts: [artifact],
+				query: "",
+				perArtifactLimit: 1,
+			});
+
+			const result = snippets.get(artifact.id);
+			expect(result).toContain("First chunk content should be used.");
+			expect(result).not.toContain(
+				"Second chunk content should not be preferred.",
+			);
 		});
 
 		it("respects perArtifactLimit when selecting chunks", async () => {

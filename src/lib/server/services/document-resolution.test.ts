@@ -220,6 +220,55 @@ describe("document resolution", () => {
 		]);
 	});
 
+	it("keeps the preferred family artifact as primary even when carryover is suppressed", () => {
+		const selection = resolveRelevantGeneratedDocumentSelection({
+			query: "please keep refining it",
+			limit: 4,
+			suppressCarryoverWhenUnfocused: true,
+			preferredFamilyId: "family-brief",
+			artifacts: [
+				makeArtifact({
+					id: "artifact-brief-old",
+					name: "brief-v1.pdf",
+					updatedAt: 1,
+					metadata: {
+						documentFamilyId: "family-brief",
+						documentLabel: "Project brief",
+						versionNumber: 1,
+					},
+				}),
+				makeArtifact({
+					id: "artifact-brief-current",
+					name: "brief-v2.pdf",
+					updatedAt: 2,
+					metadata: {
+						documentFamilyId: "family-brief",
+						documentLabel: "Project brief",
+						versionNumber: 2,
+					},
+				}),
+				makeArtifact({
+					id: "artifact-active",
+					name: "slides-v1.pdf",
+					updatedAt: 3,
+					metadata: {
+						documentFamilyId: "family-slides",
+						documentLabel: "Investor slides",
+						versionNumber: 1,
+					},
+				}),
+			],
+		});
+
+		expect(selection.orderedArtifacts.map((artifact) => artifact.id)).toEqual([
+			"artifact-brief-current",
+		]);
+		expect(selection.primaryArtifactId).toBe("artifact-brief-current");
+		expect(selection.primaryReasonCodes).toEqual([
+			"recently_refined_document_family",
+		]);
+	});
+
 	it("boosts recently refined document families in retrieval ordering", () => {
 		const selection = resolveRelevantGeneratedDocumentSelection({
 			query: "please keep refining it",
