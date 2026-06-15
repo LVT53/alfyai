@@ -28,6 +28,16 @@ export type MockCallbacks = {
 	onError: ReturnType<typeof vi.fn>;
 };
 
+export type StreamHarnessOptions = {
+	message?: string;
+	conversationId?: string;
+	responseChunks?: string[];
+	response?: Response;
+	responseStatus?: number;
+	callbacks?: MockCallbacks | StreamCallbacks;
+	options?: Parameters<typeof streamChat>[3];
+};
+
 export function uiFrame(
 	payload: Parameters<typeof encodeAiSdkUiFixtureFrame>[0],
 ): string {
@@ -121,6 +131,38 @@ export function makeCallbacks(): MockCallbacks {
 		onEnd: vi.fn(),
 		onError: vi.fn(),
 	};
+}
+
+export function makeEventLogCallbacks(events: string[]) {
+	return {
+		...makeCallbacks(),
+		onToken: vi.fn((chunk: string) => events.push(`token:${chunk}`)),
+		onThinking: vi.fn((chunk: string) => events.push(`thinking:${chunk}`)),
+		onWaiting: vi.fn(() => events.push("waiting")),
+		onEnd: vi.fn((fullText: string) => events.push(`end:${fullText}`)),
+	};
+}
+
+export function runStreamWithMockedResponse({
+	message = "test message",
+	conversationId = "conv-1",
+	responseChunks = [],
+	response,
+	responseStatus = 200,
+	callbacks = makeCallbacks(),
+	options,
+}: StreamHarnessOptions) {
+	const mockFetch = vi.mocked(fetch);
+	mockFetch.mockResolvedValue(
+		response ?? buildFetchResponse(responseChunks, responseStatus),
+	);
+	const done = runStreamAndWait(
+		message,
+		conversationId,
+		callbacks as unknown as StreamCallbacks,
+		options,
+	);
+	return { mockFetch, callbacks, done };
 }
 
 async function waitForStream(callbacks: MockCallbacks): Promise<void> {

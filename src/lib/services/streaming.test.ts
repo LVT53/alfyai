@@ -13,13 +13,14 @@ import type { StreamCallbacks, StreamMetadata } from "./streaming";
 import { streamChat } from "./streaming";
 import {
 	buildControlledFetchResponse,
-	buildFetchResponse,
 	endEvent,
 	errorEvent,
 	flushMicrotasks,
 	makeCallbacks,
+	makeEventLogCallbacks,
 	parseLastStreamRequestBody,
 	runStreamAndWait,
+	runStreamWithMockedResponse,
 	thinkingEvent,
 	tokenEvent,
 	uiFrame,
@@ -35,23 +36,14 @@ describe("streamChat", () => {
 	});
 
 	it("decodes the shared AI SDK UI stream contract fixture end-to-end", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const onToolCall = vi.fn();
-		mockFetch.mockResolvedValue(
-			buildFetchResponse(
-				encodeAiSdkUiFixtureFrames(aiSdkUiStreamContractSequence),
-			),
-		);
-
-		const cb = {
-			...makeCallbacks(),
-			onToolCall,
-		};
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: encodeAiSdkUiFixtureFrames(aiSdkUiStreamContractSequence),
+			callbacks: {
+				...makeCallbacks(),
+				onToolCall,
+			},
+		});
 		await done;
 
 		expect(cb.onThinking).toHaveBeenCalledWith("Need current evidence.");
@@ -76,17 +68,9 @@ describe("streamChat", () => {
 	});
 
 	it("ignores old Browser SSE named token events without partial rendering", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([oldBrowserSseNamedTokenEvent, uiFrame("[DONE]")]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [oldBrowserSseNamedTokenEvent, uiFrame("[DONE]")],
+		});
 		await done;
 
 		expect(cb.onToken).not.toHaveBeenCalled();
@@ -96,17 +80,9 @@ describe("streamChat", () => {
 	});
 
 	it("ignores malformed AI SDK UI stream fixture frames without partial rendering", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([...malformedAiSdkUiStreamFrames, uiFrame("[DONE]")]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [...malformedAiSdkUiStreamFrames, uiFrame("[DONE]")],
+		});
 		await done;
 
 		expect(cb.onToken).not.toHaveBeenCalled();
@@ -116,19 +92,11 @@ describe("streamChat", () => {
 	});
 
 	it("finishes successfully when the stream closes after the finish fixture frame", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse(
-				encodeAiSdkUiFixtureFrames(aiSdkUiStreamCloseAfterFinishSequence),
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: encodeAiSdkUiFixtureFrames(
+				aiSdkUiStreamCloseAfterFinishSequence,
 			),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		});
 		await done;
 
 		expect(cb.onEnd).toHaveBeenCalledWith("Hello", undefined);
@@ -136,29 +104,15 @@ describe("streamChat", () => {
 	});
 
 	it("buffers the shared replay fixture until replay-end before waiting", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const consoleInfo = vi
 			.spyOn(console, "info")
 			.mockImplementation(() => undefined);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse(
-				encodeAiSdkUiFixtureFrames(aiSdkUiStreamReplaySequence),
-			),
-		);
 
 		const events: string[] = [];
-		const cb = {
-			...makeCallbacks(),
-			onToken: vi.fn((chunk: string) => events.push(`token:${chunk}`)),
-			onThinking: vi.fn((chunk: string) => events.push(`thinking:${chunk}`)),
-			onWaiting: vi.fn(() => events.push("waiting")),
-			onEnd: vi.fn((fullText: string) => events.push(`end:${fullText}`)),
-		};
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { done } = runStreamWithMockedResponse({
+			responseChunks: encodeAiSdkUiFixtureFrames(aiSdkUiStreamReplaySequence),
+			callbacks: makeEventLogCallbacks(events),
+		});
 		await done;
 
 		expect(events).toEqual([
@@ -171,21 +125,13 @@ describe("streamChat", () => {
 	});
 
 	it("calls onToken for AI SDK UI text-delta frames and ends on [DONE]", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				uiFrame({ type: "text-delta", id: "text-1", delta: "Hello" }),
 				uiFrame({ type: "text-delta", id: "text-1", delta: " world" }),
 				uiFrame("[DONE]"),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+		});
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledTimes(2);
@@ -195,7 +141,6 @@ describe("streamChat", () => {
 	});
 
 	it("maps AI SDK UI reasoning, metadata, and finish frames onto existing callbacks", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const metadata = {
 			thinkingTokenCount: 4,
 			responseTokenCount: 5,
@@ -203,8 +148,8 @@ describe("streamChat", () => {
 			assistantMessageId: "assistant-1",
 			modelDisplayName: "Model 1",
 		};
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				uiFrame({
 					type: "reasoning-delta",
 					id: "reasoning-1",
@@ -217,15 +162,8 @@ describe("streamChat", () => {
 					transient: true,
 				}),
 				uiFrame({ type: "finish" }),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+		});
 		await done;
 
 		expect(cb.onThinking).toHaveBeenCalledOnce();
@@ -235,17 +173,9 @@ describe("streamChat", () => {
 	});
 
 	it("calls terminal callbacks once when finish is followed by DONE", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([tokenEvent("Answer"), endEvent()]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [tokenEvent("Answer"), endEvent()],
+		});
 		await done;
 
 		expect(cb.onEnd).toHaveBeenCalledOnce();
@@ -254,10 +184,9 @@ describe("streamChat", () => {
 	});
 
 	it("maps AI SDK UI tool-call data parts onto the existing tool callback", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const onToolCall = vi.fn();
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { done } = runStreamWithMockedResponse({
+			responseChunks: [
 				uiFrame({
 					type: "data-tool-call",
 					data: {
@@ -280,18 +209,12 @@ describe("streamChat", () => {
 					transient: true,
 				}),
 				uiFrame("[DONE]"),
-			]),
-		);
-
-		const cb = {
-			...makeCallbacks(),
-			onToolCall,
-		};
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onToolCall,
+			},
+		});
 		await done;
 
 		expect(onToolCall).toHaveBeenCalledWith(
@@ -316,10 +239,9 @@ describe("streamChat", () => {
 	});
 
 	it("maps AI SDK UI response-activity data parts onto the activity callback", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const onResponseActivity = vi.fn();
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { done } = runStreamWithMockedResponse({
+			responseChunks: [
 				uiFrame({
 					type: "data-response-activity",
 					data: {
@@ -332,18 +254,12 @@ describe("streamChat", () => {
 					transient: true,
 				}),
 				uiFrame("[DONE]"),
-			]),
-		);
-
-		const cb = {
-			...makeCallbacks(),
-			onResponseActivity,
-		};
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onResponseActivity,
+			},
+		});
 		await done;
 
 		expect(onResponseActivity).toHaveBeenCalledWith({
@@ -356,10 +272,9 @@ describe("streamChat", () => {
 	});
 
 	it("maps deliberation response-activity events onto the activity callback", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const onResponseActivity = vi.fn();
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { done } = runStreamWithMockedResponse({
+			responseChunks: [
 				uiFrame({
 					type: "data-response-activity",
 					data: {
@@ -372,18 +287,12 @@ describe("streamChat", () => {
 					transient: true,
 				}),
 				uiFrame("[DONE]"),
-			]),
-		);
-
-		const cb = {
-			...makeCallbacks(),
-			onResponseActivity,
-		};
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onResponseActivity,
+			},
+		});
 		await done;
 
 		expect(onResponseActivity).toHaveBeenCalledWith({
@@ -396,9 +305,8 @@ describe("streamChat", () => {
 	});
 
 	it("maps AI SDK UI stream-error data parts onto onError with code", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				uiFrame({
 					type: "data-stream-error",
 					data: {
@@ -407,15 +315,8 @@ describe("streamChat", () => {
 					},
 					transient: true,
 				}),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+		});
 		await done;
 
 		const error = cb.onError.mock.calls[0]?.[0] as
@@ -427,26 +328,16 @@ describe("streamChat", () => {
 	});
 
 	it("buffers AI SDK UI replayed chunks until replay end before waiting", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const controlled = buildControlledFetchResponse();
 		const consoleInfo = vi
 			.spyOn(console, "info")
 			.mockImplementation(() => undefined);
-		mockFetch.mockResolvedValue(controlled.response);
 
 		const events: string[] = [];
-		const cb = {
-			...makeCallbacks(),
-			onToken: vi.fn((chunk: string) => events.push(`token:${chunk}`)),
-			onThinking: vi.fn((chunk: string) => events.push(`thinking:${chunk}`)),
-			onWaiting: vi.fn(() => events.push("waiting")),
-			onEnd: vi.fn((fullText: string) => events.push(`end:${fullText}`)),
-		};
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			response: controlled.response,
+			callbacks: makeEventLogCallbacks(events),
+		});
 
 		await flushMicrotasks();
 		controlled.enqueue(
@@ -481,21 +372,9 @@ describe("streamChat", () => {
 	});
 
 	it("calls onToken for each AI SDK UI text delta chunk", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
-				tokenEvent("Hello"),
-				tokenEvent(" world"),
-				endEvent(),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [tokenEvent("Hello"), tokenEvent(" world"), endEvent()],
+		});
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledTimes(2);
@@ -504,22 +383,14 @@ describe("streamChat", () => {
 	});
 
 	it("handles AI SDK UI frames split across network chunks", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const tokenFrame = tokenEvent("Hello from split frame");
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				tokenFrame.slice(0, 17),
 				tokenFrame.slice(17),
 				endEvent(),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+		});
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledOnce();
@@ -528,17 +399,9 @@ describe("streamChat", () => {
 	});
 
 	it("does not render a trailing AI SDK UI frame that closes before the SSE block delimiter", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([tokenEvent("partial without delimiter").trimEnd()]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [tokenEvent("partial without delimiter").trimEnd()],
+		});
 		await done;
 
 		expect(cb.onToken).not.toHaveBeenCalled();
@@ -551,16 +414,10 @@ describe("streamChat", () => {
 	});
 
 	it("includes forceWebSearch in the stream request body for the current turn", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-			{ forceWebSearch: true },
-		);
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			responseChunks: [endEvent()],
+			options: { forceWebSearch: true },
+		});
 		await done;
 
 		const requestBody = parseLastStreamRequestBody(mockFetch);
@@ -572,21 +429,9 @@ describe("streamChat", () => {
 	});
 
 	it("calls onEnd with full concatenated text", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
-				tokenEvent("Hello"),
-				tokenEvent(" world"),
-				endEvent(),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [tokenEvent("Hello"), tokenEvent(" world"), endEvent()],
+		});
 		await done;
 
 		expect(cb.onEnd).toHaveBeenCalledOnce();
@@ -595,24 +440,17 @@ describe("streamChat", () => {
 	});
 
 	it("calls onThinking for AI SDK UI reasoning chunks", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				thinkingEvent("Need to reason first"),
 				tokenEvent("Final answer"),
 				endEvent({ thinking: "Need to reason first" }),
-			]),
-		);
-
-		const cb = {
-			...makeCallbacks(),
-			onThinking: vi.fn(),
-		};
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onThinking: vi.fn(),
+			},
+		});
 		await done;
 
 		expect(cb.onThinking).toHaveBeenCalledOnce();
@@ -623,9 +461,8 @@ describe("streamChat", () => {
 	});
 
 	it("preserves AI SDK text-field fallback and strips leaked tool calls from reasoning", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				uiFrame({
 					type: "text-delta",
 					id: "text-1",
@@ -637,15 +474,8 @@ describe("streamChat", () => {
 					text: "Internal<tool_calls>{}</tool_calls> reasoning",
 				}),
 				endEvent(),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+		});
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledWith("Hello from text field");
@@ -654,20 +484,12 @@ describe("streamChat", () => {
 	});
 
 	it("routes inline <thinking> tags from text deltas into onThinking", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				tokenEvent("Before<thinking>Need to reason</thinking>After"),
 				endEvent(),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+		});
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledTimes(2);
@@ -679,23 +501,15 @@ describe("streamChat", () => {
 	});
 
 	it("handles inline <thinking> tags split across token events", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				tokenEvent("Start<th"),
 				tokenEvent("inking>Need"),
 				tokenEvent(" to search</thin"),
 				tokenEvent("king>End"),
 				endEvent(),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+		});
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledTimes(2);
@@ -708,7 +522,6 @@ describe("streamChat", () => {
 	});
 
 	it("parses AI SDK UI stream metadata from the data part", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const endMetadata = {
 			thinkingTokenCount: 2,
 			responseTokenCount: 3,
@@ -748,39 +561,24 @@ describe("streamChat", () => {
 				},
 			],
 		} as Partial<StreamMetadata>;
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([tokenEvent("Hello"), endEvent(endMetadata)]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [tokenEvent("Hello"), endEvent(endMetadata)],
+		});
 		await done;
 
 		expect(cb.onEnd).toHaveBeenCalledWith("Hello", endMetadata);
 	});
 
 	it("parses trailing AI SDK UI stream metadata when the stream closes without a final blank line", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				tokenEvent("Hello"),
 				endEvent({
 					assistantMessageId: "assistant-1",
 					wasStopped: false,
 				}).trimEnd(),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+		});
 		await done;
 
 		expect(cb.onEnd).toHaveBeenCalledWith("Hello", {
@@ -790,28 +588,16 @@ describe("streamChat", () => {
 	});
 
 	it("reports opt-in client timing without changing token parsing or logging by default", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const consoleInfo = vi
 			.spyOn(console, "info")
 			.mockImplementation(() => undefined);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
-				": prelude\n",
-				"\n",
-				tokenEvent("Hello"),
-				endEvent(),
-			]),
-		);
-
-		const cb = {
-			...makeCallbacks(),
-			onTiming: vi.fn(),
-		};
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [": prelude\n", "\n", tokenEvent("Hello"), endEvent()],
+			callbacks: {
+				...makeCallbacks(),
+				onTiming: vi.fn(),
+			},
+		});
 		await done;
 
 		expect(cb.onToken).toHaveBeenCalledWith("Hello");
@@ -834,16 +620,10 @@ describe("streamChat", () => {
 	});
 
 	it("threads the active workspace document id into the streaming request body", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-			{ activeDocumentArtifactId: "artifact-focused-1" },
-		);
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			responseChunks: [endEvent()],
+			options: { activeDocumentArtifactId: "artifact-focused-1" },
+		});
 		await done;
 
 		expect(mockFetch).toHaveBeenCalledWith(
@@ -860,16 +640,11 @@ describe("streamChat", () => {
 	});
 
 	it("threads the selected Deep Research depth into the streaming request body", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"research this",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-			{ deepResearchDepth: "standard" },
-		);
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			message: "research this",
+			responseChunks: [endEvent()],
+			options: { deepResearchDepth: "standard" },
+		});
 		await done;
 
 		const parsedBody = parseLastStreamRequestBody(mockFetch);
@@ -877,16 +652,10 @@ describe("streamChat", () => {
 	});
 
 	it("threads Reasoning depth into the streaming request body", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-			{ reasoningDepth: "off" },
-		);
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			responseChunks: [endEvent()],
+			options: { reasoningDepth: "off" },
+		});
 		await done;
 
 		const parsedBody = parseLastStreamRequestBody(mockFetch);
@@ -895,21 +664,16 @@ describe("streamChat", () => {
 	});
 
 	it("threads the active workspace document id into retry requests too", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"ignored",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-			{
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			message: "ignored",
+			responseChunks: [endEvent()],
+			options: {
 				retryAssistantMessageId: "assistant-msg-1",
 				retryUserMessageId: "user-msg-1",
 				retryUserMessage: "historical user text",
 				activeDocumentArtifactId: "artifact-focused-2",
 			},
-		);
+		});
 		await done;
 
 		expect(mockFetch).toHaveBeenCalledWith(
@@ -928,21 +692,16 @@ describe("streamChat", () => {
 	});
 
 	it("threads Reasoning depth into retry requests", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"ignored",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-			{
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			message: "ignored",
+			responseChunks: [endEvent()],
+			options: {
 				retryAssistantMessageId: "assistant-msg-1",
 				retryUserMessageId: "user-msg-1",
 				retryUserMessage: "historical user text",
 				reasoningDepth: "max",
 			},
-		);
+		});
 		await done;
 
 		const parsedBody = parseLastStreamRequestBody(mockFetch);
@@ -951,21 +710,16 @@ describe("streamChat", () => {
 	});
 
 	it("threads confirmed forked source-history mutation into retry requests", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(buildFetchResponse([endEvent()]));
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"ignored",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-			{
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			message: "ignored",
+			responseChunks: [endEvent()],
+			options: {
 				retryAssistantMessageId: "assistant-msg-1",
 				retryUserMessageId: "user-msg-1",
 				retryUserMessage: "historical user text",
 				confirmForkedSourceHistoryMutation: true,
 			},
-		);
+		});
 		await done;
 
 		const parsedBody = parseLastStreamRequestBody(mockFetch);
@@ -973,10 +727,9 @@ describe("streamChat", () => {
 	});
 
 	it("parses tool-call details and assistant evidence metadata", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const onToolCall = vi.fn();
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				uiFrame({
 					type: "data-tool-call",
 					transient: true,
@@ -1019,18 +772,12 @@ describe("streamChat", () => {
 						],
 					},
 				}),
-			]),
-		);
-
-		const cb = {
-			...makeCallbacks(),
-			onToolCall,
-		};
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onToolCall,
+			},
+		});
 		await done;
 
 		expect(onToolCall).toHaveBeenCalledWith(
@@ -1094,20 +841,12 @@ describe("streamChat", () => {
 	});
 
 	it("calls onError when response is not ok", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			new Response(JSON.stringify({ error: "Unauthorized" }), {
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			response: new Response(JSON.stringify({ error: "Unauthorized" }), {
 				status: 401,
 				headers: { "Content-Type": "application/json" },
 			}),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		});
 		await done;
 
 		expect(cb.onError).toHaveBeenCalledOnce();
@@ -1117,17 +856,9 @@ describe("streamChat", () => {
 	});
 
 	it("calls onError when stream emits error event", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([errorEvent({ message: "Something went wrong" })]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [errorEvent({ message: "Something went wrong" })],
+		});
 		await done;
 
 		expect(cb.onError).toHaveBeenCalledOnce();
@@ -1138,19 +869,11 @@ describe("streamChat", () => {
 	});
 
 	it("uses stream error fallback fields and preserves the error code", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				errorEvent({ error: "Fallback failure", code: "UPSTREAM_TIMEOUT" }),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+		});
 		await done;
 
 		const error = cb.onError.mock.calls[0]?.[0] as
@@ -1162,19 +885,11 @@ describe("streamChat", () => {
 	});
 
 	it("maps native AI SDK UI error parts onto onError", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(
-			buildFetchResponse([
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
 				uiFrame({ type: "error", errorText: "upstream exploded" }),
-			]),
-		);
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+			],
+		});
 		await done;
 
 		expect(cb.onError).toHaveBeenCalledWith(
@@ -1184,26 +899,16 @@ describe("streamChat", () => {
 	});
 
 	it("buffers replayed token and thinking chunks until replay-end before waiting", async () => {
-		const mockFetch = vi.mocked(fetch);
 		const controlled = buildControlledFetchResponse();
 		const consoleInfo = vi
 			.spyOn(console, "info")
 			.mockImplementation(() => undefined);
-		mockFetch.mockResolvedValue(controlled.response);
 
 		const events: string[] = [];
-		const cb = {
-			...makeCallbacks(),
-			onToken: vi.fn((chunk: string) => events.push(`token:${chunk}`)),
-			onThinking: vi.fn((chunk: string) => events.push(`thinking:${chunk}`)),
-			onWaiting: vi.fn(() => events.push("waiting")),
-			onEnd: vi.fn((fullText: string) => events.push(`end:${fullText}`)),
-		};
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			response: controlled.response,
+			callbacks: makeEventLogCallbacks(events),
+		});
 
 		await flushMicrotasks();
 		controlled.enqueue(
@@ -1234,15 +939,9 @@ describe("streamChat", () => {
 	});
 
 	it("calls onError when the stream closes without a terminal event", async () => {
-		const mockFetch = vi.mocked(fetch);
-		mockFetch.mockResolvedValue(buildFetchResponse([tokenEvent("partial")]));
-
-		const cb = makeCallbacks();
-		const done = runStreamAndWait(
-			"test message",
-			"conv-1",
-			cb as unknown as StreamCallbacks,
-		);
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [tokenEvent("partial")],
+		});
 		await done;
 
 		expect(cb.onEnd).not.toHaveBeenCalled();
