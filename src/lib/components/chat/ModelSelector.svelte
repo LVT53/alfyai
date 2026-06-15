@@ -29,10 +29,30 @@ let internalOpen = $state(false);
 let isLoading = $state(true);
 let error: string | null = $state(null);
 let dropdownRef: HTMLDivElement | null = $state(null);
+let triggerRef: HTMLButtonElement | null = $state(null);
+let menuRef: HTMLDivElement | null = $state(null);
 let expandedProviders: Set<string> = $state(new Set());
 let focusedModelId: string | null = $state(null);
 let isMobile = $state(false);
 let isOpen = $derived(open ?? internalOpen);
+let dropdownPosition = $state({
+	top: 0,
+	left: 0,
+	width: 280,
+	maxHeight: 400,
+	placement: "top" as "top" | "bottom",
+	ready: false,
+});
+let dropdownStyle = $derived(
+	`top: ${dropdownPosition.top}px; left: ${dropdownPosition.left}px; width: ${dropdownPosition.width}px; max-height: ${dropdownPosition.maxHeight}px; visibility: ${dropdownPosition.ready ? "visible" : "hidden"};`,
+);
+
+const DESKTOP_DROPDOWN_GAP = 6;
+const DESKTOP_DROPDOWN_MARGIN = 12;
+const DESKTOP_DROPDOWN_MIN_WIDTH = 280;
+const DESKTOP_DROPDOWN_MAX_WIDTH = 320;
+const DESKTOP_DROPDOWN_MAX_HEIGHT = 400;
+const DESKTOP_DROPDOWN_MIN_HEIGHT = 160;
 
 function setOpen(nextOpen: boolean) {
 	if (open === undefined) {
@@ -46,11 +66,13 @@ function setOpen(nextOpen: boolean) {
 
 function checkMobile() {
 	isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+	void updateDropdownPosition();
 }
 
 onMount(() => {
 	checkMobile();
 	window.addEventListener("resize", checkMobile);
+	window.addEventListener("scroll", updateDropdownPosition, true);
 
 	const handleClickOutside = (event: MouseEvent) => {
 		if (!dropdownRef || dropdownRef.contains(event.target as Node)) return;
@@ -86,7 +108,27 @@ onMount(() => {
 	return () => {
 		document.removeEventListener("click", handleClickOutside);
 		window.removeEventListener("resize", checkMobile);
+		window.removeEventListener("scroll", updateDropdownPosition, true);
 	};
+});
+
+$effect(() => {
+	if (!isOpen) {
+		dropdownPosition = {
+			top: 0,
+			left: 0,
+			width: DESKTOP_DROPDOWN_MIN_WIDTH,
+			maxHeight: DESKTOP_DROPDOWN_MAX_HEIGHT,
+			placement: "top",
+			ready: false,
+		};
+		return;
+	}
+
+	providers.length;
+	expandedProviders.size;
+	isMobile;
+	void tick().then(updateDropdownPosition);
 });
 
 const activeProvider = $derived.by(() => {
@@ -118,6 +160,77 @@ function toggleDropdown() {
 	const opening = !isOpen;
 	setOpen(!isOpen);
 	if (opening) autoExpandProviders();
+}
+
+async function updateDropdownPosition() {
+	if (!isOpen || isMobile || !triggerRef || typeof window === "undefined")
+		return;
+
+	await tick();
+	if (!isOpen || isMobile || !triggerRef) return;
+
+	const triggerRect = triggerRef.getBoundingClientRect();
+	const viewportWidth = window.innerWidth;
+	const viewportHeight = window.innerHeight;
+	const availableWidth = Math.max(
+		0,
+		viewportWidth - DESKTOP_DROPDOWN_MARGIN * 2,
+	);
+	const width = Math.min(
+		DESKTOP_DROPDOWN_MAX_WIDTH,
+		Math.max(DESKTOP_DROPDOWN_MIN_WIDTH, triggerRect.width),
+		availableWidth,
+	);
+	const left = Math.min(
+		Math.max(DESKTOP_DROPDOWN_MARGIN, triggerRect.left),
+		Math.max(
+			DESKTOP_DROPDOWN_MARGIN,
+			viewportWidth - DESKTOP_DROPDOWN_MARGIN - width,
+		),
+	);
+	const spaceAbove = Math.max(
+		0,
+		triggerRect.top - DESKTOP_DROPDOWN_MARGIN - DESKTOP_DROPDOWN_GAP,
+	);
+	const spaceBelow = Math.max(
+		0,
+		viewportHeight -
+			triggerRect.bottom -
+			DESKTOP_DROPDOWN_MARGIN -
+			DESKTOP_DROPDOWN_GAP,
+	);
+	const placement =
+		spaceAbove >= DESKTOP_DROPDOWN_MIN_HEIGHT || spaceAbove >= spaceBelow
+			? "top"
+			: "bottom";
+	const availableHeight = placement === "top" ? spaceAbove : spaceBelow;
+	const maxHeight = Math.max(
+		Math.min(DESKTOP_DROPDOWN_MIN_HEIGHT, availableHeight),
+		Math.min(DESKTOP_DROPDOWN_MAX_HEIGHT, availableHeight),
+	);
+	const measuredHeight = Math.min(
+		menuRef?.offsetHeight || DESKTOP_DROPDOWN_MAX_HEIGHT,
+		maxHeight,
+	);
+	const top =
+		placement === "top"
+			? Math.max(
+					DESKTOP_DROPDOWN_MARGIN,
+					triggerRect.top - DESKTOP_DROPDOWN_GAP - measuredHeight,
+				)
+			: Math.min(
+					triggerRect.bottom + DESKTOP_DROPDOWN_GAP,
+					viewportHeight - DESKTOP_DROPDOWN_MARGIN - measuredHeight,
+				);
+
+	dropdownPosition = {
+		top,
+		left,
+		width,
+		maxHeight,
+		placement,
+		ready: true,
+	};
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -189,6 +302,7 @@ function autoExpandProviders() {
 
 <div class="model-selector" bind:this={dropdownRef} onkeydown={handleKeydown} role="presentation">
 	<button
+		bind:this={triggerRef}
 		type="button"
 		class="model-selector__trigger"
 		onclick={toggleDropdown}
@@ -218,8 +332,11 @@ function autoExpandProviders() {
 
 	{#if isOpen && providers.length > 0}
 		<div
+			bind:this={menuRef}
 			class="model-selector__dropdown"
 			class:model-selector__dropdown--mobile={isMobile}
+			class:model-selector__dropdown--below={!isMobile && dropdownPosition.placement === 'bottom'}
+			style={isMobile ? undefined : dropdownStyle}
 			role="listbox"
 			aria-label={$t('modelSelector.availableModels')}
 		>
@@ -340,22 +457,23 @@ function autoExpandProviders() {
 	}
 
 	.model-selector__dropdown {
-		position: absolute;
-		bottom: 100%;
-		left: 0;
-		margin-bottom: var(--space-xs, 4px);
+		position: fixed;
+		margin: 0;
 		background: var(--bg-primary, #ffffff);
 		border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
 		border-radius: var(--radius-md, 8px);
 		box-shadow: var(--shadow-lg, 0 4px 16px rgba(0, 0, 0, 0.08));
 		min-width: 280px;
 		max-width: 320px;
-		max-height: 400px;
 		z-index: 100;
 		animation: dropdownFadeIn 150ms ease-out;
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+	}
+
+	.model-selector__dropdown--below {
+		animation-name: dropdownFadeInBelow;
 	}
 
 	.model-selector__dropdown--mobile {
@@ -486,6 +604,17 @@ function autoExpandProviders() {
 		from {
 			opacity: 0;
 			transform: translateY(4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	@keyframes dropdownFadeInBelow {
+		from {
+			opacity: 0;
+			transform: translateY(-4px);
 		}
 		to {
 			opacity: 1;
