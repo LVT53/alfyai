@@ -66,6 +66,12 @@ let formGuideNoCost = $state(untrack(() => model?.guideNoCost ?? false));
 $effect(() => {
 	formGuideNoCost = model?.guideNoCost ?? false;
 });
+let formEstimatedTokensPerSecond = $state(
+	untrack(() => numToString(model?.estimatedTokensPerSecond)),
+);
+$effect(() => {
+	formEstimatedTokensPerSecond = numToString(model?.estimatedTokensPerSecond);
+});
 let formFallbackProviderModelId = $state(
 	untrack(() => model?.fallbackProviderModelId ?? ""),
 );
@@ -192,10 +198,11 @@ function handleSave() {
 		guideNoteEn: formGuideNoteEn.trim() || null,
 		guideNoteHu: formGuideNoteHu.trim() || null,
 		guideBadge:
-			formGuideBadge === "intelligent" || formGuideBadge === "fast"
+			formGuideBadge === "intelligent" || formGuideBadge === "simple"
 				? formGuideBadge
 				: null,
 		guideNoCost: formGuideNoCost,
+		estimatedTokensPerSecond: stringToNum(formEstimatedTokensPerSecond),
 		maxModelContext: maxContext,
 		compactionUiThreshold: null,
 		targetConstructedContext: null,
@@ -312,8 +319,21 @@ function handleSave() {
 							>
 								<option value="">{$t('admin.none')}</option>
 								<option value="intelligent">{$t('modelSelector.badge.intelligent')}</option>
-								<option value="fast">{$t('modelSelector.badge.fast')}</option>
+								<option value="simple">{$t('modelSelector.badge.simple')}</option>
 							</select>
+						</div>
+						<div>
+							<label class="settings-label" for="model-form-estimated-speed">{$t('admin.modelEstimatedSpeed')}</label>
+							<input
+								id="model-form-estimated-speed"
+								type="number"
+								class="settings-input"
+								bind:value={formEstimatedTokensPerSecond}
+								placeholder={$t('admin.modelEstimatedSpeedPlaceholder')}
+								min="0"
+								step="1"
+							/>
+							<p class="mt-1 text-xs text-text-muted">{$t('admin.modelEstimatedSpeedDescription')}</p>
 						</div>
 						<label class="flex items-center gap-3 rounded border border-border px-3 py-2 text-sm text-text-primary">
 							<input

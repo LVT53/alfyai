@@ -31,8 +31,9 @@ export interface AvailableModelProviderGroup {
 		iconUrl: string | null;
 		guideNoteEn: string | null;
 		guideNoteHu: string | null;
-		guideBadge: "intelligent" | "fast" | null;
+		guideBadge: "intelligent" | "simple" | null;
 		guideNoCost: boolean;
+		estimatedTokensPerSecond: number | null;
 		maxModelContext: number | null;
 		inputUsdMicrosPer1m: number;
 		outputUsdMicrosPer1m: number;
@@ -166,6 +167,7 @@ export async function getAvailableModelProviderGroups(
 				guideNoteHu: null,
 				guideBadge: null,
 				guideNoCost: false,
+				estimatedTokensPerSecond: null,
 				maxModelContext: null,
 				inputUsdMicrosPer1m: 0,
 				outputUsdMicrosPer1m: 0,
@@ -193,6 +195,7 @@ export async function getAvailableModelProviderGroups(
 				guideNoteHu: model.guideNoteHu,
 				guideBadge: model.guideBadge,
 				guideNoCost: model.guideNoCost,
+				estimatedTokensPerSecond: model.estimatedTokensPerSecond,
 				maxModelContext: model.maxModelContext,
 				inputUsdMicrosPer1m: model.inputUsdMicrosPer1m,
 				outputUsdMicrosPer1m: model.outputUsdMicrosPer1m,

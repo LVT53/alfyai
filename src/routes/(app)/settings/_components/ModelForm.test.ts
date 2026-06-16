@@ -22,6 +22,7 @@ function modelFixture(overrides: Record<string, unknown> = {}) {
 		guideNoteHu: null,
 		guideBadge: null,
 		guideNoCost: false,
+		estimatedTokensPerSecond: null,
 		inputUsdMicrosPer1m: 1_000_000,
 		cachedInputUsdMicrosPer1m: 100_000,
 		cacheHitUsdMicrosPer1m: 999_000,
@@ -126,23 +127,29 @@ describe("ModelForm pricing fields", () => {
 		);
 	});
 
-	it("saves the guide no-cost display flag", async () => {
+	it("saves guide display metadata", async () => {
 		const onSave = vi.fn();
-		const { getByRole } = render(ModelForm, {
+		const { getByLabelText, getByRole } = render(ModelForm, {
 			providerId: "provider-1",
 			model: modelFixture(),
 			onSave,
 			onClose: vi.fn(),
 		});
 
-		await fireEvent.click(
-			getByRole("checkbox", { name: /Show as no cost/ }),
-		);
+		await fireEvent.change(getByLabelText("Guide badge"), {
+			target: { value: "simple" },
+		});
+		await fireEvent.input(getByLabelText("Estimated speed"), {
+			target: { value: "150" },
+		});
+		await fireEvent.click(getByRole("checkbox", { name: /Show as no cost/ }));
 		await fireEvent.click(getByRole("button", { name: "Save Changes" }));
 
 		expect(onSave).toHaveBeenCalledWith(
 			expect.objectContaining({
+				guideBadge: "simple",
 				guideNoCost: true,
+				estimatedTokensPerSecond: 150,
 			}),
 		);
 	});

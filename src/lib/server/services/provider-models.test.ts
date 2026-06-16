@@ -40,6 +40,7 @@ function createTestTables() {
 			guide_note_hu TEXT,
 			guide_badge TEXT,
 			guide_no_cost INTEGER NOT NULL DEFAULT 0,
+			estimated_tokens_per_second INTEGER,
 			max_model_context INTEGER,
 			compaction_ui_threshold INTEGER,
 			target_constructed_context INTEGER,
@@ -96,6 +97,7 @@ describe("ProviderModel payload parsing", () => {
 				guideNoteHu: "  Magyar útmutató.  ",
 				guideBadge: "intelligent",
 				guideNoCost: true,
+				estimatedTokensPerSecond: 150,
 				fallbackProviderModelId: "  ",
 				maxModelContext: 128000,
 				compactionUiThreshold: null,
@@ -121,6 +123,7 @@ describe("ProviderModel payload parsing", () => {
 			guideNoteHu: "Magyar útmutató.",
 			guideBadge: "intelligent",
 			guideNoCost: true,
+			estimatedTokensPerSecond: 150,
 			fallbackProviderModelId: null,
 			maxModelContext: 128000,
 			compactionUiThreshold: null,
@@ -151,8 +154,9 @@ describe("ProviderModel payload parsing", () => {
 				iconAssetId: "  icon-asset  ",
 				guideNoteEn: "",
 				guideNoteHu: "  Gyors válaszokhoz.  ",
-				guideBadge: "fast",
+				guideBadge: "simple",
 				guideNoCost: false,
+				estimatedTokensPerSecond: 45,
 				fallbackProviderModelId: "  ",
 				maxModelContext: 64000,
 				compactionUiThreshold: null,
@@ -175,8 +179,9 @@ describe("ProviderModel payload parsing", () => {
 			iconAssetId: "icon-asset",
 			guideNoteEn: null,
 			guideNoteHu: "Gyors válaszokhoz.",
-			guideBadge: "fast",
+			guideBadge: "simple",
 			guideNoCost: false,
+			estimatedTokensPerSecond: 45,
 			fallbackProviderModelId: null,
 			maxModelContext: 64000,
 			compactionUiThreshold: null,
@@ -210,6 +215,9 @@ describe("ProviderModel payload parsing", () => {
 		expect(() =>
 			parseUpdateProviderModelPayload({ guideNoCost: "yes" }),
 		).toThrow("guideNoCost");
+		expect(() =>
+			parseUpdateProviderModelPayload({ estimatedTokensPerSecond: -1 }),
+		).toThrow("estimatedTokensPerSecond");
 	});
 });
 
@@ -260,6 +268,7 @@ describe("ProviderModel CRUD", () => {
 				guideNoteEn: "Best for careful tasks.",
 				guideBadge: "intelligent",
 				guideNoCost: true,
+				estimatedTokensPerSecond: 150,
 				maxModelContext: 200_000,
 				maxTokens: 4096,
 				reasoningEffort: "high",
@@ -273,6 +282,7 @@ describe("ProviderModel CRUD", () => {
 			expect(model.guideNoteHu).toBeNull();
 			expect(model.guideBadge).toBe("intelligent");
 			expect(model.guideNoCost).toBe(true);
+			expect(model.estimatedTokensPerSecond).toBe(150);
 			expect(model.maxModelContext).toBe(200_000);
 			expect(model.compactionUiThreshold).toBe(160_000);
 			expect(model.targetConstructedContext).toBe(180_000);

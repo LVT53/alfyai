@@ -3,10 +3,7 @@ import { onMount } from "svelte";
 import { ExternalLink, X } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import { uiLanguage } from "$lib/stores/settings";
-import type {
-	ModelProvider,
-	ProviderModel,
-} from "$lib/client/api/models";
+import type { ModelProvider, ProviderModel } from "$lib/client/api/models";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import {
 	regionCodeToFlag,
@@ -86,10 +83,31 @@ function badgeLabel(model: ProviderModel): string {
 	if (model.guideBadge === "intelligent") {
 		return $t("modelSelector.badge.intelligent");
 	}
-	if (model.guideBadge === "fast") {
-		return $t("modelSelector.badge.fast");
+	if (model.guideBadge === "simple") {
+		return $t("modelSelector.badge.simple");
 	}
 	return "";
+}
+
+function estimatedSpeed(model: ProviderModel): number | null {
+	const speed = model.estimatedTokensPerSecond ?? 0;
+	return speed > 0 ? speed : null;
+}
+
+function speedIndicator(model: ProviderModel): string {
+	const speed = estimatedSpeed(model);
+	if (!speed) return "";
+	if (speed >= 500) return $t("modelSelector.speed.ludicrous");
+	if (speed >= 100) return $t("modelSelector.speed.fast");
+	return $t("modelSelector.speed.normal");
+}
+
+function exactSpeedLabel(model: ProviderModel): string {
+	const speed = estimatedSpeed(model);
+	if (!speed) return "";
+	return $t("modelSelector.speedExact", {
+		speed: new Intl.NumberFormat($uiLanguage).format(speed),
+	});
 }
 
 function contextIndicator(model: ProviderModel): string {
@@ -200,6 +218,15 @@ function regionTitle(provider: ModelProvider): string {
 												{#if model.guideBadge}
 													<span class="model-guide-badge">
 														{badgeLabel(model)}
+													</span>
+												{/if}
+												{#if speedIndicator(model)}
+													<span
+														class="model-guide-pill model-guide-speed"
+														data-tooltip={exactSpeedLabel(model)}
+														aria-label={exactSpeedLabel(model)}
+													>
+														{speedIndicator(model)}
 													</span>
 												{/if}
 												<span
@@ -447,6 +474,12 @@ function regionTitle(provider: ModelProvider): string {
 		color: #1f7a35;
 	}
 
+	.model-guide-speed {
+		border: 1px solid color-mix(in srgb, #2563eb 24%, transparent);
+		background: color-mix(in srgb, #2563eb 10%, var(--bg-primary, #fff));
+		color: #1d4ed8;
+	}
+
 	.model-guide-pill[data-tooltip]::after,
 	.model-guide-region[data-tooltip]::after {
 		position: absolute;
@@ -517,6 +550,12 @@ function regionTitle(provider: ModelProvider): string {
 
 	:global(.dark) .model-guide-pill {
 		background: var(--bg-hover, #333);
+	}
+
+	:global(.dark) .model-guide-speed {
+		border-color: color-mix(in srgb, #60a5fa 28%, transparent);
+		background: color-mix(in srgb, #60a5fa 14%, var(--bg-primary, #1a1a1a));
+		color: #93c5fd;
 	}
 
 	:global(.dark) .model-guide-cost--no-cost {

@@ -78,6 +78,7 @@ function modelFixture(overrides: Record<string, unknown> = {}) {
 		guideNoteHu: null,
 		guideBadge: null,
 		guideNoCost: false,
+		estimatedTokensPerSecond: null,
 		maxModelContext: 128_000,
 		compactionUiThreshold: null,
 		targetConstructedContext: null,

@@ -505,6 +505,13 @@
       "when": 1777140000058,
       "tag": "1777140000058_provider_model_guide_no_cost",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1777140000059,
+      "tag": "1777140000059_provider_model_speed_metadata",
+      "breakpoints": true
     }
   ]
 }

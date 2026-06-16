@@ -11,8 +11,9 @@ function model(index: number): ModelProvider["models"][number] {
 		iconUrl: null,
 		guideNoteEn: `Short guidance note ${index}.`,
 		guideNoteHu: null,
-		guideBadge: index % 2 === 0 ? "fast" : "intelligent",
+		guideBadge: index % 2 === 0 ? "simple" : "intelligent",
 		guideNoCost: index === 1,
+		estimatedTokensPerSecond: index === 12 ? 1_000 : index % 3 === 0 ? 150 : 45,
 		maxModelContext:
 			index === 12 ? 1_000_000 : index % 3 === 0 ? 256_000 : 64_000,
 		inputUsdMicrosPer1m: index * 500_000,
@@ -65,10 +66,14 @@ describe("ModelSelectionGuideModal", () => {
 			"data-tooltip",
 			"Processing region: Netherlands",
 		);
-		expect(screen.getByRole("link", { name: "Provider privacy policy" }))
-			.toHaveAttribute("href", "https://example.com/privacy");
-		expect(screen.getAllByText("Fast").length).toBeGreaterThan(0);
+		expect(
+			screen.getByRole("link", { name: "Provider privacy policy" }),
+		).toHaveAttribute("href", "https://example.com/privacy");
+		expect(screen.getAllByText("Simpler").length).toBeGreaterThan(0);
 		expect(screen.getAllByText("Intelligent").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("Normal").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("Fast").length).toBeGreaterThan(0);
+		expect(screen.getByText("Ludicrous")).toBeTruthy();
 		expect(screen.getByText("No cost")).toBeTruthy();
 		expect(screen.getAllByText("Large context").length).toBeGreaterThan(0);
 		expect(screen.getByText("Massive context")).toBeTruthy();
@@ -76,6 +81,11 @@ describe("ModelSelectionGuideModal", () => {
 		expect(
 			document.body.querySelector(
 				'[data-tooltip="Input/Output per 1M tokens: $1.0000 / $2.0000"]',
+			),
+		).toBeTruthy();
+		expect(
+			document.body.querySelector(
+				'[data-tooltip="Estimated speed: 150 tokens/sec"]',
 			),
 		).toBeTruthy();
 		expect(
@@ -97,7 +107,9 @@ describe("ModelSelectionGuideModal", () => {
 			onClose,
 		});
 
-		await fireEvent.mouseDown(screen.getByRole("dialog", { name: "Model guide" }));
+		await fireEvent.mouseDown(
+			screen.getByRole("dialog", { name: "Model guide" }),
+		);
 		await fireEvent.click(screen.getByRole("dialog", { name: "Model guide" }));
 		expect(onClose).not.toHaveBeenCalled();
 

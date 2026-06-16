@@ -366,6 +366,10 @@ const settingsDict = {
 		"admin.modelGuideNoCost": "Show as no cost",
 		"admin.modelGuideNoCostDescription":
 			"Use for local or bundled models where the guide should not show unknown cost.",
+		"admin.modelEstimatedSpeed": "Estimated speed",
+		"admin.modelEstimatedSpeedDescription":
+			"Optional tokens/sec estimate used only to infer the guide speed badge.",
+		"admin.modelEstimatedSpeedPlaceholder": "e.g. 150",
 		"admin.modelGuideNoteEn": "English guide note",
 		"admin.modelGuideNoteHu": "Hungarian guide note",
 		"admin.modelGuideNotePlaceholder": "Best for long document work.",
@@ -407,7 +411,8 @@ const settingsDict = {
 		"admin.providerPrivacyPolicy": "Privacy policy URL",
 		"admin.providerPrivacyPolicyDescription":
 			"Optional link shown from the model guide, not in the compact selector.",
-		"admin.providerPrivacyPolicyPlaceholder": "https://provider.example/privacy",
+		"admin.providerPrivacyPolicyPlaceholder":
+			"https://provider.example/privacy",
 		"admin.providerProcessingRegion": "Processing region",
 		"admin.providerProcessingRegionDescription":
 			"Optional two-letter country code used as a compact privacy cue.",
@@ -1057,6 +1062,10 @@ const settingsDict = {
 		"admin.modelGuideNoCost": "Költségmentesként jelenjen meg",
 		"admin.modelGuideNoCostDescription":
 			"Helyi vagy csomagban lévő modellekhez, amikor az útmutatóban ne ismeretlen költség jelenjen meg.",
+		"admin.modelEstimatedSpeed": "Becsült sebesség",
+		"admin.modelEstimatedSpeedDescription":
+			"Opcionális token/mp becslés, kizárólag az útmutató sebességjelvényének meghatározásához.",
+		"admin.modelEstimatedSpeedPlaceholder": "pl. 150",
 		"admin.modelGuideNoteEn": "Angol útmutató megjegyzés",
 		"admin.modelGuideNoteHu": "Magyar útmutató megjegyzés",
 		"admin.modelGuideNotePlaceholder": "Hosszú dokumentumos munkához ajánlott.",

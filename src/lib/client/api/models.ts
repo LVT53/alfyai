@@ -6,8 +6,9 @@ export interface ProviderModel {
 	iconUrl: string | null;
 	guideNoteEn: string | null;
 	guideNoteHu: string | null;
-	guideBadge: "intelligent" | "fast" | null;
+	guideBadge: "intelligent" | "simple" | null;
 	guideNoCost: boolean;
+	estimatedTokensPerSecond: number | null;
 	maxModelContext: number | null;
 	inputUsdMicrosPer1m: number;
 	outputUsdMicrosPer1m: number;

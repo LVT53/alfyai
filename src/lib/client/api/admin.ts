@@ -401,8 +401,9 @@ export interface ProviderModel {
 	iconAssetId: string | null;
 	guideNoteEn: string | null;
 	guideNoteHu: string | null;
-	guideBadge: "intelligent" | "fast" | null;
+	guideBadge: "intelligent" | "simple" | null;
 	guideNoCost: boolean;
+	estimatedTokensPerSecond: number | null;
 	fallbackProviderModelId: string | null;
 	maxModelContext: number | null;
 	compactionUiThreshold: number | null;
@@ -429,8 +430,9 @@ export type ProviderModelInput = {
 	iconAssetId?: string | null;
 	guideNoteEn?: string | null;
 	guideNoteHu?: string | null;
-	guideBadge?: "intelligent" | "fast" | null;
+	guideBadge?: "intelligent" | "simple" | null;
 	guideNoCost?: boolean;
+	estimatedTokensPerSecond?: number | null;
 	fallbackProviderModelId?: string | null;
 	maxModelContext?: number | null;
 	compactionUiThreshold?: number | null;
