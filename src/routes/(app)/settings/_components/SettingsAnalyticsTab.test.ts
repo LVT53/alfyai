@@ -69,6 +69,28 @@ function analyticsFixture(): AnalyticsResponse {
 	};
 }
 
+function analyticsWithPerUserFixture(): AnalyticsResponse {
+	return {
+		...analyticsFixture(),
+		perUser: [
+			{
+				userId: "user-2",
+				displayName: "User Two",
+				email: "user2@example.com",
+				messageCount: 12,
+				avgGenerationMs: 900,
+				totalTokens: 600,
+				promptTokens: 400,
+				outputTokens: 200,
+				reasoningTokens: 0,
+				totalCostUsd: 2.5,
+				favoriteModel: "model2",
+				conversationCount: 3,
+			},
+		],
+	};
+}
+
 describe("SettingsAnalyticsTab", () => {
 	it("uses all-user months for the admin System Overview picker", async () => {
 		const onSystemMonthChange = vi.fn();
@@ -84,6 +106,31 @@ describe("SettingsAnalyticsTab", () => {
 		});
 
 		await fireEvent.click(getByLabelText("Next system month"));
+
+		expect(onSystemMonthChange).toHaveBeenCalledWith("2026-06");
+	});
+
+	it("combines user activity and per-user rows under one monthly filtered card", async () => {
+		const onSystemMonthChange = vi.fn();
+		const { getByLabelText, getByText, queryByText } = render(
+			SettingsAnalyticsTab,
+			{
+				analyticsData: analyticsWithPerUserFixture(),
+				isAdmin: true,
+				modelNames: { model2: "Model 2" },
+				onRetry: vi.fn(),
+				selectedMonth: null,
+				selectedSystemMonth: null,
+				onMonthChange: vi.fn(),
+				onSystemMonthChange,
+			},
+		);
+
+		expect(queryByText("User Activity")).not.toBeInTheDocument();
+		expect(getByText("Per-User Breakdown")).toBeInTheDocument();
+		expect(getByText("User Two")).toBeInTheDocument();
+
+		await fireEvent.click(getByLabelText("Next per-user month"));
 
 		expect(onSystemMonthChange).toHaveBeenCalledWith("2026-06");
 	});
