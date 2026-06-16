@@ -29,7 +29,7 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 | Complete Knowledge upload intake | `upload-intake.ts` |
 | Create artifact + chunks | `store/core.ts` `createArtifact()` |
 | Upload + prompt readiness | `store/attachments.ts` `saveUploadedArtifact()`, `resolvePromptAttachmentArtifacts()` |
-| Semantic document search | `store/documents.ts` |
+| Semantic document retrieval/search composition | `store/documents.ts` |
 | Delete with ref checks | `store/cleanup.ts` `deleteArtifactForUser()` |
 | Working-set ranking | `context.ts` `selectWorkingSetArtifactsForPrompt()` |
 | Compaction status | `context.ts` `refreshConversationContextStatus()` |
@@ -50,7 +50,7 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 ## Anti-Patterns
 
 - Do NOT create a second artifact persistence path outside `store/core.ts`
-- Do NOT duplicate document search ranking in routes; use the shared document search service
+- Do NOT duplicate document persistence, grouping, or artifact mapping in routes; Workspace Search may compose `store/documents.ts` for shell-search document results
 - Do NOT put upload completion, prompt readiness, or Honcho sync back into upload routes
 - Do NOT make capsules the authority for document lineage
 - Do NOT add uploaded-file versioning; byte-identical (SHA256 hash) deduplication is handled at the upload level via `findExistingArtifactByBinaryHash`. Name-based auto-rename still applies for non-identical files with conflicting names.

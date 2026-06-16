@@ -7,7 +7,7 @@ Parent: [AGENTS.md](../../../AGENTS.md) defines component categories and boundar
 ```
 layout/
   Sidebar.svelte                    ← navigation shell, profile, new-chat button
-    ├── search/SearchModal.svelte   ← global conversation + document search (Ctrl+K)
+    ├── search/SearchModal.svelte   ← global Workspace Search (Ctrl+K)
     └── sidebar/ConversationList.svelte  ← list with drag/drop, project folders
           ├── sidebar/ProjectItem.svelte      ← folder row (event emitter only)
           └── sidebar/ConversationItem.svelte  ← conversation row (event emitter only)
@@ -57,8 +57,7 @@ ui/
 | `MessageBubble.svelte` | `theme` | `isDark` (markdown dark mode), attachment open handoff to the route-owned workspace |
 | `ModelSelector.svelte` | `settings` | `selectedModel`, `setSelectedModel` |
 | `ComposerToolsMenu.svelte` | props + child components | `ModelSelector`, personality-profile props, attach callback |
-| `SearchModal.svelte` | `conversations` | `conversations` (conversation search source) |
-| `SearchModal.svelte` | `projects` | `projects` (search source) |
+| `SearchModal.svelte` | `workspace-search` API | server-backed workspace results through `client/api/workspace-search.ts` |
 | `SearchModal.svelte` | `ui` | `currentConversationId`, `sidebarOpen` |
 
 ## Page-to-Component Usage
@@ -102,7 +101,7 @@ ui/
 - The landing page may force a full document navigation after the first send so the browser cannot remain on the home-screen visual state while the new chat route is already executing on the server
 - `MessageInput.svelte` accepts `onUploadReady` callback for external upload handling
 - `FileAttachment.svelte` accepts `viewable` boolean and `onView` callback for document opening
-- `SearchModal.svelte` pulls document hits through `client/api/knowledge.ts` and hands document opens off to the knowledge-page workspace instead of owning a parallel preview modal
+- `SearchModal.svelte` queries server-backed Workspace Search through `client/api/workspace-search.ts` and hands document opens off to the knowledge-page workspace instead of owning a parallel preview modal
 - `DropZoneOverlay.svelte` provides visual feedback during OS file manager drag operations
 - `FileProductionCard.svelte` owns the generated-file job card layout, grouped output rows, preview/download UI, retry/cancel controls, and queued/running/failed/succeeded states
 - `FileProductionCard.svelte` may delegate preview opening upward to the chat route so the route owns active-document selection for the working-document workspace

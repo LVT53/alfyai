@@ -2,6 +2,66 @@
 
 AlfyAI is a conversational workspace where users can chat casually, use tools, work with files, and optionally start deeper background research tasks. This context captures product-domain language that should stay stable across implementation choices.
 
+## Workspace Search
+
+### Language
+
+**Workspace Search**:
+The app-shell search surface for finding and opening a user's workspace material across conversations and documents. It is for navigating existing AlfyAI workspace content, not for searching the web, settings, admin records, or raw memory internals.
+_Avoid_: search modal, global search, command palette, Ctrl+K modal
+
+**Workspace Search Result**:
+A navigable match returned by **Workspace Search**, such as a conversation title match, a conversation body match, or a document match. A result should carry enough human context to explain why it matched while still opening the owning workspace surface rather than becoming a separate transcript or document browser.
+_Avoid_: raw search hit, database row, transcript result
+
+**Workspace Search Document Result**:
+A **Workspace Search Result** for a workspace document that opens the document directly in the document workspace. When the document has a containing or source chat, that chat may be offered as a secondary navigation target rather than replacing direct document open.
+_Avoid_: chat file result, attachment row, document preview modal
+
+**Workspace Search Source Navigation**:
+The secondary action from a source-backed **Workspace Search Document Result** to the chat context that produced or contains that document. Source navigation supports provenance without making chat navigation the primary way to open a searched-for document.
+_Avoid_: primary document action, source preview, chat-first document open
+
+**Conversation Body Match**:
+A **Workspace Search Result** that matches text inside a conversation message rather than the conversation title. It represents the best matching message context for that conversation and opens the conversation at that message.
+_Avoid_: transcript browser row, message database hit, conversation title match
+
+**Lexical Workspace Search**:
+Workspace search behavior that finds literal words or phrases present in workspace material rather than conceptually related material. It is the expected baseline for navigation when a user remembers text, names, or titles from their workspace.
+_Avoid_: semantic workspace search, fuzzy memory search, related-content discovery
+
+**Workspace Search Metadata Match**:
+A **Workspace Search Result** explained by contextual metadata such as a conversation's project folder rather than by the main title or body text. Metadata matches help navigation but do not introduce separate result types when the metadata itself is not the thing being opened.
+_Avoid_: folder search result, metadata browser
+
+**Workspace Search Default Results**:
+The compact no-query state of **Workspace Search**, showing a small set of recent conversations and recent documents so the surface remains navigational before a user searches. V1 should show at most three conversations and three documents in this state.
+_Avoid_: full recent history, library table, sidebar duplicate
+
+**Workspace Search Result Limits**:
+The compact caps that keep **Workspace Search** a fast navigation surface rather than a full results page. V1 query results show at most six conversations and six documents, with document overflow handed off to the Knowledge Library.
+_Avoid_: unlimited modal results, full search page, transcript listing
+
+**Workspace Search Query Threshold**:
+The minimum meaningful query length before **Workspace Search** searches workspace body content. V1 treats empty and one-character input as default-result states and begins searching from two non-space characters.
+_Avoid_: single-character body search, search-on-empty
+
+**Workspace Search Snippet**:
+A short, clipped excerpt that explains why a **Workspace Search Result** matched body or document content. It should help navigation without turning the search surface into a transcript reader or document viewer.
+_Avoid_: full message body, document excerpt panel, debug match text
+
+**Workspace Search Eligibility**:
+The rule that **Workspace Search** includes non-deleted workspace material the user can still open, including sealed conversations and historical generated documents. It excludes empty prepared conversations, cleared or erased workspace data, raw memory internals, settings, admin records, and web results.
+_Avoid_: sidebar visibility, prompt eligibility, memory retrieval scope
+
+**Workspace Search Scope**:
+The default account-wide reach of **Workspace Search** across the user's accessible conversations and workspace documents. It is not implicitly narrowed to the current chat, project folder, or page.
+_Avoid_: current-project search, page-local search, sidebar-only search
+
+**Workspace Search Document Eligibility**:
+The rule that files, generated outputs, skill notes, and chat attachments appear in **Workspace Search** only when they are openable as workspace documents. Workspace Search does not expose a separate attachment result type.
+_Avoid_: raw attachment search, file metadata row, non-openable attachment result
+
 ## User Onboarding
 
 ### Language
@@ -163,8 +223,8 @@ The profile settings section where every signed-in user manages personal data li
 _Avoid_: danger zone, account reset area, GDPR menu, data tools
 
 **Clear Memory and Knowledge**:
-The user action that removes remembered context, Knowledge Base content, document-derived context, continuity state, and stored evidence traces while keeping the user's chat conversations and account. It is narrower than **Clear Workspace Data** and is not **Account Erasure**.
-_Avoid_: reset memory, forget everything, knowledge reset, account reset
+The user action that removes remembered context, Knowledge Base content, document-derived context, continuity state, and stored evidence traces while keeping the user's chat conversations and account. It is narrower than **Clear Workspace Data** and is not **Account Erasure**. The **Memory Rework Update** should preserve this as the account-level memory and knowledge reset path rather than adding a second reset button, and it must clear any new Memory Profile projection, review, conflict, intake, maintenance, telemetry, and Honcho identity state that could otherwise rehydrate memory.
+_Avoid_: reset memory, forget everything, knowledge reset, account reset, duplicate memory reset button
 
 **Clear Workspace Data**:
 The user action that removes a user's chats, Knowledge Base content, app-controlled memory, generated files, and workspace continuity while keeping their login, profile settings, avatar, and identifiable historical analytics. It is a workspace wipe for continued use of the same account, not **Account Erasure**.
@@ -223,19 +283,167 @@ The production capability that lets AlfyAI discover, select, and use relevant me
 _Avoid_: tool collection, retrieval demo, manual context setup
 
 **Memory Context Tool**:
-The model-facing retrieval tool for asking AlfyAI what durable memory or historical context is relevant to the current turn.
-_Avoid_: project-only tool, persona-memory tool, transcript search tool
+The model-facing retrieval tool for asking AlfyAI what durable memory or historical context is relevant to the current turn. It may retrieve historical chats and documents for source/history questions, but should not reintroduce deleted, suppressed, expired, blocked, or review-needed profile memory as ordinary personalization.
+_Avoid_: project-only tool, persona-memory tool, transcript search tool, hidden personalization bypass
+
+**Memory Rework Update**:
+The complete product update that makes AlfyAI memory usable long-term by replacing raw transcript mirroring and raw maintenance tables with curated Memory Profile, gated intake, bounded maintenance, next-turn-effective user corrections, and first-class telemetry-backed reconciliation.
+_Avoid_: v1, draft, prototype, partial memory path, temporary cleanup pass
+
+**Memory Rework Telemetry**:
+The operational evidence AlfyAI records to judge whether the **Memory Rework Update** is working unattended, including memory intake decisions, maintenance actions, review burden, user correction and deletion patterns, and prompt-use outcomes. By default it should record decisions, categories, reasons, counts, statuses, and stable identifiers rather than raw remembered text or raw chat excerpts. User-linked telemetry should clear with **Clear Memory and Knowledge**; non-identifying aggregate counters may remain only when they cannot identify the user or reconstruct memory. It should be backend/log-only by default, without a Memory Profile or admin summary view until collected data proves which metrics are useful.
+_Avoid_: raw memory dump, raw chat excerpt log, hidden debug log, vanity metric, later observability add-on, second sensitive memory store, default telemetry dashboard
 
 **Baseline Memory Profile**:
-A compact Honcho-led personalization profile available to an ordinary chat turn before the model decides whether to retrieve deeper memory.
-_Avoid_: newest memories, raw conclusion list, local persona summary
+A compact personalization profile available to an ordinary chat turn before the model decides whether to retrieve deeper memory. It is Honcho-led, but should respect the active **Memory Profile Projection** so corrected, deleted, suppressed, expired, and review-blocked profile facts do not leak back into prompt context.
+_Avoid_: newest memories, raw conclusion list, local persona summary, stale deleted memory
 
 **Knowledge Memory Overview**:
-The user-facing Memory Profile summary in the Knowledge Base. Its deep server module, `src/lib/server/services/knowledge/memory-overview.ts`, owns app-ready bullet shaping, **Memory Provenance Noise** removal, sensitive-value softening, source/status semantics, and the shared `KnowledgeMemorySummary.overviewBullets` contract returned through `src/lib/server/services/memory.ts`. Honcho remains the persona and memory authority; the module only translates Honcho/persona overview material into the user-facing overview contract. Knowledge page components such as `src/routes/(app)/knowledge/+page.svelte` and `_components/KnowledgeMemoryView.svelte` are UI adapters that render server-provided bullets/status/source and must not normalize raw Honcho text.
-_Avoid_: memory markdown, Honcho dump, conversation results list, generated report
+The user-facing Memory Profile summary in the Knowledge Base. It explains what AlfyAI remembers about the user, including durable preferences, stable facts, goals, constraints, owned things, and other personal context. It is not a management surface for task checkpoints, inferred project continuity, sibling chat awareness, or backend retrieval diagnostics. Its deep server module, `src/lib/server/services/knowledge/memory-overview.ts`, owns app-ready bullet shaping, **Memory Provenance Noise** removal, sensitive-value softening, source/status semantics, and the shared `KnowledgeMemorySummary.overviewBullets` contract returned through `src/lib/server/services/memory.ts`. Honcho remains the persona and memory authority; the module only translates Honcho/persona overview material into the user-facing overview contract. Knowledge page components such as `src/routes/(app)/knowledge/+page.svelte` and `_components/KnowledgeMemoryView.svelte` are UI adapters that render server-provided bullets/status/source and must not normalize raw Honcho text.
+_Avoid_: memory markdown, Honcho dump, conversation results list, generated report, project continuity dashboard, task memory table
+
+**Memory Profile Projection**:
+The app-owned, user-facing read model that turns Honcho-led persona memory and app-owned profile state into an easy-to-review **Memory Profile** made of curated **Memory Profile Items**. It may group, label, soften, collapse, mark stale, or flag contradictory remembered facts for review, but it is not the canonical memory source and should not become a parallel persona-memory system.
+_Avoid_: memory authority, live Honcho prose, local persona engine, task continuity surface, focus continuity section
+
+**Memory Profile Item**:
+A concise, editable statement in the **Memory Profile Projection** that represents remembered user context AlfyAI may actively use. It may summarize or collapse many underlying memories, but the default UI should present the clean remembered fact rather than raw extracted chat-round records, confidence labels, freshness metadata, or cleanup status.
+_Avoid_: Honcho conclusion row, extracted chat round, source table row, debug memory record, raw durable-memory table, default confidence badge, default freshness badge
+
+**Active Memory Profile View**:
+The default **Memory Profile** view that shows only **Memory Profile Items** AlfyAI may currently use for personalization, plus visible **Guided Memory Review** when needed. Normal categories should exclude deferred, blocked, expired, suppressed, deleted, and review-needed items. It should not provide a general inactive, deleted, suppressed, expired, or history browser.
+_Avoid_: all memories table, Honcho dump, recently-updated section, inactive default list, memory graveyard, deleted memories tab, blocked item in category
+
+**Active Memory Profile Context**:
+The model-facing form of the active **Memory Profile Projection** used for personalization in chat. It should use the same active usable **Memory Profile Item** set shown in the normal categories of the **Active Memory Profile View**, while omitting UI-only details and excluding deleted, suppressed, expired, corrected-away, deferred, blocked, or unresolved review-needed memory.
+_Avoid_: raw Honcho context, hidden stale memory, UI-only profile details, backend continuity state
+
+**Memory Intake Gate**:
+The memory boundary that decides whether new chat, document, or work material is durable enough to become remembered context. It should admit explicit, useful profile facts, preferences, constraints, goals, and concrete work capsules while rejecting ordinary transcript chatter and obvious **Junk Memory** before they reach durable memory. It should make a bounded structured decision before durable memory writes rather than persist a long-lived pending-memory-candidate store.
+_Avoid_: transcript mirror, every-message capture, assistant-response dump, broad cleanup pass, second memory system, pending raw memory queue
+
+**Memory Intake Decision**:
+The structured outcome produced by the **Memory Intake Gate** for new candidate material. It should be one of: admit, reject, or defer to maintenance. Admit writes accepted durable memory through the existing memory authority path; reject records why the material should not become memory; defer to maintenance records telemetry and dirty state without storing raw candidate text.
+_Avoid_: hidden maybe-memory queue, raw candidate backlog, unstructured classifier note, forced admit, silent uncertainty
+
+**Immediate Memory Admission**:
+The path where the **Memory Intake Gate** admits a remembered fact during post-turn processing without waiting for broader maintenance. It should require explicit durable language or strong explicit phrasing for preferences, constraints, goals, project rules, and document rules. Stable user-authored self-statements may be admitted without memory verbs when they are clearly about the user and not merely document-derived or assistant-inferred.
+_Avoid_: soft instruction as durable rule, assistant inference, document-derived self-truth, every preference-like phrase, uncertain immediate write
+
+**Assistant Prose Memory Exclusion**:
+The rule that ordinary assistant-generated answer text is not a source for **Immediate Memory Admission**. Assistant prose may remain chat history, evidence, or conversation context, but it should not become durable memory authority. App-owned structured outputs may become memory only through typed, scoped, provenance-aware paths.
+_Avoid_: assistant answer as user truth, mirrored assistant prose, summary as profile memory, model guess as memory, feedback loop
+
+**User-Authored Memory Precedence**:
+The conflict rule that explicit user-authored memory, corrections, deletions, and durable statements override assistant-generated prose and app-authored structured memory when they disagree. The user's statement should affect active use immediately, while memory maintenance reconciles older durable records later.
+_Avoid_: work capsule override, assistant inference wins, generated metadata as higher authority, stale structured memory, delayed user correction
+
+**Memory Intake Normalization**:
+The constrained shaping step that turns admitted material into a clean remembered statement with category, scope, reason, and provenance. It should preserve the user's meaning while removing task clutter, local wording, accidental assistant prose, and unsafe over-inference. If the category, scope, or statement cannot be separated confidently, the intake decision should defer to maintenance.
+_Avoid_: free-form personality inference, raw sentence storage, duplicate category fanout, hidden rewrite, broad classifier guess
+
+**Memory Scope**:
+The applicability boundary for a remembered fact. It answers where AlfyAI may use the memory, separately from **Memory Profile Category**, which answers what kind of memory it is. Allowed scopes are global, project, conversation, and document. Scope assignment should use the narrowest confident scope; global scope is for clearly user-wide memory. Project scope attaches to the **Project Folder** when one is present, otherwise to confirmed **Project Continuity**. Scope prevents project-, conversation-, or document-specific remembered facts from leaking into global personalization while still allowing the right related chats to share context.
+_Avoid_: category, UI section, provenance, confidence score, global-by-default memory, free-form client scope, free-form topic scope
+
+**Document-Sourced Context**:
+Information available because it appears in an uploaded, generated, attached, or stored document. It may be used as document evidence or working-document context, but it is not user-truth or Memory Profile material merely because the document exists in AlfyAI.
+_Avoid_: user profile fact, persona memory, document content as user truth, receipt as preference, tax paper as biography
+
+**Document-Scoped Memory**:
+A remembered fact whose applicability is limited to a specific document or document family, usually about how that document should be interpreted, edited, revised, or reused. It should come from explicit user intent or document-workflow behavior, not from treating arbitrary document contents as facts about the user.
+_Avoid_: fact found inside a document, global user memory, document provenance, uploaded-file ownership, extracted PDF fact
+
+**Document Memory Admission**:
+The rule for when **Document-Sourced Context** may become **Document-Scoped Memory**. Immediate admission requires explicit user-authored durable intent about how AlfyAI should remember, treat, edit, interpret, revise, or reuse a document or document family, such as "remember," "always," "from now on," or "for this document family." Repeated document workflow behavior may defer to maintenance or review, but should not silently admit durable memory.
+_Avoid_: upload-as-memory, repeated behavior as silent truth, document body extraction as profile learning, automatic receipt learning, one-off edit as durable preference
+
+**Main Chat Memory Control**:
+A visible memory-specific control inside the ordinary chat interface, such as a save-to-memory button, memory toggle, or memory management action attached to chat messages or the composer. The **Memory Rework Update** should not add these controls because normal chat memory should remain automatic from the user's perspective.
+_Avoid_: save memory button, remember-this chip, chat memory toggle, message-level memory editor
+
+**Memory Profile Category**:
+A broad, user-facing group of **Memory Profile Items** that helps a person quickly understand what kind of remembered context they are reviewing. Categories should be few, conceptually separate, and easy to distinguish without understanding memory internals.
+_Avoid_: memory class, Honcho scope, extraction bucket, technical taxonomy, status label
+
+**About You Memory Category**:
+The **Memory Profile Category** for stable personal context, background facts, owned things, and other durable information about the user.
+_Avoid_: preference, goal, constraint, inferred project continuity
+
+**Preferences Memory Category**:
+The **Memory Profile Category** for how the user likes AlfyAI to respond, how they prefer work to be done, and other durable tastes or defaults.
+_Avoid_: hard rule, temporary instruction, personal biography, task checkpoint
+
+**Goals & Ongoing Work Memory Category**:
+The **Memory Profile Category** for explicit user-shared goals, plans, and ongoing work that the user would expect AlfyAI to remember as part of their profile.
+_Avoid_: inferred project continuity, hidden task state, sibling chat awareness, every active task
+
+**Constraints & Boundaries Memory Category**:
+The **Memory Profile Category** for durable hard requirements, sensitivities, limits, deadlines, and "do not do this" boundaries that should shape personalization.
+_Avoid_: casual preference, stale warning, raw safety policy, temporary task detail
+
+**Memory Profile Correction**:
+A user action that amends or replaces a remembered fact in the **Memory Profile** because AlfyAI's current understanding is wrong, outdated, or incomplete. If exposed as an edit action, it should be a direct full edit of the remembered statement, not a guided field editor. It should take precedence over conflicting remembered facts on the next chat turn while memory maintenance reconciles the durable record.
+_Avoid_: preference toggle, hidden prompt override, duplicate conflicting memory, local memory synthesis, guided edit wizard, partial field editor
+
+**Memory Profile Edit Surface**:
+The user-facing place where a person edits or inspects a **Memory Profile Item**. It should present the curated statement, simple actions, and optional human-readable details rather than raw memory rows, Honcho dumps, markdown source text, or technical tables.
+_Avoid_: raw durable-memory table, extracted-round dump, Honcho row editor, developer diagnostics, markdown blob
+
+**Memory Profile Suppression**:
+A user action that removes a remembered fact from active use when it is unwanted, obsolete, too sensitive, or cannot be safely matched to one exact durable memory. It should stop the fact from shaping the **Memory Profile** and the next chat turn's active personalization even when historical evidence still exists.
+_Avoid_: account erasure, conversation deletion, silent hide, raw memory dump pruning, local Honcho replacement
+
+**Memory Profile Deletion**:
+A user action that tells AlfyAI to stop remembering a **Memory Profile Item**. It should remove the item from active use immediately, keep it out of the next chat turn, and permanently remove safely matched remembered evidence when possible. It does not delete the original chat messages, documents, account, or workspace data where the information may have first appeared.
+_Avoid_: source chat deletion, document deletion, account erasure, technical delete-versus-suppress choice, ambiguous active memory
+
+**Junk Memory**:
+Remembered material that carries no useful user meaning and should not personalize AlfyAI, such as malformed extraction residue, accidental technical artifacts, boilerplate interaction summaries, or meaning-preserving duplicates.
+_Avoid_: old but meaningful memory, contradiction, sensitive fact, user preference, user boundary, active profile evidence
+
+**Automatic Junk Deletion Gate**:
+The memory boundary that allows junk blocking or permanent deletion without user confirmation only when remembered material is safely identifiable as **Junk Memory**, exact remembered evidence can be targeted where deletion is involved, and no user-meaningful or active-profile veto applies. At intake it should block only obvious junk before it reaches memory authority; during background maintenance it may perform broader cleanup because it has more context. Candidates that fail the gate should use **Memory Active-Use Expiry**, **Memory Profile Deletion**, or **Guided Memory Review** instead of silent permanent deletion.
+_Avoid_: age-based deletion, silent deletion of meaningful facts, contradiction resolver, active profile cleanup shortcut
+
+**Memory Reconciliation**:
+Background maintenance that aligns the underlying memory substrate after profile edits, deletions, cleanup, supersession, or larger memory batches. It supports durable memory quality over time, but should not be the source of immediate user-facing truth in the **Memory Profile**.
+_Avoid_: user-facing dreaming status, blocking save step, primary Memory Profile state, next-turn guarantee mechanism
+
+**Memory Active-Use Expiry**:
+A lifecycle change that makes a remembered fact inactive for personalization because it is superseded by newer evidence, time-bound and past, contradicted, stale in a user-impacting way, or no longer confidently useful. It preserves historical evidence unless the user requests forgetting or suppression. It is evidence-based, not simple age-based.
+_Avoid_: automatic deletion, permanent forgetting, stale fact as active truth, blind age-based decay
+
+**Memory Conflict Block**:
+An active-use block applied when remembered facts in the same **Memory Scope** conflict and AlfyAI cannot safely decide which one supersedes the other. Conflicting items should stay out of ordinary prompt personalization and normal **Memory Profile Categories** until maintenance can supersede, expire, reconcile, or ask the user through **Guided Memory Review**.
+_Avoid_: model chooses at answer time, contradictory prompt context, whole-category suppression, silent deletion, cross-scope false conflict, blocked item in active category
+
+**Guided Memory Review**:
+The user-facing memory maintenance mode where AlfyAI asks for help only when remembered facts are ambiguous, contradictory, stale, sensitive, or otherwise unsafe to resolve autonomously. Memory remains background by default, but becomes interactive when user judgment is the right authority. It should be optional and visible in the **Memory Profile**, not hidden or routinely interruptive.
+_Avoid_: memory inbox, developer diagnostics queue, fully manual memory management, autonomous-only memory, interruptive memory chores
+
+**Memory Review Item**:
+A plain-language question created by memory maintenance in **Guided Memory Review** that asks the user to choose, correct, suppress, or confirm remembered information. It should hide raw memory provenance unless the user asks for details. Chat may ask a direct clarification when the current answer depends on unresolved memory, but persistent **Memory Review Items** should come from memory maintenance rather than ad hoc chat-turn logic.
+_Avoid_: Honcho row, contradiction diff, memory debug item, task notification, chat-created durable review item
+
+**Memory Needs Review Area**:
+The dedicated, full-width section at the top of the **Memory Profile** that appears when unresolved **Memory Review Items** exist. It should be visually separate from normal **Memory Profile Categories** so review work is easy to notice when needed without mixing review state into the active profile groups. It should be non-scrollable, show at most three review items, and open an extended modal view for remaining items.
+_Avoid_: inline category warning, hidden review queue, global notification, side diagnostics panel, review item mixed into active category, scrollable review panel
+
+**Memory Review Signal**:
+A visible, non-interruptive indicator that unresolved **Memory Review Items** exist. It belongs with the **Memory Profile** entry point and should guide interested users into review without becoming a global notification or blocking chat.
+_Avoid_: hidden badge, global alert, mandatory task queue, settings-only notice
+
+**Memory Provenance Detail**:
+Optional supporting detail that explains why AlfyAI believes a **Memory Profile Item**, such as source conversations, dates, or underlying memory evidence. It should be available on demand, not shown as the default Memory Profile view.
+_Avoid_: default source list, extracted chat log, main profile content, technical trace
+
+**Memory Source Authority**:
+Supporting detail that describes the authority path behind a **Memory Profile Item**, such as user-authored statement, review resolution, structured work output, maintenance reconciliation, or Honcho-derived memory. It should help users inspect and debug memory when they open details, but should not appear as a default badge or label on ordinary Memory Profile cards.
+_Avoid_: default authority badge, technical trust score, source hierarchy UI, card clutter, hidden prompt priority
 
 **Knowledge Memory Overview Bullet**:
-A concrete, human-readable statement about the user, their preferences, owned things, goals, constraints, current projects, or durable personal context. It may include specific remembered items when they help the user understand what AlfyAI knows, but it should not cite retrieval provenance such as chat numbers, conversation titles, or result counts.
+A concrete, human-readable statement about the user, their preferences, owned things, goals, constraints, explicitly shared projects, or durable personal context. It may include specific remembered items when they help the user understand what AlfyAI knows, but it should not cite retrieval provenance such as chat numbers, conversation titles, result counts, task checkpoint labels, or inferred continuity buckets.
 _Avoid_: chat mention, conversation provenance, source inventory, result summary
 
 **Memory Provenance Noise**:
@@ -522,13 +730,17 @@ _Avoid_: activity order, memory priority, conversation rank
 AlfyAI's long-term memory about an ongoing project across related tasks and conversations.
 _Avoid_: memory project, project folder, task bucket
 
+**Project Continuity Candidate**:
+A possible link between a conversation or task and **Project Continuity** that AlfyAI has noticed but should not yet treat as confirmed project context. It may become **Project Continuity** after an explicit user signal or enough supporting evidence.
+_Avoid_: confirmed project, automatic project assignment, prompt authority
+
 **Project Folder Awareness**:
 Compact awareness of other conversations that belong to the same **Project Folder**.
 _Avoid_: folder dump, all project chats, sibling transcript context
 
 **Project Continuity Awareness**:
-Compact awareness of other conversations or tasks linked to the same inferred **Project Continuity**.
-_Avoid_: global chat search, folder awareness, all memory
+Compact background awareness of other conversations or tasks linked to confirmed inferred **Project Continuity**. It may help AlfyAI orient a response, but it is not part of the user-facing **Knowledge Memory Overview** and should not be created from a weak one-off **Project Continuity Candidate**.
+_Avoid_: global chat search, folder awareness, all memory, Memory Profile item
 
 **Conversation Summary**:
 A compact durable description of what happened in one conversation.
@@ -1017,20 +1229,131 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - `src/lib/server/services/normal-chat-context.ts` may request constructed Prompt Context from the chat-turn boundary and may add model-facing runtime guidance, but it should not rebuild candidate promotion or inclusion policy.
 - Individual subsystems may supply **Available Context** and **Context Signals**, but should not independently force large text into **Prompt Context**.
 - **Memory Access** should extend Honcho-led memory rather than replace it with a parallel local persona-memory system.
+- Honcho should not be treated as a raw transcript mirror; ordinary chat history belongs to conversation history unless the **Memory Intake Gate** admits durable remembered context.
 - **Memory Access** may make historic chat details available for retrieval, but historic chats become **Prompt Context** only through **Context Selection** or an explicit model-facing retrieval result.
 - A **Memory Context Tool** should consolidate project, persona, and history retrieval so model-facing memory access does not fragment into overlapping tools.
 - Replacing a project-only memory retrieval tool with the **Memory Context Tool** should remove the old model-facing tool rather than keep overlapping compatibility surfaces.
 - **Memory Access** sizing should scale with the configured model and runtime capacity; small fixed counts are operational guardrails, not the product definition of what AlfyAI can remember.
 - A **Memory Context Tool** should preserve breadth with lightweight summaries before spending large budget on deep conversation or memory detail.
+- A **Memory Context Tool** may retrieve historical chats and documents that are not active **Memory Profile Items** when answering source, history, document, or evidence questions.
+- A **Memory Context Tool** should not use historical retrieval to bypass deleted, suppressed, expired, blocked, or review-needed **Memory Profile** state for ordinary personalization.
 - When **Memory Access** omits matching memories or historical context because of a limit, the result should disclose the applied limit and omitted count.
 - Historic chat recall through a **Memory Context Tool** should start from existing conversation summaries and bounded message search before adding new persistent memory structures.
 - A **Baseline Memory Profile** should come from Honcho-led synthesis rather than a newest-N raw conclusion list.
+- A **Baseline Memory Profile** should apply the active **Memory Profile Projection** so user-visible edits, deletions, suppressions, expiries, and review blocks are respected in the next chat turn.
 - Deeper persona recall belongs in the **Memory Context Tool**, while the **Baseline Memory Profile** gives every normal chat turn enough personalization to start well.
+- The Knowledge Base should render a **Memory Profile Projection** instead of raw Honcho prose.
+- Opening the **Knowledge Base** from navigation should default to **Memory Profile**, not restore **Documents** as the last selected tab.
+- The default **Memory Profile** should be the **Active Memory Profile View**.
+- Normal categories in the **Active Memory Profile View** should show only currently active usable **Memory Profile Items**.
+- Deferred, blocked, expired, suppressed, deleted, and review-needed memory should not appear as ordinary items inside normal **Memory Profile Categories**.
+- The **Memory Profile** should not need explanatory feature copy such as "used by chat"; its purpose should be clear from the profile structure and actions.
+- Opening the **Knowledge Base** should refresh the **Memory Profile Projection** automatically; the primary Memory Profile surface should not require or expose a generic manual reload control.
+- The default **Memory Profile Projection** view should be made of approachable **Memory Profile Items**, not raw extracted memory records or source provenance lists.
+- The **Memory Profile** should not expose a general inactive/history tab or browsable list of deleted, suppressed, expired, superseded, or inactive memories.
+- Raw durable-memory tables, extracted-round lists, salience/debug columns, and Honcho conclusion IDs should not appear in user or admin UI.
+- The Knowledge Base **Memory Profile** should not show Focus Continuity, task memory, inferred work continuity, or backend continuity buckets as memory sections.
+- Backend continuity may remain useful for chat, folders, projects, and routing, but it should not appear as a Knowledge Base memory-management surface.
+- User-facing ongoing work belongs in the **Goals & Ongoing Work Memory Category** only when it is explicit user-shared profile context, not inferred backend continuity.
+- Account-level memory and knowledge reset should continue to use **Clear Memory and Knowledge** in **Privacy and Data Controls**; the **Memory Rework Update** should not add a duplicate reset action to the Memory Profile.
+- **Clear Memory and Knowledge** should clear new **Memory Rework Update** state, including Memory Profile projection metadata, review items, conflict blocks, intake dirty state, maintenance state, and user-linked telemetry.
+- **Clear Memory and Knowledge** may leave non-identifying aggregate **Memory Rework Telemetry** counters only when they cannot identify the user or reconstruct remembered content.
+- **Clear Memory and Knowledge** should continue to reset Honcho-backed memory in a way that prevents old Honcho state from reappearing after the reset.
+- Active, inactive, corrected, suppressed, expired, and review status in the **Memory Profile Projection** may come from app-owned profile metadata layered over Honcho-led memory.
+- **Memory Profile Categories** should be limited to a small set of meaningfully distinct groups so users can understand the profile at a glance.
+- The primary **Memory Profile Categories** are **About You Memory Category**, **Preferences Memory Category**, **Goals & Ongoing Work Memory Category**, and **Constraints & Boundaries Memory Category**.
+- Review state, freshness, correction state, and recent activity should not become primary **Memory Profile Categories**.
+- Recently updated items should appear within their normal **Memory Profile Category** rather than in a separate recently-updated section.
+- Confidence, freshness, provenance, and cleanup status should stay out of the default **Memory Profile Item** view unless the user needs to act on them.
+- **Memory Provenance Detail** should be available on demand for inspection, but should not be required to understand or edit the Memory Profile.
+- **Memory Source Authority** should be available in **Memory Provenance Detail** or an item detail surface, not as a default badge or label on ordinary Memory Profile cards.
+- Users should edit the curated **Memory Profile Item** that AlfyAI actively uses, not individual raw extraction records.
+- A **Memory Profile Edit Surface** should remain curated and human-readable; edit and detail views should not fall back to raw memory tables, Honcho dumps, markdown blobs, or extracted-round lists.
+- **Memory Profile Correction** should be offered only when AlfyAI can support a full direct edit of the remembered statement and make that edit effective for the next chat turn.
+- If a **Memory Profile Item** cannot be fully edited with next-turn effect, the default UI should not show an edit action for that item.
+- Users should have one clear **Memory Profile Deletion** action for unwanted **Memory Profile Items**, not a technical choice between deletion and suppression.
+- A **Memory Profile Projection** may support user review and maintenance of remembered facts; prompt inclusion still flows through Honcho-led memory, **Active Memory Profile Context**, **Baseline Memory Profile**, **Memory Context Tool**, and **Context Selection**.
+- **Active Memory Profile Context** should use the same active usable item set shown in the normal categories of the **Active Memory Profile View**.
+- Ordinary chat personalization should not use hidden profile facts that are absent from the active default **Memory Profile** because they are deferred, blocked, expired, suppressed, deleted, or review-needed.
+- Chat should not use raw Honcho context in a way that contradicts the next-turn-effective **Memory Profile Projection**.
+- **Memory Profile Correction** and **Memory Profile Suppression** should take immediate precedence in the **Memory Profile Projection**.
+- **Memory Profile Correction** and **Memory Profile Suppression** should be effective for the next chat turn even if Honcho still returns older remembered facts.
+- **Memory Profile Deletion** should be effective for the next chat turn even when deeper durable cleanup must continue after the user action.
+- **Memory Profile Deletion** should not imply deletion of source chats, documents, account data, or workspace data.
+- The immediate correction/suppression path should stay narrow and user-authored; it should not grow into app-owned persona synthesis, semantic clustering, dreaming, or a replacement for Honcho.
+- When a corrected or suppressed memory can be safely matched to durable memory, maintenance should reconcile it with the memory authority; when provenance is ambiguous, the user's correction or suppression remains authoritative for active personalization until safer reconciliation is possible.
+- **Memory Active-Use Expiry** should make stale remembered facts inactive for the **Memory Profile Projection**, **Baseline Memory Profile**, and active personalization without automatically deleting their historical evidence.
+- **Memory Active-Use Expiry** should be conservative and evidence-based, not a simple timer.
+- **Memory Active-Use Expiry** should apply when newer user statements clearly supersede older facts, time-bound facts have passed, contradictions require review, stale facts would cause bad personalization, or the user edits or deletes related profile items.
+- Stable remembered facts such as names, long-term preferences, durable writing style, important boundaries, and durable personal context should not expire merely because they are old.
+- Expired memory may re-enter active use after fresh evidence, explicit user confirmation, or safe reconciliation with a newer remembered fact.
+- Same-scope contradictory memories should not both enter **Active Memory Profile Context**.
+- A **Memory Conflict Block** should keep unresolved same-scope contradictions out of ordinary prompt personalization until maintenance resolves them or asks the user.
+- **Memory Conflict Block** state should surface through the **Memory Needs Review Area** when user action is needed, not as blocked items inside normal **Memory Profile Categories**.
+- The model should not be responsible for choosing between contradictory memories at answer time.
+- Memory maintenance may permanently delete remembered evidence automatically only through the **Automatic Junk Deletion Gate**.
+- The **Memory Intake Gate** should decide what new material may enter durable memory before broader maintenance tries to clean it later.
+- The **Memory Intake Gate** should write accepted durable memory through the existing memory authority path after a structured admit decision, not by creating a separate long-lived pending-candidate store.
+- A **Memory Intake Decision** should have exactly three outcomes: admit, reject, or defer to maintenance.
+- A deferred **Memory Intake Decision** should create privacy-preserving telemetry and dirty-state signaling only, not a raw candidate backlog.
+- **Immediate Memory Admission** should require explicit durable language or strong explicit phrasing for preferences, constraints, goals, project rules, and document rules.
+- Stable user-authored self-statements may use **Immediate Memory Admission** without memory verbs when they are clearly about the user and not document-derived or assistant-inferred.
+- **Assistant Prose Memory Exclusion** should keep ordinary assistant-generated answer text out of **Immediate Memory Admission**.
+- App-owned structured outputs, such as work capsules or typed tool outcomes, may become memory only through typed, scoped, provenance-aware paths rather than raw assistant prose mirroring.
+- **User-Authored Memory Precedence** should make explicit user-authored memory, corrections, deletions, and durable statements outrank conflicting assistant-generated prose or app-authored structured memory.
+- When **User-Authored Memory Precedence** applies, active personalization should use the user-authored memory immediately while maintenance reconciles older durable records later.
+- An admitted **Memory Intake Decision** should pass through **Memory Intake Normalization** so durable memory receives a clean statement with category, scope, reason, and provenance rather than a raw user sentence or assistant response.
+- **Memory Scope** should be first-class and separate from **Memory Profile Category**.
+- **Memory Scope** should determine where a remembered fact may be used; **Memory Profile Category** should determine how it is grouped for user understanding and maintenance.
+- **Memory Scope** should use a small fixed set: global, project, conversation, and document.
+- **Memory Scope** assignment should use the narrowest confident scope.
+- Global **Memory Scope** should be used only when the remembered fact is clearly user-wide.
+- Project-scoped memory should attach to the **Project Folder** when present, otherwise to confirmed **Project Continuity**.
+- **Memory Scope** should not introduce free-form client, team, topic, or arbitrary entity scopes without telemetry proving the fixed set is insufficient.
+- **Document-Sourced Context** should not become user-truth or Memory Profile material merely because the user uploaded, attached, opened, or worked with a document.
+- **Document-Scoped Memory** should be reserved for facts about a specific document or document family, such as how to edit, interpret, revise, or reuse it.
+- Arbitrary document contents, including tax papers, receipts, third-party PDFs, sample documents, and unrelated reference files, should remain document evidence unless explicit user-authored intent promotes a fact into memory.
+- Uploaded document contents should not sync directly into Honcho persona or session memory by default.
+- Document-related memory should enter durable memory only when the **Memory Intake Gate** explicitly admits it.
+- **Document Memory Admission** should immediately admit document-related memory only from explicit user-authored intent.
+- Immediate **Document Memory Admission** should require clear durable language such as "remember," "always," "from now on," or "for this document family."
+- Repeated document workflow behavior should create telemetry and may defer to maintenance or **Guided Memory Review**, but should not silently become admitted durable memory.
+- Explicit user-authored memory intent may come from ordinary chat language or dedicated **Memory Profile** and **Guided Memory Review** actions, but not from adding **Main Chat Memory Controls**.
+- The normal chat interface should not add memory-specific save, toggle, edit, or review controls as part of the **Memory Rework Update**.
+- **Memory Intake Normalization** should choose one primary **Memory Profile Category** instead of duplicating the same remembered fact across categories.
+- **Memory Intake Normalization** should defer to maintenance when it cannot confidently preserve meaning, assign category, or assign scope.
+- Memory should remain one pipeline: immediate authoritative continuity or profile actions may take effect right away, while expensive reconciliation runs later without becoming a second source of truth.
+- Memory maintenance cooldowns should gate expensive cleanup, expiry, deduplication, review generation, and reconciliation; they should not delay active continuity writes or active continuity reads needed for project and folder work.
+- **Memory Rework Telemetry** should be a required part of the memory design rather than a later observability add-on.
+- **Memory Rework Telemetry** should cover intake accepts and rejects, maintenance actions, review-item creation and resolution, user corrections and deletions, and whether active memory was included or blocked from prompt context.
+- **Memory Rework Telemetry** should be privacy-preserving by default: decisions, categories, reasons, counts, statuses, and stable identifiers are appropriate default telemetry, while raw remembered text and raw chat excerpts require a narrow explicit debug mode.
+- User-linked **Memory Rework Telemetry** should be cleared by **Clear Memory and Knowledge**; anonymous aggregate counters may remain only if they cannot identify the user or reconstruct memory.
+- **Memory Rework Telemetry** should remain backend/log-only by default; the **Memory Rework Update** should not add a user-facing or admin-facing telemetry summary view.
+- A future focused admin telemetry summary may be added only after collected telemetry proves which metrics are useful.
+- The **Automatic Junk Deletion Gate** should permit silent permanent cleanup for **Junk Memory** such as malformed residue, technical artifacts, boilerplate interaction summaries, or meaning-preserving duplicates.
+- The **Automatic Junk Deletion Gate** should veto automatic permanent deletion for user-meaningful facts, preferences, boundaries, goals, identity facts, relationships, locations, jobs, deadlines, sensitive context, contradictions, merely old facts, user-authored corrections, and anything supporting an active **Memory Profile Item**.
+- **Junk Memory** should be blocked or cleaned during both memory intake and background memory maintenance so trash does not accumulate again.
+- Memory intake should block only obvious **Junk Memory** before it reaches the memory authority.
+- Background memory maintenance may apply the **Automatic Junk Deletion Gate** more broadly because it can inspect duplicates, supersession, provenance, and active-profile support.
+- Memory intake should not discard potentially meaningful remembered material merely because it is unusual, old, contradictory, or sensitive.
+- **Memory Reconciliation** should run in the background after profile edits, deletions, cleanup, and larger memory batches; it should not be exposed as a primary **Memory Profile** status.
+- The **Memory Profile Projection** should carry the next-turn-effective truth immediately while **Memory Reconciliation** catches the underlying memory substrate up over time.
+- Memory maintenance should remain autonomous for high-confidence cleanup and supersession, but use **Guided Memory Review** when user judgment is needed to resolve ambiguous, sensitive, or user-impacting remembered facts.
+- Persistent **Memory Review Items** should be created by memory maintenance, not by ad hoc chat-turn logic.
+- A **Memory Review Item** should ask a plain-language user question rather than expose raw memory records, source inventories, or technical reconciliation state.
+- **Guided Memory Review** should be optional but discoverable in the **Memory Profile**, with a visible review signal when unresolved **Memory Review Items** exist.
+- Unresolved **Memory Review Items** should appear in a dedicated, full-width **Memory Needs Review Area** above normal **Memory Profile Categories** when items exist.
+- The **Memory Needs Review Area** should be non-scrollable and show at most three **Memory Review Items**.
+- Additional **Memory Review Items** should open in an extended modal view rather than expanding the main **Memory Profile**.
+- **Memory Review Items** should not be mixed inline into normal **Memory Profile Categories**.
+- **Memory Conflict Block** review work should appear in the **Memory Needs Review Area** rather than in normal **Memory Profile Categories**.
+- A **Memory Review Signal** should appear on the **Memory Profile** entry point when unresolved review items exist, but should not become a separate inbox, settings-only surface, or global notification.
+- Chat may ask a direct clarification when the current answer depends on unresolved remembered information, but the durable **Memory Review Item** creation path should still belong to memory maintenance.
 - A **Baseline Memory Profile** is **Protected Context** but not unlimited; it should shrink under genuine budget pressure before it disappears.
 - For a small trusted deployment with large-context models, **Baseline Memory Profile** defaults should be generous rather than cost-minimized.
 - **Baseline Memory Profile** budget should derive from model-scaled context with a generous floor and configurable ceiling, rather than from a small fixed token cap.
-- The first **Memory Context Tool** should cover project, persona, and history retrieval; it should not become a universal document search replacement in the same slice.
-- **Context Access** v1 should make memory and document context reliable together; fixing memory retrieval while leaving Knowledge Library document selection dependent on exact filenames or manual `/document` selection is not a production-quality slice.
+- The **Memory Context Tool** should cover project, persona, and history retrieval; it should not become a universal document search replacement in the **Memory Rework Update**.
+- The **Memory Rework Update** should make memory and document context reliable together; fixing memory retrieval while leaving Knowledge Library document selection dependent on exact filenames or manual `/document` selection is not a complete update.
 - **Max Model Context** should be derived from provider/model metadata when available.
 - Explicit admin **Max Model Context** values override derived provider/model defaults.
 - For locally managed or frequently retuned models, configured admin model settings are the authority for **Max Model Context**; do not hardcode GPT-OSS or other local model context windows when the admin fields already carry that limit.
@@ -1247,6 +1570,9 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Creating an empty **Project Folder** does not by itself create **Project Continuity**.
 - A **Project Folder** gets canonical **Project Continuity** only after it has a conversation with meaningful task continuity.
 - Conversations without a **Project Folder** may still create and use inferred **Project Continuity**.
+- A single automatic match should create a **Project Continuity Candidate**, not confirmed **Project Continuity**.
+- A **Project Continuity Candidate** may become confirmed **Project Continuity** after an explicit user signal or repeated supporting evidence across related turns or conversations.
+- Explicit actions such as moving a conversation into a **Project Folder** or direct continue/pause/resume project language may confirm, pause, or resume **Project Continuity** immediately.
 - **Project Folder** linking adds explicit user authority when present; it does not replace automatic **Project Continuity** for unorganized conversations.
 - Conversations without a **Project Folder** may receive bounded **Project Continuity Awareness**.
 - **Project Continuity Awareness** has lower authority than **Project Folder Awareness** because it comes from inferred continuity rather than explicit user organization.
@@ -1450,6 +1776,10 @@ _Avoid_: model fetch, auto-detect, model scan
 ## Knowledge Library Context
 
 ### Language
+
+**Knowledge Base**:
+The user-facing area for reviewing AlfyAI's remembered user context and stored documents. Its primary entry point is the **Memory Profile**, and its document-management area is **Documents**. Opening the Knowledge Base from navigation should enter through **Memory Profile** rather than restoring **Documents** as the last selected tab.
+_Avoid_: hidden memory admin, single document library, developer diagnostics page
 
 **Library Document**:
 A document the user has uploaded, imported, or otherwise stored in the Knowledge Library.
