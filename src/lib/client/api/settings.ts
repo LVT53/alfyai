@@ -59,6 +59,13 @@ interface PersonalAnalytics {
 	}>;
 }
 
+interface MonthlyAnalyticsRow {
+	month: string;
+	messages: number;
+	totalTokens: number;
+	totalCostUsd: number;
+}
+
 interface SystemAnalytics {
 	totalMessages: number;
 	avgGenerationMs: number;
@@ -72,6 +79,7 @@ interface SystemAnalytics {
 	totalConversations: number;
 	byModel: AnalyticsByModelRow[];
 	byProvider: AnalyticsByProviderRow[];
+	monthly?: MonthlyAnalyticsRow[];
 }
 
 interface PerUserAnalytics {
@@ -95,6 +103,7 @@ export interface AnalyticsResponse {
 	system?: SystemAnalytics;
 	perUser?: PerUserAnalytics[];
 	availableMonths?: string[];
+	systemAvailableMonths?: string[];
 	timeline?: Array<{ label: string; tokens: number }>;
 }
 
@@ -152,11 +161,13 @@ export async function fetchAnalytics(
 	useMockData = false,
 	month?: string,
 	timeline?: string,
+	systemMonth?: string,
 ): Promise<AnalyticsResponse> {
 	const params = new URLSearchParams();
 	if (useMockData) params.set("mock", "1");
 	if (month) params.set("month", month);
 	if (timeline) params.set("timeline", timeline);
+	if (systemMonth) params.set("systemMonth", systemMonth);
 	const qs = params.toString();
 	const endpoint = qs ? `/api/analytics?${qs}` : "/api/analytics";
 	return requestJson<AnalyticsResponse>(

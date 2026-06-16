@@ -108,6 +108,7 @@ const MOCK_ANALYTICS = {
 			},
 		],
 	},
+	systemAvailableMonths: ["2026-04"],
 	perUser: [
 		{
 			userId: "1",
@@ -450,11 +451,20 @@ export const GET: RequestHandler = async (event) => {
 	]);
 
 	const monthParam = event.url.searchParams.get("month");
+	const systemMonthParam = isAdmin
+		? (event.url.searchParams.get("systemMonth") ?? monthParam)
+		: null;
 	const filteredUsage = monthParam
 		? usageRows.filter((row) => row.billingMonth === monthParam)
 		: usageRows;
 	const filteredConversations = monthParam
 		? conversationRows.filter((row) => row.billingMonth === monthParam)
+		: conversationRows;
+	const systemFilteredUsage = systemMonthParam
+		? usageRows.filter((row) => row.billingMonth === systemMonthParam)
+		: usageRows;
+	const systemFilteredConversations = systemMonthParam
+		? conversationRows.filter((row) => row.billingMonth === systemMonthParam)
 		: conversationRows;
 
 	const personalUsageRows = filteredUsage.filter(
@@ -466,6 +476,9 @@ export const GET: RequestHandler = async (event) => {
 	const availableMonths = monthlyBreakdown(
 		usageRows.filter((row) => row.userId === user.id),
 	).map((row) => row.month);
+	const systemAvailableMonths = isAdmin
+		? monthlyBreakdown(usageRows).map((row) => row.month)
+		: undefined;
 	const personal = await summarize(personalUsageRows, personalConversationRows);
 
 	const timelineParam = event.url.searchParams.get("timeline") as
@@ -488,25 +501,25 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	const system = {
-		...(await summarize(filteredUsage, filteredConversations)),
+		...(await summarize(systemFilteredUsage, systemFilteredConversations)),
 		totalUsers: new Set([
-			...filteredUsage.map((row) => row.userId),
-			...filteredConversations.map((row) => row.userId),
+			...systemFilteredUsage.map((row) => row.userId),
+			...systemFilteredConversations.map((row) => row.userId),
 		]).size,
 		totalConversations: new Set(
-			filteredConversations.map((row) => row.conversationId),
+			systemFilteredConversations.map((row) => row.conversationId),
 		).size,
 	};
 
 	const userIds = new Set([
-		...filteredUsage.map((row) => row.userId),
-		...filteredConversations.map((row) => row.userId),
+		...systemFilteredUsage.map((row) => row.userId),
+		...systemFilteredConversations.map((row) => row.userId),
 	]);
 	const perUser = (
 		await Promise.all(
 			[...userIds].map(async (userId) => {
-				const rows = filteredUsage.filter((row) => row.userId === userId);
-				const convRows = filteredConversations.filter(
+				const rows = systemFilteredUsage.filter((row) => row.userId === userId);
+				const convRows = systemFilteredConversations.filter(
 					(row) => row.userId === userId,
 				);
 				const summary = await summarize(rows, convRows);
@@ -540,5 +553,11 @@ export const GET: RequestHandler = async (event) => {
 		)
 	).sort((left, right) => right.messageCount - left.messageCount);
 
-	return json({ personal, system, perUser, availableMonths });
+	return json({
+		personal,
+		system,
+		perUser,
+		availableMonths,
+		systemAvailableMonths,
+	});
 };

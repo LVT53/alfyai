@@ -17,7 +17,9 @@ let {
 	modelIcons = {},
 	onRetry,
 	selectedMonth = null,
+	selectedSystemMonth = null,
 	onMonthChange = undefined,
+	onSystemMonthChange = undefined,
 	onTimelineChange = undefined,
 }: {
 	analyticsData?: SettingsAnalyticsData | null;
@@ -28,7 +30,9 @@ let {
 	modelIcons?: Record<string, string | null | undefined>;
 	onRetry: () => void | Promise<void>;
 	selectedMonth?: string | null;
+	selectedSystemMonth?: string | null;
 	onMonthChange?: ((month: string | null) => void) | undefined;
+	onSystemMonthChange?: ((month: string | null) => void) | undefined;
 	onTimelineChange?: ((granularity: string) => void) | undefined;
 } = $props();
 
@@ -98,6 +102,14 @@ let availableMonths = $derived.by(() => {
 	return [...months].sort().reverse() as string[];
 });
 
+let systemAvailableMonths = $derived.by(() => {
+	const months =
+		analyticsData?.systemAvailableMonths ??
+		analyticsData?.system?.monthly?.map((m) => m.month) ??
+		[];
+	return [...months].sort().reverse() as string[];
+});
+
 function prevMonth() {
 	if (availableMonths.length === 0) return;
 	if (!selectedMonth) {
@@ -124,6 +136,36 @@ function nextMonth() {
 
 function selectAllTime() {
 	onMonthChange?.(null);
+}
+
+function prevSystemMonth() {
+	if (systemAvailableMonths.length === 0) return;
+	if (!selectedSystemMonth) {
+		onSystemMonthChange?.(
+			systemAvailableMonths[systemAvailableMonths.length - 1],
+		);
+		return;
+	}
+	const idx = systemAvailableMonths.indexOf(selectedSystemMonth);
+	if (idx < systemAvailableMonths.length - 1) {
+		onSystemMonthChange?.(systemAvailableMonths[idx + 1]);
+	}
+}
+
+function nextSystemMonth() {
+	if (systemAvailableMonths.length === 0) return;
+	if (!selectedSystemMonth) {
+		onSystemMonthChange?.(systemAvailableMonths[0]);
+		return;
+	}
+	const idx = systemAvailableMonths.indexOf(selectedSystemMonth);
+	if (idx > 0) {
+		onSystemMonthChange?.(systemAvailableMonths[idx - 1]);
+	}
+}
+
+function selectAllSystemTime() {
+	onSystemMonthChange?.(null);
 }
 
 let comparisonHint = $derived.by(() => {
@@ -446,7 +488,31 @@ onDestroy(() => {
 
 	{#if isAdmin && analyticsData.system}
 		<section class="settings-card mb-4">
-			<h2 class="settings-section-title">{$t('analytics.systemOverview')}</h2>
+			<div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+				<h2 class="settings-section-title mb-0">{$t('analytics.systemOverview')}</h2>
+				<div class="flex items-center gap-1">
+					<button
+						class="month-nav-btn"
+						onclick={prevSystemMonth}
+						disabled={systemAvailableMonths.length === 0}
+						aria-label={$t('analytics.previousSystemMonth')}
+					>&larr;</button>
+					<span class="month-label">
+						{selectedSystemMonth ? formatMonth(selectedSystemMonth) : $t('analytics.allTime')}
+					</span>
+					<button
+						class="month-nav-btn"
+						onclick={nextSystemMonth}
+						disabled={systemAvailableMonths.length === 0}
+						aria-label={$t('analytics.nextSystemMonth')}
+					>&rarr;</button>
+					{#if selectedSystemMonth}
+						<button class="month-alltime-btn" onclick={selectAllSystemTime}>
+							{$t('analytics.allTime')}
+						</button>
+					{/if}
+				</div>
+			</div>
 			<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
 				<div class="stat-card">
 					<div class="stat-value">{formatNum(analyticsData.system.totalMessages)}</div>

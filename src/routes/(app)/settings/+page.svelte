@@ -149,9 +149,7 @@ let privacyError = $state("");
 let privacyMessage = $state("");
 let privacyLoading = $state(false);
 let showPrivacyPw = $state(false);
-const archiveLoading = $derived(
-	privacyLoading && privacyAction === "archive",
-);
+const archiveLoading = $derived(privacyLoading && privacyAction === "archive");
 const clearMemoryLoading = $derived(
 	privacyLoading && privacyAction === "clearMemory",
 );
@@ -205,6 +203,7 @@ let analyticsData = $state<AnalyticsResponse | null>(null);
 let analyticsLoading = $state(false);
 let analyticsError = $state("");
 let analyticsMonth = $state<string | null>(null);
+let systemAnalyticsMonth = $state<string | null>(null);
 let showAvatarPicker = $state(false);
 let showPictureEditor = $state(false);
 let removingPhoto = $state(false);
@@ -216,6 +215,7 @@ function errorMessage(error: unknown): string {
 async function loadAnalytics(
 	month?: string | null,
 	timeline: string | null = "weekly",
+	systemMonth: string | null = systemAnalyticsMonth,
 ) {
 	analyticsLoading = true;
 	analyticsError = "";
@@ -224,6 +224,7 @@ async function loadAnalytics(
 			import.meta.env.DEV,
 			month ?? undefined,
 			timeline ?? undefined,
+			systemMonth ?? undefined,
 		);
 	} catch (error: unknown) {
 		analyticsError = errorMessage(error);
@@ -234,11 +235,16 @@ async function loadAnalytics(
 
 async function handleMonthChange(month: string | null) {
 	analyticsMonth = month;
-	await loadAnalytics(month, "weekly");
+	await loadAnalytics(month, "weekly", systemAnalyticsMonth);
 }
 
 async function handleTimelineChange(granularity: string) {
-	await loadAnalytics(analyticsMonth, granularity);
+	await loadAnalytics(analyticsMonth, granularity, systemAnalyticsMonth);
+}
+
+async function handleSystemMonthChange(month: string | null) {
+	systemAnalyticsMonth = month;
+	await loadAnalytics(analyticsMonth, "weekly", month);
 }
 
 async function removePhoto() {
@@ -547,7 +553,9 @@ $effect(() => {
 				{modelIcons}
 				onRetry={loadAnalytics}
 				selectedMonth={analyticsMonth}
+				selectedSystemMonth={systemAnalyticsMonth}
 				onMonthChange={handleMonthChange}
+				onSystemMonthChange={handleSystemMonthChange}
 				onTimelineChange={handleTimelineChange}
 			/>
 		{/if}

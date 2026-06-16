@@ -1,14 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	clearMemoryAndKnowledge,
 	clearWorkspaceData,
 	deleteAccount,
 	downloadAccountDataArchive,
+	fetchAnalytics,
 	fetchUserSettings,
 	saveBlobAsDownload,
 } from "./settings";
 
 describe("settings client API", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
 	it("loads user settings including the resolved system default model", async () => {
 		const fetchImpl = vi.fn().mockResolvedValueOnce(
 			new Response(
@@ -41,6 +46,22 @@ describe("settings client API", () => {
 			},
 		});
 		expect(fetchImpl).toHaveBeenCalledWith("/api/settings");
+	});
+
+	it("passes independent personal and system month filters to analytics", async () => {
+		const fetchImpl = vi.fn().mockResolvedValueOnce(
+			new Response(JSON.stringify({ personal: { byModel: [] } }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+		vi.stubGlobal("fetch", fetchImpl);
+
+		await fetchAnalytics(false, "2026-03", "monthly", "2026-06");
+
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/analytics?month=2026-03&timeline=monthly&systemMonth=2026-06",
+		);
 	});
 
 	it("requests the password-confirmed account data archive and returns a ZIP download", async () => {
