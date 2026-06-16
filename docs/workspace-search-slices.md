@@ -1,5 +1,11 @@
 # Workspace Search Slices
 
+Historical note: this document is the original implementation slice plan for the
+Workspace Search revamp. The unchecked acceptance criteria below are preserved as
+the planning checklist used during delivery; they are not a current status board.
+Use the current code, tests, and `AGENTS.md` files as the source of truth for
+delivered behavior.
+
 This plan breaks the Workspace Search revamp into independently testable, separately committable tracer-bullet slices. Do not create tracker issues from this document unless explicitly asked.
 
 ## Scope

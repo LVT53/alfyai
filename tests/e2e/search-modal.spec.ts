@@ -10,9 +10,11 @@ test.describe("Search Modal Visual Tests", () => {
 	});
 
 	test("search modal appears centered in viewport", async ({ page }) => {
-		await page.click('button[aria-label="Search conversations"]');
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
 
-		const modal = page.locator('role=dialog[name="Search conversations"]');
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
 		await modal.waitFor({ state: "visible" });
 
 		const box = await modal.boundingBox();
@@ -29,9 +31,11 @@ test.describe("Search Modal Visual Tests", () => {
 	});
 
 	test("search modal has correct z-index above sidebar", async ({ page }) => {
-		await page.click('button[aria-label="Search conversations"]');
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
 
-		const modal = page.locator('role=dialog[name="Search conversations"]');
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
 		await modal.waitFor({ state: "visible" });
 
 		const backdrop = page.locator(".search-portal-backdrop");
@@ -49,9 +53,11 @@ test.describe("Search Modal Visual Tests", () => {
 			document.documentElement.classList.remove("dark");
 		});
 
-		await page.click('button[aria-label="Search conversations"]');
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
 
-		const modal = page.locator('role=dialog[name="Search conversations"]');
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
 		await modal.waitFor({ state: "visible" });
 
 		await expect(modal).toHaveScreenshot("search-modal-light.png", {
@@ -64,9 +70,11 @@ test.describe("Search Modal Visual Tests", () => {
 			localStorage.setItem("theme", "dark");
 		});
 
-		await page.click('button[aria-label="Search conversations"]');
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
 
-		const modal = page.locator('role=dialog[name="Search conversations"]');
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
 		await modal.waitFor({ state: "visible" });
 		await page.evaluate(() => {
 			document.documentElement.classList.add("dark");
@@ -87,9 +95,11 @@ test.describe("Search Modal Visual Tests", () => {
 	});
 
 	test("search modal closes on escape key", async ({ page }) => {
-		await page.click('button[aria-label="Search conversations"]');
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
 
-		const modal = page.locator('role=dialog[name="Search conversations"]');
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
 		await modal.waitFor({ state: "visible" });
 
 		await page.keyboard.press("Escape");
@@ -98,9 +108,11 @@ test.describe("Search Modal Visual Tests", () => {
 	});
 
 	test("search modal closes on backdrop click", async ({ page }) => {
-		await page.click('button[aria-label="Search conversations"]');
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
 
-		const modal = page.locator('role=dialog[name="Search conversations"]');
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
 		await modal.waitFor({ state: "visible" });
 
 		const backdrop = page.locator(".search-portal-backdrop");
@@ -110,9 +122,11 @@ test.describe("Search Modal Visual Tests", () => {
 	});
 
 	test("search input is focused when modal opens", async ({ page }) => {
-		await page.click('button[aria-label="Search conversations"]');
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
 
-		const modal = page.locator('role=dialog[name="Search conversations"]');
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
 		await modal.waitFor({ state: "visible" });
 
 		const searchInput = modal.locator('input[type="text"]');

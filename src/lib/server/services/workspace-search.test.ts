@@ -2,18 +2,28 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeDocumentItem } from "$lib/types";
 
 const {
+	mockEq,
 	mockConversationRows,
+	mockGetLogicalDocumentForArtifact,
 	mockListLogicalDocuments,
 	mockListLogicalDocumentsPage,
 	mockSelect,
 } = vi.hoisted(() => {
+	const mockEq = vi.fn((field: unknown, value: unknown) => ({
+		field,
+		op: "eq",
+		value,
+	}));
 	const mockConversationRows: Array<Record<string, unknown>> = [];
+	const mockGetLogicalDocumentForArtifact = vi.fn();
 	const mockListLogicalDocuments = vi.fn();
 	const mockListLogicalDocumentsPage = vi.fn();
 	const mockSelect = vi.fn();
 
 	return {
+		mockEq,
 		mockConversationRows,
+		mockGetLogicalDocumentForArtifact,
 		mockListLogicalDocuments,
 		mockListLogicalDocumentsPage,
 		mockSelect,
@@ -45,12 +55,19 @@ vi.mock("$lib/server/db/schema", () => ({
 	},
 	projects: {
 		id: { name: "project.id" },
+		userId: { name: "project.userId" },
 		name: { name: "project.name" },
 	},
 	artifacts: {
 		id: { name: "artifact.id" },
+		userId: { name: "artifact.userId" },
+		type: { name: "artifact.type" },
+		retrievalClass: { name: "artifact.retrievalClass" },
+		name: { name: "artifact.name" },
 		contentText: { name: "artifact.contentText" },
 		summary: { name: "artifact.summary" },
+		metadataJson: { name: "artifact.metadataJson" },
+		updatedAt: { name: "artifact.updatedAt" },
 	},
 }));
 
@@ -58,27 +75,56 @@ vi.mock("drizzle-orm", () => ({
 	and: vi.fn((...conditions: unknown[]) => conditions),
 	asc: vi.fn((field: unknown) => ({ direction: "asc", field })),
 	desc: vi.fn((field: unknown) => ({ direction: "desc", field })),
-	eq: vi.fn((field: unknown, value: unknown) => ({ field, op: "eq", value })),
+	eq: mockEq,
 	inArray: vi.fn((field: unknown, values: unknown[]) => ({
 		field,
 		op: "in",
 		values,
 	})),
+	isNull: vi.fn((field: unknown) => ({ field, op: "isNull" })),
 	sql: vi.fn(),
 }));
 
+vi.mock("drizzle-orm/sqlite-core", () => ({
+	alias: vi.fn((table: Record<string, unknown>, aliasName: string) =>
+		Object.fromEntries(
+			Object.entries(table).map(([key, value]) => [
+				key,
+				{
+					...(typeof value === "object" && value !== null ? value : {}),
+					alias: aliasName,
+				},
+			]),
+		),
+	),
+}));
+
 vi.mock("$lib/server/services/knowledge/store", () => ({
+	getLogicalDocumentForArtifact: mockGetLogicalDocumentForArtifact,
 	listLogicalDocuments: mockListLogicalDocuments,
 	listLogicalDocumentsPage: mockListLogicalDocumentsPage,
 }));
 
+function makeOrderByResult(rows: Array<Record<string, unknown>>) {
+	return Object.assign([...rows], {
+		limit: vi.fn(async (limit?: number) =>
+			typeof limit === "number" ? rows.slice(0, limit) : rows,
+		),
+	});
+}
+
 function makeSelectChain(rows: Array<Record<string, unknown>>) {
 	const terminal = {
 		orderBy: vi.fn(() => ({
-			limit: vi.fn(async () => rows),
+			limit: vi.fn(async (limit?: number) =>
+				typeof limit === "number" ? rows.slice(0, limit) : rows,
+			),
 		})),
-		limit: vi.fn(async () => rows),
+		limit: vi.fn(async (limit?: number) =>
+			typeof limit === "number" ? rows.slice(0, limit) : rows,
+		),
 	};
+	terminal.orderBy.mockImplementation(() => makeOrderByResult(rows));
 	const joinable = {
 		leftJoin: vi.fn(() => joinable),
 		where: vi.fn(() => terminal),
@@ -135,10 +181,17 @@ function makeDocument(
 
 describe("searchWorkspace", () => {
 	beforeEach(() => {
+		mockEq.mockClear();
 		mockConversationRows.length = 0;
+		mockGetLogicalDocumentForArtifact.mockReset();
+		mockGetLogicalDocumentForArtifact.mockResolvedValue(null);
 		mockListLogicalDocuments.mockReset();
 		mockListLogicalDocuments.mockResolvedValue([]);
 		mockListLogicalDocumentsPage.mockReset();
+		mockListLogicalDocumentsPage.mockResolvedValue({
+			documents: [],
+			totalItems: 0,
+		});
 		mockSelect.mockReset();
 		mockSelect.mockImplementation(() => makeSelectChain(mockConversationRows));
 	});
@@ -297,9 +350,107 @@ describe("searchWorkspace", () => {
 		expect(result.conversations[2].match.snippet).toContain("Zephyr");
 	});
 
+	it("finds old conversation title matches outside the recent sidebar scan", async () => {
+		const { searchWorkspace } = await import("./workspace-search");
+		const recentNonMatches = Array.from({ length: 200 }, (_, index) => ({
+			id: `recent-${index}`,
+			title: `Recent notes ${index}`,
+			projectId: null,
+			projectName: null,
+			status: "open",
+			sealedAt: null,
+			updatedAt: new Date(
+				`2026-04-${String((index % 20) + 1).padStart(2, "0")}T10:00:00Z`,
+			),
+		}));
+		queueSelectChains(
+			[
+				...recentNonMatches,
+				{
+					id: "old-title",
+					title: "Zephyr archive plan",
+					projectId: null,
+					projectName: null,
+					status: "open",
+					sealedAt: null,
+					updatedAt: new Date("2025-01-01T10:00:00Z"),
+				},
+			],
+			[],
+			[],
+		);
+
+		const result = await searchWorkspace("user-1", { query: "zephyr" });
+
+		expect(result.conversations.map((item) => item.id)).toContain("old-title");
+		expect(
+			result.conversations.find((item) => item.id === "old-title")?.match,
+		).toMatchObject({
+			type: "title",
+			messageId: null,
+		});
+	});
+
+	it("scopes project-name joins to the requesting user", async () => {
+		const { searchWorkspace } = await import("./workspace-search");
+		queueSelectChains([], [], []);
+
+		await searchWorkspace("user-1", { query: "zephyr" });
+
+		expect(mockEq).toHaveBeenCalledWith({ name: "project.userId" }, "user-1");
+	});
+
+	it("keeps at most one body match per conversation before ranking results", async () => {
+		const { searchWorkspace } = await import("./workspace-search");
+		const busyMessages = Array.from({ length: 500 }, (_, index) => ({
+			id: "busy-conv",
+			title: "Busy import",
+			projectId: null,
+			projectName: null,
+			status: "open",
+			sealedAt: null,
+			updatedAt: new Date("2026-04-10T10:00:00Z"),
+			messageId: `busy-message-${index}`,
+			messageRole: "user",
+			messageContent: `Atlas note ${index}`,
+			messageCreatedAt: new Date(
+				`2026-04-10T10:${String(index % 60).padStart(2, "0")}:00Z`,
+			),
+		}));
+		queueSelectChains(
+			[],
+			[
+				...busyMessages,
+				{
+					id: "other-conv",
+					title: "Other conversation",
+					projectId: null,
+					projectName: null,
+					status: "open",
+					sealedAt: null,
+					updatedAt: new Date("2026-03-01T10:00:00Z"),
+					messageId: "other-message",
+					messageRole: "assistant",
+					messageContent: "Atlas appears in a quieter conversation too.",
+					messageCreatedAt: new Date("2026-03-01T10:01:00Z"),
+				},
+			],
+			[],
+		);
+
+		const result = await searchWorkspace("user-1", { query: "atlas" });
+
+		expect(result.conversations.map((item) => item.id)).toContain("busy-conv");
+		expect(result.conversations.map((item) => item.id)).toContain("other-conv");
+		expect(
+			result.conversations.filter((item) => item.id === "busy-conv"),
+		).toHaveLength(1);
+	});
+
 	it("searches openable document metadata and content without returning full content", async () => {
 		const { searchWorkspace } = await import("./workspace-search");
 		queueSelectChains(
+			[],
 			[],
 			[],
 			[
@@ -311,7 +462,23 @@ describe("searchWorkspace", () => {
 				},
 			],
 		);
-		mockListLogicalDocuments.mockResolvedValue([
+		mockListLogicalDocumentsPage.mockResolvedValue({
+			documents: [
+				makeDocument({
+					id: "source-doc",
+					displayArtifactId: "source-doc",
+					promptArtifactId: "prompt-doc",
+					familyArtifactIds: ["source-doc", "prompt-doc"],
+					name: "Renewal terms.pdf",
+					documentOrigin: "uploaded",
+					normalizedAvailable: true,
+					originConversationId: "conv-source",
+					originAssistantMessageId: "assistant-source",
+				}),
+			],
+			totalItems: 1,
+		});
+		mockGetLogicalDocumentForArtifact.mockResolvedValue(
 			makeDocument({
 				id: "source-doc",
 				displayArtifactId: "source-doc",
@@ -323,7 +490,7 @@ describe("searchWorkspace", () => {
 				originConversationId: "conv-source",
 				originAssistantMessageId: "assistant-source",
 			}),
-		]);
+		);
 
 		const result = await searchWorkspace("user-1", { query: "atlas" });
 
@@ -339,6 +506,96 @@ describe("searchWorkspace", () => {
 		});
 		expect(result.documents[0].match.snippet).toContain("Atlas renewal");
 		expect(result.documents[0].match.snippet).not.toContain(
+			"rather than sent whole to the shell modal",
+		);
+	});
+
+	it("uses bounded logical document and content candidates instead of loading every document", async () => {
+		const { searchWorkspace } = await import("./workspace-search");
+		const metadataDocument = makeDocument({
+			id: "metadata-doc",
+			displayArtifactId: "metadata-doc",
+			name: "Atlas renewal memo.pdf",
+			summary: "Metadata match",
+			normalizedAvailable: false,
+			updatedAt: 200,
+		});
+		const contentDocument = makeDocument({
+			id: "source-doc",
+			displayArtifactId: "source-doc",
+			promptArtifactId: "prompt-doc",
+			familyArtifactIds: ["source-doc", "prompt-doc"],
+			name: "Renewal terms.pdf",
+			normalizedAvailable: true,
+		});
+		queueSelectChains(
+			[],
+			[],
+			[
+				{
+					id: "metadata-doc",
+					userId: "user-1",
+					type: "source_document",
+					conversationId: null,
+					name: "Atlas renewal memo.pdf",
+					summary: "Metadata match",
+					metadataJson: null,
+					updatedAt: new Date("2026-04-05T10:00:00Z"),
+				},
+			],
+			[
+				{
+					id: "prompt-doc",
+					userId: "user-1",
+					type: "normalized_document",
+					conversationId: null,
+					contentText:
+						"Background paragraph before the key Atlas renewal clause that should be clipped rather than sent whole to the shell modal.",
+					summary: "Contract notes",
+					updatedAt: new Date("2026-04-04T10:00:00Z"),
+				},
+			],
+			[
+				{
+					id: "prompt-doc",
+					contentText:
+						"Background paragraph before the key Atlas renewal clause that should be clipped rather than sent whole to the shell modal.",
+					summary: "Contract notes",
+				},
+			],
+		);
+		mockListLogicalDocumentsPage.mockResolvedValue({
+			documents: [],
+			totalItems: 0,
+		});
+		mockGetLogicalDocumentForArtifact.mockImplementation(
+			async (_userId: string, artifactId: string) =>
+				artifactId === "metadata-doc" ? metadataDocument : contentDocument,
+		);
+
+		const result = await searchWorkspace("user-1", { query: "atlas" });
+
+		expect(mockListLogicalDocuments).not.toHaveBeenCalled();
+		expect(mockListLogicalDocumentsPage).not.toHaveBeenCalled();
+		expect(mockGetLogicalDocumentForArtifact).toHaveBeenCalledWith(
+			"user-1",
+			"metadata-doc",
+		);
+		expect(mockGetLogicalDocumentForArtifact).toHaveBeenCalledWith(
+			"user-1",
+			"prompt-doc",
+		);
+		expect(result.documents).toHaveLength(2);
+		expect(result.documents[0]).toMatchObject({
+			displayArtifactId: "metadata-doc",
+			match: { type: "name" },
+		});
+		expect(result.documents[1]).toMatchObject({
+			displayArtifactId: "source-doc",
+			match: { type: "content" },
+		});
+		expect(result.documents[1].match.snippet).toContain("Atlas renewal");
+		expect(result.documents[1].match.snippet).not.toContain(
 			"rather than sent whole to the shell modal",
 		);
 	});

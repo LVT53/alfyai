@@ -1,4 +1,5 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { db } from "$lib/server/db";
 import {
 	artifacts,
@@ -7,7 +8,7 @@ import {
 	projects,
 } from "$lib/server/db/schema";
 import {
-	listLogicalDocuments,
+	getLogicalDocumentForArtifact,
 	listLogicalDocumentsPage,
 } from "$lib/server/services/knowledge/store";
 import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-identity";
@@ -21,8 +22,8 @@ import type {
 
 const DEFAULT_LIMIT = 3;
 const QUERY_LIMIT = 6;
-const CONVERSATION_SCAN_LIMIT = 200;
-const MESSAGE_SCAN_LIMIT = 500;
+const DOCUMENT_METADATA_CANDIDATE_LIMIT = 24;
+const DOCUMENT_CONTENT_CANDIDATE_LIMIT = 24;
 const SNIPPET_RADIUS = 64;
 
 type ConversationRow = {
@@ -46,6 +47,10 @@ type ArtifactTextRow = {
 	id: string;
 	contentText: string | null;
 	summary: string | null;
+};
+
+type ArtifactCandidateRow = {
+	id: string;
 };
 
 type ConversationCandidate = {
@@ -194,7 +199,13 @@ async function loadVisibleConversationRows(
 			updatedAt: conversations.updatedAt,
 		})
 		.from(conversations)
-		.leftJoin(projects, eq(projects.id, conversations.projectId))
+		.leftJoin(
+			projects,
+			and(
+				eq(projects.id, conversations.projectId),
+				eq(projects.userId, userId),
+			),
+		)
 		.where(
 			and(
 				eq(conversations.userId, userId),
@@ -209,11 +220,59 @@ async function loadVisibleConversationRows(
 		.limit(limit);
 }
 
+async function loadMatchingConversationRows(
+	userId: string,
+	query: string,
+): Promise<ConversationRow[]> {
+	const likeQuery = `%${escapeLike(query.toLowerCase())}%`;
+	const rows = await db
+		.select({
+			id: conversations.id,
+			title: conversations.title,
+			projectId: conversations.projectId,
+			projectName: projects.name,
+			status: conversations.status,
+			sealedAt: conversations.sealedAt,
+			updatedAt: conversations.updatedAt,
+		})
+		.from(conversations)
+		.leftJoin(
+			projects,
+			and(
+				eq(projects.id, conversations.projectId),
+				eq(projects.userId, userId),
+			),
+		)
+		.where(
+			and(
+				eq(conversations.userId, userId),
+				sql`exists (
+					select 1 from ${messages}
+					where ${messages.conversationId} = ${conversations.id}
+					limit 1
+				)`,
+				sql`(
+					lower(${conversations.title}) like ${likeQuery} escape '\\'
+					or lower(${projects.name}) like ${likeQuery} escape '\\'
+				)`,
+			),
+		)
+		.orderBy(desc(conversations.updatedAt), conversations.id);
+
+	return rows.map((row) => ({
+		...row,
+		projectId: row.projectId ?? null,
+		projectName: row.projectName ?? null,
+		sealedAt: row.sealedAt ?? null,
+	}));
+}
+
 async function loadMatchingMessageRows(
 	userId: string,
 	query: string,
 ): Promise<MessageMatchRow[]> {
 	const likeQuery = `%${escapeLike(query.toLowerCase())}%`;
+	const newerMessages = alias(messages, "newer_workspace_search_messages");
 	const rows = await db
 		.select({
 			id: conversations.id,
@@ -230,15 +289,35 @@ async function loadMatchingMessageRows(
 		})
 		.from(messages)
 		.leftJoin(conversations, eq(conversations.id, messages.conversationId))
-		.leftJoin(projects, eq(projects.id, conversations.projectId))
+		.leftJoin(
+			newerMessages,
+			and(
+				eq(newerMessages.conversationId, messages.conversationId),
+				sql`lower(${newerMessages.content}) like ${likeQuery} escape '\\'`,
+				sql`(
+					${newerMessages.createdAt} > ${messages.createdAt}
+					or (
+						${newerMessages.createdAt} = ${messages.createdAt}
+						and ${newerMessages.id} > ${messages.id}
+					)
+				)`,
+			),
+		)
+		.leftJoin(
+			projects,
+			and(
+				eq(projects.id, conversations.projectId),
+				eq(projects.userId, userId),
+			),
+		)
 		.where(
 			and(
 				eq(conversations.userId, userId),
 				sql`lower(${messages.content}) like ${likeQuery} escape '\\'`,
+				isNull(newerMessages.id),
 			),
 		)
-		.orderBy(desc(messages.createdAt), messages.id)
-		.limit(MESSAGE_SCAN_LIMIT);
+		.orderBy(desc(messages.createdAt), messages.id);
 
 	return rows
 		.filter((row): row is MessageMatchRow =>
@@ -265,6 +344,74 @@ async function loadArtifactTextRows(
 		.from(artifacts)
 		.where(inArray(artifacts.id, artifactIds))
 		.limit(artifactIds.length);
+}
+
+async function loadMatchingArtifactTextCandidateRows(
+	userId: string,
+	query: string,
+): Promise<ArtifactTextRow[]> {
+	const likeQuery = `%${escapeLike(query.toLowerCase())}%`;
+	return db
+		.select({
+			id: artifacts.id,
+			contentText: artifacts.contentText,
+			summary: artifacts.summary,
+		})
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.userId, userId),
+				inArray(artifacts.type, [
+					"source_document",
+					"normalized_document",
+					"generated_output",
+					"skill_note",
+				]),
+				sql`(
+					lower(${artifacts.contentText}) like ${likeQuery} escape '\\'
+					or lower(${artifacts.summary}) like ${likeQuery} escape '\\'
+				)`,
+			),
+		)
+		.orderBy(desc(artifacts.updatedAt), artifacts.id)
+		.limit(DOCUMENT_CONTENT_CANDIDATE_LIMIT);
+}
+
+async function loadMatchingArtifactMetadataCandidateRows(
+	userId: string,
+	query: string,
+): Promise<ArtifactCandidateRow[]> {
+	const likeQuery = `%${escapeLike(query.toLowerCase())}%`;
+	return db
+		.select({
+			id: artifacts.id,
+		})
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.userId, userId),
+				inArray(artifacts.type, [
+					"source_document",
+					"normalized_document",
+					"generated_output",
+					"skill_note",
+				]),
+				sql`(
+					${artifacts.type} <> 'generated_output'
+					or (
+						${artifacts.retrievalClass} = 'durable'
+						and json_extract(${artifacts.metadataJson}, '$.sourceChatFileId') is not null
+					)
+				)`,
+				sql`(
+					lower(${artifacts.name}) like ${likeQuery} escape '\\'
+					or lower(${artifacts.summary}) like ${likeQuery} escape '\\'
+					or lower(${artifacts.metadataJson}) like ${likeQuery} escape '\\'
+				)`,
+			),
+		)
+		.orderBy(desc(artifacts.updatedAt), artifacts.id)
+		.limit(DOCUMENT_METADATA_CANDIDATE_LIMIT);
 }
 
 function rankConversationRows(
@@ -419,9 +566,25 @@ async function searchDocuments(
 	userId: string,
 	query: string,
 ): Promise<{ results: WorkspaceSearchDocumentResult[]; overflow: boolean }> {
-	const documents = await listLogicalDocuments(userId, {
-		includeGeneratedOutputs: true,
-	});
+	const [metadataRows, contentRows] = await Promise.all([
+		loadMatchingArtifactMetadataCandidateRows(userId, query),
+		loadMatchingArtifactTextCandidateRows(userId, query),
+	]);
+	const candidateDocuments = (
+		await Promise.all(
+			Array.from(
+				new Set([
+					...metadataRows.map((row) => row.id),
+					...contentRows.map((row) => row.id),
+				]),
+			).map((artifactId) => getLogicalDocumentForArtifact(userId, artifactId)),
+		)
+	).filter((document): document is KnowledgeDocumentItem => Boolean(document));
+	const documentsByDisplayId = new Map<string, KnowledgeDocumentItem>();
+	for (const document of candidateDocuments) {
+		documentsByDisplayId.set(document.displayArtifactId, document);
+	}
+	const documents = Array.from(documentsByDisplayId.values());
 	const artifactIds = Array.from(
 		new Set(documents.flatMap((document) => document.familyArtifactIds)),
 	);
@@ -449,7 +612,10 @@ async function searchDocuments(
 				snippet: entry.match.snippet,
 			}),
 		),
-		overflow: ranked.length > QUERY_LIMIT,
+		overflow:
+			ranked.length > QUERY_LIMIT ||
+			metadataRows.length >= DOCUMENT_METADATA_CANDIDATE_LIMIT ||
+			contentRows.length >= DOCUMENT_CONTENT_CANDIDATE_LIMIT,
 	};
 }
 
@@ -502,7 +668,7 @@ export async function searchWorkspace(
 	}
 
 	const [conversationRows, messageRows, documentResults] = await Promise.all([
-		loadVisibleConversationRows(userId, CONVERSATION_SCAN_LIMIT),
+		loadMatchingConversationRows(userId, query),
 		loadMatchingMessageRows(userId, query),
 		searchDocuments(userId, query),
 	]);

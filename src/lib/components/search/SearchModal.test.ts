@@ -277,6 +277,117 @@ describe("SearchModal", () => {
 		expect(goto).toHaveBeenCalledWith("/knowledge?server_open=artifact-1");
 	});
 
+	it("announces the active result through the search input as arrow keys move", async () => {
+		render(SearchModal, {
+			props: {
+				isOpen: true,
+			},
+		});
+
+		const input = screen.getByLabelText("Search conversations and documents");
+		await screen.findByText("Brand playbook");
+
+		const firstActiveId = input.getAttribute("aria-activedescendant");
+		expect(firstActiveId).toBeTruthy();
+		expect(document.getElementById(firstActiveId ?? "")).toHaveTextContent(
+			"Release notes",
+		);
+
+		await fireEvent.keyDown(window, { key: "ArrowDown" });
+
+		const secondActiveId = input.getAttribute("aria-activedescendant");
+		expect(secondActiveId).toBeTruthy();
+		expect(secondActiveId).not.toBe(firstActiveId);
+		expect(document.getElementById(secondActiveId ?? "")).toHaveTextContent(
+			"Brand playbook",
+		);
+	});
+
+	it("keeps focus inside the dialog when mobile pointer mode skips input autofocus", async () => {
+		vi.mocked(window.matchMedia).mockImplementation(() => ({
+			matches: true,
+			media: "(hover: none) and (pointer: coarse)",
+			onchange: null,
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+		}));
+		const outsideButton = document.createElement("button");
+		outsideButton.textContent = "Outside";
+		document.body.appendChild(outsideButton);
+		outsideButton.focus();
+
+		try {
+			render(SearchModal, {
+				props: {
+					isOpen: true,
+				},
+			});
+
+			const dialog = screen.getByRole("dialog", { name: "Search workspace" });
+			await waitFor(() => expect(dialog).toHaveFocus());
+		} finally {
+			outsideButton.remove();
+		}
+	});
+
+	it("pulls focus back inside the dialog when Tab starts outside the modal", async () => {
+		const outsideButton = document.createElement("button");
+		outsideButton.textContent = "Outside";
+		document.body.appendChild(outsideButton);
+
+		try {
+			render(SearchModal, {
+				props: {
+					isOpen: true,
+				},
+			});
+
+			const dialog = screen.getByRole("dialog", { name: "Search workspace" });
+			await waitFor(() =>
+				expect(
+					screen.getByLabelText("Search conversations and documents"),
+				).toHaveFocus(),
+			);
+
+			outsideButton.focus();
+			await fireEvent.keyDown(window, { key: "Tab" });
+
+			expect(dialog.contains(document.activeElement)).toBe(true);
+		} finally {
+			outsideButton.remove();
+		}
+	});
+
+	it("clears stale results when the modal closes before reopening", async () => {
+		let rendered: ReturnType<typeof render>;
+		const onClose = vi.fn();
+		rendered = render(SearchModal, {
+			props: {
+				isOpen: true,
+				onClose,
+			},
+		});
+
+		await screen.findByText("Release notes");
+
+		await fireEvent.click(screen.getByLabelText("Close search"));
+		expect(onClose).toHaveBeenCalledTimes(1);
+		await rendered.rerender({ isOpen: false, onClose });
+
+		fetchWorkspaceSearch.mockClear();
+		fetchWorkspaceSearch.mockReturnValue(new Promise(() => {}));
+		await rendered.rerender({ isOpen: true, onClose });
+
+		expect(screen.queryByText("Release notes")).not.toBeInTheDocument();
+		expect(screen.queryByText("Brand playbook")).not.toBeInTheDocument();
+		await waitFor(() => {
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "" });
+		});
+	});
+
 	it("shows an unavailable-search error instead of client-side fallback results", async () => {
 		fetchWorkspaceSearch.mockRejectedValue(new Error("offline"));
 

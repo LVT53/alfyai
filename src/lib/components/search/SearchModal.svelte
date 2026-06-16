@@ -136,6 +136,9 @@ const searchSections = $derived(
 );
 const visibleRows = $derived(searchSections.flatMap((section) => section.rows));
 const hasResults = $derived(visibleRows.length > 0);
+const activeResultElementId = $derived(
+	activeRowId ? searchResultElementId(activeRowId) : undefined,
+);
 const highlightTerms = $derived(
 	Array.from(
 		new Set(
@@ -166,6 +169,10 @@ function isMobilePointer() {
 	return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
 }
 
+function searchResultElementId(rowId: string) {
+	return `workspace-search-result-${rowId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
 $effect(() => {
 	if (!browser || !isOpen || wasOpen) {
 		wasOpen = isOpen;
@@ -180,7 +187,9 @@ $effect(() => {
 	void tick().then(() => {
 		if (!isMobilePointer()) {
 			searchInputRef?.focus();
+			return;
 		}
+		modalRef?.focus();
 	});
 
 	wasOpen = true;
@@ -241,7 +250,9 @@ async function runWorkspaceSearch(query: string) {
 }
 
 function handleClose() {
+	latestRequestId += 1;
 	searchQuery = "";
+	searchResponse = null;
 	searchLoading = false;
 	searchError = false;
 	activeRowId = null;
@@ -313,11 +324,22 @@ function handleKeydown(event: KeyboardEvent) {
 
 		const firstElement = focusableElements[0];
 		const lastElement = focusableElements[focusableElements.length - 1];
+		const activeElement = document.activeElement;
 
-		if (event.shiftKey && document.activeElement === firstElement) {
+		if (
+			activeElement instanceof HTMLElement &&
+			modalRef &&
+			!modalRef.contains(activeElement)
+		) {
+			event.preventDefault();
+			(event.shiftKey ? lastElement : firstElement).focus();
+			return;
+		}
+
+		if (event.shiftKey && activeElement === firstElement) {
 			event.preventDefault();
 			lastElement.focus();
-		} else if (!event.shiftKey && document.activeElement === lastElement) {
+		} else if (!event.shiftKey && activeElement === lastElement) {
 			event.preventDefault();
 			firstElement.focus();
 		}
@@ -510,6 +532,8 @@ onDestroy(() => {
 						bind:value={searchQuery}
 						type="text"
 						aria-label={$t('searchModal.placeholder')}
+						aria-activedescendant={activeResultElementId}
+						aria-controls="workspace-search-results"
 						placeholder={$t('searchModal.placeholder')}
 						class="h-8 w-full bg-transparent text-[14px] font-sans text-text-primary outline-none placeholder:text-text-muted"
 					/>
@@ -528,7 +552,7 @@ onDestroy(() => {
 				</div>
 			</div>
 
-			<div class="max-h-[420px] overflow-y-auto px-3 py-2.5">
+			<div id="workspace-search-results" class="max-h-[420px] overflow-y-auto px-3 py-2.5">
 				{#if searchLoading && !hasResults}
 					<div class="flex flex-col items-center justify-center px-4 py-12 text-center">
 						<div class="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-elevated">
@@ -575,6 +599,7 @@ onDestroy(() => {
 												onpointerenter={() => (activeRowId = row.id)}
 											>
 												<button
+													id={searchResultElementId(row.id)}
 													type="button"
 													class="search-result-item flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
 													onclick={() => openConversation(row.conversation)}
@@ -623,6 +648,7 @@ onDestroy(() => {
 												onpointerenter={() => (activeRowId = row.id)}
 											>
 												<button
+													id={searchResultElementId(row.id)}
 													type="button"
 													class="search-result-item flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
 													onclick={() => openDocument(row.document)}
@@ -686,6 +712,7 @@ onDestroy(() => {
 												onpointerenter={() => (activeRowId = row.id)}
 											>
 												<button
+													id={searchResultElementId(row.id)}
 													type="button"
 													class="search-result-item flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
 													onclick={openKnowledge}
