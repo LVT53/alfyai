@@ -571,60 +571,80 @@ onDestroy(() => {
 
 		{#if hasPerUser}
 			<section class="settings-card mb-4">
-				<h2 class="settings-section-title">{$t('analytics.userActivity')}</h2>
+				<div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+					<h2 class="settings-section-title mb-0">{$t('analytics.perUserBreakdown')}</h2>
+					<div class="flex items-center gap-1">
+						<button
+							class="month-nav-btn"
+							onclick={prevSystemMonth}
+							disabled={systemAvailableMonths.length === 0}
+							aria-label={$t('analytics.previousPerUserMonth')}
+						>&larr;</button>
+						<span class="month-label">
+							{selectedSystemMonth ? formatMonth(selectedSystemMonth) : $t('analytics.allTime')}
+						</span>
+						<button
+							class="month-nav-btn"
+							onclick={nextSystemMonth}
+							disabled={systemAvailableMonths.length === 0}
+							aria-label={$t('analytics.nextPerUserMonth')}
+						>&rarr;</button>
+						{#if selectedSystemMonth}
+							<button class="month-alltime-btn" onclick={selectAllSystemTime}>
+								{$t('analytics.allTime')}
+							</button>
+						{/if}
+					</div>
+				</div>
 				<div style={`height: ${Math.min(perUserRows.slice(0, 10).length * 36 + 60, 420)}px; position: relative;`}>
 					<canvas bind:this={userChartCanvas}></canvas>
 				</div>
-			</section>
-		{/if}
-
-		{#if hasPerUser}
-			<section class="settings-card mb-4 overflow-x-auto">
-				<h2 class="settings-section-title">{$t('analytics.perUserBreakdown')}</h2>
-				<table class="analytics-table w-full text-sm">
-					<thead>
-						<tr class="border-b border-border text-left text-xs text-text-muted">
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.user')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.msgs')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.avgTime')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('promptTokens')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('outputTokens')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.reasoning')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.totalTokens')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.cost')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.model')}</th>
-							<th class="pb-2 font-medium">{$t('analytics.chats')}</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each perUserRows as row}
-							<tr class="border-b border-border last:border-0">
-								<td class="py-2 pr-3">
-									<div class="font-medium text-text-primary">{row.displayName}</div>
-									<div class="text-xs text-text-muted">{row.email}</div>
-								</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.messageCount)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatMs(row.avgGenerationMs)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.promptTokens)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.outputTokens)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.reasoningTokens)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.totalTokens)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatUsd(row.totalCostUsd)}</td>
-								<td class="py-2 pr-3 text-text-secondary">
-									{#if row.favoriteModel}
-										<span class="inline-flex min-w-0 items-center gap-2">
-											<ModelIcon iconUrl={modelIconUrl(row.favoriteModel)} displayName={modelDisplayName(row.favoriteModel)} size={20} />
-											<span>{modelDisplayName(row.favoriteModel)}</span>
-										</span>
-									{:else}
-										—
-									{/if}
-								</td>
-								<td class="py-2 text-text-secondary">{formatNum(row.conversationCount)}</td>
+				<div class="mt-5 overflow-x-auto">
+					<table class="analytics-table w-full text-sm">
+						<thead>
+							<tr class="border-b border-border text-left text-xs text-text-muted">
+								<th class="pb-2 pr-3 font-medium">{$t('analytics.user')}</th>
+								<th class="pb-2 pr-3 font-medium">{$t('analytics.msgs')}</th>
+								<th class="pb-2 pr-3 font-medium">{$t('analytics.avgTime')}</th>
+								<th class="pb-2 pr-3 font-medium">{$t('promptTokens')}</th>
+								<th class="pb-2 pr-3 font-medium">{$t('outputTokens')}</th>
+								<th class="pb-2 pr-3 font-medium">{$t('analytics.reasoning')}</th>
+								<th class="pb-2 pr-3 font-medium">{$t('analytics.totalTokens')}</th>
+								<th class="pb-2 pr-3 font-medium">{$t('analytics.cost')}</th>
+								<th class="pb-2 pr-3 font-medium">{$t('analytics.model')}</th>
+								<th class="pb-2 font-medium">{$t('analytics.chats')}</th>
 							</tr>
-						{/each}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{#each perUserRows as row}
+								<tr class="border-b border-border last:border-0">
+									<td class="py-2 pr-3">
+										<div class="font-medium text-text-primary">{row.displayName}</div>
+										<div class="text-xs text-text-muted">{row.email}</div>
+									</td>
+									<td class="py-2 pr-3 text-text-secondary">{formatNum(row.messageCount)}</td>
+									<td class="py-2 pr-3 text-text-secondary">{formatMs(row.avgGenerationMs)}</td>
+									<td class="py-2 pr-3 text-text-secondary">{formatNum(row.promptTokens)}</td>
+									<td class="py-2 pr-3 text-text-secondary">{formatNum(row.outputTokens)}</td>
+									<td class="py-2 pr-3 text-text-secondary">{formatNum(row.reasoningTokens)}</td>
+									<td class="py-2 pr-3 text-text-secondary">{formatNum(row.totalTokens)}</td>
+									<td class="py-2 pr-3 text-text-secondary">{formatUsd(row.totalCostUsd)}</td>
+									<td class="py-2 pr-3 text-text-secondary">
+										{#if row.favoriteModel}
+											<span class="inline-flex min-w-0 items-center gap-2">
+												<ModelIcon iconUrl={modelIconUrl(row.favoriteModel)} displayName={modelDisplayName(row.favoriteModel)} size={20} />
+												<span>{modelDisplayName(row.favoriteModel)}</span>
+											</span>
+										{:else}
+											—
+										{/if}
+									</td>
+									<td class="py-2 text-text-secondary">{formatNum(row.conversationCount)}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
 			</section>
 		{/if}
 	{/if}
