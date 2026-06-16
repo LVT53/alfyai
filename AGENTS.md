@@ -254,6 +254,7 @@ Do not:
   - [`src/lib/server/services/knowledge/capsules.ts`](./src/lib/server/services/knowledge/capsules.ts)
 - Related services:
   - [`src/lib/server/services/working-set.ts`](./src/lib/server/services/working-set.ts)
+  - [`src/lib/server/services/workspace-search.ts`](./src/lib/server/services/workspace-search.ts)
   - [`src/lib/server/services/document-resolution.ts`](./src/lib/server/services/document-resolution.ts)
   - [`src/lib/server/services/document-extraction.ts`](./src/lib/server/services/document-extraction.ts)
   - [`src/lib/server/services/evidence-family.ts`](./src/lib/server/services/evidence-family.ts)
@@ -277,7 +278,7 @@ Responsibility split:
   - normalized-document creation
   - logical document listing
   - artifact query matching
-  - document search result mapping
+  - document search composition consumed by Workspace Search
 - generated chat files and uploaded attachments should converge on one working-document model built on the existing artifact backbone; do not create a parallel document persistence subsystem
 - `store/cleanup.ts`
   - artifact deletion
@@ -331,7 +332,7 @@ Rules:
 - Import from Obsidian/Notion flattens hierarchy, stores original path in metadata
 - File preview uses client-side libraries (PDF.js, Mammoth.js, SheetJS, PPTXjs) - no external services
 - Storage quota is display-only - no enforcement
-- Global shell search surfaces document hits through `/api/knowledge/search`, and document clicks should hand off into the knowledge-page working-document workspace instead of opening a separate modal path
+- Global Workspace Search surfaces conversation, project, message, and document hits through `/api/workspace-search`; document clicks should hand off into the knowledge-page working-document workspace instead of opening a separate modal path
 
 Do not:
 
@@ -522,6 +523,7 @@ Do not:
   - [`src/lib/client/api/http.ts`](./src/lib/client/api/http.ts)
   - [`src/lib/client/api/conversations.ts`](./src/lib/client/api/conversations.ts)
   - [`src/lib/client/api/knowledge.ts`](./src/lib/client/api/knowledge.ts)
+  - [`src/lib/client/api/workspace-search.ts`](./src/lib/client/api/workspace-search.ts)
   - [`src/lib/client/api/models.ts`](./src/lib/client/api/models.ts)
   - [`src/lib/client/api/projects.ts`](./src/lib/client/api/projects.ts)
   - [`src/lib/client/api/settings.ts`](./src/lib/client/api/settings.ts)
@@ -541,7 +543,8 @@ Rules:
 - `src/lib/client/api/auth.ts` owns reusable browser auth calls such as login and logout.
 - `src/lib/client/api/conversations.ts` owns reusable browser conversation-detail, evidence, title, and steering calls.
 - `src/lib/client/api/conversations.ts` also owns browser-side draft persistence and prepared-conversation deletion transport used by `conversation-session.ts`.
-- `src/lib/client/api/knowledge.ts` owns reusable knowledge upload, library, memory, and document-search browser calls.
+- `src/lib/client/api/knowledge.ts` owns reusable knowledge upload, library, and memory browser calls.
+- `src/lib/client/api/workspace-search.ts` owns reusable browser calls for server-backed Workspace Search.
 - `src/lib/client/api/models.ts` owns reusable model-list browser calls.
 - `src/lib/client/api/settings.ts` owns reusable settings/account/avatar/admin/analytics browser calls.
 - `src/lib/client/api/settings.ts` re-exports admin functions from `api/admin.ts` for backward compat; admin calls live in `api/admin.ts`

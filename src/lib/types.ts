@@ -1335,6 +1335,77 @@ export interface WorkingDocumentMetadata {
 
 export type WorkingDocumentFamilyStatus = "active" | "historical";
 
+export type WorkspaceSearchMode = "default" | "query";
+
+export type WorkspaceSearchConversationMatchType =
+	| "recent"
+	| "title"
+	| "project"
+	| "body";
+
+export type WorkspaceSearchDocumentMatchType =
+	| "recent"
+	| "name"
+	| "label"
+	| "role"
+	| "summary"
+	| "content";
+
+export interface WorkspaceSearchConversationResult {
+	id: string;
+	title: string;
+	projectId: string | null;
+	projectName: string | null;
+	status: Conversation["status"];
+	sealedAt: number | null;
+	updatedAt: number;
+	href: string;
+	match: {
+		type: WorkspaceSearchConversationMatchType;
+		snippet: string | null;
+		messageId: string | null;
+		messageRole: string | null;
+	};
+}
+
+export interface WorkspaceSearchDocumentResult {
+	id: string;
+	type?: ArtifactType;
+	displayArtifactId: string;
+	promptArtifactId: string | null;
+	familyArtifactIds: string[];
+	name: string;
+	mimeType: string | null;
+	sizeBytes: number | null;
+	conversationId: string | null;
+	summary: string | null;
+	documentOrigin?: KnowledgeDocumentItem["documentOrigin"];
+	documentFamilyId?: string | null;
+	documentFamilyStatus?: WorkingDocumentFamilyStatus | null;
+	documentLabel?: string | null;
+	documentRole?: string | null;
+	versionNumber?: number | null;
+	originConversationId?: string | null;
+	originAssistantMessageId?: string | null;
+	sourceChatFileId?: string | null;
+	updatedAt: number;
+	href: string;
+	sourceHref: string | null;
+	match: {
+		type: WorkspaceSearchDocumentMatchType;
+		snippet: string | null;
+	};
+}
+
+export interface WorkspaceSearchResponse {
+	query: string;
+	mode: WorkspaceSearchMode;
+	conversations: WorkspaceSearchConversationResult[];
+	documents: WorkspaceSearchDocumentResult[];
+	documentOverflow: boolean;
+	knowledgeHref: string | null;
+}
+
 export interface PendingAttachment {
 	artifact: ArtifactSummary;
 	promptReady: boolean;

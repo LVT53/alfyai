@@ -14,6 +14,7 @@ api/
   http.ts          - Base fetch wrapper, error handling
   conversations.ts - Conversation detail, evidence, titles, drafts
   knowledge.ts     - Uploads, library, memory
+  workspace-search.ts - Global shell Workspace Search
   models.ts        - Model list fetching
   projects.ts      - Project CRUD
   settings.ts      - Settings, account, avatar, admin calls (re-exports from admin.ts)
@@ -28,7 +29,8 @@ conversation-session.ts - Landing draft IDs, pending message replay
 | HTTP errors, base fetch | `api/http.ts` |
 | Admin user management | `api/admin.ts` |
 | Conversation detail, drafts | `api/conversations.ts` |
-| Knowledge, search | `api/knowledge.ts` |
+| Knowledge uploads, library, memory | `api/knowledge.ts` |
+| Global shell Workspace Search | `api/workspace-search.ts` |
 | Model list | `api/models.ts` |
 | Projects | `api/projects.ts` |
 | Settings, account, avatar | `api/settings.ts` |

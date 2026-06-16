@@ -1,0 +1,3 @@
+# Workspace Search is server-backed
+
+Workspace Search will be owned by a server-side search boundary rather than by client-side filtering inside the shell modal. The route remains an authenticated adapter, while the search service owns auth-scoped conversation title/body matching, document matching, grouping, limits, snippets, and ranking. We chose this over separate client-merged conversation and document searches because body/content search should not require downloading private message or document text into the app shell, and because one boundary prevents duplicated ranking rules across future search surfaces.
