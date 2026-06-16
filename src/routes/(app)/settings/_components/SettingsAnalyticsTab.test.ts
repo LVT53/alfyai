@@ -13,8 +13,8 @@ vi.mock("chart.js/auto", () => {
 
 function analyticsFixture(): AnalyticsResponse {
 	return {
-		availableMonths: ["2026-03"],
-		systemAvailableMonths: ["2026-03", "2026-06"],
+		availableMonths: ["2026-04", "2026-05", "2026-06"],
+		systemAvailableMonths: ["2026-04", "2026-05", "2026-06"],
 		personal: {
 			byModel: [],
 			byProvider: [],
@@ -92,6 +92,42 @@ function analyticsWithPerUserFixture(): AnalyticsResponse {
 }
 
 describe("SettingsAnalyticsTab", () => {
+	it("keeps existing analytics content visible during month refreshes", () => {
+		const { getByText, queryByText } = render(SettingsAnalyticsTab, {
+			analyticsData: analyticsFixture(),
+			analyticsLoading: true,
+			isAdmin: true,
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedMonth: "2026-06",
+			selectedSystemMonth: null,
+			onMonthChange: vi.fn(),
+			onSystemMonthChange: vi.fn(),
+		});
+
+		expect(queryByText("Loading analytics...")).not.toBeInTheDocument();
+		expect(getByText("Your Activity")).toBeInTheDocument();
+		expect(getByText("June 2026")).toBeInTheDocument();
+	});
+
+	it("selects the previous available month from All Time instead of the oldest month", async () => {
+		const onMonthChange = vi.fn();
+		const { getByLabelText } = render(SettingsAnalyticsTab, {
+			analyticsData: analyticsFixture(),
+			isAdmin: true,
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedMonth: null,
+			selectedSystemMonth: null,
+			onMonthChange,
+			onSystemMonthChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByLabelText("Previous month"));
+
+		expect(onMonthChange).toHaveBeenCalledWith("2026-05");
+	});
+
 	it("uses all-user months for the admin System Overview picker", async () => {
 		const onSystemMonthChange = vi.fn();
 		const { getByLabelText } = render(SettingsAnalyticsTab, {
@@ -108,6 +144,24 @@ describe("SettingsAnalyticsTab", () => {
 		await fireEvent.click(getByLabelText("Next system month"));
 
 		expect(onSystemMonthChange).toHaveBeenCalledWith("2026-06");
+	});
+
+	it("selects the previous system month from All Time instead of the oldest month", async () => {
+		const onSystemMonthChange = vi.fn();
+		const { getByLabelText } = render(SettingsAnalyticsTab, {
+			analyticsData: analyticsFixture(),
+			isAdmin: true,
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedMonth: null,
+			selectedSystemMonth: null,
+			onMonthChange: vi.fn(),
+			onSystemMonthChange,
+		});
+
+		await fireEvent.click(getByLabelText("Previous system month"));
+
+		expect(onSystemMonthChange).toHaveBeenCalledWith("2026-05");
 	});
 
 	it("combines user activity and per-user rows under one monthly filtered card", async () => {

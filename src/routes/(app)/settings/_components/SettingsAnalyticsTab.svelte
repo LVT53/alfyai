@@ -110,10 +110,14 @@ let systemAvailableMonths = $derived.by(() => {
 	return [...months].sort().reverse() as string[];
 });
 
+function previousMonthFromAllTime(months: string[]): string | null {
+	return months[1] ?? months[0] ?? null;
+}
+
 function prevMonth() {
 	if (availableMonths.length === 0) return;
 	if (!selectedMonth) {
-		onMonthChange?.(availableMonths[availableMonths.length - 1]);
+		onMonthChange?.(previousMonthFromAllTime(availableMonths));
 		return;
 	}
 	const idx = availableMonths.indexOf(selectedMonth);
@@ -141,9 +145,7 @@ function selectAllTime() {
 function prevSystemMonth() {
 	if (systemAvailableMonths.length === 0) return;
 	if (!selectedSystemMonth) {
-		onSystemMonthChange?.(
-			systemAvailableMonths[systemAvailableMonths.length - 1],
-		);
+		onSystemMonthChange?.(previousMonthFromAllTime(systemAvailableMonths));
 		return;
 	}
 	const idx = systemAvailableMonths.indexOf(selectedSystemMonth);
@@ -374,7 +376,7 @@ onDestroy(() => {
 });
 </script>
 
-{#if analyticsLoading}
+{#if analyticsLoading && !analyticsData}
 	<div class="flex items-center justify-center py-16 text-text-muted">{$t('analytics.loadingAnalytics')}</div>
 {:else if analyticsError}
 	<div class="settings-card">
