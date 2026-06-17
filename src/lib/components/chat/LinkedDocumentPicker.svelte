@@ -356,7 +356,7 @@ $effect(() => {
 
 	.linked-document-picker__header h2 {
 		margin: 0;
-		font-size: 16px;
+		font-size: var(--text-base);
 		font-weight: 650;
 		color: var(--text-primary);
 	}
@@ -364,7 +364,7 @@ $effect(() => {
 	.linked-document-picker__header p {
 		margin: 3px 0 0;
 		color: var(--text-muted);
-		font-size: 13px;
+		font-size: var(--text-sm);
 	}
 
 	.linked-document-picker__icon-button {
@@ -401,7 +401,7 @@ $effect(() => {
 	.linked-document-picker__search {
 		display: grid;
 		gap: 6px;
-		font-size: 12px;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--text-muted);
 	}
@@ -449,7 +449,7 @@ $effect(() => {
 		border-radius: 999px;
 		background: color-mix(in srgb, var(--accent) 10%, var(--surface-elevated) 90%);
 		padding: 4px 6px 4px 10px;
-		font-size: 12px;
+		font-size: var(--text-xs);
 		color: var(--text-primary);
 	}
 
@@ -464,7 +464,7 @@ $effect(() => {
 		background: color-mix(in srgb, var(--surface-page) 68%, transparent 32%);
 		color: var(--text-muted);
 		cursor: pointer;
-		font-size: 11px;
+		font-size: var(--text-2xs);
 		font-weight: 650;
 		transition:
 			background-color var(--duration-standard) var(--ease-out),
@@ -535,7 +535,7 @@ $effect(() => {
 		display: grid;
 		gap: 2px;
 		min-width: 0;
-		font-size: 13px;
+		font-size: var(--text-sm);
 	}
 
 	.linked-document-picker__row-copy span:first-child {
@@ -549,7 +549,7 @@ $effect(() => {
 	.linked-document-picker__row-copy span:last-child,
 	.linked-document-picker__state {
 		color: var(--text-muted);
-		font-size: 12px;
+		font-size: var(--text-xs);
 	}
 
 	.linked-document-picker__state {
@@ -567,7 +567,7 @@ $effect(() => {
 		border: 1px solid transparent;
 		border-radius: 8px;
 		padding: 9px 12px;
-		font-size: 13px;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		cursor: pointer;
 		transition:
@@ -587,7 +587,7 @@ $effect(() => {
 	.linked-document-picker__primary {
 		border-color: var(--accent);
 		background: var(--accent);
-		color: #fff;
+		color: var(--accent-contrast);
 	}
 
 	.linked-document-picker__secondary:hover,
@@ -623,7 +623,7 @@ $effect(() => {
 	}
 
 	:global(.dark) .linked-document-picker {
-		background: color-mix(in srgb, var(--surface-overlay) 92%, #111 8%);
+		background: color-mix(in srgb, var(--surface-overlay) 92%, var(--surface-page) 8%);
 		box-shadow:
 			0 24px 64px rgb(0 0 0 / 0.54),
 			0 1px 0 color-mix(in srgb, white 8%, transparent 92%) inset;

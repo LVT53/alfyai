@@ -737,7 +737,7 @@ $effect(() => {
     border-radius: 999px;
     background: color-mix(in srgb, var(--surface-elevated) 94%, var(--text-muted) 6%);
     color: var(--text-primary);
-    font-size: 0.82em;
+    font-size: var(--text-sm);
     font-weight: 560;
     line-height: 1.25;
     padding: 0.02em 0.3em 0.02em 0.34em;
@@ -803,8 +803,8 @@ $effect(() => {
     background: var(--surface-elevated);
     box-shadow: var(--shadow-lg);
     color: var(--text-primary);
-    font-family: 'Nimbus Sans L', sans-serif;
-    font-size: 0.76rem;
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
     line-height: 1.35;
     padding: 0.45rem 0.55rem;
     pointer-events: none;
@@ -825,8 +825,8 @@ $effect(() => {
 
   .source-link-tooltip-floating__url {
     color: var(--text-muted);
-    font-family: 'Nimbus Mono PS', monospace;
-    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
     overflow-wrap: anywhere;
   }
 

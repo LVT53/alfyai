@@ -7,6 +7,7 @@ let {
 	attachment,
 	removable = false,
 	variant = "compact",
+	compact = false,
 	viewable = false,
 	onRemove,
 	onView,
@@ -14,6 +15,7 @@ let {
 	attachment: ArtifactSummary;
 	removable?: boolean;
 	variant?: "compact" | "pending";
+	compact?: boolean;
 	viewable?: boolean;
 	onRemove?: (payload: { id: string }) => void;
 	onView?: (attachment: ArtifactSummary) => void;
@@ -56,6 +58,7 @@ function handleKeydown(event: KeyboardEvent) {
 		<button
 			type="button"
 			class="remove-button"
+			class:compact-remove={compact}
 			onclick={handleRemove}
 			aria-label={`Remove ${attachment.name}`}
 		>
@@ -122,8 +125,8 @@ function handleKeydown(event: KeyboardEvent) {
 	}
 
 	.filename {
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.875rem; /* text-sm */
+		font-family: var(--font-sans);
+		font-size: var(--text-md);
 		line-height: 1.25;
 		color: var(--text-primary);
 		max-width: 180px;
@@ -153,6 +156,13 @@ function handleKeydown(event: KeyboardEvent) {
 			background-color var(--duration-standard) var(--ease-out),
 			transform var(--duration-standard) var(--ease-out);
 		outline: none;
+	}
+
+	.compact-remove {
+		min-width: 28px;
+		min-height: 28px;
+		padding: 0.25rem;
+		margin: 0;
 	}
 
 	.remove-button:hover {

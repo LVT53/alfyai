@@ -99,8 +99,8 @@ async function copyToClipboard() {
 		border: none;
 		cursor: pointer;
 		padding: 0;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 14px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-muted);
 		transition: color var(--duration-standard) var(--ease-out);

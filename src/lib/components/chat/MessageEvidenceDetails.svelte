@@ -2,6 +2,7 @@
 import { preserveScrollOnToggle } from "$lib/actions/preserve-scroll";
 import EvidencePreferenceControl from "./EvidencePreferenceControl.svelte";
 import { ChevronDown } from "@lucide/svelte";
+import { t } from "$lib/i18n";
 import type {
 	EvidencePreference,
 	MessageEvidenceSummary,
@@ -52,7 +53,7 @@ function formatChannel(channel: string): string {
 	if (channel === "retrieved") return "Retrieved";
 	if (channel === "web") return "Web";
 	if (channel === "memory") return "Memory";
-	return "Tool";
+	return $t('messageEvidenceDetails.toolLabel');
 }
 
 async function toggle() {
@@ -70,7 +71,7 @@ async function toggle() {
 		onclick={toggle}
 	>
 		<span class="evidence-toggle-copy">
-			<span class="evidence-label">Evidence</span>
+			<span class="evidence-label">{$t('messageEvidenceDetails.evidenceLabel')}</span>
 			<span class="evidence-count">{totalItems}</span>
 		</span>
 		<ChevronDown size={14} strokeWidth={2} class={`chevron${expanded ? ' expanded' : ''}`} aria-hidden="true" />
@@ -84,7 +85,7 @@ async function toggle() {
 						<div class="evidence-group-title">{group.label}</div>
 						<div class="evidence-group-meta">
 							{#if group.reranked}
-								<span class="evidence-chip">Reranked{#if group.confidence} {group.confidence}%{/if}</span>
+								<span class="evidence-chip">{$t('messageEvidenceDetails.rerankedLabel')}{#if group.confidence} {group.confidence}%{/if}</span>
 							{/if}
 						</div>
 					</div>
@@ -154,7 +155,7 @@ async function toggle() {
 		border: none;
 		background: transparent;
 		padding: var(--space-xs) 0;
-		font-family: 'Nimbus Sans L', sans-serif;
+		font-family: var(--font-sans);
 		color: var(--text-muted);
 		cursor: pointer;
 	}
@@ -173,7 +174,7 @@ async function toggle() {
 	}
 
 	.evidence-label {
-		font-size: 0.76rem;
+		font-size: var(--text-xs);
 		letter-spacing: 0.03em;
 		text-transform: uppercase;
 	}
@@ -187,7 +188,7 @@ async function toggle() {
 		border-radius: 9999px;
 		background: color-mix(in srgb, var(--accent) 16%, transparent 84%);
 		color: var(--text-primary);
-		font-size: 0.7rem;
+		font-size: var(--text-2xs);
 	}
 
 	.chevron {
@@ -221,8 +222,8 @@ async function toggle() {
 	}
 
 	.evidence-group-title {
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.8rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--text-primary);
 	}
@@ -231,7 +232,7 @@ async function toggle() {
 		border: 1px solid color-mix(in srgb, var(--border-default) 70%, transparent 30%);
 		border-radius: 9999px;
 		padding: 0.18rem 0.45rem;
-		font-size: 0.67rem;
+		font-size: var(--text-2xs);
 		color: var(--text-muted);
 	}
 
@@ -269,7 +270,7 @@ async function toggle() {
 	}
 
 	.evidence-title {
-		font-size: 0.82rem;
+		font-size: var(--text-sm);
 		line-height: 1.35;
 		color: var(--text-primary);
 		word-break: break-word;
@@ -284,8 +285,8 @@ async function toggle() {
 	}
 
 	.evidence-status {
-		font-size: 0.66rem;
-		font-family: 'Nimbus Sans L', sans-serif;
+		font-size: var(--text-2xs);
+		font-family: var(--font-sans);
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 		color: var(--text-muted);
@@ -297,7 +298,7 @@ async function toggle() {
 
 	.evidence-description {
 		margin-top: 0.22rem;
-		font-size: 0.76rem;
+		font-size: var(--text-xs);
 		line-height: 1.45;
 		color: var(--text-secondary);
 		word-break: break-word;
@@ -321,8 +322,8 @@ async function toggle() {
 		border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent 28%);
 		border-radius: 9999px;
 		padding: 0.14rem 0.42rem;
-		font-size: 0.64rem;
-		font-family: 'Nimbus Sans L', sans-serif;
+		font-size: var(--text-2xs);
+		font-family: var(--font-sans);
 		color: var(--text-muted);
 	}
 

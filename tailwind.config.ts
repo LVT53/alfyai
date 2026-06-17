@@ -79,10 +79,18 @@ export default {
 			'emphasis': 'var(--duration-emphasis)',
 		},
 			fontFamily: {
-				sans: ["Nimbus Sans L", "sans-serif"],
-				serif: ["Libre Baskerville", "serif"],
-				mono: ["JetBrains Mono", "Fira Code", "Consolas", "monospace"],
-			}
+				sans: ["var(--font-sans)"],
+				serif: ["var(--font-serif)"],
+				mono: ["var(--font-mono)"],
+			},
+			fontSize: {
+				'2xs': 'var(--text-2xs)',
+				'xs': 'var(--text-xs)',
+				'sm': 'var(--text-sm)',
+				'md': 'var(--text-md)',
+				'base': 'var(--text-base)',
+				'lg': 'var(--text-lg)',
+			},
 		},
 	},
 	plugins: [require('@tailwindcss/typography')],

@@ -117,11 +117,11 @@ let warnings = $derived([
 		flex-direction: column;
 		gap: 0.75rem;
 		margin-top: 0.75rem;
-		border: 1px solid var(--border);
+		border: 1px solid var(--border-default);
 		border-radius: 8px;
 		background: var(--surface-elevated);
 		padding: 0.9rem;
-		font-family: "Nimbus Sans L", sans-serif;
+		font-family: var(--font-sans);
 		color: var(--text-primary);
 	}
 
@@ -137,7 +137,7 @@ let warnings = $derived([
 	}
 
 	.skill-draft-card__eyebrow {
-		font-size: 0.72rem;
+		font-size: var(--text-xs);
 		font-weight: 700;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
@@ -151,14 +151,14 @@ let warnings = $derived([
 	}
 
 	h3 {
-		font-size: 1rem;
+		font-size: var(--text-base);
 		line-height: 1.25;
 		overflow-wrap: anywhere;
 	}
 
 	.skill-draft-card__description {
 		color: var(--text-secondary);
-		font-size: 0.9rem;
+		font-size: var(--text-md);
 		line-height: 1.45;
 		overflow-wrap: anywhere;
 	}
@@ -171,11 +171,11 @@ let warnings = $derived([
 
 	.skill-draft-card__policies span,
 	.skill-draft-card__status {
-		border: 1px solid var(--border);
+		border: 1px solid var(--border-default);
 		border-radius: 999px;
 		background: var(--surface-page);
 		padding: 0.2rem 0.5rem;
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 	}
 
@@ -184,7 +184,7 @@ let warnings = $derived([
 		gap: 0.35rem;
 		padding-left: 1.1rem;
 		color: var(--text-secondary);
-		font-size: 0.83rem;
+		font-size: var(--text-sm);
 		line-height: 1.4;
 	}
 
@@ -195,21 +195,21 @@ let warnings = $derived([
 	}
 
 	.skill-draft-card__error {
-		border: 1px solid var(--danger, #b42318);
+		border: 1px solid var(--danger);
 		border-radius: 8px;
 		background: var(--danger-surface, rgba(180, 35, 24, 0.08));
 		padding: 0.45rem 0.6rem;
-		color: var(--danger, #b42318);
-		font-size: 0.84rem;
+		color: var(--danger);
+		font-size: var(--text-sm);
 		line-height: 1.4;
 	}
 
 	button {
-		border: 1px solid var(--border);
+		border: 1px solid var(--border-default);
 		border-radius: 8px;
 		background: var(--surface-page);
 		padding: 0.45rem 0.65rem;
-		font-size: 0.84rem;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--text-primary);
 		cursor: pointer;
@@ -229,7 +229,7 @@ let warnings = $derived([
 	.skill-draft-card__primary {
 		border-color: var(--accent);
 		background: var(--accent);
-		color: var(--accent-contrast, #ffffff);
+		color: var(--accent-contrast);
 	}
 
 	.skill-draft-card__secondary {

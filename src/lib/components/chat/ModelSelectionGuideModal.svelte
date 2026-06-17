@@ -284,11 +284,11 @@ function regionTitle(provider: ModelProvider): string {
 		max-height: min(780px, calc(100vh - 48px));
 		flex-direction: column;
 		overflow: hidden;
-		border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+		border: 1px solid var(--border-default);
 		border-radius: var(--radius-md, 8px);
-		background: var(--bg-primary, #fff);
+		background: var(--surface-page);
 		box-shadow: var(--shadow-lg, 0 16px 48px rgba(0, 0, 0, 0.18));
-		color: var(--text-primary, #1a1a1a);
+		color: var(--text-primary);
 	}
 
 	.model-guide-header {
@@ -296,21 +296,21 @@ function regionTitle(provider: ModelProvider): string {
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: 16px;
-		border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+		border-bottom: 1px solid var(--border-default);
 		padding: 18px 20px 14px;
 	}
 
 	.model-guide-header h2 {
 		margin: 0;
-		font-size: 18px;
+		font-size: var(--text-lg);
 		font-weight: 650;
 	}
 
 	.model-guide-header p {
 		margin: 4px 0 0;
 		max-width: 56ch;
-		color: var(--text-secondary, #6b6b6b);
-		font-size: 13px;
+		color: var(--text-muted);
+		font-size: var(--text-sm);
 		line-height: 1.4;
 	}
 
@@ -322,10 +322,10 @@ function regionTitle(provider: ModelProvider): string {
 		min-width: 32px;
 		align-items: center;
 		justify-content: center;
-		border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+		border: 1px solid var(--border-default);
 		border-radius: var(--radius-sm, 4px);
 		background: transparent;
-		color: var(--text-secondary, #6b6b6b);
+		color: var(--text-muted);
 		cursor: pointer;
 		text-decoration: none;
 		transition:
@@ -338,28 +338,28 @@ function regionTitle(provider: ModelProvider): string {
 
 	.model-guide-close:hover,
 	.model-guide-close:focus-visible {
-		border-color: color-mix(in srgb, var(--border-focus, #c15f3c) 42%, transparent);
-		background: color-mix(in srgb, var(--border-focus, #c15f3c) 12%, transparent);
-		color: var(--border-focus, #c15f3c);
+		border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+		color: var(--accent);
 		transform: translateY(-1px);
 	}
 
 	.model-guide-icon-button:visited {
-		color: var(--text-secondary, #6b6b6b);
+		color: var(--text-muted);
 	}
 
 	.model-guide-icon-button:hover,
 	.model-guide-icon-button:focus-visible {
-		border-color: color-mix(in srgb, var(--border-focus, #c15f3c) 36%, transparent);
-		background: color-mix(in srgb, var(--border-focus, #c15f3c) 10%, transparent);
-		color: var(--border-focus, #c15f3c);
+		border-color: color-mix(in srgb, var(--accent) 36%, transparent);
+		background: color-mix(in srgb, var(--accent) 10%, transparent);
+		color: var(--accent);
 		transform: translateY(-1px);
 	}
 
 	.model-guide-close:focus-visible,
 	.model-guide-icon-button:focus-visible {
 		outline: none;
-		box-shadow: 0 0 0 2px var(--border-focus, #c15f3c);
+		box-shadow: 0 0 0 2px var(--accent);
 	}
 
 	.model-guide-content {
@@ -368,7 +368,7 @@ function regionTitle(provider: ModelProvider): string {
 	}
 
 	.model-guide-provider {
-		border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+		border-bottom: 1px solid var(--border-default);
 		padding: 10px 0 14px;
 	}
 
@@ -393,7 +393,7 @@ function regionTitle(provider: ModelProvider): string {
 	.model-guide-provider-title {
 		min-width: 0;
 		gap: 8px;
-		font-size: 13px;
+		font-size: var(--text-sm);
 		font-weight: 650;
 	}
 
@@ -401,7 +401,7 @@ function regionTitle(provider: ModelProvider): string {
 		display: inline-flex;
 		position: relative;
 		align-items: center;
-		font-size: 15px;
+		font-size: var(--text-base);
 		line-height: 1;
 	}
 
@@ -413,9 +413,9 @@ function regionTitle(provider: ModelProvider): string {
 
 	.model-guide-row {
 		position: relative;
-		border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+		border: 1px solid var(--border-default);
 		border-radius: var(--radius-sm, 4px);
-		background: var(--surface-page, #fafafa);
+		background: var(--surface-page);
 		padding: 10px;
 		overflow: visible;
 	}
@@ -442,7 +442,7 @@ function regionTitle(provider: ModelProvider): string {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 14px;
+		font-size: var(--text-sm);
 		font-weight: 600;
 	}
 
@@ -453,31 +453,31 @@ function regionTitle(provider: ModelProvider): string {
 		align-items: center;
 		border-radius: var(--radius-sm, 4px);
 		padding: 2px 6px;
-		font-size: 11px;
+		font-size: var(--text-2xs);
 		font-weight: 600;
 		line-height: 1.3;
 	}
 
 	.model-guide-badge {
 		background: rgba(193, 95, 60, 0.12);
-		color: var(--border-focus, #c15f3c);
+		color: var(--accent);
 	}
 
 	.model-guide-pill {
-		background: var(--bg-secondary, #f5f5f5);
-		color: var(--text-secondary, #6b6b6b);
+		background: var(--surface-overlay);
+		color: var(--text-muted);
 	}
 
 	.model-guide-cost--no-cost {
-		border: 1px solid color-mix(in srgb, #238636 30%, transparent);
-		background: color-mix(in srgb, #238636 14%, var(--bg-primary, #fff));
-		color: #1f7a35;
+		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+		background: color-mix(in srgb, var(--success) 14%, var(--surface-page));
+		color: var(--success);
 	}
 
 	.model-guide-speed {
-		border: 1px solid color-mix(in srgb, #2563eb 24%, transparent);
-		background: color-mix(in srgb, #2563eb 10%, var(--bg-primary, #fff));
-		color: #1d4ed8;
+		border: 1px solid color-mix(in srgb, var(--info) 24%, transparent);
+		background: color-mix(in srgb, var(--info) 10%, var(--surface-page));
+		color: var(--info);
 	}
 
 	.model-guide-pill[data-tooltip]::after,
@@ -490,11 +490,11 @@ function regionTitle(provider: ModelProvider): string {
 		max-width: min(280px, 72vw);
 		padding: 6px 8px;
 		border-radius: var(--radius-sm, 4px);
-		background: var(--text-primary, #1a1a1a);
-		color: var(--bg-primary, #fff);
+		background: var(--text-primary);
+		color: var(--surface-page);
 		box-shadow: var(--shadow-md, 0 6px 18px rgba(0, 0, 0, 0.18));
 		content: attr(data-tooltip);
-		font-size: 11px;
+		font-size: var(--text-2xs);
 		font-weight: 500;
 		line-height: 1.35;
 		opacity: 0;
@@ -522,8 +522,8 @@ function regionTitle(provider: ModelProvider): string {
 		display: -webkit-box;
 		margin: 5px 0 0;
 		overflow: hidden;
-		color: var(--text-secondary, #6b6b6b);
-		font-size: 12px;
+		color: var(--text-muted);
+		font-size: var(--text-2xs);
 		line-height: 1.35;
 		line-clamp: 2;
 		-webkit-box-orient: vertical;
@@ -533,15 +533,15 @@ function regionTitle(provider: ModelProvider): string {
 	.model-guide-empty {
 		margin: 0;
 		padding: 20px;
-		color: var(--text-secondary, #6b6b6b);
-		font-size: 14px;
+		color: var(--text-muted);
+		font-size: var(--text-sm);
 		text-align: center;
 	}
 
 	:global(.dark) .model-guide-modal {
-		border-color: var(--border, rgba(255, 255, 255, 0.08));
-		background: var(--bg-primary, #1a1a1a);
-		color: var(--text-primary, #ececec);
+		border-color: var(--border-default);
+		background: var(--surface-page);
+		color: var(--text-primary);
 	}
 
 	:global(.dark) .model-guide-row {
@@ -549,26 +549,26 @@ function regionTitle(provider: ModelProvider): string {
 	}
 
 	:global(.dark) .model-guide-pill {
-		background: var(--bg-hover, #333);
+		background: var(--surface-elevated);
 	}
 
 	:global(.dark) .model-guide-speed {
-		border-color: color-mix(in srgb, #60a5fa 28%, transparent);
-		background: color-mix(in srgb, #60a5fa 14%, var(--bg-primary, #1a1a1a));
-		color: #93c5fd;
+		border-color: color-mix(in srgb, var(--info) 28%, transparent);
+		background: color-mix(in srgb, var(--info) 14%, var(--surface-page));
+		color: var(--info);
 	}
 
 	:global(.dark) .model-guide-cost--no-cost {
-		border-color: color-mix(in srgb, #57d364 34%, transparent);
-		background: color-mix(in srgb, #57d364 16%, var(--bg-primary, #1a1a1a));
-		color: #7ee787;
+		border-color: color-mix(in srgb, var(--success) 34%, transparent);
+		background: color-mix(in srgb, var(--success) 16%, var(--surface-page));
+		color: var(--success);
 	}
 
 	:global(.dark) .model-guide-pill[data-tooltip]::after,
 	:global(.dark) .model-guide-region[data-tooltip]::after {
-		background: var(--bg-primary, #1a1a1a);
-		color: var(--text-primary, #ececec);
-		border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+		background: var(--surface-page);
+		color: var(--text-primary);
+		border: 1px solid var(--border-default);
 	}
 
 	@media (max-width: 768px) {

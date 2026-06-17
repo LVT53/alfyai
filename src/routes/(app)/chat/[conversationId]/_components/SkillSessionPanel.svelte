@@ -147,14 +147,14 @@ onDestroy(() => {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 0.875rem;
+		font-size: var(--text-sm);
 		font-weight: 650;
 		line-height: 1.25;
 	}
 
 	.skill-session-panel__error {
 		margin: 0.45rem 0 0;
-		font-size: 0.8125rem;
+		font-size: var(--text-sm);
 		color: var(--danger);
 	}
 
@@ -164,7 +164,7 @@ onDestroy(() => {
 		border-radius: 7px;
 		background: color-mix(in srgb, var(--accent) 8%, transparent 92%);
 		padding: 0.35rem 0.45rem;
-		font-size: 0.8125rem;
+		font-size: var(--text-sm);
 		color: color-mix(in srgb, var(--accent) 72%, var(--text-primary) 28%);
 	}
 
@@ -180,7 +180,7 @@ onDestroy(() => {
 		background: var(--accent);
 		color: white;
 		font: inherit;
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		padding: 0.3rem 0.5rem;
 		cursor: pointer;

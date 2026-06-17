@@ -1599,7 +1599,7 @@ async function emitDraftChange(force = false) {
 							aria-label={$t('linkedSources.removeA11y', { name: attachment.artifact.name })}
 							onclick={() => removePendingAttachment(attachment.artifact.id)}
 						>
-							<span aria-hidden="true">x</span>
+							<X size={14} strokeWidth={2} aria-hidden="true" />
 						</button>
 					</li>
 				{/each}
@@ -1616,7 +1616,7 @@ async function emitDraftChange(force = false) {
 							aria-label={$t('linkedSources.removeA11y', { name: source.name })}
 							onclick={() => removeLinkedSource(source.displayArtifactId)}
 						>
-							<span aria-hidden="true">x</span>
+							<X size={14} strokeWidth={2} aria-hidden="true" />
 						</button>
 					</li>
 				{/each}
@@ -1642,7 +1642,7 @@ async function emitDraftChange(force = false) {
 						aria-label={$t('pendingSkill.removeA11y', { name: pendingSkill.displayName })}
 						onclick={removePendingSkill}
 					>
-					<X size={11} aria-hidden="true" />
+					<X size={14} strokeWidth={2} aria-hidden="true" />
 					</button>
 				</li>
 			</ul>
@@ -1661,7 +1661,7 @@ async function emitDraftChange(force = false) {
 						aria-label={$t('composerTools.removeWebSearch')}
 						onclick={() => setForceWebSearch(false)}
 					>
-					<X size={11} aria-hidden="true" />
+					<X size={14} strokeWidth={2} aria-hidden="true" />
 					</button>
 				</li>
 			</ul>
@@ -1939,7 +1939,7 @@ async function emitDraftChange(force = false) {
 		border-radius: 999px;
 		background: color-mix(in srgb, var(--surface-page) 74%, var(--accent) 4%);
 		padding: 0.25rem 0.35rem 0.25rem 0.65rem;
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		color: var(--text-primary);
 	}
 
@@ -2019,8 +2019,8 @@ async function emitDraftChange(force = false) {
 
 	.pending-skill-chip__label {
 		color: var(--accent);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.68rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
 		font-weight: 700;
 		line-height: 1;
 		text-transform: uppercase;
@@ -2031,13 +2031,13 @@ async function emitDraftChange(force = false) {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		font-weight: 600;
 	}
 
 	.pending-skill-chip__status {
 		color: var(--danger);
-		font-size: 0.72rem;
+		font-size: var(--text-2xs);
 		font-weight: 600;
 	}
 
@@ -2091,7 +2091,7 @@ async function emitDraftChange(force = false) {
 		overflow-y: auto;
 		border: 1px solid color-mix(in srgb, var(--border-default) 76%, transparent 24%);
 		border-radius: 1rem 1rem 0.9rem 0.9rem;
-		background: color-mix(in srgb, var(--surface-overlay) 84%, #0b0b0b 16%);
+		background: color-mix(in srgb, var(--surface-page) 80%, #000 20%);
 		box-shadow:
 			0 18px 42px rgba(0, 0, 0, 0.28),
 			0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent 92%);
@@ -2107,7 +2107,7 @@ async function emitDraftChange(force = false) {
 	}
 
 	:global(.dark) .command-tray {
-		background: color-mix(in srgb, var(--surface-overlay) 76%, #050505 24%);
+		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
 		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
 	}
 
@@ -2143,8 +2143,8 @@ async function emitDraftChange(force = false) {
 	}
 
 	.command-token {
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.82rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		font-weight: 700;
 		color: var(--accent);
 		white-space: nowrap;
@@ -2158,8 +2158,8 @@ async function emitDraftChange(force = false) {
 	}
 
 	.command-label {
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.9rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-md);
 		font-weight: 650;
 		line-height: 1.2;
 		color: var(--text-primary);
@@ -2169,8 +2169,8 @@ async function emitDraftChange(force = false) {
 	.command-status,
 	.command-empty,
 	.command-message {
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.76rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
 		line-height: 1.25;
 		color: var(--text-muted);
 	}
@@ -2218,7 +2218,7 @@ async function emitDraftChange(force = false) {
 	}
 
 	:global(.dark) .message-composer {
-		background: color-mix(in srgb, var(--surface-overlay) 88%, #3a3a3a 12%);
+		background: var(--surface-elevated);
 		box-shadow:
 			0 1px 0 color-mix(in srgb, var(--border-default) 92%, transparent 8%),
 			0 18px 38px rgba(0, 0, 0, 0.4),
@@ -2260,8 +2260,8 @@ async function emitDraftChange(force = false) {
 		background: transparent;
 		padding: 0.42rem 0.52rem;
 		text-align: left;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.78rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
 		line-height: 1.15;
 		color: var(--text-primary);
 		cursor: pointer;
@@ -2274,7 +2274,7 @@ async function emitDraftChange(force = false) {
 
 	.deep-research-option:hover,
 	.deep-research-option:focus-visible {
-		background: rgba(194, 166, 106, 0.24);
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 34%, transparent 66%);
 		transform: translateY(-1px);
 		outline: none;
@@ -2287,7 +2287,7 @@ async function emitDraftChange(force = false) {
 	}
 
 	:global(.dark) .deep-research-menu {
-		background: color-mix(in srgb, var(--surface-overlay) 78%, #050505 22%);
+		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
 		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
 		box-shadow:
 			0 16px 32px rgba(0, 0, 0, 0.4),
@@ -2296,7 +2296,7 @@ async function emitDraftChange(force = false) {
 
 	:global(.dark) .deep-research-option:hover,
 	:global(.dark) .deep-research-option:focus-visible {
-		background: rgba(194, 166, 106, 0.3);
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	.composer-textarea {

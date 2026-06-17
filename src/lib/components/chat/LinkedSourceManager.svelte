@@ -149,7 +149,7 @@ onMount(() => {
 
 	.source-manager__header h2 {
 		margin: 0;
-		font-size: 14px;
+		font-size: var(--text-base);
 		font-weight: 650;
 		color: var(--text-primary);
 	}
@@ -159,7 +159,7 @@ onMount(() => {
 	.source-manager__meta {
 		margin: 0;
 		color: var(--text-muted);
-		font-size: 12px;
+		font-size: var(--text-xs);
 	}
 
 	.source-manager__icon-button,
@@ -168,7 +168,7 @@ onMount(() => {
 		border-radius: 8px;
 		background: color-mix(in srgb, var(--surface-elevated) 72%, transparent 28%);
 		color: var(--text-primary);
-		font-size: 12px;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		cursor: pointer;
 		transition:
@@ -249,7 +249,7 @@ onMount(() => {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 13px;
+		font-size: var(--text-sm);
 		font-weight: 600;
 	}
 
@@ -262,7 +262,7 @@ onMount(() => {
 	}
 
 	:global(.dark) .source-manager {
-		background: color-mix(in srgb, var(--surface-overlay) 92%, #111 8%);
+		background: color-mix(in srgb, var(--surface-overlay) 92%, var(--surface-page) 8%);
 		box-shadow:
 			0 20px 46px rgb(0 0 0 / 0.46),
 			0 1px 0 color-mix(in srgb, white 8%, transparent 92%) inset;
