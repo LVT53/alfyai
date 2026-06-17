@@ -546,7 +546,7 @@ function handleKeydown(event: KeyboardEvent) {
 			return;
 		}
 	}
-	if (event.key === "Enter" && !event.shiftKey) {
+	if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
 		event.preventDefault();
 		if (isGenerating) {
 			queue();
@@ -1703,7 +1703,7 @@ async function emitDraftChange(force = false) {
 				<div class="relative flex items-center">
 					<button
 						type="button"
-						class="btn-icon-bare composer-icon flex h-[40px] w-[40px] flex-shrink-0 items-center justify-center text-text-muted"
+						class="btn-icon-bare composer-icon flex flex-shrink-0 items-center justify-center text-text-muted"
 						onclick={toggleToolsMenu}
 						disabled={disabled}
 						aria-label={$t('chat.openComposerTools')}
@@ -1738,7 +1738,7 @@ async function emitDraftChange(force = false) {
 					>
 						<button
 							type="button"
-							class="btn-icon-bare composer-icon flex h-[40px] w-[40px] flex-shrink-0 items-center justify-center text-text-muted"
+							class="btn-icon-bare composer-icon flex flex-shrink-0 items-center justify-center text-text-muted"
 							class:composer-icon--active={selectedDeepResearchDepth}
 							onclick={toggleDeepResearchMenu}
 							disabled={disabled}

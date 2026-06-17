@@ -105,7 +105,7 @@ async function handleTableUpload(files: File[]): Promise<void> {
 				{/if}
 				<button
 					type="button"
-					class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
+					class="btn-icon-bare cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
 					onclick={onClose}
 					aria-label="Close library manager"
 				>

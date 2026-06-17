@@ -150,6 +150,9 @@
 		--text-base: 0.95rem;
 		--text-lg: 1.125rem;
 
+		/* Semantic Tokens - Surface (message-specific) */
+		--surface-message-user: #f4f3ee;
+
 		/* Semantic Tokens - Radius */
 		--radius-sm: 5px;
 		--radius-md: 0.375rem;
@@ -220,6 +223,9 @@
 		--text-md: 0.875rem;
 		--text-base: 0.95rem;
 		--text-lg: 1.125rem;
+
+		/* Semantic Tokens - Surface (message-specific) */
+		--surface-message-user: #2f2f2f;
 	}
 }
 
@@ -360,7 +366,8 @@ body {
 		justify-content: center;
 		min-height: 34px;
 		border-radius: var(--radius-md, 0.375rem);
-	font-family: var(--font-sans);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		letter-spacing: 0.025em;
 		font-weight: 500;
 		cursor: pointer;
@@ -412,7 +419,7 @@ body {
 	.btn-ghost {
 		background-color: transparent;
 		color: var(--text-primary);
-		padding: 0.625rem 0.875rem;
+		padding: 0.3125rem 0.75rem;
 		border: none;
 	}
 	.btn-ghost:hover {
@@ -422,9 +429,9 @@ body {
 
 	.btn-icon {
 		background-color: transparent;
-		min-width: 44px;
-		min-height: 44px;
-		padding: 0.5rem;
+		min-width: 40px;
+		min-height: 40px;
+		padding: 0.375rem;
 		color: var(--icon-muted);
 		border: none;
 	}
@@ -438,9 +445,9 @@ body {
 		flex-shrink: 0;
 		align-items: center;
 		justify-content: center;
-		min-height: 44px;
-		min-width: 44px;
-		padding: 0.45rem;
+		min-height: 40px;
+		min-width: 40px;
+		padding: 0.375rem;
 		background-color: transparent;
 		border: none;
 		border-radius: var(--radius-md, 0.375rem);
@@ -467,6 +474,30 @@ body {
 	.btn-danger:hover {
 		background-color: color-mix(in srgb, var(--danger) 18%, transparent);
 		border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+	}
+
+	.btn-sm {
+		min-height: 30px;
+		padding: 0.2rem 0.5rem;
+		font-size: var(--text-2xs);
+	}
+
+	.btn-lg {
+		min-height: 44px;
+		padding: 0.5rem 1rem;
+		font-size: var(--text-base);
+	}
+
+	.btn-icon-sm {
+		min-height: 32px;
+		min-width: 32px;
+		padding: 0.25rem;
+	}
+
+	.btn-icon-lg {
+		min-height: 44px;
+		min-width: 44px;
+		padding: 0.5rem;
 	}
 }
 
@@ -535,7 +566,10 @@ body {
 	/* Task 2.9: Mobile touch targets - 48px for primary buttons */
 	.btn-primary,
 	.btn-secondary,
+	.btn-ghost,
 	.btn-danger,
+	.btn-sm,
+	.btn-lg,
 	.composer-send,
 	.composer-stop-accent,
 	.queue-button {
@@ -551,7 +585,10 @@ body {
 	}
 
 	/* Mobile icon controls in the header and sidebar should meet the 44px target. */
+	.btn-icon,
 	.btn-icon-bare,
+	.btn-icon-sm,
+	.btn-icon-lg,
 	.compose-btn,
 	.header-option,
 	.mobile-sidebar-toggle,
@@ -596,8 +633,8 @@ body {
 }
 
 .drop-zone-text {
-	font-family: "Nimbus Sans L", sans-serif;
-	font-size: 1.125rem;
+	font-family: var(--font-sans);
+	font-size: var(--text-lg);
 	font-weight: 500;
 	color: var(--text-primary);
 	letter-spacing: 0.025em;

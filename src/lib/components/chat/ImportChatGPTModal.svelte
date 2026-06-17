@@ -302,7 +302,7 @@ function handleRetry(): void {
 						/>
 						<button
 							type="button"
-							class="btn-secondary whitespace-nowrap text-sm"
+							class="btn-secondary whitespace-nowrap"
 							onclick={toggleSelectAll}
 						>
 							{allSelected ? $t("chatgptImport.deselectAll") : $t("chatgptImport.selectAll")}

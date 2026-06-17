@@ -160,7 +160,7 @@ onDestroy(() => {
 			</div>
 			<button
 				type="button"
-				class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
+				class="btn-icon-bare cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
 				onclick={onClose}
 				aria-label="Close memory item"
 				title="Close"
@@ -203,7 +203,7 @@ onDestroy(() => {
 			<div class="mt-5 flex flex-wrap items-center justify-end gap-2">
 				<button
 					type="button"
-					class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
+			class="btn-icon-bare cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
 					onclick={onClose}
 					aria-label="Cancel editing"
 					title="Cancel"
@@ -213,7 +213,7 @@ onDestroy(() => {
 				{#if item.canSuppress}
 					<button
 						type="button"
-						class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+						class="btn-icon-bare cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={submitSuppress}
 						disabled={isSuppressing}
 						aria-label="Do not remember"
@@ -229,7 +229,7 @@ onDestroy(() => {
 				{#if item.canDelete}
 					<button
 						type="button"
-						class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+						class="btn-icon-bare cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={submitDelete}
 						disabled={isDeleting}
 						aria-label="Delete memory item"
@@ -244,7 +244,7 @@ onDestroy(() => {
 				{/if}
 				<button
 					type="button"
-					class="btn-icon h-10 w-10 cursor-pointer rounded-full bg-primary text-white disabled:cursor-not-allowed disabled:opacity-50"
+					class="btn-icon cursor-pointer rounded-full bg-primary text-white disabled:cursor-not-allowed disabled:opacity-50"
 					onclick={submitEdit}
 					disabled={!canSave || isSaving}
 					aria-label="Save memory item"

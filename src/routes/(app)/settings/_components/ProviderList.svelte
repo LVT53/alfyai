@@ -105,7 +105,7 @@ async function handleDelete(provider: Provider) {
 <div class="flex flex-col gap-3">
 	<div class="flex items-center justify-between">
 		<h3 class="text-sm font-medium text-text-primary">{$t('admin.providers')}</h3>
-		<button class="btn-small" onclick={onAdd}>{$t('admin.addProvider')}</button>
+		<button class="btn-sm" onclick={onAdd}>{$t('admin.addProvider')}</button>
 	</div>
 
 	{#if loading}
@@ -177,7 +177,7 @@ async function handleDelete(provider: Provider) {
 							></div>
 						</label>
 						<button
-							class="btn-small whitespace-nowrap"
+							class="btn-sm whitespace-nowrap"
 							disabled={discoveringId === provider.id}
 							onclick={() => handleDiscover(provider)}
 						>
@@ -185,7 +185,7 @@ async function handleDelete(provider: Provider) {
 						</button>
 						{#if onManageModels}
 							<button
-								class="btn-small whitespace-nowrap"
+								class="btn-sm whitespace-nowrap"
 								onclick={() => onManageModels(provider.id)}
 							>
 								{$t('admin.manageModels')}
@@ -193,7 +193,7 @@ async function handleDelete(provider: Provider) {
 						{/if}
 						{#if onReorder}
 							<button
-								class="btn-small whitespace-nowrap"
+								class="btn-sm whitespace-nowrap"
 								disabled={movingId === provider.id || providers.indexOf(provider) === 0}
 								onclick={() => handleMove(provider, "up")}
 								title="Move up"
@@ -201,7 +201,7 @@ async function handleDelete(provider: Provider) {
 								<ChevronUp class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
 							</button>
 							<button
-								class="btn-small whitespace-nowrap"
+								class="btn-sm whitespace-nowrap"
 								disabled={movingId === provider.id || providers.indexOf(provider) === providers.length - 1}
 								onclick={() => handleMove(provider, "down")}
 								title="Move down"
@@ -209,11 +209,11 @@ async function handleDelete(provider: Provider) {
 								<ChevronDown class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
 							</button>
 						{/if}
-						<button class="btn-small whitespace-nowrap" onclick={() => onEdit(provider)} title="Edit">
+						<button class="btn-sm whitespace-nowrap" onclick={() => onEdit(provider)} title="Edit">
 							<Pencil class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
 						</button>
 						<button
-							class="btn-small whitespace-nowrap text-danger"
+							class="btn-sm whitespace-nowrap text-danger"
 							disabled={deletingId === provider.id}
 							onclick={() => handleDelete(provider)}
 							title="Delete"

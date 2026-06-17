@@ -332,10 +332,10 @@ onMount(() => {
 		<h2 class="settings-section-title mb-0">{$t("skills.title")}</h2>
 		{#if skillsEnabled}
 			<div class="flex flex-wrap gap-2">
-				<button class="btn-secondary text-sm" type="button" onclick={startNewUserSkill}>
+				<button class="btn-secondary" type="button" onclick={startNewUserSkill}>
 					{$t("skills.newSkill")}
 				</button>
-				<button class="btn-secondary text-sm" type="button" onclick={startNewVariant}>
+				<button class="btn-secondary" type="button" onclick={startNewVariant}>
 					{$t("skills.variant.new")}
 				</button>
 			</div>
@@ -527,7 +527,7 @@ onMount(() => {
 							</div>
 							<div class="flex flex-wrap gap-2">
 								<button
-									class="btn-secondary text-sm"
+									class="btn-secondary"
 									type="button"
 									aria-label={$t("skills.editA11y", { name: skill.displayName })}
 									onclick={() => editSkill(skill)}
@@ -535,7 +535,7 @@ onMount(() => {
 									{$t("skills.edit")}
 								</button>
 								<button
-									class="btn-secondary text-sm"
+									class="btn-secondary"
 									type="button"
 									aria-label={$t(skill.enabled ? "skills.disableA11y" : "skills.enableA11y", {
 										name: skill.displayName,
@@ -545,7 +545,7 @@ onMount(() => {
 									{skill.enabled ? $t("skills.disable") : $t("skills.enable")}
 								</button>
 								<button
-									class="btn-ghost text-sm"
+									class="btn-ghost"
 									style="color: var(--danger);"
 									type="button"
 									disabled={deletingId === skill.id}
@@ -579,7 +579,7 @@ onMount(() => {
 							</div>
 							<div class="flex flex-wrap gap-2">
 								<button
-									class="btn-secondary text-sm"
+									class="btn-secondary"
 									type="button"
 									aria-label={$t("skills.editA11y", { name: variant.displayName })}
 									onclick={() => editVariant(variant)}
@@ -587,7 +587,7 @@ onMount(() => {
 									{$t("skills.edit")}
 								</button>
 								<button
-									class="btn-secondary text-sm"
+									class="btn-secondary"
 									type="button"
 									aria-label={$t(variant.enabled ? "skills.disableA11y" : "skills.enableA11y", {
 										name: variant.displayName,
@@ -597,7 +597,7 @@ onMount(() => {
 									{variant.enabled ? $t("skills.disable") : $t("skills.enable")}
 								</button>
 								<button
-									class="btn-ghost text-sm"
+									class="btn-ghost"
 									style="color: var(--danger);"
 									type="button"
 									disabled={deletingId === variant.id}

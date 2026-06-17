@@ -39,6 +39,7 @@ import {
 	RefreshCw,
 	Search,
 	ShieldAlert,
+	X,
 } from "@lucide/svelte";
 import type { TaskSteeringPayload } from "$lib/types";
 
@@ -547,9 +548,9 @@ function toggleForkDetails() {
 		data-testid={isUser ? 'user-message' : 'assistant-message'}
 		class="relative flex min-w-0 flex-col font-serif
 		{isUser && !isEditing
-			? 'max-w-[85%] min-w-0 rounded-md border border-border-subtle bg-surface-elevated p-sm text-text-primary shadow-sm md:max-w-[80%]'
+			? 'max-w-[85%] min-w-0 rounded-md bg-[var(--surface-message-user)] p-md text-text-primary md:max-w-[80%]'
 			: isUser
-				? 'w-full min-w-0 max-w-[85%] rounded-md border border-border bg-surface-elevated p-md text-text-primary shadow-sm md:max-w-[80%]'
+				? 'w-full min-w-0 max-w-[85%] rounded-md bg-[var(--surface-message-user)] p-md text-text-primary md:max-w-[80%]'
 			: 'w-full min-w-0 max-w-full rounded-none bg-surface-page p-sm text-text-primary'}"
 	>
 		{#if !isUser && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls)}
@@ -628,15 +629,29 @@ function toggleForkDetails() {
 				<div class="flex flex-col gap-3">
 					<textarea
 						bind:this={editTextarea}
-						class="w-full resize-none rounded-md border border-border bg-surface-page px-4 py-3 font-serif text-[16px] leading-[1.6] text-text-primary focus:border-focus-ring focus:outline-none focus:ring-2 focus:ring-focus-ring"
+						class="w-full resize-none rounded-md border-none bg-[var(--surface-message-user)] p-md font-serif text-[0.875rem] leading-[1.6] text-text-primary focus:outline-none focus:ring-2 focus:ring-focus-ring"
 						bind:value={editText}
 						onkeydown={handleEditKeydown}
 						rows={Math.min(10, Math.max(3, editText.split('\n').length))}
 					></textarea>
-					<div class="flex items-center gap-3 justify-end">
-						<span class="text-xs text-text-muted">{$t('messageBubble.sendShortcut')}</span>
-						<button type="button" class="btn-secondary" onclick={cancelEdit}>{$t('common.cancel')}</button>
-						<button type="button" class="btn-primary" onclick={submitEdit} disabled={!editText.trim()}>{$t('chat.sendMessage')}</button>
+					<div class="flex items-center gap-0.5 justify-end">
+						<button
+							type="button"
+							class="btn-icon-bare"
+							onclick={cancelEdit}
+							aria-label={$t('common.cancel')}
+						>
+							<X size={16} strokeWidth={2} aria-hidden="true" />
+						</button>
+						<button
+							type="button"
+							class="btn-icon-bare"
+							onclick={submitEdit}
+							disabled={!editText.trim()}
+							aria-label={$t('chat.sendMessage')}
+						>
+							<Check size={16} strokeWidth={2} aria-hidden="true" />
+						</button>
 					</div>
 				</div>
 			{:else}
@@ -652,7 +667,7 @@ function toggleForkDetails() {
 						{/each}
 					</div>
 				{/if}
-				<div class="whitespace-pre-wrap break-words text-[15px] leading-[1.5] md:leading-[1.55]">
+				<div class="whitespace-pre-wrap break-words text-[0.875rem] leading-[1.5] md:leading-[1.55]">
 					{#if userMessageSegments.length > 0}
 						{#each userMessageSegments as segment}
 							{#if segment.kind === 'link'}
@@ -674,7 +689,7 @@ function toggleForkDetails() {
 				</div>
 			{/if}
 		{:else}
-			<div class="prose-container min-w-0 w-full text-[15px] leading-[1.5] md:leading-[1.55]">
+			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.5] md:leading-[1.55]">
 				<MarkdownRenderer
 					content={message.content}
 					isDark={$isDark}
@@ -1032,12 +1047,12 @@ function toggleForkDetails() {
 	}
 
 	.prose-container :global(.prose) {
-		font-size: var(--text-base);
+		font-size: var(--text-md);
 		line-height: 1.5;
 	}
 	@media (min-width: 768px) {
 		.prose-container :global(.prose) {
-			font-size: var(--text-base);
+			font-size: var(--text-md);
 			line-height: 1.55;
 		}
 	}
@@ -1326,16 +1341,6 @@ function toggleForkDetails() {
 	}
 
 	.timestamp-container {
-		position: relative;
-		display: inline-flex;
-	}
-
-	.action-tooltip-container {
-		position: relative;
-		display: inline-flex;
-	}
-
-	.action-tooltip-container {
 		position: relative;
 		display: inline-flex;
 	}
