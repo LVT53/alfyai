@@ -368,7 +368,9 @@ function conversationHref(conversation: WorkspaceSearchConversationResult) {
 	return conversation.href || `/chat/${conversation.id}`;
 }
 
-async function openConversation(conversation: WorkspaceSearchConversationResult) {
+async function openConversation(
+	conversation: WorkspaceSearchConversationResult,
+) {
 	currentConversationId.set(conversation.id);
 	handleClose();
 	await goto(conversationHref(conversation));

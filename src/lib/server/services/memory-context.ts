@@ -19,18 +19,18 @@ import {
 	type HonchoPersonaRecallResult,
 	recallPersonaMemory,
 } from "$lib/server/services/honcho";
-import {
-	formatActiveMemoryProfileContextForPrompt,
-	getActiveMemoryProfileContext,
-	recordMemoryReworkTelemetry,
-	type ActiveMemoryProfileContext,
-} from "$lib/server/services/memory-profile";
 import { listMessageAttachments } from "$lib/server/services/knowledge/store/attachments";
 import { getArtifactsForUser } from "$lib/server/services/knowledge/store/core";
 import {
 	getProjectContext,
 	type ProjectContextResult,
 } from "$lib/server/services/memory-context/project";
+import {
+	type ActiveMemoryProfileContext,
+	formatActiveMemoryProfileContextForPrompt,
+	getActiveMemoryProfileContext,
+	recordMemoryReworkTelemetry,
+} from "$lib/server/services/memory-profile";
 import {
 	messageOrderDesc,
 	messageTimestampOrderDesc,
@@ -411,7 +411,8 @@ async function getPersonaMemoryContext(
 			status: "error",
 			source: "none",
 			content: null,
-			error: error instanceof Error ? error.message : "Memory profile unavailable",
+			error:
+				error instanceof Error ? error.message : "Memory profile unavailable",
 			evidenceCandidates: [],
 			audit: {
 				conversationId: params.conversationId,

@@ -2204,16 +2204,14 @@ describe("chat-turn context selection - buildConstructedContext", () => {
 					id: "memory-active-1",
 					itemKey: "memory-profile-item:v1:preferences:global:active",
 					category: "preferences",
-					statement:
-						"Prefers active projection concise technical answers.",
+					statement: "Prefers active projection concise technical answers.",
 					scope: { type: "global" },
 					revision: 1,
 					updatedAt: new Date("2026-06-01T00:00:00.000Z"),
 				},
 				{
 					id: "memory-active-2",
-					itemKey:
-						"memory-profile-item:v1:goals_ongoing_work:global:active",
+					itemKey: "memory-profile-item:v1:goals_ongoing_work:global:active",
 					category: "goals_ongoing_work",
 					statement: "Works on AlfyAI context access from projection.",
 					scope: { type: "global" },

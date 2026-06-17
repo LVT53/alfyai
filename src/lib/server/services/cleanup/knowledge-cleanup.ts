@@ -10,8 +10,8 @@ import {
 	memoryProjectionState,
 	memoryProjects,
 	memoryProjectTaskLinks,
-	memoryReworkTelemetry,
 	memoryReviewItems,
+	memoryReworkTelemetry,
 	semanticEmbeddings,
 	taskCheckpoints,
 	taskStateEvidenceLinks,
@@ -20,12 +20,12 @@ import {
 	deleteAllHonchoStateForUser,
 	rotateHonchoPeerIdentity,
 } from "../honcho";
-import { advanceMemoryResetGeneration } from "../memory-profile";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
 	hardDeleteArtifactsForUser,
 } from "../knowledge";
+import { advanceMemoryResetGeneration } from "../memory-profile";
 import { clearMessageEvidenceForUser } from "../messages";
 
 export async function resetKnowledgeBaseState(userId: string): Promise<{

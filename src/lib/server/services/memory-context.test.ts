@@ -22,8 +22,7 @@ vi.mock("./honcho", () => ({
 }));
 
 vi.mock("./memory-profile", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("./memory-profile")>();
+	const actual = await importOriginal<typeof import("./memory-profile")>();
 	return {
 		...actual,
 		getActiveMemoryProfileContext: mockGetActiveMemoryProfileContext,
@@ -199,7 +198,8 @@ describe("memory context service", () => {
 			mode: "persona",
 			status: "available",
 			source: "active_memory_profile",
-			content: "- preferences (global): The user prefers active profile answers.",
+			content:
+				"- preferences (global): The user prefers active profile answers.",
 			audit: {
 				conversationId: "conv-current",
 				query: "What should I remember about the user?",
@@ -236,7 +236,8 @@ describe("memory context service", () => {
 			mode: "persona",
 			status: "available",
 			source: "active_memory_profile",
-			content: "- preferences (global): The user prefers active profile answers.",
+			content:
+				"- preferences (global): The user prefers active profile answers.",
 			audit: {
 				conversationId: "conv-current",
 				query: "What durable preferences matter right now?",
@@ -259,9 +260,9 @@ describe("memory context service", () => {
 			userId: "user-1",
 		});
 		expect(mockRecallPersonaMemory).not.toHaveBeenCalled();
-		expect(JSON.stringify(mockRecordMemoryReworkTelemetry.mock.calls)).not.toContain(
-			"The user prefers active profile answers.",
-		);
+		expect(
+			JSON.stringify(mockRecordMemoryReworkTelemetry.mock.calls),
+		).not.toContain("The user prefers active profile answers.");
 	});
 
 	it("bounds active projection persona memory newest-first with omitted counts", async () => {
@@ -376,7 +377,8 @@ describe("memory context service", () => {
 			mode: "persona",
 			status: "available",
 			source: "active_memory_profile",
-			content: "- preferences (global): The user prefers active profile answers.",
+			content:
+				"- preferences (global): The user prefers active profile answers.",
 		});
 		expect(mockRecallPersonaMemory).not.toHaveBeenCalled();
 	});
@@ -397,7 +399,8 @@ describe("memory context service", () => {
 			mode: "persona",
 			status: "available",
 			source: "active_memory_profile",
-			content: "- preferences (global): The user prefers active profile answers.",
+			content:
+				"- preferences (global): The user prefers active profile answers.",
 		});
 		if (result.mode !== "persona") {
 			throw new Error(`Expected persona mode, got ${result.mode}`);
@@ -430,7 +433,8 @@ describe("memory context service", () => {
 			mode: "persona",
 			status: "available",
 			source: "active_memory_profile",
-			content: "- preferences (global): The user prefers active profile answers.",
+			content:
+				"- preferences (global): The user prefers active profile answers.",
 		});
 		expect(mockRecallPersonaMemory).not.toHaveBeenCalled();
 	});
@@ -472,9 +476,9 @@ describe("memory context service", () => {
 			query: "What source says I care about cycling gear?",
 		});
 		expect(mockGetActiveMemoryProfileContext).not.toHaveBeenCalled();
-		expect(JSON.stringify(mockRecordMemoryReworkTelemetry.mock.calls)).not.toContain(
-			"cycling gear",
-		);
+		expect(
+			JSON.stringify(mockRecordMemoryReworkTelemetry.mock.calls),
+		).not.toContain("cycling gear");
 	});
 
 	it("returns multiple older non-project history hits for a topic without leaking other users or projects", async () => {

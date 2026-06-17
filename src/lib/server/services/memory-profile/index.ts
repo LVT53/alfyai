@@ -7,14 +7,14 @@ import {
 	memoryProfileItems,
 	memoryProjectionState,
 	memoryResetGenerations,
-	memoryReviewResolutions,
 	memoryReviewItems,
+	memoryReviewResolutions,
 	memoryReworkTelemetry,
 } from "$lib/server/db/schema";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
-	migrateLegacyMemoryForUser,
 	type LegacyPersonaMemoryCandidateBatch,
+	migrateLegacyMemoryForUser,
 } from "./legacy";
 
 export { migrateLegacyMemoryForUser } from "./legacy";
@@ -364,8 +364,10 @@ export function formatActiveMemoryProfileContextForPrompt(
 	for (const item of orderedItems) {
 		const line = formatActiveMemoryProfileItem(item);
 		const candidateLines = [...lines, line];
-		const remainingIfIncluded = orderedItems.length - includedItemIds.length - 1;
-		let candidateFits = estimateTokenCount(candidateLines.join("\n")) <= maxTokens;
+		const remainingIfIncluded =
+			orderedItems.length - includedItemIds.length - 1;
+		let candidateFits =
+			estimateTokenCount(candidateLines.join("\n")) <= maxTokens;
 		if (candidateFits && remainingIfIncluded > 0) {
 			const omittedLine = omittedActiveMemoryProfileLine(remainingIfIncluded);
 			const fullCandidate = [...candidateLines, omittedLine].join("\n");
@@ -455,7 +457,8 @@ function toPublicReviewItem(row: typeof memoryReviewItems.$inferSelect) {
 		subject: row.subjectLabel,
 		question: row.question,
 		reason: row.reason,
-		canAccept: readReviewProposedStatement(parseJsonRecord(row.metadataJson)) !== null,
+		canAccept:
+			readReviewProposedStatement(parseJsonRecord(row.metadataJson)) !== null,
 	};
 }
 
@@ -474,7 +477,9 @@ function assertPrivacySafeMetadata(metadata: JsonRecord | undefined): void {
 	const visit = (value: unknown, path: string[]): void => {
 		if (!value || typeof value !== "object") return;
 		if (Array.isArray(value)) {
-			value.forEach((entry, index) => visit(entry, [...path, String(index)]));
+			value.forEach((entry, index) => {
+				visit(entry, [...path, String(index)]);
+			});
 			return;
 		}
 		for (const [key, nested] of Object.entries(value)) {
@@ -1294,9 +1299,7 @@ export async function applyMemoryReviewItemWithRevision(params: {
 					metadata,
 				});
 	const statement =
-		params.action === "dismiss"
-			? null
-			: candidateStatement.trim();
+		params.action === "dismiss" ? null : candidateStatement.trim();
 	if (params.action !== "dismiss" && !statement) {
 		return { status: "not_found" };
 	}
@@ -2092,8 +2095,7 @@ export async function reconcileMemoryProfileDirtyLedgerForUser(params: {
 				Math.max(
 					1,
 					Math.floor(
-						params.staleClaimMs ??
-							DEFAULT_MEMORY_DIRTY_LEDGER_STALE_CLAIM_MS,
+						params.staleClaimMs ?? DEFAULT_MEMORY_DIRTY_LEDGER_STALE_CLAIM_MS,
 					),
 				),
 		),

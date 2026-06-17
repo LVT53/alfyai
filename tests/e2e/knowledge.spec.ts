@@ -47,9 +47,9 @@ test.describe("Knowledge page", () => {
 		await expect(
 			page.getByRole("button", { name: /refresh|reload/i }),
 		).toHaveCount(0);
-		await expect(page.getByText(/Focus Continuity|task memory|raw/i)).toHaveCount(
-			0,
-		);
+		await expect(
+			page.getByText(/Focus Continuity|task memory|raw/i),
+		).toHaveCount(0);
 	});
 
 	test("document list does not render filter pills", async ({ page }) => {

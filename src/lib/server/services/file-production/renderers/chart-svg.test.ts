@@ -23,7 +23,7 @@ function readChartBlock() {
 	const chart = validation.source.blocks.find(
 		(block) => block.type === "chart" && block.chartType === "line",
 	);
-	if (!chart || chart.type !== "chart") {
+	if (chart?.type !== "chart") {
 		throw new Error("Fixture chart block is missing.");
 	}
 	return chart;

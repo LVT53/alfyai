@@ -26,7 +26,7 @@ export const GET: RequestHandler = async (event) => {
 		return json({ error: result.error }, { status: result.status });
 	}
 
-	const body = result.body.slice().buffer;
+	const body = result.body.slice();
 	return new Response(body, {
 		status: result.status,
 		headers: result.headers,

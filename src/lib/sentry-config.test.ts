@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterSentryEvent, type FilterableSentryEvent } from "./sentry-config";
+import { type FilterableSentryEvent, filterSentryEvent } from "./sentry-config";
 
 describe("sentry-config", () => {
 	it("drops SvelteKit redirects captured through generic unhandled rejection handling", () => {
@@ -9,7 +9,8 @@ describe("sentry-config", () => {
 				values: [
 					{
 						type: "Error",
-						value: "'Redirect' captured as exception with keys: location, status",
+						value:
+							"'Redirect' captured as exception with keys: location, status",
 					},
 				],
 			},

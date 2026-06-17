@@ -19,7 +19,12 @@ export default defineConfig({
 	plugins: [...sentryPlugins, sveltekit()],
 	build: {
 		// Lazy-loaded Shiki grammars compress well but can exceed Vite's default 500 kB warning threshold.
-		chunkSizeWarningLimit: 800
+		chunkSizeWarningLimit: 1300,
+		rolldownOptions: {
+			checks: {
+				pluginTimings: false
+			}
+		}
 	},
 	ssr: {
 		external: ['@sveltejs/adapter-node']

@@ -26,11 +26,16 @@ let databasePath = process.env.DATABASE_PATH;
 let sqlite: Database.Database;
 
 const requiredExistingTables = [
+	"users",
+	"sessions",
+	"conversations",
+	"messages",
 	"projects",
 	"artifacts",
 	"artifact_links",
 	"artifact_chunks",
 	"conversation_context_status",
+	"conversation_working_set_items",
 	"context_compression_snapshots",
 	"conversation_summaries",
 	"conversation_forks",
@@ -46,9 +51,12 @@ const requiredExistingTables = [
 	"deep_research_evidence_notes",
 	"deep_research_synthesis_claims",
 	"deep_research_claim_evidence_links",
+	"deep_research_citation_audit_verdicts",
 	"conversation_task_states",
 	"task_state_evidence_links",
 	"task_checkpoints",
+	"semantic_embeddings",
+	"memory_events",
 	"memory_projects",
 	"memory_project_task_links",
 	"memory_reset_generations",
@@ -76,7 +84,17 @@ const requiredExistingTables = [
 	"announcement_campaign_user_states",
 	"announcement_campaign_events",
 	"import_jobs",
+	"admin_config",
 	"providers",
+	"provider_models",
+	"message_analytics",
+	"analytics_conversations",
+	"usage_events",
+	"chat_generated_files",
+	"file_production_jobs",
+	"file_production_job_attempts",
+	"file_production_job_files",
+	"personality_profiles",
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [

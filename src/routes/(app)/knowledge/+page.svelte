@@ -97,7 +97,9 @@ function getKnowledgeTabFromUrl(url: URL): KnowledgeTab {
 		searchParams.has("dir") ||
 		searchParams.has("page") ||
 		searchParams.has("pageSize");
-	return requestedTab === "documents" || hasDocumentQuery ? "documents" : "memory";
+	return requestedTab === "documents" || hasDocumentQuery
+		? "documents"
+		: "memory";
 }
 
 function syncSearchParam(
@@ -133,7 +135,11 @@ function syncDocumentUrlState(
 		return;
 	}
 
-	syncSearchParam(searchParams, "tab", params.tab === "documents" ? "documents" : null);
+	syncSearchParam(
+		searchParams,
+		"tab",
+		params.tab === "documents" ? "documents" : null,
+	);
 	syncSearchParam(searchParams, "q", params.query.trim() || null);
 	syncSearchParam(
 		searchParams,
@@ -280,9 +286,7 @@ async function handleBulkDocumentDelete(
 	return false;
 }
 
-async function deleteDocumentById(
-	documentId: string,
-): Promise<{
+async function deleteDocumentById(documentId: string): Promise<{
 	deletedDocument: KnowledgeDocumentItem | null;
 	failureName: string | null;
 }> {
@@ -402,7 +406,9 @@ async function loadMemoryProfile(force = false) {
 	}
 }
 
-async function handleMemoryAction(payload: MemoryProfileActionPayload): Promise<boolean> {
+async function handleMemoryAction(
+	payload: MemoryProfileActionPayload,
+): Promise<boolean> {
 	const key = `${payload.itemId}:${payload.action}`;
 	if (pendingMemoryActionKey === key) return false;
 
@@ -418,10 +424,12 @@ async function handleMemoryAction(payload: MemoryProfileActionPayload): Promise<
 			(error.status === 409 || error.code === "stale_projection")
 		) {
 			await loadMemoryProfile(true);
-			manageError = "Memory profile was updated. Review the latest profile and try again.";
+			manageError =
+				"Memory profile was updated. Review the latest profile and try again.";
 			return false;
 		}
-		manageError = error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
+		manageError =
+			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
 		return false;
 	} finally {
 		pendingMemoryActionKey = null;

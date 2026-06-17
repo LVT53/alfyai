@@ -10,11 +10,11 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import type { AdminManagedUserSummary, UserRole } from "$lib/types";
+import { modelPreferenceStorageForSystemDefault } from "./model-preferences";
 import {
 	DETACHED_SHARED_CONTENT_OWNER_ID,
 	eraseUserAccountAsAdmin,
 } from "./privacy-controls";
-import { modelPreferenceStorageForSystemDefault } from "./model-preferences";
 
 export interface CreateManagedUserInput {
 	email: string;
@@ -52,7 +52,7 @@ async function countAdmins(): Promise<number> {
 
 async function ensureNotLastAdmin(userId: string): Promise<void> {
 	const user = await getUserById(userId);
-	if (!user || user.role !== "admin") return;
+	if (user?.role !== "admin") return;
 
 	const adminCount = await countAdmins();
 	if (adminCount <= 1) {

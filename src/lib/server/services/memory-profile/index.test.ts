@@ -822,7 +822,9 @@ describe("memory profile foundation", () => {
 	});
 
 	it("formats active memory profile context item-by-item with omitted counts", async () => {
-		const { formatActiveMemoryProfileContextForPrompt } = await import("./index");
+		const { formatActiveMemoryProfileContextForPrompt } = await import(
+			"./index"
+		);
 		const context = {
 			resetGeneration: 0,
 			projectionRevision: 1,
@@ -873,7 +875,9 @@ describe("memory profile foundation", () => {
 	});
 
 	it("skips one oversized newest active memory instead of blanking later compact memories", async () => {
-		const { formatActiveMemoryProfileContextForPrompt } = await import("./index");
+		const { formatActiveMemoryProfileContextForPrompt } = await import(
+			"./index"
+		);
 		const context = {
 			resetGeneration: 0,
 			projectionRevision: 1,
@@ -904,8 +908,12 @@ describe("memory profile foundation", () => {
 		});
 
 		expect(formatted.content).toContain("COMPACT_OLDER_MEMORY_SHOULD_SURVIVE.");
-		expect(formatted.content).not.toContain("HUGE_NEWEST_MEMORY_SHOULD_NOT_SURVIVE");
-		expect(formatted.content).toContain("Omitted active memory profile items: 1.");
+		expect(formatted.content).not.toContain(
+			"HUGE_NEWEST_MEMORY_SHOULD_NOT_SURVIVE",
+		);
+		expect(formatted.content).toContain(
+			"Omitted active memory profile items: 1.",
+		);
 		expect(formatted).toMatchObject({
 			includedCount: 1,
 			omittedCount: 1,
@@ -1622,7 +1630,9 @@ describe("memory profile foundation", () => {
 				}),
 			}),
 		]);
-		expect(JSON.stringify(telemetry)).not.toContain("concise technical answers");
+		expect(JSON.stringify(telemetry)).not.toContain(
+			"concise technical answers",
+		);
 		expect(JSON.stringify(telemetry)).not.toContain("acoustic guitars");
 	});
 

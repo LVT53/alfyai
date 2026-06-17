@@ -24,16 +24,16 @@ const mockClearMemoryAndKnowledge = clearMemoryAndKnowledge as ReturnType<
 >;
 type ClearMemoryRouteEvent = Parameters<typeof POST>[0];
 
-function makeEvent(body: unknown, user = { id: "user-1" }): ClearMemoryRouteEvent {
+function makeEvent(
+	body: unknown,
+	user = { id: "user-1" },
+): ClearMemoryRouteEvent {
 	return {
-		request: new Request(
-			"http://localhost/api/settings/account/clear-memory",
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(body),
-			},
-		),
+		request: new Request("http://localhost/api/settings/account/clear-memory", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		}),
 		locals: { user },
 		cookies: {
 			delete: vi.fn(),
@@ -61,7 +61,10 @@ describe("POST /api/settings/account/clear-memory", () => {
 		const data = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(data).toEqual({ success: true, deletedArtifactIds: ["knowledge-1"] });
+		expect(data).toEqual({
+			success: true,
+			deletedArtifactIds: ["knowledge-1"],
+		});
 		expect(mockClearMemoryAndKnowledge).toHaveBeenCalledWith(
 			"user-1",
 			"secret",

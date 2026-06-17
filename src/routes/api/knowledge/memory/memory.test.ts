@@ -23,10 +23,10 @@ vi.mock("$lib/server/services/memory", () => ({
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
-	MemoryProfileActionError,
 	applyKnowledgeMemoryAction,
 	getKnowledgeMemory,
 	getKnowledgeMemoryOverview,
+	MemoryProfileActionError,
 } from "$lib/server/services/memory";
 import { GET as GET_MEMORY } from "./+server";
 import { POST as POST_MEMORY_ACTION } from "./actions/+server";

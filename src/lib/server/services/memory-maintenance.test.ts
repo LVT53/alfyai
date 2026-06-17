@@ -65,12 +65,11 @@ const mockState = vi.hoisted(() => {
 		deleted: 0,
 		errors: 0,
 	}));
-	let mockListLegacyPersonaMemoryCandidates = vi.fn<LegacyMemoryCandidateLoader>(
-		async () => ({
+	let mockListLegacyPersonaMemoryCandidates =
+		vi.fn<LegacyMemoryCandidateLoader>(async () => ({
 			totalAvailable: 0,
 			candidates: [],
-		}),
-	);
+		}));
 	let mockDeleteOrphanChatFiles = vi.fn(async () => 0);
 	let mockFindOrphanFiles = vi.fn(
 		async () =>
@@ -456,7 +455,9 @@ describe("memory-maintenance", () => {
 			await runUserMemoryMaintenance("user-1", "manual");
 
 			const lastReconcileCall =
-				mockState.mockReconcileMemoryProfileDirtyLedgerForUser.mock.calls.at(-1);
+				mockState.mockReconcileMemoryProfileDirtyLedgerForUser.mock.calls.at(
+					-1,
+				);
 			expect(lastReconcileCall).toBeDefined();
 			if (!lastReconcileCall) {
 				throw new Error("Expected dirty-ledger reconciliation to run.");

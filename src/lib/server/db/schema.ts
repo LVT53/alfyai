@@ -1474,10 +1474,9 @@ export const memoryReviewResolutions = sqliteTable(
 		reviewUniqueIdx: uniqueIndex("memory_review_resolutions_review_idx").on(
 			table.reviewItemId,
 		),
-		userGenerationIdx: index("memory_review_resolutions_user_generation_idx").on(
-			table.userId,
-			table.resetGeneration,
-		),
+		userGenerationIdx: index(
+			"memory_review_resolutions_user_generation_idx",
+		).on(table.userId, table.resetGeneration),
 	}),
 );
 

@@ -232,7 +232,10 @@ describe("runNormalChatDeliberationPasses", () => {
 					"Compare options with evidence about budget data. Cost may dominate.",
 				missingContextQuestions: [],
 				evidenceNeeds: [
-					{ need: "Source-backed support for citation-sensitive claims", status: "still_needed" },
+					{
+						need: "Source-backed support for citation-sensitive claims",
+						status: "still_needed",
+					},
 				],
 				relevantFindings: ["Cost may dominate the comparison."],
 				edgeCases: ["Preserve alternatives and switching criteria."],

@@ -278,7 +278,7 @@ export async function getMutableSkillNoteArtifact(params: {
 		)
 		.get();
 
-	if (!row || row.type !== "skill_note") return null;
+	if (row?.type !== "skill_note") return null;
 	return mapArtifact(row);
 }
 
@@ -343,7 +343,7 @@ export async function refreshSkillNoteArtifact(
 		.from(artifacts)
 		.where(eq(artifacts.id, artifactId))
 		.get();
-	if (!row || row.type !== "skill_note") return;
+	if (row?.type !== "skill_note") return;
 	const artifact = mapArtifact(row);
 	await syncArtifactChunks({
 		artifactId: artifact.id,

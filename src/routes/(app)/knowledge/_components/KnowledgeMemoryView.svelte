@@ -57,7 +57,7 @@ let {
 	onRetryLoadMemory: () => void | Promise<void>;
 	onAction: (
 		payload: MemoryProfileActionPayload,
-	) => boolean | void | Promise<boolean | void>;
+	) => boolean | undefined | Promise<boolean | undefined>;
 } = $props();
 
 let selectedItem = $state<MemoryProfilePublicItem | null>(null);
@@ -76,7 +76,9 @@ let activeItemCount = $derived.by(() =>
 		0,
 	),
 );
-let reviewItems = $derived(profile?.review.items ?? profile?.review.visibleItems ?? []);
+let reviewItems = $derived(
+	profile?.review.items ?? profile?.review.visibleItems ?? [],
+);
 let visibleReviewItems = $derived(
 	profile?.review.visibleItems ?? reviewItems.slice(0, 3),
 );
@@ -88,8 +90,13 @@ let reviewOverflowCount = $derived(
 	),
 );
 
-function getCategoryItems(category: MemoryProfileCategory): MemoryProfilePublicItem[] {
-	return profile?.categories.find((group) => group.category === category)?.items ?? [];
+function getCategoryItems(
+	category: MemoryProfileCategory,
+): MemoryProfilePublicItem[] {
+	return (
+		profile?.categories.find((group) => group.category === category)?.items ??
+		[]
+	);
 }
 
 function formatScope(scope: MemoryProfilePublicItem["scope"]): string | null {
@@ -99,11 +106,17 @@ function formatScope(scope: MemoryProfilePublicItem["scope"]): string | null {
 	return "Document";
 }
 
-function actionKey(itemId: string, action: MemoryProfileActionPayload["action"]): string {
+function actionKey(
+	itemId: string,
+	action: MemoryProfileActionPayload["action"],
+): string {
 	return `${itemId}:${action}`;
 }
 
-function submitAction(item: MemoryProfilePublicItem, action: "delete" | "suppress") {
+function submitAction(
+	item: MemoryProfilePublicItem,
+	action: "delete" | "suppress",
+) {
 	void onAction({
 		target: "profile_item",
 		action,

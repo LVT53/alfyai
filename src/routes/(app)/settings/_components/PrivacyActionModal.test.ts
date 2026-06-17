@@ -48,7 +48,9 @@ describe("PrivacyActionModal", () => {
 		);
 		expect(onDownloadArchive).toHaveBeenCalledOnce();
 
-		await fireEvent.click(screen.getByRole("button", { name: "Delete account" }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Delete account" }),
+		);
 		expect(onConfirm).toHaveBeenCalledOnce();
 	});
 });

@@ -57,7 +57,7 @@ function createControlModelProvider(params: {
 		provider: params.provider,
 		fetch: params.fetch,
 		includeUsage: true,
-		supportsStructuredOutputs: params.skipStructuredOutputs ? false : true,
+		supportsStructuredOutputs: !params.skipStructuredOutputs,
 		normalizeStreaming: false,
 	});
 }
@@ -92,7 +92,10 @@ function buildProviderOptions(params: {
 }
 
 function buildOutput(
-	options: Pick<JsonControlMessageOptions, "jsonSchema" | "skipStructuredOutputs">,
+	options: Pick<
+		JsonControlMessageOptions,
+		"jsonSchema" | "skipStructuredOutputs"
+	>,
 ) {
 	if (!options.jsonSchema || options.skipStructuredOutputs) {
 		return Output.json({

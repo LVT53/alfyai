@@ -1,6 +1,9 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
-import type { MemoryProfileActionPayload, MemoryProfilePublicItem } from "$lib/types";
+import type {
+	MemoryProfileActionPayload,
+	MemoryProfilePublicItem,
+} from "$lib/types";
 import { Check, Loader, Save, Trash2, X } from "@lucide/svelte";
 
 type OptionalItemDetail = MemoryProfilePublicItem & {
@@ -23,7 +26,7 @@ let {
 	onClose: () => void;
 	onAction: (
 		payload: MemoryProfileActionPayload,
-	) => boolean | void | Promise<boolean | void>;
+	) => boolean | undefined | Promise<boolean | undefined>;
 } = $props();
 
 let statement = $state("");
@@ -38,7 +41,9 @@ let isSaving = $derived(pendingActionKey === actionKey);
 let isDeleting = $derived(pendingActionKey === deleteKey);
 let isSuppressing = $derived(pendingActionKey === suppressKey);
 let trimmedStatement = $derived(statement.trim());
-let canSave = $derived(trimmedStatement.length > 0 && trimmedStatement !== item.statement);
+let canSave = $derived(
+	trimmedStatement.length > 0 && trimmedStatement !== item.statement,
+);
 let sourceChips = $derived(
 	(item.sourceChips ?? []).filter((chip) => chip.label || chip.value),
 );
@@ -123,7 +128,8 @@ function handleWindowKeydown(event: KeyboardEvent) {
 onMount(() => {
 	previousFocus = document.activeElement as HTMLElement | null;
 	setTimeout(() => {
-		const initialFocus = statementInputRef ?? getFocusableElements()[0] ?? dialogRef;
+		const initialFocus =
+			statementInputRef ?? getFocusableElements()[0] ?? dialogRef;
 		initialFocus?.focus();
 	}, 0);
 });

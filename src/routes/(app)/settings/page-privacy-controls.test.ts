@@ -6,9 +6,6 @@ import {
 	waitFor,
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelId } from "$lib/types";
-import type { PageData, PageProps } from "./$types";
-import SettingsPage from "./+page.svelte";
 import { goto } from "$app/navigation";
 import {
 	clearMemoryAndKnowledge,
@@ -17,6 +14,9 @@ import {
 	downloadAccountDataArchive,
 	saveBlobAsDownload,
 } from "$lib/client/api/settings";
+import type { ModelId } from "$lib/types";
+import SettingsPage from "./+page.svelte";
+import type { PageData, PageProps } from "./$types";
 
 vi.mock("$app/navigation", () => ({
 	goto: vi.fn(),
@@ -28,9 +28,9 @@ vi.mock("$lib/client/api/admin", () => ({
 }));
 
 vi.mock("$lib/client/api/settings", async () => {
-	const actual = await vi.importActual<typeof import("$lib/client/api/settings")>(
-		"$lib/client/api/settings",
-	);
+	const actual = await vi.importActual<
+		typeof import("$lib/client/api/settings")
+	>("$lib/client/api/settings");
 	return {
 		...actual,
 		clearMemoryAndKnowledge: vi.fn().mockResolvedValue(undefined),
@@ -44,8 +44,8 @@ vi.mock("$lib/client/api/settings", async () => {
 		fetchHonchoHealth: vi.fn().mockResolvedValue(null),
 		saveBlobAsDownload: vi.fn(),
 		updateUserPreferences: vi.fn().mockResolvedValue(undefined),
-		};
-	});
+	};
+});
 
 const pageData = {
 	userSettings: {
@@ -80,7 +80,11 @@ async function submitPrivacyAction(buttonName: string) {
 	await fireEvent.input(screen.getByLabelText("Password"), {
 		target: { value: "pw" },
 	});
-	await fireEvent.click(screen.getAllByRole("button", { name: buttonName }).at(-1)!);
+	const buttons = screen.getAllByRole("button", { name: buttonName });
+	const confirmButton = buttons.at(-1);
+	if (!confirmButton)
+		throw new Error(`Missing ${buttonName} confirmation button`);
+	await fireEvent.click(confirmButton);
 }
 
 describe("settings page privacy controls", () => {

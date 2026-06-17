@@ -215,7 +215,7 @@ function validateForkSourceSnapshot(params: {
 	const forkPointMessage =
 		forkPointIndex >= 0 ? params.sourceMessages[forkPointIndex] : null;
 
-	if (!forkPointMessage || forkPointMessage.role !== "assistant") {
+	if (forkPointMessage?.role !== "assistant") {
 		throw new ConversationForkError(
 			"invalid_source_message",
 			"Forks can only be created from a persisted assistant response",

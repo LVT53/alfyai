@@ -254,7 +254,9 @@ describe("SearchModal", () => {
 		).map((element) => element.textContent);
 		expect(highlightedTerms).toContain("Brand");
 		expect(highlightedTerms).toContain("brand");
-		expect(screen.getByText("Generated").closest(".search-highlight")).toBeNull();
+		expect(
+			screen.getByText("Generated").closest(".search-highlight"),
+		).toBeNull();
 
 		await fireEvent.click(screen.getByText("launch copy"));
 		expect(goto).toHaveBeenCalledWith(
@@ -362,9 +364,8 @@ describe("SearchModal", () => {
 	});
 
 	it("clears stale results when the modal closes before reopening", async () => {
-		let rendered: ReturnType<typeof render>;
 		const onClose = vi.fn();
-		rendered = render(SearchModal, {
+		const rendered = render(SearchModal, {
 			props: {
 				isOpen: true,
 				onClose,

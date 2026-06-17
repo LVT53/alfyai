@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import type { MemoryProfilePublicPayload } from "$lib/types";
 import KnowledgeMemoryView from "./KnowledgeMemoryView.svelte";
@@ -125,25 +131,39 @@ describe("KnowledgeMemoryView", () => {
 	it("renders four projection categories and limits Needs Review to three visible items", () => {
 		renderMemoryView();
 
-		expect(screen.getByRole("heading", { name: "About You" })).toBeInTheDocument();
-		expect(screen.getByRole("heading", { name: "Preferences" })).toBeInTheDocument();
+		expect(
+			screen.getByRole("heading", { name: "About You" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("heading", { name: "Preferences" }),
+		).toBeInTheDocument();
 		expect(
 			screen.getByRole("heading", { name: "Goals & Ongoing Work" }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("heading", { name: "Constraints & Boundaries" }),
 		).toBeInTheDocument();
-		expect(screen.getByText("Levi prefers concise memory behavior.")).toBeInTheDocument();
-		expect(screen.getByText("Levi likes compact, actionable UI.")).toBeInTheDocument();
+		expect(
+			screen.getByText("Levi prefers concise memory behavior."),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("Levi likes compact, actionable UI."),
+		).toBeInTheDocument();
 		expect(screen.queryByText("Global")).not.toBeInTheDocument();
 		expect(screen.getByText("Project")).toBeInTheDocument();
 
-		const review = screen.getByRole("heading", { name: "Needs Review" }).closest("div");
+		const review = screen
+			.getByRole("heading", { name: "Needs Review" })
+			.closest("div");
 		expect(review).not.toBeNull();
 		expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
 		expect(screen.getByText("Prefer icon actions.")).toBeInTheDocument();
-		expect(screen.getByText("Avoid diagnostic memory tables.")).toBeInTheDocument();
-		expect(screen.queryByText("Open documents from search.")).not.toBeInTheDocument();
+		expect(
+			screen.getByText("Avoid diagnostic memory tables."),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("Open documents from search."),
+		).not.toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "+1 more" })).toBeInTheDocument();
 		expect(
 			screen.queryByText(/Focus Continuity|task memory|raw/i),
@@ -154,11 +174,16 @@ describe("KnowledgeMemoryView", () => {
 		const onAction = vi.fn();
 		renderMemoryView({ onAction });
 
-		const aboutSection = screen.getByRole("heading", { name: "About You" }).closest("section");
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
 		expect(aboutSection).not.toBeNull();
-		const deleteButton = within(aboutSection as HTMLElement).getByRole("button", {
-			name: "Delete memory item",
-		});
+		const deleteButton = within(aboutSection as HTMLElement).getByRole(
+			"button",
+			{
+				name: "Delete memory item",
+			},
+		);
 		await fireEvent.click(deleteButton);
 
 		expect(onAction).toHaveBeenCalledWith({
@@ -185,7 +210,9 @@ describe("KnowledgeMemoryView", () => {
 
 		await fireEvent.click(screen.getByRole("button", { name: "+1 more" }));
 		const dialog = screen.getByRole("dialog", { name: "Needs Review" });
-		expect(within(dialog).getByText("Open documents from search.")).toBeInTheDocument();
+		expect(
+			within(dialog).getByText("Open documents from search."),
+		).toBeInTheDocument();
 
 		await fireEvent.click(
 			within(dialog).getAllByRole("button", {
@@ -211,7 +238,8 @@ describe("KnowledgeMemoryView", () => {
 							id: "review-generic",
 							subject: "Document-related memory request",
 							question: "Should this be remembered?",
-							reason: "The intake gate could not safely admit this automatically.",
+							reason:
+								"The intake gate could not safely admit this automatically.",
 							canAccept: false,
 						},
 					],
@@ -220,7 +248,8 @@ describe("KnowledgeMemoryView", () => {
 							id: "review-generic",
 							subject: "Document-related memory request",
 							question: "Should this be remembered?",
-							reason: "The intake gate could not safely admit this automatically.",
+							reason:
+								"The intake gate could not safely admit this automatically.",
 							canAccept: false,
 						},
 					],
@@ -230,8 +259,12 @@ describe("KnowledgeMemoryView", () => {
 			},
 		});
 
-		expect(screen.queryByRole("button", { name: "Remember this item" })).not.toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Edit review item" })).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Remember this item" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Edit review item" }),
+		).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "Do not remember review item" }),
 		).toBeInTheDocument();
@@ -241,7 +274,9 @@ describe("KnowledgeMemoryView", () => {
 		const onAction = vi.fn().mockResolvedValue(false);
 		renderMemoryView({ onAction });
 
-		const aboutSection = screen.getByRole("heading", { name: "About You" }).closest("section");
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
 		expect(aboutSection).not.toBeNull();
 		await fireEvent.click(
 			within(aboutSection as HTMLElement).getByRole("button", {
@@ -252,9 +287,13 @@ describe("KnowledgeMemoryView", () => {
 		const dialog = screen.getByRole("dialog", { name: "Memory item" });
 		const textarea = within(dialog).getByLabelText("Statement");
 		await fireEvent.input(textarea, {
-			target: { value: "Levi prefers concise memory behavior with stale-safe edits." },
+			target: {
+				value: "Levi prefers concise memory behavior with stale-safe edits.",
+			},
 		});
-		await fireEvent.click(within(dialog).getByRole("button", { name: "Save memory item" }));
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Save memory item" }),
+		);
 
 		expect(onAction).toHaveBeenCalledWith({
 			action: "edit",
@@ -262,7 +301,9 @@ describe("KnowledgeMemoryView", () => {
 			statement: "Levi prefers concise memory behavior with stale-safe edits.",
 			expectedProjectionRevision: 7,
 		});
-		expect(screen.getByRole("dialog", { name: "Memory item" })).toBeInTheDocument();
+		expect(
+			screen.getByRole("dialog", { name: "Memory item" }),
+		).toBeInTheDocument();
 	});
 
 	it("closes review overflow before opening a review edit dialog", async () => {
@@ -276,8 +317,12 @@ describe("KnowledgeMemoryView", () => {
 			})[0],
 		);
 
-		expect(screen.queryByRole("dialog", { name: "Needs Review" })).not.toBeInTheDocument();
-		expect(screen.getByRole("dialog", { name: "Edit review item" })).toBeInTheDocument();
+		expect(
+			screen.queryByRole("dialog", { name: "Needs Review" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("dialog", { name: "Edit review item" }),
+		).toBeInTheDocument();
 	});
 
 	it("focuses, traps, closes, and restores focus for the review overflow dialog", async () => {
@@ -303,7 +348,9 @@ describe("KnowledgeMemoryView", () => {
 
 		await fireEvent.keyDown(window, { key: "Escape" });
 		await waitFor(() => {
-			expect(screen.queryByRole("dialog", { name: "Needs Review" })).not.toBeInTheDocument();
+			expect(
+				screen.queryByRole("dialog", { name: "Needs Review" }),
+			).not.toBeInTheDocument();
 		});
 		expect(opener).toHaveFocus();
 	});
@@ -311,7 +358,9 @@ describe("KnowledgeMemoryView", () => {
 	it("focuses review edits and restores focus after Escape", async () => {
 		renderMemoryView();
 
-		const editButton = screen.getAllByRole("button", { name: "Edit review item" })[0];
+		const editButton = screen.getAllByRole("button", {
+			name: "Edit review item",
+		})[0];
 		editButton.focus();
 		await fireEvent.click(editButton);
 
@@ -323,7 +372,9 @@ describe("KnowledgeMemoryView", () => {
 
 		await fireEvent.keyDown(window, { key: "Escape" });
 		await waitFor(() => {
-			expect(screen.queryByRole("dialog", { name: "Edit review item" })).not.toBeInTheDocument();
+			expect(
+				screen.queryByRole("dialog", { name: "Edit review item" }),
+			).not.toBeInTheDocument();
 		});
 		expect(editButton).toHaveFocus();
 	});
@@ -331,7 +382,9 @@ describe("KnowledgeMemoryView", () => {
 	it("keeps focus inside the memory item dialog and restores it on Escape", async () => {
 		renderMemoryView();
 
-		const aboutSection = screen.getByRole("heading", { name: "About You" }).closest("section");
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
 		expect(aboutSection).not.toBeNull();
 		const editButton = within(aboutSection as HTMLElement).getByRole("button", {
 			name: "Edit memory item",
@@ -356,7 +409,9 @@ describe("KnowledgeMemoryView", () => {
 
 		await fireEvent.keyDown(window, { key: "Escape" });
 		await waitFor(() => {
-			expect(screen.queryByRole("dialog", { name: "Memory item" })).not.toBeInTheDocument();
+			expect(
+				screen.queryByRole("dialog", { name: "Memory item" }),
+			).not.toBeInTheDocument();
 		});
 		expect(editButton).toHaveFocus();
 	});

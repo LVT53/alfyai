@@ -49,7 +49,10 @@ export const POST: RequestHandler = async (event) => {
 			deletedArtifactIds: result.deletedArtifactIds,
 		});
 	} catch (error) {
-		console.error("[CLEAR_MEMORY] Failed to clear memory and knowledge:", error);
+		console.error(
+			"[CLEAR_MEMORY] Failed to clear memory and knowledge:",
+			error,
+		);
 		return json(
 			{ error: "Failed to clear memory and knowledge" },
 			{ status: 500 },

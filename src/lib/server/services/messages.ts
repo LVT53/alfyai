@@ -693,7 +693,7 @@ export async function getAssistantMessageSkillDraft(params: {
 		)
 		.limit(1);
 
-	if (!row || row.role !== "assistant") return null;
+	if (row?.role !== "assistant") return null;
 	const metadata = parseMetadata(row.metadataJson);
 	const drafts = Array.isArray(metadata?.skillDrafts)
 		? metadata.skillDrafts
@@ -717,7 +717,7 @@ export async function isAssistantMessageForkCopy(params: {
 		)
 		.limit(1);
 
-	if (!row || row.role !== "assistant") return false;
+	if (row?.role !== "assistant") return false;
 	return Boolean(parseMetadata(row.metadataJson)?.forkCopy);
 }
 
@@ -741,7 +741,7 @@ export async function updateAssistantMessageSkillDraftStatus(params: {
 		)
 		.limit(1);
 
-	if (!row || row.role !== "assistant") return null;
+	if (row?.role !== "assistant") return null;
 
 	const metadata = parseMetadata(row.metadataJson) ?? {};
 	const drafts = Array.isArray(metadata.skillDrafts)

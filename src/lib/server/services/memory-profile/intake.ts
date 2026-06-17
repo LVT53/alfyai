@@ -7,10 +7,10 @@ import {
 	getMemoryProfileReadModel,
 	isCurrentMemoryResetGeneration,
 	isStaleMemoryResetGenerationError,
-	markMemoryDirty,
-	recordMemoryReworkTelemetry,
 	type MemoryProfileCategory,
 	type MemoryProfileScope,
+	markMemoryDirty,
+	recordMemoryReworkTelemetry,
 } from "./index";
 
 type JsonRecord = Record<string, unknown>;

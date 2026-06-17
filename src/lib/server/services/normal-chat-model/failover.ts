@@ -291,7 +291,7 @@ async function resolveProviderModelFallbackTargetModelId(
 	const fallback = await getProviderModel(fallbackProviderModelId).catch(
 		() => null,
 	);
-	if (!fallback || fallback.enabled !== true) return null;
+	if (fallback?.enabled !== true) return null;
 
 	const fallbackProvider = await getProviderWithSecrets(
 		fallback.providerId,
@@ -341,7 +341,7 @@ async function resolveGlobalFallbackTargetModelId(params: {
 			const targetRow = await getProviderModel(parsed.providerModelId).catch(
 				() => null,
 			);
-			if (!targetRow || targetRow.enabled !== true) return null;
+			if (targetRow?.enabled !== true) return null;
 
 			if (sourceProviderModel) {
 				const compatibility = canUseProviderModelFallback(

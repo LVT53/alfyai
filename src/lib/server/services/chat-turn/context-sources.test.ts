@@ -36,8 +36,9 @@ describe("buildContextSourcesState", () => {
 						title: "Linked plan.pdf",
 						state: "active",
 						sourceType: "document",
-						artifactType: expect.any(String),
 						reason: "linked_context_source",
+						compacted: false,
+						reduced: false,
 						metadata: {
 							promptArtifactId: "prompt-display-1",
 							documentOrigin: "uploaded",

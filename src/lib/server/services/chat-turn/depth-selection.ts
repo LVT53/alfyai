@@ -91,17 +91,43 @@ const MAX_DEFAULT_SIGNALS: DepthSelectionSignals = {
 };
 
 const EXTENDED_KEYWORDS = [
-	"compare", "analyze", "multi-step", "planning", "debug",
-	"evaluate", "tradeoff", "trade-off", "trade off",
-	"review", "assess", "refactor", "optimize", "migrate",
-	"design", "architecture", "strategy", "recommend",
+	"compare",
+	"analyze",
+	"multi-step",
+	"planning",
+	"debug",
+	"evaluate",
+	"tradeoff",
+	"trade-off",
+	"trade off",
+	"review",
+	"assess",
+	"refactor",
+	"optimize",
+	"migrate",
+	"design",
+	"architecture",
+	"strategy",
+	"recommend",
 ];
 
 const MAXIMUM_KEYWORDS = [
-	"comprehensive", "exhaustive", "edge case", "edge cases",
-	"failure mode", "failure modes", "critical", "production",
-	"regulatory", "compliance", "security", "audit",
-	"prove", "verify", "validate", "guarantee",
+	"comprehensive",
+	"exhaustive",
+	"edge case",
+	"edge cases",
+	"failure mode",
+	"failure modes",
+	"critical",
+	"production",
+	"regulatory",
+	"compliance",
+	"security",
+	"audit",
+	"prove",
+	"verify",
+	"validate",
+	"guarantee",
 ];
 
 type DepthSelectionTurnInput = {
@@ -253,8 +279,12 @@ export async function resolveReasoningDepthSelection(
 				},
 			);
 
-			const rawResponse = result.rawResponse as Record<string, unknown> | undefined;
-			const choices = Array.isArray(rawResponse?.choices) ? rawResponse.choices : [];
+			const rawResponse = result.rawResponse as
+				| Record<string, unknown>
+				| undefined;
+			const choices = Array.isArray(rawResponse?.choices)
+				? rawResponse.choices
+				: [];
 			const firstChoice = choices[0] as Record<string, unknown> | undefined;
 			finishReason =
 				typeof firstChoice?.finish_reason === "string"
@@ -262,8 +292,9 @@ export async function resolveReasoningDepthSelection(
 					: undefined;
 
 			const usage = rawResponse?.usage as Record<string, unknown> | undefined;
-			const completionTokensDetails =
-				usage?.completion_tokens_details as Record<string, unknown> | undefined;
+			const completionTokensDetails = usage?.completion_tokens_details as
+				| Record<string, unknown>
+				| undefined;
 			hadReasoningTokens =
 				typeof completionTokensDetails?.reasoning_tokens === "number" &&
 				completionTokensDetails.reasoning_tokens > 0;
@@ -437,7 +468,7 @@ async function listRecentDepthConversationMessages(params: {
 		);
 }
 
-function buildFallbackDepthMetadata(
+function _buildFallbackDepthMetadata(
 	request: DepthSelectionTurnInput,
 	reason: string,
 	classifierModel?: ResolvedDepthClassifierModel,
@@ -607,11 +638,7 @@ function resolveAppliedProfile(
 
 	const normalized = raw.toLowerCase().trim();
 	const mapped = mapProfileValue(normalized);
-	if (
-		mapped === "standard" ||
-		mapped === "extended" ||
-		mapped === "maximum"
-	) {
+	if (mapped === "standard" || mapped === "extended" || mapped === "maximum") {
 		return mapped;
 	}
 	return null;
@@ -719,9 +746,7 @@ function logClassifierResult(entry: ClassifierLogEntry): void {
 	console.log(`[DEPTH_CLASSIFIER] ${parts.join(" ")}`);
 }
 
-function runDeterministicKeywordClassifier(
-	normalizedMessage: string,
-): {
+function runDeterministicKeywordClassifier(normalizedMessage: string): {
 	appliedProfile: DepthAppliedProfile;
 	signals: DepthSelectionSignals;
 } {
@@ -742,7 +767,7 @@ function runDeterministicKeywordClassifier(
 	let groundingNeed: DepthSelectionSignals["groundingNeed"] = "none";
 	let contextBreadth: DepthSelectionSignals["contextBreadth"] = "normal";
 	let outputRoom: DepthSelectionSignals["outputRoom"] = "normal";
-	let toolUse: DepthSelectionSignals["toolUse"] = "normal";
+	const toolUse: DepthSelectionSignals["toolUse"] = "normal";
 
 	if (maximumScore >= 2 || (maximumScore >= 1 && wordCount > 200)) {
 		appliedProfile = "maximum";

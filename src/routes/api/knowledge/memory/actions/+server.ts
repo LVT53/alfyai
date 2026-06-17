@@ -1,8 +1,8 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
-	MemoryProfileActionError,
 	applyKnowledgeMemoryAction,
+	MemoryProfileActionError,
 } from "$lib/server/services/memory";
 import type { RequestHandler } from "./$types";
 

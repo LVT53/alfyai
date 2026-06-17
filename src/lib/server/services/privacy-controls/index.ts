@@ -5,8 +5,8 @@ import { db } from "$lib/server/db";
 import {
 	adminConfig,
 	analyticsConversations,
-	announcementCampaigns,
 	announcementCampaignSnapshots,
+	announcementCampaigns,
 	artifacts,
 	campaignAssets,
 	conversationContextStatus,
@@ -20,27 +20,27 @@ import {
 	memoryProjectionState,
 	memoryProjects,
 	memoryProjectTaskLinks,
-	memoryReworkTelemetry,
 	memoryReviewItems,
+	memoryReworkTelemetry,
 	semanticEmbeddings,
 	taskCheckpoints,
 	taskStateEvidenceLinks,
-	userSkillDefinitions,
 	usageEvents,
+	userSkillDefinitions,
 	users,
 } from "$lib/server/db/schema";
 import { verifyPassword } from "../auth";
+import { requestActiveChatStreamsStopForUser } from "../chat-turn/active-streams";
+import { purgeUserData } from "../cleanup/user-cleanup";
+import { cancelRunningResearchTasks } from "../deep-research/tasks";
 import {
 	deleteAllHonchoStateForUser,
 	rotateHonchoPeerIdentity,
 } from "../honcho";
 import { hardDeleteArtifactsForUser } from "../knowledge";
-import { clearMessageEvidenceForUser } from "../messages";
-import { purgeUserData } from "../cleanup/user-cleanup";
-import { requestActiveChatStreamsStopForUser } from "../chat-turn/active-streams";
-import { cancelRunningResearchTasks } from "../deep-research/tasks";
 import { quiesceUserMemoryMaintenance } from "../memory-maintenance";
 import { advanceMemoryResetGeneration } from "../memory-profile";
+import { clearMessageEvidenceForUser } from "../messages";
 
 export const DETACHED_SHARED_CONTENT_OWNER_ID = "detached-shared-content-owner";
 export const DETACHED_SHARED_CONTENT_OWNER_EMAIL =
@@ -126,7 +126,9 @@ export async function eraseUserAccount(
 	return { status: "deleted" };
 }
 
-export async function eraseUserAccountAsAdmin(userId: string): Promise<boolean> {
+export async function eraseUserAccountAsAdmin(
+	userId: string,
+): Promise<boolean> {
 	const [user] = await db.select().from(users).where(eq(users.id, userId));
 	if (!user) {
 		return false;
@@ -296,7 +298,9 @@ async function cancelActiveDeepResearchForUser(userId: string): Promise<void> {
 	);
 }
 
-async function cancelActiveFileProductionForUser(userId: string): Promise<void> {
+async function cancelActiveFileProductionForUser(
+	userId: string,
+): Promise<void> {
 	const now = new Date();
 	const activeJobs = await db
 		.select({
@@ -360,10 +364,7 @@ async function clearMemoryAndKnowledgeForUser(
 		.select({ id: artifacts.id })
 		.from(artifacts)
 		.where(
-			and(
-				eq(artifacts.userId, userId),
-				ne(artifacts.type, "generated_output"),
-			),
+			and(eq(artifacts.userId, userId), ne(artifacts.type, "generated_output")),
 		);
 	const deletedArtifactIds = artifactRows.map((row) => row.id).sort();
 

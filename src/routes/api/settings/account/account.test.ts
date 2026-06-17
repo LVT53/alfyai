@@ -16,8 +16,8 @@ vi.mock("$lib/server/services/privacy-controls", () => ({
 import { requireAuth } from "$lib/server/auth/hooks";
 import { clearSessionCookie } from "$lib/server/services/auth";
 import {
-	eraseUserAccount,
 	clearWorkspaceData,
+	eraseUserAccount,
 } from "$lib/server/services/privacy-controls";
 import { DELETE, POST } from "./+server";
 
@@ -63,10 +63,7 @@ describe("DELETE /api/settings/account", () => {
 
 		expect(response.status).toBe(200);
 		expect(data.success).toBe(true);
-		expect(mockEraseUserAccount).toHaveBeenCalledWith(
-			"user-1",
-			"secret",
-		);
+		expect(mockEraseUserAccount).toHaveBeenCalledWith("user-1", "secret");
 		expect(mockClearSessionCookie).toHaveBeenCalledWith(event.cookies);
 	});
 
@@ -110,10 +107,7 @@ describe("POST /api/settings/account", () => {
 
 		expect(response.status).toBe(200);
 		expect(data.success).toBe(true);
-		expect(mockClearWorkspaceData).toHaveBeenCalledWith(
-			"user-1",
-			"secret",
-		);
+		expect(mockClearWorkspaceData).toHaveBeenCalledWith("user-1", "secret");
 		expect(mockClearSessionCookie).toHaveBeenCalledWith(event.cookies);
 	});
 

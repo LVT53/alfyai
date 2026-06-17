@@ -85,7 +85,7 @@ describe("memory intake gate", () => {
 		expect(item).toBeDefined();
 		const detail = await getMemoryProfileItemDetail({
 			userId: "user-1",
-			itemId: item!.id,
+			itemId: item?.id,
 		});
 		expect(detail?.sourceChips).toEqual([
 			expect.objectContaining({
@@ -113,7 +113,7 @@ describe("memory intake gate", () => {
 				eventName: "memory_intake_admitted",
 				category: "preferences",
 				status: "admitted",
-				subjectId: item!.id,
+				subjectId: item?.id,
 				metadata: expect.objectContaining({
 					conversationId: "conv-1",
 					userMessageId: "user-message-1",

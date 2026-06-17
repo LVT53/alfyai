@@ -3,10 +3,10 @@
 	"version": "0.1.0",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build && node scripts/patch-body-size-limit.mjs",
+		"build": "NODE_OPTIONS=--no-deprecation vite build && node scripts/patch-body-size-limit.mjs",
 		"start": "npm run check:migrations && npm run db:prepare && node build",
 		"preview": "vite preview",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check": "NODE_OPTIONS=--no-deprecation svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:migrations": "tsx scripts/verify-migrations.ts",
 		"lint": "biome check .",
 		"test": "vitest run",

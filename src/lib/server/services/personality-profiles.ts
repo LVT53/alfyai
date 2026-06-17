@@ -81,7 +81,7 @@ export async function deletePersonalityProfile(id: string): Promise<boolean> {
 		.select()
 		.from(personalityProfiles)
 		.where(eq(personalityProfiles.id, id));
-	if (!profile || Boolean(profile.isBuiltIn)) return false;
+	if (!profile || profile.isBuiltIn) return false;
 	await db.delete(personalityProfiles).where(eq(personalityProfiles.id, id));
 	return true;
 }

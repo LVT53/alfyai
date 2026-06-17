@@ -110,7 +110,9 @@ describe("SettingsProfileTab model preference", () => {
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Clear workspace data" }),
 		);
-		await fireEvent.click(screen.getByRole("button", { name: "Delete account" }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Delete account" }),
+		);
 
 		expect(onOpenDownloadArchive).toHaveBeenCalledOnce();
 		expect(onOpenClearMemory).toHaveBeenCalledOnce();

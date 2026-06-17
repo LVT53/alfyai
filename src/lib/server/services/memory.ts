@@ -7,12 +7,12 @@ import type {
 import {
 	applyMemoryReviewItemWithRevision,
 	getMemoryProfileReadModel,
-	markMemoryDirty,
-	recordMemoryReworkTelemetry,
 	type MemoryProfileCardItem,
 	type MemoryProfileCategory,
 	type MemoryProfileItemStatus,
 	type MemoryProfileReadModel,
+	markMemoryDirty,
+	recordMemoryReworkTelemetry,
 	updateMemoryProfileItemWithRevision,
 } from "./memory-profile";
 
@@ -96,7 +96,8 @@ function parseMemoryProfileAction(payload: unknown): ParsedMemoryProfileAction {
 			400,
 		);
 	}
-	const target = record.target === "review_item" ? "review_item" : "profile_item";
+	const target =
+		record.target === "review_item" ? "review_item" : "profile_item";
 	if (
 		!isNonEmptyString(itemId) ||
 		!isExpectedProjectionRevision(expectedProjectionRevision)
@@ -215,7 +216,10 @@ async function recordProfileActionTelemetry(params: {
 
 async function recordReviewActionTelemetry(params: {
 	userId: string;
-	action: Extract<ParsedMemoryProfileAction["action"], "accept" | "edit" | "suppress">;
+	action: Extract<
+		ParsedMemoryProfileAction["action"],
+		"accept" | "edit" | "suppress"
+	>;
 	reviewItemId: string;
 	itemId?: string | null;
 	category?: MemoryProfileCategory | null;
@@ -257,12 +261,14 @@ function buildCompatibilitySummary(
 		personaCount: activeItemCount,
 		taskCount: 0,
 		focusContinuityCount: 0,
-		activeConstraintCount: profile.categories.find(
-			(group) => group.category === "constraints_boundaries",
-		)?.items.length ?? 0,
-		currentProjectContextCount: profile.categories.find(
-			(group) => group.category === "goals_ongoing_work",
-		)?.items.length ?? 0,
+		activeConstraintCount:
+			profile.categories.find(
+				(group) => group.category === "constraints_boundaries",
+			)?.items.length ?? 0,
+		currentProjectContextCount:
+			profile.categories.find(
+				(group) => group.category === "goals_ongoing_work",
+			)?.items.length ?? 0,
 		overview: null,
 		overviewBullets: [],
 		overviewSource: null,

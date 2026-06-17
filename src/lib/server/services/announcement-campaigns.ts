@@ -646,7 +646,7 @@ function validateSlideCropAssets(
 ) {
 	if (slide.desktopCropAssetId) {
 		const asset = assetMap.get(slide.desktopCropAssetId);
-		if (!asset || asset.assetKind !== "crop" || asset.variant !== "desktop") {
+		if (asset?.assetKind !== "crop" || asset.variant !== "desktop") {
 			addFieldError(
 				errors,
 				`${prefix}.desktopCropAssetId`,
@@ -656,7 +656,7 @@ function validateSlideCropAssets(
 	}
 	if (slide.mobileCropAssetId) {
 		const asset = assetMap.get(slide.mobileCropAssetId);
-		if (!asset || asset.assetKind !== "crop" || asset.variant !== "mobile") {
+		if (asset?.assetKind !== "crop" || asset.variant !== "mobile") {
 			addFieldError(
 				errors,
 				`${prefix}.mobileCropAssetId`,

@@ -208,9 +208,7 @@ export async function runNormalChatDeliberationPasses(
 				workspaceReport = reduceWorkspaceReport(workspaceReport, result.brief);
 			}
 			if (result.constrained) {
-				constraints.push(
-					`deliberation_pass_${passPlan[i].pass}_constrained`,
-				);
+				constraints.push(`deliberation_pass_${passPlan[i].pass}_constrained`);
 			}
 			if (result.degraded) {
 				constraints.push(`deliberation_pass_${passPlan[i].pass}_degraded`);

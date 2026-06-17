@@ -30,16 +30,18 @@ let {
 } = $props();
 
 const isDestructive = $derived(action !== "archive");
+const translationStore = t;
 
-function actionTitle(translate: typeof $t): string {
+function actionTitle(translate: typeof $translationStore): string {
 	if (action === "archive") return translate("settings_downloadMyData");
 	if (action === "clearMemory")
 		return translate("settings_clearMemoryAndKnowledge");
-	if (action === "clearWorkspace") return translate("settings_clearWorkspaceData");
+	if (action === "clearWorkspace")
+		return translate("settings_clearWorkspaceData");
 	return translate("settings_deleteAccountPrivacy");
 }
 
-function actionDescription(translate: typeof $t): string {
+function actionDescription(translate: typeof $translationStore): string {
 	if (action === "archive") return translate("settings_archiveDescription");
 	if (action === "clearMemory")
 		return translate("settings_clearMemoryDescription");
@@ -48,7 +50,7 @@ function actionDescription(translate: typeof $t): string {
 	return translate("settings_deleteAccountPrivacyDescription");
 }
 
-function loadingLabel(translate: typeof $t): string {
+function loadingLabel(translate: typeof $translationStore): string {
 	if (action === "archive") return translate("settings_downloadingData");
 	if (action === "deleteAccount") return translate("settings_deleting");
 	return translate("settings_clearing");
@@ -70,8 +72,8 @@ function handleKeydown(event: KeyboardEvent) {
 <svelte:window onkeydown={handleKeydown} />
 
 <DialogShell
-	title={actionTitle($t)}
-	description={actionDescription($t)}
+	title={actionTitle($translationStore)}
+	description={actionDescription($translationStore)}
 	onClose={onCancel}
 	maxWidthClass="max-w-[32rem]"
 	zIndexClass="z-[9999]"
@@ -85,26 +87,26 @@ function handleKeydown(event: KeyboardEvent) {
 		>
 			{#if isDestructive}
 				<p class="mb-4 rounded-md border border-border bg-surface-page p-3 text-sm text-text-secondary">
-					{$t('settings_downloadBeforeDestructive')}
+					{$translationStore('settings_downloadBeforeDestructive')}
 				</p>
 			{/if}
 			<p class="mb-1 text-sm font-medium text-text-primary">
-				{$t('settings_enterPasswordConfirm')}
+				{$translationStore('settings_enterPasswordConfirm')}
 			</p>
 			<PasswordField
 				id="privacy-action-password"
-				label={$t('settings_passwordLabel')}
+				label={$translationStore('settings_passwordLabel')}
 				bind:value={password}
 				bind:shown={showPassword}
 				autocomplete="current-password"
-				placeholder={$t('admin.yourPassword')}
+				placeholder={$translationStore('admin.yourPassword')}
 			/>
 			{#if error}
 				<p class="mb-3 mt-3 text-sm text-danger">{error}</p>
 			{/if}
 			<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
 				<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onCancel}>
-					{$t('common.cancel')}
+					{$translationStore('common.cancel')}
 				</button>
 				{#if isDestructive}
 					<button
@@ -112,7 +114,7 @@ function handleKeydown(event: KeyboardEvent) {
 						class="btn-secondary w-full whitespace-nowrap sm:w-auto"
 						onclick={() => onDownloadArchive?.()}
 					>
-						{$t('settings_downloadMyData')}
+						{$translationStore('settings_downloadMyData')}
 					</button>
 				{/if}
 				<button
@@ -120,7 +122,9 @@ function handleKeydown(event: KeyboardEvent) {
 					class={action === 'deleteAccount' ? 'btn-danger w-full whitespace-nowrap sm:w-auto' : 'btn-secondary w-full whitespace-nowrap sm:w-auto'}
 					disabled={loading || !password}
 				>
-					{loading ? loadingLabel($t) : actionTitle($t)}
+					{loading
+						? loadingLabel($translationStore)
+						: actionTitle($translationStore)}
 				</button>
 			</div>
 		</form>

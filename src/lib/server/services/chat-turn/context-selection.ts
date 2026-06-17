@@ -55,10 +55,10 @@ import {
 } from "../knowledge";
 import { listConversationLinkedContextSources } from "../linked-context-sources";
 import {
+	type ActiveMemoryProfileContext,
 	formatActiveMemoryProfileContextForPrompt,
 	getActiveMemoryProfileContext,
 	recordMemoryReworkTelemetry,
-	type ActiveMemoryProfileContext,
 } from "../memory-profile";
 import { getConversationProjectLabel } from "../projects";
 import {

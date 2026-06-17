@@ -133,7 +133,7 @@ export async function resolveSkillPromptContext(params: {
 	}
 
 	const session = await getActiveSkillSession(userId, turn.conversationId);
-	if (!session || session.status !== "active") return null;
+	if (session?.status !== "active") return null;
 
 	return skillSessionToPromptContext({
 		session,

@@ -142,7 +142,8 @@ describe("hooks.server.ts", () => {
 						values: [
 							{
 								type: "Error",
-								value: "'Redirect' captured as exception with keys: location, status",
+								value:
+									"'Redirect' captured as exception with keys: location, status",
 							},
 						],
 					},

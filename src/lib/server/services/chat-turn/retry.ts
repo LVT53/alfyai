@@ -115,14 +115,13 @@ export async function prepareRetryChatTurn(params: {
 	);
 	const assistantMsg =
 		assistantIndex >= 0 ? conversationMessages[assistantIndex] : null;
-	if (!assistantMsg || assistantMsg.role !== "assistant") {
+	if (assistantMsg?.role !== "assistant") {
 		return jsonError("Assistant message not found", 404);
 	}
 
 	const precedingUserMsg = conversationMessages[assistantIndex - 1];
 	if (
-		!precedingUserMsg ||
-		precedingUserMsg.role !== "user" ||
+		precedingUserMsg?.role !== "user" ||
 		precedingUserMsg.id !== userMessageId
 	) {
 		return jsonError(

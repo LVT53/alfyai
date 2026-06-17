@@ -3,9 +3,9 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import { clearSessionCookie } from "$lib/server/services/auth";
 import {
 	type AccountErasureResult,
-	eraseUserAccount,
 	type ClearWorkspaceDataResult,
 	clearWorkspaceData,
+	eraseUserAccount,
 } from "$lib/server/services/privacy-controls";
 import type { RequestHandler } from "./$types";
 

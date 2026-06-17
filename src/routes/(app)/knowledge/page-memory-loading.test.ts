@@ -1,10 +1,14 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import type { Component } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-	MemoryProfilePublicPayload,
-} from "$lib/types";
 import { ApiError } from "$lib/client/api/http";
+import type { MemoryProfilePublicPayload } from "$lib/types";
 
 const mockPageState = vi.hoisted(() => ({
 	page: {
@@ -43,9 +47,9 @@ vi.mock("$lib/client/api/knowledge", async () => {
 });
 
 import {
-	fetchMemoryProfile,
 	fetchKnowledgeMemory,
 	fetchKnowledgeMemoryOverview,
+	fetchMemoryProfile,
 	submitKnowledgeMemoryAction,
 } from "$lib/client/api/knowledge";
 import Page from "./+page.svelte";
@@ -150,7 +154,9 @@ describe("Knowledge page memory loading", () => {
 		mockPageState.page.url = new URL("http://localhost/knowledge");
 		vi.mocked(fetchMemoryProfile).mockResolvedValue(memoryProfilePayload);
 		vi.mocked(fetchKnowledgeMemory).mockResolvedValue(memoryProfilePayload);
-		vi.mocked(submitKnowledgeMemoryAction).mockResolvedValue(memoryProfilePayload);
+		vi.mocked(submitKnowledgeMemoryAction).mockResolvedValue(
+			memoryProfilePayload,
+		);
 		Object.defineProperty(document, "hidden", {
 			configurable: true,
 			value: false,
@@ -199,17 +205,23 @@ describe("Knowledge page memory loading", () => {
 			"aria-selected",
 			"true",
 		);
-		expect(screen.getByRole("tabpanel", { name: "Documents" })).toBeInTheDocument();
+		expect(
+			screen.getByRole("tabpanel", { name: "Documents" }),
+		).toBeInTheDocument();
 	});
 
 	it("submits review item accept actions from the Needs Review controls", async () => {
 		render(KnowledgePage, { data: pageData() });
 
 		await waitFor(() => {
-			expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
+			expect(
+				screen.getByText("Remember Hungarian labels."),
+			).toBeInTheDocument();
 		});
 
-		await fireEvent.click(screen.getByRole("button", { name: "Remember this item" }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Remember this item" }),
+		);
 
 		expect(submitKnowledgeMemoryAction).toHaveBeenCalledWith({
 			target: "review_item",
@@ -229,9 +241,13 @@ describe("Knowledge page memory loading", () => {
 		render(KnowledgePage, { data: pageData() });
 
 		await waitFor(() => {
-			expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
+			expect(
+				screen.getByText("Remember Hungarian labels."),
+			).toBeInTheDocument();
 		});
-		await fireEvent.click(screen.getByRole("button", { name: "Remember this item" }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Remember this item" }),
+		);
 
 		await waitFor(() => {
 			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
@@ -253,24 +269,35 @@ describe("Knowledge page memory loading", () => {
 		render(KnowledgePage, { data: pageData() });
 
 		await waitFor(() => {
-			expect(screen.getByText("Levi prefers concise memory behavior.")).toBeInTheDocument();
+			expect(
+				screen.getByText("Levi prefers concise memory behavior."),
+			).toBeInTheDocument();
 		});
-		await fireEvent.click(screen.getByRole("button", { name: "Edit memory item" }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Edit memory item" }),
+		);
 
 		const dialog = screen.getByRole("dialog", { name: "Memory item" });
 		const textarea = within(dialog).getByLabelText("Statement");
 		await fireEvent.input(textarea, {
-			target: { value: "Levi prefers concise memory behavior with local stale feedback." },
+			target: {
+				value:
+					"Levi prefers concise memory behavior with local stale feedback.",
+			},
 		});
-		await fireEvent.click(within(dialog).getByRole("button", { name: "Save memory item" }));
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Save memory item" }),
+		);
 
 		await waitFor(() => {
 			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
 		});
-		expect(screen.getByRole("dialog", { name: "Memory item" })).toBeInTheDocument();
 		expect(
-			within(dialog).getByRole("alert"),
-		).toHaveTextContent("Memory profile was updated. Review the latest profile and try again.");
+			screen.getByRole("dialog", { name: "Memory item" }),
+		).toBeInTheDocument();
+		expect(within(dialog).getByRole("alert")).toHaveTextContent(
+			"Memory profile was updated. Review the latest profile and try again.",
+		);
 	});
 
 	it("shows stale projection feedback inside an open review edit dialog", async () => {
@@ -283,23 +310,31 @@ describe("Knowledge page memory loading", () => {
 		render(KnowledgePage, { data: pageData() });
 
 		await waitFor(() => {
-			expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
+			expect(
+				screen.getByText("Remember Hungarian labels."),
+			).toBeInTheDocument();
 		});
-		await fireEvent.click(screen.getByRole("button", { name: "Edit review item" }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Edit review item" }),
+		);
 
 		const dialog = screen.getByRole("dialog", { name: "Edit review item" });
 		const textarea = within(dialog).getByLabelText("Statement");
 		await fireEvent.input(textarea, {
 			target: { value: "Remember Hungarian labels in UI settings." },
 		});
-		await fireEvent.click(within(dialog).getByRole("button", { name: "Save review item" }));
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Save review item" }),
+		);
 
 		await waitFor(() => {
 			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
 		});
-		expect(screen.getByRole("dialog", { name: "Edit review item" })).toBeInTheDocument();
 		expect(
-			within(dialog).getByRole("alert"),
-		).toHaveTextContent("Memory profile was updated. Review the latest profile and try again.");
+			screen.getByRole("dialog", { name: "Edit review item" }),
+		).toBeInTheDocument();
+		expect(within(dialog).getByRole("alert")).toHaveTextContent(
+			"Memory profile was updated. Review the latest profile and try again.",
+		);
 	});
 });

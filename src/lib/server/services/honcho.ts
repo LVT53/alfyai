@@ -542,7 +542,10 @@ async function getScopeConclusionsPage(
 	}>;
 }> {
 	try {
-		const page = await scope.list({ page: options.page ?? 1, size: options.size });
+		const page = await scope.list({
+			page: options.page ?? 1,
+			size: options.size,
+		});
 		return {
 			total: page.total,
 			items: page.items.map((item) => ({
@@ -795,9 +798,7 @@ export async function listLegacyPersonaMemoryCandidates(
 	const startPage = Math.max(1, Math.floor(options.startPage ?? 1));
 	const maxPages = Math.max(1, Math.min(10, Math.floor(options.maxPages ?? 4)));
 	const excludeSourceIds = new Set(
-		(options.excludeSourceIds ?? [])
-			.map((id) => id.trim())
-			.filter(Boolean),
+		(options.excludeSourceIds ?? []).map((id) => id.trim()).filter(Boolean),
 	);
 	const pageSize = limit;
 	const [userPeer, assistantPeer] = await Promise.all([
@@ -806,13 +807,17 @@ export async function listLegacyPersonaMemoryCandidates(
 	]);
 	const assistantAboutUserScope = assistantPeer.conclusionsOf(userPeer);
 	const [selfPage, assistantAboutUserPage] = await Promise.all([
-		collectLegacyPersonaMemoryCandidatesFromScope(userPeer.conclusions, "self", {
-			limit,
-			pageSize,
-			excludeSourceIds,
-			startPage,
-			maxPages,
-		}),
+		collectLegacyPersonaMemoryCandidatesFromScope(
+			userPeer.conclusions,
+			"self",
+			{
+				limit,
+				pageSize,
+				excludeSourceIds,
+				startPage,
+				maxPages,
+			},
+		),
 		collectLegacyPersonaMemoryCandidatesFromScope(
 			assistantAboutUserScope,
 			"assistant_about_user",

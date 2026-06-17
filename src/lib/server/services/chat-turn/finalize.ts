@@ -9,9 +9,7 @@ import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
-import {
-	mirrorWorkCapsuleConclusion,
-} from "$lib/server/services/honcho";
+import { mirrorWorkCapsuleConclusion } from "$lib/server/services/honcho";
 import {
 	attachArtifactsToMessage,
 	createGeneratedOutputArtifact,
@@ -909,7 +907,8 @@ export async function runPostTurnTasks(
 			userId: params.userId,
 			conversationId: params.conversationId,
 			userMessage: params.userMessage,
-			assistantMessage: params.assistantMirrorContent ?? params.assistantResponse,
+			assistantMessage:
+				params.assistantMirrorContent ?? params.assistantResponse,
 			userMessageId: params.userMessageId ?? null,
 			assistantMessageId: params.assistantMessageId ?? null,
 			startedResetGeneration: params.startedResetGeneration,

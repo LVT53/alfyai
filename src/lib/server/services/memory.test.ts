@@ -160,7 +160,6 @@ describe("knowledge memory service", () => {
 		expect(payloadJson).not.toContain("honcho");
 	});
 
-
 	it("deletes a profile item with projection revision protection and queues reconciliation", async () => {
 		const afterDeleteProfile = {
 			...projectionProfile,
@@ -341,7 +340,8 @@ describe("knowledge memory service", () => {
 							items: [
 								{
 									id: "item-review-1",
-									itemKey: "memory-profile-item:v1:preferences:global:item-review-1",
+									itemKey:
+										"memory-profile-item:v1:preferences:global:item-review-1",
 									category: "preferences",
 									statement: "Remember Hungarian labels.",
 									scope: { type: "global" },
@@ -421,7 +421,8 @@ describe("knowledge memory service", () => {
 							items: [
 								{
 									id: "item-review-1",
-									itemKey: "memory-profile-item:v1:preferences:global:item-review-1",
+									itemKey:
+										"memory-profile-item:v1:preferences:global:item-review-1",
 									category: "preferences",
 									statement: "Prefers Hungarian UI labels.",
 									scope: { type: "global" },

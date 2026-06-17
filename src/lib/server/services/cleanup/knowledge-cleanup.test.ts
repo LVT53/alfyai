@@ -7,6 +7,7 @@ const {
 	mockGetArtifactOwnershipScope,
 	mockBuildArtifactVisibilityCondition,
 	mockHardDeleteArtifactsForUser,
+	mockAdvanceMemoryResetGeneration,
 	mockTransaction,
 	mockSelect,
 } = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ const {
 	mockGetArtifactOwnershipScope: vi.fn(),
 	mockBuildArtifactVisibilityCondition: vi.fn(),
 	mockHardDeleteArtifactsForUser: vi.fn(),
+	mockAdvanceMemoryResetGeneration: vi.fn(),
 	mockTransaction: vi.fn(),
 	mockSelect: vi.fn(),
 }));
@@ -43,11 +45,23 @@ vi.mock("$lib/server/db/schema", () => ({
 	memoryEvents: {
 		userId: { name: "memoryEventsUserId" },
 	},
+	memoryProjectionState: {
+		userId: { name: "memoryProjectionStateUserId" },
+	},
 	memoryProjects: {
 		userId: { name: "memoryProjectsUserId" },
 	},
 	memoryProjectTaskLinks: {
 		userId: { name: "memoryProjectTaskLinksUserId" },
+	},
+	memoryDirtyLedger: {
+		userId: { name: "memoryDirtyLedgerUserId" },
+	},
+	memoryReviewItems: {
+		userId: { name: "memoryReviewItemsUserId" },
+	},
+	memoryReworkTelemetry: {
+		userId: { name: "memoryReworkTelemetryUserId" },
 	},
 	semanticEmbeddings: {
 		userId: { name: "semanticEmbeddingsUserId" },
@@ -82,11 +96,16 @@ vi.mock("../knowledge", () => ({
 	hardDeleteArtifactsForUser: mockHardDeleteArtifactsForUser,
 }));
 
+vi.mock("../memory-profile", () => ({
+	advanceMemoryResetGeneration: mockAdvanceMemoryResetGeneration,
+}));
+
 describe("resetKnowledgeBaseState", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockDeleteAllHonchoStateForUser.mockResolvedValue(undefined);
 		mockRotateHonchoPeerIdentity.mockResolvedValue(2);
+		mockAdvanceMemoryResetGeneration.mockResolvedValue(1);
 		mockClearMessageEvidenceForUser.mockResolvedValue(undefined);
 		mockGetArtifactOwnershipScope.mockResolvedValue({
 			conversationIds: new Set(),
@@ -121,6 +140,7 @@ describe("resetKnowledgeBaseState", () => {
 		const result = await resetKnowledgeBaseState("user-1");
 
 		expect(result.deletedArtifactIds).toEqual(["artifact-1"]);
+		expect(mockAdvanceMemoryResetGeneration).toHaveBeenCalledWith("user-1");
 		expect(mockDeleteAllHonchoStateForUser).toHaveBeenCalledWith("user-1");
 		expect(mockRotateHonchoPeerIdentity).toHaveBeenCalledWith("user-1");
 		expect(mockHardDeleteArtifactsForUser).toHaveBeenCalledWith("user-1", [

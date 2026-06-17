@@ -219,7 +219,7 @@ export function parseSkillControlEnvelopePayloads(
 
 	for (const payload of payloads) {
 		const parsed = parseJsonRecord(payload);
-		if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.operations)) {
+		if (parsed?.version !== 1 || !Array.isArray(parsed.operations)) {
 			malformedEnvelopeCount += 1;
 			continue;
 		}
