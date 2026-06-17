@@ -32,7 +32,24 @@ function getFileType(mimeType: string | null, filename: string): string {
 	const ext = (filename.split(".").pop() ?? "").toLowerCase();
 
 	// Image
-	if (mime.startsWith("image/") || ["png","jpg","jpeg","jfif","gif","bmp","tiff","tif","svg","webp","heic","heif","avif"].includes(ext)) {
+	if (
+		mime.startsWith("image/") ||
+		[
+			"png",
+			"jpg",
+			"jpeg",
+			"jfif",
+			"gif",
+			"bmp",
+			"tiff",
+			"tif",
+			"svg",
+			"webp",
+			"heic",
+			"heif",
+			"avif",
+		].includes(ext)
+	) {
 		return "image";
 	}
 	// PDF
@@ -40,23 +57,63 @@ function getFileType(mimeType: string | null, filename: string): string {
 		return "pdf";
 	}
 	// Spreadsheet
-	if (mime.includes("spreadsheet") || mime.includes("excel") || mime.includes("csv") || ["csv","xls","xlsx","ods"].includes(ext)) {
+	if (
+		mime.includes("spreadsheet") ||
+		mime.includes("excel") ||
+		mime.includes("csv") ||
+		["csv", "xls", "xlsx", "ods"].includes(ext)
+	) {
 		return "xlsx";
 	}
 	// Presentation
-	if (mime.includes("presentation") || ["ppt","pptx","odp"].includes(ext)) {
+	if (mime.includes("presentation") || ["ppt", "pptx", "odp"].includes(ext)) {
 		return "pptx";
 	}
 	// Code
-	if (mime.includes("code") || mime.includes("javascript") || mime.includes("typescript") || mime.includes("json") || mime.includes("xml") || mime.includes("html") || mime.includes("css") || ["js","ts","tsx","jsx","json","xml","html","htm","css","py","java","go","rs","sh","rb"].includes(ext)) {
+	if (
+		mime.includes("code") ||
+		mime.includes("javascript") ||
+		mime.includes("typescript") ||
+		mime.includes("json") ||
+		mime.includes("xml") ||
+		mime.includes("html") ||
+		mime.includes("css") ||
+		[
+			"js",
+			"ts",
+			"tsx",
+			"jsx",
+			"json",
+			"xml",
+			"html",
+			"htm",
+			"css",
+			"py",
+			"java",
+			"go",
+			"rs",
+			"sh",
+			"rb",
+		].includes(ext)
+	) {
 		return "code";
 	}
 	// Archive
-	if (mime.includes("zip") || mime.includes("compressed") || mime.includes("archive") || ["zip","rar","7z","tar","gz"].includes(ext)) {
+	if (
+		mime.includes("zip") ||
+		mime.includes("compressed") ||
+		mime.includes("archive") ||
+		["zip", "rar", "7z", "tar", "gz"].includes(ext)
+	) {
 		return "archive";
 	}
 	// Text/Document
-	if (mime.includes("text/") || ["txt","md","rtf","log","odt","doc","docx"].includes(ext) || mime.includes("document") || mime.includes("word")) {
+	if (
+		mime.includes("text/") ||
+		["txt", "md", "rtf", "log", "odt", "doc", "docx"].includes(ext) ||
+		mime.includes("document") ||
+		mime.includes("word")
+	) {
 		return "text";
 	}
 	return "unsupported";

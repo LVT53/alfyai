@@ -1232,12 +1232,6 @@ function toggleForkDetails() {
 		outline: none;
 	}
 
-	.fork-origin-details {
-		flex: 1 1 auto;
-		min-width: 0;
-		max-width: 100%;
-	}
-
 	.fork-origin-summary {
 		display: inline-flex;
 		border: 0;

@@ -53,7 +53,7 @@ function formatChannel(channel: string): string {
 	if (channel === "retrieved") return "Retrieved";
 	if (channel === "web") return "Web";
 	if (channel === "memory") return "Memory";
-	return $t('messageEvidenceDetails.toolLabel');
+	return $t("messageEvidenceDetails.toolLabel");
 }
 
 async function toggle() {

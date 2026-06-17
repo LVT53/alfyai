@@ -317,13 +317,12 @@ $effect(() => {
 								{/if}
 							</div>
 							<div class="flex shrink-0 items-center gap-1">
-								{#if item.canAccept}
-									<button
-										type="button"
-										class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-										class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-										onclick={() => useReviewItem(item)}
-										disabled={pendingActionKey === actionKey(item.id, "accept")}
+									{#if item.canAccept}
+										<button
+											type="button"
+											class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+											onclick={() => useReviewItem(item)}
+											disabled={pendingActionKey === actionKey(item.id, "accept")}
 										aria-label="Remember this item"
 										title="Remember"
 									>
@@ -333,12 +332,11 @@ $effect(() => {
 											<Check size={17} strokeWidth={2.1} aria-hidden="true" />
 										{/if}
 									</button>
-								{/if}
-								<button
-									type="button"
-									class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-									class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-									onclick={() => openReviewEditor(item)}
+									{/if}
+									<button
+										type="button"
+										class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
+										onclick={() => openReviewEditor(item)}
 									aria-label="Edit review item"
 									title="Edit"
 								>
@@ -499,13 +497,12 @@ $effect(() => {
 								{/if}
 							</div>
 							<div class="flex shrink-0 items-center gap-1">
-								{#if item.canAccept}
-									<button
-										type="button"
-										class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-										class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-										onclick={() => useReviewItem(item)}
-										disabled={pendingActionKey === actionKey(item.id, "accept")}
+									{#if item.canAccept}
+										<button
+											type="button"
+											class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+											onclick={() => useReviewItem(item)}
+											disabled={pendingActionKey === actionKey(item.id, "accept")}
 										aria-label="Remember this item"
 										title="Remember"
 									>
@@ -515,12 +512,11 @@ $effect(() => {
 											<Check size={17} strokeWidth={2.1} aria-hidden="true" />
 										{/if}
 									</button>
-								{/if}
-								<button
-									type="button"
-									class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-									class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-									onclick={() => openReviewEditor(item)}
+									{/if}
+									<button
+										type="button"
+										class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
+										onclick={() => openReviewEditor(item)}
 									aria-label="Edit review item"
 									title="Edit"
 								>

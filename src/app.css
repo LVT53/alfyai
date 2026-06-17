@@ -280,9 +280,14 @@ body {
 		flex-wrap: wrap;
 		gap: var(--space-xs);
 		margin-top: var(--space-md);
-		border-left: 3px solid color-mix(in srgb, var(--accent) 78%, var(--text-primary) 22%);
+		border-left: 3px solid
+			color-mix(in srgb, var(--accent) 78%, var(--text-primary) 22%);
 		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--surface-elevated) 84%, var(--accent) 16%);
+		background: color-mix(
+			in srgb,
+			var(--surface-elevated) 84%,
+			var(--accent) 16%
+		);
 		padding: 0.42rem 0.6rem;
 		font-family: var(--font-sans);
 		font-size: var(--text-2xs);

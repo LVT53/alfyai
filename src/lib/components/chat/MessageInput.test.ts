@@ -323,7 +323,7 @@ describe("MessageInput", () => {
 		expect(queryByRole("listbox", { name: "Composer commands" })).toBeNull();
 	});
 
-	it("does not select a stale command when Enter follows Escape during tray close", async () => {
+	it("does not select or submit a stale command when Enter follows Escape during tray close", async () => {
 		const sendSpy = vi.fn();
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
 			composerCommandRegistryEnabled: true,
@@ -343,12 +343,7 @@ describe("MessageInput", () => {
 
 		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
 
-		expect(sendSpy).toHaveBeenCalledWith(
-			expect.objectContaining({
-				message: "/research",
-				deepResearchDepth: null,
-			}),
-		);
+		expect(sendSpy).not.toHaveBeenCalled();
 		expect(getByRole("button", { name: "Deep Research" })).not.toHaveClass(
 			"composer-icon--active",
 		);
@@ -1645,7 +1640,7 @@ describe("MessageInput", () => {
 		);
 	});
 
-	it("dispatches send event and clears input on enter key", async () => {
+	it("dispatches send event and clears input on Ctrl+Enter", async () => {
 		const mockSend = vi.fn();
 		const { getByPlaceholderText } = render(MessageInputWrapper, {
 			onSend: mockSend,
@@ -1655,7 +1650,7 @@ describe("MessageInput", () => {
 		) as HTMLTextAreaElement;
 
 		await fireEvent.input(input, { target: { value: "Hello World" } });
-		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		await fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
 
 		expect(mockSend).toHaveBeenCalledTimes(1);
 		expect(mockSend).toHaveBeenCalledWith("Hello World");
@@ -1882,7 +1877,7 @@ describe("MessageInput", () => {
 		expect(sendSpy).not.toHaveBeenCalled();
 	});
 
-	it("queues send intent on Enter while attachment processing is running and auto-sends when ready", async () => {
+	it("queues send intent on Ctrl+Enter while attachment processing is running and auto-sends when ready", async () => {
 		const sendSpy = vi.fn();
 		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
 		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
@@ -1917,7 +1912,7 @@ describe("MessageInput", () => {
 			expect(getByText("Uploading file...")).toBeDefined();
 		});
 
-		await fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+		await fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
 
 		await waitFor(() => {
 			expect(
@@ -2116,7 +2111,7 @@ describe("MessageInput", () => {
 			"Type a message...",
 		) as HTMLTextAreaElement;
 		await fireEvent.input(input, { target: { value: "Race me" } });
-		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		await fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
 
 		expect(sendSpy).toHaveBeenCalledWith({
 			message: "Race me",
@@ -2181,7 +2176,7 @@ describe("MessageInput", () => {
 		expect(ensureConversation).not.toHaveBeenCalled();
 	});
 
-	it("queues the next message on Enter while generation is in progress", async () => {
+	it("queues the next message on Ctrl+Enter while generation is in progress", async () => {
 		const queueSpy = vi.fn();
 		const { getByPlaceholderText, queryByTestId } = render(
 			MessageInputWrapper,
@@ -2195,7 +2190,7 @@ describe("MessageInput", () => {
 			"Type a message...",
 		) as HTMLTextAreaElement;
 		await fireEvent.input(input, { target: { value: "Queue this next" } });
-		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		await fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
 
 		expect(queueSpy).toHaveBeenCalledTimes(1);
 		expect(queueSpy).toHaveBeenCalledWith("Queue this next");
@@ -2216,7 +2211,7 @@ describe("MessageInput", () => {
 			"Type a message...",
 		) as HTMLTextAreaElement;
 		await fireEvent.input(input, { target: { value: "Keep this draft" } });
-		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		await fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
 
 		expect(queueSpy).not.toHaveBeenCalled();
 		expect(input.value).toBe("Keep this draft");

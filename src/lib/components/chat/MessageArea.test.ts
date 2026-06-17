@@ -330,30 +330,36 @@ describe("MessageArea", () => {
 			},
 		];
 
-		const { getByLabelText, getByTestId, getByText } = render(MessageArea, {
-			messages,
-			conversationId: "fork-conv",
-			isThinkingActive: false,
-			contextDebug: null,
-			forkOrigin: {
-				forkConversationId: "fork-conv",
-				sourceConversationId: "source-conv",
-				sourceAssistantMessageId: "source-assistant-1",
-				sourceConversationIdAvailable: true,
-				sourceAssistantMessageIdAvailable: true,
-				copiedForkPointMessageId: "fork-assistant-1",
-				sourceTitle: "Source title",
-				forkSequence: 1,
-				createdAt: Date.now(),
+		const { getByLabelText, getByRole, getByTestId, getByText } = render(
+			MessageArea,
+			{
+				messages,
+				conversationId: "fork-conv",
+				isThinkingActive: false,
+				contextDebug: null,
+				forkOrigin: {
+					forkConversationId: "fork-conv",
+					sourceConversationId: "source-conv",
+					sourceAssistantMessageId: "source-assistant-1",
+					sourceConversationIdAvailable: true,
+					sourceAssistantMessageIdAvailable: true,
+					copiedForkPointMessageId: "fork-assistant-1",
+					sourceTitle: "Source title",
+					forkSequence: 1,
+					createdAt: Date.now(),
+				},
 			},
-		});
+		);
 
 		expect(getByTestId("fork-boundary-marker")).toBe(
 			getByLabelText("Conversation fork boundary"),
 		);
 		expect(getByText("Fork starts here")).toBeInTheDocument();
-		expect(getByText("Copied from Source title")).toBeInTheDocument();
-		expect(getByText("Copied from Source title")).toHaveAttribute(
+		const sourceLink = getByRole("link", {
+			name: "Open source conversation Source title",
+		});
+		expect(sourceLink).toHaveTextContent("Copied from Source title");
+		expect(sourceLink).toHaveAttribute(
 			"href",
 			"/chat/source-conv#message-source-assistant-1",
 		);
@@ -523,13 +529,12 @@ describe("MessageArea", () => {
 
 		const boundaryMarker = getByTestId("fork-boundary-marker");
 		const originMarker = getByTestId("fork-origin-marker");
-		expect(boundaryMarker).toHaveClass("fork-lineage-marker");
-		expect(originMarker).toHaveClass("fork-lineage-marker");
+		expect(boundaryMarker).toHaveClass("fork-boundary-marker");
+		expect(originMarker).toHaveClass("fork-origin-marker");
 		expect(
-			boundaryMarker.querySelector(".fork-boundary-line"),
-		).not.toBeInTheDocument();
-		expect(boundaryMarker.querySelector(".fork-lineage-icon")).toBeTruthy();
-		expect(originMarker.querySelector(".fork-lineage-icon")).toBeTruthy();
+			boundaryMarker.querySelector(".fork-boundary-icon-chip"),
+		).toBeTruthy();
+		expect(originMarker.querySelector(".fork-origin-icon-chip")).toBeTruthy();
 	});
 
 	it("renders context compression markers as compact timeline events", () => {

@@ -12,7 +12,15 @@
  * ```
  */
 
-import { Archive, Code, File, FileText, Image, Presentation, Table } from "@lucide/svelte";
+import {
+	Archive,
+	Code,
+	File,
+	FileText,
+	Image,
+	Presentation,
+	Table,
+} from "@lucide/svelte";
 
 let { type = "unsupported", size = 16 }: { type?: string; size?: number } =
 	$props();
