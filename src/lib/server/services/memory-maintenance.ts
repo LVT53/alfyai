@@ -31,7 +31,10 @@ import {
 	recordStepSuccess,
 } from "./maintenance-metrics";
 import { pruneOldMemoryEvents } from "./memory-events";
-import { reconcileMemoryProfileDirtyLedgerForUser } from "./memory-profile";
+import {
+	curatePreservedLegacyMemoryForUser,
+	reconcileMemoryProfileDirtyLedgerForUser,
+} from "./memory-profile";
 import { backfillSemanticEmbeddingsForUser } from "./semantic-embedding-refresh";
 import { deleteSemanticEmbeddingsForSubjects } from "./semantic-embeddings";
 import {
@@ -401,6 +404,9 @@ async function performUserMemoryMaintenance(
 					maxPages: options.maxPages,
 				}),
 		}),
+	);
+	await safe("curate preserved legacy memory", () =>
+		curatePreservedLegacyMemoryForUser({ userId }),
 	);
 	await safe("prune old memory events", () => pruneOldMemoryEvents({ userId }));
 	await safe("delete orphan semantic embeddings", async () => {

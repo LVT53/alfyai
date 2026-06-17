@@ -1318,6 +1318,211 @@ describe("memory profile foundation", () => {
 		expect(JSON.stringify(telemetry)).not.toContain("acoustic guitars");
 	});
 
+	it("curates preserved legacy memories into active profile, review, or inactive rows", async () => {
+		const {
+			curatePreservedLegacyMemoryForUser,
+			getActiveMemoryProfileContext,
+			getMemoryProfileReadModel,
+			listMemoryReworkTelemetry,
+			migrateLegacyMemoryForUser,
+		} = await import("./index");
+		const { db } = await import("$lib/server/db");
+
+		await migrateLegacyMemoryForUser({
+			userId: "user-1",
+			batchSize: 5,
+			legacyBatch: {
+				totalAvailable: 3,
+				candidates: [
+					{
+						id: "legacy-curate-active",
+						content: "Might be interested in acoustic guitars.",
+						scope: "assistant_about_user",
+						sessionId: null,
+						createdAt: Date.now(),
+					},
+					{
+						id: "legacy-curate-review",
+						content: "Maybe prefers Hungarian labels.",
+						scope: "assistant_about_user",
+						sessionId: null,
+						createdAt: Date.now() - 1,
+					},
+					{
+						id: "legacy-curate-reject",
+						content: "User might ask about random one-off trivia.",
+						scope: "assistant_about_user",
+						sessionId: null,
+						createdAt: Date.now() - 2,
+					},
+				],
+			},
+		});
+
+		await expect(
+			curatePreservedLegacyMemoryForUser({
+				userId: "user-1",
+				curateBatch: async (items) => [
+					{
+						id: items[0].id,
+						decision: "activate",
+						category: "preferences",
+						statement: "Prefers acoustic guitar topics.",
+					},
+					{
+						id: items[1].id,
+						decision: "review",
+						category: "preferences",
+						statement: "Prefers Hungarian labels.",
+						reason: "Needs confirmation before becoming active.",
+					},
+					{
+						id: items[2].id,
+						decision: "reject",
+						reason: "Transient one-off topic.",
+					},
+				],
+			}),
+		).resolves.toEqual({
+			status: "completed",
+			inspected: 3,
+			active: 1,
+			review: 1,
+			rejected: 1,
+			remainingPreserved: 0,
+		});
+
+		await expect(
+			getActiveMemoryProfileContext({ userId: "user-1" }),
+		).resolves.toMatchObject({
+			items: [
+				expect.objectContaining({
+					category: "preferences",
+					statement: "Prefers acoustic guitar topics.",
+				}),
+			],
+		});
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.review).toMatchObject({
+			openCount: 1,
+			overflowCount: 0,
+			visibleItems: [
+				{
+					id: expect.any(String),
+					subject: "Legacy memory candidate",
+					question: "Should AlfyAI remember this?",
+					reason: "Needs confirmation before becoming active.",
+					canAccept: true,
+				},
+			],
+		});
+
+		const rows = await db
+			.select({
+				statement: schema.memoryProfileItems.statement,
+				status: schema.memoryProfileItems.status,
+			})
+			.from(schema.memoryProfileItems)
+			.orderBy(schema.memoryProfileItems.statement);
+		expect(rows).toEqual([
+			{
+				statement: "Maybe prefers Hungarian labels.",
+				status: "review_needed",
+			},
+			{
+				statement: "Prefers acoustic guitar topics.",
+				status: "active",
+			},
+			{
+				statement: "User might ask about random one-off trivia.",
+				status: "inactive",
+			},
+		]);
+
+		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
+		expect(telemetry.map((entry) => entry.eventName)).toEqual([
+			"legacy_migration_completed",
+			"legacy_curation_completed",
+		]);
+		expect(telemetry[1]).toEqual(
+			expect.objectContaining({
+				eventFamily: "maintenance",
+				eventName: "legacy_curation_completed",
+				reason: "legacy_migration",
+				status: "completed",
+				count: 3,
+				metadata: {
+					activeCount: 1,
+					inspectedCount: 3,
+					rejectedCount: 1,
+					remainingPreserved: 0,
+					requestedLimit: 25,
+					reviewCount: 1,
+				},
+			}),
+		);
+		expect(JSON.stringify(telemetry)).not.toContain("acoustic guitars");
+		expect(JSON.stringify(telemetry)).not.toContain("Hungarian labels");
+		expect(JSON.stringify(telemetry)).not.toContain("one-off trivia");
+	});
+
+	it("falls back to review when preserved legacy curation fails", async () => {
+		const {
+			curatePreservedLegacyMemoryForUser,
+			getMemoryProfileReadModel,
+			listMemoryReworkTelemetry,
+			migrateLegacyMemoryForUser,
+		} = await import("./index");
+
+		await migrateLegacyMemoryForUser({
+			userId: "user-1",
+			legacyBatch: {
+				totalAvailable: 1,
+				candidates: [
+					{
+						id: "legacy-curation-fallback",
+						content: "Might prefer careful migration reports.",
+						scope: "assistant_about_user",
+						sessionId: null,
+						createdAt: Date.now(),
+					},
+				],
+			},
+		});
+
+		await expect(
+			curatePreservedLegacyMemoryForUser({
+				userId: "user-1",
+				curateBatch: async () => {
+					throw new Error("raw memory text should not leak");
+				},
+			}),
+		).resolves.toEqual({
+			status: "completed",
+			inspected: 1,
+			active: 0,
+			review: 1,
+			rejected: 0,
+			remainingPreserved: 0,
+		});
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.review.openCount).toBe(1);
+		expect(profile.review.visibleItems[0]).toMatchObject({
+			subject: "Legacy memory candidate",
+			canAccept: true,
+		});
+
+		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
+		expect(telemetry.map((entry) => entry.eventName)).toEqual([
+			"legacy_migration_completed",
+			"legacy_curation_completed",
+		]);
+		expect(JSON.stringify(telemetry)).not.toContain("raw memory text");
+		expect(JSON.stringify(telemetry)).not.toContain("migration reports");
+	});
+
 	it("inspects every returned legacy candidate before callers advance the Honcho page cursor", async () => {
 		const { getActiveMemoryProfileContext, migrateLegacyMemoryForUser } =
 			await import("./index");
@@ -1571,6 +1776,15 @@ describe("memory profile foundation", () => {
 				userId: "user-1",
 				batchSize: 1,
 				loadLegacyMemoryCandidates,
+				curatePreservedLegacyMemory: async (items) => [
+					{
+						id: items[0].id,
+						decision: "review",
+						category: "preferences",
+						statement: "May be interested in acoustic guitars.",
+						reason: "Needs confirmation before becoming active.",
+					},
+				],
 			}),
 		).resolves.toEqual({
 			claimed: 1,
@@ -1606,7 +1820,7 @@ describe("memory profile foundation", () => {
 		expect(rows).toEqual([
 			{
 				statement: "Might be interested in acoustic guitars.",
-				status: "preserved_legacy",
+				status: "review_needed",
 			},
 			{
 				statement: "Prefers concise technical answers.",
@@ -1627,6 +1841,19 @@ describe("memory profile foundation", () => {
 					preservedCount: 1,
 					requestedLimit: 5,
 					totalAvailable: 1600,
+				}),
+			}),
+			expect.objectContaining({
+				eventFamily: "maintenance",
+				eventName: "legacy_curation_completed",
+				reason: "legacy_migration",
+				status: "completed",
+				count: 1,
+				metadata: expect.objectContaining({
+					activeCount: 0,
+					reviewCount: 1,
+					rejectedCount: 0,
+					remainingPreserved: 0,
 				}),
 			}),
 		]);
