@@ -373,6 +373,7 @@ async function toggle() {
 								loading="lazy"
 								decoding="async"
 								referrerpolicy="no-referrer"
+								onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
 							/>
 						{/if}
 					{/each}
@@ -392,6 +393,7 @@ async function toggle() {
 							loading="lazy"
 							decoding="async"
 							referrerpolicy="no-referrer"
+							onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
 						/>
 					{/if}
 					<a
@@ -614,8 +616,8 @@ async function toggle() {
 	}
 
 	.thinking-label {
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 14px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-muted);
 	}
@@ -676,8 +678,8 @@ async function toggle() {
 		align-items: center;
 		gap: var(--space-xs);
 		padding: 3px 0;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 12px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		color: var(--text-muted);
 		width: 100%;
 		min-width: 0;
@@ -746,7 +748,7 @@ async function toggle() {
 		border-radius: 50%;
 		border: 1px solid var(--surface-elevated);
 		background: var(--surface-elevated);
-		box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 55%, transparent);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-default) 55%, transparent);
 		flex: 0 0 auto;
 		object-fit: cover;
 	}
@@ -768,7 +770,7 @@ async function toggle() {
 		border-radius: 50%;
 		border: 1px solid var(--surface-elevated);
 		background: var(--surface-elevated);
-		box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 55%, transparent);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-default) 55%, transparent);
 		flex: 0 0 auto;
 		object-fit: cover;
 	}
@@ -843,8 +845,8 @@ animation: thinkContentFadeIn 300ms ease-out;
 
 	.thinking-text {
 		margin: 0;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 13px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		line-height: 1.5;
 		color: var(--text-muted);
 		white-space: pre-wrap;
@@ -856,8 +858,8 @@ animation: thinkContentFadeIn 300ms ease-out;
 		display: flex;
 		align-items: center;
 		gap: var(--space-xs);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 12px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		color: var(--text-muted);
 		margin: var(--space-xs) 0;
 		width: 100%;
@@ -868,8 +870,8 @@ animation: thinkContentFadeIn 300ms ease-out;
 		display: flex;
 		align-items: center;
 		gap: var(--space-xs);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 12px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		color: var(--text-muted);
 		margin: var(--space-xs) 0;
 		width: 100%;
@@ -890,7 +892,7 @@ animation: thinkContentFadeIn 300ms ease-out;
 	}
 
 	.status-step.status-deliberation {
-		font-size: 14px;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		animation: deliberationStatusFade 220ms var(--ease-out) both;
 	}

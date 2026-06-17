@@ -357,7 +357,7 @@ function formatGroupKind(kind: ContextSourceGroupKind): string {
 
 	.panel-title {
 		margin: 0;
-		font-size: 1.05rem;
+		font-size: var(--text-base);
 		font-weight: 600;
 		color: var(--text-primary);
 	}
@@ -389,13 +389,13 @@ function formatGroupKind(kind: ContextSourceGroupKind): string {
 	}
 
 	.summary-label {
-		font-size: 0.72rem;
+		font-size: var(--text-2xs);
 		color: var(--text-muted);
 	}
 
 	.summary-value {
 		margin-top: 0.2rem;
-		font-size: 0.9rem;
+		font-size: var(--text-md);
 		font-weight: 600;
 		color: var(--text-primary);
 	}
@@ -418,13 +418,13 @@ function formatGroupKind(kind: ContextSourceGroupKind): string {
 
 	.section-header h3 {
 		margin: 0;
-		font-size: 0.88rem;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--text-primary);
 	}
 
 	.section-header span {
-		font-size: 0.74rem;
+		font-size: var(--text-2xs);
 		color: var(--text-muted);
 	}
 
@@ -451,7 +451,7 @@ function formatGroupKind(kind: ContextSourceGroupKind): string {
 	}
 
 	.row-title {
-		font-size: 0.84rem;
+		font-size: var(--text-sm);
 		line-height: 1.35;
 		color: var(--text-primary);
 		word-break: break-word;
@@ -462,7 +462,7 @@ function formatGroupKind(kind: ContextSourceGroupKind): string {
 		flex-wrap: wrap;
 		gap: 0.35rem 0.45rem;
 		margin-top: 0.28rem;
-		font-size: 0.72rem;
+		font-size: var(--text-2xs);
 		line-height: 1.4;
 		color: var(--text-muted);
 	}
@@ -478,7 +478,7 @@ function formatGroupKind(kind: ContextSourceGroupKind): string {
 		border: 1px dashed color-mix(in srgb, var(--border-default) 72%, transparent 28%);
 		border-radius: 0.9rem;
 		padding: 0.8rem;
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		color: var(--text-muted);
 	}
 

@@ -138,7 +138,7 @@ function handleFormKeydown(event: KeyboardEvent) {
       <button
         type="submit"
         disabled={loading || !hydrated}
-        class="btn-primary mt-lg flex min-h-[44px] w-full cursor-pointer items-center justify-center disabled:cursor-not-allowed disabled:opacity-70"
+		class="btn-primary btn-lg mt-lg flex w-full cursor-pointer items-center justify-center disabled:cursor-not-allowed disabled:opacity-70"
       >
         {#if loading}
           <Loader class="animate-spin -ml-1 mr-2 h-4 w-4" size={16} strokeWidth={4} aria-hidden="true" />

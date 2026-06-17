@@ -44,6 +44,16 @@ Sentry.init({
 		process.env.SENTRY_TRACE_PROPAGATION_TARGETS,
 	),
 	beforeSend: filterSentryEvent,
+	// Disable OpenTelemetry setup and the import-in-the-middle ESM loader hook.
+	// @sentry/node v10 uses OpenTelemetry internally for performance tracing, which
+	// registers `import-in-the-middle/hook.mjs` as a global ESM loader hook via
+	// `module.register()`. This hook intercepts ALL ESM module resolution including
+	// SvelteKit's dynamic route chunk imports, and has known compatibility issues
+	// with Svelte's compiled export patterns (nodejs/import-in-the-middle#171).
+	// Disabling these hooks preserves error reporting, breadcrumbs, user context,
+	// sentryHandle(), and handleErrorWithSentry() — only performance tracing is lost.
+	skipOpenTelemetrySetup: true,
+	registerEsmLoaderHooks: false,
 });
 
 // Throttled lastSeenAt tracking: fire-and-forget writes with 5-minute TTL per user.

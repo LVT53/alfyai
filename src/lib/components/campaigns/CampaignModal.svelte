@@ -405,7 +405,7 @@ onDestroy(() => {
 				<div class="campaign-copy">
 					<div class="campaign-copy-header">
 						<h3 class="campaign-slide-title">{localized(currentSlide, 'title')}</h3>
-						<p class="text-sm leading-6 text-text-secondary">{localized(currentSlide, 'body')}</p>
+						<p class="text-sm leading-6 text-text-secondary whitespace-pre-line">{localized(currentSlide, 'body')}</p>
 					</div>
 					{#if localized(currentSlide, 'actionLabel')}
 						{#if isInternalAction}

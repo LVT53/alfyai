@@ -146,9 +146,9 @@ $effect(() => {
 	<div class="flex items-center justify-between">
 		<h3 class="text-sm font-medium text-text-primary">{$t('admin.models')}</h3>
 		<div class="flex items-center gap-2">
-			<button class="btn-small" onclick={openAddForm}>{$t('admin.addModel')}</button>
+			<button class="btn-sm" onclick={openAddForm}>{$t('admin.addModel')}</button>
 			{#if onClose}
-				<button class="btn-small" onclick={onClose}>{$t('common.close')}</button>
+				<button class="btn-sm" onclick={onClose}>{$t('common.close')}</button>
 			{/if}
 		</div>
 	</div>
@@ -202,11 +202,11 @@ $effect(() => {
 						<span class="text-xs text-text-muted">
 							{model.enabled ? $t('admin.enabled') : $t('admin.disabled')}
 						</span>
-						<button class="btn-small whitespace-nowrap" onclick={() => openEditForm(model)} title="Edit">
+						<button class="btn-sm whitespace-nowrap" onclick={() => openEditForm(model)} title="Edit">
 							<Pencil class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
 						</button>
 						<button
-							class="btn-small whitespace-nowrap text-danger"
+							class="btn-sm whitespace-nowrap text-danger"
 							disabled={deletingId === model.id}
 							onclick={() => handleDelete(model)}
 							title="Delete"

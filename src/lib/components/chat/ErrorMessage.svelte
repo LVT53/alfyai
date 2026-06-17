@@ -59,8 +59,8 @@ let {
 
 	.error-message {
 		margin: 0;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 14px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		line-height: 1.5;
 		color: var(--text-primary);
 	}
@@ -76,8 +76,8 @@ let {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 13px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		line-height: 1;
 		font-weight: 500;
 		min-height: 28px;

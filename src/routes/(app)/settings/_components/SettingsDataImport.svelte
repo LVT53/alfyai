@@ -12,7 +12,7 @@ let { projects = [] }: { projects?: Project[] } = $props();
 	<p class="text-sm text-text-secondary mb-3">
 		{$t('chatgptImport.settingsDescription')}
 	</p>
-	<button class="btn-secondary text-sm" onclick={() => (showImportModal = true)}>
+	<button class="btn-secondary" onclick={() => (showImportModal = true)}>
 		{$t('chatgptImport.settingsButton')}
 	</button>
 </section>

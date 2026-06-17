@@ -39,6 +39,7 @@ import {
 	RefreshCw,
 	Search,
 	ShieldAlert,
+	X,
 } from "@lucide/svelte";
 import type { TaskSteeringPayload } from "$lib/types";
 
@@ -547,9 +548,9 @@ function toggleForkDetails() {
 		data-testid={isUser ? 'user-message' : 'assistant-message'}
 		class="relative flex min-w-0 flex-col font-serif
 		{isUser && !isEditing
-			? 'max-w-[85%] min-w-0 rounded-md border border-border-subtle bg-surface-elevated p-sm text-text-primary shadow-sm md:max-w-[80%]'
+			? 'max-w-[85%] min-w-0 rounded-md bg-[var(--surface-message-user)] p-md text-text-primary md:max-w-[80%]'
 			: isUser
-				? 'w-full min-w-0 max-w-full rounded-md border border-border bg-surface-elevated p-md text-text-primary shadow-sm'
+				? 'w-full min-w-0 max-w-[85%] rounded-md bg-[var(--surface-message-user)] p-md text-text-primary md:max-w-[80%]'
 			: 'w-full min-w-0 max-w-full rounded-none bg-surface-page p-sm text-text-primary'}"
 	>
 		{#if !isUser && reasoningDepthIndicatorLabel && (hasThinking || hasVisibleThinkingSegments || hasToolCalls)}
@@ -628,15 +629,29 @@ function toggleForkDetails() {
 				<div class="flex flex-col gap-3">
 					<textarea
 						bind:this={editTextarea}
-						class="w-full resize-none rounded-md border border-border bg-surface-page px-4 py-3 font-serif text-[16px] leading-[1.6] text-text-primary focus:border-focus-ring focus:outline-none focus:ring-2 focus:ring-focus-ring"
+						class="w-full resize-none rounded-md border-none bg-[var(--surface-message-user)] p-md font-serif text-[0.875rem] leading-[1.6] text-text-primary focus:outline-none focus:ring-2 focus:ring-focus-ring"
 						bind:value={editText}
 						onkeydown={handleEditKeydown}
 						rows={Math.min(10, Math.max(3, editText.split('\n').length))}
 					></textarea>
-					<div class="flex items-center gap-3 justify-end">
-						<span class="text-xs text-text-muted">{$t('messageBubble.sendShortcut')}</span>
-						<button type="button" class="btn-secondary" onclick={cancelEdit}>{$t('common.cancel')}</button>
-						<button type="button" class="btn-primary" onclick={submitEdit} disabled={!editText.trim()}>{$t('chat.sendMessage')}</button>
+					<div class="flex items-center gap-0.5 justify-end">
+						<button
+							type="button"
+							class="btn-icon-bare"
+							onclick={cancelEdit}
+							aria-label={$t('common.cancel')}
+						>
+							<X size={16} strokeWidth={2} aria-hidden="true" />
+						</button>
+						<button
+							type="button"
+							class="btn-icon-bare"
+							onclick={submitEdit}
+							disabled={!editText.trim()}
+							aria-label={$t('chat.sendMessage')}
+						>
+							<Check size={16} strokeWidth={2} aria-hidden="true" />
+						</button>
 					</div>
 				</div>
 			{:else}
@@ -652,7 +667,7 @@ function toggleForkDetails() {
 						{/each}
 					</div>
 				{/if}
-				<div class="whitespace-pre-wrap break-words text-[15px] leading-[1.5] md:leading-[1.55]">
+				<div class="whitespace-pre-wrap break-words text-[0.875rem] leading-[1.5] md:leading-[1.55]">
 					{#if userMessageSegments.length > 0}
 						{#each userMessageSegments as segment}
 							{#if segment.kind === 'link'}
@@ -674,7 +689,7 @@ function toggleForkDetails() {
 				</div>
 			{/if}
 		{:else}
-			<div class="prose-container min-w-0 w-full text-[15px] leading-[1.5] md:leading-[1.55]">
+			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.5] md:leading-[1.55]">
 				<MarkdownRenderer
 					content={message.content}
 					isDark={$isDark}
@@ -715,26 +730,18 @@ function toggleForkDetails() {
 			{/if}
 			{#if sourceForks && sourceForks.count > 0}
 				<div
-					class="fork-origin-marker fork-lineage-marker"
+					class="fork-origin-marker"
 					data-testid="fork-origin-marker"
 					role="note"
 					aria-label={$t('fork.originMarkerLabel')}
 				>
-					<div class="fork-lineage-icon" aria-hidden="true">
-						<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
-					</div>
-					{#if sourceForks.count === 1 && sourceForks.forks[0]}
-						{@const childFork = sourceForks.forks[0]}
-						<span class="fork-origin-label">{$t('fork.originSingleLabel')}</span>
-						<a
-							class="fork-origin-link"
-							href={`/chat/${childFork.conversationId}`}
-							aria-label={forkLinkLabel(childFork.title)}
-						>
-							{childFork.title}
-						</a>
-					{:else}
-						<div class="fork-origin-details">
+					<div class="fork-origin-header">
+						<div class="fork-origin-icon-chip" aria-hidden="true">
+							<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
+						</div>
+						{#if sourceForks.count === 1}
+							<span class="fork-origin-label">{$t('fork.originSingleLabel')}</span>
+						{:else}
 							<button
 								type="button"
 								class="fork-origin-summary"
@@ -743,19 +750,28 @@ function toggleForkDetails() {
 							>
 								{$t('fork.originCountLabel', { count: sourceForks.count })}
 							</button>
-							{#if showForkDetails}
-								<div class="fork-origin-list">
-									{#each sourceForks.forks as childFork (childFork.conversationId)}
-										<a
-											class="fork-origin-link"
-											href={`/chat/${childFork.conversationId}`}
-											aria-label={forkLinkLabel(childFork.title)}
-										>
-											{childFork.title}
-										</a>
-									{/each}
-								</div>
-							{/if}
+						{/if}
+					</div>
+					{#if sourceForks.count === 1 && sourceForks.forks[0]}
+						{@const childFork = sourceForks.forks[0]}
+						<a
+							class="fork-origin-link"
+							href={`/chat/${childFork.conversationId}`}
+							aria-label={forkLinkLabel(childFork.title)}
+						>
+							{childFork.title}
+						</a>
+					{:else if showForkDetails}
+						<div class="fork-origin-list">
+							{#each sourceForks.forks as childFork (childFork.conversationId)}
+								<a
+									class="fork-origin-link"
+									href={`/chat/${childFork.conversationId}`}
+									aria-label={forkLinkLabel(childFork.title)}
+								>
+									{childFork.title}
+								</a>
+							{/each}
 						</div>
 					{/if}
 				</div>
@@ -768,7 +784,7 @@ function toggleForkDetails() {
 					onSteer={onSteer}
 				/>
 			{:else if message.evidencePending}
-				<div class="evidence-pending">Evidence is loading…</div>
+				<div class="evidence-pending">{$t('messageBubble.evidenceLoading')}</div>
 			{/if}
 			{/if}
 
@@ -974,8 +990,8 @@ function toggleForkDetails() {
 		gap: var(--space-xs);
 		margin-bottom: var(--space-xs);
 		color: var(--text-muted);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 14px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		font-weight: 700;
 		line-height: 1.25;
 		transition: opacity 400ms var(--ease-out), max-height 400ms var(--ease-out);
@@ -996,8 +1012,8 @@ function toggleForkDetails() {
 		gap: var(--space-xs);
 		margin: 0 0 var(--space-xs);
 		color: var(--text-muted);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 14px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		font-weight: 600;
 		line-height: 1.25;
 		animation: deliberationStatusFade 220ms var(--ease-out) both;
@@ -1031,12 +1047,12 @@ function toggleForkDetails() {
 	}
 
 	.prose-container :global(.prose) {
-		font-size: 15px;
+		font-size: var(--text-md);
 		line-height: 1.5;
 	}
 	@media (min-width: 768px) {
 		.prose-container :global(.prose) {
-			font-size: 15px;
+			font-size: var(--text-md);
 			line-height: 1.55;
 		}
 	}
@@ -1149,57 +1165,70 @@ function toggleForkDetails() {
 
 	.preparing-status {
 		margin-top: var(--space-xs);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.82rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		line-height: 1.4;
 		color: var(--text-muted);
 	}
 
-	.fork-lineage-marker {
+	.fork-origin-marker {
 		display: flex;
+		flex-direction: column;
+		gap: var(--space-sm);
+		margin-top: var(--space-md);
 		width: 100%;
 		max-width: 100%;
-		align-self: stretch;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: var(--space-xs);
-		margin-top: var(--space-md);
-		border-left: 3px solid color-mix(in srgb, var(--accent) 78%, var(--text-primary) 22%);
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--surface-elevated) 84%, var(--accent) 16%);
-		padding: 0.42rem 0.6rem;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.76rem;
-		line-height: 1.35;
-		color: var(--text-secondary);
+		padding: var(--space-sm) var(--space-md);
+		border-radius: var(--radius-md);
+		background: color-mix(in srgb, var(--surface-elevated) 90%, var(--accent) 10%);
+		border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, var(--accent) 20%);
 	}
 
-	.fork-lineage-icon {
+	.fork-origin-header {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+	}
+
+	.fork-origin-icon-chip {
 		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		flex: 0 0 auto;
-		color: var(--text-muted);
+		width: 28px;
+		height: 28px;
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--accent) 16%, transparent);
+		color: var(--accent);
 	}
 
 	.fork-origin-label {
 		font-weight: 700;
 		color: var(--text-primary);
 		white-space: nowrap;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		line-height: 1.35;
 	}
 
 	.fork-origin-link {
-		flex: 1 1 auto;
-		min-width: 0;
-		max-width: 100%;
-		overflow-wrap: anywhere;
+		display: inline-flex;
+		align-items: center;
+		padding: 0.2rem 0.4rem;
+		background: color-mix(in srgb, var(--surface-overlay) 82%, transparent);
+		border-radius: var(--radius-md);
 		color: var(--text-secondary);
 		text-decoration: none;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		line-height: 1.35;
+		transition: background 150ms var(--ease-out);
 	}
 
 	.fork-origin-link:hover,
 	.fork-origin-link:focus-visible {
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
 		color: var(--text-primary);
-		text-decoration: underline;
-		text-underline-offset: 0.18em;
 		outline: none;
 	}
 
@@ -1219,6 +1248,9 @@ function toggleForkDetails() {
 		font-weight: 700;
 		padding: 0;
 		text-align: left;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		line-height: 1.35;
 	}
 
 	.fork-origin-summary:hover,
@@ -1232,16 +1264,15 @@ function toggleForkDetails() {
 		display: flex;
 		min-width: 0;
 		flex-direction: column;
-		gap: 0.18rem;
-		margin-top: var(--space-xs);
+		gap: var(--space-xs);
 	}
 
 	.evidence-pending {
 		margin-top: var(--space-md);
 		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent 30%);
 		padding-top: var(--space-sm);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.76rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
 		letter-spacing: 0.03em;
 		text-transform: uppercase;
 		color: var(--text-muted);
@@ -1298,8 +1329,8 @@ function toggleForkDetails() {
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-md);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 12px;
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
 		line-height: 1.4;
 	}
 
@@ -1319,18 +1350,8 @@ function toggleForkDetails() {
 		display: inline-flex;
 	}
 
-	.action-tooltip-container {
-		position: relative;
-		display: inline-flex;
-	}
-
-	.action-tooltip-container {
-		position: relative;
-		display: inline-flex;
-	}
-
 	.timestamp-label {
-		font-size: 11px;
+		font-size: var(--text-2xs);
 		color: var(--text-muted);
 		padding: 0 0.5rem;
 		min-height: 44px;

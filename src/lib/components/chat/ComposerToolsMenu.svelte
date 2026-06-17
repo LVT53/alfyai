@@ -292,7 +292,7 @@ onMount(() => {
 	}
 
 	:global(.dark) .tools-menu {
-		background: color-mix(in srgb, var(--surface-overlay) 78%, #050505 22%);
+		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
 		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
 		box-shadow:
 			0 16px 32px rgba(0, 0, 0, 0.4),
@@ -338,7 +338,7 @@ onMount(() => {
 	.menu-row--button:hover:not(:disabled),
 	.menu-row--button:focus-visible,
 	.menu-row--selected {
-		background: rgba(194, 166, 106, 0.24);
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 34%, transparent 66%);
 		transform: translateY(-1px);
 		outline: none;
@@ -347,7 +347,7 @@ onMount(() => {
 	:global(.dark) .menu-row--button:hover:not(:disabled),
 	:global(.dark) .menu-row--button:focus-visible,
 	:global(.dark) .menu-row--selected {
-		background: rgba(194, 166, 106, 0.3);
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	.menu-row--button:disabled {
@@ -356,8 +356,8 @@ onMount(() => {
 	}
 
 	.menu-label {
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.78rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
 		line-height: 1.15;
 		color: var(--text-primary);
 	}
@@ -403,8 +403,8 @@ onMount(() => {
 		border: 1px solid color-mix(in srgb, var(--border-default) 78%, transparent 22%);
 		border-radius: 0.5rem;
 		color: var(--text-primary, #1a1a1a);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.78rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
 		font-weight: 400;
 		cursor: pointer;
 		transition: all 150ms ease-out;
@@ -412,7 +412,7 @@ onMount(() => {
 	}
 
 	.model-selector__trigger:hover:not(:disabled) {
-		background: rgba(194, 166, 106, 0.18);
+		background: color-mix(in srgb, var(--accent) 18%, transparent);
 		border-color: color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
 	}
 
@@ -464,8 +464,8 @@ onMount(() => {
 		padding: 0.38rem 0.5rem;
 		border-radius: 0.42rem;
 		cursor: pointer;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.78rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
 		line-height: 1.15;
 		color: var(--text-primary, #1a1a1a);
 		transition: background-color 150ms ease-out;
@@ -474,12 +474,12 @@ onMount(() => {
 
 	.model-selector__option:hover,
 	.model-selector__option:focus {
-		background: rgba(194, 166, 106, 0.24);
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
 		outline: none;
 	}
 
 	.model-selector__option--selected {
-		background: rgba(194, 166, 106, 0.18);
+		background: color-mix(in srgb, var(--accent) 18%, transparent);
 		font-weight: 500;
 	}
 
@@ -490,12 +490,12 @@ onMount(() => {
 		border: 1px solid color-mix(in srgb, var(--border-default) 78%, transparent 22%);
 		border-radius: 0.5rem;
 		background: transparent;
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		line-height: 1.15;
 	}
 
 	.menu-row :global(.model-selector__trigger:hover:not(:disabled)) {
-		background: rgba(194, 166, 106, 0.18);
+		background: color-mix(in srgb, var(--accent) 18%, transparent);
 		border-color: color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
 	}
 
@@ -528,17 +528,17 @@ onMount(() => {
 	.menu-row :global(.model-selector__option) {
 		border-radius: 0.42rem;
 		padding: 0.38rem 0.5rem;
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		line-height: 1.15;
 	}
 
 	.menu-row :global(.model-selector__option:hover),
 	.menu-row :global(.model-selector__option:focus) {
-		background: rgba(194, 166, 106, 0.24);
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
 	}
 
 	.menu-row :global(.model-selector__option--selected) {
-		background: rgba(194, 166, 106, 0.18);
+		background: color-mix(in srgb, var(--accent) 18%, transparent);
 	}
 
 	.menu-row :global(.provider-icon) {
@@ -569,7 +569,7 @@ onMount(() => {
 	}
 
 	:global(.dark) .model-selector__trigger:hover:not(:disabled) {
-		background: rgba(194, 166, 106, 0.26);
+		background: color-mix(in srgb, var(--accent) 26%, transparent);
 	}
 
 	:global(.dark) .menu-row :global(.model-selector__trigger) {
@@ -577,16 +577,16 @@ onMount(() => {
 	}
 
 	:global(.dark) .menu-row :global(.model-selector__trigger:hover:not(:disabled)) {
-		background: rgba(194, 166, 106, 0.26);
+		background: color-mix(in srgb, var(--accent) 26%, transparent);
 	}
 
 	:global(.dark) .model-selector__dropdown {
-		background: color-mix(in srgb, var(--surface-overlay) 78%, #050505 22%);
+		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
 		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
 	}
 
 	:global(.dark) .menu-row :global(.model-selector__dropdown) {
-		background: color-mix(in srgb, var(--surface-overlay) 78%, #050505 22%);
+		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
 		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
 	}
 
@@ -596,20 +596,20 @@ onMount(() => {
 
 	:global(.dark) .model-selector__option:hover,
 	:global(.dark) .model-selector__option:focus {
-		background: rgba(194, 166, 106, 0.3);
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	:global(.dark) .menu-row :global(.model-selector__option:hover),
 	:global(.dark) .menu-row :global(.model-selector__option:focus) {
-		background: rgba(194, 166, 106, 0.3);
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	:global(.dark) .model-selector__option--selected {
-		background: rgba(194, 166, 106, 0.24);
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
 	}
 
 	:global(.dark) .menu-row :global(.model-selector__option--selected) {
-		background: rgba(194, 166, 106, 0.24);
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
 	}
 
 	@keyframes dropdownFadeIn {

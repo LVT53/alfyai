@@ -49,7 +49,7 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: "Incorrect password" }, { status: 401 });
 	}
 
-	return new Response(new Uint8Array(result.zipBytes), {
+	return new Response(result.zipStream, {
 		status: 200,
 		headers: {
 			"Content-Type": "application/zip",

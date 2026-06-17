@@ -2,7 +2,7 @@
 import { tick } from "svelte";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
-import { Download, GitBranch } from "@lucide/svelte";
+import { AlertCircle, Download, GitBranch, Layers } from "@lucide/svelte";
 import type {
 	ChatMessage,
 	ContextDebugState,
@@ -552,42 +552,50 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 				{#if forkOrigin?.copiedForkPointMessageId === message.id}
 					<div
 						bind:this={forkBoundaryMarker}
-						class="fork-boundary-marker fork-lineage-marker"
+						class="fork-boundary-marker"
 						data-fork-boundary-message-id={message.id}
 						data-testid="fork-boundary-marker"
 						role="note"
 						aria-label={$t('fork.boundaryMarkerLabel')}
 					>
-						<div class="fork-lineage-icon" aria-hidden="true">
-							<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
+						<div class="fork-boundary-content">
+							<div class="fork-boundary-icon-chip" aria-hidden="true">
+								<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
+							</div>
+							<span class="fork-boundary-title">{$t('fork.boundaryTitle')}</span>
+							{#if forkSourceHref(forkOrigin)}
+								<a
+									class="fork-boundary-source"
+									href={forkSourceHref(forkOrigin)}
+									aria-label={$t('fork.openSourceConversation', { title: forkOrigin.sourceTitle })}
+								>
+									← {$t('fork.boundarySource', { title: forkOrigin.sourceTitle })}
+								</a>
+							{:else}
+								<span class="fork-boundary-source fork-boundary-source-degraded">
+									<span>{$t('fork.boundarySource', { title: forkOrigin.sourceTitle })}</span>
+									<span class="fork-boundary-source-status">
+										<AlertCircle size={14} strokeWidth={2} aria-hidden="true" />
+										{$t('fork.sourceUnavailable')}
+									</span>
+								</span>
+							{/if}
 						</div>
-						<span class="fork-boundary-title">{$t('fork.boundaryTitle')}</span>
-						{#if forkSourceHref(forkOrigin)}
-							<a
-								class="fork-boundary-source fork-lineage-link"
-								href={forkSourceHref(forkOrigin)}
-								aria-label={$t('fork.openSourceConversation', { title: forkOrigin.sourceTitle })}
-							>
-								{$t('fork.boundarySource', { title: forkOrigin.sourceTitle })}
-							</a>
-						{:else}
-							<span class="fork-boundary-source fork-boundary-source-degraded">
-								<span>{$t('fork.boundarySource', { title: forkOrigin.sourceTitle })}</span>
-								<span class="fork-boundary-source-status">{$t('fork.sourceUnavailable')}</span>
-							</span>
-						{/if}
 					</div>
 				{/if}
 				{#each contextCompressionMarkersBySourceEndMessageId.get(message.id) ?? [] as marker (marker.id)}
 					<div
-						class="fork-lineage-marker context-compression-marker"
+						class="context-compression-marker"
 						class:context-compression-marker-running={marker.status === 'running'}
 						class:context-compression-marker-failed={marker.status === 'failed'}
 						data-testid={`context-compression-marker-${marker.id}`}
 						role="note"
 						aria-label={contextCompressionMarkerLabel(marker)}
 					>
-						<span class="fork-boundary-title">{contextCompressionMarkerLabel(marker)}</span>
+						<div class="context-compression-icon" aria-hidden="true">
+							<Layers size={15} strokeWidth={2} aria-hidden="true" />
+						</div>
+						<span class="context-compression-title">{contextCompressionMarkerLabel(marker)}</span>
 					</div>
 				{/each}
 				{#each deepResearchJobsByAnchorMessageKey.get(messageRenderKey(message)) ?? [] as job (job.id)}
@@ -634,18 +642,18 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 
 	.conversation-empty-state {
 		display: flex;
-		min-height: 100%;
-		flex: 1 1 auto;
-		flex-direction: column;
+		flex: 1;
+		align-items: center;
 		justify-content: center;
+		flex-direction: column;
 		gap: var(--space-sm);
-		padding: 0 var(--space-sm) 10rem;
+		padding: var(--space-2xl) var(--space-sm);
 		text-align: center;
 	}
 
 	.conversation-empty-eyebrow {
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.78rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
 		font-weight: 600;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
@@ -655,38 +663,39 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 	.conversation-empty-copy {
 		margin: 0 auto;
 		max-width: 34rem;
-		font-size: 0.98rem;
+		font-size: var(--text-base);
 		line-height: 1.6;
 		color: var(--text-secondary);
 	}
 
-	.fork-lineage-marker {
+	.fork-boundary-marker {
 		display: flex;
 		width: 100%;
-		max-width: 100%;
-		align-self: stretch;
 		align-items: center;
+		justify-content: center;
+		margin: var(--space-sm) 0 var(--space-md);
+		border-top: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+		border-bottom: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+		padding: var(--space-sm) 0;
+		text-align: center;
+	}
+
+	.fork-boundary-content {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		flex-wrap: wrap;
 		gap: var(--space-xs);
-		margin-top: var(--space-md);
-		border-left: 3px solid color-mix(in srgb, var(--accent) 78%, var(--text-primary) 22%);
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--surface-elevated) 84%, var(--accent) 16%);
-		padding: 0.42rem 0.6rem;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.76rem;
-		line-height: 1.35;
-		color: var(--text-secondary);
 	}
 
-	.fork-boundary-marker {
-		margin: var(--space-sm) 0 var(--space-md);
-	}
-
-	.fork-lineage-icon {
+	.fork-boundary-icon-chip {
 		display: inline-flex;
-		flex: 0 0 auto;
-		color: var(--text-muted);
+		align-items: center;
+		justify-content: center;
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+		border-radius: var(--radius-sm);
+		padding: 0.2rem;
+		color: var(--accent);
 	}
 
 	.fork-boundary-title {
@@ -696,11 +705,22 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 	}
 
 	.fork-boundary-source {
-		flex: 1 1 auto;
-		min-width: 0;
-		max-width: 100%;
-		overflow-wrap: anywhere;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.2rem;
+		background: color-mix(in srgb, var(--surface-elevated) 90%, var(--accent) 10%);
+		border-radius: var(--radius-sm);
+		padding: 0.2rem 0.4rem;
 		color: var(--text-secondary);
+		text-decoration: none;
+	}
+
+	.fork-boundary-source:hover,
+	.fork-boundary-source:focus-visible {
+		color: var(--text-primary);
+		text-decoration: underline;
+		text-underline-offset: 0.18em;
+		outline: none;
 	}
 
 	.fork-boundary-source-degraded {
@@ -711,12 +731,29 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 	}
 
 	.fork-boundary-source-status {
-		color: var(--text-subtle);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.2rem;
+		color: var(--warning);
 	}
 
 	.context-compression-marker {
+		display: flex;
+		width: 100%;
+		max-width: 100%;
+		align-self: stretch;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-xs);
 		margin: var(--space-xs) 0 var(--space-md);
-		border-left-color: color-mix(in srgb, var(--accent) 88%, var(--text-primary) 12%);
+		border-left: 3px solid var(--text-muted);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--surface-elevated) 90%, var(--text-muted) 10%);
+		padding: 0.42rem 0.6rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		line-height: 1.35;
+		color: var(--text-secondary);
 	}
 
 	.context-compression-marker-running {
@@ -725,8 +762,20 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 	}
 
 	.context-compression-marker-failed {
-		border-left-color: var(--danger, #c2410c);
-		background: color-mix(in srgb, var(--surface-elevated) 88%, var(--danger, #c2410c) 12%);
+		border-left-color: var(--danger);
+		background: color-mix(in srgb, var(--surface-elevated) 88%, var(--danger) 12%);
+	}
+
+	.context-compression-icon {
+		display: inline-flex;
+		flex: 0 0 auto;
+		color: var(--text-muted);
+	}
+
+	.context-compression-title {
+		font-weight: 600;
+		color: var(--text-secondary);
+		white-space: nowrap;
 	}
 
 	.import-lineage-marker {
@@ -742,8 +791,8 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--surface-elevated) 92%, var(--text-muted) 8%);
 		padding: 0.42rem 0.6rem;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.76rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
 		line-height: 1.35;
 		color: var(--text-muted);
 	}
@@ -751,7 +800,7 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 	.import-lineage-icon {
 		display: inline-flex;
 		flex: 0 0 auto;
-		color: var(--text-subtle);
+		color: var(--text-muted);
 	}
 
 	.import-boundary-title {
@@ -760,22 +809,9 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 		white-space: nowrap;
 	}
 
-	.fork-lineage-link {
-		text-decoration: none;
-	}
-
-	.fork-lineage-link:hover,
-	.fork-lineage-link:focus-visible {
-		color: var(--text-primary);
-		text-decoration: underline;
-		text-underline-offset: 0.18em;
-		outline: none;
-	}
-
 	@media (min-width: 768px) {
 		.scroll-clearance {
 			--scroll-clearance-base: 9.5rem;
 		}
 	}
-
 </style>

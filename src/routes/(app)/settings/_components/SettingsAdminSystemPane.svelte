@@ -983,7 +983,7 @@ function placeholderFor(key: string): string {
 			<h2 class="settings-section-title mb-0">{$t('admin.systemSkills.title')}</h2>
 			<p class="text-xs text-text-tertiary">{$t('admin.systemSkills.description')}</p>
 		</div>
-		<button class="btn-small" onclick={resetSystemSkillDraft}>
+		<button class="btn-sm" onclick={resetSystemSkillDraft}>
 			{$t('admin.systemSkills.new')}
 		</button>
 	</div>
@@ -1013,14 +1013,14 @@ function placeholderFor(key: string): string {
 						</div>
 						<div class="flex flex-wrap items-center gap-2">
 							<button
-								class="btn-small"
+								class="btn-sm"
 								aria-label={$t('skills.editA11y', { name: skill.displayName })}
 								onclick={() => editSystemSkill(skill)}
 							>
 								{$t('common.edit')}
 							</button>
 							<button
-								class="btn-small"
+								class="btn-sm"
 								aria-label={skill.enabled ? $t('skills.disableA11y', { name: skill.displayName }) : $t('skills.enableA11y', { name: skill.displayName })}
 								onclick={() => updateSystemSkillFlags(skill, { enabled: !skill.enabled })}
 							>
@@ -1028,7 +1028,7 @@ function placeholderFor(key: string): string {
 							</button>
 							{#if !skill.published}
 								<button
-									class="btn-small"
+									class="btn-sm"
 									aria-label={$t('admin.systemSkills.publishA11y', { name: skill.displayName })}
 									onclick={() => updateSystemSkillFlags(skill, { published: true, enabled: true })}
 								>
@@ -1614,40 +1614,4 @@ function placeholderFor(key: string): string {
 {/if}
 
 <style>
-	:global(.btn-small) {
-		padding: 0.25rem 0.5rem;
-		font-size: 0.75rem;
-		border-radius: var(--radius-md);
-		border: 1px solid var(--border-default);
-		background: var(--surface-page);
-		color: var(--text-secondary);
-		cursor: pointer;
-		transition: all var(--duration-standard);
-	}
-
-	:global(.btn-small:hover) {
-		border-color: var(--accent);
-		color: var(--text-primary);
-	}
-
-	:global(.btn-secondary) {
-		padding: 0.5rem 1rem;
-		font-size: 0.875rem;
-		border-radius: var(--radius-md);
-		border: 1px solid var(--border-default);
-		background: var(--surface-page);
-		color: var(--text-primary);
-		cursor: pointer;
-		transition: all var(--duration-standard);
-	}
-
-	:global(.btn-secondary:hover) {
-		border-color: var(--accent);
-		background: var(--surface-elevated);
-	}
-
-	:global(.btn-secondary:disabled) {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
 </style>

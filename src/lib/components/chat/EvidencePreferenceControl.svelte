@@ -48,8 +48,8 @@ function handleChange(event: Event) {
 		border-radius: 9999px;
 		background: color-mix(in srgb, var(--surface-page) 78%, var(--surface-elevated) 22%);
 		padding: 0.28rem 1.8rem 0.28rem 0.62rem;
-		font-size: 0.68rem;
-		font-family: 'Nimbus Sans L', sans-serif;
+		font-size: var(--text-2xs);
+		font-family: var(--font-sans);
 		color: var(--text-primary);
 		appearance: none;
 		background-image:

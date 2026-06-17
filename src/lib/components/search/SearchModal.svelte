@@ -517,7 +517,7 @@ onDestroy(() => {
 					</h2>
 					<button
 						type="button"
-						class="search-modal-icon-button btn-icon-bare h-8 w-8 rounded-md text-icon-muted hover:text-icon-primary"
+						class="search-modal-icon-button btn-icon-bare btn-icon-sm rounded-md text-icon-muted hover:text-icon-primary"
 						onclick={handleClose}
 						aria-label={$t('searchModal.close')}
 					>
@@ -544,7 +544,7 @@ onDestroy(() => {
 					{:else if searchQuery}
 						<button
 							type="button"
-							class="search-modal-icon-button btn-icon-bare h-7 w-7 rounded-md text-icon-muted hover:text-icon-primary"
+							class="search-modal-icon-button btn-icon-bare btn-icon-sm rounded-md text-icon-muted hover:text-icon-primary"
 							onclick={() => (searchQuery = '')}
 							aria-label={$t('searchModal.clear')}
 						>
@@ -698,7 +698,7 @@ onDestroy(() => {
 												{#if sourceConversationHref(row.document)}
 													<button
 														type="button"
-														class="search-source-button btn-icon-bare my-1.5 mr-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-icon-muted hover:text-icon-primary"
+														class="search-source-button btn-icon-bare btn-icon-sm my-1.5 mr-1.5 flex shrink-0 items-center justify-center rounded-md text-icon-muted hover:text-icon-primary"
 														onclick={(event) => openDocumentSource(event, row.document)}
 														aria-label={$t('searchModal.openSourceChat')}
 														title={$t('searchModal.openSourceChat')}

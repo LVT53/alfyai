@@ -159,15 +159,15 @@ const explicitModelOptions = $derived(
 			size={48}
 		/>
 		<div class="flex flex-wrap items-center gap-2">
-			<button class="btn-secondary text-sm" onclick={onOpenPictureEditor}>
+			<button class="btn-secondary" onclick={onOpenPictureEditor}>
 				{$t('settings_uploadPhoto')}
 			</button>
-			<button class="btn-secondary text-sm" onclick={() => (showAvatarPicker = !showAvatarPicker)}>
+			<button class="btn-secondary" onclick={() => (showAvatarPicker = !showAvatarPicker)}>
 				{showAvatarPicker ? $t('settings_done') : $t('settings_changeColor')}
 			</button>
 			{#if profilePicture}
 				<button
-					class="btn-ghost text-sm"
+					class="btn-ghost"
 					style="color: var(--color-danger);"
 					onclick={onRemovePhoto}
 					disabled={removingPhoto}
@@ -432,7 +432,7 @@ const explicitModelOptions = $derived(
 		<button class="btn-secondary" onclick={onOpenClearWorkspace} disabled={clearWorkspaceLoading}>
 			{clearWorkspaceLoading ? $t('settings_clearing') : $t('settings_clearWorkspaceData')}
 		</button>
-		<button class="btn-danger text-sm" onclick={onOpenDeleteModal}>
+		<button class="btn-danger" onclick={onOpenDeleteModal}>
 			{$t('settings_deleteAccountPrivacy')}
 		</button>
 	</div>

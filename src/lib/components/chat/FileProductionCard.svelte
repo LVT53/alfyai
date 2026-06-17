@@ -1,4 +1,5 @@
 <script lang="ts">
+import { X, Download } from "@lucide/svelte";
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
 import { t } from "$lib/i18n";
 import type { I18nKey } from "$lib/i18n";
@@ -138,21 +139,7 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 				aria-label={$t('fileProduction.cancelLabel')}
 				title={$t('fileProduction.cancelLabel')}
 			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					width="14"
-					height="14"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"
-				>
-					<path d="M18 6 6 18" />
-					<path d="m6 6 12 12" />
-				</svg>
+				<X size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
 		{/if}
 	{:else}
@@ -191,22 +178,7 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 							aria-label={$t('fileProduction.downloadLabel', { filename: file.filename })}
 							title={$t('fileProduction.downloadLabel', { filename: file.filename })}
 						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								width="14"
-								height="14"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								aria-hidden="true"
-							>
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-								<polyline points="7 10 12 15 17 10" />
-								<line x1="12" x2="12" y1="15" y2="3" />
-							</svg>
+						<Download size={16} strokeWidth={2} aria-hidden="true" />
 						</a>
 					</div>
 				{/each}
@@ -303,8 +275,8 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 	}
 
 	.job-eyebrow {
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.68rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
 		font-weight: 700;
 		text-transform: uppercase;
 		color: color-mix(in srgb, var(--accent) 76%, var(--text-secondary) 24%);
@@ -314,8 +286,8 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 		min-width: 0;
 		overflow: hidden;
 		color: var(--text-primary);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.9rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-md);
 		font-weight: 700;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -324,14 +296,14 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 	.job-count {
 		flex: 0 0 auto;
 		color: var(--text-muted);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.74rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
 	}
 
 	.job-status-detail {
 		color: var(--text-secondary);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.78rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
 		line-height: 1.35;
 	}
 
@@ -375,8 +347,8 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 		min-width: 0;
 		overflow: hidden;
 		color: var(--text-primary);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.82rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		font-weight: 600;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -384,8 +356,8 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 
 	.file-size {
 		color: var(--text-muted);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.72rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
 	}
 
 	.file-download {
@@ -416,8 +388,8 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 		background: color-mix(in srgb, var(--surface-page) 86%, var(--accent) 14%);
 		color: var(--text-primary);
 		cursor: pointer;
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.76rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
 		font-weight: 700;
 		padding: 0.36rem 0.55rem;
 	}

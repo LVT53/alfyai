@@ -12,7 +12,7 @@
  * ```
  */
 
-import { File, FileText, Image, Presentation, Table } from "@lucide/svelte";
+import { Archive, Code, File, FileText, Image, Presentation, Table } from "@lucide/svelte";
 
 let { type = "unsupported", size = 16 }: { type?: string; size?: number } =
 	$props();
@@ -25,6 +25,9 @@ const iconMap: Record<string, typeof File> = {
 	odt: FileText,
 	image: Image,
 	text: FileText,
+	html: Code,
+	code: Code,
+	archive: Archive,
 };
 
 let Icon = $derived(iconMap[type] ?? File);

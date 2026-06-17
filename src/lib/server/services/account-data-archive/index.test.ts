@@ -256,7 +256,10 @@ describe("createAccountDataArchive", () => {
 		if (result.status !== "ok") return;
 		expect(result.filename).toBe("AlfyAI Data Archive 2026-06-15.zip");
 
-		const zip = await JSZip.loadAsync(result.zipBytes);
+		const zipBytes = Buffer.from(
+			await new Response(result.zipStream).arrayBuffer(),
+		);
+		const zip = await JSZip.loadAsync(zipBytes);
 		expect(Object.keys(zip.files)[0]).toBe("Open AlfyAI Data Archive.html");
 		expect(zip.file("Open AlfyAI Data Archive.html")).toBeTruthy();
 		expect(zip.file("Profile/Profile.html")).toBeTruthy();

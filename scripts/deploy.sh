@@ -81,9 +81,23 @@ npm run db:prepare
 echo -e "${GREEN}✓ Database migrations complete${NC}"
 echo ""
 
-echo -e "${YELLOW}5. Building application...${NC}"
+echo -e "${YELLOW}5. Cleaning previous build output...${NC}"
+rm -rf "$APP_DIR/build"
+echo -e "${GREEN}✓ Build directory cleaned${NC}"
+echo ""
+
+echo -e "${YELLOW}6. Building application...${NC}"
 npm run build
 echo -e "${GREEN}✓ Build complete${NC}"
 echo ""
 
 echo -e "${GREEN}=== Deployment complete! ===${NC}"
+echo ""
+echo -e "${YELLOW}⚠ IMPORTANT: Restart your process manager now!${NC}"
+echo -e "${YELLOW}  The old server process still holds the previous build manifest in memory.${NC}"
+echo -e "${YELLOW}  Failing to restart will cause 'Cannot find module' errors when the old${NC}"
+echo -e "${YELLOW}  process tries to load route chunks that were replaced by this build.${NC}"
+echo ""
+echo -e "${YELLOW}  Examples:${NC}"
+echo -e "${YELLOW}    systemctl restart langflow-chat${NC}"
+echo -e "${YELLOW}    pm2 restart $PM2_APP_NAME${NC}"

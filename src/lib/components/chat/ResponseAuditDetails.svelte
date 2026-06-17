@@ -163,7 +163,7 @@ function buildPrimaryRows(): AuditRow[] {
 		background: var(--surface-overlay);
 		box-shadow: var(--shadow-lg);
 		padding: var(--space-sm) var(--space-md);
-		font-family: 'Nimbus Sans L', sans-serif;
+		font-family: var(--font-sans);
 		color: var(--text-primary);
 	}
 
@@ -189,7 +189,7 @@ function buildPrimaryRows(): AuditRow[] {
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: var(--space-md);
-		font-size: 12px;
+		font-size: var(--text-2xs);
 		line-height: 1.4;
 	}
 

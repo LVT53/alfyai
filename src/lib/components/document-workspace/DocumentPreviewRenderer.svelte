@@ -250,7 +250,7 @@ function downloadFile() {
 						<p class="text-sm font-sans text-danger mb-2">{error}</p>
 						<button
 							type="button"
-							class="btn-secondary text-sm mt-2"
+							class="btn-secondary mt-2"
 							onclick={startPreviewLoad}
 						>
 							{$t("filePreview.retry")}
@@ -269,7 +269,7 @@ function downloadFile() {
 						{#if content}
 							<button
 								type="button"
-								class="btn-primary text-sm"
+								class="btn-primary"
 								onclick={downloadFile}
 							>
 								{$t("filePreview.downloadFile")}

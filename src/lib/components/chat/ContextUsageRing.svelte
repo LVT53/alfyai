@@ -336,7 +336,7 @@ let toneClass = $derived(
 	}
 
 	.ring-button--medium {
-		color: color-mix(in srgb, var(--accent) 70%, #b88a2f 30%);
+		color: color-mix(in srgb, var(--accent) 70%, var(--warning) 30%);
 	}
 
 	.ring-button--high {
@@ -372,7 +372,7 @@ let toneClass = $derived(
 
 	.ring-value {
 		position: absolute;
-		font-family: 'Nimbus Sans L', sans-serif;
+		font-family: var(--font-sans);
 		font-size: 9px;
 		font-weight: 600;
 		line-height: 1;
@@ -431,8 +431,8 @@ let toneClass = $derived(
 	}
 
 	.popover-label {
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.68rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
 		text-transform: uppercase;
 		letter-spacing: 0.12em;
 		color: var(--text-muted);
@@ -443,13 +443,13 @@ let toneClass = $derived(
 		justify-content: space-between;
 		gap: 1rem;
 		margin-top: 0.55rem;
-		font-size: 0.82rem;
+		font-size: var(--text-sm);
 		color: var(--text-primary);
 	}
 
 	.popover-cost {
 		margin-top: 0.5rem;
-		font-size: 0.84rem;
+		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--accent);
 	}
@@ -469,14 +469,14 @@ let toneClass = $derived(
 		border: 1px solid color-mix(in srgb, var(--border-default) 75%, transparent 25%);
 		border-radius: 9999px;
 		padding: 0.25rem 0.5rem;
-		font-size: 0.7rem;
+		font-size: var(--text-2xs);
 		text-transform: capitalize;
 		color: var(--text-muted);
 	}
 
 	.popover-empty {
 		margin-top: 0.5rem;
-		font-size: 0.82rem;
+		font-size: var(--text-sm);
 		color: var(--text-muted);
 	}
 
@@ -487,7 +487,7 @@ let toneClass = $derived(
 		border-radius: 0.65rem;
 		background: color-mix(in srgb, var(--surface-page) 72%, var(--surface-elevated) 28%);
 		padding: 0.5rem 0.65rem;
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--text-primary);
 		text-align: center;

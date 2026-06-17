@@ -1180,12 +1180,6 @@ onMount(() => {
 			box-shadow 0.15s ease;
 	}
 
-	:global(.campaign-workbench .btn-primary),
-	:global(.campaign-workbench .btn-secondary) {
-		min-height: 2.5rem;
-		padding: 0.55rem 0.9rem;
-	}
-
 	textarea.input-field {
 		min-height: 7rem;
 		resize: vertical;

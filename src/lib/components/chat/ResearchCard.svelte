@@ -1602,7 +1602,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 	}
 
 	.research-card__eyebrow {
-		font-size: 0.72rem;
+		font-size: var(--text-2xs);
 		font-weight: 600;
 		letter-spacing: 0;
 		text-transform: uppercase;
@@ -1612,7 +1612,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 	.research-card__title {
 		margin: 0.2rem 0 0;
 		overflow-wrap: anywhere;
-		font-size: 1rem;
+		font-size: var(--text-base);
 		font-weight: 600;
 		line-height: 1.35;
 		color: var(--text-primary);
@@ -1624,7 +1624,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-subtle));
 		background: color-mix(in srgb, var(--accent) 8%, var(--surface-page));
 		padding: 0.22rem 0.55rem;
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		font-weight: 500;
 		color: var(--text-secondary);
 	}
@@ -1638,7 +1638,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		background: var(--surface-page);
 		padding: 0.18rem 0.5rem 0.18rem 0.28rem;
 		font: inherit;
-		font-size: 0.76rem;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--text-secondary);
 		cursor: pointer;
@@ -1685,7 +1685,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 	.research-card__progress-ring--done {
 		background:
 			radial-gradient(circle at center, var(--surface-page) 48%, transparent 50%),
-			conic-gradient(#22c55e 100%, color-mix(in srgb, #22c55e 18%, var(--border-subtle)) 0);
+			conic-gradient(var(--success) 100%, color-mix(in srgb, var(--success) 18%, var(--border-subtle)) 0);
 	}
 
 	.research-card__progress-stage {
@@ -1700,7 +1700,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		border-radius: 8px;
 		background: var(--surface-page);
 		padding: var(--space-sm);
-		font-size: 0.8rem;
+		font-size: var(--text-xs);
 		line-height: 1.45;
 		color: var(--text-secondary);
 		animation: research-top-fade 140ms var(--ease-out);
@@ -1745,7 +1745,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--space-xs);
-		font-size: 0.84rem;
+		font-size: var(--text-sm);
 		color: var(--text-secondary);
 	}
 
@@ -1767,16 +1767,16 @@ async function submitPlanEdit(event: SubmitEvent) {
 	.research-card__status--working .research-card__status-dot,
 	.research-card__status--awaiting_plan .research-card__status-dot,
 	.research-card__status--needs_attention .research-card__status-dot {
-		background: #f97316;
+		background: var(--warning);
 		animation: research-pulse 1.4s ease-in-out infinite;
 	}
 
 	.research-card__status--completed .research-card__status-dot {
-		background: #22c55e;
+		background: var(--success);
 	}
 
 	.research-card__status--insufficient_evidence .research-card__status-dot {
-		background: #eab308;
+		background: var(--caution);
 	}
 
 	.research-card__status--cancelled .research-card__status-dot {
@@ -1790,7 +1790,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 	.research-card__cost {
 		border-left: 1px solid var(--border-subtle);
 		padding-left: var(--space-xs);
-		font-size: 0.8rem;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--text-secondary);
 	}
@@ -1822,13 +1822,13 @@ async function submitPlanEdit(event: SubmitEvent) {
 
 	.research-card__planning strong {
 		display: block;
-		font-size: 0.9rem;
+		font-size: var(--text-md);
 		color: var(--text-primary);
 	}
 
 	.research-card__planning p {
 		margin: 0.2rem 0 0;
-		font-size: 0.82rem;
+		font-size: var(--text-sm);
 		line-height: 1.45;
 		color: var(--text-muted);
 	}
@@ -1855,25 +1855,25 @@ async function submitPlanEdit(event: SubmitEvent) {
 	}
 
 	.research-card__notice--attention {
-		border-color: color-mix(in srgb, #f97316 36%, var(--border-subtle));
-		background: color-mix(in srgb, #f97316 8%, var(--surface-page));
+		border-color: color-mix(in srgb, var(--warning) 36%, var(--border-subtle));
+		background: color-mix(in srgb, var(--warning) 8%, var(--surface-page));
 	}
 
 	.research-card__notice--limited {
-		border-color: color-mix(in srgb, #22c55e 28%, var(--border-subtle));
-		background: color-mix(in srgb, #22c55e 7%, var(--surface-page));
+		border-color: color-mix(in srgb, var(--success) 28%, var(--border-subtle));
+		background: color-mix(in srgb, var(--success) 7%, var(--surface-page));
 	}
 
 	.research-card__notice h3,
 	.research-card__notice strong {
 		margin: 0;
-		font-size: 0.9rem;
+		font-size: var(--text-md);
 		color: var(--text-primary);
 	}
 
 	.research-card__notice p {
 		margin: 0;
-		font-size: 0.82rem;
+		font-size: var(--text-sm);
 		line-height: 1.45;
 		color: var(--text-muted);
 	}
@@ -1902,7 +1902,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		border-radius: 999px;
 		background: color-mix(in srgb, var(--accent) 8%, var(--surface-page));
 		color: var(--text-primary);
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		font-weight: 700;
 		padding: 0.3rem 0.65rem;
 		cursor: pointer;
@@ -1960,13 +1960,13 @@ async function submitPlanEdit(event: SubmitEvent) {
 	}
 
 	.research-card__timeline-item--completed .research-card__timeline-marker {
-		border-color: #22c55e;
-		background: #22c55e;
+		border-color: var(--success);
+		background: var(--success);
 	}
 
 	.research-card__timeline-item--active .research-card__timeline-marker {
-		border-color: #f97316;
-		background: #f97316;
+		border-color: var(--warning);
+		background: var(--warning);
 		animation: research-pulse 1.4s ease-in-out infinite;
 	}
 
@@ -1978,7 +1978,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 
 	.research-card__timeline-summary {
 		margin: 0;
-		font-size: 0.83rem;
+		font-size: var(--text-sm);
 		font-weight: 500;
 		line-height: 1.35;
 		color: var(--text-primary);
@@ -1996,7 +1996,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 
 	.research-card__timeline-event p {
 		margin: 0 0 0.35rem;
-		font-size: 0.8rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 	}
 
@@ -2004,13 +2004,13 @@ async function submitPlanEdit(event: SubmitEvent) {
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
-		font-size: 0.8rem;
+		font-size: var(--text-xs);
 		line-height: 1.45;
 		color: var(--text-secondary);
 	}
 
 	.research-card__memo-group strong {
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		color: var(--text-primary);
 	}
 
@@ -2042,9 +2042,9 @@ async function submitPlanEdit(event: SubmitEvent) {
 	}
 
 	.research-card__memo-action-button {
-		border: 1px solid var(--border-strong);
+		border: 1px solid var(--border-default);
 		border-radius: 6px;
-		background: var(--surface-card);
+		background: var(--surface-elevated);
 		padding: 0.34rem 0.52rem;
 		text-align: left;
 		font-weight: 600;
@@ -2055,7 +2055,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 	.research-card__memo-action-button:hover:not(:disabled) {
 		border-color: var(--accent);
 		color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 8%, var(--surface-card));
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated));
 	}
 
 	.research-card__memo-action-button:disabled {
@@ -2067,7 +2067,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.3rem;
-		font-size: 0.74rem;
+		font-size: var(--text-2xs);
 		color: var(--text-secondary);
 	}
 
@@ -2078,7 +2078,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 	}
 
 	.research-card__reviewed-sources {
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		line-height: 1.4;
 		color: var(--text-secondary);
 	}
@@ -2147,7 +2147,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		border-radius: 999px;
 		background: var(--surface-page);
 		padding: 0.08rem 0.36rem;
-		font-size: 0.7rem;
+		font-size: var(--text-2xs);
 		font-weight: 500;
 		color: var(--text-muted);
 	}
@@ -2159,7 +2159,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 	}
 
 	.research-card__timeline-notes {
-		font-size: 0.76rem;
+		font-size: var(--text-xs);
 		line-height: 1.4;
 		color: var(--text-secondary);
 	}
@@ -2188,13 +2188,13 @@ async function submitPlanEdit(event: SubmitEvent) {
 
 	.research-card__section-header h3 {
 		margin: 0;
-		font-size: 0.9rem;
+		font-size: var(--text-md);
 		font-weight: 600;
 		color: var(--text-primary);
 	}
 
 	.research-card__section-header span {
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		font-weight: 500;
 		color: var(--text-muted);
 	}
@@ -2203,7 +2203,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-sm);
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		color: var(--text-secondary);
 	}
 
@@ -2221,7 +2221,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 	.research-card__context,
 	.research-card__intent {
 		margin: 0;
-		font-size: 0.82rem;
+		font-size: var(--text-sm);
 		line-height: 1.45;
 		color: var(--text-secondary);
 	}
@@ -2237,7 +2237,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		background: var(--surface-page);
 		padding: var(--space-md);
 		overflow-wrap: anywhere;
-		font-size: 0.82rem;
+		font-size: var(--text-sm);
 		line-height: 1.5;
 		color: var(--text-secondary);
 	}
@@ -2256,7 +2256,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 
 	.research-card__plan-goal strong,
 	.research-card__plan-section strong {
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--text-primary);
 	}
@@ -2280,7 +2280,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 	}
 
 	.research-card__edit-label {
-		font-size: 0.78rem;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--text-primary);
 	}
@@ -2293,7 +2293,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		background: var(--surface-page);
 		padding: var(--space-sm);
 		font: inherit;
-		font-size: 0.84rem;
+		font-size: var(--text-sm);
 		line-height: 1.45;
 		color: var(--text-primary);
 	}
@@ -2322,7 +2322,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 
 	.research-card__error {
 		margin: 0;
-		font-size: 0.8rem;
+		font-size: var(--text-xs);
 		color: var(--danger);
 	}
 
@@ -2331,7 +2331,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 		border-radius: 7px;
 		background: var(--surface-page);
 		padding: 0.38rem 0.7rem;
-		font-size: 0.82rem;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--text-secondary);
 		cursor: pointer;
@@ -2345,7 +2345,7 @@ async function submitPlanEdit(event: SubmitEvent) {
 	.research-card__action--primary {
 		border-color: color-mix(in srgb, var(--accent) 48%, var(--border-subtle));
 		background: var(--accent);
-		color: var(--text-on-accent);
+		color: var(--accent-contrast);
 	}
 
 	@keyframes research-pulse {
@@ -2403,8 +2403,8 @@ async function submitPlanEdit(event: SubmitEvent) {
 	.research-card__action--primary:hover:not(:disabled),
 	.research-card__action--primary:focus-visible:not(:disabled) {
 		border-color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 88%, black);
-		color: var(--text-on-accent);
+		background: color-mix(in srgb, var(--accent) 88%, var(--text-primary));
+		color: var(--accent-contrast);
 	}
 
 	.research-card__cancel:hover:not(:disabled),
