@@ -1,7 +1,13 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<script lang="ts">
-import type { ArtifactSummary } from "$lib/types";
-import { FileText, X } from "@lucide/svelte";
+<script lang="ts" generics="T">
+import { X } from "@lucide/svelte";
+import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
+
+interface FileAttachmentData {
+	id: string;
+	name: string;
+	mimeType?: string | null;
+}
 
 let {
 	attachment,
@@ -12,14 +18,49 @@ let {
 	onRemove,
 	onView,
 }: {
-	attachment: ArtifactSummary;
+	attachment: T & FileAttachmentData;
 	removable?: boolean;
 	variant?: "compact" | "pending";
 	compact?: boolean;
 	viewable?: boolean;
 	onRemove?: (payload: { id: string }) => void;
-	onView?: (attachment: ArtifactSummary) => void;
+	onView?: (attachment: T & FileAttachmentData) => void;
 } = $props();
+
+function getFileType(mimeType: string | null, filename: string): string {
+	const mime = (mimeType ?? "").toLowerCase().trim();
+	const ext = (filename.split(".").pop() ?? "").toLowerCase();
+
+	// Image
+	if (mime.startsWith("image/") || ["png","jpg","jpeg","jfif","gif","bmp","tiff","tif","svg","webp","heic","heif","avif"].includes(ext)) {
+		return "image";
+	}
+	// PDF
+	if (mime === "application/pdf" || ext === "pdf") {
+		return "pdf";
+	}
+	// Spreadsheet
+	if (mime.includes("spreadsheet") || mime.includes("excel") || mime.includes("csv") || ["csv","xls","xlsx","ods"].includes(ext)) {
+		return "xlsx";
+	}
+	// Presentation
+	if (mime.includes("presentation") || ["ppt","pptx","odp"].includes(ext)) {
+		return "pptx";
+	}
+	// Code
+	if (mime.includes("code") || mime.includes("javascript") || mime.includes("typescript") || mime.includes("json") || mime.includes("xml") || mime.includes("html") || mime.includes("css") || ["js","ts","tsx","jsx","json","xml","html","htm","css","py","java","go","rs","sh","rb"].includes(ext)) {
+		return "code";
+	}
+	// Archive
+	if (mime.includes("zip") || mime.includes("compressed") || mime.includes("archive") || ["zip","rar","7z","tar","gz"].includes(ext)) {
+		return "archive";
+	}
+	// Text/Document
+	if (mime.includes("text/") || ["txt","md","rtf","log","odt","doc","docx"].includes(ext) || mime.includes("document") || mime.includes("word")) {
+		return "text";
+	}
+	return "unsupported";
+}
 
 function handleRemove() {
 	onRemove?.({ id: attachment.id });
@@ -51,7 +92,7 @@ function handleKeydown(event: KeyboardEvent) {
 	aria-label={viewable && onView ? `View ${attachment.name}` : undefined}
 >
 	<span class="file-icon">
-		<FileText size={16} strokeWidth={2} aria-hidden="true" />
+		<FileTypeIcon type={getFileType(attachment.mimeType ?? null, attachment.name)} size={16} />
 	</span>
 	<span class="filename">{attachment.name}</span>
 	{#if removable}

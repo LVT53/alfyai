@@ -21,6 +21,7 @@ import { tokenizeTextLinks } from "$lib/services/linkify";
 import { currentConversationId } from "$lib/stores/ui";
 import ContextUsageRing from "./ContextUsageRing.svelte";
 import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
+import FileAttachment from "./FileAttachment.svelte";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
 import LinkedSourceManager from "./LinkedSourceManager.svelte";
 import {
@@ -1589,39 +1590,35 @@ async function emitDraftChange(force = false) {
 			</div>
 		{/if}
 
-		{#if pendingAttachments.length > 0}
-			<ul class="linked-source-chips" aria-label={$t('linkedSources.chipsLabel')}>
-				{#each pendingAttachments as attachment (attachment.artifact.id)}
-					<li class="linked-source-chip">
-						<span>{attachment.artifact.name}</span>
-						<button
-							type="button"
-							aria-label={$t('linkedSources.removeA11y', { name: attachment.artifact.name })}
-							onclick={() => removePendingAttachment(attachment.artifact.id)}
-						>
-							<X size={14} strokeWidth={2} aria-hidden="true" />
-						</button>
-					</li>
-				{/each}
-			</ul>
-		{/if}
+	{#if pendingAttachments.length > 0}
+		<ul class="linked-source-chips" aria-label={$t('linkedSources.chipsLabel')}>
+			{#each pendingAttachments as attachment (attachment.artifact.id)}
+				<li>
+					<FileAttachment
+						attachment={attachment.artifact}
+						removable={true}
+						compact={true}
+						onRemove={() => removePendingAttachment(attachment.artifact.id)}
+					/>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 
-		{#if composerCommandRegistryEnabled && effectiveLinkedSources.length > 0}
-			<ul class="linked-source-chips" aria-label={$t('linkedSources.chipsLabel')}>
-				{#each effectiveLinkedSources as source (source.displayArtifactId)}
-					<li class="linked-source-chip">
-						<span>{source.name}</span>
-						<button
-							type="button"
-							aria-label={$t('linkedSources.removeA11y', { name: source.name })}
-							onclick={() => removeLinkedSource(source.displayArtifactId)}
-						>
-							<X size={14} strokeWidth={2} aria-hidden="true" />
-						</button>
-					</li>
-				{/each}
-			</ul>
-		{/if}
+	{#if composerCommandRegistryEnabled && effectiveLinkedSources.length > 0}
+		<ul class="linked-source-chips" aria-label={$t('linkedSources.chipsLabel')}>
+			{#each effectiveLinkedSources as source (source.displayArtifactId)}
+				<li>
+					<FileAttachment
+						attachment={{ id: source.displayArtifactId, name: source.name, mimeType: source.mimeType ?? null }}
+						removable={true}
+						compact={true}
+						onRemove={() => removeLinkedSource(source.displayArtifactId)}
+					/>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 
 		{#if composerCommandRegistryEnabled && pendingSkill}
 			<ul class="pending-skill-chips" aria-label={$t('pendingSkill.chipsLabel')}>
@@ -1927,54 +1924,6 @@ async function emitDraftChange(force = false) {
 		margin: 0;
 		padding: 0.25rem 1rem 0.5rem;
 		list-style: none;
-	}
-
-	.linked-source-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4rem;
-		min-width: 0;
-		max-width: 100%;
-		border: 1px solid color-mix(in srgb, var(--border-default) 82%, transparent 18%);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--surface-page) 74%, var(--accent) 4%);
-		padding: 0.25rem 0.35rem 0.25rem 0.65rem;
-		font-size: var(--text-xs);
-		color: var(--text-primary);
-	}
-
-	.linked-source-chip span:first-child {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.linked-source-chip button {
-		width: 1.3rem;
-		height: 1.3rem;
-		display: inline-grid;
-		place-items: center;
-		border: 0;
-		border-radius: 999px;
-		background: transparent;
-		color: var(--text-muted);
-		cursor: pointer;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out),
-			transform var(--duration-standard) var(--ease-out);
-	}
-
-	.linked-source-chip button:hover {
-		background: color-mix(in srgb, var(--border-default) 48%, transparent 52%);
-		color: var(--text-primary);
-		transform: translateY(-1px);
-	}
-
-	.linked-source-chip button:focus-visible {
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 40%, transparent 60%);
-		outline: none;
 	}
 
 	.pending-skill-chips {
