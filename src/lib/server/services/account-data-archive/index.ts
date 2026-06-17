@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname, resolve, sep } from "node:path";
+import { Readable } from "node:stream";
 import { and, asc, eq } from "drizzle-orm";
 import JSZip from "jszip";
 import { type DatabaseInstance, db as defaultDb } from "$lib/server/db";
@@ -25,7 +26,7 @@ export type AccountDataArchiveResult =
 	| {
 			status: "ok";
 			filename: string;
-			zipBytes: Buffer;
+			zipStream: ReadableStream<Uint8Array>;
 	  }
 	| { status: "not_found" }
 	| { status: "incorrect_password" };
@@ -151,12 +152,13 @@ export async function createAccountDataArchive(
 		usageEventCount: usageRows.length,
 	});
 
-	const zipBytes = await zip.generateAsync({
+	const nodeStream = zip.generateNodeStream({
 		type: "nodebuffer",
 		compression: "DEFLATE",
 		compressionOptions: { level: 6 },
 	});
-	return { status: "ok", filename, zipBytes };
+	const zipStream = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
+	return { status: "ok", filename, zipStream };
 }
 
 class ArchiveBuilder {
