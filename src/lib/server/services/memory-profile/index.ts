@@ -493,7 +493,7 @@ function createIdentityTextSanitizer(params: {
 		getHonchoUserPeerId(params.userId, 0),
 		getHonchoAssistantPeerId(params.userId, 0),
 	]);
-	const broadLegacyPeerIdPattern = /\b[UA]-[A-Za-z0-9_-]{8,}\b/g;
+	const broadLegacyPeerIdPattern = /\b[UuAa][_-][A-Za-z0-9_-]{8,}\b/g;
 
 	return (text: string) => {
 		let sanitized = text.trim();

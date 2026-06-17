@@ -322,6 +322,12 @@ describe("KnowledgeMemoryView", () => {
 		);
 
 		const dialog = screen.getByRole("dialog", { name: "Memory item" });
+		expect(
+			within(dialog).queryByRole("button", { name: "Do not remember" }),
+		).not.toBeInTheDocument();
+		expect(
+			within(dialog).getByRole("button", { name: "Cancel editing" }),
+		).toBeInTheDocument();
 		const textarea = within(dialog).getByLabelText("Statement");
 		await fireEvent.input(textarea, {
 			target: {

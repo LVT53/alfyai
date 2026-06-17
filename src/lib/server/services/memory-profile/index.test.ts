@@ -186,12 +186,24 @@ describe("memory profile foundation", () => {
 					"U-86dc59c7f2 prefers memory profile wording without raw ids.",
 			},
 		});
+		await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement:
+				"U_86dc59c07f598be7de4c127cbf0da318 prefers cards without raw Honcho ids.",
+		});
 
 		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
 		const serialized = JSON.stringify(profile);
+		const preferenceStatements =
+			profile.categories[1]?.items.map((item) => item.statement) ?? [];
 
-		expect(profile.categories[1]?.items[0]?.statement).toBe(
-			"Memory Profile User prefers concise answers from Memory Profile User.",
+		expect(preferenceStatements).toEqual(
+			expect.arrayContaining([
+				"Memory Profile User prefers concise answers from Memory Profile User.",
+				"Memory Profile User prefers cards without raw Honcho ids.",
+			]),
 		);
 		expect(profile.review.visibleItems[0]?.subject).toBe(
 			"Memory Profile User prefers memory profile wording without raw ids.",
@@ -199,6 +211,7 @@ describe("memory profile foundation", () => {
 		expect(serialized).not.toContain(userPeerId);
 		expect(serialized).not.toContain(assistantPeerId);
 		expect(serialized).not.toContain("U-86dc59c7f2");
+		expect(serialized).not.toContain("U_86dc59c07f598be7de4c127cbf0da318");
 	});
 
 	it("keeps one active profile item for duplicate creates with the same stable item key", async () => {

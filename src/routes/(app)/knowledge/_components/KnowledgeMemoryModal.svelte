@@ -4,7 +4,7 @@ import type {
 	MemoryProfileActionPayload,
 	MemoryProfilePublicItem,
 } from "$lib/types";
-import { Check, Loader, Save, Trash2, X } from "@lucide/svelte";
+import { Check, Loader, Save, Trash2, Undo2, X } from "@lucide/svelte";
 
 type OptionalItemDetail = MemoryProfilePublicItem & {
 	reason?: string | null;
@@ -36,10 +36,8 @@ let previousFocus: HTMLElement | null = null;
 
 let actionKey = $derived(`${item.id}:edit`);
 let deleteKey = $derived(`${item.id}:delete`);
-let suppressKey = $derived(`${item.id}:suppress`);
 let isSaving = $derived(pendingActionKey === actionKey);
 let isDeleting = $derived(pendingActionKey === deleteKey);
-let isSuppressing = $derived(pendingActionKey === suppressKey);
 let trimmedStatement = $derived(statement.trim());
 let canSave = $derived(
 	trimmedStatement.length > 0 && trimmedStatement !== item.statement,
@@ -66,15 +64,6 @@ function submitDelete() {
 	if (isDeleting) return;
 	void onAction({
 		action: "delete",
-		itemId: item.id,
-		expectedProjectionRevision: projectionRevision,
-	});
-}
-
-function submitSuppress() {
-	if (isSuppressing) return;
-	void onAction({
-		action: "suppress",
 		itemId: item.id,
 		expectedProjectionRevision: projectionRevision,
 	});
@@ -214,24 +203,8 @@ onDestroy(() => {
 					aria-label="Cancel editing"
 					title="Cancel"
 				>
-					<X size={18} strokeWidth={2.1} aria-hidden="true" />
+					<Undo2 size={18} strokeWidth={2.1} aria-hidden="true" />
 				</button>
-				{#if item.canSuppress}
-					<button
-						type="button"
-						class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-						onclick={submitSuppress}
-						disabled={isSuppressing}
-						aria-label="Do not remember"
-						title="Do not remember"
-					>
-						{#if isSuppressing}
-							<Loader size={18} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
-						{:else}
-							<X size={18} strokeWidth={2.1} aria-hidden="true" />
-						{/if}
-					</button>
-				{/if}
 				{#if item.canDelete}
 					<button
 						type="button"
