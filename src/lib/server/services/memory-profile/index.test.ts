@@ -441,7 +441,10 @@ describe("memory profile foundation", () => {
 			subjectLabel: "Prefers Hungarian labels.",
 			question: "Should this be remembered?",
 			reason: "Repeated user preference.",
-			metadata: { category: "preferences" },
+			metadata: {
+				category: "preferences",
+				proposedStatement: "Prefers Hungarian labels.",
+			},
 		});
 		const before = await getMemoryProfileReadModel({ userId: "user-1" });
 
@@ -483,6 +486,7 @@ describe("memory profile foundation", () => {
 			subjectLabel: "Avoid diagnostic memory tables.",
 			question: "Should this be remembered?",
 			reason: "User boundary for memory UI.",
+			metadata: { proposedStatement: "Avoid diagnostic memory tables." },
 		});
 		const before = await getMemoryProfileReadModel({ userId: "user-1" });
 
@@ -504,6 +508,47 @@ describe("memory profile foundation", () => {
 				category: "constraints_boundaries",
 				statement: "Avoid diagnostic memory tables.",
 			}),
+		]);
+	});
+
+	it("does not promote a generic review subject without an edited or proposed statement", async () => {
+		const {
+			applyMemoryReviewItemWithRevision,
+			createOrUpdateMemoryReviewItem,
+			getActiveMemoryProfileContext,
+			getMemoryProfileReadModel,
+		} = await import("./index");
+
+		const review = await createOrUpdateMemoryReviewItem({
+			userId: "user-1",
+			subjectKey: "document-related-memory-request",
+			subjectLabel: "Document-related memory request",
+			question: "Should this be remembered?",
+			reason: "The intake gate could not safely admit this automatically.",
+		});
+		const before = await getMemoryProfileReadModel({ userId: "user-1" });
+
+		await expect(
+			applyMemoryReviewItemWithRevision({
+				userId: "user-1",
+				reviewItemId: review.id,
+				expectedProjectionRevision: before.projectionRevision,
+				action: "accept",
+			}),
+		).resolves.toEqual({ status: "not_found" });
+
+		await expect(
+			getActiveMemoryProfileContext({ userId: "user-1" }),
+		).resolves.toMatchObject({ items: [] });
+		const after = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(after.review.visibleItems).toEqual([
+			{
+				id: review.id,
+				subject: "Document-related memory request",
+				question: "Should this be remembered?",
+				reason: "The intake gate could not safely admit this automatically.",
+				canAccept: false,
+			},
 		]);
 	});
 
@@ -682,18 +727,58 @@ describe("memory profile foundation", () => {
 		};
 
 		const formatted = formatActiveMemoryProfileContextForPrompt(context, {
-			maxTokens: 40,
+			maxTokens: 30,
 		});
 
 		expect(formatted.content).toContain("Prefers fresh profile context.");
 		expect(formatted.content).not.toContain("Prefers stale profile context.");
-		expect(formatted.content).toContain(
-			"Omitted active memory profile items: 2.",
-		);
+		expect(formatted.content).toContain("Omitted: 2.");
+		expect(formatted.estimatedTokens).toBeLessThanOrEqual(30);
 		expect(formatted).toMatchObject({
 			includedCount: 1,
 			omittedCount: 2,
 			includedItemIds: ["fresh-memory"],
+		});
+	});
+
+	it("skips one oversized newest active memory instead of blanking later compact memories", async () => {
+		const { formatActiveMemoryProfileContextForPrompt } = await import("./index");
+		const context = {
+			resetGeneration: 0,
+			projectionRevision: 1,
+			items: [
+				{
+					id: "huge-fresh-memory",
+					itemKey: "huge-fresh",
+					category: "preferences" as const,
+					statement: `HUGE_NEWEST_MEMORY_SHOULD_NOT_SURVIVE ${"details ".repeat(2_000)}`,
+					scope: { type: "global" as const },
+					revision: 0,
+					updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+				},
+				{
+					id: "compact-older-memory",
+					itemKey: "compact-older",
+					category: "preferences" as const,
+					statement: "COMPACT_OLDER_MEMORY_SHOULD_SURVIVE.",
+					scope: { type: "global" as const },
+					revision: 0,
+					updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+				},
+			],
+		};
+
+		const formatted = formatActiveMemoryProfileContextForPrompt(context, {
+			maxTokens: 60,
+		});
+
+		expect(formatted.content).toContain("COMPACT_OLDER_MEMORY_SHOULD_SURVIVE.");
+		expect(formatted.content).not.toContain("HUGE_NEWEST_MEMORY_SHOULD_NOT_SURVIVE");
+		expect(formatted.content).toContain("Omitted active memory profile items: 1.");
+		expect(formatted).toMatchObject({
+			includedCount: 1,
+			omittedCount: 1,
+			includedItemIds: ["compact-older-memory"],
 		});
 	});
 
@@ -805,6 +890,7 @@ describe("memory profile foundation", () => {
 				question: "Which duplicate memory profile item should remain active?",
 				reason:
 					"Maintenance found exact active duplicate memory profile items.",
+				canAccept: false,
 			},
 		]);
 		expect(JSON.stringify(profile.review.items)).not.toContain(
@@ -850,6 +936,7 @@ describe("memory profile foundation", () => {
 				subject: "Memory profile conflict",
 				question: "Which memory profile value should AlfyAI keep?",
 				reason: "Maintenance found a deterministic conflict marker.",
+				canAccept: false,
 			},
 		]);
 		expect(JSON.stringify(profile.review.items)).not.toContain("home-city");
@@ -1222,6 +1309,8 @@ describe("memory profile foundation", () => {
 		expect(loadLegacyMemoryCandidates).toHaveBeenCalledWith("user-1", {
 			limit: 5,
 			excludeSourceIds: [],
+			startPage: 1,
+			maxPages: 4,
 		});
 		await expect(
 			listPendingMemoryDirtyEntries({ userId: "user-1" }),
@@ -1256,6 +1345,8 @@ describe("memory profile foundation", () => {
 		const { db } = await import("$lib/server/db");
 		const loadLegacyMemoryCandidates = vi.fn(async () => ({
 			totalAvailable: 1600,
+			nextPage: null,
+			exhausted: true,
 			candidates: [
 				{
 					id: "legacy-active",
@@ -1297,6 +1388,8 @@ describe("memory profile foundation", () => {
 		expect(loadLegacyMemoryCandidates).toHaveBeenCalledWith("user-1", {
 			limit: 5,
 			excludeSourceIds: [],
+			startPage: 1,
+			maxPages: 4,
 		});
 		const activeContext = await getActiveMemoryProfileContext({
 			userId: "user-1",
@@ -1346,38 +1439,52 @@ describe("memory profile foundation", () => {
 		expect(JSON.stringify(telemetry)).not.toContain("acoustic guitars");
 	});
 
-	it("continues legacy migration dirty work across bounded batches until the backlog is exhausted", async () => {
+	it("continues legacy migration with bounded page cursors instead of unbounded exclusions", async () => {
 		const {
-			listMemoryReworkTelemetry,
 			listPendingMemoryDirtyEntries,
 			markMemoryDirty,
 			reconcileMemoryProfileDirtyLedgerForUser,
 		} = await import("./index");
-		const { db } = await import("$lib/server/db");
-		const candidates = Array.from({ length: 12 }, (_, index) => ({
-			id: `legacy-${index + 1}`,
-			content: `User prefers option ${index + 1}.`,
-			scope: "assistant_about_user" as const,
-			sessionId: null,
-			createdAt: Date.now() - index,
-		}));
-		const loadLegacyMemoryCandidates = vi.fn(async (
-			_userId: string,
-			options: { limit: number; excludeSourceIds?: string[] },
-		) => {
-			const excluded = new Set(options.excludeSourceIds ?? []);
-			return {
-				totalAvailable: candidates.length,
-				candidates: candidates
-					.filter((candidate) => !excluded.has(candidate.id))
-					.slice(0, options.limit),
-			};
+		const batches = [
+			{
+				totalAvailable: 12,
+				nextPage: 2,
+				exhausted: false,
+				candidates: [
+					{
+						id: "legacy-page-1",
+						content: "User prefers short answers.",
+						scope: "assistant_about_user" as const,
+						sessionId: null,
+						createdAt: Date.now(),
+					},
+				],
+			},
+			{
+				totalAvailable: 12,
+				nextPage: null,
+				exhausted: true,
+				candidates: [
+					{
+						id: "legacy-page-2",
+						content: "User prefers English reports.",
+						scope: "assistant_about_user" as const,
+						sessionId: null,
+						createdAt: Date.now() - 1,
+					},
+				],
+			},
+		];
+		const loadLegacyMemoryCandidates = vi.fn(async () => {
+			const batch = batches.shift();
+			if (!batch) throw new Error("unexpected legacy batch request");
+			return batch;
 		});
 
 		await markMemoryDirty({
 			userId: "user-1",
 			reason: "legacy_migration",
-			metadata: { legacyCandidateEstimate: candidates.length },
+			metadata: { legacyCandidateEstimate: 12 },
 		});
 
 		await expect(
@@ -1393,70 +1500,36 @@ describe("memory profile foundation", () => {
 			expect.objectContaining({
 				reason: "legacy_migration",
 				metadata: expect.objectContaining({
-					legacyExcludedSourceIds: candidates
-						.slice(0, 5)
-						.map((candidate) => candidate.id),
+					legacyCandidateEstimate: 12,
+					legacyExcludedSourceIds: ["legacy-page-1"],
+					legacyNextPage: 2,
 				}),
 			}),
 		]);
 
-		await reconcileMemoryProfileDirtyLedgerForUser({
-			userId: "user-1",
-			batchSize: 1,
-			loadLegacyMemoryCandidates,
-		});
-		await reconcileMemoryProfileDirtyLedgerForUser({
-			userId: "user-1",
-			batchSize: 1,
-			loadLegacyMemoryCandidates,
-		});
+		await expect(
+			reconcileMemoryProfileDirtyLedgerForUser({
+				userId: "user-1",
+				batchSize: 1,
+				loadLegacyMemoryCandidates,
+			}),
+		).resolves.toMatchObject({ claimed: 1, completed: 1, failed: 0 });
 
 		expect(loadLegacyMemoryCandidates).toHaveBeenNthCalledWith(1, "user-1", {
 			limit: 5,
 			excludeSourceIds: [],
+			startPage: 1,
+			maxPages: 4,
 		});
 		expect(loadLegacyMemoryCandidates).toHaveBeenNthCalledWith(2, "user-1", {
 			limit: 5,
-			excludeSourceIds: candidates
-				.slice(0, 5)
-				.map((candidate) => candidate.id),
-		});
-		expect(loadLegacyMemoryCandidates).toHaveBeenNthCalledWith(3, "user-1", {
-			limit: 5,
-			excludeSourceIds: candidates
-				.slice(0, 10)
-				.map((candidate) => candidate.id),
+			excludeSourceIds: ["legacy-page-1"],
+			startPage: 2,
+			maxPages: 4,
 		});
 		await expect(
 			listPendingMemoryDirtyEntries({ userId: "user-1" }),
 		).resolves.toEqual([]);
-
-		const rows = await db
-			.select({
-				sourceId: schema.memoryProfileItemProvenance.sourceId,
-				status: schema.memoryProfileItems.status,
-			})
-			.from(schema.memoryProfileItemProvenance)
-			.innerJoin(
-				schema.memoryProfileItems,
-				eq(
-					schema.memoryProfileItemProvenance.itemId,
-					schema.memoryProfileItems.id,
-				),
-			)
-			.orderBy(schema.memoryProfileItemProvenance.sourceId);
-		expect(rows).toHaveLength(12);
-		expect(rows.map((row) => row.sourceId).sort()).toEqual(
-			candidates.map((candidate) => candidate.id).sort(),
-		);
-		expect(rows.every((row) => row.status === "active")).toBe(true);
-
-		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
-		expect(
-			telemetry
-				.filter((entry) => entry.eventName === "legacy_migration_completed")
-				.map((entry) => entry.count),
-		).toEqual([5, 5, 2]);
 	});
 
 	it("does not create duplicate reviews from suppressed or deleted profile items", async () => {

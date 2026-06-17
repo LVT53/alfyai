@@ -77,6 +77,7 @@ const memoryPayload = {
 				subject: "preferred language",
 				question: "Which language should be remembered?",
 				reason: "Conflicting evidence.",
+				canAccept: true,
 			},
 		],
 		openCount: 4,

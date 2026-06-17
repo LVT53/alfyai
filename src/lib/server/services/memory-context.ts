@@ -143,7 +143,7 @@ const PROJECT_REPORT_QUERY_RE =
 const PROJECT_FOLDER_QUERY_RE =
 	/\b(project folder|folder|project|workspace|content from|content of|memory)\b|(?:projektmappa|projekt[\p{L}]*|mappa|munkaterület|munkaterulet|memória|memoria|korábbi\s+beszélgetések|korabbi\s+beszelgetesek|kapcsolódó\s+beszélgetések|kapcsolodo\s+beszelgetesek)/iu;
 const PERSONA_HISTORY_EVIDENCE_QUERY_RE =
-	/\b(history|historical|source|sources|evidence|why do you remember|where did you get|what did i say|previously|earlier|past memory|old memory|deleted|suppressed)\b|(?:történet|tortenet|korábbi|korabbi|előző|elozo|forrás|forras|bizonyíték|bizonyitek|miért\s+emlékszel|miert\s+emlekszel|honnan\s+tudod)/iu;
+	/\b(source|sources|evidence|why do you remember|where did you get|past memory|old memory|deleted|suppressed)\b|(?:forrás|forras|bizonyíték|bizonyitek|miért\s+emlékszel|miert\s+emlekszel|honnan\s+tudod|törölt|torolt|elnyomott)/iu;
 const HISTORY_QUERY_STOPWORDS = new Set([
 	"a",
 	"about",

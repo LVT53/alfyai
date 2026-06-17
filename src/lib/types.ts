@@ -1985,6 +1985,7 @@ export interface MemoryProfileReviewItem {
 	subject: string;
 	question: string;
 	reason: string;
+	canAccept: boolean;
 }
 
 export interface MemoryProfilePublicPayload {

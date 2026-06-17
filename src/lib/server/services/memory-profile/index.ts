@@ -112,12 +112,14 @@ export type MemoryProfileReadModel = {
 			subject: string;
 			question: string;
 			reason: string;
+			canAccept: boolean;
 		}>;
 		visibleItems: Array<{
 			id: string;
 			subject: string;
 			question: string;
 			reason: string;
+			canAccept: boolean;
 		}>;
 		openCount: number;
 		overflowCount: number;
@@ -156,7 +158,12 @@ export type MemoryDirtyLedgerReconciliationResult = {
 
 export type LegacyMemoryCandidateLoader = (
 	userId: string,
-	options: { limit: number; excludeSourceIds?: string[] },
+	options: {
+		limit: number;
+		excludeSourceIds?: string[];
+		startPage?: number;
+		maxPages?: number;
+	},
 ) => Promise<LegacyPersonaMemoryCandidateBatch>;
 
 type JsonRecord = Record<string, unknown>;
@@ -303,6 +310,12 @@ function readSafeString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function readSafePositiveInteger(value: unknown): number | null {
+	if (typeof value !== "number" || !Number.isFinite(value)) return null;
+	const integer = Math.floor(value);
+	return integer > 0 ? integer : null;
+}
+
 function stableMemoryMaintenanceDigest(value: string): string {
 	return createHash("sha256").update(value).digest("hex").slice(0, 24);
 }
@@ -345,34 +358,41 @@ export function formatActiveMemoryProfileContextForPrompt(
 		const line = formatActiveMemoryProfileItem(item);
 		const candidateLines = [...lines, line];
 		const remainingIfIncluded = orderedItems.length - includedItemIds.length - 1;
-		const candidateWithOmitted =
-			remainingIfIncluded > 0
-				? [...candidateLines, omittedActiveMemoryProfileLine(remainingIfIncluded)]
-				: candidateLines;
-		if (estimateTokenCount(candidateWithOmitted.join("\n")) > maxTokens) {
-			omittedCount = orderedItems.length - includedItemIds.length;
-			break;
+		let candidateFits = estimateTokenCount(candidateLines.join("\n")) <= maxTokens;
+		if (candidateFits && remainingIfIncluded > 0) {
+			const omittedLine = omittedActiveMemoryProfileLine(remainingIfIncluded);
+			const fullCandidate = [...candidateLines, omittedLine].join("\n");
+			const compactCandidate = [
+				...candidateLines,
+				`Omitted: ${remainingIfIncluded}.`,
+			].join("\n");
+			candidateFits =
+				estimateTokenCount(fullCandidate) <= maxTokens ||
+				estimateTokenCount(compactCandidate) <= maxTokens;
+		}
+		if (!candidateFits) {
+			omittedCount += 1;
+			continue;
 		}
 		lines.push(line);
 		includedItemIds.push(item.id);
 	}
 
 	if (omittedCount > 0) {
-		while (lines.length > 0) {
-			const candidate = [...lines, omittedActiveMemoryProfileLine(omittedCount)];
-			if (estimateTokenCount(candidate.join("\n")) <= maxTokens) break;
-			lines.pop();
-			includedItemIds.pop();
-			omittedCount += 1;
-		}
 		const omittedLine = omittedActiveMemoryProfileLine(omittedCount);
-		if (estimateTokenCount(omittedLine) <= maxTokens) {
+		const compactOmittedLine = `Omitted: ${omittedCount}.`;
+		if (estimateTokenCount([...lines, omittedLine].join("\n")) <= maxTokens) {
 			lines.push(omittedLine);
-		} else {
-			const compactOmittedLine = `Omitted: ${omittedCount}.`;
-			if (estimateTokenCount(compactOmittedLine) <= maxTokens) {
-				lines.push(compactOmittedLine);
-			}
+		} else if (
+			estimateTokenCount([...lines, compactOmittedLine].join("\n")) <= maxTokens
+		) {
+			lines.push(compactOmittedLine);
+		} else if (lines.length === 0) {
+			lines.push(
+				estimateTokenCount(omittedLine) <= maxTokens
+					? omittedLine
+					: compactOmittedLine,
+			);
 		}
 	}
 
@@ -413,6 +433,23 @@ function inferReviewCategory(params: {
 		return "preferences";
 	}
 	return "about_you";
+}
+
+function readReviewProposedStatement(metadata: JsonRecord): string | null {
+	const proposedStatement = metadata.proposedStatement;
+	if (typeof proposedStatement !== "string") return null;
+	const trimmed = proposedStatement.trim();
+	return trimmed.length > 0 ? trimmed : null;
+}
+
+function toPublicReviewItem(row: typeof memoryReviewItems.$inferSelect) {
+	return {
+		id: row.id,
+		subject: row.subjectLabel,
+		question: row.question,
+		reason: row.reason,
+		canAccept: readReviewProposedStatement(parseJsonRecord(row.metadataJson)) !== null,
+	};
 }
 
 function assertPrivacySafeMetadata(metadata: JsonRecord | undefined): void {
@@ -784,18 +821,8 @@ export async function getMemoryProfileReadModel(params: {
 			),
 		)
 		.orderBy(asc(memoryReviewItems.updatedAt));
-	const visibleReviews = reviewRows.slice(0, 3).map((row) => ({
-		id: row.id,
-		subject: row.subjectLabel,
-		question: row.question,
-		reason: row.reason,
-	}));
-	const allReviews = reviewRows.map((row) => ({
-		id: row.id,
-		subject: row.subjectLabel,
-		question: row.question,
-		reason: row.reason,
-	}));
+	const visibleReviews = reviewRows.slice(0, 3).map(toPublicReviewItem);
+	const allReviews = reviewRows.map(toPublicReviewItem);
 
 	return {
 		resetGeneration,
@@ -1164,11 +1191,13 @@ export async function applyMemoryReviewItemWithRevision(params: {
 	if (!review) return { status: "not_found" };
 
 	const metadata = parseJsonRecord(review.metadataJson);
+	const proposedStatement = readReviewProposedStatement(metadata);
+	const candidateStatement = params.statement ?? proposedStatement ?? "";
 	const category =
 		params.action === "dismiss"
 			? null
 			: inferReviewCategory({
-					subject: review.subjectLabel,
+					subject: candidateStatement || review.subjectLabel,
 					question: review.question,
 					reason: review.reason,
 					metadata,
@@ -1176,7 +1205,7 @@ export async function applyMemoryReviewItemWithRevision(params: {
 	const statement =
 		params.action === "dismiss"
 			? null
-			: (params.statement ?? review.subjectLabel).trim();
+			: candidateStatement.trim();
 	if (params.action !== "dismiss" && !statement) {
 		return { status: "not_found" };
 	}
@@ -1320,22 +1349,27 @@ export async function markMemoryDirty(params: {
 	});
 	const scope = toScopeColumns(params.scope ?? { type: "global" });
 	const now = new Date();
-	const [existing] = await db
-		.select()
-		.from(memoryDirtyLedger)
-		.where(
-			and(
-				eq(memoryDirtyLedger.userId, params.userId),
-				eq(memoryDirtyLedger.resetGeneration, resetGeneration),
-				eq(memoryDirtyLedger.scopeType, scope.scopeType),
-				eq(memoryDirtyLedger.scopeId, scope.scopeId),
-				eq(memoryDirtyLedger.reason, params.reason),
-				eq(memoryDirtyLedger.status, "pending"),
-			),
-		)
-		.limit(1);
+	const updateExistingPending = async (): Promise<{
+		id: string;
+		reason: MemoryDirtyReason;
+		count: number;
+	} | null> => {
+		const [existing] = await db
+			.select()
+			.from(memoryDirtyLedger)
+			.where(
+				and(
+					eq(memoryDirtyLedger.userId, params.userId),
+					eq(memoryDirtyLedger.resetGeneration, resetGeneration),
+					eq(memoryDirtyLedger.scopeType, scope.scopeType),
+					eq(memoryDirtyLedger.scopeId, scope.scopeId),
+					eq(memoryDirtyLedger.reason, params.reason),
+					eq(memoryDirtyLedger.status, "pending"),
+				),
+			)
+			.limit(1);
 
-	if (existing) {
+		if (!existing) return null;
 		const metadata = {
 			...parseJsonRecord(existing.reasonMetadataJson),
 			...(params.metadata ?? {}),
@@ -1354,23 +1388,40 @@ export async function markMemoryDirty(params: {
 			reason: params.reason,
 			count: existing.count + 1,
 		};
-	}
+	};
+
+	const existingResult = await updateExistingPending();
+	if (existingResult) return existingResult;
 
 	const id = randomUUID();
-	await db
-		.insert(memoryDirtyLedger)
-		.values({
-			id,
-			userId: params.userId,
-			resetGeneration,
-			scopeType: scope.scopeType,
-			scopeId: scope.scopeId,
-			reason: params.reason,
-			reasonMetadataJson: JSON.stringify(params.metadata ?? {}),
-			firstMarkedAt: now,
-			lastMarkedAt: now,
-		})
-		.run();
+	try {
+		await db
+			.insert(memoryDirtyLedger)
+			.values({
+				id,
+				userId: params.userId,
+				resetGeneration,
+				scopeType: scope.scopeType,
+				scopeId: scope.scopeId,
+				reason: params.reason,
+				reasonMetadataJson: JSON.stringify(params.metadata ?? {}),
+				firstMarkedAt: now,
+				lastMarkedAt: now,
+			})
+			.run();
+	} catch (error) {
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"code" in error &&
+			typeof error.code === "string" &&
+			error.code.startsWith("SQLITE_CONSTRAINT")
+		) {
+			const retried = await updateExistingPending();
+			if (retried) return retried;
+		}
+		throw error;
+	}
 	return { id, reason: params.reason, count: 1 };
 }
 
@@ -1414,6 +1465,7 @@ const DEFAULT_MEMORY_DIRTY_LEDGER_BATCH_SIZE = 25;
 const DEFAULT_MEMORY_DIRTY_LEDGER_MAX_RUNTIME_MS = 1500;
 const DEFAULT_MEMORY_DIRTY_LEDGER_STALE_CLAIM_MS = 5 * 60 * 1000;
 const LEGACY_DIRTY_LEDGER_CANDIDATE_LIMIT = 5;
+const LEGACY_DIRTY_LEDGER_MAX_PAGES = 4;
 
 type ClaimedDirtyLedgerRow = typeof memoryDirtyLedger.$inferSelect;
 
@@ -1715,12 +1767,16 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 		const excludedSourceIds = readSafeStringArray(
 			metadata.legacyExcludedSourceIds,
 		);
+		const legacyStartPage =
+			readSafePositiveInteger(metadata.legacyNextPage) ?? 1;
 		let legacyBatch: LegacyPersonaMemoryCandidateBatch | undefined;
 		if (params.loadLegacyMemoryCandidates) {
 			try {
 				legacyBatch = await params.loadLegacyMemoryCandidates(params.userId, {
 					limit: LEGACY_DIRTY_LEDGER_CANDIDATE_LIMIT,
 					excludeSourceIds: excludedSourceIds,
+					startPage: legacyStartPage,
+					maxPages: LEGACY_DIRTY_LEDGER_MAX_PAGES,
 				});
 			} catch {
 				legacyBatch = undefined;
@@ -1730,6 +1786,7 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 			userId: params.userId,
 			batchSize: LEGACY_DIRTY_LEDGER_CANDIDATE_LIMIT,
 			legacyBatch,
+			startedResetGeneration: params.row.resetGeneration,
 		});
 		if (migration.status === "unavailable") {
 			await recordMemoryReworkTelemetry({
@@ -1754,16 +1811,18 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 		);
 		if (
 			migration.status === "completed" &&
-			inspectedSourceIds.length > 0 &&
-			nextExcludedSourceIds.length < migration.totalAvailable
+			legacyBatch?.exhausted === false &&
+			legacyBatch.nextPage
 		) {
 			await markMemoryDirty({
 				userId: params.userId,
 				reason: "legacy_migration",
 				metadata: {
 					legacyCandidateEstimate: migration.totalAvailable,
-					legacyExcludedSourceIds: nextExcludedSourceIds,
+					legacyExcludedSourceIds: nextExcludedSourceIds.slice(-25),
+					legacyNextPage: legacyBatch.nextPage,
 				},
+				expectedResetGeneration: params.row.resetGeneration,
 			});
 		}
 		return;

@@ -53,7 +53,9 @@ let {
 	memoryLoadError: string;
 	pendingActionKey: string | null;
 	onRetryLoadMemory: () => void | Promise<void>;
-	onAction: (payload: MemoryProfileActionPayload) => void | Promise<void>;
+	onAction: (
+		payload: MemoryProfileActionPayload,
+	) => boolean | void | Promise<boolean | void>;
 } = $props();
 
 let selectedItem = $state<MemoryProfilePublicItem | null>(null);
@@ -109,6 +111,7 @@ function submitAction(item: MemoryProfilePublicItem, action: "delete" | "suppres
 }
 
 function useReviewItem(item: MemoryProfileReviewItem) {
+	if (!item.canAccept) return;
 	void onAction({
 		target: "review_item",
 		action: "accept",
@@ -118,6 +121,7 @@ function useReviewItem(item: MemoryProfileReviewItem) {
 }
 
 function openReviewEditor(item: MemoryProfileReviewItem) {
+	reviewOverflowOpen = false;
 	editingReviewItem = item;
 	reviewStatement = item.subject;
 }
@@ -131,17 +135,18 @@ function closeReviewEditor() {
 	reviewStatement = "";
 }
 
-function submitReviewEdit() {
+async function submitReviewEdit() {
 	if (!editingReviewItem) return;
 	const statement = reviewStatement.trim();
 	if (!statement) return;
-	void onAction({
+	const success = await onAction({
 		target: "review_item",
 		action: "edit",
 		itemId: editingReviewItem.id,
 		statement,
 		expectedProjectionRevision: profile?.projectionRevision ?? 0,
 	});
+	if (success === false) return;
 	closeReviewEditor();
 }
 
@@ -297,20 +302,22 @@ $effect(() => {
 								{/if}
 							</div>
 							<div class="flex shrink-0 items-center gap-1">
-								<button
-									type="button"
-									class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-									onclick={() => useReviewItem(item)}
-									disabled={pendingActionKey === actionKey(item.id, "accept")}
-									aria-label="Remember this item"
-									title="Remember"
-								>
-									{#if pendingActionKey === actionKey(item.id, "accept")}
-										<Loader size={17} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
-									{:else}
-										<Check size={17} strokeWidth={2.1} aria-hidden="true" />
-									{/if}
-								</button>
+								{#if item.canAccept}
+									<button
+										type="button"
+										class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+										onclick={() => useReviewItem(item)}
+										disabled={pendingActionKey === actionKey(item.id, "accept")}
+										aria-label="Remember this item"
+										title="Remember"
+									>
+										{#if pendingActionKey === actionKey(item.id, "accept")}
+											<Loader size={17} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
+										{:else}
+											<Check size={17} strokeWidth={2.1} aria-hidden="true" />
+										{/if}
+									</button>
+								{/if}
 								<button
 									type="button"
 									class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
@@ -423,7 +430,8 @@ $effect(() => {
 		{pendingActionKey}
 		onClose={() => (selectedItem = null)}
 		onAction={async (payload) => {
-			await onAction(payload);
+			const success = await onAction(payload);
+			if (success === false) return;
 			selectedItem = null;
 		}}
 	/>
@@ -473,20 +481,22 @@ $effect(() => {
 								{/if}
 							</div>
 							<div class="flex shrink-0 items-center gap-1">
-								<button
-									type="button"
-									class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-									onclick={() => useReviewItem(item)}
-									disabled={pendingActionKey === actionKey(item.id, "accept")}
-									aria-label="Remember this item"
-									title="Remember"
-								>
-									{#if pendingActionKey === actionKey(item.id, "accept")}
-										<Loader size={17} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
-									{:else}
-										<Check size={17} strokeWidth={2.1} aria-hidden="true" />
-									{/if}
-								</button>
+								{#if item.canAccept}
+									<button
+										type="button"
+										class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+										onclick={() => useReviewItem(item)}
+										disabled={pendingActionKey === actionKey(item.id, "accept")}
+										aria-label="Remember this item"
+										title="Remember"
+									>
+										{#if pendingActionKey === actionKey(item.id, "accept")}
+											<Loader size={17} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
+										{:else}
+											<Check size={17} strokeWidth={2.1} aria-hidden="true" />
+										{/if}
+									</button>
+								{/if}
 								<button
 									type="button"
 									class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"

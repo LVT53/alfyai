@@ -53,24 +53,28 @@ const profile = {
 				subject: "Remember Hungarian labels.",
 				question: "Should this be remembered?",
 				reason: "Repeated in settings work.",
+				canAccept: true,
 			},
 			{
 				id: "review-2",
 				subject: "Prefer icon actions.",
 				question: "Should this be remembered?",
 				reason: "UI guidance.",
+				canAccept: true,
 			},
 			{
 				id: "review-3",
 				subject: "Avoid diagnostic memory tables.",
 				question: "Should this be remembered?",
 				reason: "Product decision.",
+				canAccept: true,
 			},
 			{
 				id: "review-4",
 				subject: "Open documents from search.",
 				question: "Should this be remembered?",
 				reason: "Workflow signal.",
+				canAccept: true,
 			},
 		],
 		visibleItems: [
@@ -79,18 +83,21 @@ const profile = {
 				subject: "Remember Hungarian labels.",
 				question: "Should this be remembered?",
 				reason: "Repeated in settings work.",
+				canAccept: true,
 			},
 			{
 				id: "review-2",
 				subject: "Prefer icon actions.",
 				question: "Should this be remembered?",
 				reason: "UI guidance.",
+				canAccept: true,
 			},
 			{
 				id: "review-3",
 				subject: "Avoid diagnostic memory tables.",
 				question: "Should this be remembered?",
 				reason: "Product decision.",
+				canAccept: true,
 			},
 		],
 		openCount: 4,
@@ -190,6 +197,86 @@ describe("KnowledgeMemoryView", () => {
 			itemId: "review-4",
 			expectedProjectionRevision: 7,
 		});
+	});
+
+	it("requires editing for review items without a safe proposed statement", () => {
+		renderMemoryView({
+			profile: {
+				...profile,
+				review: {
+					...profile.review,
+					items: [
+						{
+							id: "review-generic",
+							subject: "Document-related memory request",
+							question: "Should this be remembered?",
+							reason: "The intake gate could not safely admit this automatically.",
+							canAccept: false,
+						},
+					],
+					visibleItems: [
+						{
+							id: "review-generic",
+							subject: "Document-related memory request",
+							question: "Should this be remembered?",
+							reason: "The intake gate could not safely admit this automatically.",
+							canAccept: false,
+						},
+					],
+					openCount: 1,
+					overflowCount: 0,
+				},
+			},
+		});
+
+		expect(screen.queryByRole("button", { name: "Remember this item" })).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Edit review item" })).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Do not remember review item" }),
+		).toBeInTheDocument();
+	});
+
+	it("keeps the memory item dialog open when an action reports failure", async () => {
+		const onAction = vi.fn().mockResolvedValue(false);
+		renderMemoryView({ onAction });
+
+		const aboutSection = screen.getByRole("heading", { name: "About You" }).closest("section");
+		expect(aboutSection).not.toBeNull();
+		await fireEvent.click(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Edit memory item",
+			}),
+		);
+
+		const dialog = screen.getByRole("dialog", { name: "Memory item" });
+		const textarea = within(dialog).getByLabelText("Statement");
+		await fireEvent.input(textarea, {
+			target: { value: "Levi prefers concise memory behavior with stale-safe edits." },
+		});
+		await fireEvent.click(within(dialog).getByRole("button", { name: "Save memory item" }));
+
+		expect(onAction).toHaveBeenCalledWith({
+			action: "edit",
+			itemId: "item-about",
+			statement: "Levi prefers concise memory behavior with stale-safe edits.",
+			expectedProjectionRevision: 7,
+		});
+		expect(screen.getByRole("dialog", { name: "Memory item" })).toBeInTheDocument();
+	});
+
+	it("closes review overflow before opening a review edit dialog", async () => {
+		renderMemoryView();
+
+		await fireEvent.click(screen.getByRole("button", { name: "+1 more" }));
+		const overflowDialog = screen.getByRole("dialog", { name: "Needs Review" });
+		await fireEvent.click(
+			within(overflowDialog).getAllByRole("button", {
+				name: "Edit review item",
+			})[0],
+		);
+
+		expect(screen.queryByRole("dialog", { name: "Needs Review" })).not.toBeInTheDocument();
+		expect(screen.getByRole("dialog", { name: "Edit review item" })).toBeInTheDocument();
 	});
 
 	it("focuses, traps, closes, and restores focus for the review overflow dialog", async () => {

@@ -140,8 +140,7 @@ vi.mock("../context-compression", () => ({
 }));
 
 vi.mock("../memory-profile", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("../memory-profile")>();
+	const actual = await importOriginal<typeof import("../memory-profile")>();
 	return {
 		...actual,
 		getActiveMemoryProfileContext: mocks.getActiveMemoryProfileContext,

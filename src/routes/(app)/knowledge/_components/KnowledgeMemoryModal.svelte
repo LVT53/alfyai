@@ -19,7 +19,9 @@ let {
 	projectionRevision: number;
 	pendingActionKey: string | null;
 	onClose: () => void;
-	onAction: (payload: MemoryProfileActionPayload) => void | Promise<void>;
+	onAction: (
+		payload: MemoryProfileActionPayload,
+	) => boolean | void | Promise<boolean | void>;
 } = $props();
 
 let statement = $state("");

@@ -42,6 +42,8 @@ export type LegacyMemoryMigrationResult = {
 
 export type LegacyPersonaMemoryCandidateBatch = {
 	totalAvailable: number;
+	nextPage?: number | null;
+	exhausted?: boolean;
 	candidates: Array<{
 		id: string;
 		content: string;

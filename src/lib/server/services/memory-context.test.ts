@@ -381,6 +381,34 @@ describe("memory context service", () => {
 		expect(mockRecallPersonaMemory).not.toHaveBeenCalled();
 	});
 
+	it("does not route broad earlier persona questions to raw Honcho evidence", async () => {
+		const { getMemoryContext } = await import("./memory-context");
+
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "persona",
+			query: "What preferences did I mention earlier?",
+			userDisplayName: "Test User",
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			mode: "persona",
+			status: "available",
+			source: "active_memory_profile",
+			content: "- preferences (global): The user prefers active profile answers.",
+		});
+		if (result.mode !== "persona") {
+			throw new Error(`Expected persona mode, got ${result.mode}`);
+		}
+		expect(result.content).not.toContain("cycling gear");
+		expect(mockGetActiveMemoryProfileContext).toHaveBeenCalledWith({
+			userId: "user-1",
+		});
+		expect(mockRecallPersonaMemory).not.toHaveBeenCalled();
+	});
+
 	it("does not degrade ordinary persona memory when Honcho recall errors", async () => {
 		mockRecallPersonaMemory.mockResolvedValueOnce({
 			status: "error",

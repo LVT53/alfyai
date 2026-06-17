@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	MemoryProfilePublicPayload,
 } from "$lib/types";
+import { ApiError } from "$lib/client/api/http";
 
 const mockPageState = vi.hoisted(() => ({
 	page: {
@@ -91,6 +92,7 @@ const memoryProfilePayload = {
 				subject: "Remember Hungarian labels.",
 				question: "Should this be remembered?",
 				reason: "Repeated in settings work.",
+				canAccept: true,
 			},
 		],
 		openCount: 1,
@@ -217,4 +219,27 @@ describe("Knowledge page memory loading", () => {
 		});
 	});
 
+	it("reloads the memory profile after stale projection conflicts", async () => {
+		vi.mocked(submitKnowledgeMemoryAction).mockRejectedValueOnce(
+			new ApiError("stale projection", {
+				code: "stale_projection",
+				status: 409,
+			}),
+		);
+		render(KnowledgePage, { data: pageData() });
+
+		await waitFor(() => {
+			expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Remember this item" }));
+
+		await waitFor(() => {
+			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
+		});
+		expect(
+			screen.getByText(
+				"Memory profile was updated. Review the latest profile and try again.",
+			),
+		).toBeInTheDocument();
+	});
 });

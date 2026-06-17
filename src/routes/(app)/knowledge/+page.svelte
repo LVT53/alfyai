@@ -8,6 +8,7 @@ import {
 	submitKnowledgeMemoryAction,
 	uploadKnowledgeAttachment,
 } from "$lib/client/api/knowledge";
+import { ApiError } from "$lib/client/api/http";
 import { buildChatSourceMessageHref } from "$lib/client/document-workspace-navigation";
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import { t } from "$lib/i18n";
@@ -122,6 +123,16 @@ function syncDocumentUrlState(
 		pageSize: number;
 	},
 ) {
+	if (params.tab === "memory") {
+		searchParams.delete("tab");
+		searchParams.delete("q");
+		searchParams.delete("sort");
+		searchParams.delete("dir");
+		searchParams.delete("page");
+		searchParams.delete("pageSize");
+		return;
+	}
+
 	syncSearchParam(searchParams, "tab", params.tab === "documents" ? "documents" : null);
 	syncSearchParam(searchParams, "q", params.query.trim() || null);
 	syncSearchParam(
@@ -391,18 +402,27 @@ async function loadMemoryProfile(force = false) {
 	}
 }
 
-async function handleMemoryAction(payload: MemoryProfileActionPayload) {
+async function handleMemoryAction(payload: MemoryProfileActionPayload): Promise<boolean> {
 	const key = `${payload.itemId}:${payload.action}`;
-	if (pendingMemoryActionKey === key) return;
+	if (pendingMemoryActionKey === key) return false;
 
 	manageError = "";
 	pendingMemoryActionKey = key;
 	try {
 		memoryProfile = await submitKnowledgeMemoryAction(payload);
 		memoryLoaded = true;
+		return true;
 	} catch (error) {
-		manageError =
-			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
+		if (
+			error instanceof ApiError &&
+			(error.status === 409 || error.code === "stale_projection")
+		) {
+			await loadMemoryProfile(true);
+			manageError = "Memory profile was updated. Review the latest profile and try again.";
+			return false;
+		}
+		manageError = error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
+		return false;
 	} finally {
 		pendingMemoryActionKey = null;
 	}

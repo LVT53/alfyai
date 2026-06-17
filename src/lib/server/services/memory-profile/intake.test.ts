@@ -281,6 +281,7 @@ describe("memory intake gate", () => {
 				count: sourceClaims.length,
 				metadata: expect.objectContaining({
 					intakeStatus: "deferred",
+					userMessageId: "user-message-uploaded-pdf",
 				}),
 			}),
 		]);

@@ -542,10 +542,7 @@ async function getScopeConclusionsPage(
 	}>;
 }> {
 	try {
-		const page = await scope.list({
-			page: options.page ?? 1,
-			size: options.size,
-		});
+		const page = await scope.list({ page: options.page ?? 1, size: options.size });
 		return {
 			total: page.total,
 			items: page.items.map((item) => ({
@@ -685,21 +682,29 @@ async function collectLegacyPersonaMemoryCandidatesFromScope(
 		limit: number;
 		pageSize: number;
 		excludeSourceIds: Set<string>;
+		startPage: number;
+		maxPages: number;
 	},
 ): Promise<{
 	total: number;
 	candidates: LegacyPersonaMemoryCandidate[];
+	nextPage: number | null;
+	exhausted: boolean;
 }> {
-	let pageNumber = 1;
+	let pageNumber = options.startPage;
 	let total = 0;
+	let pagesScanned = 0;
 	const candidates: LegacyPersonaMemoryCandidate[] = [];
+	let nextPage: number | null = null;
+	let exhausted = true;
 
-	while (candidates.length < options.limit) {
+	while (candidates.length < options.limit && pagesScanned < options.maxPages) {
 		const page = await getScopeConclusionsPage(scope, {
 			page: pageNumber,
 			size: options.pageSize,
 		});
 		total = page.total;
+		pagesScanned += 1;
 		for (const item of page.items) {
 			if (options.excludeSourceIds.has(item.id)) continue;
 			candidates.push({
@@ -710,11 +715,17 @@ async function collectLegacyPersonaMemoryCandidatesFromScope(
 				createdAt: normalizeConclusionTimestamp(item.createdAt),
 			});
 		}
-		if (pageNumber * options.pageSize >= page.total) break;
+		if (pageNumber * options.pageSize >= page.total) {
+			nextPage = null;
+			exhausted = true;
+			break;
+		}
 		pageNumber += 1;
+		nextPage = pageNumber;
+		exhausted = false;
 	}
 
-	return { total, candidates };
+	return { total, candidates, nextPage, exhausted };
 }
 
 async function listVisiblePersonaMemoryRecords(
@@ -759,20 +770,36 @@ export async function listPersonaMemories(
 
 export async function listLegacyPersonaMemoryCandidates(
 	userId: string,
-	options: { limit: number; excludeSourceIds?: string[] },
+	options: {
+		limit: number;
+		excludeSourceIds?: string[];
+		startPage?: number;
+		maxPages?: number;
+	},
 ): Promise<{
 	totalAvailable: number;
 	candidates: LegacyPersonaMemoryCandidate[];
+	nextPage: number | null;
+	exhausted: boolean;
 }> {
-	if (!isHonchoEnabled()) return { totalAvailable: 0, candidates: [] };
+	if (!isHonchoEnabled()) {
+		return {
+			totalAvailable: 0,
+			candidates: [],
+			nextPage: null,
+			exhausted: true,
+		};
+	}
 
 	const limit = Math.max(1, Math.min(10, Math.floor(options.limit)));
+	const startPage = Math.max(1, Math.floor(options.startPage ?? 1));
+	const maxPages = Math.max(1, Math.min(10, Math.floor(options.maxPages ?? 4)));
 	const excludeSourceIds = new Set(
 		(options.excludeSourceIds ?? [])
 			.map((id) => id.trim())
 			.filter(Boolean),
 	);
-	const pageSize = Math.max(10, limit);
+	const pageSize = limit;
 	const [userPeer, assistantPeer] = await Promise.all([
 		getUserPeer(userId),
 		getAssistantPeer(userId),
@@ -783,6 +810,8 @@ export async function listLegacyPersonaMemoryCandidates(
 			limit,
 			pageSize,
 			excludeSourceIds,
+			startPage,
+			maxPages,
 		}),
 		collectLegacyPersonaMemoryCandidatesFromScope(
 			assistantAboutUserScope,
@@ -791,6 +820,8 @@ export async function listLegacyPersonaMemoryCandidates(
 				limit,
 				pageSize,
 				excludeSourceIds,
+				startPage,
+				maxPages,
 			},
 		),
 	]);
@@ -805,6 +836,11 @@ export async function listLegacyPersonaMemoryCandidates(
 	return {
 		totalAvailable: selfPage.total + assistantAboutUserPage.total,
 		candidates,
+		nextPage:
+			[selfPage.nextPage, assistantAboutUserPage.nextPage]
+				.filter((page): page is number => page !== null)
+				.sort((left, right) => left - right)[0] ?? null,
+		exhausted: selfPage.exhausted && assistantAboutUserPage.exhausted,
 	};
 }
 

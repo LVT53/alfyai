@@ -397,6 +397,8 @@ async function performUserMemoryMaintenance(
 						Math.max(1, Math.floor(options.limit)),
 					),
 					excludeSourceIds: options.excludeSourceIds,
+					startPage: options.startPage,
+					maxPages: options.maxPages,
 				}),
 		}),
 	);
