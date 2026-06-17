@@ -132,6 +132,11 @@ vi.mock("$lib/server/services/honcho", () => ({
 	mirrorWorkCapsuleConclusion: vi.fn(async () => undefined),
 }));
 
+vi.mock("$lib/server/services/memory-profile", () => ({
+	getCurrentMemoryResetGeneration: vi.fn(async () => 0),
+	isCurrentMemoryResetGeneration: vi.fn(async () => true),
+}));
+
 vi.mock("$lib/server/env", () => ({
 	getDatabasePath: () => "./data/test.db",
 	config: {

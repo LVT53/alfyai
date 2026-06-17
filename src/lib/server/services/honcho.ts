@@ -531,7 +531,7 @@ async function listScopeConclusions(
 
 async function getScopeConclusionsPage(
 	scope: ConclusionScope,
-	options: { size: number },
+	options: { page?: number; size: number },
 ): Promise<{
 	total: number;
 	items: Array<{
@@ -542,7 +542,10 @@ async function getScopeConclusionsPage(
 	}>;
 }> {
 	try {
-		const page = await scope.list({ size: options.size });
+		const page = await scope.list({
+			page: options.page ?? 1,
+			size: options.size,
+		});
 		return {
 			total: page.total,
 			items: page.items.map((item) => ({
@@ -675,6 +678,45 @@ export type HonchoPersonaMemoryRecord = {
 
 export type LegacyPersonaMemoryCandidate = HonchoPersonaMemoryRecord;
 
+async function collectLegacyPersonaMemoryCandidatesFromScope(
+	scope: ConclusionScope,
+	candidateScope: LegacyPersonaMemoryCandidate["scope"],
+	options: {
+		limit: number;
+		pageSize: number;
+		excludeSourceIds: Set<string>;
+	},
+): Promise<{
+	total: number;
+	candidates: LegacyPersonaMemoryCandidate[];
+}> {
+	let pageNumber = 1;
+	let total = 0;
+	const candidates: LegacyPersonaMemoryCandidate[] = [];
+
+	while (candidates.length < options.limit) {
+		const page = await getScopeConclusionsPage(scope, {
+			page: pageNumber,
+			size: options.pageSize,
+		});
+		total = page.total;
+		for (const item of page.items) {
+			if (options.excludeSourceIds.has(item.id)) continue;
+			candidates.push({
+				id: item.id,
+				content: item.content,
+				scope: candidateScope,
+				sessionId: item.sessionId,
+				createdAt: normalizeConclusionTimestamp(item.createdAt),
+			});
+		}
+		if (pageNumber * options.pageSize >= page.total) break;
+		pageNumber += 1;
+	}
+
+	return { total, candidates };
+}
+
 async function listVisiblePersonaMemoryRecords(
 	userId: string,
 ): Promise<HonchoPersonaMemoryRecord[]> {
@@ -717,7 +759,7 @@ export async function listPersonaMemories(
 
 export async function listLegacyPersonaMemoryCandidates(
 	userId: string,
-	options: { limit: number },
+	options: { limit: number; excludeSourceIds?: string[] },
 ): Promise<{
 	totalAvailable: number;
 	candidates: LegacyPersonaMemoryCandidate[];
@@ -725,31 +767,37 @@ export async function listLegacyPersonaMemoryCandidates(
 	if (!isHonchoEnabled()) return { totalAvailable: 0, candidates: [] };
 
 	const limit = Math.max(1, Math.min(10, Math.floor(options.limit)));
+	const excludeSourceIds = new Set(
+		(options.excludeSourceIds ?? [])
+			.map((id) => id.trim())
+			.filter(Boolean),
+	);
+	const pageSize = Math.max(10, limit);
 	const [userPeer, assistantPeer] = await Promise.all([
 		getUserPeer(userId),
 		getAssistantPeer(userId),
 	]);
 	const assistantAboutUserScope = assistantPeer.conclusionsOf(userPeer);
 	const [selfPage, assistantAboutUserPage] = await Promise.all([
-		getScopeConclusionsPage(userPeer.conclusions, { size: limit }),
-		getScopeConclusionsPage(assistantAboutUserScope, { size: limit }),
+		collectLegacyPersonaMemoryCandidatesFromScope(userPeer.conclusions, "self", {
+			limit,
+			pageSize,
+			excludeSourceIds,
+		}),
+		collectLegacyPersonaMemoryCandidatesFromScope(
+			assistantAboutUserScope,
+			"assistant_about_user",
+			{
+				limit,
+				pageSize,
+				excludeSourceIds,
+			},
+		),
 	]);
 
 	const candidates = [
-		...selfPage.items.map((item) => ({
-			id: item.id,
-			content: item.content,
-			scope: "self" as const,
-			sessionId: item.sessionId,
-			createdAt: normalizeConclusionTimestamp(item.createdAt),
-		})),
-		...assistantAboutUserPage.items.map((item) => ({
-			id: item.id,
-			content: item.content,
-			scope: "assistant_about_user" as const,
-			sessionId: item.sessionId,
-			createdAt: normalizeConclusionTimestamp(item.createdAt),
-		})),
+		...selfPage.candidates,
+		...assistantAboutUserPage.candidates,
 	]
 		.sort((a, b) => b.createdAt - a.createdAt)
 		.slice(0, limit);

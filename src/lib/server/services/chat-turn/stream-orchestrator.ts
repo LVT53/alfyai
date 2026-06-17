@@ -196,6 +196,7 @@ export interface StreamOrchestratorOptions {
 	upstreamMessage: string;
 	downstreamAbortSignal: AbortSignal;
 	requestStartTime: number;
+	startedResetGeneration?: number;
 	isReconnect?: boolean;
 	skipHonchoContext?: boolean;
 	systemPromptAppendix?: string;
@@ -211,6 +212,7 @@ export function runChatStreamOrchestrator(
 		upstreamMessage,
 		downstreamAbortSignal,
 		requestStartTime,
+		startedResetGeneration,
 		isReconnect,
 		skipHonchoContext,
 		systemPromptAppendix: retryAppendix,
@@ -776,6 +778,7 @@ export function runChatStreamOrchestrator(
 					reasoningDepth: turn.reasoningDepth,
 					depthMetadata: latestDepthMetadata,
 					userId: user.id,
+					startedResetGeneration,
 					normalizedMessage,
 					upstreamMessage,
 					skipPersistUserMessage,

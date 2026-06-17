@@ -55,6 +55,7 @@ import {
 } from "../knowledge";
 import { listConversationLinkedContextSources } from "../linked-context-sources";
 import {
+	formatActiveMemoryProfileContextForPrompt,
 	getActiveMemoryProfileContext,
 	recordMemoryReworkTelemetry,
 	type ActiveMemoryProfileContext,
@@ -148,20 +149,6 @@ type ContextLatencyTierResolution = {
 	reasons: string[];
 };
 
-function formatActiveMemoryProfileContext(
-	context: ActiveMemoryProfileContext,
-): string {
-	return context.items
-		.map((item) => {
-			const scope =
-				item.scope.type === "global"
-					? "global"
-					: `${item.scope.type}:${item.scope.id}`;
-			return `- ${item.category} (${scope}): ${item.statement}`;
-		})
-		.join("\n");
-}
-
 function summarizeActiveMemoryProfileTelemetry(
 	context: ActiveMemoryProfileContext,
 ): {
@@ -236,19 +223,37 @@ async function buildActiveMemoryProfilePromptSection(params: {
 	const baselineMemoryProfileBudget = deriveBaselineMemoryProfileBudget({
 		contextBudget: params.modelContextBudget,
 	});
-	const body = truncateToTokenBudget(
-		formatActiveMemoryProfileContext(context),
-		baselineMemoryProfileBudget.totalBudget,
-	);
+	const formattedContext = formatActiveMemoryProfileContextForPrompt(context, {
+		maxTokens: baselineMemoryProfileBudget.totalBudget,
+	});
+	const body = formattedContext.content;
+	if (!body) {
+		await recordPromptMemoryTelemetry({
+			userId: params.userId,
+			eventName: "active_memory_profile_empty",
+			reason: "active_profile_budget_too_small",
+			status: "empty",
+			count: 0,
+			metadata: {
+				projectionRevision: context.projectionRevision,
+				resetGeneration: context.resetGeneration,
+				totalItemCount: context.items.length,
+			},
+		});
+		return null;
+	}
 	await recordPromptMemoryTelemetry({
 		userId: params.userId,
 		eventName: "active_memory_profile_included",
 		reason: "active_projection_items",
 		status: "included",
-		count: context.items.length,
+		count: formattedContext.includedCount,
 		metadata: {
 			projectionRevision: context.projectionRevision,
 			resetGeneration: context.resetGeneration,
+			totalItemCount: context.items.length,
+			omittedItemCount: formattedContext.omittedCount,
+			estimatedTokens: formattedContext.estimatedTokens,
 			...summarizeActiveMemoryProfileTelemetry(context),
 		},
 	});

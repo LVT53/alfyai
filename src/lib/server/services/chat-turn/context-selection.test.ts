@@ -139,10 +139,15 @@ vi.mock("../context-compression", () => ({
 			.join("\n\n"),
 }));
 
-vi.mock("../memory-profile", () => ({
-	getActiveMemoryProfileContext: mocks.getActiveMemoryProfileContext,
-	recordMemoryReworkTelemetry: mocks.recordMemoryReworkTelemetry,
-}));
+vi.mock("../memory-profile", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../memory-profile")>();
+	return {
+		...actual,
+		getActiveMemoryProfileContext: mocks.getActiveMemoryProfileContext,
+		recordMemoryReworkTelemetry: mocks.recordMemoryReworkTelemetry,
+	};
+});
 
 function artifact(overrides: {
 	id: string;
@@ -490,6 +495,64 @@ describe("buildConstructedContext", () => {
 				workingSetApplied: false,
 				workingSetArtifactIds: [],
 				promptArtifactCount: 0,
+			}),
+		);
+	});
+
+	it("keeps fresh active memory profile items before stale items when the profile budget is constrained", async () => {
+		resetConstructedContextMocks();
+		mocks.getActiveMemoryProfileContext.mockResolvedValue({
+			resetGeneration: 0,
+			projectionRevision: 8,
+			items: [
+				{
+					id: "stale-memory",
+					itemKey: "memory-profile-item:v1:preferences:global:stale",
+					category: "preferences",
+					statement: `STALE_MEMORY_SHOULD_NOT_SURVIVE ${"stale ".repeat(40_000)}`,
+					scope: { type: "global" },
+					revision: 1,
+					updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+				},
+				{
+					id: "fresh-memory",
+					itemKey: "memory-profile-item:v1:preferences:global:fresh",
+					category: "preferences",
+					statement: "FRESH_MEMORY_SHOULD_SURVIVE.",
+					scope: { type: "global" },
+					revision: 1,
+					updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+				},
+			],
+		});
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Thanks, that helps.",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		});
+
+		expect(constructed.inputValue).toContain("FRESH_MEMORY_SHOULD_SURVIVE.");
+		expect(constructed.inputValue).not.toContain(
+			"STALE_MEMORY_SHOULD_NOT_SURVIVE",
+		);
+		expect(constructed.inputValue).toContain(
+			"Omitted active memory profile items: 1.",
+		);
+		expect(mocks.recordMemoryReworkTelemetry).toHaveBeenCalledWith(
+			expect.objectContaining({
+				eventName: "active_memory_profile_included",
+				count: 1,
+				metadata: expect.objectContaining({
+					totalItemCount: 2,
+					omittedItemCount: 1,
+				}),
 			}),
 		);
 	});

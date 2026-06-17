@@ -183,4 +183,5 @@ export type RunPostTurnTasksParams = {
 	assistantMessageId?: string | null;
 	workCapsule?: WorkCapsuleSummary;
 	maintenanceReason: "chat_send" | "chat_stream";
+	startedResetGeneration?: number;
 };

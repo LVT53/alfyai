@@ -396,6 +396,7 @@ async function performUserMemoryMaintenance(
 						LEGACY_MEMORY_CANDIDATE_BATCH_LIMIT,
 						Math.max(1, Math.floor(options.limit)),
 					),
+					excludeSourceIds: options.excludeSourceIds,
 				}),
 		}),
 	);

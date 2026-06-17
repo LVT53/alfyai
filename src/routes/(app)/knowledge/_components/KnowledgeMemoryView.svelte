@@ -60,6 +60,11 @@ let selectedItem = $state<MemoryProfilePublicItem | null>(null);
 let reviewOverflowOpen = $state(false);
 let editingReviewItem = $state<MemoryProfileReviewItem | null>(null);
 let reviewStatement = $state("");
+let reviewOverflowDialog = $state<HTMLElement | null>(null);
+let reviewEditDialog = $state<HTMLElement | null>(null);
+let reviewEditTextarea = $state<HTMLTextAreaElement | null>(null);
+let reviewOverflowPreviousFocus: HTMLElement | null = null;
+let reviewEditPreviousFocus: HTMLElement | null = null;
 
 let activeItemCount = $derived.by(() =>
 	(profile?.categories ?? []).reduce(
@@ -117,6 +122,15 @@ function openReviewEditor(item: MemoryProfileReviewItem) {
 	reviewStatement = item.subject;
 }
 
+function closeReviewOverflow() {
+	reviewOverflowOpen = false;
+}
+
+function closeReviewEditor() {
+	editingReviewItem = null;
+	reviewStatement = "";
+}
+
 function submitReviewEdit() {
 	if (!editingReviewItem) return;
 	const statement = reviewStatement.trim();
@@ -128,10 +142,96 @@ function submitReviewEdit() {
 		statement,
 		expectedProjectionRevision: profile?.projectionRevision ?? 0,
 	});
-	editingReviewItem = null;
-	reviewStatement = "";
+	closeReviewEditor();
 }
+
+function getFocusableElements(dialog: HTMLElement | null): HTMLElement[] {
+	return Array.from(
+		dialog?.querySelectorAll<HTMLElement>(
+			'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
+		) ?? [],
+	);
+}
+
+function focusDialog(dialog: HTMLElement | null, initial?: HTMLElement | null) {
+	setTimeout(() => {
+		const focusTarget = initial ?? getFocusableElements(dialog)[0] ?? dialog;
+		focusTarget?.focus();
+	}, 0);
+}
+
+function trapTabNavigation(dialog: HTMLElement | null, event: KeyboardEvent) {
+	const focusable = getFocusableElements(dialog);
+	if (focusable.length === 0) {
+		event.preventDefault();
+		dialog?.focus();
+		return;
+	}
+	const first = focusable[0];
+	const last = focusable[focusable.length - 1];
+	const activeElement = document.activeElement;
+	if (!(activeElement instanceof Node) || !dialog?.contains(activeElement)) {
+		event.preventDefault();
+		first.focus();
+		return;
+	}
+	if (event.shiftKey && activeElement === first) {
+		event.preventDefault();
+		last.focus();
+		return;
+	}
+	if (!event.shiftKey && activeElement === last) {
+		event.preventDefault();
+		first.focus();
+	}
+}
+
+function handleWindowKeydown(event: KeyboardEvent) {
+	if (editingReviewItem) {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			closeReviewEditor();
+			return;
+		}
+		if (event.key === "Tab") {
+			trapTabNavigation(reviewEditDialog, event);
+		}
+		return;
+	}
+
+	if (!reviewOverflowOpen) return;
+	if (event.key === "Escape") {
+		event.preventDefault();
+		closeReviewOverflow();
+		return;
+	}
+	if (event.key === "Tab") {
+		trapTabNavigation(reviewOverflowDialog, event);
+	}
+}
+
+$effect(() => {
+	if (!reviewOverflowOpen) return;
+	reviewOverflowPreviousFocus = document.activeElement as HTMLElement | null;
+	focusDialog(reviewOverflowDialog);
+	return () => {
+		reviewOverflowPreviousFocus?.focus?.();
+		reviewOverflowPreviousFocus = null;
+	};
+});
+
+$effect(() => {
+	if (!editingReviewItem) return;
+	reviewEditPreviousFocus = document.activeElement as HTMLElement | null;
+	focusDialog(reviewEditDialog, reviewEditTextarea);
+	return () => {
+		reviewEditPreviousFocus?.focus?.();
+		reviewEditPreviousFocus = null;
+	};
+});
 </script>
+
+<svelte:window onkeydown={handleWindowKeydown} />
 
 {#if memoryLoading && !memoryLoaded}
 	<section class="rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm md:px-5">
@@ -334,9 +434,10 @@ function submitReviewEdit() {
 	<div
 		class="fixed inset-0 z-[120] flex items-center justify-center bg-surface-overlay/65 p-4 backdrop-blur-sm"
 		role="presentation"
-		onclick={() => (reviewOverflowOpen = false)}
+		onclick={closeReviewOverflow}
 	>
 		<div
+			bind:this={reviewOverflowDialog}
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="memory-review-overflow-title"
@@ -349,7 +450,7 @@ function submitReviewEdit() {
 				<button
 					type="button"
 					class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-					onclick={() => (reviewOverflowOpen = false)}
+					onclick={closeReviewOverflow}
 					aria-label="Close needs review"
 					title="Close"
 				>
@@ -425,9 +526,10 @@ function submitReviewEdit() {
 	<div
 		class="fixed inset-0 z-[130] flex items-center justify-center bg-surface-overlay/65 p-4 backdrop-blur-sm"
 		role="presentation"
-		onclick={() => (editingReviewItem = null)}
+		onclick={closeReviewEditor}
 	>
 		<div
+			bind:this={reviewEditDialog}
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="memory-review-edit-title"
@@ -443,6 +545,7 @@ function submitReviewEdit() {
 					Statement
 				</label>
 				<textarea
+					bind:this={reviewEditTextarea}
 					id="memory-review-statement"
 					class="mt-2 min-h-32 w-full resize-y rounded-[0.75rem] border border-border bg-surface-page px-3 py-3 text-sm font-sans text-text-primary outline-none transition focus:border-primary"
 					bind:value={reviewStatement}
@@ -451,7 +554,7 @@ function submitReviewEdit() {
 					<button
 						type="button"
 						class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-						onclick={() => (editingReviewItem = null)}
+						onclick={closeReviewEditor}
 						aria-label="Cancel review edit"
 						title="Cancel"
 					>

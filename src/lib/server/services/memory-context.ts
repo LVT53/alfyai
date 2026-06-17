@@ -20,6 +20,7 @@ import {
 	recallPersonaMemory,
 } from "$lib/server/services/honcho";
 import {
+	formatActiveMemoryProfileContextForPrompt,
 	getActiveMemoryProfileContext,
 	recordMemoryReworkTelemetry,
 	type ActiveMemoryProfileContext,
@@ -127,6 +128,7 @@ export type MemoryContextResult =
 
 const DEFAULT_PERSONA_RECALL_QUERY =
 	"What durable user preferences, goals, constraints, and personal context are relevant?";
+const PERSONA_ACTIVE_PROFILE_TOKEN_BUDGET = 8_000;
 const HISTORY_SUMMARY_MATCH_LIMIT = 5_000;
 const HISTORY_MESSAGE_MATCH_LIMIT = 10_000;
 const DEFAULT_MAX_HISTORY_CONVERSATIONS = 8;
@@ -262,20 +264,6 @@ function buildPersonaEvidenceCandidate(params: {
 			sourceType: "memory",
 		},
 	];
-}
-
-function formatActiveMemoryProfileContext(
-	context: ActiveMemoryProfileContext,
-): string {
-	return context.items
-		.map((item) => {
-			const scope =
-				item.scope.type === "global"
-					? "global"
-					: `${item.scope.type}:${item.scope.id}`;
-			return `- ${item.category} (${scope}): ${item.statement}`;
-		})
-		.join("\n");
 }
 
 function summarizeActiveMemoryProfileTelemetry(
@@ -432,7 +420,13 @@ async function getPersonaMemoryContext(
 		};
 	}
 
-	const content = formatActiveMemoryProfileContext(activeProfile);
+	const formattedProfile = formatActiveMemoryProfileContextForPrompt(
+		activeProfile,
+		{
+			maxTokens: PERSONA_ACTIVE_PROFILE_TOKEN_BUDGET,
+		},
+	);
+	const content = formattedProfile.content;
 	if (!content) {
 		await recordMemoryContextPromptTelemetry({
 			userId: params.userId,
@@ -443,6 +437,8 @@ async function getPersonaMemoryContext(
 			metadata: {
 				projectionRevision: activeProfile.projectionRevision,
 				resetGeneration: activeProfile.resetGeneration,
+				totalItemCount: activeProfile.items.length,
+				omittedItemCount: formattedProfile.omittedCount,
 			},
 		});
 
@@ -465,10 +461,13 @@ async function getPersonaMemoryContext(
 		eventName: "memory_context_persona_active_profile_included",
 		reason: "active_projection_items",
 		status: "included",
-		count: activeProfile.items.length,
+		count: formattedProfile.includedCount,
 		metadata: {
 			projectionRevision: activeProfile.projectionRevision,
 			resetGeneration: activeProfile.resetGeneration,
+			totalItemCount: activeProfile.items.length,
+			omittedItemCount: formattedProfile.omittedCount,
+			estimatedTokens: formattedProfile.estimatedTokens,
 			...summarizeActiveMemoryProfileTelemetry(activeProfile),
 		},
 	});

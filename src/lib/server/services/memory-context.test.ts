@@ -21,10 +21,15 @@ vi.mock("./honcho", () => ({
 	recallPersonaMemory: mockRecallPersonaMemory,
 }));
 
-vi.mock("./memory-profile", () => ({
-	getActiveMemoryProfileContext: mockGetActiveMemoryProfileContext,
-	recordMemoryReworkTelemetry: mockRecordMemoryReworkTelemetry,
-}));
+vi.mock("./memory-profile", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("./memory-profile")>();
+	return {
+		...actual,
+		getActiveMemoryProfileContext: mockGetActiveMemoryProfileContext,
+		recordMemoryReworkTelemetry: mockRecordMemoryReworkTelemetry,
+	};
+});
 
 function openSeedDatabase() {
 	const sqlite = new Database(dbPath);
@@ -256,6 +261,72 @@ describe("memory context service", () => {
 		expect(mockRecallPersonaMemory).not.toHaveBeenCalled();
 		expect(JSON.stringify(mockRecordMemoryReworkTelemetry.mock.calls)).not.toContain(
 			"The user prefers active profile answers.",
+		);
+	});
+
+	it("bounds active projection persona memory newest-first with omitted counts", async () => {
+		mockGetActiveMemoryProfileContext.mockResolvedValueOnce({
+			resetGeneration: 0,
+			projectionRevision: 4,
+			items: [
+				{
+					id: "stale-memory",
+					itemKey: "memory-profile-item:v1:preferences:global:stale",
+					category: "preferences",
+					statement: `STALE_PERSONA_MEMORY_SHOULD_NOT_SURVIVE ${"stale ".repeat(40_000)}`,
+					scope: { type: "global" },
+					revision: 1,
+					updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+				},
+				{
+					id: "fresh-memory",
+					itemKey: "memory-profile-item:v1:preferences:global:fresh",
+					category: "preferences",
+					statement: "FRESH_PERSONA_MEMORY_SHOULD_SURVIVE.",
+					scope: { type: "global" },
+					revision: 1,
+					updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+				},
+			],
+		});
+		const { getMemoryContext } = await import("./memory-context");
+
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "persona",
+			query: "What durable preferences matter right now?",
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			mode: "persona",
+			status: "available",
+			source: "active_memory_profile",
+			content:
+				"- preferences (global): FRESH_PERSONA_MEMORY_SHOULD_SURVIVE.\nOmitted active memory profile items: 1.",
+		});
+		if (result.mode !== "persona") {
+			throw new Error(`Expected persona mode, got ${result.mode}`);
+		}
+		expect(result.content).not.toContain(
+			"STALE_PERSONA_MEMORY_SHOULD_NOT_SURVIVE",
+		);
+		expect(result.evidenceCandidates[0]?.snippet).toContain(
+			"FRESH_PERSONA_MEMORY_SHOULD_SURVIVE.",
+		);
+		expect(result.evidenceCandidates[0]?.snippet).not.toContain(
+			"STALE_PERSONA_MEMORY_SHOULD_NOT_SURVIVE",
+		);
+		expect(mockRecordMemoryReworkTelemetry).toHaveBeenCalledWith(
+			expect.objectContaining({
+				eventName: "memory_context_persona_active_profile_included",
+				count: 1,
+				metadata: expect.objectContaining({
+					totalItemCount: 2,
+					omittedItemCount: 1,
+				}),
+			}),
 		);
 	});
 

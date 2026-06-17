@@ -19,7 +19,7 @@ type LegacyPersonaMemoryCandidateBatch = {
 };
 type LegacyMemoryCandidateLoader = (
 	userId: string,
-	options: { limit: number },
+	options: { limit: number; excludeSourceIds?: string[] },
 ) => Promise<LegacyPersonaMemoryCandidateBatch>;
 type DirtyLedgerReconciliationParams = {
 	userId: string;
@@ -489,7 +489,10 @@ describe("memory-maintenance", () => {
 			});
 			expect(
 				mockState.mockListLegacyPersonaMemoryCandidates,
-			).toHaveBeenCalledWith("user-1", { limit: 5 });
+			).toHaveBeenCalledWith("user-1", {
+				limit: 5,
+				excludeSourceIds: undefined,
+			});
 		});
 
 		it("continues cleanup when memory profile dirty-ledger reconciliation fails", async () => {

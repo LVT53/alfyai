@@ -82,6 +82,7 @@ function sentence(value: string): string {
 function lowerInitial(value: string): string {
 	const stripped = stripTerminalPunctuation(value);
 	if (!stripped) return "";
+	if (/^[A-Z]{2,}\b/.test(stripped)) return stripped;
 	return `${stripped.charAt(0).toLowerCase()}${stripped.slice(1)}`;
 }
 
@@ -90,14 +91,21 @@ function hashStable(value: string): string {
 }
 
 function looksDocumentRelated(value: string): boolean {
-	return /\b(uploaded|attached|source|document|file|pdf|receipt|invoice|tax paper|tax return|bank statement|contract)\b/i.test(
+	return /\b(uploaded|attached|source|document|file|pdf|receipt|receipts|invoice|invoices|tax paper|tax papers|tax return|bank statement|contract)\b/i.test(
 		value,
 	);
 }
 
-function looksUserProfileRelated(value: string): boolean {
-	return /\b(\bi\b|\bme\b|\bmy\b|\bmine\b|\bmyself\b|profile|about me|preference|prefer|goal|working on)\b/i.test(
-		value,
+function looksSpecificDocumentSourceClaim(value: string): boolean {
+	return (
+		/\b(uploaded|attached|source)\b/i.test(value) ||
+		/\b(this|that|the|my|our)\s+(document|file|pdf|receipt|receipts|invoice|invoices|tax paper|tax papers|tax return|bank statement|contract)\b/i.test(
+			value,
+		) ||
+		/\b(document|file|pdf|receipt|receipts|invoice|invoices|tax paper|tax papers|tax return|bank statement|contract)\s+(says|shows|lists|contains|includes|is|are|was|were)\b/i.test(
+			value,
+		) ||
+		/\bpdf\s+(i|we)\s+(uploaded|attached|sent|shared)\b/i.test(value)
 	);
 }
 
@@ -204,9 +212,12 @@ export function parsePostTurnMemoryIntake(
 		/^can you remember(?:\s+that)?\s+(.+)$/i.exec(message);
 	if (rememberMatch?.[1]) {
 		const candidate = rememberMatch[1];
+		const statement = statementFromCandidate(candidate, "remember_that", {
+			allowGeneralAboutYou: true,
+		});
 		if (
 			looksDocumentRelated(candidate) &&
-			!looksUserProfileRelated(candidate)
+			(!statement || looksSpecificDocumentSourceClaim(candidate))
 		) {
 			return {
 				decision: "defer",
@@ -214,9 +225,6 @@ export function parsePostTurnMemoryIntake(
 				parserRule: "remember_that",
 			};
 		}
-		const statement = statementFromCandidate(candidate, "remember_that", {
-			allowGeneralAboutYou: true,
-		});
 		return statement
 			? { decision: "admit", ...statement }
 			: {

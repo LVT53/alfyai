@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import type { MemoryProfilePublicPayload } from "$lib/types";
 import KnowledgeMemoryView from "./KnowledgeMemoryView.svelte";
@@ -190,5 +190,86 @@ describe("KnowledgeMemoryView", () => {
 			itemId: "review-4",
 			expectedProjectionRevision: 7,
 		});
+	});
+
+	it("focuses, traps, closes, and restores focus for the review overflow dialog", async () => {
+		renderMemoryView();
+
+		const opener = screen.getByRole("button", { name: "+1 more" });
+		opener.focus();
+		await fireEvent.click(opener);
+
+		const dialog = screen.getByRole("dialog", { name: "Needs Review" });
+		await waitFor(() => {
+			expect(dialog).toContainElement(document.activeElement as HTMLElement);
+		});
+
+		const buttons = within(dialog)
+			.getAllByRole("button")
+			.filter((button) => !button.hasAttribute("disabled"));
+		const firstButton = buttons[0];
+		const lastButton = buttons[buttons.length - 1];
+		lastButton.focus();
+		await fireEvent.keyDown(window, { key: "Tab" });
+		expect(firstButton).toHaveFocus();
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+		await waitFor(() => {
+			expect(screen.queryByRole("dialog", { name: "Needs Review" })).not.toBeInTheDocument();
+		});
+		expect(opener).toHaveFocus();
+	});
+
+	it("focuses review edits and restores focus after Escape", async () => {
+		renderMemoryView();
+
+		const editButton = screen.getAllByRole("button", { name: "Edit review item" })[0];
+		editButton.focus();
+		await fireEvent.click(editButton);
+
+		const dialog = screen.getByRole("dialog", { name: "Edit review item" });
+		const textarea = within(dialog).getByLabelText("Statement");
+		await waitFor(() => {
+			expect(textarea).toHaveFocus();
+		});
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+		await waitFor(() => {
+			expect(screen.queryByRole("dialog", { name: "Edit review item" })).not.toBeInTheDocument();
+		});
+		expect(editButton).toHaveFocus();
+	});
+
+	it("keeps focus inside the memory item dialog and restores it on Escape", async () => {
+		renderMemoryView();
+
+		const aboutSection = screen.getByRole("heading", { name: "About You" }).closest("section");
+		expect(aboutSection).not.toBeNull();
+		const editButton = within(aboutSection as HTMLElement).getByRole("button", {
+			name: "Edit memory item",
+		});
+		editButton.focus();
+		await fireEvent.click(editButton);
+
+		const dialog = screen.getByRole("dialog", { name: "Memory item" });
+		const textarea = within(dialog).getByLabelText("Statement");
+		await waitFor(() => {
+			expect(textarea).toHaveFocus();
+		});
+
+		const buttons = within(dialog)
+			.getAllByRole("button")
+			.filter((button) => !button.hasAttribute("disabled"));
+		const firstButton = buttons[0];
+		const lastButton = buttons[buttons.length - 1];
+		lastButton.focus();
+		await fireEvent.keyDown(window, { key: "Tab" });
+		expect(firstButton).toHaveFocus();
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+		await waitFor(() => {
+			expect(screen.queryByRole("dialog", { name: "Memory item" })).not.toBeInTheDocument();
+		});
+		expect(editButton).toHaveFocus();
 	});
 });

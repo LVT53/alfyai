@@ -228,6 +228,98 @@ describe("memory intake gate", () => {
 		expect(serializedTelemetry).not.toContain("1200");
 	});
 
+	it("defers first-person tax paper, receipt, and uploaded PDF source claims to review", async () => {
+		const {
+			getMemoryProfileReadModel,
+			listMemoryReworkTelemetry,
+			listPendingMemoryDirtyEntries,
+		} = await import("./index");
+		const { intakePostTurnMemory } = await import("./intake");
+		const sourceClaims = [
+			{
+				id: "tax-papers",
+				message:
+					"Please remember that my tax papers show a deductible office expense.",
+				forbidden: "deductible office expense",
+			},
+			{
+				id: "receipts",
+				message:
+					"Please remember that my receipts are for the cycling equipment.",
+				forbidden: "cycling equipment",
+			},
+			{
+				id: "uploaded-pdf",
+				message:
+					"Please remember that my uploaded PDF contains the signed lease.",
+				forbidden: "signed lease",
+			},
+		];
+
+		for (const claim of sourceClaims) {
+			await expect(
+				intakePostTurnMemory({
+					userId: "user-1",
+					conversationId: "conv-1",
+					userMessage: claim.message,
+					userMessageId: `user-message-${claim.id}`,
+				}),
+			).resolves.toEqual(
+				expect.objectContaining({
+					status: "deferred",
+					reason: "document_related_claim",
+				}),
+			);
+		}
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories.flatMap((group) => group.items)).toEqual([]);
+		expect(profile.review.visibleItems).toHaveLength(sourceClaims.length);
+		expect(await listPendingMemoryDirtyEntries({ userId: "user-1" })).toEqual([
+			expect.objectContaining({
+				reason: "deferred_intake",
+				count: sourceClaims.length,
+				metadata: expect.objectContaining({
+					intakeStatus: "deferred",
+				}),
+			}),
+		]);
+		const serializedTelemetry = JSON.stringify(
+			await listMemoryReworkTelemetry({ userId: "user-1" }),
+		);
+		for (const claim of sourceClaims) {
+			expect(serializedTelemetry).not.toContain(claim.forbidden);
+		}
+	});
+
+	it("admits clear durable document-format preferences instead of treating them as source claims", async () => {
+		const { getMemoryProfileReadModel } = await import("./index");
+		const { intakePostTurnMemory } = await import("./intake");
+
+		await expect(
+			intakePostTurnMemory({
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessage: "Please remember that I prefer PDF invoices.",
+				userMessageId: "user-message-pdf-invoices",
+			}),
+		).resolves.toEqual(
+			expect.objectContaining({
+				status: "admitted",
+				category: "preferences",
+			}),
+		);
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories[1]?.items).toEqual([
+			expect.objectContaining({
+				category: "preferences",
+				statement: "Prefers PDF invoices.",
+			}),
+		]);
+		expect(profile.review.visibleItems).toEqual([]);
+	});
+
 	it("marks duplicate work when an admitted memory already exists", async () => {
 		const {
 			getMemoryProfileReadModel,

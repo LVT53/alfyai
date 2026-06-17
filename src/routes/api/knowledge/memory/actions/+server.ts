@@ -59,6 +59,13 @@ function isValidPayload(body: unknown): body is
 	) {
 		return false;
 	}
+	if (
+		target !== undefined &&
+		target !== "profile_item" &&
+		target !== "review_item"
+	) {
+		return false;
+	}
 	if (target === "review_item") {
 		if (action === "accept" || action === "suppress") return true;
 		return (

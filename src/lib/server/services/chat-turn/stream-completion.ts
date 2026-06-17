@@ -71,6 +71,7 @@ export interface CompleteStreamTurnParams {
 	reasoningDepth?: ReasoningDepth;
 	depthMetadata?: DepthMetadata;
 	userId: string;
+	startedResetGeneration?: number;
 	normalizedMessage: string;
 	upstreamMessage: string;
 	skipPersistUserMessage: boolean;
@@ -167,6 +168,7 @@ export async function completeStreamTurn(
 		reasoningDepth,
 		depthMetadata,
 		userId,
+		startedResetGeneration,
 		normalizedMessage,
 		upstreamMessage,
 		skipPersistUserMessage,
@@ -471,6 +473,7 @@ export async function completeStreamTurn(
 			honchoSnapshot: latestHonchoSnapshot,
 			assistantMirrorContent: wasStopped ? "" : finalResponse,
 			maintenanceReason: "chat_stream",
+			startedResetGeneration,
 			toolCalls: toolCallRecords,
 			contextTraceSections:
 				latestContextTraceSections ?? initialContextTraceSections,

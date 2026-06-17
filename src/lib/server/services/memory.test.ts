@@ -308,6 +308,27 @@ describe("knowledge memory service", () => {
 		expect(telemetryCallsJson).not.toContain("Should not win");
 	});
 
+	it("rejects unknown action targets before applying profile updates", async () => {
+		const { MemoryProfileActionError, applyKnowledgeMemoryAction } =
+			await import("./memory");
+
+		await expect(
+			applyKnowledgeMemoryAction("user-1", "Test User", {
+				target: "unknown_item",
+				action: "delete",
+				itemId: "item-about",
+				expectedProjectionRevision: 7,
+			}),
+		).rejects.toMatchObject({
+			constructor: MemoryProfileActionError,
+			code: "invalid_action",
+			status: 400,
+		});
+
+		expect(mockUpdateMemoryProfileItemWithRevision).not.toHaveBeenCalled();
+		expect(mockApplyMemoryReviewItemWithRevision).not.toHaveBeenCalled();
+	});
+
 	it("accepts a review item into the profile and queues safe reconciliation work", async () => {
 		const afterAcceptProfile = {
 			...projectionProfile,

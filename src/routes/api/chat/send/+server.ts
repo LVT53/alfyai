@@ -20,6 +20,7 @@ import {
 import { buildDeepResearchPlanningContext } from "$lib/server/services/deep-research/planning-context";
 import { listConversationFileProductionJobs } from "$lib/server/services/file-production";
 import { isAttachmentReadinessError } from "$lib/server/services/knowledge";
+import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
 import { createMessage } from "$lib/server/services/messages";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
@@ -237,6 +238,7 @@ async function runStandardSendTurn({
 		userId: user.id,
 		conversationId: turn.conversationId,
 	});
+	const startedResetGeneration = await getCurrentMemoryResetGeneration(user.id);
 	const personalityPrompt = await resolvePersonalityPrompt(
 		turn.personalityProfileId,
 	);
@@ -308,6 +310,7 @@ async function runStandardSendTurn({
 		honchoSnapshot: modelRunResult.honchoSnapshot,
 		assistantMirrorContent: modelRunResult.text ?? "",
 		maintenanceReason: "chat_send",
+		startedResetGeneration,
 		linkedSources: turn.linkedSources,
 		toolCalls: modelRunArtifacts.finalToolCalls,
 		contextTraceSections: modelRunResult.contextTraceSections,

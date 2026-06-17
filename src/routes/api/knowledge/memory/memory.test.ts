@@ -258,6 +258,22 @@ describe("knowledge memory routes", () => {
 		expect(mockApplyKnowledgeMemoryAction).not.toHaveBeenCalled();
 	});
 
+	it("rejects unknown memory action targets", async () => {
+		const response = await POST_MEMORY_ACTION(
+			makePostEvent({
+				target: "unknown_item",
+				action: "delete",
+				itemId: "item-about",
+				expectedProjectionRevision: 7,
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(400);
+		expect(data.error).toMatch(/invalid memory action payload/i);
+		expect(mockApplyKnowledgeMemoryAction).not.toHaveBeenCalled();
+	});
+
 	it("returns conflict when a profile action uses a stale projection revision", async () => {
 		mockApplyKnowledgeMemoryAction.mockRejectedValue(
 			new MemoryProfileActionError(

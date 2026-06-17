@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	memoryDirtyLedger,
@@ -11,6 +11,7 @@ import {
 	memoryReviewItems,
 	memoryReworkTelemetry,
 } from "$lib/server/db/schema";
+import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	migrateLegacyMemoryForUser,
 	type LegacyPersonaMemoryCandidateBatch,
@@ -137,6 +138,14 @@ export type ActiveMemoryProfileContext = {
 	}>;
 };
 
+export type FormattedActiveMemoryProfileContext = {
+	content: string;
+	includedCount: number;
+	omittedCount: number;
+	estimatedTokens: number;
+	includedItemIds: string[];
+};
+
 export type MemoryDirtyLedgerReconciliationResult = {
 	claimed: number;
 	completed: number;
@@ -147,7 +156,7 @@ export type MemoryDirtyLedgerReconciliationResult = {
 
 export type LegacyMemoryCandidateLoader = (
 	userId: string,
-	options: { limit: number },
+	options: { limit: number; excludeSourceIds?: string[] },
 ) => Promise<LegacyPersonaMemoryCandidateBatch>;
 
 type JsonRecord = Record<string, unknown>;
@@ -296,6 +305,85 @@ function readSafeString(value: unknown): string | null {
 
 function stableMemoryMaintenanceDigest(value: string): string {
 	return createHash("sha256").update(value).digest("hex").slice(0, 24);
+}
+
+function formatActiveMemoryProfileItem(
+	item: ActiveMemoryProfileContext["items"][number],
+): string {
+	const scope =
+		item.scope.type === "global"
+			? "global"
+			: `${item.scope.type}:${item.scope.id}`;
+	return `- ${item.category} (${scope}): ${item.statement}`;
+}
+
+function omittedActiveMemoryProfileLine(count: number): string {
+	return `Omitted active memory profile items: ${count}.`;
+}
+
+function sortActiveMemoryProfileItemsNewestFirst(
+	items: ActiveMemoryProfileContext["items"],
+): ActiveMemoryProfileContext["items"] {
+	return [...items].sort((left, right) => {
+		const updatedDelta = right.updatedAt.getTime() - left.updatedAt.getTime();
+		if (updatedDelta !== 0) return updatedDelta;
+		return right.id.localeCompare(left.id);
+	});
+}
+
+export function formatActiveMemoryProfileContextForPrompt(
+	context: ActiveMemoryProfileContext,
+	options: { maxTokens: number },
+): FormattedActiveMemoryProfileContext {
+	const maxTokens = Math.max(0, Math.floor(options.maxTokens));
+	const orderedItems = sortActiveMemoryProfileItemsNewestFirst(context.items);
+	const lines: string[] = [];
+	const includedItemIds: string[] = [];
+	let omittedCount = 0;
+
+	for (const item of orderedItems) {
+		const line = formatActiveMemoryProfileItem(item);
+		const candidateLines = [...lines, line];
+		const remainingIfIncluded = orderedItems.length - includedItemIds.length - 1;
+		const candidateWithOmitted =
+			remainingIfIncluded > 0
+				? [...candidateLines, omittedActiveMemoryProfileLine(remainingIfIncluded)]
+				: candidateLines;
+		if (estimateTokenCount(candidateWithOmitted.join("\n")) > maxTokens) {
+			omittedCount = orderedItems.length - includedItemIds.length;
+			break;
+		}
+		lines.push(line);
+		includedItemIds.push(item.id);
+	}
+
+	if (omittedCount > 0) {
+		while (lines.length > 0) {
+			const candidate = [...lines, omittedActiveMemoryProfileLine(omittedCount)];
+			if (estimateTokenCount(candidate.join("\n")) <= maxTokens) break;
+			lines.pop();
+			includedItemIds.pop();
+			omittedCount += 1;
+		}
+		const omittedLine = omittedActiveMemoryProfileLine(omittedCount);
+		if (estimateTokenCount(omittedLine) <= maxTokens) {
+			lines.push(omittedLine);
+		} else {
+			const compactOmittedLine = `Omitted: ${omittedCount}.`;
+			if (estimateTokenCount(compactOmittedLine) <= maxTokens) {
+				lines.push(compactOmittedLine);
+			}
+		}
+	}
+
+	const content = lines.join("\n");
+	return {
+		content,
+		includedCount: includedItemIds.length,
+		omittedCount,
+		estimatedTokens: estimateTokenCount(content),
+		includedItemIds,
+	};
 }
 
 function inferReviewCategory(params: {
@@ -683,7 +771,7 @@ export async function getMemoryProfileReadModel(params: {
 				eq(memoryProfileItems.status, "active"),
 			),
 		)
-		.orderBy(asc(memoryProfileItems.updatedAt));
+		.orderBy(desc(memoryProfileItems.updatedAt));
 	const cards = rows.map(toCardItem);
 	const reviewRows = await db
 		.select()
@@ -787,7 +875,7 @@ export async function getActiveMemoryProfileContext(params: {
 				eq(memoryProfileItems.status, "active"),
 			),
 		)
-		.orderBy(asc(memoryProfileItems.updatedAt));
+		.orderBy(desc(memoryProfileItems.updatedAt));
 
 	return {
 		resetGeneration,
@@ -1324,6 +1412,7 @@ export async function listPendingMemoryDirtyEntries(params: {
 
 const DEFAULT_MEMORY_DIRTY_LEDGER_BATCH_SIZE = 25;
 const DEFAULT_MEMORY_DIRTY_LEDGER_MAX_RUNTIME_MS = 1500;
+const DEFAULT_MEMORY_DIRTY_LEDGER_STALE_CLAIM_MS = 5 * 60 * 1000;
 const LEGACY_DIRTY_LEDGER_CANDIDATE_LIMIT = 5;
 
 type ClaimedDirtyLedgerRow = typeof memoryDirtyLedger.$inferSelect;
@@ -1338,6 +1427,106 @@ function telemetrySubjectIdForDirtyMetadata(
 		readSafeString(metadata.itemId) ??
 		readSafeString(metadata.projectionStateId)
 	);
+}
+
+function readSafeStringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return Array.from(
+		new Set(
+			value
+				.filter((entry): entry is string => typeof entry === "string")
+				.map((entry) => entry.trim())
+				.filter(Boolean),
+		),
+	);
+}
+
+function mergeDirtyLedgerMetadata(
+	current: string | null,
+	next: string | null,
+): string {
+	return JSON.stringify({
+		...parseJsonRecord(current),
+		...parseJsonRecord(next),
+	});
+}
+
+function reclaimStaleClaimedMemoryDirtyLedgerRows(params: {
+	userId: string;
+	resetGeneration: number;
+	staleBefore: Date;
+	limit: number;
+}): number {
+	if (params.limit <= 0) return 0;
+
+	return db.transaction((tx) => {
+		const staleRows = tx
+			.select()
+			.from(memoryDirtyLedger)
+			.where(
+				and(
+					eq(memoryDirtyLedger.userId, params.userId),
+					eq(memoryDirtyLedger.resetGeneration, params.resetGeneration),
+					eq(memoryDirtyLedger.status, "claimed"),
+					lt(memoryDirtyLedger.claimedAt, params.staleBefore),
+				),
+			)
+			.orderBy(asc(memoryDirtyLedger.claimedAt))
+			.limit(params.limit)
+			.all();
+		const now = new Date();
+		let reclaimed = 0;
+
+		for (const row of staleRows) {
+			const [pending] = tx
+				.select()
+				.from(memoryDirtyLedger)
+				.where(
+					and(
+						eq(memoryDirtyLedger.userId, params.userId),
+						eq(memoryDirtyLedger.resetGeneration, params.resetGeneration),
+						eq(memoryDirtyLedger.scopeType, row.scopeType),
+						eq(memoryDirtyLedger.scopeId, row.scopeId),
+						eq(memoryDirtyLedger.reason, row.reason),
+						eq(memoryDirtyLedger.status, "pending"),
+					),
+				)
+				.limit(1)
+				.all();
+
+			if (pending) {
+				tx.update(memoryDirtyLedger)
+					.set({
+						count: sql`${memoryDirtyLedger.count} + ${row.count}`,
+						reasonMetadataJson: mergeDirtyLedgerMetadata(
+							pending.reasonMetadataJson,
+							row.reasonMetadataJson,
+						),
+						lastMarkedAt: now,
+					})
+					.where(eq(memoryDirtyLedger.id, pending.id))
+					.run();
+				tx.update(memoryDirtyLedger)
+					.set({
+						status: "completed",
+						completedAt: now,
+					})
+					.where(eq(memoryDirtyLedger.id, row.id))
+					.run();
+			} else {
+				tx.update(memoryDirtyLedger)
+					.set({
+						status: "pending",
+						claimedAt: null,
+					})
+					.where(eq(memoryDirtyLedger.id, row.id))
+					.run();
+			}
+			reclaimed += 1;
+		}
+
+		return reclaimed;
+	});
 }
 
 function claimNextMemoryDirtyLedgerRow(params: {
@@ -1523,11 +1712,15 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 		return;
 	}
 	if (params.row.reason === "legacy_migration") {
+		const excludedSourceIds = readSafeStringArray(
+			metadata.legacyExcludedSourceIds,
+		);
 		let legacyBatch: LegacyPersonaMemoryCandidateBatch | undefined;
 		if (params.loadLegacyMemoryCandidates) {
 			try {
 				legacyBatch = await params.loadLegacyMemoryCandidates(params.userId, {
 					limit: LEGACY_DIRTY_LEDGER_CANDIDATE_LIMIT,
+					excludeSourceIds: excludedSourceIds,
 				});
 			} catch {
 				legacyBatch = undefined;
@@ -1550,6 +1743,26 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 					ledgerEntryId: params.row.id,
 					scopeType: params.row.scopeType,
 					scopeId: params.row.scopeId,
+				},
+			});
+		}
+		const inspectedSourceIds = readSafeStringArray(
+			legacyBatch?.candidates.map((candidate) => candidate.id),
+		);
+		const nextExcludedSourceIds = Array.from(
+			new Set([...excludedSourceIds, ...inspectedSourceIds]),
+		);
+		if (
+			migration.status === "completed" &&
+			inspectedSourceIds.length > 0 &&
+			nextExcludedSourceIds.length < migration.totalAvailable
+		) {
+			await markMemoryDirty({
+				userId: params.userId,
+				reason: "legacy_migration",
+				metadata: {
+					legacyCandidateEstimate: migration.totalAvailable,
+					legacyExcludedSourceIds: nextExcludedSourceIds,
 				},
 			});
 		}
@@ -1691,6 +1904,7 @@ export async function reconcileMemoryProfileDirtyLedgerForUser(params: {
 	userId: string;
 	batchSize?: number;
 	maxRuntimeMs?: number;
+	staleClaimMs?: number;
 	loadLegacyMemoryCandidates?: LegacyMemoryCandidateLoader;
 }): Promise<MemoryDirtyLedgerReconciliationResult> {
 	const batchSize = Math.max(
@@ -1705,6 +1919,21 @@ export async function reconcileMemoryProfileDirtyLedgerForUser(params: {
 	);
 	const startedAt = Date.now();
 	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	reclaimStaleClaimedMemoryDirtyLedgerRows({
+		userId: params.userId,
+		resetGeneration,
+		staleBefore: new Date(
+			startedAt -
+				Math.max(
+					1,
+					Math.floor(
+						params.staleClaimMs ??
+							DEFAULT_MEMORY_DIRTY_LEDGER_STALE_CLAIM_MS,
+					),
+				),
+		),
+		limit: Math.max(batchSize, 1),
+	});
 	const result: MemoryDirtyLedgerReconciliationResult = {
 		claimed: 0,
 		completed: 0,

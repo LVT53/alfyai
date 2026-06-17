@@ -49,6 +49,10 @@ vi.mock("$lib/server/services/chat-turn/stream-orchestrator", () => ({
 	runChatStreamOrchestrator: vi.fn(() => new Response("retry stream")),
 }));
 
+vi.mock("$lib/server/services/memory-profile", () => ({
+	getCurrentMemoryResetGeneration: vi.fn(async () => 0),
+}));
+
 import { getConfig } from "$lib/server/config-store";
 import { prepareRetryChatTurn } from "$lib/server/services/chat-turn/retry";
 import { runChatStreamOrchestrator } from "$lib/server/services/chat-turn/stream-orchestrator";
@@ -110,6 +114,7 @@ describe("POST /api/chat/retry", () => {
 				isReconnect: false,
 				systemPromptAppendix: "retry fresh",
 				requestStartTime: expect.any(Number),
+				startedResetGeneration: 0,
 				downstreamAbortSignal: expect.any(AbortSignal),
 			}),
 		);

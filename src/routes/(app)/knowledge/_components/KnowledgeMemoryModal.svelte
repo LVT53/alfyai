@@ -1,4 +1,5 @@
 <script lang="ts">
+import { onDestroy, onMount } from "svelte";
 import type { MemoryProfileActionPayload, MemoryProfilePublicItem } from "$lib/types";
 import { Check, Loader, Save, Trash2, X } from "@lucide/svelte";
 
@@ -22,6 +23,9 @@ let {
 } = $props();
 
 let statement = $state("");
+let dialogRef = $state<HTMLElement | null>(null);
+let statementInputRef = $state<HTMLTextAreaElement | null>(null);
+let previousFocus: HTMLElement | null = null;
 
 let actionKey = $derived(`${item.id}:edit`);
 let deleteKey = $derived(`${item.id}:delete`);
@@ -66,7 +70,67 @@ function submitSuppress() {
 		expectedProjectionRevision: projectionRevision,
 	});
 }
+
+function getFocusableElements(): HTMLElement[] {
+	return Array.from(
+		dialogRef?.querySelectorAll<HTMLElement>(
+			'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
+		) ?? [],
+	);
+}
+
+function trapTabNavigation(event: KeyboardEvent) {
+	const focusable = getFocusableElements();
+	if (focusable.length === 0) {
+		event.preventDefault();
+		dialogRef?.focus();
+		return;
+	}
+	const first = focusable[0];
+	const last = focusable[focusable.length - 1];
+	const activeElement = document.activeElement;
+	if (!(activeElement instanceof Node) || !dialogRef?.contains(activeElement)) {
+		event.preventDefault();
+		first.focus();
+		return;
+	}
+	if (event.shiftKey && activeElement === first) {
+		event.preventDefault();
+		last.focus();
+		return;
+	}
+	if (!event.shiftKey && activeElement === last) {
+		event.preventDefault();
+		first.focus();
+	}
+}
+
+function handleWindowKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		onClose();
+		return;
+	}
+	if (event.key === "Tab") {
+		trapTabNavigation(event);
+	}
+}
+
+onMount(() => {
+	previousFocus = document.activeElement as HTMLElement | null;
+	setTimeout(() => {
+		const initialFocus = statementInputRef ?? getFocusableElements()[0] ?? dialogRef;
+		initialFocus?.focus();
+	}, 0);
+});
+
+onDestroy(() => {
+	previousFocus?.focus?.();
+	previousFocus = null;
+});
 </script>
+
+<svelte:window onkeydown={handleWindowKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 <div
@@ -75,6 +139,7 @@ function submitSuppress() {
 	onclick={onClose}
 >
 	<div
+		bind:this={dialogRef}
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="memory-profile-item-title"
@@ -105,6 +170,7 @@ function submitSuppress() {
 				Statement
 			</label>
 			<textarea
+				bind:this={statementInputRef}
 				id="memory-profile-statement"
 				class="mt-2 min-h-36 w-full resize-y rounded-[0.75rem] border border-border bg-surface-page px-3 py-3 text-sm font-sans leading-[1.55] text-text-primary outline-none transition focus:border-primary"
 				bind:value={statement}

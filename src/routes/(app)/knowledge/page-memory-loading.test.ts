@@ -1,9 +1,16 @@
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import type { Component } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	MemoryProfilePublicPayload,
 } from "$lib/types";
+
+const mockPageState = vi.hoisted(() => ({
+	page: {
+		url: new URL("http://localhost/knowledge"),
+		state: {},
+	},
+}));
 
 vi.mock("$app/environment", () => ({
 	browser: true,
@@ -18,12 +25,7 @@ vi.mock("$app/navigation", () => ({
 	replaceState: vi.fn(),
 }));
 
-vi.mock("$app/state", () => ({
-	page: {
-		url: new URL("http://localhost/knowledge"),
-		state: {},
-	},
-}));
+vi.mock("$app/state", () => mockPageState);
 
 vi.mock("$lib/client/api/knowledge", async () => {
 	const actual = await vi.importActual<
@@ -35,6 +37,7 @@ vi.mock("$lib/client/api/knowledge", async () => {
 		fetchKnowledgeMemory: vi.fn(),
 		fetchKnowledgeMemoryOverview: vi.fn(),
 		recordDocumentWorkspaceOpen: vi.fn(),
+		submitKnowledgeMemoryAction: vi.fn(),
 	};
 });
 
@@ -42,6 +45,7 @@ import {
 	fetchMemoryProfile,
 	fetchKnowledgeMemory,
 	fetchKnowledgeMemoryOverview,
+	submitKnowledgeMemoryAction,
 } from "$lib/client/api/knowledge";
 import Page from "./+page.svelte";
 
@@ -81,8 +85,15 @@ const memoryProfilePayload = {
 		},
 	],
 	review: {
-		visibleItems: [],
-		openCount: 0,
+		visibleItems: [
+			{
+				id: "review-1",
+				subject: "Remember Hungarian labels.",
+				question: "Should this be remembered?",
+				reason: "Repeated in settings work.",
+			},
+		],
+		openCount: 1,
 		overflowCount: 0,
 	},
 } satisfies MemoryProfilePublicPayload;
@@ -134,8 +145,10 @@ const KnowledgePage = Page as unknown as Component<{
 describe("Knowledge page memory loading", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockPageState.page.url = new URL("http://localhost/knowledge");
 		vi.mocked(fetchMemoryProfile).mockResolvedValue(memoryProfilePayload);
 		vi.mocked(fetchKnowledgeMemory).mockResolvedValue(memoryProfilePayload);
+		vi.mocked(submitKnowledgeMemoryAction).mockResolvedValue(memoryProfilePayload);
 		Object.defineProperty(document, "hidden", {
 			configurable: true,
 			value: false,
@@ -173,6 +186,35 @@ describe("Knowledge page memory loading", () => {
 		expect(
 			screen.queryByText(/Focus Continuity|task memory|raw/i),
 		).not.toBeInTheDocument();
+	});
+
+	it("selects the documents tab from the SvelteKit route URL query", () => {
+		mockPageState.page.url = new URL("http://localhost/knowledge?q=report");
+
+		render(KnowledgePage, { data: pageData() });
+
+		expect(screen.getByRole("tab", { name: "Documents" })).toHaveAttribute(
+			"aria-selected",
+			"true",
+		);
+		expect(screen.getByRole("tabpanel", { name: "Documents" })).toBeInTheDocument();
+	});
+
+	it("submits review item accept actions from the Needs Review controls", async () => {
+		render(KnowledgePage, { data: pageData() });
+
+		await waitFor(() => {
+			expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: "Remember this item" }));
+
+		expect(submitKnowledgeMemoryAction).toHaveBeenCalledWith({
+			target: "review_item",
+			action: "accept",
+			itemId: "review-1",
+			expectedProjectionRevision: 7,
+		});
 	});
 
 });

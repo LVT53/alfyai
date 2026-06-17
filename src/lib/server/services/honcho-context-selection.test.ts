@@ -616,6 +616,18 @@ vi.mock("./linked-context-sources", () => ({
 }));
 
 vi.mock("./memory-profile", () => ({
+	formatActiveMemoryProfileContextForPrompt: vi.fn((context) => ({
+		content: context.items
+			.map(
+				(item: { category: string; statement: string }) =>
+					`- ${item.category}: ${item.statement}`,
+			)
+			.join("\n"),
+		includedCount: context.items.length,
+		includedItemIds: context.items.map((item: { id: string }) => item.id),
+		omittedCount: 0,
+		estimatedTokens: context.items.length,
+	})),
 	getActiveMemoryProfileContext: mockGetActiveMemoryProfileContext,
 	recordMemoryReworkTelemetry: mockRecordMemoryReworkTelemetry,
 }));

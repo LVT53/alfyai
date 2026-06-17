@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	parseChatTurnRequest: vi.fn(),
 	preflightChatTurn: vi.fn(),
 	runChatStreamOrchestrator: vi.fn(),
+	getCurrentMemoryResetGeneration: vi.fn(),
 	buildSkillSystemPromptAppendix: vi.fn(),
 }));
 
@@ -32,6 +33,10 @@ vi.mock("$lib/server/services/chat-turn/preflight", () => ({
 
 vi.mock("$lib/server/services/chat-turn/stream-orchestrator", () => ({
 	runChatStreamOrchestrator: mocks.runChatStreamOrchestrator,
+}));
+
+vi.mock("$lib/server/services/memory-profile", () => ({
+	getCurrentMemoryResetGeneration: mocks.getCurrentMemoryResetGeneration,
 }));
 
 vi.mock("$lib/server/services/skills/prompt-context", () => ({
@@ -140,6 +145,7 @@ describe("POST /api/chat/stream route adapter", () => {
 			ok: true,
 			value: preflightedTurn,
 		});
+		mocks.getCurrentMemoryResetGeneration.mockResolvedValue(0);
 		mocks.buildSkillSystemPromptAppendix.mockReturnValue(undefined);
 		mocks.runChatStreamOrchestrator.mockReturnValue(makeStreamResponse());
 	});
@@ -191,6 +197,7 @@ describe("POST /api/chat/stream route adapter", () => {
 				upstreamMessage: "Hello",
 				downstreamAbortSignal: event.request.signal,
 				isReconnect: false,
+				startedResetGeneration: 0,
 				systemPromptAppendix: undefined,
 				routePhaseTimings: expect.objectContaining({
 					route_parse: expect.any(Number),

@@ -1,12 +1,12 @@
 <script lang="ts">
 import { goto, invalidateAll } from "$app/navigation";
 import { browser } from "$app/environment";
+import { page as kitPage } from "$app/state";
 import {
 	deleteKnowledgeArtifact,
 	fetchMemoryProfile,
 	submitKnowledgeMemoryAction,
 	uploadKnowledgeAttachment,
-	type KnowledgeMemoryActionPayload,
 } from "$lib/client/api/knowledge";
 import { buildChatSourceMessageHref } from "$lib/client/document-workspace-navigation";
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -37,7 +37,7 @@ const getData = () => data;
 const initialDocuments = (getData().documents ?? []) as KnowledgeDocumentItem[];
 const initialLibrary = getData().library;
 
-let activeTab = $state<KnowledgeTab>(getData().initialTab ?? "memory");
+let activeTab = $state<KnowledgeTab>(getKnowledgeTabFromUrl(kitPage.url));
 let documents = $state<KnowledgeDocumentItem[]>(initialDocuments);
 let deletingArtifactIds = $state(new Set<string>());
 let manageError = $state("");
@@ -87,9 +87,8 @@ let documentDeleteCandidateId = $state<string | null>(null);
 let bulkDeleteCandidateIds = $state<string[] | null>(null);
 let bulkDeleteSuccessVersion = $state(0);
 
-function setInitialTabFromLocation() {
-	if (!browser) return;
-	const searchParams = new URLSearchParams(window.location.search);
+function getKnowledgeTabFromUrl(url: URL): KnowledgeTab {
+	const searchParams = url.searchParams;
 	const requestedTab = searchParams.get("tab");
 	const hasDocumentQuery =
 		searchParams.has("q") ||
@@ -97,7 +96,7 @@ function setInitialTabFromLocation() {
 		searchParams.has("dir") ||
 		searchParams.has("page") ||
 		searchParams.has("pageSize");
-	activeTab = requestedTab === "documents" || hasDocumentQuery ? "documents" : "memory";
+	return requestedTab === "documents" || hasDocumentQuery ? "documents" : "memory";
 }
 
 function syncSearchParam(
@@ -155,9 +154,7 @@ function buildKnowledgeLibraryUrl(params: {
 	pageSize?: number;
 	tab?: KnowledgeTab;
 }): string {
-	const searchParams = browser
-		? new URLSearchParams(window.location.search)
-		: new URLSearchParams();
+	const searchParams = new URLSearchParams(kitPage.url.search);
 	const query = params.query ?? documentSearchQuery;
 	const sortKey = params.sortKey ?? documentSortKey;
 	const sortDirection = params.sortDirection ?? documentSortDirection;
@@ -394,18 +391,7 @@ async function loadMemoryProfile(force = false) {
 	}
 }
 
-function isProjectionAction(
-	payload: KnowledgeMemoryActionPayload,
-): payload is MemoryProfileActionPayload {
-	return (
-		payload.action === "delete" ||
-		payload.action === "suppress" ||
-		payload.action === "edit"
-	);
-}
-
 async function handleMemoryAction(payload: MemoryProfileActionPayload) {
-	if (!isProjectionAction(payload)) return;
 	const key = `${payload.itemId}:${payload.action}`;
 	if (pendingMemoryActionKey === key) return;
 
@@ -452,7 +438,7 @@ async function executeRemoveArtifact(id: string) {
 }
 
 $effect(() => {
-	setInitialTabFromLocation();
+	activeTab = getKnowledgeTabFromUrl(kitPage.url);
 });
 
 $effect(() => {

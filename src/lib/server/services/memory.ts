@@ -85,6 +85,17 @@ function parseMemoryProfileAction(payload: unknown): ParsedMemoryProfileAction {
 	const record = payload as Record<string, unknown>;
 	const itemId = record.itemId;
 	const expectedProjectionRevision = record.expectedProjectionRevision;
+	if (
+		record.target !== undefined &&
+		record.target !== "profile_item" &&
+		record.target !== "review_item"
+	) {
+		throw new MemoryProfileActionError(
+			"invalid_action",
+			"Invalid memory profile action payload.",
+			400,
+		);
+	}
 	const target = record.target === "review_item" ? "review_item" : "profile_item";
 	if (
 		!isNonEmptyString(itemId) ||

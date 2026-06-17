@@ -609,6 +609,94 @@ describe("memory profile foundation", () => {
 		expect(contextJson).not.toContain("review");
 	});
 
+	it("orders active memory profile context newest-first", async () => {
+		const { db } = await import("$lib/server/db");
+		const { createMemoryProfileItem, getActiveMemoryProfileContext } =
+			await import("./index");
+
+		const stale = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers stale profile context.",
+		});
+		const fresh = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers fresh profile context.",
+		});
+		await db
+			.update(schema.memoryProfileItems)
+			.set({ updatedAt: new Date("2026-01-01T00:00:00.000Z") })
+			.where(eq(schema.memoryProfileItems.id, stale.id))
+			.run();
+		await db
+			.update(schema.memoryProfileItems)
+			.set({ updatedAt: new Date("2026-06-01T00:00:00.000Z") })
+			.where(eq(schema.memoryProfileItems.id, fresh.id))
+			.run();
+
+		const context = await getActiveMemoryProfileContext({ userId: "user-1" });
+
+		expect(context.items.map((item) => item.statement)).toEqual([
+			"Prefers fresh profile context.",
+			"Prefers stale profile context.",
+		]);
+	});
+
+	it("formats active memory profile context item-by-item with omitted counts", async () => {
+		const { formatActiveMemoryProfileContextForPrompt } = await import("./index");
+		const context = {
+			resetGeneration: 0,
+			projectionRevision: 1,
+			items: [
+				{
+					id: "old-memory",
+					itemKey: "old",
+					category: "preferences" as const,
+					statement: "Prefers stale profile context.",
+					scope: { type: "global" as const },
+					revision: 0,
+					updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+				},
+				{
+					id: "fresh-memory",
+					itemKey: "fresh",
+					category: "preferences" as const,
+					statement: "Prefers fresh profile context.",
+					scope: { type: "global" as const },
+					revision: 0,
+					updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+				},
+				{
+					id: "middle-memory",
+					itemKey: "middle",
+					category: "preferences" as const,
+					statement: "Prefers middle profile context.",
+					scope: { type: "global" as const },
+					revision: 0,
+					updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+				},
+			],
+		};
+
+		const formatted = formatActiveMemoryProfileContextForPrompt(context, {
+			maxTokens: 40,
+		});
+
+		expect(formatted.content).toContain("Prefers fresh profile context.");
+		expect(formatted.content).not.toContain("Prefers stale profile context.");
+		expect(formatted.content).toContain(
+			"Omitted active memory profile items: 2.",
+		);
+		expect(formatted).toMatchObject({
+			includedCount: 1,
+			omittedCount: 2,
+			includedItemIds: ["fresh-memory"],
+		});
+	});
+
 	it("reconciles telemetry-only dirty ledger entries and completes them", async () => {
 		const {
 			listMemoryReworkTelemetry,
@@ -839,6 +927,65 @@ describe("memory profile foundation", () => {
 				id: stale.id,
 				status: "pending",
 				resetGeneration: 0,
+			},
+		]);
+	});
+
+	it("reclaims stale claimed dirty rows after a worker crash", async () => {
+		const {
+			listPendingMemoryDirtyEntries,
+			reconcileMemoryProfileDirtyLedgerForUser,
+		} = await import("./index");
+		const { db } = await import("$lib/server/db");
+		const ledgerId = `dirty-${randomUUID()}`;
+		const now = Date.now();
+		await db
+			.insert(schema.memoryDirtyLedger)
+			.values({
+				id: ledgerId,
+				userId: "user-1",
+				resetGeneration: 0,
+				scopeType: "global",
+				scopeId: "",
+				reason: "deferred_intake",
+				status: "claimed",
+				count: 1,
+				reasonMetadataJson: JSON.stringify({ reviewItemId: "review-1" }),
+				firstMarkedAt: new Date(now - 700_000),
+				lastMarkedAt: new Date(now - 700_000),
+				claimedAt: new Date(now - 700_000),
+			})
+			.run();
+
+		await expect(
+			reconcileMemoryProfileDirtyLedgerForUser({
+				userId: "user-1",
+				staleClaimMs: 1_000,
+			}),
+		).resolves.toEqual({
+			claimed: 1,
+			completed: 1,
+			failed: 0,
+			skipped: 0,
+			timedOut: false,
+		});
+
+		await expect(
+			listPendingMemoryDirtyEntries({ userId: "user-1" }),
+		).resolves.toEqual([]);
+		const rows = await db
+			.select({
+				id: schema.memoryDirtyLedger.id,
+				status: schema.memoryDirtyLedger.status,
+				completedAt: schema.memoryDirtyLedger.completedAt,
+			})
+			.from(schema.memoryDirtyLedger)
+			.where(eq(schema.memoryDirtyLedger.id, ledgerId));
+		expect(rows).toEqual([
+			{
+				id: ledgerId,
+				status: "completed",
+				completedAt: expect.any(Date),
 			},
 		]);
 	});
@@ -1074,6 +1221,7 @@ describe("memory profile foundation", () => {
 
 		expect(loadLegacyMemoryCandidates).toHaveBeenCalledWith("user-1", {
 			limit: 5,
+			excludeSourceIds: [],
 		});
 		await expect(
 			listPendingMemoryDirtyEntries({ userId: "user-1" }),
@@ -1148,6 +1296,7 @@ describe("memory profile foundation", () => {
 
 		expect(loadLegacyMemoryCandidates).toHaveBeenCalledWith("user-1", {
 			limit: 5,
+			excludeSourceIds: [],
 		});
 		const activeContext = await getActiveMemoryProfileContext({
 			userId: "user-1",
@@ -1195,6 +1344,119 @@ describe("memory profile foundation", () => {
 		]);
 		expect(JSON.stringify(telemetry)).not.toContain("concise technical answers");
 		expect(JSON.stringify(telemetry)).not.toContain("acoustic guitars");
+	});
+
+	it("continues legacy migration dirty work across bounded batches until the backlog is exhausted", async () => {
+		const {
+			listMemoryReworkTelemetry,
+			listPendingMemoryDirtyEntries,
+			markMemoryDirty,
+			reconcileMemoryProfileDirtyLedgerForUser,
+		} = await import("./index");
+		const { db } = await import("$lib/server/db");
+		const candidates = Array.from({ length: 12 }, (_, index) => ({
+			id: `legacy-${index + 1}`,
+			content: `User prefers option ${index + 1}.`,
+			scope: "assistant_about_user" as const,
+			sessionId: null,
+			createdAt: Date.now() - index,
+		}));
+		const loadLegacyMemoryCandidates = vi.fn(async (
+			_userId: string,
+			options: { limit: number; excludeSourceIds?: string[] },
+		) => {
+			const excluded = new Set(options.excludeSourceIds ?? []);
+			return {
+				totalAvailable: candidates.length,
+				candidates: candidates
+					.filter((candidate) => !excluded.has(candidate.id))
+					.slice(0, options.limit),
+			};
+		});
+
+		await markMemoryDirty({
+			userId: "user-1",
+			reason: "legacy_migration",
+			metadata: { legacyCandidateEstimate: candidates.length },
+		});
+
+		await expect(
+			reconcileMemoryProfileDirtyLedgerForUser({
+				userId: "user-1",
+				batchSize: 1,
+				loadLegacyMemoryCandidates,
+			}),
+		).resolves.toMatchObject({ claimed: 1, completed: 1, failed: 0 });
+		await expect(
+			listPendingMemoryDirtyEntries({ userId: "user-1" }),
+		).resolves.toEqual([
+			expect.objectContaining({
+				reason: "legacy_migration",
+				metadata: expect.objectContaining({
+					legacyExcludedSourceIds: candidates
+						.slice(0, 5)
+						.map((candidate) => candidate.id),
+				}),
+			}),
+		]);
+
+		await reconcileMemoryProfileDirtyLedgerForUser({
+			userId: "user-1",
+			batchSize: 1,
+			loadLegacyMemoryCandidates,
+		});
+		await reconcileMemoryProfileDirtyLedgerForUser({
+			userId: "user-1",
+			batchSize: 1,
+			loadLegacyMemoryCandidates,
+		});
+
+		expect(loadLegacyMemoryCandidates).toHaveBeenNthCalledWith(1, "user-1", {
+			limit: 5,
+			excludeSourceIds: [],
+		});
+		expect(loadLegacyMemoryCandidates).toHaveBeenNthCalledWith(2, "user-1", {
+			limit: 5,
+			excludeSourceIds: candidates
+				.slice(0, 5)
+				.map((candidate) => candidate.id),
+		});
+		expect(loadLegacyMemoryCandidates).toHaveBeenNthCalledWith(3, "user-1", {
+			limit: 5,
+			excludeSourceIds: candidates
+				.slice(0, 10)
+				.map((candidate) => candidate.id),
+		});
+		await expect(
+			listPendingMemoryDirtyEntries({ userId: "user-1" }),
+		).resolves.toEqual([]);
+
+		const rows = await db
+			.select({
+				sourceId: schema.memoryProfileItemProvenance.sourceId,
+				status: schema.memoryProfileItems.status,
+			})
+			.from(schema.memoryProfileItemProvenance)
+			.innerJoin(
+				schema.memoryProfileItems,
+				eq(
+					schema.memoryProfileItemProvenance.itemId,
+					schema.memoryProfileItems.id,
+				),
+			)
+			.orderBy(schema.memoryProfileItemProvenance.sourceId);
+		expect(rows).toHaveLength(12);
+		expect(rows.map((row) => row.sourceId).sort()).toEqual(
+			candidates.map((candidate) => candidate.id).sort(),
+		);
+		expect(rows.every((row) => row.status === "active")).toBe(true);
+
+		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
+		expect(
+			telemetry
+				.filter((entry) => entry.eventName === "legacy_migration_completed")
+				.map((entry) => entry.count),
+		).toEqual([5, 5, 2]);
 	});
 
 	it("does not create duplicate reviews from suppressed or deleted profile items", async () => {
