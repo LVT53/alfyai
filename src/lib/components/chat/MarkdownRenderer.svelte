@@ -53,6 +53,7 @@ let sourceTooltipElement = $state<HTMLDivElement | null>(null);
 let sourceTooltip = $state<SourceLinkTooltip | null>(null);
 let prevWordCount = 0;
 let prevLastBlockEl: HTMLElement | null = null;
+let wasStreaming = false;
 let renderVersion = 0;
 let resizeObserver: ResizeObserver | null = null;
 let resizeFrame = 0;
@@ -64,9 +65,15 @@ const SOURCE_TOOLTIP_OFFSET = 6;
 
 // Throttle rendering during streaming so each visual update is large
 // enough that new blocks are perceivable with the fade-in animation.
+// Uses requestAnimationFrame for initial frame alignment, then setTimeout
+// for the remaining throttle delay to avoid infinite rAF loops in test
+// environments where rAF fires without sufficient time advancement.
+// Falls back to setTimeout when requestAnimationFrame is unavailable (SSR).
 let pendingContent: string | null = null;
-let throttleTimer: ReturnType<typeof setTimeout> | null = null;
+let rafId: number | null = null;
+let lastRenderTime = 0;
 const STREAM_THROTTLE_MS = 40;
+const HAS_RAF = typeof requestAnimationFrame !== "undefined";
 
 async function collectFullMessageSourceReferences(
 	source: string,
@@ -81,6 +88,20 @@ async function collectFullMessageSourceReferences(
 	}
 }
 
+function flushPendingRender(
+	darkMode: boolean,
+	streaming: boolean,
+	compactLinks: boolean,
+) {
+	rafId = null;
+	const latest = pendingContent;
+	pendingContent = null;
+	if (latest !== null) {
+		lastRenderTime = performance.now();
+		void renderContent(latest, darkMode, streaming, compactLinks);
+	}
+}
+
 function scheduleRender(
 	src: string,
 	darkMode: boolean,
@@ -88,14 +109,26 @@ function scheduleRender(
 	compactLinks: boolean,
 ) {
 	pendingContent = src;
-	if (throttleTimer !== null) return;
-	throttleTimer = setTimeout(() => {
-		throttleTimer = null;
-		const latest = pendingContent;
-		pendingContent = null;
-		if (latest === null) return;
-		void renderContent(latest, darkMode, streaming, compactLinks);
-	}, STREAM_THROTTLE_MS);
+	if (rafId !== null) return;
+
+	if (HAS_RAF) {
+		rafId = requestAnimationFrame(() => {
+			const elapsed = performance.now() - lastRenderTime;
+			if (elapsed >= STREAM_THROTTLE_MS) {
+				flushPendingRender(darkMode, streaming, compactLinks);
+			} else {
+				rafId = setTimeout(
+					() => flushPendingRender(darkMode, streaming, compactLinks),
+					STREAM_THROTTLE_MS - elapsed,
+				) as unknown as number;
+			}
+		});
+	} else {
+		rafId = setTimeout(
+			() => flushPendingRender(darkMode, streaming, compactLinks),
+			STREAM_THROTTLE_MS,
+		) as unknown as number;
+	}
 }
 
 async function splitMarkdownBlocks(
@@ -215,21 +248,14 @@ $effect(() => {
 	}
 
 	// Flush any pending throttled render immediately when streaming stops.
-	if (throttleTimer !== null) {
-		clearTimeout(throttleTimer);
-		throttleTimer = null;
+	if (rafId !== null) {
+		cancelAnimationFrame(rafId);
+		clearTimeout(rafId);
+		rafId = null;
 		pendingContent = null;
 	}
 
 	void renderContent(nextContent, darkMode, streaming, compactLinks);
-});
-
-$effect(() => {
-	if (!isStreaming) {
-		prevWordCount = 0;
-		prevLastBlockEl = null;
-		prevBlockCount = 0;
-	}
 });
 
 // Walk the last html block's DOM and wrap newly arrived words in animated spans.
@@ -597,9 +623,10 @@ onMount(() => {
 	return () => {
 		resizeObserver?.disconnect();
 		resizeObserver = null;
-		if (throttleTimer !== null) {
-			clearTimeout(throttleTimer);
-			throttleTimer = null;
+		if (rafId !== null) {
+			cancelAnimationFrame(rafId);
+			clearTimeout(rafId);
+			rafId = null;
 		}
 		if (resizeFrame) {
 			cancelAnimationFrame(resizeFrame);
@@ -640,7 +667,9 @@ async function runPostRenderEffects(version: number) {
 	scheduleTableEnhancement();
 	scheduleSourceTooltipPosition();
 
-	if (!isStreaming) return;
+	const shouldAnimateWords = isStreaming || wasStreaming;
+	wasStreaming = isStreaming;
+	if (!shouldAnimateWords) return;
 
 	const blockEls = container.querySelectorAll<HTMLElement>(
 		":scope > .markdown-html",
@@ -654,6 +683,13 @@ async function runPostRenderEffects(version: number) {
 	}
 
 	prevWordCount = wrapNewWords(lastBlockEl, prevWordCount);
+
+	// Reset word tracking after the final batch when streaming has ended
+	if (!isStreaming) {
+		prevWordCount = 0;
+		prevLastBlockEl = null;
+		prevBlockCount = 0;
+	}
 }
 
 $effect(() => {
@@ -722,7 +758,7 @@ $effect(() => {
   }
 
   :global(.word-new) {
-    animation: wordFadeIn 200ms ease-out forwards;
+    animation: wordFadeIn 300ms ease-out forwards;
   }
 
   :global(.source-link-chip) {
@@ -841,8 +877,8 @@ $effect(() => {
   }
 
   @keyframes wordFadeIn {
-    from { opacity: 0.3; }
-    to   { opacity: 1; }
+    from { opacity: 0; transform: translateY(2px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   @media (prefers-reduced-motion: reduce) {

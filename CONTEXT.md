@@ -274,6 +274,18 @@ _Avoid_: Langflow stream, Normal Chat Turn Completion, route-local stream part, 
 The browser-side plain TypeScript boundary at `src/lib/client/normal-chat-client-turn-runtime.ts` that owns Normal Chat send, retry, reconnect, waiting, stop, queued follow-up, and recovery runtime semantics above `streamChat`. It consumes decoded stream callbacks and server-returned metadata through page adapters while the chat page keeps visible Svelte state, route lifecycle, document workspace state, and UI commands.
 _Avoid_: AI SDK UI stream parser, Context Sources builder, chat page state, durable completion
 
+**Token Display Buffer**:
+A `requestAnimationFrame`-aligned batching layer inside the **Normal Chat Client Turn Runtime** that coalesces streamed text deltas — both visible text and thinking text — before they reach the page adapter's `appendTokenChunk` and `appendThinkingChunk`. It is a display cadence buffer, not a content buffer — it changes when accumulated text reaches reactive state, not what text arrives. It flushes once per animation frame and synchronously on stream end, user-requested stop, and error, ensuring no buffered text is lost during termination. It does not buffer tool-call updates or metadata.
+_Avoid_: content buffer, token cache, render throttle, display queue, MarkdownRenderer throttle
+
+**Render Coalescing Cadence**:
+The frame-aligned minimum interval between markdown re-renders during streaming, owned by `MarkdownRenderer.svelte`. It is distinct from the **Token Display Buffer**: the buffer controls when accumulated text reaches reactive state, the cadence controls when that state is re-parsed and painted. Both are needed — the buffer prevents reactive pressure, the cadence prevents render-cost pressure from full markdown re-parses.
+_Avoid_: render throttle, display buffer, frame skip, debounce
+
+**Word Reveal Animation**:
+The CSS animation applied to newly arrived words during streaming, owned by `MarkdownRenderer.svelte` and `ThinkingBlock.svelte`. Words fade from `opacity: 0` to `1` with a `translateY(2px)` settle over `300ms ease-out`, with no stagger within a batch. It replaces the previous `0.3 → 1` opacity-only flash. Each batch's words animate together; the natural cadence comes from the **Render Coalescing Cadence**, not from intra-batch staggering. The final batch of words when the stream ends must also receive the animation — the last render transitioning from streaming to finished should still call `wrapNewWords()` so there is no visual seam between streaming words and finished words. Both components must keep their `wordFadeIn` keyframes in sync, and both must respect `prefers-reduced-motion: reduce`.
+_Avoid_: typewriter effect, per-letter animation, staggered cascade, blur-in, word shimmer
+
 **Conversation Detail Read Model**:
 The server read-model boundary at `src/lib/server/services/conversation-detail/read-model.ts` that assembles the refreshable `ConversationDetail` payload for chat page load and browser hydration. It owns bootstrap/full detail selection, payload defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft, generated-file, File Production, Deep Research, context-compression, cost fields, and active Skill Session public serialization.
 _Avoid_: route-local hydration recipe, durable Normal Chat Turn Completion, AI SDK UI stream terminal payload, page-owned payload assembly
@@ -1046,6 +1058,10 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - The **Normal Chat Client Turn Runtime** sits above `streamChat`: it reacts to decoded stream callbacks, but it does not parse raw AI SDK UI stream lines or define protocol grammar.
 - The **Normal Chat Client Turn Runtime** applies server-returned metadata through chat-page adapters; it does not build **Context Sources** or decide **Normal Chat Turn Completion**.
 - The chat page owns visible Svelte state, route lifecycle, document workspace state, and UI commands; the **Normal Chat Client Turn Runtime** owns browser-side turn transitions and queue recovery rules.
+- The **Token Display Buffer** sits inside the **Normal Chat Client Turn Runtime** between `onToken`/`onThinking` callbacks and page-adapter `appendTokenChunk`/`appendThinkingChunk` calls; it batches text to reduce reactive pressure, not to change content.
+- The **Render Coalescing Cadence** sits inside `MarkdownRenderer.svelte`, downstream of the **Token Display Buffer**; the buffer controls when text reaches reactive state, the cadence controls when that state is re-parsed and painted.
+- The **Word Reveal Animation** is applied after each coalesced render via `wrapNewWords()`; it depends on the **Render Coalescing Cadence** to ensure each batch contains enough words for a perceivable fade.
+- The **Token Display Buffer** must flush synchronously on stream end, stop, and error; the **Render Coalescing Cadence** must allow one final render with **Word Reveal Animation** when streaming transitions to finished.
 - The **Composer Command Registry** has separate **Skill** and **Composer Command** namespaces.
 - The **Composer Command Registry** and **Skill** work should ship in **Composer Command Slices** behind a feature flag until the v1 surface is coherent.
 - The **Composer Command Registry** feature flag should be runtime admin-configurable and default off until the v1 surface is coherent.

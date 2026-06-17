@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createNormalChatClientTurnRuntime,
 	type NormalChatClientTurnRuntimeAdapters,
@@ -924,6 +924,100 @@ describe("Normal Chat Client Turn Runtime", () => {
 			streamInterruptedByBackground: false,
 			active: false,
 			isSending: false,
+		});
+	});
+
+	describe("Token Display Buffer", () => {
+		beforeEach(() => {
+			vi.useRealTimers();
+			// Prevent rAF from firing so tests only see synchronous flush paths.
+			vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(
+				() => -1,
+			);
+		});
+
+		afterEach(() => {
+			vi.restoreAllMocks();
+		});
+
+		it("coalesces multiple token chunks via the buffer and flushes them as one chunk on end", () => {
+			const { adapters, streamInvocations } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			runtime.send({
+				message: "Hello",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+
+			streamInvocations[0].callbacks.onToken("A");
+			streamInvocations[0].callbacks.onToken("B");
+
+			streamInvocations[0].callbacks.onEnd("AB", {
+				assistantMessageId: "assistant-1",
+			});
+
+			expect(adapters.appendTokenChunk).toHaveBeenCalledTimes(1);
+			expect(adapters.appendTokenChunk).toHaveBeenCalledWith("id-2", "AB");
+		});
+
+		it("flushes the token buffer on stream errors so buffered text is not lost", () => {
+			const { adapters, streamInvocations } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			runtime.send({
+				message: "Hello",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+
+			streamInvocations[0].callbacks.onToken("A");
+			streamInvocations[0].callbacks.onToken("B");
+
+			streamInvocations[0].callbacks.onError(new Error("Network failed"));
+
+			expect(adapters.appendTokenChunk).toHaveBeenCalledTimes(1);
+			expect(adapters.appendTokenChunk).toHaveBeenCalledWith("id-2", "AB");
+		});
+
+		it("does not deliver buffered token text before stream-end or stream-error", () => {
+			const { adapters, streamInvocations } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			runtime.send({
+				message: "Hello",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+
+			streamInvocations[0].callbacks.onToken("A");
+
+			expect(adapters.appendTokenChunk).not.toHaveBeenCalled();
+		});
+
+		it("coalesces thinking chunks through the buffer and delivers them on end", () => {
+			const { adapters, streamInvocations } = makeAdapters();
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			runtime.send({
+				message: "Hello",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+
+			streamInvocations[0].callbacks.onThinking("A");
+			streamInvocations[0].callbacks.onThinking("B");
+
+			streamInvocations[0].callbacks.onEnd("AB", {
+				assistantMessageId: "assistant-1",
+			});
+
+			expect(adapters.appendThinkingChunk).toHaveBeenCalledTimes(1);
+			expect(adapters.appendThinkingChunk).toHaveBeenCalledWith("id-2", "AB");
 		});
 	});
 });

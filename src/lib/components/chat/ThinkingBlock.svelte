@@ -815,12 +815,12 @@ async function toggle() {
 }
 
 .word-new {
-animation: wordFadeIn 200ms ease-out forwards;
+animation: wordFadeIn 300ms ease-out forwards;
 }
 
 @keyframes wordFadeIn {
-from { opacity: 0.3; }
-to   { opacity: 1; }
+from { opacity: 0; transform: translateY(2px); }
+to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes thinkContentFadeIn {

@@ -196,6 +196,52 @@ type StartStreamParams = {
 	onForkedSourceHistoryConfirmationRequired?: () => void;
 };
 
+/**
+ * Token Display Buffer — requestAnimationFrame-aligned batching layer.
+ * Accumulates text chunks and flushes once per animation frame,
+ * preventing jank from per-delta Svelte store updates.
+ *
+ * Falls back to synchronous delivery when requestAnimationFrame is
+ * unavailable (SSR or test environments without DOM).
+ */
+class TokenDisplayBuffer {
+	private accumulator = "";
+	private rafId: number | null = null;
+	private readonly flushCallback: (text: string) => void;
+	private readonly rafAvailable: boolean;
+
+	constructor(flushCallback: (text: string) => void) {
+		this.flushCallback = flushCallback;
+		this.rafAvailable = typeof requestAnimationFrame !== "undefined";
+	}
+
+	append(chunk: string): void {
+		if (!this.rafAvailable) {
+			// Fall back to old behaviour: deliver immediately
+			this.flushCallback(chunk);
+			return;
+		}
+		this.accumulator += chunk;
+		if (this.rafId === null) {
+			this.rafId = requestAnimationFrame(() => {
+				this.rafId = null;
+				this.flush();
+			});
+		}
+	}
+
+	flush(): void {
+		if (this.accumulator === "") return;
+		if (this.rafId !== null) {
+			cancelAnimationFrame(this.rafId);
+			this.rafId = null;
+		}
+		const text = this.accumulator;
+		this.accumulator = "";
+		this.flushCallback(text);
+	}
+}
+
 export type NormalChatClientTurnRuntime = ReturnType<
 	typeof createNormalChatClientTurnRuntime
 >;
@@ -215,6 +261,8 @@ export function createNormalChatClientTurnRuntime(
 	adapters: NormalChatClientTurnRuntimeAdapters,
 ) {
 	let activeStream: StreamHandle | null = null;
+	let activeTokenBuffer: TokenDisplayBuffer | null = null;
+	let activeThinkingBuffer: TokenDisplayBuffer | null = null;
 	let isSending = false;
 	let isPollingForCompletion = false;
 	let streamInterruptedByBackground = false;
@@ -256,6 +304,8 @@ export function createNormalChatClientTurnRuntime(
 	function completeTurn() {
 		isSending = false;
 		setActiveStream(null);
+		activeTokenBuffer = null;
+		activeThinkingBuffer = null;
 	}
 
 	function createAssistantPlaceholder(
@@ -354,12 +404,22 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	function buildCallbacks(params: StartStreamParams): StreamCallbacks {
+		const tokenBuffer = new TokenDisplayBuffer((text) => {
+			adapters.appendTokenChunk(params.placeholderId, text);
+		});
+		const thinkingBuffer = new TokenDisplayBuffer((text) => {
+			adapters.appendThinkingChunk(params.placeholderId, text);
+		});
+
+		activeTokenBuffer = tokenBuffer;
+		activeThinkingBuffer = thinkingBuffer;
+
 		return {
 			onToken(chunk) {
-				adapters.appendTokenChunk(params.placeholderId, chunk);
+				tokenBuffer.append(chunk);
 			},
 			onThinking(chunk) {
-				adapters.appendThinkingChunk(params.placeholderId, chunk);
+				thinkingBuffer.append(chunk);
 			},
 			onToolCall(name, input, status, details) {
 				adapters.applyToolCallUpdate(
@@ -388,6 +448,9 @@ export function createNormalChatClientTurnRuntime(
 				);
 			},
 			onEnd(fullText, metadata) {
+				tokenBuffer.flush();
+				thinkingBuffer.flush();
+
 				if (isPollingForCompletion) {
 					isPollingForCompletion = false;
 					emitState();
@@ -423,6 +486,9 @@ export function createNormalChatClientTurnRuntime(
 				void drainPostTurnQueue();
 			},
 			onError(error) {
+				tokenBuffer.flush();
+				thinkingBuffer.flush();
+
 				const err = error instanceof Error ? error : new Error(String(error));
 				const isBackgroundAbort =
 					err.name === "AbortError" && adapters.isBrowserHidden();
@@ -738,10 +804,16 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	function stop() {
+		activeTokenBuffer?.flush();
+		activeThinkingBuffer?.flush();
 		activeStream?.stop();
 	}
 
 	function detach() {
+		activeTokenBuffer?.flush();
+		activeThinkingBuffer?.flush();
+		activeTokenBuffer = null;
+		activeThinkingBuffer = null;
 		activeStream?.detach();
 		activeStream = null;
 		emitState();
