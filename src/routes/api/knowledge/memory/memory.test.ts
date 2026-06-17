@@ -5,6 +5,17 @@ vi.mock("$lib/server/auth/hooks", () => ({
 }));
 
 vi.mock("$lib/server/services/memory", () => ({
+	MemoryProfileActionError: class MemoryProfileActionError extends Error {
+		code: string;
+		status: number;
+
+		constructor(code: string, message: string, status: number) {
+			super(message);
+			this.name = "MemoryProfileActionError";
+			this.code = code;
+			this.status = status;
+		}
+	},
 	applyKnowledgeMemoryAction: vi.fn(),
 	getKnowledgeMemory: vi.fn(),
 	getKnowledgeMemoryOverview: vi.fn(),
@@ -12,6 +23,7 @@ vi.mock("$lib/server/services/memory", () => ({
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
+	MemoryProfileActionError,
 	applyKnowledgeMemoryAction,
 	getKnowledgeMemory,
 	getKnowledgeMemoryOverview,
@@ -33,53 +45,42 @@ type KnowledgeMemoryOverviewEvent = Parameters<typeof GET_MEMORY_OVERVIEW>[0];
 type KnowledgeMemoryActionEvent = Parameters<typeof POST_MEMORY_ACTION>[0];
 
 const memoryPayload = {
-	personaMemories: [
+	resetGeneration: 0,
+	projectionRevision: 7,
+	categories: [
 		{
-			id: "conclusion-1",
-			content: "Prefers concise answers.",
-			scope: "self",
-			sessionId: "conv-1",
-			conversationId: "conv-1",
-			conversationTitle: "Plans",
-			createdAt: Date.now(),
+			category: "about_you",
+			items: [
+				{
+					id: "item-about",
+					itemKey: "memory-profile-item:v1:about_you:global:item-about",
+					category: "about_you",
+					statement: "Lives in Amsterdam.",
+					scope: { type: "global" },
+					status: "active",
+					revision: 1,
+					updatedAt: "2026-06-01T10:00:00.000Z",
+					canEdit: true,
+					canDelete: true,
+					canSuppress: true,
+				},
+			],
 		},
+		{ category: "preferences", items: [] },
+		{ category: "goals_ongoing_work", items: [] },
+		{ category: "constraints_boundaries", items: [] },
 	],
-	taskMemories: [
-		{
-			taskId: "task-1",
-			conversationId: "conv-1",
-			conversationTitle: "Plans",
-			objective: "Refine study plan",
-			status: "active",
-			locked: false,
-			updatedAt: Date.now(),
-			lastCheckpointAt: Date.now(),
-			checkpointSummary: "Keep the new timeline and key constraints.",
-		},
-	],
-	focusContinuities: [
-		{
-			continuityId: "continuity-1",
-			name: "Study roadmap",
-			summary: "Long-term planning for coursework and revision.",
-			status: "active",
-			lastActiveAt: Date.now(),
-			updatedAt: Date.now(),
-			linkedTaskCount: 2,
-			conversationTitles: ["Plans"],
-		},
-	],
-	summary: {
-		personaCount: 1,
-		taskCount: 1,
-		focusContinuityCount: 1,
-		overview: "The user likes concise responses.",
-		overviewBullets: ["The user likes concise responses."],
-		overviewSource: "honcho_scoped",
-		overviewStatus: "ready",
-		overviewUpdatedAt: Date.now(),
-		overviewLastAttemptAt: Date.now(),
-		durablePersonaCount: 1,
+	review: {
+		visibleItems: [
+			{
+				id: "review-1",
+				subject: "preferred language",
+				question: "Which language should be remembered?",
+				reason: "Conflicting evidence.",
+			},
+		],
+		openCount: 4,
+		overflowCount: 1,
 	},
 };
 
@@ -127,27 +128,46 @@ describe("knowledge memory routes", () => {
 		mockRequireAuth.mockReturnValue(undefined);
 	});
 
-	it("loads the current memory profile", async () => {
+	it("loads the projection-backed memory profile without legacy memory rows", async () => {
 		mockGetKnowledgeMemory.mockResolvedValue(memoryPayload);
 
 		const response = await GET_MEMORY(makeGetEvent());
 		const data = await response.json();
+		const dataJson = JSON.stringify(data);
 
 		expect(response.status).toBe(200);
-		expect(data.summary.personaCount).toBe(1);
+		expect(data.categories).toHaveLength(4);
+		expect(data.review.openCount).toBe(4);
 		expect(mockGetKnowledgeMemory).toHaveBeenCalledWith("user-1", "Test User");
+		expect(dataJson).not.toContain("taskMemories");
+		expect(dataJson).not.toContain("focusContinuities");
+		expect(dataJson).not.toContain("honcho");
+		expect(dataJson).not.toContain("confidence");
+		expect(dataJson).not.toContain("debug");
 	});
 
-	it("loads the overview-only memory summary and supports force refresh", async () => {
+	it("keeps overview as a projection-backed compatibility wrapper", async () => {
 		mockGetKnowledgeMemoryOverview.mockResolvedValue({
-			summary: memoryPayload.summary,
+			summary: {
+				personaCount: 1,
+				taskCount: 0,
+				focusContinuityCount: 0,
+				overview: null,
+				overviewBullets: [],
+				overviewSource: null,
+				overviewStatus: "ready",
+				overviewUpdatedAt: null,
+				overviewLastAttemptAt: 1234,
+				durablePersonaCount: 1,
+			},
+			profile: memoryPayload,
 		});
 
 		const response = await GET_MEMORY_OVERVIEW(makeOverviewEvent(true));
 		const data = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(data.summary.overviewSource).toBe("honcho_scoped");
+		expect(data.profile.categories).toHaveLength(4);
 		expect(mockGetKnowledgeMemoryOverview).toHaveBeenCalledWith(
 			"user-1",
 			"Test User",
@@ -157,35 +177,78 @@ describe("knowledge memory routes", () => {
 		);
 	});
 
-	it("applies a memory action and returns the refreshed payload", async () => {
-		mockApplyKnowledgeMemoryAction.mockResolvedValue(memoryPayload);
+	it("applies suppress actions with the expected projection revision", async () => {
+		mockApplyKnowledgeMemoryAction.mockResolvedValue({
+			...memoryPayload,
+			projectionRevision: 8,
+			categories: memoryPayload.categories.map((group) => ({
+				...group,
+				items: [],
+			})),
+		});
 
 		const response = await POST_MEMORY_ACTION(
 			makePostEvent({
-				action: "forget_persona_memory",
-				conclusionId: "conclusion-1",
+				action: "suppress",
+				itemId: "item-about",
+				expectedProjectionRevision: 7,
 			}),
 		);
 		const data = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(data.summary.taskCount).toBe(1);
+		expect(data.projectionRevision).toBe(8);
 		expect(mockApplyKnowledgeMemoryAction).toHaveBeenCalledWith(
 			"user-1",
 			"Test User",
 			{
-				action: "forget_persona_memory",
-				conclusionId: "conclusion-1",
+				action: "suppress",
+				itemId: "item-about",
+				expectedProjectionRevision: 7,
 			},
 		);
 	});
 
-	it("rejects persona forget payloads with only blank ids", async () => {
+	it("forwards review accept actions with the expected projection revision", async () => {
+		mockApplyKnowledgeMemoryAction.mockResolvedValue({
+			...memoryPayload,
+			projectionRevision: 8,
+			review: {
+				visibleItems: [],
+				openCount: 0,
+				overflowCount: 0,
+			},
+		});
+
 		const response = await POST_MEMORY_ACTION(
 			makePostEvent({
-				action: "forget_persona_memory",
-				conclusionId: "",
-				clusterId: "   ",
+				target: "review_item",
+				action: "accept",
+				itemId: "review-1",
+				expectedProjectionRevision: 7,
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.projectionRevision).toBe(8);
+		expect(mockApplyKnowledgeMemoryAction).toHaveBeenCalledWith(
+			"user-1",
+			"Test User",
+			{
+				target: "review_item",
+				action: "accept",
+				itemId: "review-1",
+				expectedProjectionRevision: 7,
+			},
+		);
+	});
+
+	it("rejects profile actions without the current projection revision", async () => {
+		const response = await POST_MEMORY_ACTION(
+			makePostEvent({
+				action: "delete",
+				itemId: "item-about",
 			}),
 		);
 		const data = await response.json();
@@ -195,59 +258,26 @@ describe("knowledge memory routes", () => {
 		expect(mockApplyKnowledgeMemoryAction).not.toHaveBeenCalled();
 	});
 
-	it("supports forgetting a focus continuity item", async () => {
-		mockApplyKnowledgeMemoryAction.mockResolvedValue(memoryPayload);
+	it("returns conflict when a profile action uses a stale projection revision", async () => {
+		mockApplyKnowledgeMemoryAction.mockRejectedValue(
+			new MemoryProfileActionError(
+				"stale_projection",
+				"Memory profile changed before this action was applied.",
+				409,
+			),
+		);
 
 		const response = await POST_MEMORY_ACTION(
 			makePostEvent({
-				action: "forget_focus_continuity",
-				continuityId: "continuity-1",
+				action: "edit",
+				itemId: "item-about",
+				statement: "Lives in Rotterdam.",
+				expectedProjectionRevision: 6,
 			}),
 		);
 		const data = await response.json();
 
-		expect(response.status).toBe(200);
-		expect(data.summary.focusContinuityCount).toBe(1);
-		expect(mockApplyKnowledgeMemoryAction).toHaveBeenCalledWith(
-			"user-1",
-			"Test User",
-			{
-				action: "forget_focus_continuity",
-				continuityId: "continuity-1",
-			},
-		);
-	});
-
-	it("supports forgetting project memory through the route adapter", async () => {
-		mockApplyKnowledgeMemoryAction.mockResolvedValue(memoryPayload);
-
-		const response = await POST_MEMORY_ACTION(
-			makePostEvent({
-				action: "forget_project_memory",
-				projectId: "project-1",
-			}),
-		);
-		const data = await response.json();
-
-		expect(response.status).toBe(200);
-		expect(data.summary.focusContinuityCount).toBe(1);
-		expect(mockApplyKnowledgeMemoryAction).toHaveBeenCalledWith(
-			"user-1",
-			"Test User",
-			{
-				action: "forget_project_memory",
-				projectId: "project-1",
-			},
-		);
-	});
-
-	it("rejects invalid memory action payloads", async () => {
-		const response = await POST_MEMORY_ACTION(
-			makePostEvent({ action: "forget_task_memory" }),
-		);
-		const data = await response.json();
-
-		expect(response.status).toBe(400);
-		expect(data.error).toMatch(/invalid memory action payload/i);
+		expect(response.status).toBe(409);
+		expect(data.code).toBe("stale_projection");
 	});
 });

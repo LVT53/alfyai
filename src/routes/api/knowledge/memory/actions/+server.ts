@@ -1,43 +1,76 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
-import { applyKnowledgeMemoryAction } from "$lib/server/services/memory";
+import {
+	MemoryProfileActionError,
+	applyKnowledgeMemoryAction,
+} from "$lib/server/services/memory";
 import type { RequestHandler } from "./$types";
 
 function isValidPayload(body: unknown): body is
 	| {
-			action: "forget_persona_memory";
-			clusterId?: string;
-			conclusionId?: string;
+			target?: "profile_item";
+			action: "delete";
+			itemId: string;
+			expectedProjectionRevision: number;
 	  }
-	| { action: "forget_all_persona_memory" }
-	| { action: "forget_task_memory"; taskId: string }
-	| { action: "forget_focus_continuity"; continuityId: string }
-	| { action: "forget_project_memory"; projectId: string } {
+	| {
+			target?: "profile_item";
+			action: "suppress";
+			itemId: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			target?: "profile_item";
+			action: "edit";
+			itemId: string;
+			statement: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			target: "review_item";
+			action: "accept";
+			itemId: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			target: "review_item";
+			action: "suppress";
+			itemId: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			target: "review_item";
+			action: "edit";
+			itemId: string;
+			statement: string;
+			expectedProjectionRevision: number;
+	  } {
 	if (!body || typeof body !== "object") return false;
 	const action = (body as Record<string, unknown>).action;
+	const target = (body as Record<string, unknown>).target;
 	const hasNonEmptyString = (value: unknown) =>
 		typeof value === "string" && value.trim().length > 0;
-
-	if (action === "forget_persona_memory") {
+	const expectedProjectionRevision = (body as Record<string, unknown>)
+		.expectedProjectionRevision;
+	if (
+		!hasNonEmptyString((body as Record<string, unknown>).itemId) ||
+		!Number.isInteger(expectedProjectionRevision) ||
+		Number(expectedProjectionRevision) < 0
+	) {
+		return false;
+	}
+	if (target === "review_item") {
+		if (action === "accept" || action === "suppress") return true;
 		return (
-			hasNonEmptyString((body as Record<string, unknown>).clusterId) ||
-			hasNonEmptyString((body as Record<string, unknown>).conclusionId)
+			action === "edit" &&
+			hasNonEmptyString((body as Record<string, unknown>).statement)
 		);
 	}
-
-	if (action === "forget_task_memory") {
-		return hasNonEmptyString((body as Record<string, unknown>).taskId);
-	}
-
-	if (action === "forget_focus_continuity") {
-		return hasNonEmptyString((body as Record<string, unknown>).continuityId);
-	}
-
-	if (action === "forget_project_memory") {
-		return hasNonEmptyString((body as Record<string, unknown>).projectId);
-	}
-
-	return action === "forget_all_persona_memory";
+	if (action === "delete" || action === "suppress") return true;
+	return (
+		action === "edit" &&
+		hasNonEmptyString((body as Record<string, unknown>).statement)
+	);
 }
 
 export const POST: RequestHandler = async (event) => {
@@ -60,6 +93,15 @@ export const POST: RequestHandler = async (event) => {
 		);
 		return json(memory);
 	} catch (error) {
+		if (error instanceof MemoryProfileActionError) {
+			return json(
+				{
+					error: error.message,
+					code: error.code,
+				},
+				{ status: error.status },
+			);
+		}
 		console.error("[KNOWLEDGE_MEMORY] Failed to apply memory action:", error);
 		return json({ error: "Failed to update memory profile" }, { status: 500 });
 	}

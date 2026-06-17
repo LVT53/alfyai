@@ -673,6 +673,8 @@ export type HonchoPersonaMemoryRecord = {
 	createdAt: number;
 };
 
+export type LegacyPersonaMemoryCandidate = HonchoPersonaMemoryRecord;
+
 async function listVisiblePersonaMemoryRecords(
 	userId: string,
 ): Promise<HonchoPersonaMemoryRecord[]> {
@@ -711,6 +713,51 @@ export async function listPersonaMemories(
 	userId: string,
 ): Promise<HonchoPersonaMemoryRecord[]> {
 	return listVisiblePersonaMemoryRecords(userId);
+}
+
+export async function listLegacyPersonaMemoryCandidates(
+	userId: string,
+	options: { limit: number },
+): Promise<{
+	totalAvailable: number;
+	candidates: LegacyPersonaMemoryCandidate[];
+}> {
+	if (!isHonchoEnabled()) return { totalAvailable: 0, candidates: [] };
+
+	const limit = Math.max(1, Math.min(10, Math.floor(options.limit)));
+	const [userPeer, assistantPeer] = await Promise.all([
+		getUserPeer(userId),
+		getAssistantPeer(userId),
+	]);
+	const assistantAboutUserScope = assistantPeer.conclusionsOf(userPeer);
+	const [selfPage, assistantAboutUserPage] = await Promise.all([
+		getScopeConclusionsPage(userPeer.conclusions, { size: limit }),
+		getScopeConclusionsPage(assistantAboutUserScope, { size: limit }),
+	]);
+
+	const candidates = [
+		...selfPage.items.map((item) => ({
+			id: item.id,
+			content: item.content,
+			scope: "self" as const,
+			sessionId: item.sessionId,
+			createdAt: normalizeConclusionTimestamp(item.createdAt),
+		})),
+		...assistantAboutUserPage.items.map((item) => ({
+			id: item.id,
+			content: item.content,
+			scope: "assistant_about_user" as const,
+			sessionId: item.sessionId,
+			createdAt: normalizeConclusionTimestamp(item.createdAt),
+		})),
+	]
+		.sort((a, b) => b.createdAt - a.createdAt)
+		.slice(0, limit);
+
+	return {
+		totalAvailable: selfPage.total + assistantAboutUserPage.total,
+		candidates,
+	};
 }
 
 export async function getPersonaMemoryOverviewSummary(

@@ -1294,6 +1294,263 @@ export const memoryEvents = sqliteTable(
 	}),
 );
 
+export const memoryResetGenerations = sqliteTable("memory_reset_generations", {
+	userId: text("user_id")
+		.primaryKey()
+		.references(() => users.id, { onDelete: "cascade" }),
+	resetGeneration: integer("reset_generation").notNull().default(0),
+	advancedAt: integer("advanced_at", { mode: "timestamp" }),
+	createdAt: integer("created_at", { mode: "timestamp" })
+		.notNull()
+		.default(sql`(unixepoch())`),
+	updatedAt: integer("updated_at", { mode: "timestamp" })
+		.notNull()
+		.default(sql`(unixepoch())`),
+});
+
+export const memoryProjectionState = sqliteTable(
+	"memory_projection_state",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		resetGeneration: integer("reset_generation").notNull().default(0),
+		scopeType: text("scope_type").notNull().default("global"),
+		scopeId: text("scope_id").notNull().default(""),
+		revision: integer("revision").notNull().default(0),
+		status: text("status").notNull().default("ready"),
+		lastRefreshedAt: integer("last_refreshed_at", { mode: "timestamp" }),
+		metadataJson: text("metadata_json").notNull().default("{}"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userGenerationScopeIdx: uniqueIndex(
+			"memory_projection_state_user_generation_scope_idx",
+		).on(table.userId, table.resetGeneration, table.scopeType, table.scopeId),
+		userUpdatedIdx: index("memory_projection_state_user_updated_idx").on(
+			table.userId,
+			table.updatedAt,
+		),
+	}),
+);
+
+export const memoryProfileItems = sqliteTable(
+	"memory_profile_items",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		projectionStateId: text("projection_state_id")
+			.notNull()
+			.references(() => memoryProjectionState.id, { onDelete: "cascade" }),
+		resetGeneration: integer("reset_generation").notNull().default(0),
+		itemKey: text("item_key").notNull(),
+		category: text("category").notNull(),
+		scopeType: text("scope_type").notNull().default("global"),
+		scopeId: text("scope_id").notNull().default(""),
+		statement: text("statement").notNull(),
+		status: text("status").notNull().default("active"),
+		revision: integer("revision").notNull().default(0),
+		expiresAt: integer("expires_at", { mode: "timestamp" }),
+		deletedAt: integer("deleted_at", { mode: "timestamp" }),
+		suppressedAt: integer("suppressed_at", { mode: "timestamp" }),
+		metadataJson: text("metadata_json").notNull().default("{}"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userGenerationStatusIdx: index(
+			"memory_profile_items_user_generation_status_idx",
+		).on(table.userId, table.resetGeneration, table.status, table.updatedAt),
+		userGenerationItemKeyIdx: uniqueIndex(
+			"memory_profile_items_user_generation_item_key_idx",
+		).on(table.userId, table.resetGeneration, table.itemKey),
+		userCategoryIdx: index("memory_profile_items_user_category_idx").on(
+			table.userId,
+			table.category,
+			table.updatedAt,
+		),
+	}),
+);
+
+export const memoryProfileItemProvenance = sqliteTable(
+	"memory_profile_item_provenance",
+	{
+		id: text("id").primaryKey(),
+		itemId: text("item_id")
+			.notNull()
+			.references(() => memoryProfileItems.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		resetGeneration: integer("reset_generation").notNull().default(0),
+		sourceType: text("source_type").notNull(),
+		sourceId: text("source_id"),
+		label: text("label").notNull(),
+		summary: text("summary"),
+		metadataJson: text("metadata_json").notNull().default("{}"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		itemCreatedIdx: index("memory_profile_item_provenance_item_created_idx").on(
+			table.itemId,
+			table.createdAt,
+		),
+		userGenerationIdx: index(
+			"memory_profile_item_provenance_user_generation_idx",
+		).on(table.userId, table.resetGeneration),
+	}),
+);
+
+export const memoryReviewItems = sqliteTable(
+	"memory_review_items",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		resetGeneration: integer("reset_generation").notNull().default(0),
+		subjectKey: text("subject_key").notNull(),
+		subjectLabel: text("subject_label").notNull(),
+		question: text("question").notNull(),
+		reason: text("reason").notNull(),
+		status: text("status").notNull().default("open"),
+		affectedItemIdsJson: text("affected_item_ids_json").notNull().default("[]"),
+		evidenceJson: text("evidence_json").notNull().default("[]"),
+		metadataJson: text("metadata_json").notNull().default("{}"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+	},
+	(table) => ({
+		openSubjectIdx: uniqueIndex("memory_review_items_open_subject_idx")
+			.on(table.userId, table.resetGeneration, table.subjectKey)
+			.where(sql`${table.status} = 'open'`),
+		userStatusIdx: index("memory_review_items_user_status_idx").on(
+			table.userId,
+			table.resetGeneration,
+			table.status,
+			table.updatedAt,
+		),
+	}),
+);
+
+export const memoryReviewResolutions = sqliteTable(
+	"memory_review_resolutions",
+	{
+		id: text("id").primaryKey(),
+		reviewItemId: text("review_item_id")
+			.notNull()
+			.references(() => memoryReviewItems.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		resetGeneration: integer("reset_generation").notNull().default(0),
+		resolutionType: text("resolution_type").notNull(),
+		editedStatement: text("edited_statement"),
+		metadataJson: text("metadata_json").notNull().default("{}"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		reviewUniqueIdx: uniqueIndex("memory_review_resolutions_review_idx").on(
+			table.reviewItemId,
+		),
+		userGenerationIdx: index("memory_review_resolutions_user_generation_idx").on(
+			table.userId,
+			table.resetGeneration,
+		),
+	}),
+);
+
+export const memoryDirtyLedger = sqliteTable(
+	"memory_dirty_ledger",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		resetGeneration: integer("reset_generation").notNull().default(0),
+		scopeType: text("scope_type").notNull().default("global"),
+		scopeId: text("scope_id").notNull().default(""),
+		reason: text("reason").notNull(),
+		status: text("status").notNull().default("pending"),
+		count: integer("count").notNull().default(1),
+		reasonMetadataJson: text("reason_metadata_json").notNull().default("{}"),
+		firstMarkedAt: integer("first_marked_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		lastMarkedAt: integer("last_marked_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		claimedAt: integer("claimed_at", { mode: "timestamp" }),
+		completedAt: integer("completed_at", { mode: "timestamp" }),
+	},
+	(table) => ({
+		pendingUniqueIdx: uniqueIndex("memory_dirty_ledger_pending_unique_idx")
+			.on(
+				table.userId,
+				table.resetGeneration,
+				table.scopeType,
+				table.scopeId,
+				table.reason,
+			)
+			.where(sql`${table.status} = 'pending'`),
+		userStatusIdx: index("memory_dirty_ledger_user_status_idx").on(
+			table.userId,
+			table.resetGeneration,
+			table.status,
+			table.lastMarkedAt,
+		),
+	}),
+);
+
+export const memoryReworkTelemetry = sqliteTable(
+	"memory_rework_telemetry",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		resetGeneration: integer("reset_generation").notNull().default(0),
+		eventFamily: text("event_family").notNull(),
+		eventName: text("event_name").notNull(),
+		category: text("category"),
+		reason: text("reason"),
+		status: text("status"),
+		count: integer("count"),
+		durationMs: integer("duration_ms"),
+		subjectId: text("subject_id"),
+		metadataJson: text("metadata_json").notNull().default("{}"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userFamilyCreatedIdx: index(
+			"memory_rework_telemetry_user_family_created_idx",
+		).on(table.userId, table.eventFamily, table.createdAt),
+	}),
+);
+
 export const conversationDrafts = sqliteTable(
 	"conversation_drafts",
 	{

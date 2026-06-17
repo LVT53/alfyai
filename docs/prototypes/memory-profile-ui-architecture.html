@@ -1,0 +1,1319 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Memory Profile UI Architecture Wireframe</title>
+	<style>
+		:root {
+			color-scheme: light;
+			--page: #f6f4f0;
+			--surface: #fffdf8;
+			--surface-2: #f1eee7;
+			--surface-3: #ebe7dd;
+			--ink: #27241f;
+			--muted: #716b61;
+			--soft: #968f82;
+			--line: #ded8cd;
+			--line-strong: #cfc6b7;
+			--accent: #2f6f73;
+			--accent-soft: #dfeeee;
+			--danger: #a3453d;
+			--danger-soft: #f4dfdc;
+			--warn: #8a6424;
+			--warn-soft: #f5ead2;
+			--good: #3f7350;
+			--good-soft: #e2eddf;
+			--shadow: 0 18px 48px rgba(42, 36, 26, 0.11);
+			--radius: 8px;
+			--font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+			--font-serif: Georgia, "Times New Roman", serif;
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		body {
+			margin: 0;
+			background: var(--page);
+			color: var(--ink);
+			font-family: var(--font-sans);
+			line-height: 1.35;
+		}
+
+		.page {
+			max-width: 1500px;
+			margin: 0 auto;
+			padding: 32px;
+		}
+
+		.spec-header {
+			display: grid;
+			grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+			gap: 20px;
+			margin-bottom: 24px;
+			align-items: end;
+		}
+
+		.spec-kicker {
+			margin: 0 0 8px;
+			font-size: 12px;
+			font-weight: 700;
+			text-transform: uppercase;
+			letter-spacing: 0.08em;
+			color: var(--accent);
+		}
+
+		h1, h2, h3, p {
+			margin: 0;
+		}
+
+		h1 {
+			font-family: var(--font-serif);
+			font-size: clamp(34px, 4vw, 56px);
+			line-height: 0.95;
+			font-weight: 500;
+			letter-spacing: -0.02em;
+		}
+
+		.spec-summary {
+			color: var(--muted);
+			font-size: 14px;
+		}
+
+		.annotation {
+			background: var(--surface);
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			padding: 14px;
+			box-shadow: 0 8px 24px rgba(42, 36, 26, 0.06);
+		}
+
+		.annotation h2 {
+			font-size: 13px;
+			text-transform: uppercase;
+			letter-spacing: 0.08em;
+			color: var(--muted);
+			margin-bottom: 10px;
+		}
+
+		.annotation ul {
+			margin: 0;
+			padding-left: 18px;
+			color: var(--muted);
+			font-size: 13px;
+		}
+
+		.annotation li + li {
+			margin-top: 6px;
+		}
+
+		.showcase {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr);
+			gap: 28px;
+		}
+
+		.wireframe-label {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			margin-bottom: 10px;
+			color: var(--muted);
+			font-size: 12px;
+			font-weight: 700;
+			text-transform: uppercase;
+			letter-spacing: 0.08em;
+		}
+
+		.browser {
+			border: 1px solid var(--line-strong);
+			border-radius: 14px;
+			background: #faf8f3;
+			box-shadow: var(--shadow);
+			overflow: hidden;
+		}
+
+		.browser-bar {
+			height: 38px;
+			background: var(--surface-2);
+			border-bottom: 1px solid var(--line);
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 0 14px;
+		}
+
+		.dot {
+			width: 10px;
+			height: 10px;
+			border-radius: 50%;
+			background: var(--line-strong);
+		}
+
+		.browser-title {
+			margin-left: 10px;
+			color: var(--soft);
+			font-size: 12px;
+		}
+
+		.app-shell {
+			display: grid;
+			grid-template-columns: 230px minmax(0, 1fr);
+			min-height: 880px;
+			background: var(--page);
+		}
+
+		.sidebar {
+			background: #ede9df;
+			border-right: 1px solid var(--line);
+			padding: 18px;
+		}
+
+		.brand {
+			font-family: var(--font-serif);
+			font-size: 24px;
+			margin-bottom: 26px;
+		}
+
+		.nav-item {
+			height: 34px;
+			border-radius: var(--radius);
+			display: flex;
+			align-items: center;
+			padding: 0 10px;
+			color: var(--muted);
+			font-size: 13px;
+			margin-bottom: 6px;
+		}
+
+		.nav-item.active {
+			background: var(--surface);
+			color: var(--ink);
+			border: 1px solid var(--line);
+		}
+
+		.content {
+			padding: 28px;
+			overflow: hidden;
+		}
+
+		.top-panel {
+			background: var(--surface);
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			padding: 20px;
+			margin-bottom: 16px;
+		}
+
+		.page-title-row {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 16px;
+			margin-bottom: 18px;
+		}
+
+		.title-with-count {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			min-width: 0;
+		}
+
+		.page-title {
+			font-family: var(--font-serif);
+			font-size: 38px;
+			font-weight: 500;
+			letter-spacing: -0.02em;
+		}
+
+		.tabbar {
+			display: inline-flex;
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			background: var(--surface-2);
+			padding: 3px;
+			gap: 3px;
+		}
+
+		.tab {
+			border: 0;
+			border-radius: 6px;
+			background: transparent;
+			padding: 8px 13px;
+			color: var(--muted);
+			font-weight: 700;
+			font-size: 13px;
+		}
+
+		.tab.active {
+			background: var(--surface);
+			color: var(--ink);
+			box-shadow: 0 1px 4px rgba(42, 36, 26, 0.08);
+		}
+
+		.active-count-badge {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 34px;
+			height: 28px;
+			border-radius: 999px;
+			background: var(--accent);
+			color: white;
+			font-size: 12px;
+			font-weight: 850;
+			line-height: 1;
+		}
+
+		.needs-review {
+			background: var(--warn-soft);
+			border: 1px solid #e2ca95;
+			border-radius: var(--radius);
+			padding: 16px;
+			margin-bottom: 16px;
+		}
+
+		.review-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 16px;
+			margin-bottom: 12px;
+		}
+
+		.review-title {
+			font-size: 15px;
+			font-weight: 800;
+			color: #533c13;
+		}
+
+		.review-grid {
+			display: grid;
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			gap: 10px;
+		}
+
+		.review-card {
+			background: rgba(255, 253, 248, 0.78);
+			border: 1px solid #e2ca95;
+			border-radius: var(--radius);
+			padding: 12px;
+			min-height: 132px;
+			display: flex;
+			flex-direction: column;
+			gap: 10px;
+		}
+
+		.review-card p {
+			font-size: 13px;
+			color: var(--ink);
+		}
+
+		.review-actions {
+			margin-top: auto;
+			display: flex;
+			gap: 6px;
+			align-items: center;
+		}
+
+		.profile-grid {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 16px;
+		}
+
+		.category {
+			background: var(--surface);
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			padding: 16px;
+			min-height: 300px;
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.category-header {
+			display: flex;
+			align-items: flex-start;
+			justify-content: space-between;
+			gap: 12px;
+		}
+
+		.category h2 {
+			font-size: 18px;
+			letter-spacing: -0.01em;
+		}
+
+		.category-note {
+			margin-top: 4px;
+			font-size: 12px;
+			color: var(--muted);
+		}
+
+		.count-pill {
+			border-radius: 999px;
+			background: var(--surface-2);
+			border: 1px solid var(--line);
+			color: var(--muted);
+			padding: 4px 9px;
+			font-weight: 800;
+			font-size: 11px;
+			min-width: 34px;
+			text-align: center;
+		}
+
+		.memory-card {
+			border: 1px solid var(--line);
+			background: #fffefa;
+			border-radius: var(--radius);
+			padding: 12px;
+			display: grid;
+			gap: 10px;
+		}
+
+		.memory-statement {
+			font-size: 14px;
+			color: var(--ink);
+			font-weight: 650;
+		}
+
+		.card-meta {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 8px;
+			color: var(--soft);
+			font-size: 11px;
+		}
+
+		.scope {
+			border: 1px solid var(--line);
+			border-radius: 999px;
+			padding: 3px 7px;
+			background: var(--surface-2);
+			color: var(--muted);
+			font-weight: 700;
+		}
+
+		.scope.is-global {
+			visibility: hidden;
+		}
+
+		.card-actions {
+			display: flex;
+			gap: 6px;
+		}
+
+		.icon-button {
+			width: 30px;
+			height: 30px;
+			border-radius: 6px;
+			border: 1px solid var(--line);
+			background: var(--surface);
+			color: var(--muted);
+			font-weight: 800;
+			display: grid;
+			place-items: center;
+			font-size: 12px;
+		}
+
+		.icon-button.primary {
+			background: var(--accent);
+			border-color: var(--accent);
+			color: white;
+		}
+
+		.icon-button.danger {
+			background: var(--danger-soft);
+			border-color: #d8aaa5;
+			color: var(--danger);
+		}
+
+		.icon {
+			width: 15px;
+			height: 15px;
+			stroke: currentColor;
+			stroke-width: 2;
+			stroke-linecap: round;
+			stroke-linejoin: round;
+			fill: none;
+		}
+
+		.detail-layout {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) 360px;
+			gap: 16px;
+		}
+
+		.drawer {
+			background: var(--surface);
+			border-left: 1px solid var(--line);
+			padding: 18px;
+			min-height: 760px;
+		}
+
+		.drawer h2 {
+			font-size: 20px;
+			margin-bottom: 14px;
+		}
+
+		.field-label {
+			font-size: 11px;
+			text-transform: uppercase;
+			letter-spacing: 0.08em;
+			color: var(--muted);
+			font-weight: 800;
+			margin-bottom: 6px;
+		}
+
+		.textarea {
+			border: 1px solid var(--line-strong);
+			border-radius: var(--radius);
+			padding: 12px;
+			min-height: 108px;
+			background: #fffefa;
+			font-size: 14px;
+			margin-bottom: 14px;
+		}
+
+		.meta-row {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 10px;
+			margin-bottom: 14px;
+		}
+
+		.meta-box {
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			background: var(--surface-2);
+			padding: 10px;
+			font-size: 13px;
+			color: var(--muted);
+		}
+
+		.provenance {
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			padding: 12px;
+			background: var(--surface-2);
+			color: var(--muted);
+			font-size: 13px;
+			margin-bottom: 14px;
+		}
+
+		.provenance p {
+			margin: 0 0 10px;
+		}
+
+		.source-chips {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 6px;
+			margin-bottom: 10px;
+		}
+
+		.source-chip {
+			border: 1px solid var(--line);
+			border-radius: 999px;
+			background: var(--surface);
+			color: var(--muted);
+			padding: 4px 8px;
+			font-size: 11px;
+			font-weight: 750;
+		}
+
+		.source-disclosure {
+			border: 0;
+			background: transparent;
+			padding: 0;
+			color: var(--accent);
+			font-size: 12px;
+			font-weight: 800;
+			font-family: inherit;
+		}
+
+		.drawer-actions {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+
+		.modal-scene {
+			position: relative;
+			min-height: 720px;
+			background: var(--page);
+			padding: 52px;
+		}
+
+		.modal-backdrop {
+			position: absolute;
+			inset: 0;
+			background: rgba(39, 36, 31, 0.22);
+		}
+
+		.modal {
+			position: relative;
+			z-index: 1;
+			max-width: 860px;
+			margin: 0 auto;
+			background: var(--surface);
+			border: 1px solid var(--line);
+			border-radius: 12px;
+			box-shadow: var(--shadow);
+			padding: 20px;
+		}
+
+		.modal h2 {
+			font-size: 24px;
+			margin-bottom: 6px;
+		}
+
+		.modal-subtitle {
+			color: var(--muted);
+			font-size: 13px;
+			margin-bottom: 18px;
+		}
+
+		.review-list {
+			display: grid;
+			gap: 10px;
+			max-height: 480px;
+			overflow: auto;
+			padding-right: 4px;
+		}
+
+		.review-row {
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			background: #fffefa;
+			padding: 14px;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			gap: 14px;
+			align-items: start;
+		}
+
+		.review-row h3 {
+			font-size: 14px;
+			margin-bottom: 6px;
+		}
+
+		.review-row p {
+			font-size: 13px;
+			color: var(--muted);
+		}
+
+		.review-row-actions {
+			display: flex;
+			gap: 6px;
+			flex-wrap: wrap;
+			justify-content: flex-end;
+		}
+
+		.mobile-wrap {
+			display: flex;
+			justify-content: center;
+		}
+
+		.phone {
+			width: 390px;
+			border-radius: 32px;
+			border: 10px solid #25231f;
+			background: var(--page);
+			box-shadow: var(--shadow);
+			overflow: hidden;
+		}
+
+		.phone-screen {
+			height: 780px;
+			overflow: hidden;
+			padding: 18px;
+		}
+
+		.phone .page-title {
+			font-size: 34px;
+		}
+
+		.phone .page-title-row,
+		.phone .review-header,
+		.phone .category-header {
+			align-items: flex-start;
+		}
+
+		.phone .tabbar {
+			width: 100%;
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+		}
+
+		.phone .review-grid,
+		.phone .profile-grid,
+		.phone .meta-row {
+			grid-template-columns: 1fr;
+		}
+
+		.phone .review-card:nth-child(n+2),
+		.phone .category:nth-child(n+3) {
+			display: none;
+		}
+
+		.phone .category {
+			min-height: auto;
+		}
+
+		.legend {
+			display: grid;
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+			gap: 10px;
+			margin-top: 16px;
+		}
+
+		.legend-item {
+			background: var(--surface);
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			padding: 12px;
+			font-size: 13px;
+			color: var(--muted);
+		}
+
+		.legend-item strong {
+			display: block;
+			color: var(--ink);
+			margin-bottom: 4px;
+		}
+
+		@media (max-width: 980px) {
+			.page {
+				padding: 18px;
+			}
+
+			.spec-header,
+			.app-shell,
+			.detail-layout,
+			.legend {
+				grid-template-columns: 1fr;
+			}
+
+			.sidebar {
+				display: none;
+			}
+
+			.content {
+				padding: 18px;
+			}
+
+			.profile-grid,
+			.review-grid {
+				grid-template-columns: 1fr;
+			}
+
+			.drawer {
+				border-left: 0;
+				border-top: 1px solid var(--line);
+				min-height: auto;
+			}
+		}
+	</style>
+</head>
+<body>
+	<svg aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden;" xmlns="http://www.w3.org/2000/svg">
+		<symbol id="icon-check" viewBox="0 0 24 24">
+			<path d="M20 6 9 17l-5-5"></path>
+		</symbol>
+		<symbol id="icon-pencil" viewBox="0 0 24 24">
+			<path d="M12 20h9"></path>
+			<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+		</symbol>
+		<symbol id="icon-x" viewBox="0 0 24 24">
+			<path d="M18 6 6 18"></path>
+			<path d="m6 6 12 12"></path>
+		</symbol>
+		<symbol id="icon-trash" viewBox="0 0 24 24">
+			<path d="M3 6h18"></path>
+			<path d="M8 6V4h8v2"></path>
+			<path d="M19 6l-1 14H6L5 6"></path>
+			<path d="M10 11v6"></path>
+			<path d="M14 11v6"></path>
+		</symbol>
+		<symbol id="icon-list" viewBox="0 0 24 24">
+			<path d="M8 6h13"></path>
+			<path d="M8 12h13"></path>
+			<path d="M8 18h13"></path>
+			<path d="M3 6h.01"></path>
+			<path d="M3 12h.01"></path>
+			<path d="M3 18h.01"></path>
+		</symbol>
+	</svg>
+	<main class="page">
+		<header class="spec-header">
+			<div>
+				<p class="spec-kicker">Memory Rework UI Architecture</p>
+				<h1>Curated Memory Profile</h1>
+				<p class="spec-summary">A visual pass for the Knowledge Base Memory Profile after removing raw Honcho dumps, Focus Continuity UI, manual reload, and durable-memory tables.</p>
+			</div>
+			<aside class="annotation">
+				<h2>Design Intent</h2>
+				<ul>
+					<li>Memory Profile is the first Knowledge Base tab.</li>
+					<li>Users see active curated memory, not raw extraction records.</li>
+					<li>Review appears only when action is needed and stays capped.</li>
+					<li>Documents remain separate from personal memory.</li>
+				</ul>
+			</aside>
+		</header>
+
+		<section class="showcase">
+			<div>
+				<div class="wireframe-label">
+					<span>Default Desktop View</span>
+					<span>Memory Profile tab active</span>
+				</div>
+				<div class="browser">
+					<div class="browser-bar">
+						<span class="dot"></span>
+						<span class="dot"></span>
+						<span class="dot"></span>
+						<span class="browser-title">/knowledge</span>
+					</div>
+					<div class="app-shell">
+						<aside class="sidebar">
+							<div class="brand">AlfyAI</div>
+							<div class="nav-item">Chat</div>
+							<div class="nav-item active">Knowledge Base</div>
+							<div class="nav-item">Settings</div>
+						</aside>
+						<section class="content">
+							<div class="top-panel">
+								<div class="page-title-row">
+									<div class="title-with-count">
+										<h2 class="page-title">Knowledge Base</h2>
+										<span class="active-count-badge" aria-label="42 active memory items" title="42 active memory items">42</span>
+									</div>
+									<div class="tabbar" role="tablist" aria-label="Knowledge Base sections">
+										<button class="tab active" type="button">Memory Profile</button>
+										<button class="tab" type="button">Documents</button>
+									</div>
+								</div>
+							</div>
+
+							<section class="needs-review">
+								<div class="review-header">
+									<div>
+										<h2 class="review-title">Needs review</h2>
+									</div>
+									<button class="icon-button" type="button" aria-label="View all review items" title="View all review items">
+										<svg class="icon" focusable="false"><use href="#icon-list"></use></svg>
+									</button>
+								</div>
+								<div class="review-grid">
+									<article class="review-card">
+										<p>Which tone preference should AlfyAI remember for technical planning?</p>
+										<div class="review-actions">
+											<button class="icon-button primary" type="button" aria-label="Use this" title="Use this">
+												<svg class="icon" focusable="false"><use href="#icon-check"></use></svg>
+											</button>
+											<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+												<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+											</button>
+											<button class="icon-button" type="button" aria-label="Do not remember" title="Do not remember">
+												<svg class="icon" focusable="false"><use href="#icon-x"></use></svg>
+											</button>
+										</div>
+									</article>
+									<article class="review-card">
+										<p>Should document receipts be treated as personal facts or only as document evidence?</p>
+										<div class="review-actions">
+											<button class="icon-button primary" type="button" aria-label="Use this" title="Use this">
+												<svg class="icon" focusable="false"><use href="#icon-check"></use></svg>
+											</button>
+											<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+												<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+											</button>
+											<button class="icon-button" type="button" aria-label="Do not remember" title="Do not remember">
+												<svg class="icon" focusable="false"><use href="#icon-x"></use></svg>
+											</button>
+										</div>
+									</article>
+									<article class="review-card">
+										<p>AlfyAI found two possible project names for the same ongoing work.</p>
+										<div class="review-actions">
+											<button class="icon-button primary" type="button" aria-label="Use this" title="Use this">
+												<svg class="icon" focusable="false"><use href="#icon-check"></use></svg>
+											</button>
+											<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+												<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+											</button>
+											<button class="icon-button" type="button" aria-label="Do not remember" title="Do not remember">
+												<svg class="icon" focusable="false"><use href="#icon-x"></use></svg>
+											</button>
+										</div>
+									</article>
+								</div>
+							</section>
+
+							<section class="profile-grid">
+								<article class="category">
+									<div class="category-header">
+										<div>
+											<h2>About You</h2>
+											<p class="category-note">Stable facts the user has explicitly shared.</p>
+										</div>
+										<span class="count-pill">9</span>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Lives in the Netherlands and works in Europe/Amsterdam time.</p>
+										<div class="card-meta">
+											<span class="scope is-global" aria-hidden="true">Global</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Works on AlfyAI as the primary product owner and developer.</p>
+										<div class="card-meta">
+											<span class="scope is-global" aria-hidden="true">Global</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+								</article>
+
+								<article class="category">
+									<div class="category-header">
+										<div>
+											<h2>Preferences</h2>
+											<p class="category-note">How AlfyAI should usually communicate or work.</p>
+										</div>
+										<span class="count-pill">14</span>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Prefers direct technical answers with concrete tradeoffs.</p>
+										<div class="card-meta">
+											<span class="scope is-global" aria-hidden="true">Global</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Wants visual design decisions shown before implementation.</p>
+										<div class="card-meta">
+											<span class="scope">Project</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+								</article>
+
+								<article class="category">
+									<div class="category-header">
+										<div>
+											<h2>Goals & Ongoing Work</h2>
+											<p class="category-note">Explicit durable goals and current work context.</p>
+										</div>
+										<span class="count-pill">8</span>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Revitalise Honcho memory into a long-term usable profile system.</p>
+										<div class="card-meta">
+											<span class="scope">Project</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+								</article>
+
+								<article class="category">
+									<div class="category-header">
+										<div>
+											<h2>Constraints & Boundaries</h2>
+											<p class="category-note">Hard requirements, sensitivities, and "do not" rules.</p>
+										</div>
+										<span class="count-pill">11</span>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Do not treat uploaded tax papers, receipts, or drafts as user-truth by default.</p>
+										<div class="card-meta">
+											<span class="scope is-global" aria-hidden="true">Global</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Do not expose Focus Continuity or backend task memory in the user Memory Profile.</p>
+										<div class="card-meta">
+											<span class="scope">Project</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+								</article>
+							</section>
+						</section>
+					</div>
+				</div>
+			</div>
+
+			<div>
+				<div class="wireframe-label">
+					<span>Item Detail And Edit Surface</span>
+					<span>Human-readable, not raw memory rows</span>
+				</div>
+				<div class="browser">
+					<div class="browser-bar">
+						<span class="dot"></span>
+						<span class="dot"></span>
+						<span class="dot"></span>
+						<span class="browser-title">Memory item selected</span>
+					</div>
+					<div class="detail-layout">
+						<section class="content">
+							<div class="top-panel">
+								<div class="page-title-row">
+									<h2 class="page-title">Memory Profile</h2>
+									<div class="tabbar">
+										<button class="tab active" type="button">Memory Profile</button>
+										<button class="tab" type="button">Documents</button>
+									</div>
+								</div>
+							</div>
+							<section class="profile-grid">
+								<article class="category">
+									<div class="category-header">
+										<h2>Preferences</h2>
+										<span class="count-pill">14</span>
+									</div>
+									<div class="memory-card" style="border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft);">
+										<p class="memory-statement">Prefers direct technical answers with concrete tradeoffs.</p>
+										<div class="card-meta">
+											<span class="scope is-global" aria-hidden="true">Global</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Wants visual design decisions shown before implementation.</p>
+										<div class="card-meta">
+											<span class="scope">Project</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+								</article>
+								<article class="category">
+									<div class="category-header">
+										<h2>Constraints & Boundaries</h2>
+										<span class="count-pill">11</span>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Do not treat uploaded receipts as user-truth by default.</p>
+										<div class="card-meta">
+											<span class="scope is-global" aria-hidden="true">Global</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+								</article>
+							</section>
+						</section>
+						<aside class="drawer">
+							<h2>Edit memory</h2>
+							<div class="field-label">Remembered statement</div>
+							<div class="textarea">Prefers direct technical answers with concrete tradeoffs.</div>
+							<div class="meta-row">
+								<div class="meta-box"><strong>Category</strong><br />Preferences</div>
+								<div class="meta-box"><strong>Scope</strong><br />Global</div>
+							</div>
+							<div class="field-label">Details</div>
+							<div class="provenance">
+								<p>Remembered because the user confirmed this communication preference during product planning, then reinforced it in memory review.</p>
+								<div class="source-chips" aria-label="Memory sources">
+									<span class="source-chip">User statement</span>
+									<span class="source-chip">Review decision</span>
+									<span class="source-chip">Project chat</span>
+								</div>
+								<button class="source-disclosure" type="button">View sources</button>
+							</div>
+							<div class="drawer-actions">
+								<button class="icon-button primary" type="button" aria-label="Save" title="Save">
+									<svg class="icon" focusable="false"><use href="#icon-check"></use></svg>
+								</button>
+								<button class="icon-button" type="button" aria-label="Cancel" title="Cancel">
+									<svg class="icon" focusable="false"><use href="#icon-x"></use></svg>
+								</button>
+								<button class="icon-button danger" type="button" aria-label="Delete memory" title="Delete memory">
+									<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+								</button>
+							</div>
+						</aside>
+					</div>
+				</div>
+			</div>
+
+			<div>
+				<div class="wireframe-label">
+					<span>Extended Review Modal</span>
+					<span>Only when more than 3 review items exist</span>
+				</div>
+				<div class="browser">
+					<div class="browser-bar">
+						<span class="dot"></span>
+						<span class="dot"></span>
+						<span class="dot"></span>
+						<span class="browser-title">Needs Review overflow</span>
+					</div>
+					<div class="modal-scene">
+						<div class="modal-backdrop"></div>
+						<section class="modal">
+							<h2>Memory needs review</h2>
+							<p class="modal-subtitle">Compact questions only. Source details stay behind item details.</p>
+							<div class="review-list">
+								<article class="review-row">
+									<div>
+										<h3>Which technical tone preference is current?</h3>
+										<p>AlfyAI found overlapping preferences from multiple chats.</p>
+									</div>
+									<div class="review-row-actions">
+										<button class="icon-button primary" type="button" aria-label="Use this" title="Use this">
+											<svg class="icon" focusable="false"><use href="#icon-check"></use></svg>
+										</button>
+										<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+											<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+										</button>
+										<button class="icon-button" type="button" aria-label="Do not remember" title="Do not remember">
+											<svg class="icon" focusable="false"><use href="#icon-x"></use></svg>
+										</button>
+									</div>
+								</article>
+								<article class="review-row">
+									<div>
+										<h3>Should document receipts become personal facts?</h3>
+										<p>Uploaded documents are evidence unless the user explicitly says to remember them.</p>
+									</div>
+									<div class="review-row-actions">
+										<button class="icon-button primary" type="button" aria-label="Use this" title="Use this">
+											<svg class="icon" focusable="false"><use href="#icon-check"></use></svg>
+										</button>
+										<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+											<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+										</button>
+										<button class="icon-button" type="button" aria-label="Do not remember" title="Do not remember">
+											<svg class="icon" focusable="false"><use href="#icon-x"></use></svg>
+										</button>
+									</div>
+								</article>
+								<article class="review-row">
+									<div>
+										<h3>Which project label should be used?</h3>
+										<p>The same memory slot appears under two project names.</p>
+									</div>
+									<div class="review-row-actions">
+										<button class="icon-button primary" type="button" aria-label="Use this" title="Use this">
+											<svg class="icon" focusable="false"><use href="#icon-check"></use></svg>
+										</button>
+										<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+											<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+										</button>
+										<button class="icon-button" type="button" aria-label="Do not remember" title="Do not remember">
+											<svg class="icon" focusable="false"><use href="#icon-x"></use></svg>
+										</button>
+									</div>
+								</article>
+								<article class="review-row">
+									<div>
+										<h3>Is the old preference still true?</h3>
+										<p>Newer evidence may supersede an older preference, but the wording is ambiguous.</p>
+									</div>
+									<div class="review-row-actions">
+										<button class="icon-button primary" type="button" aria-label="Use this" title="Use this">
+											<svg class="icon" focusable="false"><use href="#icon-check"></use></svg>
+										</button>
+										<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+											<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+										</button>
+										<button class="icon-button" type="button" aria-label="Do not remember" title="Do not remember">
+											<svg class="icon" focusable="false"><use href="#icon-x"></use></svg>
+										</button>
+									</div>
+								</article>
+							</div>
+						</section>
+					</div>
+				</div>
+			</div>
+
+			<div>
+				<div class="wireframe-label">
+					<span>Mobile Shape</span>
+					<span>Same hierarchy, one column</span>
+				</div>
+				<div class="mobile-wrap">
+					<div class="phone">
+						<div class="phone-screen">
+							<div class="top-panel">
+								<div class="page-title-row" style="display: grid; gap: 12px;">
+									<div class="title-with-count">
+										<h2 class="page-title">Knowledge Base</h2>
+										<span class="active-count-badge" aria-label="42 active memory items" title="42 active memory items">42</span>
+									</div>
+									<div class="tabbar">
+										<button class="tab active" type="button">Memory</button>
+										<button class="tab" type="button">Documents</button>
+									</div>
+								</div>
+							</div>
+							<section class="needs-review">
+								<div class="review-header">
+									<div>
+										<h2 class="review-title">Needs review</h2>
+									</div>
+									<button class="icon-button" type="button" aria-label="View all review items" title="View all review items">
+										<svg class="icon" focusable="false"><use href="#icon-list"></use></svg>
+									</button>
+								</div>
+								<div class="review-grid">
+									<article class="review-card">
+										<p>Which tone preference should AlfyAI remember?</p>
+										<div class="review-actions">
+											<button class="icon-button primary" type="button" aria-label="Use this" title="Use this">
+												<svg class="icon" focusable="false"><use href="#icon-check"></use></svg>
+											</button>
+											<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+												<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+											</button>
+											<button class="icon-button" type="button" aria-label="Do not remember" title="Do not remember">
+												<svg class="icon" focusable="false"><use href="#icon-x"></use></svg>
+											</button>
+										</div>
+									</article>
+								</div>
+							</section>
+							<section class="profile-grid">
+								<article class="category">
+									<div class="category-header">
+										<div>
+											<h2>About You</h2>
+											<p class="category-note">Stable shared facts.</p>
+										</div>
+										<span class="count-pill">9</span>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Lives in the Netherlands and works in Europe/Amsterdam time.</p>
+										<div class="card-meta">
+											<span class="scope is-global" aria-hidden="true">Global</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+								</article>
+								<article class="category">
+									<div class="category-header">
+										<div>
+											<h2>Preferences</h2>
+											<p class="category-note">How AlfyAI should work.</p>
+										</div>
+										<span class="count-pill">14</span>
+									</div>
+									<div class="memory-card">
+										<p class="memory-statement">Prefers direct technical answers with concrete tradeoffs.</p>
+										<div class="card-meta">
+											<span class="scope is-global" aria-hidden="true">Global</span>
+											<div class="card-actions">
+												<button class="icon-button" type="button" aria-label="Edit" title="Edit">
+													<svg class="icon" focusable="false"><use href="#icon-pencil"></use></svg>
+												</button>
+												<button class="icon-button danger" type="button" aria-label="Delete" title="Delete">
+													<svg class="icon" focusable="false"><use href="#icon-trash"></use></svg>
+												</button>
+											</div>
+										</div>
+									</div>
+								</article>
+							</section>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<section class="legend">
+				<div class="legend-item"><strong>Removed</strong>Focus Continuity cards, raw durable-memory tables, reload icon, source/status badges in default cards.</div>
+				<div class="legend-item"><strong>Visible</strong>Only active usable Memory Profile Items plus capped Needs Review when required.</div>
+				<div class="legend-item"><strong>Hidden Until Needed</strong>Provenance, source authority, confidence, stale/expired state, historical evidence.</div>
+				<div class="legend-item"><strong>Separate</strong>Documents stay in their own tab with upload, search, document preview, and management.</div>
+			</section>
+		</section>
+	</main>
+</body>
+</html>

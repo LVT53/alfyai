@@ -1,257 +1,408 @@
-import { getConfig } from "$lib/server/config-store";
 import type {
 	KnowledgeMemoryOverviewPayload,
-	KnowledgeMemoryPayload,
-	KnowledgeMemorySummary,
-	PersonaMemoryItem,
+	MemoryProfileActionPayload,
+	MemoryProfilePublicItem,
+	MemoryProfilePublicPayload,
 } from "$lib/types";
 import {
-	forgetAllPersonaMemories,
-	forgetPersonaMemory,
-	getPeerContext,
-	getPersonaMemoryOverviewSummary,
-	type HonchoPersonaMemoryRecord,
-	isHonchoEnabled,
-	listPersonaMemories,
-	rotateHonchoPeerIdentity,
-} from "./honcho";
-import { buildKnowledgeMemoryOverview } from "./knowledge/memory-overview";
-import {
-	countFocusContinuityItems,
-	countTaskMemoryItems,
-	forgetFocusContinuity,
-	forgetTaskMemory,
-	listFocusContinuityItems,
-	listTaskMemoryItems,
-} from "./task-state";
+	applyMemoryReviewItemWithRevision,
+	getMemoryProfileReadModel,
+	markMemoryDirty,
+	recordMemoryReworkTelemetry,
+	type MemoryProfileCardItem,
+	type MemoryProfileCategory,
+	type MemoryProfileItemStatus,
+	type MemoryProfileReadModel,
+	updateMemoryProfileItemWithRevision,
+} from "./memory-profile";
 
-type KnowledgeMemoryAction =
-	| {
-			action: "forget_persona_memory";
-			clusterId?: string;
-			conclusionId?: string;
-	  }
-	| { action: "forget_all_persona_memory" }
-	| { action: "forget_task_memory"; taskId: string }
-	| { action: "forget_focus_continuity"; continuityId: string }
-	| { action: "forget_project_memory"; projectId: string };
+export class MemoryProfileActionError extends Error {
+	readonly code: "invalid_action" | "stale_projection" | "not_found";
+	readonly status: number;
 
-function normalizePersonaMemoryId(
-	payload: Extract<KnowledgeMemoryAction, { action: "forget_persona_memory" }>,
-): string | null {
-	for (const candidate of [payload.conclusionId, payload.clusterId]) {
-		if (typeof candidate !== "string") continue;
-		const trimmed = candidate.trim();
-		if (trimmed) return trimmed;
+	constructor(
+		code: MemoryProfileActionError["code"],
+		message: string,
+		status: number,
+	) {
+		super(message);
+		this.name = "MemoryProfileActionError";
+		this.code = code;
+		this.status = status;
 	}
-	return null;
 }
 
-function buildKnowledgeMemorySummary(
-	overview: string | null,
-	personaFallbackTexts: string[],
-	personaCount: number,
-	activeConstraintCount: number,
-	currentProjectContextCount: number,
-	taskCount: number,
-	focusContinuityCount: number,
-	overviewUnavailable = false,
-): KnowledgeMemorySummary {
-	const honchoEnabled = isHonchoEnabled();
-	const attemptedAt = honchoEnabled ? Date.now() : null;
-	const overviewContract = buildKnowledgeMemoryOverview({
-		rawOverview: overview,
-		personaFallbackTexts,
-		durablePersonaCount: personaCount,
-		honchoEnabled,
-		attemptedAt,
-		overviewUnavailable,
-	});
-	console.info("[KNOWLEDGE_MEMORY] Selected overview source", {
-		source: overviewContract.overviewSource,
-		status: overviewContract.overviewStatus,
-		durablePersonaCount: overviewContract.durablePersonaCount,
-		overviewBulletCount: overviewContract.overviewBullets.length,
-		unavailable: overviewUnavailable,
-	});
-
+function serializeMemoryProfileItem(
+	item: MemoryProfileCardItem,
+): MemoryProfilePublicItem {
 	return {
-		personaCount,
-		taskCount,
-		focusContinuityCount,
-		activeConstraintCount,
-		currentProjectContextCount,
-		...overviewContract,
+		...item,
+		updatedAt: item.updatedAt.toISOString(),
 	};
 }
 
-async function loadPeerContextOverview(
-	userId: string,
-	userDisplayName: string,
-	options: { force?: boolean } = {},
-): Promise<{ text: string | null; unavailable: boolean }> {
-	if (!isHonchoEnabled()) {
-		return { text: null, unavailable: false };
-	}
+function serializeMemoryProfileReadModel(
+	profile: MemoryProfileReadModel,
+): MemoryProfilePublicPayload {
+	return {
+		resetGeneration: profile.resetGeneration,
+		projectionRevision: profile.projectionRevision,
+		categories: profile.categories.map((group) => ({
+			category: group.category,
+			items: group.items.map(serializeMemoryProfileItem),
+		})),
+		review: profile.review,
+	};
+}
 
-	try {
-		const text = await getPeerContext(userId, userDisplayName, {
-			timeoutMs: getConfig().honchoPersonaContextWaitMs,
-			force: options.force,
-			throwOnError: true,
-		});
-		return { text, unavailable: false };
-	} catch (error) {
-		console.warn(
-			"[KNOWLEDGE_MEMORY] Honcho overview temporarily unavailable:",
-			error,
+async function markStaleProjectionRead(userId: string, source: string) {
+	await markMemoryDirty({
+		userId,
+		reason: "stale_projection",
+		scope: { type: "global" },
+		metadata: { source },
+	});
+}
+
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === "string" && value.trim().length > 0;
+}
+
+function isExpectedProjectionRevision(value: unknown): value is number {
+	return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+type ParsedMemoryProfileAction = MemoryProfileActionPayload;
+
+function parseMemoryProfileAction(payload: unknown): ParsedMemoryProfileAction {
+	if (!payload || typeof payload !== "object") {
+		throw new MemoryProfileActionError(
+			"invalid_action",
+			"Invalid memory profile action payload.",
+			400,
 		);
-		return { text: null, unavailable: true };
 	}
+	const record = payload as Record<string, unknown>;
+	const itemId = record.itemId;
+	const expectedProjectionRevision = record.expectedProjectionRevision;
+	const target = record.target === "review_item" ? "review_item" : "profile_item";
+	if (
+		!isNonEmptyString(itemId) ||
+		!isExpectedProjectionRevision(expectedProjectionRevision)
+	) {
+		throw new MemoryProfileActionError(
+			"invalid_action",
+			"Memory profile actions require itemId and expectedProjectionRevision.",
+			400,
+		);
+	}
+
+	if (target === "review_item") {
+		if (record.action === "accept") {
+			return {
+				target: "review_item",
+				action: "accept",
+				itemId: itemId.trim(),
+				expectedProjectionRevision,
+			};
+		}
+		if (record.action === "suppress") {
+			return {
+				target: "review_item",
+				action: "suppress",
+				itemId: itemId.trim(),
+				expectedProjectionRevision,
+			};
+		}
+		if (record.action === "edit" && isNonEmptyString(record.statement)) {
+			return {
+				target: "review_item",
+				action: "edit",
+				itemId: itemId.trim(),
+				statement: record.statement.trim(),
+				expectedProjectionRevision,
+			};
+		}
+		throw new MemoryProfileActionError(
+			"invalid_action",
+			"Invalid memory profile action payload.",
+			400,
+		);
+	}
+
+	if (record.action === "delete" || record.action === "suppress") {
+		return {
+			target: "profile_item",
+			action: record.action,
+			itemId: itemId.trim(),
+			expectedProjectionRevision,
+		};
+	}
+
+	if (record.action === "edit" && isNonEmptyString(record.statement)) {
+		return {
+			target: "profile_item",
+			action: "edit",
+			itemId: itemId.trim(),
+			statement: record.statement.trim(),
+			expectedProjectionRevision,
+		};
+	}
+
+	throw new MemoryProfileActionError(
+		"invalid_action",
+		"Invalid memory profile action payload.",
+		400,
+	);
 }
 
-function mapHonchoPersonaMemory(
-	record: HonchoPersonaMemoryRecord,
-): PersonaMemoryItem {
-	return {
-		id: record.id,
-		canonicalText: record.content,
-		rawCanonicalText: record.content,
-		domain: "persona",
-		memoryClass: "long_term_context",
-		state: "active",
-		salienceScore: 50,
-		sourceCount: 1,
-		conversationTitles: [],
-		firstSeenAt: record.createdAt,
-		lastSeenAt: record.createdAt,
-		pinned: false,
-		temporal: null,
-		activeConstraint: false,
-		topicKey: null,
-		topicStatus: "active",
-		supersededById: null,
-		supersessionReason: null,
-		members: [
-			{
-				id: record.id,
-				content: record.content,
-				scope: record.scope,
-				sessionId: record.sessionId,
-				conversationTitle: null,
-				createdAt: record.createdAt,
-			},
-		],
+async function markProfileActionReconciliation(params: {
+	userId: string;
+	action: ParsedMemoryProfileAction["action"];
+	itemId?: string | null;
+	reviewItemId?: string;
+}) {
+	const metadata = {
+		action: params.action,
+		...(params.itemId ? { itemId: params.itemId } : {}),
+		...(params.reviewItemId ? { reviewItemId: params.reviewItemId } : {}),
 	};
+	await markMemoryDirty({
+		userId: params.userId,
+		reason: "profile_action_reconciliation",
+		scope: { type: "global" },
+		metadata,
+	});
+	await markMemoryDirty({
+		userId: params.userId,
+		reason: "honcho_reconciliation",
+		scope: { type: "global" },
+		metadata,
+	});
+}
+
+async function recordProfileActionTelemetry(params: {
+	userId: string;
+	action: ParsedMemoryProfileAction["action"];
+	itemId: string;
+	status: "updated" | "stale_projection" | "not_found";
+	target?: "profile_item" | "review_item";
+}) {
+	await recordMemoryReworkTelemetry({
+		userId: params.userId,
+		eventFamily: "profile_action",
+		eventName: `memory_profile_${params.action}`,
+		reason: "user_action",
+		status: params.status,
+		subjectId: params.itemId,
+		metadata: {
+			action: params.action,
+			...(params.target ? { target: params.target } : {}),
+		},
+	});
+}
+
+async function recordReviewActionTelemetry(params: {
+	userId: string;
+	action: Extract<ParsedMemoryProfileAction["action"], "accept" | "edit" | "suppress">;
+	reviewItemId: string;
+	itemId?: string | null;
+	category?: MemoryProfileCategory | null;
+	status: "updated" | "stale_projection" | "not_found";
+}) {
+	await recordMemoryReworkTelemetry({
+		userId: params.userId,
+		eventFamily: "guided_review",
+		eventName: `memory_review_${params.action}`,
+		category: params.category ?? undefined,
+		reason: "user_action",
+		status: params.status,
+		subjectId: params.reviewItemId,
+		metadata: {
+			action: params.action,
+			...(params.itemId ? { itemId: params.itemId } : {}),
+		},
+	});
 }
 
 export async function getKnowledgeMemory(
 	userId: string,
-	userDisplayName: string,
-): Promise<KnowledgeMemoryPayload> {
-	const [peerOverview, personaRecords, taskMemories, focusContinuities] =
-		await Promise.all([
-			loadPeerContextOverview(userId, userDisplayName),
-			listPersonaMemories(userId),
-			listTaskMemoryItems(userId),
-			listFocusContinuityItems(userId),
-		]);
-	const personaMemories = personaRecords.map(mapHonchoPersonaMemory);
+	_userDisplayName: string,
+): Promise<MemoryProfilePublicPayload> {
+	await markStaleProjectionRead(userId, "knowledge_memory_read");
+	return serializeMemoryProfileReadModel(
+		await getMemoryProfileReadModel({ userId }),
+	);
+}
 
+function buildCompatibilitySummary(
+	profile: MemoryProfilePublicPayload,
+): KnowledgeMemoryOverviewPayload["summary"] {
+	const activeItemCount = profile.categories.reduce(
+		(total, group) => total + group.items.length,
+		0,
+	);
 	return {
-		personaMemories,
-		activeConstraints: [],
-		currentProjectContext: [],
-		taskMemories: taskMemories.map((taskMemory) => ({
-			...taskMemory,
-			objective: taskMemory.objective,
-			checkpointSummary: taskMemory.checkpointSummary,
-		})),
-		focusContinuities: focusContinuities.map((continuity) => ({
-			...continuity,
-			name: continuity.name,
-			summary: continuity.summary,
-			conversationTitles: continuity.conversationTitles,
-		})),
-		summary: buildKnowledgeMemorySummary(
-			peerOverview.text,
-			personaRecords.map((record) => record.content),
-			personaMemories.length,
-			0,
-			0,
-			taskMemories.length,
-			focusContinuities.length,
-			peerOverview.unavailable,
-		),
+		personaCount: activeItemCount,
+		taskCount: 0,
+		focusContinuityCount: 0,
+		activeConstraintCount: profile.categories.find(
+			(group) => group.category === "constraints_boundaries",
+		)?.items.length ?? 0,
+		currentProjectContextCount: profile.categories.find(
+			(group) => group.category === "goals_ongoing_work",
+		)?.items.length ?? 0,
+		overview: null,
+		overviewBullets: [],
+		overviewSource: null,
+		overviewStatus: activeItemCount > 0 ? "ready" : "not_enough_durable_memory",
+		overviewUpdatedAt: null,
+		overviewLastAttemptAt: Date.now(),
+		durablePersonaCount: activeItemCount,
 	};
 }
 
 export async function getKnowledgeMemoryOverview(
 	userId: string,
-	userDisplayName: string,
+	_userDisplayName: string,
 	options: { awaitLive?: boolean; force?: boolean } = {},
 ): Promise<KnowledgeMemoryOverviewPayload> {
-	const [peerOverview, personaOverview, taskCount, focusContinuityCount] =
-		await Promise.all([
-			loadPeerContextOverview(userId, userDisplayName, {
-				force: options.force,
-			}),
-			getPersonaMemoryOverviewSummary(userId),
-			countTaskMemoryItems(userId),
-			countFocusContinuityItems(userId),
-		]);
-
+	const source = options.force
+		? "knowledge_memory_overview_force_read"
+		: "knowledge_memory_overview_read";
+	await markStaleProjectionRead(userId, source);
+	const profile = serializeMemoryProfileReadModel(
+		await getMemoryProfileReadModel({ userId }),
+	);
 	return {
-		summary: buildKnowledgeMemorySummary(
-			peerOverview.text,
-			personaOverview.fallbackTexts,
-			personaOverview.count,
-			0,
-			0,
-			taskCount,
-			focusContinuityCount,
-			peerOverview.unavailable,
-		),
+		summary: buildCompatibilitySummary(profile),
+		profile,
 	};
 }
 
 export async function applyKnowledgeMemoryAction(
 	userId: string,
-	userDisplayName: string,
-	payload: KnowledgeMemoryAction,
-): Promise<KnowledgeMemoryPayload> {
-	switch (payload.action) {
-		case "forget_persona_memory": {
-			const personaMemoryId = normalizePersonaMemoryId(payload);
-			if (!personaMemoryId) {
-				throw new Error(
-					"forget_persona_memory requires a conclusionId or clusterId",
+	_userDisplayName: string,
+	payload: unknown,
+): Promise<MemoryProfilePublicPayload> {
+	const action = parseMemoryProfileAction(payload);
+	if (action.target === "review_item") {
+		const reviewResult = await applyMemoryReviewItemWithRevision({
+			userId,
+			reviewItemId: action.itemId,
+			expectedProjectionRevision: action.expectedProjectionRevision,
+			action:
+				action.action === "suppress"
+					? "dismiss"
+					: action.action === "accept"
+						? "accept"
+						: "edit",
+			...(action.action === "edit" ? { statement: action.statement } : {}),
+		});
+
+		if (reviewResult.status !== "updated") {
+			await recordReviewActionTelemetry({
+				userId,
+				action: action.action,
+				reviewItemId: action.itemId,
+				status: reviewResult.status,
+			});
+			await recordProfileActionTelemetry({
+				userId,
+				action: action.action,
+				itemId: action.itemId,
+				status: reviewResult.status,
+				target: "review_item",
+			});
+			if (reviewResult.status === "stale_projection") {
+				throw new MemoryProfileActionError(
+					"stale_projection",
+					"Memory profile changed before this action was applied.",
+					409,
 				);
 			}
-			await forgetPersonaMemory(userId, personaMemoryId);
-			console.info(
-				"[KNOWLEDGE_MEMORY] forget_persona_memory delegated to Honcho",
+			throw new MemoryProfileActionError(
+				"not_found",
+				"Memory review item was not found.",
+				404,
 			);
-			break;
 		}
-		case "forget_all_persona_memory": {
-			await forgetAllPersonaMemories(userId);
-			await rotateHonchoPeerIdentity(userId);
-			console.info(
-				"[KNOWLEDGE_MEMORY] forget_all_persona_memory delegated to Honcho and rotated peer identity",
-			);
-			break;
-		}
-		case "forget_task_memory":
-			await forgetTaskMemory(userId, payload.taskId);
-			break;
-		case "forget_focus_continuity":
-			await forgetFocusContinuity(userId, payload.continuityId);
-			break;
-		case "forget_project_memory":
-			await forgetFocusContinuity(userId, payload.projectId);
-			break;
+
+		await markProfileActionReconciliation({
+			userId,
+			action: action.action,
+			itemId: reviewResult.itemId,
+			reviewItemId: action.itemId,
+		});
+		await recordReviewActionTelemetry({
+			userId,
+			action: action.action,
+			reviewItemId: action.itemId,
+			itemId: reviewResult.itemId,
+			category: reviewResult.category,
+			status: "updated",
+		});
+		await recordProfileActionTelemetry({
+			userId,
+			action: action.action,
+			itemId: reviewResult.itemId ?? action.itemId,
+			status: "updated",
+			target: "review_item",
+		});
+
+		return serializeMemoryProfileReadModel(
+			await getMemoryProfileReadModel({ userId }),
+		);
 	}
 
-	return getKnowledgeMemory(userId, userDisplayName);
+	const patch: {
+		statement?: string;
+		status?: MemoryProfileItemStatus;
+	} =
+		action.action === "edit"
+			? { statement: action.statement }
+			: { status: action.action === "delete" ? "deleted" : "suppressed" };
+	const result = await updateMemoryProfileItemWithRevision({
+		userId,
+		itemId: action.itemId,
+		expectedProjectionRevision: action.expectedProjectionRevision,
+		patch,
+	});
+
+	if (result.status !== "updated") {
+		await recordProfileActionTelemetry({
+			userId,
+			action: action.action,
+			itemId: action.itemId,
+			status: result.status,
+		});
+		if (result.status === "stale_projection") {
+			throw new MemoryProfileActionError(
+				"stale_projection",
+				"Memory profile changed before this action was applied.",
+				409,
+			);
+		}
+		throw new MemoryProfileActionError(
+			"not_found",
+			"Memory profile item was not found.",
+			404,
+		);
+	}
+
+	await markProfileActionReconciliation({
+		userId,
+		action: action.action,
+		itemId: action.itemId,
+	});
+	await recordProfileActionTelemetry({
+		userId,
+		action: action.action,
+		itemId: action.itemId,
+		status: "updated",
+	});
+
+	return serializeMemoryProfileReadModel(
+		await getMemoryProfileReadModel({ userId }),
+	);
 }

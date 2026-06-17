@@ -10,7 +10,6 @@ import {
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
 import {
-	mirrorMessage,
 	mirrorWorkCapsuleConclusion,
 } from "$lib/server/services/honcho";
 import {
@@ -25,6 +24,7 @@ import {
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store";
 import { recordMemoryEvent } from "$lib/server/services/memory-events";
 import { runUserMemoryMaintenance } from "$lib/server/services/memory-maintenance";
+import { intakePostTurnMemory } from "$lib/server/services/memory-profile/intake";
 import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
 import {
 	createMessage,
@@ -614,8 +614,10 @@ export async function finalizeChatTurn(
 							conversationId: params.conversationId,
 							upstreamMessage: params.upstreamMessage,
 							userMessage: params.normalizedMessage,
+							userMessageId: userMessage?.id ?? null,
 							assistantResponse: params.assistantResponse,
 							assistantMirrorContent: params.assistantMirrorContent,
+							assistantMessageId: assistantMessage.id,
 							workCapsule: turnState.workCapsule,
 							maintenanceReason: params.maintenanceReason,
 						}),
@@ -626,8 +628,10 @@ export async function finalizeChatTurn(
 						conversationId: params.conversationId,
 						upstreamMessage: params.upstreamMessage,
 						userMessage: params.normalizedMessage,
+						userMessageId: userMessage?.id ?? null,
 						assistantResponse: params.assistantResponse,
 						assistantMirrorContent: params.assistantMirrorContent,
+						assistantMessageId: assistantMessage.id,
 						workCapsule: turnState.workCapsule,
 						maintenanceReason: params.maintenanceReason,
 					})
@@ -897,28 +901,17 @@ export async function runPostTurnTasks(
 	params: RunPostTurnTasksParams,
 ): Promise<void> {
 	const honchoTasks: Promise<unknown>[] = [
-		mirrorMessage(
-			params.userId,
-			params.conversationId,
-			"user",
-			params.upstreamMessage,
-		).catch((err) =>
-			console.error("[HONCHO] Mirror user message failed:", err),
+		intakePostTurnMemory({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			userMessage: params.userMessage,
+			assistantMessage: params.assistantMirrorContent ?? params.assistantResponse,
+			userMessageId: params.userMessageId ?? null,
+			assistantMessageId: params.assistantMessageId ?? null,
+		}).catch((err) =>
+			console.error("[MEMORY_INTAKE] Post-turn intake failed:", err),
 		),
 	];
-
-	if (params.assistantMirrorContent?.trim()) {
-		honchoTasks.push(
-			mirrorMessage(
-				params.userId,
-				params.conversationId,
-				"assistant",
-				params.assistantMirrorContent,
-			).catch((err) =>
-				console.error("[HONCHO] Mirror assistant message failed:", err),
-			),
-		);
-	}
 
 	if (params.workCapsule?.workflowSummary) {
 		honchoTasks.push(

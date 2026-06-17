@@ -161,6 +161,67 @@ function seedUserAndConversation(
 		.run();
 }
 
+function seedMemoryProjection(
+	db: ReturnType<typeof openSeedDatabase>["db"],
+	userId = "user-1",
+) {
+	const now = new Date("2026-05-16T09:00:00.000Z");
+	const projectionStateId = randomUUID();
+	db.insert(schema.memoryProjectionState)
+		.values({
+			id: projectionStateId,
+			userId,
+			resetGeneration: 0,
+			scopeType: "global",
+			scopeId: "",
+			revision: 2,
+			status: "ready",
+			lastRefreshedAt: now,
+			metadataJson: "{}",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryProfileItems)
+		.values([
+			{
+				id: randomUUID(),
+				userId,
+				projectionStateId,
+				resetGeneration: 0,
+				itemKey: "context-access-active-preference",
+				category: "preferences",
+				scopeType: "global",
+				scopeId: "",
+				statement:
+					"Prefers active projection concise technical answers for context access.",
+				status: "active",
+				revision: 1,
+				metadataJson: "{}",
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				id: randomUUID(),
+				userId,
+				projectionStateId,
+				resetGeneration: 0,
+				itemKey: "context-access-suppressed-preference",
+				category: "preferences",
+				scopeType: "global",
+				scopeId: "",
+				statement: "Suppressed profile item should not appear.",
+				status: "suppressed",
+				revision: 1,
+				suppressedAt: now,
+				metadataJson: "{}",
+				createdAt: now,
+				updatedAt: now,
+			},
+		])
+		.run();
+}
+
 describe("Context Access v1 integrated regression harness", () => {
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-context-access-${randomUUID()}.db`;
@@ -197,6 +258,7 @@ describe("Context Access v1 integrated regression harness", () => {
 	it("assembles baseline Honcho profile, fuzzy document evidence, and account history before relying on tools", async () => {
 		const { sqlite, db } = openSeedDatabase();
 		seedUserAndConversation(db);
+		seedMemoryProjection(db);
 		const now = new Date("2026-05-16T09:00:00.000Z");
 		db.insert(schema.users)
 			.values({
@@ -316,7 +378,13 @@ describe("Context Access v1 integrated regression harness", () => {
 
 		expect(constructed.inputValue).toContain("## Baseline Memory Profile");
 		expect(constructed.inputValue).toContain(
+			"Prefers active projection concise technical answers for context access.",
+		);
+		expect(constructed.inputValue).not.toContain(
 			"Synthesized baseline profile: prefers concise technical answers",
+		);
+		expect(constructed.inputValue).not.toContain(
+			"Suppressed profile item should not appear.",
 		);
 		expect(mocks.peerContext).toHaveBeenCalled();
 		expect(mocks.peerChat).not.toHaveBeenCalled();
@@ -330,7 +398,7 @@ describe("Context Access v1 integrated regression harness", () => {
 				expect.objectContaining({
 					name: "Baseline Memory Profile",
 					source: "memory",
-					signalReasons: ["honcho_baseline_profile:live"],
+					signalReasons: ["active_memory_profile:projection"],
 				}),
 				expect.objectContaining({
 					name: "Retrieved Evidence",

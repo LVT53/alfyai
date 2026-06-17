@@ -107,6 +107,8 @@ const mockGetPromptArtifactSnippets = vi.hoisted(() =>
 		) => ReturnType<typeof getPromptArtifactSnippetsType>
 	>(async () => new Map<string, string>()),
 );
+const mockGetActiveMemoryProfileContext = vi.hoisted(() => vi.fn());
+const mockRecordMemoryReworkTelemetry = vi.hoisted(() => vi.fn());
 const mockSerializeBudgetedAttachments = vi.hoisted(() =>
 	vi.fn<
 		(
@@ -613,6 +615,11 @@ vi.mock("./linked-context-sources", () => ({
 		mockListConversationLinkedContextSources,
 }));
 
+vi.mock("./memory-profile", () => ({
+	getActiveMemoryProfileContext: mockGetActiveMemoryProfileContext,
+	recordMemoryReworkTelemetry: mockRecordMemoryReworkTelemetry,
+}));
+
 // Mock task-state
 vi.mock("$lib/server/services/task-state", () => ({
 	formatTaskStateForPrompt: vi.fn(
@@ -711,6 +718,12 @@ beforeEach(() => {
 	mockConfig.honchoContextWaitMs = 3000;
 	mockConfig.honchoPersonaContextWaitMs = 1500;
 	mockHonchoPeerVersion.value = 0;
+	mockGetActiveMemoryProfileContext.mockResolvedValue({
+		resetGeneration: 0,
+		projectionRevision: 0,
+		items: [],
+	});
+	mockRecordMemoryReworkTelemetry.mockResolvedValue({ id: "telemetry-1" });
 });
 
 describe("honcho learning - mirrorMessage", () => {
@@ -2164,12 +2177,38 @@ describe("chat-turn context selection - buildConstructedContext", () => {
 		expect(result.honchoContext?.source).toBe("live");
 	});
 
-	it("uses a Honcho-synthesized Baseline Memory Profile instead of raw newest conclusions", async () => {
+	it("uses active projection Baseline Memory Profile instead of raw Honcho or newest conclusions", async () => {
 		mockConfig.honchoEnabled = true;
 		mockPeerContext.mockResolvedValueOnce({
 			representation:
 				"Synthesized baseline profile: prefers concise technical answers.",
 			peerCard: ["Works on AlfyAI context access"],
+		});
+		mockGetActiveMemoryProfileContext.mockResolvedValueOnce({
+			resetGeneration: 0,
+			projectionRevision: 4,
+			items: [
+				{
+					id: "memory-active-1",
+					itemKey: "memory-profile-item:v1:preferences:global:active",
+					category: "preferences",
+					statement:
+						"Prefers active projection concise technical answers.",
+					scope: { type: "global" },
+					revision: 1,
+					updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+				},
+				{
+					id: "memory-active-2",
+					itemKey:
+						"memory-profile-item:v1:goals_ongoing_work:global:active",
+					category: "goals_ongoing_work",
+					statement: "Works on AlfyAI context access from projection.",
+					scope: { type: "global" },
+					revision: 1,
+					updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+				},
+			],
 		});
 		mockScopeList.mockResolvedValue({
 			toArray: async () => [
@@ -2194,9 +2233,14 @@ describe("chat-turn context selection - buildConstructedContext", () => {
 
 		expect(result.inputValue).toContain("## Baseline Memory Profile");
 		expect(result.inputValue).toContain(
+			"Prefers active projection concise technical answers.",
+		);
+		expect(result.inputValue).toContain(
+			"Works on AlfyAI context access from projection.",
+		);
+		expect(result.inputValue).not.toContain(
 			"Synthesized baseline profile: prefers concise technical answers.",
 		);
-		expect(result.inputValue).toContain("- Works on AlfyAI context access");
 		expect(result.inputValue).not.toContain("## User Memory");
 		expect(result.inputValue).not.toContain(
 			"RAW NEWEST CONCLUSION SHOULD NOT BE DUMPED",
@@ -2207,7 +2251,7 @@ describe("chat-turn context selection - buildConstructedContext", () => {
 					name: "Baseline Memory Profile",
 					source: "memory",
 					protected: true,
-					signalReasons: ["honcho_baseline_profile:live"],
+					signalReasons: ["active_memory_profile:projection"],
 				}),
 			]),
 		);

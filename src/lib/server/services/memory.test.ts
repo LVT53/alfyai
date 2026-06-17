@@ -1,288 +1,460 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockGetPeerContext = vi.fn();
+const mockGetMemoryProfileReadModel = vi.fn();
+const mockMarkMemoryDirty = vi.fn();
+const mockRecordMemoryReworkTelemetry = vi.fn();
+const mockUpdateMemoryProfileItemWithRevision = vi.fn();
+const mockApplyMemoryReviewItemWithRevision = vi.fn();
 const mockListPersonaMemories = vi.fn();
-const mockGetPersonaMemoryOverviewSummary = vi.fn();
-const mockForgetAllPersonaMemories = vi.fn();
-const mockForgetPersonaMemory = vi.fn();
-const mockRotateHonchoPeerIdentity = vi.fn();
-const mockIsHonchoEnabled = vi.fn();
 const mockListTaskMemoryItems = vi.fn();
 const mockListFocusContinuityItems = vi.fn();
-const mockCountTaskMemoryItems = vi.fn();
-const mockCountFocusContinuityItems = vi.fn();
-const mockForgetFocusContinuity = vi.fn();
-const mockForgetTaskMemory = vi.fn();
+const mockGetPeerContext = vi.fn();
 
-vi.mock("$lib/server/config-store", () => ({
-	getConfig: () => ({ honchoPersonaContextWaitMs: 1500 }),
+vi.mock("./memory-profile", () => ({
+	applyMemoryReviewItemWithRevision: mockApplyMemoryReviewItemWithRevision,
+	getMemoryProfileReadModel: mockGetMemoryProfileReadModel,
+	markMemoryDirty: mockMarkMemoryDirty,
+	recordMemoryReworkTelemetry: mockRecordMemoryReworkTelemetry,
+	updateMemoryProfileItemWithRevision: mockUpdateMemoryProfileItemWithRevision,
 }));
 
 vi.mock("./honcho", () => ({
-	forgetAllPersonaMemories: mockForgetAllPersonaMemories,
-	forgetPersonaMemory: mockForgetPersonaMemory,
 	getPeerContext: mockGetPeerContext,
-	getPersonaMemoryOverviewSummary: mockGetPersonaMemoryOverviewSummary,
-	isHonchoEnabled: mockIsHonchoEnabled,
 	listPersonaMemories: mockListPersonaMemories,
-	rotateHonchoPeerIdentity: mockRotateHonchoPeerIdentity,
 }));
 
 vi.mock("./task-state", () => ({
-	forgetFocusContinuity: mockForgetFocusContinuity,
-	forgetTaskMemory: mockForgetTaskMemory,
-	countFocusContinuityItems: mockCountFocusContinuityItems,
-	countTaskMemoryItems: mockCountTaskMemoryItems,
 	listFocusContinuityItems: mockListFocusContinuityItems,
 	listTaskMemoryItems: mockListTaskMemoryItems,
 }));
 
+const projectionProfile = {
+	resetGeneration: 0,
+	projectionRevision: 7,
+	categories: [
+		{
+			category: "about_you",
+			items: [
+				{
+					id: "item-about",
+					itemKey: "memory-profile-item:v1:about_you:global:item-about",
+					category: "about_you",
+					statement: "Lives in Amsterdam.",
+					scope: { type: "global" },
+					status: "active",
+					revision: 1,
+					updatedAt: new Date("2026-06-01T10:00:00.000Z"),
+					canEdit: true,
+					canDelete: true,
+					canSuppress: true,
+				},
+			],
+		},
+		{ category: "preferences", items: [] },
+		{ category: "goals_ongoing_work", items: [] },
+		{ category: "constraints_boundaries", items: [] },
+	],
+	review: {
+		visibleItems: [
+			{
+				id: "review-1",
+				subject: "preferred language",
+				question: "Which language should be remembered?",
+				reason: "Conflicting evidence.",
+			},
+		],
+		openCount: 4,
+		overflowCount: 1,
+	},
+};
+
+const publicProfile = {
+	...projectionProfile,
+	categories: projectionProfile.categories.map((group) => ({
+		...group,
+		items: group.items.map((item) => ({
+			...item,
+			updatedAt: item.updatedAt.toISOString(),
+		})),
+	})),
+};
+
 describe("knowledge memory service", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockIsHonchoEnabled.mockReturnValue(true);
-		mockGetPeerContext.mockResolvedValue(null);
-		mockGetPersonaMemoryOverviewSummary.mockResolvedValue({
-			count: 0,
-			fallbackTexts: [],
-		});
-		mockListPersonaMemories.mockResolvedValue([]);
-		mockListTaskMemoryItems.mockResolvedValue([]);
-		mockListFocusContinuityItems.mockResolvedValue([]);
-		mockCountTaskMemoryItems.mockResolvedValue(0);
-		mockCountFocusContinuityItems.mockResolvedValue(0);
-		mockForgetAllPersonaMemories.mockResolvedValue(0);
-		mockForgetPersonaMemory.mockResolvedValue(true);
-		mockRotateHonchoPeerIdentity.mockResolvedValue(1);
-	});
-
-	it("does not render a memory overview for an empty scoped Honcho memory set", async () => {
-		const { getKnowledgeMemory } = await import("./memory");
-
-		const payload = await getKnowledgeMemory("user-1", "Test User");
-
-		expect(payload.personaMemories).toEqual([]);
-		expect(payload.summary.overview).toBeNull();
-		expect(payload.summary.overviewSource).toBeNull();
-		expect(payload.summary.overviewStatus).toBe("not_enough_durable_memory");
-		expect(payload.summary.durablePersonaCount).toBe(0);
-	});
-
-	it("maps scoped Honcho conclusions into visible persona memory and overview source", async () => {
-		mockGetPeerContext.mockResolvedValue(
-			"Scoped user memory from Honcho conclusions:\n- Prefers concise responses",
-		);
-		mockListPersonaMemories.mockResolvedValue([
-			{
-				id: "conclusion-1",
-				content: "Prefers concise responses",
-				scope: "assistant_about_user",
-				sessionId: "session-1",
-				createdAt: 1234,
-			},
-		]);
-
-		const { getKnowledgeMemory } = await import("./memory");
-		const payload = await getKnowledgeMemory("user-1", "Test User");
-
-		expect(payload.personaMemories).toHaveLength(1);
-		expect(payload.personaMemories[0]).toMatchObject({
-			id: "conclusion-1",
-			canonicalText: "Prefers concise responses",
-			memoryClass: "long_term_context",
-			state: "active",
-		});
-		expect(payload.summary.overviewSource).toBe("honcho_scoped");
-		expect(payload.summary.personaCount).toBe(1);
-		expect(payload.summary.durablePersonaCount).toBe(1);
-	});
-
-	it("returns app-ready overview bullets from scoped Honcho text", async () => {
-		mockGetPeerContext.mockResolvedValue(
-			"Explicit Observations [2026-04-25 23:15:33] Prefers concise responses. [2026-04-25 23:30:15] Uses contact email futuredesigncenter@nhlstenden.com for programme planning.",
-		);
-		mockListPersonaMemories.mockResolvedValue([
-			{
-				id: "conclusion-1",
-				content: "Prefers concise responses",
-				scope: "assistant_about_user",
-				sessionId: "session-1",
-				createdAt: 1234,
-			},
-		]);
-
-		const { getKnowledgeMemory } = await import("./memory");
-		const payload = await getKnowledgeMemory("user-1", "Test User");
-
-		expect(payload.summary.overviewBullets).toEqual([
-			"Prefers concise responses.",
-			"Uses contact email [email address] for programme planning.",
-		]);
-		expect(payload.summary.overview).toBe(
-			"Prefers concise responses.\nUses contact email [email address] for programme planning.",
-		);
-		expect(payload.summary.overviewSource).toBe("honcho_scoped");
-		expect(payload.summary.overviewStatus).toBe("ready");
-	});
-
-	it("degrades to durable persona fallback when the live Honcho overview is unavailable", async () => {
-		mockGetPeerContext.mockRejectedValue(new Error("Honcho timeout"));
-		mockListPersonaMemories.mockResolvedValue([
-			{
-				id: "conclusion-1",
-				content: "Prefers concise responses.",
-				scope: "assistant_about_user",
-				sessionId: "session-1",
-				createdAt: 1234,
-			},
-		]);
-
-		const { getKnowledgeMemory } = await import("./memory");
-		const payload = await getKnowledgeMemory("user-1", "Test User");
-
-		expect(payload.summary.overviewBullets).toEqual([
-			"Prefers concise responses.",
-		]);
-		expect(payload.summary.overviewSource).toBe("persona_fallback");
-		expect(payload.summary.overviewStatus).toBe("temporarily_unavailable");
-		expect(payload.summary.overviewUpdatedAt).toBeNull();
-		expect(payload.summary.overviewLastAttemptAt).toEqual(expect.any(Number));
-		expect(mockGetPeerContext).toHaveBeenCalledWith(
-			"user-1",
-			"Test User",
-			expect.objectContaining({
-				throwOnError: true,
-			}),
-		);
-	});
-
-	it("returns app-ready overview bullets from the overview-only service", async () => {
-		const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
-		mockGetPeerContext.mockResolvedValue(
-			"## Memory Overview\n- Prefers concise responses.\n- Uses Hungarian and English interfaces.",
-		);
-
-		try {
-			const { getKnowledgeMemoryOverview } = await import("./memory");
-			const payload = await getKnowledgeMemoryOverview("user-1", "Test User");
-
-			expect(payload.summary.overviewBullets).toEqual([
-				"Prefers concise responses.",
-				"Uses Hungarian and English interfaces.",
-			]);
-			expect(payload.summary.overview).toBe(
-				"Prefers concise responses.\nUses Hungarian and English interfaces.",
-			);
-			expect(payload.summary.overviewStatus).toBe("ready");
-			expect(infoSpy).toHaveBeenCalledWith(
-				"[KNOWLEDGE_MEMORY] Selected overview source",
-				{
-					source: "honcho_scoped",
-					status: "ready",
-					durablePersonaCount: 0,
-					overviewBulletCount: 2,
-					unavailable: false,
-				},
-			);
-		} finally {
-			infoSpy.mockRestore();
-		}
-	});
-
-	it("returns overview summary counts without full management rows or full persona conclusions", async () => {
-		mockListPersonaMemories.mockResolvedValue([
-			{
-				id: "conclusion-1",
-				content: "Prefers concise responses.",
-				scope: "assistant_about_user",
-				sessionId: "session-1",
-				createdAt: 1234,
-			},
-		]);
-		mockGetPersonaMemoryOverviewSummary.mockResolvedValue({
+		mockGetMemoryProfileReadModel.mockResolvedValue(projectionProfile);
+		mockMarkMemoryDirty.mockResolvedValue({
+			id: "dirty-1",
+			reason: "stale_projection",
 			count: 1,
-			fallbackTexts: ["Prefers concise responses."],
 		});
-		mockCountTaskMemoryItems.mockResolvedValue(2);
-		mockCountFocusContinuityItems.mockResolvedValue(1);
+		mockRecordMemoryReworkTelemetry.mockResolvedValue({ id: "telemetry-1" });
+		mockUpdateMemoryProfileItemWithRevision.mockResolvedValue({
+			status: "updated",
+			projectionRevision: 8,
+		});
+		mockApplyMemoryReviewItemWithRevision.mockResolvedValue({
+			status: "updated",
+			projectionRevision: 8,
+			itemId: "item-review-1",
+			category: "preferences",
+		});
+	});
 
-		const { getKnowledgeMemoryOverview } = await import("./memory");
-		const payload = await getKnowledgeMemoryOverview("user-1", "Test User");
+	it("returns the projection-backed memory profile and marks stale projection work without loading legacy memory", async () => {
+		const { getKnowledgeMemory } = await import("./memory");
 
+		const payload = await getKnowledgeMemory("user-1", "Test User");
+		const payloadJson = JSON.stringify(payload);
+
+		expect(payload).toEqual(publicProfile);
+		expect(mockGetMemoryProfileReadModel).toHaveBeenCalledWith({
+			userId: "user-1",
+		});
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "stale_projection",
+			scope: { type: "global" },
+			metadata: {
+				source: "knowledge_memory_read",
+			},
+		});
+		expect(mockGetPeerContext).not.toHaveBeenCalled();
 		expect(mockListPersonaMemories).not.toHaveBeenCalled();
-		expect(mockGetPersonaMemoryOverviewSummary).toHaveBeenCalledWith("user-1");
 		expect(mockListTaskMemoryItems).not.toHaveBeenCalled();
 		expect(mockListFocusContinuityItems).not.toHaveBeenCalled();
-		expect(mockCountTaskMemoryItems).toHaveBeenCalledWith("user-1");
-		expect(mockCountFocusContinuityItems).toHaveBeenCalledWith("user-1");
-		expect(payload).not.toHaveProperty("personaMemories");
-		expect(payload).not.toHaveProperty("taskMemories");
-		expect(payload).not.toHaveProperty("focusContinuities");
-		expect(payload.summary.personaCount).toBe(1);
-		expect(payload.summary.taskCount).toBe(2);
-		expect(payload.summary.focusContinuityCount).toBe(1);
+		expect(payloadJson).not.toContain("taskMemories");
+		expect(payloadJson).not.toContain("focusContinuities");
+		expect(payloadJson).not.toContain("personaMemories");
+		expect(payloadJson).not.toContain("honcho");
+		expect(payloadJson).not.toContain("confidence");
+		expect(payloadJson).not.toContain("debug");
 	});
 
-	it("passes force refresh through to the Honcho overview lookup", async () => {
-		mockGetPeerContext.mockResolvedValue(
-			"## Memory Overview\n- Freshly refreshed scoped memory.",
-		);
-
+	it("keeps forced overview refresh cheap by reading the projection and marking stale work", async () => {
 		const { getKnowledgeMemoryOverview } = await import("./memory");
+
 		const payload = await getKnowledgeMemoryOverview("user-1", "Test User", {
 			force: true,
 		});
+		const payloadJson = JSON.stringify(payload);
 
-		expect(payload.summary.overviewBullets).toEqual([
-			"Freshly refreshed scoped memory.",
-		]);
-		expect(mockGetPeerContext).toHaveBeenCalledWith(
-			"user-1",
-			"Test User",
+		expect(payload.profile?.categories).toHaveLength(4);
+		expect(payload.summary.taskCount).toBe(0);
+		expect(payload.summary.focusContinuityCount).toBe(0);
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "stale_projection",
+			scope: { type: "global" },
+			metadata: {
+				source: "knowledge_memory_overview_force_read",
+			},
+		});
+		expect(mockGetPeerContext).not.toHaveBeenCalled();
+		expect(mockListPersonaMemories).not.toHaveBeenCalled();
+		expect(mockListTaskMemoryItems).not.toHaveBeenCalled();
+		expect(mockListFocusContinuityItems).not.toHaveBeenCalled();
+		expect(payloadJson).not.toContain("taskMemories");
+		expect(payloadJson).not.toContain("focusContinuities");
+		expect(payloadJson).not.toContain("honcho");
+	});
+
+
+	it("deletes a profile item with projection revision protection and queues reconciliation", async () => {
+		const afterDeleteProfile = {
+			...projectionProfile,
+			projectionRevision: 8,
+			categories: projectionProfile.categories.map((group) => ({
+				...group,
+				items: [],
+			})),
+		};
+		mockGetMemoryProfileReadModel.mockResolvedValueOnce(afterDeleteProfile);
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+
+		const payload = await applyKnowledgeMemoryAction("user-1", "Test User", {
+			action: "delete",
+			itemId: "item-about",
+			expectedProjectionRevision: 7,
+		});
+		const payloadJson = JSON.stringify(payload);
+
+		expect(mockUpdateMemoryProfileItemWithRevision).toHaveBeenCalledWith({
+			userId: "user-1",
+			itemId: "item-about",
+			expectedProjectionRevision: 7,
+			patch: { status: "deleted" },
+		});
+		expect(payload.projectionRevision).toBe(8);
+		expect(payload.categories.flatMap((group) => group.items)).toEqual([]);
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "profile_action_reconciliation",
+			scope: { type: "global" },
+			metadata: {
+				action: "delete",
+				itemId: "item-about",
+			},
+		});
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "honcho_reconciliation",
+			scope: { type: "global" },
+			metadata: {
+				action: "delete",
+				itemId: "item-about",
+			},
+		});
+		expect(mockRecordMemoryReworkTelemetry).toHaveBeenCalledWith({
+			userId: "user-1",
+			eventFamily: "profile_action",
+			eventName: "memory_profile_delete",
+			reason: "user_action",
+			status: "updated",
+			subjectId: "item-about",
+			metadata: {
+				action: "delete",
+			},
+		});
+		expect(payloadJson).not.toContain("Lives in Amsterdam");
+		expect(payloadJson).not.toContain("taskMemories");
+		expect(payloadJson).not.toContain("focusContinuities");
+	});
+
+	it("edits a profile item immediately and rejects stale projection revisions", async () => {
+		const afterEditProfile = {
+			...projectionProfile,
+			projectionRevision: 8,
+			categories: projectionProfile.categories.map((group) => ({
+				...group,
+				items: group.items.map((item) => ({
+					...item,
+					statement: "Lives in Rotterdam.",
+					revision: 2,
+				})),
+			})),
+		};
+		mockGetMemoryProfileReadModel.mockResolvedValueOnce(afterEditProfile);
+		const { MemoryProfileActionError, applyKnowledgeMemoryAction } =
+			await import("./memory");
+
+		await expect(
+			applyKnowledgeMemoryAction("user-1", "Test User", {
+				action: "edit",
+				itemId: "item-about",
+				statement: "Lives in Rotterdam.",
+				expectedProjectionRevision: 7,
+			}),
+		).resolves.toMatchObject({
+			projectionRevision: 8,
+			categories: [
+				expect.objectContaining({
+					items: [
+						expect.objectContaining({
+							statement: "Lives in Rotterdam.",
+						}),
+					],
+				}),
+				expect.any(Object),
+				expect.any(Object),
+				expect.any(Object),
+			],
+		});
+		expect(mockUpdateMemoryProfileItemWithRevision).toHaveBeenCalledWith({
+			userId: "user-1",
+			itemId: "item-about",
+			expectedProjectionRevision: 7,
+			patch: { statement: "Lives in Rotterdam." },
+		});
+		expect(mockRecordMemoryReworkTelemetry).toHaveBeenCalledWith(
 			expect.objectContaining({
-				force: true,
-				throwOnError: true,
+				eventFamily: "profile_action",
+				eventName: "memory_profile_edit",
+				metadata: { action: "edit" },
 			}),
 		);
-	});
 
-	it("rotates Honcho peer identity after forget-all persona memory", async () => {
-		const { applyKnowledgeMemoryAction } = await import("./memory");
-
-		await applyKnowledgeMemoryAction("user-1", "Test User", {
-			action: "forget_all_persona_memory",
+		mockUpdateMemoryProfileItemWithRevision.mockResolvedValueOnce({
+			status: "stale_projection",
 		});
-
-		expect(mockForgetAllPersonaMemories).toHaveBeenCalledWith("user-1");
-		expect(mockRotateHonchoPeerIdentity).toHaveBeenCalledWith("user-1");
-	});
-
-	it("forgets a persona memory when the accepted route payload provides a cluster id", async () => {
-		const { applyKnowledgeMemoryAction } = await import("./memory");
-
-		await applyKnowledgeMemoryAction("user-1", "Test User", {
-			action: "forget_persona_memory",
-			clusterId: "conclusion-1",
+		await expect(
+			applyKnowledgeMemoryAction("user-1", "Test User", {
+				action: "edit",
+				itemId: "item-about",
+				statement: "Should not win.",
+				expectedProjectionRevision: 7,
+			}),
+		).rejects.toMatchObject({
+			constructor: MemoryProfileActionError,
+			code: "stale_projection",
+			status: 409,
 		});
-
-		expect(mockForgetPersonaMemory).toHaveBeenCalledWith(
-			"user-1",
-			"conclusion-1",
+		expect(mockGetMemoryProfileReadModel).toHaveBeenCalledTimes(1);
+		expect(mockRecordMemoryReworkTelemetry).toHaveBeenCalledWith({
+			userId: "user-1",
+			eventFamily: "profile_action",
+			eventName: "memory_profile_edit",
+			reason: "user_action",
+			status: "stale_projection",
+			subjectId: "item-about",
+			metadata: {
+				action: "edit",
+			},
+		});
+		const telemetryCallsJson = JSON.stringify(
+			mockRecordMemoryReworkTelemetry.mock.calls,
 		);
+		expect(telemetryCallsJson).not.toContain("Lives in Rotterdam");
+		expect(telemetryCallsJson).not.toContain("Should not win");
 	});
 
-	it("uses the first non-empty persona memory id when conclusion id is blank", async () => {
+	it("accepts a review item into the profile and queues safe reconciliation work", async () => {
+		const afterAcceptProfile = {
+			...projectionProfile,
+			projectionRevision: 8,
+			categories: projectionProfile.categories.map((group) =>
+				group.category === "preferences"
+					? {
+							...group,
+							items: [
+								{
+									id: "item-review-1",
+									itemKey: "memory-profile-item:v1:preferences:global:item-review-1",
+									category: "preferences",
+									statement: "Remember Hungarian labels.",
+									scope: { type: "global" },
+									status: "active",
+									revision: 0,
+									updatedAt: new Date("2026-06-01T11:00:00.000Z"),
+									canEdit: true,
+									canDelete: true,
+									canSuppress: true,
+								},
+							],
+						}
+					: group,
+			),
+			review: {
+				visibleItems: [],
+				openCount: 0,
+				overflowCount: 0,
+			},
+		};
+		mockGetMemoryProfileReadModel.mockResolvedValueOnce(afterAcceptProfile);
 		const { applyKnowledgeMemoryAction } = await import("./memory");
 
-		await applyKnowledgeMemoryAction("user-1", "Test User", {
-			action: "forget_persona_memory",
-			conclusionId: "",
-			clusterId: " conclusion-1 ",
+		const payload = await applyKnowledgeMemoryAction("user-1", "Test User", {
+			action: "accept",
+			target: "review_item",
+			itemId: "review-1",
+			expectedProjectionRevision: 7,
 		});
-
-		expect(mockForgetPersonaMemory).toHaveBeenCalledWith(
-			"user-1",
-			"conclusion-1",
+		const telemetryCallsJson = JSON.stringify(
+			mockRecordMemoryReworkTelemetry.mock.calls,
 		);
+
+		expect(mockApplyMemoryReviewItemWithRevision).toHaveBeenCalledWith({
+			userId: "user-1",
+			reviewItemId: "review-1",
+			expectedProjectionRevision: 7,
+			action: "accept",
+		});
+		expect(mockUpdateMemoryProfileItemWithRevision).not.toHaveBeenCalled();
+		expect(payload.projectionRevision).toBe(8);
+		expect(payload.review.visibleItems).toEqual([]);
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "profile_action_reconciliation",
+			scope: { type: "global" },
+			metadata: {
+				action: "accept",
+				itemId: "item-review-1",
+				reviewItemId: "review-1",
+			},
+		});
+		expect(mockRecordMemoryReworkTelemetry).toHaveBeenCalledWith({
+			userId: "user-1",
+			eventFamily: "guided_review",
+			eventName: "memory_review_accept",
+			category: "preferences",
+			reason: "user_action",
+			status: "updated",
+			subjectId: "review-1",
+			metadata: {
+				action: "accept",
+				itemId: "item-review-1",
+			},
+		});
+		expect(telemetryCallsJson).not.toContain("Remember Hungarian labels");
+	});
+
+	it("edits a review item using the edited statement without leaking it to telemetry", async () => {
+		const afterEditProfile = {
+			...projectionProfile,
+			projectionRevision: 8,
+			categories: projectionProfile.categories.map((group) =>
+				group.category === "preferences"
+					? {
+							...group,
+							items: [
+								{
+									id: "item-review-1",
+									itemKey: "memory-profile-item:v1:preferences:global:item-review-1",
+									category: "preferences",
+									statement: "Prefers Hungarian UI labels.",
+									scope: { type: "global" },
+									status: "active",
+									revision: 0,
+									updatedAt: new Date("2026-06-01T11:00:00.000Z"),
+									canEdit: true,
+									canDelete: true,
+									canSuppress: true,
+								},
+							],
+						}
+					: group,
+			),
+			review: {
+				visibleItems: [],
+				openCount: 0,
+				overflowCount: 0,
+			},
+		};
+		mockGetMemoryProfileReadModel.mockResolvedValueOnce(afterEditProfile);
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+
+		const payload = await applyKnowledgeMemoryAction("user-1", "Test User", {
+			target: "review_item",
+			action: "edit",
+			itemId: "review-1",
+			statement: "Prefers Hungarian UI labels.",
+			expectedProjectionRevision: 7,
+		});
+		const telemetryCallsJson = JSON.stringify(
+			mockRecordMemoryReworkTelemetry.mock.calls,
+		);
+
+		expect(mockApplyMemoryReviewItemWithRevision).toHaveBeenCalledWith({
+			userId: "user-1",
+			reviewItemId: "review-1",
+			expectedProjectionRevision: 7,
+			action: "edit",
+			statement: "Prefers Hungarian UI labels.",
+		});
+		expect(payload.categories[1]?.items[0]?.statement).toBe(
+			"Prefers Hungarian UI labels.",
+		);
+		expect(mockRecordMemoryReworkTelemetry).toHaveBeenCalledWith(
+			expect.objectContaining({
+				eventFamily: "guided_review",
+				eventName: "memory_review_edit",
+				subjectId: "review-1",
+				metadata: {
+					action: "edit",
+					itemId: "item-review-1",
+				},
+			}),
+		);
+		expect(telemetryCallsJson).not.toContain("Prefers Hungarian UI labels");
 	});
 });

@@ -512,6 +512,20 @@
       "when": 1777140000059,
       "tag": "1777140000059_provider_model_speed_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1777140000060,
+      "tag": "1777140000060_memory_reset_generations",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1777140000061,
+      "tag": "1777140000061_memory_rework_foundation",
+      "breakpoints": true
     }
   ]
 }

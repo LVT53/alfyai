@@ -226,6 +226,10 @@ _Avoid_: danger zone, account reset area, GDPR menu, data tools
 The user action that removes remembered context, Knowledge Base content, document-derived context, continuity state, and stored evidence traces while keeping the user's chat conversations and account. It is narrower than **Clear Workspace Data** and is not **Account Erasure**. The **Memory Rework Update** should preserve this as the account-level memory and knowledge reset path rather than adding a second reset button, and it must clear any new Memory Profile projection, review, conflict, intake, maintenance, telemetry, and Honcho identity state that could otherwise rehydrate memory.
 _Avoid_: reset memory, forget everything, knowledge reset, account reset, duplicate memory reset button
 
+**Memory Reset Generation**:
+A durable account-level marker advanced by **Clear Memory and Knowledge** so old memory maintenance, dirty work, review items, and projection writes cannot rehydrate pre-reset memory. Memory work from an older generation should be ignored rather than applied after reset.
+_Avoid_: in-memory cancel flag, best-effort quiesce only, old retry work, reset timestamp heuristic, Honcho-only reset
+
 **Clear Workspace Data**:
 The user action that removes a user's chats, Knowledge Base content, app-controlled memory, generated files, and workspace continuity while keeping their login, profile settings, avatar, and identifiable historical analytics. It is a workspace wipe for continued use of the same account, not **Account Erasure**.
 _Avoid_: reset account, delete account, factory reset, privacy deletion
@@ -291,24 +295,64 @@ The complete product update that makes AlfyAI memory usable long-term by replaci
 _Avoid_: v1, draft, prototype, partial memory path, temporary cleanup pass
 
 **Memory Rework Telemetry**:
-The operational evidence AlfyAI records to judge whether the **Memory Rework Update** is working unattended, including memory intake decisions, maintenance actions, review burden, user correction and deletion patterns, and prompt-use outcomes. By default it should record decisions, categories, reasons, counts, statuses, and stable identifiers rather than raw remembered text or raw chat excerpts. User-linked telemetry should clear with **Clear Memory and Knowledge**; non-identifying aggregate counters may remain only when they cannot identify the user or reconstruct memory. It should be backend/log-only by default, without a Memory Profile or admin summary view until collected data proves which metrics are useful.
-_Avoid_: raw memory dump, raw chat excerpt log, hidden debug log, vanity metric, later observability add-on, second sensitive memory store, default telemetry dashboard
+The operational evidence AlfyAI records to judge whether the **Memory Rework Update** is working unattended, including memory intake decisions, maintenance actions, review burden, user correction and deletion patterns, and prompt-use outcomes. It is organized around fixed event families instead of free-form logs. By default it should record decisions, categories, reasons, counts, statuses, and stable identifiers rather than raw remembered text or raw chat excerpts. User-linked telemetry should clear with **Clear Memory and Knowledge**; non-identifying aggregate counters may remain only when they cannot identify the user or reconstruct memory. It should be backend/log-only by default, without a Memory Profile or admin summary view until collected data proves which metrics are useful.
+_Avoid_: raw memory dump, raw chat excerpt log, hidden debug log, free-form telemetry stream, vanity metric, later observability add-on, second sensitive memory store, default telemetry dashboard
+
+**Memory Rework Telemetry Event Family**:
+A stable class of **Memory Rework Telemetry** events used to make memory behavior measurable without storing raw remembered content. The default families are intake, active profile projection, prompt use, maintenance, guided review, profile action, reset or forget, and error or fallback.
+_Avoid_: arbitrary log label, dashboard metric, remembered fact type, memory category
+
+**Memory Decision Confidence Band**:
+A coarse confidence range used to bootstrap automatic memory decisions such as active admission, junk rejection, supersession, review, preservation, or inactive use. It should guide defaults and telemetry, but it must not override **Memory Source Authority** or user-authored profile state.
+_Avoid_: precise truth score, classifier-only authority, source-agnostic threshold, confidence badge, deletion permission
 
 **Baseline Memory Profile**:
-A compact personalization profile available to an ordinary chat turn before the model decides whether to retrieve deeper memory. It is Honcho-led, but should respect the active **Memory Profile Projection** so corrected, deleted, suppressed, expired, and review-blocked profile facts do not leak back into prompt context.
-_Avoid_: newest memories, raw conclusion list, local persona summary, stale deleted memory
+A compact default slice of **Active Memory Profile Context** available to an ordinary chat turn before the model decides whether to retrieve deeper memory. It is not a separate profile or store; it should respect the active **Memory Profile Projection** so corrected, deleted, suppressed, expired, and review-blocked profile facts do not leak back into prompt context.
+_Avoid_: newest memories, raw conclusion list, local persona summary, stale deleted memory, second profile store
+
+**Projection-Gated Memory Access**:
+The rule that Honcho-led and historical memory may support chat only through active profile projection or policy-aware retrieval, not as unfiltered ordinary personalization. It is not a separate tool or store; it preserves relevance by allowing query-time memory retrieval while enforcing deleted, suppressed, expired, conflict-blocked, review-needed, and preserved-legacy memory state.
+_Avoid_: raw Honcho bypass, blanket Honcho ban, hidden personalization path, direct persona injection, second access layer
+
+**Adaptive Active Memory Budget**:
+The pressure-based limit that decides how much remembered material may remain active in the **Memory Profile Projection** and **Active Memory Profile Context**. It is based on relevance, authority, scope, confidence, category balance, contradiction risk, and available context budget rather than a fixed product item count.
+_Avoid_: hard active item cap, fixed 100-memory limit, visible memory quota, profile pressure warning, storage limit, everything active
 
 **Knowledge Memory Overview**:
 The user-facing Memory Profile summary in the Knowledge Base. It explains what AlfyAI remembers about the user, including durable preferences, stable facts, goals, constraints, owned things, and other personal context. It is not a management surface for task checkpoints, inferred project continuity, sibling chat awareness, or backend retrieval diagnostics. Its deep server module, `src/lib/server/services/knowledge/memory-overview.ts`, owns app-ready bullet shaping, **Memory Provenance Noise** removal, sensitive-value softening, source/status semantics, and the shared `KnowledgeMemorySummary.overviewBullets` contract returned through `src/lib/server/services/memory.ts`. Honcho remains the persona and memory authority; the module only translates Honcho/persona overview material into the user-facing overview contract. Knowledge page components such as `src/routes/(app)/knowledge/+page.svelte` and `_components/KnowledgeMemoryView.svelte` are UI adapters that render server-provided bullets/status/source and must not normalize raw Honcho text.
 _Avoid_: memory markdown, Honcho dump, conversation results list, generated report, project continuity dashboard, task memory table
 
 **Memory Profile Projection**:
-The app-owned, user-facing read model that turns Honcho-led persona memory and app-owned profile state into an easy-to-review **Memory Profile** made of curated **Memory Profile Items**. It may group, label, soften, collapse, mark stale, or flag contradictory remembered facts for review, but it is not the canonical memory source and should not become a parallel persona-memory system.
-_Avoid_: memory authority, live Honcho prose, local persona engine, task continuity surface, focus continuity section
+The durable, app-owned, user-facing read model that turns Honcho-led persona memory and app-owned profile state into an easy-to-review **Memory Profile** made of curated **Memory Profile Items**. It should keep stable item identity and active-use state across refreshes and chat turns so user corrections, deletions, suppressions, expiries, conflict blocks, and review decisions remain next-turn-effective, but it is not the canonical memory source and should not become a parallel persona-memory system.
+_Avoid_: memory authority, live Honcho prose, local persona engine, task continuity surface, focus continuity section, rebuild-only profile
+
+**Memory Profile Item Identity**:
+The app-owned stable identity of a **Memory Profile Item**, derived from the normalized remembered statement, category, scope, and provenance relationship rather than from a single Honcho conclusion ID. Honcho IDs may be provenance pointers, but they should not be the user-facing item identity because edits, merges, splits, and Honcho rewording must not break next-turn-effective profile state.
+_Avoid_: Honcho conclusion ID as item ID, raw memory row ID, live-memory identity, source-only identity
+
+**Memory Slot**:
+The normalized meaning position of a remembered fact: category, scope, subject, predicate, and authority relationship. It is used to decide whether an edit, merge, split, or conflict concerns the same remembered fact, not shown as a user-facing field set.
+_Avoid_: text similarity, source row, UI form fields, Honcho conclusion ID
+
+**Memory Profile Provenance Link**:
+A backing relationship between a **Memory Profile Item** and the evidence or memory record that supports it, such as a Honcho conclusion, user-authored correction, review decision, source chat, document rule, or structured work output. Multiple provenance links may support one profile item, but users should edit the profile item rather than individual links.
+_Avoid_: user-facing item, raw memory row, source table as profile, one-link-per-card memory
+
+**Legacy Memory Migration**:
+The one-time per-user transition that turns pre-rework Honcho memory into the new **Memory Profile Projection** without treating every legacy memory as active. It should preserve potentially valuable legacy information for future reconciliation or review while only high-confidence, category- and scope-fitting items become active.
+_Avoid_: memory purge, raw legacy import, global memory dump, migration wizard, everything active, clean-slate reset
+
+**Preserved Legacy Memory**:
+Pre-rework memory state kept after **Legacy Memory Migration** because it may still be valuable but should not currently shape ordinary personalization. It is not a separate profile or browser, is not shown in the default **Memory Profile**, is not part of **Active Memory Profile Context**, and exists only for bounded future reconciliation, capped review, or explicit history and source questions.
+_Avoid_: hidden active memory, second profile, inactive memory browser, deleted memory, raw review backlog, second memory store
+
+**Legacy Reconciliation Trigger**:
+A bounded reason to revisit **Preserved Legacy Memory**, such as a related profile edit or deletion, a new same-topic memory, a detected conflict, a stale Memory Profile refresh, or spare scheduled maintenance capacity. It prevents preserved legacy material from being processed merely because it exists.
+_Avoid_: full backlog sweep, process-everything obligation, unbounded migration pass, GPU cleanup run
 
 **Memory Profile Item**:
-A concise, editable statement in the **Memory Profile Projection** that represents remembered user context AlfyAI may actively use. It may summarize or collapse many underlying memories, but the default UI should present the clean remembered fact rather than raw extracted chat-round records, confidence labels, freshness metadata, or cleanup status.
-_Avoid_: Honcho conclusion row, extracted chat round, source table row, debug memory record, raw durable-memory table, default confidence badge, default freshness badge
+A concise, editable statement in the **Memory Profile Projection** that represents remembered user context AlfyAI may actively use. It may aggregate several **Memory Profile Provenance Links** when they clearly support the same remembered fact, but the default UI should present the clean remembered fact rather than raw extracted chat-round records, confidence labels, freshness metadata, or cleanup status.
+_Avoid_: Honcho conclusion row, extracted chat round, source table row, debug memory record, raw durable-memory table, default confidence badge, default freshness badge, one-to-one conclusion wrapper
 
 **Active Memory Profile View**:
 The default **Memory Profile** view that shows only **Memory Profile Items** AlfyAI may currently use for personalization, plus visible **Guided Memory Review** when needed. Normal categories should exclude deferred, blocked, expired, suppressed, deleted, and review-needed items. It should not provide a general inactive, deleted, suppressed, expired, or history browser.
@@ -317,6 +361,14 @@ _Avoid_: all memories table, Honcho dump, recently-updated section, inactive def
 **Active Memory Profile Context**:
 The model-facing form of the active **Memory Profile Projection** used for personalization in chat. It should use the same active usable **Memory Profile Item** set shown in the normal categories of the **Active Memory Profile View**, while omitting UI-only details and excluding deleted, suppressed, expired, corrected-away, deferred, blocked, or unresolved review-needed memory.
 _Avoid_: raw Honcho context, hidden stale memory, UI-only profile details, backend continuity state
+
+**Pre-Filtered Prompt Memory**:
+The rule that ordinary model-facing memory personalization contains only active usable **Memory Profile Items** before the model sees it. Inactive, deleted, suppressed, expired, conflict-blocked, review-needed, preserved legacy, and ambiguous-scope material should be omitted from ordinary personalization rather than sent with status labels for the model to police.
+_Avoid_: model-policed memory status, inactive facts with warnings, use-but-don't-use prompt block, raw status-labelled Honcho dump
+
+**Historical Memory Evidence**:
+The compact, source-framed memory or history material returned only for explicit history, source, document, or evidence questions. It may include inactive, expired, preserved legacy, or ambiguous-scope material as historical evidence, but it is not current profile truth and should not rehydrate user-deleted or user-suppressed profile memory through memory recall.
+_Avoid_: current personalization, hidden profile memory, deleted memory recall, suppressed memory recall, active profile fact, full inactive profile payload
 
 **Memory Intake Gate**:
 The memory boundary that decides whether new chat, document, or work material is durable enough to become remembered context. It should admit explicit, useful profile facts, preferences, constraints, goals, and concrete work capsules while rejecting ordinary transcript chatter and obvious **Junk Memory** before they reach durable memory. It should make a bounded structured decision before durable memory writes rather than persist a long-lived pending-memory-candidate store.
@@ -386,16 +438,64 @@ _Avoid_: casual preference, stale warning, raw safety policy, temporary task det
 A user action that amends or replaces a remembered fact in the **Memory Profile** because AlfyAI's current understanding is wrong, outdated, or incomplete. If exposed as an edit action, it should be a direct full edit of the remembered statement, not a guided field editor. It should take precedence over conflicting remembered facts on the next chat turn while memory maintenance reconciles the durable record.
 _Avoid_: preference toggle, hidden prompt override, duplicate conflicting memory, local memory synthesis, guided edit wizard, partial field editor
 
+**Memory Edit Classification**:
+The decision that determines whether a direct edit to a **Memory Profile Item** is a same-item correction, a replacement item, or an ambiguous rewrite that needs plain user confirmation. It should compare the normalized memory slot, not text length or character similarity.
+_Avoid_: text-diff threshold, small edit heuristic, silent unrelated rewrite, always delete and recreate
+
+**Safe Memory Match**:
+A provenance relationship strong enough for maintenance to alter backing remembered evidence without likely touching unrelated memory. It should come from explicit provenance or a tightly matching **Memory Slot** and authority relationship, not fuzzy text similarity alone.
+_Avoid_: best-effort delete, broad Honcho cleanup, exact-text-only match, partial provenance guess, LLM-only match
+
+**User-Authored Merge Precedence**:
+The rule that user-authored **Memory Profile** state wins when maintenance merges duplicate or overlapping remembered items. Merges should preserve user edits, review decisions, suppressions, and deletions instead of letting lower-authority Honcho-derived or structured records revive old active truth.
+_Avoid_: Honcho-derived merge winner, deleted memory revival, suppressions lost during merge, newest row wins
+
+**Memory Profile Split**:
+A maintenance action that separates one **Memory Profile Item** into child items when it clearly contains multiple **Memory Slots**. It should preserve the parent item's user-authored state and assign only relevant provenance links to each child.
+_Avoid_: silent rewrite, provenance fanout, deleted parent revival, split to reduce text length
+
+**Memory Profile Refresh**:
+The cheap read-side update that returns the current **Memory Profile Projection** when the user opens the **Knowledge Base** or Memory Profile. It may check projection staleness and enqueue background maintenance, but it should not synchronously run expensive reconciliation before rendering the profile.
+_Avoid_: full maintenance sweep, blocking cleanup, Honcho dreaming, LLM pruning run
+
+**Memory Projection Revision**:
+A durable version marker for **Memory Profile Projection** state that lets newer user-facing memory changes supersede stale background work. It should guard concurrent edits and maintenance writes without turning the memory system into full event sourcing.
+_Avoid_: last-writer-wins, full memory event log, stale maintenance overwrite, hidden prompt override revision, Honcho revision
+
+**Memory Authority Fallback**:
+The fallback behavior when Honcho-backed memory authority cannot refresh, delete, or reconcile backing memory. The durable **Memory Profile Projection** remains the user-facing active truth, while failed authority work becomes retryable maintenance and telemetry.
+_Avoid_: empty profile fallback, raw Honcho fallback, blocking local profile action, background-error banner, authority-first UI
+
+**Expensive Memory Reconciliation**:
+The bounded background maintenance work that deduplicates, expires active use, revisits preserved legacy material, generates review items, reconciles Honcho deletes or replacements, and triggers Honcho Dreaming when needed. It should run from dirty state, cooldowns, and account work budgets rather than from every chat turn or Knowledge Base open.
+_Avoid_: cheap profile refresh, synchronous KB load, every-message cleanup, unbounded account sweep
+
+**Bounded Memory Reconciliation Slice**:
+The limited unit of **Expensive Memory Reconciliation** performed for an account in one maintenance run. It should process the highest-priority dirty work that fits the current budget and leave remaining **Memory Dirty State Ledger** entries pending for later runs.
+_Avoid_: finish-everything pass, account monopoly, full legacy sweep, unbounded cleanup run
+
+**Memory Slice Batch Limit**:
+A per-slice safety limit on how many memory candidates, projection changes, authority mutations, review items, or dreaming actions **Expensive Memory Reconciliation** may attempt. It complements time and token budgets so legacy-heavy users cannot create unpredictable maintenance runs.
+_Avoid_: full candidate sweep, unlimited mutation batch, authority-call flood, time-budget-only maintenance
+
+**Memory Dirty State Ledger**:
+The durable, typed account-level signal that tells maintenance what memory work may be needed without storing raw candidate text. It coalesces repeated triggers such as stale projection, deferred intake, profile-action reconciliation, possible conflict, possible duplicate, legacy migration, Honcho reconciliation, and review generation so expensive maintenance can choose bounded work after restarts.
+_Avoid_: raw pending memory queue, transcript backlog, in-memory-only dirty flag, full account scan trigger, per-message cleanup job
+
+**Memory Maintenance Scheduler**:
+The background worker path that claims **Memory Dirty State Ledger** work by user, priority, cooldown, and budget, then runs **Bounded Memory Reconciliation Slices**. It should own expensive scheduling instead of letting chat turns, Knowledge Base opens, or profile actions directly run cleanup.
+_Avoid_: chat-turn cleanup runner, KB-open maintenance runner, per-tab reconciliation, competing schedulers, direct expensive trigger
+
 **Memory Profile Edit Surface**:
 The user-facing place where a person edits or inspects a **Memory Profile Item**. It should present the curated statement, simple actions, and optional human-readable details rather than raw memory rows, Honcho dumps, markdown source text, or technical tables.
 _Avoid_: raw durable-memory table, extracted-round dump, Honcho row editor, developer diagnostics, markdown blob
 
 **Memory Profile Suppression**:
-A user action that removes a remembered fact from active use when it is unwanted, obsolete, too sensitive, or cannot be safely matched to one exact durable memory. It should stop the fact from shaping the **Memory Profile** and the next chat turn's active personalization even when historical evidence still exists.
+A user action that removes a remembered fact from active use when it is unwanted, obsolete, too sensitive, or cannot be safely matched to one exact durable memory. It should stop the fact from shaping the **Memory Profile**, memory recall, and the next chat turn's active personalization even when original source records still exist.
 _Avoid_: account erasure, conversation deletion, silent hide, raw memory dump pruning, local Honcho replacement
 
 **Memory Profile Deletion**:
-A user action that tells AlfyAI to stop remembering a **Memory Profile Item**. It should remove the item from active use immediately, keep it out of the next chat turn, and permanently remove safely matched remembered evidence when possible. It does not delete the original chat messages, documents, account, or workspace data where the information may have first appeared.
+A user action that tells AlfyAI to stop remembering a **Memory Profile Item**. It should remove the item from active use immediately, keep it out of memory recall and the next chat turn, and permanently remove safely matched remembered evidence when possible. It does not delete the original chat messages, documents, account, or workspace data where the information may have first appeared.
 _Avoid_: source chat deletion, document deletion, account erasure, technical delete-versus-suppress choice, ambiguous active memory
 
 **Junk Memory**:
@@ -403,8 +503,8 @@ Remembered material that carries no useful user meaning and should not personali
 _Avoid_: old but meaningful memory, contradiction, sensitive fact, user preference, user boundary, active profile evidence
 
 **Automatic Junk Deletion Gate**:
-The memory boundary that allows junk blocking or permanent deletion without user confirmation only when remembered material is safely identifiable as **Junk Memory**, exact remembered evidence can be targeted where deletion is involved, and no user-meaningful or active-profile veto applies. At intake it should block only obvious junk before it reaches memory authority; during background maintenance it may perform broader cleanup because it has more context. Candidates that fail the gate should use **Memory Active-Use Expiry**, **Memory Profile Deletion**, or **Guided Memory Review** instead of silent permanent deletion.
-_Avoid_: age-based deletion, silent deletion of meaningful facts, contradiction resolver, active profile cleanup shortcut
+The intake and maintenance policy that allows junk blocking or permanent deletion without user confirmation only when remembered material is safely identifiable as **Junk Memory**, exact remembered evidence can be targeted where deletion is involved, and no user-meaningful or active-profile veto applies. It is not a separate cleanup system: at intake it blocks only obvious junk before it reaches memory authority; during background maintenance it may perform broader cleanup because it has more context. Candidates that fail the gate should use **Memory Active-Use Expiry**, **Memory Profile Deletion**, or **Guided Memory Review** instead of silent permanent deletion.
+_Avoid_: age-based deletion, silent deletion of meaningful facts, contradiction resolver, active profile cleanup shortcut, separate cleanup system
 
 **Memory Reconciliation**:
 Background maintenance that aligns the underlying memory substrate after profile edits, deletions, cleanup, supersession, or larger memory batches. It supports durable memory quality over time, but should not be the source of immediate user-facing truth in the **Memory Profile**.
@@ -423,8 +523,24 @@ The user-facing memory maintenance mode where AlfyAI asks for help only when rem
 _Avoid_: memory inbox, developer diagnostics queue, fully manual memory management, autonomous-only memory, interruptive memory chores
 
 **Memory Review Item**:
-A plain-language question created by memory maintenance in **Guided Memory Review** that asks the user to choose, correct, suppress, or confirm remembered information. It should hide raw memory provenance unless the user asks for details. Chat may ask a direct clarification when the current answer depends on unresolved memory, but persistent **Memory Review Items** should come from memory maintenance rather than ad hoc chat-turn logic.
-_Avoid_: Honcho row, contradiction diff, memory debug item, task notification, chat-created durable review item
+A durable, plain-language question created by memory maintenance in **Guided Memory Review** that asks the user for a **Memory Review Resolution**. It should have a simple lifecycle of open, resolved, or obsolete; hide raw memory provenance unless the user asks for details; and remain stable across profile refreshes until the user acts or maintenance proves it obsolete. Chat may ask a direct clarification when the current answer depends on unresolved memory, but persistent **Memory Review Items** should come from memory maintenance rather than ad hoc chat-turn logic.
+_Avoid_: Honcho row, contradiction diff, memory debug item, task notification, chat-created durable review item, regenerated question on every refresh
+
+**Memory Review Subject**:
+The user-facing issue a **Memory Review Item** asks about, derived from the review type, **Memory Slot**, and affected **Memory Profile Items** when available. Repeated evidence for the same subject should attach to one open review item rather than create duplicate questions.
+_Avoid_: Honcho conclusion ID, exact text match, source chat, duplicate review question, raw memory row
+
+**Memory Review Resolution**:
+The user decision that closes an open **Memory Review Item**. Resolutions should share three meanings: use this remembered fact, edit the remembered fact, or do not remember this subject.
+_Avoid_: custom action vocabulary per review type, keep inactive action, archive choice, technical reconciliation action, source-delete wizard
+
+**Memory Review Item Lifecycle**:
+The durable state model for a **Memory Review Item**. Open items need user attention, resolved items record a user decision, and obsolete items are no longer relevant because newer evidence, expiry, merge, deletion, suppression, or reconciliation removed the need to ask.
+_Avoid_: regenerated-only review, hidden pending question, permanent stale review, dismissed-by-default state
+
+**Memory Review Burden**:
+The amount of unresolved memory-maintenance judgment AlfyAI asks a user to handle through **Guided Memory Review**. It should be capped more aggressively than background maintenance throughput so legacy cleanup does not become user work.
+_Avoid_: unlimited review backlog, memory inbox size, developer queue depth, cleanup throughput
 
 **Memory Needs Review Area**:
 The dedicated, full-width section at the top of the **Memory Profile** that appears when unresolved **Memory Review Items** exist. It should be visually separate from normal **Memory Profile Categories** so review work is easy to notice when needed without mixing review state into the active profile groups. It should be non-scrollable, show at most three review items, and open an extended modal view for remaining items.
@@ -554,6 +670,10 @@ _Avoid_: paused turn resume, sticky depth preference, hidden Max mode
 The model used for **Automatic Depth Selection**. By default it is the user's selected **Provider Model** for the turn, but an administrator may configure a specific available **Provider Model** for system use to make depth classification faster, cheaper, or more consistent.
 _Avoid_: hidden assistant model, second chat model, hardcoded classifier
 
+**Depth Classifier Resilience**:
+The property that **Automatic Depth Selection** degrades through progressively cheaper fallbacks rather than collapsing every Auto turn to standard when the classifier model fails. A resilient classifier retries on token exhaustion, uses schema-in-prompt with lenient parsing for provider compatibility, and falls back to a deterministic keyword heuristic before defaulting to standard. A single classifier failure should not silently make every hard prompt look simple.
+_Avoid_: silent standard fallback, single-point-of-failure classifier, invisible classification error
+
 **Explicit Depth Selection**:
 A user-selected non-Auto **Reasoning Depth**, such as Off or Max, that applies directly to the next Normal Chat turn without running **Automatic Depth Selection**.
 _Avoid_: model override, classifier suggestion, hidden escalation
@@ -569,6 +689,10 @@ _Avoid_: full prompt context, retrieval result set, hidden document dump
 **Depth Profile**:
 The resolved effort profile applied to a Normal Chat turn after **Reasoning Depth** and **Automatic Depth Selection** are evaluated. Some profiles may be internal, such as a middle extended profile, and should appear only in post-response metadata or diagnostics rather than as additional composer choices. Higher profiles should mainly give the model more room to reason through edge cases, implicit user needs, difficult constraints, and key details; broader grounding is added when the task benefits from external or current evidence.
 _Avoid_: visible mode list, provider tier, model name
+
+**Max Signal Gap**:
+The absence of **Depth Selection Signals** when Max bypasses **Automatic Depth Selection** via deterministic bypass. Without signals, the signal-aware deliberation planner falls back to a baseline all-local pass plan, causing Max to produce fewer model-calling deliberation passes than Auto resolved to Extended with signals. The gap is closed by assigning conservative default signals to Max or by reusing the previous turn's classifier signals when available.
+_Avoid_: Max missing signals, deliberation planner default, local-only Max
 
 **Normal Chat Deliberation Pass**:
 A bounded extra deliberation step inside a **Normal Chat Turn** that lets higher **Depth Profiles** review context, sources, assumptions, draft quality, or missed edge cases before the final answer. The first pass reconstructs a focused workspace from the current prompt context, keeping only essential user intent, constraints, evidence needs, edge cases, and final-answer guidance. Later passes update a compact central **Deliberation Workspace Report** rather than rereading every prior note. Maximum uses small deterministic micro-checks for missed user needs, risk/tension, final answer shape, and Hungarian parity, then ends in a compact deterministic viable-alternatives preservation check so the final answer stays decisive without prematurely collapsing conditional options. Dynamic high-cost planning may choose additional bounded read-only passes such as source reconciliation, workspace synthesis, or edge-case review when depth signals justify the added latency, but model-backed passes should degrade to compact local checks when their prompt would likely exceed budget. Deliberation remains synchronous Normal Chat work and does not create a **Deep Research Job**, approval workflow, or report lifecycle.
@@ -1237,6 +1361,17 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - A **Memory Context Tool** should preserve breadth with lightweight summaries before spending large budget on deep conversation or memory detail.
 - A **Memory Context Tool** may retrieve historical chats and documents that are not active **Memory Profile Items** when answering source, history, document, or evidence questions.
 - A **Memory Context Tool** should not use historical retrieval to bypass deleted, suppressed, expired, blocked, or review-needed **Memory Profile** state for ordinary personalization.
+- **Projection-Gated Memory Access** should block raw Honcho memory from entering ordinary personalization directly while still allowing relevant Honcho-backed query-time retrieval.
+- **Projection-Gated Memory Access** should distinguish active personalization from historical or source recall so useful memory retrieval is preserved without treating every retrieved fact as current user truth.
+- Ordinary personalization should use **Pre-Filtered Prompt Memory** so the model receives active usable memory rather than inactive memory plus instructions to ignore it.
+- Deleted, suppressed, expired, conflict-blocked, review-needed, **Preserved Legacy Memory**, and ambiguous-scope material should not appear in ordinary **Active Memory Profile Context** at all.
+- Explicit history, source, document, or evidence recall may retrieve non-active material only as historical or source evidence, not as current profile truth.
+- **Historical Memory Evidence** may include inactive, expired, **Preserved Legacy Memory**, or ambiguous-scope material for explicit history, source, document, or evidence questions.
+- **Historical Memory Evidence** should not include user-deleted or user-suppressed **Memory Profile Items** as remembered context; exact source-record retrieval may still find original chats or documents if those source records still exist.
+- Conflict-blocked or review-needed memory should appear as **Historical Memory Evidence** only when the user asks about the conflict, source history, or what AlfyAI previously had recorded; it should be framed as unresolved rather than current profile truth.
+- **Historical Memory Evidence** should be compact: short excerpt or summary, source kind, source title or date when available, evidence framing, and enough provenance to cite or inspect.
+- **Historical Memory Evidence** framing should distinguish historical-only material, source-record evidence, and unresolved conflict evidence.
+- **Historical Memory Evidence** should not expose full inactive profile tables, confidence/debug scores, raw Honcho conclusion dumps, or deletion/suppression internals.
 - When **Memory Access** omits matching memories or historical context because of a limit, the result should disclose the applied limit and omitted count.
 - Historic chat recall through a **Memory Context Tool** should start from existing conversation summaries and bounded message search before adding new persistent memory structures.
 - A **Baseline Memory Profile** should come from Honcho-led synthesis rather than a newest-N raw conclusion list.
@@ -1257,6 +1392,8 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - User-facing ongoing work belongs in the **Goals & Ongoing Work Memory Category** only when it is explicit user-shared profile context, not inferred backend continuity.
 - Account-level memory and knowledge reset should continue to use **Clear Memory and Knowledge** in **Privacy and Data Controls**; the **Memory Rework Update** should not add a duplicate reset action to the Memory Profile.
 - **Clear Memory and Knowledge** should clear new **Memory Rework Update** state, including Memory Profile projection metadata, review items, conflict blocks, intake dirty state, maintenance state, and user-linked telemetry.
+- **Clear Memory and Knowledge** should advance the account's **Memory Reset Generation** so old memory maintenance and retry work cannot write pre-reset state after the reset.
+- **Memory Profile Projection**, **Memory Dirty State Ledger**, **Memory Review Items**, conflict blocks, and maintenance slices should be scoped to the current **Memory Reset Generation**.
 - **Clear Memory and Knowledge** may leave non-identifying aggregate **Memory Rework Telemetry** counters only when they cannot identify the user or reconstruct remembered content.
 - **Clear Memory and Knowledge** should continue to reset Honcho-backed memory in a way that prevents old Honcho state from reappearing after the reset.
 - Active, inactive, corrected, suppressed, expired, and review status in the **Memory Profile Projection** may come from app-owned profile metadata layered over Honcho-led memory.
@@ -1270,18 +1407,58 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Users should edit the curated **Memory Profile Item** that AlfyAI actively uses, not individual raw extraction records.
 - A **Memory Profile Edit Surface** should remain curated and human-readable; edit and detail views should not fall back to raw memory tables, Honcho dumps, markdown blobs, or extracted-round lists.
 - **Memory Profile Correction** should be offered only when AlfyAI can support a full direct edit of the remembered statement and make that edit effective for the next chat turn.
+- **Memory Edit Classification** should classify direct edits by normalized memory slot: category, scope, subject, predicate, and authority relationship.
+- **Memory Edit Classification** should keep the same **Memory Profile Item Identity** for same-slot corrections, but create replacement or split work when the edited statement is a different memory slot.
+- Ambiguous **Memory Edit Classification** outcomes should ask for plain confirmation in the edit surface rather than silently rewriting or duplicating profile memory.
+- Durable delete or replace work after a **Memory Profile Correction** should require a **Safe Memory Match**.
 - If a **Memory Profile Item** cannot be fully edited with next-turn effect, the default UI should not show an edit action for that item.
 - Users should have one clear **Memory Profile Deletion** action for unwanted **Memory Profile Items**, not a technical choice between deletion and suppression.
+- Durable delete work after a **Memory Profile Deletion** should require a **Safe Memory Match**; ambiguous backing evidence should stay untouched until safer reconciliation is possible.
+- The **Memory Profile Projection** should keep stable item identity and active-use state across **Knowledge Base** refreshes and chat turns; rebuilding only from live Honcho output is not sufficient for next-turn-effective corrections, deletions, suppressions, expiries, conflict blocks, and review decisions.
+- **Memory Profile Item Identity** should be app-owned and stable across Honcho rewording, merges, splits, edits, deletions, suppressions, expiries, conflict blocks, and review decisions.
+- Honcho conclusion IDs may be stored as provenance pointers for reconciliation, but they should not be the primary **Memory Profile Item Identity**.
+- A **Memory Profile Item** should be able to aggregate multiple **Memory Profile Provenance Links** when they clearly support the same remembered fact.
+- A **Memory Profile Item** should not be a one-to-one wrapper around a Honcho conclusion, source chat, document rule, or extracted memory row.
+- Automatic aggregation of **Memory Profile Provenance Links** should be conservative; ambiguous near-duplicates should remain separate, expire from active use, or become **Guided Memory Review** rather than be merged by guesswork.
+- **User-Authored Merge Precedence** should choose the user-authored item as the merge survivor when it is merged with lower-authority Honcho-derived or structured memory.
+- **User-Authored Merge Precedence** should prevent deleted, suppressed, corrected-away, or review-resolved item state from being lost during later maintenance merges.
+- If two merge candidates both contain conflicting user-authored state, maintenance should create or keep **Guided Memory Review** rather than auto-merge them.
+- A **Memory Profile Split** should happen only when one item clearly contains multiple **Memory Slots**.
+- A **Memory Profile Split** may happen automatically for Honcho-derived items when the child slots are clearly separable and non-conflicting.
+- A **Memory Profile Split** should not silently change active truth when the parent item has user-authored edit, deletion, suppression, or review state; it should preserve the parent state or use **Guided Memory Review**.
+- Child items from a **Memory Profile Split** should inherit only relevant **Memory Profile Provenance Links**, not every link from the parent.
+- Deleted or suppressed parent state should prevent maintenance from creating active child items from the same evidence unless new explicit user-authored evidence exists.
+- **Legacy Memory Migration** should preserve potentially valuable legacy memory while keeping uncertain, noisy, conflicting, or out-of-taxonomy material out of active personalization by default.
+- **Legacy Memory Migration** should make only high-confidence, non-junk, category- and scope-fitting legacy material active in the **Memory Profile Projection**.
+- Legacy material with unknown or ambiguous **Memory Scope** should not become active by default; it should become **Preserved Legacy Memory** or **Guided Memory Review** depending on user impact.
+- **Legacy Memory Migration** should use the **Adaptive Active Memory Budget** instead of a fixed product item count for deciding how much legacy material can remain active.
+- **Legacy Memory Migration** should keep valuable but uncertain legacy material available for future reconciliation or capped **Guided Memory Review** rather than deleting it merely because it is not active.
+- **Preserved Legacy Memory** should not appear in the default **Memory Profile**, should not enter **Active Memory Profile Context**, and should not be used for ordinary personalization.
+- **Preserved Legacy Memory** may be used by bounded maintenance for future merge, supersession, expiry, review, or deletion decisions, and by explicit history or source questions without becoming a hidden personalization bypass.
+- **Preserved Legacy Memory** should be revisited through **Legacy Reconciliation Triggers**, not by trying to process the full preserved backlog merely because it exists.
+- **Projection-Gated Memory Access** should allow explicit history, source, and evidence questions to retrieve preserved or historical memory without letting that material become ordinary active personalization.
+- **Legacy Reconciliation Triggers** may include related profile edits or deletions, new same-topic memory, detected conflicts, stale **Memory Profile** refreshes, or spare scheduled maintenance capacity.
 - A **Memory Profile Projection** may support user review and maintenance of remembered facts; prompt inclusion still flows through Honcho-led memory, **Active Memory Profile Context**, **Baseline Memory Profile**, **Memory Context Tool**, and **Context Selection**.
 - **Active Memory Profile Context** should use the same active usable item set shown in the normal categories of the **Active Memory Profile View**.
+- **Active Memory Profile Context** should be pre-filtered by the server before prompt assembly; the model should not be asked to decide which inactive profile facts are safe to use for ordinary personalization.
+- The **Adaptive Active Memory Budget** should size active memory primarily by context pressure and relevance rather than a fixed number of visible **Memory Profile Items**.
+- When active memory exceeds the **Adaptive Active Memory Budget**, AlfyAI should prefer merge or compaction first, active-use expiry second, and moving lower-priority material into **Preserved Legacy Memory** third rather than silently injecting everything into chat.
+- User-authored corrections, hard constraints, and high-confidence scope-relevant memories should outrank softer, lower-confidence, or globally over-applied preferences when memory pressure is high.
+- Category balance should guide active-memory pressure, but **Constraints & Boundaries Memory Category** may exceed its normal category target when those items are durable hard constraints.
+- Internal operational safety caps may exist, but they should not become the user-facing product definition of how much AlfyAI can remember.
+- **Adaptive Active Memory Budget** pressure should remain internal maintenance and telemetry state; the default **Memory Profile** should not show a profile-pressure warning, memory quota, or other technical capacity indicator.
 - Ordinary chat personalization should not use hidden profile facts that are absent from the active default **Memory Profile** because they are deferred, blocked, expired, suppressed, deleted, or review-needed.
 - Chat should not use raw Honcho context in a way that contradicts the next-turn-effective **Memory Profile Projection**.
+- Ordinary chat personalization should use **Projection-Gated Memory Access** rather than receiving unfiltered Honcho peer or session context as current profile truth.
+- If memory retrieval finds relevant but inactive historical, preserved, deleted, suppressed, expired, conflict-blocked, or review-needed material, AlfyAI should either use it only as explicit source/history evidence or route it to maintenance/review; it should not silently personalize from it.
 - **Memory Profile Correction** and **Memory Profile Suppression** should take immediate precedence in the **Memory Profile Projection**.
 - **Memory Profile Correction** and **Memory Profile Suppression** should be effective for the next chat turn even if Honcho still returns older remembered facts.
 - **Memory Profile Deletion** should be effective for the next chat turn even when deeper durable cleanup must continue after the user action.
+- **Memory Profile Deletion** and **Memory Profile Suppression** should remove the item from memory recall as well as ordinary personalization.
 - **Memory Profile Deletion** should not imply deletion of source chats, documents, account data, or workspace data.
 - The immediate correction/suppression path should stay narrow and user-authored; it should not grow into app-owned persona synthesis, semantic clustering, dreaming, or a replacement for Honcho.
-- When a corrected or suppressed memory can be safely matched to durable memory, maintenance should reconcile it with the memory authority; when provenance is ambiguous, the user's correction or suppression remains authoritative for active personalization until safer reconciliation is possible.
+- When a corrected, deleted, or suppressed memory has a **Safe Memory Match**, maintenance may reconcile it with the memory authority by deleting or replacing the matched remembered evidence.
+- When provenance is partial or ambiguous, maintenance should not mutate uncertain backing memory; the user-facing correction, deletion, or suppression remains authoritative for active personalization until safer reconciliation is possible.
 - **Memory Active-Use Expiry** should make stale remembered facts inactive for the **Memory Profile Projection**, **Baseline Memory Profile**, and active personalization without automatically deleting their historical evidence.
 - **Memory Active-Use Expiry** should be conservative and evidence-based, not a simple timer.
 - **Memory Active-Use Expiry** should apply when newer user statements clearly supersede older facts, time-bound facts have passed, contradictions require review, stale facts would cause bad personalization, or the user edits or deletes related profile items.
@@ -1322,10 +1499,41 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - The normal chat interface should not add memory-specific save, toggle, edit, or review controls as part of the **Memory Rework Update**.
 - **Memory Intake Normalization** should choose one primary **Memory Profile Category** instead of duplicating the same remembered fact across categories.
 - **Memory Intake Normalization** should defer to maintenance when it cannot confidently preserve meaning, assign category, or assign scope.
+- **Memory Decision Confidence Bands** should be coarse bootstrap defaults for automatic memory decisions, not precise truth scores.
+- **Memory Decision Confidence Bands** should never override **Memory Source Authority**, user-authored corrections, deletions, suppressions, or resolved **Memory Review Items**.
 - Memory should remain one pipeline: immediate authoritative continuity or profile actions may take effect right away, while expensive reconciliation runs later without becoming a second source of truth.
+- Opening the **Knowledge Base** or Memory Profile should run **Memory Profile Refresh**, not synchronous **Expensive Memory Reconciliation**.
+- **Memory Profile Refresh** may enqueue background maintenance when the projection is stale or dirty, but the visible profile should render from the current durable projection without waiting for LLM pruning, deduplication, Honcho reconciliation, or Honcho Dreaming.
+- **Memory Authority Fallback** should keep the current durable **Memory Profile Projection** as the user-facing active truth when Honcho refresh, delete, or reconciliation fails.
+- If **Memory Profile Refresh** cannot read the durable projection, the UI should show an ordinary load failure or retry state rather than falling back to raw Honcho output.
+- User-authored edits, deletions, suppressions, and review decisions should update the **Memory Profile Projection** immediately and then enqueue targeted **Expensive Memory Reconciliation**.
+- User-authored edits, deletions, suppressions, and review decisions should advance the relevant **Memory Projection Revision** with the visible projection change.
+- If the visible **Memory Profile Projection** change is saved, the user action should succeed locally even when Honcho cleanup fails; the failed cleanup should become retryable dirty work and **Memory Rework Telemetry**.
+- If the visible **Memory Profile Projection** change cannot be saved, the user action should fail visibly rather than pretending memory changed.
+- Concurrent user actions against the same **Memory Profile Item** should be guarded by **Memory Projection Revision** rather than silently overwriting newer profile state.
+- Chat turns may mark memory dirty and may perform **Immediate Memory Admission** for high-confidence material, but they should not trigger full **Expensive Memory Reconciliation** by default.
+- **Expensive Memory Reconciliation** should be driven by a durable **Memory Dirty State Ledger**, not only periodic full scans or in-memory cooldown state.
+- **Memory Dirty State Ledger** entries should be typed, coalesced, and privacy-preserving; they may record reason, scope, stable identifiers, counts, and timestamps, but not raw candidate memory text.
+- Deferred **Memory Intake Decisions** should write **Memory Dirty State Ledger** signals and telemetry rather than raw pending-memory candidates.
+- Chat turns, **Memory Profile Refresh**, profile actions, legacy migration, and **Memory Authority Fallback** should produce typed **Memory Dirty State Ledger** work instead of directly running expensive reconciliation.
+- The **Memory Maintenance Scheduler** should be the single path that claims expensive dirty work by user, priority, cooldown, and budget.
+- Multiple active chats for the same user should coalesce into shared dirty work rather than independent reconciliation runs.
+- Each **Expensive Memory Reconciliation** run should process a **Bounded Memory Reconciliation Slice** rather than trying to clear all dirty work for the user.
+- Each **Bounded Memory Reconciliation Slice** should respect **Memory Slice Batch Limits** in addition to elapsed-time and LLM-token budgets.
+- A **Bounded Memory Reconciliation Slice** should stop when any relevant time, token, candidate, projection-mutation, authority-call, review-item, or dreaming limit is reached.
+- Legacy migration should use the same **Memory Maintenance Scheduler** and **Bounded Memory Reconciliation Slice** path as other expensive work rather than a special accelerated catch-up mode.
+- **Bounded Memory Reconciliation Slices** should prioritize user-facing correctness, prompt safety, profile quality, legacy migration or preserved backlog, then opportunistic junk cleanup.
+- If a **Bounded Memory Reconciliation Slice** exhausts its budget, remaining **Memory Dirty State Ledger** entries should stay pending for later scheduled work.
+- **Expensive Memory Reconciliation** should apply projection changes only when the **Memory Projection Revision** still matches the state it read.
+- Stale maintenance output should be discarded or retried against the current **Memory Projection Revision**, not applied over newer user-facing memory state.
+- If maintenance crashes partway through a **Bounded Memory Reconciliation Slice**, uncommitted or unfinished dirty work should remain pending rather than be treated as complete.
+- **Expensive Memory Reconciliation** should apply dirty work, projection writes, review-item writes, and Honcho reconciliation only for the current **Memory Reset Generation**.
+- Maintenance work from an older **Memory Reset Generation** should discard its output and must not recreate profile, review, dirty, telemetry, or Honcho-derived memory state after **Clear Memory and Knowledge**.
+- Background Honcho cleanup or reconciliation failures should be logged as retryable maintenance failures, not surfaced as user-facing action errors unless the visible projection save failed.
 - Memory maintenance cooldowns should gate expensive cleanup, expiry, deduplication, review generation, and reconciliation; they should not delay active continuity writes or active continuity reads needed for project and folder work.
 - **Memory Rework Telemetry** should be a required part of the memory design rather than a later observability add-on.
 - **Memory Rework Telemetry** should cover intake accepts and rejects, maintenance actions, review-item creation and resolution, user corrections and deletions, and whether active memory was included or blocked from prompt context.
+- **Memory Rework Telemetry** should use fixed **Memory Rework Telemetry Event Families** instead of free-form telemetry labels.
 - **Memory Rework Telemetry** should be privacy-preserving by default: decisions, categories, reasons, counts, statuses, and stable identifiers are appropriate default telemetry, while raw remembered text and raw chat excerpts require a narrow explicit debug mode.
 - User-linked **Memory Rework Telemetry** should be cleared by **Clear Memory and Knowledge**; anonymous aggregate counters may remain only if they cannot identify the user or reconstruct memory.
 - **Memory Rework Telemetry** should remain backend/log-only by default; the **Memory Rework Update** should not add a user-facing or admin-facing telemetry summary view.
@@ -1340,8 +1548,23 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - The **Memory Profile Projection** should carry the next-turn-effective truth immediately while **Memory Reconciliation** catches the underlying memory substrate up over time.
 - Memory maintenance should remain autonomous for high-confidence cleanup and supersession, but use **Guided Memory Review** when user judgment is needed to resolve ambiguous, sensitive, or user-impacting remembered facts.
 - Persistent **Memory Review Items** should be created by memory maintenance, not by ad hoc chat-turn logic.
+- **Memory Review Items** should be durable records rather than regenerated from current conflicts on every **Memory Profile Refresh**.
+- **Memory Review Items** should dedupe by **Memory Review Subject**, not by raw Honcho conclusion ID, exact remembered text, or source chat.
+- When maintenance finds more evidence for an existing open **Memory Review Subject**, it should attach that evidence to the existing **Memory Review Item** rather than create another question.
+- A new **Memory Review Item** should be created only when the review type or **Memory Slot** meaningfully differs, or when no existing open item covers the issue.
+- **Memory Review Resolution** should use a small shared action model: use this remembered fact, edit the remembered fact, or do not remember this subject.
+- Review UI labels may vary by **Memory Review Item** type, but they should resolve to the shared **Memory Review Resolution** meanings.
+- Guided review should not ask users to choose a keep-inactive, archive, source-delete, or technical reconciliation state.
+- **Memory Review Item Lifecycle** should use open, resolved, and obsolete as the default states.
+- Maintenance should mark a **Memory Review Item** obsolete when newer evidence, expiry, merge, deletion, suppression, or reconciliation removes the need to ask before the user sees or resolves it.
+- Resolved **Memory Review Items** should record the user decision needed to update the **Memory Profile Projection** and guide later reconciliation without exposing raw memory rows.
 - A **Memory Review Item** should ask a plain-language user question rather than expose raw memory records, source inventories, or technical reconciliation state.
 - **Guided Memory Review** should be optional but discoverable in the **Memory Profile**, with a visible review signal when unresolved **Memory Review Items** exist.
+- **Memory Review Burden** should be capped more aggressively than background maintenance throughput.
+- Maintenance should create at most three new **Memory Review Items** per **Bounded Memory Reconciliation Slice** by default.
+- A user should have at most twelve open **Memory Review Items** by default.
+- When the open review cap is reached, additional ambiguous material should become inactive or **Preserved Legacy Memory** rather than more user-facing review work.
+- Higher-impact review work may obsolete or replace lower-priority open **Memory Review Items**, but should not exceed the open review cap.
 - Unresolved **Memory Review Items** should appear in a dedicated, full-width **Memory Needs Review Area** above normal **Memory Profile Categories** when items exist.
 - The **Memory Needs Review Area** should be non-scrollable and show at most three **Memory Review Items**.
 - Additional **Memory Review Items** should open in an extended modal view rather than expanding the main **Memory Profile**.

@@ -15,9 +15,13 @@ import {
 	deepResearchJobs,
 	fileProductionJobAttempts,
 	fileProductionJobs,
+	memoryDirtyLedger,
 	memoryEvents,
+	memoryProjectionState,
 	memoryProjects,
 	memoryProjectTaskLinks,
+	memoryReworkTelemetry,
+	memoryReviewItems,
 	semanticEmbeddings,
 	taskCheckpoints,
 	taskStateEvidenceLinks,
@@ -36,6 +40,7 @@ import { purgeUserData } from "../cleanup/user-cleanup";
 import { requestActiveChatStreamsStopForUser } from "../chat-turn/active-streams";
 import { cancelRunningResearchTasks } from "../deep-research/tasks";
 import { quiesceUserMemoryMaintenance } from "../memory-maintenance";
+import { advanceMemoryResetGeneration } from "../memory-profile";
 
 export const DETACHED_SHARED_CONTENT_OWNER_ID = "detached-shared-content-owner";
 export const DETACHED_SHARED_CONTENT_OWNER_EMAIL =
@@ -347,6 +352,7 @@ async function cancelActiveFileProductionForUser(userId: string): Promise<void> 
 async function clearMemoryAndKnowledgeForUser(
 	userId: string,
 ): Promise<string[]> {
+	await advanceMemoryResetGeneration(userId);
 	await deleteAllHonchoStateForUser(userId);
 	await rotateHonchoPeerIdentity(userId);
 
@@ -378,6 +384,18 @@ async function clearMemoryAndKnowledgeForUser(
 			.run();
 		tx.delete(memoryProjects).where(eq(memoryProjects.userId, userId)).run();
 		tx.delete(memoryEvents).where(eq(memoryEvents.userId, userId)).run();
+		tx.delete(memoryProjectionState)
+			.where(eq(memoryProjectionState.userId, userId))
+			.run();
+		tx.delete(memoryReviewItems)
+			.where(eq(memoryReviewItems.userId, userId))
+			.run();
+		tx.delete(memoryDirtyLedger)
+			.where(eq(memoryDirtyLedger.userId, userId))
+			.run();
+		tx.delete(memoryReworkTelemetry)
+			.where(eq(memoryReworkTelemetry.userId, userId))
+			.run();
 		tx.delete(semanticEmbeddings)
 			.where(eq(semanticEmbeddings.userId, userId))
 			.run();

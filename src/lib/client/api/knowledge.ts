@@ -4,6 +4,8 @@ import type {
 	KnowledgeMemoryOverviewPayload,
 	KnowledgeMemoryPayload,
 	KnowledgeUploadResponse,
+	MemoryProfileActionPayload,
+	MemoryProfilePublicPayload,
 	WorkCapsule,
 } from "$lib/types";
 import { _unwrapList } from "./_utils";
@@ -21,7 +23,7 @@ export type KnowledgeLibrary = {
 	workflows: WorkCapsule[];
 };
 
-export type KnowledgeMemoryActionPayload =
+type LegacyKnowledgeMemoryActionPayload =
 	| {
 			action: "forget_persona_memory";
 			clusterId?: string;
@@ -31,6 +33,10 @@ export type KnowledgeMemoryActionPayload =
 	| { action: "forget_task_memory"; taskId: string }
 	| { action: "forget_focus_continuity"; continuityId: string }
 	| { action: "forget_project_memory"; projectId: string };
+
+export type KnowledgeMemoryActionPayload =
+	| MemoryProfileActionPayload
+	| LegacyKnowledgeMemoryActionPayload;
 
 export type KnowledgeBulkAction =
 	| "forget_all_documents"
@@ -185,12 +191,16 @@ export async function fetchKnowledgeLibrary(): Promise<KnowledgeLibrary> {
 	};
 }
 
-export async function fetchKnowledgeMemory(): Promise<KnowledgeMemoryPayload> {
-	return requestJson<KnowledgeMemoryPayload>(
+export async function fetchMemoryProfile(): Promise<MemoryProfilePublicPayload> {
+	return requestJson<MemoryProfilePublicPayload>(
 		"/api/knowledge/memory",
 		undefined,
 		"Failed to load memory profile.",
 	);
+}
+
+export async function fetchKnowledgeMemory(): Promise<KnowledgeMemoryPayload> {
+	return fetchMemoryProfile();
 }
 
 export async function fetchKnowledgeMemoryOverview(
@@ -206,8 +216,9 @@ export async function fetchKnowledgeMemoryOverview(
 
 export async function submitKnowledgeMemoryAction(
 	payload: KnowledgeMemoryActionPayload,
-): Promise<KnowledgeMemoryPayload> {
-	return requestJson<KnowledgeMemoryPayload>(
+	fetchImpl: FetchLike = fetch,
+): Promise<MemoryProfilePublicPayload> {
+	return requestJson<MemoryProfilePublicPayload>(
 		"/api/knowledge/memory/actions",
 		{
 			method: "POST",
@@ -217,6 +228,7 @@ export async function submitKnowledgeMemoryAction(
 			body: JSON.stringify(payload),
 		},
 		"Failed to update memory profile.",
+		fetchImpl,
 	);
 }
 

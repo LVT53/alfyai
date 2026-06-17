@@ -19,6 +19,11 @@ import {
 	type HonchoPersonaRecallResult,
 	recallPersonaMemory,
 } from "$lib/server/services/honcho";
+import {
+	getActiveMemoryProfileContext,
+	recordMemoryReworkTelemetry,
+	type ActiveMemoryProfileContext,
+} from "$lib/server/services/memory-profile";
 import { listMessageAttachments } from "$lib/server/services/knowledge/store/attachments";
 import { getArtifactsForUser } from "$lib/server/services/knowledge/store/core";
 import {
@@ -60,7 +65,10 @@ export type PersonaMemoryContextResult = {
 	success: true;
 	mode: "persona";
 	status: "available" | HonchoPersonaRecallResult["status"];
-	source: HonchoPersonaRecallResult["source"];
+	source:
+		| "active_memory_profile"
+		| "historical_honcho_evidence"
+		| HonchoPersonaRecallResult["source"];
 	content: string | null;
 	error?: string;
 	evidenceCandidates: ToolEvidenceCandidate[];
@@ -132,6 +140,8 @@ const PROJECT_REPORT_QUERY_RE =
 	/\b(report|pdf|docx?|document|export|download|file|summari[sz]e|write[- ]?up)\b|(?:jelentés|jelentes|riport|dokumentum|fájl|fajl|letöltés|letoltes|összefoglal(?:ó|o)?|foglalj\s+össze|foglalj\s+ossze|írd\s+meg|ird\s+meg|készíts|keszits)/iu;
 const PROJECT_FOLDER_QUERY_RE =
 	/\b(project folder|folder|project|workspace|content from|content of|memory)\b|(?:projektmappa|projekt[\p{L}]*|mappa|munkaterület|munkaterulet|memória|memoria|korábbi\s+beszélgetések|korabbi\s+beszelgetesek|kapcsolódó\s+beszélgetések|kapcsolodo\s+beszelgetesek)/iu;
+const PERSONA_HISTORY_EVIDENCE_QUERY_RE =
+	/\b(history|historical|source|sources|evidence|why do you remember|where did you get|what did i say|previously|earlier|past memory|old memory|deleted|suppressed)\b|(?:történet|tortenet|korábbi|korabbi|előző|elozo|forrás|forras|bizonyíték|bizonyitek|miért\s+emlékszel|miert\s+emlekszel|honnan\s+tudod)/iu;
 const HISTORY_QUERY_STOPWORDS = new Set([
 	"a",
 	"about",
@@ -237,6 +247,7 @@ const HISTORY_QUERY_STOPWORDS = new Set([
 function buildPersonaEvidenceCandidate(params: {
 	userId: string;
 	content: string | null;
+	title: string;
 }): ToolEvidenceCandidate[] {
 	const snippet = clipNullableText(
 		normalizeWhitespace(params.content ?? ""),
@@ -246,11 +257,67 @@ function buildPersonaEvidenceCandidate(params: {
 	return [
 		{
 			id: `memory-context:persona:${params.userId}`,
-			title: "Honcho persona recall",
+			title: params.title,
 			snippet,
 			sourceType: "memory",
 		},
 	];
+}
+
+function formatActiveMemoryProfileContext(
+	context: ActiveMemoryProfileContext,
+): string {
+	return context.items
+		.map((item) => {
+			const scope =
+				item.scope.type === "global"
+					? "global"
+					: `${item.scope.type}:${item.scope.id}`;
+			return `- ${item.category} (${scope}): ${item.statement}`;
+		})
+		.join("\n");
+}
+
+function summarizeActiveMemoryProfileTelemetry(
+	context: ActiveMemoryProfileContext,
+): {
+	categoryCounts: Record<string, number>;
+	scopeCounts: Record<string, number>;
+} {
+	const categoryCounts: Record<string, number> = {};
+	const scopeCounts: Record<string, number> = {};
+	for (const item of context.items) {
+		categoryCounts[item.category] = (categoryCounts[item.category] ?? 0) + 1;
+		scopeCounts[item.scope.type] = (scopeCounts[item.scope.type] ?? 0) + 1;
+	}
+	return { categoryCounts, scopeCounts };
+}
+
+async function recordMemoryContextPromptTelemetry(params: {
+	userId: string;
+	eventName: string;
+	reason: string;
+	status: string;
+	count: number;
+	metadata?: Record<string, unknown>;
+}): Promise<void> {
+	try {
+		await recordMemoryReworkTelemetry({
+			userId: params.userId,
+			eventFamily: "prompt_use",
+			eventName: params.eventName,
+			reason: params.reason,
+			status: params.status,
+			count: params.count,
+			metadata: params.metadata,
+		});
+	} catch {
+		// Tool responses should not fail because telemetry is unavailable.
+	}
+}
+
+function isHistoricalPersonaEvidenceQuery(query: string): boolean {
+	return PERSONA_HISTORY_EVIDENCE_QUERY_RE.test(query);
 }
 
 export function resolveProjectMemoryContextMode(params: {
@@ -295,26 +362,130 @@ async function getPersonaMemoryContext(
 	params: GetMemoryContextParams,
 ): Promise<PersonaMemoryContextResult> {
 	const query = params.query?.trim() || DEFAULT_PERSONA_RECALL_QUERY;
-	const recall = await recallPersonaMemory({
+	if (isHistoricalPersonaEvidenceQuery(query)) {
+		const recall = await recallPersonaMemory({
+			userId: params.userId,
+			userDisplayName: params.userDisplayName,
+			query,
+		});
+		const status = recall.status === "ok" ? "available" : recall.status;
+		const content = recall.content
+			? `Historical persona evidence (not current profile truth): ${recall.content}`
+			: null;
+		await recordMemoryContextPromptTelemetry({
+			userId: params.userId,
+			eventName: "memory_context_persona_historical_evidence",
+			reason: `honcho_recall_${recall.status}`,
+			status,
+			count: content ? 1 : 0,
+		});
+
+		return {
+			success: true,
+			mode: "persona",
+			status,
+			source:
+				recall.status === "ok" ? "historical_honcho_evidence" : recall.source,
+			content,
+			...(recall.error ? { error: recall.error } : {}),
+			evidenceCandidates:
+				params.includeEvidenceCandidates === false
+					? []
+					: buildPersonaEvidenceCandidate({
+							userId: params.userId,
+							content,
+							title: "Historical persona evidence",
+						}),
+			audit: {
+				conversationId: params.conversationId,
+				query,
+			},
+		};
+	}
+
+	let activeProfile: ActiveMemoryProfileContext;
+	try {
+		activeProfile = await getActiveMemoryProfileContext({
+			userId: params.userId,
+		});
+	} catch (error) {
+		await recordMemoryContextPromptTelemetry({
+			userId: params.userId,
+			eventName: "memory_context_persona_active_profile_blocked",
+			reason: "active_profile_context_error",
+			status: "error",
+			count: 0,
+		});
+
+		return {
+			success: true,
+			mode: "persona",
+			status: "error",
+			source: "none",
+			content: null,
+			error: error instanceof Error ? error.message : "Memory profile unavailable",
+			evidenceCandidates: [],
+			audit: {
+				conversationId: params.conversationId,
+				query,
+			},
+		};
+	}
+
+	const content = formatActiveMemoryProfileContext(activeProfile);
+	if (!content) {
+		await recordMemoryContextPromptTelemetry({
+			userId: params.userId,
+			eventName: "memory_context_persona_active_profile_empty",
+			reason: "no_active_projection_items",
+			status: "empty",
+			count: 0,
+			metadata: {
+				projectionRevision: activeProfile.projectionRevision,
+				resetGeneration: activeProfile.resetGeneration,
+			},
+		});
+
+		return {
+			success: true,
+			mode: "persona",
+			status: "empty",
+			source: "active_memory_profile",
+			content: null,
+			evidenceCandidates: [],
+			audit: {
+				conversationId: params.conversationId,
+				query,
+			},
+		};
+	}
+
+	await recordMemoryContextPromptTelemetry({
 		userId: params.userId,
-		userDisplayName: params.userDisplayName,
-		query,
+		eventName: "memory_context_persona_active_profile_included",
+		reason: "active_projection_items",
+		status: "included",
+		count: activeProfile.items.length,
+		metadata: {
+			projectionRevision: activeProfile.projectionRevision,
+			resetGeneration: activeProfile.resetGeneration,
+			...summarizeActiveMemoryProfileTelemetry(activeProfile),
+		},
 	});
-	const status = recall.status === "ok" ? "available" : recall.status;
 
 	return {
 		success: true,
 		mode: "persona",
-		status,
-		source: recall.source,
-		content: recall.content,
-		...(recall.error ? { error: recall.error } : {}),
+		status: "available",
+		source: "active_memory_profile",
+		content,
 		evidenceCandidates:
 			params.includeEvidenceCandidates === false
 				? []
 				: buildPersonaEvidenceCandidate({
 						userId: params.userId,
-						content: recall.content,
+						content,
+						title: "Active memory profile",
 					}),
 		audit: {
 			conversationId: params.conversationId,

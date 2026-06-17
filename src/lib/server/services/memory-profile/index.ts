@@ -1,0 +1,1889 @@
+import { createHash, randomUUID } from "node:crypto";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { db } from "$lib/server/db";
+import {
+	memoryDirtyLedger,
+	memoryProfileItemProvenance,
+	memoryProfileItems,
+	memoryProjectionState,
+	memoryResetGenerations,
+	memoryReviewResolutions,
+	memoryReviewItems,
+	memoryReworkTelemetry,
+} from "$lib/server/db/schema";
+import {
+	migrateLegacyMemoryForUser,
+	type LegacyPersonaMemoryCandidateBatch,
+} from "./legacy";
+
+export { migrateLegacyMemoryForUser } from "./legacy";
+
+export const MEMORY_PROFILE_CATEGORIES = [
+	"about_you",
+	"preferences",
+	"goals_ongoing_work",
+	"constraints_boundaries",
+] as const;
+export const MEMORY_REVIEW_RESOLUTION_TYPES = [
+	"use_fact",
+	"edit_fact",
+	"do_not_remember",
+] as const;
+export const MEMORY_DIRTY_REASONS = [
+	"stale_projection",
+	"deferred_intake",
+	"profile_action_reconciliation",
+	"possible_conflict",
+	"possible_duplicate",
+	"legacy_migration",
+	"honcho_reconciliation",
+	"review_generation",
+] as const;
+export const MEMORY_REWORK_TELEMETRY_FAMILIES = [
+	"intake",
+	"active_profile_projection",
+	"prompt_use",
+	"maintenance",
+	"guided_review",
+	"profile_action",
+	"reset_forget",
+	"error_fallback",
+] as const;
+
+export type MemoryProfileCategory = (typeof MEMORY_PROFILE_CATEGORIES)[number];
+export type MemoryReviewResolutionType =
+	(typeof MEMORY_REVIEW_RESOLUTION_TYPES)[number];
+export type MemoryDirtyReason = (typeof MEMORY_DIRTY_REASONS)[number];
+export type MemoryReworkTelemetryFamily =
+	(typeof MEMORY_REWORK_TELEMETRY_FAMILIES)[number];
+export type MemoryProfileScope =
+	| { type: "global" }
+	| { type: "project"; id: string }
+	| { type: "conversation"; id: string }
+	| { type: "document"; id: string };
+export type MemoryProfileItemStatus =
+	| "active"
+	| "deleted"
+	| "suppressed"
+	| "expired"
+	| "blocked"
+	| "deferred"
+	| "review_needed"
+	| "preserved_legacy"
+	| "inactive";
+
+export type MemoryProfileCardItem = {
+	id: string;
+	itemKey: string;
+	category: MemoryProfileCategory;
+	statement: string;
+	scope: MemoryProfileScope;
+	status: "active";
+	revision: number;
+	updatedAt: Date;
+	canEdit: boolean;
+	canDelete: boolean;
+	canSuppress: boolean;
+};
+
+export type MemoryProfileSourceChip = {
+	id: string;
+	sourceType: string;
+	label: string;
+	summary: string | null;
+};
+
+export type MemoryProfileItemDetail = MemoryProfileCardItem & {
+	sourceChips: MemoryProfileSourceChip[];
+	whyRemembered: string | null;
+};
+
+export type MemoryProfileReadModel = {
+	resetGeneration: number;
+	projectionRevision: number;
+	categories: Array<{
+		category: MemoryProfileCategory;
+		items: MemoryProfileCardItem[];
+	}>;
+	review: {
+		items: Array<{
+			id: string;
+			subject: string;
+			question: string;
+			reason: string;
+		}>;
+		visibleItems: Array<{
+			id: string;
+			subject: string;
+			question: string;
+			reason: string;
+		}>;
+		openCount: number;
+		overflowCount: number;
+	};
+};
+
+export type ActiveMemoryProfileContext = {
+	resetGeneration: number;
+	projectionRevision: number;
+	items: Array<{
+		id: string;
+		itemKey: string;
+		category: MemoryProfileCategory;
+		statement: string;
+		scope: MemoryProfileScope;
+		revision: number;
+		updatedAt: Date;
+	}>;
+};
+
+export type MemoryDirtyLedgerReconciliationResult = {
+	claimed: number;
+	completed: number;
+	failed: number;
+	skipped: number;
+	timedOut: boolean;
+};
+
+export type LegacyMemoryCandidateLoader = (
+	userId: string,
+	options: { limit: number },
+) => Promise<LegacyPersonaMemoryCandidateBatch>;
+
+type JsonRecord = Record<string, unknown>;
+
+export class StaleMemoryResetGenerationError extends Error {
+	constructor() {
+		super("Memory reset generation advanced before memory work could apply.");
+		this.name = "StaleMemoryResetGenerationError";
+	}
+}
+
+const ITEM_KEY_VERSION = "memory-profile-item:v1";
+
+function toScopeColumns(scope: MemoryProfileScope): {
+	scopeType: string;
+	scopeId: string;
+} {
+	return {
+		scopeType: scope.type,
+		scopeId: scope.type === "global" ? "" : scope.id,
+	};
+}
+
+function normalizeRememberedStatement(statement: string): string {
+	return statement.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeExplicitItemKey(itemKey: string): string {
+	const normalized = itemKey.trim();
+	if (!normalized) {
+		throw new Error("Memory profile item key cannot be empty.");
+	}
+	return normalized;
+}
+
+function deriveMemoryProfileItemKey(params: {
+	category: MemoryProfileCategory;
+	scope: MemoryProfileScope;
+	statement: string;
+}): string {
+	const scope = toScopeColumns(params.scope);
+	const normalizedStatement = normalizeRememberedStatement(params.statement);
+	const digest = createHash("sha256")
+		.update(
+			[
+				params.category,
+				scope.scopeType,
+				scope.scopeId,
+				normalizedStatement,
+			].join("\u001f"),
+		)
+		.digest("hex")
+		.slice(0, 32);
+
+	return `${ITEM_KEY_VERSION}:${params.category}:${scope.scopeType}:${scope.scopeId || "global"}:${digest}`;
+}
+
+function resolveMemoryProfileItemKey(params: {
+	category: MemoryProfileCategory;
+	scope: MemoryProfileScope;
+	statement: string;
+	itemKey?: string;
+	slotKey?: string;
+}): string {
+	if (params.itemKey !== undefined && params.slotKey !== undefined) {
+		const itemKey = normalizeExplicitItemKey(params.itemKey);
+		const slotKey = normalizeExplicitItemKey(params.slotKey);
+		if (itemKey !== slotKey) {
+			throw new Error("Memory profile itemKey and slotKey must match.");
+		}
+		return itemKey;
+	}
+	if (params.itemKey !== undefined) {
+		return normalizeExplicitItemKey(params.itemKey);
+	}
+	if (params.slotKey !== undefined) {
+		return normalizeExplicitItemKey(params.slotKey);
+	}
+	return deriveMemoryProfileItemKey(params);
+}
+
+function fromScopeColumns(
+	scopeType: string,
+	scopeId: string,
+): MemoryProfileScope {
+	if (scopeType === "project") return { type: "project", id: scopeId };
+	if (scopeType === "conversation")
+		return { type: "conversation", id: scopeId };
+	if (scopeType === "document") return { type: "document", id: scopeId };
+	return { type: "global" };
+}
+
+function assertMemoryProfileCategory(
+	category: string,
+): asserts category is MemoryProfileCategory {
+	if (!MEMORY_PROFILE_CATEGORIES.includes(category as MemoryProfileCategory)) {
+		throw new Error(`Unsupported memory profile category: ${category}`);
+	}
+}
+
+function assertOneOf<T extends readonly string[]>(
+	value: string,
+	allowed: T,
+	label: string,
+): asserts value is T[number] {
+	if (!allowed.includes(value)) {
+		throw new Error(`Unsupported ${label}: ${value}`);
+	}
+}
+
+function parseJsonArray(value: string | null): unknown[] {
+	if (!value) return [];
+	try {
+		const parsed = JSON.parse(value);
+		return Array.isArray(parsed) ? parsed : [];
+	} catch {
+		return [];
+	}
+}
+
+function parseJsonRecord(value: string | null): JsonRecord {
+	if (!value) return {};
+	try {
+		const parsed = JSON.parse(value);
+		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+			return parsed as JsonRecord;
+		}
+	} catch {
+		// Fall through to an empty object.
+	}
+	return {};
+}
+
+function readMemoryProfileCategory(
+	value: unknown,
+): MemoryProfileCategory | null {
+	return typeof value === "string" &&
+		MEMORY_PROFILE_CATEGORIES.includes(value as MemoryProfileCategory)
+		? (value as MemoryProfileCategory)
+		: null;
+}
+
+function readSafeString(value: unknown): string | null {
+	return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function stableMemoryMaintenanceDigest(value: string): string {
+	return createHash("sha256").update(value).digest("hex").slice(0, 24);
+}
+
+function inferReviewCategory(params: {
+	subject: string;
+	question: string;
+	reason: string;
+	metadata: JsonRecord;
+}): MemoryProfileCategory {
+	const explicitCategory = readMemoryProfileCategory(params.metadata.category);
+	if (explicitCategory) return explicitCategory;
+
+	const text =
+		`${params.subject} ${params.question} ${params.reason}`.toLowerCase();
+	if (
+		/\b(avoid|never|must|constraint|boundary|do not|don't|dont|privacy|sensitive)\b/.test(
+			text,
+		)
+	) {
+		return "constraints_boundaries";
+	}
+	if (/\b(goal|ongoing|working on|project|roadmap|todo)\b/.test(text)) {
+		return "goals_ongoing_work";
+	}
+	if (
+		/\b(prefer|prefers|preference|likes|style|language|ui|labels)\b/.test(text)
+	) {
+		return "preferences";
+	}
+	return "about_you";
+}
+
+function assertPrivacySafeMetadata(metadata: JsonRecord | undefined): void {
+	if (!metadata) return;
+	const forbiddenFragments = [
+		"rawtext",
+		"rawmemory",
+		"rememberedtext",
+		"rawprompt",
+		"promptexcerpt",
+		"rawchat",
+		"chatexcerpt",
+	];
+
+	const visit = (value: unknown, path: string[]): void => {
+		if (!value || typeof value !== "object") return;
+		if (Array.isArray(value)) {
+			value.forEach((entry, index) => visit(entry, [...path, String(index)]));
+			return;
+		}
+		for (const [key, nested] of Object.entries(value)) {
+			const normalized = key.toLowerCase().replace(/[^a-z]/g, "");
+			if (
+				forbiddenFragments.some((fragment) => normalized.includes(fragment))
+			) {
+				throw new Error(
+					`Memory profile metadata cannot include raw text field: ${[...path, key].join(".")}`,
+				);
+			}
+			visit(nested, [...path, key]);
+		}
+	};
+
+	visit(metadata, []);
+}
+
+function toCardItem(
+	row: typeof memoryProfileItems.$inferSelect,
+): MemoryProfileCardItem {
+	assertMemoryProfileCategory(row.category);
+	return {
+		id: row.id,
+		itemKey: row.itemKey,
+		category: row.category,
+		statement: row.statement,
+		scope: fromScopeColumns(row.scopeType, row.scopeId),
+		status: "active",
+		revision: row.revision,
+		updatedAt: row.updatedAt,
+		canEdit: true,
+		canDelete: true,
+		canSuppress: true,
+	};
+}
+
+async function ensureMemoryResetGenerationRow(userId: string): Promise<void> {
+	await db
+		.insert(memoryResetGenerations)
+		.values({
+			userId,
+			resetGeneration: 0,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		})
+		.onConflictDoNothing({ target: memoryResetGenerations.userId })
+		.run();
+}
+
+export async function getCurrentMemoryResetGeneration(
+	userId: string,
+): Promise<number> {
+	await ensureMemoryResetGenerationRow(userId);
+
+	const [row] = await db
+		.select({ resetGeneration: memoryResetGenerations.resetGeneration })
+		.from(memoryResetGenerations)
+		.where(eq(memoryResetGenerations.userId, userId))
+		.limit(1);
+
+	return row?.resetGeneration ?? 0;
+}
+
+export async function advanceMemoryResetGeneration(
+	userId: string,
+): Promise<number> {
+	await ensureMemoryResetGenerationRow(userId);
+	const now = new Date();
+
+	await db
+		.update(memoryResetGenerations)
+		.set({
+			resetGeneration: sql`${memoryResetGenerations.resetGeneration} + 1`,
+			advancedAt: now,
+			updatedAt: now,
+		})
+		.where(eq(memoryResetGenerations.userId, userId))
+		.run();
+
+	return getCurrentMemoryResetGeneration(userId);
+}
+
+export async function isCurrentMemoryResetGeneration(params: {
+	userId: string;
+	resetGeneration: number;
+}): Promise<boolean> {
+	return (
+		(await getCurrentMemoryResetGeneration(params.userId)) ===
+		params.resetGeneration
+	);
+}
+
+export function isStaleMemoryResetGenerationError(
+	error: unknown,
+): error is StaleMemoryResetGenerationError {
+	return error instanceof StaleMemoryResetGenerationError;
+}
+
+async function assertExpectedMemoryResetGeneration(params: {
+	userId: string;
+	expectedResetGeneration?: number;
+}): Promise<number> {
+	if (params.expectedResetGeneration === undefined) {
+		return getCurrentMemoryResetGeneration(params.userId);
+	}
+	if (
+		!(await isCurrentMemoryResetGeneration({
+			userId: params.userId,
+			resetGeneration: params.expectedResetGeneration,
+		}))
+	) {
+		throw new StaleMemoryResetGenerationError();
+	}
+	return params.expectedResetGeneration;
+}
+
+async function ensureProjectionState(params: {
+	userId: string;
+	resetGeneration: number;
+	scope?: MemoryProfileScope;
+}): Promise<typeof memoryProjectionState.$inferSelect> {
+	const scope = toScopeColumns(params.scope ?? { type: "global" });
+	await db
+		.insert(memoryProjectionState)
+		.values({
+			id: randomUUID(),
+			userId: params.userId,
+			resetGeneration: params.resetGeneration,
+			scopeType: scope.scopeType,
+			scopeId: scope.scopeId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		})
+		.onConflictDoNothing({
+			target: [
+				memoryProjectionState.userId,
+				memoryProjectionState.resetGeneration,
+				memoryProjectionState.scopeType,
+				memoryProjectionState.scopeId,
+			],
+		})
+		.run();
+
+	const [row] = await db
+		.select()
+		.from(memoryProjectionState)
+		.where(
+			and(
+				eq(memoryProjectionState.userId, params.userId),
+				eq(memoryProjectionState.resetGeneration, params.resetGeneration),
+				eq(memoryProjectionState.scopeType, scope.scopeType),
+				eq(memoryProjectionState.scopeId, scope.scopeId),
+			),
+		)
+		.limit(1);
+	if (!row) {
+		throw new Error("Memory projection state could not be initialized.");
+	}
+	return row;
+}
+
+export async function createMemoryProfileItem(params: {
+	userId: string;
+	category: MemoryProfileCategory;
+	scope: MemoryProfileScope;
+	statement: string;
+	itemKey?: string;
+	slotKey?: string;
+	status?: MemoryProfileItemStatus;
+	expectedResetGeneration?: number;
+}): Promise<{
+	id: string;
+	itemKey: string;
+	status: MemoryProfileItemStatus;
+	revision: number;
+	resetGeneration: number;
+	projectionRevision: number;
+}> {
+	const resetGeneration = await assertExpectedMemoryResetGeneration({
+		userId: params.userId,
+		expectedResetGeneration: params.expectedResetGeneration,
+	});
+	const projection = await ensureProjectionState({
+		userId: params.userId,
+		resetGeneration,
+	});
+	const scope = toScopeColumns(params.scope);
+	const itemKey = resolveMemoryProfileItemKey(params);
+	const now = new Date();
+	const item = {
+		id: randomUUID(),
+		userId: params.userId,
+		projectionStateId: projection.id,
+		resetGeneration,
+		itemKey,
+		category: params.category,
+		scopeType: scope.scopeType,
+		scopeId: scope.scopeId,
+		statement: params.statement,
+		status: params.status ?? "active",
+		revision: 0,
+		createdAt: now,
+		updatedAt: now,
+	};
+
+	const result = db.transaction((tx) => {
+		const insertResult = tx
+			.insert(memoryProfileItems)
+			.values(item)
+			.onConflictDoNothing({
+				target: [
+					memoryProfileItems.userId,
+					memoryProfileItems.resetGeneration,
+					memoryProfileItems.itemKey,
+				],
+			})
+			.run() as { changes?: number };
+
+		if ((insertResult.changes ?? 0) === 1) {
+			tx.update(memoryProjectionState)
+				.set({
+					revision: sql`${memoryProjectionState.revision} + 1`,
+					updatedAt: now,
+				})
+				.where(eq(memoryProjectionState.id, projection.id))
+				.run();
+
+			return {
+				row: item,
+				projectionRevision: projection.revision + 1,
+			};
+		}
+
+		const [existing] = tx
+			.select()
+			.from(memoryProfileItems)
+			.where(
+				and(
+					eq(memoryProfileItems.userId, params.userId),
+					eq(memoryProfileItems.resetGeneration, resetGeneration),
+					eq(memoryProfileItems.itemKey, itemKey),
+				),
+			)
+			.limit(1)
+			.all();
+
+		if (!existing) {
+			throw new Error("Memory profile item could not be initialized.");
+		}
+
+		return {
+			row: existing,
+			projectionRevision: projection.revision,
+		};
+	});
+
+	return {
+		id: result.row.id,
+		itemKey: result.row.itemKey,
+		status: result.row.status as MemoryProfileItemStatus,
+		revision: result.row.revision,
+		resetGeneration,
+		projectionRevision: result.projectionRevision,
+	};
+}
+
+export async function addMemoryProfileItemProvenance(params: {
+	userId: string;
+	itemId: string;
+	sourceType: string;
+	sourceId?: string;
+	label: string;
+	summary?: string;
+	expectedResetGeneration?: number;
+}): Promise<MemoryProfileSourceChip> {
+	const resetGeneration = await assertExpectedMemoryResetGeneration({
+		userId: params.userId,
+		expectedResetGeneration: params.expectedResetGeneration,
+	});
+	const [item] = await db
+		.select({
+			id: memoryProfileItems.id,
+			resetGeneration: memoryProfileItems.resetGeneration,
+		})
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.id, params.itemId),
+				eq(memoryProfileItems.resetGeneration, resetGeneration),
+			),
+		)
+		.limit(1);
+	if (!item) {
+		throw new Error("Memory profile item not found.");
+	}
+
+	const id = randomUUID();
+	await db
+		.insert(memoryProfileItemProvenance)
+		.values({
+			id,
+			itemId: item.id,
+			userId: params.userId,
+			resetGeneration: item.resetGeneration,
+			sourceType: params.sourceType,
+			sourceId: params.sourceId,
+			label: params.label,
+			summary: params.summary,
+			createdAt: new Date(),
+		})
+		.run();
+
+	return {
+		id,
+		sourceType: params.sourceType,
+		label: params.label,
+		summary: params.summary ?? null,
+	};
+}
+
+export async function getMemoryProfileReadModel(params: {
+	userId: string;
+}): Promise<MemoryProfileReadModel> {
+	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const projection = await ensureProjectionState({
+		userId: params.userId,
+		resetGeneration,
+	});
+	const rows = await db
+		.select()
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.resetGeneration, resetGeneration),
+				eq(memoryProfileItems.status, "active"),
+			),
+		)
+		.orderBy(asc(memoryProfileItems.updatedAt));
+	const cards = rows.map(toCardItem);
+	const reviewRows = await db
+		.select()
+		.from(memoryReviewItems)
+		.where(
+			and(
+				eq(memoryReviewItems.userId, params.userId),
+				eq(memoryReviewItems.resetGeneration, resetGeneration),
+				eq(memoryReviewItems.status, "open"),
+			),
+		)
+		.orderBy(asc(memoryReviewItems.updatedAt));
+	const visibleReviews = reviewRows.slice(0, 3).map((row) => ({
+		id: row.id,
+		subject: row.subjectLabel,
+		question: row.question,
+		reason: row.reason,
+	}));
+	const allReviews = reviewRows.map((row) => ({
+		id: row.id,
+		subject: row.subjectLabel,
+		question: row.question,
+		reason: row.reason,
+	}));
+
+	return {
+		resetGeneration,
+		projectionRevision: projection.revision,
+		categories: MEMORY_PROFILE_CATEGORIES.map((category) => ({
+			category,
+			items: cards.filter((item) => item.category === category),
+		})),
+		review: {
+			items: allReviews,
+			visibleItems: visibleReviews,
+			openCount: reviewRows.length,
+			overflowCount: Math.max(0, reviewRows.length - visibleReviews.length),
+		},
+	};
+}
+
+export async function getMemoryProfileItemDetail(params: {
+	userId: string;
+	itemId: string;
+}): Promise<MemoryProfileItemDetail | null> {
+	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const [item] = await db
+		.select()
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.id, params.itemId),
+				eq(memoryProfileItems.resetGeneration, resetGeneration),
+				eq(memoryProfileItems.status, "active"),
+			),
+		)
+		.limit(1);
+	if (!item) return null;
+
+	const provenance = await db
+		.select()
+		.from(memoryProfileItemProvenance)
+		.where(
+			and(
+				eq(memoryProfileItemProvenance.userId, params.userId),
+				eq(memoryProfileItemProvenance.itemId, params.itemId),
+				eq(memoryProfileItemProvenance.resetGeneration, resetGeneration),
+			),
+		)
+		.orderBy(asc(memoryProfileItemProvenance.createdAt))
+		.limit(3);
+
+	return {
+		...toCardItem(item),
+		sourceChips: provenance.map((row) => ({
+			id: row.id,
+			sourceType: row.sourceType,
+			label: row.label,
+			summary: row.summary,
+		})),
+		whyRemembered: provenance[0]?.summary ?? null,
+	};
+}
+
+export async function getActiveMemoryProfileContext(params: {
+	userId: string;
+}): Promise<ActiveMemoryProfileContext> {
+	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const projection = await ensureProjectionState({
+		userId: params.userId,
+		resetGeneration,
+	});
+	const rows = await db
+		.select()
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.resetGeneration, resetGeneration),
+				eq(memoryProfileItems.status, "active"),
+			),
+		)
+		.orderBy(asc(memoryProfileItems.updatedAt));
+
+	return {
+		resetGeneration,
+		projectionRevision: projection.revision,
+		items: rows.map((row) => {
+			assertMemoryProfileCategory(row.category);
+			return {
+				id: row.id,
+				itemKey: row.itemKey,
+				category: row.category,
+				statement: row.statement,
+				scope: fromScopeColumns(row.scopeType, row.scopeId),
+				revision: row.revision,
+				updatedAt: row.updatedAt,
+			};
+		}),
+	};
+}
+
+export async function updateMemoryProfileItemWithRevision(params: {
+	userId: string;
+	itemId: string;
+	expectedProjectionRevision: number;
+	patch: {
+		statement?: string;
+		status?: MemoryProfileItemStatus;
+	};
+}): Promise<
+	| { status: "updated"; projectionRevision: number }
+	| { status: "stale_projection" }
+	| { status: "not_found" }
+> {
+	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const projection = await ensureProjectionState({
+		userId: params.userId,
+		resetGeneration,
+	});
+	const now = new Date();
+	const itemRows = await db
+		.select({ id: memoryProfileItems.id })
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.id, params.itemId),
+				eq(memoryProfileItems.resetGeneration, resetGeneration),
+			),
+		)
+		.limit(1);
+	if (!itemRows[0]) return { status: "not_found" };
+
+	const nextRevision = params.expectedProjectionRevision + 1;
+	const result = db.transaction((tx) => {
+		const projectionClaim = tx
+			.update(memoryProjectionState)
+			.set({
+				revision: sql`${memoryProjectionState.revision} + 1`,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(memoryProjectionState.id, projection.id),
+					eq(memoryProjectionState.revision, params.expectedProjectionRevision),
+				),
+			)
+			.run() as { changes?: number };
+
+		if ((projectionClaim.changes ?? 0) !== 1) {
+			return { status: "stale_projection" as const };
+		}
+
+		tx.update(memoryProfileItems)
+			.set({
+				...(params.patch.statement !== undefined
+					? { statement: params.patch.statement }
+					: {}),
+				...(params.patch.status !== undefined
+					? {
+							status: params.patch.status,
+							deletedAt: params.patch.status === "deleted" ? now : undefined,
+							suppressedAt:
+								params.patch.status === "suppressed" ? now : undefined,
+						}
+					: {}),
+				revision: sql`${memoryProfileItems.revision} + 1`,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(memoryProfileItems.userId, params.userId),
+					eq(memoryProfileItems.id, params.itemId),
+					eq(memoryProfileItems.resetGeneration, resetGeneration),
+				),
+			)
+			.run();
+
+		return {
+			status: "updated" as const,
+			projectionRevision: nextRevision,
+		};
+	});
+
+	return result;
+}
+
+export async function createOrUpdateMemoryReviewItem(params: {
+	userId: string;
+	subjectKey: string;
+	subjectLabel: string;
+	question: string;
+	reason: string;
+	affectedItemIds?: string[];
+	evidence?: unknown[];
+	metadata?: JsonRecord;
+	expectedResetGeneration?: number;
+}): Promise<{ id: string; status: "open"; evidenceCount: number }> {
+	assertPrivacySafeMetadata(params.metadata);
+	const resetGeneration = await assertExpectedMemoryResetGeneration({
+		userId: params.userId,
+		expectedResetGeneration: params.expectedResetGeneration,
+	});
+	const now = new Date();
+	const [existing] = await db
+		.select()
+		.from(memoryReviewItems)
+		.where(
+			and(
+				eq(memoryReviewItems.userId, params.userId),
+				eq(memoryReviewItems.resetGeneration, resetGeneration),
+				eq(memoryReviewItems.subjectKey, params.subjectKey),
+				eq(memoryReviewItems.status, "open"),
+			),
+		)
+		.limit(1);
+
+	if (existing) {
+		const evidence = [
+			...parseJsonArray(existing.evidenceJson),
+			...(params.evidence ?? []),
+		];
+		const affectedItemIds = Array.from(
+			new Set([
+				...parseJsonArray(existing.affectedItemIdsJson).filter(
+					(value): value is string => typeof value === "string",
+				),
+				...(params.affectedItemIds ?? []),
+			]),
+		);
+		await db
+			.update(memoryReviewItems)
+			.set({
+				question: params.question,
+				reason: params.reason,
+				subjectLabel: params.subjectLabel,
+				affectedItemIdsJson: JSON.stringify(affectedItemIds),
+				evidenceJson: JSON.stringify(evidence),
+				metadataJson: JSON.stringify(
+					params.metadata ?? parseJsonRecord(existing.metadataJson),
+				),
+				updatedAt: now,
+			})
+			.where(eq(memoryReviewItems.id, existing.id))
+			.run();
+		return {
+			id: existing.id,
+			status: "open",
+			evidenceCount: evidence.length,
+		};
+	}
+
+	const id = randomUUID();
+	await db
+		.insert(memoryReviewItems)
+		.values({
+			id,
+			userId: params.userId,
+			resetGeneration,
+			subjectKey: params.subjectKey,
+			subjectLabel: params.subjectLabel,
+			question: params.question,
+			reason: params.reason,
+			affectedItemIdsJson: JSON.stringify(params.affectedItemIds ?? []),
+			evidenceJson: JSON.stringify(params.evidence ?? []),
+			metadataJson: JSON.stringify(params.metadata ?? {}),
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	return {
+		id,
+		status: "open",
+		evidenceCount: params.evidence?.length ?? 0,
+	};
+}
+
+export async function resolveMemoryReviewItem(params: {
+	userId: string;
+	reviewItemId: string;
+	resolutionType: MemoryReviewResolutionType;
+	editedStatement?: string;
+	metadata?: JsonRecord;
+}): Promise<{ status: "resolved" } | { status: "not_found" }> {
+	assertOneOf(
+		params.resolutionType,
+		MEMORY_REVIEW_RESOLUTION_TYPES,
+		"memory review resolution",
+	);
+	assertPrivacySafeMetadata(params.metadata);
+	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const [review] = await db
+		.select()
+		.from(memoryReviewItems)
+		.where(
+			and(
+				eq(memoryReviewItems.userId, params.userId),
+				eq(memoryReviewItems.id, params.reviewItemId),
+				eq(memoryReviewItems.resetGeneration, resetGeneration),
+			),
+		)
+		.limit(1);
+	if (!review) return { status: "not_found" };
+
+	const now = new Date();
+	await db.transaction((tx) => {
+		tx.insert(memoryReviewResolutions)
+			.values({
+				id: randomUUID(),
+				reviewItemId: review.id,
+				userId: params.userId,
+				resetGeneration,
+				resolutionType: params.resolutionType,
+				editedStatement: params.editedStatement,
+				metadataJson: JSON.stringify(params.metadata ?? {}),
+				createdAt: now,
+			})
+			.onConflictDoNothing({
+				target: memoryReviewResolutions.reviewItemId,
+			})
+			.run();
+		tx.update(memoryReviewItems)
+			.set({
+				status: "resolved",
+				resolvedAt: now,
+				updatedAt: now,
+			})
+			.where(eq(memoryReviewItems.id, review.id))
+			.run();
+	});
+
+	return { status: "resolved" };
+}
+
+export async function applyMemoryReviewItemWithRevision(params: {
+	userId: string;
+	reviewItemId: string;
+	expectedProjectionRevision: number;
+	action: "accept" | "edit" | "dismiss";
+	statement?: string;
+}): Promise<
+	| {
+			status: "updated";
+			projectionRevision: number;
+			itemId: string | null;
+			category: MemoryProfileCategory | null;
+	  }
+	| { status: "stale_projection" }
+	| { status: "not_found" }
+> {
+	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const projection = await ensureProjectionState({
+		userId: params.userId,
+		resetGeneration,
+	});
+	const [review] = await db
+		.select()
+		.from(memoryReviewItems)
+		.where(
+			and(
+				eq(memoryReviewItems.userId, params.userId),
+				eq(memoryReviewItems.id, params.reviewItemId),
+				eq(memoryReviewItems.resetGeneration, resetGeneration),
+				eq(memoryReviewItems.status, "open"),
+			),
+		)
+		.limit(1);
+	if (!review) return { status: "not_found" };
+
+	const metadata = parseJsonRecord(review.metadataJson);
+	const category =
+		params.action === "dismiss"
+			? null
+			: inferReviewCategory({
+					subject: review.subjectLabel,
+					question: review.question,
+					reason: review.reason,
+					metadata,
+				});
+	const statement =
+		params.action === "dismiss"
+			? null
+			: (params.statement ?? review.subjectLabel).trim();
+	if (params.action !== "dismiss" && !statement) {
+		return { status: "not_found" };
+	}
+
+	const now = new Date();
+	const nextProjectionRevision = params.expectedProjectionRevision + 1;
+	const result = db.transaction((tx) => {
+		const projectionClaim = tx
+			.update(memoryProjectionState)
+			.set({
+				revision: sql`${memoryProjectionState.revision} + 1`,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(memoryProjectionState.id, projection.id),
+					eq(memoryProjectionState.revision, params.expectedProjectionRevision),
+				),
+			)
+			.run() as { changes?: number };
+
+		if ((projectionClaim.changes ?? 0) !== 1) {
+			return { status: "stale_projection" as const };
+		}
+
+		let itemId: string | null = null;
+		if (category && statement) {
+			const scope: MemoryProfileScope = { type: "global" };
+			const scopeColumns = toScopeColumns(scope);
+			const itemKey = resolveMemoryProfileItemKey({
+				category,
+				scope,
+				statement,
+			});
+			const [existing] = tx
+				.select()
+				.from(memoryProfileItems)
+				.where(
+					and(
+						eq(memoryProfileItems.userId, params.userId),
+						eq(memoryProfileItems.resetGeneration, resetGeneration),
+						eq(memoryProfileItems.itemKey, itemKey),
+					),
+				)
+				.limit(1)
+				.all();
+
+			if (existing) {
+				itemId = existing.id;
+				if (existing.status !== "active" || existing.statement !== statement) {
+					tx.update(memoryProfileItems)
+						.set({
+							statement,
+							status: "active",
+							deletedAt: null,
+							suppressedAt: null,
+							revision: sql`${memoryProfileItems.revision} + 1`,
+							updatedAt: now,
+						})
+						.where(eq(memoryProfileItems.id, existing.id))
+						.run();
+				}
+			} else {
+				itemId = randomUUID();
+				tx.insert(memoryProfileItems)
+					.values({
+						id: itemId,
+						userId: params.userId,
+						projectionStateId: projection.id,
+						resetGeneration,
+						itemKey,
+						category,
+						scopeType: scopeColumns.scopeType,
+						scopeId: scopeColumns.scopeId,
+						statement,
+						status: "active",
+						revision: 0,
+						createdAt: now,
+						updatedAt: now,
+					})
+					.run();
+			}
+		}
+
+		const resolutionType: MemoryReviewResolutionType =
+			params.action === "accept"
+				? "use_fact"
+				: params.action === "edit"
+					? "edit_fact"
+					: "do_not_remember";
+		tx.insert(memoryReviewResolutions)
+			.values({
+				id: randomUUID(),
+				reviewItemId: review.id,
+				userId: params.userId,
+				resetGeneration,
+				resolutionType,
+				editedStatement: params.action === "edit" ? statement : undefined,
+				metadataJson: JSON.stringify({
+					action: params.action,
+					category,
+				}),
+				createdAt: now,
+			})
+			.onConflictDoNothing({
+				target: memoryReviewResolutions.reviewItemId,
+			})
+			.run();
+		tx.update(memoryReviewItems)
+			.set({
+				status: "resolved",
+				resolvedAt: now,
+				updatedAt: now,
+			})
+			.where(eq(memoryReviewItems.id, review.id))
+			.run();
+
+		return {
+			status: "updated" as const,
+			projectionRevision: nextProjectionRevision,
+			itemId,
+			category,
+		};
+	});
+
+	return result;
+}
+
+export async function markMemoryDirty(params: {
+	userId: string;
+	reason: MemoryDirtyReason;
+	scope?: MemoryProfileScope;
+	metadata?: JsonRecord;
+	expectedResetGeneration?: number;
+}): Promise<{ id: string; reason: MemoryDirtyReason; count: number }> {
+	assertOneOf(params.reason, MEMORY_DIRTY_REASONS, "memory dirty reason");
+	assertPrivacySafeMetadata(params.metadata);
+	const resetGeneration = await assertExpectedMemoryResetGeneration({
+		userId: params.userId,
+		expectedResetGeneration: params.expectedResetGeneration,
+	});
+	const scope = toScopeColumns(params.scope ?? { type: "global" });
+	const now = new Date();
+	const [existing] = await db
+		.select()
+		.from(memoryDirtyLedger)
+		.where(
+			and(
+				eq(memoryDirtyLedger.userId, params.userId),
+				eq(memoryDirtyLedger.resetGeneration, resetGeneration),
+				eq(memoryDirtyLedger.scopeType, scope.scopeType),
+				eq(memoryDirtyLedger.scopeId, scope.scopeId),
+				eq(memoryDirtyLedger.reason, params.reason),
+				eq(memoryDirtyLedger.status, "pending"),
+			),
+		)
+		.limit(1);
+
+	if (existing) {
+		const metadata = {
+			...parseJsonRecord(existing.reasonMetadataJson),
+			...(params.metadata ?? {}),
+		};
+		await db
+			.update(memoryDirtyLedger)
+			.set({
+				count: sql`${memoryDirtyLedger.count} + 1`,
+				reasonMetadataJson: JSON.stringify(metadata),
+				lastMarkedAt: now,
+			})
+			.where(eq(memoryDirtyLedger.id, existing.id))
+			.run();
+		return {
+			id: existing.id,
+			reason: params.reason,
+			count: existing.count + 1,
+		};
+	}
+
+	const id = randomUUID();
+	await db
+		.insert(memoryDirtyLedger)
+		.values({
+			id,
+			userId: params.userId,
+			resetGeneration,
+			scopeType: scope.scopeType,
+			scopeId: scope.scopeId,
+			reason: params.reason,
+			reasonMetadataJson: JSON.stringify(params.metadata ?? {}),
+			firstMarkedAt: now,
+			lastMarkedAt: now,
+		})
+		.run();
+	return { id, reason: params.reason, count: 1 };
+}
+
+export async function listPendingMemoryDirtyEntries(params: {
+	userId: string;
+}): Promise<
+	Array<{
+		id: string;
+		reason: MemoryDirtyReason;
+		count: number;
+		scope: MemoryProfileScope;
+		metadata: JsonRecord;
+	}>
+> {
+	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const rows = await db
+		.select()
+		.from(memoryDirtyLedger)
+		.where(
+			and(
+				eq(memoryDirtyLedger.userId, params.userId),
+				eq(memoryDirtyLedger.resetGeneration, resetGeneration),
+				eq(memoryDirtyLedger.status, "pending"),
+			),
+		)
+		.orderBy(asc(memoryDirtyLedger.lastMarkedAt));
+
+	return rows.map((row) => {
+		assertOneOf(row.reason, MEMORY_DIRTY_REASONS, "memory dirty reason");
+		return {
+			id: row.id,
+			reason: row.reason,
+			count: row.count,
+			scope: fromScopeColumns(row.scopeType, row.scopeId),
+			metadata: parseJsonRecord(row.reasonMetadataJson),
+		};
+	});
+}
+
+const DEFAULT_MEMORY_DIRTY_LEDGER_BATCH_SIZE = 25;
+const DEFAULT_MEMORY_DIRTY_LEDGER_MAX_RUNTIME_MS = 1500;
+const LEGACY_DIRTY_LEDGER_CANDIDATE_LIMIT = 5;
+
+type ClaimedDirtyLedgerRow = typeof memoryDirtyLedger.$inferSelect;
+
+function telemetrySubjectIdForDirtyMetadata(
+	metadata: JsonRecord,
+): string | null {
+	return (
+		readSafeString(metadata.reviewItemId) ??
+		readSafeString(metadata.subjectId) ??
+		readSafeString(metadata.subjectKey) ??
+		readSafeString(metadata.itemId) ??
+		readSafeString(metadata.projectionStateId)
+	);
+}
+
+function claimNextMemoryDirtyLedgerRow(params: {
+	userId: string;
+	resetGeneration: number;
+	attemptedIds: Set<string>;
+}): ClaimedDirtyLedgerRow | null {
+	const now = new Date();
+	return db.transaction((tx) => {
+		const rows = tx
+			.select()
+			.from(memoryDirtyLedger)
+			.where(
+				and(
+					eq(memoryDirtyLedger.userId, params.userId),
+					eq(memoryDirtyLedger.resetGeneration, params.resetGeneration),
+					eq(memoryDirtyLedger.status, "pending"),
+				),
+			)
+			.orderBy(asc(memoryDirtyLedger.lastMarkedAt))
+			.limit(Math.max(1, params.attemptedIds.size + 1))
+			.all();
+		const row = rows.find(
+			(candidate) => !params.attemptedIds.has(candidate.id),
+		);
+		if (!row) return null;
+
+		const claim = tx
+			.update(memoryDirtyLedger)
+			.set({
+				status: "claimed",
+				claimedAt: now,
+			})
+			.where(
+				and(
+					eq(memoryDirtyLedger.id, row.id),
+					eq(memoryDirtyLedger.userId, params.userId),
+					eq(memoryDirtyLedger.resetGeneration, params.resetGeneration),
+					eq(memoryDirtyLedger.status, "pending"),
+				),
+			)
+			.run() as { changes?: number };
+
+		return (claim.changes ?? 0) === 1
+			? {
+					...row,
+					status: "claimed",
+					claimedAt: now,
+				}
+			: null;
+	});
+}
+
+async function completeClaimedMemoryDirtyLedgerRow(params: {
+	userId: string;
+	resetGeneration: number;
+	id: string;
+}): Promise<boolean> {
+	const result = (await db
+		.update(memoryDirtyLedger)
+		.set({
+			status: "completed",
+			completedAt: new Date(),
+		})
+		.where(
+			and(
+				eq(memoryDirtyLedger.id, params.id),
+				eq(memoryDirtyLedger.userId, params.userId),
+				eq(memoryDirtyLedger.resetGeneration, params.resetGeneration),
+				eq(memoryDirtyLedger.status, "claimed"),
+			),
+		)
+		.run()) as { changes?: number };
+
+	return (result.changes ?? 0) === 1;
+}
+
+async function requeueClaimedMemoryDirtyLedgerRow(params: {
+	userId: string;
+	resetGeneration: number;
+	id: string;
+}): Promise<void> {
+	await db
+		.update(memoryDirtyLedger)
+		.set({
+			status: "pending",
+			claimedAt: null,
+		})
+		.where(
+			and(
+				eq(memoryDirtyLedger.id, params.id),
+				eq(memoryDirtyLedger.userId, params.userId),
+				eq(memoryDirtyLedger.resetGeneration, params.resetGeneration),
+				eq(memoryDirtyLedger.status, "claimed"),
+			),
+		)
+		.run();
+}
+
+async function handleClaimedMemoryDirtyLedgerRow(params: {
+	userId: string;
+	row: ClaimedDirtyLedgerRow;
+	loadLegacyMemoryCandidates?: LegacyMemoryCandidateLoader;
+}): Promise<void> {
+	assertOneOf(params.row.reason, MEMORY_DIRTY_REASONS, "memory dirty reason");
+	const metadata = parseJsonRecord(params.row.reasonMetadataJson);
+	if (
+		params.row.reason === "possible_duplicate" ||
+		params.row.reason === "review_generation"
+	) {
+		const reviewCount = await createExactDuplicateMemoryReviews({
+			userId: params.userId,
+			resetGeneration: params.row.resetGeneration,
+			ledgerEntryId: params.row.id,
+		});
+		await recordMemoryReworkTelemetry({
+			userId: params.userId,
+			eventFamily: "maintenance",
+			eventName:
+				reviewCount > 0
+					? "dirty_ledger_duplicate_review_created"
+					: "dirty_ledger_acknowledged",
+			reason: params.row.reason,
+			status: "completed",
+			count: reviewCount,
+			subjectId: telemetrySubjectIdForDirtyMetadata(metadata) ?? undefined,
+			metadata: {
+				ledgerEntryId: params.row.id,
+				scopeType: params.row.scopeType,
+				scopeId: params.row.scopeId,
+				reviewCount,
+			},
+		});
+		return;
+	}
+	if (params.row.reason === "possible_conflict") {
+		const subjectId = readSafeString(metadata.subjectId);
+		const subjectKey = readSafeString(metadata.subjectKey);
+		const deterministicSubject = subjectId ?? subjectKey;
+		if (deterministicSubject) {
+			await createOrUpdateMemoryReviewItem({
+				userId: params.userId,
+				subjectKey: `memory-profile:conflict:${stableMemoryMaintenanceDigest(deterministicSubject)}`,
+				subjectLabel: "Memory profile conflict",
+				question: "Which memory profile value should AlfyAI keep?",
+				reason: "Maintenance found a deterministic conflict marker.",
+				affectedItemIds: subjectId ? [subjectId] : [],
+				evidence: [
+					{
+						sourceType: "memory_dirty_ledger",
+						ledgerEntryId: params.row.id,
+					},
+				],
+				metadata: {
+					source: "dirty_ledger_reconciliation",
+					subjectKind: subjectId ? "subjectId" : "subjectKey",
+					subjectToken: stableMemoryMaintenanceDigest(deterministicSubject),
+				},
+			});
+			await recordMemoryReworkTelemetry({
+				userId: params.userId,
+				eventFamily: "maintenance",
+				eventName: "dirty_ledger_conflict_review_created",
+				reason: params.row.reason,
+				status: "completed",
+				count: params.row.count,
+				subjectId: deterministicSubject,
+				metadata: {
+					ledgerEntryId: params.row.id,
+					scopeType: params.row.scopeType,
+					scopeId: params.row.scopeId,
+				},
+			});
+			return;
+		}
+	}
+	if (params.row.reason === "profile_action_reconciliation") {
+		await verifyProfileActionReadModelExclusion({
+			userId: params.userId,
+			resetGeneration: params.row.resetGeneration,
+			ledgerEntryId: params.row.id,
+		});
+		return;
+	}
+	if (params.row.reason === "legacy_migration") {
+		let legacyBatch: LegacyPersonaMemoryCandidateBatch | undefined;
+		if (params.loadLegacyMemoryCandidates) {
+			try {
+				legacyBatch = await params.loadLegacyMemoryCandidates(params.userId, {
+					limit: LEGACY_DIRTY_LEDGER_CANDIDATE_LIMIT,
+				});
+			} catch {
+				legacyBatch = undefined;
+			}
+		}
+		const migration = await migrateLegacyMemoryForUser({
+			userId: params.userId,
+			batchSize: LEGACY_DIRTY_LEDGER_CANDIDATE_LIMIT,
+			legacyBatch,
+		});
+		if (migration.status === "unavailable") {
+			await recordMemoryReworkTelemetry({
+				userId: params.userId,
+				eventFamily: "maintenance",
+				eventName: "legacy_migration_unavailable",
+				reason: params.row.reason,
+				status: "skipped",
+				count: params.row.count,
+				metadata: {
+					ledgerEntryId: params.row.id,
+					scopeType: params.row.scopeType,
+					scopeId: params.row.scopeId,
+				},
+			});
+		}
+		return;
+	}
+
+	await recordMemoryReworkTelemetry({
+		userId: params.userId,
+		eventFamily: "maintenance",
+		eventName: "dirty_ledger_acknowledged",
+		reason: params.row.reason,
+		status: "completed",
+		count: params.row.count,
+		subjectId: telemetrySubjectIdForDirtyMetadata(metadata) ?? undefined,
+		metadata: {
+			ledgerEntryId: params.row.id,
+			scopeType: params.row.scopeType,
+			scopeId: params.row.scopeId,
+			dirtyCount: params.row.count,
+		},
+	});
+}
+
+async function verifyProfileActionReadModelExclusion(params: {
+	userId: string;
+	resetGeneration: number;
+	ledgerEntryId: string;
+}): Promise<void> {
+	const activeContext = await getActiveMemoryProfileContext({
+		userId: params.userId,
+	});
+	const rows = await db
+		.select({
+			id: memoryProfileItems.id,
+			status: memoryProfileItems.status,
+		})
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+			),
+		);
+	const nonActiveIds = new Set(
+		rows.filter((row) => row.status !== "active").map((row) => row.id),
+	);
+	const leakedIds = activeContext.items
+		.map((item) => item.id)
+		.filter((id) => nonActiveIds.has(id));
+
+	await recordMemoryReworkTelemetry({
+		userId: params.userId,
+		eventFamily: "maintenance",
+		eventName:
+			leakedIds.length > 0
+				? "dirty_ledger_profile_action_issue_found"
+				: "dirty_ledger_profile_action_read_model_verified",
+		reason: "profile_action_reconciliation",
+		status: leakedIds.length > 0 ? "issue_found" : "completed",
+		count: leakedIds.length,
+		metadata: {
+			ledgerEntryId: params.ledgerEntryId,
+			activeContextCount: activeContext.items.length,
+			nonActiveProfileItemCount: nonActiveIds.size,
+			...(leakedIds.length > 0 ? { affectedItemIds: leakedIds } : {}),
+		},
+	});
+}
+
+async function createExactDuplicateMemoryReviews(params: {
+	userId: string;
+	resetGeneration: number;
+	ledgerEntryId: string;
+}): Promise<number> {
+	const rows = await db
+		.select()
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+				eq(memoryProfileItems.status, "active"),
+			),
+		)
+		.orderBy(asc(memoryProfileItems.updatedAt));
+
+	const groups = new Map<string, typeof rows>();
+	for (const row of rows) {
+		assertMemoryProfileCategory(row.category);
+		const key = [
+			row.category,
+			row.scopeType,
+			row.scopeId,
+			normalizeRememberedStatement(row.statement),
+		].join("\u001f");
+		const group = groups.get(key);
+		if (group) {
+			group.push(row);
+		} else {
+			groups.set(key, [row]);
+		}
+	}
+
+	let reviewCount = 0;
+	for (const [key, group] of groups.entries()) {
+		if (group.length < 2) continue;
+		const [category, scopeType, scopeId] = key.split("\u001f");
+		assertMemoryProfileCategory(category);
+		const affectedItemIds = group.map((row) => row.id).sort();
+		await createOrUpdateMemoryReviewItem({
+			userId: params.userId,
+			subjectKey: `memory-profile:exact-duplicate:${stableMemoryMaintenanceDigest(key)}`,
+			subjectLabel: "Duplicate memory profile items",
+			question: "Which duplicate memory profile item should remain active?",
+			reason: "Maintenance found exact active duplicate memory profile items.",
+			affectedItemIds,
+			evidence: [
+				{
+					sourceType: "memory_dirty_ledger",
+					ledgerEntryId: params.ledgerEntryId,
+					affectedItemIds,
+				},
+			],
+			metadata: {
+				category,
+				scopeType,
+				scopeId: scopeId ?? "",
+				duplicateCount: group.length,
+				source: "dirty_ledger_reconciliation",
+			},
+		});
+		reviewCount += 1;
+	}
+
+	return reviewCount;
+}
+
+export async function reconcileMemoryProfileDirtyLedgerForUser(params: {
+	userId: string;
+	batchSize?: number;
+	maxRuntimeMs?: number;
+	loadLegacyMemoryCandidates?: LegacyMemoryCandidateLoader;
+}): Promise<MemoryDirtyLedgerReconciliationResult> {
+	const batchSize = Math.max(
+		0,
+		Math.floor(params.batchSize ?? DEFAULT_MEMORY_DIRTY_LEDGER_BATCH_SIZE),
+	);
+	const maxRuntimeMs = Math.max(
+		1,
+		Math.floor(
+			params.maxRuntimeMs ?? DEFAULT_MEMORY_DIRTY_LEDGER_MAX_RUNTIME_MS,
+		),
+	);
+	const startedAt = Date.now();
+	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const result: MemoryDirtyLedgerReconciliationResult = {
+		claimed: 0,
+		completed: 0,
+		failed: 0,
+		skipped: 0,
+		timedOut: false,
+	};
+	const attemptedIds = new Set<string>();
+
+	while (result.claimed < batchSize) {
+		if (Date.now() - startedAt >= maxRuntimeMs) {
+			result.timedOut = true;
+			break;
+		}
+
+		const row = claimNextMemoryDirtyLedgerRow({
+			userId: params.userId,
+			resetGeneration,
+			attemptedIds,
+		});
+		if (!row) break;
+		attemptedIds.add(row.id);
+		result.claimed += 1;
+
+		try {
+			await handleClaimedMemoryDirtyLedgerRow({
+				userId: params.userId,
+				row,
+				loadLegacyMemoryCandidates: params.loadLegacyMemoryCandidates,
+			});
+			const completed = await completeClaimedMemoryDirtyLedgerRow({
+				userId: params.userId,
+				resetGeneration,
+				id: row.id,
+			});
+			if (completed) {
+				result.completed += 1;
+			} else {
+				result.skipped += 1;
+			}
+		} catch (error) {
+			result.failed += 1;
+			try {
+				await requeueClaimedMemoryDirtyLedgerRow({
+					userId: params.userId,
+					resetGeneration,
+					id: row.id,
+				});
+				await recordMemoryReworkTelemetry({
+					userId: params.userId,
+					eventFamily: "error_fallback",
+					eventName: "dirty_ledger_reconciliation_failed",
+					reason: row.reason,
+					status: "retry_pending",
+					count: row.count,
+					subjectId:
+						telemetrySubjectIdForDirtyMetadata(
+							parseJsonRecord(row.reasonMetadataJson),
+						) ?? undefined,
+					metadata: {
+						ledgerEntryId: row.id,
+						errorName: error instanceof Error ? error.name : "UnknownError",
+					},
+				});
+			} catch (telemetryError) {
+				console.warn("[MEMORY_PROFILE] Dirty ledger retry failed", {
+					userId: params.userId,
+					ledgerEntryId: row.id,
+					reason: row.reason,
+					errorName:
+						telemetryError instanceof Error
+							? telemetryError.name
+							: "UnknownError",
+				});
+			}
+		}
+	}
+
+	return result;
+}
+
+export async function recordMemoryReworkTelemetry(params: {
+	userId: string;
+	eventFamily: MemoryReworkTelemetryFamily;
+	eventName: string;
+	category?: MemoryProfileCategory;
+	reason?: string;
+	status?: string;
+	count?: number;
+	durationMs?: number;
+	subjectId?: string;
+	metadata?: JsonRecord;
+	expectedResetGeneration?: number;
+}): Promise<{ id: string }> {
+	assertOneOf(
+		params.eventFamily,
+		MEMORY_REWORK_TELEMETRY_FAMILIES,
+		"memory telemetry family",
+	);
+	if (params.category) {
+		assertMemoryProfileCategory(params.category);
+	}
+	assertPrivacySafeMetadata(params.metadata);
+	const resetGeneration = await assertExpectedMemoryResetGeneration({
+		userId: params.userId,
+		expectedResetGeneration: params.expectedResetGeneration,
+	});
+	const id = randomUUID();
+	await db
+		.insert(memoryReworkTelemetry)
+		.values({
+			id,
+			userId: params.userId,
+			resetGeneration,
+			eventFamily: params.eventFamily,
+			eventName: params.eventName,
+			category: params.category,
+			reason: params.reason,
+			status: params.status,
+			count: params.count,
+			durationMs: params.durationMs,
+			subjectId: params.subjectId,
+			metadataJson: JSON.stringify(params.metadata ?? {}),
+			createdAt: new Date(),
+		})
+		.run();
+	return { id };
+}
+
+export async function listMemoryReworkTelemetry(params: {
+	userId: string;
+}): Promise<
+	Array<{
+		id: string;
+		eventFamily: MemoryReworkTelemetryFamily;
+		eventName: string;
+		category: MemoryProfileCategory | null;
+		reason: string | null;
+		status: string | null;
+		count: number | null;
+		durationMs: number | null;
+		subjectId: string | null;
+		metadata: JsonRecord;
+	}>
+> {
+	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const rows = await db
+		.select()
+		.from(memoryReworkTelemetry)
+		.where(
+			and(
+				eq(memoryReworkTelemetry.userId, params.userId),
+				eq(memoryReworkTelemetry.resetGeneration, resetGeneration),
+			),
+		)
+		.orderBy(asc(memoryReworkTelemetry.createdAt));
+
+	return rows.map((row) => {
+		assertOneOf(
+			row.eventFamily,
+			MEMORY_REWORK_TELEMETRY_FAMILIES,
+			"memory telemetry family",
+		);
+		let category: MemoryProfileCategory | null = null;
+		if (row.category) {
+			assertMemoryProfileCategory(row.category);
+			category = row.category;
+		}
+		return {
+			id: row.id,
+			eventFamily: row.eventFamily,
+			eventName: row.eventName,
+			category,
+			reason: row.reason,
+			status: row.status,
+			count: row.count,
+			durationMs: row.durationMs,
+			subjectId: row.subjectId,
+			metadata: parseJsonRecord(row.metadataJson),
+		};
+	});
+}

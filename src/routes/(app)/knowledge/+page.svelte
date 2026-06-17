@@ -1,80 +1,54 @@
 <script lang="ts">
 import { goto, invalidateAll } from "$app/navigation";
-import { untrack } from "svelte";
+import { browser } from "$app/environment";
 import {
 	deleteKnowledgeArtifact,
-	fetchKnowledgeMemory,
-	fetchKnowledgeMemoryOverview,
-	submitKnowledgeBulkAction,
+	fetchMemoryProfile,
 	submitKnowledgeMemoryAction,
 	uploadKnowledgeAttachment,
-	type KnowledgeBulkAction,
 	type KnowledgeMemoryActionPayload,
 } from "$lib/client/api/knowledge";
-import { browser } from "$app/environment";
 import { buildChatSourceMessageHref } from "$lib/client/document-workspace-navigation";
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import { t } from "$lib/i18n";
 
-import KnowledgeMemoryModal from "./_components/KnowledgeMemoryModal.svelte";
 import KnowledgeMemoryView from "./_components/KnowledgeMemoryView.svelte";
 import DocumentsList from "./_components/DocumentsList.svelte";
 // biome-ignore lint/style/useImportType: this component must remain a runtime import for SSR rendering.
 import KnowledgeWorkspaceCoordinatorComponent from "./_components/KnowledgeWorkspaceCoordinator.svelte";
 import type {
 	DocumentWorkspaceItem,
-	FocusContinuityItem,
 	KnowledgeDocumentItem,
-	KnowledgeMemoryPayload,
-	KnowledgeMemorySummary,
-	PersonaMemoryItem,
-	TaskMemoryItem,
-	WorkCapsule,
+	MemoryProfileActionPayload,
+	MemoryProfilePublicPayload,
 } from "$lib/types";
-import {
-	getDefaultPersonaMemoryFilter,
-	toWorkspaceDocument,
-	type FocusContinuityView,
-	type MemoryModal,
-	type PersonaMemoryFilter,
-} from "./_helpers";
+import { toWorkspaceDocument } from "./_helpers";
 import type { PageProps } from "./$types";
 
-const OVERVIEW_POLL_INTERVAL_MS = 20_000;
-const OVERVIEW_POLL_MAX_ATTEMPTS = 15;
-const MEMORY_UPDATE_ERROR_MESSAGE = "Failed to update memory profile.";
 type DocumentSortKey = "name" | "size" | "type" | "date";
 type SortDirection = "asc" | "desc";
 type KnowledgeWorkspaceCoordinator = KnowledgeWorkspaceCoordinatorComponent;
+type KnowledgeTab = "memory" | "documents";
+
+const MEMORY_UPDATE_ERROR_MESSAGE = "Failed to update memory profile.";
 
 let { data }: PageProps = $props();
 const getData = () => data;
 const initialDocuments = (getData().documents ?? []) as KnowledgeDocumentItem[];
 const initialLibrary = getData().library;
 
+let activeTab = $state<KnowledgeTab>(getData().initialTab ?? "memory");
 let documents = $state<KnowledgeDocumentItem[]>(initialDocuments);
-let personaMemories = $state<PersonaMemoryItem[]>([]);
-let taskMemories = $state<TaskMemoryItem[]>([]);
-let focusContinuities = $state<FocusContinuityItem[]>([]);
-let memorySummary = $state<KnowledgeMemorySummary>({
-	personaCount: 0,
-	taskCount: 0,
-	focusContinuityCount: 0,
-	activeConstraintCount: 0,
-	currentProjectContextCount: 0,
-	overview: null,
-	overviewBullets: [],
-	overviewSource: null,
-	overviewStatus: "disabled",
-	overviewUpdatedAt: null,
-	overviewLastAttemptAt: null,
-	durablePersonaCount: 0,
-});
-const honchoEnabled = getData().honchoEnabled ?? false;
-
 let deletingArtifactIds = $state(new Set<string>());
+let manageError = $state("");
 
-// Coordinator bridge for workspace document management
+let memoryProfile = $state<MemoryProfilePublicPayload | null>(null);
+let memoryLoaded = $state(false);
+let memoryLoading = $state(false);
+let memoryLoadError = $state("");
+let pendingMemoryActionKey = $state<string | null>(null);
+let hasRequestedInitialMemoryProfile = $state(false);
+
 let workspaceCoordinator: KnowledgeWorkspaceCoordinator | undefined = $state();
 let workspaceOpenRequestSequence = 0;
 let workspaceOpenRequest = $state<{
@@ -82,63 +56,6 @@ let workspaceOpenRequest = $state<{
 	document: DocumentWorkspaceItem;
 } | null>(null);
 
-let pendingMemoryActionKey = $state<string | null>(null);
-let pendingKnowledgeActionKey = $state<string | null>(null);
-let manageError = $state("");
-
-// Generic confirmation state machine for memory/library actions
-type ConfirmationKind =
-	| "memory_action"
-	| "bulk_persona_forget"
-	| "bulk_task_forget"
-	| "bulk_focus_continuity_forget"
-	| "knowledge_action";
-interface PendingConfirmation {
-	kind: ConfirmationKind;
-	title: string;
-	message: string;
-	onConfirm: () => void;
-}
-let pendingConfirmation = $state<PendingConfirmation | null>(null);
-
-function showConfirmation(
-	kind: ConfirmationKind,
-	title: string,
-	message: string,
-	onConfirm: () => void,
-): boolean {
-	pendingConfirmation = { kind, title, message, onConfirm };
-	return false; // Return false to pause execution; onConfirm will be called if user confirms
-}
-
-function handleConfirmationConfirm() {
-	const confirmation = pendingConfirmation;
-	pendingConfirmation = null;
-	if (confirmation) {
-		confirmation.onConfirm();
-	}
-}
-
-function handleConfirmationCancel() {
-	pendingConfirmation = null;
-}
-let memoryLoaded = $state(false);
-let memoryOverviewLoaded = $state(false);
-let memoryOverviewLoading = $state(false);
-let memoryLoading = $state(false);
-let memoryLoadError = $state("");
-let liveOverviewRefreshing = $state(false);
-let liveOverviewPollAttempts = $state(0);
-let memoryTabVisible = $state(true);
-let activeMemoryModal = $state<MemoryModal>(null);
-let selectedPersonaMemoryIds = $state<string[]>([]);
-let personaMemoryFilter = $state<PersonaMemoryFilter>("active");
-let selectedTaskMemoryIds = $state<string[]>([]);
-let selectedFocusContinuityIds = $state<string[]>([]);
-let focusContinuityView = $state<FocusContinuityView>("tasks");
-const userDisplayName = getData().userDisplayName?.trim() || "You";
-
-// Documents section state
 function coerceDocumentPaginationLimit(
 	value: number | null | undefined,
 ): 20 | 50 | 100 {
@@ -169,40 +86,74 @@ let documentSortDirection = $state<SortDirection>(
 let documentDeleteCandidateId = $state<string | null>(null);
 let bulkDeleteCandidateIds = $state<string[] | null>(null);
 let bulkDeleteSuccessVersion = $state(0);
-let deletingArtifactCount = $derived(deletingArtifactIds.size);
-let filteredPersonaMemories = $derived(
-	personaMemories.filter((memory) => memory.state === personaMemoryFilter),
-);
-let personaMemoryStateCounts = $derived.by(() => ({
-	active: personaMemories.filter((memory) => memory.state === "active").length,
-	dormant: personaMemories.filter((memory) => memory.state === "dormant")
-		.length,
-	archived: personaMemories.filter((memory) => memory.state === "archived")
-		.length,
-}));
-let personaMemoryCount = $derived(memorySummary.personaCount ?? 0);
-let focusContinuityItemCount = $derived(
-	(memorySummary.taskCount ?? 0) + (memorySummary.focusContinuityCount ?? 0),
-);
 
-let overviewBullets = $derived(memorySummary.overviewBullets ?? []);
-let overviewSource = $derived(memorySummary.overviewSource);
-let overviewStatus = $derived(memorySummary.overviewStatus);
-let overviewUpdatedAt = $derived(memorySummary.overviewUpdatedAt);
-let overviewLastAttemptAt = $derived(memorySummary.overviewLastAttemptAt);
-let durablePersonaCount = $derived(memorySummary.durablePersonaCount);
-let activeConstraintCount = $derived(memorySummary.activeConstraintCount ?? 0);
-let currentProjectContextCount = $derived(
-	memorySummary.currentProjectContextCount ?? 0,
-);
+function setInitialTabFromLocation() {
+	if (!browser) return;
+	const searchParams = new URLSearchParams(window.location.search);
+	const requestedTab = searchParams.get("tab");
+	const hasDocumentQuery =
+		searchParams.has("q") ||
+		searchParams.has("sort") ||
+		searchParams.has("dir") ||
+		searchParams.has("page") ||
+		searchParams.has("pageSize");
+	activeTab = requestedTab === "documents" || hasDocumentQuery ? "documents" : "memory";
+}
 
-// Documents section handlers
+function syncSearchParam(
+	searchParams: URLSearchParams,
+	key: string,
+	value: string | null,
+) {
+	if (value) {
+		searchParams.set(key, value);
+		return;
+	}
+	searchParams.delete(key);
+}
+
+function syncDocumentUrlState(
+	searchParams: URLSearchParams,
+	params: {
+		tab: KnowledgeTab;
+		query: string;
+		sortKey: DocumentSortKey;
+		sortDirection: SortDirection;
+		page: number;
+		pageSize: number;
+	},
+) {
+	syncSearchParam(searchParams, "tab", params.tab === "documents" ? "documents" : null);
+	syncSearchParam(searchParams, "q", params.query.trim() || null);
+	syncSearchParam(
+		searchParams,
+		"sort",
+		params.sortKey === "date" ? null : params.sortKey,
+	);
+	syncSearchParam(
+		searchParams,
+		"dir",
+		params.sortDirection === "desc" ? null : params.sortDirection,
+	);
+	syncSearchParam(
+		searchParams,
+		"page",
+		params.page > 1 ? String(params.page) : null,
+	);
+	syncSearchParam(
+		searchParams,
+		"pageSize",
+		params.pageSize !== 20 ? String(params.pageSize) : null,
+	);
+}
+
 function buildKnowledgeLibraryUrl(params: {
 	query?: string;
 	sortKey?: DocumentSortKey;
 	sortDirection?: SortDirection;
 	page?: number;
 	pageSize?: number;
+	tab?: KnowledgeTab;
 }): string {
 	const searchParams = browser
 		? new URLSearchParams(window.location.search)
@@ -212,36 +163,19 @@ function buildKnowledgeLibraryUrl(params: {
 	const sortDirection = params.sortDirection ?? documentSortDirection;
 	const page = params.page ?? documentCurrentPage;
 	const pageSize = params.pageSize ?? documentPaginationLimit;
+	const tab = params.tab ?? activeTab;
 
-	if (query.trim()) {
-		searchParams.set("q", query.trim());
-	} else {
-		searchParams.delete("q");
-	}
-	if (sortKey === "date") {
-		searchParams.delete("sort");
-	} else {
-		searchParams.set("sort", sortKey);
-	}
-	if (sortDirection === "desc") {
-		searchParams.delete("dir");
-	} else {
-		searchParams.set("dir", sortDirection);
-	}
-	if (page > 1) {
-		searchParams.set("page", String(page));
-	} else {
-		searchParams.delete("page");
-	}
-	if (pageSize !== 20) {
-		searchParams.set("pageSize", String(pageSize));
-	} else {
-		searchParams.delete("pageSize");
-	}
+	syncDocumentUrlState(searchParams, {
+		tab,
+		query,
+		sortKey,
+		sortDirection,
+		page,
+		pageSize,
+	});
 
 	const queryString = searchParams.toString();
-	const hash = browser ? window.location.hash : "";
-	return queryString ? `/knowledge?${queryString}${hash}` : `/knowledge${hash}`;
+	return queryString ? `/knowledge?${queryString}` : "/knowledge";
 }
 
 async function updateKnowledgeLibraryParams(params: {
@@ -252,7 +186,16 @@ async function updateKnowledgeLibraryParams(params: {
 	pageSize?: number;
 }) {
 	if (!browser) return;
-	await goto(buildKnowledgeLibraryUrl(params), {
+	await goto(buildKnowledgeLibraryUrl({ ...params, tab: "documents" }), {
+		keepFocus: true,
+		noScroll: true,
+	});
+}
+
+function handleTabChange(tab: KnowledgeTab) {
+	activeTab = tab;
+	if (!browser) return;
+	void goto(buildKnowledgeLibraryUrl({ tab }), {
 		keepFocus: true,
 		noScroll: true,
 	});
@@ -308,23 +251,17 @@ function removeDeletingArtifact(id: string) {
 }
 
 function handleDocumentDownload(documentId: string) {
-	// Find the document to get the artifact ID
-	const document = documents.find((d) => d.id === documentId);
+	if (!browser) return;
+	const document = documents.find((candidate) => candidate.id === documentId);
 	if (!document) return;
-
 	const artifactId = toWorkspaceDocument(document).artifactId;
 	if (!artifactId) return;
-
-	// Trigger download via API endpoint
-	const downloadUrl = `/api/knowledge/${artifactId}/download`;
-	window.open(downloadUrl, "_blank");
+	window.open(`/api/knowledge/${artifactId}/download`, "_blank");
 }
 
 async function handleDocumentDelete(documentId: string) {
-	const document = documents.find((d) => d.id === documentId);
-	if (!document) return;
-
-	await removeArtifact(documentId);
+	if (!documents.some((document) => document.id === documentId)) return;
+	documentDeleteCandidateId = documentId;
 }
 
 async function handleBulkDocumentDelete(
@@ -332,7 +269,34 @@ async function handleBulkDocumentDelete(
 ): Promise<boolean> {
 	if (documentIds.length === 0) return false;
 	bulkDeleteCandidateIds = documentIds;
-	return false; // Return false - actual deletion happens after confirmation
+	return false;
+}
+
+async function deleteDocumentById(
+	documentId: string,
+): Promise<{
+	deletedDocument: KnowledgeDocumentItem | null;
+	failureName: string | null;
+}> {
+	const document = documents.find((candidate) => candidate.id === documentId);
+	if (!document) return { deletedDocument: null, failureName: null };
+
+	addDeletingArtifact(documentId);
+	try {
+		const payload = await deleteKnowledgeArtifact(documentId);
+		if (payload.success === false) {
+			throw new Error(
+				payload.message ??
+					payload.error ??
+					$t("knowledge.failedRemoveArtifact"),
+			);
+		}
+		return { deletedDocument: document, failureName: null };
+	} catch {
+		return { deletedDocument: null, failureName: document.name };
+	} finally {
+		removeDeletingArtifact(documentId);
+	}
 }
 
 async function executeBulkDocumentDelete(documentIds: string[]) {
@@ -340,45 +304,22 @@ async function executeBulkDocumentDelete(documentIds: string[]) {
 
 	manageError = "";
 	const failures: string[] = [];
+	const deletedDocuments: KnowledgeDocumentItem[] = [];
 
 	for (const documentId of documentIds) {
-		const document = documents.find((d) => d.id === documentId);
-		if (!document) continue;
-
-		addDeletingArtifact(documentId);
-
-		try {
-			const payload = await deleteKnowledgeArtifact(documentId);
-			if (payload.success === false) {
-				throw new Error(
-					payload.message ??
-						payload.error ??
-						$t("knowledge.failedRemoveArtifact"),
-				);
-			}
-		} catch (error) {
-			failures.push(document.name);
-		} finally {
-			removeDeletingArtifact(documentId);
-		}
+		const result = await deleteDocumentById(documentId);
+		if (result.deletedDocument) deletedDocuments.push(result.deletedDocument);
+		if (result.failureName) failures.push(result.failureName);
 	}
 
 	await refreshKnowledgeLibrary();
-
-	for (const documentId of documentIds) {
-		const deletedDocument = documents.find(
-			(document) => document.id === documentId,
-		);
-		if (deletedDocument) {
-			closeWorkspaceDocument(toWorkspaceDocument(deletedDocument).id);
-		}
+	for (const deletedDocument of deletedDocuments) {
+		closeWorkspaceDocument(toWorkspaceDocument(deletedDocument).id);
 	}
 
 	if (failures.length > 0) {
 		manageError = `Failed to delete ${failures.length} document${failures.length === 1 ? "" : "s"}: ${failures.join(", ")}`;
 	}
-
-	// Increment success version to signal DocumentsList to clear selection
 	bulkDeleteSuccessVersion += 1;
 }
 
@@ -393,6 +334,16 @@ async function jumpToWorkspaceSource(document: DocumentWorkspaceItem) {
 			assistantMessageId: document.originAssistantMessageId,
 		}),
 	);
+}
+
+function formatUploadFailures(files: File[], failures: string[]): string {
+	const failureDetails = failures.slice(0, 3).join(" ");
+	const remainingFailures =
+		failures.length > 3 ? ` ${failures.length - 3} more failed.` : "";
+	if (failures.length === files.length) {
+		return `Failed to upload ${files.length} file${files.length === 1 ? "" : "s"}: ${failureDetails}${remainingFailures}`;
+	}
+	return `${failures.length} file${failures.length === 1 ? "" : "s"} failed to upload: ${failureDetails}${remainingFailures}`;
 }
 
 async function handleDocumentsUpload(files: File[]) {
@@ -413,13 +364,7 @@ async function handleDocumentsUpload(files: File[]) {
 	await refreshKnowledgeLibrary();
 
 	if (failures.length > 0) {
-		const failureDetails = failures.slice(0, 3).join(" ");
-		const remainingFailures =
-			failures.length > 3 ? ` ${failures.length - 3} more failed.` : "";
-		manageError =
-			failures.length === files.length
-				? `Failed to upload ${files.length} file${files.length === 1 ? "" : "s"}: ${failureDetails}${remainingFailures}`
-				: `${failures.length} file${failures.length === 1 ? "" : "s"} failed to upload: ${failureDetails}${remainingFailures}`;
+		manageError = formatUploadFailures(files, failures);
 	}
 }
 
@@ -427,100 +372,11 @@ function isDeletingArtifact(id: string): boolean {
 	return deletingArtifactIds.has(id);
 }
 
-function applyMemoryPayload(payload: KnowledgeMemoryPayload) {
-	personaMemories = payload.personaMemories ?? [];
-	taskMemories = payload.taskMemories ?? [];
-	focusContinuities = payload.focusContinuities ?? [];
-	memorySummary = payload.summary
-		? {
-				personaCount: payload.summary.personaCount ?? 0,
-				taskCount: payload.summary.taskCount ?? 0,
-				focusContinuityCount: payload.summary.focusContinuityCount ?? 0,
-				activeConstraintCount: payload.summary.activeConstraintCount ?? 0,
-				currentProjectContextCount:
-					payload.summary.currentProjectContextCount ?? 0,
-				overview: payload.summary.overview ?? null,
-				overviewBullets: payload.summary.overviewBullets ?? [],
-				overviewSource: payload.summary.overviewSource ?? null,
-				overviewStatus:
-					payload.summary.overviewStatus ??
-					(honchoEnabled ? "not_enough_durable_memory" : "disabled"),
-				overviewUpdatedAt: payload.summary.overviewUpdatedAt ?? null,
-				overviewLastAttemptAt: payload.summary.overviewLastAttemptAt ?? null,
-				durablePersonaCount: payload.summary.durablePersonaCount ?? 0,
-			}
-		: {
-				personaCount: 0,
-				taskCount: 0,
-				focusContinuityCount: 0,
-				activeConstraintCount: 0,
-				currentProjectContextCount: 0,
-				overview: null,
-				overviewBullets: [],
-				overviewSource: null,
-				overviewStatus: honchoEnabled
-					? "not_enough_durable_memory"
-					: "disabled",
-				overviewUpdatedAt: null,
-				overviewLastAttemptAt: null,
-				durablePersonaCount: 0,
-			};
-	if (activeMemoryModal === "persona") {
-		personaMemoryFilter = getDefaultPersonaMemoryFilter(personaMemories);
-	}
-	memoryLoaded = true;
-	memoryOverviewLoaded = true;
-	memoryLoadError = "";
+async function refreshKnowledgeLibrary() {
+	await invalidateAll();
 }
 
-function applyMemoryOverviewSummary(summary: KnowledgeMemorySummary) {
-	memorySummary = {
-		...memorySummary,
-		personaCount: summary.personaCount ?? memorySummary.personaCount,
-		taskCount: summary.taskCount ?? memorySummary.taskCount,
-		focusContinuityCount:
-			summary.focusContinuityCount ?? memorySummary.focusContinuityCount,
-		activeConstraintCount:
-			summary.activeConstraintCount ?? memorySummary.activeConstraintCount,
-		currentProjectContextCount:
-			summary.currentProjectContextCount ??
-			memorySummary.currentProjectContextCount,
-		overview: summary.overview ?? null,
-		overviewBullets: summary.overviewBullets ?? [],
-		overviewSource: summary.overviewSource ?? null,
-		overviewStatus:
-			summary.overviewStatus ??
-			(honchoEnabled ? "not_enough_durable_memory" : "disabled"),
-		overviewUpdatedAt: summary.overviewUpdatedAt ?? null,
-		overviewLastAttemptAt: summary.overviewLastAttemptAt ?? null,
-		durablePersonaCount:
-			summary.durablePersonaCount ?? memorySummary.durablePersonaCount,
-	};
-	memoryOverviewLoaded = true;
-}
-
-async function ensureMemoryOverviewLoaded(force = false) {
-	if (memoryOverviewLoading) return;
-	if (memoryOverviewLoaded && !force) return;
-	if (memoryLoaded && !force) return;
-
-	memoryOverviewLoading = true;
-	memoryLoadError = "";
-
-	try {
-		const payload = force
-			? await fetchKnowledgeMemoryOverview({ force: true })
-			: await fetchKnowledgeMemoryOverview();
-		applyMemoryOverviewSummary(payload.summary);
-	} catch (error) {
-		memoryLoadError =
-			error instanceof Error ? error.message : $t("knowledge.failedLoadMemory");
-	} finally {
-		memoryOverviewLoading = false;
-	}
-}
-
-async function ensureMemoryLoaded(force = false) {
+async function loadMemoryProfile(force = false) {
 	if (memoryLoading) return;
 	if (memoryLoaded && !force) return;
 
@@ -528,382 +384,42 @@ async function ensureMemoryLoaded(force = false) {
 	memoryLoadError = "";
 
 	try {
-		const result = await fetchKnowledgeMemory();
-		applyMemoryPayload(result);
+		memoryProfile = await fetchMemoryProfile();
+		memoryLoaded = true;
 	} catch (error) {
 		memoryLoadError =
-			error instanceof Error ? error.message : $t("knowledge.failedLoadMemory");
+			error instanceof Error ? error.message : "Failed to load memory profile.";
 	} finally {
 		memoryLoading = false;
 	}
 }
 
-function retryMemoryLoad() {
-	if (activeMemoryModal) {
-		void ensureMemoryLoaded(true);
-		return;
-	}
-	void ensureMemoryOverviewLoaded(true);
-}
-
-function shouldPollLiveOverview(): boolean {
-	if (!honchoEnabled || !memoryOverviewLoaded || memoryLoading) return false;
-	if (memoryOverviewLoading) return false;
-	if (!memoryTabVisible) return false;
-	if (overviewSource === "honcho_live" || overviewSource === "honcho_scoped")
-		return false;
-	if (
-		overviewStatus === "disabled" ||
-		overviewStatus === "not_enough_durable_memory"
-	) {
-		return false;
-	}
-	return true;
-}
-
-async function refreshLiveOverview(force = false) {
-	if (liveOverviewRefreshing || !honchoEnabled || !memoryOverviewLoaded) return;
-	if (!force && liveOverviewPollAttempts >= OVERVIEW_POLL_MAX_ATTEMPTS) return;
-
-	liveOverviewRefreshing = true;
-	if (!force) {
-		liveOverviewPollAttempts += 1;
-	}
-
-	try {
-		const payload = await fetchKnowledgeMemoryOverview({ force });
-		applyMemoryOverviewSummary(payload.summary);
-	} catch (error) {
-		if (force) {
-			manageError =
-				error instanceof Error
-					? error.message
-					: $t("knowledge.failedRefreshOverview");
-		}
-	} finally {
-		liveOverviewRefreshing = false;
-	}
-}
-
-function openMemoryModal(kind: Exclude<MemoryModal, null>) {
-	resetModalSelections();
-	activeMemoryModal = kind;
-	if (kind === "persona") {
-		personaMemoryFilter = getDefaultPersonaMemoryFilter(personaMemories);
-	}
-	if (kind === "focus") {
-		focusContinuityView = "tasks";
-	}
-	void ensureMemoryLoaded();
-}
-
-function closeMemoryModal() {
-	activeMemoryModal = null;
-	resetModalSelections();
-}
-
-function isMemoryActionPending(key: string): boolean {
-	return pendingMemoryActionKey === key;
-}
-
-function resetModalSelections() {
-	selectedPersonaMemoryIds = [];
-	selectedTaskMemoryIds = [];
-	selectedFocusContinuityIds = [];
-}
-
-function togglePersonaSelection(id: string) {
-	selectedPersonaMemoryIds = selectedPersonaMemoryIds.includes(id)
-		? selectedPersonaMemoryIds.filter((value) => value !== id)
-		: [...selectedPersonaMemoryIds, id];
-}
-
-function toggleTaskSelection(id: string) {
-	selectedTaskMemoryIds = selectedTaskMemoryIds.includes(id)
-		? selectedTaskMemoryIds.filter((value) => value !== id)
-		: [...selectedTaskMemoryIds, id];
-}
-
-function toggleAllPersonaSelections() {
-	selectedPersonaMemoryIds =
-		selectedPersonaMemoryIds.length === filteredPersonaMemories.length
-			? []
-			: filteredPersonaMemories.map((memory) => memory.id);
-}
-
-function toggleAllTaskSelections() {
-	selectedTaskMemoryIds =
-		selectedTaskMemoryIds.length === taskMemories.length
-			? []
-			: taskMemories.map((memory) => memory.taskId);
-}
-
-function toggleFocusContinuitySelection(id: string) {
-	selectedFocusContinuityIds = selectedFocusContinuityIds.includes(id)
-		? selectedFocusContinuityIds.filter((value) => value !== id)
-		: [...selectedFocusContinuityIds, id];
-}
-
-function toggleAllFocusContinuitySelections() {
-	selectedFocusContinuityIds =
-		selectedFocusContinuityIds.length === focusContinuities.length
-			? []
-			: focusContinuities.map((memory) => memory.continuityId);
-}
-
-function setPersonaMemoryFilter(filter: PersonaMemoryFilter) {
-	personaMemoryFilter = filter;
-	selectedPersonaMemoryIds = [];
-}
-
-function setFocusContinuityView(view: FocusContinuityView) {
-	focusContinuityView = view;
-	if (view === "tasks") {
-		selectedTaskMemoryIds = [];
-		return;
-	}
-	selectedFocusContinuityIds = [];
-}
-
-async function refreshKnowledgeLibrary() {
-	await invalidateAll();
-}
-
-async function submitMemoryAction(
+function isProjectionAction(
 	payload: KnowledgeMemoryActionPayload,
-): Promise<KnowledgeMemoryPayload> {
-	return submitKnowledgeMemoryAction(payload);
-}
-
-function isKnowledgeMemoryActionPayload(
-	payload: Record<string, unknown>,
-): payload is KnowledgeMemoryActionPayload {
-	return typeof payload.action === "string";
-}
-
-async function runMemoryAction(
-	payload: Record<string, unknown>,
-	key: string,
-	confirmationMessage?: string,
-) {
-	if (isMemoryActionPending(key)) return;
-	if (!isKnowledgeMemoryActionPayload(payload)) return;
-
-	if (confirmationMessage) {
-		showConfirmation(
-			"memory_action",
-			$t("knowledge.confirmAction"),
-			confirmationMessage,
-			() => {
-				void executeMemoryAction(payload, key);
-			},
-		);
-		return;
-	}
-
-	await executeMemoryAction(payload, key);
-}
-
-async function executeMemoryAction(
-	payload: KnowledgeMemoryActionPayload,
-	key: string,
-) {
-	if (isMemoryActionPending(key)) return;
-
-	await withPendingMemoryAction(key, async () => {
-		const result = await submitMemoryAction(payload);
-		applyMemoryPayload(result);
-		if (payload.action === "forget_persona_memory") {
-			const forgottenId = payload.clusterId ?? payload.conclusionId;
-			selectedPersonaMemoryIds = selectedPersonaMemoryIds.filter(
-				(id) => id !== forgottenId,
-			);
-		}
-		if (payload.action === "forget_task_memory") {
-			selectedTaskMemoryIds = selectedTaskMemoryIds.filter(
-				(id) => id !== payload.taskId,
-			);
-		}
-		if (payload.action === "forget_all_persona_memory") {
-			selectedPersonaMemoryIds = [];
-		}
-		if (payload.action === "forget_focus_continuity") {
-			selectedFocusContinuityIds = selectedFocusContinuityIds.filter(
-				(id) => id !== payload.continuityId,
-			);
-		}
-	});
-}
-
-async function runBulkPersonaForget() {
-	if (selectedPersonaMemoryIds.length === 0) return;
-
-	showConfirmation(
-		"bulk_persona_forget",
-		"Forget Persona Memories",
-		`Forget ${selectedPersonaMemoryIds.length} selected persona memory item${selectedPersonaMemoryIds.length === 1 ? "" : "s"}?`,
-		() => void executeBulkPersonaForget(),
+): payload is MemoryProfileActionPayload {
+	return (
+		payload.action === "delete" ||
+		payload.action === "suppress" ||
+		payload.action === "edit"
 	);
 }
 
-async function executeBulkPersonaForget() {
-	await withPendingMemoryAction("forget-selected-persona", async () => {
-		let result: KnowledgeMemoryPayload | null = null;
-		if (
-			selectedPersonaMemoryIds.length === personaMemories.length &&
-			honchoEnabled
-		) {
-			result = await submitMemoryAction({
-				action: "forget_all_persona_memory",
-			});
-		} else {
-			for (const id of selectedPersonaMemoryIds) {
-				result = await submitMemoryAction({
-					action: "forget_persona_memory",
-					clusterId: id,
-				});
-			}
-		}
-		if (result) {
-			applyMemoryPayload(result);
-		}
-		selectedPersonaMemoryIds = [];
-	});
-}
+async function handleMemoryAction(payload: MemoryProfileActionPayload) {
+	if (!isProjectionAction(payload)) return;
+	const key = `${payload.itemId}:${payload.action}`;
+	if (pendingMemoryActionKey === key) return;
 
-async function runBulkTaskForget() {
-	if (selectedTaskMemoryIds.length === 0) return;
-
-	showConfirmation(
-		"bulk_task_forget",
-		"Forget Task Memories",
-		`Forget ${selectedTaskMemoryIds.length} selected task memory item${selectedTaskMemoryIds.length === 1 ? "" : "s"}?`,
-		() => void executeBulkTaskForget(),
-	);
-}
-
-async function executeBulkTaskForget() {
-	await withPendingMemoryAction("forget-selected-task", async () => {
-		let result: KnowledgeMemoryPayload | null = null;
-		for (const id of selectedTaskMemoryIds) {
-			result = await submitMemoryAction({
-				action: "forget_task_memory",
-				taskId: id,
-			});
-		}
-		if (result) {
-			applyMemoryPayload(result);
-		}
-		selectedTaskMemoryIds = [];
-	});
-}
-
-async function runBulkFocusContinuityForget() {
-	if (selectedFocusContinuityIds.length === 0) return;
-
-	showConfirmation(
-		"bulk_focus_continuity_forget",
-		"Forget Focus Continuity",
-		`Forget ${selectedFocusContinuityIds.length} selected continuity item${selectedFocusContinuityIds.length === 1 ? "" : "s"} across chats?`,
-		() => void executeBulkFocusContinuityForget(),
-	);
-}
-
-async function executeBulkFocusContinuityForget() {
-	await withPendingMemoryAction(
-		"forget-selected-focus-continuity",
-		async () => {
-			let result: KnowledgeMemoryPayload | null = null;
-			for (const id of selectedFocusContinuityIds) {
-				result = await submitMemoryAction({
-					action: "forget_focus_continuity",
-					continuityId: id,
-				});
-			}
-			if (result) {
-				applyMemoryPayload(result);
-			}
-			selectedFocusContinuityIds = [];
-		},
-	);
-}
-
-async function withPendingMemoryAction(
-	key: string,
-	action: () => Promise<void>,
-) {
 	manageError = "";
 	pendingMemoryActionKey = key;
-
 	try {
-		await action();
+		memoryProfile = await submitKnowledgeMemoryAction(payload);
+		memoryLoaded = true;
 	} catch (error) {
 		manageError =
 			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
 	} finally {
 		pendingMemoryActionKey = null;
 	}
-}
-
-function isKnowledgeActionPending(key: string): boolean {
-	return pendingKnowledgeActionKey === key;
-}
-
-async function runKnowledgeAction(
-	action: KnowledgeBulkAction,
-	key: string,
-	confirmationMessage: string,
-) {
-	if (isKnowledgeActionPending(key)) return;
-
-	showConfirmation(
-		"knowledge_action",
-		$t("knowledge.confirmAction"),
-		confirmationMessage,
-		() => void executeKnowledgeAction(action, key),
-	);
-}
-
-async function executeKnowledgeAction(
-	action: KnowledgeBulkAction,
-	key: string,
-) {
-	if (isKnowledgeActionPending(key)) return;
-
-	manageError = "";
-	pendingKnowledgeActionKey = key;
-
-	try {
-		const result = await submitKnowledgeBulkAction(action);
-		if (result.success === false) {
-			throw new Error(
-				result.error ??
-					result.message ??
-					$t("knowledge.failedUpdateKnowledgeBase"),
-			);
-		}
-
-		await refreshKnowledgeLibrary();
-		if (action === "forget_everything" || memoryLoaded) {
-			await ensureMemoryLoaded(true);
-		}
-		if (action === "forget_everything") {
-			activeMemoryModal = null;
-			resetModalSelections();
-		}
-	} catch (error) {
-		manageError =
-			error instanceof Error
-				? error.message
-				: "Failed to update the Knowledge Base.";
-	} finally {
-		pendingKnowledgeActionKey = null;
-	}
-}
-
-async function removeArtifact(id: string) {
-	if (isDeletingArtifact(id)) return;
-	documentDeleteCandidateId = id;
 }
 
 async function executeRemoveArtifact(id: string) {
@@ -934,44 +450,16 @@ async function executeRemoveArtifact(id: string) {
 		removeDeletingArtifact(id);
 	}
 }
-function handleWindowKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape" && activeMemoryModal) {
-		closeMemoryModal();
-	}
-}
 
 $effect(() => {
-	if (typeof document === "undefined") return;
-	const handleVisibilityChange = () => {
-		memoryTabVisible = !document.hidden;
-	};
-	handleVisibilityChange();
-	document.addEventListener("visibilitychange", handleVisibilityChange);
-	return () => {
-		document.removeEventListener("visibilitychange", handleVisibilityChange);
-	};
+	setInitialTabFromLocation();
 });
 
 $effect(() => {
-	if (!shouldPollLiveOverview()) {
-		liveOverviewPollAttempts = 0;
-		return;
+	if (!hasRequestedInitialMemoryProfile) {
+		hasRequestedInitialMemoryProfile = true;
+		void loadMemoryProfile(true);
 	}
-
-	const intervalId = window.setInterval(() => {
-		untrack(() => {
-			if (liveOverviewRefreshing) return;
-			if (liveOverviewPollAttempts >= OVERVIEW_POLL_MAX_ATTEMPTS) {
-				window.clearInterval(intervalId);
-				return;
-			}
-			void refreshLiveOverview(false);
-		});
-	}, OVERVIEW_POLL_INTERVAL_MS);
-
-	return () => {
-		window.clearInterval(intervalId);
-	};
 });
 
 $effect(() => {
@@ -987,88 +475,107 @@ $effect(() => {
 	documentSortKey = library.sort.key;
 	documentSortDirection = library.sort.direction;
 });
-
-$effect(() => {
-	void ensureMemoryOverviewLoaded();
-});
 </script>
 
 <svelte:head>
 	<title>{$t('knowledge.title')}</title>
 </svelte:head>
 
-<svelte:window onkeydown={handleWindowKeydown} />
-
 <div class="knowledge-page flex h-full min-h-0 flex-col overflow-hidden bg-surface-page">
 	<div class="main-content flex flex-1 flex-col overflow-y-auto px-5 py-6 md:px-8">
-		<div class="mx-auto flex w-full max-w-[1040px] flex-col gap-8">
-		<div class="rounded-[1.5rem] border border-border bg-surface-elevated px-5 py-5 shadow-sm md:px-6">
-			<div class="flex flex-col gap-5">
-			<div class="space-y-2">
-				<h1 class="text-[2rem] font-serif tracking-[-0.05em] text-text-primary md:text-[2.75rem]">
+		<div class="mx-auto flex w-full max-w-[1040px] flex-col gap-6">
+			<div class="px-1">
+				<h1 class="text-[2rem] font-serif text-text-primary md:text-[2.6rem]">
 					{$t('knowledge.title')}
 				</h1>
-					<p class="max-w-[720px] text-sm font-sans leading-[1.5] text-text-secondary">
-						{$t('knowledge.description')}
-					</p>
+			</div>
+
+			{#if manageError}
+				<div class="rounded-[0.75rem] border border-danger bg-surface-elevated px-4 py-3 text-sm font-sans text-danger shadow-sm" role="alert">
+					{manageError}
 				</div>
-			</div>
-		</div>
+			{/if}
 
-		{#if manageError}
-			<div class="rounded-[1rem] border border-danger bg-surface-page px-4 py-3 text-sm font-sans text-danger shadow-sm" role="alert">
-				{manageError}
+			<div class="flex border-b border-border" role="tablist" aria-label="Knowledge Base sections">
+				<a
+					id="memory-profile-tab"
+					href="/knowledge"
+					class={`cursor-pointer border-b-2 px-3 py-2 text-sm font-sans font-medium transition ${
+						activeTab === "memory"
+							? "border-primary text-text-primary"
+							: "border-transparent text-text-muted hover:text-text-primary"
+					}`}
+					role="tab"
+					aria-selected={activeTab === "memory"}
+					aria-controls="memory-profile-panel"
+					onclick={(event) => {
+						event.preventDefault();
+						handleTabChange("memory");
+					}}
+				>
+					Memory Profile
+				</a>
+				<a
+					id="documents-tab"
+					href={buildKnowledgeLibraryUrl({ tab: "documents" })}
+					class={`cursor-pointer border-b-2 px-3 py-2 text-sm font-sans font-medium transition ${
+						activeTab === "documents"
+							? "border-primary text-text-primary"
+							: "border-transparent text-text-muted hover:text-text-primary"
+					}`}
+					role="tab"
+					aria-selected={activeTab === "documents"}
+					aria-controls="documents-panel"
+					onclick={(event) => {
+						event.preventDefault();
+						handleTabChange("documents");
+					}}
+				>
+					Documents
+				</a>
 			</div>
-		{/if}
 
-		<div class="documents-section rounded-[1.5rem] border border-border bg-surface-elevated px-5 py-5 shadow-sm md:px-6">
-			<div class="mb-4">
-			<h2 class="text-2xl font-serif tracking-[-0.02em] text-text-primary">{$t('knowledge.documents')}</h2>
-			<p class="text-sm text-text-secondary mt-1">{$t('knowledge.browseManage')}</p>
-			</div>
-			<DocumentsList
-				documents={documents}
-				paginationLimit={documentPaginationLimit}
-				currentPage={documentCurrentPage}
-				totalDocuments={documentTotalItems}
-				totalPages={documentTotalPages}
-				searchQuery={documentSearchQuery}
-				sortKey={documentSortKey}
-				sortDirection={documentSortDirection}
-				serverManaged={true}
-				bulkDeleteSuccessVersion={bulkDeleteSuccessVersion}
-				onPaginationLimitChange={handleDocumentPaginationLimitChange}
-				onPageChange={handleDocumentPageChange}
-				onSearchQueryChange={handleDocumentSearchQueryChange}
-				onSortChange={handleDocumentSortChange}
-				onSelect={handleDocumentSelect}
-				onDelete={handleDocumentDelete}
-				onBulkDelete={handleBulkDocumentDelete}
-				onDownload={handleDocumentDownload}
-				onUpload={handleDocumentsUpload}
-			/>
-		</div>
-
-		<KnowledgeMemoryView
-			memoryLoading={memoryLoading || memoryOverviewLoading}
-			memoryLoaded={memoryLoaded || memoryOverviewLoaded}
-			{memoryLoadError}
-			{personaMemoryCount}
-			{focusContinuityItemCount}
-			{honchoEnabled}
-			{overviewBullets}
-			{overviewSource}
-			{overviewStatus}
-			{overviewUpdatedAt}
-			{overviewLastAttemptAt}
-			{durablePersonaCount}
-			{activeConstraintCount}
-			{currentProjectContextCount}
-			{liveOverviewRefreshing}
-			onRetryLoadMemory={retryMemoryLoad}
-			onRetryLiveOverview={() => void refreshLiveOverview(true)}
-			onOpenMemoryModal={openMemoryModal}
-		/>
+			{#if activeTab === "memory"}
+				<div id="memory-profile-panel" role="tabpanel" aria-labelledby="memory-profile-tab">
+					<KnowledgeMemoryView
+						profile={memoryProfile}
+						{memoryLoading}
+						{memoryLoaded}
+						{memoryLoadError}
+						pendingActionKey={pendingMemoryActionKey}
+						onRetryLoadMemory={() => void loadMemoryProfile(true)}
+						onAction={handleMemoryAction}
+					/>
+				</div>
+			{:else}
+				<div id="documents-panel" role="tabpanel" aria-labelledby="documents-tab" class="documents-section rounded-[1rem] border border-border bg-surface-elevated px-5 py-5 shadow-sm md:px-6">
+					<div class="mb-4">
+						<h2 class="text-2xl font-serif text-text-primary">{$t('knowledge.documents')}</h2>
+						<p class="mt-1 text-sm text-text-secondary">{$t('knowledge.browseManage')}</p>
+					</div>
+					<DocumentsList
+						documents={documents}
+						paginationLimit={documentPaginationLimit}
+						currentPage={documentCurrentPage}
+						totalDocuments={documentTotalItems}
+						totalPages={documentTotalPages}
+						searchQuery={documentSearchQuery}
+						sortKey={documentSortKey}
+						sortDirection={documentSortDirection}
+						serverManaged={true}
+						bulkDeleteSuccessVersion={bulkDeleteSuccessVersion}
+						onPaginationLimitChange={handleDocumentPaginationLimitChange}
+						onPageChange={handleDocumentPageChange}
+						onSearchQueryChange={handleDocumentSearchQueryChange}
+						onSortChange={handleDocumentSortChange}
+						onSelect={handleDocumentSelect}
+						onDelete={handleDocumentDelete}
+						onBulkDelete={handleBulkDocumentDelete}
+						onDownload={handleDocumentDownload}
+						onUpload={handleDocumentsUpload}
+					/>
+				</div>
+			{/if}
 		</div>
 	</div>
 
@@ -1080,45 +587,10 @@ $effect(() => {
 	/>
 </div>
 
-{#if activeMemoryModal}
-	<KnowledgeMemoryModal
-		activeMemoryModal={activeMemoryModal}
-		{memoryLoading}
-		{memoryLoaded}
-		{memoryLoadError}
-		{honchoEnabled}
-		{personaMemories}
-		{filteredPersonaMemories}
-		{personaMemoryFilter}
-		{personaMemoryStateCounts}
-		{selectedPersonaMemoryIds}
-		{taskMemories}
-		{selectedTaskMemoryIds}
-		{focusContinuities}
-		{selectedFocusContinuityIds}
-		{focusContinuityView}
-		{userDisplayName}
-		{isMemoryActionPending}
-		onClose={closeMemoryModal}
-		onSetPersonaMemoryFilter={setPersonaMemoryFilter}
-		onSetFocusContinuityView={setFocusContinuityView}
-		onTogglePersonaSelection={togglePersonaSelection}
-		onToggleAllPersonaSelections={toggleAllPersonaSelections}
-		onToggleTaskSelection={toggleTaskSelection}
-		onToggleAllTaskSelections={toggleAllTaskSelections}
-		onToggleFocusContinuitySelection={toggleFocusContinuitySelection}
-		onToggleAllFocusContinuitySelections={toggleAllFocusContinuitySelections}
-		onRunBulkPersonaForget={runBulkPersonaForget}
-		onRunBulkTaskForget={runBulkTaskForget}
-		onRunBulkFocusContinuityForget={runBulkFocusContinuityForget}
-		onRunMemoryAction={runMemoryAction}
-	/>
-{/if}
-
 {#if documentDeleteCandidateId}
 	<ConfirmDialog
 		title={$t('knowledge.deleteDocument')}
-		message={`Remove "${documents.find(d => d.id === documentDeleteCandidateId)?.name ?? 'this document'}" from the Knowledge Base?`}
+		message={`Remove "${documents.find((document) => document.id === documentDeleteCandidateId)?.name ?? "this document"}" from the Knowledge Base?`}
 		confirmText={$t('common.delete')}
 		confirmVariant="danger"
 		onCancel={() => (documentDeleteCandidateId = null)}
@@ -1135,7 +607,7 @@ $effect(() => {
 {#if bulkDeleteCandidateIds}
 	<ConfirmDialog
 		title={$t('knowledge.deleteDocuments')}
-		message={`Delete ${bulkDeleteCandidateIds.length} selected document${bulkDeleteCandidateIds.length === 1 ? '' : 's'}? This cannot be undone.`}
+		message={`Delete ${bulkDeleteCandidateIds.length} selected document${bulkDeleteCandidateIds.length === 1 ? "" : "s"}? This cannot be undone.`}
 		confirmText={$t('common.delete')}
 		confirmVariant="danger"
 		onCancel={() => (bulkDeleteCandidateIds = null)}
@@ -1148,28 +620,3 @@ $effect(() => {
 		}}
 	/>
 {/if}
-
-{#if pendingConfirmation}
-	<ConfirmDialog
-		title={pendingConfirmation.title}
-		message={pendingConfirmation.message}
-		confirmText="Confirm"
-		confirmVariant="danger"
-		onCancel={handleConfirmationCancel}
-		onConfirm={handleConfirmationConfirm}
-	/>
-{/if}
-
-<style>
-	:global(.knowledge-page input[type='checkbox']) {
-		cursor: pointer;
-	}
-
-		:global(.memory-preview) {
-			display: -webkit-box;
-			-webkit-box-orient: vertical;
-			line-clamp: 3;
-			-webkit-line-clamp: 3;
-			overflow: hidden;
-		}
-</style>

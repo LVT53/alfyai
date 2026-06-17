@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
 	rerankItems: vi.fn(),
 	resolveWorkingDocumentSelection: vi.fn(),
 	getLatestValidContextCompressionSnapshot: vi.fn(),
+	getActiveMemoryProfileContext: vi.fn(),
+	recordMemoryReworkTelemetry: vi.fn(),
 }));
 
 vi.mock("../honcho", () => ({
@@ -137,6 +139,11 @@ vi.mock("../context-compression", () => ({
 			.join("\n\n"),
 }));
 
+vi.mock("../memory-profile", () => ({
+	getActiveMemoryProfileContext: mocks.getActiveMemoryProfileContext,
+	recordMemoryReworkTelemetry: mocks.recordMemoryReworkTelemetry,
+}));
+
 function artifact(overrides: {
 	id: string;
 	name: string;
@@ -192,7 +199,7 @@ function resetConstructedContextMocks() {
 			},
 		],
 		summary: "The session is about launch readiness.",
-		peerContext: "The user prefers concise operational plans.",
+		peerContext: "The user prefers a suppressed raw Honcho preference.",
 		honchoContext: {
 			source: "live",
 			waitedMs: 12,
@@ -266,6 +273,22 @@ function resetConstructedContextMocks() {
 	mocks.embedTexts.mockResolvedValue([]);
 	mocks.canUseTeiReranker.mockReturnValue(false);
 	mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue(null);
+	mocks.getActiveMemoryProfileContext.mockResolvedValue({
+		resetGeneration: 0,
+		projectionRevision: 7,
+		items: [
+			{
+				id: "memory-active-1",
+				itemKey: "memory-profile-item:v1:preferences:global:active",
+				category: "preferences",
+				statement: "The user prefers projection-gated launch briefs.",
+				scope: { type: "global" },
+				revision: 1,
+				updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+			},
+		],
+	});
+	mocks.recordMemoryReworkTelemetry.mockResolvedValue({ id: "telemetry-1" });
 	mocks.resolveWorkingDocumentSelection.mockReturnValue({
 		documentFocused: true,
 		retrieval: {
@@ -420,6 +443,15 @@ describe("buildConstructedContext", () => {
 			"Earlier question about the launch plan.",
 		);
 		expect(constructed.inputValue).toContain("## Baseline Memory Profile");
+		expect(constructed.inputValue).toContain(
+			"The user prefers projection-gated launch briefs.",
+		);
+		expect(constructed.inputValue).not.toContain(
+			"The user prefers a suppressed raw Honcho preference.",
+		);
+		expect(mocks.getActiveMemoryProfileContext).toHaveBeenCalledWith({
+			userId: "user-1",
+		});
 		expect(constructed.taskState).toBeNull();
 		expect(constructed.contextTraceSections).toEqual(
 			expect.arrayContaining([
@@ -749,7 +781,10 @@ describe("buildConstructedContext", () => {
 		);
 		expect(constructed.inputValue).toContain("## Baseline Memory Profile");
 		expect(constructed.inputValue).toContain(
-			"The user prefers concise operational plans.",
+			"The user prefers projection-gated launch briefs.",
+		);
+		expect(constructed.inputValue).not.toContain(
+			"The user prefers a suppressed raw Honcho preference.",
 		);
 		expect(constructed.honchoContext).toEqual(
 			expect.objectContaining({ source: "live" }),

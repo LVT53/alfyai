@@ -177,8 +177,10 @@ export type RunPostTurnTasksParams = {
 	conversationId: string;
 	upstreamMessage: string;
 	userMessage: string;
+	userMessageId?: string | null;
 	assistantResponse: string;
 	assistantMirrorContent?: string;
+	assistantMessageId?: string | null;
 	workCapsule?: WorkCapsuleSummary;
 	maintenanceReason: "chat_send" | "chat_stream";
 };

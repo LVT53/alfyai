@@ -1954,17 +1954,110 @@ export interface KnowledgeMemorySummary {
 	durablePersonaCount: number;
 }
 
+export type MemoryProfileCategory =
+	| "about_you"
+	| "preferences"
+	| "goals_ongoing_work"
+	| "constraints_boundaries";
+
+export type MemoryProfileScope =
+	| { type: "global" }
+	| { type: "project"; id: string }
+	| { type: "conversation"; id: string }
+	| { type: "document"; id: string };
+
+export interface MemoryProfilePublicItem {
+	id: string;
+	itemKey: string;
+	category: MemoryProfileCategory;
+	statement: string;
+	scope: MemoryProfileScope;
+	status: "active";
+	revision: number;
+	updatedAt: string;
+	canEdit: boolean;
+	canDelete: boolean;
+	canSuppress: boolean;
+}
+
+export interface MemoryProfileReviewItem {
+	id: string;
+	subject: string;
+	question: string;
+	reason: string;
+}
+
+export interface MemoryProfilePublicPayload {
+	resetGeneration: number;
+	projectionRevision: number;
+	categories: Array<{
+		category: MemoryProfileCategory;
+		items: MemoryProfilePublicItem[];
+	}>;
+	review: {
+		items?: MemoryProfileReviewItem[];
+		visibleItems: MemoryProfileReviewItem[];
+		openCount: number;
+		overflowCount: number;
+	};
+}
+
+export type MemoryProfileActionPayload =
+	| {
+			target?: "profile_item";
+			action: "delete";
+			itemId: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			target?: "profile_item";
+			action: "suppress";
+			itemId: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			target?: "profile_item";
+			action: "edit";
+			itemId: string;
+			statement: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			target: "review_item";
+			action: "accept";
+			itemId: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			target: "review_item";
+			action: "suppress";
+			itemId: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			target: "review_item";
+			action: "edit";
+			itemId: string;
+			statement: string;
+			expectedProjectionRevision: number;
+	  };
+
 export interface KnowledgeMemoryPayload {
-	personaMemories: PersonaMemoryItem[];
+	resetGeneration?: number;
+	projectionRevision?: number;
+	categories?: MemoryProfilePublicPayload["categories"];
+	review?: MemoryProfilePublicPayload["review"];
+	personaMemories?: PersonaMemoryItem[];
 	activeConstraints?: PersonaMemoryItem[];
 	currentProjectContext?: PersonaMemoryItem[];
-	taskMemories: TaskMemoryItem[];
-	focusContinuities: FocusContinuityItem[];
-	summary: KnowledgeMemorySummary;
+	taskMemories?: TaskMemoryItem[];
+	focusContinuities?: FocusContinuityItem[];
+	summary?: KnowledgeMemorySummary;
 }
 
 export interface KnowledgeMemoryOverviewPayload {
 	summary: KnowledgeMemorySummary;
+	profile?: KnowledgeMemoryPayload;
 }
 
 export type TaskSteeringAction =

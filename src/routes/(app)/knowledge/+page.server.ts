@@ -7,6 +7,15 @@ import {
 } from "$lib/server/services/knowledge";
 import type { PageServerLoad } from "./$types";
 
+const SORT_KEYS = new Set<KnowledgeLibrarySortKey>([
+	"name",
+	"size",
+	"type",
+	"date",
+]);
+const SORT_DIRECTIONS = new Set<KnowledgeLibrarySortDirection>(["asc", "desc"]);
+const DOCUMENT_TAB_PARAMS = ["q", "sort", "dir", "page", "pageSize"];
+
 function parsePositiveInteger(value: string | null): number | null {
 	if (!value) return null;
 	const parsed = Number.parseInt(value, 10);
@@ -14,18 +23,25 @@ function parsePositiveInteger(value: string | null): number | null {
 }
 
 function parseSortKey(value: string | null): KnowledgeLibrarySortKey | null {
-	return value === "name" ||
-		value === "size" ||
-		value === "type" ||
-		value === "date"
-		? value
-		: null;
+	const sortKey = value as KnowledgeLibrarySortKey | null;
+	return sortKey && SORT_KEYS.has(sortKey) ? sortKey : null;
 }
 
 function parseSortDirection(
 	value: string | null,
 ): KnowledgeLibrarySortDirection | null {
-	return value === "asc" || value === "desc" ? value : null;
+	const direction = value as KnowledgeLibrarySortDirection | null;
+	return direction && SORT_DIRECTIONS.has(direction) ? direction : null;
+}
+
+function resolveInitialTab(url: URL): "memory" | "documents" {
+	const requestedTab = url.searchParams.get("tab");
+	const hasDocumentQuery = DOCUMENT_TAB_PARAMS.some((param) =>
+		url.searchParams.has(param),
+	);
+	return requestedTab === "documents" || hasDocumentQuery
+		? "documents"
+		: "memory";
 }
 
 export const load: PageServerLoad = async (event) => {
@@ -46,5 +62,6 @@ export const load: PageServerLoad = async (event) => {
 		library,
 		honchoEnabled: isHonchoEnabled(),
 		userDisplayName: user.displayName,
+		initialTab: resolveInitialTab(event.url),
 	};
 };

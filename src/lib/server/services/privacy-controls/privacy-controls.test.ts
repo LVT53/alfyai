@@ -40,9 +40,8 @@ vi.mock("../memory-maintenance", async (importOriginal) => {
 });
 
 vi.mock("../chat-turn/active-streams", async (importOriginal) => {
-	const actual = await importOriginal<
-		typeof import("../chat-turn/active-streams")
-	>();
+	const actual =
+		await importOriginal<typeof import("../chat-turn/active-streams")>();
 	return {
 		...actual,
 		requestActiveChatStreamsStopForUser:
@@ -259,6 +258,108 @@ function seedPrivacyUser() {
 			createdAt: now,
 		})
 		.run();
+	db.insert(schema.memoryResetGenerations)
+		.values({
+			userId: "user-1",
+			resetGeneration: 0,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryProjectionState)
+		.values({
+			id: "memory-projection-1",
+			userId: "user-1",
+			resetGeneration: 0,
+			revision: 1,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryProfileItems)
+		.values({
+			id: "memory-profile-item-1",
+			userId: "user-1",
+			projectionStateId: "memory-projection-1",
+			resetGeneration: 0,
+			itemKey:
+				"memory-profile-item:v1:about_you:global:global:fixture-private-remembered-fact",
+			category: "about_you",
+			statement: "Private remembered fact.",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryProfileItems)
+		.values({
+			id: "memory-profile-item-preserved-legacy",
+			userId: "user-1",
+			projectionStateId: "memory-projection-1",
+			resetGeneration: 0,
+			itemKey:
+				"memory-profile-item:v1:about_you:global:global:fixture-preserved-legacy",
+			category: "about_you",
+			statement: "Preserved legacy memory.",
+			status: "preserved_legacy",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryProfileItemProvenance)
+		.values({
+			id: "memory-provenance-1",
+			itemId: "memory-profile-item-1",
+			userId: "user-1",
+			resetGeneration: 0,
+			sourceType: "user_statement",
+			sourceId: "message-1",
+			label: "Chat",
+			createdAt: now,
+		})
+		.run();
+	db.insert(schema.memoryReviewItems)
+		.values({
+			id: "memory-review-1",
+			userId: "user-1",
+			resetGeneration: 0,
+			subjectKey: "private-subject",
+			subjectLabel: "private subject",
+			question: "What should be remembered?",
+			reason: "Conflicting evidence.",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryReviewResolutions)
+		.values({
+			id: "memory-resolution-1",
+			reviewItemId: "memory-review-1",
+			userId: "user-1",
+			resetGeneration: 0,
+			resolutionType: "use_fact",
+			createdAt: now,
+		})
+		.run();
+	db.insert(schema.memoryDirtyLedger)
+		.values({
+			id: "memory-dirty-1",
+			userId: "user-1",
+			resetGeneration: 0,
+			reason: "possible_conflict",
+			firstMarkedAt: now,
+			lastMarkedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryReworkTelemetry)
+		.values({
+			id: "memory-telemetry-1",
+			userId: "user-1",
+			resetGeneration: 0,
+			eventFamily: "guided_review",
+			eventName: "created",
+			createdAt: now,
+		})
+		.run();
 	db.insert(schema.conversationWorkingSetItems)
 		.values({
 			id: "working-set-1",
@@ -467,6 +568,33 @@ async function getPrivacySnapshot() {
 	const memoryEvents = await db
 		.select({ id: schema.memoryEvents.id })
 		.from(schema.memoryEvents);
+	const resetGenerations = await db
+		.select({
+			userId: schema.memoryResetGenerations.userId,
+			resetGeneration: schema.memoryResetGenerations.resetGeneration,
+		})
+		.from(schema.memoryResetGenerations);
+	const projectionStates = await db
+		.select({ id: schema.memoryProjectionState.id })
+		.from(schema.memoryProjectionState);
+	const profileItems = await db
+		.select({ id: schema.memoryProfileItems.id })
+		.from(schema.memoryProfileItems);
+	const profileProvenance = await db
+		.select({ id: schema.memoryProfileItemProvenance.id })
+		.from(schema.memoryProfileItemProvenance);
+	const reviewItems = await db
+		.select({ id: schema.memoryReviewItems.id })
+		.from(schema.memoryReviewItems);
+	const reviewResolutions = await db
+		.select({ id: schema.memoryReviewResolutions.id })
+		.from(schema.memoryReviewResolutions);
+	const dirtyEntries = await db
+		.select({ id: schema.memoryDirtyLedger.id })
+		.from(schema.memoryDirtyLedger);
+	const telemetryEvents = await db
+		.select({ id: schema.memoryReworkTelemetry.id })
+		.from(schema.memoryReworkTelemetry);
 	const [message] = await db
 		.select({ metadataJson: schema.messages.metadataJson })
 		.from(schema.messages)
@@ -524,6 +652,14 @@ async function getPrivacySnapshot() {
 		workingSetIds: workingSet.map((row) => row.id).sort(),
 		contextStatusIds: contextStatus.map((row) => row.id).sort(),
 		memoryEventIds: memoryEvents.map((row) => row.id).sort(),
+		resetGenerations,
+		projectionStateIds: projectionStates.map((row) => row.id).sort(),
+		profileItemIds: profileItems.map((row) => row.id).sort(),
+		profileProvenanceIds: profileProvenance.map((row) => row.id).sort(),
+		reviewItemIds: reviewItems.map((row) => row.id).sort(),
+		reviewResolutionIds: reviewResolutions.map((row) => row.id).sort(),
+		dirtyEntryIds: dirtyEntries.map((row) => row.id).sort(),
+		telemetryEventIds: telemetryEvents.map((row) => row.id).sort(),
 		usageEventIds: usageEvents.map((row) => row.id).sort(),
 		analyticsConversationIds: analyticsConversations
 			.map((row) => row.id)
@@ -591,10 +727,7 @@ describe("privacy controls service", () => {
 		seedPrivacyUser();
 		const { clearMemoryAndKnowledge } = await import("./index");
 
-		const result = await clearMemoryAndKnowledge(
-			"user-1",
-			"correct-password",
-		);
+		const result = await clearMemoryAndKnowledge("user-1", "correct-password");
 
 		expect(result).toEqual({
 			status: "cleared",
@@ -615,6 +748,14 @@ describe("privacy controls service", () => {
 			workingSetIds: [],
 			contextStatusIds: [],
 			memoryEventIds: [],
+			resetGenerations: [{ userId: "user-1", resetGeneration: 1 }],
+			projectionStateIds: [],
+			profileItemIds: [],
+			profileProvenanceIds: [],
+			reviewItemIds: [],
+			reviewResolutionIds: [],
+			dirtyEntryIds: [],
+			telemetryEventIds: [],
 			usageEventIds: ["usage-1"],
 			analyticsConversationIds: ["analytics-conversation-1"],
 			messageMetadata: null,

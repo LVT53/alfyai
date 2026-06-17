@@ -1,9 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { render, screen, waitFor } from "@testing-library/svelte";
 import type { Component } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-	KnowledgeMemoryOverviewPayload,
-	KnowledgeMemoryPayload,
+	MemoryProfilePublicPayload,
 } from "$lib/types";
 
 vi.mock("$app/environment", () => ({
@@ -32,6 +31,7 @@ vi.mock("$lib/client/api/knowledge", async () => {
 	>("$lib/client/api/knowledge");
 	return {
 		...actual,
+		fetchMemoryProfile: vi.fn(),
 		fetchKnowledgeMemory: vi.fn(),
 		fetchKnowledgeMemoryOverview: vi.fn(),
 		recordDocumentWorkspaceOpen: vi.fn(),
@@ -39,68 +39,53 @@ vi.mock("$lib/client/api/knowledge", async () => {
 });
 
 import {
+	fetchMemoryProfile,
 	fetchKnowledgeMemory,
 	fetchKnowledgeMemoryOverview,
 } from "$lib/client/api/knowledge";
 import Page from "./+page.svelte";
 
-const memoryOverviewPayload = {
-	summary: {
-		personaCount: 2,
-		taskCount: 0,
-		focusContinuityCount: 0,
-		activeConstraintCount: 0,
-		currentProjectContextCount: 0,
-		overview: "The user prefers concise memory behavior.",
-		overviewBullets: ["The user prefers concise memory behavior."],
-		overviewSource: "honcho_scoped",
-		overviewStatus: "ready",
-		overviewUpdatedAt: 1_700_000_000_000,
-		overviewLastAttemptAt: 1_700_000_000_000,
-		durablePersonaCount: 2,
-	},
-} satisfies KnowledgeMemoryOverviewPayload;
-
-const fallbackMemoryOverviewPayload = {
-	summary: {
-		...memoryOverviewPayload.summary,
-		overview: "Fallback memory.",
-		overviewBullets: ["Fallback memory."],
-		overviewSource: "persona_fallback",
-		overviewStatus: "temporarily_unavailable",
-	},
-} satisfies KnowledgeMemoryOverviewPayload;
-
-const fullMemoryPayload = {
-	personaMemories: [
+const memoryProfilePayload = {
+	resetGeneration: 1,
+	projectionRevision: 7,
+	categories: [
 		{
-			id: "persona-1",
-			canonicalText: "The user prefers concise responses.",
-			rawCanonicalText: "The user prefers concise responses.",
-			domain: "persona",
-			memoryClass: "long_term_context",
-			state: "active",
-			salienceScore: 50,
-			sourceCount: 1,
-			conversationTitles: [],
-			firstSeenAt: 1_700_000_000_000,
-			lastSeenAt: 1_700_000_000_000,
-			pinned: false,
-			temporal: null,
-			activeConstraint: false,
-			topicKey: null,
-			topicStatus: "active",
-			supersededById: null,
-			supersessionReason: null,
-			members: [],
+			category: "about_you",
+			items: [
+				{
+					id: "item-about",
+					itemKey: "about-you",
+					category: "about_you",
+					statement: "Levi prefers concise memory behavior.",
+					scope: { type: "global" },
+					status: "active",
+					revision: 1,
+					updatedAt: "2026-06-17T09:00:00.000Z",
+					canEdit: true,
+					canDelete: true,
+					canSuppress: true,
+				},
+			],
+		},
+		{
+			category: "preferences",
+			items: [],
+		},
+		{
+			category: "goals_ongoing_work",
+			items: [],
+		},
+		{
+			category: "constraints_boundaries",
+			items: [],
 		},
 	],
-	activeConstraints: [],
-	currentProjectContext: [],
-	taskMemories: [],
-	focusContinuities: [],
-	summary: memoryOverviewPayload.summary,
-} satisfies KnowledgeMemoryPayload;
+	review: {
+		visibleItems: [],
+		openCount: 0,
+		overflowCount: 0,
+	},
+} satisfies MemoryProfilePublicPayload;
 
 function pageData(): {
 	documents: [];
@@ -119,6 +104,7 @@ function pageData(): {
 	};
 	honchoEnabled: boolean;
 	userDisplayName: string;
+	initialTab: "memory" | "documents";
 } {
 	return {
 		documents: [],
@@ -137,6 +123,7 @@ function pageData(): {
 		},
 		honchoEnabled: true,
 		userDisplayName: "Test User",
+		initialTab: "memory",
 	};
 }
 
@@ -147,10 +134,8 @@ const KnowledgePage = Page as unknown as Component<{
 describe("Knowledge page memory loading", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		vi.mocked(fetchKnowledgeMemoryOverview).mockResolvedValue(
-			memoryOverviewPayload,
-		);
-		vi.mocked(fetchKnowledgeMemory).mockResolvedValue(fullMemoryPayload);
+		vi.mocked(fetchMemoryProfile).mockResolvedValue(memoryProfilePayload);
+		vi.mocked(fetchKnowledgeMemory).mockResolvedValue(memoryProfilePayload);
 		Object.defineProperty(document, "hidden", {
 			configurable: true,
 			value: false,
@@ -165,47 +150,29 @@ describe("Knowledge page memory loading", () => {
 		vi.useRealTimers();
 	});
 
-	it("loads the lightweight memory overview first and defers full memory until management opens", async () => {
+	it("loads the projection-backed memory profile on entry and makes it the first tab", async () => {
 		render(KnowledgePage, { data: pageData() });
 
 		await waitFor(() => {
-			expect(fetchKnowledgeMemoryOverview).toHaveBeenCalledWith();
+			expect(fetchMemoryProfile).toHaveBeenCalledWith();
 		});
+		expect(fetchKnowledgeMemoryOverview).not.toHaveBeenCalled();
 		expect(fetchKnowledgeMemory).not.toHaveBeenCalled();
+
+		const tabs = screen.getAllByRole("tab");
+		expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
+			"Memory Profile",
+			"Documents",
+		]);
 		expect(
-			screen.getByText("The user prefers concise memory behavior."),
+			screen.getByText("Levi prefers concise memory behavior."),
 		).toBeInTheDocument();
-
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Manage persona memory" }),
-		);
-
-		await waitFor(() => {
-			expect(fetchKnowledgeMemory).toHaveBeenCalledTimes(1);
-		});
+		expect(
+			screen.queryByRole("button", { name: /refresh|reload/i }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByText(/Focus Continuity|task memory|raw/i),
+		).not.toBeInTheDocument();
 	});
 
-	it("lets the 20 second timer drive live overview polling instead of retrying on state flips", async () => {
-		vi.useFakeTimers();
-		vi.mocked(fetchKnowledgeMemoryOverview).mockResolvedValue(
-			fallbackMemoryOverviewPayload,
-		);
-
-		render(KnowledgePage, { data: pageData() });
-
-		await waitFor(() => {
-			expect(fetchKnowledgeMemoryOverview).toHaveBeenCalledTimes(1);
-		});
-
-		await vi.advanceTimersByTimeAsync(19_999);
-		expect(fetchKnowledgeMemoryOverview).toHaveBeenCalledTimes(1);
-
-		await vi.advanceTimersByTimeAsync(1);
-		await waitFor(() => {
-			expect(fetchKnowledgeMemoryOverview).toHaveBeenCalledTimes(2);
-		});
-
-		await vi.advanceTimersByTimeAsync(1);
-		expect(fetchKnowledgeMemoryOverview).toHaveBeenCalledTimes(2);
-	});
 });

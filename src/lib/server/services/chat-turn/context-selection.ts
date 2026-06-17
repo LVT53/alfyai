@@ -54,6 +54,11 @@ import {
 	WORKING_SET_PROMPT_TOKEN_BUDGET,
 } from "../knowledge";
 import { listConversationLinkedContextSources } from "../linked-context-sources";
+import {
+	getActiveMemoryProfileContext,
+	recordMemoryReworkTelemetry,
+	type ActiveMemoryProfileContext,
+} from "../memory-profile";
 import { getConversationProjectLabel } from "../projects";
 import {
 	formatTaskStateForPrompt,
@@ -142,6 +147,120 @@ type ContextLatencyTierResolution = {
 	tier: ContextLatencyTier;
 	reasons: string[];
 };
+
+function formatActiveMemoryProfileContext(
+	context: ActiveMemoryProfileContext,
+): string {
+	return context.items
+		.map((item) => {
+			const scope =
+				item.scope.type === "global"
+					? "global"
+					: `${item.scope.type}:${item.scope.id}`;
+			return `- ${item.category} (${scope}): ${item.statement}`;
+		})
+		.join("\n");
+}
+
+function summarizeActiveMemoryProfileTelemetry(
+	context: ActiveMemoryProfileContext,
+): {
+	categoryCounts: Record<string, number>;
+	scopeCounts: Record<string, number>;
+} {
+	const categoryCounts: Record<string, number> = {};
+	const scopeCounts: Record<string, number> = {};
+	for (const item of context.items) {
+		categoryCounts[item.category] = (categoryCounts[item.category] ?? 0) + 1;
+		scopeCounts[item.scope.type] = (scopeCounts[item.scope.type] ?? 0) + 1;
+	}
+	return { categoryCounts, scopeCounts };
+}
+
+async function recordPromptMemoryTelemetry(params: {
+	userId: string;
+	eventName: string;
+	reason: string;
+	status: string;
+	count: number;
+	metadata?: Record<string, unknown>;
+}): Promise<void> {
+	try {
+		await recordMemoryReworkTelemetry({
+			userId: params.userId,
+			eventFamily: "prompt_use",
+			eventName: params.eventName,
+			reason: params.reason,
+			status: params.status,
+			count: params.count,
+			metadata: params.metadata,
+		});
+	} catch {
+		// Prompt assembly should not fail because telemetry is unavailable.
+	}
+}
+
+async function buildActiveMemoryProfilePromptSection(params: {
+	userId: string;
+	modelContextBudget: ReturnType<typeof deriveModelContextBudget>;
+}): Promise<PromptContextSection | null> {
+	let context: ActiveMemoryProfileContext;
+	try {
+		context = await getActiveMemoryProfileContext({ userId: params.userId });
+	} catch {
+		await recordPromptMemoryTelemetry({
+			userId: params.userId,
+			eventName: "active_memory_profile_blocked",
+			reason: "active_profile_context_error",
+			status: "blocked",
+			count: 0,
+		});
+		return null;
+	}
+
+	if (context.items.length === 0) {
+		await recordPromptMemoryTelemetry({
+			userId: params.userId,
+			eventName: "active_memory_profile_empty",
+			reason: "no_active_projection_items",
+			status: "empty",
+			count: 0,
+			metadata: {
+				projectionRevision: context.projectionRevision,
+				resetGeneration: context.resetGeneration,
+			},
+		});
+		return null;
+	}
+
+	const baselineMemoryProfileBudget = deriveBaselineMemoryProfileBudget({
+		contextBudget: params.modelContextBudget,
+	});
+	const body = truncateToTokenBudget(
+		formatActiveMemoryProfileContext(context),
+		baselineMemoryProfileBudget.totalBudget,
+	);
+	await recordPromptMemoryTelemetry({
+		userId: params.userId,
+		eventName: "active_memory_profile_included",
+		reason: "active_projection_items",
+		status: "included",
+		count: context.items.length,
+		metadata: {
+			projectionRevision: context.projectionRevision,
+			resetGeneration: context.resetGeneration,
+			...summarizeActiveMemoryProfileTelemetry(context),
+		},
+	});
+
+	return {
+		title: "Baseline Memory Profile",
+		body,
+		layer: "session",
+		protected: true,
+		llmCompactible: true,
+	};
+}
 
 export function deriveRelevantKnowledgeArtifactLimit(
 	targetConstructedContext: number,
@@ -295,7 +414,7 @@ function buildContextSelectionCandidates(params: {
 										: section.title === "Context Compression Snapshot"
 											? ["context_compression_snapshot:valid"]
 											: section.title === "Baseline Memory Profile"
-												? ["honcho_baseline_profile:live"]
+												? ["active_memory_profile:projection"]
 												: promotedSibling
 													? [
 															"project_folder_sibling:query_match",
@@ -758,7 +877,11 @@ async function buildShallowConstructedContext(params: {
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	_reuseData?: ConstructedContextReuseData;
 }> {
-	const [sessionContext, contextCompressionPromptSnapshot] = await Promise.all([
+	const [
+		sessionContext,
+		contextCompressionPromptSnapshot,
+		activeMemoryProfileSection,
+	] = await Promise.all([
 		loadHonchoPromptContext({
 			userId: params.userId,
 			conversationId: params.conversationId,
@@ -769,12 +892,15 @@ async function buildShallowConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => null),
+		buildActiveMemoryProfilePromptSection({
+			userId: params.userId,
+			modelContextBudget: params.modelContextBudget,
+		}),
 	]);
 	const {
 		sessionMessages,
 		storedMessages,
 		summary: sessionSummary,
-		peerContext,
 		honchoContext,
 		honchoSnapshot,
 	} = sessionContext;
@@ -836,20 +962,8 @@ async function buildShallowConstructedContext(params: {
 			llmCompactible: true,
 		});
 	}
-	if (peerContext.trim()) {
-		const baselineMemoryProfileBudget = deriveBaselineMemoryProfileBudget({
-			contextBudget: params.modelContextBudget,
-		});
-		sections.push({
-			title: "Baseline Memory Profile",
-			body: truncateToTokenBudget(
-				peerContext,
-				baselineMemoryProfileBudget.totalBudget,
-			),
-			layer: "session",
-			protected: true,
-			llmCompactible: true,
-		});
+	if (activeMemoryProfileSection) {
+		sections.push(activeMemoryProfileSection);
 	}
 
 	const selectedPromptContext = selectPromptContext({
@@ -976,6 +1090,7 @@ export async function buildConstructedContext(params: {
 		projectFolderSiblingPromotion,
 		forkOrigin,
 		contextCompressionPromptSnapshot,
+		activeMemoryProfileSection,
 	] = await Promise.all([
 		loadHonchoPromptContext({
 			userId: params.userId,
@@ -1020,12 +1135,15 @@ export async function buildConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => null),
+		buildActiveMemoryProfilePromptSection({
+			userId: params.userId,
+			modelContextBudget,
+		}),
 	]);
 	const {
 		sessionMessages,
 		storedMessages,
 		summary: sessionSummary,
-		peerContext,
 		honchoContext,
 		honchoSnapshot,
 	} = sessionContext;
@@ -1494,20 +1612,8 @@ export async function buildConstructedContext(params: {
 		});
 	}
 
-	if (peerContext.trim()) {
-		const baselineMemoryProfileBudget = deriveBaselineMemoryProfileBudget({
-			contextBudget: modelContextBudget,
-		});
-		sections.push({
-			title: "Baseline Memory Profile",
-			body: truncateToTokenBudget(
-				peerContext,
-				baselineMemoryProfileBudget.totalBudget,
-			),
-			layer: "session",
-			protected: true,
-			llmCompactible: true,
-		});
+	if (activeMemoryProfileSection) {
+		sections.push(activeMemoryProfileSection);
 	}
 
 	const effectiveSections = [

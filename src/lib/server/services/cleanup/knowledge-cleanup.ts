@@ -5,9 +5,13 @@ import {
 	conversationContextStatus,
 	conversationTaskStates,
 	conversationWorkingSetItems,
+	memoryDirtyLedger,
 	memoryEvents,
+	memoryProjectionState,
 	memoryProjects,
 	memoryProjectTaskLinks,
+	memoryReworkTelemetry,
+	memoryReviewItems,
 	semanticEmbeddings,
 	taskCheckpoints,
 	taskStateEvidenceLinks,
@@ -16,6 +20,7 @@ import {
 	deleteAllHonchoStateForUser,
 	rotateHonchoPeerIdentity,
 } from "../honcho";
+import { advanceMemoryResetGeneration } from "../memory-profile";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
@@ -26,6 +31,7 @@ import { clearMessageEvidenceForUser } from "../messages";
 export async function resetKnowledgeBaseState(userId: string): Promise<{
 	deletedArtifactIds: string[];
 }> {
+	await advanceMemoryResetGeneration(userId);
 	await deleteAllHonchoStateForUser(userId);
 	await rotateHonchoPeerIdentity(userId);
 
@@ -53,6 +59,18 @@ export async function resetKnowledgeBaseState(userId: string): Promise<{
 			.run();
 		tx.delete(memoryProjects).where(eq(memoryProjects.userId, userId)).run();
 		tx.delete(memoryEvents).where(eq(memoryEvents.userId, userId)).run();
+		tx.delete(memoryProjectionState)
+			.where(eq(memoryProjectionState.userId, userId))
+			.run();
+		tx.delete(memoryReviewItems)
+			.where(eq(memoryReviewItems.userId, userId))
+			.run();
+		tx.delete(memoryDirtyLedger)
+			.where(eq(memoryDirtyLedger.userId, userId))
+			.run();
+		tx.delete(memoryReworkTelemetry)
+			.where(eq(memoryReworkTelemetry.userId, userId))
+			.run();
 		tx.delete(semanticEmbeddings)
 			.where(eq(semanticEmbeddings.userId, userId))
 			.run();

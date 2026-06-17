@@ -1,8 +1,71 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ApiError } from "./http";
-import { uploadKnowledgeAttachment } from "./knowledge";
+import {
+	submitKnowledgeMemoryAction,
+	uploadKnowledgeAttachment,
+} from "./knowledge";
 
 describe("knowledge client API", () => {
+	it("submits projection-backed memory profile actions", async () => {
+		const fetchImpl = vi.fn().mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					resetGeneration: 0,
+					projectionRevision: 8,
+					categories: [
+						{ category: "about_you", items: [] },
+						{ category: "preferences", items: [] },
+						{ category: "goals_ongoing_work", items: [] },
+						{ category: "constraints_boundaries", items: [] },
+					],
+					review: {
+						visibleItems: [],
+						openCount: 0,
+						overflowCount: 0,
+					},
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
+		);
+
+		await expect(
+			submitKnowledgeMemoryAction(
+				{
+					action: "edit",
+					itemId: "item-about",
+					statement: "Lives in Rotterdam.",
+					expectedProjectionRevision: 7,
+				},
+				fetchImpl,
+			),
+		).resolves.toMatchObject({
+			projectionRevision: 8,
+			categories: [
+				{ category: "about_you", items: [] },
+				{ category: "preferences", items: [] },
+				{ category: "goals_ongoing_work", items: [] },
+				{ category: "constraints_boundaries", items: [] },
+			],
+		});
+
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/knowledge/memory/actions",
+			expect.objectContaining({
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					action: "edit",
+					itemId: "item-about",
+					statement: "Lives in Rotterdam.",
+					expectedProjectionRevision: 7,
+				}),
+			}),
+		);
+	});
+
 	it("uploads attachments through the raw file-body endpoint", async () => {
 		const fetchImpl = vi
 			.fn()
