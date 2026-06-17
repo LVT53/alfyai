@@ -1416,10 +1416,10 @@ async function handleBulkDelete(): Promise<boolean> {
 		display: flex;
 		align-items: center;
 		gap: var(--space-sm);
-		flex-wrap: wrap;
 		font-size: 0.875rem;
 		font-weight: 500;
 		color: var(--text-primary);
+		min-width: 0;
 	}
 
 	.version-badge {
