@@ -153,15 +153,15 @@ describe("knowledge memory service", () => {
 		expect(payloadJson).not.toContain("debug");
 	});
 
-	it("bootstraps legacy migration when the projection-backed memory profile is empty", async () => {
-		mockGetMemoryProfileReadModel
-			.mockResolvedValueOnce(emptyProjectionProfile)
-			.mockResolvedValueOnce(projectionProfile);
+	it("queues legacy migration without blocking an empty projection-backed memory profile read", async () => {
+		const maintenancePromise = new Promise<void>(() => {});
+		mockRunUserMemoryMaintenance.mockReturnValueOnce(maintenancePromise);
+		mockGetMemoryProfileReadModel.mockResolvedValueOnce(emptyProjectionProfile);
 		const { getKnowledgeMemory } = await import("./memory");
 
 		const payload = await getKnowledgeMemory("user-1", "Test User");
 
-		expect(payload).toEqual(publicProfile);
+		expect(payload.categories.flatMap((group) => group.items)).toEqual([]);
 		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
 			userId: "user-1",
 			reason: "stale_projection",
@@ -178,11 +178,13 @@ describe("knowledge memory service", () => {
 				source: "knowledge_memory_read",
 			},
 		});
-		expect(mockRunUserMemoryMaintenance).toHaveBeenCalledWith(
-			"user-1",
-			"knowledge_memory_read",
-		);
-		expect(mockGetMemoryProfileReadModel).toHaveBeenCalledTimes(2);
+		await vi.waitFor(() => {
+			expect(mockRunUserMemoryMaintenance).toHaveBeenCalledWith(
+				"user-1",
+				"knowledge_memory_read",
+			);
+		});
+		expect(mockGetMemoryProfileReadModel).toHaveBeenCalledTimes(1);
 	});
 
 	it("keeps forced overview refresh cheap by reading the projection and marking stale work", async () => {

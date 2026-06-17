@@ -77,6 +77,20 @@ function hasActiveMemoryProfileItems(profile: MemoryProfileReadModel): boolean {
 	return profile.categories.some((group) => group.items.length > 0);
 }
 
+function queueMemoryReadMaintenance(userId: string, source: string): void {
+	void import("./memory-maintenance")
+		.then(({ runUserMemoryMaintenance }) =>
+			runUserMemoryMaintenance(userId, source),
+		)
+		.catch((error) => {
+			console.error("[KNOWLEDGE_MEMORY] Deferred maintenance failed", {
+				userId,
+				source,
+				error,
+			});
+		});
+}
+
 async function bootstrapEmptyMemoryProfile(
 	userId: string,
 	source: string,
@@ -85,19 +99,8 @@ async function bootstrapEmptyMemoryProfile(
 	if (hasActiveMemoryProfileItems(profile)) return profile;
 
 	await markLegacyMigrationRead(userId, source);
-	try {
-		const { runUserMemoryMaintenance } = await import("./memory-maintenance");
-		await runUserMemoryMaintenance(userId, source);
-	} catch (error) {
-		console.error("[KNOWLEDGE_MEMORY] Empty profile bootstrap failed", {
-			userId,
-			source,
-			error,
-		});
-		return profile;
-	}
-
-	return getMemoryProfileReadModel({ userId });
+	queueMemoryReadMaintenance(userId, source);
+	return profile;
 }
 
 function isNonEmptyString(value: unknown): value is string {
