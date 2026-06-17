@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import type { Component } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -241,5 +241,65 @@ describe("Knowledge page memory loading", () => {
 				"Memory profile was updated. Review the latest profile and try again.",
 			),
 		).toBeInTheDocument();
+	});
+
+	it("shows stale projection feedback inside an open memory item dialog", async () => {
+		vi.mocked(submitKnowledgeMemoryAction).mockRejectedValueOnce(
+			new ApiError("stale projection", {
+				code: "stale_projection",
+				status: 409,
+			}),
+		);
+		render(KnowledgePage, { data: pageData() });
+
+		await waitFor(() => {
+			expect(screen.getByText("Levi prefers concise memory behavior.")).toBeInTheDocument();
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Edit memory item" }));
+
+		const dialog = screen.getByRole("dialog", { name: "Memory item" });
+		const textarea = within(dialog).getByLabelText("Statement");
+		await fireEvent.input(textarea, {
+			target: { value: "Levi prefers concise memory behavior with local stale feedback." },
+		});
+		await fireEvent.click(within(dialog).getByRole("button", { name: "Save memory item" }));
+
+		await waitFor(() => {
+			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
+		});
+		expect(screen.getByRole("dialog", { name: "Memory item" })).toBeInTheDocument();
+		expect(
+			within(dialog).getByRole("alert"),
+		).toHaveTextContent("Memory profile was updated. Review the latest profile and try again.");
+	});
+
+	it("shows stale projection feedback inside an open review edit dialog", async () => {
+		vi.mocked(submitKnowledgeMemoryAction).mockRejectedValueOnce(
+			new ApiError("stale projection", {
+				code: "stale_projection",
+				status: 409,
+			}),
+		);
+		render(KnowledgePage, { data: pageData() });
+
+		await waitFor(() => {
+			expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Edit review item" }));
+
+		const dialog = screen.getByRole("dialog", { name: "Edit review item" });
+		const textarea = within(dialog).getByLabelText("Statement");
+		await fireEvent.input(textarea, {
+			target: { value: "Remember Hungarian labels in UI settings." },
+		});
+		await fireEvent.click(within(dialog).getByRole("button", { name: "Save review item" }));
+
+		await waitFor(() => {
+			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
+		});
+		expect(screen.getByRole("dialog", { name: "Edit review item" })).toBeInTheDocument();
+		expect(
+			within(dialog).getByRole("alert"),
+		).toHaveTextContent("Memory profile was updated. Review the latest profile and try again.");
 	});
 });

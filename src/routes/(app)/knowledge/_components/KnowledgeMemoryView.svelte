@@ -44,6 +44,7 @@ let {
 	memoryLoaded,
 	memoryLoadError,
 	pendingActionKey,
+	actionError,
 	onRetryLoadMemory,
 	onAction,
 }: {
@@ -52,6 +53,7 @@ let {
 	memoryLoaded: boolean;
 	memoryLoadError: string;
 	pendingActionKey: string | null;
+	actionError: string;
 	onRetryLoadMemory: () => void | Promise<void>;
 	onAction: (
 		payload: MemoryProfileActionPayload,
@@ -428,6 +430,7 @@ $effect(() => {
 		item={selectedItem}
 		projectionRevision={profile.projectionRevision}
 		{pendingActionKey}
+		{actionError}
 		onClose={() => (selectedItem = null)}
 		onAction={async (payload) => {
 			const success = await onAction(payload);
@@ -560,6 +563,11 @@ $effect(() => {
 					class="mt-2 min-h-32 w-full resize-y rounded-[0.75rem] border border-border bg-surface-page px-3 py-3 text-sm font-sans text-text-primary outline-none transition focus:border-primary"
 					bind:value={reviewStatement}
 				></textarea>
+				{#if actionError}
+					<div class="mt-3 rounded-[0.75rem] border border-danger bg-surface-page px-3 py-2 text-sm font-sans text-danger" role="alert">
+						{actionError}
+					</div>
+				{/if}
 				<div class="mt-4 flex justify-end gap-2">
 					<button
 						type="button"

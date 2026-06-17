@@ -549,6 +549,7 @@ $effect(() => {
 						{memoryLoaded}
 						{memoryLoadError}
 						pendingActionKey={pendingMemoryActionKey}
+						actionError={manageError}
 						onRetryLoadMemory={() => void loadMemoryProfile(true)}
 						onAction={handleMemoryAction}
 					/>

@@ -12,12 +12,14 @@ let {
 	item,
 	projectionRevision,
 	pendingActionKey,
+	actionError,
 	onClose,
 	onAction,
 }: {
 	item: OptionalItemDetail;
 	projectionRevision: number;
 	pendingActionKey: string | null;
+	actionError: string;
 	onClose: () => void;
 	onAction: (
 		payload: MemoryProfileActionPayload,
@@ -177,6 +179,11 @@ onDestroy(() => {
 				class="mt-2 min-h-36 w-full resize-y rounded-[0.75rem] border border-border bg-surface-page px-3 py-3 text-sm font-sans leading-[1.55] text-text-primary outline-none transition focus:border-primary"
 				bind:value={statement}
 			></textarea>
+			{#if actionError}
+				<div class="mt-3 rounded-[0.75rem] border border-danger bg-surface-page px-3 py-2 text-sm font-sans text-danger" role="alert">
+					{actionError}
+				</div>
+			{/if}
 
 			{#if item.reason || sourceChips.length > 0}
 				<div class="mt-4 flex flex-wrap gap-2">

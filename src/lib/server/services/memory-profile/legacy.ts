@@ -428,9 +428,7 @@ export async function migrateLegacyMemoryForUser(params: {
 		};
 	}
 
-	const classifications = legacyBatch.candidates
-		.slice(0, requestedLimit)
-		.map(classifyLegacyCandidate);
+	const classifications = legacyBatch.candidates.map(classifyLegacyCandidate);
 	const applied = applyLegacyMigrationRows({
 		userId: params.userId,
 		resetGeneration,

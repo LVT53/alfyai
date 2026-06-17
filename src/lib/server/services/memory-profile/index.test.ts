@@ -322,6 +322,91 @@ describe("memory profile foundation", () => {
 		expect(suppressedProfile.projectionRevision).toBe(3);
 	});
 
+	it("rekeys full profile edits so old and new statements dedupe to the correct rows", async () => {
+		const {
+			createMemoryProfileItem,
+			getMemoryProfileReadModel,
+			updateMemoryProfileItemWithRevision,
+		} = await import("./index");
+
+		const edited = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers old answer style.",
+		});
+		const beforeEdit = await getMemoryProfileReadModel({ userId: "user-1" });
+		await expect(
+			updateMemoryProfileItemWithRevision({
+				userId: "user-1",
+				itemId: edited.id,
+				expectedProjectionRevision: beforeEdit.projectionRevision,
+				patch: { statement: "Prefers new answer style." },
+			}),
+		).resolves.toMatchObject({ status: "updated" });
+
+		const recreatedOld = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers old answer style.",
+		});
+		const duplicateNew = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers new answer style.",
+		});
+
+		expect(recreatedOld.id).not.toBe(edited.id);
+		expect(duplicateNew.id).toBe(edited.id);
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(
+			profile.categories[1]?.items.map((item) => item.statement).sort(),
+		).toEqual(["Prefers new answer style.", "Prefers old answer style."]);
+	});
+
+	it("rejects profile edits that would collide with another active item's key", async () => {
+		const {
+			createMemoryProfileItem,
+			getMemoryProfileReadModel,
+			updateMemoryProfileItemWithRevision,
+		} = await import("./index");
+
+		const source = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers original answer style.",
+		});
+		await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers existing answer style.",
+		});
+		const beforeEdit = await getMemoryProfileReadModel({ userId: "user-1" });
+
+		await expect(
+			updateMemoryProfileItemWithRevision({
+				userId: "user-1",
+				itemId: source.id,
+				expectedProjectionRevision: beforeEdit.projectionRevision,
+				patch: { statement: "Prefers existing answer style." },
+			}),
+		).resolves.toEqual({ status: "not_found" });
+
+		const after = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(after.projectionRevision).toBe(beforeEdit.projectionRevision);
+		expect(
+			after.categories[1]?.items.map((item) => item.statement).sort(),
+		).toEqual([
+			"Prefers existing answer style.",
+			"Prefers original answer style.",
+		]);
+	});
+
 	it("dedupes review items, coalesces dirty work, and records fixed-family telemetry without raw text", async () => {
 		const {
 			MEMORY_DIRTY_REASONS,
@@ -652,6 +737,52 @@ describe("memory profile foundation", () => {
 		expect(contextJson).not.toContain("canDelete");
 		expect(contextJson).not.toContain("canSuppress");
 		expect(contextJson).not.toContain("review");
+	});
+
+	it("expires overdue active profile items before read model or prompt context use", async () => {
+		const { db } = await import("$lib/server/db");
+		const {
+			createMemoryProfileItem,
+			getActiveMemoryProfileContext,
+			getMemoryProfileReadModel,
+		} = await import("./index");
+
+		const expired = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers obsolete memory.",
+		});
+		await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers current memory.",
+		});
+		await db
+			.update(schema.memoryProfileItems)
+			.set({ expiresAt: new Date("2026-01-01T00:00:00.000Z") })
+			.where(eq(schema.memoryProfileItems.id, expired.id))
+			.run();
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories[1]?.items).toEqual([
+			expect.objectContaining({ statement: "Prefers current memory." }),
+		]);
+
+		const context = await getActiveMemoryProfileContext({ userId: "user-1" });
+		expect(context.items).toEqual([
+			expect.objectContaining({ statement: "Prefers current memory." }),
+		]);
+
+		const rows = await db
+			.select({
+				id: schema.memoryProfileItems.id,
+				status: schema.memoryProfileItems.status,
+			})
+			.from(schema.memoryProfileItems)
+			.where(eq(schema.memoryProfileItems.id, expired.id));
+		expect(rows).toEqual([{ id: expired.id, status: "expired" }]);
 	});
 
 	it("orders active memory profile context newest-first", async () => {
@@ -1179,6 +1310,57 @@ describe("memory profile foundation", () => {
 		expect(JSON.stringify(telemetry)).not.toContain("acoustic guitars");
 	});
 
+	it("inspects every returned legacy candidate before callers advance the Honcho page cursor", async () => {
+		const { getActiveMemoryProfileContext, migrateLegacyMemoryForUser } =
+			await import("./index");
+
+		await expect(
+			migrateLegacyMemoryForUser({
+				userId: "user-1",
+				batchSize: 1,
+				legacyBatch: {
+					totalAvailable: 2,
+					candidates: [
+						{
+							id: "assistant-about-user-page-1",
+							content: "User prefers implementation notes.",
+							scope: "assistant_about_user",
+							sessionId: null,
+							createdAt: Date.now(),
+						},
+						{
+							id: "self-page-1",
+							content: "User prefers regression tests.",
+							scope: "self",
+							sessionId: null,
+							createdAt: Date.now() - 1,
+						},
+					],
+				},
+			}),
+		).resolves.toEqual({
+			status: "completed",
+			inspected: 2,
+			active: 2,
+			preserved: 0,
+			rejected: 0,
+			totalAvailable: 2,
+		});
+
+		await expect(
+			getActiveMemoryProfileContext({ userId: "user-1" }),
+		).resolves.toMatchObject({
+			items: expect.arrayContaining([
+				expect.objectContaining({
+					statement: "Prefers implementation notes.",
+				}),
+				expect.objectContaining({
+					statement: "Prefers regression tests.",
+				}),
+			]),
+		});
+	});
+
 	it("discards stale-generation legacy migration output without recreating memory state after reset", async () => {
 		const {
 			advanceMemoryResetGeneration,
@@ -1275,7 +1457,7 @@ describe("memory profile foundation", () => {
 		expect(JSON.stringify(telemetry)).not.toContain("legacyCandidateEstimate");
 	});
 
-	it("acknowledges legacy migration dirty rows as unavailable when the injected loader fails", async () => {
+	it("requeues legacy migration dirty rows when the injected loader fails transiently", async () => {
 		const {
 			listMemoryReworkTelemetry,
 			listPendingMemoryDirtyEntries,
@@ -1300,8 +1482,8 @@ describe("memory profile foundation", () => {
 			}),
 		).resolves.toEqual({
 			claimed: 1,
-			completed: 1,
-			failed: 0,
+			completed: 0,
+			failed: 1,
 			skipped: 0,
 			timedOut: false,
 		});
@@ -1314,18 +1496,23 @@ describe("memory profile foundation", () => {
 		});
 		await expect(
 			listPendingMemoryDirtyEntries({ userId: "user-1" }),
-		).resolves.toEqual([]);
+		).resolves.toEqual([
+			expect.objectContaining({
+				reason: "legacy_migration",
+				count: 1,
+				metadata: { legacyCandidateEstimate: 1600 },
+			}),
+		]);
 		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
 		expect(telemetry).toEqual([
 			expect.objectContaining({
-				eventFamily: "maintenance",
-				eventName: "legacy_migration_unavailable",
+				eventFamily: "error_fallback",
+				eventName: "dirty_ledger_reconciliation_failed",
 				reason: "legacy_migration",
-				status: "skipped",
+				status: "retry_pending",
 				metadata: expect.objectContaining({
 					ledgerEntryId: expect.any(String),
-					scopeType: "global",
-					scopeId: "",
+					errorName: "Error",
 				}),
 			}),
 		]);
@@ -1660,6 +1847,48 @@ describe("memory profile foundation", () => {
 		]);
 		expect(JSON.stringify(telemetry)).not.toContain("Suppressed preference.");
 		expect(JSON.stringify(telemetry)).not.toContain("Inactive goal.");
+	});
+
+	it("records explicit projection-only telemetry for honcho reconciliation dirty rows", async () => {
+		const {
+			listMemoryReworkTelemetry,
+			markMemoryDirty,
+			reconcileMemoryProfileDirtyLedgerForUser,
+		} = await import("./index");
+
+		await markMemoryDirty({
+			userId: "user-1",
+			reason: "honcho_reconciliation",
+			metadata: { action: "delete", itemId: "item-about" },
+		});
+
+		await expect(
+			reconcileMemoryProfileDirtyLedgerForUser({ userId: "user-1" }),
+		).resolves.toEqual({
+			claimed: 1,
+			completed: 1,
+			failed: 0,
+			skipped: 0,
+			timedOut: false,
+		});
+
+		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
+		expect(telemetry).toEqual([
+			expect.objectContaining({
+				eventFamily: "maintenance",
+				eventName: "dirty_ledger_honcho_reconciliation_projection_only",
+				reason: "honcho_reconciliation",
+				status: "completed",
+				subjectId: "item-about",
+				metadata: {
+					ledgerEntryId: expect.any(String),
+					scopeType: "global",
+					scopeId: "",
+					action: "delete",
+				},
+			}),
+		]);
+		expect(JSON.stringify(telemetry)).not.toContain("raw");
 	});
 
 	it("completes an unsupported dirty row and records privacy-safe skipped telemetry", async () => {

@@ -113,6 +113,7 @@ function renderMemoryView(overrides = {}) {
 			memoryLoaded: true,
 			memoryLoadError: "",
 			pendingActionKey: null,
+			actionError: "",
 			onRetryLoadMemory: vi.fn(),
 			onAction: vi.fn(),
 			...overrides,

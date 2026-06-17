@@ -637,6 +637,42 @@ async function ensureProjectionState(params: {
 	return row;
 }
 
+async function expireOverdueActiveMemoryProfileItems(params: {
+	userId: string;
+	resetGeneration: number;
+	projectionStateId: string;
+	now?: Date;
+}): Promise<number> {
+	const now = params.now ?? new Date();
+	const result = (await db
+		.update(memoryProfileItems)
+		.set({
+			status: "expired",
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+				eq(memoryProfileItems.status, "active"),
+				lt(memoryProfileItems.expiresAt, now),
+			),
+		)
+		.run()) as { changes?: number };
+	const expiredCount = result.changes ?? 0;
+	if (expiredCount > 0) {
+		await db
+			.update(memoryProjectionState)
+			.set({
+				revision: sql`${memoryProjectionState.revision} + ${expiredCount}`,
+				updatedAt: now,
+			})
+			.where(eq(memoryProjectionState.id, params.projectionStateId))
+			.run();
+	}
+	return expiredCount;
+}
+
 export async function createMemoryProfileItem(params: {
 	userId: string;
 	category: MemoryProfileCategory;
@@ -805,6 +841,11 @@ export async function getMemoryProfileReadModel(params: {
 		userId: params.userId,
 		resetGeneration,
 	});
+	const expiredCount = await expireOverdueActiveMemoryProfileItems({
+		userId: params.userId,
+		resetGeneration,
+		projectionStateId: projection.id,
+	});
 	const rows = await db
 		.select()
 		.from(memoryProfileItems)
@@ -833,7 +874,7 @@ export async function getMemoryProfileReadModel(params: {
 
 	return {
 		resetGeneration,
-		projectionRevision: projection.revision,
+		projectionRevision: projection.revision + expiredCount,
 		categories: MEMORY_PROFILE_CATEGORIES.map((category) => ({
 			category,
 			items: cards.filter((item) => item.category === category),
@@ -852,6 +893,15 @@ export async function getMemoryProfileItemDetail(params: {
 	itemId: string;
 }): Promise<MemoryProfileItemDetail | null> {
 	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const projection = await ensureProjectionState({
+		userId: params.userId,
+		resetGeneration,
+	});
+	await expireOverdueActiveMemoryProfileItems({
+		userId: params.userId,
+		resetGeneration,
+		projectionStateId: projection.id,
+	});
 	const [item] = await db
 		.select()
 		.from(memoryProfileItems)
@@ -899,6 +949,11 @@ export async function getActiveMemoryProfileContext(params: {
 		userId: params.userId,
 		resetGeneration,
 	});
+	const expiredCount = await expireOverdueActiveMemoryProfileItems({
+		userId: params.userId,
+		resetGeneration,
+		projectionStateId: projection.id,
+	});
 	const rows = await db
 		.select()
 		.from(memoryProfileItems)
@@ -913,7 +968,7 @@ export async function getActiveMemoryProfileContext(params: {
 
 	return {
 		resetGeneration,
-		projectionRevision: projection.revision,
+		projectionRevision: projection.revision + expiredCount,
 		items: rows.map((row) => {
 			assertMemoryProfileCategory(row.category);
 			return {
@@ -949,7 +1004,7 @@ export async function updateMemoryProfileItemWithRevision(params: {
 	});
 	const now = new Date();
 	const itemRows = await db
-		.select({ id: memoryProfileItems.id })
+		.select()
 		.from(memoryProfileItems)
 		.where(
 			and(
@@ -959,7 +1014,35 @@ export async function updateMemoryProfileItemWithRevision(params: {
 			),
 		)
 		.limit(1);
-	if (!itemRows[0]) return { status: "not_found" };
+	const item = itemRows[0];
+	if (!item) return { status: "not_found" };
+	assertMemoryProfileCategory(item.category);
+	const nextStatement = params.patch.statement ?? item.statement;
+	const nextItemKey =
+		params.patch.statement !== undefined &&
+		item.itemKey.startsWith(`${ITEM_KEY_VERSION}:`)
+			? deriveMemoryProfileItemKey({
+					category: item.category,
+					scope: fromScopeColumns(item.scopeType, item.scopeId),
+					statement: nextStatement,
+				})
+			: item.itemKey;
+	if (nextItemKey !== item.itemKey) {
+		const [collidingItem] = await db
+			.select({ id: memoryProfileItems.id })
+			.from(memoryProfileItems)
+			.where(
+				and(
+					eq(memoryProfileItems.userId, params.userId),
+					eq(memoryProfileItems.resetGeneration, resetGeneration),
+					eq(memoryProfileItems.itemKey, nextItemKey),
+				),
+			)
+			.limit(1);
+		if (collidingItem && collidingItem.id !== item.id) {
+			return { status: "not_found" };
+		}
+	}
 
 	const nextRevision = params.expectedProjectionRevision + 1;
 	const result = db.transaction((tx) => {
@@ -986,6 +1069,7 @@ export async function updateMemoryProfileItemWithRevision(params: {
 				...(params.patch.statement !== undefined
 					? { statement: params.patch.statement }
 					: {}),
+				...(nextItemKey !== item.itemKey ? { itemKey: nextItemKey } : {}),
 				...(params.patch.status !== undefined
 					? {
 							status: params.patch.status,
@@ -1770,6 +1854,25 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 		});
 		return;
 	}
+	if (params.row.reason === "honcho_reconciliation") {
+		const action = readSafeString(metadata.action);
+		await recordMemoryReworkTelemetry({
+			userId: params.userId,
+			eventFamily: "maintenance",
+			eventName: "dirty_ledger_honcho_reconciliation_projection_only",
+			reason: params.row.reason,
+			status: "completed",
+			count: params.row.count,
+			subjectId: telemetrySubjectIdForDirtyMetadata(metadata) ?? undefined,
+			metadata: {
+				ledgerEntryId: params.row.id,
+				scopeType: params.row.scopeType,
+				scopeId: params.row.scopeId,
+				...(action ? { action } : {}),
+			},
+		});
+		return;
+	}
 	if (params.row.reason === "legacy_migration") {
 		const excludedSourceIds = readSafeStringArray(
 			metadata.legacyExcludedSourceIds,
@@ -1778,16 +1881,12 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 			readSafePositiveInteger(metadata.legacyNextPage) ?? 1;
 		let legacyBatch: LegacyPersonaMemoryCandidateBatch | undefined;
 		if (params.loadLegacyMemoryCandidates) {
-			try {
-				legacyBatch = await params.loadLegacyMemoryCandidates(params.userId, {
-					limit: LEGACY_DIRTY_LEDGER_CANDIDATE_LIMIT,
-					excludeSourceIds: excludedSourceIds,
-					startPage: legacyStartPage,
-					maxPages: LEGACY_DIRTY_LEDGER_MAX_PAGES,
-				});
-			} catch {
-				legacyBatch = undefined;
-			}
+			legacyBatch = await params.loadLegacyMemoryCandidates(params.userId, {
+				limit: LEGACY_DIRTY_LEDGER_CANDIDATE_LIMIT,
+				excludeSourceIds: excludedSourceIds,
+				startPage: legacyStartPage,
+				maxPages: LEGACY_DIRTY_LEDGER_MAX_PAGES,
+			});
 		}
 		const migration = await migrateLegacyMemoryForUser({
 			userId: params.userId,
