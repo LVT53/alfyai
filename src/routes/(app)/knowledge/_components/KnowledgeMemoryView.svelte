@@ -314,13 +314,13 @@ $effect(() => {
 		</div>
 
 		{#if profile && profile.review.openCount > 0}
-			<div class="rounded-[1rem] border border-[color-mix(in_srgb,var(--warning)_36%,var(--border)_64%)] bg-[color-mix(in_srgb,var(--warning)_14%,var(--surface-elevated)_86%)] px-4 py-4 shadow-sm">
+			<div class="memory-review-callout rounded-[0.5rem] px-4 py-4 shadow-sm">
 				<div class="flex flex-wrap items-center justify-between gap-3">
-					<h3 class="text-lg font-sans font-semibold text-[color-mix(in_srgb,var(--warning)_76%,var(--text-primary)_24%)]">{$t("memoryProfile.needsReview")}</h3>
+					<h3 class="memory-review-title font-sans font-semibold">{$t("memoryProfile.needsReview")}</h3>
 					{#if reviewOverflowCount > 0}
 						<button
 							type="button"
-							class="cursor-pointer rounded-full border border-[color-mix(in_srgb,var(--warning)_44%,var(--border)_56%)] bg-[color-mix(in_srgb,var(--warning)_10%,var(--surface-page)_90%)] px-3 py-1 text-xs font-sans font-medium text-[color-mix(in_srgb,var(--warning)_76%,var(--text-primary)_24%)] transition hover:bg-[color-mix(in_srgb,var(--warning)_16%,var(--surface-page)_84%)]"
+							class="memory-review-more cursor-pointer rounded-full px-3 py-1 text-xs font-sans font-medium transition"
 							onclick={() => (reviewOverflowOpen = true)}
 						>
 							{$t("memoryProfile.more", { count: reviewOverflowCount })}
@@ -329,11 +329,11 @@ $effect(() => {
 				</div>
 				<div class="mt-3 grid gap-2">
 					{#each visibleReviewItems as item (item.id)}
-						<div class="flex items-start justify-between gap-3 rounded-[0.75rem] border border-[color-mix(in_srgb,var(--warning)_30%,var(--border)_70%)] bg-[color-mix(in_srgb,var(--surface-page)_84%,var(--warning)_16%)] px-3 py-3">
+						<div class="memory-review-card flex items-start justify-between gap-3 rounded-[0.5rem] px-3 py-3">
 							<div class="min-w-0">
 								<p class="break-words text-sm font-sans leading-[1.5] text-text-primary">{item.subject}</p>
 								{#if item.reason}
-									<div class="mt-2 inline-flex max-w-full rounded-full border border-[color-mix(in_srgb,var(--warning)_28%,var(--border)_72%)] bg-[color-mix(in_srgb,var(--surface-page)_76%,var(--warning)_24%)] px-2 py-0.5 text-xs font-sans text-text-muted">
+									<div class="memory-review-reason mt-2 inline-flex max-w-full rounded-full px-2 py-0.5 text-xs font-sans text-text-muted">
 										<span class="truncate">{item.reason}</span>
 									</div>
 								{/if}
@@ -563,6 +563,43 @@ $effect(() => {
 		</div>
 	</div>
 {/if}
+
+<style>
+	.memory-review-callout {
+		border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--surface-page) 62%);
+		background: color-mix(in srgb, var(--warning) 18%, var(--surface-elevated) 82%);
+	}
+
+	.memory-review-title {
+		color: color-mix(in srgb, var(--warning-hover) 76%, var(--text-primary) 24%);
+		font-size: 0.95rem;
+		line-height: 1.35;
+	}
+
+	.memory-review-more {
+		border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--surface-page) 58%);
+		background: color-mix(in srgb, var(--surface-page) 82%, var(--warning) 18%);
+		color: color-mix(in srgb, var(--warning-hover) 74%, var(--text-primary) 26%);
+	}
+
+	.memory-review-more:hover {
+		background: color-mix(in srgb, var(--surface-page) 74%, var(--warning) 26%);
+	}
+
+	.memory-review-card {
+		border: 1px solid color-mix(in srgb, var(--warning) 36%, var(--surface-page) 64%);
+		background: color-mix(in srgb, var(--surface-page) 82%, white 18%);
+	}
+
+	:global(.dark) .memory-review-card {
+		background: color-mix(in srgb, var(--surface-elevated) 82%, var(--warning) 18%);
+	}
+
+	.memory-review-reason {
+		border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--surface-page) 72%);
+		background: color-mix(in srgb, var(--surface-page) 72%, var(--warning) 28%);
+	}
+</style>
 
 {#if editingReviewItem && profile}
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->

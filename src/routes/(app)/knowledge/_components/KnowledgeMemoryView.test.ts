@@ -186,9 +186,8 @@ describe("KnowledgeMemoryView", () => {
 		const review = screen.getByRole("heading", { name: "Needs Review" })
 			.parentElement?.parentElement;
 		expect(review).not.toBeNull();
-		expect(review).toHaveClass(
-			"bg-[color-mix(in_srgb,var(--warning)_14%,var(--surface-elevated)_86%)]",
-		);
+		expect(review).toHaveClass("memory-review-callout");
+		expect(review?.querySelector(".memory-review-card")).not.toBeNull();
 		expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
 		expect(screen.getByText("Prefer icon actions.")).toBeInTheDocument();
 		expect(
