@@ -3,38 +3,41 @@ import type {
 	MemoryProfileActionPayload,
 	MemoryProfileCategory,
 	MemoryProfilePublicItem,
+	MemoryProfilePublicItemDetail,
 	MemoryProfilePublicPayload,
 	MemoryProfileReviewItem,
 } from "$lib/types";
+import { t, type I18nKey } from "$lib/i18n";
+import { fetchMemoryProfileItemDetail } from "$lib/client/api/knowledge";
 import { Check, Loader, Pencil, Trash2, X } from "@lucide/svelte";
 import KnowledgeMemoryModal from "./KnowledgeMemoryModal.svelte";
 
 type CategoryDefinition = {
 	category: MemoryProfileCategory;
-	label: string;
-	empty: string;
+	label: I18nKey;
+	empty: I18nKey;
 };
 
 const categoryDefinitions: CategoryDefinition[] = [
 	{
 		category: "about_you",
-		label: "About You",
-		empty: "No active memories about you yet.",
+		label: "memoryProfile.aboutYou",
+		empty: "memoryProfile.aboutYouEmpty",
 	},
 	{
 		category: "preferences",
-		label: "Preferences",
-		empty: "No preferences remembered yet.",
+		label: "memoryProfile.preferences",
+		empty: "memoryProfile.preferencesEmpty",
 	},
 	{
 		category: "goals_ongoing_work",
-		label: "Goals & Ongoing Work",
-		empty: "No active goals or ongoing work remembered yet.",
+		label: "memoryProfile.goals",
+		empty: "memoryProfile.goalsEmpty",
 	},
 	{
 		category: "constraints_boundaries",
-		label: "Constraints & Boundaries",
-		empty: "No constraints or boundaries remembered yet.",
+		label: "memoryProfile.constraints",
+		empty: "memoryProfile.constraintsEmpty",
 	},
 ];
 
@@ -60,7 +63,9 @@ let {
 	) => boolean | Promise<boolean | undefined>;
 } = $props();
 
-let selectedItem = $state<MemoryProfilePublicItem | null>(null);
+let selectedItem = $state<
+	MemoryProfilePublicItem | MemoryProfilePublicItemDetail | null
+>(null);
 let reviewOverflowOpen = $state(false);
 let editingReviewItem = $state<MemoryProfileReviewItem | null>(null);
 let reviewStatement = $state("");
@@ -80,7 +85,7 @@ let reviewItems = $derived(
 	profile?.review.items ?? profile?.review.visibleItems ?? [],
 );
 let visibleReviewItems = $derived(
-	profile?.review.visibleItems ?? reviewItems.slice(0, 3),
+	(profile?.review.visibleItems ?? reviewItems).slice(0, 3),
 );
 let reviewOverflowCount = $derived(
 	Math.max(
@@ -101,9 +106,10 @@ function getCategoryItems(
 
 function formatScope(scope: MemoryProfilePublicItem["scope"]): string | null {
 	if (scope.type === "global") return null;
-	if (scope.type === "project") return "Project";
-	if (scope.type === "conversation") return "Conversation";
-	return "Document";
+	if (scope.type === "project") return $t("memoryProfile.projectScope");
+	if (scope.type === "conversation")
+		return $t("memoryProfile.conversationScope");
+	return $t("memoryProfile.documentScope");
 }
 
 function actionKey(
@@ -123,6 +129,22 @@ function submitAction(
 		itemId: item.id,
 		expectedProjectionRevision: profile?.projectionRevision ?? 0,
 	});
+}
+
+function openMemoryItem(item: MemoryProfilePublicItem) {
+	selectedItem = item;
+	void fetchMemoryProfileItemDetail(item.id)
+		.then((detail) => {
+			if (selectedItem?.id === item.id) {
+				selectedItem = detail;
+			}
+		})
+		.catch((error) => {
+			console.warn("[KNOWLEDGE_MEMORY] Failed to load memory item detail", {
+				itemId: item.id,
+				error,
+			});
+		});
 }
 
 function useReviewItem(item: MemoryProfileReviewItem) {
@@ -267,14 +289,14 @@ $effect(() => {
 {:else if memoryLoadError && !memoryLoaded}
 	<section class="rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm md:px-5">
 		<div class="rounded-[0.75rem] border border-danger bg-surface-page px-4 py-5">
-			<div class="text-sm font-sans font-medium text-danger">Failed to load memory profile.</div>
+			<div class="text-sm font-sans font-medium text-danger">{$t("memoryProfile.failedLoad")}</div>
 			<p class="mt-2 text-sm font-sans leading-[1.6] text-text-secondary">{memoryLoadError}</p>
 			<button
 				type="button"
 				class="mt-4 cursor-pointer rounded-full border border-border px-4 py-2 text-sm font-sans font-medium text-text-primary transition hover:bg-surface-elevated"
 				onclick={onRetryLoadMemory}
 			>
-				Try again
+				{$t("memory.tryAgain")}
 			</button>
 		</div>
 	</section>
@@ -283,35 +305,35 @@ $effect(() => {
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<div>
 				<h2 id="memory-profile-title" class="text-2xl font-serif text-text-primary">
-					Memory Profile
+					{$t("memory.title")}
 				</h2>
 			</div>
 			<span class="rounded-full border border-border bg-surface-elevated px-3 py-1 text-xs font-sans text-text-muted">
-				{activeItemCount} active
+				{$t("memoryProfile.activeCount", { count: activeItemCount })}
 			</span>
 		</div>
 
 		{#if profile && profile.review.openCount > 0}
-			<div class="rounded-[1rem] border border-[color-mix(in_srgb,var(--accent)_34%,var(--border)_66%)] bg-[color-mix(in_srgb,var(--accent)_11%,var(--surface-elevated)_89%)] px-4 py-4 shadow-sm">
+			<div class="rounded-[1rem] border border-[color-mix(in_srgb,var(--warning)_36%,var(--border)_64%)] bg-[color-mix(in_srgb,var(--warning)_14%,var(--surface-elevated)_86%)] px-4 py-4 shadow-sm">
 				<div class="flex flex-wrap items-center justify-between gap-3">
-					<h3 class="text-lg font-sans font-semibold text-[color-mix(in_srgb,var(--accent)_72%,var(--text-primary)_28%)]">Needs Review</h3>
+					<h3 class="text-lg font-sans font-semibold text-[color-mix(in_srgb,var(--warning)_76%,var(--text-primary)_24%)]">{$t("memoryProfile.needsReview")}</h3>
 					{#if reviewOverflowCount > 0}
 						<button
 							type="button"
-							class="cursor-pointer rounded-full border border-[color-mix(in_srgb,var(--accent)_42%,var(--border)_58%)] bg-[color-mix(in_srgb,var(--accent)_8%,var(--surface-page)_92%)] px-3 py-1 text-xs font-sans font-medium text-[color-mix(in_srgb,var(--accent)_72%,var(--text-primary)_28%)] transition hover:bg-[color-mix(in_srgb,var(--accent)_14%,var(--surface-page)_86%)]"
+							class="cursor-pointer rounded-full border border-[color-mix(in_srgb,var(--warning)_44%,var(--border)_56%)] bg-[color-mix(in_srgb,var(--warning)_10%,var(--surface-page)_90%)] px-3 py-1 text-xs font-sans font-medium text-[color-mix(in_srgb,var(--warning)_76%,var(--text-primary)_24%)] transition hover:bg-[color-mix(in_srgb,var(--warning)_16%,var(--surface-page)_84%)]"
 							onclick={() => (reviewOverflowOpen = true)}
 						>
-							+{reviewOverflowCount} more
+							{$t("memoryProfile.more", { count: reviewOverflowCount })}
 						</button>
 					{/if}
 				</div>
 				<div class="mt-3 grid gap-2">
 					{#each visibleReviewItems as item (item.id)}
-						<div class="flex items-start justify-between gap-3 rounded-[0.75rem] border border-[color-mix(in_srgb,var(--accent)_28%,var(--border)_72%)] bg-[color-mix(in_srgb,var(--surface-page)_84%,var(--accent)_16%)] px-3 py-3">
+						<div class="flex items-start justify-between gap-3 rounded-[0.75rem] border border-[color-mix(in_srgb,var(--warning)_30%,var(--border)_70%)] bg-[color-mix(in_srgb,var(--surface-page)_84%,var(--warning)_16%)] px-3 py-3">
 							<div class="min-w-0">
 								<p class="break-words text-sm font-sans leading-[1.5] text-text-primary">{item.subject}</p>
 								{#if item.reason}
-									<div class="mt-2 inline-flex max-w-full rounded-full border border-border px-2 py-0.5 text-xs font-sans text-text-muted">
+									<div class="mt-2 inline-flex max-w-full rounded-full border border-[color-mix(in_srgb,var(--warning)_28%,var(--border)_72%)] bg-[color-mix(in_srgb,var(--surface-page)_76%,var(--warning)_24%)] px-2 py-0.5 text-xs font-sans text-text-muted">
 										<span class="truncate">{item.reason}</span>
 									</div>
 								{/if}
@@ -323,8 +345,8 @@ $effect(() => {
 										class="btn-icon-bare btn-icon-sm h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
 										onclick={() => useReviewItem(item)}
 										disabled={pendingActionKey === actionKey(item.id, "accept")}
-										aria-label="Remember this item"
-										title="Remember"
+										aria-label={$t("memoryProfile.rememberThisItem")}
+										title={$t("memoryProfile.remember")}
 									>
 										{#if pendingActionKey === actionKey(item.id, "accept")}
 											<Loader size={17} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
@@ -337,8 +359,8 @@ $effect(() => {
 									type="button"
 									class="btn-icon-bare btn-icon-sm h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
 									onclick={() => openReviewEditor(item)}
-									aria-label="Edit review item"
-									title="Edit"
+									aria-label={$t("memoryProfile.editReviewItem")}
+									title={$t("memoryProfile.edit")}
 								>
 									<Pencil size={17} strokeWidth={2.1} aria-hidden="true" />
 								</button>
@@ -353,8 +375,8 @@ $effect(() => {
 											expectedProjectionRevision: profile.projectionRevision,
 										})}
 									disabled={pendingActionKey === actionKey(item.id, "suppress")}
-									aria-label="Do not remember review item"
-									title="Do not remember"
+									aria-label={$t("memoryProfile.doNotRememberReviewItem")}
+									title={$t("memoryProfile.doNotRemember")}
 								>
 									<X size={17} strokeWidth={2.1} aria-hidden="true" />
 								</button>
@@ -370,10 +392,10 @@ $effect(() => {
 				{@const items = getCategoryItems(definition.category)}
 				<section class="rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm" aria-labelledby={`memory-category-${definition.category}`}>
 					<h3 id={`memory-category-${definition.category}`} class="text-lg font-sans font-semibold text-text-primary">
-						{definition.label}
+						{$t(definition.label)}
 					</h3>
 					{#if items.length === 0}
-						<p class="mt-3 text-sm font-sans leading-[1.5] text-text-muted">{definition.empty}</p>
+						<p class="mt-3 text-sm font-sans leading-[1.5] text-text-muted">{$t(definition.empty)}</p>
 					{:else}
 						<div class={`mt-3 grid gap-2 ${items.length > 4 ? "max-h-[356px] overflow-y-auto pr-1" : ""}`}>
 							{#each items as item (item.id)}
@@ -392,9 +414,9 @@ $effect(() => {
 											<button
 												type="button"
 												class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-												onclick={() => (selectedItem = item)}
-												aria-label="Edit memory item"
-												title="Edit"
+												onclick={() => openMemoryItem(item)}
+												aria-label={$t("memoryProfile.editMemoryItem")}
+												title={$t("memoryProfile.edit")}
 											>
 												<Pencil size={17} strokeWidth={2.1} aria-hidden="true" />
 											</button>
@@ -405,8 +427,8 @@ $effect(() => {
 												class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
 												onclick={() => submitAction(item, "suppress")}
 												disabled={pendingActionKey === actionKey(item.id, "suppress")}
-												aria-label="Do not remember memory item"
-												title="Do not remember"
+												aria-label={$t("memoryProfile.doNotRememberMemoryItem")}
+												title={$t("memoryProfile.doNotRemember")}
 											>
 												<X size={17} strokeWidth={2.1} aria-hidden="true" />
 											</button>
@@ -417,8 +439,8 @@ $effect(() => {
 												class="btn-icon-bare btn-icon-sm cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
 												onclick={() => submitAction(item, "delete")}
 												disabled={pendingActionKey === actionKey(item.id, "delete")}
-												aria-label="Delete memory item"
-												title="Delete"
+												aria-label={$t("memoryProfile.deleteMemoryItem")}
+												title={$t("memoryProfile.delete")}
 											>
 												{#if pendingActionKey === actionKey(item.id, "delete")}
 													<Loader size={17} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
@@ -470,13 +492,13 @@ $effect(() => {
 			onclick={(event) => event.stopPropagation()}
 		>
 			<div class="flex items-center justify-between border-b border-border px-5 py-4">
-				<h3 id="memory-review-overflow-title" class="text-xl font-serif text-text-primary">Needs Review</h3>
+				<h3 id="memory-review-overflow-title" class="text-xl font-serif text-text-primary">{$t("memoryProfile.needsReview")}</h3>
 				<button
 					type="button"
 					class="btn-icon-bare cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
 					onclick={closeReviewOverflow}
-					aria-label="Close needs review"
-					title="Close"
+					aria-label={$t("memoryProfile.closeNeedsReview")}
+					title={$t("memoryProfile.close")}
 				>
 					<X size={18} strokeWidth={2.1} aria-hidden="true" />
 				</button>
@@ -498,8 +520,8 @@ $effect(() => {
 										class="btn-icon-bare btn-icon-sm h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
 										onclick={() => useReviewItem(item)}
 										disabled={pendingActionKey === actionKey(item.id, "accept")}
-										aria-label="Remember this item"
-										title="Remember"
+										aria-label={$t("memoryProfile.rememberThisItem")}
+										title={$t("memoryProfile.remember")}
 									>
 										{#if pendingActionKey === actionKey(item.id, "accept")}
 											<Loader size={17} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
@@ -512,8 +534,8 @@ $effect(() => {
 									type="button"
 									class="btn-icon-bare btn-icon-sm h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
 									onclick={() => openReviewEditor(item)}
-									aria-label="Edit review item"
-									title="Edit"
+									aria-label={$t("memoryProfile.editReviewItem")}
+									title={$t("memoryProfile.edit")}
 								>
 									<Pencil size={17} strokeWidth={2.1} aria-hidden="true" />
 								</button>
@@ -528,8 +550,8 @@ $effect(() => {
 											expectedProjectionRevision: profile.projectionRevision,
 										})}
 									disabled={pendingActionKey === actionKey(item.id, "suppress")}
-									aria-label="Do not remember review item"
-									title="Do not remember"
+									aria-label={$t("memoryProfile.doNotRememberReviewItem")}
+									title={$t("memoryProfile.doNotRemember")}
 								>
 									<X size={17} strokeWidth={2.1} aria-hidden="true" />
 								</button>
@@ -559,11 +581,11 @@ $effect(() => {
 			onclick={(event) => event.stopPropagation()}
 		>
 			<div class="border-b border-border px-5 py-4">
-				<h3 id="memory-review-edit-title" class="text-xl font-serif text-text-primary">Edit review item</h3>
+				<h3 id="memory-review-edit-title" class="text-xl font-serif text-text-primary">{$t("memoryProfile.editReviewItem")}</h3>
 			</div>
 			<div class="px-5 py-5">
 				<label class="block text-sm font-sans font-medium text-text-primary" for="memory-review-statement">
-					Statement
+					{$t("memoryProfile.statement")}
 				</label>
 				<textarea
 					bind:this={reviewEditTextarea}
@@ -581,8 +603,8 @@ $effect(() => {
 						type="button"
 						class="btn-icon-bare cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
 						onclick={closeReviewEditor}
-						aria-label="Cancel review edit"
-						title="Cancel"
+						aria-label={$t("memoryProfile.cancelReviewEdit")}
+						title={$t("memoryProfile.cancel")}
 					>
 						<X size={18} strokeWidth={2.1} aria-hidden="true" />
 					</button>
@@ -591,8 +613,8 @@ $effect(() => {
 						class="btn-icon cursor-pointer rounded-full bg-primary text-white disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={submitReviewEdit}
 						disabled={reviewStatement.trim().length === 0}
-						aria-label="Save review item"
-						title="Save"
+						aria-label={$t("memoryProfile.saveReviewItem")}
+						title={$t("memoryProfile.save")}
 					>
 						<Check size={18} strokeWidth={2.1} aria-hidden="true" />
 					</button>

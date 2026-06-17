@@ -5,6 +5,7 @@ import type {
 	KnowledgeMemoryPayload,
 	KnowledgeUploadResponse,
 	MemoryProfileActionPayload,
+	MemoryProfilePublicItemDetail,
 	MemoryProfilePublicPayload,
 	WorkCapsule,
 } from "$lib/types";
@@ -23,20 +24,7 @@ export type KnowledgeLibrary = {
 	workflows: WorkCapsule[];
 };
 
-type LegacyKnowledgeMemoryActionPayload =
-	| {
-			action: "forget_persona_memory";
-			clusterId?: string;
-			conclusionId?: string;
-	  }
-	| { action: "forget_all_persona_memory" }
-	| { action: "forget_task_memory"; taskId: string }
-	| { action: "forget_focus_continuity"; continuityId: string }
-	| { action: "forget_project_memory"; projectId: string };
-
-export type KnowledgeMemoryActionPayload =
-	| MemoryProfileActionPayload
-	| LegacyKnowledgeMemoryActionPayload;
+export type KnowledgeMemoryActionPayload = MemoryProfileActionPayload;
 
 export type KnowledgeBulkAction =
 	| "forget_all_documents"
@@ -196,6 +184,18 @@ export async function fetchMemoryProfile(): Promise<MemoryProfilePublicPayload> 
 		"/api/knowledge/memory",
 		undefined,
 		"Failed to load memory profile.",
+	);
+}
+
+export async function fetchMemoryProfileItemDetail(
+	itemId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<MemoryProfilePublicItemDetail> {
+	return requestJson<MemoryProfilePublicItemDetail>(
+		`/api/knowledge/memory/${encodeURIComponent(itemId)}`,
+		undefined,
+		"Failed to load memory item.",
+		fetchImpl,
 	);
 }
 

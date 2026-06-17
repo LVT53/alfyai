@@ -196,10 +196,12 @@ describe("Knowledge page memory loading", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("selects the documents tab from the SvelteKit route URL query", () => {
+	it("selects the documents tab from the SvelteKit route URL query", async () => {
 		mockPageState.page.url = new URL("http://localhost/knowledge?q=report");
 
 		render(KnowledgePage, { data: pageData() });
+		await Promise.resolve();
+		await Promise.resolve();
 
 		expect(screen.getByRole("tab", { name: "Documents" })).toHaveAttribute(
 			"aria-selected",
@@ -208,6 +210,24 @@ describe("Knowledge page memory loading", () => {
 		expect(
 			screen.getByRole("tabpanel", { name: "Documents" }),
 		).toBeInTheDocument();
+		expect(fetchMemoryProfile).not.toHaveBeenCalled();
+	});
+
+	it("refreshes the memory profile when switching from Documents back to Memory Profile", async () => {
+		mockPageState.page.url = new URL(
+			"http://localhost/knowledge?tab=documents",
+		);
+
+		render(KnowledgePage, { data: pageData() });
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(fetchMemoryProfile).not.toHaveBeenCalled();
+
+		await fireEvent.click(screen.getByRole("tab", { name: "Memory Profile" }));
+
+		await waitFor(() => {
+			expect(fetchMemoryProfile).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	it("submits review item accept actions from the Needs Review controls", async () => {

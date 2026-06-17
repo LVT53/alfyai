@@ -5,11 +5,19 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemoryProfilePublicPayload } from "$lib/types";
 import KnowledgeMemoryView from "./KnowledgeMemoryView.svelte";
 
-const profile = {
+const { fetchMemoryProfileItemDetailMock } = vi.hoisted(() => ({
+	fetchMemoryProfileItemDetailMock: vi.fn(),
+}));
+
+vi.mock("$lib/client/api/knowledge", () => ({
+	fetchMemoryProfileItemDetail: fetchMemoryProfileItemDetailMock,
+}));
+
+const profile: MemoryProfilePublicPayload = {
 	resetGeneration: 1,
 	projectionRevision: 7,
 	categories: [
@@ -109,7 +117,7 @@ const profile = {
 		openCount: 4,
 		overflowCount: 1,
 	},
-} satisfies MemoryProfilePublicPayload;
+};
 
 function renderMemoryView(overrides = {}) {
 	return render(KnowledgeMemoryView, {
@@ -128,6 +136,29 @@ function renderMemoryView(overrides = {}) {
 }
 
 describe("KnowledgeMemoryView", () => {
+	beforeEach(() => {
+		fetchMemoryProfileItemDetailMock.mockReset();
+		fetchMemoryProfileItemDetailMock.mockImplementation(
+			async (itemId: string) => {
+				const item = profile.categories
+					.flatMap((group) => group.items)
+					.find((candidate) => candidate.id === itemId);
+				return {
+					...(item ?? profile.categories[0]?.items[0]),
+					sourceChips: [
+						{
+							id: "source-1",
+							sourceType: "user_statement",
+							label: "Chat",
+							summary: "User said this directly.",
+						},
+					],
+					whyRemembered: "User said this directly.",
+				};
+			},
+		);
+	});
+
 	it("renders four projection categories and limits Needs Review to three visible items", () => {
 		renderMemoryView();
 
@@ -156,7 +187,7 @@ describe("KnowledgeMemoryView", () => {
 			.parentElement?.parentElement;
 		expect(review).not.toBeNull();
 		expect(review).toHaveClass(
-			"bg-[color-mix(in_srgb,var(--accent)_11%,var(--surface-elevated)_89%)]",
+			"bg-[color-mix(in_srgb,var(--warning)_14%,var(--surface-elevated)_86%)]",
 		);
 		expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
 		expect(screen.getByText("Prefer icon actions.")).toBeInTheDocument();
@@ -170,6 +201,29 @@ describe("KnowledgeMemoryView", () => {
 		expect(
 			screen.queryByText(/Focus Continuity|task memory|raw/i),
 		).not.toBeInTheDocument();
+	});
+
+	it("defensively caps server-provided visible review items to three", () => {
+		renderMemoryView({
+			profile: {
+				...profile,
+				review: {
+					...profile.review,
+					visibleItems: profile.review.items,
+					overflowCount: 0,
+				},
+			},
+		});
+
+		expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
+		expect(screen.getByText("Prefer icon actions.")).toBeInTheDocument();
+		expect(
+			screen.getByText("Avoid diagnostic memory tables."),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("Open documents from search."),
+		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "+1 more" })).toBeInTheDocument();
 	});
 
 	it("keeps active category sections visually capped after four items", () => {
@@ -324,6 +378,11 @@ describe("KnowledgeMemoryView", () => {
 		);
 
 		const dialog = screen.getByRole("dialog", { name: "Memory item" });
+		await waitFor(() => {
+			expect(
+				within(dialog).getByText("Chat: User said this directly."),
+			).toBeInTheDocument();
+		});
 		expect(
 			within(dialog).queryByRole("button", { name: "Do not remember" }),
 		).not.toBeInTheDocument();

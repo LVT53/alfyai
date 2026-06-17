@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
@@ -145,6 +145,12 @@ export type ActiveMemoryProfileContext = {
 		revision: number;
 		updatedAt: Date;
 	}>;
+};
+
+export type MemoryProfilePolicyBlockedStatement = {
+	id: string;
+	status: Extract<MemoryProfileItemStatus, "deleted" | "suppressed">;
+	statement: string;
 };
 
 export type FormattedActiveMemoryProfileContext = {
@@ -553,7 +559,9 @@ function reviewDeduplicationKey(
 		readMemoryProfileCategory(metadata.category) ?? "uncategorized";
 	return [
 		category,
-		normalizeReviewDeduplicationText(proposedStatement ?? row.subjectLabel),
+		proposedStatement
+			? normalizeReviewDeduplicationText(proposedStatement)
+			: `subject-key:${row.subjectKey}`,
 	].join("\u001f");
 }
 
@@ -1083,6 +1091,12 @@ export async function getActiveMemoryProfileContext(params: {
 	userId: string;
 }): Promise<ActiveMemoryProfileContext> {
 	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const identity = await getMemoryProfileIdentity(params.userId);
+	const sanitizer = createIdentityTextSanitizer({
+		userId: params.userId,
+		displayName: identity.displayName,
+		honchoPeerVersion: identity.honchoPeerVersion,
+	});
 	const projection = await ensureProjectionState({
 		userId: params.userId,
 		resetGeneration,
@@ -1100,6 +1114,7 @@ export async function getActiveMemoryProfileContext(params: {
 				eq(memoryProfileItems.userId, params.userId),
 				eq(memoryProfileItems.resetGeneration, resetGeneration),
 				eq(memoryProfileItems.status, "active"),
+				eq(memoryProfileItems.scopeType, "global"),
 			),
 		)
 		.orderBy(desc(memoryProfileItems.updatedAt));
@@ -1113,13 +1128,44 @@ export async function getActiveMemoryProfileContext(params: {
 				id: row.id,
 				itemKey: row.itemKey,
 				category: row.category,
-				statement: row.statement,
+				statement: sanitizePublicMemoryText(row.statement, sanitizer),
 				scope: fromScopeColumns(row.scopeType, row.scopeId),
 				revision: row.revision,
 				updatedAt: row.updatedAt,
 			};
 		}),
 	};
+}
+
+export async function listProjectionPolicyBlockedStatements(params: {
+	userId: string;
+}): Promise<MemoryProfilePolicyBlockedStatement[]> {
+	const resetGeneration = await getCurrentMemoryResetGeneration(params.userId);
+	const rows = await db
+		.select({
+			id: memoryProfileItems.id,
+			status: memoryProfileItems.status,
+			statement: memoryProfileItems.statement,
+		})
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.resetGeneration, resetGeneration),
+				inArray(memoryProfileItems.status, ["deleted", "suppressed"]),
+			),
+		);
+
+	return rows
+		.filter(
+			(row): row is MemoryProfilePolicyBlockedStatement =>
+				row.status === "deleted" || row.status === "suppressed",
+		)
+		.map((row) => ({
+			id: row.id,
+			status: row.status,
+			statement: row.statement,
+		}));
 }
 
 export async function updateMemoryProfileItemWithRevision(params: {
@@ -2535,6 +2581,7 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 				scopeId: params.row.scopeId,
 				reviewCount,
 			},
+			expectedResetGeneration: params.row.resetGeneration,
 		});
 		return;
 	}
@@ -2561,6 +2608,7 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 					subjectKind: subjectId ? "subjectId" : "subjectKey",
 					subjectToken: stableMemoryMaintenanceDigest(deterministicSubject),
 				},
+				expectedResetGeneration: params.row.resetGeneration,
 			});
 			await recordMemoryReworkTelemetry({
 				userId: params.userId,
@@ -2575,6 +2623,7 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 					scopeType: params.row.scopeType,
 					scopeId: params.row.scopeId,
 				},
+				expectedResetGeneration: params.row.resetGeneration,
 			});
 			return;
 		}
@@ -2603,6 +2652,7 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 				scopeId: params.row.scopeId,
 				...(action ? { action } : {}),
 			},
+			expectedResetGeneration: params.row.resetGeneration,
 		});
 		return;
 	}
@@ -2640,6 +2690,7 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 					scopeType: params.row.scopeType,
 					scopeId: params.row.scopeId,
 				},
+				expectedResetGeneration: params.row.resetGeneration,
 			});
 		}
 		const inspectedSourceIds = readSafeStringArray(
@@ -2688,6 +2739,7 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 			scopeId: params.row.scopeId,
 			dirtyCount: params.row.count,
 		},
+		expectedResetGeneration: params.row.resetGeneration,
 	});
 }
 
@@ -2734,6 +2786,7 @@ async function verifyProfileActionReadModelExclusion(params: {
 			nonActiveProfileItemCount: nonActiveIds.size,
 			...(leakedIds.length > 0 ? { affectedItemIds: leakedIds } : {}),
 		},
+		expectedResetGeneration: params.resetGeneration,
 	});
 }
 
@@ -2798,6 +2851,7 @@ async function createExactDuplicateMemoryReviews(params: {
 				duplicateCount: group.length,
 				source: "dirty_ledger_reconciliation",
 			},
+			expectedResetGeneration: params.resetGeneration,
 		});
 		reviewCount += 1;
 	}
@@ -2888,6 +2942,7 @@ export async function reconcileMemoryProfileDirtyLedgerForUser(params: {
 					scopeType: row.scopeType,
 					scopeId: row.scopeId,
 				},
+				expectedResetGeneration: row.resetGeneration,
 			});
 			continue;
 		}
@@ -2932,6 +2987,7 @@ export async function reconcileMemoryProfileDirtyLedgerForUser(params: {
 						ledgerEntryId: row.id,
 						errorName: error instanceof Error ? error.name : "UnknownError",
 					},
+					expectedResetGeneration: row.resetGeneration,
 				});
 			} catch (telemetryError) {
 				console.warn("[MEMORY_PROFILE] Dirty ledger retry failed", {

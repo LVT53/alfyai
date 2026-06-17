@@ -2,13 +2,15 @@
 import { onDestroy, onMount } from "svelte";
 import type {
 	MemoryProfileActionPayload,
+	MemoryProfilePublicItemDetail,
 	MemoryProfilePublicItem,
 } from "$lib/types";
+import { t } from "$lib/i18n";
 import { Check, Loader, Save, Trash2, Undo2, X } from "@lucide/svelte";
 
 type OptionalItemDetail = MemoryProfilePublicItem & {
-	reason?: string | null;
-	sourceChips?: Array<{ label?: string | null; value?: string | null }>;
+	whyRemembered?: string | null;
+	sourceChips?: MemoryProfilePublicItemDetail["sourceChips"];
 };
 
 let {
@@ -43,7 +45,7 @@ let canSave = $derived(
 	trimmedStatement.length > 0 && trimmedStatement !== item.statement,
 );
 let sourceChips = $derived(
-	(item.sourceChips ?? []).filter((chip) => chip.label || chip.value),
+	(item.sourceChips ?? []).filter((chip) => chip.label || chip.summary),
 );
 
 $effect(() => {
@@ -148,17 +150,17 @@ onDestroy(() => {
 	>
 		<div class="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
 			<div>
-				<div class="text-xs font-sans uppercase text-text-muted">Memory Profile</div>
+				<div class="text-xs font-sans uppercase text-text-muted">{$t("memory.title")}</div>
 				<h3 id="memory-profile-item-title" class="mt-1 text-xl font-serif text-text-primary">
-					Memory item
+					{$t("memoryProfile.itemTitle")}
 				</h3>
 			</div>
 			<button
 				type="button"
 				class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
 				onclick={onClose}
-				aria-label="Close memory item"
-				title="Close"
+				aria-label={$t("memoryProfile.closeMemoryItem")}
+				title={$t("memoryProfile.close")}
 			>
 				<X size={18} strokeWidth={2.1} aria-hidden="true" />
 			</button>
@@ -166,7 +168,7 @@ onDestroy(() => {
 
 		<div class="max-h-[calc(88vh-84px)] overflow-y-auto px-5 py-5">
 			<label class="block text-sm font-sans font-medium text-text-primary" for="memory-profile-statement">
-				Statement
+				{$t("memoryProfile.statement")}
 			</label>
 			<textarea
 				bind:this={statementInputRef}
@@ -180,16 +182,16 @@ onDestroy(() => {
 				</div>
 			{/if}
 
-			{#if item.reason || sourceChips.length > 0}
+			{#if item.whyRemembered || sourceChips.length > 0}
 				<div class="mt-4 flex flex-wrap gap-2">
-					{#if item.reason}
+					{#if item.whyRemembered}
 						<span class="rounded-full border border-border bg-surface-page px-3 py-1 text-xs font-sans text-text-secondary">
-							Why: {item.reason}
+							{$t("memoryProfile.why")}: {item.whyRemembered}
 						</span>
 					{/if}
-					{#each sourceChips as chip, index (`${chip.label ?? ''}:${chip.value ?? ''}:${index}`)}
+					{#each sourceChips as chip, index (`${chip.label ?? ''}:${chip.summary ?? ''}:${index}`)}
 						<span class="rounded-full border border-border bg-surface-page px-3 py-1 text-xs font-sans text-text-secondary">
-							{chip.label ?? "Source"}{chip.value ? `: ${chip.value}` : ""}
+							{chip.label ?? $t("memoryProfile.source")}{chip.summary ? `: ${chip.summary}` : ""}
 						</span>
 					{/each}
 				</div>
@@ -200,8 +202,8 @@ onDestroy(() => {
 					type="button"
 					class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
 					onclick={onClose}
-					aria-label="Cancel editing"
-					title="Cancel"
+					aria-label={$t("memoryProfile.cancelEditing")}
+					title={$t("memoryProfile.cancel")}
 				>
 					<Undo2 size={18} strokeWidth={2.1} aria-hidden="true" />
 				</button>
@@ -211,8 +213,8 @@ onDestroy(() => {
 						class="btn-icon-bare h-10 w-10 cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={submitDelete}
 						disabled={isDeleting}
-						aria-label="Delete memory item"
-						title="Delete"
+						aria-label={$t("memoryProfile.deleteMemoryItem")}
+						title={$t("memoryProfile.delete")}
 					>
 						{#if isDeleting}
 							<Loader size={18} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
@@ -226,8 +228,8 @@ onDestroy(() => {
 					class="btn-icon inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-primary text-white disabled:cursor-not-allowed disabled:opacity-50"
 					onclick={submitEdit}
 					disabled={!canSave || isSaving}
-					aria-label="Save memory item"
-					title="Save"
+					aria-label={$t("memoryProfile.saveMemoryItem")}
+					title={$t("memoryProfile.save")}
 				>
 					{#if isSaving}
 						<Loader size={18} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />

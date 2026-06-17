@@ -49,7 +49,7 @@ let memoryLoaded = $state(false);
 let memoryLoading = $state(false);
 let memoryLoadError = $state("");
 let pendingMemoryActionKey = $state<string | null>(null);
-let hasRequestedInitialMemoryProfile = $state(false);
+let lastMemoryProfileTabState = $state<KnowledgeTab | null>(null);
 
 let workspaceCoordinator: KnowledgeWorkspaceCoordinator | undefined = $state();
 let workspaceOpenRequestSequence = 0;
@@ -99,14 +99,14 @@ let knowledgeTabs = $derived<
 >([
 	{
 		id: "memory",
-		label: "Memory Profile",
+		label: $t("memory.title"),
 		href: "/knowledge",
 		tabId: "memory-profile-tab",
 		panelId: "memory-profile-panel",
 	},
 	{
 		id: "documents",
-		label: "Documents",
+		label: $t("knowledge.documents"),
 		href: buildKnowledgeLibraryUrl({ tab: "documents" }),
 		tabId: "documents-tab",
 		panelId: "documents-panel",
@@ -501,10 +501,14 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (!hasRequestedInitialMemoryProfile) {
-		hasRequestedInitialMemoryProfile = true;
-		void loadMemoryProfile(true);
+	if (activeTab !== "memory") {
+		lastMemoryProfileTabState = activeTab;
+		return;
 	}
+
+	if (lastMemoryProfileTabState === "memory") return;
+	lastMemoryProfileTabState = "memory";
+	void loadMemoryProfile(true);
 });
 
 $effect(() => {
@@ -544,7 +548,7 @@ $effect(() => {
 			<PageSwitcher
 				items={knowledgeTabs}
 				activeId={activeTab}
-				ariaLabel="Knowledge Base sections"
+				ariaLabel={$t("knowledge.sections")}
 				onChange={handlePageSwitcherChange}
 			/>
 

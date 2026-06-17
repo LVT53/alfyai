@@ -1980,6 +1980,18 @@ export interface MemoryProfilePublicItem {
 	canSuppress: boolean;
 }
 
+export interface MemoryProfileSourceChip {
+	id: string;
+	sourceType: string;
+	label: string;
+	summary: string | null;
+}
+
+export interface MemoryProfilePublicItemDetail extends MemoryProfilePublicItem {
+	sourceChips: MemoryProfileSourceChip[];
+	whyRemembered: string | null;
+}
+
 export interface MemoryProfileReviewItem {
 	id: string;
 	subject: string;

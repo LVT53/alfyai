@@ -10,6 +10,7 @@ import type { HistoryMemoryContextResult } from "./memory-context";
 const mockGetProjectContext = vi.fn();
 const mockRecallPersonaMemory = vi.fn();
 const mockGetActiveMemoryProfileContext = vi.fn();
+const mockListProjectionPolicyBlockedStatements = vi.fn();
 const mockRecordMemoryReworkTelemetry = vi.fn();
 let dbPath: string;
 
@@ -26,6 +27,8 @@ vi.mock("./memory-profile", async (importOriginal) => {
 	return {
 		...actual,
 		getActiveMemoryProfileContext: mockGetActiveMemoryProfileContext,
+		listProjectionPolicyBlockedStatements:
+			mockListProjectionPolicyBlockedStatements,
 		recordMemoryReworkTelemetry: mockRecordMemoryReworkTelemetry,
 	};
 });
@@ -46,6 +49,7 @@ describe("memory context service", () => {
 		mockGetProjectContext.mockReset();
 		mockRecallPersonaMemory.mockReset();
 		mockGetActiveMemoryProfileContext.mockReset();
+		mockListProjectionPolicyBlockedStatements.mockReset();
 		mockRecordMemoryReworkTelemetry.mockReset();
 		mockGetProjectContext.mockResolvedValue({
 			success: true,
@@ -69,6 +73,7 @@ describe("memory context service", () => {
 			source: "honcho_peer_chat",
 			content: "The user prefers concise answers and cares about cycling gear.",
 		});
+		mockListProjectionPolicyBlockedStatements.mockResolvedValue([]);
 		mockGetActiveMemoryProfileContext.mockResolvedValue({
 			resetGeneration: 0,
 			projectionRevision: 3,
@@ -475,7 +480,51 @@ describe("memory context service", () => {
 			userDisplayName: undefined,
 			query: "What source says I care about cycling gear?",
 		});
+		expect(mockListProjectionPolicyBlockedStatements).toHaveBeenCalledWith({
+			userId: "user-1",
+		});
 		expect(mockGetActiveMemoryProfileContext).not.toHaveBeenCalled();
+		expect(
+			JSON.stringify(mockRecordMemoryReworkTelemetry.mock.calls),
+		).not.toContain("cycling gear");
+	});
+
+	it("blocks historical persona evidence that echoes deleted or suppressed profile memory", async () => {
+		mockListProjectionPolicyBlockedStatements.mockResolvedValueOnce([
+			{
+				id: "blocked-1",
+				status: "suppressed",
+				statement: "Cares about cycling gear.",
+			},
+		]);
+		const { getMemoryContext } = await import("./memory-context");
+
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "persona",
+			query: "What source says I care about cycling gear?",
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			mode: "persona",
+			status: "empty",
+			source: "historical_honcho_evidence",
+			content: null,
+			evidenceCandidates: [],
+		});
+		expect(mockRecallPersonaMemory).toHaveBeenCalled();
+		expect(mockGetActiveMemoryProfileContext).not.toHaveBeenCalled();
+		expect(mockRecordMemoryReworkTelemetry).toHaveBeenCalledWith({
+			userId: "user-1",
+			eventFamily: "prompt_use",
+			eventName: "memory_context_persona_historical_evidence_blocked",
+			reason: "projection_policy_blocked_deleted_or_suppressed",
+			status: "blocked",
+			count: 1,
+			metadata: undefined,
+		});
 		expect(
 			JSON.stringify(mockRecordMemoryReworkTelemetry.mock.calls),
 		).not.toContain("cycling gear");

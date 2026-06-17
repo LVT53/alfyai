@@ -29,6 +29,7 @@ import {
 	type ActiveMemoryProfileContext,
 	formatActiveMemoryProfileContextForPrompt,
 	getActiveMemoryProfileContext,
+	listProjectionPolicyBlockedStatements,
 	recordMemoryReworkTelemetry,
 } from "$lib/server/services/memory-profile";
 import {
@@ -308,6 +309,37 @@ function isHistoricalPersonaEvidenceQuery(query: string): boolean {
 	return PERSONA_HISTORY_EVIDENCE_QUERY_RE.test(query);
 }
 
+function normalizeMemoryPolicyText(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+async function historicalPersonaEvidenceBlockedByProjection(params: {
+	userId: string;
+	content: string | null;
+}): Promise<{ blocked: boolean; blockedCount: number }> {
+	const normalizedContent = normalizeMemoryPolicyText(params.content ?? "");
+	if (!normalizedContent) return { blocked: false, blockedCount: 0 };
+
+	const blockedStatements = await listProjectionPolicyBlockedStatements({
+		userId: params.userId,
+	});
+	let blockedCount = 0;
+	for (const statement of blockedStatements) {
+		const normalizedStatement = normalizeMemoryPolicyText(statement.statement);
+		if (
+			normalizedStatement.length >= 12 &&
+			normalizedContent.includes(normalizedStatement)
+		) {
+			blockedCount += 1;
+		}
+	}
+	return { blocked: blockedCount > 0, blockedCount };
+}
+
 export function resolveProjectMemoryContextMode(params: {
 	query?: string | null;
 	siblingConversationId?: string | null;
@@ -356,6 +388,35 @@ async function getPersonaMemoryContext(
 			userDisplayName: params.userDisplayName,
 			query,
 		});
+		const blocked =
+			recall.status === "ok"
+				? await historicalPersonaEvidenceBlockedByProjection({
+						userId: params.userId,
+						content: recall.content,
+					})
+				: { blocked: false, blockedCount: 0 };
+		if (blocked.blocked) {
+			await recordMemoryContextPromptTelemetry({
+				userId: params.userId,
+				eventName: "memory_context_persona_historical_evidence_blocked",
+				reason: "projection_policy_blocked_deleted_or_suppressed",
+				status: "blocked",
+				count: blocked.blockedCount,
+			});
+
+			return {
+				success: true,
+				mode: "persona",
+				status: "empty",
+				source: "historical_honcho_evidence",
+				content: null,
+				evidenceCandidates: [],
+				audit: {
+					conversationId: params.conversationId,
+					query,
+				},
+			};
+		}
 		const status = recall.status === "ok" ? "available" : recall.status;
 		const content = recall.content
 			? `Historical persona evidence (not current profile truth): ${recall.content}`

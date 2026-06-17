@@ -41,16 +41,16 @@ test.describe("Responsive Design Verification - Task 12", () => {
 		await login(page);
 	});
 
-	test.describe("Knowledge Page - Library Tab", () => {
+	test.describe("Knowledge Page - Documents Tab", () => {
 		for (const [_key, viewport] of Object.entries(VIEWPORTS)) {
-			test(`Library tab at ${viewport.name} (${viewport.width}px)`, async ({
+			test(`Documents tab at ${viewport.name} (${viewport.width}px)`, async ({
 				page,
 			}) => {
 				await page.setViewportSize({
 					width: viewport.width,
 					height: viewport.height,
 				});
-				await page.goto("/knowledge");
+				await page.goto("/knowledge?tab=documents");
 				await page.waitForLoadState("networkidle");
 				await expect(page.locator("h1")).toContainText("Knowledge Base", {
 					timeout: 10000,
@@ -68,17 +68,19 @@ test.describe("Responsive Design Verification - Task 12", () => {
 					`Horizontal scrollbar detected at ${viewport.name}`,
 				).toBe(false);
 				await expect(
+					page.getByRole("tab", { name: "Documents" }),
+				).toHaveAttribute("aria-selected", "true");
+				await expect(
 					page.getByRole("heading", { name: "Documents" }),
 				).toBeVisible();
+				await expect(page.getByText(/Memory Overview/i)).toHaveCount(0);
+				await expect(page.getByText(/Focus Continuity/i)).toHaveCount(0);
 				await expect(
-					page.getByRole("heading", { name: "Memory Profile" }),
-				).toBeVisible();
-				await expect(
-					page.getByRole("heading", { name: "Memory Overview" }),
-				).toBeVisible();
+					page.getByText(/Manage durable profile memories/i),
+				).toHaveCount(0);
 
 				console.log(
-					`✓ Knowledge Library - ${viewport.name}: ${screenshotPath}`,
+					`✓ Knowledge Documents - ${viewport.name}: ${screenshotPath}`,
 				);
 			});
 		}
@@ -100,8 +102,8 @@ test.describe("Responsive Design Verification - Task 12", () => {
 					page.getByRole("heading", { name: "Memory Profile" }),
 				).toBeVisible({ timeout: 10000 });
 				await expect(
-					page.getByRole("heading", { name: "Memory Overview" }),
-				).toBeVisible({ timeout: 10000 });
+					page.getByRole("tab", { name: "Memory Profile" }),
+				).toHaveAttribute("aria-selected", "true");
 
 				const screenshotPath = await captureScreenshot(
 					page,
@@ -114,14 +116,12 @@ test.describe("Responsive Design Verification - Task 12", () => {
 					hasScrollbar,
 					`Horizontal scrollbar detected at ${viewport.name}`,
 				).toBe(false);
+				await expect(page.getByText(/Memory Overview/i)).toHaveCount(0);
 				await expect(
-					page.getByRole("heading", {
-						name: "Manage durable profile memories",
-					}),
-				).toBeVisible();
-				await expect(
-					page.getByRole("heading", { name: "Manage focus continuity" }),
-				).toBeVisible();
+					page.getByText(/Manage durable profile memories/i),
+				).toHaveCount(0);
+				await expect(page.getByText(/Manage focus continuity/i)).toHaveCount(0);
+				await expect(page.getByText(/Focus Continuity/i)).toHaveCount(0);
 
 				console.log(`✓ Knowledge Memory - ${viewport.name}: ${screenshotPath}`);
 			});

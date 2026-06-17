@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ApiError } from "./http";
 import {
+	fetchMemoryProfileItemDetail,
 	submitKnowledgeMemoryAction,
 	uploadKnowledgeAttachment,
 } from "./knowledge";
@@ -63,6 +64,55 @@ describe("knowledge client API", () => {
 					expectedProjectionRevision: 7,
 				}),
 			}),
+		);
+	});
+
+	it("loads a memory profile item detail", async () => {
+		const fetchImpl = vi.fn().mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					id: "item-about",
+					itemKey: "about",
+					category: "about_you",
+					statement: "Lives in Amsterdam.",
+					scope: { type: "global" },
+					status: "active",
+					revision: 1,
+					updatedAt: "2026-06-17T09:00:00.000Z",
+					canEdit: true,
+					canDelete: true,
+					canSuppress: true,
+					sourceChips: [
+						{
+							id: "source-1",
+							sourceType: "user_statement",
+							label: "Chat",
+							summary: "User said this directly.",
+						},
+					],
+					whyRemembered: "User said this directly.",
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
+		);
+
+		await expect(
+			fetchMemoryProfileItemDetail("item/about", fetchImpl),
+		).resolves.toMatchObject({
+			id: "item-about",
+			sourceChips: [
+				expect.objectContaining({
+					label: "Chat",
+					summary: "User said this directly.",
+				}),
+			],
+		});
+
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/knowledge/memory/item%2Fabout",
 		);
 	});
 

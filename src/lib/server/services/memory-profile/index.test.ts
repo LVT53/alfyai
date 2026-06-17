@@ -160,6 +160,7 @@ describe("memory profile foundation", () => {
 		const {
 			createMemoryProfileItem,
 			createOrUpdateMemoryReviewItem,
+			getActiveMemoryProfileContext,
 			getMemoryProfileReadModel,
 		} = await import("./index");
 		const { getHonchoAssistantPeerId, getHonchoUserPeerId } = await import(
@@ -212,6 +213,23 @@ describe("memory profile foundation", () => {
 		expect(serialized).not.toContain(assistantPeerId);
 		expect(serialized).not.toContain("U-86dc59c7f2");
 		expect(serialized).not.toContain("U_86dc59c07f598be7de4c127cbf0da318");
+
+		const activeContext = await getActiveMemoryProfileContext({
+			userId: "user-1",
+		});
+		const activeContextJson = JSON.stringify(activeContext);
+		expect(activeContext.items.map((item) => item.statement)).toEqual(
+			expect.arrayContaining([
+				"Memory Profile User prefers concise answers from Memory Profile User.",
+				"Memory Profile User prefers cards without raw Honcho ids.",
+			]),
+		);
+		expect(activeContextJson).not.toContain(userPeerId);
+		expect(activeContextJson).not.toContain(assistantPeerId);
+		expect(activeContextJson).not.toContain("U-86dc59c7f2");
+		expect(activeContextJson).not.toContain(
+			"U_86dc59c07f598be7de4c127cbf0da318",
+		);
 	});
 
 	it("keeps one active profile item for duplicate creates with the same stable item key", async () => {
@@ -820,6 +838,51 @@ describe("memory profile foundation", () => {
 		]);
 	});
 
+	it("keeps generic deferred review items distinct by subject key", async () => {
+		const {
+			applyMemoryReviewItemWithRevision,
+			createOrUpdateMemoryReviewItem,
+			getMemoryProfileReadModel,
+		} = await import("./index");
+
+		const first = await createOrUpdateMemoryReviewItem({
+			userId: "user-1",
+			subjectKey: "post-turn-intake:document-related:first",
+			subjectLabel: "Document-related memory request",
+			question: "Should this be remembered?",
+			reason: "The intake gate could not safely admit this automatically.",
+		});
+		const second = await createOrUpdateMemoryReviewItem({
+			userId: "user-1",
+			subjectKey: "post-turn-intake:document-related:second",
+			subjectLabel: "Document-related memory request",
+			question: "Should this be remembered?",
+			reason: "The intake gate could not safely admit this automatically.",
+		});
+
+		const before = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(before.review.openCount).toBe(2);
+		expect(before.review.visibleItems.map((item) => item.id)).toEqual([
+			first.id,
+			second.id,
+		]);
+
+		await expect(
+			applyMemoryReviewItemWithRevision({
+				userId: "user-1",
+				reviewItemId: first.id,
+				expectedProjectionRevision: before.projectionRevision,
+				action: "dismiss",
+			}),
+		).resolves.toMatchObject({ status: "updated" });
+
+		const after = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(after.review.openCount).toBe(1);
+		expect(after.review.visibleItems).toEqual([
+			expect.objectContaining({ id: second.id }),
+		]);
+	});
+
 	it("dismisses an open review item without creating an active profile item", async () => {
 		const {
 			applyMemoryReviewItemWithRevision,
@@ -920,6 +983,42 @@ describe("memory profile foundation", () => {
 		expect(contextJson).not.toContain("canDelete");
 		expect(contextJson).not.toContain("canSuppress");
 		expect(contextJson).not.toContain("review");
+	});
+
+	it("keeps scoped memories out of ordinary active prompt context", async () => {
+		const { createMemoryProfileItem, getActiveMemoryProfileContext } =
+			await import("./index");
+
+		await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers global memory behavior.",
+		});
+		await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "project", id: "project-1" },
+			statement: "Project-specific private preference.",
+		});
+		await createMemoryProfileItem({
+			userId: "user-1",
+			category: "goals_ongoing_work",
+			scope: { type: "conversation", id: "conversation-1" },
+			statement: "Conversation-specific goal.",
+		});
+		await createMemoryProfileItem({
+			userId: "user-1",
+			category: "constraints_boundaries",
+			scope: { type: "document", id: "document-1" },
+			statement: "Document-specific constraint.",
+		});
+
+		const context = await getActiveMemoryProfileContext({ userId: "user-1" });
+
+		expect(context.items.map((item) => item.statement)).toEqual([
+			"Prefers global memory behavior.",
+		]);
 	});
 
 	it("expires overdue active profile items before read model or prompt context use", async () => {

@@ -2,13 +2,16 @@ import type {
 	KnowledgeMemoryOverviewPayload,
 	MemoryProfileActionPayload,
 	MemoryProfilePublicItem,
+	MemoryProfilePublicItemDetail,
 	MemoryProfilePublicPayload,
 } from "$lib/types";
 import {
 	applyMemoryReviewItemWithRevision,
+	getMemoryProfileItemDetail,
 	getMemoryProfileReadModel,
 	type MemoryProfileCardItem,
 	type MemoryProfileCategory,
+	type MemoryProfileItemDetail,
 	type MemoryProfileItemStatus,
 	type MemoryProfileReadModel,
 	markMemoryDirty,
@@ -38,6 +41,16 @@ function serializeMemoryProfileItem(
 	return {
 		...item,
 		updatedAt: item.updatedAt.toISOString(),
+	};
+}
+
+function serializeMemoryProfileItemDetail(
+	item: MemoryProfileItemDetail,
+): MemoryProfilePublicItemDetail {
+	return {
+		...serializeMemoryProfileItem(item),
+		sourceChips: item.sourceChips,
+		whyRemembered: item.whyRemembered,
 	};
 }
 
@@ -291,6 +304,14 @@ export async function getKnowledgeMemory(
 		await getMemoryProfileReadModel({ userId }),
 	);
 	return serializeMemoryProfileReadModel(profile);
+}
+
+export async function getKnowledgeMemoryItemDetail(
+	userId: string,
+	itemId: string,
+): Promise<MemoryProfilePublicItemDetail | null> {
+	const detail = await getMemoryProfileItemDetail({ userId, itemId });
+	return detail ? serializeMemoryProfileItemDetail(detail) : null;
 }
 
 function buildCompatibilitySummary(

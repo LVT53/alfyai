@@ -17,6 +17,7 @@ vi.mock("$lib/server/services/memory", () => ({
 		}
 	},
 	applyKnowledgeMemoryAction: vi.fn(),
+	getKnowledgeMemoryItemDetail: vi.fn(),
 	getKnowledgeMemory: vi.fn(),
 	getKnowledgeMemoryOverview: vi.fn(),
 }));
@@ -25,10 +26,12 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	applyKnowledgeMemoryAction,
 	getKnowledgeMemory,
+	getKnowledgeMemoryItemDetail,
 	getKnowledgeMemoryOverview,
 	MemoryProfileActionError,
 } from "$lib/server/services/memory";
 import { GET as GET_MEMORY } from "./+server";
+import { GET as GET_MEMORY_ITEM } from "./[itemId]/+server";
 import { POST as POST_MEMORY_ACTION } from "./actions/+server";
 import { GET as GET_MEMORY_OVERVIEW } from "./overview/+server";
 
@@ -36,11 +39,14 @@ const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockApplyKnowledgeMemoryAction = applyKnowledgeMemoryAction as ReturnType<
 	typeof vi.fn
 >;
+const mockGetKnowledgeMemoryItemDetail =
+	getKnowledgeMemoryItemDetail as ReturnType<typeof vi.fn>;
 const mockGetKnowledgeMemory = getKnowledgeMemory as ReturnType<typeof vi.fn>;
 const mockGetKnowledgeMemoryOverview = getKnowledgeMemoryOverview as ReturnType<
 	typeof vi.fn
 >;
 type KnowledgeMemoryEvent = Parameters<typeof GET_MEMORY>[0];
+type KnowledgeMemoryItemEvent = Parameters<typeof GET_MEMORY_ITEM>[0];
 type KnowledgeMemoryOverviewEvent = Parameters<typeof GET_MEMORY_OVERVIEW>[0];
 type KnowledgeMemoryActionEvent = Parameters<typeof POST_MEMORY_ACTION>[0];
 
@@ -93,6 +99,20 @@ function makeGetEvent(): KnowledgeMemoryEvent {
 		url: new URL("http://localhost/api/knowledge/memory"),
 		route: { id: "/api/knowledge/memory" },
 	} as KnowledgeMemoryEvent;
+}
+
+function makeGetItemEvent(itemId = "item-about"): KnowledgeMemoryItemEvent {
+	return {
+		request: new Request(
+			`http://localhost/api/knowledge/memory/${encodeURIComponent(itemId)}`,
+		),
+		locals: { user: { id: "user-1", displayName: "Test User" } },
+		params: { itemId },
+		url: new URL(
+			`http://localhost/api/knowledge/memory/${encodeURIComponent(itemId)}`,
+		),
+		route: { id: "/api/knowledge/memory/[itemId]" },
+	} as KnowledgeMemoryItemEvent;
 }
 
 function makeOverviewEvent(force = false): KnowledgeMemoryOverviewEvent {
@@ -175,6 +195,38 @@ describe("knowledge memory routes", () => {
 			{
 				force: true,
 			},
+		);
+	});
+
+	it("loads a curated memory item detail with provenance chips", async () => {
+		mockGetKnowledgeMemoryItemDetail.mockResolvedValue({
+			...memoryPayload.categories[0].items[0],
+			sourceChips: [
+				{
+					id: "source-1",
+					sourceType: "user_statement",
+					label: "Chat",
+					summary: "User said this directly.",
+				},
+			],
+			whyRemembered: "User said this directly.",
+		});
+
+		const response = await GET_MEMORY_ITEM(makeGetItemEvent());
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.sourceChips).toEqual([
+			{
+				id: "source-1",
+				sourceType: "user_statement",
+				label: "Chat",
+				summary: "User said this directly.",
+			},
+		]);
+		expect(mockGetKnowledgeMemoryItemDetail).toHaveBeenCalledWith(
+			"user-1",
+			"item-about",
 		);
 	});
 
