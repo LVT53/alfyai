@@ -26,7 +26,7 @@ let {
 	onClose: () => void;
 	onAction: (
 		payload: MemoryProfileActionPayload,
-	) => boolean | undefined | Promise<boolean | undefined>;
+	) => boolean | Promise<boolean | undefined>;
 } = $props();
 
 let statement = $state("");

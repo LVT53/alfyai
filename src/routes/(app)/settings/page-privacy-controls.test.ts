@@ -80,10 +80,9 @@ async function submitPrivacyAction(buttonName: string) {
 	await fireEvent.input(screen.getByLabelText("Password"), {
 		target: { value: "pw" },
 	});
-	const buttons = screen.getAllByRole("button", { name: buttonName });
-	const confirmButton = buttons.at(-1);
-	if (!confirmButton)
-		throw new Error(`Missing ${buttonName} confirmation button`);
+	const confirmButtons = screen.getAllByRole("button", { name: buttonName });
+	const confirmButton = confirmButtons.at(-1);
+	if (!confirmButton) throw new Error("Confirm button not found");
 	await fireEvent.click(confirmButton);
 }
 

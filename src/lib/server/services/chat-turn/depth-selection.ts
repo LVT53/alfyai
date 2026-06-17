@@ -468,21 +468,6 @@ async function listRecentDepthConversationMessages(params: {
 		);
 }
 
-function _buildFallbackDepthMetadata(
-	request: DepthSelectionTurnInput,
-	reason: string,
-	classifierModel?: ResolvedDepthClassifierModel,
-): DepthMetadata {
-	return buildDepthMetadata({
-		request,
-		appliedProfile: "standard",
-		classifierSource: "control_model_fallback",
-		fallback: true,
-		fallbackReason: reason,
-		classifierModel,
-	});
-}
-
 function buildDepthMetadata(params: {
 	request: DepthSelectionTurnInput;
 	appliedProfile: DepthAppliedProfile;
