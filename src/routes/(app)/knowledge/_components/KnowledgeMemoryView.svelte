@@ -343,7 +343,7 @@ $effect(() => {
 								{#if item.canAccept}
 									<button
 										type="button"
-										class="btn-icon-bare btn-icon-sm h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+										class="btn-icon-bare btn-icon-sm memory-review-accept h-9 w-9 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50"
 										onclick={() => useReviewItem(item)}
 										disabled={pendingActionKey === actionKey(item.id, "accept")}
 										aria-label={$t("memoryProfile.rememberThisItem")}
@@ -521,7 +521,7 @@ $effect(() => {
 								{#if item.canAccept}
 									<button
 										type="button"
-										class="btn-icon-bare btn-icon-sm h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+										class="btn-icon-bare btn-icon-sm memory-review-accept h-9 w-9 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50"
 										onclick={() => useReviewItem(item)}
 										disabled={pendingActionKey === actionKey(item.id, "accept")}
 										aria-label={$t("memoryProfile.rememberThisItem")}
@@ -570,15 +570,15 @@ $effect(() => {
 
 <style>
 	.memory-review-callout {
-		border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border-default) 58%);
-		background: color-mix(in srgb, var(--accent) 10%, var(--surface-elevated) 90%);
+		border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--border-default) 42%);
+		background: color-mix(in srgb, var(--accent) 17%, var(--surface-elevated) 83%);
 		box-shadow:
-			inset 4px 0 0 var(--accent),
-			0 10px 24px color-mix(in srgb, var(--accent) 8%, transparent 92%);
+			inset 5px 0 0 var(--accent),
+			0 10px 24px color-mix(in srgb, var(--accent) 12%, transparent 88%);
 	}
 
 	.memory-review-title {
-		color: color-mix(in srgb, var(--accent) 82%, var(--text-primary) 18%);
+		color: var(--accent);
 		font-size: 0.95rem;
 		line-height: 1.35;
 	}
@@ -594,17 +594,28 @@ $effect(() => {
 	}
 
 	.memory-review-card {
-		border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-subtle) 72%);
-		background: color-mix(in srgb, var(--accent) 6%, var(--surface-page) 94%);
+		border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border-subtle) 62%);
+		background: color-mix(in srgb, var(--accent) 10%, var(--surface-page) 90%);
 	}
 
 	:global(.dark) .memory-review-card {
-		background: color-mix(in srgb, var(--accent) 13%, var(--surface-elevated) 87%);
+		background: color-mix(in srgb, var(--accent) 17%, var(--surface-elevated) 83%);
 	}
 
 	.memory-review-reason {
-		border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--surface-page) 76%);
-		background: color-mix(in srgb, var(--accent) 9%, var(--surface-page) 91%);
+		border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--surface-page) 68%);
+		background: color-mix(in srgb, var(--accent) 12%, var(--surface-page) 88%);
+	}
+
+	.memory-review-accept {
+		background: var(--accent);
+		color: var(--accent-contrast);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent 82%);
+	}
+
+	.memory-review-accept:hover {
+		background: var(--accent-hover);
+		color: var(--accent-contrast);
 	}
 </style>
 
