@@ -1858,41 +1858,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		}
 
 		.documents-table thead {
-			position: static;
-			display: block;
-			background: transparent;
-			border: 0;
-			margin-bottom: var(--space-xs);
-		}
-
-		.documents-table thead tr {
-			display: flex;
-			flex-wrap: wrap;
-			gap: var(--space-xs);
-			align-items: center;
-		}
-
-		.documents-table th {
 			display: none;
-			padding: 0;
-		}
-
-		.documents-table th.col-name,
-		.documents-table th.col-type,
-		.documents-table th.col-size,
-		.documents-table th.col-date {
-			display: block;
-			width: auto;
-			min-width: 0;
-		}
-
-		.documents-table thead .sort-button {
-			padding: 0.4rem 0.52rem;
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-md);
-			background: var(--surface-elevated);
-			font-size: 0.66rem;
-			line-height: 1;
 		}
 
 		.documents-table tbody {
@@ -1903,17 +1869,16 @@ async function handleBulkDelete(): Promise<boolean> {
 
 		.documents-table .document-list-item {
 			display: grid;
-			grid-template-columns: 28px 28px minmax(0, 1fr);
+			grid-template-columns: 28px 28px minmax(0, 1fr) auto;
 			grid-template-areas:
-				"check icon name"
-				"type type type"
-				"size size size"
-				"date date date"
-				"actions actions actions";
+				"check icon name name"
+				". . type type"
+				". . size date"
+				"actions actions actions actions";
 			column-gap: 0.58rem;
-			row-gap: 0;
+			row-gap: 0.42rem;
 			align-items: start;
-			padding: 0.78rem;
+			padding: 0.82rem;
 			border: 1px solid var(--border-default);
 			border-radius: var(--radius-md);
 			background: var(--surface-elevated);
@@ -1947,13 +1912,13 @@ async function handleBulkDelete(): Promise<boolean> {
 			flex-wrap: wrap;
 			align-items: flex-start;
 			min-width: 0;
-			gap: 0.32rem 0.42rem;
+			gap: 0.28rem 0.42rem;
 			font-size: 0.92rem;
 			line-height: 1.32;
 		}
 
 		.document-title {
-			flex: 1 1 12rem;
+			flex: 1 1 11rem;
 			min-width: 0;
 			overflow-wrap: anywhere;
 		}
@@ -1962,29 +1927,26 @@ async function handleBulkDelete(): Promise<boolean> {
 			grid-area: type;
 			width: auto;
 			min-width: 0;
-			margin-top: 0.72rem;
-			border-top-left-radius: var(--radius-md);
-			border-top-right-radius: var(--radius-md);
+			margin-top: 0.12rem;
 		}
 
 		.documents-table .col-size {
 			grid-area: size;
 			width: auto;
-			border-top: 1px solid var(--border-subtle);
+			justify-self: start;
 		}
 
 		.documents-table .col-date {
 			grid-area: date;
 			width: auto;
-			border-top: 1px solid var(--border-subtle);
-			border-bottom-right-radius: var(--radius-md);
-			border-bottom-left-radius: var(--radius-md);
+			justify-self: end;
+			text-align: right;
 		}
 
 		.documents-table .col-actions {
 			grid-area: actions;
 			width: 100%;
-			padding-top: 0.68rem;
+			padding-top: 0.16rem;
 		}
 
 		.documents-table .col-type,
@@ -1992,23 +1954,18 @@ async function handleBulkDelete(): Promise<boolean> {
 		.documents-table .col-date {
 			display: flex;
 			align-items: center;
-			justify-content: space-between;
-			gap: var(--space-sm);
-			padding: 0.5rem 0.62rem;
-			background: var(--surface-page);
-			font-size: 0.76rem;
+			justify-content: flex-start;
+			gap: 0.32rem;
+			padding: 0;
+			background: transparent;
+			font-size: 0.75rem;
 			line-height: 1.2;
 			min-width: 0;
 			color: var(--text-secondary);
 		}
 
 		.documents-table td[data-mobile-label]::before {
-			content: attr(data-mobile-label);
-			flex: 0 0 auto;
-			font-size: 0.66rem;
-			font-weight: 600;
-			text-transform: uppercase;
-			color: var(--text-muted);
+			content: none;
 		}
 
 		.documents-table .col-type > :last-child,
@@ -2019,8 +1976,8 @@ async function handleBulkDelete(): Promise<boolean> {
 
 		.documents-table .col-size,
 		.documents-table .col-date {
-			overflow-wrap: anywhere;
-			text-align: right;
+			overflow-wrap: normal;
+			white-space: nowrap;
 		}
 
 		.ai-version-row {
@@ -2057,6 +2014,8 @@ async function handleBulkDelete(): Promise<boolean> {
 			letter-spacing: 0.02em;
 			white-space: nowrap;
 			flex: 0 0 auto;
+			width: max-content;
+			max-width: 100%;
 		}
 
 		.action-buttons {
