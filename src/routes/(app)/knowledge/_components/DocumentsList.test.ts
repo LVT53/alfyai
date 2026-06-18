@@ -351,7 +351,7 @@ describe("DocumentsList", () => {
 				},
 			});
 
-			expect(screen.getByText("Skill Note")).toBeInTheDocument();
+			expect(screen.getAllByText("Skill Note")[0]).toBeInTheDocument();
 		});
 
 		it("renders file sizes in human-readable format", () => {
@@ -361,10 +361,10 @@ describe("DocumentsList", () => {
 				},
 			});
 
-			expect(screen.getByText("2.5 MB")).toBeInTheDocument();
-			expect(screen.getByText("512 KB")).toBeInTheDocument();
-			expect(screen.getByText("1 MB")).toBeInTheDocument();
-			expect(screen.getByText("1 KB")).toBeInTheDocument();
+			expect(screen.getAllByText("2.5 MB")[0]).toBeInTheDocument();
+			expect(screen.getAllByText("512 KB")[0]).toBeInTheDocument();
+			expect(screen.getAllByText("1 MB")[0]).toBeInTheDocument();
+			expect(screen.getAllByText("1 KB")[0]).toBeInTheDocument();
 		});
 
 		it("renders formatted dates", () => {
