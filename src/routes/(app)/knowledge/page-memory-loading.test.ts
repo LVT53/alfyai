@@ -181,10 +181,10 @@ describe("Knowledge page memory loading", () => {
 		expect(fetchKnowledgeMemory).not.toHaveBeenCalled();
 
 		const tabs = screen.getAllByRole("tab");
-		expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
-			"Memory Profile",
-			"Documents",
-		]);
+		expect(tabs).toHaveLength(2);
+		expect(tabs[0]).toHaveTextContent("Memory Profile");
+		expect(tabs[0]).toHaveTextContent("1");
+		expect(tabs[1]).toHaveTextContent("Documents");
 		expect(
 			screen.getByText("Levi prefers concise memory behavior."),
 		).toBeInTheDocument();

@@ -299,11 +299,16 @@ describe("DocumentsList", () => {
 				},
 			});
 
-			expect(screen.getByText(/name/i)).toBeInTheDocument();
-			expect(screen.getByText(/type/i)).toBeInTheDocument();
-			expect(screen.getByText(/size/i)).toBeInTheDocument();
-			expect(screen.getByText(/date/i)).toBeInTheDocument();
-			expect(screen.getByText(/actions/i)).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: /name/i })).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: /type/i })).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: /size/i })).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: /date/i })).toBeInTheDocument();
+			expect(
+				screen.getByRole("columnheader", { name: /actions/i }),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("combobox", { name: /sort documents by/i }),
+			).toBeInTheDocument();
 		});
 
 		it("renders document names correctly", () => {
