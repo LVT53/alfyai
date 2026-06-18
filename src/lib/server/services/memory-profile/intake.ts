@@ -235,19 +235,30 @@ function parseStableSelfStatement(
 }
 
 function normalizeExplicitMemoryCandidate(candidate: string): string {
-	const text = stripTerminalPunctuation(candidate);
+	const text = stripExplicitInstructionTail(stripTerminalPunctuation(candidate));
 	const wrapperPatterns = [
 		/^this\s+as\s+(?:an?\s+)?(?:durable\s+)?(?:memory\s+profile\s+)?(?:profile\s+)?(?:fact|memory|preference|detail|note)\s*[:,-]\s*/i,
 		/^this\s+(?:an?\s+)?(?:durable\s+)?(?:memory\s+profile\s+)?(?:profile\s+)?(?:fact|memory|preference|detail|note)\s*[:,-]\s*/i,
 		/^(?:as\s+)?(?:an?\s+)?(?:durable\s+)?(?:memory\s+profile\s+)?(?:profile\s+)?(?:fact|memory|preference|detail|note)\s*[:,-]\s*/i,
 	];
 	for (const pattern of wrapperPatterns) {
-		const normalized = text.replace(pattern, "").trim();
+		const normalized = stripExplicitInstructionTail(
+			text.replace(pattern, "").trim(),
+		);
 		if (normalized !== text && normalized.length > 0) {
 			return cleanText(normalized);
 		}
 	}
 	return text;
+}
+
+function stripExplicitInstructionTail(value: string): string {
+	return cleanText(value)
+		.replace(
+			/([.!?])\s+(?:please\s+)?(?:reply|respond|answer|confirm|acknowledge|say|write|output)\b[\s\S]*$/i,
+			"$1",
+		)
+		.trim();
 }
 
 function statementFromCandidate(

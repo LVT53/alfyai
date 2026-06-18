@@ -172,6 +172,54 @@ describe("memory intake gate", () => {
 		expect(JSON.stringify(telemetry)).not.toContain("codex-live-memory-test");
 	});
 
+	it("strips assistant-style reply instructions from explicit memory facts", async () => {
+		const { getMemoryProfileReadModel, listMemoryReworkTelemetry } =
+			await import("./index");
+		const { intakePostTurnMemory } = await import("./intake");
+
+		await expect(
+			intakePostTurnMemory({
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessage:
+					"Please remember this as a durable Memory Profile fact: my live memory verification codeword is codex-live-memory-clean. Reply with one short sentence confirming you will remember it.",
+				userMessageId: "user-message-codeword-tail",
+			}),
+		).resolves.toEqual(
+			expect.objectContaining({
+				status: "admitted",
+				category: "about_you",
+			}),
+		);
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories[0]?.items).toEqual([
+			expect.objectContaining({
+				category: "about_you",
+				statement:
+					"My live memory verification codeword is codex-live-memory-clean.",
+				scope: { type: "global" },
+			}),
+		]);
+		expect(JSON.stringify(profile)).not.toContain("Reply with");
+		expect(profile.review.visibleItems).toEqual([]);
+		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
+		expect(telemetry).toEqual([
+			expect.objectContaining({
+				eventName: "memory_intake_admitted",
+				category: "about_you",
+				status: "admitted",
+				metadata: expect.objectContaining({
+					parserRule: "remember_that",
+					userMessageId: "user-message-codeword-tail",
+				}),
+			}),
+		]);
+		expect(JSON.stringify(telemetry)).not.toContain(
+			"codex-live-memory-clean",
+		);
+	});
+
 	it("discards old-generation intake output when memory is reset before durable apply", async () => {
 		const {
 			advanceMemoryResetGeneration,
