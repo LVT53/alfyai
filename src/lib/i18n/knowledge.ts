@@ -33,6 +33,7 @@ const knowledgeDict = {
 		"knowledge.description":
 			"Persistent documents and a live memory view of what the system currently knows about you.",
 		"knowledge.documentType": "Document type",
+		"knowledge.documentCount": "{count} documents",
 		"knowledge.documents": "Documents",
 		"knowledge.dropFiles": "Drop files here to upload (max 100MB per file)",
 		"knowledge.failedLoadMemory": "Failed to load memory profile.",
@@ -247,6 +248,7 @@ const knowledgeDict = {
 		"knowledge.description":
 			"Tartós dokumentumok és egy élő memórianézet arról, amit a rendszer jelenleg tud rólad.",
 		"knowledge.documentType": "Dokumentum típus",
+		"knowledge.documentCount": "{count} dokumentum",
 		"knowledge.documents": "Dokumentumok",
 		"knowledge.dropFiles":
 			"Húzd ide a fájlokat feltöltéshez (max. 100 MB/fájl)",

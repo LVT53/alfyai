@@ -1233,12 +1233,16 @@ async function handleBulkDelete(): Promise<boolean> {
 		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
+		padding: var(--space-md) var(--space-lg);
+		border: 1px solid var(--border-default);
+		border-radius: 1rem;
+		background: var(--surface-elevated);
 	}
 
 	.search-controls {
 		display: flex;
-		flex: 0 1 50%;
-		max-width: 50%;
+		flex: 1 1 18rem;
+		max-width: 30rem;
 		min-width: 14rem;
 	}
 
@@ -1247,7 +1251,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		padding: 0.58rem 0.74rem;
 		border: 1px solid var(--border-default);
 		border-radius: 0.7rem;
-		background: var(--surface-elevated);
+		background: var(--surface-page);
 		color: var(--text-primary);
 		font-size: 0.85rem;
 	}
@@ -1322,7 +1326,7 @@ async function handleBulkDelete(): Promise<boolean> {
 	.table-container {
 		max-height: 600px;
 		overflow-y: auto;
-		border-radius: 1.2rem;
+		border-radius: 1rem;
 		border: 1px solid var(--border-default);
 		background: var(--surface-elevated);
 	}
@@ -1621,7 +1625,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		align-items: center;
 		justify-content: space-between;
 		padding: var(--space-md) var(--space-lg);
-		border-radius: 1.2rem;
+		border-radius: 1rem;
 		border: 1px solid var(--border-default);
 		background: var(--surface-elevated);
 		flex-wrap: wrap;
@@ -1755,7 +1759,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		justify-content: space-between;
 		padding: var(--space-md) var(--space-lg);
 		margin-top: var(--space-md);
-		border-radius: 1.2rem;
+		border-radius: 1rem;
 		border: 1px solid var(--border-default);
 		background: var(--surface-elevated);
 		flex-wrap: wrap;
@@ -1821,6 +1825,24 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	@media (max-width: 720px) {
+		.filter-controls {
+			flex-wrap: nowrap;
+			align-items: stretch;
+			padding: var(--space-sm);
+			border-radius: var(--radius-md);
+		}
+
+		.search-controls {
+			flex: 1 1 auto;
+			min-width: 0;
+			max-width: none;
+		}
+
+		.upload-btn {
+			width: 36px;
+			height: 36px;
+		}
+
 		.table-container {
 			max-height: none;
 			overflow: visible;
@@ -1847,6 +1869,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			display: flex;
 			flex-wrap: wrap;
 			gap: var(--space-xs);
+			align-items: center;
 		}
 
 		.documents-table th {
@@ -1869,6 +1892,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			border-radius: var(--radius-md);
 			background: var(--surface-elevated);
 			font-size: 0.66rem;
+			line-height: 1;
 		}
 
 		.documents-table tbody {
@@ -1879,14 +1903,14 @@ async function handleBulkDelete(): Promise<boolean> {
 
 		.documents-table .document-list-item {
 			display: grid;
-			grid-template-columns: 26px 20px minmax(0, 1fr) auto;
+			grid-template-columns: 26px 22px minmax(0, 1fr) auto;
 			grid-template-areas:
 				"check icon name actions"
-				"check icon type actions"
-				"check icon size date";
+				". . type actions"
+				". . size date";
 			column-gap: var(--space-sm);
 			row-gap: 0.34rem;
-			align-items: center;
+			align-items: start;
 			padding: 0.68rem 0.72rem;
 			border: 1px solid var(--border-default);
 			border-radius: var(--radius-md);
@@ -1901,14 +1925,12 @@ async function handleBulkDelete(): Promise<boolean> {
 		.documents-table .col-checkbox {
 			grid-area: check;
 			width: 26px;
-			align-self: start;
-			padding-top: 0.12rem;
+			padding-top: 0.08rem;
 		}
 
 		.documents-table .col-icon {
 			grid-area: icon;
-			width: 20px;
-			align-self: start;
+			width: 22px;
 			padding-top: 0.05rem;
 		}
 
@@ -1942,12 +1964,13 @@ async function handleBulkDelete(): Promise<boolean> {
 			width: auto;
 			justify-self: end;
 			text-align: right;
+			max-width: 11rem;
 		}
 
 		.documents-table .col-actions {
 			grid-area: actions;
 			width: auto;
-			align-self: center;
+			align-self: start;
 		}
 
 		.documents-table .col-type,
@@ -1968,6 +1991,33 @@ async function handleBulkDelete(): Promise<boolean> {
 			color: var(--text-muted);
 		}
 
+		.ai-version-row {
+			display: block;
+			margin-top: calc(-1 * var(--space-xs));
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			background: color-mix(in srgb, var(--surface-page) 94%, var(--accent) 6%);
+		}
+
+		.ai-version-row > td {
+			display: none;
+		}
+
+		.ai-version-row > .ai-version-cell {
+			display: block;
+			padding: var(--space-sm);
+		}
+
+		.ai-version-panel {
+			max-height: min(360px, 58vh);
+			gap: var(--space-sm);
+		}
+
+		.ai-version-content {
+			padding: var(--space-sm);
+			font-size: 0.76rem;
+		}
+
 		.type-badge,
 		.version-badge,
 		.original-badge,
@@ -1977,12 +2027,13 @@ async function handleBulkDelete(): Promise<boolean> {
 
 		.action-buttons {
 			flex-direction: column;
-			gap: 0.18rem;
+			gap: 0.22rem;
 		}
 
 		.action-btn {
-			width: 30px;
-			height: 30px;
+			width: 32px;
+			height: 32px;
+			background: var(--surface-page);
 		}
 
 		.bulk-action-bar,

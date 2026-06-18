@@ -566,10 +566,16 @@ $effect(() => {
 					/>
 				</div>
 			{:else}
-				<div id="documents-panel" role="tabpanel" aria-labelledby="documents-tab" class="documents-section rounded-[1rem] border border-border bg-surface-elevated px-5 py-5 shadow-sm md:px-6">
-					<div class="mb-4">
-						<h2 class="text-2xl font-serif text-text-primary">{$t('knowledge.documents')}</h2>
-						<p class="mt-1 text-sm text-text-secondary">{$t('knowledge.browseManage')}</p>
+				<div id="documents-panel" role="tabpanel" aria-labelledby="documents-tab" class="documents-section space-y-4">
+					<div class="flex flex-wrap items-center justify-between gap-3">
+						<div>
+							<h2 id="documents-title" class="text-2xl font-serif text-text-primary">
+								{$t('knowledge.documents')}
+							</h2>
+						</div>
+						<span class="rounded-full border border-border bg-surface-elevated px-3 py-1 text-xs font-sans text-text-muted">
+							{$t('knowledge.documentCount', { count: documentTotalItems })}
+						</span>
 					</div>
 					<DocumentsList
 						documents={documents}
