@@ -1872,19 +1872,21 @@ async function handleBulkDelete(): Promise<boolean> {
 
 		.documents-table .document-list-item {
 			display: grid;
-			grid-template-columns: 44px 28px minmax(0, 1fr) auto;
+			grid-template-columns: 44px 34px minmax(0, 1fr);
 			grid-template-areas:
-				"check icon name name"
-				". . type type"
-				". . size date"
-				"actions actions actions actions";
-			column-gap: 0.58rem;
-			row-gap: 0.42rem;
+				"check icon name"
+				". . type"
+				". . size"
+				". . date"
+				"actions actions actions";
+			column-gap: 0.68rem;
+			row-gap: 0.52rem;
 			align-items: start;
-			padding: 0.82rem;
+			padding: 0.86rem;
 			border: 1px solid var(--border-default);
 			border-radius: var(--radius-md);
 			background: var(--surface-elevated);
+			box-shadow: 0 1px 0 color-mix(in srgb, var(--border-subtle) 70%, transparent);
 		}
 
 		.documents-table td {
@@ -1900,9 +1902,19 @@ async function handleBulkDelete(): Promise<boolean> {
 
 		.documents-table .col-icon {
 			grid-area: icon;
-			width: 28px;
-			padding-top: 0.06rem;
+			width: 34px;
+			min-height: 34px;
+			padding-top: 0;
 			justify-self: center;
+		}
+
+		.file-icon {
+			width: 34px;
+			height: 34px;
+			border-radius: var(--radius-md);
+			background: var(--surface-page);
+			border: 1px solid var(--border-subtle);
+			color: var(--icon-primary);
 		}
 
 		.documents-table .col-name {
@@ -1915,13 +1927,13 @@ async function handleBulkDelete(): Promise<boolean> {
 			flex-wrap: wrap;
 			align-items: flex-start;
 			min-width: 0;
-			gap: 0.28rem 0.42rem;
+			gap: 0.34rem 0.46rem;
 			font-size: 0.92rem;
 			line-height: 1.32;
 		}
 
 		.document-title {
-			flex: 1 1 11rem;
+			flex: 1 1 100%;
 			min-width: 0;
 			overflow-wrap: anywhere;
 		}
@@ -1930,7 +1942,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			grid-area: type;
 			width: auto;
 			min-width: 0;
-			margin-top: 0.12rem;
+			margin-top: 0.04rem;
 		}
 
 		.documents-table .col-size {
@@ -1942,8 +1954,8 @@ async function handleBulkDelete(): Promise<boolean> {
 		.documents-table .col-date {
 			grid-area: date;
 			width: auto;
-			justify-self: end;
-			text-align: right;
+			justify-self: start;
+			text-align: left;
 		}
 
 		.documents-table .col-actions {
@@ -1955,12 +1967,16 @@ async function handleBulkDelete(): Promise<boolean> {
 		.documents-table .col-type,
 		.documents-table .col-size,
 		.documents-table .col-date {
-			display: flex;
+			display: inline-flex;
 			align-items: center;
-			justify-content: flex-start;
-			gap: 0.32rem;
-			padding: 0;
-			background: transparent;
+			justify-content: start;
+			gap: 0.38rem;
+			width: fit-content;
+			max-width: 100%;
+			padding: 0.26rem 0.5rem;
+			border-radius: var(--radius-sm);
+			border: 1px solid var(--border-subtle);
+			background: var(--surface-page);
 			font-size: 0.75rem;
 			line-height: 1.2;
 			min-width: 0;
@@ -1980,7 +1996,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		.documents-table .col-size,
 		.documents-table .col-date {
 			overflow-wrap: normal;
-			white-space: nowrap;
+			white-space: normal;
 		}
 
 		.ai-version-row {
@@ -2019,6 +2035,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			flex: 0 0 auto;
 			width: max-content;
 			max-width: 100%;
+			overflow: visible;
 		}
 
 		.action-buttons {
@@ -2026,6 +2043,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			grid-template-columns: repeat(3, minmax(0, 1fr));
 			gap: var(--space-xs);
 			justify-content: stretch;
+			padding-top: 0.1rem;
 		}
 
 		.action-btn {
