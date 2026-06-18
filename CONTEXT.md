@@ -2037,7 +2037,7 @@ An **Uploaded Document** whose display name was changed to preserve both files a
 _Avoid_: new version, replacement, overwrite
 
 **Knowledge Upload Intake**:
-The deep server module at `src/lib/server/services/knowledge/upload-intake.ts` that completes an **Uploaded Document** after an upload adapter has authenticated the user and received bytes or upload intent metadata. It owns shared upload limits, optional conversation validation, source artifact persistence through the Knowledge store, normalized-document extraction, Honcho sync and fallback, prompt-readiness resolution, and upload trace output.
+The deep server module at `src/lib/server/services/knowledge/upload-intake.ts` that completes an **Uploaded Document** after an upload adapter has authenticated the user and received bytes or upload intent metadata. It owns shared upload limits, optional conversation validation, source artifact persistence through the Knowledge store, normalized-document extraction, prompt-readiness resolution, and upload trace output. It does not sync uploaded or normalized document bodies into Honcho persona memory by default.
 _Avoid_: route-local upload completion, partial raw-upload helper, duplicated readiness path
 
 **File Production Request**:
@@ -2190,7 +2190,7 @@ _Avoid_: source message button, primary document action, source viewer
 - A **Filename Conflict** does not create a **Generated Document Version**.
 - An **Auto-Renamed Upload** remains a separate **Uploaded Document**.
 - Uploaded documents do not form user-visible version history in v1.
-- Every **Uploaded Document** enters **Knowledge Upload Intake** before normalized extraction, Honcho sync, or prompt-readiness response assembly.
+- Every **Uploaded Document** enters **Knowledge Upload Intake** before normalized extraction or prompt-readiness response assembly. Uploaded document bodies do not become Honcho persona memory by default.
 - Knowledge upload routes are adapters for authentication, HTTP metadata parsing, multipart form reads, raw stream receipt, chunk storage, chunk assembly, and response translation; they do not own durable upload completion.
 - **Knowledge Upload Intake** composes Knowledge store attachment persistence for auto-rename, optional conversation linking, and source artifact writes; it does not create a second artifact store.
 - **Knowledge Upload Intake** validates any supplied conversation id before artifact persistence or prompt-readiness linking, while conversationless library uploads stay valid.
@@ -2200,6 +2200,7 @@ _Avoid_: source message button, primary document action, source viewer
 - **Working Document Selection** owns live per-turn signal collapse for **Working Documents**; callers should request its prompt, working-set, retrieval, and task-evidence views instead of re-deriving active focus, correction target, current-generated, recent-refinement, or reset rules locally.
 - `document-resolution.ts` remains the generated-document family ranking authority. **Working Document Selection** consumes that ranking to decide the live current/generated carryover view; it does not replace generated-family identity or version ordering.
 - **Document Workspace** and Knowledge preview/download routes use **Working Document Identity** preview/file-serving identity so source-plus-normalized documents open the display file while text-only documents degrade deliberately.
+- The Knowledge Base Documents page should keep source-plus-normalized documents as one source row, but rows with a normalized prompt artifact must expose an on-demand AI-facing version panel. This panel shows the normalized text AlfyAI can use for prompt context; it is not Honcho persona memory and should not be removed when tightening memory intake boundaries.
 - **Working Document Identity** and Working Document file serving select artifact identity or generated-output `sourceChatFileId`; when that identity points to generated chat-file bytes, they delegate byte validation and headers to **Generated File Serving**.
 - **Preview Runtime** consumes bytes served through **Working Document Identity** and server-side file serving; it does not decide which artifact or generated file is authorized or canonical.
 - **Preview Runtime** renders bytes in the browser; it does not own **Generated File Serving** concerns such as assignment quarantine, ownership fallback, MIME/byte validation, or CSP/disposition/cache headers.

@@ -6,6 +6,7 @@ import { formatMediumDateTime } from "$lib/utils/time";
 import { t } from "$lib/i18n";
 import {
 	Archive,
+	Bot,
 	ChevronLeft,
 	ChevronRight,
 	Code,
@@ -13,6 +14,7 @@ import {
 	File as FileIcon,
 	FileText,
 	Image,
+	Loader,
 	Monitor,
 	Table,
 	Trash2,
@@ -83,6 +85,14 @@ let localSearchQuery = $state("");
 let activeSortKey = $state<DocumentSortKey>("date");
 let activeSortDirection = $state<SortDirection>("desc");
 let searchDebounce: ReturnType<typeof setTimeout> | null = null;
+let expandedAiVersions = $state<Set<string>>(new Set());
+let aiVersionContent = $state<
+	Record<
+		string,
+		{ loading: boolean; text: string | null; error: string | null }
+	>
+>({});
+const aiVersionAborts = new Map<string, AbortController>();
 
 // Selection derived state
 const selectedCount = $derived(selectedIds.size);
@@ -113,6 +123,10 @@ $effect(() => {
 		if (searchDebounce) {
 			clearTimeout(searchDebounce);
 		}
+		for (const controller of aiVersionAborts.values()) {
+			controller.abort();
+		}
+		aiVersionAborts.clear();
 	};
 });
 
@@ -437,6 +451,65 @@ function handleSearchInput() {
 		searchDebounce = null;
 		onSearchQueryChange?.(localSearchQuery);
 	}, 250);
+}
+
+async function toggleAiVersion(documentId: string, promptArtifactId: string) {
+	const next = new Set(expandedAiVersions);
+	if (next.has(documentId)) {
+		next.delete(documentId);
+		expandedAiVersions = next;
+		return;
+	}
+
+	next.add(documentId);
+	expandedAiVersions = next;
+
+	if (aiVersionContent[promptArtifactId]) return;
+
+	aiVersionAborts.get(promptArtifactId)?.abort();
+	const controller = new AbortController();
+	aiVersionAborts.set(promptArtifactId, controller);
+
+	aiVersionContent = {
+		...aiVersionContent,
+		[promptArtifactId]: { loading: true, text: null, error: null },
+	};
+
+	try {
+		const response = await fetch(`/api/knowledge/${promptArtifactId}`, {
+			signal: controller.signal,
+		});
+		if (!response.ok) {
+			throw new Error(`Failed to load content (${response.status})`);
+		}
+		const data = await response.json();
+		const text = data?.artifact?.contentText ?? null;
+		aiVersionContent = {
+			...aiVersionContent,
+			[promptArtifactId]: {
+				loading: false,
+				text,
+				error: text ? null : $t("knowledge.aiVersionNoContent"),
+			},
+		};
+	} catch (error) {
+		if (error instanceof DOMException && error.name === "AbortError") return;
+		aiVersionContent = {
+			...aiVersionContent,
+			[promptArtifactId]: {
+				loading: false,
+				text: null,
+				error:
+					error instanceof Error
+						? error.message
+						: $t("knowledge.aiVersionLoadFailed"),
+			},
+		};
+	} finally {
+		if (aiVersionAborts.get(promptArtifactId) === controller) {
+			aiVersionAborts.delete(promptArtifactId);
+		}
+	}
 }
 
 function getAriaSort(
@@ -899,6 +972,24 @@ async function handleBulkDelete(): Promise<boolean> {
 								</td>
 								<td class="col-actions">
 									<div class="action-buttons">
+										{#if document.normalizedAvailable && document.promptArtifactId}
+											<button
+												type="button"
+												class="action-btn action-btn-ai"
+												aria-label={expandedAiVersions.has(document.id)
+													? $t('knowledge.hideAiVersion')
+													: $t('knowledge.viewAiVersion')}
+												title={expandedAiVersions.has(document.id)
+													? $t('knowledge.hideAiVersion')
+													: $t('knowledge.viewAiVersion')}
+												onclick={(e) => {
+													e.stopPropagation();
+													void toggleAiVersion(document.id, document.promptArtifactId!);
+												}}
+											>
+												<Bot size={16} strokeWidth={2} aria-hidden="true" />
+											</button>
+										{/if}
 										<button
 											type="button"
 											class="action-btn"
@@ -920,6 +1011,33 @@ async function handleBulkDelete(): Promise<boolean> {
 									</div>
 								</td>
 							</tr>
+							{#if document.normalizedAvailable && document.promptArtifactId && expandedAiVersions.has(document.id)}
+								{@const promptId = document.promptArtifactId}
+								{@const content = aiVersionContent[promptId] ?? null}
+								<tr class="ai-version-row">
+									<td class="col-checkbox"></td>
+									<td class="col-icon"></td>
+									<td colspan="5" class="ai-version-cell">
+										<div class="ai-version-panel">
+											<span class="ai-version-label">{$t('knowledge.aiFacingVersion')}</span>
+											{#if content?.loading}
+												<div class="ai-version-loading">
+													<span class="ai-version-spinner">
+														<Loader size={16} strokeWidth={2} aria-hidden="true" />
+													</span>
+													{$t('knowledge.aiVersionLoading')}
+												</div>
+											{:else if content?.error}
+												<div class="ai-version-error">{content.error}</div>
+											{:else if content?.text}
+												<pre class="ai-version-content">{content.text}</pre>
+											{:else}
+												<div class="ai-version-empty">{$t('knowledge.aiVersionNoContent')}</div>
+											{/if}
+										</div>
+									</td>
+								</tr>
+							{/if}
 						{/each}
 					</tbody>
 				</table>
@@ -1422,6 +1540,80 @@ async function handleBulkDelete(): Promise<boolean> {
 	.action-btn-danger:hover {
 		background: color-mix(in srgb, var(--danger) 12%, transparent);
 		color: var(--danger);
+	}
+
+	.action-btn-ai:hover {
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+		color: var(--accent);
+	}
+
+	.action-btn-ai:active {
+		background: color-mix(in srgb, var(--accent) 20%, transparent);
+	}
+
+	.ai-version-row {
+		background: color-mix(in srgb, var(--surface-page) 94%, var(--accent) 6%);
+	}
+
+	.ai-version-cell {
+		padding: var(--space-sm) var(--space-lg) var(--space-md) var(--space-lg);
+	}
+
+	.ai-version-panel {
+		display: flex;
+		max-height: 320px;
+		flex-direction: column;
+		gap: var(--space-md);
+		overflow-y: auto;
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+	}
+
+	.ai-version-label {
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--accent);
+	}
+
+	.ai-version-content {
+		margin: 0;
+		padding: var(--space-md);
+		overflow-x: auto;
+		white-space: pre-wrap;
+		word-break: break-word;
+		overflow-wrap: break-word;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		background: var(--surface-elevated);
+		color: var(--text-primary);
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		line-height: 1.55;
+	}
+
+	.ai-version-loading {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		font-size: 0.8125rem;
+		color: var(--text-muted);
+	}
+
+	.ai-version-spinner {
+		animation: spin 1s linear infinite;
+	}
+
+	.ai-version-error {
+		font-size: 0.8125rem;
+		color: var(--danger);
+	}
+
+	.ai-version-empty {
+		font-size: 0.8125rem;
+		color: var(--text-muted);
+		font-style: italic;
 	}
 
 	.pagination {

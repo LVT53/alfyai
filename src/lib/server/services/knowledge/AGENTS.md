@@ -40,9 +40,10 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 - **Token budgets**: `WORKING_SET_DOCUMENT_TOKEN_BUDGET` (4k), `WORKING_SET_OUTPUT_TOKEN_BUDGET` (2k), `WORKING_SET_PROMPT_TOKEN_BUDGET` (20k) live in `store/core.ts`
 - **Semantic retrieval**: `store/documents.ts` composes lexical fetch + embedding shortlist + TEI rerank; keeps deterministic filters above TEI scores
 - **Library uploads**: `conversationId` may be null; skip `attached_to_conversation` link when null. Filename conflicts auto-rename non-identical files; byte-identical (SHA256 hash) files reuse the existing artifact via `findExistingArtifactByBinaryHash`.
-- **Knowledge Upload Intake**: upload routes own auth, HTTP/body receipt, raw temp writes, and chunk assembly. `upload-intake.ts` owns shared limits, conversation validation, durable completion, normalized extraction, Honcho sync/fallback, readiness response, and upload trace output after bytes are available.
+- **Knowledge Upload Intake**: upload routes own auth, HTTP/body receipt, raw temp writes, and chunk assembly. `upload-intake.ts` owns shared limits, conversation validation, durable completion, normalized extraction, readiness response, and upload trace output after bytes are available. Uploaded and normalized document bodies are not synced into Honcho persona memory by default.
 - **Memory Profile**: user-facing memory UX is projection-backed through `../memory.ts` and `../memory-profile/`; Knowledge page routes/views should render that projection instead of parsing raw Honcho text.
 - **Document families**: generated-document families are metadata-driven via `store/document-metadata.ts`; `document-resolution.ts` is authority for "which generated version is current"
+- **AI-facing document view**: source-plus-normalized documents are listed as one source row, but the Knowledge Documents UI must keep an on-demand AI-facing version panel backed by the normalized prompt artifact. This panel is document prompt visibility and should not be removed as part of memory-system cleanup.
 - **Working Document Selection**: live focus, correction, recent-refinement, reset, prompt, retrieval, and task-evidence signal views come from `../working-document-selection.ts`
 - **Capsules**: workflow summaries only; document lineage lives in artifact metadata + links
 - **Observability**: `[CONTEXT] Working document selection` summary in `context.ts`; extend it rather than per-candidate logs
@@ -52,6 +53,7 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 - Do NOT create a second artifact persistence path outside `store/core.ts`
 - Do NOT duplicate document persistence, grouping, or artifact mapping in routes; Workspace Search may compose `store/documents.ts` for shell-search document results
 - Do NOT put upload completion, prompt readiness, or Honcho sync back into upload routes
+- Do NOT remove normalized prompt-artifact visibility from the Documents UI; hide standalone normalized rows, but keep the source-row AI-facing version panel
 - Do NOT make capsules the authority for document lineage
 - Do NOT add uploaded-file versioning; byte-identical (SHA256 hash) deduplication is handled at the upload level via `findExistingArtifactByBinaryHash`. Name-based auto-rename still applies for non-identical files with conflicting names.
 - Do NOT reintroduce page-local raw Honcho overview normalization or make live Honcho overview generation the Knowledge Base memory authority.

@@ -92,6 +92,7 @@ logout/                # Logout page
 - **Auth**: `hooks.server.ts` attaches user to `locals`; routes use `requireAuth()` or redirect
 - **Thin routes**: Parse request, call service, return response; no business logic inline
 - **Conversation detail**: Refreshable `/api/conversations/[id]` GET payload assembly belongs in `src/lib/server/services/conversation-detail/read-model.ts`, not in the route adapter
+- **Knowledge Documents AI-facing view**: `(app)/knowledge/_components/DocumentsList.svelte` intentionally exposes a per-row, on-demand AI-facing version for source-plus-normalized documents. Keep normalized artifacts bundled under the source row, but do not remove the Bot toggle/panel or its `/api/knowledge/[promptArtifactId]` content fetch; this is document prompt visibility, not persona memory sync.
 
 ## Anti-Patterns
 
@@ -102,3 +103,4 @@ logout/                # Logout page
 - Creating new `sessionStorage` keys outside `conversation-session.ts`
 - Adding route-local AI SDK UI stream part shapes without updating the browser parser
 - Putting raw `fetch` boilerplate in pages instead of `src/lib/client/api/`
+- Removing the Knowledge Documents AI-facing version panel because normalized documents are hidden as standalone rows

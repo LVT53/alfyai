@@ -786,11 +786,50 @@ describe("DocumentsList", () => {
 			expect(screen.queryByText("Budget.md")).toBeNull();
 		});
 
-		it("does not expose AI-facing prompt text from ordinary document rows", async () => {
+		it("shows expand toggle on rows where normalizedAvailable is true", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({
+							...mockUploadedDocument,
+							normalizedAvailable: true,
+							promptArtifactId: "prompt-1",
+						}),
+					],
+				},
+			});
+
+			expect(
+				screen.getByRole("button", { name: /view ai version/i }),
+			).toBeInTheDocument();
+		});
+
+		it("does not show expand toggle when normalizedAvailable is false", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({
+							...mockUploadedDocument,
+							normalizedAvailable: false,
+							promptArtifactId: null,
+						}),
+					],
+				},
+			});
+
+			expect(
+				screen.queryByRole("button", { name: /view ai version/i }),
+			).toBeNull();
+			expect(
+				screen.queryByRole("button", { name: /hide ai version/i }),
+			).toBeNull();
+		});
+
+		it("fetches and displays the AI-facing prompt artifact on demand", async () => {
 			const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
 				new Response(
 					JSON.stringify({
-						artifact: { contentText: "Raw prompt-only document text" },
+						artifact: { contentText: "AI-facing normalized markdown text" },
 					}),
 					{ status: 200, headers: { "Content-Type": "application/json" } },
 				),
@@ -809,17 +848,21 @@ describe("DocumentsList", () => {
 			});
 
 			expect(screen.getByText("Budget.pdf")).toBeInTheDocument();
+			const toggleButton = screen.getByRole("button", {
+				name: /view ai version/i,
+			});
+			await fireEvent.click(toggleButton);
+
 			expect(
-				screen.queryByRole("button", { name: /view ai version/i }),
-			).toBeNull();
+				await screen.findByText("AI-facing normalized markdown text"),
+			).toBeInTheDocument();
+			expect(screen.getByText(/ai-facing version/i)).toBeInTheDocument();
 			expect(
-				screen.queryByRole("button", { name: /hide ai version/i }),
-			).toBeNull();
-			expect(
-				screen.queryByText(/raw prompt-only document text/i),
-			).not.toBeInTheDocument();
-			expect(screen.queryByText(/ai-facing version/i)).not.toBeInTheDocument();
-			expect(fetchMock).not.toHaveBeenCalled();
+				screen.getByRole("button", { name: /hide ai version/i }),
+			).toBeInTheDocument();
+			expect(fetchMock).toHaveBeenCalledWith("/api/knowledge/prompt-1", {
+				signal: expect.any(AbortSignal),
+			});
 			fetchMock.mockRestore();
 		});
 
