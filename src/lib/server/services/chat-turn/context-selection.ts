@@ -58,9 +58,13 @@ import {
 	type ActiveMemoryProfileContext,
 	formatActiveMemoryProfileContextForPrompt,
 	getActiveMemoryProfileContext,
+	type MemoryProfileScope,
 	recordMemoryReworkTelemetry,
 } from "../memory-profile";
-import { getConversationProjectLabel } from "../projects";
+import {
+	getConversationProjectId,
+	getConversationProjectLabel,
+} from "../projects";
 import {
 	formatTaskStateForPrompt,
 	getContextDebugState,
@@ -190,13 +194,18 @@ async function recordPromptMemoryTelemetry(params: {
 async function buildActiveMemoryProfilePromptSection(params: {
 	userId: string;
 	conversationId: string;
+	applicableScopes?: MemoryProfileScope[];
 	modelContextBudget: ReturnType<typeof deriveModelContextBudget>;
 }): Promise<PromptContextSection | null> {
 	let context: ActiveMemoryProfileContext;
 	try {
 		context = await getActiveMemoryProfileContext({
 			userId: params.userId,
-			applicableScopes: [{ type: "conversation", id: params.conversationId }],
+			applicableScopes:
+				params.applicableScopes ??
+				buildApplicableMemoryProfileScopes({
+					conversationId: params.conversationId,
+				}),
 		});
 	} catch {
 		await recordPromptMemoryTelemetry({
@@ -269,6 +278,31 @@ async function buildActiveMemoryProfilePromptSection(params: {
 		protected: true,
 		llmCompactible: true,
 	};
+}
+
+function buildApplicableMemoryProfileScopes(params: {
+	conversationId: string;
+	projectId?: string | null;
+	documentArtifactIds?: Iterable<string | null | undefined>;
+}): MemoryProfileScope[] {
+	const scopes: MemoryProfileScope[] = [];
+	const seen = new Set<string>();
+	const add = (scope: Exclude<MemoryProfileScope, { type: "global" }>) => {
+		const id = scope.id.trim();
+		if (!id) return;
+		const key = `${scope.type}:${id}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		scopes.push({ type: scope.type, id });
+	};
+
+	add({ type: "project", id: params.projectId ?? "" });
+	add({ type: "conversation", id: params.conversationId });
+	for (const documentArtifactId of params.documentArtifactIds ?? []) {
+		add({ type: "document", id: documentArtifactId ?? "" });
+	}
+
+	return scopes;
 }
 
 export function deriveRelevantKnowledgeArtifactLimit(
@@ -886,6 +920,10 @@ async function buildShallowConstructedContext(params: {
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	_reuseData?: ConstructedContextReuseData;
 }> {
+	const projectIdPromise = getConversationProjectId(
+		params.userId,
+		params.conversationId,
+	).catch(() => null);
 	const [
 		sessionContext,
 		contextCompressionPromptSnapshot,
@@ -901,11 +939,17 @@ async function buildShallowConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => null),
-		buildActiveMemoryProfilePromptSection({
-			userId: params.userId,
-			conversationId: params.conversationId,
-			modelContextBudget: params.modelContextBudget,
-		}),
+		projectIdPromise.then((projectId) =>
+			buildActiveMemoryProfilePromptSection({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				applicableScopes: buildApplicableMemoryProfileScopes({
+					conversationId: params.conversationId,
+					projectId,
+				}),
+				modelContextBudget: params.modelContextBudget,
+			}),
+		),
 	]);
 	const {
 		sessionMessages,
@@ -1100,7 +1144,7 @@ export async function buildConstructedContext(params: {
 		projectFolderSiblingPromotion,
 		forkOrigin,
 		contextCompressionPromptSnapshot,
-		activeMemoryProfileSection,
+		projectId,
 	] = await Promise.all([
 		loadHonchoPromptContext({
 			userId: params.userId,
@@ -1145,11 +1189,9 @@ export async function buildConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => null),
-		buildActiveMemoryProfilePromptSection({
-			userId: params.userId,
-			conversationId: params.conversationId,
-			modelContextBudget,
-		}),
+		getConversationProjectId(params.userId, params.conversationId).catch(
+			() => null,
+		),
 	]);
 	const {
 		sessionMessages,
@@ -1369,17 +1411,32 @@ export async function buildConstructedContext(params: {
 		documentCount: promptArtifacts.size,
 		intent: documentContextIntent,
 	});
-	const artifactSnippets = params.reuseFrom
-		? params.reuseFrom.artifactSnippets
-		: await getPromptArtifactSnippets({
-				userId: params.userId,
-				artifacts: Array.from(promptArtifacts.values()),
-				query: params.message,
-				perArtifactLimit: documentDepthBudget.perArtifactLimit,
-				perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
-				totalCharBudget: documentDepthBudget.totalBudget,
-				useFullContent: documentDepthBudget.useFullContent,
-			}).catch(() => new Map<string, string>());
+	const [artifactSnippets, activeMemoryProfileSection] = await Promise.all([
+		params.reuseFrom
+			? Promise.resolve(params.reuseFrom.artifactSnippets)
+			: getPromptArtifactSnippets({
+					userId: params.userId,
+					artifacts: Array.from(promptArtifacts.values()),
+					query: params.message,
+					perArtifactLimit: documentDepthBudget.perArtifactLimit,
+					perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
+					totalCharBudget: documentDepthBudget.totalBudget,
+					useFullContent: documentDepthBudget.useFullContent,
+				}).catch(() => new Map<string, string>()),
+		buildActiveMemoryProfilePromptSection({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			applicableScopes: buildApplicableMemoryProfileScopes({
+				conversationId: params.conversationId,
+				projectId,
+				documentArtifactIds: [
+					params.activeDocumentArtifactId,
+					...promptArtifacts.keys(),
+				],
+			}),
+			modelContextBudget,
+		}),
+	]);
 
 	const allTurns = selectRecentRoleTurns(
 		promptSessionMessages,

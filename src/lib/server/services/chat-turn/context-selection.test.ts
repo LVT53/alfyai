@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 	getMaxModelContext: vi.fn(),
 	getTargetConstructedContext: vi.fn(),
 	updateConversationContextStatus: vi.fn(),
+	getConversationProjectId: vi.fn(),
 	getConversationProjectLabel: vi.fn(),
 	getConversationForkOrigin: vi.fn(),
 	getProjectReferenceContext: vi.fn(),
@@ -80,6 +81,7 @@ vi.mock("../messages", () => ({
 }));
 
 vi.mock("../projects", () => ({
+	getConversationProjectId: mocks.getConversationProjectId,
 	getConversationProjectLabel: mocks.getConversationProjectLabel,
 }));
 
@@ -272,6 +274,7 @@ function resetConstructedContextMocks() {
 		}),
 	]);
 	mocks.findRelevantKnowledgeArtifacts.mockResolvedValue([]);
+	mocks.getConversationProjectId.mockResolvedValue(null);
 	mocks.getConversationProjectLabel.mockResolvedValue(null);
 	mocks.getProjectReferenceContext.mockResolvedValue(null);
 	mocks.selectProjectFolderSiblingPromotion.mockResolvedValue(null);
@@ -459,6 +462,7 @@ describe("buildConstructedContext", () => {
 
 	it("uses a shallow latency tier for simple turns and skips deep retrieval work", async () => {
 		resetConstructedContextMocks();
+		mocks.getConversationProjectId.mockResolvedValue("project-1");
 
 		const constructed = await buildConstructedContext({
 			userId: "user-1",
@@ -485,7 +489,10 @@ describe("buildConstructedContext", () => {
 		);
 		expect(mocks.getActiveMemoryProfileContext).toHaveBeenCalledWith({
 			userId: "user-1",
-			applicableScopes: [{ type: "conversation", id: "conversation-1" }],
+			applicableScopes: [
+				{ type: "project", id: "project-1" },
+				{ type: "conversation", id: "conversation-1" },
+			],
 		});
 		expect(constructed.taskState).toBeNull();
 		expect(constructed.contextTraceSections).toEqual(
@@ -846,12 +853,14 @@ describe("buildConstructedContext", () => {
 
 	it("combines Honcho, task, attachment, and evidence candidates from the chat-turn boundary", async () => {
 		resetConstructedContextMocks();
+		mocks.getConversationProjectId.mockResolvedValue("project-1");
 
 		const constructed = await buildConstructedContext({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			message: "Review the launch plan against release risks.",
 			attachmentIds: ["attachment-1"],
+			activeDocumentArtifactId: "active-document-1",
 			modelId: "local-model",
 			contextLimits: {
 				maxModelContext: 16_000,
@@ -918,7 +927,13 @@ describe("buildConstructedContext", () => {
 		);
 		expect(mocks.getActiveMemoryProfileContext).toHaveBeenCalledWith({
 			userId: "user-1",
-			applicableScopes: [{ type: "conversation", id: "conversation-1" }],
+			applicableScopes: [
+				{ type: "project", id: "project-1" },
+				{ type: "conversation", id: "conversation-1" },
+				{ type: "document", id: "active-document-1" },
+				{ type: "document", id: "attachment-1" },
+				{ type: "document", id: "evidence-1" },
+			],
 		});
 		expect(mocks.resolvePromptAttachmentArtifacts).toHaveBeenCalled();
 		expect(mocks.listConversationSourceArtifactIds).toHaveBeenCalled();

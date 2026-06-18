@@ -129,6 +129,26 @@ export async function getConversationProjectLabel(
 	return row?.name ?? null;
 }
 
+export async function getConversationProjectId(
+	userId: string,
+	conversationId: string,
+): Promise<string | null> {
+	const [row] = await db
+		.select({ id: projects.id })
+		.from(conversations)
+		.innerJoin(projects, eq(conversations.projectId, projects.id))
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+				eq(projects.userId, userId),
+			),
+		)
+		.limit(1);
+
+	return row?.id ?? null;
+}
+
 export async function deleteProject(
 	userId: string,
 	projectId: string,

@@ -943,16 +943,29 @@ async function handleBulkDelete(): Promise<boolean> {
 									</div>
 								</td>
 								<td class="col-name">
-									<div class="document-name">
-										{#if document.isOriginal}
-											<span class="original-badge">{$t('knowledge.original')}</span>
-										{:else if document.versionNumber != null && document.documentFamilyId}
-											<span class="version-badge">v{document.versionNumber}</span>
-										{/if}
-										<span class="document-title">{document.name}</span>
-										{#if document.documentFamilyStatus === 'historical'}
-											<span class="historical-badge">{$t('knowledge.historical')}</span>
-										{/if}
+									<div class="document-card-main">
+										<div class="document-name">
+											{#if document.isOriginal}
+												<span class="original-badge">{$t('knowledge.original')}</span>
+											{:else if document.versionNumber != null && document.documentFamilyId}
+												<span class="version-badge">v{document.versionNumber}</span>
+											{/if}
+											<span class="document-title">{document.name}</span>
+											{#if document.documentFamilyStatus === 'historical'}
+												<span class="historical-badge">{$t('knowledge.historical')}</span>
+											{/if}
+										</div>
+										<div class="mobile-document-meta">
+											{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
+												<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
+											{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
+												<span class="type-badge type-generated">{$t('knowledge.generated')}</span>
+											{:else}
+												<span class="type-badge type-uploaded">{formatFileType(document.mimeType, document.name)}</span>
+											{/if}
+											<span>{formatByteSize(document.sizeBytes, { trimWholeUnits: true })}</span>
+											<span>{formatMediumDateTime(document.createdAt)}</span>
+										</div>
 									</div>
 								</td>
 								<td class="col-type" data-mobile-label={$t('knowledge.type')}>
@@ -1427,6 +1440,14 @@ async function handleBulkDelete(): Promise<boolean> {
 		min-width: 0;
 	}
 
+	.document-card-main {
+		min-width: 0;
+	}
+
+	.mobile-document-meta {
+		display: none;
+	}
+
 	.version-badge {
 		display: inline-flex;
 		align-items: center;
@@ -1875,14 +1896,11 @@ async function handleBulkDelete(): Promise<boolean> {
 			grid-template-columns: 44px 34px minmax(0, 1fr);
 			grid-template-areas:
 				"check icon name"
-				". . type"
-				". . size"
-				". . date"
 				"actions actions actions";
 			column-gap: 0.68rem;
-			row-gap: 0.52rem;
+			row-gap: 0.72rem;
 			align-items: start;
-			padding: 0.86rem;
+			padding: 0.92rem;
 			border: 1px solid var(--border-default);
 			border-radius: var(--radius-md);
 			background: var(--surface-elevated);
@@ -1920,6 +1938,14 @@ async function handleBulkDelete(): Promise<boolean> {
 		.documents-table .col-name {
 			grid-area: name;
 			min-width: 0;
+			padding-top: 0.02rem;
+		}
+
+		.document-card-main {
+			display: flex;
+			min-width: 0;
+			flex-direction: column;
+			gap: 0.56rem;
 		}
 
 		.document-name {
@@ -1927,9 +1953,9 @@ async function handleBulkDelete(): Promise<boolean> {
 			flex-wrap: wrap;
 			align-items: flex-start;
 			min-width: 0;
-			gap: 0.34rem 0.46rem;
+			gap: 0.36rem 0.48rem;
 			font-size: 0.92rem;
-			line-height: 1.32;
+			line-height: 1.34;
 		}
 
 		.document-title {
@@ -1939,23 +1965,15 @@ async function handleBulkDelete(): Promise<boolean> {
 		}
 
 		.documents-table .col-type {
-			grid-area: type;
-			width: auto;
-			min-width: 0;
-			margin-top: 0.04rem;
+			display: none;
 		}
 
 		.documents-table .col-size {
-			grid-area: size;
-			width: auto;
-			justify-self: start;
+			display: none;
 		}
 
 		.documents-table .col-date {
-			grid-area: date;
-			width: auto;
-			justify-self: start;
-			text-align: left;
+			display: none;
 		}
 
 		.documents-table .col-actions {
@@ -1964,39 +1982,26 @@ async function handleBulkDelete(): Promise<boolean> {
 			padding-top: 0.16rem;
 		}
 
-		.documents-table .col-type,
-		.documents-table .col-size,
-		.documents-table .col-date {
+		.mobile-document-meta {
 			display: inline-flex;
 			align-items: center;
-			justify-content: start;
-			gap: 0.38rem;
-			width: fit-content;
+			flex-wrap: wrap;
+			gap: 0.42rem;
 			max-width: 100%;
-			padding: 0.26rem 0.5rem;
-			border-radius: var(--radius-sm);
-			border: 1px solid var(--border-subtle);
-			background: var(--surface-page);
 			font-size: 0.75rem;
 			line-height: 1.2;
-			min-width: 0;
 			color: var(--text-secondary);
 		}
 
-		.documents-table td[data-mobile-label]::before {
-			content: none;
-		}
-
-		.documents-table .col-type > :last-child,
-		.documents-table .col-size,
-		.documents-table .col-date {
-			min-width: 0;
-		}
-
-		.documents-table .col-size,
-		.documents-table .col-date {
-			overflow-wrap: normal;
-			white-space: normal;
+		.mobile-document-meta > span:not(.type-badge) {
+			display: inline-flex;
+			align-items: center;
+			min-height: 1.5rem;
+			padding: 0.18rem 0.44rem;
+			border-radius: var(--radius-sm);
+			border: 1px solid var(--border-subtle);
+			background: var(--surface-page);
+			white-space: nowrap;
 		}
 
 		.ai-version-row {
@@ -2034,7 +2039,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			white-space: nowrap;
 			flex: 0 0 auto;
 			width: max-content;
-			max-width: 100%;
+			max-width: none;
 			overflow: visible;
 		}
 

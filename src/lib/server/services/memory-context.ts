@@ -30,6 +30,7 @@ import {
 	formatActiveMemoryProfileContextForPrompt,
 	getActiveMemoryProfileContext,
 	listProjectionPolicyBlockedStatements,
+	type MemoryProfileScope,
 	recordMemoryReworkTelemetry,
 } from "$lib/server/services/memory-profile";
 import {
@@ -37,6 +38,7 @@ import {
 	messageTimestampOrderDesc,
 } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
+import { getConversationProjectId } from "$lib/server/services/projects";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
 import type { ChatAttachment, ToolEvidenceCandidate } from "$lib/types";
 
@@ -478,9 +480,21 @@ async function getPersonaMemoryContext(
 
 	let activeProfile: ActiveMemoryProfileContext;
 	try {
+		const projectId = await getConversationProjectId(
+			params.userId,
+			params.conversationId,
+		).catch(() => null);
+		const applicableScopes: MemoryProfileScope[] = [];
+		if (projectId) {
+			applicableScopes.push({ type: "project", id: projectId });
+		}
+		applicableScopes.push({
+			type: "conversation",
+			id: params.conversationId,
+		});
 		activeProfile = await getActiveMemoryProfileContext({
 			userId: params.userId,
-			applicableScopes: [{ type: "conversation", id: params.conversationId }],
+			applicableScopes,
 		});
 	} catch (error) {
 		await recordMemoryContextPromptTelemetry({

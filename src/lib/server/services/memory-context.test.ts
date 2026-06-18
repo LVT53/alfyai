@@ -12,6 +12,7 @@ const mockRecallPersonaMemory = vi.fn();
 const mockGetActiveMemoryProfileContext = vi.fn();
 const mockListProjectionPolicyBlockedStatements = vi.fn();
 const mockRecordMemoryReworkTelemetry = vi.fn();
+const mockGetConversationProjectId = vi.fn();
 let dbPath: string;
 
 vi.mock("$lib/server/services/memory-context/project", () => ({
@@ -20,6 +21,10 @@ vi.mock("$lib/server/services/memory-context/project", () => ({
 
 vi.mock("./honcho", () => ({
 	recallPersonaMemory: mockRecallPersonaMemory,
+}));
+
+vi.mock("./projects", () => ({
+	getConversationProjectId: mockGetConversationProjectId,
 }));
 
 vi.mock("./memory-profile", async (importOriginal) => {
@@ -51,6 +56,7 @@ describe("memory context service", () => {
 		mockGetActiveMemoryProfileContext.mockReset();
 		mockListProjectionPolicyBlockedStatements.mockReset();
 		mockRecordMemoryReworkTelemetry.mockReset();
+		mockGetConversationProjectId.mockReset();
 		mockGetProjectContext.mockResolvedValue({
 			success: true,
 			mode: "summary",
@@ -74,6 +80,7 @@ describe("memory context service", () => {
 			content: "The user prefers concise answers and cares about cycling gear.",
 		});
 		mockListProjectionPolicyBlockedStatements.mockResolvedValue([]);
+		mockGetConversationProjectId.mockResolvedValue(null);
 		mockGetActiveMemoryProfileContext.mockResolvedValue({
 			resetGeneration: 0,
 			projectionRevision: 3,
@@ -270,6 +277,26 @@ describe("memory context service", () => {
 		expect(
 			JSON.stringify(mockRecordMemoryReworkTelemetry.mock.calls),
 		).not.toContain("The user prefers active profile answers.");
+	});
+
+	it("includes project scope when loading active projection persona memory", async () => {
+		mockGetConversationProjectId.mockResolvedValueOnce("project-1");
+		const { getMemoryContext } = await import("./memory-context");
+
+		await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "persona",
+			query: "What durable preferences matter right now?",
+		});
+
+		expect(mockGetActiveMemoryProfileContext).toHaveBeenCalledWith({
+			userId: "user-1",
+			applicableScopes: [
+				{ type: "project", id: "project-1" },
+				{ type: "conversation", id: "conv-current" },
+			],
+		});
 	});
 
 	it("bounds active projection persona memory newest-first with omitted counts", async () => {

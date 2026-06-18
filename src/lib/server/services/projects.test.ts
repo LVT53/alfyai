@@ -316,7 +316,7 @@ describe("project sidebar ordering", () => {
 	});
 });
 
-describe("getConversationProjectLabel", () => {
+describe("conversation project helpers", () => {
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-project-label-${randomUUID()}.db`;
 		process.env.DATABASE_PATH = dbPath;
@@ -339,10 +339,18 @@ describe("getConversationProjectLabel", () => {
 
 	it("resolves the current folder label for an owned conversation only", async () => {
 		seedProjectDeletionScenario();
-		const { getConversationProjectLabel, updateProject } = await import(
-			"./projects"
-		);
+		const {
+			getConversationProjectId,
+			getConversationProjectLabel,
+			updateProject,
+		} = await import("./projects");
 
+		await expect(
+			getConversationProjectId("owner-user", "conv-1"),
+		).resolves.toBe("folder-1");
+		await expect(
+			getConversationProjectId("other-user", "conv-1"),
+		).resolves.toBeNull();
 		await expect(
 			getConversationProjectLabel("owner-user", "conv-1"),
 		).resolves.toBe("Launch folder");
