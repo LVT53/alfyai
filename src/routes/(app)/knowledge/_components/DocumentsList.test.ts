@@ -786,7 +786,16 @@ describe("DocumentsList", () => {
 			expect(screen.queryByText("Budget.md")).toBeNull();
 		});
 
-		it("shows expand toggle on rows where normalizedAvailable is true", async () => {
+		it("does not expose AI-facing prompt text from ordinary document rows", async () => {
+			const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						artifact: { contentText: "Raw prompt-only document text" },
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+
 			render(DocumentsList, {
 				props: {
 					documents: [
@@ -799,59 +808,19 @@ describe("DocumentsList", () => {
 				},
 			});
 
-			expect(
-				screen.getByRole("button", { name: /view ai version/i }),
-			).toBeInTheDocument();
-		});
-
-		it("does not show expand toggle when normalizedAvailable is false", () => {
-			render(DocumentsList, {
-				props: {
-					documents: [
-						makeDocument({
-							...mockUploadedDocument,
-							normalizedAvailable: false,
-							promptArtifactId: null,
-						}),
-					],
-				},
-			});
-
+			expect(screen.getByText("Budget.pdf")).toBeInTheDocument();
 			expect(
 				screen.queryByRole("button", { name: /view ai version/i }),
 			).toBeNull();
 			expect(
 				screen.queryByRole("button", { name: /hide ai version/i }),
 			).toBeNull();
-		});
-
-		it("toggles AI-facing version panel", async () => {
-			render(DocumentsList, {
-				props: {
-					documents: [
-						makeDocument({
-							...mockUploadedDocument,
-							normalizedAvailable: true,
-							promptArtifactId: "prompt-1",
-						}),
-					],
-				},
-			});
-
-			const toggleButton = screen.getByRole("button", {
-				name: /view ai version/i,
-			});
-			await fireEvent.click(toggleButton);
-
 			expect(
-				screen.getByRole("button", { name: /hide ai version/i }),
-			).toBeInTheDocument();
-
-			await fireEvent.click(toggleButton);
-
-			expect(
-				screen.getByRole("button", { name: /view ai version/i }),
-			).toBeInTheDocument();
+				screen.queryByText(/raw prompt-only document text/i),
+			).not.toBeInTheDocument();
+			expect(screen.queryByText(/ai-facing version/i)).not.toBeInTheDocument();
+			expect(fetchMock).not.toHaveBeenCalled();
+			fetchMock.mockRestore();
 		});
 
 		it("shows no type badge for normalized documents with null documentOrigin", () => {

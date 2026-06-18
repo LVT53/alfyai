@@ -6,7 +6,6 @@ import { formatMediumDateTime } from "$lib/utils/time";
 import { t } from "$lib/i18n";
 import {
 	Archive,
-	Bot,
 	ChevronLeft,
 	ChevronRight,
 	Code,
@@ -14,7 +13,6 @@ import {
 	File as FileIcon,
 	FileText,
 	Image,
-	Loader,
 	Monitor,
 	Table,
 	Trash2,
@@ -85,20 +83,6 @@ let localSearchQuery = $state("");
 let activeSortKey = $state<DocumentSortKey>("date");
 let activeSortDirection = $state<SortDirection>("desc");
 let searchDebounce: ReturnType<typeof setTimeout> | null = null;
-
-// AI-facing version expand/collapse state
-let expandedAiVersions = $state<Set<string>>(new Set());
-
-// AI-facing version content cache: promptArtifactId → { loading, text, error }
-let aiVersionContent = $state<
-	Record<
-		string,
-		{ loading: boolean; text: string | null; error: string | null }
-	>
->({});
-
-// AbortControllers for in-flight AI-version fetches, keyed by promptArtifactId
-const aiVersionAborts = new Map<string, AbortController>();
 
 // Selection derived state
 const selectedCount = $derived(selectedIds.size);
@@ -453,64 +437,6 @@ function handleSearchInput() {
 		searchDebounce = null;
 		onSearchQueryChange?.(localSearchQuery);
 	}, 250);
-}
-
-async function toggleAiVersion(documentId: string, promptArtifactId: string) {
-	const next = new Set(expandedAiVersions);
-	if (next.has(documentId)) {
-		next.delete(documentId);
-		expandedAiVersions = next;
-		return;
-	}
-
-	// Expanding — fetch the AI-facing content if not already loaded
-	next.add(documentId);
-	expandedAiVersions = next;
-
-	if (!aiVersionContent[promptArtifactId]) {
-		// Abort any in-flight fetch for this artifact
-		aiVersionAborts.get(promptArtifactId)?.abort();
-		const controller = new AbortController();
-		aiVersionAborts.set(promptArtifactId, controller);
-
-		aiVersionContent = {
-			...aiVersionContent,
-			[promptArtifactId]: { loading: true, text: null, error: null },
-		};
-
-		try {
-			const response = await fetch(`/api/knowledge/${promptArtifactId}`, {
-				signal: controller.signal,
-			});
-			if (!response.ok) {
-				throw new Error(`Failed to load content (${response.status})`);
-			}
-			const data = await response.json();
-			const text = data?.artifact?.contentText ?? null;
-			aiVersionContent = {
-				...aiVersionContent,
-				[promptArtifactId]: {
-					loading: false,
-					text,
-					error: text ? null : "No content available",
-				},
-			};
-		} catch (err) {
-			if (err instanceof DOMException && err.name === "AbortError") return;
-			aiVersionContent = {
-				...aiVersionContent,
-				[promptArtifactId]: {
-					loading: false,
-					text: null,
-					error: err instanceof Error ? err.message : "Failed to load content",
-				},
-			};
-		} finally {
-			if (aiVersionAborts.get(promptArtifactId) === controller) {
-				aiVersionAborts.delete(promptArtifactId);
-			}
-		}
-	}
 }
 
 function getAriaSort(
@@ -943,27 +869,27 @@ async function handleBulkDelete(): Promise<boolean> {
 										<Icon size={18} strokeWidth={1.5} aria-hidden="true" />
 									</div>
 								</td>
-							<td class="col-name">
-								<div class="document-name">
-									{#if document.isOriginal}
-										<span class="original-badge">{$t('knowledge.original')}</span>
-									{:else if document.versionNumber != null && document.documentFamilyId}
-										<span class="version-badge">v{document.versionNumber}</span>
-									{/if}
-									{document.name}
-									{#if document.documentFamilyStatus === 'historical'}
-										<span class="historical-badge">{$t('knowledge.historical')}</span>
-									{/if}
-								</div>
-							</td>
+								<td class="col-name">
+									<div class="document-name">
+										{#if document.isOriginal}
+											<span class="original-badge">{$t('knowledge.original')}</span>
+										{:else if document.versionNumber != null && document.documentFamilyId}
+											<span class="version-badge">v{document.versionNumber}</span>
+										{/if}
+										{document.name}
+										{#if document.documentFamilyStatus === 'historical'}
+											<span class="historical-badge">{$t('knowledge.historical')}</span>
+										{/if}
+									</div>
+								</td>
 								<td class="col-type" data-mobile-label={$t('knowledge.type')}>
-								{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
-									<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
-								{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
-									<span class="type-badge type-generated">{$t('knowledge.generated')}</span>
-								{:else}
-									<span class="type-badge type-uploaded">{formatFileType(document.mimeType, document.name)}</span>
-								{/if}
+									{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
+										<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
+									{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
+										<span class="type-badge type-generated">{$t('knowledge.generated')}</span>
+									{:else}
+										<span class="type-badge type-uploaded">{formatFileType(document.mimeType, document.name)}</span>
+									{/if}
 								</td>
 								<td class="col-size" data-mobile-label={$t('knowledge.size')}>
 									{formatByteSize(document.sizeBytes, { trimWholeUnits: true })}
@@ -971,32 +897,16 @@ async function handleBulkDelete(): Promise<boolean> {
 								<td class="col-date" data-mobile-label={$t('knowledge.date')}>
 									{formatMediumDateTime(document.createdAt)}
 								</td>
-							<td class="col-actions">
-								<div class="action-buttons">
-									{#if document.normalizedAvailable && document.promptArtifactId}
+								<td class="col-actions">
+									<div class="action-buttons">
 										<button
-											type="button"
-											class="action-btn action-btn-ai"
-											aria-label={expandedAiVersions.has(document.id)
-												? $t('knowledge.hideAiVersion')
-												: $t('knowledge.viewAiVersion')}
-											title={$t('knowledge.viewAiVersion')}
-											onclick={(e) => {
-												e.stopPropagation();
-												toggleAiVersion(document.id, document.promptArtifactId!);
-											}}
-										>
-											<Bot size={16} strokeWidth={2} aria-hidden="true" />
-										</button>
-									{/if}
-									<button
 											type="button"
 											class="action-btn"
 											aria-label={$t('filePreview.download', { filename: document.name })}
 											title={$t('filePreview.download', { filename: document.name })}
 											onclick={(e) => handleDownloadClick(e, document.id)}
 										>
-										<Download size={16} strokeWidth={2} aria-hidden="true" />
+											<Download size={16} strokeWidth={2} aria-hidden="true" />
 										</button>
 										<button
 											type="button"
@@ -1005,38 +915,11 @@ async function handleBulkDelete(): Promise<boolean> {
 											title={$t('knowledge.deleteConfirm')}
 											onclick={(e) => handleDeleteClick(e, document.id)}
 										>
-										<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
+											<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
 										</button>
 									</div>
 								</td>
 							</tr>
-							{#if document.normalizedAvailable && document.promptArtifactId && expandedAiVersions.has(document.id)}
-							{@const promptId = document.promptArtifactId}
-							{@const content = aiVersionContent[promptId] ?? null}
-							<tr class="ai-version-row">
-								<td class="col-checkbox"></td>
-								<td class="col-icon"></td>
-								<td colspan="5" class="ai-version-cell">
-									<div class="ai-version-panel">
-										<span class="ai-version-label">{$t('knowledge.aiFacingVersion')}</span>
-										{#if content?.loading}
-												<div class="ai-version-loading">
-													<span class="ai-version-spinner">
-														<Loader size={16} strokeWidth={2} aria-hidden="true" />
-													</span>
-													{$t('knowledge.aiVersionLoading')}
-												</div>
-										{:else if content?.error}
-											<div class="ai-version-error">{content.error}</div>
-										{:else if content?.text}
-											<pre class="ai-version-content">{content.text}</pre>
-										{:else}
-											<div class="ai-version-empty">{$t('knowledge.aiVersionNoContent')}</div>
-										{/if}
-									</div>
-								</td>
-							</tr>
-						{/if}
 						{/each}
 					</tbody>
 				</table>
@@ -1494,71 +1377,6 @@ async function handleBulkDelete(): Promise<boolean> {
 		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
 	}
 
-	/* AI-facing version expand row */
-	.ai-version-row {
-		background: color-mix(in srgb, var(--surface-page) 94%, var(--accent) 6%);
-	}
-
-	.ai-version-cell {
-		padding: var(--space-sm) var(--space-lg) var(--space-md) var(--space-lg);
-	}
-
-	.ai-version-panel {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-md);
-		font-size: 0.8125rem;
-		color: var(--text-secondary);
-		max-height: 320px;
-		overflow-y: auto;
-	}
-
-	.ai-version-label {
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		font-size: 0.75rem;
-		color: var(--accent);
-	}
-
-	.ai-version-content {
-		margin: 0;
-		padding: var(--space-md);
-		background: var(--surface-raised);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-		font-family: var(--font-mono, monospace);
-		font-size: 0.75rem;
-		line-height: 1.5;
-		white-space: pre-wrap;
-		word-break: break-word;
-		overflow-wrap: break-word;
-		color: var(--text-primary);
-	}
-
-	.ai-version-loading {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-		font-size: 0.8125rem;
-		color: var(--text-muted);
-	}
-
-	.ai-version-spinner {
-		animation: spin 1s linear infinite;
-	}
-
-	.ai-version-error {
-		font-size: 0.8125rem;
-		color: var(--text-danger);
-	}
-
-	.ai-version-empty {
-		font-size: 0.8125rem;
-		color: var(--text-muted);
-		font-style: italic;
-	}
-
 	.col-size {
 		width: 80px;
 		font-size: 0.8125rem;
@@ -1604,15 +1422,6 @@ async function handleBulkDelete(): Promise<boolean> {
 	.action-btn-danger:hover {
 		background: color-mix(in srgb, var(--danger) 12%, transparent);
 		color: var(--danger);
-	}
-
-	.action-btn-ai:hover {
-		background: color-mix(in srgb, var(--accent) 12%, transparent);
-		color: var(--accent);
-	}
-
-	.action-btn-ai:active {
-		background: color-mix(in srgb, var(--accent) 20%, transparent);
 	}
 
 	.pagination {
