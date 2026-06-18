@@ -171,6 +171,50 @@ describe("memory intake gate", () => {
 		).resolves.toEqual([]);
 	});
 
+	it("admits stable first-party self-statements without an explicit remember command", async () => {
+		const { getMemoryProfileReadModel, listMemoryReworkTelemetry } =
+			await import("./index");
+		const { intakePostTurnMemory } = await import("./intake");
+
+		await expect(
+			intakePostTurnMemory({
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessage: "I live in Amsterdam.",
+				assistantMessage: "Thanks for sharing.",
+				userMessageId: "user-message-location",
+				assistantMessageId: "assistant-message-location",
+			}),
+		).resolves.toEqual(
+			expect.objectContaining({
+				status: "admitted",
+				category: "about_you",
+			}),
+		);
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories[0]?.items).toEqual([
+			expect.objectContaining({
+				category: "about_you",
+				statement: "I live in Amsterdam.",
+			}),
+		]);
+		expect(profile.review.visibleItems).toEqual([]);
+		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
+		expect(telemetry).toEqual([
+			expect.objectContaining({
+				eventName: "memory_intake_admitted",
+				category: "about_you",
+				status: "admitted",
+				metadata: expect.objectContaining({
+					parserRule: "direct_user_self_statement",
+					userMessageId: "user-message-location",
+				}),
+			}),
+		]);
+		expect(JSON.stringify(telemetry)).not.toContain("Amsterdam");
+	});
+
 	it("defers explicit document-related claims instead of making them user profile truth", async () => {
 		const {
 			getMemoryProfileReadModel,
@@ -198,14 +242,10 @@ describe("memory intake gate", () => {
 
 		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
 		expect(profile.categories.flatMap((group) => group.items)).toEqual([]);
-		expect(profile.review.visibleItems).toEqual([
-			expect.objectContaining({
-				subject: "Document-related memory request",
-				question: "Should AlfyAI remember this as part of the user profile?",
-			}),
-		]);
+		expect(profile.review.visibleItems).toEqual([]);
 
-		expect(await listPendingMemoryDirtyEntries({ userId: "user-1" })).toEqual([
+		const dirty = await listPendingMemoryDirtyEntries({ userId: "user-1" });
+		expect(dirty).toEqual([
 			expect.objectContaining({
 				reason: "deferred_intake",
 				metadata: expect.objectContaining({
@@ -214,6 +254,9 @@ describe("memory intake gate", () => {
 				}),
 			}),
 		]);
+		const serializedDirty = JSON.stringify(dirty);
+		expect(serializedDirty).not.toContain("tax return");
+		expect(serializedDirty).not.toContain("1200");
 		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
 		expect(telemetry).toEqual([
 			expect.objectContaining({
@@ -228,7 +271,7 @@ describe("memory intake gate", () => {
 		expect(serializedTelemetry).not.toContain("1200");
 	});
 
-	it("defers first-person tax paper, receipt, and uploaded PDF source claims to review", async () => {
+	it("defers first-person tax paper, receipt, and uploaded PDF source claims without review items", async () => {
 		const {
 			getMemoryProfileReadModel,
 			listMemoryReworkTelemetry,
@@ -274,8 +317,9 @@ describe("memory intake gate", () => {
 
 		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
 		expect(profile.categories.flatMap((group) => group.items)).toEqual([]);
-		expect(profile.review.visibleItems).toHaveLength(sourceClaims.length);
-		expect(await listPendingMemoryDirtyEntries({ userId: "user-1" })).toEqual([
+		expect(profile.review.visibleItems).toEqual([]);
+		const dirty = await listPendingMemoryDirtyEntries({ userId: "user-1" });
+		expect(dirty).toEqual([
 			expect.objectContaining({
 				reason: "deferred_intake",
 				count: sourceClaims.length,
@@ -285,6 +329,10 @@ describe("memory intake gate", () => {
 				}),
 			}),
 		]);
+		const serializedDirty = JSON.stringify(dirty);
+		for (const claim of sourceClaims) {
+			expect(serializedDirty).not.toContain(claim.forbidden);
+		}
 		const serializedTelemetry = JSON.stringify(
 			await listMemoryReworkTelemetry({ userId: "user-1" }),
 		);

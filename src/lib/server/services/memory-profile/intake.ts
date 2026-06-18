@@ -1,8 +1,6 @@
-import { createHash } from "node:crypto";
 import {
 	addMemoryProfileItemProvenance,
 	createMemoryProfileItem,
-	createOrUpdateMemoryReviewItem,
 	getCurrentMemoryResetGeneration,
 	getMemoryProfileReadModel,
 	isCurrentMemoryResetGeneration,
@@ -36,7 +34,6 @@ export type PostTurnMemoryIntakeResult =
 	  }
 	| {
 			status: "deferred";
-			reviewItemId: string;
 			reason: string;
 	  }
 	| {
@@ -84,10 +81,6 @@ function lowerInitial(value: string): string {
 	if (!stripped) return "";
 	if (/^[A-Z]{2,}\b/.test(stripped)) return stripped;
 	return `${stripped.charAt(0).toLowerCase()}${stripped.slice(1)}`;
-}
-
-function hashStable(value: string): string {
-	return createHash("sha256").update(value).digest("hex").slice(0, 24);
 }
 
 function looksDocumentRelated(value: string): boolean {
@@ -180,6 +173,21 @@ function parseConstraintStatement(
 		: null;
 }
 
+function parseStableSelfStatement(
+	text: string,
+	parserRule: string,
+): ParsedStatement | null {
+	if (
+		/^i\s+(?:live|reside)\s+in\s+.+$/i.test(text) ||
+		/^i\s+am\s+(?:based|located)\s+in\s+.+$/i.test(text) ||
+		/^i(?:'m| am)\s+from\s+.+$/i.test(text)
+	) {
+		return parsedStatement("about_you", text, parserRule);
+	}
+
+	return null;
+}
+
 function statementFromCandidate(
 	candidate: string,
 	parserRule: string,
@@ -191,7 +199,8 @@ function statementFromCandidate(
 	const structuredStatement =
 		parsePreferenceStatement(text, parserRule) ??
 		parseWorkingStatement(text, parserRule) ??
-		parseConstraintStatement(text, parserRule);
+		parseConstraintStatement(text, parserRule) ??
+		parseStableSelfStatement(text, parserRule);
 	if (structuredStatement) return structuredStatement;
 
 	if (options.allowGeneralAboutYou && /^i\b/i.test(text)) {
@@ -236,7 +245,7 @@ export function parsePostTurnMemoryIntake(
 
 	const directStatement = statementFromCandidate(
 		message,
-		"direct_user_statement",
+		"direct_user_self_statement",
 	);
 	if (directStatement) {
 		return { decision: "admit", ...directStatement };
@@ -265,7 +274,6 @@ async function markIntakeDirty(params: {
 	reason: "honcho_reconciliation" | "possible_duplicate" | "deferred_intake";
 	status: MemoryIntakeStatus;
 	itemId?: string;
-	reviewItemId?: string;
 }): Promise<void> {
 	await markMemoryDirty({
 		userId: params.intake.userId,
@@ -275,7 +283,6 @@ async function markIntakeDirty(params: {
 		metadata: safeSourceMetadata(params.intake, {
 			intakeStatus: params.status,
 			...(params.itemId ? { itemId: params.itemId } : {}),
-			...(params.reviewItemId ? { reviewItemId: params.reviewItemId } : {}),
 		}),
 	});
 }
@@ -353,41 +360,11 @@ export async function intakePostTurnMemory(
 			return staleIntakeResult();
 		}
 		if (parsed.decision === "defer") {
-			const subjectKey = `post-turn-intake:${parsed.reason}:${hashStable(
-				[
-					params.userId,
-					params.conversationId,
-					params.userMessageId ?? "",
-					parsed.parserRule,
-				].join("\u001f"),
-			)}`;
-			const review = await createOrUpdateMemoryReviewItem({
-				userId: params.userId,
-				subjectKey,
-				subjectLabel:
-					parsed.reason === "document_related_claim"
-						? "Document-related memory request"
-						: "Explicit memory request",
-				question: "Should AlfyAI remember this as part of the user profile?",
-				reason: "The intake gate could not safely admit this automatically.",
-				evidence: [
-					safeSourceMetadata(params, {
-						sourceType: "chat_turn",
-					}),
-				],
-				metadata: safeSourceMetadata(params, {
-					intakeStatus: "deferred",
-					parserRule: parsed.parserRule,
-					reason: parsed.reason,
-				}),
-				expectedResetGeneration: resetGeneration,
-			});
 			await markIntakeDirty({
 				intake: params,
 				resetGeneration,
 				reason: "deferred_intake",
 				status: "deferred",
-				reviewItemId: review.id,
 			});
 			await recordIntakeTelemetry({
 				intake: params,
@@ -395,12 +372,10 @@ export async function intakePostTurnMemory(
 				eventName: "memory_intake_deferred",
 				status: "deferred",
 				reason: parsed.reason,
-				subjectId: review.id,
 				parserRule: parsed.parserRule,
 			});
 			return {
 				status: "deferred",
-				reviewItemId: review.id,
 				reason: parsed.reason,
 			};
 		}
@@ -416,32 +391,11 @@ export async function intakePostTurnMemory(
 		const duplicate = item.projectionRevision === before.projectionRevision;
 
 		if (item.status !== "active") {
-			const review = await createOrUpdateMemoryReviewItem({
-				userId: params.userId,
-				subjectKey: `post-turn-intake:inactive-duplicate:${item.itemKey}`,
-				subjectLabel: "Suppressed or deleted memory request",
-				question: "Should this previously inactive memory be restored?",
-				reason: "The intake gate matched an inactive memory profile item.",
-				affectedItemIds: [item.id],
-				evidence: [
-					safeSourceMetadata(params, {
-						sourceType: "chat_turn",
-					}),
-				],
-				metadata: safeSourceMetadata(params, {
-					intakeStatus: "deferred",
-					parserRule: parsed.parserRule,
-					reason: "inactive_duplicate",
-					category: parsed.category,
-				}),
-				expectedResetGeneration: resetGeneration,
-			});
 			await markIntakeDirty({
 				intake: params,
 				resetGeneration,
 				reason: "deferred_intake",
 				status: "deferred",
-				reviewItemId: review.id,
 			});
 			await recordIntakeTelemetry({
 				intake: params,
@@ -450,12 +404,11 @@ export async function intakePostTurnMemory(
 				status: "deferred",
 				reason: "inactive_duplicate",
 				category: parsed.category,
-				subjectId: review.id,
+				subjectId: item.id,
 				parserRule: parsed.parserRule,
 			});
 			return {
 				status: "deferred",
-				reviewItemId: review.id,
 				reason: "inactive_duplicate",
 			};
 		}

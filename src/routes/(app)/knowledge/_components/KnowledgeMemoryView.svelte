@@ -331,11 +331,12 @@ $effect(() => {
 					{#each visibleReviewItems as item (item.id)}
 						<div class="memory-review-card flex items-start justify-between gap-3 rounded-[0.5rem] px-3 py-3">
 							<div class="min-w-0">
-								<p class="break-words text-sm font-sans leading-[1.5] text-text-primary">{item.subject}</p>
+								<p class="break-words text-xs font-sans leading-[1.45] text-text-muted">{item.subject}</p>
+								{#if item.question}
+									<p class="mt-1 break-words text-sm font-sans leading-[1.5] text-text-primary">{item.question}</p>
+								{/if}
 								{#if item.reason}
-									<div class="memory-review-reason mt-2 inline-flex max-w-full rounded-full px-2 py-0.5 text-xs font-sans text-text-muted">
-										<span class="truncate">{item.reason}</span>
-									</div>
+									<p class="memory-review-reason mt-2 rounded-[0.4rem] px-2 py-1 text-xs font-sans leading-[1.45] text-text-muted">{item.reason}</p>
 								{/if}
 							</div>
 							<div class="flex shrink-0 items-center gap-1">
@@ -508,9 +509,12 @@ $effect(() => {
 					{#each reviewItems as item (item.id)}
 						<div class="flex items-start justify-between gap-3 rounded-[0.75rem] border border-border bg-surface-page px-3 py-3">
 							<div class="min-w-0">
-								<p class="break-words text-sm font-sans text-text-primary">{item.subject}</p>
+								<p class="break-words text-xs font-sans leading-[1.45] text-text-muted">{item.subject}</p>
 								{#if item.question}
-									<p class="mt-1 text-sm font-sans text-text-muted">{item.question}</p>
+									<p class="mt-1 break-words text-sm font-sans leading-[1.5] text-text-primary">{item.question}</p>
+								{/if}
+								{#if item.reason}
+									<p class="memory-review-reason mt-2 rounded-[0.4rem] px-2 py-1 text-xs font-sans leading-[1.45] text-text-muted">{item.reason}</p>
 								{/if}
 							</div>
 							<div class="flex shrink-0 items-center gap-1">

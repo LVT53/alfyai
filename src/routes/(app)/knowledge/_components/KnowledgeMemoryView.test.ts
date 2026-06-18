@@ -193,6 +193,7 @@ describe("KnowledgeMemoryView", () => {
 		expect(
 			screen.getByText("Avoid diagnostic memory tables."),
 		).toBeInTheDocument();
+		expect(screen.getAllByText("Should this be remembered?")).toHaveLength(3);
 		expect(
 			screen.queryByText("Open documents from search."),
 		).not.toBeInTheDocument();
@@ -302,9 +303,7 @@ describe("KnowledgeMemoryView", () => {
 		expect(
 			within(dialog).getByText("Open documents from search."),
 		).toBeInTheDocument();
-		expect(
-			within(dialog).queryByText("Workflow signal."),
-		).not.toBeInTheDocument();
+		expect(within(dialog).getByText("Workflow signal.")).toBeInTheDocument();
 
 		await fireEvent.click(
 			within(dialog).getAllByRole("button", {
@@ -406,6 +405,83 @@ describe("KnowledgeMemoryView", () => {
 		});
 		expect(
 			screen.getByRole("dialog", { name: "Memory item" }),
+		).toBeInTheDocument();
+	});
+
+	it("shows full scope, why summary, and capped expandable sources in the memory item dialog", async () => {
+		fetchMemoryProfileItemDetailMock.mockResolvedValueOnce({
+			...profile.categories[1].items[0],
+			sourceChips: [
+				{
+					id: "source-1",
+					sourceType: "user_statement",
+					label: "Chat",
+					summary: "User said this directly.",
+				},
+				{
+					id: "source-2",
+					sourceType: "document",
+					label: "Project brief",
+					summary: "Imported project note.",
+				},
+				{
+					id: "source-3",
+					sourceType: "conversation",
+					label: "Follow-up",
+					summary: "Repeated in chat.",
+				},
+				{
+					id: "source-4",
+					sourceType: "document",
+					label: "Design notes",
+					summary: "Confirmed by design notes.",
+				},
+			],
+			whyRemembered: "Repeated preference across UI planning work.",
+		});
+		renderMemoryView();
+
+		const preferenceSection = screen
+			.getByRole("heading", { name: "Preferences" })
+			.closest("section");
+		expect(preferenceSection).not.toBeNull();
+		await fireEvent.click(
+			within(preferenceSection as HTMLElement).getByRole("button", {
+				name: "Edit memory item",
+			}),
+		);
+
+		const dialog = screen.getByRole("dialog", { name: "Memory item" });
+		await waitFor(() => {
+			expect(
+				within(dialog).getByText("Scope: Project project-1"),
+			).toBeInTheDocument();
+		});
+
+		expect(
+			within(dialog).getByText(
+				"Why: Repeated preference across UI planning work.",
+			),
+		).toBeInTheDocument();
+		expect(
+			within(dialog).getByText("Chat: User said this directly."),
+		).toBeInTheDocument();
+		expect(
+			within(dialog).getByText("Project brief: Imported project note."),
+		).toBeInTheDocument();
+		expect(
+			within(dialog).getByText("Follow-up: Repeated in chat."),
+		).toBeInTheDocument();
+		expect(
+			within(dialog).queryByText("Design notes: Confirmed by design notes."),
+		).not.toBeInTheDocument();
+
+		expect(within(dialog).getByText("+1 sources")).toBeInTheDocument();
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Show 1 more sources" }),
+		);
+		expect(
+			within(dialog).getByText("Design notes: Confirmed by design notes."),
 		).toBeInTheDocument();
 	});
 

@@ -32,6 +32,7 @@ let {
 } = $props();
 
 let statement = $state("");
+let sourcesExpanded = $state(false);
 let dialogRef = $state<HTMLElement | null>(null);
 let statementInputRef = $state<HTMLTextAreaElement | null>(null);
 let previousFocus: HTMLElement | null = null;
@@ -47,10 +48,29 @@ let canSave = $derived(
 let sourceChips = $derived(
 	(item.sourceChips ?? []).filter((chip) => chip.label || chip.summary),
 );
+let visibleSourceChips = $derived(
+	sourcesExpanded ? sourceChips : sourceChips.slice(0, 3),
+);
+let hiddenSourceCount = $derived(
+	Math.max(0, sourceChips.length - visibleSourceChips.length),
+);
+let fullScopeLabel = $derived(formatFullScope(item.scope));
 
 $effect(() => {
 	statement = item.statement;
+	sourcesExpanded = false;
 });
+
+function formatFullScope(scope: MemoryProfilePublicItem["scope"]): string {
+	if (scope.type === "global") return $t("memoryProfile.globalScope");
+	const scopeLabel =
+		scope.type === "project"
+			? $t("memoryProfile.projectScope")
+			: scope.type === "conversation"
+				? $t("memoryProfile.conversationScope")
+				: $t("memoryProfile.documentScope");
+	return `${scopeLabel} ${scope.id}`;
+}
 
 function submitEdit() {
 	if (!canSave || isSaving) return;
@@ -182,6 +202,12 @@ onDestroy(() => {
 				</div>
 			{/if}
 
+			<div class="mt-4 flex flex-wrap gap-2">
+				<span class="rounded-full border border-border bg-surface-page px-3 py-1 text-xs font-sans text-text-secondary">
+					{$t("memoryProfile.scope")}: {fullScopeLabel}
+				</span>
+			</div>
+
 			{#if item.whyRemembered || sourceChips.length > 0}
 				<div class="mt-4 flex flex-wrap gap-2">
 					{#if item.whyRemembered}
@@ -189,11 +215,23 @@ onDestroy(() => {
 							{$t("memoryProfile.why")}: {item.whyRemembered}
 						</span>
 					{/if}
-					{#each sourceChips as chip, index (`${chip.label ?? ''}:${chip.summary ?? ''}:${index}`)}
+					{#each visibleSourceChips as chip, index (`${chip.label ?? ''}:${chip.summary ?? ''}:${index}`)}
 						<span class="rounded-full border border-border bg-surface-page px-3 py-1 text-xs font-sans text-text-secondary">
 							{chip.label ?? $t("memoryProfile.source")}{chip.summary ? `: ${chip.summary}` : ""}
 						</span>
 					{/each}
+					{#if hiddenSourceCount > 0}
+						<button
+							type="button"
+							class="cursor-pointer rounded-full border border-border bg-surface-page px-3 py-1 text-xs font-sans font-medium text-text-secondary transition hover:bg-surface-elevated"
+							onclick={() => (sourcesExpanded = true)}
+							aria-label={$t("memoryProfile.showMoreSources", {
+								count: hiddenSourceCount,
+							})}
+						>
+							{$t("memoryProfile.moreSources", { count: hiddenSourceCount })}
+						</button>
+					{/if}
 				</div>
 			{/if}
 
