@@ -431,7 +431,11 @@ async function saveAdminConfig() {
 	adminMessage = "";
 	adminError = "";
 	try {
-		await updateAdminConfig(adminConfig);
+		const configToSave = { ...adminConfig };
+		if (configToSave.WEB_PUSH_VAPID_PRIVATE_KEY === "[set]") {
+			delete configToSave.WEB_PUSH_VAPID_PRIVATE_KEY;
+		}
+		await updateAdminConfig(configToSave);
 		await invalidate("app:shell");
 		showMessage("adminMessage", "Configuration saved.");
 	} catch (error: unknown) {

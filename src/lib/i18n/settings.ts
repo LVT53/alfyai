@@ -13,6 +13,27 @@ const settingsDict = {
 		"admin.appVersion": "Application version",
 		"admin.appVersionOverride": "App version override",
 		"admin.appVersionOverrideDescription": `Leave empty to display the package version. Set a value to silently override the app version badge without publishing a campaign.`,
+		"admin.atlas": "Atlas",
+		"admin.atlasAuditModel": "Atlas Audit Model",
+		"admin.atlasAuditModelDescription":
+			"Reviews the assembled Atlas against accepted sources and produces honesty markers.",
+		"admin.atlasDescription":
+			"Long-running Atlas research turns, source search, quality gates, and completion worker settings.",
+		"admin.atlasGlobalActiveLimit": "Global Active Atlas Limit",
+		"admin.atlasLimitsDescription":
+			"Global active limit caps concurrent Atlas jobs across the server. Search concurrency and batch delay control web-search pressure during each Atlas run.",
+		"admin.atlasSearchBatchDelayMs": "Search Batch Delay (ms)",
+		"admin.atlasSearchConcurrency": "Search Concurrency",
+		"admin.atlasSearxngDependency":
+			"Atlas also requires SearXNG Base URL in Web Research. Without SearXNG, the chat composer shows Atlas as unavailable.",
+		"admin.atlasSynthesisModel": "Atlas Synthesis Model",
+		"admin.atlasSynthesisModelDescription":
+			"Writes the staged Atlas findings, outline, and report body.",
+		"admin.atlasWebPushDescription":
+			"Browser push is optional. When VAPID keys are configured, Atlas can notify users after a report finishes while they are away from the app.",
+		"admin.atlasWorkerDescription":
+			"Controls whether Atlas jobs can be started and processed by the background worker.",
+		"admin.atlasWorkerEnabled": "Enable Atlas Worker",
 		"admin.basePromptDescription":
 			"Base prompt for that language. Leave empty to rely on few-shot examples only.",
 		"admin.baseUrl": "Base URL",
@@ -424,6 +445,7 @@ const settingsDict = {
 		"admin.searchByNameOrEmail": "Search by name or email",
 		"admin.searxngBaseUrl": "SearXNG Base URL",
 		"admin.selectUser": "Select a user to view account details and actions.",
+		"admin.secretConfigured": "Secret is already configured",
 		"admin.show": "Show",
 		"admin.summarizerModelDescription":
 			"Model name served by the endpoint above.",
@@ -498,6 +520,9 @@ const settingsDict = {
 		"admin.webResearchSearxngLanguage": "SearXNG Language",
 		"admin.webResearchSearxngNumResults": "SearXNG Results Per Query",
 		"admin.webResearchSearxngSafesearch": "SearXNG Safe Search",
+		"admin.webPushVapidPrivateKey": "Web Push VAPID Private Key",
+		"admin.webPushVapidPublicKey": "Web Push VAPID Public Key",
+		"admin.webPushVapidSubject": "Web Push VAPID Subject",
 		"admin.working": "Working…",
 		"admin.xHigh": "X-High",
 		"admin.yourPassword": "Your password",
@@ -672,6 +697,27 @@ const settingsDict = {
 		"admin.appVersion": "Alkalmazásverzió",
 		"admin.appVersionOverride": "Appverzió felülírása",
 		"admin.appVersionOverrideDescription": `Hagyd üresen a package verzió megjelenítéséhez. Beállított értékkel kampány publikálása nélkül írható felül az alkalmazásverzió jelvénye.`,
+		"admin.atlas": "Atlas",
+		"admin.atlasAuditModel": "Atlas ellenőrző modell",
+		"admin.atlasAuditModelDescription":
+			"Ellenőrzi az összeállított Atlast az elfogadott források alapján, és őszinteségi jelölőket készít.",
+		"admin.atlasDescription":
+			"Hosszú futású Atlas kutatási körök, forráskeresés, minőségi kapuk és befejező worker beállításai.",
+		"admin.atlasGlobalActiveLimit": "Globális aktív Atlas korlát",
+		"admin.atlasLimitsDescription":
+			"A globális aktív korlát a szerveren egyszerre futó Atlas feladatokat szabályozza. A keresési párhuzamosság és a kötegkésleltetés az egyes Atlas futások webkeresési terhelését állítja.",
+		"admin.atlasSearchBatchDelayMs": "Keresési kötegkésleltetés (ms)",
+		"admin.atlasSearchConcurrency": "Keresési párhuzamosság",
+		"admin.atlasSearxngDependency":
+			"Az Atlashoz a Webes kutatás SearXNG alap URL-je is szükséges. SearXNG nélkül a chat beviteli eszköztára az Atlast nem elérhetőként mutatja.",
+		"admin.atlasSynthesisModel": "Atlas szintézis modell",
+		"admin.atlasSynthesisModelDescription":
+			"Megírja a szakaszolt Atlas eredményeket, vázlatot és jelentéstörzset.",
+		"admin.atlasWebPushDescription":
+			"A böngésző push opcionális. Beállított VAPID kulcsokkal az Atlas értesítheti a felhasználót, amikor egy jelentés elkészül, miközben nincs az alkalmazásban.",
+		"admin.atlasWorkerDescription":
+			"Azt szabályozza, hogy indíthatók-e Atlas feladatok, és feldolgozza-e őket a háttérworker.",
+		"admin.atlasWorkerEnabled": "Atlas worker engedélyezése",
 		"admin.basePromptDescription":
 			"Alapprompt az adott nyelvhez. Hagyd üresen, ha csak a few-shot példákra szeretnél támaszkodni.",
 		"admin.baseUrl": "Alap-URL",
@@ -1093,6 +1139,7 @@ const settingsDict = {
 		"admin.saveConfiguration": "Konfiguráció mentése",
 		"admin.searchByNameOrEmail": "Keresés név vagy e-mail-cím alapján",
 		"admin.searxngBaseUrl": "SearXNG alap URL",
+		"admin.secretConfigured": "A titkos kulcs már be van állítva",
 		"admin.selectUser":
 			"Válassz ki egy felhasználót a fiókadatok és műveletek megtekintéséhez.",
 		"admin.show": "Megjelenítés",
@@ -1167,6 +1214,9 @@ const settingsDict = {
 		"admin.webResearchSearxngLanguage": "SearXNG nyelv",
 		"admin.webResearchSearxngNumResults": "SearXNG találatok kérdésenként",
 		"admin.webResearchSearxngSafesearch": "SearXNG biztonságos keresés",
+		"admin.webPushVapidPrivateKey": "Web Push VAPID privát kulcs",
+		"admin.webPushVapidPublicKey": "Web Push VAPID nyilvános kulcs",
+		"admin.webPushVapidSubject": "Web Push VAPID tárgy",
 		"admin.working": "Feldolgozás…",
 		"admin.xHigh": "Extra magas",
 		"admin.yourPassword": "A jelszavad",

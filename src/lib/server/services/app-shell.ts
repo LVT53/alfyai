@@ -7,10 +7,12 @@ import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
 import type { AppVersionMetadata } from "$lib/server/services/app-version";
 import { getAppVersionMetadata } from "$lib/server/services/app-version";
+import { getAtlasAvailability } from "$lib/server/services/atlas/availability";
 import { listConversations } from "$lib/server/services/conversations";
 import { resolveUserModelPreference } from "$lib/server/services/model-preferences";
 import { listProjects } from "$lib/server/services/projects";
 import type {
+	AtlasAvailability,
 	ConversationListItem,
 	ModelId,
 	Project,
@@ -36,6 +38,7 @@ export interface AppShellData {
 	projects: Promise<Project[]>;
 	maxMessageLength: number;
 	composerCommandRegistryEnabled: boolean;
+	atlasAvailability: AtlasAvailability;
 	userTheme: "system" | "light" | "dark";
 	userModel: ModelId;
 	systemDefaultModel: ModelId;
@@ -84,6 +87,7 @@ export async function getAuthenticatedAppShellData(
 		projects,
 		maxMessageLength: config.maxMessageLength,
 		composerCommandRegistryEnabled: config.composerCommandRegistryEnabled,
+		atlasAvailability: getAtlasAvailability(config),
 		userTheme: resolveUserTheme(userRow?.theme),
 		userModel: resolvedModelPreference.effectiveModel,
 		systemDefaultModel: resolvedModelPreference.systemDefaultModel,

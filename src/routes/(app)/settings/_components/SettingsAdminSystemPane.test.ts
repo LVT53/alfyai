@@ -230,6 +230,96 @@ describe("SettingsAdminSystemPane", () => {
 		);
 	});
 
+	it("renders and edits all Atlas runtime settings", async () => {
+		const adminConfig = {
+			ATLAS_WORKER_ENABLED: "true",
+			ATLAS_GLOBAL_ACTIVE_LIMIT: "2",
+			ATLAS_SEARCH_CONCURRENCY: "3",
+			ATLAS_SEARCH_BATCH_DELAY_MS: "500",
+			ATLAS_SYNTHESIS_MODEL: "model1",
+			ATLAS_AUDIT_MODEL: "model2",
+			WEB_PUSH_VAPID_PUBLIC_KEY: "public-key",
+			WEB_PUSH_VAPID_PRIVATE_KEY: "[set]",
+			WEB_PUSH_VAPID_SUBJECT: "mailto:admin@example.com",
+			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
+			MODEL_2_ENABLED: "true",
+		};
+
+		const { getByLabelText, getByText } = render(SettingsAdminSystemPane, {
+			adminConfig,
+			envDefaults: {
+				ATLAS_WORKER_ENABLED: "true",
+				ATLAS_GLOBAL_ACTIVE_LIMIT: "2",
+				ATLAS_SEARCH_CONCURRENCY: "3",
+				ATLAS_SEARCH_BATCH_DELAY_MS: "500",
+				ATLAS_SYNTHESIS_MODEL: "model1",
+				ATLAS_AUDIT_MODEL: "model2",
+				WEB_PUSH_VAPID_PUBLIC_KEY: "",
+				WEB_PUSH_VAPID_PRIVATE_KEY: "",
+				WEB_PUSH_VAPID_SUBJECT: "mailto:admin@localhost",
+			},
+			availableModels: [
+				{ id: "model1", displayName: "Model 1" },
+				{ id: "model2", displayName: "Model 2" },
+				{
+					id: "provider:provider-1:atlas-synthesis",
+					displayName: "Atlas Synthesis",
+				},
+				{
+					id: "provider:provider-1:atlas-audit",
+					displayName: "Atlas Audit",
+				},
+			],
+			onCheckHonchoHealth: vi.fn(),
+			onSaveAdminConfig: vi.fn(),
+		});
+
+		expect(getByText("Atlas")).toBeInTheDocument();
+		expect(
+			getByText(/Atlas also requires SearXNG Base URL in Web Research/),
+		).toBeInTheDocument();
+
+		await fireEvent.click(getByLabelText("Enable Atlas Worker"));
+		await fireEvent.change(getByLabelText("Atlas Synthesis Model"), {
+			target: { value: "provider:provider-1:atlas-synthesis" },
+		});
+		await fireEvent.change(getByLabelText("Atlas Audit Model"), {
+			target: { value: "provider:provider-1:atlas-audit" },
+		});
+		await fireEvent.input(getByLabelText("Global Active Atlas Limit"), {
+			target: { value: "4" },
+		});
+		await fireEvent.input(getByLabelText("Search Concurrency"), {
+			target: { value: "5" },
+		});
+		await fireEvent.input(getByLabelText("Search Batch Delay (ms)"), {
+			target: { value: "250" },
+		});
+		await fireEvent.input(getByLabelText("Web Push VAPID Public Key"), {
+			target: { value: "new-public-key" },
+		});
+		await fireEvent.input(getByLabelText("Web Push VAPID Private Key"), {
+			target: { value: "new-private-key" },
+		});
+		await fireEvent.input(getByLabelText("Web Push VAPID Subject"), {
+			target: { value: "mailto:ops@example.com" },
+		});
+
+		expect(adminConfig.ATLAS_WORKER_ENABLED).toBe("false");
+		expect(adminConfig.ATLAS_SYNTHESIS_MODEL).toBe(
+			"provider:provider-1:atlas-synthesis",
+		);
+		expect(adminConfig.ATLAS_AUDIT_MODEL).toBe(
+			"provider:provider-1:atlas-audit",
+		);
+		expect(adminConfig.ATLAS_GLOBAL_ACTIVE_LIMIT).toBe(4);
+		expect(adminConfig.ATLAS_SEARCH_CONCURRENCY).toBe(5);
+		expect(adminConfig.ATLAS_SEARCH_BATCH_DELAY_MS).toBe(250);
+		expect(adminConfig.WEB_PUSH_VAPID_PUBLIC_KEY).toBe("new-public-key");
+		expect(adminConfig.WEB_PUSH_VAPID_PRIVATE_KEY).toBe("new-private-key");
+		expect(adminConfig.WEB_PUSH_VAPID_SUBJECT).toBe("mailto:ops@example.com");
+	});
+
 	it("lets admins publish draft System Skills", async () => {
 		mockFetchAdminSystemSkills.mockResolvedValue([
 			{

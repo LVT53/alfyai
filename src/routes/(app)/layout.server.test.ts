@@ -26,6 +26,8 @@ vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({
 		maxMessageLength: 12000,
 		composerCommandRegistryEnabled: true,
+		atlasWorkerEnabled: true,
+		searxngBaseUrl: "http://searxng.local",
 		defaultNewUserModel: "model2",
 		model1: { displayName: "Model 1" },
 		model2: { displayName: "Model 2" },
@@ -192,6 +194,21 @@ describe("(app) layout load", () => {
 		expect(result).toEqual(
 			expect.objectContaining({
 				composerCommandRegistryEnabled: true,
+			}),
+		);
+	});
+
+	it("exposes Atlas availability to app page composers", async () => {
+		const result = (await load(createAuthenticatedLoadEvent())) as LoadResult;
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				atlasAvailability: {
+					enabled: true,
+					configured: true,
+					reasonCode: null,
+					reason: null,
+				},
 			}),
 		);
 	});

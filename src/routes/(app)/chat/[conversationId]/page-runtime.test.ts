@@ -166,6 +166,12 @@ function appShellDataFixture(
 		projects: Promise.resolve([]),
 		maxMessageLength: 12_000,
 		composerCommandRegistryEnabled: false,
+		atlasAvailability: {
+			enabled: true,
+			configured: true,
+			reasonCode: null,
+			reason: null,
+		},
 		userTheme: "system",
 		userModel: "model1",
 		systemDefaultModel: "model1",

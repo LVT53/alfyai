@@ -105,8 +105,34 @@ describe("conversation-session", () => {
 			personalityProfileId: null,
 			reasoningDepth: "auto",
 			forceWebSearch: false,
+			atlasMode: false,
+			atlasProfile: null,
+			atlasAction: "create",
+			clientAtlasTurnId: null,
 		});
 		expect(hasPendingConversationMessage("conv-123")).toBe(false);
+	});
+
+	it("preserves Atlas mode on pending bootstrap messages", () => {
+		storePendingConversationMessage("conv-123", {
+			message: "Create an Atlas",
+			attachmentIds: [],
+			attachments: [],
+			atlasMode: true,
+			atlasProfile: "in-depth",
+			atlasAction: "create",
+			clientAtlasTurnId: "atlas-client-1",
+		});
+
+		expect(consumePendingConversationMessage("conv-123")).toEqual(
+			expect.objectContaining({
+				message: "Create an Atlas",
+				atlasMode: true,
+				atlasProfile: "in-depth",
+				atlasAction: "create",
+				clientAtlasTurnId: "atlas-client-1",
+			}),
+		);
 	});
 
 	it("preserves Reasoning depth on pending bootstrap messages", () => {

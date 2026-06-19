@@ -683,6 +683,17 @@ function reasoningDepthClassifierModelValue(): string {
 		: "";
 }
 
+function atlasModelValue(
+	key: "ATLAS_SYNTHESIS_MODEL" | "ATLAS_AUDIT_MODEL",
+): ModelId {
+	const configured = (adminConfig[key] ||
+		envDefaults[key] ||
+		"model1") as ModelId;
+	return adminModelOptions().some((model) => model.id === configured)
+		? configured
+		: "model1";
+}
+
 $effect(() => {
 	void loadProviderConfigs();
 });
@@ -757,6 +768,15 @@ function configLabelKey(key: string): I18nKey {
 		SYSTEM_PROMPT: "admin.systemPromptLabel",
 		DEFAULT_NEW_USER_MODEL: "admin.defaultNewUserModel",
 		REASONING_DEPTH_CLASSIFIER_MODEL: "admin.reasoningDepthClassifierModel",
+		ATLAS_WORKER_ENABLED: "admin.atlasWorkerEnabled",
+		ATLAS_GLOBAL_ACTIVE_LIMIT: "admin.atlasGlobalActiveLimit",
+		ATLAS_SEARCH_CONCURRENCY: "admin.atlasSearchConcurrency",
+		ATLAS_SEARCH_BATCH_DELAY_MS: "admin.atlasSearchBatchDelayMs",
+		ATLAS_SYNTHESIS_MODEL: "admin.atlasSynthesisModel",
+		ATLAS_AUDIT_MODEL: "admin.atlasAuditModel",
+		WEB_PUSH_VAPID_PUBLIC_KEY: "admin.webPushVapidPublicKey",
+		WEB_PUSH_VAPID_PRIVATE_KEY: "admin.webPushVapidPrivateKey",
+		WEB_PUSH_VAPID_SUBJECT: "admin.webPushVapidSubject",
 	};
 	return (map[key] ?? key) as I18nKey;
 }
@@ -781,6 +801,9 @@ const NUMBER_KEYS = new Set([
 	"MAX_FILE_UPLOAD_SIZE",
 	"REQUEST_TIMEOUT_MS",
 	"MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS",
+	"ATLAS_GLOBAL_ACTIVE_LIMIT",
+	"ATLAS_SEARCH_CONCURRENCY",
+	"ATLAS_SEARCH_BATCH_DELAY_MS",
 ]);
 
 function placeholderFor(key: string): string {
@@ -1068,6 +1091,125 @@ function placeholderFor(key: string): string {
 		{#if systemSkillsMessage}
 			<p class="mt-3 text-sm text-success">{systemSkillsMessage}</p>
 		{/if}
+	</div>
+</section>
+
+<!-- Atlas -->
+<section class="settings-card mb-4">
+	<h2 class="settings-section-title">{$t('admin.atlas')}</h2>
+	<p class="mb-3 text-xs text-text-muted">{$t('admin.atlasDescription')}</p>
+	<div class="flex flex-col gap-4">
+		<div class="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-page p-3">
+			<div>
+				<label class="settings-label mb-0" for="ATLAS_WORKER_ENABLED">{$t(configLabelKey('ATLAS_WORKER_ENABLED'))}</label>
+				<p class="text-xs text-text-tertiary">{$t('admin.atlasWorkerDescription')}</p>
+			</div>
+			<label class="relative inline-flex cursor-pointer items-center">
+				<input
+					id="ATLAS_WORKER_ENABLED"
+					type="checkbox"
+					class="peer sr-only"
+					checked={adminConfig.ATLAS_WORKER_ENABLED !== 'false'}
+					onchange={(event) => {
+						adminConfig.ATLAS_WORKER_ENABLED = event.currentTarget.checked ? 'true' : 'false';
+					}}
+				/>
+				<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
+			</label>
+		</div>
+
+		<div class="grid gap-3 md:grid-cols-2">
+			<div>
+				<label class="settings-label" for="ATLAS_SYNTHESIS_MODEL">{$t(configLabelKey('ATLAS_SYNTHESIS_MODEL'))}</label>
+				<select
+					id="ATLAS_SYNTHESIS_MODEL"
+					class="settings-input"
+					value={atlasModelValue('ATLAS_SYNTHESIS_MODEL')}
+					onchange={(event) => {
+						adminConfig.ATLAS_SYNTHESIS_MODEL = event.currentTarget.value;
+					}}
+				>
+					{#each adminModelOptions() as model}
+						<option value={model.id}>{model.displayName}</option>
+					{/each}
+				</select>
+				<p class="mt-1 text-xs text-text-muted">{$t('admin.atlasSynthesisModelDescription')}</p>
+			</div>
+			<div>
+				<label class="settings-label" for="ATLAS_AUDIT_MODEL">{$t(configLabelKey('ATLAS_AUDIT_MODEL'))}</label>
+				<select
+					id="ATLAS_AUDIT_MODEL"
+					class="settings-input"
+					value={atlasModelValue('ATLAS_AUDIT_MODEL')}
+					onchange={(event) => {
+						adminConfig.ATLAS_AUDIT_MODEL = event.currentTarget.value;
+					}}
+				>
+					{#each adminModelOptions() as model}
+						<option value={model.id}>{model.displayName}</option>
+					{/each}
+				</select>
+				<p class="mt-1 text-xs text-text-muted">{$t('admin.atlasAuditModelDescription')}</p>
+			</div>
+		</div>
+
+		<div class="grid gap-3 md:grid-cols-3">
+			{#each ['ATLAS_GLOBAL_ACTIVE_LIMIT', 'ATLAS_SEARCH_CONCURRENCY', 'ATLAS_SEARCH_BATCH_DELAY_MS'] as key}
+				<div>
+					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
+					<input
+						id={key}
+						type="number"
+						min={key === 'ATLAS_SEARCH_BATCH_DELAY_MS' ? '0' : '1'}
+						class="settings-input"
+						bind:value={adminConfig[key]}
+						placeholder={placeholderFor(key)}
+					/>
+				</div>
+			{/each}
+		</div>
+		<p class="text-xs text-text-muted">{$t('admin.atlasLimitsDescription')}</p>
+		<p class="text-xs text-text-muted">{$t('admin.atlasSearxngDependency')}</p>
+
+		<div class="grid gap-3 md:grid-cols-3">
+			<div>
+				<label class="settings-label" for="WEB_PUSH_VAPID_PUBLIC_KEY">{$t(configLabelKey('WEB_PUSH_VAPID_PUBLIC_KEY'))}</label>
+				<input
+					id="WEB_PUSH_VAPID_PUBLIC_KEY"
+					type="text"
+					class="settings-input"
+					bind:value={adminConfig.WEB_PUSH_VAPID_PUBLIC_KEY}
+					placeholder={placeholderFor('WEB_PUSH_VAPID_PUBLIC_KEY')}
+					autocomplete="off"
+				/>
+			</div>
+			<div>
+				<label class="settings-label" for="WEB_PUSH_VAPID_PRIVATE_KEY">{$t(configLabelKey('WEB_PUSH_VAPID_PRIVATE_KEY'))}</label>
+				<input
+					id="WEB_PUSH_VAPID_PRIVATE_KEY"
+					type="password"
+					class="settings-input"
+					value={adminConfig.WEB_PUSH_VAPID_PRIVATE_KEY === '[set]' ? '' : adminConfig.WEB_PUSH_VAPID_PRIVATE_KEY}
+					placeholder={adminConfig.WEB_PUSH_VAPID_PRIVATE_KEY === '[set]' ? $t('admin.secretConfigured') : placeholderFor('WEB_PUSH_VAPID_PRIVATE_KEY')}
+					autocomplete="off"
+					oninput={(event) => {
+						adminConfig.WEB_PUSH_VAPID_PRIVATE_KEY = event.currentTarget.value;
+					}}
+				/>
+			</div>
+			<div>
+				<label class="settings-label" for="WEB_PUSH_VAPID_SUBJECT">{$t(configLabelKey('WEB_PUSH_VAPID_SUBJECT'))}</label>
+				<input
+					id="WEB_PUSH_VAPID_SUBJECT"
+					type="text"
+					class="settings-input"
+					bind:value={adminConfig.WEB_PUSH_VAPID_SUBJECT}
+					placeholder={placeholderFor('WEB_PUSH_VAPID_SUBJECT')}
+					autocomplete="off"
+				/>
+			</div>
+		</div>
+		<p class="text-xs text-text-muted">{$t('admin.atlasWebPushDescription')}</p>
 	</div>
 </section>
 

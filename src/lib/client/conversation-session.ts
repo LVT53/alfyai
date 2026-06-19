@@ -32,6 +32,10 @@ export type PendingConversationMessage = {
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	atlasAction?: "create";
+	clientAtlasTurnId?: string | null;
 };
 
 function getSessionStorage(): Storage | null {
@@ -60,6 +64,10 @@ function isModelId(value: unknown): value is ModelId {
 		typeof value === "string" &&
 		(value === "model1" || value === "model2" || value.startsWith("provider:"))
 	);
+}
+
+function isAtlasProfile(value: unknown): value is AtlasProfile {
+	return value === "overview" || value === "in-depth" || value === "exhaustive";
 }
 
 function toArtifactSummaryList(value: unknown): ArtifactSummary[] {
@@ -223,6 +231,10 @@ export function storePendingConversationMessage(
 			personalityProfileId: payload.personalityProfileId,
 			reasoningDepth: payload.reasoningDepth,
 			forceWebSearch: payload.forceWebSearch === true,
+			atlasMode: payload.atlasMode === true,
+			atlasProfile: payload.atlasProfile ?? null,
+			atlasAction: payload.atlasAction ?? "create",
+			clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 		}),
 	);
 }
@@ -264,6 +276,15 @@ export function consumePendingConversationMessage(
 					: null,
 			reasoningDepth: parsePendingReasoningDepth(parsed),
 			forceWebSearch: parsed.forceWebSearch === true,
+			atlasMode: parsed.atlasMode === true,
+			atlasProfile: isAtlasProfile(parsed.atlasProfile)
+				? parsed.atlasProfile
+				: null,
+			atlasAction: "create",
+			clientAtlasTurnId:
+				typeof parsed.clientAtlasTurnId === "string"
+					? parsed.clientAtlasTurnId
+					: null,
 		};
 	} catch {
 		return {
@@ -274,6 +295,10 @@ export function consumePendingConversationMessage(
 			pendingSkill: null,
 			reasoningDepth: "auto",
 			forceWebSearch: false,
+			atlasMode: false,
+			atlasProfile: null,
+			atlasAction: "create",
+			clientAtlasTurnId: null,
 		};
 	}
 }

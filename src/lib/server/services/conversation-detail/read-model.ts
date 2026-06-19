@@ -1,5 +1,5 @@
-import { getConfig } from "$lib/server/config-store";
 import { getConversationCostSummary } from "$lib/server/services/analytics";
+import { getAtlasAvailability } from "$lib/server/services/atlas/availability";
 import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
 import { buildContextSourcesState } from "$lib/server/services/chat-turn/context-sources";
 import {
@@ -34,7 +34,6 @@ import {
 	getProjectReferenceContext,
 } from "$lib/server/services/task-state";
 import type {
-	AtlasAvailability,
 	ChatMessage,
 	ConversationDetail,
 	MessageSourceForks,
@@ -46,27 +45,6 @@ export interface GetConversationDetailInput {
 	userId: string;
 	conversationId: string;
 	view?: ConversationDetailView;
-}
-
-function getAtlasAvailability(): AtlasAvailability {
-	const config = getConfig();
-	if (!config.atlasWorkerEnabled) {
-		return {
-			enabled: false,
-			configured: Boolean(config.searxngBaseUrl?.trim()),
-			reasonCode: "disabled",
-			reason: "Atlas is disabled by the administrator.",
-		};
-	}
-	if (!config.searxngBaseUrl?.trim()) {
-		return {
-			enabled: true,
-			configured: false,
-			reasonCode: "missing_searxng",
-			reason: "Atlas requires SearXNG web search configuration.",
-		};
-	}
-	return { enabled: true, configured: true, reasonCode: null, reason: null };
 }
 
 async function attachSourceForksToAssistantMessages(

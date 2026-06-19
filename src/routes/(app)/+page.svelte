@@ -28,7 +28,12 @@ import MessageInput from "$lib/components/chat/MessageInput.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import { isOsFileDropEvent } from "$lib/utils/file-drag";
-import type { ConversationDetail, ModelId, ReasoningDepth } from "$lib/types";
+import type {
+	AtlasProfile,
+	ConversationDetail,
+	ModelId,
+	ReasoningDepth,
+} from "$lib/types";
 import { onDestroy, onMount, untrack } from "svelte";
 import type {
 	ArtifactSummary,
@@ -82,6 +87,10 @@ type MessageInputSendPayload = {
 	modelId?: ModelId;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	atlasAction?: "create";
+	clientAtlasTurnId?: string | null;
 };
 
 type MessageInputDraftPayload = {
@@ -91,6 +100,9 @@ type MessageInputDraftPayload = {
 	selectedAttachments: PendingAttachment[];
 	selectedLinkedSources: LinkedContextSource[];
 	pendingSkill: import("$lib/types").PendingSkillSelection | null;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	clientAtlasTurnId?: string | null;
 };
 
 let hasStarted = $state(false);
@@ -319,6 +331,9 @@ async function handleSend(payload: MessageInputSendPayload) {
 				selectedAttachmentIds: [],
 				selectedLinkedSources: [],
 				pendingSkill: null,
+				atlasMode: false,
+				atlasProfile: null,
+				clientAtlasTurnId: null,
 			},
 			true,
 		);
@@ -332,6 +347,10 @@ async function handleSend(payload: MessageInputSendPayload) {
 			personalityProfileId: selectedPersonalityId,
 			reasoningDepth: payload.reasoningDepth ?? $selectedReasoningDepth,
 			forceWebSearch: payload.forceWebSearch === true,
+			atlasMode: payload.atlasMode === true,
+			atlasProfile: payload.atlasProfile ?? null,
+			atlasAction: payload.atlasAction ?? "create",
+			clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 		});
 		await navigateToConversationFromLanding({
 			conversationId: id,
@@ -377,6 +396,9 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 		selectedAttachments: payload.selectedAttachments,
 		selectedLinkedSources: payload.selectedLinkedSources,
 		pendingSkill: payload.pendingSkill,
+		atlasMode: payload.atlasMode === true,
+		atlasProfile: payload.atlasProfile ?? null,
+		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 	});
 	const stalePreparedConversationId =
 		payload.conversationId ?? preparedConversationId ?? null;
@@ -407,6 +429,9 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 		selectedAttachmentIds: payload.selectedAttachmentIds,
 		selectedLinkedSources: payload.selectedLinkedSources,
 		pendingSkill: payload.pendingSkill,
+		atlasMode: payload.atlasMode === true,
+		atlasProfile: payload.atlasProfile ?? null,
+		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 	});
 }
 </script>
@@ -477,6 +502,9 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					draftText={conversationDraft?.draftText ?? ''}
 					draftAttachments={conversationDraft?.selectedAttachments ?? []}
 					draftLinkedSources={conversationDraft?.selectedLinkedSources ?? []}
+					draftAtlasMode={conversationDraft?.atlasMode === true}
+					draftAtlasProfile={conversationDraft?.atlasProfile ?? null}
+					draftClientAtlasTurnId={conversationDraft?.clientAtlasTurnId ?? null}
 					draftVersion={conversationDraft?.updatedAt ?? 0}
 					attachmentsEnabled={true}
 					ensureConversation={ensurePreparedConversation}
@@ -486,7 +514,8 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					onPersonalityChange={(id) => selectedPersonalityId = id}
 					reasoningDepth={$selectedReasoningDepth}
 					onReasoningDepthChange={setSelectedReasoningDepth}
-				onUploadFiles={handleUploadFiles}
+					atlasAvailability={data.atlasAvailability ?? null}
+					onUploadFiles={handleUploadFiles}
 				/>
 			</div>
 		</div>
