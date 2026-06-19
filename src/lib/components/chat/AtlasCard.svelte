@@ -1,9 +1,12 @@
 <script lang="ts">
 import {
+	Check,
 	Download,
 	FileText,
 	GitBranch,
+	Globe2,
 	Pencil,
+	Plane,
 	RefreshCw,
 	Square,
 } from "@lucide/svelte";
@@ -36,20 +39,31 @@ let {
 
 let activePanel = $state<AtlasAction | null>(null);
 let lifecycleMessage = $state("");
+let progressMessageIndex = $state(0);
+let lastProgressMessageStage = $state("");
 
 const isActive = $derived(job.status === "queued" || job.status === "running");
 const isComplete = $derived(job.status === "succeeded");
-const percent = $derived(
-	Math.max(0, Math.min(100, Math.round(job.progress?.percent ?? 0))),
-);
 const profileLabel = $derived(formatProfile(job.profile));
 const acceptedSourceCount = $derived(job.sourceCounts.accepted);
 const costSummary = $derived(formatCost(job.usage.costUsdMicros));
 const durationLabel = $derived(formatDuration(job.createdAt, job.completedAt));
 const stageLabel = $derived(formatStage(job.progress?.stage ?? job.stage));
+const progressMessageStage = $derived(
+	`${job.status}:${job.progress?.stage ?? job.stage ?? ""}`,
+);
+const progressMessageKeys = $derived(
+	getProgressMessageKeys(job.status, job.progress?.stage ?? job.stage),
+);
+const progressMessage = $derived(
+	formatProgressMessage(progressMessageKeys, progressMessageIndex),
+);
+const progressQueries = $derived(job.progress?.details?.queries ?? []);
 const lifecyclePanelLabel = $derived(
 	activePanel ? lifecycleActionLabel(activePanel) : "",
 );
+
+const PROGRESS_MESSAGE_INTERVAL_MS = 4200;
 
 const STAGE_LABEL_KEYS: Record<string, I18nKey> = {
 	decompose: "atlas.stage.decompose",
@@ -68,6 +82,40 @@ const STATUS_STAGE_LABEL_KEYS: Record<string, I18nKey> = {
 	cancelled: "atlas.stage.cancelled",
 };
 
+const PROGRESS_MESSAGE_KEYS: Record<string, readonly I18nKey[]> = {
+	queued: ["atlas.progress.queued.0", "atlas.progress.queued.1"],
+	decompose: ["atlas.stage.decompose", "atlas.progress.decompose.1"],
+	search: ["atlas.stage.search", "atlas.progress.search.1"],
+	curate: ["atlas.stage.curate", "atlas.progress.curate.1"],
+	synthesize: ["atlas.stage.synthesize", "atlas.progress.synthesize.1"],
+	integrate: ["atlas.stage.integrate", "atlas.progress.integrate.1"],
+	assemble: ["atlas.stage.assemble", "atlas.progress.assemble.1"],
+	audit: ["atlas.stage.audit", "atlas.progress.audit.1"],
+	render: ["atlas.stage.render", "atlas.progress.render.1"],
+};
+
+$effect(() => {
+	if (progressMessageStage !== lastProgressMessageStage) {
+		lastProgressMessageStage = progressMessageStage;
+		progressMessageIndex = 0;
+	}
+});
+
+$effect(() => {
+	if (
+		!isActive ||
+		progressMessageKeys.length < 2 ||
+		typeof window === "undefined"
+	) {
+		return;
+	}
+	const interval = window.setInterval(() => {
+		progressMessageIndex =
+			(progressMessageIndex + 1) % progressMessageKeys.length;
+	}, PROGRESS_MESSAGE_INTERVAL_MS);
+	return () => window.clearInterval(interval);
+});
+
 function formatProfile(profile: AtlasProfile): string {
 	if (profile === "exhaustive") return $t("composerTools.atlasExhaustive");
 	if (profile === "in-depth") return $t("composerTools.atlasInDepth");
@@ -80,6 +128,24 @@ function formatStage(stage: string | null | undefined): string {
 	const statusKey = STATUS_STAGE_LABEL_KEYS[job.status];
 	if (statusKey) return $t(statusKey);
 	return $t("atlas.stage.running");
+}
+
+function getProgressMessageKeys(
+	status: AtlasJobCard["status"],
+	stage: string | null | undefined,
+): readonly I18nKey[] {
+	if (status === "queued") return PROGRESS_MESSAGE_KEYS.queued;
+	if (stage && PROGRESS_MESSAGE_KEYS[stage])
+		return PROGRESS_MESSAGE_KEYS[stage];
+	return ["atlas.stage.running", "atlas.progress.running.1"];
+}
+
+function formatProgressMessage(
+	keys: readonly I18nKey[],
+	index: number,
+): string {
+	const key = keys[index % keys.length] ?? "atlas.stage.running";
+	return $t(key);
 }
 
 function formatCost(micros: number): string {
@@ -147,33 +213,49 @@ function submitLifecycleAction() {
 	data-testid="atlas-card"
 >
 	<header class="atlas-card__header">
-		<div class="atlas-card__mark" aria-hidden="true">
-			<span class="atlas-card__ring"></span>
+		<div
+			class="atlas-card__mark"
+			class:atlas-card__mark--queued={job.status === "queued"}
+			class:atlas-card__mark--complete={isComplete}
+			aria-hidden="true"
+		>
+			{#if isComplete}
+				<Check size={19} strokeWidth={2.4} aria-hidden="true" />
+			{:else if job.status === "queued"}
+				<Globe2
+					class="atlas-card__globe"
+					size={18}
+					strokeWidth={2}
+					aria-hidden="true"
+				/>
+				<Plane
+					class="atlas-card__plane"
+					size={13}
+					strokeWidth={2.2}
+					aria-hidden="true"
+				/>
+			{:else}
+				<span class="atlas-card__ring"></span>
+			{/if}
 		</div>
 		<div class="atlas-card__title-block">
 			<div class="atlas-card__eyebrow">ATLAS</div>
 			<h3 class="atlas-card__title">{job.title || $t("atlas.defaultTitle")}</h3>
-			<div class="atlas-card__meta">
-				<span>{profileLabel}</span>
-				{#if isComplete}
+			{#if isComplete}
+				<div class="atlas-card__meta">
+					<span>{profileLabel}</span>
 					<span>{durationLabel}</span>
 					<span>{$t("atlas.sourceCount", { count: acceptedSourceCount })}</span>
 					<span>{costSummary}</span>
-				{/if}
-			</div>
+				</div>
+			{/if}
 		</div>
-		{#if isActive}
-			<div class="atlas-card__percent">{percent}%</div>
-		{/if}
 	</header>
 
 	{#if isActive}
 		<div class="atlas-card__progress" aria-label={$t("atlas.progressLabel")}>
-			<div class="atlas-card__progress-track">
-				<div class="atlas-card__progress-fill" style={`width: ${percent}%`}></div>
-			</div>
 			<div class="atlas-card__status-row">
-				<span>{stageLabel}</span>
+				<span aria-live="polite">{progressMessage}</span>
 				<button
 					type="button"
 					class="atlas-card__ghost atlas-card__ghost--text"
@@ -184,6 +266,16 @@ function submitLifecycleAction() {
 					<span>{$t("common.cancel")}</span>
 				</button>
 			</div>
+			{#if progressQueries.length > 0}
+				<div class="atlas-card__queries" aria-label={$t("atlas.progressQueriesLabel")}>
+					<div class="atlas-card__queries-title">{$t("atlas.progressQueriesTitle")}</div>
+					<ul>
+						{#each progressQueries as query}
+							<li>{query}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 		</div>
 	{:else if isComplete}
 		<div class="atlas-card__actions">
@@ -312,6 +404,24 @@ function submitLifecycleAction() {
 		color: var(--accent);
 	}
 
+	.atlas-card__mark--complete {
+		background: color-mix(in srgb, var(--success, #2f8f5b) 20%, transparent);
+		color: var(--success, #2f8f5b);
+	}
+
+	:global(.atlas-card__globe) {
+		position: relative;
+		z-index: 1;
+	}
+
+	:global(.atlas-card__plane) {
+		position: absolute;
+		top: 0.28rem;
+		left: 50%;
+		transform-origin: -0.05rem 0.84rem;
+		animation: atlas-orbit 2.4s linear infinite;
+	}
+
 	.atlas-card__ring {
 		width: 1.35rem;
 		height: 1.35rem;
@@ -353,30 +463,10 @@ function submitLifecycleAction() {
 		color: var(--text-muted);
 	}
 
-	.atlas-card__percent {
-		font-size: var(--text-sm);
-		font-weight: 700;
-		color: var(--text-primary);
-	}
-
 	.atlas-card__progress {
 		display: flex;
 		flex-direction: column;
 		gap: 0.55rem;
-	}
-
-	.atlas-card__progress-track {
-		height: 0.45rem;
-		overflow: hidden;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--border-default) 58%, transparent);
-	}
-
-	.atlas-card__progress-fill {
-		height: 100%;
-		border-radius: inherit;
-		background: var(--accent);
-		transition: width 220ms var(--ease-out);
 	}
 
 	.atlas-card__status-row,
@@ -391,6 +481,32 @@ function submitLifecycleAction() {
 		justify-content: space-between;
 		font-size: var(--text-sm);
 		color: var(--text-secondary);
+	}
+
+	.atlas-card__queries {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);
+		padding-top: 0.55rem;
+		color: var(--text-secondary);
+		font-size: var(--text-xs);
+	}
+
+	.atlas-card__queries-title {
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.atlas-card__queries ul {
+		display: grid;
+		gap: 0.25rem;
+		margin: 0;
+		padding-left: 1rem;
+	}
+
+	.atlas-card__queries li {
+		overflow-wrap: anywhere;
 	}
 
 	.atlas-card__actions {
@@ -491,8 +607,15 @@ function submitLifecycleAction() {
 		}
 	}
 
+	@keyframes atlas-orbit {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
 	@media (prefers-reduced-motion: reduce) {
-		.atlas-card--active .atlas-card__ring {
+		.atlas-card--active .atlas-card__ring,
+		:global(.atlas-card__plane) {
 			animation: none;
 		}
 	}

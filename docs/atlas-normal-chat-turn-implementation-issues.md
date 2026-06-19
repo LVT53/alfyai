@@ -398,7 +398,7 @@ Implement the audit stage that produces compact Atlas Basis diagnostics and Atla
 - [ ] Audit defaults to a different enabled model than synthesis when possible.
 - [ ] If only one model is enabled, audit falls back to it and records a warning.
 - [ ] The assembled Atlas source is audited against accepted sources, search limitations, and local-source metadata before rendering.
-- [ ] Honesty marker verdicts include verified, partially supported, unverified, and conflicting sources.
+- [ ] Honesty markers are severity-coded (`info`, `warning`, `critical`) and explain source gaps, contradictions, language drift, or other verification concerns.
 - [ ] Conflicting evidence is preserved and represented in the report instead of choosing a false winner.
 - [ ] Audit output drives visible honesty markers and Limitations content.
 - [ ] Audit failure follows bounded retry policy and then produces honest limitations if enough evidence exists.

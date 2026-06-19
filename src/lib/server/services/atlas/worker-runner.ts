@@ -154,12 +154,13 @@ export async function executeNextAtlasJob(
 								prompt,
 							}),
 					}),
-				heartbeat: async ({ stage, progressPercent }) => {
+				heartbeat: async ({ stage, progressPercent, progressDetails }) => {
 					const alive = await heartbeatAtlasJob({
 						jobId: claimed.job.id,
 						workerId: input.workerId,
 						stage,
 						progressPercent,
+						progressDetails,
 					});
 					if (!alive) {
 						throw new Error("Atlas job is no longer running.");

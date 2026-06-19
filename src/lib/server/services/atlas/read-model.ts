@@ -12,6 +12,25 @@ function timestampMs(value: Date | null): number | null {
 	return value ? value.getTime() : null;
 }
 
+function parseProgressDetails(value: string | null): { queries: string[] } {
+	if (!value) return { queries: [] };
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		if (!parsed || typeof parsed !== "object") return { queries: [] };
+		const queries = Array.isArray((parsed as { queries?: unknown }).queries)
+			? (parsed as { queries: unknown[] }).queries
+					.map((query) =>
+						typeof query === "string" ? query.replace(/\s+/g, " ").trim() : "",
+					)
+					.filter(Boolean)
+					.slice(0, 8)
+			: [];
+		return { queries };
+	} catch {
+		return { queries: [] };
+	}
+}
+
 export function mapAtlasJobRowToCard(
 	job: typeof atlasJobs.$inferSelect,
 ): AtlasJobCard {
@@ -28,6 +47,7 @@ export function mapAtlasJobRowToCard(
 		progress: {
 			percent: job.progressPercent,
 			stage: job.stage,
+			details: parseProgressDetails(job.progressDetailsJson),
 		},
 		sourceCounts: {
 			local: job.localSourceCount,

@@ -394,6 +394,9 @@ export interface AtlasJobCard {
 	progress: {
 		percent: number;
 		stage: string;
+		details: {
+			queries: string[];
+		};
 	};
 	sourceCounts: {
 		local: number;

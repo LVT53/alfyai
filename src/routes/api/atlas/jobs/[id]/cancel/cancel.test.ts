@@ -45,7 +45,7 @@ describe("POST /api/atlas/jobs/[id]/cancel", () => {
 			title: "Atlas research",
 			status: "cancelled",
 			stage: "cancelled",
-			progress: { percent: 0, stage: "cancelled" },
+			progress: { percent: 0, stage: "cancelled", details: { queries: [] } },
 			sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
 			usage: {
 				inputTokens: 0,

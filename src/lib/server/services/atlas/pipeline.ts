@@ -1,10 +1,15 @@
 import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
 import {
+	detectLanguage,
+	type SupportedLanguage,
+} from "$lib/server/services/language";
+import {
 	type AtlasOutputIds,
 	buildAtlasDocumentSource,
 } from "./renderer-output";
 import type {
 	AtlasHonestyMarker,
+	AtlasJobProgressDetails,
 	AtlasLifecycleContext,
 	AtlasPipelineJobContext,
 	AtlasPipelineStage,
@@ -49,6 +54,7 @@ export interface RunAtlasPipelineInput {
 			assembledMarkdown: string;
 			sources: Array<{ title: string; url?: string | null }>;
 			limitation: { code: string; message: string } | null;
+			language: SupportedLanguage;
 		}) => Promise<{
 			passed: boolean;
 			honestyMarkers: AtlasHonestyMarker[];
@@ -69,6 +75,7 @@ export interface RunAtlasPipelineInput {
 		heartbeat?: (input: {
 			stage: AtlasPipelineStage;
 			progressPercent: number;
+			progressDetails?: AtlasJobProgressDetails;
 		}) => Promise<void>;
 		renderOutputs: (
 			source: GeneratedDocumentSource,
@@ -107,9 +114,11 @@ function addUsage(
 function seededPrompt(input: {
 	query: string;
 	lifecycle: AtlasLifecycleContext;
+	language: SupportedLanguage;
 }): string {
 	return JSON.stringify({
 		query: input.query,
+		detectedLanguage: input.language,
 		atlasLifecycle: {
 			action: input.lifecycle.family.action,
 			family: input.lifecycle.family,
@@ -123,9 +132,50 @@ function seededPrompt(input: {
 	});
 }
 
+const STAGE_SYSTEMS: Record<SupportedLanguage, Record<ModelStage, string>> = {
+	en: {
+		decompose: "Break the Atlas question into durable research queries.",
+		curate: "Curate Atlas local and web evidence.",
+		synthesize: "Synthesize Atlas findings from curated evidence.",
+		integrate: "Integrate Atlas findings into a coherent report outline.",
+		assemble: "Assemble final Atlas report Markdown.",
+	},
+	hu: {
+		decompose: "Bontsd az Atlas kérdést tartós kutatási lekérdezésekre.",
+		curate: "Válogasd az Atlas helyi és webes bizonyítékait.",
+		synthesize:
+			"Szintetizáld az Atlas megállapításait a válogatott bizonyítékokból.",
+		integrate: "Rendezd az Atlas megállapításait koherens jelentésvázlatba.",
+		assemble:
+			"Állítsd össze a végleges Atlas jelentést Markdown formában magyarul.",
+	},
+};
+
+function stageSystem(stage: ModelStage, language: SupportedLanguage): string {
+	const languageInstruction =
+		language === "hu"
+			? "A jelentés és a szakasz kimenete magyar legyen; a forráscímek maradjanak eredeti nyelven."
+			: "Write the stage output and final report in English; keep source titles in their original language.";
+	return `${STAGE_SYSTEMS[language][stage]}\n\n${languageInstruction}`;
+}
+
+function parseDecomposeQueries(text: string): string[] {
+	return text
+		.split(/\r?\n/)
+		.map((line) =>
+			line
+				.replace(/^[-*\d.)\s]+/, "")
+				.replace(/\s+/g, " ")
+				.trim(),
+		)
+		.filter(Boolean)
+		.slice(0, 8);
+}
+
 export async function runAtlasPipeline(
 	input: RunAtlasPipelineInput,
 ): Promise<AtlasPipelineResult> {
+	const language = detectLanguage(input.job.query);
 	const sources = await input.dependencies.resolveSources();
 	const usageSeed: AtlasStageUsage = {
 		inputTokens: 0,
@@ -141,25 +191,22 @@ export async function runAtlasPipeline(
 	});
 	const decompose = await input.dependencies.runModelStage({
 		stage: "decompose",
-		system: "Break the Atlas question into durable research queries.",
+		system: stageSystem("decompose", language),
 		prompt: seededPrompt({
 			query: input.job.query,
 			lifecycle: input.job.lifecycle,
+			language,
 		}),
 	});
 	usage = addUsage(usage, decompose.usage);
+	const decomposeQueries = parseDecomposeQueries(decompose.text);
 
 	await input.dependencies.heartbeat?.({
 		stage: "search",
 		progressPercent: 25,
+		progressDetails: { queries: decomposeQueries },
 	});
-	const search = await input.dependencies.searchWeb(
-		decompose.text
-			.split(/\r?\n/)
-			.map((line) => line.replace(/^[-*\d.]+\s*/, "").trim())
-			.filter(Boolean)
-			.slice(0, 8),
-	);
+	const search = await input.dependencies.searchWeb(decomposeQueries);
 
 	await input.dependencies.heartbeat?.({
 		stage: "curate",
@@ -167,8 +214,9 @@ export async function runAtlasPipeline(
 	});
 	const curate = await input.dependencies.runModelStage({
 		stage: "curate",
-		system: "Curate Atlas local and web evidence.",
+		system: stageSystem("curate", language),
 		prompt: JSON.stringify({
+			detectedLanguage: language,
 			local: sources.localSources,
 			web: search.sources,
 			parentCuratedSourcePool:
@@ -184,8 +232,9 @@ export async function runAtlasPipeline(
 	});
 	const synthesize = await input.dependencies.runModelStage({
 		stage: "synthesize",
-		system: "Synthesize Atlas findings from curated evidence.",
+		system: stageSystem("synthesize", language),
 		prompt: JSON.stringify({
+			detectedLanguage: language,
 			curatedEvidence: curate.text,
 			parentCompressedFindings:
 				input.job.lifecycle.seed?.compressedFindings ?? null,
@@ -200,8 +249,9 @@ export async function runAtlasPipeline(
 	});
 	const integrate = await input.dependencies.runModelStage({
 		stage: "integrate",
-		system: "Integrate Atlas findings into a coherent report outline.",
+		system: stageSystem("integrate", language),
 		prompt: JSON.stringify({
+			detectedLanguage: language,
 			synthesis: synthesize.text,
 			atlasLifecycle: input.job.lifecycle.family,
 		}),
@@ -214,7 +264,7 @@ export async function runAtlasPipeline(
 	});
 	const assemble = await input.dependencies.runModelStage({
 		stage: "assemble",
-		system: "Assemble final Atlas report Markdown.",
+		system: stageSystem("assemble", language),
 		prompt: integrate.text,
 	});
 	usage = addUsage(usage, assemble.usage);
@@ -223,10 +273,18 @@ export async function runAtlasPipeline(
 		...sources.localSources.map((source) => ({
 			title: source.title,
 			url: null,
+			authority: source.authority,
+			reasoning:
+				source.authority === "explicit"
+					? "You provided these"
+					: source.authority === "working_document"
+						? "Readable working document selected by Atlas"
+						: "Parent or automatic library source selected by Atlas",
 		})),
 		...search.sources.map((source) => ({
 			title: source.title,
 			url: source.url,
+			reasoning: source.snippet ?? "Accepted web evidence gathered by Atlas",
 		})),
 	];
 	await input.dependencies.heartbeat?.({
@@ -237,6 +295,7 @@ export async function runAtlasPipeline(
 		assembledMarkdown: assemble.text,
 		sources: auditSources,
 		limitation: search.limitation,
+		language,
 	});
 	if (audit.usage) {
 		usage = addUsage(usage, audit.usage);
@@ -250,8 +309,11 @@ export async function runAtlasPipeline(
 		const revise = await input.dependencies.runModelStage({
 			stage: "assemble",
 			system:
-				"Revise the Atlas report to address audit findings. Preserve supported claims, remove unsupported certainty, and add explicit limitations where evidence is weak.",
+				language === "hu"
+					? "Dolgozd át az Atlas jelentést az audit megállapításai alapján. Tartsd meg az alátámasztott állításokat, vedd ki a nem alátámasztott bizonyosságot, és adj hozzá kifejezett korlátokat, ahol gyenge a bizonyíték. A jelentés magyar legyen."
+					: "Revise the Atlas report to address audit findings. Preserve supported claims, remove unsupported certainty, and add explicit limitations where evidence is weak.",
 			prompt: JSON.stringify({
+				detectedLanguage: language,
 				assembledMarkdown: assemble.text,
 				auditFindings: audit,
 				sources: auditSources,
@@ -267,6 +329,7 @@ export async function runAtlasPipeline(
 			assembledMarkdown: revise.text,
 			sources: auditSources,
 			limitation: search.limitation,
+			language,
 		});
 		if (audit.usage) {
 			usage = addUsage(usage, audit.usage);

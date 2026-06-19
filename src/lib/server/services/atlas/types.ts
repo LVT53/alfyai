@@ -15,6 +15,11 @@ export type AtlasJobStatus = (typeof ATLAS_JOB_STATUSES)[number];
 export interface AtlasJobProgress {
 	percent: number;
 	stage: string;
+	details: AtlasJobProgressDetails;
+}
+
+export interface AtlasJobProgressDetails {
+	queries: string[];
 }
 
 export interface AtlasJobSourceCounts {

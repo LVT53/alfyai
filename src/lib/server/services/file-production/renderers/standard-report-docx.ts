@@ -109,6 +109,26 @@ function renderBlock(block: GeneratedDocumentBlock): Paragraph | Table {
 			);
 		case "divider":
 			return paragraph("---");
+		case "sourceChips":
+			return new Paragraph({
+				children: [
+					new TextRun({ text: `${block.title}\n`, bold: true }),
+					new TextRun(
+						block.sources
+							.map((source) => {
+								const details = [
+									source.url,
+									source.provided ? "You provided these" : null,
+									source.reasoning,
+								].filter((part): part is string => Boolean(part));
+								return details.length > 0
+									? `• ${source.title} (${details.join("; ")})`
+									: `• ${source.title}`;
+							})
+							.join("\n"),
+					),
+				],
+			});
 		case "pageBreak":
 			return paragraph("");
 		case "table":
@@ -119,7 +139,15 @@ function renderBlock(block: GeneratedDocumentBlock): Paragraph | Table {
 			);
 		case "image":
 			return paragraph(
-				`Image: ${block.altText}${block.caption ? ` — ${block.caption}` : ""}`,
+				[
+					`Image: ${block.altText}`,
+					block.caption,
+					block.sourceAttribution
+						? `Source: ${block.sourceAttribution.title} - ${block.sourceAttribution.url}`
+						: null,
+				]
+					.filter((part): part is string => Boolean(part))
+					.join(" — "),
 			);
 	}
 }

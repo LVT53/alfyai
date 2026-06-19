@@ -94,7 +94,11 @@ describe("MessageArea", () => {
 			title: overrides.title ?? "Atlas report",
 			status: overrides.status ?? "running",
 			stage: overrides.stage ?? "search",
-			progress: overrides.progress ?? { percent: 30, stage: "search" },
+			progress: overrides.progress ?? {
+				percent: 30,
+				stage: "search",
+				details: { queries: [] },
+			},
 			sourceCounts: overrides.sourceCounts ?? {
 				local: 0,
 				web: 4,

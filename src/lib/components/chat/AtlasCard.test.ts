@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import type { AtlasAction, AtlasJobCard } from "$lib/types";
 import AtlasCard from "./AtlasCard.svelte";
@@ -14,7 +20,7 @@ function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 		title: "Atlas research",
 		status: "running",
 		stage: "curate",
-		progress: { percent: 42, stage: "curate" },
+		progress: { percent: 42, stage: "curate", details: { queries: [] } },
 		sourceCounts: { local: 2, web: 8, accepted: 6, rejected: 4 },
 		usage: {
 			inputTokens: 1200,
@@ -45,18 +51,63 @@ describe("AtlasCard", () => {
 		});
 
 		expect(screen.getByTestId("atlas-card")).toHaveTextContent("ATLAS");
-		expect(screen.getByText("42%")).toBeInTheDocument();
+		expect(screen.queryByText("42%")).not.toBeInTheDocument();
 		expect(screen.getByText("Curating sources")).toBeInTheDocument();
 
 		await fireEvent.click(screen.getByRole("button", { name: "Cancel Atlas" }));
 		expect(onCancel).toHaveBeenCalledWith("atlas-job-1");
 	});
 
+	it("rotates active progress messages without showing profile metadata", async () => {
+		vi.useFakeTimers();
+		try {
+			render(AtlasCard, {
+				job: atlasJobFixture(),
+			});
+
+			expect(screen.getByText("Curating sources")).toBeInTheDocument();
+			expect(screen.queryByText("In-Depth")).not.toBeInTheDocument();
+
+			await act(() => {
+				vi.advanceTimersByTime(4200);
+			});
+
+			expect(screen.getByText("Sorting signal from noise")).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("shows decomposed research questions in the active progress card", () => {
+		render(AtlasCard, {
+			job: atlasJobFixture({
+				stage: "search",
+				progress: {
+					percent: 25,
+					stage: "search",
+					details: {
+						queries: [
+							"enterprise search retrieval architecture",
+							"hybrid search evaluation methods",
+						],
+					},
+				},
+			}),
+		});
+
+		const queryRegion = screen.getByLabelText("Atlas research questions");
+		expect(queryRegion).toHaveTextContent("Researching");
+		expect(queryRegion).toHaveTextContent(
+			"enterprise search retrieval architecture",
+		);
+		expect(queryRegion).toHaveTextContent("hybrid search evaluation methods");
+	});
+
 	it("renders the output rendering stage instead of falling back to generic running copy", () => {
 		render(AtlasCard, {
 			job: atlasJobFixture({
 				stage: "render",
-				progress: { percent: 97, stage: "render" },
+				progress: { percent: 97, stage: "render", details: { queries: [] } },
 			}),
 		});
 

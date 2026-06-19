@@ -687,6 +687,25 @@ class StandardReportPdfLayout {
 		this.y -= 6;
 	}
 
+	drawSourceChips(
+		block: Extract<GeneratedDocumentBlock, { type: "sourceChips" }>,
+	): void {
+		this.drawHeading(3, block.title);
+		this.drawList(
+			"bullet",
+			block.sources.map((source) => {
+				const details = [
+					source.url,
+					source.provided ? "You provided these" : null,
+					source.reasoning,
+				].filter((part): part is string => Boolean(part));
+				return details.length > 0
+					? `${source.title} (${details.join("; ")})`
+					: source.title;
+			}),
+		);
+	}
+
 	drawCallout(
 		block: Extract<GeneratedDocumentBlock, { type: "callout" }>,
 	): void {
@@ -1166,6 +1185,15 @@ class StandardReportPdfLayout {
 				lineHeight: 12,
 			});
 		}
+		if (block.sourceAttribution) {
+			this.drawWrapped({
+				text: `Source: ${block.sourceAttribution.title} - ${block.sourceAttribution.url}`,
+				font: this.fonts.regular,
+				size: 9,
+				color: hexColor(THEME.accent),
+				lineHeight: 12,
+			});
+		}
 		this.y -= 10;
 		this.imageDiagnostics.push({
 			altText: block.altText,
@@ -1221,7 +1249,17 @@ class StandardReportPdfLayout {
 		const captionLines = block.caption
 			? wrapText(block.caption, this.fonts.regular, 9, this.contentWidth())
 			: [];
-		this.ensureSpace(height + captionLines.length * 12 + 24);
+		const attributionLines = block.sourceAttribution
+			? wrapText(
+					`Source: ${block.sourceAttribution.title} - ${block.sourceAttribution.url}`,
+					this.fonts.regular,
+					9,
+					this.contentWidth(),
+				)
+			: [];
+		this.ensureSpace(
+			height + captionLines.length * 12 + attributionLines.length * 12 + 24,
+		);
 		const x = this.contentX() + (this.contentWidth() - width) / 2;
 		this.page.drawImage(embedded, {
 			x,
@@ -1237,6 +1275,16 @@ class StandardReportPdfLayout {
 				size: 9,
 				font: this.fonts.regular,
 				color: hexColor(THEME.secondaryText),
+			});
+			this.y -= 12;
+		}
+		for (const line of attributionLines) {
+			this.page.drawText(line, {
+				x: this.contentX(),
+				y: this.y,
+				size: 9,
+				font: this.fonts.regular,
+				color: hexColor(THEME.accent),
 			});
 			this.y -= 12;
 		}
@@ -1745,6 +1793,9 @@ export async function renderStandardReportPdf(
 				break;
 			case "list":
 				layout.drawList(block.style, block.items);
+				break;
+			case "sourceChips":
+				layout.drawSourceChips(block);
 				break;
 			case "callout":
 				layout.drawCallout(block);
