@@ -71,7 +71,7 @@ chat-turn/request.ts ──► chat-turn/preflight.ts
 **Additional active services not shown above:**
 - `auth/hooks.ts` — `requireAuth`, `getBearerToken` (canonical auth boundary for API routes)
 - `prompts.ts` (src/lib/server/prompts.ts) — shared prompt configuration helpers (consumed by normal-chat context, honcho)
-- `analytics.ts` — analytics event ingestion (consumed by finalize.ts)
+- `analytics.ts` — analytics event ingestion plus the Analytics Dashboard Read Model. Event ingestion records usage/conversation facts during chat-turn finalization. `getAnalyticsDashboardReadModel(...)` projects the `/api/analytics` dashboard payload, including personal analytics, admin-only system/per-user analytics, timeline rows, available months, and mock analytics. The route remains an adapter for auth, `mock`/`month`/`systemMonth`/`timeline` query parameters, and `json(...)` mapping.
 - `file-production/` — durable generated-file jobs, source validation, renderers, sandbox execution, retry/cancel, storage, and legacy generated-file backfill
 - `generated-file-serving.ts` — generated chat-file lookup, ownership fallback, assigned/succeeded-job eligibility, byte/type validation, and preview/download headers for chat routes and Working Document generated-output serving
 - `image-search.ts` — image search integration used by direct normal-chat tools
@@ -79,6 +79,8 @@ chat-turn/request.ts ──► chat-turn/preflight.ts
 - `server/api/responses.ts` — shared JSON response helpers for API routes (consumed across route files)
 
 **Key insight**: `finalize.ts` is the fan-out point — after a turn completes, it dispatches to persistence, evidence, memory, and Honcho sync.
+
+**Analytics Dashboard Read Model note**: keep `/api/analytics` payload assembly in `analytics.ts` behind `getAnalyticsDashboardReadModel(...)`. The route adapter should authenticate, parse query parameters, call the read-model interface, and return JSON; it should not import database tables, Drizzle helpers, provider configuration, or grouping/reducer helpers. Privacy behavior remains governed by the existing Account Erasure boundary and ADR 0029: person-linked analytics may feed authorized dashboard projections while retained aggregate behavior must not become a second analytics privacy policy.
 
 ## Chat-Turn Pipeline Data Flow
 

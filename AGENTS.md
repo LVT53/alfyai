@@ -571,7 +571,7 @@ These services are actively imported but not documented in the feature sections 
   - [`src/lib/server/services/conversation-drafts.ts`](./src/lib/server/services/conversation-drafts.ts) — draft management for conversations. Used by conversation routes for draft save/load.
   - [`src/lib/server/prompts.ts`](./src/lib/server/prompts.ts) — shared prompt configuration helpers. Consumed by Normal Chat context assembly and Honcho.
   - [`src/lib/server/api/responses.ts`](./src/lib/server/api/responses.ts) — shared JSON response helpers (`createJsonErrorResponse`, `createJsonResponse`) for API routes. Used across route files for consistent error/success formatting.
-  - [`src/lib/server/services/analytics.ts`](./src/lib/server/services/analytics.ts) — analytics event ingestion. Consumed by chat-turn finalize.ts. Event ingestion endpoint at `src/routes/api/analytics/+server.ts`.
+  - [`src/lib/server/services/analytics.ts`](./src/lib/server/services/analytics.ts) — analytics event ingestion plus the Analytics Dashboard Read Model. Event ingestion is consumed by chat-turn finalization; `getAnalyticsDashboardReadModel(...)` owns `/api/analytics` payload assembly for personal, admin system, per-user, timeline, and mock analytics. `src/routes/api/analytics/+server.ts` stays a route adapter for auth, query parameters, and JSON response mapping.
   - [`src/lib/server/services/file-production/`](./src/lib/server/services/file-production/) — durable file-production jobs, source validation, renderers, sandbox execution, retry/cancel, and legacy generated-file backfill.
 
 - Other API endpoints:
