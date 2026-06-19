@@ -1,12 +1,19 @@
 import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
 import type { AtlasDocumentFamilyMetadata, AtlasHonestyMarker } from "./types";
 
+export interface AtlasReportSource {
+	title: string;
+	url?: string | null;
+	authority?: string | null;
+	reasoning?: string | null;
+}
+
 export interface BuildAtlasDocumentSourceInput {
 	title: string;
 	subtitle?: string | null;
 	family?: AtlasDocumentFamilyMetadata | null;
 	assembledMarkdown: string;
-	sources: Array<{ title: string; url?: string | null }>;
+	sources: AtlasReportSource[];
 	honestyMarkers: AtlasHonestyMarker[];
 	date?: string | null;
 }
@@ -41,16 +48,29 @@ function markdownLines(markdown: string): string[] {
 function addSourceSection(
 	blocks: GeneratedDocumentSource["blocks"],
 	title: string,
-	sources: Array<{ title: string; url?: string | null }>,
+	sources: AtlasReportSource[],
 ) {
 	if (sources.length === 0) return;
-	blocks.push({ type: "heading", level: 2, text: title });
 	blocks.push({
-		type: "list",
-		style: "bullet",
-		items: sources.map((source) =>
-			source.url ? `${source.title} - ${source.url}` : source.title,
-		),
+		type: "sourceChips",
+		title,
+		sources: sources.map((source) => {
+			const isWeb = Boolean(source.url);
+			const provided = source.authority === "explicit";
+			return {
+				title: source.title,
+				url: source.url ?? null,
+				kind: isWeb ? "web" : "library",
+				provided,
+				reasoning:
+					source.reasoning ??
+					(provided
+						? "You provided these"
+						: isWeb
+							? "Accepted web evidence gathered by Atlas"
+							: "Accepted library evidence selected by Atlas"),
+			};
+		}),
 	});
 }
 
@@ -70,8 +90,11 @@ export function buildAtlasDocumentSource(
 
 	const librarySources = input.sources.filter((source) => !source.url);
 	const webSources = input.sources.filter((source) => Boolean(source.url));
-	addSourceSection(blocks, "Your Library", librarySources);
+	if (webSources.length > 0 || librarySources.length > 0) {
+		blocks.push({ type: "heading", level: 2, text: "Sources" });
+	}
 	addSourceSection(blocks, "Web Sources", webSources);
+	addSourceSection(blocks, "Your Library", librarySources);
 
 	if (input.honestyMarkers.length > 0) {
 		blocks.push({ type: "heading", level: 2, text: "Honesty markers" });

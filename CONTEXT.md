@@ -2340,7 +2340,7 @@ AlfyAI can produce durable, navigable research reports called Atlases through a 
 ### Language
 
 **Atlas** / **Atlasz**:
-A durable, navigable research report artifact produced by an **Atlas Turn**. It is a self-contained document with sidebar navigation, inline citations, images, and honesty markers, available as a styled HTML website, a PDF, and a Markdown file. It is stored and previewed through the existing file-production and document-workspace infrastructure, not as a chat message.
+A durable, navigable research report artifact produced by an **Atlas Turn**. It is a self-contained document with sidebar navigation, source chips/source attribution, images, and honesty markers, available as a styled HTML website, a PDF, and a Markdown file. It is stored and previewed through the existing file-production and document-workspace infrastructure, not as a chat message.
 _Avoid_: deep research report, research card, research job output, research artifact
 
 **Atlas Turn**:
@@ -2356,7 +2356,7 @@ A non-negotiable check within the **Atlas Turn** pipeline that prevents unsuppor
 _Avoid_: plan approval, research checkpoint, pass checkpoint, coverage gate
 
 **Atlas Honesty Marker**:
-A visible indicator in an **Atlas** showing the verification status of a claim or output field: verified, partially supported, unverified, or conflicting sources. Each marker includes a compact reasoning sentence explaining why the audit arrived at its verdict. Honesty markers are derived from the **Atlas Basis** verification step, not from model self-assessment.
+A visible severity-coded indicator in an **Atlas** showing where the audit found source gaps, contradictions, language drift, or other verification concerns. Each marker includes a compact reasoning sentence explaining why the audit arrived at its verdict. Honesty markers are derived from the **Atlas Basis** verification step, not from model self-assessment.
 _Avoid_: confidence badge, citation verdict, audit label, quality score
 
 **Atlas Basis**:
@@ -2380,7 +2380,7 @@ A lifecycle action that re-runs an **Atlas** with fresh searches, producing a ne
 _Avoid_: update research, refresh research, re-run research
 
 **Atlas Progress Indicator**:
-The user-facing progress surface for an in-progress **Atlas Turn**. It shows a ring or progress indicator with cycling human-readable status messages rather than literal pipeline stage labels, since the stages repeat across rounds. The user can leave, close, or reload the page and return to see current progress.
+The user-facing progress surface for an in-progress **Atlas Turn**. It shows the Atlas label, a kickoff orbit/running ring animation, and cycling human-readable status messages rather than literal pipeline stage labels, since the stages repeat across rounds. After decompose completes, it may show the sanitized research questions driving the search stage for transparency. The user can leave, close, or reload the page and return to see current progress.
 _Avoid_: research card, step tracker, stage progress bar, polling panel
 
 **Atlas Resume**:

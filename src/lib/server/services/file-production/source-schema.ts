@@ -11,6 +11,7 @@ export type GeneratedDocumentBlock =
 	| { type: "code"; language?: string | null; text: string }
 	| { type: "quote"; text: string; citation?: string | null }
 	| { type: "divider" }
+	| GeneratedDocumentSourceChipsBlock
 	| GeneratedDocumentTableBlock
 	| GeneratedDocumentChartBlock
 	| GeneratedDocumentImageBlock
@@ -72,7 +73,27 @@ export interface GeneratedDocumentImageBlock {
 	source: GeneratedDocumentImageSource;
 	altText: string;
 	caption?: string | null;
+	sourceAttribution?: GeneratedDocumentSourceAttribution | null;
 	critical?: boolean;
+}
+
+export interface GeneratedDocumentSourceAttribution {
+	title: string;
+	url: string;
+}
+
+export interface GeneratedDocumentSourceChip {
+	title: string;
+	url?: string | null;
+	reasoning?: string | null;
+	provided?: boolean;
+	kind?: "web" | "library";
+}
+
+export interface GeneratedDocumentSourceChipsBlock {
+	type: "sourceChips";
+	title: string;
+	sources: GeneratedDocumentSourceChip[];
 }
 
 export interface GeneratedDocumentSource {
@@ -597,6 +618,15 @@ function normalizeListBlock(
 		: unsupportedDocumentBlockResult();
 }
 
+function normalizeSourceAttribution(
+	value: unknown,
+): GeneratedDocumentSourceAttribution | null {
+	if (!isRecord(value)) return null;
+	const title = cleanText(value.title);
+	const url = cleanText(value.url);
+	return title && url ? { title, url } : null;
+}
+
 function normalizeCalloutBlock(
 	block: Record<string, unknown>,
 ): BlockNormalizationResult {
@@ -611,6 +641,36 @@ function normalizeCalloutBlock(
 			: "note";
 	return text
 		? { ok: true, block: { type: "callout", tone, title, text } }
+		: unsupportedDocumentBlockResult();
+}
+
+function normalizeSourceChipsBlock(
+	block: Record<string, unknown>,
+): BlockNormalizationResult {
+	const title = cleanText(block.title);
+	const sources = Array.isArray(block.sources)
+		? block.sources
+				.map((source): GeneratedDocumentSourceChip | null => {
+					if (!isRecord(source)) return null;
+					const sourceTitle = cleanText(source.title);
+					if (!sourceTitle) return null;
+					const url = cleanText(source.url);
+					const reasoning = cleanText(source.reasoning);
+					const kind = source.kind === "web" ? "web" : "library";
+					return {
+						title: sourceTitle,
+						url,
+						reasoning,
+						provided: source.provided === true,
+						kind,
+					};
+				})
+				.filter((source): source is GeneratedDocumentSourceChip =>
+					Boolean(source),
+				)
+		: [];
+	return title && sources.length > 0
+		? { ok: true, block: { type: "sourceChips", title, sources } }
 		: unsupportedDocumentBlockResult();
 }
 
@@ -808,6 +868,7 @@ function normalizeImageBlock(
 			source,
 			altText,
 			caption: cleanText(block.caption),
+			sourceAttribution: normalizeSourceAttribution(block.sourceAttribution),
 			critical: block.critical === true,
 		},
 	};
@@ -825,6 +886,8 @@ function normalizeBlock(block: unknown): BlockNormalizationResult {
 			return normalizeParagraphBlock(block);
 		case "list":
 			return normalizeListBlock(block);
+		case "sourceChips":
+			return normalizeSourceChipsBlock(block);
 		case "callout":
 			return normalizeCalloutBlock(block);
 		case "code":
@@ -979,6 +1042,21 @@ export function buildGeneratedDocumentProjection(
 			case "divider":
 				lines.push("---");
 				break;
+			case "sourceChips":
+				lines.push(block.title);
+				block.sources.forEach((source) => {
+					const details = [
+						source.url,
+						source.provided ? "You provided these" : null,
+						source.reasoning,
+					].filter((part): part is string => Boolean(part));
+					lines.push(
+						details.length > 0
+							? `- ${source.title} (${details.join("; ")})`
+							: `- ${source.title}`,
+					);
+				});
+				break;
 			case "table":
 				if (block.title) lines.push(`Table: ${block.title}`);
 				lines.push(block.columns.map((column) => column.label).join(" | "));
@@ -1004,6 +1082,11 @@ export function buildGeneratedDocumentProjection(
 			case "image":
 				lines.push(`Image: ${block.altText}`);
 				if (block.caption) lines.push(`Caption: ${block.caption}`);
+				if (block.sourceAttribution) {
+					lines.push(
+						`Source: ${block.sourceAttribution.title} - ${block.sourceAttribution.url}`,
+					);
+				}
 				break;
 			case "pageBreak":
 				lines.push("[Page break]");

@@ -5,6 +5,7 @@ describe("Atlas pipeline slices", () => {
 		const { runAtlasPipeline } = await import("./pipeline");
 		const stages: string[] = [];
 		const checkpointRounds: number[] = [];
+		const heartbeat = vi.fn(async () => {});
 
 		const result = await runAtlasPipeline({
 			job: {
@@ -55,6 +56,17 @@ describe("Atlas pipeline slices", () => {
 				})),
 				runModelStage: vi.fn(async (input) => {
 					stages.push(input.stage);
+					if (input.stage === "decompose") {
+						return {
+							text: "- enterprise search retrieval architecture\n- hybrid search evaluation methods",
+							usage: {
+								inputTokens: 10,
+								outputTokens: 5,
+								totalTokens: 15,
+								costUsdMicros: 25,
+							},
+						};
+					}
 					return {
 						text: `${input.stage} result`,
 						usage: {
@@ -79,6 +91,7 @@ describe("Atlas pipeline slices", () => {
 				writeCheckpoint: vi.fn(async (checkpoint) => {
 					checkpointRounds.push(checkpoint.roundNumber);
 				}),
+				heartbeat,
 				renderOutputs: vi.fn(async (source) => ({
 					fileProductionJobId: "fp-job-1",
 					htmlChatGeneratedFileId: "file-html",
@@ -96,6 +109,16 @@ describe("Atlas pipeline slices", () => {
 			"integrate",
 			"assemble",
 		]);
+		expect(heartbeat).toHaveBeenCalledWith({
+			stage: "search",
+			progressPercent: 25,
+			progressDetails: {
+				queries: [
+					"enterprise search retrieval architecture",
+					"hybrid search evaluation methods",
+				],
+			},
+		});
 		expect(checkpointRounds).toEqual([1]);
 		expect(result).toMatchObject({
 			status: "succeeded",
@@ -200,6 +223,7 @@ describe("Atlas pipeline slices", () => {
 
 		expect(JSON.parse(prompts.decompose)).toMatchObject({
 			query: "Revise the report for implementation risks",
+			detectedLanguage: "en",
 			atlasLifecycle: {
 				action: "revise",
 				parentSeed: {
@@ -209,6 +233,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 		expect(JSON.parse(prompts.curate)).toMatchObject({
+			detectedLanguage: "en",
 			parentCuratedSourcePool: {
 				local: [{ id: "parent-local", title: "Parent source" }],
 			},
@@ -218,6 +243,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 		expect(JSON.parse(prompts.synthesize)).toMatchObject({
+			detectedLanguage: "en",
 			parentCompressedFindings: { synthesize: "Prior compressed findings" },
 		});
 		expect(writeCheckpoint).toHaveBeenCalledWith(
@@ -242,6 +268,73 @@ describe("Atlas pipeline slices", () => {
 					eyebrow: "Atlas same_family atlas-family-1",
 				}),
 			}),
+		);
+	});
+
+	it("detects Hungarian Atlas requests and carries that language through stage prompts and audit", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const systems: Record<string, string> = {};
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-hu-1",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Magyar Atlas",
+				query: "Kérlek kutasd meg a magyar vállalati keresési megoldásokat",
+				lifecycle: {
+					family: {
+						familyId: "atlas-hu-1",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-hu-1",
+						currentAtlasJobId: "atlas-hu-1",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({ sources: [], limitation: null })),
+				runModelStage: vi.fn(async (input) => {
+					systems[input.stage] = input.system;
+					return {
+						text:
+							input.stage === "decompose" ? "- vállalati keresés" : "eredmény",
+						usage: {
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+							costUsdMicros: 1,
+						},
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-1",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(systems.decompose).toContain("magyar");
+		expect(systems.assemble).toContain("magyar");
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({ language: "hu" }),
 		);
 	});
 });

@@ -8,7 +8,12 @@ import {
 	hashAtlasQuery,
 } from "./config";
 import { mapAtlasJobRowToCard } from "./read-model";
-import type { AtlasAction, AtlasJobCard, AtlasProfile } from "./types";
+import type {
+	AtlasAction,
+	AtlasJobCard,
+	AtlasJobProgressDetails,
+	AtlasProfile,
+} from "./types";
 
 export interface CreateOrReuseAtlasJobInput {
 	userId: string;
@@ -60,6 +65,7 @@ export interface OwnedAtlasJobInput {
 export interface HeartbeatAtlasJobInput extends OwnedAtlasJobInput {
 	stage?: string;
 	progressPercent?: number;
+	progressDetails?: AtlasJobProgressDetails;
 }
 
 export interface CancelAtlasJobInput {
@@ -316,6 +322,7 @@ export async function claimNextAtlasJob(
 					status: "running",
 					stage: "decompose",
 					progressPercent: 5,
+					progressDetailsJson: "{}",
 					workerId: input.workerId,
 					heartbeatAt: now,
 					startedAt: now,
@@ -365,6 +372,9 @@ export async function heartbeatAtlasJob(
 			heartbeatAt: now,
 			stage: input.stage,
 			progressPercent: input.progressPercent,
+			...(input.progressDetails
+				? { progressDetailsJson: JSON.stringify(input.progressDetails) }
+				: {}),
 			updatedAt: now,
 		})
 		.where(
@@ -512,6 +522,7 @@ export async function recoverStaleAtlasJobs(
 			status: "queued",
 			stage: "queued",
 			progressPercent: 0,
+			progressDetailsJson: "{}",
 			workerId: null,
 			heartbeatAt: null,
 			startedAt: null,

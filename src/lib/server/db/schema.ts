@@ -1681,6 +1681,7 @@ export const atlasJobs = sqliteTable(
 		status: text("status").notNull().default("queued"),
 		stage: text("stage").notNull().default("queued"),
 		progressPercent: integer("progress_percent").notNull().default(0),
+		progressDetailsJson: text("progress_details_json").notNull().default("{}"),
 		workerId: text("worker_id"),
 		heartbeatAt: integer("heartbeat_at", { mode: "timestamp" }),
 		startedAt: integer("started_at", { mode: "timestamp" }),

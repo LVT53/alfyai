@@ -126,7 +126,7 @@ function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 		title: "Atlas research",
 		status: "running",
 		stage: "search",
-		progress: { percent: 30, stage: "search" },
+		progress: { percent: 30, stage: "search", details: { queries: [] } },
 		sourceCounts: { local: 0, web: 4, accepted: 2, rejected: 1 },
 		usage: {
 			inputTokens: 0,
@@ -493,7 +493,11 @@ describe("chat page runtime integration", () => {
 					atlasJobFixture({
 						status: "succeeded",
 						completedAt: 121,
-						progress: { percent: 100, stage: "audit" },
+						progress: {
+							percent: 100,
+							stage: "audit",
+							details: { queries: [] },
+						},
 					}),
 				],
 			}),

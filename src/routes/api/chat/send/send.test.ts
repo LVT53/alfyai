@@ -399,7 +399,7 @@ describe("POST /api/chat/send", () => {
 				assistantMessageId: null,
 				status: "queued",
 				stage: "queued",
-				progress: { percent: 0, stage: "queued" },
+				progress: { percent: 0, stage: "queued", details: { queries: [] } },
 				sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
 				usage: {
 					inputTokens: 0,
@@ -500,7 +500,7 @@ describe("POST /api/chat/send", () => {
 				assistantMessageId: "assistant-msg-existing",
 				status: "queued",
 				stage: "queued",
-				progress: { percent: 0, stage: "queued" },
+				progress: { percent: 0, stage: "queued", details: { queries: [] } },
 				sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
 				usage: {
 					inputTokens: 0,

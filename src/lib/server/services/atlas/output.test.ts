@@ -11,8 +11,15 @@ describe("Atlas renderer output", () => {
 			assembledMarkdown:
 				"# Executive summary\n\nSearch should combine local authority and web freshness.",
 			sources: [
-				{ title: "Uploaded strategy memo" },
-				{ title: "Vendor docs", url: "https://example.com/docs" },
+				{
+					title: "Uploaded strategy memo",
+					authority: "explicit",
+				},
+				{
+					title: "Vendor docs",
+					url: "https://example.com/docs",
+					reasoning: "Vendor documentation covers current API limits.",
+				},
 			],
 			honestyMarkers: [
 				{
@@ -45,11 +52,44 @@ describe("Atlas renderer output", () => {
 			title: "Enterprise Search Atlas",
 			blocks: expect.arrayContaining([
 				expect.objectContaining({ type: "heading", text: "Executive summary" }),
-				expect.objectContaining({ type: "heading", text: "Your Library" }),
-				expect.objectContaining({ type: "heading", text: "Web Sources" }),
+				expect.objectContaining({ type: "heading", text: "Sources" }),
+				expect.objectContaining({
+					type: "sourceChips",
+					title: "Web Sources",
+					sources: [
+						expect.objectContaining({
+							title: "Vendor docs",
+							url: "https://example.com/docs",
+							reasoning: "Vendor documentation covers current API limits.",
+						}),
+					],
+				}),
+				expect.objectContaining({
+					type: "sourceChips",
+					title: "Your Library",
+					sources: [
+						expect.objectContaining({
+							title: "Uploaded strategy memo",
+							provided: true,
+							reasoning: "You provided these",
+						}),
+					],
+				}),
 				expect.objectContaining({ type: "heading", text: "Honesty markers" }),
 			]),
 		});
+		const sourceHeadings = source.blocks
+			.map((block, index) =>
+				block.type === "sourceChips" ? { title: block.title, index } : null,
+			)
+			.filter((entry): entry is { title: string; index: number } =>
+				Boolean(entry),
+			);
+		expect(sourceHeadings).toEqual([
+			{ title: "Web Sources", index: expect.any(Number) },
+			{ title: "Your Library", index: expect.any(Number) },
+		]);
+		expect(sourceHeadings[0].index).toBeLessThan(sourceHeadings[1].index);
 		expect(createOutputJob).toHaveBeenCalledWith(
 			expect.objectContaining({
 				userId: "user-1",

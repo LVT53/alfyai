@@ -53,10 +53,10 @@ The following branches were resolved through grilling and recorded in CONTEXT.md
 **Design decisions locked from prototype review:**
 - Report viewer style: mix of A (refined current — left-border accent headings, generous whitespace) and C (modern documentation — sans-serif body font, sidebar active-section border design). No drop-caps, no numbered section prefixes, no magazine layout.
 - Source chips: small favicon-only circles (no border, no background color), hover tooltip shows favicon + page title on line 1, compact LLM reasoning on line 2. No full-width source links anywhere.
-- Honesty markers: colored pills (green/yellow/red/orange) with icon + text vertically centered. Hover shows verdict + audit reasoning.
+- Honesty markers: severity-colored pills with icon + text vertically centered. Hover shows the audit marker title and compact reasoning.
 - Completion card: "Open" is the only text button; Download/Continue/Fork/Revise are icon-only ghost buttons with hover tooltips. No limitation notice (it's in the report). Profile shown as just the name, not "Profile: In-Depth".
 - Kickoff message: same card style as progress card, with an animated SVG of Earth + a plane orbiting it. Smooth fade-out transition when SVG switches from kickoff animation → progress ring → completion checkmark.
-- Progress card: just "ATLAS" label + ring animation + cycling status messages + Cancel. No profile text, no extra dot.
+- Progress card: "ATLAS" label + kickoff orbit/running ring animation + cycling status messages + Cancel. No profile text, no numeric progress bar, no extra dot. After decompose completes, a compact list of sanitized research questions may appear below the rotating status copy.
 - Sidebar badge: simple colored circle (no icon), coexists with existing hover 3-dots menu icon.
 - Full EN/HU language switching via toggle — all UI chrome switches, report content stays in its research language.
 - Continue/Fork/Revise open inline expansion panels below the completion card, not modals.

@@ -1,3 +1,4 @@
+import type { SupportedLanguage } from "$lib/server/services/language";
 import type { AtlasHonestyMarker } from "./types";
 
 export interface AtlasAuditUsage {
@@ -17,6 +18,7 @@ export interface AtlasAuditBasisInput {
 	assembledMarkdown: string;
 	sources: Array<{ title: string; url?: string | null }>;
 	limitation?: { code: string; message: string } | null;
+	language?: SupportedLanguage;
 	runAuditModel?: (prompt: string) => Promise<AtlasAuditModelResult>;
 	auditModelWarning?: string | null;
 }
@@ -31,6 +33,11 @@ export interface AtlasAuditBasisResult {
 function buildAuditPrompt(input: AtlasAuditBasisInput): string {
 	return JSON.stringify({
 		task: 'Audit this Atlas report for unsupported claims, contradictions, language drift, and source gaps. Return JSON only: {"retryRequested": boolean, "markers": [{"code": string, "message": string, "severity": "info"|"warning"|"critical"}]}',
+		expectedLanguage: input.language ?? "en",
+		languageParityCheck:
+			input.language === "hu"
+				? "Hungarian Parity Check: flag any English slippage in generated headings, summaries, limitations, or body text unless it is an original source title, quoted source text, product name, or citation."
+				: "Flag language drift away from English except original source titles, quoted source text, product names, or citations.",
 		report: input.assembledMarkdown,
 		sources: input.sources,
 		limitation: input.limitation ?? null,

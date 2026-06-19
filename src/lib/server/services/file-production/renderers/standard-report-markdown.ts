@@ -64,12 +64,35 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 			return `> ${block.text}${block.citation ? `\n>\n> ${block.citation}` : ""}`;
 		case "divider":
 			return "---";
+		case "sourceChips":
+			return [
+				`### ${block.title}`,
+				...block.sources.map((source) => {
+					const label = source.url
+						? `[${source.title}](${source.url})`
+						: source.title;
+					const details = [
+						source.provided ? "You provided these" : null,
+						source.reasoning,
+					].filter((part): part is string => Boolean(part));
+					return details.length > 0
+						? `- ${label} - ${details.join("; ")}`
+						: `- ${label}`;
+				}),
+			].join("\n");
 		case "table":
 			return renderTable(block);
 		case "chart":
 			return `### ${block.title ?? "Chart"}\n\n${block.altText ?? block.caption ?? "Chart data is available in the rendered report."}`;
 		case "image":
-			return `![${block.altText}](${block.caption ?? ""})`;
+			return [
+				`![${block.altText}](${block.caption ?? ""})`,
+				block.sourceAttribution
+					? `Source: [${block.sourceAttribution.title}](${block.sourceAttribution.url})`
+					: null,
+			]
+				.filter((line): line is string => Boolean(line))
+				.join("\n");
 		case "pageBreak":
 			return "";
 	}

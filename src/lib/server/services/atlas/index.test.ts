@@ -427,6 +427,7 @@ describe("Atlas persistence foundation", () => {
 				progress: {
 					percent: 80,
 					stage: "audit",
+					details: { queries: [] },
 				},
 				sourceCounts: {
 					local: 2,
@@ -569,6 +570,7 @@ describe("Atlas persistence foundation", () => {
 			claimNextAtlasJob,
 			heartbeatAtlasJob,
 			linkAtlasJobAssistantMessage,
+			listConversationAtlasJobs,
 			recoverStaleAtlasJobs,
 			submitAtlasJobIntake,
 		} = await import("./index");
@@ -664,7 +666,7 @@ describe("Atlas persistence foundation", () => {
 			id: first.job.id,
 			status: "running",
 			stage: "decompose",
-			progress: { percent: 5, stage: "decompose" },
+			progress: { percent: 5, stage: "decompose", details: { queries: [] } },
 		});
 		expect(blockedByPerUserLimit).toBeNull();
 
@@ -673,7 +675,21 @@ describe("Atlas persistence foundation", () => {
 			workerId: "atlas-worker-1",
 			stage: "search",
 			progressPercent: 20,
+			progressDetails: {
+				queries: ["enterprise retrieval patterns", "hybrid search evaluation"],
+			},
 			now: new Date("2026-06-19T12:05:00.000Z"),
+		});
+		const [jobAfterHeartbeat] = await listConversationAtlasJobs(
+			"user-1",
+			"conv-1",
+		);
+		expect(jobAfterHeartbeat.progress).toMatchObject({
+			percent: 20,
+			stage: "search",
+			details: {
+				queries: ["enterprise retrieval patterns", "hybrid search evaluation"],
+			},
 		});
 		await cancelAtlasJob({
 			userId: "user-1",

@@ -50,6 +50,21 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 					source: { kind: "https", url: "https://example.com/image.png" },
 					altText: "HTML image fallback",
 					caption: "Image caption",
+					sourceAttribution: {
+						title: "Example image source",
+						url: "https://example.com/image-source",
+					},
+				},
+				{
+					type: "sourceChips",
+					title: "Web Sources",
+					sources: [
+						{
+							title: "Vendor docs",
+							url: "https://example.com/docs",
+							reasoning: "Compact reasoning belongs in the tooltip.",
+						},
+					],
 				},
 			],
 		});
@@ -80,7 +95,22 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 			'data-chart-type="line"',
 		);
 		expect(rendered.content.toString("utf8")).toContain("HTML image fallback");
-		expect(rendered.content.toString("utf8")).toContain("color:#1B1815");
+		expect(rendered.content.toString("utf8")).toContain("Example image source");
+		expect(rendered.content.toString("utf8")).toContain(
+			'<nav class="report-sidebar"',
+		);
+		expect(rendered.content.toString("utf8")).toContain(
+			'data-source-chip-list="Web Sources"',
+		);
+		expect(rendered.content.toString("utf8")).toContain(
+			"Compact reasoning belongs in the tooltip.",
+		);
+		expect(rendered.content.toString("utf8")).toContain(
+			"@media (prefers-color-scheme: dark)",
+		);
+		expect(rendered.content.toString("utf8")).toContain(
+			"--report-text:#1B1815",
+		);
 		expect(rendered.content.toString("utf8")).toContain('fill="#1B1815"');
 	});
 });

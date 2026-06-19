@@ -425,6 +425,7 @@ describe("Conversation Detail Read Model", () => {
 				progress: {
 					percent: 0,
 					stage: "queued",
+					details: { queries: [] },
 				},
 				sourceCounts: {
 					local: 0,

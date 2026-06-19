@@ -83,7 +83,7 @@ function atlasJob() {
 		title: "Atlas research",
 		status: "running",
 		stage: "decompose",
-		progress: { percent: 5, stage: "decompose" },
+		progress: { percent: 5, stage: "decompose", details: { queries: [] } },
 		sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
 		usage: {
 			inputTokens: 0,

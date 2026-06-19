@@ -81,4 +81,27 @@ describe("Atlas quality gates", () => {
 		);
 		expect(JSON.stringify(result)).not.toContain("not json");
 	});
+
+	it("adds Hungarian parity guidance to the audit prompt for Hungarian reports", async () => {
+		const runAuditModel = vi.fn(async (_prompt: string) => ({
+			text: '{"retryRequested": false, "markers": []}',
+		}));
+
+		await auditAtlasBasis({
+			assembledMarkdown: "## Összefoglaló\nMagyar jelentés.",
+			sources: [{ title: "Forrás", url: "https://example.com" }],
+			language: "hu",
+			runAuditModel,
+		});
+
+		const promptText = runAuditModel.mock.calls[0]?.[0];
+		expect(promptText).toBeDefined();
+		if (!promptText) throw new Error("Audit model was not called.");
+		const prompt = JSON.parse(promptText) as {
+			expectedLanguage: string;
+			languageParityCheck: string;
+		};
+		expect(prompt.expectedLanguage).toBe("hu");
+		expect(prompt.languageParityCheck).toContain("Hungarian Parity Check");
+	});
 });

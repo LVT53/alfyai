@@ -14,7 +14,7 @@ function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 		title: "Atlas research",
 		status: "queued",
 		stage: "queued",
-		progress: { percent: 0, stage: "queued" },
+		progress: { percent: 0, stage: "queued", details: { queries: [] } },
 		sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
 		usage: {
 			inputTokens: 0,
