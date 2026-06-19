@@ -368,6 +368,7 @@ vi.mock("$lib/server/services/tei-reranker", () => ({
 }));
 
 vi.mock("$lib/server/config-store", () => ({
+	getConfig: () => ({ contextDiagnosticsDebug: false }),
 	getTargetConstructedContext: () => 30_000,
 }));
 
