@@ -102,16 +102,12 @@ const chatDict = {
 		"composerCommands.compact.description":
 			"Compact older context for future turns.",
 		"composerCommands.compact.label": "Compact",
-		"composerCommands.deepResearchUnavailable": "Deep Research is disabled.",
 		"composerCommands.document.description":
 			"Link a Library document as context.",
 		"composerCommands.document.label": "Document",
 		"composerCommands.empty": "No matching commands.",
 		"composerCommands.model.description": "Open the model picker.",
 		"composerCommands.model.label": "Model",
-		"composerCommands.research.description":
-			"Toggle standard Deep Research depth for the next message.",
-		"composerCommands.research.label": "Deep Research",
 		"composerCommands.settings.description": "Open app settings.",
 		"composerCommands.settings.label": "Settings",
 		"composerCommands.skill.description":
@@ -134,11 +130,6 @@ const chatDict = {
 		"composerTools.activeControls": "Active composer controls",
 		"composerTools.attachFile": "Attach file",
 		"composerTools.attachFileMaxSize": "Attach file (max 100MB)",
-		"composerTools.deepResearch": "Deep Research",
-		"composerTools.deepResearchDepth": "Deep Research depth",
-		"composerTools.deepResearchFocused": "Focused Deep Research",
-		"composerTools.deepResearchMax": "Max Deep Research",
-		"composerTools.deepResearchStandard": "Standard Deep Research",
 		"composerTools.defaultStyle": "AlfyAI",
 		"composerTools.defaultStyleLabel": "Default style",
 		"composerTools.menu": "Composer tools",
@@ -220,154 +211,6 @@ const chatDict = {
 		"contextUsageRing.startNewTask": "Start new task",
 		"contextUsageRing.tokens": "tokens",
 		"contextUsageRing.unlockTask": "Unlock task",
-		"deepResearch.advanceWorkflowFailed": "Failed to advance research",
-		"deepResearch.advanceWorkflowHelp": "Manual dev/test progress control",
-		"deepResearch.advanceWorkflowLabel": "Advance research",
-		"deepResearch.advancingWorkflow": "Advancing...",
-		"deepResearch.approvePlanFailed": "Failed to approve Research Plan",
-		"deepResearch.approvePlanLabel": "Approve Research Plan",
-		"deepResearch.cancelLabel": "Cancel Deep Research",
-		"deepResearch.cardLabel": "Deep Research: {title}",
-		"deepResearch.contextConsidered": "Context considered",
-		"deepResearch.depth.focused": "Focused",
-		"deepResearch.depth.max": "Max",
-		"deepResearch.depth.standard": "Standard",
-		"deepResearch.discussReportLabel": "Discuss Report",
-		"deepResearch.editPlanFailed": "Failed to edit Research Plan",
-		"deepResearch.editPlanLabel": "Edit Research Plan",
-		"deepResearch.effortHeading": "Effort",
-		"deepResearch.estimatedCost": "Est. {cost}",
-		"deepResearch.expectedTime": "Expected time",
-		"deepResearch.finalResearchTime": "Research time {time}",
-		"deepResearch.limitedReport.body":
-			"The report is complete, but it explicitly labels evidence limits and unresolved gaps.",
-		"deepResearch.limitedReport.filenamePrefix": "Limited Research Report",
-		"deepResearch.limitedReport.heading": "Limited Research Report",
-		"deepResearch.memo.actionFailed": "Failed to open memo recovery action",
-		"deepResearch.memo.actionPending": "Opening...",
-		"deepResearch.memo.heading": "Evidence Limitation Memo",
-		"deepResearch.memo.limitations": "Grounded limitation reasons",
-		"deepResearch.memo.nextDirection": "Next research direction",
-		"deepResearch.memo.recoveryActions": "Memo Recovery Actions",
-		"deepResearch.memo.rejectedOrOffTopic": "{count} rejected/off-topic",
-		"deepResearch.memo.reviewedScope": "Reviewed scope",
-		"deepResearch.memo.topicRelevant": "{count} topic-relevant",
-		"deepResearch.openLimitedReportLabel": "Open Limited Research Report",
-		"deepResearch.openReportLabel": "Open Report",
-		"deepResearch.plan.deliverables": "Deliverables",
-		"deepResearch.plan.goal": "Goal",
-		"deepResearch.plan.keyQuestions": "Key questions",
-		"deepResearch.planEditInstructions": "Edit plan instructions",
-		"deepResearch.planHeading": "Research Plan",
-		"deepResearch.planRevision.body":
-			"The corrected draft is ready. Approve it to continue Deep Research, or edit it before approving.",
-		"deepResearch.planRevision.heading": "Research Plan Revision Needed",
-		"deepResearch.planningInProgress": "Drafting research plan...",
-		"deepResearch.planningInProgressDetail":
-			"Preparing the plan card. The draft will appear here when it is ready.",
-		"deepResearch.progress.auditRepairNeeded": "Audit repair needed",
-		"deepResearch.progress.auditRepairRunning": "Audit repair in progress",
-		"deepResearch.progress.currentStage": "Current stage: {stage}",
-		"deepResearch.progress.detailsLabel": "Research progress details",
-		"deepResearch.progress.dismissDetails": "Dismiss research progress details",
-		"deepResearch.progress.meaningfulPassesCompleted":
-			"{count} meaningful pass completed",
-		"deepResearch.progress.meaningfulPassesCompletedAndRunning":
-			"{completed} meaningful pass completed, {running} in progress",
-		"deepResearch.progress.meaningfulPassesCompletedAndRunningPlural":
-			"{completed} meaningful passes completed, {running} in progress",
-		"deepResearch.progress.meaningfulPassesCompletedPlural":
-			"{count} meaningful passes completed",
-		"deepResearch.progress.meaningfulPassesRunning":
-			"{count} meaningful pass in progress",
-		"deepResearch.progress.meaningfulPassesRunningPlural":
-			"{count} meaningful passes in progress",
-		"deepResearch.progress.noDetailsYet":
-			"More stage detail will appear as research state is saved.",
-		"deepResearch.progress.openCoverageGaps": "{count} open coverage gap",
-		"deepResearch.progress.openCoverageGapsPlural":
-			"{count} open coverage gaps",
-		"deepResearch.progress.resolvedClaimConflicts":
-			"{count} claim conflict resolved",
-		"deepResearch.progress.resolvedClaimConflictsPlural":
-			"{count} claim conflicts resolved",
-		"deepResearch.progress.showDetails": "Show research progress details",
-		"deepResearch.progress.stagePrefix": "Stage: ",
-		"deepResearch.reportIntent.comparison": "Comparison",
-		"deepResearch.reportIntent.investigation": "Investigation",
-		"deepResearch.reportIntent.limitationFocused": "Limitation-focused",
-		"deepResearch.reportIntent.marketScan": "Market scan",
-		"deepResearch.reportIntent.productScan": "Product scan",
-		"deepResearch.reportIntent.recommendation": "Recommendation",
-		"deepResearch.reportIntentLabel": "Report intent",
-		"deepResearch.researchFurtherLabel": "Research Further",
-		"deepResearch.reviewedSourcesHeading": "Reviewed sources",
-		"deepResearch.sourceCeiling": "Up to {count} sources",
-		"deepResearch.sourceCountsLabel": "Source counts",
-		"deepResearch.sourceStatus.cited": "Cited",
-		"deepResearch.sourceStatus.reviewed": "Reviewed",
-		"deepResearch.sourcesHeading": "Sources",
-		"deepResearch.status.approved": "Approved",
-		"deepResearch.status.awaitingApproval": "Awaiting approval",
-		"deepResearch.status.awaitingPlan": "Awaiting plan",
-		"deepResearch.status.cancelled": "Cancelled",
-		"deepResearch.status.completed": "Completed",
-		"deepResearch.status.failed": "Failed",
-		"deepResearch.status.insufficientEvidence": "Insufficient evidence",
-		"deepResearch.status.needsAttention": "Needs attention",
-		"deepResearch.status.running": "Running",
-		"deepResearch.status.working": "Working",
-		"deepResearch.submitPlanEdit": "Submit Plan Edit",
-		"deepResearch.submittingPlanEdit": "Submitting...",
-		"deepResearch.timeline.assumptions": "Assumptions",
-		"deepResearch.timeline.auditingCitations": "Auditing citations",
-		"deepResearch.timeline.awaitingApproval": "Awaiting approval",
-		"deepResearch.timeline.checkingCoverage": "Checking coverage",
-		"deepResearch.timeline.cited": "{count} cited",
-		"deepResearch.timeline.completed": "Completed",
-		"deepResearch.timeline.discovered": "{count} discovered",
-		"deepResearch.timeline.discoveringSources": "Discovering sources",
-		"deepResearch.timeline.fillingGaps": "Filling gaps",
-		"deepResearch.timeline.hide": "Hide Activity Timeline",
-		"deepResearch.timeline.planDrafted": "Plan drafted",
-		"deepResearch.timeline.planDrafting": "Drafting plan",
-		"deepResearch.timeline.planRevisionNeeded": "Research Plan Revision Needed",
-		"deepResearch.timeline.repairingCitations": "Repairing citations",
-		"deepResearch.timeline.reviewed": "{count} reviewed",
-		"deepResearch.timeline.reviewingSources": "Reviewing sources",
-		"deepResearch.timeline.show": "Show Activity Timeline",
-		"deepResearch.timeline.summary.citationAuditCompleted":
-			"Citation audit completed and unsupported claims were removed or retained with citations.",
-		"deepResearch.timeline.summary.citationAuditFailed":
-			"Citation audit failed because no credible supported claims remained.",
-		"deepResearch.timeline.summary.citationAuditRepairPassCreated":
-			"Citation audit created repair pass {passNumber} with {count} repair tasks.",
-		"deepResearch.timeline.summary.coverageInsufficient":
-			"Coverage gaps remain before report synthesis.",
-		"deepResearch.timeline.summary.coverageLimited":
-			"Depth budget is exhausted; incomplete coverage will be disclosed as report limitations.",
-		"deepResearch.timeline.summary.coverageSufficient":
-			"Reviewed evidence covers the approved Research Plan key questions.",
-		"deepResearch.timeline.summary.evidenceLimitationMemoCompleted":
-			"Research completed with an Evidence Limitation Memo because there was not enough credible topic-relevant evidence.",
-		"deepResearch.timeline.summary.planGenerated":
-			"Research Plan drafted for approval.",
-		"deepResearch.timeline.summary.planRevisionNeeded":
-			"Research Plan revision needed; corrected draft is ready for approval.",
-		"deepResearch.timeline.summary.researchTasksCompleted":
-			"Research task pass {passNumber} completed with {count} completed tasks.",
-		"deepResearch.timeline.summary.sourceDiscoveryCompleted":
-			"Discovered {count} public web source candidates.",
-		"deepResearch.timeline.summary.sourceReviewCompleted":
-			"Source review completed for {count} reviewed sources.",
-		"deepResearch.timeline.summary.workerCancelled":
-			"Deep Research job cancelled before further worker advancement.",
-		"deepResearch.timeline.summary.workerStaleRecovered":
-			"Deep Research job resumed from the latest durable Research Resume Point after exceeding the stale worker timeout.",
-		"deepResearch.timeline.synthesizing": "Synthesizing",
-		"deepResearch.timeline.warnings": "Warnings",
-		"deepResearch.timeline.writingReport": "Writing report",
-		"deepResearch.timelineHeading": "Activity Timeline",
 		"documentWorkspace.against": "Against",
 		"documentWorkspace.aiSource": "AI",
 		"documentWorkspace.closeCompare": "Close compare",
@@ -761,16 +604,12 @@ const chatDict = {
 		"composerCommands.compact.description":
 			"Régebbi kontextus tömörítése a következő körökhöz.",
 		"composerCommands.compact.label": "Tömörítés",
-		"composerCommands.deepResearchUnavailable": "A Mély kutatás le van tiltva.",
 		"composerCommands.document.description":
 			"Könyvtári dokumentum kapcsolása kontextusként.",
 		"composerCommands.document.label": "Dokumentum",
 		"composerCommands.empty": "Nincs egyező parancs.",
 		"composerCommands.model.description": "Megnyitja a modellválasztót.",
 		"composerCommands.model.label": "Modell",
-		"composerCommands.research.description":
-			"Normál Mély kutatás mélységet kapcsol a következő üzenethez.",
-		"composerCommands.research.label": "Mély kutatás",
 		"composerCommands.settings.description":
 			"Megnyitja az alkalmazás beállításait.",
 		"composerCommands.settings.label": "Beállítások",
@@ -796,11 +635,6 @@ const chatDict = {
 		"composerTools.activeControls": "Aktív beviteli vezérlők",
 		"composerTools.attachFile": "Fájl csatolása",
 		"composerTools.attachFileMaxSize": "Fájl csatolása (max. 100 MB)",
-		"composerTools.deepResearch": "Mély kutatás",
-		"composerTools.deepResearchDepth": "Mély kutatás mélysége",
-		"composerTools.deepResearchFocused": "Fókuszált mély kutatás",
-		"composerTools.deepResearchMax": "Max mély kutatás",
-		"composerTools.deepResearchStandard": "Normál mély kutatás",
 		"composerTools.defaultStyle": "AlfyAI",
 		"composerTools.defaultStyleLabel": "Alapértelmezett stílus",
 		"composerTools.menu": "Szerkesztőeszközök",
@@ -882,161 +716,6 @@ const chatDict = {
 		"contextUsageRing.startNewTask": "Új feladat indítása",
 		"contextUsageRing.tokens": "token",
 		"contextUsageRing.unlockTask": "Feladat feloldása",
-		"deepResearch.advanceWorkflowFailed": "Nem sikerült léptetni a kutatást",
-		"deepResearch.advanceWorkflowHelp": "Kézi fejlesztői/tesztelési léptetés",
-		"deepResearch.advanceWorkflowLabel": "Kutatás léptetése",
-		"deepResearch.advancingWorkflow": "Léptetés...",
-		"deepResearch.approvePlanFailed":
-			"Nem sikerült jóváhagyni a kutatási tervet",
-		"deepResearch.approvePlanLabel": "Kutatási terv jóváhagyása",
-		"deepResearch.cancelLabel": "Mély kutatás megszakítása",
-		"deepResearch.cardLabel": "Mély kutatás: {title}",
-		"deepResearch.contextConsidered": "Figyelembe vett kontextus",
-		"deepResearch.depth.focused": "Fókuszált",
-		"deepResearch.depth.max": "Max",
-		"deepResearch.depth.standard": "Normál",
-		"deepResearch.discussReportLabel": "Jelentés megbeszélése",
-		"deepResearch.editPlanFailed": "Nem sikerült módosítani a kutatási tervet",
-		"deepResearch.editPlanLabel": "Kutatási terv szerkesztése",
-		"deepResearch.effortHeading": "Ráfordítás",
-		"deepResearch.estimatedCost": "Becs. {cost}",
-		"deepResearch.expectedTime": "Várható idő",
-		"deepResearch.finalResearchTime": "Kutatási idő {time}",
-		"deepResearch.limitedReport.body":
-			"A jelentés elkészült, de kifejezetten jelöli a bizonyítékkorlátokat és a nyitott hiányokat.",
-		"deepResearch.limitedReport.filenamePrefix":
-			"Korlátozott kutatási jelentés",
-		"deepResearch.limitedReport.heading": "Korlátozott kutatási jelentés",
-		"deepResearch.memo.actionFailed":
-			"Nem sikerült megnyitni a memó helyreállítási műveletét",
-		"deepResearch.memo.actionPending": "Megnyitás...",
-		"deepResearch.memo.heading": "Bizonyítékkorlát-memó",
-		"deepResearch.memo.limitations": "Megalapozott korlátozási okok",
-		"deepResearch.memo.nextDirection": "Következő kutatási irány",
-		"deepResearch.memo.recoveryActions": "Memó helyreállítási műveletek",
-		"deepResearch.memo.rejectedOrOffTopic": "{count} elutasított/témán kívüli",
-		"deepResearch.memo.reviewedScope": "Áttekintett hatókör",
-		"deepResearch.memo.topicRelevant": "{count} témához illeszkedő",
-		"deepResearch.openLimitedReportLabel":
-			"Korlátozott kutatási jelentés megnyitása",
-		"deepResearch.openReportLabel": "Jelentés megnyitása",
-		"deepResearch.plan.deliverables": "Eredmények",
-		"deepResearch.plan.goal": "Cél",
-		"deepResearch.plan.keyQuestions": "Kulcskérdések",
-		"deepResearch.planEditInstructions": "Terv szerkesztési utasítások",
-		"deepResearch.planHeading": "Kutatási terv",
-		"deepResearch.planRevision.body":
-			"A javított vázlat készen áll. Hagyd jóvá a Mély kutatás folytatásához, vagy szerkeszd jóváhagyás előtt.",
-		"deepResearch.planRevision.heading": "Kutatási terv módosítása szükséges",
-		"deepResearch.planningInProgress": "Kutatási terv készítése...",
-		"deepResearch.planningInProgressDetail":
-			"A tervkártya előkészítése folyamatban van. A vázlat itt jelenik meg, amint elkészült.",
-		"deepResearch.progress.auditRepairNeeded": "Auditjavítás szükséges",
-		"deepResearch.progress.auditRepairRunning": "Auditjavítás folyamatban",
-		"deepResearch.progress.currentStage": "Aktuális szakasz: {stage}",
-		"deepResearch.progress.detailsLabel": "Kutatási előrehaladás részletei",
-		"deepResearch.progress.dismissDetails":
-			"Kutatási előrehaladás részleteinek bezárása",
-		"deepResearch.progress.meaningfulPassesCompleted":
-			"{count} érdemi menet befejezve",
-		"deepResearch.progress.meaningfulPassesCompletedAndRunning":
-			"{completed} érdemi menet befejezve, {running} folyamatban",
-		"deepResearch.progress.meaningfulPassesCompletedAndRunningPlural":
-			"{completed} érdemi menet befejezve, {running} folyamatban",
-		"deepResearch.progress.meaningfulPassesCompletedPlural":
-			"{count} érdemi menet befejezve",
-		"deepResearch.progress.meaningfulPassesRunning":
-			"{count} érdemi menet folyamatban",
-		"deepResearch.progress.meaningfulPassesRunningPlural":
-			"{count} érdemi menet folyamatban",
-		"deepResearch.progress.noDetailsYet":
-			"További szakaszrészletek jelennek meg, ahogy a kutatási állapot mentésre kerül.",
-		"deepResearch.progress.openCoverageGaps":
-			"{count} nyitott lefedettségi hiány",
-		"deepResearch.progress.openCoverageGapsPlural":
-			"{count} nyitott lefedettségi hiány",
-		"deepResearch.progress.resolvedClaimConflicts":
-			"{count} állításütközés feloldva",
-		"deepResearch.progress.resolvedClaimConflictsPlural":
-			"{count} állításütközés feloldva",
-		"deepResearch.progress.showDetails":
-			"Kutatási előrehaladás részleteinek megjelenítése",
-		"deepResearch.progress.stagePrefix": "Szakasz: ",
-		"deepResearch.reportIntent.comparison": "Összehasonlítás",
-		"deepResearch.reportIntent.investigation": "Vizsgálat",
-		"deepResearch.reportIntent.limitationFocused": "Korlátokra fókuszáló",
-		"deepResearch.reportIntent.marketScan": "Piaci áttekintés",
-		"deepResearch.reportIntent.productScan": "Termékáttekintés",
-		"deepResearch.reportIntent.recommendation": "Ajánlás",
-		"deepResearch.reportIntentLabel": "Jelentési szándék",
-		"deepResearch.researchFurtherLabel": "További kutatás",
-		"deepResearch.reviewedSourcesHeading": "Áttekintett források",
-		"deepResearch.sourceCeiling": "Legfeljebb {count} forrás",
-		"deepResearch.sourceCountsLabel": "Forrásszámok",
-		"deepResearch.sourceStatus.cited": "Idézett",
-		"deepResearch.sourceStatus.reviewed": "Áttekintett",
-		"deepResearch.sourcesHeading": "Források",
-		"deepResearch.status.approved": "Jóváhagyva",
-		"deepResearch.status.awaitingApproval": "Jóváhagyásra vár",
-		"deepResearch.status.awaitingPlan": "Tervre vár",
-		"deepResearch.status.cancelled": "Megszakítva",
-		"deepResearch.status.completed": "Befejezve",
-		"deepResearch.status.failed": "Sikertelen",
-		"deepResearch.status.insufficientEvidence": "Nincs elég bizonyíték",
-		"deepResearch.status.needsAttention": "Figyelmet igényel",
-		"deepResearch.status.running": "Fut",
-		"deepResearch.status.working": "Folyamatban",
-		"deepResearch.submitPlanEdit": "Tervmódosítás beküldése",
-		"deepResearch.submittingPlanEdit": "Beküldés...",
-		"deepResearch.timeline.assumptions": "Feltételezések",
-		"deepResearch.timeline.auditingCitations": "Idézések auditálása",
-		"deepResearch.timeline.awaitingApproval": "Jóváhagyásra vár",
-		"deepResearch.timeline.checkingCoverage": "Lefedettség ellenőrzése",
-		"deepResearch.timeline.cited": "{count} idézett",
-		"deepResearch.timeline.completed": "Befejezve",
-		"deepResearch.timeline.discovered": "{count} felfedezett",
-		"deepResearch.timeline.discoveringSources": "Források keresése",
-		"deepResearch.timeline.fillingGaps": "Hiányok pótlása",
-		"deepResearch.timeline.hide": "Tevékenységi idővonal elrejtése",
-		"deepResearch.timeline.planDrafted": "Terv elkészült",
-		"deepResearch.timeline.planDrafting": "Terv készítése",
-		"deepResearch.timeline.planRevisionNeeded":
-			"Kutatási terv módosítása szükséges",
-		"deepResearch.timeline.repairingCitations": "Hivatkozások javítása",
-		"deepResearch.timeline.reviewed": "{count} áttekintett",
-		"deepResearch.timeline.reviewingSources": "Források áttekintése",
-		"deepResearch.timeline.show": "Tevékenységi idővonal megjelenítése",
-		"deepResearch.timeline.summary.citationAuditCompleted": `A hivatkozás-ellenőrzés befejeződött, a nem alátámasztott állítások eltávolításra kerültek vagy hivatkozással maradtak meg.`,
-		"deepResearch.timeline.summary.citationAuditFailed":
-			"A hivatkozás-ellenőrzés sikertelen volt, mert nem maradt hitelesen alátámasztott állítás.",
-		"deepResearch.timeline.summary.citationAuditRepairPassCreated":
-			"A hivatkozás-ellenőrzés létrehozta a(z) {passNumber}. javító menetet {count} javítási feladattal.",
-		"deepResearch.timeline.summary.coverageInsufficient":
-			"A jelentésszintézis előtt még lefedettségi hiányok maradtak.",
-		"deepResearch.timeline.summary.coverageLimited":
-			"A mélységi keret kimerült; a hiányos lefedettség jelentési korlátként jelenik meg.",
-		"deepResearch.timeline.summary.coverageSufficient":
-			"Az áttekintett bizonyíték lefedi a jóváhagyott kutatási terv kulcskérdéseit.",
-		"deepResearch.timeline.summary.evidenceLimitationMemoCompleted":
-			"A kutatás bizonyítékkorlát-memóval zárult, mert nem volt elég hiteles, témához illeszkedő bizonyíték.",
-		"deepResearch.timeline.summary.planGenerated":
-			"A kutatási terv elkészült jóváhagyásra.",
-		"deepResearch.timeline.summary.planRevisionNeeded":
-			"A kutatási terv módosítása szükséges; a javított vázlat jóváhagyásra vár.",
-		"deepResearch.timeline.summary.researchTasksCompleted":
-			"A(z) {passNumber}. kutatási feladatmenet lezárult {count} befejezett feladattal.",
-		"deepResearch.timeline.summary.sourceDiscoveryCompleted":
-			"{count} nyilvános webes forrásjelölt felfedezve.",
-		"deepResearch.timeline.summary.sourceReviewCompleted":
-			"Forrásáttekintés befejezve {count} áttekintett forrással.",
-		"deepResearch.timeline.summary.workerCancelled":
-			"A mély kutatási feladat megszakadt, mielőtt a worker tovább léptette volna.",
-		"deepResearch.timeline.summary.workerStaleRecovered":
-			"A mély kutatási feladat a legutóbbi tartós folytatási pontról folytatódott a worker időtúllépése után.",
-		"deepResearch.timeline.synthesizing": "Szintetizálás",
-		"deepResearch.timeline.warnings": "Figyelmeztetések",
-		"deepResearch.timeline.writingReport": "Jelentés írása",
-		"deepResearch.timelineHeading": "Tevékenységi idővonal",
 		"documentWorkspace.against": "Összehasonlítva ezzel",
 		"documentWorkspace.aiSource": "AI",
 		"documentWorkspace.closeCompare": "Összehasonlítás bezárása",

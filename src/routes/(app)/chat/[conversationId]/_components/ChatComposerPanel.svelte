@@ -48,7 +48,6 @@ let {
 	onUploadFiles,
 	totalCostUsd,
 	totalTokens,
-	deepResearchEnabled,
 	composerCommandRegistryEnabled = false,
 	personalityProfiles,
 	selectedPersonalityId,
@@ -100,7 +99,6 @@ let {
 		| undefined;
 	totalCostUsd?: number;
 	totalTokens?: number;
-	deepResearchEnabled?: boolean;
 	composerCommandRegistryEnabled?: boolean;
 	personalityProfiles?: Array<{
 		id: string;
@@ -208,7 +206,6 @@ onDestroy(() => {
 			{onUploadFiles}
 			{totalCostUsd}
 			{totalTokens}
-			{deepResearchEnabled}
 			{composerCommandRegistryEnabled}
 			{personalityProfiles}
 			{selectedPersonalityId}

@@ -25,7 +25,6 @@ vi.mock("$lib/server/services/app-version", () => ({
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({
 		maxMessageLength: 12000,
-		deepResearchEnabled: true,
 		composerCommandRegistryEnabled: true,
 		defaultNewUserModel: "model2",
 		model1: { displayName: "Model 1" },
@@ -185,16 +184,6 @@ describe("(app) layout load", () => {
 
 		expect(event.depends).toHaveBeenCalledWith("app:shell");
 		expect(event.depends).toHaveBeenCalledWith("app:shell:conversations");
-	});
-
-	it("exposes the Deep Research feature flag to app pages", async () => {
-		const result = (await load(createAuthenticatedLoadEvent())) as LoadResult;
-
-		expect(result).toEqual(
-			expect.objectContaining({
-				deepResearchEnabled: true,
-			}),
-		);
 	});
 
 	it("exposes the Composer Command Registry feature flag to app pages", async () => {

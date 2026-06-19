@@ -141,7 +141,7 @@ Do not:
 - Conversation detail hydration:
   - [`src/lib/server/services/conversation-detail/read-model.ts`](./src/lib/server/services/conversation-detail/read-model.ts)
     - Owns refreshable `/api/conversations/[id]` GET payload assembly for chat page load and browser hydration.
-    - Assembles bootstrap and full detail payloads, including defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft/generated-file/File Production/Deep Research/context-compression/cost fields, and active Skill Session public serialization.
+    - Assembles bootstrap and full detail payloads, including defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft/generated-file/File Production/context-compression/cost fields, and active Skill Session public serialization.
     - The route GET handler stays an auth/HTTP adapter that delegates to `getConversationDetail(...)`.
 - Shared pipeline:
   - [`src/lib/server/services/chat-turn/request.ts`](./src/lib/server/services/chat-turn/request.ts)

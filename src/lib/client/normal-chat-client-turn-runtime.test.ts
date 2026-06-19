@@ -101,8 +101,6 @@ function makeAdapters(
 				ok: true,
 			}),
 		),
-		shouldStartDeepResearchJob: vi.fn(() => false),
-		startDeepResearchTurn: vi.fn(),
 		appendUserMessage: vi.fn((message) => {
 			messages.push(message);
 		}),

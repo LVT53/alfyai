@@ -14,7 +14,7 @@ Supporting evidence: 2026 CUBE Bikes Kathmandu One - Bike Insights [2] Official 
 - Der superelegante C:62® Carbonrahmen des Nulane Hybrid C:62 SLX ist an sich schon ein echtes Highlight – doch dieses E-Bike hat noch mehr zu bieten. Nämlich leichte und zugleich robuste Newmen Performance Gravel 25 Laufräder, auf die wir Continental Terra Speed 45 mm Pneus aufgezogen haben, die geschmeidig und schnell dahinrollen, ob auf ruppigeren Straßen, […] [7]
 
 ## Methodology
-Review scope followed the approved Max Deep Research plan.
+Review scope followed the approved report plan.
 Source review ceiling: 120.
 Synthesis pass ceiling: 4.
 

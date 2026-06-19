@@ -51,7 +51,6 @@ function appShellDataFixture(
 		conversations: Promise.resolve([]),
 		projects: Promise.resolve([]),
 		maxMessageLength: 12_000,
-		deepResearchEnabled: true,
 		composerCommandRegistryEnabled: false,
 		userTheme: "system",
 		userModel: "model1",
@@ -134,10 +133,9 @@ describe("chat conversation page load", () => {
 		);
 		expect(parent).toHaveBeenCalledOnce();
 
-		resolveParent(appShellDataFixture({ deepResearchEnabled: true }));
+		resolveParent(appShellDataFixture());
 		const data = (await loadPromise) as LoadedPageData;
 		expect(data.conversation.title).toBe("Fast first render");
-		expect(data.deepResearchEnabled).toBe(true);
 	});
 
 	it("registers the conversation detail dependency for targeted reloads", async () => {
@@ -163,47 +161,6 @@ describe("chat conversation page load", () => {
 		await load(event);
 
 		expect(depends).toHaveBeenCalledWith("app:conversation-detail:conv-1");
-	});
-
-	it("passes Deep Research jobs from conversation detail into page data", async () => {
-		const deepResearchJobs = [
-			{
-				id: "research-job-1",
-				conversationId: "conv-1",
-				triggerMessageId: "user-1",
-				depth: "standard",
-				status: "awaiting_plan",
-				stage: "job_shell_created",
-				title: "Research battery recycling policy",
-				userRequest: "Research battery recycling policy",
-				createdAt: 1_777_140_002_000,
-				updatedAt: 1_777_140_002_000,
-				completedAt: null,
-				cancelledAt: null,
-			},
-		];
-		const fetch = vi.fn(async () => {
-			return new Response(
-				JSON.stringify({
-					conversation: conversationFixture("conv-1", { title: "Research" }),
-					messages: [],
-					deepResearchJobs,
-				}),
-				{ status: 200 },
-			);
-		});
-
-		const event = makeLoadEvent(
-			fetch as unknown as typeof globalThis.fetch,
-			vi.fn(async () => appShellDataFixture()),
-			"http://localhost/chat/conv-1",
-		);
-		const data = (await load(event)) as LoadedPageData;
-
-		expect(fetch).toHaveBeenCalledWith(
-			"/api/conversations/conv-1?view=first-render",
-		);
-		expect(data.deepResearchJobs).toEqual(deepResearchJobs);
 	});
 
 	it("requests bootstrap conversation detail when the URL asks for bootstrap view", async () => {
@@ -263,7 +220,6 @@ describe("chat conversation page load", () => {
 			bootstrap: false,
 			generatedFiles: [],
 			fileProductionJobs: [],
-			deepResearchJobs: [],
 			contextCompressionSnapshots: [],
 			activeSkillSession: null,
 			totalCostUsdMicros: 0,
@@ -286,7 +242,6 @@ describe("chat conversation page load", () => {
 		const parent = vi.fn(async () =>
 			appShellDataFixture({
 				composerCommandRegistryEnabled: true,
-				deepResearchEnabled: true,
 				maxMessageLength: 12000,
 			}),
 		);
@@ -300,7 +255,6 @@ describe("chat conversation page load", () => {
 
 		expect(parent).toHaveBeenCalledOnce();
 		expect(data.composerCommandRegistryEnabled).toBe(true);
-		expect(data.deepResearchEnabled).toBe(true);
 		expect(data.maxMessageLength).toBe(12000);
 	});
 });

@@ -149,8 +149,6 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 			render(SettingsAdminSystemPane, {
 				adminConfig: {
 					COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
-					DEEP_RESEARCH_ENABLED: "false",
-					DEEP_RESEARCH_WORKER_ENABLED: "false",
 					MODEL_2_ENABLED: "true",
 				},
 				envDefaults: {},
@@ -199,8 +197,6 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 		const { getByRole, getAllByRole } = render(SettingsAdminSystemPane, {
 			adminConfig: {
 				COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
-				DEEP_RESEARCH_ENABLED: "false",
-				DEEP_RESEARCH_WORKER_ENABLED: "false",
 				MODEL_2_ENABLED: "true",
 				MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: "provider:provider-1:model-1",
 			},

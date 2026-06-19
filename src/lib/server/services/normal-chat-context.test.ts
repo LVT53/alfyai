@@ -173,7 +173,7 @@ describe("prepareOutboundChatContext", () => {
 		expect(prompt).not.toContain("current legacy external search flows");
 	});
 
-	it("adds depth grounding guidance without forcing web search or Deep Research", () => {
+	it("adds depth grounding guidance without forcing web search", () => {
 		const prompt = buildOutboundSystemPrompt({
 			basePrompt: "Base system prompt",
 			inputValue: "Compare current release options.",
@@ -199,7 +199,6 @@ describe("prepareOutboundChatContext", () => {
 		});
 
 		expect(prompt).toContain("Applied Normal Chat profile: maximum");
-		expect(prompt).toContain("does not start Deep Research");
 		expect(prompt).toContain("does not force web search");
 		expect(prompt).toContain("Maximum-depth reasoning contract");
 		expect(prompt).toContain(

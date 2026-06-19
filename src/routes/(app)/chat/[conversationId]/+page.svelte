@@ -3,7 +3,7 @@ import { get, writable } from "svelte/store";
 import { onMount, onDestroy, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { page } from "$app/state";
-import { goto, invalidate, invalidateAll, replaceState } from "$app/navigation";
+import { goto, invalidate, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
 import {
 	cleanupPreparedConversation,
@@ -15,7 +15,6 @@ import {
 	hasMeaningfulDraft,
 	setConversationModelSelection,
 	setConversationPersonalitySelection,
-	storePendingConversationMessage,
 } from "$lib/client/conversation-session";
 import {
 	applyTaskSteering,
@@ -41,15 +40,6 @@ import {
 } from "$lib/client/api/skills";
 import { ApiError } from "$lib/client/api/http";
 import {
-	advanceDeepResearchWorkflow as advanceDeepResearchWorkflowRequest,
-	approveDeepResearchPlan as approveDeepResearchPlanRequest,
-	cancelDeepResearchJob as cancelDeepResearchJobRequest,
-	discussDeepResearchReport as discussDeepResearchReportRequest,
-	editDeepResearchPlan as editDeepResearchPlanRequest,
-	researchFurtherFromDeepResearchReport as researchFurtherFromDeepResearchReportRequest,
-	startDeepResearchChatJob as startDeepResearchChatJobRequest,
-} from "$lib/client/api/deep-research";
-import {
 	recordDocumentWorkspaceOpen,
 	uploadKnowledgeAttachment,
 } from "$lib/client/api/knowledge";
@@ -72,9 +62,6 @@ import type {
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
-	DeepResearchDepth,
-	DeepResearchJob,
-	DeepResearchReportIntent,
 	DocumentWorkspaceItem,
 	FileProductionJob,
 	SkillSession,
@@ -126,9 +113,7 @@ import {
 	attachUnassignedFileProductionJobsToAssistant,
 	finalizeStreamingMessageList,
 	getWorkspacePresentationAfterDocumentOpen,
-	hasActiveDeepResearchJobs,
 	hasActiveFileProductionJobs,
-	mergeDeepResearchJobsForHydration,
 	mergeFileProductionJob,
 	removeMessageById,
 	patchSkillDraftInMessageList,
@@ -138,8 +123,6 @@ import {
 	isConversationReadOnly,
 	isOsFileDropEvent,
 	markPendingSkillUnavailable,
-	shouldStartDeepResearchJob,
-	shouldDeleteConversationAfterCancellingDeepResearch,
 	shouldHydrateFileProductionJobsOnToolCall,
 	type DraftChangePayload,
 	type MessageEditPayload,
@@ -183,7 +166,6 @@ const initialForkOrigin = getData().forkOrigin ?? null;
 const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
-const initialDeepResearchJobs = getData().deepResearchJobs ?? [];
 const initialContextCompressionSnapshots =
 	getData().contextCompressionSnapshots ?? [];
 const initialActiveSkillSession = getData().activeSkillSession ?? null;
@@ -281,7 +263,6 @@ let conversationDraft = $state<ConversationDraft | null>(
 let forkOrigin = $state<ConversationForkOrigin | null>(initialForkOrigin);
 let generatedFiles = $state<ChatGeneratedFile[]>(initialGeneratedFiles);
 let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
-let deepResearchJobs = $state<DeepResearchJob[]>(initialDeepResearchJobs);
 let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
 	initialContextCompressionSnapshots,
 );
@@ -298,7 +279,7 @@ let forkOpening = $state(Boolean(initialForkOrigin));
 let forkOpeningTimeout: ReturnType<typeof setTimeout> | null = null;
 let conversationStatus = $state(initialConversationStatus);
 let isConversationReadOnlyForChat = $derived(
-	isConversationReadOnly({ status: conversationStatus }, deepResearchJobs),
+	isConversationReadOnly({ status: conversationStatus }),
 );
 const initialWorkspaceState = getPersistedWorkspaceState();
 let workspaceDocuments = $state<DocumentWorkspaceItem[]>(
@@ -418,10 +399,6 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 				),
 			};
 		}
-	},
-	shouldStartDeepResearchJob,
-	startDeepResearchTurn: (params) => {
-		void startDeepResearchTurn(params);
 	},
 	appendUserMessage: (message) => {
 		messages.update((list) => [...list, message]);
@@ -817,7 +794,6 @@ function resetState() {
 	triggerForkOpeningTransition();
 	generatedFiles = data.generatedFiles ?? [];
 	fileProductionJobs = data.fileProductionJobs ?? [];
-	deepResearchJobs = data.deepResearchJobs ?? [];
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
 	conversationStatus = data.conversation.status ?? "open";
 	totalCostUsdMicros = data.totalCostUsdMicros ?? 0;
@@ -1007,12 +983,6 @@ async function pollForCompletion(
 		normalChatRuntime.completePollingRecovery();
 
 		applyConversationDetailMetadata(detail);
-		if (detail.deepResearchJobs) {
-			deepResearchJobs = mergeDeepResearchJobsForHydration(
-				deepResearchJobs,
-				detail.deepResearchJobs ?? [],
-			);
-		}
 		conversationStatus = detail.conversation?.status ?? conversationStatus;
 
 		// Poll for evidence
@@ -1042,10 +1012,6 @@ async function loadPersistedData() {
 		messages.set([...(detail.messages ?? [])]);
 		applyConversationDetailMetadata(detail);
 		forkOrigin = detail.forkOrigin ?? forkOrigin;
-		deepResearchJobs = mergeDeepResearchJobsForHydration(
-			deepResearchJobs,
-			detail.deepResearchJobs ?? [],
-		);
 		conversationStatus = detail.conversation?.status ?? conversationStatus;
 		conversationDraft = null;
 		const pending = consumePendingConversationMessage(data.conversation.id);
@@ -1111,7 +1077,6 @@ onDestroy(() => {
 	if (
 		!hasPersistedMessages &&
 		data?.conversation?.id &&
-		!hasActiveDeepResearchJobs(deepResearchJobs) &&
 		!hasMeaningfulDraft(
 			conversationDraft?.draftText ?? "",
 			conversationDraft?.selectedAttachmentIds ?? [],
@@ -1156,12 +1121,6 @@ async function hydrateConversationDetail(conversationId: string) {
 		}
 		conversationDraft = payload.draft ?? conversationDraft;
 		forkOrigin = payload.forkOrigin ?? forkOrigin;
-		deepResearchJobs = payload.deepResearchJobs
-			? mergeDeepResearchJobsForHydration(
-					deepResearchJobs,
-					payload.deepResearchJobs,
-				)
-			: deepResearchJobs;
 		activeSkillSession = payload.activeSkillSession ?? null;
 		conversationStatus = payload.conversation?.status ?? conversationStatus;
 		bootstrapMode = false;
@@ -1211,66 +1170,6 @@ function attachFileProductionJobsToAssistantMessage(
 	);
 }
 
-function mergeDeepResearchJob(
-	jobs: DeepResearchJob[],
-	updatedJob: DeepResearchJob,
-): DeepResearchJob[] {
-	const existingIndex = jobs.findIndex((job) => job.id === updatedJob.id);
-	if (existingIndex === -1) {
-		return [...jobs, updatedJob];
-	}
-	return jobs.map((job, index) => (index === existingIndex ? updatedJob : job));
-}
-
-function replaceOptimisticDeepResearchJob(
-	jobs: DeepResearchJob[],
-	optimisticJobId: string,
-	updatedJob: DeepResearchJob,
-): DeepResearchJob[] {
-	return mergeDeepResearchJob(
-		jobs.filter((job) => job.id !== optimisticJobId),
-		updatedJob,
-	);
-}
-
-function removeDeepResearchJob(
-	jobs: DeepResearchJob[],
-	jobId: string,
-): DeepResearchJob[] {
-	return jobs.filter((job) => job.id !== jobId);
-}
-
-function createOptimisticDeepResearchJob(params: {
-	conversationId: string;
-	triggerMessageId: string | null;
-	depth: NonNullable<SendPayload["deepResearchDepth"]>;
-	message: string;
-}): DeepResearchJob {
-	const now = Date.now();
-	const title =
-		params.message.trim().replace(/\s+/g, " ").slice(0, 96) || "Deep Research";
-	return {
-		id: `pending-deep-research-${crypto.randomUUID()}`,
-		conversationId: params.conversationId,
-		triggerMessageId: params.triggerMessageId,
-		depth: params.depth,
-		status: "awaiting_plan",
-		stage: "plan_generation",
-		title,
-		userRequest: params.message,
-		reportArtifactId: null,
-		plan: null,
-		currentPlan: null,
-		timeline: [],
-		sourceCounts: { discovered: 0, reviewed: 0, cited: 0 },
-		sources: [],
-		createdAt: now,
-		updatedAt: now,
-		completedAt: null,
-		cancelledAt: null,
-	};
-}
-
 async function handleRetryFileProductionJob(jobId: string) {
 	try {
 		const job = await retryFileProductionJobRequest(jobId);
@@ -1291,193 +1190,9 @@ async function handleCancelFileProductionJob(jobId: string) {
 	}
 }
 
-async function handleCancelDeepResearchJob(jobId: string) {
-	const jobBeforeCancel = deepResearchJobs.find((job) => job.id === jobId);
-	const shouldDeleteConversation =
-		shouldDeleteConversationAfterCancellingDeepResearch({
-			jobBeforeCancel,
-			messageCount: $messages.length,
-			deepResearchJobCount: deepResearchJobs.length,
-		});
-	try {
-		const job = await cancelDeepResearchJobRequest(jobId);
-		if (shouldDeleteConversation) {
-			draftPersistence.clear();
-			await deleteConversationDraft(data.conversation.id).catch(
-				() => undefined,
-			);
-			await deleteConversation(data.conversation.id);
-			removeConversationLocal(data.conversation.id);
-			await invalidateAll();
-			await goto("/");
-			return;
-		}
-		deepResearchJobs = mergeDeepResearchJob(deepResearchJobs, job);
-	} catch (err) {
-		sendError =
-			err instanceof Error ? err.message : "Failed to cancel Deep Research";
-	}
-}
-
-async function handleEditDeepResearchPlan(
-	jobId: string,
-	instructions: string,
-	reportIntent?: DeepResearchReportIntent,
-) {
-	try {
-		const job = await editDeepResearchPlanRequest(
-			jobId,
-			instructions,
-			reportIntent,
-		);
-		deepResearchJobs = mergeDeepResearchJob(deepResearchJobs, job);
-	} catch (err) {
-		sendError =
-			err instanceof Error ? err.message : "Failed to edit Research Plan";
-		throw err;
-	}
-}
-
-async function handleApproveDeepResearchPlan(jobId: string) {
-	try {
-		const job = await approveDeepResearchPlanRequest(jobId);
-		deepResearchJobs = mergeDeepResearchJob(deepResearchJobs, job);
-	} catch (err) {
-		sendError =
-			err instanceof Error ? err.message : "Failed to approve Research Plan";
-		throw err;
-	}
-}
-
-async function handleDiscussDeepResearchReport(jobId: string) {
-	try {
-		const action = await discussDeepResearchReportRequest(jobId);
-		upsertConversationLocal(
-			action.conversation.id,
-			action.conversation.title,
-			action.conversation.updatedAt,
-			action.conversation.projectId,
-		);
-		if (action.seedMessage) {
-			storePendingConversationMessage(action.conversation.id, {
-				message: action.seedMessage,
-				attachmentIds: [],
-				attachments: [],
-				modelId: $selectedModel,
-				personalityProfileId: selectedPersonalityId,
-				deepResearchDepth: null,
-			});
-		}
-		await goto(`/chat/${action.conversation.id}?view=bootstrap`);
-	} catch (err) {
-		sendError =
-			err instanceof Error
-				? err.message
-				: "Failed to discuss Deep Research artifact";
-		throw err;
-	}
-}
-
-async function handleResearchFurtherFromDeepResearchReport(
-	jobId: string,
-	options?: { depth?: DeepResearchDepth },
-) {
-	try {
-		const action = await researchFurtherFromDeepResearchReportRequest(
-			jobId,
-			options,
-		);
-		upsertConversationLocal(
-			action.conversation.id,
-			action.conversation.title,
-			action.conversation.updatedAt,
-			action.conversation.projectId,
-		);
-		await goto(`/chat/${action.conversation.id}`);
-	} catch (err) {
-		sendError =
-			err instanceof Error
-				? err.message
-				: "Failed to research further from Deep Research artifact";
-		throw err;
-	}
-}
-
-function handleAdvanceDeepResearchWorkflow(jobId: string) {
-	void advanceDeepResearchWorkflowRequest(jobId)
-		.then((result) => {
-			deepResearchJobs = mergeDeepResearchJob(deepResearchJobs, result.job);
-			void hydrateConversationDetail(data.conversation.id);
-		})
-		.catch((err) => {
-			sendError =
-				err instanceof Error ? err.message : "Failed to advance Deep Research";
-		});
-}
-
-async function startDeepResearchTurn(params: {
-	message: string;
-	depth: NonNullable<SendPayload["deepResearchDepth"]>;
-	attachmentIds: string[];
-	modelId: SendPayload["modelId"];
-	personalityProfileId: string | null;
-	clientUserMessageId: string | null;
-}) {
-	const optimisticJob = createOptimisticDeepResearchJob({
-		conversationId: data.conversation.id,
-		triggerMessageId: params.clientUserMessageId,
-		depth: params.depth,
-		message: params.message,
-	});
-	deepResearchJobs = mergeDeepResearchJob(deepResearchJobs, optimisticJob);
-	try {
-		const job = await startDeepResearchChatJobRequest({
-			conversationId: data.conversation.id,
-			message: params.message,
-			depth: params.depth,
-			modelId: params.modelId,
-			attachmentIds: params.attachmentIds,
-			activeDocumentArtifactId: getActiveWorkspaceArtifactId(),
-			personalityProfileId: params.personalityProfileId,
-		});
-		if (params.clientUserMessageId && job.triggerMessageId) {
-			const clientUserMessageId = params.clientUserMessageId;
-			messages.update((list) =>
-				updateMessageById(list, clientUserMessageId, (message) => ({
-					...message,
-					renderKey: message.renderKey ?? clientUserMessageId,
-					id: job.triggerMessageId ?? message.id,
-				})),
-			);
-		}
-		deepResearchJobs = replaceOptimisticDeepResearchJob(
-			deepResearchJobs,
-			optimisticJob.id,
-			job,
-		);
-		initialStreamPending = false;
-		contextCompressionInFlight = false;
-		normalChatRuntime.completePollingRecovery();
-		void normalChatRuntime.drainPostTurnQueue();
-		void hydrateConversationDetail(data.conversation.id);
-	} catch (err) {
-		initialStreamPending = false;
-		normalChatRuntime.completePollingRecovery();
-		deepResearchJobs = removeDeepResearchJob(
-			deepResearchJobs,
-			optimisticJob.id,
-		);
-		restoreQueuedTurnToDraft();
-		sendError =
-			err instanceof Error ? err.message : "Failed to start Deep Research";
-	}
-}
-
 $effect(() => {
 	const conversationId = data.conversation?.id;
-	const shouldPollConversation =
-		hasActiveFileProductionJobs(fileProductionJobs) ||
-		hasActiveDeepResearchJobs(deepResearchJobs);
+	const shouldPollConversation = hasActiveFileProductionJobs(fileProductionJobs);
 	if (!browser || !conversationId || !shouldPollConversation) {
 		return;
 	}
@@ -1526,23 +1241,6 @@ $effect(() => {
 	}
 });
 
-let initializedDeepResearchJobsData = false;
-let prevDeepResearchJobsData: typeof data.deepResearchJobs;
-$effect(() => {
-	if (!initializedDeepResearchJobsData) {
-		prevDeepResearchJobsData = data.deepResearchJobs;
-		initializedDeepResearchJobsData = true;
-		return;
-	}
-	if (data.deepResearchJobs !== prevDeepResearchJobsData) {
-		prevDeepResearchJobsData = data.deepResearchJobs;
-		deepResearchJobs = mergeDeepResearchJobsForHydration(
-			deepResearchJobs,
-			data.deepResearchJobs ?? [],
-		);
-	}
-});
-
 let initializedContextCompressionData = false;
 let prevContextCompressionData: typeof data.contextCompressionSnapshots;
 $effect(() => {
@@ -1574,9 +1272,7 @@ function restorePayloadToDraft(payload: SendPayload) {
 		selectedAttachmentIds: payload.attachmentIds,
 		selectedAttachments: payload.pendingAttachments ?? [],
 		selectedLinkedSources: payload.linkedSources ?? [],
-		pendingSkill: payload.deepResearchDepth
-			? null
-			: (payload.pendingSkill ?? null),
+		pendingSkill: payload.pendingSkill ?? null,
 	});
 	void draftPersistence.persist(
 		{
@@ -1584,9 +1280,7 @@ function restorePayloadToDraft(payload: SendPayload) {
 			draftText: payload.message,
 			selectedAttachmentIds: payload.attachmentIds,
 			selectedLinkedSources: payload.linkedSources ?? [],
-			pendingSkill: payload.deepResearchDepth
-				? null
-				: (payload.pendingSkill ?? null),
+			pendingSkill: payload.pendingSkill ?? null,
 		},
 		true,
 	);
@@ -2313,7 +2007,6 @@ function handleDrop(event: DragEvent) {
 						{contextDebug}
 						{modelIcons}
 						{fileProductionJobs}
-						{deepResearchJobs}
 						contextCompressionMarkers={contextCompressionMarkers}
 						hasActiveSkillSession={Boolean(activeSkillSession)}
 						{forkOrigin}
@@ -2332,12 +2025,6 @@ function handleDrop(event: DragEvent) {
 						onPublishSkillDraft={handlePublishSkillDraft}
 						onRetryFileProductionJob={handleRetryFileProductionJob}
 						onCancelFileProductionJob={handleCancelFileProductionJob}
-						onCancelDeepResearchJob={handleCancelDeepResearchJob}
-						onEditDeepResearchPlan={handleEditDeepResearchPlan}
-						onApproveDeepResearchPlan={handleApproveDeepResearchPlan}
-						onDiscussDeepResearchReport={handleDiscussDeepResearchReport}
-						onResearchFurtherFromDeepResearchReport={handleResearchFurtherFromDeepResearchReport}
-						onAdvanceDeepResearchWorkflow={handleAdvanceDeepResearchWorkflow}
 					/>
 				{/if}
 			</div>
@@ -2366,7 +2053,6 @@ function handleDrop(event: DragEvent) {
 				{contextSources}
 				{totalCostUsd}
 				{totalTokens}
-				deepResearchEnabled={data.deepResearchEnabled}
 				composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
 				{personalityProfiles}
 				{selectedPersonalityId}

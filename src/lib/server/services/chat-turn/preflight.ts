@@ -161,7 +161,7 @@ async function resolveLinkedSources(
 ): Promise<
 	{ ok: true; value: ParsedChatTurnRequest["linkedSources"] } | PreflightError
 > {
-	if (request.deepResearchDepth || request.linkedSources.length === 0) {
+	if (request.linkedSources.length === 0) {
 		return {
 			ok: true,
 			value: request.linkedSources,
@@ -210,9 +210,6 @@ async function validatePendingSkillAvailability(
 	request: ParsedChatTurnRequest,
 ): Promise<PreflightError | null> {
 	if (!request.pendingSkill) return null;
-	if (request.deepResearchDepth) {
-		return null;
-	}
 
 	if (!getConfig().composerCommandRegistryEnabled) {
 		return {
@@ -346,11 +343,8 @@ async function resolveDepthClarificationCarryForward(params: {
 		| "modelId"
 		| "modelDisplayName"
 		| "providerDisplayName"
-		| "deepResearchDepth"
 	>;
 }): Promise<DepthMetadata | null> {
-	if (params.request.deepResearchDepth) return null;
-
 	const messages = await listMessages(params.conversationId).catch(() => []);
 	const previousMessage = messages.at(-1);
 	const previousDepthMetadata = previousMessage?.depthMetadata;

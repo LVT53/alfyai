@@ -27,7 +27,7 @@ The production target is not background summarization. Compression should happen
 
 ### What to build
 
-Make the configured model settings the authority for **Max Model Context**, **Target Constructed Context**, and **Compaction Threshold** throughout Normal Chat and Deep Research prompt budgeting. Remove any recent arbitrary low default caps from the implementation and add regression coverage so future compression work cannot reintroduce them accidentally.
+Make the configured model settings the authority for **Max Model Context**, **Target Constructed Context**, and **Compaction Threshold** throughout Normal Chat prompt budgeting. Remove any recent arbitrary low default caps from the implementation and add regression coverage so future compression work cannot reintroduce them accidentally.
 
 ### Acceptance criteria
 
@@ -153,7 +153,7 @@ Support compression inputs that are too large for the selected model in one pass
 ### Acceptance criteria
 
 - [ ] The compressor never sends more than the selected model's configured window to the selected model.
-- [ ] Hierarchical chunks respect message pairs, tool call/result pairs, document sections, web/research excerpts, and log sections where possible.
+- [ ] Hierarchical chunks respect message pairs, tool call/result pairs, document sections, web-source excerpts, and log sections where possible.
 - [ ] Snapshot chaining has no generation cap in v1.
 - [ ] Automatic compression does not reopen older raw history merely because a snapshot exists.
 - [ ] Exact older-content requests continue to flow through the existing Memory Context Tool or retrieval path as new selected Prompt Context.

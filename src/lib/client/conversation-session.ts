@@ -7,7 +7,6 @@ import type { FetchLike } from "$lib/client/api/http";
 import type {
 	ArtifactSummary,
 	ConversationDraft,
-	DeepResearchDepth,
 	LinkedContextSource,
 	ModelId,
 	PendingAttachment,
@@ -30,7 +29,6 @@ export type PendingConversationMessage = {
 	pendingSkill?: PendingSkillSelection | null;
 	modelId?: ModelId;
 	personalityProfileId?: string | null;
-	deepResearchDepth?: DeepResearchDepth | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
 };
@@ -222,7 +220,6 @@ export function storePendingConversationMessage(
 			pendingSkill: payload.pendingSkill ?? null,
 			modelId: payload.modelId,
 			personalityProfileId: payload.personalityProfileId,
-			deepResearchDepth: payload.deepResearchDepth,
 			reasoningDepth: payload.reasoningDepth,
 			forceWebSearch: payload.forceWebSearch === true,
 		}),
@@ -264,12 +261,6 @@ export function consumePendingConversationMessage(
 				typeof parsed.personalityProfileId === "string"
 					? parsed.personalityProfileId
 					: null,
-			deepResearchDepth:
-				parsed.deepResearchDepth === "focused" ||
-				parsed.deepResearchDepth === "standard" ||
-				parsed.deepResearchDepth === "max"
-					? parsed.deepResearchDepth
-					: null,
 			reasoningDepth: parsePendingReasoningDepth(parsed),
 			forceWebSearch: parsed.forceWebSearch === true,
 		};
@@ -280,7 +271,6 @@ export function consumePendingConversationMessage(
 			attachments: [],
 			linkedSources: [],
 			pendingSkill: null,
-			deepResearchDepth: null,
 			reasoningDepth: "auto",
 			forceWebSearch: false,
 		};

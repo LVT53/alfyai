@@ -502,37 +502,6 @@ describe("Reasoning Depth Auto selection", () => {
 		expect(mocks.sendJsonControlMessage).not.toHaveBeenCalled();
 	});
 
-	it("bypasses the classifier for Deep Research turns", async () => {
-		const { resolveReasoningDepthSelection } = await import(
-			"./depth-selection"
-		);
-
-		const result = await resolveReasoningDepthSelection({
-			userId: "user-1",
-			conversationId: "conv-1",
-			request: {
-				normalizedMessage: "Research the market.",
-				reasoningDepth: "auto",
-				deepResearchDepth: "standard",
-				modelId: "model1",
-				modelDisplayName: "Model One",
-				attachmentIds: [],
-				linkedSources: [],
-				pendingSkill: null,
-				forceWebSearch: false,
-			},
-		});
-
-		expect(result.metadata).toMatchObject({
-			requested: "auto",
-			appliedProfile: "standard",
-			fallback: false,
-			classifierSource: "deterministic_bypass",
-			constraintNote: "deep_research_bypass",
-		});
-		expect(mocks.sendJsonControlMessage).not.toHaveBeenCalled();
-	});
-
 	it("falls back to deterministic keyword classifier when the classifier returns an invalid profile", async () => {
 		mocks.sendJsonControlMessage.mockResolvedValueOnce({
 			text: JSON.stringify({ appliedProfile: "off", reason: "invalid" }),

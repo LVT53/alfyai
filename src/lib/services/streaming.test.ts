@@ -639,16 +639,26 @@ describe("streamChat", () => {
 		expect(parsedBody.conversationId).toBe("conv-1");
 	});
 
-	it("threads the selected Deep Research depth into the streaming request body", async () => {
+	it("threads pending skills into the streaming request body", async () => {
 		const { mockFetch, done } = runStreamWithMockedResponse({
-			message: "research this",
+			message: "use this skill",
 			responseChunks: [endEvent()],
-			options: { deepResearchDepth: "standard" },
+			options: {
+				pendingSkill: {
+					id: "skill-1",
+					ownership: "user",
+					displayName: "Research Pack",
+				},
+			},
 		});
 		await done;
 
 		const parsedBody = parseLastStreamRequestBody(mockFetch);
-		expect(parsedBody.deepResearch).toEqual({ depth: "standard" });
+		expect(parsedBody.pendingSkill).toEqual({
+			id: "skill-1",
+			ownership: "user",
+			displayName: "Research Pack",
+		});
 	});
 
 	it("threads Reasoning depth into the streaming request body", async () => {

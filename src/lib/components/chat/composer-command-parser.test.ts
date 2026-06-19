@@ -50,7 +50,7 @@ describe("composer command parser", () => {
 
 	it("replaces the full active command token when the cursor is inside it", () => {
 		const slashResult = replaceActiveComposerCommandToken(
-			"Please /research now",
+			"Please /document now",
 			11,
 			"",
 		);
@@ -61,13 +61,13 @@ describe("composer command parser", () => {
 		);
 
 		expect(
-			findActiveComposerCommandToken("Please /research now", 11),
+			findActiveComposerCommandToken("Please /document now", 11),
 		).toMatchObject({
 			prefix: "/",
-			query: "res",
+			query: "doc",
 			start: 7,
 			end: 16,
-			token: "/research",
+			token: "/document",
 		});
 		expect(slashResult).toEqual({
 			text: "Please  now",

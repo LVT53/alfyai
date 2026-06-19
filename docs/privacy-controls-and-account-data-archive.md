@@ -41,7 +41,6 @@ Include:
 
 Exclude:
 
-- Deep Research data in v1, with an explicit exclusion note
 - assistant thinking traces
 - hidden system prompts, prompt context, raw tool JSON, provider payloads, retry/debug fields, and diagnostic metadata
 - password hashes, session IDs, cookies, service assertions, provider API keys, storage paths, and app/admin secrets
@@ -49,7 +48,7 @@ Exclude:
 - opaque third-party provider logs outside AlfyAI's control
 - local process/server logs
 
-Archive generation should fully fail if any in-scope section cannot be loaded or written. A partial archive is misleading and should not be downloaded. Deep Research is a planned v1 exclusion rather than a failure.
+Archive generation should fully fail if any in-scope section cannot be loaded or written. A partial archive is misleading and should not be downloaded.
 
 ## Erasure Scope
 
@@ -57,7 +56,7 @@ Account Erasure removes local personal workspace data and app-controlled externa
 
 After Account Erasure, only anonymous aggregate usage and cost totals may remain. Retained records must not preserve email, display name, user ID, conversation title, message ID, or pseudonymous per-user rows for the erased person.
 
-Account Erasure should quiesce user-owned running work before destructive cleanup so streams, file production, Deep Research, or memory maintenance cannot recreate erased data afterward.
+Account Erasure should quiesce user-owned running work before destructive cleanup so streams, file production, or memory maintenance cannot recreate erased data afterward.
 
 Shared admin-authored deployment content should survive an admin account erasure with authorship detached or anonymized. Published campaigns, provider/model configuration, system skills, and similar shared records should not be deleted merely because the author account was erased.
 

@@ -49,7 +49,7 @@ Move Normal Chat browser turn-runtime semantics out of `src/routes/(app)/chat/[c
 **Status:** Completed
 **User stories covered:** As a user, normal send and retry produce the same optimistic rows, metadata updates, generated-file refresh, stopped-turn draft restore, and retry affordances while duplicated callback logic disappears from the page.
 
-**What to build:** Route `handleSend` and `handleRetry` through the client runtime for stream callback construction and turn finalization. Preserve Deep Research handoff and skill-session startup in the page unless a later slice explicitly moves those concerns.
+**What to build:** Route `handleSend` and `handleRetry` through the client runtime for stream callback construction and turn finalization. Preserve skill-session startup in the page unless a later slice explicitly moves those concerns.
 
 **Acceptance criteria**
 
@@ -97,7 +97,7 @@ Move Normal Chat browser turn-runtime semantics out of `src/routes/(app)/chat/[c
 **Status:** Completed
 **User stories covered:** As a maintainer, the chat route is readable as page state, render commands, route lifecycle, and UI event handlers instead of a bespoke stream runtime.
 
-**What to build:** Remove duplicated page-local stream callback blocks, reconnect internals, and queue runtime branches that are now represented in the client runtime. Keep page-local responsibilities for Svelte state, route lifecycle, document workspace, Deep Research job control, skill/session UI, and direct UI commands.
+**What to build:** Remove duplicated page-local stream callback blocks, reconnect internals, and queue runtime branches that are now represented in the client runtime. Keep page-local responsibilities for Svelte state, route lifecycle, document workspace, skill/session UI, and direct UI commands.
 
 **Acceptance criteria**
 

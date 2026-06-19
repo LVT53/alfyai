@@ -215,7 +215,7 @@ A user-requested downloadable ZIP archive that helps a person review the persona
 _Avoid_: app backup, restore export, importable snapshot, raw database dump, developer export
 
 **Data Archive Exclusion Note**:
-A plain-language disclosure inside an **Account Data Archive** for a known product area that is intentionally left out of the archive scope. In v1, Deep Research data is excluded and should be named in the archive rather than silently omitted.
+A plain-language disclosure inside an **Account Data Archive** for a known product area that is intentionally left out of the archive scope. In v1 data is excluded and should be named in the archive rather than silently omitted.
 _Avoid_: hidden limitation, missing export, internal TODO
 
 **Privacy and Data Controls**:
@@ -287,7 +287,7 @@ The CSS animation applied to newly arrived words during streaming, owned by `Mar
 _Avoid_: typewriter effect, per-letter animation, staggered cascade, blur-in, word shimmer
 
 **Conversation Detail Read Model**:
-The server read-model boundary at `src/lib/server/services/conversation-detail/read-model.ts` that assembles the refreshable `ConversationDetail` payload for chat page load and browser hydration. It owns bootstrap/full detail selection, payload defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft, generated-file, File Production, Deep Research, context-compression, cost fields, and active Skill Session public serialization.
+The server read-model boundary at `src/lib/server/services/conversation-detail/read-model.ts` that assembles the refreshable `ConversationDetail` payload for chat page load and browser hydration. It owns bootstrap/full detail selection, payload defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft, generated-file, File Production, context-compression, cost fields, and active Skill Session public serialization.
 _Avoid_: route-local hydration recipe, durable Normal Chat Turn Completion, AI SDK UI stream terminal payload, page-owned payload assembly
 
 **Memory Access**:
@@ -707,8 +707,8 @@ The absence of **Depth Selection Signals** when Max bypasses **Automatic Depth S
 _Avoid_: Max missing signals, deliberation planner default, local-only Max
 
 **Normal Chat Deliberation Pass**:
-A bounded extra deliberation step inside a **Normal Chat Turn** that lets higher **Depth Profiles** review context, sources, assumptions, draft quality, or missed edge cases before the final answer. The first pass reconstructs a focused workspace from the current prompt context, keeping only essential user intent, constraints, evidence needs, edge cases, and final-answer guidance. Later passes update a compact central **Deliberation Workspace Report** rather than rereading every prior note. Maximum uses small deterministic micro-checks for missed user needs, risk/tension, final answer shape, and Hungarian parity, then ends in a compact deterministic viable-alternatives preservation check so the final answer stays decisive without prematurely collapsing conditional options. Dynamic high-cost planning may choose additional bounded read-only passes such as source reconciliation, workspace synthesis, or edge-case review when depth signals justify the added latency, but model-backed passes should degrade to compact local checks when their prompt would likely exceed budget. Deliberation remains synchronous Normal Chat work and does not create a **Deep Research Job**, approval workflow, or report lifecycle.
-_Avoid_: Deep Research pass, hidden research job, background report
+A bounded extra deliberation step inside a **Normal Chat Turn** that lets higher **Depth Profiles** review context, sources, assumptions, draft quality, or missed edge cases before the final answer. The first pass reconstructs a focused workspace from the current prompt context, keeping only essential user intent, constraints, evidence needs, edge cases, and final-answer guidance. Later passes update a compact central **Deliberation Workspace Report** rather than rereading every prior note. Maximum uses small deterministic micro-checks for missed user needs, risk/tension, final answer shape, and Hungarian parity, then ends in a compact deterministic viable-alternatives preservation check so the final answer stays decisive without prematurely collapsing conditional options. Dynamic high-cost planning may choose additional bounded read-only passes such as source reconciliation, workspace synthesis, or edge-case review when depth signals justify the added latency, but model-backed passes should degrade to compact local checks when their prompt would likely exceed budget. Deliberation remains synchronous Normal Chat work and does not create a retired research job, approval workflow, or report lifecycle.
+_Avoid_: deleted research subsystem pass, hidden research job, background report
 
 **Normal Chat Deliberation Brief**:
 A compact structured result from a **Normal Chat Deliberation Pass**, carrying findings such as assumptions, evidence needs, source or memory findings, edge cases, viable alternatives, exit criteria, draft risks, and final-answer instructions. It is transient working material for the final answer pass, not durable user-facing chain-of-thought.
@@ -723,7 +723,7 @@ The bounded **Prompt Context** and prior **Normal Chat Deliberation Brief** mate
 _Avoid_: full prompt replay, hidden document dump, unbounded context loop
 
 **Deliberation Tool Scope**:
-The read-only Normal Chat tool scope available to a **Normal Chat Deliberation Pass** for inspecting memory, web sources, and selected context before the final answer. It excludes file production, write actions, destructive tools, and **Deep Research Mode**.
+The read-only Normal Chat tool scope available to a **Normal Chat Deliberation Pass** for inspecting memory, web sources, and selected context before the final answer. It excludes file production, write actions, destructive tools, and retired background research mode.
 _Avoid_: full tool access, action mode, research job tools
 
 **Normal Chat Response Usage**:
@@ -739,8 +739,8 @@ The rule that a higher **Depth Profile** should increase reasoning care and comp
 _Avoid_: long answer mode, verbosity slider, always detailed
 
 **Max Reasoning Depth**:
-The highest user-selectable **Reasoning Depth** for **Normal Chat**. It raises bounded Normal Chat effort, strengthens grounding guidance, and may broaden context or web source budgets when useful, but only within the selected **Provider Model** limits. It does not guarantee web search for every turn and does not start **Deep Research Mode**.
-_Avoid_: Deep mode, Deep Research, automatic research job
+The highest user-selectable **Reasoning Depth** for **Normal Chat**. It raises bounded Normal Chat effort, strengthens grounding guidance, and may broaden context or web source budgets when useful, but only within the selected **Provider Model** limits. It does not guarantee web search for every turn and does not start retired background research mode.
+_Avoid_: Deep mode, automatic research job
 
 **Depth Metadata**:
 The user-inspectable post-response metadata that records which **Depth Profile** was applied to a Normal Chat turn and why at a compact level, including whether higher-depth deliberation was constrained or degraded. It helps users and operators understand effort tradeoffs without exposing private model reasoning.
@@ -764,7 +764,7 @@ _Avoid_: spinner budget, hardcoded timeout, private reasoning
 
 **Reasoning Depth Evaluation Harness**:
 A focused Normal Chat evaluation set that compares standard, extended, maximum, and high-cost clarification behavior on representative prompts for edge-case handling, source grounding, context awareness, format discipline, latency, cost, and wrong-target avoidance. It exists to prove higher depth earns its added response time rather than merely making answers slower or asking unnecessary clarifying questions.
-_Avoid_: live demo, subjective vibe check, Deep Research evaluation, English-only benchmark
+_Avoid_: live demo, subjective vibe check evaluation, English-only benchmark
 
 **Deliberation Status Line**:
 A compact Normal Chat pending-response surface that shows one current high-level **Normal Chat Deliberation Pass** status above the inline **Thought** disclosure while higher **Depth Profiles** are running. It is driven by real pass/tool/context work, changes status with a smooth transition, and disappears from the main answer surface after completion.
@@ -900,7 +900,7 @@ _Avoid_: project icon, status badge, nested branch, full origin panel
 
 **Composer Command Registry**:
 The Normal Chat command surface that discovers and runs composer-triggered actions from typed prefixes.
-_Avoid_: prompt shortcut list, agent tool registry, Deep Research command system
+_Avoid_: prompt shortcut list, agent tool registry command system
 
 **Command Suggestion Row**:
 The shared composer UI row used to discover and select **Skills** or **Composer Commands** while the user types a command prefix.
@@ -956,7 +956,7 @@ _Avoid_: hidden admin config, command tray editor, Langflow flow manager
 
 **Skill Session**:
 An active **Skill** run whose state remains visible and controllable while it affects one or more Normal Chat turns.
-_Avoid_: hidden mode, background agent, Deep Research job
+_Avoid_: hidden mode, background agent job
 
 **Skill Session Panel**:
 The composer-adjacent UI surface that shows the current active **Skill Session**, expected next action, note target, and finish or dismiss controls.
@@ -1097,7 +1097,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - `$` **Command Suggestion Rows** should not show full skill instructions; full instructions belong in the skill editor or details view.
 - A focused `$` row should use a slightly lighter dark surface plus restrained accent treatment, such as a thin border or left rail.
 - `/` **Command Suggestion Rows** should be shorter direct-action rows that show command name, direct effect, and current state where relevant.
-- `/` command current state should appear for values such as current model, style, **Reasoning Depth**, Deep Research mode, or linked-source count.
+- `/` command current state should appear for values such as current model, style, **Reasoning Depth** mode, or linked-source count.
 - `/` rows may use familiar action icons when they improve scanning.
 - A **Composer Command** should mutate explicit app state, attach or link context, or open a user-visible flow rather than paste hidden instructions into the message.
 - Command prefix text should be consumed only after the user explicitly selects a **Skill** or **Composer Command**.
@@ -1109,7 +1109,6 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Starting a durable **Skill Session** while streaming should start with the queued turn that carries that skill, not mutate the response currently being generated.
 - If a queued turn already exists, changing command-derived state should require editing or replacing that queued turn rather than silently stacking another queued payload.
 - V1 should allow only one pending or active **Skill** at a time; selecting another **Skill** should require replacing, finishing, or dismissing the current one.
-- If **Deep Research Mode** is selected through `/research`, Normal Chat **Skill Sessions** should not apply to that turn.
 - Command prefixes are discovery triggers, not a strict command language.
 - `$` and `/` should open the **Command Tray** only for an active cursor token at the start of the composer or after whitespace.
 - A command token query continues until whitespace.
@@ -1131,7 +1130,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - `/clear` should not dismiss a durable active **Skill Session** unless the user explicitly chooses that additional action.
 - `/clear` should confirm when it would remove attachments, linked sources, or a pending skill.
 - `/clear` should remove the selected command token only after confirmation when it would clear meaningful pending state; cancelling should leave the composer unchanged.
-- A **Skill** may shape the next Normal Chat behavior, but it is not a Langflow tool and should not be treated as a Deep Research mode.
+- A **Skill** may shape the next Normal Chat behavior, but it is not a Langflow tool and should not be treated as a deleted research subsystem mode.
 - A **Skill** may be a **System Skill** or a **User Skill**.
 - **System Skills** and **User Skills** share the same activation surface, but ownership controls who can edit, publish, disable, or delete them.
 - A **Skill Pack** is the admin-maintained base for reusable skill guidance, including system-quality guidance and any internal resources managed with it.
@@ -1237,7 +1236,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - After message submission, selected **Linked Context Sources** should become active conversation **Context Sources** until removed, a clear topic shift demotes them, or another existing context-source lifecycle rule applies.
 - Pending **Linked Context Sources** should be validated during chat-turn preflight.
 - If a pending **Linked Context Source** is deleted or inaccessible before send, AlfyAI should block the send, identify the invalid source, and let the user remove it rather than silently ignoring it.
-- The v1 composer **Composer Command** catalog includes `/model`, `/style`, `/depth`, `/attach`, `/document`, `/source`, `/skill`, `/settings`, `/clear`, and `/research`.
+- The v1 composer **Composer Command** catalog includes `/model`, `/style`, `/depth`, `/attach`, `/document`, `/source`, `/skill`, `/settings`, and `/clear`.
 - `/document` may add one or more **Linked Context Sources** in one flow.
 - Repeated `/document` selections should merge linked-source chips instead of replacing earlier selected sources.
 - `/document` should open a **Document Picker Modal** rather than keep multi-document selection inside the **Command Tray**.
@@ -1256,9 +1255,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - `$` should be the fast path for directly activating enabled **Skills**.
 - `/skill` should act as a skill command hub with actions such as pick skill, create skill, manage skills, and stop active skill when applicable.
 - `/skill` pick behavior should reuse `$` skill discovery rather than introduce a second skill picker implementation.
-- `/research` is a thin bridge to the existing **Deep Research Mode** composer control when that feature is enabled.
-- `/research` does not use **Skill Sessions**, **Skill Notes**, **Skill Drafts**, or **Linked Context Sources**, and does not change the **Deep Research Job** lifecycle.
-- **Reasoning Depth** and **Depth Profiles** stay inside **Normal Chat**. They may increase Normal Chat effort, but they must not automatically start **Deep Research Mode** or create a **Deep Research Job**.
+- **Reasoning Depth** and **Depth Profiles** stay inside **Normal Chat**. They may increase Normal Chat effort, but they must not create a separate background job lifecycle.
 - A **Skill Session** should be visible to the user while it can affect submitted messages.
 - V1 allows at most one active **Skill Session** per conversation composer.
 - Starting another **Skill Session** while one is active should require replacing, finishing, or dismissing the current session rather than stacking skill instructions.
@@ -1298,7 +1295,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - If a user stops a streaming response before a complete valid **Skill Control Envelope** is finalized, AlfyAI should not apply partial note operations or finish the **Skill Session**.
 - Stopping a skill-guided response should leave the **Skill Session** active in a conservative state unless a complete idempotent operation already committed.
 - If a **Skill Control Envelope** is missing or invalid, AlfyAI should keep the **Skill Session** in a conservative active state rather than guessing from prose.
-- This **Composer Command Registry** v1 is scoped to **Normal Chat** and does not change the **Deep Research Job** lifecycle.
+- This **Composer Command Registry** v1 is scoped to **Normal Chat** and does not change the retired research job lifecycle.
 - **Context Sources** explains and steers automatic context selection; it should not make the user manually budget context.
 - **Context Sources** may expose pin and exclude controls as optional overrides.
 - Pinning or excluding a **Context Source** is scoped to the current conversation or task by default.
@@ -1343,7 +1340,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Context Compression Snapshots** should not survive as orphaned database rows after their owning conversation or covered source history changes.
 - Invalid **Context Compression Snapshots** should be hard-deleted in v1 rather than retained as invalidated audit records.
 - When selected context is too large for the selected model to compress in one pass, **Context Compression** should use hierarchical source-aware compression with bounded chunks and a final merge pass.
-- Hierarchical **Context Compression** should chunk by natural source boundaries such as message pairs, tool call/result pairs, document sections, web/research excerpts, and log sections rather than arbitrary token slicing whenever possible.
+- Hierarchical **Context Compression** should chunk by natural source boundaries such as message pairs, tool call/result pairs, document sections, web-source excerpts, and log sections rather than arbitrary token slicing whenever possible.
 - Hierarchical **Context Compression** must preserve causal order for user/assistant turns and tool call/result pairs.
 - Active or in-flight tool calls are not eligible for **Context Compression**.
 - Completed tool outputs from older turns may be included in **Context Compression Snapshots** as structured tool state.
@@ -2336,947 +2333,99 @@ _Avoid_: source message button, primary document action, source viewer
 > **Dev:** "Does better image zoom mean adding image editing?"
 > **Domain expert:** "No. Image zoom, fit, and pan are inspection controls inside the **Document Workspace**."
 
-## Deep Research Context
+## Atlas Research Reports
+
+AlfyAI can produce durable, navigable research reports called Atlases through a special kind of Normal Chat Turn. This context captures the product-domain language for the Atlas feature, which replaces the deleted Deep Research subsystem.
 
 ### Language
 
-**Deep Research Job**:
-A user-started background research task that plans, gathers sources, synthesizes findings, and produces a cited report.
-_Avoid_: agent, flow, chat turn, automatic search, standard report generation
-
-**Normal Chat**:
-The default conversational mode where the user can ask questions and the assistant may use available tools within the ordinary chat turn.
-_Avoid_: shallow chat, basic mode
-
-**Deep Research Mode**:
-An explicit chat composer setting that causes the next user request to start a **Deep Research Job** instead of a **Normal Chat** turn.
-_Avoid_: auto research, agent mode, report mode
-
-**Report Boundary**:
-The point after a **Deep Research Job** completes with a **Research Report** or **Limited Research Report** where its conversation becomes read-only and further discussion must start from the completed report in a new conversation.
-_Avoid_: finished chat, dead chat, context lock, archive
-
-**Report Action**:
-An allowed interaction with a completed **Research Report** or **Limited Research Report** after a **Report Boundary**, such as opening, inspecting sources, exporting, or starting a new conversation from it.
-_Avoid_: follow-up turn, continued chat
-
-**Discuss Report**:
-A **Report Action** that starts a new **Normal Chat** using the completed report as context.
-_Avoid_: reopen chat, continue chat
-
-**Research Further**:
-A **Report Action** that starts a new **Deep Research Job** using the completed report as context.
-_Avoid_: follow-up turn, continue research
-
-**Memo Recovery Action**:
-A structured action offered after an **Evidence Limitation Memo**, such as revising the plan, adding sources, choosing deeper depth, or starting a new **Deep Research Job** from the grounded limitation state.
-_Avoid_: report action, failed-job retry, prose suggestion only
-
-**Research Plan**:
-A user-reviewable outline of the questions, source scope, and expected report shape for a **Deep Research Job**.
-_Avoid_: hidden prompt, agent thoughts, execution plan
-
-**Plan Edit**:
-A freeform user instruction that asks AlfyAI to revise a **Research Plan** before research starts.
-_Avoid_: advanced plan form, parameter editor
-
-**Plan Normalization Note**:
-A compact user-facing note shown on a **Research Plan** when AlfyAI safely reinterprets or narrows the requested report shape before approval, such as treating unnamed option-category comparison as candidate discovery.
-_Avoid_: debug warning, model parser detail, hidden classifier result
-
-**Plan Health Check**:
-A cheap diagnostic check run when research progress suggests the approved **Research Plan** itself may be poisoned, mis-scoped, or internally inconsistent rather than merely under-evidenced.
-_Avoid_: citation audit, source review, user blame, hidden failure
-
-**Research Plan Revision Needed**:
-A terminal Deep Research outcome produced when a **Plan Health Check** finds that the approved **Research Plan** was likely poisoned or mis-scoped and should be corrected before further source-heavy research.
-_Avoid_: Evidence Limitation Memo, failed job, normal report, silent retry
-
-**Focused Deep Research**:
-A Deep Research depth for narrow questions that still need deliberate multi-pass research and a cited brief without broad source exploration.
-_Avoid_: short, quick, shallow, normal web search
-
-**Standard Deep Research**:
-The default Deep Research depth for serious multi-source synthesis.
-_Avoid_: normal chat, regular chat
-
-**Max Deep Research**:
-The highest Deep Research depth for broad or high-stakes investigations that may inspect hundreds of sources.
-_Avoid_: exhaustive mode, unlimited research
-
-**Planning Context**:
-Relevant user or workspace context used to draft a better **Research Plan** before research starts.
-_Avoid_: source, evidence, citation
-
-**Research Source**:
-A source that a **Deep Research Job** may read, analyze, cite, or use as evidence in the final report.
-_Avoid_: context, memory, hint
-
-**Research Report**:
-The completed, cited output produced by a **Deep Research Job** when the evidence is strong enough to answer the approved **Research Plan** as a normal report.
-_Avoid_: assistant answer, generated file, summary, chat response
-
-**Limited Research Report**:
-A completed, cited **Deep Research Job** output produced when some useful evidence exists but the approved **Research Plan** cannot be fully answered with normal-report confidence. It gives the best supported answer, narrows or omits unsupported sections, and makes the evidence limits visible.
-_Avoid_: Evidence Limitation Memo, partial draft, failed report, padded report
-
-**Readable Research Report**:
-A **Research Report** organized for scanning and decision-making, with a short title, answer-first executive summary, capped key findings, plan-shaped analysis, visible limitations, and a cited source list.
-_Avoid_: source dump, activity log, citation audit transcript, raw findings export
-
-**Decision Brief**:
-The default reading shape of a **Readable Research Report**: an answer-first, scan-friendly report that foregrounds the practical conclusion, recommendation, or comparison outcome before audit detail.
-_Avoid_: transcript, exhaustive research log, source ledger as main body
-
-**Structured Research Report**:
-A machine-checkable report model that AlfyAI renders into Markdown or another user-facing format.
-_Avoid_: markdown blob, prose-only draft, raw report text
-
-**Structured Report Block**:
-An app-owned, typed part of a **Structured Research Report**, such as a summary, finding list, matrix, rubric, timeline, evidence table, limitation, or appendix section.
-_Avoid_: raw Markdown chunk, model-owned layout instruction, untyped prose field
-
-**Report Shape Template**:
-An intent-specific structure used to assemble a **Structured Research Report** while preserving a shared readable core.
-_Avoid_: universal report skeleton, markdown theme, writer preference
-
-**Comparison Matrix**:
-The primary scan surface for a comparison-oriented **Decision Brief**, organized by **Compared Entity** and central **Comparison Axis** so the reader can compare evidence-backed differences before reading prose detail.
-_Avoid_: decorative table, prose recap table, source-note grid
-
-**Decision Meaning**:
-The comparison-matrix explanation of why a difference matters for the user's choice, use case, recommendation, or next action.
-_Avoid_: neutral restatement, citation note, hidden scoring rationale
-
-**Evidence Confidence Cue**:
-A compact user-facing phrase inside a **Decision Brief** that explains the evidence basis only when it changes interpretation, such as official spec, vendor claim, dated price observation, independent review, or owner report.
-_Avoid_: internal audit verdict, full source-quality dump, confidence decoration on every fact
-
-**Report Visual Aid**:
-A table, matrix, chart, timeline, rubric, or other structured reading aid used by a **Report Shape Template** when it improves comprehension of supported claims.
-_Avoid_: decorative chart, infographic filler, visual polish unrelated to evidence
-
-**Comparison Report Shape**:
-A **Report Shape Template** for comparing known **Compared Entities** across central **Comparison Axes**, led by an answer, a **Comparison Matrix**, decision meaning, caveats, and cited sources.
-_Avoid_: parallel prose specs, feature dump, generic analysis section
-
-**Recommendation Report Shape**:
-A **Report Shape Template** for choosing or prioritizing options, led by the recommendation, ranked options, criteria rubric, fit and risk table, and next actions.
-_Avoid_: unordered option list, unsupported ranking, advice without criteria
-
-**Investigation Report Shape**:
-A **Report Shape Template** for explaining what happened, why, or what is most plausible, led by the answer, timeline or causal map, competing explanations, confidence, and open questions.
-_Avoid_: chronology dump, single-cause overclaim, unresolved speculation as fact
-
-**Market/Product Scan Report Shape**:
-A **Report Shape Template** for surveying options, vendors, products, prices, or market signals, led by the answer, shortlist table, evaluation rubric, freshness or pricing notes, and watchouts.
-_Avoid_: search result list, catalog dump, stale availability claim
-
-**Evidence Review Report Shape**:
-A **Report Shape Template** for summarizing what evidence supports or disputes a question, led by the answer, evidence strength table, consensus or conflict map, and limitations.
-_Avoid_: annotated bibliography, source-by-source recap, hidden conflict
-
-**Evidence Limitation Memo Shape**:
-A Deep Research outcome shape for cases that cannot credibly become a **Research Report**, led by reviewed scope, grounded limitation reasons, recovery actions, and a source ledger appendix.
-_Avoid_: failed report, thin research report, apology without next action
-
-**Report Appendix**:
-The end-of-report area for durable provenance and audit detail, such as evidence basis, source ledger, audit notes, and detailed limitations that would interrupt the main **Decision Brief**.
-_Avoid_: main narrative, hidden source truth, unstructured dump
-
-**Report Callout**:
-A sparse semantic Markdown callout used to highlight the report answer, a decision-changing limitation, or an evidence-basis legend.
-_Avoid_: decorative box, every-section wrapper, visual noise
-
-**Report Intent**:
-The approved **Research Plan**'s intended report purpose, such as comparison, recommendation, investigation, market scan, product scan, or evidence limitation.
-_Avoid_: topic, depth, claim type, report-writer guess
-
-**Report Core**:
-The shared required parts of a **Structured Research Report**, including title, scope, answer-first executive summary, key findings, methodology or source basis, limitations, and source ledger snapshot.
-_Avoid_: generic report, optional appendix, full source dump
-
-**Claim-Grounded Report Assembly**:
-Building a **Structured Research Report** from accepted or limited **Synthesis Claims** and verified **Claim Evidence Links**.
-_Avoid_: report writer invention, all-notes rewrite, unsupported prose expansion
-
-**Evidence Note**:
-A first-class persisted research-evidence row extracted from a **Reviewed Source** or **Research Task** for use inside the **Research Workspace**.
-_Avoid_: report finding, conclusion, source title, nested JSON claim
-
-**Synthesis Claim**:
-A first-class persisted report-eligible conclusion synthesized from **Evidence Notes** and mapped back to the approved **Research Plan**.
-_Avoid_: source note, snippet, raw finding, prose-only conclusion
-
-**Claim Type**:
-The kind of conclusion a **Synthesis Claim** makes, used to decide what evidence can support it.
-_Avoid_: report section, topic, source type
-
-**Claim Type Disclosure**:
-A user-facing label or phrase that explains a **Claim Type** only when it helps users interpret evidence strength, freshness, or limitation.
-_Avoid_: internal taxonomy dump, hidden trust signal, decorative label
-
-**Central Claim**:
-A **Synthesis Claim** whose truth materially affects the report's answer, recommendation, comparison outcome, or approved **Research Plan** goal.
-_Avoid_: important-sounding detail, highlighted bullet only, writer emphasis
-
-**Non-Central Claim**:
-A **Synthesis Claim** that can be removed, downgraded, or limited without changing the report's answer, recommendation, comparison outcome, or approved **Research Plan** goal.
-_Avoid_: trivial claim, unsupported claim, decorative detail
-
-**Evidence Requirement**:
-A claim-type-specific support rule that defines which **Evidence Notes** and **Source Quality Signals** are strong enough to support a **Synthesis Claim**.
-_Avoid_: generic citation rule, source count, fixed source tier
-
-**Claim Support Gate**:
-A hard minimum evidence rule that a central **Synthesis Claim** must pass before it can be treated as supported.
-_Avoid_: weighted score, source popularity, enough weak sources
-
-**Claim Evidence Link**:
-A durable relationship between a **Synthesis Claim** and the **Evidence Notes** that support, qualify, or contradict it.
-_Avoid_: inline citation guess, markdown footnote only, prose support
-
-**Claim Conflict**:
-A meaningful disagreement between **Evidence Notes** or **Synthesis Claims** that changes, qualifies, or challenges a report conclusion.
-_Avoid_: minor wording difference, source noise, unsupported alternative
-
-**Competing Synthesis Claim**:
-A **Synthesis Claim** that represents a materially different conclusion from another **Synthesis Claim** for the same plan question, entity, or axis.
-_Avoid_: duplicate claim, caveat, source note
-
-**Claim Graph**:
-The persisted graph of **Synthesis Claims**, **Evidence Notes**, **Claim Evidence Links**, **Citation Audit Verdicts**, and **Report Limitations** used for coverage, citation audit, memo generation, and report rendering.
-_Avoid_: markdown citations, source list, prose-only support map
-
-**Durable Research Graph Foundation**:
-The first implementation milestone that persists **Research State Checkpoints**, **Evidence Notes**, **Synthesis Claims**, **Claim Evidence Links**, **Citation Audit Verdicts**, and **Report Limitations** before report rendering improvements.
-_Avoid_: renderer polish, markdown cleanup, visual report redesign
-
-**Deep Research Evaluation Harness**:
-A repeatable test and fixture suite that proves Deep Research quality, durability, report readability, and failure handling across representative research scenarios.
-_Avoid_: manual spot check, demo query, one-off downloaded report review
-
-**Golden Research Fixture**:
-A preserved input, source set, graph state, or generated output used by the **Deep Research Evaluation Harness** to catch regressions.
-_Avoid_: stale sample, screenshot-only proof, manual QA note
-
-**Live Research Evaluation**:
-An optional non-blocking evaluation run that uses live web discovery to observe current real-world Deep Research behavior.
-_Avoid_: CI gate, deterministic fixture, release blocker
-
-**Claim Readiness**:
-The state where enough accepted or repairable **Synthesis Claims** exist, with sufficient **Claim Evidence Links**, to answer the approved **Research Plan**.
-_Avoid_: source count, draft confidence, writer preference
-
-**Discovered Source**:
-A candidate source found during research but not necessarily read.
-_Avoid_: used source, citation
-
-**Reviewed Source**:
-A source opened, extracted, summarized, or otherwise analyzed by a **Deep Research Job**.
-_Avoid_: search result, cited source
-
-**Topic-Relevant Reviewed Source**:
-A **Reviewed Source** that supports the approved **Research Plan** and passes plan-topic or named-entity relevance checks.
-_Avoid_: reviewed source, plausible source, generic source
-
-**Topic-Relevance Gate**:
-The source-review checkpoint that decides whether a **Reviewed Source** may produce valid **Evidence Notes** for the approved **Research Plan**.
-_Avoid_: report eligibility, source count, citation formatting
-
-**Source Quality Signal**:
-A structured quality attribute for a **Research Source** or **Evidence Note**, such as source type, independence, freshness, directness, extraction confidence, or claim fit.
-_Avoid_: single authority rank, generic quality score, website reputation only
-
-**Source Authority Summary**:
-A user-facing summary derived from **Source Quality Signals** to help users scan source strength.
-_Avoid_: source-quality truth, fixed source tier, citation proof
-
-**Compared Entity**:
-A named subject that a comparison-oriented **Research Plan** asks AlfyAI to compare.
-_Avoid_: item, target, topic term
-
-**Comparison Axis**:
-A criterion used to compare **Compared Entities**, such as model year changes, specifications, price, value, risks, or use case.
-_Avoid_: section, attribute, question bucket
-
-**Entity-Axis Discovery Strategy**:
-A source discovery strategy that targets specific **Compared Entities** and **Comparison Axes** from the approved **Research Plan**.
-_Avoid_: broad query list, generic search plan, search prompt
-
-**Cited Source**:
-A **Research Source** cited in a **Research Report**.
-_Avoid_: discovered source, reviewed source
-
-**Source Ledger**:
-A user-inspectable list of **Research Sources** that affected or explain a **Deep Research Job** outcome.
-_Avoid_: raw search results, discovered-source dump, citation list only
-
-**Source Ledger Snapshot**:
-A durable read snapshot of the **Source Ledger** attached to a completed **Research Report** or **Evidence Limitation Memo**.
-_Avoid_: live source query, regenerated source list, diagnostics dump
-
-**Research Concurrency Budget**:
-The depth-dependent limit for how many source-processing and model-reasoning steps a **Deep Research Job** may run at once.
-_Avoid_: source quota, pass budget, unlimited fan-out
-
-**Source Processing Concurrency**:
-The part of a **Research Concurrency Budget** used for fetching, extracting, parsing, and normalizing source material.
-_Avoid_: LLM review slots, synthesis workers, browser tabs
-
-**Model Reasoning Concurrency**:
-The part of a **Research Concurrency Budget** used for source review, evidence extraction, claim synthesis, coverage assessment, citation audit, and repair reasoning.
-_Avoid_: fetch slots, scrape parallelism, provider rate limit
-
-**Research Budget**:
-The depth-dependent ceiling for source discovery, review, synthesis passes, and runtime effort in a **Deep Research Job**.
-_Avoid_: source quota, guaranteed source count
-
-**Pass Budget**:
-The depth-dependent maximum number of **Iterative Research Passes** and **Repair Passes** a **Deep Research Job** may run.
-_Avoid_: required pass count, source quota, runtime promise
-
-**Repair Pass Budget**:
-The depth-dependent maximum number of **Repair Passes** a **Deep Research Job** may run.
-_Avoid_: unlimited repair loop, citation formatting budget, retry count
-
-**Minimum Pass Expectation**:
-The depth-dependent expectation for how much iterative research should normally happen before publishing a normal **Research Report**.
-_Avoid_: hard quota, guaranteed passes, spinner time
-
-**Depth Pass Floor**:
-The configured minimum number of **Meaningful Research Passes** expected for a Deep Research depth before normal report publication.
-_Avoid_: hardcoded pass count, runtime promise, source quota
-
-**Meaningful Research Pass**:
-An **Iterative Research Pass** that advances research state through new relevant evidence, gap resolution, claim work, conflict resolution, or audit-driven repair.
-_Avoid_: retry, no-op pass, formatting pass, progress theater
-
-**Publishable Evidence Floor**:
-The minimum evidence and structure threshold a **Deep Research Job** must meet before publishing a normal **Research Report**.
-_Avoid_: quota, target count, nice-to-have quality bar
-
-**Research Effort Estimate**:
-A coarse pre-approval disclosure of expected time, source review scale, and relative cost for a **Deep Research Job**.
-_Avoid_: guaranteed runtime, exact quote
-
-**Activity Timeline**:
-A user-visible record of major **Deep Research Job** steps, source progress, assumptions, and stage changes.
-_Avoid_: thinking, chain of thought, debug log
-
-**Meaningful Timeline Event**:
-An **Activity Timeline** event that adds user-relevant information beyond the existence of a workflow stage.
-_Avoid_: routine stage row, connector filler, repeated count row
-
-**Stage Progress Ring**:
-A compact **Research Card** indicator that visualizes the current **Deep Research Job** stage and completion state.
-_Avoid_: exact percent, guaranteed progress, runtime meter
-
-**Stage Detail Reveal**:
-An interaction that opens meaningful details for one selected Deep Research stage inside the **Research Card**.
-_Avoid_: log viewer, full debug trace, pending-stage filler
-
-**Meaningful Pass Progress**:
-Compact progress information about **Meaningful Research Passes**, **Depth Pass Floor**, **Coverage Gaps**, and **Claim Conflicts**.
-_Avoid_: stage percent, exact runtime, source-count padding
-
-**Progress Reveal Motion**:
-A short, smooth top-fade transition used when new **Research Card** progress states or **Meaningful Timeline Events** appear.
-_Avoid_: dramatic animation, layout jump, decorative motion
-
-**Research Language**:
-The language used for user-facing **Deep Research** plan, progress, and report prose.
-_Avoid_: source language, UI language
-
-**Research Card**:
-The chat-visible representation of a **Deep Research Job** or **Research Report**.
-_Avoid_: assistant message, placeholder, report body
-
-**Research Card Severity**:
-The user-facing meaning of a **Research Card** state, separate from the operational **Deep Research Job** status.
-_Avoid_: raw job status, database status, stage name
-
-**Research Workspace**:
-The structured working state of a **Deep Research Job**, including plan versions, source ledger, extracted notes, synthesis drafts, citation records, and activity events.
-_Avoid_: filesystem, scratchpad, hidden memory
-
-**Research Orchestrator**:
-The Deep Research service role that owns plan execution, task assignment, coverage decisions, and publication readiness for a **Deep Research Job**.
-_Avoid_: report writer, source reviewer, hidden chat agent
-
-**Iterative Research Pass**:
-A bounded search-review-reasoning loop that writes structured work into the **Research Workspace** before deciding whether to continue, synthesize, or stop.
-_Avoid_: one-shot search, bulk scrape, source dump
-
-**Repair Pass**:
-A first-class **Iterative Research Pass** created to repair unsupported claims, close audit-driven gaps, replace weak evidence, or convert unrepairable claims into **Report Limitations**.
-_Avoid_: citation-audit side effect, hidden rewrite, formatting repair
-
-**Research State Checkpoint**:
-A durable commit of one **Iterative Research Pass** state, including pass inputs, outputs, coverage result, next decision, and related workspace references.
-_Avoid_: prompt memory, in-process state, transient agent notes, inferred timeline state
-
-**Pass Decision**:
-The terminal orchestration decision for an **Iterative Research Pass**, such as continue research, synthesize, publish memo, publish report, stop, or fail.
-_Avoid_: timeline event, task status, model preference
-
-**Workspace Rehydration**:
-Reconstructing the **Research Workspace** from durable rows before each worker step or model call.
-_Avoid_: continuing from chat context, continuing from worker memory
-
-**Research Resume Point**:
-The durable checkpoint, task, or pass state from which a **Deep Research Job** can continue after crash, deploy, timeout, or worker restart.
-_Avoid_: in-memory continuation, retry guess, transcript replay
-
-**Runtime Policy**:
-The configurable limits and behaviors that control **Deep Research Job** runtime, cost, concurrency, cancellation, timeout, and overrun handling.
-_Avoid_: hidden worker setting, provider limit, billing summary
-
-**Coverage Assessment**:
-A checkpoint where AlfyAI decides whether the **Reviewed Sources** sufficiently answer the approved **Research Plan**.
-_Avoid_: vibes check, confidence guess
-
-**Research Usage**:
-Cost, token, model, provider, and runtime measurements produced by Deep Research planning, research, synthesis, and audit work.
-_Avoid_: message analytics, hidden cost
-
-**Final Research Time**:
-The user-facing wall-clock duration from **Deep Research Job** creation to completion.
-_Avoid_: model latency, token time, hidden worker time
-
-**Coverage Gap**:
-A first-class unanswered or weakly supported part of an approved **Research Plan** identified during **Coverage Assessment**.
-_Avoid_: todo, missing info, uncertainty, checkpoint-only field
-
-**Research Task**:
-A bounded unit of research work inside a **Deep Research Job**, assigned to a key question, **Coverage Gap**, source group, or synthesis step.
-_Avoid_: subagent, autonomous worker
-
-**Pass Barrier**:
-A synchronization point where required **Research Tasks** for a research pass must complete, fail, or be explicitly skipped before **Coverage Assessment** or synthesis can proceed.
-_Avoid_: race, loose parallelism
-
-**Report Limitation**:
-A first-class disclosed weakness, missing answer, source constraint, rejected claim, limited claim, or audit uncertainty in a **Research Report**.
-_Avoid_: failure, excuse, hidden caveat, generic disclaimer
-
-**Citation Audit Verdict**:
-A first-class persisted support decision produced by **Citation Audit** for a **Synthesis Claim** and its **Claim Evidence Links**.
-_Avoid_: citation formatting result, prose comment, markdown lint finding
-
-**Citation Audit**:
-A verification step that checks whether **Synthesis Claims** are supported by their **Claim Evidence Links** before report prose is published.
-_Avoid_: source formatting, citation cleanup, markdown footnote pass
-
-**Audited Structured Report**:
-A **Structured Research Report** after **Citation Audit** has retained, repaired, removed, or limited its claims without flattening its report structure.
-_Avoid_: retained-claims list, citation-audit transcript
-
-**Report Eligibility Gate**:
-A checkpoint before synthesis or report publication that decides whether enough **Topic-Relevant Reviewed Sources** exist to produce a credible **Research Report**.
-_Avoid_: citation audit, final formatting, source count check
-
-**Evidence Limitation Memo**:
-A durable Deep Research output assembled from grounded **Report Limitations** and workspace state when no credible **Research Report** can be produced.
-_Avoid_: failed report, limited report, plan revision needed, partial report, empty report, memo-only explanation path
+**Atlas** / **Atlasz**:
+A durable, navigable research report artifact produced by an **Atlas Turn**. It is a self-contained document with sidebar navigation, inline citations, images, and honesty markers, available as a styled HTML website, a PDF, and a Markdown file. It is stored and previewed through the existing file-production and document-workspace infrastructure, not as a chat message.
+_Avoid_: deep research report, research card, research job output, research artifact
+
+**Atlas Turn**:
+A **Normal Chat Turn** that produces an **Atlas** through an enforced multi-stage research pipeline. Unlike a regular turn where the model decides its own tool flow, an Atlas Turn runs a fixed stage sequence — decompose, search, curate, synthesize, integrate, assemble, audit — with the server controlling the order and the model filling in content within each stage. It flows through **Normal Chat Turn Completion** like any other turn, updating memory, analytics, and task state. It is not a parallel background subsystem.
+_Avoid_: deep research job, research workflow, background research task, research mode
+
+**Atlas Profile**:
+The depth, duration, and quality-gate strictness setting for an **Atlas Turn**. Three profiles exist: **Overview** (Áttekintés), **In-Depth** (Részletes), and **Exhaustive** (Kimerítő). A profile sets target goals for source count, sub-query count, and research rounds, but the goals adjust dynamically based on coverage. Quality gates are non-negotiable regardless of profile — even Overview cannot ship an unsupported report.
+_Avoid_: research depth, research mode, depth level, research tier
+
+**Atlas Quality Gate**:
+A non-negotiable check within the **Atlas Turn** pipeline that prevents completion if output quality is insufficient. If the gate fails, the pipeline returns to an earlier stage rather than shipping a weak report. This replaces the old Deep Research plan-approval gate: instead of checking a prediction upfront, it checks the actual output.
+_Avoid_: plan approval, research checkpoint, pass checkpoint, coverage gate
+
+**Atlas Honesty Marker**:
+A visible indicator in an **Atlas** showing the verification status of a claim or output field: verified, partially supported, unverified, or conflicting sources. Each marker includes a compact reasoning sentence explaining why the audit arrived at its verdict. Honesty markers are derived from the **Atlas Basis** verification step, not from model self-assessment.
+_Avoid_: confidence badge, citation verdict, audit label, quality score
+
+**Atlas Basis**:
+The per-field provenance contract for every factual output in an **Atlas**: a citation (source URL and relevant excerpt), a reasoning chain (why this source supports this field), and a calibrated confidence estimate (high, medium, low). It is non-optional and part of the output contract, not decorative metadata.
+_Avoid_: citation list, evidence appendix, source ledger, audit trail
+
+**Atlas Research Round**:
+One iteration of the search-curate-synthesize cycle within an **Atlas Turn**. After each round, findings are compressed into an evolving report summary and the context is reset — the next round sees the question, the compressed summary, and the latest observation, not the full raw history. This prevents context suffocation and error propagation across rounds.
+_Avoid_: research pass, workflow pass, iteration, cycle
+
+**Atlas Continue**:
+A lifecycle action that extends an existing **Atlas** with more research. It creates a new version in the same document family, seeded with the previous Atlas's compressed findings and curated sources. The new **Atlas Turn** builds on what was already found rather than starting from scratch.
+_Avoid_: research further, extend research, resume research
+
+**Atlas Fork**:
+A lifecycle action that starts a new **Atlas** with a modified or related query from the same conversation. It creates a new document family, optionally seeded with the previous Atlas's findings. The original Atlas remains unchanged.
+_Avoid_: branch research, alternative research, split research
+
+**Atlas Revise**:
+A lifecycle action that re-runs an **Atlas** with fresh searches, producing a new version in the same document family. The old version remains in document history. The new Atlas is aware of the previous structure but re-searches to catch updated or changed information.
+_Avoid_: update research, refresh research, re-run research
+
+**Atlas Progress Indicator**:
+The user-facing progress surface for an in-progress **Atlas Turn**. It shows a ring or progress indicator with cycling human-readable status messages rather than literal pipeline stage labels, since the stages repeat across rounds. The user can leave, close, or reload the page and return to see current progress.
+_Avoid_: research card, step tracker, stage progress bar, polling panel
+
+**Atlas Resume**:
+The behavior where a failed or retried **Atlas Turn** continues from the last completed **Atlas Research Round** rather than restarting from scratch. Since the evolving report and curated sources are persisted after each round, a transient failure on round 4 of 5 does not lose rounds 1-3. Explicit cancellation discards partial state — resume applies only to retries, not to cancelled jobs.
+_Avoid_: research restart, checkpoint restore, paused job resume, cancelled job resume
+
+**Atlas Cost Summary**:
+The accumulated token and cost measurements for one completed **Atlas Turn**, shown to the user after completion in the response audit details. It aggregates usage from all model calls across all stages and rounds, including the cross-model citation audit. It is not shown during execution since the user may have left the page.
+_Avoid_: hidden pass cost, per-stage cost breakdown, research usage meter, live cost ticker
+
+**Atlas Concurrent Limit**:
+The cap on how many **Atlas Turns** may run simultaneously. One active Atlas job per user; a global admin-configurable limit (default 2) prevents all server resources from being consumed by Atlas jobs. This is separate from **Normal Chat** stream limits because Atlas jobs are background work, not held stream slots.
+_Avoid_: research job queue, active research limit, per-day quota, monthly quota
 
 ### Relationships
 
-- A **Deep Research Job** is optional and explicitly started by the user.
-- A **Deep Research Job** extends **Normal Chat** without replacing it.
-- **Normal Chat** may use tools casually; a **Deep Research Job** is a deliberate background task.
-- **Deep Research Mode** must be switched on by the user; AlfyAI does not automatically convert a **Normal Chat** request into a **Deep Research Job**.
-- Successful **Deep Research Job** completion creates a **Report Boundary**.
-- Cancelling a **Deep Research Job** does not create a **Report Boundary**.
-- After a **Report Boundary**, users may take **Report Actions** but may not send new turns into the same conversation.
-- Starting from a completed report creates a new conversation; it does not reopen the sealed conversation.
-- **Discuss Report** starts a new **Normal Chat**.
-- **Research Further** starts a new **Deep Research Job**.
-- A **Discuss Report** conversation may still use casual tools, but it does not become a **Deep Research Job** unless the user explicitly chooses **Deep Research Mode** again.
-- A sealed conversation cannot start another **Deep Research Job** directly.
-- A conversation may have at most one active or uncompleted **Deep Research Job**.
-- A cancelled or failed **Deep Research Job** does not prevent starting another **Deep Research Job** in the same unsealed conversation.
-- Every **Deep Research Job** creates a **Research Plan** before source-heavy research begins.
-- The user may approve, edit, add to, or cancel a **Research Plan**.
-- Source-heavy research does not begin until the user approves the **Research Plan**.
-- Cancelling before **Research Plan** approval does not create a **Report Boundary**.
-- Editing a **Research Plan** produces a revised **Research Plan**; it does not start source-heavy research.
-- After a **Research Plan** is revised, the user is again offered approval or further editing.
-- A **Research Plan** includes a goal, key questions, source scope, depth, report shape, constraints, and deliverables.
-- A **Research Plan** should include **Report Intent** before source-heavy research begins.
-- **Report Intent** should be shown to the user before **Research Plan** approval so the user can correct the expected report shape.
-- Source-heavy research should use the approved **Report Intent** to guide discovery, **Claim Type** selection, **Evidence Requirements**, **Coverage Assessment**, and **Report Shape Template** selection.
-- Report assembly should not infer a different **Report Intent** after research has completed unless the output becomes an **Evidence Limitation Memo** because the approved intent cannot be supported.
-- A request to compare unnamed option categories, such as "at least three architecture patterns," is not enough by itself to create known **Compared Entities**.
-- When comparison is a means to choosing or recommending and the options are not named yet, the **Research Plan** should use **Recommendation Report Shape** or another decision-oriented intent, discover candidate options as research work, and add comparison blocks only after those options are grounded.
-- **Comparison Report Shape** is for known **Compared Entities** present in the user request or approved **Research Plan**, not imperative clauses such as "identify failure modes" or "recommend one design."
-- Strict **Comparison Report Shape** requires at least two named, source-searchable **Compared Entities** before approval, such as concrete products, vendors, jurisdictions, people, organizations, standards, versions, policies, or explicitly named approaches.
-- Candidate options discovered during recommendation, scan, or investigation work may become comparison columns later, but they should not be pre-approved as **Compared Entities** until they are concrete and grounded.
-- Generic comparison fallback questions should be domain-neutral; product, vehicle, procurement, legal, software, health, finance, and literature-review questions should appear only when topic detection or the approved **Research Plan** justifies that domain.
-- Product or vehicle comparison questions may ask about specs, model years, trims, dealers, manufacturers, availability, and rider or buyer use cases only when the compared entities are actually products or vehicles.
-- Planner model output may draft useful structure, but local **Research Plan** normalization owns the trust boundary for **Report Intent**, **Compared Entities**, and domain-appropriate fallback questions.
-- Local **Research Plan** normalization should reject imperative clauses, quantity placeholders, and unnamed option categories as **Compared Entities** even when a planner model returns them as strings.
-- A **Research Plan** should include a **Plan Normalization Note** when local normalization changes **Report Intent**, drops invalid **Compared Entities**, or converts unnamed option categories into candidate-discovery work.
-- A **Plan Normalization Note** should not block approval and should not expose regexes, parser internals, or low-level model diagnostics.
-- If a **Deep Research Job** reviews a meaningful number of sources and accepts zero topic-relevant sources, AlfyAI should run a **Plan Health Check** before presenting the outcome as insufficient evidence.
-- A **Plan Health Check** should detect signs such as fake **Compared Entities**, imperative clauses treated as entities, domain-mismatched key questions, or search/relevance framing that no longer matches the user's goal.
-- If a **Plan Health Check** detects plan poisoning, the user-facing outcome should explain that the research plan needs revision and offer a corrected draft or recovery path instead of implying the real topic lacks evidence.
-- If a **Plan Health Check** detects plan poisoning after source-heavy work has already run, Deep Research should complete as **Research Plan Revision Needed**, not as an **Evidence Limitation Memo**.
-- **Research Plan Revision Needed** should create a corrected **Research Plan** draft automatically when AlfyAI can infer the safe correction, but it must not start another source-heavy run without user approval.
-- The corrected **Research Plan** draft after **Research Plan Revision Needed** should be reviewable with the same approve, edit, or cancel controls as any other **Research Plan**.
-- Rejected or off-topic source counts from the poisoned run should not be treated as evidence against the corrected **Research Plan** topic.
-- The first UI slice for **Research Plan Revision Needed** should be minimal: the **Research Card** shows that the plan needs revision, explains the plan-health reason briefly, and presents the corrected draft through the existing approval controls.
-- **Research Plan Revision Needed** should not introduce a new modal, wizard, or separate recovery surface when the existing **Research Plan** approval UI can handle approve, edit, and cancel.
-- **Research Plan Revision Needed** should be stored as an operationally completed **Deep Research Job** with a distinct plan-revision-needed stage or outcome, not as a failed job.
-- **Research Plan Revision Needed** should not have a normal report artifact, should not create a **Report Boundary**, and should keep the corrected **Research Plan** available for approval.
-- The **Activity Timeline** for **Research Plan Revision Needed** should explain the plan-health failure in user-facing terms.
-- Approving the corrected **Research Plan** after **Research Plan Revision Needed** should continue the same **Deep Research Job** with a new plan version rather than starting an unrelated job.
-- The corrected run should start source-heavy work from clean execution state for the new plan while preserving the poisoned run's timeline, source ledger, and usage as diagnostic history.
-- Poisoned-run rejected sources, coverage gaps, tasks, and topic-relevance counts should not satisfy or block coverage for the corrected **Research Plan**.
-- If the **Plan Health Check** passes and useful topic-relevant evidence is still absent, Deep Research should publish an **Evidence Limitation Memo**.
-- A **Plan Edit** is freeform; AlfyAI synthesizes the user's edit into a revised **Research Plan**.
-- The Deep Research planning flow avoids exposing advanced structured controls beyond approval, cancellation, and freeform editing.
-- Deep Research depth levels are **Focused Deep Research**, **Standard Deep Research**, and **Max Deep Research**.
-- No Deep Research depth is selected by default; the user explicitly chooses **Focused Deep Research**, **Standard Deep Research**, or **Max Deep Research**.
-- AlfyAI may recommend a different depth in the **Research Plan**, but it must not automatically change the user's selected depth.
-- The knowledge library may contribute **Planning Context**.
-- **Planning Context** is not automatically a **Research Source**.
-- The **Research Plan** must disclose source scope before approval.
-- Knowledge-library items become **Research Sources** only when the approved **Research Plan** includes them.
-- Files attached to the **Deep Research Job** request may be **Research Sources** because attachment is an explicit user action.
-- Current conversation context may be **Planning Context**, but is not automatically cited as a **Research Source** unless the approved **Research Plan** says the report is based on it.
-- When private or workspace material influences a **Research Plan**, the plan may show a compact "context considered" disclosure.
-- A "context considered" disclosure summarizes **Planning Context** by type, count, or title; it is not evidence or citation.
-- Every completed **Deep Research Job** produces exactly one durable outcome: a **Research Report**, **Limited Research Report**, **Evidence Limitation Memo**, or **Research Plan Revision Needed**.
-- A **Research Report** or **Limited Research Report** creates the **Report Boundary** for its conversation.
-- A **Research Report** or **Limited Research Report** is durable and reusable; it is not only assistant message text.
-- A **Research Report** or **Limited Research Report** includes citations and a user-facing source list.
-- Every successful **Research Report** should be a **Readable Research Report**.
-- A Deep Research output should be labeled a **Research Report** only when it is a **Readable Research Report**.
-- A **Limited Research Report** should still read as a **Decision Brief**, but it should explicitly narrow unsupported scope instead of pretending the full approved **Research Plan** was answered.
-- A **Readable Research Report** should be produced from a **Structured Research Report** rather than a freeform Markdown blob.
-- A **Structured Research Report** should be assembled through **Claim-Grounded Report Assembly**.
-- A **Structured Research Report** should preserve intent-specific **Structured Report Blocks** before Markdown rendering.
-- A **Structured Research Report** should use a **Report Shape Template** selected by **Report Intent**, not one universal report shape with every optional section.
-- Every **Report Shape Template** should include the **Report Core**.
-- Intent-specific sections should be added only when they help the approved **Research Plan**: comparison reports may include matrices and entity-by-axis analysis; recommendation reports may include criteria, ranked options, fit, and risks; investigation reports may include timelines, competing explanations, and confidence; market or product scans may include shortlists, evaluation rubrics, pricing, and freshness notes; evidence limitation outputs should focus on limitation reasons, searched/reviewed scope, and recovery actions.
-- Every **Report Intent** should have an upgraded Markdown reading shape with appropriate **Report Visual Aids**, not only comparison reports.
-- Initial upgraded Markdown shapes should be **Comparison Report Shape**, **Recommendation Report Shape**, **Investigation Report Shape**, **Market/Product Scan Report Shape**, **Evidence Review Report Shape**, and **Evidence Limitation Memo Shape**.
-- Default **Report Shape Templates** should be compact and answer-first: the executive summary gives the conclusion before methodology; key findings are capped; tables appear where comparison, ranking, or scan structure helps; limitations remain visible near the conclusion and again in the source basis when needed.
-- Charts in a **Readable Research Report** should be reserved for genuinely quantitative patterns such as 3+ option comparisons, ranked shortlists, time series, distributions, or scored axes.
-- Two-entity comparisons should prefer a **Comparison Matrix** over charts unless the approved **Research Plan** asks a specifically quantitative question.
-- A report-writing model may improve organization, transitions, section summaries, and prose quality, but it must not introduce new cited substance outside accepted or limited **Synthesis Claims** and their verified **Claim Evidence Links**.
-- Markdown layout for **Readable Research Reports** should be rendered deterministically by AlfyAI from **Structured Report Blocks**, not left primarily to model-prompted freeform Markdown.
-- A **Structured Research Report** should preserve report parts such as title, scope, executive summary, recommendation, comparison matrix, key findings, sections, limitations, and cited sources before rendering.
-- A **Readable Research Report** is not a dump of every reviewed source note.
-- Styling or Markdown polish cannot turn source titles, snippets, or weak per-source notes into a **Readable Research Report**.
-- When the available evidence supports useful synthesized conclusions but not the full approved **Research Plan**, Deep Research should produce a **Limited Research Report** instead of blocking on a normal **Research Report**.
-- A **Limited Research Report** requires at least one useful, citation-supported **Central Synthesis Claim**, a narrower answerable version of the approved goal, and explicit **Report Limitations** for unsupported parts.
-- A **Limited Research Report** must not invent unsupported sections to preserve the original **Research Plan** shape.
-- When the available evidence can only support weak per-source notes rather than useful synthesized conclusions, Deep Research should produce an **Evidence Limitation Memo** instead of a normal **Research Report**.
-- By default, a **Readable Research Report** should read as a **Decision Brief** rather than a research transcript.
-- A **Readable Research Report** should lead with the answer, then show the strongest evidence-backed findings, then organize the body around the approved **Research Plan**.
-- Key findings in a **Readable Research Report** should be capped to a small, scannable set; additional reviewed notes belong in the **Research Workspace**, source ledger, or future appendix, not the main report body.
-- Audit detail, source review detail, and full source-ledger context should remain inspectable without dominating the main **Decision Brief** reading path.
-- Source, audit, and detailed limitation material should default to a **Report Appendix** rather than inline main-body prose.
-- A **Report Appendix** should keep durable provenance visible through sections such as evidence basis, compact limitations, source ledger, and audit notes when repair, removal, or limitation materially affected the output.
-- A **Readable Research Report** may use sparse **Report Callouts** for the answer-first conclusion, decision-changing limitations, and evidence confidence legend.
-- **Report Callouts** should carry semantic reading weight and should not be used as decorative wrappers around every section.
-- A comparison-oriented **Readable Research Report** should make the **Comparison Matrix** the primary body surface when central **Compared Entities** and **Comparison Axes** are known.
-- A **Comparison Matrix** should use central **Comparison Axes** as rows and **Compared Entities** as columns, with an additional **Decision Meaning** column when the comparison is meant to support a choice or recommendation.
-- A **Comparison Matrix** should include an **Evidence Confidence Cue** inside a cell only when the evidence basis changes how the reader should interpret that cell.
-- A comparison-oriented **Decision Brief** should include a short confidence legend near the **Comparison Matrix** when it uses **Evidence Confidence Cues**.
-- Prose in a comparison-oriented **Decision Brief** should explain decision-relevant differences, trade-offs, caveats, and evidence confidence rather than restating every matrix cell.
-- Methodology and **Report Limitations** should be visible but compact.
-- A full source ledger or activity history may be attached to the **Research Report** as metadata.
-- Source review produces **Evidence Notes**; it does not produce final report conclusions.
-- **Evidence Notes** should be stored as first-class persisted rows, such as a `deep_research_evidence_notes` table, rather than only inside `reviewed_note`, `extracted_claims_json`, or **Research Task** output JSON.
-- An **Evidence Note** should retain durable links to the **Deep Research Job**, **Research State Checkpoint**, source or task that produced it, supported key question, and any relevant **Compared Entity** or **Comparison Axis**.
-- **Evidence Notes** should preserve enough source support for later synthesis and audit, such as cited text, normalized finding text, source location when available, confidence or quality metadata, and rejection/limitation status.
-- Source quality should be represented as separate **Source Quality Signals**, not as one fixed **Source Authority** tier.
-- **Source Quality Signals** should include source type, independence, freshness, directness to the claim, extraction confidence, and claim fit where available.
-- The same source may be strong evidence for one **Synthesis Claim** and weak evidence for another.
-- A **Source Authority Summary** may help users scan the source ledger, but coverage and audit should evaluate the underlying **Source Quality Signals** in relation to specific **Evidence Notes** and **Synthesis Claims**.
-- Acceptable evidence should depend on **Claim Type**.
-- **Synthesis Claims** should have a **Claim Type** so coverage and audit can apply the right **Evidence Requirement**.
-- **Claim Type** should be persisted for every **Synthesis Claim**.
-- **Claim Type Disclosure** should be selective: reports should expose claim type labels only when they help users understand trust, freshness, source authority, or limitation.
-- User-facing **Claim Type Disclosure** should use plain labels such as official specification, owner-reported pattern, dated price observation, or recommendation based on fit and limitations rather than internal enum names.
-- **Evidence Requirements** should consider **Source Quality Signals**, not only whether an **Evidence Note** exists.
-- **Evidence Requirements** should behave as **Claim Support Gates** for central report claims.
-- If a **Claim Type** requires primary or expert evidence, weaker evidence cannot make that **Synthesis Claim** supported even when many weak sources agree.
-- Weaker evidence may still appear as context, qualifying evidence, contradiction, experiential signal, or **Report Limitation** when appropriate.
-- Weighted **Source Quality Signals** may rank candidate evidence, source display, or follow-up priority, but they must not override a **Claim Support Gate**.
-- **Synthesis Claims** should distinguish **Central Claims** from **Non-Central Claims**.
-- Unsupported **Central Claims** should block normal report publication until repaired, converted into a credible limitation state, or replaced by a supported claim.
-- Unsupported **Non-Central Claims** may be removed, downgraded, or disclosed as **Report Limitations** without blocking an otherwise useful **Research Report**.
-- A recommendation premise should be treated as a **Central Claim** when changing that premise would change the recommendation.
-- Official specification claims should prefer official, manual, vendor, or equivalent primary evidence.
-- Price or availability claims should require fresh dated evidence and should disclose timing.
-- Reliability or user-experience claims may use independent reviews, forums, or owner reports when labeled as experiential evidence.
-- Recommendation claims should combine use-case fit, specifications, limitations, and source diversity rather than relying on one evidence type.
-- Safety, legal, medical, financial, or similarly high-stakes claims should require stronger primary or expert evidence and more explicit **Report Limitations**.
-- Legacy nested source-review or task JSON does not need compatibility preservation for existing Deep Research test data.
-- Once first-class **Evidence Notes** replace nested reviewer/task evidence, obsolete fields such as `reviewed_note`, `extracted_claims_json`, or task evidence JSON should be removed or stopped as write targets rather than kept as a parallel evidence path.
-- **Synthesis Claims** should be stored as first-class persisted rows, such as a `deep_research_synthesis_claims` table, rather than only inside a report draft, synthesis note blob, or Markdown body.
-- A **Synthesis Claim** should retain durable links to the **Deep Research Job**, **Research State Checkpoint** or synthesis pass that produced it, approved **Research Plan** question or report section, status, confidence or strength, limitation flags, and user/conversation ownership.
-- **Claim Evidence Links** should explicitly connect each **Synthesis Claim** to supporting, qualifying, or contradicting **Evidence Notes**.
-- Contradictory **Evidence Notes** may link to a single **Synthesis Claim** as qualifying or contradicting evidence when the claim honestly incorporates the conflict.
-- A **Claim Conflict** should create **Competing Synthesis Claims** when the disagreement changes the conclusion rather than merely qualifying it.
-- AlfyAI must not average away a **Claim Conflict** or hide it inside prose; it should resolve it with stronger evidence, disclose it as a **Report Limitation**, or represent it as competing claims until audit or coverage can decide.
-- Citation-bearing report prose should be rendered from accepted **Synthesis Claims** and their **Claim Evidence Links**, not by asking the citation audit to infer support from text after the fact.
-- A **Synthesis Claim** must answer the approved **Research Plan**, not merely restate a source title, snippet, or per-source note.
-- A **Readable Research Report** is rendered from validated **Synthesis Claims**, not directly from raw source titles, snippets, or weak **Evidence Notes**.
-- If Deep Research cannot produce useful **Synthesis Claims**, it should not publish a normal **Research Report**.
-- A **Research Source** may be tracked as a **Discovered Source**, **Reviewed Source**, or **Cited Source**.
-- Only **Reviewed Sources** may become **Cited Sources**.
-- **Discovered Sources** may appear in activity history or diagnostics, but they are not evidence for report claims.
-- The default **Source Ledger** should show sources that affected the research state: **Cited Sources**, topic-relevant **Reviewed Sources**, and rejected/off-topic reviewed sources when they explain limitations.
-- Discovered-only sources should be collapsed or kept in diagnostics by default so users do not mistake discovery volume for used evidence.
-- A **Source Ledger** should distinguish cited, reviewed topic-relevant, reviewed rejected/off-topic, and discovered-only sources when discovered-only items are shown.
-- A completed **Research Report** or **Evidence Limitation Memo** should include a **Source Ledger Snapshot** so reopening the artifact shows the same source context the user saw at completion.
-- The live **Claim Graph** and workspace rows remain the internal orchestration and audit truth, but the **Source Ledger Snapshot** is the stable reading surface for completed outputs.
-- Cleanup, retries, or later implementation changes should not silently change the **Source Ledger Snapshot** attached to an already completed output.
-- Source counts should distinguish discovered, reviewed, and cited sources instead of presenting one inflated total.
-- Research Card source counts should also expose a compact **Topic-Relevant Reviewed Source** count, so users can distinguish source volume from usable evidence quality.
-- A **Reviewed Source** is not automatically a **Topic-Relevant Reviewed Source**.
-- A **Topic-Relevant Reviewed Source** must support the approved **Research Plan** and pass topic or named-entity relevance checks.
-- Source-review model output may identify supported key questions, but deterministic topic or named-entity overlap should guard against unrelated high-authority or generic sources becoming **Topic-Relevant Reviewed Sources**.
-- The **Topic-Relevance Gate** should run before a reviewed source can produce valid **Evidence Notes** for the **Claim Graph**.
-- Off-topic sources may remain in the source ledger as rejected or limited workspace records, but they must not produce accepted **Evidence Notes**, satisfy **Coverage Assessment**, or support **Synthesis Claims**.
-- The **Durable Research Graph Foundation** should preserve rejected/off-topic source state for transparency without allowing that state to become report-supporting evidence.
-- A comparison-oriented **Research Plan** should identify **Compared Entities** and central **Comparison Axes** before source-heavy research when the user request makes them available.
-- A comparison-oriented **Research Plan** should show detected **Compared Entities** and central **Comparison Axes** before approval so the user can revise scope before source-heavy research begins.
-- Comparison reports should require **Topic-Relevant Reviewed Sources** across every central **Compared Entity** before the **Research Report** is eligible to complete.
-- Comparison reports should require support for central **Comparison Axes** before presenting a normal comparative conclusion.
-- Missing support for a **Compared Entity** or central **Comparison Axis** should create targeted discovery while **Research Budget** remains.
-- Comparison-oriented discovery should use an **Entity-Axis Discovery Strategy** rather than relying only on broad goal and key-question searches.
-- Discovered and reviewed comparison sources should retain enough structure to show which **Compared Entity** or **Comparison Axis** they were meant to support.
-- **Coverage Assessment** for comparison reports should use the **Entity-Axis Discovery Strategy** to identify one-sided evidence, missing axes, and targeted follow-up discovery.
-- If **Research Budget** is exhausted with missing entity or axis support, Deep Research should produce an **Evidence Limitation Memo** instead of padding a **Research Report** with unrelated, generic, or one-sided evidence.
-- A high discovered or reviewed source count must not satisfy the **Report Eligibility Gate** when too few sources are topic-relevant.
-- Source counts are progress telemetry and sanity checks; they are not the main proof of report readiness.
-- **Coverage Assessment** should operate primarily over **Evidence Notes**, **Synthesis Claims**, **Claim Evidence Links**, and **Claim Readiness**.
-- **Coverage Assessment** should consider **Source Quality Signals** when deciding whether evidence is strong enough for claim-ready coverage.
-- **Coverage Assessment** should evaluate whether each central **Synthesis Claim** meets the **Evidence Requirement** for its **Claim Type**.
-- Central **Synthesis Claims** that fail their **Claim Support Gate** should create **Coverage Gaps**, **Repair Passes**, rejected claims, or **Report Limitations** rather than publishable support.
-- **Coverage Assessment** may allow a **Research Report** to publish after unsupported **Non-Central Claims** are removed, downgraded, or converted into **Report Limitations**.
-- Reviewed-source counts and supported-key-question arrays may help detect weak coverage, but they should not by themselves prove that a **Research Report** is publishable.
-- **Report Eligibility Gate** should require enough topic-relevant evidence and enough claim-ready coverage for the approved **Research Plan** before normal report publication.
-- Deep Research depth sets a **Research Budget**.
-- A **Research Budget** is a ceiling, not a promised source count.
-- Deep Research depth sets a **Research Concurrency Budget**.
-- **Source Processing Concurrency** and **Model Reasoning Concurrency** are separate budgets.
-- **Source Processing Concurrency** may be wider than **Model Reasoning Concurrency** because fetching and extraction are less semantically risky than LLM review, synthesis, audit, or repair.
-- Initial configurable concurrency defaults should be: **Focused Deep Research** uses up to 6 source-processing slots and 2 model-reasoning slots; **Standard Deep Research** uses up to 12 source-processing slots and 4 model-reasoning slots; **Max Deep Research** uses up to 24 source-processing slots and 8 model-reasoning slots.
-- Synthesis, coverage assessment, citation audit, report assembly, and repair decisions should remain low-concurrency coordination steps even when source review runs in parallel.
-- **Research Concurrency Budget** should be enforced per job, per user, and globally so deeper research does not overwhelm provider, browser, database, or worker capacity.
-- Deep Research depth sets a **Pass Budget**.
-- A **Pass Budget** is a maximum, not a required number of passes.
-- Deep Research depth sets a **Repair Pass Budget**.
-- Initial configurable depth ceilings should be: **Focused Deep Research** reviews up to 24 sources, runs 2-3 **Meaningful Research Passes**, and allows 1 **Repair Pass**; **Standard Deep Research** reviews up to 75 sources, runs 3-5 **Meaningful Research Passes**, and allows 2 **Repair Passes**; **Max Deep Research** reviews up to 200 sources, runs 5-8 **Meaningful Research Passes**, and allows 3 **Repair Passes**.
-- Depth ceilings should remain runtime-configurable policy defaults, not permanent hardcoded limits.
-- Deep Research depth also sets a **Minimum Pass Expectation**.
-- A **Minimum Pass Expectation** prevents any Deep Research depth from publishing after only a light search pass.
-- **Minimum Pass Expectation** should be implemented as a configurable **Depth Pass Floor** rather than a permanently hardcoded constant.
-- Initial **Depth Pass Floor** defaults should be 2 **Meaningful Research Passes** for **Focused Deep Research**, 3 for **Standard Deep Research**, and 5 for **Max Deep Research**.
-- Only **Meaningful Research Passes** should count toward a **Minimum Pass Expectation**.
-- A pass counts as a **Meaningful Research Pass** when it reviews new topic-relevant evidence, resolves or updates **Coverage Gaps**, creates or repairs **Synthesis Claims**, resolves **Claim Conflicts**, or performs audit-driven repair.
-- A **Repair Pass** counts toward the **Depth Pass Floor** only when it is a **Meaningful Research Pass**.
-- A **Repair Pass** that resolves a **Claim Conflict**, finds replacement evidence, closes a **Coverage Gap**, or converts an unsupported **Central Claim** into a clear **Report Limitation** may count toward the **Depth Pass Floor**.
-- A **Repair Pass** that only reformats, retries an API call, or reruns audit without new graph state must not count toward the **Depth Pass Floor**.
-- No-op passes, transient retry attempts, and formatting-only work must not satisfy a **Minimum Pass Expectation**.
-- Deep Research depth also sets a **Publishable Evidence Floor** for normal **Research Report** completion.
-- A **Publishable Evidence Floor** is separate from a **Research Budget**: the budget limits how much work may be attempted, while the floor decides whether the result is good enough to publish as a **Research Report**.
-- Changes to **Research Budget** or **Pass Budget** ceilings should be independently verifiable from changes to **Publishable Evidence Floor** and **Minimum Pass Expectation** enforcement.
-- **Focused Deep Research** may publish a concise cited brief when it meets a narrow but coherent **Publishable Evidence Floor**.
-- **Focused Deep Research** is still Deep Research; if the user only wants a few quick searches, **Normal Chat** with web search is the better path.
-- **Focused Deep Research** must satisfy its own **Minimum Pass Expectation** before publishing a normal **Research Report**.
-- **Standard Deep Research** should normally require at least one follow-up or coverage-driven **Iterative Research Pass** for multi-question reports.
-- **Standard Deep Research** should require multi-source synthesis across the central **Research Plan** questions before publishing a **Research Report**.
-- **Max Deep Research** should expect multiple **Iterative Research Passes**, including conflict and gap resolution where needed, before publishing a **Research Report**.
-- **Max Deep Research** should require broad coverage across central **Compared Entities**, **Comparison Axes**, conflicts, limitations, and source diversity before publishing a **Research Report**.
-- A **Research Plan** should show a **Research Effort Estimate** before approval.
-- A **Research Effort Estimate** is coarse and not a promise.
-- A **Deep Research Job** may stop before reaching its maximum **Research Budget** or **Pass Budget** only after satisfying the selected depth's **Minimum Pass Expectation**, or when it must end as an **Evidence Limitation Memo**, failure, or cancellation.
-- A **Deep Research Job** must not pad weak sources to satisfy a **Research Budget**.
-- A **Deep Research Job** must continue research when it is below the selected **Depth Pass Floor**, still has budget, and still has plausible source or evidence paths.
-- A **Deep Research Job** should continue research when central **Coverage Gaps**, unresolved **Claim Conflicts**, or unsupported **Central Claims** remain and budget is available.
-- A **Deep Research Job** should run a **Repair Pass** when **Citation Audit** or **Coverage Assessment** finds repairable central support problems and **Repair Pass Budget** remains.
-- A **Deep Research Job** should publish a normal **Research Report** only after the selected **Depth Pass Floor**, **Publishable Evidence Floor**, **Report Eligibility Gate**, **Citation Audit**, and **Structured Research Report** validation all pass.
-- A **Deep Research Job** should publish an **Evidence Limitation Memo** when the approved goal cannot be supported credibly after budget exhaustion, source-pool exhaustion, unrepaired central gaps, or unresolvable claim conflicts.
-- A **Deep Research Job** should fail only for true execution failure, unrecoverable infrastructure failure, invalid durable state, or user cancellation; weak evidence should normally become an **Evidence Limitation Memo**.
-- Clarifying questions are allowed before **Research Plan** approval.
-- After **Research Plan** approval, a **Deep Research Job** should run to completion without blocking for more user input.
-- If ambiguity appears after approval, the **Deep Research Job** should make and disclose a reasonable assumption instead of pausing indefinitely.
-- While a **Deep Research Job** is running, the user may view progress or cancel it.
-- A **Research Plan** cannot be edited after approval in v1.
-- To change direction after approval, the user cancels and starts a new **Deep Research Job**.
-- A running **Deep Research Job** shows an **Activity Timeline** rather than only a spinner.
-- The **Activity Timeline** is persisted and remains attached to the **Research Report** after completion.
-- The **Activity Timeline** shows user-facing stage progress, source counts, brief summaries, assumptions, and warnings.
-- The **Activity Timeline** body should show **Meaningful Timeline Events**, not every pending or routine workflow stage as a separate row.
-- **Meaningful Timeline Events** include the current stage summary, changed source counts, warnings, completion or failure outcomes, coverage decisions, and compact audit results.
-- Pending stages should be represented through the **Stage Progress Ring** or compact stage indicator rather than rendered as full timeline rows.
-- Routine completed stages may collapse into compact progress state rather than occupying black or filled rows.
-- The **Activity Timeline** should avoid repeating source counts on every step when the same counts are already visible in the Research Card summary.
-- Per-event source counts may appear only when they add meaningful change or diagnostic value.
-- A **Stage Progress Ring** may map workflow stages to approximate visual progress, but it should not present exact percentage language while the job is still running.
-- A **Stage Progress Ring** should represent coarse workflow stage progress, not detailed pass counts, gap counts, and audit state all at once.
-- The visible progress label should name the active stage or completion state, such as reviewing sources, auditing citations, writing report, or complete.
-- A running **Stage Progress Ring** is an orientation aid, not a guarantee of remaining runtime or work.
-- A **Stage Progress Ring** or compact stage indicator may support **Stage Detail Reveal**.
-- A **Stage Detail Reveal** should show only **Meaningful Timeline Events**, **Meaningful Pass Progress**, changed counts, warnings, or compact audit results for the selected stage.
-- **Meaningful Pass Progress** may show details such as pass count against **Depth Pass Floor**, open **Coverage Gaps**, resolved **Claim Conflicts**, or audit-driven repair state.
-- The compact **Research Card** header should stay stage-oriented and avoid mechanical pass-floor phrasing.
-- **Stage Detail Reveal** may show explicit pass-floor wording, such as "Pass 2 of 3 minimum", when it helps the user understand progress.
-- Stages without meaningful details should remain compact and should not invent filler text.
-- Newly appearing progress states and **Meaningful Timeline Events** should use **Progress Reveal Motion** so updates feel smooth and effortless without adding visual clutter.
-- The **Activity Timeline** does not expose private model reasoning or chain-of-thought.
-- Deep Research user-facing text must support English and Hungarian.
-- **Research Language** defaults to the latest user request language unless the user explicitly asks for another output language.
-- **Research Sources** may be in languages other than the **Research Language**.
-- Source titles, quotes, and citations may remain in their original source language.
-- Deep Research prose should not mix English and Hungarian except for source material, product names, file names, URLs, citations, and quotes.
-- A **Research Card** presents the **Research Plan**, running **Activity Timeline**, source progress, completion state, and **Report Actions** inside chat.
-- A **Research Card** should derive a **Research Card Severity** separately from the operational **Deep Research Job** status.
-- Operational job status describes execution state, such as awaiting approval, running, completed, failed, or cancelled.
-- **Research Card Severity** describes user-facing meaning, such as working, needs attention, insufficient evidence, completed, cancelled, or failed.
-- Awaiting approval or plan edit should map to needs attention.
-- Running normally should map to working.
-- A completed **Research Report** or **Limited Research Report** should map to completed.
-- An **Evidence Limitation Memo** should map to insufficient evidence.
-- **Research Plan Revision Needed** should map to needs attention.
-- User cancellation should map to cancelled.
-- Infrastructure failure or unrecoverable execution failure should map to failed.
-- A **Research Card** should use cited-site favicons for **Cited Sources** where available, as visual source identity rather than evidence authority.
-- When a **Deep Research Job** produces an **Evidence Limitation Memo**, the **Research Card** should present it as an insufficient-evidence research outcome, not as a failed job or system error.
-- A memo-state **Research Card** should show grounded reason summaries from **Report Limitations**, useful source/evidence counts, and **Memo Recovery Actions**.
-- **Memo Recovery Actions** should be structured actions, not only prose suggestions.
-- **Memo Recovery Actions** should be derived from grounded limitation origin data where possible, so the UI can offer relevant actions such as revise the compared entities, add missing sources, choose deeper depth, or start targeted follow-up research.
-- Choosing a **Memo Recovery Action** must not silently publish a **Research Report** or auto-upgrade depth; the user remains in control of the revised plan or new **Deep Research Job**.
-- Failed-job styling and language should be reserved for cancellation, infrastructure failure, unrecoverable worker failure, or other true execution failures.
-- A **Research Card** is not the full **Research Report**.
-- After a **Report Boundary**, the **Research Card** remains visible in the read-only conversation.
-- The full **Research Report** opens in the workspace/report viewing surface rather than inline as chat content.
-- The **Research Report** view exposes the report body, source list, and **Activity Timeline**.
-- A **Research Report** is a durable workspace document.
-- A **Research Report** is not automatically persona memory.
-- A **Research Report** should influence future conversations only through explicit or strongly relevant retrieval signals.
-- A **Deep Research Job** uses a **Research Workspace** for predictable, inspectable working state.
-- A **Research Workspace** is structured; it is not a generic agent filesystem.
-- AlfyAI should follow a Kimi-inspired Deep Research pattern where practical: iterative search, source review, reasoning over gaps, and synthesis happen as structured passes rather than one broad search followed by Markdown generation.
-- The **Research Orchestrator** owns the **Research Workspace** and decides when to assign **Research Tasks**, run **Coverage Assessment**, request targeted follow-up, synthesize, or stop.
-- The report writer does not own end-to-end research quality; it renders and shapes report-ready material after orchestration, coverage, synthesis, and audit have produced enough structured evidence.
-- Each **Iterative Research Pass** should record its search intent, reviewed-source outcomes, **Evidence Notes**, **Coverage Gaps**, and pass decision in the **Research Workspace**.
-- Kimi-inspired behavior must remain inspectable through AlfyAI's **Research Workspace** and **Activity Timeline**; it should not become an opaque transcript or private chain-of-thought surface.
-- AlfyAI's Kimi-inspired foundation should match the practical pattern of long-horizon multi-turn search, tool use, context management, iterative cross-validation, conflict correction, and resumable work.
-- AlfyAI should not try to imitate Kimi's end-to-end reinforcement-learning training in v1; the product foundation is a deterministic, durable **Research Orchestrator** plus structured graph state that can later benefit from stronger models.
-- AlfyAI's equivalent of long-context management is **Workspace Rehydration** from durable graph state, not trusting one growing prompt transcript.
-- AlfyAI's equivalent of partial rollout is a resumable **Research Resume Point** at pass and task boundaries.
-- AlfyAI's equivalent of conflict self-correction is explicit **Claim Conflicts**, **Competing Synthesis Claims**, **Coverage Gaps**, **Repair Passes**, and **Citation Audit Verdicts**.
-- The durable database-backed **Research Workspace** is the source of truth for iterative research state; model context and worker memory are disposable.
-- The first implementation milestone should be the **Durable Research Graph Foundation**, not visual report rendering.
-- The **Durable Research Graph Foundation** should include persisted pass checkpoints, first-class **Coverage Gaps**, first-class **Evidence Notes**, first-class **Synthesis Claims**, **Claim Evidence Links**, **Citation Audit Verdicts**, and **Report Limitations**.
-- The **Topic-Relevance Gate** should be implemented before the **Durable Research Graph Foundation** starts treating reviewed sources as valid evidence.
-- Report renderer work, Markdown polish, higher depth budgets, and richer progress UI should build on the **Durable Research Graph Foundation** instead of trying to compensate for missing research state.
-- Each **Iterative Research Pass** must create or update a **Research State Checkpoint** before the next pass, synthesis, memo publication, or report publication begins.
-- **Research State Checkpoints** should be stored as first-class persisted pass records, such as a `deep_research_passes` table, rather than inferred from **Research Tasks**, **Reviewed Sources**, or **Activity Timeline** rows.
-- A **Research State Checkpoint** should include the pass number, search intent, task status summary, reviewed-source references, **Evidence Note** references, **Coverage Assessment** result, **Coverage Gaps**, limitations, usage summary, and next decision.
-- A **Research State Checkpoint** may be mutable while its **Iterative Research Pass** is running.
-- Once a **Research State Checkpoint** records a terminal **Pass Decision**, that decision should be treated as immutable.
-- Later corrections, repairs, or reversals should create a new **Iterative Research Pass** or **Repair Pass** rather than mutating a completed pass decision.
-- A **Repair Pass** uses the same workspace, checkpoint, coverage-gap, evidence-note, synthesis-claim, and audit-verdict model as other **Iterative Research Passes**.
-- **Citation Audit** may request a **Repair Pass**, but it should not hide new research, replacement claims, or limitation decisions inside citation-audit side effects.
-- **Coverage Gaps** should be stored as first-class persisted rows, such as a `deep_research_coverage_gaps` table, rather than only inside pass checkpoint JSON or final report limitations.
-- A **Coverage Gap** should retain durable links to the **Deep Research Job**, **Research State Checkpoint**, approved plan question or comparison axis, status, severity, recommended next action, and any **Evidence Notes**, **Synthesis Claims**, or **Report Limitations** that resolved or inherited it.
-- **Coverage Gaps** should have lifecycle states such as open, targeted, resolved, superseded, exhausted, or converted to limitation.
-- A resolved **Coverage Gap** should remain inspectable so AlfyAI can explain why a targeted follow-up pass happened and which evidence or claims closed it.
-- **Research Tasks**, **Reviewed Sources**, **Activity Timeline** events, usage records, and future synthesis records should reference the relevant **Research State Checkpoint** where practical.
-- **Workspace Rehydration** should happen at the start of every worker step and before any model call that depends on prior research state.
-- A **Research Resume Point** should exist for every running pass, required **Research Task**, synthesis step, citation-audit step, repair step, and report-assembly step.
-- A **Research Resume Point** should record enough state to continue without relying on process memory, private model thoughts, or a previous worker's prompt context.
-- Pass transitions should be idempotent: retrying a worker step after a crash must not duplicate sources, tasks, coverage gaps, or timeline events for the same pass decision.
-- Pass completion and next-step creation should be committed atomically where practical, so a crash cannot leave the UI showing progress that the orchestrator cannot resume from.
-- A timed-out or crashed job should resume from the latest valid **Research Resume Point** and rehydrate the **Research Workspace** before doing new work.
-- If the latest pass has no terminal **Pass Decision**, resume should either complete the pending required tasks, mark expired tasks retryable or failed, or create a new recovery pass without mutating completed pass decisions.
-- **Research Usage** is tracked for internal Deep Research model calls, tool calls, and workflow stages.
-- **Research Usage** belongs to the **Deep Research Job** or **Research Task** that produced it, not fake chat messages.
-- Deep Research cost should roll up into user, conversation, model, provider, and billing-month analytics.
-- **Runtime Policy** should be runtime-configurable through the same admin/config path as other model-facing operational policy.
-- **Runtime Policy** should include depth budgets, concurrency budgets, per-user active-job limits, global active-job limits, timeout windows, retry limits, and overrun behavior.
-- Initial active-job defaults should allow one running **Deep Research Job** per conversation, up to two running jobs per user, and a conservative global worker cap sized to deployed infrastructure.
-- When runtime is exhausted at a safe boundary, the orchestrator should run **Coverage Assessment** and choose report, memo, or failure from durable state instead of silently abandoning the job.
-- User cancellation should stop new work, mark running tasks cancelled where practical, preserve the **Research Workspace**, and show cancelled **Research Card Severity** rather than an evidence memo.
-- User-facing **Research Usage** may show runtime, source counts, and actual or estimated cost after completion.
-- The primary completed-job time shown in the **Research Card** should be **Final Research Time**.
-- **Final Research Time** should sit near the completed-job cost summary so users can scan both effort and cost.
-- Worker-active time, model latency, token usage, and provider details may remain in analytics or diagnostics rather than the compact **Research Card**.
-- Internal token/model/provider details belong in analytics, not the main **Research Report** UI.
-- Deep Research uses **Iterative Research Passes**.
-- A **Coverage Assessment** happens after each **Iterative Research Pass**.
-- A **Coverage Assessment** may trigger another **Iterative Research Pass** when coverage is insufficient and **Research Budget** remains.
-- A **Coverage Assessment** considers key-question coverage, source quality, source diversity, conflicts, freshness, and remaining **Research Budget**.
-- **Coverage Assessment** is a separate structured evaluator step rather than the report writer's implicit judgment.
-- **Coverage Assessment** returns whether coverage is sufficient and any **Coverage Gaps**.
-- When coverage is insufficient and **Research Budget** remains, **Coverage Gaps** guide targeted discovery.
-- If **Research Budget** is exhausted before coverage is strong, the **Research Report** must disclose limitations.
-- **Coverage Assessment** decisions should be summarized in the **Activity Timeline**.
-- **Research Tasks** may run in parallel, but each task has a narrow assignment.
-- **Research Tasks** write structured outputs into the **Research Workspace**.
-- The orchestrator decides whether to continue discovery, synthesize, or complete; individual **Research Tasks** do not.
-- A **Pass Barrier** prevents **Coverage Assessment** or synthesis from running on incomplete required work.
-- Parallelism is bounded by depth, user, and system limits.
-- A failed **Research Task** records its reason in the **Research Workspace**.
-- Transient **Research Task** failures may be retried.
-- Failed **Research Tasks** become **Coverage Gaps** when they affect critical questions and cannot be replaced within budget.
-- A **Deep Research Job** does not fail only because some non-critical **Research Tasks** fail.
-- A **Deep Research Job** may complete with **Report Limitations** when it can still produce a useful, citation-supported **Research Report** or **Limited Research Report**.
-- A **Deep Research Job** should fail only for true execution failure, unrecoverable invalid state, repeated infrastructure failure, or user cancellation; weak or partial evidence should normally become a **Limited Research Report** or **Evidence Limitation Memo**.
-- **Report Limitations** must be visible in the **Research Report** or **Limited Research Report** rather than hidden in internal logs.
-- Every **Research Report** and **Limited Research Report** goes through **Citation Audit**.
-- **Citation Audit** verifies the **Claim Graph**, not only citation formatting.
-- **Citation Audit** should inspect **Synthesis Claims**, **Evidence Notes**, and **Claim Evidence Links** before user-facing Markdown citation cleanup.
-- **Citation Audit** should produce first-class **Citation Audit Verdicts** for **Synthesis Claims**, such as supported, partially supported, unsupported, contradicted, or needs repair.
-- **Citation Audit Verdicts** should be durable inputs to **Report Limitations**, memo generation, and final report rendering.
-- Markdown citation cleanup is a rendering concern after claim-graph verification, not the primary purpose of **Citation Audit**.
-- Unsupported core claims must be repaired, removed, or disclosed as **Report Limitations**.
-- **Report Limitations** should be generated from explicit **Coverage Gaps**, rejected or limited **Synthesis Claims**, unresolved contradictions, and **Citation Audit** verdicts rather than freeform caveats added after report writing.
-- Each **Report Limitation** should retain enough structured origin data to show what question, entity, axis, claim, source pool, or audit verdict caused it.
-- **Report Limitations** should be first-class graph objects, not derived-only fields on the final Markdown report.
-- Generic limitations may be included only when they are tied to a concrete workspace signal, such as unavailable source types, stale evidence, inaccessible sources, or exhausted **Research Budget**.
-- **Citation Audit** may trigger one **Repair Pass** before completion or failure.
-- Every **Research Report** or **Limited Research Report** must pass the appropriate **Report Eligibility Gate** before **Citation Audit** can publish it.
-- **Citation Audit** verifies evidence support for retained claims through **Claim Evidence Links**; it does not replace the **Report Eligibility Gate**.
-- **Citation Audit** produces an **Audited Structured Report**, not a flat retained-claims list.
-- **Citation Audit** should preserve report sections, comparison tables, recommendations, and plan-shaped analysis when their claims remain supported.
-- **Claim-Grounded Report Assembly** should retain claim IDs and evidence-link references inside report sections, key findings, recommendations, comparison rows, and limitation records until final rendering.
-- A **Research Report** or **Limited Research Report** has a semi-fixed readable structure: short title, executive summary, capped key findings, compact methodology, main body organized by the supported parts of the **Research Plan**, source list, and **Report Limitations** when applicable.
-- A **Research Report** or **Limited Research Report** may add plan-specific sections such as recommendations, comparison matrices, timelines, methodology, appendices, or next steps.
-- **Citation Audit** should preserve readable report structure while removing unsupported claims; it should not replace every report section with the same retained-claim list.
-- Markdown is a rendering target for a **Structured Research Report**, not the report's source of truth.
-- If the normal **Report Eligibility Gate** fails because evidence only supports part of the approved scope, Deep Research may publish a **Limited Research Report** with narrowed scope and explicit **Report Limitations**.
-- If the **Report Eligibility Gate** fails because too few sources are topic-relevant to support useful synthesized conclusions, Deep Research should end with an insufficient-relevant-evidence outcome instead of publishing a normal **Research Report**.
-- An insufficient-relevant-evidence outcome should create an **Evidence Limitation Memo**.
-- An **Evidence Limitation Memo** is durable and inspectable, but it must not create the same user expectation as a completed **Research Report**.
-- An **Evidence Limitation Memo** should use the same grounded **Report Limitations** and **Research Workspace** state as a failed-to-publish **Research Report**, rather than a separate memo-only explanation path.
-- An **Evidence Limitation Memo** should summarize the approved goal, searched/reviewed scope, topic-relevant counts, evidence-note or claim-readiness gaps when available, rejected or limited claims, audit outcomes when available, why no credible report was produced, and the best next research direction.
-- When the limitation state is the useful output, the **Evidence Limitation Memo** is that limitation state rendered for the user.
-- An **Evidence Limitation Memo** does not create a **Report Boundary**.
-- **Research Plan Revision Needed** does not create a **Report Boundary**.
-- After an **Evidence Limitation Memo**, the conversation should remain usable so the user can use **Memo Recovery Actions** such as revising the request, adding sources, choosing deeper depth, or starting another **Deep Research Job**.
-- After **Research Plan Revision Needed**, the conversation should remain usable so the user can revise or approve a corrected **Research Plan** without treating the prior result as evidence about the original topic.
-- Deep Research should be built in independently testable and verifiable vertical slices.
-- Deep Research slices should follow test-driven development: prove the behavior, implement it, then refactor.
-- Deep Research v1 slices should be production-capable rather than prototype-only.
-- A production-capable Deep Research slice includes fallback behavior, observability, tests, and cleanup appropriate to its scope.
-- Deep Research cleanup should be part of replacement slices so obsolete paths do not remain as parallel behavior.
-- Deep Research fixes should repair poisoned **Research Plan** generation before adding richer final rendering for the same failure path.
-- The first stabilization slice for abstract decision prompts should make planning produce sane **Report Intent**, candidate-option discovery, and domain-appropriate key questions before **Limited Research Report** rendering is added.
-- The first stabilization slice for abstract decision prompts should also include a minimal **Plan Health Check** so already-approved or slipped-through poisoned plans do not end as plain insufficient-evidence memos.
-- The minimal **Plan Health Check** should trigger only on high-reviewed-source, zero-topic-relevant runs, detect obvious plan poison, and offer a plan-revision recovery path without automatically starting broad second research.
-- A **Deep Research Evaluation Harness** should exist before raising Deep Research depth budgets.
-- The **Deep Research Evaluation Harness** should include **Golden Research Fixtures** for off-topic high-authority sources, enough sources but weak **Evidence Notes**, unsupported **Central Claims**, **Non-Central Claim** removal, **Claim Conflicts**, crash/resume across passes, Hungarian output, abstract architecture recommendation plan pollution, and the bad downloaded report regression.
-- The **Deep Research Evaluation Harness** should include Kimi-inspired hard-search fixtures that require multi-turn search, cross-validation, conflict correction, and cautious verification before answering.
-- A generated output should fail evaluation when it reads like a source-note dump, repeats snippets without synthesis, makes unsupported central claims, hides unresolved conflicts, cites sources that do not support the claim, or publishes a report when the correct outcome is an **Evidence Limitation Memo**.
-- Evaluation should treat readable synthesis, claim grounding, source relevance, citation support, durable resume, and localization as separate acceptance dimensions.
-- CI and normal automated verification should use deterministic **Golden Research Fixtures**, not live web search.
-- **Live Research Evaluation** may exist for manual or scheduled review, but it should be optional, non-blocking, and should save outputs for inspection rather than acting as a deterministic pass/fail gate.
-- Raising **Research Budget** or **Pass Budget** without the **Deep Research Evaluation Harness** risks making low-quality research slower and more expensive rather than better.
+- An **Atlas** is produced by an **Atlas Turn**, which is a special kind of **Normal Chat Turn**.
+- An **Atlas Turn** runs through **Normal Chat Turn Completion** like any other turn; it does not bypass memory, analytics, or task-state updates.
+- An **Atlas Profile** sets target goals for an **Atlas Turn** but **Atlas Quality Gates** are non-negotiable regardless of profile.
+- **Atlas Honesty Markers** are derived from the **Atlas Basis** verification, not from model self-assessment.
+- An **Atlas** can be continued (**Atlas Continue**), branched (**Atlas Fork**), or refreshed (**Atlas Revise**) — each creates a new **Atlas Turn** with different seeding.
+- **Atlas Continue** and **Atlas Revise** produce new versions in the same document family; **Atlas Fork** creates a new document family.
+- An **Atlas Turn** consists of one or more **Atlas Research Rounds**, each compressing findings before the next round begins.
+- An **Atlas** is stored and previewed through the existing file-production and document-workspace infrastructure, not through a separate research-specific UI.
 
 ### Example dialogue
 
-> **Dev:** "Should every report request become a **Deep Research Job**?"
-> **Domain expert:** "No. **Normal Chat** can still answer, search, and generate files. A **Deep Research Job** only starts when the user explicitly switches it on."
+> **Dev:** "Should an Atlas Turn create a separate background worker like the old Deep Research did?"
+> **Domain expert:** "No. An Atlas Turn is a Normal Chat Turn. It creates a job for the long-running research, but the turn itself goes through Normal Chat Turn Completion. The user can leave and come back."
 >
-> **Dev:** "If the user cancels research midway, is that conversation now read-only?"
-> **Domain expert:** "No. Only successful completion creates a **Report Boundary**."
+> **Dev:** "If the user picks Overview, can the pipeline skip the audit stage to finish faster?"
+> **Domain expert:** "No. Atlas Quality Gates are non-negotiable. Overview aims for fewer sources and rounds, but it still cannot ship an unsupported claim. That's what killed the old pipeline — it would finish with gibberish."
 >
-> **Dev:** "Can the user ask a follow-up in the same conversation after the report is done?"
-> **Domain expert:** "No. They can start a new conversation from the report, or start another **Deep Research Job**, but the completed report conversation stays read-only."
+> **Dev:** "Should the user approve a research plan before the Atlas Turn starts?"
+> **Domain expert:** "No. The pipeline just runs. The quality gates replace plan approval — they check the actual output, not a prediction. Users rubber-stamped plans anyway."
 >
-> **Dev:** "Should asking about a completed report automatically start deeper research?"
-> **Domain expert:** "No. **Discuss Report** starts **Normal Chat**. **Research Further** is the explicit deep research path."
+> **Dev:** "If two sources contradict each other, should the Atlas pick one?"
+> **Domain expert:** "No. It should mark the conflict with an Atlas Honesty Marker and explain it in the Limitations section. The Atlas Basis for that field would show both sources and a low confidence."
 >
-> **Dev:** "Can a deep research request immediately start browsing because the prompt seems clear?"
-> **Domain expert:** "No. It first creates a **Research Plan** that the user can edit or approve."
->
-> **Dev:** "If the user edits the plan, does that count as starting research?"
-> **Domain expert:** "No. Editing produces a revised **Research Plan** and asks again whether to approve or edit."
->
-> **Dev:** "Should users edit plans through a complex form?"
-> **Domain expert:** "No. A **Plan Edit** is freeform, and AlfyAI turns it into a revised **Research Plan**."
->
-> **Dev:** "Can AlfyAI silently upgrade a focused task to max depth?"
-> **Domain expert:** "No. It can recommend a depth change in the **Research Plan**, but the user decides."
->
-> **Dev:** "Can private library material help AlfyAI understand what the user likely means?"
-> **Domain expert:** "Yes, as **Planning Context**. It only becomes a **Research Source** if the approved **Research Plan** includes it."
->
-> **Dev:** "Should the user see why the plan seems personalized?"
-> **Domain expert:** "Yes, the plan can show a compact context-considered disclosure without turning that context into report evidence."
->
-> **Dev:** "Is the final deep research output just another assistant message?"
-> **Domain expert:** "No. It is a durable **Research Report** that can be opened, reused, and inspected."
->
-> **Dev:** "Can we say Max used 600 sources if most were only search candidates?"
-> **Domain expert:** "No. Say 600 **Discovered Sources**, then separately count **Reviewed Sources** and **Cited Sources**."
->
-> **Dev:** "Did Max fail if it reviewed fewer than 100 sources for a narrow topic?"
-> **Domain expert:** "No. The **Research Budget** is a ceiling, not a quota."
->
-> **Dev:** "Can approved research stop midway to ask the user what they meant?"
-> **Domain expert:** "No. After approval, it should continue and disclose any assumptions it had to make."
->
-> **Dev:** "Can the user add 'exclude Reddit' after approved research is already running?"
-> **Domain expert:** "Not in v1. They can cancel and start a new **Deep Research Job** with a revised **Research Plan**."
->
-> **Dev:** "Should running research just show a spinner?"
-> **Domain expert:** "No. It should show a persisted **Activity Timeline** with meaningful research stages and source progress."
->
-> **Dev:** "If the user asks in Hungarian for research using English sources, what language is the report?"
-> **Domain expert:** "The **Research Language** is Hungarian, while **Research Sources** may remain English."
->
-> **Dev:** "Should the completed report render inline as a huge chat message?"
-> **Domain expert:** "No. The **Research Card** stays compact, and the full **Research Report** opens separately."
->
-> **Dev:** "Where should users inspect a long Max report and its sources?"
-> **Domain expert:** "In the workspace/report viewing surface, not by scrolling through chat."
->
-> **Dev:** "Does completing a sensitive report mean future casual chats should remember it automatically?"
-> **Domain expert:** "No. A **Research Report** is a workspace document, not automatic persona memory."
->
-> **Dev:** "Should deep research rely on a hidden agent filesystem?"
-> **Domain expert:** "No. It should use a structured **Research Workspace** so progress, sources, notes, and citations are inspectable."
->
-> **Dev:** "Should AlfyAI copy Kimi's deep research pattern where it can?"
-> **Domain expert:** "Yes. Follow the useful part: iterative search, review, gap reasoning, and synthesis as structured **Iterative Research Passes** owned by the **Research Orchestrator**."
->
-> **Dev:** "Should the report writer own end-to-end research quality?"
-> **Domain expert:** "No. The report writer renders report-ready material after orchestration, coverage, synthesis, and audit have produced enough structured evidence."
->
-> **Dev:** "Does deep research search once and then write?"
-> **Domain expert:** "No. It runs **Iterative Research Passes** until **Coverage Assessment** says coverage is sufficient or the **Research Budget** is exhausted."
->
-> **Dev:** "If the report writer wants to proceed but a key question lacks evidence, what happens?"
-> **Domain expert:** "A separate **Coverage Assessment** identifies the **Coverage Gap** and drives another targeted discovery pass if budget remains."
->
-> **Dev:** "Can parallel search workers synthesize as soon as they individually finish?"
-> **Domain expert:** "No. **Research Tasks** write to the **Research Workspace**, and a **Pass Barrier** waits for required tasks before assessment or synthesis."
->
-> **Dev:** "Should Max fail because three reviewed pages could not be fetched?"
-> **Domain expert:** "No, unless those failures prevent a credible report and cannot be replaced or disclosed as **Coverage Gaps**."
->
-> **Dev:** "If two vendors hide pricing behind sales forms, should the whole report fail?"
-> **Domain expert:** "No. Complete with **Report Limitations** and avoid unsupported pricing claims."
->
-> **Dev:** "Can the report claim SOC 2 certification from a vague security marketing page?"
-> **Domain expert:** "No. **Citation Audit** must reject or repair unsupported claims."
->
-> **Dev:** "Should every report use exactly the same section template?"
-> **Domain expert:** "No. The structure is semi-fixed: core trust sections are always present, while plan-specific sections adapt."
+> **Dev:** "Is an Atlas a chat message or a file?"
+> **Domain expert:** "It's a file. A durable, navigable report artifact — HTML, PDF, and Markdown. It appears as a file-production card in the chat and opens in the document workspace."
 
 ## Flagged ambiguities
 
-- "canonical" means the preferred term inside the Deep Research subdomain, not the default format for all AlfyAI answers or reports.
+- "canonical" means the preferred term inside the deleted research subsystem subdomain, not the default format for all AlfyAI answers or reports.
 - "finished chat" means a conversation after a **Report Boundary**, not cancellation, deletion, or archival.
+- "research" in AlfyAI now refers to the live `research_web` Normal Chat tool (single-turn web search) unless prefixed with "Atlas" — an **Atlas** is the durable report, not a search result.
+- "report" without qualification could mean any generated file; an **Atlas** is a specific kind of research report with navigation, citations, and honesty markers.

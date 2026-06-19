@@ -4,8 +4,6 @@ import type {
 	ChatMessage,
 	ContextCompressionMarker,
 	ContextDebugState,
-	DeepResearchJob,
-	DeepResearchReportIntent,
 	DocumentWorkspaceItem,
 	FileProductionJob,
 	ConversationForkOrigin,
@@ -20,7 +18,6 @@ let {
 	contextDebug,
 	modelIcons = {},
 	fileProductionJobs = [],
-	deepResearchJobs = [],
 	contextCompressionMarkers = [],
 	hasActiveSkillSession = false,
 	forkOrigin = null,
@@ -39,12 +36,6 @@ let {
 	onPublishSkillDraft,
 	onRetryFileProductionJob,
 	onCancelFileProductionJob,
-	onCancelDeepResearchJob,
-	onEditDeepResearchPlan,
-	onApproveDeepResearchPlan,
-	onDiscussDeepResearchReport,
-	onResearchFurtherFromDeepResearchReport,
-	onAdvanceDeepResearchWorkflow,
 }: {
 	messages: ChatMessage[];
 	conversationId: string;
@@ -52,7 +43,6 @@ let {
 	contextDebug: ContextDebugState | null;
 	modelIcons?: Record<string, string | null | undefined>;
 	fileProductionJobs?: FileProductionJob[];
-	deepResearchJobs?: DeepResearchJob[];
 	contextCompressionMarkers?: ContextCompressionMarker[];
 	hasActiveSkillSession?: boolean;
 	forkOrigin?: ConversationForkOrigin | null;
@@ -83,19 +73,6 @@ let {
 	}) => void | Promise<void>;
 	onRetryFileProductionJob?: (jobId: string) => void | Promise<void>;
 	onCancelFileProductionJob?: (jobId: string) => void | Promise<void>;
-	onCancelDeepResearchJob?: (jobId: string) => void | Promise<void>;
-	onEditDeepResearchPlan?: (
-		jobId: string,
-		instructions: string,
-		reportIntent?: DeepResearchReportIntent,
-	) => void | Promise<void>;
-	onApproveDeepResearchPlan?: (jobId: string) => void | Promise<void>;
-	onDiscussDeepResearchReport?: (jobId: string) => void | Promise<void>;
-	onResearchFurtherFromDeepResearchReport?: (
-		jobId: string,
-		options?: { depth?: DeepResearchJob["depth"] },
-	) => void | Promise<void>;
-	onAdvanceDeepResearchWorkflow?: (jobId: string) => void | Promise<void>;
 } = $props();
 </script>
 
@@ -112,7 +89,6 @@ let {
 		{contextDebug}
 		{modelIcons}
 		{fileProductionJobs}
-		{deepResearchJobs}
 		{contextCompressionMarkers}
 		{hasActiveSkillSession}
 		{forkOrigin}
@@ -130,12 +106,6 @@ let {
 		{onPublishSkillDraft}
 		{onRetryFileProductionJob}
 		{onCancelFileProductionJob}
-		{onCancelDeepResearchJob}
-		{onEditDeepResearchPlan}
-		{onApproveDeepResearchPlan}
-		{onDiscussDeepResearchReport}
-		{onResearchFurtherFromDeepResearchReport}
-		{onAdvanceDeepResearchWorkflow}
 	/>
 </div>
 

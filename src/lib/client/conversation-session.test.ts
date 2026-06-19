@@ -103,26 +103,23 @@ describe("conversation-session", () => {
 			pendingSkill: null,
 			modelId: undefined,
 			personalityProfileId: null,
-			deepResearchDepth: null,
 			reasoningDepth: "auto",
 			forceWebSearch: false,
 		});
 		expect(hasPendingConversationMessage("conv-123")).toBe(false);
 	});
 
-	it("preserves Deep Research and Reasoning depth on pending bootstrap messages", () => {
+	it("preserves Reasoning depth on pending bootstrap messages", () => {
 		storePendingConversationMessage("conv-123", {
-			message: "Research this deeply",
+			message: "Think about this",
 			attachmentIds: [],
 			attachments: [],
-			deepResearchDepth: "max",
 			reasoningDepth: "max",
 		});
 
 		expect(consumePendingConversationMessage("conv-123")).toEqual(
 			expect.objectContaining({
-				message: "Research this deeply",
-				deepResearchDepth: "max",
+				message: "Think about this",
 				reasoningDepth: "max",
 			}),
 		);

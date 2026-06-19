@@ -56,7 +56,6 @@ describe("GET /api/composer-commands", () => {
 			"/clear",
 			"/compact",
 			"/web",
-			"/research",
 		]);
 	});
 });

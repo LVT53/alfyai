@@ -13,7 +13,6 @@ import {
 	conversationSummaries,
 	conversationTaskStates,
 	conversationWorkingSetItems,
-	deepResearchJobs,
 	fileProductionJobAttempts,
 	fileProductionJobs,
 	memoryDirtyLedger,
@@ -33,7 +32,6 @@ import {
 import { verifyPassword } from "../auth";
 import { requestActiveChatStreamsStopForUser } from "../chat-turn/active-streams";
 import { purgeUserData } from "../cleanup/user-cleanup";
-import { cancelRunningResearchTasks } from "../deep-research/tasks";
 import {
 	deleteAllHonchoStateForUser,
 	rotateHonchoPeerIdentity,
@@ -46,12 +44,6 @@ import { clearMessageEvidenceForUser } from "../messages";
 export const DETACHED_SHARED_CONTENT_OWNER_ID = "detached-shared-content-owner";
 export const DETACHED_SHARED_CONTENT_OWNER_EMAIL =
 	"detached-shared-content-owner@alfyai.local";
-const ACTIVE_DEEP_RESEARCH_STATUSES = [
-	"awaiting_plan",
-	"awaiting_approval",
-	"approved",
-	"running",
-] as const;
 const ACTIVE_FILE_PRODUCTION_STATUSES = ["queued", "running"] as const;
 
 export type PrivacyControlPasswordResult =
@@ -253,50 +245,8 @@ async function resolveDetachedSharedContentOwnerId(
 
 async function quiesceUserWorkspace(userId: string): Promise<void> {
 	requestActiveChatStreamsStopForUser(userId);
-	await cancelActiveDeepResearchForUser(userId);
 	await cancelActiveFileProductionForUser(userId);
 	await quiesceUserMemoryMaintenance(userId);
-}
-
-async function cancelActiveDeepResearchForUser(userId: string): Promise<void> {
-	const now = new Date();
-	const activeJobs = await db
-		.select({ id: deepResearchJobs.id })
-		.from(deepResearchJobs)
-		.where(
-			and(
-				eq(deepResearchJobs.userId, userId),
-				inArray(deepResearchJobs.status, ACTIVE_DEEP_RESEARCH_STATUSES),
-			),
-		);
-
-	if (activeJobs.length === 0) return;
-
-	await db
-		.update(deepResearchJobs)
-		.set({
-			status: "cancelled",
-			stage: "cancelled_by_request",
-			cancelledAt: now,
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(deepResearchJobs.userId, userId),
-				inArray(deepResearchJobs.status, ACTIVE_DEEP_RESEARCH_STATUSES),
-			),
-		);
-
-	await Promise.all(
-		activeJobs.map((job) =>
-			cancelRunningResearchTasks({
-				userId,
-				jobId: job.id,
-				reason: "Account Erasure cancelled active Deep Research work.",
-				now,
-			}),
-		),
-	);
 }
 
 async function cancelActiveFileProductionForUser(

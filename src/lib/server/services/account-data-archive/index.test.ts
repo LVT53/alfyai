@@ -284,7 +284,6 @@ describe("createAccountDataArchive", () => {
 		expect(entry).not.toContain('id="files" class="section" open');
 		expect(entry).not.toContain("Account archive");
 		expect(entry).not.toContain("Contains personal data");
-		expect(entry).toContain("Deep Research is not included in this v1 archive");
 		expect(entry).not.toContain("Overview");
 
 		const chatPath = Object.keys(zip.files).find(

@@ -3,7 +3,6 @@ import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-t
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
-	DeepResearchDepth,
 	DepthMetadata,
 	HonchoContextInfo,
 	HonchoContextSnapshot,
@@ -39,7 +38,6 @@ export type ParsedChatTurnRequest = {
 	pendingSkill: PendingSkillSelection | null;
 	activeDocumentArtifactId?: string;
 	personalityProfileId?: string;
-	deepResearchDepth?: DeepResearchDepth;
 	reasoningDepth: ReasoningDepth;
 	thinkingMode: ThinkingMode;
 	forceWebSearch: boolean;

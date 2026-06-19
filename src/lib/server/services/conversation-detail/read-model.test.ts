@@ -55,10 +55,6 @@ vi.mock("$lib/server/services/file-production/read-model", () => ({
 	listConversationFileProductionJobs: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/deep-research", () => ({
-	listConversationDeepResearchJobs: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/context-compression", () => ({
 	listContextCompressionSnapshots: vi.fn(),
 	serializeContextCompressionSnapshot: (snapshot: {
@@ -94,7 +90,6 @@ import {
 	listChildForksBySourceMessages,
 } from "$lib/server/services/conversation-forks";
 import { getConversation } from "$lib/server/services/conversations";
-import { listConversationDeepResearchJobs } from "$lib/server/services/deep-research";
 import {
 	listConversationFileProductionJobs,
 	listConversationGeneratedFiles,
@@ -140,9 +135,6 @@ const mockListConversationGeneratedFiles = vi.mocked(
 );
 const mockListConversationFileProductionJobs = vi.mocked(
 	listConversationFileProductionJobs,
-);
-const mockListConversationDeepResearchJobs = vi.mocked(
-	listConversationDeepResearchJobs,
 );
 const mockListContextCompressionSnapshots = vi.mocked(
 	listContextCompressionSnapshots,
@@ -204,7 +196,6 @@ describe("Conversation Detail Read Model", () => {
 		mockGetProjectReferenceContext.mockResolvedValue(null);
 		mockListConversationGeneratedFiles.mockResolvedValue([]);
 		mockListConversationFileProductionJobs.mockResolvedValue([]);
-		mockListConversationDeepResearchJobs.mockResolvedValue([]);
 		mockListContextCompressionSnapshots.mockResolvedValue([]);
 		mockGetConversationCostSummary.mockResolvedValue({
 			totalCostUsdMicros: 0,
@@ -228,7 +219,6 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockGetConversationTaskState).not.toHaveBeenCalled();
 		expect(mockListConversationGeneratedFiles).not.toHaveBeenCalled();
 		expect(mockListConversationFileProductionJobs).not.toHaveBeenCalled();
-		expect(mockListConversationDeepResearchJobs).not.toHaveBeenCalled();
 		expect(mockListContextCompressionSnapshots).not.toHaveBeenCalled();
 		expect(mockGetConversationCostSummary).not.toHaveBeenCalled();
 		expect(detail).toMatchObject({
@@ -244,7 +234,6 @@ describe("Conversation Detail Read Model", () => {
 			taskState: null,
 			contextDebug: null,
 			fileProductionJobs: [],
-			deepResearchJobs: [],
 			contextCompressionSnapshots: [],
 			bootstrap: true,
 		});
@@ -289,15 +278,6 @@ describe("Conversation Detail Read Model", () => {
 				],
 			},
 		});
-		mockListConversationDeepResearchJobs.mockResolvedValue([
-			{
-				id: "research-job-1",
-				conversationId: "conv-1",
-				status: "awaiting_plan",
-				title: "Research battery policy",
-			},
-		] as never);
-
 		const detail = await getConversationDetail({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -311,10 +291,6 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockGetConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
 		expect(mockGetConversationForkOrigin).toHaveBeenCalledWith("conv-1");
 		expect(mockGetActiveSkillSession).toHaveBeenCalledWith("user-1", "conv-1");
-		expect(mockListConversationDeepResearchJobs).toHaveBeenCalledWith(
-			"user-1",
-			"conv-1",
-		);
 		expect(mockListConversationArtifacts).not.toHaveBeenCalled();
 		expect(mockListConversationLinkedContextSources).not.toHaveBeenCalled();
 		expect(mockGetConversationWorkingSet).not.toHaveBeenCalled();
@@ -345,7 +321,6 @@ describe("Conversation Detail Read Model", () => {
 			taskState: null,
 			contextDebug: null,
 			fileProductionJobs: [],
-			deepResearchJobs: [expect.objectContaining({ id: "research-job-1" })],
 			contextCompressionSnapshots: [],
 			bootstrap: false,
 			sidecarPending: true,
@@ -425,14 +400,6 @@ describe("Conversation Detail Read Model", () => {
 				error: null,
 			},
 		] as never);
-		mockListConversationDeepResearchJobs.mockResolvedValue([
-			{
-				id: "research-job-1",
-				conversationId: "conv-1",
-				status: "awaiting_plan",
-				title: "Research battery policy",
-			},
-		] as never);
 		mockListContextCompressionSnapshots.mockResolvedValue([
 			{
 				id: "snapshot-1",
@@ -481,7 +448,6 @@ describe("Conversation Detail Read Model", () => {
 				}),
 			],
 			fileProductionJobs: [expect.objectContaining({ id: "job-1" })],
-			deepResearchJobs: [expect.objectContaining({ id: "research-job-1" })],
 			contextCompressionSnapshots: [
 				{
 					id: "snapshot-1",

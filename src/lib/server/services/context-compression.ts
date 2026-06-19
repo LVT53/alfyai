@@ -9,9 +9,9 @@ import type {
 	ThinkingMode,
 } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
-import { parseModelJsonObject } from "./deep-research/llm-json";
 import { messageOrderAsc } from "./message-ordering";
 import { repairConversationMessageSequences } from "./message-sequences";
+import { parseModelJsonObject } from "./model-json";
 
 export type ContextCompressionSnapshotTrigger = "manual" | "automatic";
 export type ContextCompressionSnapshotStatus = "running" | "valid" | "failed";

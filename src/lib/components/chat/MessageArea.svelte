@@ -8,14 +8,11 @@ import type {
 	ContextDebugState,
 	ContextCompressionMarker,
 	ConversationForkOrigin,
-	DeepResearchJob,
-	DeepResearchReportIntent,
 	DocumentWorkspaceItem,
 	FileProductionJob,
 	TaskSteeringPayload,
 } from "$lib/types";
 import MessageBubble from "./MessageBubble.svelte";
-import ResearchCard from "./ResearchCard.svelte";
 
 let {
 	messages = [],
@@ -24,7 +21,6 @@ let {
 	contextDebug = null,
 	modelIcons = {},
 	fileProductionJobs = [],
-	deepResearchJobs = [],
 	contextCompressionMarkers = [],
 	hasActiveSkillSession = false,
 	activeSkillSessionHeight = 0,
@@ -43,12 +39,6 @@ let {
 	onPublishSkillDraft = undefined,
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
-	onCancelDeepResearchJob = undefined,
-	onEditDeepResearchPlan = undefined,
-	onApproveDeepResearchPlan = undefined,
-	onDiscussDeepResearchReport = undefined,
-	onResearchFurtherFromDeepResearchReport = undefined,
-	onAdvanceDeepResearchWorkflow = undefined,
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
@@ -56,7 +46,6 @@ let {
 	contextDebug?: ContextDebugState | null;
 	modelIcons?: Record<string, string | null | undefined>;
 	fileProductionJobs?: FileProductionJob[];
-	deepResearchJobs?: DeepResearchJob[];
 	contextCompressionMarkers?: ContextCompressionMarker[];
 	hasActiveSkillSession?: boolean;
 	activeSkillSessionHeight?: number;
@@ -97,31 +86,6 @@ let {
 		| undefined;
 	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
-	onCancelDeepResearchJob?:
-		| ((jobId: string) => void | Promise<void>)
-		| undefined;
-	onEditDeepResearchPlan?:
-		| ((
-				jobId: string,
-				instructions: string,
-				reportIntent?: DeepResearchReportIntent,
-		  ) => void | Promise<void>)
-		| undefined;
-	onApproveDeepResearchPlan?:
-		| ((jobId: string) => void | Promise<void>)
-		| undefined;
-	onDiscussDeepResearchReport?:
-		| ((jobId: string) => void | Promise<void>)
-		| undefined;
-	onResearchFurtherFromDeepResearchReport?:
-		| ((
-				jobId: string,
-				options?: { depth?: DeepResearchJob["depth"] },
-		  ) => void | Promise<void>)
-		| undefined;
-	onAdvanceDeepResearchWorkflow?:
-		| ((jobId: string) => void | Promise<void>)
-		| undefined;
 } = $props();
 
 let scrollContainer = $state<HTMLDivElement | null>(null);
@@ -129,7 +93,6 @@ let forkBoundaryMarker = $state<HTMLDivElement | null>(null);
 let shouldAutoScroll = true;
 let lastMessageCount = 0;
 let lastFileProductionJobCount = 0;
-let lastDeepResearchJobCount = 0;
 let lastContextCompressionMarkerCount = 0;
 let lastConversationId: string | null = null;
 let shouldJumpToConversationBottom = false;
@@ -189,7 +152,6 @@ $effect.pre(() => {
 	scrollContainer;
 	isThinkingActive;
 	fileProductionJobs.length;
-	deepResearchJobs.length;
 	contextCompressionMarkers.length;
 
 	if (!scrollContainer) return;
@@ -203,7 +165,6 @@ $effect.pre(() => {
 		shouldAutoScroll = true;
 		lastMessageCount = 0;
 		lastFileProductionJobCount = 0;
-		lastDeepResearchJobCount = 0;
 		lastContextCompressionMarkerCount = 0;
 		pendingForkBoundaryMessageId = forkOrigin?.copiedForkPointMessageId ?? null;
 		if (pendingForkBoundaryMessageId != null) {
@@ -231,19 +192,17 @@ $effect.pre(() => {
 		// existing messages as "new" and override restored position.
 		lastMessageCount = dedupedMessages.length;
 		lastFileProductionJobCount = fileProductionJobs.length;
-		lastDeepResearchJobCount = deepResearchJobs.length;
 		lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 		return;
 	}
 
-	if (messages.length === 0 && deepResearchJobs.length === 0) {
+	if (messages.length === 0) {
 		if (shouldJumpToConversationBottom) {
 			// Do not consume the first user send as an initial-load jump for empty conversations.
 			shouldJumpToConversationBottom = false;
 		}
 		lastMessageCount = 0;
 		lastFileProductionJobCount = fileProductionJobs.length;
-		lastDeepResearchJobCount = 0;
 		lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 		return;
 	}
@@ -251,8 +210,6 @@ $effect.pre(() => {
 	const isNewMessage = hasNewMessage(dedupedMessages);
 	const hasNewFileProductionJobs =
 		fileProductionJobs.length > lastFileProductionJobCount;
-	const hasNewDeepResearchJobs =
-		deepResearchJobs.length > lastDeepResearchJobCount;
 	const hasNewContextCompressionMarkers =
 		contextCompressionMarkers.length > lastContextCompressionMarkerCount;
 
@@ -268,8 +225,6 @@ $effect.pre(() => {
 	} else if (hasNewFileProductionJobs && shouldAutoScroll) {
 		// File-production cards render inside the latest assistant message; keep that expanded area visible.
 		void alignToBottomAfterRender();
-	} else if (hasNewDeepResearchJobs && shouldAutoScroll) {
-		void alignToBottomAfterRender();
 	} else if (hasNewContextCompressionMarkers && shouldAutoScroll) {
 		void alignToBottomAfterRender();
 	} else if (shouldAutoScroll && isThinkingActive) {
@@ -279,7 +234,6 @@ $effect.pre(() => {
 
 	lastMessageCount = dedupedMessages.length;
 	lastFileProductionJobCount = fileProductionJobs.length;
-	lastDeepResearchJobCount = deepResearchJobs.length;
 	lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 });
 
@@ -319,17 +273,6 @@ let currentStreamingAssistantMessageId = $derived(
 		)?.id ?? null,
 );
 
-let deepResearchJobsByAnchorMessageKey = $derived(
-	deepResearchJobs.reduce((jobsByMessageId, job) => {
-		const anchorKey = findDeepResearchAnchorMessageKey(job, dedupedMessages);
-		if (!anchorKey) return jobsByMessageId;
-		const jobs = jobsByMessageId.get(anchorKey) ?? [];
-		jobs.push(job);
-		jobsByMessageId.set(anchorKey, jobs);
-		return jobsByMessageId;
-	}, new Map<string, DeepResearchJob[]>()),
-);
-
 let contextCompressionMarkersBySourceEndMessageId = $derived(
 	contextCompressionMarkers.reduce((markersByMessageId, marker) => {
 		const markers = markersByMessageId.get(marker.sourceEndMessageId) ?? [];
@@ -338,45 +281,6 @@ let contextCompressionMarkersBySourceEndMessageId = $derived(
 		return markersByMessageId;
 	}, new Map<string, ContextCompressionMarker[]>()),
 );
-
-let unanchoredDeepResearchJobs = $derived(
-	deepResearchJobs.filter((job) => {
-		return !findDeepResearchAnchorMessageKey(job, dedupedMessages);
-	}),
-);
-
-function messageRenderKey(message: ChatMessage): string {
-	return message.renderKey ?? message.id;
-}
-
-function findDeepResearchAnchorMessageKey(
-	job: DeepResearchJob,
-	messageList: ChatMessage[],
-): string | null {
-	if (job.triggerMessageId) {
-		const exactMatch = messageList.find(
-			(message) =>
-				message.id === job.triggerMessageId ||
-				message.renderKey === job.triggerMessageId,
-		);
-		if (exactMatch) return messageRenderKey(exactMatch);
-	}
-
-	const request = normalizeAnchorText(job.userRequest ?? "");
-	if (!request) return null;
-	const matchingUserMessage = [...messageList]
-		.reverse()
-		.find(
-			(message) =>
-				message.role === "user" &&
-				normalizeAnchorText(message.content) === request,
-		);
-	return matchingUserMessage ? messageRenderKey(matchingUserMessage) : null;
-}
-
-function normalizeAnchorText(value: string): string {
-	return value.replace(/\s+/g, " ").trim();
-}
 
 function getFileProductionJobsForMessage(
 	message: ChatMessage,
@@ -492,7 +396,7 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 	aria-atomic="false"
 >
 	<div class="mx-auto flex min-h-full w-full max-w-[760px] flex-col gap-lg px-sm py-lg md:px-lg md:py-xl lg:px-xl">
-		{#if messages.length === 0 && deepResearchJobs.length === 0}
+		{#if messages.length === 0}
 			<div class="conversation-empty-state">
 				<div class="conversation-empty-eyebrow">{$t('chat.conversationReady')}</div>
 				<p class="conversation-empty-copy">
@@ -500,18 +404,6 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 				</p>
 			</div>
 		{:else}
-			{#each unanchoredDeepResearchJobs as job (job.id)}
-				<ResearchCard
-					job={job}
-					onCancel={onCancelDeepResearchJob}
-					onEdit={onEditDeepResearchPlan}
-					onApprove={onApproveDeepResearchPlan}
-					onOpenReport={onOpenDocument}
-					onDiscussReport={onDiscussDeepResearchReport}
-					onResearchFurther={onResearchFurtherFromDeepResearchReport}
-					onAdvanceResearch={onAdvanceDeepResearchWorkflow}
-				/>
-			{/each}
 			{#each dedupedMessages as message, i (message.renderKey ?? message.id)}
 				{#if shouldShowImportBoundary(dedupedMessages, i)}
 					<div
@@ -597,18 +489,6 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 						</div>
 						<span class="context-compression-title">{contextCompressionMarkerLabel(marker)}</span>
 					</div>
-				{/each}
-				{#each deepResearchJobsByAnchorMessageKey.get(messageRenderKey(message)) ?? [] as job (job.id)}
-					<ResearchCard
-						job={job}
-						onCancel={onCancelDeepResearchJob}
-						onEdit={onEditDeepResearchPlan}
-						onApprove={onApproveDeepResearchPlan}
-						onOpenReport={onOpenDocument}
-						onDiscussReport={onDiscussDeepResearchReport}
-						onResearchFurther={onResearchFurtherFromDeepResearchReport}
-						onAdvanceResearch={onAdvanceDeepResearchWorkflow}
-					/>
 				{/each}
 			{/each}
 			<div

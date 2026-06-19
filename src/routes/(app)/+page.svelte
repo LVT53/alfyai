@@ -80,7 +80,6 @@ type MessageInputSendPayload = {
 	linkedSources?: LinkedContextSource[];
 	pendingSkill?: import("$lib/types").PendingSkillSelection | null;
 	modelId?: ModelId;
-	deepResearchDepth?: "focused" | "standard" | "max" | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
 };
@@ -327,15 +326,10 @@ async function handleSend(payload: MessageInputSendPayload) {
 			message: text,
 			attachmentIds: payload.attachmentIds,
 			attachments: payload.attachments,
-			linkedSources: payload.deepResearchDepth
-				? []
-				: (payload.linkedSources ?? []),
-			pendingSkill: payload.deepResearchDepth
-				? null
-				: (payload.pendingSkill ?? null),
+			linkedSources: payload.linkedSources ?? [],
+			pendingSkill: payload.pendingSkill ?? null,
 			modelId: payload.modelId ?? $selectedModel,
 			personalityProfileId: selectedPersonalityId,
-			deepResearchDepth: payload.deepResearchDepth ?? null,
 			reasoningDepth: payload.reasoningDepth ?? $selectedReasoningDepth,
 			forceWebSearch: payload.forceWebSearch === true,
 		});
@@ -475,7 +469,6 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					onDraftChange={handleDraftChange}
 					disabled={creating}
 					maxLength={data.maxMessageLength}
-					deepResearchEnabled={data.deepResearchEnabled}
 					composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
 					conversationId={preparedConversationId}
 					contextStatus={null}

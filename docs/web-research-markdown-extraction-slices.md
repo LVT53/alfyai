@@ -4,7 +4,7 @@ This is a local `$to-issues` draft for improving model-facing web search quality
 
 ## Goal
 
-Improve Normal Chat and Deep Research source quality by keeping SearXNG as the search/discovery layer while replacing the current regex-flattened page fetches with clean, citation-safe Markdown extraction.
+Improve Normal Chat and deleted research subsystem source quality by keeping SearXNG as the search/discovery layer while replacing the current regex-flattened page fetches with clean, citation-safe Markdown extraction.
 
 The default path is **Option 1: in-process Readability plus HTML-to-Markdown extraction**.
 
@@ -24,14 +24,14 @@ SearXNG should stay in place as the discovery provider. The quality gap is later
 - `src/lib/server/services/web-research/index.ts` currently opens result pages and converts HTML to readable text through regex stripping.
 - That path removes some useful structure, including code blocks, lists, tables, headings, and source-local anchors.
 - `research_web` already builds a compact Markdown answer brief, but that Markdown is assembled from flattened snippets and quote candidates rather than source-derived Markdown.
-- Deep Research stores opened source text and reviews it through the source-review workflow, so cleaner source text should improve Topic-Relevance Gate decisions, Evidence Notes, and citation quality.
+- deleted research subsystem stores opened source text and reviews it through the source-review workflow, so cleaner source text should improve Topic-Relevance Gate decisions, Evidence Notes, and citation quality.
 
 ## Design Guardrails
 
 - Keep SearXNG as the only search/discovery system in this work.
 - Keep durable source opening and quote extraction inside the existing `web-research` boundary.
 - Keep model-facing web payload shaping inside `web-grounding`.
-- Do not create a second Deep Research source lifecycle.
+- Do not create a second deleted research subsystem source lifecycle.
 - Do not use an LLM to rewrite evidence text by default.
 - Preserve plain-text exact quote extraction for citation checks.
 - Preserve source-derived Markdown structure for summaries, page review, and evidence selection.
@@ -50,7 +50,7 @@ Option 1 is the default implementation. It runs in the app process and avoids a 
 4. Convert the resulting article HTML to Markdown with Turndown.
 5. Derive plain text from the Markdown for exact quotes and citation audit.
 6. Score extraction quality with deterministic signals.
-7. Feed Markdown-derived evidence into Normal Chat and Deep Research.
+7. Feed Markdown-derived evidence into Normal Chat and deleted research subsystem.
 
 Expected latency impact: small for normal pages because this replaces local regex cleanup with local parsing and conversion. The fetch remains the dominant cost.
 
@@ -66,7 +66,7 @@ These names are draft-level and should be aligned with the existing config-store
 
 1. `WRE-01` creates the extractor contract and quality signals.
 2. `WRE-02` makes Readability Markdown the default extractor.
-3. `WRE-03` routes Markdown-derived evidence through Normal Chat and Deep Research.
+3. `WRE-03` routes Markdown-derived evidence through Normal Chat and deleted research subsystem.
 4. `WRE-04` adds cache, configuration, and diagnostics.
 6. `WRE-06` adds quality coverage and regression fixtures.
 7. `WRE-07` is optional and only covers local LLM review of extraction quality.
@@ -146,14 +146,14 @@ Verification:
 
 Type: AFK  
 Blocked by: `WRE-02`  
-User stories covered: better Normal Chat citations, better Deep Research source review
+User stories covered: better Normal Chat citations, better deleted research subsystem source review
 
 What to build:
 
 - Replace model-facing snippets derived from flattened HTML text with snippets selected from extracted Markdown/plain text.
 - Keep compact payload behavior in `web-grounding` so long pages do not flood the model context.
 - Preserve citation URL extraction and citation audit behavior.
-- Persist cleaner `sourceText` for Deep Research discovered sources.
+- Persist cleaner `sourceText` for deleted research subsystem discovered sources.
 - Include enough source-local structure in the answer brief for the model to distinguish headings, lists, tables, and code references.
 - Keep failed or sparse extraction out of evidence fields unless it is clearly marked as unavailable.
 
@@ -169,7 +169,7 @@ Acceptance criteria:
 - `research_web` still returns compact `sources`, `evidence`, and diagnostics.
 - Source snippets are grounded in extracted content, not search result snippets alone, whenever a page is opened successfully.
 - Direct URL mode does not fabricate evidence for unfetchable pages.
-- Deep Research review receives cleaner source text without changing its lifecycle contract.
+- deleted research subsystem review receives cleaner source text without changing its lifecycle contract.
 - Citation audit still rejects unsupported claims and bad URLs.
 
 Verification:
@@ -215,7 +215,7 @@ Verification:
 - Run config and settings tests if present.
 - Add tests for cache hit/miss, extractor version invalidation, and diagnostics redaction.
 
-### WRE-06. Add Deep Research Quality Coverage For Markdown Sources
+### WRE-06. Add deleted research subsystem Quality Coverage For Markdown Sources
 
 Type: AFK  
 Blocked by: `WRE-03`  
@@ -246,7 +246,7 @@ Acceptance criteria:
 Verification:
 
 - Run web-research extraction tests.
-- Run Deep Research source-review tests.
+- Run deleted research subsystem source-review tests.
 - Run a focused Normal Chat research tool test.
 
 ### WRE-07. Optional Local LLM Extraction Review
@@ -290,5 +290,5 @@ Keep `WRE-07` deferred until deterministic extraction have measurable gaps.
 ## Review Questions Before Publishing Issues
 
 1. Does `WRE-01` through `WRE-04` feel like the right first milestone
-2. 3. Is one fallback source per research turn the right starting cap, or should Deep Research allow two while Normal Chat stays at one?
+2. 3. Is one fallback source per research turn the right starting cap, or should deleted research subsystem allow two while Normal Chat stays at one?
 4. Should the optional Qwen review slice remain deferred, or should we add it as an experiment behind a hard-off flag in the first milestone?

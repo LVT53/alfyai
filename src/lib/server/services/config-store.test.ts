@@ -50,27 +50,6 @@ vi.mock("../env", () => ({
 		model2TargetConstructedContext: 235_929,
 		model2MaxMessageLength: 1_048_576,
 		model2Enabled: true,
-		deepResearchEnabled: false,
-		deepResearchWorkerEnabled: false,
-		deepResearchWorkerIntervalMs: 5000,
-		deepResearchWorkerStaleTimeoutMs: 1800000,
-		deepResearchJobRuntimeLimitMs: 7200000,
-		deepResearchWorkerGlobalConcurrency: 2,
-		deepResearchWorkerUserConcurrency: 2,
-		deepResearchActiveConversationLimit: 1,
-		deepResearchActiveUserLimit: 2,
-		deepResearchActiveGlobalLimit: 4,
-		deepResearchGlobalReasoningConcurrency: 4,
-		deepResearchUserReasoningConcurrency: 4,
-		deepResearchModels: {
-			plan_generation: "model1",
-			plan_revision: "model1",
-			source_review: "model1",
-			research_task: "model1",
-			synthesis: "model1",
-			citation_audit: "model1",
-			report_writing: "model1",
-		},
 		model1: {
 			baseUrl: "http://localhost:30001/v1",
 			apiKey: "",
@@ -127,27 +106,6 @@ vi.mock("../env", () => ({
 		model2TargetConstructedContext: 235_929,
 		model2MaxMessageLength: 1_048_576,
 		model2Enabled: true,
-		deepResearchEnabled: false,
-		deepResearchWorkerEnabled: false,
-		deepResearchWorkerIntervalMs: 5000,
-		deepResearchWorkerStaleTimeoutMs: 1800000,
-		deepResearchJobRuntimeLimitMs: 7200000,
-		deepResearchWorkerGlobalConcurrency: 2,
-		deepResearchWorkerUserConcurrency: 2,
-		deepResearchActiveConversationLimit: 1,
-		deepResearchActiveUserLimit: 2,
-		deepResearchActiveGlobalLimit: 4,
-		deepResearchGlobalReasoningConcurrency: 4,
-		deepResearchUserReasoningConcurrency: 4,
-		deepResearchModels: {
-			plan_generation: "model1",
-			plan_revision: "model1",
-			source_review: "model1",
-			research_task: "model1",
-			synthesis: "model1",
-			citation_audit: "model1",
-			report_writing: "model1",
-		},
 		model1: {
 			baseUrl: "http://localhost:30001/v1",
 			apiKey: "",
@@ -343,11 +301,6 @@ describe("Knowledge Store Config", () => {
 		it("getConfig() should include smallFileThresholdChars", () => {
 			const config = getConfig();
 			expect(config.smallFileThresholdChars).toBe(5000);
-		});
-
-		it("getConfig() should keep Deep Research disabled by default", () => {
-			const config = getConfig();
-			expect(config.deepResearchEnabled).toBe(false);
 		});
 
 		it("getConfig() should keep Composer Command Registry enabled by default", () => {
@@ -622,14 +575,6 @@ describe("Knowledge Store Config", () => {
 			);
 		});
 
-		it("getConfig() should allow admin config to enable Deep Research", async () => {
-			adminConfigRows = [{ key: "DEEP_RESEARCH_ENABLED", value: "true" }];
-
-			await refreshConfig();
-
-			expect(getConfig().deepResearchEnabled).toBe(true);
-		});
-
 		it("getConfig() should allow admin config to enable Composer Command Registry", async () => {
 			adminConfigRows = [
 				{ key: "COMPOSER_COMMAND_REGISTRY_ENABLED", value: "true" },
@@ -640,179 +585,14 @@ describe("Knowledge Store Config", () => {
 			expect(getConfig().composerCommandRegistryEnabled).toBe(true);
 		});
 
-		it("getConfig() should expose Deep Research worker defaults", () => {
-			const config = getConfig();
-
-			expect(config.deepResearchEnabled).toBe(false);
-			expect(config.deepResearchWorkerEnabled).toBe(false);
-			expect(config.deepResearchWorkerIntervalMs).toBe(5000);
-			expect(config.deepResearchWorkerStaleTimeoutMs).toBe(1800000);
-			expect(config.deepResearchJobRuntimeLimitMs).toBe(7200000);
-			expect(config.deepResearchWorkerGlobalConcurrency).toBe(2);
-			expect(config.deepResearchWorkerUserConcurrency).toBe(2);
-			expect(config.deepResearchActiveConversationLimit).toBe(1);
-			expect(config.deepResearchActiveUserLimit).toBe(2);
-			expect(config.deepResearchActiveGlobalLimit).toBe(4);
-			expect(config.deepResearchGlobalReasoningConcurrency).toBe(4);
-			expect(config.deepResearchUserReasoningConcurrency).toBe(4);
-		});
-
-		it("getConfig() should apply Deep Research worker admin overrides", async () => {
-			adminConfigRows = [
-				{ key: "DEEP_RESEARCH_ENABLED", value: "true" },
-				{ key: "DEEP_RESEARCH_WORKER_ENABLED", value: "true" },
-				{ key: "DEEP_RESEARCH_WORKER_INTERVAL_MS", value: "12000" },
-				{ key: "DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS", value: "3600000" },
-				{ key: "DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS", value: "5400000" },
-				{ key: "DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY", value: "3" },
-				{ key: "DEEP_RESEARCH_WORKER_USER_CONCURRENCY", value: "2" },
-				{ key: "DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT", value: "1" },
-				{ key: "DEEP_RESEARCH_ACTIVE_USER_LIMIT", value: "5" },
-				{ key: "DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT", value: "8" },
-				{ key: "DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY", value: "7" },
-				{ key: "DEEP_RESEARCH_USER_REASONING_CONCURRENCY", value: "3" },
-			];
-
-			await refreshConfig();
-
-			const config = getConfig();
-			expect(config.deepResearchEnabled).toBe(true);
-			expect(config.deepResearchWorkerEnabled).toBe(true);
-			expect(config.deepResearchWorkerIntervalMs).toBe(12000);
-			expect(config.deepResearchWorkerStaleTimeoutMs).toBe(3600000);
-			expect(config.deepResearchJobRuntimeLimitMs).toBe(5400000);
-			expect(config.deepResearchWorkerGlobalConcurrency).toBe(3);
-			expect(config.deepResearchWorkerUserConcurrency).toBe(2);
-			expect(config.deepResearchActiveConversationLimit).toBe(1);
-			expect(config.deepResearchActiveUserLimit).toBe(5);
-			expect(config.deepResearchActiveGlobalLimit).toBe(8);
-			expect(config.deepResearchGlobalReasoningConcurrency).toBe(7);
-			expect(config.deepResearchUserReasoningConcurrency).toBe(3);
-		});
-
-		it("getConfig() should clamp small Deep Research worker overrides", async () => {
-			adminConfigRows = [
-				{ key: "DEEP_RESEARCH_WORKER_INTERVAL_MS", value: "250" },
-				{ key: "DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS", value: "5000" },
-				{ key: "DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS", value: "30000" },
-				{ key: "DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY", value: "-2" },
-				{ key: "DEEP_RESEARCH_WORKER_USER_CONCURRENCY", value: "-1" },
-				{ key: "DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT", value: "0" },
-				{ key: "DEEP_RESEARCH_ACTIVE_USER_LIMIT", value: "-1" },
-				{ key: "DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT", value: "-4" },
-				{ key: "DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY", value: "0" },
-				{ key: "DEEP_RESEARCH_USER_REASONING_CONCURRENCY", value: "-3" },
-			];
-
-			await refreshConfig();
-
-			const config = getConfig();
-			expect(config.deepResearchWorkerIntervalMs).toBe(1000);
-			expect(config.deepResearchWorkerStaleTimeoutMs).toBe(60000);
-			expect(config.deepResearchJobRuntimeLimitMs).toBe(60000);
-			expect(config.deepResearchWorkerGlobalConcurrency).toBe(0);
-			expect(config.deepResearchWorkerUserConcurrency).toBe(0);
-			expect(config.deepResearchActiveConversationLimit).toBe(1);
-			expect(config.deepResearchActiveUserLimit).toBe(0);
-			expect(config.deepResearchActiveGlobalLimit).toBe(0);
-			expect(config.deepResearchGlobalReasoningConcurrency).toBe(1);
-			expect(config.deepResearchUserReasoningConcurrency).toBe(0);
-		});
-
-		it("getConfig() should apply Deep Research role model admin overrides", async () => {
-			adminConfigRows = [
-				{ key: "DEEP_RESEARCH_PLAN_MODEL", value: "model2" },
-				{
-					key: "DEEP_RESEARCH_SOURCE_REVIEW_MODEL",
-					value: "provider:openrouter",
-				},
-				{ key: "DEEP_RESEARCH_REPORT_MODEL", value: "invalid-model" },
-			];
-
-			await refreshConfig();
-
-			expect(getConfig().deepResearchModels).toMatchObject({
-				plan_generation: "model2",
-				source_review: "provider:openrouter",
-				report_writing: "model1",
-			});
-		});
-
-		it("getConfig() should expose and override Deep Research depth budget policy", async () => {
-			expect(getConfig().deepResearchDepthBudgets.focused).toMatchObject({
-				sourceReviewCeiling: 24,
-				meaningfulPassFloor: 2,
-				meaningfulPassCeiling: 3,
-				repairPassCeiling: 1,
-				sourceProcessingConcurrency: 6,
-				modelReasoningConcurrency: 2,
-			});
-
-			adminConfigRows = [
-				{
-					key: "DEEP_RESEARCH_DEPTH_BUDGETS_JSON",
-					value: JSON.stringify({
-						focused: {
-							sourceReviewCeiling: 18,
-							meaningfulPassFloor: 2,
-							meaningfulPassCeiling: 4,
-							repairPassCeiling: 2,
-							sourceProcessingConcurrency: 5,
-							modelReasoningConcurrency: 2,
-						},
-					}),
-				},
-			];
-
-			await refreshConfig();
-
-			expect(getConfig().deepResearchDepthBudgets.focused).toEqual({
-				sourceReviewCeiling: 18,
-				meaningfulPassFloor: 2,
-				meaningfulPassCeiling: 4,
-				repairPassCeiling: 2,
-				sourceProcessingConcurrency: 5,
-				modelReasoningConcurrency: 2,
-			});
-			expect(
-				getConfig().deepResearchDepthBudgets.standard.sourceReviewCeiling,
-			).toBe(75);
-		});
-
-		it("getResolvedAdminConfigValues() should expose all Deep Research admin config keys", () => {
+		it("getResolvedAdminConfigValues() should expose remaining shared admin config keys", () => {
 			const values = getResolvedAdminConfigValues();
 
 			expect(values).toMatchObject({
-				DEEP_RESEARCH_ENABLED: "false",
-				DEEP_RESEARCH_WORKER_ENABLED: "false",
-				DEEP_RESEARCH_WORKER_INTERVAL_MS: "5000",
-				DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS: "1800000",
-				DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS: "7200000",
-				DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY: "2",
-				DEEP_RESEARCH_WORKER_USER_CONCURRENCY: "2",
-				DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT: "1",
-				DEEP_RESEARCH_ACTIVE_USER_LIMIT: "2",
-				DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT: "4",
-				DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY: "4",
-				DEEP_RESEARCH_USER_REASONING_CONCURRENCY: "4",
-				DEEP_RESEARCH_PLAN_MODEL: "model1",
-				DEEP_RESEARCH_PLAN_REVISION_MODEL: "model1",
-				DEEP_RESEARCH_SOURCE_REVIEW_MODEL: "model1",
-				DEEP_RESEARCH_RESEARCH_TASK_MODEL: "model1",
-				DEEP_RESEARCH_SYNTHESIS_MODEL: "model1",
-				DEEP_RESEARCH_CITATION_AUDIT_MODEL: "model1",
-				DEEP_RESEARCH_REPORT_MODEL: "model1",
 				COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
 				DEFAULT_NEW_USER_MODEL: "model1",
 				MEMORY_LEGACY_CURATION_MODEL: "model1",
 			});
-			const depthBudgets = JSON.parse(values.DEEP_RESEARCH_DEPTH_BUDGETS_JSON);
-			expect(depthBudgets.focused).toMatchObject({
-				sourceReviewCeiling: 24,
-				meaningfulPassFloor: 2,
-			});
-			expect(depthBudgets.standard).toBeDefined();
-			expect(depthBudgets.max).toBeDefined();
 		});
 
 		it("getResolvedAdminConfigValues() should not expose retired Langflow model routing keys", async () => {

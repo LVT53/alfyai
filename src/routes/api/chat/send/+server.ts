@@ -3,25 +3,15 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import { checkStreamCapacity } from "$lib/server/services/chat-turn/active-streams";
-import {
-	finalizeChatTurn,
-	persistUserTurnAttachments,
-} from "$lib/server/services/chat-turn/finalize";
+import { finalizeChatTurn } from "$lib/server/services/chat-turn/finalize";
 import { normalizeAssistantOutputWithSkillControl } from "$lib/server/services/chat-turn/normalizer";
 import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import { preflightChatTurn } from "$lib/server/services/chat-turn/preflight";
 import { parseChatTurnRequest } from "$lib/server/services/chat-turn/request";
 import { touchConversation } from "$lib/server/services/conversations";
-import {
-	assertCanStartDeepResearchJob,
-	isDeepResearchJobStartError,
-	startDeepResearchJobShell,
-} from "$lib/server/services/deep-research";
-import { buildDeepResearchPlanningContext } from "$lib/server/services/deep-research/planning-context";
 import { listConversationFileProductionJobs } from "$lib/server/services/file-production";
 import { isAttachmentReadinessError } from "$lib/server/services/knowledge";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
-import { createMessage } from "$lib/server/services/messages";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
@@ -78,26 +68,12 @@ export const POST: RequestHandler = async (event) => {
 	const turn = preflight.value;
 
 	try {
-		if (turn.deepResearchDepth) {
-			return await runDeepResearchTurn({
-				userId: user.id,
-				turn,
-				runtimeConfig,
-			});
-		}
-
 		return await runStandardSendTurn({
 			user,
 			turn,
 			runtimeConfig,
 		});
 	} catch (error) {
-		if (isDeepResearchJobStartError(error)) {
-			return json(
-				{ error: error.message, code: error.code },
-				{ status: error.status },
-			);
-		}
 		console.error("Normal Chat Model Run send error:", error);
 		if (turn.attachmentTraceId) {
 			logAttachmentTrace("send_failure", {
@@ -159,66 +135,6 @@ function buildChatSendCapacityResponse(
 			},
 		},
 	);
-}
-
-async function runDeepResearchTurn(params: {
-	userId: string;
-	turn: SendTurn;
-	runtimeConfig: ReturnType<typeof getConfig>;
-}): Promise<Response> {
-	if (!params.runtimeConfig.deepResearchEnabled) {
-		return json(
-			{
-				error: "Deep Research is disabled",
-				code: "deep_research_disabled",
-			},
-			{ status: 403 },
-		);
-	}
-
-	await assertCanStartDeepResearchJob({
-		userId: params.userId,
-		conversationId: params.turn.conversationId,
-	});
-	const deepResearchDepth = params.turn.deepResearchDepth as NonNullable<
-		SendTurn["deepResearchDepth"]
-	>;
-	const userMessage = await createMessage(
-		params.turn.conversationId,
-		"user",
-		params.turn.normalizedMessage,
-	);
-	await persistUserTurnAttachments({
-		userId: params.userId,
-		conversationId: params.turn.conversationId,
-		messageId: userMessage.id,
-		normalizedMessage: params.turn.normalizedMessage,
-		attachmentIds: params.turn.attachmentIds,
-	});
-	const planningContext = await buildDeepResearchPlanningContext({
-		userId: params.userId,
-		conversationId: params.turn.conversationId,
-		userRequest: params.turn.normalizedMessage,
-		attachmentIds: params.turn.attachmentIds,
-		activeDocumentArtifactId: params.turn.activeDocumentArtifactId,
-	});
-	const deepResearchJob = await startDeepResearchJobShell({
-		userId: params.userId,
-		conversationId: params.turn.conversationId,
-		triggerMessageId: userMessage.id,
-		userRequest: params.turn.normalizedMessage,
-		depth: deepResearchDepth,
-		planningContext,
-	});
-	await touchConversation(params.userId, params.turn.conversationId).catch(
-		() => undefined,
-	);
-
-	return json({
-		response: null,
-		conversationId: params.turn.conversationId,
-		deepResearchJob,
-	});
 }
 
 async function runStandardSendTurn({

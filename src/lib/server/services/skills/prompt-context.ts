@@ -94,7 +94,6 @@ export async function resolveSkillPromptContext(params: {
 	turn: PreflightedChatTurn;
 }): Promise<SkillPromptContext | null> {
 	const { userId, turn } = params;
-	if (turn.deepResearchDepth) return null;
 	if (!getConfig().composerCommandRegistryEnabled) return null;
 
 	const linkedSources = turn.linkedSources.map(linkedSourceForPrompt);

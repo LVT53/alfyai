@@ -4,7 +4,7 @@ Source: `/private/var/folders/6c/llmb9__97ngcxtc26hvg8jzh0000gn/T/architecture-r
 
 ## Context
 
-Before commit `23b3e628`, the conversation detail route assembled the full chat hydration payload directly in `src/routes/api/conversations/[id]/+server.ts`. That route knew the bootstrap payload, full payload shape, messages plus child-fork hydration, attached artifacts, working set, context status/debug, Context Sources, task state continuity, draft, legacy generated files, File Production jobs, Deep Research jobs, context compression snapshots, cost totals, project reference fallback behavior, and active Skill Session serialization.
+Before commit `23b3e628`, the conversation detail route assembled the full chat hydration payload directly in `src/routes/api/conversations/[id]/+server.ts`. That route knew the bootstrap payload, full payload shape, messages plus child-fork hydration, attached artifacts, working set, context status/debug, Context Sources, task state continuity, draft, legacy generated files, File Production jobs jobs, context compression snapshots, cost totals, project reference fallback behavior, and active Skill Session serialization.
 
 The architecture target was to move that recipe behind one server read-model module so route adapters stay thin and payload evolution has one owner. At audit HEAD `25a43462`, `src/routes/api/conversations/[id]/+server.ts` delegates GET payload assembly to `getConversationDetail(...)` in `src/lib/server/services/conversation-detail/read-model.ts`, and the chat page load and browser hydration keep consuming the same stable `ConversationDetail` contract.
 
@@ -22,7 +22,7 @@ Status: satisfied by commit `23b3e628` and still consistent at audit HEAD `25a43
 - `src/routes/api/conversations/[id]/+server.ts` remains a thin adapter for GET/PATCH/DELETE; GET authenticates, delegates conversation detail assembly to a read-model module, maps not-found to 404, and returns JSON.
 - A Conversation Detail Read Model deep module owns bootstrap and full conversation detail assembly, including defaults, fallbacks, child-fork message decoration, task-state continuity attachment, Context Sources construction, snapshot serialization, and active Skill Session public serialization.
 - The module returns the existing `ConversationDetail` shape, so `src/routes/(app)/chat/[conversationId]/+page.ts`, `fetchConversationDetail`, and chat hydration behavior do not need a contract migration.
-- Bootstrap detail stays cheap and does not load messages, knowledge state, task state, generated files, File Production jobs, Deep Research jobs, cost summaries, or context compression snapshots.
+- Bootstrap detail stays cheap and does not load messages, knowledge state, task state, generated files, File Production jobs jobs, cost summaries, or context compression snapshots.
 - Full detail keeps current best-effort behavior for project reference lookup and active skill session lookup, without broad catch-all failure masking inside the route.
 - Focused tests exercise the read-model module directly, while route tests verify only adapter concerns and the delegated payload.
 - Stale route-local mocks/tests that only asserted the old inline recipe are removed or moved so test coverage stays useful.
@@ -44,7 +44,7 @@ Acceptance criteria:
 
 - GET imports one read-model function instead of directly importing messages, knowledge, task-state, file-production read-model, deep-research, drafts, analytics, context-compression, skill-session, and context-source builders.
 - Bootstrap view returns the same cheap payload shape and only calls conversation, draft, active skill session, and fork-origin lookups.
-- Full view returns the same messages, fork origin, artifacts, working set, context status, Context Sources, task state, draft, generated files, File Production jobs, Deep Research jobs, context compression snapshots, active Skill Session, and cost totals.
+- Full view returns the same messages, fork origin, artifacts, working set, context status, Context Sources, task state, draft, generated files, File Production jobs jobs, context compression snapshots, active Skill Session, and cost totals.
 - Child forks still attach only to assistant messages.
 - Project reference lookup failure still leaves conversation detail available with empty/fallback Context Sources.
 - Active Skill Session serialization still strips hidden instruction fields.

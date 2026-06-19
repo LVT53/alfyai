@@ -7,11 +7,28 @@ import { readMigrationFiles } from "drizzle-orm/migrator";
 import { afterEach, describe, expect, it } from "vitest";
 import { prepareDatabase } from "./prepare-db";
 
-const PRE_DEEP_RESEARCH_TAG = "1777140000011_file_production_requests";
+const PRE_RETIRED_RESEARCH_TAG = "1777140000011_file_production_requests";
+const PRE_RESEARCH_REMOVAL_TAG = "1777140000061_memory_rework_foundation";
 const ADOPTION_BASELINE_TAG = "0005_flaky_famine";
 const SKILL_NOTES_TAG = "1777140000035_skill_notes";
 const PRE_LANGFLOW_RETIREMENT_TAG =
 	"1777140000046_context_compression_snapshots";
+const RETIRED_RESEARCH_TABLE_PREFIX = ["deep", "research"].join("_");
+const RETIRED_RESEARCH_TABLES = [
+	"jobs",
+	"plan_versions",
+	"timeline_events",
+	"usage_records",
+	"sources",
+	"tasks",
+	"pass_checkpoints",
+	"coverage_gaps",
+	"resume_points",
+	"evidence_notes",
+	"synthesis_claims",
+	"claim_evidence_links",
+	"citation_audit_verdicts",
+].map((suffix) => `${RETIRED_RESEARCH_TABLE_PREFIX}_${suffix}`);
 
 let tempDir: string | null = null;
 
@@ -114,33 +131,276 @@ describe("prepare-db script", () => {
 		}
 	});
 
-	it("applies pending Deep Research migrations to a journaled pre-Deep-Research database", () => {
+	it("applies pending migrations and removes retired research tables", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
 		const dbPath = join(tempDir, "chat.db");
-		createDatabaseMigratedThroughTag(dbPath, PRE_DEEP_RESEARCH_TAG);
+		createDatabaseMigratedThroughTag(dbPath, PRE_RETIRED_RESEARCH_TAG);
 
 		prepareDatabase(dbPath);
 
 		const sqlite = new Database(dbPath, { readonly: true });
 		try {
-			expect(hasTable(sqlite, "deep_research_jobs")).toBe(true);
-			expect(hasTable(sqlite, "deep_research_plan_versions")).toBe(true);
-			expect(hasTable(sqlite, "deep_research_timeline_events")).toBe(true);
-			expect(hasTable(sqlite, "deep_research_usage_records")).toBe(true);
-			expect(hasTable(sqlite, "deep_research_sources")).toBe(true);
-			expect(hasTable(sqlite, "deep_research_tasks")).toBe(true);
+			for (const tableName of RETIRED_RESEARCH_TABLES) {
+				expect(hasTable(sqlite, tableName)).toBe(false);
+			}
 			expect(listColumns(sqlite, "conversations")).toEqual(
 				expect.arrayContaining(["status", "sealed_at"]),
-			);
-			expect(listColumns(sqlite, "deep_research_jobs")).toContain(
-				"report_artifact_id",
 			);
 		} finally {
 			sqlite.close();
 		}
 	});
 
-	it("adopts an existing baseline app database before applying post-baseline Deep Research migrations", () => {
+	it("purges only retired research artifacts and dependent rows during upgrade", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
+		const dbPath = join(tempDir, "chat.db");
+		createDatabaseMigratedThroughTag(dbPath, PRE_RESEARCH_REMOVAL_TAG);
+
+		const seeded = new Database(dbPath);
+		try {
+			seeded.transaction(() => {
+				seeded
+					.prepare(
+						'INSERT INTO users ("id", "email", "password_hash") VALUES (?, ?, ?)',
+					)
+					.run("user-1", "user@example.test", "hash");
+				seeded
+					.prepare(
+						'INSERT INTO conversations ("id", "user_id", "title") VALUES (?, ?, ?)',
+					)
+					.run("conv-1", "user-1", "Removal check");
+				seeded
+					.prepare(
+						'INSERT INTO messages ("id", "conversation_id", "role", "content") VALUES (?, ?, ?, ?)',
+					)
+					.run("msg-1", "conv-1", "assistant", "Done");
+
+				const insertArtifact = seeded.prepare(
+					`INSERT INTO artifacts (
+						"id",
+						"user_id",
+						"conversation_id",
+						"type",
+						"name",
+						"content_text",
+						"metadata_json"
+					) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				);
+				insertArtifact.run(
+					"artifact-report-by-job",
+					"user-1",
+					"conv-1",
+					"generated_output",
+					"Retired report by job",
+					"delete me",
+					null,
+				);
+				insertArtifact.run(
+					"artifact-report-by-metadata",
+					"user-1",
+					"conv-1",
+					"generated_output",
+					"Retired report by metadata",
+					"delete me too",
+					'{"deepResearchJobId":"research-job-2"}',
+				);
+				insertArtifact.run(
+					"artifact-ordinary-output",
+					"user-1",
+					"conv-1",
+					"generated_output",
+					"Ordinary generated file",
+					"keep me",
+					'{"sourceChatFileId":"file-1"}',
+				);
+
+				seeded
+					.prepare(
+						`INSERT INTO deep_research_jobs (
+							"id",
+							"user_id",
+							"conversation_id",
+							"trigger_message_id",
+							"depth",
+							"status",
+							"title",
+							"user_request",
+							"report_artifact_id"
+						) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					)
+					.run(
+						"research-job-1",
+						"user-1",
+						"conv-1",
+						"msg-1",
+						"standard",
+						"completed",
+						"Retired report",
+						"Research this",
+						"artifact-report-by-job",
+					);
+
+				const insertChunk = seeded.prepare(
+					`INSERT INTO artifact_chunks (
+						"id",
+						"artifact_id",
+						"user_id",
+						"conversation_id",
+						"chunk_index",
+						"content_text"
+					) VALUES (?, ?, ?, ?, ?, ?)`,
+				);
+				insertChunk.run(
+					"chunk-delete",
+					"artifact-report-by-job",
+					"user-1",
+					"conv-1",
+					0,
+					"delete chunk",
+				);
+				insertChunk.run(
+					"chunk-keep",
+					"artifact-ordinary-output",
+					"user-1",
+					"conv-1",
+					0,
+					"keep chunk",
+				);
+
+				const insertEmbedding = seeded.prepare(
+					`INSERT INTO semantic_embeddings (
+						"id",
+						"user_id",
+						"subject_type",
+						"subject_id",
+						"model_name",
+						"source_text_hash",
+						"embedding_json"
+					) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				);
+				insertEmbedding.run(
+					"embedding-delete",
+					"user-1",
+					"artifact",
+					"artifact-report-by-metadata",
+					"mock-model",
+					"hash-delete",
+					"[0]",
+				);
+				insertEmbedding.run(
+					"embedding-keep",
+					"user-1",
+					"artifact",
+					"artifact-ordinary-output",
+					"mock-model",
+					"hash-keep",
+					"[1]",
+				);
+
+				const insertLink = seeded.prepare(
+					`INSERT INTO artifact_links (
+						"id",
+						"user_id",
+						"artifact_id",
+						"related_artifact_id",
+						"conversation_id",
+						"message_id",
+						"link_type"
+					) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				);
+				insertLink.run(
+					"link-delete",
+					"user-1",
+					"artifact-ordinary-output",
+					"artifact-report-by-job",
+					"conv-1",
+					"msg-1",
+					"source",
+				);
+				insertLink.run(
+					"link-keep",
+					"user-1",
+					"artifact-ordinary-output",
+					null,
+					"conv-1",
+					"msg-1",
+					"source",
+				);
+
+				const insertWorkingSetItem = seeded.prepare(
+					`INSERT INTO conversation_working_set_items (
+						"id",
+						"user_id",
+						"conversation_id",
+						"artifact_id",
+						"artifact_type"
+					) VALUES (?, ?, ?, ?, ?)`,
+				);
+				insertWorkingSetItem.run(
+					"working-delete",
+					"user-1",
+					"conv-1",
+					"artifact-report-by-metadata",
+					"generated_output",
+				);
+				insertWorkingSetItem.run(
+					"working-keep",
+					"user-1",
+					"conv-1",
+					"artifact-ordinary-output",
+					"generated_output",
+				);
+
+				const insertConfig = seeded.prepare(
+					'INSERT INTO admin_config ("key", "value", "updated_by") VALUES (?, ?, ?)',
+				);
+				insertConfig.run("DEEP_RESEARCH_ENABLED", "true", "test");
+				insertConfig.run("MODEL_1_NAME", "kept-model", "test");
+			})();
+		} finally {
+			seeded.close();
+		}
+
+		prepareDatabase(dbPath);
+
+		const sqlite = new Database(dbPath, { readonly: true });
+		try {
+			for (const tableName of RETIRED_RESEARCH_TABLES) {
+				expect(hasTable(sqlite, tableName)).toBe(false);
+			}
+			expect(
+				sqlite.prepare('SELECT "id" FROM artifacts ORDER BY "id"').all(),
+			).toEqual([{ id: "artifact-ordinary-output" }]);
+			expect(
+				sqlite.prepare('SELECT "id" FROM artifact_chunks ORDER BY "id"').all(),
+			).toEqual([{ id: "chunk-keep" }]);
+			expect(
+				sqlite
+					.prepare('SELECT "id" FROM semantic_embeddings ORDER BY "id"')
+					.all(),
+			).toEqual([{ id: "embedding-keep" }]);
+			expect(
+				sqlite.prepare('SELECT "id" FROM artifact_links ORDER BY "id"').all(),
+			).toEqual([{ id: "link-keep" }]);
+			expect(
+				sqlite
+					.prepare(
+						'SELECT "id" FROM conversation_working_set_items ORDER BY "id"',
+					)
+					.all(),
+			).toEqual([{ id: "working-keep" }]);
+			expect(
+				sqlite
+					.prepare('SELECT "key" FROM admin_config ORDER BY "key"')
+					.all(),
+			).toEqual([{ key: "MODEL_1_NAME" }]);
+			expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("adopts an existing baseline app database before applying current migrations", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
 		const dbPath = join(tempDir, "chat.db");
 		createDatabaseSchemaThroughTagWithoutJournal(dbPath, ADOPTION_BASELINE_TAG);
@@ -149,7 +409,7 @@ describe("prepare-db script", () => {
 		try {
 			expect(hasTable(beforePrepare, "__drizzle_migrations")).toBe(false);
 			expect(hasTable(beforePrepare, "conversations")).toBe(true);
-			expect(hasTable(beforePrepare, "deep_research_jobs")).toBe(false);
+			expect(hasTable(beforePrepare, RETIRED_RESEARCH_TABLES[0])).toBe(false);
 		} finally {
 			beforePrepare.close();
 		}
@@ -159,12 +419,9 @@ describe("prepare-db script", () => {
 		const sqlite = new Database(dbPath, { readonly: true });
 		try {
 			expect(hasTable(sqlite, "__drizzle_migrations")).toBe(true);
-			expect(hasTable(sqlite, "deep_research_jobs")).toBe(true);
-			expect(hasTable(sqlite, "deep_research_sources")).toBe(true);
-			expect(hasTable(sqlite, "deep_research_synthesis_claims")).toBe(true);
-			expect(listColumns(sqlite, "deep_research_jobs")).toContain(
-				"report_artifact_id",
-			);
+			for (const tableName of RETIRED_RESEARCH_TABLES) {
+				expect(hasTable(sqlite, tableName)).toBe(false);
+			}
 		} finally {
 			sqlite.close();
 		}
@@ -188,7 +445,7 @@ describe("prepare-db script", () => {
 
 		const sqlite = new Database(dbPath, { readonly: true });
 		try {
-			expect(hasTable(sqlite, "deep_research_jobs")).toBe(true);
+			expect(hasTable(sqlite, RETIRED_RESEARCH_TABLES[0])).toBe(false);
 			expect(listColumns(sqlite, "users")).toEqual(
 				expect.arrayContaining(["title_language", "honcho_peer_version"]),
 			);

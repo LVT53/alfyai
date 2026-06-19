@@ -4,14 +4,6 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type { ModelId } from "$lib/types";
 import {
-	DEEP_RESEARCH_MODEL_ROLES,
-	type DeepResearchDepthBudgetPolicy,
-	type DeepResearchModelSelections,
-	defaultDeepResearchModelSelections,
-	normalizeConfiguredModelId,
-	normalizeDeepResearchDepthBudgetPolicy,
-} from "../deep-research-models";
-import {
 	DEFAULT_MAX_MODEL_CONTEXT_TOKENS,
 	deriveDefaultCompactionUiThreshold as deriveCompactionUiThreshold,
 	deriveDefaultTargetConstructedContext as deriveTargetConstructedContext,
@@ -34,20 +26,6 @@ interface Config {
 	alfyaiApiSigningKey: string;
 	attachmentTraceDebug: boolean;
 	composerCommandRegistryEnabled: boolean;
-	deepResearchEnabled: boolean;
-	deepResearchWorkerEnabled: boolean;
-	deepResearchWorkerIntervalMs: number;
-	deepResearchWorkerStaleTimeoutMs: number;
-	deepResearchJobRuntimeLimitMs: number;
-	deepResearchWorkerGlobalConcurrency: number;
-	deepResearchWorkerUserConcurrency: number;
-	deepResearchActiveConversationLimit: number;
-	deepResearchActiveUserLimit: number;
-	deepResearchActiveGlobalLimit: number;
-	deepResearchGlobalReasoningConcurrency: number;
-	deepResearchUserReasoningConcurrency: number;
-	deepResearchDepthBudgets: DeepResearchDepthBudgetPolicy;
-	deepResearchModels: DeepResearchModelSelections;
 	contextDiagnosticsDebug: boolean;
 	titleGenUrl: string;
 	titleGenApiKey: string;
@@ -236,6 +214,14 @@ function validateConfiguredModelIdEnv(
 	return fallback;
 }
 
+function normalizeConfiguredModelId(value: unknown): ModelId {
+	if (value === "model1" || value === "model2") return value;
+	if (typeof value === "string" && value.startsWith("provider:")) {
+		return value as ModelId;
+	}
+	return "model1";
+}
+
 function parseIntegerEnv(value: string | undefined, fallback: number): number {
 	const parsed = parseInt(value ?? "", 10);
 	return Number.isNaN(parsed) ? fallback : parsed;
@@ -259,26 +245,6 @@ function parsePositiveIntegerEnv(
 		minimum,
 		Number.isNaN(parsed) || parsed <= 0 ? fallback : parsed,
 	);
-}
-
-function readDeepResearchModelSelections(): DeepResearchModelSelections {
-	const selections = defaultDeepResearchModelSelections();
-	for (const role of DEEP_RESEARCH_MODEL_ROLES) {
-		selections[role.id] = normalizeConfiguredModelId(
-			process.env[role.configKey],
-		);
-	}
-	return selections;
-}
-
-function readDeepResearchDepthBudgets(): DeepResearchDepthBudgetPolicy {
-	const rawValue = process.env.DEEP_RESEARCH_DEPTH_BUDGETS_JSON;
-	if (!rawValue) return normalizeDeepResearchDepthBudgetPolicy(undefined);
-	try {
-		return normalizeDeepResearchDepthBudgetPolicy(JSON.parse(rawValue));
-	} catch {
-		return normalizeDeepResearchDepthBudgetPolicy(undefined);
-	}
 }
 
 function buildDefaultHonchoIdentityNamespace(
@@ -397,57 +363,6 @@ function readConfig(): Config {
 		attachmentTraceDebug: process.env.ATTACHMENT_TRACE_DEBUG === "true",
 		composerCommandRegistryEnabled:
 			process.env.COMPOSER_COMMAND_REGISTRY_ENABLED !== "false",
-		deepResearchEnabled: process.env.DEEP_RESEARCH_ENABLED === "true",
-		deepResearchWorkerEnabled:
-			process.env.DEEP_RESEARCH_WORKER_ENABLED === "true",
-		deepResearchWorkerIntervalMs: Math.max(
-			1000,
-			parseIntegerEnv(process.env.DEEP_RESEARCH_WORKER_INTERVAL_MS, 5000),
-		),
-		deepResearchWorkerStaleTimeoutMs: Math.max(
-			60000,
-			parseIntegerEnv(
-				process.env.DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS,
-				1800000,
-			),
-		),
-		deepResearchJobRuntimeLimitMs: Math.max(
-			60000,
-			parseIntegerEnv(process.env.DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS, 7200000),
-		),
-		deepResearchWorkerGlobalConcurrency: Math.max(
-			0,
-			parseIntegerEnv(process.env.DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY, 2),
-		),
-		deepResearchWorkerUserConcurrency: Math.max(
-			0,
-			parseIntegerEnv(process.env.DEEP_RESEARCH_WORKER_USER_CONCURRENCY, 2),
-		),
-		deepResearchActiveConversationLimit: Math.max(
-			1,
-			parseIntegerEnv(process.env.DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT, 1),
-		),
-		deepResearchActiveUserLimit: Math.max(
-			0,
-			parseIntegerEnv(process.env.DEEP_RESEARCH_ACTIVE_USER_LIMIT, 2),
-		),
-		deepResearchActiveGlobalLimit: Math.max(
-			0,
-			parseIntegerEnv(process.env.DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT, 4),
-		),
-		deepResearchGlobalReasoningConcurrency: Math.max(
-			1,
-			parseIntegerEnv(
-				process.env.DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY,
-				4,
-			),
-		),
-		deepResearchUserReasoningConcurrency: Math.max(
-			0,
-			parseIntegerEnv(process.env.DEEP_RESEARCH_USER_REASONING_CONCURRENCY, 4),
-		),
-		deepResearchDepthBudgets: readDeepResearchDepthBudgets(),
-		deepResearchModels: readDeepResearchModelSelections(),
 		contextDiagnosticsDebug: process.env.CONTEXT_DIAGNOSTICS_DEBUG === "true",
 		titleGenUrl: process.env.TITLE_GEN_URL || "http://localhost:30001/v1",
 		titleGenApiKey: process.env.TITLE_GEN_API_KEY || "",

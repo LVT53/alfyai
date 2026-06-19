@@ -46,22 +46,6 @@ vi.mock("$lib/server/services/chat-files", () => ({
 	syncGeneratedFilesToMemory: vi.fn(async () => undefined),
 }));
 
-vi.mock("$lib/server/services/deep-research", () => ({
-	assertCanStartDeepResearchJob: vi.fn(),
-	isDeepResearchJobStartError: vi.fn(
-		(error: unknown) =>
-			typeof error === "object" &&
-			error !== null &&
-			"name" in error &&
-			error.name === "DeepResearchJobStartError",
-	),
-	startDeepResearchJobShell: vi.fn(),
-}));
-
-vi.mock("$lib/server/services/deep-research/planning-context", () => ({
-	buildDeepResearchPlanningContext: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(),
 	listMessages: vi.fn(async () => []),
@@ -147,7 +131,6 @@ vi.mock("$lib/server/env", () => ({
 }));
 
 const configMockState = vi.hoisted(() => ({
-	deepResearchEnabled: true,
 	composerCommandRegistryEnabled: true,
 }));
 
@@ -155,7 +138,6 @@ vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({
 		concurrentStreamLimit: 100,
 		perUserStreamLimit: 10,
-		deepResearchEnabled: configMockState.deepResearchEnabled,
 		composerCommandRegistryEnabled:
 			configMockState.composerCommandRegistryEnabled,
 		model1: {
@@ -181,11 +163,6 @@ import {
 	getConversation,
 	touchConversation,
 } from "$lib/server/services/conversations";
-import {
-	assertCanStartDeepResearchJob,
-	startDeepResearchJobShell,
-} from "$lib/server/services/deep-research";
-import { buildDeepResearchPlanningContext } from "$lib/server/services/deep-research/planning-context";
 import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
@@ -227,13 +204,6 @@ const mockGetChatFilesForAssistantMessage =
 const mockSyncGeneratedFilesToMemory = syncGeneratedFilesToMemory as ReturnType<
 	typeof vi.fn
 >;
-const mockAssertCanStartDeepResearchJob =
-	assertCanStartDeepResearchJob as ReturnType<typeof vi.fn>;
-const mockStartDeepResearchJobShell = startDeepResearchJobShell as ReturnType<
-	typeof vi.fn
->;
-const mockBuildDeepResearchPlanningContext =
-	buildDeepResearchPlanningContext as ReturnType<typeof vi.fn>;
 const mockCreateMessage = createMessage as ReturnType<typeof vi.fn>;
 const mockUpdateMessageEvidence = updateMessageEvidence as ReturnType<
 	typeof vi.fn
@@ -266,7 +236,6 @@ const mockCommitSkillNoteOperations =
 describe("POST /api/chat/send", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		configMockState.deepResearchEnabled = true;
 		configMockState.composerCommandRegistryEnabled = true;
 		mockRequireAuth.mockReturnValue(undefined);
 		mockTouchConversation.mockImplementation(async () => null);
@@ -283,24 +252,12 @@ describe("POST /api/chat/send", () => {
 			}),
 		);
 		mockGetProjectReferenceContext.mockResolvedValue(null);
-		mockAssertCanStartDeepResearchJob.mockResolvedValue(undefined);
 		mockCreateMessage.mockImplementation(async () => ({
 			id: crypto.randomUUID(),
 			role: "user",
 			content: "",
 			timestamp: Date.now(),
 		}));
-		mockStartDeepResearchJobShell.mockResolvedValue({
-			id: "research-job-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg",
-			depth: "standard",
-			status: "awaiting_approval",
-			stage: "plan_drafted",
-			title: "Compare EU and US AI copyright training data rules",
-			createdAt: Date.now(),
-			updatedAt: Date.now(),
-		});
 		mockAssertPromptReadyAttachments.mockResolvedValue({
 			displayArtifacts: [],
 			promptArtifacts: [],
@@ -309,7 +266,6 @@ describe("POST /api/chat/send", () => {
 		mockAssignFileProductionJobs.mockResolvedValue(undefined);
 		mockGetChatFilesForAssistantMessage.mockResolvedValue([]);
 		mockSyncGeneratedFilesToMemory.mockResolvedValue(undefined);
-		mockBuildDeepResearchPlanningContext.mockResolvedValue([]);
 		mockGetAvailableSkillSummary.mockResolvedValue(baseSkillSummary);
 		mockResolveEffectiveSkillDefinition.mockResolvedValue(
 			baseResolvedSkillDefinition,
@@ -403,8 +359,6 @@ describe("POST /api/chat/send", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(mockAssertCanStartDeepResearchJob).not.toHaveBeenCalled();
-		expect(mockStartDeepResearchJobShell).not.toHaveBeenCalled();
 		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
 			expect.objectContaining({
 				depthMetadata: expect.objectContaining({
@@ -823,70 +777,6 @@ describe("POST /api/chat/send", () => {
 
 		expect(fallbackResponse.status).toBe(200);
 		expect(fallbackData.contextSources.groups).toEqual([]);
-	});
-
-	it("starts a Deep Research job shell instead of a normal assistant answer", async () => {
-		seedConversation(mockGetConversation);
-		seedUserConversationMessage(
-			mockCreateMessage,
-			"Compare EU and US AI copyright training data rules",
-		);
-
-		const event = makeEvent({
-			message: "Compare EU and US AI copyright training data rules",
-			conversationId: "conv-1",
-			deepResearch: { depth: "standard" },
-		});
-		const response = await POST(event);
-		const data = await response.json();
-
-		expect(response.status).toBe(200);
-		expect(data.response).toBeNull();
-		expect(data.deepResearchJob).toMatchObject({
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg",
-			depth: "standard",
-			status: "awaiting_approval",
-		});
-		expect(mockCreateMessage).toHaveBeenCalledTimes(1);
-		expect(mockCreateMessage).toHaveBeenCalledWith(
-			"conv-1",
-			"user",
-			"Compare EU and US AI copyright training data rules",
-		);
-		expect(mockStartDeepResearchJobShell).toHaveBeenCalledWith(
-			expect.objectContaining({
-				userId: "user-1",
-				conversationId: "conv-1",
-				triggerMessageId: "user-msg",
-				userRequest: "Compare EU and US AI copyright training data rules",
-				depth: "standard",
-			}),
-		);
-		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
-	});
-
-	it("does not apply linked context sources to Deep Research job startup", async () => {
-		seedConversation(mockGetConversation);
-		seedUserConversationMessage(
-			mockCreateMessage,
-			"Research this with normal Deep Research behavior",
-		);
-
-		const response = await POST(
-			makeEvent({
-				message: "Research this with normal Deep Research behavior",
-				conversationId: "conv-1",
-				deepResearch: { depth: "standard" },
-				linkedSources: [linkedSourceFixture],
-			}),
-		);
-
-		expect(response.status).toBe(200);
-		expect(mockAddConversationLinkedContextSources).not.toHaveBeenCalled();
-		expect(mockStartDeepResearchJobShell).toHaveBeenCalledWith(
-			expect.not.objectContaining({ linkedSources: expect.anything() }),
-		);
 	});
 
 	it("applies linked context sources to normal chat send turns", async () => {
@@ -1645,235 +1535,6 @@ describe("POST /api/chat/send", () => {
 			"Managed pack resources included:",
 		);
 		expect(options.systemPromptAppendix).toContain("spreadsheet-style-quality");
-	});
-
-	it("does not apply pending skills to Deep Research job startup", async () => {
-		seedConversation(mockGetConversation);
-		seedUserConversationMessage(
-			mockCreateMessage,
-			"Research this with normal Deep Research behavior",
-		);
-
-		const response = await POST(
-			makeEvent({
-				message: "Research this with normal Deep Research behavior",
-				conversationId: "conv-1",
-				deepResearch: { depth: "standard" },
-				pendingSkill: {
-					id: "skill-1",
-					ownership: "user",
-					displayName: "Interview coach",
-				},
-			}),
-		);
-
-		expect(response.status).toBe(200);
-		expect(mockResolveEffectiveSkillDefinition).not.toHaveBeenCalled();
-		expect(mockStartDeepResearchJobShell).toHaveBeenCalled();
-		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
-	});
-
-	it("rejects Deep Research when the runtime feature flag is disabled", async () => {
-		configMockState.deepResearchEnabled = false;
-		seedConversation(mockGetConversation);
-
-		const event = makeEvent({
-			message: "Research this policy area deeply",
-			conversationId: "conv-1",
-			deepResearch: { depth: "standard" },
-		});
-		const response = await POST(event);
-		const data = await response.json();
-
-		expect(response.status).toBe(403);
-		expect(data).toMatchObject({
-			error: "Deep Research is disabled",
-			code: "deep_research_disabled",
-		});
-		expect(mockAssertCanStartDeepResearchJob).not.toHaveBeenCalled();
-		expect(mockCreateMessage).not.toHaveBeenCalled();
-		expect(mockStartDeepResearchJobShell).not.toHaveBeenCalled();
-		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
-	});
-
-	it("allows normal chat when Deep Research is disabled", async () => {
-		configMockState.deepResearchEnabled = false;
-		seedConversation(mockGetConversation);
-		mockRunPlainNormalChatSendModel.mockResolvedValue({
-			text: "Normal chat still works",
-			rawResponse: {},
-			contextStatus: undefined,
-		});
-
-		const event = makeEvent({
-			message: "Answer normally",
-			conversationId: "conv-1",
-		});
-		const response = await POST(event);
-		const data = await response.json();
-
-		expect(response.status).toBe(200);
-		expect(data.response.text).toBe("Normal chat still works");
-		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
-			expect.objectContaining({
-				message: "Answer normally",
-				conversationId: "conv-1",
-				modelId: "model1",
-			}),
-		);
-		expect(mockStartDeepResearchJobShell).not.toHaveBeenCalled();
-	});
-
-	it("passes prompt-ready attachment planning context into the Deep Research job shell", async () => {
-		seedConversation(mockGetConversation);
-		mockAssertPromptReadyAttachments.mockResolvedValue({
-			displayArtifacts: [{ id: "source-attachment-1" }],
-			promptArtifacts: [{ id: "normalized-attachment-1" }],
-		});
-		mockBuildDeepResearchPlanningContext.mockResolvedValue([
-			{
-				type: "attachment",
-				artifactId: "normalized-attachment-1",
-				title: "Uploaded market brief.pdf",
-				summary: "Prompt-ready attachment context for the research plan.",
-				includeAsResearchSource: true,
-			},
-		]);
-		seedUserConversationMessage(
-			mockCreateMessage,
-			"Research the market using my uploaded brief",
-		);
-		mockStartDeepResearchJobShell.mockResolvedValueOnce({
-			id: "research-job-1",
-			conversationId: "conv-1",
-			triggerMessageId: "user-msg",
-			depth: "focused",
-			status: "awaiting_approval",
-			stage: "plan_drafted",
-			title: "Research the market using my uploaded brief",
-			currentPlan: {
-				renderedPlan:
-					"Research Plan\n\nPlanning context includes attached file: Uploaded market brief.pdf",
-				rawPlan: {
-					sourceScope: {
-						includedSources: [
-							{
-								type: "attached_file",
-								artifactId: "normalized-attachment-1",
-								title: "Uploaded market brief.pdf",
-								summary:
-									"Prompt-ready attachment context for the research plan.",
-							},
-						],
-					},
-				},
-			},
-			createdAt: Date.now(),
-			updatedAt: Date.now(),
-		});
-
-		const response = await POST(
-			makeEvent({
-				message: "  Research the market using my uploaded brief  ",
-				conversationId: "conv-1",
-				attachmentIds: ["source-attachment-1"],
-				activeDocumentArtifactId: "active-doc-1",
-				deepResearch: { depth: "focused" },
-			}),
-		);
-		const data = await response.json();
-
-		expect(response.status).toBe(200);
-		expect(data.deepResearchJob.currentPlan.renderedPlan).toContain(
-			"Uploaded market brief.pdf",
-		);
-		expect(
-			data.deepResearchJob.currentPlan.rawPlan.sourceScope.includedSources,
-		).toEqual([
-			expect.objectContaining({
-				type: "attached_file",
-				artifactId: "normalized-attachment-1",
-			}),
-		]);
-		expect(mockBuildDeepResearchPlanningContext).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-			userRequest: "Research the market using my uploaded brief",
-			attachmentIds: ["source-attachment-1"],
-			activeDocumentArtifactId: "active-doc-1",
-		});
-		expect(mockStartDeepResearchJobShell).toHaveBeenCalledWith(
-			expect.objectContaining({
-				userId: "user-1",
-				conversationId: "conv-1",
-				triggerMessageId: "user-msg",
-				userRequest: "Research the market using my uploaded brief",
-				depth: "focused",
-				planningContext: [
-					expect.objectContaining({
-						type: "attachment",
-						artifactId: "normalized-attachment-1",
-						includeAsResearchSource: true,
-					}),
-				],
-			}),
-		);
-	});
-
-	it("rejects Deep Research in a sealed conversation before persisting the triggering message", async () => {
-		seedConversation(mockGetConversation);
-		const error = {
-			name: "DeepResearchJobStartError",
-			code: "conversation_sealed",
-			message: "Deep Research cannot be started in a sealed conversation",
-			status: 409,
-		};
-		mockAssertCanStartDeepResearchJob.mockRejectedValue(error);
-
-		const event = makeEvent({
-			message: "Research this sealed topic",
-			conversationId: "conv-1",
-			deepResearch: { depth: "standard" },
-		});
-		const response = await POST(event);
-		const data = await response.json();
-
-		expect(response.status).toBe(409);
-		expect(data).toMatchObject({
-			error: "Deep Research cannot be started in a sealed conversation",
-			code: "conversation_sealed",
-		});
-		expect(mockCreateMessage).not.toHaveBeenCalled();
-		expect(mockStartDeepResearchJobShell).not.toHaveBeenCalled();
-		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
-	});
-
-	it("rejects Deep Research when an active job exists before persisting the triggering message", async () => {
-		seedConversation(mockGetConversation);
-		const error = {
-			name: "DeepResearchJobStartError",
-			code: "active_job_exists",
-			message: "This conversation already has an active Deep Research job",
-			status: 409,
-		};
-		mockAssertCanStartDeepResearchJob.mockRejectedValue(error);
-
-		const event = makeEvent({
-			message: "Start another research pass",
-			conversationId: "conv-1",
-			deepResearch: { depth: "focused" },
-		});
-		const response = await POST(event);
-		const data = await response.json();
-
-		expect(response.status).toBe(409);
-		expect(data).toMatchObject({
-			error: "This conversation already has an active Deep Research job",
-			code: "active_job_exists",
-		});
-		expect(mockCreateMessage).not.toHaveBeenCalled();
-		expect(mockStartDeepResearchJobShell).not.toHaveBeenCalled();
-		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("passes messages through unchanged", async () => {

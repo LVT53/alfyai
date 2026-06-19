@@ -77,7 +77,6 @@ interface JsonScanState {
 	inString: boolean;
 	escaped: boolean;
 	currentRange: JsonRange;
-
 	ranges: JsonRange[];
 }
 

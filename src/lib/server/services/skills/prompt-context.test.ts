@@ -311,7 +311,7 @@ describe("skill prompt context", () => {
 		expect(appendix).not.toContain("raw healthcare data");
 	});
 
-	it("uses active durable session snapshots and omits skill context for Deep Research", async () => {
+	it("uses active durable session snapshots", async () => {
 		mocks.getActiveSkillSession.mockResolvedValueOnce({
 			id: "session-1",
 			userId: "user-1",
@@ -361,13 +361,6 @@ describe("skill prompt context", () => {
 			"You may use the current conversation context for this skill",
 		);
 		expect(appendix).not.toContain("ask at most one focused question");
-
-		await expect(
-			resolveSkillPromptContext({
-				userId: "user-1",
-				turn: makeTurn({ deepResearchDepth: "standard" }),
-			}),
-		).resolves.toBeNull();
 		expect(mocks.getActiveSkillSession).toHaveBeenCalledTimes(1);
 	});
 });

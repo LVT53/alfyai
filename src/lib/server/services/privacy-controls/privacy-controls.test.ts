@@ -11,13 +11,11 @@ import * as schema from "$lib/server/db/schema";
 const {
 	mockDeleteAllHonchoStateForUser,
 	mockRotateHonchoPeerIdentity,
-	mockCancelRunningResearchTasks,
 	mockQuiesceUserMemoryMaintenance,
 	mockRequestActiveChatStreamsStopForUser,
 } = vi.hoisted(() => ({
 	mockDeleteAllHonchoStateForUser: vi.fn(),
 	mockRotateHonchoPeerIdentity: vi.fn(),
-	mockCancelRunningResearchTasks: vi.fn(),
 	mockQuiesceUserMemoryMaintenance: vi.fn(),
 	mockRequestActiveChatStreamsStopForUser: vi.fn(),
 }));
@@ -25,10 +23,6 @@ const {
 vi.mock("../honcho", () => ({
 	deleteAllHonchoStateForUser: mockDeleteAllHonchoStateForUser,
 	rotateHonchoPeerIdentity: mockRotateHonchoPeerIdentity,
-}));
-
-vi.mock("../deep-research/tasks", () => ({
-	cancelRunningResearchTasks: mockCancelRunningResearchTasks,
 }));
 
 vi.mock("../memory-maintenance", async (importOriginal) => {
@@ -489,39 +483,10 @@ function seedOtherRealUser() {
 	sqlite.close();
 }
 
-function seedRunningWorkspaceWork() {
+function seedRunningFileProductionWork() {
 	const { sqlite, db } = openMigratedDb();
 	const now = new Date("2026-06-15T12:00:00.000Z");
 
-	db.insert(schema.deepResearchJobs)
-		.values({
-			id: "research-job-1",
-			userId: "user-1",
-			conversationId: "conversation-1",
-			triggerMessageId: "message-1",
-			depth: "standard",
-			status: "running",
-			stage: "citation_audit",
-			title: "Private chat",
-			userRequest: "Research this",
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
-	db.insert(schema.deepResearchTasks)
-		.values({
-			id: "research-task-1",
-			jobId: "research-job-1",
-			conversationId: "conversation-1",
-			userId: "user-1",
-			passNumber: 1,
-			status: "running",
-			assignmentType: "search",
-			assignment: "Search",
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
 	db.insert(schema.fileProductionJobs)
 		.values({
 			id: "file-job-1",
@@ -694,7 +659,6 @@ describe("privacy controls service", () => {
 		vi.clearAllMocks();
 		mockDeleteAllHonchoStateForUser.mockResolvedValue(undefined);
 		mockRotateHonchoPeerIdentity.mockResolvedValue(1);
-		mockCancelRunningResearchTasks.mockResolvedValue([]);
 		mockQuiesceUserMemoryMaintenance.mockResolvedValue(undefined);
 		mockRequestActiveChatStreamsStopForUser.mockReturnValue({ stopped: 0 });
 	});
@@ -807,7 +771,7 @@ describe("privacy controls service", () => {
 
 	it("erases a last-admin self-service account and removes person-linked analytics", async () => {
 		seedPrivacyUser();
-		seedRunningWorkspaceWork();
+		seedRunningFileProductionWork();
 		const { eraseUserAccount } = await import("./index");
 
 		const result = await eraseUserAccount("user-1", "correct-password");
@@ -826,12 +790,6 @@ describe("privacy controls service", () => {
 			"user-1",
 		);
 		expect(mockQuiesceUserMemoryMaintenance).toHaveBeenCalledWith("user-1");
-		expect(mockCancelRunningResearchTasks).toHaveBeenCalledWith({
-			userId: "user-1",
-			jobId: "research-job-1",
-			reason: "Account Erasure cancelled active Deep Research work.",
-			now: expect.any(Date),
-		});
 	});
 
 	it("preserves shared admin content with detached authorship during admin erasure", async () => {

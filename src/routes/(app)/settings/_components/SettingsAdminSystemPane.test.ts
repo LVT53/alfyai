@@ -152,8 +152,6 @@ describe("SettingsAdminSystemPane", () => {
 		const adminConfig = {
 			COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
 			MODEL_2_ENABLED: "true",
-			DEEP_RESEARCH_ENABLED: "false",
-			DEEP_RESEARCH_WORKER_ENABLED: "false",
 		};
 
 		const { getByLabelText, getByText } = render(SettingsAdminSystemPane, {
@@ -180,8 +178,6 @@ describe("SettingsAdminSystemPane", () => {
 			APP_VERSION_OVERRIDE: "",
 			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
 			MODEL_2_ENABLED: "true",
-			DEEP_RESEARCH_ENABLED: "false",
-			DEEP_RESEARCH_WORKER_ENABLED: "false",
 		};
 
 		const { getByLabelText, getByRole } = render(SettingsAdminSystemPane, {
@@ -206,8 +202,6 @@ describe("SettingsAdminSystemPane", () => {
 			REASONING_DEPTH_CLASSIFIER_MODEL: "",
 			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
 			MODEL_2_ENABLED: "true",
-			DEEP_RESEARCH_ENABLED: "false",
-			DEEP_RESEARCH_WORKER_ENABLED: "false",
 		};
 
 		const { getByLabelText, getByText } = render(SettingsAdminSystemPane, {
@@ -269,8 +263,6 @@ describe("SettingsAdminSystemPane", () => {
 			adminConfig: {
 				COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
 				MODEL_2_ENABLED: "true",
-				DEEP_RESEARCH_ENABLED: "false",
-				DEEP_RESEARCH_WORKER_ENABLED: "false",
 			},
 			availableModels: [{ id: "model1", displayName: "Model 1" }],
 			onCheckHonchoHealth: vi.fn(),

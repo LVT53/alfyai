@@ -82,7 +82,7 @@ describe("Depth Clarification gate", () => {
 
 		const result = await evaluateDepthClarificationGate({
 			message:
-				"Compare enterprise deep research architectures for a SaaS team with cost, latency, citations, and Hungarian support constraints.",
+				"Compare enterprise research assistant architectures for a SaaS team with cost, latency, citations, and Hungarian support constraints.",
 			depthMetadata: highCostDepthMetadata,
 			classifier,
 			language: "en",

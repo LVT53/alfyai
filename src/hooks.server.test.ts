@@ -5,18 +5,10 @@ type HookEvent = Parameters<Handle>[0]["event"];
 
 const mockValidateSession = vi.fn();
 const mockRefreshConfig = vi.fn(async () => undefined);
-const mockGetConfig = vi.fn(() => ({
-	deepResearchWorkerEnabled: false,
-	deepResearchWorkerIntervalMs: 5000,
-	deepResearchWorkerStaleTimeoutMs: 1800000,
-	deepResearchWorkerGlobalConcurrency: 2,
-	deepResearchWorkerUserConcurrency: 2,
-}));
 const mockEnsureMemoryMaintenanceScheduler = vi.fn();
 const mockPrewarmSandboxImageInBackground = vi.fn();
 const mockEnsureRuntimeSchemaCompatibility = vi.fn(async () => undefined);
 const mockEnsureFileProductionWorker = vi.fn(async () => undefined);
-const mockEnsureDeepResearchWorkerScheduler = vi.fn();
 const mockSentryInit = vi.fn();
 const mockSentrySetUser = vi.fn();
 const mockSentryHandle = vi.fn<() => Handle>(
@@ -63,7 +55,6 @@ vi.mock("$lib/server/services/auth", () => ({
 }));
 
 vi.mock("$lib/server/config-store", () => ({
-	getConfig: mockGetConfig,
 	refreshConfig: mockRefreshConfig,
 }));
 
@@ -81,10 +72,6 @@ vi.mock("$lib/server/db/compat", () => ({
 
 vi.mock("$lib/server/services/file-production", () => ({
 	ensureFileProductionWorker: mockEnsureFileProductionWorker,
-}));
-
-vi.mock("$lib/server/services/deep-research/worker", () => ({
-	ensureDeepResearchWorkerScheduler: mockEnsureDeepResearchWorkerScheduler,
 }));
 
 function deferred<T = undefined>() {
@@ -188,7 +175,6 @@ describe("hooks.server.ts", () => {
 		expect(mockEnsureMemoryMaintenanceScheduler).toHaveBeenCalledOnce();
 		expect(mockPrewarmSandboxImageInBackground).toHaveBeenCalledOnce();
 		expect(mockEnsureFileProductionWorker).toHaveBeenCalledOnce();
-		expect(mockEnsureDeepResearchWorkerScheduler).toHaveBeenCalledOnce();
 		expect(
 			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
 		).toBeLessThan(mockRefreshConfig.mock.invocationCallOrder[0]);

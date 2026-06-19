@@ -35,7 +35,6 @@ export interface AppShellData {
 	conversations: Promise<ConversationListItem[]>;
 	projects: Promise<Project[]>;
 	maxMessageLength: number;
-	deepResearchEnabled: boolean;
 	composerCommandRegistryEnabled: boolean;
 	userTheme: "system" | "light" | "dark";
 	userModel: ModelId;
@@ -84,7 +83,6 @@ export async function getAuthenticatedAppShellData(
 		conversations,
 		projects,
 		maxMessageLength: config.maxMessageLength,
-		deepResearchEnabled: config.deepResearchEnabled,
 		composerCommandRegistryEnabled: config.composerCommandRegistryEnabled,
 		userTheme: resolveUserTheme(userRow?.theme),
 		userModel: resolvedModelPreference.effectiveModel,

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { I18nKey } from "$lib/i18n";
 import type {
 	ChatMessage,
-	DeepResearchJob,
 	FileProductionJob,
 	SkillDraftProposal,
 } from "$lib/types";
@@ -14,17 +13,13 @@ import {
 	createAssistantPlaceholder,
 	finalizeStreamingMessageList,
 	getWorkspacePresentationAfterDocumentOpen,
-	hasActiveDeepResearchJobs,
 	hasActiveFileProductionJobs,
 	isConversationReadOnly,
 	isPendingSkillUnavailableError,
 	markPendingSkillUnavailable,
-	mergeDeepResearchJobsForHydration,
 	mergeFileProductionJob,
 	patchSkillDraftInMessageList,
-	shouldDeleteConversationAfterCancellingDeepResearch,
 	shouldHydrateFileProductionJobsOnToolCall,
-	shouldStartDeepResearchJob,
 	toFriendlySendError,
 } from "./_helpers";
 
@@ -54,46 +49,6 @@ function makeUnassignedJob(
 	return {
 		...makeJob(id, "succeeded"),
 		assistantMessageId: null,
-		...overrides,
-	};
-}
-
-function makeDeepResearchJob(
-	status: DeepResearchJob["status"],
-): DeepResearchJob {
-	return {
-		id: `research-${status}`,
-		conversationId: "conv-1",
-		triggerMessageId: "user-1",
-		depth: "standard",
-		status,
-		stage: status,
-		title: `${status} research`,
-		userRequest: `${status} research`,
-		createdAt: 1,
-		updatedAt: 1,
-		completedAt: null,
-		cancelledAt: status === "cancelled" ? 2 : null,
-	};
-}
-
-function makeHydrationDeepResearchJob(
-	id: string,
-	overrides: Partial<DeepResearchJob> = {},
-): DeepResearchJob {
-	return {
-		id,
-		conversationId: "conv-1",
-		triggerMessageId: "user-1",
-		depth: "standard",
-		status: "awaiting_plan",
-		stage: "plan_generation",
-		title: id,
-		userRequest: "Research battery recycling",
-		createdAt: 1,
-		updatedAt: 1,
-		completedAt: null,
-		cancelledAt: null,
 		...overrides,
 	};
 }
@@ -186,41 +141,24 @@ describe("send payload helpers", () => {
 		);
 	});
 
-	it("preserves Deep Research depth when cloning queued turns", () => {
+	it("clones normal queued turns without removed research fields", () => {
+		const removedDepthKey = ["deep", "Research", "Depth"].join("");
 		const cloned = cloneSendPayload({
-			message: "Research battery recycling",
+			message: "Summarize battery recycling",
 			attachmentIds: [],
 			attachments: [],
 			pendingAttachments: [],
 			conversationId: "conv-1",
-			deepResearchDepth: "focused",
+			forceWebSearch: true,
 		});
 
 		expect(cloned).toEqual(
 			expect.objectContaining({
-				message: "Research battery recycling",
-				deepResearchDepth: "focused",
+				message: "Summarize battery recycling",
+				forceWebSearch: true,
 			}),
 		);
-	});
-
-	it("routes composer-selected Deep Research through the job-start path", () => {
-		const payload = {
-			message: "Research battery recycling",
-			attachmentIds: [],
-			attachments: [],
-			pendingAttachments: [],
-			conversationId: "conv-1",
-			deepResearchDepth: "focused" as const,
-		};
-
-		expect(shouldStartDeepResearchJob(payload)).toBe(true);
-		expect(
-			shouldStartDeepResearchJob({ ...payload, deepResearchDepth: null }),
-		).toBe(false);
-		expect(shouldStartDeepResearchJob(payload, "assistant-retry-1")).toBe(
-			false,
-		);
+		expect(cloned).not.toHaveProperty(removedDepthKey);
 	});
 });
 
@@ -305,104 +243,11 @@ describe("Skill Draft message helpers", () => {
 	});
 });
 
-describe("Deep Research cancellation helpers", () => {
-	it("deletes a brand-new unstarted Deep Research conversation after cancellation", () => {
-		expect(
-			shouldDeleteConversationAfterCancellingDeepResearch({
-				jobBeforeCancel: makeDeepResearchJob("awaiting_approval"),
-				messageCount: 1,
-				deepResearchJobCount: 1,
-			}),
-		).toBe(true);
-	});
-
-	it("keeps conversations with started research or prior chat history", () => {
-		expect(
-			shouldDeleteConversationAfterCancellingDeepResearch({
-				jobBeforeCancel: makeDeepResearchJob("running"),
-				messageCount: 1,
-				deepResearchJobCount: 1,
-			}),
-		).toBe(false);
-		expect(
-			shouldDeleteConversationAfterCancellingDeepResearch({
-				jobBeforeCancel: makeDeepResearchJob("awaiting_approval"),
-				messageCount: 2,
-				deepResearchJobCount: 1,
-			}),
-		).toBe(false);
-		expect(
-			shouldDeleteConversationAfterCancellingDeepResearch({
-				jobBeforeCancel: makeDeepResearchJob("awaiting_approval"),
-				messageCount: 1,
-				deepResearchJobCount: 2,
-			}),
-		).toBe(false);
-	});
-});
-
-describe("Deep Research hydration helpers", () => {
-	it("preserves an optimistic planning card when a stale hydration payload has no jobs yet", () => {
-		const optimisticJob = makeHydrationDeepResearchJob(
-			"pending-deep-research-1",
-		);
-
-		expect(mergeDeepResearchJobsForHydration([optimisticJob], [])).toEqual([
-			optimisticJob,
-		]);
-	});
-
-	it("preserves an active server job when a stale hydration payload temporarily misses it", () => {
-		const activeJob = makeHydrationDeepResearchJob("research-1", {
-			status: "awaiting_plan",
-		});
-
-		expect(mergeDeepResearchJobsForHydration([activeJob], [])).toEqual([
-			activeJob,
-		]);
-	});
-
-	it("does not preserve completed local jobs that are absent from the hydrated payload", () => {
-		const completedJob = makeHydrationDeepResearchJob("research-1", {
-			status: "completed",
-			stage: "report_ready",
-			reportArtifactId: "artifact-1",
-			completedAt: 2,
-		});
-
-		expect(mergeDeepResearchJobsForHydration([completedJob], [])).toEqual([]);
-	});
-
-	it("replaces an optimistic equivalent once the server job is present", () => {
-		const optimisticJob = makeHydrationDeepResearchJob(
-			"pending-deep-research-1",
-		);
-		const serverJob = makeHydrationDeepResearchJob("research-1", {
-			triggerMessageId: "server-user-1",
-			status: "awaiting_approval",
-			stage: "plan_drafted",
-		});
-
-		expect(
-			mergeDeepResearchJobsForHydration([optimisticJob], [serverJob]),
-		).toEqual([serverJob]);
-	});
-});
-
 describe("conversation read-only helpers", () => {
 	it("treats sealed conversations as read-only for chat input", () => {
 		expect(isConversationReadOnly({ status: "sealed" })).toBe(true);
 		expect(isConversationReadOnly({ status: "open" })).toBe(false);
 		expect(isConversationReadOnly({ status: undefined })).toBe(false);
-	});
-
-	it("does not infer read-only mode from cancelled or failed Deep Research jobs", () => {
-		const jobs = [
-			makeDeepResearchJob("cancelled"),
-			makeDeepResearchJob("failed"),
-		];
-
-		expect(isConversationReadOnly({ status: "open" }, jobs)).toBe(false);
 	});
 });
 
@@ -782,29 +627,5 @@ describe("file production chat helpers", () => {
 				assistantMessageId: "assistant-1",
 			}),
 		]);
-	});
-});
-
-describe("Deep Research chat helpers", () => {
-	it("detects research jobs that still need chat card refreshes", () => {
-		expect(
-			hasActiveDeepResearchJobs([makeDeepResearchJob("awaiting_plan")]),
-		).toBe(true);
-		expect(
-			hasActiveDeepResearchJobs([makeDeepResearchJob("awaiting_approval")]),
-		).toBe(true);
-		expect(hasActiveDeepResearchJobs([makeDeepResearchJob("approved")])).toBe(
-			true,
-		);
-		expect(hasActiveDeepResearchJobs([makeDeepResearchJob("running")])).toBe(
-			true,
-		);
-		expect(
-			hasActiveDeepResearchJobs([
-				makeDeepResearchJob("completed"),
-				makeDeepResearchJob("failed"),
-				makeDeepResearchJob("cancelled"),
-			]),
-		).toBe(false);
 	});
 });

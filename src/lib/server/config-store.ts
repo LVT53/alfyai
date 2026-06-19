@@ -2,13 +2,6 @@
 // All services should call getConfig() instead of importing from env.ts directly.
 
 import {
-	type DeepResearchDepthBudgetPolicy,
-	type DeepResearchModelSelections,
-	defaultDeepResearchModelSelections,
-	normalizeConfiguredModelId,
-	normalizeDeepResearchDepthBudgetPolicy,
-} from "$lib/deep-research-models";
-import {
 	deriveDefaultCompactionUiThreshold as deriveCompactionUiThreshold,
 	deriveDefaultTargetConstructedContext as deriveTargetConstructedContext,
 } from "$lib/model-context-defaults";
@@ -63,26 +56,6 @@ export const ADMIN_CONFIG_KEYS = [
 	"MODEL_2_THINKING_TYPE",
 	"MODEL_2_ENABLED",
 	"COMPOSER_COMMAND_REGISTRY_ENABLED",
-	"DEEP_RESEARCH_ENABLED",
-	"DEEP_RESEARCH_WORKER_ENABLED",
-	"DEEP_RESEARCH_WORKER_INTERVAL_MS",
-	"DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS",
-	"DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS",
-	"DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY",
-	"DEEP_RESEARCH_WORKER_USER_CONCURRENCY",
-	"DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT",
-	"DEEP_RESEARCH_ACTIVE_USER_LIMIT",
-	"DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT",
-	"DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY",
-	"DEEP_RESEARCH_USER_REASONING_CONCURRENCY",
-	"DEEP_RESEARCH_DEPTH_BUDGETS_JSON",
-	"DEEP_RESEARCH_PLAN_MODEL",
-	"DEEP_RESEARCH_PLAN_REVISION_MODEL",
-	"DEEP_RESEARCH_SOURCE_REVIEW_MODEL",
-	"DEEP_RESEARCH_RESEARCH_TASK_MODEL",
-	"DEEP_RESEARCH_SYNTHESIS_MODEL",
-	"DEEP_RESEARCH_CITATION_AUDIT_MODEL",
-	"DEEP_RESEARCH_REPORT_MODEL",
 	"TITLE_GEN_URL",
 	"TITLE_GEN_MODEL",
 	"TITLE_GEN_SYSTEM_PROMPT_EN",
@@ -149,20 +122,6 @@ export type AdminConfigKey = (typeof ADMIN_CONFIG_KEYS)[number];
 export interface RuntimeConfig {
 	attachmentTraceDebug: boolean;
 	composerCommandRegistryEnabled: boolean;
-	deepResearchEnabled: boolean;
-	deepResearchWorkerEnabled: boolean;
-	deepResearchWorkerIntervalMs: number;
-	deepResearchWorkerStaleTimeoutMs: number;
-	deepResearchJobRuntimeLimitMs: number;
-	deepResearchWorkerGlobalConcurrency: number;
-	deepResearchWorkerUserConcurrency: number;
-	deepResearchActiveConversationLimit: number;
-	deepResearchActiveUserLimit: number;
-	deepResearchActiveGlobalLimit: number;
-	deepResearchGlobalReasoningConcurrency: number;
-	deepResearchUserReasoningConcurrency: number;
-	deepResearchDepthBudgets: DeepResearchDepthBudgetPolicy;
-	deepResearchModels: DeepResearchModelSelections;
 	contextDiagnosticsDebug: boolean;
 	appVersionOverride: string | null;
 	titleGenUrl: string;
@@ -264,12 +223,6 @@ function buildDefaultConfig(): RuntimeConfig {
 		...envConfig,
 		model1: { ...envConfig.model1 },
 		model2: { ...envConfig.model2 },
-		deepResearchModels: {
-			...(envConfig.deepResearchModels ?? defaultDeepResearchModelSelections()),
-		},
-		deepResearchDepthBudgets: normalizeDeepResearchDepthBudgetPolicy(
-			envConfig.deepResearchDepthBudgets,
-		),
 		braveSearchApiKey: envConfig.braveSearchApiKey,
 		appVersionOverride: null,
 		model1IconAssetId: null,
@@ -279,7 +232,6 @@ function buildDefaultConfig(): RuntimeConfig {
 			envConfig.reasoningDepthClassifierModel?.trim() || null,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
-		deepResearchEnabled: envConfig.deepResearchEnabled ?? false,
 	};
 }
 
@@ -316,6 +268,14 @@ function normalizeThinkingTypeOverride(
 	value: string,
 ): ModelConfig["thinkingType"] {
 	return value === "enabled" || value === "disabled" ? value : null;
+}
+
+function normalizeConfiguredModelId(value: unknown): ModelId {
+	if (value === "model1" || value === "model2") return value;
+	if (typeof value === "string" && value.startsWith("provider:")) {
+		return value as ModelId;
+	}
+	return "model1";
 }
 
 function positiveIntegerOrNull(value: unknown): number | null {
@@ -636,106 +596,6 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	COMPOSER_COMMAND_REGISTRY_ENABLED: (config, value) => {
 		config.composerCommandRegistryEnabled = value === "true";
-	},
-	DEEP_RESEARCH_ENABLED: (config, value) => {
-		config.deepResearchEnabled = value === "true";
-	},
-	DEEP_RESEARCH_WORKER_ENABLED: (config, value) => {
-		config.deepResearchWorkerEnabled = value === "true";
-	},
-	DEEP_RESEARCH_WORKER_INTERVAL_MS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.deepResearchWorkerIntervalMs = Math.max(1000, parsed);
-		}
-	},
-	DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.deepResearchWorkerStaleTimeoutMs = Math.max(60000, parsed);
-		}
-	},
-	DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.deepResearchJobRuntimeLimitMs = Math.max(60000, parsed);
-		}
-	},
-	DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.deepResearchWorkerGlobalConcurrency = Math.max(0, parsed);
-		}
-	},
-	DEEP_RESEARCH_WORKER_USER_CONCURRENCY: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.deepResearchWorkerUserConcurrency = Math.max(0, parsed);
-		}
-	},
-	DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.deepResearchActiveConversationLimit = Math.max(1, parsed);
-		}
-	},
-	DEEP_RESEARCH_ACTIVE_USER_LIMIT: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.deepResearchActiveUserLimit = Math.max(0, parsed);
-		}
-	},
-	DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.deepResearchActiveGlobalLimit = Math.max(0, parsed);
-		}
-	},
-	DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.deepResearchGlobalReasoningConcurrency = Math.max(1, parsed);
-		}
-	},
-	DEEP_RESEARCH_USER_REASONING_CONCURRENCY: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.deepResearchUserReasoningConcurrency = Math.max(0, parsed);
-		}
-	},
-	DEEP_RESEARCH_DEPTH_BUDGETS_JSON: (config, value) => {
-		try {
-			config.deepResearchDepthBudgets = normalizeDeepResearchDepthBudgetPolicy(
-				JSON.parse(value),
-			);
-		} catch {
-			config.deepResearchDepthBudgets =
-				normalizeDeepResearchDepthBudgetPolicy(undefined);
-		}
-	},
-	DEEP_RESEARCH_PLAN_MODEL: (config, value) => {
-		config.deepResearchModels.plan_generation =
-			normalizeConfiguredModelId(value);
-	},
-	DEEP_RESEARCH_PLAN_REVISION_MODEL: (config, value) => {
-		config.deepResearchModels.plan_revision = normalizeConfiguredModelId(value);
-	},
-	DEEP_RESEARCH_SOURCE_REVIEW_MODEL: (config, value) => {
-		config.deepResearchModels.source_review = normalizeConfiguredModelId(value);
-	},
-	DEEP_RESEARCH_RESEARCH_TASK_MODEL: (config, value) => {
-		config.deepResearchModels.research_task = normalizeConfiguredModelId(value);
-	},
-	DEEP_RESEARCH_SYNTHESIS_MODEL: (config, value) => {
-		config.deepResearchModels.synthesis = normalizeConfiguredModelId(value);
-	},
-	DEEP_RESEARCH_CITATION_AUDIT_MODEL: (config, value) => {
-		config.deepResearchModels.citation_audit =
-			normalizeConfiguredModelId(value);
-	},
-	DEEP_RESEARCH_REPORT_MODEL: (config, value) => {
-		config.deepResearchModels.report_writing =
-			normalizeConfiguredModelId(value);
 	},
 	TITLE_GEN_URL: (config, value) => {
 		config.titleGenUrl = value;
@@ -1201,47 +1061,6 @@ export function getResolvedAdminConfigValues(
 		COMPOSER_COMMAND_REGISTRY_ENABLED: String(
 			config.composerCommandRegistryEnabled,
 		),
-		DEEP_RESEARCH_ENABLED: String(config.deepResearchEnabled),
-		DEEP_RESEARCH_WORKER_ENABLED: String(config.deepResearchWorkerEnabled),
-		DEEP_RESEARCH_WORKER_INTERVAL_MS: String(
-			config.deepResearchWorkerIntervalMs,
-		),
-		DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS: String(
-			config.deepResearchWorkerStaleTimeoutMs,
-		),
-		DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS: String(
-			config.deepResearchJobRuntimeLimitMs,
-		),
-		DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY: String(
-			config.deepResearchWorkerGlobalConcurrency,
-		),
-		DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT: String(
-			config.deepResearchActiveConversationLimit,
-		),
-		DEEP_RESEARCH_ACTIVE_USER_LIMIT: String(config.deepResearchActiveUserLimit),
-		DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT: String(
-			config.deepResearchActiveGlobalLimit,
-		),
-		DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY: String(
-			config.deepResearchGlobalReasoningConcurrency,
-		),
-		DEEP_RESEARCH_USER_REASONING_CONCURRENCY: String(
-			config.deepResearchUserReasoningConcurrency,
-		),
-		DEEP_RESEARCH_WORKER_USER_CONCURRENCY: String(
-			config.deepResearchWorkerUserConcurrency,
-		),
-		DEEP_RESEARCH_DEPTH_BUDGETS_JSON: JSON.stringify(
-			config.deepResearchDepthBudgets,
-		),
-		DEEP_RESEARCH_PLAN_MODEL: config.deepResearchModels.plan_generation,
-		DEEP_RESEARCH_PLAN_REVISION_MODEL: config.deepResearchModels.plan_revision,
-		DEEP_RESEARCH_SOURCE_REVIEW_MODEL: config.deepResearchModels.source_review,
-		DEEP_RESEARCH_RESEARCH_TASK_MODEL: config.deepResearchModels.research_task,
-		DEEP_RESEARCH_SYNTHESIS_MODEL: config.deepResearchModels.synthesis,
-		DEEP_RESEARCH_CITATION_AUDIT_MODEL:
-			config.deepResearchModels.citation_audit,
-		DEEP_RESEARCH_REPORT_MODEL: config.deepResearchModels.report_writing,
 		TITLE_GEN_URL: config.titleGenUrl,
 		TITLE_GEN_MODEL: config.titleGenModel,
 		TITLE_GEN_SYSTEM_PROMPT_EN: config.titleGenSystemPromptEn,

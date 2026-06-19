@@ -526,6 +526,13 @@
       "when": 1777140000061,
       "tag": "1777140000061_memory_rework_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1777140000062,
+      "tag": "1777140000062_remove_deep_research",
+      "breakpoints": true
     }
   ]
 }

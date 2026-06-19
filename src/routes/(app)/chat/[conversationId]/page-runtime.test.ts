@@ -8,7 +8,6 @@ import type {
 	Conversation,
 	ConversationContextStatus,
 	ConversationDetail,
-	DeepResearchJob,
 	ModelId,
 } from "$lib/types";
 
@@ -120,7 +119,6 @@ function appShellDataFixture(
 		conversations: Promise.resolve([]),
 		projects: Promise.resolve([]),
 		maxMessageLength: 12_000,
-		deepResearchEnabled: true,
 		composerCommandRegistryEnabled: false,
 		userTheme: "system",
 		userModel: "model1",
@@ -164,7 +162,6 @@ function conversationDetailFixture(
 		bootstrap: false,
 		generatedFiles: [],
 		fileProductionJobs: [],
-		deepResearchJobs: [],
 		contextCompressionSnapshots: [],
 		activeSkillSession: null,
 		totalCostUsdMicros: 0,
@@ -212,21 +209,6 @@ vi.mock("$lib/client/api/conversations", () => ({
 	generateConversationTitle: vi.fn(),
 	runConversationContextCompression: vi.fn(),
 	startConversationSkillSession: vi.fn(),
-}));
-
-vi.mock("$lib/client/api/deep-research", () => ({
-	advanceDeepResearchWorkflow: vi.fn(),
-	approveDeepResearchPlan: vi.fn(),
-	cancelDeepResearchJob: vi.fn(),
-	discussDeepResearchReport: vi.fn(),
-	editDeepResearchPlan: vi.fn(),
-	researchFurtherFromDeepResearchReport: vi.fn(),
-	startDeepResearchChatJob: vi.fn(
-		async (): Promise<DeepResearchJob> =>
-			new Promise(() => {
-				// Keep the handoff in-flight so the composer remains in generating mode.
-			}),
-	),
 }));
 
 vi.mock("$lib/client/api/file-production", () => ({
@@ -301,7 +283,6 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		bootstrap: false,
 		generatedFiles: [],
 		fileProductionJobs: [],
-		deepResearchJobs: [],
 		contextCompressionSnapshots: [],
 		activeSkillSession: null,
 		sidecarPending: false,
@@ -317,7 +298,6 @@ function pageData(overrides: Record<string, unknown> = {}) {
 			},
 		],
 		maxMessageLength: 12000,
-		deepResearchEnabled: true,
 		composerCommandRegistryEnabled: false,
 		...overrides,
 	};
@@ -380,27 +360,21 @@ describe("chat page runtime integration", () => {
 		expect(screen.getByTestId("message-input")).toBeInTheDocument();
 	});
 
-	it("keeps Deep Research handoff sends visible to the runtime queue adapter", async () => {
+	it("keeps normal in-flight sends visible to the runtime queue adapter", async () => {
 		renderPage();
 
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Deep Research" }),
-		);
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Focused Deep Research" }),
-		);
 		await fireEvent.input(screen.getByTestId("message-input"), {
-			target: { value: "Research battery recycling policy" },
+			target: { value: "Summarize battery recycling policy" },
 		});
 		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		await fireEvent.input(screen.getByTestId("message-input"), {
-			target: { value: "Follow up after the plan" },
+			target: { value: "Follow up after the summary" },
 		});
 		await fireEvent.click(screen.getByTestId("queue-button"));
 
 		expect(screen.getByTestId("queued-message-banner")).toHaveTextContent(
-			"Follow up after the plan",
+			"Follow up after the summary",
 		);
 	});
 
@@ -453,7 +427,6 @@ describe("chat page runtime integration", () => {
 			taskState: null,
 			generatedFiles: [],
 			fileProductionJobs: [],
-			deepResearchJobs: [],
 		});
 
 		await waitFor(() => {

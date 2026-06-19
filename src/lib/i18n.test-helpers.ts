@@ -17,7 +17,6 @@ const AUDITED_PREFIXES = [
 	"admin.systemSkills.",
 	"composerCommandRegistry.",
 	"composerCommands.",
-	"deepResearch.",
 	"linkedSources.",
 	"messageBubble.",
 	"fork.",

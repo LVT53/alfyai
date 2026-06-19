@@ -28,11 +28,6 @@ import {
 } from "$lib/client/api/campaign-assets";
 import { get } from "svelte/store";
 import { t, type I18nKey } from "$lib/i18n";
-import {
-	DEEP_RESEARCH_MODEL_ROLES,
-	DEFAULT_DEEP_RESEARCH_MODEL_ID,
-	type DeepResearchModelRoleDefinition,
-} from "$lib/deep-research-models";
 import type { ModelId } from "$lib/types";
 import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
@@ -583,7 +578,7 @@ function modelNameDisplay(name: string): string {
 			: name;
 }
 
-function deepResearchModelOptions(): Array<{
+function adminModelOptions(): Array<{
 	id: ModelId;
 	displayName: string;
 }> {
@@ -643,7 +638,7 @@ function defaultNewUserModelOptions(): Array<{
 		if (!provider.enabled) continue;
 		options.set(`provider:${provider.id}` as ModelId, provider.displayName);
 	}
-	for (const model of deepResearchModelOptions()) {
+	for (const model of adminModelOptions()) {
 		if (!options.has(model.id)) {
 			options.set(model.id, model.displayName);
 		}
@@ -688,12 +683,6 @@ function reasoningDepthClassifierModelValue(): string {
 		: "";
 }
 
-function deepResearchRoleValue(role: DeepResearchModelRoleDefinition): ModelId {
-	return (adminConfig[role.configKey] ||
-		envDefaults[role.configKey] ||
-		DEFAULT_DEEP_RESEARCH_MODEL_ID) as ModelId;
-}
-
 $effect(() => {
 	void loadProviderConfigs();
 });
@@ -720,25 +709,6 @@ function configLabelKey(key: string): I18nKey {
 		MODEL_2_ENABLED: "admin.model2Enabled",
 		COMPOSER_COMMAND_REGISTRY_ENABLED: "admin.composerCommandRegistryEnabled",
 		APP_VERSION_OVERRIDE: "admin.appVersionOverride",
-		DEEP_RESEARCH_ENABLED: "admin.deepResearchEnabled",
-		DEEP_RESEARCH_WORKER_ENABLED: "admin.deepResearchWorkerEnabled",
-		DEEP_RESEARCH_WORKER_INTERVAL_MS: "admin.deepResearchWorkerIntervalMs",
-		DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS:
-			"admin.deepResearchWorkerStaleTimeoutMs",
-		DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS: "admin.deepResearchJobRuntimeLimitMs",
-		DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY:
-			"admin.deepResearchWorkerGlobalConcurrency",
-		DEEP_RESEARCH_WORKER_USER_CONCURRENCY:
-			"admin.deepResearchWorkerUserConcurrency",
-		DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT:
-			"admin.deepResearchActiveConversationLimit",
-		DEEP_RESEARCH_ACTIVE_USER_LIMIT: "admin.deepResearchActiveUserLimit",
-		DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT: "admin.deepResearchActiveGlobalLimit",
-		DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY:
-			"admin.deepResearchGlobalReasoningConcurrency",
-		DEEP_RESEARCH_USER_REASONING_CONCURRENCY:
-			"admin.deepResearchUserReasoningConcurrency",
-		DEEP_RESEARCH_DEPTH_BUDGETS_JSON: "admin.deepResearchDepthBudgetsJson",
 		MODEL_1_MAX_MODEL_CONTEXT: "admin.model1MaxModelContext",
 		MODEL_1_COMPACTION_UI_THRESHOLD: "admin.model1CompactionThreshold",
 		MODEL_1_TARGET_CONSTRUCTED_CONTEXT: "admin.model1TargetContext",
@@ -811,16 +781,6 @@ const NUMBER_KEYS = new Set([
 	"MAX_FILE_UPLOAD_SIZE",
 	"REQUEST_TIMEOUT_MS",
 	"MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS",
-	"DEEP_RESEARCH_WORKER_INTERVAL_MS",
-	"DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS",
-	"DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS",
-	"DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY",
-	"DEEP_RESEARCH_WORKER_USER_CONCURRENCY",
-	"DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT",
-	"DEEP_RESEARCH_ACTIVE_USER_LIMIT",
-	"DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT",
-	"DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY",
-	"DEEP_RESEARCH_USER_REASONING_CONCURRENCY",
 ]);
 
 function placeholderFor(key: string): string {
@@ -1111,120 +1071,6 @@ function placeholderFor(key: string): string {
 	</div>
 </section>
 
-<!-- Deep Research feature flag -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.deepResearch')}</h2>
-	<div class="flex flex-col gap-3">
-		<div class="flex items-center justify-between">
-			<div>
-				<label class="settings-label mb-0" for="DEEP_RESEARCH_ENABLED">{$t('admin.deepResearchEnabled')}</label>
-				<p class="text-xs text-text-tertiary">{$t('admin.deepResearchDescription')}</p>
-			</div>
-			<label class="relative inline-flex cursor-pointer items-center">
-				<input
-					id="DEEP_RESEARCH_ENABLED"
-					type="checkbox"
-					class="peer sr-only"
-					checked={adminConfig.DEEP_RESEARCH_ENABLED === 'true'}
-					onchange={(event) => {
-						adminConfig.DEEP_RESEARCH_ENABLED = event.currentTarget.checked ? 'true' : 'false';
-					}}
-				/>
-				<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
-			</label>
-		</div>
-		<div class="flex items-center justify-between">
-			<label class="settings-label mb-0" for="DEEP_RESEARCH_WORKER_ENABLED">{$t('admin.deepResearchWorkerEnabled')}</label>
-			<label class="relative inline-flex cursor-pointer items-center">
-				<input
-					id="DEEP_RESEARCH_WORKER_ENABLED"
-					type="checkbox"
-					class="peer sr-only"
-					checked={adminConfig.DEEP_RESEARCH_WORKER_ENABLED === 'true'}
-					onchange={(event) => {
-						adminConfig.DEEP_RESEARCH_WORKER_ENABLED = event.currentTarget.checked ? 'true' : 'false';
-					}}
-				/>
-				<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
-			</label>
-		</div>
-		<div class="grid gap-3 md:grid-cols-2">
-			{#each [
-				'DEEP_RESEARCH_WORKER_INTERVAL_MS',
-				'DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS',
-				'DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS',
-				'DEEP_RESEARCH_WORKER_GLOBAL_CONCURRENCY',
-				'DEEP_RESEARCH_WORKER_USER_CONCURRENCY',
-				'DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT',
-				'DEEP_RESEARCH_ACTIVE_USER_LIMIT',
-				'DEEP_RESEARCH_ACTIVE_GLOBAL_LIMIT',
-				'DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY',
-				'DEEP_RESEARCH_USER_REASONING_CONCURRENCY',
-			] as key}
-				<div>
-					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
-					<input
-						id={key}
-						type="number"
-						class="settings-input"
-						bind:value={adminConfig[key]}
-						min={key === 'DEEP_RESEARCH_WORKER_INTERVAL_MS'
-							? '1000'
-							: key === 'DEEP_RESEARCH_WORKER_STALE_TIMEOUT_MS' ||
-								  key === 'DEEP_RESEARCH_JOB_RUNTIME_LIMIT_MS'
-								? '60000'
-								: key === 'DEEP_RESEARCH_ACTIVE_CONVERSATION_LIMIT' ||
-									  key === 'DEEP_RESEARCH_GLOBAL_REASONING_CONCURRENCY'
-									? '1'
-								: '0'}
-						placeholder={placeholderFor(key)}
-					/>
-				</div>
-			{/each}
-		</div>
-		<div class="border-t border-border pt-3">
-			<h3 class="text-sm font-medium text-text-primary">{$t('admin.deepResearchDepthBudgets')}</h3>
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.deepResearchDepthBudgetsDescription')}</p>
-			<div class="mt-3">
-				<label class="settings-label" for="DEEP_RESEARCH_DEPTH_BUDGETS_JSON">
-					{$t(configLabelKey('DEEP_RESEARCH_DEPTH_BUDGETS_JSON'))}
-				</label>
-				<textarea
-					id="DEEP_RESEARCH_DEPTH_BUDGETS_JSON"
-					class="settings-input min-h-[180px] font-mono text-xs"
-					bind:value={adminConfig.DEEP_RESEARCH_DEPTH_BUDGETS_JSON}
-					rows="8"
-					spellcheck="false"
-					placeholder={placeholderFor('DEEP_RESEARCH_DEPTH_BUDGETS_JSON')}
-				></textarea>
-			</div>
-		</div>
-		<div class="border-t border-border pt-3">
-			<h3 class="text-sm font-medium text-text-primary">{$t('admin.deepResearchModels')}</h3>
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.deepResearchModelsDescription')}</p>
-			<div class="mt-3 grid gap-3 md:grid-cols-2">
-				{#each DEEP_RESEARCH_MODEL_ROLES as role}
-					<div>
-						<label class="settings-label" for={role.configKey}>{$t(role.labelKey)}</label>
-						<select
-							id={role.configKey}
-							class="settings-input"
-							value={deepResearchRoleValue(role)}
-							onchange={(event) => {
-								adminConfig[role.configKey] = event.currentTarget.value;
-							}}
-						>
-							{#each deepResearchModelOptions() as model}
-								<option value={model.id}>{model.displayName}</option>
-							{/each}
-						</select>
-					</div>
-				{/each}
-			</div>
-		</div>
-	</div>
-</section>
-
 <!-- Title Generator -->
 <section class="settings-card mb-4">
 	<h2 class="settings-section-title">{$t('admin.titleGenerator')}</h2>
@@ -1239,7 +1085,7 @@ function placeholderFor(key: string): string {
 					adminConfig['TITLE_GEN_MODEL'] = event.currentTarget.value;
 				}}
 			>
-				{#each deepResearchModelOptions() as model}
+				{#each adminModelOptions() as model}
 					<option value={model.id}>{model.displayName}</option>
 				{/each}
 			</select>
@@ -1282,7 +1128,7 @@ function placeholderFor(key: string): string {
 					adminConfig['CONTEXT_SUMMARIZER_MODEL'] = event.currentTarget.value;
 				}}
 			>
-				{#each deepResearchModelOptions() as model}
+				{#each adminModelOptions() as model}
 					<option value={model.id}>{model.displayName}</option>
 				{/each}
 			</select>

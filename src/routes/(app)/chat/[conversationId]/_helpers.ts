@@ -3,7 +3,6 @@ import type { StreamMetadata } from "$lib/services/streaming";
 import type {
 	ArtifactSummary,
 	ChatMessage,
-	DeepResearchJob,
 	EvidenceSourceType,
 	FileProductionJob,
 	LinkedContextSource,
@@ -34,7 +33,6 @@ export type SendPayload = {
 	conversationId?: string | null;
 	modelId?: ModelId;
 	personalityProfileId?: string | null;
-	deepResearchDepth?: "focused" | "standard" | "max" | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
 };
@@ -169,86 +167,8 @@ export function hasActiveFileProductionJobs(
 	);
 }
 
-export function hasActiveDeepResearchJobs(jobs: DeepResearchJob[]): boolean {
-	return jobs.some(
-		(job) =>
-			job.status === "awaiting_plan" ||
-			job.status === "awaiting_approval" ||
-			job.status === "approved" ||
-			job.status === "running",
-	);
-}
-
-export function mergeDeepResearchJobsForHydration(
-	currentJobs: DeepResearchJob[],
-	incomingJobs: DeepResearchJob[],
-): DeepResearchJob[] {
-	const incomingIds = new Set(incomingJobs.map((job) => job.id));
-	const merged = [...incomingJobs];
-	for (const job of currentJobs) {
-		if (incomingIds.has(job.id)) continue;
-		if (!shouldPreserveDeepResearchJobDuringHydration(job)) continue;
-		if (
-			incomingJobs.some((incomingJob) =>
-				isEquivalentDeepResearchJob(job, incomingJob),
-			)
-		) {
-			continue;
-		}
-		merged.push(job);
-	}
-	return merged;
-}
-
-function shouldPreserveDeepResearchJobDuringHydration(
-	job: DeepResearchJob,
-): boolean {
-	return (
-		job.id.startsWith("pending-deep-research-") ||
-		hasActiveDeepResearchJobs([job])
-	);
-}
-
-function isEquivalentDeepResearchJob(
-	left: DeepResearchJob,
-	right: DeepResearchJob,
-): boolean {
-	if (left.id === right.id) return true;
-	if (left.triggerMessageId && left.triggerMessageId === right.triggerMessageId)
-		return true;
-	const leftRequest = left.userRequest?.trim() ?? "";
-	const rightRequest = right.userRequest?.trim() ?? "";
-	return (
-		left.conversationId === right.conversationId &&
-		left.depth === right.depth &&
-		leftRequest.length > 0 &&
-		leftRequest === rightRequest
-	);
-}
-
-export function shouldStartDeepResearchJob(
-	payload: Pick<SendPayload, "deepResearchDepth">,
-	retryAssistantMessageId?: string,
-): boolean {
-	return Boolean(payload.deepResearchDepth && !retryAssistantMessageId);
-}
-
-export function shouldDeleteConversationAfterCancellingDeepResearch(params: {
-	jobBeforeCancel: DeepResearchJob | null | undefined;
-	messageCount: number;
-	deepResearchJobCount: number;
-}): boolean {
-	const status = params.jobBeforeCancel?.status;
-	const notStarted =
-		status === "awaiting_plan" || status === "awaiting_approval";
-	return (
-		notStarted && params.messageCount <= 1 && params.deepResearchJobCount <= 1
-	);
-}
-
 export function isConversationReadOnly(
 	conversation: { status?: "open" | "sealed" | null },
-	_deepResearchJobs: DeepResearchJob[] = [],
 ): boolean {
 	return conversation.status === "sealed";
 }
@@ -725,7 +645,6 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 			: null,
 		conversationId: payload.conversationId ?? null,
 		modelId: payload.modelId,
-		deepResearchDepth: payload.deepResearchDepth ?? null,
 		reasoningDepth: payload.reasoningDepth,
 		forceWebSearch: payload.forceWebSearch === true,
 	};

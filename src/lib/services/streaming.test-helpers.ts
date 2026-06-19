@@ -6,9 +6,6 @@ import { streamChat } from "./streaming";
 type ResponseBody = {
 	activeDocumentArtifactId?: string;
 	conversationId?: string;
-	deepResearch?: {
-		depth: string;
-	};
 	reasoningDepth?: string;
 	retryAssistantMessageId?: string;
 	retryUserMessageId?: string;

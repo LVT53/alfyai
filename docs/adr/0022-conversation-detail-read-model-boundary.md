@@ -2,7 +2,7 @@
 
 AlfyAI will treat refreshable `/api/conversations/[id]` GET payload assembly as a Conversation Detail Read Model boundary in `src/lib/server/services/conversation-detail/read-model.ts`. The route remains an auth/HTTP adapter: authenticate the request, choose the requested view, call `getConversationDetail(...)`, map missing conversations to 404, and return JSON.
 
-The read model assembles the stable `ConversationDetail` payload consumed by chat page load and browser hydration. It owns bootstrap versus full detail selection, payload defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft state, generated files, File Production cards, Deep Research jobs, context-compression snapshots, cost fields, and active Skill Session public serialization.
+The read model assembles the stable `ConversationDetail` payload consumed by chat page load and browser hydration. It owns bootstrap versus full detail selection, payload defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft state, generated files, File Production cards jobs, context-compression snapshots, cost fields, and active Skill Session public serialization.
 
 Normal Chat Turn Completion remains owned by chat-turn. Completion decides the durable result of an assistant turn, including message persistence, response-facing Context Sources, evidence, skill side effects, and continuity work. The Conversation Detail Read Model may read and project those durable results for refresh, but it must not become a second completion pipeline.
 

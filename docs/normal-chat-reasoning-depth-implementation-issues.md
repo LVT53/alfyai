@@ -14,7 +14,7 @@ The slices below are written as independently grabbable tracer bullets for a lat
 - Routes stay thin. Durable behavior belongs in the existing chat-turn, normal-chat-context, normal-chat-model, normal-chat-tools, messages, config-store, and client runtime boundaries.
 - New user-facing composer labels, commands, errors, empty states, and accessibility strings must be localized in English and Hungarian.
 - Svelte changes must follow the repo's Svelte 5 rules.
-- Reasoning Depth stays inside Normal Chat and must not auto-start Deep Research.
+- Reasoning Depth stays inside Normal Chat and must not create a separate background job.
 - Live activity rows are not arbitrarily capped. They should stay compact and disappear after completion.
 - The completed-turn audit surface is the existing assistant-message info tooltip, which may grow modestly into a minimal response-details popover.
 - The existing thinking disclosure remains inline and is renamed to the compact completed label `Thought`; it should not become a second completed audit surface.
@@ -151,9 +151,9 @@ This includes provider-native reasoning effort where supported, prompt/context/o
 - [ ] Higher profiles may reserve more output room and broader context only within configured model limits.
 - [ ] Max strengthens grounding guidance but does not force web search every turn.
 - [ ] Extended and maximum may increase web/source budgets only when classifier/tool signals indicate external or current evidence is useful.
-- [ ] Deep Research Mode is never auto-started by Reasoning Depth.
+- [ ] Reasoning Depth never auto-starts a separate background job.
 - [ ] Depth Metadata records applied profile, major effort dimensions changed, and any clamp/constraint.
-- [ ] Tests cover provider options, context/output clamps, grounding/tool-budget changes, and Deep Research non-escalation.
+- [ ] Tests cover provider options, context/output clamps, grounding/tool-budget changes, and non-escalation out of Normal Chat.
 
 ### Orchestrator notes
 

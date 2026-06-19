@@ -73,7 +73,6 @@ const parsedRequest = {
 	pendingSkill: null,
 	activeDocumentArtifactId: undefined,
 	personalityProfileId: undefined,
-	deepResearchDepth: undefined,
 	reasoningDepth: "auto",
 	thinkingMode: "auto",
 	forceWebSearch: false,

@@ -42,7 +42,6 @@ type ArchiveDb = DatabaseInstance;
 
 const ENTRY_FILE = "Open AlfyAI Data Archive.html";
 const EXCLUSION_NOTES = [
-	"Deep Research is not included in this v1 archive. This is a planned exclusion and does not mean archive generation failed.",
 	"Passwords, password hashes, active logins, sessions, cookies, service assertions, and API keys are not included.",
 	"Private server settings, provider secrets, storage paths, server logs, local process logs, hidden prompt context, assistant thinking traces, raw tool JSON, provider payloads, retry/debug fields, diagnostics, embeddings, and embedding hashes are not included.",
 	"Outside AI provider logs that are outside AlfyAI control are not included.",

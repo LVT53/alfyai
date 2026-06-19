@@ -10,7 +10,6 @@ import {
 	listChildForksBySourceMessages,
 } from "$lib/server/services/conversation-forks";
 import { getConversation } from "$lib/server/services/conversations";
-import { listConversationDeepResearchJobs } from "$lib/server/services/deep-research";
 import {
 	listConversationFileProductionJobs,
 	listConversationGeneratedFiles,
@@ -94,7 +93,6 @@ export async function getConversationDetail({
 			contextDebug: null,
 			draft,
 			fileProductionJobs: [],
-			deepResearchJobs: [],
 			contextCompressionSnapshots: [],
 			activeSkillSession: serializePublicSkillSession(activeSkillSession),
 			bootstrap: true,
@@ -103,19 +101,13 @@ export async function getConversationDetail({
 	}
 
 	if (view === "first-render") {
-		const [
-			messageHistory,
-			forkOrigin,
-			draft,
-			activeSkillSession,
-			deepResearchJobs,
-		] = await Promise.all([
-			listMessages(conversationId),
-			getConversationForkOrigin(conversationId),
-			getConversationDraft(userId, conversationId),
-			getActiveSkillSession(userId, conversationId).catch(() => null),
-			listConversationDeepResearchJobs(userId, conversationId),
-		]);
+		const [messageHistory, forkOrigin, draft, activeSkillSession] =
+			await Promise.all([
+				listMessages(conversationId),
+				getConversationForkOrigin(conversationId),
+				getConversationDraft(userId, conversationId),
+				getActiveSkillSession(userId, conversationId).catch(() => null),
+			]);
 		const messagesWithSourceForks = await attachSourceForksToAssistantMessages(
 			userId,
 			messageHistory,
@@ -133,7 +125,6 @@ export async function getConversationDetail({
 			draft,
 			generatedFiles: [],
 			fileProductionJobs: [],
-			deepResearchJobs,
 			contextCompressionSnapshots: [],
 			activeSkillSession: serializePublicSkillSession(activeSkillSession),
 			bootstrap: false,
@@ -155,7 +146,6 @@ export async function getConversationDetail({
 		draft,
 		generatedFiles,
 		fileProductionJobs,
-		deepResearchJobs,
 		contextCompressionSnapshots,
 		costSummary,
 		projectReference,
@@ -174,7 +164,6 @@ export async function getConversationDetail({
 		getConversationDraft(userId, conversationId),
 		listConversationGeneratedFiles(conversationId),
 		listConversationFileProductionJobs(userId, conversationId),
-		listConversationDeepResearchJobs(userId, conversationId),
 		listContextCompressionSnapshots(conversationId),
 		getConversationCostSummary(conversationId),
 		getProjectReferenceContext({ userId, conversationId }).catch(() => null),
@@ -211,7 +200,6 @@ export async function getConversationDetail({
 		draft,
 		generatedFiles,
 		fileProductionJobs,
-		deepResearchJobs,
 		contextCompressionSnapshots: contextCompressionSnapshots.map(
 			serializeContextCompressionSnapshot,
 		),

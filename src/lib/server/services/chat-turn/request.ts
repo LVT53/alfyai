@@ -10,7 +10,6 @@ import {
 	getProviderWithSecrets,
 } from "$lib/server/services/providers";
 import type {
-	DeepResearchDepth,
 	LinkedContextSource,
 	ModelId,
 	PendingSkillSelection,
@@ -45,8 +44,6 @@ type RequestBody = {
 	pendingSkill?: unknown;
 	activeDocumentArtifactId?: unknown;
 	personalityProfileId?: unknown;
-	deepResearch?: unknown;
-	deepResearchDepth?: unknown;
 	reasoningDepth?: unknown;
 	thinkingMode?: unknown;
 	forceWebSearch?: unknown;
@@ -118,10 +115,6 @@ export async function parseChatTurnRequest(
 	}
 
 	const safeAttachmentIds = parseAttachmentIds(body.attachmentIds);
-	const deepResearchDepth = parseDeepResearchDepth(
-		body.deepResearch,
-		body.deepResearchDepth,
-	);
 	const reasoningDepth = parseReasoningDepth(
 		body.reasoningDepth,
 		body.thinkingMode,
@@ -139,9 +132,7 @@ export async function parseChatTurnRequest(
 			providerDisplayName: modelResult.value.providerDisplayName,
 			attachmentIds: safeAttachmentIds,
 			linkedSources: parseLinkedSources(body.linkedSources),
-			pendingSkill: deepResearchDepth
-				? null
-				: parsePendingSkill(body.pendingSkill),
+			pendingSkill: parsePendingSkill(body.pendingSkill),
 			activeDocumentArtifactId:
 				typeof body.activeDocumentArtifactId === "string" &&
 				body.activeDocumentArtifactId.trim().length > 0
@@ -152,7 +143,6 @@ export async function parseChatTurnRequest(
 				body.personalityProfileId.trim().length > 0
 					? body.personalityProfileId.trim()
 					: undefined,
-			deepResearchDepth,
 			reasoningDepth,
 			thinkingMode: reasoningDepthToThinkingMode(reasoningDepth),
 			forceWebSearch: body.forceWebSearch === true,
@@ -395,21 +385,6 @@ function parseLinkedSources(value: unknown): LinkedContextSource[] {
 	);
 }
 
-function parseDeepResearchDepth(
-	deepResearch: unknown,
-	deepResearchDepth: unknown,
-): DeepResearchDepth | undefined {
-	const directDepth =
-		typeof deepResearchDepth === "string" ? deepResearchDepth.trim() : "";
-	if (isDeepResearchDepth(directDepth)) return directDepth;
-
-	if (typeof deepResearch !== "object" || deepResearch === null)
-		return undefined;
-	const maybeDepth = (deepResearch as { depth?: unknown }).depth;
-	const nestedDepth = typeof maybeDepth === "string" ? maybeDepth.trim() : "";
-	return isDeepResearchDepth(nestedDepth) ? nestedDepth : undefined;
-}
-
 function parseReasoningDepth(
 	value: unknown,
 	legacyThinkingMode: unknown,
@@ -420,10 +395,6 @@ function parseReasoningDepth(
 
 function parseThinkingMode(value: unknown): ThinkingMode {
 	return value === "on" || value === "off" || value === "auto" ? value : "auto";
-}
-
-function isDeepResearchDepth(value: string): value is DeepResearchDepth {
-	return value === "focused" || value === "standard" || value === "max";
 }
 
 type ModelFromProvidersTable = {

@@ -9,7 +9,6 @@ import * as schema from "$lib/server/db/schema";
 
 const {
 	mockArtifactHasReferencesOutsideConversation,
-	mockCancelRunningResearchTasks,
 	mockDeleteAllChatFilesForConversation,
 	mockDeleteConversationHonchoState,
 	mockGetSourceArtifactIdForNormalizedArtifact,
@@ -17,7 +16,6 @@ const {
 	mockListConversationOwnedArtifacts,
 } = vi.hoisted(() => ({
 	mockArtifactHasReferencesOutsideConversation: vi.fn(),
-	mockCancelRunningResearchTasks: vi.fn(),
 	mockDeleteAllChatFilesForConversation: vi.fn(),
 	mockDeleteConversationHonchoState: vi.fn(),
 	mockGetSourceArtifactIdForNormalizedArtifact: vi.fn(),
@@ -42,17 +40,9 @@ vi.mock("../knowledge", () => ({
 	listConversationOwnedArtifacts: mockListConversationOwnedArtifacts,
 }));
 
-vi.mock("../deep-research/tasks", () => ({
-	cancelRunningResearchTasks: mockCancelRunningResearchTasks,
-}));
-
 let dbPath: string;
 
-function seedConversation(job?: {
-	id: string;
-	status: string;
-	stage: string | null;
-}) {
+function seedConversation() {
 	const sqlite = new Database(dbPath);
 	sqlite.pragma("foreign_keys = ON");
 	const db = drizzle(sqlite, { schema });
@@ -76,23 +66,6 @@ function seedConversation(job?: {
 		})
 		.run();
 
-	if (job) {
-		db.insert(schema.deepResearchJobs)
-			.values({
-				id: job.id,
-				userId: "user-1",
-				conversationId: "conversation-1",
-				depth: "standard",
-				status: job.status,
-				stage: job.stage,
-				title: "Research conversation",
-				userRequest: "Research this",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.run();
-	}
-
 	sqlite.close();
 }
 
@@ -106,7 +79,6 @@ describe("deleteConversationWithCleanup", () => {
 		mockHardDeleteArtifactsForUser.mockResolvedValue(undefined);
 		mockDeleteAllChatFilesForConversation.mockResolvedValue(undefined);
 		mockDeleteConversationHonchoState.mockResolvedValue(undefined);
-		mockCancelRunningResearchTasks.mockResolvedValue([]);
 	});
 
 	afterEach(async () => {
@@ -123,62 +95,8 @@ describe("deleteConversationWithCleanup", () => {
 		}
 	});
 
-	it("cancels active Deep Research jobs before deleting the conversation", async () => {
-		seedConversation({
-			id: "job-1",
-			status: "running",
-			stage: "citation_audit",
-		});
-
-		const { deleteConversationWithCleanup } = await import(
-			"./conversation-cleanup"
-		);
-
-		const result = await deleteConversationWithCleanup(
-			"user-1",
-			"conversation-1",
-		);
-
-		const { db } = await import("$lib/server/db");
-		const conversations = await db
-			.select({ id: schema.conversations.id })
-			.from(schema.conversations)
-			.where(eq(schema.conversations.id, "conversation-1"));
-		const jobs = await db
-			.select({
-				id: schema.deepResearchJobs.id,
-				status: schema.deepResearchJobs.status,
-			})
-			.from(schema.deepResearchJobs)
-			.where(eq(schema.deepResearchJobs.id, "job-1"));
-
-		expect(result).toEqual({
-			deletedArtifactIds: [],
-			preservedArtifactIds: [],
-		});
-		expect(conversations).toEqual([]);
-		expect(jobs).toEqual([]);
-		expect(mockCancelRunningResearchTasks).toHaveBeenCalledWith({
-			userId: "user-1",
-			jobId: "job-1",
-			reason: "Conversation deleted while Deep Research job was active.",
-			now: expect.any(Date),
-		});
-		expect(mockDeleteConversationHonchoState).toHaveBeenCalledWith(
-			"user-1",
-			"conversation-1",
-		);
-		expect(mockDeleteAllChatFilesForConversation).toHaveBeenCalledWith(
-			"conversation-1",
-		);
-	});
-
-	it("allows conversation deletion after the Deep Research job is cancelled", async () => {
-		seedConversation({
-			id: "job-1",
-			status: "cancelled",
-			stage: "plan_drafted",
-		});
+	it("deletes a conversation and runs shared cleanup hooks", async () => {
+		seedConversation();
 
 		const { deleteConversationWithCleanup } = await import(
 			"./conversation-cleanup"
@@ -199,13 +117,8 @@ describe("deleteConversationWithCleanup", () => {
 			.select({ id: schema.conversations.id })
 			.from(schema.conversations)
 			.where(eq(schema.conversations.id, "conversation-1"));
-		const jobs = await db
-			.select({ id: schema.deepResearchJobs.id })
-			.from(schema.deepResearchJobs)
-			.where(eq(schema.deepResearchJobs.id, "job-1"));
 
 		expect(conversations).toEqual([]);
-		expect(jobs).toEqual([]);
 		expect(mockDeleteConversationHonchoState).toHaveBeenCalledWith(
 			"user-1",
 			"conversation-1",

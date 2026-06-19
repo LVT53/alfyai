@@ -56,18 +56,19 @@ function renderComposerPanel(props: Record<string, unknown> = {}) {
 }
 
 describe("ChatComposerPanel", () => {
-	it("passes the Deep Research feature flag into the composer", async () => {
-		const { queryByRole, rerender } = renderComposerPanel({
-			deepResearchEnabled: false,
+	it("does not expose the removed long-form research composer control", async () => {
+		const { getByPlaceholderText, queryByRole } = renderComposerPanel({
+			composerCommandRegistryEnabled: true,
+		});
+		const removedLabel = ["Deep", "Research"].join(" ");
+
+		expect(queryByRole("button", { name: removedLabel })).toBeNull();
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "/removed-command" },
 		});
 
-		expect(queryByRole("button", { name: "Deep Research" })).toBeNull();
-
-		await rerender({
-			deepResearchEnabled: true,
-		});
-
-		expect(queryByRole("button", { name: "Deep Research" })).not.toBeNull();
+		expect(queryByRole("option", { name: removedLabel })).toBeNull();
 	});
 
 	it("passes the Composer Command Registry feature flag into the composer", async () => {
@@ -139,17 +140,13 @@ describe("ChatComposerPanel", () => {
 		).toBeInTheDocument();
 	});
 
-	it("passes the selected Deep Research depth through chat sends", async () => {
+	it("sends normal chat payloads without removed research fields", async () => {
 		const onSend = vi.fn();
+		const removedDepthKey = ["deep", "Research", "Depth"].join("");
 		const { getByPlaceholderText, getByRole } = renderComposerPanel({
-			deepResearchEnabled: true,
 			onSend,
 		});
 
-		await fireEvent.click(getByRole("button", { name: "Deep Research" }));
-		await fireEvent.click(
-			getByRole("button", { name: "Focused Deep Research" }),
-		);
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "Research battery recycling policy" },
 		});
@@ -158,9 +155,9 @@ describe("ChatComposerPanel", () => {
 		expect(onSend).toHaveBeenCalledWith(
 			expect.objectContaining({
 				message: "Research battery recycling policy",
-				deepResearchDepth: "focused",
 			}),
 		);
+		expect(onSend.mock.calls[0]?.[0]).not.toHaveProperty(removedDepthKey);
 	});
 
 	it("does not send from a disabled composer", async () => {

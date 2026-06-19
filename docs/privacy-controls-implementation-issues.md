@@ -153,7 +153,7 @@ Memory pages should explain what was remembered, the type of memory, saved/updat
 
 ### What to build
 
-Extend Account Data Archive so the **Usage** section includes readable personal analytics summaries and simple tables, and the **What is not included** section clearly names excluded areas. Deep Research is intentionally excluded in v1 and must appear as an explicit exclusion note rather than a silent omission or export failure.
+Extend Account Data Archive so the **Usage** section includes readable personal analytics summaries and simple tables, and the **What is not included** section clearly names excluded areas. deleted research subsystem is intentionally excluded in v1 and must appear as an explicit exclusion note rather than a silent omission or export failure.
 
 Usage data should be personal and understandable, not a raw analytics dump. It may include message counts, token totals, estimated costs, model/provider categories if user-facing enough, and date-bucketed totals when available.
 
@@ -161,11 +161,11 @@ Usage data should be personal and understandable, not a raw analytics dump. It m
 
 - [ ] The archive includes a personal usage summary with simple totals and tables.
 - [ ] Usage export avoids raw analytics event payloads, debug fields, local process logs, and server logs.
-- [ ] The archive includes a clear exclusion note for Deep Research v1.
+- [ ] The archive includes a clear exclusion note for deleted research subsystem v1.
 - [ ] The archive includes clear exclusion notes for passwords, active logins, private server settings, server logs, hidden context, outside AI provider logs outside AlfyAI control, and other excluded data categories.
-- [ ] Deep Research absence does not fail archive generation because it is a planned v1 exclusion.
+- [ ] deleted research subsystem absence does not fail archive generation because it is a planned v1 exclusion.
 - [ ] In-scope usage summary load/write failures still fail the entire archive.
-- [ ] Tests cover populated usage summaries, users with no usage rows, Deep Research exclusion wording, and all-or-nothing failure for in-scope usage data.
+- [ ] Tests cover populated usage summaries, users with no usage rows exclusion wording, and all-or-nothing failure for in-scope usage data.
 
 ### Blocked by
 
@@ -237,7 +237,7 @@ Self-service Account Erasure must not be blocked by the last-admin guard. Admin 
 - [ ] Profile exposes **Delete account** in Privacy and Data Controls using Account Erasure behavior.
 - [ ] The action requires password confirmation.
 - [ ] The confirmation surface offers **Download my data** as a secondary action.
-- [ ] The action quiesces user-owned running work before destructive cleanup, including live chat streams, file production, Deep Research, and memory maintenance.
+- [ ] The action quiesces user-owned running work before destructive cleanup, including live chat streams, file production, and memory maintenance.
 - [ ] The action deletes conversations, messages, files, Knowledge Base content, app-controlled memory, continuity state, Skill Notes, user Skill definitions, account preferences, avatar, sessions, and other person-linked local data owned by the user.
 - [ ] The action removes app-controlled external memory state for the user.
 - [ ] Retained analytics are anonymous aggregate usage and cost totals only.
@@ -354,4 +354,4 @@ flowchart TD
 - Do not make archive generation depend on a future importer, restore flow, or raw JSON schema.
 - Use readable HTML as the primary archive representation and original files as supporting artifacts.
 - Treat "partial archive" as an error, not a degraded success.
-- Keep Deep Research as a named v1 exclusion until the product explicitly changes scope.
+- Keep deleted research subsystem as a named v1 exclusion until the product explicitly changes scope.

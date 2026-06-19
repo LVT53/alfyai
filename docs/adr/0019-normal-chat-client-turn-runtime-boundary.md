@@ -2,7 +2,7 @@
 
 AlfyAI will treat Normal Chat Client Turn Runtime as an explicit browser-side boundary in `src/lib/client/normal-chat-client-turn-runtime.ts`. The runtime owns send, retry, reconnect, waiting, stop, queued follow-up, queued compaction, and recovery transitions for an active Normal Chat browser turn.
 
-The runtime is a plain TypeScript client module above `streamChat`. It depends on injected page adapters for visible message updates, draft and queue state, metadata fan-out, polling, hydration, and UI-visible side effects. The chat page keeps Svelte state, route lifecycle, document workspace ownership, Deep Research controls, skill/session UI commands, and rendering.
+The runtime is a plain TypeScript client module above `streamChat`. It depends on injected page adapters for visible message updates, draft and queue state, metadata fan-out, polling, hydration, and UI-visible side effects. The chat page keeps Svelte state, route lifecycle, document workspace ownership controls, skill/session UI commands, and rendering.
 
 `src/lib/services/streaming.ts` remains the browser transport boundary. It starts, reconnects, detaches, stops, and decodes AI SDK UI stream parts. The Normal Chat Client Turn Runtime consumes decoded callbacks from that transport; it does not parse raw stream lines, define part names, or own replay framing.
 

@@ -9,8 +9,7 @@ export type ComposerCommandId =
 	| "settings"
 	| "clear"
 	| "compact"
-	| "web"
-	| "research";
+	| "web";
 
 export type ComposerCommandAvailability =
 	| "available"
@@ -101,13 +100,6 @@ export const STATIC_COMPOSER_COMMANDS = [
 		token: "/web",
 		labelKey: "composerCommands.web.label",
 		descriptionKey: "composerCommands.web.description",
-		availability: "available",
-	},
-	{
-		id: "research",
-		token: "/research",
-		labelKey: "composerCommands.research.label",
-		descriptionKey: "composerCommands.research.description",
 		availability: "available",
 	},
 ] as const satisfies ComposerCommandDefinition[];

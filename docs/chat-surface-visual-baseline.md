@@ -54,7 +54,7 @@ Visually differentiated from fork markers:
 - Hardcoded golden accent `rgba(194, 166, 106, ...)` replaced with `color-mix(in srgb, var(--accent) XX%, transparent)` across `MessageInput.svelte` and `ComposerToolsMenu.svelte`
 - Legacy CSS variables (`--bg-hover`, `--bg-secondary`, `--bg-primary` with fallbacks) migrated to semantic tokens in `ModelSelector.svelte` and `ModelSelectionGuideModal.svelte`
 - Hardcoded provider brand hex colors replaced with `var(--success)` and `var(--info)` tokens
-- ResearchCard undefined tokens (`--border-strong`, `--surface-card`, `--text-on-accent`) replaced with real semantic equivalents
+- Retired research-card undefined tokens (`--border-strong`, `--surface-card`, `--text-on-accent`) replaced with real semantic equivalents
 
 ### File Attachment Unification (commit a99dfa16)
 

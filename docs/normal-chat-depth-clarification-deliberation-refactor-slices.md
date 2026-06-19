@@ -10,7 +10,7 @@ These are local issue drafts for a later orchestration run. They are not publish
 - Each code-writing worker should use TDD where practical and add the smallest useful regression checks where strict red-green-refactor is not feasible.
 - Workers must use the project glossary: Reasoning Depth, Automatic Depth Selection, Depth Profile, Depth Clarification, Depth Clarification Gate, Depth Clarification Turn, Depth Clarification Carry-forward, Depth Outcome, Depth Assumption, Normal Chat Deliberation Pass, and Reasoning Depth Evaluation Harness.
 - New user-facing wording must be localized in English and Hungarian.
-- Depth Clarification stays inside Normal Chat. It must not create a Deep Research Job, approval workflow, paused turn, or hidden resumable state.
+- Depth Clarification stays inside Normal Chat. It must not create a separate background job, approval workflow, paused turn, or hidden resumable state.
 - Routes stay thin. Durable behavior belongs in existing Normal Chat turn, model-run, stream, message, client runtime, and read-model boundaries.
 - High-cost deliberation should only expand after the clarification gate and evaluation harness prove that expensive wrong-target runs are being avoided.
 - Full deliberation briefs remain transient working material unless a later ADR explicitly changes that.
@@ -222,7 +222,7 @@ Add a deliberation planner that selects a bounded plan from Depth Profile, Depth
 
 ### Orchestrator notes
 
-Keep this synchronous Normal Chat work. Do not create a Deep Research lifecycle or background job.
+Keep this synchronous Normal Chat work. Do not create a separate lifecycle or background job.
 
 ## DCR-09: Introduce evidence and source reconciliation passes
 

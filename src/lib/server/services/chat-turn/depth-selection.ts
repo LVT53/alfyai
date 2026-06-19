@@ -7,7 +7,6 @@ import { sendJsonControlMessage } from "$lib/server/services/normal-chat-control
 import { listEnabledProviderModels } from "$lib/server/services/provider-models";
 import { getProviderWithSecrets } from "$lib/server/services/providers";
 import type {
-	DeepResearchDepth,
 	DepthAppliedProfile,
 	DepthMetadata,
 	DepthSelectionSignals,
@@ -141,7 +140,6 @@ type DepthSelectionTurnInput = {
 	pendingSkill?: PendingSkillSelection | null;
 	activeDocumentArtifactId?: string;
 	personalityProfileId?: string;
-	deepResearchDepth?: DeepResearchDepth;
 	forceWebSearch?: boolean;
 };
 
@@ -229,17 +227,6 @@ export async function resolveReasoningDepthSelection(
 			}),
 		};
 	}
-	if (request.deepResearchDepth) {
-		return {
-			metadata: buildDepthMetadata({
-				request,
-				appliedProfile: "standard",
-				classifierSource: "deterministic_bypass",
-				constraintNote: "deep_research_bypass",
-			}),
-		};
-	}
-
 	const listRecentMessages =
 		params.listRecentMessages ?? listRecentDepthConversationMessages;
 	const recentMessages = await listRecentMessages({

@@ -1,6 +1,6 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { Plus, Search, Send, Square, X } from "@lucide/svelte";
+import { Plus, Send, Square, X } from "@lucide/svelte";
 import { goto } from "$app/navigation";
 import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
 import {
@@ -49,7 +49,6 @@ type SendPayload = {
 	pendingAttachments: PendingAttachment[];
 	conversationId: string | null;
 	personalityProfileId?: string | null;
-	deepResearchDepth?: DeepResearchDepth | null;
 	reasoningDepth?: ReasoningDepth;
 	linkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
@@ -64,8 +63,6 @@ type DraftPayload = {
 	selectedLinkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
 };
-
-type DeepResearchDepth = "focused" | "standard" | "max";
 
 let {
 	disabled = false,
@@ -103,7 +100,6 @@ let {
 	onModelChange = undefined,
 	reasoningDepth = "auto",
 	onReasoningDepthChange = undefined,
-	deepResearchEnabled = false,
 	composerCommandRegistryEnabled = false,
 }: {
 	disabled?: boolean;
@@ -157,7 +153,6 @@ let {
 	onModelChange?: ((modelId: ModelId) => void) | undefined;
 	reasoningDepth?: ReasoningDepth;
 	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
-	deepResearchEnabled?: boolean;
 	composerCommandRegistryEnabled?: boolean;
 } = $props();
 
@@ -177,7 +172,6 @@ let documentPickerLoading = $state(false);
 let documentPickerError = $state("");
 let resolvedConversationId = $state<string | null>(null);
 let showToolsMenu = $state(false);
-let showDeepResearchMenu = $state(false);
 let commandToken = $state<ComposerCommandToken | null>(null);
 let commandTrayMounted = $state(false);
 let commandTrayClosing = $state(false);
@@ -189,7 +183,6 @@ let skillDiscoveryResults = $state<SkillDiscoverySummary[]>([]);
 let skillDiscoveryLoading = $state(false);
 let skillDiscoveryRequestId = 0;
 let toolsMenuInitialOpen = $state<"model" | "style" | "depth" | null>(null);
-let selectedDeepResearchDepth = $state<DeepResearchDepth | null>(null);
 let forceWebSearch = $state(false);
 let queuedSendAfterProcessing = $state(false);
 let linkHighlightScrollTop = $state(0);
@@ -371,7 +364,6 @@ $effect(() => {
 		uploadState = "idle";
 		queuedSendAfterProcessing = false;
 		showToolsMenu = false;
-		showDeepResearchMenu = false;
 		closeCommandTray();
 		lastEmittedDraftKey = "";
 		draftEmissionVersion += 1;
@@ -591,12 +583,9 @@ function buildSendPayload(): SendPayload {
 				}))
 			: [],
 		pendingSkill:
-			composerCommandRegistryEnabled && !selectedDeepResearchDepth
-				? pendingSkill
-				: null,
+			composerCommandRegistryEnabled ? pendingSkill : null,
 		conversationId: resolvedConversationId,
 		personalityProfileId: selectedPersonalityId,
-		deepResearchDepth: deepResearchEnabled ? selectedDeepResearchDepth : null,
 		reasoningDepth,
 		forceWebSearch,
 	};
@@ -610,11 +599,9 @@ function clearComposerAfterSubmit() {
 	attachmentError = "";
 	queuedSendAfterProcessing = false;
 	showToolsMenu = false;
-	showDeepResearchMenu = false;
 	sourceManagerOpen = false;
 	closeCommandTray();
 	documentPickerOpen = false;
-	selectedDeepResearchDepth = null;
 	forceWebSearch = false;
 	lastEmittedDraftKey = "";
 	draftEmissionVersion += 1;
@@ -657,7 +644,6 @@ function stop() {
 	if (disabled) return;
 	onStop?.();
 	showToolsMenu = false;
-	showDeepResearchMenu = false;
 	sourceManagerOpen = false;
 	closeCommandTray();
 	if (isMobile()) {
@@ -694,7 +680,6 @@ function openFilePicker() {
 function toggleToolsMenu() {
 	showToolsMenu = !showToolsMenu;
 	if (showToolsMenu) {
-		showDeepResearchMenu = false;
 		sourceManagerOpen = false;
 		closeCommandTray();
 	}
@@ -706,64 +691,15 @@ function closeToolsMenu() {
 	toolsMenuInitialOpen = null;
 }
 
-function closeDeepResearchMenu() {
-	showDeepResearchMenu = false;
-}
-
 function openSourceManager() {
 	sourceManagerOpen = true;
 	showToolsMenu = false;
-	showDeepResearchMenu = false;
 	closeCommandTray();
 }
 
 function closeSourceManager() {
 	sourceManagerOpen = false;
 	requestAnimationFrame(() => textarea?.focus());
-}
-
-function closeDeepResearchMenuOnOutsideInteraction(node: HTMLElement) {
-	function handlePointerDown(event: PointerEvent) {
-		if (!showDeepResearchMenu) return;
-		const target = event.target;
-		if (target instanceof Node && node.contains(target)) return;
-		closeDeepResearchMenu();
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (!showDeepResearchMenu || event.key !== "Escape") return;
-		closeDeepResearchMenu();
-	}
-
-	document.addEventListener("pointerdown", handlePointerDown, true);
-	document.addEventListener("keydown", handleKeydown);
-
-	return {
-		destroy() {
-			document.removeEventListener("pointerdown", handlePointerDown, true);
-			document.removeEventListener("keydown", handleKeydown);
-		},
-	};
-}
-
-function toggleDeepResearchMenu() {
-	if (selectedDeepResearchDepth) {
-		selectedDeepResearchDepth = null;
-		showDeepResearchMenu = false;
-		return;
-	}
-	showDeepResearchMenu = !showDeepResearchMenu;
-	if (showDeepResearchMenu) {
-		showToolsMenu = false;
-		sourceManagerOpen = false;
-		closeCommandTray();
-	}
-}
-
-function selectDeepResearchDepth(depth: DeepResearchDepth) {
-	selectedDeepResearchDepth =
-		selectedDeepResearchDepth === depth ? null : depth;
-	showDeepResearchMenu = false;
 }
 
 function setForceWebSearch(enabled: boolean) {
@@ -853,16 +789,13 @@ function getCommandTrayRows(
 		descriptionKey: asI18nKey(command.descriptionKey),
 		disabled:
 			command.availability !== "available" ||
-			(command.id === "attach" && !canAttach) ||
-			(command.id === "research" && !deepResearchEnabled),
+			(command.id === "attach" && !canAttach),
 		statusKey:
 			command.availability !== "available"
 				? "composerCommands.comingSoon"
 				: command.id === "attach" && !canAttach
 					? "composerCommands.unavailable"
-					: command.id === "research" && !deepResearchEnabled
-						? "composerCommands.deepResearchUnavailable"
-						: undefined,
+					: undefined,
 	}));
 }
 
@@ -1054,8 +987,7 @@ function hasClearableComposerState(nextMessage: string): boolean {
 		nextMessage.trim().length > 0 ||
 		pendingAttachments.length > 0 ||
 		(composerCommandRegistryEnabled && effectiveLinkedSources.length > 0) ||
-		(composerCommandRegistryEnabled && Boolean(pendingSkill)) ||
-		Boolean(selectedDeepResearchDepth)
+		(composerCommandRegistryEnabled && Boolean(pendingSkill))
 	);
 }
 
@@ -1092,16 +1024,6 @@ function selectSkill(skill: SkillDiscoverySummary) {
 function openComposerTools(section: "model" | "style" | "depth") {
 	toolsMenuInitialOpen = section;
 	showToolsMenu = true;
-	showDeepResearchMenu = false;
-}
-
-function toggleStandardDeepResearchFromCommand() {
-	if (!deepResearchEnabled) {
-		commandTrayMessage = $t("composerCommands.deepResearchUnavailable");
-		return;
-	}
-	selectedDeepResearchDepth = selectedDeepResearchDepth ? null : "standard";
-	showDeepResearchMenu = false;
 }
 
 function selectCommand(command: CommandTrayRow) {
@@ -1160,9 +1082,6 @@ function selectCommand(command: CommandTrayRow) {
 			break;
 		case "web":
 			forceWebSearch = true;
-			break;
-		case "research":
-			toggleStandardDeepResearchFromCommand();
 			break;
 		default:
 			break;
@@ -1234,7 +1153,6 @@ async function openDocumentPicker(initialQuery = "") {
 	documentPickerOpen = true;
 	documentPickerInitialQuery = initialQuery;
 	showToolsMenu = false;
-	showDeepResearchMenu = false;
 	sourceManagerOpen = false;
 	closeCommandTray();
 	if (documentPickerDocuments.length > 0 || documentPickerLoading) return;
@@ -1731,62 +1649,6 @@ async function emitDraftChange(force = false) {
 					{/if}
 				</div>
 
-				{#if deepResearchEnabled}
-					<div
-						class="deep-research-trigger relative flex items-center"
-						use:closeDeepResearchMenuOnOutsideInteraction
-					>
-						<button
-							type="button"
-							class="btn-icon-bare composer-icon flex flex-shrink-0 items-center justify-center text-text-muted"
-							class:composer-icon--active={selectedDeepResearchDepth}
-							onclick={toggleDeepResearchMenu}
-							disabled={disabled}
-							aria-label={$t('composerTools.deepResearch')}
-							aria-expanded={showDeepResearchMenu}
-							title={$t('composerTools.deepResearch')}
-						>
-							<Search size={20} strokeWidth={2.1} aria-hidden="true" />
-						</button>
-
-						{#if showDeepResearchMenu}
-							<div
-								class="deep-research-menu"
-								role="group"
-								aria-label={$t('composerTools.deepResearchDepth')}
-							>
-								<button
-									type="button"
-									class="deep-research-option"
-									class:deep-research-option--selected={selectedDeepResearchDepth === 'focused'}
-									aria-pressed={selectedDeepResearchDepth === 'focused'}
-									onclick={() => selectDeepResearchDepth('focused')}
-								>
-									{$t('composerTools.deepResearchFocused')}
-								</button>
-								<button
-									type="button"
-									class="deep-research-option"
-									class:deep-research-option--selected={selectedDeepResearchDepth === 'standard'}
-									aria-pressed={selectedDeepResearchDepth === 'standard'}
-									onclick={() => selectDeepResearchDepth('standard')}
-								>
-									{$t('composerTools.deepResearchStandard')}
-								</button>
-								<button
-									type="button"
-									class="deep-research-option"
-									class:deep-research-option--selected={selectedDeepResearchDepth === 'max'}
-									aria-pressed={selectedDeepResearchDepth === 'max'}
-									onclick={() => selectDeepResearchDepth('max')}
-								>
-									{$t('composerTools.deepResearchMax')}
-								</button>
-							</div>
-						{/if}
-					</div>
-				{/if}
-
 				<ContextUsageRing
 					{contextStatus}
 					attachedArtifacts={composerArtifacts}
@@ -2183,71 +2045,6 @@ async function emitDraftChange(force = false) {
 		color: var(--accent);
 	}
 
-	.deep-research-menu {
-		position: absolute;
-		left: 0;
-		bottom: calc(100% + 8px);
-		z-index: 40;
-		display: flex;
-		width: min(12.75rem, calc(100vw - 2rem));
-		flex-direction: column;
-		gap: 0.12rem;
-		border: 1px solid color-mix(in srgb, var(--border-default) 76%, var(--surface-page) 24%);
-		border-radius: 0.72rem;
-		background: color-mix(in srgb, var(--surface-overlay) 88%, var(--surface-page) 12%);
-		box-shadow:
-			0 14px 30px rgba(0, 0, 0, 0.14),
-			0 1px 0 color-mix(in srgb, var(--border-default) 88%, transparent 12%);
-		padding: 0.32rem;
-		backdrop-filter: blur(14px);
-	}
-
-	.deep-research-option {
-		width: 100%;
-		border: 0;
-		border-radius: 0.5rem;
-		background: transparent;
-		padding: 0.42rem 0.52rem;
-		text-align: left;
-		font-family: var(--font-sans);
-		font-size: var(--text-xs);
-		line-height: 1.15;
-		color: var(--text-primary);
-		cursor: pointer;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out),
-			transform var(--duration-standard) var(--ease-out),
-			box-shadow var(--duration-standard) var(--ease-out);
-	}
-
-	.deep-research-option:hover,
-	.deep-research-option:focus-visible {
-		background: color-mix(in srgb, var(--accent) 24%, transparent);
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 34%, transparent 66%);
-		transform: translateY(-1px);
-		outline: none;
-	}
-
-	.deep-research-option--selected {
-		background: color-mix(in srgb, var(--accent) 14%, var(--surface-elevated) 86%);
-		color: var(--accent);
-		font-weight: 600;
-	}
-
-	:global(.dark) .deep-research-menu {
-		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
-		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
-		box-shadow:
-			0 16px 32px rgba(0, 0, 0, 0.4),
-			0 0 0 1px color-mix(in srgb, var(--border-default) 88%, transparent 12%);
-	}
-
-	:global(.dark) .deep-research-option:hover,
-	:global(.dark) .deep-research-option:focus-visible {
-		background: color-mix(in srgb, var(--accent) 30%, transparent);
-	}
-
 	.composer-textarea {
 		align-self: stretch;
 		position: relative;
@@ -2304,10 +2101,6 @@ async function emitDraftChange(force = false) {
 
 	.composer-actions {
 		border-top: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent 28%);
-	}
-
-	.deep-research-trigger {
-		margin-right: 3px;
 	}
 
 	.attachment-chip {
@@ -2389,9 +2182,6 @@ async function emitDraftChange(force = false) {
 			opacity: 1;
 		}
 
-		.deep-research-option {
-			transition: none;
-		}
 	}
 
 	@media (max-width: 767px) {

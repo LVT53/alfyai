@@ -320,7 +320,7 @@ function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 						];
 	return [
 		"Reasoning depth effort profile:",
-		`- Applied Normal Chat profile: ${profile}. This does not start Deep Research, does not force web search every turn, and does not make the visible answer longer by itself.`,
+		`- Applied Normal Chat profile: ${profile}. This does not force web search every turn, and does not make the visible answer longer by itself.`,
 		...depthContract,
 		grounding === "strict"
 			? "- Grounding pressure: strict. If current, external, disputed, high-stakes, or source-backed evidence is needed, use available retrieval and cross-check the answer against returned evidence."

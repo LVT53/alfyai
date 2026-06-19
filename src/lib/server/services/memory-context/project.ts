@@ -1,7 +1,7 @@
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, eq, inArray } from "drizzle-orm";
 import { getTargetConstructedContext } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
-import { artifacts, deepResearchJobs, messages } from "$lib/server/db/schema";
+import { messages } from "$lib/server/db/schema";
 import { listMessageAttachments } from "$lib/server/services/knowledge/store/attachments";
 import { getArtifactsForUser } from "$lib/server/services/knowledge/store/core";
 import { messageOrderDesc } from "$lib/server/services/message-ordering";
@@ -23,9 +23,6 @@ const MESSAGE_CONTEXT_TOKEN_STEP = 16_000;
 const DEFAULT_REPORT_MESSAGES_PER_SIBLING = 6;
 const OPERATIONAL_MAX_REPORT_MESSAGES_PER_SIBLING = 12;
 const MESSAGE_CONTENT_MAX = 1_200;
-const DEEP_RESEARCH_RESULTS_PER_CONVERSATION = 3;
-const DEEP_RESEARCH_SUMMARY_MAX = 900;
-const DEEP_RESEARCH_CONTENT_MAX = 2_400;
 
 export type ProjectContextMode = "summary" | "detail" | "report";
 
@@ -34,8 +31,6 @@ export type ProjectContextSiblingSummary = {
 	title: string;
 	objective: string | null;
 	summary: string | null;
-	deepResearchResults?: ProjectContextDeepResearchResult[];
-	omittedDeepResearchResultCount?: number;
 };
 
 export type ProjectContextDetailMessage = {
@@ -50,41 +45,6 @@ export type ProjectContextSelectedSiblingDetail =
 		messages: ProjectContextDetailMessage[];
 		omittedMessageCount: number;
 	};
-
-export type ProjectContextDeepResearchResult = {
-	jobId: string;
-	title: string;
-	userRequest: string;
-	depth: string;
-	completedAt: number;
-	reportArtifact: {
-		id: string;
-		title: string;
-		summary: string | null;
-		content?: string | null;
-	};
-};
-
-type DeepResearchResultRow = {
-	conversationId: string;
-	jobId: string;
-	title: string;
-	userRequest: string;
-	depth: string;
-	completedAt: Date | number | null;
-	reportArtifactId: string;
-	reportTitle: string;
-	reportSummary: string | null;
-	reportContent: string | null;
-};
-
-type DeepResearchResultsByConversation = Map<
-	string,
-	{
-		results: ProjectContextDeepResearchResult[];
-		omittedCount: number;
-	}
->;
 
 export type ProjectContextResult = {
 	success: true;
@@ -201,117 +161,10 @@ function clipMessageContent(value: string): string {
 	);
 }
 
-function clipDeepResearchText(
-	value: string | null | undefined,
-	maxLength: number,
-): string | null {
-	return clipNullableText(normalizeWhitespace(value ?? ""), maxLength);
-}
-
-function attachDeepResearchResults(
-	sibling: ProjectContextSiblingSummary,
-	deepResearchResults: DeepResearchResultsByConversation,
-): ProjectContextSiblingSummary {
-	const result = deepResearchResults.get(sibling.conversationId);
-	if (!result || result.results.length === 0) return sibling;
-	return {
-		...sibling,
-		deepResearchResults: result.results,
-		omittedDeepResearchResultCount: result.omittedCount,
-	};
-}
-
-function mapDeepResearchResultRow(
-	row: DeepResearchResultRow,
-	includeContent: boolean,
-): ProjectContextDeepResearchResult {
-	return {
-		jobId: row.jobId,
-		title: row.title,
-		userRequest:
-			clipDeepResearchText(row.userRequest, DEEP_RESEARCH_SUMMARY_MAX) ?? "",
-		depth: row.depth,
-		completedAt: toTimestampMs(row.completedAt),
-		reportArtifact: {
-			id: row.reportArtifactId,
-			title: row.reportTitle,
-			summary: clipDeepResearchText(
-				row.reportSummary,
-				DEEP_RESEARCH_SUMMARY_MAX,
-			),
-			...(includeContent
-				? {
-						content: clipDeepResearchText(
-							row.reportContent,
-							DEEP_RESEARCH_CONTENT_MAX,
-						),
-					}
-				: {}),
-		},
-	};
-}
-
-async function listDeepResearchResults(params: {
-	userId: string;
-	conversationIds: string[];
-	includeContent: boolean;
-}): Promise<DeepResearchResultsByConversation> {
-	const conversationIds = Array.from(new Set(params.conversationIds)).filter(
-		Boolean,
-	);
-	if (conversationIds.length === 0) return new Map();
-
-	const rows = (await db
-		.select({
-			conversationId: deepResearchJobs.conversationId,
-			jobId: deepResearchJobs.id,
-			title: deepResearchJobs.title,
-			userRequest: deepResearchJobs.userRequest,
-			depth: deepResearchJobs.depth,
-			completedAt: deepResearchJobs.completedAt,
-			reportArtifactId: artifacts.id,
-			reportTitle: artifacts.name,
-			reportSummary: artifacts.summary,
-			reportContent: artifacts.contentText,
-		})
-		.from(deepResearchJobs)
-		.innerJoin(artifacts, eq(deepResearchJobs.reportArtifactId, artifacts.id))
-		.where(
-			and(
-				eq(deepResearchJobs.userId, params.userId),
-				eq(deepResearchJobs.status, "completed"),
-				inArray(deepResearchJobs.conversationId, conversationIds),
-				eq(artifacts.userId, params.userId),
-			),
-		)
-		.orderBy(
-			desc(deepResearchJobs.completedAt),
-			desc(deepResearchJobs.updatedAt),
-			desc(deepResearchJobs.createdAt),
-		)) as DeepResearchResultRow[];
-
-	const grouped: DeepResearchResultsByConversation = new Map();
-	for (const row of rows) {
-		const current = grouped.get(row.conversationId) ?? {
-			results: [],
-			omittedCount: 0,
-		};
-		if (current.results.length < DEEP_RESEARCH_RESULTS_PER_CONVERSATION) {
-			current.results.push(
-				mapDeepResearchResultRow(row, params.includeContent),
-			);
-		} else {
-			current.omittedCount += 1;
-		}
-		grouped.set(row.conversationId, current);
-	}
-	return grouped;
-}
-
 function buildEvidenceCandidates(
 	siblings: ProjectContextSiblingSummary[],
 ): ToolEvidenceCandidate[] {
-	const summaryCandidates = siblings
+	return siblings
 		.filter((sibling) => sibling.summary?.trim())
 		.map((sibling) => ({
 			id: `conversation-summary:${sibling.conversationId}`,
@@ -319,26 +172,6 @@ function buildEvidenceCandidates(
 			snippet: sibling.summary,
 			sourceType: "memory" as const,
 		}));
-	const deepResearchCandidates = siblings.flatMap((sibling) =>
-		buildDeepResearchEvidenceCandidates(sibling.deepResearchResults ?? []),
-	);
-	return [...summaryCandidates, ...deepResearchCandidates];
-}
-
-function buildDeepResearchEvidenceCandidates(
-	results: ProjectContextDeepResearchResult[],
-): ToolEvidenceCandidate[] {
-	return results.map((result) => ({
-		id: `deep-research-report:${result.reportArtifact.id}`,
-		title: result.reportArtifact.title,
-		snippet: clipNullableText(
-			[`Question: ${result.userRequest}`, result.reportArtifact.summary]
-				.filter(Boolean)
-				.join(" "),
-			700,
-		),
-		sourceType: "document" as const,
-	}));
 }
 
 function buildDetailEvidenceCandidate(
@@ -347,14 +180,6 @@ function buildDetailEvidenceCandidate(
 	const snippetParts = [
 		sibling.summary,
 		...sibling.messages.map((message) => `${message.role}: ${message.content}`),
-		...(sibling.deepResearchResults ?? []).map(
-			(result) =>
-				`deep research question: ${result.userRequest} report: ${
-					result.reportArtifact.content ??
-					result.reportArtifact.summary ??
-					result.reportArtifact.title
-				}`,
-		),
 	].filter((value): value is string => Boolean(value?.trim()));
 	return {
 		id: `memory-context:project-detail:${sibling.conversationId}`,
@@ -367,10 +192,7 @@ function buildDetailEvidenceCandidate(
 function buildReportEvidenceCandidates(
 	siblings: ProjectContextSelectedSiblingDetail[],
 ): ToolEvidenceCandidate[] {
-	return siblings.flatMap((sibling) => [
-		buildDetailEvidenceCandidate(sibling),
-		...buildDeepResearchEvidenceCandidates(sibling.deepResearchResults ?? []),
-	]);
+	return siblings.map(buildDetailEvidenceCandidate);
 }
 
 async function listRecentDialogueMessages(params: {
@@ -465,33 +287,23 @@ async function buildReportResult(params: {
 		0,
 		params.appliedMaxSiblings,
 	);
-	const [messageDetails, deepResearchResults] = await Promise.all([
-		Promise.all(
-			selectedEntries.map((entry) =>
-				listRecentDialogueMessages({
-					conversationId: entry.conversationId,
-					maxMessages: params.appliedMaxMessages,
-					userId: params.userId,
-					includeAttachments: params.includeAttachments,
-				}),
-			),
+	const messageDetails = await Promise.all(
+		selectedEntries.map((entry) =>
+			listRecentDialogueMessages({
+				conversationId: entry.conversationId,
+				maxMessages: params.appliedMaxMessages,
+				userId: params.userId,
+				includeAttachments: params.includeAttachments,
+			}),
 		),
-		listDeepResearchResults({
-			userId: params.userId,
-			conversationIds: selectedEntries.map((entry) => entry.conversationId),
-			includeContent: true,
-		}),
-	]);
+	);
 	const reportSiblings: ProjectContextSelectedSiblingDetail[] =
 		selectedEntries.map((entry, index) => {
-			const siblingBase: ProjectContextSiblingSummary = {
+			return {
 				conversationId: entry.conversationId,
 				title: entry.title,
 				objective: entry.objective,
 				summary: entry.summary,
-			};
-			return {
-				...attachDeepResearchResults(siblingBase, deepResearchResults),
 				messages: messageDetails[index]?.messages ?? [],
 				omittedMessageCount: messageDetails[index]?.omittedMessageCount ?? 0,
 			};
@@ -518,8 +330,6 @@ async function buildReportResult(params: {
 			title: sibling.title,
 			objective: sibling.objective,
 			summary: sibling.summary,
-			deepResearchResults: sibling.deepResearchResults,
-			omittedDeepResearchResultCount: sibling.omittedDeepResearchResultCount,
 		})),
 		omittedSiblingCount,
 		reportSiblings,
@@ -575,19 +385,11 @@ async function buildDetailResult(params: {
 		includeAttachments: params.includeAttachments,
 		maxMessages: params.appliedMaxMessages,
 	});
-	const deepResearchResults = await listDeepResearchResults({
-		userId: params.userId,
-		conversationIds: [siblingConversationId],
-		includeContent: true,
-	});
-	const selectedSiblingBase: ProjectContextSiblingSummary = {
+	const selectedSibling: ProjectContextSelectedSiblingDetail = {
 		conversationId: sibling.conversationId,
 		title: sibling.title,
 		objective: sibling.objective,
 		summary: sibling.summary,
-	};
-	const selectedSibling: ProjectContextSelectedSiblingDetail = {
-		...attachDeepResearchResults(selectedSiblingBase, deepResearchResults),
 		messages: detailMessages.messages,
 		omittedMessageCount: detailMessages.omittedMessageCount,
 	};
@@ -606,12 +408,7 @@ async function buildDetailResult(params: {
 		omittedSiblingCount: params.reference.omittedSiblingCount,
 		selectedSibling,
 		evidenceCandidates: params.includeEvidenceCandidates
-			? [
-					buildDetailEvidenceCandidate(selectedSibling),
-					...buildDeepResearchEvidenceCandidates(
-						selectedSibling.deepResearchResults ?? [],
-					),
-				]
+			? [buildDetailEvidenceCandidate(selectedSibling)]
 			: [],
 		audit: {
 			conversationId: params.conversationId,
@@ -731,14 +528,7 @@ export async function getProjectContext(
 		objective: entry.objective,
 		summary: entry.summary,
 	}));
-	const deepResearchResults = await listDeepResearchResults({
-		userId: params.userId,
-		conversationIds: baseSiblings.map((sibling) => sibling.conversationId),
-		includeContent: false,
-	});
-	const siblings = baseSiblings.map((sibling) =>
-		attachDeepResearchResults(sibling, deepResearchResults),
-	);
+	const siblings = baseSiblings;
 	const omittedByRequest = Math.max(
 		0,
 		reference.entries.length - siblings.length,

@@ -9,13 +9,12 @@ import {
 	parseSentryTracePropagationTargets,
 	parseSentryTracesSampleRate,
 } from "$lib/sentry-config";
-import { getConfig, refreshConfig } from "$lib/server/config-store";
+import { refreshConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { ensureRuntimeSchemaCompatibility } from "$lib/server/db/compat";
 import { users } from "$lib/server/db/schema";
 import { prewarmSandboxImageInBackground } from "$lib/server/sandbox/config";
 import { validateSession } from "$lib/server/services/auth";
-import { ensureDeepResearchWorkerScheduler } from "$lib/server/services/deep-research/worker";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
 import { ensureMemoryMaintenanceScheduler } from "$lib/server/services/memory-maintenance";
 import { seedDefaultProviders } from "$lib/server/services/providers";
@@ -100,18 +99,6 @@ export const init: ServerInit = async () => {
 	ensureMemoryMaintenanceScheduler();
 	prewarmSandboxImageInBackground();
 	await ensureFileProductionWorker();
-	ensureDeepResearchWorkerScheduler(() => {
-		const config = getConfig();
-		return {
-			enabled: config.deepResearchWorkerEnabled,
-			intervalMs: config.deepResearchWorkerIntervalMs,
-			staleTimeoutMs: config.deepResearchWorkerStaleTimeoutMs,
-			controls: {
-				globalConcurrencyLimit: config.deepResearchWorkerGlobalConcurrency,
-				userConcurrencyLimit: config.deepResearchWorkerUserConcurrency,
-			},
-		};
-	});
 };
 
 const appHandle: Handle = async ({ event, resolve }) => {

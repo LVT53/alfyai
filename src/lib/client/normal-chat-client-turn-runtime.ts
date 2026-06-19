@@ -32,7 +32,6 @@ export type NormalChatSendPayload = {
 	conversationId?: string | null;
 	modelId?: ModelId;
 	personalityProfileId?: string | null;
-	deepResearchDepth?: "focused" | "standard" | "max" | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
 };
@@ -56,15 +55,6 @@ type PendingSkillSessionResult =
 			errorMessage: string;
 			restoredPayload?: NormalChatSendPayload | null;
 	  };
-
-type DeepResearchTurnParams = {
-	message: string;
-	depth: NonNullable<NormalChatSendPayload["deepResearchDepth"]>;
-	attachmentIds: string[];
-	modelId: ModelId;
-	personalityProfileId: string | null;
-	clientUserMessageId: string | null;
-};
 
 export type NormalChatClientTurnRuntimeAdapters = {
 	streamChat: typeof streamChat;
@@ -96,13 +86,6 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	startPendingSkillSession: (
 		payload: NormalChatSendPayload,
 	) => Promise<PendingSkillSessionResult>;
-	shouldStartDeepResearchJob: (
-		payload: NormalChatSendPayload,
-		retryAssistantMessageId?: string,
-	) => boolean;
-	startDeepResearchTurn: (
-		params: DeepResearchTurnParams,
-	) => void | Promise<void>;
 	appendUserMessage: (message: ChatMessage) => void;
 	appendAssistantPlaceholder: (placeholder: ChatMessage) => void;
 	appendTokenChunk: (placeholderId: string, chunk: string) => void;
@@ -609,13 +592,7 @@ export function createNormalChatClientTurnRuntime(
 				? payload.personalityProfileId
 				: adapters.getPersonalityProfileId();
 
-		if (
-			payload.pendingSkill &&
-			!adapters.shouldStartDeepResearchJob(
-				payload,
-				options.retryAssistantMessageId,
-			)
-		) {
+		if (payload.pendingSkill) {
 			beginTurn();
 			const result = await adapters.startPendingSkillSession(payload);
 			if (!result.ok) {
@@ -665,24 +642,6 @@ export function createNormalChatClientTurnRuntime(
 			);
 		}
 
-		const deepResearchDepthForTurn = adapters.shouldStartDeepResearchJob(
-			payload,
-			options.retryAssistantMessageId,
-		)
-			? payload.deepResearchDepth
-			: null;
-		if (deepResearchDepthForTurn) {
-			void adapters.startDeepResearchTurn({
-				message: text,
-				depth: deepResearchDepthForTurn,
-				attachmentIds: payload.attachmentIds ?? [],
-				modelId: modelIdForTurn,
-				personalityProfileId: personalityProfileIdForTurn,
-				clientUserMessageId,
-			});
-			return;
-		}
-
 		const placeholderId = adapters.randomId();
 		adapters.appendAssistantPlaceholder(
 			createAssistantPlaceholder(placeholderId),
@@ -701,10 +660,7 @@ export function createNormalChatClientTurnRuntime(
 				skipPersistUserMessage: options.skipPersistUserMessage ?? false,
 				attachmentIds: payload.attachmentIds ?? [],
 				linkedSources: payload.linkedSources ?? [],
-				pendingSkill: payload.deepResearchDepth
-					? null
-					: (payload.pendingSkill ?? null),
-				deepResearchDepth: payload.deepResearchDepth ?? null,
+				pendingSkill: payload.pendingSkill ?? null,
 				reasoningDepth: reasoningDepthForTurn,
 				forceWebSearch: payload.forceWebSearch === true,
 				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
@@ -978,7 +934,6 @@ function cloneSendPayload(
 		conversationId: payload.conversationId ?? null,
 		modelId: payload.modelId,
 		personalityProfileId: payload.personalityProfileId ?? null,
-		deepResearchDepth: payload.deepResearchDepth ?? null,
 		reasoningDepth: payload.reasoningDepth,
 		forceWebSearch: payload.forceWebSearch === true,
 	};

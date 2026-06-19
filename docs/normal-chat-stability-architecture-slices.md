@@ -5,7 +5,7 @@
 
 ## Goal
 
-Integrate the seven recommended stability deepening entries one by one, with focused tests and review before moving to the next slice. Deep Research and Campaign code are out of scope for this pass except where existing shared contracts are incidentally referenced by docs or tests.
+Integrate the seven recommended stability deepening entries one by one, with focused tests and review before moving to the next slice. Campaign code is out of scope for this pass except where existing shared contracts are incidentally referenced by docs or tests.
 
 ## Documentation Check
 
@@ -20,7 +20,7 @@ Integrate the seven recommended stability deepening entries one by one, with foc
 - Keep routes as adapters. Durable behavior belongs in `chat-turn`, `normal-chat-model`, `normal-chat-tools`, web grounding, config-store, and health/stability services.
 - Run focused tests for each slice before the next slice starts; run broader checks after integrated milestones.
 - Use a real configured inference provider for final streaming/tool/web-search smoke checks when the service boundary being changed reaches model execution.
-- Do not modify Deep Research or Campaign implementation modules in this pass.
+- Do not modify Campaign implementation modules in this pass.
 
 ## Slice 1: Deepen AI SDK UI Stream Contract
 

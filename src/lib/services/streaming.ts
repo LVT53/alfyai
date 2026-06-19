@@ -320,7 +320,6 @@ export type StreamChatOptions = {
 	attachmentIds?: string[];
 	linkedSources?: import("$lib/types").LinkedContextSource[];
 	pendingSkill?: import("$lib/types").PendingSkillSelection | null;
-	deepResearchDepth?: import("$lib/types").DeepResearchDepth | null;
 	reasoningDepth?: import("$lib/types").ReasoningDepth;
 	forceWebSearch?: boolean;
 	activeDocumentArtifactId?: string;
@@ -345,7 +344,6 @@ export function streamChat(
 		attachmentIds,
 		linkedSources,
 		pendingSkill,
-		deepResearchDepth,
 		reasoningDepth,
 		forceWebSearch,
 		activeDocumentArtifactId,
@@ -552,10 +550,7 @@ export function streamChat(
 						skipPersistUserMessage,
 						attachmentIds,
 						linkedSources,
-						pendingSkill: deepResearchDepth ? null : pendingSkill,
-						deepResearch: deepResearchDepth
-							? { depth: deepResearchDepth }
-							: undefined,
+						pendingSkill,
 						reasoningDepth,
 						forceWebSearch: forceWebSearch === true ? true : undefined,
 						activeDocumentArtifactId,
