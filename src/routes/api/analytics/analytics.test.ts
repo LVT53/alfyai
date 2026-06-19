@@ -89,7 +89,9 @@ describe("GET /api/analytics", () => {
 	});
 
 	it("passes null optional parameters and only treats mock=1 as mock data", async () => {
-		const response = await GET(event("http://localhost/api/analytics?mock=true"));
+		const response = await GET(
+			event("http://localhost/api/analytics?mock=true"),
+		);
 
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual(analyticsResponse);

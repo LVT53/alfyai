@@ -9,6 +9,7 @@ const mockEnsureMemoryMaintenanceScheduler = vi.fn();
 const mockPrewarmSandboxImageInBackground = vi.fn();
 const mockEnsureRuntimeSchemaCompatibility = vi.fn(async () => undefined);
 const mockEnsureFileProductionWorker = vi.fn(async () => undefined);
+const mockEnsureAtlasWorker = vi.fn(async () => undefined);
 const mockSentryInit = vi.fn();
 const mockSentrySetUser = vi.fn();
 const mockSentryHandle = vi.fn<() => Handle>(
@@ -74,6 +75,10 @@ vi.mock("$lib/server/services/file-production", () => ({
 	ensureFileProductionWorker: mockEnsureFileProductionWorker,
 }));
 
+vi.mock("$lib/server/services/atlas", () => ({
+	ensureAtlasWorker: mockEnsureAtlasWorker,
+}));
+
 function deferred<T = undefined>() {
 	let resolve!: (value: T | PromiseLike<T>) => void;
 	const promise = new Promise<T>((res) => {
@@ -97,6 +102,7 @@ describe("hooks.server.ts", () => {
 		mockRefreshConfig.mockResolvedValue(undefined);
 		mockEnsureRuntimeSchemaCompatibility.mockResolvedValue(undefined);
 		mockEnsureFileProductionWorker.mockResolvedValue(undefined);
+		mockEnsureAtlasWorker.mockResolvedValue(undefined);
 	});
 
 	it("allows public routes without a session", async () => {
@@ -175,6 +181,7 @@ describe("hooks.server.ts", () => {
 		expect(mockEnsureMemoryMaintenanceScheduler).toHaveBeenCalledOnce();
 		expect(mockPrewarmSandboxImageInBackground).toHaveBeenCalledOnce();
 		expect(mockEnsureFileProductionWorker).toHaveBeenCalledOnce();
+		expect(mockEnsureAtlasWorker).toHaveBeenCalledOnce();
 		expect(
 			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
 		).toBeLessThan(mockRefreshConfig.mock.invocationCallOrder[0]);
@@ -184,6 +191,9 @@ describe("hooks.server.ts", () => {
 		expect(
 			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
 		).toBeLessThan(mockEnsureFileProductionWorker.mock.invocationCallOrder[0]);
+		expect(
+			mockEnsureRuntimeSchemaCompatibility.mock.invocationCallOrder[0],
+		).toBeLessThan(mockEnsureAtlasWorker.mock.invocationCallOrder[0]);
 	});
 
 	it("waits for runtime config refresh before resolving the first request", async () => {

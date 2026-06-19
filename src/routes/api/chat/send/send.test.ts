@@ -12,7 +12,6 @@ import {
 	noteCreateDecisionOperation,
 	seedConversation,
 	seedConversationTurn,
-	seedUserConversationMessage,
 	skillAwaitingUserOperation,
 	skillControlEnvelope,
 } from "./send.test-helpers";
@@ -28,6 +27,18 @@ vi.mock("$lib/server/services/conversations", () => ({
 
 vi.mock("$lib/server/services/chat-turn/plain-normal-chat-model-run", () => ({
 	runPlainNormalChatSendModel: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/atlas", () => ({
+	cancelAtlasJob: vi.fn(async () => null),
+	kickoffAtlasTurn: vi.fn(),
+	linkAtlasJobAssistantMessage: vi.fn(),
+	submitAtlasJobIntake: vi.fn(),
+	wakeAtlasWorker: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/chat-turn/active-streams", () => ({
+	checkStreamCapacity: vi.fn(() => ({ allowed: true })),
 }));
 
 vi.mock("$lib/server/services/chat-turn/depth-selection", () => ({
@@ -46,6 +57,18 @@ vi.mock("$lib/server/services/chat-files", () => ({
 	syncGeneratedFilesToMemory: vi.fn(async () => undefined),
 }));
 
+vi.mock("$lib/server/services/analytics", () => ({
+	recordMessageAnalytics: vi.fn(async () => undefined),
+}));
+
+vi.mock("$lib/server/services/conversation-summaries", () => ({
+	refreshConversationSummary: vi.fn(async () => undefined),
+}));
+
+vi.mock("$lib/server/services/memory-maintenance", () => ({
+	runUserMemoryMaintenance: vi.fn(async () => undefined),
+}));
+
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(),
 	listMessages: vi.fn(async () => []),
@@ -60,6 +83,7 @@ vi.mock("$lib/server/services/knowledge", () => ({
 		promptArtifacts: [],
 	})),
 	attachArtifactsToMessage: vi.fn(),
+	createArtifactLink: vi.fn(async () => null),
 	createGeneratedOutputArtifact: vi.fn(),
 	getConversationWorkingSet: vi.fn(async () => []),
 	getArtifactsForUser: vi.fn(async () => []),
@@ -140,6 +164,8 @@ vi.mock("$lib/server/config-store", () => ({
 		perUserStreamLimit: 10,
 		composerCommandRegistryEnabled:
 			configMockState.composerCommandRegistryEnabled,
+		atlasWorkerEnabled: true,
+		searxngBaseUrl: "http://searxng.local",
 		model1: {
 			displayName: "Model 1",
 		},
@@ -154,9 +180,16 @@ vi.mock("$lib/server/config-store", () => ({
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
+	kickoffAtlasTurn,
+	linkAtlasJobAssistantMessage,
+	submitAtlasJobIntake,
+	wakeAtlasWorker,
+} from "$lib/server/services/atlas";
+import {
 	getChatFilesForAssistantMessage,
 	syncGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
+import { checkStreamCapacity } from "$lib/server/services/chat-turn/active-streams";
 import { resolveReasoningDepthSelection } from "$lib/server/services/chat-turn/depth-selection";
 import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import {
@@ -173,6 +206,7 @@ import {
 	createMessage,
 	updateMessageEvidence,
 	updateMessageHonchoMetadata,
+	updateMessageWebCitationAudit,
 } from "$lib/server/services/messages";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import {
@@ -189,6 +223,14 @@ import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
+const mockKickoffAtlasTurn = kickoffAtlasTurn as ReturnType<typeof vi.fn>;
+const mockLinkAtlasJobAssistantMessage =
+	linkAtlasJobAssistantMessage as ReturnType<typeof vi.fn>;
+const mockSubmitAtlasJobIntake = submitAtlasJobIntake as ReturnType<
+	typeof vi.fn
+>;
+const mockWakeAtlasWorker = wakeAtlasWorker as ReturnType<typeof vi.fn>;
+const mockCheckStreamCapacity = checkStreamCapacity as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockTouchConversation = touchConversation as ReturnType<typeof vi.fn>;
 const mockRunPlainNormalChatSendModel =
@@ -210,6 +252,8 @@ const mockUpdateMessageEvidence = updateMessageEvidence as ReturnType<
 >;
 const mockUpdateMessageHonchoMetadata =
 	updateMessageHonchoMetadata as ReturnType<typeof vi.fn>;
+const mockUpdateMessageWebCitationAudit =
+	updateMessageWebCitationAudit as ReturnType<typeof vi.fn>;
 const mockAssertPromptReadyAttachments =
 	assertPromptReadyAttachments as ReturnType<typeof vi.fn>;
 const mockAddConversationLinkedContextSources =
@@ -238,6 +282,17 @@ describe("POST /api/chat/send", () => {
 		vi.clearAllMocks();
 		configMockState.composerCommandRegistryEnabled = true;
 		mockRequireAuth.mockReturnValue(undefined);
+		mockCheckStreamCapacity.mockReset();
+		mockCheckStreamCapacity.mockReturnValue({ allowed: true });
+		mockKickoffAtlasTurn.mockRejectedValue(
+			new Error("Unexpected Atlas kickoff call"),
+		);
+		mockLinkAtlasJobAssistantMessage.mockRejectedValue(
+			new Error("Unexpected Atlas link call"),
+		);
+		mockSubmitAtlasJobIntake.mockRejectedValue(
+			new Error("Unexpected Atlas intake call"),
+		);
 		mockTouchConversation.mockImplementation(async () => null);
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: "Hello from AI!",
@@ -334,6 +389,167 @@ describe("POST /api/chat/send", () => {
 				}),
 			},
 		);
+	});
+
+	it("short-circuits Atlas kickoff through the Atlas intake facade and persists the canned assistant message", async () => {
+		mockSubmitAtlasJobIntake.mockResolvedValueOnce({
+			job: {
+				id: "atlas-job-1",
+				conversationId: "conv-1",
+				assistantMessageId: null,
+				status: "queued",
+				stage: "queued",
+				progress: { percent: 0, stage: "queued" },
+				sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
+				usage: {
+					inputTokens: 0,
+					outputTokens: 0,
+					totalTokens: 0,
+					costUsdMicros: 0,
+				},
+				outputs: {
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				},
+				error: null,
+				title: "Atlas research",
+				profile: "overview",
+				action: "create",
+				parentAtlasJobId: null,
+				createdAt: 1,
+				updatedAt: 1,
+				completedAt: null,
+			},
+			reused: false,
+			idempotencyKey: "atlas-key",
+			normalizedQueryHash: "query-hash",
+		});
+		seedConversationTurn(mockGetConversation, mockCreateMessage, {
+			userMessage: { content: "Research Atlas transport" },
+			assistantMessage: {
+				content:
+					"Atlas is queued with the overview profile. You can close this page.",
+			},
+		});
+
+		const response = await POST(
+			makeEvent({
+				message: "Research Atlas transport",
+				conversationId: "conv-1",
+				atlasMode: true,
+				atlasProfile: "overview",
+				clientAtlasTurnId: "client-atlas-1",
+				forceWebSearch: true,
+				reasoningDepth: "max",
+				pendingSkill: {
+					id: "skill-1",
+					ownership: "user",
+					displayName: "Ignored skill",
+				},
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data).toEqual(
+			expect.objectContaining({
+				response: {
+					text: "Atlas is queued with the overview profile. You can close this page and return for progress.",
+				},
+				conversationId: "conv-1",
+				atlasJob: expect.objectContaining({
+					id: "atlas-job-1",
+					status: "queued",
+					profile: "overview",
+				}),
+			}),
+		);
+		expect(mockSubmitAtlasJobIntake).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			query: "Research Atlas transport",
+			profile: "overview",
+			action: "create",
+			parentAtlasJobId: null,
+			clientAtlasTurnId: "client-atlas-1",
+		});
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
+		expect(mockWakeAtlasWorker).toHaveBeenCalledOnce();
+		expect(mockResolveReasoningDepthSelection).not.toHaveBeenCalled();
+		expect(mockAssertPromptReadyAttachments).not.toHaveBeenCalled();
+		expect(mockAddConversationLinkedContextSources).not.toHaveBeenCalled();
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"Atlas is queued with the overview profile. You can close this page and return for progress.",
+			undefined,
+			undefined,
+			expect.objectContaining({
+				atlas: expect.objectContaining({ jobId: "atlas-job-1" }),
+			}),
+		);
+	});
+
+	it("reuses a linked Atlas kickoff without creating another assistant message or applying normal stream capacity", async () => {
+		mockSubmitAtlasJobIntake.mockResolvedValueOnce({
+			job: {
+				id: "atlas-job-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-msg-existing",
+				status: "queued",
+				stage: "queued",
+				progress: { percent: 0, stage: "queued" },
+				sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
+				usage: {
+					inputTokens: 0,
+					outputTokens: 0,
+					totalTokens: 0,
+					costUsdMicros: 0,
+				},
+				outputs: {
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				},
+				error: null,
+				title: "Atlas research",
+				profile: "overview",
+				action: "create",
+				parentAtlasJobId: null,
+				createdAt: 1,
+				updatedAt: 1,
+				completedAt: null,
+			},
+			reused: true,
+			idempotencyKey: "atlas-key",
+			normalizedQueryHash: "query-hash",
+		});
+
+		const response = await POST(
+			makeEvent({
+				message: "Research Atlas transport",
+				conversationId: "conv-1",
+				atlasMode: true,
+				atlasProfile: "overview",
+				clientAtlasTurnId: "client-atlas-1",
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.atlasJob).toEqual(
+			expect.objectContaining({
+				id: "atlas-job-1",
+				assistantMessageId: "assistant-msg-existing",
+				action: "create",
+			}),
+		);
+		expect(mockCheckStreamCapacity).not.toHaveBeenCalled();
+		expect(mockCreateMessage).not.toHaveBeenCalled();
+		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
 	it("persists requested Reasoning Depth metadata for non-stream sends", async () => {
@@ -654,7 +870,7 @@ describe("POST /api/chat/send", () => {
 		);
 	});
 
-	it("returns the same citation-gated web text that it persists", async () => {
+	it("returns the same visible web text that it persists while storing citation audit metadata", async () => {
 		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Check the current docs" },
 			assistantMessage: { content: "Grounded answer without links" },
@@ -697,9 +913,7 @@ describe("POST /api/chat/send", () => {
 
 		expect(response.status).toBe(200);
 		expect(data.response.text).toContain("Grounded answer without links");
-		expect(data.response.text).toContain(
-			"Source check: I used web research for this answer",
-		);
+		expect(data.response.text).not.toContain("Source check:");
 		expect(mockCreateMessage).toHaveBeenCalledWith(
 			"conv-1",
 			"assistant",
@@ -707,6 +921,14 @@ describe("POST /api/chat/send", () => {
 			undefined,
 			undefined,
 			expect.any(Object),
+		);
+		expect(mockUpdateMessageWebCitationAudit).toHaveBeenCalledWith(
+			"assistant-msg",
+			expect.objectContaining({
+				status: "missing_citations",
+				retrievedSourceCount: 1,
+				noticeAppended: false,
+			}),
 		);
 	});
 

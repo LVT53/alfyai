@@ -1,15 +1,15 @@
 import * as crypto from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { getProviderIdFromModelId, isProviderModelId } from "$lib/types";
 import type { SessionUser } from "$lib/types";
+import { getProviderIdFromModelId, isProviderModelId } from "$lib/types";
 import { getConfig } from "../config-store";
 import { db } from "../db";
 import {
 	analyticsConversations,
 	conversations,
 	messageAnalytics,
-	providers,
 	providerModels,
+	providers,
 	usageEvents,
 	users,
 } from "../db/schema";
@@ -574,9 +574,7 @@ export async function getAnalyticsDashboardReadModel({
 	const isAdmin = user.role === "admin";
 
 	if (mock) {
-		return isAdmin
-			? MOCK_ANALYTICS
-			: { personal: MOCK_ANALYTICS.personal };
+		return isAdmin ? MOCK_ANALYTICS : { personal: MOCK_ANALYTICS.personal };
 	}
 
 	const [usageRows, conversationRows] = await Promise.all([
@@ -598,7 +596,9 @@ export async function getAnalyticsDashboardReadModel({
 		? conversationRows.filter((row) => row.billingMonth === systemMonthParam)
 		: conversationRows;
 
-	const personalUsageRows = filteredUsage.filter((row) => row.userId === user.id);
+	const personalUsageRows = filteredUsage.filter(
+		(row) => row.userId === user.id,
+	);
 	const personalConversationRows = filteredConversations.filter(
 		(row) => row.userId === user.id,
 	);

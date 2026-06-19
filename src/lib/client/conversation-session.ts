@@ -6,6 +6,7 @@ import {
 import type { FetchLike } from "$lib/client/api/http";
 import type {
 	ArtifactSummary,
+	AtlasProfile,
 	ConversationDraft,
 	LinkedContextSource,
 	ModelId,
@@ -296,12 +297,14 @@ export function hasMeaningfulDraft(
 	selectedAttachmentIds: string[],
 	selectedLinkedSources: LinkedContextSource[] = [],
 	pendingSkill: PendingSkillSelection | null = null,
+	atlasMode = false,
 ): boolean {
 	return (
 		draftText.trim().length > 0 ||
 		selectedAttachmentIds.length > 0 ||
 		selectedLinkedSources.length > 0 ||
-		Boolean(pendingSkill)
+		Boolean(pendingSkill) ||
+		atlasMode
 	);
 }
 
@@ -313,16 +316,21 @@ export function createConversationDraftRecord(params: {
 	selectedAttachments: PendingAttachment[];
 	selectedLinkedSources?: LinkedContextSource[];
 	pendingSkill?: PendingSkillSelection | null;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	clientAtlasTurnId?: string | null;
 	updatedAt?: number;
 }): ConversationDraft | null {
 	const selectedLinkedSources = params.selectedLinkedSources ?? [];
 	const pendingSkill = params.pendingSkill ?? null;
+	const atlasMode = params.atlasMode === true;
 	if (
 		!hasMeaningfulDraft(
 			params.draftText,
 			params.selectedAttachmentIds,
 			selectedLinkedSources,
 			pendingSkill,
+			atlasMode,
 		)
 	) {
 		return null;
@@ -336,6 +344,13 @@ export function createConversationDraftRecord(params: {
 		selectedAttachments: params.selectedAttachments,
 		selectedLinkedSources,
 		pendingSkill,
+		...(atlasMode
+			? {
+					atlasMode,
+					atlasProfile: params.atlasProfile ?? "overview",
+					clientAtlasTurnId: params.clientAtlasTurnId ?? null,
+				}
+			: {}),
 		updatedAt: params.updatedAt ?? Date.now(),
 	};
 }
@@ -352,6 +367,9 @@ export function createDraftPersistence(
 		selectedAttachmentIds: string[];
 		selectedLinkedSources?: LinkedContextSource[];
 		pendingSkill?: PendingSkillSelection | null;
+		atlasMode?: boolean;
+		atlasProfile?: AtlasProfile | null;
+		clientAtlasTurnId?: string | null;
 	} | null = null;
 
 	async function runPersist(request: {
@@ -360,6 +378,9 @@ export function createDraftPersistence(
 		selectedAttachmentIds: string[];
 		selectedLinkedSources?: LinkedContextSource[];
 		pendingSkill?: PendingSkillSelection | null;
+		atlasMode?: boolean;
+		atlasProfile?: AtlasProfile | null;
+		clientAtlasTurnId?: string | null;
 	}): Promise<void> {
 		try {
 			const selectedLinkedSources = request.selectedLinkedSources ?? [];
@@ -370,20 +391,29 @@ export function createDraftPersistence(
 					request.selectedAttachmentIds,
 					selectedLinkedSources,
 					pendingSkill,
+					request.atlasMode === true,
 				)
 			) {
 				await deleteConversationDraft(request.conversationId, fetchImpl);
 				return;
 			}
 
+			const payload = {
+				draftText: request.draftText,
+				selectedAttachmentIds: request.selectedAttachmentIds,
+				selectedLinkedSources,
+				pendingSkill,
+				...(request.atlasMode === true
+					? {
+							atlasMode: true,
+							atlasProfile: request.atlasProfile ?? null,
+							clientAtlasTurnId: request.clientAtlasTurnId ?? null,
+						}
+					: {}),
+			};
 			await persistConversationDraft(
 				request.conversationId,
-				{
-					draftText: request.draftText,
-					selectedAttachmentIds: request.selectedAttachmentIds,
-					selectedLinkedSources,
-					pendingSkill,
-				},
+				payload,
 				fetchImpl,
 			);
 		} catch {
@@ -412,6 +442,9 @@ export function createDraftPersistence(
 				selectedAttachmentIds: string[];
 				selectedLinkedSources?: LinkedContextSource[];
 				pendingSkill?: PendingSkillSelection | null;
+				atlasMode?: boolean;
+				atlasProfile?: AtlasProfile | null;
+				clientAtlasTurnId?: string | null;
 			},
 			immediate = false,
 		): Promise<void> {
@@ -420,6 +453,9 @@ export function createDraftPersistence(
 				selectedAttachmentIds: request.selectedAttachmentIds,
 				selectedLinkedSources: request.selectedLinkedSources ?? [],
 				pendingSkill: request.pendingSkill ?? null,
+				atlasMode: request.atlasMode === true,
+				atlasProfile: request.atlasProfile ?? null,
+				clientAtlasTurnId: request.clientAtlasTurnId ?? null,
 			})}`;
 			if (!immediate && key === lastPersistKey) {
 				return;
@@ -434,6 +470,7 @@ export function createDraftPersistence(
 					request.selectedAttachmentIds,
 					request.selectedLinkedSources ?? [],
 					request.pendingSkill ?? null,
+					request.atlasMode === true,
 				);
 
 			if (draftPersistTimer) {

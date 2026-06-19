@@ -390,9 +390,7 @@ describe("prepare-db script", () => {
 					.all(),
 			).toEqual([{ id: "working-keep" }]);
 			expect(
-				sqlite
-					.prepare('SELECT "key" FROM admin_config ORDER BY "key"')
-					.all(),
+				sqlite.prepare('SELECT "key" FROM admin_config ORDER BY "key"').all(),
 			).toEqual([{ key: "MODEL_1_NAME" }]);
 			expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		} finally {

@@ -7,7 +7,11 @@ import {
 	upsertConversationDraft,
 } from "$lib/server/services/conversation-drafts";
 import { getConversation } from "$lib/server/services/conversations";
-import type { LinkedContextSource, PendingSkillSelection } from "$lib/types";
+import type {
+	AtlasProfile,
+	LinkedContextSource,
+	PendingSkillSelection,
+} from "$lib/types";
 import type { RequestHandler } from "./$types";
 
 function parseAttachmentIds(value: unknown): string[] | null {
@@ -58,6 +62,13 @@ function parsePendingSkill(
 	return parsePendingSkillSelection(value) ?? undefined;
 }
 
+function parseAtlasProfile(value: unknown): AtlasProfile | null | undefined {
+	if (value === undefined || value === null) return null;
+	return value === "overview" || value === "in-depth" || value === "exhaustive"
+		? value
+		: undefined;
+}
+
 export const PUT: RequestHandler = async (event) => {
 	requireAuth(event);
 	const user = event.locals.user;
@@ -101,6 +112,18 @@ export const PUT: RequestHandler = async (event) => {
 			{ status: 400 },
 		);
 	}
+	const atlasMode = record.atlasMode === true;
+	const atlasProfile = parseAtlasProfile(record.atlasProfile);
+	const clientAtlasTurnId =
+		typeof record.clientAtlasTurnId === "string"
+			? record.clientAtlasTurnId
+			: null;
+	if (atlasProfile === undefined) {
+		return json(
+			{ error: "atlasProfile must be overview, in-depth, exhaustive, or null" },
+			{ status: 400 },
+		);
+	}
 	const composerCommandRegistryEnabled =
 		getConfig().composerCommandRegistryEnabled;
 	if (
@@ -123,6 +146,13 @@ export const PUT: RequestHandler = async (event) => {
 		selectedAttachmentIds,
 		selectedLinkedSources,
 		pendingSkill,
+		...(atlasMode
+			? {
+					atlasMode,
+					atlasProfile,
+					clientAtlasTurnId,
+				}
+			: {}),
 	});
 
 	return json({ draft });

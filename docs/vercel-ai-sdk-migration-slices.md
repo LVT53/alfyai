@@ -14,7 +14,7 @@ Fully retire Langflow from AlfyAI before the next remote deployment. The current
 - AI SDK UI streams are the browser-facing Normal Chat stream contract. AI SDK UI-compatible message persistence remains pending.
 - A database reset is acceptable for this private deployment. Preserve or re-seed only runtime-enabling configuration such as admin access, provider config, prompts, defaults, and still-relevant system skills.
 - Third-party provider access is a live compatibility check, not a replacement for deterministic fake-provider smoke coverage.
-- deleted research subsystem quality remains out of scope; only Langflow dependencies that block removal are in scope.
+- Atlas quality remains out of scope; only Langflow dependencies that block removal are in scope.
 - Provider **Model Capabilities** are auto-probed where possible, shown inline in the existing model/provider UI, and manually overrideable.
 - Missing required capabilities fail before the model call with clear app errors.
 - Side-effecting tools use app-owned idempotency boundaries. `produce_file` returns after **File Production Intake**, not after rendering finishes.
@@ -24,7 +24,7 @@ Fully retire Langflow from AlfyAI before the next remote deployment. The current
 
 ## Non-Goals
 
-- Do not repair deleted research subsystem quality, fanout, or report generation in this migration.
+- Do not build or repair Atlas quality, fanout, or report generation in this migration.
 - Do not preserve legacy conversations if doing so keeps compatibility code alive.
 - Do not keep Langflow nodes, mocks, model-run transport, admin fields, or tool HTTP compatibility as permanent fallback paths.
 - Do not introduce a new large settings section for provider capabilities.

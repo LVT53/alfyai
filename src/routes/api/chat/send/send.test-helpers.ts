@@ -270,16 +270,3 @@ export function seedConversationTurn(
 		assistantMessageId: input.assistantMessageId,
 	});
 }
-
-export function seedUserConversationMessage(
-	mockCreateMessage: ReturnType<typeof vi.fn>,
-	content: string,
-	id = "user-msg",
-) {
-	mockCreateMessage.mockResolvedValueOnce({
-		...testUserMessage,
-		id,
-		content,
-		timestamp: Date.now(),
-	});
-}

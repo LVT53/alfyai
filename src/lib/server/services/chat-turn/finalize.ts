@@ -40,16 +40,16 @@ import {
 	getContextDebugState,
 	getConversationTaskState,
 	getProjectReferenceContext,
-	syncTaskContinuityFromTaskState,
 	shouldTrackTaskContinuityFromTurn,
+	syncTaskContinuityFromTaskState,
 	updateTaskStateCheckpoint,
 } from "$lib/server/services/task-state";
 import { buildWebCitationAudit } from "$lib/server/services/web-citation-audit";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
 import type {
 	ArtifactSummary,
-	ChatMessage,
 	ChatGeneratedFile,
+	ChatMessage,
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
@@ -178,6 +178,8 @@ export type FinalizeChatTurnParams = {
 	persistUserAttachmentsBeforeAssistantMessage?: boolean;
 	waitForEvidenceBeforePostTurnTasks?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
+	skipAssistantProseMemoryIntake?: boolean;
+	skipHonchoEnrichment?: boolean;
 };
 
 function buildSkillControlLogContext(params: {
@@ -601,6 +603,7 @@ export async function finalizeChatTurn(
 			continuitySource: params.continuitySource,
 			honchoContext: params.honchoContext,
 			honchoSnapshot: params.honchoSnapshot,
+			skipHonchoEnrichment: params.skipHonchoEnrichment,
 		});
 	}
 
@@ -642,6 +645,9 @@ export async function finalizeChatTurn(
 							workCapsule: turnState.workCapsule,
 							maintenanceReason: params.maintenanceReason,
 							startedResetGeneration: params.startedResetGeneration,
+							skipAssistantProseMemoryIntake:
+								params.skipAssistantProseMemoryIntake,
+							skipHonchoEnrichment: params.skipHonchoEnrichment,
 						}),
 					)
 				: runPostTurnTasksImpl({
@@ -657,6 +663,9 @@ export async function finalizeChatTurn(
 						workCapsule: turnState.workCapsule,
 						maintenanceReason: params.maintenanceReason,
 						startedResetGeneration: params.startedResetGeneration,
+						skipAssistantProseMemoryIntake:
+							params.skipAssistantProseMemoryIntake,
+						skipHonchoEnrichment: params.skipHonchoEnrichment,
 					})
 			: Promise.resolve();
 
@@ -848,10 +857,12 @@ export async function persistAssistantTurnState(
 			),
 		);
 	}
-	await updateMessageHonchoMetadata(params.assistantMessageId, {
-		honchoContext: params.honchoContext,
-		honchoSnapshot: params.honchoSnapshot,
-	}).catch(() => undefined);
+	if (!params.skipHonchoEnrichment) {
+		await updateMessageHonchoMetadata(params.assistantMessageId, {
+			honchoContext: params.honchoContext,
+			honchoSnapshot: params.honchoSnapshot,
+		}).catch(() => undefined);
+	}
 	const contextDebug = await getContextDebugState(
 		params.userId,
 		params.conversationId,
@@ -931,29 +942,32 @@ export async function persistAssistantEvidence(
 export async function runPostTurnTasks(
 	params: RunPostTurnTasksParams,
 ): Promise<void> {
-	const honchoTasks: Promise<unknown>[] = [
-		(async () => {
-			const recentMessages = await listMessages(params.conversationId)
-				.then(compactRecentMemoryIntakeMessages)
-				.catch(() => []);
-			return intakePostTurnMemory({
-				userId: params.userId,
-				conversationId: params.conversationId,
-				userMessage: params.userMessage,
-				assistantMessage:
-					params.assistantMirrorContent ?? params.assistantResponse,
-				userMessageId: params.userMessageId ?? null,
-				assistantMessageId: params.assistantMessageId ?? null,
-				startedResetGeneration: params.startedResetGeneration,
-				recentMessages,
-			});
-		})().catch((err) =>
-			console.error("[MEMORY_INTAKE] Post-turn intake failed:", err),
-		),
-	];
+	const honchoTasks: Promise<unknown>[] = [];
+	if (!params.skipAssistantProseMemoryIntake) {
+		honchoTasks.push(
+			(async () => {
+				const recentMessages = await listMessages(params.conversationId)
+					.then(compactRecentMemoryIntakeMessages)
+					.catch(() => []);
+				return intakePostTurnMemory({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					userMessage: params.userMessage,
+					assistantMessage:
+						params.assistantMirrorContent ?? params.assistantResponse,
+					userMessageId: params.userMessageId ?? null,
+					assistantMessageId: params.assistantMessageId ?? null,
+					startedResetGeneration: params.startedResetGeneration,
+					recentMessages,
+				});
+			})().catch((err) =>
+				console.error("[MEMORY_INTAKE] Post-turn intake failed:", err),
+			),
+		);
+	}
 
 	const workCapsule = params.workCapsule;
-	if (workCapsule?.workflowSummary) {
+	if (!params.skipHonchoEnrichment && workCapsule?.workflowSummary) {
 		honchoTasks.push(
 			(async () => {
 				if (

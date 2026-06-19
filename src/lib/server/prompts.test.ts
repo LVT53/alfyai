@@ -21,7 +21,7 @@ describe("prompts", () => {
 
 	it("normalizes the old fetch_content prompt body back to the current key", () => {
 		const legacyPrompt = ALFYAI_NEMOTRON_PROMPT.replace(
-			"| research_web | Search and retrieve web sources with citation-ready evidence (handles searching, page fetching, evidence extraction in one call) | Current facts, prices, availability, specs, policies, page-backed claims, comparisons, multi-source research |\n| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, deep-research reports, personal context |",
+			"| research_web | Search and retrieve web sources with citation-ready evidence (handles searching, page fetching, evidence extraction in one call) | Current facts, prices, availability, specs, policies, page-backed claims, comparisons, multi-source research |\n| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, generated reports, personal context |",
 			"| search | Search the web for information | Current events, recent facts, product research, general-topic research, verification |\n| fetch_content | Fetch and read a specific URL | The user gives a link, search snippets are insufficient, or exact page details matter |",
 		).replace(
 			"Use research_web for web-backed research. It handles searching, page fetching, evidence extraction, and answer-brief assembly in one call — there is no separate search or fetch step.",

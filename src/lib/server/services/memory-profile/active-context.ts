@@ -2,11 +2,24 @@ import { and, desc, eq, or } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { memoryProfileItems } from "$lib/server/db/schema";
 import { estimateTokenCount } from "$lib/utils/tokens";
-import { assertMemoryProfileCategory, type ActiveMemoryProfileContext, type FormattedActiveMemoryProfileContext, type MemoryProfileScope } from "./types";
+import {
+	createIdentityTextSanitizer,
+	getMemoryProfileIdentity,
+	sanitizePublicMemoryText,
+} from "./identity-sanitizer";
+import {
+	ensureProjectionState,
+	expireOverdueActiveMemoryProfileItems,
+	listProjectionPolicyBlockedStatements,
+} from "./projection-store";
 import { getCurrentMemoryResetGeneration } from "./reset-generation";
-import { ensureProjectionState, expireOverdueActiveMemoryProfileItems, listProjectionPolicyBlockedStatements } from "./projection-store";
 import { fromScopeColumns, toScopeColumns } from "./scope";
-import { createIdentityTextSanitizer, getMemoryProfileIdentity, sanitizePublicMemoryText } from "./identity-sanitizer";
+import {
+	type ActiveMemoryProfileContext,
+	assertMemoryProfileCategory,
+	type FormattedActiveMemoryProfileContext,
+	type MemoryProfileScope,
+} from "./types";
 
 function formatActiveMemoryProfileItem(
 	item: ActiveMemoryProfileContext["items"][number],
@@ -159,10 +172,10 @@ export async function getActiveMemoryProfileContext(params: {
 	};
 }
 
-export { listProjectionPolicyBlockedStatements };
 export type {
 	ActiveMemoryProfileContext,
 	FormattedActiveMemoryProfileContext,
 	MemoryProfilePolicyBlockedStatement,
 	MemoryProfileScope,
 } from "./types";
+export { listProjectionPolicyBlockedStatements };

@@ -228,6 +228,55 @@ async function seedArchiveUser() {
 	});
 }
 
+async function seedAtlasArchiveOutput() {
+	await writeFile(
+		join(tempDir, "data", "chat-files", "conv-1", "atlas-report.html"),
+		"<h1>Atlas market report</h1>",
+	);
+	await db.insert(schema.chatGeneratedFiles).values({
+		id: "atlas-file-html",
+		conversationId: "conv-1",
+		assistantMessageId: "msg-assistant",
+		userId: "user-1",
+		filename: "atlas-market-report.html",
+		mimeType: "text/html",
+		sizeBytes: 28,
+		storagePath: "conv-1/atlas-report.html",
+		createdAt: new Date("2026-02-01T10:05:00Z"),
+	});
+	await db.insert(schema.atlasJobs).values({
+		id: "atlas-job-1",
+		userId: "user-1",
+		conversationId: "conv-1",
+		assistantMessageId: "msg-assistant",
+		action: "create",
+		profile: "overview",
+		normalizedQueryHash: "hash-atlas",
+		clientAtlasTurnId: "client-atlas-1",
+		idempotencyKey:
+			"atlas:v1:user-1:conv-1:create:root:overview:hash-atlas:client-atlas-1",
+		title: "Atlas market report",
+		status: "succeeded",
+		stage: "complete",
+		htmlChatGeneratedFileId: "atlas-file-html",
+		completedAt: new Date("2026-02-01T10:06:00Z"),
+		createdAt: new Date("2026-02-01T10:05:00Z"),
+		updatedAt: new Date("2026-02-01T10:06:00Z"),
+	});
+	await db.insert(schema.atlasRoundCheckpoints).values({
+		id: "atlas-checkpoint-1",
+		jobId: "atlas-job-1",
+		roundNumber: 1,
+		stage: "synthesize",
+		checkpointJson: '{"raw":"DO_NOT_EXPORT_ATLAS_CHECKPOINT"}',
+		curatedSourcePoolJson: '[{"raw":"DO_NOT_EXPORT_ATLAS_SOURCE_POOL"}]',
+		compressedFindingsJson: '{"raw":"DO_NOT_EXPORT_ATLAS_FINDINGS"}',
+		qualityDiagnosticsJson: '{"raw":"DO_NOT_EXPORT_ATLAS_DIAGNOSTICS"}',
+		createdAt: new Date("2026-02-01T10:05:30Z"),
+		updatedAt: new Date("2026-02-01T10:05:30Z"),
+	});
+}
+
 beforeEach(async () => {
 	tempDir = await mkdtemp(join(tmpdir(), "alfyai-archive-test-"));
 	sqlite = new Database(join(tempDir, "test.db"));
@@ -346,6 +395,44 @@ describe("createAccountDataArchive", () => {
 		});
 
 		expect(result).toEqual({ status: "incorrect_password" });
+	});
+
+	it("exports produced Atlas files as generated files without raw checkpoints", async () => {
+		await seedArchiveUser();
+		await seedAtlasArchiveOutput();
+
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+			now: new Date("2026-06-15T08:00:00Z"),
+		});
+
+		expect(result.status).toBe("ok");
+		if (result.status !== "ok") return;
+
+		const zipBytes = Buffer.from(
+			await new Response(result.zipStream).arrayBuffer(),
+		);
+		const zip = await JSZip.loadAsync(zipBytes);
+		expect(zip.file("Files/Generated/atlas-market-report.html")).toBeTruthy();
+		const atlasFile = await zip
+			.file("Files/Generated/atlas-market-report.html")
+			?.async("string");
+		expect(atlasFile).toContain("Atlas market report");
+
+		const combinedText = await Promise.all(
+			Object.keys(zip.files).map(async (name) => {
+				const file = zip.file(name);
+				if (!file || file.dir) return "";
+				return file.async("string").catch(() => "");
+			}),
+		).then((parts) => parts.join("\n"));
+		expect(combinedText).toContain("atlas-market-report.html");
+		expect(combinedText).not.toContain("DO_NOT_EXPORT_ATLAS_CHECKPOINT");
+		expect(combinedText).not.toContain("DO_NOT_EXPORT_ATLAS_SOURCE_POOL");
+		expect(combinedText).not.toContain("DO_NOT_EXPORT_ATLAS_FINDINGS");
+		expect(combinedText).not.toContain("DO_NOT_EXPORT_ATLAS_DIAGNOSTICS");
 	});
 
 	it("fails the whole archive when an in-scope original file cannot be read", async () => {

@@ -47,14 +47,17 @@ async function closeServiceDatabase() {
 function seedAnalyticsRows() {
 	const { sqlite, database } = openSeedDatabase();
 
-	database.insert(schema.providers).values({
-		id: "provider-abc",
-		name: "openrouter",
-		displayName: "OpenRouter",
-		baseUrl: "https://openrouter.example",
-		apiKeyEncrypted: "encrypted",
-		apiKeyIv: "iv",
-	}).run();
+	database
+		.insert(schema.providers)
+		.values({
+			id: "provider-abc",
+			name: "openrouter",
+			displayName: "OpenRouter",
+			baseUrl: "https://openrouter.example",
+			apiKeyEncrypted: "encrypted",
+			apiKeyIv: "iv",
+		})
+		.run();
 
 	database
 		.insert(schema.usageEvents)

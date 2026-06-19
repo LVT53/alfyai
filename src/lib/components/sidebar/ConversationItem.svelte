@@ -290,6 +290,13 @@ function forkIndicatorLabel() {
 	});
 }
 
+let atlasBadgeLabel = $derived(
+	conversation.atlasBadge?.label || $t("atlas.sidebarCompletedBadge"),
+);
+let showAtlasCompletedBadge = $derived(
+	conversation.atlasBadge?.status === "succeeded",
+);
+
 onMount(() => {
 	return setupMenuSync(() => menuOpen, doUpdatePosition);
 });
@@ -339,6 +346,14 @@ onMount(() => {
 					<GitBranch size={13} strokeWidth={2.2} aria-hidden="true" />
 						<span class="fork-indicator-tooltip" aria-hidden="true">{indicatorLabel}</span>
 					</span>
+				{/if}
+				{#if showAtlasCompletedBadge}
+					<span
+						class="atlas-completed-badge"
+						role="img"
+						aria-label={atlasBadgeLabel}
+						title={atlasBadgeLabel}
+					></span>
 				{/if}
 			<div class="min-w-0 flex-1">
 				<div class="truncate text-[13px] font-sans text-text-primary">
@@ -518,6 +533,15 @@ onMount(() => {
 
 	.conversation-option-current {
 		background: rgba(194, 166, 106, 0.15) !important;
+	}
+
+	.atlas-completed-badge {
+		width: 0.55rem;
+		height: 0.55rem;
+		flex: 0 0 auto;
+		border-radius: 999px;
+		background: var(--accent);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
 	}
 
 	.conversation-option-danger:hover,

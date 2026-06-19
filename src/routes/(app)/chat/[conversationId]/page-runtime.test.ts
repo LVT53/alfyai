@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppShellData } from "$lib/server/services/app-shell";
 import type { StreamMetadata } from "$lib/services/streaming";
 import type {
+	AtlasJobCard,
 	ContextDebugEvidenceItem,
 	ContextDebugState,
 	Conversation,
@@ -20,6 +27,12 @@ const runtimeHarness = vi.hoisted(() => ({
 			onEnd: (fullText: string, metadata?: StreamMetadata) => void;
 			onError: (error: Error) => void;
 		};
+	}>,
+	atlasSubmissions: [] as Array<{
+		message: string;
+		profile: string;
+		action: string;
+		parentAtlasJobId: string | null | undefined;
 	}>,
 }));
 
@@ -102,6 +115,39 @@ function contextDebugFixture(
 	};
 }
 
+function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
+	return {
+		id: "atlas-job-1",
+		conversationId: "conv-1",
+		assistantMessageId: "assistant-atlas-1",
+		action: "create",
+		parentAtlasJobId: null,
+		profile: "in-depth",
+		title: "Atlas research",
+		status: "running",
+		stage: "search",
+		progress: { percent: 30, stage: "search" },
+		sourceCounts: { local: 0, web: 4, accepted: 2, rejected: 1 },
+		usage: {
+			inputTokens: 0,
+			outputTokens: 0,
+			totalTokens: 0,
+			costUsdMicros: 0,
+		},
+		outputs: {
+			fileProductionJobId: null,
+			htmlChatGeneratedFileId: "html-file-1",
+			pdfChatGeneratedFileId: "pdf-file-1",
+			markdownChatGeneratedFileId: "md-file-1",
+		},
+		error: null,
+		createdAt: 1,
+		updatedAt: 1,
+		completedAt: null,
+		...overrides,
+	};
+}
+
 function appShellDataFixture(
 	overrides: Partial<AppShellData> = {},
 ): AppShellData {
@@ -162,6 +208,7 @@ function conversationDetailFixture(
 		bootstrap: false,
 		generatedFiles: [],
 		fileProductionJobs: [],
+		atlasJobs: [],
 		contextCompressionSnapshots: [],
 		activeSkillSession: null,
 		totalCostUsdMicros: 0,
@@ -257,6 +304,25 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 				}),
 				checkForOrphanedStream: vi.fn(async () => null),
 				getStreamBufferInfo: vi.fn(async () => null),
+				submitAtlasTurn: vi.fn(async (payload) => {
+					runtimeHarness.atlasSubmissions.push({
+						message: payload.message,
+						profile: payload.profile,
+						action: payload.action,
+						parentAtlasJobId: payload.parentAtlasJobId,
+					});
+					return {
+						message: "Atlas is queued.",
+						atlasJob: atlasJobFixture({
+							id: "atlas-child-1",
+							assistantMessageId: "assistant-atlas-child-1",
+							action: payload.action,
+							parentAtlasJobId: payload.parentAtlasJobId ?? null,
+							profile: payload.profile,
+							status: "queued",
+						}),
+					};
+				}),
 			}),
 		),
 	};
@@ -285,6 +351,8 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		fileProductionJobs: [],
 		contextCompressionSnapshots: [],
 		activeSkillSession: null,
+		atlasJobs: [],
+		atlasAvailability: { enabled: true, configured: true, reason: null },
 		sidecarPending: false,
 		userPersonality: null,
 		userModel: "model1" as const,
@@ -317,6 +385,7 @@ describe("chat page runtime integration", () => {
 
 	beforeEach(() => {
 		runtimeHarness.streamInvocations.length = 0;
+		runtimeHarness.atlasSubmissions.length = 0;
 		vi.mocked(fetchConversationDetail).mockResolvedValue(
 			conversationDetailFixture(),
 		);
@@ -376,6 +445,74 @@ describe("chat page runtime integration", () => {
 		expect(screen.getByTestId("queued-message-banner")).toHaveTextContent(
 			"Follow up after the summary",
 		);
+	});
+
+	it("polls conversation detail while Atlas jobs are queued or running", async () => {
+		vi.useFakeTimers();
+		try {
+			renderPage(
+				pageData({
+					messages: [
+						{
+							id: "assistant-atlas-1",
+							role: "assistant",
+							content: "Atlas is queued.",
+							timestamp: 1,
+						},
+					],
+					atlasJobs: [atlasJobFixture({ status: "running" })],
+				}),
+			);
+
+			await vi.advanceTimersByTimeAsync(2500);
+
+			expect(fetchConversationDetail).toHaveBeenCalledWith("conv-1");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("routes Atlas lifecycle panel submissions through the Atlas send adapter", async () => {
+		renderPage(
+			pageData({
+				messages: [
+					{
+						id: "assistant-atlas-1",
+						role: "assistant",
+						content: "Atlas is complete.",
+						timestamp: 1,
+					},
+				],
+				atlasJobs: [
+					atlasJobFixture({
+						status: "succeeded",
+						completedAt: 121,
+						progress: { percent: 100, stage: "audit" },
+					}),
+				],
+			}),
+		);
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Continue Atlas" }),
+		);
+		const panel = screen.getByRole("region", { name: "Continue Atlas" });
+		await fireEvent.input(within(panel).getByRole("textbox"), {
+			target: { value: "Extend the report with deployment risks" },
+		});
+		await fireEvent.click(
+			within(panel).getByRole("button", { name: "Continue Atlas" }),
+		);
+
+		await waitFor(() => {
+			expect(runtimeHarness.atlasSubmissions).toContainEqual({
+				message: "Extend the report with deployment risks",
+				profile: "in-depth",
+				action: "continue",
+				parentAtlasJobId: "atlas-job-1",
+			});
+		});
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
 	});
 
 	it("drains a queued follow-up after polling reconciles a waiting stream completion", async () => {

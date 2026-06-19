@@ -1,13 +1,18 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { ChevronDown, Globe, Paperclip } from "@lucide/svelte";
+import { ChevronDown, Globe, Orbit, Paperclip } from "@lucide/svelte";
 import ModelSelector from "./ModelSelector.svelte";
 import { t } from "$lib/i18n";
 import {
 	getPersonalityProfileDisplayDescription,
 	getPersonalityProfileDisplayName,
 } from "$lib/utils/personality-profile-labels";
-import type { ModelId, ReasoningDepth } from "$lib/types";
+import type {
+	AtlasAvailability,
+	AtlasProfile,
+	ModelId,
+	ReasoningDepth,
+} from "$lib/types";
 
 let {
 	canAttach = false,
@@ -23,6 +28,9 @@ let {
 	initialOpen = null,
 	forceWebSearch = false,
 	onForceWebSearchChange = undefined,
+	atlasAvailability = null,
+	atlasProfile = null,
+	onAtlasProfileChange = undefined,
 }: {
 	canAttach?: boolean;
 	attachmentsEnabled?: boolean;
@@ -41,13 +49,27 @@ let {
 	initialOpen?: "model" | "style" | "depth" | null;
 	forceWebSearch?: boolean;
 	onForceWebSearchChange?: ((enabled: boolean) => void) | undefined;
+	atlasAvailability?: AtlasAvailability | null;
+	atlasProfile?: AtlasProfile | null;
+	onAtlasProfileChange?: ((profile: AtlasProfile) => void) | undefined;
 } = $props();
 
 let root = $state<HTMLDivElement | undefined>(undefined);
-let activeDropdown = $state<"model" | "style" | "depth" | null>(null);
+let activeDropdown = $state<"model" | "style" | "depth" | "atlas" | null>(null);
 let appliedInitialOpen = $state<"model" | "style" | "depth" | null>(null);
 let styleOpen = $derived(activeDropdown === "style");
 let depthOpen = $derived(activeDropdown === "depth");
+let atlasOpen = $derived(activeDropdown === "atlas");
+let atlasAvailable = $derived(
+	Boolean(atlasAvailability?.enabled && atlasAvailability.configured),
+);
+let atlasUnavailableReason = $derived(
+	atlasAvailability?.reasonCode === "disabled"
+		? $t("composerTools.atlasUnavailableDisabled")
+		: atlasAvailability?.reasonCode === "missing_searxng"
+			? $t("composerTools.atlasUnavailableSearxng")
+			: $t("composerTools.atlasUnavailableReason"),
+);
 
 let selectedProfile = $derived(
 	personalityProfiles.find((p) => p.id === selectedPersonalityId) ?? null,
@@ -58,6 +80,9 @@ let selectedReasoningDepthLabel = $derived(
 		: reasoningDepth === "off"
 			? $t("composerTools.reasoningDepthOff")
 			: $t("composerTools.reasoningDepthAuto"),
+);
+let selectedAtlasProfileLabel = $derived(
+	atlasProfile ? atlasProfileLabel(atlasProfile) : $t("composerTools.atlas"),
 );
 
 $effect(() => {
@@ -89,6 +114,17 @@ function selectReasoningDepth(depth: ReasoningDepth) {
 function toggleWebSearch() {
 	onForceWebSearchChange?.(!forceWebSearch);
 	onClose?.();
+}
+
+function atlasProfileLabel(profile: AtlasProfile): string {
+	if (profile === "exhaustive") return $t("composerTools.atlasExhaustive");
+	if (profile === "in-depth") return $t("composerTools.atlasInDepth");
+	return $t("composerTools.atlasOverview");
+}
+
+function selectAtlasProfile(profile: AtlasProfile) {
+	onAtlasProfileChange?.(profile);
+	closeMenu();
 }
 
 function isModelGuideTarget(target: EventTarget | null): boolean {
@@ -236,6 +272,50 @@ onMount(() => {
 		</div>
 	</div>
 
+	{#if atlasAvailability}
+		<div class="menu-row">
+			<button
+				type="button"
+				class="menu-row menu-row--button"
+				class:menu-row--selected={Boolean(atlasProfile)}
+				onclick={() => {
+					if (!atlasAvailable) return;
+					activeDropdown = atlasOpen ? null : 'atlas';
+				}}
+				disabled={!atlasAvailable}
+				title={atlasAvailable ? $t('composerTools.atlasDescription') : atlasUnavailableReason}
+				aria-label={atlasAvailable ? $t('composerTools.atlas') : $t('composerTools.atlasUnavailable')}
+				aria-describedby={!atlasAvailable ? 'atlas-unavailable-reason' : undefined}
+				aria-haspopup="listbox"
+				aria-expanded={atlasOpen}
+				role="menuitem"
+			>
+				<span class="menu-label">{selectedAtlasProfileLabel}</span>
+				<span class="menu-icon" aria-hidden="true">
+					<Orbit size={16} strokeWidth={2} aria-hidden="true" />
+				</span>
+			</button>
+			{#if atlasOpen}
+				<ul class="model-selector__dropdown atlas-profile-dropdown" role="listbox" aria-label={$t('composerTools.atlasProfile')}>
+					{#each ['overview', 'in-depth', 'exhaustive'] as profile}
+						<li
+							role="option"
+							aria-selected={atlasProfile === profile}
+							class="model-selector__option"
+							class:model-selector__option--selected={atlasProfile === profile}
+							onclick={() => selectAtlasProfile(profile as AtlasProfile)}
+							onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectAtlasProfile(profile as AtlasProfile)}
+							tabindex="0"
+						>{atlasProfileLabel(profile as AtlasProfile)}</li>
+					{/each}
+				</ul>
+			{/if}
+			{#if !atlasAvailable}
+				<p id="atlas-unavailable-reason" class="menu-row__hint">{atlasUnavailableReason}</p>
+			{/if}
+		</div>
+	{/if}
+
 	<div class="menu-row">
 		<button
 			type="button"
@@ -300,6 +380,7 @@ onMount(() => {
 	}
 
 	.menu-row {
+		position: relative;
 		display: flex;
 		min-height: var(--tools-menu-row-height);
 		align-items: center;
@@ -353,6 +434,15 @@ onMount(() => {
 	.menu-row--button:disabled {
 		cursor: not-allowed;
 		opacity: 0.5;
+	}
+
+	.menu-row__hint {
+		width: 100%;
+		margin: -0.16rem 0 0.22rem;
+		padding: 0 0.5rem;
+		font-size: var(--text-2xs);
+		line-height: 1.35;
+		color: var(--text-secondary);
 	}
 
 	.menu-label {
@@ -458,6 +548,12 @@ onMount(() => {
 		min-width: 100%;
 		z-index: 100;
 		animation: dropdownFadeIn 150ms ease-out;
+	}
+
+	.atlas-profile-dropdown {
+		right: 0;
+		left: auto;
+		min-width: 9rem;
 	}
 
 	.model-selector__option {

@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifacts,
+	browserPushSubscriptions,
 	chatGeneratedFiles,
 	conversationContextStatus,
 	conversationDrafts,
@@ -20,6 +21,7 @@ import {
 	taskStateEvidenceLinks,
 	users,
 } from "$lib/server/db/schema";
+import { cancelActiveAtlasJobsForUser, deleteAtlasJobsForUser } from "../atlas";
 import { verifyPassword } from "../auth";
 import { deleteAllChatFilesForUser } from "../chat-files";
 import {
@@ -44,7 +46,9 @@ export type ResetUserAccountResult =
 
 export async function purgeUserData(userId: string): Promise<void> {
 	await deleteAllHonchoStateForUser(userId);
+	await cancelActiveAtlasJobsForUser(userId);
 	await deleteAllChatFilesForUser(userId);
+	await deleteAtlasJobsForUser(userId);
 
 	const ownershipScope = await getArtifactOwnershipScope(userId);
 	const artifactRows = await db
@@ -63,6 +67,9 @@ export async function purgeUserData(userId: string): Promise<void> {
 
 	await db.transaction((tx) => {
 		tx.delete(sessions).where(eq(sessions.userId, userId)).run();
+		tx.delete(browserPushSubscriptions)
+			.where(eq(browserPushSubscriptions.userId, userId))
+			.run();
 		tx.delete(chatGeneratedFiles)
 			.where(eq(chatGeneratedFiles.userId, userId))
 			.run();

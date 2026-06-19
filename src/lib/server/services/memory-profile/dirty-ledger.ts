@@ -2,10 +2,20 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, lt, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { memoryDirtyLedger } from "$lib/server/db/schema";
-import { MEMORY_DIRTY_REASONS, assertOneOf, assertPrivacySafeMetadata, type JsonRecord, type MemoryDirtyReason, type MemoryProfileScope } from "./types";
 import { parseJsonRecord } from "./internal-json";
-import { assertExpectedMemoryResetGeneration, getCurrentMemoryResetGeneration } from "./reset-generation";
+import {
+	assertExpectedMemoryResetGeneration,
+	getCurrentMemoryResetGeneration,
+} from "./reset-generation";
 import { fromScopeColumns, toScopeColumns } from "./scope";
+import {
+	assertOneOf,
+	assertPrivacySafeMetadata,
+	type JsonRecord,
+	MEMORY_DIRTY_REASONS,
+	type MemoryDirtyReason,
+	type MemoryProfileScope,
+} from "./types";
 
 const DIRTY_METADATA_ARRAY_LIMIT = 12;
 const DIRTY_METADATA_RECONCILEABLE_ID_KEYS = [
@@ -26,7 +36,10 @@ const DIRTY_METADATA_ARRAY_KEYS: Record<
 	subjectId: "subjectIds",
 };
 
-function appendBoundedUniqueStrings(values: unknown[], next: unknown): string[] {
+function appendBoundedUniqueStrings(
+	values: unknown[],
+	next: unknown,
+): string[] {
 	const strings = values
 		.filter((value): value is string => typeof value === "string")
 		.map((value) => value.trim())
@@ -195,7 +208,10 @@ function mergeDirtyLedgerMetadata(
 	next: string | null,
 ): string {
 	return JSON.stringify(
-		coalesceDirtyLedgerMetadata(parseJsonRecord(current), parseJsonRecord(next)),
+		coalesceDirtyLedgerMetadata(
+			parseJsonRecord(current),
+			parseJsonRecord(next),
+		),
 	);
 }
 

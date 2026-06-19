@@ -50,6 +50,36 @@ export const sessions = sqliteTable("sessions", {
 	expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
 });
 
+export const browserPushSubscriptions = sqliteTable(
+	"browser_push_subscriptions",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		endpoint: text("endpoint").notNull(),
+		p256dh: text("p256dh").notNull(),
+		auth: text("auth").notNull(),
+		userAgent: text("user_agent"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		lastFailureAt: integer("last_failure_at", { mode: "timestamp" }),
+	},
+	(table) => [
+		uniqueIndex("browser_push_subscriptions_endpoint_unique_idx").on(
+			table.endpoint,
+		),
+		index("browser_push_subscriptions_user_updated_idx").on(
+			table.userId,
+			table.updatedAt,
+		),
+	],
+);
+
 export const conversations = sqliteTable(
 	"conversations",
 	{
@@ -931,6 +961,11 @@ export const conversationDrafts = sqliteTable(
 		selectedAttachmentIdsJson: text("selected_attachment_ids_json"),
 		selectedLinkedSourcesJson: text("selected_linked_sources_json"),
 		pendingSkillJson: text("pending_skill_json"),
+		atlasMode: integer("atlas_mode", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		atlasProfile: text("atlas_profile"),
+		clientAtlasTurnId: text("client_atlas_turn_id"),
 		updatedAt: integer("updated_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),
@@ -1613,6 +1648,146 @@ export const fileProductionJobFiles = sqliteTable(
 			table.sortOrder,
 		),
 	}),
+);
+
+export const atlasJobs = sqliteTable(
+	"atlas_jobs",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		assistantMessageId: text("assistant_message_id").references(
+			() => messages.id,
+			{
+				onDelete: "set null",
+			},
+		),
+		action: text("action").notNull(),
+		parentAtlasJobId: text("parent_atlas_job_id").references(
+			(): AnySQLiteColumn => atlasJobs.id,
+			{
+				onDelete: "set null",
+			},
+		),
+		profile: text("profile").notNull(),
+		normalizedQueryHash: text("normalized_query_hash").notNull(),
+		clientAtlasTurnId: text("client_atlas_turn_id").notNull(),
+		idempotencyKey: text("idempotency_key").notNull(),
+		title: text("title").notNull(),
+		status: text("status").notNull().default("queued"),
+		stage: text("stage").notNull().default("queued"),
+		progressPercent: integer("progress_percent").notNull().default(0),
+		workerId: text("worker_id"),
+		heartbeatAt: integer("heartbeat_at", { mode: "timestamp" }),
+		startedAt: integer("started_at", { mode: "timestamp" }),
+		completedAt: integer("completed_at", { mode: "timestamp" }),
+		cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp" }),
+		inputTokens: integer("input_tokens").notNull().default(0),
+		outputTokens: integer("output_tokens").notNull().default(0),
+		totalTokens: integer("total_tokens").notNull().default(0),
+		costUsdMicros: integer("cost_usd_micros").notNull().default(0),
+		localSourceCount: integer("local_source_count").notNull().default(0),
+		webSourceCount: integer("web_source_count").notNull().default(0),
+		acceptedSourceCount: integer("accepted_source_count").notNull().default(0),
+		rejectedSourceCount: integer("rejected_source_count").notNull().default(0),
+		fileProductionJobId: text("file_production_job_id").references(
+			() => fileProductionJobs.id,
+			{
+				onDelete: "set null",
+			},
+		),
+		htmlChatGeneratedFileId: text("html_chat_generated_file_id").references(
+			() => chatGeneratedFiles.id,
+			{
+				onDelete: "set null",
+			},
+		),
+		pdfChatGeneratedFileId: text("pdf_chat_generated_file_id").references(
+			() => chatGeneratedFiles.id,
+			{
+				onDelete: "set null",
+			},
+		),
+		markdownChatGeneratedFileId: text(
+			"markdown_chat_generated_file_id",
+		).references(() => chatGeneratedFiles.id, {
+			onDelete: "set null",
+		}),
+		errorCode: text("error_code"),
+		errorMessage: text("error_message"),
+		errorRetryable: integer("error_retryable", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		failureMetadataJson: text("failure_metadata_json"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		uniqueIndex("atlas_jobs_idempotency_unique_idx").on(table.idempotencyKey),
+		index("atlas_jobs_user_status_created_idx").on(
+			table.userId,
+			table.status,
+			table.createdAt,
+		),
+		index("atlas_jobs_conversation_status_updated_idx").on(
+			table.conversationId,
+			table.status,
+			table.updatedAt,
+		),
+		index("atlas_jobs_parent_idx").on(table.parentAtlasJobId, table.createdAt),
+		index("atlas_jobs_assistant_message_idx").on(table.assistantMessageId),
+	],
+);
+
+export const atlasRoundCheckpoints = sqliteTable(
+	"atlas_round_checkpoints",
+	{
+		id: text("id").primaryKey(),
+		jobId: text("job_id")
+			.notNull()
+			.references(() => atlasJobs.id, { onDelete: "cascade" }),
+		roundNumber: integer("round_number").notNull(),
+		checkpointVersion: integer("checkpoint_version").notNull().default(1),
+		stage: text("stage").notNull(),
+		checkpointJson: text("checkpoint_json").notNull().default("{}"),
+		curatedSourcePoolJson: text("curated_source_pool_json")
+			.notNull()
+			.default("[]"),
+		compressedFindingsJson: text("compressed_findings_json")
+			.notNull()
+			.default("{}"),
+		usageJson: text("usage_json").notNull().default("{}"),
+		qualityDiagnosticsJson: text("quality_diagnostics_json")
+			.notNull()
+			.default("{}"),
+		documentSourceSummaryJson: text("document_source_summary_json")
+			.notNull()
+			.default("{}"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		uniqueIndex("atlas_round_checkpoints_job_round_unique_idx").on(
+			table.jobId,
+			table.roundNumber,
+		),
+		index("atlas_round_checkpoints_job_created_idx").on(
+			table.jobId,
+			table.createdAt,
+		),
+	],
 );
 
 export const campaignAssets = sqliteTable(

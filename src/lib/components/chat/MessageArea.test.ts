@@ -1,9 +1,6 @@
-import { fireEvent, render, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-	ChatMessage,
-	FileProductionJob,
-} from "$lib/types";
+import type { AtlasJobCard, ChatMessage, FileProductionJob } from "$lib/types";
 import MessageArea from "./MessageArea.svelte";
 
 vi.mock("$lib/utils/markdown-loader", () => ({
@@ -79,6 +76,47 @@ describe("MessageArea", () => {
 					previewUrl: "/api/chat/files/file-1/preview",
 				},
 			],
+		};
+	}
+
+	function makeAtlasJob(
+		assistantMessageId: string | null,
+		overrides: Partial<AtlasJobCard> = {},
+	): AtlasJobCard {
+		const now = Date.now();
+		return {
+			id: overrides.id ?? `atlas-${assistantMessageId ?? "unassigned"}`,
+			conversationId: "conv-1",
+			assistantMessageId,
+			action: overrides.action ?? "create",
+			parentAtlasJobId: overrides.parentAtlasJobId ?? null,
+			profile: overrides.profile ?? "overview",
+			title: overrides.title ?? "Atlas report",
+			status: overrides.status ?? "running",
+			stage: overrides.stage ?? "search",
+			progress: overrides.progress ?? { percent: 30, stage: "search" },
+			sourceCounts: overrides.sourceCounts ?? {
+				local: 0,
+				web: 4,
+				accepted: 2,
+				rejected: 1,
+			},
+			usage: overrides.usage ?? {
+				inputTokens: 0,
+				outputTokens: 0,
+				totalTokens: 0,
+				costUsdMicros: 0,
+			},
+			outputs: overrides.outputs ?? {
+				fileProductionJobId: null,
+				htmlChatGeneratedFileId: null,
+				pdfChatGeneratedFileId: null,
+				markdownChatGeneratedFileId: null,
+			},
+			error: overrides.error ?? null,
+			createdAt: overrides.createdAt ?? now,
+			updatedAt: overrides.updatedAt ?? now,
+			completedAt: overrides.completedAt ?? null,
 		};
 	}
 
@@ -883,6 +921,66 @@ describe("MessageArea", () => {
 		expect(getByText("quarterly-report.pdf")).toBeInTheDocument();
 		expect(getByText("quarterly-report.html")).toBeInTheDocument();
 		expect(getByText("2 files")).toBeInTheDocument();
+	});
+
+	it("renders Atlas jobs inside the assistant response they belong to", async () => {
+		const onAtlasLifecycleAction = vi.fn();
+		const messageTimestamp = Date.now();
+		const atlasJob = makeAtlasJob("assistant-atlas-1", {
+			status: "succeeded",
+			profile: "in-depth",
+			completedAt: messageTimestamp + 90_000,
+			outputs: {
+				fileProductionJobId: "file-job-1",
+				htmlChatGeneratedFileId: "html-file-1",
+				pdfChatGeneratedFileId: "pdf-file-1",
+				markdownChatGeneratedFileId: "md-file-1",
+			},
+		});
+
+		const { container, getByRole, getByTestId } = render(MessageArea, {
+			messages: [
+				{
+					id: "assistant-atlas-1",
+					renderKey: "assistant-atlas-1",
+					role: "assistant",
+					content: "Atlas is ready.",
+					timestamp: messageTimestamp,
+					isStreaming: false,
+					isThinkingStreaming: false,
+				},
+			],
+			conversationId: "conv-1",
+			isThinkingActive: false,
+			contextDebug: null,
+			atlasJobs: [atlasJob],
+			onAtlasLifecycleAction,
+		});
+
+		const assistantMessage = container.querySelector(
+			'[data-testid="assistant-message"]',
+		);
+		const card = getByTestId("atlas-card");
+		expect(assistantMessage?.contains(card)).toBe(true);
+		expect(card).toHaveTextContent("ATLAS");
+		expect(card).toHaveTextContent("In-Depth");
+
+		await fireEvent.click(getByRole("button", { name: "Continue Atlas" }));
+		const panel = getByRole("region", { name: "Continue Atlas" });
+		await fireEvent.input(within(panel).getByRole("textbox"), {
+			target: { value: "Add one more section" },
+		});
+		await fireEvent.click(
+			within(panel).getByRole("button", { name: "Continue Atlas" }),
+		);
+
+		expect(onAtlasLifecycleAction).toHaveBeenCalledWith(
+			expect.objectContaining({
+				jobId: atlasJob.id,
+				action: "continue",
+				message: "Add one more section",
+			}),
+		);
 	});
 
 	it("emits retry and cancel actions from file-production cards", async () => {

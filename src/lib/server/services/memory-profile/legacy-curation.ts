@@ -2,14 +2,33 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
-import { memoryProfileItemProvenance, memoryProfileItems, memoryProjectionState, memoryReviewItems } from "$lib/server/db/schema";
-import { MEMORY_PROFILE_CATEGORIES, assertMemoryProfileCategory, readMemoryProfileCategory, type MemoryProfileCategory, type MemoryProfileScope } from "./types";
+import {
+	memoryProfileItemProvenance,
+	memoryProfileItems,
+	memoryReviewItems,
+} from "$lib/server/db/schema";
 import { parseJsonRecord, readSafeString } from "./internal-json";
-import { getCurrentMemoryResetGeneration, isCurrentMemoryResetGeneration } from "./reset-generation";
 import { bumpProjectionRevision } from "./projection-store";
-import { createOrUpdateMemoryReviewItem, legacyReviewSubjectKey } from "./review";
-import { resolveMemoryProfileItemKey, stableMemoryMaintenanceDigest } from "./scope";
+import {
+	getCurrentMemoryResetGeneration,
+	isCurrentMemoryResetGeneration,
+} from "./reset-generation";
+import {
+	createOrUpdateMemoryReviewItem,
+	legacyReviewSubjectKey,
+} from "./review";
+import {
+	resolveMemoryProfileItemKey,
+	stableMemoryMaintenanceDigest,
+} from "./scope";
 import { recordMemoryReworkTelemetry } from "./telemetry";
+import {
+	assertMemoryProfileCategory,
+	MEMORY_PROFILE_CATEGORIES,
+	type MemoryProfileCategory,
+	type MemoryProfileScope,
+	readMemoryProfileCategory,
+} from "./types";
 
 const DEFAULT_LEGACY_CURATION_BATCH_SIZE = 25;
 const MAX_LEGACY_CURATION_BATCH_SIZE = 40;

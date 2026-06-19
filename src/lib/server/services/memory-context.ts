@@ -32,9 +32,7 @@ import {
 	listProjectionPolicyBlockedStatements,
 	type MemoryProfileScope,
 } from "$lib/server/services/memory-profile/active-context";
-import {
-	recordMemoryReworkTelemetry,
-} from "$lib/server/services/memory-profile/telemetry";
+import { recordMemoryReworkTelemetry } from "$lib/server/services/memory-profile/telemetry";
 import {
 	messageOrderDesc,
 	messageTimestampOrderDesc,

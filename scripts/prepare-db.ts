@@ -28,6 +28,7 @@ let sqlite: Database.Database;
 const requiredExistingTables = [
 	"users",
 	"sessions",
+	"browser_push_subscriptions",
 	"conversations",
 	"messages",
 	"projects",
@@ -81,6 +82,8 @@ const requiredExistingTables = [
 	"file_production_jobs",
 	"file_production_job_attempts",
 	"file_production_job_files",
+	"atlas_jobs",
+	"atlas_round_checkpoints",
 	"personality_profiles",
 ];
 

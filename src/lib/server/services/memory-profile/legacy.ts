@@ -354,10 +354,7 @@ function applyLegacyMigrationRows(params: {
 					.all();
 				if (!existing) continue;
 				provenanceItemId = existing.id;
-				if (
-					status === "active" &&
-					existing.status === "preserved_legacy"
-				) {
+				if (status === "active" && existing.status === "preserved_legacy") {
 					tx.update(memoryProfileItems)
 						.set({
 							status: "active",

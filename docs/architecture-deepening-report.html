@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>AlfyAI Architecture Deepening Candidates</title>
+	<script src="https://cdn.tailwindcss.com"></script>
+	<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+	<script>
+		mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+	</script>
+	<style>
+		body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+		.mermaid { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+		code { word-break: break-word; }
+	</style>
+</head>
+<body class="bg-slate-50 text-slate-950">
+	<main class="mx-auto max-w-7xl px-6 py-8">
+		<section class="mb-8">
+			<p class="text-sm font-semibold uppercase tracking-wide text-emerald-700">Architecture scan</p>
+			<h1 class="mt-2 text-3xl font-semibold tracking-normal text-slate-950">Genuinely Worthwhile Deepening Candidates</h1>
+			<p class="mt-3 max-w-3xl text-sm leading-6 text-slate-700">
+				Scan date: 2026-06-19. Evidence used: <code>AGENTS.md</code>, <code>CONTEXT.md</code>, ADRs, source metrics, import/caller checks, Fallow, and current SvelteKit route docs from Context7. The candidates below focus on module depth, interface leverage, and implementation locality.
+			</p>
+			<div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+				<div class="rounded-lg border border-slate-200 bg-white p-4">
+					<div class="text-2xl font-semibold">802</div>
+					<div class="text-xs text-slate-600">files under <code>src</code></div>
+				</div>
+				<div class="rounded-lg border border-slate-200 bg-white p-4">
+					<div class="text-2xl font-semibold">12</div>
+					<div class="text-xs text-slate-600">Fallow circular-dependency findings</div>
+				</div>
+				<div class="rounded-lg border border-slate-200 bg-white p-4">
+					<div class="text-2xl font-semibold">5</div>
+					<div class="text-xs text-slate-600">high-value candidates</div>
+				</div>
+				<div class="rounded-lg border border-slate-200 bg-white p-4">
+					<div class="text-2xl font-semibold">0</div>
+					<div class="text-xs text-slate-600">production code edits in this scan</div>
+				</div>
+			</div>
+		</section>
+
+		<section class="mb-8 rounded-lg border border-emerald-200 bg-emerald-50 p-5">
+			<h2 class="text-lg font-semibold text-emerald-950">How to read this report</h2>
+			<p class="mt-2 text-sm leading-6 text-emerald-950">
+				A candidate is worthwhile when the current module is shallow at the caller interface, leaks implementation knowledge across seams, duplicates a seam, or creates hidden coupling. A candidate is not worthwhile just because a file is long.
+			</p>
+		</section>
+
+		<section class="space-y-6">
+			<article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+				<div class="flex flex-wrap items-center gap-3">
+					<h2 class="text-xl font-semibold">1. Split Memory Profile Internals Behind the Existing Seam</h2>
+					<span class="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">Highest leverage</span>
+					<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Hidden coupling</span>
+				</div>
+				<div class="mt-4 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="text-sm font-semibold">Files involved</h3>
+						<ul class="mt-2 space-y-1 text-sm text-slate-700">
+							<li><code>src/lib/server/services/memory-profile/index.ts</code> (3329 lines)</li>
+							<li><code>src/lib/server/services/memory-profile/intake.ts</code></li>
+							<li><code>src/lib/server/services/memory-maintenance.ts</code></li>
+							<li><code>src/lib/server/services/chat-turn/context-selection.ts</code></li>
+							<li><code>src/lib/server/services/normal-chat-context.ts</code></li>
+							<li><code>src/lib/server/services/normal-chat-control-model.ts</code></li>
+						</ul>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">What leaks</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">
+							One module exports profile projection reads, item mutation, reset-generation checks, Guided Memory Review, dirty-ledger reconciliation, legacy curation, prompt formatting, and telemetry. Fallow shows this module in most circular-dependency paths involving memory, chat context, control-model work, and maintenance.
+						</p>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">Before</h3>
+						<pre class="mermaid">flowchart TD
+  M["memory-profile/index.ts"]
+  Maint["memory-maintenance.ts"]
+  Ctx["chat-turn/context-selection.ts"]
+  NCC["normal-chat-context.ts"]
+  NCM["normal-chat-control-model.ts"]
+  Mem["memory.ts"]
+  M --> NCM
+  NCM --> NCC
+  NCC --> Ctx
+  Ctx --> M
+  Maint --> M
+  Mem --> M
+						</pre>
+					</div>
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">After</h3>
+						<pre class="mermaid">flowchart TD
+  Facade["memory-profile/index.ts facade"]
+  Projection["projection.ts"]
+  Review["review.ts"]
+  Dirty["dirty-ledger.ts"]
+  Telemetry["telemetry.ts"]
+  Prompt["prompt-context.ts"]
+  Legacy["legacy-curation.ts"]
+  Facade --> Projection
+  Facade --> Review
+  Facade --> Dirty
+  Facade --> Telemetry
+  Facade --> Prompt
+  Facade --> Legacy
+  Ctx["chat-turn/context-selection.ts"] --> Prompt
+  Maint["memory-maintenance.ts"] --> Dirty
+						</pre>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-3">
+					<div>
+						<h3 class="text-sm font-semibold">Problem</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">The public interface gives callers too many reasons to import the catch-all module, so implementation knowledge travels through unrelated chat, memory, and maintenance paths.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Solution</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">Keep the current facade for compatibility, but move implementation clusters into internal modules. Let hot callers import narrower modules only when that is the real seam.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Wins</h3>
+						<ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+							<li>Break several Fallow cycles without behavior changes.</li>
+							<li>Increase locality for review and dirty-ledger fixes.</li>
+							<li>Make memory tests target the real interface for each slice.</li>
+						</ul>
+					</div>
+				</div>
+				<p class="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+					ADR callout: ADR 0033 already names Memory Profile Projection, Guided Memory Review, dirty ledger work, legacy migration, and telemetry as distinct concepts. This refactor follows that design instead of re-litigating it.
+				</p>
+			</article>
+
+			<article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+				<div class="flex flex-wrap items-center gap-3">
+					<h2 class="text-xl font-semibold">2. Move Analytics Dashboard Read Model Out of the Route Adapter</h2>
+					<span class="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-800">Narrow win</span>
+					<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Leaky route</span>
+				</div>
+				<div class="mt-4 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="text-sm font-semibold">Files involved</h3>
+						<ul class="mt-2 space-y-1 text-sm text-slate-700">
+							<li><code>src/routes/api/analytics/+server.ts</code> (563 lines)</li>
+							<li><code>src/lib/server/services/analytics.ts</code></li>
+							<li><code>src/routes/api/analytics/analytics.test.ts</code></li>
+						</ul>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">What leaks</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">
+							The route imports <code>db</code>, schema tables, provider lookup logic, grouping code, timeline code, and mock dashboard payloads. It is an implementation module wearing a route adapter shape.
+						</p>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">Before</h3>
+						<pre class="mermaid">flowchart LR
+  Route["+server.ts"]
+  DB["db + schema"]
+  Providers["provider display names"]
+  Summary["grouping + timeline + per-user summary"]
+  Route --> DB
+  Route --> Providers
+  Route --> Summary
+						</pre>
+					</div>
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">After</h3>
+						<pre class="mermaid">flowchart LR
+  Route["+server.ts adapter"]
+  ReadModel["analytics/read-model.ts"]
+  Writer["analytics.ts event ingestion"]
+  DB["db + schema"]
+  Route --> ReadModel
+  ReadModel --> DB
+  Writer --> DB
+						</pre>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-3">
+					<div>
+						<h3 class="text-sm font-semibold">Problem</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">The route interface is small, but its implementation has durable analytics read logic that cannot be reused or tested without constructing a SvelteKit event.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Solution</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">Add <code>getAnalyticsDashboardReadModel</code> under the analytics module. Keep <code>+server.ts</code> to auth, parameter parsing, and JSON response.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Wins</h3>
+						<ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+							<li>Aligns with the repo rule that routes are adapters.</li>
+							<li>Gives admin and personal dashboard math a direct test surface.</li>
+							<li>Creates locality for future privacy and retention changes.</li>
+						</ul>
+					</div>
+				</div>
+				<p class="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+					ADR callout: ADR 0029 says person-linked analytics must be removed during Account Erasure while anonymous aggregates may remain. A dedicated read model makes that privacy shape easier to verify.
+				</p>
+			</article>
+
+			<article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+				<div class="flex flex-wrap items-center gap-3">
+					<h2 class="text-xl font-semibold">3. Deepen the Skill Definition Module</h2>
+					<span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Broad interface</span>
+					<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Shallow public shape</span>
+				</div>
+				<div class="mt-4 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="text-sm font-semibold">Files involved</h3>
+						<ul class="mt-2 space-y-1 text-sm text-slate-700">
+							<li><code>src/lib/server/services/skills/user-skills.ts</code> (2333 lines)</li>
+							<li><code>src/lib/server/services/skills/user-skills.test.ts</code></li>
+							<li><code>src/routes/api/skills/**/+server.ts</code></li>
+							<li><code>src/routes/api/admin/skills/**/+server.ts</code></li>
+							<li><code>src/lib/client/api/skills.ts</code></li>
+						</ul>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">What leaks</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">
+							Built-in catalog content, localization, validation, user CRUD, variant CRUD, admin pack publishing, hidden-pack preferences, discovery ranking, and effective prompt resolution all share one module and one large test file.
+						</p>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">Before</h3>
+						<pre class="mermaid">flowchart TD
+  US["user-skills.ts"]
+  Routes["user/admin skill routes"]
+  Sessions["sessions.ts"]
+  Prompt["prompt-context.ts"]
+  Routes --> US
+  Sessions --> US
+  Prompt --> US
+  US --> Catalog["built-in skill catalog"]
+  US --> Discovery["discovery ranking"]
+  US --> Resolve["effective definition"]
+  US --> Crud["CRUD + validation"]
+						</pre>
+					</div>
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">After</h3>
+						<pre class="mermaid">flowchart TD
+  Facade["skills/definitions.ts facade"]
+  Catalog["catalog.ts"]
+  Store["store.ts"]
+  Discovery["discovery.ts"]
+  Effective["effective-definition.ts"]
+  Policy["policy.ts"]
+  Facade --> Catalog
+  Facade --> Store
+  Facade --> Discovery
+  Facade --> Effective
+  Facade --> Policy
+  Sessions["sessions.ts"] --> Effective
+  Prompt["prompt-context.ts"] --> Effective
+						</pre>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-3">
+					<div>
+						<h3 class="text-sm font-semibold">Problem</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">The current interface exposes too many named operations and makes a small change to system packs or variants require understanding unrelated discovery and persistence behavior.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Solution</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">Split internal implementation by concept while preserving route imports through a facade first. Later, move callers like sessions and prompt context to the narrower effective-definition seam.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Wins</h3>
+						<ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+							<li>Better locality for Skill Pack publishing and discovery ranking.</li>
+							<li>Lower test setup for effective skill resolution.</li>
+							<li>Clearer seam between app-owned skill state and prompt-time use.</li>
+						</ul>
+					</div>
+				</div>
+				<p class="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+					ADR callout: ADR 0009 says skills are app-owned product state with session behavior, settings, permissioning, and prompt integration. The current module implements that decision, but the implementation is too compressed for the number of reasons it changes.
+				</p>
+			</article>
+
+			<article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+				<div class="flex flex-wrap items-center gap-3">
+					<h2 class="text-xl font-semibold">4. Give Knowledge Documents a List-Model Seam</h2>
+					<span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-800">UI locality</span>
+					<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Duplicated seam risk</span>
+				</div>
+				<div class="mt-4 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="text-sm font-semibold">Files involved</h3>
+						<ul class="mt-2 space-y-1 text-sm text-slate-700">
+							<li><code>src/routes/(app)/knowledge/_components/DocumentsList.svelte</code> (2261 lines)</li>
+							<li><code>src/lib/client/api/knowledge.ts</code></li>
+							<li><code>src/routes/(app)/knowledge/_helpers.ts</code></li>
+							<li><code>src/lib/client/document-preview-prewarm.ts</code></li>
+						</ul>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">What leaks</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">
+							The Svelte file owns drag-drop upload state, search scoring, sorting, pagination selection, file-type classification, bulk delete, preview prewarm, and a raw <code>fetch</code> for AI-facing artifact text. Fallow also reports stale exports in the neighboring helper file.
+						</p>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">Before</h3>
+						<pre class="mermaid">flowchart TD
+  List["DocumentsList.svelte"]
+  List --> UI["table + row actions"]
+  List --> Search["local search scoring"]
+  List --> Upload["drag/drop upload state"]
+  List --> Fetch["raw /api/knowledge/[id] fetch"]
+  List --> FileKind["file type + icon mapping"]
+						</pre>
+					</div>
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">After</h3>
+						<pre class="mermaid">flowchart TD
+  View["DocumentsList.svelte view"]
+  Model["documents-list-model.ts"]
+  Upload["documents-upload-controller.svelte.ts"]
+  KnowledgeApi["client/api/knowledge.ts"]
+  FileKind["document-file-kind.ts"]
+  View --> Model
+  View --> Upload
+  View --> KnowledgeApi
+  Model --> FileKind
+						</pre>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-3">
+					<div>
+						<h3 class="text-sm font-semibold">Problem</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">The visible list has a broad interface and a broad implementation, so visual changes risk touching search, upload, and document-content behavior.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Solution</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">Move pure list derivation and file-kind mapping to tested TypeScript modules. Add a browser fetch module call for prompt artifact content. Keep the Svelte file focused on rendering and user gestures.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Wins</h3>
+						<ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+							<li>Direct tests for search scoring and sort stability.</li>
+							<li>Removes raw fetch from the visual file.</li>
+							<li>Prevents another document viewer or document fetch seam from appearing later.</li>
+						</ul>
+					</div>
+				</div>
+				<p class="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+					ADR callout: ADR 0021 says preview runtime should own preview internals, while Working Document Identity and file serving stay elsewhere. This candidate follows that split by keeping list behavior separate from preview and durable document identity.
+				</p>
+			</article>
+
+			<article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+				<div class="flex flex-wrap items-center gap-3">
+					<h2 class="text-xl font-semibold">5. Stage the Web Research Pipeline Internals</h2>
+					<span class="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-800">Deep public seam</span>
+					<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Low caller churn</span>
+				</div>
+				<div class="mt-4 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="text-sm font-semibold">Files involved</h3>
+						<ul class="mt-2 space-y-1 text-sm text-slate-700">
+							<li><code>src/lib/server/services/web-research/index.ts</code> (2173 lines)</li>
+							<li><code>src/lib/server/services/web-research/extraction.ts</code></li>
+							<li><code>src/lib/server/services/web-research/youtube.ts</code></li>
+							<li><code>src/lib/server/services/web-grounding.ts</code></li>
+							<li><code>src/lib/server/services/normal-chat-tools/index.ts</code></li>
+						</ul>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">What leaks</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">
+							Caller leverage is already decent because <code>researchWeb</code> is the main seam. The implementation locality is weak: request planning, SearXNG access, direct URL handling, source authority, source fusion, page opening, YouTube transcript work, evidence ranking, reranking, and brief construction share one module.
+						</p>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">Before</h3>
+						<pre class="mermaid">flowchart TD
+  Research["web-research/index.ts"]
+  Research --> Plan["planning"]
+  Research --> Providers["provider calls"]
+  Research --> Sources["source fusion + authority"]
+  Research --> Pages["page opening"]
+  Research --> Evidence["evidence + rerank"]
+  Research --> Brief["answer brief"]
+						</pre>
+					</div>
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">After</h3>
+						<pre class="mermaid">flowchart TD
+  Facade["researchWeb facade"]
+  Plan["planner.ts"]
+  Providers["providers/searxng.ts"]
+  Sources["source-selection.ts"]
+  Pages["page-opening.ts"]
+  Evidence["evidence.ts"]
+  Brief["brief.ts"]
+  Facade --> Plan --> Providers --> Sources --> Pages --> Evidence --> Brief
+						</pre>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-3">
+					<div>
+						<h3 class="text-sm font-semibold">Problem</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">The module is deep for callers but shallow for maintainers: changing source policy or evidence ranking requires scanning unrelated provider and brief code.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Solution</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">Keep <code>researchWeb</code> as the public interface and split private stages. Test each stage with small fixtures, then keep end-to-end tests on the facade.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Wins</h3>
+						<ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+							<li>Better locality for high-stakes source policy changes.</li>
+							<li>Faster tests for ranking and brief construction.</li>
+							<li>Less risk when adding a provider adapter later.</li>
+						</ul>
+					</div>
+				</div>
+				<p class="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+					ADR callout: The AGENTS map says <code>web-grounding.ts</code> owns model-safe source and evidence shaping. This candidate keeps that public seam and deepens only the retrieval implementation under it.
+				</p>
+			</article>
+
+			<article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+				<div class="flex flex-wrap items-center gap-3">
+					<h2 class="text-xl font-semibold">6. Break Maintenance Cycles with Step Adapters</h2>
+					<span class="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">Riskier</span>
+					<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Cycle cleanup</span>
+				</div>
+				<div class="mt-4 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="text-sm font-semibold">Files involved</h3>
+						<ul class="mt-2 space-y-1 text-sm text-slate-700">
+							<li><code>src/lib/server/services/memory-maintenance.ts</code></li>
+							<li><code>src/lib/server/services/chat-files.ts</code></li>
+							<li><code>src/lib/server/services/knowledge.ts</code></li>
+							<li><code>src/lib/server/services/task-state.ts</code></li>
+							<li><code>src/lib/server/services/messages.ts</code></li>
+							<li><code>src/lib/server/services/file-production/**</code></li>
+						</ul>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">What leaks</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">
+							Fallow reports 12 circular-dependency findings. Many paths route through maintenance because the scheduler imports feature-level modules for cleanup work, while those modules also import memory, knowledge, message, or file-production behavior.
+						</p>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-2">
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">Before</h3>
+						<pre class="mermaid">flowchart TD
+  Maint["memory-maintenance.ts"]
+  ChatFiles["chat-files.ts"]
+  Knowledge["knowledge.ts"]
+  Task["task-state.ts"]
+  Messages["messages.ts"]
+  FileProd["file-production/index.ts"]
+  Maint --> ChatFiles
+  Maint --> Knowledge
+  Maint --> Task
+  Messages --> Knowledge
+  FileProd --> ChatFiles
+  Knowledge --> Maint
+						</pre>
+					</div>
+					<div>
+						<h3 class="mb-2 text-sm font-semibold">After</h3>
+						<pre class="mermaid">flowchart TD
+  Maint["memory-maintenance.ts scheduler"]
+  Steps["maintenance-steps.ts"]
+  ChatCleanup["cleanup/chat-files.ts"]
+  KnowledgeCleanup["cleanup/knowledge.ts"]
+  TaskCleanup["cleanup/task-state.ts"]
+  Maint --> Steps
+  Steps --> ChatCleanup
+  Steps --> KnowledgeCleanup
+  Steps --> TaskCleanup
+						</pre>
+					</div>
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-3">
+					<div>
+						<h3 class="text-sm font-semibold">Problem</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">The scheduler is a correct owner for timing, but it imports too much implementation. That makes unrelated feature modules part of the same dependency knot.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Solution</h3>
+						<p class="mt-2 text-sm leading-6 text-slate-700">Extract cleanup-only step adapters that depend downward on schema and narrow helpers, while feature modules keep their user-facing interfaces. Do this only after candidate 1 reduces memory-profile fanout.</p>
+					</div>
+					<div>
+						<h3 class="text-sm font-semibold">Wins</h3>
+						<ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+							<li>Attacks the known Fallow cycles directly.</li>
+							<li>Improves locality for reset and cleanup correctness.</li>
+							<li>Reduces chance that a file-production change loads memory maintenance.</li>
+						</ul>
+					</div>
+				</div>
+				<p class="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+					ADR callout: The AGENTS map says <code>memory-maintenance.ts</code> owns scheduling and should not be bypassed. This candidate keeps that ownership and narrows the step implementation dependencies.
+				</p>
+			</article>
+		</section>
+
+		<section class="mt-8 rounded-lg border border-slate-200 bg-white p-5">
+			<h2 class="text-lg font-semibold">Suggested order</h2>
+			<ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-slate-700">
+				<li>Start with Analytics Read Model. It is small, route-adapter aligned, and easy to verify.</li>
+				<li>Then split Memory Profile internals. It has the highest dependency leverage.</li>
+				<li>Use the Memory Profile split to decide whether Maintenance Step Adapters are still needed or smaller than expected.</li>
+				<li>Do Skills after that; it is product-important but has less immediate cycle pressure.</li>
+				<li>Do Knowledge Documents and Web Research when you are already touching those areas.</li>
+			</ol>
+		</section>
+	</main>
+</body>
+</html>

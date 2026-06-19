@@ -1,12 +1,30 @@
-import { asc, and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { memoryProfileItemProvenance, memoryProfileItems, memoryReviewItems } from "$lib/server/db/schema";
-import { MEMORY_PROFILE_CATEGORIES, assertMemoryProfileCategory, type MemoryProfileCardItem, type MemoryProfileItemDetail, type MemoryProfileReadModel } from "./types";
+import {
+	memoryProfileItemProvenance,
+	memoryProfileItems,
+	memoryReviewItems,
+} from "$lib/server/db/schema";
+import {
+	createIdentityTextSanitizer,
+	getMemoryProfileIdentity,
+	type MemoryProfileTextSanitizer,
+	sanitizePublicMemoryText,
+} from "./identity-sanitizer";
+import {
+	ensureProjectionState,
+	expireOverdueActiveMemoryProfileItems,
+} from "./projection-store";
 import { getCurrentMemoryResetGeneration } from "./reset-generation";
-import { ensureProjectionState, expireOverdueActiveMemoryProfileItems } from "./projection-store";
-import { fromScopeColumns } from "./scope";
-import { createIdentityTextSanitizer, getMemoryProfileIdentity, sanitizePublicMemoryText, type MemoryProfileTextSanitizer } from "./identity-sanitizer";
 import { dedupeReviewRows, toPublicReviewItem } from "./review";
+import { fromScopeColumns } from "./scope";
+import {
+	assertMemoryProfileCategory,
+	MEMORY_PROFILE_CATEGORIES,
+	type MemoryProfileCardItem,
+	type MemoryProfileItemDetail,
+	type MemoryProfileReadModel,
+} from "./types";
 
 function toCardItem(
 	row: typeof memoryProfileItems.$inferSelect,

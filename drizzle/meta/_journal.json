@@ -533,6 +533,34 @@
       "when": 1777140000062,
       "tag": "1777140000062_remove_deep_research",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1777140000063,
+      "tag": "1777140000063_atlas_persistence_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1777140000064,
+      "tag": "1777140000064_browser_push_subscriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1777140000065,
+      "tag": "1777140000065_conversation_draft_atlas_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1777140000066,
+      "tag": "1777140000066_conversation_draft_atlas_turn_id",
+      "breakpoints": true
     }
   ]
 }

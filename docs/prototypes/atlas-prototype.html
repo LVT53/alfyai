@@ -1,0 +1,2800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title data-i18n="pageTitle">Atlas UI Surfaces — AlfyAI Prototype</title>
+  <style>
+    :root {
+      --surface-page: #fafaf8;
+      --surface-elevated: #f4f3ee;
+      --surface-overlay: #f7f6f2;
+      --surface-code: #f5f5f0;
+      --surface-message-user: #f4f3ee;
+      --text-primary: #1a1a1a;
+      --text-muted: #6b6b6b;
+      --border-default: rgba(0, 0, 0, 0.08);
+      --border-subtle: rgba(0, 0, 0, 0.04);
+      --border-focus: #c15f3c;
+      --accent: #c15f3c;
+      --accent-hover: #ae5630;
+      --accent-contrast: #ffffff;
+      --danger: #b91c1c;
+      --success: #15803d;
+      --warning: #d97706;
+      --caution: #eab308;
+      --font-sans: "Nimbus Sans L", "Inter", system-ui, sans-serif;
+      --font-serif: "Libre Baskerville", "Georgia", serif;
+      --font-mono: "JetBrains Mono", "Fira Code", monospace;
+      --radius-sm: 5px;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --radius-full: 9999px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
+      --shadow-lg: 0 4px 16px rgba(0,0,0,0.08);
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 16px;
+      --space-lg: 24px;
+      --space-xl: 32px;
+      --space-2xl: 48px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: var(--surface-page);
+      color: var(--text-primary);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Sticky header */
+    .prototype-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(250, 250, 248, 0.94);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border-default);
+      padding: var(--space-md) var(--space-xl);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-md);
+      flex-wrap: wrap;
+    }
+
+    .prototype-title {
+      font-family: var(--font-sans);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--text-primary);
+      margin: 0;
+    }
+
+    .prototype-title span {
+      color: var(--text-muted);
+      font-weight: 400;
+      margin-left: var(--space-sm);
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    .lang-toggle, .layout-toggle {
+      display: inline-flex;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-full);
+      padding: 3px;
+      gap: 3px;
+    }
+
+    .lang-toggle button, .layout-toggle button {
+      appearance: none;
+      border: none;
+      background: transparent;
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      padding: var(--space-sm) var(--space-md);
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .lang-toggle button.active, .layout-toggle button.active {
+      background: var(--accent);
+      color: var(--accent-contrast);
+    }
+
+    .lang-toggle button:hover:not(.active),
+    .layout-toggle button:hover:not(.active) {
+      color: var(--text-primary);
+      background: rgba(0,0,0,0.03);
+    }
+
+    /* Demo sections */
+    .demo-page {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: var(--space-xl);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2xl);
+    }
+
+    .surface-section {
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      background: var(--surface-elevated);
+      padding: var(--space-xl);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .surface-label {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-sm);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: var(--space-md);
+    }
+
+    .surface-label::before {
+      content: "";
+      display: block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .surface-title {
+      font-family: var(--font-sans);
+      font-size: 20px;
+      font-weight: 600;
+      margin: 0 0 var(--space-md);
+      color: var(--text-primary);
+    }
+
+    .surface-note {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 0 0 var(--space-lg);
+      max-width: 760px;
+    }
+
+    /* Composer */
+    .composer-mock { max-width: 720px; margin: 0 auto; position: relative; }
+
+    .composer-bar {
+      display: flex;
+      align-items: flex-end;
+      gap: var(--space-sm);
+      background: var(--surface-overlay);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      padding: var(--space-sm) var(--space-md);
+      box-shadow: var(--shadow-md);
+    }
+
+    .composer-tools-btn {
+      appearance: none;
+      border: none;
+      background: transparent;
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: background 0.15s ease, color 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .composer-tools-btn:hover { background: rgba(0,0,0,0.04); color: var(--text-primary); }
+
+    .composer-input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.45;
+      color: var(--text-primary);
+      resize: none;
+      outline: none;
+      padding: 6px 0;
+      min-height: 24px;
+      max-height: 120px;
+    }
+
+    .composer-input::placeholder { color: var(--text-muted); }
+
+    .composer-send-btn {
+      appearance: none;
+      border: none;
+      background: var(--accent);
+      color: var(--accent-contrast);
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s ease;
+    }
+
+    .composer-send-btn:hover { background: var(--accent-hover); }
+
+    .tools-dropdown {
+      position: absolute;
+      bottom: calc(100% + var(--space-sm));
+      left: 0;
+      background: var(--surface-overlay);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      padding: var(--space-xs) 0;
+      min-width: 180px;
+      display: none;
+      z-index: 50;
+    }
+
+    .tools-dropdown.open { display: block; }
+
+    .tools-dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-sm) var(--space-md);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .tools-dropdown-item:hover { background: rgba(0,0,0,0.04); }
+    .tools-dropdown-item svg { width: 16px; height: 16px; color: var(--accent); flex-shrink: 0; }
+
+    /* Profile picker */
+    .profile-picker {
+      max-width: 520px;
+      margin: 0 auto;
+      background: var(--surface-overlay);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      padding: var(--space-lg);
+      display: none;
+    }
+
+    .profile-picker.open { display: block; }
+
+    .profile-picker-title {
+      font-family: var(--font-sans);
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0 0 var(--space-xs);
+    }
+
+    .profile-picker-subtitle {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 0 0 var(--space-lg);
+    }
+
+    .profile-options {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-sm);
+    }
+
+    .profile-card {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-md);
+      padding: var(--space-md);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      background: var(--surface-page);
+      cursor: pointer;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+    }
+
+    .profile-card:hover { border-color: var(--accent); box-shadow: var(--shadow-sm); }
+    .profile-card:active { transform: translateY(1px); }
+
+    .profile-radio {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--border-default);
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .profile-card:hover .profile-radio { border-color: var(--accent); }
+    .profile-info { flex: 1; }
+
+    .profile-name {
+      font-family: var(--font-sans);
+      font-size: 15px;
+      font-weight: 600;
+      margin: 0 0 2px;
+    }
+
+    .profile-time {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: var(--space-xs);
+      display: inline-block;
+    }
+
+    .profile-desc {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    /* Atlas chip */
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+      margin-top: var(--space-md);
+      min-height: 32px;
+    }
+
+    .atlas-chip {
+      display: none;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-xs) var(--space-sm);
+      background: rgba(193, 95, 60, 0.08);
+      border: 1px solid rgba(193, 95, 60, 0.2);
+      border-radius: var(--radius-full);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--accent);
+    }
+
+    .atlas-chip.visible { display: inline-flex; }
+    .atlas-chip svg { width: 14px; height: 14px; }
+
+    .chip-remove {
+      appearance: none;
+      border: none;
+      background: transparent;
+      padding: 0;
+      margin: 0;
+      cursor: pointer;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.7;
+      transition: opacity 0.15s ease;
+    }
+
+    .chip-remove:hover { opacity: 1; }
+    .chip-remove svg { width: 14px; height: 14px; }
+
+    /* Message area */
+    .message-area {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-md);
+    }
+
+    .assistant-message { align-self: flex-start; max-width: 92%; }
+
+    /* Kickoff card */
+    .kickoff-card {
+      background: var(--surface-page);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      align-items: center;
+      gap: var(--space-lg);
+    }
+
+    .exploration-svg {
+      width: 56px;
+      height: 56px;
+      flex-shrink: 0;
+      color: var(--text-muted);
+    }
+
+    .exploration-svg .orbit-group {
+      transform-origin: 28px 28px;
+      animation: orbit 4s linear infinite;
+    }
+
+    @keyframes orbit {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* Card stage for crossfade demo */
+    .card-stage {
+      display: grid;
+      grid-template-areas: "card";
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .stage-card {
+      grid-area: card;
+      opacity: 0;
+      transition: opacity 600ms ease;
+      pointer-events: none;
+      background: var(--surface-page);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      align-items: center;
+      gap: var(--space-lg);
+    }
+
+    .stage-card.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .stage-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-md);
+      margin-top: var(--space-md);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .stage-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border-default);
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .stage-dot.active { background: var(--accent); }
+
+    .stage-btn {
+      appearance: none;
+      border: 1px solid var(--border-default);
+      background: var(--surface-elevated);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      padding: var(--space-xs) var(--space-sm);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+    }
+
+    .stage-btn:hover { background: var(--surface-overlay); }
+
+    .kickoff-body { flex: 1; min-width: 0; }
+
+    .kickoff-label {
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 var(--space-xs);
+    }
+
+    .kickoff-title {
+      font-family: var(--font-sans);
+      font-size: 15px;
+      font-weight: 600;
+      margin: 0 0 var(--space-xs);
+      color: var(--text-primary);
+    }
+
+    .kickoff-meta {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 0 0 var(--space-xs);
+    }
+
+    .kickoff-note {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    /* Progress card */
+    .progress-card {
+      background: var(--surface-page);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      align-items: center;
+      gap: var(--space-lg);
+    }
+
+    .progress-ring-wrap {
+      position: relative;
+      width: 56px;
+      height: 56px;
+      flex-shrink: 0;
+    }
+
+    .progress-ring-bg {
+      fill: none;
+      stroke: var(--border-subtle);
+      stroke-width: 4;
+    }
+
+    .progress-ring-fill {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 4;
+      stroke-linecap: round;
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+      transition: stroke-dashoffset 0.5s ease;
+    }
+
+    .progress-ring-spinner {
+      animation: spin 2s linear infinite;
+      transform-origin: 50% 50%;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .progress-body { flex: 1; min-width: 0; }
+
+    .progress-label {
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 var(--space-xs);
+    }
+
+    .progress-status {
+      font-family: var(--font-sans);
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin: 0 0 var(--space-xs);
+      min-height: 24px;
+    }
+
+    .progress-detail {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .progress-cancel {
+      appearance: none;
+      border: 1px solid var(--danger);
+      background: transparent;
+      color: var(--danger);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 600;
+      padding: var(--space-sm) var(--space-md);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .progress-cancel:hover { background: var(--danger); color: #fff; }
+
+    .progress-card.cancelled { opacity: 0.7; border-color: var(--border-subtle); }
+    .progress-card.cancelled .progress-ring-fill { stroke: var(--text-muted); }
+    .progress-card.cancelled .progress-status { color: var(--text-muted); text-decoration: line-through; }
+
+    /* Queued variant */
+    .queued-card {
+      background: var(--surface-page);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: var(--space-md) var(--space-lg);
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    .queued-pulse {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 1.6s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.35; transform: scale(0.85); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+
+    .queued-text {
+      font-family: var(--font-sans);
+      font-size: 14px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    /* Completion card */
+    .completion-card {
+      background: var(--surface-page);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .completion-header {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-md);
+      margin-bottom: var(--space-md);
+    }
+
+    .completion-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(21, 128, 61, 0.08);
+      color: var(--success);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .completion-icon svg { width: 22px; height: 22px; }
+    .completion-title-block { flex: 1; min-width: 0; }
+
+    .completion-title {
+      font-family: var(--font-sans);
+      font-size: 17px;
+      font-weight: 600;
+      margin: 0 0 var(--space-xs);
+    }
+
+    .completion-meta {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .completion-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-md);
+    }
+
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border-default);
+      background: var(--surface-elevated);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 500;
+      padding: var(--space-sm) var(--space-md);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-xs);
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .btn:hover { background: var(--surface-overlay); }
+
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-contrast);
+    }
+
+    .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+    .icon-btn {
+      appearance: none;
+      border: none;
+      background: transparent;
+      width: 34px;
+      height: 34px;
+      border-radius: var(--radius-md);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--text-muted);
+      position: relative;
+      transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .icon-btn:hover {
+      background: var(--surface-elevated);
+      color: var(--text-primary);
+      box-shadow: inset 0 0 0 1px var(--border-default);
+    }
+
+    .icon-btn svg { width: 18px; height: 18px; }
+    .icon-btn.active { background: rgba(193, 95, 60, 0.08); color: var(--accent); }
+
+    .icon-tooltip {
+      position: absolute;
+      bottom: calc(100% + var(--space-sm));
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--text-primary);
+      color: var(--surface-page);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 500;
+      padding: var(--space-xs) var(--space-sm);
+      border-radius: var(--radius-sm);
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+      z-index: 30;
+    }
+
+    .icon-tooltip::after {
+      content: "";
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 4px solid transparent;
+      border-top-color: var(--text-primary);
+    }
+
+    .icon-btn:hover .icon-tooltip { opacity: 1; }
+
+    .download-wrap { position: relative; display: inline-flex; }
+
+    .download-menu {
+      position: absolute;
+      top: calc(100% + var(--space-xs));
+      left: 0;
+      background: var(--surface-overlay);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      padding: var(--space-xs) 0;
+      min-width: 140px;
+      display: none;
+      z-index: 40;
+    }
+
+    .download-menu.open { display: block; }
+
+    .download-menu-item {
+      padding: var(--space-sm) var(--space-md);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .download-menu-item:hover { background: rgba(0,0,0,0.04); }
+
+    /* Action panels */
+    .action-panel {
+      display: none;
+      margin-top: var(--space-md);
+      padding: var(--space-md) var(--space-lg);
+      background: var(--surface-overlay);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .action-panel.open { display: block; }
+
+    .action-panel-title {
+      font-family: var(--font-sans);
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0 0 var(--space-xs);
+    }
+
+    .action-panel-text {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 0 0 var(--space-md);
+    }
+
+    .action-panel-input {
+      width: 100%;
+      padding: var(--space-sm) var(--space-md);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      background: var(--surface-page);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      color: var(--text-primary);
+      margin-bottom: var(--space-md);
+      outline: none;
+    }
+
+    .action-panel-input:focus { border-color: var(--accent); }
+
+    .action-panel-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-md);
+      flex-wrap: wrap;
+    }
+
+    .action-checkbox {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-sm);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-primary);
+      cursor: pointer;
+    }
+
+    .action-checkbox input { accent-color: var(--accent); }
+
+    /* Report viewer base */
+    .report-viewer {
+      display: flex;
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      background: var(--surface-page);
+      overflow: hidden;
+      min-height: 560px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .report-sidebar {
+      width: 240px;
+      background: var(--surface-elevated);
+      border-right: 1px solid var(--border-default);
+      padding: var(--space-lg);
+      flex-shrink: 0;
+      overflow-y: auto;
+    }
+
+    .report-sidebar-title {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin: 0 0 var(--space-md);
+    }
+
+    .report-nav {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .report-nav a {
+      display: block;
+      padding: var(--space-sm) var(--space-md);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+      text-decoration: none;
+      border-radius: var(--radius-md);
+      transition: background 0.15s ease, color 0.15s ease;
+      border-left: 3px solid transparent;
+    }
+
+    .report-nav a:hover { background: rgba(0,0,0,0.03); color: var(--text-primary); }
+
+    .report-nav a.active {
+      background: rgba(193, 95, 60, 0.08);
+      color: var(--accent);
+      border-left: 3px solid var(--accent);
+      font-weight: 600;
+      padding-left: 13px;
+    }
+
+    .report-content {
+      flex: 1;
+      padding: var(--space-xl) var(--space-2xl);
+      overflow-y: auto;
+      max-height: 640px;
+      scroll-behavior: smooth;
+    }
+
+    .report-title {
+      font-family: var(--font-sans);
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1.2;
+      margin: 0 0 var(--space-lg);
+      color: var(--text-primary);
+    }
+
+    .report-section { margin-bottom: var(--space-xl); }
+
+    .report-section h2 {
+      font-family: var(--font-sans);
+      font-size: 24px;
+      font-weight: 700;
+      margin: 0 0 var(--space-md);
+      color: var(--text-primary);
+      padding-left: var(--space-md);
+      border-left: 3px solid var(--accent);
+    }
+
+    .report-section h3 {
+      font-family: var(--font-sans);
+      font-size: 17px;
+      font-weight: 700;
+      margin: var(--space-lg) 0 var(--space-sm);
+      color: var(--text-primary);
+    }
+
+    .report-section p {
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--text-primary);
+      margin: 0 0 var(--space-md);
+    }
+
+    .report-section a { color: var(--accent); text-decoration: none; }
+    .report-section a:hover { text-decoration: underline; }
+
+    /* Source chips (favicon-only inline) */
+    .source-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      vertical-align: middle;
+      margin-left: 2px;
+      cursor: pointer;
+      text-decoration: none;
+      position: relative;
+      transition: transform 0.1s ease;
+    }
+
+    .source-chip:hover { transform: translateY(-1px); }
+
+    .source-chip img, .source-chip .favicon-placeholder {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      display: block;
+    }
+
+    .favicon-placeholder {
+      background: var(--accent);
+    }
+
+    .source-tooltip {
+      position: absolute;
+      bottom: calc(100% + 10px);
+      left: 50%;
+      transform: translateX(-50%);
+      width: 280px;
+      background: var(--text-primary);
+      color: var(--surface-page);
+      border-radius: var(--radius-md);
+      padding: var(--space-sm) var(--space-md);
+      box-shadow: var(--shadow-lg);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+      z-index: 25;
+      text-align: left;
+    }
+
+    .source-tooltip::after {
+      content: "";
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: var(--text-primary);
+    }
+
+    .source-chip:hover .source-tooltip { opacity: 1; }
+
+    .source-tooltip-head {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-xs);
+    }
+
+    .source-tooltip-head .source-favicon {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .source-tooltip-head .source-favicon img,
+    .source-tooltip-head .source-favicon .favicon-placeholder {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      display: block;
+    }
+
+    .source-tooltip-title {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .source-tooltip-reason {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      line-height: 1.45;
+      color: rgba(255,255,255,0.85);
+      margin: 0;
+    }
+
+    /* Sources list (compact favicon style) */
+    .source-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-sm);
+    }
+
+    .source-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      padding: var(--space-sm) 0;
+    }
+
+    .source-item a {
+      color: var(--text-primary);
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .source-item a:hover { text-decoration: underline; }
+
+    .source-domain {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .source-subheading {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin: var(--space-md) 0 var(--space-sm);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .source-subheading + .source-list + .source-subheading {
+      margin-top: var(--space-xl);
+    }
+
+    /* Honesty markers */
+    .honesty-marker {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-xs);
+      padding: 2px var(--space-sm);
+      border-radius: var(--radius-full);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: 0.02em;
+      vertical-align: middle;
+      cursor: help;
+      position: relative;
+      white-space: nowrap;
+      border: 1px solid transparent;
+    }
+
+    .honesty-marker svg {
+      width: 11px;
+      height: 11px;
+      display: block;
+      flex-shrink: 0;
+    }
+
+    .honesty-marker > span:not(.honesty-tooltip) {
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
+    }
+
+    .honesty-marker.verified {
+      color: var(--success);
+      background: rgba(21, 128, 61, 0.08);
+      border-color: rgba(21, 128, 61, 0.2);
+    }
+
+    .honesty-marker.partial {
+      color: #92400e;
+      background: rgba(234, 179, 8, 0.14);
+      border-color: rgba(234, 179, 8, 0.35);
+    }
+
+    .honesty-marker.unverified {
+      color: var(--danger);
+      background: rgba(185, 28, 28, 0.08);
+      border-color: rgba(185, 28, 28, 0.2);
+    }
+
+    .honesty-marker.conflicting {
+      color: #9a3412;
+      background: rgba(249, 115, 22, 0.1);
+      border-color: rgba(249, 115, 22, 0.3);
+    }
+
+    .honesty-tooltip {
+      position: absolute;
+      bottom: calc(100% + 10px);
+      left: 50%;
+      transform: translateX(-50%);
+      width: 300px;
+      background: var(--text-primary);
+      color: var(--surface-page);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 1.5;
+      padding: var(--space-sm) var(--space-md);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+      z-index: 25;
+      text-align: left;
+      white-space: normal;
+    }
+
+    .honesty-tooltip::after {
+      content: "";
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: var(--text-primary);
+    }
+
+    .honesty-marker:hover .honesty-tooltip { opacity: 1; }
+    .honesty-tooltip strong { display: block; margin-bottom: var(--space-xs); font-weight: 600; }
+
+    /* Comparison table */
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: var(--space-md) 0 var(--space-lg);
+      font-family: var(--font-sans);
+      font-size: 13px;
+    }
+
+    .comparison-table th, .comparison-table td {
+      padding: var(--space-sm) var(--space-md);
+      text-align: left;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .comparison-table th {
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--surface-elevated);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .comparison-table td { color: var(--text-primary); }
+    .comparison-table tr:hover td { background: var(--surface-elevated); }
+
+    /* Figures */
+    .report-figure { margin: var(--space-md) 0 var(--space-lg); }
+
+    .report-figure img {
+      width: 100%;
+      height: auto;
+      border-radius: var(--radius-md);
+      display: block;
+      background: var(--surface-elevated);
+    }
+
+    .figure-caption {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-primary);
+      margin: var(--space-sm) 0 var(--space-xs);
+    }
+
+    .figure-source {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .figure-source a {
+      color: var(--accent);
+      text-decoration: underline;
+      font-weight: 600;
+    }
+
+    .figure-source a:hover { text-decoration: none; }
+
+    /* Chart placeholder */
+    .chart-placeholder {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: var(--space-lg);
+      margin: var(--space-md) 0 var(--space-lg);
+      text-align: center;
+    }
+
+    .chart-placeholder svg { max-width: 100%; height: auto; }
+
+    .chart-label {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: var(--space-sm);
+    }
+
+    /* Limitations */
+    .limitations-box {
+      background: rgba(185, 28, 28, 0.04);
+      border: 1px solid rgba(185, 28, 28, 0.12);
+      border-radius: var(--radius-md);
+      padding: var(--space-md) var(--space-lg);
+    }
+
+    .limitations-box h2 { color: var(--danger); }
+
+    /* Sidebar mock */
+    .sidebar-mock {
+      width: 280px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      padding: var(--space-md);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .sidebar-heading {
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin: 0 0 var(--space-md);
+    }
+
+    .conversation-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-sm) var(--space-md);
+      border-radius: var(--radius-md);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: background 0.15s ease;
+      position: relative;
+    }
+
+    .conversation-item:hover { background: rgba(0,0,0,0.03); }
+
+    .conversation-item.active {
+      background: rgba(193, 95, 60, 0.08);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .conversation-title {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .conversation-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      flex-shrink: 0;
+    }
+
+    .atlas-badge {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+
+    .conversation-item:hover .atlas-badge {
+      opacity: 0.35;
+      transform: scale(0.8);
+    }
+
+    .menu-btn {
+      appearance: none;
+      border: none;
+      background: transparent;
+      width: 22px;
+      height: 22px;
+      border-radius: var(--radius-md);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--text-muted);
+      padding: 0;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .conversation-item:hover .menu-btn { display: flex; }
+    .menu-btn:hover { background: rgba(0,0,0,0.05); color: var(--text-primary); }
+    .menu-btn svg { width: 16px; height: 16px; }
+
+    /* Mobile report viewer */
+    .report-viewer.mobile { flex-direction: column; }
+
+    .report-viewer.mobile .report-sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100vh;
+      width: 260px;
+      z-index: 90;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .report-viewer.mobile .report-sidebar.open { transform: translateX(0); }
+    .report-viewer.mobile .report-content { max-height: none; padding: var(--space-lg); }
+
+    .mobile-report-header {
+      display: none;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-md) var(--space-lg);
+      background: var(--surface-elevated);
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    .report-viewer.mobile .mobile-report-header { display: flex; }
+
+    .mobile-menu-btn {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: var(--text-primary);
+      cursor: pointer;
+      padding: var(--space-xs);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .mobile-menu-btn svg { width: 20px; height: 20px; }
+
+    .mobile-report-title {
+      font-family: var(--font-sans);
+      font-size: 15px;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.2);
+      z-index: 80;
+    }
+
+    .report-viewer.mobile .sidebar-backdrop.open { display: block; }
+
+    /* Report viewer definitive style (merged A + C improvements) */
+    .report-viewer .report-sidebar {
+      background: linear-gradient(180deg, var(--surface-elevated) 0%, rgba(244,243,238,0.6) 100%);
+      background-image:
+        radial-gradient(circle at 10% 20%, rgba(193,95,60,0.04) 0%, transparent 25%),
+        radial-gradient(circle at 90% 80%, rgba(193,95,60,0.03) 0%, transparent 25%);
+    }
+
+    .report-viewer .report-section {
+      padding-bottom: var(--space-lg);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .report-viewer .report-section:last-of-type { border-bottom: none; }
+
+    .report-viewer .report-title {
+      font-size: 34px;
+      margin-bottom: var(--space-xl);
+      letter-spacing: -0.01em;
+    }
+
+    .report-viewer .report-content {
+      padding-top: var(--space-2xl);
+      padding-bottom: var(--space-2xl);
+    }
+
+    .report-viewer .callout {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: var(--space-md) var(--space-lg);
+      margin: var(--space-md) 0 var(--space-lg);
+    }
+
+    .report-viewer .callout p {
+      font-family: var(--font-sans);
+      font-size: 14px;
+      margin: 0;
+    }
+
+    .report-viewer .comparison-table {
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .report-viewer .comparison-table th {
+      background: var(--surface-page);
+      border-bottom: 1px solid var(--border-default);
+      font-weight: 600;
+      text-transform: none;
+      letter-spacing: 0;
+      font-size: 13px;
+    }
+
+    .report-viewer .comparison-table tr:nth-child(even) td { background: var(--surface-elevated); }
+    .report-viewer .comparison-table tr:hover td { background: rgba(193,95,60,0.04); }
+
+    .report-viewer .limitations-box {
+      background: #fff;
+      border-left: 3px solid var(--danger);
+    }
+
+    .report-viewer .limitations-box h2 {
+      font-family: var(--font-sans);
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    /* Utility */
+    .hidden { display: none !important; }
+
+    /* Responsive */
+    @media (max-width: 720px) {
+      .demo-page { padding: var(--space-md); gap: var(--space-xl); }
+      .surface-section { padding: var(--space-md); }
+      .prototype-header { padding: var(--space-sm) var(--space-md); }
+      .header-controls { flex-wrap: wrap; justify-content: flex-end; }
+      .report-title { font-size: 24px; }
+      .report-content { padding: var(--space-lg); }
+      .progress-card { flex-direction: column; align-items: flex-start; gap: var(--space-md); }
+      .kickoff-card { flex-direction: column; align-items: flex-start; gap: var(--space-md); }
+    }
+
+
+  </style>
+</head>
+<body>
+  <header class="prototype-header">
+    <h1 class="prototype-title"><span data-i18n="prototypeTitle">Atlas UI Surfaces</span> <span data-i18n="prototypeSubtitle">AlfyAI Design Review</span></h1>
+    <div class="header-controls">
+      <div class="lang-toggle" role="group" aria-label="Language">
+        <button type="button" class="active" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" data-lang="hu" aria-pressed="false">HU</button>
+      </div>
+      <div class="layout-toggle" role="group" aria-label="Report viewer layout">
+        <button type="button" class="active" data-layout="desktop" aria-pressed="true" data-i18n="layoutDesktop">Desktop</button>
+        <button type="button" data-layout="mobile" aria-pressed="false" data-i18n="layoutMobile">Mobile</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="demo-page">
+    <!-- Surface 1: Entry Point -->
+    <section class="surface-section" aria-labelledby="surface-1-title">
+      <div class="surface-label">Surface 1</div>
+      <h2 id="surface-1-title" class="surface-title" data-i18n="s1Title">Entry Point — Atlas in the Composer</h2>
+      <p class="surface-note" data-i18n="s1Note">Click the "+" button to open the composer tools menu, then choose Atlas.</p>
+
+      <div class="composer-mock">
+        <div class="tools-dropdown" id="tools-dropdown">
+          <div class="tools-dropdown-item" data-action="atlas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M2 12h20"></path>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+            </svg>
+            <span data-i18n="toolAtlas">Atlas</span>
+          </div>
+          <div class="tools-dropdown-item" data-action="file">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span data-i18n="toolAttach">Attach file</span>
+          </div>
+          <div class="tools-dropdown-item" data-action="image">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="9" cy="9" r="2"></circle>
+              <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+            </svg>
+            <span data-i18n="toolImage">Image</span>
+          </div>
+        </div>
+
+        <div class="composer-bar">
+          <button type="button" class="composer-tools-btn" id="composer-tools-btn" aria-label="Open tools menu" aria-haspopup="true" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:18px;height:18px;">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <textarea class="composer-input" rows="1" data-i18n-placeholder="composerPlaceholder" placeholder="Ask anything..."></textarea>
+          <button type="button" class="composer-send-btn" aria-label="Send message">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:18px;height:18px;">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Surface 2: Profile Picker -->
+    <section class="surface-section" aria-labelledby="surface-2-title">
+      <div class="surface-label">Surface 2</div>
+      <h2 id="surface-2-title" class="surface-title" data-i18n="s2Title">Profile Picker</h2>
+      <p class="surface-note" data-i18n="s2Note">Appears after choosing Atlas from the composer. Select a depth profile.</p>
+
+      <div class="profile-picker open" id="profile-picker">
+        <h3 class="profile-picker-title" data-i18n="profileTitle">Choose an Atlas profile</h3>
+        <p class="profile-picker-subtitle" data-i18n="profileSubtitle">Deeper reports take more time and sources.</p>
+        <div class="profile-options">
+          <div class="profile-card" data-profile="overview" data-time="~2-5 min">
+            <div class="profile-radio"></div>
+            <div class="profile-info">
+              <p class="profile-name" data-i18n="profileOverview">Overview</p>
+              <span class="profile-time">~2-5 min</span>
+              <p class="profile-desc" data-i18n="profileOverviewDesc">A concise snapshot with key takeaways and a handful of sources.</p>
+            </div>
+          </div>
+          <div class="profile-card" data-profile="in-depth" data-time="~10-20 min">
+            <div class="profile-radio"></div>
+            <div class="profile-info">
+              <p class="profile-name" data-i18n="profileInDepth">In-Depth</p>
+              <span class="profile-time">~10-20 min</span>
+              <p class="profile-desc" data-i18n="profileInDepthDesc">Balanced breadth and detail: sections, comparisons, and citations.</p>
+            </div>
+          </div>
+          <div class="profile-card" data-profile="exhaustive" data-time="~30+ min">
+            <div class="profile-radio"></div>
+            <div class="profile-info">
+              <p class="profile-name" data-i18n="profileExhaustive">Exhaustive</p>
+              <span class="profile-time">~30+ min</span>
+              <p class="profile-desc" data-i18n="profileExhaustiveDesc">Comprehensive coverage, multiple angles, and extensive source review.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Surface 3: Chip -->
+    <section class="surface-section" aria-labelledby="surface-3-title">
+      <div class="surface-label">Surface 3</div>
+      <h2 id="surface-3-title" class="surface-title" data-i18n="s3Title">Atlas Chip</h2>
+      <p class="surface-note" data-i18n="s3Note">The selected profile appears as a compact chip below the composer input. Pick a profile above to see it.</p>
+
+      <div class="composer-mock">
+        <div class="composer-bar" style="margin-bottom:0;">
+          <button type="button" class="composer-tools-btn" aria-label="Open tools menu" disabled style="opacity:0.5;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:18px;height:18px;">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <textarea class="composer-input" rows="1" placeholder="Quantum error correction approaches in 2024"></textarea>
+          <button type="button" class="composer-send-btn" aria-label="Send message">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:18px;height:18px;">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+        <div class="chip-row" id="chip-row">
+          <span class="atlas-chip" id="atlas-chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M2 12h20"></path>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+            </svg>
+            <span id="chip-label" data-i18n="chipLabel">Atlas: In-Depth</span>
+            <button type="button" class="chip-remove" id="chip-remove" aria-label="Remove Atlas profile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Surface 4: Kickoff Message -->
+    <section class="surface-section" aria-labelledby="surface-4-title">
+      <div class="surface-label">Surface 4</div>
+      <h2 id="surface-4-title" class="surface-title" data-i18n="s4Title">Kickoff Message</h2>
+      <p class="surface-note" data-i18n="s4Note">A distinct assistant card confirms the Atlas topic, profile, and estimated time.</p>
+
+      <div class="message-area">
+        <div class="assistant-message">
+          <div class="kickoff-card">
+            <svg class="exploration-svg" viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <g class="orbit-group">
+                <circle cx="28" cy="28" r="22" opacity="0.25"></circle>
+                <g transform="translate(28, 6)">
+                  <path d="M-5 -2 L4 0 L-5 2 Z" fill="currentColor" stroke="none"></path>
+                  <line x1="-9" y1="0" x2="-5" y2="0" opacity="0.5"></line>
+                </g>
+              </g>
+              <circle cx="28" cy="28" r="15" stroke-width="2"></circle>
+              <path d="M14 28 Q28 35 42 28" opacity="0.5"></path>
+              <path d="M14 28 Q28 21 42 28" opacity="0.5"></path>
+              <path d="M28 14 Q35 28 28 42" opacity="0.5"></path>
+              <path d="M28 14 Q21 28 28 42" opacity="0.5"></path>
+              <path d="M21 25 Q25 23 29 27 Q27 31 23 31 Z" fill="currentColor" opacity="0.35" stroke="none"></path>
+              <path d="M33 20 Q37 22 35 28 Q31 26 33 20 Z" fill="currentColor" opacity="0.35" stroke="none"></path>
+            </svg>
+            <div class="kickoff-body">
+              <p class="kickoff-label" data-i18n="progressLabel">ATLAS</p>
+              <p class="kickoff-title" data-i18n="kickoffTitle">I'm compiling your Atlas on "Quantum error correction approaches in 2024."</p>
+              <p class="kickoff-meta" data-i18n="kickoffProfile">Profile: In-Depth · Est. 10-20 minutes</p>
+              <p class="kickoff-note" data-i18n="kickoffNote">You can close this page — I'll notify you when it's ready.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Surface 5: Progress Card -->
+    <section class="surface-section" aria-labelledby="surface-5-title">
+      <div class="surface-label">Surface 5</div>
+      <h2 id="surface-5-title" class="surface-title" data-i18n="s5Title">Progress Card</h2>
+      <p class="surface-note" data-i18n="s5Note">Live progress with cycling status messages. Click Cancel to see the cancelled state. The queued variant shows a simpler pulse.</p>
+
+      <div class="message-area">
+        <div class="assistant-message">
+          <div class="progress-card" id="progress-card">
+            <div class="progress-ring-wrap">
+              <svg class="progress-ring-spinner" width="56" height="56" viewBox="0 0 56 56">
+                <circle class="progress-ring-bg" cx="28" cy="28" r="24"></circle>
+                <circle class="progress-ring-fill" id="progress-ring" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="37.7"></circle>
+              </svg>
+            </div>
+            <div class="progress-body">
+              <p class="progress-label" data-i18n="progressLabel">ATLAS</p>
+              <p class="progress-status" id="progress-status" data-i18n="statusSearching">Searching the web…</p>
+              <p class="progress-detail" data-i18n="progressDetail">This may take 10-20 minutes. You can continue chatting or leave the page.</p>
+            </div>
+            <button type="button" class="progress-cancel" id="progress-cancel" data-i18n="progressCancel">Cancel</button>
+          </div>
+        </div>
+
+        <div class="assistant-message">
+          <div class="queued-card">
+            <div class="queued-pulse"></div>
+            <p class="queued-text" data-i18n="queuedText">Waiting for a research slot…</p>
+          </div>
+        </div>
+
+        <div class="assistant-message" style="width:100%;">
+          <p style="font-family:var(--font-sans);font-size:13px;color:var(--text-muted);margin:0 0 var(--space-sm);">Live state transition demo — crossfades between kickoff, progress, and completion:</p>
+          <div class="card-stage" id="card-stage">
+            <div class="stage-card active" data-stage="kickoff">
+              <svg class="exploration-svg" viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <g class="orbit-group">
+                  <circle cx="28" cy="28" r="22" opacity="0.25"></circle>
+                  <g transform="translate(28, 6)">
+                    <path d="M-5 -2 L4 0 L-5 2 Z" fill="currentColor" stroke="none"></path>
+                    <line x1="-9" y1="0" x2="-5" y2="0" opacity="0.5"></line>
+                  </g>
+                </g>
+                <circle cx="28" cy="28" r="15" stroke-width="2"></circle>
+                <path d="M14 28 Q28 35 42 28" opacity="0.5"></path>
+                <path d="M14 28 Q28 21 42 28" opacity="0.5"></path>
+                <path d="M28 14 Q35 28 28 42" opacity="0.5"></path>
+                <path d="M28 14 Q21 28 28 42" opacity="0.5"></path>
+                <path d="M21 25 Q25 23 29 27 Q27 31 23 31 Z" fill="currentColor" opacity="0.35" stroke="none"></path>
+                <path d="M33 20 Q37 22 35 28 Q31 26 33 20 Z" fill="currentColor" opacity="0.35" stroke="none"></path>
+              </svg>
+              <div class="kickoff-body">
+                <p class="kickoff-label" data-i18n="progressLabel">ATLAS</p>
+                <p class="kickoff-title" data-i18n="kickoffTitle">I'm compiling your Atlas on "Quantum error correction approaches in 2024."</p>
+                <p class="kickoff-meta" data-i18n="kickoffProfile">In-Depth · Est. 10-20 minutes</p>
+                <p class="kickoff-note" data-i18n="kickoffNote">You can close this page — I'll notify you when it's ready.</p>
+              </div>
+            </div>
+
+            <div class="stage-card" data-stage="progress">
+              <div class="progress-ring-wrap">
+                <svg class="progress-ring-spinner" width="56" height="56" viewBox="0 0 56 56">
+                  <circle class="progress-ring-bg" cx="28" cy="28" r="24"></circle>
+                  <circle class="progress-ring-fill" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="37.7"></circle>
+                </svg>
+              </div>
+              <div class="progress-body">
+                <p class="progress-label" data-i18n="progressLabel">ATLAS</p>
+                <p class="progress-status" data-i18n="statusSearching">Searching the web…</p>
+                <p class="progress-detail" data-i18n="progressDetail">This may take 10-20 minutes. You can continue chatting or leave the page.</p>
+              </div>
+              <button type="button" class="progress-cancel" data-i18n="progressCancel">Cancel</button>
+            </div>
+
+            <div class="stage-card" data-stage="completion">
+              <div class="completion-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+              <div class="completion-title-block">
+                <p class="completion-title">Quantum Error Correction Approaches in 2024</p>
+                <p class="completion-meta">In-Depth · 14 min · 87 sources · $2.43</p>
+              </div>
+            </div>
+          </div>
+          <div class="stage-controls">
+            <span class="stage-dot active" data-stage="kickoff"></span>
+            <span class="stage-dot" data-stage="progress"></span>
+            <span class="stage-dot" data-stage="completion"></span>
+            <button type="button" class="stage-btn" id="stage-play-btn">Pause</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Surface 6: Completion Card -->
+    <section class="surface-section" aria-labelledby="surface-6-title">
+      <div class="surface-label">Surface 6</div>
+      <h2 id="surface-6-title" class="surface-title" data-i18n="s6Title">Completion Card</h2>
+      <p class="surface-note" data-i18n="s6Note">The finished Atlas card with metadata, actions, and an optional quality limitation note.</p>
+
+      <div class="message-area">
+        <div class="assistant-message">
+          <div class="completion-card">
+            <div class="completion-header">
+              <div class="completion-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+              <div class="completion-title-block">
+                <p class="completion-title">Quantum Error Correction Approaches in 2024</p>
+                <p class="completion-meta" id="completion-meta" data-i18n="completionMeta">In-Depth · 14 min · 87 sources · $2.43</p>
+              </div>
+            </div>
+
+            <div class="completion-actions">
+              <button type="button" class="btn btn-primary" data-i18n="actionOpen">Open</button>
+              <div class="download-wrap">
+                <button type="button" class="icon-btn" id="download-btn" aria-label="Download" aria-haspopup="true" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <span class="icon-tooltip" data-i18n="ttDownload">Download</span>
+                </button>
+                <div class="download-menu" id="download-menu">
+                  <div class="download-menu-item" data-i18n="downloadHtml">HTML</div>
+                  <div class="download-menu-item" data-i18n="downloadPdf">PDF</div>
+                  <div class="download-menu-item" data-i18n="downloadMd">Markdown</div>
+                </div>
+              </div>
+              <button type="button" class="icon-btn" id="continue-btn" aria-label="Continue Atlas">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                  <polyline points="12 5 19 12 12 19"></polyline>
+                </svg>
+                <span class="icon-tooltip" data-i18n="ttContinue">Continue Atlas</span>
+              </button>
+              <button type="button" class="icon-btn" id="fork-btn" aria-label="Fork Atlas">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="6" y1="3" x2="6" y2="15"></line>
+                  <circle cx="18" cy="6" r="3"></circle>
+                  <circle cx="6" cy="18" r="3"></circle>
+                  <circle cx="18" cy="18" r="3"></circle>
+                  <line x1="6" y1="8" x2="18" y2="8"></line>
+                  <line x1="6" y1="15" x2="18" y2="15"></line>
+                </svg>
+                <span class="icon-tooltip" data-i18n="ttFork">Fork Atlas</span>
+              </button>
+              <button type="button" class="icon-btn" id="revise-btn" aria-label="Revise Atlas">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                <span class="icon-tooltip" data-i18n="ttRevise">Revise Atlas</span>
+              </button>
+            </div>
+
+            <div class="action-panels">
+              <div class="action-panel" id="continue-panel">
+                <p class="action-panel-title" data-i18n="continueTitle">Continue this Atlas</p>
+                <p class="action-panel-text" data-i18n="continueText">Extends this Atlas with more research. Seeded with previous findings.</p>
+                <input type="text" class="action-panel-input" id="continue-input" value="Quantum error correction approaches in 2024" />
+                <div class="action-panel-row" style="justify-content: flex-end;">
+                  <button type="button" class="btn btn-primary" data-i18n="continueStart">Start</button>
+                </div>
+              </div>
+              <div class="action-panel" id="fork-panel">
+                <p class="action-panel-title" data-i18n="forkTitle">Fork this Atlas</p>
+                <p class="action-panel-text" data-i18n="forkText">New Atlas with a modified query, branching from this one.</p>
+                <input type="text" class="action-panel-input" id="fork-input" value="Quantum error correction approaches in 2024" />
+                <div class="action-panel-row">
+                  <label class="action-checkbox">
+                    <input type="checkbox" checked id="fork-seed" />
+                    <span data-i18n="forkSeed">Seed from previous findings</span>
+                  </label>
+                  <button type="button" class="btn btn-primary" data-i18n="forkStart">Start Fork</button>
+                </div>
+              </div>
+              <div class="action-panel" id="revise-panel">
+                <p class="action-panel-title" data-i18n="reviseTitle">Revise this Atlas</p>
+                <p class="action-panel-text" data-i18n="reviseText">Re-runs with fresh searches. Previous structure is used as reference.</p>
+                <div class="action-panel-row" style="justify-content: flex-end;">
+                  <button type="button" class="btn btn-primary" data-i18n="reviseStart">Start Revision</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Surface 7: Report Viewer -->
+    <section class="surface-section" aria-labelledby="surface-7-title">
+      <div class="surface-label">Surface 7</div>
+      <h2 id="surface-7-title" class="surface-title" data-i18n="s7Title">Report Viewer</h2>
+      <p class="surface-note" data-i18n="s7Note">The core deliverable: a navigable HTML Atlas report. Use the top toggle to switch between desktop and mobile layouts.</p>
+
+      <div class="report-viewer" id="report-viewer" data-layout="desktop">
+        <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+        <aside class="report-sidebar" id="report-sidebar">
+          <p class="report-sidebar-title" data-i18n="sidebarTitle">Sections</p>
+          <nav>
+            <ul class="report-nav" id="report-nav">
+              <li><a href="#executive-summary" data-i18n="secExecutiveSummary">Executive Summary</a></li>
+              <li><a href="#surface-code" data-i18n="secSurfaceCode">Surface Code Approaches</a></li>
+              <li><a href="#topological-qubits" data-i18n="secTopological">Topological Qubits</a></li>
+              <li><a href="#hybrid-schemes" data-i18n="secHybrid">Hybrid Schemes</a></li>
+              <li><a href="#performance-comparison" data-i18n="secComparison">Performance Comparison</a></li>
+              <li><a href="#limitations" data-i18n="secLimitations">Limitations</a></li>
+              <li><a href="#sources" data-i18n="secSources">Sources</a></li>
+            </ul>
+          </nav>
+        </aside>
+
+        <div class="mobile-report-header">
+          <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Open section menu" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <p class="mobile-report-title" data-i18n="sidebarTitle">Sections</p>
+        </div>
+
+        <article class="report-content" id="report-content">
+          <h1 class="report-title" data-i18n="reportTitle">Quantum Error Correction Approaches in 2024</h1>
+
+          <section class="report-section" id="executive-summary">
+            <h2 data-i18n="secExecutiveSummary">Executive Summary</h2>
+            <p>
+              In 2024, quantum error correction (QEC) moved from laboratory curiosity toward engineering reality. Three dominant approaches have emerged: surface codes, topological qubits, and hybrid schemes that combine elements of both. Each carries distinct trade-offs in qubit overhead, error threshold, and physical maturity.
+              <span class="honesty-marker verified">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span data-i18n="verdictVerified">Verified</span>
+                <span class="honesty-tooltip"><strong data-i18n="verdictVerified">Verified</strong>Source [3] directly states this value. Cross-checked against [7] and [12].</span>
+              </span>
+            </p>
+            <p>
+              Surface codes remain the most mature path, with Google Quantum AI and IBM both reporting sub-threshold experiments in late 2024. Topological approaches promise lower overhead but depend on materials physics that is still maturing. Hybrid schemes attempt to balance these by using small surface-code patches as building blocks within larger topological or concatenated architectures.
+              <a href="#" target="_blank" rel="noopener noreferrer" class="source-chip" data-source-title="Quantum error correction below the surface code threshold" data-source-domain="arxiv.org" data-source-reason="Authoritative primary source with direct measurements of error correction performance."></a>
+              <a href="#" target="_blank" rel="noopener noreferrer" class="source-chip" data-source-title="IBM Quantum roadmap: error correction and beyond" data-source-domain="research.ibm.com" data-source-reason="Official roadmap from IBM Quantum, useful for maturity timeline."></a>
+            </p>
+            <div class="callout">
+              <p>Key takeaway: surface codes are the nearest-term path, but topological and hybrid schemes are closing the overhead gap.</p>
+            </div>
+          </section>
+
+          <section class="report-section" id="surface-code">
+            <h2 data-i18n="secSurfaceCode">Surface Code Approaches</h2>
+            <p>
+              Surface codes encode logical qubits into a two-dimensional lattice of physical qubits. The canonical recipe requires only nearest-neighbor connectivity and a modest gate set, which makes them attractive for superconducting and trapped-ion platforms. In 2024, several groups demonstrated distance-5 and distance-7 surface-code patches with logical error rates below the break-even point.
+              <span class="honesty-marker partial">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                <span data-i18n="verdictPartial">Partially Supported</span>
+                <span class="honesty-tooltip"><strong data-i18n="verdictPartial">Partially Supported</strong>Distance-5 results are well documented. Distance-7 break-even claims are reported in preprints awaiting independent verification.</span>
+              </span>
+            </p>
+            <h3>Key milestones</h3>
+            <p>
+              Google reported a below-threshold surface-code experiment using 105 physical qubits, while IBM focused on error mitigation concatenated with small code distances. Both results suggest that scaling to distance-11 or distance-13 may be necessary for fault-tolerant logical qubits in practical algorithms.
+              <a href="#" target="_blank" rel="noopener noreferrer" class="source-chip" data-source-title="Google Quantum AI: below-threshold surface code" data-source-domain="blog.google" data-source-reason="Primary announcement with experimental details and data visualization."></a>
+            </p>
+
+            <figure class="report-figure">
+              <img src="https://picsum.photos/seed/qec1/800/400" alt="Surface code lattice" loading="lazy" />
+              <figcaption class="figure-caption" data-i18n="fig1Caption">Figure 1. A distance-5 rotated surface-code patch. Data qubits sit on vertices; ancilla qubits measure X and Z stabilizers.</figcaption>
+              <p class="figure-source"><span data-i18n="fig1Source">Source:</span> <a href="#" target="_blank" rel="noopener noreferrer">Google Quantum AI, 2024</a></p>
+            </figure>
+          </section>
+
+          <section class="report-section" id="topological-qubits">
+            <h2 data-i18n="secTopological">Topological Qubits</h2>
+            <p>
+              Topological qubits store quantum information in non-local degrees of freedom, making them inherently resistant to local noise. Majorana zero modes and parafermions are the leading candidates. Microsoft and academic consortia have pursued Majorana-based topological qubits for over a decade, with renewed activity in 2024 following refined measurement protocols.
+              <span class="honesty-marker unverified">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                <span data-i18n="verdictUnverified">Unverified</span>
+                <span class="honesty-tooltip"><strong data-i18n="verdictUnverified">Unverified</strong>Topological qubit claims rely on company announcements and preprints; independent replication is limited.</span>
+              </span>
+            </p>
+            <p>
+              The primary advantage is a dramatically lower qubit overhead: a single topological qubit may replace hundreds or thousands of surface-code physical qubits. The disadvantage is materials complexity and the need for near-perfect parity measurements. As of late 2024, no topological qubit has demonstrated universal gate set performance competitive with surface-code logical qubits.
+              <a href="#" target="_blank" rel="noopener noreferrer" class="source-chip" data-source-title="Majorana zero modes and topological quantum computing" data-source-domain="nature.com" data-source-reason="Review article covering theoretical foundations and recent experimental claims."></a>
+            </p>
+
+            <figure class="report-figure">
+              <img src="https://picsum.photos/seed/qec2/800/400" alt="Topological qubit device" loading="lazy" />
+              <figcaption class="figure-caption" data-i18n="fig2Caption">Figure 2. Majorana zero-mode device schematic used in topological qubit experiments.</figcaption>
+              <p class="figure-source"><span data-i18n="fig2Source">Source:</span> <a href="#" target="_blank" rel="noopener noreferrer">Microsoft Azure Quantum, 2024</a></p>
+            </figure>
+          </section>
+
+          <section class="report-section" id="hybrid-schemes">
+            <h2 data-i18n="secHybrid">Hybrid Schemes</h2>
+            <p>
+              Hybrid schemes concatenate small surface-code patches with higher-level codes or use topological qubits as ancillas within a surface-code lattice. The goal is to reduce the total physical qubit count while retaining the forgiving error thresholds of surface codes. Several 2024 proposals combine LDPC codes at the outer level with surface-code inner decoders.
+              <span class="honesty-marker conflicting">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                <span data-i18n="verdictConflicting">Conflicting Sources</span>
+                <span class="honesty-tooltip"><strong data-i18n="verdictConflicting">Conflicting Sources</strong>Source [5] projects low overhead; source [8] argues overhead remains high until decoder improvements mature. Conflicting: [5], [8].</span>
+              </span>
+            </p>
+            <p>
+              These architectures are attractive on paper but introduce new decoding challenges. Correlated errors across concatenated levels can defeat simple minimum-weight perfect matching decoders, requiring more sophisticated belief-propagation or neural-network decoders.
+              <a href="#" target="_blank" rel="noopener noreferrer" class="source-chip" data-source-title="High-threshold quantum LDPC codes with constant encoding rate" data-source-domain="local library" data-source-reason="Theoretical paper establishing feasibility of high-threshold LDPC codes."></a>
+              <a href="#" target="_blank" rel="noopener noreferrer" class="source-chip" data-source-title="Neural-network decoders for quantum error correction" data-source-domain="local library" data-source-reason="Practical decoder study relevant to hybrid concatenated schemes."></a>
+            </p>
+          </section>
+
+          <section class="report-section" id="performance-comparison">
+            <h2 data-i18n="secComparison">Performance Comparison</h2>
+            <p>
+              The table below summarizes rough 2024 estimates for three representative approaches. Exact numbers depend heavily on hardware assumptions and decoder quality.
+            </p>
+
+            <table class="comparison-table">
+              <thead>
+                <tr>
+                  <th>Approach</th>
+                  <th>Logical Error Rate</th>
+                  <th>Qubit Overhead</th>
+                  <th>Maturity</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Surface Code</td>
+                  <td>~10<sup>-4</sup> per cycle</td>
+                  <td>High (10<sup>3</sup>–10<sup>4</sup>)</td>
+                  <td>Experimental</td>
+                </tr>
+                <tr>
+                  <td>Topological</td>
+                  <td>Unknown / projected low</td>
+                  <td>Low (10<sup>1</sup>–10<sup>2</sup>)</td>
+                  <td>Early research</td>
+                </tr>
+                <tr>
+                  <td>Hybrid LDPC + Surface</td>
+                  <td>~10<sup>-5</sup> per cycle</td>
+                  <td>Moderate (10<sup>2</sup>–10<sup>3</sup>)</td>
+                  <td>Theoretical / simulation</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="chart-placeholder">
+              <svg width="420" height="180" viewBox="0 0 420 180" aria-hidden="true">
+                <rect x="40" y="20" width="80" height="140" fill="rgba(193,95,60,0.25)" rx="4"></rect>
+                <rect x="160" y="80" width="80" height="80" fill="rgba(193,95,60,0.15)" rx="4"></rect>
+                <rect x="280" y="50" width="80" height="110" fill="rgba(193,95,60,0.20)" rx="4"></rect>
+                <text x="80" y="175" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--text-muted)">Surface</text>
+                <text x="200" y="175" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--text-muted)">Topological</text>
+                <text x="320" y="175" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--text-muted)">Hybrid</text>
+                <text x="210" y="14" text-anchor="middle" font-family="var(--font-sans)" font-size="12" font-weight="600" fill="var(--text-primary)">Relative Qubit Overhead (lower is better)</text>
+              </svg>
+              <p class="chart-label">Chart: Error Correction Performance — illustrative bar chart</p>
+            </div>
+          </section>
+
+          <section class="report-section" id="limitations">
+            <div class="limitations-box">
+              <h2 data-i18n="secLimitations">Limitations</h2>
+              <p>
+                This Atlas synthesizes publicly available literature and preprints as of late 2024. Several claims about topological and hybrid schemes are based on theoretical projections or company announcements rather than peer-reviewed experiments. Cost estimates are approximate and do not include cryogenic control electronics or engineering overhead. Readers should treat the performance comparison as directional rather than definitive.
+              </p>
+            </div>
+          </section>
+
+          <section class="report-section" id="sources">
+            <h2 data-i18n="secSources">Sources</h2>
+
+            <p class="source-subheading" data-i18n="sourceWeb">Web Sources</p>
+            <ul class="source-list">
+              <li class="source-item">
+                <span class="source-chip" data-source-title="Quantum error correction below the surface code threshold" data-source-domain="arxiv.org" data-source-reason="Authoritative primary source with direct measurements of error correction performance."></span>
+                <a href="#" target="_blank" rel="noopener noreferrer">Quantum error correction below the surface code threshold</a>
+                <span class="source-domain">arxiv.org</span>
+              </li>
+              <li class="source-item">
+                <span class="source-chip" data-source-title="IBM Quantum roadmap: error correction and beyond" data-source-domain="research.ibm.com" data-source-reason="Official roadmap from IBM Quantum, useful for maturity timeline."></span>
+                <a href="#" target="_blank" rel="noopener noreferrer">IBM Quantum roadmap: error correction and beyond</a>
+                <span class="source-domain">research.ibm.com</span>
+              </li>
+              <li class="source-item">
+                <span class="source-chip" data-source-title="Google Quantum AI: below-threshold surface code" data-source-domain="blog.google" data-source-reason="Primary announcement with experimental details and data visualization."></span>
+                <a href="#" target="_blank" rel="noopener noreferrer">Google Quantum AI: below-threshold surface code</a>
+                <span class="source-domain">blog.google</span>
+              </li>
+              <li class="source-item">
+                <span class="source-chip" data-source-title="Majorana zero modes and topological quantum computing" data-source-domain="nature.com" data-source-reason="Review article covering theoretical foundations and recent experimental claims."></span>
+                <a href="#" target="_blank" rel="noopener noreferrer">Majorana zero modes and topological quantum computing</a>
+                <span class="source-domain">nature.com</span>
+              </li>
+            </ul>
+
+            <p class="source-subheading" data-i18n="sourceLibrary">Your Library</p>
+            <ul class="source-list">
+              <li class="source-item">
+                <span class="source-chip" data-source-title="High-threshold quantum LDPC codes with constant encoding rate" data-source-domain="local library" data-source-reason="Theoretical paper establishing feasibility of high-threshold LDPC codes."></span>
+                <a href="#" target="_blank" rel="noopener noreferrer">High-threshold quantum LDPC codes with constant encoding rate</a>
+                <span class="source-domain">local library</span>
+              </li>
+              <li class="source-item">
+                <span class="source-chip" data-source-title="Neural-network decoders for quantum error correction" data-source-domain="local library" data-source-reason="Practical decoder study relevant to hybrid concatenated schemes."></span>
+                <a href="#" target="_blank" rel="noopener noreferrer">Neural-network decoders for quantum error correction</a>
+                <span class="source-domain">local library</span>
+              </li>
+            </ul>
+          </section>
+        </article>
+      </div>
+    </section>
+
+    <!-- Surface 8: Sidebar Badge -->
+    <section class="surface-section" aria-labelledby="surface-8-title">
+      <div class="surface-label">Surface 8</div>
+      <h2 id="surface-8-title" class="surface-title" data-i18n="s8Title">Sidebar Badge</h2>
+      <p class="surface-note" data-i18n="s8Note">A colored dot next to a conversation indicates a completed Atlas. Hover to see the 3-dots menu coexistence.</p>
+
+      <div class="sidebar-mock">
+        <p class="sidebar-heading" data-i18n="sidebarHeading">Conversations</p>
+        <div class="conversation-item" data-conv="1">
+          <span class="conversation-title">QEC approaches 2024</span>
+          <div class="conversation-actions">
+            <span class="atlas-badge" aria-label="Atlas completed"></span>
+            <button type="button" class="menu-btn" aria-label="More options">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="1"></circle>
+                <circle cx="19" cy="12" r="1"></circle>
+                <circle cx="5" cy="12" r="1"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="conversation-item active" data-conv="2">
+          <span class="conversation-title">Project Phoenix notes</span>
+          <div class="conversation-actions">
+            <button type="button" class="menu-btn" aria-label="More options">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="1"></circle>
+                <circle cx="19" cy="12" r="1"></circle>
+                <circle cx="5" cy="12" r="1"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="conversation-item" data-conv="3">
+          <span class="conversation-title">Dinner planning</span>
+          <div class="conversation-actions">
+            <button type="button" class="menu-btn" aria-label="More options">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="1"></circle>
+                <circle cx="19" cy="12" r="1"></circle>
+                <circle cx="5" cy="12" r="1"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="conversation-item" data-conv="4">
+          <span class="conversation-title">Weekly standup draft</span>
+          <div class="conversation-actions">
+            <button type="button" class="menu-btn" aria-label="More options">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="1"></circle>
+                <circle cx="19" cy="12" r="1"></circle>
+                <circle cx="5" cy="12" r="1"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="conversation-item" data-conv="5">
+          <span class="conversation-title">Vacation itinerary</span>
+          <div class="conversation-actions">
+            <button type="button" class="menu-btn" aria-label="More options">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="1"></circle>
+                <circle cx="19" cy="12" r="1"></circle>
+                <circle cx="5" cy="12" r="1"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function() {
+      const i18n = {
+        en: {
+          pageTitle: 'Atlas UI Surfaces — AlfyAI Prototype',
+          prototypeTitle: 'Atlas UI Surfaces',
+          prototypeSubtitle: 'AlfyAI Design Review',
+          layoutDesktop: 'Desktop',
+          layoutMobile: 'Mobile',
+          langEn: 'EN',
+          langHu: 'HU',
+          s1Title: 'Entry Point — Atlas in the Composer',
+          s1Note: 'Click the "+" button to open the composer tools menu, then choose Atlas.',
+          composerPlaceholder: 'Ask anything...',
+          toolAtlas: 'Atlas',
+          toolAttach: 'Attach file',
+          toolImage: 'Image',
+          s2Title: 'Profile Picker',
+          s2Note: 'Appears after choosing Atlas from the composer. Select a depth profile.',
+          profileTitle: 'Choose an Atlas profile',
+          profileSubtitle: 'Deeper reports take more time and sources.',
+          profileOverview: 'Overview',
+          profileOverviewDesc: 'A concise snapshot with key takeaways and a handful of sources.',
+          profileInDepth: 'In-Depth',
+          profileInDepthDesc: 'Balanced breadth and detail: sections, comparisons, and citations.',
+          profileExhaustive: 'Exhaustive',
+          profileExhaustiveDesc: 'Comprehensive coverage, multiple angles, and extensive source review.',
+          s3Title: 'Atlas Chip',
+          s3Note: 'The selected profile appears as a compact chip below the composer input. Pick a profile above to see it.',
+          chipLabel: 'Atlas: {profile}',
+          s4Title: 'Kickoff Message',
+          s4Note: 'A distinct assistant card confirms the Atlas topic, profile, and estimated time.',
+          kickoffTitle: 'I\'m compiling your Atlas on "Quantum error correction approaches in 2024."',
+          kickoffProfile: '{profile} · Est. {time}',
+          kickoffNote: 'You can close this page — I\'ll notify you when it\'s ready.',
+          s5Title: 'Progress Card',
+          s5Note: 'Live progress with cycling status messages. Click Cancel to see the cancelled state. The queued variant shows a simpler pulse.',
+          progressLabel: 'ATLAS',
+          progressDetail: 'This may take {time}. You can continue chatting or leave the page.',
+          progressCancel: 'Cancel',
+          progressRestart: 'Restart',
+          progressCancelled: 'Cancelled',
+          queuedText: 'Waiting for a research slot…',
+          statusSearching: 'Searching the web…',
+          statusReading: 'Reading sources…',
+          statusAnalyzing: 'Analyzing evidence…',
+          statusWriting: 'Writing your report…',
+          statusChecking: 'Checking citations…',
+          s6Title: 'Completion Card',
+          s6Note: 'The finished Atlas card with metadata, actions, and an optional quality limitation note.',
+          completionMeta: '{profile} · {time} · {sources} sources · ${cost}',
+          actionOpen: 'Open',
+          actionDownload: 'Download',
+          actionContinue: 'Continue Atlas',
+          actionFork: 'Fork Atlas',
+          actionRevise: 'Revise Atlas',
+          downloadHtml: 'HTML',
+          downloadPdf: 'PDF',
+          downloadMd: 'Markdown',
+          continueTitle: 'Continue this Atlas',
+          continueText: 'Extends this Atlas with more research. Seeded with previous findings.',
+          continueStart: 'Start',
+          forkTitle: 'Fork this Atlas',
+          forkText: 'New Atlas with a modified query, branching from this one.',
+          forkSeed: 'Seed from previous findings',
+          forkStart: 'Start Fork',
+          reviseTitle: 'Revise this Atlas',
+          reviseText: 'Re-runs with fresh searches. Previous structure is used as reference.',
+          reviseStart: 'Start Revision',
+          s7Title: 'Report Viewer',
+          s7Note: 'The core deliverable: a navigable HTML Atlas report. Use the top toggle to switch between desktop and mobile layouts. Use the style toggle below to switch between visual styles.',
+          sidebarTitle: 'Sections',
+          reportTitle: 'Quantum Error Correction Approaches in 2024',
+          s8Title: 'Sidebar Badge',
+          s8Note: 'A colored dot next to a conversation indicates a completed Atlas. Hover to see the 3-dots menu coexistence.',
+          sidebarHeading: 'Conversations',
+          secExecutiveSummary: 'Executive Summary',
+          secSurfaceCode: 'Surface Code Approaches',
+          secTopological: 'Topological Qubits',
+          secHybrid: 'Hybrid Schemes',
+          secComparison: 'Performance Comparison',
+          secLimitations: 'Limitations',
+          secSources: 'Sources',
+          sourceWeb: 'Web Sources',
+          sourceLibrary: 'Your Library',
+          verdictVerified: 'Verified',
+          verdictPartial: 'Partially Supported',
+          verdictUnverified: 'Unverified',
+          verdictConflicting: 'Conflicting Sources',
+          fig1Caption: 'Figure 1. A distance-5 rotated surface-code patch. Data qubits sit on vertices; ancilla qubits measure X and Z stabilizers.',
+          fig1Source: 'Source:',
+          fig2Caption: 'Figure 2. Majorana zero-mode device schematic used in topological qubit experiments.',
+          fig2Source: 'Source:',
+          ttDownload: 'Download',
+          ttContinue: 'Continue Atlas',
+          ttFork: 'Fork Atlas',
+          ttRevise: 'Revise Atlas',
+          ttMenu: 'More options'
+        },
+        hu: {
+          pageTitle: 'Atlas UI felületek — AlfyAI prototípus',
+          prototypeTitle: 'Atlas UI felületek',
+          prototypeSubtitle: 'AlfyAI dizájn áttekintés',
+          layoutDesktop: 'Asztali',
+          layoutMobile: 'Mobil',
+          langEn: 'EN',
+          langHu: 'HU',
+          s1Title: 'Belépési pont — Atlas a szerkesztőben',
+          s1Note: 'Kattints a "+" gombra az eszközmenü megnyitásához, majd válaszd az Atlas-t.',
+          composerPlaceholder: 'Kérdezz bármit…',
+          toolAtlas: 'Atlas',
+          toolAttach: 'Fájl csatolása',
+          toolImage: 'Kép',
+          s2Title: 'Profilválasztó',
+          s2Note: 'Az Atlas kiválasztása után jelenik meg. Válassz mélységi profilt.',
+          profileTitle: 'Válassz Atlas profilt',
+          profileSubtitle: 'A mélyebb jelentések több időt és forrást igényelnek.',
+          profileOverview: 'Áttekintés',
+          profileOverviewDesc: 'Tömör összefoglaló a legfontosabb tanulságokkal és néhány forrással.',
+          profileInDepth: 'Részletes',
+          profileInDepthDesc: 'Kiegyensúlyozott szélesség és részletesség: szakaszok, összehasonlítások és hivatkozások.',
+          profileExhaustive: 'Kimerítő',
+          profileExhaustiveDesc: 'Átfogó lefedettség, több szempont és széles körű forrásvizsgálat.',
+          s3Title: 'Atlas címke',
+          s3Note: 'A kiválasztott profil egy kompakt címkeként jelenik meg a szerkesztő alatt. Válassz profilt fent, hogy lásd.',
+          chipLabel: 'Atlas: {profile}',
+          s4Title: 'Indító üzenet',
+          s4Note: 'Egy különálló asszisztens kártya erősíti meg az Atlas témáját, profilját és becsült idejét.',
+          kickoffTitle: 'Összeállítom az Atlas-odat a következő témában: "Kvantum hibajavítási megközelítések 2024-ben."',
+          kickoffProfile: '{profile} · Becsült idő: {time}',
+          kickoffNote: 'Bezárhatod ezt az oldalt — értesítelek, amikor elkészült.',
+          s5Title: 'Folyamatkártya',
+          s5Note: 'Élő folyamat váltakozó állapotüzenetekkel. Kattints a Mégse gombra a leállított állapot megtekintéséhez. A sorban álló változat egyszerűbb pulzálást mutat.',
+          progressLabel: 'ATLAS',
+          progressDetail: 'Ez eltarthat {time}. Folytathatod a beszélgetést, vagy elhagyhatod az oldalt.',
+          progressCancel: 'Mégse',
+          progressRestart: 'Újraindítás',
+          progressCancelled: 'Megszakítva',
+          queuedText: 'Várakozás kutatási helyre…',
+          statusSearching: 'Webes keresés…',
+          statusReading: 'Források olvasása…',
+          statusAnalyzing: 'Bizonyítékok elemzése…',
+          statusWriting: 'Jelentés írása…',
+          statusChecking: 'Hivatkozások ellenőrzése…',
+          s6Title: 'Befejezési kártya',
+          s6Note: 'Az elkészült Atlas kártya metaadatokkal, műveletekkel és opcionális minőségi korlátozási megjegyzéssel.',
+          completionMeta: '{profile} · {time} · {sources} forrás · ${cost}',
+          actionOpen: 'Megnyitás',
+          actionDownload: 'Letöltés',
+          actionContinue: 'Atlas folytatása',
+          actionFork: 'Atlas elágaztatása',
+          actionRevise: 'Atlas felülvizsgálata',
+          downloadHtml: 'HTML',
+          downloadPdf: 'PDF',
+          downloadMd: 'Markdown',
+          continueTitle: 'Atlas folytatása',
+          continueText: 'További kutatással bővíti ezt az Atlas-t. Előző eredményekkel inicializálva.',
+          continueStart: 'Indítás',
+          forkTitle: 'Atlas elágaztatása',
+          forkText: 'Új Atlas módosított lekérdezéssel, ebből ágaztatva.',
+          forkSeed: 'Előző eredmények felhasználása',
+          forkStart: 'Elágaztatás indítása',
+          reviseTitle: 'Atlas felülvizsgálata',
+          reviseText: 'Friss keresésekkel fut újra. Az előző szerkezet referenciaként szolgál.',
+          reviseStart: 'Felülvizsgálat indítása',
+          s7Title: 'Jelentésmegjelenítő',
+          s7Note: 'A központi eredmény: navigálható HTML Atlas jelentés. A fenti kapcsolóval válthatsz asztali és mobil elrendezés között. Az alábbi stílusválasztóval válthatsz vizuális stílusok között.',
+          sidebarTitle: 'Szakaszok',
+          reportTitle: 'Quantum Error Correction Approaches in 2024',
+          s8Title: 'Oldalsáv jelvény',
+          s8Note: 'Egy színes pont a beszélgetés mellett jelzi az elkészült Atlas-t. Vidd az egeret fölé a 3-pontos menü együttélésének megtekintéséhez.',
+          sidebarHeading: 'Beszélgetések',
+          secExecutiveSummary: 'Vezetői összefoglaló',
+          secSurfaceCode: 'Felületi kód megközelítések',
+          secTopological: 'Topológikus kubitek',
+          secHybrid: 'Hibrid sémák',
+          secComparison: 'Teljesítmény-összehasonlítás',
+          secLimitations: 'Korlátozások',
+          secSources: 'Források',
+          sourceWeb: 'Webes források',
+          sourceLibrary: 'Saját könyvtár',
+          verdictVerified: 'Ellenőrzött',
+          verdictPartial: 'Részben támogatott',
+          verdictUnverified: 'Nem ellenőrzött',
+          verdictConflicting: 'Ellentmondó források',
+          fig1Caption: '1. ábra. Egy távolság-5 elforgatott felületi kód-rács. Az adatkubitek a csúcsokon vannak; a segédkubitek az X és Z stabilizátorokat mérik.',
+          fig1Source: 'Forrás:',
+          fig2Caption: '2. ábra. Majorana zérus-módú eszköz sematikus rajza topológikus kubit kísérletekhez.',
+          fig2Source: 'Forrás:',
+          ttDownload: 'Letöltés',
+          ttContinue: 'Atlas folytatása',
+          ttFork: 'Atlas elágaztatása',
+          ttRevise: 'Atlas felülvizsgálata',
+          ttMenu: 'További lehetőségek'
+        }
+      };
+
+      let currentLang = 'en';
+      let selectedProfile = { key: 'in-depth', name: 'In-Depth', time: '~10-20 min' };
+
+      function t(key, vars) {
+        let text = i18n[currentLang][key] || i18n.en[key] || key;
+        if (vars) {
+          Object.keys(vars).forEach(function(k) {
+            text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), vars[k]);
+          });
+        }
+        return text;
+      }
+
+      function updateLanguage() {
+        document.documentElement.lang = currentLang;
+        document.querySelectorAll('[data-i18n]').forEach(function(el) {
+          const key = el.dataset.i18n;
+          const vars = {};
+          if (key === 'chipLabel') vars.profile = t('profile' + selectedProfile.name.replace(/\s+/g, ''));
+          if (key === 'kickoffTitle') vars.query = 'Quantum error correction approaches in 2024';
+          if (key === 'kickoffProfile') { vars.profile = t('profile' + selectedProfile.name.replace(/\s+/g, '')); vars.time = selectedProfile.time; }
+          if (key === 'progressDetail') vars.time = selectedProfile.time;
+          if (key === 'completionMeta') { vars.profile = t('profile' + selectedProfile.name.replace(/\s+/g, '')); vars.time = '14 min'; vars.sources = '87'; vars.cost = '2.43'; }
+          el.textContent = t(key, vars);
+        });
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
+          el.placeholder = t(el.dataset.i18nPlaceholder);
+        });
+      }
+
+      const langButtons = document.querySelectorAll('.lang-toggle button');
+      langButtons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          currentLang = btn.dataset.lang;
+          langButtons.forEach(function(b) {
+            b.classList.toggle('active', b.dataset.lang === currentLang);
+            b.setAttribute('aria-pressed', String(b.dataset.lang === currentLang));
+          });
+          updateLanguage();
+        });
+      });
+
+      const toolsBtn = document.getElementById('composer-tools-btn');
+      const toolsDropdown = document.getElementById('tools-dropdown');
+      const profilePicker = document.getElementById('profile-picker');
+      const atlasChip = document.getElementById('atlas-chip');
+      const chipLabel = document.getElementById('chip-label');
+      const chipRemove = document.getElementById('chip-remove');
+
+      function closeTools() {
+        toolsDropdown.classList.remove('open');
+        toolsBtn.setAttribute('aria-expanded', 'false');
+      }
+
+      toolsBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const isOpen = toolsDropdown.classList.toggle('open');
+        toolsBtn.setAttribute('aria-expanded', String(isOpen));
+      });
+
+      toolsDropdown.addEventListener('click', function(e) {
+        const item = e.target.closest('.tools-dropdown-item');
+        if (!item) return;
+        if (item.dataset.action === 'atlas') {
+          closeTools();
+          profilePicker.classList.add('open');
+          profilePicker.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+
+      document.addEventListener('click', function(e) {
+        if (!toolsDropdown.contains(e.target) && e.target !== toolsBtn) {
+          closeTools();
+        }
+      });
+
+      const profileCards = document.querySelectorAll('.profile-card');
+      profileCards.forEach(function(card) {
+        card.addEventListener('click', function() {
+          const key = card.dataset.profile;
+          const nameMap = { overview: 'Overview', 'in-depth': 'In-Depth', exhaustive: 'Exhaustive' };
+          selectedProfile = { key: key, name: nameMap[key], time: card.dataset.time };
+          chipLabel.textContent = t('chipLabel', { profile: t('profile' + selectedProfile.name.replace(/\s+/g, '')) });
+          atlasChip.classList.add('visible');
+          profilePicker.classList.remove('open');
+          updateLanguage();
+          document.getElementById('surface-3-title').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      });
+
+      chipRemove.addEventListener('click', function() {
+        atlasChip.classList.remove('visible');
+      });
+
+      const progressStatus = document.getElementById('progress-status');
+      const progressRing = document.getElementById('progress-ring');
+      const progressCard = document.getElementById('progress-card');
+      const progressCancel = document.getElementById('progress-cancel');
+      const statusKeys = ['statusSearching', 'statusReading', 'statusAnalyzing', 'statusWriting', 'statusChecking'];
+      let statusIndex = 0;
+      let progressInterval = null;
+      let cancelled = false;
+
+      function startProgress() {
+        if (progressInterval) return;
+        statusIndex = 0;
+        cancelled = false;
+        progressCard.classList.remove('cancelled');
+        progressCancel.textContent = t('progressCancel');
+        progressStatus.textContent = t(statusKeys[0]);
+        progressRing.style.strokeDashoffset = '37.7';
+
+        progressInterval = setInterval(function() {
+          if (cancelled) return;
+          statusIndex = (statusIndex + 1) % statusKeys.length;
+          progressStatus.textContent = t(statusKeys[statusIndex]);
+          const pct = (statusIndex + 1) / statusKeys.length;
+          const circumference = 150.8;
+          progressRing.style.strokeDashoffset = String(circumference * (1 - pct));
+        }, 3000);
+      }
+
+      progressCancel.addEventListener('click', function() {
+        if (!cancelled) {
+          cancelled = true;
+          clearInterval(progressInterval);
+          progressInterval = null;
+          progressStatus.textContent = t('progressCancelled');
+          progressCard.classList.add('cancelled');
+          progressCancel.textContent = t('progressRestart');
+          progressRing.style.strokeDashoffset = '150.8';
+        } else {
+          startProgress();
+        }
+      });
+
+      startProgress();
+
+      const downloadBtn = document.getElementById('download-btn');
+      const downloadMenu = document.getElementById('download-menu');
+      const continueBtn = document.getElementById('continue-btn');
+      const forkBtn = document.getElementById('fork-btn');
+      const reviseBtn = document.getElementById('revise-btn');
+      const continuePanel = document.getElementById('continue-panel');
+      const forkPanel = document.getElementById('fork-panel');
+      const revisePanel = document.getElementById('revise-panel');
+
+      function closeAllPanels() {
+        [continuePanel, forkPanel, revisePanel].forEach(function(p) { p.classList.remove('open'); });
+        [continueBtn, forkBtn, reviseBtn].forEach(function(b) { b.classList.remove('active'); });
+      }
+
+      function togglePanel(btn, panel) {
+        const isOpen = panel.classList.contains('open');
+        closeAllPanels();
+        if (!isOpen) {
+          panel.classList.add('open');
+          btn.classList.add('active');
+        }
+      }
+
+      downloadBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        downloadMenu.classList.toggle('open');
+        downloadBtn.setAttribute('aria-expanded', String(downloadMenu.classList.contains('open')));
+      });
+
+      continueBtn.addEventListener('click', function() { togglePanel(continueBtn, continuePanel); });
+      forkBtn.addEventListener('click', function() { togglePanel(forkBtn, forkPanel); });
+      reviseBtn.addEventListener('click', function() { togglePanel(reviseBtn, revisePanel); });
+
+      document.addEventListener('click', function(e) {
+        if (!downloadMenu.contains(e.target) && e.target !== downloadBtn) {
+          downloadMenu.classList.remove('open');
+          downloadBtn.setAttribute('aria-expanded', 'false');
+        }
+      });
+
+      const reportContent = document.getElementById('report-content');
+      const reportNavLinks = document.querySelectorAll('#report-nav a');
+      const reportSections = document.querySelectorAll('.report-section');
+
+      function updateActiveSection() {
+        const scrollTop = reportContent.scrollTop;
+        let activeId = '';
+        reportSections.forEach(function(section) {
+          const offsetTop = section.offsetTop - reportContent.offsetTop;
+          if (scrollTop >= offsetTop - 40) {
+            activeId = section.id;
+          }
+        });
+        reportNavLinks.forEach(function(link) {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + activeId);
+        });
+      }
+
+      reportContent.addEventListener('scroll', updateActiveSection);
+      updateActiveSection();
+
+      const convItems = document.querySelectorAll('.conversation-item');
+      convItems.forEach(function(item) {
+        item.addEventListener('click', function() {
+          convItems.forEach(function(i) { i.classList.remove('active'); });
+          item.classList.add('active');
+          const badge = item.querySelector('.atlas-badge');
+          if (badge) badge.classList.add('hidden');
+        });
+      });
+
+      const layoutToggleButtons = document.querySelectorAll('.layout-toggle button');
+      const reportViewer = document.getElementById('report-viewer');
+      const reportSidebar = document.getElementById('report-sidebar');
+      const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+      const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+
+      function setLayout(layout) {
+        layoutToggleButtons.forEach(function(btn) {
+          const isActive = btn.dataset.layout === layout;
+          btn.classList.toggle('active', isActive);
+          btn.setAttribute('aria-pressed', String(isActive));
+        });
+        reportViewer.classList.toggle('mobile', layout === 'mobile');
+        reportViewer.dataset.layout = layout;
+        closeMobileSidebar();
+      }
+
+      function openMobileSidebar() {
+        reportSidebar.classList.add('open');
+        sidebarBackdrop.classList.add('open');
+        mobileMenuBtn.setAttribute('aria-expanded', 'true');
+      }
+
+      function closeMobileSidebar() {
+        reportSidebar.classList.remove('open');
+        sidebarBackdrop.classList.remove('open');
+        mobileMenuBtn.setAttribute('aria-expanded', 'false');
+      }
+
+      layoutToggleButtons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          setLayout(btn.dataset.layout);
+        });
+      });
+
+      mobileMenuBtn.addEventListener('click', function() {
+        if (reportSidebar.classList.contains('open')) {
+          closeMobileSidebar();
+        } else {
+          openMobileSidebar();
+        }
+      });
+
+      sidebarBackdrop.addEventListener('click', closeMobileSidebar);
+
+      reportNavLinks.forEach(function(link) {
+        link.addEventListener('click', function() {
+          if (reportViewer.classList.contains('mobile')) {
+            closeMobileSidebar();
+          }
+        });
+      });
+
+      const stageCards = document.querySelectorAll('.stage-card');
+      const stageDots = document.querySelectorAll('.stage-dot');
+      const stagePlayBtn = document.getElementById('stage-play-btn');
+      const stageOrder = ['kickoff', 'progress', 'completion'];
+      let stageIndex = 0;
+      let stageTimer = null;
+      let stagePlaying = true;
+
+      function setStage(name) {
+        stageIndex = stageOrder.indexOf(name);
+        stageCards.forEach(function(card) {
+          card.classList.toggle('active', card.dataset.stage === name);
+        });
+        stageDots.forEach(function(dot) {
+          dot.classList.toggle('active', dot.dataset.stage === name);
+        });
+      }
+
+      function nextStage() {
+        stageIndex = (stageIndex + 1) % stageOrder.length;
+        setStage(stageOrder[stageIndex]);
+      }
+
+      function startStageTimer() {
+        if (stageTimer) return;
+        stageTimer = setInterval(nextStage, 2500);
+        stagePlaying = true;
+        if (stagePlayBtn) stagePlayBtn.textContent = 'Pause';
+      }
+
+      function stopStageTimer() {
+        if (stageTimer) {
+          clearInterval(stageTimer);
+          stageTimer = null;
+        }
+        stagePlaying = false;
+        if (stagePlayBtn) stagePlayBtn.textContent = 'Play';
+      }
+
+      stageDots.forEach(function(dot) {
+        dot.addEventListener('click', function() {
+          stopStageTimer();
+          setStage(dot.dataset.stage);
+        });
+      });
+
+      if (stagePlayBtn) {
+        stagePlayBtn.addEventListener('click', function() {
+          if (stagePlaying) {
+            stopStageTimer();
+          } else {
+            startStageTimer();
+          }
+        });
+      }
+
+      startStageTimer();
+
+      function populateSourceChips() {
+        document.querySelectorAll('.source-chip').forEach(function(chip) {
+          const title = chip.dataset.sourceTitle || '';
+          const domain = chip.dataset.sourceDomain || '';
+          const reason = chip.dataset.sourceReason || '';
+          const isLocal = domain.toLowerCase() === 'local library';
+          const faviconUrl = isLocal ? '' : 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(domain) + '&sz=32';
+
+          const favicon = document.createElement(isLocal ? 'div' : 'img');
+          favicon.className = 'favicon-placeholder';
+          if (!isLocal) {
+            favicon.src = faviconUrl;
+            favicon.alt = '';
+          }
+
+          const tooltip = document.createElement('span');
+          tooltip.className = 'source-tooltip';
+          tooltip.innerHTML =
+            '<div class="source-tooltip-head">' +
+              '<span class="source-favicon">' + (isLocal ? '<div class="favicon-placeholder"></div>' : '<img src="' + faviconUrl + '" alt="" />') + '</span>' +
+              '<span class="source-tooltip-title">' + title + '</span>' +
+            '</div>' +
+            '<p class="source-tooltip-reason">' + reason + '</p>';
+
+          chip.innerHTML = '';
+          chip.appendChild(favicon);
+          chip.appendChild(tooltip);
+        });
+      }
+
+      populateSourceChips();
+
+      setLayout('desktop');
+    })();
+  </script>
+
+</body>
+</html>

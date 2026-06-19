@@ -54,6 +54,8 @@ export const load: PageLoad = async ({
 		bootstrap: detail.bootstrap ?? false,
 		generatedFiles: detail.generatedFiles ?? [],
 		fileProductionJobs: detail.fileProductionJobs ?? [],
+		atlasJobs: detail.atlasJobs ?? [],
+		atlasAvailability: detail.atlasAvailability ?? null,
 		contextCompressionSnapshots: detail.contextCompressionSnapshots ?? [],
 		activeSkillSession: detail.activeSkillSession ?? null,
 		totalCostUsdMicros: detail.totalCostUsdMicros ?? 0,

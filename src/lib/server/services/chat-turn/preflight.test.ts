@@ -74,6 +74,11 @@ function makeRequest(
 		thinkingMode: "auto",
 		forceWebSearch: false,
 		skipPersistUserMessage: false,
+		atlasMode: false,
+		atlasProfile: null,
+		atlasAction: "create",
+		parentAtlasId: null,
+		clientAtlasTurnId: null,
 		...overrides,
 	};
 }

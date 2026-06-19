@@ -60,9 +60,7 @@ import {
 	getActiveMemoryProfileContext,
 	type MemoryProfileScope,
 } from "../memory-profile/active-context";
-import {
-	recordMemoryReworkTelemetry,
-} from "../memory-profile/telemetry";
+import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
 import {
 	getConversationProjectId,
 	getConversationProjectLabel,

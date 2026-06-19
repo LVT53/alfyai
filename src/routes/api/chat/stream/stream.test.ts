@@ -78,6 +78,11 @@ const parsedRequest = {
 	forceWebSearch: false,
 	skipPersistUserMessage: false,
 	attachmentTraceId: undefined,
+	atlasMode: false,
+	atlasProfile: null,
+	atlasAction: "create",
+	parentAtlasId: null,
+	clientAtlasTurnId: null,
 };
 
 const preflightedTurn = {
@@ -249,6 +254,39 @@ describe("POST /api/chat/stream route adapter", () => {
 		expect(data).toEqual({
 			status: 400,
 			error: "Message must be a non-empty string",
+		});
+		expect(checkStreamCapacity).not.toHaveBeenCalled();
+		expect(preflightChatTurn).not.toHaveBeenCalled();
+		expect(runChatStreamOrchestrator).not.toHaveBeenCalled();
+	});
+
+	it("rejects Atlas turns before capacity, preflight, or stream orchestration", async () => {
+		mocks.parseChatTurnRequest.mockResolvedValueOnce({
+			ok: true,
+			value: {
+				...parsedRequest,
+				atlasMode: true,
+				atlasProfile: "overview",
+				clientAtlasTurnId: "atlas-client-1",
+			},
+		});
+
+		const response = await POST(
+			makeEvent({
+				message: "Research the current market",
+				conversationId: "conv-1",
+				atlasMode: true,
+				atlasProfile: "overview",
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(400);
+		expect(response.headers.get("Content-Type")).toBe("application/json");
+		expect(data).toEqual({
+			status: 400,
+			error: "Atlas turns must be started through /api/chat/send.",
+			code: "ATLAS_STREAM_UNSUPPORTED",
 		});
 		expect(checkStreamCapacity).not.toHaveBeenCalled();
 		expect(preflightChatTurn).not.toHaveBeenCalled();

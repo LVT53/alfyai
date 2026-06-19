@@ -74,6 +74,25 @@ describe("ConversationItem Component", () => {
 		expect(screen.queryByRole("tree")).not.toBeInTheDocument();
 	});
 
+	it("renders a compact completed Atlas badge without replacing the hover menu", () => {
+		render(ConversationItemWrapper, {
+			conversation: {
+				...mockConversation,
+				atlasBadge: {
+					status: "succeeded",
+					label: "Completed Atlas report",
+				},
+			},
+		});
+
+		const indicator = screen.getByLabelText("Completed Atlas report");
+		expect(indicator).toBeInTheDocument();
+		expect(indicator).toHaveAttribute("role", "img");
+		expect(
+			screen.getByRole("button", { name: "Conversation options" }),
+		).toBeInTheDocument();
+	});
+
 	it("dispatches select event when clicked", async () => {
 		const mockSelect = vi.fn();
 		const { container } = render(ConversationItemWrapper, {

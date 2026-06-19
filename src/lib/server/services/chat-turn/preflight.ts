@@ -125,6 +125,40 @@ export async function preflightChatTurn(params: {
 	};
 }
 
+export async function preflightAtlasTurnSources(params: {
+	userId: string;
+	request: ParsedChatTurnRequest;
+}): Promise<
+	| {
+			ok: true;
+			value: { linkedSources: ParsedChatTurnRequest["linkedSources"] };
+	  }
+	| PreflightError
+> {
+	const { userId, request } = params;
+	const conversation = await getConversation(userId, request.conversationId);
+	if (!conversation) {
+		return {
+			ok: false,
+			error: { status: 404, error: "Conversation not found" },
+		};
+	}
+
+	const attachmentValidation = await validateAttachmentReadiness(
+		userId,
+		request,
+	);
+	if (attachmentValidation) return attachmentValidation;
+
+	const resolvedLinkedSources = await resolveLinkedSources(userId, request);
+	if (!resolvedLinkedSources.ok) return resolvedLinkedSources;
+
+	return {
+		ok: true,
+		value: { linkedSources: resolvedLinkedSources.value },
+	};
+}
+
 async function validateAttachmentReadiness(
 	userId: string,
 	request: ParsedChatTurnRequest,
@@ -339,10 +373,7 @@ async function resolveDepthClarificationCarryForward(params: {
 	conversationId: string;
 	request: Pick<
 		ParsedChatTurnRequest,
-		| "reasoningDepth"
-		| "modelId"
-		| "modelDisplayName"
-		| "providerDisplayName"
+		"reasoningDepth" | "modelId" | "modelDisplayName" | "providerDisplayName"
 	>;
 }): Promise<DepthMetadata | null> {
 	const messages = await listMessages(params.conversationId).catch(() => []);

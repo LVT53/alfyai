@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import * as facade from "./index";
 import * as activeContext from "./active-context";
 import * as dirtyLedger from "./dirty-ledger";
 import * as reconciliation from "./dirty-ledger-reconciliation";
+import * as facade from "./index";
 import * as legacyCuration from "./legacy-curation";
 import * as projectionStore from "./projection-store";
 import * as readModel from "./read-model";

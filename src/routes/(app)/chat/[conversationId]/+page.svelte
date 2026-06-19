@@ -30,6 +30,10 @@ import {
 	startConversationSkillSession,
 } from "$lib/client/api/conversations";
 import {
+	cancelAtlasJob as cancelAtlasJobRequest,
+	submitAtlasTurn,
+} from "$lib/client/api/atlas";
+import {
 	cancelFileProductionJob as cancelFileProductionJobRequest,
 	retryFileProductionJob as retryFileProductionJobRequest,
 } from "$lib/client/api/file-production";
@@ -54,6 +58,10 @@ import {
 import EvidenceManager from "$lib/components/chat/EvidenceManager.svelte";
 import type {
 	ArtifactSummary,
+	AtlasAction,
+	AtlasAvailability,
+	AtlasJobCard,
+	AtlasProfile,
 	ChatGeneratedFile,
 	ChatMessage,
 	ConversationDraft,
@@ -113,6 +121,7 @@ import {
 	attachUnassignedFileProductionJobsToAssistant,
 	finalizeStreamingMessageList,
 	getWorkspacePresentationAfterDocumentOpen,
+	hasActiveAtlasJobs,
 	hasActiveFileProductionJobs,
 	mergeFileProductionJob,
 	removeMessageById,
@@ -130,7 +139,15 @@ import {
 	type SendPayload,
 } from "./_helpers";
 
-let { data }: PageProps = $props();
+type ChatPageDataWithAtlas = PageProps["data"] & {
+	atlasJobs?: AtlasJobCard[];
+	atlasAvailability?: AtlasAvailability | null;
+};
+type ChatPageProps = Omit<PageProps, "data"> & {
+	data: ChatPageDataWithAtlas;
+	params?: { conversationId: string };
+};
+let { data }: ChatPageProps = $props();
 const getData = () => data;
 type ChatAvailableModel = { id: string; iconUrl?: string | null };
 type AvailableModelsValue =
@@ -139,16 +156,28 @@ type AvailableModelsValue =
 	| null
 	| undefined;
 type ChatPageDataWithAvailableModels = Omit<
-	PageProps["data"],
+	ChatPageDataWithAtlas,
 	"availableModels"
 > & {
 	availableModels?: AvailableModelsValue;
 };
 
 function getAvailableModelsValue(
-	source: PageProps["data"],
+	source: ChatPageDataWithAtlas,
 ): AvailableModelsValue {
 	return (source as ChatPageDataWithAvailableModels).availableModels;
+}
+
+function getAtlasAvailabilityValue(
+	source: ChatPageDataWithAtlas,
+): AtlasAvailability {
+	return (
+		source.atlasAvailability ?? {
+			enabled: false,
+			configured: false,
+			reason: $t("composerTools.atlasUnavailableReason"),
+		}
+	);
 }
 
 const initialMessages = getData().messages ?? [];
@@ -166,6 +195,7 @@ const initialForkOrigin = getData().forkOrigin ?? null;
 const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
+const initialAtlasJobs = getData().atlasJobs ?? [];
 const initialContextCompressionSnapshots =
 	getData().contextCompressionSnapshots ?? [];
 const initialActiveSkillSession = getData().activeSkillSession ?? null;
@@ -205,6 +235,7 @@ const modelIcons = $derived.by(() => {
 		models.map((model) => [model.id, model.iconUrl ?? null]),
 	) as Record<string, string | null>;
 });
+const atlasAvailability = $derived(getAtlasAvailabilityValue(data));
 const canPublishSkillDrafts = false;
 const skillDraftLocalizedApiErrorKeys: Record<string, I18nKey> = {
 	"composerCommandRegistry.disabled": "composerCommandRegistry.disabled",
@@ -263,6 +294,7 @@ let conversationDraft = $state<ConversationDraft | null>(
 let forkOrigin = $state<ConversationForkOrigin | null>(initialForkOrigin);
 let generatedFiles = $state<ChatGeneratedFile[]>(initialGeneratedFiles);
 let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
+let atlasJobs = $state<AtlasJobCard[]>(initialAtlasJobs);
 let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
 	initialContextCompressionSnapshots,
 );
@@ -323,6 +355,7 @@ function applyNormalChatRuntimeSnapshot(snapshot: NormalChatRuntimeSnapshot) {
 }
 
 const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
+	submitAtlasTurn,
 	getConversationId: () => data.conversation.id,
 	getSelectedModel: () => $selectedModel,
 	getReasoningDepth: () => $selectedReasoningDepth,
@@ -794,6 +827,7 @@ function resetState() {
 	triggerForkOpeningTransition();
 	generatedFiles = data.generatedFiles ?? [];
 	fileProductionJobs = data.fileProductionJobs ?? [];
+	atlasJobs = data.atlasJobs ?? [];
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
 	conversationStatus = data.conversation.status ?? "open";
 	totalCostUsdMicros = data.totalCostUsdMicros ?? 0;
@@ -881,6 +915,9 @@ function applyConversationDetailMetadata(
 	}
 	if (detail.fileProductionJobs) {
 		fileProductionJobs = [...detail.fileProductionJobs];
+	}
+	if (detail.atlasJobs) {
+		atlasJobs = [...detail.atlasJobs];
 	}
 	if (detail.contextCompressionSnapshots) {
 		contextCompressionMarkers = [...detail.contextCompressionSnapshots];
@@ -1080,6 +1117,9 @@ onDestroy(() => {
 		!hasMeaningfulDraft(
 			conversationDraft?.draftText ?? "",
 			conversationDraft?.selectedAttachmentIds ?? [],
+			conversationDraft?.selectedLinkedSources ?? [],
+			conversationDraft?.pendingSkill ?? null,
+			conversationDraft?.atlasMode === true,
 		)
 	) {
 		cleanupPreparedConversation({
@@ -1114,6 +1154,7 @@ async function hydrateConversationDetail(conversationId: string) {
 			contextDebug = payload.contextDebug ?? contextDebug;
 			generatedFiles = payload.generatedFiles ?? generatedFiles;
 			fileProductionJobs = payload.fileProductionJobs ?? fileProductionJobs;
+			atlasJobs = payload.atlasJobs ?? atlasJobs;
 			contextCompressionMarkers =
 				payload.contextCompressionSnapshots ?? contextCompressionMarkers;
 			totalCostUsdMicros = payload.totalCostUsdMicros ?? totalCostUsdMicros;
@@ -1190,9 +1231,55 @@ async function handleCancelFileProductionJob(jobId: string) {
 	}
 }
 
+function createClientAtlasTurnId(): string {
+	const random =
+		typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+			? crypto.randomUUID()
+			: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+	return `atlas-${random}`;
+}
+
+async function handleCancelAtlasJob(jobId: string) {
+	try {
+		const job = await cancelAtlasJobRequest(jobId);
+		atlasJobs = atlasJobs.map((current) =>
+			current.id === job.id ? job : current,
+		);
+		markDetailMetadataFreshnessBoundary();
+	} catch (err) {
+		sendError =
+			err instanceof Error ? err.message : $t("atlas.cancelUnavailable");
+	}
+}
+
+function handleAtlasLifecycleAction(payload: {
+	jobId: string;
+	action: AtlasAction;
+	message: string;
+	profile: AtlasProfile;
+}) {
+	if (isConversationReadOnlyForChat) return;
+	void normalChatRuntime.send({
+		message: payload.message,
+		attachmentIds: [],
+		attachments: [],
+		pendingAttachments: [],
+		linkedSources: [],
+		pendingSkill: null,
+		conversationId: data.conversation.id,
+		atlasMode: true,
+		atlasProfile: payload.profile,
+		atlasAction: payload.action,
+		parentAtlasJobId: payload.jobId,
+		clientAtlasTurnId: createClientAtlasTurnId(),
+	});
+}
+
 $effect(() => {
 	const conversationId = data.conversation?.id;
-	const shouldPollConversation = hasActiveFileProductionJobs(fileProductionJobs);
+	const shouldPollConversation =
+		hasActiveFileProductionJobs(fileProductionJobs) ||
+		hasActiveAtlasJobs(atlasJobs);
 	if (!browser || !conversationId || !shouldPollConversation) {
 		return;
 	}
@@ -1241,6 +1328,20 @@ $effect(() => {
 	}
 });
 
+let initializedAtlasJobsData = false;
+let prevAtlasJobsData: typeof data.atlasJobs;
+$effect(() => {
+	if (!initializedAtlasJobsData) {
+		prevAtlasJobsData = data.atlasJobs;
+		initializedAtlasJobsData = true;
+		return;
+	}
+	if (data.atlasJobs !== prevAtlasJobsData) {
+		prevAtlasJobsData = data.atlasJobs;
+		atlasJobs = [...(data.atlasJobs ?? [])];
+	}
+});
+
 let initializedContextCompressionData = false;
 let prevContextCompressionData: typeof data.contextCompressionSnapshots;
 $effect(() => {
@@ -1273,6 +1374,9 @@ function restorePayloadToDraft(payload: SendPayload) {
 		selectedAttachments: payload.pendingAttachments ?? [],
 		selectedLinkedSources: payload.linkedSources ?? [],
 		pendingSkill: payload.pendingSkill ?? null,
+		atlasMode: payload.atlasMode === true,
+		atlasProfile: payload.atlasProfile ?? null,
+		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 	});
 	void draftPersistence.persist(
 		{
@@ -1281,6 +1385,9 @@ function restorePayloadToDraft(payload: SendPayload) {
 			selectedAttachmentIds: payload.attachmentIds,
 			selectedLinkedSources: payload.linkedSources ?? [],
 			pendingSkill: payload.pendingSkill ?? null,
+			atlasMode: payload.atlasMode === true,
+			atlasProfile: payload.atlasProfile ?? null,
+			clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 		},
 		true,
 	);
@@ -1864,6 +1971,9 @@ function handleDraftChange(payload: DraftChangePayload) {
 		selectedAttachments: payload.selectedAttachments,
 		selectedLinkedSources: payload.selectedLinkedSources,
 		pendingSkill: payload.pendingSkill,
+		atlasMode: payload.atlasMode === true,
+		atlasProfile: payload.atlasProfile ?? null,
+		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 	});
 	void draftPersistence.persist({
 		conversationId: nextConversationId,
@@ -1871,6 +1981,9 @@ function handleDraftChange(payload: DraftChangePayload) {
 		selectedAttachmentIds: payload.selectedAttachmentIds,
 		selectedLinkedSources: payload.selectedLinkedSources,
 		pendingSkill: payload.pendingSkill,
+		atlasMode: payload.atlasMode === true,
+		atlasProfile: payload.atlasProfile ?? null,
+		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 	});
 }
 
@@ -2007,6 +2120,7 @@ function handleDrop(event: DragEvent) {
 						{contextDebug}
 						{modelIcons}
 						{fileProductionJobs}
+						{atlasJobs}
 						contextCompressionMarkers={contextCompressionMarkers}
 						hasActiveSkillSession={Boolean(activeSkillSession)}
 						{forkOrigin}
@@ -2025,6 +2139,8 @@ function handleDrop(event: DragEvent) {
 						onPublishSkillDraft={handlePublishSkillDraft}
 						onRetryFileProductionJob={handleRetryFileProductionJob}
 						onCancelFileProductionJob={handleCancelFileProductionJob}
+						onCancelAtlasJob={handleCancelAtlasJob}
+						onAtlasLifecycleAction={handleAtlasLifecycleAction}
 					/>
 				{/if}
 			</div>
@@ -2054,6 +2170,7 @@ function handleDrop(event: DragEvent) {
 				{totalCostUsd}
 				{totalTokens}
 				composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
+				{atlasAvailability}
 				{personalityProfiles}
 				{selectedPersonalityId}
 				onPersonalityChange={setSelectedPersonalityId}
@@ -2064,6 +2181,9 @@ function handleDrop(event: DragEvent) {
 				draftAttachments={conversationDraft?.selectedAttachments ?? []}
 				draftLinkedSources={conversationDraft?.selectedLinkedSources ?? []}
 				draftPendingSkill={conversationDraft?.pendingSkill ?? null}
+				draftAtlasMode={conversationDraft?.atlasMode === true}
+				draftAtlasProfile={conversationDraft?.atlasProfile ?? null}
+				draftClientAtlasTurnId={conversationDraft?.clientAtlasTurnId ?? null}
 				draftVersion={conversationDraft?.updatedAt ?? 0}
 				onUploadReady={handleUploadReady}
 				onUploadFiles={handleUploadFiles}

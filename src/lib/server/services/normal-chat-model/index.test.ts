@@ -2968,7 +2968,7 @@ describe("Streaming Normal Chat Model Run", () => {
 		);
 	});
 
-	it("emits a done tool summary as assistant text without a neutral tool event", async () => {
+	it("suppresses done tool summary text and neutral tool events in streaming runs", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
 			createStreamResponse([
 				{
@@ -3013,7 +3013,10 @@ describe("Streaming Normal Chat Model Run", () => {
 			maxRetries: 0,
 		});
 
-		expect(events).toContainEqual({ type: "text_delta", text: "Finished." });
+		expect(events).not.toContainEqual({
+			type: "text_delta",
+			text: "Finished.",
+		});
 		expect(events).not.toContainEqual(
 			expect.objectContaining({
 				type: "tool_call",

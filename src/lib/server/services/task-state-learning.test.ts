@@ -591,8 +591,7 @@ describe("task-state learning - project continuity signals", () => {
 		).toBe(false);
 		expect(
 			shouldTrackTaskContinuityFromTurn({
-				message:
-					"What is my project status for the quarterly budget review?",
+				message: "What is my project status for the quarterly budget review?",
 			}),
 		).toBe(true);
 		expect(

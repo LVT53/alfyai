@@ -55,6 +55,10 @@ vi.mock("$lib/server/services/file-production/read-model", () => ({
 	listConversationFileProductionJobs: vi.fn(),
 }));
 
+vi.mock("$lib/server/services/atlas/read-model", () => ({
+	listConversationAtlasJobs: vi.fn(),
+}));
+
 vi.mock("$lib/server/services/context-compression", () => ({
 	listContextCompressionSnapshots: vi.fn(),
 	serializeContextCompressionSnapshot: (snapshot: {
@@ -83,6 +87,7 @@ vi.mock("$lib/server/services/analytics", () => ({
 }));
 
 import { getConversationCostSummary } from "$lib/server/services/analytics";
+import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
 import { listContextCompressionSnapshots } from "$lib/server/services/context-compression";
 import { getConversationDraft } from "$lib/server/services/conversation-drafts";
 import {
@@ -140,6 +145,7 @@ const mockListContextCompressionSnapshots = vi.mocked(
 	listContextCompressionSnapshots,
 );
 const mockGetConversationCostSummary = vi.mocked(getConversationCostSummary);
+const mockListConversationAtlasJobs = vi.mocked(listConversationAtlasJobs);
 
 describe("Conversation Detail Read Model", () => {
 	beforeEach(() => {
@@ -196,6 +202,7 @@ describe("Conversation Detail Read Model", () => {
 		mockGetProjectReferenceContext.mockResolvedValue(null);
 		mockListConversationGeneratedFiles.mockResolvedValue([]);
 		mockListConversationFileProductionJobs.mockResolvedValue([]);
+		mockListConversationAtlasJobs.mockResolvedValue([]);
 		mockListContextCompressionSnapshots.mockResolvedValue([]);
 		mockGetConversationCostSummary.mockResolvedValue({
 			totalCostUsdMicros: 0,
@@ -219,6 +226,7 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockGetConversationTaskState).not.toHaveBeenCalled();
 		expect(mockListConversationGeneratedFiles).not.toHaveBeenCalled();
 		expect(mockListConversationFileProductionJobs).not.toHaveBeenCalled();
+		expect(mockListConversationAtlasJobs).not.toHaveBeenCalled();
 		expect(mockListContextCompressionSnapshots).not.toHaveBeenCalled();
 		expect(mockGetConversationCostSummary).not.toHaveBeenCalled();
 		expect(detail).toMatchObject({
@@ -234,6 +242,7 @@ describe("Conversation Detail Read Model", () => {
 			taskState: null,
 			contextDebug: null,
 			fileProductionJobs: [],
+			atlasJobs: [],
 			contextCompressionSnapshots: [],
 			bootstrap: true,
 		});
@@ -301,6 +310,7 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
 		expect(mockListConversationGeneratedFiles).not.toHaveBeenCalled();
 		expect(mockListConversationFileProductionJobs).not.toHaveBeenCalled();
+		expect(mockListConversationAtlasJobs).not.toHaveBeenCalled();
 		expect(mockListContextCompressionSnapshots).not.toHaveBeenCalled();
 		expect(mockGetConversationCostSummary).not.toHaveBeenCalled();
 		expect(detail).toMatchObject({
@@ -321,6 +331,7 @@ describe("Conversation Detail Read Model", () => {
 			taskState: null,
 			contextDebug: null,
 			fileProductionJobs: [],
+			atlasJobs: [],
 			contextCompressionSnapshots: [],
 			bootstrap: false,
 			sidecarPending: true,
@@ -400,6 +411,45 @@ describe("Conversation Detail Read Model", () => {
 				error: null,
 			},
 		] as never);
+		mockListConversationAtlasJobs.mockResolvedValue([
+			{
+				id: "atlas-job-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-atlas-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "in-depth",
+				title: "Atlas research",
+				status: "queued",
+				stage: "queued",
+				progress: {
+					percent: 0,
+					stage: "queued",
+				},
+				sourceCounts: {
+					local: 0,
+					web: 0,
+					accepted: 0,
+					rejected: 0,
+				},
+				usage: {
+					inputTokens: 0,
+					outputTokens: 0,
+					totalTokens: 0,
+					costUsdMicros: 0,
+				},
+				outputs: {
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				},
+				error: null,
+				createdAt: 1_777_140_020,
+				updatedAt: 1_777_140_021,
+				completedAt: null,
+			},
+		]);
 		mockListContextCompressionSnapshots.mockResolvedValue([
 			{
 				id: "snapshot-1",
@@ -424,6 +474,10 @@ describe("Conversation Detail Read Model", () => {
 
 		expect(mockListMessages).toHaveBeenCalledWith("conv-1");
 		expect(mockListConversationGeneratedFiles).toHaveBeenCalledWith("conv-1");
+		expect(mockListConversationAtlasJobs).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+		);
 		expect(mockAttachContinuityToTaskState).toHaveBeenCalledWith("user-1", {
 			id: "task-1",
 			objective: "Draft the report",
@@ -448,6 +502,13 @@ describe("Conversation Detail Read Model", () => {
 				}),
 			],
 			fileProductionJobs: [expect.objectContaining({ id: "job-1" })],
+			atlasJobs: [
+				expect.objectContaining({
+					id: "atlas-job-1",
+					profile: "in-depth",
+					status: "queued",
+				}),
+			],
 			contextCompressionSnapshots: [
 				{
 					id: "snapshot-1",

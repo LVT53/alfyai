@@ -200,6 +200,11 @@ function createTurn(
 		reasoningDepth: "auto",
 		thinkingMode: "auto",
 		forceWebSearch: false,
+		atlasMode: false,
+		atlasProfile: null,
+		atlasAction: "create",
+		parentAtlasId: null,
+		clientAtlasTurnId: null,
 		depthMetadata: {
 			requested: "auto",
 			appliedProfile: "standard",

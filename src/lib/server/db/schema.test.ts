@@ -770,4 +770,41 @@ describe("schema core tables", () => {
 			);
 		});
 	});
+
+	describe("atlas tables", () => {
+		it("defines exactly the two Atlas-owned persistence tables", () => {
+			const tableNames = sqlite
+				.prepare(
+					"SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'atlas_%' ORDER BY name",
+				)
+				.all() as { name: string }[];
+
+			expect(tableNames.map((table) => table.name)).toEqual([
+				"atlas_jobs",
+				"atlas_round_checkpoints",
+			]);
+		});
+
+		it("keeps Atlas idempotency and round checkpoint uniqueness durable", () => {
+			const jobIndexes = sqlite
+				.prepare("PRAGMA index_list(atlas_jobs)")
+				.all() as { name: string; unique: number }[];
+			const checkpointIndexes = sqlite
+				.prepare("PRAGMA index_list(atlas_round_checkpoints)")
+				.all() as { name: string; unique: number }[];
+
+			expect(jobIndexes).toContainEqual(
+				expect.objectContaining({
+					name: "atlas_jobs_idempotency_unique_idx",
+					unique: 1,
+				}),
+			);
+			expect(checkpointIndexes).toContainEqual(
+				expect.objectContaining({
+					name: "atlas_round_checkpoints_job_round_unique_idx",
+					unique: 1,
+				}),
+			);
+		});
+	});
 });

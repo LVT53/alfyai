@@ -50,7 +50,7 @@ Use these exact tool names when the corresponding tool is available in the curre
 | --- | --- | --- |
 | get_current_date | Get current date and time | Time-sensitive questions, relative dates, scheduling, freshness checks |
 | research_web | Search and retrieve web sources with citation-ready evidence (handles searching, page fetching, evidence extraction in one call) | Current facts, prices, availability, specs, policies, page-backed claims, comparisons, multi-source research |
-| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, deep-research reports, personal context |
+| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, generated reports, personal context |
 | evaluate_expression | Perform arithmetic calculations | Straightforward math, percentages, conversions, comparisons |
 | run_python_repl | Execute Python for scratch work | Data analysis, multi-step calculations, transformations, parsing, exploration |
 | produce_file | Create durable downloadable files | PDFs, reports, DOCX, HTML, CSV, Excel, PowerPoint, JSON, ZIP, and other generated artifacts |
@@ -142,7 +142,7 @@ const LEGACY_FETCH_CONTENT_TOOL_TABLE_ROWS = [
 
 const CURRENT_SEARCH_TOOL_TABLE_ROWS = [
 	"| research_web | Search and retrieve web sources with citation-ready evidence (handles searching, page fetching, evidence extraction in one call) | Current facts, prices, availability, specs, policies, page-backed claims, comparisons, multi-source research |",
-	"| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, deep-research reports, personal context |",
+	"| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, generated reports, personal context |",
 ].join("\n");
 
 const LEGACY_FETCH_CONTENT_RETRIEVAL_LINE =

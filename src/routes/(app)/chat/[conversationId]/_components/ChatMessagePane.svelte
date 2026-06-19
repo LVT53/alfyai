@@ -4,6 +4,9 @@ import type {
 	ChatMessage,
 	ContextCompressionMarker,
 	ContextDebugState,
+	AtlasAction,
+	AtlasJobCard,
+	AtlasProfile,
 	DocumentWorkspaceItem,
 	FileProductionJob,
 	ConversationForkOrigin,
@@ -18,6 +21,7 @@ let {
 	contextDebug,
 	modelIcons = {},
 	fileProductionJobs = [],
+	atlasJobs = [],
 	contextCompressionMarkers = [],
 	hasActiveSkillSession = false,
 	forkOrigin = null,
@@ -36,6 +40,8 @@ let {
 	onPublishSkillDraft,
 	onRetryFileProductionJob,
 	onCancelFileProductionJob,
+	onCancelAtlasJob,
+	onAtlasLifecycleAction,
 }: {
 	messages: ChatMessage[];
 	conversationId: string;
@@ -43,6 +49,7 @@ let {
 	contextDebug: ContextDebugState | null;
 	modelIcons?: Record<string, string | null | undefined>;
 	fileProductionJobs?: FileProductionJob[];
+	atlasJobs?: AtlasJobCard[];
 	contextCompressionMarkers?: ContextCompressionMarker[];
 	hasActiveSkillSession?: boolean;
 	forkOrigin?: ConversationForkOrigin | null;
@@ -73,6 +80,13 @@ let {
 	}) => void | Promise<void>;
 	onRetryFileProductionJob?: (jobId: string) => void | Promise<void>;
 	onCancelFileProductionJob?: (jobId: string) => void | Promise<void>;
+	onCancelAtlasJob?: (jobId: string) => void | Promise<void>;
+	onAtlasLifecycleAction?: (payload: {
+		jobId: string;
+		action: AtlasAction;
+		message: string;
+		profile: AtlasProfile;
+	}) => void | Promise<void>;
 } = $props();
 </script>
 
@@ -89,6 +103,7 @@ let {
 		{contextDebug}
 		{modelIcons}
 		{fileProductionJobs}
+		{atlasJobs}
 		{contextCompressionMarkers}
 		{hasActiveSkillSession}
 		{forkOrigin}
@@ -106,6 +121,8 @@ let {
 		{onPublishSkillDraft}
 		{onRetryFileProductionJob}
 		{onCancelFileProductionJob}
+		{onCancelAtlasJob}
+		{onAtlasLifecycleAction}
 	/>
 </div>
 

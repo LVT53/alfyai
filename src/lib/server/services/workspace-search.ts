@@ -60,7 +60,9 @@ type ArtifactCandidateRow = {
 
 type ArtifactTextCandidateRow = ArtifactTextRow & ArtifactCandidateRow;
 
-type ArtifactOwnershipScope = Awaited<ReturnType<typeof getArtifactOwnershipScope>>;
+type ArtifactOwnershipScope = Awaited<
+	ReturnType<typeof getArtifactOwnershipScope>
+>;
 
 type MessageBodyScore = {
 	score: number;
@@ -194,7 +196,8 @@ function scoreMessageBody(
 		index = target.indexOf(needle, index + needle.length);
 	}
 
-	const earlyMatchBoost = firstIndex === 0 ? 3 : Math.max(0, 2 - firstIndex / 80);
+	const earlyMatchBoost =
+		firstIndex === 0 ? 3 : Math.max(0, 2 - firstIndex / 80);
 	return {
 		score: 12 + Math.min(occurrences - 1, 4) * 2 + earlyMatchBoost,
 		occurrences,
@@ -212,11 +215,10 @@ function compareByScoreThenRecent<
 	);
 }
 
-function getConversationCandidateTieTime(candidate: ConversationCandidate): number {
-	if (
-		candidate.match.type === "body" &&
-		"messageCreatedAt" in candidate.row
-	) {
+function getConversationCandidateTieTime(
+	candidate: ConversationCandidate,
+): number {
+	if (candidate.match.type === "body" && "messageCreatedAt" in candidate.row) {
 		return candidate.row.messageCreatedAt.getTime();
 	}
 

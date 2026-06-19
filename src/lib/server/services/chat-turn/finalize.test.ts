@@ -6,9 +6,9 @@ import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evid
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import {
+	applyProjectContinuitySignalFromMessage,
 	getProjectReferenceContext,
 	shouldTrackTaskContinuityFromTurn,
-	applyProjectContinuitySignalFromMessage,
 	syncTaskContinuityFromTaskState,
 	updateTaskStateCheckpoint,
 } from "$lib/server/services/task-state";
@@ -1083,6 +1083,117 @@ describe("finalizeChatTurn", () => {
 		await postTurnTask;
 	});
 
+	it("forwards Atlas-style skip options through finalization without disabling other completion work", async () => {
+		const createMessage = vi.fn(
+			async (
+				_conversationId: string,
+				role: "user" | "assistant",
+			): Promise<ChatMessage> =>
+				makeChatMessage(
+					`${role}-message`,
+					role,
+					role === "user" ? "atlas request" : "atlas queued",
+				),
+		);
+		const persistAssistantTurnState = vi.fn(async () => ({
+			activeWorkingSet: [],
+			taskState: null,
+			contextDebug: null,
+			workCapsule: {
+				taskSummary: "Atlas task",
+				workflowSummary: "Atlas workflow",
+				artifact: { name: "Atlas report" },
+			},
+		}));
+		const runPostTurnTasks = vi.fn(async () => undefined);
+		const { finalizeChatTurn } = await import("./finalize");
+
+		const completion = await finalizeChatTurn({
+			logPrefix: "[SEND]",
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "atlas request",
+			persistUserMessage: true,
+			normalizedMessage: "atlas request",
+			upstreamMessage: "atlas request",
+			assistantResponse: "atlas queued",
+			assistantMetadata: { evidenceStatus: "not_applicable" },
+			skillControlOperations: [],
+			skillControlSessionId: null,
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: null,
+			continuitySource: "send",
+			honchoContext: { source: "disabled" } as never,
+			honchoSnapshot: { summary: "should not persist" } as never,
+			assistantMirrorContent: "atlas queued",
+			maintenanceReason: "chat_send",
+			createMessage,
+			persistAssistantTurnState,
+			runPostTurnTasks,
+			skipAssistantProseMemoryIntake: true,
+			skipHonchoEnrichment: true,
+		});
+
+		await completion.createPostTurnTask();
+
+		expect(persistAssistantTurnState).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assistantResponse: "atlas queued",
+				skipHonchoEnrichment: true,
+			}),
+		);
+		expect(runPostTurnTasks).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assistantResponse: "atlas queued",
+				skipAssistantProseMemoryIntake: true,
+				skipHonchoEnrichment: true,
+			}),
+		);
+	});
+
+	it("skips assistant-prose memory intake and Honcho enrichment while preserving summary refresh and maintenance", async () => {
+		const { runPostTurnTasks } = await import("./finalize");
+
+		await runPostTurnTasks({
+			logPrefix: "[SEND]",
+			userId: "user-1",
+			conversationId: "conv-1",
+			upstreamMessage: "atlas request",
+			userMessage: "atlas request",
+			userMessageId: "user-message",
+			assistantResponse: "atlas queued",
+			assistantMirrorContent: "atlas queued",
+			assistantMessageId: "assistant-message",
+			workCapsule: {
+				taskSummary: "Atlas task",
+				workflowSummary: "Atlas workflow",
+				artifact: { name: "Atlas report" },
+			},
+			maintenanceReason: "chat_send",
+			startedResetGeneration: 0,
+			skipAssistantProseMemoryIntake: true,
+			skipHonchoEnrichment: true,
+		});
+
+		expect(mockMemoryIntake).not.toHaveBeenCalled();
+		expect(mockMirrorWorkCapsuleConclusion).not.toHaveBeenCalled();
+		expect(mockRefreshConversationSummary).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessage: "atlas request",
+			assistantResponse: "atlas queued",
+			startedResetGeneration: 0,
+		});
+		expect(mockRunUserMemoryMaintenance).toHaveBeenCalledWith(
+			"user-1",
+			"chat_send",
+		);
+	});
+
 	it("returns context sources assembled by the completion boundary", async () => {
 		const mockGetProjectReferenceContext =
 			getProjectReferenceContext as ReturnType<typeof vi.fn>;
@@ -1347,14 +1458,17 @@ describe("finalizeChatTurn", () => {
 	it("does not sync project continuity for output-control-only turns", async () => {
 		const mockUpdateTaskStateCheckpoint =
 			updateTaskStateCheckpoint as ReturnType<typeof vi.fn>;
-		const mockSyncContinuity =
-			syncTaskContinuityFromTaskState as ReturnType<typeof vi.fn>;
+		const mockSyncContinuity = syncTaskContinuityFromTaskState as ReturnType<
+			typeof vi.fn
+		>;
 		const mockApplyProjectContinuity =
 			applyProjectContinuitySignalFromMessage as ReturnType<typeof vi.fn>;
 		const mockShouldTrack = shouldTrackTaskContinuityFromTurn as ReturnType<
 			typeof vi.fn
 		>;
-		const mockGetArtifactsForUser = getArtifactsForUser as ReturnType<typeof vi.fn>;
+		const mockGetArtifactsForUser = getArtifactsForUser as ReturnType<
+			typeof vi.fn
+		>;
 
 		mockUpdateTaskStateCheckpoint.mockResolvedValueOnce({
 			taskId: "task-1",

@@ -99,6 +99,15 @@ export const ADMIN_CONFIG_KEYS = [
 	"DEFAULT_NEW_USER_MODEL",
 	"MEMORY_LEGACY_CURATION_MODEL",
 	"REASONING_DEPTH_CLASSIFIER_MODEL",
+	"ATLAS_WORKER_ENABLED",
+	"ATLAS_GLOBAL_ACTIVE_LIMIT",
+	"ATLAS_SEARCH_CONCURRENCY",
+	"ATLAS_SEARCH_BATCH_DELAY_MS",
+	"ATLAS_SYNTHESIS_MODEL",
+	"ATLAS_AUDIT_MODEL",
+	"WEB_PUSH_VAPID_PUBLIC_KEY",
+	"WEB_PUSH_VAPID_PRIVATE_KEY",
+	"WEB_PUSH_VAPID_SUBJECT",
 	"FILE_PRODUCTION_MAX_OUTPUTS",
 	"FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES",
 	"FILE_PRODUCTION_MAX_PROJECTION_BYTES",
@@ -150,6 +159,15 @@ export interface RuntimeConfig {
 	defaultNewUserModel: ModelId;
 	memoryLegacyCurationModel: ModelId;
 	reasoningDepthClassifierModel: string | null;
+	atlasWorkerEnabled: boolean;
+	atlasGlobalActiveLimit: number;
+	atlasSearchConcurrency: number;
+	atlasSearchBatchDelayMs: number;
+	atlasSynthesisModel: ModelId;
+	atlasAuditModel: ModelId;
+	webPushVapidPublicKey: string;
+	webPushVapidPrivateKey: string;
+	webPushVapidSubject: string;
 	maxMessageLength: number;
 	maxModelContext: number;
 	compactionUiThreshold: number;
@@ -763,6 +781,39 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	REASONING_DEPTH_CLASSIFIER_MODEL: (config, value) => {
 		config.reasoningDepthClassifierModel = value.trim() || null;
 	},
+	ATLAS_WORKER_ENABLED: (config, value) => {
+		config.atlasWorkerEnabled = value !== "false";
+	},
+	ATLAS_GLOBAL_ACTIVE_LIMIT: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasGlobalActiveLimit = Math.max(1, parsed);
+	},
+	ATLAS_SEARCH_CONCURRENCY: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasSearchConcurrency = Math.max(1, parsed);
+	},
+	ATLAS_SEARCH_BATCH_DELAY_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasSearchBatchDelayMs = Math.max(0, parsed);
+	},
+	ATLAS_SYNTHESIS_MODEL: (config, value) => {
+		config.atlasSynthesisModel = normalizeConfiguredModelId(value);
+	},
+	ATLAS_AUDIT_MODEL: (config, value) => {
+		config.atlasAuditModel = normalizeConfiguredModelId(value);
+	},
+	WEB_PUSH_VAPID_PUBLIC_KEY: (config, value) => {
+		config.webPushVapidPublicKey = value.trim();
+	},
+	WEB_PUSH_VAPID_PRIVATE_KEY: (config, value) => {
+		config.webPushVapidPrivateKey = value.trim();
+	},
+	WEB_PUSH_VAPID_SUBJECT: (config, value) => {
+		config.webPushVapidSubject = value.trim() || "mailto:admin@localhost";
+	},
 	FILE_PRODUCTION_MAX_OUTPUTS: (config, value) => {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined)
@@ -1115,6 +1166,15 @@ export function getResolvedAdminConfigValues(
 		MEMORY_LEGACY_CURATION_MODEL: config.memoryLegacyCurationModel,
 		REASONING_DEPTH_CLASSIFIER_MODEL:
 			config.reasoningDepthClassifierModel ?? "",
+		ATLAS_WORKER_ENABLED: String(config.atlasWorkerEnabled),
+		ATLAS_GLOBAL_ACTIVE_LIMIT: String(config.atlasGlobalActiveLimit),
+		ATLAS_SEARCH_CONCURRENCY: String(config.atlasSearchConcurrency),
+		ATLAS_SEARCH_BATCH_DELAY_MS: String(config.atlasSearchBatchDelayMs),
+		ATLAS_SYNTHESIS_MODEL: config.atlasSynthesisModel,
+		ATLAS_AUDIT_MODEL: config.atlasAuditModel,
+		WEB_PUSH_VAPID_PUBLIC_KEY: config.webPushVapidPublicKey,
+		WEB_PUSH_VAPID_PRIVATE_KEY: config.webPushVapidPrivateKey ? "[set]" : "",
+		WEB_PUSH_VAPID_SUBJECT: config.webPushVapidSubject,
 		FILE_PRODUCTION_MAX_OUTPUTS: String(config.fileProductionMaxOutputs),
 		FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES: String(
 			config.fileProductionMaxSourceJsonBytes,

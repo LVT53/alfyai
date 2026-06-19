@@ -3,6 +3,7 @@ import type { Artifact } from "$lib/types";
 import { createDefaultGeneratedDocumentImageLoader } from "./image-loader";
 import { renderStandardReportDocx } from "./renderers/standard-report-docx";
 import { renderStandardReportHtml } from "./renderers/standard-report-html";
+import { renderStandardReportMarkdown } from "./renderers/standard-report-markdown";
 import {
 	renderStandardReportPdf,
 	StandardReportPdfRenderError,
@@ -41,7 +42,7 @@ export type ParsedFileProductionJobRequest =
 	| {
 			sourceMode: "document_source";
 			documentSource: GeneratedDocumentSource;
-			outputs: Array<"pdf" | "docx" | "html">;
+			outputs: Array<"pdf" | "docx" | "html" | "markdown">;
 	  };
 
 export interface ExecutePersistedFileProductionRequestInput {
@@ -93,7 +94,9 @@ function normalizeOutputTypes(value: unknown): string[] {
 		.filter(Boolean);
 }
 
-function normalizeDocumentOutput(type: string): "pdf" | "docx" | "html" | null {
+function normalizeDocumentOutput(
+	type: string,
+): "pdf" | "docx" | "html" | "markdown" | null {
 	switch (type) {
 		case "pdf":
 		case "application/pdf":
@@ -104,6 +107,10 @@ function normalizeDocumentOutput(type: string): "pdf" | "docx" | "html" | null {
 		case "html":
 		case "text/html":
 			return "html";
+		case "markdown":
+		case "md":
+		case "text/markdown":
+			return "markdown";
 		default:
 			return null;
 	}
@@ -111,11 +118,13 @@ function normalizeDocumentOutput(type: string): "pdf" | "docx" | "html" | null {
 
 function selectDocumentOutputs(
 	outputs: string[],
-): Array<"pdf" | "docx" | "html"> | null {
+): Array<"pdf" | "docx" | "html" | "markdown"> | null {
 	if (outputs.length === 0) return ["pdf"];
 	const normalized = outputs.map(normalizeDocumentOutput);
 	if (normalized.some((output) => output === null)) return null;
-	return Array.from(new Set(normalized)) as Array<"pdf" | "docx" | "html">;
+	return Array.from(new Set(normalized)) as Array<
+		"pdf" | "docx" | "html" | "markdown"
+	>;
 }
 
 function parseFileProductionJobRequest(requestJson: string | null):
@@ -173,7 +182,7 @@ function parseFileProductionJobRequest(requestJson: string | null):
 				ok: false,
 				errorCode: "unsupported_output_type",
 				errorMessage:
-					"AlfyAI Standard Report rendering supports PDF, DOCX, and HTML outputs.",
+					"AlfyAI Standard Report rendering supports PDF, DOCX, HTML, and Markdown outputs.",
 			};
 		}
 
@@ -287,6 +296,15 @@ async function renderDocumentSource(
 		}
 		if (request.outputs.includes("html")) {
 			const rendered = renderStandardReportHtml(request.documentSource);
+			files.push({
+				filename: rendered.filename,
+				mimeType: rendered.mimeType,
+				content: rendered.content,
+				sizeBytes: rendered.content.length,
+			});
+		}
+		if (request.outputs.includes("markdown")) {
+			const rendered = renderStandardReportMarkdown(request.documentSource);
 			files.push({
 				filename: rendered.filename,
 				mimeType: rendered.mimeType,

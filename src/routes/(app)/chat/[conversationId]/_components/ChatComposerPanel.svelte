@@ -6,6 +6,8 @@ import ErrorMessage from "$lib/components/chat/ErrorMessage.svelte";
 import MessageInput from "$lib/components/chat/MessageInput.svelte";
 import type {
 	ArtifactSummary,
+	AtlasAvailability,
+	AtlasProfile,
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
@@ -43,12 +45,16 @@ let {
 	draftAttachments,
 	draftLinkedSources = [],
 	draftPendingSkill = null,
+	draftAtlasMode = false,
+	draftAtlasProfile = null,
+	draftClientAtlasTurnId = null,
 	draftVersion,
 	onUploadReady,
 	onUploadFiles,
 	totalCostUsd,
 	totalTokens,
 	composerCommandRegistryEnabled = false,
+	atlasAvailability = null,
 	personalityProfiles,
 	selectedPersonalityId,
 	onPersonalityChange,
@@ -82,6 +88,9 @@ let {
 	draftAttachments: PendingAttachment[];
 	draftLinkedSources?: LinkedContextSource[];
 	draftPendingSkill?: PendingSkillSelection | null;
+	draftAtlasMode?: boolean;
+	draftAtlasProfile?: AtlasProfile | null;
+	draftClientAtlasTurnId?: string | null;
 	draftVersion: number;
 	onUploadReady?:
 		| ((uploadFn: (files: FileList | null) => Promise<void>) => void)
@@ -100,6 +109,7 @@ let {
 	totalCostUsd?: number;
 	totalTokens?: number;
 	composerCommandRegistryEnabled?: boolean;
+	atlasAvailability?: AtlasAvailability | null;
 	personalityProfiles?: Array<{
 		id: string;
 		name: string;
@@ -200,6 +210,9 @@ onDestroy(() => {
 			{draftAttachments}
 			{draftLinkedSources}
 			{draftPendingSkill}
+			{draftAtlasMode}
+			{draftAtlasProfile}
+			{draftClientAtlasTurnId}
 			{draftVersion}
 			attachmentsEnabled={true}
 			{onUploadReady}
@@ -207,6 +220,7 @@ onDestroy(() => {
 			{totalCostUsd}
 			{totalTokens}
 			{composerCommandRegistryEnabled}
+			{atlasAvailability}
 			{personalityProfiles}
 			{selectedPersonalityId}
 			{onPersonalityChange}

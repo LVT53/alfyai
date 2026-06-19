@@ -91,9 +91,7 @@ let additionalReviewItems = $derived.by(() => {
 	const visibleIds = new Set(visibleReviewItems.map((item) => item.id));
 	return reviewItems.filter((item) => !visibleIds.has(item.id));
 });
-let reviewOverflowCount = $derived(
-	Math.max(0, additionalReviewItems.length),
-);
+let reviewOverflowCount = $derived(Math.max(0, additionalReviewItems.length));
 
 function getCategoryItems(
 	category: MemoryProfileCategory,

@@ -8,9 +8,7 @@ export function parseJsonArray(value: string | null): unknown[] {
 	}
 }
 
-export function parseJsonRecord(
-	value: string | null,
-): Record<string, unknown> {
+export function parseJsonRecord(value: string | null): Record<string, unknown> {
 	if (!value) return {};
 	try {
 		const parsed = JSON.parse(value);

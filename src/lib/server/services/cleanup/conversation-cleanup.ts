@@ -1,6 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { conversations } from "$lib/server/db/schema";
+import {
+	cancelActiveAtlasJobsForConversation,
+	deleteAtlasJobsForConversation,
+} from "../atlas";
 import { deleteAllChatFilesForConversation } from "../chat-files";
 import { deleteConversationHonchoState } from "../honcho";
 import {
@@ -33,6 +37,7 @@ export async function deleteConversationWithCleanup(
 	}
 
 	await deleteConversationHonchoState(userId, conversationId);
+	await cancelActiveAtlasJobsForConversation({ userId, conversationId });
 
 	const ownedArtifacts = await listConversationOwnedArtifacts(
 		userId,
@@ -75,6 +80,7 @@ export async function deleteConversationWithCleanup(
 
 	await hardDeleteArtifactsForUser(userId, deletedArtifactIds);
 	await deleteAllChatFilesForConversation(conversationId);
+	await deleteAtlasJobsForConversation({ userId, conversationId });
 
 	await db
 		.delete(conversations)

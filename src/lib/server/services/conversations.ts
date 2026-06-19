@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { conversations, messages, projects } from "$lib/server/db/schema";
+import {
+	atlasJobs,
+	conversations,
+	messages,
+	projects,
+} from "$lib/server/db/schema";
 import type { Conversation, ConversationListItem } from "$lib/types";
 import { recordConversationAnalytics } from "./analytics";
 import { getConversationForkSummaries } from "./conversation-forks";
@@ -120,10 +125,45 @@ export async function listConversations(
 		userId,
 		visibleConversations.map((conversation) => conversation.id),
 	);
+	const completedAtlasRows = await db
+		.select({
+			conversationId: atlasJobs.conversationId,
+			title: atlasJobs.title,
+			updatedAt: atlasJobs.updatedAt,
+		})
+		.from(atlasJobs)
+		.where(
+			and(
+				eq(atlasJobs.userId, userId),
+				eq(atlasJobs.status, "succeeded"),
+				inArray(
+					atlasJobs.conversationId,
+					visibleConversations.map((conversation) => conversation.id),
+				),
+			),
+		)
+		.orderBy(desc(atlasJobs.updatedAt));
+	const atlasBadgeByConversation = new Map<
+		string,
+		ConversationListItem["atlasBadge"]
+	>();
+	for (const row of completedAtlasRows) {
+		if (!atlasBadgeByConversation.has(row.conversationId)) {
+			atlasBadgeByConversation.set(row.conversationId, {
+				status: "succeeded",
+				label: row.title,
+			});
+		}
+	}
 
 	return visibleConversations.map((conversation) => {
 		const forkSummary = forkSummaries.get(conversation.id);
-		return forkSummary ? { ...conversation, forkSummary } : conversation;
+		const atlasBadge = atlasBadgeByConversation.get(conversation.id) ?? null;
+		return {
+			...conversation,
+			...(forkSummary ? { forkSummary } : {}),
+			...(atlasBadge ? { atlasBadge } : {}),
+		};
 	});
 }
 

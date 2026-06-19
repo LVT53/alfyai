@@ -29,6 +29,7 @@ import {
 	userSkillDefinitions,
 	users,
 } from "$lib/server/db/schema";
+import { cancelActiveAtlasJobsForUser } from "../atlas";
 import { verifyPassword } from "../auth";
 import { requestActiveChatStreamsStopForUser } from "../chat-turn/active-streams";
 import { purgeUserData } from "../cleanup/user-cleanup";
@@ -245,6 +246,7 @@ async function resolveDetachedSharedContentOwnerId(
 
 async function quiesceUserWorkspace(userId: string): Promise<void> {
 	requestActiveChatStreamsStopForUser(userId);
+	await cancelActiveAtlasJobsForUser(userId);
 	await cancelActiveFileProductionForUser(userId);
 	await quiesceUserMemoryMaintenance(userId);
 }

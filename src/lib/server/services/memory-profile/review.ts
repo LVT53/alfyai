@@ -1,13 +1,37 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { memoryProfileItems, memoryProjectionState, memoryReviewItems, memoryReviewResolutions } from "$lib/server/db/schema";
-import { MEMORY_REVIEW_RESOLUTION_TYPES, assertOneOf, assertPrivacySafeMetadata, readMemoryProfileCategory, assertMemoryProfileCategory, type JsonRecord, type MemoryProfileCategory, type MemoryProfileScope, type MemoryReviewResolutionType } from "./types";
+import {
+	memoryProfileItems,
+	memoryProjectionState,
+	memoryReviewItems,
+	memoryReviewResolutions,
+} from "$lib/server/db/schema";
+import {
+	type MemoryProfileTextSanitizer,
+	sanitizePublicMemoryText,
+} from "./identity-sanitizer";
 import { parseJsonArray, parseJsonRecord } from "./internal-json";
-import { assertExpectedMemoryResetGeneration, getCurrentMemoryResetGeneration } from "./reset-generation";
 import { ensureProjectionState } from "./projection-store";
-import { deriveMemoryProfileItemKey, fromScopeColumns, resolveMemoryProfileItemKey, stableMemoryMaintenanceDigest, toScopeColumns } from "./scope";
-import { sanitizePublicMemoryText, type MemoryProfileTextSanitizer } from "./identity-sanitizer";
+import {
+	assertExpectedMemoryResetGeneration,
+	getCurrentMemoryResetGeneration,
+} from "./reset-generation";
+import {
+	resolveMemoryProfileItemKey,
+	stableMemoryMaintenanceDigest,
+	toScopeColumns,
+} from "./scope";
+import {
+	assertOneOf,
+	assertPrivacySafeMetadata,
+	type JsonRecord,
+	MEMORY_REVIEW_RESOLUTION_TYPES,
+	type MemoryProfileCategory,
+	type MemoryProfileScope,
+	type MemoryReviewResolutionType,
+	readMemoryProfileCategory,
+} from "./types";
 
 function inferReviewCategory(params: {
 	subject: string;

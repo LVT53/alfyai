@@ -1,11 +1,30 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { memoryProfileItemProvenance, memoryProfileItems, memoryProjectionState } from "$lib/server/db/schema";
-import type { MemoryProfileCategory, MemoryProfileItemStatus, MemoryProfilePolicyBlockedStatement, MemoryProfileScope, MemoryProfileSourceChip } from "./types";
+import {
+	memoryProfileItemProvenance,
+	memoryProfileItems,
+	memoryProjectionState,
+} from "$lib/server/db/schema";
+import {
+	assertExpectedMemoryResetGeneration,
+	getCurrentMemoryResetGeneration,
+} from "./reset-generation";
+import {
+	deriveMemoryProfileItemKey,
+	fromScopeColumns,
+	ITEM_KEY_VERSION,
+	resolveMemoryProfileItemKey,
+	toScopeColumns,
+} from "./scope";
+import type {
+	MemoryProfileCategory,
+	MemoryProfileItemStatus,
+	MemoryProfilePolicyBlockedStatement,
+	MemoryProfileScope,
+	MemoryProfileSourceChip,
+} from "./types";
 import { assertMemoryProfileCategory } from "./types";
-import { assertExpectedMemoryResetGeneration, getCurrentMemoryResetGeneration } from "./reset-generation";
-import { ITEM_KEY_VERSION, deriveMemoryProfileItemKey, fromScopeColumns, resolveMemoryProfileItemKey, toScopeColumns } from "./scope";
 
 export async function ensureProjectionState(params: {
 	userId: string;
@@ -87,7 +106,6 @@ export async function expireOverdueActiveMemoryProfileItems(params: {
 	}
 	return expiredCount;
 }
-
 
 export async function createMemoryProfileItem(params: {
 	userId: string;

@@ -1,6 +1,8 @@
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import type {
+	AtlasAction,
+	AtlasProfile,
 	ContextDebugState,
 	ConversationContextStatus,
 	DepthMetadata,
@@ -17,6 +19,8 @@ import type {
 } from "$lib/types";
 
 export type ChatTurnRoute = "send" | "stream";
+
+export type { AtlasAction, AtlasProfile } from "$lib/types";
 
 export type ChatTurnRequestError = {
 	status: number;
@@ -43,6 +47,11 @@ export type ParsedChatTurnRequest = {
 	forceWebSearch: boolean;
 	skipPersistUserMessage: boolean;
 	attachmentTraceId?: string;
+	atlasMode: boolean;
+	atlasProfile: AtlasProfile | null;
+	atlasAction: AtlasAction;
+	parentAtlasId: string | null;
+	clientAtlasTurnId: string | null;
 };
 
 export interface SkillPromptLinkedSource {
@@ -138,6 +147,7 @@ export type PersistAssistantTurnStateParams = {
 	initialContextDebug?: ContextDebugState | null;
 	honchoContext?: HonchoContextInfo | null;
 	honchoSnapshot?: HonchoContextSnapshot | null;
+	skipHonchoEnrichment?: boolean;
 	userMessageId?: string | null;
 	assistantMessageId: string;
 	analytics?: AssistantAnalytics | null;
@@ -182,4 +192,6 @@ export type RunPostTurnTasksParams = {
 	workCapsule?: WorkCapsuleSummary;
 	maintenanceReason: "chat_send" | "chat_stream";
 	startedResetGeneration?: number;
+	skipAssistantProseMemoryIntake?: boolean;
+	skipHonchoEnrichment?: boolean;
 };

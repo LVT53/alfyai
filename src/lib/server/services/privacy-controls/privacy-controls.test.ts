@@ -517,6 +517,76 @@ function seedRunningFileProductionWork() {
 	sqlite.close();
 }
 
+function seedAtlasLifecycleData(status: "running" | "succeeded" = "succeeded") {
+	const { sqlite, db } = openMigratedDb();
+	const now = new Date("2026-06-15T12:30:00.000Z");
+
+	db.insert(schema.artifacts)
+		.values({
+			id: "atlas-generated-artifact-1",
+			userId: "user-1",
+			conversationId: "conversation-1",
+			type: "generated_output",
+			retrievalClass: "durable",
+			name: "Atlas report source",
+			contentText: "Readable Atlas report source.",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.chatGeneratedFiles)
+		.values({
+			id: "atlas-file-html-1",
+			conversationId: "conversation-1",
+			assistantMessageId: "message-1",
+			userId: "user-1",
+			filename: "atlas-report.html",
+			mimeType: "text/html",
+			sizeBytes: 42,
+			storagePath: "conversation-1/atlas-report.html",
+			createdAt: now,
+		})
+		.run();
+	db.insert(schema.atlasJobs)
+		.values({
+			id: "atlas-job-1",
+			userId: "user-1",
+			conversationId: "conversation-1",
+			assistantMessageId: "message-1",
+			action: "create",
+			profile: "overview",
+			normalizedQueryHash: "hash-atlas",
+			clientAtlasTurnId: "client-atlas-1",
+			idempotencyKey:
+				"atlas:v1:user-1:conversation-1:create:root:overview:hash-atlas:client-atlas-1",
+			title: "Atlas report",
+			status,
+			stage: status === "running" ? "search" : "complete",
+			workerId: status === "running" ? "worker-1" : null,
+			startedAt: status === "running" ? now : null,
+			completedAt: status === "succeeded" ? now : null,
+			htmlChatGeneratedFileId: "atlas-file-html-1",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.atlasRoundCheckpoints)
+		.values({
+			id: "atlas-checkpoint-1",
+			jobId: "atlas-job-1",
+			roundNumber: 1,
+			stage: "synthesize",
+			checkpointJson: '{"raw":"private Atlas checkpoint"}',
+			curatedSourcePoolJson: '[{"raw":"private source"}]',
+			compressedFindingsJson: '{"raw":"private findings"}',
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+
+	sqlite.close();
+}
+
 async function getPrivacySnapshot() {
 	const { db } = await import("$lib/server/db");
 	const artifacts = await db
@@ -534,6 +604,16 @@ async function getPrivacySnapshot() {
 	const chatFiles = await db
 		.select({ id: schema.chatGeneratedFiles.id })
 		.from(schema.chatGeneratedFiles);
+	const atlasJobs = await db
+		.select({
+			id: schema.atlasJobs.id,
+			status: schema.atlasJobs.status,
+			stage: schema.atlasJobs.stage,
+		})
+		.from(schema.atlasJobs);
+	const atlasCheckpoints = await db
+		.select({ id: schema.atlasRoundCheckpoints.id })
+		.from(schema.atlasRoundCheckpoints);
 	const taskStates = await db
 		.select({ id: schema.conversationTaskStates.taskId })
 		.from(schema.conversationTaskStates);
@@ -627,6 +707,8 @@ async function getPrivacySnapshot() {
 		conversationIds: conversations.map((row) => row.id).sort(),
 		conversationSummaryIds: conversationSummaries.map((row) => row.id).sort(),
 		chatFileIds: chatFiles.map((row) => row.id).sort(),
+		atlasJobs: atlasJobs.sort((left, right) => left.id.localeCompare(right.id)),
+		atlasCheckpointIds: atlasCheckpoints.map((row) => row.id).sort(),
 		taskStateIds: taskStates.map((row) => row.id).sort(),
 		workingSetIds: workingSet.map((row) => row.id).sort(),
 		contextStatusIds: contextStatus.map((row) => row.id).sort(),
@@ -704,6 +786,7 @@ describe("privacy controls service", () => {
 
 	it("clears memory and knowledge while preserving chats and generated chat outputs", async () => {
 		seedPrivacyUser();
+		seedAtlasLifecycleData("succeeded");
 		const { clearMemoryAndKnowledge } = await import("./index");
 
 		const result = await clearMemoryAndKnowledge("user-1", "correct-password");
@@ -719,11 +802,19 @@ describe("privacy controls service", () => {
 		});
 		await expect(getPrivacySnapshot()).resolves.toMatchObject({
 			userIds: ["user-1"],
-			artifactIds: ["generated-1"],
+			artifactIds: ["atlas-generated-artifact-1", "generated-1"],
 			embeddingIds: [],
 			conversationIds: ["conversation-1"],
 			conversationSummaryIds: [],
-			chatFileIds: ["file-1"],
+			chatFileIds: ["atlas-file-html-1", "file-1"],
+			atlasJobs: [
+				{
+					id: "atlas-job-1",
+					status: "succeeded",
+					stage: "complete",
+				},
+			],
+			atlasCheckpointIds: ["atlas-checkpoint-1"],
 			taskStateIds: [],
 			workingSetIds: [],
 			contextStatusIds: [],
@@ -746,6 +837,7 @@ describe("privacy controls service", () => {
 
 	it("clears workspace data while preserving the account and historical analytics", async () => {
 		seedPrivacyUser();
+		seedAtlasLifecycleData("running");
 		const { clearWorkspaceData } = await import("./index");
 
 		const result = await clearWorkspaceData("user-1", "correct-password");
@@ -757,6 +849,8 @@ describe("privacy controls service", () => {
 			embeddingIds: [],
 			conversationIds: [],
 			chatFileIds: [],
+			atlasJobs: [],
+			atlasCheckpointIds: [],
 			taskStateIds: [],
 			workingSetIds: [],
 			contextStatusIds: [],
@@ -772,6 +866,7 @@ describe("privacy controls service", () => {
 	it("erases a last-admin self-service account and removes person-linked analytics", async () => {
 		seedPrivacyUser();
 		seedRunningFileProductionWork();
+		seedAtlasLifecycleData("running");
 		const { eraseUserAccount } = await import("./index");
 
 		const result = await eraseUserAccount("user-1", "correct-password");
@@ -783,6 +878,8 @@ describe("privacy controls service", () => {
 			embeddingIds: [],
 			conversationIds: [],
 			chatFileIds: [],
+			atlasJobs: [],
+			atlasCheckpointIds: [],
 			usageEventIds: [],
 			analyticsConversationIds: [],
 		});

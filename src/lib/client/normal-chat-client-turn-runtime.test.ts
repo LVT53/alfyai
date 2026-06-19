@@ -11,6 +11,7 @@ import type {
 	StreamMetadata,
 } from "$lib/services/streaming";
 import type {
+	AtlasJobCard,
 	ChatMessage,
 	ConversationContextStatus,
 	ModelId,
@@ -24,6 +25,39 @@ type StreamInvocation = {
 	options?: StreamChatOptions;
 	handle: StreamHandle;
 };
+
+function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
+	return {
+		id: "atlas-job-1",
+		conversationId: "conv-1",
+		assistantMessageId: "assistant-1",
+		action: "create",
+		parentAtlasJobId: null,
+		profile: "in-depth",
+		title: "Atlas research",
+		status: "queued",
+		stage: "queued",
+		progress: { percent: 0, stage: "queued" },
+		sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
+		usage: {
+			inputTokens: 0,
+			outputTokens: 0,
+			totalTokens: 0,
+			costUsdMicros: 0,
+		},
+		outputs: {
+			fileProductionJobId: null,
+			htmlChatGeneratedFileId: null,
+			pdfChatGeneratedFileId: null,
+			markdownChatGeneratedFileId: null,
+		},
+		error: null,
+		createdAt: 1,
+		updatedAt: 1,
+		completedAt: null,
+		...overrides,
+	};
+}
 
 function conversationContextStatusFixture(): ConversationContextStatus {
 	return {
@@ -75,6 +109,10 @@ function makeAdapters(
 		}),
 		checkForOrphanedStream: vi.fn(async () => null),
 		getStreamBufferInfo: vi.fn(async () => null),
+		submitAtlasTurn: vi.fn(async () => ({
+			message: "Atlas is queued.",
+			atlasJob: atlasJobFixture(),
+		})),
 		getConversationId: vi.fn(() => "conv-1"),
 		getSelectedModel: vi.fn(() => "model1" as ModelId),
 		getReasoningDepth: vi.fn((): ReasoningDepth => "auto"),
@@ -236,6 +274,99 @@ describe("Normal Chat Client Turn Runtime", () => {
 			isSending: false,
 			canRetry: false,
 		});
+	});
+
+	it("sends Atlas turns through the send route adapter and starts polling detail", async () => {
+		const { adapters, streamInvocations, messages } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Research Atlas UI state",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			atlasMode: true,
+			atlasProfile: "in-depth",
+			atlasAction: "create",
+			clientAtlasTurnId: "client-atlas-1",
+		});
+
+		expect(adapters.submitAtlasTurn).toHaveBeenCalledWith({
+			conversationId: "conv-1",
+			message: "Research Atlas UI state",
+			attachmentIds: [],
+			linkedSources: [],
+			profile: "in-depth",
+			action: "create",
+			parentAtlasJobId: null,
+			clientAtlasTurnId: "client-atlas-1",
+		});
+		expect(adapters.streamChat).not.toHaveBeenCalled();
+		expect(streamInvocations).toHaveLength(0);
+		expect(messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+		]);
+		expect(messages[1]).toMatchObject({
+			id: "assistant-1",
+			content: "Atlas is queued.",
+			isStreaming: false,
+		});
+		expect(adapters.hydrateConversationDetail).toHaveBeenCalledTimes(1);
+		expect(runtime.snapshot()).toMatchObject({
+			active: false,
+			isSending: false,
+			canRetry: false,
+		});
+	});
+
+	it("preserves Atlas options when cloning queued follow-up turns", async () => {
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "First",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		runtime.queue({
+			message: "Continue Atlas report",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			atlasMode: true,
+			atlasProfile: "exhaustive",
+			atlasAction: "continue",
+			parentAtlasJobId: "atlas-parent-1",
+			clientAtlasTurnId: "client-atlas-2",
+		});
+
+		expect(runtime.snapshot().queuedTurn).toMatchObject({
+			message: "Continue Atlas report",
+			atlasMode: true,
+			atlasProfile: "exhaustive",
+			atlasAction: "continue",
+			parentAtlasJobId: "atlas-parent-1",
+			clientAtlasTurnId: "client-atlas-2",
+		});
+
+		streamInvocations[0].callbacks.onEnd("Done", {
+			assistantMessageId: "assistant-1",
+		});
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(adapters.submitAtlasTurn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Continue Atlas report",
+				profile: "exhaustive",
+				action: "continue",
+				parentAtlasJobId: "atlas-parent-1",
+				clientAtlasTurnId: "client-atlas-2",
+			}),
+		);
+		expect(streamInvocations).toHaveLength(1);
 	});
 
 	it("forwards response activity stream callbacks to the active assistant placeholder", () => {

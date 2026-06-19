@@ -257,11 +257,14 @@ export async function completeStreamTurn(
 		);
 	}
 	if (citationGate?.appendedNotice) {
-		console.warn("[CHAT_STREAM] Web citation quality issue detected (notice suppressed from user output)", {
-			conversationId,
-			streamId,
-			status: citationGate.audit?.status,
-		});
+		console.warn(
+			"[CHAT_STREAM] Web citation quality issue detected (notice suppressed from user output)",
+			{
+				conversationId,
+				streamId,
+				status: citationGate.audit?.status,
+			},
+		);
 	}
 
 	const thinkingTokenCount = estimateTokenCount(thinkingContent);

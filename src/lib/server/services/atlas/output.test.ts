@@ -1,0 +1,127 @@
+import { describe, expect, it, vi } from "vitest";
+
+describe("Atlas renderer output", () => {
+	it("assembles a GeneratedDocumentSource and delegates HTML/PDF/Markdown sibling storage to file production", async () => {
+		const { buildAtlasDocumentSource, renderAtlasOutputs } = await import(
+			"./renderer-output"
+		);
+		const source = buildAtlasDocumentSource({
+			title: "Enterprise Search Atlas",
+			subtitle: "Representative evidence map",
+			assembledMarkdown:
+				"# Executive summary\n\nSearch should combine local authority and web freshness.",
+			sources: [{ title: "Vendor docs", url: "https://example.com/docs" }],
+			honestyMarkers: [
+				{
+					code: "limited_web",
+					message: "Representative web coverage.",
+					severity: "info",
+				},
+			],
+			date: "2026-06-19",
+		});
+		const createOutputJob = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		const outputs = await renderAtlasOutputs({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			jobId: "atlas-job-1",
+			source,
+			createOutputJob,
+		});
+
+		expect(source).toMatchObject({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Enterprise Search Atlas",
+			blocks: expect.arrayContaining([
+				expect.objectContaining({ type: "heading", text: "Executive summary" }),
+				expect.objectContaining({ type: "heading", text: "Sources" }),
+				expect.objectContaining({ type: "heading", text: "Honesty markers" }),
+			]),
+		});
+		expect(createOutputJob).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				body: expect.objectContaining({
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-1",
+					idempotencyKey: "atlas-output:atlas-job-1",
+					requestTitle: "Enterprise Search Atlas",
+					sourceMode: "document_source",
+					requestedOutputs: [
+						{ type: "html" },
+						{ type: "pdf" },
+						{ type: "markdown" },
+					],
+					documentSource: source,
+				}),
+			}),
+		);
+		expect(outputs).toEqual({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		});
+	});
+
+	it("persists Atlas lifecycle family metadata through document source and request metadata", async () => {
+		const { buildAtlasDocumentSource, renderAtlasOutputs } = await import(
+			"./renderer-output"
+		);
+		const source = buildAtlasDocumentSource({
+			title: "Continued Atlas",
+			subtitle: "in-depth Atlas report",
+			family: {
+				familyId: "atlas-family-1",
+				mode: "same_family",
+				action: "continue",
+				rootAtlasJobId: "atlas-root-1",
+				currentAtlasJobId: "atlas-child-1",
+				parentAtlasJobId: "atlas-parent-1",
+				forkedFromAtlasJobId: null,
+			},
+			assembledMarkdown: "Continued findings.",
+			sources: [],
+			honestyMarkers: [],
+		});
+		const createOutputJob = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await renderAtlasOutputs({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			jobId: "atlas-child-1",
+			source,
+			createOutputJob,
+		});
+
+		expect(source.cover).toEqual({
+			enabled: true,
+			eyebrow: "Atlas same_family atlas-family-1",
+		});
+		expect(createOutputJob).toHaveBeenCalledWith(
+			expect.objectContaining({
+				body: expect.objectContaining({
+					documentIntent:
+						"Atlas research report; atlas_job_id=atlas-child-1; atlas_source=Atlas same_family atlas-family-1",
+					templateHint:
+						"alfyai_standard_report:Atlas same_family atlas-family-1",
+					documentSource: source,
+				}),
+			}),
+		);
+	});
+});

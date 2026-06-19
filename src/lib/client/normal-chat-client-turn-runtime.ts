@@ -1,3 +1,4 @@
+import { submitAtlasTurn } from "$lib/client/api/atlas";
 import {
 	checkForOrphanedStream,
 	getStreamBufferInfo,
@@ -9,6 +10,8 @@ import {
 } from "$lib/services/streaming";
 import type {
 	ArtifactSummary,
+	AtlasAction,
+	AtlasProfile,
 	ChatMessage,
 	LinkedContextSource,
 	ModelId,
@@ -34,6 +37,11 @@ export type NormalChatSendPayload = {
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	atlasAction?: AtlasAction;
+	parentAtlasJobId?: string | null;
+	clientAtlasTurnId?: string | null;
 };
 
 export type NormalChatRuntimeSnapshot = {
@@ -60,6 +68,7 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	streamChat: typeof streamChat;
 	checkForOrphanedStream: typeof checkForOrphanedStream;
 	getStreamBufferInfo: typeof getStreamBufferInfo;
+	submitAtlasTurn: typeof submitAtlasTurn;
 	getConversationId: () => string;
 	getSelectedModel: () => ModelId;
 	getReasoningDepth: () => ReasoningDepth;
@@ -237,6 +246,7 @@ export function createBrowserNormalChatClientTurnRuntime(
 		streamChat,
 		checkForOrphanedStream,
 		getStreamBufferInfo,
+		submitAtlasTurn,
 	});
 }
 
@@ -569,6 +579,64 @@ export function createNormalChatClientTurnRuntime(
 		);
 	}
 
+	async function startAtlasTurn(params: {
+		payload: NormalChatSendPayload;
+		placeholderId: string;
+		clientUserMessageId: string | null;
+		completedUserMessage: string;
+	}) {
+		const clientAtlasTurnId =
+			params.payload.clientAtlasTurnId?.trim() || adapters.randomId();
+		try {
+			const result = await adapters.submitAtlasTurn({
+				conversationId:
+					params.payload.conversationId ?? adapters.getConversationId(),
+				message: params.payload.message,
+				attachmentIds: params.payload.attachmentIds ?? [],
+				linkedSources: params.payload.linkedSources ?? [],
+				profile: params.payload.atlasProfile ?? "overview",
+				action: params.payload.atlasAction ?? "create",
+				parentAtlasJobId: params.payload.parentAtlasJobId ?? null,
+				clientAtlasTurnId,
+			});
+
+			lastAssistantResponse = result.message;
+			if (result.message) {
+				adapters.appendTokenChunk(params.placeholderId, result.message);
+			}
+			adapters.finalizeStreamingMessage({
+				placeholderId: params.placeholderId,
+				clientUserMessageId: params.clientUserMessageId,
+				metadata: {
+					assistantMessageId:
+						result.atlasJob.assistantMessageId ?? params.placeholderId,
+				},
+			});
+			canRetry = false;
+			completeTurn();
+			adapters.hydrateConversationDetail();
+			adapters.maybeTriggerTitleGeneration(
+				params.completedUserMessage,
+				result.message,
+			);
+			void drainPostTurnQueue();
+		} catch (error) {
+			adapters.removeMessage(params.placeholderId);
+			if (params.clientUserMessageId) {
+				adapters.removeMessage(params.clientUserMessageId);
+			}
+			completeTurn();
+			adapters.restorePayloadToDraft(params.payload);
+			adapters.setSendError(
+				adapters.toFriendlySendError(
+					error instanceof Error ? error : new Error(String(error)),
+				),
+			);
+			canRetry = false;
+			emitState();
+		}
+	}
+
 	async function send(
 		payload: NormalChatSendPayload,
 		options: SendRuntimeOptions = {},
@@ -646,6 +714,16 @@ export function createNormalChatClientTurnRuntime(
 		adapters.appendAssistantPlaceholder(
 			createAssistantPlaceholder(placeholderId),
 		);
+
+		if (payload.atlasMode === true) {
+			await startAtlasTurn({
+				payload,
+				placeholderId,
+				clientUserMessageId,
+				completedUserMessage: text,
+			});
+			return;
+		}
 
 		startStream({
 			message: text,
@@ -936,6 +1014,11 @@ function cloneSendPayload(
 		personalityProfileId: payload.personalityProfileId ?? null,
 		reasoningDepth: payload.reasoningDepth,
 		forceWebSearch: payload.forceWebSearch === true,
+		atlasMode: payload.atlasMode === true,
+		atlasProfile: payload.atlasProfile ?? null,
+		atlasAction: payload.atlasAction ?? "create",
+		parentAtlasJobId: payload.parentAtlasJobId ?? null,
+		clientAtlasTurnId: payload.clientAtlasTurnId ?? null,
 	};
 }
 

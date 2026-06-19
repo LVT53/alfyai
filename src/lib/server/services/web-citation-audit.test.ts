@@ -105,9 +105,10 @@ describe("buildWebCitationAudit", () => {
 });
 
 describe("applyWebCitationQualityGate", () => {
-	it("appends a generic source-check notice when researched answers omit citations", () => {
+	it("records a generic source-check notice when researched answers omit citations", () => {
+		const response = "The current price is $799.";
 		const result = applyWebCitationQualityGate({
-			assistantResponse: "The current price is $799.",
+			assistantResponse: response,
 			toolCalls: [
 				researchTool([
 					{
@@ -122,18 +123,19 @@ describe("applyWebCitationQualityGate", () => {
 
 		expect(result.audit).toMatchObject({
 			status: "missing_citations",
-			noticeAppended: true,
+			noticeAppended: false,
 		});
 		expect(result.appendedNotice).toContain("Source check:");
-		expect(result.response).toContain("web research");
+		expect(result.response).toBe(response);
 		expect(result.response).not.toContain("Retrieved sources");
 		expect(result.response).not.toContain("Official Product");
 		expect(result.response).not.toContain("https://example.com/product");
 	});
 
-	it("appends a generic caution notice when citations were not retrieved sources", () => {
+	it("records a generic caution notice when citations were not retrieved sources", () => {
+		const response = "See [wrong page](https://example.com/wrong).";
 		const result = applyWebCitationQualityGate({
-			assistantResponse: "See [wrong page](https://example.com/wrong).",
+			assistantResponse: response,
 			toolCalls: [
 				researchTool([
 					{
@@ -149,18 +151,22 @@ describe("applyWebCitationQualityGate", () => {
 		expect(result.audit).toMatchObject({
 			status: "unsupported_citations",
 			unsupportedCitationCount: 1,
-			noticeAppended: true,
+			noticeAppended: false,
 		});
-		expect(result.response).toContain("Treat unsupported links cautiously");
+		expect(result.appendedNotice).toContain(
+			"Treat unsupported links cautiously",
+		);
+		expect(result.response).toBe(response);
 		expect(result.response).not.toContain("Retrieved sources");
 		expect(result.response).not.toContain("Official Product");
 		expect(result.response).not.toContain("https://example.com/product");
 	});
 
-	it("appends a source-failure notice when zero-source web research is followed by a citation", () => {
+	it("records a source-failure notice when zero-source web research is followed by a citation", () => {
+		const response =
+			"Reuters says this is current: https://www.reuters.com/world/example.";
 		const result = applyWebCitationQualityGate({
-			assistantResponse:
-				"Reuters says this is current: https://www.reuters.com/world/example.",
+			assistantResponse: response,
 			toolCalls: [researchTool([])],
 		});
 
@@ -169,12 +175,13 @@ describe("applyWebCitationQualityGate", () => {
 			retrievedSourceCount: 0,
 			citedUrlCount: 1,
 			unsupportedCitationCount: 1,
-			noticeAppended: true,
+			noticeAppended: false,
 		});
 		expect(result.appendedNotice).toContain("returned no retrievable sources");
-		expect(result.response).toContain(
+		expect(result.appendedNotice).toContain(
 			"were not verified by the web research tool",
 		);
+		expect(result.response).toBe(response);
 	});
 
 	it("leaves clean citations unchanged", () => {

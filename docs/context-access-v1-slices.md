@@ -80,7 +80,7 @@ Upgrade `memory_context(mode: "project")` so project sibling summaries and detai
 
 - [ ] Project summary mode can return substantially more than 5 sibling/linked conversations when model/runtime capacity allows.
 - [ ] Detail mode can return substantially more than 10 relevant messages when model/runtime capacity allows.
-- [ ] Responses include applied limits and omitted counts for siblings, messages, and deep-research results where applicable.
+- [ ] Responses include applied limits and omitted counts for siblings, messages, and Atlas research results where applicable.
 - [ ] Large projects preserve breadth first through summaries before adding deep content.
 - [ ] Existing Project Folder and Project Continuity authority rules are preserved.
 

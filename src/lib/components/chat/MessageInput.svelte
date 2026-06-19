@@ -1,7 +1,8 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { Plus, Send, Square, X } from "@lucide/svelte";
+import { Bell, Plus, Send, Square, X } from "@lucide/svelte";
 import { goto } from "$app/navigation";
+import { enableBrowserPushNotifications } from "$lib/client/api/browser-push";
 import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
 import {
 	linkedContextSourceArtifactIds,
@@ -31,6 +32,8 @@ import {
 } from "./composer-command-parser";
 import type {
 	ArtifactSummary,
+	AtlasAvailability,
+	AtlasProfile,
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
@@ -53,6 +56,10 @@ type SendPayload = {
 	linkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
 	forceWebSearch?: boolean;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	atlasAction?: "create";
+	clientAtlasTurnId?: string | null;
 };
 
 type DraftPayload = {
@@ -62,6 +69,9 @@ type DraftPayload = {
 	selectedAttachments: PendingAttachment[];
 	selectedLinkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	clientAtlasTurnId?: string | null;
 };
 
 let {
@@ -79,6 +89,9 @@ let {
 	draftAttachments = [],
 	draftLinkedSources = [],
 	draftPendingSkill = null,
+	draftAtlasMode = false,
+	draftAtlasProfile = null,
+	draftClientAtlasTurnId = null,
 	draftVersion = 0,
 	onSend = undefined,
 	onQueue = undefined,
@@ -101,6 +114,7 @@ let {
 	reasoningDepth = "auto",
 	onReasoningDepthChange = undefined,
 	composerCommandRegistryEnabled = false,
+	atlasAvailability = null,
 }: {
 	disabled?: boolean;
 	maxLength?: number;
@@ -116,6 +130,9 @@ let {
 	draftAttachments?: PendingAttachment[];
 	draftLinkedSources?: LinkedContextSource[];
 	draftPendingSkill?: PendingSkillSelection | null;
+	draftAtlasMode?: boolean;
+	draftAtlasProfile?: AtlasProfile | null;
+	draftClientAtlasTurnId?: string | null;
 	draftVersion?: number;
 	onSend?: ((payload: SendPayload) => void) | undefined;
 	onQueue?: ((payload: SendPayload) => void) | undefined;
@@ -154,6 +171,7 @@ let {
 	reasoningDepth?: ReasoningDepth;
 	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
 	composerCommandRegistryEnabled?: boolean;
+	atlasAvailability?: AtlasAvailability | null;
 } = $props();
 
 let textarea = $state<HTMLTextAreaElement | null>(null);
@@ -184,6 +202,11 @@ let skillDiscoveryLoading = $state(false);
 let skillDiscoveryRequestId = 0;
 let toolsMenuInitialOpen = $state<"model" | "style" | "depth" | null>(null);
 let forceWebSearch = $state(false);
+let selectedAtlasProfile = $state<AtlasProfile | null>(null);
+let clientAtlasTurnId = $state<string | null>(null);
+let atlasPushStatus = $state<
+	"idle" | "enabled" | "unavailable" | "denied" | "failed"
+>("idle");
 let queuedSendAfterProcessing = $state(false);
 let linkHighlightScrollTop = $state(0);
 let appliedDraftVersion = -1;
@@ -275,6 +298,9 @@ let activeCommandAnnouncement = $derived(
 		: "",
 );
 let composerTextSegments = $derived(tokenizeTextLinks(message));
+let selectedAtlasProfileLabel = $derived(
+	selectedAtlasProfile ? atlasProfileLabel(selectedAtlasProfile) : "",
+);
 
 $effect(() => {
 	resolvedConversationId = conversationId;
@@ -364,6 +390,12 @@ $effect(() => {
 		uploadState = "idle";
 		queuedSendAfterProcessing = false;
 		showToolsMenu = false;
+		selectedAtlasProfile = draftAtlasMode
+			? (draftAtlasProfile ?? "overview")
+			: null;
+		clientAtlasTurnId = selectedAtlasProfile
+			? (draftClientAtlasTurnId ?? createClientAtlasTurnId())
+			: null;
 		closeCommandTray();
 		lastEmittedDraftKey = "";
 		draftEmissionVersion += 1;
@@ -429,6 +461,8 @@ $effect(() => {
 		uploadState = "idle";
 		queuedSendAfterProcessing = false;
 		showToolsMenu = false;
+		selectedAtlasProfile = null;
+		clientAtlasTurnId = null;
 		closeCommandTray();
 		lastEmittedDraftKey = "";
 		draftEmissionVersion += 1;
@@ -583,11 +617,19 @@ function buildSendPayload(): SendPayload {
 				}))
 			: [],
 		pendingSkill:
-			composerCommandRegistryEnabled ? pendingSkill : null,
+			composerCommandRegistryEnabled && !selectedAtlasProfile
+				? pendingSkill
+				: null,
 		conversationId: resolvedConversationId,
 		personalityProfileId: selectedPersonalityId,
 		reasoningDepth,
-		forceWebSearch,
+		forceWebSearch: selectedAtlasProfile ? false : forceWebSearch,
+		atlasMode: Boolean(selectedAtlasProfile),
+		atlasProfile: selectedAtlasProfile,
+		atlasAction: "create",
+		clientAtlasTurnId: selectedAtlasProfile
+			? getOrCreateClientAtlasTurnId()
+			: null,
 	};
 }
 
@@ -603,6 +645,8 @@ function clearComposerAfterSubmit() {
 	closeCommandTray();
 	documentPickerOpen = false;
 	forceWebSearch = false;
+	selectedAtlasProfile = null;
+	clientAtlasTurnId = null;
 	lastEmittedDraftKey = "";
 	draftEmissionVersion += 1;
 	void emitDraftChange(true);
@@ -704,6 +748,71 @@ function closeSourceManager() {
 
 function setForceWebSearch(enabled: boolean) {
 	forceWebSearch = enabled;
+}
+
+function atlasProfileLabel(profile: AtlasProfile): string {
+	if (profile === "exhaustive") return $t("composerTools.atlasExhaustive");
+	if (profile === "in-depth") return $t("composerTools.atlasInDepth");
+	return $t("composerTools.atlasOverview");
+}
+
+function setAtlasProfile(profile: AtlasProfile) {
+	selectedAtlasProfile = profile;
+	clientAtlasTurnId ??= createClientAtlasTurnId();
+	pendingSkill = null;
+	draftEmissionVersion += 1;
+	void emitDraftChange();
+}
+
+function removeAtlasProfile() {
+	selectedAtlasProfile = null;
+	clientAtlasTurnId = null;
+	draftEmissionVersion += 1;
+	void emitDraftChange();
+}
+
+async function enableAtlasPushNotifications() {
+	const result = await enableBrowserPushNotifications().catch(() => ({
+		ok: false as const,
+		reason: "service_worker_failed" as const,
+	}));
+	if (result.ok) {
+		atlasPushStatus = "enabled";
+		return;
+	}
+	if (result.reason === "permission_denied") {
+		atlasPushStatus = "denied";
+		return;
+	}
+	if (
+		result.reason === "missing_vapid_keys" ||
+		result.reason === "unsupported"
+	) {
+		atlasPushStatus = "unavailable";
+		return;
+	}
+	atlasPushStatus = "failed";
+}
+
+function atlasPushStatusLabel(): string {
+	if (atlasPushStatus === "enabled") return $t("browserPush.enabled");
+	if (atlasPushStatus === "denied") return $t("browserPush.denied");
+	if (atlasPushStatus === "unavailable") return $t("browserPush.unavailable");
+	if (atlasPushStatus === "failed") return $t("browserPush.failed");
+	return "";
+}
+
+function createClientAtlasTurnId(): string {
+	const random =
+		typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+			? crypto.randomUUID()
+			: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+	return `atlas-${random}`;
+}
+
+function getOrCreateClientAtlasTurnId(): string {
+	clientAtlasTurnId ??= createClientAtlasTurnId();
+	return clientAtlasTurnId;
 }
 
 function commandRowRef(node: HTMLElement, id: string) {
@@ -1392,7 +1501,8 @@ async function emitDraftChange(force = false) {
 		nextMessage.trim().length > 0 ||
 		nextPendingAttachments.length > 0 ||
 		nextLinkedSources.length > 0 ||
-		Boolean(nextPendingSkill);
+		Boolean(nextPendingSkill) ||
+		Boolean(selectedAtlasProfile);
 	let draftConversationId: string | null = resolvedConversationId;
 	if (hasMeaningfulDraft) {
 		try {
@@ -1411,6 +1521,9 @@ async function emitDraftChange(force = false) {
 		selectedAttachments: nextPendingAttachments,
 		selectedLinkedSources: nextLinkedSources,
 		pendingSkill: nextPendingSkill,
+		atlasMode: Boolean(selectedAtlasProfile),
+		atlasProfile: selectedAtlasProfile,
+		clientAtlasTurnId: selectedAtlasProfile ? clientAtlasTurnId : null,
 	};
 	const key = JSON.stringify(payload);
 	if (!force && key === lastEmittedDraftKey) return;
@@ -1582,6 +1695,39 @@ async function emitDraftChange(force = false) {
 			</ul>
 		{/if}
 
+		{#if selectedAtlasProfile}
+			<ul class="pending-skill-chips" aria-label={$t('composerTools.activeControls')}>
+				<li class="pending-skill-chip pending-skill-chip--atlas">
+					<span class="pending-skill-chip__marker" aria-hidden="true"></span>
+					<span class="pending-skill-chip__copy">
+						<span class="pending-skill-chip__label">
+							{$t('composerTools.atlasChip', { profile: selectedAtlasProfileLabel })}
+						</span>
+						{#if atlasPushStatus !== "idle"}
+							<span class="pending-skill-chip__status">{atlasPushStatusLabel()}</span>
+						{/if}
+					</span>
+					<button
+						type="button"
+						class="pending-skill-chip__remove"
+						aria-label={$t('browserPush.enableAtlasA11y')}
+						title={$t('browserPush.enableAtlasA11y')}
+						onclick={enableAtlasPushNotifications}
+					>
+					<Bell size={14} strokeWidth={2} aria-hidden="true" />
+					</button>
+					<button
+						type="button"
+						class="pending-skill-chip__remove"
+						aria-label={$t('composerTools.removeAtlas')}
+						onclick={removeAtlasProfile}
+					>
+					<X size={14} strokeWidth={2} aria-hidden="true" />
+					</button>
+				</li>
+			</ul>
+		{/if}
+
 		{#if hasQueuedMessage}
 			<div
 				data-testid="queued-message-banner"
@@ -1645,6 +1791,9 @@ async function emitDraftChange(force = false) {
 							initialOpen={toolsMenuInitialOpen}
 							{forceWebSearch}
 							onForceWebSearchChange={setForceWebSearch}
+							{atlasAvailability}
+							atlasProfile={selectedAtlasProfile}
+							onAtlasProfileChange={setAtlasProfile}
 						/>
 					{/if}
 				</div>

@@ -250,7 +250,9 @@ function parseStableSelfStatement(
 }
 
 function normalizeExplicitMemoryCandidate(candidate: string): string {
-	const text = stripExplicitInstructionTail(stripTerminalPunctuation(candidate));
+	const text = stripExplicitInstructionTail(
+		stripTerminalPunctuation(candidate),
+	);
 	const wrapperPatterns = [
 		/^this\s+as\s+(?:an?\s+)?(?:durable\s+)?(?:memory\s+profile\s+)?(?:profile\s+)?(?:fact|memory|preference|detail|note)\s*[:,-]\s*/i,
 		/^this\s+(?:an?\s+)?(?:durable\s+)?(?:memory\s+profile\s+)?(?:profile\s+)?(?:fact|memory|preference|detail|note)\s*[:,-]\s*/i,
@@ -311,10 +313,7 @@ export function parsePostTurnMemoryIntake(
 		return { decision: "reject", reason: "one_off_instruction" };
 	}
 
-	const contextualRemember = parseContextualRememberReference(
-		message,
-		options,
-	);
+	const contextualRemember = parseContextualRememberReference(message, options);
 	if (contextualRemember) return contextualRemember;
 
 	if (looksDocumentFamilyWorkflowIntent(message)) {

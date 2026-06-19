@@ -62,9 +62,7 @@ describe("memory profile module seams", () => {
 		expect(maintenance).toContain(
 			'from "./memory-profile/dirty-ledger-reconciliation"',
 		);
-		expect(maintenance).toContain(
-			'from "./memory-profile/legacy-curation"',
-		);
+		expect(maintenance).toContain('from "./memory-profile/legacy-curation"');
 	});
 
 	it("keeps active profile reads detached from the control-model adapter", () => {

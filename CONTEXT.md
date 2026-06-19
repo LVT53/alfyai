@@ -2344,15 +2344,15 @@ A durable, navigable research report artifact produced by an **Atlas Turn**. It 
 _Avoid_: deep research report, research card, research job output, research artifact
 
 **Atlas Turn**:
-A **Normal Chat Turn** that produces an **Atlas** through an enforced multi-stage research pipeline. Unlike a regular turn where the model decides its own tool flow, an Atlas Turn runs a fixed stage sequence — decompose, search, curate, synthesize, integrate, assemble, audit — with the server controlling the order and the model filling in content within each stage. It flows through **Normal Chat Turn Completion** like any other turn, updating memory, analytics, and task state. It is not a parallel background subsystem.
+A **Normal Chat Turn** that produces an **Atlas** through an enforced multi-stage research pipeline. Unlike a regular turn where the model decides its own tool flow, an Atlas Turn runs a fixed stage sequence — decompose, search, curate, synthesize, integrate, assemble, audit, then deterministic rendering — with the server controlling the order and the model filling in content within each model stage. Its kickoff assistant message flows through **Normal Chat Turn Completion** with memory and Honcho enrichment explicitly skipped; the background completion records usage, source counts, file-production links, and generated-file ids on the Atlas job. It is not a parallel background subsystem and does not create a second completion turn.
 _Avoid_: deep research job, research workflow, background research task, research mode
 
 **Atlas Profile**:
-The depth, duration, and quality-gate strictness setting for an **Atlas Turn**. Three profiles exist: **Overview** (Áttekintés), **In-Depth** (Részletes), and **Exhaustive** (Kimerítő). A profile sets target goals for source count, sub-query count, and research rounds, but the goals adjust dynamically based on coverage. Quality gates are non-negotiable regardless of profile — even Overview cannot ship an unsupported report.
+The depth, duration, and quality-gate strictness setting for an **Atlas Turn**. Three profiles exist: **Overview** (Áttekintés), **In-Depth** (Részletes), and **Exhaustive** (Kimerítő). In v1 a profile primarily controls stage output budget and prompt posture; quality gates are non-negotiable regardless of profile — even Overview cannot ship unsupported certainty.
 _Avoid_: research depth, research mode, depth level, research tier
 
 **Atlas Quality Gate**:
-A non-negotiable check within the **Atlas Turn** pipeline that prevents completion if output quality is insufficient. If the gate fails, the pipeline returns to an earlier stage rather than shipping a weak report. This replaces the old Deep Research plan-approval gate: instead of checking a prediction upfront, it checks the actual output.
+A non-negotiable check within the **Atlas Turn** pipeline that prevents unsupported certainty from shipping silently. If the gate requests retry, the pipeline performs one audit-driven revision pass before final rendering. If quality limits are exhausted but rendering/storage can still produce a trustworthy artifact, the Atlas ships with prominent Limitations and honesty markers rather than unsupported certainty. This replaces the old Deep Research plan-approval gate: instead of checking a prediction upfront, it checks the actual output.
 _Avoid_: plan approval, research checkpoint, pass checkpoint, coverage gate
 
 **Atlas Honesty Marker**:
@@ -2360,11 +2360,11 @@ A visible indicator in an **Atlas** showing the verification status of a claim o
 _Avoid_: confidence badge, citation verdict, audit label, quality score
 
 **Atlas Basis**:
-The per-field provenance contract for every factual output in an **Atlas**: a citation (source URL and relevant excerpt), a reasoning chain (why this source supports this field), and a calibrated confidence estimate (high, medium, low). It is non-optional and part of the output contract, not decorative metadata.
+The provenance contract for factual output in an **Atlas**: the assembled report is audited against the accepted source pool, search limitations, and local-source set before rendering. V1 stores compact audit markers and source metadata rather than a separate per-field evidence database. It is part of the output contract, not decorative metadata.
 _Avoid_: citation list, evidence appendix, source ledger, audit trail
 
 **Atlas Research Round**:
-One iteration of the search-curate-synthesize cycle within an **Atlas Turn**. After each round, findings are compressed into an evolving report summary and the context is reset — the next round sees the question, the compressed summary, and the latest observation, not the full raw history. This prevents context suffocation and error propagation across rounds.
+The durable checkpoint unit for an **Atlas Turn**. V1 writes one completed round checkpoint after audit and before deterministic rendering, containing the curated source pool, compressed findings, usage, quality diagnostics, and document-source summary. Future multi-round expansion should keep this checkpoint vocabulary rather than adding stage-local persistence.
 _Avoid_: research pass, workflow pass, iteration, cycle
 
 **Atlas Continue**:
@@ -2384,27 +2384,45 @@ The user-facing progress surface for an in-progress **Atlas Turn**. It shows a r
 _Avoid_: research card, step tracker, stage progress bar, polling panel
 
 **Atlas Resume**:
-The behavior where a failed or retried **Atlas Turn** continues from the last completed **Atlas Research Round** rather than restarting from scratch. Since the evolving report and curated sources are persisted after each round, a transient failure on round 4 of 5 does not lose rounds 1-3. Explicit cancellation discards partial state — resume applies only to retries, not to cancelled jobs.
+The behavior where a failed or retried **Atlas Turn** preserves its durable checkpoint and job state rather than losing the completed audited source/report summary. V1 retry behavior reruns the bounded pipeline from the job and parent/checkpoint context; explicit cancellation discards partial state and does not resume.
 _Avoid_: research restart, checkpoint restore, paused job resume, cancelled job resume
 
 **Atlas Cost Summary**:
-The accumulated token and cost measurements for one completed **Atlas Turn**, shown to the user after completion in the response audit details. It aggregates usage from all model calls across all stages and rounds, including the cross-model citation audit. It is not shown during execution since the user may have left the page.
+The accumulated token and cost measurements for one completed **Atlas Turn**, stored on the Atlas job and shown after completion where Atlas job details are rendered. It aggregates usage from model calls across all stages and rounds, including audit and audit-revision calls. Cost may be zero when the provider/model runtime does not expose pricing, but token usage is still stored. It is not shown during execution since the user may have left the page.
 _Avoid_: hidden pass cost, per-stage cost breakdown, research usage meter, live cost ticker
 
 **Atlas Concurrent Limit**:
 The cap on how many **Atlas Turns** may run simultaneously. One active Atlas job per user; a global admin-configurable limit (default 2) prevents all server resources from being consumed by Atlas jobs. This is separate from **Normal Chat** stream limits because Atlas jobs are background work, not held stream slots.
 _Avoid_: research job queue, active research limit, per-day quota, monthly quota
 
+**Atlas Local Source**:
+A **Library Document** from the user's Knowledge Library or active working set that the **Atlas Turn** includes in its source pool alongside web sources. **Linked Context Sources** and composer attachments that the user explicitly selected for the Atlas Turn are snapshotted to the kickoff user message and become Atlas Local Sources with the highest authority boost. Readable active working-set documents and parent Atlas seed sources may be included automatically with lower authority. They appear in the Atlas under a "Your Library" subsection of the Sources section.
+_Avoid_: knowledge attachment, uploaded research input, library artifact citation
+
+**Atlas Web Source**:
+A web page discovered through SearXNG during the **Atlas Turn** search stage. Web sources are the primary source pool for an Atlas and appear in the Atlas under a "Web Sources" subsection of the Sources section.
+_Avoid_: search result, fetched page, web citation
+
+**Atlas Completion Notice**:
+The set of signals that tell a user an **Atlas** has finished compiling. Three layers: on-page progress card updates in real-time via polling; conversation list sidebar shows a badge on the conversation with a completed Atlas when the user navigates within AlfyAI; browser push notification fires when the Atlas completes and the user has left AlfyAI entirely. Browser push requires a one-time permission prompt and uses the Web Push API with VAPID keys.
+_Avoid_: research notification, Atlas email alert, separate notification center
+
 ### Relationships
 
 - An **Atlas** is produced by an **Atlas Turn**, which is a special kind of **Normal Chat Turn**.
-- An **Atlas Turn** runs through **Normal Chat Turn Completion** like any other turn; it does not bypass memory, analytics, or task-state updates.
-- An **Atlas Profile** sets target goals for an **Atlas Turn** but **Atlas Quality Gates** are non-negotiable regardless of profile.
+- An **Atlas Turn** uses **Normal Chat Turn Completion** for its kickoff assistant message and persists background completion state on the Atlas job. It does not bypass conversation persistence or generated-file linking, but it does not create a second analytics/task-state completion event. The generated Atlas content is assistant prose and is not automatically admitted to durable memory.
+- An **Atlas Profile** changes stage output budget and prompt posture, but **Atlas Quality Gates** are non-negotiable regardless of profile.
 - **Atlas Honesty Markers** are derived from the **Atlas Basis** verification, not from model self-assessment.
 - An **Atlas** can be continued (**Atlas Continue**), branched (**Atlas Fork**), or refreshed (**Atlas Revise**) — each creates a new **Atlas Turn** with different seeding.
 - **Atlas Continue** and **Atlas Revise** produce new versions in the same document family; **Atlas Fork** creates a new document family.
-- An **Atlas Turn** consists of one or more **Atlas Research Rounds**, each compressing findings before the next round begins.
+- An **Atlas Turn** persists an **Atlas Research Round** checkpoint after audit and before rendering; future multi-round expansion should use the same checkpoint vocabulary.
 - An **Atlas** is stored and previewed through the existing file-production and document-workspace infrastructure, not through a separate research-specific UI.
+- A failed **Atlas Turn** preserves durable job/checkpoint state for **Atlas Resume** behavior; cancelled jobs do not resume.
+- An **Atlas Turn** tracks model usage across all model calls; the **Atlas Cost Summary** is shown to the user after completion, with cost set to zero when provider pricing is unavailable.
+- The **Atlas Concurrent Limit** allows one active Atlas per user and a global admin-configurable limit. Excess jobs queue, they are not rejected.
+- An **Atlas** draws on both **Atlas Web Sources** (SearXNG) and **Atlas Local Sources** (explicit linked sources, composer attachments, active working-set documents, and parent Atlas seed sources). Memory is background context, not a citable source.
+- An **Atlas Completion Notice** fires through three layers: on-page progress polling, sidebar badge on conversation list refresh, and browser push notification when the user has left AlfyAI.
+- An **Atlas** always ships, even when evidence is thin. The **Limitations** section and **Atlas Honesty Markers** communicate evidence quality honestly. There is no separate "insufficient evidence" outcome.
 
 ### Example dialogue
 
@@ -2412,7 +2430,7 @@ _Avoid_: research job queue, active research limit, per-day quota, monthly quota
 > **Domain expert:** "No. An Atlas Turn is a Normal Chat Turn. It creates a job for the long-running research, but the turn itself goes through Normal Chat Turn Completion. The user can leave and come back."
 >
 > **Dev:** "If the user picks Overview, can the pipeline skip the audit stage to finish faster?"
-> **Domain expert:** "No. Atlas Quality Gates are non-negotiable. Overview aims for fewer sources and rounds, but it still cannot ship an unsupported claim. That's what killed the old pipeline — it would finish with gibberish."
+> **Domain expert:** "No. Atlas Quality Gates are non-negotiable. Overview uses a smaller output budget and lighter prompt posture, but it still cannot ship unsupported certainty. That's what killed the old pipeline — it would finish with gibberish."
 >
 > **Dev:** "Should the user approve a research plan before the Atlas Turn starts?"
 > **Domain expert:** "No. The pipeline just runs. The quality gates replace plan approval — they check the actual output, not a prediction. Users rubber-stamped plans anyway."
@@ -2425,7 +2443,7 @@ _Avoid_: research job queue, active research limit, per-day quota, monthly quota
 
 ## Flagged ambiguities
 
-- "canonical" means the preferred term inside the deleted research subsystem subdomain, not the default format for all AlfyAI answers or reports.
-- "finished chat" means a conversation after a **Report Boundary**, not cancellation, deletion, or archival.
+- "canonical" was a term from the deleted Deep Research subsystem. It is historical and should not be used for Atlas or any current feature.
+- "finished chat" and "Report Boundary" were concepts from the deleted Deep Research subsystem (a sealed conversation after a research report). They are historical — Atlas does not seal conversations.
 - "research" in AlfyAI now refers to the live `research_web` Normal Chat tool (single-turn web search) unless prefixed with "Atlas" — an **Atlas** is the durable report, not a search result.
 - "report" without qualification could mean any generated file; an **Atlas** is a specific kind of research report with navigation, citations, and honesty markers.

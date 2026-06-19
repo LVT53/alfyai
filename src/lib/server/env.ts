@@ -53,6 +53,15 @@ interface Config {
 	defaultNewUserModel: ModelId;
 	memoryLegacyCurationModel: ModelId;
 	reasoningDepthClassifierModel: string | null;
+	atlasWorkerEnabled: boolean;
+	atlasGlobalActiveLimit: number;
+	atlasSearchConcurrency: number;
+	atlasSearchBatchDelayMs: number;
+	atlasSynthesisModel: ModelId;
+	atlasAuditModel: ModelId;
+	webPushVapidPublicKey: string;
+	webPushVapidPrivateKey: string;
+	webPushVapidSubject: string;
 	maxMessageLength: number;
 	maxModelContext: number;
 	compactionUiThreshold: number;
@@ -429,6 +438,33 @@ function readConfig(): Config {
 		reasoningDepthClassifierModel: validateReasoningDepthClassifierModel(
 			process.env.REASONING_DEPTH_CLASSIFIER_MODEL,
 		),
+		atlasWorkerEnabled: process.env.ATLAS_WORKER_ENABLED !== "false",
+		atlasGlobalActiveLimit: Math.max(
+			1,
+			parseIntegerEnv(process.env.ATLAS_GLOBAL_ACTIVE_LIMIT, 2),
+		),
+		atlasSearchConcurrency: Math.max(
+			1,
+			parseIntegerEnv(process.env.ATLAS_SEARCH_CONCURRENCY, 3),
+		),
+		atlasSearchBatchDelayMs: Math.max(
+			0,
+			parseIntegerEnv(process.env.ATLAS_SEARCH_BATCH_DELAY_MS, 500),
+		),
+		atlasSynthesisModel: validateConfiguredModelIdEnv(
+			process.env.ATLAS_SYNTHESIS_MODEL,
+			"ATLAS_SYNTHESIS_MODEL",
+			"model1",
+		),
+		atlasAuditModel: validateConfiguredModelIdEnv(
+			process.env.ATLAS_AUDIT_MODEL,
+			"ATLAS_AUDIT_MODEL",
+			"model2",
+		),
+		webPushVapidPublicKey: process.env.WEB_PUSH_VAPID_PUBLIC_KEY || "",
+		webPushVapidPrivateKey: process.env.WEB_PUSH_VAPID_PRIVATE_KEY || "",
+		webPushVapidSubject:
+			process.env.WEB_PUSH_VAPID_SUBJECT || "mailto:admin@localhost",
 		maxMessageLength,
 		maxModelContext,
 		compactionUiThreshold,

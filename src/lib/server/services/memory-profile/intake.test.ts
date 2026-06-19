@@ -341,9 +341,7 @@ describe("memory intake gate", () => {
 				}),
 			}),
 		]);
-		expect(JSON.stringify(telemetry)).not.toContain(
-			"codex-live-memory-clean",
-		);
+		expect(JSON.stringify(telemetry)).not.toContain("codex-live-memory-clean");
 	});
 
 	it("discards old-generation intake output when memory is reset before durable apply", async () => {

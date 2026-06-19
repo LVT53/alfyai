@@ -156,6 +156,93 @@ describe("MessageInput", () => {
 		);
 	});
 
+	it("selects an Atlas profile from composer tools and sends an Atlas turn", async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+			atlasAvailability: { enabled: true, configured: true },
+		});
+
+		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
+		await fireEvent.click(getByRole("menuitem", { name: "Atlas" }));
+		const profilePicker = getByRole("listbox", { name: "Atlas profile" });
+		await fireEvent.click(
+			within(profilePicker).getByRole("option", { name: "In-Depth" }),
+		);
+
+		expect(
+			getByRole("list", { name: "Active composer controls" }),
+		).toHaveTextContent("Atlas: In-Depth");
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Research SvelteKit load invalidation" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Research SvelteKit load invalidation",
+				atlasMode: true,
+				atlasProfile: "in-depth",
+				atlasAction: "create",
+				clientAtlasTurnId: expect.stringMatching(/^atlas-/),
+			}),
+		);
+	});
+
+	it("shows a localized disabled Atlas explanation when availability is incomplete", async () => {
+		const { getByRole } = render(MessageInput, {
+			atlasAvailability: {
+				enabled: true,
+				configured: false,
+				reason: "Atlas requires web search before it can start.",
+			},
+		});
+
+		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
+		const atlasButton = getByRole("menuitem", { name: "Atlas unavailable" });
+
+		expect(atlasButton).toBeDisabled();
+		expect(atlasButton).toHaveAttribute(
+			"title",
+			"Atlas requires web search before it can start.",
+		);
+	});
+
+	it("removes the Atlas chip before send", async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, queryByText } = render(
+			MessageInput,
+			{
+				onSend: sendSpy,
+				atlasAvailability: { enabled: true, configured: true },
+			},
+		);
+
+		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
+		await fireEvent.click(getByRole("menuitem", { name: "Atlas" }));
+		await fireEvent.click(
+			within(getByRole("listbox", { name: "Atlas profile" })).getByRole(
+				"option",
+				{ name: "Overview" },
+			),
+		);
+		await fireEvent.click(getByRole("button", { name: "Remove Atlas" }));
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Just chat" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(queryByText("Atlas: Overview")).toBeNull();
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Just chat",
+				atlasMode: false,
+				atlasProfile: null,
+			}),
+		);
+	});
+
 	it("opens the command tray for a slash command when the registry flag is enabled", async () => {
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
 			composerCommandRegistryEnabled: true,

@@ -1,7 +1,10 @@
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
-import { getHonchoAssistantPeerId, getHonchoUserPeerId } from "../honcho-identifiers";
+import {
+	getHonchoAssistantPeerId,
+	getHonchoUserPeerId,
+} from "../honcho-identifiers";
 
 export function sanitizePublicMemoryText(
 	text: string,

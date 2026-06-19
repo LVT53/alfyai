@@ -197,7 +197,9 @@ export function readMemoryProfileCategory(
 		: null;
 }
 
-export function assertPrivacySafeMetadata(metadata: JsonRecord | undefined): void {
+export function assertPrivacySafeMetadata(
+	metadata: JsonRecord | undefined,
+): void {
 	if (!metadata) return;
 	const forbiddenFragments = [
 		"rawtext",

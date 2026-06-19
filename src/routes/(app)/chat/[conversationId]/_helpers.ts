@@ -2,6 +2,9 @@ import type { I18nKey } from "$lib/i18n";
 import type { StreamMetadata } from "$lib/services/streaming";
 import type {
 	ArtifactSummary,
+	AtlasAction,
+	AtlasJobCard,
+	AtlasProfile,
 	ChatMessage,
 	EvidenceSourceType,
 	FileProductionJob,
@@ -35,6 +38,11 @@ export type SendPayload = {
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	atlasAction?: AtlasAction;
+	parentAtlasJobId?: string | null;
+	clientAtlasTurnId?: string | null;
 };
 
 export type MessageEditPayload = {
@@ -53,6 +61,9 @@ export type DraftChangePayload = {
 	selectedAttachments: PendingAttachment[];
 	selectedLinkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	clientAtlasTurnId?: string | null;
 };
 
 export type StreamToolCallDetails = {
@@ -167,9 +178,15 @@ export function hasActiveFileProductionJobs(
 	);
 }
 
-export function isConversationReadOnly(
-	conversation: { status?: "open" | "sealed" | null },
-): boolean {
+export function hasActiveAtlasJobs(jobs: AtlasJobCard[]): boolean {
+	return jobs.some(
+		(job) => job.status === "queued" || job.status === "running",
+	);
+}
+
+export function isConversationReadOnly(conversation: {
+	status?: "open" | "sealed" | null;
+}): boolean {
 	return conversation.status === "sealed";
 }
 

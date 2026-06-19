@@ -1,16 +1,45 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { memoryProfileItems } from "$lib/server/db/schema";
-import { MEMORY_DIRTY_REASONS, assertMemoryProfileCategory, assertOneOf, isOneOf, type JsonRecord, type LegacyMemoryCandidateLoader, type MemoryDirtyLedgerReconciliationResult } from "./types";
-import { parseJsonRecord, readSafePositiveInteger, readSafeString, readSafeStringArray } from "./internal-json";
-import { getCurrentMemoryResetGeneration } from "./reset-generation";
 import { getActiveMemoryProfileContext } from "./active-context";
-import { markMemoryDirty, reclaimStaleClaimedMemoryDirtyLedgerRows, claimNextMemoryDirtyLedgerRow, completeClaimedMemoryDirtyLedgerRow, requeueClaimedMemoryDirtyLedgerRow, type ClaimedDirtyLedgerRow } from "./dirty-ledger";
+import {
+	type ClaimedDirtyLedgerRow,
+	claimNextMemoryDirtyLedgerRow,
+	completeClaimedMemoryDirtyLedgerRow,
+	markMemoryDirty,
+	reclaimStaleClaimedMemoryDirtyLedgerRows,
+	requeueClaimedMemoryDirtyLedgerRow,
+} from "./dirty-ledger";
+import {
+	parseJsonRecord,
+	readSafePositiveInteger,
+	readSafeString,
+	readSafeStringArray,
+} from "./internal-json";
+import {
+	type LegacyPersonaMemoryCandidateBatch,
+	migrateLegacyMemoryForUser,
+} from "./legacy";
+import {
+	curatePreservedLegacyMemoryForUser,
+	type LegacyMemoryCurator,
+} from "./legacy-curation";
+import { getCurrentMemoryResetGeneration } from "./reset-generation";
 import { createOrUpdateMemoryReviewItem } from "./review";
-import { curatePreservedLegacyMemoryForUser, type LegacyMemoryCurator } from "./legacy-curation";
-import { migrateLegacyMemoryForUser, type LegacyPersonaMemoryCandidateBatch } from "./legacy";
-import { normalizeRememberedStatement, stableMemoryMaintenanceDigest } from "./scope";
+import {
+	normalizeRememberedStatement,
+	stableMemoryMaintenanceDigest,
+} from "./scope";
 import { recordMemoryReworkTelemetry } from "./telemetry";
+import {
+	assertMemoryProfileCategory,
+	assertOneOf,
+	isOneOf,
+	type JsonRecord,
+	type LegacyMemoryCandidateLoader,
+	MEMORY_DIRTY_REASONS,
+	type MemoryDirtyLedgerReconciliationResult,
+} from "./types";
 
 const DEFAULT_MEMORY_DIRTY_LEDGER_BATCH_SIZE = 25;
 const DEFAULT_MEMORY_DIRTY_LEDGER_MAX_RUNTIME_MS = 1500;

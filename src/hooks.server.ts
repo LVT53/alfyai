@@ -14,6 +14,7 @@ import { db } from "$lib/server/db";
 import { ensureRuntimeSchemaCompatibility } from "$lib/server/db/compat";
 import { users } from "$lib/server/db/schema";
 import { prewarmSandboxImageInBackground } from "$lib/server/sandbox/config";
+import { ensureAtlasWorker } from "$lib/server/services/atlas";
 import { validateSession } from "$lib/server/services/auth";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
 import { ensureMemoryMaintenanceScheduler } from "$lib/server/services/memory-maintenance";
@@ -100,6 +101,9 @@ export const init: ServerInit = async () => {
 	prewarmSandboxImageInBackground();
 	ensureFileProductionWorker().catch((error) =>
 		console.error("Failed to start file production worker:", error),
+	);
+	ensureAtlasWorker().catch((error) =>
+		console.error("Failed to start Atlas worker:", error),
 	);
 };
 

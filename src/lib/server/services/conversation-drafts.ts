@@ -5,6 +5,7 @@ import { parseJsonStringArray } from "$lib/server/utils/json";
 import type {
 	Artifact,
 	ArtifactSummary,
+	AtlasProfile,
 	ConversationDraft,
 	LinkedContextSource,
 	PendingAttachment,
@@ -102,13 +103,21 @@ function hasMeaningfulDraft(
 	selectedAttachmentIds: string[],
 	selectedLinkedSources: LinkedContextSource[],
 	pendingSkill: PendingSkillSelection | null,
+	atlasMode = false,
 ): boolean {
 	return (
 		draftText.trim().length > 0 ||
 		selectedAttachmentIds.length > 0 ||
 		selectedLinkedSources.length > 0 ||
-		Boolean(pendingSkill)
+		Boolean(pendingSkill) ||
+		atlasMode
 	);
+}
+
+function parseAtlasProfile(value: unknown): AtlasProfile | null {
+	return value === "overview" || value === "in-depth" || value === "exhaustive"
+		? value
+		: null;
 }
 
 export async function getConversationDraft(
@@ -163,6 +172,9 @@ export async function getConversationDraft(
 		selectedAttachments: pendingAttachments,
 		selectedLinkedSources,
 		pendingSkill,
+		atlasMode: Boolean(row.atlasMode),
+		atlasProfile: parseAtlasProfile(row.atlasProfile),
+		clientAtlasTurnId: row.clientAtlasTurnId ?? null,
 		updatedAt: row.updatedAt.getTime(),
 	};
 }
@@ -174,12 +186,20 @@ export async function upsertConversationDraft(params: {
 	selectedAttachmentIds: string[];
 	selectedLinkedSources?: LinkedContextSource[];
 	pendingSkill?: PendingSkillSelection | null;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	clientAtlasTurnId?: string | null;
 }): Promise<ConversationDraft | null> {
 	const selectedAttachmentIds = Array.from(
 		new Set(params.selectedAttachmentIds),
 	);
 	const selectedLinkedSources = params.selectedLinkedSources ?? [];
 	const pendingSkill = params.pendingSkill ?? null;
+	const atlasMode = params.atlasMode === true;
+	const atlasProfile = atlasMode ? (params.atlasProfile ?? "overview") : null;
+	const clientAtlasTurnId = atlasMode
+		? (params.clientAtlasTurnId ?? null)
+		: null;
 	const draftText = params.draftText;
 
 	if (
@@ -188,6 +208,7 @@ export async function upsertConversationDraft(params: {
 			selectedAttachmentIds,
 			selectedLinkedSources,
 			pendingSkill,
+			atlasMode,
 		)
 	) {
 		await clearConversationDraft(params.userId, params.conversationId);
@@ -203,6 +224,9 @@ export async function upsertConversationDraft(params: {
 			selectedAttachmentIdsJson: JSON.stringify(selectedAttachmentIds),
 			selectedLinkedSourcesJson: JSON.stringify(selectedLinkedSources),
 			pendingSkillJson: JSON.stringify(pendingSkill),
+			atlasMode,
+			atlasProfile,
+			clientAtlasTurnId,
 			updatedAt: new Date(),
 		})
 		.onConflictDoUpdate({
@@ -213,6 +237,9 @@ export async function upsertConversationDraft(params: {
 				selectedAttachmentIdsJson: JSON.stringify(selectedAttachmentIds),
 				selectedLinkedSourcesJson: JSON.stringify(selectedLinkedSources),
 				pendingSkillJson: JSON.stringify(pendingSkill),
+				atlasMode,
+				atlasProfile,
+				clientAtlasTurnId,
 				updatedAt: new Date(),
 			},
 		});

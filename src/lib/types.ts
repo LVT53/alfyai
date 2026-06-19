@@ -365,6 +365,64 @@ export interface FileProductionJob {
 	} | null;
 }
 
+export type AtlasProfile = "overview" | "in-depth" | "exhaustive";
+export type AtlasAction = "create" | "continue" | "fork" | "revise";
+export type AtlasJobStatus =
+	| "queued"
+	| "running"
+	| "succeeded"
+	| "failed"
+	| "cancelled";
+
+export interface AtlasAvailability {
+	enabled: boolean;
+	configured: boolean;
+	reasonCode?: "disabled" | "missing_searxng" | null;
+	reason?: string | null;
+}
+
+export interface AtlasJobCard {
+	id: string;
+	conversationId: string;
+	assistantMessageId?: string | null;
+	action: AtlasAction;
+	parentAtlasJobId?: string | null;
+	profile: AtlasProfile;
+	title: string;
+	status: AtlasJobStatus;
+	stage?: string | null;
+	progress: {
+		percent: number;
+		stage: string;
+	};
+	sourceCounts: {
+		local: number;
+		web: number;
+		accepted: number;
+		rejected: number;
+	};
+	usage: {
+		inputTokens: number;
+		outputTokens: number;
+		totalTokens: number;
+		costUsdMicros: number;
+	};
+	outputs: {
+		fileProductionJobId?: string | null;
+		htmlChatGeneratedFileId?: string | null;
+		pdfChatGeneratedFileId?: string | null;
+		markdownChatGeneratedFileId?: string | null;
+	};
+	error?: {
+		code: string;
+		message: string;
+		retryable: boolean;
+	} | null;
+	createdAt: number;
+	updatedAt: number;
+	completedAt?: number | null;
+}
+
 export type DocumentWorkspaceSource =
 	| "chat_generated_file"
 	| "knowledge_artifact";
@@ -403,6 +461,8 @@ export interface ConversationDetail {
 	bootstrap?: boolean;
 	generatedFiles?: ChatGeneratedFile[];
 	fileProductionJobs?: FileProductionJob[];
+	atlasJobs?: AtlasJobCard[];
+	atlasAvailability?: AtlasAvailability | null;
 	contextCompressionSnapshots?: ContextCompressionMarker[];
 	activeSkillSession?: SkillSession | null;
 	totalCostUsdMicros?: number;
@@ -433,6 +493,10 @@ export interface ConversationListItem {
 	sidebarPinned: boolean;
 	sidebarSortOrder: number | null;
 	forkSummary?: ConversationForkListSummary;
+	atlasBadge?: {
+		status: AtlasJobStatus;
+		label?: string | null;
+	} | null;
 }
 
 // MessageRole type: 'user' | 'assistant'
@@ -969,6 +1033,9 @@ export interface ConversationDraft {
 	selectedAttachments: PendingAttachment[];
 	selectedLinkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	clientAtlasTurnId?: string | null;
 	updatedAt: number;
 }
 

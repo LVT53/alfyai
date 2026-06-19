@@ -657,12 +657,13 @@ describe("completeStreamTurn", () => {
 		);
 	});
 
-	it("appends a source-check notice when web research citations fail", async () => {
+	it("records source-check metadata when web research citations fail", async () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const response = "The current price is $799.";
 
 		await completeStreamTurn({
 			...defaultParams,
-			fullResponse: "The current price is $799.",
+			fullResponse: response,
 			toolCallRecords: [
 				{
 					name: "research_web",
@@ -684,26 +685,22 @@ describe("completeStreamTurn", () => {
 		const noticeCall = mockEnqueueChunk.mock.calls.find((call: string[]) =>
 			call[0]?.includes("Source check:"),
 		);
-		expect(noticeCall).toBeDefined();
-		expect(noticeCall?.[0]).not.toContain("Official Product");
-		expect(noticeCall?.[0]).not.toContain("https://example.com/product");
+		expect(noticeCall).toBeUndefined();
 		const assistantCreateCall = mockCreateMessage.mock.calls.find(
 			(call: unknown[]) => call[1] === "assistant",
 		);
-		expect(assistantCreateCall?.[2]).toEqual(
-			expect.stringContaining("Source check:"),
-		);
+		expect(assistantCreateCall?.[2]).toBe(response);
 		expect(assistantCreateCall?.[2]).not.toContain("Official Product");
 		expect(assistantCreateCall?.[2]).not.toContain(
 			"https://example.com/product",
 		);
 		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
-				assistantResponse: expect.stringContaining("Source check:"),
+				assistantResponse: response,
 			}),
 		);
 		const evidencePayload = mockPersistAssistantEvidence.mock.calls.at(-1)?.[0];
-		expect(evidencePayload?.assistantResponse).toContain("Source check:");
+		expect(evidencePayload?.assistantResponse).toBe(response);
 		expect(evidencePayload?.assistantResponse).not.toContain(
 			"Official Product",
 		);
@@ -714,7 +711,7 @@ describe("completeStreamTurn", () => {
 			expect.objectContaining({
 				webCitationAudit: expect.objectContaining({
 					status: "missing_citations",
-					noticeAppended: true,
+					noticeAppended: false,
 				}),
 			}),
 		);
@@ -722,7 +719,7 @@ describe("completeStreamTurn", () => {
 		warnSpy.mockRestore();
 	});
 
-	it("starts a text part before a source-check notice when the original visible response is empty", async () => {
+	it("does not stream a source-check notice when the original visible response is empty", async () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
 		await completeStreamTurn({
@@ -752,26 +749,22 @@ describe("completeStreamTurn", () => {
 		const noticeCall = mockEnqueueChunk.mock.calls.find((call: string[]) =>
 			call[0]?.includes("Source check:"),
 		);
-		const noticeParts = decodeUiMessageStreamParts(noticeCall?.[0] ?? "");
 
-		expect(partTypes.indexOf("text-start")).toBeLessThan(
-			partTypes.indexOf("text-delta"),
-		);
-		expect(noticeParts).toEqual([
-			expect.objectContaining({ type: "text-delta" }),
-		]);
-		expect(partTypes).toEqual(expect.arrayContaining(["text-end", "finish"]));
+		expect(noticeCall).toBeUndefined();
+		expect(partTypes).not.toContain("text-delta");
+		expect(partTypes).toContain("finish");
 
 		warnSpy.mockRestore();
 	});
 
-	it("persists a source-failure notice when zero-source web research is followed by a citation", async () => {
+	it("persists source-failure audit metadata when zero-source web research is followed by a citation", async () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const response =
+			"Reuters says this is current: https://www.reuters.com/world/example.";
 
 		await completeStreamTurn({
 			...defaultParams,
-			fullResponse:
-				"Reuters says this is current: https://www.reuters.com/world/example.",
+			fullResponse: response,
 			toolCallRecords: [
 				{
 					name: "research_web",
@@ -786,13 +779,11 @@ describe("completeStreamTurn", () => {
 		const noticeCall = mockEnqueueChunk.mock.calls.find((call: string[]) =>
 			call[0]?.includes("returned no retrievable sources"),
 		);
-		expect(noticeCall).toBeDefined();
+		expect(noticeCall).toBeUndefined();
 		const assistantCreateCall = mockCreateMessage.mock.calls.find(
 			(call: unknown[]) => call[1] === "assistant",
 		);
-		expect(assistantCreateCall?.[2]).toContain(
-			"were not verified by the web research tool",
-		);
+		expect(assistantCreateCall?.[2]).toBe(response);
 		expect(mockPersistAssistantEvidence).toHaveBeenCalledWith(
 			expect.objectContaining({
 				webCitationAudit: expect.objectContaining({
@@ -800,7 +791,7 @@ describe("completeStreamTurn", () => {
 					retrievedSourceCount: 0,
 					citedUrlCount: 1,
 					unsupportedCitationCount: 1,
-					noticeAppended: true,
+					noticeAppended: false,
 				}),
 			}),
 		);

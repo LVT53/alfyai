@@ -1,4 +1,6 @@
+import { getConfig } from "$lib/server/config-store";
 import { getConversationCostSummary } from "$lib/server/services/analytics";
+import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
 import { buildContextSourcesState } from "$lib/server/services/chat-turn/context-sources";
 import {
 	listContextCompressionSnapshots,
@@ -32,6 +34,7 @@ import {
 	getProjectReferenceContext,
 } from "$lib/server/services/task-state";
 import type {
+	AtlasAvailability,
 	ChatMessage,
 	ConversationDetail,
 	MessageSourceForks,
@@ -43,6 +46,27 @@ export interface GetConversationDetailInput {
 	userId: string;
 	conversationId: string;
 	view?: ConversationDetailView;
+}
+
+function getAtlasAvailability(): AtlasAvailability {
+	const config = getConfig();
+	if (!config.atlasWorkerEnabled) {
+		return {
+			enabled: false,
+			configured: Boolean(config.searxngBaseUrl?.trim()),
+			reasonCode: "disabled",
+			reason: "Atlas is disabled by the administrator.",
+		};
+	}
+	if (!config.searxngBaseUrl?.trim()) {
+		return {
+			enabled: true,
+			configured: false,
+			reasonCode: "missing_searxng",
+			reason: "Atlas requires SearXNG web search configuration.",
+		};
+	}
+	return { enabled: true, configured: true, reasonCode: null, reason: null };
 }
 
 async function attachSourceForksToAssistantMessages(
@@ -69,6 +93,7 @@ export async function getConversationDetail({
 }: GetConversationDetailInput): Promise<ConversationDetail | null> {
 	const conversation = await getConversation(userId, conversationId);
 	if (!conversation) return null;
+	const atlasAvailability = getAtlasAvailability();
 
 	if (view === "bootstrap") {
 		const draft = await getConversationDraft(userId, conversationId).catch(
@@ -93,6 +118,8 @@ export async function getConversationDetail({
 			contextDebug: null,
 			draft,
 			fileProductionJobs: [],
+			atlasJobs: [],
+			atlasAvailability,
 			contextCompressionSnapshots: [],
 			activeSkillSession: serializePublicSkillSession(activeSkillSession),
 			bootstrap: true,
@@ -125,6 +152,8 @@ export async function getConversationDetail({
 			draft,
 			generatedFiles: [],
 			fileProductionJobs: [],
+			atlasJobs: [],
+			atlasAvailability,
 			contextCompressionSnapshots: [],
 			activeSkillSession: serializePublicSkillSession(activeSkillSession),
 			bootstrap: false,
@@ -146,6 +175,7 @@ export async function getConversationDetail({
 		draft,
 		generatedFiles,
 		fileProductionJobs,
+		atlasJobs,
 		contextCompressionSnapshots,
 		costSummary,
 		projectReference,
@@ -164,6 +194,7 @@ export async function getConversationDetail({
 		getConversationDraft(userId, conversationId),
 		listConversationGeneratedFiles(conversationId),
 		listConversationFileProductionJobs(userId, conversationId),
+		listConversationAtlasJobs(userId, conversationId),
 		listContextCompressionSnapshots(conversationId),
 		getConversationCostSummary(conversationId),
 		getProjectReferenceContext({ userId, conversationId }).catch(() => null),
@@ -200,6 +231,8 @@ export async function getConversationDetail({
 		draft,
 		generatedFiles,
 		fileProductionJobs,
+		atlasJobs,
+		atlasAvailability,
 		contextCompressionSnapshots: contextCompressionSnapshots.map(
 			serializeContextCompressionSnapshot,
 		),

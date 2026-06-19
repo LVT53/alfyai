@@ -42,7 +42,7 @@ Move bootstrap and full conversation detail assembly from the GET route into a d
 
 Acceptance criteria:
 
-- GET imports one read-model function instead of directly importing messages, knowledge, task-state, file-production read-model, deep-research, drafts, analytics, context-compression, skill-session, and context-source builders.
+- GET imports one read-model function instead of directly importing messages, knowledge, task-state, file-production read-model, Atlas read-model helpers, drafts, analytics, context-compression, skill-session, and context-source builders.
 - Bootstrap view returns the same cheap payload shape and only calls conversation, draft, active skill session, and fork-origin lookups.
 - Full view returns the same messages, fork origin, artifacts, working set, context status, Context Sources, task state, draft, generated files, File Production jobs jobs, context compression snapshots, active Skill Session, and cost totals.
 - Child forks still attach only to assistant messages.

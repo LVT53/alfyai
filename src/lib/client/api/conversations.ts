@@ -1,4 +1,5 @@
 import type {
+	AtlasProfile,
 	ChatMessage,
 	ContextCompressionMarker,
 	ContextDebugState,
@@ -56,6 +57,9 @@ interface ConversationDraftPayload {
 	selectedAttachmentIds: string[];
 	selectedLinkedSources?: LinkedContextSource[];
 	pendingSkill?: PendingSkillSelection | null;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	clientAtlasTurnId?: string | null;
 }
 
 interface CreateConversationOptions {

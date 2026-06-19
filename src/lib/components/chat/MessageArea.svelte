@@ -7,6 +7,9 @@ import type {
 	ChatMessage,
 	ContextDebugState,
 	ContextCompressionMarker,
+	AtlasAction,
+	AtlasJobCard,
+	AtlasProfile,
 	ConversationForkOrigin,
 	DocumentWorkspaceItem,
 	FileProductionJob,
@@ -21,6 +24,7 @@ let {
 	contextDebug = null,
 	modelIcons = {},
 	fileProductionJobs = [],
+	atlasJobs = [],
 	contextCompressionMarkers = [],
 	hasActiveSkillSession = false,
 	activeSkillSessionHeight = 0,
@@ -39,6 +43,8 @@ let {
 	onPublishSkillDraft = undefined,
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
+	onCancelAtlasJob = undefined,
+	onAtlasLifecycleAction = undefined,
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
@@ -46,6 +52,7 @@ let {
 	contextDebug?: ContextDebugState | null;
 	modelIcons?: Record<string, string | null | undefined>;
 	fileProductionJobs?: FileProductionJob[];
+	atlasJobs?: AtlasJobCard[];
 	contextCompressionMarkers?: ContextCompressionMarker[];
 	hasActiveSkillSession?: boolean;
 	activeSkillSessionHeight?: number;
@@ -86,6 +93,15 @@ let {
 		| undefined;
 	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
+	onCancelAtlasJob?: ((jobId: string) => void) | undefined;
+	onAtlasLifecycleAction?:
+		| ((payload: {
+				jobId: string;
+				action: AtlasAction;
+				message: string;
+				profile: AtlasProfile;
+		  }) => void)
+		| undefined;
 } = $props();
 
 let scrollContainer = $state<HTMLDivElement | null>(null);
@@ -93,6 +109,7 @@ let forkBoundaryMarker = $state<HTMLDivElement | null>(null);
 let shouldAutoScroll = true;
 let lastMessageCount = 0;
 let lastFileProductionJobCount = 0;
+let lastAtlasJobUpdateKey = "";
 let lastContextCompressionMarkerCount = 0;
 let lastConversationId: string | null = null;
 let shouldJumpToConversationBottom = false;
@@ -152,6 +169,7 @@ $effect.pre(() => {
 	scrollContainer;
 	isThinkingActive;
 	fileProductionJobs.length;
+	atlasJobs;
 	contextCompressionMarkers.length;
 
 	if (!scrollContainer) return;
@@ -165,6 +183,7 @@ $effect.pre(() => {
 		shouldAutoScroll = true;
 		lastMessageCount = 0;
 		lastFileProductionJobCount = 0;
+		lastAtlasJobUpdateKey = "";
 		lastContextCompressionMarkerCount = 0;
 		pendingForkBoundaryMessageId = forkOrigin?.copiedForkPointMessageId ?? null;
 		if (pendingForkBoundaryMessageId != null) {
@@ -210,6 +229,12 @@ $effect.pre(() => {
 	const isNewMessage = hasNewMessage(dedupedMessages);
 	const hasNewFileProductionJobs =
 		fileProductionJobs.length > lastFileProductionJobCount;
+	const currentAtlasJobUpdateKey = atlasJobs
+		.map((job) => `${job.id}:${job.status}:${job.updatedAt}`)
+		.join("|");
+	const hasAtlasJobUpdates =
+		currentAtlasJobUpdateKey !== "" &&
+		currentAtlasJobUpdateKey !== lastAtlasJobUpdateKey;
 	const hasNewContextCompressionMarkers =
 		contextCompressionMarkers.length > lastContextCompressionMarkerCount;
 
@@ -225,6 +250,8 @@ $effect.pre(() => {
 	} else if (hasNewFileProductionJobs && shouldAutoScroll) {
 		// File-production cards render inside the latest assistant message; keep that expanded area visible.
 		void alignToBottomAfterRender();
+	} else if (hasAtlasJobUpdates && shouldAutoScroll) {
+		void alignToBottomAfterRender();
 	} else if (hasNewContextCompressionMarkers && shouldAutoScroll) {
 		void alignToBottomAfterRender();
 	} else if (shouldAutoScroll && isThinkingActive) {
@@ -234,6 +261,7 @@ $effect.pre(() => {
 
 	lastMessageCount = dedupedMessages.length;
 	lastFileProductionJobCount = fileProductionJobs.length;
+	lastAtlasJobUpdateKey = currentAtlasJobUpdateKey;
 	lastContextCompressionMarkerCount = contextCompressionMarkers.length;
 });
 
@@ -286,6 +314,20 @@ function getFileProductionJobsForMessage(
 	message: ChatMessage,
 ): FileProductionJob[] {
 	return fileProductionJobs.filter((job) => {
+		if (job.assistantMessageId === message.id) return true;
+		if (job.assistantMessageId != null) return false;
+		if (
+			message.role !== "assistant" ||
+			message.id !== currentStreamingAssistantMessageId
+		)
+			return false;
+		if (conversationId && job.conversationId !== conversationId) return false;
+		return job.createdAt >= message.timestamp - 1000;
+	});
+}
+
+function getAtlasJobsForMessage(message: ChatMessage): AtlasJobCard[] {
+	return atlasJobs.filter((job) => {
 		if (job.assistantMessageId === message.id) return true;
 		if (job.assistantMessageId != null) return false;
 		if (
@@ -425,6 +467,7 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 					{excludedArtifactIds}
 					{modelIcons}
 					fileProductionJobs={getFileProductionJobsForMessage(message)}
+					atlasJobs={getAtlasJobsForMessage(message)}
 					{conversationId}
 					{readOnly}
 					{onRegenerate}
@@ -440,6 +483,8 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 					{onPublishSkillDraft}
 					{onRetryFileProductionJob}
 					{onCancelFileProductionJob}
+					{onCancelAtlasJob}
+					{onAtlasLifecycleAction}
 				/>
 				{#if forkOrigin?.copiedForkPointMessageId === message.id}
 					<div

@@ -37,6 +37,14 @@ export const POST: RequestHandler = async (event) => {
 	}
 	recordPhase("route_parse");
 
+	if (parsedRequest.value.atlasMode) {
+		return createStreamJsonErrorResponse({
+			status: 400,
+			error: "Atlas turns must be started through /api/chat/send.",
+			code: "ATLAS_STREAM_UNSUPPORTED",
+		});
+	}
+
 	const isReconnect =
 		typeof parsedRequest.value.reconnectToStreamId === "string" &&
 		parsedRequest.value.reconnectToStreamId.length > 0;

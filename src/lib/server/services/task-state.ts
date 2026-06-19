@@ -213,10 +213,7 @@ export function shouldTrackTaskContinuityFromTurn(params: {
 		return (
 			scoreMatch(messageText, params.taskState.objective) >=
 				TASK_CONTINUITY_MIN_TASK_MATCH_SCORE ||
-			hasStrongTaskSubjectOverlap(
-				messageText,
-				params.taskState.objective,
-			)
+			hasStrongTaskSubjectOverlap(messageText, params.taskState.objective)
 		);
 	}
 

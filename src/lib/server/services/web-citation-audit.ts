@@ -134,11 +134,6 @@ function buildQualityNotice(params: {
 	return "Source check: One or more links in the generated answer were not returned by the web research tool. Treat unsupported links cautiously.";
 }
 
-function appendNotice(response: string, notice: string): string {
-	const trimmedResponse = response.trimEnd();
-	return `${trimmedResponse}\n\n${notice}`;
-}
-
 export function applyWebCitationQualityGate(params: {
 	assistantResponse: string;
 	toolCalls?: ToolCallEntry[];

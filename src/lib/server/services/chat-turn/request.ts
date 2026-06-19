@@ -22,6 +22,8 @@ import {
 	thinkingModeToReasoningDepth,
 } from "$lib/types";
 import type {
+	AtlasAction,
+	AtlasProfile,
 	ChatTurnRequestError,
 	ChatTurnRoute,
 	ParsedChatTurnRequest,
@@ -47,6 +49,11 @@ type RequestBody = {
 	reasoningDepth?: unknown;
 	thinkingMode?: unknown;
 	forceWebSearch?: unknown;
+	atlasMode?: unknown;
+	atlasProfile?: unknown;
+	clientAtlasTurnId?: unknown;
+	atlasAction?: unknown;
+	parentAtlasId?: unknown;
 };
 
 type ParsedStreamIds = {
@@ -115,10 +122,14 @@ export async function parseChatTurnRequest(
 	}
 
 	const safeAttachmentIds = parseAttachmentIds(body.attachmentIds);
-	const reasoningDepth = parseReasoningDepth(
-		body.reasoningDepth,
-		body.thinkingMode,
-	);
+	const atlasResult = parseAtlasTurnFields(body);
+	if (!atlasResult.ok) {
+		return atlasResult;
+	}
+	const atlasFields = atlasResult.value;
+	const reasoningDepth = atlasFields.atlasMode
+		? "auto"
+		: parseReasoningDepth(body.reasoningDepth, body.thinkingMode);
 
 	return {
 		ok: true,
@@ -132,7 +143,9 @@ export async function parseChatTurnRequest(
 			providerDisplayName: modelResult.value.providerDisplayName,
 			attachmentIds: safeAttachmentIds,
 			linkedSources: parseLinkedSources(body.linkedSources),
-			pendingSkill: parsePendingSkill(body.pendingSkill),
+			pendingSkill: atlasFields.atlasMode
+				? null
+				: parsePendingSkill(body.pendingSkill),
 			activeDocumentArtifactId:
 				typeof body.activeDocumentArtifactId === "string" &&
 				body.activeDocumentArtifactId.trim().length > 0
@@ -145,12 +158,15 @@ export async function parseChatTurnRequest(
 					: undefined,
 			reasoningDepth,
 			thinkingMode: reasoningDepthToThinkingMode(reasoningDepth),
-			forceWebSearch: body.forceWebSearch === true,
+			forceWebSearch: atlasFields.atlasMode
+				? false
+				: body.forceWebSearch === true,
 			skipPersistUserMessage: body.skipPersistUserMessage === true,
 			attachmentTraceId:
 				safeAttachmentIds.length > 0
 					? createAttachmentTraceId(route)
 					: undefined,
+			...atlasFields,
 		},
 	};
 }
@@ -395,6 +411,75 @@ function parseReasoningDepth(
 
 function parseThinkingMode(value: unknown): ThinkingMode {
 	return value === "on" || value === "off" || value === "auto" ? value : "auto";
+}
+
+type ParsedAtlasTurnFields = {
+	atlasMode: boolean;
+	atlasProfile: AtlasProfile | null;
+	atlasAction: AtlasAction;
+	parentAtlasId: string | null;
+	clientAtlasTurnId: string | null;
+};
+
+function parseAtlasTurnFields(
+	body: RequestBody,
+):
+	| { ok: true; value: ParsedAtlasTurnFields }
+	| { ok: false; error: ChatTurnRequestError } {
+	const atlasMode = body.atlasMode === true;
+	if (!atlasMode) {
+		return {
+			ok: true,
+			value: {
+				atlasMode: false,
+				atlasProfile: null,
+				atlasAction: "create",
+				parentAtlasId: null,
+				clientAtlasTurnId: null,
+			},
+		};
+	}
+
+	const atlasProfile = parseAtlasProfile(body.atlasProfile);
+	if (!atlasProfile) {
+		return {
+			ok: false,
+			error: {
+				status: 400,
+				error: "atlasProfile must be one of overview, in-depth, or exhaustive",
+				code: "INVALID_ATLAS_PROFILE",
+			},
+		};
+	}
+
+	return {
+		ok: true,
+		value: {
+			atlasMode: true,
+			atlasProfile,
+			atlasAction: parseAtlasAction(body.atlasAction),
+			parentAtlasId: parseOptionalTrimmedString(body.parentAtlasId),
+			clientAtlasTurnId: parseOptionalTrimmedString(body.clientAtlasTurnId),
+		},
+	};
+}
+
+function parseAtlasProfile(value: unknown): AtlasProfile | null {
+	return value === "overview" || value === "in-depth" || value === "exhaustive"
+		? value
+		: null;
+}
+
+function parseAtlasAction(value: unknown): AtlasAction {
+	return value === "continue" || value === "fork" || value === "revise"
+		? value
+		: "create";
+}
+
+function parseOptionalTrimmedString(value: unknown): string | null {
+	return typeof value === "string" && value.trim().length > 0
+		? value.trim()
+		: null;
 }
 
 type ModelFromProvidersTable = {

@@ -8,6 +8,9 @@ import {
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import type {
 	ArtifactSummary,
+	AtlasAction,
+	AtlasJobCard,
+	AtlasProfile,
 	ChatAttachment,
 	ChatMessage,
 	DepthAppliedProfile,
@@ -23,6 +26,7 @@ import LogoMark from "./LogoMark.svelte";
 import FileAttachment from "./FileAttachment.svelte";
 import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
 import FileProductionCard from "./FileProductionCard.svelte";
+import AtlasCard from "./AtlasCard.svelte";
 import SkillDraftCard from "./SkillDraftCard.svelte";
 import { onDestroy, tick } from "svelte";
 import {
@@ -49,6 +53,7 @@ let {
 	pinnedArtifactIds = [],
 	excludedArtifactIds = [],
 	fileProductionJobs = [],
+	atlasJobs = [],
 	conversationId = null,
 	modelIcons = {},
 	readOnly = false,
@@ -60,6 +65,8 @@ let {
 	onOpenDocument = undefined,
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
+	onCancelAtlasJob = undefined,
+	onAtlasLifecycleAction = undefined,
 	canPublishSkillDrafts = false,
 	skillDraftActionState = {},
 	onSaveSkillDraft = undefined,
@@ -71,6 +78,7 @@ let {
 	pinnedArtifactIds?: string[];
 	excludedArtifactIds?: string[];
 	fileProductionJobs?: FileProductionJob[];
+	atlasJobs?: AtlasJobCard[];
 	conversationId?: string | null;
 	modelIcons?: Record<string, string | null | undefined>;
 	readOnly?: boolean;
@@ -86,6 +94,15 @@ let {
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
 	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
+	onCancelAtlasJob?: ((jobId: string) => void) | undefined;
+	onAtlasLifecycleAction?:
+		| ((payload: {
+				jobId: string;
+				action: AtlasAction;
+				message: string;
+				profile: AtlasProfile;
+		  }) => void)
+		| undefined;
 	canPublishSkillDrafts?: boolean;
 	skillDraftActionState?: Record<
 		string,
@@ -128,6 +145,18 @@ let dedupedFileProductionJobs = $derived(
 			return acc;
 		},
 		{ seen: new Set<string>(), list: [] as FileProductionJob[] },
+	).list,
+);
+let dedupedAtlasJobs = $derived(
+	atlasJobs.reduce(
+		(acc, job) => {
+			if (!acc.seen.has(job.id)) {
+				acc.seen.add(job.id);
+				acc.list.push(job);
+			}
+			return acc;
+		},
+		{ seen: new Set<string>(), list: [] as AtlasJobCard[] },
 	).list,
 );
 let isUser = $derived(message.role === "user");
@@ -228,6 +257,7 @@ let hasVisibleContent = $derived(message.content.trim().length > 0);
 let hasFileProductionCards = $derived(
 	fileProductionJobs.length > 0 && Boolean(conversationId),
 );
+let hasAtlasCards = $derived(atlasJobs.length > 0);
 let liveDeliberationStatus = $derived(
 	isStreaming
 		? ([...liveResponseActivityEntries]
@@ -336,7 +366,8 @@ let showPreparingStatus = $derived(
 		!isDeliberativeDepthProfile &&
 		!liveDeliberationStatusLabel &&
 		skillDrafts.length === 0 &&
-		!hasFileProductionCards,
+		!hasFileProductionCards &&
+		!hasAtlasCards,
 );
 let hasServerPersistedIdentity = $derived(
 	message.renderKey === undefined || message.renderKey !== message.id,
@@ -724,6 +755,18 @@ function toggleForkDetails() {
 							onOpenDocument={onOpenDocument}
 							onRetry={onRetryFileProductionJob}
 							onCancel={onCancelFileProductionJob}
+						/>
+					{/each}
+				</div>
+			{/if}
+			{#if atlasJobs.length > 0}
+				<div class="file-production-inline" data-testid="message-atlas-jobs">
+					{#each dedupedAtlasJobs as job (job.id)}
+						<AtlasCard
+							{job}
+							onOpenDocument={onOpenDocument}
+							onCancel={onCancelAtlasJob}
+							onLifecycleAction={onAtlasLifecycleAction}
 						/>
 					{/each}
 				</div>

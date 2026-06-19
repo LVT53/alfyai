@@ -336,9 +336,9 @@ describe("KnowledgeMemoryView", () => {
 		expect(
 			within(dialog).getByText("Open documents from search."),
 		).toBeInTheDocument();
-		expect(within(dialog).getAllByText("Should this be remembered?")).toHaveLength(
-			1,
-		);
+		expect(
+			within(dialog).getAllByText("Should this be remembered?"),
+		).toHaveLength(1);
 	});
 
 	it("requires editing for review items without a safe proposed statement", () => {
@@ -500,7 +500,9 @@ describe("KnowledgeMemoryView", () => {
 		expect(
 			within(dialog).getByText("Project brief: Imported project note."),
 		).toBeInTheDocument();
-		expect(within(dialog).queryByLabelText("Statement")).not.toBeInTheDocument();
+		expect(
+			within(dialog).queryByLabelText("Statement"),
+		).not.toBeInTheDocument();
 		expect(
 			within(dialog).queryByRole("button", { name: "Save memory item" }),
 		).not.toBeInTheDocument();

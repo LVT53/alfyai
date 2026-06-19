@@ -94,3 +94,104 @@ describe("parseChatTurnRequest reasoning depth", () => {
 		);
 	});
 });
+
+describe("parseChatTurnRequest Atlas fields", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("defaults absent Atlas fields to a normal chat turn", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({}),
+			makeRuntimeConfig(),
+			"send",
+		);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				ok: true,
+				value: expect.objectContaining({
+					atlasMode: false,
+					atlasProfile: null,
+					atlasAction: "create",
+					parentAtlasId: null,
+					clientAtlasTurnId: null,
+				}),
+			}),
+		);
+	});
+
+	it("accepts an Atlas profile and trims Atlas idempotency fields", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({
+				atlasMode: true,
+				atlasProfile: "in-depth",
+				clientAtlasTurnId: " client-turn-1 ",
+				atlasAction: "continue",
+				parentAtlasId: " atlas-parent-1 ",
+			}),
+			makeRuntimeConfig(),
+			"send",
+		);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				ok: true,
+				value: expect.objectContaining({
+					atlasMode: true,
+					atlasProfile: "in-depth",
+					atlasAction: "continue",
+					parentAtlasId: "atlas-parent-1",
+					clientAtlasTurnId: "client-turn-1",
+					pendingSkill: null,
+					forceWebSearch: false,
+				}),
+			}),
+		);
+	});
+
+	it("rejects invalid Atlas profiles when Atlas mode is enabled", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({ atlasMode: true, atlasProfile: "deep" }),
+			makeRuntimeConfig(),
+			"send",
+		);
+
+		expect(result).toEqual({
+			ok: false,
+			error: {
+				status: 400,
+				error: "atlasProfile must be one of overview, in-depth, or exhaustive",
+				code: "INVALID_ATLAS_PROFILE",
+			},
+		});
+	});
+
+	it("ignores Atlas-only fields for non-Atlas turns", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({
+				atlasProfile: "exhaustive",
+				clientAtlasTurnId: "client-turn-1",
+				atlasAction: "revise",
+				parentAtlasId: "atlas-parent-1",
+			}),
+			makeRuntimeConfig(),
+			"stream",
+		);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				ok: true,
+				value: expect.objectContaining({
+					atlasMode: false,
+					atlasProfile: null,
+					atlasAction: "create",
+					parentAtlasId: null,
+					clientAtlasTurnId: null,
+					reasoningDepth: "auto",
+					thinkingMode: "auto",
+				}),
+			}),
+		);
+	});
+});
