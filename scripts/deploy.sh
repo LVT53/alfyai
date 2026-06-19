@@ -7,11 +7,9 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 APP_DIR="${APP_DIR:-$(pwd)}"
-PM2_APP_NAME="${PM2_APP_NAME:-alfyai}"
 
 echo -e "${YELLOW}=== Starting deployment ===${NC}"
 echo "App directory: $APP_DIR"
-echo "PM2 app name: $PM2_APP_NAME"
 echo ""
 
 cd "$APP_DIR"
@@ -93,11 +91,10 @@ echo ""
 
 echo -e "${GREEN}=== Deployment complete! ===${NC}"
 echo ""
-echo -e "${YELLOW}⚠ IMPORTANT: Restart your process manager now!${NC}"
+echo -e "${YELLOW}⚠ IMPORTANT: Restart the systemd service now!${NC}"
 echo -e "${YELLOW}  The old server process still holds the previous build manifest in memory.${NC}"
 echo -e "${YELLOW}  Failing to restart will cause 'Cannot find module' errors when the old${NC}"
 echo -e "${YELLOW}  process tries to load route chunks that were replaced by this build.${NC}"
 echo ""
-echo -e "${YELLOW}  Examples:${NC}"
-echo -e "${YELLOW}    systemctl restart langflow-chat${NC}"
-echo -e "${YELLOW}    pm2 restart $PM2_APP_NAME${NC}"
+echo -e "${YELLOW}  Command:${NC}"
+echo -e "${YELLOW}    systemctl restart langflow-chat.service${NC}"

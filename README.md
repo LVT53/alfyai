@@ -41,7 +41,7 @@ The deploy script performs these steps in order:
 
 Important caveat:
 
-- `scripts/deploy.sh` does **not** restart PM2, systemd, Docker, or any other running process. It prints `PM2_APP_NAME`, but that value is informational only. Restart your process manager separately after the script completes.
+- `scripts/deploy.sh` does **not** restart systemd, Docker, or any other running process. Restart the systemd service separately after the script completes: `systemctl restart langflow-chat.service`.
 - If you deploy through `scripts/deploy.sh`, you should not need a separate manual DB migration step after pulls. The script always runs the idempotent `db:prepare` step so the DB catches up even if the checkout was already updated before the deploy script started.
 
 For host-managed `adapter-node` deployments, the standard runtime entrypoint is:
@@ -80,7 +80,6 @@ Deploy-script environment variables:
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
 | `APP_DIR` | No | current working directory | Tells `scripts/deploy.sh` which checkout to deploy from | Set it when the script is invoked from outside the app directory | Script-only variable; not read by the app |
-| `PM2_APP_NAME` | No | script default | Printed by `scripts/deploy.sh` for operator context | Set it if your PM2 process uses a different name | Currently not used to restart or reload anything |
 
 ## Local Development
 
@@ -276,7 +275,6 @@ Notes before the tables:
 | `PORT` | No | `3000` in adapter-node | Controls the adapter-node listen port | Set it to match your reverse proxy or host-managed service expectations | Keep Apache/nginx/other proxy config aligned with the same port |
 | `NODE_ENV` | No | environment dependent | Controls framework/runtime production behavior | Set it to `production` in real deployments | Also affects cookie security behavior |
 | `APP_DIR` | No | current working directory | Tells `scripts/deploy.sh` where the app checkout lives | Set it when deploying from outside the repo directory | Deploy-script only |
-| `PM2_APP_NAME` | No | script default | Printed by `scripts/deploy.sh` for operator context | Set it if you use PM2 with a custom process name | Not currently used for restart or reload logic |
 
 ## Operational Caveats
 
