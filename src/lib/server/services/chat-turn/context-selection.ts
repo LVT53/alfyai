@@ -1628,12 +1628,10 @@ export async function buildConstructedContext(params: {
 		const retrievedEvidenceBudget = Math.min(
 			evidenceBudget.totalBudget,
 			documentDepthBudget.totalBudget,
-			WORKING_SET_PROMPT_TOKEN_BUDGET,
 		);
 		const retrievedEvidencePerSourceBudget = Math.min(
 			evidenceBudget.perSourceBudget,
 			documentDepthBudget.perArtifactCharBudget,
-			WORKING_SET_DOCUMENT_TOKEN_BUDGET,
 		);
 		sections.push({
 			title: "Retrieved Evidence",

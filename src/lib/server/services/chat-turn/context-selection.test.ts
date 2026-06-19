@@ -65,9 +65,9 @@ vi.mock("../knowledge", () => ({
 	resolvePromptAttachmentArtifacts: mocks.resolvePromptAttachmentArtifacts,
 	selectWorkingSetArtifactsForPrompt: mocks.selectWorkingSetArtifactsForPrompt,
 	updateConversationContextStatus: mocks.updateConversationContextStatus,
-	WORKING_SET_DOCUMENT_TOKEN_BUDGET: 4_000,
-	WORKING_SET_OUTPUT_TOKEN_BUDGET: 2_000,
-	WORKING_SET_PROMPT_TOKEN_BUDGET: 20_000,
+	WORKING_SET_DOCUMENT_TOKEN_BUDGET: 1_200,
+	WORKING_SET_OUTPUT_TOKEN_BUDGET: 1_000,
+	WORKING_SET_PROMPT_TOKEN_BUDGET: 3_000,
 }));
 
 vi.mock("../linked-context-sources", () => ({
@@ -951,6 +951,77 @@ describe("buildConstructedContext", () => {
 				taskStateApplied: true,
 				workingSetApplied: true,
 				workingSetArtifactIds: ["evidence-1"],
+			}),
+		);
+	});
+
+	it("does not clamp retrieved evidence to legacy working-set floors on large-context models", async () => {
+		resetConstructedContextMocks();
+		const evidenceArtifacts = Array.from({ length: 12 }, (_, index) =>
+			artifact({
+				id: `large-evidence-${index + 1}`,
+				name: `large-evidence-${index + 1}.md`,
+				contentText: [
+					`Large evidence document ${index + 1}.`,
+					`DETAIL_${index + 1} `.repeat(2_000),
+				].join(" "),
+			}),
+		);
+		mocks.resolvePromptAttachmentArtifacts.mockResolvedValue({
+			displayArtifacts: [],
+			promptArtifacts: [],
+			items: [],
+			unresolvedItems: [],
+		});
+		mocks.selectWorkingSetArtifactsForPrompt.mockResolvedValue(
+			evidenceArtifacts,
+		);
+		mocks.prepareTaskContext.mockResolvedValue({
+			taskState: null,
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "verified",
+			selectedArtifacts: evidenceArtifacts,
+			pinnedArtifactIds: [],
+			excludedArtifactIds: [],
+		});
+		mocks.getPromptArtifactSnippets.mockResolvedValue(
+			new Map(
+				evidenceArtifacts.map((item, index) => [
+					item.id,
+					`${item.name} snippet. ${`SNIPPET_${index + 1} `.repeat(2_000)}`,
+				]),
+			),
+		);
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Compare the retrieved evidence and summarize the differences.",
+			modelId: "local-large-context-model",
+			contextLimits: {
+				maxModelContext: 1_000_000,
+				compactionUiThreshold: 800_000,
+				targetConstructedContext: 900_000,
+			},
+		});
+
+		const retrievedEvidence = constructed.contextTraceSections.find(
+			(section) => section.name === "Retrieved Evidence",
+		);
+		expect(retrievedEvidence).toEqual(
+			expect.objectContaining({
+				source: "working_set",
+				inclusionLevel: "legacy_full",
+				itemIds: evidenceArtifacts.map((item) => item.id),
+			}),
+		);
+		expect(retrievedEvidence?.estimatedTokens ?? 0).toBeGreaterThan(3_000);
+		expect(constructed.inputValue).toContain("SNIPPET_12");
+		expect(mocks.updateConversationContextStatus).toHaveBeenCalledWith(
+			expect.objectContaining({
+				promptArtifactCount: 12,
+				workingSetCount: 12,
 			}),
 		);
 	});

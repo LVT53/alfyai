@@ -37,7 +37,7 @@ capsules.ts               ← work capsules, generated outputs (not lineage auth
 
 ## Conventions
 
-- **Token budgets**: `WORKING_SET_DOCUMENT_TOKEN_BUDGET` (4k), `WORKING_SET_OUTPUT_TOKEN_BUDGET` (2k), `WORKING_SET_PROMPT_TOKEN_BUDGET` (20k) live in `store/core.ts`
+- **Token budgets**: `WORKING_SET_DOCUMENT_TOKEN_BUDGET` (1.2k), `WORKING_SET_OUTPUT_TOKEN_BUDGET` (1k), and `WORKING_SET_PROMPT_TOKEN_BUDGET` (3k) live in `store/core.ts` as legacy minimum floors and small-context fallbacks. Do not use them as final prompt-depth ceilings when chat-turn context selection has a model-scaled budget available.
 - **Semantic retrieval**: `store/documents.ts` composes lexical fetch + embedding shortlist + TEI rerank; keeps deterministic filters above TEI scores
 - **Library uploads**: `conversationId` may be null; skip `attached_to_conversation` link when null. Filename conflicts auto-rename non-identical files; byte-identical (SHA256 hash) files reuse the existing artifact via `findExistingArtifactByBinaryHash`.
 - **Knowledge Upload Intake**: upload routes own auth, HTTP/body receipt, raw temp writes, and chunk assembly. `upload-intake.ts` owns shared limits, conversation validation, durable completion, normalized extraction, readiness response, and upload trace output after bytes are available. Uploaded and normalized document bodies are not synced into Honcho persona memory by default.
