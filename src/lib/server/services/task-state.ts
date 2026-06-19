@@ -103,6 +103,7 @@ export {
 
 const TASK_MATCH_MIN_SCORE = 12;
 const MAX_LIST_ITEMS = 6;
+const TASK_CONTINUITY_MIN_TASK_MATCH_SCORE = 8;
 const CURRENT_TASK_STATUSES: TaskState["status"][] = [
 	"active",
 	"revived",
@@ -121,6 +122,55 @@ const SELECTED_EVIDENCE_BUDGET_RATIO = 0.08;
 const SELECTED_EVIDENCE_MIN_BUDGET_TOKENS = 3_000;
 const SELECTED_EVIDENCE_MAX_ARTIFACT_TEXT_TOKENS = 1_200;
 const SELECTED_EVIDENCE_METADATA_TOKENS = 80;
+const OUTPUT_CONTROL_RE =
+	/\b(?:reply|respond|answer|say|output)\s+(?:with\s+)?(?:only|just|exactly)\b|(?:\bonly\b.*\b(?:codeword|answer|response|text|string|number|word)\b)|(?:\bdo\s+you\s+know\s+what\?)/i;
+const LIGHTWEIGHT_MEMORY_RECALL_RE =
+	/\b(?:what\s+is|what's|tell\s+me|do\s+you\s+(?:remember|recall|know)|recall|verify|confirm)\b[\s\S]{0,120}\b(?:my\s+)?(?:codeword|memory\s+verification|verification\s+code|memory\s+profile\s+fact|remembered\s+(?:fact|preference|detail)|saved\s+(?:memory|fact))\b|\b(?:memory\s+verification|verify\s+continuity)\b/i;
+
+function isExplicitTaskControlOrRecallTurn(text: string): boolean {
+	return (
+		OUTPUT_CONTROL_RE.test(text) ||
+		LIGHTWEIGHT_MEMORY_RECALL_RE.test(text)
+	);
+}
+
+function sanitizeTurnTextForTaskState(text: string): string {
+	return normalizeWhitespace(text)
+		.split(/(?<=[.!?])\s+|\r?\n/)
+		.map((segment) => segment.trim())
+		.filter((segment) => !isExplicitTaskControlOrRecallTurn(segment))
+		.filter(Boolean)
+		.join(" ");
+}
+
+export function shouldTrackTaskContinuityFromTurn(params: {
+	message: string;
+	assistantResponse?: string | null;
+	taskState?: TaskState | null;
+	attachmentIds?: string[];
+}): boolean {
+	const messageText = normalizeWhitespace(params.message).toLowerCase();
+	const assistantText = normalizeWhitespace(
+		params.assistantResponse ?? "",
+	).toLowerCase();
+	const attachments = params.attachmentIds ?? [];
+	if (attachments.length > 0) return true;
+	if (!messageText && !assistantText) return false;
+
+	if (params.taskState) {
+		return (
+			scoreMatch(messageText, params.taskState.objective) >=
+			TASK_CONTINUITY_MIN_TASK_MATCH_SCORE
+		);
+	}
+
+	const controlLikeMessage = isExplicitTaskControlOrRecallTurn(messageText);
+	const controlLikeResponse = isExplicitTaskControlOrRecallTurn(assistantText);
+	if (controlLikeMessage || controlLikeResponse) return false;
+
+	return true;
+}
+
 function toEvidenceSourceType(artifactType: ArtifactType): EvidenceSourceType {
 	switch (artifactType) {
 		case "source_document":
@@ -267,7 +317,7 @@ function extractQuestionCandidate(text: string): string | null {
 }
 
 function extractListItems(text: string): string[] {
-	const lines = text
+	const lines = sanitizeTurnTextForTaskState(text)
 		.split("\n")
 		.map((line) => line.trim())
 		.filter(Boolean);
@@ -312,7 +362,7 @@ function extractConstraintCandidates(text: string): string[] {
 }
 
 function extractFactCandidates(text: string): string[] {
-	return extractSentenceCandidates(text);
+	return extractSentenceCandidates(sanitizeTurnTextForTaskState(text));
 }
 
 async function summarizeTaskStateUpdate(params: {
@@ -356,6 +406,12 @@ async function summarizeTaskStateUpdate(params: {
 		if (!content) return null;
 		const parsed = parseJsonFromModel(content);
 		if (!parsed) return null;
+		const parsedFactsToPreserve = Array.isArray(parsed.factsToPreserve)
+			? (parsed.factsToPreserve as string[])
+			: [];
+		const parsedNextSteps = Array.isArray(parsed.nextSteps)
+			? (parsed.nextSteps as string[])
+			: [];
 		return {
 			objective:
 				typeof parsed.objective === "string" && parsed.objective.trim()
@@ -367,9 +423,9 @@ async function summarizeTaskStateUpdate(params: {
 					: [],
 			),
 			factsToPreserve: uniqueCompact(
-				Array.isArray(parsed.factsToPreserve)
-					? (parsed.factsToPreserve as string[])
-					: [],
+				parsedFactsToPreserve.filter(
+					(item) => !isExplicitTaskControlOrRecallTurn(item),
+				),
 			),
 			decisions: uniqueCompact(
 				Array.isArray(parsed.decisions) ? (parsed.decisions as string[]) : [],
@@ -381,7 +437,9 @@ async function summarizeTaskStateUpdate(params: {
 				4,
 			),
 			nextSteps: uniqueCompact(
-				Array.isArray(parsed.nextSteps) ? (parsed.nextSteps as string[]) : [],
+				parsedNextSteps.filter(
+					(item) => !isExplicitTaskControlOrRecallTurn(item),
+				),
 				4,
 			),
 			activeArtifactIds: uniqueCompact(
@@ -406,37 +464,42 @@ function buildDeterministicTaskStateUpdate(params: {
 	attachmentIds: string[];
 	promptArtifactIds: string[];
 }): Partial<TaskState> {
+	const sanitizedMessage = sanitizeTurnTextForTaskState(params.message);
+	const sanitizedAssistantResponse = sanitizeTurnTextForTaskState(
+		params.assistantResponse,
+	);
+
 	const objective =
 		params.existing && scoreMatch(params.message, params.existing.objective) > 0
 			? params.existing.objective
-			: clipText(params.message, 220);
+			: clipText(sanitizedMessage, 220);
 
 	return {
 		objective,
 		constraints: uniqueCompact([
 			...(params.existing?.constraints ?? []),
-			...extractConstraintCandidates(params.message),
-			...extractConstraintCandidates(params.assistantResponse),
+			...extractConstraintCandidates(sanitizedMessage),
+			...extractConstraintCandidates(sanitizedAssistantResponse),
 		]),
 		factsToPreserve: uniqueCompact([
 			...(params.existing?.factsToPreserve ?? []),
-			...extractFactCandidates(params.message),
+			...extractFactCandidates(sanitizedMessage),
 			...params.attachmentIds.map((id) => `Active artifact: ${id}`),
 		]),
 		decisions: uniqueCompact([
 			...(params.existing?.decisions ?? []),
-			...extractDecisionCandidates(params.assistantResponse),
+			...extractDecisionCandidates(sanitizedAssistantResponse),
 		]),
 		openQuestions: uniqueCompact(
 			[
-				extractQuestionCandidate(params.message),
+				extractQuestionCandidate(sanitizedMessage),
 				...(params.existing?.openQuestions ?? []),
 			],
 			4,
 		),
 		nextSteps: uniqueCompact(
 			[
-				...extractListItems(params.assistantResponse),
+				...extractListItems(sanitizedAssistantResponse),
 				...(params.existing?.nextSteps ?? []),
 			],
 			4,
@@ -1067,12 +1130,16 @@ export async function prepareTaskContext(params: {
 	excludedArtifactIds: string[];
 }> {
 	const attachmentIds = params.attachmentIds ?? [];
+	const allowTaskStateCreation = shouldTrackTaskContinuityFromTurn({
+		message: params.message,
+		attachmentIds,
+	});
 	const routed = await routeTaskStateForTurn({
 		userId: params.userId,
 		conversationId: params.conversationId,
 		message: params.message,
 		attachmentIds,
-		createIfMissing: true,
+		createIfMissing: allowTaskStateCreation,
 	});
 	const taskState = routed.taskState;
 	const links = taskState
@@ -1597,14 +1664,29 @@ export async function updateTaskStateCheckpoint(params: {
 }): Promise<TaskState | null> {
 	const attachmentIds = params.attachmentIds ?? [];
 	const promptArtifactIds = params.promptArtifactIds ?? [];
+	const allowTaskStateCreation = shouldTrackTaskContinuityFromTurn({
+		message: params.message,
+		assistantResponse: params.assistantResponse,
+		attachmentIds,
+	});
 	const routed = await routeTaskStateForTurn({
 		userId: params.userId,
 		conversationId: params.conversationId,
 		message: params.message,
 		attachmentIds,
-		createIfMissing: true,
+		createIfMissing: allowTaskStateCreation,
 	});
 	const existing = routed.taskState;
+	if (
+		!shouldTrackTaskContinuityFromTurn({
+			message: params.message,
+			assistantResponse: params.assistantResponse,
+			taskState: existing,
+			attachmentIds,
+		})
+	) {
+		return existing;
+	}
 
 	if (!existing) return null;
 

@@ -262,6 +262,41 @@ describe("knowledge memory routes", () => {
 		);
 	});
 
+	it("applies delete actions with the expected projection revision", async () => {
+		mockApplyKnowledgeMemoryAction.mockResolvedValue({
+			...memoryPayload,
+			projectionRevision: 8,
+			categories: memoryPayload.categories.map((group) => ({
+				...group,
+				items: [],
+			})),
+		});
+
+		const response = await POST_MEMORY_ACTION(
+			makePostEvent({
+				action: "delete",
+				itemId: "item-about",
+				expectedProjectionRevision: 7,
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.projectionRevision).toBe(8);
+		expect(
+			data.categories.flatMap((group: { items: unknown[] }) => group.items),
+		).toEqual([]);
+		expect(mockApplyKnowledgeMemoryAction).toHaveBeenCalledWith(
+			"user-1",
+			"Test User",
+			{
+				action: "delete",
+				itemId: "item-about",
+				expectedProjectionRevision: 7,
+			},
+		);
+	});
+
 	it("forwards review accept actions with the expected projection revision", async () => {
 		mockApplyKnowledgeMemoryAction.mockResolvedValue({
 			...memoryPayload,
@@ -291,6 +326,41 @@ describe("knowledge memory routes", () => {
 			{
 				target: "review_item",
 				action: "accept",
+				itemId: "review-1",
+				expectedProjectionRevision: 7,
+			},
+		);
+	});
+
+	it("forwards review suppress actions as dismiss decisions with the expected projection revision", async () => {
+		mockApplyKnowledgeMemoryAction.mockResolvedValue({
+			...memoryPayload,
+			projectionRevision: 8,
+			review: {
+				visibleItems: [],
+				openCount: 0,
+				overflowCount: 0,
+			},
+		});
+
+		const response = await POST_MEMORY_ACTION(
+			makePostEvent({
+				target: "review_item",
+				action: "suppress",
+				itemId: "review-1",
+				expectedProjectionRevision: 7,
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(data.projectionRevision).toBe(8);
+		expect(mockApplyKnowledgeMemoryAction).toHaveBeenCalledWith(
+			"user-1",
+			"Test User",
+			{
+				target: "review_item",
+				action: "suppress",
 				itemId: "review-1",
 				expectedProjectionRevision: 7,
 			},

@@ -40,6 +40,7 @@ import {
 	getConversationTaskState,
 	getProjectReferenceContext,
 	syncTaskContinuityFromTaskState,
+	shouldTrackTaskContinuityFromTurn,
 	updateTaskStateCheckpoint,
 } from "$lib/server/services/task-state";
 import { buildWebCitationAudit } from "$lib/server/services/web-citation-audit";
@@ -753,7 +754,15 @@ export async function persistAssistantTurnState(
 		getConversationTaskState(params.userId, params.conversationId),
 	);
 
-	if (taskState) {
+	if (
+		taskState &&
+		shouldTrackTaskContinuityFromTurn({
+			message: params.normalizedMessage,
+			assistantResponse: params.assistantResponse,
+			taskState,
+			attachmentIds: params.attachmentIds,
+		})
+	) {
 		await syncTaskContinuityFromTaskState({
 			userId: params.userId,
 			taskState,

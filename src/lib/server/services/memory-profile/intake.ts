@@ -114,6 +114,14 @@ function hasDurableConstraintMarker(value: string): boolean {
 	);
 }
 
+function looksDocumentFamilyWorkflowIntent(value: string): boolean {
+	return (
+		/^for\s+this\s+(?:document\s+family|document|file)\s*,?\s+.+$/i.test(
+			value,
+		) && hasDurableConstraintMarker(value)
+	);
+}
+
 type ParsedStatement = {
 	category: MemoryProfileCategory;
 	statement: string;
@@ -290,6 +298,14 @@ export function parsePostTurnMemoryIntake(
 	if (!message) return { decision: "reject", reason: "empty_user_message" };
 	if (looksOneOffInstruction(message)) {
 		return { decision: "reject", reason: "one_off_instruction" };
+	}
+
+	if (looksDocumentFamilyWorkflowIntent(message)) {
+		return {
+			decision: "defer",
+			reason: "explicit_memory_unclassified",
+			parserRule: "document_family_workflow",
+		};
 	}
 
 	const rememberMatch =

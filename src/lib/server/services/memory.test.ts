@@ -276,6 +276,67 @@ describe("knowledge memory service", () => {
 		expect(payloadJson).not.toContain("focusContinuities");
 	});
 
+	it("suppresses a profile item with projection revision protection and queues reconciliation", async () => {
+		const afterSuppressProfile = {
+			...projectionProfile,
+			projectionRevision: 8,
+			categories: projectionProfile.categories.map((group) => ({
+				...group,
+				items: [],
+			})),
+		};
+		mockGetMemoryProfileReadModel.mockResolvedValueOnce(afterSuppressProfile);
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+
+		const payload = await applyKnowledgeMemoryAction("user-1", "Test User", {
+			action: "suppress",
+			itemId: "item-about",
+			expectedProjectionRevision: 7,
+		});
+		const payloadJson = JSON.stringify(payload);
+
+		expect(mockUpdateMemoryProfileItemWithRevision).toHaveBeenCalledWith({
+			userId: "user-1",
+			itemId: "item-about",
+			expectedProjectionRevision: 7,
+			patch: { status: "suppressed" },
+		});
+		expect(payload.projectionRevision).toBe(8);
+		expect(payload.categories.flatMap((group) => group.items)).toEqual([]);
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "profile_action_reconciliation",
+			scope: { type: "global" },
+			metadata: {
+				action: "suppress",
+				itemId: "item-about",
+			},
+		});
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "honcho_reconciliation",
+			scope: { type: "global" },
+			metadata: {
+				action: "suppress",
+				itemId: "item-about",
+			},
+		});
+		expect(mockRecordMemoryReworkTelemetry).toHaveBeenCalledWith({
+			userId: "user-1",
+			eventFamily: "profile_action",
+			eventName: "memory_profile_suppress",
+			reason: "user_action",
+			status: "updated",
+			subjectId: "item-about",
+			metadata: {
+				action: "suppress",
+			},
+		});
+		expect(payloadJson).not.toContain("Lives in Amsterdam");
+		expect(payloadJson).not.toContain("taskMemories");
+		expect(payloadJson).not.toContain("focusContinuities");
+	});
+
 	it("edits a profile item immediately and rejects stale projection revisions", async () => {
 		const afterEditProfile = {
 			...projectionProfile,

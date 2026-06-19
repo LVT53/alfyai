@@ -498,6 +498,51 @@ describe("memory intake gate", () => {
 		}
 	});
 
+	it("rejects attached-document chat wording without explicit durable intent", async () => {
+		const {
+			getMemoryProfileReadModel,
+			listMemoryReworkTelemetry,
+			listPendingMemoryDirtyEntries,
+		} = await import("./index");
+		const { intakePostTurnMemory } = await import("./intake");
+
+		await expect(
+			intakePostTurnMemory({
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessage:
+					"I attached the vendor contract PDF for context; it says renewal notice is due by 30 June.",
+				assistantMessage: "I will use it as context for this chat.",
+				userMessageId: "user-message-attached-contract",
+				assistantMessageId: "assistant-message-attached-contract",
+			}),
+		).resolves.toEqual({
+			status: "rejected",
+			reason: "no_explicit_durable_intent",
+		});
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories.flatMap((group) => group.items)).toEqual([]);
+		expect(profile.review.visibleItems).toEqual([]);
+		expect(await listPendingMemoryDirtyEntries({ userId: "user-1" })).toEqual(
+			[],
+		);
+		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
+		expect(telemetry).toEqual([
+			expect.objectContaining({
+				eventFamily: "intake",
+				eventName: "memory_intake_rejected",
+				status: "rejected",
+				reason: "no_explicit_durable_intent",
+				metadata: expect.objectContaining({
+					userMessageId: "user-message-attached-contract",
+				}),
+			}),
+		]);
+		expect(JSON.stringify(telemetry)).not.toContain("vendor contract");
+		expect(JSON.stringify(telemetry)).not.toContain("30 June");
+	});
+
 	it("admits clear durable document-format preferences instead of treating them as source claims", async () => {
 		const { getMemoryProfileReadModel } = await import("./index");
 		const { intakePostTurnMemory } = await import("./intake");
@@ -524,6 +569,56 @@ describe("memory intake gate", () => {
 			}),
 		]);
 		expect(profile.review.visibleItems).toEqual([]);
+	});
+
+	it("defers explicit document-family workflow wording when no document family id is available", async () => {
+		const {
+			getMemoryProfileReadModel,
+			listMemoryReworkTelemetry,
+			listPendingMemoryDirtyEntries,
+		} = await import("./index");
+		const { intakePostTurnMemory } = await import("./intake");
+
+		await expect(
+			intakePostTurnMemory({
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessage: "For this document family, always use UK spelling.",
+				userMessageId: "user-message-document-family-uk-spelling",
+			}),
+		).resolves.toEqual({
+			status: "deferred",
+			reason: "explicit_memory_unclassified",
+		});
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories.flatMap((group) => group.items)).toEqual([]);
+		expect(profile.review.visibleItems).toEqual([]);
+		const dirty = await listPendingMemoryDirtyEntries({ userId: "user-1" });
+		expect(dirty).toEqual([
+			expect.objectContaining({
+				reason: "deferred_intake",
+				scope: { type: "conversation", id: "conv-1" },
+				metadata: expect.objectContaining({
+					intakeStatus: "deferred",
+					userMessageId: "user-message-document-family-uk-spelling",
+				}),
+			}),
+		]);
+		const telemetry = await listMemoryReworkTelemetry({ userId: "user-1" });
+		expect(telemetry).toEqual([
+			expect.objectContaining({
+				eventName: "memory_intake_deferred",
+				status: "deferred",
+				reason: "explicit_memory_unclassified",
+				metadata: expect.objectContaining({
+					parserRule: "document_family_workflow",
+					userMessageId: "user-message-document-family-uk-spelling",
+				}),
+			}),
+		]);
+		expect(JSON.stringify(dirty)).not.toContain("UK spelling");
+		expect(JSON.stringify(telemetry)).not.toContain("UK spelling");
 	});
 
 	it("marks duplicate work when an admitted memory already exists", async () => {

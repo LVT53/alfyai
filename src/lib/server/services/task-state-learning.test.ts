@@ -571,6 +571,61 @@ describe("task-state learning - project continuity signals", () => {
 
 		expect(status).toBe("dormant");
 	});
+
+	it("marks output-control prompts as non-continuity for task-state gate and avoids creation", async () => {
+		const { prepareTaskContext, shouldTrackTaskContinuityFromTurn } =
+			await import("./task-state");
+
+		expect(
+			shouldTrackTaskContinuityFromTurn({
+				message:
+					"What is my codeword? Reply with only the codeword. I want to verify continuity.",
+			}),
+		).toBe(false);
+		expect(
+			shouldTrackTaskContinuityFromTurn({
+				message:
+					"What is my project status for the quarterly budget review?",
+			}),
+		).toBe(true);
+		expect(
+			shouldTrackTaskContinuityFromTurn({
+				message:
+					"What is the quarterly budget review status? Reply with only bullet points.",
+				taskState: {
+					taskId: "task-quarterly-budget",
+					userId: "user-1",
+					conversationId: "conv-1",
+					status: "active",
+					objective: "Finish the quarterly budget review",
+					confidence: 80,
+					locked: false,
+					lastConfirmedTurnMessageId: null,
+					constraints: [],
+					factsToPreserve: [],
+					decisions: [],
+					openQuestions: [],
+					activeArtifactIds: [],
+					nextSteps: [],
+					lastCheckpointAt: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			}),
+		).toBe(true);
+
+		const prepared = await prepareTaskContext({
+			userId: "user-1",
+			conversationId: "conv-1",
+			message:
+				"What is my codeword? Reply with only the codeword. I want to verify continuity.",
+			currentAttachments: [],
+			workingSetArtifacts: [],
+			relevantArtifacts: [],
+		});
+
+		expect(prepared.taskState).toBeNull();
+	});
 });
 
 describe("task-state selected evidence policy", () => {
