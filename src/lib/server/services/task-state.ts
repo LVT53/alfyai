@@ -126,6 +126,8 @@ const OUTPUT_CONTROL_RE =
 	/\b(?:reply|respond|answer|say|output)\s+(?:with\s+)?(?:only|just|exactly)\b|(?:\bonly\b.*\b(?:codeword|answer|response|text|string|number|word)\b)|(?:\bdo\s+you\s+know\s+what\?)/i;
 const LIGHTWEIGHT_MEMORY_RECALL_RE =
 	/\b(?:what\s+is|what's|tell\s+me|do\s+you\s+(?:remember|recall|know)|recall|verify|confirm)\b[\s\S]{0,120}\b(?:my\s+)?(?:codeword|memory\s+verification|verification\s+code|memory\s+profile\s+fact|remembered\s+(?:fact|preference|detail)|saved\s+(?:memory|fact))\b|\b(?:memory\s+verification|verify\s+continuity)\b/i;
+const EXPLICIT_MEMORY_PROFILE_SAVE_RE =
+	/\b(?:remember|save|store)\s+this\s+as\s+(?:a\s+)?(?:durable\s+)?(?:memory\s+profile\s+)?fact\b|\b(?:save|store|add)\s+(?:this\s+)?(?:to|in)\s+(?:my\s+)?memory\s+profile\b|\bdurable\s+memory\s+profile\s+fact\b/i;
 const TASK_SUBJECT_STOPWORDS = new Set([
 	"about",
 	"again",
@@ -153,7 +155,8 @@ const TASK_SUBJECT_STOPWORDS = new Set([
 function isExplicitTaskControlOrRecallTurn(text: string): boolean {
 	return (
 		OUTPUT_CONTROL_RE.test(text) ||
-		LIGHTWEIGHT_MEMORY_RECALL_RE.test(text)
+		LIGHTWEIGHT_MEMORY_RECALL_RE.test(text) ||
+		EXPLICIT_MEMORY_PROFILE_SAVE_RE.test(text)
 	);
 }
 

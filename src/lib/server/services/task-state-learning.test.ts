@@ -586,6 +586,12 @@ describe("task-state learning - project continuity signals", () => {
 		expect(
 			shouldTrackTaskContinuityFromTurn({
 				message:
+					"Please remember this as a durable Memory Profile fact: my memory regression matrix codeword is codex-regression-1234.",
+			}),
+		).toBe(false);
+		expect(
+			shouldTrackTaskContinuityFromTurn({
+				message:
 					"What is my project status for the quarterly budget review?",
 			}),
 		).toBe(true);
@@ -650,6 +656,18 @@ describe("task-state learning - project continuity signals", () => {
 		});
 
 		expect(prepared.taskState).toBeNull();
+
+		const preparedMemorySave = await prepareTaskContext({
+			userId: "user-1",
+			conversationId: "conv-1",
+			message:
+				"Please remember this as a durable Memory Profile fact: my memory regression matrix codeword is codex-regression-1234.",
+			currentAttachments: [],
+			workingSetArtifacts: [],
+			relevantArtifacts: [],
+		});
+
+		expect(preparedMemorySave.taskState).toBeNull();
 	});
 });
 
