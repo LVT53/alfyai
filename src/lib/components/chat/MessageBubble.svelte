@@ -254,10 +254,11 @@ let isGenerating = $derived(
 	Boolean(message.isStreaming || message.isThinkingStreaming),
 );
 let hasVisibleContent = $derived(message.content.trim().length > 0);
-let hasFileProductionCards = $derived(
-	fileProductionJobs.length > 0 && Boolean(conversationId),
-);
 let hasAtlasCards = $derived(atlasJobs.length > 0);
+let hasFileProductionCards = $derived(
+	fileProductionJobs.length > 0 && Boolean(conversationId) && !hasAtlasCards,
+);
+let showEvidencePending = $derived(Boolean(message.evidencePending) && isDone);
 let liveDeliberationStatus = $derived(
 	isStreaming
 		? ([...liveResponseActivityEntries]
@@ -747,7 +748,7 @@ function toggleForkDetails() {
 					{/each}
 				</div>
 			{/if}
-			{#if fileProductionJobs.length > 0 && conversationId}
+			{#if hasFileProductionCards}
 				<div class="file-production-inline" data-testid="message-file-production-jobs">
 					{#each dedupedFileProductionJobs as job (job.id)}
 						<FileProductionCard
@@ -826,7 +827,7 @@ function toggleForkDetails() {
 					{excludedArtifactIds}
 					onSteer={onSteer}
 				/>
-			{:else if message.evidencePending}
+			{:else if showEvidencePending}
 				<div class="evidence-pending">{$t('messageBubble.evidenceLoading')}</div>
 			{/if}
 			{/if}

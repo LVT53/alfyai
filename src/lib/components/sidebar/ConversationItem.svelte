@@ -294,7 +294,7 @@ let atlasBadgeLabel = $derived(
 	conversation.atlasBadge?.label || $t("atlas.sidebarCompletedBadge"),
 );
 let showAtlasCompletedBadge = $derived(
-	conversation.atlasBadge?.status === "succeeded",
+	!active && conversation.atlasBadge?.status === "succeeded",
 );
 
 onMount(() => {

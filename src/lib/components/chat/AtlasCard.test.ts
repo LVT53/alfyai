@@ -52,7 +52,8 @@ describe("AtlasCard", () => {
 
 		expect(screen.getByTestId("atlas-card")).toHaveTextContent("ATLAS");
 		expect(screen.queryByText("42%")).not.toBeInTheDocument();
-		expect(screen.getByText("Curating sources")).toBeInTheDocument();
+		expect(screen.getByText("Weighing source quality")).toBeInTheDocument();
+		expect(screen.queryByText("Curating sources")).not.toBeInTheDocument();
 
 		await fireEvent.click(screen.getByRole("button", { name: "Cancel Atlas" }));
 		expect(onCancel).toHaveBeenCalledWith("atlas-job-1");
@@ -65,7 +66,8 @@ describe("AtlasCard", () => {
 				job: atlasJobFixture(),
 			});
 
-			expect(screen.getByText("Curating sources")).toBeInTheDocument();
+			expect(screen.getByText("Weighing source quality")).toBeInTheDocument();
+			expect(screen.queryByText("Curating sources")).not.toBeInTheDocument();
 			expect(screen.queryByText("In-Depth")).not.toBeInTheDocument();
 
 			await act(() => {
@@ -76,6 +78,20 @@ describe("AtlasCard", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("renders the prototype exploration SVG for queued Atlas jobs", () => {
+		render(AtlasCard, {
+			job: atlasJobFixture({
+				status: "queued",
+				stage: "queued",
+				progress: { percent: 0, stage: "queued", details: { queries: [] } },
+			}),
+		});
+
+		const svg = screen.getByTestId("atlas-exploration-svg");
+		expect(svg).toHaveAttribute("viewBox", "0 0 56 56");
+		expect(svg.querySelector(".orbit-group")).toBeTruthy();
 	});
 
 	it("shows decomposed research questions in the active progress card", () => {
@@ -111,11 +127,12 @@ describe("AtlasCard", () => {
 			}),
 		});
 
-		expect(screen.getByText("Rendering outputs")).toBeInTheDocument();
+		expect(screen.getByText("Preparing report files")).toBeInTheDocument();
+		expect(screen.queryByText("Rendering outputs")).not.toBeInTheDocument();
 		expect(screen.queryByText("Running research")).not.toBeInTheDocument();
 	});
 
-	it("renders completed actions with Open as the only text button", async () => {
+	it("renders completed actions with Open as the only text button and grouped download options", async () => {
 		const onOpenDocument = vi.fn();
 		render(AtlasCard, {
 			job: atlasJobFixture({ status: "succeeded", completedAt: 121 }),
@@ -131,12 +148,29 @@ describe("AtlasCard", () => {
 				downloadUrl: "/api/chat/files/html-file-1/download",
 			}),
 		);
-		expect(screen.getByRole("link", { name: "Download PDF" })).toHaveAttribute(
-			"href",
-			"/api/chat/files/pdf-file-1/download",
-		);
+
 		expect(
-			screen.getByRole("link", { name: "Download Markdown" }),
+			screen.queryByRole("link", { name: "Download PDF" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("link", { name: "Download Markdown" }),
+		).not.toBeInTheDocument();
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Download Atlas" }),
+		);
+		const downloadMenu = screen.getByRole("menu", {
+			name: "Download Atlas",
+		});
+		expect(
+			within(downloadMenu).getByRole("menuitem", { name: "Download HTML" }),
+		).toHaveAttribute("href", "/api/chat/files/html-file-1/download");
+		expect(
+			within(downloadMenu).getByRole("menuitem", { name: "Download PDF" }),
+		).toHaveAttribute("href", "/api/chat/files/pdf-file-1/download");
+		expect(
+			within(downloadMenu).getByRole("menuitem", {
+				name: "Download Markdown",
+			}),
 		).toHaveAttribute("href", "/api/chat/files/md-file-1/download");
 		expect(
 			screen.getByRole("button", { name: "Continue Atlas" }),

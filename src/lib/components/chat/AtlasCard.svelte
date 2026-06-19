@@ -1,15 +1,15 @@
 <script lang="ts">
 import {
 	Check,
+	ChevronDown,
 	Download,
 	FileText,
 	GitBranch,
-	Globe2,
 	Pencil,
-	Plane,
 	RefreshCw,
 	Square,
 } from "@lucide/svelte";
+import { fade } from "svelte/transition";
 import { t, type I18nKey } from "$lib/i18n";
 import type {
 	AtlasAction,
@@ -38,6 +38,7 @@ let {
 } = $props();
 
 let activePanel = $state<AtlasAction | null>(null);
+let downloadMenuOpen = $state(false);
 let lifecycleMessage = $state("");
 let progressMessageIndex = $state(0);
 let lastProgressMessageStage = $state("");
@@ -62,8 +63,14 @@ const progressQueries = $derived(job.progress?.details?.queries ?? []);
 const lifecyclePanelLabel = $derived(
 	activePanel ? lifecycleActionLabel(activePanel) : "",
 );
+const progressPercent = $derived(
+	Math.max(0, Math.min(100, Math.round(job.progress?.percent ?? 0))),
+);
+const stageProgress = $derived(getStageProgress(job.progress?.stage ?? job.stage));
+const downloadOptions = $derived(getDownloadOptions(job.outputs));
 
 const PROGRESS_MESSAGE_INTERVAL_MS = 4200;
+const PROGRESS_MESSAGE_FADE_MS = 220;
 
 const STAGE_LABEL_KEYS: Record<string, I18nKey> = {
 	decompose: "atlas.stage.decompose",
@@ -84,14 +91,20 @@ const STATUS_STAGE_LABEL_KEYS: Record<string, I18nKey> = {
 
 const PROGRESS_MESSAGE_KEYS: Record<string, readonly I18nKey[]> = {
 	queued: ["atlas.progress.queued.0", "atlas.progress.queued.1"],
-	decompose: ["atlas.stage.decompose", "atlas.progress.decompose.1"],
-	search: ["atlas.stage.search", "atlas.progress.search.1"],
-	curate: ["atlas.stage.curate", "atlas.progress.curate.1"],
-	synthesize: ["atlas.stage.synthesize", "atlas.progress.synthesize.1"],
-	integrate: ["atlas.stage.integrate", "atlas.progress.integrate.1"],
-	assemble: ["atlas.stage.assemble", "atlas.progress.assemble.1"],
-	audit: ["atlas.stage.audit", "atlas.progress.audit.1"],
-	render: ["atlas.stage.render", "atlas.progress.render.1"],
+	decompose: ["atlas.progress.decompose.0", "atlas.progress.decompose.1"],
+	search: ["atlas.progress.search.0", "atlas.progress.search.1"],
+	curate: ["atlas.progress.curate.0", "atlas.progress.curate.1"],
+	synthesize: ["atlas.progress.synthesize.0", "atlas.progress.synthesize.1"],
+	integrate: ["atlas.progress.integrate.0", "atlas.progress.integrate.1"],
+	assemble: ["atlas.progress.assemble.0", "atlas.progress.assemble.1"],
+	audit: ["atlas.progress.audit.0", "atlas.progress.audit.1"],
+	render: ["atlas.progress.render.0", "atlas.progress.render.1"],
+};
+
+type DownloadOption = {
+	key: "html" | "pdf" | "markdown";
+	label: string;
+	url: string;
 };
 
 $effect(() => {
@@ -179,6 +192,53 @@ function downloadUrl(fileId: string | null | undefined): string | null {
 	return fileId ? `/api/chat/files/${fileId}/download` : null;
 }
 
+function getDownloadOptions(
+	outputs: AtlasJobCard["outputs"],
+): DownloadOption[] {
+	const options: DownloadOption[] = [];
+	const htmlUrl = downloadUrl(outputs.htmlChatGeneratedFileId);
+	const pdfUrl = downloadUrl(outputs.pdfChatGeneratedFileId);
+	const markdownUrl = downloadUrl(outputs.markdownChatGeneratedFileId);
+	if (htmlUrl) {
+		options.push({
+			key: "html",
+			label: $t("atlas.action.downloadHtml"),
+			url: htmlUrl,
+		});
+	}
+	if (pdfUrl) {
+		options.push({
+			key: "pdf",
+			label: $t("atlas.action.downloadPdf"),
+			url: pdfUrl,
+		});
+	}
+	if (markdownUrl) {
+		options.push({
+			key: "markdown",
+			label: $t("atlas.action.downloadMarkdown"),
+			url: markdownUrl,
+		});
+	}
+	return options;
+}
+
+function getStageProgress(stage: string | null | undefined): number {
+	const orderedStages = [
+		"decompose",
+		"search",
+		"curate",
+		"synthesize",
+		"integrate",
+		"assemble",
+		"audit",
+		"render",
+	];
+	const index = stage ? orderedStages.indexOf(stage) : -1;
+	if (index < 0) return 14;
+	return Math.round(((index + 1) / orderedStages.length) * 100);
+}
+
 function lifecycleActionLabel(action: AtlasAction): string {
 	if (action === "fork") return $t("atlas.action.fork");
 	if (action === "revise") return $t("atlas.action.revise");
@@ -188,7 +248,13 @@ function lifecycleActionLabel(action: AtlasAction): string {
 
 function togglePanel(action: AtlasAction) {
 	activePanel = activePanel === action ? null : action;
+	downloadMenuOpen = false;
 	lifecycleMessage = "";
+}
+
+function toggleDownloadMenu() {
+	downloadMenuOpen = !downloadMenuOpen;
+	activePanel = null;
 }
 
 function submitLifecycleAction() {
@@ -222,20 +288,52 @@ function submitLifecycleAction() {
 			{#if isComplete}
 				<Check size={19} strokeWidth={2.4} aria-hidden="true" />
 			{:else if job.status === "queued"}
-				<Globe2
-					class="atlas-card__globe"
-					size={18}
-					strokeWidth={2}
+				<svg
+					class="atlas-card__exploration-svg"
+					data-testid="atlas-exploration-svg"
+					viewBox="0 0 56 56"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
 					aria-hidden="true"
-				/>
-				<Plane
-					class="atlas-card__plane"
-					size={13}
-					strokeWidth={2.2}
-					aria-hidden="true"
-				/>
+				>
+					<g class="orbit-group">
+						<circle cx="28" cy="28" r="22" opacity="0.25"></circle>
+						<g transform="translate(28, 6)">
+							<path
+								d="M-5 -2 L4 0 L-5 2 Z"
+								fill="currentColor"
+								stroke="none"
+							></path>
+							<line x1="-9" y1="0" x2="-5" y2="0" opacity="0.5"></line>
+						</g>
+					</g>
+					<circle cx="28" cy="28" r="15" stroke-width="2"></circle>
+					<path d="M14 28 Q28 35 42 28" opacity="0.5"></path>
+					<path d="M14 28 Q28 21 42 28" opacity="0.5"></path>
+					<path d="M28 14 Q35 28 28 42" opacity="0.5"></path>
+					<path d="M28 14 Q21 28 28 42" opacity="0.5"></path>
+					<path
+						d="M21 25 Q25 23 29 27 Q27 31 23 31 Z"
+						fill="currentColor"
+						opacity="0.35"
+						stroke="none"
+					></path>
+					<path
+						d="M33 20 Q37 22 35 28 Q31 26 33 20 Z"
+						fill="currentColor"
+						opacity="0.35"
+						stroke="none"
+					></path>
+				</svg>
 			{:else}
-				<span class="atlas-card__ring"></span>
+				<span
+					class="atlas-card__ring"
+					style={`--atlas-progress: ${progressPercent}%; --atlas-stage-progress: ${stageProgress}%;`}
+					aria-hidden="true"
+				></span>
 			{/if}
 		</div>
 		<div class="atlas-card__title-block">
@@ -255,7 +353,16 @@ function submitLifecycleAction() {
 	{#if isActive}
 		<div class="atlas-card__progress" aria-label={$t("atlas.progressLabel")}>
 			<div class="atlas-card__status-row">
-				<span aria-live="polite">{progressMessage}</span>
+				<span class="atlas-card__status-message-wrap" aria-live="polite">
+					{#key progressMessage}
+						<span
+							class="atlas-card__status-message"
+							transition:fade={{ duration: PROGRESS_MESSAGE_FADE_MS }}
+						>
+							{progressMessage}
+						</span>
+					{/key}
+				</span>
 				<button
 					type="button"
 					class="atlas-card__ghost atlas-card__ghost--text"
@@ -287,25 +394,49 @@ function submitLifecycleAction() {
 			>
 				{$t("common.open")}
 			</button>
-			{#if downloadUrl(job.outputs.pdfChatGeneratedFileId)}
-				<a
-					class="atlas-card__icon-action"
-					href={downloadUrl(job.outputs.pdfChatGeneratedFileId)}
-					aria-label={$t("atlas.action.downloadPdf")}
-					title={$t("atlas.action.downloadPdf")}
-				>
-					<Download size={16} strokeWidth={2} aria-hidden="true" />
-				</a>
-			{/if}
-			{#if downloadUrl(job.outputs.markdownChatGeneratedFileId)}
-				<a
-					class="atlas-card__icon-action"
-					href={downloadUrl(job.outputs.markdownChatGeneratedFileId)}
-					aria-label={$t("atlas.action.downloadMarkdown")}
-					title={$t("atlas.action.downloadMarkdown")}
-				>
-					<FileText size={16} strokeWidth={2} aria-hidden="true" />
-				</a>
+			{#if downloadOptions.length > 0}
+				<div class="atlas-card__download">
+					<button
+						type="button"
+						class="atlas-card__icon-action"
+						onclick={toggleDownloadMenu}
+						aria-label={$t("atlas.action.download")}
+						title={$t("atlas.action.download")}
+						aria-haspopup="menu"
+						aria-expanded={downloadMenuOpen}
+					>
+						<Download size={16} strokeWidth={2} aria-hidden="true" />
+						<ChevronDown
+							class="atlas-card__download-chevron"
+							size={11}
+							strokeWidth={2.4}
+							aria-hidden="true"
+						/>
+					</button>
+					{#if downloadMenuOpen}
+						<div
+							class="atlas-card__download-menu"
+							role="menu"
+							aria-label={$t("atlas.action.download")}
+						>
+							{#each downloadOptions as option}
+								<a
+									class="atlas-card__download-option"
+									href={option.url}
+									role="menuitem"
+									onclick={() => downloadMenuOpen = false}
+								>
+									{#if option.key === "markdown"}
+										<FileText size={14} strokeWidth={2} aria-hidden="true" />
+									{:else}
+										<Download size={14} strokeWidth={2} aria-hidden="true" />
+									{/if}
+									<span>{option.label}</span>
+								</a>
+							{/each}
+						</div>
+					{/if}
+				</div>
 			{/if}
 			<button
 				type="button"
@@ -396,12 +527,19 @@ function submitLifecycleAction() {
 	.atlas-card__mark {
 		position: relative;
 		display: grid;
-		width: 2.25rem;
-		height: 2.25rem;
+		width: 2.75rem;
+		height: 2.75rem;
 		place-items: center;
 		border-radius: 999px;
-		background: color-mix(in srgb, var(--accent) 18%, transparent);
+		overflow: hidden;
+		background:
+			radial-gradient(circle at 34% 28%, color-mix(in srgb, var(--accent) 32%, white 18%), transparent 34%),
+			color-mix(in srgb, var(--accent) 18%, transparent);
 		color: var(--accent);
+	}
+
+	.atlas-card__mark--queued {
+		overflow: visible;
 	}
 
 	.atlas-card__mark--complete {
@@ -409,29 +547,36 @@ function submitLifecycleAction() {
 		color: var(--success, #2f8f5b);
 	}
 
-	:global(.atlas-card__globe) {
-		position: relative;
-		z-index: 1;
+	.atlas-card__exploration-svg {
+		width: 2.75rem;
+		height: 2.75rem;
+		filter: drop-shadow(0 0 0.4rem color-mix(in srgb, currentColor 26%, transparent));
+		animation: atlas-globe-pulse 2.8s ease-in-out infinite;
 	}
 
-	:global(.atlas-card__plane) {
-		position: absolute;
-		top: 0.28rem;
-		left: 50%;
-		transform-origin: -0.05rem 0.84rem;
-		animation: atlas-orbit 2.4s linear infinite;
+	.atlas-card__exploration-svg .orbit-group {
+		animation: atlas-orbit 2.6s linear infinite;
+		transform-box: view-box;
+		transform-origin: 28px 28px;
 	}
 
 	.atlas-card__ring {
-		width: 1.35rem;
-		height: 1.35rem;
-		border: 2px solid currentColor;
-		border-right-color: transparent;
+		width: 1.55rem;
+		height: 1.55rem;
 		border-radius: 999px;
+		background:
+			conic-gradient(
+				from 0deg,
+				currentColor 0 var(--atlas-progress, 0%),
+				color-mix(in srgb, currentColor 28%, transparent) var(--atlas-progress, 0%) var(--atlas-stage-progress, 14%),
+				color-mix(in srgb, currentColor 12%, transparent) var(--atlas-stage-progress, 14%) 100%
+			);
+		box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
+		mask: radial-gradient(circle, transparent 48%, #000 51%);
 	}
 
 	.atlas-card--active .atlas-card__ring {
-		animation: atlas-spin 900ms linear infinite;
+		animation: atlas-ring-sweep 1.25s ease-in-out infinite;
 	}
 
 	.atlas-card__title-block {
@@ -481,6 +626,20 @@ function submitLifecycleAction() {
 		justify-content: space-between;
 		font-size: var(--text-sm);
 		color: var(--text-secondary);
+	}
+
+	.atlas-card__status-message-wrap {
+		position: relative;
+		display: grid;
+		min-width: 0;
+		min-height: 1.25rem;
+		align-items: center;
+		overflow: hidden;
+	}
+
+	.atlas-card__status-message {
+		grid-area: 1 / 1;
+		overflow-wrap: anywhere;
 	}
 
 	.atlas-card__queries {
@@ -544,6 +703,7 @@ function submitLifecycleAction() {
 	}
 
 	.atlas-card__icon-action {
+		position: relative;
 		width: 2.1rem;
 		height: 2.1rem;
 	}
@@ -555,12 +715,78 @@ function submitLifecycleAction() {
 
 	.atlas-card__open:hover:not(:disabled),
 	.atlas-card__ghost:hover:not(:disabled),
-	.atlas-card__icon-action:hover:not(:disabled),
+	.atlas-card__icon-action:hover:not(:disabled) {
+		transform: translateY(-1px);
+		box-shadow:
+			0 0 0 2px color-mix(in srgb, var(--focus-ring) 20%, transparent),
+			0 0.45rem 0.9rem color-mix(in srgb, var(--shadow-color, #000) 12%, transparent);
+	}
+
+	.atlas-card__open:active:not(:disabled),
+	.atlas-card__ghost:active:not(:disabled),
+	.atlas-card__icon-action:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
 	.atlas-card__open:focus-visible,
 	.atlas-card__ghost:focus-visible,
-	.atlas-card__icon-action:focus-visible {
+	.atlas-card__icon-action:focus-visible,
+	.atlas-card__download-option:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 36%, transparent);
+	}
+
+	.atlas-card__open,
+	.atlas-card__ghost,
+	.atlas-card__icon-action,
+	.atlas-card__download-option {
+		transition:
+			transform 140ms ease,
+			background-color 140ms ease,
+			border-color 140ms ease,
+			box-shadow 140ms ease;
+	}
+
+	.atlas-card__download {
+		position: relative;
+		display: inline-flex;
+	}
+
+	:global(.atlas-card__download-chevron) {
+		position: absolute;
+		right: 0.18rem;
+		bottom: 0.18rem;
+	}
+
+	.atlas-card__download-menu {
+		position: absolute;
+		top: calc(100% + 0.35rem);
+		right: 0;
+		z-index: 5;
+		display: grid;
+		min-width: 11rem;
+		gap: 0.15rem;
+		border: 1px solid color-mix(in srgb, var(--border-default) 84%, transparent);
+		border-radius: var(--radius-sm);
+		background: var(--surface-elevated);
+		padding: 0.3rem;
+		box-shadow: var(--shadow-md, 0 0.8rem 2rem rgb(0 0 0 / 16%));
+	}
+
+	.atlas-card__download-option {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		border-radius: calc(var(--radius-sm) - 2px);
+		padding: 0.48rem 0.55rem;
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		text-decoration: none;
+	}
+
+	.atlas-card__download-option:hover {
+		background: color-mix(in srgb, var(--accent) 10%, transparent);
+		transform: translateX(1px);
 	}
 
 	.atlas-card__panel {
@@ -601,9 +827,16 @@ function submitLifecycleAction() {
 		background: color-mix(in srgb, var(--surface-page) 88%, #000 12%);
 	}
 
-	@keyframes atlas-spin {
-		to {
-			transform: rotate(360deg);
+	@keyframes atlas-ring-sweep {
+		0%,
+		100% {
+			transform: rotate(0deg) scale(1);
+			filter: saturate(1);
+		}
+
+		50% {
+			transform: rotate(18deg) scale(1.06);
+			filter: saturate(1.25);
 		}
 	}
 
@@ -613,10 +846,31 @@ function submitLifecycleAction() {
 		}
 	}
 
+	@keyframes atlas-globe-pulse {
+		0%,
+		100% {
+			transform: scale(1);
+			opacity: 0.88;
+		}
+
+		50% {
+			transform: scale(1.08);
+			opacity: 1;
+		}
+	}
+
 	@media (prefers-reduced-motion: reduce) {
 		.atlas-card--active .atlas-card__ring,
-		:global(.atlas-card__plane) {
+		.atlas-card__exploration-svg,
+		.atlas-card__exploration-svg .orbit-group {
 			animation: none;
+		}
+
+		.atlas-card__open,
+		.atlas-card__ghost,
+		.atlas-card__icon-action,
+		.atlas-card__download-option {
+			transition: none;
 		}
 	}
 </style>

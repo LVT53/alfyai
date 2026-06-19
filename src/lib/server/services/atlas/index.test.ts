@@ -108,6 +108,56 @@ describe("Atlas persistence foundation", () => {
 		expect(rows[0]?.idempotencyKey).not.toContain("AI search vendors");
 	});
 
+	it("creates an instant deterministic visible title from the user query", async () => {
+		const { submitAtlasJobIntake } = await import("./index");
+
+		const result = await submitAtlasJobIntake({
+			userId: "user-1",
+			conversationId: "conv-1",
+			action: "create",
+			parentAtlasJobId: null,
+			profile: "in-depth",
+			query:
+				"  Compare AI search vendors for enterprise RAG adoption in regulated banks. Include risks.  ",
+			clientAtlasTurnId: "client-turn-title",
+			now: new Date("2026-06-19T12:01:00.000Z"),
+		});
+
+		expect(result.job.title).toBe(
+			"Compare AI search vendors for enterprise RAG adoption in regulated banks",
+		);
+		expect(result.job.title).not.toBe("Atlas research");
+	});
+
+	it("repairs a reused legacy default Atlas title from the user query", async () => {
+		const { submitAtlasJobIntake } = await import("./index");
+		const input = {
+			userId: "user-1",
+			conversationId: "conv-1",
+			action: "create" as const,
+			parentAtlasJobId: null,
+			profile: "overview" as const,
+			query: "Map durable memory architectures for enterprise assistants.",
+			clientAtlasTurnId: "client-turn-legacy-title",
+		};
+		const stale = await submitAtlasJobIntake({
+			...input,
+			title: "Atlas research",
+			now: new Date("2026-06-19T12:01:00.000Z"),
+		});
+
+		const reused = await submitAtlasJobIntake({
+			...input,
+			now: new Date("2026-06-19T12:02:00.000Z"),
+		});
+
+		expect(reused.reused).toBe(true);
+		expect(reused.job.id).toBe(stale.job.id);
+		expect(reused.job.title).toBe(
+			"Map durable memory architectures for enterprise assistants",
+		);
+	});
+
 	it("creates a new job when one idempotency scope field changes", async () => {
 		const { submitAtlasJobIntake } = await import("./index");
 		const baseInput = {

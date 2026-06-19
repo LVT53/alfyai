@@ -127,8 +127,10 @@ export async function listConversations(
 	);
 	const completedAtlasRows = await db
 		.select({
+			id: atlasJobs.id,
 			conversationId: atlasJobs.conversationId,
 			title: atlasJobs.title,
+			completedAt: atlasJobs.completedAt,
 			updatedAt: atlasJobs.updatedAt,
 		})
 		.from(atlasJobs)
@@ -150,8 +152,13 @@ export async function listConversations(
 	for (const row of completedAtlasRows) {
 		if (!atlasBadgeByConversation.has(row.conversationId)) {
 			atlasBadgeByConversation.set(row.conversationId, {
+				jobId: row.id,
 				status: "succeeded",
 				label: row.title,
+				completedAt: row.completedAt
+					? row.completedAt.getTime() / 1000
+					: null,
+				updatedAt: row.updatedAt.getTime() / 1000,
 			});
 		}
 	}

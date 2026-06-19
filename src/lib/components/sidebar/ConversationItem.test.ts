@@ -93,6 +93,27 @@ describe("ConversationItem Component", () => {
 		).toBeInTheDocument();
 	});
 
+	it("does not render the completed Atlas badge on the active conversation", () => {
+		render(ConversationItemWrapper, {
+			active: true,
+			conversation: {
+				...mockConversation,
+				atlasBadge: {
+					jobId: "atlas-job-1",
+					status: "succeeded",
+					label: "Completed Atlas report",
+					completedAt: 1_789_000,
+					updatedAt: 1_789_000,
+				},
+			},
+		});
+
+		expect(
+			screen.queryByLabelText("Completed Atlas report"),
+		).not.toBeInTheDocument();
+		expect(screen.getByText("Test Conversation")).toBeInTheDocument();
+	});
+
 	it("dispatches select event when clicked", async () => {
 		const mockSelect = vi.fn();
 		const { container } = render(ConversationItemWrapper, {

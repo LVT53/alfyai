@@ -334,7 +334,10 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 	};
 });
 
-import { fetchConversationDetail } from "$lib/client/api/conversations";
+import {
+	fetchConversationDetail,
+	fetchMessageEvidence,
+} from "$lib/client/api/conversations";
 import Page from "./+page.svelte";
 
 function pageData(overrides: Record<string, unknown> = {}) {
@@ -395,6 +398,7 @@ describe("chat page runtime integration", () => {
 		vi.mocked(fetchConversationDetail).mockResolvedValue(
 			conversationDetailFixture(),
 		);
+		vi.mocked(fetchMessageEvidence).mockReset();
 		window.sessionStorage.clear();
 		Object.defineProperty(window, "matchMedia", {
 			writable: true,
@@ -1100,6 +1104,82 @@ describe("chat page runtime integration", () => {
 		expect(
 			screen.getByTestId("context-compression-marker-snapshot-1"),
 		).toBeInTheDocument();
+	});
+
+	it("keeps polling pending assistant evidence until it becomes ready", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.mocked(fetchMessageEvidence)
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({
+					status: "ready",
+					evidenceSummary: {
+						structuredWebSearch: false,
+						groups: [
+							{
+								sourceType: "document",
+								label: "Documents",
+								reranked: false,
+								items: [
+									{
+										id: "evidence-1",
+										title: "Recovered evidence",
+										sourceType: "document",
+										status: "selected",
+									},
+								],
+							},
+						],
+					},
+				});
+
+			renderPage(
+				pageData({
+					messages: [
+						{
+							id: "assistant-evidence-pending",
+							role: "assistant",
+							content: "Completed answer.",
+							timestamp: 1,
+							evidencePending: true,
+						},
+					],
+				}),
+			);
+
+			expect(screen.getByText("Evidence is loading…")).toBeInTheDocument();
+
+			await vi.advanceTimersByTimeAsync(5_250);
+			await Promise.resolve();
+
+			expect(fetchMessageEvidence).toHaveBeenCalledTimes(12);
+			expect(screen.getByText("Evidence is loading…")).toBeInTheDocument();
+
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			await waitFor(() => {
+				expect(
+					screen.getByRole("button", { name: /Evidence/i }),
+				).toBeInTheDocument();
+			});
+			expect(
+				screen.queryByText("Evidence is loading…"),
+			).not.toBeInTheDocument();
+			expect(fetchMessageEvidence).toHaveBeenCalledTimes(13);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("recovers a backgrounded stream on mobile pageshow without requiring reload", async () => {

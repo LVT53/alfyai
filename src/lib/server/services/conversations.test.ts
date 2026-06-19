@@ -593,4 +593,80 @@ describe("conversation sidebar pinning", () => {
 			"older-conv",
 		]);
 	});
+
+	it("projects the latest completed Atlas badge identity for visible conversations", async () => {
+		seedSidebarConversationScenario();
+		const { sqlite, db } = openSeedDatabase();
+		const base = new Date("2026-05-14T10:00:00.000Z");
+		db.insert(schema.atlasJobs)
+			.values([
+				{
+					id: "atlas-older",
+					userId: "sidebar-user",
+					conversationId: "recent-conv",
+					action: "create",
+					profile: "overview",
+					normalizedQueryHash: "hash-older",
+					clientAtlasTurnId: "client-older",
+					idempotencyKey: "atlas:v1:older",
+					title: "Older Atlas report",
+					status: "succeeded",
+					stage: "audit",
+					completedAt: new Date(base.getTime() + 4_000),
+					createdAt: new Date(base.getTime() + 1_000),
+					updatedAt: new Date(base.getTime() + 4_000),
+				},
+				{
+					id: "atlas-latest",
+					userId: "sidebar-user",
+					conversationId: "recent-conv",
+					action: "create",
+					profile: "overview",
+					normalizedQueryHash: "hash-latest",
+					clientAtlasTurnId: "client-latest",
+					idempotencyKey: "atlas:v1:latest",
+					title: "Latest Atlas report",
+					status: "succeeded",
+					stage: "audit",
+					completedAt: new Date(base.getTime() + 8_000),
+					createdAt: new Date(base.getTime() + 2_000),
+					updatedAt: new Date(base.getTime() + 8_000),
+				},
+				{
+					id: "atlas-running",
+					userId: "sidebar-user",
+					conversationId: "older-conv",
+					action: "create",
+					profile: "overview",
+					normalizedQueryHash: "hash-running",
+					clientAtlasTurnId: "client-running",
+					idempotencyKey: "atlas:v1:running",
+					title: "Running Atlas report",
+					status: "running",
+					stage: "search",
+					createdAt: new Date(base.getTime() + 9_000),
+					updatedAt: new Date(base.getTime() + 9_000),
+				},
+			])
+			.run();
+		sqlite.close();
+		const { listConversations } = await import("./conversations");
+
+		const listed = await listConversations("sidebar-user");
+		const recent = listed.find(
+			(conversation) => conversation.id === "recent-conv",
+		);
+		const older = listed.find(
+			(conversation) => conversation.id === "older-conv",
+		);
+
+		expect(recent?.atlasBadge).toEqual({
+			jobId: "atlas-latest",
+			status: "succeeded",
+			label: "Latest Atlas report",
+			completedAt: (base.getTime() + 8_000) / 1000,
+			updatedAt: (base.getTime() + 8_000) / 1000,
+		});
+		expect(older?.atlasBadge).toBeUndefined();
+	});
 });

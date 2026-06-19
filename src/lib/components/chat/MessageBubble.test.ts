@@ -61,6 +61,41 @@ describe("MessageBubble", () => {
 		expect(screen.getByText("Preparing response...")).toBeInTheDocument();
 	});
 
+	it("defers the pending Evidence loading row until the assistant response is complete", async () => {
+		const message: ChatMessage = {
+			id: "assistant-evidence-pending",
+			renderKey: "assistant-evidence-pending",
+			role: "assistant",
+			content: "Streaming answer.",
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			evidencePending: true,
+		};
+
+		const { rerender } = render(MessageBubble, { message });
+
+		expect(screen.queryByText("Evidence is loading…")).not.toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...message,
+				isStreaming: false,
+				isThinkingStreaming: true,
+			},
+		});
+		expect(screen.queryByText("Evidence is loading…")).not.toBeInTheDocument();
+
+		await rerender({
+			message: {
+				...message,
+				isStreaming: false,
+				isThinkingStreaming: false,
+			},
+		});
+		expect(screen.getByText("Evidence is loading…")).toBeInTheDocument();
+	});
+
 	it("removes the preparation status once assistant output surfaces", async () => {
 		const baseMessage: ChatMessage = {
 			id: "assistant-preparing",

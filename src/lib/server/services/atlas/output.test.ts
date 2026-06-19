@@ -96,7 +96,7 @@ describe("Atlas renderer output", () => {
 				body: expect.objectContaining({
 					conversationId: "conv-1",
 					assistantMessageId: "assistant-1",
-					idempotencyKey: "atlas-output:atlas-job-1",
+					idempotencyKey: "atlas-output:v2:atlas-job-1",
 					requestTitle: "Enterprise Search Atlas",
 					sourceMode: "document_source",
 					requestedOutputs: [
@@ -114,6 +114,93 @@ describe("Atlas renderer output", () => {
 			pdfChatGeneratedFileId: "file-pdf",
 			markdownChatGeneratedFileId: "file-md",
 		});
+	});
+
+	it("converts Atlas Markdown into semantic document blocks for rendered HTML and PDF", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Enterprise Search Atlas",
+			assembledMarkdown: [
+				"# Executive summary",
+				"",
+				"Atlas found **repeatable** _implementation_ patterns with [source labels](https://example.com) and `inline code`.",
+				"",
+				"- **Hybrid** retrieval is common",
+				"- Evaluation needs [source-level checks](https://example.com/checks)",
+				"",
+				"| **Vendor** | Fit |",
+				"| --- | --- |",
+				"| [Alpha](https://example.com/alpha) | **Strong** |",
+				"| Beta | `Watch` |",
+				"",
+				"```ts",
+				"const score = '**preserved** [literal](url)';",
+				"```",
+				"",
+				"> Treat **web coverage** as [representative](https://example.com).",
+			].join("\n"),
+			sources: [],
+			honestyMarkers: [],
+		});
+
+		expect(source.blocks).toEqual(
+			expect.arrayContaining([
+				{ type: "heading", level: 2, text: "Executive summary" },
+				{
+					type: "paragraph",
+					text: "Atlas found repeatable implementation patterns with source labels and inline code.",
+				},
+				{
+					type: "list",
+					style: "bullet",
+					items: [
+						"Hybrid retrieval is common",
+						"Evaluation needs source-level checks",
+					],
+				},
+				{
+					type: "table",
+					columns: [
+						{ key: "vendor", label: "Vendor", kind: "text" },
+						{ key: "fit", label: "Fit", kind: "text" },
+					],
+					rows: [
+						{ vendor: "Alpha", fit: "Strong" },
+						{ vendor: "Beta", fit: "Watch" },
+					],
+				},
+				{
+					type: "code",
+					language: "ts",
+					text: "const score = '**preserved** [literal](url)';",
+				},
+				{
+					type: "quote",
+					text: "Treat web coverage as representative.",
+					citation: null,
+				},
+			]),
+		);
+		const renderedText = source.blocks
+			.flatMap((block) => {
+				if (block.type === "paragraph" || block.type === "heading") {
+					return [block.text];
+				}
+				if (block.type === "list") return block.items;
+				if (block.type === "quote") return [block.text];
+				if (block.type === "table") {
+					return [
+						...block.columns.map((column) => column.label),
+						...block.rows.flatMap((row) =>
+							Object.values(row).map((value) => String(value ?? "")),
+						),
+					];
+				}
+				return [];
+			})
+			.join("\n");
+		expect(renderedText).not.toMatch(/\*\*|`|\[|\]\(/);
 	});
 
 	it("persists Atlas lifecycle family metadata through document source and request metadata", async () => {

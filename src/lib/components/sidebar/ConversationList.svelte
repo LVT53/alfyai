@@ -11,6 +11,7 @@ import {
 	moveConversationToProject,
 	clearProjectFromConversations,
 	upsertConversationLocal,
+	markConversationAtlasBadgeSeen,
 	toggleConversationSidebarPin,
 	savePinnedConversationOrder,
 } from "$lib/stores/conversations";
@@ -253,8 +254,19 @@ function isProjectMenuOpen(id: string) {
 	return openSidebarMenu?.kind === "project" && openSidebarMenu.id === id;
 }
 
+$effect(() => {
+	const activeConversationId = $currentConversationId;
+	const activeConversation = visibleConversations.find(
+		(conversation) => conversation.id === activeConversationId,
+	);
+	if (activeConversation?.atlasBadge) {
+		markConversationAtlasBadgeSeen(activeConversation.id);
+	}
+});
+
 async function handleSelect(payload: { id: string }) {
 	const id = payload.id;
+	markConversationAtlasBadgeSeen(id);
 	if ($page.url.pathname === `/chat/${id}`) return;
 	const previousConversationId = $currentConversationId;
 	closeAllMenus();
