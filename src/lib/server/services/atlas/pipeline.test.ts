@@ -271,6 +271,167 @@ describe("Atlas pipeline slices", () => {
 		);
 	});
 
+	it("falls back to the user query when decompose returns no usable search queries", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const searchWeb = vi.fn(async () => ({
+			sources: [
+				{
+					id: "web-1",
+					title: "Caching docs",
+					url: "https://example.com/cache",
+					snippet: "Cache strategy docs",
+				},
+			],
+			limitation: null,
+		}));
+		const heartbeat = vi.fn(async () => {});
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-fallback-queries",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Browser caching",
+				query: "Compare browser caching strategies for SaaS dashboards",
+				lifecycle: {
+					family: {
+						familyId: "atlas-fallback-queries",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-fallback-queries",
+						currentAtlasJobId: "atlas-fallback-queries",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb,
+				runModelStage: vi.fn(async (input) => ({
+					text: input.stage === "decompose" ? "" : `${input.stage} result`,
+					usage: {
+						inputTokens: 1,
+						outputTokens: 1,
+						totalTokens: 2,
+						costUsdMicros: 1,
+					},
+				})),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async () => {}),
+				heartbeat,
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-1",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(searchWeb).toHaveBeenCalledWith([
+			"Compare browser caching strategies for SaaS dashboards",
+		]);
+		expect(heartbeat).toHaveBeenCalledWith({
+			stage: "search",
+			progressPercent: 25,
+			progressDetails: {
+				queries: ["Compare browser caching strategies for SaaS dashboards"],
+			},
+		});
+	});
+
+	it("fails the pipeline instead of rendering outputs when the audit gate has critical markers", async () => {
+		const { AtlasPipelineQualityError, runAtlasPipeline } = await import(
+			"./pipeline"
+		);
+		const writeCheckpoint = vi.fn(async () => {});
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await expect(
+			runAtlasPipeline({
+				job: {
+					id: "atlas-no-sources",
+					userId: "user-1",
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-1",
+					action: "create",
+					parentAtlasJobId: null,
+					profile: "overview",
+					title: "No-source report",
+					query: "Research without sources",
+					lifecycle: {
+						family: {
+							familyId: "atlas-no-sources",
+							mode: "new_family",
+							action: "create",
+							rootAtlasJobId: "atlas-no-sources",
+							currentAtlasJobId: "atlas-no-sources",
+							parentAtlasJobId: null,
+							forkedFromAtlasJobId: null,
+						},
+						seed: null,
+					},
+				},
+				dependencies: {
+					resolveSources: vi.fn(async () => ({ localSources: [] })),
+					searchWeb: vi.fn(async () => ({
+						sources: [],
+						limitation: null,
+					})),
+					runModelStage: vi.fn(async (input) => ({
+						text:
+							input.stage === "decompose"
+								? "Research without sources"
+								: `${input.stage} result`,
+						usage: {
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+							costUsdMicros: 1,
+						},
+					})),
+					auditBasis: vi.fn(async () => ({
+						passed: false,
+						honestyMarkers: [
+							{
+								code: "atlas_no_sources",
+								message: "Atlas could not attach external sources.",
+								severity: "critical" as const,
+							},
+						],
+						retryRequested: false,
+					})),
+					writeCheckpoint,
+					renderOutputs,
+				},
+			}),
+		).rejects.toBeInstanceOf(AtlasPipelineQualityError);
+
+		expect(writeCheckpoint).toHaveBeenCalledWith(
+			expect.objectContaining({
+				qualityDiagnostics: expect.objectContaining({
+					passed: false,
+				}),
+			}),
+		);
+		expect(renderOutputs).not.toHaveBeenCalled();
+	});
+
 	it("detects Hungarian Atlas requests and carries that language through stage prompts and audit", async () => {
 		const { runAtlasPipeline } = await import("./pipeline");
 		const systems: Record<string, string> = {};

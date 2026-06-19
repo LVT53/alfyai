@@ -99,6 +99,20 @@ export interface AtlasPipelineResult {
 	};
 }
 
+export class AtlasPipelineQualityError extends Error {
+	readonly code = "atlas_quality_gate_failed";
+	readonly markers: AtlasHonestyMarker[];
+
+	constructor(markers: AtlasHonestyMarker[]) {
+		const markerCodes = markers.map((marker) => marker.code).join(", ");
+		super(
+			`Atlas quality gate failed${markerCodes ? `: ${markerCodes}` : "."}`,
+		);
+		this.name = "AtlasPipelineQualityError";
+		this.markers = markers;
+	}
+}
+
 function addUsage(
 	total: AtlasStageUsage,
 	next: AtlasStageUsage,
@@ -134,14 +148,16 @@ function seededPrompt(input: {
 
 const STAGE_SYSTEMS: Record<SupportedLanguage, Record<ModelStage, string>> = {
 	en: {
-		decompose: "Break the Atlas question into durable research queries.",
+		decompose:
+			"Break the Atlas question into durable research queries. Return only search query strings, one per line. Do not include prose, numbering, Markdown fences, or commentary.",
 		curate: "Curate Atlas local and web evidence.",
 		synthesize: "Synthesize Atlas findings from curated evidence.",
 		integrate: "Integrate Atlas findings into a coherent report outline.",
 		assemble: "Assemble final Atlas report Markdown.",
 	},
 	hu: {
-		decompose: "Bontsd az Atlas kérdést tartós kutatási lekérdezésekre.",
+		decompose:
+			"Bontsd az Atlas kérdést tartós kutatási lekérdezésekre. Csak keresési lekérdezéseket adj vissza, soronként egyet. Ne adj prózát, számozást, Markdown blokkot vagy kommentárt.",
 		curate: "Válogasd az Atlas helyi és webes bizonyítékait.",
 		synthesize:
 			"Szintetizáld az Atlas megállapításait a válogatott bizonyítékokból.",
@@ -160,6 +176,34 @@ function stageSystem(stage: ModelStage, language: SupportedLanguage): string {
 }
 
 function parseDecomposeQueries(text: string): string[] {
+	const trimmed = text.trim();
+	if (!trimmed) return [];
+	const fencedJson = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+	for (const candidate of [trimmed, fencedJson].filter(
+		(candidate): candidate is string => Boolean(candidate),
+	)) {
+		try {
+			const parsed = JSON.parse(candidate) as unknown;
+			const rawQueries = Array.isArray(parsed)
+				? parsed
+				: parsed && typeof parsed === "object"
+					? ((parsed as { queries?: unknown; researchQueries?: unknown })
+							.queries ??
+						(parsed as { researchQueries?: unknown }).researchQueries)
+					: null;
+			if (Array.isArray(rawQueries)) {
+				const queries = rawQueries
+					.map((query) =>
+						typeof query === "string" ? query.replace(/\s+/g, " ").trim() : "",
+					)
+					.filter(Boolean)
+					.slice(0, 8);
+				if (queries.length > 0) return queries;
+			}
+		} catch {
+			// Fall through to line parsing.
+		}
+	}
 	return text
 		.split(/\r?\n/)
 		.map((line) =>
@@ -170,6 +214,11 @@ function parseDecomposeQueries(text: string): string[] {
 		)
 		.filter(Boolean)
 		.slice(0, 8);
+}
+
+function fallbackDecomposeQueries(query: string): string[] {
+	const trimmed = query.replace(/\s+/g, " ").trim();
+	return trimmed ? [trimmed] : [];
 }
 
 export async function runAtlasPipeline(
@@ -200,13 +249,17 @@ export async function runAtlasPipeline(
 	});
 	usage = addUsage(usage, decompose.usage);
 	const decomposeQueries = parseDecomposeQueries(decompose.text);
+	const searchQueries =
+		decomposeQueries.length > 0
+			? decomposeQueries
+			: fallbackDecomposeQueries(input.job.query);
 
 	await input.dependencies.heartbeat?.({
 		stage: "search",
 		progressPercent: 25,
-		progressDetails: { queries: decomposeQueries },
+		progressDetails: { queries: searchQueries },
 	});
-	const search = await input.dependencies.searchWeb(decomposeQueries);
+	const search = await input.dependencies.searchWeb(searchQueries);
 
 	await input.dependencies.heartbeat?.({
 		stage: "curate",
@@ -373,6 +426,10 @@ export async function runAtlasPipeline(
 				: null,
 		},
 	});
+
+	if (!audit.passed) {
+		throw new AtlasPipelineQualityError(audit.honestyMarkers);
+	}
 
 	const documentSource = buildAtlasDocumentSource({
 		title: input.job.title,

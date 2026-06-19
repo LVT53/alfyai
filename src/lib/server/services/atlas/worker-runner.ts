@@ -24,7 +24,7 @@ import {
 	recoverStaleAtlasJobs,
 } from "./job-ledger";
 import { runAtlasAuditStage, runAtlasModelStage } from "./model-stage";
-import { runAtlasPipeline } from "./pipeline";
+import { AtlasPipelineQualityError, runAtlasPipeline } from "./pipeline";
 import { auditAtlasBasis } from "./quality-gates";
 import { renderAtlasOutputs } from "./renderer-output";
 import { runAtlasSearchStage } from "./search";
@@ -215,13 +215,18 @@ export async function executeNextAtlasJob(
 		});
 		return true;
 	} catch (error) {
+		const qualityError =
+			error instanceof AtlasPipelineQualityError ? error : null;
 		await failAtlasJob({
 			jobId: claimed.job.id,
 			workerId: input.workerId,
-			errorCode: "atlas_pipeline_failed",
+			errorCode: qualityError?.code ?? "atlas_pipeline_failed",
 			errorMessage:
 				error instanceof Error ? error.message : "Atlas pipeline failed.",
 			retryable: true,
+			failureMetadata: qualityError
+				? { honestyMarkers: qualityError.markers }
+				: undefined,
 			now: new Date(),
 		});
 		console.warn("[ATLAS] Job failed", {
