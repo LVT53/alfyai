@@ -2352,7 +2352,7 @@ The depth, duration, and quality-gate strictness setting for an **Atlas Turn**. 
 _Avoid_: research depth, research mode, depth level, research tier
 
 **Atlas Quality Gate**:
-A non-negotiable check within the **Atlas Turn** pipeline that prevents unsupported certainty from shipping silently. If the gate requests retry, the pipeline performs one audit-driven revision pass before final rendering. If quality limits are exhausted but rendering/storage can still produce a trustworthy artifact, the Atlas ships with prominent Limitations and honesty markers rather than unsupported certainty. This replaces the old Deep Research plan-approval gate: instead of checking a prediction upfront, it checks the actual output.
+A non-negotiable check within the **Atlas Turn** pipeline that prevents unsupported certainty from shipping silently. If the gate requests retry, the pipeline performs one audit-driven revision pass before final rendering. If quality limits are exhausted but the source basis and rendering/storage can still produce a trustworthy artifact, the Atlas ships with prominent Limitations and honesty markers rather than unsupported certainty. A critical audit failure that means no trustworthy artifact can be produced, such as zero accepted sources, fails the job with an explicit reason instead of producing a report. This replaces the old Deep Research plan-approval gate: instead of checking a prediction upfront, it checks the actual output.
 _Avoid_: plan approval, research checkpoint, pass checkpoint, coverage gate
 
 **Atlas Honesty Marker**:
@@ -2422,7 +2422,7 @@ _Avoid_: research notification, Atlas email alert, separate notification center
 - The **Atlas Concurrent Limit** allows one active Atlas per user and a global admin-configurable limit. Excess jobs queue, they are not rejected.
 - An **Atlas** draws on both **Atlas Web Sources** (SearXNG) and **Atlas Local Sources** (explicit linked sources, composer attachments, active working-set documents, and parent Atlas seed sources). Memory is background context, not a citable source.
 - An **Atlas Completion Notice** fires through three layers: on-page progress polling, sidebar badge on conversation list refresh, and browser push notification when the user has left AlfyAI.
-- An **Atlas** always ships, even when evidence is thin. The **Limitations** section and **Atlas Honesty Markers** communicate evidence quality honestly. There is no separate "insufficient evidence" outcome.
+- An **Atlas** ships a full report when it has a trustworthy source basis, even when evidence is thin. The **Limitations** section and **Atlas Honesty Markers** communicate evidence quality honestly. A critical quality-gate failure such as zero accepted sources fails the Atlas Turn instead of shipping unsupported certainty.
 
 ### Example dialogue
 
