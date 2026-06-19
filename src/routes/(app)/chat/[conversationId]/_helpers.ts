@@ -229,8 +229,12 @@ export type WorkspacePresentation = "docked" | "expanded";
 
 export function getWorkspacePresentationAfterDocumentOpen(
 	currentPresentation: WorkspacePresentation,
-	options: { preservePresentation?: boolean } = {},
+	options: {
+		preservePresentation?: boolean;
+		presentation?: WorkspacePresentation;
+	} = {},
 ): WorkspacePresentation {
+	if (options.presentation) return options.presentation;
 	return options.preservePresentation ? currentPresentation : "docked";
 }
 

@@ -529,6 +529,41 @@ describe("chat page runtime integration", () => {
 		expect(runtimeHarness.streamInvocations).toHaveLength(0);
 	});
 
+	it("opens completed Atlas HTML reports in expanded document workspace presentation", async () => {
+		renderPage(
+			pageData({
+				messages: [
+					{
+						id: "assistant-atlas-1",
+						role: "assistant",
+						content: "Atlas is complete.",
+						timestamp: 1,
+					},
+				],
+				atlasJobs: [
+					atlasJobFixture({
+						status: "succeeded",
+						completedAt: 121,
+						progress: {
+							percent: 100,
+							stage: "audit",
+							details: { queries: [] },
+						},
+					}),
+				],
+			}),
+		);
+
+		await fireEvent.click(screen.getByRole("button", { name: "Open" }));
+
+		await waitFor(() => {
+			expect(screen.getByTestId("workspace-main")).toHaveAttribute(
+				"data-presentation",
+				"expanded",
+			);
+		});
+	});
+
 	it("drains a queued follow-up after polling reconciles a waiting stream completion", async () => {
 		let resolveDetail: (
 			value:

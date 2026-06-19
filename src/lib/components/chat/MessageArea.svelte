@@ -67,7 +67,15 @@ let {
 		| ((payload: { messageId: string }) => void | Promise<void>)
 		| undefined;
 	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
-	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
+	onOpenDocument?:
+		| ((
+				document: DocumentWorkspaceItem,
+				options?: {
+					preservePresentation?: boolean;
+					presentation?: "docked" | "expanded";
+				},
+		  ) => void)
+		| undefined;
 	canPublishSkillDrafts?: boolean;
 	skillDraftActionState?: Record<
 		string,

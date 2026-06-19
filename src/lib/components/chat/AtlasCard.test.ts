@@ -59,6 +59,22 @@ describe("AtlasCard", () => {
 		expect(onCancel).toHaveBeenCalledWith("atlas-job-1");
 	});
 
+	it("renders a determinate progress ring driven by completion percent only", () => {
+		render(AtlasCard, {
+			job: atlasJobFixture({
+				progress: { percent: 64, stage: "synthesize", details: { queries: [] } },
+			}),
+		});
+
+		const ring = screen
+			.getByTestId("atlas-card")
+			.querySelector(".atlas-card__ring");
+		expect(ring).toHaveAttribute("style", expect.stringContaining("--atlas-progress: 64%;"));
+		expect(ring?.getAttribute("style") ?? "").not.toContain(
+			"--atlas-stage-progress",
+		);
+	});
+
 	it("rotates active progress messages without showing profile metadata", async () => {
 		vi.useFakeTimers();
 		try {
@@ -147,6 +163,7 @@ describe("AtlasCard", () => {
 				source: "chat_generated_file",
 				downloadUrl: "/api/chat/files/html-file-1/download",
 			}),
+			{ presentation: "expanded" },
 		);
 
 		expect(

@@ -100,6 +100,13 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 			'<nav class="report-sidebar"',
 		);
 		expect(rendered.content.toString("utf8")).toContain(
+			'<article class="report-content"',
+		);
+		expect(rendered.content.toString("utf8")).toContain("Libre Baskerville");
+		expect(rendered.content.toString("utf8")).toContain("Nimbus Sans L");
+		expect(rendered.content.toString("utf8")).toContain("report-section");
+		expect(rendered.content.toString("utf8")).toContain("report-nav");
+		expect(rendered.content.toString("utf8")).toContain(
 			'data-source-chip-list="Web Sources"',
 		);
 		expect(rendered.content.toString("utf8")).toContain(

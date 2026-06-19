@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { AtlasSearchSource } from "./search";
 
 describe("Atlas search stage", () => {
 	it("requires SearXNG configuration", async () => {
@@ -60,5 +61,85 @@ describe("Atlas search stage", () => {
 			code: "atlas_search_batch_failure_limit",
 			failedQueries: ["q2", "q3"],
 		});
+	});
+
+	it("rejects adult sources, deduplicates URLs, and converges broad results to an accepted source cap", async () => {
+		const { runAtlasSearchStage } = await import("./search");
+		const result = await runAtlasSearchStage({
+			queries: ["enterprise search", "retrieval evaluation"],
+			config: {
+				searxngBaseUrl: "http://searxng.local",
+				concurrency: 2,
+				interBatchDelayMs: 0,
+				maxAttempts: 1,
+			},
+			search: vi.fn(async (query: string) => [
+				{
+					id: `${query}-1`,
+					title: "Official retrieval evaluation guide",
+					url: "https://example.com/retrieval",
+					snippet: "Evaluation methods for search relevance.",
+				},
+				{
+					id: `${query}-duplicate`,
+					title: "Duplicate retrieval guide",
+					url: "https://example.com/retrieval#section",
+					snippet: "Same page with a fragment.",
+				},
+				{
+					id: `${query}-adult`,
+					title: "Porn video search result",
+					url: "https://adult.example/video",
+					snippet: "Explicit adult material.",
+				},
+				...Array.from({ length: 20 }, (_value, index) => ({
+					id: `${query}-source-${index}`,
+					title: `Breadth source ${index}`,
+					url: `https://source-${query.replace(/\s+/g, "-")}-${index}.example/report`,
+					snippet: `Breadth source ${index} about ${query}.`,
+				})),
+			]),
+		});
+
+		expect(result.sources.length).toBeLessThanOrEqual(18);
+		expect(result.sources.some((source) => /porn|adult/i.test(source.title))).toBe(
+			false,
+		);
+		expect(
+			result.sources.filter((source) => source.url.startsWith("https://example.com/retrieval")),
+		).toHaveLength(1);
+		expect(result.rejectedSources.length).toBeGreaterThan(0);
+	});
+
+	it("enriches accepted converged sources with fetched page excerpts", async () => {
+		const { runAtlasSearchStage } = await import("./search");
+		const fetchPage = vi.fn(async (source: AtlasSearchSource) => ({
+			...source,
+			snippet: `${source.snippet}\n\nFetched page excerpt: Detailed evidence from the opened page.`,
+		}));
+
+		const result = await runAtlasSearchStage({
+			queries: ["retrieval evaluation"],
+			config: {
+				searxngBaseUrl: "http://searxng.local",
+				concurrency: 2,
+				interBatchDelayMs: 0,
+				maxAttempts: 1,
+			},
+			search: vi.fn(async () => [
+				{
+					id: "web-1",
+					title: "Retrieval evaluation guide",
+					url: "https://example.com/retrieval",
+					snippet: "Search-result summary.",
+				},
+			]),
+			fetchPage,
+		});
+
+		expect(fetchPage).toHaveBeenCalledWith(
+			expect.objectContaining({ url: "https://example.com/retrieval" }),
+		);
+		expect(result.sources[0].snippet).toContain("Fetched page excerpt");
 	});
 });

@@ -115,6 +115,9 @@ let shellProjects: Project[] = $state([]);
 let shellAppVersion: AppVersionMetadata | null = $state(null);
 let shellAvailableModels: LayoutAvailableModel[] = $state([]);
 let shellPayloadSequence = 0;
+let routeProgressVisible = $state(false);
+let routeProgressTimeout: number | null = null;
+const ROUTE_PROGRESS_STUCK_TIMEOUT_MS = 12000;
 
 $effect(() => {
 	const sequence = ++shellPayloadSequence;
@@ -153,7 +156,37 @@ $effect(() => {
 		})
 		.catch((error) => {
 			console.warn("Failed to resolve shell available models:", error);
-		});
+	});
+});
+
+$effect(() => {
+	const isNavigating = Boolean(navigating.to);
+	if (!browser) {
+		routeProgressVisible = isNavigating;
+		return;
+	}
+	if (!isNavigating) {
+		routeProgressVisible = false;
+		if (routeProgressTimeout !== null) {
+			window.clearTimeout(routeProgressTimeout);
+			routeProgressTimeout = null;
+		}
+		return;
+	}
+	routeProgressVisible = true;
+	if (routeProgressTimeout !== null) {
+		window.clearTimeout(routeProgressTimeout);
+	}
+	routeProgressTimeout = window.setTimeout(() => {
+		routeProgressVisible = false;
+		routeProgressTimeout = null;
+	}, ROUTE_PROGRESS_STUCK_TIMEOUT_MS);
+	return () => {
+		if (routeProgressTimeout !== null) {
+			window.clearTimeout(routeProgressTimeout);
+			routeProgressTimeout = null;
+		}
+	};
 });
 
 $effect(() => {
@@ -521,6 +554,10 @@ onDestroy(() => {
 		window.clearTimeout(serverUpdateSuppressionTimeout);
 		serverUpdateSuppressionTimeout = null;
 	}
+	if (routeProgressTimeout !== null) {
+		window.clearTimeout(routeProgressTimeout);
+		routeProgressTimeout = null;
+	}
 	document.removeEventListener("visibilitychange", handleVisibilityChange);
 	window.removeEventListener("focus", handleWindowFocus);
 });
@@ -546,7 +583,7 @@ onDestroy(() => {
 		/>
 
 		<main class="relative flex h-full flex-1 flex-col overflow-clip min-w-0">
-			{#if navigating.to}
+			{#if routeProgressVisible}
 				<div class="pointer-events-none absolute inset-x-0 top-0 z-20 h-1 overflow-hidden">
 					<div class="route-progress h-full w-1/3 rounded-full bg-accent/80"></div>
 				</div>

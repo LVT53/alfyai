@@ -630,7 +630,10 @@ $effect(() => {
 
 function openWorkspaceDocument(
 	document: DocumentWorkspaceItem,
-	options: { preservePresentation?: boolean } = {},
+	options: {
+		preservePresentation?: boolean;
+		presentation?: "docked" | "expanded";
+	} = {},
 ) {
 	const result = reduceWorkspaceDocumentOpen(workspaceDocuments, document);
 	workspaceDocuments = result.documents;

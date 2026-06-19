@@ -133,6 +133,10 @@ export async function executeNextAtlasJob(
 							searxngBaseUrl: config.searxngBaseUrl,
 							concurrency: config.atlasSearchConcurrency,
 							interBatchDelayMs: config.atlasSearchBatchDelayMs,
+							webResearchExtractorMode: config.webResearchExtractorMode,
+							webResearchExtractTimeoutMs: config.webResearchExtractTimeoutMs,
+							webResearchExtractCacheTtlHours:
+								config.webResearchExtractCacheTtlHours,
 						},
 					}),
 				runModelStage: ({ stage, prompt, system }) =>

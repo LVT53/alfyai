@@ -241,15 +241,15 @@ describe("Atlas renderer output", () => {
 
 		expect(source.cover).toEqual({
 			enabled: true,
-			eyebrow: "Atlas same_family atlas-family-1",
+			eyebrow: "Report date",
+			dateLabel: null,
 		});
 		expect(createOutputJob).toHaveBeenCalledWith(
 			expect.objectContaining({
 				body: expect.objectContaining({
 					documentIntent:
-						"Atlas research report; atlas_job_id=atlas-child-1; atlas_source=Atlas same_family atlas-family-1",
-					templateHint:
-						"alfyai_standard_report:Atlas same_family atlas-family-1",
+						"Atlas research report; atlas_job_id=atlas-child-1",
+					templateHint: "alfyai_standard_report",
 					documentSource: source,
 				}),
 			}),

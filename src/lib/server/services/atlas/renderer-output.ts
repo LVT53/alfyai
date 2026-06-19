@@ -261,10 +261,11 @@ export function buildAtlasDocumentSource(
 		title: input.title,
 		subtitle: input.subtitle ?? null,
 		date: input.date ?? null,
-		cover: input.family
+		cover: input.family || input.date
 			? {
 					enabled: true,
-					eyebrow: `Atlas ${input.family.mode} ${input.family.familyId}`,
+					eyebrow: input.date ? `Report date: ${input.date}` : "Report date",
+					dateLabel: null,
 				}
 			: undefined,
 		blocks,
@@ -275,11 +276,9 @@ function atlasDocumentIntent(input: {
 	jobId: string;
 	source: GeneratedDocumentSource;
 }): string {
-	const coverEyebrow = input.source.cover?.eyebrow?.trim();
 	return [
 		"Atlas research report",
 		`atlas_job_id=${input.jobId}`,
-		coverEyebrow ? `atlas_source=${coverEyebrow}` : null,
 	]
 		.filter((part): part is string => part !== null)
 		.join("; ");
@@ -347,9 +346,7 @@ export async function renderAtlasOutputs(
 				jobId: input.jobId,
 				source: input.source,
 			}),
-			templateHint: input.source.cover?.eyebrow
-				? `alfyai_standard_report:${input.source.cover.eyebrow}`
-				: "alfyai_standard_report",
+			templateHint: "alfyai_standard_report",
 			documentSource: input.source,
 		},
 	});

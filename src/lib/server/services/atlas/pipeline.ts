@@ -43,6 +43,13 @@ export interface RunAtlasPipelineInput {
 				url: string;
 				snippet: string | null;
 			}>;
+			rejectedSources?: Array<{
+				id: string;
+				title: string;
+				url: string;
+				snippet: string | null;
+				rejectionReason?: string;
+			}>;
 			limitation: { code: string; message: string } | null;
 		}>;
 		runModelStage: (input: {
@@ -150,20 +157,26 @@ const STAGE_SYSTEMS: Record<SupportedLanguage, Record<ModelStage, string>> = {
 	en: {
 		decompose:
 			"Break the Atlas question into durable research queries. Return only search query strings, one per line. Do not include prose, numbering, Markdown fences, or commentary.",
-		curate: "Curate Atlas local and web evidence.",
-		synthesize: "Synthesize Atlas findings from curated evidence.",
-		integrate: "Integrate Atlas findings into a coherent report outline.",
-		assemble: "Assemble final Atlas report Markdown.",
+		curate:
+			"Curate Atlas local and web evidence. Extract source-grounded facts only; do not summarize the fact that research happened.",
+		synthesize:
+			"Synthesize Atlas findings from curated evidence. Produce substantive findings, tradeoffs, and source-grounded uncertainty; do not write a process summary.",
+		integrate:
+			"Integrate Atlas findings into a coherent report outline. Preserve the substantive findings and map each section to the evidence basis.",
+		assemble:
+			"Assemble final Atlas report Markdown with actual findings. Do not write a process report about sources checked or steps performed.",
 	},
 	hu: {
 		decompose:
 			"Bontsd az Atlas kérdést tartós kutatási lekérdezésekre. Csak keresési lekérdezéseket adj vissza, soronként egyet. Ne adj prózát, számozást, Markdown blokkot vagy kommentárt.",
-		curate: "Válogasd az Atlas helyi és webes bizonyítékait.",
+		curate:
+			"Válogasd az Atlas helyi és webes bizonyítékait. Csak forrásokkal alátámasztott tényeket emelj ki; ne azt foglald össze, hogy kutatás történt.",
 		synthesize:
-			"Szintetizáld az Atlas megállapításait a válogatott bizonyítékokból.",
-		integrate: "Rendezd az Atlas megállapításait koherens jelentésvázlatba.",
+			"Szintetizáld az Atlas megállapításait a válogatott bizonyítékokból. Valódi megállapításokat, kompromisszumokat és forrásalapú bizonytalanságot adj; ne folyamatösszefoglalót.",
+		integrate:
+			"Rendezd az Atlas megállapításait koherens jelentésvázlatba. Őrizd meg az érdemi megállapításokat, és kösd a szakaszokat a bizonyítékalaphoz.",
 		assemble:
-			"Állítsd össze a végleges Atlas jelentést Markdown formában magyarul.",
+			"Állítsd össze a végleges Atlas jelentést Markdown formában, valódi megállapításokkal. Ne folyamatjelentést írj a vizsgált forrásokról vagy elvégzett lépésekről.",
 	},
 };
 
@@ -219,6 +232,88 @@ function parseDecomposeQueries(text: string): string[] {
 function fallbackDecomposeQueries(query: string): string[] {
 	const trimmed = query.replace(/\s+/g, " ").trim();
 	return trimmed ? [trimmed] : [];
+}
+
+function buildAssemblePrompt(input: {
+	language: SupportedLanguage;
+	query: string;
+	curatedEvidence: string;
+	synthesis: string;
+	outline: string;
+	sources: Array<{ title: string; url?: string | null; reasoning?: string | null }>;
+	limitation: { code: string; message: string } | null;
+	lifecycle: AtlasLifecycleContext["family"];
+}): string {
+	const instructions =
+		input.language === "hu"
+			? [
+					"Írj teljes Atlas jelentést Markdownban.",
+					"Do not write a process report about checking sources, synthesizing findings, or completing research steps.",
+					"A jelentés érdemi megállapításokat tartalmazzon: Executive Summary, tematikus elemző szakaszok, Limitations és Sources.",
+					"Csak az elfogadott forrásokból és a válogatott bizonyítékokból következő állításokat tegyél.",
+					"Ha a bizonyíték gyenge vagy ellentmondásos, azt a Limitations részben és a releváns szakaszban mondd ki.",
+				].join(" ")
+			: [
+					"Write a complete Atlas report in Markdown.",
+					"Do not write a process report about checking sources, synthesizing findings, or completing research steps.",
+					"The report must contain substantive findings: Executive Summary, thematic analytical sections, Limitations, and Sources.",
+					"Make only claims supported by accepted sources and curated evidence.",
+					"If evidence is weak or conflicting, state that in Limitations and in the relevant section.",
+				].join(" ");
+	return JSON.stringify({
+		detectedLanguage: input.language,
+		query: input.query,
+		instructions,
+		curatedEvidence: input.curatedEvidence,
+		synthesis: input.synthesis,
+		outline: input.outline,
+		acceptedSources: input.sources,
+		searchLimitation: input.limitation,
+		atlasLifecycle: input.lifecycle,
+	});
+}
+
+function looksLikeProcessOnlyReport(markdown: string): boolean {
+	const normalized = markdown.replace(/\s+/g, " ").trim().toLowerCase();
+	if (!normalized) return true;
+	const processPhrases = [
+		/\bsources?\s+(?:checked|reviewed|consulted|examined)\b/i,
+		/\b(?:checked|reviewed|consulted|examined)\s+sources?\b/i,
+		/\bsynthesi[sz]ed\s+(?:the\s+)?findings\b/i,
+		/\bcompleted\s+(?:the\s+)?research\b/i,
+		/\bresearch\s+process\b/i,
+		/\bI\s+(?:checked|reviewed|consulted|examined)\b/i,
+	];
+	const processHitCount = processPhrases.filter((phrase) =>
+		phrase.test(markdown),
+	).length;
+	if (processHitCount === 0) return false;
+	const substantiveSection =
+		/#+\s*(executive summary|findings|analysis|recommendations|key findings|következtetések|elemzés|összefoglaló)/i.test(
+			markdown,
+		);
+	const words = normalized.split(/\s+/).filter(Boolean).length;
+	const substantiveSignals =
+		/\b(evidence shows|the evidence|finding:|trade[- ]offs?|because|therefore|however|kockázat|bizonyíték|megállapítás)\b/i.test(
+			markdown,
+		);
+	return processHitCount >= 2 || words < 180 || (!substantiveSection && !substantiveSignals);
+}
+
+function buildAssembleRepairPrompt(input: {
+	basePrompt: string;
+	previousDraft: string;
+	language: SupportedLanguage;
+}): string {
+	const repairInstruction =
+		input.language === "hu"
+			? "Az előző vázlat folyamatleírás volt. Írd újra teljes Atlas jelentésként valódi, forrásalapú megállapításokkal. Ne mondd el, hogy forrásokat ellenőriztél vagy szintetizáltál; mondd el, mit bizonyítanak a források."
+			: "The previous draft was a process summary. Rewrite it as a complete Atlas report with real source-grounded findings. Do not say that sources were checked or findings were synthesized; state what the sources actually show.";
+	return JSON.stringify({
+		...JSON.parse(input.basePrompt),
+		repairInstruction,
+		previousProcessOnlyDraft: input.previousDraft,
+	});
 }
 
 export async function runAtlasPipeline(
@@ -318,9 +413,68 @@ export async function runAtlasPipeline(
 	const assemble = await input.dependencies.runModelStage({
 		stage: "assemble",
 		system: stageSystem("assemble", language),
-		prompt: integrate.text,
+		prompt: buildAssemblePrompt({
+			language,
+			query: input.job.query,
+			curatedEvidence: curate.text,
+			synthesis: synthesize.text,
+			outline: integrate.text,
+			sources: [
+				...sources.localSources.map((source) => ({
+					title: source.title,
+					url: null,
+					reasoning: source.text,
+				})),
+				...search.sources.map((source) => ({
+					title: source.title,
+					url: source.url,
+					reasoning: source.snippet,
+				})),
+			],
+			limitation: search.limitation,
+			lifecycle: input.job.lifecycle.family,
+		}),
 	});
 	usage = addUsage(usage, assemble.usage);
+	let finalAssembledMarkdown = assemble.text;
+	if (looksLikeProcessOnlyReport(finalAssembledMarkdown)) {
+		await input.dependencies.heartbeat?.({
+			stage: "assemble",
+			progressPercent: 86,
+		});
+		const basePrompt = buildAssemblePrompt({
+			language,
+			query: input.job.query,
+			curatedEvidence: curate.text,
+			synthesis: synthesize.text,
+			outline: integrate.text,
+			sources: [
+				...sources.localSources.map((source) => ({
+					title: source.title,
+					url: null,
+					reasoning: source.text,
+				})),
+				...search.sources.map((source) => ({
+					title: source.title,
+					url: source.url,
+					reasoning: source.snippet,
+				})),
+			],
+			limitation: search.limitation,
+			lifecycle: input.job.lifecycle.family,
+		});
+		const repair = await input.dependencies.runModelStage({
+			stage: "assemble",
+			system: stageSystem("assemble", language),
+			prompt: buildAssembleRepairPrompt({
+				basePrompt,
+				previousDraft: finalAssembledMarkdown,
+				language,
+			}),
+		});
+		usage = addUsage(usage, repair.usage);
+		finalAssembledMarkdown = repair.text;
+	}
 
 	const auditSources = [
 		...sources.localSources.map((source) => ({
@@ -345,7 +499,7 @@ export async function runAtlasPipeline(
 		progressPercent: 92,
 	});
 	let audit = await input.dependencies.auditBasis({
-		assembledMarkdown: assemble.text,
+		assembledMarkdown: finalAssembledMarkdown,
 		sources: auditSources,
 		limitation: search.limitation,
 		language,
@@ -353,7 +507,6 @@ export async function runAtlasPipeline(
 	if (audit.usage) {
 		usage = addUsage(usage, audit.usage);
 	}
-	let finalAssembledMarkdown = assemble.text;
 	if (audit.retryRequested) {
 		await input.dependencies.heartbeat?.({
 			stage: "assemble",
@@ -367,7 +520,7 @@ export async function runAtlasPipeline(
 					: "Revise the Atlas report to address audit findings. Preserve supported claims, remove unsupported certainty, and add explicit limitations where evidence is weak.",
 			prompt: JSON.stringify({
 				detectedLanguage: language,
-				assembledMarkdown: assemble.text,
+				assembledMarkdown: finalAssembledMarkdown,
 				auditFindings: audit,
 				sources: auditSources,
 			}),
@@ -415,6 +568,7 @@ export async function runAtlasPipeline(
 		qualityDiagnostics: audit,
 		documentSourceSummary: {
 			title: input.job.title,
+			date: (input.now ?? new Date()).toISOString().slice(0, 10),
 			atlasFamily: input.job.lifecycle.family,
 			parentSeedUsed: input.job.lifecycle.seed
 				? {
@@ -458,7 +612,7 @@ export async function runAtlasPipeline(
 			local: sources.localSources.length,
 			web: search.sources.length,
 			accepted: sources.localSources.length + search.sources.length,
-			rejected: 0,
+			rejected: search.rejectedSources?.length ?? 0,
 		},
 	};
 }

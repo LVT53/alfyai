@@ -91,7 +91,15 @@ let {
 		| undefined;
 	forkBusy?: boolean;
 	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
-	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
+	onOpenDocument?:
+		| ((
+				document: DocumentWorkspaceItem,
+				options?: {
+					preservePresentation?: boolean;
+					presentation?: "docked" | "expanded";
+				},
+		  ) => void)
+		| undefined;
 	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelAtlasJob?: ((jobId: string) => void) | undefined;
@@ -258,7 +266,9 @@ let hasAtlasCards = $derived(atlasJobs.length > 0);
 let hasFileProductionCards = $derived(
 	fileProductionJobs.length > 0 && Boolean(conversationId) && !hasAtlasCards,
 );
-let showEvidencePending = $derived(Boolean(message.evidencePending) && isDone);
+let showEvidencePending = $derived(
+	Boolean(message.evidencePending) && isDone && !hasAtlasCards,
+);
 let liveDeliberationStatus = $derived(
 	isStreaming
 		? ([...liveResponseActivityEntries]

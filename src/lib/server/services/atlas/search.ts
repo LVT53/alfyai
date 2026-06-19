@@ -5,12 +5,20 @@ import {
 	DEFAULT_ATLAS_SEARCH_MAX_ATTEMPTS,
 	DEFAULT_ATLAS_SEARCH_MAX_RETRY_BACKOFF_MS,
 } from "./config";
+import {
+	extractWebResearchPage,
+	type WebResearchExtractionConfig,
+} from "$lib/server/services/web-research/extraction";
 
 export interface AtlasSearchSource {
 	id: string;
 	title: string;
 	url: string;
 	snippet: string | null;
+}
+
+export interface RejectedAtlasSearchSource extends AtlasSearchSource {
+	rejectionReason: "unsafe_adult_content" | "duplicate_url" | "source_cap";
 }
 
 export interface AtlasSearchLimitation {
@@ -26,17 +34,22 @@ export interface AtlasSearchConfig {
 	initialRetryBackoffMs?: number;
 	maxRetryBackoffMs?: number;
 	maxAttempts?: number;
+	webResearchExtractorMode?: WebResearchExtractionConfig["webResearchExtractorMode"];
+	webResearchExtractTimeoutMs?: number;
+	webResearchExtractCacheTtlHours?: number;
 }
 
 export interface RunAtlasSearchStageInput {
 	queries: string[];
 	config: AtlasSearchConfig;
 	search?: (query: string) => Promise<AtlasSearchSource[]>;
+	fetchPage?: (source: AtlasSearchSource) => Promise<AtlasSearchSource>;
 	sleep?: (ms: number) => Promise<void>;
 }
 
 export interface AtlasSearchStageResult {
 	sources: AtlasSearchSource[];
+	rejectedSources: RejectedAtlasSearchSource[];
 	limitation: AtlasSearchLimitation | null;
 }
 
@@ -53,6 +66,123 @@ async function defaultSleep(ms: number): Promise<void> {
 
 function normalizeBaseUrl(value: string): string {
 	return value.trim().replace(/\/+$/, "");
+}
+
+function normalizedSourceUrlKey(url: string): string {
+	try {
+		const parsed = new URL(url);
+		parsed.hash = "";
+		parsed.searchParams.sort();
+		const normalized = parsed.toString().replace(/\/+$/, "");
+		return normalized.toLowerCase();
+	} catch {
+		return url.trim().replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase();
+	}
+}
+
+function isUnsafeAdultSource(source: AtlasSearchSource): boolean {
+	const haystack = [source.title, source.url, source.snippet ?? ""]
+		.join(" ")
+		.toLowerCase();
+	return /(^|[^a-z0-9])(porn|porno|xxx|xvideos|xnxx|pornhub|redtube|onlyfans|adult\s+video|escort|nsfw|nude\s+girls?|camgirl|sex\s+video)([^a-z0-9]|$)/i.test(
+		haystack,
+	);
+}
+
+function convergeSources(input: {
+	sources: AtlasSearchSource[];
+	maxAccepted: number;
+}): { sources: AtlasSearchSource[]; rejectedSources: RejectedAtlasSearchSource[] } {
+	const accepted: AtlasSearchSource[] = [];
+	const rejectedSources: RejectedAtlasSearchSource[] = [];
+	const seenUrls = new Set<string>();
+
+	for (const source of input.sources) {
+		if (isUnsafeAdultSource(source)) {
+			rejectedSources.push({
+				...source,
+				rejectionReason: "unsafe_adult_content",
+			});
+			continue;
+		}
+
+		const key = normalizedSourceUrlKey(source.url);
+		if (seenUrls.has(key)) {
+			rejectedSources.push({ ...source, rejectionReason: "duplicate_url" });
+			continue;
+		}
+		seenUrls.add(key);
+
+		if (accepted.length >= input.maxAccepted) {
+			rejectedSources.push({ ...source, rejectionReason: "source_cap" });
+			continue;
+		}
+
+		accepted.push(source);
+	}
+
+	return { sources: accepted, rejectedSources };
+}
+
+function fetchedSnippet(input: {
+	source: AtlasSearchSource;
+	title: string | null;
+	text: string;
+}): AtlasSearchSource {
+	const excerpt = input.text.replace(/\s+/g, " ").trim().slice(0, 3_500);
+	if (!excerpt) return input.source;
+	const searchSnippet = input.source.snippet?.trim();
+	return {
+		...input.source,
+		title: input.title?.trim() || input.source.title,
+		snippet: [
+			searchSnippet ? `Search result snippet: ${searchSnippet}` : null,
+			`Fetched page excerpt: ${excerpt}`,
+		]
+			.filter(Boolean)
+			.join("\n\n"),
+	};
+}
+
+async function defaultFetchPageContent(
+	source: AtlasSearchSource,
+	config: AtlasSearchConfig,
+): Promise<AtlasSearchSource> {
+	const extracted = await extractWebResearchPage({
+		url: source.url,
+		config: {
+			webResearchExtractorMode: config.webResearchExtractorMode,
+			webResearchExtractTimeoutMs: config.webResearchExtractTimeoutMs,
+			webResearchExtractCacheTtlHours:
+				config.webResearchExtractCacheTtlHours,
+		},
+	});
+	if (!extracted) return source;
+	return fetchedSnippet({
+		source,
+		title: extracted.title,
+		text: extracted.plainText,
+	});
+}
+
+async function enrichAcceptedSources(input: {
+	sources: AtlasSearchSource[];
+	fetchPage: (source: AtlasSearchSource) => Promise<AtlasSearchSource>;
+	concurrency: number;
+}): Promise<AtlasSearchSource[]> {
+	const enriched: AtlasSearchSource[] = [];
+	for (let index = 0; index < input.sources.length; index += input.concurrency) {
+		const batch = input.sources.slice(index, index + input.concurrency);
+		const settled = await Promise.allSettled(
+			batch.map((source) => input.fetchPage(source)),
+		);
+		for (const [batchIndex, result] of settled.entries()) {
+			enriched.push(
+				result.status === "fulfilled" ? result.value : batch[batchIndex],
+			);
+		}
+	}
+	return enriched;
 }
 
 function normalizeSearxngResult(
@@ -144,6 +274,7 @@ export async function runAtlasSearchStage(
 	if (!baseUrl) {
 		return {
 			sources: [],
+			rejectedSources: [],
 			limitation: {
 				code: "atlas_searxng_required",
 				message: "Atlas web search requires SearXNG to be configured.",
@@ -169,7 +300,15 @@ export async function runAtlasSearchStage(
 		input.config.maxRetryBackoffMs ?? DEFAULT_ATLAS_SEARCH_MAX_RETRY_BACKOFF_MS;
 	const sleep = input.sleep ?? defaultSleep;
 	const search = input.search ?? ((query) => searchSearxng(baseUrl, query));
+	const fetchPage =
+		input.fetchPage ??
+		(input.search
+			? null
+			: (source: AtlasSearchSource) =>
+					defaultFetchPageContent(source, input.config));
 	const sources: AtlasSearchSource[] = [];
+	const rejectedSources: RejectedAtlasSearchSource[] = [];
+	const maxAcceptedSources = 18;
 
 	for (let index = 0; index < queries.length; index += concurrency) {
 		const batch = queries.slice(index, index + concurrency);
@@ -192,8 +331,19 @@ export async function runAtlasSearchStage(
 			}
 		}
 		if (failedQueries.length / batch.length > 0.5) {
-			return {
+			const converged = convergeSources({
 				sources,
+				maxAccepted: maxAcceptedSources,
+			});
+			return {
+				sources: fetchPage
+					? await enrichAcceptedSources({
+							sources: converged.sources,
+							fetchPage,
+							concurrency,
+						})
+					: converged.sources,
+				rejectedSources: [...rejectedSources, ...converged.rejectedSources],
 				limitation: {
 					code: "atlas_search_batch_failure_limit",
 					message:
@@ -207,5 +357,19 @@ export async function runAtlasSearchStage(
 		}
 	}
 
-	return { sources, limitation: null };
+	const converged = convergeSources({
+		sources,
+		maxAccepted: maxAcceptedSources,
+	});
+	return {
+		sources: fetchPage
+			? await enrichAcceptedSources({
+					sources: converged.sources,
+					fetchPage,
+					concurrency,
+				})
+			: converged.sources,
+		rejectedSources: [...rejectedSources, ...converged.rejectedSources],
+		limitation: null,
+	};
 }

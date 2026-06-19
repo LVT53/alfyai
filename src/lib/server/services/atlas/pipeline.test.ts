@@ -265,8 +265,215 @@ describe("Atlas pipeline slices", () => {
 		expect(renderOutputs).toHaveBeenCalledWith(
 			expect.objectContaining({
 				cover: expect.objectContaining({
-					eyebrow: "Atlas same_family atlas-family-1",
+					eyebrow: "Report date: 2026-06-19",
 				}),
+			}),
+		);
+	});
+
+	it("assembles final report content from curated evidence and synthesized findings rather than process summaries", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const prompts: Record<string, string> = {};
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-findings-1",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Retrieval Strategy Atlas",
+				query: "Compare retrieval strategies",
+				lifecycle: {
+					family: {
+						familyId: "atlas-findings-1",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-findings-1",
+						currentAtlasJobId: "atlas-findings-1",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-19T13:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Evaluation report",
+							url: "https://example.com/eval",
+							snippet: "Hybrid retrieval improves recall but needs reranking.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					prompts[input.stage] = input.prompt;
+					const textByStage: Record<string, string> = {
+						decompose: "retrieval strategy evaluation",
+						curate:
+							"Curated fact: hybrid retrieval improves recall and reranking reduces noise.",
+						synthesize:
+							"Finding: hybrid retrieval is strongest when lexical recall is followed by semantic reranking.",
+						integrate:
+							"Outline: Executive Summary; Hybrid retrieval tradeoffs; Limitations.",
+						assemble:
+							"# Retrieval Strategy Atlas\n\n## Executive Summary\nHybrid retrieval is strongest when lexical recall is followed by semantic reranking.\n\n## Findings\nThe evidence shows recall improves when keyword and vector retrieval are combined, but source quality depends on reranking.",
+					};
+					return {
+						text: textByStage[input.stage] ?? `${input.stage} result`,
+						usage: {
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+							costUsdMicros: 1,
+						},
+					};
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		const assemblePrompt = JSON.parse(prompts.assemble);
+		expect(assemblePrompt.curatedEvidence).toContain("Curated fact");
+		expect(assemblePrompt.synthesis).toContain("Finding: hybrid retrieval");
+		expect(assemblePrompt.outline).toContain("Hybrid retrieval tradeoffs");
+		expect(assemblePrompt.instructions).toContain("Do not write a process report");
+		expect(renderOutputs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				blocks: expect.arrayContaining([
+					expect.objectContaining({
+						type: "paragraph",
+						text: expect.stringContaining("Hybrid retrieval is strongest"),
+					}),
+				]),
+			}),
+		);
+	});
+
+	it("repairs a process-only assembled draft before audit and rendering", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		let assembleCalls = 0;
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-process-repair",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Process repair report",
+				query: "Compare retrieval systems",
+				lifecycle: {
+					family: {
+						familyId: "atlas-process-repair",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-process-repair",
+						currentAtlasJobId: "atlas-process-repair",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-19T13:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Retrieval systems",
+							url: "https://example.com/retrieval",
+							snippet:
+								"Fetched page excerpt: Hybrid retrieval combines lexical and semantic recall.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text:
+								assembleCalls === 1
+									? "I checked the sources and synthesized findings for the report."
+									: "# Retrieval Systems\n\n## Executive Summary\nThe evidence shows hybrid retrieval combines lexical and semantic recall.\n\n## Findings\nHybrid retrieval improves breadth while reranking controls noisy matches.",
+							usage: {
+								inputTokens: 1,
+								outputTokens: 1,
+								totalTokens: 2,
+								costUsdMicros: 1,
+							},
+						};
+					}
+					return {
+						text:
+							input.stage === "decompose"
+								? "retrieval systems"
+								: `${input.stage} substantive output`,
+						usage: {
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+							costUsdMicros: 1,
+						},
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(assembleCalls).toBe(2);
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining("hybrid retrieval"),
+			}),
+		);
+		expect(renderOutputs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				blocks: expect.arrayContaining([
+					expect.objectContaining({
+						type: "paragraph",
+						text: expect.stringContaining("hybrid retrieval"),
+					}),
+				]),
 			}),
 		);
 	});

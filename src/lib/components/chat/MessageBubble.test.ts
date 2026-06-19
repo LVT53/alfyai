@@ -96,6 +96,57 @@ describe("MessageBubble", () => {
 		expect(screen.getByText("Evidence is loading…")).toBeInTheDocument();
 	});
 
+	it("does not show pending Evidence loading on Atlas messages", () => {
+		const message: ChatMessage = {
+			id: "assistant-atlas",
+			renderKey: "assistant-atlas",
+			role: "assistant",
+			content: "Atlas is queued.",
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+			evidencePending: true,
+		};
+
+		render(MessageBubble, {
+			message,
+			atlasJobs: [
+				{
+					id: "atlas-job-1",
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-atlas",
+					action: "create",
+					parentAtlasJobId: null,
+					profile: "overview",
+					title: "Enterprise search architecture",
+					status: "running",
+					stage: "search",
+					progress: { percent: 25, stage: "search", details: { queries: [] } },
+					sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
+					usage: {
+						inputTokens: 0,
+						outputTokens: 0,
+						totalTokens: 0,
+						costUsdMicros: 0,
+					},
+					outputs: {
+						fileProductionJobId: null,
+						htmlChatGeneratedFileId: null,
+						pdfChatGeneratedFileId: null,
+						markdownChatGeneratedFileId: null,
+					},
+					error: null,
+					createdAt: 1,
+					updatedAt: 1,
+					completedAt: null,
+				},
+			],
+		});
+
+		expect(screen.queryByText("Evidence is loading…")).not.toBeInTheDocument();
+		expect(screen.getByTestId("atlas-card")).toBeInTheDocument();
+	});
+
 	it("removes the preparation status once assistant output surfaces", async () => {
 		const baseMessage: ChatMessage = {
 			id: "assistant-preparing",

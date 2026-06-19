@@ -25,7 +25,15 @@ let {
 	onLifecycleAction = undefined,
 }: {
 	job: AtlasJobCard;
-	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
+	onOpenDocument?:
+		| ((
+				document: DocumentWorkspaceItem,
+				options?: {
+					preservePresentation?: boolean;
+					presentation?: "docked" | "expanded";
+				},
+		  ) => void)
+		| undefined;
 	onCancel?: ((jobId: string) => void) | undefined;
 	onLifecycleAction?:
 		| ((payload: {
@@ -66,7 +74,6 @@ const lifecyclePanelLabel = $derived(
 const progressPercent = $derived(
 	Math.max(0, Math.min(100, Math.round(job.progress?.percent ?? 0))),
 );
-const stageProgress = $derived(getStageProgress(job.progress?.stage ?? job.stage));
 const downloadOptions = $derived(getDownloadOptions(job.outputs));
 
 const PROGRESS_MESSAGE_INTERVAL_MS = 4200;
@@ -176,16 +183,19 @@ function formatDuration(start: number, end: number | null | undefined): string {
 function openDocument() {
 	const fileId = job.outputs.htmlChatGeneratedFileId;
 	if (!fileId || !onOpenDocument) return;
-	onOpenDocument({
-		id: fileId,
-		source: "chat_generated_file",
-		filename: `${job.title || "atlas-report"}.html`,
-		title: job.title || $t("atlas.defaultTitle"),
-		mimeType: "text/html",
-		conversationId: job.conversationId,
-		downloadUrl: `/api/chat/files/${fileId}/download`,
-		previewUrl: `/api/chat/files/${fileId}/preview`,
-	});
+	onOpenDocument(
+		{
+			id: fileId,
+			source: "chat_generated_file",
+			filename: `${job.title || "atlas-report"}.html`,
+			title: job.title || $t("atlas.defaultTitle"),
+			mimeType: "text/html",
+			conversationId: job.conversationId,
+			downloadUrl: `/api/chat/files/${fileId}/download`,
+			previewUrl: `/api/chat/files/${fileId}/preview`,
+		},
+		{ presentation: "expanded" },
+	);
 }
 
 function downloadUrl(fileId: string | null | undefined): string | null {
@@ -221,22 +231,6 @@ function getDownloadOptions(
 		});
 	}
 	return options;
-}
-
-function getStageProgress(stage: string | null | undefined): number {
-	const orderedStages = [
-		"decompose",
-		"search",
-		"curate",
-		"synthesize",
-		"integrate",
-		"assemble",
-		"audit",
-		"render",
-	];
-	const index = stage ? orderedStages.indexOf(stage) : -1;
-	if (index < 0) return 14;
-	return Math.round(((index + 1) / orderedStages.length) * 100);
 }
 
 function lifecycleActionLabel(action: AtlasAction): string {
@@ -331,7 +325,7 @@ function submitLifecycleAction() {
 			{:else}
 				<span
 					class="atlas-card__ring"
-					style={`--atlas-progress: ${progressPercent}%; --atlas-stage-progress: ${stageProgress}%;`}
+					style={`--atlas-progress: ${progressPercent}%;`}
 					aria-hidden="true"
 				></span>
 			{/if}
@@ -533,8 +527,7 @@ function submitLifecycleAction() {
 		border-radius: 999px;
 		overflow: hidden;
 		background:
-			radial-gradient(circle at 34% 28%, color-mix(in srgb, var(--accent) 32%, white 18%), transparent 34%),
-			color-mix(in srgb, var(--accent) 18%, transparent);
+			color-mix(in srgb, var(--accent) 13%, transparent);
 		color: var(--accent);
 	}
 
@@ -550,8 +543,6 @@ function submitLifecycleAction() {
 	.atlas-card__exploration-svg {
 		width: 2.75rem;
 		height: 2.75rem;
-		filter: drop-shadow(0 0 0.4rem color-mix(in srgb, currentColor 26%, transparent));
-		animation: atlas-globe-pulse 2.8s ease-in-out infinite;
 	}
 
 	.atlas-card__exploration-svg .orbit-group {
@@ -561,22 +552,18 @@ function submitLifecycleAction() {
 	}
 
 	.atlas-card__ring {
-		width: 1.55rem;
-		height: 1.55rem;
+		width: 1.9rem;
+		height: 1.9rem;
 		border-radius: 999px;
 		background:
 			conic-gradient(
 				from 0deg,
 				currentColor 0 var(--atlas-progress, 0%),
-				color-mix(in srgb, currentColor 28%, transparent) var(--atlas-progress, 0%) var(--atlas-stage-progress, 14%),
-				color-mix(in srgb, currentColor 12%, transparent) var(--atlas-stage-progress, 14%) 100%
+				color-mix(in srgb, currentColor 13%, transparent) var(--atlas-progress, 0%) 100%
 			);
 		box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
-		mask: radial-gradient(circle, transparent 48%, #000 51%);
-	}
-
-	.atlas-card--active .atlas-card__ring {
-		animation: atlas-ring-sweep 1.25s ease-in-out infinite;
+		mask: radial-gradient(circle, transparent 43%, #000 46%);
+		transition: background 240ms ease;
 	}
 
 	.atlas-card__title-block {
@@ -827,41 +814,13 @@ function submitLifecycleAction() {
 		background: color-mix(in srgb, var(--surface-page) 88%, #000 12%);
 	}
 
-	@keyframes atlas-ring-sweep {
-		0%,
-		100% {
-			transform: rotate(0deg) scale(1);
-			filter: saturate(1);
-		}
-
-		50% {
-			transform: rotate(18deg) scale(1.06);
-			filter: saturate(1.25);
-		}
-	}
-
 	@keyframes atlas-orbit {
 		to {
 			transform: rotate(360deg);
 		}
 	}
 
-	@keyframes atlas-globe-pulse {
-		0%,
-		100% {
-			transform: scale(1);
-			opacity: 0.88;
-		}
-
-		50% {
-			transform: scale(1.08);
-			opacity: 1;
-		}
-	}
-
 	@media (prefers-reduced-motion: reduce) {
-		.atlas-card--active .atlas-card__ring,
-		.atlas-card__exploration-svg,
 		.atlas-card__exploration-svg .orbit-group {
 			animation: none;
 		}
