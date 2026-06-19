@@ -2,28 +2,40 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeDocumentItem } from "$lib/types";
 
 const {
+	mockBuildArtifactVisibilityCondition,
 	mockEq,
 	mockConversationRows,
+	mockGetArtifactOwnershipScope,
 	mockGetLogicalDocumentForArtifact,
+	mockIsArtifactCanonicallyOwned,
 	mockListLogicalDocuments,
 	mockListLogicalDocumentsPage,
 	mockSelect,
 } = vi.hoisted(() => {
+	const mockBuildArtifactVisibilityCondition = vi.fn((params: unknown) => ({
+		kind: "visibility",
+		params,
+	}));
 	const mockEq = vi.fn((field: unknown, value: unknown) => ({
 		field,
 		op: "eq",
 		value,
 	}));
 	const mockConversationRows: Array<Record<string, unknown>> = [];
+	const mockGetArtifactOwnershipScope = vi.fn();
 	const mockGetLogicalDocumentForArtifact = vi.fn();
+	const mockIsArtifactCanonicallyOwned = vi.fn();
 	const mockListLogicalDocuments = vi.fn();
 	const mockListLogicalDocumentsPage = vi.fn();
 	const mockSelect = vi.fn();
 
 	return {
+		mockBuildArtifactVisibilityCondition,
 		mockEq,
 		mockConversationRows,
+		mockGetArtifactOwnershipScope,
 		mockGetLogicalDocumentForArtifact,
+		mockIsArtifactCanonicallyOwned,
 		mockListLogicalDocuments,
 		mockListLogicalDocumentsPage,
 		mockSelect,
@@ -63,6 +75,7 @@ vi.mock("$lib/server/db/schema", () => ({
 		userId: { name: "artifact.userId" },
 		type: { name: "artifact.type" },
 		retrievalClass: { name: "artifact.retrievalClass" },
+		conversationId: { name: "artifact.conversationId" },
 		name: { name: "artifact.name" },
 		contentText: { name: "artifact.contentText" },
 		summary: { name: "artifact.summary" },
@@ -100,7 +113,10 @@ vi.mock("drizzle-orm/sqlite-core", () => ({
 }));
 
 vi.mock("$lib/server/services/knowledge/store", () => ({
+	buildArtifactVisibilityCondition: mockBuildArtifactVisibilityCondition,
+	getArtifactOwnershipScope: mockGetArtifactOwnershipScope,
 	getLogicalDocumentForArtifact: mockGetLogicalDocumentForArtifact,
+	isArtifactCanonicallyOwned: mockIsArtifactCanonicallyOwned,
 	listLogicalDocuments: mockListLogicalDocuments,
 	listLogicalDocumentsPage: mockListLogicalDocumentsPage,
 }));
@@ -181,10 +197,17 @@ function makeDocument(
 
 describe("searchWorkspace", () => {
 	beforeEach(() => {
+		mockBuildArtifactVisibilityCondition.mockClear();
 		mockEq.mockClear();
 		mockConversationRows.length = 0;
+		mockGetArtifactOwnershipScope.mockReset();
+		mockGetArtifactOwnershipScope.mockResolvedValue({
+			conversationIds: new Set(["conversation-owned"]),
+		});
 		mockGetLogicalDocumentForArtifact.mockReset();
 		mockGetLogicalDocumentForArtifact.mockResolvedValue(null);
+		mockIsArtifactCanonicallyOwned.mockReset();
+		mockIsArtifactCanonicallyOwned.mockReturnValue(true);
 		mockListLogicalDocuments.mockReset();
 		mockListLogicalDocuments.mockResolvedValue([]);
 		mockListLogicalDocumentsPage.mockReset();
@@ -447,6 +470,58 @@ describe("searchWorkspace", () => {
 		).toHaveLength(1);
 	});
 
+	it("uses body relevance before recency when choosing a conversation body match", async () => {
+		const { searchWorkspace } = await import("./workspace-search");
+		queueSelectChains(
+			[],
+			[
+				{
+					id: "conv-body",
+					title: "Imported notes",
+					projectId: null,
+					projectName: null,
+					status: "open",
+					sealedAt: null,
+					updatedAt: new Date("2026-04-10T10:00:00Z"),
+					messageId: "newer-weak",
+					messageRole: "assistant",
+					messageContent:
+						"Late follow-up with a single Atlas mention near the end.",
+					messageCreatedAt: new Date("2026-04-10T10:20:00Z"),
+				},
+				{
+					id: "conv-body",
+					title: "Imported notes",
+					projectId: null,
+					projectName: null,
+					status: "open",
+					sealedAt: null,
+					updatedAt: new Date("2026-04-10T10:00:00Z"),
+					messageId: "older-strong",
+					messageRole: "user",
+					messageContent:
+						"Atlas Atlas Atlas planning details should be the body match.",
+					messageCreatedAt: new Date("2026-04-10T10:05:00Z"),
+				},
+			],
+			[],
+		);
+
+		const result = await searchWorkspace("user-1", { query: "atlas" });
+
+		expect(result.conversations).toHaveLength(1);
+		expect(result.conversations[0]).toMatchObject({
+			id: "conv-body",
+			href: "/chat/conv-body?focus_message=older-strong",
+			match: {
+				type: "body",
+				messageId: "older-strong",
+				messageRole: "user",
+			},
+		});
+		expect(result.conversations[0]?.match.snippet).toContain("Atlas Atlas");
+	});
+
 	it("searches openable document metadata and content without returning full content", async () => {
 		const { searchWorkspace } = await import("./workspace-search");
 		queueSelectChains(
@@ -548,7 +623,7 @@ describe("searchWorkspace", () => {
 					id: "prompt-doc",
 					userId: "user-1",
 					type: "normalized_document",
-					conversationId: null,
+					conversationId: "conversation-owned",
 					contentText:
 						"Background paragraph before the key Atlas renewal clause that should be clipped rather than sent whole to the shell modal.",
 					summary: "Contract notes",
@@ -558,6 +633,9 @@ describe("searchWorkspace", () => {
 			[
 				{
 					id: "prompt-doc",
+					userId: "user-1",
+					type: "normalized_document",
+					conversationId: "conversation-owned",
 					contentText:
 						"Background paragraph before the key Atlas renewal clause that should be clipped rather than sent whole to the shell modal.",
 					summary: "Contract notes",
@@ -577,6 +655,19 @@ describe("searchWorkspace", () => {
 
 		expect(mockListLogicalDocuments).not.toHaveBeenCalled();
 		expect(mockListLogicalDocumentsPage).not.toHaveBeenCalled();
+		expect(mockGetArtifactOwnershipScope).toHaveBeenCalledWith("user-1");
+		expect(mockBuildArtifactVisibilityCondition).toHaveBeenCalledWith({
+			userId: "user-1",
+			ownershipScope: { conversationIds: new Set(["conversation-owned"]) },
+		});
+		expect(mockIsArtifactCanonicallyOwned).toHaveBeenCalledWith({
+			userId: "user-1",
+			ownershipScope: { conversationIds: new Set(["conversation-owned"]) },
+			artifact: expect.objectContaining({
+				id: "prompt-doc",
+				conversationId: "conversation-owned",
+			}),
+		});
 		expect(mockGetLogicalDocumentForArtifact).toHaveBeenCalledWith(
 			"user-1",
 			"metadata-doc",

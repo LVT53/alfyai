@@ -1,5 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifacts,
@@ -8,7 +7,10 @@ import {
 	projects,
 } from "$lib/server/db/schema";
 import {
+	buildArtifactVisibilityCondition,
+	getArtifactOwnershipScope,
 	getLogicalDocumentForArtifact,
+	isArtifactCanonicallyOwned,
 	listLogicalDocumentsPage,
 } from "$lib/server/services/knowledge/store";
 import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-identity";
@@ -51,10 +53,23 @@ type ArtifactTextRow = {
 
 type ArtifactCandidateRow = {
 	id: string;
+	userId: string;
+	type: string;
+	conversationId: string | null;
+};
+
+type ArtifactTextCandidateRow = ArtifactTextRow & ArtifactCandidateRow;
+
+type ArtifactOwnershipScope = Awaited<ReturnType<typeof getArtifactOwnershipScope>>;
+
+type MessageBodyScore = {
+	score: number;
+	occurrences: number;
+	index: number;
 };
 
 type ConversationCandidate = {
-	row: ConversationRow;
+	row: ConversationRow | MessageMatchRow;
 	score: number;
 	match: WorkspaceSearchConversationResult["match"];
 };
@@ -157,6 +172,36 @@ function termScore(
 	return target === needle ? weight + 4 : weight;
 }
 
+function scoreMessageBody(
+	value: string | null | undefined,
+	query: string,
+): MessageBodyScore {
+	const target = normalizeSearchText(value);
+	const needle = normalizeSearchText(query);
+	if (!needle) {
+		return { score: 0, occurrences: 0, index: -1 };
+	}
+
+	const firstIndex = target.indexOf(needle);
+	if (firstIndex < 0) {
+		return { score: 0, occurrences: 0, index: -1 };
+	}
+
+	let occurrences = 0;
+	let index = firstIndex;
+	while (index >= 0) {
+		occurrences += 1;
+		index = target.indexOf(needle, index + needle.length);
+	}
+
+	const earlyMatchBoost = firstIndex === 0 ? 3 : Math.max(0, 2 - firstIndex / 80);
+	return {
+		score: 12 + Math.min(occurrences - 1, 4) * 2 + earlyMatchBoost,
+		occurrences,
+		index: firstIndex,
+	};
+}
+
 function compareByScoreThenRecent<
 	T extends { score: number; updatedAt: number; id: string },
 >(left: T, right: T): number {
@@ -165,6 +210,30 @@ function compareByScoreThenRecent<
 		right.updatedAt - left.updatedAt ||
 		left.id.localeCompare(right.id)
 	);
+}
+
+function getConversationCandidateTieTime(candidate: ConversationCandidate): number {
+	if (
+		candidate.match.type === "body" &&
+		"messageCreatedAt" in candidate.row
+	) {
+		return candidate.row.messageCreatedAt.getTime();
+	}
+
+	return candidate.row.updatedAt.getTime();
+}
+
+function shouldKeepConversationCandidate(params: {
+	existing: ConversationCandidate | undefined;
+	nextScore: number;
+	nextTieTime: number;
+}): boolean {
+	const { existing, nextScore, nextTieTime } = params;
+	if (!existing) return false;
+	if (existing.score > nextScore) return true;
+	if (existing.score < nextScore) return false;
+
+	return getConversationCandidateTieTime(existing) >= nextTieTime;
 }
 
 function mapConversationResult(
@@ -272,7 +341,6 @@ async function loadMatchingMessageRows(
 	query: string,
 ): Promise<MessageMatchRow[]> {
 	const likeQuery = `%${escapeLike(query.toLowerCase())}%`;
-	const newerMessages = alias(messages, "newer_workspace_search_messages");
 	const rows = await db
 		.select({
 			id: conversations.id,
@@ -290,20 +358,6 @@ async function loadMatchingMessageRows(
 		.from(messages)
 		.leftJoin(conversations, eq(conversations.id, messages.conversationId))
 		.leftJoin(
-			newerMessages,
-			and(
-				eq(newerMessages.conversationId, messages.conversationId),
-				sql`lower(${newerMessages.content}) like ${likeQuery} escape '\\'`,
-				sql`(
-					${newerMessages.createdAt} > ${messages.createdAt}
-					or (
-						${newerMessages.createdAt} = ${messages.createdAt}
-						and ${newerMessages.id} > ${messages.id}
-					)
-				)`,
-			),
-		)
-		.leftJoin(
 			projects,
 			and(
 				eq(projects.id, conversations.projectId),
@@ -314,7 +368,6 @@ async function loadMatchingMessageRows(
 			and(
 				eq(conversations.userId, userId),
 				sql`lower(${messages.content}) like ${likeQuery} escape '\\'`,
-				isNull(newerMessages.id),
 			),
 		)
 		.orderBy(desc(messages.createdAt), messages.id);
@@ -349,18 +402,22 @@ async function loadArtifactTextRows(
 async function loadMatchingArtifactTextCandidateRows(
 	userId: string,
 	query: string,
-): Promise<ArtifactTextRow[]> {
+	ownershipScope: ArtifactOwnershipScope,
+): Promise<ArtifactTextCandidateRow[]> {
 	const likeQuery = `%${escapeLike(query.toLowerCase())}%`;
-	return db
+	const rows = await db
 		.select({
 			id: artifacts.id,
+			userId: artifacts.userId,
+			type: artifacts.type,
+			conversationId: artifacts.conversationId,
 			contentText: artifacts.contentText,
 			summary: artifacts.summary,
 		})
 		.from(artifacts)
 		.where(
 			and(
-				eq(artifacts.userId, userId),
+				buildArtifactVisibilityCondition({ userId, ownershipScope }),
 				inArray(artifacts.type, [
 					"source_document",
 					"normalized_document",
@@ -375,21 +432,29 @@ async function loadMatchingArtifactTextCandidateRows(
 		)
 		.orderBy(desc(artifacts.updatedAt), artifacts.id)
 		.limit(DOCUMENT_CONTENT_CANDIDATE_LIMIT);
+
+	return rows.filter((row) =>
+		isArtifactCanonicallyOwned({ userId, ownershipScope, artifact: row }),
+	);
 }
 
 async function loadMatchingArtifactMetadataCandidateRows(
 	userId: string,
 	query: string,
+	ownershipScope: ArtifactOwnershipScope,
 ): Promise<ArtifactCandidateRow[]> {
 	const likeQuery = `%${escapeLike(query.toLowerCase())}%`;
-	return db
+	const rows = await db
 		.select({
 			id: artifacts.id,
+			userId: artifacts.userId,
+			type: artifacts.type,
+			conversationId: artifacts.conversationId,
 		})
 		.from(artifacts)
 		.where(
 			and(
-				eq(artifacts.userId, userId),
+				buildArtifactVisibilityCondition({ userId, ownershipScope }),
 				inArray(artifacts.type, [
 					"source_document",
 					"normalized_document",
@@ -412,6 +477,10 @@ async function loadMatchingArtifactMetadataCandidateRows(
 		)
 		.orderBy(desc(artifacts.updatedAt), artifacts.id)
 		.limit(DOCUMENT_METADATA_CANDIDATE_LIMIT);
+
+	return rows.filter((row) =>
+		isArtifactCanonicallyOwned({ userId, ownershipScope, artifact: row }),
+	);
 }
 
 function rankConversationRows(
@@ -439,10 +508,18 @@ function rankConversationRows(
 	}
 
 	for (const messageRow of messageRows) {
-		const score = termScore(messageRow.messageContent, query, 12);
+		const bodyScore = scoreMessageBody(messageRow.messageContent, query);
+		const score = bodyScore.score;
 		if (score <= 0) continue;
-		const existing = candidates.get(messageRow.id);
-		if (existing && existing.score >= score) continue;
+		if (
+			shouldKeepConversationCandidate({
+				existing: candidates.get(messageRow.id),
+				nextScore: score,
+				nextTieTime: messageRow.messageCreatedAt.getTime(),
+			})
+		) {
+			continue;
+		}
 		candidates.set(messageRow.id, {
 			row: messageRow,
 			score,
@@ -566,9 +643,10 @@ async function searchDocuments(
 	userId: string,
 	query: string,
 ): Promise<{ results: WorkspaceSearchDocumentResult[]; overflow: boolean }> {
+	const ownershipScope = await getArtifactOwnershipScope(userId);
 	const [metadataRows, contentRows] = await Promise.all([
-		loadMatchingArtifactMetadataCandidateRows(userId, query),
-		loadMatchingArtifactTextCandidateRows(userId, query),
+		loadMatchingArtifactMetadataCandidateRows(userId, query, ownershipScope),
+		loadMatchingArtifactTextCandidateRows(userId, query, ownershipScope),
 	]);
 	const candidateDocuments = (
 		await Promise.all(
