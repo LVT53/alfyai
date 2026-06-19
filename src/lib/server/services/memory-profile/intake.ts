@@ -13,6 +13,12 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 
+type RecentMemoryIntakeMessage = {
+	id?: string | null;
+	role: "user" | "assistant" | "system";
+	content: string;
+};
+
 export type MemoryIntakeStatus = "admitted" | "deferred" | "rejected";
 
 export type PostTurnMemoryIntakeParams = {
@@ -23,6 +29,7 @@ export type PostTurnMemoryIntakeParams = {
 	userMessageId?: string | null;
 	assistantMessageId?: string | null;
 	startedResetGeneration?: number;
+	recentMessages?: RecentMemoryIntakeMessage[];
 };
 
 export type PostTurnMemoryIntakeResult =
@@ -293,12 +300,22 @@ function statementFromCandidate(
 
 export function parsePostTurnMemoryIntake(
 	userMessage: string,
+	options: {
+		recentMessages?: RecentMemoryIntakeMessage[];
+		userMessageId?: string | null;
+	} = {},
 ): ParsedDurableMemory {
 	const message = cleanText(userMessage);
 	if (!message) return { decision: "reject", reason: "empty_user_message" };
 	if (looksOneOffInstruction(message)) {
 		return { decision: "reject", reason: "one_off_instruction" };
 	}
+
+	const contextualRemember = parseContextualRememberReference(
+		message,
+		options,
+	);
+	if (contextualRemember) return contextualRemember;
 
 	if (looksDocumentFamilyWorkflowIntent(message)) {
 		return {
@@ -352,6 +369,73 @@ export function parsePostTurnMemoryIntake(
 	}
 
 	return { decision: "reject", reason: "no_explicit_durable_intent" };
+}
+
+function parseContextualRememberReference(
+	message: string,
+	options: {
+		recentMessages?: RecentMemoryIntakeMessage[];
+		userMessageId?: string | null;
+	},
+): ParsedDurableMemory | null {
+	if (!isBareRememberReference(message)) return null;
+
+	for (const candidate of priorUserMessagesForReference(options)) {
+		const normalizedCandidate = normalizeExplicitMemoryCandidate(candidate);
+		const statement = statementFromCandidate(
+			normalizedCandidate,
+			"remember_this_context",
+			{ allowGeneralAboutYou: true },
+		);
+		if (
+			(looksDocumentRelated(candidate) ||
+				looksDocumentRelated(normalizedCandidate)) &&
+			(!statement ||
+				looksSpecificDocumentSourceClaim(candidate) ||
+				looksSpecificDocumentSourceClaim(normalizedCandidate))
+		) {
+			return {
+				decision: "defer",
+				reason: "document_related_claim",
+				parserRule: "remember_this_context",
+			};
+		}
+		if (statement) return { decision: "admit", ...statement };
+	}
+
+	return {
+		decision: "defer",
+		reason: "explicit_memory_unclassified",
+		parserRule: "remember_this_context",
+	};
+}
+
+function isBareRememberReference(message: string): boolean {
+	const text = stripTerminalPunctuation(message);
+	return /^(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?remember\s+(?:this|that|the\s+above|what\s+i\s+just\s+said)(?:\s+please)?$/i.test(
+		text,
+	);
+}
+
+function priorUserMessagesForReference(options: {
+	recentMessages?: RecentMemoryIntakeMessage[];
+	userMessageId?: string | null;
+}): string[] {
+	const messages = options.recentMessages ?? [];
+	const currentIndex =
+		options.userMessageId == null
+			? -1
+			: messages.findIndex((message) => message.id === options.userMessageId);
+	const priorMessages =
+		currentIndex >= 0 ? messages.slice(0, currentIndex) : messages;
+
+	return priorMessages
+		.slice()
+		.reverse()
+		.filter((message) => message.role === "user")
+		.slice(0, 1)
+		.map((message) => cleanText(message.content))
+		.filter(Boolean);
 }
 
 function safeSourceMetadata(
@@ -440,7 +524,10 @@ export async function intakePostTurnMemory(
 	const resetGeneration =
 		params.startedResetGeneration ??
 		(await getCurrentMemoryResetGeneration(params.userId));
-	const parsed = parsePostTurnMemoryIntake(params.userMessage);
+	const parsed = parsePostTurnMemoryIntake(params.userMessage, {
+		recentMessages: params.recentMessages,
+		userMessageId: params.userMessageId,
+	});
 
 	if (parsed.decision === "reject") {
 		if (

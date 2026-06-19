@@ -172,6 +172,132 @@ describe("memory intake gate", () => {
 		expect(JSON.stringify(telemetry)).not.toContain("codex-live-memory-test");
 	});
 
+	it("resolves bare remember-this commands from the prior user-authored chat context", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		const now = new Date();
+		db.insert(schema.conversations)
+			.values({
+				id: "conv-1",
+				userId: "user-1",
+				title: "Contextual memory chat",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		sqlite.close();
+
+		const { createMessage, listMessages } = await import("../messages");
+		const { getMemoryProfileReadModel, listMemoryReworkTelemetry } =
+			await import("./index");
+		const { intakePostTurnMemory } = await import("./intake");
+
+		await createMessage(
+			"conv-1",
+			"user",
+			"My live memory verification codeword is codex-contextual-memory.",
+		);
+		await createMessage(
+			"conv-1",
+			"assistant",
+			"Thanks, I can use that in this conversation.",
+		);
+		const trigger = await createMessage("conv-1", "user", "Remember this.");
+		const assistant = await createMessage(
+			"conv-1",
+			"assistant",
+			"I will remember that.",
+		);
+
+		await expect(
+			intakePostTurnMemory({
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessage: "Remember this.",
+				assistantMessage: "I will remember that.",
+				userMessageId: trigger.id,
+				assistantMessageId: assistant.id,
+				recentMessages: await listMessages("conv-1"),
+			}),
+		).resolves.toEqual(
+			expect.objectContaining({
+				status: "admitted",
+				category: "about_you",
+			}),
+		);
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories[0]?.items).toEqual([
+			expect.objectContaining({
+				category: "about_you",
+				statement:
+					"My live memory verification codeword is codex-contextual-memory.",
+				scope: { type: "global" },
+			}),
+		]);
+		expect(JSON.stringify(profile)).not.toContain("Remember this");
+		expect(await listMemoryReworkTelemetry({ userId: "user-1" })).toEqual([
+			expect.objectContaining({
+				eventName: "memory_intake_admitted",
+				category: "about_you",
+				status: "admitted",
+				metadata: expect.objectContaining({
+					parserRule: "remember_this_context",
+					userMessageId: trigger.id,
+					assistantMessageId: assistant.id,
+				}),
+			}),
+		]);
+	});
+
+	it("does not skip an unclassifiable nearest prior user message to admit older stale context", async () => {
+		const { getMemoryProfileReadModel, listMemoryReworkTelemetry } =
+			await import("./index");
+		const { intakePostTurnMemory } = await import("./intake");
+
+		await expect(
+			intakePostTurnMemory({
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessage: "Remember this.",
+				userMessageId: "trigger-message",
+				recentMessages: [
+					{
+						id: "old-memory-candidate",
+						role: "user",
+						content: "I prefer very concise answers.",
+					},
+					{
+						id: "nearest-question",
+						role: "user",
+						content: "What is the capital of France?",
+					},
+					{
+						id: "trigger-message",
+						role: "user",
+						content: "Remember this.",
+					},
+				],
+			}),
+		).resolves.toEqual({
+			status: "deferred",
+			reason: "explicit_memory_unclassified",
+		});
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories.flatMap((group) => group.items)).toEqual([]);
+		expect(await listMemoryReworkTelemetry({ userId: "user-1" })).toEqual([
+			expect.objectContaining({
+				eventName: "memory_intake_deferred",
+				status: "deferred",
+				reason: "explicit_memory_unclassified",
+				metadata: expect.objectContaining({
+					parserRule: "remember_this_context",
+					userMessageId: "trigger-message",
+				}),
+			}),
+		]);
+	});
+
 	it("strips assistant-style reply instructions from explicit memory facts", async () => {
 		const { getMemoryProfileReadModel, listMemoryReworkTelemetry } =
 			await import("./index");

@@ -27,6 +27,7 @@ import { intakePostTurnMemory } from "$lib/server/services/memory-profile/intake
 import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
 import {
 	createMessage,
+	listMessages,
 	updateMessageEvidence,
 	updateMessageHonchoMetadata,
 	updateMessageWebCitationAudit,
@@ -47,6 +48,7 @@ import { buildWebCitationAudit } from "$lib/server/services/web-citation-audit";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
 import type {
 	ArtifactSummary,
+	ChatMessage,
 	ChatGeneratedFile,
 	ContextDebugState,
 	ContextSourcesState,
@@ -257,6 +259,24 @@ function isArtifactSummaryLike(value: unknown): value is ArtifactSummary {
 		"type" in value &&
 		typeof value.type === "string"
 	);
+}
+
+function compactRecentMemoryIntakeMessages(messages: ChatMessage[]): Array<{
+	id: string;
+	role: "user" | "assistant";
+	content: string;
+}> {
+	return messages
+		.filter(
+			(message): message is ChatMessage & { role: "user" | "assistant" } =>
+				message.role === "user" || message.role === "assistant",
+		)
+		.slice(-12)
+		.map((message) => ({
+			id: message.id,
+			role: message.role,
+			content: message.content,
+		}));
 }
 
 async function createTurnMessage(
@@ -912,16 +932,22 @@ export async function runPostTurnTasks(
 	params: RunPostTurnTasksParams,
 ): Promise<void> {
 	const honchoTasks: Promise<unknown>[] = [
-		intakePostTurnMemory({
-			userId: params.userId,
-			conversationId: params.conversationId,
-			userMessage: params.userMessage,
-			assistantMessage:
-				params.assistantMirrorContent ?? params.assistantResponse,
-			userMessageId: params.userMessageId ?? null,
-			assistantMessageId: params.assistantMessageId ?? null,
-			startedResetGeneration: params.startedResetGeneration,
-		}).catch((err) =>
+		(async () => {
+			const recentMessages = await listMessages(params.conversationId)
+				.then(compactRecentMemoryIntakeMessages)
+				.catch(() => []);
+			return intakePostTurnMemory({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				userMessage: params.userMessage,
+				assistantMessage:
+					params.assistantMirrorContent ?? params.assistantResponse,
+				userMessageId: params.userMessageId ?? null,
+				assistantMessageId: params.assistantMessageId ?? null,
+				startedResetGeneration: params.startedResetGeneration,
+				recentMessages,
+			});
+		})().catch((err) =>
 			console.error("[MEMORY_INTAKE] Post-turn intake failed:", err),
 		),
 	];

@@ -20,6 +20,7 @@ const {
 	mockMirrorWorkCapsuleConclusion,
 	mockMemoryIntake,
 	mockIsCurrentMemoryResetGeneration,
+	mockListMessages,
 	mockRefreshConversationSummary,
 	mockResolveWorkingDocumentSelection,
 	mockRunUserMemoryMaintenance,
@@ -30,6 +31,7 @@ const {
 	mockMirrorWorkCapsuleConclusion: vi.fn(async () => undefined),
 	mockMemoryIntake: vi.fn(async () => ({ status: "rejected" })),
 	mockIsCurrentMemoryResetGeneration: vi.fn(async () => true),
+	mockListMessages: vi.fn(async () => [] as ChatMessage[]),
 	mockRefreshConversationSummary: vi.fn(async () => undefined),
 	mockSyncGeneratedFilesToMemory: vi.fn(async () => undefined),
 	mockResolveWorkingDocumentSelection: vi.fn(() => ({
@@ -75,6 +77,7 @@ vi.mock("$lib/server/services/analytics", () => ({
 
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(async () => ({ id: "message-1" })),
+	listMessages: mockListMessages,
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageHonchoMetadata: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
@@ -196,6 +199,7 @@ describe("runPostTurnTasks", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockIsCurrentMemoryResetGeneration.mockResolvedValue(true);
+		mockListMessages.mockResolvedValue([]);
 	});
 
 	it("logs summary refresh failures without rejecting post-turn tasks", async () => {
@@ -239,6 +243,15 @@ describe("runPostTurnTasks", () => {
 	});
 
 	it("routes user and assistant post-turn text through memory intake without raw Honcho transcript mirroring", async () => {
+		mockListMessages.mockResolvedValue([
+			makeChatMessage("prior-user", "user", "I prefer concise answers."),
+			makeChatMessage("prior-assistant", "assistant", "Noted."),
+			makeChatMessage(
+				"user-message-1",
+				"user",
+				"Please remember that I prefer concise answers.",
+			),
+		]);
 		const { runPostTurnTasks } = await import("./finalize");
 
 		await runPostTurnTasks({
@@ -267,6 +280,23 @@ describe("runPostTurnTasks", () => {
 				assistantMessage: "assistant mirror text",
 				userMessageId: "user-message-1",
 				assistantMessageId: "assistant-message-1",
+				recentMessages: [
+					{
+						id: "prior-user",
+						role: "user",
+						content: "I prefer concise answers.",
+					},
+					{
+						id: "prior-assistant",
+						role: "assistant",
+						content: "Noted.",
+					},
+					{
+						id: "user-message-1",
+						role: "user",
+						content: "Please remember that I prefer concise answers.",
+					},
+				],
 			}),
 		);
 		expect(mockMirrorMessage).not.toHaveBeenCalled();
