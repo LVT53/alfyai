@@ -31,6 +31,7 @@ const localConversationSidebarStates = new Map<
 	string,
 	{ sidebarPinned: boolean; sidebarSortOrder: number | null }
 >();
+const seenAtlasBadgeKeys = new Set<string>();
 let conversationSnapshotUserId: string | null = null;
 let lastSuccessfulConversationSnapshotAt = 0;
 
@@ -129,6 +130,22 @@ function normalizeConversationListItem(
 	};
 }
 
+function atlasBadgeSeenKey(item: ConversationListItem): string | null {
+	const badge = item.atlasBadge;
+	if (!badge?.jobId) return null;
+	const completedOrUpdatedAt = badge.completedAt ?? badge.updatedAt;
+	if (typeof completedOrUpdatedAt !== "number") return null;
+	return `${item.id}:${badge.jobId}:${completedOrUpdatedAt}`;
+}
+
+function suppressSeenAtlasBadge(
+	item: ConversationListItem,
+): ConversationListItem {
+	const seenKey = atlasBadgeSeenKey(item);
+	if (!seenKey || !seenAtlasBadgeKeys.has(seenKey)) return item;
+	return { ...item, atlasBadge: undefined };
+}
+
 function conversationSidebarStateMatches(
 	item: ConversationListItem,
 	state: { sidebarPinned: boolean; sidebarSortOrder: number | null },
@@ -152,7 +169,9 @@ function applyConversationSidebarState(
 
 function applyConversationMutationResults(items: ConversationListItem[]): void {
 	if (items.length === 0) return;
-	const normalizedItems = items.map(normalizeConversationListItem);
+	const normalizedItems = items
+		.map(normalizeConversationListItem)
+		.map(suppressSeenAtlasBadge);
 	const incomingById = new Map(normalizedItems.map((item) => [item.id, item]));
 	conversations.update((current) => {
 		const seenIds = new Set<string>();
@@ -191,8 +210,13 @@ export function reconcileConversationSnapshot(
 			deletedConversationIds.clear();
 			localConversationProjectIds.clear();
 			localConversationSidebarStates.clear();
+			seenAtlasBadgeKeys.clear();
 			conversationSnapshotUserId = options.userId ?? null;
-			return sortConversationsForSidebar(incoming);
+			return sortConversationsForSidebar(
+				incoming
+					.map(normalizeConversationListItem)
+					.map(suppressSeenAtlasBadge),
+			);
 		}
 
 		if (options.userId !== undefined) {
@@ -211,12 +235,14 @@ export function reconcileConversationSnapshot(
 			}
 
 			const localSidebarState = localConversationSidebarStates.get(item.id);
-			if (!localSidebarState) return nextItem;
+			if (!localSidebarState) return suppressSeenAtlasBadge(nextItem);
 			if (conversationSidebarStateMatches(item, localSidebarState)) {
 				localConversationSidebarStates.delete(item.id);
-				return nextItem;
+				return suppressSeenAtlasBadge(nextItem);
 			}
-			return applyConversationSidebarState(nextItem, localSidebarState);
+			return suppressSeenAtlasBadge(
+				applyConversationSidebarState(nextItem, localSidebarState),
+			);
 		});
 
 		const next = new Map(mergedIncoming.map((item) => [item.id, item]));
@@ -241,9 +267,26 @@ export function clearConversationStore(): void {
 	deletedConversationIds.clear();
 	localConversationProjectIds.clear();
 	localConversationSidebarStates.clear();
+	seenAtlasBadgeKeys.clear();
 	conversationSnapshotUserId = null;
 	lastSuccessfulConversationSnapshotAt = 0;
 	conversations.set([]);
+}
+
+export function markConversationAtlasBadgeSeen(id: string): void {
+	conversations.update((items) => {
+		let changed = false;
+		const nextItems = items.map((item) => {
+			if (item.id !== id) return item;
+			const seenKey = atlasBadgeSeenKey(item);
+			if (!seenKey) return item;
+			seenAtlasBadgeKeys.add(seenKey);
+			if (!item.atlasBadge) return item;
+			changed = true;
+			return { ...item, atlasBadge: undefined };
+		});
+		return changed ? nextItems : items;
+	});
 }
 
 export async function loadConversations(

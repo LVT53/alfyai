@@ -301,6 +301,17 @@ let currentStreamingAssistantMessageId = $derived(
 		)?.id ?? null,
 );
 
+let atlasFileProductionJobIds = $derived.by(() => {
+	const ids = new Set<string>();
+	for (const job of atlasJobs) {
+		const fileProductionJobId = job.outputs.fileProductionJobId;
+		if (typeof fileProductionJobId === "string" && fileProductionJobId) {
+			ids.add(fileProductionJobId);
+		}
+	}
+	return ids;
+});
+
 let contextCompressionMarkersBySourceEndMessageId = $derived(
 	contextCompressionMarkers.reduce((markersByMessageId, marker) => {
 		const markers = markersByMessageId.get(marker.sourceEndMessageId) ?? [];
@@ -313,7 +324,9 @@ let contextCompressionMarkersBySourceEndMessageId = $derived(
 function getFileProductionJobsForMessage(
 	message: ChatMessage,
 ): FileProductionJob[] {
+	if (getAtlasJobsForMessage(message).length > 0) return [];
 	return fileProductionJobs.filter((job) => {
+		if (atlasFileProductionJobIds.has(job.id)) return false;
 		if (job.assistantMessageId === message.id) return true;
 		if (job.assistantMessageId != null) return false;
 		if (

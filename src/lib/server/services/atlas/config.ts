@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { AtlasAction, AtlasProfile } from "./types";
 
 export const ATLAS_IDEMPOTENCY_VERSION = "atlas:v1";
-export const DEFAULT_ATLAS_JOB_TITLE = "Atlas research";
+export const DEFAULT_ATLAS_JOB_TITLE = "Research request";
 export const DEFAULT_ATLAS_WORKER_ENABLED = true;
 export const DEFAULT_ATLAS_GLOBAL_ACTIVE_LIMIT = 2;
 export const DEFAULT_ATLAS_PER_USER_ACTIVE_LIMIT = 1;
@@ -38,6 +38,31 @@ export function normalizeAtlasQueryForHash(query: string): string {
 
 export function hashAtlasQuery(query: string): string {
 	return sha256Base64Url(normalizeAtlasQueryForHash(query));
+}
+
+export function generateAtlasJobTitle(query: string): string {
+	const normalized = query
+		.normalize("NFKC")
+		.replace(/\s+/g, " ")
+		.trim();
+	const firstSentence =
+		normalized.match(/^(.+?)[.!?。！？](?:\s|$)/u)?.[1]?.trim() ??
+		normalized;
+	const withoutTerminalPunctuation = firstSentence
+		.replace(/[.!?。！？]+$/u, "")
+		.trim();
+	if (!withoutTerminalPunctuation) {
+		return DEFAULT_ATLAS_JOB_TITLE;
+	}
+	const maxLength = 80;
+	if (withoutTerminalPunctuation.length <= maxLength) {
+		return withoutTerminalPunctuation;
+	}
+	const clipped = withoutTerminalPunctuation.slice(0, maxLength + 1);
+	return (
+		clipped.slice(0, Math.max(clipped.lastIndexOf(" "), 40)).trim() ||
+		withoutTerminalPunctuation.slice(0, maxLength).trim()
+	);
 }
 
 export function buildAtlasIdempotencyKey(scope: AtlasIdempotencyScope): string {

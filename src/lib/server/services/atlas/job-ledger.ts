@@ -4,7 +4,7 @@ import { db } from "$lib/server/db";
 import { atlasJobs } from "$lib/server/db/schema";
 import {
 	buildAtlasIdempotencyKey,
-	DEFAULT_ATLAS_JOB_TITLE,
+	generateAtlasJobTitle,
 	hashAtlasQuery,
 } from "./config";
 import { mapAtlasJobRowToCard } from "./read-model";
@@ -109,6 +109,7 @@ export interface DeleteAtlasJobsForConversationInput {
 }
 
 const ACTIVE_ATLAS_JOB_STATUSES = ["queued", "running"] as const;
+const LEGACY_DEFAULT_ATLAS_JOB_TITLE = "Atlas research";
 
 function isUniqueConstraintError(error: unknown): boolean {
 	if (!(error instanceof Error)) {
@@ -143,6 +144,26 @@ function canReplaceUnlinkedIdempotentJob(
 	);
 }
 
+async function mapReusableAtlasJob(
+	job: typeof atlasJobs.$inferSelect,
+	input: CreateOrReuseAtlasJobInput,
+): Promise<AtlasJobCard> {
+	if (input.title?.trim() || job.title !== LEGACY_DEFAULT_ATLAS_JOB_TITLE) {
+		return mapAtlasJobRowToCard(job);
+	}
+	const now = input.now ?? new Date();
+	const title = generateAtlasJobTitle(input.query);
+	await db
+		.update(atlasJobs)
+		.set({ title, updatedAt: now })
+		.where(eq(atlasJobs.id, job.id));
+	return mapAtlasJobRowToCard({
+		...job,
+		title,
+		updatedAt: now,
+	});
+}
+
 export function buildAtlasJobIdentity(input: CreateOrReuseAtlasJobInput): {
 	idempotencyKey: string;
 	normalizedQueryHash: string;
@@ -172,7 +193,7 @@ export async function createOrReuseAtlasJob(
 			await db.delete(atlasJobs).where(eq(atlasJobs.id, existingJob.id));
 		} else {
 			return {
-				job: mapAtlasJobRowToCard(existingJob),
+				job: await mapReusableAtlasJob(existingJob, input),
 				reused: true,
 				idempotencyKey,
 				normalizedQueryHash,
@@ -194,7 +215,7 @@ export async function createOrReuseAtlasJob(
 			normalizedQueryHash,
 			clientAtlasTurnId: input.clientAtlasTurnId,
 			idempotencyKey,
-			title: input.title?.trim() || DEFAULT_ATLAS_JOB_TITLE,
+			title: input.title?.trim() || generateAtlasJobTitle(input.query),
 			status: "queued",
 			stage: "queued",
 			progressPercent: 0,
@@ -214,7 +235,7 @@ export async function createOrReuseAtlasJob(
 			return createOrReuseAtlasJob(input);
 		}
 		return {
-			job: mapAtlasJobRowToCard(winner),
+			job: await mapReusableAtlasJob(winner, input),
 			reused: true,
 			idempotencyKey,
 			normalizedQueryHash,

@@ -987,6 +987,58 @@ describe("MessageArea", () => {
 		);
 	});
 
+	it("does not render normal file-production cards for Atlas messages", () => {
+		const messageTimestamp = Date.now();
+		const fileProductionJob = makeFileProductionJob("assistant-atlas-files", {
+			id: "file-job-atlas-output",
+			title: "Atlas output files",
+			files: [
+				{
+					id: "file-atlas-pdf",
+					filename: "atlas-output.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 4096,
+					downloadUrl: "/api/chat/files/file-atlas-pdf/download",
+					previewUrl: "/api/chat/files/file-atlas-pdf/preview",
+				},
+			],
+		});
+		const atlasJob = makeAtlasJob("assistant-atlas-files", {
+			status: "succeeded",
+			outputs: {
+				fileProductionJobId: fileProductionJob.id,
+				htmlChatGeneratedFileId: "atlas-html",
+				pdfChatGeneratedFileId: "atlas-pdf",
+				markdownChatGeneratedFileId: "atlas-md",
+			},
+		});
+
+		const { container, getByTestId, queryByText } = render(MessageArea, {
+			messages: [
+				{
+					id: "assistant-atlas-files",
+					renderKey: "assistant-atlas-files",
+					role: "assistant",
+					content: "Atlas is ready.",
+					timestamp: messageTimestamp,
+					isStreaming: false,
+					isThinkingStreaming: false,
+				},
+			],
+			conversationId: "conv-1",
+			isThinkingActive: false,
+			contextDebug: null,
+			fileProductionJobs: [fileProductionJob],
+			atlasJobs: [atlasJob],
+		});
+
+		expect(getByTestId("atlas-card")).toBeInTheDocument();
+		expect(
+			container.querySelector('[data-testid="file-production-card"]'),
+		).not.toBeInTheDocument();
+		expect(queryByText("atlas-output.pdf")).not.toBeInTheDocument();
+	});
+
 	it("emits retry and cancel actions from file-production cards", async () => {
 		const onRetryFileProductionJob = vi.fn();
 		const onCancelFileProductionJob = vi.fn();

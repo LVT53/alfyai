@@ -2404,7 +2404,7 @@ A web page discovered through SearXNG during the **Atlas Turn** search stage. We
 _Avoid_: search result, fetched page, web citation
 
 **Atlas Completion Notice**:
-The set of signals that tell a user an **Atlas** has finished compiling. Three layers: on-page progress card updates in real-time via polling; conversation list sidebar shows a badge on the conversation with a completed Atlas when the user navigates within AlfyAI; browser push notification fires when the Atlas completes and the user has left AlfyAI entirely. Browser push requires a one-time permission prompt and uses the Web Push API with VAPID keys.
+The set of signals that tell a user an **Atlas** has finished compiling. Three layers: on-page progress card updates in real-time via polling; conversation list sidebar shows an unseen-completion badge on a conversation with a newly completed Atlas when the user navigates within AlfyAI; browser push notification fires when the Atlas completes and the user has left AlfyAI entirely. The sidebar badge is not a permanent marker: it does not show for the currently open chat, and opening the chat marks that specific completed Atlas badge as seen while allowing later Atlas completions in the same chat to show a fresh badge. Browser push requires a one-time permission prompt and uses the Web Push API with VAPID keys.
 _Avoid_: research notification, Atlas email alert, separate notification center
 
 ### Relationships

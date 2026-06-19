@@ -497,8 +497,11 @@ export interface ConversationListItem {
 	sidebarSortOrder: number | null;
 	forkSummary?: ConversationForkListSummary;
 	atlasBadge?: {
+		jobId?: string;
 		status: AtlasJobStatus;
 		label?: string | null;
+		completedAt?: number | null;
+		updatedAt?: number;
 	} | null;
 }
 

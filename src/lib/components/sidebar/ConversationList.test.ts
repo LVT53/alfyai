@@ -5,12 +5,13 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
-import { readable } from "svelte/store";
+import { get, readable } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { conversations } from "$lib/stores/conversations";
 import { clearProjectStore, projects } from "$lib/stores/projects";
 import {
 	clearProjectFolderExpanded,
+	currentConversationId,
 	setProjectFolderExpanded,
 } from "$lib/stores/ui";
 import type { ConversationListItem, Project } from "$lib/types";
@@ -40,6 +41,7 @@ describe("ConversationList sidebar pinning", () => {
 			),
 		);
 		conversations.set([]);
+		currentConversationId.set(null);
 		clearProjectStore();
 		for (const projectId of [
 			"project-1",
@@ -111,6 +113,38 @@ describe("ConversationList sidebar pinning", () => {
 				"Project only",
 			),
 		).toBeInTheDocument();
+	});
+
+	it("marks a completed Atlas badge seen when the conversation is opened", async () => {
+		conversations.set([
+			{
+				id: "atlas-chat",
+				title: "Atlas chat",
+				projectId: null,
+				updatedAt: 200,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+				atlasBadge: {
+					jobId: "atlas-job-1",
+					status: "succeeded",
+					label: "Completed Atlas report",
+					completedAt: 1_789_000,
+					updatedAt: 1_789_000,
+				},
+			},
+		]);
+
+		render(ConversationList);
+
+		expect(screen.getByLabelText("Completed Atlas report")).toBeInTheDocument();
+		await fireEvent.click(screen.getByTestId("conversation-item"));
+
+		await waitFor(() =>
+			expect(
+				screen.queryByLabelText("Completed Atlas report"),
+			).not.toBeInTheDocument(),
+		);
+		expect(get(currentConversationId)).toBe("atlas-chat");
 	});
 
 	it("reorders project folders as one persisted list with whole-row drag", async () => {

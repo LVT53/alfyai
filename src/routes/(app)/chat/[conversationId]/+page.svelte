@@ -341,6 +341,7 @@ let detailMetadataEpoch = 0;
 let suppressHydration = $state(false);
 // Set to true when we're waiting for the initial pending message to be sent (landing page transition)
 let initialStreamPending = $state(untrack(() => data.bootstrap ?? false));
+const evidencePollMaxAttempts = 48;
 const evidencePollControllers = new Map<string, AbortController>();
 
 function markDetailMetadataFreshnessBoundary() {
@@ -1438,56 +1439,85 @@ async function pollMessageEvidence(messageId: string) {
 	const controller = new AbortController();
 	evidencePollControllers.set(messageId, controller);
 
-	const attempts = 12;
-	for (let attempt = 0; attempt < attempts; attempt += 1) {
-		if (controller.signal.aborted) return;
+	try {
+		for (let attempt = 0; attempt < evidencePollMaxAttempts; attempt += 1) {
+			if (controller.signal.aborted) return;
 
-		try {
-			const result = await fetchMessageEvidence(
-				data.conversation.id,
-				messageId,
-				controller.signal,
-			);
-
-			if (result.status === "pending") {
-				await new Promise((resolve) =>
-					setTimeout(resolve, attempt < 4 ? 250 : 500),
+			try {
+				const result = await fetchMessageEvidence(
+					data.conversation.id,
+					messageId,
+					controller.signal,
 				);
-				continue;
-			}
 
-			if (result.status === "none" || result.status === "missing") {
+				if (result.status === "pending") {
+					const shouldContinue = await waitForEvidencePollDelay(
+						evidencePollDelayMs(attempt),
+						controller.signal,
+					);
+					if (!shouldContinue) return;
+					continue;
+				}
+
+				if (result.status === "none" || result.status === "missing") {
+					messages.update((list) =>
+						updateMessageById(list, messageId, (message) => ({
+							...message,
+							evidencePending: false,
+						})),
+					);
+					return;
+				}
+
 				messages.update((list) =>
 					updateMessageById(list, messageId, (message) => ({
 						...message,
+						evidenceSummary: result.evidenceSummary,
 						evidencePending: false,
 					})),
 				);
 				return;
-			}
-
-			messages.update((list) =>
-				updateMessageById(list, messageId, (message) => ({
-					...message,
-					evidenceSummary: result.evidenceSummary,
-					evidencePending: false,
-				})),
-			);
-			return;
-		} catch (error) {
-			if ((error as Error).name === "AbortError") {
+			} catch (error) {
+				if ((error as Error).name === "AbortError") {
+					return;
+				}
 				return;
 			}
-			break;
+		}
+	} finally {
+		if (evidencePollControllers.get(messageId) === controller) {
+			evidencePollControllers.delete(messageId);
 		}
 	}
+}
 
-	messages.update((list) =>
-		updateMessageById(list, messageId, (message) => ({
-			...message,
-			evidencePending: false,
-		})),
-	);
+function evidencePollDelayMs(attempt: number): number {
+	if (attempt < 4) return 250;
+	if (attempt < 11) return 500;
+	if (attempt < 24) return 1000;
+	return 2000;
+}
+
+function waitForEvidencePollDelay(
+	delayMs: number,
+	signal: AbortSignal,
+): Promise<boolean> {
+	if (signal.aborted) return Promise.resolve(false);
+
+	return new Promise((resolve) => {
+		const timeout = setTimeout(() => {
+			signal.removeEventListener("abort", handleAbort);
+			resolve(true);
+		}, delayMs);
+
+		function handleAbort() {
+			clearTimeout(timeout);
+			signal.removeEventListener("abort", handleAbort);
+			resolve(false);
+		}
+
+		signal.addEventListener("abort", handleAbort, { once: true });
+	});
 }
 
 async function refreshMessageCost(messageId: string) {
