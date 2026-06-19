@@ -10,6 +10,8 @@ EnvironmentFile=/opt/alfyai/.env
 ExecStart=/usr/bin/npm start
 Restart=on-failure
 RestartSec=10
+TimeoutStopSec=15
+KillMode=mixed
 StandardOutput=journal
 StandardError=journal
 

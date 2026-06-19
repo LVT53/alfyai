@@ -98,7 +98,9 @@ export const init: ServerInit = async () => {
 	);
 	ensureMemoryMaintenanceScheduler();
 	prewarmSandboxImageInBackground();
-	await ensureFileProductionWorker();
+	ensureFileProductionWorker().catch((error) =>
+		console.error("Failed to start file production worker:", error),
+	);
 };
 
 const appHandle: Handle = async ({ event, resolve }) => {
