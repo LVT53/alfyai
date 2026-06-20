@@ -66,22 +66,29 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 			return `> ${block.text}${block.citation ? `\n>\n> ${block.citation}` : ""}`;
 		case "divider":
 			return "---";
-		case "sourceChips":
+		case "sourceChips": {
+			const stripHtml = (text: string): string =>
+				text.replace(/<[^>]*>/g, "").replace(/&[^;]+;/g, " ");
 			return [
 				`### ${block.title}`,
 				...block.sources.map((source) => {
+					const cleanTitle = stripHtml(source.title);
 					const label = source.url
-						? `[${source.title}](${source.url})`
-						: source.title;
+						? `[${cleanTitle}](${source.url})`
+						: cleanTitle;
+					const cleanReasoning = source.reasoning
+						? stripHtml(source.reasoning)
+						: null;
 					const details = [
 						source.provided ? "You provided these" : null,
-						source.reasoning,
+						cleanReasoning,
 					].filter((part): part is string => Boolean(part));
 					return details.length > 0
 						? `- ${label} - ${details.join("; ")}`
 						: `- ${label}`;
 				}),
 			].join("\n");
+		}
 		case "table":
 			return renderTable(block);
 		case "chart":

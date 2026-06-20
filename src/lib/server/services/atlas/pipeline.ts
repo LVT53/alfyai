@@ -943,7 +943,7 @@ export async function runAtlasPipeline(
 
 	const documentSource = buildAtlasDocumentSource({
 		title: input.job.title,
-		subtitle: `${input.job.profile} Atlas report`,
+		subtitle: null,
 		family: input.job.lifecycle.family,
 		assembledMarkdown: auditedMarkdown,
 		sources: auditSources,

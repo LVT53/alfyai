@@ -690,18 +690,24 @@ class StandardReportPdfLayout {
 	drawSourceChips(
 		block: Extract<GeneratedDocumentBlock, { type: "sourceChips" }>,
 	): void {
+		const stripHtml = (text: string): string =>
+			text.replace(/<[^>]*>/g, "").replace(/&[^;]+;/g, " ");
 		this.drawHeading(3, block.title);
 		this.drawList(
 			"bullet",
 			block.sources.map((source) => {
+				const cleanTitle = stripHtml(source.title);
+				const cleanReasoning = source.reasoning
+					? stripHtml(source.reasoning)
+					: null;
 				const details = [
 					source.url,
 					source.provided ? "You provided these" : null,
-					source.reasoning,
+					cleanReasoning,
 				].filter((part): part is string => Boolean(part));
 				return details.length > 0
-					? `${source.title} (${details.join("; ")})`
-					: source.title;
+					? `${cleanTitle} (${details.join("; ")})`
+					: cleanTitle;
 			}),
 		);
 	}

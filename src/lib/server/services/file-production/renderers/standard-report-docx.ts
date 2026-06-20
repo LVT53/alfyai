@@ -116,26 +116,33 @@ function renderBlock(block: GeneratedDocumentBlock): Paragraph | Table {
 			);
 		case "divider":
 			return paragraph("---");
-		case "sourceChips":
+		case "sourceChips": {
+			const stripHtml = (text: string): string =>
+				text.replace(/<[^>]*>/g, "").replace(/&[^;]+;/g, " ");
 			return new Paragraph({
 				children: [
 					new TextRun({ text: `${block.title}\n`, bold: true }),
 					new TextRun(
 						block.sources
 							.map((source) => {
+								const cleanTitle = stripHtml(source.title);
+								const cleanReasoning = source.reasoning
+									? stripHtml(source.reasoning)
+									: null;
 								const details = [
 									source.url,
 									source.provided ? "You provided these" : null,
-									source.reasoning,
+									cleanReasoning,
 								].filter((part): part is string => Boolean(part));
 								return details.length > 0
-									? `• ${source.title} (${details.join("; ")})`
-									: `• ${source.title}`;
+									? `• ${cleanTitle} (${details.join("; ")})`
+									: `• ${cleanTitle}`;
 							})
 							.join("\n"),
 					),
 				],
 			});
+		}
 		case "pageBreak":
 			return paragraph("");
 		case "table":
