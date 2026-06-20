@@ -213,9 +213,7 @@ export function reconcileConversationSnapshot(
 			seenAtlasBadgeKeys.clear();
 			conversationSnapshotUserId = options.userId ?? null;
 			return sortConversationsForSidebar(
-				incoming
-					.map(normalizeConversationListItem)
-					.map(suppressSeenAtlasBadge),
+				incoming.map(normalizeConversationListItem).map(suppressSeenAtlasBadge),
 			);
 		}
 

@@ -1800,6 +1800,14 @@ export async function renderStandardReportPdf(
 			case "callout":
 				layout.drawCallout(block);
 				break;
+			case "confidenceMarker":
+				layout.drawCallout({
+					type: "callout",
+					tone: block.severity === "critical" ? "warning" : "info",
+					title: block.label,
+					text: block.message,
+				});
+				break;
 			case "code":
 				layout.drawCode(block.text, block.language);
 				break;

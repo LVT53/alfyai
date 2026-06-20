@@ -41,13 +41,9 @@ export function hashAtlasQuery(query: string): string {
 }
 
 export function generateAtlasJobTitle(query: string): string {
-	const normalized = query
-		.normalize("NFKC")
-		.replace(/\s+/g, " ")
-		.trim();
+	const normalized = query.normalize("NFKC").replace(/\s+/g, " ").trim();
 	const firstSentence =
-		normalized.match(/^(.+?)[.!?。！？](?:\s|$)/u)?.[1]?.trim() ??
-		normalized;
+		normalized.match(/^(.+?)[.!?。！？](?:\s|$)/u)?.[1]?.trim() ?? normalized;
 	const withoutTerminalPunctuation = firstSentence
 		.replace(/[.!?。！？]+$/u, "")
 		.trim();

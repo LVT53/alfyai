@@ -102,11 +102,13 @@ describe("Atlas search stage", () => {
 		});
 
 		expect(result.sources.length).toBeLessThanOrEqual(18);
-		expect(result.sources.some((source) => /porn|adult/i.test(source.title))).toBe(
-			false,
-		);
 		expect(
-			result.sources.filter((source) => source.url.startsWith("https://example.com/retrieval")),
+			result.sources.some((source) => /porn|adult/i.test(source.title)),
+		).toBe(false);
+		expect(
+			result.sources.filter((source) =>
+				source.url.startsWith("https://example.com/retrieval"),
+			),
 		).toHaveLength(1);
 		expect(result.rejectedSources.length).toBeGreaterThan(0);
 	});

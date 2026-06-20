@@ -156,7 +156,7 @@ $effect(() => {
 		})
 		.catch((error) => {
 			console.warn("Failed to resolve shell available models:", error);
-	});
+		});
 });
 
 $effect(() => {

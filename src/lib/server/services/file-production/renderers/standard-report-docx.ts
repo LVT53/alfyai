@@ -99,6 +99,13 @@ function renderBlock(block: GeneratedDocumentBlock): Paragraph | Table {
 					new TextRun(block.text),
 				],
 			});
+		case "confidenceMarker":
+			return new Paragraph({
+				children: [
+					new TextRun({ text: `${block.label}: `, bold: true }),
+					new TextRun(block.message),
+				],
+			});
 		case "code":
 			return new Paragraph({
 				children: [new TextRun({ text: block.text, font: "Courier New" })],

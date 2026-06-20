@@ -13,10 +13,12 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 				{ type: "heading", level: 2, text: "Executive Summary" },
 				{ type: "paragraph", text: "Readable report content." },
 				{
-					type: "callout",
-					tone: "warning",
-					title: "atlas_audit_marker",
-					text: "Source [2] is directionally useful, but the report should avoid unsupported certainty until independent confirmation is available.",
+					type: "confidenceMarker",
+					code: "atlas_audit_marker",
+					label: "Partially Supported",
+					severity: "warning",
+					message:
+						"Source [2] is directionally useful, but the report should avoid unsupported certainty until independent confirmation is available.",
 				},
 				{
 					type: "sourceChips",
@@ -126,6 +128,9 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(rendered.content.toString("utf8")).toContain(
 			"HTML callout remains readable.",
 		);
+		expect(rendered.content.toString("utf8")).not.toContain(
+			"data-confidence-code",
+		);
 		expect(rendered.content.toString("utf8")).toContain(
 			"&lt;section&gt;safe text&lt;/section&gt;",
 		);
@@ -217,11 +222,13 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		);
 	});
 
-	it("renders confidence markers with hover tooltips for audit callouts", () => {
+	it("renders structured confidence markers with backend metadata in hover tooltips", () => {
 		const html = renderFixtureHtml();
 
 		expect(html).toContain('class="honesty-marker partial"');
 		expect(html).toContain('class="honesty-tooltip"');
+		expect(html).toContain('data-confidence-code="atlas_audit_marker"');
+		expect(html).toContain('data-confidence-severity="warning"');
 		expect(html).toContain("Partially Supported");
 		expect(html).toContain("unsupported certainty");
 		expect(html).toContain(".honesty-marker:hover .honesty-tooltip");

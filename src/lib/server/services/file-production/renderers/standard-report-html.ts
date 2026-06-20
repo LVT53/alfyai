@@ -143,24 +143,26 @@ function renderSourceChips(
 	].join("");
 }
 
-function renderHonestyMarker(
-	block: Extract<GeneratedDocumentBlock, { type: "callout" }>,
+function confidenceMarkerClass(
+	severity: Extract<
+		GeneratedDocumentBlock,
+		{ type: "confidenceMarker" }
+	>["severity"],
 ): string {
-	const marker =
-		block.tone === "warning"
-			? {
-					className: "partial",
-					label: "Partially Supported",
-					title: "Needs verification",
-					text: "This section includes unsupported certainty or a claim that needs additional source support.",
-				}
-			: {
-					className: "verified",
-					label: "Supported",
-					title: "Source-backed",
-					text: "This note is grounded in the report evidence available to Atlas.",
-				};
-	return `<span class="honesty-marker ${marker.className}" tabindex="0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>${marker.label}</span><span class="honesty-tooltip"><strong>${marker.title}</strong>${marker.text}</span></span>`;
+	switch (severity) {
+		case "critical":
+			return "unverified";
+		case "warning":
+			return "partial";
+		case "info":
+			return "verified";
+	}
+}
+
+function renderConfidenceMarker(
+	block: Extract<GeneratedDocumentBlock, { type: "confidenceMarker" }>,
+): string {
+	return `<aside class="confidence-marker-row"><span class="honesty-marker ${confidenceMarkerClass(block.severity)}" tabindex="0" data-confidence-code="${escapeHtml(block.code)}" data-confidence-severity="${escapeHtml(block.severity)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>${escapeHtml(block.label)}</span><span class="honesty-tooltip"><strong>${escapeHtml(block.code)}</strong>${escapeHtml(block.message)}</span></span><p>${escapeHtml(block.message)}</p></aside>`;
 }
 
 function renderBlock(
@@ -177,7 +179,9 @@ function renderBlock(
 			return `<${tag}>${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</${tag}>`;
 		}
 		case "callout":
-			return `<aside class="callout ${block.tone}" title="${escapeHtml([block.title ?? block.tone, block.text].join("\n"))}"><span class="callout-pill"><span aria-hidden="true">${block.tone === "warning" ? "!" : "i"}</span>${block.title ? `<strong>${escapeHtml(block.title)}</strong>` : `<strong>${escapeHtml(block.tone)}</strong>`}</span>${renderHonestyMarker(block)}<p>${escapeHtml(block.text)}</p></aside>`;
+			return `<aside class="callout ${block.tone}" title="${escapeHtml([block.title ?? block.tone, block.text].join("\n"))}"><span class="callout-pill"><span aria-hidden="true">${block.tone === "warning" ? "!" : "i"}</span>${block.title ? `<strong>${escapeHtml(block.title)}</strong>` : `<strong>${escapeHtml(block.tone)}</strong>`}</span><p>${escapeHtml(block.text)}</p></aside>`;
+		case "confidenceMarker":
+			return renderConfidenceMarker(block);
 		case "code":
 			return `<pre><code${block.language ? ` data-language="${escapeHtml(block.language)}"` : ""}>${escapeHtml(block.text)}</code></pre>`;
 		case "quote":
@@ -292,6 +296,8 @@ export function renderStandardReportHtml(
 		'.honesty-tooltip::after{content:"";position:absolute;top:100%;left:50%;border:6px solid transparent;border-top-color:var(--report-text);transform:translateX(-50%);}',
 		".honesty-marker:hover .honesty-tooltip,.honesty-marker:focus .honesty-tooltip{opacity:1;}",
 		".honesty-tooltip strong{display:block;margin-bottom:4px;font-weight:600;}",
+		".confidence-marker-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;border-left:4px solid var(--report-accent);background:var(--report-callout);padding:12px 14px;margin:16px 0;}",
+		".confidence-marker-row p{flex-basis:100%;margin:.25rem 0 0;}",
 		"pre{white-space:pre-wrap;background:var(--report-panel);padding:12px;overflow-wrap:anywhere;}",
 		"table{width:100%;border-collapse:collapse;font-size:.92rem;}",
 		"th,td{border-bottom:1px solid var(--report-rule);padding:7px;text-align:left;vertical-align:top;}",

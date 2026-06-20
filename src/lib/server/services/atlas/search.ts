@@ -1,14 +1,14 @@
 import {
+	extractWebResearchPage,
+	type WebResearchExtractionConfig,
+} from "$lib/server/services/web-research/extraction";
+import {
 	DEFAULT_ATLAS_SEARCH_CONCURRENCY,
 	DEFAULT_ATLAS_SEARCH_INITIAL_RETRY_BACKOFF_MS,
 	DEFAULT_ATLAS_SEARCH_INTER_BATCH_DELAY_MS,
 	DEFAULT_ATLAS_SEARCH_MAX_ATTEMPTS,
 	DEFAULT_ATLAS_SEARCH_MAX_RETRY_BACKOFF_MS,
 } from "./config";
-import {
-	extractWebResearchPage,
-	type WebResearchExtractionConfig,
-} from "$lib/server/services/web-research/extraction";
 
 export interface AtlasSearchSource {
 	id: string;
@@ -92,7 +92,10 @@ function isUnsafeAdultSource(source: AtlasSearchSource): boolean {
 function convergeSources(input: {
 	sources: AtlasSearchSource[];
 	maxAccepted: number;
-}): { sources: AtlasSearchSource[]; rejectedSources: RejectedAtlasSearchSource[] } {
+}): {
+	sources: AtlasSearchSource[];
+	rejectedSources: RejectedAtlasSearchSource[];
+} {
 	const accepted: AtlasSearchSource[] = [];
 	const rejectedSources: RejectedAtlasSearchSource[] = [];
 	const seenUrls = new Set<string>();
@@ -153,8 +156,7 @@ async function defaultFetchPageContent(
 		config: {
 			webResearchExtractorMode: config.webResearchExtractorMode,
 			webResearchExtractTimeoutMs: config.webResearchExtractTimeoutMs,
-			webResearchExtractCacheTtlHours:
-				config.webResearchExtractCacheTtlHours,
+			webResearchExtractCacheTtlHours: config.webResearchExtractCacheTtlHours,
 		},
 	});
 	if (!extracted) return source;
@@ -171,7 +173,11 @@ async function enrichAcceptedSources(input: {
 	concurrency: number;
 }): Promise<AtlasSearchSource[]> {
 	const enriched: AtlasSearchSource[] = [];
-	for (let index = 0; index < input.sources.length; index += input.concurrency) {
+	for (
+		let index = 0;
+		index < input.sources.length;
+		index += input.concurrency
+	) {
 		const batch = input.sources.slice(index, index + input.concurrency);
 		const settled = await Promise.allSettled(
 			batch.map((source) => input.fetchPage(source)),

@@ -76,6 +76,13 @@ describe("Atlas renderer output", () => {
 					],
 				}),
 				expect.objectContaining({ type: "heading", text: "Honesty markers" }),
+				expect.objectContaining({
+					type: "confidenceMarker",
+					code: "limited_web",
+					label: "Supported",
+					severity: "info",
+					message: "Representative web coverage.",
+				}),
 			]),
 		});
 		const sourceHeadings = source.blocks
@@ -247,8 +254,7 @@ describe("Atlas renderer output", () => {
 		expect(createOutputJob).toHaveBeenCalledWith(
 			expect.objectContaining({
 				body: expect.objectContaining({
-					documentIntent:
-						"Atlas research report; atlas_job_id=atlas-child-1",
+					documentIntent: "Atlas research report; atlas_job_id=atlas-child-1",
 					templateHint: "alfyai_standard_report",
 					documentSource: source,
 				}),

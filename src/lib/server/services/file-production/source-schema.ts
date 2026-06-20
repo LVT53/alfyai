@@ -8,6 +8,7 @@ export type GeneratedDocumentBlock =
 			title?: string | null;
 			text: string;
 	  }
+	| GeneratedDocumentConfidenceMarkerBlock
 	| { type: "code"; language?: string | null; text: string }
 	| { type: "quote"; text: string; citation?: string | null }
 	| { type: "divider" }
@@ -94,6 +95,14 @@ export interface GeneratedDocumentSourceChipsBlock {
 	type: "sourceChips";
 	title: string;
 	sources: GeneratedDocumentSourceChip[];
+}
+
+export interface GeneratedDocumentConfidenceMarkerBlock {
+	type: "confidenceMarker";
+	code: string;
+	label: string;
+	severity: "info" | "warning" | "critical";
+	message: string;
 }
 
 export interface GeneratedDocumentSource {
@@ -644,6 +653,31 @@ function normalizeCalloutBlock(
 		: unsupportedDocumentBlockResult();
 }
 
+function normalizeConfidenceMarkerBlock(
+	block: Record<string, unknown>,
+): BlockNormalizationResult {
+	const code = cleanKey(block.code) ?? "atlas_audit_marker";
+	const message = cleanText(block.message);
+	if (!message) return unsupportedDocumentBlockResult();
+	const severity =
+		block.severity === "critical" ||
+		block.severity === "warning" ||
+		block.severity === "info"
+			? block.severity
+			: "warning";
+	const label =
+		cleanText(block.label) ??
+		(severity === "critical"
+			? "Unsupported"
+			: severity === "warning"
+				? "Partially Supported"
+				: "Supported");
+	return {
+		ok: true,
+		block: { type: "confidenceMarker", code, label, severity, message },
+	};
+}
+
 function normalizeSourceChipsBlock(
 	block: Record<string, unknown>,
 ): BlockNormalizationResult {
@@ -890,6 +924,8 @@ function normalizeBlock(block: unknown): BlockNormalizationResult {
 			return normalizeSourceChipsBlock(block);
 		case "callout":
 			return normalizeCalloutBlock(block);
+		case "confidenceMarker":
+			return normalizeConfidenceMarkerBlock(block);
 		case "code":
 			return normalizeCodeBlock(block);
 		case "quote":
@@ -1028,6 +1064,9 @@ export function buildGeneratedDocumentProjection(
 				lines.push(block.text);
 				break;
 			}
+			case "confidenceMarker":
+				lines.push(`${block.label}: ${block.message}`);
+				break;
 			case "code":
 				lines.push(block.language ? `Code (${block.language}):` : "Code:");
 				lines.push(block.text);

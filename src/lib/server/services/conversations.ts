@@ -155,9 +155,7 @@ export async function listConversations(
 				jobId: row.id,
 				status: "succeeded",
 				label: row.title,
-				completedAt: row.completedAt
-					? row.completedAt.getTime() / 1000
-					: null,
+				completedAt: row.completedAt ? row.completedAt.getTime() / 1000 : null,
 				updatedAt: row.updatedAt.getTime() / 1000,
 			});
 		}

@@ -26,6 +26,13 @@ describe("generated document source schema", () => {
 					title: "Readout",
 					text: "Numbers are preliminary.",
 				},
+				{
+					type: "confidenceMarker",
+					code: "atlas_audit_marker",
+					label: "Partially Supported",
+					severity: "warning",
+					message: "Revenue claim needs one more source.",
+				},
 			],
 		});
 
@@ -49,6 +56,7 @@ describe("generated document source schema", () => {
 				"- Churn improved",
 				"Note: Readout",
 				"Numbers are preliminary.",
+				"Partially Supported: Revenue claim needs one more source.",
 			].join("\n"),
 		);
 	});

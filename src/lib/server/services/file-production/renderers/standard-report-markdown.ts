@@ -58,6 +58,8 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 			return [
 				`> ${block.title ? `**${block.title}.** ` : ""}${block.text}`,
 			].join("\n");
+		case "confidenceMarker":
+			return `> **${block.label}.** ${block.message}`;
 		case "code":
 			return `\`\`\`${block.language ?? ""}\n${block.text}\n\`\`\``;
 		case "quote":

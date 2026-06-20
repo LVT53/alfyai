@@ -68,6 +68,19 @@ function addSourceSection(
 	});
 }
 
+function confidenceLabelForSeverity(
+	severity: AtlasHonestyMarker["severity"],
+): string {
+	switch (severity) {
+		case "critical":
+			return "Unsupported";
+		case "warning":
+			return "Partially Supported";
+		case "info":
+			return "Supported";
+	}
+}
+
 function cleanText(value: unknown): string | null {
 	if (typeof value !== "string") return null;
 	const trimmed = value.replace(/\s+/g, " ").trim();
@@ -194,7 +207,9 @@ function appendMarkdownBlocks(
 				rows?: unknown[][];
 			};
 			const usedKeys = new Set<string>();
-			const columns = (Array.isArray(tableToken.header) ? tableToken.header : [])
+			const columns = (
+				Array.isArray(tableToken.header) ? tableToken.header : []
+			)
 				.map((cell, index) => {
 					const label = blockText(cell);
 					return label
@@ -247,10 +262,11 @@ export function buildAtlasDocumentSource(
 		blocks.push({ type: "heading", level: 2, text: "Honesty markers" });
 		for (const marker of input.honestyMarkers) {
 			blocks.push({
-				type: "callout",
-				tone: marker.severity === "critical" ? "warning" : "info",
-				title: marker.code,
-				text: marker.message,
+				type: "confidenceMarker",
+				code: marker.code,
+				label: confidenceLabelForSeverity(marker.severity),
+				severity: marker.severity,
+				message: marker.message,
 			});
 		}
 	}
@@ -261,13 +277,14 @@ export function buildAtlasDocumentSource(
 		title: input.title,
 		subtitle: input.subtitle ?? null,
 		date: input.date ?? null,
-		cover: input.family || input.date
-			? {
-					enabled: true,
-					eyebrow: input.date ? `Report date: ${input.date}` : "Report date",
-					dateLabel: null,
-				}
-			: undefined,
+		cover:
+			input.family || input.date
+				? {
+						enabled: true,
+						eyebrow: input.date ? `Report date: ${input.date}` : "Report date",
+						dateLabel: null,
+					}
+				: undefined,
 		blocks,
 	};
 }
@@ -276,10 +293,7 @@ function atlasDocumentIntent(input: {
 	jobId: string;
 	source: GeneratedDocumentSource;
 }): string {
-	return [
-		"Atlas research report",
-		`atlas_job_id=${input.jobId}`,
-	]
+	return ["Atlas research report", `atlas_job_id=${input.jobId}`]
 		.filter((part): part is string => part !== null)
 		.join("; ");
 }
