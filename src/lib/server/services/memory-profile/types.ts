@@ -15,6 +15,7 @@ export const MEMORY_DIRTY_REASONS = [
 	"stale_projection",
 	"deferred_intake",
 	"profile_action_reconciliation",
+	"projection_reconciliation",
 	"possible_conflict",
 	"possible_duplicate",
 	"legacy_migration",

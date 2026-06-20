@@ -154,7 +154,7 @@ Authenticated account-level personalization fields such as display name and emai
 
 **Normal Chat stability snapshot note**: `normal-chat-stability-snapshot.ts` owns aggregate, content-free Normal Chat stability diagnostics: active stream capacity, provider/model readiness, tool timeout/readiness, web-grounding configuration, context-limit validity, and maintenance metric summaries. Admin route adapters may expose it after `requireAdmin`, but must not return prompts, messages, search queries, raw source text, API keys, or user ids.
 
-**Persona-memory note**: persona memory is delegated to Honcho in the current codebase. Do not reintroduce a local `persona-memory.ts` cluster pipeline, route-local persona caches, or a second temporal-memory subsystem.
+**Persona-memory note**: active user-facing profile memory is delegated to the app-owned Memory Profile Projection in `memory-profile/`. Honcho remains a memory/evidence adapter for legacy migration, enrichment, historical evidence, and reconciliation. Do not reintroduce a local `persona-memory.ts` cluster pipeline, route-local persona caches, raw Honcho personalization bypasses, or a second temporal-memory subsystem.
 
 **Memory Profile note**: `memory.ts` is the public service boundary for the Knowledge Base Memory Profile. It should read the durable Memory Profile Projection from `memory-profile/`, return the same active profile that chat may use for ordinary personalization, and keep `/api/knowledge/memory/overview` as a projection-backed compatibility wrapper. Do not make the Knowledge page depend on live Honcho overview generation, raw Honcho markdown cleanup, task-memory tables, or focus-continuity sections.
 

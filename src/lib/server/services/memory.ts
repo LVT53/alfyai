@@ -239,7 +239,7 @@ async function markProfileActionReconciliation(params: {
 	});
 	await markMemoryDirty({
 		userId: params.userId,
-		reason: "honcho_reconciliation",
+		reason: "projection_reconciliation",
 		scope: { type: "global" },
 		metadata,
 	});

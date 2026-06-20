@@ -335,8 +335,8 @@ The legacy compatibility surface for older Knowledge Memory callers. New user-fa
 _Avoid_: memory markdown, Honcho dump, conversation results list, generated report, project continuity dashboard, task memory table, active profile authority
 
 **Memory Profile Projection**:
-The durable, app-owned, user-facing read model that turns Honcho-led persona memory and app-owned profile state into an easy-to-review **Memory Profile** made of curated **Memory Profile Items**. It should keep stable item identity and active-use state across refreshes and chat turns so user corrections, deletions, suppressions, expiries, conflict blocks, and review decisions remain next-turn-effective, but it is not the canonical memory source and should not become a parallel persona-memory system.
-_Avoid_: memory authority, live Honcho prose, local persona engine, task continuity surface, focus continuity section, rebuild-only profile
+The durable, app-owned, user-facing active memory authority that turns admitted profile memory, legacy evidence, and app-owned profile state into an easy-to-review **Memory Profile** made of curated **Memory Profile Items**. It should keep stable item identity and active-use state across refreshes and chat turns so user corrections, deletions, suppressions, expiries, conflict blocks, and review decisions remain next-turn-effective. Honcho may support migration, enrichment, historical evidence, and reconciliation, but active profile memory exists when it is active in the current projection generation.
+_Avoid_: live Honcho prose as active truth, local persona engine outside the projection, task continuity surface, focus continuity section, rebuild-only profile
 
 **Memory Profile Item Identity**:
 The app-owned stable identity of a **Memory Profile Item**, derived from the normalized remembered statement, category, scope, and provenance relationship rather than from a single Honcho conclusion ID. Honcho IDs may be provenance pointers, but they should not be the user-facing item identity because edits, merges, splits, and Honcho rewording must not break next-turn-effective profile state.
@@ -387,7 +387,7 @@ The memory boundary that decides whether new chat, document, or work material is
 _Avoid_: transcript mirror, every-message capture, assistant-response dump, broad cleanup pass, second memory system, pending raw memory queue
 
 **Memory Intake Decision**:
-The structured outcome produced by the **Memory Intake Gate** for new candidate material. It should be one of: admit, reject, or defer to maintenance. Admit writes accepted durable memory through the existing memory authority path; reject records why the material should not become memory; defer to maintenance records telemetry and dirty state without storing raw candidate text.
+The structured outcome produced by the **Memory Intake Gate** for new candidate material. It should be one of: admit, reject, or defer to maintenance. Admit writes accepted durable memory into the active **Memory Profile Projection**; reject records why the material should not become memory; defer to maintenance records telemetry and dirty state without storing raw candidate text.
 _Avoid_: hidden maybe-memory queue, raw candidate backlog, unstructured classifier note, forced admit, silent uncertainty
 
 **Immediate Memory Admission**:
@@ -491,7 +491,7 @@ A per-slice safety limit on how many memory candidates, projection changes, auth
 _Avoid_: full candidate sweep, unlimited mutation batch, authority-call flood, time-budget-only maintenance
 
 **Memory Dirty State Ledger**:
-The durable, typed account-level signal that tells maintenance what memory work may be needed without storing raw candidate text. It coalesces repeated triggers such as stale projection, deferred intake, profile-action reconciliation, possible conflict, possible duplicate, legacy migration, Honcho reconciliation, and review generation so expensive maintenance can choose bounded work after restarts.
+The durable, typed account-level signal that tells maintenance what memory work may be needed without storing raw candidate text. It coalesces repeated triggers such as stale projection, deferred intake, profile-action reconciliation, projection reconciliation, possible conflict, possible duplicate, legacy migration, optional Honcho export, and review generation so expensive maintenance can choose bounded work after restarts.
 _Avoid_: raw pending memory queue, transcript backlog, in-memory-only dirty flag, full account scan trigger, per-message cleanup job
 
 **Memory Maintenance Scheduler**:
@@ -1516,7 +1516,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Memory Decision Confidence Bands** should never override **Memory Source Authority**, user-authored corrections, deletions, suppressions, or resolved **Memory Review Items**.
 - Memory should remain one pipeline: immediate authoritative continuity or profile actions may take effect right away, while expensive reconciliation runs later without becoming a second source of truth.
 - Opening the **Knowledge Base** or Memory Profile should run **Memory Profile Refresh**, not synchronous **Expensive Memory Reconciliation**.
-- **Memory Profile Refresh** may enqueue background maintenance when the projection is stale or dirty, but the visible profile should render from the current durable projection without waiting for LLM pruning, deduplication, Honcho reconciliation, or Honcho Dreaming.
+- **Memory Profile Refresh** may enqueue background maintenance when the projection is stale or dirty, but the visible profile should render from the current durable projection without waiting for LLM pruning, deduplication, Honcho cleanup, or Honcho Dreaming.
 - **Memory Authority Fallback** should keep the current durable **Memory Profile Projection** as the user-facing active truth when Honcho refresh, delete, or reconciliation fails.
 - If **Memory Profile Refresh** cannot read the durable projection, the UI should show an ordinary load failure or retry state rather than falling back to raw Honcho output.
 - User-authored edits, deletions, suppressions, and review decisions should update the **Memory Profile Projection** immediately and then enqueue targeted **Expensive Memory Reconciliation**.

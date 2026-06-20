@@ -503,6 +503,7 @@ describe("memory profile foundation", () => {
 			"do_not_remember",
 		]);
 		expect(MEMORY_DIRTY_REASONS).toContain("possible_conflict");
+		expect(MEMORY_DIRTY_REASONS).toContain("projection_reconciliation");
 		expect(MEMORY_REWORK_TELEMETRY_FAMILIES).toContain("guided_review");
 
 		const firstReview = await createOrUpdateMemoryReviewItem({
@@ -2819,7 +2820,7 @@ describe("memory profile foundation", () => {
 		expect(JSON.stringify(telemetry)).not.toContain("Inactive goal.");
 	});
 
-	it("records explicit projection-only telemetry for honcho reconciliation dirty rows", async () => {
+	it("records explicit completed telemetry for projection reconciliation dirty rows", async () => {
 		const {
 			listMemoryReworkTelemetry,
 			markMemoryDirty,
@@ -2828,7 +2829,7 @@ describe("memory profile foundation", () => {
 
 		await markMemoryDirty({
 			userId: "user-1",
-			reason: "honcho_reconciliation",
+			reason: "projection_reconciliation",
 			metadata: { action: "delete", itemId: "item-about" },
 		});
 
@@ -2846,8 +2847,8 @@ describe("memory profile foundation", () => {
 		expect(telemetry).toEqual([
 			expect.objectContaining({
 				eventFamily: "maintenance",
-				eventName: "dirty_ledger_honcho_reconciliation_projection_only",
-				reason: "honcho_reconciliation",
+				eventName: "dirty_ledger_projection_reconciliation_completed",
+				reason: "projection_reconciliation",
 				status: "completed",
 				subjectId: "item-about",
 				metadata: {

@@ -238,15 +238,36 @@ function parseStableSelfStatement(
 	text: string,
 	parserRule: string,
 ): ParsedStatement | null {
+	if (looksTemporaryOrSpeculative(text)) return null;
+
 	if (
 		/^i\s+(?:live|reside)\s+in\s+.+$/i.test(text) ||
 		/^i\s+am\s+(?:based|located)\s+in\s+.+$/i.test(text) ||
-		/^i(?:'m| am)\s+from\s+.+$/i.test(text)
+		/^i(?:'m| am)\s+from\s+.+$/i.test(text) ||
+		/^my\s+(?:name|company|employer|workplace|organization|organisation|role|job title|title)\s+is\s+.+$/i.test(
+			text,
+		) ||
+		/^i\s+work\s+(?:at|for)\s+.+$/i.test(text) ||
+		/^i\s+use\s+.+\s+for\s+(?:work|school|university|college|development|coding|design|writing|research)\b.*$/i.test(
+			text,
+		) ||
+		/^my\s+(?:primary\s+)?(?:computer|laptop|phone|operating system|os|browser|editor|ide|tool|device)\s+is\s+.+$/i.test(
+			text,
+		) ||
+		/^i\s+have\s+(?:a|an|the|my)?\s*(?:dog|cat|pet|child|son|daughter|partner|husband|wife)\b.+$/i.test(
+			text,
+		)
 	) {
 		return parsedStatement("about_you", text, parserRule);
 	}
 
 	return null;
+}
+
+function looksTemporaryOrSpeculative(value: string): boolean {
+	return /\b(?:might|may|maybe|probably|possibly|thinking about|considering|today|tonight|tomorrow|this week|right now|for now|temporarily)\b/i.test(
+		value,
+	);
 }
 
 function normalizeExplicitMemoryCandidate(candidate: string): string {
@@ -454,7 +475,10 @@ function safeSourceMetadata(
 async function markIntakeDirty(params: {
 	intake: PostTurnMemoryIntakeParams;
 	resetGeneration: number;
-	reason: "honcho_reconciliation" | "possible_duplicate" | "deferred_intake";
+	reason:
+		| "projection_reconciliation"
+		| "possible_duplicate"
+		| "deferred_intake";
 	status: MemoryIntakeStatus;
 	itemId?: string;
 	scope?: MemoryProfileScope;
@@ -628,7 +652,7 @@ export async function intakePostTurnMemory(
 		await markIntakeDirty({
 			intake: params,
 			resetGeneration,
-			reason: "honcho_reconciliation",
+			reason: "projection_reconciliation",
 			status: "admitted",
 			itemId: item.id,
 			scope,
@@ -664,6 +688,18 @@ export async function intakePostTurnMemory(
 		if (isStaleMemoryResetGenerationError(error)) {
 			return staleIntakeResult();
 		}
+		await recordIntakeTelemetry({
+			intake: params,
+			resetGeneration,
+			eventName: "memory_intake_failed",
+			status: "failed",
+			reason: error instanceof Error ? error.name : "unknown_error",
+			category: parsed.decision === "admit" ? parsed.category : undefined,
+			parserRule:
+				parsed.decision === "admit" || parsed.decision === "defer"
+					? parsed.parserRule
+					: undefined,
+		}).catch(() => undefined);
 		throw error;
 	}
 }

@@ -242,14 +242,14 @@ describe("runPostTurnTasks", () => {
 		errorSpy.mockRestore();
 	});
 
-	it("routes user and assistant post-turn text through memory intake without raw Honcho transcript mirroring", async () => {
+	it("routes ordinary user-authored stable facts through memory intake without raw Honcho transcript mirroring", async () => {
 		mockListMessages.mockResolvedValue([
 			makeChatMessage("prior-user", "user", "I prefer concise answers."),
 			makeChatMessage("prior-assistant", "assistant", "Noted."),
 			makeChatMessage(
 				"user-message-1",
 				"user",
-				"Please remember that I prefer concise answers.",
+				"My company is Acme Studio.",
 			),
 		]);
 		const { runPostTurnTasks } = await import("./finalize");
@@ -259,7 +259,7 @@ describe("runPostTurnTasks", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
-			userMessage: "Please remember that I prefer concise answers.",
+			userMessage: "My company is Acme Studio.",
 			userMessageId: "user-message-1",
 			assistantResponse: "I will keep that in mind.",
 			assistantMirrorContent: "assistant mirror text",
@@ -276,7 +276,7 @@ describe("runPostTurnTasks", () => {
 			expect.objectContaining({
 				userId: "user-1",
 				conversationId: "conv-1",
-				userMessage: "Please remember that I prefer concise answers.",
+				userMessage: "My company is Acme Studio.",
 				assistantMessage: "assistant mirror text",
 				userMessageId: "user-message-1",
 				assistantMessageId: "assistant-message-1",
@@ -294,7 +294,7 @@ describe("runPostTurnTasks", () => {
 					{
 						id: "user-message-1",
 						role: "user",
-						content: "Please remember that I prefer concise answers.",
+						content: "My company is Acme Studio.",
 					},
 				],
 			}),
@@ -308,7 +308,7 @@ describe("runPostTurnTasks", () => {
 		expect(mockRefreshConversationSummary).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
-			userMessage: "Please remember that I prefer concise answers.",
+			userMessage: "My company is Acme Studio.",
 			assistantResponse: "I will keep that in mind.",
 		});
 		expect(mockRunUserMemoryMaintenance).toHaveBeenCalledWith(

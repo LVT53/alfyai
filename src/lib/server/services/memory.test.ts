@@ -253,7 +253,7 @@ describe("knowledge memory service", () => {
 		});
 		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
 			userId: "user-1",
-			reason: "honcho_reconciliation",
+			reason: "projection_reconciliation",
 			scope: { type: "global" },
 			metadata: {
 				action: "delete",
@@ -314,7 +314,7 @@ describe("knowledge memory service", () => {
 		});
 		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
 			userId: "user-1",
-			reason: "honcho_reconciliation",
+			reason: "projection_reconciliation",
 			scope: { type: "global" },
 			metadata: {
 				action: "suppress",

@@ -148,12 +148,18 @@ async function handleClaimedMemoryDirtyLedgerRow(params: {
 		});
 		return;
 	}
-	if (params.row.reason === "honcho_reconciliation") {
+	if (
+		params.row.reason === "projection_reconciliation" ||
+		params.row.reason === "honcho_reconciliation"
+	) {
 		const action = readSafeString(metadata.action);
 		await recordMemoryReworkTelemetry({
 			userId: params.userId,
 			eventFamily: "maintenance",
-			eventName: "dirty_ledger_honcho_reconciliation_projection_only",
+			eventName:
+				params.row.reason === "honcho_reconciliation"
+					? "dirty_ledger_honcho_reconciliation_projection_only"
+					: "dirty_ledger_projection_reconciliation_completed",
 			reason: params.row.reason,
 			status: "completed",
 			count: params.row.count,

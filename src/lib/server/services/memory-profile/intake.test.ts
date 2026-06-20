@@ -97,7 +97,7 @@ describe("memory intake gate", () => {
 
 		expect(await listPendingMemoryDirtyEntries({ userId: "user-1" })).toEqual([
 			expect.objectContaining({
-				reason: "honcho_reconciliation",
+				reason: "projection_reconciliation",
 				metadata: expect.objectContaining({
 					conversationId: "conv-1",
 					userMessageId: "user-message-1",
@@ -432,6 +432,123 @@ describe("memory intake gate", () => {
 		expect(JSON.stringify(telemetry)).not.toContain("Amsterdam");
 	});
 
+	it("admits common stable first-party facts without explicit remember commands", async () => {
+		const { getKnowledgeMemory } = await import("../memory");
+		const { getMemoryProfileReadModel } = await import("./index");
+		const { intakePostTurnMemory } = await import("./intake");
+
+		const examples = [
+			{
+				id: "company",
+				message: "My company is Acme Studio.",
+				statement: "My company is Acme Studio.",
+			},
+			{
+				id: "employer",
+				message: "I work at Acme Studio.",
+				statement: "I work at Acme Studio.",
+			},
+			{
+				id: "tool",
+				message: "I use Windows for work.",
+				statement: "I use Windows for work.",
+			},
+			{
+				id: "pet",
+				message: "I have a dog named Pixel.",
+				statement: "I have a dog named Pixel.",
+			},
+			{
+				id: "role",
+				message: "My role is designer.",
+				statement: "My role is designer.",
+			},
+		];
+
+		for (const example of examples) {
+			await expect(
+				intakePostTurnMemory({
+					userId: "user-1",
+					conversationId: "conv-1",
+					userMessage: example.message,
+					userMessageId: `user-message-${example.id}`,
+				}),
+			).resolves.toEqual(
+				expect.objectContaining({
+					status: "admitted",
+					category: "about_you",
+				}),
+			);
+		}
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories[0]?.items).toEqual(
+			expect.arrayContaining(
+				examples.map((example) =>
+					expect.objectContaining({
+						category: "about_you",
+						statement: example.statement,
+						scope: { type: "global" },
+					}),
+				),
+			),
+		);
+
+		const knowledgeMemory = await getKnowledgeMemory("user-1", "Memory User");
+		expect(knowledgeMemory.categories[0]?.items).toEqual(
+			expect.arrayContaining(
+				examples.map((example) =>
+					expect.objectContaining({
+						category: "about_you",
+						statement: example.statement,
+						scope: { type: "global" },
+					}),
+				),
+			),
+		);
+	});
+
+	it("rejects transient, speculative, and third-party statements as durable direct intake", async () => {
+		const { getMemoryProfileReadModel, listMemoryReworkTelemetry } =
+			await import("./index");
+		const { intakePostTurnMemory } = await import("./intake");
+
+		const examples = [
+			"I might move to Paris.",
+			"My friend likes jazz.",
+			"Today I am debugging the memory intake gate.",
+		];
+
+		for (const [index, message] of examples.entries()) {
+			await expect(
+				intakePostTurnMemory({
+					userId: "user-1",
+					conversationId: "conv-1",
+					userMessage: message,
+					userMessageId: `user-message-rejected-${index}`,
+				}),
+			).resolves.toEqual({
+				status: "rejected",
+				reason: "no_explicit_durable_intent",
+			});
+		}
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(profile.categories.flatMap((group) => group.items)).toEqual([]);
+		expect(await listMemoryReworkTelemetry({ userId: "user-1" })).toEqual(
+			examples.map((_, index) =>
+				expect.objectContaining({
+					eventName: "memory_intake_rejected",
+					status: "rejected",
+					reason: "no_explicit_durable_intent",
+					metadata: expect.objectContaining({
+						userMessageId: `user-message-rejected-${index}`,
+					}),
+				}),
+			),
+		);
+	});
+
 	it("scopes ongoing-work intake to the current conversation instead of global profile memory", async () => {
 		const {
 			getActiveMemoryProfileContext,
@@ -486,7 +603,7 @@ describe("memory intake gate", () => {
 			listPendingMemoryDirtyEntries({ userId: "user-1" }),
 		).resolves.toEqual([
 			expect.objectContaining({
-				reason: "honcho_reconciliation",
+				reason: "projection_reconciliation",
 				scope: { type: "conversation", id: "conv-1" },
 				metadata: expect.objectContaining({
 					intakeStatus: "admitted",
@@ -781,7 +898,7 @@ describe("memory intake gate", () => {
 		expect(await listPendingMemoryDirtyEntries({ userId: "user-1" })).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
-					reason: "honcho_reconciliation",
+					reason: "projection_reconciliation",
 					count: 2,
 				}),
 				expect.objectContaining({
@@ -828,7 +945,7 @@ describe("memory intake gate", () => {
 		const dirty = await listPendingMemoryDirtyEntries({ userId: "user-1" });
 		expect(dirty).toEqual([
 			expect.objectContaining({
-				reason: "honcho_reconciliation",
+				reason: "projection_reconciliation",
 				count: 2,
 				metadata: expect.objectContaining({
 					itemIds: [
