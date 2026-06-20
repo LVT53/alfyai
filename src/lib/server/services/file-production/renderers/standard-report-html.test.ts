@@ -3,6 +3,39 @@ import { validateGeneratedDocumentSource } from "../source-schema";
 import { renderStandardReportHtml } from "./standard-report-html";
 
 describe("AlfyAI Standard Report HTML renderer", () => {
+	function renderFixtureHtml() {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Atlas Report",
+			subtitle: "A prototype-aligned report.",
+			blocks: [
+				{ type: "heading", level: 2, text: "Executive Summary" },
+				{ type: "paragraph", text: "Readable report content." },
+				{
+					type: "sourceChips",
+					title: "Sources",
+					sources: [
+						{
+							title: "Example docs",
+							url: "https://example.com/docs",
+							reasoning: "Shows the favicon fallback path.",
+						},
+						{
+							title: "Local library note",
+							reasoning: "Library-only sources still need a visible icon.",
+							provided: true,
+						},
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) throw new Error("Fixture should validate");
+
+		return renderStandardReportHtml(validation.source).content.toString("utf8");
+	}
+
 	it("renders source-owned HTML and escapes model text", () => {
 		const validation = validateGeneratedDocumentSource({
 			version: 1,
@@ -97,7 +130,7 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(rendered.content.toString("utf8")).toContain("HTML image fallback");
 		expect(rendered.content.toString("utf8")).toContain("Example image source");
 		expect(rendered.content.toString("utf8")).toContain(
-			'<nav class="report-sidebar"',
+			'<aside class="report-sidebar"',
 		);
 		expect(rendered.content.toString("utf8")).toContain(
 			'<article class="report-content"',
@@ -119,5 +152,46 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 			"--report-text:#1B1815",
 		);
 		expect(rendered.content.toString("utf8")).toContain('fill="#1B1815"');
+	});
+
+	it("uses a prototype-like navigable report viewer shell", () => {
+		const html = renderFixtureHtml();
+
+		expect(html).toContain('<div class="report-viewer"');
+		expect(html).toContain('<aside class="report-sidebar"');
+		expect(html).toContain('<article class="report-content"');
+		expect(html).toContain('<div class="mobile-report-header"');
+		expect(html).toContain('<div class="sidebar-backdrop"');
+		expect(html).toContain('href="#executive-summary-1"');
+		expect(html).toContain('<section class="report-section"');
+	});
+
+	it("fills the mobile viewport when opened directly as standalone HTML", () => {
+		const html = renderFixtureHtml();
+
+		expect(html).toContain("html,body{");
+		expect(html).toMatch(/min-height:100(?:dvh|vh)/);
+		expect(html).toContain(".report-viewer{");
+		expect(html).toMatch(/\.report-viewer\{[^}]*min-height:100(?:dvh|vh)/);
+		expect(html).toMatch(/@media \(max-width: 760px\)\{[^}]*body\{/);
+		expect(html).toMatch(
+			/@media \(max-width: 760px\)\{[\s\S]*\.report-viewer\{[\s\S]*min-height:100(?:dvh|vh)/,
+		);
+	});
+
+	it("renders visible globe fallbacks for missing or failed favicons", () => {
+		const html = renderFixtureHtml();
+
+		expect(html).toContain('class="favicon-placeholder"');
+		expect(html).toContain("data-favicon-fallback");
+		expect(html).toContain("[hidden]{display:none!important;}");
+		expect(html).toContain('onerror="');
+		expect(html).toContain('aria-label="Example docs"');
+		expect(html).toContain(
+			'aria-label="Local library note. You provided these."',
+		);
+		expect(html).toContain("<svg");
+		expect(html).toContain('viewBox="0 0 24 24"');
+		expect(html).toContain('stroke="currentColor"');
 	});
 });

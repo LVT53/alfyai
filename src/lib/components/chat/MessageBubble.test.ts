@@ -7,6 +7,7 @@ import {
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+	AtlasJobCard,
 	ChatMessage,
 	DocumentWorkspaceItem,
 	FileProductionJob,
@@ -19,6 +20,42 @@ const markdownLoaderMock = vi.hoisted(() => ({
 		content.replace(/\*\*(.*?)\*\*/g, "$1"),
 	),
 }));
+
+const atlasKickoffText =
+	"Atlas is queued with the overview profile. You can close this page and return for progress.";
+
+function buildAtlasJob(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
+	return {
+		id: "atlas-job-1",
+		conversationId: "conv-1",
+		assistantMessageId: "assistant-atlas",
+		action: "create",
+		parentAtlasJobId: null,
+		profile: "overview",
+		title: "Enterprise search architecture",
+		status: "running",
+		stage: "search",
+		progress: { percent: 25, stage: "search", details: { queries: [] } },
+		sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
+		usage: {
+			inputTokens: 0,
+			outputTokens: 0,
+			totalTokens: 0,
+			costUsdMicros: 0,
+		},
+		outputs: {
+			fileProductionJobId: null,
+			htmlChatGeneratedFileId: null,
+			pdfChatGeneratedFileId: null,
+			markdownChatGeneratedFileId: null,
+		},
+		error: null,
+		createdAt: 1,
+		updatedAt: 1,
+		completedAt: null,
+		...overrides,
+	};
+}
 
 vi.mock("$lib/utils/markdown-loader", () => ({
 	collectSourceReferenceCandidates: async () => [],
@@ -110,41 +147,62 @@ describe("MessageBubble", () => {
 
 		render(MessageBubble, {
 			message,
-			atlasJobs: [
-				{
-					id: "atlas-job-1",
-					conversationId: "conv-1",
-					assistantMessageId: "assistant-atlas",
-					action: "create",
-					parentAtlasJobId: null,
-					profile: "overview",
-					title: "Enterprise search architecture",
-					status: "running",
-					stage: "search",
-					progress: { percent: 25, stage: "search", details: { queries: [] } },
-					sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
-					usage: {
-						inputTokens: 0,
-						outputTokens: 0,
-						totalTokens: 0,
-						costUsdMicros: 0,
-					},
-					outputs: {
-						fileProductionJobId: null,
-						htmlChatGeneratedFileId: null,
-						pdfChatGeneratedFileId: null,
-						markdownChatGeneratedFileId: null,
-					},
-					error: null,
-					createdAt: 1,
-					updatedAt: 1,
-					completedAt: null,
-				},
-			],
+			atlasJobs: [buildAtlasJob()],
 		});
 
 		expect(screen.queryByText("Evidence is loading…")).not.toBeInTheDocument();
 		expect(screen.getByTestId("atlas-card")).toBeInTheDocument();
+	});
+
+	it("shows localized ready copy instead of the Atlas kickoff text when the linked Atlas job succeeded", async () => {
+		const message: ChatMessage = {
+			id: "assistant-atlas",
+			renderKey: "assistant-atlas",
+			role: "assistant",
+			content: atlasKickoffText,
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+		};
+
+		render(MessageBubble, {
+			message,
+			atlasJobs: [
+				buildAtlasJob({
+					status: "succeeded",
+					stage: "render",
+					progress: {
+						percent: 100,
+						stage: "render",
+						details: { queries: [] },
+					},
+					completedAt: 2,
+				}),
+			],
+		});
+
+		expect(await screen.findByText("Report is ready")).toBeInTheDocument();
+		expect(screen.queryByText(atlasKickoffText)).not.toBeInTheDocument();
+	});
+
+	it("keeps the Atlas kickoff text while the linked Atlas job is still running", async () => {
+		const message: ChatMessage = {
+			id: "assistant-atlas",
+			renderKey: "assistant-atlas",
+			role: "assistant",
+			content: atlasKickoffText,
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+		};
+
+		render(MessageBubble, {
+			message,
+			atlasJobs: [buildAtlasJob({ status: "running" })],
+		});
+
+		expect(await screen.findByText(atlasKickoffText)).toBeInTheDocument();
+		expect(screen.queryByText("Report is ready")).not.toBeInTheDocument();
 	});
 
 	it("removes the preparation status once assistant output surfaces", async () => {

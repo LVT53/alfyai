@@ -70,6 +70,22 @@ describe("Markdown Rendering Service", () => {
 		expect(html).not.toContain(">Example Source</a>");
 	});
 
+	it("renders compact source chips with a hidden globe favicon fallback", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			"See [Example Source](https://example.com/page) for details.",
+			false,
+			{ compactExternalLinks: true },
+		);
+
+		expect(html).toContain('class="source-link-chip__favicon"');
+		expect(html).toContain(
+			'<span class="source-link-chip__favicon-fallback" aria-hidden="true" hidden=""></span>',
+		);
+		expect(html).toContain('class="source-link-chip__icon"');
+		expect(html).not.toContain("onerror=");
+	});
+
 	it("renders inline compact source references as source link chips", async () => {
 		const mod = await import("./markdown");
 		const html = await mod.renderMarkdown(

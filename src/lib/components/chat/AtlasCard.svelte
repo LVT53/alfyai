@@ -270,6 +270,7 @@ function submitLifecycleAction() {
 	class="atlas-card"
 	class:atlas-card--active={isActive}
 	class:atlas-card--complete={isComplete}
+	class:atlas-card--completion-enter={isComplete}
 	data-testid="atlas-card"
 >
 	<header class="atlas-card__header">
@@ -277,6 +278,7 @@ function submitLifecycleAction() {
 			class="atlas-card__mark"
 			class:atlas-card__mark--queued={job.status === "queued"}
 			class:atlas-card__mark--complete={isComplete}
+			data-testid={isComplete ? "atlas-completion-icon" : undefined}
 			aria-hidden="true"
 		>
 			{#if isComplete}
@@ -323,11 +325,38 @@ function submitLifecycleAction() {
 					></path>
 				</svg>
 			{:else}
-				<span
-					class="atlas-card__ring"
-					style={`--atlas-progress: ${progressPercent}%;`}
+				<svg
+					class="atlas-card__ring atlas-card__progress-cycle"
+					data-testid="atlas-progress-cycle-icon"
+					viewBox="0 0 56 56"
+					fill="none"
 					aria-hidden="true"
-				></span>
+					style={`--atlas-progress: ${progressPercent}%;`}
+				>
+					<circle
+						class="atlas-card__progress-cycle-track"
+						cx="28"
+						cy="28"
+						r="22"
+						pathLength="100"
+					></circle>
+					<circle
+						class="atlas-card__progress-cycle-fill"
+						cx="28"
+						cy="28"
+						r="22"
+						pathLength="100"
+						stroke-dasharray="100"
+						style={`--atlas-progress: ${progressPercent}%; stroke-dashoffset: ${100 - progressPercent};`}
+					></circle>
+					<g class="atlas-card__progress-cycle-sweep">
+						<path
+							d="M28 4.5 L32.8 12.4 L28 10.7 L23.2 12.4 Z"
+							fill="currentColor"
+							stroke="none"
+						></path>
+					</g>
+				</svg>
 			{/if}
 		</div>
 		<div class="atlas-card__title-block">
@@ -511,6 +540,18 @@ function submitLifecycleAction() {
 		box-shadow: var(--shadow-sm);
 	}
 
+	.atlas-card--complete {
+		animation: atlas-completion-card-in 420ms cubic-bezier(0.16, 1, 0.3, 1);
+		border-color: color-mix(in srgb, var(--success, #2f8f5b) 36%, var(--border-default));
+		box-shadow:
+			0 0 0 1px color-mix(in srgb, var(--success, #2f8f5b) 10%, transparent),
+			var(--shadow-sm);
+	}
+
+	.atlas-card--completion-enter .atlas-card__mark--complete {
+		animation: atlas-completion-icon-pop 520ms cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
 	.atlas-card__header {
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr) auto;
@@ -552,18 +593,38 @@ function submitLifecycleAction() {
 	}
 
 	.atlas-card__ring {
-		width: 1.9rem;
-		height: 1.9rem;
-		border-radius: 999px;
-		background:
-			conic-gradient(
-				from 0deg,
-				currentColor 0 var(--atlas-progress, 0%),
-				color-mix(in srgb, currentColor 13%, transparent) var(--atlas-progress, 0%) 100%
-			);
-		box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
-		mask: radial-gradient(circle, transparent 43%, #000 46%);
-		transition: background 240ms ease;
+		width: 2.75rem;
+		height: 2.75rem;
+		overflow: visible;
+	}
+
+	.atlas-card__progress-cycle {
+		display: block;
+	}
+
+	.atlas-card__progress-cycle-track,
+	.atlas-card__progress-cycle-fill {
+		fill: none;
+		stroke-width: 4;
+	}
+
+	.atlas-card__progress-cycle-track {
+		stroke: color-mix(in srgb, currentColor 16%, transparent);
+	}
+
+	.atlas-card__progress-cycle-fill {
+		stroke: currentColor;
+		stroke-linecap: round;
+		transform: rotate(-90deg);
+		transform-origin: 50% 50%;
+		transition: stroke-dashoffset 420ms ease;
+	}
+
+	.atlas-card__progress-cycle-sweep {
+		animation: atlas-progress-cycle-spin 2s linear infinite;
+		transform-box: view-box;
+		transform-origin: 28px 28px;
+		opacity: 0.82;
 	}
 
 	.atlas-card__title-block {
@@ -820,11 +881,44 @@ function submitLifecycleAction() {
 		}
 	}
 
+	@keyframes atlas-progress-cycle-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	@keyframes atlas-completion-card-in {
+		from {
+			opacity: 0;
+			transform: translateY(0.35rem) scale(0.985);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+	}
+
+	@keyframes atlas-completion-icon-pop {
+		0% {
+			transform: scale(0.82);
+		}
+		62% {
+			transform: scale(1.08);
+		}
+		100% {
+			transform: scale(1);
+		}
+	}
+
 	@media (prefers-reduced-motion: reduce) {
-		.atlas-card__exploration-svg .orbit-group {
+		.atlas-card--complete,
+		.atlas-card--completion-enter .atlas-card__mark--complete,
+		.atlas-card__exploration-svg .orbit-group,
+		.atlas-card__progress-cycle-sweep {
 			animation: none;
 		}
 
+		.atlas-card__progress-cycle-fill,
 		.atlas-card__open,
 		.atlas-card__ghost,
 		.atlas-card__icon-action,

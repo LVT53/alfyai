@@ -112,9 +112,7 @@ export class AtlasPipelineQualityError extends Error {
 
 	constructor(markers: AtlasHonestyMarker[]) {
 		const markerCodes = markers.map((marker) => marker.code).join(", ");
-		super(
-			`Atlas quality gate failed${markerCodes ? `: ${markerCodes}` : "."}`,
-		);
+		super(`Atlas quality gate failed${markerCodes ? `: ${markerCodes}` : "."}`);
 		this.name = "AtlasPipelineQualityError";
 		this.markers = markers;
 	}
@@ -229,9 +227,63 @@ function parseDecomposeQueries(text: string): string[] {
 		.slice(0, 8);
 }
 
+function normalizeQueryForComparison(query: string): string {
+	return query
+		.replace(/[^\p{L}\p{N}]+/gu, " ")
+		.replace(/\s+/g, " ")
+		.trim()
+		.toLowerCase();
+}
+
+function uniqueQueries(queries: string[]): string[] {
+	return Array.from(
+		new Set(queries.map((query) => query.trim()).filter(Boolean)),
+	);
+}
+
+function isPromptEcho(query: string, prompt: string): boolean {
+	const normalizedQuery = normalizeQueryForComparison(query);
+	return (
+		normalizedQuery.length > 0 &&
+		normalizedQuery === normalizeQueryForComparison(prompt)
+	);
+}
+
 function fallbackDecomposeQueries(query: string): string[] {
 	const trimmed = query.replace(/\s+/g, " ").trim();
-	return trimmed ? [trimmed] : [];
+	if (!trimmed) return [];
+	const stopwords = new Set([
+		"about",
+		"compare",
+		"for",
+		"please",
+		"research",
+		"the",
+	]);
+	const core = trimmed
+		.split(/\s+/)
+		.map((token) => token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+		.filter(Boolean)
+		.filter((token) => !stopwords.has(token.toLowerCase()))
+		.join(" ");
+	const queryCore = core || trimmed;
+	return uniqueQueries([
+		`${queryCore} evidence`,
+		`${queryCore} comparison`,
+		`${queryCore} best practices`,
+	]).slice(0, 3);
+}
+
+function buildAtlasSearchQueries(input: {
+	query: string;
+	decomposeText: string;
+}): string[] {
+	const decomposeQueries = parseDecomposeQueries(input.decomposeText).filter(
+		(query) => !isPromptEcho(query, input.query),
+	);
+	if (decomposeQueries.length > 0)
+		return uniqueQueries(decomposeQueries).slice(0, 8);
+	return fallbackDecomposeQueries(input.query);
 }
 
 function buildAssemblePrompt(input: {
@@ -240,7 +292,11 @@ function buildAssemblePrompt(input: {
 	curatedEvidence: string;
 	synthesis: string;
 	outline: string;
-	sources: Array<{ title: string; url?: string | null; reasoning?: string | null }>;
+	sources: Array<{
+		title: string;
+		url?: string | null;
+		reasoning?: string | null;
+	}>;
 	limitation: { code: string; message: string } | null;
 	lifecycle: AtlasLifecycleContext["family"];
 }): string {
@@ -282,7 +338,9 @@ function looksLikeProcessOnlyReport(markdown: string): boolean {
 		.replace(/\b\d{4}-\d{2}-\d{2}\b/g, "")
 		.replace(/\s+/g, " ")
 		.trim();
-	const bodyWords = bodyBeforeSources ? bodyBeforeSources.split(/\s+/).length : 0;
+	const bodyWords = bodyBeforeSources
+		? bodyBeforeSources.split(/\s+/).length
+		: 0;
 	const hasSubstantiveReportSection =
 		/^\s*#{2,3}\s+(executive summary|findings|analysis|key findings|recommendations|overview|összefoglaló|vezetői összefoglaló|megállapítások|elemzés|ajánlások)\b/im.test(
 			markdown,
@@ -432,7 +490,9 @@ function buildSourceGroundedFallbackFindings(
 		if (language === "hu") {
 			findings.push(`A(z) "${source.title}" forrás szerint ${evidence}`);
 		} else {
-			findings.push(`"${source.title}" shows that ${formatEvidenceClause(evidence)}`);
+			findings.push(
+				`"${source.title}" shows that ${formatEvidenceClause(evidence)}`,
+			);
 		}
 	}
 	return findings;
@@ -485,7 +545,10 @@ function extractEvidenceStatement(text: string): string {
 
 function truncateSentence(text: string, maxLength: number): string {
 	if (text.length <= maxLength) return ensureTerminalPunctuation(text);
-	const truncated = text.slice(0, maxLength).replace(/\s+\S*$/, "").trim();
+	const truncated = text
+		.slice(0, maxLength)
+		.replace(/\s+\S*$/, "")
+		.trim();
 	return ensureTerminalPunctuation(`${truncated}...`);
 }
 
@@ -529,11 +592,10 @@ export async function runAtlasPipeline(
 		}),
 	});
 	usage = addUsage(usage, decompose.usage);
-	const decomposeQueries = parseDecomposeQueries(decompose.text);
-	const searchQueries =
-		decomposeQueries.length > 0
-			? decomposeQueries
-			: fallbackDecomposeQueries(input.job.query);
+	const searchQueries = buildAtlasSearchQueries({
+		query: input.job.query,
+		decomposeText: decompose.text,
+	});
 
 	await input.dependencies.heartbeat?.({
 		stage: "search",

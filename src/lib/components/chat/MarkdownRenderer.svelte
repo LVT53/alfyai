@@ -580,6 +580,25 @@ function handleSourceLinkKeydown(event: KeyboardEvent) {
 	}
 }
 
+function handleSourceFaviconError(event: Event) {
+	const image = event.target;
+	if (
+		!(image instanceof HTMLImageElement) ||
+		!image.classList.contains("source-link-chip__favicon")
+	) {
+		return;
+	}
+
+	image.hidden = true;
+	const fallback = image.nextElementSibling;
+	if (
+		fallback instanceof HTMLElement &&
+		fallback.classList.contains("source-link-chip__favicon-fallback")
+	) {
+		fallback.hidden = false;
+	}
+}
+
 function scheduleTableEnhancement() {
 	if (resizeFrame) {
 		cancelAnimationFrame(resizeFrame);
@@ -602,6 +621,7 @@ onMount(() => {
 	clickContainer?.addEventListener("focusin", handleSourceLinkFocusIn);
 	clickContainer?.addEventListener("focusout", handleSourceLinkFocusOut);
 	clickContainer?.addEventListener("keydown", handleSourceLinkKeydown);
+	clickContainer?.addEventListener("error", handleSourceFaviconError, true);
 
 	if (typeof ResizeObserver !== "undefined") {
 		resizeObserver = new ResizeObserver(() => {
@@ -655,6 +675,11 @@ onMount(() => {
 		clickContainer?.removeEventListener("focusin", handleSourceLinkFocusIn);
 		clickContainer?.removeEventListener("focusout", handleSourceLinkFocusOut);
 		clickContainer?.removeEventListener("keydown", handleSourceLinkKeydown);
+		clickContainer?.removeEventListener(
+			"error",
+			handleSourceFaviconError,
+			true,
+		);
 	};
 });
 
@@ -803,16 +828,41 @@ $effect(() => {
     white-space: nowrap;
   }
 
+  :global(.source-link-chip__favicon-wrap) {
+    position: relative;
+    display: inline-grid;
+    width: 1.3em;
+    min-width: 1.3em;
+    height: 1.3em;
+    place-items: center;
+  }
+
   :global(.source-link-chip__favicon) {
     display: block;
     width: 1em;
-    min-width: 1.3em;
+    min-width: 1em;
     height: 1em;
     margin: 0;
     border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
     border-radius: 999px;
     background: var(--surface-page);
     object-fit: cover;
+  }
+
+  :global(.source-link-chip__favicon-fallback) {
+    display: block;
+    width: 1em;
+    min-width: 1em;
+    height: 1em;
+    color: var(--text-muted);
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20'/%3E%3Cpath d='M2 12h20'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20'/%3E%3Cpath d='M2 12h20'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+
+  :global(.source-link-chip__favicon[hidden]),
+  :global(.source-link-chip__favicon-fallback[hidden]) {
+    display: none;
   }
 
   :global(.source-link-chip__icon) {

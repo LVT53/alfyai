@@ -62,17 +62,51 @@ describe("AtlasCard", () => {
 	it("renders a determinate progress ring driven by completion percent only", () => {
 		render(AtlasCard, {
 			job: atlasJobFixture({
-				progress: { percent: 64, stage: "synthesize", details: { queries: [] } },
+				progress: {
+					percent: 64,
+					stage: "synthesize",
+					details: { queries: [] },
+				},
 			}),
 		});
 
 		const ring = screen
 			.getByTestId("atlas-card")
 			.querySelector(".atlas-card__ring");
-		expect(ring).toHaveAttribute("style", expect.stringContaining("--atlas-progress: 64%;"));
+		expect(ring).toHaveAttribute(
+			"style",
+			expect.stringContaining("--atlas-progress: 64%;"),
+		);
 		expect(ring?.getAttribute("style") ?? "").not.toContain(
 			"--atlas-stage-progress",
 		);
+	});
+
+	it("renders an animated progress-cycle icon for running Atlas jobs", () => {
+		render(AtlasCard, {
+			job: atlasJobFixture({
+				progress: {
+					percent: 64,
+					stage: "synthesize",
+					details: { queries: [] },
+				},
+			}),
+		});
+
+		const progressIcon = screen.getByTestId("atlas-progress-cycle-icon");
+		expect(progressIcon).toHaveAttribute("viewBox", "0 0 56 56");
+		expect(
+			progressIcon.querySelector(".atlas-card__progress-cycle-track"),
+		).toBeTruthy();
+		expect(
+			progressIcon.querySelector(".atlas-card__progress-cycle-fill"),
+		).toHaveAttribute(
+			"style",
+			expect.stringContaining("--atlas-progress: 64%;"),
+		);
+		expect(
+			screen.queryByTestId("atlas-exploration-svg"),
+		).not.toBeInTheDocument();
 	});
 
 	it("rotates active progress messages without showing profile metadata", async () => {
@@ -198,6 +232,20 @@ describe("AtlasCard", () => {
 		expect(
 			screen.getByRole("button", { name: "Revise Atlas" }),
 		).toHaveTextContent("");
+	});
+
+	it("exposes completion-card animation hooks for completed Atlas jobs", () => {
+		render(AtlasCard, {
+			job: atlasJobFixture({ status: "succeeded", completedAt: 121 }),
+		});
+
+		const card = screen.getByTestId("atlas-card");
+		expect(card).toHaveClass("atlas-card--complete");
+		expect(card).toHaveClass("atlas-card--completion-enter");
+		expect(screen.getByTestId("atlas-completion-icon")).toBeInTheDocument();
+		expect(
+			screen.queryByTestId("atlas-progress-cycle-icon"),
+		).not.toBeInTheDocument();
 	});
 
 	it.each([

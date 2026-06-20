@@ -56,8 +56,24 @@ function faviconUrl(url: string | null | undefined): string | null {
 	}
 }
 
-function sourceInitial(title: string): string {
-	return (Array.from(title.trim())[0] ?? "S").toUpperCase();
+function sourceDomain(url: string | null | undefined): string {
+	if (!url) return "local library";
+	try {
+		return new URL(url).hostname.replace(/^www\./, "");
+	} catch {
+		return "source";
+	}
+}
+
+function renderGlobeFallback(hidden = false): string {
+	return `<span class="favicon-placeholder" data-favicon-fallback aria-hidden="true"${hidden ? " hidden" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg></span>`;
+}
+
+function renderSourceFavicon(url: string | null | undefined): string {
+	const favicon = faviconUrl(url);
+	if (!favicon)
+		return `<span class="source-favicon">${renderGlobeFallback()}</span>`;
+	return `<span class="source-favicon"><img src="${escapeHtml(favicon)}" alt="" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false;" />${renderGlobeFallback(true)}</span>`;
 }
 
 function renderTable(
@@ -98,13 +114,13 @@ function renderSourceChips(
 			const label = escapeHtml(
 				source.provided ? `${source.title}. You provided these.` : source.title,
 			);
-			const favicon = faviconUrl(source.url);
-			const content = favicon
-				? `<img src="${escapeHtml(favicon)}" alt="" loading="lazy" />`
-				: `<span aria-hidden="true">${escapeHtml(sourceInitial(source.title))}</span>`;
+			const domain = escapeHtml(sourceDomain(source.url));
+			const sourceTitle = escapeHtml(source.title);
+			const reasoning = source.reasoning ? escapeHtml(source.reasoning) : "";
+			const content = `${renderSourceFavicon(source.url)}<span class="source-tooltip" role="tooltip"><span class="source-tooltip-head"><span class="source-favicon">${renderGlobeFallback()}</span><strong class="source-tooltip-title">${sourceTitle}</strong></span>${reasoning ? `<span class="source-tooltip-reason">${reasoning}</span>` : ""}<span class="source-tooltip-domain">${domain}</span></span>`;
 			return source.url
-				? `<a class="source-chip" href="${escapeHtml(source.url)}" title="${title}" aria-label="${label}">${content}</a>`
-				: `<span class="source-chip source-chip--library" title="${title}" aria-label="${label}">${content}</span>`;
+				? `<a class="source-chip" href="${escapeHtml(source.url)}" title="${title}" aria-label="${label}" data-source-title="${sourceTitle}" data-source-domain="${domain}"${reasoning ? ` data-source-reason="${reasoning}"` : ""}>${content}</a>`
+				: `<span class="source-chip source-chip--library" title="${title}" aria-label="${label}" data-source-title="${sourceTitle}" data-source-domain="${domain}"${reasoning ? ` data-source-reason="${reasoning}"` : ""}>${content}</span>`;
 		}),
 		"</div>",
 		"</section>",
@@ -195,21 +211,28 @@ export function renderStandardReportHtml(
 		'<meta name="viewport" content="width=device-width, initial-scale=1" />',
 		`<title>${escapeHtml(source.title)}</title>`,
 		"<style>",
-		":root{color-scheme:light;--report-text:#1B1815;--report-body:#3E3933;--report-muted:#6F6860;--report-accent:#B65F3D;--report-bg:#FAFAF8;--report-panel:#F4F3EE;--report-rule:rgba(0,0,0,.08);--report-callout:#F7F6F2;--report-serif:\"Libre Baskerville\",\"Georgia\",serif;font-family:\"Nimbus Sans L\",\"Inter\",system-ui,sans-serif;}",
+		':root{color-scheme:light;--report-text:#1B1815;--report-body:#3E3933;--report-muted:#6F6860;--report-accent:#B65F3D;--report-bg:#FAFAF8;--report-panel:#F4F3EE;--report-rule:rgba(0,0,0,.08);--report-callout:#F7F6F2;--report-serif:"Libre Baskerville","Georgia",serif;font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;}',
 		"html.dark{color-scheme:dark;--report-text:#F4EFE8;--report-body:#E1D8CE;--report-muted:#AFA59A;--report-accent:#E19A78;--report-bg:#171412;--report-panel:#27211D;--report-rule:#3B332D;--report-callout:#241F1B;}",
 		"@media (prefers-color-scheme: dark){:root{color-scheme:dark;--report-text:#F4EFE8;--report-body:#E1D8CE;--report-muted:#AFA59A;--report-accent:#E19A78;--report-bg:#171412;--report-panel:#27211D;--report-rule:#3B332D;--report-callout:#241F1B;}}",
-		"body{margin:0;padding:32px 24px;line-height:1.55;color:var(--report-body);background:var(--report-bg);font-family:\"Nimbus Sans L\",\"Inter\",system-ui,sans-serif;}",
-		".report-shell{display:flex;min-height:calc(100vh - 64px);max-width:1180px;margin:0 auto;border:1px solid var(--report-rule);border-radius:8px;background:var(--report-bg);overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);}",
+		"html,body{margin:0;min-height:100vh;min-height:100dvh;}",
+		'body{box-sizing:border-box;padding:32px 24px;line-height:1.55;color:var(--report-body);background:var(--report-bg);font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;}',
+		".report-viewer{display:flex;position:relative;min-height:100vh;min-height:100dvh;max-width:1180px;margin:0 auto;border:1px solid var(--report-rule);border-radius:8px;background:var(--report-bg);overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);}",
 		".report-sidebar{width:240px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--report-rule);background:var(--report-panel);padding:24px;}",
 		".report-sidebar-title{margin:0 0 16px;color:var(--report-muted);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}",
 		".report-nav{display:flex;flex-direction:column;gap:2px;list-style:none;margin:0;padding:0;}",
 		".report-nav a{display:block;border-left:3px solid transparent;border-radius:6px;padding:8px 12px;color:var(--report-muted);font-size:13px;text-decoration:none;transition:background .15s ease,color .15s ease,border-color .15s ease;}",
 		".report-nav a:hover,.report-nav a:focus{background:rgba(0,0,0,.03);border-left-color:var(--report-accent);color:var(--report-text);outline:none;}",
-		".report-content{flex:1;max-height:calc(100vh - 64px);overflow-y:auto;padding:32px 48px;scroll-behavior:smooth;}",
-		".report-title{margin:0 0 24px;color:var(--report-text);font-family:\"Nimbus Sans L\",\"Inter\",system-ui,sans-serif;font-size:32px;font-weight:700;line-height:1.2;}",
+		".mobile-report-header{display:none;align-items:center;gap:10px;padding:14px 18px;background:var(--report-panel);border-bottom:1px solid var(--report-rule);}",
+		".mobile-menu-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:0;border-radius:6px;background:transparent;color:var(--report-text);cursor:pointer;}",
+		".mobile-menu-btn:hover,.mobile-menu-btn:focus{background:rgba(0,0,0,.04);outline:none;}",
+		".mobile-menu-btn svg{width:20px;height:20px;}",
+		".mobile-report-title{margin:0;color:var(--report-text);font-size:15px;font-weight:600;}",
+		".sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.2);z-index:80;}",
+		".report-content{flex:1;max-height:100vh;max-height:100dvh;overflow-y:auto;padding:32px 48px;scroll-behavior:smooth;}",
+		'.report-title{margin:0 0 24px;color:var(--report-text);font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;font-size:32px;font-weight:700;line-height:1.2;}',
 		".report-section{margin:0 0 32px;padding-bottom:24px;border-bottom:1px solid rgba(0,0,0,.04);}",
 		".report-section:last-of-type{border-bottom:none;}",
-		"h1,h2,h3{line-height:1.2;color:var(--report-text);font-family:\"Nimbus Sans L\",\"Inter\",system-ui,sans-serif;}",
+		'h1,h2,h3{line-height:1.2;color:var(--report-text);font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;}',
 		"h2{margin:0 0 16px;border-left:3px solid var(--report-accent);padding-left:16px;font-size:24px;font-weight:700;}",
 		"h3{margin:24px 0 8px;font-size:17px;font-weight:700;}",
 		"p,li{font-size:15px;line-height:1.7;color:var(--report-text);}",
@@ -229,29 +252,46 @@ export function renderStandardReportHtml(
 		".source-chip-section{margin:1rem 0 1.5rem;}",
 		".source-chip-section + .source-chip-section{margin-top:2rem;}",
 		".source-chip-list{display:flex;flex-wrap:wrap;gap:10px;}",
-		".source-chip{display:inline-grid;width:16px;height:16px;place-items:center;overflow:hidden;border-radius:3px;color:var(--report-muted);text-decoration:none;font-size:.62rem;font-weight:700;transition:transform .1s ease;}",
-		".source-chip:hover{transform:translateY(-1px);}",
-		".source-chip img{width:16px;height:16px;border-radius:3px;}",
+		".source-chip{display:inline-flex;align-items:center;justify-content:center;position:relative;width:16px;height:16px;vertical-align:middle;color:var(--report-muted);text-decoration:none;transition:transform .1s ease;}",
+		".source-chip:hover,.source-chip:focus{transform:translateY(-1px);outline:none;}",
+		".source-favicon,.source-chip img,.favicon-placeholder{display:block;width:16px;height:16px;border-radius:3px;}",
+		".source-chip img{object-fit:cover;}",
+		".favicon-placeholder{box-sizing:border-box;background:var(--report-accent);color:#fff;padding:2px;}",
+		"[hidden]{display:none!important;}",
+		".favicon-placeholder svg{display:block;width:100%;height:100%;}",
+		".source-tooltip{position:absolute;bottom:calc(100% + 10px);left:50%;z-index:25;width:280px;max-width:min(280px,calc(100vw - 32px));box-sizing:border-box;border-radius:6px;background:var(--report-text);box-shadow:0 10px 30px rgba(0,0,0,.18);color:var(--report-bg);opacity:0;padding:8px 10px;pointer-events:none;text-align:left;transform:translateX(-50%);transition:opacity .15s ease;}",
+		'.source-tooltip::after{content:"";position:absolute;top:100%;left:50%;border:6px solid transparent;border-top-color:var(--report-text);transform:translateX(-50%);}',
+		".source-chip:hover .source-tooltip,.source-chip:focus .source-tooltip{opacity:1;}",
+		".source-tooltip-head{display:flex;align-items:center;gap:8px;margin-bottom:4px;}",
+		".source-tooltip-title{min-width:0;overflow:hidden;color:#fff;font-size:12px;font-weight:600;text-overflow:ellipsis;white-space:nowrap;}",
+		".source-tooltip-reason,.source-tooltip-domain{display:block;color:rgba(255,255,255,.78);font-size:11px;line-height:1.4;}",
+		".source-tooltip-domain{margin-top:4px;color:rgba(255,255,255,.62);}",
 		"hr{border:0;border-top:1px solid var(--report-rule);margin:24px 0;}",
-		"@media (max-width: 760px){body{padding:0;}.report-shell{display:block;min-height:100vh;border:0;border-radius:0;}.report-sidebar{display:none;}.report-content{max-height:none;padding:24px;}.report-title{font-size:24px;}}",
+		"@media (max-width: 760px){body{padding:0;}.report-viewer{display:block;min-height:100vh;min-height:100dvh;border:0;border-radius:0;}.mobile-report-header{display:flex;}.report-sidebar{position:fixed;top:0;left:0;z-index:90;height:100vh;height:100dvh;width:260px;box-sizing:border-box;border-right:1px solid var(--report-rule);box-shadow:0 16px 40px rgba(0,0,0,.18);transform:translateX(-100%);transition:transform .25s ease;}.report-sidebar.open{transform:translateX(0);}.sidebar-backdrop.open{display:block;}.report-content{max-height:none;padding:24px;}.report-title{font-size:24px;}}",
 		"</style>",
 		"</head>",
-		'<body><div class="report-shell">',
+		'<body><div class="report-viewer" id="report-viewer">',
 		headingEntries.length > 0
-			? `<nav class="report-sidebar" aria-label="Report sections"><p class="report-sidebar-title">Sections</p><ul class="report-nav">${headingEntries
+			? `<aside class="report-sidebar" id="report-sidebar" aria-label="Report sections"><p class="report-sidebar-title">Sections</p><ul class="report-nav">${headingEntries
 					.map(
 						(entry) =>
 							`<li><a href="#${escapeHtml(entry.id)}">${escapeHtml(entry.text)}</a></li>`,
 					)
-					.join("")}</ul></nav>`
-			: '<nav class="report-sidebar" aria-label="Report sections"></nav>',
+					.join("")}</ul></aside>`
+			: '<aside class="report-sidebar" id="report-sidebar" aria-label="Report sections"></aside>',
+		'<div class="sidebar-backdrop" id="sidebar-backdrop" aria-hidden="true"></div>',
+		'<div class="mobile-report-header"><button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Open section menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button><p class="mobile-report-title">Sections</p></div>',
 		'<article class="report-content">',
 		`<h1 class="report-title">${escapeHtml(source.title)}</h1>`,
 		source.subtitle
 			? `<p class="subtitle">${escapeHtml(source.subtitle)}</p>`
 			: "",
 		renderReportContent(blockEntries),
-		"</article></div></body></html>",
+		"</article></div>",
+		"<script>",
+		"(() => { const sidebar = document.getElementById('report-sidebar'); const backdrop = document.getElementById('sidebar-backdrop'); const button = document.getElementById('mobile-menu-btn'); if (!sidebar || !backdrop || !button) return; const close = () => { sidebar.classList.remove('open'); backdrop.classList.remove('open'); button.setAttribute('aria-expanded', 'false'); }; const open = () => { sidebar.classList.add('open'); backdrop.classList.add('open'); button.setAttribute('aria-expanded', 'true'); }; button.addEventListener('click', () => sidebar.classList.contains('open') ? close() : open()); backdrop.addEventListener('click', close); sidebar.querySelectorAll('a').forEach((link) => link.addEventListener('click', close)); })();",
+		"</script>",
+		"</body></html>",
 	].join("");
 
 	return {

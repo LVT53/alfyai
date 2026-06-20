@@ -592,7 +592,12 @@ function renderSourceLinkChip(params: { href: string; sourceName: string }) {
 	return [
 		`<a href="${href}" class="source-link-chip" target="_blank" rel="noopener noreferrer external" aria-label="${ariaLabel}">`,
 		faviconUrl
-			? `<img class="source-link-chip__favicon" src="${escapeHtml(faviconUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" aria-hidden="true" onerror="this.style.display='none'">`
+			? [
+					'<span class="source-link-chip__favicon-wrap" aria-hidden="true">',
+					`<img class="source-link-chip__favicon" src="${escapeHtml(faviconUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" aria-hidden="true">`,
+					'<span class="source-link-chip__favicon-fallback" aria-hidden="true" hidden></span>',
+					"</span>",
+				].join("")
 			: "",
 		`<span class="source-link-chip__label">${sourceName}</span>`,
 		'<span class="source-link-chip__icon" aria-hidden="true"></span>',

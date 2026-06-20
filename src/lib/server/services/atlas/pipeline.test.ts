@@ -353,19 +353,18 @@ describe("Atlas pipeline slices", () => {
 							"Finding: hybrid retrieval is strongest when lexical recall is followed by semantic reranking.",
 						integrate:
 							"Outline: Executive Summary; Hybrid retrieval tradeoffs; Limitations.",
-						assemble:
-							[
-								"# Retrieval Strategy Atlas",
-								"",
-								"## Executive Summary",
-								"Hybrid retrieval is strongest when lexical recall is followed by semantic reranking. The accepted evidence points to a practical pattern: keyword retrieval preserves exact-match coverage, vector retrieval broadens conceptual recall, and reranking helps control noisy matches before the report or answer layer consumes the evidence.",
-								"",
-								"## Findings",
-								"The evidence shows recall improves when keyword and vector retrieval are combined, but source quality depends on reranking. Teams should treat the first retrieval pass as a candidate generator rather than a final evidence set. The stronger architecture keeps search broad, then converges on fewer accepted sources that can be quoted and audited.",
-								"",
-								"## Limitations",
-								"This finding is bounded by the accepted source set and should be validated with corpus-specific evaluation before production rollout.",
-							].join("\n"),
+						assemble: [
+							"# Retrieval Strategy Atlas",
+							"",
+							"## Executive Summary",
+							"Hybrid retrieval is strongest when lexical recall is followed by semantic reranking. The accepted evidence points to a practical pattern: keyword retrieval preserves exact-match coverage, vector retrieval broadens conceptual recall, and reranking helps control noisy matches before the report or answer layer consumes the evidence.",
+							"",
+							"## Findings",
+							"The evidence shows recall improves when keyword and vector retrieval are combined, but source quality depends on reranking. Teams should treat the first retrieval pass as a candidate generator rather than a final evidence set. The stronger architecture keeps search broad, then converges on fewer accepted sources that can be quoted and audited.",
+							"",
+							"## Limitations",
+							"This finding is bounded by the accepted source set and should be validated with corpus-specific evaluation before production rollout.",
+						].join("\n"),
 					};
 					return {
 						text: textByStage[input.stage] ?? `${input.stage} result`,
@@ -391,7 +390,9 @@ describe("Atlas pipeline slices", () => {
 		expect(assemblePrompt.curatedEvidence).toContain("Curated fact");
 		expect(assemblePrompt.synthesis).toContain("Finding: hybrid retrieval");
 		expect(assemblePrompt.outline).toContain("Hybrid retrieval tradeoffs");
-		expect(assemblePrompt.instructions).toContain("Do not write a process report");
+		expect(assemblePrompt.instructions).toContain(
+			"Do not write a process report",
+		);
 		expect(renderOutputs).toHaveBeenCalledWith(
 			expect.objectContaining({
 				blocks: expect.arrayContaining([
@@ -570,7 +571,8 @@ describe("Atlas pipeline slices", () => {
 							id: "web-1",
 							title: "Routing docs",
 							url: "https://example.com/routing",
-							snippet: "Fetched page excerpt: SvelteKit routing is filesystem based.",
+							snippet:
+								"Fetched page excerpt: SvelteKit routing is filesystem based.",
 						},
 					],
 					rejectedSources: [],
@@ -724,7 +726,7 @@ describe("Atlas pipeline slices", () => {
 		);
 	});
 
-	it("falls back to the user query when decompose returns no usable search queries", async () => {
+	it("falls back to generated search variants when decompose returns no usable search queries", async () => {
 		const { runAtlasPipeline } = await import("./pipeline");
 		const searchWeb = vi.fn(async () => ({
 			sources: [
@@ -791,15 +793,102 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(searchWeb).toHaveBeenCalledWith([
-			"Compare browser caching strategies for SaaS dashboards",
-		]);
+		const expectedQueries = [
+			"browser caching strategies SaaS dashboards evidence",
+			"browser caching strategies SaaS dashboards comparison",
+			"browser caching strategies SaaS dashboards best practices",
+		];
+		expect(searchWeb).toHaveBeenCalledWith(expectedQueries);
 		expect(heartbeat).toHaveBeenCalledWith({
 			stage: "search",
 			progressPercent: 25,
 			progressDetails: {
-				queries: ["Compare browser caching strategies for SaaS dashboards"],
+				queries: expectedQueries,
 			},
+		});
+	});
+
+	it("does not surface the original prompt as the only research query when decompose echoes it", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const userPrompt =
+			"Please research the current enterprise RAG architecture patterns for regulated SaaS teams";
+		const searchWeb = vi.fn(async () => ({
+			sources: [
+				{
+					id: "web-1",
+					title: "RAG architecture docs",
+					url: "https://example.com/rag",
+					snippet: "RAG architecture docs",
+				},
+			],
+			limitation: null,
+		}));
+		const heartbeat = vi.fn(async () => {});
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-prompt-echo",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "RAG architecture",
+				query: userPrompt,
+				lifecycle: {
+					family: {
+						familyId: "atlas-prompt-echo",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-prompt-echo",
+						currentAtlasJobId: "atlas-prompt-echo",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb,
+				runModelStage: vi.fn(async (input) => ({
+					text:
+						input.stage === "decompose" ? userPrompt : `${input.stage} result`,
+					usage: {
+						inputTokens: 1,
+						outputTokens: 1,
+						totalTokens: 2,
+						costUsdMicros: 1,
+					},
+				})),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async () => {}),
+				heartbeat,
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-1",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		const expectedQueries = [
+			"current enterprise RAG architecture patterns regulated SaaS teams evidence",
+			"current enterprise RAG architecture patterns regulated SaaS teams comparison",
+			"current enterprise RAG architecture patterns regulated SaaS teams best practices",
+		];
+		expect(searchWeb).toHaveBeenCalledWith(expectedQueries);
+		expect(searchWeb).not.toHaveBeenCalledWith([userPrompt]);
+		expect(heartbeat).toHaveBeenCalledWith({
+			stage: "search",
+			progressPercent: 25,
+			progressDetails: { queries: expectedQueries },
 		});
 	});
 

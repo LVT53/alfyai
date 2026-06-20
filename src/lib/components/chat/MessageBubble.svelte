@@ -187,6 +187,19 @@ type DeliberationStatusEntry =
 	| DeliberationActivityEntry;
 type AttachmentArtifactSummary = ArtifactSummary & { artifactId: string };
 
+const ATLAS_PROFILES = ["overview", "in-depth", "exhaustive"] as const;
+
+function isAtlasKickoffMessage(content: string): boolean {
+	const normalized = content.trim();
+	return ATLAS_PROFILES.some(
+		(profile) =>
+			normalized ===
+				`Atlas is queued with the ${profile} profile. You can close this page and return for progress.` ||
+			normalized ===
+				`Az Atlas várólistára került a(z) ${profile} profillal. Bezárhatod ezt az oldalt, és később visszatérhetsz a folyamat állásához.`,
+	);
+}
+
 function isDeliberationThinkingStatus(
 	segment: ThinkingSegment,
 ): segment is DeliberationThinkingStatus {
@@ -252,6 +265,13 @@ let skillDrafts = $derived(message.skillDrafts ?? []);
 let sourceForks = $derived(message.sourceForks);
 let userMessageSegments = $derived(
 	isUser ? tokenizeTextLinks(message.content) : [],
+);
+let assistantDisplayContent = $derived(
+	!isUser &&
+		isAtlasKickoffMessage(message.content) &&
+		dedupedAtlasJobs.some((job) => job.status === "succeeded")
+		? $t("atlas.reportReady")
+		: message.content,
 );
 
 // Thinking is definitively done once visible response text has started streaming
@@ -733,7 +753,7 @@ function toggleForkDetails() {
 		{:else}
 			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.5] md:leading-[1.55]">
 				<MarkdownRenderer
-					content={message.content}
+					content={assistantDisplayContent}
 					isDark={$isDark}
 					isStreaming={Boolean(message.isStreaming)}
 					compactExternalLinks
