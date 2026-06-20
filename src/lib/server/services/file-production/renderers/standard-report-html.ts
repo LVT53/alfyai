@@ -635,6 +635,7 @@ export function renderStandardReportHtml(
 		"<head>",
 		'<meta charset="utf-8" />',
 		'<meta name="viewport" content="width=device-width, initial-scale=1" />',
+		'<meta name="alfyai-template" content="alfyai_standard_report" />',
 		`<title>${escapeHtml(source.title)}</title>`,
 		"<style>",
 		':root{color-scheme:light;--report-text:#1B1815;--report-body:#3E3933;--report-muted:#6F6860;--report-accent:#B65F3D;--report-bg:#FAFAF8;--report-panel:#F4F3EE;--report-rule:rgba(0,0,0,.08);--report-callout:#F7F6F2;--report-tooltip-bg:#1B1815;--report-tooltip-text:#FAFAF8;--report-tooltip-muted:rgba(250,250,248,.78);--report-tooltip-border:rgba(255,255,255,.12);--report-serif:"Libre Baskerville","Georgia",serif;font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;}',

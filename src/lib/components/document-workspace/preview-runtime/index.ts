@@ -22,6 +22,7 @@ export type PreviewRuntimeAdapter =
 			kind: "html";
 			blob: Blob;
 			text: string;
+			trustedRuntime: boolean;
 	  }
 	| {
 			kind: BlobPreviewAdapterKind;
@@ -117,6 +118,10 @@ export async function loadPreviewRuntime(
 			fileType,
 			filename: input.filename,
 			mimeType,
+			contentSecurityPolicy: readResponseHeader(
+				response,
+				"content-security-policy",
+			),
 		});
 
 		return {
@@ -210,11 +215,13 @@ async function buildPreviewAdapter({
 	fileType,
 	filename,
 	mimeType,
+	contentSecurityPolicy,
 }: {
 	blob: Blob;
 	fileType: PreviewFileType;
 	filename: string;
 	mimeType: string | null;
+	contentSecurityPolicy: string | null;
 }): Promise<PreviewRuntimeAdapter> {
 	if (fileType === "text") {
 		const text = await blob.text();
@@ -232,6 +239,7 @@ async function buildPreviewAdapter({
 			kind: "html",
 			blob,
 			text: await blob.text(),
+			trustedRuntime: allowsTrustedHtmlPreviewRuntime(contentSecurityPolicy),
 		};
 	}
 
@@ -260,6 +268,30 @@ function getEffectiveMimeType(
 function normalizeMimeType(mimeType: string | null): string | null {
 	const mime = mimeType?.split(";")[0]?.trim().toLowerCase() ?? "";
 	return mime || null;
+}
+
+function readResponseHeader(response: Response, name: string): string | null {
+	return response.headers?.get(name) ?? null;
+}
+
+export function allowsTrustedHtmlPreviewRuntime(
+	contentSecurityPolicy: string | null,
+): boolean {
+	const normalized = (contentSecurityPolicy ?? "")
+		.replace(/\s+/g, " ")
+		.trim()
+		.toLowerCase();
+	if (!normalized) return false;
+
+	return [
+		"default-src 'none'",
+		"img-src https: http: data:",
+		"style-src 'unsafe-inline'",
+		"script-src 'unsafe-inline'",
+		"object-src 'none'",
+		"base-uri 'none'",
+		"form-action 'none'",
+	].every((token) => normalized.includes(token));
 }
 
 function getTextPreviewKind(

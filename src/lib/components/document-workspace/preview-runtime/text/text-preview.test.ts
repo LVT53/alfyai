@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildStaticHtmlPreviewSrcdoc,
+	buildTrustedHtmlPreviewSrcdoc,
 	renderCsvPreviewHtml,
 	renderTextPreview,
 } from "./index";
@@ -116,5 +117,51 @@ describe("text preview adapter", () => {
 		expect(srcdoc).toContain("color: green");
 		expect(srcdoc).not.toContain("image-set");
 		expect(srcdoc).not.toContain("https://evil.test");
+	});
+
+	it("preserves report scripts only for trusted HTML runtime previews", async () => {
+		await expect(
+			renderTextPreview({
+				kind: "html",
+				blob: new Blob([
+					"<main>Report</main><script>window.ready=true</script>",
+				]),
+				text: "<main>Report</main><script>window.ready=true</script>",
+				trustedRuntime: false,
+			}),
+		).resolves.toMatchObject({
+			kind: "html",
+			trustedRuntime: false,
+			srcdoc: expect.not.stringContaining("<script>window.ready=true</script>"),
+		});
+
+		const trusted = await renderTextPreview({
+			kind: "html",
+			blob: new Blob(["<main>Report</main><script>window.ready=true</script>"]),
+			text: "<main>Report</main><script>window.ready=true</script>",
+			trustedRuntime: true,
+		});
+
+		expect(trusted).toMatchObject({
+			kind: "html",
+			trustedRuntime: true,
+			srcdoc: expect.stringContaining("<script>window.ready=true</script>"),
+		});
+		if (trusted.kind !== "html") {
+			throw new Error("Expected trusted HTML preview");
+		}
+		expect(trusted.srcdoc).toContain(`http-equiv="Content-Security-Policy"`);
+		expect(trusted.srcdoc).toContain("script-src 'unsafe-inline'");
+	});
+
+	it("injects a constrained CSP into trusted full HTML reports", () => {
+		const srcdoc = buildTrustedHtmlPreviewSrcdoc(
+			"<!doctype html><html><head><title>Report</title></head><body><script>window.ready=true</script></body></html>",
+		);
+
+		expect(srcdoc).toContain("<title>Report</title>");
+		expect(srcdoc).toContain("<script>window.ready=true</script>");
+		expect(srcdoc).toContain("default-src 'none'");
+		expect(srcdoc).toContain("</head><body>");
 	});
 });

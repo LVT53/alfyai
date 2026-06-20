@@ -276,6 +276,68 @@ describe("Atlas renderer output", () => {
 		);
 	});
 
+	it("replaces model-authored final source sections with canonical backend source chips", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Canonical Sources Atlas",
+			assembledMarkdown: [
+				"## Findings",
+				"Atlas summarized the evidence before the model attempted to append its own source list.",
+				"",
+				"## Sources",
+				"1. Old source text that should not survive in the generated report.",
+				"",
+				"## Follow-up",
+				"This section remains part of the authored report after the removed source list.",
+			].join("\n"),
+			sources: [
+				{
+					title: "Accepted source",
+					url: "https://example.com/accepted",
+					reasoning: "Accepted evidence selected by the backend.",
+				},
+			],
+			honestyMarkers: [],
+		});
+
+		const headings = source.blocks.filter(
+			(
+				block,
+			): block is Extract<
+				(typeof source.blocks)[number],
+				{ type: "heading" }
+			> => block.type === "heading",
+		);
+		expect(headings.filter((block) => block.text === "Sources")).toHaveLength(
+			1,
+		);
+		expect(source.blocks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ type: "heading", text: "Findings" }),
+				expect.objectContaining({ type: "heading", text: "Follow-up" }),
+				expect.objectContaining({
+					type: "sourceChips",
+					title: "Web Sources",
+					sources: [
+						expect.objectContaining({
+							title: "Accepted source",
+							url: "https://example.com/accepted",
+							reasoning: "Accepted evidence selected by the backend.",
+						}),
+					],
+				}),
+			]),
+		);
+		expect(
+			source.blocks
+				.map((block) =>
+					"text" in block && typeof block.text === "string" ? block.text : "",
+				)
+				.join("\n"),
+		).not.toContain("Old source text");
+	});
+
 	it("adds a key takeaway, useful chart, and source-attributed image blocks when the report content supports them", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 
@@ -367,8 +429,14 @@ describe("Atlas renderer output", () => {
 					severity: "warning",
 				},
 			],
+			date: "2026-06-20",
 		});
 
+		expect(source.cover).toEqual({
+			enabled: true,
+			eyebrow: "Jelentés dátuma: 2026-06-20",
+			dateLabel: null,
+		});
 		expect(source.blocks).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({

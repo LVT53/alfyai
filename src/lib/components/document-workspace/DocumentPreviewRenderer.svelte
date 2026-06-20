@@ -213,6 +213,12 @@ function isOfficeAdapter(
 	);
 }
 
+function htmlPreviewSandbox(preview: TextPreviewRenderResult | null): string {
+	return preview?.kind === "html" && preview.trustedRuntime
+		? "allow-scripts allow-popups allow-popups-to-escape-sandbox"
+		: "";
+}
+
 function reportAdapterError(message: string) {
 	error = message;
 }
@@ -324,7 +330,7 @@ function downloadFile() {
 							<iframe
 								class="html-preview-frame"
 								title={`${filename} preview`}
-								sandbox=""
+								sandbox={htmlPreviewSandbox(textPreview)}
 								style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
 								srcdoc={textPreview.srcdoc}
 							></iframe>

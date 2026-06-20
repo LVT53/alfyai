@@ -122,6 +122,9 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(rendered.mimeType).toBe("text/html");
 		expect(rendered.content.toString("utf8")).toContain("<!doctype html>");
 		expect(rendered.content.toString("utf8")).toContain(
+			'<meta name="alfyai-template" content="alfyai_standard_report" />',
+		);
+		expect(rendered.content.toString("utf8")).toContain(
 			"&lt;script&gt;alert(&quot;not markup&quot;)&lt;/script&gt;",
 		);
 		expect(rendered.content.toString("utf8")).not.toContain("<script>alert");

@@ -24,6 +24,9 @@ const markdownMocks = vi.hoisted(() => ({
 	),
 }));
 
+const STANDARD_REPORT_CSP =
+	"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+
 vi.mock("pdfjs-dist", () => ({
 	GlobalWorkerOptions: {
 		workerSrc: "",
@@ -72,10 +75,11 @@ function openPreview(
 	});
 }
 
-function mockFetchBlob(blob: Blob) {
+function mockFetchBlob(blob: Blob, init: ResponseInit = {}) {
 	(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
 		ok: true,
 		status: 200,
+		headers: new Headers(init.headers),
 		blob: () => Promise.resolve(blob),
 	});
 }
@@ -519,6 +523,41 @@ describe("DocumentPreviewRenderer", () => {
 				document.querySelector(".preview-body-embedded") as Element,
 			).overflowY,
 		).toBe("hidden");
+	});
+
+	it("renders generated report HTML with its trusted runtime sandbox", async () => {
+		mockFetchBlob(
+			new Blob(
+				[
+					"<!doctype html><html><head><title>Atlas Report</title></head><body><div id=\"report-viewer\"><main>Report</main></div><script>document.body.dataset.reportRuntime = 'ready'</script></body></html>",
+				],
+				{ type: "text/html" },
+			),
+			{
+				headers: {
+					"Content-Security-Policy": STANDARD_REPORT_CSP,
+				},
+			},
+		);
+
+		openPreview({
+			filename: "atlas-report.html",
+			mimeType: "text/html",
+			onClose: mockOnClose,
+		});
+
+		const frame = await screen.findByTitle("atlas-report.html preview");
+		expect(frame).toHaveAttribute(
+			"sandbox",
+			"allow-scripts allow-popups allow-popups-to-escape-sandbox",
+		);
+		const srcdoc = frame.getAttribute("srcdoc") ?? "";
+		expect(srcdoc).toContain("report-viewer");
+		expect(srcdoc).toContain(
+			"<script>document.body.dataset.reportRuntime = 'ready'</script>",
+		);
+		expect(srcdoc).toContain('http-equiv="Content-Security-Policy"');
+		expect(srcdoc).toContain("script-src 'unsafe-inline'");
 	});
 
 	it("renders DOCX through the office adapter surface", async () => {

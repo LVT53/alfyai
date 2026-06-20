@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	allowsTrustedHtmlPreviewRuntime,
 	loadPreviewRuntime,
 	type PreviewRuntimeResult,
 	resolvePreviewSourceUrl,
@@ -9,9 +10,13 @@ function makeFetchResponse(blob: Blob, init: ResponseInit = {}) {
 	return {
 		ok: (init.status ?? 200) >= 200 && (init.status ?? 200) < 300,
 		status: init.status ?? 200,
+		headers: new Headers(init.headers),
 		blob: async () => blob,
 	} as Response;
 }
+
+const STANDARD_REPORT_CSP =
+	"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
 function expectReady(
 	result: PreviewRuntimeResult,
@@ -181,6 +186,41 @@ describe("preview runtime", () => {
 		expectReady(result);
 		expect(result.fileType).toBe("image");
 		expect(result.adapter.kind).toBe("image");
+	});
+
+	it("marks generated report HTML runtime trusted only when the response uses the report CSP", async () => {
+		expect(allowsTrustedHtmlPreviewRuntime(STANDARD_REPORT_CSP)).toBe(true);
+		expect(
+			allowsTrustedHtmlPreviewRuntime(
+				"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+			),
+		).toBe(false);
+
+		const result = await loadPreviewRuntime({
+			artifactId: "artifact-html",
+			previewUrl: null,
+			filename: "atlas-report.html",
+			mimeType: "text/html",
+			fetchImpl: vi.fn().mockResolvedValue(
+				makeFetchResponse(
+					new Blob(["<!doctype html><div id='report-viewer'></div>"], {
+						type: "text/html",
+					}),
+					{
+						headers: {
+							"Content-Security-Policy": STANDARD_REPORT_CSP,
+						},
+					},
+				),
+			),
+		});
+
+		expectReady(result);
+		expect(result.fileType).toBe("html");
+		expect(result.adapter).toMatchObject({
+			kind: "html",
+			trustedRuntime: true,
+		});
 	});
 
 	it("uses the response blob MIME when generic metadata is parameterized", async () => {

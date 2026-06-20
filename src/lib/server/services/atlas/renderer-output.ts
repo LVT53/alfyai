@@ -102,6 +102,7 @@ function atlasChrome(input: {
 	providedSourcesReasoning: string;
 	webSourcesReasoning: string;
 	librarySourcesReasoning: string;
+	reportDate: string;
 	confidenceLabel?: string;
 } {
 	if (input.language === "hu") {
@@ -123,6 +124,7 @@ function atlasChrome(input: {
 			webSourcesReasoning: "Az Atlas által elfogadott webes bizonyíték",
 			librarySourcesReasoning:
 				"Az Atlas által kiválasztott könyvtári bizonyíték",
+			reportDate: "Jelentés dátuma",
 			confidenceLabel,
 		};
 	}
@@ -143,6 +145,7 @@ function atlasChrome(input: {
 		providedSourcesReasoning: "You provided these",
 		webSourcesReasoning: "Accepted web evidence gathered by Atlas",
 		librarySourcesReasoning: "Accepted library evidence selected by Atlas",
+		reportDate: "Report date",
 		confidenceLabel,
 	};
 }
@@ -542,6 +545,28 @@ function isSourcesHeading(text: string): boolean {
 	);
 }
 
+function removeModelAuthoredSourcesSections(
+	blocks: GeneratedDocumentSource["blocks"],
+): void {
+	const retained: GeneratedDocumentSource["blocks"] = [];
+	let skippingSourcesSection = false;
+
+	for (const block of blocks) {
+		if (block.type === "heading" && block.level <= 2) {
+			if (isSourcesHeading(block.text)) {
+				skippingSourcesSection = true;
+				continue;
+			}
+			skippingSourcesSection = false;
+		}
+
+		if (skippingSourcesSection) continue;
+		retained.push(block);
+	}
+
+	blocks.splice(0, blocks.length, ...retained);
+}
+
 function paragraphHasExplicitSourceCitation(text: string): boolean {
 	return /\[\d{1,3}\]/.test(text);
 }
@@ -612,6 +637,7 @@ export function buildAtlasDocumentSource(
 		detectLanguage(`${input.title}\n${input.assembledMarkdown}`);
 	const blocks: GeneratedDocumentSource["blocks"] = [];
 	appendMarkdownBlocks(blocks, input.assembledMarkdown);
+	removeModelAuthoredSourcesSections(blocks);
 	addKeyTakeawayBlock(blocks, language);
 	addInlineSourceFallbacks(blocks, input.sources, language);
 
@@ -656,7 +682,9 @@ export function buildAtlasDocumentSource(
 			input.family || input.date
 				? {
 						enabled: true,
-						eyebrow: input.date ? `Report date: ${input.date}` : "Report date",
+						eyebrow: input.date
+							? `${chrome.reportDate}: ${input.date}`
+							: chrome.reportDate,
 						dateLabel: null,
 					}
 				: undefined,

@@ -16,16 +16,24 @@ export type TextPreviewRenderResult =
 	| {
 			kind: "html";
 			srcdoc: string;
+			trustedRuntime: boolean;
 	  };
+
+const TRUSTED_HTML_RUNTIME_CSP =
+	"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
 export async function renderTextPreview(
 	adapter: TextRuntimeAdapter | HtmlRuntimeAdapter,
 	options: { isDark?: boolean } = {},
 ): Promise<TextPreviewRenderResult> {
 	if (adapter.kind === "html") {
+		const trustedRuntime = adapter.trustedRuntime === true;
 		return {
 			kind: "html",
-			srcdoc: buildStaticHtmlPreviewSrcdoc(adapter.text),
+			srcdoc: trustedRuntime
+				? buildTrustedHtmlPreviewSrcdoc(adapter.text)
+				: buildStaticHtmlPreviewSrcdoc(adapter.text),
+			trustedRuntime,
 		};
 	}
 
@@ -138,6 +146,19 @@ export function buildStaticHtmlPreviewSrcdoc(content: string): string {
 	const safeHtmlWithSafeInlineStyles = sanitizeInlineStyleAttributes(safeHtml);
 	const styleBlock = safeCss ? `<style>${safeCss}</style>` : "";
 	return `<!doctype html><html><head><base target="_blank"><meta charset="utf-8">${styleBlock}</head><body>${safeHtmlWithSafeInlineStyles}</body></html>`;
+}
+
+export function buildTrustedHtmlPreviewSrcdoc(content: string): string {
+	const meta = `<meta http-equiv="Content-Security-Policy" content="${TRUSTED_HTML_RUNTIME_CSP}" />`;
+	if (/<\/head\s*>/i.test(content)) {
+		return content.replace(/<\/head\s*>/i, `${meta}</head>`);
+	}
+
+	if (/<html\b/i.test(content)) {
+		return content.replace(/<html\b([^>]*)>/i, `<html$1><head>${meta}</head>`);
+	}
+
+	return `<!doctype html><html><head>${meta}</head><body>${content}</body></html>`;
 }
 
 function extractLocalStyleBlocks(content: string): {
