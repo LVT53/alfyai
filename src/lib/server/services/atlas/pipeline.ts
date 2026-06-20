@@ -326,10 +326,14 @@ function buildAssembleRepairPrompt(input: {
 
 function buildDeterministicFallbackReport(input: {
 	language: SupportedLanguage;
-	query: string;
 	curatedEvidence: string;
 	synthesis: string;
 	outline: string;
+	sources: Array<{
+		title: string;
+		url?: string | null;
+		reasoning?: string | null;
+	}>;
 	limitation: { code: string; message: string } | null;
 }): string {
 	const clean = (value: string, fallback: string) => {
@@ -339,24 +343,53 @@ function buildDeterministicFallbackReport(input: {
 			.trim();
 		return normalized || fallback;
 	};
+	const sourceFindings = buildSourceGroundedFallbackFindings(
+		input.sources,
+		input.language,
+	);
+	const executiveSummary =
+		sourceFindings.length > 0
+			? buildFallbackExecutiveSummary(sourceFindings, input.language)
+			: clean(
+					input.synthesis,
+					input.language === "hu"
+						? "Az elfogadott források alapján a bizonyítékok korlátozott, óvatos következtetéseket támogatnak."
+						: "The accepted sources support a limited, cautious set of source-grounded conclusions.",
+				);
+	const findingsText =
+		sourceFindings.length > 0
+			? sourceFindings
+					.map((finding, index) => `${index + 1}. ${finding}`)
+					.join("\n")
+			: clean(
+					input.curatedEvidence,
+					input.language === "hu"
+						? "A válogatott bizonyítékok alapján csak óvatos, forráshoz kötött megállapítások tehetők."
+						: "The curated evidence supports only cautious, source-grounded findings.",
+				);
+	const analysisFrame =
+		sourceFindings.length > 0
+			? input.language === "hu"
+				? "A jelentés a legerősebb elfogadott forrásokra szűkíti a következtetéseket, és minden állítást ezekhez a forrásokhoz köt."
+				: "The report narrows conclusions to the strongest accepted sources and ties each claim to that evidence."
+			: clean(
+					input.outline,
+					input.language === "hu"
+						? "A következtetések az elfogadott Atlas forrásokból származnak."
+						: "The conclusions are derived from the accepted Atlas sources.",
+				);
 	if (input.language === "hu") {
 		return [
 			`# Atlas jelentés`,
 			"",
 			"## Vezetői összefoglaló",
-			clean(
-				input.synthesis,
-				"Az Atlas nem kapott elég részletes szintézist, ezért a jelentés a válogatott bizonyítékokra és a korlátokra támaszkodik.",
-			),
+			executiveSummary,
 			"",
 			"## Megállapítások",
-			clean(
-				input.curatedEvidence,
-				"A válogatott bizonyítékok alapján csak óvatos, forráshoz kötött megállapítások tehetők.",
-			),
+			findingsText,
 			"",
 			"## Elemzési keret",
-			clean(input.outline, `Kutatási kérdés: ${input.query}`),
+			analysisFrame,
 			"",
 			"## Korlátok",
 			input.limitation
@@ -368,25 +401,105 @@ function buildDeterministicFallbackReport(input: {
 		`# Atlas Report`,
 		"",
 		"## Executive Summary",
-		clean(
-			input.synthesis,
-			"Atlas did not receive a detailed enough synthesis, so this report is constrained to the curated evidence and explicit limitations.",
-		),
+		executiveSummary,
 		"",
 		"## Findings",
-		clean(
-			input.curatedEvidence,
-			"The curated evidence supports only cautious, source-grounded findings.",
-		),
+		findingsText,
 		"",
 		"## Analysis Frame",
-		clean(input.outline, `Research question: ${input.query}`),
+		analysisFrame,
 		"",
 		"## Limitations",
 		input.limitation
 			? `${input.limitation.message}`
 			: "This report is limited to the accepted Atlas sources and should not be treated as exhaustive historical coverage.",
 	].join("\n");
+}
+
+function buildSourceGroundedFallbackFindings(
+	sources: Array<{
+		title: string;
+		url?: string | null;
+		reasoning?: string | null;
+	}>,
+	language: SupportedLanguage,
+): string[] {
+	const findings: string[] = [];
+	for (const source of sources) {
+		if (findings.length >= 5) break;
+		const evidence = extractEvidenceStatement(source.reasoning ?? "");
+		if (!evidence) continue;
+		if (language === "hu") {
+			findings.push(`A(z) "${source.title}" forrás szerint ${evidence}`);
+		} else {
+			findings.push(`"${source.title}" shows that ${formatEvidenceClause(evidence)}`);
+		}
+	}
+	return findings;
+}
+
+function buildFallbackExecutiveSummary(
+	findings: string[],
+	language: SupportedLanguage,
+): string {
+	const first = findings[0]?.replace(/^\d+\.\s+/, "") ?? "";
+	const second = findings[1]?.replace(/^\d+\.\s+/, "") ?? "";
+	if (language === "hu") {
+		return [
+			"Az elfogadott források óvatos, forráshoz kötött következtetéseket támasztanak alá.",
+			first,
+			second,
+		]
+			.filter(Boolean)
+			.join(" ");
+	}
+	return [
+		"The accepted evidence supports a cautious, source-grounded report rather than a broad unsupported narrative.",
+		first,
+		second,
+	]
+		.filter(Boolean)
+		.join(" ");
+}
+
+function extractEvidenceStatement(text: string): string {
+	const normalized = text
+		.replace(/\bSearch result snippet:\s*/gi, "")
+		.replace(/\bFetched page excerpt:\s*/gi, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (!normalized) return "";
+	const sentences = normalized
+		.split(/(?<=[.!?])\s+/)
+		.map((sentence) => sentence.trim())
+		.filter((sentence) => sentence.length >= 45)
+		.filter(
+			(sentence) =>
+				!/^(Search result snippet|Fetched page excerpt|Related searches?)\b/i.test(
+					sentence,
+				),
+		);
+	const selected = sentences.slice(0, 2).join(" ");
+	return truncateSentence(selected || normalized, 260);
+}
+
+function truncateSentence(text: string, maxLength: number): string {
+	if (text.length <= maxLength) return ensureTerminalPunctuation(text);
+	const truncated = text.slice(0, maxLength).replace(/\s+\S*$/, "").trim();
+	return ensureTerminalPunctuation(`${truncated}...`);
+}
+
+function ensureTerminalPunctuation(text: string): string {
+	const trimmed = text.trim();
+	if (!trimmed) return "";
+	return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function formatEvidenceClause(text: string): string {
+	const trimmed = text.trim();
+	const firstWord = trimmed.match(/^[A-Za-z]+/)?.[0] ?? "";
+	if (!firstWord || /[A-Z].*[A-Z]/.test(firstWord)) return trimmed;
+	return `${trimmed[0].toLowerCase()}${trimmed.slice(1)}`;
 }
 
 export async function runAtlasPipeline(
@@ -549,12 +662,24 @@ export async function runAtlasPipeline(
 		finalAssembledMarkdown = repair.text;
 	}
 	if (looksLikeProcessOnlyReport(finalAssembledMarkdown)) {
+		const fallbackSources = [
+			...sources.localSources.map((source) => ({
+				title: source.title,
+				url: null,
+				reasoning: source.text,
+			})),
+			...search.sources.map((source) => ({
+				title: source.title,
+				url: source.url,
+				reasoning: source.snippet,
+			})),
+		];
 		finalAssembledMarkdown = buildDeterministicFallbackReport({
 			language,
-			query: input.job.query,
 			curatedEvidence: curate.text,
 			synthesis: synthesize.text,
 			outline: integrate.text,
+			sources: fallbackSources,
 			limitation: search.limitation,
 		});
 	}

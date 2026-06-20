@@ -610,7 +610,114 @@ describe("Atlas pipeline slices", () => {
 				blocks: expect.arrayContaining([
 					expect.objectContaining({
 						type: "paragraph",
-						text: expect.stringContaining("filesystem routing"),
+						text: expect.stringContaining("filesystem based"),
+					}),
+				]),
+			}),
+		);
+	});
+
+	it("uses accepted source excerpts when model stages collapse to generic fallback text", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-source-derived-fallback",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Source-derived fallback",
+				query: "Explain routing docs history without a process summary",
+				lifecycle: {
+					family: {
+						familyId: "atlas-source-derived-fallback",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-source-derived-fallback",
+						currentAtlasJobId: "atlas-source-derived-fallback",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-19T13:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Routing docs",
+							url: "https://example.com/routing",
+							snippet:
+								"Search result snippet: At the heart of SvelteKit is a filesystem-based router. Fetched page excerpt: The routes of your app are defined by the directories in your codebase, with src/routes as the root route.",
+						},
+						{
+							id: "web-2",
+							title: "Route files docs",
+							url: "https://example.com/route-files",
+							snippet:
+								"Fetched page excerpt: A +page.svelte component defines a page of your app, while +server files define API endpoints for matching routes.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => ({
+					text:
+						input.stage === "decompose"
+							? "SvelteKit routing docs"
+							: input.stage === "assemble"
+								? "I checked the sources and synthesized findings for the report."
+								: `${input.stage} result`,
+					usage: {
+						inputTokens: 1,
+						outputTokens: 1,
+						totalTokens: 2,
+						costUsdMicros: 1,
+					},
+				})),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining(
+					'"Routing docs" shows that at the heart of SvelteKit is a filesystem-based router.',
+				),
+			}),
+		);
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.not.stringContaining(
+					"Atlas did not receive a detailed enough synthesis",
+				),
+			}),
+		);
+		expect(renderOutputs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				blocks: expect.arrayContaining([
+					expect.objectContaining({
+						type: "paragraph",
+						text: expect.stringContaining("filesystem-based router"),
 					}),
 				]),
 			}),
