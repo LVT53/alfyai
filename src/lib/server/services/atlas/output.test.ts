@@ -338,7 +338,7 @@ describe("Atlas renderer output", () => {
 		).not.toContain("Old source text");
 	});
 
-	it("adds a key takeaway, useful chart, and source-attributed image blocks when the report content supports them", async () => {
+	it("keeps key takeaways as optional compact section callouts instead of a forced report-wide top block", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 
 		const source = buildAtlasDocumentSource({
@@ -348,6 +348,12 @@ describe("Atlas renderer output", () => {
 				"",
 				"## Executive Summary",
 				"Market growth is concentrated in vendors that can pair enterprise controls with practical deployment support.",
+				"",
+				"## Enterprise adoption pressure",
+				"Dense adoption evidence spans buyer controls, implementation support, regulated rollout timelines, and measurable support outcomes across several source clusters.",
+				"",
+				"### Key takeaway",
+				"Enterprise controls matter most when rollouts span regulated workflows and support teams.",
 				"",
 				"| Segment | Growth |",
 				"| --- | ---: |",
@@ -367,13 +373,18 @@ describe("Atlas renderer output", () => {
 			honestyMarkers: [],
 		});
 
+		expect(source.blocks[0]).not.toMatchObject({
+			type: "callout",
+			title: "Key takeaway",
+			text: "Market growth is concentrated in vendors that can pair enterprise controls with practical deployment support.",
+		});
 		expect(source.blocks).toEqual(
 			expect.arrayContaining([
 				{
 					type: "callout",
 					tone: "tip",
 					title: "Key takeaway",
-					text: "Market growth is concentrated in vendors that can pair enterprise controls with practical deployment support.",
+					text: "Enterprise controls matter most when rollouts span regulated workflows and support teams.",
 				},
 				expect.objectContaining({
 					type: "chart",
@@ -400,6 +411,14 @@ describe("Atlas renderer output", () => {
 						title: "Vendor benchmark",
 						url: "https://example.com/adoption.png",
 					},
+				}),
+			]),
+		);
+		expect(source.blocks).not.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "heading",
+					text: "Key takeaway",
 				}),
 			]),
 		);
@@ -439,10 +458,6 @@ describe("Atlas renderer output", () => {
 		});
 		expect(source.blocks).toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({
-					type: "callout",
-					title: "Kulcsüzenet",
-				}),
 				expect.objectContaining({
 					type: "heading",
 					text: "Őszinteségi jelölések",

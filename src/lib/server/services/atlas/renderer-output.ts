@@ -468,61 +468,83 @@ function chartFromTable(
 	return null;
 }
 
-function hasTakeawayBlock(
-	blocks: GeneratedDocumentSource["blocks"],
-	language: SupportedLanguage,
-): boolean {
-	const headingPattern =
-		language === "hu"
-			? /^(kulcsüzenet|fő tanulság|legfontosabb tanulság)$/i
-			: /^key takeaway$/i;
-	return blocks.some((block) => {
-		if (block.type === "callout") {
-			return block.title ? headingPattern.test(block.title) : false;
-		}
-		if (block.type === "heading") return headingPattern.test(block.text);
-		return false;
-	});
+function takeawayHeadingPattern(language: SupportedLanguage): RegExp {
+	return language === "hu"
+		? /^(kulcsüzenet|fő tanulság|legfontosabb tanulság)$/i
+		: /^(key takeaway|takeaway)$/i;
 }
 
-function keyTakeawayText(
-	blocks: GeneratedDocumentSource["blocks"],
+function isTakeawayHeading(
+	block: GeneratedDocumentBlock,
 	language: SupportedLanguage,
-): string | null {
-	const summaryPattern =
-		language === "hu"
-			? /^(vezetői összefoglaló|összefoglaló)$/i
-			: /^(executive summary|summary)$/i;
-	let afterSummaryHeading = false;
-	for (const block of blocks) {
-		if (block.type === "heading") {
-			afterSummaryHeading = summaryPattern.test(block.text);
-			continue;
-		}
-		if (afterSummaryHeading && block.type === "paragraph") {
-			return block.text;
-		}
-	}
-	const paragraph = blocks.find(
-		(block): block is Extract<GeneratedDocumentBlock, { type: "paragraph" }> =>
-			block.type === "paragraph",
+): block is Extract<GeneratedDocumentBlock, { type: "heading" }> {
+	return (
+		block.type === "heading" && takeawayHeadingPattern(language).test(block.text)
 	);
-	return paragraph?.text ?? null;
 }
 
-function addKeyTakeawayBlock(
+function compactExcerpt(text: string): string {
+	const normalized = text.replace(/\s+/g, " ").trim();
+	const maxLength = 360;
+	if (normalized.length <= maxLength) return normalized;
+	const sentenceEnd = normalized
+		.slice(0, maxLength)
+		.search(/[.!?](?=\s|$)[^.!?]*$/);
+	if (sentenceEnd >= 120) return normalized.slice(0, sentenceEnd + 1).trim();
+	const clipped = normalized.slice(0, maxLength + 1);
+	const lastSpace = clipped.lastIndexOf(" ");
+	return `${clipped.slice(0, Math.max(lastSpace, 120)).trim()}...`;
+}
+
+function compactTakeawayText(
+	block: GeneratedDocumentBlock | undefined,
+): { text: string; consumedBlocks: number } | null {
+	if (!block) return null;
+	if (block.type === "paragraph" || block.type === "quote") {
+		return { text: compactExcerpt(block.text), consumedBlocks: 1 };
+	}
+	if (block.type === "list") {
+		const text = block.items.slice(0, 2).join(" ");
+		return text ? { text: compactExcerpt(text), consumedBlocks: 1 } : null;
+	}
+	return null;
+}
+
+function convertAuthoredTakeawaysToCallouts(
 	blocks: GeneratedDocumentSource["blocks"],
 	language: SupportedLanguage,
 ): void {
-	if (hasTakeawayBlock(blocks, language)) return;
-	const text = keyTakeawayText(blocks, language);
-	if (!text) return;
-	blocks.unshift({
-		type: "callout",
-		tone: "tip",
-		title: atlasChrome({ language }).keyTakeaway,
-		text,
-	});
+	const converted: GeneratedDocumentSource["blocks"] = [];
+	const headingPattern = takeawayHeadingPattern(language);
+	for (let index = 0; index < blocks.length; index += 1) {
+		const block = blocks[index];
+		if (block.type === "callout" && block.title) {
+			converted.push(
+				headingPattern.test(block.title)
+					? {
+							...block,
+							tone: "tip",
+							title: atlasChrome({ language }).keyTakeaway,
+						}
+					: block,
+			);
+			continue;
+		}
+		if (!isTakeawayHeading(block, language)) {
+			converted.push(block);
+			continue;
+		}
+		const takeaway = compactTakeawayText(blocks[index + 1]);
+		if (!takeaway) continue;
+		converted.push({
+			type: "callout",
+			tone: "tip",
+			title: atlasChrome({ language }).keyTakeaway,
+			text: takeaway.text,
+		});
+		index += takeaway.consumedBlocks;
+	}
+	blocks.splice(0, blocks.length, ...converted);
 }
 
 function normalizedHeading(text: string): string {
@@ -638,7 +660,7 @@ export function buildAtlasDocumentSource(
 	const blocks: GeneratedDocumentSource["blocks"] = [];
 	appendMarkdownBlocks(blocks, input.assembledMarkdown);
 	removeModelAuthoredSourcesSections(blocks);
-	addKeyTakeawayBlock(blocks, language);
+	convertAuthoredTakeawaysToCallouts(blocks, language);
 	addInlineSourceFallbacks(blocks, input.sources, language);
 
 	const librarySources = input.sources.filter((source) => !source.url);

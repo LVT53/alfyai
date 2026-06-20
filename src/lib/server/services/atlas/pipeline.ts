@@ -386,7 +386,8 @@ function buildAssemblePrompt(input: {
 			? [
 					"Írj teljes Atlas jelentést Markdownban.",
 					"Do not write a process report about checking sources, synthesizing findings, or completing research steps.",
-					"A jelentés érdemi megállapításokat tartalmazzon: Vezetői összefoglaló, Kulcsüzenet vagy egyértelmű első összefoglaló bekezdés, tematikus elemző szakaszok, Korlátok és Források.",
+					"A jelentés érdemi megállapításokat tartalmazzon: Vezetői összefoglaló, tematikus elemző szakaszok, Korlátok és Források.",
+					"Ne írj jelentés-szintű Kulcsüzenet szakaszt. Csak akkor adj rövid, kompakt Kulcsüzenet kivonatot egy adott, tartalmilag sűrű szakaszon belül, ha az segíti az olvasást.",
 					"Csak az elfogadott forrásokból és a válogatott bizonyítékokból következő állításokat tegyél.",
 					"Ha a bizonyíték gyenge vagy ellentmondásos, azt a Limitations részben és a releváns szakaszban mondd ki.",
 					"Ha összehasonlítható számszerű bizonyíték van, adj kompakt Markdown táblázatot, hogy a renderer diagramot készíthessen.",
@@ -395,7 +396,8 @@ function buildAssemblePrompt(input: {
 			: [
 					"Write a complete Atlas report in Markdown.",
 					"Do not write a process report about checking sources, synthesizing findings, or completing research steps.",
-					"The report must contain substantive findings: Executive Summary, Key takeaway or a clear first summary paragraph, thematic analytical sections, Limitations, and Sources.",
+					"The report must contain substantive findings: Executive Summary, thematic analytical sections, Limitations, and Sources.",
+					"Do not write a report-level Key takeaway section. Only include a short, compact Key takeaway excerpt inside a specific content-heavy section when it improves scanability.",
 					"Make only claims supported by accepted sources and curated evidence.",
 					"If evidence is weak or conflicting, state that in Limitations and in the relevant section.",
 					"When comparable numeric evidence is available, include a compact Markdown table so the renderer can build a useful chart.",
