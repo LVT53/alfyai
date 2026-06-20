@@ -52,7 +52,10 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 			title: "HTML report",
 			blocks: [
 				{ type: "heading", level: 2, text: "Summary" },
-				{ type: "paragraph", text: '<script>alert("not markup")</script>' },
+				{
+					type: "paragraph",
+					text: '<script>alert("not markup")</script>',
+				},
 				{
 					type: "list",
 					style: "numbered",
@@ -129,7 +132,7 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 			"HTML callout remains readable.",
 		);
 		expect(rendered.content.toString("utf8")).not.toContain(
-			"data-confidence-code",
+			'class="confidence-marker-row"',
 		);
 		expect(rendered.content.toString("utf8")).toContain(
 			"&lt;section&gt;safe text&lt;/section&gt;",
@@ -152,7 +155,10 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(rendered.content.toString("utf8")).toContain("report-section");
 		expect(rendered.content.toString("utf8")).toContain("report-nav");
 		expect(rendered.content.toString("utf8")).toContain(
-			'data-source-chip-list="Web Sources"',
+			'<p class="source-subheading">Web Sources</p>',
+		);
+		expect(rendered.content.toString("utf8")).toContain(
+			'<ul class="source-list">',
 		);
 		expect(rendered.content.toString("utf8")).toContain(
 			"Compact reasoning belongs in the tooltip.",
@@ -180,16 +186,23 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain('<section class="report-section"');
 		expect(html).toContain("updateActiveSection");
 		expect(html).toContain("pointerdown");
-		expect(html).toContain("setPointerCapture");
+		expect(html).toContain("positionReportSidebar");
+		expect(html).toContain("window.addEventListener('pointermove'");
+		expect(html).toContain("getBoundingClientRect");
 	});
 
-	it("fills the mobile viewport when opened directly as standalone HTML", () => {
+	it("fills the viewport without report-card chrome when opened directly as standalone HTML", () => {
 		const html = renderFixtureHtml();
 
 		expect(html).toContain("html,body{");
 		expect(html).toMatch(/min-height:100(?:dvh|vh)/);
+		expect(html).toMatch(/body\{[^}]*padding:0/);
 		expect(html).toContain(".report-viewer{");
 		expect(html).toMatch(/\.report-viewer\{[^}]*min-height:100(?:dvh|vh)/);
+		expect(html).toMatch(/\.report-viewer\{[^}]*max-width:none/);
+		expect(html).toMatch(/\.report-viewer\{[^}]*border:0/);
+		expect(html).toMatch(/\.report-viewer\{[^}]*border-radius:0/);
+		expect(html).toMatch(/\.report-viewer\{[^}]*box-shadow:none/);
 		expect(html).toMatch(/@media \(max-width: 760px\)\{[^}]*body\{/);
 		expect(html).toMatch(
 			/@media \(max-width: 760px\)\{[\s\S]*\.report-viewer\{[\s\S]*min-height:100(?:dvh|vh)/,
@@ -203,9 +216,9 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain("data-favicon-fallback");
 		expect(html).toContain("[hidden]{display:none!important;}");
 		expect(html).toContain('onerror="');
-		expect(html).toContain('aria-label="Example docs"');
+		expect(html).toContain('aria-label="Source 1: Example docs"');
 		expect(html).toContain(
-			'aria-label="Local library note. You provided these."',
+			'aria-label="Source 2: Local library note. You provided these."',
 		);
 		expect(html).toContain("<svg");
 		expect(html).toContain('viewBox="0 0 24 24"');
@@ -222,6 +235,155 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		);
 	});
 
+	it("renders source pills inline and reserves text source lists for the final Sources section", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Sourced Atlas Report",
+			blocks: [
+				{ type: "heading", level: 2, text: "Executive Summary" },
+				{
+					type: "paragraph",
+					text: "Surface code maturity is documented [1].",
+					sources: [
+						{
+							title: "Uploaded strategy memo",
+							reasoning: "Local evidence selected by Atlas.",
+							provided: true,
+						},
+					],
+				},
+				{
+					type: "sourceChips",
+					title: "Section Sources",
+					sources: [
+						{
+							title: "Section vendor note",
+							url: "https://section.example.com/note",
+							reasoning: "Relevant only to this paragraph.",
+						},
+					],
+				},
+				{ type: "heading", level: 2, text: "Sources" },
+				{
+					type: "sourceChips",
+					title: "Web Sources",
+					sources: [
+						{
+							title: "Vendor docs",
+							url: "https://example.com/docs",
+							reasoning: "Official docs for current claims.",
+						},
+					],
+				},
+				{
+					type: "sourceChips",
+					title: "Your Library",
+					sources: [
+						{
+							title: "Uploaded strategy memo",
+							reasoning: "User-provided local evidence.",
+							provided: true,
+						},
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+
+		expect(html).toContain("Surface code maturity is documented ");
+		expect(html).not.toContain("Surface code maturity is documented [1]");
+		expect(html).toContain('class="inline-source-chips"');
+		expect(html).toContain(
+			'aria-label="Source 2: Uploaded strategy memo. You provided these."',
+		);
+		expect(html).not.toContain("source-chip-section");
+		expect(html).not.toContain("source-chip-list");
+		expect(html).toContain('<p class="source-subheading">Web Sources</p>');
+		expect(html).toContain('<p class="source-subheading">Your Library</p>');
+		expect(html).toContain('<ul class="source-list">');
+		expect(html).toContain('class="source-item"');
+		expect(html).toContain(">Vendor docs</a>");
+		expect(html).toContain('<span class="source-domain">example.com</span>');
+	});
+
+	it("renders source tooltips with theme tokens, favicon content, and viewport-aware positioning", () => {
+		const html = renderFixtureHtml();
+
+		expect(html).toContain("--report-tooltip-bg:");
+		expect(html).toContain("--report-tooltip-text:");
+		expect(html).toContain("html.dark{color-scheme:dark;");
+		expect(html).toContain(".source-tooltip{position:fixed;");
+		expect(html).toContain(".honesty-tooltip{position:fixed;");
+		expect(html).toContain("positionFloatingTooltips");
+		expect(html).toContain("report-sidebar");
+		expect(html).toContain("source-tooltip-head");
+		expect(html).toContain('<span class="source-favicon"><img');
+		expect(html).toContain("source-tooltip-reason");
+	});
+
+	it("localizes viewer chrome and final source groups for Hungarian reports", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			language: "hu",
+			title: "Magyar Atlas jelentés",
+			blocks: [
+				{ type: "heading", level: 2, text: "Vezetői összefoglaló" },
+				{
+					type: "paragraph",
+					text: "A megállapítás forrásokkal alátámasztott [1].",
+				},
+				{ type: "heading", level: 2, text: "Források" },
+				{
+					type: "sourceChips",
+					title: "Webes források",
+					sources: [
+						{
+							title: "Példa forrás",
+							url: "https://example.com/hu",
+							reasoning: "Az Atlas által elfogadott webes bizonyíték.",
+						},
+					],
+				},
+				{
+					type: "sourceChips",
+					title: "Saját könyvtár",
+					sources: [
+						{
+							title: "Feltöltött jegyzet",
+							provided: true,
+							reasoning: "A felhasználó adta meg.",
+						},
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+
+		expect(html).toContain('<html lang="hu">');
+		expect(html).toContain('aria-label="Jelentésszakaszok"');
+		expect(html).toContain('aria-label="Szakaszmenü megnyitása"');
+		expect(html).toContain("Szakaszok");
+		expect(html).toContain('<p class="source-subheading">Webes források</p>');
+		expect(html).toContain('<p class="source-subheading">Saját könyvtár</p>');
+		expect(html).toContain('aria-label="Forrás 1: Példa forrás"');
+		expect(html).toContain("saját könyvtár");
+		expect(html).not.toContain(
+			'<span class="inline-source-chips" aria-label="Webes források"',
+		);
+	});
+
 	it("renders structured confidence markers with backend metadata in hover tooltips", () => {
 		const html = renderFixtureHtml();
 
@@ -232,5 +394,6 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain("Partially Supported");
 		expect(html).toContain("unsupported certainty");
 		expect(html).toContain(".honesty-marker:hover .honesty-tooltip");
+		expect(html).not.toContain("confidence-marker-row");
 	});
 });

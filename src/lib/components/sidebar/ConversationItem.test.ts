@@ -41,6 +41,56 @@ describe("ConversationItem Component", () => {
 		vi.clearAllMocks();
 	});
 
+	function parseFixedMenuTop(element: HTMLElement): number {
+		const match = /top:\s*([\d.]+)px/.exec(element.getAttribute("style") ?? "");
+		if (!match) throw new Error("Expected menu style to include a fixed top.");
+		return Number(match[1]);
+	}
+
+	function stubViewportAndTriggerRect() {
+		const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+		const originalHeight = Object.getOwnPropertyDescriptor(
+			window,
+			"innerHeight",
+		);
+		Object.defineProperty(window, "innerWidth", {
+			configurable: true,
+			value: 320,
+		});
+		Object.defineProperty(window, "innerHeight", {
+			configurable: true,
+			value: 220,
+		});
+		const originalGetBoundingClientRect =
+			HTMLElement.prototype.getBoundingClientRect;
+		const rectSpy = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function getBoundingClientRect(this: HTMLElement) {
+				if (this.getAttribute("aria-label") === "Conversation options") {
+					return {
+						x: 260,
+						y: 174,
+						top: 174,
+						right: 304,
+						bottom: 202,
+						left: 276,
+						width: 28,
+						height: 28,
+						toJSON: () => ({}),
+					} as DOMRect;
+				}
+				return originalGetBoundingClientRect.call(this);
+			});
+
+		return () => {
+			rectSpy.mockRestore();
+			if (originalWidth)
+				Object.defineProperty(window, "innerWidth", originalWidth);
+			if (originalHeight)
+				Object.defineProperty(window, "innerHeight", originalHeight);
+		};
+	}
+
 	it("renders conversation title without timestamp metadata", () => {
 		render(ConversationItemWrapper, { conversation: mockConversation });
 		expect(screen.getByText("Test Conversation")).toBeInTheDocument();
@@ -148,6 +198,22 @@ describe("ConversationItem Component", () => {
 		);
 
 		expect(onTogglePin).toHaveBeenCalledWith({ id: "conv-1", pinned: true });
+	});
+
+	it("flips the overflow menu above bottom sidebar rows instead of clipping it", async () => {
+		const restoreViewport = stubViewportAndTriggerRect();
+		try {
+			render(ConversationItemWrapper, {
+				conversation: mockConversation,
+			});
+
+			await fireEvent.click(screen.getByLabelText("Conversation options"));
+
+			const menu = screen.getByRole("menu");
+			expect(parseFixedMenuTop(menu)).toBeLessThan(174);
+		} finally {
+			restoreViewport();
+		}
 	});
 
 	it("opens the same menu on right-click without selecting the conversation", async () => {

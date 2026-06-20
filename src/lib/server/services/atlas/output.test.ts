@@ -210,6 +210,130 @@ describe("Atlas renderer output", () => {
 		expect(renderedText).not.toMatch(/\*\*|`|\[|\]\(/);
 	});
 
+	it("adds a key takeaway, useful chart, and source-attributed image blocks when the report content supports them", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "AI Market Atlas",
+			assembledMarkdown: [
+				"# AI Market Atlas",
+				"",
+				"## Executive Summary",
+				"Market growth is concentrated in vendors that can pair enterprise controls with practical deployment support.",
+				"",
+				"| Segment | Growth |",
+				"| --- | ---: |",
+				"| Enterprise search | 42% |",
+				"| Customer support | 27% |",
+				"| Developer tools | 18% |",
+				"",
+				'![Vendor adoption chart](https://example.com/adoption.png "Vendor benchmark")',
+			].join("\n"),
+			sources: [
+				{
+					title: "Vendor benchmark",
+					url: "https://example.com/benchmark",
+					reasoning: "The benchmark includes the adoption chart.",
+				},
+			],
+			honestyMarkers: [],
+		});
+
+		expect(source.blocks).toEqual(
+			expect.arrayContaining([
+				{
+					type: "callout",
+					tone: "tip",
+					title: "Key takeaway",
+					text: "Market growth is concentrated in vendors that can pair enterprise controls with practical deployment support.",
+				},
+				expect.objectContaining({
+					type: "chart",
+					chartType: "bar",
+					title: "Growth by Segment",
+					xKey: "segment",
+					yKey: "growth",
+					units: "%",
+					data: [
+						{ segment: "Enterprise search", growth: 42 },
+						{ segment: "Customer support", growth: 27 },
+						{ segment: "Developer tools", growth: 18 },
+					],
+				}),
+				expect.objectContaining({
+					type: "image",
+					source: {
+						kind: "https",
+						url: "https://example.com/adoption.png",
+					},
+					altText: "Vendor adoption chart",
+					caption: "Vendor benchmark",
+					sourceAttribution: {
+						title: "Vendor benchmark",
+						url: "https://example.com/adoption.png",
+					},
+				}),
+			]),
+		);
+	});
+
+	it("uses Hungarian report chrome for generated backend blocks in Hungarian Atlas reports", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Magyar Atlas",
+			assembledMarkdown:
+				"## Vezetői összefoglaló\nA magyar jelentés a friss forrásokra támaszkodik, és külön jelöli a bizonytalan következtetéseket.",
+			sources: [
+				{
+					title: "Helyi forrás",
+					authority: "explicit",
+				},
+				{
+					title: "Webes forrás",
+					url: "https://example.com/forras",
+				},
+			],
+			honestyMarkers: [
+				{
+					code: "limited_sources",
+					message: "Kevés elfogadott forrás állt rendelkezésre.",
+					severity: "warning",
+				},
+			],
+		});
+
+		expect(source.blocks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "callout",
+					title: "Kulcsüzenet",
+				}),
+				expect.objectContaining({
+					type: "heading",
+					text: "Őszinteségi jelölések",
+				}),
+				expect.objectContaining({
+					type: "heading",
+					text: "Források",
+				}),
+				expect.objectContaining({
+					type: "sourceChips",
+					title: "Webes források",
+				}),
+				expect.objectContaining({
+					type: "sourceChips",
+					title: "Saját könyvtár",
+				}),
+				expect.objectContaining({
+					type: "confidenceMarker",
+					label: "Részben alátámasztott",
+					message: "Kevés elfogadott forrás állt rendelkezésre.",
+				}),
+			]),
+		);
+	});
+
 	it("persists Atlas lifecycle family metadata through document source and request metadata", async () => {
 		const { buildAtlasDocumentSource, renderAtlasOutputs } = await import(
 			"./renderer-output"

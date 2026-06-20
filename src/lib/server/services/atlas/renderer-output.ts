@@ -1,5 +1,16 @@
 import { marked } from "marked";
-import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
+import type {
+	GeneratedDocumentBlock,
+	GeneratedDocumentChartBlock,
+	GeneratedDocumentImageBlock,
+	GeneratedDocumentScalar,
+	GeneratedDocumentSource,
+	GeneratedDocumentTableBlock,
+} from "$lib/server/services/file-production/source-schema";
+import {
+	detectLanguage,
+	type SupportedLanguage,
+} from "$lib/server/services/language";
 import type { AtlasDocumentFamilyMetadata, AtlasHonestyMarker } from "./types";
 
 export interface AtlasReportSource {
@@ -17,6 +28,7 @@ export interface BuildAtlasDocumentSourceInput {
 	sources: AtlasReportSource[];
 	honestyMarkers: AtlasHonestyMarker[];
 	date?: string | null;
+	language?: SupportedLanguage | null;
 }
 
 export interface AtlasOutputIds {
@@ -43,6 +55,7 @@ function addSourceSection(
 	blocks: GeneratedDocumentSource["blocks"],
 	title: string,
 	sources: AtlasReportSource[],
+	language: SupportedLanguage,
 ) {
 	if (sources.length === 0) return;
 	blocks.push({
@@ -59,26 +72,77 @@ function addSourceSection(
 				reasoning:
 					source.reasoning ??
 					(provided
-						? "You provided these"
+						? atlasChrome({ language }).providedSourcesReasoning
 						: isWeb
-							? "Accepted web evidence gathered by Atlas"
-							: "Accepted library evidence selected by Atlas"),
+							? atlasChrome({ language }).webSourcesReasoning
+							: atlasChrome({ language }).librarySourcesReasoning),
 			};
 		}),
 	});
 }
 
+function atlasChrome(input: {
+	language: SupportedLanguage;
+	severity?: AtlasHonestyMarker["severity"];
+}): {
+	keyTakeaway: string;
+	sources: string;
+	webSources: string;
+	librarySources: string;
+	honestyMarkers: string;
+	providedSourcesReasoning: string;
+	webSourcesReasoning: string;
+	librarySourcesReasoning: string;
+	confidenceLabel?: string;
+} {
+	if (input.language === "hu") {
+		const confidenceLabel =
+			input.severity === "critical"
+				? "Nem alátámasztott"
+				: input.severity === "warning"
+					? "Részben alátámasztott"
+					: input.severity === "info"
+						? "Alátámasztott"
+						: undefined;
+		return {
+			keyTakeaway: "Kulcsüzenet",
+			sources: "Források",
+			webSources: "Webes források",
+			librarySources: "Saját könyvtár",
+			honestyMarkers: "Őszinteségi jelölések",
+			providedSourcesReasoning: "A felhasználó adta meg",
+			webSourcesReasoning: "Az Atlas által elfogadott webes bizonyíték",
+			librarySourcesReasoning:
+				"Az Atlas által kiválasztott könyvtári bizonyíték",
+			confidenceLabel,
+		};
+	}
+	const confidenceLabel =
+		input.severity === "critical"
+			? "Unsupported"
+			: input.severity === "warning"
+				? "Partially Supported"
+				: input.severity === "info"
+					? "Supported"
+					: undefined;
+	return {
+		keyTakeaway: "Key takeaway",
+		sources: "Sources",
+		webSources: "Web Sources",
+		librarySources: "Your Library",
+		honestyMarkers: "Honesty markers",
+		providedSourcesReasoning: "You provided these",
+		webSourcesReasoning: "Accepted web evidence gathered by Atlas",
+		librarySourcesReasoning: "Accepted library evidence selected by Atlas",
+		confidenceLabel,
+	};
+}
+
 function confidenceLabelForSeverity(
 	severity: AtlasHonestyMarker["severity"],
+	language: SupportedLanguage,
 ): string {
-	switch (severity) {
-		case "critical":
-			return "Unsupported";
-		case "warning":
-			return "Partially Supported";
-		case "info":
-			return "Supported";
-	}
+	return atlasChrome({ language, severity }).confidenceLabel ?? "Supported";
 }
 
 function cleanText(value: unknown): string | null {
@@ -116,6 +180,46 @@ function blockText(token: unknown): string | null {
 		return cleanText(inlineTextFromTokens(token.tokens));
 	}
 	return cleanText(token.text);
+}
+
+function tokenText(value: unknown): string | null {
+	return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function markdownImageFromToken(
+	token: unknown,
+): GeneratedDocumentImageBlock | null {
+	if (!isRecord(token) || token.type !== "image") return null;
+	const href = tokenText(token.href);
+	if (!href?.startsWith("https://")) return null;
+	const altText = tokenText(token.text) ?? tokenText(token.title) ?? "Image";
+	const caption = tokenText(token.title) ?? altText;
+	let attributionTitle = caption;
+	try {
+		attributionTitle = caption || new URL(href).hostname;
+	} catch {
+		// Keep the caption fallback when URL parsing fails.
+	}
+	return {
+		type: "image",
+		source: { kind: "https", url: href },
+		altText,
+		caption,
+		sourceAttribution: {
+			title: attributionTitle,
+			url: href,
+		},
+		critical: false,
+	};
+}
+
+function imagesFromParagraphToken(
+	token: unknown,
+): GeneratedDocumentImageBlock[] {
+	if (!isRecord(token) || !Array.isArray(token.tokens)) return [];
+	return token.tokens
+		.map((inlineToken) => markdownImageFromToken(inlineToken))
+		.filter((block): block is GeneratedDocumentImageBlock => Boolean(block));
 }
 
 function makeColumnKey(
@@ -160,6 +264,15 @@ function appendMarkdownBlocks(
 		}
 
 		if (token.type === "paragraph" || token.type === "text") {
+			const images = imagesFromParagraphToken(token);
+			if (images.length > 0) {
+				blocks.push(...images);
+				const imageText = images.map((image) => image.altText).join(" ");
+				const text = blockText(token);
+				if (text && text !== imageText)
+					blocks.push({ type: "paragraph", text });
+				continue;
+			}
 			const text = blockText(token);
 			if (text) blocks.push({ type: "paragraph", text });
 			continue;
@@ -233,7 +346,14 @@ function appendMarkdownBlocks(
 				})
 				.filter((row) => Object.values(row).some((value) => value !== null));
 			if (columns.length > 0 && rows.length > 0) {
-				blocks.push({ type: "table", columns, rows });
+				const tableBlock: GeneratedDocumentTableBlock = {
+					type: "table",
+					columns,
+					rows,
+				};
+				blocks.push(tableBlock);
+				const chart = chartFromTable(tableBlock);
+				if (chart) blocks.push(chart);
 			}
 			continue;
 		}
@@ -244,27 +364,175 @@ function appendMarkdownBlocks(
 	}
 }
 
+function valueAsNumber(value: GeneratedDocumentScalar): {
+	value: number;
+	units: string;
+} | null {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return { value, units: "value" };
+	}
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	const percent = /%$/.test(trimmed);
+	const numeric = Number(
+		trimmed
+			.replace(/[$€£,]/g, "")
+			.replace(/%$/, "")
+			.trim(),
+	);
+	if (!Number.isFinite(numeric)) return null;
+	return { value: numeric, units: percent ? "%" : "value" };
+}
+
+function titleCase(text: string): string {
+	return text
+		.split(/\s+/)
+		.map((part) =>
+			part
+				? `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`
+				: part,
+		)
+		.join(" ");
+}
+
+function chartFromTable(
+	table: GeneratedDocumentTableBlock,
+): GeneratedDocumentChartBlock | null {
+	if (table.rows.length < 2 || table.columns.length < 2) return null;
+	const labelColumn = table.columns.find((column) =>
+		table.rows.some((row) => typeof row[column.key] === "string"),
+	);
+	if (!labelColumn) return null;
+
+	for (const valueColumn of table.columns) {
+		if (valueColumn.key === labelColumn.key) continue;
+		const data: Record<string, GeneratedDocumentScalar>[] = [];
+		let units: string | null = null;
+		for (const row of table.rows) {
+			const label = row[labelColumn.key];
+			const numeric = valueAsNumber(row[valueColumn.key]);
+			if (typeof label !== "string" || !numeric) {
+				data.length = 0;
+				break;
+			}
+			units = units ?? numeric.units;
+			data.push({
+				[labelColumn.key]: label,
+				[valueColumn.key]: numeric.value,
+			});
+		}
+		if (data.length < 2) continue;
+		const title = `${titleCase(valueColumn.label)} by ${titleCase(
+			labelColumn.label,
+		)}`;
+		return {
+			type: "chart",
+			chartType: "bar",
+			title,
+			caption: `Chart derived from the report table: ${title}.`,
+			altText: `Bar chart comparing ${valueColumn.label} by ${labelColumn.label}.`,
+			xKey: labelColumn.key,
+			yKey: valueColumn.key,
+			labelKey: null,
+			valueKey: null,
+			seriesKey: null,
+			radiusKey: null,
+			units: units ?? "value",
+			data,
+		};
+	}
+
+	return null;
+}
+
+function hasTakeawayBlock(
+	blocks: GeneratedDocumentSource["blocks"],
+	language: SupportedLanguage,
+): boolean {
+	const headingPattern =
+		language === "hu"
+			? /^(kulcsüzenet|fő tanulság|legfontosabb tanulság)$/i
+			: /^key takeaway$/i;
+	return blocks.some((block) => {
+		if (block.type === "callout") {
+			return block.title ? headingPattern.test(block.title) : false;
+		}
+		if (block.type === "heading") return headingPattern.test(block.text);
+		return false;
+	});
+}
+
+function keyTakeawayText(
+	blocks: GeneratedDocumentSource["blocks"],
+	language: SupportedLanguage,
+): string | null {
+	const summaryPattern =
+		language === "hu"
+			? /^(vezetői összefoglaló|összefoglaló)$/i
+			: /^(executive summary|summary)$/i;
+	let afterSummaryHeading = false;
+	for (const block of blocks) {
+		if (block.type === "heading") {
+			afterSummaryHeading = summaryPattern.test(block.text);
+			continue;
+		}
+		if (afterSummaryHeading && block.type === "paragraph") {
+			return block.text;
+		}
+	}
+	const paragraph = blocks.find(
+		(block): block is Extract<GeneratedDocumentBlock, { type: "paragraph" }> =>
+			block.type === "paragraph",
+	);
+	return paragraph?.text ?? null;
+}
+
+function addKeyTakeawayBlock(
+	blocks: GeneratedDocumentSource["blocks"],
+	language: SupportedLanguage,
+): void {
+	if (hasTakeawayBlock(blocks, language)) return;
+	const text = keyTakeawayText(blocks, language);
+	if (!text) return;
+	blocks.unshift({
+		type: "callout",
+		tone: "tip",
+		title: atlasChrome({ language }).keyTakeaway,
+		text,
+	});
+}
+
 export function buildAtlasDocumentSource(
 	input: BuildAtlasDocumentSourceInput,
 ): GeneratedDocumentSource {
+	const language =
+		input.language ??
+		detectLanguage(`${input.title}\n${input.assembledMarkdown}`);
 	const blocks: GeneratedDocumentSource["blocks"] = [];
 	appendMarkdownBlocks(blocks, input.assembledMarkdown);
+	addKeyTakeawayBlock(blocks, language);
 
 	const librarySources = input.sources.filter((source) => !source.url);
 	const webSources = input.sources.filter((source) => Boolean(source.url));
+	const chrome = atlasChrome({ language });
 	if (webSources.length > 0 || librarySources.length > 0) {
-		blocks.push({ type: "heading", level: 2, text: "Sources" });
+		blocks.push({ type: "heading", level: 2, text: chrome.sources });
 	}
-	addSourceSection(blocks, "Web Sources", webSources);
-	addSourceSection(blocks, "Your Library", librarySources);
+	addSourceSection(blocks, chrome.webSources, webSources, language);
+	addSourceSection(blocks, chrome.librarySources, librarySources, language);
 
 	if (input.honestyMarkers.length > 0) {
-		blocks.push({ type: "heading", level: 2, text: "Honesty markers" });
+		blocks.push({
+			type: "heading",
+			level: 2,
+			text: chrome.honestyMarkers,
+		});
 		for (const marker of input.honestyMarkers) {
 			blocks.push({
 				type: "confidenceMarker",
 				code: marker.code,
-				label: confidenceLabelForSeverity(marker.severity),
+				label: confidenceLabelForSeverity(marker.severity, language),
 				severity: marker.severity,
 				message: marker.message,
 			});
@@ -277,6 +545,7 @@ export function buildAtlasDocumentSource(
 		title: input.title,
 		subtitle: input.subtitle ?? null,
 		date: input.date ?? null,
+		language,
 		cover:
 			input.family || input.date
 				? {

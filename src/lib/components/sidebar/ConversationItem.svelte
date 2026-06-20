@@ -16,7 +16,6 @@ import { t } from "$lib/i18n";
 import {
 	portal,
 	setMenuBaseBackground,
-	updateMenuPosition,
 	setupMenuSync,
 } from "$lib/utils/popup-menu";
 import ConfirmDialog from "../ui/ConfirmDialog.svelte";
@@ -79,6 +78,12 @@ let menuAnchor = $state<
 >({
 	kind: "trigger",
 });
+const CONVERSATION_MENU_WIDTH = 178;
+const CONVERSATION_MENU_ESTIMATED_HEIGHT = 150;
+const PROJECT_SUBMENU_WIDTH = 184;
+const PROJECT_SUBMENU_ESTIMATED_HEIGHT = 220;
+const MENU_VIEWPORT_PADDING = 12;
+const MENU_VERTICAL_OFFSET = 6;
 
 // Track title changes for animation
 let previousTitle = "";
@@ -163,30 +168,69 @@ function cancelDelete() {
 function doUpdatePosition() {
 	menuBaseBackground = setMenuBaseBackground() || "var(--surface-elevated)";
 	if (menuAnchor.kind === "pointer") {
-		updateMenuPositionFromPoint(menuAnchor.x, menuAnchor.y, 178);
+		updateMenuPositionFromPoint(
+			menuAnchor.x,
+			menuAnchor.y,
+			CONVERSATION_MENU_WIDTH,
+			menuRef?.offsetHeight || CONVERSATION_MENU_ESTIMATED_HEIGHT,
+		);
 		return;
 	}
 	if (!triggerRef) return;
-	updateMenuPosition(
+	updateMenuPositionFromTrigger(
 		triggerRef,
-		(style) => {
-			menuPositionStyle = style;
-		},
-		178,
-		6,
+		CONVERSATION_MENU_WIDTH,
+		menuRef?.offsetHeight || CONVERSATION_MENU_ESTIMATED_HEIGHT,
 	);
 }
 
-function updateMenuPositionFromPoint(x: number, y: number, menuWidth: number) {
-	const viewportPadding = 12;
+function clampMenuLeft(left: number, menuWidth: number): number {
+	return Math.min(
+		window.innerWidth - menuWidth - MENU_VIEWPORT_PADDING,
+		Math.max(MENU_VIEWPORT_PADDING, left),
+	);
+}
+
+function clampMenuTop(top: number, menuHeight: number): number {
+	const maxTop = Math.max(
+		MENU_VIEWPORT_PADDING,
+		window.innerHeight - menuHeight - MENU_VIEWPORT_PADDING,
+	);
+	return Math.min(maxTop, Math.max(MENU_VIEWPORT_PADDING, top));
+}
+
+function getTriggerMenuTop(rect: DOMRect, menuHeight: number): number {
+	const belowTop = rect.bottom + MENU_VERTICAL_OFFSET;
+	if (belowTop + menuHeight <= window.innerHeight - MENU_VIEWPORT_PADDING) {
+		return belowTop;
+	}
+	const aboveTop = rect.top - menuHeight - MENU_VERTICAL_OFFSET;
+	if (aboveTop >= MENU_VIEWPORT_PADDING) return aboveTop;
+	return clampMenuTop(belowTop, menuHeight);
+}
+
+function updateMenuPositionFromTrigger(
+	trigger: HTMLElement,
+	menuWidth: number,
+	menuHeight: number,
+) {
+	const rect = trigger.getBoundingClientRect();
 	const left = Math.min(
-		window.innerWidth - menuWidth - viewportPadding,
-		Math.max(viewportPadding, x),
+		window.innerWidth - menuWidth - MENU_VIEWPORT_PADDING,
+		Math.max(MENU_VIEWPORT_PADDING, rect.right - menuWidth),
 	);
-	const top = Math.min(
-		window.innerHeight - viewportPadding,
-		Math.max(viewportPadding, y),
-	);
+	const top = getTriggerMenuTop(rect, menuHeight);
+	menuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`;
+}
+
+function updateMenuPositionFromPoint(
+	x: number,
+	y: number,
+	menuWidth: number,
+	menuHeight: number,
+) {
+	const left = clampMenuLeft(x, menuWidth);
+	const top = clampMenuTop(y, menuHeight);
 	menuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`;
 }
 
@@ -236,15 +280,20 @@ function toggleProjectSubmenu(e: MouseEvent) {
 function updateSubmenuPosition() {
 	if (!menuRef) return;
 	const rect = menuRef.getBoundingClientRect();
-	const submenuWidth = 184;
-	const viewportPadding = 12;
 	// Try right side first, fall back to left
 	let left = rect.right + 4;
-	if (left + submenuWidth > window.innerWidth - viewportPadding) {
-		left = rect.left - submenuWidth - 4;
+	if (
+		left + PROJECT_SUBMENU_WIDTH >
+		window.innerWidth - MENU_VIEWPORT_PADDING
+	) {
+		left = rect.left - PROJECT_SUBMENU_WIDTH - 4;
 	}
-	const top = Math.min(window.innerHeight - 12, rect.top);
-	submenuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${submenuWidth}px;`;
+	left = clampMenuLeft(left, PROJECT_SUBMENU_WIDTH);
+	const top = clampMenuTop(
+		rect.top,
+		submenuRef?.offsetHeight || PROJECT_SUBMENU_ESTIMATED_HEIGHT,
+	);
+	submenuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${PROJECT_SUBMENU_WIDTH}px;`;
 }
 
 function handleMoveToProject(e: MouseEvent, projectId: string | null) {

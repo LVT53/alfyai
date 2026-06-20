@@ -2,7 +2,7 @@
 import { onMount } from "svelte";
 import { ChevronDown, Globe, Orbit, Paperclip } from "@lucide/svelte";
 import ModelSelector from "./ModelSelector.svelte";
-import { t } from "$lib/i18n";
+import { t, type I18nKey } from "$lib/i18n";
 import {
 	getPersonalityProfileDisplayDescription,
 	getPersonalityProfileDisplayName,
@@ -85,6 +85,12 @@ let selectedAtlasProfileLabel = $derived(
 	atlasProfile ? atlasProfileLabel(atlasProfile) : $t("composerTools.atlas"),
 );
 
+const ATLAS_PROFILE_OPTIONS = [
+	"overview",
+	"in-depth",
+	"exhaustive",
+] as const satisfies readonly AtlasProfile[];
+
 $effect(() => {
 	if (initialOpen === appliedInitialOpen) return;
 	activeDropdown = initialOpen;
@@ -120,6 +126,19 @@ function atlasProfileLabel(profile: AtlasProfile): string {
 	if (profile === "exhaustive") return $t("composerTools.atlasExhaustive");
 	if (profile === "in-depth") return $t("composerTools.atlasInDepth");
 	return $t("composerTools.atlasOverview");
+}
+
+function atlasProfileDescriptionKey(profile: AtlasProfile): I18nKey {
+	if (profile === "exhaustive")
+		return "composerTools.atlasExhaustiveDescription";
+	if (profile === "in-depth") return "composerTools.atlasInDepthDescription";
+	return "composerTools.atlasOverviewDescription";
+}
+
+function atlasProfileTimeKey(profile: AtlasProfile): I18nKey {
+	if (profile === "exhaustive") return "composerTools.atlasExhaustiveTime";
+	if (profile === "in-depth") return "composerTools.atlasInDepthTime";
+	return "composerTools.atlasOverviewTime";
 }
 
 function selectAtlasProfile(profile: AtlasProfile) {
@@ -296,19 +315,37 @@ onMount(() => {
 				</span>
 			</button>
 			{#if atlasOpen}
-				<ul class="model-selector__dropdown atlas-profile-dropdown" role="listbox" aria-label={$t('composerTools.atlasProfile')}>
-					{#each ['overview', 'in-depth', 'exhaustive'] as profile}
-						<li
-							role="option"
-							aria-selected={atlasProfile === profile}
-							class="model-selector__option"
-							class:model-selector__option--selected={atlasProfile === profile}
-							onclick={() => selectAtlasProfile(profile as AtlasProfile)}
-							onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectAtlasProfile(profile as AtlasProfile)}
-							tabindex="0"
-						>{atlasProfileLabel(profile as AtlasProfile)}</li>
-					{/each}
-				</ul>
+				<section
+					class="atlas-profile-picker"
+					aria-label={$t('composerTools.atlasProfileTitle')}
+				>
+					<h3 class="atlas-profile-picker__title">{$t('composerTools.atlasProfileTitle')}</h3>
+					<p class="atlas-profile-picker__subtitle">{$t('composerTools.atlasProfileSubtitle')}</p>
+					<ul class="atlas-profile-options" role="listbox" aria-label={$t('composerTools.atlasProfile')}>
+						{#each ATLAS_PROFILE_OPTIONS as profile}
+							<li
+								role="option"
+								aria-selected={atlasProfile === profile}
+								class="atlas-profile-card"
+								class:atlas-profile-card--selected={atlasProfile === profile}
+								onclick={() => selectAtlasProfile(profile)}
+								onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectAtlasProfile(profile)}
+								tabindex="0"
+								aria-labelledby={`atlas-profile-${profile}-name`}
+								aria-describedby={`atlas-profile-${profile}-time atlas-profile-${profile}-desc`}
+							>
+								<span class="atlas-profile-radio" aria-hidden="true"></span>
+								<span class="atlas-profile-info">
+									<span class="atlas-profile-row">
+										<span class="atlas-profile-name" id={`atlas-profile-${profile}-name`}>{atlasProfileLabel(profile)}</span>
+										<span class="atlas-profile-time" id={`atlas-profile-${profile}-time`}>{$t(atlasProfileTimeKey(profile))}</span>
+									</span>
+									<span class="atlas-profile-desc" id={`atlas-profile-${profile}-desc`}>{$t(atlasProfileDescriptionKey(profile))}</span>
+								</span>
+							</li>
+						{/each}
+					</ul>
+				</section>
 			{/if}
 			{#if !atlasAvailable}
 				<p id="atlas-unavailable-reason" class="menu-row__hint">{atlasUnavailableReason}</p>
@@ -550,10 +587,141 @@ onMount(() => {
 		animation: dropdownFadeIn 150ms ease-out;
 	}
 
-	.atlas-profile-dropdown {
+	.atlas-profile-picker {
+		position: absolute;
 		right: 0;
-		left: auto;
-		min-width: 9rem;
+		bottom: 100%;
+		z-index: 120;
+		width: min(19rem, calc(100vw - 2rem));
+		margin-bottom: 0.35rem;
+		border: 1px solid color-mix(in srgb, var(--border-default) 78%, transparent 22%);
+		border-radius: 0.7rem;
+		background: color-mix(in srgb, var(--surface-overlay) 94%, var(--surface-page) 6%);
+		box-shadow:
+			0 16px 34px rgba(0, 0, 0, 0.16),
+			0 1px 0 color-mix(in srgb, var(--border-default) 88%, transparent 12%);
+		padding: 0.7rem;
+		animation: dropdownFadeIn 150ms ease-out;
+	}
+
+	:global(.dark) .atlas-profile-picker {
+		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
+		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
+		box-shadow:
+			0 18px 36px rgba(0, 0, 0, 0.42),
+			0 0 0 1px color-mix(in srgb, var(--border-default) 88%, transparent 12%);
+	}
+
+	.atlas-profile-picker__title {
+		margin: 0;
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		font-weight: 700;
+		line-height: 1.2;
+	}
+
+	.atlas-profile-picker__subtitle {
+		margin: 0.25rem 0 0.65rem;
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		line-height: 1.3;
+	}
+
+	.atlas-profile-options {
+		display: grid;
+		gap: 0.45rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.atlas-profile-card {
+		display: flex;
+		gap: 0.58rem;
+		border: 1px solid color-mix(in srgb, var(--border-default) 76%, transparent 24%);
+		border-radius: 0.55rem;
+		background: color-mix(in srgb, var(--surface-page) 72%, transparent 28%);
+		padding: 0.62rem;
+		color: var(--text-primary);
+		cursor: pointer;
+		transition:
+			border-color 150ms ease-out,
+			background-color 150ms ease-out,
+			box-shadow 150ms ease-out,
+			transform 150ms ease-out;
+	}
+
+	.atlas-profile-card:hover,
+	.atlas-profile-card:focus {
+		border-color: color-mix(in srgb, var(--accent) 55%, var(--border-default) 45%);
+		background: color-mix(in srgb, var(--accent) 10%, var(--surface-page) 90%);
+		box-shadow: var(--shadow-sm);
+		outline: none;
+	}
+
+	.atlas-profile-card:active {
+		transform: translateY(1px);
+	}
+
+	.atlas-profile-card--selected {
+		border-color: color-mix(in srgb, var(--accent) 68%, var(--border-default) 32%);
+		background: color-mix(in srgb, var(--accent) 14%, var(--surface-page) 86%);
+	}
+
+	.atlas-profile-radio {
+		width: 0.9rem;
+		height: 0.9rem;
+		flex: 0 0 auto;
+		border: 1.5px solid var(--border-default);
+		border-radius: 999px;
+		margin-top: 0.12rem;
+		box-shadow: inset 0 0 0 3px var(--surface-overlay);
+	}
+
+	.atlas-profile-card--selected .atlas-profile-radio {
+		border-color: var(--accent);
+		background: var(--accent);
+	}
+
+	.atlas-profile-info {
+		display: grid;
+		min-width: 0;
+		gap: 0.22rem;
+	}
+
+	.atlas-profile-row {
+		display: flex;
+		min-width: 0;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.atlas-profile-name {
+		overflow: hidden;
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		font-weight: 700;
+		line-height: 1.2;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.atlas-profile-time {
+		flex: 0 0 auto;
+		color: var(--text-muted);
+		font-size: var(--text-2xs);
+		line-height: 1.2;
+		white-space: nowrap;
+	}
+
+	.atlas-profile-desc {
+		color: var(--text-secondary);
+		font-size: var(--text-xs);
+		line-height: 1.32;
 	}
 
 	.model-selector__option {

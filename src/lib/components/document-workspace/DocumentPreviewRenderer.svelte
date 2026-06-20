@@ -238,7 +238,14 @@ function downloadFile() {
 			class:preview-panel={true}
 			class:preview-panel-embedded={true}
 		>
-			<div class:preview-body={true} class:preview-body-embedded={true}>
+			<div
+				class:preview-body={true}
+				class:preview-body-embedded={true}
+				class:preview-body-html={fileType === "html"}
+				style={fileType === "html"
+					? "overflow-x: hidden; overflow-y: hidden;"
+					: undefined}
+			>
 				{#if isLoading}
 					<div class="flex flex-col items-center justify-center py-16 gap-4">
 						<div class="spinner"></div>
@@ -310,12 +317,15 @@ function downloadFile() {
 					{/if}
 				{:else if fileType === "html"}
 					{#if textPreview?.kind === "html"}
-						<div class="html-preview-shell" style="height: 100%;">
+						<div
+							class="html-preview-shell"
+							style="height: 100%; padding: 0; background: rgba(0, 0, 0, 0);"
+						>
 							<iframe
 								class="html-preview-frame"
 								title={`${filename} preview`}
 								sandbox=""
-								style="height: 100%; flex-grow: 1;"
+								style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
 								srcdoc={textPreview.srcdoc}
 							></iframe>
 						</div>
@@ -760,8 +770,8 @@ function downloadFile() {
 		min-height: 0;
 		height: 100%;
 		flex: 1 1 auto;
-		padding: 1rem;
-		background: var(--surface-page);
+		padding: 0;
+		background: transparent;
 	}
 
 	.html-preview-frame {
@@ -769,9 +779,9 @@ function downloadFile() {
 		min-height: 0;
 		height: 100%;
 		width: 100%;
-		border: 1px solid var(--border-default);
-		border-radius: 0.5rem;
-		background: #ffffff;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
 	}
 
 	.preview-embedded-shell {
@@ -811,6 +821,10 @@ function downloadFile() {
 		flex: 1 1 auto;
 		overflow-y: auto;
 		touch-action: pan-y;
+	}
+
+	.preview-body-html {
+		overflow: hidden;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

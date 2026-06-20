@@ -324,6 +324,16 @@ let workspaceOpen = $state(initialWorkspaceState?.isOpen ?? false);
 let workspacePresentation = $state<"docked" | "expanded">(
 	initialWorkspaceState?.presentation ?? "docked",
 );
+let returnToDockedOnExpandedClose = $derived.by(() => {
+	const activeDocument =
+		workspaceDocuments.find(
+			(document) => document.id === activeWorkspaceDocumentId,
+		) ?? null;
+	if (!activeDocument || activeDocument.mimeType !== "text/html") return true;
+	return !atlasJobs.some(
+		(job) => job.outputs.htmlChatGeneratedFileId === activeDocument.id,
+	);
+});
 let evidenceManagerOpen = $state(false);
 let personalityProfiles = $state<
 	Array<{ id: string; name: string; description: string }>
@@ -2236,6 +2246,7 @@ function handleDrop(event: DragEvent) {
 		<DocumentWorkspace
 			open={workspaceOpen}
 			presentation={workspacePresentation}
+			{returnToDockedOnExpandedClose}
 			documents={workspaceDocuments}
 			availableDocuments={availableWorkspaceDocuments}
 			activeDocumentId={activeWorkspaceDocumentId}

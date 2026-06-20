@@ -808,6 +808,86 @@ describe("Atlas pipeline slices", () => {
 		});
 	});
 
+	it("adds current-date grounding to freshness-sensitive news searches instead of trusting stale model years", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const searchWeb = vi.fn(async () => ({
+			sources: [
+				{
+					id: "web-1",
+					title: "Current AI regulation news",
+					url: "https://example.com/ai-regulation-2026",
+					snippet: "Fresh 2026 reporting on AI regulation.",
+				},
+			],
+			limitation: null,
+		}));
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-current-news",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Current news Atlas",
+				query: "What is the latest news on AI regulation?",
+				lifecycle: {
+					family: {
+						familyId: "atlas-current-news",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-current-news",
+						currentAtlasJobId: "atlas-current-news",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-19T13:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb,
+				runModelStage: vi.fn(async (input) => ({
+					text:
+						input.stage === "decompose"
+							? "AI regulation latest news 2024"
+							: `${input.stage} result`,
+					usage: {
+						inputTokens: 1,
+						outputTokens: 1,
+						totalTokens: 2,
+						costUsdMicros: 1,
+					},
+				})),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-1",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(searchWeb).toHaveBeenCalledWith(
+			expect.arrayContaining([
+				"AI regulation latest news 2026",
+				"What is the latest news on AI regulation recent news 2026",
+			]),
+		);
+		expect(searchWeb).not.toHaveBeenCalledWith(
+			expect.arrayContaining(["AI regulation latest news 2024"]),
+		);
+	});
+
 	it("does not surface the original prompt as the only research query when decompose echoes it", async () => {
 		const { runAtlasPipeline } = await import("./pipeline");
 		const userPrompt =
@@ -849,6 +929,7 @@ describe("Atlas pipeline slices", () => {
 					seed: null,
 				},
 			},
+			now: new Date("2026-06-19T13:00:00.000Z"),
 			dependencies: {
 				resolveSources: vi.fn(async () => ({ localSources: [] })),
 				searchWeb,
@@ -879,9 +960,11 @@ describe("Atlas pipeline slices", () => {
 		});
 
 		const expectedQueries = [
-			"current enterprise RAG architecture patterns regulated SaaS teams evidence",
-			"current enterprise RAG architecture patterns regulated SaaS teams comparison",
-			"current enterprise RAG architecture patterns regulated SaaS teams best practices",
+			"current enterprise RAG architecture patterns regulated SaaS teams evidence 2026",
+			"current enterprise RAG architecture patterns regulated SaaS teams comparison 2026",
+			"current enterprise RAG architecture patterns regulated SaaS teams best practices 2026",
+			"Please research the current enterprise RAG architecture patterns for regulated SaaS teams recent news 2026",
+			"Please research the current enterprise RAG architecture patterns for regulated SaaS teams latest updates 2026",
 		];
 		expect(searchWeb).toHaveBeenCalledWith(expectedQueries);
 		expect(searchWeb).not.toHaveBeenCalledWith([userPrompt]);

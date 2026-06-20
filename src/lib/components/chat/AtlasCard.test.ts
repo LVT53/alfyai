@@ -95,21 +95,22 @@ describe("AtlasCard", () => {
 
 		const progressIcon = screen.getByTestId("atlas-progress-cycle-icon");
 		expect(progressIcon).toHaveAttribute("viewBox", "0 0 56 56");
-		expect(
-			progressIcon.querySelector(".atlas-card__progress-cycle-track"),
-		).toBeTruthy();
-		expect(
-			progressIcon.querySelector(".atlas-card__progress-cycle-fill"),
-		).toHaveAttribute(
+		expect(progressIcon).toHaveClass("progress-ring-spinner");
+		expect(progressIcon).toHaveAttribute("width", "56");
+		expect(progressIcon).toHaveAttribute("height", "56");
+		expect(progressIcon.querySelector(".progress-ring-bg")).toBeTruthy();
+		expect(progressIcon.querySelector(".progress-ring-fill")).toHaveAttribute(
 			"style",
-			expect.stringContaining("--atlas-progress: 64%;"),
+			expect.stringContaining("stroke-dashoffset: 54.288"),
 		);
-		expect(
-			progressIcon.querySelector(".atlas-card__progress-cycle-track"),
-		).toHaveAttribute("r", "24");
-		expect(
-			progressIcon.querySelector(".atlas-card__progress-cycle-fill"),
-		).toHaveAttribute("stroke-dasharray", "150.8");
+		expect(progressIcon.querySelector(".progress-ring-bg")).toHaveAttribute(
+			"r",
+			"24",
+		);
+		expect(progressIcon.querySelector(".progress-ring-fill")).toHaveAttribute(
+			"stroke-dasharray",
+			"150.8",
+		);
 		expect(
 			progressIcon.querySelector(".atlas-card__progress-cycle-sweep"),
 		).toBeNull();
@@ -150,7 +151,15 @@ describe("AtlasCard", () => {
 
 		const svg = screen.getByTestId("atlas-exploration-svg");
 		expect(svg).toHaveAttribute("viewBox", "0 0 56 56");
+		expect(svg).toHaveClass("exploration-svg");
+		expect(svg).toHaveAttribute("width", "56");
+		expect(svg).toHaveAttribute("height", "56");
 		expect(svg.querySelector(".orbit-group")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"You can close this page - I'll notify you when it's ready.",
+			),
+		).toBeInTheDocument();
 	});
 
 	it("shows decomposed research questions in the active progress card", () => {

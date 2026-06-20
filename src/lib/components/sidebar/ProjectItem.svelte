@@ -58,48 +58,68 @@ let menuAnchor = $state<
 >({
 	kind: "trigger",
 });
+const PROJECT_MENU_WIDTH = 164;
+const PROJECT_MENU_ESTIMATED_HEIGHT = 120;
+const MENU_VIEWPORT_PADDING = 12;
+const MENU_HORIZONTAL_OFFSET = 6;
 
 function doUpdatePosition() {
 	menuBaseBackground = setMenuBaseBackground() || "var(--surface-elevated)";
 	if (menuAnchor.kind === "pointer") {
-		updateMenuPositionFromPoint(menuAnchor.x, menuAnchor.y, 164);
+		updateMenuPositionFromPoint(
+			menuAnchor.x,
+			menuAnchor.y,
+			PROJECT_MENU_WIDTH,
+			menuRef?.offsetHeight || PROJECT_MENU_ESTIMATED_HEIGHT,
+		);
 		return;
 	}
 	if (!triggerRef) return;
-	updateMenuPositionBesideTrigger(triggerRef, 164);
+	updateMenuPositionBesideTrigger(
+		triggerRef,
+		PROJECT_MENU_WIDTH,
+		menuRef?.offsetHeight || PROJECT_MENU_ESTIMATED_HEIGHT,
+	);
 }
 
 function updateMenuPositionBesideTrigger(
 	trigger: HTMLElement,
 	menuWidth: number,
+	menuHeight: number,
 ) {
 	const rect = trigger.getBoundingClientRect();
-	const viewportPadding = 12;
-	let left = rect.right + 6;
-	if (left + menuWidth > window.innerWidth - viewportPadding) {
-		left = rect.left - menuWidth - 6;
+	let left = rect.right + MENU_HORIZONTAL_OFFSET;
+	if (left + menuWidth > window.innerWidth - MENU_VIEWPORT_PADDING) {
+		left = rect.left - menuWidth - MENU_HORIZONTAL_OFFSET;
 	}
-	left = Math.min(
-		window.innerWidth - menuWidth - viewportPadding,
-		Math.max(viewportPadding, left),
-	);
-	const top = Math.min(
-		window.innerHeight - viewportPadding,
-		Math.max(viewportPadding, rect.top),
-	);
+	left = clampMenuLeft(left, menuWidth);
+	const top = clampMenuTop(rect.top, menuHeight);
 	menuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`;
 }
 
-function updateMenuPositionFromPoint(x: number, y: number, menuWidth: number) {
-	const viewportPadding = 12;
-	const left = Math.min(
-		window.innerWidth - menuWidth - viewportPadding,
-		Math.max(viewportPadding, x),
+function clampMenuLeft(left: number, menuWidth: number): number {
+	return Math.min(
+		window.innerWidth - menuWidth - MENU_VIEWPORT_PADDING,
+		Math.max(MENU_VIEWPORT_PADDING, left),
 	);
-	const top = Math.min(
-		window.innerHeight - viewportPadding,
-		Math.max(viewportPadding, y),
+}
+
+function clampMenuTop(top: number, menuHeight: number): number {
+	const maxTop = Math.max(
+		MENU_VIEWPORT_PADDING,
+		window.innerHeight - menuHeight - MENU_VIEWPORT_PADDING,
 	);
+	return Math.min(maxTop, Math.max(MENU_VIEWPORT_PADDING, top));
+}
+
+function updateMenuPositionFromPoint(
+	x: number,
+	y: number,
+	menuWidth: number,
+	menuHeight: number,
+) {
+	const left = clampMenuLeft(x, menuWidth);
+	const top = clampMenuTop(y, menuHeight);
 	menuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`;
 }
 

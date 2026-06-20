@@ -74,6 +74,8 @@ const chatDict = {
 		"atlas.durationPending": "In progress",
 		"atlas.durationSeconds": "{seconds}s",
 		"atlas.failed": "Atlas could not finish. Please try again.",
+		"atlas.kickoffNote":
+			"You can close this page - I'll notify you when it's ready.",
 		"atlas.lifecyclePromptPlaceholder": "Describe what Atlas should do next.",
 		"atlas.progressLabel": "Atlas progress",
 		"atlas.progress.assemble.0": "Shaping the report",
@@ -189,10 +191,22 @@ const chatDict = {
 		"composerTools.atlas": "Atlas",
 		"composerTools.atlasChip": "Atlas: {profile}",
 		"composerTools.atlasDescription": "Create a durable Atlas research report.",
+		"composerTools.atlasExhaustiveDescription":
+			"Comprehensive coverage, multiple angles, and extensive source review.",
+		"composerTools.atlasExhaustiveTime": "~30+ min",
 		"composerTools.atlasExhaustive": "Exhaustive",
+		"composerTools.atlasInDepthDescription":
+			"Balanced breadth and detail: sections, comparisons, and citations.",
+		"composerTools.atlasInDepthTime": "~10-20 min",
 		"composerTools.atlasInDepth": "In-Depth",
+		"composerTools.atlasOverviewDescription":
+			"A concise snapshot with key takeaways and a handful of sources.",
+		"composerTools.atlasOverviewTime": "~2-5 min",
 		"composerTools.atlasOverview": "Overview",
 		"composerTools.atlasProfile": "Atlas profile",
+		"composerTools.atlasProfileSubtitle":
+			"Deeper reports take more time and sources.",
+		"composerTools.atlasProfileTitle": "Choose an Atlas profile",
 		"composerTools.atlasUnavailable": "Atlas unavailable",
 		"composerTools.atlasUnavailableDisabled":
 			"Atlas is disabled by the administrator.",
@@ -647,6 +661,8 @@ const chatDict = {
 		"atlas.durationPending": "Folyamatban",
 		"atlas.durationSeconds": "{seconds} mp",
 		"atlas.failed": "Az Atlas nem tudott elkészülni. Próbáld újra.",
+		"atlas.kickoffNote":
+			"Bezárhatod ezt az oldalt - értesítelek, amikor elkészült.",
 		"atlas.lifecyclePromptPlaceholder": "Írd le, mit tegyen ezután az Atlas.",
 		"atlas.progressLabel": "Atlas előrehaladás",
 		"atlas.progress.assemble.0": "A jelentés formálása",
@@ -768,10 +784,22 @@ const chatDict = {
 		"composerTools.atlasChip": "Atlas: {profile}",
 		"composerTools.atlasDescription":
 			"Tartós Atlas kutatási jelentés készítése.",
+		"composerTools.atlasExhaustiveDescription":
+			"Átfogó lefedettség, több szempont és széles körű forrásvizsgálat.",
+		"composerTools.atlasExhaustiveTime": "~30+ perc",
 		"composerTools.atlasExhaustive": "Kimerítő",
+		"composerTools.atlasInDepthDescription":
+			"Kiegyensúlyozott szélesség és részletesség: szakaszok, összehasonlítások és hivatkozások.",
+		"composerTools.atlasInDepthTime": "~10-20 perc",
 		"composerTools.atlasInDepth": "Részletes",
+		"composerTools.atlasOverviewDescription":
+			"Tömör összefoglaló a legfontosabb tanulságokkal és néhány forrással.",
+		"composerTools.atlasOverviewTime": "~2-5 perc",
 		"composerTools.atlasOverview": "Áttekintő",
 		"composerTools.atlasProfile": "Atlas profil",
+		"composerTools.atlasProfileSubtitle":
+			"A mélyebb jelentések több időt és forrást igényelnek.",
+		"composerTools.atlasProfileTitle": "Válassz Atlas profilt",
 		"composerTools.atlasUnavailable": "Az Atlas nem érhető el",
 		"composerTools.atlasUnavailableReason":
 			"Az Atlas indításához webes keresés szükséges.",

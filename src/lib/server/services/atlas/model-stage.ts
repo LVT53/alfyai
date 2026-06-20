@@ -36,6 +36,8 @@ export interface AtlasNormalChatModelBoundaryResult {
 		modelId?: string;
 		providerId?: string;
 		displayName?: string;
+		requestedModelName?: string;
+		responseModelName?: string;
 	};
 }
 
@@ -67,6 +69,60 @@ function profileMaxOutputTokens(profile: AtlasProfile): number {
 			return 3200;
 		case "exhaustive":
 			return 5000;
+	}
+}
+
+function normalizeUsage(
+	usage: AtlasNormalChatModelBoundaryResult["usage"],
+): Omit<AtlasModelStageUsage, "costUsdMicros"> {
+	const inputTokens = usage?.inputTokens ?? 0;
+	const outputTokens = usage?.outputTokens ?? 0;
+	return {
+		inputTokens,
+		outputTokens,
+		totalTokens: usage?.totalTokens ?? inputTokens + outputTokens,
+	};
+}
+
+function providerModelNameFromSelection(
+	modelSelection: ModelId,
+): string | null {
+	const raw = String(modelSelection);
+	if (!raw.startsWith("provider:")) return null;
+	const [, , modelName] = raw.split(":");
+	return modelName?.trim() || null;
+}
+
+async function calculateStageCostUsdMicros(input: {
+	modelSelection: ModelId;
+	model: AtlasNormalChatModelBoundaryResult["model"];
+	usage: Omit<AtlasModelStageUsage, "costUsdMicros">;
+}): Promise<number> {
+	try {
+		const { calculateCostUsdMicros, findPriceRule } = await import(
+			"$lib/server/services/analytics"
+		);
+		const modelId = input.model?.modelId ?? String(input.modelSelection);
+		const providerId = input.model?.providerId ?? null;
+		const providerModelName =
+			input.model?.responseModelName ??
+			input.model?.requestedModelName ??
+			providerModelNameFromSelection(input.modelSelection);
+		const priceRule = await findPriceRule({
+			modelId,
+			providerId,
+			providerModelName,
+		});
+		return calculateCostUsdMicros(priceRule, {
+			promptTokens: input.usage.inputTokens,
+			cachedInputTokens: 0,
+			cacheHitTokens: 0,
+			cacheMissTokens: 0,
+			completionTokens: input.usage.outputTokens,
+			reasoningTokens: 0,
+		});
+	} catch {
+		return 0;
 	}
 }
 
@@ -109,13 +165,17 @@ export async function runAtlasModelStage(
 		system: `${input.system}\n\nAtlas stage: ${input.stage}. Profile: ${input.profile}.`,
 		maxOutputTokens: profileMaxOutputTokens(input.profile),
 	});
+	const usage = normalizeUsage(result.usage);
+	const costUsdMicros = await calculateStageCostUsdMicros({
+		modelSelection: input.modelSelection,
+		model: result.model,
+		usage,
+	});
 	return {
 		text: result.text,
 		usage: {
-			inputTokens: result.usage?.inputTokens ?? 0,
-			outputTokens: result.usage?.outputTokens ?? 0,
-			totalTokens: result.usage?.totalTokens ?? 0,
-			costUsdMicros: 0,
+			...usage,
+			costUsdMicros,
 		},
 		model: {
 			modelId: result.model?.modelId ?? String(input.modelSelection),
@@ -136,13 +196,17 @@ export async function runAtlasAuditStage(
 			"Audit the Atlas report against the provided sources. Return strict JSON only. Do not rewrite the report.",
 		maxOutputTokens: 1600,
 	});
+	const usage = normalizeUsage(result.usage);
+	const costUsdMicros = await calculateStageCostUsdMicros({
+		modelSelection: input.modelSelection,
+		model: result.model,
+		usage,
+	});
 	return {
 		text: result.text,
 		usage: {
-			inputTokens: result.usage?.inputTokens ?? 0,
-			outputTokens: result.usage?.outputTokens ?? 0,
-			totalTokens: result.usage?.totalTokens ?? 0,
-			costUsdMicros: 0,
+			...usage,
+			costUsdMicros,
 		},
 		model: {
 			modelId: result.model?.modelId ?? String(input.modelSelection),

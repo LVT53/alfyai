@@ -285,8 +285,10 @@ function submitLifecycleAction() {
 				<Check size={19} strokeWidth={2.4} aria-hidden="true" />
 			{:else if job.status === "queued"}
 				<svg
-					class="atlas-card__exploration-svg"
+					class="atlas-card__exploration-svg exploration-svg"
 					data-testid="atlas-exploration-svg"
+					width="56"
+					height="56"
 					viewBox="0 0 56 56"
 					fill="none"
 					stroke="currentColor"
@@ -326,21 +328,23 @@ function submitLifecycleAction() {
 				</svg>
 			{:else}
 				<svg
-					class="atlas-card__ring atlas-card__progress-cycle"
+					class="atlas-card__ring atlas-card__progress-cycle progress-ring-spinner"
 					data-testid="atlas-progress-cycle-icon"
+					width="56"
+					height="56"
 					viewBox="0 0 56 56"
 					fill="none"
 					aria-hidden="true"
 					style={`--atlas-progress: ${progressPercent}%;`}
 				>
 					<circle
-						class="atlas-card__progress-cycle-track"
+						class="atlas-card__progress-cycle-track progress-ring-bg"
 						cx="28"
 						cy="28"
 						r="24"
 					></circle>
 					<circle
-						class="atlas-card__progress-cycle-fill"
+						class="atlas-card__progress-cycle-fill progress-ring-fill"
 						cx="28"
 						cy="28"
 						r="24"
@@ -387,6 +391,9 @@ function submitLifecycleAction() {
 					<span>{$t("common.cancel")}</span>
 				</button>
 			</div>
+			{#if job.status === "queued"}
+				<p class="atlas-card__kickoff-note">{$t("atlas.kickoffNote")}</p>
+			{/if}
 			{#if progressQueries.length > 0}
 				<div class="atlas-card__queries" aria-label={$t("atlas.progressQueriesLabel")}>
 					<div class="atlas-card__queries-title">{$t("atlas.progressQueriesTitle")}</div>
@@ -553,18 +560,14 @@ function submitLifecycleAction() {
 	.atlas-card__mark {
 		position: relative;
 		display: grid;
-		width: 2.75rem;
-		height: 2.75rem;
+		width: 3.5rem;
+		height: 3.5rem;
 		place-items: center;
 		border-radius: 999px;
-		overflow: hidden;
+		overflow: visible;
 		background:
 			color-mix(in srgb, var(--accent) 13%, transparent);
 		color: var(--accent);
-	}
-
-	.atlas-card__mark--queued {
-		overflow: visible;
 	}
 
 	.atlas-card__mark--complete {
@@ -573,8 +576,8 @@ function submitLifecycleAction() {
 	}
 
 	.atlas-card__exploration-svg {
-		width: 2.75rem;
-		height: 2.75rem;
+		width: 3.5rem;
+		height: 3.5rem;
 	}
 
 	.atlas-card__exploration-svg .orbit-group {
@@ -584,8 +587,8 @@ function submitLifecycleAction() {
 	}
 
 	.atlas-card__ring {
-		width: 2.75rem;
-		height: 2.75rem;
+		width: 3.5rem;
+		height: 3.5rem;
 		overflow: visible;
 	}
 
@@ -612,6 +615,27 @@ function submitLifecycleAction() {
 		transform: rotate(-90deg);
 		transform-origin: 50% 50%;
 		transition: stroke-dashoffset 420ms ease;
+	}
+
+	.progress-ring-spinner {
+		animation: atlas-progress-cycle-spin 2s linear infinite;
+		transform-origin: 50% 50%;
+	}
+
+	.progress-ring-bg {
+		fill: none;
+		stroke: color-mix(in srgb, currentColor 16%, transparent);
+		stroke-width: 4;
+	}
+
+	.progress-ring-fill {
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 4;
+		stroke-linecap: round;
+		transform: rotate(-90deg);
+		transform-origin: 50% 50%;
+		transition: stroke-dashoffset 0.5s ease;
 	}
 
 	.atlas-card__title-block {
@@ -661,6 +685,13 @@ function submitLifecycleAction() {
 		justify-content: space-between;
 		font-size: var(--text-sm);
 		color: var(--text-secondary);
+	}
+
+	.atlas-card__kickoff-note {
+		margin: 0;
+		color: var(--text-muted);
+		font-size: var(--text-xs);
+		line-height: 1.35;
 	}
 
 	.atlas-card__status-message-wrap {

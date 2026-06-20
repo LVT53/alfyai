@@ -134,10 +134,12 @@ function seededPrompt(input: {
 	query: string;
 	lifecycle: AtlasLifecycleContext;
 	language: SupportedLanguage;
+	currentDate: string;
 }): string {
 	return JSON.stringify({
 		query: input.query,
 		detectedLanguage: input.language,
+		currentDate: input.currentDate,
 		atlasLifecycle: {
 			action: input.lifecycle.family.action,
 			family: input.lifecycle.family,
@@ -178,12 +180,20 @@ const STAGE_SYSTEMS: Record<SupportedLanguage, Record<ModelStage, string>> = {
 	},
 };
 
-function stageSystem(stage: ModelStage, language: SupportedLanguage): string {
+function stageSystem(
+	stage: ModelStage,
+	language: SupportedLanguage,
+	currentDate: string,
+): string {
 	const languageInstruction =
 		language === "hu"
 			? "A jelentés és a szakasz kimenete magyar legyen; a forráscímek maradjanak eredeti nyelven."
 			: "Write the stage output and final report in English; keep source titles in their original language.";
-	return `${STAGE_SYSTEMS[language][stage]}\n\n${languageInstruction}`;
+	const freshnessInstruction =
+		language === "hu"
+			? `Mai dátum: ${currentDate}. A friss, aktuális, legújabb vagy híralapú állításokat kezeld időérzékenyként; webes bizonyítékokra támaszkodj, ne régi modellismeretre.`
+			: `Current date: ${currentDate}. Treat recent, current, latest, or news-based claims as freshness-sensitive; ground them in web evidence instead of stale model knowledge.`;
+	return `${STAGE_SYSTEMS[language][stage]}\n\n${languageInstruction}\n\n${freshnessInstruction}`;
 }
 
 function parseDecomposeQueries(text: string): string[] {
@@ -277,13 +287,78 @@ function fallbackDecomposeQueries(query: string): string[] {
 function buildAtlasSearchQueries(input: {
 	query: string;
 	decomposeText: string;
+	now: Date;
 }): string[] {
 	const decomposeQueries = parseDecomposeQueries(input.decomposeText).filter(
 		(query) => !isPromptEcho(query, input.query),
 	);
-	if (decomposeQueries.length > 0)
-		return uniqueQueries(decomposeQueries).slice(0, 8);
-	return fallbackDecomposeQueries(input.query);
+	const queries =
+		decomposeQueries.length > 0
+			? uniqueQueries(decomposeQueries).slice(0, 8)
+			: fallbackDecomposeQueries(input.query);
+	return applyFreshnessGrounding({
+		userQuery: input.query,
+		queries,
+		now: input.now,
+	});
+}
+
+function isFreshnessSensitiveQuery(
+	query: string,
+	currentYear: number,
+): boolean {
+	const freshnessPattern =
+		/\b(today|now|current|latest|recent|breaking|news|this week|this month|this year|price|availability|deadline|policy|schedule)\b/i;
+	return (
+		freshnessPattern.test(query) ||
+		new RegExp(`\\b${currentYear}\\b`).test(query)
+	);
+}
+
+function explicitYears(query: string): Set<string> {
+	return new Set(query.match(/\b(?:19|20)\d{2}\b/g) ?? []);
+}
+
+function replaceStaleUnrequestedYears(input: {
+	query: string;
+	currentYear: number;
+	requestedYears: Set<string>;
+}): string {
+	return input.query.replace(/\b(?:19|20)\d{2}\b/g, (year) => {
+		if (input.requestedYears.has(year)) return year;
+		const numericYear = Number(year);
+		return numericYear < input.currentYear ? String(input.currentYear) : year;
+	});
+}
+
+function removeTerminalQuestionMark(query: string): string {
+	return query.trim().replace(/\?+$/g, "");
+}
+
+function applyFreshnessGrounding(input: {
+	userQuery: string;
+	queries: string[];
+	now: Date;
+}): string[] {
+	const currentYear = input.now.getUTCFullYear();
+	if (!isFreshnessSensitiveQuery(input.userQuery, currentYear)) {
+		return input.queries;
+	}
+	const requestedYears = explicitYears(input.userQuery);
+	const grounded = input.queries.map((query) => {
+		const rewritten = replaceStaleUnrequestedYears({
+			query,
+			currentYear,
+			requestedYears,
+		});
+		return new RegExp(`\\b${currentYear}\\b`).test(rewritten)
+			? rewritten
+			: `${rewritten} ${currentYear}`;
+	});
+	const userQueryCore = removeTerminalQuestionMark(input.userQuery);
+	grounded.push(`${userQueryCore} recent news ${currentYear}`);
+	grounded.push(`${userQueryCore} latest updates ${currentYear}`);
+	return uniqueQueries(grounded).slice(0, 8);
 }
 
 function buildAssemblePrompt(input: {
@@ -305,16 +380,20 @@ function buildAssemblePrompt(input: {
 			? [
 					"Írj teljes Atlas jelentést Markdownban.",
 					"Do not write a process report about checking sources, synthesizing findings, or completing research steps.",
-					"A jelentés érdemi megállapításokat tartalmazzon: Executive Summary, tematikus elemző szakaszok, Limitations és Sources.",
+					"A jelentés érdemi megállapításokat tartalmazzon: Vezetői összefoglaló, Kulcsüzenet vagy egyértelmű első összefoglaló bekezdés, tematikus elemző szakaszok, Korlátok és Források.",
 					"Csak az elfogadott forrásokból és a válogatott bizonyítékokból következő állításokat tegyél.",
 					"Ha a bizonyíték gyenge vagy ellentmondásos, azt a Limitations részben és a releváns szakaszban mondd ki.",
+					"Ha összehasonlítható számszerű bizonyíték van, adj kompakt Markdown táblázatot, hogy a renderer diagramot készíthessen.",
+					"Csak akkor adj Markdown képet HTTPS URL-lel, ha az hasznos, forrásalapú, és van világos képaláírása vagy forrásmegjelölése.",
 				].join(" ")
 			: [
 					"Write a complete Atlas report in Markdown.",
 					"Do not write a process report about checking sources, synthesizing findings, or completing research steps.",
-					"The report must contain substantive findings: Executive Summary, thematic analytical sections, Limitations, and Sources.",
+					"The report must contain substantive findings: Executive Summary, Key takeaway or a clear first summary paragraph, thematic analytical sections, Limitations, and Sources.",
 					"Make only claims supported by accepted sources and curated evidence.",
 					"If evidence is weak or conflicting, state that in Limitations and in the relevant section.",
+					"When comparable numeric evidence is available, include a compact Markdown table so the renderer can build a useful chart.",
+					"Only include Markdown images with HTTPS URLs when they are useful, source-backed, and have a clear caption or attribution.",
 				].join(" ");
 	return JSON.stringify({
 		detectedLanguage: input.language,
@@ -569,6 +648,8 @@ export async function runAtlasPipeline(
 	input: RunAtlasPipelineInput,
 ): Promise<AtlasPipelineResult> {
 	const language = detectLanguage(input.job.query);
+	const now = input.now ?? new Date();
+	const currentDate = now.toISOString().slice(0, 10);
 	const sources = await input.dependencies.resolveSources();
 	const usageSeed: AtlasStageUsage = {
 		inputTokens: 0,
@@ -584,17 +665,19 @@ export async function runAtlasPipeline(
 	});
 	const decompose = await input.dependencies.runModelStage({
 		stage: "decompose",
-		system: stageSystem("decompose", language),
+		system: stageSystem("decompose", language, currentDate),
 		prompt: seededPrompt({
 			query: input.job.query,
 			lifecycle: input.job.lifecycle,
 			language,
+			currentDate,
 		}),
 	});
 	usage = addUsage(usage, decompose.usage);
 	const searchQueries = buildAtlasSearchQueries({
 		query: input.job.query,
 		decomposeText: decompose.text,
+		now,
 	});
 
 	await input.dependencies.heartbeat?.({
@@ -610,9 +693,10 @@ export async function runAtlasPipeline(
 	});
 	const curate = await input.dependencies.runModelStage({
 		stage: "curate",
-		system: stageSystem("curate", language),
+		system: stageSystem("curate", language, currentDate),
 		prompt: JSON.stringify({
 			detectedLanguage: language,
+			currentDate,
 			local: sources.localSources,
 			web: search.sources,
 			parentCuratedSourcePool:
@@ -628,9 +712,10 @@ export async function runAtlasPipeline(
 	});
 	const synthesize = await input.dependencies.runModelStage({
 		stage: "synthesize",
-		system: stageSystem("synthesize", language),
+		system: stageSystem("synthesize", language, currentDate),
 		prompt: JSON.stringify({
 			detectedLanguage: language,
+			currentDate,
 			curatedEvidence: curate.text,
 			parentCompressedFindings:
 				input.job.lifecycle.seed?.compressedFindings ?? null,
@@ -645,9 +730,10 @@ export async function runAtlasPipeline(
 	});
 	const integrate = await input.dependencies.runModelStage({
 		stage: "integrate",
-		system: stageSystem("integrate", language),
+		system: stageSystem("integrate", language, currentDate),
 		prompt: JSON.stringify({
 			detectedLanguage: language,
+			currentDate,
 			synthesis: synthesize.text,
 			atlasLifecycle: input.job.lifecycle.family,
 		}),
@@ -660,7 +746,7 @@ export async function runAtlasPipeline(
 	});
 	const assemble = await input.dependencies.runModelStage({
 		stage: "assemble",
-		system: stageSystem("assemble", language),
+		system: stageSystem("assemble", language, currentDate),
 		prompt: buildAssemblePrompt({
 			language,
 			query: input.job.query,
@@ -713,7 +799,7 @@ export async function runAtlasPipeline(
 		});
 		const repair = await input.dependencies.runModelStage({
 			stage: "assemble",
-			system: stageSystem("assemble", language),
+			system: stageSystem("assemble", language, currentDate),
 			prompt: buildAssembleRepairPrompt({
 				basePrompt,
 				previousDraft: finalAssembledMarkdown,
@@ -838,7 +924,7 @@ export async function runAtlasPipeline(
 		qualityDiagnostics: audit,
 		documentSourceSummary: {
 			title: input.job.title,
-			date: (input.now ?? new Date()).toISOString().slice(0, 10),
+			date: currentDate,
 			atlasFamily: input.job.lifecycle.family,
 			parentSeedUsed: input.job.lifecycle.seed
 				? {
@@ -862,7 +948,8 @@ export async function runAtlasPipeline(
 		assembledMarkdown: auditedMarkdown,
 		sources: auditSources,
 		honestyMarkers: audit.honestyMarkers,
-		date: (input.now ?? new Date()).toISOString().slice(0, 10),
+		date: currentDate,
+		language,
 	});
 	await input.dependencies.heartbeat?.({
 		stage: "render",

@@ -79,6 +79,58 @@ describe("generated document source schema", () => {
 		});
 	});
 
+	it("accepts paragraph-level source chips for inline report citations", () => {
+		const result = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Sourced report",
+			blocks: [
+				{
+					type: "paragraph",
+					text: "Surface code maturity is backed by accepted source evidence.",
+					sources: [
+						{
+							title: "Vendor docs",
+							url: "https://example.com/docs",
+							reasoning: "Primary source for current platform claims.",
+						},
+						{
+							title: "Uploaded strategy memo",
+							provided: true,
+							reasoning: "User-provided local evidence.",
+						},
+					],
+				},
+			],
+		});
+
+		expect(result).toMatchObject({ ok: true });
+		if (!result.ok) return;
+
+		expect(result.source.blocks[0]).toMatchObject({
+			type: "paragraph",
+			text: "Surface code maturity is backed by accepted source evidence.",
+			sources: [
+				{
+					title: "Vendor docs",
+					url: "https://example.com/docs",
+					kind: "web",
+					reasoning: "Primary source for current platform claims.",
+				},
+				{
+					title: "Uploaded strategy memo",
+					url: null,
+					kind: "library",
+					provided: true,
+					reasoning: "User-provided local evidence.",
+				},
+			],
+		});
+		expect(buildGeneratedDocumentProjection(result.source)).toContain(
+			"Sources: Vendor docs (https://example.com/docs; Primary source for current platform claims.); Uploaded strategy memo (You provided these; User-provided local evidence.)",
+		);
+	});
+
 	it("rejects raw HTML blocks instead of preserving arbitrary markup", () => {
 		const result = validateGeneratedDocumentSource({
 			version: 1,

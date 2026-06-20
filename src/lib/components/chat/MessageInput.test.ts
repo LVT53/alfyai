@@ -1,5 +1,6 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { uiLanguage } from "$lib/stores/settings";
 import type { PendingAttachment } from "$lib/types";
 import MessageInput from "./MessageInput.svelte";
 import MessageInputWrapper from "./MessageInputWrapper.test.svelte";
@@ -70,6 +71,7 @@ vi.mock("$lib/client/api/skills", () => ({
 describe("MessageInput", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		uiLanguage.set("en");
 		fetchKnowledgeLibraryMock.mockResolvedValue({
 			documents: [],
 			results: [],
@@ -165,9 +167,23 @@ describe("MessageInput", () => {
 
 		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
 		await fireEvent.click(getByRole("menuitem", { name: "Atlas" }));
-		const profilePicker = getByRole("listbox", { name: "Atlas profile" });
+		const pickerSurface = getByRole("region", {
+			name: "Choose an Atlas profile",
+		});
+		expect(pickerSurface).toHaveTextContent(
+			"Deeper reports take more time and sources.",
+		);
+		expect(pickerSurface).toHaveTextContent(
+			"A concise snapshot with key takeaways and a handful of sources.",
+		);
+		expect(pickerSurface).toHaveTextContent("~30+ min");
+		const profilePicker = within(pickerSurface).getByRole("listbox", {
+			name: "Atlas profile",
+		});
 		await fireEvent.click(
-			within(profilePicker).getByRole("option", { name: "In-Depth" }),
+			within(profilePicker).getByRole("option", {
+				name: "In-Depth",
+			}),
 		);
 
 		expect(
@@ -187,6 +203,30 @@ describe("MessageInput", () => {
 				atlasAction: "create",
 				clientAtlasTurnId: expect.stringMatching(/^atlas-/),
 			}),
+		);
+	});
+
+	it("localizes the Atlas profile picker in Hungarian", async () => {
+		uiLanguage.set("hu");
+		const { getByRole } = render(MessageInput, {
+			atlasAvailability: { enabled: true, configured: true },
+		});
+
+		await fireEvent.click(
+			getByRole("button", { name: "Szerkesztőeszközök megnyitása" }),
+		);
+		await fireEvent.click(getByRole("menuitem", { name: "Atlas" }));
+
+		const pickerSurface = getByRole("region", {
+			name: "Válassz Atlas profilt",
+		});
+		expect(pickerSurface).toHaveTextContent(
+			"A mélyebb jelentések több időt és forrást igényelnek.",
+		);
+		expect(pickerSurface).toHaveTextContent("Részletes");
+		expect(pickerSurface).toHaveTextContent("~10-20 perc");
+		expect(pickerSurface).toHaveTextContent(
+			"Kiegyensúlyozott szélesség és részletesség",
 		);
 	});
 

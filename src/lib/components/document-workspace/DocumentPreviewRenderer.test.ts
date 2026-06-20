@@ -503,8 +503,22 @@ describe("DocumentPreviewRenderer", () => {
 		const shell = document.querySelector(".html-preview-shell");
 		expect(shell).toBeInTheDocument();
 		expect(window.getComputedStyle(shell as Element).height).toBe("100%");
+		expect(window.getComputedStyle(shell as Element).padding).toBe("0px");
+		expect(window.getComputedStyle(shell as Element).backgroundColor).toBe(
+			"rgba(0, 0, 0, 0)",
+		);
 		expect(window.getComputedStyle(frame).height).toBe("100%");
 		expect(window.getComputedStyle(frame).flexGrow).toBe("1");
+		expect(window.getComputedStyle(frame).borderTopWidth).toBe("0px");
+		expect(window.getComputedStyle(frame).borderRadius).toBe("0px");
+		expect(window.getComputedStyle(frame).backgroundColor).toBe(
+			"rgba(0, 0, 0, 0)",
+		);
+		expect(
+			window.getComputedStyle(
+				document.querySelector(".preview-body-embedded") as Element,
+			).overflowY,
+		).toBe("hidden");
 	});
 
 	it("renders DOCX through the office adapter surface", async () => {

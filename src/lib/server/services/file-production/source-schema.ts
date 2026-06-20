@@ -1,6 +1,6 @@
 export type GeneratedDocumentBlock =
 	| { type: "heading"; level: 1 | 2 | 3; text: string }
-	| { type: "paragraph"; text: string }
+	| GeneratedDocumentParagraphBlock
 	| { type: "list"; style: "bullet" | "numbered"; items: string[] }
 	| {
 			type: "callout";
@@ -19,6 +19,12 @@ export type GeneratedDocumentBlock =
 	| { type: "pageBreak" };
 
 export type GeneratedDocumentScalar = string | number | boolean | null;
+
+export interface GeneratedDocumentParagraphBlock {
+	type: "paragraph";
+	text: string;
+	sources?: GeneratedDocumentSourceChip[];
+}
 
 export interface GeneratedDocumentTableColumn {
 	key: string;
@@ -111,6 +117,7 @@ export interface GeneratedDocumentSource {
 	title: string;
 	subtitle?: string | null;
 	date?: string | null;
+	language?: "en" | "hu";
 	cover?: { enabled: true; eyebrow?: string | null; dateLabel?: string | null };
 	blocks: GeneratedDocumentBlock[];
 }
@@ -127,6 +134,12 @@ function cleanText(value: unknown): string | null {
 	if (typeof value !== "string") return null;
 	const trimmed = value.replace(/\s+/g, " ").trim();
 	return trimmed.length > 0 ? trimmed : null;
+}
+
+function cleanDocumentLanguage(
+	value: unknown,
+): GeneratedDocumentSource["language"] {
+	return value === "hu" || value === "en" ? value : undefined;
 }
 
 function cleanKey(value: unknown): string | null {
@@ -610,9 +623,15 @@ function normalizeParagraphBlock(
 	block: Record<string, unknown>,
 ): BlockNormalizationResult {
 	const text = cleanText(block.text);
-	return text
-		? { ok: true, block: { type: "paragraph", text } }
-		: unsupportedDocumentBlockResult();
+	if (!text) return unsupportedDocumentBlockResult();
+	const sources = normalizeSourceChipArray(block.sources);
+	return {
+		ok: true,
+		block:
+			sources.length > 0
+				? { type: "paragraph", text, sources }
+				: { type: "paragraph", text },
+	};
 }
 
 function normalizeListBlock(
@@ -682,30 +701,44 @@ function normalizeSourceChipsBlock(
 	block: Record<string, unknown>,
 ): BlockNormalizationResult {
 	const title = cleanText(block.title);
-	const sources = Array.isArray(block.sources)
-		? block.sources
-				.map((source): GeneratedDocumentSourceChip | null => {
-					if (!isRecord(source)) return null;
-					const sourceTitle = cleanText(source.title);
-					if (!sourceTitle) return null;
-					const url = cleanText(source.url);
-					const reasoning = cleanText(source.reasoning);
-					const kind = source.kind === "web" ? "web" : "library";
-					return {
-						title: sourceTitle,
-						url,
-						reasoning,
-						provided: source.provided === true,
-						kind,
-					};
-				})
+	const sources = normalizeSourceChipArray(block.sources);
+	return title && sources.length > 0
+		? { ok: true, block: { type: "sourceChips", title, sources } }
+		: unsupportedDocumentBlockResult();
+}
+
+function normalizeSourceChip(
+	value: unknown,
+): GeneratedDocumentSourceChip | null {
+	if (!isRecord(value)) return null;
+	const title = cleanText(value.title);
+	if (!title) return null;
+	const url = cleanText(value.url);
+	const kind =
+		value.kind === "web" || value.kind === "library"
+			? value.kind
+			: url
+				? "web"
+				: "library";
+	return {
+		title,
+		url,
+		reasoning: cleanText(value.reasoning),
+		provided: value.provided === true,
+		kind,
+	};
+}
+
+function normalizeSourceChipArray(
+	value: unknown,
+): GeneratedDocumentSourceChip[] {
+	return Array.isArray(value)
+		? value
+				.map(normalizeSourceChip)
 				.filter((source): source is GeneratedDocumentSourceChip =>
 					Boolean(source),
 				)
 		: [];
-	return title && sources.length > 0
-		? { ok: true, block: { type: "sourceChips", title, sources } }
-		: unsupportedDocumentBlockResult();
 }
 
 function normalizeCodeBlock(
@@ -1019,10 +1052,22 @@ export function validateGeneratedDocumentSource(
 			title,
 			subtitle: cleanText(value.subtitle),
 			date: cleanText(value.date),
+			language: cleanDocumentLanguage(value.language),
 			...(cover ? { cover } : {}),
 			blocks,
 		},
 	};
+}
+
+function formatSourceProjection(source: GeneratedDocumentSourceChip): string {
+	const details = [
+		source.url,
+		source.provided ? "You provided these" : null,
+		source.reasoning,
+	].filter((part): part is string => Boolean(part));
+	return details.length > 0
+		? `${source.title} (${details.join("; ")})`
+		: source.title;
 }
 
 export function buildGeneratedDocumentProjection(
@@ -1050,6 +1095,11 @@ export function buildGeneratedDocumentProjection(
 				break;
 			case "paragraph":
 				lines.push(block.text);
+				if (block.sources && block.sources.length > 0) {
+					lines.push(
+						`Sources: ${block.sources.map(formatSourceProjection).join("; ")}`,
+					);
+				}
 				break;
 			case "list":
 				block.items.forEach((item, index) => {
@@ -1084,16 +1134,7 @@ export function buildGeneratedDocumentProjection(
 			case "sourceChips":
 				lines.push(block.title);
 				block.sources.forEach((source) => {
-					const details = [
-						source.url,
-						source.provided ? "You provided these" : null,
-						source.reasoning,
-					].filter((part): part is string => Boolean(part));
-					lines.push(
-						details.length > 0
-							? `- ${source.title} (${details.join("; ")})`
-							: `- ${source.title}`,
-					);
+					lines.push(`- ${formatSourceProjection(source)}`);
 				});
 				break;
 			case "table":
