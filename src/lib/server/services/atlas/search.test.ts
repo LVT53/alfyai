@@ -113,6 +113,36 @@ describe("Atlas search stage", () => {
 		expect(result.rejectedSources.length).toBeGreaterThan(0);
 	});
 
+	it("uses the configured accepted source cap for profile-specific convergence", async () => {
+		const { runAtlasSearchStage } = await import("./search");
+
+		const result = await runAtlasSearchStage({
+			queries: ["routing docs"],
+			config: {
+				searxngBaseUrl: "http://searxng.local",
+				concurrency: 1,
+				interBatchDelayMs: 0,
+				maxAcceptedSources: 3,
+				maxAttempts: 1,
+			},
+			search: vi.fn(async () =>
+				Array.from({ length: 8 }, (_value, index) => ({
+					id: `source-${index}`,
+					title: `Source ${index}`,
+					url: `https://example.com/source-${index}`,
+					snippet: `Source ${index} about routing docs.`,
+				})),
+			),
+		});
+
+		expect(result.sources).toHaveLength(3);
+		expect(
+			result.rejectedSources.filter(
+				(source) => source.rejectionReason === "source_cap",
+			),
+		).toHaveLength(5);
+	});
+
 	it("enriches accepted converged sources with fetched page excerpts", async () => {
 		const { runAtlasSearchStage } = await import("./search");
 		const fetchPage = vi.fn(async (source: AtlasSearchSource) => ({

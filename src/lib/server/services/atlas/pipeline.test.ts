@@ -975,6 +975,116 @@ describe("Atlas pipeline slices", () => {
 		});
 	});
 
+	it("uses the selected Atlas profile to change search breadth", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const queryCountsByProfile: Record<string, number> = {};
+		const decomposeSystemsByProfile: Record<string, string> = {};
+		const manyQueries = Array.from(
+			{ length: 28 },
+			(_value, index) => `SvelteKit routing profile query ${index + 1}`,
+		).join("\n");
+
+		for (const profile of ["overview", "in-depth", "exhaustive"] as const) {
+			await runAtlasPipeline({
+				job: {
+					id: `atlas-profile-${profile}`,
+					userId: "user-1",
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-1",
+					action: "create",
+					parentAtlasJobId: null,
+					profile,
+					title: `Profile ${profile}`,
+					query: "Compare SvelteKit routing documentation history",
+					lifecycle: {
+						family: {
+							familyId: `atlas-profile-${profile}`,
+							mode: "new_family",
+							action: "create",
+							rootAtlasJobId: `atlas-profile-${profile}`,
+							currentAtlasJobId: `atlas-profile-${profile}`,
+							parentAtlasJobId: null,
+							forkedFromAtlasJobId: null,
+						},
+						seed: null,
+					},
+				},
+				dependencies: {
+					resolveSources: vi.fn(async () => ({ localSources: [] })),
+					searchWeb: vi.fn(async (queries) => {
+						queryCountsByProfile[profile] = queries.length;
+						return {
+							sources: [
+								{
+									id: `web-${profile}`,
+									title: "Routing docs",
+									url: "https://example.com/routing",
+									snippet:
+										"SvelteKit routing documentation describes filesystem routes.",
+								},
+							],
+							rejectedSources: [],
+							limitation: null,
+						};
+					}),
+					runModelStage: vi.fn(async (input) => ({
+						text: (() => {
+							if (input.stage === "decompose") {
+								decomposeSystemsByProfile[profile] = input.system;
+								return manyQueries;
+							}
+							return [
+										"# Profile report",
+										"",
+										"## Executive Summary",
+										"The evidence shows SvelteKit routing documentation centers on filesystem routes and route files, with enough detail for a concise profile comparison report.",
+										"",
+										"## Findings",
+										"Profile-specific search breadth should change how many decomposed queries reach search, while the fixed pipeline and audit still run for every profile.",
+										"",
+										"## Limitations",
+										"This fixture uses one accepted source and focuses on profile routing behavior.",
+									].join("\n");
+						})(),
+						usage: {
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+							costUsdMicros: 1,
+						},
+					})),
+					auditBasis: vi.fn(async () => ({
+						passed: true,
+						honestyMarkers: [],
+						retryRequested: false,
+					})),
+					writeCheckpoint: vi.fn(async () => {}),
+					renderOutputs: vi.fn(async () => ({
+						fileProductionJobId: `fp-${profile}`,
+						htmlChatGeneratedFileId: `html-${profile}`,
+						pdfChatGeneratedFileId: `pdf-${profile}`,
+						markdownChatGeneratedFileId: `md-${profile}`,
+					})),
+				},
+			});
+		}
+
+		expect(queryCountsByProfile).toEqual({
+			overview: 6,
+			"in-depth": 14,
+			exhaustive: 28,
+		});
+		expect(decomposeSystemsByProfile.overview).toContain(
+			"Profile posture: Overview",
+		);
+		expect(decomposeSystemsByProfile["in-depth"]).toContain(
+			"Profile posture: In-Depth",
+		);
+		expect(decomposeSystemsByProfile.exhaustive).toContain(
+			"Profile posture: Exhaustive",
+		);
+	});
+
 	it("fails the pipeline instead of rendering outputs when the audit gate has critical markers", async () => {
 		const { AtlasPipelineQualityError, runAtlasPipeline } = await import(
 			"./pipeline"

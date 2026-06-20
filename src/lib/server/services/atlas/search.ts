@@ -31,6 +31,7 @@ export interface AtlasSearchConfig {
 	searxngBaseUrl: string;
 	concurrency?: number;
 	interBatchDelayMs?: number;
+	maxAcceptedSources?: number;
 	initialRetryBackoffMs?: number;
 	maxRetryBackoffMs?: number;
 	maxAttempts?: number;
@@ -314,7 +315,7 @@ export async function runAtlasSearchStage(
 					defaultFetchPageContent(source, input.config));
 	const sources: AtlasSearchSource[] = [];
 	const rejectedSources: RejectedAtlasSearchSource[] = [];
-	const maxAcceptedSources = 18;
+	const maxAcceptedSources = Math.max(1, input.config.maxAcceptedSources ?? 18);
 
 	for (let index = 0; index < queries.length; index += concurrency) {
 		const batch = queries.slice(index, index + concurrency);

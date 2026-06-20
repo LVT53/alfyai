@@ -1,4 +1,5 @@
 import type { ModelId } from "$lib/types";
+import { getAtlasProfileRuntimeConfig } from "./config";
 import type { AtlasPipelineStage, AtlasProfile } from "./types";
 
 export interface AtlasModelStageUsage {
@@ -59,17 +60,6 @@ export interface RunAtlasAuditStageInput {
 	runModel?: (
 		input: AtlasNormalChatModelBoundaryInput,
 	) => Promise<AtlasNormalChatModelBoundaryResult>;
-}
-
-function profileMaxOutputTokens(profile: AtlasProfile): number {
-	switch (profile) {
-		case "overview":
-			return 1800;
-		case "in-depth":
-			return 3200;
-		case "exhaustive":
-			return 5000;
-	}
 }
 
 function normalizeUsage(
@@ -163,7 +153,7 @@ export async function runAtlasModelStage(
 		modelSelection: input.modelSelection,
 		messages: [{ role: "user", content: input.prompt }],
 		system: `${input.system}\n\nAtlas stage: ${input.stage}. Profile: ${input.profile}.`,
-		maxOutputTokens: profileMaxOutputTokens(input.profile),
+		maxOutputTokens: getAtlasProfileRuntimeConfig(input.profile).maxOutputTokens,
 	});
 	const usage = normalizeUsage(result.usage);
 	const costUsdMicros = await calculateStageCostUsdMicros({

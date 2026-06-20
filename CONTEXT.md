@@ -2348,7 +2348,7 @@ A **Normal Chat Turn** that produces an **Atlas** through an enforced multi-stag
 _Avoid_: deep research job, research workflow, background research task, research mode
 
 **Atlas Profile**:
-The depth, duration, and quality-gate strictness setting for an **Atlas Turn**. Three profiles exist: **Overview** (Áttekintés), **In-Depth** (Részletes), and **Exhaustive** (Kimerítő). In v1 a profile primarily controls stage output budget and prompt posture; quality gates are non-negotiable regardless of profile — even Overview cannot ship unsupported certainty.
+The depth and duration setting for an **Atlas Turn**. Three profiles exist: **Overview** (Áttekintés), **In-Depth** (Részletes), and **Exhaustive** (Kimerítő). In v1 a profile controls search-query breadth, accepted web-source cap, stage output budget, and prompt posture; quality gates are non-negotiable regardless of profile — even Overview cannot ship unsupported certainty.
 _Avoid_: research depth, research mode, depth level, research tier
 
 **Atlas Quality Gate**:
@@ -2411,7 +2411,7 @@ _Avoid_: research notification, Atlas email alert, separate notification center
 
 - An **Atlas** is produced by an **Atlas Turn**, which is a special kind of **Normal Chat Turn**.
 - An **Atlas Turn** uses **Normal Chat Turn Completion** for its kickoff assistant message and persists background completion state on the Atlas job. It does not bypass conversation persistence or generated-file linking, but it does not create a second analytics/task-state completion event. The generated Atlas content is assistant prose and is not automatically admitted to durable memory.
-- An **Atlas Profile** changes stage output budget and prompt posture, but **Atlas Quality Gates** are non-negotiable regardless of profile.
+- An **Atlas Profile** changes search breadth, accepted-source cap, stage output budget, and prompt posture, but **Atlas Quality Gates** are non-negotiable regardless of profile.
 - **Atlas Honesty Markers** are derived from the **Atlas Basis** verification, not from model self-assessment.
 - An **Atlas** can be continued (**Atlas Continue**), branched (**Atlas Fork**), or refreshed (**Atlas Revise**) — each creates a new **Atlas Turn** with different seeding.
 - **Atlas Continue** and **Atlas Revise** produce new versions in the same document family; **Atlas Fork** creates a new document family.

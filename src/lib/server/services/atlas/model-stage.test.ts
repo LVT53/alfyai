@@ -118,6 +118,43 @@ describe("Atlas model stage", () => {
 		expect(result.usage.costUsdMicros).toBe(7_800);
 	});
 
+	it("uses distinct max output token budgets for each Atlas profile", async () => {
+		const { runAtlasModelStage } = await import("./model-stage");
+		const calls: Array<{ profile: string; maxOutputTokens: number }> = [];
+
+		for (const profile of ["overview", "in-depth", "exhaustive"] as const) {
+			await runAtlasModelStage({
+				stage: "synthesize",
+				profile,
+				modelSelection: "model1",
+				system: "Atlas system prompt",
+				prompt: "Use curated evidence only.",
+				runModel: vi.fn(async (input) => {
+					calls.push({ profile, maxOutputTokens: input.maxOutputTokens });
+					return {
+						text: "Profile output",
+						usage: {
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+						},
+						model: {
+							modelId: "model1",
+							providerId: "provider",
+							displayName: "Model 1",
+						},
+					};
+				}),
+			});
+		}
+
+		expect(calls).toEqual([
+			{ profile: "overview", maxOutputTokens: 2400 },
+			{ profile: "in-depth", maxOutputTokens: 5200 },
+			{ profile: "exhaustive", maxOutputTokens: 9000 },
+		]);
+	});
+
 	it("calls the normal chat model boundary for audit with strict JSON instructions", async () => {
 		const { runAtlasAuditStage } = await import("./model-stage");
 		const runModel = vi.fn(async () => ({

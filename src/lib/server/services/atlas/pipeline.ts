@@ -7,6 +7,7 @@ import {
 	type AtlasOutputIds,
 	buildAtlasDocumentSource,
 } from "./renderer-output";
+import { getAtlasProfileRuntimeConfig } from "./config";
 import type {
 	AtlasHonestyMarker,
 	AtlasJobProgressDetails,
@@ -184,6 +185,7 @@ function stageSystem(
 	stage: ModelStage,
 	language: SupportedLanguage,
 	currentDate: string,
+	profilePosture: string,
 ): string {
 	const languageInstruction =
 		language === "hu"
@@ -193,10 +195,10 @@ function stageSystem(
 		language === "hu"
 			? `Mai dátum: ${currentDate}. A friss, aktuális, legújabb vagy híralapú állításokat kezeld időérzékenyként; webes bizonyítékokra támaszkodj, ne régi modellismeretre.`
 			: `Current date: ${currentDate}. Treat recent, current, latest, or news-based claims as freshness-sensitive; ground them in web evidence instead of stale model knowledge.`;
-	return `${STAGE_SYSTEMS[language][stage]}\n\n${languageInstruction}\n\n${freshnessInstruction}`;
+	return `${STAGE_SYSTEMS[language][stage]}\n\n${languageInstruction}\n\n${freshnessInstruction}\n\n${profilePosture}`;
 }
 
-function parseDecomposeQueries(text: string): string[] {
+function parseDecomposeQueries(text: string, maxQueries: number): string[] {
 	const trimmed = text.trim();
 	if (!trimmed) return [];
 	const fencedJson = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
@@ -218,7 +220,7 @@ function parseDecomposeQueries(text: string): string[] {
 						typeof query === "string" ? query.replace(/\s+/g, " ").trim() : "",
 					)
 					.filter(Boolean)
-					.slice(0, 8);
+					.slice(0, maxQueries);
 				if (queries.length > 0) return queries;
 			}
 		} catch {
@@ -234,7 +236,7 @@ function parseDecomposeQueries(text: string): string[] {
 				.trim(),
 		)
 		.filter(Boolean)
-		.slice(0, 8);
+		.slice(0, maxQueries);
 }
 
 function normalizeQueryForComparison(query: string): string {
@@ -288,18 +290,21 @@ function buildAtlasSearchQueries(input: {
 	query: string;
 	decomposeText: string;
 	now: Date;
+	maxQueries: number;
 }): string[] {
-	const decomposeQueries = parseDecomposeQueries(input.decomposeText).filter(
-		(query) => !isPromptEcho(query, input.query),
-	);
+	const decomposeQueries = parseDecomposeQueries(
+		input.decomposeText,
+		input.maxQueries,
+	).filter((query) => !isPromptEcho(query, input.query));
 	const queries =
 		decomposeQueries.length > 0
-			? uniqueQueries(decomposeQueries).slice(0, 8)
+			? uniqueQueries(decomposeQueries).slice(0, input.maxQueries)
 			: fallbackDecomposeQueries(input.query);
 	return applyFreshnessGrounding({
 		userQuery: input.query,
 		queries,
 		now: input.now,
+		maxQueries: input.maxQueries,
 	});
 }
 
@@ -339,6 +344,7 @@ function applyFreshnessGrounding(input: {
 	userQuery: string;
 	queries: string[];
 	now: Date;
+	maxQueries: number;
 }): string[] {
 	const currentYear = input.now.getUTCFullYear();
 	if (!isFreshnessSensitiveQuery(input.userQuery, currentYear)) {
@@ -358,7 +364,7 @@ function applyFreshnessGrounding(input: {
 	const userQueryCore = removeTerminalQuestionMark(input.userQuery);
 	grounded.push(`${userQueryCore} recent news ${currentYear}`);
 	grounded.push(`${userQueryCore} latest updates ${currentYear}`);
-	return uniqueQueries(grounded).slice(0, 8);
+	return uniqueQueries(grounded).slice(0, input.maxQueries);
 }
 
 function buildAssemblePrompt(input: {
@@ -650,6 +656,8 @@ export async function runAtlasPipeline(
 	const language = detectLanguage(input.job.query);
 	const now = input.now ?? new Date();
 	const currentDate = now.toISOString().slice(0, 10);
+	const profileConfig = getAtlasProfileRuntimeConfig(input.job.profile);
+	const profilePosture = profileConfig.promptPosture[language];
 	const sources = await input.dependencies.resolveSources();
 	const usageSeed: AtlasStageUsage = {
 		inputTokens: 0,
@@ -665,7 +673,7 @@ export async function runAtlasPipeline(
 	});
 	const decompose = await input.dependencies.runModelStage({
 		stage: "decompose",
-		system: stageSystem("decompose", language, currentDate),
+		system: stageSystem("decompose", language, currentDate, profilePosture),
 		prompt: seededPrompt({
 			query: input.job.query,
 			lifecycle: input.job.lifecycle,
@@ -678,6 +686,7 @@ export async function runAtlasPipeline(
 		query: input.job.query,
 		decomposeText: decompose.text,
 		now,
+		maxQueries: profileConfig.maxSearchQueries,
 	});
 
 	await input.dependencies.heartbeat?.({
@@ -693,7 +702,7 @@ export async function runAtlasPipeline(
 	});
 	const curate = await input.dependencies.runModelStage({
 		stage: "curate",
-		system: stageSystem("curate", language, currentDate),
+		system: stageSystem("curate", language, currentDate, profilePosture),
 		prompt: JSON.stringify({
 			detectedLanguage: language,
 			currentDate,
@@ -712,7 +721,7 @@ export async function runAtlasPipeline(
 	});
 	const synthesize = await input.dependencies.runModelStage({
 		stage: "synthesize",
-		system: stageSystem("synthesize", language, currentDate),
+		system: stageSystem("synthesize", language, currentDate, profilePosture),
 		prompt: JSON.stringify({
 			detectedLanguage: language,
 			currentDate,
@@ -730,7 +739,7 @@ export async function runAtlasPipeline(
 	});
 	const integrate = await input.dependencies.runModelStage({
 		stage: "integrate",
-		system: stageSystem("integrate", language, currentDate),
+		system: stageSystem("integrate", language, currentDate, profilePosture),
 		prompt: JSON.stringify({
 			detectedLanguage: language,
 			currentDate,
@@ -746,7 +755,7 @@ export async function runAtlasPipeline(
 	});
 	const assemble = await input.dependencies.runModelStage({
 		stage: "assemble",
-		system: stageSystem("assemble", language, currentDate),
+		system: stageSystem("assemble", language, currentDate, profilePosture),
 		prompt: buildAssemblePrompt({
 			language,
 			query: input.job.query,
@@ -799,7 +808,7 @@ export async function runAtlasPipeline(
 		});
 		const repair = await input.dependencies.runModelStage({
 			stage: "assemble",
-			system: stageSystem("assemble", language, currentDate),
+			system: stageSystem("assemble", language, currentDate, profilePosture),
 			prompt: buildAssembleRepairPrompt({
 				basePrompt,
 				previousDraft: finalAssembledMarkdown,

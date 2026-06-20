@@ -14,6 +14,7 @@ import {
 	DEFAULT_ATLAS_PER_USER_ACTIVE_LIMIT,
 	DEFAULT_ATLAS_STALE_WORKER_MS,
 	DEFAULT_ATLAS_WORKER_ENABLED,
+	getAtlasProfileRuntimeConfig,
 } from "./config";
 import type { ClaimedAtlasJob } from "./job-ledger";
 import {
@@ -107,6 +108,7 @@ export async function executeNextAtlasJob(
 			auditModel: config.atlasAuditModel,
 			config,
 		});
+		const profileConfig = getAtlasProfileRuntimeConfig(claimed.job.profile);
 		const result = await runAtlasPipeline({
 			job: {
 				id: claimed.job.id,
@@ -136,6 +138,7 @@ export async function executeNextAtlasJob(
 							searxngBaseUrl: config.searxngBaseUrl,
 							concurrency: config.atlasSearchConcurrency,
 							interBatchDelayMs: config.atlasSearchBatchDelayMs,
+							maxAcceptedSources: profileConfig.maxAcceptedWebSources,
 							webResearchExtractorMode: config.webResearchExtractorMode,
 							webResearchExtractTimeoutMs: config.webResearchExtractTimeoutMs,
 							webResearchExtractCacheTtlHours:

@@ -209,6 +209,20 @@ describe("Atlas worker runner", () => {
 			}),
 		);
 		const pipelineInput = mocks.runAtlasPipeline.mock.calls[0]?.[0];
+		const { runAtlasSearchStage } = await import("./search");
+		vi.mocked(runAtlasSearchStage).mockResolvedValueOnce({
+			sources: [],
+			rejectedSources: [],
+			limitation: null,
+		});
+		await pipelineInput.dependencies.searchWeb(["routing docs"]);
+		expect(runAtlasSearchStage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				config: expect.objectContaining({
+					maxAcceptedSources: 16,
+				}),
+			}),
+		);
 		const audit = await pipelineInput.dependencies.auditBasis({
 			assembledMarkdown: "Report",
 			sources: [{ title: "Source", url: "https://example.com" }],
