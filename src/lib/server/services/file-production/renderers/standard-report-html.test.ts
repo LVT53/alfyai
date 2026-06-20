@@ -385,6 +385,127 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(paragraphHtml.match(/class="source-chip"/g) ?? []).toHaveLength(2);
 	});
 
+	it("converts explicit global-style source labels when a paragraph has one local source", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Global source label report",
+			blocks: [
+				{ type: "heading", level: 2, text: "Findings" },
+				{
+					type: "paragraph",
+					text: "Inline sections should carry source icons where relevant [Source 2].",
+					sources: [
+						{
+							title: "Third web result",
+							url: "https://example.com/third",
+							reasoning: "Selected as paragraph-local evidence.",
+						},
+					],
+				},
+				{ type: "heading", level: 2, text: "Sources" },
+				{
+					type: "sourceChips",
+					title: "Web Sources",
+					sources: [
+						{
+							title: "First web result",
+							url: "https://example.com/first",
+							reasoning: "Report-wide source before the local citation.",
+						},
+						{
+							title: "Second web result",
+							url: "https://example.com/second",
+							reasoning: "Report-wide source before the local citation.",
+						},
+						{
+							title: "Third web result",
+							url: "https://example.com/third",
+							reasoning: "Selected as paragraph-local evidence.",
+						},
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+		const paragraphHtml =
+			/<p>Inline sections should carry source icons where relevant[\s\S]*?<\/p>/.exec(
+				html,
+			)?.[0] ?? "";
+
+		expect(paragraphHtml).not.toContain("[Source 2]");
+		expect(paragraphHtml).toContain('aria-label="Source 3: Third web result"');
+		expect(paragraphHtml).toContain('data-source-number="3"');
+		expect(paragraphHtml).not.toContain('class="inline-source-chips"');
+		expect(paragraphHtml.match(/class="source-chip"/g) ?? []).toHaveLength(1);
+	});
+
+	it("converts Hungarian explicit source labels when a paragraph has one local source", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			language: "hu",
+			title: "Magyar forrásjelentés",
+			blocks: [
+				{ type: "heading", level: 2, text: "Megállapítások" },
+				{
+					type: "paragraph",
+					text: "A bekezdés forrásikont kap [Forrás 2].",
+					sources: [
+						{
+							title: "Harmadik webes forrás",
+							url: "https://example.com/harmadik",
+							reasoning: "Bekezdésszintű bizonyíték.",
+						},
+					],
+				},
+				{ type: "heading", level: 2, text: "Források" },
+				{
+					type: "sourceChips",
+					title: "Webes források",
+					sources: [
+						{
+							title: "Első webes forrás",
+							url: "https://example.com/elso",
+							reasoning: "Jelentésszintű forrás.",
+						},
+						{
+							title: "Második webes forrás",
+							url: "https://example.com/masodik",
+							reasoning: "Jelentésszintű forrás.",
+						},
+						{
+							title: "Harmadik webes forrás",
+							url: "https://example.com/harmadik",
+							reasoning: "Bekezdésszintű bizonyíték.",
+						},
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+		const paragraphHtml =
+			/<p>A bekezdés forrásikont kap[\s\S]*?<\/p>/.exec(html)?.[0] ?? "";
+
+		expect(paragraphHtml).not.toContain("[Forrás 2]");
+		expect(paragraphHtml).toContain(
+			'aria-label="Forrás 3: Harmadik webes forrás"',
+		);
+		expect(paragraphHtml).toContain('data-source-number="3"');
+		expect(paragraphHtml).not.toContain('class="inline-source-chips"');
+		expect(paragraphHtml.match(/class="source-chip"/g) ?? []).toHaveLength(1);
+	});
+
 	it("removes a duplicate first heading that repeats the report title", () => {
 		const validation = validateGeneratedDocumentSource({
 			version: 1,

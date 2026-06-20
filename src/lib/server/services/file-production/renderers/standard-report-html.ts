@@ -421,25 +421,48 @@ function renderInlineTextWithSourceCitations(
 	);
 	let cursor = 0;
 	let html = "";
+	const localSourceKeys = new Set(
+		localSources.map((source) => sourceKey(source)),
+	);
+	const consumedLocalSourceKeys = new Set<string>();
 	for (const match of text.matchAll(citationPattern)) {
 		const start = match.index ?? 0;
 		const end = start + match[0].length;
 		const hasSourceLabel = Boolean(match[1]);
 		const rawSourceNumber = Number.parseInt(match[2], 10);
-		const sourceIndexOffset =
-			hasSourceLabel && localSources.length > 0
-				? sourceLabelCitationsAreZeroBased
-					? rawSourceNumber
-					: rawSourceNumber - 1
-				: hasSourceLabel
-					? sourceLabelCitationsAreZeroBased
-						? rawSourceNumber
-						: rawSourceNumber - 1
-					: rawSourceNumber - 1;
-		const source =
-			hasSourceLabel && localSources.length > 0
-				? localSources[sourceIndexOffset]
-				: sourceIndex.sources[sourceIndexOffset];
+		const preferredOffsets = Array.from(
+			new Set(
+				(sourceLabelCitationsAreZeroBased
+					? [rawSourceNumber, rawSourceNumber - 1]
+					: [rawSourceNumber - 1, rawSourceNumber]
+				).filter((offset) => offset >= 0),
+			),
+		);
+		const sourceIndexOffset = preferredOffsets[0] ?? rawSourceNumber - 1;
+		let source: GeneratedDocumentSourceChip | undefined;
+		if (hasSourceLabel && localSources.length > 0) {
+			source = preferredOffsets
+				.map((offset) => sourceIndex.sources[offset])
+				.find(
+					(candidate) => candidate && localSourceKeys.has(sourceKey(candidate)),
+				);
+			source ??= preferredOffsets
+				.map((offset) => localSources[offset])
+				.find(Boolean);
+			if (!source) {
+				source =
+					localSources.find((candidate) => {
+						const key = sourceKey(candidate);
+						if (consumedLocalSourceKeys.has(key)) return false;
+						return true;
+					}) ?? localSources[localSources.length - 1];
+			}
+		} else {
+			source = sourceIndex.sources[sourceIndexOffset];
+		}
+		if (source && localSourceKeys.has(sourceKey(source))) {
+			consumedLocalSourceKeys.add(sourceKey(source));
+		}
 		const displaySourceNumber = source
 			? sourceNumberFor(sourceIndex, source)
 			: sourceIndexOffset + 1;
