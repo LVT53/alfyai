@@ -1,7 +1,6 @@
 <script lang="ts">
 import {
 	Check,
-	ChevronDown,
 	Download,
 	FileText,
 	GitBranch,
@@ -427,12 +426,6 @@ function submitLifecycleAction() {
 						aria-expanded={downloadMenuOpen}
 					>
 						<Download size={16} strokeWidth={2} aria-hidden="true" />
-						<ChevronDown
-							class="atlas-card__download-chevron"
-							size={11}
-							strokeWidth={2.4}
-							aria-hidden="true"
-						/>
 					</button>
 					{#if downloadMenuOpen}
 						<div
@@ -816,12 +809,6 @@ function submitLifecycleAction() {
 	.atlas-card__download {
 		position: relative;
 		display: inline-flex;
-	}
-
-	:global(.atlas-card__download-chevron) {
-		position: absolute;
-		right: 0.18rem;
-		bottom: 0.18rem;
 	}
 
 	.atlas-card__download-menu {
