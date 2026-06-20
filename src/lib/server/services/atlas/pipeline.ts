@@ -276,6 +276,18 @@ function buildAssemblePrompt(input: {
 function looksLikeProcessOnlyReport(markdown: string): boolean {
 	const normalized = markdown.replace(/\s+/g, " ").trim().toLowerCase();
 	if (!normalized) return true;
+	const bodyBeforeSources = markdown
+		.split(/\n\s*#{2,3}\s+sources\b/i)[0]
+		.replace(/^\s*#\s+.+$/gm, "")
+		.replace(/\b\d{4}-\d{2}-\d{2}\b/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	const bodyWords = bodyBeforeSources ? bodyBeforeSources.split(/\s+/).length : 0;
+	const hasSubstantiveReportSection =
+		/^\s*#{2,3}\s+(executive summary|findings|analysis|key findings|recommendations|overview|összefoglaló|vezetői összefoglaló|megállapítások|elemzés|ajánlások)\b/im.test(
+			markdown,
+		);
+	if (!hasSubstantiveReportSection || bodyWords < 60) return true;
 	const processPhrases = [
 		/\bsources?\s+(?:checked|reviewed|consulted|examined)\b/i,
 		/\b(?:checked|reviewed|consulted|examined)\s+sources?\b/i,
@@ -288,16 +300,12 @@ function looksLikeProcessOnlyReport(markdown: string): boolean {
 		phrase.test(markdown),
 	).length;
 	if (processHitCount === 0) return false;
-	const substantiveSection =
-		/#+\s*(executive summary|findings|analysis|recommendations|key findings|következtetések|elemzés|összefoglaló)/i.test(
-			markdown,
-		);
 	const words = normalized.split(/\s+/).filter(Boolean).length;
 	const substantiveSignals =
 		/\b(evidence shows|the evidence|finding:|trade[- ]offs?|because|therefore|however|kockázat|bizonyíték|megállapítás)\b/i.test(
 			markdown,
 		);
-	return processHitCount >= 2 || words < 180 || (!substantiveSection && !substantiveSignals);
+	return processHitCount >= 2 || words < 180 || !substantiveSignals;
 }
 
 function buildAssembleRepairPrompt(input: {
@@ -314,6 +322,71 @@ function buildAssembleRepairPrompt(input: {
 		repairInstruction,
 		previousProcessOnlyDraft: input.previousDraft,
 	});
+}
+
+function buildDeterministicFallbackReport(input: {
+	language: SupportedLanguage;
+	query: string;
+	curatedEvidence: string;
+	synthesis: string;
+	outline: string;
+	limitation: { code: string; message: string } | null;
+}): string {
+	const clean = (value: string, fallback: string) => {
+		const normalized = value
+			.replace(/```[\s\S]*?```/g, "")
+			.replace(/\s+/g, " ")
+			.trim();
+		return normalized || fallback;
+	};
+	if (input.language === "hu") {
+		return [
+			`# Atlas jelentés`,
+			"",
+			"## Vezetői összefoglaló",
+			clean(
+				input.synthesis,
+				"Az Atlas nem kapott elég részletes szintézist, ezért a jelentés a válogatott bizonyítékokra és a korlátokra támaszkodik.",
+			),
+			"",
+			"## Megállapítások",
+			clean(
+				input.curatedEvidence,
+				"A válogatott bizonyítékok alapján csak óvatos, forráshoz kötött megállapítások tehetők.",
+			),
+			"",
+			"## Elemzési keret",
+			clean(input.outline, `Kutatási kérdés: ${input.query}`),
+			"",
+			"## Korlátok",
+			input.limitation
+				? `${input.limitation.message}`
+				: "A jelentés az elfogadott Atlas forrásokra korlátozódik, és nem tekinthető teljes körű történeti feldolgozásnak.",
+		].join("\n");
+	}
+	return [
+		`# Atlas Report`,
+		"",
+		"## Executive Summary",
+		clean(
+			input.synthesis,
+			"Atlas did not receive a detailed enough synthesis, so this report is constrained to the curated evidence and explicit limitations.",
+		),
+		"",
+		"## Findings",
+		clean(
+			input.curatedEvidence,
+			"The curated evidence supports only cautious, source-grounded findings.",
+		),
+		"",
+		"## Analysis Frame",
+		clean(input.outline, `Research question: ${input.query}`),
+		"",
+		"## Limitations",
+		input.limitation
+			? `${input.limitation.message}`
+			: "This report is limited to the accepted Atlas sources and should not be treated as exhaustive historical coverage.",
+	].join("\n");
 }
 
 export async function runAtlasPipeline(
@@ -474,6 +547,16 @@ export async function runAtlasPipeline(
 		});
 		usage = addUsage(usage, repair.usage);
 		finalAssembledMarkdown = repair.text;
+	}
+	if (looksLikeProcessOnlyReport(finalAssembledMarkdown)) {
+		finalAssembledMarkdown = buildDeterministicFallbackReport({
+			language,
+			query: input.job.query,
+			curatedEvidence: curate.text,
+			synthesis: synthesize.text,
+			outline: integrate.text,
+			limitation: search.limitation,
+		});
 	}
 
 	const auditSources = [

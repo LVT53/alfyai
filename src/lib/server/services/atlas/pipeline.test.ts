@@ -67,6 +67,28 @@ describe("Atlas pipeline slices", () => {
 							},
 						};
 					}
+					if (input.stage === "assemble") {
+						return {
+							text: [
+								"# Enterprise Search Architectures",
+								"",
+								"## Executive Summary",
+								"Enterprise search architecture choices are mainly about balancing lexical recall, semantic matching, governance, and operational cost. Hybrid retrieval is the most defensible default when teams need reliable coverage and explainable matching across varied internal content.",
+								"",
+								"## Findings",
+								"Keyword search remains useful for exact terminology, product names, error codes, and compliance language. Vector retrieval improves semantic discovery when users describe concepts rather than exact strings. A reranking layer is valuable because it can narrow broad candidate sets into evidence that better matches the user's intent.",
+								"",
+								"## Limitations",
+								"This overview is based on representative sources and should be validated against the specific corpus, access model, and latency budget before implementation.",
+							].join("\n"),
+							usage: {
+								inputTokens: 10,
+								outputTokens: 5,
+								totalTokens: 15,
+								costUsdMicros: 25,
+							},
+						};
+					}
 					return {
 						text: `${input.stage} result`,
 						usage: {
@@ -332,7 +354,18 @@ describe("Atlas pipeline slices", () => {
 						integrate:
 							"Outline: Executive Summary; Hybrid retrieval tradeoffs; Limitations.",
 						assemble:
-							"# Retrieval Strategy Atlas\n\n## Executive Summary\nHybrid retrieval is strongest when lexical recall is followed by semantic reranking.\n\n## Findings\nThe evidence shows recall improves when keyword and vector retrieval are combined, but source quality depends on reranking.",
+							[
+								"# Retrieval Strategy Atlas",
+								"",
+								"## Executive Summary",
+								"Hybrid retrieval is strongest when lexical recall is followed by semantic reranking. The accepted evidence points to a practical pattern: keyword retrieval preserves exact-match coverage, vector retrieval broadens conceptual recall, and reranking helps control noisy matches before the report or answer layer consumes the evidence.",
+								"",
+								"## Findings",
+								"The evidence shows recall improves when keyword and vector retrieval are combined, but source quality depends on reranking. Teams should treat the first retrieval pass as a candidate generator rather than a final evidence set. The stronger architecture keeps search broad, then converges on fewer accepted sources that can be quoted and audited.",
+								"",
+								"## Limitations",
+								"This finding is bounded by the accepted source set and should be validated with corpus-specific evaluation before production rollout.",
+							].join("\n"),
 					};
 					return {
 						text: textByStage[input.stage] ?? `${input.stage} result`,
@@ -433,7 +466,18 @@ describe("Atlas pipeline slices", () => {
 							text:
 								assembleCalls === 1
 									? "I checked the sources and synthesized findings for the report."
-									: "# Retrieval Systems\n\n## Executive Summary\nThe evidence shows hybrid retrieval combines lexical and semantic recall.\n\n## Findings\nHybrid retrieval improves breadth while reranking controls noisy matches.",
+									: [
+											"# Retrieval Systems",
+											"",
+											"## Executive Summary",
+											"The evidence shows hybrid retrieval combines lexical and semantic recall. That combination is useful because lexical matching keeps exact domain terms visible while semantic search catches related concepts that do not share the same wording.",
+											"",
+											"## Findings",
+											"Hybrid retrieval improves breadth while reranking controls noisy matches. A broad first pass should not become the quoted evidence set by itself; the system needs a convergence step that ranks, filters, and keeps only the strongest accepted sources for final claims.",
+											"",
+											"## Limitations",
+											"The conclusion is limited to the accepted evidence in this smoke fixture and does not claim that one retrieval stack is universally best.",
+										].join("\n"),
 							usage: {
 								inputTokens: 1,
 								outputTokens: 1,
@@ -473,6 +517,100 @@ describe("Atlas pipeline slices", () => {
 					expect.objectContaining({
 						type: "paragraph",
 						text: expect.stringContaining("hybrid retrieval"),
+					}),
+				]),
+			}),
+		);
+	});
+
+	it("falls back to synthesized findings when assembly remains source-only", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-source-only",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Source-only report",
+				query: "Explain routing docs history",
+				lifecycle: {
+					family: {
+						familyId: "atlas-source-only",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-source-only",
+						currentAtlasJobId: "atlas-source-only",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-19T13:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Routing docs",
+							url: "https://example.com/routing",
+							snippet: "Fetched page excerpt: SvelteKit routing is filesystem based.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => ({
+					text:
+						input.stage === "decompose"
+							? "SvelteKit routing docs"
+							: input.stage === "synthesize"
+								? "SvelteKit routing documentation centers on filesystem routing and route files, with later documentation clarifying layout, server-only endpoints, and dynamic parameters."
+								: input.stage === "curate"
+									? "Curated evidence: SvelteKit docs describe src/routes as the routing root and +page.svelte, +layout.svelte, and +server files as route file conventions."
+									: input.stage === "integrate"
+										? "Outline: Executive Summary; Findings; Limitations."
+										: "# Source-only report\n\n2026-06-19",
+					usage: {
+						inputTokens: 1,
+						outputTokens: 1,
+						totalTokens: 2,
+						costUsdMicros: 1,
+					},
+				})),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining("## Executive Summary"),
+			}),
+		);
+		expect(renderOutputs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				blocks: expect.arrayContaining([
+					expect.objectContaining({
+						type: "paragraph",
+						text: expect.stringContaining("filesystem routing"),
 					}),
 				]),
 			}),
