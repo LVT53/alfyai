@@ -105,6 +105,15 @@ describe("AtlasCard", () => {
 			expect.stringContaining("--atlas-progress: 64%;"),
 		);
 		expect(
+			progressIcon.querySelector(".atlas-card__progress-cycle-track"),
+		).toHaveAttribute("r", "24");
+		expect(
+			progressIcon.querySelector(".atlas-card__progress-cycle-fill"),
+		).toHaveAttribute("stroke-dasharray", "150.8");
+		expect(
+			progressIcon.querySelector(".atlas-card__progress-cycle-sweep"),
+		).toBeNull();
+		expect(
 			screen.queryByTestId("atlas-exploration-svg"),
 		).not.toBeInTheDocument();
 	});

@@ -43,7 +43,9 @@ function slugifyId(text: string, index: number): string {
 }
 
 function sourceTooltip(source: GeneratedDocumentSourceChip): string {
-	return [source.title, source.reasoning].filter(Boolean).join("\n");
+	return [source.title, compactSourceReasoning(source.reasoning)]
+		.filter(Boolean)
+		.join("\n");
 }
 
 function faviconUrl(url: string | null | undefined): string | null {
@@ -63,6 +65,20 @@ function sourceDomain(url: string | null | undefined): string {
 	} catch {
 		return "source";
 	}
+}
+
+function compactSourceReasoning(value: string | null | undefined): string {
+	if (!value) return "";
+	const withoutFetcherPrefix = value.replace(
+		/^\s*Fetched\s+page\s+excerpt:\s*/i,
+		"",
+	);
+	const normalized = withoutFetcherPrefix.replace(/\s+/g, " ").trim();
+	if (!normalized) return "";
+	const sentenceMatch = normalized.match(/^(.+?[.!?])(?:\s|$)/);
+	const candidate = sentenceMatch?.[1] ?? normalized;
+	if (candidate.length <= 160) return candidate;
+	return `${candidate.slice(0, 157).trimEnd()}...`;
 }
 
 function renderGlobeFallback(hidden = false): string {
@@ -116,7 +132,7 @@ function renderSourceChips(
 			);
 			const domain = escapeHtml(sourceDomain(source.url));
 			const sourceTitle = escapeHtml(source.title);
-			const reasoning = source.reasoning ? escapeHtml(source.reasoning) : "";
+			const reasoning = escapeHtml(compactSourceReasoning(source.reasoning));
 			const content = `${renderSourceFavicon(source.url)}<span class="source-tooltip" role="tooltip"><span class="source-tooltip-head"><span class="source-favicon">${renderGlobeFallback()}</span><strong class="source-tooltip-title">${sourceTitle}</strong></span>${reasoning ? `<span class="source-tooltip-reason">${reasoning}</span>` : ""}<span class="source-tooltip-domain">${domain}</span></span>`;
 			return source.url
 				? `<a class="source-chip" href="${escapeHtml(source.url)}" title="${title}" aria-label="${label}" data-source-title="${sourceTitle}" data-source-domain="${domain}"${reasoning ? ` data-source-reason="${reasoning}"` : ""}>${content}</a>`
@@ -125,6 +141,26 @@ function renderSourceChips(
 		"</div>",
 		"</section>",
 	].join("");
+}
+
+function renderHonestyMarker(
+	block: Extract<GeneratedDocumentBlock, { type: "callout" }>,
+): string {
+	const marker =
+		block.tone === "warning"
+			? {
+					className: "partial",
+					label: "Partially Supported",
+					title: "Needs verification",
+					text: "This section includes unsupported certainty or a claim that needs additional source support.",
+				}
+			: {
+					className: "verified",
+					label: "Supported",
+					title: "Source-backed",
+					text: "This note is grounded in the report evidence available to Atlas.",
+				};
+	return `<span class="honesty-marker ${marker.className}" tabindex="0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>${marker.label}</span><span class="honesty-tooltip"><strong>${marker.title}</strong>${marker.text}</span></span>`;
 }
 
 function renderBlock(
@@ -141,7 +177,7 @@ function renderBlock(
 			return `<${tag}>${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</${tag}>`;
 		}
 		case "callout":
-			return `<aside class="callout ${block.tone}" title="${escapeHtml([block.title ?? block.tone, block.text].join("\n"))}"><span class="callout-pill"><span aria-hidden="true">${block.tone === "warning" ? "!" : "i"}</span>${block.title ? `<strong>${escapeHtml(block.title)}</strong>` : `<strong>${escapeHtml(block.tone)}</strong>`}</span><p>${escapeHtml(block.text)}</p></aside>`;
+			return `<aside class="callout ${block.tone}" title="${escapeHtml([block.title ?? block.tone, block.text].join("\n"))}"><span class="callout-pill"><span aria-hidden="true">${block.tone === "warning" ? "!" : "i"}</span>${block.title ? `<strong>${escapeHtml(block.title)}</strong>` : `<strong>${escapeHtml(block.tone)}</strong>`}</span>${renderHonestyMarker(block)}<p>${escapeHtml(block.text)}</p></aside>`;
 		case "code":
 			return `<pre><code${block.language ? ` data-language="${escapeHtml(block.language)}"` : ""}>${escapeHtml(block.text)}</code></pre>`;
 		case "quote":
@@ -218,10 +254,13 @@ export function renderStandardReportHtml(
 		'body{box-sizing:border-box;padding:32px 24px;line-height:1.55;color:var(--report-body);background:var(--report-bg);font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;}',
 		".report-viewer{display:flex;position:relative;min-height:100vh;min-height:100dvh;max-width:1180px;margin:0 auto;border:1px solid var(--report-rule);border-radius:8px;background:var(--report-bg);overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);}",
 		".report-sidebar{width:240px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--report-rule);background:var(--report-panel);padding:24px;}",
+		".report-sidebar-resizer{width:6px;flex:0 0 6px;cursor:col-resize;background:transparent;border:0;border-right:1px solid var(--report-rule);transition:background .15s ease;}",
+		".report-sidebar-resizer:hover,.report-sidebar-resizer:focus{background:rgba(182,95,61,.12);outline:none;}",
 		".report-sidebar-title{margin:0 0 16px;color:var(--report-muted);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}",
 		".report-nav{display:flex;flex-direction:column;gap:2px;list-style:none;margin:0;padding:0;}",
 		".report-nav a{display:block;border-left:3px solid transparent;border-radius:6px;padding:8px 12px;color:var(--report-muted);font-size:13px;text-decoration:none;transition:background .15s ease,color .15s ease,border-color .15s ease;}",
 		".report-nav a:hover,.report-nav a:focus{background:rgba(0,0,0,.03);border-left-color:var(--report-accent);color:var(--report-text);outline:none;}",
+		".report-nav a.active{background:rgba(182,95,61,.08);border-left-color:var(--report-accent);color:var(--report-accent);font-weight:600;padding-left:13px;}",
 		".mobile-report-header{display:none;align-items:center;gap:10px;padding:14px 18px;background:var(--report-panel);border-bottom:1px solid var(--report-rule);}",
 		".mobile-menu-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:0;border-radius:6px;background:transparent;color:var(--report-text);cursor:pointer;}",
 		".mobile-menu-btn:hover,.mobile-menu-btn:focus{background:rgba(0,0,0,.04);outline:none;}",
@@ -243,6 +282,16 @@ export function renderStandardReportHtml(
 		".callout-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 9px;background:var(--report-panel);color:var(--report-accent);font-size:.82rem;line-height:1;}",
 		".callout.warning .callout-pill{color:#A6462F;}",
 		".callout.tip .callout-pill{color:#2F7D54;}",
+		".honesty-marker{display:inline-flex;align-items:center;justify-content:center;position:relative;gap:4px;border:1px solid transparent;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;line-height:1;letter-spacing:.02em;vertical-align:middle;cursor:help;white-space:nowrap;}",
+		".honesty-marker svg{display:block;width:11px;height:11px;flex-shrink:0;}",
+		".honesty-marker.verified{border-color:rgba(21,128,61,.2);background:rgba(21,128,61,.08);color:#15803D;}",
+		".honesty-marker.partial{border-color:rgba(234,179,8,.35);background:rgba(234,179,8,.14);color:#92400E;}",
+		".honesty-marker.unverified{border-color:rgba(185,28,28,.2);background:rgba(185,28,28,.08);color:#B91C1C;}",
+		".honesty-marker.conflicting{border-color:rgba(249,115,22,.3);background:rgba(249,115,22,.1);color:#9A3412;}",
+		".honesty-tooltip{position:absolute;bottom:calc(100% + 10px);left:50%;z-index:25;width:300px;box-sizing:border-box;border-radius:6px;background:var(--report-text);box-shadow:0 10px 30px rgba(0,0,0,.18);color:var(--report-bg);opacity:0;padding:8px 12px;pointer-events:none;text-align:left;transform:translateX(-50%);transition:opacity .15s ease;white-space:normal;font-size:12px;font-weight:400;line-height:1.5;}",
+		'.honesty-tooltip::after{content:"";position:absolute;top:100%;left:50%;border:6px solid transparent;border-top-color:var(--report-text);transform:translateX(-50%);}',
+		".honesty-marker:hover .honesty-tooltip,.honesty-marker:focus .honesty-tooltip{opacity:1;}",
+		".honesty-tooltip strong{display:block;margin-bottom:4px;font-weight:600;}",
 		"pre{white-space:pre-wrap;background:var(--report-panel);padding:12px;overflow-wrap:anywhere;}",
 		"table{width:100%;border-collapse:collapse;font-size:.92rem;}",
 		"th,td{border-bottom:1px solid var(--report-rule);padding:7px;text-align:left;vertical-align:top;}",
@@ -267,7 +316,7 @@ export function renderStandardReportHtml(
 		".source-tooltip-reason,.source-tooltip-domain{display:block;color:rgba(255,255,255,.78);font-size:11px;line-height:1.4;}",
 		".source-tooltip-domain{margin-top:4px;color:rgba(255,255,255,.62);}",
 		"hr{border:0;border-top:1px solid var(--report-rule);margin:24px 0;}",
-		"@media (max-width: 760px){body{padding:0;}.report-viewer{display:block;min-height:100vh;min-height:100dvh;border:0;border-radius:0;}.mobile-report-header{display:flex;}.report-sidebar{position:fixed;top:0;left:0;z-index:90;height:100vh;height:100dvh;width:260px;box-sizing:border-box;border-right:1px solid var(--report-rule);box-shadow:0 16px 40px rgba(0,0,0,.18);transform:translateX(-100%);transition:transform .25s ease;}.report-sidebar.open{transform:translateX(0);}.sidebar-backdrop.open{display:block;}.report-content{max-height:none;padding:24px;}.report-title{font-size:24px;}}",
+		"@media (max-width: 760px){body{padding:0;}.report-viewer{display:block;min-height:100vh;min-height:100dvh;border:0;border-radius:0;}.mobile-report-header{display:flex;}.report-sidebar{position:fixed;top:0;left:0;z-index:90;height:100vh;height:100dvh;width:260px!important;box-sizing:border-box;border-right:1px solid var(--report-rule);box-shadow:0 16px 40px rgba(0,0,0,.18);transform:translateX(-100%);transition:transform .25s ease;}.report-sidebar-resizer{display:none;}.report-sidebar.open{transform:translateX(0);}.sidebar-backdrop.open{display:block;}.report-content{max-height:none;padding:24px;}.report-title{font-size:24px;}}",
 		"</style>",
 		"</head>",
 		'<body><div class="report-viewer" id="report-viewer">',
@@ -279,9 +328,10 @@ export function renderStandardReportHtml(
 					)
 					.join("")}</ul></aside>`
 			: '<aside class="report-sidebar" id="report-sidebar" aria-label="Report sections"></aside>',
+		'<div class="report-sidebar-resizer" id="report-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize report sidebar" tabindex="0"></div>',
 		'<div class="sidebar-backdrop" id="sidebar-backdrop" aria-hidden="true"></div>',
 		'<div class="mobile-report-header"><button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Open section menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button><p class="mobile-report-title">Sections</p></div>',
-		'<article class="report-content">',
+		'<article class="report-content" id="report-content">',
 		`<h1 class="report-title">${escapeHtml(source.title)}</h1>`,
 		source.subtitle
 			? `<p class="subtitle">${escapeHtml(source.subtitle)}</p>`
@@ -290,6 +340,8 @@ export function renderStandardReportHtml(
 		"</article></div>",
 		"<script>",
 		"(() => { const sidebar = document.getElementById('report-sidebar'); const backdrop = document.getElementById('sidebar-backdrop'); const button = document.getElementById('mobile-menu-btn'); if (!sidebar || !backdrop || !button) return; const close = () => { sidebar.classList.remove('open'); backdrop.classList.remove('open'); button.setAttribute('aria-expanded', 'false'); }; const open = () => { sidebar.classList.add('open'); backdrop.classList.add('open'); button.setAttribute('aria-expanded', 'true'); }; button.addEventListener('click', () => sidebar.classList.contains('open') ? close() : open()); backdrop.addEventListener('click', close); sidebar.querySelectorAll('a').forEach((link) => link.addEventListener('click', close)); })();",
+		"(() => { const reportContent = document.getElementById('report-content'); const reportNavLinks = document.querySelectorAll('.report-nav a'); const reportSections = document.querySelectorAll('.report-section[id]'); if (!reportContent || reportNavLinks.length === 0 || reportSections.length === 0) return; function updateActiveSection() { const scrollTop = reportContent.scrollTop; let activeId = reportSections[0].id; reportSections.forEach((section) => { const offsetTop = section.offsetTop - reportContent.offsetTop; if (scrollTop >= offsetTop - 40) activeId = section.id; }); reportNavLinks.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === '#' + activeId)); } reportContent.addEventListener('scroll', updateActiveSection, { passive: true }); updateActiveSection(); })();",
+		"(() => { const sidebar = document.getElementById('report-sidebar'); const resizer = document.getElementById('report-sidebar-resizer'); if (!sidebar || !resizer) return; const minWidth = 180; const maxWidth = 380; const setWidth = (width) => { sidebar.style.width = Math.max(minWidth, Math.min(maxWidth, width)) + 'px'; }; let startX = 0; let startWidth = 0; resizer.addEventListener('pointerdown', (event) => { startX = event.clientX; startWidth = sidebar.getBoundingClientRect().width; resizer.setPointerCapture(event.pointerId); const move = (moveEvent) => setWidth(startWidth + moveEvent.clientX - startX); const up = (upEvent) => { resizer.releasePointerCapture(upEvent.pointerId); resizer.removeEventListener('pointermove', move); resizer.removeEventListener('pointerup', up); resizer.removeEventListener('pointercancel', up); }; resizer.addEventListener('pointermove', move); resizer.addEventListener('pointerup', up); resizer.addEventListener('pointercancel', up); }); resizer.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; event.preventDefault(); const delta = event.key === 'ArrowLeft' ? -16 : 16; setWidth(sidebar.getBoundingClientRect().width + delta); }); })();",
 		"</script>",
 		"</body></html>",
 	].join("");

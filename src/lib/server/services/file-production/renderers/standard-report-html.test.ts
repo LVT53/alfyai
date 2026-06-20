@@ -13,13 +13,20 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 				{ type: "heading", level: 2, text: "Executive Summary" },
 				{ type: "paragraph", text: "Readable report content." },
 				{
+					type: "callout",
+					tone: "warning",
+					title: "atlas_audit_marker",
+					text: "Source [2] is directionally useful, but the report should avoid unsupported certainty until independent confirmation is available.",
+				},
+				{
 					type: "sourceChips",
 					title: "Sources",
 					sources: [
 						{
 							title: "Example docs",
 							url: "https://example.com/docs",
-							reasoning: "Shows the favicon fallback path.",
+							reasoning:
+								"Fetched page excerpt: Shows the favicon fallback path. This sentence is extra page text that should not be dumped into the hover tooltip because the report should show compact reasoning.",
 						},
 						{
 							title: "Local library note",
@@ -162,8 +169,13 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain('<article class="report-content"');
 		expect(html).toContain('<div class="mobile-report-header"');
 		expect(html).toContain('<div class="sidebar-backdrop"');
+		expect(html).toContain('class="report-sidebar-resizer"');
+		expect(html).toContain('role="separator"');
 		expect(html).toContain('href="#executive-summary-1"');
 		expect(html).toContain('<section class="report-section"');
+		expect(html).toContain("updateActiveSection");
+		expect(html).toContain("pointerdown");
+		expect(html).toContain("setPointerCapture");
 	});
 
 	it("fills the mobile viewport when opened directly as standalone HTML", () => {
@@ -193,5 +205,25 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain("<svg");
 		expect(html).toContain('viewBox="0 0 24 24"');
 		expect(html).toContain('stroke="currentColor"');
+	});
+
+	it("renders compact source reasoning instead of dumping fetched page text", () => {
+		const html = renderFixtureHtml();
+
+		expect(html).toContain("Shows the favicon fallback path.");
+		expect(html).not.toContain("Fetched page excerpt:");
+		expect(html).not.toContain(
+			"This sentence is extra page text that should not be dumped",
+		);
+	});
+
+	it("renders confidence markers with hover tooltips for audit callouts", () => {
+		const html = renderFixtureHtml();
+
+		expect(html).toContain('class="honesty-marker partial"');
+		expect(html).toContain('class="honesty-tooltip"');
+		expect(html).toContain("Partially Supported");
+		expect(html).toContain("unsupported certainty");
+		expect(html).toContain(".honesty-marker:hover .honesty-tooltip");
 	});
 });

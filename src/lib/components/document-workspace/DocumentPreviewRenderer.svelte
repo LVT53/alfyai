@@ -310,11 +310,12 @@ function downloadFile() {
 					{/if}
 				{:else if fileType === "html"}
 					{#if textPreview?.kind === "html"}
-						<div class="html-preview-shell">
+						<div class="html-preview-shell" style="height: 100%;">
 							<iframe
 								class="html-preview-frame"
 								title={`${filename} preview`}
 								sandbox=""
+								style="height: 100%; flex-grow: 1;"
 								srcdoc={textPreview.srcdoc}
 							></iframe>
 						</div>
@@ -757,13 +758,16 @@ function downloadFile() {
 	.html-preview-shell {
 		display: flex;
 		min-height: 0;
+		height: 100%;
 		flex: 1 1 auto;
 		padding: 1rem;
 		background: var(--surface-page);
 	}
 
 	.html-preview-frame {
-		min-height: 62vh;
+		flex: 1 1 auto;
+		min-height: 0;
+		height: 100%;
 		width: 100%;
 		border: 1px solid var(--border-default);
 		border-radius: 0.5rem;

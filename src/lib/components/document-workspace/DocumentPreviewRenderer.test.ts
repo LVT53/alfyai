@@ -500,6 +500,11 @@ describe("DocumentPreviewRenderer", () => {
 		);
 		expect(frame.getAttribute("srcdoc")).not.toContain("<script>");
 		expect(document.body.dataset.executed).toBeUndefined();
+		const shell = document.querySelector(".html-preview-shell");
+		expect(shell).toBeInTheDocument();
+		expect(window.getComputedStyle(shell as Element).height).toBe("100%");
+		expect(window.getComputedStyle(frame).height).toBe("100%");
+		expect(window.getComputedStyle(frame).flexGrow).toBe("1");
 	});
 
 	it("renders DOCX through the office adapter surface", async () => {

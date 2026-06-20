@@ -337,25 +337,16 @@ function submitLifecycleAction() {
 						class="atlas-card__progress-cycle-track"
 						cx="28"
 						cy="28"
-						r="22"
-						pathLength="100"
+						r="24"
 					></circle>
 					<circle
 						class="atlas-card__progress-cycle-fill"
 						cx="28"
 						cy="28"
-						r="22"
-						pathLength="100"
-						stroke-dasharray="100"
-						style={`--atlas-progress: ${progressPercent}%; stroke-dashoffset: ${100 - progressPercent};`}
+						r="24"
+						stroke-dasharray="150.8"
+						style={`--atlas-progress: ${progressPercent}%; stroke-dashoffset: ${150.8 * (1 - progressPercent / 100)};`}
 					></circle>
-					<g class="atlas-card__progress-cycle-sweep">
-						<path
-							d="M28 4.5 L32.8 12.4 L28 10.7 L23.2 12.4 Z"
-							fill="currentColor"
-							stroke="none"
-						></path>
-					</g>
 				</svg>
 			{/if}
 		</div>
@@ -599,7 +590,10 @@ function submitLifecycleAction() {
 	}
 
 	.atlas-card__progress-cycle {
+		animation: atlas-progress-cycle-spin 2s linear infinite;
 		display: block;
+		transform-box: view-box;
+		transform-origin: 28px 28px;
 	}
 
 	.atlas-card__progress-cycle-track,
@@ -618,13 +612,6 @@ function submitLifecycleAction() {
 		transform: rotate(-90deg);
 		transform-origin: 50% 50%;
 		transition: stroke-dashoffset 420ms ease;
-	}
-
-	.atlas-card__progress-cycle-sweep {
-		animation: atlas-progress-cycle-spin 2s linear infinite;
-		transform-box: view-box;
-		transform-origin: 28px 28px;
-		opacity: 0.82;
 	}
 
 	.atlas-card__title-block {
@@ -914,7 +901,7 @@ function submitLifecycleAction() {
 		.atlas-card--complete,
 		.atlas-card--completion-enter .atlas-card__mark--complete,
 		.atlas-card__exploration-svg .orbit-group,
-		.atlas-card__progress-cycle-sweep {
+		.atlas-card__progress-cycle {
 			animation: none;
 		}
 
