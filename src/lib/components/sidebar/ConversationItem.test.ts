@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationListItem } from "$lib/types";
 import ConversationItemWrapper from "./ConversationItemWrapper.test.svelte";
 
@@ -39,6 +39,10 @@ describe("ConversationItem Component", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
 	});
 
 	function parseFixedMenuTop(element: HTMLElement): number {
@@ -213,6 +217,44 @@ describe("ConversationItem Component", () => {
 			expect(parseFixedMenuTop(menu)).toBeLessThan(174);
 		} finally {
 			restoreViewport();
+		}
+	});
+
+	it("recalculates the overflow menu after the portal menu has a measured height", async () => {
+		const restoreViewport = stubViewportAndTriggerRect();
+		const originalOffsetHeight = Object.getOwnPropertyDescriptor(
+			HTMLElement.prototype,
+			"offsetHeight",
+		);
+		Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+			configurable: true,
+			get() {
+				return this.getAttribute("role") === "menu" ? 190 : 0;
+			},
+		});
+		try {
+			render(ConversationItemWrapper, {
+				conversation: mockConversation,
+			});
+
+			await fireEvent.click(screen.getByLabelText("Conversation options"));
+
+			const menu = screen.getByRole("menu");
+			await waitFor(() => {
+				expect(parseFixedMenuTop(menu)).toBeLessThanOrEqual(18);
+			});
+		} finally {
+			restoreViewport();
+			if (originalOffsetHeight) {
+				Object.defineProperty(
+					HTMLElement.prototype,
+					"offsetHeight",
+					originalOffsetHeight,
+				);
+			} else {
+				delete (HTMLElement.prototype as unknown as Record<string, unknown>)
+					.offsetHeight;
+			}
 		}
 	});
 

@@ -123,6 +123,18 @@ function updateMenuPositionFromPoint(
 	menuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`;
 }
 
+function scheduleMenuPositionUpdate() {
+	const updateAfterLayout = () => {
+		if (!menuOpen) return;
+		doUpdatePosition();
+	};
+	if (typeof requestAnimationFrame === "function") {
+		requestAnimationFrame(updateAfterLayout);
+		return;
+	}
+	setTimeout(updateAfterLayout, 0);
+}
+
 function toggleMenu(e: MouseEvent) {
 	e.stopPropagation();
 	menuAnchor = { kind: "trigger" };
@@ -196,6 +208,11 @@ function confirmDelete() {
 	showDeleteConfirm = false;
 	onDelete?.({ id: project.id });
 }
+
+$effect(() => {
+	if (!menuOpen) return;
+	scheduleMenuPositionUpdate();
+});
 
 onMount(() => {
 	return setupMenuSync(() => menuOpen, doUpdatePosition);

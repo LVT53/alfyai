@@ -414,17 +414,29 @@ function renderInlineTextWithSourceCitations(
 	sourceIndex: ReportSourceIndex,
 	chrome: ReportChrome,
 ): string {
-	const citationPattern = /\[(\d{1,3})\]/g;
+	const citationPattern = /\[(?:(source|forr[aá]s)\s+)?(\d{1,3})\]/gi;
+	const sourceLabelCitationsAreZeroBased = /\[(?:source|forr[aá]s)\s+0\]/i.test(
+		text,
+	);
 	let cursor = 0;
 	let html = "";
 	for (const match of text.matchAll(citationPattern)) {
 		const start = match.index ?? 0;
 		const end = start + match[0].length;
-		const sourceNumber = Number.parseInt(match[1], 10);
-		const source = sourceIndex.sources[sourceNumber - 1];
+		const hasSourceLabel = Boolean(match[1]);
+		const rawSourceNumber = Number.parseInt(match[2], 10);
+		const sourceIndexOffset = hasSourceLabel
+			? sourceLabelCitationsAreZeroBased
+				? rawSourceNumber
+				: rawSourceNumber - 1
+			: rawSourceNumber - 1;
+		const source = sourceIndex.sources[sourceIndexOffset];
+		const displaySourceNumber = sourceIndexOffset + 1;
 		html += escapeHtml(text.slice(cursor, start));
 		html += source
-			? renderSourceChip(source, chrome, { sourceNumber })
+			? renderSourceChip(source, chrome, {
+					sourceNumber: displaySourceNumber,
+				})
 			: escapeHtml(match[0]);
 		cursor = end;
 	}
@@ -620,7 +632,12 @@ export function renderStandardReportHtml(
 ): StandardReportHtmlRenderResult {
 	const chrome = reportChrome(source.language);
 	const sourceIndex = collectReportSources(source.blocks);
-	const blockEntries = source.blocks.map((block, index) => ({
+	const visibleBlocks =
+		source.blocks[0]?.type === "heading" &&
+		normalizedLabel(source.blocks[0].text) === normalizedLabel(source.title)
+			? source.blocks.slice(1)
+			: source.blocks;
+	const blockEntries = visibleBlocks.map((block, index) => ({
 		block,
 		headingId: block.type === "heading" ? slugifyId(block.text, index) : null,
 	}));
@@ -746,7 +763,7 @@ export function renderStandardReportHtml(
 		"</article></div>",
 		"<script>",
 		"(() => { const sidebar = document.getElementById('report-sidebar'); const backdrop = document.getElementById('sidebar-backdrop'); const button = document.getElementById('mobile-menu-btn'); if (!sidebar || !backdrop || !button) return; const close = () => { sidebar.classList.remove('open'); backdrop.classList.remove('open'); button.setAttribute('aria-expanded', 'false'); }; const open = () => { sidebar.classList.add('open'); backdrop.classList.add('open'); button.setAttribute('aria-expanded', 'true'); }; button.addEventListener('click', () => sidebar.classList.contains('open') ? close() : open()); backdrop.addEventListener('click', close); sidebar.querySelectorAll('a').forEach((link) => link.addEventListener('click', close)); })();",
-		"(() => { const reportContent = document.getElementById('report-content'); const reportNavLinks = Array.from(document.querySelectorAll('.report-nav a')); const reportSections = Array.from(document.querySelectorAll('.report-section[id]')); if (!reportContent || reportNavLinks.length === 0 || reportSections.length === 0) return; function updateActiveSection() { const contentRect = reportContent.getBoundingClientRect(); const threshold = contentRect.top + Math.min(160, contentRect.height * 0.35); const atScrollEnd = reportContent.scrollTop + reportContent.clientHeight >= reportContent.scrollHeight - 32; let activeId = atScrollEnd ? reportSections[reportSections.length - 1].id : reportSections[0].id; if (!atScrollEnd) { reportSections.forEach((section) => { const rect = section.getBoundingClientRect(); if (rect.top <= threshold && rect.bottom > contentRect.top + 8) activeId = section.id; }); } reportNavLinks.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === '#' + activeId)); } reportContent.addEventListener('scroll', updateActiveSection, { passive: true }); reportNavLinks.forEach((link) => link.addEventListener('click', () => window.setTimeout(updateActiveSection, 120))); updateActiveSection(); })();",
+		"(() => { const reportContent = document.getElementById('report-content'); const reportNavLinks = Array.from(document.querySelectorAll('.report-nav a')); const reportSections = Array.from(document.querySelectorAll('.report-section[id]')); if (!reportContent || reportNavLinks.length === 0 || reportSections.length === 0) return; function updateActiveSection() { const contentRect = reportContent.getBoundingClientRect(); const threshold = contentRect.top + Math.min(160, contentRect.height * 0.35); const atScrollEnd = reportContent.scrollTop + reportContent.clientHeight >= reportContent.scrollHeight - 32; let activeId = atScrollEnd ? reportSections[reportSections.length - 1].id : reportSections[0].id; if (!atScrollEnd) { reportSections.forEach((section) => { const rect = section.getBoundingClientRect(); if (rect.top <= threshold && rect.bottom > contentRect.top + 8) activeId = section.id; }); } reportNavLinks.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === '#' + activeId)); } reportContent.addEventListener('scroll', updateActiveSection, { passive: true }); reportNavLinks.forEach((link) => link.addEventListener('click', (event) => { const href = link.getAttribute('href') || ''; if (!href.startsWith('#')) return; const target = document.getElementById(href.slice(1)); if (!target) return; event.preventDefault(); target.scrollIntoView({ block: 'start' }); window.setTimeout(updateActiveSection, 80); })); updateActiveSection(); })();",
 		"(() => { const sidebar = document.getElementById('report-sidebar'); const resizer = document.getElementById('report-sidebar-resizer'); if (!sidebar || !resizer) return; const minWidth = 180; const maxWidth = 380; const clampWidth = (width) => Math.max(minWidth, Math.min(maxWidth, width)); function positionReportSidebar(width) { sidebar.style.width = clampWidth(width) + 'px'; } let startX = 0; let startWidth = 0; const onMove = (event) => positionReportSidebar(startWidth + event.clientX - startX); const stopResize = () => { document.documentElement.classList.remove('is-resizing-report-sidebar'); window.removeEventListener('pointermove', onMove); }; resizer.addEventListener('pointerdown', (event) => { if (window.matchMedia('(max-width: 760px)').matches) return; event.preventDefault(); startX = event.clientX; startWidth = sidebar.getBoundingClientRect().width; document.documentElement.classList.add('is-resizing-report-sidebar'); window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', stopResize, { once: true }); window.addEventListener('pointercancel', stopResize, { once: true }); }); resizer.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; event.preventDefault(); const delta = event.key === 'ArrowLeft' ? -16 : 16; positionReportSidebar(sidebar.getBoundingClientRect().width + delta); }); })();",
 		"(() => { const reportContent = document.getElementById('report-content'); const reportSidebar = document.getElementById('report-sidebar'); const triggers = Array.from(document.querySelectorAll('.source-chip,.honesty-marker')); function sidebarSafeLeft() { if (!reportSidebar || window.matchMedia('(max-width: 760px)').matches) return 12; const rect = reportSidebar.getBoundingClientRect(); return rect.width > 0 ? Math.max(12, rect.right + 12) : 12; } function positionFloatingTooltips(trigger) { const tooltip = trigger.querySelector('.source-tooltip,.honesty-tooltip'); if (!tooltip) return; tooltip.classList.remove('tooltip-below'); const triggerRect = trigger.getBoundingClientRect(); const tooltipRect = tooltip.getBoundingClientRect(); const margin = 12; const tooltipWidth = Math.min(tooltipRect.width || 280, window.innerWidth - margin * 2); const tooltipHeight = tooltipRect.height || 80; const minLeft = sidebarSafeLeft(); const maxLeft = window.innerWidth - margin; let left = triggerRect.left + triggerRect.width / 2; left = Math.max(minLeft + tooltipWidth / 2, Math.min(maxLeft - tooltipWidth / 2, left)); let top = triggerRect.top - margin; let transform = 'translate(-50%,-100%)'; if (top - tooltipHeight < margin) { top = triggerRect.bottom + margin; transform = 'translate(-50%,0)'; tooltip.classList.add('tooltip-below'); } tooltip.style.setProperty('--tooltip-left', left + 'px'); tooltip.style.setProperty('--tooltip-top', top + 'px'); tooltip.style.setProperty('--tooltip-transform', transform); } function positionVisibleTooltips() { document.querySelectorAll('.source-chip:hover,.source-chip:focus,.honesty-marker:hover,.honesty-marker:focus').forEach((trigger) => positionFloatingTooltips(trigger)); } triggers.forEach((trigger) => { trigger.addEventListener('mouseenter', () => positionFloatingTooltips(trigger)); trigger.addEventListener('focus', () => positionFloatingTooltips(trigger)); }); reportContent?.addEventListener('scroll', positionVisibleTooltips, { passive: true }); window.addEventListener('resize', positionVisibleTooltips); })();",
 		"</script>",

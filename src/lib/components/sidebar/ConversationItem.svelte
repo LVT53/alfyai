@@ -234,6 +234,19 @@ function updateMenuPositionFromPoint(
 	menuPositionStyle = `position: fixed; top: ${top}px; left: ${left}px; width: ${menuWidth}px;`;
 }
 
+function scheduleMenuPositionUpdate() {
+	const updateAfterLayout = () => {
+		if (!menuOpen) return;
+		doUpdatePosition();
+		if (showProjectSubmenu) updateSubmenuPosition();
+	};
+	if (typeof requestAnimationFrame === "function") {
+		requestAnimationFrame(updateAfterLayout);
+		return;
+	}
+	setTimeout(updateAfterLayout, 0);
+}
+
 function toggleMenu(e: MouseEvent) {
 	e.stopPropagation();
 	showProjectSubmenu = false;
@@ -345,6 +358,11 @@ let atlasBadgeLabel = $derived(
 let showAtlasCompletedBadge = $derived(
 	!active && conversation.atlasBadge?.status === "succeeded",
 );
+
+$effect(() => {
+	if (!menuOpen) return;
+	scheduleMenuPositionUpdate();
+});
 
 onMount(() => {
 	return setupMenuSync(() => menuOpen, doUpdatePosition);

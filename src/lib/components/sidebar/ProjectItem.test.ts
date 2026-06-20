@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import ProjectItem from "./ProjectItem.svelte";
 import ProjectItemWrapper from "./ProjectItemWrapper.test.svelte";
 
@@ -12,6 +12,10 @@ const project = {
 };
 
 describe("ProjectItem", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
 	function parseFixedMenuTop(element: HTMLElement): number {
 		const match = /top:\s*([\d.]+)px/.exec(element.getAttribute("style") ?? "");
 		if (!match) throw new Error("Expected menu style to include a fixed top.");
@@ -90,6 +94,44 @@ describe("ProjectItem", () => {
 			expect(parseFixedMenuTop(menu)).toBeLessThan(166);
 		} finally {
 			restoreViewport();
+		}
+	});
+
+	it("recalculates the project overflow menu after the portal menu has a measured height", async () => {
+		const restoreViewport = stubViewportAndTriggerRect();
+		const originalOffsetHeight = Object.getOwnPropertyDescriptor(
+			HTMLElement.prototype,
+			"offsetHeight",
+		);
+		Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+			configurable: true,
+			get() {
+				return this.getAttribute("role") === "menu" ? 176 : 0;
+			},
+		});
+		try {
+			render(ProjectItemWrapper, {
+				project,
+			});
+
+			await fireEvent.click(screen.getByLabelText("Project options"));
+
+			const menu = screen.getByRole("menu");
+			await waitFor(() => {
+				expect(parseFixedMenuTop(menu)).toBeLessThanOrEqual(22);
+			});
+		} finally {
+			restoreViewport();
+			if (originalOffsetHeight) {
+				Object.defineProperty(
+					HTMLElement.prototype,
+					"offsetHeight",
+					originalOffsetHeight,
+				);
+			} else {
+				delete (HTMLElement.prototype as unknown as Record<string, unknown>)
+					.offsetHeight;
+			}
 		}
 	});
 

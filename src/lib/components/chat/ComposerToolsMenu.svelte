@@ -724,6 +724,19 @@ onMount(() => {
 		line-height: 1.32;
 	}
 
+	@media (max-width: 640px) {
+		.atlas-profile-picker {
+			position: fixed;
+			right: max(0.75rem, env(safe-area-inset-right));
+			bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 5.25rem);
+			left: max(0.75rem, env(safe-area-inset-left));
+			width: auto;
+			max-height: min(28rem, calc(100dvh - 7rem));
+			overflow-y: auto;
+			overscroll-behavior: contain;
+		}
+	}
+
 	.model-selector__option {
 		padding: 0.38rem 0.5rem;
 		border-radius: 0.42rem;

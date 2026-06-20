@@ -194,6 +194,16 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain("getBoundingClientRect");
 	});
 
+	it("keeps report sidebar links inside the embedded report document", () => {
+		const html = renderFixtureHtml();
+
+		expect(html).toContain("event.preventDefault()");
+		expect(html).toContain("target.scrollIntoView({ block: 'start' })");
+		expect(html).not.toContain(
+			"link.addEventListener('click', () => window.setTimeout(updateActiveSection, 120))",
+		);
+	});
+
 	it("fills the viewport without report-card chrome when opened directly as standalone HTML", () => {
 		const html = renderFixtureHtml();
 
@@ -313,6 +323,91 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain('class="source-item"');
 		expect(html).toContain(">Vendor docs</a>");
 		expect(html).toContain('<span class="source-domain">example.com</span>');
+	});
+
+	it("converts model-authored Source labels into inline source pills", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Labeled source report",
+			blocks: [
+				{ type: "heading", level: 2, text: "Findings" },
+				{
+					type: "paragraph",
+					text: "The trend is current [Source 0] and cross-checked [Source 1].",
+					sources: [
+						{
+							title: "First web result",
+							url: "https://example.com/first",
+							reasoning: "Selected for the current claim.",
+						},
+						{
+							title: "Second web result",
+							url: "https://example.com/second",
+							reasoning: "Selected as corroborating evidence.",
+						},
+					],
+				},
+				{ type: "heading", level: 2, text: "Sources" },
+				{
+					type: "sourceChips",
+					title: "Web Sources",
+					sources: [
+						{
+							title: "First web result",
+							url: "https://example.com/first",
+							reasoning: "Selected for the current claim.",
+						},
+						{
+							title: "Second web result",
+							url: "https://example.com/second",
+							reasoning: "Selected as corroborating evidence.",
+						},
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+
+		expect(html).toContain("The trend is current ");
+		expect(html).not.toContain("[Source 0]");
+		expect(html).not.toContain("[Source 1]");
+		expect(html).toContain('aria-label="Source 1: First web result"');
+		expect(html).toContain('aria-label="Source 2: Second web result"');
+	});
+
+	it("removes a duplicate first heading that repeats the report title", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Duplicate Title Report",
+			blocks: [
+				{ type: "heading", level: 2, text: "Duplicate Title Report" },
+				{ type: "heading", level: 2, text: "Executive Summary" },
+				{ type: "paragraph", text: "The first visible section remains." },
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+
+		expect(html).toContain(
+			'<h1 class="report-title">Duplicate Title Report</h1>',
+		);
+		expect(html).not.toMatch(/href="#duplicate-title-report-\d+"/);
+		expect(html).not.toMatch(/<h2[^>]*>Duplicate Title Report<\/h2>/);
+		expect(html).toMatch(/href="#executive-summary-\d+"/);
+		expect(html).toMatch(
+			/<section class="report-section" id="executive-summary-\d+"><h2>Executive Summary<\/h2>/,
+		);
 	});
 
 	it("renders source tooltips with theme tokens, favicon content, and viewport-aware positioning", () => {
