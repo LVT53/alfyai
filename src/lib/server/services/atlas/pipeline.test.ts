@@ -193,6 +193,7 @@ describe("Atlas pipeline slices", () => {
 					},
 				},
 			},
+			now: new Date("2026-06-19T13:00:00.000Z"),
 			dependencies: {
 				resolveSources: vi.fn(async () => ({ localSources: [] })),
 				searchWeb: vi.fn(async () => ({
