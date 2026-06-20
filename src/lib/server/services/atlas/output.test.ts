@@ -210,6 +210,72 @@ describe("Atlas renderer output", () => {
 		expect(renderedText).not.toMatch(/\*\*|`|\[|\]\(/);
 	});
 
+	it("adds accepted-source chips to substantive paragraphs when Markdown has no explicit citations", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Inline Evidence Atlas",
+			assembledMarkdown: [
+				"## Executive Summary",
+				"Enterprise buyers are prioritizing source-grounded research assistants because evaluation, auditability, and retrieval controls now drive deployment confidence across regulated teams.",
+				"",
+				"Teams that combine fresh web evidence with local document context can make faster decisions while keeping uncertainty visible to reviewers and approvers.",
+			].join("\n"),
+			sources: [
+				{
+					title: "Vendor release notes",
+					url: "https://example.com/releases",
+					reasoning: "Explains the current enterprise release requirements.",
+				},
+				{
+					title: "Auditability benchmark",
+					url: "https://example.com/audit",
+					reasoning: "Documents auditability expectations for research tools.",
+				},
+			],
+			honestyMarkers: [],
+		});
+
+		const paragraphs = source.blocks.filter(
+			(
+				block,
+			): block is Extract<
+				(typeof source.blocks)[number],
+				{ type: "paragraph" }
+			> => block.type === "paragraph",
+		);
+		expect(paragraphs[0].sources).toEqual([
+			expect.objectContaining({
+				title: "Vendor release notes",
+				url: "https://example.com/releases",
+				kind: "web",
+				reasoning: "Explains the current enterprise release requirements.",
+			}),
+		]);
+		expect(paragraphs[1].sources).toEqual([
+			expect.objectContaining({
+				title: "Auditability benchmark",
+				url: "https://example.com/audit",
+				kind: "web",
+				reasoning: "Documents auditability expectations for research tools.",
+			}),
+		]);
+		expect(source.blocks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "heading",
+					text: "Honesty markers",
+				}),
+				expect.objectContaining({
+					type: "confidenceMarker",
+					code: "atlas_audit_passed",
+					label: "Audit checked",
+					severity: "info",
+				}),
+			]),
+		);
+	});
+
 	it("adds a key takeaway, useful chart, and source-attributed image blocks when the report content supports them", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 

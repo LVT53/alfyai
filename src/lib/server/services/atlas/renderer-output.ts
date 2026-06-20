@@ -5,6 +5,7 @@ import type {
 	GeneratedDocumentImageBlock,
 	GeneratedDocumentScalar,
 	GeneratedDocumentSource,
+	GeneratedDocumentSourceChip,
 	GeneratedDocumentTableBlock,
 } from "$lib/server/services/file-production/source-schema";
 import {
@@ -61,24 +62,32 @@ function addSourceSection(
 	blocks.push({
 		type: "sourceChips",
 		title,
-		sources: sources.map((source) => {
-			const isWeb = Boolean(source.url);
-			const provided = source.authority === "explicit";
-			return {
-				title: source.title,
-				url: source.url ?? null,
-				kind: isWeb ? "web" : "library",
-				provided,
-				reasoning:
-					source.reasoning ??
-					(provided
-						? atlasChrome({ language }).providedSourcesReasoning
-						: isWeb
-							? atlasChrome({ language }).webSourcesReasoning
-							: atlasChrome({ language }).librarySourcesReasoning),
-			};
-		}),
+		sources: sources.map((source) =>
+			sourceChipForAtlasSource(source, language),
+		),
 	});
+}
+
+function sourceChipForAtlasSource(
+	source: AtlasReportSource,
+	language: SupportedLanguage,
+): GeneratedDocumentSourceChip {
+	const isWeb = Boolean(source.url);
+	const provided = source.authority === "explicit";
+	const chrome = atlasChrome({ language });
+	return {
+		title: source.title,
+		url: source.url ?? null,
+		kind: isWeb ? "web" : "library",
+		provided,
+		reasoning:
+			source.reasoning ??
+			(provided
+				? chrome.providedSourcesReasoning
+				: isWeb
+					? chrome.webSourcesReasoning
+					: chrome.librarySourcesReasoning),
+	};
 }
 
 function atlasChrome(input: {
@@ -143,6 +152,16 @@ function confidenceLabelForSeverity(
 	language: SupportedLanguage,
 ): string {
 	return atlasChrome({ language, severity }).confidenceLabel ?? "Supported";
+}
+
+function confidenceLabelForMarker(
+	marker: AtlasHonestyMarker,
+	language: SupportedLanguage,
+): string {
+	if (marker.code === "atlas_audit_passed") {
+		return language === "hu" ? "Audit ellenőrizve" : "Audit checked";
+	}
+	return confidenceLabelForSeverity(marker.severity, language);
 }
 
 function cleanText(value: unknown): string | null {
@@ -503,6 +522,88 @@ function addKeyTakeawayBlock(
 	});
 }
 
+function normalizedHeading(text: string): string {
+	return text
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.trim()
+		.toLowerCase();
+}
+
+function isSourcesHeading(text: string): boolean {
+	const normalized = normalizedHeading(text);
+	return (
+		normalized === "sources" ||
+		normalized === "forrasok" ||
+		normalized === "web sources" ||
+		normalized === "webes forrasok" ||
+		normalized === "your library" ||
+		normalized === "sajat konyvtar"
+	);
+}
+
+function paragraphHasExplicitSourceCitation(text: string): boolean {
+	return /\[\d{1,3}\]/.test(text);
+}
+
+function paragraphIsSubstantive(text: string): boolean {
+	return text.replace(/\s+/g, " ").trim().length >= 80;
+}
+
+function addInlineSourceFallbacks(
+	blocks: GeneratedDocumentSource["blocks"],
+	sources: AtlasReportSource[],
+	language: SupportedLanguage,
+): void {
+	if (sources.length === 0) return;
+	const alreadyHasInlineCitations = blocks.some(
+		(block) =>
+			block.type === "paragraph" &&
+			(paragraphHasExplicitSourceCitation(block.text) ||
+				(block.sources?.length ?? 0) > 0),
+	);
+	if (alreadyHasInlineCitations) return;
+
+	const eligibleParagraphIndexes: number[] = [];
+	let insideSourcesSection = false;
+	for (const [index, block] of blocks.entries()) {
+		if (block.type === "heading" && block.level <= 2) {
+			insideSourcesSection = isSourcesHeading(block.text);
+			continue;
+		}
+		if (
+			!insideSourcesSection &&
+			block.type === "paragraph" &&
+			paragraphIsSubstantive(block.text)
+		) {
+			eligibleParagraphIndexes.push(index);
+		}
+	}
+	if (eligibleParagraphIndexes.length === 0) return;
+
+	const sourceChips = sources.map((source) =>
+		sourceChipForAtlasSource(source, language),
+	);
+	for (const [sourceIndex, blockIndex] of eligibleParagraphIndexes.entries()) {
+		const source = sourceChips[sourceIndex];
+		if (!source) break;
+		const block = blocks[blockIndex];
+		if (block?.type !== "paragraph") continue;
+		blocks[blockIndex] = { ...block, sources: [source] };
+	}
+}
+
+function auditPassedMarker(language: SupportedLanguage): AtlasHonestyMarker {
+	return {
+		code: "atlas_audit_passed",
+		message:
+			language === "hu"
+				? "Az Atlas audit nem jelölt nem alátámasztott vagy egymásnak ellentmondó állítást az elfogadott bizonyítékok alapján."
+				: "Atlas audit did not flag unsupported or conflicting claims in the accepted evidence set.",
+		severity: "info",
+	};
+}
+
 export function buildAtlasDocumentSource(
 	input: BuildAtlasDocumentSourceInput,
 ): GeneratedDocumentSource {
@@ -512,6 +613,7 @@ export function buildAtlasDocumentSource(
 	const blocks: GeneratedDocumentSource["blocks"] = [];
 	appendMarkdownBlocks(blocks, input.assembledMarkdown);
 	addKeyTakeawayBlock(blocks, language);
+	addInlineSourceFallbacks(blocks, input.sources, language);
 
 	const librarySources = input.sources.filter((source) => !source.url);
 	const webSources = input.sources.filter((source) => Boolean(source.url));
@@ -522,17 +624,21 @@ export function buildAtlasDocumentSource(
 	addSourceSection(blocks, chrome.webSources, webSources, language);
 	addSourceSection(blocks, chrome.librarySources, librarySources, language);
 
-	if (input.honestyMarkers.length > 0) {
+	const honestyMarkers =
+		input.honestyMarkers.length > 0
+			? input.honestyMarkers
+			: [auditPassedMarker(language)];
+	if (honestyMarkers.length > 0) {
 		blocks.push({
 			type: "heading",
 			level: 2,
 			text: chrome.honestyMarkers,
 		});
-		for (const marker of input.honestyMarkers) {
+		for (const marker of honestyMarkers) {
 			blocks.push({
 				type: "confidenceMarker",
 				code: marker.code,
-				label: confidenceLabelForSeverity(marker.severity, language),
+				label: confidenceLabelForMarker(marker, language),
 				severity: marker.severity,
 				message: marker.message,
 			});
