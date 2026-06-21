@@ -2671,6 +2671,9 @@ describe("Atlas pipeline slices", () => {
 													"Lead candidates: |-------|--------|------------|---------|.",
 													"Key tradeoff: | H100 accuracy | CPU/consumer GPU practicality |.",
 													"BGE-M3 / Jina v5 run on far less hardware - explain the operational tradeoff.",
+													"slightly lower MTEB than NV-Embed-v2 | - reject table-tail headings.",
+													"domain-specific retrieval may benefit from benchmarking on your own corpus - reject sentence-like headings.",
+													"Evidence packs used: AIMultiple (id - reject evidence bookkeeping.",
 													"Table: | Apache 2.0 | MIT |.",
 													"Key Model Characteristics: summarize licensing and hardware needs.",
 												].join("\n")
@@ -2702,6 +2705,15 @@ describe("Atlas pipeline slices", () => {
 		expect(auditInput?.assembledMarkdown).not.toContain("## Report Outline");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Core insight");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Lead candidates");
+		expect(auditInput?.assembledMarkdown).not.toContain(
+			"## slightly lower MTEB",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain(
+			"## domain-specific retrieval",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain(
+			"## Evidence packs used",
+		);
 		expect(auditInput?.assembledMarkdown).not.toContain("|-------|");
 		expect(auditInput?.assembledMarkdown).not.toContain("| Model |");
 	});

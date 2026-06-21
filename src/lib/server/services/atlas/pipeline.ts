@@ -1542,7 +1542,9 @@ function uniqueFallbackSectionTitles(
 		),
 	);
 	const customSections = unique.filter(
-		(title) => !requiredKeys.has(normalizedFallbackHeading(title)),
+		(title) =>
+			!requiredKeys.has(normalizedFallbackHeading(title)) &&
+			isCleanCustomFallbackSectionTitle(title),
 	);
 	return [
 		labels.executive,
@@ -1550,6 +1552,22 @@ function uniqueFallbackSectionTitles(
 		...customSections.slice(0, 5),
 		labels.limitations,
 	];
+}
+
+function isCleanCustomFallbackSectionTitle(title: string): boolean {
+	const normalized = normalizedFallbackHeading(title);
+	if (!normalized || isFallbackTableFragment(title)) return false;
+	if (/^[a-z]/.test(title.trim())) return false;
+	if (title.includes(":") || title.includes("|")) return false;
+	if (
+		/\b(evidence packs?|source ids?|accepted evidence|report outline)\b/i.test(
+			title,
+		)
+	) {
+		return false;
+	}
+	const tokens = normalized.split(/\s+/).filter(Boolean);
+	return tokens.length >= 2 && tokens.length <= 6;
 }
 
 function extractFallbackOutlineTitles(
@@ -1616,6 +1634,19 @@ function isFallbackTableFragment(value: string): boolean {
 	);
 }
 
+function isLowQualityFallbackText(value: string): boolean {
+	const trimmed = value.trim();
+	if (!trimmed) return true;
+	if (isFallbackTableFragment(trimmed)) return true;
+	if (/[|\u00b7\ue000]/.test(trimmed)) return true;
+	if (/:\.$/.test(trimmed)) return true;
+	if (/\.\.\./.test(trimmed)) return true;
+	const normalized = normalizedReportShapeText(trimmed);
+	return /\b(search result snippet|fetched page excerpt|evidence packs used|loading chart|copied to clipboard|source ids?|rating|ertekeles|eur|cookie)\b/i.test(
+		normalized,
+	);
+}
+
 function fallbackStatementsFromStageText(value: string): Array<{
 	prefix: string | null;
 	body: string;
@@ -1632,7 +1663,7 @@ function fallbackStatementsFromStageText(value: string): Array<{
 			(entry) =>
 				entry.body.length >= 30 &&
 				!isProcessFallbackStatement(entry.body) &&
-				!isFallbackTableFragment(entry.body),
+				!isLowQualityFallbackText(entry.body),
 		)
 		.slice(0, 32);
 }
@@ -1643,7 +1674,11 @@ function fallbackStatementsFromEvidencePacks(
 	return evidencePacks
 		.map((pack) => cleanFallbackScalar(pack.evidence.summary))
 		.filter((summary): summary is string => Boolean(summary))
-		.filter((summary) => !isProcessFallbackStatement(summary))
+		.filter(
+			(summary) =>
+				!isProcessFallbackStatement(summary) &&
+				!isLowQualityFallbackText(summary),
+		)
 		.map((summary) => ({
 			prefix: null,
 			body: ensureTerminalPunctuation(summary),
@@ -1705,6 +1740,7 @@ function fallbackLimitationsText(input: {
 		.flatMap((pack) => pack.limitations)
 		.map(cleanFallbackScalar)
 		.filter((limitation): limitation is string => Boolean(limitation))
+		.filter((limitation) => !isLowQualityFallbackText(limitation))
 		.slice(0, 3);
 	if (input.limitation)
 		return ensureTerminalPunctuation(input.limitation.message);
