@@ -13,6 +13,7 @@ import type {
 	GeneratedDocumentBlock,
 	GeneratedDocumentSource,
 } from "../source-schema";
+import { generatedDocumentBasisClaimLabel } from "../source-schema";
 
 export interface StandardReportDocxRenderResult {
 	filename: string;
@@ -33,6 +34,24 @@ function slugifyFilename(title: string, extension: string): string {
 
 function paragraph(text: string): Paragraph {
 	return new Paragraph({ children: [new TextRun(text)] });
+}
+
+function basisNoteParagraph(
+	block:
+		| Extract<GeneratedDocumentBlock, { type: "basisMarker" }>
+		| NonNullable<
+				Extract<GeneratedDocumentBlock, { type: "paragraph" }>["basisMarkers"]
+		  >[number],
+): Paragraph {
+	return new Paragraph({
+		children: [
+			new TextRun({
+				text: `Basis: ${generatedDocumentBasisClaimLabel(block.support)} - `,
+				bold: true,
+			}),
+			new TextRun(block.rationale),
+		],
+	});
 }
 
 function renderTable(
@@ -69,100 +88,123 @@ function renderTable(
 	});
 }
 
-function renderBlock(block: GeneratedDocumentBlock): Paragraph | Table {
+function renderBlock(block: GeneratedDocumentBlock): Array<Paragraph | Table> {
 	switch (block.type) {
 		case "heading":
-			return new Paragraph({
-				text: block.text,
-				heading:
-					block.level === 1
-						? HeadingLevel.HEADING_1
-						: block.level === 2
-							? HeadingLevel.HEADING_2
-							: HeadingLevel.HEADING_3,
-			});
+			return [
+				new Paragraph({
+					text: block.text,
+					heading:
+						block.level === 1
+							? HeadingLevel.HEADING_1
+							: block.level === 2
+								? HeadingLevel.HEADING_2
+								: HeadingLevel.HEADING_3,
+				}),
+			];
 		case "paragraph":
-			return paragraph(block.text);
+			return [
+				paragraph(block.text),
+				...(block.basisMarkers ?? []).map(basisNoteParagraph),
+			];
 		case "list":
-			return new Paragraph({
-				children: [
-					new TextRun(block.items.map((item) => `• ${item}`).join("\n")),
-				],
-			});
+			return [
+				new Paragraph({
+					children: [
+						new TextRun(block.items.map((item) => `• ${item}`).join("\n")),
+					],
+				}),
+			];
 		case "callout":
-			return new Paragraph({
-				children: [
-					new TextRun({
-						text: block.title ? `${block.title}: ` : `${block.tone}: `,
-						bold: true,
-					}),
-					new TextRun(block.text),
-				],
-			});
+			return [
+				new Paragraph({
+					children: [
+						new TextRun({
+							text: block.title ? `${block.title}: ` : `${block.tone}: `,
+							bold: true,
+						}),
+						new TextRun(block.text),
+					],
+				}),
+			];
 		case "confidenceMarker":
-			return new Paragraph({
-				children: [
-					new TextRun({ text: `${block.label}: `, bold: true }),
-					new TextRun(block.message),
-				],
-			});
+			return [
+				new Paragraph({
+					children: [
+						new TextRun({ text: `${block.label}: `, bold: true }),
+						new TextRun(block.message),
+					],
+				}),
+			];
+		case "basisMarker":
+			return [basisNoteParagraph(block)];
 		case "code":
-			return new Paragraph({
-				children: [new TextRun({ text: block.text, font: "Courier New" })],
-			});
+			return [
+				new Paragraph({
+					children: [new TextRun({ text: block.text, font: "Courier New" })],
+				}),
+			];
 		case "quote":
-			return paragraph(
-				block.citation ? `${block.text} — ${block.citation}` : block.text,
-			);
+			return [
+				paragraph(
+					block.citation ? `${block.text} — ${block.citation}` : block.text,
+				),
+			];
 		case "divider":
-			return paragraph("---");
+			return [paragraph("---")];
 		case "sourceChips": {
 			const stripHtml = (text: string): string =>
 				text.replace(/<[^>]*>/g, "").replace(/&[^;]+;/g, " ");
-			return new Paragraph({
-				children: [
-					new TextRun({ text: `${block.title}\n`, bold: true }),
-					new TextRun(
-						block.sources
-							.map((source) => {
-								const cleanTitle = stripHtml(source.title);
-								const cleanReasoning = source.reasoning
-									? stripHtml(source.reasoning)
-									: null;
-								const details = [
-									source.url,
-									source.provided ? "You provided these" : null,
-									cleanReasoning,
-								].filter((part): part is string => Boolean(part));
-								return details.length > 0
-									? `• ${cleanTitle} (${details.join("; ")})`
-									: `• ${cleanTitle}`;
-							})
-							.join("\n"),
-					),
-				],
-			});
+			return [
+				new Paragraph({
+					children: [
+						new TextRun({ text: `${block.title}\n`, bold: true }),
+						new TextRun(
+							block.sources
+								.map((source) => {
+									const cleanTitle = stripHtml(source.title);
+									const cleanReasoning = source.reasoning
+										? stripHtml(source.reasoning)
+										: null;
+									const details = [
+										source.url,
+										source.provided ? "You provided these" : null,
+										cleanReasoning,
+									].filter((part): part is string => Boolean(part));
+									return details.length > 0
+										? `• ${cleanTitle} (${details.join("; ")})`
+										: `• ${cleanTitle}`;
+								})
+								.join("\n"),
+						),
+					],
+				}),
+			];
 		}
 		case "pageBreak":
-			return paragraph("");
+			return [paragraph("")];
 		case "table":
-			return renderTable(block);
+			return [renderTable(block)];
 		case "chart":
-			return paragraph(
-				`Chart: ${block.title ?? block.chartType}. ${block.altText ?? ""}`,
-			);
+			return [
+				paragraph(
+					`Chart: ${block.title ?? block.chartType}. ${block.altText ?? ""}`,
+				),
+			];
 		case "image":
-			return paragraph(
-				[
-					`Image: ${block.altText}`,
-					block.caption,
-					block.sourceAttribution
-						? `Source: ${block.sourceAttribution.title} - ${block.sourceAttribution.url}`
-						: null,
-				]
-					.filter((part): part is string => Boolean(part))
-					.join(" — "),
-			);
+			return [
+				paragraph(
+					[
+						`Image: ${block.altText}`,
+						block.caption,
+						block.sourceAttribution
+							? `Source: ${block.sourceAttribution.title} - ${block.sourceAttribution.url}`
+							: null,
+					]
+						.filter((part): part is string => Boolean(part))
+						.join(" — "),
+				),
+			];
 	}
 }
 
@@ -172,7 +214,7 @@ export async function renderStandardReportDocx(
 	const children: Array<Paragraph | Table> = [
 		new Paragraph({ text: source.title, heading: HeadingLevel.TITLE }),
 		...(source.subtitle ? [paragraph(source.subtitle)] : []),
-		...source.blocks.map(renderBlock),
+		...source.blocks.flatMap(renderBlock),
 	];
 	const document = new Document({
 		creator: "AlfyAI",

@@ -3,6 +3,7 @@ import type {
 	GeneratedDocumentSource,
 	GeneratedDocumentTableBlock,
 } from "../source-schema";
+import { formatGeneratedDocumentBasisNote } from "../source-schema";
 
 export interface StandardReportMarkdownRenderResult {
 	filename: string;
@@ -57,7 +58,12 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 		case "heading":
 			return `${"#".repeat(block.level)} ${block.text}`;
 		case "paragraph":
-			return block.text;
+			return [
+				block.text,
+				...(block.basisMarkers ?? []).map(
+					(marker) => `> ${formatGeneratedDocumentBasisNote(marker)}`,
+				),
+			].join("\n");
 		case "list":
 			return block.items
 				.map((item, index) =>
@@ -70,6 +76,8 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 			].join("\n");
 		case "confidenceMarker":
 			return `> **${block.label}.** ${block.message}`;
+		case "basisMarker":
+			return `> ${formatGeneratedDocumentBasisNote(block)}`;
 		case "code":
 			return `\`\`\`${block.language ?? ""}\n${block.text}\n\`\`\``;
 		case "quote":

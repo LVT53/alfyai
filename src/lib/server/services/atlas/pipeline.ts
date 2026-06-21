@@ -3,20 +3,43 @@ import {
 	detectLanguage,
 	type SupportedLanguage,
 } from "$lib/server/services/language";
-import { getAtlasProfileRuntimeConfig } from "./config";
+import {
+	type AtlasProfileRuntimeConfig,
+	getAtlasProfileRuntimeConfig,
+} from "./config";
+import {
+	buildAtlasCoverageReviewPrompt,
+	parseAndApproveAtlasCoverageReview,
+} from "./coverage-review";
+import {
+	type BuildAtlasEvidencePacksResult,
+	buildAtlasEvidencePacks,
+} from "./evidence-packs";
 import {
 	type AtlasOutputIds,
 	buildAtlasDocumentSource,
 	collectAtlasSelectedImageCandidateIds,
 } from "./renderer-output";
 import type {
+	AtlasAssemblyMetadata,
+	AtlasClaimBasis,
+	AtlasClaimBasisDiagnostic,
+	AtlasClaimBasisLimitation,
+	AtlasClaimBasisSectionCoverage,
+	AtlasCoverageReview,
+	AtlasEvidencePack,
+	AtlasEvidencePackDiagnostic,
+	AtlasGapProposal,
 	AtlasHonestyMarker,
 	AtlasImageCandidate,
 	AtlasJobProgressDetails,
 	AtlasLifecycleContext,
 	AtlasPipelineJobContext,
 	AtlasPipelineStage,
+	AtlasSectionBrief,
+	AtlasSectionBriefSourceAssociation,
 } from "./types";
+import { ATLAS_ASSEMBLY_SCHEMA_VERSION } from "./types";
 
 type ModelStage = Exclude<AtlasPipelineStage, "search" | "audit" | "render">;
 
@@ -27,34 +50,38 @@ export interface AtlasStageUsage {
 	costUsdMicros: number;
 }
 
+interface AtlasPipelineLocalSource {
+	id: string;
+	title: string;
+	authority: string;
+	text: string;
+}
+
+interface AtlasPipelineWebSource {
+	id: string;
+	title: string;
+	url: string;
+	snippet: string | null;
+}
+
+interface AtlasPipelineRejectedWebSource extends AtlasPipelineWebSource {
+	rejectionReason?: string;
+}
+
+interface AtlasPipelineSearchResult {
+	sources: AtlasPipelineWebSource[];
+	rejectedSources?: AtlasPipelineRejectedWebSource[];
+	limitation: { code: string; message: string } | null;
+}
+
 export interface RunAtlasPipelineInput {
 	job: AtlasPipelineJobContext;
 	now?: Date;
 	dependencies: {
 		resolveSources: () => Promise<{
-			localSources: Array<{
-				id: string;
-				title: string;
-				authority: string;
-				text: string;
-			}>;
+			localSources: AtlasPipelineLocalSource[];
 		}>;
-		searchWeb: (queries: string[]) => Promise<{
-			sources: Array<{
-				id: string;
-				title: string;
-				url: string;
-				snippet: string | null;
-			}>;
-			rejectedSources?: Array<{
-				id: string;
-				title: string;
-				url: string;
-				snippet: string | null;
-				rejectionReason?: string;
-			}>;
-			limitation: { code: string; message: string } | null;
-		}>;
+		searchWeb: (queries: string[]) => Promise<AtlasPipelineSearchResult>;
 		searchImages?: (queries: string[]) => Promise<{
 			imageCandidates: AtlasImageCandidate[];
 			imageLimitation: { code: string; message: string } | null;
@@ -69,11 +96,23 @@ export interface RunAtlasPipelineInput {
 			sources: Array<{ title: string; url?: string | null }>;
 			limitation: { code: string; message: string } | null;
 			language: SupportedLanguage;
+			currentDate: string;
+			evidencePacks: AtlasEvidencePack[];
+			evidencePackDiagnostics: AtlasEvidencePackDiagnostic[];
+			coverageReview: AtlasCoverageReview;
+			sectionBriefs: AtlasSectionBrief[];
+			assemblyMetadata: AtlasAssemblyMetadata;
 		}) => Promise<{
 			passed: boolean;
 			honestyMarkers: AtlasHonestyMarker[];
 			retryRequested: boolean;
 			usage?: AtlasStageUsage | null;
+			claimBasis?: AtlasClaimBasis[];
+			basisLimitations?: AtlasClaimBasisLimitation[];
+			basisDiagnostics?: AtlasClaimBasisDiagnostic[];
+			claimBasisCoverageBySection?: AtlasClaimBasisSectionCoverage[];
+			claimBasisStatus?: "succeeded" | "failed";
+			claimBasisFailureReason?: string | null;
 		}>;
 		writeCheckpoint: (input: {
 			jobId: string;
@@ -91,6 +130,10 @@ export interface RunAtlasPipelineInput {
 			progressPercent: number;
 			progressDetails?: AtlasJobProgressDetails;
 		}) => Promise<void>;
+		applyGeneratedTitle?: (input: {
+			jobId: string;
+			title: string;
+		}) => Promise<void>;
 		renderOutputs: (
 			source: GeneratedDocumentSource,
 		) => Promise<AtlasOutputIds & { sourceTitle?: string }>;
@@ -99,7 +142,9 @@ export interface RunAtlasPipelineInput {
 
 export interface AtlasPipelineResult {
 	status: "succeeded";
-	stage: "audit";
+	stage: "render";
+	title: string;
+	generatedTitle: string | null;
 	outputs: AtlasOutputIds;
 	audit: {
 		honestyMarkers: AtlasHonestyMarker[];
@@ -123,6 +168,10 @@ export class AtlasPipelineQualityError extends Error {
 		this.name = "AtlasPipelineQualityError";
 		this.markers = markers;
 	}
+}
+
+function hasCriticalAuditFinding(markers: AtlasHonestyMarker[]): boolean {
+	return markers.some((marker) => marker.severity === "critical");
 }
 
 function addUsage(
@@ -166,6 +215,8 @@ const STAGE_SYSTEMS: Record<SupportedLanguage, Record<ModelStage, string>> = {
 			"Break the Atlas question into durable research queries. Return only search query strings, one per line. Do not include prose, numbering, Markdown fences, or commentary.",
 		curate:
 			"Curate Atlas local and web evidence. Extract source-grounded facts only; do not summarize the fact that research happened.",
+		"coverage-review":
+			"Review Atlas coverage against the intended questions and Evidence Packs. Return strict JSON only with typed gap proposals; do not decide whether Atlas runs another round.",
 		synthesize:
 			"Synthesize Atlas findings from curated evidence. Produce substantive findings, tradeoffs, and source-grounded uncertainty; do not write a process summary.",
 		integrate:
@@ -178,6 +229,8 @@ const STAGE_SYSTEMS: Record<SupportedLanguage, Record<ModelStage, string>> = {
 			"Bontsd az Atlas kérdést tartós kutatási lekérdezésekre. Csak keresési lekérdezéseket adj vissza, soronként egyet. Ne adj prózát, számozást, Markdown blokkot vagy kommentárt.",
 		curate:
 			"Válogasd az Atlas helyi és webes bizonyítékait. Csak forrásokkal alátámasztott tényeket emelj ki; ne azt foglald össze, hogy kutatás történt.",
+		"coverage-review":
+			"Vizsgáld meg az Atlas lefedettségét a tervezett kérdések és az Evidence Packek alapján. Csak szigorú JSON-t adj vissza tipizált hiányjavaslatokkal; ne dönts arról, hogy az Atlas futtat-e újabb kört.",
 		synthesize:
 			"Szintetizáld az Atlas megállapításait a válogatott bizonyítékokból. Valódi megállapításokat, kompromisszumokat és forrásalapú bizonytalanságot adj; ne folyamatösszefoglalót.",
 		integrate:
@@ -373,6 +426,502 @@ function applyFreshnessGrounding(input: {
 	return uniqueQueries(grounded).slice(0, input.maxQueries);
 }
 
+type AtlasResearchRoundKind = "initial" | "gap-fill";
+
+interface AtlasGapFillDiagnostics {
+	useful: boolean;
+	stopReason: string | null;
+	approvedGapCount: number;
+	searchQueries: string[];
+	acceptedNewWebSourceCount: number;
+	rejectedNewWebSourceCount: number;
+	materiallyNewExcerptCount: number;
+	diagnostics: AtlasEvidencePackDiagnostic[];
+}
+
+interface AtlasResearchRoundDiagnostics {
+	roundNumber: number;
+	roundKind: AtlasResearchRoundKind;
+	searchQueries: string[];
+	acceptedWebSourceCount: number;
+	rejectedWebSourceCount: number;
+	evidencePackCount: number;
+	coverageReviewApprovedGapCount: number;
+	gapFill?: AtlasGapFillDiagnostics;
+}
+
+interface AtlasResearchRoundResult {
+	roundNumber: number;
+	roundKind: AtlasResearchRoundKind;
+	searchQueries: string[];
+	approvedGaps: AtlasGapProposal[];
+	curatedEvidence: string;
+	webSources: AtlasPipelineWebSource[];
+	rejectedWebSources: AtlasPipelineRejectedWebSource[];
+	roundAcceptedWebSources: AtlasPipelineWebSource[];
+	roundRejectedWebSources: AtlasPipelineRejectedWebSource[];
+	searchLimitation: { code: string; message: string } | null;
+	imageSearch: {
+		imageCandidates: AtlasImageCandidate[];
+		imageLimitation: { code: string; message: string } | null;
+	};
+	evidencePackResult: BuildAtlasEvidencePacksResult;
+	evidencePackDiagnostics: AtlasEvidencePackDiagnostic[];
+	coverageReview: AtlasCoverageReview;
+	usage: AtlasStageUsage;
+	qualityDiagnostics: AtlasResearchRoundDiagnostics;
+}
+
+async function runAtlasResearchRound(input: {
+	job: AtlasPipelineJobContext;
+	roundNumber: number;
+	roundKind: AtlasResearchRoundKind;
+	language: SupportedLanguage;
+	currentDate: string;
+	now: Date;
+	profileConfig: AtlasProfileRuntimeConfig;
+	profilePosture: string;
+	localSources: AtlasPipelineLocalSource[];
+	existingWebSources: AtlasPipelineWebSource[];
+	existingRejectedWebSources: AtlasPipelineRejectedWebSource[];
+	searchQueries: string[];
+	approvedGaps: AtlasGapProposal[];
+	decomposeText: string;
+	parentCuratedSourcePool: unknown | null;
+	completedGapFillRoundsForReview: number;
+	dependencies: Pick<
+		RunAtlasPipelineInput["dependencies"],
+		"searchWeb" | "searchImages" | "runModelStage" | "heartbeat"
+	>;
+}): Promise<AtlasResearchRoundResult> {
+	const usageSeed: AtlasStageUsage = {
+		inputTokens: 0,
+		outputTokens: 0,
+		totalTokens: 0,
+		costUsdMicros: 0,
+	};
+	let usage = usageSeed;
+
+	await input.dependencies.heartbeat?.({
+		stage: "search",
+		progressPercent:
+			input.roundKind === "initial"
+				? 25
+				: Math.min(64, 50 + input.roundNumber * 4),
+		progressDetails: { queries: input.searchQueries },
+	});
+	const search = await input.dependencies.searchWeb(input.searchQueries);
+
+	let imageSearch: {
+		imageCandidates: AtlasImageCandidate[];
+		imageLimitation: { code: string; message: string } | null;
+	} = { imageCandidates: [], imageLimitation: null };
+	if (input.roundKind === "initial" && input.dependencies.searchImages) {
+		await input.dependencies.heartbeat?.({
+			stage: "search",
+			progressPercent: 32,
+			progressDetails: { queries: input.searchQueries },
+		});
+		try {
+			imageSearch = await input.dependencies.searchImages(input.searchQueries);
+		} catch (error) {
+			imageSearch = {
+				imageCandidates: [],
+				imageLimitation: {
+					code: "atlas_image_search_failed",
+					message:
+						error instanceof Error
+							? error.message
+							: "Atlas image search failed.",
+				},
+			};
+		}
+	}
+
+	const convergence =
+		input.roundKind === "gap-fill"
+			? convergeGapFillWebSources({
+					candidates: search.sources,
+					existingWebSources: input.existingWebSources,
+					existingRejectedWebSources: [
+						...input.existingRejectedWebSources,
+						...(search.rejectedSources ?? []),
+					],
+					maxAcceptedNewSources:
+						input.profileConfig.architecture.gapFillCaps.maxAcceptedWebSources,
+				})
+			: {
+					acceptedNewSources: search.sources,
+					rejectedSources: [
+						...input.existingRejectedWebSources,
+						...(search.rejectedSources ?? []),
+					],
+					roundRejectedSources: search.rejectedSources ?? [],
+					materiallyNewExcerptCount: search.sources.length,
+				};
+	const webSources =
+		input.roundKind === "gap-fill"
+			? [...input.existingWebSources, ...convergence.acceptedNewSources]
+			: convergence.acceptedNewSources;
+	const gapDiagnostics =
+		input.roundKind === "gap-fill"
+			? buildGapFillDiagnostics({
+					approvedGaps: input.approvedGaps,
+					searchQueries: input.searchQueries,
+					acceptedNewSources: convergence.acceptedNewSources,
+					roundRejectedSources: convergence.roundRejectedSources,
+					materiallyNewExcerptCount: convergence.materiallyNewExcerptCount,
+					currentDate: input.currentDate,
+				})
+			: null;
+
+	await input.dependencies.heartbeat?.({
+		stage: "curate",
+		progressPercent:
+			input.roundKind === "initial"
+				? 40
+				: Math.min(72, 56 + input.roundNumber * 4),
+	});
+	const curate = await input.dependencies.runModelStage({
+		stage: "curate",
+		system: stageSystem(
+			"curate",
+			input.language,
+			input.currentDate,
+			input.profilePosture,
+		),
+		prompt: JSON.stringify({
+			detectedLanguage: input.language,
+			currentDate: input.currentDate,
+			roundNumber: input.roundNumber,
+			roundKind: input.roundKind,
+			searchQueries: input.searchQueries,
+			approvedGaps: input.approvedGaps,
+			local: input.localSources,
+			web: webSources,
+			newWeb: convergence.acceptedNewSources,
+			rejectedWeb: convergence.roundRejectedSources,
+			imageCandidates: imageSearch.imageCandidates,
+			parentCuratedSourcePool: input.parentCuratedSourcePool,
+			atlasLifecycle: input.job.lifecycle.family,
+		}),
+	});
+	usage = addUsage(usage, curate.usage);
+
+	const evidencePackResult = buildAtlasEvidencePacks({
+		query: input.job.query,
+		currentDate: input.currentDate,
+		curatedEvidence: curate.text,
+		localSources: input.localSources,
+		webSources,
+		searchLimitation: search.limitation,
+		parentSeed: input.job.lifecycle.seed,
+	});
+	const evidencePackDiagnostics = [
+		...evidencePackResult.diagnostics,
+		...(gapDiagnostics?.diagnostics ?? []),
+	];
+
+	await input.dependencies.heartbeat?.({
+		stage: "coverage-review",
+		progressPercent:
+			input.roundKind === "initial"
+				? 50
+				: Math.min(78, 60 + input.roundNumber * 4),
+	});
+	const coverageReviewModel = await input.dependencies.runModelStage({
+		stage: "coverage-review",
+		system: stageSystem(
+			"coverage-review",
+			input.language,
+			input.currentDate,
+			input.profilePosture,
+		),
+		prompt: buildAtlasCoverageReviewPrompt({
+			language: input.language,
+			query: input.job.query,
+			currentDate: input.currentDate,
+			intendedQuestions: coverageReviewIntendedQuestions({
+				query: input.job.query,
+				decomposeText: input.decomposeText,
+				maxQueries: input.profileConfig.maxSearchQueries,
+			}),
+			outline: input.decomposeText,
+			evidencePacks: evidencePackResult.evidencePacks,
+			evidencePackDiagnostics,
+		}),
+	});
+	usage = addUsage(usage, coverageReviewModel.usage);
+	const coverageReview = parseAndApproveAtlasCoverageReview({
+		modelText: coverageReviewModel.text,
+		profileConfig: input.profileConfig,
+		completedGapFillRounds: input.completedGapFillRoundsForReview,
+	});
+
+	return {
+		roundNumber: input.roundNumber,
+		roundKind: input.roundKind,
+		searchQueries: input.searchQueries,
+		approvedGaps: input.approvedGaps,
+		curatedEvidence: curate.text,
+		webSources,
+		rejectedWebSources: convergence.rejectedSources,
+		roundAcceptedWebSources: convergence.acceptedNewSources,
+		roundRejectedWebSources: convergence.roundRejectedSources,
+		searchLimitation: search.limitation,
+		imageSearch,
+		evidencePackResult,
+		evidencePackDiagnostics,
+		coverageReview,
+		usage,
+		qualityDiagnostics: {
+			roundNumber: input.roundNumber,
+			roundKind: input.roundKind,
+			searchQueries: input.searchQueries,
+			acceptedWebSourceCount: webSources.length,
+			rejectedWebSourceCount: convergence.rejectedSources.length,
+			evidencePackCount: evidencePackResult.evidencePacks.length,
+			coverageReviewApprovedGapCount:
+				coverageReview.approvedGapCandidates.length,
+			...(gapDiagnostics ? { gapFill: gapDiagnostics } : {}),
+		},
+	};
+}
+
+function buildGapFillSearchQueries(input: {
+	coverageReview: AtlasCoverageReview;
+	maxQueries: number;
+}): { queries: string[]; approvedGaps: AtlasGapProposal[] } {
+	const approvedGaps = input.coverageReview.approvedGapCandidates.slice(
+		0,
+		input.maxQueries,
+	);
+	const queries = uniqueQueries(
+		approvedGaps.map((proposal) => proposal.targetSearchQuery),
+	).slice(0, input.maxQueries);
+	return { queries, approvedGaps };
+}
+
+function combineResearchRoundLimitations(
+	rounds: AtlasResearchRoundResult[],
+): { code: string; message: string } | null {
+	const limitations = rounds
+		.map((round) => round.searchLimitation)
+		.filter(
+			(limitation): limitation is { code: string; message: string } =>
+				limitation !== null,
+		);
+	if (limitations.length === 0) return null;
+	if (limitations.length === 1) return limitations[0];
+	return {
+		code: "atlas_search_round_limitations",
+		message: limitations
+			.map((limitation) => limitation.message)
+			.filter(Boolean)
+			.join(" "),
+	};
+}
+
+function convergeGapFillWebSources(input: {
+	candidates: AtlasPipelineWebSource[];
+	existingWebSources: AtlasPipelineWebSource[];
+	existingRejectedWebSources: AtlasPipelineRejectedWebSource[];
+	maxAcceptedNewSources: number;
+}): {
+	acceptedNewSources: AtlasPipelineWebSource[];
+	rejectedSources: AtlasPipelineRejectedWebSource[];
+	roundRejectedSources: AtlasPipelineRejectedWebSource[];
+	materiallyNewExcerptCount: number;
+} {
+	const acceptedNewSources: AtlasPipelineWebSource[] = [];
+	const roundRejectedSources: AtlasPipelineRejectedWebSource[] = [];
+	const seenUrlKeys = new Set(
+		input.existingWebSources.map((source) =>
+			canonicalWebSourceUrlKey(source.url),
+		),
+	);
+	const seenMaterialKeys = new Set(
+		input.existingWebSources
+			.map((source) => webSourceMaterialKey(source))
+			.filter((key): key is string => Boolean(key)),
+	);
+	let materiallyNewExcerptCount = 0;
+
+	for (const source of input.candidates) {
+		const urlKey = canonicalWebSourceUrlKey(source.url);
+		if (seenUrlKeys.has(urlKey)) {
+			roundRejectedSources.push({
+				...source,
+				rejectionReason: "duplicate_url",
+			});
+			continue;
+		}
+		const materialKey = webSourceMaterialKey(source);
+		if (!materialKey) {
+			roundRejectedSources.push({
+				...source,
+				rejectionReason: "low_authority_material",
+			});
+			continue;
+		}
+		if (materialMatchesExisting(materialKey, seenMaterialKeys)) {
+			roundRejectedSources.push({
+				...source,
+				rejectionReason: "duplicate_material",
+			});
+			continue;
+		}
+		if (acceptedNewSources.length >= input.maxAcceptedNewSources) {
+			roundRejectedSources.push({
+				...source,
+				rejectionReason: "source_cap",
+			});
+			continue;
+		}
+		acceptedNewSources.push(source);
+		seenUrlKeys.add(urlKey);
+		seenMaterialKeys.add(materialKey);
+		materiallyNewExcerptCount += 1;
+	}
+
+	return {
+		acceptedNewSources,
+		rejectedSources: [
+			...input.existingRejectedWebSources,
+			...roundRejectedSources,
+		],
+		roundRejectedSources,
+		materiallyNewExcerptCount,
+	};
+}
+
+function buildGapFillDiagnostics(input: {
+	approvedGaps: AtlasGapProposal[];
+	searchQueries: string[];
+	acceptedNewSources: AtlasPipelineWebSource[];
+	roundRejectedSources: AtlasPipelineRejectedWebSource[];
+	materiallyNewExcerptCount: number;
+	currentDate: string;
+}): AtlasGapFillDiagnostics {
+	const duplicateRejectedCount = input.roundRejectedSources.filter((source) =>
+		(source.rejectionReason ?? "").startsWith("duplicate_"),
+	).length;
+	const useful =
+		input.acceptedNewSources.length > 0 && input.materiallyNewExcerptCount > 0;
+	const stopReason = useful
+		? null
+		: duplicateRejectedCount > 0
+			? "no_materially_new_evidence"
+			: input.acceptedNewSources.length === 0
+				? "no_accepted_sources"
+				: "no_materially_new_evidence";
+	const diagnostics: AtlasEvidencePackDiagnostic[] = [];
+	const currentYear = input.currentDate.slice(0, 4);
+	for (const gap of input.approvedGaps) {
+		if (
+			isFreshnessSensitiveGap(gap, currentYear) &&
+			!input.acceptedNewSources.some((source) =>
+				webSourceHasFreshnessSignal(source, currentYear),
+			)
+		) {
+			diagnostics.push({
+				code: "atlas_gap_fill_freshness_unresolved",
+				severity: "warning",
+				message:
+					"Gap-fill spent a bounded freshness round but did not add clearly current evidence; the report should state this limitation explicitly.",
+			});
+		}
+	}
+	if (!useful) {
+		diagnostics.push({
+			code: "atlas_gap_fill_not_useful",
+			severity: "info",
+			message:
+				"Gap-fill stopped because the round did not add materially new accepted evidence.",
+		});
+	}
+	return {
+		useful,
+		stopReason,
+		approvedGapCount: input.approvedGaps.length,
+		searchQueries: input.searchQueries,
+		acceptedNewWebSourceCount: input.acceptedNewSources.length,
+		rejectedNewWebSourceCount: input.roundRejectedSources.length,
+		materiallyNewExcerptCount: input.materiallyNewExcerptCount,
+		diagnostics,
+	};
+}
+
+function canonicalWebSourceUrlKey(url: string): string {
+	try {
+		const parsed = new URL(url);
+		parsed.hash = "";
+		parsed.searchParams.sort();
+		return parsed.toString().replace(/\/+$/, "").toLowerCase();
+	} catch {
+		return url.trim().replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase();
+	}
+}
+
+function webSourceMaterialKey(source: AtlasPipelineWebSource): string | null {
+	const normalized = normalizeEvidenceMaterial(source.snippet ?? source.title);
+	const tokens = normalized.split(" ").filter(Boolean);
+	if (normalized.length < 60 || tokens.length < 8) return null;
+	return normalized.slice(0, 900);
+}
+
+function normalizeEvidenceMaterial(value: string): string {
+	return value
+		.replace(/\bSearch result snippet:\s*/gi, "")
+		.replace(/\bFetched page excerpt:\s*/gi, "")
+		.normalize("NFKC")
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+function materialMatchesExisting(
+	materialKey: string,
+	existingKeys: Set<string>,
+): boolean {
+	for (const existing of existingKeys) {
+		if (
+			existing === materialKey ||
+			(existing.length >= 120 && materialKey.includes(existing)) ||
+			(materialKey.length >= 120 && existing.includes(materialKey))
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function isFreshnessSensitiveGap(
+	gap: AtlasGapProposal,
+	currentYear: string,
+): boolean {
+	const haystack = [
+		gap.missingQuestion,
+		gap.whyCurrentEvidenceIsWeak,
+		gap.targetSearchQuery,
+		gap.desiredEvidenceType,
+	].join(" ");
+	return (
+		/\b(current|latest|recent|fresh|freshness|stale|outdated|news|today|now|this year)\b/i.test(
+			haystack,
+		) || new RegExp(`\\b${currentYear}\\b`).test(haystack)
+	);
+}
+
+function webSourceHasFreshnessSignal(
+	source: AtlasPipelineWebSource,
+	currentYear: string,
+): boolean {
+	const haystack = [source.title, source.url, source.snippet ?? ""].join(" ");
+	return new RegExp(`\\b${currentYear}\\b`).test(haystack);
+}
+
 function buildAssemblePrompt(input: {
 	language: SupportedLanguage;
 	query: string;
@@ -380,20 +929,23 @@ function buildAssemblePrompt(input: {
 	synthesis: string;
 	outline: string;
 	imageCandidates: AtlasImageCandidate[];
-	sources: Array<{
-		title: string;
-		url?: string | null;
-		reasoning?: string | null;
-	}>;
+	evidencePacksVersion: string;
+	evidencePacks: AtlasEvidencePack[];
+	evidencePackDiagnostics: AtlasEvidencePackDiagnostic[];
+	coverageReview: AtlasCoverageReview;
 	limitation: { code: string; message: string } | null;
 	lifecycle: AtlasLifecycleContext["family"];
 }): string {
 	const instructions =
 		input.language === "hu"
 			? [
-					"Írj teljes Atlas jelentést Markdownban.",
+					"Return strict JSON with generatedTitle, bodyMarkdown, sectionBriefs, and limitations.",
+					"Írj teljes Atlas jelentést a bodyMarkdown mezőben.",
 					"Do not write a process report about checking sources, synthesizing findings, or completing research steps.",
-					"A jelentés érdemi megállapításokat tartalmazzon: Vezetői összefoglaló, tematikus elemző szakaszok, Korlátok és Források.",
+					"Do not emit an H1/H2 title, subtitle, alternate report name, or report-title block in bodyMarkdown; the body should start with Vezetői összefoglaló when that section is present.",
+					"A jelentés érdemi megállapításokat tartalmazzon: Vezetői összefoglaló, tematikus elemző szakaszok és Korlátok. Ne írj Markdown Források szakaszt; a backend determinisztikusan adja hozzá a forrásokat.",
+					"Put the canonical report title only in generatedTitle, not in bodyMarkdown.",
+					"Each sectionBrief must preserve evidencePackIds and sourceAssociations for the section.",
 					"Ne írj jelentés-szintű Kulcsüzenet szakaszt. Csak akkor adj rövid, kompakt Kulcsüzenet kivonatot egy adott, tartalmilag sűrű szakaszon belül, ha az segíti az olvasást.",
 					"Csak az elfogadott forrásokból és a válogatott bizonyítékokból következő állításokat tegyél.",
 					"Ha a bizonyíték gyenge vagy ellentmondásos, azt a Limitations részben és a releváns szakaszban mondd ki.",
@@ -402,9 +954,13 @@ function buildAssemblePrompt(input: {
 					"A képeket az imageCandidates mezőből válaszd; ne találj ki kép URL-eket.",
 				].join(" ")
 			: [
-					"Write a complete Atlas report in Markdown.",
+					"Return strict JSON with generatedTitle, bodyMarkdown, sectionBriefs, and limitations.",
+					"Write a complete Atlas report in the bodyMarkdown field.",
 					"Do not write a process report about checking sources, synthesizing findings, or completing research steps.",
-					"The report must contain substantive findings: Executive Summary, thematic analytical sections, Limitations, and Sources.",
+					"Do not emit an H1/H2 title, subtitle, alternate report name, or report-title block in bodyMarkdown; the body should start with Executive Summary when that section is present.",
+					"The report must contain substantive findings: Executive Summary, thematic analytical sections, and Limitations. Do not write a Markdown Sources section; the backend appends deterministic Sources.",
+					"Put the canonical report title only in generatedTitle, not in bodyMarkdown.",
+					"Each sectionBrief must preserve evidencePackIds and sourceAssociations for the section.",
 					"Do not write a report-level Key takeaway section. Only include a short, compact Key takeaway excerpt inside a specific content-heavy section when it improves scanability.",
 					"Make only claims supported by accepted sources and curated evidence.",
 					"If evidence is weak or conflicting, state that in Limitations and in the relevant section.",
@@ -420,10 +976,209 @@ function buildAssemblePrompt(input: {
 		synthesis: input.synthesis,
 		outline: input.outline,
 		imageCandidates: input.imageCandidates,
-		acceptedSources: input.sources,
+		evidencePacksVersion: input.evidencePacksVersion,
+		evidencePacks: input.evidencePacks,
+		evidencePackDiagnostics: input.evidencePackDiagnostics,
+		coverageReview: input.coverageReview,
 		searchLimitation: input.limitation,
 		atlasLifecycle: input.lifecycle,
 	});
+}
+
+function normalizeAssemblyText(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const normalized = value.replace(/\s+/g, " ").trim();
+	return normalized || null;
+}
+
+function normalizeGeneratedTitle(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const raw = value.trim();
+	if (/[\r\n]/.test(raw)) return null;
+	const normalized = normalizeAssemblyText(raw)
+		?.replace(/^#{1,6}\s+/, "")
+		.replace(/^["']|["']$/g, "")
+		.trim();
+	if (!normalized) return null;
+	if (normalized.length < 4 || normalized.length > 160) return null;
+	if (/^(untitled|title|report|atlas report)$/i.test(normalized)) return null;
+	if (/[\r\n]/.test(normalized)) return null;
+	return normalized;
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+	const trimmed = text.trim();
+	const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```\s*$/i)?.[1];
+	for (const candidate of [trimmed, fenced].filter(
+		(candidate): candidate is string => Boolean(candidate),
+	)) {
+		try {
+			const parsed = JSON.parse(candidate) as unknown;
+			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+				return parsed as Record<string, unknown>;
+			}
+		} catch {
+			// Fall through to plain Markdown fallback.
+		}
+	}
+	return null;
+}
+
+function stringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.map((entry) => normalizeAssemblyText(entry))
+		.filter((entry): entry is string => Boolean(entry))
+		.slice(0, 24);
+}
+
+function sourceKind(value: unknown): "web" | "local" | null {
+	return value === "web" || value === "local" ? value : null;
+}
+
+function parseSourceAssociation(
+	value: unknown,
+): AtlasSectionBriefSourceAssociation | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return null;
+	}
+	const record = value as Record<string, unknown>;
+	const sourceId =
+		normalizeAssemblyText(record.sourceId) ??
+		normalizeAssemblyText(record.id) ??
+		normalizeAssemblyText(record.sourceRef);
+	if (!sourceId) return null;
+	return {
+		sourceId,
+		sourceKind: sourceKind(record.sourceKind ?? record.kind),
+		sourceTitle:
+			normalizeAssemblyText(record.sourceTitle) ??
+			normalizeAssemblyText(record.title),
+		url: normalizeAssemblyText(record.url),
+		evidencePackId:
+			normalizeAssemblyText(record.evidencePackId) ??
+			normalizeAssemblyText(record.packId),
+		relevance:
+			normalizeAssemblyText(record.relevance) ??
+			normalizeAssemblyText(record.reasoning) ??
+			normalizeAssemblyText(record.rationale),
+	};
+}
+
+function parseSectionBrief(value: unknown): AtlasSectionBrief | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return null;
+	}
+	const record = value as Record<string, unknown>;
+	const sectionTitle =
+		normalizeAssemblyText(record.sectionTitle) ??
+		normalizeAssemblyText(record.title) ??
+		normalizeAssemblyText(record.heading);
+	const brief =
+		normalizeAssemblyText(record.brief) ??
+		normalizeAssemblyText(record.summary) ??
+		normalizeAssemblyText(record.description);
+	if (!sectionTitle || !brief) return null;
+	const sourceAssociations = (
+		Array.isArray(record.sourceAssociations)
+			? record.sourceAssociations
+			: Array.isArray(record.sources)
+				? record.sources
+				: []
+	)
+		.map(parseSourceAssociation)
+		.filter((association): association is AtlasSectionBriefSourceAssociation =>
+			Boolean(association),
+		)
+		.slice(0, 24);
+	return {
+		sectionTitle,
+		brief,
+		evidencePackIds: stringArray(
+			record.evidencePackIds ?? record.packIds ?? record.evidencePacks,
+		),
+		sourceAssociations,
+		limitations: stringArray(record.limitations),
+	};
+}
+
+function parseSectionBriefs(value: unknown): AtlasSectionBrief[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.map(parseSectionBrief)
+		.filter((brief): brief is AtlasSectionBrief => Boolean(brief))
+		.slice(0, 24);
+}
+
+function emptyAssemblyMetadata(structured: boolean): AtlasAssemblyMetadata {
+	return {
+		version: ATLAS_ASSEMBLY_SCHEMA_VERSION,
+		generatedTitle: null,
+		sectionBriefs: [],
+		limitations: [],
+		structured,
+	};
+}
+
+function parseAtlasAssemblyOutput(text: string): {
+	markdown: string;
+	metadata: AtlasAssemblyMetadata;
+} {
+	const parsed = parseJsonObject(text);
+	if (!parsed) {
+		return {
+			markdown: text,
+			metadata: emptyAssemblyMetadata(false),
+		};
+	}
+	const markdown =
+		typeof parsed.bodyMarkdown === "string"
+			? parsed.bodyMarkdown
+			: typeof parsed.reportMarkdown === "string"
+				? parsed.reportMarkdown
+				: typeof parsed.assembledMarkdown === "string"
+					? parsed.assembledMarkdown
+					: typeof parsed.markdown === "string"
+						? parsed.markdown
+						: null;
+	return {
+		markdown: markdown ?? text,
+		metadata: {
+			version: ATLAS_ASSEMBLY_SCHEMA_VERSION,
+			generatedTitle: normalizeGeneratedTitle(parsed.generatedTitle),
+			sectionBriefs: parseSectionBriefs(parsed.sectionBriefs),
+			limitations: stringArray(parsed.limitations),
+			structured: true,
+		},
+	};
+}
+
+function mergeAssemblyMetadata(
+	previous: AtlasAssemblyMetadata,
+	next: AtlasAssemblyMetadata,
+): AtlasAssemblyMetadata {
+	return {
+		version: ATLAS_ASSEMBLY_SCHEMA_VERSION,
+		generatedTitle: next.generatedTitle ?? previous.generatedTitle,
+		sectionBriefs:
+			next.sectionBriefs.length > 0
+				? next.sectionBriefs
+				: previous.sectionBriefs,
+		limitations:
+			next.limitations.length > 0 ? next.limitations : previous.limitations,
+		structured: previous.structured || next.structured,
+	};
+}
+
+function coverageReviewIntendedQuestions(input: {
+	query: string;
+	decomposeText: string;
+	maxQueries: number;
+}): string[] {
+	return uniqueQueries([
+		input.query,
+		...parseDecomposeQueries(input.decomposeText, input.maxQueries),
+	]);
 }
 
 function looksLikeProcessOnlyReport(markdown: string): boolean {
@@ -700,58 +1455,78 @@ export async function runAtlasPipeline(
 		now,
 		maxQueries: profileConfig.maxSearchQueries,
 	});
-
-	await input.dependencies.heartbeat?.({
-		stage: "search",
-		progressPercent: 25,
-		progressDetails: { queries: searchQueries },
+	const researchRounds: AtlasResearchRoundResult[] = [];
+	const initialRound = await runAtlasResearchRound({
+		job: input.job,
+		roundNumber: 1,
+		roundKind: "initial",
+		language,
+		currentDate,
+		now,
+		profileConfig,
+		profilePosture,
+		localSources: sources.localSources,
+		existingWebSources: [],
+		existingRejectedWebSources: [],
+		searchQueries,
+		approvedGaps: [],
+		decomposeText: decompose.text,
+		parentCuratedSourcePool:
+			input.job.lifecycle.seed?.curatedSourcePool ?? null,
+		completedGapFillRoundsForReview: 0,
+		dependencies: input.dependencies,
 	});
-	const search = await input.dependencies.searchWeb(searchQueries);
-	let imageSearch: {
-		imageCandidates: AtlasImageCandidate[];
-		imageLimitation: { code: string; message: string } | null;
-	} = { imageCandidates: [], imageLimitation: null };
-	if (input.dependencies.searchImages) {
-		await input.dependencies.heartbeat?.({
-			stage: "search",
-			progressPercent: 32,
-			progressDetails: { queries: searchQueries },
+	usage = addUsage(usage, initialRound.usage);
+	researchRounds.push(initialRound);
+	let latestRound = initialRound;
+
+	const gapFillCaps = profileConfig.architecture.gapFillCaps;
+	for (
+		let completedGapFillRounds = 0;
+		completedGapFillRounds < gapFillCaps.maxRounds;
+		completedGapFillRounds += 1
+	) {
+		const gapSearch = buildGapFillSearchQueries({
+			coverageReview: latestRound.coverageReview,
+			maxQueries: gapFillCaps.maxSearchQueries,
 		});
-		try {
-			imageSearch = await input.dependencies.searchImages(searchQueries);
-		} catch (error) {
-			imageSearch = {
-				imageCandidates: [],
-				imageLimitation: {
-					code: "atlas_image_search_failed",
-					message:
-						error instanceof Error
-							? error.message
-							: "Atlas image search failed.",
-				},
-			};
+		if (gapSearch.queries.length === 0 || gapSearch.approvedGaps.length === 0) {
+			break;
+		}
+		const gapRound = await runAtlasResearchRound({
+			job: input.job,
+			roundNumber: completedGapFillRounds + 2,
+			roundKind: "gap-fill",
+			language,
+			currentDate,
+			now,
+			profileConfig,
+			profilePosture,
+			localSources: sources.localSources,
+			existingWebSources: latestRound.webSources,
+			existingRejectedWebSources: latestRound.rejectedWebSources,
+			searchQueries: gapSearch.queries,
+			approvedGaps: gapSearch.approvedGaps,
+			decomposeText: decompose.text,
+			parentCuratedSourcePool:
+				input.job.lifecycle.seed?.curatedSourcePool ?? null,
+			completedGapFillRoundsForReview: completedGapFillRounds + 1,
+			dependencies: input.dependencies,
+		});
+		usage = addUsage(usage, gapRound.usage);
+		researchRounds.push(gapRound);
+		latestRound = gapRound;
+		if (!gapRound.qualityDiagnostics.gapFill?.useful) {
+			break;
 		}
 	}
 
-	await input.dependencies.heartbeat?.({
-		stage: "curate",
-		progressPercent: 40,
-	});
-	const curate = await input.dependencies.runModelStage({
-		stage: "curate",
-		system: stageSystem("curate", language, currentDate, profilePosture),
-		prompt: JSON.stringify({
-			detectedLanguage: language,
-			currentDate,
-			local: sources.localSources,
-			web: search.sources,
-			imageCandidates: imageSearch.imageCandidates,
-			parentCuratedSourcePool:
-				input.job.lifecycle.seed?.curatedSourcePool ?? null,
-			atlasLifecycle: input.job.lifecycle.family,
-		}),
-	});
-	usage = addUsage(usage, curate.usage);
+	const finalResearchRound = latestRound;
+	const imageSearch = initialRound.imageSearch;
+	const evidencePackResult = finalResearchRound.evidencePackResult;
+	const evidencePackDiagnostics = finalResearchRound.evidencePackDiagnostics;
+	const coverageReview = finalResearchRound.coverageReview;
+	const searchLimitation = combineResearchRoundLimitations(researchRounds);
 
 	await input.dependencies.heartbeat?.({
 		stage: "synthesize",
@@ -763,7 +1538,11 @@ export async function runAtlasPipeline(
 		prompt: JSON.stringify({
 			detectedLanguage: language,
 			currentDate,
-			curatedEvidence: curate.text,
+			evidencePacksVersion: evidencePackResult.version,
+			evidencePacks: evidencePackResult.evidencePacks,
+			evidencePackDiagnostics,
+			coverageReview,
+			curationSummary: finalResearchRound.curatedEvidence,
 			parentCompressedFindings:
 				input.job.lifecycle.seed?.compressedFindings ?? null,
 			atlasLifecycle: input.job.lifecycle.family,
@@ -782,6 +1561,10 @@ export async function runAtlasPipeline(
 			detectedLanguage: language,
 			currentDate,
 			synthesis: synthesize.text,
+			evidencePacksVersion: evidencePackResult.version,
+			evidencePacks: evidencePackResult.evidencePacks,
+			evidencePackDiagnostics,
+			coverageReview,
 			atlasLifecycle: input.job.lifecycle.family,
 		}),
 	});
@@ -797,28 +1580,22 @@ export async function runAtlasPipeline(
 		prompt: buildAssemblePrompt({
 			language,
 			query: input.job.query,
-			curatedEvidence: curate.text,
+			curatedEvidence: finalResearchRound.curatedEvidence,
 			synthesis: synthesize.text,
 			outline: integrate.text,
 			imageCandidates: imageSearch.imageCandidates,
-			sources: [
-				...sources.localSources.map((source) => ({
-					title: source.title,
-					url: null,
-					reasoning: source.text,
-				})),
-				...search.sources.map((source) => ({
-					title: source.title,
-					url: source.url,
-					reasoning: source.snippet,
-				})),
-			],
-			limitation: search.limitation,
+			evidencePacksVersion: evidencePackResult.version,
+			evidencePacks: evidencePackResult.evidencePacks,
+			evidencePackDiagnostics,
+			coverageReview,
+			limitation: searchLimitation,
 			lifecycle: input.job.lifecycle.family,
 		}),
 	});
 	usage = addUsage(usage, assemble.usage);
-	let finalAssembledMarkdown = assemble.text;
+	let assemblyOutput = parseAtlasAssemblyOutput(assemble.text);
+	let assemblyMetadata = assemblyOutput.metadata;
+	let finalAssembledMarkdown = assemblyOutput.markdown;
 	if (looksLikeProcessOnlyReport(finalAssembledMarkdown)) {
 		await input.dependencies.heartbeat?.({
 			stage: "assemble",
@@ -827,23 +1604,15 @@ export async function runAtlasPipeline(
 		const basePrompt = buildAssemblePrompt({
 			language,
 			query: input.job.query,
-			curatedEvidence: curate.text,
+			curatedEvidence: finalResearchRound.curatedEvidence,
 			synthesis: synthesize.text,
 			outline: integrate.text,
 			imageCandidates: imageSearch.imageCandidates,
-			sources: [
-				...sources.localSources.map((source) => ({
-					title: source.title,
-					url: null,
-					reasoning: source.text,
-				})),
-				...search.sources.map((source) => ({
-					title: source.title,
-					url: source.url,
-					reasoning: source.snippet,
-				})),
-			],
-			limitation: search.limitation,
+			evidencePacksVersion: evidencePackResult.version,
+			evidencePacks: evidencePackResult.evidencePacks,
+			evidencePackDiagnostics,
+			coverageReview,
+			limitation: searchLimitation,
 			lifecycle: input.job.lifecycle.family,
 		});
 		const repair = await input.dependencies.runModelStage({
@@ -856,7 +1625,12 @@ export async function runAtlasPipeline(
 			}),
 		});
 		usage = addUsage(usage, repair.usage);
-		finalAssembledMarkdown = repair.text;
+		assemblyOutput = parseAtlasAssemblyOutput(repair.text);
+		assemblyMetadata = mergeAssemblyMetadata(
+			assemblyMetadata,
+			assemblyOutput.metadata,
+		);
+		finalAssembledMarkdown = assemblyOutput.markdown;
 	}
 	if (looksLikeProcessOnlyReport(finalAssembledMarkdown)) {
 		const fallbackSources = [
@@ -865,7 +1639,7 @@ export async function runAtlasPipeline(
 				url: null,
 				reasoning: source.text,
 			})),
-			...search.sources.map((source) => ({
+			...finalResearchRound.webSources.map((source) => ({
 				title: source.title,
 				url: source.url,
 				reasoning: source.snippet,
@@ -873,11 +1647,11 @@ export async function runAtlasPipeline(
 		];
 		finalAssembledMarkdown = buildDeterministicFallbackReport({
 			language,
-			curatedEvidence: curate.text,
+			curatedEvidence: finalResearchRound.curatedEvidence,
 			synthesis: synthesize.text,
 			outline: integrate.text,
 			sources: fallbackSources,
-			limitation: search.limitation,
+			limitation: searchLimitation,
 		});
 	}
 
@@ -893,7 +1667,7 @@ export async function runAtlasPipeline(
 						? "Readable working document selected by Atlas"
 						: "Parent or automatic library source selected by Atlas",
 		})),
-		...search.sources.map((source) => ({
+		...finalResearchRound.webSources.map((source) => ({
 			title: source.title,
 			url: source.url,
 			reasoning: source.snippet ?? "Accepted web evidence gathered by Atlas",
@@ -906,8 +1680,14 @@ export async function runAtlasPipeline(
 	let audit = await input.dependencies.auditBasis({
 		assembledMarkdown: finalAssembledMarkdown,
 		sources: auditSources,
-		limitation: search.limitation,
+		limitation: searchLimitation,
 		language,
+		currentDate,
+		evidencePacks: evidencePackResult.evidencePacks,
+		evidencePackDiagnostics,
+		coverageReview,
+		sectionBriefs: assemblyMetadata.sectionBriefs,
+		assemblyMetadata,
 	});
 	if (audit.usage) {
 		usage = addUsage(usage, audit.usage);
@@ -927,20 +1707,34 @@ export async function runAtlasPipeline(
 				detectedLanguage: language,
 				assembledMarkdown: finalAssembledMarkdown,
 				auditFindings: audit,
-				sources: auditSources,
+				evidencePacksVersion: evidencePackResult.version,
+				evidencePacks: evidencePackResult.evidencePacks,
+				evidencePackDiagnostics,
+				coverageReview,
 			}),
 		});
 		usage = addUsage(usage, revise.usage);
-		finalAssembledMarkdown = revise.text;
+		assemblyOutput = parseAtlasAssemblyOutput(revise.text);
+		assemblyMetadata = mergeAssemblyMetadata(
+			assemblyMetadata,
+			assemblyOutput.metadata,
+		);
+		finalAssembledMarkdown = assemblyOutput.markdown;
 		await input.dependencies.heartbeat?.({
 			stage: "audit",
 			progressPercent: 94,
 		});
 		audit = await input.dependencies.auditBasis({
-			assembledMarkdown: revise.text,
+			assembledMarkdown: finalAssembledMarkdown,
 			sources: auditSources,
-			limitation: search.limitation,
+			limitation: searchLimitation,
 			language,
+			currentDate,
+			evidencePacks: evidencePackResult.evidencePacks,
+			evidencePackDiagnostics,
+			coverageReview,
+			sectionBriefs: assemblyMetadata.sectionBriefs,
+			assemblyMetadata,
 		});
 		if (audit.usage) {
 			usage = addUsage(usage, audit.usage);
@@ -953,16 +1747,31 @@ export async function runAtlasPipeline(
 					finalAssembledMarkdown,
 					"",
 					"## Limitations",
-					"Atlas audit requested additional verification. This version ships with explicit honesty markers instead of unsupported certainty.",
+					"Atlas audit requested additional verification. This version ships with explicit limitations and Basis Markers instead of unsupported certainty.",
 				].join("\n");
+	const canonicalTitle = assemblyMetadata.generatedTitle ?? input.job.title;
+	if (assemblyMetadata.generatedTitle) {
+		await input.dependencies.applyGeneratedTitle?.({
+			jobId: input.job.id,
+			title: assemblyMetadata.generatedTitle,
+		});
+	}
+	const claimBasis = audit.claimBasis ?? [];
+	const basisLimitations = audit.basisLimitations ?? [];
+	const basisDiagnostics = audit.basisDiagnostics ?? [];
+	const claimBasisCoverageBySection = audit.claimBasisCoverageBySection ?? [];
+	const claimBasisStatus =
+		audit.claimBasisStatus ?? (claimBasis.length > 0 ? "succeeded" : "failed");
+	const claimBasisFailureReason = audit.claimBasisFailureReason ?? null;
 
 	const documentSource = buildAtlasDocumentSource({
-		title: input.job.title,
+		title: canonicalTitle,
 		subtitle: null,
 		family: input.job.lifecycle.family,
 		assembledMarkdown: auditedMarkdown,
 		sources: auditSources,
 		honestyMarkers: audit.honestyMarkers,
+		claimBasis,
 		imageCandidates: imageSearch.imageCandidates,
 		maxRenderedImages: profileConfig.maxRenderedImages,
 		date: currentDate,
@@ -973,46 +1782,123 @@ export async function runAtlasPipeline(
 		imageSearch.imageCandidates,
 	);
 
-	await input.dependencies.writeCheckpoint({
-		jobId: input.job.id,
-		roundNumber: 1,
-		stage: "audit",
-		checkpoint: {
-			assembledMarkdown: auditedMarkdown,
-			honestyMarkers: audit.honestyMarkers,
-			imageCandidates: imageSearch.imageCandidates,
-			selectedImageCandidateIds,
-		},
-		curatedSourcePool: {
-			local: sources.localSources,
-			web: search.sources,
-			images: imageSearch.imageCandidates,
-		},
-		compressedFindings: {
-			synthesize: synthesize.text,
-			integrate: integrate.text,
-		},
-		usage,
-		qualityDiagnostics: audit,
-		documentSourceSummary: {
-			title: input.job.title,
-			date: currentDate,
-			atlasFamily: input.job.lifecycle.family,
-			imageCandidateCount: imageSearch.imageCandidates.length,
-			selectedImageCandidateIds,
-			imageLimitation: imageSearch.imageLimitation,
-			parentSeedUsed: input.job.lifecycle.seed
+	for (const round of researchRounds) {
+		const isFinalRound = round.roundNumber === finalResearchRound.roundNumber;
+		await input.dependencies.writeCheckpoint({
+			jobId: input.job.id,
+			roundNumber: round.roundNumber,
+			stage: isFinalRound ? "audit" : "coverage-review",
+			checkpoint: {
+				roundNumber: round.roundNumber,
+				roundKind: round.roundKind,
+				searchQueries: round.searchQueries,
+				approvedGaps: round.approvedGaps,
+				gapFill: round.qualityDiagnostics.gapFill ?? null,
+				...(isFinalRound
+					? {
+							assembledMarkdown: auditedMarkdown,
+							assembly: assemblyMetadata,
+							honestyMarkers: audit.honestyMarkers,
+							claimBasis,
+							basisLimitations,
+							basisDiagnostics,
+							claimBasisStatus,
+							claimBasisFailureReason,
+							claimBasisCoverageBySection,
+							imageCandidates: imageSearch.imageCandidates,
+							selectedImageCandidateIds,
+						}
+					: {}),
+				evidencePacksVersion: round.evidencePackResult.version,
+				evidencePacks: round.evidencePackResult.evidencePacks,
+				evidencePackDiagnostics: round.evidencePackDiagnostics,
+				coverageReview: round.coverageReview,
+			},
+			curatedSourcePool: {
+				local: sources.localSources,
+				web: round.webSources,
+				rejectedWeb: round.rejectedWebSources,
+				images: isFinalRound ? imageSearch.imageCandidates : [],
+			},
+			compressedFindings: isFinalRound
 				? {
-						parentAtlasJobId: input.job.lifecycle.seed.parentAtlasJobId,
-						compressedFindings: true,
-						curatedSourcePool:
-							input.job.lifecycle.seed.curatedSourcePool !== null,
+						synthesize: synthesize.text,
+						integrate: integrate.text,
 					}
-				: null,
-		},
-	});
+				: {
+						curate: round.curatedEvidence,
+						coverageReview: round.coverageReview,
+					},
+			usage: isFinalRound ? usage : round.usage,
+			qualityDiagnostics: isFinalRound
+				? {
+						...audit,
+						claimBasis,
+						basisLimitations,
+						basisDiagnostics,
+						claimBasisStatus,
+						claimBasisFailureReason,
+						claimBasisCoverageBySection,
+						...(round.qualityDiagnostics.gapFill
+							? { gapFill: round.qualityDiagnostics.gapFill }
+							: {}),
+						researchRound: round.qualityDiagnostics,
+					}
+				: round.qualityDiagnostics,
+			documentSourceSummary: {
+				title: canonicalTitle,
+				generatedTitle: assemblyMetadata.generatedTitle,
+				date: currentDate,
+				atlasFamily: input.job.lifecycle.family,
+				roundNumber: round.roundNumber,
+				roundKind: round.roundKind,
+				searchQueries: round.searchQueries,
+				approvedGaps: round.approvedGaps,
+				imageCandidateCount: isFinalRound
+					? imageSearch.imageCandidates.length
+					: 0,
+				selectedImageCandidateIds: isFinalRound
+					? selectedImageCandidateIds
+					: [],
+				imageLimitation: isFinalRound ? imageSearch.imageLimitation : null,
+				evidencePacks: {
+					version: round.evidencePackResult.version,
+					count: round.evidencePackResult.evidencePacks.length,
+					diagnostics: round.evidencePackDiagnostics,
+				},
+				coverageReview: {
+					version: round.coverageReview.version,
+					sufficient: round.coverageReview.sufficient,
+					proposalCount: round.coverageReview.proposals.length,
+					approvedGapCandidateCount:
+						round.coverageReview.approvedGapCandidates.length,
+					diagnostics: round.coverageReview.diagnostics,
+					limitations: round.coverageReview.limitations,
+				},
+				claimBasis: isFinalRound
+					? {
+							status: claimBasisStatus,
+							count: claimBasis.length,
+							limitationCount: basisLimitations.length,
+							diagnostics: basisDiagnostics,
+							failureReason: claimBasisFailureReason,
+							coverageBySection: claimBasisCoverageBySection,
+						}
+					: null,
+				gapFill: round.qualityDiagnostics.gapFill ?? null,
+				parentSeedUsed: input.job.lifecycle.seed
+					? {
+							parentAtlasJobId: input.job.lifecycle.seed.parentAtlasJobId,
+							compressedFindings: true,
+							curatedSourcePool:
+								input.job.lifecycle.seed.curatedSourcePool !== null,
+						}
+					: null,
+			},
+		});
+	}
 
-	if (!audit.passed) {
+	if (hasCriticalAuditFinding(audit.honestyMarkers)) {
 		throw new AtlasPipelineQualityError(audit.honestyMarkers);
 	}
 
@@ -1024,7 +1910,9 @@ export async function runAtlasPipeline(
 
 	return {
 		status: "succeeded",
-		stage: "audit",
+		stage: "render",
+		title: canonicalTitle,
+		generatedTitle: assemblyMetadata.generatedTitle,
 		outputs,
 		audit: {
 			honestyMarkers: audit.honestyMarkers,
@@ -1032,9 +1920,10 @@ export async function runAtlasPipeline(
 		usage,
 		sourceCounts: {
 			local: sources.localSources.length,
-			web: search.sources.length,
-			accepted: sources.localSources.length + search.sources.length,
-			rejected: search.rejectedSources?.length ?? 0,
+			web: finalResearchRound.webSources.length,
+			accepted:
+				sources.localSources.length + finalResearchRound.webSources.length,
+			rejected: finalResearchRound.rejectedWebSources.length,
 		},
 	};
 }

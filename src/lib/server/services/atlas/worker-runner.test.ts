@@ -8,6 +8,35 @@ const mocks = vi.hoisted(() => ({
 	completeAtlasJob: vi.fn(async () => null),
 	failAtlasJob: vi.fn(async () => true),
 	heartbeatAtlasJob: vi.fn(async () => true),
+	applyAtlasGeneratedTitle: vi.fn(async () => ({
+		id: "atlas-job-1",
+		conversationId: "conv-1",
+		assistantMessageId: "assistant-1",
+		action: "create",
+		parentAtlasJobId: null,
+		profile: "overview",
+		title: "Generated Atlas title",
+		status: "running",
+		stage: "assemble",
+		progress: { percent: 82, stage: "assemble", details: { queries: [] } },
+		sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
+		usage: {
+			inputTokens: 0,
+			outputTokens: 0,
+			totalTokens: 0,
+			costUsdMicros: 0,
+		},
+		outputs: {
+			fileProductionJobId: null,
+			htmlChatGeneratedFileId: null,
+			pdfChatGeneratedFileId: null,
+			markdownChatGeneratedFileId: null,
+		},
+		error: null,
+		createdAt: 1,
+		updatedAt: 2,
+		completedAt: null,
+	})),
 	runAtlasPipeline: vi.fn(),
 	runAtlasAuditStage: vi.fn(async () => ({
 		text: '{"markers":[],"retryRequested":false}',
@@ -35,6 +64,7 @@ vi.mock("$lib/server/config-store", () => ({
 }));
 
 vi.mock("./job-ledger", () => ({
+	applyAtlasGeneratedTitle: mocks.applyAtlasGeneratedTitle,
 	claimNextAtlasJob: mocks.claimNextAtlasJob,
 	completeAtlasJob: mocks.completeAtlasJob,
 	failAtlasJob: mocks.failAtlasJob,

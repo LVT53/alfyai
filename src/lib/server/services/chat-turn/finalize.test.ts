@@ -246,11 +246,7 @@ describe("runPostTurnTasks", () => {
 		mockListMessages.mockResolvedValue([
 			makeChatMessage("prior-user", "user", "I prefer concise answers."),
 			makeChatMessage("prior-assistant", "assistant", "Noted."),
-			makeChatMessage(
-				"user-message-1",
-				"user",
-				"My company is Acme Studio.",
-			),
+			makeChatMessage("user-message-1", "user", "My company is Acme Studio."),
 		]);
 		const { runPostTurnTasks } = await import("./finalize");
 

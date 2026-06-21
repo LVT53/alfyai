@@ -3,6 +3,7 @@ import type {
 	GeneratedDocumentSource,
 	GeneratedDocumentSourceChip,
 } from "../source-schema";
+import { generatedDocumentBasisClaimLabel } from "../source-schema";
 import { renderChartSvg } from "./chart-svg";
 
 export interface StandardReportHtmlRenderResult {
@@ -482,6 +483,89 @@ function hasSourceCitationReferences(text: string): boolean {
 	return /\[(?:(?:source|forr[aá]s)\s+)?\d{1,3}\]/i.test(text);
 }
 
+type ParagraphBasisMarker = NonNullable<
+	Extract<GeneratedDocumentBlock, { type: "paragraph" }>["basisMarkers"]
+>[number];
+
+function renderBasisMarker(
+	marker:
+		| Extract<GeneratedDocumentBlock, { type: "basisMarker" }>
+		| ParagraphBasisMarker,
+): string {
+	const label = generatedDocumentBasisClaimLabel(marker.support);
+	const rationale = escapeHtml(marker.rationale);
+	const accessibleLabel = escapeHtml(`${label}: ${marker.rationale}`);
+	return `<button type="button" class="basis-marker basis-marker--${escapeHtml(marker.support)}" data-basis-id="${escapeHtml(marker.id)}" data-basis-support="${escapeHtml(marker.support)}" title="${accessibleLabel}" aria-label="${accessibleLabel}"><span class="basis-tooltip" role="tooltip"><strong>${escapeHtml(label)}</strong><span>${rationale}</span></span></button>`;
+}
+
+function markerAnchorIndex(
+	text: string,
+	marker: ParagraphBasisMarker,
+): { start: number; end: number } | null {
+	const occurrence = marker.occurrence ?? 0;
+	let cursor = 0;
+	for (let index = 0; index <= occurrence; index += 1) {
+		const found = text.indexOf(marker.anchorText, cursor);
+		if (found < 0) return null;
+		if (index === occurrence) {
+			return { start: found, end: found + marker.anchorText.length };
+		}
+		cursor = found + marker.anchorText.length;
+	}
+	return null;
+}
+
+function renderInlineTextWithBasisMarkers(
+	block: Extract<GeneratedDocumentBlock, { type: "paragraph" }>,
+	sourceIndex: ReportSourceIndex,
+	chrome: ReportChrome,
+): string {
+	const markers = block.basisMarkers ?? [];
+	if (markers.length === 0) {
+		return renderInlineTextWithSourceCitations(
+			block.text,
+			sourceIndex,
+			chrome,
+			block.sources ?? [],
+		);
+	}
+
+	const placements = markers
+		.map((marker, order) => {
+			const anchor = markerAnchorIndex(block.text, marker);
+			return anchor ? { ...anchor, marker, order } : null;
+		})
+		.filter((placement): placement is NonNullable<typeof placement> =>
+			Boolean(placement),
+		)
+		.sort((left, right) => left.end - right.end || left.order - right.order);
+	const placed = new Set<ParagraphBasisMarker>();
+	let cursor = 0;
+	let html = "";
+	for (const placement of placements) {
+		if (placement.start < cursor) continue;
+		html += renderInlineTextWithSourceCitations(
+			block.text.slice(cursor, placement.end),
+			sourceIndex,
+			chrome,
+			block.sources ?? [],
+		);
+		html += renderBasisMarker(placement.marker);
+		placed.add(placement.marker);
+		cursor = placement.end;
+	}
+	html += renderInlineTextWithSourceCitations(
+		block.text.slice(cursor),
+		sourceIndex,
+		chrome,
+		block.sources ?? [],
+	);
+	for (const marker of markers) {
+		if (!placed.has(marker)) html += renderBasisMarker(marker);
+	}
+	return html;
+}
+
 function renderParagraph(
 	block: Extract<GeneratedDocumentBlock, { type: "paragraph" }>,
 	sourceIndex: ReportSourceIndex,
@@ -498,7 +582,7 @@ function renderParagraph(
 					)
 					.join("")}</span>`
 			: "";
-	return `<p>${renderInlineTextWithSourceCitations(block.text, sourceIndex, chrome, explicitSources)}${inlineSources}</p>`;
+	return `<p>${renderInlineTextWithBasisMarkers(block, sourceIndex, chrome)}${inlineSources}</p>`;
 }
 
 function confidenceMarkerClass(
@@ -535,6 +619,12 @@ function renderConfidenceMarker(
 	return `<p class="honesty-marker-block"><span class="honesty-marker ${confidenceMarkerClass(block.severity)}" tabindex="0" data-confidence-code="${escapeHtml(block.code)}" data-confidence-severity="${escapeHtml(block.severity)}">${renderConfidenceMarkerIcon(block.severity)}<span>${escapeHtml(block.label)}</span><span class="honesty-tooltip" role="tooltip"><strong>${escapeHtml(block.label)}</strong><span>${escapeHtml(block.message)}</span><span class="honesty-tooltip-code">${escapeHtml(block.code)}</span></span></span><span class="honesty-marker-message">${escapeHtml(block.message)}</span></p>`;
 }
 
+function renderBasisMarkerFallback(
+	block: Extract<GeneratedDocumentBlock, { type: "basisMarker" }>,
+): string {
+	return `<p class="basis-marker-block">${renderBasisMarker(block)}</p>`;
+}
+
 function renderBlock(
 	block: GeneratedDocumentBlock,
 	options: {
@@ -557,6 +647,8 @@ function renderBlock(
 			return `<aside class="callout ${block.tone}" title="${escapeHtml([block.title ?? block.tone, block.text].join("\n"))}"><span class="callout-pill"><span aria-hidden="true">${block.tone === "warning" ? "!" : "i"}</span>${block.title ? `<strong>${escapeHtml(block.title)}</strong>` : `<strong>${escapeHtml(block.tone)}</strong>`}</span><p>${escapeHtml(block.text)}</p></aside>`;
 		case "confidenceMarker":
 			return renderConfidenceMarker(block);
+		case "basisMarker":
+			return renderBasisMarkerFallback(block);
 		case "code":
 			return `<pre><code${block.language ? ` data-language="${escapeHtml(block.language)}"` : ""}>${escapeHtml(block.text)}</code></pre>`;
 		case "quote":
@@ -742,6 +834,18 @@ export function renderStandardReportHtml(
 		".honesty-marker:hover .honesty-tooltip,.honesty-marker:focus .honesty-tooltip{opacity:1;visibility:visible;}",
 		".honesty-tooltip strong{display:block;margin-bottom:4px;font-weight:600;color:var(--report-tooltip-text);}",
 		".honesty-tooltip-code{display:block;margin-top:4px;color:var(--report-tooltip-muted);font-size:11px;}",
+		".basis-marker{appearance:none;display:inline-block;position:relative;width:10px;height:10px;margin:0 3px;border:0;border-radius:999px;padding:0;vertical-align:super;cursor:help;}",
+		".basis-marker--supported{background:#15803D;}",
+		".basis-marker--partial{background:#D97706;}",
+		".basis-marker--unsupported{background:#B91C1C;}",
+		".basis-marker:hover,.basis-marker:focus{outline:2px solid rgba(182,95,61,.28);outline-offset:2px;}",
+		".basis-marker-block{display:flex;align-items:center;gap:8px;margin:10px 0;color:var(--report-muted);font-size:12px;line-height:1.5;}",
+		".basis-tooltip{position:fixed;top:var(--tooltip-top,0);left:var(--tooltip-left,50vw);z-index:120;width:280px;max-width:min(280px,calc(100vw - 32px));box-sizing:border-box;border:1px solid var(--report-tooltip-border);border-radius:6px;background:var(--report-tooltip-bg);box-shadow:0 10px 30px rgba(0,0,0,.22);color:var(--report-tooltip-text);opacity:0;visibility:hidden;padding:8px 10px;pointer-events:none;text-align:left;transform:var(--tooltip-transform,translate(-50%,-100%));transition:opacity .15s ease;white-space:normal;font-size:12px;font-weight:400;line-height:1.45;}",
+		'.basis-tooltip::after{content:"";position:absolute;top:100%;left:50%;border:6px solid transparent;border-top-color:var(--report-tooltip-bg);transform:translateX(-50%);}',
+		".basis-tooltip.tooltip-below::after{top:auto;bottom:100%;border-top-color:transparent;border-bottom-color:var(--report-tooltip-bg);}",
+		".basis-marker:hover .basis-tooltip,.basis-marker:focus .basis-tooltip{opacity:1;visibility:visible;}",
+		".basis-tooltip strong{display:block;margin-bottom:4px;font-weight:600;color:var(--report-tooltip-text);}",
+		".basis-tooltip span{display:block;color:var(--report-tooltip-muted);}",
 		"pre{white-space:pre-wrap;background:var(--report-panel);padding:12px;overflow-wrap:anywhere;}",
 		"table{width:100%;border-collapse:collapse;font-size:.92rem;}",
 		"th,td{border-bottom:1px solid var(--report-rule);padding:7px;text-align:left;vertical-align:top;}",
@@ -803,7 +907,7 @@ export function renderStandardReportHtml(
 		"(() => { const sidebar = document.getElementById('report-sidebar'); const backdrop = document.getElementById('sidebar-backdrop'); const button = document.getElementById('mobile-menu-btn'); if (!sidebar || !backdrop || !button) return; const close = () => { sidebar.classList.remove('open'); backdrop.classList.remove('open'); button.setAttribute('aria-expanded', 'false'); }; const open = () => { sidebar.classList.add('open'); backdrop.classList.add('open'); button.setAttribute('aria-expanded', 'true'); }; button.addEventListener('click', () => sidebar.classList.contains('open') ? close() : open()); backdrop.addEventListener('click', close); sidebar.querySelectorAll('a').forEach((link) => link.addEventListener('click', close)); })();",
 		"(() => { const reportContent = document.getElementById('report-content'); const reportNavLinks = Array.from(document.querySelectorAll('.report-nav a')); const reportSections = Array.from(document.querySelectorAll('.report-section[id]')); if (!reportContent || reportNavLinks.length === 0 || reportSections.length === 0) return; function updateActiveSection() { const contentRect = reportContent.getBoundingClientRect(); const threshold = contentRect.top + Math.min(160, contentRect.height * 0.35); const atScrollEnd = reportContent.scrollTop + reportContent.clientHeight >= reportContent.scrollHeight - 32; let activeId = atScrollEnd ? reportSections[reportSections.length - 1].id : reportSections[0].id; if (!atScrollEnd) { reportSections.forEach((section) => { const rect = section.getBoundingClientRect(); if (rect.top <= threshold && rect.bottom > contentRect.top + 8) activeId = section.id; }); } reportNavLinks.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === '#' + activeId)); } reportContent.addEventListener('scroll', updateActiveSection, { passive: true }); reportNavLinks.forEach((link) => link.addEventListener('click', (event) => { const href = link.getAttribute('href') || ''; if (!href.startsWith('#')) return; const target = document.getElementById(href.slice(1)); if (!target) return; event.preventDefault(); target.scrollIntoView({ block: 'start' }); window.setTimeout(updateActiveSection, 80); })); updateActiveSection(); })();",
 		"(() => { const sidebar = document.getElementById('report-sidebar'); const resizer = document.getElementById('report-sidebar-resizer'); if (!sidebar || !resizer) return; const minWidth = 180; const maxWidth = 380; const clampWidth = (width) => Math.max(minWidth, Math.min(maxWidth, width)); function positionReportSidebar(width) { sidebar.style.width = clampWidth(width) + 'px'; } let startX = 0; let startWidth = 0; const onMove = (event) => positionReportSidebar(startWidth + event.clientX - startX); const stopResize = () => { document.documentElement.classList.remove('is-resizing-report-sidebar'); window.removeEventListener('pointermove', onMove); }; resizer.addEventListener('pointerdown', (event) => { if (window.matchMedia('(max-width: 760px)').matches) return; event.preventDefault(); startX = event.clientX; startWidth = sidebar.getBoundingClientRect().width; document.documentElement.classList.add('is-resizing-report-sidebar'); window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', stopResize, { once: true }); window.addEventListener('pointercancel', stopResize, { once: true }); }); resizer.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; event.preventDefault(); const delta = event.key === 'ArrowLeft' ? -16 : 16; positionReportSidebar(sidebar.getBoundingClientRect().width + delta); }); })();",
-		"(() => { const reportContent = document.getElementById('report-content'); const reportSidebar = document.getElementById('report-sidebar'); const triggers = Array.from(document.querySelectorAll('.source-chip,.honesty-marker')); function sidebarSafeLeft() { if (!reportSidebar || window.matchMedia('(max-width: 760px)').matches) return 12; const rect = reportSidebar.getBoundingClientRect(); return rect.width > 0 ? Math.max(12, rect.right + 12) : 12; } function positionFloatingTooltips(trigger) { const tooltip = trigger.querySelector('.source-tooltip,.honesty-tooltip'); if (!tooltip) return; tooltip.classList.remove('tooltip-below'); const triggerRect = trigger.getBoundingClientRect(); const tooltipRect = tooltip.getBoundingClientRect(); const margin = 12; const tooltipWidth = Math.min(tooltipRect.width || 280, window.innerWidth - margin * 2); const tooltipHeight = tooltipRect.height || 80; const minLeft = sidebarSafeLeft(); const maxLeft = window.innerWidth - margin; let left = triggerRect.left + triggerRect.width / 2; left = Math.max(minLeft + tooltipWidth / 2, Math.min(maxLeft - tooltipWidth / 2, left)); let top = triggerRect.top - margin; let transform = 'translate(-50%,-100%)'; if (top - tooltipHeight < margin) { top = triggerRect.bottom + margin; transform = 'translate(-50%,0)'; tooltip.classList.add('tooltip-below'); } tooltip.style.setProperty('--tooltip-left', left + 'px'); tooltip.style.setProperty('--tooltip-top', top + 'px'); tooltip.style.setProperty('--tooltip-transform', transform); } function positionVisibleTooltips() { document.querySelectorAll('.source-chip:hover,.source-chip:focus,.honesty-marker:hover,.honesty-marker:focus').forEach((trigger) => positionFloatingTooltips(trigger)); } triggers.forEach((trigger) => { trigger.addEventListener('mouseenter', () => positionFloatingTooltips(trigger)); trigger.addEventListener('focus', () => positionFloatingTooltips(trigger)); }); reportContent?.addEventListener('scroll', positionVisibleTooltips, { passive: true }); window.addEventListener('resize', positionVisibleTooltips); })();",
+		"(() => { const reportContent = document.getElementById('report-content'); const reportSidebar = document.getElementById('report-sidebar'); const triggers = Array.from(document.querySelectorAll('.source-chip,.honesty-marker,.basis-marker')); function sidebarSafeLeft() { if (!reportSidebar || window.matchMedia('(max-width: 760px)').matches) return 12; const rect = reportSidebar.getBoundingClientRect(); return rect.width > 0 ? Math.max(12, rect.right + 12) : 12; } function positionFloatingTooltips(trigger) { const tooltip = trigger.querySelector('.source-tooltip,.honesty-tooltip,.basis-tooltip'); if (!tooltip) return; tooltip.classList.remove('tooltip-below'); const triggerRect = trigger.getBoundingClientRect(); const tooltipRect = tooltip.getBoundingClientRect(); const margin = 12; const tooltipWidth = Math.min(tooltipRect.width || 280, window.innerWidth - margin * 2); const tooltipHeight = tooltipRect.height || 80; const minLeft = sidebarSafeLeft(); const maxLeft = window.innerWidth - margin; let left = triggerRect.left + triggerRect.width / 2; left = Math.max(minLeft + tooltipWidth / 2, Math.min(maxLeft - tooltipWidth / 2, left)); let top = triggerRect.top - margin; let transform = 'translate(-50%,-100%)'; if (top - tooltipHeight < margin) { top = triggerRect.bottom + margin; transform = 'translate(-50%,0)'; tooltip.classList.add('tooltip-below'); } tooltip.style.setProperty('--tooltip-left', left + 'px'); tooltip.style.setProperty('--tooltip-top', top + 'px'); tooltip.style.setProperty('--tooltip-transform', transform); } function positionVisibleTooltips() { document.querySelectorAll('.source-chip:hover,.source-chip:focus,.honesty-marker:hover,.honesty-marker:focus,.basis-marker:hover,.basis-marker:focus').forEach((trigger) => positionFloatingTooltips(trigger)); } triggers.forEach((trigger) => { trigger.addEventListener('mouseenter', () => positionFloatingTooltips(trigger)); trigger.addEventListener('focus', () => positionFloatingTooltips(trigger)); }); reportContent?.addEventListener('scroll', positionVisibleTooltips, { passive: true }); window.addEventListener('resize', positionVisibleTooltips); })();",
 		"</script>",
 		"</body></html>",
 	].join("");

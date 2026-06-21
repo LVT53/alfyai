@@ -1,7 +1,1379 @@
 import { describe, expect, it, vi } from "vitest";
+import type {
+	AtlasGapProposal,
+	AtlasPipelineJobContext,
+	AtlasProfile,
+} from "./types";
 
 describe("Atlas pipeline slices", () => {
-	it("runs the fixed pipeline order, writes checkpoints only after completed rounds, audits honesty markers, and renders sibling outputs", async () => {
+	function stageUsage(inputTokens = 1, outputTokens = 1) {
+		return {
+			inputTokens,
+			outputTokens,
+			totalTokens: inputTokens + outputTokens,
+			costUsdMicros: 1,
+		};
+	}
+
+	function atlasJob(input: {
+		id: string;
+		profile: AtlasProfile;
+		query?: string;
+		title?: string;
+	}): AtlasPipelineJobContext {
+		return {
+			id: input.id,
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			action: "create" as const,
+			parentAtlasJobId: null,
+			profile: input.profile,
+			title: input.title ?? "Gap Fill Atlas",
+			query:
+				input.query ??
+				"Compare current enterprise RAG architectures for regulated SaaS",
+			lifecycle: {
+				family: {
+					familyId: input.id,
+					mode: "new_family" as const,
+					action: "create" as const,
+					rootAtlasJobId: input.id,
+					currentAtlasJobId: input.id,
+					parentAtlasJobId: null,
+					forkedFromAtlasJobId: null,
+				},
+				seed: null,
+			},
+		};
+	}
+
+	function gapProposal(input: {
+		targetSearchQuery: string;
+		missingQuestion?: string;
+		whyCurrentEvidenceIsWeak?: string;
+		desiredEvidenceType?: string;
+		affectedSection?: string;
+		priority?: AtlasGapProposal["priority"];
+	}): AtlasGapProposal {
+		return {
+			missingQuestion:
+				input.missingQuestion ??
+				"Which current evidence answers the report section with source-grounded detail?",
+			whyCurrentEvidenceIsWeak:
+				input.whyCurrentEvidenceIsWeak ??
+				"Current Evidence Packs cover the report section only thinly, and no accepted source gives current evidence for the requested comparison.",
+			targetSearchQuery: input.targetSearchQuery,
+			desiredEvidenceType:
+				input.desiredEvidenceType ?? "official current web source",
+			affectedSection: input.affectedSection ?? "Evidence gaps",
+			priority: input.priority ?? "high",
+		};
+	}
+
+	function coverageReviewText(
+		proposals: AtlasGapProposal[],
+		sufficient = false,
+	): string {
+		return JSON.stringify({ sufficient, proposals });
+	}
+
+	function assembledReport(): string {
+		return [
+			"# Gap Fill Atlas",
+			"",
+			"## Executive Summary",
+			"The accepted evidence supports a current enterprise RAG architecture comparison with explicit limits around source coverage, cost signals, and adoption evidence.",
+			"",
+			"## Findings",
+			"Initial and gap-fill evidence should be merged before synthesis so the report can compare architecture, cost, adoption, and contested evidence without starting another Atlas job.",
+			"",
+			"## Limitations",
+			"Remaining stale or contested evidence is stated as a limitation instead of triggering unbounded research.",
+		].join("\n");
+	}
+
+	function substantiveExecutiveSummary(): string {
+		return [
+			"## Executive Summary",
+			"The accepted evidence supports a current enterprise RAG architecture comparison with explicit limits around source coverage, cost signals, and adoption evidence. The report should use the model-generated title only in app-owned chrome while the body starts with this executive summary and continues with source-grounded findings for regulated SaaS teams.",
+			"",
+			"## Findings",
+			"Hybrid retrieval, reranking, and governance logging remain the strongest architecture pattern when teams need exact policy recall, semantic discovery, and auditable evidence trails. The evidence base is narrow enough that remaining uncertainty should be stated as a limitation instead of hidden behind broader claims.",
+			"",
+			"## Limitations",
+			"Accepted sources are representative rather than exhaustive, so the report should avoid unsupported certainty.",
+		].join("\n");
+	}
+
+	it("uses a valid structured generated title as the canonical document title and checkpoints section briefs", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const checkpoints: Array<{
+			roundNumber: number;
+			checkpoint: Record<string, unknown>;
+			documentSourceSummary: Record<string, unknown>;
+		}> = [];
+		const applyGeneratedTitle = vi.fn(async () => {});
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-generated-title",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		const result = await runAtlasPipeline({
+			job: atlasJob({
+				id: "atlas-generated-title",
+				profile: "overview",
+				title: "Compare current enterprise RAG architectures",
+			}),
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-rag",
+							title: "Enterprise RAG architecture evidence",
+							url: "https://example.com/rag",
+							snippet:
+								"Fetched page excerpt: 2026 enterprise RAG architecture evidence covers hybrid retrieval, reranking, and governance logging for regulated teams.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "2026 enterprise RAG architecture regulated SaaS",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return { text: coverageReviewText([], true), usage: stageUsage() };
+					}
+					if (input.stage === "assemble") {
+						return {
+							text: JSON.stringify({
+								generatedTitle:
+									"Enterprise RAG Architecture Strategy for Regulated SaaS",
+								bodyMarkdown: substantiveExecutiveSummary(),
+								sectionBriefs: [
+									{
+										sectionTitle: "Executive Summary",
+										brief:
+											"Summarizes the architecture recommendation and its evidence limits.",
+										evidencePackIds: ["pack-web-rag"],
+										sourceAssociations: [
+											{
+												sourceId: "web-rag",
+												sourceKind: "web",
+												sourceTitle: "Enterprise RAG architecture evidence",
+												evidencePackId: "pack-web-rag",
+												relevance:
+													"Supports hybrid retrieval, reranking, and governance logging claims.",
+											},
+										],
+									},
+								],
+							}),
+							usage: stageUsage(),
+						};
+					}
+					return { text: `${input.stage} result`, usage: stageUsage() };
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs,
+				applyGeneratedTitle,
+			},
+		});
+
+		expect(applyGeneratedTitle).toHaveBeenCalledWith({
+			jobId: "atlas-generated-title",
+			title: "Enterprise RAG Architecture Strategy for Regulated SaaS",
+		});
+		expect(result.title).toBe(
+			"Enterprise RAG Architecture Strategy for Regulated SaaS",
+		);
+		expect(renderOutputs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				title: "Enterprise RAG Architecture Strategy for Regulated SaaS",
+				blocks: expect.arrayContaining([
+					expect.objectContaining({
+						type: "heading",
+						text: "Executive Summary",
+					}),
+				]),
+			}),
+		);
+		expect(checkpoints.at(-1)).toMatchObject({
+			checkpoint: {
+				assembly: {
+					version: "atlas.assembly.v1",
+					generatedTitle:
+						"Enterprise RAG Architecture Strategy for Regulated SaaS",
+					sectionBriefs: [
+						{
+							sectionTitle: "Executive Summary",
+							evidencePackIds: ["pack-web-rag"],
+							sourceAssociations: [
+								expect.objectContaining({
+									sourceId: "web-rag",
+									evidencePackId: "pack-web-rag",
+								}),
+							],
+						},
+					],
+				},
+			},
+			documentSourceSummary: {
+				title: "Enterprise RAG Architecture Strategy for Regulated SaaS",
+			},
+		});
+	});
+
+	it("passes Evidence Packs and section briefs into basis audit and checkpoints Claim Basis data", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const checkpoints: Array<{
+			roundNumber: number;
+			checkpoint: Record<string, unknown>;
+			qualityDiagnostics: Record<string, unknown>;
+			documentSourceSummary: Record<string, unknown>;
+		}> = [];
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-claim-basis",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+		const auditBasis = vi.fn(async (input) => {
+			const packId = input.evidencePacks[0]?.id ?? "missing-pack";
+			return {
+				passed: true,
+				honestyMarkers: [],
+				retryRequested: false,
+				claimBasis: [
+					{
+						version: "atlas.claim-basis.v1" as const,
+						id: "atlas-claim-test",
+						locator: {
+							sectionTitle: "Executive Summary",
+							paragraphIndex: 0,
+							claimIndex: 0,
+							claimText:
+								"Hybrid retrieval remains the strongest architecture pattern.",
+							quote:
+								"Hybrid retrieval remains the strongest architecture pattern",
+							startOffset: 0,
+							endOffset: 63,
+						},
+						supportLevel: "supported" as const,
+						evidencePackIds: [packId],
+						sourceRefs: input.evidencePacks[0]?.sourceRefs ?? [],
+						supportRationale:
+							"The accepted Evidence Pack supports the hybrid retrieval recommendation.",
+						auditConcernCode: null,
+					},
+				],
+				basisLimitations: [],
+				basisDiagnostics: [
+					{
+						code: "atlas_claim_basis_generated",
+						severity: "info" as const,
+						message: "Claim Basis generated for accepted evidence.",
+					},
+				],
+				claimBasisCoverageBySection: [
+					{
+						sectionTitle: "Executive Summary",
+						factualClaimCount: 1,
+						basisCount: 1,
+						supportedCount: 1,
+						partialCount: 0,
+						unsupportedCount: 0,
+						density: 1,
+					},
+				],
+				claimBasisStatus: "succeeded" as const,
+				claimBasisFailureReason: null,
+			};
+		});
+
+		await runAtlasPipeline({
+			job: atlasJob({
+				id: "atlas-claim-basis-checkpoint",
+				profile: "overview",
+				title: "Claim Basis Atlas",
+			}),
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-rag",
+							title: "Enterprise RAG architecture evidence",
+							url: "https://example.com/rag",
+							snippet:
+								"Fetched page excerpt: 2026 enterprise RAG architecture evidence covers hybrid retrieval, reranking, and governance logging for regulated teams.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "2026 enterprise RAG architecture regulated SaaS",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return { text: coverageReviewText([], true), usage: stageUsage() };
+					}
+					if (input.stage === "assemble") {
+						return {
+							text: JSON.stringify({
+								generatedTitle: "Claim Basis Architecture Atlas",
+								bodyMarkdown: substantiveExecutiveSummary(),
+								sectionBriefs: [
+									{
+										sectionTitle: "Executive Summary",
+										brief:
+											"Summarizes the architecture recommendation and support limits.",
+										evidencePackIds: [],
+										sourceAssociations: [
+											{
+												sourceId: "web-rag",
+												sourceKind: "web",
+												sourceTitle: "Enterprise RAG architecture evidence",
+												relevance:
+													"Supports hybrid retrieval and reranking claims.",
+											},
+										],
+									},
+								],
+							}),
+							usage: stageUsage(),
+						};
+					}
+					return { text: `${input.stage} result`, usage: stageUsage() };
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs,
+			},
+		});
+
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				evidencePacks: [
+					expect.objectContaining({
+						sourceRefs: [
+							expect.objectContaining({
+								id: "web-rag",
+								kind: "web",
+							}),
+						],
+					}),
+				],
+				sectionBriefs: [
+					expect.objectContaining({
+						sectionTitle: "Executive Summary",
+					}),
+				],
+				assemblyMetadata: expect.objectContaining({
+					generatedTitle: "Claim Basis Architecture Atlas",
+				}),
+			}),
+		);
+		expect(checkpoints.at(-1)).toMatchObject({
+			checkpoint: {
+				claimBasis: [
+					expect.objectContaining({
+						id: "atlas-claim-test",
+						supportLevel: "supported",
+					}),
+				],
+				basisDiagnostics: [
+					expect.objectContaining({ code: "atlas_claim_basis_generated" }),
+				],
+				claimBasisFailureReason: null,
+				claimBasisCoverageBySection: [
+					expect.objectContaining({
+						sectionTitle: "Executive Summary",
+						density: 1,
+					}),
+				],
+			},
+			qualityDiagnostics: {
+				claimBasis: [expect.objectContaining({ id: "atlas-claim-test" })],
+				basisDiagnostics: [
+					expect.objectContaining({ code: "atlas_claim_basis_generated" }),
+				],
+			},
+			documentSourceSummary: {
+				claimBasis: expect.objectContaining({
+					status: "succeeded",
+					count: 1,
+				}),
+			},
+		});
+		expect(renderOutputs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				blocks: expect.arrayContaining([
+					expect.objectContaining({
+						type: "basisMarker",
+						id: "atlas-claim-test",
+						support: "supported",
+					}),
+				]),
+			}),
+		);
+	});
+
+	it("keeps the job title fallback when structured generated title is invalid", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const applyGeneratedTitle = vi.fn(async () => {});
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-invalid-title",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+		const job = atlasJob({
+			id: "atlas-invalid-title",
+			profile: "overview",
+			title: "Current AI Regulation Fallback",
+		});
+		job.lifecycle.seed = {
+			parentAtlasJobId: "atlas-parent",
+			compressedFindings: { generatedTitle: "Parent Generated Title" },
+			curatedSourcePool: null,
+			checkpoint: {
+				assembly: { generatedTitle: "Parent Generated Title" },
+			},
+			documentSourceSummary: { title: "Parent Generated Title" },
+		};
+
+		const result = await runAtlasPipeline({
+			job,
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-ai-reg",
+							title: "Current AI regulation evidence",
+							url: "https://example.com/ai-regulation",
+							snippet:
+								"Fetched page excerpt: 2026 AI regulation evidence covers enforcement updates and source limitations for enterprise policy teams.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "2026 AI regulation enforcement enterprise policy",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return { text: coverageReviewText([], true), usage: stageUsage() };
+					}
+					if (input.stage === "assemble") {
+						return {
+							text: JSON.stringify({
+								generatedTitle: "  ",
+								reportMarkdown: substantiveExecutiveSummary(),
+							}),
+							usage: stageUsage(),
+						};
+					}
+					return { text: `${input.stage} result`, usage: stageUsage() };
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+				applyGeneratedTitle,
+			},
+		});
+
+		expect(applyGeneratedTitle).not.toHaveBeenCalled();
+		expect(result.title).toBe("Current AI Regulation Fallback");
+		expect(renderOutputs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				title: "Current AI Regulation Fallback",
+			}),
+		);
+	});
+
+	it("runs two useful Exhaustive gap-fill rounds inside the same Atlas job and stops by the profile cap", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const searchWeb = vi
+			.fn()
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-initial",
+						title: "Initial RAG architecture evidence",
+						url: "https://example.com/rag-architecture",
+						snippet:
+							"Fetched page excerpt: 2026 architecture evidence covers hybrid retrieval and governance but not cost benchmarks or adoption data.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			})
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-cost",
+						title: "2026 RAG cost benchmark",
+						url: "https://example.com/rag-cost-benchmark",
+						snippet:
+							"Fetched page excerpt: 2026 benchmark evidence compares cost per query for hybrid retrieval, reranking, and governance logging.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			})
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-adoption",
+						title: "2026 regulated SaaS RAG adoption survey",
+						url: "https://example.com/rag-adoption-survey",
+						snippet:
+							"Fetched page excerpt: 2026 adoption evidence reports regulated SaaS teams choosing hybrid RAG when auditability and exact policy language matter.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			});
+		const checkpoints: Array<{
+			roundNumber: number;
+			checkpoint: Record<string, unknown>;
+			curatedSourcePool: { web?: unknown[] };
+			qualityDiagnostics: unknown;
+		}> = [];
+		let coverageReviewCalls = 0;
+
+		const result = await runAtlasPipeline({
+			job: atlasJob({ id: "atlas-gap-cap", profile: "exhaustive" }),
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb,
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "2026 enterprise RAG architecture regulated SaaS",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						coverageReviewCalls += 1;
+						const proposals =
+							coverageReviewCalls === 1
+								? [
+										gapProposal({
+											targetSearchQuery:
+												"2026 enterprise RAG cost benchmark hybrid retrieval official report",
+											affectedSection: "Cost benchmarks",
+										}),
+									]
+								: coverageReviewCalls === 2
+									? [
+											gapProposal({
+												targetSearchQuery:
+													"2026 regulated SaaS RAG adoption survey hybrid retrieval auditability",
+												affectedSection: "Adoption evidence",
+											}),
+										]
+									: [
+											gapProposal({
+												targetSearchQuery:
+													"2026 regulated SaaS RAG deployment incidents hybrid retrieval auditability",
+												affectedSection: "Residual risks",
+											}),
+										];
+						return {
+							text: coverageReviewText(proposals),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "assemble"
+								? assembledReport()
+								: `${input.stage} result`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-gap-cap",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(searchWeb.mock.calls.map(([queries]) => queries)).toEqual([
+			[
+				"enterprise RAG architecture regulated SaaS 2026",
+				"Compare current enterprise RAG architectures for regulated SaaS recent news 2026",
+				"Compare current enterprise RAG architectures for regulated SaaS latest updates 2026",
+			],
+			["2026 enterprise RAG cost benchmark hybrid retrieval official report"],
+			["2026 regulated SaaS RAG adoption survey hybrid retrieval auditability"],
+		]);
+		expect(checkpoints.map((checkpoint) => checkpoint.roundNumber)).toEqual([
+			1, 2, 3,
+		]);
+		expect(checkpoints[2].checkpoint.coverageReview).toMatchObject({
+			approvedGapCandidates: [],
+			diagnostics: [
+				expect.objectContaining({ code: "atlas_gap_fill_cap_exhausted" }),
+			],
+		});
+		expect(result.sourceCounts).toMatchObject({
+			web: 3,
+			accepted: 3,
+		});
+	});
+
+	it("runs only one useful In-Depth gap-fill round", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const searchWeb = vi
+			.fn()
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-initial",
+						title: "Initial governance evidence",
+						url: "https://example.com/governance",
+						snippet:
+							"Fetched page excerpt: Initial governance evidence covers controls but not current enforcement updates.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			})
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-enforcement",
+						title: "2026 AI enforcement update",
+						url: "https://example.com/ai-enforcement-2026",
+						snippet:
+							"Fetched page excerpt: 2026 enforcement update evidence explains current regulator priorities for AI governance controls.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			});
+		const checkpoints: Array<{ roundNumber: number; checkpoint: unknown }> = [];
+		let coverageReviewCalls = 0;
+
+		await runAtlasPipeline({
+			job: atlasJob({
+				id: "atlas-in-depth-gap",
+				profile: "in-depth",
+				query: "Compare current AI governance enforcement updates",
+			}),
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb,
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "2026 AI governance enforcement controls",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						coverageReviewCalls += 1;
+						return {
+							text: coverageReviewText([
+								gapProposal({
+									targetSearchQuery:
+										coverageReviewCalls === 1
+											? "2026 AI governance regulatory enforcement updates official controls"
+											: "2026 AI governance enforcement penalties regulator current report",
+									affectedSection: "Governance enforcement",
+								}),
+							]),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "assemble"
+								? assembledReport()
+								: `${input.stage} result`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input);
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-in-depth",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(searchWeb.mock.calls.map(([queries]) => queries)).toEqual([
+			[
+				"AI governance enforcement controls 2026",
+				"Compare current AI governance enforcement updates recent news 2026",
+				"Compare current AI governance enforcement updates latest updates 2026",
+			],
+			["2026 AI governance regulatory enforcement updates official controls"],
+		]);
+		expect(checkpoints.map((checkpoint) => checkpoint.roundNumber)).toEqual([
+			1, 2,
+		]);
+	});
+
+	it("skips a second allowed gap-fill round when the previous round adds no useful evidence", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const searchWeb = vi
+			.fn()
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-initial",
+						title: "Initial benchmark evidence",
+						url: "https://example.com/benchmarks",
+						snippet:
+							"Fetched page excerpt: 2026 benchmark evidence covers evaluation categories for hybrid RAG systems.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			})
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-duplicate",
+						title: "Duplicate benchmark evidence",
+						url: "https://example.com/benchmarks#duplicate",
+						snippet:
+							"Fetched page excerpt: 2026 benchmark evidence covers evaluation categories for hybrid RAG systems.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			});
+		const checkpoints: Array<{
+			roundNumber: number;
+			curatedSourcePool: { web?: unknown[]; rejectedWeb?: unknown[] };
+			qualityDiagnostics: {
+				gapFill?: { useful?: boolean; stopReason?: string };
+			};
+		}> = [];
+
+		await runAtlasPipeline({
+			job: atlasJob({ id: "atlas-gap-no-useful", profile: "exhaustive" }),
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb,
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "2026 hybrid RAG benchmark evaluation",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return {
+							text: coverageReviewText([
+								gapProposal({
+									targetSearchQuery:
+										"2026 hybrid RAG benchmark evaluation official current report",
+									affectedSection: "Evaluation",
+								}),
+							]),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "assemble"
+								? assembledReport()
+								: `${input.stage} result`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-no-useful",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(searchWeb).toHaveBeenCalledTimes(2);
+		expect(checkpoints.map((checkpoint) => checkpoint.roundNumber)).toEqual([
+			1, 2,
+		]);
+		expect(checkpoints[1].curatedSourcePool.web).toHaveLength(1);
+		expect(checkpoints[1].qualityDiagnostics.gapFill).toMatchObject({
+			useful: false,
+			stopReason: "no_materially_new_evidence",
+		});
+	});
+
+	it("deduplicates gap-fill sources by canonical URL and repeated material", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const searchWeb = vi
+			.fn()
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-initial",
+						title: "Hybrid RAG evidence",
+						url: "https://example.com/rag?b=2&a=1#summary",
+						snippet:
+							"Fetched page excerpt: Hybrid RAG evidence says lexical retrieval, vector retrieval, and reranking should remain auditable layers.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			})
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-same-url",
+						title: "Same URL",
+						url: "https://example.com/rag?a=1&b=2",
+						snippet:
+							"Fetched page excerpt: Different text from the same canonical page should not be accepted again.",
+					},
+					{
+						id: "web-same-material",
+						title: "Repeated material",
+						url: "https://other.example.com/rag-repeat",
+						snippet:
+							"Fetched page excerpt: Hybrid RAG evidence says lexical retrieval, vector retrieval, and reranking should remain auditable layers.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			});
+		const checkpoints: Array<{
+			roundNumber: number;
+			curatedSourcePool: { web?: unknown[]; rejectedWeb?: unknown[] };
+		}> = [];
+
+		const result = await runAtlasPipeline({
+			job: atlasJob({ id: "atlas-gap-dedupe", profile: "exhaustive" }),
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb,
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "hybrid RAG auditable retrieval layers",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return {
+							text: coverageReviewText([
+								gapProposal({
+									targetSearchQuery:
+										"hybrid RAG auditable retrieval layers regulator evidence 2026",
+									affectedSection: "Architecture evidence",
+								}),
+							]),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "assemble"
+								? assembledReport()
+								: `${input.stage} result`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-dedupe",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(result.sourceCounts.web).toBe(1);
+		expect(checkpoints[1].curatedSourcePool.web).toHaveLength(1);
+		expect(checkpoints[1].curatedSourcePool.rejectedWeb).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ rejectionReason: "duplicate_url" }),
+				expect.objectContaining({ rejectionReason: "duplicate_material" }),
+			]),
+		);
+	});
+
+	it("preserves contradictions discovered during gap fill in Evidence Packs and checkpoints", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const prompts: Record<string, string> = {};
+		const checkpoints: Array<{ roundNumber: number; checkpoint: unknown }> = [];
+		const searchWeb = vi
+			.fn()
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-initial",
+						title: "Initial security evidence",
+						url: "https://example.com/security-baseline",
+						snippet:
+							"Fetched page excerpt: Baseline evidence says managed RAG deployment reduces security review workload for regulated SaaS teams.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			})
+			.mockResolvedValueOnce({
+				sources: [
+					{
+						id: "web-contradiction",
+						title: "Conflicting security evidence",
+						url: "https://example.com/security-conflict",
+						snippet:
+							"Fetched page excerpt: Conflicting 2026 evidence contradicts the baseline and says managed RAG deployment can increase security review workload when logging and retention controls are immature.",
+					},
+				],
+				rejectedSources: [],
+				limitation: null,
+			});
+
+		await runAtlasPipeline({
+			job: atlasJob({ id: "atlas-gap-contradiction", profile: "in-depth" }),
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb,
+				runModelStage: vi.fn(async (input) => {
+					prompts[input.stage] = input.prompt;
+					if (input.stage === "decompose") {
+						return {
+							text: "managed RAG deployment security workload 2026",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return {
+							text: coverageReviewText([
+								gapProposal({
+									targetSearchQuery:
+										"2026 managed RAG deployment security workload logging retention controls",
+									affectedSection: "Security workload",
+								}),
+							]),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "assemble"
+								? assembledReport()
+								: `${input.stage} result`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input);
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-contradiction",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		const synthesizePrompt = JSON.parse(prompts.synthesize);
+		expect(synthesizePrompt.evidencePacks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					sourceRefs: [expect.objectContaining({ id: "web-contradiction" })],
+					conflicts: [expect.stringContaining("Conflicting 2026 evidence")],
+				}),
+			]),
+		);
+		expect(checkpoints[1].checkpoint).toMatchObject({
+			evidencePacks: expect.arrayContaining([
+				expect.objectContaining({
+					conflicts: [expect.stringContaining("Conflicting 2026 evidence")],
+				}),
+			]),
+		});
+	});
+
+	it("builds evidence packs after curation, checkpoints them, and uses them in model-facing later stages", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const prompts: Record<string, string> = {};
+		let checkpointInput: unknown = null;
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-evidence-pack-job",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Evidence pack Atlas",
+				query: "Compare retrieval architectures for regulated SaaS",
+				lifecycle: {
+					family: {
+						familyId: "atlas-evidence-pack-job",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-evidence-pack-job",
+						currentAtlasJobId: "atlas-evidence-pack-job",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({
+					localSources: [
+						{
+							id: "local-explicit",
+							title: "Internal architecture memo",
+							authority: "explicit",
+							text: "Internal architecture memo: regulated SaaS search should preserve exact compliance language while adding vector discovery.",
+						},
+					],
+				})),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Hybrid retrieval guide",
+							url: "https://example.com/hybrid-retrieval",
+							snippet:
+								"Fetched page excerpt: Hybrid retrieval combines lexical and semantic retrieval, then reranks candidates before synthesis.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					prompts[input.stage] = input.prompt;
+					const textByStage: Record<string, string> = {
+						decompose: "regulated SaaS retrieval architecture",
+						curate:
+							"Curated fact: explicit local constraints and accepted web evidence both support hybrid retrieval with reranking.",
+						synthesize:
+							"Finding: hybrid retrieval with reranking is the strongest evidenced pattern.",
+						integrate:
+							"Outline: Executive Summary; Retrieval architecture; Limitations.",
+						assemble: [
+							"# Evidence pack Atlas",
+							"",
+							"## Executive Summary",
+							"Hybrid retrieval with reranking is the strongest evidenced pattern for regulated SaaS search because it preserves exact compliance language while still supporting semantic discovery.",
+							"",
+							"## Retrieval Architecture",
+							"The evidence supports keeping lexical retrieval, vector retrieval, and reranking as separate responsibilities. This lets teams inspect exact-match coverage and candidate narrowing before synthesis.",
+							"",
+							"## Limitations",
+							"The evidence is representative and should be validated against the deployment corpus.",
+						].join("\n"),
+					};
+					return {
+						text: textByStage[input.stage] ?? `${input.stage} result`,
+						usage: {
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+							costUsdMicros: 1,
+						},
+					};
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpointInput = input;
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-1",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		const synthesizePrompt = JSON.parse(prompts.synthesize);
+		const integratePrompt = JSON.parse(prompts.integrate);
+		const assemblePrompt = JSON.parse(prompts.assemble);
+
+		expect(synthesizePrompt.evidencePacks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					sourceKind: "local",
+					authority: "explicit_local",
+					sourceRefs: [
+						expect.objectContaining({
+							id: "local-explicit",
+							kind: "local",
+						}),
+					],
+				}),
+				expect.objectContaining({
+					sourceKind: "web",
+					authority: "accepted_web",
+					sourceRefs: [
+						expect.objectContaining({
+							id: "web-1",
+							kind: "web",
+							url: "https://example.com/hybrid-retrieval",
+						}),
+					],
+				}),
+			]),
+		);
+		expect(synthesizePrompt.local).toBeUndefined();
+		expect(synthesizePrompt.web).toBeUndefined();
+		expect(integratePrompt.evidencePacks).toEqual(
+			synthesizePrompt.evidencePacks,
+		);
+		expect(assemblePrompt.evidencePacks).toEqual(
+			synthesizePrompt.evidencePacks,
+		);
+		expect(assemblePrompt.acceptedSources).toBeUndefined();
+		expect(checkpointInput).toMatchObject({
+			checkpoint: {
+				evidencePacksVersion: synthesizePrompt.evidencePacksVersion,
+				evidencePacks: synthesizePrompt.evidencePacks,
+				evidencePackDiagnostics: [],
+			},
+			documentSourceSummary: {
+				evidencePacks: {
+					version: synthesizePrompt.evidencePacksVersion,
+					count: 2,
+					diagnostics: [],
+				},
+			},
+		});
+	});
+
+	it("runs coverage review after evidence packs and checkpoints diagnostics without executing gap fill yet", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const prompts: Record<string, string> = {};
+		const stages: string[] = [];
+		let checkpointInput: unknown = null;
+		const searchWeb = vi.fn(async () => ({
+			sources: [
+				{
+					id: "web-coverage-1",
+					title: "Coverage source",
+					url: "https://example.com/coverage-source",
+					snippet:
+						"Fetched page excerpt: Accepted source covers the main governance framing but not current benchmark evidence.",
+				},
+			],
+			rejectedSources: [],
+			limitation: null,
+		}));
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-coverage-review-job",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "in-depth",
+				title: "Coverage Review Atlas",
+				query: "Compare current governance benchmarks for AI systems",
+				lifecycle: {
+					family: {
+						familyId: "atlas-coverage-review-job",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-coverage-review-job",
+						currentAtlasJobId: "atlas-coverage-review-job",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb,
+				runModelStage: vi.fn(async (input) => {
+					stages.push(input.stage);
+					prompts[input.stage] = input.prompt;
+					const textByStage: Record<string, string> = {
+						decompose: "current AI governance benchmarks 2026",
+						curate:
+							"Curated fact: accepted evidence covers governance framing but not benchmark comparison.",
+						"coverage-review": "not valid json",
+						synthesize:
+							"Finding: current benchmark coverage remains limited by the accepted sources.",
+						integrate:
+							"Outline: Executive Summary; Governance benchmarks; Limitations.",
+						assemble: [
+							"# Coverage Review Atlas",
+							"",
+							"## Executive Summary",
+							"Current benchmark coverage remains limited by the accepted sources, so the report should present governance comparisons cautiously.",
+							"",
+							"## Governance Benchmarks",
+							"The accepted evidence supports governance framing but not a definitive benchmark ranking. The report should therefore compare control categories, adoption constraints, and validation needs without claiming that one benchmark source settles the whole question. This keeps the analysis useful while preserving the weak-evidence boundary.",
+							"",
+							"## Limitations",
+							"Coverage review output was malformed, so no gap-fill candidate was approved in this round.",
+						].join("\n"),
+					};
+					return {
+						text: textByStage[input.stage] ?? `${input.stage} result`,
+						usage: {
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+							costUsdMicros: 1,
+						},
+					};
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpointInput = input;
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-coverage",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		const coveragePrompt = JSON.parse(prompts["coverage-review"]);
+		expect(stages).toEqual([
+			"decompose",
+			"curate",
+			"coverage-review",
+			"synthesize",
+			"integrate",
+			"assemble",
+		]);
+		expect(coveragePrompt.evidencePacks).toHaveLength(1);
+		expect(coveragePrompt.intendedQuestions).toEqual([
+			"Compare current governance benchmarks for AI systems",
+			"current AI governance benchmarks 2026",
+		]);
+		expect(searchWeb).toHaveBeenCalledTimes(1);
+		expect(checkpointInput).toMatchObject({
+			checkpoint: {
+				coverageReview: {
+					approvedGapCandidates: [],
+					diagnostics: [
+						expect.objectContaining({
+							code: "atlas_coverage_review_invalid_json",
+						}),
+					],
+				},
+			},
+			documentSourceSummary: {
+				coverageReview: {
+					sufficient: false,
+					proposalCount: 0,
+					approvedGapCandidateCount: 0,
+					diagnostics: [
+						expect.objectContaining({
+							code: "atlas_coverage_review_invalid_json",
+						}),
+					],
+				},
+			},
+		});
+	});
+
+	it("runs the fixed pipeline order, writes checkpoints only after completed rounds, audits Basis Markers, and renders sibling outputs", async () => {
 		const { runAtlasPipeline } = await import("./pipeline");
 		const stages: string[] = [];
 		const checkpointRounds: number[] = [];
@@ -127,6 +1499,7 @@ describe("Atlas pipeline slices", () => {
 		expect(stages).toEqual([
 			"decompose",
 			"curate",
+			"coverage-review",
 			"synthesize",
 			"integrate",
 			"assemble",
@@ -144,7 +1517,7 @@ describe("Atlas pipeline slices", () => {
 		expect(checkpointRounds).toEqual([1]);
 		expect(result).toMatchObject({
 			status: "succeeded",
-			stage: "audit",
+			stage: "render",
 			outputs: {
 				fileProductionJobId: "fp-job-1",
 				htmlChatGeneratedFileId: "file-html",
@@ -160,12 +1533,139 @@ describe("Atlas pipeline slices", () => {
 				],
 			},
 			usage: {
-				inputTokens: 50,
-				outputTokens: 25,
-				totalTokens: 75,
-				costUsdMicros: 125,
+				inputTokens: 60,
+				outputTokens: 30,
+				totalTokens: 90,
+				costUsdMicros: 150,
 			},
 		});
+	});
+
+	it("renders a source-backed report with limitations when soft audit retry is exhausted", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		const auditBasis = vi.fn(async () => ({
+			passed: false,
+			honestyMarkers: [
+				{
+					code: "limited_web",
+					message: "Web evidence is representative, not exhaustive.",
+					severity: "warning" as const,
+				},
+			],
+			retryRequested: true,
+			claimBasis: [
+				{
+					version: "atlas.claim-basis.v1" as const,
+					id: "basis-soft-retry",
+					locator: {
+						sectionTitle: "Executive Summary",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText:
+							"Hybrid retrieval remains the strongest architecture pattern.",
+						quote: "Hybrid retrieval",
+						startOffset: null,
+						endOffset: null,
+					},
+					supportLevel: "partial" as const,
+					evidencePackIds: ["pack-web-rag"],
+					sourceRefs: [
+						{
+							id: "web-rag",
+							kind: "web" as const,
+							title: "Enterprise RAG architecture evidence",
+							url: "https://example.com/rag",
+							authority: "accepted_web" as const,
+						},
+					],
+					supportRationale:
+						"The accepted source supports the pattern, but the evidence is representative rather than exhaustive.",
+					auditConcernCode: "limited_web",
+				},
+			],
+			basisLimitations: [
+				{
+					code: "limited_web",
+					message: "Web evidence is representative, not exhaustive.",
+					basisIds: ["basis-soft-retry"],
+					sectionTitle: "Executive Summary",
+				},
+			],
+			basisDiagnostics: [],
+			claimBasisCoverageBySection: [],
+			claimBasisStatus: "succeeded" as const,
+			claimBasisFailureReason: null,
+		}));
+		const renderOutputs = vi.fn(async (_source: { blocks: unknown[] }) => ({
+			fileProductionJobId: "fp-job-soft-retry",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		const result = await runAtlasPipeline({
+			job: atlasJob({
+				id: "atlas-soft-retry",
+				profile: "overview",
+				title: "Soft Retry Atlas",
+			}),
+			now: new Date("2026-06-21T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-rag",
+							title: "Enterprise RAG architecture evidence",
+							url: "https://example.com/rag",
+							snippet:
+								"Fetched page excerpt: Hybrid retrieval remains the strongest architecture pattern in representative current evidence.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "2026 enterprise RAG architecture regulated SaaS",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return { text: coverageReviewText([], true), usage: stageUsage() };
+					}
+					return {
+						text:
+							input.stage === "assemble"
+								? substantiveExecutiveSummary()
+								: `${input.stage} result`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(auditBasis).toHaveBeenCalledTimes(2);
+		expect(result.stage).toBe("render");
+		expect(renderOutputs).toHaveBeenCalled();
+		const renderedSource = renderOutputs.mock.calls[0]?.[0];
+		if (!renderedSource) throw new Error("Atlas report was not rendered.");
+		expect(JSON.stringify(renderedSource)).toContain("Limitations");
+		expect(JSON.stringify(renderedSource)).toContain("Basis Markers");
+		expect(JSON.stringify(renderedSource)).not.toContain("honesty markers");
+		expect(renderedSource.blocks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "basisMarker",
+					id: "basis-soft-retry",
+					support: "partial",
+				}),
+			]),
+		);
 	});
 
 	it("renders structured image candidates when assembly does not author Markdown images", async () => {

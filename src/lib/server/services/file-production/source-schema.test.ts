@@ -131,6 +131,129 @@ describe("generated document source schema", () => {
 		);
 	});
 
+	it("accepts paragraph-level basis markers and includes compact support notes in projection", () => {
+		const result = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Basis marker report",
+			blocks: [
+				{
+					type: "paragraph",
+					text: "Revenue increased by 12% while churn evidence remains thin.",
+					basisMarkers: [
+						{
+							type: "basisMarker",
+							id: "basis-supported",
+							support: "supported",
+							anchorText: "Revenue increased by 12%",
+							occurrence: 0,
+							rationale:
+								"Accepted source states revenue increased by 12%.\nThis should compact.",
+							auditCode: "atlas_revenue_supported",
+						},
+					],
+				},
+			],
+		});
+
+		expect(result).toMatchObject({ ok: true });
+		if (!result.ok) return;
+
+		expect(result.source.blocks[0]).toMatchObject({
+			type: "paragraph",
+			basisMarkers: [
+				{
+					type: "basisMarker",
+					id: "basis-supported",
+					support: "supported",
+					anchorText: "Revenue increased by 12%",
+					occurrence: 0,
+					rationale:
+						"Accepted source states revenue increased by 12%. This should compact.",
+					auditCode: "atlas_revenue_supported",
+				},
+			],
+		});
+		expect(buildGeneratedDocumentProjection(result.source)).toContain(
+			"Supported claim: Accepted source states revenue increased by 12%. This should compact.",
+		);
+	});
+
+	it("accepts standalone basis marker fallback blocks", () => {
+		const result = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Standalone basis report",
+			blocks: [
+				{
+					type: "basisMarker",
+					id: "basis-partial",
+					support: "partial",
+					rationale: "Evidence is directional but not independently confirmed.",
+				},
+			],
+		});
+
+		expect(result).toMatchObject({ ok: true });
+		if (!result.ok) return;
+
+		expect(result.source.blocks[0]).toEqual({
+			type: "basisMarker",
+			id: "basis-partial",
+			support: "partial",
+			rationale: "Evidence is directional but not independently confirmed.",
+		});
+	});
+
+	it("rejects basis markers with invalid support states", () => {
+		const result = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Invalid basis report",
+			blocks: [
+				{
+					type: "basisMarker",
+					id: "basis-invalid",
+					support: "verified",
+					rationale: "Legacy confidence wording must not be accepted.",
+				},
+			],
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			code: "unsupported_document_block",
+		});
+	});
+
+	it("rejects basis markers with empty rationales", () => {
+		const result = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Empty basis report",
+			blocks: [
+				{
+					type: "paragraph",
+					text: "A claim that needs a basis marker.",
+					basisMarkers: [
+						{
+							type: "basisMarker",
+							id: "basis-empty",
+							support: "unsupported",
+							anchorText: "A claim",
+							rationale: "   ",
+						},
+					],
+				},
+			],
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			code: "unsupported_document_block",
+		});
+	});
+
 	it("rejects raw HTML blocks instead of preserving arbitrary markup", () => {
 		const result = validateGeneratedDocumentSource({
 			version: 1,

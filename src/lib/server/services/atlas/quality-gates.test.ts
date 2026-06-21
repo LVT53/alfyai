@@ -1,19 +1,73 @@
 import { describe, expect, it, vi } from "vitest";
 import { auditAtlasBasis } from "./quality-gates";
+import type { AtlasEvidencePack, AtlasSectionBrief } from "./types";
+
+const evidencePack: AtlasEvidencePack = {
+	version: "atlas.evidence-pack.v1",
+	id: "pack-hybrid",
+	sourceRefs: [
+		{
+			id: "web-hybrid",
+			kind: "web",
+			title: "Hybrid retrieval evidence",
+			url: "https://example.com/hybrid",
+			authority: "accepted_web",
+		},
+	],
+	sourceKind: "web",
+	authority: "accepted_web",
+	supportedFacets: ["hybrid retrieval"],
+	supportedQuestions: ["Which architecture is most reliable?"],
+	evidence: {
+		summary: "Hybrid retrieval combines lexical and semantic recall.",
+		excerpt: "Hybrid retrieval combines lexical and semantic recall.",
+	},
+	conflicts: [],
+	limitations: [],
+	freshness: {
+		asOfDate: "2026-06-21",
+		retrievedAt: "2026-06-21",
+		isCurrentEvidence: true,
+		parentAtlasJobId: null,
+		note: null,
+	},
+	affectedSectionHint: "Executive Summary",
+	versionNote: "test pack",
+};
+
+const sectionBriefs: AtlasSectionBrief[] = [
+	{
+		sectionTitle: "Executive Summary",
+		brief: "Summarizes the architecture recommendation.",
+		evidencePackIds: ["pack-hybrid"],
+		sourceAssociations: [],
+		limitations: [],
+	},
+];
 
 describe("Atlas quality gates", () => {
-	it("parses structured audit model markers and includes audit usage", async () => {
+	it("parses structured claim basis output and derives temporary legacy markers", async () => {
 		const result = await auditAtlasBasis({
-			assembledMarkdown: "Atlas report",
+			assembledMarkdown:
+				"## Executive Summary\nHybrid retrieval improves recall before reranking.",
 			sources: [{ title: "Example", url: "https://example.com" }],
+			evidencePacks: [evidencePack],
+			sectionBriefs,
 			runAuditModel: vi.fn(async () => ({
 				text: JSON.stringify({
 					retryRequested: false,
-					markers: [
+					claimBasis: [
 						{
-							code: "atlas_conflict",
-							message: "Two sources disagree.",
-							severity: "warning",
+							locator: {
+								sectionTitle: "Executive Summary",
+								paragraphIndex: 0,
+								claimIndex: 0,
+								claimText: "Hybrid retrieval improves recall before reranking.",
+							},
+							supportLevel: "supported",
+							evidencePackIds: ["pack-hybrid"],
+							supportRationale:
+								"The accepted source says hybrid retrieval combines lexical and semantic recall.",
 						},
 					],
 				}),
@@ -27,11 +81,18 @@ describe("Atlas quality gates", () => {
 		});
 
 		expect(result.passed).toBe(true);
-		expect(result.honestyMarkers).toContainEqual({
-			code: "atlas_conflict",
-			message: "Two sources disagree.",
-			severity: "warning",
+		expect(result.claimBasis).toHaveLength(1);
+		expect(result.claimBasis[0]).toMatchObject({
+			supportLevel: "supported",
+			evidencePackIds: ["pack-hybrid"],
 		});
+		expect(result.honestyMarkers).toEqual([]);
+		expect(result.claimBasisCoverageBySection).toContainEqual(
+			expect.objectContaining({
+				sectionTitle: "Executive Summary",
+				basisCount: 1,
+			}),
+		);
 		expect(result.usage).toEqual({
 			inputTokens: 7,
 			outputTokens: 3,
@@ -40,26 +101,47 @@ describe("Atlas quality gates", () => {
 		});
 	});
 
-	it("fails the gate when the audit model requests a retry", async () => {
+	it("requests a retry for unsupported ordinary prose", async () => {
 		const result = await auditAtlasBasis({
-			assembledMarkdown: "Atlas report",
+			assembledMarkdown:
+				"## Findings\nEvery regulated SaaS buyer adopted one identical RAG architecture in 2026.",
 			sources: [{ title: "Example", url: "https://example.com" }],
+			evidencePacks: [evidencePack],
 			runAuditModel: vi.fn(async () => ({
 				text: JSON.stringify({
-					retryRequested: true,
-					markers: [],
+					retryRequested: false,
+					claimBasis: [
+						{
+							locator: {
+								sectionTitle: "Findings",
+								paragraphIndex: 0,
+								claimIndex: 0,
+								claimText:
+									"Every regulated SaaS buyer adopted one identical RAG architecture in 2026.",
+							},
+							supportLevel: "partial",
+							evidencePackIds: ["pack-hybrid"],
+							supportRationale:
+								"The accepted evidence does not make this universal adoption claim.",
+							auditConcernCode: "hallucinated_fact",
+						},
+					],
 				}),
 			})),
 		});
 
 		expect(result.passed).toBe(false);
 		expect(result.retryRequested).toBe(true);
+		expect(result.claimBasis[0]?.supportLevel).toBe("unsupported");
 		expect(result.honestyMarkers).toContainEqual(
-			expect.objectContaining({ code: "atlas_audit_retry_requested" }),
+			expect.objectContaining({
+				code: "hallucinated_fact",
+				severity: "critical",
+			}),
 		);
 	});
 
-	it("records a same-model fallback warning without exposing raw audit text", async () => {
+	it("records basis generation failure without fabricating claim basis", async () => {
 		const result = await auditAtlasBasis({
 			assembledMarkdown: "Atlas report",
 			sources: [{ title: "Example", url: "https://example.com" }],
@@ -70,16 +152,73 @@ describe("Atlas quality gates", () => {
 			})),
 		});
 
+		expect(result.claimBasis).toEqual([]);
+		expect(result.claimBasisStatus).toBe("failed");
+		expect(result.claimBasisFailureReason).toContain("parseable strict JSON");
+		expect(result.basisDiagnostics).toContainEqual(
+			expect.objectContaining({ code: "atlas_claim_basis_invalid_json" }),
+		);
 		expect(result.honestyMarkers).toContainEqual({
 			code: "atlas_audit_model_fallback",
 			message:
 				"Atlas audit used the synthesis model because no distinct audit model is enabled.",
 			severity: "warning",
 		});
-		expect(result.honestyMarkers).toContainEqual(
-			expect.objectContaining({ code: "atlas_audit_unstructured" }),
-		);
 		expect(JSON.stringify(result)).not.toContain("not json");
+	});
+
+	it("keeps soft retry findings shippable when accepted sources back the report", async () => {
+		const result = await auditAtlasBasis({
+			assembledMarkdown:
+				"## Executive Summary\nHybrid retrieval improves recall before reranking, but the evidence base is representative.",
+			sources: [{ title: "Example", url: "https://example.com" }],
+			evidencePacks: [evidencePack],
+			sectionBriefs,
+			runAuditModel: vi.fn(async () => ({
+				text: JSON.stringify({
+					retryRequested: true,
+					claimBasis: [
+						{
+							locator: {
+								sectionTitle: "Executive Summary",
+								paragraphIndex: 0,
+								claimIndex: 0,
+								claimText:
+									"Hybrid retrieval improves recall before reranking, but the evidence base is representative.",
+							},
+							supportLevel: "partial",
+							evidencePackIds: ["pack-hybrid"],
+							supportRationale:
+								"The accepted source supports hybrid retrieval, while coverage remains representative.",
+							auditConcernCode: "limited_evidence",
+						},
+					],
+					limitations: [
+						{
+							code: "limited_evidence",
+							message: "Evidence is representative rather than exhaustive.",
+							basisIds: [],
+							sectionTitle: "Executive Summary",
+						},
+					],
+				}),
+			})),
+		});
+
+		expect(result.retryRequested).toBe(true);
+		expect(result.passed).toBe(true);
+		expect(result.honestyMarkers).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "limited_evidence",
+					severity: "warning",
+				}),
+				expect.objectContaining({
+					code: "atlas_audit_retry_requested",
+					severity: "warning",
+				}),
+			]),
+		);
 	});
 
 	it("adds Hungarian parity guidance to the audit prompt for Hungarian reports", async () => {
@@ -91,6 +230,8 @@ describe("Atlas quality gates", () => {
 			assembledMarkdown: "## Összefoglaló\nMagyar jelentés.",
 			sources: [{ title: "Forrás", url: "https://example.com" }],
 			language: "hu",
+			evidencePacks: [evidencePack],
+			sectionBriefs,
 			runAuditModel,
 		});
 

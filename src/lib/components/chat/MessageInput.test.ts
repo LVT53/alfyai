@@ -1102,6 +1102,23 @@ describe("MessageInput", () => {
 		expect(input.value).toBe("");
 	});
 
+	it("dispatches send event from the current textarea value on Enter", async () => {
+		const mockSend = vi.fn();
+		const { getByPlaceholderText } = render(MessageInputWrapper, {
+			onSend: mockSend,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		input.value = "Hello from plain Enter";
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(mockSend).toHaveBeenCalledTimes(1);
+		expect(mockSend).toHaveBeenCalledWith("Hello from plain Enter");
+		await waitFor(() => expect(input.value).toBe(""));
+	});
+
 	it("inserts newline but does not send on shift+enter", async () => {
 		const mockSend = vi.fn();
 		const { getByPlaceholderText } = render(MessageInputWrapper, {

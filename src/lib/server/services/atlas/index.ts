@@ -11,6 +11,7 @@ export type {
 	SubmitAtlasJobIntakeInput,
 } from "./intake";
 export type {
+	ApplyAtlasGeneratedTitleInput,
 	CancelAtlasJobInput,
 	ClaimedAtlasJob,
 	ClaimNextAtlasJobInput,
@@ -73,6 +74,13 @@ export async function heartbeatAtlasJob(
 ): ReturnType<JobLedgerModule["heartbeatAtlasJob"]> {
 	const { heartbeatAtlasJob } = await loadJobLedger();
 	return heartbeatAtlasJob(...args);
+}
+
+export async function applyAtlasGeneratedTitle(
+	...args: Parameters<JobLedgerModule["applyAtlasGeneratedTitle"]>
+): ReturnType<JobLedgerModule["applyAtlasGeneratedTitle"]> {
+	const { applyAtlasGeneratedTitle } = await loadJobLedger();
+	return applyAtlasGeneratedTitle(...args);
 }
 
 export async function cancelAtlasJob(

@@ -129,6 +129,46 @@ describe("Atlas persistence foundation", () => {
 		expect(result.job.title).not.toBe("Atlas research");
 	});
 
+	it("applies a model-generated Atlas title through the job ledger and read model", async () => {
+		const { db } = await import("$lib/server/db");
+		const now = new Date("2026-06-19T12:05:00.000Z");
+		await db.insert(schema.atlasJobs).values({
+			id: "atlas-generated-title",
+			userId: "user-1",
+			conversationId: "conv-1",
+			action: "create",
+			profile: "overview",
+			normalizedQueryHash: "hash-generated-title",
+			clientAtlasTurnId: "client-generated-title",
+			idempotencyKey:
+				"atlas:v1:user-1:conv-1:create:root:overview:hash-generated-title:client-generated-title",
+			title: "Query Derived Fallback",
+			status: "running",
+			stage: "assemble",
+			workerId: "worker-title",
+			heartbeatAt: now,
+			startedAt: now,
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const { applyAtlasGeneratedTitle, listConversationAtlasJobs } =
+			await import("./index");
+		const updated = await applyAtlasGeneratedTitle({
+			jobId: "atlas-generated-title",
+			workerId: "worker-title",
+			title: "  Generated Enterprise RAG Strategy  ",
+			now: new Date("2026-06-19T12:06:00.000Z"),
+		});
+		const jobs = await listConversationAtlasJobs("user-1", "conv-1");
+
+		expect(updated?.title).toBe("Generated Enterprise RAG Strategy");
+		expect(jobs[0]).toMatchObject({
+			id: "atlas-generated-title",
+			title: "Generated Enterprise RAG Strategy",
+		});
+	});
+
 	it("repairs a reused legacy default Atlas title from the user query", async () => {
 		const { submitAtlasJobIntake } = await import("./index");
 		const input = {
@@ -764,6 +804,129 @@ describe("Atlas persistence foundation", () => {
 		expect(rows.find((row) => row.id === secondSameUser.job.id)).toMatchObject({
 			status: "cancelled",
 			cancelRequestedAt: new Date("2026-06-19T12:06:00.000Z"),
+		});
+	});
+
+	it("preserves heartbeat stage and percent when omitted while storing sanitized progress details", async () => {
+		const { db } = await import("$lib/server/db");
+		const now = new Date("2026-06-19T12:20:00.000Z");
+		await db.insert(schema.atlasJobs).values({
+			id: "atlas-heartbeat-sanitize",
+			userId: "user-1",
+			conversationId: "conv-1",
+			action: "create",
+			profile: "overview",
+			normalizedQueryHash: "hash-heartbeat-sanitize",
+			clientAtlasTurnId: "client-heartbeat-sanitize",
+			idempotencyKey:
+				"atlas:v1:user-1:conv-1:create:root:overview:hash-heartbeat-sanitize:client-heartbeat-sanitize",
+			title: "Heartbeat Sanitizer",
+			status: "running",
+			stage: "search",
+			progressPercent: 42,
+			progressDetailsJson: JSON.stringify({
+				queries: ["old query"],
+				focus: ["old focus"],
+			}),
+			workerId: "worker-heartbeat",
+			heartbeatAt: now,
+			startedAt: now,
+			createdAt: now,
+			updatedAt: now,
+		});
+		const { heartbeatAtlasJob } = await import("./index");
+
+		const alive = await heartbeatAtlasJob({
+			jobId: "atlas-heartbeat-sanitize",
+			workerId: "worker-heartbeat",
+			progressDetails: {
+				queries: [
+					"  durable RAG adoption query  ",
+					"Fetched page excerpt: raw page text should not persist",
+				],
+				roundKind: "gap-fill",
+				focus: [
+					" source reliability gaps ",
+					"Evidence pack: raw source text should not persist",
+				],
+			},
+			now: new Date("2026-06-19T12:21:00.000Z"),
+		});
+
+		const [row] = await db
+			.select()
+			.from(schema.atlasJobs)
+			.where(eq(schema.atlasJobs.id, "atlas-heartbeat-sanitize"));
+		const persistedDetails = JSON.parse(row?.progressDetailsJson ?? "{}");
+		expect(alive).toBe(true);
+		expect(row).toMatchObject({
+			stage: "search",
+			progressPercent: 42,
+		});
+		expect(persistedDetails).toEqual({
+			queries: ["durable RAG adoption query"],
+			roundKind: "gap-fill",
+			focus: ["source reliability gaps"],
+		});
+		expect(row?.progressDetailsJson).not.toContain("Fetched page excerpt");
+		expect(row?.progressDetailsJson).not.toContain("Evidence pack");
+	});
+
+	it("defaults missing completion usage and source counters to zero", async () => {
+		const { db } = await import("$lib/server/db");
+		const now = new Date("2026-06-19T12:30:00.000Z");
+		await db.insert(schema.atlasJobs).values({
+			id: "atlas-complete-defaults",
+			userId: "user-1",
+			conversationId: "conv-1",
+			action: "create",
+			profile: "overview",
+			normalizedQueryHash: "hash-complete-defaults",
+			clientAtlasTurnId: "client-complete-defaults",
+			idempotencyKey:
+				"atlas:v1:user-1:conv-1:create:root:overview:hash-complete-defaults:client-complete-defaults",
+			title: "Complete Defaults",
+			status: "running",
+			stage: "synthesize",
+			progressPercent: 75,
+			workerId: "worker-complete",
+			heartbeatAt: now,
+			startedAt: now,
+			inputTokens: 11,
+			outputTokens: 12,
+			totalTokens: 23,
+			costUsdMicros: 450,
+			localSourceCount: 2,
+			webSourceCount: 3,
+			acceptedSourceCount: 4,
+			rejectedSourceCount: 5,
+			createdAt: now,
+			updatedAt: now,
+		});
+		const { completeAtlasJob } = await import("./index");
+
+		const completed = await completeAtlasJob({
+			jobId: "atlas-complete-defaults",
+			workerId: "worker-complete",
+			now: new Date("2026-06-19T12:31:00.000Z"),
+		});
+
+		expect(completed).toMatchObject({
+			status: "succeeded",
+			stage: "audit",
+			progress: { percent: 100 },
+			usage: {
+				inputTokens: 0,
+				outputTokens: 0,
+				totalTokens: 0,
+				costUsdMicros: 0,
+			},
+			sourceCounts: {
+				local: 0,
+				web: 0,
+				accepted: 0,
+				rejected: 0,
+			},
 		});
 	});
 

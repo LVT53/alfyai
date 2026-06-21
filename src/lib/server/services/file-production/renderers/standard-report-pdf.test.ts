@@ -197,6 +197,47 @@ describe("AlfyAI Standard Report PDF renderer", () => {
 		expect(text).toContain("PDF");
 	});
 
+	it("renders basis markers as compact extractable PDF notes", async () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "PDF basis report",
+			blocks: [
+				{
+					type: "paragraph",
+					text: "Revenue increased by 12%.",
+					basisMarkers: [
+						{
+							type: "basisMarker",
+							id: "basis-supported",
+							support: "supported",
+							anchorText: "Revenue increased by 12%",
+							rationale: "Accepted source states revenue increased by 12%.",
+						},
+					],
+				},
+				{
+					type: "basisMarker",
+					id: "basis-unsupported",
+					support: "unsupported",
+					rationale: "No accepted source supports the fallback claim.",
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const rendered = await renderStandardReportPdf(validation.source);
+		const text = await extractPdfText(rendered.content);
+
+		expect(text).toContain(
+			"Basis: Supported claim - Accepted source states revenue increased by 12%.",
+		);
+		expect(text).toContain(
+			"Basis: Unsupported claim - No accepted source supports the fallback claim.",
+		);
+	});
+
 	it("uses the transparent UI logo mark and normalizes generated dates for the first-page header", async () => {
 		const validation = validateGeneratedDocumentSource({
 			version: 1,

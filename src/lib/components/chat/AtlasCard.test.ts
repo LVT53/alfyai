@@ -208,12 +208,82 @@ describe("AtlasCard", () => {
 		expect(screen.queryByText("Running research")).not.toBeInTheDocument();
 	});
 
+	it("renders coverage-review progress without leaking internal stage naming", () => {
+		render(AtlasCard, {
+			job: atlasJobFixture({
+				stage: "coverage-review",
+				progress: {
+					percent: 50,
+					stage: "coverage-review",
+					details: { queries: [] },
+				},
+			}),
+		});
+
+		expect(screen.getByText("Checking evidence coverage")).toBeInTheDocument();
+		expect(screen.queryByText("coverage-review")).not.toBeInTheDocument();
+		expect(screen.queryByText(/research loop/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/deep research/i)).not.toBeInTheDocument();
+	});
+
+	it("renders bounded gap-fill progress with safe follow-up focus", () => {
+		render(AtlasCard, {
+			job: atlasJobFixture({
+				stage: "search",
+				progress: {
+					percent: 58,
+					stage: "search",
+					details: {
+						queries: ["2026 enterprise RAG cost benchmark official report"],
+						roundKind: "gap-fill",
+						focus: ["current cost evidence for enterprise RAG"],
+					} as unknown as AtlasJobCard["progress"]["details"],
+				},
+			}),
+		});
+
+		expect(
+			screen.getByText("Following up on evidence gaps"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("Following promising leads"),
+		).not.toBeInTheDocument();
+		const focusRegion = screen.getByLabelText("Atlas evidence follow-up focus");
+		expect(focusRegion).toHaveTextContent("Evidence follow-up");
+		expect(focusRegion).toHaveTextContent(
+			"current cost evidence for enterprise RAG",
+		);
+	});
+
 	it("renders completed actions with Open as the only text button and grouped download options", async () => {
 		const onOpenDocument = vi.fn();
 		render(AtlasCard, {
-			job: atlasJobFixture({ status: "succeeded", completedAt: 121 }),
+			job: atlasJobFixture({
+				status: "succeeded",
+				title: "Generated Enterprise RAG Strategy",
+				completedAt: 121,
+			}),
 			onOpenDocument,
 		});
+
+		expect(
+			screen.getByRole("heading", {
+				name: "Generated Enterprise RAG Strategy",
+			}),
+		).toBeInTheDocument();
+		expect(screen.getByText("In-Depth")).toBeInTheDocument();
+		expect(screen.getByText("6 sources")).toBeInTheDocument();
+		expect(screen.getByText("$0.2500")).toBeInTheDocument();
+		expect(screen.getByText("1s")).toBeInTheDocument();
+		const actions = screen.getByTestId("atlas-completion-actions");
+		expect(
+			within(actions).getByRole("button", { name: "Open" }),
+		).toHaveTextContent("Open");
+		expect(
+			within(actions)
+				.getAllByRole("button")
+				.filter((button) => button.textContent?.trim()),
+		).toHaveLength(1);
 
 		await fireEvent.click(screen.getByRole("button", { name: "Open" }));
 
@@ -221,7 +291,10 @@ describe("AtlasCard", () => {
 			expect.objectContaining({
 				id: "html-file-1",
 				source: "chat_generated_file",
+				title: "Generated Enterprise RAG Strategy",
 				downloadUrl: "/api/chat/files/html-file-1/download",
+				previewUrl: "/api/chat/files/html-file-1/preview",
+				mimeType: "text/html",
 			}),
 			{ presentation: "expanded" },
 		);

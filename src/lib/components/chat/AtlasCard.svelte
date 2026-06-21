@@ -57,16 +57,41 @@ const acceptedSourceCount = $derived(job.sourceCounts.accepted);
 const costSummary = $derived(formatCost(job.usage.costUsdMicros));
 const durationLabel = $derived(formatDuration(job.createdAt, job.completedAt));
 const stageLabel = $derived(formatStage(job.progress?.stage ?? job.stage));
+const progressDetails = $derived(job.progress?.details ?? { queries: [] });
+const isGapFillProgress = $derived(
+	progressDetails.roundKind === "gap-fill" ||
+		(job.progress?.stage ?? job.stage) === "gap-fill",
+);
 const progressMessageStage = $derived(
-	`${job.status}:${job.progress?.stage ?? job.stage ?? ""}`,
+	`${job.status}:${job.progress?.stage ?? job.stage ?? ""}:${isGapFillProgress ? "gap-fill" : "standard"}`,
 );
 const progressMessageKeys = $derived(
-	getProgressMessageKeys(job.status, job.progress?.stage ?? job.stage),
+	getProgressMessageKeys(
+		job.status,
+		job.progress?.stage ?? job.stage,
+		isGapFillProgress,
+	),
 );
 const progressMessage = $derived(
 	formatProgressMessage(progressMessageKeys, progressMessageIndex),
 );
-const progressQueries = $derived(job.progress?.details?.queries ?? []);
+const progressItems = $derived(
+	isGapFillProgress
+		? progressDetails.focus?.length
+			? progressDetails.focus
+			: progressDetails.queries
+		: progressDetails.queries,
+);
+const progressItemsLabel = $derived(
+	isGapFillProgress
+		? $t("atlas.progressGapFillFocusLabel")
+		: $t("atlas.progressQueriesLabel"),
+);
+const progressItemsTitle = $derived(
+	isGapFillProgress
+		? $t("atlas.progressGapFillFocusTitle")
+		: $t("atlas.progressQueriesTitle"),
+);
 const lifecyclePanelLabel = $derived(
 	activePanel ? lifecycleActionLabel(activePanel) : "",
 );
@@ -82,6 +107,8 @@ const STAGE_LABEL_KEYS: Record<string, I18nKey> = {
 	decompose: "atlas.stage.decompose",
 	search: "atlas.stage.search",
 	curate: "atlas.stage.curate",
+	"coverage-review": "atlas.stage.coverageReview",
+	"gap-fill": "atlas.stage.gapFill",
 	synthesize: "atlas.stage.synthesize",
 	integrate: "atlas.stage.integrate",
 	assemble: "atlas.stage.assemble",
@@ -115,6 +142,16 @@ const PROGRESS_MESSAGE_KEYS: Record<string, readonly I18nKey[]> = {
 		"atlas.progress.curate.0",
 		"atlas.progress.curate.1",
 		"atlas.progress.curate.2",
+	],
+	"coverage-review": [
+		"atlas.progress.coverageReview.0",
+		"atlas.progress.coverageReview.1",
+		"atlas.progress.coverageReview.2",
+	],
+	"gap-fill": [
+		"atlas.progress.gapFill.0",
+		"atlas.progress.gapFill.1",
+		"atlas.progress.gapFill.2",
 	],
 	synthesize: [
 		"atlas.progress.synthesize.0",
@@ -188,8 +225,10 @@ function formatStage(stage: string | null | undefined): string {
 function getProgressMessageKeys(
 	status: AtlasJobCard["status"],
 	stage: string | null | undefined,
+	gapFill: boolean,
 ): readonly I18nKey[] {
 	if (status === "queued") return PROGRESS_MESSAGE_KEYS.queued;
+	if (gapFill) return PROGRESS_MESSAGE_KEYS["gap-fill"];
 	if (stage && PROGRESS_MESSAGE_KEYS[stage])
 		return PROGRESS_MESSAGE_KEYS[stage];
 	return [
@@ -433,19 +472,19 @@ function submitLifecycleAction() {
 			{#if job.status === "queued"}
 				<p class="atlas-card__kickoff-note">{$t("atlas.kickoffNote")}</p>
 			{/if}
-			{#if progressQueries.length > 0}
-				<div class="atlas-card__queries" aria-label={$t("atlas.progressQueriesLabel")}>
-					<div class="atlas-card__queries-title">{$t("atlas.progressQueriesTitle")}</div>
+			{#if progressItems.length > 0}
+				<div class="atlas-card__queries" aria-label={progressItemsLabel}>
+					<div class="atlas-card__queries-title">{progressItemsTitle}</div>
 					<ul>
-						{#each progressQueries as query}
-							<li>{query}</li>
+						{#each progressItems as item}
+							<li>{item}</li>
 						{/each}
 					</ul>
 				</div>
 			{/if}
 		</div>
 	{:else if isComplete}
-		<div class="atlas-card__actions">
+		<div class="atlas-card__actions" data-testid="atlas-completion-actions">
 			<button
 				type="button"
 				class="atlas-card__open"

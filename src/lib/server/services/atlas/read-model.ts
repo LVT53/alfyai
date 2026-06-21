@@ -4,28 +4,68 @@ import { atlasJobs } from "$lib/server/db/schema";
 import type {
 	AtlasAction,
 	AtlasJobCard,
+	AtlasJobProgressDetails,
 	AtlasJobStatus,
 	AtlasProfile,
 } from "./types";
+
+const MAX_PROGRESS_ITEMS = 8;
+const MAX_PROGRESS_TEXT_LENGTH = 140;
 
 function timestampMs(value: Date | null): number | null {
 	return value ? value.getTime() : null;
 }
 
-function parseProgressDetails(value: string | null): { queries: string[] } {
+function sanitizeProgressText(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const normalized = value.replace(/\s+/g, " ").trim();
+	if (!normalized) return null;
+	if (
+		/fetched\s+page\s+excerpt\s*:/i.test(normalized) ||
+		/evidence\s+pack/i.test(normalized) ||
+		/source\s+excerpt/i.test(normalized)
+	) {
+		return null;
+	}
+	return normalized.slice(0, MAX_PROGRESS_TEXT_LENGTH).trim();
+}
+
+function parseProgressTextList(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.map(sanitizeProgressText)
+		.filter((item): item is string => Boolean(item))
+		.slice(0, MAX_PROGRESS_ITEMS);
+}
+
+export function sanitizeAtlasJobProgressDetails(
+	value: unknown,
+): AtlasJobProgressDetails {
+	if (!value || typeof value !== "object") return { queries: [] };
+	const record = value as {
+		queries?: unknown;
+		roundKind?: unknown;
+		focus?: unknown;
+		gapFillFocus?: unknown;
+	};
+	const queries = parseProgressTextList(record.queries);
+	const focus = parseProgressTextList(record.focus ?? record.gapFillFocus);
+	const roundKind =
+		record.roundKind === "gap-fill" || record.roundKind === "initial"
+			? record.roundKind
+			: undefined;
+	return {
+		queries,
+		...(roundKind ? { roundKind } : {}),
+		...(focus.length > 0 ? { focus } : {}),
+	};
+}
+
+function parseProgressDetails(value: string | null): AtlasJobProgressDetails {
 	if (!value) return { queries: [] };
 	try {
 		const parsed = JSON.parse(value) as unknown;
-		if (!parsed || typeof parsed !== "object") return { queries: [] };
-		const queries = Array.isArray((parsed as { queries?: unknown }).queries)
-			? (parsed as { queries: unknown[] }).queries
-					.map((query) =>
-						typeof query === "string" ? query.replace(/\s+/g, " ").trim() : "",
-					)
-					.filter(Boolean)
-					.slice(0, 8)
-			: [];
-		return { queries };
+		return sanitizeAtlasJobProgressDetails(parsed);
 	} catch {
 		return { queries: [] };
 	}

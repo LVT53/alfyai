@@ -30,6 +30,9 @@ export async function login(
 	await expect(page.getByTestId("message-input")).toBeVisible({
 		timeout: 15000,
 	});
+	await expect(page.getByTestId("message-input")).toBeEnabled({
+		timeout: 15000,
+	});
 }
 
 export async function logout(page: Page) {
@@ -46,12 +49,14 @@ export async function openConversationComposer(
 ) {
 	const composer = page.getByTestId("message-input");
 	if (new URL(page.url()).pathname === "/" && (await composer.isVisible())) {
+		await expect(composer).toBeEnabled({ timeout: 15000 });
 		return;
 	}
 
 	await page.click('[data-testid="new-conversation"]');
 	await expect(page).toHaveURL("/", { timeout: 10000 });
 	await composer.waitFor({ state: "visible" });
+	await expect(composer).toBeEnabled({ timeout: 15000 });
 }
 
 export async function ensureSidebarExpanded(page: Page) {

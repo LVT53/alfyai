@@ -176,6 +176,7 @@ let {
 
 let textarea = $state<HTMLTextAreaElement | null>(null);
 let fileInput = $state<HTMLInputElement | null>(null);
+let isHydrated = $state(false);
 let message = $state("");
 let pendingAttachments = $state<PendingAttachment[]>([]);
 let selectedLinkedSources = $state<LinkedContextSource[]>([]);
@@ -225,6 +226,7 @@ let charCountColor = $derived(
 	isOverMaxLength ? "text-danger" : "text-text-muted",
 );
 let isUploadingAttachment = $derived(uploadState !== "idle");
+let isComposerDisabled = $derived(disabled || !isHydrated);
 let pendingAttachmentArtifacts = $derived(
 	pendingAttachments.map((attachment) => attachment.artifact),
 );
@@ -244,12 +246,7 @@ let attachmentReadinessErrors = $derived(
 	pendingAttachments.filter((attachment) => Boolean(attachment.readinessError)),
 );
 
-let canSend = $derived(
-	!isEmpty &&
-		!isOverMaxLength &&
-		!isUploadingAttachment &&
-		!hasUnreadyAttachment,
-);
+let canSend = $derived(canSubmitMessageText(message));
 let canQueue = $derived(canSend && isGenerating && !hasQueuedMessage);
 let canAttach = $derived(
 	attachmentsEnabled &&
@@ -500,7 +497,7 @@ function syncTextareaValue(nextValue: string, emitWhenUnchanged = false) {
 
 function syncTextareaValueFromDom() {
 	textareaValueSyncFrame = null;
-	if (disabled || !textarea) return;
+	if (isComposerDisabled || !textarea) return;
 	syncTextareaValue(textarea.value);
 	updateCommandTrayFromTextarea();
 }
@@ -514,7 +511,7 @@ function scheduleTextareaValueSync() {
 }
 
 function handleInput(event: Event) {
-	if (disabled) return;
+	if (isComposerDisabled) return;
 	const target = event.currentTarget as HTMLTextAreaElement;
 	syncTextareaValue(target.value, true);
 	updateCommandTrayFromText(
@@ -537,7 +534,7 @@ function handleTextareaScroll(event: Event) {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-	if (disabled) return;
+	if (isComposerDisabled) return;
 	if (event.isComposing) return;
 	updateCommandTrayFromTextarea();
 	if (showCommandTray && event.key === "Escape") {
@@ -572,13 +569,21 @@ function handleKeydown(event: KeyboardEvent) {
 			return;
 		}
 	}
-	if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+	if (
+		event.key === "Enter" &&
+		(event.metaKey || event.ctrlKey || !event.shiftKey)
+	) {
 		event.preventDefault();
+		const currentTextareaValue = textarea?.value ?? message;
+		if (textarea) {
+			syncTextareaValue(currentTextareaValue);
+			updateCommandTrayFromTextarea();
+		}
 		if (isGenerating) {
-			queue();
+			queue(currentTextareaValue);
 			return;
 		}
-		send();
+		send(currentTextareaValue);
 		return;
 	}
 	scheduleTextareaValueSync();
@@ -600,9 +605,18 @@ function getInteractiveCommandRows(): CommandTrayRow[] {
 	);
 }
 
-function buildSendPayload(): SendPayload {
+function canSubmitMessageText(text: string): boolean {
+	return (
+		text.trim().length > 0 &&
+		text.length <= maxLength &&
+		!isUploadingAttachment &&
+		!hasUnreadyAttachment
+	);
+}
+
+function buildSendPayload(nextMessage = message): SendPayload {
 	return {
-		message: message.trim(),
+		message: nextMessage.trim(),
 		attachmentIds: pendingAttachments.map(
 			(attachment) => attachment.artifact.id,
 		),
@@ -658,34 +672,38 @@ function clearComposerAfterSubmit() {
 	}
 }
 
-function send() {
-	if (disabled) return;
+function send(nextMessage: string = message) {
+	if (isComposerDisabled) return;
 	if (isGenerating) return;
-	if (!canSend) {
+	if (!canSubmitMessageText(nextMessage)) {
 		if (
-			!isEmpty &&
-			!isOverMaxLength &&
+			nextMessage.trim().length > 0 &&
+			nextMessage.length <= maxLength &&
 			(isUploadingAttachment || hasUnreadyAttachment)
 		) {
 			queuedSendAfterProcessing = true;
 		}
 		return;
 	}
-	onSend?.(buildSendPayload());
+	message = nextMessage;
+	onSend?.(buildSendPayload(nextMessage));
 	queuedSendAfterProcessing = false;
 	clearComposerAfterSubmit();
 }
 
-function queue() {
-	if (disabled) return;
-	if (!canQueue) return;
-	onQueue?.(buildSendPayload());
+function queue(nextMessage: string = message) {
+	if (isComposerDisabled) return;
+	if (!isGenerating || hasQueuedMessage || !canSubmitMessageText(nextMessage)) {
+		return;
+	}
+	message = nextMessage;
+	onQueue?.(buildSendPayload(nextMessage));
 	queuedSendAfterProcessing = false;
 	clearComposerAfterSubmit();
 }
 
 function stop() {
-	if (disabled) return;
+	if (isComposerDisabled) return;
 	onStop?.();
 	showToolsMenu = false;
 	sourceManagerOpen = false;
@@ -696,6 +714,7 @@ function stop() {
 }
 
 onMount(() => {
+	isHydrated = true;
 	if (textarea) {
 		if (!isMobile()) {
 			textarea.focus();
@@ -1587,6 +1606,7 @@ async function emitDraftChange(force = false) {
 			type="file"
 			class="hidden"
 			multiple
+			disabled={isComposerDisabled}
 			onchange={(event) => uploadFiles((event.currentTarget as HTMLInputElement).files)}
 		/>
 		<textarea
@@ -1598,7 +1618,7 @@ async function emitDraftChange(force = false) {
 			onscroll={handleTextareaScroll}
 			onkeydown={handleKeydown}
 			onkeyup={handleKeyup}
-			disabled={disabled}
+			disabled={isComposerDisabled}
 			aria-controls={showCommandTray ? 'composer-command-tray' : undefined}
 			aria-activedescendant={activeCommandRow ? `composer-command-${activeCommandRow.id}` : undefined}
 			placeholder={$t('chat.messagePlaceholder')}
@@ -1769,7 +1789,7 @@ async function emitDraftChange(force = false) {
 						type="button"
 						class="btn-icon-bare composer-icon flex flex-shrink-0 items-center justify-center text-text-muted"
 						onclick={toggleToolsMenu}
-						disabled={disabled}
+						disabled={isComposerDisabled}
 						aria-label={$t('chat.openComposerTools')}
 						aria-expanded={showToolsMenu}
 					>
@@ -1815,8 +1835,8 @@ async function emitDraftChange(force = false) {
 						<button
 							data-testid="queue-button"
 							type="button"
-							onclick={queue}
-							disabled={disabled}
+							onclick={() => queue()}
+							disabled={isComposerDisabled}
 							aria-label={$t('chat.queueMessage')}
 							class="queue-button flex h-[40px] items-center justify-center rounded-[10px] border border-border bg-surface-page px-3 text-[13px] font-sans font-medium text-text-primary shadow-sm animate-in"
 						>
@@ -1827,7 +1847,7 @@ async function emitDraftChange(force = false) {
 						data-testid="stop-button"
 						type="button"
 						onclick={stop}
-						disabled={disabled}
+						disabled={isComposerDisabled}
 						aria-label={$t('chat.stop')}
 						class="composer-stop-accent flex h-[40px] w-[40px] items-center justify-center rounded-[10px] shadow-sm animate-in"
 					>
@@ -1837,8 +1857,8 @@ async function emitDraftChange(force = false) {
 					<button
 						data-testid="send-button"
 						type="button"
-						onclick={send}
-						disabled={!canSend || disabled}
+						onclick={() => send()}
+						disabled={!canSend || isComposerDisabled}
 						aria-label={$t('chat.sendMessage')}
 						class="btn-primary composer-send flex h-[40px] w-[40px] items-center justify-center rounded-[10px] shadow-sm disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-elevated disabled:text-icon-muted animate-in"
 					>

@@ -396,6 +396,8 @@ export interface AtlasJobCard {
 		stage: string;
 		details: {
 			queries: string[];
+			roundKind?: "initial" | "gap-fill";
+			focus?: string[];
 		};
 	};
 	sourceCounts: {

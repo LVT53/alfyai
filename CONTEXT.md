@@ -2340,31 +2340,63 @@ AlfyAI can produce durable, navigable research reports called Atlases through a 
 ### Language
 
 **Atlas** / **Atlasz**:
-A durable, navigable research report artifact produced by an **Atlas Turn**. It is a self-contained document with sidebar navigation, source chips/source attribution, images, and honesty markers, available as a styled HTML website, a PDF, and a Markdown file. It is stored and previewed through the existing file-production and document-workspace infrastructure, not as a chat message.
+A durable, navigable research report artifact produced by an **Atlas Turn**. It is a self-contained document with sidebar navigation, deterministic source chips/source attribution, images, and evidence-derived **Atlas Basis Markers**, available as a styled HTML website, a PDF, and a Markdown file. It is stored and previewed through the existing file-production and document-workspace infrastructure, not as a chat message.
 _Avoid_: deep research report, research card, research job output, research artifact
 
 **Atlas Turn**:
-A **Normal Chat Turn** that produces an **Atlas** through an enforced multi-stage research pipeline. Unlike a regular turn where the model decides its own tool flow, an Atlas Turn runs a fixed stage sequence — decompose, search, curate, synthesize, integrate, assemble, audit, then deterministic rendering — with the server controlling the order and the model filling in content within each model stage. Its kickoff assistant message flows through **Normal Chat Turn Completion** with memory and Honcho enrichment explicitly skipped; the background completion records usage, source counts, file-production links, and generated-file ids on the Atlas job. It is not a parallel background subsystem and does not create a second completion turn.
+A **Normal Chat Turn** that produces an **Atlas** through an enforced multi-stage research pipeline. Unlike a regular turn where the model decides its own tool flow, an Atlas Turn runs a fixed server-controlled sequence. V1 runs decompose, search, curate, synthesize, integrate, assemble, audit, then deterministic rendering; future multi-round Atlas work may insert bounded coverage review and gap-fill rounds, but the model still fills in content within server-owned stages rather than owning orchestration. Its kickoff assistant message flows through **Normal Chat Turn Completion** with memory and Honcho enrichment explicitly skipped; the background completion records usage, source counts, file-production links, and generated-file ids on the Atlas job. It is not a parallel background subsystem and does not create a second completion turn.
 _Avoid_: deep research job, research workflow, background research task, research mode
 
 **Atlas Profile**:
-The depth and duration setting for an **Atlas Turn**. Three profiles exist: **Overview** (Áttekintés), **In-Depth** (Részletes), and **Exhaustive** (Kimerítő). In v1 a profile controls search-query breadth, accepted web-source cap, stage output budget, and prompt posture; quality gates are non-negotiable regardless of profile — even Overview cannot ship unsupported certainty.
+The depth and duration setting for an **Atlas Turn**. Three profiles exist: **Overview** (Áttekintés), **In-Depth** (Részletes), and **Exhaustive** (Kimerítő). In v1 a profile controls search-query breadth, accepted web-source cap, stage output budget, and prompt posture; future profiles may also cap gap-fill rounds and claim-basis density. A profile changes budgets and posture, not the Atlas architecture, and quality gates are non-negotiable regardless of profile — even Overview cannot ship unsupported certainty.
 _Avoid_: research depth, research mode, depth level, research tier
 
 **Atlas Quality Gate**:
-A non-negotiable check within the **Atlas Turn** pipeline that prevents unsupported certainty from shipping silently. If the gate requests retry, the pipeline performs one audit-driven revision pass before final rendering. If quality limits are exhausted but the source basis and rendering/storage can still produce a trustworthy artifact, the Atlas ships with prominent Limitations and honesty markers rather than unsupported certainty. A critical audit failure that means no trustworthy artifact can be produced, such as zero accepted sources, fails the job with an explicit reason instead of producing a report. This replaces the old Deep Research plan-approval gate: instead of checking a prediction upfront, it checks the actual output.
+A non-negotiable check within the **Atlas Turn** pipeline that prevents unsupported certainty from shipping silently. If the gate requests retry, the pipeline performs one audit-driven revision pass before final rendering. If quality limits are exhausted but the source basis and rendering/storage can still produce a trustworthy artifact, the Atlas ships with prominent Limitations and evidence-derived **Atlas Basis Markers** rather than unsupported certainty. A critical audit failure that means no trustworthy artifact can be produced, such as zero accepted sources, fails the job with an explicit reason instead of producing a report. This replaces the old Deep Research plan-approval gate: instead of checking a prediction upfront, it checks the actual output.
 _Avoid_: plan approval, research checkpoint, pass checkpoint, coverage gate
 
 **Atlas Honesty Marker**:
-A visible severity-coded indicator in an **Atlas** showing where the audit found source gaps, contradictions, language drift, or other verification concerns. Each marker includes a compact reasoning sentence explaining why the audit arrived at its verdict. Honesty markers are derived from the **Atlas Basis** verification step, not from model self-assessment.
+A v1 visible severity-coded indicator in an **Atlas** showing where the audit found source gaps, contradictions, language drift, or other verification concerns. Honesty Markers are derived from the **Atlas Basis** verification step, not from model self-assessment. They are superseded by **Atlas Basis Markers** in the planned claim-basis architecture: audit concerns should become unsupported or partially supported Basis Markers plus Limitations text, not a second competing marker system or a separate final report section.
 _Avoid_: confidence badge, citation verdict, audit label, quality score
 
 **Atlas Basis**:
-The provenance contract for factual output in an **Atlas**: the assembled report is audited against the accepted source pool, search limitations, and local-source set before rendering. V1 stores compact audit markers and source metadata rather than a separate per-field evidence database. It is part of the output contract, not decorative metadata.
+The provenance contract for factual output in an **Atlas**: the assembled report is audited against the accepted source pool, search limitations, and local-source set before rendering. V1 stores compact audit markers and source metadata rather than a separate per-field evidence database. Future Atlas work may refine the same contract into **Atlas Claim Basis** objects for individual factual claims or dense factual passages. It is part of the output contract, not decorative metadata.
 _Avoid_: citation list, evidence appendix, source ledger, audit trail
 
+**Atlas Evidence Pack**:
+A compact, structured evidence unit created from accepted **Atlas Web Sources** and **Atlas Local Sources** before final synthesis. An Evidence Pack groups what a source or evidence cluster supports, the relevant excerpt or summary, source authority, conflicts or limitations, and the report facet it helps cover. It is the model-facing memory for later Atlas stages and rounds; it is not a second persistence system or a raw search dump.
+_Avoid_: evidence database, raw source pile, search dump, vector memory, citation pile
+
+**Atlas Coverage Review**:
+A bounded review inside one **Atlas Turn** where Atlas compares the intended report questions or outline against the current **Atlas Evidence Packs** and identifies high-value missing evidence. The model may propose gaps and concrete search targets, but the server decides whether a profile still allows another **Atlas Gap-Fill Round**.
+_Avoid_: plan approval, autonomous planning loop, model-owned continuation, self-reflection loop
+
+**Atlas Gap-Fill Round**:
+A bounded adaptive **Atlas Research Round** that attempts to repair important coverage gaps before final synthesis. The model identifies missing angles and proposes targeted search needs, while the server controls the maximum number of rounds, search budgets, source curation, and stop conditions. A gap-fill round must not become an open-ended ReAct loop, a separate Atlas Turn, or a reason to make the user launch several Atlas jobs for one intended report.
+_Avoid_: agent loop, ReAct research turn, infinite research, second Atlas job, manual follow-up job
+
+**Atlas Claim Basis**:
+A fine-grained support object for an individual factual claim, paragraph, or tightly scoped report section. It should expose cited evidence, a compact support rationale, and exactly one support level: supported, partial, or unsupported. Thin, stale, contested, and ambiguous evidence should fold into partial or unsupported depending on severity; a hallucinated fact or made-up logical connection is unsupported. Adjacent factual claims may share one Claim Basis when they depend on the same logical support rationale, but marker placement follows claim content rather than paragraph length. A large paragraph with several distinct factual claims may need several Claim Basis objects, including mid-sentence markers when a single important fact needs its own basis. It is derived from accepted evidence and **Atlas Basis** checks, not from hidden chain-of-thought or model self-confidence.
+_Avoid_: confidence marker, model certainty badge, chain-of-thought tooltip, citation-only badge
+
+**Atlas Basis Marker**:
+The compact report UI affordance that exposes **Atlas Basis** details in the report body or near a report section. It is the future umbrella marker surface for both ordinary **Atlas Claim Basis** support and audit-concern states that v1 calls **Atlas Honesty Markers**. It has exactly three visual states: supported, partial, and unsupported, using the existing success/warning/danger palette. The default marker is color-only: a small colored dot/blob/swatch with no icon and no visible text, since source favicons already carry icon weight in the report. Hover, focus, or tap reveals a compact panel whose first line is exactly "Supported claim", "Partially supported claim", or "Unsupported claim", and whose second line is a single compact source-based support rationale.
+_Avoid_: confidence pill, inline text badge, bulky marker, always-visible rationale, decorative citation icon
+
+**Atlas Source Projection**:
+The deterministic Sources section and source-chip rendering generated from accepted **Atlas Web Sources**, **Atlas Local Sources**, and structured source/basis metadata. The model may emit source rationale and desired claim/source associations as structured data for Atlas to validate and render, but it must not write its own Markdown Sources section above or beside the canonical Sources section.
+_Avoid_: model-authored sources section, duplicate sources section, prose bibliography, freeform citation appendix
+
+**Atlas Report Opening**:
+The deterministic opening structure of an **Atlas**. The model-generated report title is the canonical Atlas title and appears once in the app-owned report chrome/header. The model must not emit a second title, subtitle, or alternate H1/H2 immediately below it. The first accented content section after the app-owned title should be the Executive Summary. A query-derived or job-derived title is only a fallback when no valid model-generated title exists.
+_Avoid_: duplicate report title, model-authored title block, secondary title, alternate title, decorative subtitle heading
+
+**Atlas Generated Title**:
+The single model-generated title for an **Atlas**, produced as structured report metadata rather than as a body heading. Atlas uses it for the report chrome/header, file label, and generated-document title. If the model also emits the same or alternate title in the report body, that body title is removed so the content begins with Executive Summary.
+_Avoid_: query-derived title, truncated prompt title, body heading title, title reconciliation, competing report title
+
 **Atlas Research Round**:
-The durable checkpoint unit for an **Atlas Turn**. V1 writes one completed round checkpoint after audit and before deterministic rendering, containing the curated source pool, compressed findings, usage, quality diagnostics, and document-source summary. Future multi-round expansion should keep this checkpoint vocabulary rather than adding stage-local persistence.
+The durable checkpoint unit for an **Atlas Turn**. V1 writes one completed round checkpoint after audit and before deterministic rendering, containing the curated source pool, compressed findings, usage, quality diagnostics, and document-source summary. Future multi-round expansion should keep this vocabulary for initial and gap-fill rounds rather than adding stage-local persistence or treating each gap-fill round as a separate Atlas Turn.
 _Avoid_: research pass, workflow pass, iteration, cycle
 
 **Atlas Continue**:
@@ -2412,7 +2444,15 @@ _Avoid_: research notification, Atlas email alert, separate notification center
 - An **Atlas** is produced by an **Atlas Turn**, which is a special kind of **Normal Chat Turn**.
 - An **Atlas Turn** uses **Normal Chat Turn Completion** for its kickoff assistant message and persists background completion state on the Atlas job. It does not bypass conversation persistence or generated-file linking, but it does not create a second analytics/task-state completion event. The generated Atlas content is assistant prose and is not automatically admitted to durable memory.
 - An **Atlas Profile** changes search breadth, accepted-source cap, stage output budget, and prompt posture, but **Atlas Quality Gates** are non-negotiable regardless of profile.
-- **Atlas Honesty Markers** are derived from the **Atlas Basis** verification, not from model self-assessment.
+- **Atlas Honesty Markers** are the v1 audit-concern marker concept. The claim-basis architecture should supersede them with **Atlas Basis Markers** and should remove the separate final Honesty Markers report section.
+- **Atlas Claim Basis** is the fine-grained future extension of **Atlas Basis** for ordinary factual claims.
+- **Atlas Basis Markers** are the preferred future marker surface for both ordinary claim support and audit-concern states. **Atlas Honesty Marker** remains the v1/audit-domain term and should fold into Basis Marker rendering rather than become a parallel UI system.
+- **Atlas Basis Markers** use only three support states: supported, partial, and unsupported. They are placed by logical claim content, not by paragraph length alone.
+- **Atlas Evidence Packs** are the bridge between curation and synthesis. They give later stages structured, source-grounded material without creating a parallel evidence database.
+- **Atlas Source Projection** owns the rendered Sources section. Model-authored Sources sections are invalid output and should be replaced by deterministic source chips/sections built from accepted sources and structured metadata.
+- **Atlas Generated Title** is the canonical report title. **Atlas Report Opening** renders it once through app-owned chrome/header, and model-authored content should begin with Executive Summary rather than a second title block.
+- **Atlas Coverage Review** and **Atlas Gap-Fill Rounds** are bounded adaptive work inside one **Atlas Turn**. The model may judge what is missing; the server owns whether another round may run.
+- **Atlas Profiles** may cap the number of **Atlas Gap-Fill Rounds** differently, but they must not introduce different execution graphs. Overview, In-Depth, and Exhaustive remain the same Atlas architecture with different budgets and posture.
 - An **Atlas** can be continued (**Atlas Continue**), branched (**Atlas Fork**), or refreshed (**Atlas Revise**) — each creates a new **Atlas Turn** with different seeding.
 - **Atlas Continue** and **Atlas Revise** produce new versions in the same document family; **Atlas Fork** creates a new document family.
 - An **Atlas Turn** persists an **Atlas Research Round** checkpoint after audit and before rendering; future multi-round expansion should use the same checkpoint vocabulary.
@@ -2422,7 +2462,7 @@ _Avoid_: research notification, Atlas email alert, separate notification center
 - The **Atlas Concurrent Limit** allows one active Atlas per user and a global admin-configurable limit. Excess jobs queue, they are not rejected.
 - An **Atlas** draws on both **Atlas Web Sources** (SearXNG) and **Atlas Local Sources** (explicit linked sources, composer attachments, active working-set documents, and parent Atlas seed sources). Memory is background context, not a citable source.
 - An **Atlas Completion Notice** fires through three layers: on-page progress polling, sidebar badge on conversation list refresh, and browser push notification when the user has left AlfyAI.
-- An **Atlas** ships a full report when it has a trustworthy source basis, even when evidence is thin. The **Limitations** section and **Atlas Honesty Markers** communicate evidence quality honestly. A critical quality-gate failure such as zero accepted sources fails the Atlas Turn instead of shipping unsupported certainty.
+- An **Atlas** ships a full report when it has a trustworthy source basis, even when evidence is thin. The **Limitations** section and **Atlas Basis Markers** communicate evidence quality honestly. A critical quality-gate failure such as zero accepted sources fails the Atlas Turn instead of shipping unsupported certainty.
 
 ### Example dialogue
 
@@ -2436,14 +2476,38 @@ _Avoid_: research notification, Atlas email alert, separate notification center
 > **Domain expert:** "No. The pipeline just runs. The quality gates replace plan approval — they check the actual output, not a prediction. Users rubber-stamped plans anyway."
 >
 > **Dev:** "If two sources contradict each other, should the Atlas pick one?"
-> **Domain expert:** "No. It should mark the conflict with an Atlas Honesty Marker and explain it in the Limitations section. The Atlas Basis for that field would show both sources and a low confidence."
+> **Domain expert:** "No. It should mark the conflict with a partial or unsupported Atlas Basis Marker and explain it in the Limitations section. The Atlas Basis for that claim should show both sources and the compact support rationale."
 >
 > **Dev:** "Is an Atlas a chat message or a file?"
 > **Domain expert:** "It's a file. A durable, navigable report artifact — HTML, PDF, and Markdown. It appears as a file-production card in the chat and opens in the document workspace."
+>
+> **Dev:** "Should gap fill be deterministic so production is predictable?"
+> **Domain expert:** "The orchestration should be deterministic; the gap judgment should be adaptive. The model identifies missing angles and search targets, while Atlas limits how many rounds can run and how sources are curated."
+>
+> **Dev:** "If one gap-fill round is not enough, should the user run another Atlas manually?"
+> **Domain expert:** "No. Profiles may allow bounded gap-fill rounds inside the same Atlas Turn. When the cap is exhausted, Atlas ships honest limitations rather than turning one report request into several user-managed jobs."
+>
+> **Dev:** "If every factual section needs support markers, should they be visible text badges after every sentence?"
+> **Domain expert:** "No. Use compact Atlas Basis Markers. They can be textless in the reading flow, with support rationale and evidence available on hover, focus, or tap."
+>
+> **Dev:** "Can the model add a Sources section before the deterministic backend Sources section?"
+> **Domain expert:** "No. The model may emit structured source rationale and claim/source associations, but Atlas Source Projection renders the canonical Sources section deterministically."
+>
+> **Dev:** "Should the model repeat the report title below the app-owned title?"
+> **Domain expert:** "No. Atlas Report Opening owns the title. The first accented content section should be Executive Summary."
+>
+> **Dev:** "What if the query-derived job title is truncated?"
+> **Domain expert:** "Use the model-generated Atlas title as the canonical title. Query-derived titles are fallback labels, not the final report title."
 
 ## Flagged ambiguities
 
 - "canonical" was a term from the deleted Deep Research subsystem. It is historical and should not be used for Atlas or any current feature.
 - "finished chat" and "Report Boundary" were concepts from the deleted Deep Research subsystem (a sealed conversation after a research report). They are historical — Atlas does not seal conversations.
 - "research" in AlfyAI now refers to the live `research_web` Normal Chat tool (single-turn web search) unless prefixed with "Atlas" — an **Atlas** is the durable report, not a search result.
-- "report" without qualification could mean any generated file; an **Atlas** is a specific kind of research report with navigation, citations, and honesty markers.
+- "report" without qualification could mean any generated file; an **Atlas** is a specific kind of research report with navigation, deterministic source attribution, and evidence-derived Basis Markers.
+- "multi-turn Atlas pipeline" is ambiguous. Prefer **multi-round Atlas Turn** when one user kickoff owns several **Atlas Research Rounds** inside the same **Atlas Turn**; reserve "multiple Atlas Turns" for explicit lifecycle actions such as **Atlas Continue**, **Atlas Fork**, and **Atlas Revise**.
+- "confidence marker" is ambiguous in Atlas language. Use **Atlas Basis Marker** for the future compact marker UI surface. Use **Atlas Honesty Marker** only when referring specifically to v1 audit-derived concern data or the current concern-marker behavior. Both must stay evidence-derived rather than model self-assessment.
+- "deterministic gap fill" is ambiguous. Prefer **bounded adaptive gap-fill**: adaptive LLM judgment for missing evidence, deterministic server orchestration for round count, search budgets, curation, and stop conditions.
+- "Sources section" in Atlas means the deterministic **Atlas Source Projection**, not a model-authored Markdown section.
+- "report title" in Atlas means the **Atlas Generated Title** rendered once by **Atlas Report Opening**, not a query-derived fallback label or a model-authored duplicate body heading.
+- "duplicate title cleanup" should mean removing title-like body blocks from the opening region after the generated title has been projected into app-owned chrome, not evaluating competing title quality.

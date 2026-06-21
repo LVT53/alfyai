@@ -153,7 +153,8 @@ export async function runAtlasModelStage(
 		modelSelection: input.modelSelection,
 		messages: [{ role: "user", content: input.prompt }],
 		system: `${input.system}\n\nAtlas stage: ${input.stage}. Profile: ${input.profile}.`,
-		maxOutputTokens: getAtlasProfileRuntimeConfig(input.profile).maxOutputTokens,
+		maxOutputTokens: getAtlasProfileRuntimeConfig(input.profile)
+			.maxOutputTokens,
 	});
 	const usage = normalizeUsage(result.usage);
 	const costUsdMicros = await calculateStageCostUsdMicros({

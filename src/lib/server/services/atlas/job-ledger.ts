@@ -7,7 +7,10 @@ import {
 	generateAtlasJobTitle,
 	hashAtlasQuery,
 } from "./config";
-import { mapAtlasJobRowToCard } from "./read-model";
+import {
+	mapAtlasJobRowToCard,
+	sanitizeAtlasJobProgressDetails,
+} from "./read-model";
 import type {
 	AtlasAction,
 	AtlasJobCard,
@@ -66,6 +69,10 @@ export interface HeartbeatAtlasJobInput extends OwnedAtlasJobInput {
 	stage?: string;
 	progressPercent?: number;
 	progressDetails?: AtlasJobProgressDetails;
+}
+
+export interface ApplyAtlasGeneratedTitleInput extends OwnedAtlasJobInput {
+	title: string;
 }
 
 export interface CancelAtlasJobInput {
@@ -391,10 +398,16 @@ export async function heartbeatAtlasJob(
 		.update(atlasJobs)
 		.set({
 			heartbeatAt: now,
-			stage: input.stage,
-			progressPercent: input.progressPercent,
-			...(input.progressDetails
-				? { progressDetailsJson: JSON.stringify(input.progressDetails) }
+			...(input.stage !== undefined ? { stage: input.stage } : {}),
+			...(input.progressPercent !== undefined
+				? { progressPercent: input.progressPercent }
+				: {}),
+			...(input.progressDetails !== undefined
+				? {
+						progressDetailsJson: JSON.stringify(
+							sanitizeAtlasJobProgressDetails(input.progressDetails),
+						),
+					}
 				: {}),
 			updatedAt: now,
 		})
@@ -406,6 +419,35 @@ export async function heartbeatAtlasJob(
 			),
 		);
 	return result.changes > 0;
+}
+
+export async function applyAtlasGeneratedTitle(
+	input: ApplyAtlasGeneratedTitleInput,
+): Promise<AtlasJobCard | null> {
+	const title = input.title.replace(/\s+/g, " ").trim();
+	if (!title) return null;
+	const now = input.now ?? new Date();
+	const result = await db
+		.update(atlasJobs)
+		.set({
+			title,
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(atlasJobs.id, input.jobId),
+				eq(atlasJobs.workerId, input.workerId),
+				eq(atlasJobs.status, "running"),
+			),
+		);
+	if (result.changes <= 0) return null;
+
+	const [updated] = await db
+		.select()
+		.from(atlasJobs)
+		.where(eq(atlasJobs.id, input.jobId))
+		.limit(1);
+	return updated ? mapAtlasJobRowToCard(updated) : null;
 }
 
 export async function cancelAtlasJob(
@@ -574,14 +616,14 @@ export async function completeAtlasJob(
 			workerId: null,
 			heartbeatAt: now,
 			completedAt: now,
-			inputTokens: input.inputTokens,
-			outputTokens: input.outputTokens,
-			totalTokens: input.totalTokens,
-			costUsdMicros: input.costUsdMicros,
-			localSourceCount: input.localSourceCount,
-			webSourceCount: input.webSourceCount,
-			acceptedSourceCount: input.acceptedSourceCount,
-			rejectedSourceCount: input.rejectedSourceCount,
+			inputTokens: input.inputTokens ?? 0,
+			outputTokens: input.outputTokens ?? 0,
+			totalTokens: input.totalTokens ?? 0,
+			costUsdMicros: input.costUsdMicros ?? 0,
+			localSourceCount: input.localSourceCount ?? 0,
+			webSourceCount: input.webSourceCount ?? 0,
+			acceptedSourceCount: input.acceptedSourceCount ?? 0,
+			rejectedSourceCount: input.rejectedSourceCount ?? 0,
 			fileProductionJobId: input.fileProductionJobId ?? null,
 			htmlChatGeneratedFileId: input.htmlChatGeneratedFileId ?? null,
 			pdfChatGeneratedFileId: input.pdfChatGeneratedFileId ?? null,

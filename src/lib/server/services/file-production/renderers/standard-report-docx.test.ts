@@ -44,6 +44,25 @@ describe("AlfyAI Standard Report DOCX renderer", () => {
 					altText: "DOCX image fallback",
 					caption: "Image caption",
 				},
+				{
+					type: "paragraph",
+					text: "Revenue increased by 12%.",
+					basisMarkers: [
+						{
+							type: "basisMarker",
+							id: "basis-partial",
+							support: "partial",
+							anchorText: "Revenue increased by 12%",
+							rationale: "Evidence is directional but incomplete.",
+						},
+					],
+				},
+				{
+					type: "basisMarker",
+					id: "basis-unsupported",
+					support: "unsupported",
+					rationale: "No accepted source supports the fallback claim.",
+				},
 			],
 		});
 		expect(validation.ok).toBe(true);
@@ -68,5 +87,11 @@ describe("AlfyAI Standard Report DOCX renderer", () => {
 		expect(documentXml).toContain("DOCX chart fallback");
 		expect(documentXml).toContain("Chart fallback text.");
 		expect(documentXml).toContain("DOCX image fallback");
+		expect(documentXml).toContain("Basis: Partially supported claim - ");
+		expect(documentXml).toContain("Evidence is directional but incomplete.");
+		expect(documentXml).toContain("Basis: Unsupported claim - ");
+		expect(documentXml).toContain(
+			"No accepted source supports the fallback claim.",
+		);
 	});
 });

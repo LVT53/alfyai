@@ -16,7 +16,7 @@ const settingsDict = {
 		"admin.atlas": "Atlas",
 		"admin.atlasAuditModel": "Atlas Audit Model",
 		"admin.atlasAuditModelDescription":
-			"Reviews the assembled Atlas against accepted sources and produces honesty markers.",
+			"Reviews the assembled Atlas against accepted sources and produces Claim Basis data for Basis Markers.",
 		"admin.atlasDescription":
 			"Long-running Atlas research turns, source search, quality gates, and completion worker settings.",
 		"admin.atlasGlobalActiveLimit": "Global Active Atlas Limit",
@@ -700,7 +700,7 @@ const settingsDict = {
 		"admin.atlas": "Atlas",
 		"admin.atlasAuditModel": "Atlas ellenőrző modell",
 		"admin.atlasAuditModelDescription":
-			"Ellenőrzi az összeállított Atlast az elfogadott források alapján, és őszinteségi jelölőket készít.",
+			"Ellenőrzi az összeállított Atlast az elfogadott források alapján, és állításalapú alátámasztási adatokat készít az alátámasztási jelölőkhöz.",
 		"admin.atlasDescription":
 			"Hosszú futású Atlas kutatási körök, forráskeresés, minőségi kapuk és befejező worker beállításai.",
 		"admin.atlasGlobalActiveLimit": "Globális aktív Atlas korlát",

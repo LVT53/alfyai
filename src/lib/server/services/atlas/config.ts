@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import type { AtlasAction, AtlasProfile } from "./types";
+import {
+	ATLAS_PIPELINE_STAGES,
+	type AtlasAction,
+	type AtlasPipelineStage,
+	type AtlasProfile,
+} from "./types";
 
 export const ATLAS_IDEMPOTENCY_VERSION = "atlas:v1";
 export const DEFAULT_ATLAS_JOB_TITLE = "Research request";
@@ -20,9 +25,19 @@ export interface AtlasProfileRuntimeConfig {
 	maxImageCandidates: number;
 	maxRenderedImages: number;
 	maxOutputTokens: number;
+	architecture: AtlasProfileArchitectureConfig;
 	promptPosture: {
 		en: string;
 		hu: string;
+	};
+}
+
+export interface AtlasProfileArchitectureConfig {
+	stageOrder: readonly AtlasPipelineStage[];
+	gapFillCaps: {
+		maxRounds: number;
+		maxSearchQueries: number;
+		maxAcceptedWebSources: number;
 	};
 }
 
@@ -36,6 +51,14 @@ const ATLAS_PROFILE_RUNTIME_CONFIG: Record<
 		maxImageCandidates: 3,
 		maxRenderedImages: 2,
 		maxOutputTokens: 2400,
+		architecture: {
+			stageOrder: ATLAS_PIPELINE_STAGES,
+			gapFillCaps: {
+				maxRounds: 0,
+				maxSearchQueries: 1,
+				maxAcceptedWebSources: 2,
+			},
+		},
 		promptPosture: {
 			en: "Profile posture: Overview. Be concise, prioritize the strongest evidence, avoid unnecessary branches, and produce a focused report with clear limitations.",
 			hu: "Profilhangolás: Áttekintő. Légy tömör, a legerősebb bizonyítékokat részesítsd előnyben, kerüld a szükségtelen mellékszálakat, és fókuszált jelentést írj világos korlátokkal.",
@@ -47,6 +70,14 @@ const ATLAS_PROFILE_RUNTIME_CONFIG: Record<
 		maxImageCandidates: 6,
 		maxRenderedImages: 3,
 		maxOutputTokens: 5200,
+		architecture: {
+			stageOrder: ATLAS_PIPELINE_STAGES,
+			gapFillCaps: {
+				maxRounds: 1,
+				maxSearchQueries: 2,
+				maxAcceptedWebSources: 4,
+			},
+		},
 		promptPosture: {
 			en: "Profile posture: In-Depth. Balance breadth and depth, compare the main evidence clusters, preserve important tradeoffs, and write a moderately detailed report.",
 			hu: "Profilhangolás: Részletes. Egyensúlyozd a szélességet és mélységet, hasonlítsd össze a fő bizonyítékcsoportokat, őrizd meg a fontos kompromisszumokat, és közepesen részletes jelentést írj.",
@@ -58,6 +89,14 @@ const ATLAS_PROFILE_RUNTIME_CONFIG: Record<
 		maxImageCandidates: 10,
 		maxRenderedImages: 5,
 		maxOutputTokens: 9000,
+		architecture: {
+			stageOrder: ATLAS_PIPELINE_STAGES,
+			gapFillCaps: {
+				maxRounds: 2,
+				maxSearchQueries: 3,
+				maxAcceptedWebSources: 6,
+			},
+		},
 		promptPosture: {
 			en: "Profile posture: Exhaustive. Search broadly, preserve minority evidence and contradictions, cover edge cases, and write a comprehensive report without dropping uncertainty.",
 			hu: "Profilhangolás: Kimerítő. Keress szélesen, őrizd meg a kisebbségi bizonyítékokat és ellentmondásokat, térj ki a szélső esetekre, és írj átfogó jelentést a bizonytalanságok elhagyása nélkül.",

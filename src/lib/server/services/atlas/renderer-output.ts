@@ -1,8 +1,10 @@
 import { marked } from "marked";
 import type {
+	GeneratedDocumentBasisMarkerBlock,
 	GeneratedDocumentBlock,
 	GeneratedDocumentChartBlock,
 	GeneratedDocumentImageBlock,
+	GeneratedDocumentParagraphBasisMarker,
 	GeneratedDocumentScalar,
 	GeneratedDocumentSource,
 	GeneratedDocumentSourceChip,
@@ -12,7 +14,9 @@ import {
 	detectLanguage,
 	type SupportedLanguage,
 } from "$lib/server/services/language";
+import type { FileProductionJob } from "$lib/types";
 import type {
+	AtlasClaimBasis,
 	AtlasDocumentFamilyMetadata,
 	AtlasHonestyMarker,
 	AtlasImageCandidate,
@@ -32,6 +36,7 @@ export interface BuildAtlasDocumentSourceInput {
 	assembledMarkdown: string;
 	sources: AtlasReportSource[];
 	honestyMarkers: AtlasHonestyMarker[];
+	claimBasis?: AtlasClaimBasis[];
 	imageCandidates?: AtlasImageCandidate[];
 	maxRenderedImages?: number;
 	date?: string | null;
@@ -57,6 +62,9 @@ export interface RenderAtlasOutputsInput {
 		body: unknown;
 	}) => Promise<AtlasOutputIds>;
 }
+
+const ATLAS_OUTPUT_JOB_POLL_INTERVAL_MS = 250;
+const ATLAS_OUTPUT_JOB_POLL_TIMEOUT_MS = 30_000;
 
 function addSourceSection(
 	blocks: GeneratedDocumentSource["blocks"],
@@ -96,81 +104,39 @@ function sourceChipForAtlasSource(
 	};
 }
 
-function atlasChrome(input: {
-	language: SupportedLanguage;
-	severity?: AtlasHonestyMarker["severity"];
-}): {
+function atlasChrome(input: { language: SupportedLanguage }): {
 	keyTakeaway: string;
 	sources: string;
 	webSources: string;
 	librarySources: string;
-	honestyMarkers: string;
 	providedSourcesReasoning: string;
 	webSourcesReasoning: string;
 	librarySourcesReasoning: string;
 	reportDate: string;
-	confidenceLabel?: string;
 } {
 	if (input.language === "hu") {
-		const confidenceLabel =
-			input.severity === "critical"
-				? "Nem alátámasztott"
-				: input.severity === "warning"
-					? "Részben alátámasztott"
-					: input.severity === "info"
-						? "Alátámasztott"
-						: undefined;
 		return {
 			keyTakeaway: "Kulcsüzenet",
 			sources: "Források",
 			webSources: "Webes források",
 			librarySources: "Saját könyvtár",
-			honestyMarkers: "Őszinteségi jelölések",
 			providedSourcesReasoning: "A felhasználó adta meg",
 			webSourcesReasoning: "Az Atlas által elfogadott webes bizonyíték",
 			librarySourcesReasoning:
 				"Az Atlas által kiválasztott könyvtári bizonyíték",
 			reportDate: "Jelentés dátuma",
-			confidenceLabel,
 		};
 	}
-	const confidenceLabel =
-		input.severity === "critical"
-			? "Unsupported"
-			: input.severity === "warning"
-				? "Partially Supported"
-				: input.severity === "info"
-					? "Supported"
-					: undefined;
 	return {
 		keyTakeaway: "Key takeaway",
 		sources: "Sources",
 		webSources: "Web Sources",
 		librarySources: "Your Library",
-		honestyMarkers: "Honesty markers",
 		providedSourcesReasoning: "You provided these",
 		webSourcesReasoning: "Accepted web evidence gathered by Atlas",
 		librarySourcesReasoning: "Accepted library evidence selected by Atlas",
 		reportDate: "Report date",
-		confidenceLabel,
 	};
-}
-
-function confidenceLabelForSeverity(
-	severity: AtlasHonestyMarker["severity"],
-	language: SupportedLanguage,
-): string {
-	return atlasChrome({ language, severity }).confidenceLabel ?? "Supported";
-}
-
-function confidenceLabelForMarker(
-	marker: AtlasHonestyMarker,
-	language: SupportedLanguage,
-): string {
-	if (marker.code === "atlas_audit_passed") {
-		return language === "hu" ? "Audit ellenőrizve" : "Audit checked";
-	}
-	return confidenceLabelForSeverity(marker.severity, language);
 }
 
 function cleanText(value: unknown): string | null {
@@ -559,41 +525,239 @@ function normalizedHeading(text: string): string {
 		.normalize("NFD")
 		.replace(/[\u0300-\u036f]/g, "")
 		.trim()
-		.toLowerCase();
+		.toLowerCase()
+		.replace(/\s+/g, " ");
+}
+
+function isExecutiveSummaryHeading(
+	block: GeneratedDocumentBlock,
+	language: SupportedLanguage,
+): boolean {
+	if (block.type !== "heading") return false;
+	const normalized = normalizedHeading(block.text);
+	if (language === "hu") {
+		return (
+			normalized === "vezetoi osszefoglalo" || normalized === "osszefoglalo"
+		);
+	}
+	return normalized === "executive summary" || normalized === "summary";
+}
+
+function textBlockText(block: GeneratedDocumentBlock): string | null {
+	if (block.type === "heading") return block.text;
+	if (block.type === "paragraph" || block.type === "quote") return block.text;
+	if (block.type === "callout")
+		return `${block.title ?? ""} ${block.text}`.trim();
+	return null;
+}
+
+function sameNormalizedTitle(left: string, right: string): boolean {
+	return normalizedHeading(left) === normalizedHeading(right);
+}
+
+function isShortSubtitleLikeBlock(block: GeneratedDocumentBlock): boolean {
+	const text = textBlockText(block);
+	if (!text) return false;
+	return text.length <= 180 && !/[.!?]\s+\S/.test(text);
+}
+
+function removeOpeningTitleBlockCluster(
+	blocks: GeneratedDocumentSource["blocks"],
+	title: string,
+	language: SupportedLanguage,
+): void {
+	const executiveSummaryIndex = blocks.findIndex((block) =>
+		isExecutiveSummaryHeading(block, language),
+	);
+	if (executiveSummaryIndex > 0) {
+		const openingBlocks = blocks.slice(0, executiveSummaryIndex);
+		const startsWithTitleLikeHeading =
+			openingBlocks[0]?.type === "heading" && openingBlocks[0].level <= 2;
+		const repeatsTitle = openingBlocks.some((block) => {
+			const text = textBlockText(block);
+			return text ? sameNormalizedTitle(text, title) : false;
+		});
+		if (startsWithTitleLikeHeading || repeatsTitle) {
+			blocks.splice(0, executiveSummaryIndex);
+		}
+		return;
+	}
+
+	const firstBlock = blocks[0];
+	if (
+		firstBlock?.type !== "heading" ||
+		firstBlock.level > 2 ||
+		!sameNormalizedTitle(firstBlock.text, title)
+	) {
+		return;
+	}
+
+	let removeCount = 1;
+	while (
+		removeCount < blocks.length &&
+		blocks[removeCount]?.type !== "heading" &&
+		isShortSubtitleLikeBlock(blocks[removeCount])
+	) {
+		removeCount += 1;
+	}
+	blocks.splice(0, removeCount);
+}
+
+const SOURCE_APPENDIX_LABELS = new Set([
+	"sources",
+	"source list",
+	"sources cited",
+	"sources consulted",
+	"sources consulted by the model",
+	"sources used",
+	"web sources",
+	"your library",
+	"bibliography",
+	"references",
+	"reference list",
+	"works cited",
+	"citations",
+	"citation appendix",
+	"forrasok",
+	"forraslista",
+	"felhasznalt forrasok",
+	"webes forrasok",
+	"sajat konyvtar",
+	"hivatkozasok",
+	"hivatkozasi fuggelek",
+	"irodalomjegyzek",
+	"felhasznalt irodalom",
+]);
+
+function sourceAppendixLabel(text: string): string | null {
+	const normalized = text
+		.replace(/^(appendix|fuggelek)\s*[:.-]\s*/, "")
+		.replace(/[.:;]+$/g, "")
+		.trim();
+	return SOURCE_APPENDIX_LABELS.has(normalized) ? normalized : null;
 }
 
 function isSourcesHeading(text: string): boolean {
+	return sourceAppendixLabel(normalizedHeading(text)) !== null;
+}
+
+function isSourceAppendixIntroBlock(block: GeneratedDocumentBlock): boolean {
+	const text = textBlockText(block);
+	if (!text || text.length > 140) return false;
+	return sourceAppendixLabel(normalizedHeading(text)) !== null;
+}
+
+function sourceListItemLooksLikeSource(text: string): boolean {
 	const normalized = normalizedHeading(text);
 	return (
-		normalized === "sources" ||
-		normalized === "forrasok" ||
-		normalized === "web sources" ||
-		normalized === "webes forrasok" ||
-		normalized === "your library" ||
-		normalized === "sajat konyvtar"
+		/https?:\/\/|www\./i.test(text) ||
+		/\b[a-z0-9-]+\.(com|org|net|io|edu|gov|hu|eu|co|ai)\b/i.test(text) ||
+		/^(source|forras|reference|citation|cited source)\b/.test(normalized)
 	);
+}
+
+function listLooksLikeSourceAppendix(
+	block: GeneratedDocumentBlock,
+	requireEveryItem = false,
+): boolean {
+	if (block.type !== "list" || block.items.length === 0) return false;
+	const sourceLikeCount = block.items.filter(
+		sourceListItemLooksLikeSource,
+	).length;
+	return requireEveryItem
+		? sourceLikeCount === block.items.length
+		: sourceLikeCount > 0;
+}
+
+function terminalSourceAppendixContent(
+	blocks: GeneratedDocumentSource["blocks"],
+): boolean {
+	return blocks.some((block) => listLooksLikeSourceAppendix(block));
+}
+
+function tailHasNoHeading(blocks: GeneratedDocumentSource["blocks"]): boolean {
+	return blocks.every((block) => block.type !== "heading");
+}
+
+function terminalTailAfterSourceIntro(
+	blocks: GeneratedDocumentSource["blocks"],
+	index: number,
+): boolean {
+	const tail = blocks.slice(index + 1);
+	return (
+		tail.length > 0 &&
+		tailHasNoHeading(tail) &&
+		terminalSourceAppendixContent(tail)
+	);
+}
+
+function isStrictSourceAppendixTailBlock(
+	block: GeneratedDocumentBlock,
+): boolean {
+	return (
+		listLooksLikeSourceAppendix(block, true) ||
+		(block.type === "paragraph" && sourceListItemLooksLikeSource(block.text)) ||
+		block.type === "divider"
+	);
+}
+
+function terminalTailIsStrictSourceAppendix(
+	blocks: GeneratedDocumentSource["blocks"],
+	index: number,
+): boolean {
+	const tail = blocks.slice(index);
+	return tailHasNoHeading(tail) && tail.every(isStrictSourceAppendixTailBlock);
+}
+
+function removeTerminalModelAuthoredSourceAppendix(
+	blocks: GeneratedDocumentSource["blocks"],
+): void {
+	const introIndex = blocks.findIndex(
+		(block, index) =>
+			isSourceAppendixIntroBlock(block) &&
+			terminalTailAfterSourceIntro(blocks, index),
+	);
+	if (introIndex >= 0) {
+		blocks.splice(introIndex);
+		return;
+	}
+
+	const listIndex = blocks.findIndex(
+		(block, index) =>
+			listLooksLikeSourceAppendix(block, true) &&
+			terminalTailIsStrictSourceAppendix(blocks, index),
+	);
+	if (listIndex >= 0) {
+		blocks.splice(listIndex);
+	}
 }
 
 function removeModelAuthoredSourcesSections(
 	blocks: GeneratedDocumentSource["blocks"],
 ): void {
 	const retained: GeneratedDocumentSource["blocks"] = [];
-	let skippingSourcesSection = false;
+	let skippingSourceSectionLevel: 1 | 2 | 3 | null = null;
 
 	for (const block of blocks) {
-		if (block.type === "heading" && block.level <= 2) {
+		if (block.type === "heading") {
+			if (
+				skippingSourceSectionLevel !== null &&
+				block.level <= skippingSourceSectionLevel
+			) {
+				skippingSourceSectionLevel = null;
+			}
 			if (isSourcesHeading(block.text)) {
-				skippingSourcesSection = true;
+				skippingSourceSectionLevel = block.level;
 				continue;
 			}
-			skippingSourcesSection = false;
 		}
 
-		if (skippingSourcesSection) continue;
+		if (skippingSourceSectionLevel !== null) continue;
 		retained.push(block);
 	}
 
 	blocks.splice(0, blocks.length, ...retained);
+	removeTerminalModelAuthoredSourceAppendix(blocks);
 }
 
 function paragraphHasExplicitSourceCitation(text: string): boolean {
@@ -647,15 +811,197 @@ function addInlineSourceFallbacks(
 	}
 }
 
-function auditPassedMarker(language: SupportedLanguage): AtlasHonestyMarker {
+function cleanBasisKey(value: string | null | undefined): string | null {
+	const text = cleanText(value);
+	if (!text) return null;
+	const key = text.replace(/[^A-Za-z0-9_.-]+/g, "_").replace(/^_+|_+$/g, "");
+	return key || null;
+}
+
+function basisMarkerForClaim(
+	basis: AtlasClaimBasis,
+	index: number,
+): GeneratedDocumentBasisMarkerBlock {
+	const id = cleanBasisKey(basis.id) ?? `atlas_basis_${index + 1}`;
+	const auditCode = cleanBasisKey(basis.auditConcernCode);
 	return {
-		code: "atlas_audit_passed",
-		message:
-			language === "hu"
-				? "Az Atlas audit nem jelölt nem alátámasztott vagy egymásnak ellentmondó állítást az elfogadott bizonyítékok alapján."
-				: "Atlas audit did not flag unsupported or conflicting claims in the accepted evidence set.",
-		severity: "info",
+		type: "basisMarker",
+		id,
+		support: basis.supportLevel,
+		rationale: cleanText(basis.supportRationale) ?? basis.supportRationale,
+		...(auditCode ? { auditCode } : {}),
 	};
+}
+
+function paragraphMarkerForClaim(input: {
+	basis: AtlasClaimBasis;
+	index: number;
+	anchorText: string;
+	occurrence: number;
+}): GeneratedDocumentParagraphBasisMarker {
+	return {
+		...basisMarkerForClaim(input.basis, input.index),
+		anchorText: input.anchorText,
+		occurrence: input.occurrence,
+	};
+}
+
+function sectionMatchesLocator(
+	currentSection: string | null,
+	locatorSection: string | null,
+): boolean {
+	if (!locatorSection) return true;
+	return currentSection
+		? normalizedHeading(currentSection) === normalizedHeading(locatorSection)
+		: false;
+}
+
+function occurrenceForAnchor(
+	text: string,
+	anchorText: string,
+	start: number,
+): number {
+	let occurrence = 0;
+	let cursor = 0;
+	while (cursor < start) {
+		const found = text.indexOf(anchorText, cursor);
+		if (found < 0 || found >= start) break;
+		occurrence += 1;
+		cursor = found + anchorText.length;
+	}
+	return occurrence;
+}
+
+function findClaimAnchor(
+	text: string,
+	basis: AtlasClaimBasis,
+): { anchorText: string; occurrence: number } | null {
+	const candidates = [basis.locator.quote, basis.locator.claimText]
+		.map(cleanText)
+		.filter((candidate): candidate is string => Boolean(candidate));
+	for (const candidate of candidates) {
+		const found = text.indexOf(candidate);
+		if (found >= 0) {
+			return {
+				anchorText: candidate,
+				occurrence: occurrenceForAnchor(text, candidate, found),
+			};
+		}
+	}
+	return null;
+}
+
+function paragraphContexts(blocks: GeneratedDocumentSource["blocks"]): Array<{
+	blockIndex: number;
+	paragraphIndexInSection: number;
+	sectionTitle: string | null;
+	block: Extract<GeneratedDocumentBlock, { type: "paragraph" }>;
+}> {
+	const contexts: Array<{
+		blockIndex: number;
+		paragraphIndexInSection: number;
+		sectionTitle: string | null;
+		block: Extract<GeneratedDocumentBlock, { type: "paragraph" }>;
+	}> = [];
+	let sectionTitle: string | null = null;
+	let paragraphIndexInSection = 0;
+	for (const [blockIndex, block] of blocks.entries()) {
+		if (block.type === "heading" && block.level <= 2) {
+			sectionTitle = block.text;
+			paragraphIndexInSection = 0;
+			continue;
+		}
+		if (block.type !== "paragraph") continue;
+		contexts.push({
+			blockIndex,
+			paragraphIndexInSection,
+			sectionTitle,
+			block,
+		});
+		paragraphIndexInSection += 1;
+	}
+	return contexts;
+}
+
+function fallbackIndexForClaimBasis(
+	blocks: GeneratedDocumentSource["blocks"],
+	basis: AtlasClaimBasis,
+	contexts: ReturnType<typeof paragraphContexts>,
+): number {
+	const paragraphContext = contexts.find(
+		(context) =>
+			sectionMatchesLocator(context.sectionTitle, basis.locator.sectionTitle) &&
+			(basis.locator.paragraphIndex === null ||
+				context.paragraphIndexInSection === basis.locator.paragraphIndex),
+	);
+	if (paragraphContext) return paragraphContext.blockIndex + 1;
+	if (basis.locator.sectionTitle) {
+		const headingIndex = blocks.findIndex(
+			(block) =>
+				block.type === "heading" &&
+				normalizedHeading(block.text) ===
+					normalizedHeading(basis.locator.sectionTitle ?? ""),
+		);
+		if (headingIndex >= 0) return headingIndex + 1;
+	}
+	return executiveSummaryFallbackIndex(blocks);
+}
+
+function applyAtlasClaimBasisMarkers(
+	blocks: GeneratedDocumentSource["blocks"],
+	claimBasis: AtlasClaimBasis[] = [],
+): void {
+	if (claimBasis.length === 0) return;
+	const contexts = paragraphContexts(blocks);
+	const standaloneInsertions = new Map<
+		number,
+		GeneratedDocumentBasisMarkerBlock[]
+	>();
+
+	for (const [basisIndex, basis] of claimBasis.entries()) {
+		const candidates = contexts.filter(
+			(context) =>
+				sectionMatchesLocator(
+					context.sectionTitle,
+					basis.locator.sectionTitle,
+				) &&
+				(basis.locator.paragraphIndex === null ||
+					context.paragraphIndexInSection === basis.locator.paragraphIndex),
+		);
+		let anchored = false;
+		for (const context of candidates) {
+			const anchor = findClaimAnchor(context.block.text, basis);
+			if (!anchor) continue;
+			const marker = paragraphMarkerForClaim({
+				basis,
+				index: basisIndex,
+				anchorText: anchor.anchorText,
+				occurrence: anchor.occurrence,
+			});
+			blocks[context.blockIndex] = {
+				...context.block,
+				basisMarkers: [...(context.block.basisMarkers ?? []), marker],
+			};
+			anchored = true;
+			break;
+		}
+		if (anchored) continue;
+
+		const insertionIndex = fallbackIndexForClaimBasis(blocks, basis, contexts);
+		const existing = standaloneInsertions.get(insertionIndex) ?? [];
+		existing.push(basisMarkerForClaim(basis, basisIndex));
+		standaloneInsertions.set(insertionIndex, existing);
+	}
+
+	if (standaloneInsertions.size === 0) return;
+	const converted: GeneratedDocumentSource["blocks"] = [];
+	for (let index = 0; index <= blocks.length; index += 1) {
+		const atIndex = standaloneInsertions.get(index);
+		if (atIndex) converted.push(...atIndex);
+		const block = blocks[index];
+		if (block) converted.push(block);
+	}
+	blocks.splice(0, blocks.length, ...converted);
 }
 
 function imageUrlsInBlocks(
@@ -780,7 +1126,11 @@ function insertionIndexForImageCandidate(
 	let bestIndex = -1;
 	let bestScore = 0;
 	for (const [index, block] of blocks.entries()) {
-		if (block.type === "sourceChips" || block.type === "confidenceMarker")
+		if (
+			block.type === "sourceChips" ||
+			block.type === "confidenceMarker" ||
+			block.type === "basisMarker"
+		)
 			continue;
 		const score = blockMatchScore(block, tokens);
 		if (score > bestScore) {
@@ -849,6 +1199,7 @@ export function buildAtlasDocumentSource(
 		detectLanguage(`${input.title}\n${input.assembledMarkdown}`);
 	const blocks: GeneratedDocumentSource["blocks"] = [];
 	appendMarkdownBlocks(blocks, input.assembledMarkdown);
+	removeOpeningTitleBlockCluster(blocks, input.title, language);
 	removeModelAuthoredSourcesSections(blocks);
 	convertAuthoredTakeawaysToCallouts(blocks, language);
 	addInlineSourceFallbacks(blocks, input.sources, language);
@@ -857,6 +1208,7 @@ export function buildAtlasDocumentSource(
 		input.imageCandidates,
 		input.maxRenderedImages,
 	);
+	applyAtlasClaimBasisMarkers(blocks, input.claimBasis ?? []);
 
 	const librarySources = input.sources.filter((source) => !source.url);
 	const webSources = input.sources.filter((source) => Boolean(source.url));
@@ -866,27 +1218,6 @@ export function buildAtlasDocumentSource(
 	}
 	addSourceSection(blocks, chrome.webSources, webSources, language);
 	addSourceSection(blocks, chrome.librarySources, librarySources, language);
-
-	const honestyMarkers =
-		input.honestyMarkers.length > 0
-			? input.honestyMarkers
-			: [auditPassedMarker(language)];
-	if (honestyMarkers.length > 0) {
-		blocks.push({
-			type: "heading",
-			level: 2,
-			text: chrome.honestyMarkers,
-		});
-		for (const marker of honestyMarkers) {
-			blocks.push({
-				type: "confidenceMarker",
-				code: marker.code,
-				label: confidenceLabelForMarker(marker, language),
-				severity: marker.severity,
-				message: marker.message,
-			});
-		}
-	}
 
 	return {
 		version: 1,
@@ -918,6 +1249,63 @@ function atlasDocumentIntent(input: {
 		.join("; ");
 }
 
+type ListConversationFileProductionJobs = (
+	userId: string,
+	conversationId: string,
+) => Promise<FileProductionJob[]>;
+
+function isTerminalFileProductionJobStatus(
+	status: FileProductionJob["status"],
+): boolean {
+	return (
+		status === "succeeded" || status === "failed" || status === "cancelled"
+	);
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function findConversationFileProductionJob(input: {
+	userId: string;
+	conversationId: string;
+	jobId: string;
+	listConversationFileProductionJobs: ListConversationFileProductionJobs;
+}): Promise<FileProductionJob | null> {
+	const jobs = await input.listConversationFileProductionJobs(
+		input.userId,
+		input.conversationId,
+	);
+	return jobs.find((job) => job.id === input.jobId) ?? null;
+}
+
+async function waitForAtlasOutputFileProductionJob(input: {
+	userId: string;
+	conversationId: string;
+	jobId: string;
+	listConversationFileProductionJobs: ListConversationFileProductionJobs;
+}): Promise<FileProductionJob> {
+	const deadline = Date.now() + ATLAS_OUTPUT_JOB_POLL_TIMEOUT_MS;
+	let latestJob: FileProductionJob | null = null;
+
+	while (Date.now() <= deadline) {
+		latestJob = await findConversationFileProductionJob(input);
+		if (latestJob && isTerminalFileProductionJobStatus(latestJob.status)) {
+			return latestJob;
+		}
+
+		const remainingMs = deadline - Date.now();
+		if (remainingMs <= 0) break;
+		await delay(Math.min(ATLAS_OUTPUT_JOB_POLL_INTERVAL_MS, remainingMs));
+	}
+
+	throw new Error(
+		latestJob
+			? `Atlas output files were not produced before the timeout; latest status was ${latestJob.status}.`
+			: "Atlas output files were not produced before the timeout; the output job was not found.",
+	);
+}
+
 async function createFileProductionAtlasOutputJob(input: {
 	userId: string;
 	conversationId: string;
@@ -935,13 +1323,18 @@ async function createFileProductionAtlasOutputJob(input: {
 	if (!result.ok) {
 		throw new Error(result.error);
 	}
-	const jobs = await listConversationFileProductionJobs(
-		input.userId,
-		input.conversationId,
-	);
-	const completedJob = jobs.find((job) => job.id === result.job.id);
-	if (!completedJob || completedJob.status !== "succeeded") {
-		throw new Error("Atlas output files were not produced.");
+	const completedJob = await waitForAtlasOutputFileProductionJob({
+		userId: input.userId,
+		conversationId: input.conversationId,
+		jobId: result.job.id,
+		listConversationFileProductionJobs,
+	});
+	if (completedJob.status !== "succeeded") {
+		throw new Error(
+			completedJob.error?.message
+				? `Atlas output files were not produced: ${completedJob.error.message}`
+				: "Atlas output files were not produced.",
+		);
 	}
 	return {
 		fileProductionJobId: completedJob.id,

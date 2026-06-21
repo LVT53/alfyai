@@ -18,6 +18,7 @@ import {
 } from "./config";
 import type { ClaimedAtlasJob } from "./job-ledger";
 import {
+	applyAtlasGeneratedTitle,
 	claimNextAtlasJob,
 	completeAtlasJob,
 	failAtlasJob,
@@ -187,6 +188,16 @@ export async function executeNextAtlasJob(
 					}
 				},
 				writeCheckpoint: writeAtlasRoundCheckpoint,
+				applyGeneratedTitle: async ({ jobId, title }) => {
+					const updated = await applyAtlasGeneratedTitle({
+						jobId,
+						workerId: input.workerId,
+						title,
+					});
+					if (!updated) {
+						throw new Error("Atlas job is no longer running.");
+					}
+				},
 				renderOutputs: (source) =>
 					renderAtlasOutputs({
 						userId: claimed.userId,
@@ -227,7 +238,7 @@ export async function executeNextAtlasJob(
 			userId: claimed.userId,
 			conversationId: claimed.job.conversationId,
 			jobId: claimed.job.id,
-			title: claimed.job.title,
+			title: completedJob.title,
 		});
 		console.info("[ATLAS] Completed job", {
 			jobId: claimed.job.id,

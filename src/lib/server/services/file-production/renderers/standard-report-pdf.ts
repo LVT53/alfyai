@@ -20,6 +20,7 @@ import type {
 	GeneratedDocumentChartBlock,
 	GeneratedDocumentSource,
 } from "../source-schema";
+import { formatGeneratedDocumentBasisNote } from "../source-schema";
 import { renderChartSvg } from "./chart-svg";
 
 const MM_TO_PT = 72 / 25.4;
@@ -651,6 +652,25 @@ class StandardReportPdfLayout {
 			lineHeight: LAYOUT.bodyFontPt * LAYOUT.lineHeight,
 		});
 		this.y -= LAYOUT.paragraphGapPt;
+	}
+
+	drawBasisNote(
+		block:
+			| Extract<GeneratedDocumentBlock, { type: "basisMarker" }>
+			| NonNullable<
+					Extract<GeneratedDocumentBlock, { type: "paragraph" }>["basisMarkers"]
+			  >[number],
+	): void {
+		this.drawWrapped({
+			text: formatGeneratedDocumentBasisNote(block),
+			font: this.fonts.regular,
+			size: 8.8,
+			color: hexColor(THEME.secondaryText),
+			lineHeight: 12,
+			width: this.contentWidth() - 18,
+			x: this.contentX() + 12,
+		});
+		this.y -= 6;
 	}
 
 	drawList(style: "bullet" | "numbered", items: string[]): void {
@@ -1796,6 +1816,9 @@ export async function renderStandardReportPdf(
 				break;
 			case "paragraph":
 				layout.drawParagraph(block.text);
+				for (const marker of block.basisMarkers ?? []) {
+					layout.drawBasisNote(marker);
+				}
 				break;
 			case "list":
 				layout.drawList(block.style, block.items);
@@ -1813,6 +1836,9 @@ export async function renderStandardReportPdf(
 					title: block.label,
 					text: block.message,
 				});
+				break;
+			case "basisMarker":
+				layout.drawBasisNote(block);
 				break;
 			case "code":
 				layout.drawCode(block.text, block.language);

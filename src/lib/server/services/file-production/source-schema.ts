@@ -9,6 +9,7 @@ export type GeneratedDocumentBlock =
 			text: string;
 	  }
 	| GeneratedDocumentConfidenceMarkerBlock
+	| GeneratedDocumentBasisMarkerBlock
 	| { type: "code"; language?: string | null; text: string }
 	| { type: "quote"; text: string; citation?: string | null }
 	| { type: "divider" }
@@ -24,6 +25,26 @@ export interface GeneratedDocumentParagraphBlock {
 	type: "paragraph";
 	text: string;
 	sources?: GeneratedDocumentSourceChip[];
+	basisMarkers?: GeneratedDocumentParagraphBasisMarker[];
+}
+
+export type GeneratedDocumentBasisSupport =
+	| "supported"
+	| "partial"
+	| "unsupported";
+
+export interface GeneratedDocumentBasisMarkerBlock {
+	type: "basisMarker";
+	id: string;
+	support: GeneratedDocumentBasisSupport;
+	rationale: string;
+	auditCode?: string;
+}
+
+export interface GeneratedDocumentParagraphBasisMarker
+	extends GeneratedDocumentBasisMarkerBlock {
+	anchorText: string;
+	occurrence?: number;
 }
 
 export interface GeneratedDocumentTableColumn {
@@ -625,13 +646,90 @@ function normalizeParagraphBlock(
 	const text = cleanText(block.text);
 	if (!text) return unsupportedDocumentBlockResult();
 	const sources = normalizeSourceChipArray(block.sources);
+	const basisMarkers = normalizeParagraphBasisMarkers(block.basisMarkers);
+	if (!basisMarkers.ok) return basisMarkers;
 	return {
 		ok: true,
-		block:
-			sources.length > 0
-				? { type: "paragraph", text, sources }
-				: { type: "paragraph", text },
+		block: {
+			type: "paragraph",
+			text,
+			...(sources.length > 0 ? { sources } : {}),
+			...(basisMarkers.markers.length > 0
+				? { basisMarkers: basisMarkers.markers }
+				: {}),
+		},
 	};
+}
+
+function normalizeBasisSupport(
+	value: unknown,
+): GeneratedDocumentBasisSupport | null {
+	return value === "supported" || value === "partial" || value === "unsupported"
+		? value
+		: null;
+}
+
+function normalizeBasisMarkerBase(
+	value: unknown,
+): GeneratedDocumentBasisMarkerBlock | null {
+	if (!isRecord(value) || value.type !== "basisMarker") return null;
+	const id = cleanKey(value.id);
+	const support = normalizeBasisSupport(value.support);
+	const rationale = cleanText(value.rationale);
+	if (!id || !support || !rationale) return null;
+	const auditCode = cleanKey(value.auditCode);
+	return {
+		type: "basisMarker",
+		id,
+		support,
+		rationale,
+		...(auditCode ? { auditCode } : {}),
+	};
+}
+
+function normalizeBasisMarkerBlock(
+	block: Record<string, unknown>,
+): BlockNormalizationResult {
+	const marker = normalizeBasisMarkerBase(block);
+	return marker
+		? { ok: true, block: marker }
+		: unsupportedDocumentBlockResult();
+}
+
+function normalizeParagraphBasisMarkers(
+	value: unknown,
+):
+	| { ok: true; markers: GeneratedDocumentParagraphBasisMarker[] }
+	| { ok: false; code: string; message: string } {
+	const unsupported = (): { ok: false; code: string; message: string } => ({
+		ok: false,
+		code: "unsupported_document_block",
+		message: "Generated document source contains an unsupported block.",
+	});
+	if (value === undefined) return { ok: true, markers: [] };
+	if (!Array.isArray(value)) return unsupported();
+	const markers: GeneratedDocumentParagraphBasisMarker[] = [];
+	for (const item of value) {
+		const marker = normalizeBasisMarkerBase(item);
+		if (!marker || !isRecord(item)) return unsupported();
+		const anchorText = cleanText(item.anchorText);
+		if (!anchorText) return unsupported();
+		const occurrence =
+			item.occurrence === undefined
+				? undefined
+				: Number.isInteger(item.occurrence) &&
+						typeof item.occurrence === "number" &&
+						item.occurrence >= 0
+					? item.occurrence
+					: null;
+		if (occurrence === null) return unsupported();
+		markers.push({
+			...marker,
+			anchorText,
+			...(occurrence !== undefined ? { occurrence } : {}),
+		});
+	}
+	return { ok: true, markers };
 }
 
 function normalizeListBlock(
@@ -959,6 +1057,8 @@ function normalizeBlock(block: unknown): BlockNormalizationResult {
 			return normalizeCalloutBlock(block);
 		case "confidenceMarker":
 			return normalizeConfidenceMarkerBlock(block);
+		case "basisMarker":
+			return normalizeBasisMarkerBlock(block);
 		case "code":
 			return normalizeCodeBlock(block);
 		case "quote":
@@ -1070,6 +1170,27 @@ function formatSourceProjection(source: GeneratedDocumentSourceChip): string {
 		: source.title;
 }
 
+export function generatedDocumentBasisClaimLabel(
+	support: GeneratedDocumentBasisSupport,
+): string {
+	switch (support) {
+		case "supported":
+			return "Supported claim";
+		case "partial":
+			return "Partially supported claim";
+		case "unsupported":
+			return "Unsupported claim";
+	}
+}
+
+export function formatGeneratedDocumentBasisNote(
+	marker:
+		| GeneratedDocumentBasisMarkerBlock
+		| GeneratedDocumentParagraphBasisMarker,
+): string {
+	return `Basis: ${generatedDocumentBasisClaimLabel(marker.support)} - ${marker.rationale}`;
+}
+
 export function buildGeneratedDocumentProjection(
 	source: GeneratedDocumentSource,
 ): string {
@@ -1100,6 +1221,13 @@ export function buildGeneratedDocumentProjection(
 						`Sources: ${block.sources.map(formatSourceProjection).join("; ")}`,
 					);
 				}
+				if (block.basisMarkers && block.basisMarkers.length > 0) {
+					for (const marker of block.basisMarkers) {
+						lines.push(
+							`${generatedDocumentBasisClaimLabel(marker.support)}: ${marker.rationale}`,
+						);
+					}
+				}
 				break;
 			case "list":
 				block.items.forEach((item, index) => {
@@ -1116,6 +1244,11 @@ export function buildGeneratedDocumentProjection(
 			}
 			case "confidenceMarker":
 				lines.push(`${block.label}: ${block.message}`);
+				break;
+			case "basisMarker":
+				lines.push(
+					`${generatedDocumentBasisClaimLabel(block.support)}: ${block.rationale}`,
+				);
 				break;
 			case "code":
 				lines.push(block.language ? `Code (${block.language}):` : "Code:");

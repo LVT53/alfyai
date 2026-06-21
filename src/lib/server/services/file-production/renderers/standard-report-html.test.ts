@@ -619,4 +619,120 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain(".honesty-marker:hover .honesty-tooltip");
 		expect(html).not.toContain("confidence-marker-row");
 	});
+
+	it("renders paragraph basis markers as color-only accessible triggers with compact panels", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Basis marker HTML report",
+			blocks: [
+				{
+					type: "paragraph",
+					text: "Revenue increased by 12% while churn evidence remains thin.",
+					basisMarkers: [
+						{
+							type: "basisMarker",
+							id: "basis-supported",
+							support: "supported",
+							anchorText: "Revenue increased by 12%",
+							rationale:
+								"Accepted source states revenue increased by 12%. This should compact.",
+						},
+						{
+							type: "basisMarker",
+							id: "basis-partial",
+							support: "partial",
+							anchorText: "churn evidence remains thin",
+							rationale:
+								"Only one accepted source mentions churn, so support is partial.",
+						},
+						{
+							type: "basisMarker",
+							id: "basis-unsupported",
+							support: "unsupported",
+							anchorText: "missing phrase",
+							rationale: "No accepted source supports this assertion.",
+						},
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+		const supportedMarker =
+			/<button type="button" class="basis-marker basis-marker--supported"[\s\S]*?<\/button>/.exec(
+				html,
+			)?.[0] ?? "";
+
+		expect(html).toContain('class="basis-marker basis-marker--supported"');
+		expect(html).toContain('class="basis-marker basis-marker--partial"');
+		expect(html).toContain('data-basis-id="basis-supported"');
+		expect(html).toContain('data-basis-support="supported"');
+		expect(html).toContain(
+			'aria-label="Supported claim: Accepted source states revenue increased by 12%. This should compact."',
+		);
+		expect(html).toContain('<span class="basis-tooltip" role="tooltip">');
+		expect(html).toContain("<strong>Supported claim</strong>");
+		expect(html).toContain("<strong>Partially supported claim</strong>");
+		expect(html).toContain("<strong>Unsupported claim</strong>");
+		expect(html).toContain(
+			"<span>Accepted source states revenue increased by 12%. This should compact.</span>",
+		);
+		expect(supportedMarker).not.toContain("<svg");
+		expect(supportedMarker).not.toContain("data-confidence");
+		expect(html).toContain(".basis-marker:hover .basis-tooltip");
+		expect(html).toContain(".basis-marker:focus .basis-tooltip");
+		expect(html).toContain(
+			"document.querySelectorAll('.source-chip,.honesty-marker,.basis-marker')",
+		);
+		expect(html).toContain(".source-tooltip,.honesty-tooltip,.basis-tooltip");
+		expect(html).toContain(".basis-marker:hover,.basis-marker:focus");
+	});
+
+	it("renders standalone basis markers as textless HTML controls with tooltip semantics", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Standalone basis marker HTML report",
+			blocks: [
+				{
+					type: "basisMarker",
+					id: "basis-fallback",
+					support: "unsupported",
+					rationale: "No accepted source supports the fallback claim.",
+					auditCode: "atlas_unanchored_risk",
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+		const markerBlock =
+			/<p class="basis-marker-block">[\s\S]*?<\/p>/.exec(html)?.[0] ?? "";
+
+		expect(markerBlock).toContain(
+			'class="basis-marker basis-marker--unsupported"',
+		);
+		expect(markerBlock).toContain(
+			'title="Unsupported claim: No accepted source supports the fallback claim."',
+		);
+		expect(markerBlock).toContain(
+			'aria-label="Unsupported claim: No accepted source supports the fallback claim."',
+		);
+		expect(markerBlock).toContain("<strong>Unsupported claim</strong>");
+		expect(markerBlock).toContain(
+			"<span>No accepted source supports the fallback claim.</span>",
+		);
+		expect(markerBlock).not.toContain("Basis:");
+		expect(markerBlock).not.toContain('class="basis-marker-message"');
+		expect(markerBlock).not.toContain("<svg");
+		expect(markerBlock).not.toMatch(/<\/button>\s*<span/);
+	});
 });
