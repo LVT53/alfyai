@@ -135,6 +135,14 @@ describe("AtlasCard", () => {
 			});
 
 			expect(screen.getByText("Sorting signal from noise")).toBeInTheDocument();
+
+			await act(() => {
+				vi.advanceTimersByTime(4200);
+			});
+
+			expect(
+				screen.getByText("Choosing the strongest sources"),
+			).toBeInTheDocument();
 		} finally {
 			vi.useRealTimers();
 		}

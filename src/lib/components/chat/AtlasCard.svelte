@@ -96,15 +96,51 @@ const STATUS_STAGE_LABEL_KEYS: Record<string, I18nKey> = {
 };
 
 const PROGRESS_MESSAGE_KEYS: Record<string, readonly I18nKey[]> = {
-	queued: ["atlas.progress.queued.0", "atlas.progress.queued.1"],
-	decompose: ["atlas.progress.decompose.0", "atlas.progress.decompose.1"],
-	search: ["atlas.progress.search.0", "atlas.progress.search.1"],
-	curate: ["atlas.progress.curate.0", "atlas.progress.curate.1"],
-	synthesize: ["atlas.progress.synthesize.0", "atlas.progress.synthesize.1"],
-	integrate: ["atlas.progress.integrate.0", "atlas.progress.integrate.1"],
-	assemble: ["atlas.progress.assemble.0", "atlas.progress.assemble.1"],
-	audit: ["atlas.progress.audit.0", "atlas.progress.audit.1"],
-	render: ["atlas.progress.render.0", "atlas.progress.render.1"],
+	queued: [
+		"atlas.progress.queued.0",
+		"atlas.progress.queued.1",
+		"atlas.progress.queued.2",
+	],
+	decompose: [
+		"atlas.progress.decompose.0",
+		"atlas.progress.decompose.1",
+		"atlas.progress.decompose.2",
+	],
+	search: [
+		"atlas.progress.search.0",
+		"atlas.progress.search.1",
+		"atlas.progress.search.2",
+	],
+	curate: [
+		"atlas.progress.curate.0",
+		"atlas.progress.curate.1",
+		"atlas.progress.curate.2",
+	],
+	synthesize: [
+		"atlas.progress.synthesize.0",
+		"atlas.progress.synthesize.1",
+		"atlas.progress.synthesize.2",
+	],
+	integrate: [
+		"atlas.progress.integrate.0",
+		"atlas.progress.integrate.1",
+		"atlas.progress.integrate.2",
+	],
+	assemble: [
+		"atlas.progress.assemble.0",
+		"atlas.progress.assemble.1",
+		"atlas.progress.assemble.2",
+	],
+	audit: [
+		"atlas.progress.audit.0",
+		"atlas.progress.audit.1",
+		"atlas.progress.audit.2",
+	],
+	render: [
+		"atlas.progress.render.0",
+		"atlas.progress.render.1",
+		"atlas.progress.render.2",
+	],
 };
 
 type DownloadOption = {
@@ -156,7 +192,11 @@ function getProgressMessageKeys(
 	if (status === "queued") return PROGRESS_MESSAGE_KEYS.queued;
 	if (stage && PROGRESS_MESSAGE_KEYS[stage])
 		return PROGRESS_MESSAGE_KEYS[stage];
-	return ["atlas.stage.running", "atlas.progress.running.1"];
+	return [
+		"atlas.stage.running",
+		"atlas.progress.running.1",
+		"atlas.progress.running.2",
+	];
 }
 
 function formatProgressMessage(
