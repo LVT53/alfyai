@@ -1240,6 +1240,7 @@ function markdownHeadingTitles(markdown: string): string[] {
 function isReportEnvelopeHeading(title: string): boolean {
 	const normalized = normalizedReportShapeText(title);
 	return (
+		isReportScalarOnlyHeading(title) ||
 		normalized === "report" ||
 		normalized === "evidence basis" ||
 		normalized === "evidence base" ||
@@ -1258,6 +1259,13 @@ function isReportEnvelopeHeading(title: string): boolean {
 		normalized.startsWith("datum ") ||
 		normalized.startsWith("profil ") ||
 		normalized.startsWith("allapot ")
+	);
+}
+
+function isReportScalarOnlyHeading(title: string): boolean {
+	const normalized = normalizedReportShapeText(title);
+	return /^\d+(?:\.\d+)?\s*[bmk]?\s+(?:dimensions?|gb|mb|ms|parameters?|params?|tokens?)$/i.test(
+		normalized,
 	);
 }
 
@@ -1336,11 +1344,13 @@ function looksLikeMalformedAssembledReport(input: {
 }): boolean {
 	const headings = markdownHeadingTitles(input.markdown);
 	const envelopeHeadingCount = headings.filter(isReportEnvelopeHeading).length;
+	const scalarHeadingCount = headings.filter(isReportScalarOnlyHeading).length;
 	const sourceHeadingCount = headings.filter((heading) =>
 		isLikelyAcceptedSourceTitleHeading(heading, input.acceptedSourceTitles),
 	).length;
 	const envelopeScalarCount = countReportEnvelopeScalarLines(input.markdown);
 	return (
+		scalarHeadingCount >= 1 ||
 		envelopeHeadingCount >= 2 ||
 		sourceHeadingCount >= 2 ||
 		envelopeHeadingCount + envelopeScalarCount >= 3 ||
@@ -1445,6 +1455,7 @@ function outlineTitleCandidate(value: string): string | null {
 	if (title.length < 3 || title.length > 80) return null;
 	if (/[.!?]\s+\S/.test(title)) return null;
 	if (isReportEnvelopeHeading(title)) return null;
+	if (isReportScalarOnlyHeading(title)) return null;
 	if (isEvidencePackIdFragment(title)) return null;
 	const normalized = normalizedFallbackHeading(title);
 	if (
@@ -1560,6 +1571,7 @@ function uniqueFallbackSectionTitles(
 function isCleanCustomFallbackSectionTitle(title: string): boolean {
 	const normalized = normalizedFallbackHeading(title);
 	if (!normalized || isFallbackTableFragment(title)) return false;
+	if (isReportScalarOnlyHeading(title)) return false;
 	if (isEvidencePackIdFragment(title)) return false;
 	if (/^[a-z]/.test(title.trim())) return false;
 	if (title.includes(":") || title.includes("|")) return false;
@@ -1646,6 +1658,7 @@ function isLowQualityFallbackText(value: string): boolean {
 	const trimmed = value.trim();
 	if (!trimmed) return true;
 	if (isFallbackTableFragment(trimmed)) return true;
+	if (isReportScalarOnlyHeading(trimmed)) return true;
 	if (isEvidencePackIdFragment(trimmed)) return true;
 	if (/[|\u00b7\ue000]/.test(trimmed)) return true;
 	if (/:\.$/.test(trimmed)) return true;

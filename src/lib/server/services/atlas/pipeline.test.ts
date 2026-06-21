@@ -2554,6 +2554,130 @@ describe("Atlas pipeline slices", () => {
 		);
 	});
 
+	it("repairs scalar-only report headings before audit", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		let assembleCalls = 0;
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-scalar-heading-repair",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Embedding model report",
+				query:
+					"Compare self-hosted embedding models for English technical-document retrieval",
+				lifecycle: {
+					family: {
+						familyId: "atlas-scalar-heading-repair",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-scalar-heading-repair",
+						currentAtlasJobId: "atlas-scalar-heading-repair",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-21T19:36:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Best Self-Hosted Embedding Models in 2026",
+							url: "https://mixpeek.com/curated-lists/best-self-hosted-embedding-models",
+							snippet:
+								"BGE-M3 is a practical self-hosted option for multilingual and hybrid retrieval.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text:
+								assembleCalls === 1
+									? [
+											"# Self-hosted embedding models",
+											"",
+											"## Executive Summary",
+											"BGE-M3 is the pragmatic self-hosted default for many English technical retrieval deployments.",
+											"",
+											"## Findings",
+											"Hybrid retrieval and reranking matter more than a single public benchmark rank.",
+											"",
+											"## 8B params",
+											"Qwen3-Embedding-8B is large enough to change latency and hardware planning.",
+											"",
+											"## Limitations",
+											"Public rankings should be validated on the team's own corpus.",
+										].join("\n")
+									: [
+											"# Self-hosted embedding models",
+											"",
+											"## Executive Summary",
+											"BGE-M3 is the pragmatic default while larger embedding models may win selected benchmarks.",
+											"",
+											"## Findings",
+											"Model size, latency, and corpus fit should be evaluated together.",
+											"",
+											"## Deployment Considerations",
+											"An 8B-parameter model changes GPU memory, latency, and batch-size assumptions.",
+											"",
+											"## Limitations",
+											"Public rankings should be validated on the team's own corpus.",
+										].join("\n"),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "decompose"
+								? "self-hosted embedding models"
+								: input.stage === "curate"
+									? "Curated evidence: BGE-M3 is pragmatic, while larger embedding models may improve selected benchmark results with higher operational cost."
+									: input.stage === "synthesize"
+										? "Executive Summary: BGE-M3 is the pragmatic default.\nFindings: model size, latency, and corpus fit matter.\nLimitations: validate on your own corpus."
+										: "Executive Summary - summarize the model choice.\nFindings - compare model size and latency.\nDeployment Considerations - explain hardware implications.\nLimitations - state benchmark limits.",
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(assembleCalls).toBe(2);
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		const auditInput = auditCalls[0]?.[0];
+		expect(auditInput?.assembledMarkdown).toContain(
+			"## Deployment Considerations",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain("## 8B params");
+	});
+
 	it("keeps deterministic fallback required sections when the outline is malformed", async () => {
 		const { runAtlasPipeline } = await import("./pipeline");
 		let assembleCalls = 0;
@@ -2670,6 +2794,7 @@ describe("Atlas pipeline slices", () => {
 													"Core insight: | Model | Params | Dimensions | License |.",
 													"Lead candidates: |-------|--------|------------|---------|.",
 													"Key tradeoff: | H100 accuracy | CPU/consumer GPU practicality |.",
+													"8B params: reject scalar parameter headings.",
 													"BGE-M3 / Jina v5 run on far less hardware - explain the operational tradeoff.",
 													"slightly lower MTEB than NV-Embed-v2 | - reject table-tail headings.",
 													"domain-specific retrieval may benefit from benchmarking on your own corpus - reject sentence-like headings.",
@@ -2716,6 +2841,7 @@ describe("Atlas pipeline slices", () => {
 		expect(auditInput?.assembledMarkdown).not.toContain(
 			"## Evidence packs used",
 		);
+		expect(auditInput?.assembledMarkdown).not.toContain("## 8B params");
 		expect(auditInput?.assembledMarkdown).not.toContain("## - atlas-pack");
 		expect(auditInput?.assembledMarkdown).not.toContain("## - `atlas-pack");
 		expect(auditInput?.assembledMarkdown).not.toContain("|-------|");

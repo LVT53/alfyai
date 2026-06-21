@@ -218,6 +218,15 @@ describe("Atlas search stage", () => {
 							resolution: "1200 x 900",
 						},
 						{
+							title: "Generic cover artwork",
+							content: "Stock product illustration",
+							img_src:
+								"https://cdn.example.com/enterprise-architecture-cover.png",
+							url: "https://example.com/stock-artwork",
+							source: "Example Images",
+							resolution: "1200 x 900",
+						},
+						{
 							title: "Duplicate diagram",
 							img_src: "https://cdn.example.com/architecture.png",
 							url: "https://example.com/duplicate",

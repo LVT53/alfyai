@@ -92,7 +92,6 @@ export function atlasImageCandidateEvidenceText(
 		candidate.caption,
 		candidate.sourceTitle ?? "",
 		normalizedImageUrlText(candidate.sourcePageUrl),
-		normalizedImageUrlText(candidate.imageUrl),
 	].join(" ");
 }
 

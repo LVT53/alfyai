@@ -426,6 +426,66 @@ describe("Atlas renderer output", () => {
 		});
 	});
 
+	it("does not render image candidates whose relevance only appears in the image filename", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Enterprise Search Atlas",
+			assembledMarkdown: [
+				"## Executive Summary",
+				"Enterprise search architecture decisions should combine lexical retrieval, semantic retrieval, and reranking.",
+				"",
+				"## Findings",
+				"Architecture diagrams are useful when they clarify ingestion, indexing, retrieval, and reranking responsibilities.",
+				"",
+				"## Limitations",
+				"The evidence is representative rather than exhaustive.",
+			].join("\n"),
+			sources: [],
+			honestyMarkers: [],
+			imageCandidates: [
+				{
+					id: "image-candidate-weak",
+					query: "enterprise search architecture",
+					title: "Generic cover artwork",
+					imageUrl:
+						"https://cdn.example.com/enterprise-search-architecture-cover.png",
+					sourcePageUrl: "https://example.com/stock-artwork",
+					sourceTitle: "Example Images",
+					thumbnailUrl: null,
+					width: 1200,
+					height: 800,
+					caption: "Stock product illustration",
+					selectionReason: "Image result for enterprise search architecture.",
+				},
+				{
+					id: "image-candidate-strong",
+					query: "enterprise search architecture",
+					title: "Enterprise search architecture diagram",
+					imageUrl: "https://example.com/enterprise-search-architecture.png",
+					sourcePageUrl: "https://example.com/enterprise-search-architecture",
+					sourceTitle: "Example Research",
+					thumbnailUrl: null,
+					width: 1200,
+					height: 800,
+					caption: "Enterprise search architecture diagram",
+					selectionReason: "Image result for enterprise search architecture.",
+				},
+			],
+			maxRenderedImages: 2,
+		});
+
+		const imageBlocks = source.blocks.filter((block) => block.type === "image");
+		expect(imageBlocks).toHaveLength(1);
+		expect(imageBlocks[0]).toMatchObject({
+			source: {
+				kind: "https",
+				url: "https://example.com/enterprise-search-architecture.png",
+			},
+			caption: "Enterprise search architecture diagram",
+		});
+	});
+
 	it("caps model-authored report images by section density", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 
