@@ -2554,6 +2554,158 @@ describe("Atlas pipeline slices", () => {
 		);
 	});
 
+	it("keeps deterministic fallback required sections when the outline is malformed", async () => {
+		const { runAtlasPipeline } = await import("./pipeline");
+		let assembleCalls = 0;
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipeline({
+			job: {
+				id: "atlas-live-outline-collapse",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Live outline collapse",
+				query:
+					"Compare the best self-hosted embedding models for English technical retrieval",
+				lifecycle: {
+					family: {
+						familyId: "atlas-live-outline-collapse",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-live-outline-collapse",
+						currentAtlasJobId: "atlas-live-outline-collapse",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-21T19:05:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Open Source Embedding Models Benchmark for RAG",
+							url: "https://aimultiple.com/open-source-embedding-models",
+							snippet:
+								"Nemotron leads accuracy on a single H100, while smaller models trade peak quality for lower hardware demand.",
+						},
+						{
+							id: "web-2",
+							title: "Best Self-Hosted Embedding Models in 2026",
+							url: "https://mixpeek.com/curated-lists/best-self-hosted-embedding-models",
+							snippet:
+								"BGE-M3 is a practical self-hosted workhorse with dense and sparse retrieval support.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text: [
+								"# Self-hosted embedding models",
+								"",
+								"## Executive Summary",
+								"No single model dominates all scenarios.",
+								"",
+								"## Report Outline",
+								"Selection depends on recall, latency, hardware, and licensing.",
+								"",
+								"## Core insight",
+								"| Model | Params | License |.",
+								"",
+								"## Lead candidates",
+								"|-------|--------|---------|.",
+								"",
+								"## Findings",
+								"| MIT | BGE-M3 |.",
+								"",
+								"## Top Models",
+								"Jina v5 ranks strongly on benchmarks.",
+							].join("\n"),
+							usage: {
+								inputTokens: 1,
+								outputTokens: 1,
+								totalTokens: 2,
+								costUsdMicros: 1,
+							},
+						};
+					}
+					return {
+						text:
+							input.stage === "decompose"
+								? "self-hosted embedding models"
+								: input.stage === "curate"
+									? "Curated evidence: Nemotron leads raw retrieval accuracy, BGE-M3 supports hybrid retrieval, and Jina v5 offers a smaller high-quality option."
+									: input.stage === "synthesize"
+										? [
+												"Executive Summary: No single self-hosted embedding model dominates all deployment scenarios.",
+												"Findings: Nemotron leads raw retrieval quality when H100-class hardware is available.",
+												"Tradeoffs: BGE-M3 and Jina v5 reduce hosting complexity while giving up some peak benchmark performance.",
+												"Recommendation: Start with BGE-M3 for most self-hosted English technical retrieval unless benchmark accuracy justifies a larger model.",
+												"Limitations: Public benchmark rankings should be validated on the team's own corpus before production selection.",
+											].join("\n")
+										: input.stage === "integrate"
+											? [
+													"Report Outline - No single model dominates all scenarios.",
+													"Core insight: | Model | Params | Dimensions | License |.",
+													"Lead candidates: |-------|--------|------------|---------|.",
+													"Key tradeoff: | H100 accuracy | CPU/consumer GPU practicality |.",
+													"BGE-M3 / Jina v5 run on far less hardware - explain the operational tradeoff.",
+													"Table: | Apache 2.0 | MIT |.",
+													"Key Model Characteristics: summarize licensing and hardware needs.",
+												].join("\n")
+											: `${input.stage} result`,
+						usage: {
+							inputTokens: 1,
+							outputTokens: 1,
+							totalTokens: 2,
+							costUsdMicros: 1,
+						},
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(assembleCalls).toBe(2);
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		const auditInput = auditCalls[0]?.[0];
+		expect(auditInput?.assembledMarkdown).toContain("## Executive Summary");
+		expect(auditInput?.assembledMarkdown).toContain("## Findings");
+		expect(auditInput?.assembledMarkdown).toContain("## Tradeoffs");
+		expect(auditInput?.assembledMarkdown).toContain("## Recommendation");
+		expect(auditInput?.assembledMarkdown).toContain("## Limitations");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Report Outline");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Core insight");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Lead candidates");
+		expect(auditInput?.assembledMarkdown).not.toContain("|-------|");
+		expect(auditInput?.assembledMarkdown).not.toContain("| Model |");
+	});
+
 	it("preserves synthesized structure instead of stitching source excerpts when assembly collapses", async () => {
 		const { runAtlasPipeline } = await import("./pipeline");
 		const auditBasis = vi.fn(async () => ({

@@ -1443,6 +1443,21 @@ function outlineTitleCandidate(value: string): string | null {
 	if (title.length < 3 || title.length > 80) return null;
 	if (/[.!?]\s+\S/.test(title)) return null;
 	if (isReportEnvelopeHeading(title)) return null;
+	const normalized = normalizedFallbackHeading(title);
+	if (
+		[
+			"outline",
+			"report outline",
+			"core insight",
+			"lead candidates",
+			"key tradeoff",
+			"table",
+			"top models",
+			"key model characteristics",
+		].includes(normalized)
+	) {
+		return null;
+	}
 	if (/\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/i.test(title)) return null;
 	if (
 		/\b(source|sources|bibliography|references|forras|forrasok|hivatkozasok)\b/i.test(
@@ -1475,6 +1490,30 @@ function canonicalFallbackSectionTitle(
 	) {
 		return labels.limitations;
 	}
+	if (
+		normalized === "findings" ||
+		normalized === "key findings" ||
+		normalized === "megallapitasok"
+	) {
+		return labels.findings;
+	}
+	if (
+		normalized === "tradeoffs" ||
+		normalized === "trade offs" ||
+		normalized === "trade off" ||
+		normalized === "kompromisszumok"
+	) {
+		return labels.tradeoffs;
+	}
+	if (
+		normalized === "recommendation" ||
+		normalized === "recommendations" ||
+		normalized === "recommended path" ||
+		normalized === "ajanlas" ||
+		normalized === "ajanlasok"
+	) {
+		return labels.recommendations;
+	}
 	return title;
 }
 
@@ -1492,43 +1531,25 @@ function uniqueFallbackSectionTitles(
 		seen.add(key);
 		unique.push(title);
 	}
-	const executiveIndex = unique.findIndex(
-		(title) =>
-			normalizedFallbackHeading(title) ===
-			normalizedFallbackHeading(labels.executive),
-	);
-	if (executiveIndex > 0) {
-		const [executive] = unique.splice(executiveIndex, 1);
-		unique.unshift(executive);
-	} else if (executiveIndex < 0) {
-		unique.unshift(labels.executive);
-	}
-	const limitationsIndex = unique.findIndex(
-		(title) =>
-			normalizedFallbackHeading(title) ===
-			normalizedFallbackHeading(labels.limitations),
-	);
-	if (limitationsIndex >= 0 && limitationsIndex !== unique.length - 1) {
-		const [limitations] = unique.splice(limitationsIndex, 1);
-		unique.push(limitations);
-	} else if (limitationsIndex < 0) {
-		unique.push(labels.limitations);
-	}
 	const defaultMiddleSections = [
 		labels.findings,
 		labels.tradeoffs,
 		labels.recommendations,
 	];
-	for (const sectionTitle of defaultMiddleSections) {
-		if (unique.length >= 5) break;
-		const sectionKey = normalizedFallbackHeading(sectionTitle);
-		if (
-			!unique.some((title) => normalizedFallbackHeading(title) === sectionKey)
-		) {
-			unique.splice(Math.max(1, unique.length - 1), 0, sectionTitle);
-		}
-	}
-	return unique.slice(0, 10);
+	const requiredKeys = new Set(
+		[labels.executive, ...defaultMiddleSections, labels.limitations].map(
+			normalizedFallbackHeading,
+		),
+	);
+	const customSections = unique.filter(
+		(title) => !requiredKeys.has(normalizedFallbackHeading(title)),
+	);
+	return [
+		labels.executive,
+		...defaultMiddleSections,
+		...customSections.slice(0, 5),
+		labels.limitations,
+	];
 }
 
 function extractFallbackOutlineTitles(
@@ -1584,6 +1605,17 @@ function isProcessFallbackStatement(value: string): boolean {
 	);
 }
 
+function isFallbackTableFragment(value: string): boolean {
+	const trimmed = value.trim();
+	if (!trimmed) return false;
+	const pipeCount = (trimmed.match(/\|/g) ?? []).length;
+	return (
+		trimmed.startsWith("|") ||
+		/^\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+$/.test(trimmed) ||
+		pipeCount >= 3
+	);
+}
+
 function fallbackStatementsFromStageText(value: string): Array<{
 	prefix: string | null;
 	body: string;
@@ -1598,7 +1630,9 @@ function fallbackStatementsFromStageText(value: string): Array<{
 		}))
 		.filter(
 			(entry) =>
-				entry.body.length >= 30 && !isProcessFallbackStatement(entry.body),
+				entry.body.length >= 30 &&
+				!isProcessFallbackStatement(entry.body) &&
+				!isFallbackTableFragment(entry.body),
 		)
 		.slice(0, 32);
 }
