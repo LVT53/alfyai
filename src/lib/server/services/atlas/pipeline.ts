@@ -15,6 +15,7 @@ import {
 	type BuildAtlasEvidencePacksResult,
 	buildAtlasEvidencePacks,
 } from "./evidence-packs";
+import { parseJsonFromText } from "./json-extract";
 import {
 	type AtlasOutputIds,
 	buildAtlasDocumentSource,
@@ -1007,19 +1008,9 @@ function normalizeGeneratedTitle(value: unknown): string | null {
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
-	const trimmed = text.trim();
-	const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```\s*$/i)?.[1];
-	for (const candidate of [trimmed, fenced].filter(
-		(candidate): candidate is string => Boolean(candidate),
-	)) {
-		try {
-			const parsed = JSON.parse(candidate) as unknown;
-			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-				return parsed as Record<string, unknown>;
-			}
-		} catch {
-			// Fall through to plain Markdown fallback.
-		}
+	const parsed = parseJsonFromText(text);
+	if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+		return parsed as Record<string, unknown>;
 	}
 	return null;
 }
@@ -1236,16 +1227,18 @@ function buildAssembleRepairPrompt(input: {
 
 function buildDeterministicFallbackReport(input: {
 	language: SupportedLanguage;
+	query: string;
 	curatedEvidence: string;
 	synthesis: string;
 	outline: string;
+	evidencePacks: AtlasEvidencePack[];
 	sources: Array<{
 		title: string;
 		url?: string | null;
 		reasoning?: string | null;
 	}>;
 	limitation: { code: string; message: string } | null;
-}): string {
+}): { markdown: string; metadata: AtlasAssemblyMetadata } {
 	const clean = (value: string, fallback: string) => {
 		const normalized = value
 			.replace(/```[\s\S]*?```/g, "")
@@ -1288,42 +1281,204 @@ function buildDeterministicFallbackReport(input: {
 						? "A következtetések az elfogadott Atlas forrásokból származnak."
 						: "The conclusions are derived from the accepted Atlas sources.",
 				);
+	const title = buildFallbackGeneratedTitle({
+		language: input.language,
+		query: input.query,
+		sources: input.sources,
+	});
+	const sectionBriefs = buildFallbackSectionBriefs({
+		language: input.language,
+		executiveSummary,
+		findingsText,
+		analysisFrame,
+		limitation: input.limitation,
+		evidencePacks: input.evidencePacks,
+	});
 	if (input.language === "hu") {
-		return [
-			`# Atlas jelentés`,
+		return {
+			markdown: [
+				`# ${title}`,
+				"",
+				"## Vezetői összefoglaló",
+				executiveSummary,
+				"",
+				"## Megállapítások",
+				findingsText,
+				"",
+				"## Elemzési keret",
+				analysisFrame,
+				"",
+				"## Korlátok",
+				input.limitation
+					? `${input.limitation.message}`
+					: "A jelentés az elfogadott Atlas forrásokra korlátozódik, és nem tekinthető teljes körű történeti feldolgozásnak.",
+			].join("\n"),
+			metadata: {
+				version: ATLAS_ASSEMBLY_SCHEMA_VERSION,
+				generatedTitle: title,
+				sectionBriefs,
+				limitations: input.limitation ? [input.limitation.message] : [],
+				structured: true,
+			},
+		};
+	}
+	return {
+		markdown: [
+			`# ${title}`,
 			"",
-			"## Vezetői összefoglaló",
+			"## Executive Summary",
 			executiveSummary,
 			"",
-			"## Megállapítások",
+			"## Findings",
 			findingsText,
 			"",
-			"## Elemzési keret",
+			"## Analysis Frame",
 			analysisFrame,
 			"",
-			"## Korlátok",
+			"## Limitations",
 			input.limitation
 				? `${input.limitation.message}`
-				: "A jelentés az elfogadott Atlas forrásokra korlátozódik, és nem tekinthető teljes körű történeti feldolgozásnak.",
-		].join("\n");
-	}
+				: "This report is limited to the accepted Atlas sources and should not be treated as exhaustive historical coverage.",
+		].join("\n"),
+		metadata: {
+			version: ATLAS_ASSEMBLY_SCHEMA_VERSION,
+			generatedTitle: title,
+			sectionBriefs,
+			limitations: input.limitation ? [input.limitation.message] : [],
+			structured: true,
+		},
+	};
+}
+
+function buildFallbackGeneratedTitle(input: {
+	language: SupportedLanguage;
+	query: string;
+	sources: Array<{ title: string }>;
+}): string {
+	const sourceTitle = normalizeFallbackTitle(input.sources[0]?.title);
+	if (sourceTitle) return sourceTitle;
+	const queryTitle = normalizeFallbackTitle(input.query);
+	if (queryTitle) return queryTitle;
+	return input.language === "hu"
+		? "Forrásalapú Atlas jelentés"
+		: "Source-Grounded Atlas Report";
+}
+
+function normalizeFallbackTitle(
+	value: string | null | undefined,
+): string | null {
+	if (!value) return null;
+	const normalized = value
+		.replace(/^#+\s*/, "")
+		.replace(
+			/^(create|generate|write|build)\s+(a\s+)?(concise|brief|detailed|in-depth|exhaustive|overview\s+)?(atlas\s+)?(overview\s+)?report\s+(comparing|about|on|for)\s+/i,
+			"",
+		)
+		.replace(
+			/\s+[-|:]\s+(Better Stack Community|A Developer.*|Dev\.to|GitHub).*$/i,
+			"",
+		)
+		.replace(/\s*[|]\s*[^|]+$/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (!normalized || /^atlas report$/i.test(normalized)) return null;
+	const clipped =
+		normalized.length <= 120
+			? normalized
+			: normalized
+					.slice(0, 121)
+					.replace(/\s+\S*$/, "")
+					.trim();
+	return clipped.length >= 4 ? clipped : null;
+}
+
+function buildFallbackSectionBriefs(input: {
+	language: SupportedLanguage;
+	executiveSummary: string;
+	findingsText: string;
+	analysisFrame: string;
+	limitation: { code: string; message: string } | null;
+	evidencePacks: AtlasEvidencePack[];
+}): AtlasSectionBrief[] {
+	const packs = input.evidencePacks
+		.filter((pack) => pack.sourceRefs.length > 0)
+		.slice(0, 8);
+	const evidencePackIds = packs.map((pack) => pack.id);
+	const sourceAssociations = sourceAssociationsFromEvidencePacks(packs);
+	const labels =
+		input.language === "hu"
+			? {
+					executive: "Vezetői összefoglaló",
+					findings: "Megállapítások",
+					analysis: "Elemzési keret",
+					limitations: "Korlátok",
+				}
+			: {
+					executive: "Executive Summary",
+					findings: "Findings",
+					analysis: "Analysis Frame",
+					limitations: "Limitations",
+				};
 	return [
-		`# Atlas Report`,
-		"",
-		"## Executive Summary",
-		executiveSummary,
-		"",
-		"## Findings",
-		findingsText,
-		"",
-		"## Analysis Frame",
-		analysisFrame,
-		"",
-		"## Limitations",
-		input.limitation
-			? `${input.limitation.message}`
-			: "This report is limited to the accepted Atlas sources and should not be treated as exhaustive historical coverage.",
-	].join("\n");
+		{
+			sectionTitle: labels.executive,
+			brief: compactSectionBrief(input.executiveSummary),
+			evidencePackIds,
+			sourceAssociations,
+			limitations: [],
+		},
+		{
+			sectionTitle: labels.findings,
+			brief: compactSectionBrief(input.findingsText),
+			evidencePackIds,
+			sourceAssociations,
+			limitations: [],
+		},
+		{
+			sectionTitle: labels.analysis,
+			brief: compactSectionBrief(input.analysisFrame),
+			evidencePackIds,
+			sourceAssociations,
+			limitations: [],
+		},
+		{
+			sectionTitle: labels.limitations,
+			brief:
+				input.limitation?.message ??
+				(input.language === "hu"
+					? "A jelentés elfogadott Atlas forrásokra korlátozott."
+					: "The report is limited to accepted Atlas sources."),
+			evidencePackIds,
+			sourceAssociations,
+			limitations: input.limitation ? [input.limitation.message] : [],
+		},
+	];
+}
+
+function sourceAssociationsFromEvidencePacks(
+	packs: AtlasEvidencePack[],
+): AtlasSectionBriefSourceAssociation[] {
+	return packs
+		.flatMap((pack) =>
+			pack.sourceRefs.map((sourceRef) => ({
+				sourceId: sourceRef.id,
+				sourceKind: sourceRef.kind,
+				sourceTitle: sourceRef.title,
+				url: sourceRef.url,
+				evidencePackId: pack.id,
+				relevance: pack.evidence.summary,
+			})),
+		)
+		.slice(0, 24);
+}
+
+function compactSectionBrief(value: string): string {
+	const normalized = value.replace(/\s+/g, " ").trim();
+	if (normalized.length <= 360) return normalized;
+	return `${normalized
+		.slice(0, 361)
+		.replace(/\s+\S*$/, "")
+		.trim()}...`;
 }
 
 function buildSourceGroundedFallbackFindings(
@@ -1645,14 +1800,21 @@ export async function runAtlasPipeline(
 				reasoning: source.snippet,
 			})),
 		];
-		finalAssembledMarkdown = buildDeterministicFallbackReport({
+		const fallbackReport = buildDeterministicFallbackReport({
 			language,
+			query: input.job.query,
 			curatedEvidence: finalResearchRound.curatedEvidence,
 			synthesis: synthesize.text,
 			outline: integrate.text,
+			evidencePacks: evidencePackResult.evidencePacks,
 			sources: fallbackSources,
 			limitation: searchLimitation,
 		});
+		finalAssembledMarkdown = fallbackReport.markdown;
+		assemblyMetadata = mergeAssemblyMetadata(
+			assemblyMetadata,
+			fallbackReport.metadata,
+		);
 	}
 
 	const auditSources = [

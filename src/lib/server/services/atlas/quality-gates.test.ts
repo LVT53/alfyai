@@ -141,10 +141,13 @@ describe("Atlas quality gates", () => {
 		);
 	});
 
-	it("records basis generation failure without fabricating claim basis", async () => {
+	it("falls back to partial section-level basis when audit JSON fails with accepted evidence", async () => {
 		const result = await auditAtlasBasis({
-			assembledMarkdown: "Atlas report",
+			assembledMarkdown:
+				"## Executive Summary\nHybrid retrieval improves recall before reranking.",
 			sources: [{ title: "Example", url: "https://example.com" }],
+			evidencePacks: [evidencePack],
+			sectionBriefs,
 			auditModelWarning:
 				"Atlas audit used the synthesis model because no distinct audit model is enabled.",
 			runAuditModel: vi.fn(async () => ({
@@ -152,11 +155,20 @@ describe("Atlas quality gates", () => {
 			})),
 		});
 
-		expect(result.claimBasis).toEqual([]);
-		expect(result.claimBasisStatus).toBe("failed");
-		expect(result.claimBasisFailureReason).toContain("parseable strict JSON");
+		expect(result.claimBasis).toHaveLength(1);
+		expect(result.claimBasis[0]).toMatchObject({
+			supportLevel: "partial",
+			auditConcernCode: "atlas_claim_basis_section_fallback",
+		});
+		expect(result.claimBasisStatus).toBe("succeeded");
+		expect(result.claimBasisFailureReason).toBeNull();
 		expect(result.basisDiagnostics).toContainEqual(
 			expect.objectContaining({ code: "atlas_claim_basis_invalid_json" }),
+		);
+		expect(result.basisDiagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "atlas_claim_basis_section_fallback",
+			}),
 		);
 		expect(result.honestyMarkers).toContainEqual({
 			code: "atlas_audit_model_fallback",

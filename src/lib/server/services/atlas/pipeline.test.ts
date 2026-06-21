@@ -2449,6 +2449,16 @@ describe("Atlas pipeline slices", () => {
 				assembledMarkdown: expect.stringContaining(
 					'"Routing docs" shows that at the heart of SvelteKit is a filesystem-based router.',
 				),
+				assemblyMetadata: expect.objectContaining({
+					generatedTitle: "Routing docs",
+					structured: true,
+					sectionBriefs: expect.arrayContaining([
+						expect.objectContaining({
+							sectionTitle: "Executive Summary",
+							evidencePackIds: expect.arrayContaining([expect.any(String)]),
+						}),
+					]),
+				}),
 			}),
 		);
 		expect(auditBasis).toHaveBeenCalledWith(
@@ -2460,6 +2470,7 @@ describe("Atlas pipeline slices", () => {
 		);
 		expect(renderOutputs).toHaveBeenCalledWith(
 			expect.objectContaining({
+				title: "Routing docs",
 				blocks: expect.arrayContaining([
 					expect.objectContaining({
 						type: "paragraph",

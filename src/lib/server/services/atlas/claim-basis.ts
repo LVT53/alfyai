@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { SupportedLanguage } from "$lib/server/services/language";
+import { parseJsonFromText } from "./json-extract";
 import {
 	ATLAS_CLAIM_BASIS_SCHEMA_VERSION,
 	ATLAS_CLAIM_SUPPORT_LEVELS,
@@ -23,6 +24,8 @@ export { ATLAS_CLAIM_BASIS_SCHEMA_VERSION, ATLAS_CLAIM_SUPPORT_LEVELS };
 
 const MAX_RATIONALE_LENGTH = 280;
 const MAX_CLAIM_TEXT_LENGTH = 360;
+const MAX_FALLBACK_SECTION_BASIS = 6;
+const MAX_FALLBACK_SOURCE_REFS = 8;
 const SOURCE_AUTHORITIES = [
 	"explicit_local",
 	"working_document",
@@ -89,6 +92,7 @@ export interface ParseAtlasClaimBasisModelResultInput {
 	modelText: string;
 	evidencePacks: AtlasEvidencePack[];
 	sectionBriefs: AtlasSectionBrief[];
+	assembledMarkdown?: string;
 }
 
 export interface GenerateAtlasClaimBasisInput
@@ -169,21 +173,25 @@ export function parseAtlasClaimBasisModelResult(
 ): AtlasClaimBasisResult {
 	const parsed = parseJsonObject(input.modelText);
 	if (!parsed) {
-		return failedResult({
+		return failedOrFallbackResult({
 			code: "atlas_claim_basis_invalid_json",
 			message:
 				"Claim Basis generation did not return parseable strict JSON, so Atlas did not create fine-grained support data.",
+			evidencePacks: input.evidencePacks,
 			sectionBriefs: input.sectionBriefs,
+			assembledMarkdown: input.assembledMarkdown,
 		});
 	}
 
 	const rawClaimBasis = claimBasisArray(parsed);
 	if (!rawClaimBasis) {
-		return failedResult({
+		return failedOrFallbackResult({
 			code: "atlas_claim_basis_missing_array",
 			message:
 				"Claim Basis generation did not include a claimBasis array, so Atlas did not create fine-grained support data.",
+			evidencePacks: input.evidencePacks,
 			sectionBriefs: input.sectionBriefs,
+			assembledMarkdown: input.assembledMarkdown,
 		});
 	}
 
@@ -223,12 +231,17 @@ export function parseAtlasClaimBasisModelResult(
 	const parsedDiagnostics = parseDiagnostics(parsed.diagnostics);
 	diagnostics.push(...parsedDiagnostics);
 	if (claimBasis.length === 0) {
-		diagnostics.push({
+		const fallback = failedOrFallbackResult({
 			code: "atlas_claim_basis_empty",
-			severity: "warning",
 			message:
 				"Claim Basis generation returned no usable claim support entries.",
+			evidencePacks: input.evidencePacks,
+			sectionBriefs: input.sectionBriefs,
+			assembledMarkdown: input.assembledMarkdown,
 		});
+		fallback.diagnostics.unshift(...diagnostics);
+		fallback.limitations.unshift(...explicitLimitations);
+		return fallback;
 	}
 
 	const retryRequested =
@@ -260,6 +273,7 @@ export async function generateAtlasClaimBasis(
 		modelText: audit.text,
 		evidencePacks: input.evidencePacks,
 		sectionBriefs: input.sectionBriefs,
+		assembledMarkdown: input.assembledMarkdown,
 	});
 	return {
 		...parsed,
@@ -296,23 +310,11 @@ export function atlasClaimBasisToLegacyHonestyMarkers(input: {
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
-	const trimmed = text.trim();
-	const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
-	for (const candidate of [trimmed, fenced].filter(
-		(candidate): candidate is string => Boolean(candidate),
-	)) {
-		try {
-			const parsed = JSON.parse(candidate) as unknown;
-			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-				return parsed as Record<string, unknown>;
-			}
-			if (Array.isArray(parsed)) {
-				return { claimBasis: parsed };
-			}
-		} catch {
-			// Try the next candidate.
-		}
+	const parsed = parseJsonFromText(text);
+	if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+		return parsed as Record<string, unknown>;
 	}
+	if (Array.isArray(parsed)) return { claimBasis: parsed };
 	return null;
 }
 
@@ -614,6 +616,220 @@ function failedResult(input: {
 		failureReason: input.message,
 		retryRequested: false,
 	};
+}
+
+function failedOrFallbackResult(input: {
+	code: string;
+	message: string;
+	evidencePacks: AtlasEvidencePack[];
+	sectionBriefs: AtlasSectionBrief[];
+	assembledMarkdown?: string;
+}): AtlasClaimBasisResult {
+	const claimBasis = fallbackSectionClaimBasis(input);
+	if (claimBasis.length === 0) {
+		return failedResult({
+			code: input.code,
+			message: input.message,
+			sectionBriefs: input.sectionBriefs,
+		});
+	}
+	return {
+		version: ATLAS_CLAIM_BASIS_SCHEMA_VERSION,
+		claimBasis,
+		limitations: [
+			{
+				code: "atlas_claim_basis_section_fallback",
+				message:
+					"Fine-grained Claim Basis generation was unavailable; Basis Markers show section-level evidence coverage rather than claim-by-claim verification.",
+				basisIds: claimBasis.map((basis) => basis.id),
+				sectionTitle: null,
+			},
+		],
+		diagnostics: [
+			{
+				code: input.code,
+				severity: "warning",
+				message: input.message,
+			},
+			{
+				code: "atlas_claim_basis_section_fallback",
+				severity: "warning",
+				message:
+					"Atlas created partial section-level Basis Markers from accepted Evidence Packs because fine-grained Claim Basis JSON was unavailable.",
+			},
+		],
+		coverageBySection: buildCoverageBySection({
+			claimBasis,
+			sectionBriefs: input.sectionBriefs,
+		}),
+		status: "succeeded",
+		failureReason: null,
+		retryRequested: false,
+	};
+}
+
+function fallbackSectionClaimBasis(input: {
+	evidencePacks: AtlasEvidencePack[];
+	sectionBriefs: AtlasSectionBrief[];
+	assembledMarkdown?: string;
+}): AtlasClaimBasis[] {
+	const evidencePacksById = new Map(
+		input.evidencePacks.map((pack) => [pack.id, pack]),
+	);
+	const defaultPacks = input.evidencePacks
+		.filter((pack) => pack.sourceRefs.length > 0)
+		.slice(0, MAX_FALLBACK_SOURCE_REFS);
+	if (defaultPacks.length === 0) return [];
+
+	const sections = fallbackSections(input);
+	const claimBasis: AtlasClaimBasis[] = [];
+	const seen = new Set<string>();
+	for (const [index, section] of sections.entries()) {
+		if (claimBasis.length >= MAX_FALLBACK_SECTION_BASIS) break;
+		const packs = fallbackPacksForSection({
+			section,
+			evidencePacks: input.evidencePacks,
+			evidencePacksById,
+			defaultPacks,
+			index,
+		});
+		if (packs.length === 0) continue;
+		const raw = {
+			locator: {
+				sectionTitle: section.title,
+				paragraphIndex: null,
+				claimIndex: null,
+				claimText: `Section-level evidence coverage for ${section.title}`,
+				quote: null,
+				startOffset: null,
+				endOffset: null,
+			},
+			supportLevel: "partial" as const,
+			evidencePackIds: packs.map((pack) => pack.id),
+			sourceRefs: packs.flatMap((pack) => pack.sourceRefs),
+			supportRationale: fallbackBasisRationale({
+				sectionTitle: section.title,
+				packs,
+			}),
+			auditConcernCode: "atlas_claim_basis_section_fallback",
+		};
+		const normalized = normalizeClaimBasis({ raw, evidencePacksById });
+		if (seen.has(normalized.id)) continue;
+		seen.add(normalized.id);
+		claimBasis.push(normalized);
+	}
+	return claimBasis;
+}
+
+function fallbackSections(input: {
+	sectionBriefs: AtlasSectionBrief[];
+	assembledMarkdown?: string;
+}): Array<{ title: string; evidencePackIds: string[] }> {
+	const fromBriefs = input.sectionBriefs.map((brief) => ({
+		title: brief.sectionTitle,
+		evidencePackIds: uniqueStrings([
+			...brief.evidencePackIds,
+			...brief.sourceAssociations.flatMap((association) =>
+				association.evidencePackId ? [association.evidencePackId] : [],
+			),
+		]),
+	}));
+	const fromMarkdown = markdownSectionTitles(input.assembledMarkdown ?? "").map(
+		(title) => ({
+			title,
+			evidencePackIds: [],
+		}),
+	);
+	const sections: Array<{ title: string; evidencePackIds: string[] }> = [];
+	const seen = new Set<string>();
+	for (const section of [...fromBriefs, ...fromMarkdown]) {
+		if (isSourceSectionTitle(section.title)) continue;
+		const key = normalizeText(section.title)?.toLowerCase();
+		if (!key || seen.has(key)) continue;
+		seen.add(key);
+		sections.push(section);
+	}
+	return sections.length > 0
+		? sections
+		: [{ title: "Atlas report", evidencePackIds: [] }];
+}
+
+function markdownSectionTitles(markdown: string): string[] {
+	return markdown
+		.split(/\r?\n/)
+		.flatMap((line): string[] => {
+			const match = line.match(/^#{2,3}\s+(.+?)\s*#*\s*$/);
+			return match?.[1] ? [match[1]] : [];
+		})
+		.map((title) => title.replace(/^["']|["']$/g, "").trim())
+		.filter(Boolean)
+		.slice(0, 12);
+}
+
+function isSourceSectionTitle(title: string): boolean {
+	return /^(sources|source list|references|bibliography|forrasok|források|hivatkozasok|hivatkozások)$/i.test(
+		title.trim(),
+	);
+}
+
+function fallbackPacksForSection(input: {
+	section: { title: string; evidencePackIds: string[] };
+	evidencePacks: AtlasEvidencePack[];
+	evidencePacksById: Map<string, AtlasEvidencePack>;
+	defaultPacks: AtlasEvidencePack[];
+	index: number;
+}): AtlasEvidencePack[] {
+	const explicit = input.section.evidencePackIds
+		.map((id) => input.evidencePacksById.get(id))
+		.filter((pack): pack is AtlasEvidencePack => Boolean(pack));
+	if (explicit.length > 0) return explicit.slice(0, MAX_FALLBACK_SOURCE_REFS);
+
+	const normalizedSection = normalizeText(input.section.title)?.toLowerCase();
+	const hinted = input.evidencePacks.filter(
+		(pack) =>
+			pack.sourceRefs.length > 0 &&
+			normalizeText(pack.affectedSectionHint)?.toLowerCase() ===
+				normalizedSection,
+	);
+	if (hinted.length > 0) return hinted.slice(0, MAX_FALLBACK_SOURCE_REFS);
+
+	if (/limitations?|korlatok|korlátok/i.test(input.section.title)) {
+		const limited = input.evidencePacks.filter(
+			(pack) =>
+				pack.sourceRefs.length > 0 &&
+				(pack.limitations.length > 0 ||
+					pack.conflicts.length > 0 ||
+					!pack.freshness.isCurrentEvidence),
+		);
+		if (limited.length > 0) return limited.slice(0, MAX_FALLBACK_SOURCE_REFS);
+	}
+
+	const offset = input.index % Math.max(input.defaultPacks.length, 1);
+	return [
+		...input.defaultPacks.slice(offset),
+		...input.defaultPacks.slice(0, offset),
+	].slice(0, Math.min(4, MAX_FALLBACK_SOURCE_REFS));
+}
+
+function fallbackBasisRationale(input: {
+	sectionTitle: string;
+	packs: AtlasEvidencePack[];
+}): string {
+	const sourceTitles = uniqueStrings(
+		input.packs.flatMap((pack) =>
+			pack.sourceRefs.map((sourceRef) => sourceRef.title),
+		),
+	);
+	const leadSource = sourceTitles[0] ?? "accepted Atlas evidence";
+	const extra = Math.max(sourceTitles.length - 1, 0);
+	const sourcePhrase =
+		extra > 0
+			? `"${leadSource}" and ${extra} other source(s)`
+			: `"${leadSource}"`;
+	return compactText(
+		`${sourcePhrase} provide section-level evidence for ${input.sectionTitle}; fine-grained claim verification was unavailable, so this marker is partial.`,
+		MAX_RATIONALE_LENGTH,
+	);
 }
 
 function stableClaimBasisId(input: unknown): string {

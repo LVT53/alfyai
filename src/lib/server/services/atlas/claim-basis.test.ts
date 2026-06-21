@@ -306,19 +306,86 @@ describe("Atlas Claim Basis", () => {
 		);
 	});
 
-	it("does not fabricate claim basis data when parsing fails", () => {
+	it("extracts claim basis JSON embedded in surrounding model prose", () => {
+		const result = parseAtlasClaimBasisModelResult({
+			modelText: [
+				"Here is the strict JSON:",
+				JSON.stringify({
+					claimBasis: [
+						{
+							locator: {
+								sectionTitle: "Executive Summary",
+								paragraphIndex: 0,
+								claimIndex: 0,
+								claimText: "Hybrid retrieval improves recall before reranking.",
+							},
+							supportLevel: "supported",
+							evidencePackIds: ["pack-hybrid"],
+							supportRationale:
+								"The accepted source says hybrid retrieval combines lexical and semantic recall.",
+						},
+					],
+				}),
+				"End.",
+			].join("\n"),
+			evidencePacks: [evidencePack],
+			sectionBriefs,
+		});
+
+		expect(result.status).toBe("succeeded");
+		expect(result.claimBasis).toHaveLength(1);
+		expect(result.claimBasis[0]).toMatchObject({
+			supportLevel: "supported",
+			evidencePackIds: ["pack-hybrid"],
+		});
+	});
+
+	it("falls back to partial section-level basis markers when parsing fails but accepted evidence exists", () => {
 		const result = parseAtlasClaimBasisModelResult({
 			modelText: "not json",
 			evidencePacks: [evidencePack],
+			sectionBriefs,
+			assembledMarkdown:
+				"## Executive Summary\nHybrid retrieval improves recall before reranking.",
+		});
+
+		expect(result.status).toBe("succeeded");
+		expect(result.failureReason).toBeNull();
+		expect(result.claimBasis).toHaveLength(1);
+		expect(result.claimBasis[0]).toMatchObject({
+			supportLevel: "partial",
+			evidencePackIds: ["pack-hybrid"],
+			auditConcernCode: "atlas_claim_basis_section_fallback",
+			locator: expect.objectContaining({
+				sectionTitle: "Executive Summary",
+				paragraphIndex: null,
+			}),
+		});
+		expect(result.limitations).toContainEqual(
+			expect.objectContaining({
+				code: "atlas_claim_basis_section_fallback",
+			}),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({ code: "atlas_claim_basis_invalid_json" }),
+		);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "atlas_claim_basis_section_fallback",
+			}),
+		);
+	});
+
+	it("does not fabricate claim basis data when parsing fails without accepted evidence", () => {
+		const result = parseAtlasClaimBasisModelResult({
+			modelText: "not json",
+			evidencePacks: [],
 			sectionBriefs,
 		});
 
 		expect(result.status).toBe("failed");
 		expect(result.failureReason).toContain("parseable strict JSON");
 		expect(result.claimBasis).toEqual([]);
-		expect(result.diagnostics).toContainEqual(
-			expect.objectContaining({ code: "atlas_claim_basis_invalid_json" }),
-		);
 	});
 
 	it("builds an audit prompt from accepted Evidence Packs and section briefs", () => {
