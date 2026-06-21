@@ -1225,6 +1225,408 @@ function buildAssembleRepairPrompt(input: {
 	});
 }
 
+interface AtlasFallbackReportSection {
+	title: string;
+	text: string;
+	limitations: string[];
+}
+
+function fallbackSectionLabels(language: SupportedLanguage): {
+	executive: string;
+	findings: string;
+	limitations: string;
+} {
+	if (language === "hu") {
+		return {
+			executive: "Vezetői összefoglaló",
+			findings: "Megállapítások",
+			limitations: "Korlátok",
+		};
+	}
+	return {
+		executive: "Executive Summary",
+		findings: "Findings",
+		limitations: "Limitations",
+	};
+}
+
+function cleanFallbackStageText(value: string): string {
+	return value
+		.replace(/```[\s\S]*?```/g, "")
+		.replace(/\r\n?/g, "\n")
+		.replace(/[ \t]+/g, " ")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
+function cleanFallbackScalar(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const trimmed = value.replace(/\s+/g, " ").trim();
+	return trimmed || null;
+}
+
+function normalizedFallbackHeading(value: string): string {
+	return value
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/g, " ");
+}
+
+function outlineTitleCandidate(value: string): string | null {
+	const cleaned = cleanFallbackScalar(
+		value
+			.replace(/^#{1,6}\s+/, "")
+			.replace(/^[-*]\s+/, "")
+			.replace(/^\d+(?:\.\d+)*[.)]?\s+/, "")
+			.replace(/^section\s+\d+\s*[:.-]\s*/i, ""),
+	);
+	if (!cleaned) return null;
+	const delimiterMatch = /\s[-–—]\s|:\s/.exec(cleaned);
+	const title = delimiterMatch
+		? cleaned.slice(0, delimiterMatch.index).trim()
+		: cleaned.trim();
+	if (title.length < 3 || title.length > 80) return null;
+	if (/[.!?]\s+\S/.test(title)) return null;
+	if (
+		/\b(source|sources|bibliography|references|forras|forrasok|hivatkozasok)\b/i.test(
+			title,
+		)
+	) {
+		return null;
+	}
+	return title.replace(/[.:;,-]+$/g, "").trim() || null;
+}
+
+function canonicalFallbackSectionTitle(
+	title: string,
+	language: SupportedLanguage,
+): string {
+	const labels = fallbackSectionLabels(language);
+	const normalized = normalizedFallbackHeading(title);
+	if (
+		normalized === "executive summary" ||
+		normalized === "summary" ||
+		normalized === "vezetoi osszefoglalo" ||
+		normalized === "osszefoglalo"
+	) {
+		return labels.executive;
+	}
+	if (
+		normalized === "limitations" ||
+		normalized === "limits" ||
+		normalized === "korlatok"
+	) {
+		return labels.limitations;
+	}
+	return title;
+}
+
+function uniqueFallbackSectionTitles(
+	titles: string[],
+	language: SupportedLanguage,
+): string[] {
+	const labels = fallbackSectionLabels(language);
+	const seen = new Set<string>();
+	const unique: string[] = [];
+	for (const rawTitle of titles) {
+		const title = canonicalFallbackSectionTitle(rawTitle, language);
+		const key = normalizedFallbackHeading(title);
+		if (!key || seen.has(key)) continue;
+		seen.add(key);
+		unique.push(title);
+	}
+	const executiveIndex = unique.findIndex(
+		(title) =>
+			normalizedFallbackHeading(title) ===
+			normalizedFallbackHeading(labels.executive),
+	);
+	if (executiveIndex > 0) {
+		const [executive] = unique.splice(executiveIndex, 1);
+		unique.unshift(executive);
+	} else if (executiveIndex < 0) {
+		unique.unshift(labels.executive);
+	}
+	const limitationsIndex = unique.findIndex(
+		(title) =>
+			normalizedFallbackHeading(title) ===
+			normalizedFallbackHeading(labels.limitations),
+	);
+	if (limitationsIndex >= 0 && limitationsIndex !== unique.length - 1) {
+		const [limitations] = unique.splice(limitationsIndex, 1);
+		unique.push(limitations);
+	} else if (limitationsIndex < 0) {
+		unique.push(labels.limitations);
+	}
+	if (unique.length < 3) {
+		const findingsKey = normalizedFallbackHeading(labels.findings);
+		if (
+			!unique.some((title) => normalizedFallbackHeading(title) === findingsKey)
+		) {
+			unique.splice(Math.max(1, unique.length - 1), 0, labels.findings);
+		}
+	}
+	return unique.slice(0, 10);
+}
+
+function extractFallbackOutlineTitles(
+	outline: string,
+	language: SupportedLanguage,
+): string[] {
+	const parsed = parseJsonObject(outline);
+	const parsedBriefs = parsed ? parseSectionBriefs(parsed.sectionBriefs) : [];
+	const parsedTitles = parsedBriefs.map((brief) => brief.sectionTitle);
+	if (parsedTitles.length > 0) {
+		return uniqueFallbackSectionTitles(parsedTitles, language);
+	}
+
+	const cleaned = cleanFallbackStageText(outline)
+		.replace(/^\s*outline\s*:\s*/i, "")
+		.trim();
+	const chunks = cleaned
+		.split(/\n+|;/)
+		.map(outlineTitleCandidate)
+		.filter((title): title is string => Boolean(title));
+	return uniqueFallbackSectionTitles(chunks, language);
+}
+
+function stripFallbackSectionPrefix(value: string): {
+	prefix: string | null;
+	body: string;
+} {
+	const cleaned = cleanFallbackScalar(
+		value
+			.replace(/^#{1,6}\s+/, "")
+			.replace(/^[-*]\s+/, "")
+			.replace(/^\d+(?:\.\d+)*[.)]?\s+/, ""),
+	);
+	if (!cleaned) return { prefix: null, body: "" };
+	const delimiterMatch = /\s[-–—]\s|:\s/.exec(cleaned);
+	if (!delimiterMatch) return { prefix: null, body: cleaned };
+	const prefix = cleaned.slice(0, delimiterMatch.index).trim();
+	const body = cleaned
+		.slice(delimiterMatch.index + delimiterMatch[0].length)
+		.trim();
+	if (prefix.length < 3 || prefix.length > 80 || !body) {
+		return { prefix: null, body: cleaned };
+	}
+	return { prefix, body };
+}
+
+function isProcessFallbackStatement(value: string): boolean {
+	return (
+		/\bI\s+(?:checked|reviewed|consulted|examined)\b/i.test(value) ||
+		/\bsources?\s+(?:checked|reviewed|consulted|examined)\b/i.test(value) ||
+		/\bsynthesi[sz]ed\s+(?:the\s+)?findings\b/i.test(value) ||
+		/\bcompleted\s+(?:the\s+)?research\b/i.test(value)
+	);
+}
+
+function fallbackStatementsFromStageText(value: string): Array<{
+	prefix: string | null;
+	body: string;
+}> {
+	return cleanFallbackStageText(value)
+		.split(/\n+/)
+		.flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-Z0-9])/))
+		.map(stripFallbackSectionPrefix)
+		.map((entry) => ({
+			prefix: entry.prefix,
+			body: ensureTerminalPunctuation(entry.body),
+		}))
+		.filter(
+			(entry) =>
+				entry.body.length >= 30 && !isProcessFallbackStatement(entry.body),
+		)
+		.slice(0, 32);
+}
+
+function fallbackStatementsFromEvidencePacks(
+	evidencePacks: AtlasEvidencePack[],
+): Array<{ prefix: string | null; body: string }> {
+	return evidencePacks
+		.map((pack) => cleanFallbackScalar(pack.evidence.summary))
+		.filter((summary): summary is string => Boolean(summary))
+		.filter((summary) => !isProcessFallbackStatement(summary))
+		.map((summary) => ({
+			prefix: null,
+			body: ensureTerminalPunctuation(summary),
+		}))
+		.slice(0, 16);
+}
+
+function sectionTitleTokenSet(title: string): Set<string> {
+	const stopwords = new Set([
+		"and",
+		"the",
+		"for",
+		"with",
+		"summary",
+		"executive",
+		"limitations",
+		"limits",
+		"section",
+		"vezetoi",
+		"osszefoglalo",
+		"korlatok",
+	]);
+	return new Set(
+		normalizedFallbackHeading(title)
+			.split(/\s+/)
+			.filter((token) => token.length >= 4 && !stopwords.has(token)),
+	);
+}
+
+function statementMatchesSectionTitle(
+	statement: { prefix: string | null; body: string },
+	title: string,
+): boolean {
+	const sectionKey = normalizedFallbackHeading(title);
+	if (
+		statement.prefix &&
+		normalizedFallbackHeading(statement.prefix) === sectionKey
+	) {
+		return true;
+	}
+	const tokens = sectionTitleTokenSet(title);
+	if (tokens.size === 0) return false;
+	const body = normalizedFallbackHeading(
+		`${statement.prefix ?? ""} ${statement.body}`,
+	);
+	let matches = 0;
+	for (const token of tokens) {
+		if (body.includes(token)) matches += 1;
+	}
+	return matches >= Math.min(2, tokens.size);
+}
+
+function fallbackLimitationsText(input: {
+	language: SupportedLanguage;
+	limitation: { code: string; message: string } | null;
+	evidencePacks: AtlasEvidencePack[];
+}): string {
+	const packLimitations = input.evidencePacks
+		.flatMap((pack) => pack.limitations)
+		.map(cleanFallbackScalar)
+		.filter((limitation): limitation is string => Boolean(limitation))
+		.slice(0, 3);
+	if (input.limitation)
+		return ensureTerminalPunctuation(input.limitation.message);
+	if (packLimitations.length > 0) {
+		return packLimitations.map(ensureTerminalPunctuation).join(" ");
+	}
+	return input.language === "hu"
+		? "A jelentés az elfogadott Atlas forrásokra korlátozódik; a gyenge vagy hiányzó bizonyítékokat óvatosan kell kezelni."
+		: "The report is limited to the accepted Atlas sources; weak or missing evidence should be treated cautiously.";
+}
+
+function fallbackTextForSection(input: {
+	title: string;
+	language: SupportedLanguage;
+	statements: Array<{ prefix: string | null; body: string }>;
+	usedStatementIndexes: Set<number>;
+	limitation: { code: string; message: string } | null;
+	evidencePacks: AtlasEvidencePack[];
+}): string {
+	const labels = fallbackSectionLabels(input.language);
+	const sectionKey = normalizedFallbackHeading(input.title);
+	const executiveKey = normalizedFallbackHeading(labels.executive);
+	const limitationsKey = normalizedFallbackHeading(labels.limitations);
+	if (sectionKey === limitationsKey) {
+		return fallbackLimitationsText(input);
+	}
+	const matchedIndex = input.statements.findIndex(
+		(statement, statementIndex) =>
+			!input.usedStatementIndexes.has(statementIndex) &&
+			statementMatchesSectionTitle(statement, input.title),
+	);
+	if (matchedIndex >= 0) {
+		input.usedStatementIndexes.add(matchedIndex);
+		return input.statements[matchedIndex].body;
+	}
+	if (sectionKey === executiveKey) {
+		const executiveStatements = input.statements
+			.filter(
+				(_, statementIndex) => !input.usedStatementIndexes.has(statementIndex),
+			)
+			.slice(0, 2);
+		executiveStatements.forEach((statement) => {
+			const index = input.statements.indexOf(statement);
+			if (index >= 0) input.usedStatementIndexes.add(index);
+		});
+		if (executiveStatements.length > 0) {
+			return executiveStatements.map((statement) => statement.body).join(" ");
+		}
+	}
+	const fallbackIndex = input.statements.findIndex(
+		(_, statementIndex) => !input.usedStatementIndexes.has(statementIndex),
+	);
+	if (fallbackIndex >= 0) {
+		input.usedStatementIndexes.add(fallbackIndex);
+		return input.statements[fallbackIndex].body;
+	}
+	return input.language === "hu"
+		? "Az elfogadott bizonyítékok alapján csak óvatos, forráshoz kötött megállapítás adható ehhez a szakaszhoz."
+		: "The accepted evidence supports only a cautious, source-bounded finding for this section.";
+}
+
+function buildFallbackReportSections(input: {
+	language: SupportedLanguage;
+	curatedEvidence: string;
+	synthesis: string;
+	outline: string;
+	evidencePacks: AtlasEvidencePack[];
+	limitation: { code: string; message: string } | null;
+}): AtlasFallbackReportSection[] {
+	const titles = extractFallbackOutlineTitles(input.outline, input.language);
+	const statements = [
+		...fallbackStatementsFromStageText(input.synthesis),
+		...fallbackStatementsFromStageText(input.curatedEvidence),
+		...fallbackStatementsFromEvidencePacks(input.evidencePacks),
+	];
+	const usedStatementIndexes = new Set<number>();
+	return titles.map((title) => {
+		const limitations =
+			normalizedFallbackHeading(title) ===
+			normalizedFallbackHeading(
+				fallbackSectionLabels(input.language).limitations,
+			)
+				? [fallbackLimitationsText(input)]
+				: [];
+		return {
+			title,
+			text: fallbackTextForSection({
+				title,
+				language: input.language,
+				statements,
+				usedStatementIndexes,
+				limitation: input.limitation,
+				evidencePacks: input.evidencePacks,
+			}),
+			limitations,
+		};
+	});
+}
+
+function buildFallbackSectionBriefsFromSections(input: {
+	sections: AtlasFallbackReportSection[];
+	evidencePacks: AtlasEvidencePack[];
+}): AtlasSectionBrief[] {
+	const packs = input.evidencePacks
+		.filter((pack) => pack.sourceRefs.length > 0)
+		.slice(0, 8);
+	const evidencePackIds = packs.map((pack) => pack.id);
+	const sourceAssociations = sourceAssociationsFromEvidencePacks(packs);
+	return input.sections.map((section) => ({
+		sectionTitle: section.title,
+		brief: compactSectionBrief(section.text),
+		evidencePackIds,
+		sourceAssociations,
+		limitations: section.limitations,
+	}));
+}
+
 function buildDeterministicFallbackReport(input: {
 	language: SupportedLanguage;
 	query: string;
@@ -1239,107 +1641,30 @@ function buildDeterministicFallbackReport(input: {
 	}>;
 	limitation: { code: string; message: string } | null;
 }): { markdown: string; metadata: AtlasAssemblyMetadata } {
-	const clean = (value: string, fallback: string) => {
-		const normalized = value
-			.replace(/```[\s\S]*?```/g, "")
-			.replace(/\s+/g, " ")
-			.trim();
-		return normalized || fallback;
-	};
-	const sourceFindings = buildSourceGroundedFallbackFindings(
-		input.sources,
-		input.language,
-	);
-	const executiveSummary =
-		sourceFindings.length > 0
-			? buildFallbackExecutiveSummary(sourceFindings, input.language)
-			: clean(
-					input.synthesis,
-					input.language === "hu"
-						? "Az elfogadott források alapján a bizonyítékok korlátozott, óvatos következtetéseket támogatnak."
-						: "The accepted sources support a limited, cautious set of source-grounded conclusions.",
-				);
-	const findingsText =
-		sourceFindings.length > 0
-			? sourceFindings
-					.map((finding, index) => `${index + 1}. ${finding}`)
-					.join("\n")
-			: clean(
-					input.curatedEvidence,
-					input.language === "hu"
-						? "A válogatott bizonyítékok alapján csak óvatos, forráshoz kötött megállapítások tehetők."
-						: "The curated evidence supports only cautious, source-grounded findings.",
-				);
-	const analysisFrame =
-		sourceFindings.length > 0
-			? input.language === "hu"
-				? "A jelentés a legerősebb elfogadott forrásokra szűkíti a következtetéseket, és minden állítást ezekhez a forrásokhoz köt."
-				: "The report narrows conclusions to the strongest accepted sources and ties each claim to that evidence."
-			: clean(
-					input.outline,
-					input.language === "hu"
-						? "A következtetések az elfogadott Atlas forrásokból származnak."
-						: "The conclusions are derived from the accepted Atlas sources.",
-				);
 	const title = buildFallbackGeneratedTitle({
 		language: input.language,
 		query: input.query,
 		sources: input.sources,
 	});
-	const sectionBriefs = buildFallbackSectionBriefs({
+	const sections = buildFallbackReportSections({
 		language: input.language,
-		executiveSummary,
-		findingsText,
-		analysisFrame,
+		curatedEvidence: input.curatedEvidence,
+		synthesis: input.synthesis,
+		outline: input.outline,
+		evidencePacks: input.evidencePacks,
 		limitation: input.limitation,
+	});
+	const sectionBriefs = buildFallbackSectionBriefsFromSections({
+		sections,
 		evidencePacks: input.evidencePacks,
 	});
-	if (input.language === "hu") {
-		return {
-			markdown: [
-				`# ${title}`,
-				"",
-				"## Vezetői összefoglaló",
-				executiveSummary,
-				"",
-				"## Megállapítások",
-				findingsText,
-				"",
-				"## Elemzési keret",
-				analysisFrame,
-				"",
-				"## Korlátok",
-				input.limitation
-					? `${input.limitation.message}`
-					: "A jelentés az elfogadott Atlas forrásokra korlátozódik, és nem tekinthető teljes körű történeti feldolgozásnak.",
-			].join("\n"),
-			metadata: {
-				version: ATLAS_ASSEMBLY_SCHEMA_VERSION,
-				generatedTitle: title,
-				sectionBriefs,
-				limitations: input.limitation ? [input.limitation.message] : [],
-				structured: true,
-			},
-		};
-	}
+	const markdown = [
+		`# ${title}`,
+		"",
+		...sections.flatMap((section) => [`## ${section.title}`, section.text, ""]),
+	].join("\n");
 	return {
-		markdown: [
-			`# ${title}`,
-			"",
-			"## Executive Summary",
-			executiveSummary,
-			"",
-			"## Findings",
-			findingsText,
-			"",
-			"## Analysis Frame",
-			analysisFrame,
-			"",
-			"## Limitations",
-			input.limitation
-				? `${input.limitation.message}`
-				: "This report is limited to the accepted Atlas sources and should not be treated as exhaustive historical coverage.",
-		].join("\n"),
+		markdown,
 		metadata: {
 			version: ATLAS_ASSEMBLY_SCHEMA_VERSION,
 			generatedTitle: title,
@@ -1355,10 +1680,10 @@ function buildFallbackGeneratedTitle(input: {
 	query: string;
 	sources: Array<{ title: string }>;
 }): string {
-	const sourceTitle = normalizeFallbackTitle(input.sources[0]?.title);
-	if (sourceTitle) return sourceTitle;
 	const queryTitle = normalizeFallbackTitle(input.query);
 	if (queryTitle) return queryTitle;
+	const sourceTitle = normalizeFallbackTitle(input.sources[0]?.title);
+	if (sourceTitle) return sourceTitle;
 	return input.language === "hu"
 		? "Forrásalapú Atlas jelentés"
 		: "Source-Grounded Atlas Report";
@@ -1392,69 +1717,6 @@ function normalizeFallbackTitle(
 	return clipped.length >= 4 ? clipped : null;
 }
 
-function buildFallbackSectionBriefs(input: {
-	language: SupportedLanguage;
-	executiveSummary: string;
-	findingsText: string;
-	analysisFrame: string;
-	limitation: { code: string; message: string } | null;
-	evidencePacks: AtlasEvidencePack[];
-}): AtlasSectionBrief[] {
-	const packs = input.evidencePacks
-		.filter((pack) => pack.sourceRefs.length > 0)
-		.slice(0, 8);
-	const evidencePackIds = packs.map((pack) => pack.id);
-	const sourceAssociations = sourceAssociationsFromEvidencePacks(packs);
-	const labels =
-		input.language === "hu"
-			? {
-					executive: "Vezetői összefoglaló",
-					findings: "Megállapítások",
-					analysis: "Elemzési keret",
-					limitations: "Korlátok",
-				}
-			: {
-					executive: "Executive Summary",
-					findings: "Findings",
-					analysis: "Analysis Frame",
-					limitations: "Limitations",
-				};
-	return [
-		{
-			sectionTitle: labels.executive,
-			brief: compactSectionBrief(input.executiveSummary),
-			evidencePackIds,
-			sourceAssociations,
-			limitations: [],
-		},
-		{
-			sectionTitle: labels.findings,
-			brief: compactSectionBrief(input.findingsText),
-			evidencePackIds,
-			sourceAssociations,
-			limitations: [],
-		},
-		{
-			sectionTitle: labels.analysis,
-			brief: compactSectionBrief(input.analysisFrame),
-			evidencePackIds,
-			sourceAssociations,
-			limitations: [],
-		},
-		{
-			sectionTitle: labels.limitations,
-			brief:
-				input.limitation?.message ??
-				(input.language === "hu"
-					? "A jelentés elfogadott Atlas forrásokra korlátozott."
-					: "The report is limited to accepted Atlas sources."),
-			evidencePackIds,
-			sourceAssociations,
-			limitations: input.limitation ? [input.limitation.message] : [],
-		},
-	];
-}
-
 function sourceAssociationsFromEvidencePacks(
 	packs: AtlasEvidencePack[],
 ): AtlasSectionBriefSourceAssociation[] {
@@ -1481,95 +1743,10 @@ function compactSectionBrief(value: string): string {
 		.trim()}...`;
 }
 
-function buildSourceGroundedFallbackFindings(
-	sources: Array<{
-		title: string;
-		url?: string | null;
-		reasoning?: string | null;
-	}>,
-	language: SupportedLanguage,
-): string[] {
-	const findings: string[] = [];
-	for (const source of sources) {
-		if (findings.length >= 5) break;
-		const evidence = extractEvidenceStatement(source.reasoning ?? "");
-		if (!evidence) continue;
-		if (language === "hu") {
-			findings.push(`A(z) "${source.title}" forrás szerint ${evidence}`);
-		} else {
-			findings.push(
-				`"${source.title}" shows that ${formatEvidenceClause(evidence)}`,
-			);
-		}
-	}
-	return findings;
-}
-
-function buildFallbackExecutiveSummary(
-	findings: string[],
-	language: SupportedLanguage,
-): string {
-	const first = findings[0]?.replace(/^\d+\.\s+/, "") ?? "";
-	const second = findings[1]?.replace(/^\d+\.\s+/, "") ?? "";
-	if (language === "hu") {
-		return [
-			"Az elfogadott források óvatos, forráshoz kötött következtetéseket támasztanak alá.",
-			first,
-			second,
-		]
-			.filter(Boolean)
-			.join(" ");
-	}
-	return [
-		"The accepted evidence supports a cautious, source-grounded report rather than a broad unsupported narrative.",
-		first,
-		second,
-	]
-		.filter(Boolean)
-		.join(" ");
-}
-
-function extractEvidenceStatement(text: string): string {
-	const normalized = text
-		.replace(/\bSearch result snippet:\s*/gi, "")
-		.replace(/\bFetched page excerpt:\s*/gi, "")
-		.replace(/\s+/g, " ")
-		.trim();
-	if (!normalized) return "";
-	const sentences = normalized
-		.split(/(?<=[.!?])\s+/)
-		.map((sentence) => sentence.trim())
-		.filter((sentence) => sentence.length >= 45)
-		.filter(
-			(sentence) =>
-				!/^(Search result snippet|Fetched page excerpt|Related searches?)\b/i.test(
-					sentence,
-				),
-		);
-	const selected = sentences.slice(0, 2).join(" ");
-	return truncateSentence(selected || normalized, 260);
-}
-
-function truncateSentence(text: string, maxLength: number): string {
-	if (text.length <= maxLength) return ensureTerminalPunctuation(text);
-	const truncated = text
-		.slice(0, maxLength)
-		.replace(/\s+\S*$/, "")
-		.trim();
-	return ensureTerminalPunctuation(`${truncated}...`);
-}
-
 function ensureTerminalPunctuation(text: string): string {
 	const trimmed = text.trim();
 	if (!trimmed) return "";
 	return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
-}
-
-function formatEvidenceClause(text: string): string {
-	const trimmed = text.trim();
-	const firstWord = trimmed.match(/^[A-Za-z]+/)?.[0] ?? "";
-	if (!firstWord || /[A-Z].*[A-Z]/.test(firstWord)) return trimmed;
-	return `${trimmed[0].toLowerCase()}${trimmed.slice(1)}`;
 }
 
 export async function runAtlasPipeline(

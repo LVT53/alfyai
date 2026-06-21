@@ -378,6 +378,46 @@ describe("Atlas renderer output", () => {
 		});
 	});
 
+	it("caps deterministic Atlas images by report section density", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Short Visual Atlas",
+			assembledMarkdown: [
+				"## Executive Summary",
+				"Short reports should not be crowded with automatically selected images.",
+				"",
+				"## Findings",
+				"The accepted evidence supports one compact visual at most for this report.",
+				"",
+				"## Limitations",
+				"The evidence is representative rather than exhaustive.",
+			].join("\n"),
+			sources: [],
+			honestyMarkers: [],
+			imageCandidates: [1, 2, 3, 4].map((index) => ({
+				id: `image-candidate-${index}`,
+				query: "short visual atlas",
+				title: `Structured visual ${index}`,
+				imageUrl: `https://example.com/structured-${index}.png`,
+				sourcePageUrl: `https://example.com/structured-source-${index}`,
+				sourceTitle: `Structured source ${index}`,
+				thumbnailUrl: null,
+				width: null,
+				height: null,
+				caption: `Structured image candidate ${index}`,
+				selectionReason: "Image result for short visual atlas.",
+			})),
+			maxRenderedImages: 4,
+		});
+
+		const imageBlocks = source.blocks.filter((block) => block.type === "image");
+		expect(imageBlocks).toHaveLength(1);
+		expect(imageBlocks[0]).toMatchObject({
+			source: { kind: "https", url: "https://example.com/structured-1.png" },
+		});
+	});
+
 	it("adds accepted-source chips to substantive paragraphs when Markdown has no explicit citations", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 
@@ -444,7 +484,7 @@ describe("Atlas renderer output", () => {
 		);
 	});
 
-	it("projects Atlas Claim Basis into paragraph basis markers and standalone fallbacks", async () => {
+	it("projects Atlas Claim Basis into paragraph basis markers when section context exists", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 
 		const source = buildAtlasDocumentSource({
@@ -534,14 +574,22 @@ describe("Atlas renderer output", () => {
 					"Accepted source states both local authority and web freshness are required.",
 			},
 		]);
-		expect(source.blocks).toEqual(
+		expect(paragraphs[1].basisMarkers).toEqual([
+			{
+				type: "basisMarker",
+				id: "basis-unanchored",
+				support: "unsupported",
+				anchorText: "The market has unresolved adoption signals.",
+				occurrence: 0,
+				rationale: "No accepted source supports the unanchored risk claim.",
+				auditCode: "atlas_unanchored_risk",
+			},
+		]);
+		expect(source.blocks).not.toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
 					type: "basisMarker",
 					id: "basis-unanchored",
-					support: "unsupported",
-					rationale: "No accepted source supports the unanchored risk claim.",
-					auditCode: "atlas_unanchored_risk",
 				}),
 			]),
 		);

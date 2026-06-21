@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
+import type { RunAtlasPipelineInput } from "./pipeline";
 import type {
 	AtlasGapProposal,
 	AtlasPipelineJobContext,
@@ -433,9 +435,13 @@ describe("Atlas pipeline slices", () => {
 			expect.objectContaining({
 				blocks: expect.arrayContaining([
 					expect.objectContaining({
-						type: "basisMarker",
-						id: "atlas-claim-test",
-						support: "supported",
+						type: "paragraph",
+						basisMarkers: expect.arrayContaining([
+							expect.objectContaining({
+								id: "atlas-claim-test",
+								support: "supported",
+							}),
+						]),
 					}),
 				]),
 			}),
@@ -1660,9 +1666,13 @@ describe("Atlas pipeline slices", () => {
 		expect(renderedSource.blocks).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
-					type: "basisMarker",
-					id: "basis-soft-retry",
-					support: "partial",
+					type: "paragraph",
+					basisMarkers: expect.arrayContaining([
+						expect.objectContaining({
+							id: "basis-soft-retry",
+							support: "partial",
+						}),
+					]),
 				}),
 			]),
 		);
@@ -2363,7 +2373,7 @@ describe("Atlas pipeline slices", () => {
 		);
 	});
 
-	it("uses accepted source excerpts when model stages collapse to generic fallback text", async () => {
+	it("preserves synthesized structure instead of stitching source excerpts when assembly collapses", async () => {
 		const { runAtlasPipeline } = await import("./pipeline");
 		const auditBasis = vi.fn(async () => ({
 			passed: true,
@@ -2428,9 +2438,25 @@ describe("Atlas pipeline slices", () => {
 					text:
 						input.stage === "decompose"
 							? "SvelteKit routing docs"
-							: input.stage === "assemble"
-								? "I checked the sources and synthesized findings for the report."
-								: `${input.stage} result`,
+							: input.stage === "synthesize"
+								? [
+										"Executive Summary: SvelteKit routing is filesystem-centered and route-file based.",
+										"Framework Fit: The accepted routing docs support treating src/routes and route files as the durable ownership boundary.",
+										"Operational Tradeoffs: Route files keep page, layout, and endpoint behavior close together, but teams need conventions for dynamic parameters and nested layouts.",
+										"Recommendation: Use the route tree as the primary framework boundary and document where +page, +layout, and +server responsibilities sit.",
+										"Limitations: The accepted evidence is limited to routing documentation excerpts.",
+									].join("\n")
+								: input.stage === "integrate"
+									? [
+											"Executive Summary - summarize the route-boundary conclusion.",
+											"Framework Fit - explain why filesystem routing is the main framework fit point.",
+											"Operational Tradeoffs - cover endpoint/layout/dynamic-parameter tradeoffs.",
+											"Recommendation - give the implementation boundary recommendation.",
+											"Limitations - state the evidence limits.",
+										].join("\n")
+									: input.stage === "assemble"
+										? "I checked the sources and synthesized findings for the report."
+										: `${input.stage} result`,
 					usage: {
 						inputTokens: 1,
 						outputTokens: 1,
@@ -2444,40 +2470,54 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(auditBasis).toHaveBeenCalledWith(
-			expect.objectContaining({
-				assembledMarkdown: expect.stringContaining(
-					'"Routing docs" shows that at the heart of SvelteKit is a filesystem-based router.',
-				),
-				assemblyMetadata: expect.objectContaining({
-					generatedTitle: "Routing docs",
-					structured: true,
-					sectionBriefs: expect.arrayContaining([
-						expect.objectContaining({
-							sectionTitle: "Executive Summary",
-							evidencePackIds: expect.arrayContaining([expect.any(String)]),
-						}),
-					]),
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		const auditInput = auditCalls[0]?.[0];
+		expect(auditInput?.assembledMarkdown).toContain("## Executive Summary");
+		expect(auditInput?.assembledMarkdown).toContain("## Framework Fit");
+		expect(auditInput?.assembledMarkdown).toContain("## Operational Tradeoffs");
+		expect(auditInput?.assembledMarkdown).toContain("## Recommendation");
+		expect(auditInput?.assembledMarkdown).toContain("## Limitations");
+		expect(auditInput?.assembledMarkdown).not.toContain(
+			"The accepted evidence supports a cautious, source-grounded report rather than a broad unsupported narrative.",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain(
+			'"Routing docs" shows that',
+		);
+		expect(auditInput?.assemblyMetadata).toMatchObject({
+			structured: true,
+			sectionBriefs: expect.arrayContaining([
+				expect.objectContaining({ sectionTitle: "Framework Fit" }),
+				expect.objectContaining({ sectionTitle: "Operational Tradeoffs" }),
+				expect.objectContaining({ sectionTitle: "Recommendation" }),
+			]),
+		});
+
+		const renderCalls = renderOutputs.mock.calls as unknown as Array<
+			[GeneratedDocumentSource]
+		>;
+		const renderedSource = renderCalls[0]?.[0];
+		const headings =
+			renderedSource?.blocks
+				.filter((block) => block.type === "heading")
+				.map((block) => block.text) ?? [];
+		expect(headings).toEqual(
+			expect.arrayContaining([
+				"Executive Summary",
+				"Framework Fit",
+				"Operational Tradeoffs",
+				"Recommendation",
+				"Limitations",
+			]),
+		);
+		expect(renderedSource?.blocks).not.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "paragraph",
+					text: expect.stringContaining('"Routing docs" shows that'),
 				}),
-			}),
-		);
-		expect(auditBasis).toHaveBeenCalledWith(
-			expect.objectContaining({
-				assembledMarkdown: expect.not.stringContaining(
-					"Atlas did not receive a detailed enough synthesis",
-				),
-			}),
-		);
-		expect(renderOutputs).toHaveBeenCalledWith(
-			expect.objectContaining({
-				title: "Routing docs",
-				blocks: expect.arrayContaining([
-					expect.objectContaining({
-						type: "paragraph",
-						text: expect.stringContaining("filesystem-based router"),
-					}),
-				]),
-			}),
+			]),
 		);
 	});
 

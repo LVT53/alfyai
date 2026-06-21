@@ -214,6 +214,7 @@ async function listAutoWorkingDocumentSources(input: {
 		input.excludeArtifactIds,
 	);
 	return artifacts
+		.filter((artifact) => artifact.type !== "generated_output")
 		.map((artifact) =>
 			mapArtifactToAtlasLocalSource(artifact, "working_document"),
 		)

@@ -987,6 +987,21 @@ function applyAtlasClaimBasisMarkers(
 		}
 		if (anchored) continue;
 
+		const fallbackContext = candidates[0];
+		if (fallbackContext) {
+			const marker = paragraphMarkerForClaim({
+				basis,
+				index: basisIndex,
+				anchorText: fallbackContext.block.text,
+				occurrence: 0,
+			});
+			blocks[fallbackContext.blockIndex] = {
+				...fallbackContext.block,
+				basisMarkers: [...(fallbackContext.block.basisMarkers ?? []), marker],
+			};
+			continue;
+		}
+
 		const insertionIndex = fallbackIndexForClaimBasis(blocks, basis, contexts);
 		const existing = standaloneInsertions.get(insertionIndex) ?? [];
 		existing.push(basisMarkerForClaim(basis, basisIndex));
@@ -1162,7 +1177,14 @@ function insertDeterministicImageBlocks(
 ): void {
 	if (imageCandidates.length === 0 || maxRenderedImages <= 0) return;
 	if (Array.from(imageUrlsInBlocks(blocks)).length > 0) return;
-	const selected = imageCandidates.slice(0, maxRenderedImages);
+	const sectionCount = blocks.filter(
+		(block) => block.type === "heading" && block.level <= 2,
+	).length;
+	const densityLimit = Math.max(1, Math.floor(Math.max(sectionCount, 1) / 3));
+	const selected = imageCandidates.slice(
+		0,
+		Math.min(maxRenderedImages, densityLimit),
+	);
 	if (selected.length === 0) return;
 	const insertions = new Map<number, GeneratedDocumentImageBlock[]>();
 	for (const candidate of selected) {
