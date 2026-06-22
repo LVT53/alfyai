@@ -46,4 +46,16 @@ describe("Atlas profile runtime config", () => {
 			maxAcceptedWebSources: 6,
 		});
 	});
+
+	it("has increased maxOutputTokens for all profiles", () => {
+		const configs = Object.fromEntries(
+			ATLAS_PROFILES.map((profile) => [
+				profile,
+				getAtlasProfileRuntimeConfig(profile),
+			]),
+		);
+		expect(configs.overview.maxOutputTokens).toBe(8000);
+		expect(configs["in-depth"].maxOutputTokens).toBe(12000);
+		expect(configs.exhaustive.maxOutputTokens).toBe(16000);
+	});
 });

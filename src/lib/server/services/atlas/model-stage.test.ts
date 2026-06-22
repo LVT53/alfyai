@@ -149,9 +149,9 @@ describe("Atlas model stage", () => {
 		}
 
 		expect(calls).toEqual([
-			{ profile: "overview", maxOutputTokens: 2400 },
-			{ profile: "in-depth", maxOutputTokens: 5200 },
-			{ profile: "exhaustive", maxOutputTokens: 9000 },
+			{ profile: "overview", maxOutputTokens: 8000 },
+			{ profile: "in-depth", maxOutputTokens: 12000 },
+			{ profile: "exhaustive", maxOutputTokens: 16000 },
 		]);
 	});
 
