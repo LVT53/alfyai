@@ -565,7 +565,6 @@ function normalizeSupportLevel(input: {
 		input.citedPacks.some(
 			(pack) =>
 				pack.conflicts.length > 0 ||
-				pack.limitations.length > 0 ||
 				!pack.freshness.isCurrentEvidence,
 		)
 	) {

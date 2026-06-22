@@ -220,6 +220,134 @@ describe("Atlas Claim Basis", () => {
 		);
 	});
 
+	it("keeps supported claims with limitations-only evidence packs as supported", () => {
+		const limitationsOnlyPack: AtlasEvidencePack = {
+			...evidencePack,
+			id: "pack-limited",
+			conflicts: [],
+			limitations: ["The source is limited to a single region."],
+			freshness: {
+				asOfDate: "2026-06-22",
+				retrievedAt: "2026-06-22",
+				isCurrentEvidence: true,
+				parentAtlasJobId: null,
+				note: null,
+			},
+		};
+
+		const result = parseAtlasClaimBasisModelResult({
+			modelText: JSON.stringify({
+				claimBasis: [
+					{
+						locator: {
+							sectionTitle: "Findings",
+							paragraphIndex: 0,
+							claimIndex: 0,
+							claimText:
+								"Regional deployment patterns show consistent results.",
+						},
+						supportLevel: "supported",
+						evidencePackIds: ["pack-limited"],
+						supportRationale:
+							"The source directly supports the claim despite regional limitation.",
+					},
+				],
+			}),
+			evidencePacks: [limitationsOnlyPack],
+			sectionBriefs: [],
+		});
+
+		expect(result.status).toBe("succeeded");
+		expect(result.claimBasis).toHaveLength(1);
+		expect(result.claimBasis[0].supportLevel).toBe("supported");
+		expect(result.claimBasis[0].auditConcernCode).toBeNull();
+	});
+
+	it("still downgrades supported claims with conflicting evidence packs to partial", () => {
+		const conflictsOnlyPack: AtlasEvidencePack = {
+			...evidencePack,
+			id: "pack-conflict",
+			conflicts: [
+				"Another accepted source reports different benchmarks for latency.",
+			],
+			limitations: [],
+			freshness: {
+				asOfDate: "2026-06-22",
+				retrievedAt: "2026-06-22",
+				isCurrentEvidence: true,
+				parentAtlasJobId: null,
+				note: null,
+			},
+		};
+
+		const result = parseAtlasClaimBasisModelResult({
+			modelText: JSON.stringify({
+				claimBasis: [
+					{
+						locator: {
+							sectionTitle: "Findings",
+							paragraphIndex: 0,
+							claimIndex: 0,
+							claimText: "The architecture always provides sub-10ms latency.",
+						},
+						supportLevel: "supported",
+						evidencePackIds: ["pack-conflict"],
+						supportRationale:
+							"The evidence conflicts with other latency benchmarks.",
+					},
+				],
+			}),
+			evidencePacks: [conflictsOnlyPack],
+			sectionBriefs: [],
+		});
+
+		expect(result.status).toBe("succeeded");
+		expect(result.claimBasis).toHaveLength(1);
+		expect(result.claimBasis[0].supportLevel).toBe("partial");
+	});
+
+	it("still downgrades supported claims with stale evidence packs to partial", () => {
+		const staleOnlyPack: AtlasEvidencePack = {
+			...evidencePack,
+			id: "pack-stale-only",
+			conflicts: [],
+			limitations: [],
+			freshness: {
+				asOfDate: "2024-01-01",
+				retrievedAt: null,
+				isCurrentEvidence: false,
+				parentAtlasJobId: "atlas-old",
+				note: "Seed evidence from a previous Atlas job.",
+			},
+		};
+
+		const result = parseAtlasClaimBasisModelResult({
+			modelText: JSON.stringify({
+				claimBasis: [
+					{
+						locator: {
+							sectionTitle: "Findings",
+							paragraphIndex: 0,
+							claimIndex: 0,
+							claimText:
+								"The 2024 benchmark showed consistent performance gains.",
+						},
+						supportLevel: "supported",
+						evidencePackIds: ["pack-stale-only"],
+						supportRationale:
+							"The 2024 parent evidence is no longer current.",
+					},
+				],
+			}),
+			evidencePacks: [staleOnlyPack],
+			sectionBriefs: [],
+		});
+
+		expect(result.status).toBe("succeeded");
+		expect(result.claimBasis).toHaveLength(1);
+		expect(result.claimBasis[0].supportLevel).toBe("partial");
+	});
+
 	it("maps hallucinated facts and invented logical links to unsupported", () => {
 		const result = parseAtlasClaimBasisModelResult({
 			modelText: JSON.stringify({
