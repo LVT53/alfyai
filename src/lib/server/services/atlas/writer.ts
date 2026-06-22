@@ -49,6 +49,7 @@ const RAW_DUMP_PATTERNS = [
 const SERIOUS_REPORT_SHAPE_WARNING_CODES = new Set([
 	"atlas_report_body_too_thin",
 	"atlas_report_underdeveloped_for_section_count",
+	"atlas_evidence_rich_decision_report_underdeveloped",
 	"atlas_report_sections_too_sparse",
 	"atlas_too_many_one_sentence_sections",
 	"atlas_source_projection_dominates_report",
@@ -92,7 +93,7 @@ function improvementInstructions(language: SupportedLanguage): string {
 	if (language === "hu") {
 		return [
 			"Ez az egyetlen engedélyezett writer improvement pass ehhez az Atlas jobhoz.",
-			"A vázlat alakdiagnosztikája szerint a jelentés túl vékony, a szakaszszámhoz képest alul kidolgozott, túl sok egymondatos szakaszból áll, nem elég döntésképes, vagy a forrásanyag dominál.",
+			"A vázlat alakdiagnosztikája szerint a jelentés túl vékony, a szakaszszámhoz vagy bizonyítékalaphoz képest alul kidolgozott, túl sok egymondatos szakaszból áll, nem elég döntésképes, vagy a forrásanyag dominál.",
 			"Írd újra döntésminőségű jelentéssé a meglévő Writer Evidence Cardokból: legyen vezetői összefoglaló, rangsor vagy shortlist, összehasonlító kompromisszumok, telepítési/üzemeltetési következmények, konkrét ajánlás, valamint korlátok.",
 			"Minden fő szakaszban fejtsd ki a választ több mondatban; ne hagyj címszerű vagy csak egymondatos ajánlási szakaszt.",
 			"Do not add sources. Do not run or request new searches. Do not invent unsupported claims. Do not append a Markdown Sources section.",
@@ -101,7 +102,7 @@ function improvementInstructions(language: SupportedLanguage): string {
 	}
 	return [
 		"This is the only allowed writer improvement pass for this Atlas job.",
-		"The draft shape diagnostics show that the report is too thin, underdeveloped for its section count, has too many one-sentence sections, is not decisive enough, or is dominated by source material.",
+		"The draft shape diagnostics show that the report is too thin, underdeveloped for its section count or evidence basis, has too many one-sentence sections, is not decisive enough, or is dominated by source material.",
 		"Rewrite it into a decision-quality report from the existing Writer Evidence Cards: include an executive summary, ranking or shortlist, comparative tradeoffs, deployment and operating implications, a concrete recommendation, and limitations.",
 		"Develop each main body section with multiple sentences; do not leave a recommendation section as a heading-like restatement or a single hollow sentence.",
 		"Do not add sources. Do not run or request new searches. Do not invent unsupported claims. Do not append a Markdown Sources section.",
@@ -256,6 +257,9 @@ export function shouldImproveAtlasWriterDraft(
 	if (warningCodes.has("atlas_source_projection_dominates_report")) return true;
 	if (warningCodes.has("atlas_recommendation_not_decisive")) return true;
 	if (warningCodes.has("atlas_report_underdeveloped_for_section_count")) {
+		return true;
+	}
+	if (warningCodes.has("atlas_evidence_rich_decision_report_underdeveloped")) {
 		return true;
 	}
 	if (warningCodes.has("atlas_report_sections_too_sparse")) return true;

@@ -166,6 +166,43 @@ describe("Atlas pipeline slices", () => {
 		].join("\n");
 	}
 
+	function liveSparseEvidenceRichDecisionDraft(): string {
+		return [
+			"## Executive Summary",
+			"For the self-hosted embedding decision, the evidence points toward a compact, well-supported model paired with a reranker rather than a single largest benchmark leader. The draft names the main criteria, but it still gives each criterion only a narrow treatment: English technical-document recall, p95 latency, memory residency, serving maturity, and reranker compatibility are all present without enough prioritization for a production choice. That makes the answer readable, yet still too sparse for the amount of accepted evidence available to the writer. It should also connect the recommendation to a concrete operator workflow instead of leaving the evidence as parallel considerations.",
+			"",
+			"## Model Shortlist",
+			"The shortlist should compare BGE, GTE, E5, Jina, Nomic, and Qwen-style options by production fit instead of treating them as interchangeable model names. This draft says a smaller model may be preferable, but it does not explain which candidates should lead the evaluation lane, which should remain fallback options, or when a larger embedding dimension is worth the memory and indexing cost. The evidence cards support a sharper ranking than this compact summary provides. A stronger pass would separate default candidates from experimental candidates and explain why each tier belongs there.",
+			"",
+			"## Retrieval Quality",
+			"Retrieval quality depends on chunking, domain vocabulary, benchmark transfer, reranker availability, and validation against representative technical documents. The draft mentions those factors, but it stops before translating them into a measurable evaluation plan for recall, citation coverage, and reviewer acceptance. A decision report should explain how to compare recall improvements against the cost of additional reranking or larger embedding vectors, especially when source evidence is broad but not perfectly matched. Without that plan, the shortlist remains plausible but not yet actionable for a team choosing production defaults.",
+			"",
+			"## Latency and Cost",
+			"Latency and cost depend on resident model size, batching behavior, vector dimension, reranker depth, quantization, cache strategy, and serving runtime maturity. This draft identifies the variables without giving the operator a practical budget rule for single-machine deployment. It should describe how to keep p95 latency bounded while testing whether a reranker or higher-dimension embedder materially improves accepted-source quality on the target corpus. A fuller answer would state when to spend latency on reranking and when to keep the embedder smaller.",
+			"",
+			"## Limitations",
+			"Deployment needs more than a model pick: the team must plan index rebuilds, observability, source-level logging, rollback, and hardware headroom for both embedding and reranking. The draft flags these concerns but leaves rollout sequencing, ownership, and failure handling mostly implicit. With sixteen accepted evidence cards, the report should give a richer path from shortlist testing to a production pilot rather than leaving those operational consequences compressed. Those details matter because a model that benchmarks well can still fail operationally if rebuilds and inspections are too costly.",
+			"",
+			"## Recommendation",
+			"We recommend starting with a compact, actively supported embedding model plus a compatible reranker, then promoting a larger model only if corpus tests show a material recall gain inside the latency budget. That recommendation is directionally useful, but it still needs more explanation of evaluation thresholds, deployment risk, and what to avoid. The evidence is representative rather than exhaustive, so the final choice should be validated on the actual technical-document corpus before rollout. A stronger final report would turn this into a staged decision with explicit pass and fail criteria.",
+		].join("\n");
+	}
+
+	function evidenceRichEmbeddingSources() {
+		return Array.from({ length: 16 }, (_, index) => {
+			const sourceNumber = index + 1;
+			return {
+				id: `web-embedding-rich-${sourceNumber}`,
+				title: `Self-hosted embedding evidence ${sourceNumber}`,
+				url: `https://example.com/embedding-evidence-${sourceNumber}`,
+				snippet: [
+					`Accepted evidence ${sourceNumber} covers self-hosted embedding model selection for English technical-document retrieval.`,
+					"It discusses retrieval quality, latency, memory residency, serving maturity, reranker compatibility, and production validation limits.",
+				].join(" "),
+			};
+		});
+	}
+
 	const noopWriterEvidenceCardReranker: AtlasWriterEvidenceCardReranker =
 		async (params) => ({
 			items: params.items.map((item, index) => ({
@@ -3292,6 +3329,191 @@ describe("Atlas pipeline slices", () => {
 					passCount: 1,
 					reasonWarningCodes: expect.arrayContaining([
 						"atlas_report_underdeveloped_for_section_count",
+					]),
+				}),
+			},
+		});
+	});
+
+	it("runs one writer improvement pass for an evidence-rich sparse decision draft before audit", async () => {
+		const assemblePrompts: string[] = [];
+		const checkpoints: Array<{
+			checkpoint: Record<string, unknown>;
+			qualityDiagnostics: Record<string, unknown>;
+		}> = [];
+		const firstDraft = liveSparseEvidenceRichDecisionDraft();
+		const improvedDraft = [
+			"## Executive Summary",
+			"For English technical-document retrieval on a single self-hosted machine, start with a compact, actively supported embedding model and a compatible reranker rather than defaulting to the largest benchmark leader. This choice gives the team a practical balance of recall, latency, memory headroom, and source-level review. The accepted evidence supports a decision workflow: shortlist credible model families, test them on the target corpus, and promote the larger option only when measured recall justifies the extra serving cost. The decision is therefore not a generic model leaderboard choice; it is an operating choice about how much latency and memory the retrieval layer can spend for better accepted-source quality.",
+			"",
+			"## Ranked Shortlist",
+			"Keep BGE, GTE, E5, Jina, Nomic, and Qwen-style candidates in the evaluation lane, but rank them by production fit rather than name recognition. The first tier should be models with stable serving support, acceptable dimensions, and a reranker path that fits the hardware budget. The second tier should include larger or more specialized models that may win on recall but need evidence that the improvement survives latency, indexing, and memory constraints. This ranking lets the team test credible defaults first while keeping high-cost candidates available for cases where corpus-specific recall is not good enough.",
+			"",
+			"## Evaluation Plan",
+			"Run the shortlist against representative technical documents with fixed chunking, metadata filters, and queries that reflect real user work. Measure recall@10, citation coverage, reranker lift, p95 latency, memory residency, and reviewer acceptance. Promote a larger embedder only if it improves accepted-source quality enough to justify the operational cost; otherwise keep the compact model and spend the latency budget on reranking depth. The evaluation should include failed or borderline queries because those cases reveal whether the reranker improves evidence selection or only reshuffles already obvious matches.",
+			"",
+			"## Deployment and Operating Implications",
+			"Treat deployment as a staged pilot. Keep source IDs, reranker scores, rejected-source samples, index build metadata, and rollback plans visible so operators can inspect failures without guessing why evidence was selected. Reserve memory for the reranker and serving runtime, set a p95 latency budget before launch, and avoid model choices that require frequent index rebuilds without a measurable quality gain. The rollout should start with a narrow technical-document workflow, then expand after operators can explain misses, stale matches, and latency spikes from recorded retrieval traces.",
+			"",
+			"## Recommendation",
+			"We recommend a compact embedding model with a compatible reranker as the default deployment path, validated against the user's technical-document corpus before rollout. Avoid choosing an 8B-class or high-dimension model solely from benchmark position unless the team proves a material recall gain within the latency and memory budget. The evidence is strong enough for a ranked starting point, but final selection still depends on corpus tests and hardware measurements. If the compact model misses critical technical terms, first tune chunking and reranking depth; only then move to a larger embedder if the measured gain is material.",
+			"",
+			"## Limitations",
+			"The accepted evidence does not provide identical hardware, corpus, and latency measurements for every candidate, so the final choice should remain tied to the user's validation data. Treat the recommendation as a deployment starting point, not as a universal benchmark claim. Licensing, serving runtime, quantization support, and document mix can all change the result, so the team should keep the shortlist active until pilot measurements show a stable quality and latency margin.",
+		].join("\n");
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-evidence-rich-sparse-decision-improvement",
+				profile: "overview",
+				query:
+					"Compare and recommend the best self-hosted embedding model for English technical-document retrieval with minimal latency and cost",
+			}),
+			now: new Date("2026-06-22T09:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: evidenceRichEmbeddingSources(),
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "self hosted embedding model comparison technical document retrieval latency cost reranker",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return { text: coverageReviewText([], true), usage: stageUsage() };
+					}
+					if (input.stage === "synthesize") {
+						return {
+							text: "The evidence supports a source-grounded model shortlist, latency budget, reranker fit analysis, and deployment recommendation.",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "integrate") {
+						return {
+							text: [
+								"Executive Summary",
+								"Model Shortlist",
+								"Retrieval Quality",
+								"Latency and Cost",
+								"Deployment Implications",
+								"Recommendation",
+							].join("; "),
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "assemble") {
+						assemblePrompts.push(input.prompt);
+						return {
+							text: JSON.stringify({
+								generatedTitle: "Self-Hosted Embedding Model Decision",
+								bodyMarkdown:
+									assemblePrompts.length === 1 ? firstDraft : improvedDraft,
+								sectionBriefs: [],
+								limitations: ["Evidence is representative."],
+							}),
+							usage: stageUsage(),
+						};
+					}
+					return { text: `${input.stage} result`, usage: stageUsage() };
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-evidence-rich-sparse",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(assemblePrompts).toHaveLength(2);
+		const firstWriterPrompt = JSON.parse(assemblePrompts[0]);
+		expect(firstWriterPrompt.writerEvidenceCards).toHaveLength(16);
+		const improvementPrompt = JSON.parse(assemblePrompts[1]);
+		const firstWarningCodes =
+			improvementPrompt.reportShapeDiagnostics.warnings.map(
+				(warning: { code: string }) => warning.code,
+			);
+		expect(improvementPrompt.writerImprovement).toMatchObject({
+			pass: 1,
+			maxPasses: 1,
+			warningCodes: expect.arrayContaining([
+				"atlas_evidence_rich_decision_report_underdeveloped",
+			]),
+		});
+		expect(improvementPrompt.reportShapeDiagnostics).toMatchObject({
+			sectionCount: 6,
+			hasDecisionOrRecommendationSignal: true,
+		});
+		expect(
+			improvementPrompt.reportShapeDiagnostics.bodyWordCount,
+		).toBeGreaterThanOrEqual(550);
+		expect(
+			improvementPrompt.reportShapeDiagnostics.bodyWordCount,
+		).toBeLessThanOrEqual(590);
+		expect(firstWarningCodes).toContain(
+			"atlas_evidence_rich_decision_report_underdeveloped",
+		);
+		expect(firstWarningCodes).not.toContain(
+			"atlas_report_underdeveloped_for_section_count",
+		);
+		expect(auditBasis).toHaveBeenCalledTimes(1);
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining(
+					"For English technical-document retrieval on a single self-hosted machine",
+				),
+			}),
+		);
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		expect(auditCalls[0]?.[0].assembledMarkdown).not.toContain(
+			"still gives each criterion only a narrow treatment",
+		);
+		expect(checkpoints.at(-1)).toMatchObject({
+			checkpoint: {
+				writer: {
+					evidenceCards: {
+						count: 16,
+					},
+					improvement: {
+						ran: true,
+						passCount: 1,
+						reasonWarningCodes: expect.arrayContaining([
+							"atlas_evidence_rich_decision_report_underdeveloped",
+						]),
+					},
+					firstDraftReportShapeDiagnostics: expect.objectContaining({
+						bodyWordCount: expect.any(Number),
+						sectionCount: 6,
+						warnings: expect.arrayContaining([
+							expect.objectContaining({
+								code: "atlas_evidence_rich_decision_report_underdeveloped",
+							}),
+						]),
+					}),
+				},
+			},
+			qualityDiagnostics: {
+				writerImprovement: expect.objectContaining({
+					ran: true,
+					passCount: 1,
+					reasonWarningCodes: expect.arrayContaining([
+						"atlas_evidence_rich_decision_report_underdeveloped",
 					]),
 				}),
 			},

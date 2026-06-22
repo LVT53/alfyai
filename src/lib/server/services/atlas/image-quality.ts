@@ -43,6 +43,28 @@ const GENERIC_ARTICLE_IMAGE_PATTERN =
 const GENERIC_VISUAL_NOUN_PATTERN =
 	/\b(?:diagram|flowchart|graphic|illustration|image|picture|visual|visualization)\b/i;
 
+const SELF_HOSTED_LOCAL_DEPLOYMENT_QUERY_PATTERN =
+	/\b(?:self[-\s]?host(?:ed|ing)|local(?:ly)?[-\s]+(?:deploy|deployment|host|hosting|run|serve|serving)|on[-\s]?prem(?:ise|ises)?|single[-\s](?:gpu|machine)|rt[-\s]?class|own\s+(?:hardware|infrastructure|server))\b/i;
+
+const MANAGED_API_COMPARISON_PATTERN =
+	/\b(?:api\s+(?:comparison|gateway|platform)|hosted\s+api|managed\s+api|one\s+api|unified\s+api|via\s+(?:an?|one)\s+api)\b/i;
+
+const MANAGED_PROVIDER_COMPARISON_PATTERN =
+	/\b(?:anthropic|cohere|gemini|mistral|openai|voyage)\b[\s\S]{0,80}\b(?:compared|comparison|versus|vs)\b[\s\S]{0,80}\b(?:anthropic|cohere|gemini|mistral|openai|voyage)\b/i;
+
+const SELF_HOSTED_DEPLOYMENT_RELEVANCE_PATTERNS = [
+	/\bself[-\s]?host(?:ed|ing)\b/i,
+	/\b(?:local(?:ly)?|on[-\s]?prem(?:ise|ises)?|single[-\s](?:gpu|machine)|rt[-\s]?class|own\s+(?:hardware|infrastructure|server))\b/i,
+	/\b(?:deploy(?:ed|ing|ment)?|inference\s+server|model\s+server|serv(?:e|er|ing)|tei)\b/i,
+];
+
+const RETRIEVAL_ARCHITECTURE_RELEVANCE_PATTERNS = [
+	/\b(?:document[-\s]?search|rag|retrieval|semantic\s+search)\b/i,
+	/\b(?:indexing|vector\s+(?:database|index|search|store))\b/i,
+	/\b(?:cross[-\s]?encoder|rerank(?:er|ing)?)\b/i,
+	/\b(?:chunk(?:ing)?|embedding\s+pipeline|hybrid\s+search)\b/i,
+];
+
 function normalizeImageText(text: string): string {
 	return text
 		.toLowerCase()
@@ -209,12 +231,69 @@ function isTooSmallForReport(candidate: AtlasImageCandidate): boolean {
 	return candidate.width < 320 || candidate.height < 180;
 }
 
+function countPatternMatches(patterns: RegExp[], text: string): number {
+	return patterns.reduce(
+		(score, pattern) => score + (pattern.test(text) ? 1 : 0),
+		0,
+	);
+}
+
+function isSelfHostedLocalDeploymentQuery(query: string): boolean {
+	return SELF_HOSTED_LOCAL_DEPLOYMENT_QUERY_PATTERN.test(query);
+}
+
+function isLikelyManagedApiComparisonImage(
+	candidate: AtlasImageCandidate,
+): boolean {
+	const text = [
+		candidate.title,
+		candidate.caption,
+		candidate.sourceTitle ?? "",
+		normalizedImageUrlText(candidate.sourcePageUrl),
+	].join(" ");
+	return (
+		MANAGED_API_COMPARISON_PATTERN.test(text) ||
+		MANAGED_PROVIDER_COMPARISON_PATTERN.test(text)
+	);
+}
+
+function hasStrongSelfHostedRetrievalIntentRelevance(
+	candidate: AtlasImageCandidate,
+): boolean {
+	const visualText = atlasImageCandidateVisualText(candidate);
+	const sourceContextText = atlasImageCandidateSourceContextText(candidate);
+	const visualScore =
+		countPatternMatches(SELF_HOSTED_DEPLOYMENT_RELEVANCE_PATTERNS, visualText) +
+		countPatternMatches(RETRIEVAL_ARCHITECTURE_RELEVANCE_PATTERNS, visualText);
+	const sourceContextScore =
+		countPatternMatches(
+			SELF_HOSTED_DEPLOYMENT_RELEVANCE_PATTERNS,
+			sourceContextText,
+		) +
+		countPatternMatches(
+			RETRIEVAL_ARCHITECTURE_RELEVANCE_PATTERNS,
+			sourceContextText,
+		);
+	return visualScore >= 2 || (visualScore >= 1 && sourceContextScore >= 1);
+}
+
+function isWeakManagedApiComparisonForSelfHostedReport(
+	candidate: AtlasImageCandidate,
+): boolean {
+	return (
+		isSelfHostedLocalDeploymentQuery(candidate.query) &&
+		isLikelyManagedApiComparisonImage(candidate) &&
+		!hasStrongSelfHostedRetrievalIntentRelevance(candidate)
+	);
+}
+
 export function isUsableAtlasImageCandidate(
 	candidate: AtlasImageCandidate,
 ): boolean {
 	if (isLikelySvgOrIconFile(candidate)) return false;
 	if (isLikelyLogoOrIcon(candidate)) return false;
 	if (isTooSmallForReport(candidate)) return false;
+	if (isWeakManagedApiComparisonForSelfHostedReport(candidate)) return false;
 	if (
 		isLikelyGenericArticleImage(candidate) &&
 		!hasStrongSubjectRelevance(candidate)

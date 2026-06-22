@@ -561,6 +561,97 @@ describe("Atlas renderer output", () => {
 		).toHaveLength(0);
 	});
 
+	it("rejects managed API comparison hero images for self-hosted embedding retrieval reports", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Self-Hosted Embedding Model Atlas",
+			assembledMarkdown: [
+				"## Executive Summary",
+				"Self-hosted embedding model decisions should prioritize local deployment, retrieval quality, vector indexing, reranking, latency, and single-GPU serving constraints.",
+				"",
+				"## Scope Boundary",
+				"Managed API comparisons such as OpenAI versus Gemini are useful contrast, but they are not evidence for a self-hosted retrieval deployment recommendation.",
+			].join("\n"),
+			sources: [],
+			honestyMarkers: [],
+			imageCandidates: [
+				{
+					id: "image-ofox-managed-api-comparison",
+					query:
+						"best self-hosted embedding models English technical-document retrieval latency cost single GPU reranker",
+					title:
+						"Text Embedding Models Compared: OpenAI vs Gemini via One API (2026)",
+					imageUrl:
+						"https://ofox.ai/_next/image?url=%2Fblog%2Ftext-embedding-models-compared-openai-vs-gemini-via-one-api-2026.png",
+					sourcePageUrl:
+						"https://ofox.ai/blog/text-embedding-models-compared-openai-vs-gemini-via-one-api-2026",
+					sourceTitle:
+						"Text Embedding Models Compared: OpenAI vs Gemini via One API (2026)",
+					thumbnailUrl: null,
+					width: 1200,
+					height: 630,
+					caption:
+						"Text Embedding Models Compared: OpenAI vs Gemini via One API (2026)",
+					selectionReason: "Image result for self-hosted embedding models.",
+				},
+			],
+			maxRenderedImages: 1,
+		});
+
+		expect(
+			source.blocks.filter((block) => block.type === "image"),
+		).toHaveLength(0);
+	});
+
+	it("keeps embedding retrieval architecture images for self-hosted deployment reports", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Self-Hosted Embedding Model Atlas",
+			assembledMarkdown: [
+				"## Executive Summary",
+				"Self-hosted embedding model decisions should prioritize local deployment, retrieval quality, vector indexing, reranking, latency, and single-GPU serving constraints.",
+				"",
+				"## Retrieval Architecture",
+				"The most useful visual for this report is an architecture diagram that clarifies the local embedding server, document chunks, vector index, retrieval stage, and reranker.",
+			].join("\n"),
+			sources: [],
+			honestyMarkers: [],
+			imageCandidates: [
+				{
+					id: "image-self-hosted-retrieval-architecture",
+					query:
+						"best self-hosted embedding models English technical-document retrieval latency cost single GPU reranker",
+					title: "Self-hosted embedding retrieval architecture diagram",
+					imageUrl:
+						"https://example.com/self-hosted-embedding-retrieval-architecture.png",
+					sourcePageUrl:
+						"https://example.com/self-hosted-rag-retrieval-deployment",
+					sourceTitle: "Self-hosted RAG retrieval deployment architecture",
+					thumbnailUrl: null,
+					width: 1400,
+					height: 900,
+					caption:
+						"Architecture diagram showing local embedding model serving, a vector index, document retrieval, and reranking.",
+					selectionReason: "Image result for self-hosted embedding retrieval.",
+				},
+			],
+			maxRenderedImages: 1,
+		});
+
+		const imageBlocks = source.blocks.filter((block) => block.type === "image");
+		expect(imageBlocks).toHaveLength(1);
+		expect(imageBlocks[0]).toMatchObject({
+			source: {
+				kind: "https",
+				url: "https://example.com/self-hosted-embedding-retrieval-architecture.png",
+			},
+			caption:
+				"Architecture diagram showing local embedding model serving, a vector index, document retrieval, and reranking.",
+		});
+	});
+
 	it("rejects generic article cover and blog diagrams without strong subject relevance", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 

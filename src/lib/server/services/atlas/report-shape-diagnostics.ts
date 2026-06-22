@@ -7,6 +7,7 @@ import type {
 export type AtlasReportShapeWarningCode =
 	| "atlas_report_body_too_thin"
 	| "atlas_report_underdeveloped_for_section_count"
+	| "atlas_evidence_rich_decision_report_underdeveloped"
 	| "atlas_report_sections_too_sparse"
 	| "atlas_too_many_one_sentence_sections"
 	| "atlas_source_projection_dominates_report"
@@ -33,6 +34,12 @@ export interface AtlasReportShapeDiagnostics {
 	warnings: AtlasReportShapeWarning[];
 }
 
+export interface AtlasReportShapeContext {
+	acceptedSourceCount?: number | null;
+	query?: string | null;
+	writerEvidenceCardCount?: number | null;
+}
+
 interface ReportShapeSection {
 	title: string | null;
 	textParts: string[];
@@ -50,6 +57,8 @@ const BODY_TOO_THIN_WORDS = 220;
 const UNDERDEVELOPED_MULTI_SECTION_MAX_WORDS = 600;
 const UNDERDEVELOPED_MULTI_SECTION_MIN_SECTIONS = 6;
 const UNDERDEVELOPED_WORDS_PER_SECTION = 75;
+const EVIDENCE_RICH_DECISION_MIN_EVIDENCE_ITEMS = 8;
+const EVIDENCE_RICH_DECISION_DRAFT_MAX_WORDS = 700;
 const SPARSE_REPORT_MAX_WORDS = 700;
 const SHALLOW_SECTION_REPORT_MAX_WORDS = 900;
 const MIN_SECTIONS_FOR_SPARSE_WARNING = 6;
@@ -163,6 +172,12 @@ function sentenceCount(text: string): number {
 
 function hasDecisionSignal(text: string): boolean {
 	return /\b(?:we recommend|recommend(?:ed|s)?|should|choose|use|adopt|avoid|default|best fit|best option|verdict|decision is|start with|opt for|ranked|shortlist)\b/i.test(
+		text,
+	);
+}
+
+function hasDecisionOrComparisonIntent(text: string): boolean {
+	return /\b(?:best|choose|compare|comparison|decision|decide|option|rank(?:ed|ing)?|recommend(?:ed|s|ation)?|select|shortlist|trade[- ]?offs?|versus|vs\.?)\b/i.test(
 		text,
 	);
 }
@@ -384,6 +399,7 @@ function buildWarnings(input: {
 	hasRecommendationSection: boolean;
 	recommendationSectionHasDecisionSignal: boolean;
 	recommendationSectionIsHollow: boolean;
+	evidenceRichDecisionContext: boolean;
 }): AtlasReportShapeWarning[] {
 	const warnings: AtlasReportShapeWarning[] = [];
 	if (input.bodyWordCount > 0 && input.bodyWordCount < BODY_TOO_THIN_WORDS) {
@@ -403,6 +419,17 @@ function buildWarnings(input: {
 			code: "atlas_report_underdeveloped_for_section_count",
 			message:
 				"Atlas report has too little body development for its section count; this diagnostic is advisory and may trigger the bounded writer improvement pass.",
+		});
+	}
+	if (
+		input.evidenceRichDecisionContext &&
+		input.bodyWordCount >= BODY_TOO_THIN_WORDS &&
+		input.bodyWordCount < EVIDENCE_RICH_DECISION_DRAFT_MAX_WORDS
+	) {
+		warnings.push({
+			code: "atlas_evidence_rich_decision_report_underdeveloped",
+			message:
+				"Atlas first draft is short for an evidence-rich decision or comparison request; this diagnostic is advisory and may only trigger the single bounded writer improvement pass before audit.",
 		});
 	}
 	const substantiveFloor = Math.min(3, Math.ceil(input.sectionCount / 3));
@@ -478,6 +505,7 @@ function buildWarnings(input: {
 
 export function diagnoseAtlasReportShape(
 	input: string | GeneratedDocumentSource,
+	context: AtlasReportShapeContext = {},
 ): AtlasReportShapeDiagnostics {
 	const parts =
 		typeof input === "string"
@@ -514,6 +542,15 @@ export function diagnoseAtlasReportShape(
 		isLikelyClaimShapedHeading(section.title),
 	).length;
 	const hasDecisionOrRecommendationSignal = hasDecisionSignal(parts.bodyText);
+	const evidenceItemCount = Math.max(
+		0,
+		context.acceptedSourceCount ?? 0,
+		context.writerEvidenceCardCount ?? 0,
+	);
+	const evidenceRichDecisionContext =
+		evidenceItemCount >= EVIDENCE_RICH_DECISION_MIN_EVIDENCE_ITEMS &&
+		(hasDecisionOrRecommendationSignal ||
+			hasDecisionOrComparisonIntent(context.query ?? ""));
 	const recommendationSections = bodySectionStats.filter((section) =>
 		isRecommendationTitle(section.title),
 	);
@@ -552,6 +589,7 @@ export function diagnoseAtlasReportShape(
 			hasRecommendationSection: recommendationSections.length > 0,
 			recommendationSectionHasDecisionSignal,
 			recommendationSectionIsHollow,
+			evidenceRichDecisionContext,
 		}),
 	};
 }

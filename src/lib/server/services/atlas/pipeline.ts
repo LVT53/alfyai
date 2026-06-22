@@ -2796,6 +2796,12 @@ export async function runAtlasPipeline(
 	});
 	firstDraftReportShapeDiagnostics = diagnoseAtlasReportShape(
 		finalAssembledMarkdown,
+		{
+			acceptedSourceCount: acceptedSourceTitles.length,
+			query: input.job.query,
+			writerEvidenceCardCount:
+				writerEvidenceCardResult.writerEvidenceCards.length,
+		},
 	);
 	if (shouldImproveAtlasWriterDraft(firstDraftReportShapeDiagnostics)) {
 		writerImprovement = {
