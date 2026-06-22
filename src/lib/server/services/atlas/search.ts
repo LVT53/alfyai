@@ -22,7 +22,7 @@ export interface AtlasSearchSource {
 }
 
 export interface RejectedAtlasSearchSource extends AtlasSearchSource {
-	rejectionReason: "unsafe_adult_content" | "duplicate_url" | "source_cap";
+	rejectionReason: "unsafe_adult_content" | "duplicate_url" | "source_cap" | "unusable_snippet";
 }
 
 export interface AtlasSearchLimitation {
@@ -140,6 +140,50 @@ function isUnsafeAdultText(haystack: string): boolean {
 	);
 }
 
+/**
+ * Rejects sources whose snippet is empty, pure boilerplate (YouTube footer,
+ * SearXNG UI metadata), or too short to produce usable evidence after
+ * sanitization.  These sources would fill acceptance slots without
+ * contributing to Evidence Packs.
+ */
+export function isUnusableAtlasSnippet(snippet: string | null): boolean {
+	if (!snippet) return false;
+	const sanitized = sanitizeSearchSnippet(snippet);
+	if (!sanitized) return true;
+
+	// Pure SearXNG UI metadata keywords with nothing else
+	if (/^(Naptár|Keresés|Beállítások)\s*$/iu.test(sanitized)) return true;
+
+	// YouTube footer boilerplate — when the fetched page has no transcript
+	// and the excerpt consists entirely of footer navigation words.
+	const footerPatterns: RegExp[] = [
+		/\bIsmertető\b/iu,
+		/\bSajtó\b/iu,
+		/\bSzerzői\s+jog\b/iu,
+		/\bKapcsolatfelvétel\b/iu,
+		/\bAlkotók\b/iu,
+		/\bHirdetés\b/iu,
+		/\bFejlesztők\b/iu,
+		/\bFeltételek\b/iu,
+		/\bAdatvédelem\b/iu,
+		/\bIrányelvek\b/iu,
+		/\bYouTube\s+működése\b/iu,
+		/\bÚj\s+funkciók\s+tesztelése\b/iu,
+		/\bPolicy\s*&\s*Safety\b/i,
+		/\bHow\s+YouTube\s+works\b/i,
+		/\bTest\s+new\s+features\b/i,
+		/\bAbout\s+(?:Press|Copyright|Contact us|Creators|Advertise|Developers|Terms|Privacy)\b/i,
+	];
+	const footerHits = footerPatterns.filter((pattern) =>
+		pattern.test(sanitized),
+	).length;
+	if (footerHits >= 2) return true;
+
+	if (sanitized.length < 15) return true;
+
+	return false;
+}
+
 function convergeSources(input: {
 	sources: AtlasSearchSource[];
 	maxAccepted: number;
@@ -165,6 +209,13 @@ function convergeSources(input: {
 			rejectedSources.push({ ...source, rejectionReason: "duplicate_url" });
 			continue;
 		}
+
+		if (isUnusableAtlasSnippet(source.snippet)) {
+			rejectedSources.push({ ...source, rejectionReason: "unusable_snippet" });
+			seenUrls.add(key);
+			continue;
+		}
+
 		seenUrls.add(key);
 
 		if (accepted.length >= input.maxAccepted) {

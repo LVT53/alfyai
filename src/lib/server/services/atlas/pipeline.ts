@@ -3049,7 +3049,9 @@ export async function runAtlasPipeline(
 			web: finalResearchRound.webSources.length,
 			accepted:
 				sources.localSources.length + finalResearchRound.webSources.length,
-			rejected: finalResearchRound.rejectedWebSources.length,
+			rejected: finalResearchRound.rejectedWebSources.filter(
+				(source) => source.rejectionReason !== "source_cap",
+			).length,
 		},
 	};
 }

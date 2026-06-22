@@ -156,6 +156,79 @@ describe("sanitizeSourceTitle (applied to search titles)", () => {
 	});
 });
 
+describe("isUnusableAtlasSnippet", () => {
+	it("rejects empty or whitespace-only snippets after sanitization", async () => {
+		const { isUnusableAtlasSnippet } = await import("./search");
+		expect(isUnusableAtlasSnippet("")).toBe(false);
+		expect(isUnusableAtlasSnippet(null)).toBe(false);
+		expect(isUnusableAtlasSnippet("Keresés · ")).toBe(true);
+		expect(
+			isUnusableAtlasSnippet(
+				"Nem tartalmazza: English | Tartalmaznia kell: technical | ",
+			),
+		).toBe(true);
+	});
+
+	it("rejects snippets that are pure SearXNG UI metadata", async () => {
+		const { isUnusableAtlasSnippet } = await import("./search");
+		expect(isUnusableAtlasSnippet("Naptár")).toBe(true);
+		expect(isUnusableAtlasSnippet("Keresés")).toBe(true);
+		expect(isUnusableAtlasSnippet("Beállítások")).toBe(true);
+	});
+
+	it("rejects YouTube footer boilerplate with 2+ footer keywords", async () => {
+		const { isUnusableAtlasSnippet } = await import("./search");
+		expect(
+			isUnusableAtlasSnippet(
+				"Ismertető Sajtó Szerzői jog Kapcsolatfelvétel Alkotók Hirdetés Fejlesztők Feltételek Adatvédelem Irányelvek YouTube működése",
+			),
+		).toBe(true);
+		expect(
+			isUnusableAtlasSnippet("Policy & Safety How YouTube works Test new features"),
+		).toBe(true);
+	});
+
+	it("rejects very short sanitized snippets (< 15 chars)", async () => {
+		const { isUnusableAtlasSnippet } = await import("./search");
+		expect(isUnusableAtlasSnippet("Short.")).toBe(true);
+		expect(isUnusableAtlasSnippet("Log in")).toBe(true);
+	});
+
+	it("accepts normal-length snippets with substantive content", async () => {
+		const { isUnusableAtlasSnippet } = await import("./search");
+		expect(
+			isUnusableAtlasSnippet(
+				"Vector databases are essential for modern RAG pipelines, providing efficient similarity search over large document collections.",
+			),
+		).toBe(false);
+		expect(
+			isUnusableAtlasSnippet(
+				"A comprehensive comparison of the best embedding models for enterprise search in 2026.",
+			),
+		).toBe(false);
+	});
+
+	it("accepts a single YouTube footer keyword mixed with real content", async () => {
+		const { isUnusableAtlasSnippet } = await import("./search");
+		expect(
+			isUnusableAtlasSnippet(
+				"This video demonstrates how to configure RAG pipelines for enterprise search. Adatvédelem considerations are discussed at 12:34.",
+			),
+		).toBe(false);
+	});
+
+	it("accepts social media snippets that are not pure boilerplate", async () => {
+		const { isUnusableAtlasSnippet } = await import("./search");
+		expect(isUnusableAtlasSnippet("View on Instagram")).toBe(false);
+		expect(isUnusableAtlasSnippet("Log in to continue")).toBe(false);
+		expect(
+			isUnusableAtlasSnippet(
+				"Reddit discussion: The best embedding models in 2026 include E5, BGE-M3, and Cohere Embed v4. Users report that BGE-M3 outperforms OpenAI on multilingual benchmarks.",
+			),
+		).toBe(false);
+	});
+});
+
 describe("Atlas search stage", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
@@ -195,7 +268,7 @@ describe("Atlas search stage", () => {
 					id: "source-q1",
 					title: "Source q1",
 					url: "https://example.com/q1",
-					snippet: "snippet",
+					snippet: "Relevant search result about the query topic.",
 				},
 			];
 		});
@@ -300,6 +373,73 @@ describe("Atlas search stage", () => {
 				(source) => source.rejectionReason === "source_cap",
 			),
 		).toHaveLength(5);
+	});
+
+	it("rejects sources with unusable snippets (YouTube footer, short text) before they consume acceptance slots", async () => {
+		const { runAtlasSearchStage } = await import("./search");
+
+		const result = await runAtlasSearchStage({
+			queries: ["enterprise search"],
+			config: {
+				searxngBaseUrl: "http://searxng.local",
+				concurrency: 1,
+				interBatchDelayMs: 0,
+				maxAcceptedSources: 3,
+				maxAttempts: 1,
+			},
+			search: vi.fn(async () => [
+				{
+					id: "web-good-1",
+					title: "Best embedding models 2026",
+					url: "https://example.com/embeddings-2026",
+					snippet:
+						"A comprehensive comparison of the best embedding models for enterprise search in 2026 including E5, BGE-M3, and Cohere Embed v4 with detailed benchmarks.",
+				},
+				{
+					id: "web-youtube-footer",
+					title: "Embedding models video - YouTube",
+					url: "https://youtube.com/watch?v=abc123",
+					snippet:
+						"Ismertető Sajtó Szerzői jog Kapcsolatfelvétel Alkotók Hirdetés Fejlesztők Feltételek Adatvédelem",
+				},
+				{
+					id: "web-tiny",
+					title: "Log in",
+					url: "https://example.com/login",
+					snippet: "Log in",
+				},
+				{
+					id: "web-search-artifact",
+					title: "Search results",
+					url: "https://searxng.example/results",
+					snippet:
+						"Nem tartalmazza: English | Tartalmaznia kell: technical | ",
+				},
+				{
+					id: "web-good-2",
+					title: "RAG architecture guide",
+					url: "https://example.com/rag-guide",
+					snippet:
+						"Retrieval Augmented Generation (RAG) architecture patterns for production systems including chunking strategies, embedding selection, and reranking pipelines.",
+				},
+			]),
+		});
+
+		expect(result.sources).toHaveLength(2);
+		expect(result.sources.map((s) => s.id)).toEqual([
+			"web-good-1",
+			"web-good-2",
+		]);
+		expect(
+			result.rejectedSources.filter(
+				(s) => s.rejectionReason === "unusable_snippet",
+			),
+		).toHaveLength(3);
+		expect(
+			result.rejectedSources.filter(
+				(s) => s.rejectionReason === "source_cap",
+			),
+		).toHaveLength(0);
 	});
 
 	it("enriches accepted converged sources with fetched page excerpts", async () => {

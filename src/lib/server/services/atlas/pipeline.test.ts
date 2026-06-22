@@ -860,6 +860,115 @@ describe("Atlas pipeline slices", () => {
 		});
 	});
 
+	it("excludes source_cap from the quality rejection count in sourceCounts", async () => {
+		const checkpoints: Array<{ roundNumber: number; checkpoint: unknown }> = [];
+		const result = await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-source-cap-rejection",
+				profile: "overview",
+				query: "Compare enterprise RAG architectures",
+			}),
+			now: new Date("2026-06-22T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-good",
+							title: "Good RAG source",
+							url: "https://example.com/rag-good",
+							snippet: "Substantive evidence about RAG architectures with detailed benchmarks and deployment patterns for enterprise environments.",
+						},
+					],
+					rejectedSources: [
+						{
+							id: "web-cap-rejected-1",
+							title: "Capped source 1",
+							url: "https://example.com/capped-1",
+							snippet: "Additional evidence beyond the acceptance cap.",
+							rejectionReason: "source_cap",
+						},
+						{
+							id: "web-cap-rejected-2",
+							title: "Capped source 2",
+							url: "https://example.com/capped-2",
+							snippet: "More capped evidence.",
+							rejectionReason: "source_cap",
+						},
+						{
+							id: "web-dup",
+							title: "Duplicate source",
+							url: "https://example.com/rag-good#section",
+							snippet: "Duplicate URL evidence.",
+							rejectionReason: "duplicate_url",
+						},
+					],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "enterprise RAG architecture patterns\nvector database comparison",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "curate") {
+						return { text: "Curated evidence", usage: stageUsage() };
+					}
+					if (input.stage === "coverage-review") {
+						return {
+							text: JSON.stringify({
+								sufficient: true,
+								proposals: [],
+								approvedGapCandidates: [],
+								diagnostics: [],
+								limitations: [],
+							}),
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "assemble") {
+						return {
+							text: [
+								"## Executive Summary",
+								"RAG architectures vary by enterprise requirements including governance, retrieval quality, and deployment constraints.",
+								"",
+								"## Findings",
+								"Vector databases combined with reranking pipelines offer the best retrieval quality for regulated SaaS environments.",
+								"",
+								"## Limitations",
+								"This analysis is based on a single accepted web source and may not capture the full landscape.",
+							].join("\n"),
+							usage: stageUsage(),
+						};
+					}
+					return { text: `${input.stage} result`, usage: stageUsage() };
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-reject",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(result.sourceCounts).toMatchObject({
+			local: 0,
+			web: 1,
+			accepted: 1,
+			rejected: 1,
+		});
+	});
+
 	it("runs only one useful In-Depth gap-fill round", async () => {
 		const searchWeb = vi
 			.fn()
