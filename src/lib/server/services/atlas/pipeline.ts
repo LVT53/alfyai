@@ -1627,44 +1627,219 @@ function buildAssembleRepairPrompt(input: {
 	});
 }
 
-interface AtlasFallbackReportSection {
-	title: string;
-	text: string;
-	limitations: string[];
-}
-
-function fallbackSectionLabels(language: SupportedLanguage): {
+function honestFallbackSectionLabels(language: SupportedLanguage): {
 	executive: string;
-	findings: string;
-	tradeoffs: string;
-	recommendations: string;
+	evidenceSummary: string;
 	limitations: string;
+	additionalLimitations: string;
 } {
 	if (language === "hu") {
 		return {
 			executive: "Vezetői összefoglaló",
-			findings: "Megállapítások",
-			tradeoffs: "Kompromisszumok",
-			recommendations: "Ajánlás",
+			evidenceSummary: "Bizonyíték összefoglaló",
 			limitations: "Korlátok",
+			additionalLimitations: "További korlátok",
 		};
 	}
 	return {
 		executive: "Executive Summary",
-		findings: "Findings",
-		tradeoffs: "Tradeoffs",
-		recommendations: "Recommendation",
+		evidenceSummary: "Evidence Summary",
 		limitations: "Limitations",
+		additionalLimitations: "Additional Limitations",
 	};
 }
 
-function cleanFallbackStageText(value: string): string {
-	return value
-		.replace(/```[\s\S]*?```/g, "")
-		.replace(/\r\n?/g, "\n")
-		.replace(/[ \t]+/g, " ")
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
+function honestFallbackEvidenceEntries(
+	evidencePacks: AtlasEvidencePack[],
+): Array<{ pack: AtlasEvidencePack; summary: string }> {
+	return evidencePacks
+		.map((pack) => ({
+			pack,
+			summary: cleanFallbackScalar(pack.evidence.summary),
+		}))
+		.filter((entry): entry is { pack: AtlasEvidencePack; summary: string } =>
+			Boolean(entry.summary),
+		)
+		.filter(
+			(entry) =>
+				!isProcessFallbackStatement(entry.summary) &&
+				!isLowQualityFallbackText(entry.summary),
+		)
+		.map((entry) => ({
+			...entry,
+			summary: ensureTerminalPunctuation(entry.summary),
+		}))
+		.slice(0, 16);
+}
+
+function honestFallbackEvidenceLabel(pack: AtlasEvidencePack): string | null {
+	const source = pack.sourceRefs[0];
+	if (!source) return null;
+	const authority =
+		pack.authority === "accepted_web"
+			? "web"
+			: pack.authority.replace(/_/g, " ");
+	return [source.title, authority].filter(Boolean).join(", ");
+}
+
+function buildHonestFallbackSectionBriefs(input: {
+	language: SupportedLanguage;
+	evidencePacks: AtlasEvidencePack[];
+}): AtlasSectionBrief[] {
+	const packs = input.evidencePacks
+		.filter((pack) => pack.sourceRefs.length > 0)
+		.slice(0, 8);
+	const evidencePackIds = packs.map((pack) => pack.id);
+	const sourceAssociations = sourceAssociationsFromEvidencePacks(packs);
+	const labels = honestFallbackSectionLabels(input.language);
+	return [
+		{
+			sectionTitle: labels.executive,
+			brief:
+				input.language === "hu"
+					? "Az Atlas elfogadott bizonyítékokat gyűjtött, de nem tudott döntési minőségű szintézist készíteni."
+					: "Atlas gathered accepted evidence but could not synthesize it into a decision-quality report.",
+			evidencePackIds,
+			sourceAssociations,
+			limitations: [],
+		},
+		{
+			sectionTitle: labels.evidenceSummary,
+			brief:
+				input.language === "hu"
+					? "A szakasz az elfogadott Evidence Pack összefoglalókat változatlan elemzés nélkül listázza."
+					: "This section lists accepted Evidence Pack summaries without generated analysis.",
+			evidencePackIds,
+			sourceAssociations,
+			limitations: [],
+		},
+		{
+			sectionTitle: labels.limitations,
+			brief:
+				input.language === "hu"
+					? "A fallback kimenet nyers, rangsorolatlan bizonyíték-összefoglaló, nem publikálható ajánlás."
+					: "The fallback output is a raw, unranked evidence summary rather than a publishable recommendation.",
+			evidencePackIds,
+			sourceAssociations,
+			limitations: [
+				input.language === "hu"
+					? "Nem készült ajánlás, kompromisszum-elemzés vagy bevezetési útmutatás."
+					: "No recommendation, tradeoff analysis, or deployment guidance was generated.",
+			],
+		},
+	];
+}
+
+function buildHonestFallbackGeneratedTitle(input: {
+	language: SupportedLanguage;
+	query: string;
+}): string {
+	const queryTitle = normalizeFallbackTitle(input.query);
+	if (queryTitle) return queryTitle;
+	return input.language === "hu"
+		? "Forrásalapú Atlas jelentés"
+		: "Source-Grounded Atlas Report";
+}
+
+function buildHonestFallbackLimitations(input: {
+	language: SupportedLanguage;
+	searchLimitation: { code: string; message: string } | null;
+}): string[] {
+	const limitations =
+		input.language === "hu"
+			? [
+					"Az Atlas nem tudott döntési minőségű szintézist készíteni az elfogadott bizonyítékokból. A modell kimenete nem volt használható publikált jelentésként.",
+					"A fenti bizonyíték nyers és rangsorolatlan. Nem készült ajánlás, kompromisszum-elemzés vagy bevezetési útmutatás.",
+					"Használd a Continue vagy Revise műveletet, ha új szintézis-kísérletet szeretnél ugyanebből a bizonyítékalapból.",
+				]
+			: [
+					"Atlas could not produce a decision-quality synthesis from the accepted evidence. The model output was not usable as a published report.",
+					"The evidence above is raw and unranked. No recommendation, tradeoff analysis, or deployment guidance was generated.",
+					"Use Continue or Revise to attempt a fresh synthesis with the same evidence base.",
+				];
+	if (input.searchLimitation) {
+		limitations.push(ensureTerminalPunctuation(input.searchLimitation.message));
+	}
+	return limitations;
+}
+
+function buildHonestEvidenceFallbackReport(input: {
+	language: SupportedLanguage;
+	query: string;
+	evidencePacks: AtlasEvidencePack[];
+	searchLimitation: { code: string; message: string } | null;
+	currentDate: string;
+}): { markdown: string; metadata: AtlasAssemblyMetadata } {
+	const labels = honestFallbackSectionLabels(input.language);
+	const title = buildHonestFallbackGeneratedTitle({
+		language: input.language,
+		query: input.query,
+	});
+	const acceptedSourceCount = input.evidencePacks.length;
+	const executive =
+		input.language === "hu"
+			? `Az Atlas ${acceptedSourceCount} elfogadott bizonyítékcsomagot gyűjtött ehhez a kérdéshez, de nem tudta döntési minőségű jelentéssé szintetizálni őket. Az alábbi bizonyíték-összefoglalók áttekinthetők; Continue vagy Revise művelettel új szintézis-kísérlet indítható.`
+			: `Atlas gathered ${acceptedSourceCount} accepted evidence pack${acceptedSourceCount === 1 ? "" : "s"} for this query but could not synthesize ${acceptedSourceCount === 1 ? "it" : "them"} into a decision-quality report. The evidence summaries below are available for review. You can retry with Continue or Revise for a fresh synthesis attempt.`;
+	const evidenceEntries = honestFallbackEvidenceEntries(input.evidencePacks);
+	const evidenceBullets = evidenceEntries.map((entry) => {
+		const label = honestFallbackEvidenceLabel(entry.pack);
+		return label ? `- **${label}:** ${entry.summary}` : `- ${entry.summary}`;
+	});
+	const noEvidence =
+		input.language === "hu"
+			? "- Nem állt rendelkezésre használható Evidence Pack összefoglaló."
+			: "- No usable evidence pack summaries were available.";
+	const limitations = buildHonestFallbackLimitations({
+		language: input.language,
+		searchLimitation: input.searchLimitation,
+	});
+	const markdown = [
+		`# ${title}`,
+		"",
+		`## ${labels.executive}`,
+		executive,
+		"",
+		`## ${labels.evidenceSummary}`,
+		...(evidenceBullets.length > 0 ? evidenceBullets : [noEvidence]),
+		"",
+		`## ${labels.limitations}`,
+		...limitations.map((limitation) => `- ${limitation}`),
+	].join("\n");
+	return {
+		markdown,
+		metadata: {
+			version: ATLAS_ASSEMBLY_SCHEMA_VERSION,
+			generatedTitle: title,
+			sectionBriefs: buildHonestFallbackSectionBriefs({
+				language: input.language,
+				evidencePacks: input.evidencePacks,
+			}),
+			limitations,
+			structured: true,
+		},
+	};
+}
+
+function appendAdditionalLimitations(input: {
+	markdown: string;
+	language: SupportedLanguage;
+	failures: { reasonMessages: string[] };
+}): string {
+	const labels = honestFallbackSectionLabels(input.language);
+	const intro =
+		input.language === "hu"
+			? "Az Atlas jelentésalak-diagnosztikája szerint ez a jelentés túl vékony, túl forrásdominált vagy egyes szakaszaiban túl sekély lehet. A fenti szintézis a modell legjobb kísérlete az elfogadott bizonyítékok alapján. Tekintsd át a bizonyítékokat, és használd a Continue vagy Revise műveletet, ha mélyebb elemzés szükséges."
+			: "Atlas report-shape diagnostics indicate that this report may be too thin, too source-dominated, or too shallow in some sections. The synthesis above represents the model's best effort given the accepted evidence. Review the evidence and retry with Continue or Revise if deeper analysis is needed.";
+	const details = input.failures.reasonMessages.map(
+		(message) => `- ${ensureTerminalPunctuation(message)}`,
+	);
+	return [
+		input.markdown.trim(),
+		"",
+		`## ${labels.additionalLimitations}`,
+		intro,
+		...(details.length > 0 ? ["", ...details] : []),
+	].join("\n");
 }
 
 function cleanFallbackScalar(value: unknown): string | null {
@@ -1673,208 +1848,8 @@ function cleanFallbackScalar(value: unknown): string | null {
 	return trimmed || null;
 }
 
-function normalizedFallbackHeading(value: string): string {
-	return value
-		.normalize("NFD")
-		.replace(/[\u0300-\u036f]/g, "")
-		.trim()
-		.toLowerCase()
-		.replace(/\s+/g, " ");
-}
-
-function outlineTitleCandidate(value: string): string | null {
-	const cleaned = cleanFallbackScalar(
-		value
-			.replace(/^#{1,6}\s+/, "")
-			.replace(/^[-*]\s+/, "")
-			.replace(/^\d+(?:\.\d+)*[.)]?\s+/, "")
-			.replace(/^section\s+\d+\s*[:.-]\s*/i, ""),
-	);
-	if (!cleaned) return null;
-	const delimiterMatch = /\s[-–—]\s|:\s/.exec(cleaned);
-	const title = delimiterMatch
-		? cleaned.slice(0, delimiterMatch.index).trim()
-		: cleaned.trim();
-	if (title.length < 3 || title.length > 80) return null;
-	if (/[.!?]\s+\S/.test(title)) return null;
-	if (isReportEnvelopeHeading(title)) return null;
-	if (isReportScalarOnlyHeading(title)) return null;
-	if (isEvidencePackIdFragment(title)) return null;
-	const normalized = normalizedFallbackHeading(title);
-	if (
-		[
-			"outline",
-			"report outline",
-			"core insight",
-			"lead candidates",
-			"key tradeoff",
-			"table",
-			"top models",
-			"key model characteristics",
-		].includes(normalized)
-	) {
-		return null;
-	}
-	if (/\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/i.test(title)) return null;
-	if (
-		/\b(source|sources|bibliography|references|forras|forrasok|hivatkozasok)\b/i.test(
-			title,
-		)
-	) {
-		return null;
-	}
-	return title.replace(/[.:;,-]+$/g, "").trim() || null;
-}
-
-function canonicalFallbackSectionTitle(
-	title: string,
-	language: SupportedLanguage,
-): string {
-	const labels = fallbackSectionLabels(language);
-	const normalized = normalizedFallbackHeading(title);
-	if (
-		normalized === "executive summary" ||
-		normalized === "summary" ||
-		normalized === "vezetoi osszefoglalo" ||
-		normalized === "osszefoglalo"
-	) {
-		return labels.executive;
-	}
-	if (
-		normalized === "limitations" ||
-		normalized === "limits" ||
-		normalized === "korlatok"
-	) {
-		return labels.limitations;
-	}
-	if (
-		normalized === "findings" ||
-		normalized === "key findings" ||
-		normalized === "megallapitasok"
-	) {
-		return labels.findings;
-	}
-	if (
-		normalized === "tradeoffs" ||
-		normalized === "trade offs" ||
-		normalized === "trade off" ||
-		normalized === "kompromisszumok"
-	) {
-		return labels.tradeoffs;
-	}
-	if (
-		normalized === "recommendation" ||
-		normalized === "recommendations" ||
-		normalized === "recommended path" ||
-		normalized === "ajanlas" ||
-		normalized === "ajanlasok"
-	) {
-		return labels.recommendations;
-	}
-	return title;
-}
-
-function uniqueFallbackSectionTitles(
-	titles: string[],
-	language: SupportedLanguage,
-): string[] {
-	const labels = fallbackSectionLabels(language);
-	const seen = new Set<string>();
-	const unique: string[] = [];
-	for (const rawTitle of titles) {
-		const title = canonicalFallbackSectionTitle(rawTitle, language);
-		const key = normalizedFallbackHeading(title);
-		if (!key || seen.has(key)) continue;
-		seen.add(key);
-		unique.push(title);
-	}
-	const defaultMiddleSections = [
-		labels.findings,
-		labels.tradeoffs,
-		labels.recommendations,
-	];
-	const requiredKeys = new Set(
-		[labels.executive, ...defaultMiddleSections, labels.limitations].map(
-			normalizedFallbackHeading,
-		),
-	);
-	const customSections = unique.filter(
-		(title) =>
-			!requiredKeys.has(normalizedFallbackHeading(title)) &&
-			isCleanCustomFallbackSectionTitle(title),
-	);
-	return [
-		labels.executive,
-		...defaultMiddleSections,
-		...customSections.slice(0, 5),
-		labels.limitations,
-	];
-}
-
-function isCleanCustomFallbackSectionTitle(title: string): boolean {
-	const normalized = normalizedFallbackHeading(title);
-	if (!normalized || isFallbackTableFragment(title)) return false;
-	if (isReportScalarOnlyHeading(title)) return false;
-	if (isEvidencePackIdFragment(title)) return false;
-	if (/^[a-z]/.test(title.trim())) return false;
-	if (title.includes(":") || title.includes("|")) return false;
-	if (
-		/\b(evidence packs?|source ids?|accepted evidence|report outline)\b/i.test(
-			title,
-		)
-	) {
-		return false;
-	}
-	const tokens = normalized.split(/\s+/).filter(Boolean);
-	return tokens.length >= 2 && tokens.length <= 6;
-}
-
 function isEvidencePackIdFragment(value: string): boolean {
 	return /(?:^|[^a-z0-9])atlas-pack-v\d[-_a-z0-9]*/i.test(value);
-}
-
-function extractFallbackOutlineTitles(
-	outline: string,
-	language: SupportedLanguage,
-): string[] {
-	const parsed = parseJsonObject(outline);
-	const parsedBriefs = parsed ? parseSectionBriefs(parsed.sectionBriefs) : [];
-	const parsedTitles = parsedBriefs.map((brief) => brief.sectionTitle);
-	if (parsedTitles.length > 0) {
-		return uniqueFallbackSectionTitles(parsedTitles, language);
-	}
-
-	const cleaned = cleanFallbackStageText(outline)
-		.replace(/^\s*outline\s*:\s*/i, "")
-		.trim();
-	const chunks = cleaned
-		.split(/\n+|;/)
-		.map(outlineTitleCandidate)
-		.filter((title): title is string => Boolean(title));
-	return uniqueFallbackSectionTitles(chunks, language);
-}
-
-function stripFallbackSectionPrefix(value: string): {
-	prefix: string | null;
-	body: string;
-} {
-	const cleaned = cleanFallbackScalar(
-		value
-			.replace(/^#{1,6}\s+/, "")
-			.replace(/^[-*]\s+/, "")
-			.replace(/^\d+(?:\.\d+)*[.)]?\s+/, ""),
-	);
-	if (!cleaned) return { prefix: null, body: "" };
-	const delimiterMatch = /\s[-–—]\s|:\s/.exec(cleaned);
-	if (!delimiterMatch) return { prefix: null, body: cleaned };
-	const prefix = cleaned.slice(0, delimiterMatch.index).trim();
-	const body = cleaned
-		.slice(delimiterMatch.index + delimiterMatch[0].length)
-		.trim();
-	if (prefix.length < 3 || prefix.length > 80 || !body) {
-		return { prefix: null, body: cleaned };
-	}
-	return { prefix, body };
 }
 
 function isProcessFallbackStatement(value: string): boolean {
@@ -1939,522 +1914,6 @@ function isLowQualityFallbackText(value: string): boolean {
 	return false;
 }
 
-function fallbackStatementsFromStageText(value: string): Array<{
-	prefix: string | null;
-	body: string;
-}> {
-	return cleanFallbackStageText(value)
-		.split(/\n+/)
-		.flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-Z0-9])/))
-		.map(stripFallbackSectionPrefix)
-		.map((entry) => ({
-			prefix: entry.prefix,
-			body: ensureTerminalPunctuation(entry.body),
-		}))
-		.filter(
-			(entry) =>
-				entry.body.length >= 30 &&
-				!isProcessFallbackStatement(entry.body) &&
-				!isLowQualityFallbackText(entry.body),
-		)
-		.slice(0, 32);
-}
-
-function fallbackStatementsFromEvidencePacks(
-	evidencePacks: AtlasEvidencePack[],
-): Array<{ prefix: string | null; body: string }> {
-	return evidencePacks
-		.map((pack) => cleanFallbackScalar(pack.evidence.summary))
-		.filter((summary): summary is string => Boolean(summary))
-		.filter(
-			(summary) =>
-				!isProcessFallbackStatement(summary) &&
-				!isLowQualityFallbackText(summary),
-		)
-		.map((summary) => ({
-			prefix: null,
-			body: ensureTerminalPunctuation(summary),
-		}))
-		.slice(0, 16);
-}
-
-function sectionTitleTokenSet(title: string): Set<string> {
-	const stopwords = new Set([
-		"and",
-		"the",
-		"for",
-		"with",
-		"summary",
-		"executive",
-		"limitations",
-		"limits",
-		"section",
-		"vezetoi",
-		"osszefoglalo",
-		"korlatok",
-	]);
-	return new Set(
-		normalizedFallbackHeading(title)
-			.split(/\s+/)
-			.filter((token) => token.length >= 4 && !stopwords.has(token)),
-	);
-}
-
-function statementMatchesSectionTitle(
-	statement: { prefix: string | null; body: string },
-	title: string,
-): boolean {
-	const sectionKey = normalizedFallbackHeading(title);
-	if (
-		statement.prefix &&
-		normalizedFallbackHeading(statement.prefix) === sectionKey
-	) {
-		return true;
-	}
-	const tokens = sectionTitleTokenSet(title);
-	if (tokens.size === 0) return false;
-	const body = normalizedFallbackHeading(
-		`${statement.prefix ?? ""} ${statement.body}`,
-	);
-	let matches = 0;
-	for (const token of tokens) {
-		if (body.includes(token)) matches += 1;
-	}
-	return matches >= Math.min(2, tokens.size);
-}
-
-function fallbackLimitationsText(input: {
-	language: SupportedLanguage;
-	limitation: { code: string; message: string } | null;
-	evidencePacks: AtlasEvidencePack[];
-}): string {
-	const packLimitations = input.evidencePacks
-		.flatMap((pack) => pack.limitations)
-		.map(cleanFallbackScalar)
-		.filter((limitation): limitation is string => Boolean(limitation))
-		.filter((limitation) => !isLowQualityFallbackText(limitation))
-		.slice(0, 3);
-	if (input.limitation)
-		return ensureTerminalPunctuation(input.limitation.message);
-	if (packLimitations.length > 0) {
-		return packLimitations.map(ensureTerminalPunctuation).join(" ");
-	}
-	return input.language === "hu"
-		? "A jelentés az elfogadott Atlas forrásokra korlátozódik; a gyenge vagy hiányzó bizonyítékokat óvatosan kell kezelni."
-		: "The report is limited to the accepted Atlas sources; weak or missing evidence should be treated cautiously.";
-}
-
-function fallbackTextForSection(input: {
-	title: string;
-	language: SupportedLanguage;
-	query: string;
-	statements: Array<{ prefix: string | null; body: string }>;
-	usedStatementIndexes: Set<number>;
-	limitation: { code: string; message: string } | null;
-	evidencePacks: AtlasEvidencePack[];
-}): string {
-	const labels = fallbackSectionLabels(input.language);
-	const sectionKey = normalizedFallbackHeading(input.title);
-	const executiveKey = normalizedFallbackHeading(labels.executive);
-	const limitationsKey = normalizedFallbackHeading(labels.limitations);
-	if (sectionKey === limitationsKey) {
-		return fallbackLimitationsText(input);
-	}
-	const matchedIndex = input.statements.findIndex(
-		(statement, statementIndex) =>
-			!input.usedStatementIndexes.has(statementIndex) &&
-			statementMatchesSectionTitle(statement, input.title),
-	);
-	if (matchedIndex >= 0) {
-		input.usedStatementIndexes.add(matchedIndex);
-		return developFallbackSectionText({
-			...input,
-			baseText: input.statements[matchedIndex].body,
-		});
-	}
-	if (sectionKey === executiveKey) {
-		const executiveStatements = input.statements
-			.filter(
-				(_, statementIndex) => !input.usedStatementIndexes.has(statementIndex),
-			)
-			.slice(0, 2);
-		executiveStatements.forEach((statement) => {
-			const index = input.statements.indexOf(statement);
-			if (index >= 0) input.usedStatementIndexes.add(index);
-		});
-		if (executiveStatements.length > 0) {
-			return developFallbackSectionText({
-				...input,
-				baseText: executiveStatements
-					.map((statement) => statement.body)
-					.join(" "),
-			});
-		}
-	}
-	const fallbackIndex = input.statements.findIndex(
-		(_, statementIndex) => !input.usedStatementIndexes.has(statementIndex),
-	);
-	if (fallbackIndex >= 0) {
-		input.usedStatementIndexes.add(fallbackIndex);
-		return developFallbackSectionText({
-			...input,
-			baseText: input.statements[fallbackIndex].body,
-		});
-	}
-	return developFallbackSectionText({
-		...input,
-		baseText:
-			input.language === "hu"
-				? "Az elfogadott bizonyítékok alapján csak óvatos, forráshoz kötött megállapítás adható ehhez a szakaszhoz."
-				: "The accepted evidence supports only a cautious, source-bounded finding for this section.",
-	});
-}
-
-function fallbackSentenceCount(value: string): number {
-	return Math.max(0, value.match(/[.!?]+(?=\s|$)/g)?.length ?? 0);
-}
-
-function fallbackQueryNounPhrase(query: string): string {
-	const withoutRegressionPrefix = query
-		.replace(
-			/^\s*live\s+atlas\s+regression\s+check\s+\d{4}-\d{2}-\d{2}t[0-9:.]+z\.?\s*/i,
-			"",
-		)
-		.replace(/\b\d{4}-\d{2}-\d{2}t[0-9:.]+z\b/gi, "")
-		.replace(
-			/^(?:compare|find|choose|select|rank|recommend)\s+(?:the\s+)?(?:best\s+)?/i,
-			"",
-		)
-		.replace(/\s+/g, " ")
-		.trim();
-	const normalized = normalizedReportShapeText(withoutRegressionPrefix);
-	if (
-		/\bself hosted\b/.test(normalized) &&
-		/\bembedding models?\b/.test(normalized) &&
-		/\benglish\b/.test(normalized) &&
-		/\btechnical\b/.test(normalized) &&
-		/\bretrieval\b/.test(normalized)
-	) {
-		return "self-hosted embedding models for English technical-document retrieval";
-	}
-	const cleaned = normalizeFallbackTitle(withoutRegressionPrefix)
-		?.replace(/[?!.]+$/g, "")
-		.trim();
-	return cleaned
-		? cleaned.charAt(0).toLowerCase() + cleaned.slice(1)
-		: "this decision";
-}
-
-function fallbackSectionReference(title: string): string {
-	const cleaned = normalizeFallbackTitle(title)
-		?.replace(/[?!.]+$/g, "")
-		.trim();
-	if (!cleaned) return "this section";
-	return cleaned.charAt(0).toLowerCase() + cleaned.slice(1);
-}
-
-function fallbackValidationSentence(input: {
-	title: string;
-	language: SupportedLanguage;
-	querySubject: string;
-}): string {
-	const labels = fallbackSectionLabels(input.language);
-	const sectionKey = normalizedFallbackHeading(input.title);
-	if (input.language === "hu") {
-		return `A(z) ${fallbackSectionReference(input.title)} következtetését saját korpuszon, mérhető üzemeltetési célokon és világos visszalépési feltételeken kell ellenőrizni.`;
-	}
-	if (
-		sectionKey === normalizedFallbackHeading(labels.recommendations) ||
-		/\b(?:recommend|decision|verdict)\b/i.test(sectionKey)
-	) {
-		return `Turn the recommendation into a rollout rule only after the local corpus test shows a material gain within the latency, memory, and review budget.`;
-	}
-	if (
-		sectionKey === normalizedFallbackHeading(labels.tradeoffs) ||
-		/\b(?:tradeoff|cost|latency)\b/i.test(sectionKey)
-	) {
-		return `Use the tradeoff section to set the operating budget first, then spend extra model size or reranking depth only where measured retrieval quality improves.`;
-	}
-	if (
-		/\b(?:deployment|rollout|operat|workflow|serving|production|pilot|hardware|memory)\b/i.test(
-			sectionKey,
-		)
-	) {
-		return `Before widening deployment, run a pilot that records source coverage, rollback triggers, p95 latency, and reviewer acceptance for ${input.querySubject}.`;
-	}
-	if (
-		/\b(?:evaluation|validation|measure|benchmark|criteria|threshold)\b/i.test(
-			sectionKey,
-		)
-	) {
-		return `The validation threshold should name the recall, citation coverage, latency, and review-quality result that would justify changing the production default.`;
-	}
-	if (
-		/\b(?:shortlist|models?|candidates?|famil(?:y|ies)|architecture)\b/i.test(
-			sectionKey,
-		)
-	) {
-		return `Keep the shortlist tiered: default candidates should meet the operating budget now, while fallback or experimental candidates need a specific measured advantage.`;
-	}
-	if (
-		sectionKey === normalizedFallbackHeading(labels.findings) ||
-		/\bfindings?\b/i.test(sectionKey)
-	) {
-		return `Use the findings to separate evidence-backed decision criteria from open questions that still need local measurement.`;
-	}
-	const sectionReference = fallbackSectionReference(input.title);
-	return `For the ${sectionReference} decision, define the local validation step and the evidence threshold that would change the recommendation.`;
-}
-
-function developFallbackSectionText(input: {
-	title: string;
-	language: SupportedLanguage;
-	query: string;
-	baseText: string;
-	statements: Array<{ prefix: string | null; body: string }>;
-	usedStatementIndexes: Set<number>;
-	limitation: { code: string; message: string } | null;
-	evidencePacks: AtlasEvidencePack[];
-}): string {
-	const labels = fallbackSectionLabels(input.language);
-	const sectionKey = normalizedFallbackHeading(input.title);
-	const querySubject = fallbackQueryNounPhrase(input.query);
-	const baseText = ensureTerminalPunctuation(input.baseText);
-	const additions: string[] = [];
-	if (
-		sectionKey === normalizedFallbackHeading(labels.limitations) ||
-		/\b(?:limitations?|constraints?|korlatok)\b/i.test(sectionKey)
-	) {
-		additions.push(
-			input.language === "hu"
-				? "Ezért a végső döntést saját korpuszon, késleltetési célokon és üzemeltetési korlátokon kell validálni."
-				: `Treat this as bounded evidence for ${querySubject}: validate the shortlist on the actual corpus, hardware, latency target, and licensing constraints before rollout.`,
-		);
-	} else if (
-		sectionKey === normalizedFallbackHeading(labels.recommendations) ||
-		/\b(?:recommend|decision|verdict|ajanlas)\b/i.test(sectionKey)
-	) {
-		additions.push(
-			input.language === "hu"
-				? `Az ajánlott út az, hogy a legerősebben alátámasztott mintát használd kiindulópontként a(z) ${querySubject} kérdésben, majd csak mért validáció után szélesítsd a bevezetést.`
-				: `For ${querySubject}, start with the best-supported model family that meets the latency and hardware budget, keep a reranker-compatible fallback in the shortlist, and promote larger models only when corpus tests show a material retrieval gain.`,
-		);
-	} else if (
-		sectionKey === normalizedFallbackHeading(labels.findings) ||
-		/\bfindings?\b/i.test(sectionKey)
-	) {
-		additions.push(
-			input.language === "hu"
-				? `A megállapításokat a(z) ${querySubject} döntési kritériumaivá kell alakítani: melyik jel javítja a válaszminőséget, melyik csökkenti az üzemeltetési kockázatot, és melyik bizonytalanságot kell helyben mérni.`
-				: `For ${querySubject}, the findings should be ranked by decision impact: which signal improves answer quality, which keeps serving risk acceptable, and which uncertainty must be tested locally.`,
-		);
-	} else if (
-		sectionKey === normalizedFallbackHeading(labels.tradeoffs) ||
-		/\b(?:tradeoff|cost|latency|kompromisszum)\b/i.test(sectionKey)
-	) {
-		additions.push(
-			input.language === "hu"
-				? "A gyakorlati kompromisszum az, hogy a minőségi jelzéseket, költséget, késleltetést, karbantarthatóságot és auditálhatóságot együtt kell mérni, nem külön-külön."
-				: "The practical tradeoff is to measure retrieval quality, embedding dimension, resident memory, reranking depth, and p95 latency together instead of optimizing one benchmark score in isolation.",
-		);
-	} else if (
-		/\b(?:deployment|rollout|operat|workflow|serving|production|pilot|hardware|memory)\b/i.test(
-			sectionKey,
-		)
-	) {
-		additions.push(
-			input.language === "hu"
-				? `A bevezetésnek mért pilotként kell indulnia a(z) ${querySubject} kérdésben: legyen késleltetési keret, forrásszintű naplózás, visszalépési feltétel és egyértelmű tulajdonos a gyenge találatok kezelésére.`
-				: `The deployment implication is to run a measured pilot for ${querySubject}: fix the latency budget, keep source-level logging, and define rollback criteria before widening use.`,
-		);
-	} else if (
-		/\b(?:evaluation|validation|measure|benchmark|criteria|threshold)\b/i.test(
-			sectionKey,
-		)
-	) {
-		additions.push(
-			input.language === "hu"
-				? "Az értékelésnek korpusz-recallt, hivatkozási lefedettséget, reranker pontosságot, p95 késleltetést és szakértői elfogadást kell mérnie, mielőtt a termelési alapértelmezés változik."
-				: "The evaluation plan should compare corpus recall, citation coverage, reranker precision, p95 latency, and reviewer acceptance before changing the production default.",
-		);
-	} else if (
-		/\b(?:shortlist|models?|candidates?|famil(?:y|ies)|architecture)\b/i.test(
-			sectionKey,
-		)
-	) {
-		additions.push(
-			input.language === "hu"
-				? `A listát alapértelmezett, tartalék és kísérleti jelöltekre kell bontani a(z) ${querySubject} kérdésben, nem egyenrangú modellnevek felsorolásaként kezelni.`
-				: `Use this shortlist to separate default candidates, fallback candidates, and experimental candidates for ${querySubject} instead of treating every named option as equally deployment-ready.`,
-		);
-	} else if (
-		sectionKey === normalizedFallbackHeading(labels.executive) ||
-		/\b(?:summary|overview|osszefoglalo)\b/i.test(sectionKey)
-	) {
-		additions.push(
-			input.language === "hu"
-				? `A döntési következmény az, hogy a(z) ${querySubject} kérdésben nem érdemes puszta rangsort közölni; a választ a működési kockázatokkal és bizonyítékhiányokkal együtt kell rögzíteni.`
-				: `For ${querySubject}, the useful answer is not a bare ranking; it is a deployment choice that balances measured retrieval quality, serving cost, and evidence gaps.`,
-		);
-	} else if (/\b(?:quality|benchmark|retrieval|mteb)\b/i.test(sectionKey)) {
-		additions.push(
-			input.language === "hu"
-				? "A minőségi állításokat saját lekérdezéskészlettel kell ellenőrizni, mert a nyilvános benchmarkok nem fedik le automatikusan a felhasználó dokumentumtípusait."
-				: "Quality claims should be checked against a representative query set because public benchmarks do not automatically cover the user's document mix.",
-		);
-	} else if (/\b(?:fresh|data|evidence|gap)\b/i.test(sectionKey)) {
-		additions.push(
-			input.language === "hu"
-				? "A bizonyíték frissessége hasznos irányt ad, de a gyorsan változó modellkínálat miatt a végső választás előtt újra kell ellenőrizni a kiadásokat és benchmarkokat."
-				: "The freshness signal is useful directionally, but fast-moving model releases mean the final choice should re-check current versions and benchmarks before deployment.",
-		);
-	} else {
-		additions.push(
-			input.language === "hu"
-				? `A(z) ${fallbackSectionReference(input.title)} következtetését döntési kritériummá, helyi validációs lépéssé és módosítási feltétellé kell alakítani.`
-				: `For ${querySubject}, the ${fallbackSectionReference(input.title)} evidence should become an explicit decision criterion, a local validation step, and a condition that would change the recommendation.`,
-		);
-	}
-	const expanded = [baseText, ...additions]
-		.map(ensureTerminalPunctuation)
-		.join(" ")
-		.replace(/\s+/g, " ")
-		.trim();
-	if (
-		fallbackSentenceCount(expanded) >= 3 ||
-		sectionKey === normalizedFallbackHeading(labels.limitations)
-	) {
-		return expanded;
-	}
-	const validationSentence = fallbackValidationSentence({
-		title: input.title,
-		language: input.language,
-		querySubject,
-	});
-	return `${expanded} ${validationSentence}`;
-}
-
-function buildFallbackReportSections(input: {
-	language: SupportedLanguage;
-	query: string;
-	curatedEvidence: string;
-	synthesis: string;
-	outline: string;
-	evidencePacks: AtlasEvidencePack[];
-	limitation: { code: string; message: string } | null;
-}): AtlasFallbackReportSection[] {
-	const titles = extractFallbackOutlineTitles(input.outline, input.language);
-	const statements = [
-		...fallbackStatementsFromStageText(input.synthesis),
-		...fallbackStatementsFromStageText(input.curatedEvidence),
-		...fallbackStatementsFromEvidencePacks(input.evidencePacks),
-	];
-	const usedStatementIndexes = new Set<number>();
-	return titles.map((title) => {
-		const limitations =
-			normalizedFallbackHeading(title) ===
-			normalizedFallbackHeading(
-				fallbackSectionLabels(input.language).limitations,
-			)
-				? [fallbackLimitationsText(input)]
-				: [];
-		return {
-			title,
-			text: fallbackTextForSection({
-				title,
-				language: input.language,
-				query: input.query,
-				statements,
-				usedStatementIndexes,
-				limitation: input.limitation,
-				evidencePacks: input.evidencePacks,
-			}),
-			limitations,
-		};
-	});
-}
-
-function buildFallbackSectionBriefsFromSections(input: {
-	sections: AtlasFallbackReportSection[];
-	evidencePacks: AtlasEvidencePack[];
-}): AtlasSectionBrief[] {
-	const packs = input.evidencePacks
-		.filter((pack) => pack.sourceRefs.length > 0)
-		.slice(0, 8);
-	const evidencePackIds = packs.map((pack) => pack.id);
-	const sourceAssociations = sourceAssociationsFromEvidencePacks(packs);
-	return input.sections.map((section) => ({
-		sectionTitle: section.title,
-		brief: compactSectionBrief(section.text),
-		evidencePackIds,
-		sourceAssociations,
-		limitations: section.limitations,
-	}));
-}
-
-function buildDeterministicFallbackReport(input: {
-	language: SupportedLanguage;
-	query: string;
-	curatedEvidence: string;
-	synthesis: string;
-	outline: string;
-	evidencePacks: AtlasEvidencePack[];
-	sources: Array<{
-		title: string;
-		url?: string | null;
-		reasoning?: string | null;
-	}>;
-	limitation: { code: string; message: string } | null;
-}): { markdown: string; metadata: AtlasAssemblyMetadata } {
-	const title = buildFallbackGeneratedTitle({
-		language: input.language,
-		query: input.query,
-		sources: input.sources,
-	});
-	const sections = buildFallbackReportSections({
-		language: input.language,
-		query: input.query,
-		curatedEvidence: input.curatedEvidence,
-		synthesis: input.synthesis,
-		outline: input.outline,
-		evidencePacks: input.evidencePacks,
-		limitation: input.limitation,
-	});
-	const sectionBriefs = buildFallbackSectionBriefsFromSections({
-		sections,
-		evidencePacks: input.evidencePacks,
-	});
-	const markdown = [
-		`# ${title}`,
-		"",
-		...sections.flatMap((section) => [`## ${section.title}`, section.text, ""]),
-	].join("\n");
-	return {
-		markdown,
-		metadata: {
-			version: ATLAS_ASSEMBLY_SCHEMA_VERSION,
-			generatedTitle: title,
-			sectionBriefs,
-			limitations: input.limitation ? [input.limitation.message] : [],
-			structured: true,
-		},
-	};
-}
-
-function buildFallbackGeneratedTitle(input: {
-	language: SupportedLanguage;
-	query: string;
-	sources: Array<{ title: string }>;
-}): string {
-	const queryTitle = normalizeFallbackTitle(input.query);
-	if (queryTitle) return queryTitle;
-	const sourceTitle = normalizeFallbackTitle(input.sources[0]?.title);
-	if (sourceTitle) return sourceTitle;
-	return input.language === "hu"
-		? "Forrásalapú Atlas jelentés"
-		: "Source-Grounded Atlas Report";
-}
-
 function normalizeFallbackTitle(
 	value: string | null | undefined,
 ): string | null {
@@ -2511,15 +1970,6 @@ function sourceAssociationsFromEvidencePacks(
 		.slice(0, 24);
 }
 
-function compactSectionBrief(value: string): string {
-	const normalized = value.replace(/\s+/g, " ").trim();
-	if (normalized.length <= 360) return normalized;
-	return `${normalized
-		.slice(0, 361)
-		.replace(/\s+\S*$/, "")
-		.trim()}...`;
-}
-
 function ensureTerminalPunctuation(text: string): string {
 	const trimmed = text.trim();
 	if (!trimmed) return "";
@@ -2531,14 +1981,6 @@ const FINAL_REPORT_GATE_WARNING_CODES = new Set([
 	"atlas_too_many_one_sentence_sections",
 	"atlas_source_projection_dominates_report",
 	"atlas_claim_shaped_headings",
-]);
-const FINAL_REPORT_HARD_STOP_CODES = new Set([
-	"atlas_report_sections_too_sparse",
-	"atlas_too_many_one_sentence_sections",
-	"atlas_source_projection_dominates_report",
-	"atlas_claim_shaped_headings",
-	"atlas_final_source_share_too_high",
-	"atlas_final_sections_too_shallow",
 ]);
 
 interface AtlasFinalReportQualityGate {
@@ -2596,14 +2038,6 @@ function finalReportQualityFailures(diagnostics: AtlasReportShapeDiagnostics): {
 		reasonWarningCodes: Array.from(new Set(reasonWarningCodes)),
 		reasonMessages: Array.from(new Set(reasonMessages)),
 	};
-}
-
-function shouldHardStopAfterFinalFallback(failures: {
-	reasonWarningCodes: string[];
-}): boolean {
-	return failures.reasonWarningCodes.some((code) =>
-		FINAL_REPORT_HARD_STOP_CODES.has(code),
-	);
 }
 
 export async function runAtlasPipeline(
@@ -2816,6 +2250,7 @@ export async function runAtlasPipeline(
 	let assemblyMetadata = assemblyOutput.metadata;
 	let finalAssembledMarkdown = assemblyOutput.markdown;
 	let usedDeterministicFallbackBeforeImprovement = false;
+	let currentDraftIsHonestFallback = false;
 	let firstDraftReportShapeDiagnostics: AtlasReportShapeDiagnostics | null =
 		null;
 	let writerImprovement = {
@@ -2823,22 +2258,11 @@ export async function runAtlasPipeline(
 		passCount: 0,
 		reasonWarningCodes: [] as string[],
 		startedAfterDeterministicFallback: false,
+		skippedReason: null as string | null,
 	};
 	const acceptedSourceTitles = [
 		...sources.localSources.map((source) => source.title),
 		...finalResearchRound.webSources.map((source) => source.title),
-	];
-	const fallbackSources = [
-		...sources.localSources.map((source) => ({
-			title: source.title,
-			url: null,
-			reasoning: source.text,
-		})),
-		...finalResearchRound.webSources.map((source) => ({
-			title: source.title,
-			url: source.url,
-			reasoning: source.snippet,
-		})),
 	];
 	if (
 		needsAssemblyRepair({
@@ -2873,15 +2297,12 @@ export async function runAtlasPipeline(
 			acceptedSourceTitles,
 		})
 	) {
-		const fallbackReport = buildDeterministicFallbackReport({
+		const fallbackReport = buildHonestEvidenceFallbackReport({
 			language,
 			query: input.job.query,
-			curatedEvidence: finalResearchRound.curatedEvidence,
-			synthesis: synthesize.text,
-			outline: integrate.text,
 			evidencePacks: evidencePackResult.evidencePacks,
-			sources: fallbackSources,
-			limitation: searchLimitation,
+			searchLimitation,
+			currentDate,
 		});
 		finalAssembledMarkdown = fallbackReport.markdown;
 		assemblyMetadata = mergeAssemblyMetadata(
@@ -2889,12 +2310,15 @@ export async function runAtlasPipeline(
 			fallbackReport.metadata,
 		);
 		usedDeterministicFallbackBeforeImprovement = true;
+		currentDraftIsHonestFallback = true;
 	}
 
-	finalAssembledMarkdown = sanitizeMalformedWriterHeadings({
-		markdown: finalAssembledMarkdown,
-		acceptedSourceTitles,
-	});
+	if (!currentDraftIsHonestFallback) {
+		finalAssembledMarkdown = sanitizeMalformedWriterHeadings({
+			markdown: finalAssembledMarkdown,
+			acceptedSourceTitles,
+		});
+	}
 	firstDraftReportShapeDiagnostics = diagnoseAtlasReportShape(
 		finalAssembledMarkdown,
 		{
@@ -2904,7 +2328,17 @@ export async function runAtlasPipeline(
 				writerEvidenceCardResult.writerEvidenceCards.length,
 		},
 	);
-	if (shouldImproveAtlasWriterDraft(firstDraftReportShapeDiagnostics)) {
+	if (currentDraftIsHonestFallback) {
+		writerImprovement = {
+			ran: false,
+			passCount: 0,
+			reasonWarningCodes: firstDraftReportShapeDiagnostics.warnings.map(
+				(warning) => warning.code,
+			),
+			startedAfterDeterministicFallback: true,
+			skippedReason: "honest_fallback_does_not_need_improvement",
+		};
+	} else if (shouldImproveAtlasWriterDraft(firstDraftReportShapeDiagnostics)) {
 		writerImprovement = {
 			ran: true,
 			passCount: 1,
@@ -2913,6 +2347,7 @@ export async function runAtlasPipeline(
 			),
 			startedAfterDeterministicFallback:
 				usedDeterministicFallbackBeforeImprovement,
+			skippedReason: null,
 		};
 		await input.dependencies.heartbeat?.({
 			stage: "assemble",
@@ -2934,32 +2369,33 @@ export async function runAtlasPipeline(
 			assemblyOutput.metadata,
 		);
 		finalAssembledMarkdown = assemblyOutput.markdown;
+		currentDraftIsHonestFallback = false;
 		if (
 			needsAssemblyRepair({
 				markdown: finalAssembledMarkdown,
 				acceptedSourceTitles,
 			})
 		) {
-			const fallbackReport = buildDeterministicFallbackReport({
+			const fallbackReport = buildHonestEvidenceFallbackReport({
 				language,
 				query: input.job.query,
-				curatedEvidence: finalResearchRound.curatedEvidence,
-				synthesis: synthesize.text,
-				outline: integrate.text,
 				evidencePacks: evidencePackResult.evidencePacks,
-				sources: fallbackSources,
-				limitation: searchLimitation,
+				searchLimitation,
+				currentDate,
 			});
 			finalAssembledMarkdown = fallbackReport.markdown;
 			assemblyMetadata = mergeAssemblyMetadata(
 				assemblyMetadata,
 				fallbackReport.metadata,
 			);
+			currentDraftIsHonestFallback = true;
 		}
-		finalAssembledMarkdown = sanitizeMalformedWriterHeadings({
-			markdown: finalAssembledMarkdown,
-			acceptedSourceTitles,
-		});
+		if (!currentDraftIsHonestFallback) {
+			finalAssembledMarkdown = sanitizeMalformedWriterHeadings({
+				markdown: finalAssembledMarkdown,
+				acceptedSourceTitles,
+			});
+		}
 	}
 
 	const auditSources = [
@@ -3057,13 +2493,13 @@ export async function runAtlasPipeline(
 					"## Limitations",
 					"Atlas audit requested additional verification. This version ships with explicit limitations and Basis Markers instead of unsupported certainty.",
 				].join("\n");
-	let claimBasis = audit.claimBasis ?? [];
-	let basisLimitations = audit.basisLimitations ?? [];
-	let basisDiagnostics = audit.basisDiagnostics ?? [];
-	let claimBasisCoverageBySection = audit.claimBasisCoverageBySection ?? [];
-	let claimBasisStatus =
+	const claimBasis = audit.claimBasis ?? [];
+	const basisLimitations = audit.basisLimitations ?? [];
+	const basisDiagnostics = audit.basisDiagnostics ?? [];
+	const claimBasisCoverageBySection = audit.claimBasisCoverageBySection ?? [];
+	const claimBasisStatus =
 		audit.claimBasisStatus ?? (claimBasis.length > 0 ? "succeeded" : "failed");
-	let claimBasisFailureReason = audit.claimBasisFailureReason ?? null;
+	const claimBasisFailureReason = audit.claimBasisFailureReason ?? null;
 	const buildCurrentDocumentSource = () =>
 		buildAtlasDocumentSource({
 			title: assemblyMetadata.generatedTitle ?? input.job.title,
@@ -3092,93 +2528,21 @@ export async function runAtlasPipeline(
 		finalReportShapeDiagnostics,
 	);
 	if (finalQualityFailures.reasonWarningCodes.length > 0) {
-		const fallbackReport = buildDeterministicFallbackReport({
+		auditedMarkdown = appendAdditionalLimitations({
+			markdown: auditedMarkdown,
 			language,
-			query: input.job.query,
-			curatedEvidence: finalResearchRound.curatedEvidence,
-			synthesis: synthesize.text,
-			outline: integrate.text,
-			evidencePacks: evidencePackResult.evidencePacks,
-			sources: fallbackSources,
-			limitation: searchLimitation,
+			failures: finalQualityFailures,
 		});
-		const fallbackMetadata = {
-			...fallbackReport.metadata,
-			generatedTitle: assemblyMetadata.generatedTitle,
-		};
-		assemblyMetadata = mergeAssemblyMetadata(
-			assemblyMetadata,
-			fallbackMetadata,
-		);
-		finalAssembledMarkdown = sanitizeMalformedWriterHeadings({
-			markdown: fallbackReport.markdown,
-			acceptedSourceTitles,
-		});
-		await input.dependencies.heartbeat?.({
-			stage: "audit",
-			progressPercent: 95,
-		});
-		audit = await input.dependencies.auditBasis({
-			assembledMarkdown: finalAssembledMarkdown,
-			sources: auditSources,
-			limitation: searchLimitation,
-			language,
-			currentDate,
-			evidencePacks: evidencePackResult.evidencePacks,
-			evidencePackDiagnostics,
-			coverageReview,
-			sectionBriefs: assemblyMetadata.sectionBriefs,
-			assemblyMetadata,
-		});
-		if (audit.usage) {
-			usage = addUsage(usage, audit.usage);
-		}
-		auditedMarkdown =
-			audit.passed && !audit.retryRequested
-				? finalAssembledMarkdown
-				: [
-						finalAssembledMarkdown,
-						"",
-						"## Limitations",
-						"Atlas audit requested additional verification. This version ships with explicit limitations and Basis Markers instead of unsupported certainty.",
-					].join("\n");
-		claimBasis = audit.claimBasis ?? [];
-		basisLimitations = audit.basisLimitations ?? [];
-		basisDiagnostics = audit.basisDiagnostics ?? [];
-		claimBasisCoverageBySection = audit.claimBasisCoverageBySection ?? [];
-		claimBasisStatus =
-			audit.claimBasisStatus ??
-			(claimBasis.length > 0 ? "succeeded" : "failed");
-		claimBasisFailureReason = audit.claimBasisFailureReason ?? null;
 		documentSource = buildCurrentDocumentSource();
 		finalReportShapeDiagnostics = diagnoseAtlasReportShape(documentSource);
-		const afterFailures = finalReportQualityFailures(
-			finalReportShapeDiagnostics,
-		);
 		finalReportQualityGate = {
-			passed: afterFailures.reasonWarningCodes.length === 0,
-			fallbackApplied: true,
+			passed: false,
+			fallbackApplied: false,
 			reasonWarningCodes: finalQualityFailures.reasonWarningCodes,
 			reasonMessages: finalQualityFailures.reasonMessages,
 			before: finalReportQualityGate.before,
 			after: finalReportShapeDiagnostics,
 		};
-		if (shouldHardStopAfterFinalFallback(afterFailures)) {
-			audit = {
-				...audit,
-				honestyMarkers: [
-					...audit.honestyMarkers,
-					{
-						code: "atlas_final_report_quality_gate_failed",
-						message: [
-							"Atlas final report remained too sparse after the bounded writer improvement and deterministic expansion.",
-							...afterFailures.reasonMessages,
-						].join(" "),
-						severity: "critical",
-					},
-				],
-			};
-		}
 	}
 	const canonicalTitle = assemblyMetadata.generatedTitle ?? input.job.title;
 	if (assemblyMetadata.generatedTitle) {

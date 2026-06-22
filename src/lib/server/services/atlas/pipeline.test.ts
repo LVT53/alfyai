@@ -304,7 +304,7 @@ describe("Atlas pipeline slices", () => {
 			documentSourceSummary: Record<string, unknown>;
 		}> = [];
 		const applyGeneratedTitle = vi.fn(async () => {});
-		const renderOutputs = vi.fn(async () => ({
+		const renderOutputs = vi.fn(async (_source: GeneratedDocumentSource) => ({
 			fileProductionJobId: "fp-job-generated-title",
 			htmlChatGeneratedFileId: "file-html",
 			pdfChatGeneratedFileId: "file-pdf",
@@ -437,7 +437,7 @@ describe("Atlas pipeline slices", () => {
 			qualityDiagnostics: Record<string, unknown>;
 			documentSourceSummary: Record<string, unknown>;
 		}> = [];
-		const renderOutputs = vi.fn(async () => ({
+		const renderOutputs = vi.fn(async (_source: GeneratedDocumentSource) => ({
 			fileProductionJobId: "fp-job-claim-basis",
 			htmlChatGeneratedFileId: "file-html",
 			pdfChatGeneratedFileId: "file-pdf",
@@ -637,7 +637,7 @@ describe("Atlas pipeline slices", () => {
 
 	it("keeps the job title fallback when structured generated title is invalid", async () => {
 		const applyGeneratedTitle = vi.fn(async () => {});
-		const renderOutputs = vi.fn(async () => ({
+		const renderOutputs = vi.fn(async (_source: GeneratedDocumentSource) => ({
 			fileProductionJobId: "fp-job-invalid-title",
 			htmlChatGeneratedFileId: "file-html",
 			pdfChatGeneratedFileId: "file-pdf",
@@ -2353,7 +2353,7 @@ describe("Atlas pipeline slices", () => {
 	it("threads same-family lifecycle seeds into prompts, checkpoints, and rendered source metadata", async () => {
 		const prompts: Record<string, string> = {};
 		const writeCheckpoint = vi.fn(async () => {});
-		const renderOutputs = vi.fn(async () => ({
+		const renderOutputs = vi.fn(async (_source: GeneratedDocumentSource) => ({
 			fileProductionJobId: "fp-job-1",
 			htmlChatGeneratedFileId: "file-html",
 			pdfChatGeneratedFileId: "file-pdf",
@@ -2829,7 +2829,9 @@ describe("Atlas pipeline slices", () => {
 			pass: 1,
 			maxPasses: 1,
 		});
-		expect(improvementPrompt.currentDraft).toContain("does not decide");
+		expect(improvementPrompt.currentDraft).toContain(
+			"does not decide the architecture",
+		);
 		expect(JSON.stringify(improvementPrompt)).toContain("Do not add sources");
 		expect(improvementPrompt.writerEvidenceCards).toEqual([
 			expect.objectContaining({
@@ -2974,7 +2976,7 @@ describe("Atlas pipeline slices", () => {
 		);
 	});
 
-	it("runs the bounded writer improvement pass when deterministic fallback is sparse and non-decisive", async () => {
+	it("skips writer improvement when honest fallback is used after failed assembly repair", async () => {
 		const assemblePrompts: string[] = [];
 		const checkpoints: Array<{
 			checkpoint: Record<string, unknown>;
@@ -3103,64 +3105,47 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assemblePrompts).toHaveLength(3);
+		expect(assemblePrompts).toHaveLength(2);
 		expect(JSON.parse(assemblePrompts[1]).repairInstruction).toContain(
 			"process summary",
 		);
-		const improvementPrompt = JSON.parse(assemblePrompts[2]);
-		expect(improvementPrompt.writerImprovement).toMatchObject({
-			pass: 1,
-			maxPasses: 1,
-			warningCodes: expect.arrayContaining([
-				"atlas_recommendation_not_decisive",
-			]),
-		});
-		expect(improvementPrompt.reportShapeDiagnostics).toMatchObject({
-			bodyWordCount: expect.any(Number),
-			oneSentenceSectionCount: expect.any(Number),
-		});
-		expect(
-			improvementPrompt.reportShapeDiagnostics.bodyWordCount,
-		).toBeGreaterThan(220);
-		expect(
-			improvementPrompt.reportShapeDiagnostics.substantiveSectionCount,
-		).toBeGreaterThanOrEqual(3);
-		expect(
-			improvementPrompt.reportShapeDiagnostics.oneSentenceSectionCount,
-		).toBeLessThan(8);
-		expect(improvementPrompt.improvementInstructions).toContain(
-			"Do not add sources",
-		);
-		expect(improvementPrompt.improvementInstructions).toContain(
-			"deployment and operating implications",
-		);
 		expect(auditBasis).toHaveBeenCalledWith(
 			expect.objectContaining({
-				assembledMarkdown: expect.stringContaining(
-					"We recommend deploying a compact",
-				),
+				assembledMarkdown: expect.stringContaining("## Evidence Summary"),
 			}),
 		);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
 		const auditInput = auditCalls[0]?.[0];
-		expect(auditInput?.assembledMarkdown).not.toContain("## Key tradeoff");
-		expect(auditInput?.assembledMarkdown).not.toContain("## - Nemotron-8B");
-		expect(auditInput?.assembledMarkdown).toContain("**Key tradeoff.**");
-		expect(auditInput?.assembledMarkdown).toContain("**Nemotron-8B.**");
+		expect(auditInput?.assembledMarkdown).toContain("could not synthesize");
+		expect(auditInput?.assembledMarkdown).toContain(
+			"Self-hosted embedding model selection depends on retrieval quality",
+		);
+		expect(auditInput?.assembledMarkdown).toContain("## Limitations");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Findings");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Tradeoffs");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Recommendation");
+		expect(auditInput?.assemblyMetadata.sectionBriefs).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ sectionTitle: "Executive Summary" }),
+				expect.objectContaining({ sectionTitle: "Evidence Summary" }),
+				expect.objectContaining({ sectionTitle: "Limitations" }),
+			]),
+		);
 		expect(checkpoints.at(-1)).toMatchObject({
 			checkpoint: {
 				writer: {
 					improvement: {
-						ran: true,
-						passCount: 1,
+						ran: false,
+						passCount: 0,
 						startedAfterDeterministicFallback: true,
+						skippedReason: "honest_fallback_does_not_need_improvement",
 					},
 					firstDraftReportShapeDiagnostics: expect.objectContaining({
 						warnings: expect.arrayContaining([
 							expect.objectContaining({
-								code: "atlas_recommendation_not_decisive",
+								code: "atlas_report_body_too_thin",
 							}),
 						]),
 					}),
@@ -3168,43 +3153,38 @@ describe("Atlas pipeline slices", () => {
 			},
 			qualityDiagnostics: {
 				writerImprovement: expect.objectContaining({
-					ran: true,
-					passCount: 1,
+					ran: false,
+					passCount: 0,
 					startedAfterDeterministicFallback: true,
+					skippedReason: "honest_fallback_does_not_need_improvement",
 				}),
 			},
 		});
 	});
 
-	it("does not repeat deterministic fallback boilerplate after writer improvement", async () => {
+	it("uses honest fallback when the writer improvement pass returns malformed output", async () => {
 		const assemblePrompts: string[] = [];
 		const checkpoints: Array<{
 			checkpoint: Record<string, unknown>;
 			qualityDiagnostics: Record<string, unknown>;
 		}> = [];
-		const fallbackStageText = [
-			"Executive Summary: English technical-document retrieval needs a source-grounded comparison across retrieval quality, latency, cost, hardware fit, deployment risk, reranking support, language coverage, and maintenance boundaries.",
-			"Findings: Accepted evidence connects embedding dimensions, serving maturity, reranker compatibility, memory pressure, and production validation to the model choice.",
-			"Architecture Families: BGE, GTE, E5, Jina, Nomic, and Qwen-style candidates remain plausible depending on the corpus, serving stack, and retrieval target.",
-			"Serving Profile: Production deployment depends on resident model size, batching behavior, vector dimension, reranker depth, quantization, cache strategy, and serving runtime maturity.",
-			"Evaluation Plan: The rollout should compare recall, citation coverage, reranker precision, reviewer acceptance, p95 latency, and memory headroom on representative technical documents.",
-			"Operator Workflow: Platform owners need source-level logging, index rebuild plans, rollback criteria, and failure handling before moving from pilot to production.",
-			"Recommendation: Recommendation for English Technical-Document Retrieval.",
-			"Limitations: Evidence is representative rather than exhaustive, so final thresholds need local validation.",
+		const firstDraft = [
+			"## Executive Summary",
+			"Self-hosted embedding choices depend on retrieval quality, latency, memory use, serving maturity, reranker fit, and validation against representative technical documents. The current evidence points to a shortlist, but this report keeps the production implications compressed.",
+			"",
+			"## Recommendation",
+			"The options remain plausible, but this paragraph stays too compact for production deployment.",
+			"",
+			"## Limitations",
+			"Evidence is representative and still needs local validation across the target corpus, hardware budget, and review workflow.",
 		].join("\n");
-		const genericDecisionInput =
-			"Use this as one decision input and connect it to local evaluation before treating it as a deployment rule.";
-		const genericRollout =
-			"The rollout order should be set by the strongest evidence, the remaining uncertainty, and the measurable operating target together.";
-		const countOccurrences = (haystack: string, needle: string) =>
-			haystack.split(needle).length - 1;
 		const auditBasis = vi.fn(async () => ({
 			passed: true,
 			honestyMarkers: [],
 			retryRequested: false,
 		}));
 		const renderOutputs = vi.fn(async (_source: GeneratedDocumentSource) => ({
-			fileProductionJobId: "fp-job-no-repeated-fallback-boilerplate",
+			fileProductionJobId: "fp-job-improvement-malformed-fallback",
 			htmlChatGeneratedFileId: "file-html",
 			pdfChatGeneratedFileId: "file-pdf",
 			markdownChatGeneratedFileId: "file-md",
@@ -3212,7 +3192,7 @@ describe("Atlas pipeline slices", () => {
 
 		await runAtlasPipelineWithNoopReranker({
 			job: atlasJob({
-				id: "atlas-no-repeated-fallback-boilerplate",
+				id: "atlas-improvement-malformed-fallback",
 				profile: "overview",
 				query:
 					"Compare the best self-hosted embedding models for English technical-document retrieval with minimal latency and cost on a single RT-class machine",
@@ -3236,7 +3216,10 @@ describe("Atlas pipeline slices", () => {
 						return { text: coverageReviewText([], true), usage: stageUsage() };
 					}
 					if (input.stage === "synthesize") {
-						return { text: fallbackStageText, usage: stageUsage() };
+						return {
+							text: "The accepted evidence supports an embedding shortlist, latency budget, reranker fit analysis, and production validation limits.",
+							usage: stageUsage(),
+						};
 					}
 					if (input.stage === "integrate") {
 						return {
@@ -3254,24 +3237,19 @@ describe("Atlas pipeline slices", () => {
 					}
 					if (input.stage === "assemble") {
 						assemblePrompts.push(input.prompt);
-						if (assemblePrompts.length < 3) {
+						if (assemblePrompts.length === 1) {
 							return {
-								text: "I checked the sources and synthesized findings for the report.",
+								text: JSON.stringify({
+									generatedTitle: "Self-Hosted Embedding Model Choice",
+									bodyMarkdown: firstDraft,
+									sectionBriefs: [],
+									limitations: [],
+								}),
 								usage: stageUsage(),
 							};
 						}
-						const improvementPrompt = JSON.parse(input.prompt) as {
-							currentDraft: string;
-						};
 						return {
-							text: JSON.stringify({
-								generatedTitle: "Self-Hosted Embedding Model Choice",
-								bodyMarkdown: improvementPrompt.currentDraft,
-								sectionBriefs: [],
-								limitations: [
-									"Identical hardware measurements are not available for every candidate.",
-								],
-							}),
+							text: "I checked the sources and synthesized findings for the report.",
 							usage: stageUsage(),
 						};
 					}
@@ -3285,45 +3263,48 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assemblePrompts).toHaveLength(3);
-		const improvementPrompt = JSON.parse(assemblePrompts[2]);
+		expect(assemblePrompts).toHaveLength(2);
+		const improvementPrompt = JSON.parse(assemblePrompts[1]);
 		expect(improvementPrompt.writerImprovement).toMatchObject({
 			pass: 1,
 			maxPasses: 1,
 		});
 		expect(improvementPrompt.currentDraft).toContain(
-			"## Architecture Families",
+			"production implications compressed",
 		);
-		expect(
-			countOccurrences(improvementPrompt.currentDraft, genericDecisionInput),
-		).toBeLessThanOrEqual(1);
-		expect(auditBasis).toHaveBeenCalled();
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining("## Evidence Summary"),
+			}),
+		);
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		const auditInput = auditCalls[0]?.[0];
+		expect(auditInput?.assembledMarkdown).toContain("could not synthesize");
+		expect(auditInput?.assembledMarkdown).toContain(
+			"Accepted evidence 1 covers self-hosted embedding model selection",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain("## Recommendation");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Tradeoffs");
 		const renderedSource = renderOutputs.mock.calls[0]?.[0];
 		const renderedText = renderedSource.blocks
 			.flatMap((block) => {
 				if (block.type === "heading" || block.type === "paragraph") {
 					return [block.text];
 				}
+				if (block.type === "list") return block.items;
 				return [];
 			})
 			.join("\n");
-		expect(
-			countOccurrences(renderedText, genericDecisionInput),
-		).toBeLessThanOrEqual(1);
-		expect(countOccurrences(renderedText, genericRollout)).toBeLessThanOrEqual(
-			1,
-		);
-		expect(renderedText).toContain(
-			"For self-hosted embedding models for English technical-document retrieval",
-		);
-		expect(renderedText).toMatch(/practical tradeoff/i);
-		expect(renderedText).toMatch(/\b(?:deployment|pilot|rollout)\b/i);
+		expect(renderedText).toContain("could not synthesize");
+		expect(renderedText).toContain("raw and unranked");
 		expect(checkpoints.at(-1)).toMatchObject({
 			qualityDiagnostics: {
 				writerImprovement: expect.objectContaining({
 					ran: true,
 					passCount: 1,
-					startedAfterDeterministicFallback: true,
+					startedAfterDeterministicFallback: false,
 				}),
 			},
 		});
@@ -3673,7 +3654,7 @@ describe("Atlas pipeline slices", () => {
 		});
 	});
 
-	it("applies deterministic final expansion when the post-audit rendered report is still hollow", async () => {
+	it("appends additional limitations instead of replacing hollow post-audit output", async () => {
 		const checkpoints: Array<{
 			checkpoint: Record<string, unknown>;
 			qualityDiagnostics: Record<string, unknown>;
@@ -3838,29 +3819,16 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(auditBasis).toHaveBeenCalledTimes(2);
+		expect(auditBasis).toHaveBeenCalledTimes(1);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
 		const firstAuditInput = auditCalls[0]?.[0];
-		const secondAuditInput = auditCalls[1]?.[0];
 		expect(firstAuditInput?.assembledMarkdown).toContain(
 			"**No single model dominates all domains.**",
 		);
 		expect(firstAuditInput?.assembledMarkdown).toContain(
 			"**Qwen3 supports output dimensions 32-1024.**",
-		);
-		expect(secondAuditInput?.assembledMarkdown).toContain(
-			"self-hosted embedding models for English technical-document retrieval",
-		);
-		expect(secondAuditInput?.assembledMarkdown).not.toMatch(
-			/live Atlas regression check|2026-06-22T01:06:07\.989Z/i,
-		);
-		expect(secondAuditInput?.assembledMarkdown).not.toMatch(
-			/use current web evidence|\. include\b/i,
-		);
-		expect(secondAuditInput?.assembledMarkdown).not.toContain(
-			"Comprehensive comparison of the best embedding models in 2026",
 		);
 		const renderedSource = renderOutputs.mock.calls[0]?.[0];
 		expect(renderedSource.title).toBe(
@@ -3877,10 +3845,13 @@ describe("Atlas pipeline slices", () => {
 				return [];
 			})
 			.join("\n");
-		expect(renderedText).not.toContain("No single model dominates all domains");
+		expect(renderedText).toContain("No single model dominates all domains");
+		expect(renderedText).toContain("Qwen3 supports output dimensions 32-1024");
+		expect(renderedText).toContain("Additional Limitations");
 		expect(renderedText).toContain(
-			"self-hosted embedding models for English technical-document retrieval",
+			"report may be too thin, too source-dominated, or too shallow",
 		);
+		expect(renderedText).toContain("Self-hosted embedding model selection");
 		expect(renderedText).not.toContain("That makes this section useful");
 		expect(renderedText).not.toContain(
 			"The evidence should therefore be read as a decision checkpoint",
@@ -3890,8 +3861,8 @@ describe("Atlas pipeline slices", () => {
 			checkpoint: {
 				writer: {
 					finalReportQualityGate: expect.objectContaining({
-						passed: true,
-						fallbackApplied: true,
+						passed: false,
+						fallbackApplied: false,
 						reasonWarningCodes: expect.arrayContaining([
 							"atlas_report_sections_too_sparse",
 							"atlas_too_many_one_sentence_sections",
@@ -3906,7 +3877,7 @@ describe("Atlas pipeline slices", () => {
 			qualityDiagnostics: {
 				writer: {
 					finalReportQualityGate: expect.objectContaining({
-						fallbackApplied: true,
+						fallbackApplied: false,
 					}),
 				},
 			},
@@ -3917,7 +3888,7 @@ describe("Atlas pipeline slices", () => {
 					finalReportShapeDiagnostics?: { sourceWordShare: number };
 				}
 			).finalReportShapeDiagnostics?.sourceWordShare,
-		).toBeLessThan(0.5);
+		).toEqual(expect.any(Number));
 	});
 
 	it("does not run the writer improvement pass for a substantive first draft", async () => {
@@ -4272,7 +4243,7 @@ describe("Atlas pipeline slices", () => {
 		);
 	});
 
-	it("falls back to synthesized findings when assembly remains source-only", async () => {
+	it("falls back to an honest evidence summary when assembly remains source-only", async () => {
 		const auditBasis = vi.fn(async () => ({
 			passed: true,
 			honestyMarkers: [],
@@ -4351,18 +4322,185 @@ describe("Atlas pipeline slices", () => {
 
 		expect(auditBasis).toHaveBeenCalledWith(
 			expect.objectContaining({
-				assembledMarkdown: expect.stringContaining("## Executive Summary"),
+				assembledMarkdown: expect.stringContaining("## Evidence Summary"),
 			}),
 		);
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		const auditInput = auditCalls[0]?.[0];
+		expect(auditInput?.assembledMarkdown).toContain("could not synthesize");
+		expect(auditInput?.assembledMarkdown).toContain("## Limitations");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Findings");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Recommendation");
 		expect(renderOutputs).toHaveBeenCalledWith(
 			expect.objectContaining({
 				blocks: expect.arrayContaining([
 					expect.objectContaining({
-						type: "paragraph",
-						text: expect.stringContaining("filesystem based"),
+						type: "list",
+						items: expect.arrayContaining([
+							expect.stringContaining("filesystem based"),
+						]),
 					}),
 				]),
 			}),
+		);
+	});
+
+	it("uses the honest fallback no-evidence message when no accepted evidence packs are available", async () => {
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async (_source: GeneratedDocumentSource) => ({
+			fileProductionJobId: "fp-job-empty-evidence",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-empty-honest-fallback",
+				profile: "overview",
+				title: "Empty evidence fallback",
+				query: "Compare current enterprise RAG architectures",
+			}),
+			now: new Date("2026-06-21T18:32:54.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [],
+					rejectedSources: [],
+					limitation: {
+						code: "atlas_search_no_results",
+						message: "Search returned no accepted current web evidence.",
+					},
+				})),
+				runModelStage: vi.fn(async (input) => ({
+					text:
+						input.stage === "coverage-review"
+							? coverageReviewText([], true)
+							: input.stage === "assemble"
+								? "I checked the sources and synthesized findings for the report."
+								: `${input.stage} result`,
+					usage: stageUsage(),
+				})),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		const auditInput = auditCalls[0]?.[0];
+		expect(auditInput?.assembledMarkdown).toContain(
+			"Atlas gathered 0 accepted evidence packs",
+		);
+		expect(auditInput?.assembledMarkdown).toContain("## Evidence Summary");
+		expect(auditInput?.assembledMarkdown).toContain(
+			"No usable evidence pack summaries were available.",
+		);
+		expect(auditInput?.assembledMarkdown).toContain(
+			"Search returned no accepted current web evidence.",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain("## Findings");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Recommendation");
+		const renderedSource = renderOutputs.mock.calls[0]?.[0];
+		const renderedText = renderedSource.blocks
+			.flatMap((block) => {
+				if (block.type === "heading" || block.type === "paragraph") {
+					return [block.text];
+				}
+				if (block.type === "list") return block.items;
+				return [];
+			})
+			.join("\n");
+		expect(renderedText).toContain(
+			"No usable evidence pack summaries were available.",
+		);
+	});
+
+	it("localizes the honest fallback shape for Hungarian reports", async () => {
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async (_source: GeneratedDocumentSource) => ({
+			fileProductionJobId: "fp-job-hu-fallback",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-hu-honest-fallback",
+				profile: "overview",
+				title: "Magyar Atlas fallback",
+				query:
+					"Hasonlítsd össze a saját üzemeltetésű beágyazási modelleket magyar és angol műszaki dokumentumokhoz",
+			}),
+			now: new Date("2026-06-21T18:32:54.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-hu-embedding",
+							title: "Saját üzemeltetésű beágyazási modellek",
+							url: "https://example.com/hu-embedding",
+							snippet:
+								"A BGE-M3 gyakorlati saját üzemeltetésű jelölt, mert többnyelvű keresést, hibrid visszakeresést és helyi validációt támogat.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => ({
+					text:
+						input.stage === "coverage-review"
+							? coverageReviewText([], true)
+							: input.stage === "assemble"
+								? "Ellenőriztem a forrásokat és szintetizáltam a jelentést."
+								: `${input.stage} eredmény`,
+					usage: stageUsage(),
+				})),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		const auditInput = auditCalls[0]?.[0];
+		expect(auditInput?.assembledMarkdown).toContain("## Vezetői összefoglaló");
+		expect(auditInput?.assembledMarkdown).toContain(
+			"## Bizonyíték összefoglaló",
+		);
+		expect(auditInput?.assembledMarkdown).toContain("## Korlátok");
+		expect(auditInput?.assembledMarkdown).toContain(
+			"nem tudta döntési minőségű jelentéssé szintetizálni",
+		);
+		expect(auditInput?.assembledMarkdown).toContain(
+			"A BGE-M3 gyakorlati saját üzemeltetésű jelölt",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain("## Findings");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Recommendation");
+		expect(auditInput?.assemblyMetadata.sectionBriefs).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ sectionTitle: "Vezetői összefoglaló" }),
+				expect.objectContaining({
+					sectionTitle: "Bizonyíték összefoglaló",
+				}),
+				expect.objectContaining({ sectionTitle: "Korlátok" }),
+			]),
 		);
 	});
 
@@ -4518,18 +4656,26 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(3);
+		expect(assembleCalls).toBe(2);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
 		const auditInput = auditCalls[0]?.[0];
 		expect(auditInput?.assembledMarkdown).toContain("## Executive Summary");
-		expect(auditInput?.assembledMarkdown).toContain("## Model Tradeoffs");
+		expect(auditInput?.assembledMarkdown).toContain("## Evidence Summary");
+		expect(auditInput?.assembledMarkdown).toContain("## Limitations");
+		expect(auditInput?.assembledMarkdown).toContain("could not synthesize");
 		expect(auditInput?.assembledMarkdown).toContain(
+			"BGE-M3 is a practical self-hosted option",
+		);
+		expect(auditInput?.assembledMarkdown).toContain(
+			"NVIDIA NV-Embed-v2 leads benchmark accuracy",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain("## Model Tradeoffs");
+		expect(auditInput?.assembledMarkdown).not.toContain(
 			"## Deployment Considerations",
 		);
-		expect(auditInput?.assembledMarkdown).toContain("## Recommendation");
-		expect(auditInput?.assembledMarkdown).toContain("## Limitations");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Recommendation");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Date:");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Profile:");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Stage:");
@@ -4539,9 +4685,9 @@ describe("Atlas pipeline slices", () => {
 		expect(auditInput?.assembledMarkdown).not.toContain("![Decorative");
 		expect(auditInput?.assemblyMetadata.sectionBriefs).toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({ sectionTitle: "Model Tradeoffs" }),
-				expect.objectContaining({ sectionTitle: "Deployment Considerations" }),
-				expect.objectContaining({ sectionTitle: "Recommendation" }),
+				expect.objectContaining({ sectionTitle: "Executive Summary" }),
+				expect.objectContaining({ sectionTitle: "Evidence Summary" }),
+				expect.objectContaining({ sectionTitle: "Limitations" }),
 			]),
 		);
 	});
@@ -4626,16 +4772,16 @@ describe("Atlas pipeline slices", () => {
 											"# Self-hosted embedding models",
 											"",
 											"## Executive Summary",
-											"BGE-M3 is the pragmatic default while larger embedding models may win selected benchmarks.",
+											"BGE-M3 is the pragmatic default while larger embedding models may win selected benchmarks. The decision should compare retrieval quality, latency, memory pressure, and corpus fit together before production rollout.",
 											"",
 											"## Findings",
-											"Model size, latency, and corpus fit should be evaluated together.",
+											"Model size, latency, and corpus fit should be evaluated together because public benchmark rank does not automatically transfer to the team's technical documents. Hybrid retrieval and reranking can matter more than one model score when evidence selection must remain inspectable.",
 											"",
 											"## Deployment Considerations",
-											"An 8B-parameter model changes GPU memory, latency, and batch-size assumptions.",
+											"An 8B-parameter model changes GPU memory, latency, and batch-size assumptions. The team should validate the repaired shortlist with representative queries, source-level logging, and a latency budget before making the larger model the default.",
 											"",
 											"## Limitations",
-											"Public rankings should be validated on the team's own corpus.",
+											"Public rankings should be validated on the team's own corpus, and the accepted evidence does not provide identical hardware measurements for every candidate.",
 										].join("\n"),
 							usage: stageUsage(),
 						};
@@ -4658,7 +4804,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(3);
+		expect(assembleCalls).toBe(2);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
@@ -4669,7 +4815,7 @@ describe("Atlas pipeline slices", () => {
 		expect(auditInput?.assembledMarkdown).not.toContain("## 8B params");
 	});
 
-	it("keeps deterministic fallback required sections when the outline is malformed", async () => {
+	it("keeps honest fallback sections when the outline is malformed", async () => {
 		let assembleCalls = 0;
 		const auditBasis = vi.fn(async () => ({
 			passed: true,
@@ -4809,16 +4955,24 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(3);
+		expect(assembleCalls).toBe(2);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
 		const auditInput = auditCalls[0]?.[0];
 		expect(auditInput?.assembledMarkdown).toContain("## Executive Summary");
-		expect(auditInput?.assembledMarkdown).toContain("## Findings");
-		expect(auditInput?.assembledMarkdown).toContain("## Tradeoffs");
-		expect(auditInput?.assembledMarkdown).toContain("## Recommendation");
+		expect(auditInput?.assembledMarkdown).toContain("## Evidence Summary");
 		expect(auditInput?.assembledMarkdown).toContain("## Limitations");
+		expect(auditInput?.assembledMarkdown).toContain("could not synthesize");
+		expect(auditInput?.assembledMarkdown).toContain(
+			"Nemotron leads accuracy on a single H100",
+		);
+		expect(auditInput?.assembledMarkdown).toContain(
+			"BGE-M3 is a practical self-hosted workhorse",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain("## Findings");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Tradeoffs");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Recommendation");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Report Outline");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Core insight");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Lead candidates");
@@ -4838,7 +4992,7 @@ describe("Atlas pipeline slices", () => {
 		expect(auditInput?.assembledMarkdown).not.toContain("| Model |");
 	});
 
-	it("preserves synthesized structure instead of stitching source excerpts when assembly collapses", async () => {
+	it("lists raw evidence summaries instead of synthesized sections when assembly collapses", async () => {
 		const auditBasis = vi.fn(async () => ({
 			passed: true,
 			honestyMarkers: [],
@@ -4939,10 +5093,20 @@ describe("Atlas pipeline slices", () => {
 		>;
 		const auditInput = auditCalls[0]?.[0];
 		expect(auditInput?.assembledMarkdown).toContain("## Executive Summary");
-		expect(auditInput?.assembledMarkdown).toContain("## Framework Fit");
-		expect(auditInput?.assembledMarkdown).toContain("## Operational Tradeoffs");
-		expect(auditInput?.assembledMarkdown).toContain("## Recommendation");
+		expect(auditInput?.assembledMarkdown).toContain("## Evidence Summary");
 		expect(auditInput?.assembledMarkdown).toContain("## Limitations");
+		expect(auditInput?.assembledMarkdown).toContain("could not synthesize");
+		expect(auditInput?.assembledMarkdown).toContain(
+			"At the heart of SvelteKit is a filesystem-based router",
+		);
+		expect(auditInput?.assembledMarkdown).toContain(
+			"A +page.svelte component defines a page of your app",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain("## Framework Fit");
+		expect(auditInput?.assembledMarkdown).not.toContain(
+			"## Operational Tradeoffs",
+		);
+		expect(auditInput?.assembledMarkdown).not.toContain("## Recommendation");
 		expect(auditInput?.assembledMarkdown).not.toContain(
 			"The accepted evidence supports a cautious, source-grounded report rather than a broad unsupported narrative.",
 		);
@@ -4952,9 +5116,9 @@ describe("Atlas pipeline slices", () => {
 		expect(auditInput?.assemblyMetadata).toMatchObject({
 			structured: true,
 			sectionBriefs: expect.arrayContaining([
-				expect.objectContaining({ sectionTitle: "Framework Fit" }),
-				expect.objectContaining({ sectionTitle: "Operational Tradeoffs" }),
-				expect.objectContaining({ sectionTitle: "Recommendation" }),
+				expect.objectContaining({ sectionTitle: "Executive Summary" }),
+				expect.objectContaining({ sectionTitle: "Evidence Summary" }),
+				expect.objectContaining({ sectionTitle: "Limitations" }),
 			]),
 		});
 
@@ -4969,12 +5133,11 @@ describe("Atlas pipeline slices", () => {
 		expect(headings).toEqual(
 			expect.arrayContaining([
 				"Executive Summary",
-				"Framework Fit",
-				"Operational Tradeoffs",
-				"Recommendation",
+				"Evidence Summary",
 				"Limitations",
 			]),
 		);
+		expect(headings).not.toEqual(expect.arrayContaining(["Recommendation"]));
 		expect(renderedSource?.blocks).not.toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({

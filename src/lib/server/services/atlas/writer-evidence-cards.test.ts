@@ -6,8 +6,8 @@ import type {
 } from "./types";
 import {
 	ATLAS_WRITER_EVIDENCE_CARD_SCHEMA_VERSION,
-	buildAtlasWriterEvidenceCards,
 	type AtlasWriterEvidenceCardReranker,
+	buildAtlasWriterEvidenceCards,
 	routeAtlasWriterEvidenceCards,
 } from "./writer-evidence-cards";
 
@@ -242,12 +242,14 @@ describe("Atlas writer evidence cards", () => {
 
 	it("routes cards with the injected TEI reranker without storing scores", async () => {
 		const deterministicCards = buildRoutingCards();
-		const reranker = vi.fn<AtlasWriterEvidenceCardReranker>().mockResolvedValue({
-			items: [
-				{ item: deterministicCards[1], index: 1, score: 0.94 },
-				{ item: deterministicCards[0], index: 0, score: 0.22 },
-			],
-		});
+		const reranker = vi
+			.fn<AtlasWriterEvidenceCardReranker>()
+			.mockResolvedValue({
+				items: [
+					{ item: deterministicCards[1], index: 1, score: 0.94 },
+					{ item: deterministicCards[0], index: 0, score: 0.22 },
+				],
+			});
 
 		const result = await routeAtlasWriterEvidenceCards({
 			writerEvidenceCards: deterministicCards,
@@ -285,9 +287,9 @@ describe("Atlas writer evidence cards", () => {
 		}> = [
 			{
 				label: "null",
-				reranker: vi.fn<AtlasWriterEvidenceCardReranker>().mockResolvedValue(
-					null,
-				),
+				reranker: vi
+					.fn<AtlasWriterEvidenceCardReranker>()
+					.mockResolvedValue(null),
 			},
 			{
 				label: "empty",
@@ -297,9 +299,11 @@ describe("Atlas writer evidence cards", () => {
 			},
 			{
 				label: "throw",
-				reranker: vi.fn<AtlasWriterEvidenceCardReranker>().mockRejectedValue(
-					new Error("RAW_CARD_TEXT_SENTINEL should stay out of diagnostics"),
-				),
+				reranker: vi
+					.fn<AtlasWriterEvidenceCardReranker>()
+					.mockRejectedValue(
+						new Error("RAW_CARD_TEXT_SENTINEL should stay out of diagnostics"),
+					),
 			},
 		];
 
@@ -311,9 +315,9 @@ describe("Atlas writer evidence cards", () => {
 				reranker: fallbackCase.reranker,
 			});
 
-			expect(result.writerEvidenceCards.map((card) => card.sourceTitle)).toEqual(
-				expectedTitles,
-			);
+			expect(
+				result.writerEvidenceCards.map((card) => card.sourceTitle),
+			).toEqual(expectedTitles);
 			expect(result.diagnostics).toEqual([
 				expect.objectContaining({
 					code: "atlas_writer_evidence_cards_routing_fallback",
@@ -379,31 +383,29 @@ describe("Atlas writer evidence cards", () => {
 				limitations: [],
 			},
 		];
-		const reranker = vi.fn<AtlasWriterEvidenceCardReranker>(
-			async (params) => {
-				const latencyIndex = params.items.findIndex(
-					(card) => card.sourceTitle === "Latency benchmark notes",
-				);
-				if (params.query.includes("Latency Analysis")) {
-					return {
-						items: [
-							{
-								item: params.items[latencyIndex],
-								index: latencyIndex,
-								score: 0.91,
-							},
-						],
-					};
-				}
+		const reranker = vi.fn<AtlasWriterEvidenceCardReranker>(async (params) => {
+			const latencyIndex = params.items.findIndex(
+				(card) => card.sourceTitle === "Latency benchmark notes",
+			);
+			if (params.query.includes("Latency Analysis")) {
 				return {
-					items: params.items.map((item, index) => ({
-						item,
-						index,
-						score: 1 - index / 10,
-					})),
+					items: [
+						{
+							item: params.items[latencyIndex],
+							index: latencyIndex,
+							score: 0.91,
+						},
+					],
 				};
-			},
-		);
+			}
+			return {
+				items: params.items.map((item, index) => ({
+					item,
+					index,
+					score: 1 - index / 10,
+				})),
+			};
+		});
 
 		const result = await routeAtlasWriterEvidenceCards({
 			writerEvidenceCards: deterministicCards,
@@ -448,9 +450,11 @@ describe("Atlas writer evidence cards", () => {
 				}),
 			],
 		}).writerEvidenceCards;
-		const reranker = vi.fn<AtlasWriterEvidenceCardReranker>().mockResolvedValue({
-			items: [{ item: deterministicCards[0], index: 0, score: 0.87654321 }],
-		});
+		const reranker = vi
+			.fn<AtlasWriterEvidenceCardReranker>()
+			.mockResolvedValue({
+				items: [{ item: deterministicCards[0], index: 0, score: 0.87654321 }],
+			});
 
 		const result = await routeAtlasWriterEvidenceCards({
 			writerEvidenceCards: deterministicCards,
