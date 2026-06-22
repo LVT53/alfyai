@@ -305,11 +305,72 @@ describe("Atlas quality gates", () => {
 		);
 	});
 
-	it("does NOT retry when claimBasis array is empty but JSON is valid", async () => {
+	it("retries once when claimBasis array is empty but JSON is valid", async () => {
+		const runAuditModel = vi
+			.fn()
+			.mockResolvedValueOnce({
+				text: JSON.stringify({
+					retryRequested: false,
+					claimBasis: [],
+				}),
+			})
+			.mockResolvedValueOnce({
+				text: JSON.stringify({
+					retryRequested: false,
+					claimBasis: [
+						{
+							locator: {
+								sectionTitle: "Executive Summary",
+								paragraphIndex: 0,
+								claimIndex: 0,
+								claimText: "Hybrid retrieval improves recall.",
+							},
+							supportLevel: "supported",
+							evidencePackIds: ["pack-hybrid"],
+							supportRationale:
+								"The accepted source says hybrid retrieval combines lexical and semantic recall.",
+						},
+					],
+				}),
+			});
+
+		const result = await auditAtlasBasis({
+			assembledMarkdown:
+				"## Executive Summary\nHybrid retrieval improves recall.",
+			sources: [{ title: "Example", url: "https://example.com" }],
+			evidencePacks: [evidencePack],
+			sectionBriefs,
+			runAuditModel,
+		});
+
+		expect(runAuditModel).toHaveBeenCalledTimes(2);
+		expect(result.claimBasisStatus).toBe("succeeded");
+		expect(result.claimBasis).toHaveLength(1);
+		expect(result.basisDiagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "atlas_claim_basis_retry_attempted",
+			}),
+		);
+	});
+
+	it("does NOT retry when claimBasis array is non-empty and JSON is valid", async () => {
 		const runAuditModel = vi.fn().mockResolvedValue({
 			text: JSON.stringify({
 				retryRequested: false,
-				claimBasis: [],
+				claimBasis: [
+					{
+						locator: {
+							sectionTitle: "Executive Summary",
+							paragraphIndex: 0,
+							claimIndex: 0,
+							claimText: "Hybrid retrieval improves recall.",
+						},
+						supportLevel: "supported",
+						evidencePackIds: ["pack-hybrid"],
+						supportRationale:
+							"The accepted source says hybrid retrieval combines lexical and semantic recall.",
+					},
+				],
 			}),
 		});
 
@@ -323,14 +384,11 @@ describe("Atlas quality gates", () => {
 		});
 
 		expect(runAuditModel).toHaveBeenCalledTimes(1);
+		expect(result.claimBasisStatus).toBe("succeeded");
+		expect(result.claimBasis).toHaveLength(1);
 		expect(result.basisDiagnostics).not.toContainEqual(
 			expect.objectContaining({
 				code: "atlas_claim_basis_retry_attempted",
-			}),
-		);
-		expect(result.basisDiagnostics).toContainEqual(
-			expect.objectContaining({
-				code: "atlas_claim_basis_empty",
 			}),
 		);
 	});

@@ -21,6 +21,7 @@ import type {
 const RETRY_FAILURE_CODES = [
 	"atlas_claim_basis_invalid_json",
 	"atlas_claim_basis_missing_array",
+	"atlas_claim_basis_empty",
 ] as const;
 
 function shouldRetryBasis(basis: AtlasClaimBasisResult): boolean {
@@ -38,7 +39,7 @@ function buildMinimalRetryPrompt(input: {
 	evidencePacks: AtlasEvidencePack[];
 }): string {
 	return JSON.stringify({
-		task: "Return strict JSON with claimBasis array, retryRequested boolean, limitations array, and diagnostics array. The previous response could not be parsed as JSON. Return ONLY valid JSON, no markdown, no explanation.",
+		task: "Return strict JSON with a non-empty claimBasis array, retryRequested boolean, limitations array, and diagnostics array. The previous response did not contain valid JSON with a non-empty claimBasis array. Return ONLY valid JSON, no markdown, no explanation.",
 		report: input.assembledMarkdown.slice(0, 4000),
 		evidencePackIds: input.evidencePacks.map((p) => p.id),
 		sectionTitles: input.sectionBriefs.map((b) => b.sectionTitle),
@@ -308,7 +309,7 @@ export async function auditAtlasBasis(
 			code: "atlas_claim_basis_retry_attempted",
 			severity: "info",
 			message:
-				"Atlas retried claim basis generation with a simplified prompt after JSON parse failure.",
+				"Atlas retried claim basis generation with a simplified prompt after JSON parse failure or empty claimBasis array.",
 		});
 	}
 	basis.diagnostics.unshift(...staticBasisDiagnostics);
