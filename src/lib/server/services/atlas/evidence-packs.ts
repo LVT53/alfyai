@@ -310,12 +310,85 @@ function unknownText(value: unknown): string {
 	return "";
 }
 
-function normalizeEvidenceText(text: string): string {
-	return text
+const SEARXNG_ARTIFACT_PATTERNS: RegExp[] = [
+	/\b(?:Naptár|Keresés|Beállítások)\s*·\s*/gu,
+	/Nem tartalmazza:[^|]*\|\s*Tartalmaznia kell:[^|]*\|\s*/gi,
+	/Nem tartalmazza:[^|]*\|\s*/gi,
+	/Tartalmaznia kell:[^|]*\|\s*/gi,
+	/Excluding:[^|]*\|\s*Must include:[^|]*\|\s*/gi,
+	/Excluding:[^|]*\|\s*/gi,
+	/Must include:[^|]*\|\s*/gi,
+	/\bYouTube ·\s*/gu,
+	/\b\d{4}\. (?:jan\.|febr\.|márc\.|ápr\.|máj\.|jún\.|júl\.|aug\.|szept\.|okt\.|nov\.|dec\.|január|február|március|április|május|június|július|augusztus|szeptember|október|november|december) \d{1,2}\. ·\s*/gu,
+];
+
+const YOUTUBE_FOOTER_PATTERNS: RegExp[] = [
+	// English YouTube footer — uniquely identifiable multi-word phrases only
+	/\bPolicy\s*&\s*Safety\b/gi,
+	/How\s+YouTube\s+works/gi,
+	/Test\s+new\s+features/gi,
+	// Hungarian YouTube footer — uniquely UI words
+	/Ismertető/giu,
+	/Sajtó/giu,
+	/Szerzői\s+jog/giu,
+	/Kapcsolatfelvétel/giu,
+	/Alkotók/giu,
+	/Hirdetés/giu,
+	/Fejlesztők/giu,
+	/Feltételek/giu,
+	/Adatvédelem/giu,
+	/Irányelvek/giu,
+	/YouTube\s+működése/giu,
+	/Új\s+funkciók\s+tesztelése/giu,
+];
+
+const EVIDENCE_BOILERPLATE_PATTERNS: RegExp[] = [
+	/\b(?:cookie|cookies|subscribe|sign in|privacy policy|advertisement|loading|navigation menu|copied from the fetched page)\b/i,
+	/\bNem tartalmazza\b/i,
+	/\bTartalmaznia kell\b/i,
+	/\bKeresés\b/iu,
+	/\bBeállítások\b/iu,
+	/\bNaptár\b/iu,
+	/\bExcluding:\s*/i,
+	/\bMust include:\s*/i,
+	/\bGoogle LLC\b/i,
+	/©\s*\d{4}\s*Google\b/i,
+	/\bIsmertető\b/iu,
+	/\bSajtó\b/iu,
+	/\bSzerzői\s+jog\b/iu,
+	/\bKapcsolatfelvétel\b/iu,
+	/\bAlkotók\b/iu,
+	/\bHirdetés\b/iu,
+	/\bFejlesztők\b/iu,
+	/\bFeltételek\b/iu,
+	/\bAdatvédelem\b/iu,
+	/\bIrányelvek\b/iu,
+	/\bYouTube\s+működése\b/iu,
+	/\bÚj\s+funkciók\s+tesztelése\b/iu,
+	/\bAbout\s+(?:Press|Copyright|Contact us|Creators|Advertise|Developers|Terms|Privacy)\b/i,
+	/\bHow\s+YouTube\s+works\b/i,
+	/\bTest\s+new\s+features\b/i,
+];
+
+export function normalizeEvidenceText(text: string): string {
+	let result = text
 		.replace(/\bSearch result snippet:\s*/gi, "")
 		.replace(/\bFetched page excerpt:\s*/gi, "")
-		.replace(/\s+/g, " ")
-		.trim();
+		.replace(/\bAccepted source excerpt:\s*/gi, "");
+	for (const pattern of SEARXNG_ARTIFACT_PATTERNS) {
+		result = result.replace(pattern, "");
+	}
+	for (const pattern of YOUTUBE_FOOTER_PATTERNS) {
+		result = result.replace(pattern, "");
+	}
+	return result.replace(/\s+/g, " ").trim();
+}
+
+function isBoilerplateSentence(sentence: string): boolean {
+	for (const pattern of EVIDENCE_BOILERPLATE_PATTERNS) {
+		if (pattern.test(sentence)) return true;
+	}
+	return false;
 }
 
 function uniqueEvidenceFragments(fragments: string[]): string[] {
@@ -345,7 +418,13 @@ function summarizeEvidence(input: {
 }): string {
 	const curated = normalizeEvidenceText(input.curatedEvidence);
 	const preferred = input.evidenceText || curated;
-	const excerpt = selectEvidenceExcerpt(preferred);
+	const sentences = splitSentences(preferred).filter(
+		(s) => !isBoilerplateSentence(s),
+	);
+	if (sentences.length === 0) {
+		return truncateText(`Accepted evidence from "${input.title}".`, 360);
+	}
+	const excerpt = selectEvidenceExcerpt(sentences.join(" "));
 	return truncateText(
 		excerpt || `Accepted evidence from "${input.title}".`,
 		360,

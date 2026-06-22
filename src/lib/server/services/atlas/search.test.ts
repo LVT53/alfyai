@@ -113,6 +113,49 @@ describe("sanitizeSearchSnippet", () => {
 	});
 });
 
+describe("sanitizeSourceTitle (applied to search titles)", () => {
+	it("sanitizeSourceTitle strips - YouTube suffix", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const result = sanitizeSourceTitle(
+			"Heat Pump Vs. Furnace - Which is BETTER? - YouTube",
+		);
+		expect(result).toBe("Heat Pump Vs. Furnace - Which is BETTER?");
+	});
+
+	it("sanitizeSourceTitle strips Reddit verification suffix", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const result = sanitizeSourceTitle("Reddit - Please wait for verification");
+		expect(result).toBe("Reddit");
+	});
+
+	it("sanitizeSourceTitle strips platform | suffix", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		expect(sanitizeSourceTitle("Cool content | Instagram")).toBe(
+			"Cool content",
+		);
+	});
+
+	it("sanitizeSourceTitle strips Hungarian date prefix", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const result = sanitizeSourceTitle(
+			"2024. jan. 26. · Actual relevant content",
+		);
+		expect(result).toBe("Actual relevant content");
+	});
+
+	it("sanitizeSourceTitle preserves legitimate platform names in titles", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		expect(sanitizeSourceTitle("YouTube: Best Embedding Models")).toBe(
+			"YouTube: Best Embedding Models",
+		);
+	});
+
+	it("sanitizeSourceTitle handles empty input", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		expect(sanitizeSourceTitle("")).toBe("");
+	});
+});
+
 describe("Atlas search stage", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();

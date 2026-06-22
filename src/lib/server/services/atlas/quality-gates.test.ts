@@ -257,4 +257,175 @@ describe("Atlas quality gates", () => {
 		expect(prompt.expectedLanguage).toBe("hu");
 		expect(prompt.languageParityCheck).toContain("Hungarian Parity Check");
 	});
+
+	it("retries once with a minimal prompt when first parse returns invalid JSON", async () => {
+		const runAuditModel = vi
+			.fn()
+			.mockResolvedValueOnce({
+				text: "not json at all",
+			})
+			.mockResolvedValueOnce({
+				text: JSON.stringify({
+					retryRequested: false,
+					claimBasis: [
+						{
+							locator: {
+								sectionTitle: "Executive Summary",
+								paragraphIndex: 0,
+								claimIndex: 0,
+								claimText: "Hybrid retrieval improves recall.",
+							},
+							supportLevel: "supported",
+							evidencePackIds: ["pack-hybrid"],
+							supportRationale:
+								"The accepted source says hybrid retrieval combines lexical and semantic recall.",
+						},
+					],
+				}),
+			});
+
+		const result = await auditAtlasBasis({
+			assembledMarkdown:
+				"## Executive Summary\nHybrid retrieval improves recall before reranking.",
+			sources: [{ title: "Example", url: "https://example.com" }],
+			evidencePacks: [evidencePack],
+			sectionBriefs,
+			runAuditModel,
+		});
+
+		expect(runAuditModel).toHaveBeenCalledTimes(2);
+		expect(result.claimBasisStatus).toBe("succeeded");
+		expect(result.claimBasis).toHaveLength(1);
+		expect(result.claimBasis[0]?.supportLevel).toBe("supported");
+		expect(result.basisDiagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "atlas_claim_basis_retry_attempted",
+				severity: "info",
+			}),
+		);
+	});
+
+	it("does NOT retry when claimBasis array is empty but JSON is valid", async () => {
+		const runAuditModel = vi.fn().mockResolvedValue({
+			text: JSON.stringify({
+				retryRequested: false,
+				claimBasis: [],
+			}),
+		});
+
+		const result = await auditAtlasBasis({
+			assembledMarkdown:
+				"## Executive Summary\nHybrid retrieval improves recall.",
+			sources: [{ title: "Example", url: "https://example.com" }],
+			evidencePacks: [evidencePack],
+			sectionBriefs,
+			runAuditModel,
+		});
+
+		expect(runAuditModel).toHaveBeenCalledTimes(1);
+		expect(result.basisDiagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "atlas_claim_basis_retry_attempted",
+			}),
+		);
+		expect(result.basisDiagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "atlas_claim_basis_empty",
+			}),
+		);
+	});
+
+	it("falls back to section-level markers when retry also fails", async () => {
+		const runAuditModel = vi
+			.fn()
+			.mockResolvedValueOnce({ text: "not valid json" })
+			.mockResolvedValueOnce({ text: "still not json" });
+
+		const result = await auditAtlasBasis({
+			assembledMarkdown:
+				"## Executive Summary\nHybrid retrieval improves recall before reranking.",
+			sources: [{ title: "Example", url: "https://example.com" }],
+			evidencePacks: [evidencePack],
+			sectionBriefs,
+			runAuditModel,
+		});
+
+		expect(runAuditModel).toHaveBeenCalledTimes(2);
+		expect(result.claimBasisStatus).toBe("succeeded");
+		expect(result.claimBasis[0]).toMatchObject({
+			supportLevel: "partial",
+			auditConcernCode: "atlas_claim_basis_section_fallback",
+		});
+		expect(result.basisDiagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "atlas_claim_basis_retry_attempted",
+				severity: "info",
+			}),
+		);
+		expect(result.basisDiagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "atlas_claim_basis_section_fallback",
+			}),
+		);
+	});
+
+	it("retries once when first parse returns missing claimBasis array", async () => {
+		const runAuditModel = vi
+			.fn()
+			.mockResolvedValueOnce({
+				text: JSON.stringify({ retryRequested: false }),
+			})
+			.mockResolvedValueOnce({
+				text: JSON.stringify({
+					retryRequested: false,
+					claimBasis: [
+						{
+							locator: {
+								sectionTitle: "Executive Summary",
+								claimText: "Test claim.",
+							},
+							supportLevel: "supported",
+							supportRationale: "evidence supports this.",
+						},
+					],
+				}),
+			});
+
+		const result = await auditAtlasBasis({
+			assembledMarkdown: "## Executive Summary\nTest.",
+			sources: [{ title: "Example", url: "https://example.com" }],
+			evidencePacks: [evidencePack],
+			sectionBriefs,
+			runAuditModel,
+		});
+
+		expect(runAuditModel).toHaveBeenCalledTimes(2);
+		expect(result.claimBasisStatus).toBe("succeeded");
+		expect(result.basisDiagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "atlas_claim_basis_retry_attempted",
+			}),
+		);
+	});
+
+	it("includes retry attempted diagnostic even when retry succeeds with fallback", async () => {
+		const runAuditModel = vi
+			.fn()
+			.mockResolvedValueOnce({ text: "not json" })
+			.mockResolvedValueOnce({ text: "also not json" });
+
+		const result = await auditAtlasBasis({
+			assembledMarkdown: "## Executive Summary\nTest.",
+			sources: [{ title: "Example", url: "https://example.com" }],
+			evidencePacks: [evidencePack],
+			sectionBriefs,
+			runAuditModel,
+		});
+
+		const retryDiag = result.basisDiagnostics.filter(
+			(d) => d.code === "atlas_claim_basis_retry_attempted",
+		);
+		expect(retryDiag).toHaveLength(1);
+		expect(retryDiag[0]?.message).toContain("retried");
+	});
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	ATLAS_EVIDENCE_PACK_SCHEMA_VERSION,
 	buildAtlasEvidencePacks,
+	normalizeEvidenceText,
 } from "./evidence-packs";
 
 describe("Atlas evidence packs", () => {
@@ -200,5 +201,202 @@ describe("Atlas evidence packs", () => {
 				message: "Search endpoint unavailable.",
 			},
 		]);
+	});
+});
+
+describe("normalizeEvidenceText sanitization", () => {
+	it("strips Accepted source excerpt label", () => {
+		const text = "Accepted source excerpt: This is the actual content.";
+		expect(normalizeEvidenceText(text)).toBe("This is the actual content.");
+	});
+
+	it("strips SearXNG metadata keywords", () => {
+		const text =
+			"Naptár · Keresés · Beállítások · Some content about AI regulation.";
+		expect(normalizeEvidenceText(text)).toBe(
+			"Some content about AI regulation.",
+		);
+	});
+
+	it("strips SearXNG Hungarian filter echoes", () => {
+		const text =
+			"Nem tartalmazza: foo | Tartalmaznia kell: bar | Content about retrieval.";
+		expect(normalizeEvidenceText(text)).toBe("Content about retrieval.");
+	});
+
+	it("strips SearXNG English filter echoes", () => {
+		const text =
+			"Excluding: foo | Must include: bar | Content about regulation.";
+		expect(normalizeEvidenceText(text)).toBe("Content about regulation.");
+	});
+
+	it("strips YouTube channel prefix", () => {
+		const text = "YouTube · SomeChannel This is an AI review video content.";
+		expect(normalizeEvidenceText(text)).toBe(
+			"SomeChannel This is an AI review video content.",
+		);
+	});
+
+	it("strips Hungarian date prefix", () => {
+		const text = "2024. jan. 26. · Some content about hybrid retrieval.";
+		expect(normalizeEvidenceText(text)).toBe(
+			"Some content about hybrid retrieval.",
+		);
+	});
+
+	it("strips Hungarian date prefix with full month name", () => {
+		const text =
+			"2024. január 26. · Content about regulated AI SaaS deployment.";
+		expect(normalizeEvidenceText(text)).toBe(
+			"Content about regulated AI SaaS deployment.",
+		);
+	});
+
+	it("strips English YouTube footer multi-word phrases", () => {
+		const text = "Policy & Safety How YouTube works Test new features";
+		expect(normalizeEvidenceText(text)).toBe("");
+	});
+
+	it("strips Hungarian YouTube footer text", () => {
+		const text =
+			"Ismertető Sajtó Szerzői jog Kapcsolatfelvétel Alkotók Hirdetés Fejlesztők Feltételek Adatvédelem Irányelvek YouTube működése Új funkciók tesztelése";
+		expect(normalizeEvidenceText(text)).toBe("");
+	});
+
+	it("strips all source labels together", () => {
+		const text =
+			"Search result snippet: snippet. Fetched page excerpt: excerpt. Accepted source excerpt: excerpt2.";
+		expect(normalizeEvidenceText(text)).toBe("snippet. excerpt. excerpt2.");
+	});
+
+	it("strips combined SearXNG artifacts", () => {
+		const text =
+			"Naptár · Nem tartalmazza: foo | Tartalmaznia kell: bar | 2024. márc. 15. · Actual content here.";
+		expect(normalizeEvidenceText(text)).toBe("Actual content here.");
+	});
+
+	it("preserves meaningful text without artifacts", () => {
+		const text =
+			"Hybrid retrieval combines lexical and vector search for regulated SaaS environments.";
+		expect(normalizeEvidenceText(text)).toBe(text);
+	});
+});
+
+describe("Atlas evidence pack summary boilerplate filtering", () => {
+	it("filters boilerplate cookie sentences from evidence summary", () => {
+		const result = buildAtlasEvidencePacks({
+			query: "test",
+			currentDate: "2026-06-22",
+			curatedEvidence: "",
+			localSources: [
+				{
+					id: "test-1",
+					title: "Test Source",
+					authority: "explicit",
+					text: "This cookie policy explains how we use cookies. The actual research finding shows that AI models perform better with structured data. Subscribe to our newsletter for updates.",
+				},
+			],
+			webSources: [],
+			searchLimitation: null,
+			parentSeed: null,
+		});
+
+		const summary = result.evidencePacks[0].evidence.summary;
+		expect(summary).toContain("actual research finding");
+		expect(summary).not.toContain("cookie policy");
+		expect(summary).not.toContain("Subscribe");
+	});
+
+	it("falls back to source title when all evidence is boilerplate", () => {
+		const result = buildAtlasEvidencePacks({
+			query: "test",
+			currentDate: "2026-06-22",
+			curatedEvidence: "",
+			localSources: [
+				{
+					id: "test-2",
+					title: "Test Source Title",
+					authority: "explicit",
+					text: "This site uses cookies. Privacy policy applies. Subscribe to our newsletter.",
+				},
+			],
+			webSources: [],
+			searchLimitation: null,
+			parentSeed: null,
+		});
+
+		expect(result.evidencePacks[0].evidence.summary).toContain(
+			"Test Source Title",
+		);
+	});
+
+	it("strips SearXNG boilerplate from evidence summary", () => {
+		const result = buildAtlasEvidencePacks({
+			query: "test",
+			currentDate: "2026-06-22",
+			curatedEvidence: "",
+			localSources: [
+				{
+					id: "test-3",
+					title: "Web Research",
+					authority: "explicit",
+					text: "Keresés Beállítások Naptár. The actual research finding validates hybrid retrieval. Excluding: old results | Must include: recent studies.",
+				},
+			],
+			webSources: [],
+			searchLimitation: null,
+			parentSeed: null,
+		});
+
+		const summary = result.evidencePacks[0].evidence.summary;
+		expect(summary).toContain("actual research finding");
+		expect(summary).not.toContain("Keresés");
+		expect(summary).not.toContain("Excluding:");
+	});
+
+	it("strips YouTube footer from evidence summary via build", () => {
+		const result = buildAtlasEvidencePacks({
+			query: "test",
+			currentDate: "2026-06-22",
+			curatedEvidence: "",
+			localSources: [
+				{
+					id: "test-4",
+					title: "YouTube Review",
+					authority: "explicit",
+					text: "This video reviews the new retrieval architecture. About Press Copyright Contact us Creators.",
+				},
+			],
+			webSources: [],
+			searchLimitation: null,
+			parentSeed: null,
+		});
+
+		const summary = result.evidencePacks[0].evidence.summary;
+		expect(summary).toContain("retrieval architecture");
+		expect(summary).not.toContain("About Press");
+	});
+
+	it("preserves evidence without boilerplate in summary", () => {
+		const result = buildAtlasEvidencePacks({
+			query: "test",
+			currentDate: "2026-06-22",
+			curatedEvidence: "",
+			localSources: [
+				{
+					id: "test-5",
+					title: "Clean Source",
+					authority: "explicit",
+					text: "Hybrid retrieval reduces noisy matches in regulated environments. Reranking is required before final answer generation.",
+				},
+			],
+			webSources: [],
+			searchLimitation: null,
+			parentSeed: null,
+		});
+
+		const summary = result.evidencePacks[0].evidence.summary;
+		expect(summary).toContain("Hybrid retrieval");
+		expect(summary).toContain("Reranking");
 	});
 });

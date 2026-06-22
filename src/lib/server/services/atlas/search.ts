@@ -11,6 +11,7 @@ import {
 	DEFAULT_ATLAS_SEARCH_MAX_RETRY_BACKOFF_MS,
 } from "./config";
 import { isUsableAtlasImageCandidate } from "./image-quality";
+import { sanitizeSourceTitle } from "./renderer-output";
 import type { AtlasImageCandidate } from "./types";
 
 export interface AtlasSearchSource {
@@ -302,10 +303,11 @@ function normalizeSearxngResult(
 	const record = result as Record<string, unknown>;
 	const url = typeof record.url === "string" ? record.url.trim() : "";
 	if (!url) return null;
-	const title =
+	const title = sanitizeSourceTitle(
 		typeof record.title === "string" && record.title.trim()
 			? record.title.trim()
-			: url;
+			: url,
+	);
 	const rawSnippet =
 		typeof record.content === "string"
 			? record.content.trim()

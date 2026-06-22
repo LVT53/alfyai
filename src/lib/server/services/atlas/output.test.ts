@@ -1676,6 +1676,103 @@ describe("Atlas renderer output", () => {
 		expect(reasoning).not.toMatch(/Ismertető|Sajtó|Szerzői jog/i);
 	});
 
+	it("sanitizeSourceTitle strips - YouTube suffix", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const result = sanitizeSourceTitle(
+			"Heat Pump Vs. Furnace - Which is BETTER? - YouTube",
+		);
+		expect(result).toBe("Heat Pump Vs. Furnace - Which is BETTER?");
+	});
+
+	it("sanitizeSourceTitle strips Reddit verification suffix", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const result = sanitizeSourceTitle("Reddit - Please wait for verification");
+		expect(result).toBe("Reddit");
+	});
+
+	it("sanitizeSourceTitle strips platform | suffix", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		expect(sanitizeSourceTitle("Cool content | Instagram")).toBe(
+			"Cool content",
+		);
+		expect(sanitizeSourceTitle("Facebook post | Facebook")).toBe(
+			"Facebook post",
+		);
+		expect(sanitizeSourceTitle("TikTok trends | TikTok")).toBe("TikTok trends");
+	});
+
+	it("sanitizeSourceTitle strips Hungarian date prefix", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const result = sanitizeSourceTitle(
+			"2024. jan. 26. · Actual relevant content",
+		);
+		expect(result).toBe("Actual relevant content");
+	});
+
+	it("sanitizeSourceTitle strips SearXNG Nem tartalmazza echo", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const result = sanitizeSourceTitle(
+			"Nem tartalmazza: English | Tartalmaznia kell: technical | Best practices",
+		);
+		expect(result).toBe("Best practices");
+	});
+
+	it("sanitizeSourceTitle preserves legitimate platform names in titles", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		expect(sanitizeSourceTitle("YouTube: Best Embedding Models")).toBe(
+			"YouTube: Best Embedding Models",
+		);
+		expect(sanitizeSourceTitle("Reddit discussion on AI")).toBe(
+			"Reddit discussion on AI",
+		);
+		expect(sanitizeSourceTitle("Instagram Marketing Guide")).toBe(
+			"Instagram Marketing Guide",
+		);
+		expect(sanitizeSourceTitle("TikTok for Business")).toBe(
+			"TikTok for Business",
+		);
+	});
+
+	it("sanitizeSourceTitle handles empty and whitespace-only input", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		expect(sanitizeSourceTitle("")).toBe("");
+		expect(sanitizeSourceTitle("   ")).toBe("");
+	});
+
+	it("sanitizeSourceTitle preserves normal titles unchanged", async () => {
+		const { sanitizeSourceTitle } = await import("./renderer-output");
+		expect(sanitizeSourceTitle("A Comprehensive Guide to RAG")).toBe(
+			"A Comprehensive Guide to RAG",
+		);
+		expect(sanitizeSourceTitle("Understanding Vector Databases")).toBe(
+			"Understanding Vector Databases",
+		);
+	});
+
+	it("applies sanitizeSourceTitle through sourceChipForAtlasSource", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+		const source = buildAtlasDocumentSource({
+			title: "Sanitized Sources Atlas",
+			assembledMarkdown:
+				"## Executive Summary\nSanitized titles appear in source chips.",
+			sources: [
+				{
+					title: "Heat Pump Guide - YouTube",
+					url: "https://example.com/heat-pump",
+					reasoning: "Accepted evidence.",
+				},
+			],
+			honestyMarkers: [],
+		});
+		const webSources = source.blocks.find(
+			(block) => block.type === "sourceChips" && block.title === "Web Sources",
+		);
+		if (webSources?.type !== "sourceChips") {
+			throw new Error("Expected Web Sources source chips.");
+		}
+		expect(webSources.sources[0]?.title).toBe("Heat Pump Guide");
+	});
+
 	it("regression: existing source projection tests still pass", async () => {
 		const { compactAtlasSourceRelevanceNote } = await import(
 			"./renderer-output"

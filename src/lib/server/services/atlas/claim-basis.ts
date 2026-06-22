@@ -109,6 +109,86 @@ export interface GenerateAtlasClaimBasisResult extends AtlasClaimBasisResult {
 	warning?: string | null;
 }
 
+export function compactEvidencePacks(packs: AtlasEvidencePack[]): Array<{
+	id: string;
+	evidence: { summary: string };
+	sourceRefs: Array<{
+		id: string;
+		title: string;
+		url: string | null;
+		authority: AtlasEvidencePackSourceRef["authority"];
+	}>;
+	authority: AtlasEvidencePack["authority"];
+	limitations: string[];
+	conflicts: string[];
+	affectedSectionHint: string | null;
+	freshness: { isCurrentEvidence: boolean };
+}> {
+	return packs.map((pack) => ({
+		id: pack.id,
+		evidence: { summary: pack.evidence.summary },
+		sourceRefs: pack.sourceRefs.map((ref) => ({
+			id: ref.id,
+			title: ref.title,
+			url: ref.url,
+			authority: ref.authority,
+		})),
+		authority: pack.authority,
+		limitations: pack.limitations.slice(0, 2),
+		conflicts: pack.conflicts.slice(0, 2),
+		affectedSectionHint: pack.affectedSectionHint,
+		freshness: { isCurrentEvidence: pack.freshness.isCurrentEvidence },
+	}));
+}
+
+export function compactSectionBriefs(briefs: AtlasSectionBrief[]): Array<{
+	sectionTitle: string;
+	brief: string;
+	evidencePackIds: string[];
+	sourceAssociations: Array<{ id: string; title: string | null }>;
+}> {
+	return briefs.map((brief) => ({
+		sectionTitle: brief.sectionTitle,
+		brief:
+			brief.brief.length <= 200
+				? brief.brief
+				: `${brief.brief.slice(0, 200).trim()}...`,
+		evidencePackIds: brief.evidencePackIds.slice(0, 8),
+		sourceAssociations: brief.sourceAssociations
+			.slice(0, 5)
+			.map((sa) => ({ id: sa.sourceId, title: sa.sourceTitle })),
+	}));
+}
+
+export function compactCoverageReview(
+	review: AtlasCoverageReview | null | undefined,
+): {
+	sufficient: boolean;
+	approvedGapCandidateCount: number;
+	limitations: Array<{ code: string; message: string }>;
+} | null {
+	if (!review) return null;
+	return {
+		sufficient: review.sufficient,
+		approvedGapCandidateCount: review.approvedGapCandidates.length,
+		limitations: review.limitations.slice(0, 3).map((l) => ({
+			code: l.code,
+			message: l.message,
+		})),
+	};
+}
+
+export function compactSources(
+	sources: Array<{ title: string; url?: string | null }>,
+): Array<{ title: string; url: string | null }> {
+	return sources.map((s) => ({ title: s.title, url: s.url ?? null }));
+}
+
+function trimReport(report: string): string {
+	if (report.length <= 8000) return report;
+	return `${report.slice(0, 8000).trim()}\n\n(report truncated for audit context budget)`;
+}
+
 export function buildAtlasClaimBasisPrompt(
 	input: BuildAtlasClaimBasisPromptInput,
 ): string {
@@ -158,12 +238,12 @@ export function buildAtlasClaimBasisPrompt(
 			diagnostics:
 				"array of { code, severity, message, sectionTitle, basisId }",
 		},
-		report: input.assembledMarkdown,
-		evidencePacks: input.evidencePacks,
+		report: trimReport(input.assembledMarkdown),
+		evidencePacks: compactEvidencePacks(input.evidencePacks),
 		evidencePackDiagnostics: input.evidencePackDiagnostics,
-		sectionBriefs: input.sectionBriefs,
-		coverageReview: input.coverageReview ?? null,
-		sources: input.sources,
+		sectionBriefs: compactSectionBriefs(input.sectionBriefs),
+		coverageReview: compactCoverageReview(input.coverageReview),
+		sources: compactSources(input.sources),
 		limitation: input.limitation ?? null,
 	});
 }

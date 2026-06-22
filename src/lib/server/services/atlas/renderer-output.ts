@@ -97,7 +97,7 @@ function sourceChipForAtlasSource(
 	const provided = source.authority === "explicit";
 	const chrome = atlasChrome({ language });
 	return {
-		title: source.title,
+		title: sanitizeSourceTitle(source.title),
 		url: source.url ?? null,
 		kind: isWeb ? "web" : "library",
 		provided,
@@ -175,6 +175,35 @@ function removeSourceDumpLabels(text: string): string {
 		.replace(/\bAccepted source excerpt\s*:\s*/gi, "")
 		.replace(/\s+/g, " ")
 		.trim();
+}
+
+export function sanitizeSourceTitle(title: string): string {
+	let result = title.trim();
+	if (!result) return result;
+
+	// Strip SearXNG language filter echoes (combined then single)
+	result = result.replace(
+		/^Nem tartalmazza:[^|]*\|\s*Tartalmaznia kell:[^|]*\|\s*/i,
+		"",
+	);
+	result = result.replace(/^Nem tartalmazza:[^|]*\|\s*/i, "");
+	result = result.replace(/^Tartalmaznia kell:[^|]*\|\s*/i, "");
+	result = result.replace(/^Excluding:[^|]*\|\s*Must include:[^|]*\|\s*/i, "");
+	result = result.replace(/^Excluding:[^|]*\|\s*/i, "");
+	result = result.replace(/^Must include:[^|]*\|\s*/i, "");
+
+	// Strip Hungarian date prefix (e.g. "2024. jan. 26. · ")
+	result = result.replace(
+		/^\d{4}\.\s*(?:jan\.|febr\.|márc\.|ápr\.|máj\.|jún\.|júl\.|aug\.|szept\.|okt\.|nov\.|dec\.|január|február|március|április|május|június|július|augusztus|szeptember|október|november|december)\s+\d{1,2}\.\s*·\s*/,
+		"",
+	);
+
+	// Strip navigation/footer suffixes
+	result = result.replace(/\s*-\s*Please wait for verification\s*$/i, "");
+	result = result.replace(/\s*-\s*YouTube\s*$/i, "");
+	result = result.replace(/\s*\|\s*(Instagram|Facebook|TikTok)\s*$/i, "");
+
+	return result.trim();
 }
 
 const BOILERPLATE_SENTENCE_PATTERNS = {

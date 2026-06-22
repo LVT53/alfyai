@@ -18,6 +18,34 @@ import type {
 	AtlasSectionBrief,
 } from "./types";
 
+const RETRY_FAILURE_CODES = [
+	"atlas_claim_basis_invalid_json",
+	"atlas_claim_basis_missing_array",
+] as const;
+
+function shouldRetryBasis(basis: AtlasClaimBasisResult): boolean {
+	return basis.diagnostics.some((diag) =>
+		RETRY_FAILURE_CODES.includes(
+			diag.code as (typeof RETRY_FAILURE_CODES)[number],
+		),
+	);
+}
+
+function buildMinimalRetryPrompt(input: {
+	assembledMarkdown: string;
+	sources: Array<{ title: string; url?: string | null }>;
+	sectionBriefs: AtlasSectionBrief[];
+	evidencePacks: AtlasEvidencePack[];
+}): string {
+	return JSON.stringify({
+		task: "Return strict JSON with claimBasis array, retryRequested boolean, limitations array, and diagnostics array. The previous response could not be parsed as JSON. Return ONLY valid JSON, no markdown, no explanation.",
+		report: input.assembledMarkdown.slice(0, 4000),
+		evidencePackIds: input.evidencePacks.map((p) => p.id),
+		sectionTitles: input.sectionBriefs.map((b) => b.sectionTitle),
+		sources: input.sources.map((s) => ({ title: s.title, url: s.url })),
+	});
+}
+
 export interface AtlasAuditUsage {
 	inputTokens: number;
 	outputTokens: number;
@@ -256,11 +284,33 @@ export async function auditAtlasBasis(
 			limitation: input.limitation ?? null,
 		}),
 	);
-	const basis = parseAtlasClaimBasisModelResult({
+	let basis = parseAtlasClaimBasisModelResult({
 		modelText: audit.text,
 		evidencePacks,
 		sectionBriefs,
 	});
+
+	if (shouldRetryBasis(basis)) {
+		const retryAudit = await input.runAuditModel(
+			buildMinimalRetryPrompt({
+				assembledMarkdown: input.assembledMarkdown,
+				sources: input.sources,
+				sectionBriefs,
+				evidencePacks,
+			}),
+		);
+		basis = parseAtlasClaimBasisModelResult({
+			modelText: retryAudit.text,
+			evidencePacks,
+			sectionBriefs,
+		});
+		basis.diagnostics.unshift({
+			code: "atlas_claim_basis_retry_attempted",
+			severity: "info",
+			message:
+				"Atlas retried claim basis generation with a simplified prompt after JSON parse failure.",
+		});
+	}
 	basis.diagnostics.unshift(...staticBasisDiagnostics);
 	basis.limitations.unshift(...staticBasisLimitations);
 	honestyMarkers.push(
