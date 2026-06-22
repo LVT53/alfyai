@@ -2145,6 +2145,67 @@ function fallbackQueryNounPhrase(query: string): string {
 		: "this decision";
 }
 
+function fallbackSectionReference(title: string): string {
+	const cleaned = normalizeFallbackTitle(title)
+		?.replace(/[?!.]+$/g, "")
+		.trim();
+	if (!cleaned) return "this section";
+	return cleaned.charAt(0).toLowerCase() + cleaned.slice(1);
+}
+
+function fallbackValidationSentence(input: {
+	title: string;
+	language: SupportedLanguage;
+	querySubject: string;
+}): string {
+	const labels = fallbackSectionLabels(input.language);
+	const sectionKey = normalizedFallbackHeading(input.title);
+	if (input.language === "hu") {
+		return `A(z) ${fallbackSectionReference(input.title)} következtetését saját korpuszon, mérhető üzemeltetési célokon és világos visszalépési feltételeken kell ellenőrizni.`;
+	}
+	if (
+		sectionKey === normalizedFallbackHeading(labels.recommendations) ||
+		/\b(?:recommend|decision|verdict)\b/i.test(sectionKey)
+	) {
+		return `Turn the recommendation into a rollout rule only after the local corpus test shows a material gain within the latency, memory, and review budget.`;
+	}
+	if (
+		sectionKey === normalizedFallbackHeading(labels.tradeoffs) ||
+		/\b(?:tradeoff|cost|latency)\b/i.test(sectionKey)
+	) {
+		return `Use the tradeoff section to set the operating budget first, then spend extra model size or reranking depth only where measured retrieval quality improves.`;
+	}
+	if (
+		/\b(?:deployment|rollout|operat|workflow|serving|production|pilot|hardware|memory)\b/i.test(
+			sectionKey,
+		)
+	) {
+		return `Before widening deployment, run a pilot that records source coverage, rollback triggers, p95 latency, and reviewer acceptance for ${input.querySubject}.`;
+	}
+	if (
+		/\b(?:evaluation|validation|measure|benchmark|criteria|threshold)\b/i.test(
+			sectionKey,
+		)
+	) {
+		return `The validation threshold should name the recall, citation coverage, latency, and review-quality result that would justify changing the production default.`;
+	}
+	if (
+		/\b(?:shortlist|models?|candidates?|famil(?:y|ies)|architecture)\b/i.test(
+			sectionKey,
+		)
+	) {
+		return `Keep the shortlist tiered: default candidates should meet the operating budget now, while fallback or experimental candidates need a specific measured advantage.`;
+	}
+	if (
+		sectionKey === normalizedFallbackHeading(labels.findings) ||
+		/\bfindings?\b/i.test(sectionKey)
+	) {
+		return `Use the findings to separate evidence-backed decision criteria from open questions that still need local measurement.`;
+	}
+	const sectionReference = fallbackSectionReference(input.title);
+	return `For the ${sectionReference} decision, define the local validation step and the evidence threshold that would change the recommendation.`;
+}
+
 function developFallbackSectionText(input: {
 	title: string;
 	language: SupportedLanguage;
@@ -2179,13 +2240,52 @@ function developFallbackSectionText(input: {
 				: `For ${querySubject}, start with the best-supported model family that meets the latency and hardware budget, keep a reranker-compatible fallback in the shortlist, and promote larger models only when corpus tests show a material retrieval gain.`,
 		);
 	} else if (
+		sectionKey === normalizedFallbackHeading(labels.findings) ||
+		/\bfindings?\b/i.test(sectionKey)
+	) {
+		additions.push(
+			input.language === "hu"
+				? `A megállapításokat a(z) ${querySubject} döntési kritériumaivá kell alakítani: melyik jel javítja a válaszminőséget, melyik csökkenti az üzemeltetési kockázatot, és melyik bizonytalanságot kell helyben mérni.`
+				: `For ${querySubject}, the findings should be ranked by decision impact: which signal improves answer quality, which keeps serving risk acceptable, and which uncertainty must be tested locally.`,
+		);
+	} else if (
 		sectionKey === normalizedFallbackHeading(labels.tradeoffs) ||
-		/\b(?:tradeoff|cost|latency|deployment|kompromisszum)\b/i.test(sectionKey)
+		/\b(?:tradeoff|cost|latency|kompromisszum)\b/i.test(sectionKey)
 	) {
 		additions.push(
 			input.language === "hu"
 				? "A gyakorlati kompromisszum az, hogy a minőségi jelzéseket, költséget, késleltetést, karbantarthatóságot és auditálhatóságot együtt kell mérni, nem külön-külön."
 				: "The practical tradeoff is to measure retrieval quality, embedding dimension, resident memory, reranking depth, and p95 latency together instead of optimizing one benchmark score in isolation.",
+		);
+	} else if (
+		/\b(?:deployment|rollout|operat|workflow|serving|production|pilot|hardware|memory)\b/i.test(
+			sectionKey,
+		)
+	) {
+		additions.push(
+			input.language === "hu"
+				? `A bevezetésnek mért pilotként kell indulnia a(z) ${querySubject} kérdésben: legyen késleltetési keret, forrásszintű naplózás, visszalépési feltétel és egyértelmű tulajdonos a gyenge találatok kezelésére.`
+				: `The deployment implication is to run a measured pilot for ${querySubject}: fix the latency budget, keep source-level logging, and define rollback criteria before widening use.`,
+		);
+	} else if (
+		/\b(?:evaluation|validation|measure|benchmark|criteria|threshold)\b/i.test(
+			sectionKey,
+		)
+	) {
+		additions.push(
+			input.language === "hu"
+				? "Az értékelésnek korpusz-recallt, hivatkozási lefedettséget, reranker pontosságot, p95 késleltetést és szakértői elfogadást kell mérnie, mielőtt a termelési alapértelmezés változik."
+				: "The evaluation plan should compare corpus recall, citation coverage, reranker precision, p95 latency, and reviewer acceptance before changing the production default.",
+		);
+	} else if (
+		/\b(?:shortlist|models?|candidates?|famil(?:y|ies)|architecture)\b/i.test(
+			sectionKey,
+		)
+	) {
+		additions.push(
+			input.language === "hu"
+				? `A listát alapértelmezett, tartalék és kísérleti jelöltekre kell bontani a(z) ${querySubject} kérdésben, nem egyenrangú modellnevek felsorolásaként kezelni.`
+				: `Use this shortlist to separate default candidates, fallback candidates, and experimental candidates for ${querySubject} instead of treating every named option as equally deployment-ready.`,
 		);
 	} else if (
 		sectionKey === normalizedFallbackHeading(labels.executive) ||
@@ -2211,8 +2311,8 @@ function developFallbackSectionText(input: {
 	} else {
 		additions.push(
 			input.language === "hu"
-				? "A szakasz következtetése ezért döntési bemenetként használható, de nem helyettesíti a saját környezetben végzett validációt."
-				: "Use this as one decision input and connect it to local evaluation before treating it as a deployment rule.",
+				? `A(z) ${fallbackSectionReference(input.title)} következtetését döntési kritériummá, helyi validációs lépéssé és módosítási feltétellé kell alakítani.`
+				: `For ${querySubject}, the ${fallbackSectionReference(input.title)} evidence should become an explicit decision criterion, a local validation step, and a condition that would change the recommendation.`,
 		);
 	}
 	const expanded = [baseText, ...additions]
@@ -2226,10 +2326,11 @@ function developFallbackSectionText(input: {
 	) {
 		return expanded;
 	}
-	const validationSentence =
-		input.language === "hu"
-			? "A bevezetési sorrendet a legerősebb bizonyíték, a maradék bizonytalanság és a mérhető üzemeltetési cél együtt határozza meg."
-			: "The rollout order should be set by the strongest evidence, the remaining uncertainty, and the measurable operating target together.";
+	const validationSentence = fallbackValidationSentence({
+		title: input.title,
+		language: input.language,
+		querySubject,
+	});
 	return `${expanded} ${validationSentence}`;
 }
 

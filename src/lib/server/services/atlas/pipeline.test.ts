@@ -3176,6 +3176,159 @@ describe("Atlas pipeline slices", () => {
 		});
 	});
 
+	it("does not repeat deterministic fallback boilerplate after writer improvement", async () => {
+		const assemblePrompts: string[] = [];
+		const checkpoints: Array<{
+			checkpoint: Record<string, unknown>;
+			qualityDiagnostics: Record<string, unknown>;
+		}> = [];
+		const fallbackStageText = [
+			"Executive Summary: English technical-document retrieval needs a source-grounded comparison across retrieval quality, latency, cost, hardware fit, deployment risk, reranking support, language coverage, and maintenance boundaries.",
+			"Findings: Accepted evidence connects embedding dimensions, serving maturity, reranker compatibility, memory pressure, and production validation to the model choice.",
+			"Architecture Families: BGE, GTE, E5, Jina, Nomic, and Qwen-style candidates remain plausible depending on the corpus, serving stack, and retrieval target.",
+			"Serving Profile: Production deployment depends on resident model size, batching behavior, vector dimension, reranker depth, quantization, cache strategy, and serving runtime maturity.",
+			"Evaluation Plan: The rollout should compare recall, citation coverage, reranker precision, reviewer acceptance, p95 latency, and memory headroom on representative technical documents.",
+			"Operator Workflow: Platform owners need source-level logging, index rebuild plans, rollback criteria, and failure handling before moving from pilot to production.",
+			"Recommendation: Recommendation for English Technical-Document Retrieval.",
+			"Limitations: Evidence is representative rather than exhaustive, so final thresholds need local validation.",
+		].join("\n");
+		const genericDecisionInput =
+			"Use this as one decision input and connect it to local evaluation before treating it as a deployment rule.";
+		const genericRollout =
+			"The rollout order should be set by the strongest evidence, the remaining uncertainty, and the measurable operating target together.";
+		const countOccurrences = (haystack: string, needle: string) =>
+			haystack.split(needle).length - 1;
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async (_source: GeneratedDocumentSource) => ({
+			fileProductionJobId: "fp-job-no-repeated-fallback-boilerplate",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-no-repeated-fallback-boilerplate",
+				profile: "overview",
+				query:
+					"Compare the best self-hosted embedding models for English technical-document retrieval with minimal latency and cost on a single RT-class machine",
+			}),
+			now: new Date("2026-06-22T08:30:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: evidenceRichEmbeddingSources(),
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "self hosted embedding models English technical document retrieval latency cost single GPU reranker",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return { text: coverageReviewText([], true), usage: stageUsage() };
+					}
+					if (input.stage === "synthesize") {
+						return { text: fallbackStageText, usage: stageUsage() };
+					}
+					if (input.stage === "integrate") {
+						return {
+							text: [
+								"Executive Summary",
+								"Architecture Families",
+								"Serving Profile",
+								"Evaluation Plan",
+								"Operator Workflow",
+								"Recommendation",
+								"Limitations",
+							].join("; "),
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "assemble") {
+						assemblePrompts.push(input.prompt);
+						if (assemblePrompts.length < 3) {
+							return {
+								text: "I checked the sources and synthesized findings for the report.",
+								usage: stageUsage(),
+							};
+						}
+						const improvementPrompt = JSON.parse(input.prompt) as {
+							currentDraft: string;
+						};
+						return {
+							text: JSON.stringify({
+								generatedTitle: "Self-Hosted Embedding Model Choice",
+								bodyMarkdown: improvementPrompt.currentDraft,
+								sectionBriefs: [],
+								limitations: [
+									"Identical hardware measurements are not available for every candidate.",
+								],
+							}),
+							usage: stageUsage(),
+						};
+					}
+					return { text: `${input.stage} result`, usage: stageUsage() };
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs,
+			},
+		});
+
+		expect(assemblePrompts).toHaveLength(3);
+		const improvementPrompt = JSON.parse(assemblePrompts[2]);
+		expect(improvementPrompt.writerImprovement).toMatchObject({
+			pass: 1,
+			maxPasses: 1,
+		});
+		expect(improvementPrompt.currentDraft).toContain(
+			"## Architecture Families",
+		);
+		expect(
+			countOccurrences(improvementPrompt.currentDraft, genericDecisionInput),
+		).toBeLessThanOrEqual(1);
+		expect(auditBasis).toHaveBeenCalled();
+		const renderedSource = renderOutputs.mock.calls[0]?.[0];
+		const renderedText = renderedSource.blocks
+			.flatMap((block) => {
+				if (block.type === "heading" || block.type === "paragraph") {
+					return [block.text];
+				}
+				return [];
+			})
+			.join("\n");
+		expect(
+			countOccurrences(renderedText, genericDecisionInput),
+		).toBeLessThanOrEqual(1);
+		expect(countOccurrences(renderedText, genericRollout)).toBeLessThanOrEqual(
+			1,
+		);
+		expect(renderedText).toContain(
+			"For self-hosted embedding models for English technical-document retrieval",
+		);
+		expect(renderedText).toMatch(/practical tradeoff/i);
+		expect(renderedText).toMatch(/\b(?:deployment|pilot|rollout)\b/i);
+		expect(checkpoints.at(-1)).toMatchObject({
+			qualityDiagnostics: {
+				writerImprovement: expect.objectContaining({
+					ran: true,
+					passCount: 1,
+					startedAfterDeterministicFallback: true,
+				}),
+			},
+		});
+	});
+
 	it("runs the bounded writer improvement pass for a 450-600 word multi-section draft before audit", async () => {
 		const assemblePrompts: string[] = [];
 		const checkpoints: Array<{
