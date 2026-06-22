@@ -3166,7 +3166,7 @@ describe("Atlas pipeline slices", () => {
 				id: "atlas-final-quality-expansion",
 				profile: "overview",
 				query:
-					"Live Atlas regression check 2026-06-22T01:06:07.989Z. Compare the best self-hosted embedding models for English technical-document retrieval with minimal latency and cost",
+					"Live Atlas regression check 2026-06-22T01:06:07.989Z. Compare the best self-hosted embedding models for English technical-document retrieval with minimal latency and cost. Use current web evidence. Include",
 			}),
 			now: new Date("2026-06-22T02:42:00.000Z"),
 			dependencies: {
@@ -3244,14 +3244,16 @@ describe("Atlas pipeline slices", () => {
 							text:
 								assembleCalls === 1
 									? JSON.stringify({
-											generatedTitle: "Self-Hosted Embedding Model Choice",
+											generatedTitle:
+												"self-hosted embedding models for English technical-document retrieval in 2026. Use current web evidence. Include",
 											bodyMarkdown:
 												"## Executive Summary\nThe first draft is too shallow and does not decide the deployment path.",
 											sectionBriefs: [],
 											limitations: [],
 										})
 									: JSON.stringify({
-											generatedTitle: "Self-Hosted Embedding Model Choice",
+											generatedTitle:
+												"self-hosted embedding models for English technical-document retrieval in 2026. Use current web evidence. Include",
 											bodyMarkdown: hollowImprovedDraft,
 											sectionBriefs: [],
 											limitations: [
@@ -3289,10 +3291,16 @@ describe("Atlas pipeline slices", () => {
 		expect(secondAuditInput?.assembledMarkdown).not.toMatch(
 			/live Atlas regression check|2026-06-22T01:06:07\.989Z/i,
 		);
+		expect(secondAuditInput?.assembledMarkdown).not.toMatch(
+			/use current web evidence|\. include\b/i,
+		);
 		expect(secondAuditInput?.assembledMarkdown).not.toContain(
 			"Comprehensive comparison of the best embedding models in 2026",
 		);
 		const renderedSource = renderOutputs.mock.calls[0]?.[0];
+		expect(renderedSource.title).toBe(
+			"self-hosted embedding models for English technical-document retrieval in 2026",
+		);
 		expect(
 			renderedSource.blocks.filter((block) => block.type === "image"),
 		).toHaveLength(0);

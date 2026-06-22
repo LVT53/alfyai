@@ -611,6 +611,44 @@ describe("Atlas renderer output", () => {
 		).toHaveLength(0);
 	});
 
+	it("requires image caption and source relevance before inserting a candidate", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Embedding Retrieval Atlas",
+			assembledMarkdown: [
+				"## Executive Summary",
+				"Embedding retrieval decisions should compare model quality, reranking, latency, and deployment cost.",
+				"",
+				"## Retrieval Architecture",
+				"Relevant visuals should clarify the embedding retrieval stack, vector indexing, or reranking responsibilities.",
+			].join("\n"),
+			sources: [],
+			honestyMarkers: [],
+			imageCandidates: [
+				{
+					id: "image-postgres-scaling",
+					query: "postgresql scaling embedding retrieval",
+					title: "Scaling for millions: PostgreSQL",
+					imageUrl: "https://miro.medium.com/v2/resize:fit:1358/postgresql.png",
+					sourcePageUrl:
+						"https://medium.com/@example/scaling-for-millions-postgresql",
+					sourceTitle: "Medium PostgreSQL scaling guide",
+					thumbnailUrl: null,
+					width: 1200,
+					height: 675,
+					caption: "PostgreSQL scaling diagram for millions of rows",
+					selectionReason: "Image result from a mixed image-search query.",
+				},
+			],
+			maxRenderedImages: 1,
+		});
+
+		expect(
+			source.blocks.filter((block) => block.type === "image"),
+		).toHaveLength(0);
+	});
+
 	it("keeps source-backed image candidates when visual text and source title both support the report query", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 
@@ -1076,6 +1114,107 @@ describe("Atlas renderer output", () => {
 				}),
 			]),
 		);
+	});
+
+	it("deduplicates basis markers and maps section aliases to the matching paragraph", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Basis Alias Atlas",
+			assembledMarkdown: [
+				"## Executive Summary",
+				"Embedding retrieval selection needs a measured rollout path.",
+				"",
+				"## Tradeoffs",
+				"Latency and retrieval quality have to be evaluated together.",
+			].join("\n"),
+			sources: [],
+			honestyMarkers: [],
+			claimBasis: [
+				{
+					version: "atlas.claim-basis.v1",
+					id: "basis-exec-plain",
+					locator: {
+						sectionTitle: "Executive Summary",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText:
+							"Embedding retrieval selection needs a measured rollout path.",
+						quote: null,
+						startOffset: null,
+						endOffset: null,
+					},
+					supportLevel: "partial",
+					evidencePackIds: ["pack-1"],
+					sourceRefs: [],
+					supportRationale:
+						"Accepted sources provide section-level evidence for Executive Summary.",
+					auditConcernCode: "atlas_claim_basis_section_fallback",
+				},
+				{
+					version: "atlas.claim-basis.v1",
+					id: "basis-exec-bold",
+					locator: {
+						sectionTitle: "**Executive Summary**",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText:
+							"Embedding retrieval selection needs a measured rollout path.",
+						quote: null,
+						startOffset: null,
+						endOffset: null,
+					},
+					supportLevel: "partial",
+					evidencePackIds: ["pack-1"],
+					sourceRefs: [],
+					supportRationale:
+						"Accepted sources provide section-level evidence for **Executive Summary**.",
+					auditConcernCode: "atlas_claim_basis_section_fallback",
+				},
+				{
+					version: "atlas.claim-basis.v1",
+					id: "basis-model-tradeoffs",
+					locator: {
+						sectionTitle: "Model Tradeoffs",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText:
+							"Latency and retrieval quality have to be evaluated together.",
+						quote: null,
+						startOffset: null,
+						endOffset: null,
+					},
+					supportLevel: "partial",
+					evidencePackIds: ["pack-2"],
+					sourceRefs: [],
+					supportRationale:
+						"Accepted sources provide section-level evidence for Model Tradeoffs.",
+					auditConcernCode: "atlas_claim_basis_section_fallback",
+				},
+			],
+		});
+
+		const paragraphs = source.blocks.filter(
+			(
+				block,
+			): block is Extract<
+				(typeof source.blocks)[number],
+				{ type: "paragraph" }
+			> => block.type === "paragraph",
+		);
+		expect(paragraphs[0].basisMarkers).toHaveLength(1);
+		expect(paragraphs[0].basisMarkers?.[0]).toMatchObject({
+			id: "basis-exec-plain",
+			anchorText:
+				"Embedding retrieval selection needs a measured rollout path.",
+		});
+		expect(paragraphs[1].basisMarkers).toEqual([
+			expect.objectContaining({
+				id: "basis-model-tradeoffs",
+				anchorText:
+					"Latency and retrieval quality have to be evaluated together.",
+			}),
+		]);
 	});
 
 	it("replaces model-authored final source sections with canonical backend source chips", async () => {

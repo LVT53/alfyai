@@ -86,6 +86,8 @@ const SAFE_REPORT_HEADING_LABELS = new Set([
 ]);
 const CLAIM_HEADING_VERB_PATTERN =
 	/\b(?:are|avoid|can|cannot|choose|dominates?|has|have|improves?|is|keeps?|leads?|limits?|needs?|offers?|outperforms?|requires?|should|supports?|uses?|wins?)\b/i;
+const PROMPT_INSTRUCTION_HEADING_PATTERN =
+	/\b(?:answer|cite|compare|cover|explain|include|provide|return|use\s+current\s+web\s+evidence|with\s+current\s+web\s+evidence|write)\b/i;
 
 const SOURCE_SECTION_LABELS = new Set([
 	"sources",
@@ -178,7 +180,12 @@ function isLikelyClaimShapedHeading(title: string | null): boolean {
 	if (/^(?:what|where|when|why|how)\b/i.test(trimmed)) return false;
 	const words = normalized.split(/\s+/).filter(Boolean);
 	if (words.length < 4) return false;
-	if (/[.!?]$/.test(title.trim())) return true;
+	if (/[.!?]$/.test(title.trim()) || /[.!?]\s+\S/.test(title.trim())) {
+		return true;
+	}
+	if (words.length >= 5 && PROMPT_INSTRUCTION_HEADING_PATTERN.test(trimmed)) {
+		return true;
+	}
 	return CLAIM_HEADING_VERB_PATTERN.test(trimmed);
 }
 

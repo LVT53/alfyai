@@ -593,9 +593,11 @@ function normalizedHeading(text: string): string {
 	return text
 		.normalize("NFD")
 		.replace(/[\u0300-\u036f]/g, "")
+		.replace(/[`*_~]+/g, "")
 		.trim()
 		.toLowerCase()
-		.replace(/\s+/g, " ");
+		.replace(/\s+/g, " ")
+		.replace(/[.:;]+$/g, "");
 }
 
 function isExecutiveSummaryHeading(
@@ -920,9 +922,18 @@ function sectionMatchesLocator(
 	locatorSection: string | null,
 ): boolean {
 	if (!locatorSection) return true;
-	return currentSection
-		? normalizedHeading(currentSection) === normalizedHeading(locatorSection)
-		: false;
+	if (!currentSection) return false;
+	return (
+		canonicalBasisSectionHeading(currentSection) ===
+		canonicalBasisSectionHeading(locatorSection)
+	);
+}
+
+function canonicalBasisSectionHeading(text: string): string {
+	return normalizedHeading(text)
+		.replace(/^(?:key|model|operational|deployment|source grounded)\s+/, "")
+		.replace(/\s+(?:analysis|section)$/i, "")
+		.trim();
 }
 
 function occurrenceForAnchor(
@@ -1035,6 +1046,36 @@ function nearestParagraphIndexForClaimBasisFallback(
 	return null;
 }
 
+function basisMarkerDedupeKey(
+	marker: GeneratedDocumentParagraphBasisMarker,
+): string {
+	return [
+		marker.support,
+		normalizedHeading(marker.rationale),
+		normalizedHeading(marker.anchorText).slice(0, 160),
+		marker.auditCode ?? "",
+	].join("|");
+}
+
+function paragraphWithBasisMarker(
+	block: Extract<GeneratedDocumentBlock, { type: "paragraph" }>,
+	marker: GeneratedDocumentParagraphBasisMarker,
+): Extract<GeneratedDocumentBlock, { type: "paragraph" }> {
+	const existing = block.basisMarkers ?? [];
+	const markerKey = basisMarkerDedupeKey(marker);
+	if (
+		existing.some(
+			(existingMarker) => basisMarkerDedupeKey(existingMarker) === markerKey,
+		)
+	) {
+		return block;
+	}
+	return {
+		...block,
+		basisMarkers: [...existing, marker],
+	};
+}
+
 function applyAtlasClaimBasisMarkers(
 	blocks: GeneratedDocumentSource["blocks"],
 	claimBasis: AtlasClaimBasis[] = [],
@@ -1066,10 +1107,13 @@ function applyAtlasClaimBasisMarkers(
 				anchorText: anchor.anchorText,
 				occurrence: anchor.occurrence,
 			});
-			blocks[context.blockIndex] = {
-				...context.block,
-				basisMarkers: [...(context.block.basisMarkers ?? []), marker],
-			};
+			const currentBlock = blocks[context.blockIndex];
+			if (currentBlock?.type === "paragraph") {
+				blocks[context.blockIndex] = paragraphWithBasisMarker(
+					currentBlock,
+					marker,
+				);
+			}
 			anchored = true;
 			break;
 		}
@@ -1083,10 +1127,13 @@ function applyAtlasClaimBasisMarkers(
 				anchorText: fallbackContext.block.text,
 				occurrence: 0,
 			});
-			blocks[fallbackContext.blockIndex] = {
-				...fallbackContext.block,
-				basisMarkers: [...(fallbackContext.block.basisMarkers ?? []), marker],
-			};
+			const currentBlock = blocks[fallbackContext.blockIndex];
+			if (currentBlock?.type === "paragraph") {
+				blocks[fallbackContext.blockIndex] = paragraphWithBasisMarker(
+					currentBlock,
+					marker,
+				);
+			}
 			continue;
 		}
 
@@ -1104,10 +1151,10 @@ function applyAtlasClaimBasisMarkers(
 					anchorText: paragraph.text,
 					occurrence: 0,
 				});
-				blocks[nearestParagraphIndex] = {
-					...paragraph,
-					basisMarkers: [...(paragraph.basisMarkers ?? []), marker],
-				};
+				blocks[nearestParagraphIndex] = paragraphWithBasisMarker(
+					paragraph,
+					marker,
+				);
 				continue;
 			}
 		}
@@ -1258,8 +1305,13 @@ function insertionIndexForImageCandidate(
 		`${candidate.query} ${atlasImageCandidateEvidenceText(candidate)}`,
 	);
 	const minimumScore = Math.min(2, tokens.size);
+	const evidenceTokens = atlasImageMeaningfulTokens(
+		atlasImageCandidateEvidenceText(candidate),
+	);
+	const minimumEvidenceScore = Math.min(2, evidenceTokens.size);
 	let bestIndex = -1;
 	let bestScore = 0;
+	let bestEvidenceScore = 0;
 	for (const [index, block] of blocks.entries()) {
 		if (
 			block.type === "sourceChips" ||
@@ -1272,8 +1324,15 @@ function insertionIndexForImageCandidate(
 			bestScore = score;
 			bestIndex = index;
 		}
+		bestEvidenceScore = Math.max(
+			bestEvidenceScore,
+			blockMatchScore(block, evidenceTokens),
+		);
 	}
 	if (bestScore < minimumScore || bestIndex < 0) return null;
+	if (minimumEvidenceScore > 0 && bestEvidenceScore < minimumEvidenceScore) {
+		return null;
+	}
 	const block = blocks[bestIndex];
 	if (block?.type !== "heading") return bestIndex + 1;
 	for (let index = bestIndex + 1; index < blocks.length; index += 1) {

@@ -1103,9 +1103,26 @@ function normalizeAssemblyText(value: unknown): string | null {
 	return normalized || null;
 }
 
+const PROMPT_INSTRUCTION_HEADING_PATTERN =
+	/\b(?:answer|cite|compare|cover|explain|include|provide|return|use\s+current\s+web\s+evidence|with\s+current\s+web\s+evidence|write)\b/i;
+
+function stripAtlasPromptInstructionTail(value: string): string {
+	return value
+		.replace(
+			/\s*[.!?]\s*(?:answer|cite|compare|cover|explain|include|provide|return|use\s+current\s+web\s+evidence|with\s+current\s+web\s+evidence|write)\b[\s\S]*$/i,
+			"",
+		)
+		.replace(
+			/\s+(?:cite\s+sources?|include\s+(?:citations?|sources?|references?)|use\s+current\s+web\s+evidence|with\s+current\s+web\s+evidence)\b[\s\S]*$/i,
+			"",
+		)
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 function normalizeGeneratedTitle(value: unknown): string | null {
 	if (typeof value !== "string") return null;
-	const raw = value.trim();
+	const raw = stripAtlasPromptInstructionTail(value.trim());
 	if (/[\r\n]/.test(raw)) return null;
 	const normalized = normalizeAssemblyText(raw)
 		?.replace(/^#{1,6}\s+/, "")
@@ -1520,6 +1537,16 @@ function isLikelySentenceClaimHeading(title: string): boolean {
 	return CLAIM_HEADING_VERB_PATTERN.test(trimmed);
 }
 
+function isLikelyPromptInstructionHeading(title: string): boolean {
+	const trimmed = title.trim();
+	const normalized = normalizedReportShapeText(trimmed);
+	if (!normalized || SAFE_REPORT_HEADING_LABELS.has(normalized)) return false;
+	const words = normalized.split(/\s+/).filter(Boolean);
+	if (words.length < 5) return false;
+	if (/[.!?]\s+\S/.test(trimmed)) return true;
+	return PROMPT_INSTRUCTION_HEADING_PATTERN.test(trimmed);
+}
+
 function isMalformedWriterHeading(
 	title: string,
 	acceptedSourceTitles: string[],
@@ -1535,6 +1562,7 @@ function isMalformedWriterHeading(
 	if (isFallbackTableFragment(trimmed)) return true;
 	if (/[|]/.test(trimmed)) return true;
 	if (isLikelySentenceClaimHeading(trimmed)) return true;
+	if (isLikelyPromptInstructionHeading(trimmed)) return true;
 	if (isLikelyAcceptedSourceTitleHeading(trimmed, acceptedSourceTitles)) {
 		return true;
 	}
@@ -2324,28 +2352,30 @@ function normalizeFallbackTitle(
 	value: string | null | undefined,
 ): string | null {
 	if (!value) return null;
-	const normalized = value
-		.replace(
-			/^\s*live\s+atlas\s+regression\s+check\s+\d{4}-\d{2}-\d{2}t[0-9:.]+z\.?\s*/i,
-			"",
-		)
-		.replace(/\b\d{4}-\d{2}-\d{2}t[0-9:.]+z\b/gi, "")
-		.replace(
-			/^(?:compare|find|choose|select|rank|recommend)\s+(?:the\s+)?(?:best\s+)?/i,
-			"",
-		)
-		.replace(/^#+\s*/, "")
-		.replace(
-			/^(create|generate|write|build)\s+(a\s+)?(concise|brief|detailed|in-depth|exhaustive|overview\s+)?(atlas\s+)?(overview\s+)?report\s+(comparing|about|on|for)\s+/i,
-			"",
-		)
-		.replace(
-			/\s+[-|:]\s+(Better Stack Community|A Developer.*|Dev\.to|GitHub).*$/i,
-			"",
-		)
-		.replace(/\s*[|]\s*[^|]+$/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
+	const normalized = stripAtlasPromptInstructionTail(
+		value
+			.replace(
+				/^\s*live\s+atlas\s+regression\s+check\s+\d{4}-\d{2}-\d{2}t[0-9:.]+z\.?\s*/i,
+				"",
+			)
+			.replace(/\b\d{4}-\d{2}-\d{2}t[0-9:.]+z\b/gi, "")
+			.replace(
+				/^(?:compare|find|choose|select|rank|recommend)\s+(?:the\s+)?(?:best\s+)?/i,
+				"",
+			)
+			.replace(/^#+\s*/, "")
+			.replace(
+				/^(create|generate|write|build)\s+(a\s+)?(concise|brief|detailed|in-depth|exhaustive|overview\s+)?(atlas\s+)?(overview\s+)?report\s+(comparing|about|on|for)\s+/i,
+				"",
+			)
+			.replace(
+				/\s+[-|:]\s+(Better Stack Community|A Developer.*|Dev\.to|GitHub).*$/i,
+				"",
+			)
+			.replace(/\s*[|]\s*[^|]+$/g, "")
+			.replace(/\s+/g, " ")
+			.trim(),
+	);
 	if (!normalized || /^atlas report$/i.test(normalized)) return null;
 	const clipped =
 		normalized.length <= 120
