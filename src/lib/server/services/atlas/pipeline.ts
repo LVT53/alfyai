@@ -54,9 +54,9 @@ import {
 	shouldImproveAtlasWriterDraft,
 } from "./writer";
 import {
+	type AtlasWriterEvidenceCardReranker,
 	buildAtlasWriterEvidenceCards,
 	routeAtlasWriterEvidenceCards,
-	type AtlasWriterEvidenceCardReranker,
 } from "./writer-evidence-cards";
 
 type ModelStage = Exclude<AtlasPipelineStage, "search" | "audit" | "render">;
@@ -1477,6 +1477,49 @@ const MALFORMED_WRITER_HEADING_LABELS = new Set([
 	"key model characteristics",
 ]);
 
+const SAFE_REPORT_HEADING_LABELS = new Set([
+	"analysis",
+	"deployment implications",
+	"evidence gaps",
+	"executive summary",
+	"findings",
+	"key findings",
+	"latency and cost",
+	"limitations",
+	"model shortlist",
+	"overview",
+	"ranked shortlist",
+	"recommendation",
+	"recommendations",
+	"recommended architecture",
+	"retrieval quality",
+	"sources",
+	"summary",
+	"tradeoffs",
+	"trade offs",
+	"vezetoi osszefoglalo",
+	"osszefoglalo",
+	"megallapitasok",
+	"ajanlas",
+	"ajanlasok",
+	"korlatok",
+	"kompromisszumok",
+]);
+
+const CLAIM_HEADING_VERB_PATTERN =
+	/\b(?:are|avoid|can|cannot|choose|dominates?|has|have|improves?|is|keeps?|leads?|limits?|needs?|offers?|outperforms?|requires?|should|supports?|uses?|wins?)\b/i;
+
+function isLikelySentenceClaimHeading(title: string): boolean {
+	const trimmed = title.trim().replace(/[.:;]+$/g, "");
+	const normalized = normalizedReportShapeText(trimmed);
+	if (!normalized || SAFE_REPORT_HEADING_LABELS.has(normalized)) return false;
+	if (/^(?:what|where|when|why|how)\b/i.test(trimmed)) return false;
+	const words = normalized.split(/\s+/).filter(Boolean);
+	if (words.length < 4) return false;
+	if (/[.!?]$/.test(title.trim())) return true;
+	return CLAIM_HEADING_VERB_PATTERN.test(trimmed);
+}
+
 function isMalformedWriterHeading(
 	title: string,
 	acceptedSourceTitles: string[],
@@ -1491,6 +1534,7 @@ function isMalformedWriterHeading(
 	if (isEvidencePackIdFragment(trimmed)) return true;
 	if (isFallbackTableFragment(trimmed)) return true;
 	if (/[|]/.test(trimmed)) return true;
+	if (isLikelySentenceClaimHeading(trimmed)) return true;
 	if (isLikelyAcceptedSourceTitleHeading(trimmed, acceptedSourceTitles)) {
 		return true;
 	}
@@ -1942,6 +1986,7 @@ function fallbackLimitationsText(input: {
 function fallbackTextForSection(input: {
 	title: string;
 	language: SupportedLanguage;
+	query: string;
 	statements: Array<{ prefix: string | null; body: string }>;
 	usedStatementIndexes: Set<number>;
 	limitation: { code: string; message: string } | null;
@@ -1961,7 +2006,10 @@ function fallbackTextForSection(input: {
 	);
 	if (matchedIndex >= 0) {
 		input.usedStatementIndexes.add(matchedIndex);
-		return input.statements[matchedIndex].body;
+		return developFallbackSectionText({
+			...input,
+			baseText: input.statements[matchedIndex].body,
+		});
 	}
 	if (sectionKey === executiveKey) {
 		const executiveStatements = input.statements
@@ -1974,7 +2022,12 @@ function fallbackTextForSection(input: {
 			if (index >= 0) input.usedStatementIndexes.add(index);
 		});
 		if (executiveStatements.length > 0) {
-			return executiveStatements.map((statement) => statement.body).join(" ");
+			return developFallbackSectionText({
+				...input,
+				baseText: executiveStatements
+					.map((statement) => statement.body)
+					.join(" "),
+			});
 		}
 	}
 	const fallbackIndex = input.statements.findIndex(
@@ -1982,15 +2035,148 @@ function fallbackTextForSection(input: {
 	);
 	if (fallbackIndex >= 0) {
 		input.usedStatementIndexes.add(fallbackIndex);
-		return input.statements[fallbackIndex].body;
+		return developFallbackSectionText({
+			...input,
+			baseText: input.statements[fallbackIndex].body,
+		});
+	}
+	return developFallbackSectionText({
+		...input,
+		baseText:
+			input.language === "hu"
+				? "Az elfogadott bizonyítékok alapján csak óvatos, forráshoz kötött megállapítás adható ehhez a szakaszhoz."
+				: "The accepted evidence supports only a cautious, source-bounded finding for this section.",
+	});
+}
+
+function fallbackSentenceCount(value: string): number {
+	return Math.max(0, value.match(/[.!?]+(?=\s|$)/g)?.length ?? 0);
+}
+
+function fallbackQueryNounPhrase(query: string): string {
+	const cleaned = normalizeFallbackTitle(query)
+		?.replace(/[?!.]+$/g, "")
+		.trim();
+	return cleaned
+		? cleaned.charAt(0).toLowerCase() + cleaned.slice(1)
+		: "this decision";
+}
+
+function fallbackSourceBasisText(input: {
+	language: SupportedLanguage;
+	evidencePacks: AtlasEvidencePack[];
+}): string {
+	const sourceTitles = input.evidencePacks
+		.flatMap((pack) => pack.sourceRefs.map((ref) => ref.title))
+		.map(cleanFallbackScalar)
+		.filter((title): title is string => Boolean(title))
+		.slice(0, 3);
+	if (sourceTitles.length === 0) {
+		return input.language === "hu"
+			? "A bizonyítékalap reprezentatív, ezért az állításokat ellenőrzött bevezetési mérőszámokkal kell megerősíteni."
+			: "The evidence base is representative, so the claims should be validated with measured rollout data before adoption.";
 	}
 	return input.language === "hu"
-		? "Az elfogadott bizonyítékok alapján csak óvatos, forráshoz kötött megállapítás adható ehhez a szakaszhoz."
-		: "The accepted evidence supports only a cautious, source-bounded finding for this section.";
+		? `A legerősebb forrásjelek ezekhez a forrásokhoz kötődnek: ${sourceTitles.join(", ")}.`
+		: `The strongest source signals come from ${sourceTitles.join(", ")}.`;
+}
+
+function developFallbackSectionText(input: {
+	title: string;
+	language: SupportedLanguage;
+	query: string;
+	baseText: string;
+	statements: Array<{ prefix: string | null; body: string }>;
+	usedStatementIndexes: Set<number>;
+	limitation: { code: string; message: string } | null;
+	evidencePacks: AtlasEvidencePack[];
+}): string {
+	const labels = fallbackSectionLabels(input.language);
+	const sectionKey = normalizedFallbackHeading(input.title);
+	const querySubject = fallbackQueryNounPhrase(input.query);
+	const sourceBasis = fallbackSourceBasisText(input);
+	const baseText = ensureTerminalPunctuation(input.baseText);
+	const additions: string[] = [];
+	if (
+		sectionKey === normalizedFallbackHeading(labels.limitations) ||
+		/\b(?:limitations?|constraints?|korlatok)\b/i.test(sectionKey)
+	) {
+		additions.push(
+			input.language === "hu"
+				? "Ezért a végső döntést saját korpuszon, késleltetési célokon és üzemeltetési korlátokon kell validálni."
+				: "The final decision should therefore be validated against the user's corpus, latency target, and operating constraints.",
+		);
+	} else if (
+		sectionKey === normalizedFallbackHeading(labels.recommendations) ||
+		/\b(?:recommend|decision|verdict|ajanlas)\b/i.test(sectionKey)
+	) {
+		additions.push(
+			input.language === "hu"
+				? `Az ajánlott út az, hogy a legerősebben alátámasztott mintát használd kiindulópontként a(z) ${querySubject} kérdésben, majd csak mért validáció után szélesítsd a bevezetést.`
+				: `We recommend using the strongest supported pattern as the starting point for ${querySubject}, then widening deployment only after measured validation.`,
+		);
+		additions.push(sourceBasis);
+	} else if (
+		sectionKey === normalizedFallbackHeading(labels.tradeoffs) ||
+		/\b(?:tradeoff|cost|latency|deployment|kompromisszum)\b/i.test(sectionKey)
+	) {
+		additions.push(
+			input.language === "hu"
+				? "A gyakorlati kompromisszum az, hogy a minőségi jelzéseket, költséget, késleltetést, karbantarthatóságot és auditálhatóságot együtt kell mérni, nem külön-külön."
+				: "The practical tradeoff is to evaluate quality signals, cost, latency, maintainability, and auditability together instead of optimizing one metric in isolation.",
+		);
+		additions.push(sourceBasis);
+	} else if (
+		sectionKey === normalizedFallbackHeading(labels.executive) ||
+		/\b(?:summary|overview|osszefoglalo)\b/i.test(sectionKey)
+	) {
+		additions.push(
+			input.language === "hu"
+				? `A döntési következmény az, hogy a(z) ${querySubject} kérdésben nem érdemes puszta rangsort közölni; a választ a működési kockázatokkal és bizonyítékhiányokkal együtt kell rögzíteni.`
+				: `The decision implication is that ${querySubject} should not be treated as a bare ranking; the answer needs to preserve operating risks and evidence gaps alongside the preferred path.`,
+		);
+		additions.push(sourceBasis);
+	} else {
+		additions.push(
+			input.language === "hu"
+				? "A szakasz következtetése ezért döntési bemenetként használható, de nem helyettesíti a saját környezetben végzett validációt."
+				: "That makes this section useful as decision input, but it does not replace validation in the user's own environment.",
+		);
+		additions.push(sourceBasis);
+	}
+	if (sectionKey !== normalizedFallbackHeading(labels.limitations)) {
+		additions.push(
+			input.language === "hu"
+				? "A bizonyítékot ezért nem forráslistaként kell olvasni, hanem döntési ellenőrzőpontként: mi támogatott, mi vitatott, és mit kell mérni a következő lépés előtt."
+				: "The evidence should therefore be read as a decision checkpoint rather than a source list: what is supported, what remains contested, and what must be measured before the next step.",
+		);
+		additions.push(
+			input.language === "hu"
+				? "A végrehajtás sorrendje legyen mérhető: először a legerősebb állítást validáld, majd a kockázatosabb opciókat csak akkor vedd be, ha új bizonyíték vagy saját teszt igazolja őket."
+				: "Execution should be staged and measurable: validate the strongest claim first, then add riskier options only when new evidence or local testing justifies them.",
+		);
+	}
+	const expanded = [baseText, ...additions]
+		.map(ensureTerminalPunctuation)
+		.join(" ")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (
+		fallbackSentenceCount(expanded) >= 3 ||
+		sectionKey === normalizedFallbackHeading(labels.limitations)
+	) {
+		return expanded;
+	}
+	const validationSentence =
+		input.language === "hu"
+			? "A bevezetési sorrendet a legerősebb bizonyíték, a maradék bizonytalanság és a mérhető üzemeltetési cél együtt határozza meg."
+			: "The rollout order should be set by the strongest evidence, the remaining uncertainty, and the measurable operating target together.";
+	return `${expanded} ${validationSentence}`;
 }
 
 function buildFallbackReportSections(input: {
 	language: SupportedLanguage;
+	query: string;
 	curatedEvidence: string;
 	synthesis: string;
 	outline: string;
@@ -2017,6 +2203,7 @@ function buildFallbackReportSections(input: {
 			text: fallbackTextForSection({
 				title,
 				language: input.language,
+				query: input.query,
 				statements,
 				usedStatementIndexes,
 				limitation: input.limitation,
@@ -2066,6 +2253,7 @@ function buildDeterministicFallbackReport(input: {
 	});
 	const sections = buildFallbackReportSections({
 		language: input.language,
+		query: input.query,
 		curatedEvidence: input.curatedEvidence,
 		synthesis: input.synthesis,
 		outline: input.outline,
@@ -2165,6 +2353,87 @@ function ensureTerminalPunctuation(text: string): string {
 	const trimmed = text.trim();
 	if (!trimmed) return "";
 	return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+const FINAL_REPORT_GATE_WARNING_CODES = new Set([
+	"atlas_report_sections_too_sparse",
+	"atlas_too_many_one_sentence_sections",
+	"atlas_source_projection_dominates_report",
+	"atlas_too_many_images_for_body_size",
+	"atlas_claim_shaped_headings",
+]);
+const FINAL_REPORT_HARD_STOP_CODES = new Set([
+	"atlas_report_sections_too_sparse",
+	"atlas_too_many_one_sentence_sections",
+	"atlas_source_projection_dominates_report",
+	"atlas_claim_shaped_headings",
+	"atlas_final_source_share_too_high",
+	"atlas_final_sections_too_shallow",
+]);
+
+interface AtlasFinalReportQualityGate {
+	passed: boolean;
+	fallbackApplied: boolean;
+	reasonWarningCodes: string[];
+	reasonMessages: string[];
+	before: AtlasReportShapeDiagnostics;
+	after?: AtlasReportShapeDiagnostics;
+}
+
+function finalReportQualityFailures(diagnostics: AtlasReportShapeDiagnostics): {
+	reasonWarningCodes: string[];
+	reasonMessages: string[];
+} {
+	const reasonWarningCodes: string[] = diagnostics.warnings
+		.map((warning) => warning.code)
+		.filter((code) => FINAL_REPORT_GATE_WARNING_CODES.has(code));
+	const reasonMessages: string[] = diagnostics.warnings
+		.filter((warning) => FINAL_REPORT_GATE_WARNING_CODES.has(warning.code))
+		.map((warning) => warning.message);
+	if (
+		diagnostics.bodyWordCount > 0 &&
+		diagnostics.bodyWordCount < 550 &&
+		(diagnostics.sectionCount >= 6 ||
+			diagnostics.sourceWordShare >= 0.45 ||
+			diagnostics.oneSentenceSectionCount >= 4)
+	) {
+		reasonWarningCodes.push("atlas_final_body_word_count_too_low");
+		reasonMessages.push(
+			"Final Atlas report body is too short for a decision-quality report after audit and rendering preparation.",
+		);
+	}
+	if (
+		diagnostics.sourceWordCount >= 250 &&
+		diagnostics.sourceWordShare >= 0.5 &&
+		diagnostics.bodyWordCount < 900
+	) {
+		reasonWarningCodes.push("atlas_final_source_share_too_high");
+		reasonMessages.push(
+			"Final Atlas source projection occupies too much of the rendered report relative to the authored body.",
+		);
+	}
+	if (
+		diagnostics.sectionCount >= 6 &&
+		diagnostics.oneSentenceSectionCount / diagnostics.sectionCount >= 0.5 &&
+		diagnostics.substantiveSectionCount <= 2
+	) {
+		reasonWarningCodes.push("atlas_final_sections_too_shallow");
+		reasonMessages.push(
+			"Final Atlas report has too many shallow one-sentence sections after the model improvement pass.",
+		);
+	}
+	return {
+		reasonWarningCodes: Array.from(new Set(reasonWarningCodes)),
+		reasonMessages: Array.from(new Set(reasonMessages)),
+	};
+}
+
+function shouldHardStopAfterFinalFallback(failures: {
+	reasonWarningCodes: string[];
+}): boolean {
+	return failures.reasonWarningCodes.some((code) =>
+		FINAL_REPORT_HARD_STOP_CODES.has(code),
+	);
 }
 
 export async function runAtlasPipeline(
@@ -2377,7 +2646,6 @@ export async function runAtlasPipeline(
 	let assemblyMetadata = assemblyOutput.metadata;
 	let finalAssembledMarkdown = assemblyOutput.markdown;
 	let usedDeterministicFallbackBeforeImprovement = false;
-	let reportShapeDiagnostics: AtlasReportShapeDiagnostics | null = null;
 	let firstDraftReportShapeDiagnostics: AtlasReportShapeDiagnostics | null =
 		null;
 	let writerImprovement = {
@@ -2460,7 +2728,6 @@ export async function runAtlasPipeline(
 	firstDraftReportShapeDiagnostics = diagnoseAtlasReportShape(
 		finalAssembledMarkdown,
 	);
-	reportShapeDiagnostics = firstDraftReportShapeDiagnostics;
 	if (shouldImproveAtlasWriterDraft(firstDraftReportShapeDiagnostics)) {
 		writerImprovement = {
 			ran: true,
@@ -2517,7 +2784,6 @@ export async function runAtlasPipeline(
 			markdown: finalAssembledMarkdown,
 			acceptedSourceTitles,
 		});
-		reportShapeDiagnostics = diagnoseAtlasReportShape(finalAssembledMarkdown);
 	}
 
 	const auditSources = [
@@ -2586,7 +2852,6 @@ export async function runAtlasPipeline(
 			markdown: finalAssembledMarkdown,
 			acceptedSourceTitles,
 		});
-		reportShapeDiagnostics = diagnoseAtlasReportShape(finalAssembledMarkdown);
 		await input.dependencies.heartbeat?.({
 			stage: "audit",
 			progressPercent: 94,
@@ -2607,7 +2872,7 @@ export async function runAtlasPipeline(
 			usage = addUsage(usage, audit.usage);
 		}
 	}
-	const auditedMarkdown =
+	let auditedMarkdown =
 		audit.passed && !audit.retryRequested
 			? finalAssembledMarkdown
 			: [
@@ -2616,6 +2881,129 @@ export async function runAtlasPipeline(
 					"## Limitations",
 					"Atlas audit requested additional verification. This version ships with explicit limitations and Basis Markers instead of unsupported certainty.",
 				].join("\n");
+	let claimBasis = audit.claimBasis ?? [];
+	let basisLimitations = audit.basisLimitations ?? [];
+	let basisDiagnostics = audit.basisDiagnostics ?? [];
+	let claimBasisCoverageBySection = audit.claimBasisCoverageBySection ?? [];
+	let claimBasisStatus =
+		audit.claimBasisStatus ?? (claimBasis.length > 0 ? "succeeded" : "failed");
+	let claimBasisFailureReason = audit.claimBasisFailureReason ?? null;
+	const buildCurrentDocumentSource = () =>
+		buildAtlasDocumentSource({
+			title: assemblyMetadata.generatedTitle ?? input.job.title,
+			subtitle: null,
+			family: input.job.lifecycle.family,
+			assembledMarkdown: auditedMarkdown,
+			sources: publishedSources,
+			honestyMarkers: audit.honestyMarkers,
+			claimBasis,
+			imageCandidates: imageSearch.imageCandidates,
+			maxRenderedImages: profileConfig.maxRenderedImages,
+			date: currentDate,
+			language,
+		});
+
+	let documentSource = buildCurrentDocumentSource();
+	let finalReportShapeDiagnostics = diagnoseAtlasReportShape(documentSource);
+	let finalReportQualityGate: AtlasFinalReportQualityGate = {
+		passed: true,
+		fallbackApplied: false,
+		reasonWarningCodes: [],
+		reasonMessages: [],
+		before: finalReportShapeDiagnostics,
+	};
+	const finalQualityFailures = finalReportQualityFailures(
+		finalReportShapeDiagnostics,
+	);
+	if (finalQualityFailures.reasonWarningCodes.length > 0) {
+		const fallbackReport = buildDeterministicFallbackReport({
+			language,
+			query: input.job.query,
+			curatedEvidence: finalResearchRound.curatedEvidence,
+			synthesis: synthesize.text,
+			outline: integrate.text,
+			evidencePacks: evidencePackResult.evidencePacks,
+			sources: fallbackSources,
+			limitation: searchLimitation,
+		});
+		const fallbackMetadata = {
+			...fallbackReport.metadata,
+			generatedTitle: assemblyMetadata.generatedTitle,
+		};
+		assemblyMetadata = mergeAssemblyMetadata(
+			assemblyMetadata,
+			fallbackMetadata,
+		);
+		finalAssembledMarkdown = sanitizeMalformedWriterHeadings({
+			markdown: fallbackReport.markdown,
+			acceptedSourceTitles,
+		});
+		await input.dependencies.heartbeat?.({
+			stage: "audit",
+			progressPercent: 95,
+		});
+		audit = await input.dependencies.auditBasis({
+			assembledMarkdown: finalAssembledMarkdown,
+			sources: auditSources,
+			limitation: searchLimitation,
+			language,
+			currentDate,
+			evidencePacks: evidencePackResult.evidencePacks,
+			evidencePackDiagnostics,
+			coverageReview,
+			sectionBriefs: assemblyMetadata.sectionBriefs,
+			assemblyMetadata,
+		});
+		if (audit.usage) {
+			usage = addUsage(usage, audit.usage);
+		}
+		auditedMarkdown =
+			audit.passed && !audit.retryRequested
+				? finalAssembledMarkdown
+				: [
+						finalAssembledMarkdown,
+						"",
+						"## Limitations",
+						"Atlas audit requested additional verification. This version ships with explicit limitations and Basis Markers instead of unsupported certainty.",
+					].join("\n");
+		claimBasis = audit.claimBasis ?? [];
+		basisLimitations = audit.basisLimitations ?? [];
+		basisDiagnostics = audit.basisDiagnostics ?? [];
+		claimBasisCoverageBySection = audit.claimBasisCoverageBySection ?? [];
+		claimBasisStatus =
+			audit.claimBasisStatus ??
+			(claimBasis.length > 0 ? "succeeded" : "failed");
+		claimBasisFailureReason = audit.claimBasisFailureReason ?? null;
+		documentSource = buildCurrentDocumentSource();
+		finalReportShapeDiagnostics = diagnoseAtlasReportShape(documentSource);
+		const afterFailures = finalReportQualityFailures(
+			finalReportShapeDiagnostics,
+		);
+		finalReportQualityGate = {
+			passed: afterFailures.reasonWarningCodes.length === 0,
+			fallbackApplied: true,
+			reasonWarningCodes: finalQualityFailures.reasonWarningCodes,
+			reasonMessages: finalQualityFailures.reasonMessages,
+			before: finalReportQualityGate.before,
+			after: finalReportShapeDiagnostics,
+		};
+		if (shouldHardStopAfterFinalFallback(afterFailures)) {
+			audit = {
+				...audit,
+				honestyMarkers: [
+					...audit.honestyMarkers,
+					{
+						code: "atlas_final_report_quality_gate_failed",
+						message: [
+							"Atlas final report remained too sparse after the bounded writer improvement and deterministic expansion.",
+							...afterFailures.reasonMessages,
+						].join(" "),
+						severity: "critical",
+					},
+				],
+			};
+		}
+	}
 	const canonicalTitle = assemblyMetadata.generatedTitle ?? input.job.title;
 	if (assemblyMetadata.generatedTitle) {
 		await input.dependencies.applyGeneratedTitle?.({
@@ -2623,32 +3011,10 @@ export async function runAtlasPipeline(
 			title: assemblyMetadata.generatedTitle,
 		});
 	}
-	const claimBasis = audit.claimBasis ?? [];
-	const basisLimitations = audit.basisLimitations ?? [];
-	const basisDiagnostics = audit.basisDiagnostics ?? [];
-	const claimBasisCoverageBySection = audit.claimBasisCoverageBySection ?? [];
-	const claimBasisStatus =
-		audit.claimBasisStatus ?? (claimBasis.length > 0 ? "succeeded" : "failed");
-	const claimBasisFailureReason = audit.claimBasisFailureReason ?? null;
-
-	const documentSource = buildAtlasDocumentSource({
-		title: canonicalTitle,
-		subtitle: null,
-		family: input.job.lifecycle.family,
-		assembledMarkdown: auditedMarkdown,
-		sources: publishedSources,
-		honestyMarkers: audit.honestyMarkers,
-		claimBasis,
-		imageCandidates: imageSearch.imageCandidates,
-		maxRenderedImages: profileConfig.maxRenderedImages,
-		date: currentDate,
-		language,
-	});
 	const selectedImageCandidateIds = collectAtlasSelectedImageCandidateIds(
 		documentSource,
 		imageSearch.imageCandidates,
 	);
-	const finalReportShapeDiagnostics = diagnoseAtlasReportShape(documentSource);
 	const writerCheckpoint = {
 		evidenceCards: {
 			version: writerEvidenceCardResult.version,
@@ -2658,6 +3024,7 @@ export async function runAtlasPipeline(
 		improvement: writerImprovement,
 		firstDraftReportShapeDiagnostics,
 		finalReportShapeDiagnostics,
+		finalReportQualityGate,
 	};
 	const evidenceAppendixSummary = buildEvidenceAppendixSummary({
 		localSources: sources.localSources,

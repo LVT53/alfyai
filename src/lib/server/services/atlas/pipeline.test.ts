@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
 import type { RunAtlasPipelineInput } from "./pipeline";
-import type { AtlasWriterEvidenceCardReranker } from "./writer-evidence-cards";
 import type {
 	AtlasGapProposal,
 	AtlasPipelineJobContext,
 	AtlasProfile,
 } from "./types";
+import type { AtlasWriterEvidenceCardReranker } from "./writer-evidence-cards";
 
 describe("Atlas pipeline slices", () => {
 	afterEach(() => {
@@ -3044,8 +3044,6 @@ describe("Atlas pipeline slices", () => {
 			pass: 1,
 			maxPasses: 1,
 			warningCodes: expect.arrayContaining([
-				"atlas_report_sections_too_sparse",
-				"atlas_too_many_one_sentence_sections",
 				"atlas_recommendation_not_decisive",
 			]),
 		});
@@ -3058,10 +3056,10 @@ describe("Atlas pipeline slices", () => {
 		).toBeGreaterThan(220);
 		expect(
 			improvementPrompt.reportShapeDiagnostics.substantiveSectionCount,
-		).toBeLessThanOrEqual(1);
+		).toBeGreaterThanOrEqual(3);
 		expect(
 			improvementPrompt.reportShapeDiagnostics.oneSentenceSectionCount,
-		).toBeGreaterThanOrEqual(8);
+		).toBeLessThan(8);
 		expect(improvementPrompt.improvementInstructions).toContain(
 			"Do not add sources",
 		);
@@ -3094,12 +3092,6 @@ describe("Atlas pipeline slices", () => {
 					firstDraftReportShapeDiagnostics: expect.objectContaining({
 						warnings: expect.arrayContaining([
 							expect.objectContaining({
-								code: "atlas_report_sections_too_sparse",
-							}),
-							expect.objectContaining({
-								code: "atlas_too_many_one_sentence_sections",
-							}),
-							expect.objectContaining({
 								code: "atlas_recommendation_not_decisive",
 							}),
 						]),
@@ -3114,6 +3106,235 @@ describe("Atlas pipeline slices", () => {
 				}),
 			},
 		});
+	});
+
+	it("applies deterministic final expansion when the post-audit rendered report is still hollow", async () => {
+		const checkpoints: Array<{
+			checkpoint: Record<string, unknown>;
+			qualityDiagnostics: Record<string, unknown>;
+		}> = [];
+		const sourceDump = Array.from(
+			{ length: 620 },
+			(_, index) => `sourceword${index}`,
+		).join(" ");
+		const hollowImprovedDraft = [
+			"## Executive Summary",
+			"Self-hosted embedding model selection needs evidence across quality, latency, memory, and reranker fit, but the draft still leaves most deployment consequences underdeveloped.",
+			"",
+			"## No single model dominates all domains",
+			"Benchmark leaders vary by domain and deployment constraint.",
+			"",
+			"## Qwen3 supports output dimensions 32-1024",
+			"Dimension flexibility matters for storage and latency.",
+			"",
+			"## Model Shortlist",
+			"BGE, GTE, E5, Jina, Nomic, and Qwen-style candidates remain plausible depending on the corpus.",
+			"",
+			"## Retrieval Quality",
+			"Quality depends on chunking, query mix, reranking, and domain vocabulary.",
+			"",
+			"## Latency and Cost",
+			"Latency depends on dimension count, batching, quantization, and serving runtime.",
+			"",
+			"## Deployment Implications",
+			"Single-machine deployment needs predictable memory and stable operational support.",
+			"",
+			"## Recommendation",
+			"Recommendation for English Technical-Document Retrieval.",
+			"",
+			"## Evidence Gaps",
+			"Few sources compare every model on identical hardware and corpus settings.",
+			"",
+			"## Limitations",
+			"The evidence remains representative rather than exhaustive.",
+		].join("\n");
+		let assembleCalls = 0;
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async (_source: GeneratedDocumentSource) => ({
+			fileProductionJobId: "fp-job-final-expansion",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-final-quality-expansion",
+				profile: "overview",
+				query:
+					"Find the most intelligent embedding model with minimal latency and cost that can be self-hosted on a single RT-class machine",
+			}),
+			now: new Date("2026-06-22T02:42:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-embedding-models-final",
+							title: "Self-hosted embedding model deployment evidence",
+							url: "https://example.com/embedding-models-final",
+							snippet: `Self-hosted embedding model evidence covers retrieval quality, latency, memory, embedding dimensions, reranker compatibility, serving maturity, and production validation. ${sourceDump}`,
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				searchImages: vi.fn(async () => ({
+					imageCandidates: [
+						{
+							id: "image-generic-cover",
+							query: "embedding model retrieval reranking architecture",
+							title: "Blog cover image",
+							imageUrl:
+								"https://zilliz.com/blog/assets/embedding-rag-cover.png",
+							sourcePageUrl: "https://zilliz.com/blog/embedding-models-rag",
+							sourceTitle: "Zilliz blog cover for embedding models",
+							thumbnailUrl: null,
+							width: 1200,
+							height: 675,
+							caption: "Featured image for an embedding models article",
+							selectionReason: "Image result for embedding retrieval.",
+						},
+					],
+					imageLimitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "self hosted embedding models English technical document retrieval latency cost single GPU reranker",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return { text: coverageReviewText([], true), usage: stageUsage() };
+					}
+					if (input.stage === "synthesize") {
+						return {
+							text: [
+								"Executive Summary: English technical-document retrieval needs a source-grounded model comparison across retrieval quality, latency, cost, hardware fit, deployment risk, reranking support, language coverage, and maintenance boundaries.",
+								"Findings: Accepted evidence connects embedding dimensions, serving maturity, reranker compatibility, memory pressure, and production validation to the model choice.",
+								"Tradeoffs: Larger dimensions and benchmark leaders can improve quality but increase storage, memory, and latency pressure.",
+								"Recommendation: Choose a compact model with reranker compatibility first, then promote larger candidates only after corpus tests.",
+							].join("\n"),
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "integrate") {
+						return {
+							text: [
+								"Executive Summary",
+								"Model Shortlist",
+								"Retrieval Quality",
+								"Latency and Cost",
+								"Deployment Implications",
+								"Recommendation",
+								"Limitations",
+								"Evidence Gaps",
+							].join("; "),
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text:
+								assembleCalls === 1
+									? JSON.stringify({
+											generatedTitle: "Self-Hosted Embedding Model Choice",
+											bodyMarkdown:
+												"## Executive Summary\nThe first draft is too shallow and does not decide the deployment path.",
+											sectionBriefs: [],
+											limitations: [],
+										})
+									: JSON.stringify({
+											generatedTitle: "Self-Hosted Embedding Model Choice",
+											bodyMarkdown: hollowImprovedDraft,
+											sectionBriefs: [],
+											limitations: [
+												"Identical hardware measurements are not available for every candidate.",
+											],
+										}),
+							usage: stageUsage(),
+						};
+					}
+					return { text: `${input.stage} result`, usage: stageUsage() };
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs,
+			},
+		});
+
+		expect(auditBasis).toHaveBeenCalledTimes(2);
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		const firstAuditInput = auditCalls[0]?.[0];
+		const secondAuditInput = auditCalls[1]?.[0];
+		expect(firstAuditInput?.assembledMarkdown).toContain(
+			"**No single model dominates all domains.**",
+		);
+		expect(firstAuditInput?.assembledMarkdown).toContain(
+			"**Qwen3 supports output dimensions 32-1024.**",
+		);
+		expect(secondAuditInput?.assembledMarkdown).toContain(
+			"We recommend using the strongest supported pattern",
+		);
+		const renderedSource = renderOutputs.mock.calls[0]?.[0];
+		expect(
+			renderedSource.blocks.filter((block) => block.type === "image"),
+		).toHaveLength(0);
+		const renderedText = renderedSource.blocks
+			.flatMap((block) => {
+				if (block.type === "heading" || block.type === "paragraph") {
+					return [block.text];
+				}
+				return [];
+			})
+			.join("\n");
+		expect(renderedText).not.toContain("No single model dominates all domains");
+		expect(renderedText).toContain(
+			"We recommend using the strongest supported pattern",
+		);
+		const finalCheckpoint = checkpoints.at(-1);
+		expect(finalCheckpoint).toMatchObject({
+			checkpoint: {
+				writer: {
+					finalReportQualityGate: expect.objectContaining({
+						passed: true,
+						fallbackApplied: true,
+						reasonWarningCodes: expect.arrayContaining([
+							"atlas_report_sections_too_sparse",
+							"atlas_too_many_one_sentence_sections",
+							"atlas_final_body_word_count_too_low",
+						]),
+					}),
+					finalReportShapeDiagnostics: expect.objectContaining({
+						sourceWordShare: expect.any(Number),
+					}),
+				},
+			},
+			qualityDiagnostics: {
+				writer: {
+					finalReportQualityGate: expect.objectContaining({
+						fallbackApplied: true,
+					}),
+				},
+			},
+		});
+		expect(
+			(
+				finalCheckpoint?.checkpoint.writer as {
+					finalReportShapeDiagnostics?: { sourceWordShare: number };
+				}
+			).finalReportShapeDiagnostics?.sourceWordShare,
+		).toBeLessThan(0.5);
 	});
 
 	it("does not run the writer improvement pass for a substantive first draft", async () => {
@@ -3714,7 +3935,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(3);
+		expect(assembleCalls).toBe(2);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
@@ -3854,7 +4075,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(3);
+		expect(assembleCalls).toBe(2);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
@@ -4005,7 +4226,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(3);
+		expect(assembleCalls).toBe(2);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;

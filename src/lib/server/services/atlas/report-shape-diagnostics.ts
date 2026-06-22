@@ -10,7 +10,8 @@ export type AtlasReportShapeWarningCode =
 	| "atlas_too_many_one_sentence_sections"
 	| "atlas_source_projection_dominates_report"
 	| "atlas_recommendation_not_decisive"
-	| "atlas_too_many_images_for_body_size";
+	| "atlas_too_many_images_for_body_size"
+	| "atlas_claim_shaped_headings";
 
 export interface AtlasReportShapeWarning {
 	code: AtlasReportShapeWarningCode;
@@ -25,6 +26,7 @@ export interface AtlasReportShapeDiagnostics {
 	sectionCount: number;
 	substantiveSectionCount: number;
 	oneSentenceSectionCount: number;
+	claimShapedHeadingCount: number;
 	imageCount: number;
 	hasDecisionOrRecommendationSignal: boolean;
 	warnings: AtlasReportShapeWarning[];
@@ -54,6 +56,36 @@ const SOURCE_DOMINATES_RATIO = 2;
 const SUBSTANTIVE_SECTION_WORDS = 55;
 const SUBSTANTIVE_STRUCTURED_SECTION_WORDS = 30;
 const HOLLOW_RECOMMENDATION_WORDS = 18;
+const SAFE_REPORT_HEADING_LABELS = new Set([
+	"analysis",
+	"deployment implications",
+	"evidence gaps",
+	"executive summary",
+	"findings",
+	"key findings",
+	"latency and cost",
+	"limitations",
+	"model shortlist",
+	"overview",
+	"ranked shortlist",
+	"recommendation",
+	"recommendations",
+	"recommended architecture",
+	"retrieval quality",
+	"sources",
+	"summary",
+	"tradeoffs",
+	"trade offs",
+	"vezetoi osszefoglalo",
+	"osszefoglalo",
+	"megallapitasok",
+	"ajanlas",
+	"ajanlasok",
+	"korlatok",
+	"kompromisszumok",
+]);
+const CLAIM_HEADING_VERB_PATTERN =
+	/\b(?:are|avoid|can|cannot|choose|dominates?|has|have|improves?|is|keeps?|leads?|limits?|needs?|offers?|outperforms?|requires?|should|supports?|uses?|wins?)\b/i;
 
 const SOURCE_SECTION_LABELS = new Set([
 	"sources",
@@ -136,6 +168,18 @@ function isRecommendationTitle(title: string | null): boolean {
 				normalizedHeading(title),
 			),
 	);
+}
+
+function isLikelyClaimShapedHeading(title: string | null): boolean {
+	if (!title) return false;
+	const trimmed = title.trim().replace(/[.:;]+$/g, "");
+	const normalized = normalizedHeading(trimmed);
+	if (!normalized || SAFE_REPORT_HEADING_LABELS.has(normalized)) return false;
+	if (/^(?:what|where|when|why|how)\b/i.test(trimmed)) return false;
+	const words = normalized.split(/\s+/).filter(Boolean);
+	if (words.length < 4) return false;
+	if (/[.!?]$/.test(title.trim())) return true;
+	return CLAIM_HEADING_VERB_PATTERN.test(trimmed);
 }
 
 function isTitleRestatement(title: string | null, text: string): boolean {
@@ -324,6 +368,7 @@ function buildWarnings(input: {
 	substantiveSectionCount: number;
 	oneSentenceSectionCount: number;
 	imageCount: number;
+	claimShapedHeadingCount: number;
 	hasDecisionOrRecommendationSignal: boolean;
 	hasRecommendationSection: boolean;
 	recommendationSectionHasDecisionSignal: boolean;
@@ -398,6 +443,13 @@ function buildWarnings(input: {
 				"Atlas image count is high for the amount of report body text; this is an advisory shape diagnostic.",
 		});
 	}
+	if (input.claimShapedHeadingCount > 0) {
+		warnings.push({
+			code: "atlas_claim_shaped_headings",
+			message:
+				"Atlas report still has sentence-like claim headings; those claims should be prose with basis markers, not section titles.",
+		});
+	}
 	return warnings;
 }
 
@@ -435,6 +487,9 @@ export function diagnoseAtlasReportShape(
 	const oneSentenceSectionCount = bodySectionStats.filter(
 		(section) => section.sentences <= 1,
 	).length;
+	const claimShapedHeadingCount = bodySectionStats.filter((section) =>
+		isLikelyClaimShapedHeading(section.title),
+	).length;
 	const hasDecisionOrRecommendationSignal = hasDecisionSignal(parts.bodyText);
 	const recommendationSections = bodySectionStats.filter((section) =>
 		isRecommendationTitle(section.title),
@@ -457,6 +512,7 @@ export function diagnoseAtlasReportShape(
 		sectionCount: bodySectionStats.length,
 		substantiveSectionCount,
 		oneSentenceSectionCount,
+		claimShapedHeadingCount,
 		imageCount: parts.imageCount,
 		hasDecisionOrRecommendationSignal,
 		warnings: buildWarnings({
@@ -468,6 +524,7 @@ export function diagnoseAtlasReportShape(
 			substantiveSectionCount,
 			oneSentenceSectionCount,
 			imageCount: parts.imageCount,
+			claimShapedHeadingCount,
 			hasDecisionOrRecommendationSignal,
 			hasRecommendationSection: recommendationSections.length > 0,
 			recommendationSectionHasDecisionSignal,

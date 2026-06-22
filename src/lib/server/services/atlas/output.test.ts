@@ -561,6 +561,56 @@ describe("Atlas renderer output", () => {
 		).toHaveLength(0);
 	});
 
+	it("rejects generic article cover and blog diagrams without strong subject relevance", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Embedding Model Atlas",
+			assembledMarkdown: [
+				"## Executive Summary",
+				"English technical-document retrieval decisions should compare embedding quality, reranking fit, latency, memory, and deployment constraints.",
+				"",
+				"## Findings",
+				"Relevant visuals should clarify the selected retrieval stack, not decorate a blog article.",
+			].join("\n"),
+			sources: [],
+			honestyMarkers: [],
+			imageCandidates: [
+				{
+					id: "image-medium-chunking",
+					query: "embedding model retrieval reranking architecture",
+					title: "Chunking strategy diagram",
+					imageUrl: "https://miro.medium.com/v2/resize:fit:1400/chunking.png",
+					sourcePageUrl: "https://medium.com/example/chunking-for-rag",
+					sourceTitle: "Medium article about RAG chunking",
+					thumbnailUrl: null,
+					width: 1200,
+					height: 675,
+					caption: "Generic diagram for chunking strategies",
+					selectionReason: "Image result for embedding retrieval.",
+				},
+				{
+					id: "image-zilliz-cover",
+					query: "embedding model retrieval reranking architecture",
+					title: "Blog cover image",
+					imageUrl: "https://zilliz.com/blog/assets/embedding-rag-cover.png",
+					sourcePageUrl: "https://zilliz.com/blog/embedding-models-rag",
+					sourceTitle: "Zilliz blog cover for embedding models",
+					thumbnailUrl: null,
+					width: 1200,
+					height: 675,
+					caption: "Featured image for an embedding models article",
+					selectionReason: "Image result for embedding retrieval.",
+				},
+			],
+			maxRenderedImages: 2,
+		});
+
+		expect(
+			source.blocks.filter((block) => block.type === "image"),
+		).toHaveLength(0);
+	});
+
 	it("keeps source-backed image candidates when visual text and source title both support the report query", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 
@@ -1328,6 +1378,34 @@ describe("Atlas renderer output", () => {
 				"atlas_report_sections_too_sparse",
 				"atlas_too_many_one_sentence_sections",
 				"atlas_recommendation_not_decisive",
+			]),
+		);
+	});
+
+	it("diagnoses sentence-like claim headings while preserving concise section titles", async () => {
+		const { diagnoseAtlasReportShape } = await import(
+			"./report-shape-diagnostics"
+		);
+		const diagnostics = diagnoseAtlasReportShape(
+			[
+				"## Executive Summary",
+				"The report starts with a legitimate concise section heading.",
+				"",
+				"## No single model dominates all domains",
+				"This claim belongs in prose because claim-basis audit should evaluate it as a factual statement.",
+				"",
+				"## Qwen3 supports output dimensions 32-1024",
+				"This claim also belongs in prose rather than a section title.",
+				"",
+				"## Tradeoffs",
+				"Tradeoffs is a legitimate concise report section title.",
+			].join("\n"),
+		);
+
+		expect(diagnostics.claimShapedHeadingCount).toBe(2);
+		expect(diagnostics.warnings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ code: "atlas_claim_shaped_headings" }),
 			]),
 		);
 	});

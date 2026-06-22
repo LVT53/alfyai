@@ -37,6 +37,12 @@ const LOGO_OR_ICON_TEXT_PATTERN =
 const LOGO_OR_ICON_URL_PATTERN =
 	/(?:^|[/.?&=_-])(?:apple-touch-icon|brandfetch|clearbit|devicon|favicon|flaticon|fontawesome|heroicons|icon|icons|icons8|logo|logos|logomark|material-icons|simple-icons|sprite|svgporn|svgrepo|worldvectorlogo)(?:[/.?&=_-]|$)/i;
 
+const GENERIC_ARTICLE_IMAGE_PATTERN =
+	/\b(?:abstract|article\s+(?:cover|hero|image|thumbnail)|banner|blog\s+(?:cover|header|hero|image|thumbnail)|cover\s+(?:art|image|illustration|photo)|decorative|featured\s+image|generic|header\s+image|hero\s+(?:banner|image|illustration)|illustration|stock\s+(?:art|image|illustration|photo)|thumbnail)\b/i;
+
+const GENERIC_VISUAL_NOUN_PATTERN =
+	/\b(?:diagram|flowchart|graphic|illustration|image|picture|visual|visualization)\b/i;
+
 function normalizeImageText(text: string): string {
 	return text
 		.toLowerCase()
@@ -136,6 +142,37 @@ function hasStrongQueryRelevance(candidate: AtlasImageCandidate): boolean {
 	return visualScore > 0 && visualScore + sourceContextScore >= requiredOverlap;
 }
 
+function hasStrongSubjectRelevance(candidate: AtlasImageCandidate): boolean {
+	const requiredOverlap = minimumQueryOverlap(candidate.query);
+	if (requiredOverlap === 0) return true;
+	const visualScore = atlasImageTokenOverlapScore(
+		candidate.query,
+		atlasImageCandidateVisualText(candidate),
+	);
+	const sourceTitleScore = atlasImageTokenOverlapScore(
+		candidate.query,
+		candidate.sourceTitle ?? "",
+	);
+	return (
+		visualScore >= Math.max(2, requiredOverlap) ||
+		(visualScore >= 1 &&
+			sourceTitleScore >= 1 &&
+			visualScore + sourceTitleScore >= 3)
+	);
+}
+
+function isLikelyGenericArticleImage(candidate: AtlasImageCandidate): boolean {
+	const visualText = atlasImageCandidateVisualText(candidate);
+	const sourceText = candidate.sourceTitle ?? "";
+	const combined = [visualText, sourceText].join(" ");
+	return (
+		GENERIC_ARTICLE_IMAGE_PATTERN.test(combined) ||
+		(/\b(?:blog|community|medium|news|post|article)\b/i.test(sourceText) &&
+			GENERIC_VISUAL_NOUN_PATTERN.test(visualText) &&
+			atlasImageMeaningfulTokens(visualText).size <= 4)
+	);
+}
+
 function isLikelyLogoOrIcon(candidate: AtlasImageCandidate): boolean {
 	const text = [
 		candidate.title,
@@ -173,5 +210,11 @@ export function isUsableAtlasImageCandidate(
 	if (isLikelySvgOrIconFile(candidate)) return false;
 	if (isLikelyLogoOrIcon(candidate)) return false;
 	if (isTooSmallForReport(candidate)) return false;
+	if (
+		isLikelyGenericArticleImage(candidate) &&
+		!hasStrongSubjectRelevance(candidate)
+	) {
+		return false;
+	}
 	return hasStrongQueryRelevance(candidate);
 }
