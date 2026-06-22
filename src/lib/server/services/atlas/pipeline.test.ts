@@ -3077,7 +3077,7 @@ describe("Atlas pipeline slices", () => {
 						assemblePrompts.push(input.prompt);
 						return {
 							text:
-								assemblePrompts.length < 3
+								assemblePrompts.length < 4
 									? "I checked the sources and synthesized findings for the report."
 									: JSON.stringify({
 											generatedTitle: "Self-Hosted Embedding Model Choice",
@@ -3105,7 +3105,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assemblePrompts).toHaveLength(2);
+		expect(assemblePrompts).toHaveLength(3);
 		expect(JSON.parse(assemblePrompts[1]).repairInstruction).toContain(
 			"process summary",
 		);
@@ -4656,7 +4656,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(2);
+		expect(assembleCalls).toBe(3);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
@@ -4955,7 +4955,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(2);
+		expect(assembleCalls).toBe(3);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
@@ -5788,5 +5788,425 @@ describe("Atlas pipeline slices", () => {
 		expect(auditBasis).toHaveBeenCalledWith(
 			expect.objectContaining({ language: "hu" }),
 		);
+	});
+
+	it("runs a second minimal repair when the first assembly repair still produces a process-only draft", async () => {
+		let assembleCalls = 0;
+		const assembleTexts: string[] = [];
+		const checkpoints: Array<{ checkpoint: Record<string, unknown> }> = [];
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-second-repair",
+				profile: "overview",
+				query: "Compare retrieval systems for regulated SaaS",
+			}),
+			now: new Date("2026-06-22T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-second-repair",
+							title: "Retrieval systems evidence",
+							url: "https://example.com/retrieval-second-repair",
+							snippet:
+								"Hybrid retrieval combines lexical and semantic recall for regulated SaaS.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						const texts = [
+							"I checked the sources and synthesized findings for the report.",
+							"The sources were reviewed and key patterns were identified across the evidence.",
+							[
+								"# Retrieval Systems",
+								"",
+								"## Executive Summary",
+								"Hybrid retrieval is the recommended path for regulated SaaS deployments. The combination of lexical and semantic search provides the best balance of recall, precision, and auditability for production environments that require traceability and governance compliance.",
+								"",
+								"## Findings",
+								"Lexical recall preserves exact terms for compliance queries while semantic discovery catches related concepts that do not share the same wording. Reranking after the first pass ensures only the strongest accepted sources contribute to final claims in the deployed system.",
+								"",
+								"## Recommendation",
+								"Deploy a hybrid retrieval stack with reranking for regulated compliance. This gives the team a measurable rollout path with source-level logging, benchmark validation on representative technical documents, and tunable reranking depth before scaling to production workloads.",
+								"",
+								"## Limitations",
+								"Evidence is representative rather than exhaustive across all regulated industries. Different compliance frameworks may require different retrieval configurations based on specific document types and data classification requirements.",
+							].join("\n"),
+							[
+								"# Retrieval Systems",
+								"",
+								"## Executive Summary",
+								"Hybrid retrieval is the recommended path for regulated SaaS deployments. The combination of lexical and semantic search provides the best balance of recall, precision, and auditability for production environments that require traceability and governance compliance.",
+								"",
+								"## Findings",
+								"Lexical recall preserves exact terms for compliance queries while semantic discovery catches related concepts that do not share the same wording. Reranking after the first pass ensures only the strongest accepted sources contribute to final claims in the deployed system.",
+								"",
+								"## Recommendation",
+								"Deploy a hybrid retrieval stack with reranking for regulated compliance. This gives the team a measurable rollout path with source-level logging, benchmark validation on representative technical documents, and tunable reranking depth before scaling to production workloads.",
+								"",
+								"## Limitations",
+								"Evidence is representative rather than exhaustive across all regulated industries. Different compliance frameworks may require different retrieval configurations based on specific document types and data classification requirements.",
+							].join("\n"),
+						];
+						const text = texts[assembleCalls - 1] ?? texts[0];
+						assembleTexts.push(text);
+						return { text, usage: stageUsage() };
+					}
+					if (input.stage === "decompose") {
+						return { text: "retrieval systems", usage: stageUsage() };
+					}
+					if (input.stage === "coverage-review") {
+						return {
+							text: coverageReviewText([], true),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text: `${input.stage} substantive output`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async (input) => {
+					if (input.stage === "audit") {
+						checkpoints.push({
+							checkpoint: input.checkpoint as Record<string, unknown>,
+						});
+					}
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-second-repair",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(assembleCalls).toBe(4);
+		expect(assembleTexts[0]).toContain("synthesized findings");
+		expect(assembleTexts[1]).toContain("key patterns were identified");
+		expect(assembleTexts[2]).toContain("Executive Summary");
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining(
+					"Hybrid retrieval is the recommended path",
+				),
+			}),
+		);
+		const writerCheckpoint = checkpoints.at(-1)?.checkpoint.writer as
+			| Record<string, unknown>
+			| undefined;
+		expect(writerCheckpoint).toBeDefined();
+		expect(writerCheckpoint?.assemblyDiagnostics).toBeDefined();
+		const diagnostics = writerCheckpoint?.assemblyDiagnostics as
+			| Record<string, unknown>
+			| undefined;
+		expect(diagnostics?.repairReason).toBe("process_only");
+		expect(diagnostics?.firstPassParsedAsJson).toBe(false);
+		expect(typeof diagnostics?.firstPassOutputPrefix).toBe("string");
+		expect(
+			(diagnostics?.firstPassOutputPrefix as string).length,
+		).toBeLessThanOrEqual(500);
+	});
+
+	it("falls back to honest evidence summary after both assembly repairs fail", async () => {
+		let assembleCalls = 0;
+		const checkpoints: Array<{ checkpoint: Record<string, unknown> }> = [];
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-both-repairs-fail",
+				profile: "overview",
+				query: "Compare retrieval systems for regulated SaaS",
+			}),
+			now: new Date("2026-06-22T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-both-fail",
+							title: "Retrieval systems evidence",
+							url: "https://example.com/retrieval-both-fail",
+							snippet: "Hybrid retrieval evidence for regulated SaaS.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text: "I checked the sources and synthesized findings for the report. The research process involved reviewing multiple evidence packs.",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "decompose") {
+						return { text: "retrieval systems", usage: stageUsage() };
+					}
+					if (input.stage === "coverage-review") {
+						return {
+							text: coverageReviewText([], true),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text: `${input.stage} substantive output`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async (input) => {
+					if (input.stage === "audit") {
+						checkpoints.push({
+							checkpoint: input.checkpoint as Record<string, unknown>,
+						});
+					}
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-both-fail",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(assembleCalls).toBe(3);
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining("could not synthesize"),
+			}),
+		);
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining("## Evidence Summary"),
+			}),
+		);
+		const writerCheckpoint = checkpoints.at(-1)?.checkpoint.writer as
+			| Record<string, unknown>
+			| undefined;
+		expect(writerCheckpoint).toBeDefined();
+		expect(writerCheckpoint?.assemblyDiagnostics).toBeDefined();
+	});
+
+	it("uses prose Markdown directly as bodyMarkdown when model returns non-JSON content with headings", async () => {
+		const proseMarkdown = [
+			"# Retrieval Architecture Report",
+			"",
+			"## Executive Summary",
+			"This report analyzes retrieval architectures for regulated SaaS deployments. Hybrid retrieval combining lexical and semantic search provides the best balance of recall, precision, and auditability for production environments that require traceability and governance compliance.",
+			"",
+			"## Key Findings",
+			"Hybrid retrieval combining lexical and semantic search provides the best balance for regulated environments. Lexical matching ensures exact term recall for compliance queries, while semantic search captures related concepts that do not share the same wording. Reranking after the first pass keeps only the strongest accepted sources.",
+			"",
+			"## Recommendation",
+			"We recommend deploying a hybrid retrieval stack with reranking for regulated SaaS. The deployment should include source-level logging, benchmark validation on representative technical documents, and tunable reranking depth before scaling.",
+			"",
+			"## Limitations",
+			"The accepted evidence is representative rather than exhaustive across all regulated industries. Different compliance frameworks may require different retrieval configurations.",
+		].join("\n");
+
+		const checkpoints: Array<{ checkpoint: Record<string, unknown> }> = [];
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-prose-markdown",
+				profile: "overview",
+				query: "Compare retrieval architectures",
+			}),
+			now: new Date("2026-06-22T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-prose-md",
+							title: "Retrieval architecture evidence",
+							url: "https://example.com/prose-md",
+							snippet: "Retrieval architecture comparison for regulated SaaS.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						return { text: proseMarkdown, usage: stageUsage() };
+					}
+					if (input.stage === "decompose") {
+						return {
+							text: "retrieval architectures",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return {
+							text: coverageReviewText([], true),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text: `${input.stage} substantive output`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async (input) => {
+					if (input.stage === "audit") {
+						checkpoints.push({
+							checkpoint: input.checkpoint as Record<string, unknown>,
+						});
+					}
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-prose-md",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining(
+					"Retrieval Architecture Report",
+				),
+			}),
+		);
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining(
+					"Hybrid retrieval combining lexical",
+				),
+			}),
+		);
+	});
+
+	it("records assembly diagnostics in writer checkpoint metadata (not console)", async () => {
+		let assembleCalls = 0;
+		const checkpoints: Array<{ checkpoint: Record<string, unknown> }> = [];
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const firstPassText =
+			"I checked the sources and synthesized findings. The research process reviewed evidence across multiple domains. Sources were consulted, and key findings were organized.";
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-assembly-diag",
+				profile: "overview",
+				query: "Compare retrieval systems",
+			}),
+			now: new Date("2026-06-22T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-assembly-diag",
+							title: "Retrieval evidence",
+							url: "https://example.com/assembly-diag",
+							snippet: "Retrieval evidence for comparison.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						if (assembleCalls === 1) {
+							return { text: firstPassText, usage: stageUsage() };
+						}
+						return {
+							text: [
+								"# Retrieval Systems",
+								"",
+								"## Executive Summary",
+								"Evidence supports hybrid retrieval for regulated SaaS deployments. The combination of lexical and semantic search provides the best balance for production retrieval quality and auditability.",
+								"",
+								"## Findings",
+								"Lexical and semantic search combine well for technical document retrieval. Hybrid approaches preserve exact domain terms through lexical matching while catching related concepts through semantic search. Reranking after the first pass ensures only the strongest sources contribute to final claims.",
+								"",
+								"## Recommendation",
+								"We recommend deploying a hybrid retrieval stack with reranking. This gives the team a measurable rollout path: benchmark the shortlist, keep source-level logging, and tune reranking depth before scaling.",
+								"",
+								"## Limitations",
+								"The accepted evidence is representative rather than exhaustive. Different regulated SaaS deployments may require different retrieval configurations based on their specific document types.",
+							].join("\n"),
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "decompose") {
+						return { text: "retrieval systems", usage: stageUsage() };
+					}
+					if (input.stage === "coverage-review") {
+						return {
+							text: coverageReviewText([], true),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text: `${input.stage} substantive output`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async (input) => {
+					if (input.stage === "audit") {
+						checkpoints.push({
+							checkpoint: input.checkpoint as Record<string, unknown>,
+						});
+					}
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-assembly-diag",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(assembleCalls).toBe(2);
+		const writerCheckpoint = checkpoints.at(-1)?.checkpoint.writer as
+			| Record<string, unknown>
+			| undefined;
+		expect(writerCheckpoint).toBeDefined();
+		expect(writerCheckpoint?.assemblyDiagnostics).toBeDefined();
+		const diag = writerCheckpoint?.assemblyDiagnostics as Record<
+			string,
+			unknown
+		>;
+		expect(diag.firstPassOutputPrefix).toBe(firstPassText.slice(0, 500));
+		expect(diag.firstPassParsedAsJson).toBe(false);
+		expect(diag.repairReason).toBe("process_only");
 	});
 });

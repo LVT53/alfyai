@@ -11,7 +11,7 @@ import type {
 	AtlasWriterEvidenceCardDiagnostic,
 } from "./types";
 
-interface BuildAtlasWriterPromptInput {
+export interface BuildAtlasWriterPromptInput {
 	language: SupportedLanguage;
 	query: string;
 	currentDate: string;
@@ -165,7 +165,41 @@ function modelFacingWriterEvidenceCard(card: AtlasWriterEvidenceCard) {
 	};
 }
 
-function baseWriterPrompt(input: BuildAtlasWriterPromptInput) {
+const MAX_WRITER_PROMPT_CHARS = 50000;
+
+function compactString(value: string, maxLength: number): string {
+	if (value.length <= maxLength) return value;
+	return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function baseWriterPrompt(
+	input: BuildAtlasWriterPromptInput,
+	truncate = false,
+) {
+	const synthesis = truncate
+		? compactString(input.synthesis, 2000)
+		: input.synthesis;
+	const outline = truncate ? compactString(input.outline, 2000) : input.outline;
+	const writerEvidenceCards = input.writerEvidenceCards.map((card) => {
+		const base = modelFacingWriterEvidenceCard(card);
+		if (!truncate) return base;
+		return { ...base, relevantFacts: base.relevantFacts.slice(0, 3) };
+	});
+	const coverageReview = truncate
+		? {
+				sufficient: input.coverageReview.sufficient,
+				approvedGapCandidateCount:
+					input.coverageReview.approvedGapCandidates.length,
+			}
+		: {
+				version: input.coverageReview.version,
+				sufficient: input.coverageReview.sufficient,
+				proposals: input.coverageReview.proposals,
+				approvedGapCandidates: input.coverageReview.approvedGapCandidates,
+				diagnostics: input.coverageReview.diagnostics,
+				limitations: input.coverageReview.limitations,
+			};
+
 	return {
 		detectedLanguage: input.language,
 		currentDate: input.currentDate,
@@ -186,28 +220,19 @@ function baseWriterPrompt(input: BuildAtlasWriterPromptInput) {
 		reportIntent: {
 			originalQuery: input.query,
 			decomposition: input.decomposeText,
-			synthesis: input.synthesis,
-			integratedOutline: input.outline,
+			synthesis,
+			integratedOutline: outline,
 			sectionBriefs: input.sectionBriefs,
 		},
-		synthesis: input.synthesis,
-		outline: input.outline,
+		synthesis,
+		outline,
 		sectionBriefs: input.sectionBriefs,
 		imageCandidates: input.imageCandidates,
 		writerEvidenceCardsVersion: input.writerEvidenceCardsVersion,
-		writerEvidenceCards: input.writerEvidenceCards.map(
-			modelFacingWriterEvidenceCard,
-		),
+		writerEvidenceCards,
 		writerEvidenceCardDiagnostics: input.writerEvidenceCardDiagnostics,
 		evidencePackDiagnostics: input.evidencePackDiagnostics,
-		coverageReview: {
-			version: input.coverageReview.version,
-			sufficient: input.coverageReview.sufficient,
-			proposals: input.coverageReview.proposals,
-			approvedGapCandidates: input.coverageReview.approvedGapCandidates,
-			diagnostics: input.coverageReview.diagnostics,
-			limitations: input.coverageReview.limitations,
-		},
+		coverageReview,
 		searchLimitation: input.limitation,
 		limitations: [
 			...(input.limitation ? [input.limitation.message] : []),
@@ -227,14 +252,30 @@ function baseWriterPrompt(input: BuildAtlasWriterPromptInput) {
 export function buildAtlasWriterPrompt(
 	input: BuildAtlasWriterPromptInput,
 ): string {
-	return JSON.stringify(baseWriterPrompt(input));
+	const firstPass = JSON.stringify(baseWriterPrompt(input));
+	if (firstPass.length <= MAX_WRITER_PROMPT_CHARS) return firstPass;
+	return JSON.stringify(baseWriterPrompt(input, true));
 }
 
 export function buildAtlasWriterImprovementPrompt(
 	input: BuildAtlasWriterImprovementPromptInput,
 ): string {
-	return JSON.stringify({
+	const firstPass = JSON.stringify({
 		...baseWriterPrompt(input),
+		writerImprovement: {
+			pass: 1,
+			maxPasses: 1,
+			warningCodes: input.reportShapeDiagnostics.warnings
+				.map((warning) => warning.code)
+				.filter((code) => SERIOUS_REPORT_SHAPE_WARNING_CODES.has(code)),
+		},
+		improvementInstructions: improvementInstructions(input.language),
+		currentDraft: input.currentDraft,
+		reportShapeDiagnostics: input.reportShapeDiagnostics,
+	});
+	if (firstPass.length <= MAX_WRITER_PROMPT_CHARS) return firstPass;
+	return JSON.stringify({
+		...baseWriterPrompt(input, true),
 		writerImprovement: {
 			pass: 1,
 			maxPasses: 1,

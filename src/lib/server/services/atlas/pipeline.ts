@@ -370,7 +370,7 @@ const STAGE_SYSTEMS: Record<SupportedLanguage, Record<ModelStage, string>> = {
 		integrate:
 			"Integrate Atlas findings into a coherent report outline. Preserve the substantive findings and map each section to the evidence basis.",
 		assemble:
-			"Write the final Atlas published report from compact Writer Evidence Cards. Produce decision-quality synthesis, not a source dump or process report.",
+			"Write the final Atlas published report from compact Writer Evidence Cards. Return ONLY a JSON object. Do not write prose before or after the JSON. Do not describe the research process. The bodyMarkdown field must contain the full report, not a summary of what you did. Produce decision-quality synthesis, not a source dump or process report.",
 	},
 	hu: {
 		decompose:
@@ -384,7 +384,7 @@ const STAGE_SYSTEMS: Record<SupportedLanguage, Record<ModelStage, string>> = {
 		integrate:
 			"Rendezd az Atlas megállapításait koherens jelentésvázlatba. Őrizd meg az érdemi megállapításokat, és kösd a szakaszokat a bizonyítékalaphoz.",
 		assemble:
-			"Írd meg a végleges, publikált Atlas jelentést kompakt Writer Evidence Cardokból. Döntésminőségű szintézist adj, ne forrásdumpot vagy folyamatjelentést.",
+			"Írd meg a végleges, publikált Atlas jelentést kompakt Writer Evidence Cardokból. Csak JSON objektumot adj vissza. Ne írj prózát a JSON előtt vagy után. Ne írd le a kutatási folyamatot. A bodyMarkdown mezőnek a teljes jelentést kell tartalmaznia, ne a folyamat összefoglalóját. Döntésminőségű szintézist adj, ne forrásdumpot vagy folyamatjelentést.",
 	},
 };
 
@@ -1627,6 +1627,48 @@ function buildAssembleRepairPrompt(input: {
 	});
 }
 
+function buildMinimalAssembleRepairPrompt(input: {
+	basePrompt: string;
+	query: string;
+	language: SupportedLanguage;
+}): string {
+	const parsed = JSON.parse(input.basePrompt);
+	const evidenceCardSummaries = Array.isArray(parsed.writerEvidenceCards)
+		? parsed.writerEvidenceCards.map(
+				(card: Record<string, unknown>) =>
+					`${typeof card.sourceTitle === "string" ? card.sourceTitle : "source"}: ${
+						Array.isArray(card.relevantFacts)
+							? (card.relevantFacts as string[]).slice(0, 2).join(" ")
+							: ""
+					}`,
+			)
+		: [];
+	const instruction =
+		input.language === "hu"
+			? "Return ONLY JSON with generatedTitle, bodyMarkdown, sectionBriefs, and limitations. bodyMarkdown must be the full report in Markdown. Do not include anything outside the JSON object."
+			: "Return ONLY JSON with generatedTitle, bodyMarkdown, sectionBriefs, and limitations. bodyMarkdown must be the full report in Markdown. Do not include anything outside the JSON object.";
+
+	return JSON.stringify({
+		minimalRepair: true,
+		detectedLanguage: parsed.detectedLanguage ?? input.language,
+		currentDate: parsed.currentDate ?? "",
+		query: input.query,
+		instruction,
+		outputContract: {
+			strictJson: true,
+			requiredFields: [
+				"generatedTitle",
+				"bodyMarkdown",
+				"sectionBriefs",
+				"limitations",
+			],
+		},
+		evidenceCardSummaries,
+		sourceProjectionRule:
+			"Do not write Markdown Sources, bibliographies, references, works-cited sections, citation appendices, or source lists; the backend owns source projection.",
+	});
+}
+
 function honestFallbackSectionLabels(language: SupportedLanguage): {
 	executive: string;
 	evidenceSummary: string;
@@ -2264,12 +2306,25 @@ export async function runAtlasPipeline(
 		...sources.localSources.map((source) => source.title),
 		...finalResearchRound.webSources.map((source) => source.title),
 	];
+	let assemblyDiagnostics: {
+		firstPassOutputPrefix: string;
+		firstPassParsedAsJson: boolean;
+		repairReason: string;
+	} | null = null;
 	if (
 		needsAssemblyRepair({
 			markdown: finalAssembledMarkdown,
 			acceptedSourceTitles,
 		})
 	) {
+		const repairReason = looksLikeProcessOnlyReport(finalAssembledMarkdown)
+			? "process_only"
+			: "malformed";
+		assemblyDiagnostics = {
+			firstPassOutputPrefix: assemble.text.slice(0, 500),
+			firstPassParsedAsJson: assemblyOutput.metadata.structured,
+			repairReason,
+		};
 		await input.dependencies.heartbeat?.({
 			stage: "assemble",
 			progressPercent: 86,
@@ -2290,6 +2345,33 @@ export async function runAtlasPipeline(
 			assemblyOutput.metadata,
 		);
 		finalAssembledMarkdown = assemblyOutput.markdown;
+	}
+	if (
+		needsAssemblyRepair({
+			markdown: finalAssembledMarkdown,
+			acceptedSourceTitles,
+		})
+	) {
+		await input.dependencies.heartbeat?.({
+			stage: "assemble",
+			progressPercent: 88,
+		});
+		const minimalRepair = await input.dependencies.runModelStage({
+			stage: "assemble",
+			system: stageSystem("assemble", language, currentDate, profilePosture),
+			prompt: buildMinimalAssembleRepairPrompt({
+				basePrompt: writerPrompt,
+				query: input.job.query,
+				language,
+			}),
+		});
+		usage = addUsage(usage, minimalRepair.usage);
+		const minimalOutput = parseAtlasAssemblyOutput(minimalRepair.text);
+		assemblyMetadata = mergeAssemblyMetadata(
+			assemblyMetadata,
+			minimalOutput.metadata,
+		);
+		finalAssembledMarkdown = minimalOutput.markdown;
 	}
 	if (
 		needsAssemblyRepair({
@@ -2565,6 +2647,7 @@ export async function runAtlasPipeline(
 		firstDraftReportShapeDiagnostics,
 		finalReportShapeDiagnostics,
 		finalReportQualityGate,
+		assemblyDiagnostics,
 	};
 	const evidenceAppendixSummary = buildEvidenceAppendixSummary({
 		localSources: sources.localSources,
