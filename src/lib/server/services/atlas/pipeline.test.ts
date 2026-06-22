@@ -6703,3 +6703,308 @@ describe("Atlas pipeline slices", () => {
 		expect(diag.firstPassRepairReason).toBe("process_only");
 	});
 });
+
+describe("Atlas guard functions", () => {
+	function goodReportBody(words = 80): string {
+		const paragraphs = Array.from({ length: Math.ceil(words / 12) }, () =>
+			"The analysis reveals several important architectural trade-offs that affect regulated SaaS deployments because hybrid retrieval combines the strengths of lexical and semantic approaches. ",
+		);
+		return paragraphs.join("\n").split(/\s+/).slice(0, words).join(" ");
+	}
+
+	function reportWithHeading(heading: string, bodyWords = 80): string {
+		const body = goodReportBody(bodyWords);
+		return `# ${heading}\n\n${body}`;
+	}
+
+	describe("looksLikeProcessOnlyReport", () => {
+		it("returns true for an empty string", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			expect(looksLikeProcessOnlyReport("")).toBe(true);
+		});
+
+		it("returns true for whitespace-only string", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			expect(looksLikeProcessOnlyReport("   \n\t  ")).toBe(true);
+		});
+
+		it("returns true when body words before sources are under 60 even with a substantive heading", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const short = "## Executive Summary\n\nShort body with very few words here.";
+			expect(looksLikeProcessOnlyReport(short)).toBe(true);
+		});
+
+		it("returns true when there are no substantive report section headings", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const noHeading = goodReportBody(100);
+			expect(looksLikeProcessOnlyReport(noHeading)).toBe(true);
+		});
+
+		it("returns true when there are no substantive headings even with many words", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const markdown = `# Random Title\n\n${goodReportBody(200)}`;
+			expect(looksLikeProcessOnlyReport(markdown)).toBe(true);
+		});
+
+		it("returns true when process phrases >= 2 exist regardless of word count or signals", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const markdown = reportWithHeading(
+				"Executive Summary",
+				80,
+			).replace(
+				"reveals",
+				"I examined sources and reviewed the findings and synthesized the findings because the evidence shows hybrid retrieval works",
+			);
+			expect(looksLikeProcessOnlyReport(markdown)).toBe(true);
+		});
+
+		it("returns true when process phrases === 1 and words < 180", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const markdown =
+				"## Executive Summary\n\nI examined the evidence and found that hybrid retrieval is a strong approach. " +
+				goodReportBody(70);
+			expect(looksLikeProcessOnlyReport(markdown)).toBe(true);
+		});
+
+		it("returns true when process phrases === 1, words >= 180, but no substantive signals", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const bodyText = Array.from({ length: 200 }, () => "data point entry record metric value sample observation result").join(" ");
+			const markdown =
+				"## Executive Summary\n\nI examined the data and the results are acceptable. " +
+				bodyText;
+			expect(looksLikeProcessOnlyReport(markdown)).toBe(true);
+		});
+
+		it("returns false when process phrases === 1, words >= 180, and substantive signals are present", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const markdown =
+				"## Executive Summary\n\nI examined the sources and found that hybrid retrieval is a strong approach. The evidence shows that combining lexical and semantic search improves recall. However, there are trade-offs in latency and cost. " +
+				goodReportBody(200);
+			expect(looksLikeProcessOnlyReport(markdown)).toBe(false);
+		});
+
+		it("returns false for a good report with zero process phrases", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const markdown = `## Executive Summary\n\n${goodReportBody(300)}\n\n## Findings\n\n${goodReportBody(100)}\n\n## Recommendations\n\n${goodReportBody(100)}`;
+			expect(looksLikeProcessOnlyReport(markdown)).toBe(false);
+		});
+
+		it("returns true for a Hungarian process-only report with process phrases", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const markdown =
+				"## Vezetői összefoglaló\n\nA források ellenőrzése után megállapítottuk hogy a hibrid visszakeresés hatékony. Kockázat: a magas késleltetés problémát jelenthet. ";
+			expect(looksLikeProcessOnlyReport(markdown)).toBe(true);
+		});
+
+		it("returns true for a Hungarian report without English substantive headings (accented headings do not match \\b)", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const markdown =
+				"## Vezetői összefoglaló\n\n" +
+				goodReportBody(250);
+			expect(looksLikeProcessOnlyReport(markdown)).toBe(true);
+		});
+
+		it("excludes words after a '## Sources' heading from body word count", async () => {
+			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const shortBeforeSources = "## Executive Summary\n\nBrief note only. \n";
+			const manyAfterSources = "## Sources\n\n" + goodReportBody(300);
+			const markdown = shortBeforeSources + manyAfterSources;
+			expect(looksLikeProcessOnlyReport(markdown)).toBe(true);
+		});
+	});
+
+	describe("looksLikeMalformedAssembledReport", () => {
+		it("returns false for a well-formed report with 4 substantive headings including Limitations", async () => {
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./pipeline"
+			);
+			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Limitations\n\n${goodReportBody(60)}`;
+			expect(
+				looksLikeMalformedAssembledReport({
+					markdown,
+					acceptedSourceTitles: ["Source A", "Source B"],
+				}),
+			).toBe(false);
+		});
+
+		it("returns false for a single scalar heading (below threshold of 2)", async () => {
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./pipeline"
+			);
+			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## 8B parameters\n\n${goodReportBody(60)}`;
+			expect(
+				looksLikeMalformedAssembledReport({
+					markdown,
+					acceptedSourceTitles: [],
+				}),
+			).toBe(false);
+		});
+
+		it("returns true when scalar heading count >= 2", async () => {
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./pipeline"
+			);
+			const markdown = `## Executive Summary\n\ntext\n\n## 8 GB\n\ntext\n\n## 16 GB\n\ntext`;
+			const result = looksLikeMalformedAssembledReport({
+				markdown,
+				acceptedSourceTitles: [],
+			});
+			expect(result).toBe(true);
+		});
+
+		it("returns true when envelope heading count >= 2", async () => {
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./pipeline"
+			);
+			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Date 2026-06-21\n\n${goodReportBody(40)}\n\n## Profile overview\n\n${goodReportBody(40)}`;
+			expect(
+				looksLikeMalformedAssembledReport({
+					markdown,
+					acceptedSourceTitles: [],
+				}),
+			).toBe(true);
+		});
+
+		it("returns false when source-title-matching heading count is 2 (below threshold of 3)", async () => {
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./pipeline"
+			);
+			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Hybrid retrieval enterprise SaaS\n\n${goodReportBody(40)}\n\n## Evidence from performance benchmarks\n\n${goodReportBody(40)}`;
+			expect(
+				looksLikeMalformedAssembledReport({
+					markdown,
+					acceptedSourceTitles: [
+						"Hybrid retrieval architectures for enterprise SaaS",
+						"Evidence from performance benchmarks and latency analysis",
+					],
+				}),
+			).toBe(false);
+		});
+
+		it("returns true when source-title-matching heading count >= 3", async () => {
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./pipeline"
+			);
+			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Hybrid retrieval enterprise SaaS\n\n${goodReportBody(40)}\n\n## Performance benchmarks latency\n\n${goodReportBody(40)}\n\n## Scalability analysis cloud deployment\n\n${goodReportBody(40)}`;
+			expect(
+				looksLikeMalformedAssembledReport({
+					markdown,
+					acceptedSourceTitles: [
+						"Hybrid retrieval architectures for enterprise SaaS",
+						"Performance benchmarks and latency analysis of RAG systems",
+						"Scalability analysis for cloud deployment patterns",
+					],
+				}),
+			).toBe(true);
+		});
+
+		it("returns true when envelope heading + envelope scalar lines >= 3", async () => {
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./pipeline"
+			);
+			const markdown = `## Profile overview\n\n${goodReportBody(40)}\n\n**Date:** 2026-06-21\n\n${goodReportBody(40)}\n\n**Status:** final\n\n${goodReportBody(40)}`;
+			expect(
+				looksLikeMalformedAssembledReport({
+					markdown,
+					acceptedSourceTitles: [],
+				}),
+			).toBe(true);
+		});
+
+		it("returns false for a good report with 5 substantive headings including Limitations", async () => {
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./pipeline"
+			);
+			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Key Findings\n\n${goodReportBody(60)}\n\n## Limitations\n\n${goodReportBody(50)}\n\n## Recommendations\n\n${goodReportBody(60)}`;
+			expect(
+				looksLikeMalformedAssembledReport({
+					markdown,
+					acceptedSourceTitles: ["Some research paper about RAG"],
+				}),
+			).toBe(false);
+		});
+	});
+
+	describe("needsAssemblyRepair", () => {
+		it("returns false for a report passing both guards", async () => {
+			const { needsAssemblyRepair } = await import("./pipeline");
+			const markdown = `## Executive Summary\n\n${goodReportBody(300)}\n\n## Analysis\n\n${goodReportBody(100)}\n\n## Findings\n\n${goodReportBody(100)}\n\n## Limitations\n\n${goodReportBody(80)}\n\n## Recommendations\n\n${goodReportBody(100)}`;
+			expect(
+				needsAssemblyRepair({
+					markdown,
+					acceptedSourceTitles: [],
+				}),
+			).toBe(false);
+		});
+
+		it("returns true when failing process-only guard", async () => {
+			const { needsAssemblyRepair } = await import("./pipeline");
+			expect(
+				needsAssemblyRepair({
+					markdown: "",
+					acceptedSourceTitles: [],
+				}),
+			).toBe(true);
+		});
+
+		it("returns true when failing malformed-assembled guard", async () => {
+			const { needsAssemblyRepair } = await import("./pipeline");
+			const markdown = `## Executive Summary\n\ntext\n\n## 8 GB\n\ntext\n\n## 16 MB\n\ntext`;
+			expect(
+				needsAssemblyRepair({
+					markdown,
+					acceptedSourceTitles: [],
+				}),
+			).toBe(true);
+		});
+
+		it("returns true when both guards fail", async () => {
+			const { needsAssemblyRepair } = await import("./pipeline");
+			expect(
+				needsAssemblyRepair({
+					markdown: "   \n  ",
+					acceptedSourceTitles: [],
+				}),
+			).toBe(true);
+		});
+	});
+
+	describe("ensureLimitationsSection", () => {
+		it("returns unchanged when report has fewer than 4 headings", async () => {
+			const { ensureLimitationsSection } = await import("./pipeline");
+			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}`;
+			const result = ensureLimitationsSection(markdown, "en");
+			expect(result).toBe(markdown);
+		});
+
+		it("returns unchanged when report already has a Limitations heading", async () => {
+			const { ensureLimitationsSection } = await import("./pipeline");
+			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Limitations\n\n${goodReportBody(50)}`;
+			const result = ensureLimitationsSection(markdown, "en");
+			expect(result).toBe(markdown);
+		});
+
+		it("appends Limitations section when report has 4+ headings and no Limitations heading", async () => {
+			const { ensureLimitationsSection } = await import("./pipeline");
+			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Recommendations\n\n${goodReportBody(60)}`;
+			const result = ensureLimitationsSection(markdown, "en");
+			expect(result).toContain("## Limitations");
+			expect(result).not.toBe(markdown);
+		});
+
+		it("appends Hungarian Limitations section when language is 'hu'", async () => {
+			const { ensureLimitationsSection } = await import("./pipeline");
+			const markdown = `## Vezetői összefoglaló\n\n${goodReportBody(60)}\n\n## Elemzés\n\n${goodReportBody(60)}\n\n## Megállapítások\n\n${goodReportBody(60)}\n\n## Ajánlások\n\n${goodReportBody(60)}`;
+			const result = ensureLimitationsSection(markdown, "hu");
+			expect(result).toContain("## Korlátok");
+			expect(result).not.toBe(markdown);
+		});
+
+		it("recognizes 'Constraints' as an existing limitations heading", async () => {
+			const { ensureLimitationsSection } = await import("./pipeline");
+			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Constraints\n\n${goodReportBody(60)}\n\n## Recommendations\n\n${goodReportBody(60)}`;
+			const result = ensureLimitationsSection(markdown, "en");
+			expect(result).toBe(markdown);
+		});
+	});
+});

@@ -1307,7 +1307,7 @@ function coverageReviewIntendedQuestions(input: {
 	]);
 }
 
-function looksLikeProcessOnlyReport(markdown: string): boolean {
+export function looksLikeProcessOnlyReport(markdown: string): boolean {
 	const normalized = markdown.replace(/\s+/g, " ").trim().toLowerCase();
 	if (!normalized) return true;
 	const bodyBeforeSources = markdown
@@ -1397,9 +1397,7 @@ function isReportEnvelopeHeading(title: string): boolean {
 
 function isReportScalarOnlyHeading(title: string): boolean {
 	const normalized = normalizedReportShapeText(title);
-	return /^\d+(?:\.\d+)?\s*[bmk]?\s+(?:dimensions?|gb|mb|ms|parameters?|params?|tokens?)$/i.test(
-		normalized,
-	);
+	return /^\d+(?:\.\d+)?\s*[bmk]?\s+(?:dimensions?|gb|mb|ms|parameters?|params?|tokens?)$/i.test(normalized);
 }
 
 function tokenSetForReportShape(value: string): Set<string> {
@@ -1471,7 +1469,7 @@ function hasLimitationsHeading(markdown: string): boolean {
 	);
 }
 
-function looksLikeMalformedAssembledReport(input: {
+export function looksLikeMalformedAssembledReport(input: {
 	markdown: string;
 	acceptedSourceTitles: string[];
 }): boolean {
@@ -1601,7 +1599,7 @@ function sanitizeMalformedWriterHeadings(input: {
 		.trim();
 }
 
-function needsAssemblyRepair(input: {
+export function needsAssemblyRepair(input: {
 	markdown: string;
 	acceptedSourceTitles: string[];
 }): boolean {
@@ -1884,7 +1882,7 @@ function appendAdditionalLimitations(input: {
 	].join("\n");
 }
 
-function ensureLimitationsSection(
+export function ensureLimitationsSection(
 	markdown: string,
 	language: SupportedLanguage,
 ): string {
