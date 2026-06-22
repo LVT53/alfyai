@@ -28,6 +28,7 @@ import {
 	diagnoseAtlasReportShape,
 } from "./report-shape-diagnostics";
 import type {
+	AtlasAssemblyDiagnostics,
 	AtlasAssemblyMetadata,
 	AtlasClaimBasis,
 	AtlasClaimBasisDiagnostic,
@@ -1482,11 +1483,10 @@ function looksLikeMalformedAssembledReport(input: {
 	).length;
 	const envelopeScalarCount = countReportEnvelopeScalarLines(input.markdown);
 	return (
-		scalarHeadingCount >= 1 ||
+		scalarHeadingCount >= 2 ||
 		envelopeHeadingCount >= 2 ||
-		sourceHeadingCount >= 2 ||
-		envelopeHeadingCount + envelopeScalarCount >= 3 ||
-		(headings.length >= 4 && !hasLimitationsHeading(input.markdown))
+		sourceHeadingCount >= 3 ||
+		envelopeHeadingCount + envelopeScalarCount >= 3
 	);
 }
 
@@ -1882,6 +1882,23 @@ function appendAdditionalLimitations(input: {
 		intro,
 		...(details.length > 0 ? ["", ...details] : []),
 	].join("\n");
+}
+
+function ensureLimitationsSection(
+	markdown: string,
+	language: SupportedLanguage,
+): string {
+	const headings = markdownHeadingTitles(markdown);
+	if (headings.length < 4) return markdown;
+	if (hasLimitationsHeading(markdown)) return markdown;
+	const labels = honestFallbackSectionLabels(language);
+	const limitationNote =
+		language === "hu"
+			? "A jelentés megállapításai és ajánlásai az elfogadott bizonyítékforrásokon alapulnak. További kontextus, domain-specifikus tényezők vagy frissebb adatok befolyásolhatják a következtetéseket."
+			: "The findings and recommendations in this report are based on the accepted evidence sources. Additional context, domain-specific factors, or more recent data may affect the conclusions.";
+	return [markdown.trim(), "", `## ${labels.limitations}`, limitationNote].join(
+		"\n",
+	);
 }
 
 function cleanFallbackScalar(value: unknown): string | null {
@@ -2306,24 +2323,28 @@ export async function runAtlasPipeline(
 		...sources.localSources.map((source) => source.title),
 		...finalResearchRound.webSources.map((source) => source.title),
 	];
-	let assemblyDiagnostics: {
-		firstPassOutputPrefix: string;
-		firstPassParsedAsJson: boolean;
-		repairReason: string;
-	} | null = null;
+	const outputTokensByTier: Record<string, number> = {};
+	let assemblyDiagnostics: AtlasAssemblyDiagnostics | null = null;
 	if (
 		needsAssemblyRepair({
 			markdown: finalAssembledMarkdown,
 			acceptedSourceTitles,
 		})
 	) {
-		const repairReason = looksLikeProcessOnlyReport(finalAssembledMarkdown)
+		const firstPassRepairReason = looksLikeProcessOnlyReport(
+			finalAssembledMarkdown,
+		)
 			? "process_only"
 			: "malformed";
+		const firstPassOutputPrefix = assemble.text.slice(0, 500);
+		outputTokensByTier.firstPass = assemble.usage.outputTokens;
 		assemblyDiagnostics = {
-			firstPassOutputPrefix: assemble.text.slice(0, 500),
+			firstPassOutputPrefix,
 			firstPassParsedAsJson: assemblyOutput.metadata.structured,
-			repairReason,
+			firstPassRepairReason,
+			outputTokensByTier: { ...outputTokensByTier },
+			writerPromptTruncated: false,
+			writerPromptCharCount: writerPrompt.length,
 		};
 		await input.dependencies.heartbeat?.({
 			stage: "assemble",
@@ -2345,57 +2366,107 @@ export async function runAtlasPipeline(
 			assemblyOutput.metadata,
 		);
 		finalAssembledMarkdown = assemblyOutput.markdown;
-	}
-	if (
-		needsAssemblyRepair({
-			markdown: finalAssembledMarkdown,
-			acceptedSourceTitles,
-		})
-	) {
-		await input.dependencies.heartbeat?.({
-			stage: "assemble",
-			progressPercent: 88,
-		});
-		const minimalRepair = await input.dependencies.runModelStage({
-			stage: "assemble",
-			system: stageSystem("assemble", language, currentDate, profilePosture),
-			prompt: buildMinimalAssembleRepairPrompt({
-				basePrompt: writerPrompt,
-				query: input.job.query,
-				language,
-			}),
-		});
-		usage = addUsage(usage, minimalRepair.usage);
-		const minimalOutput = parseAtlasAssemblyOutput(minimalRepair.text);
-		assemblyMetadata = mergeAssemblyMetadata(
-			assemblyMetadata,
-			minimalOutput.metadata,
-		);
-		finalAssembledMarkdown = minimalOutput.markdown;
-	}
-	if (
-		needsAssemblyRepair({
-			markdown: finalAssembledMarkdown,
-			acceptedSourceTitles,
-		})
-	) {
-		const fallbackReport = buildHonestEvidenceFallbackReport({
-			language,
-			query: input.job.query,
-			evidencePacks: evidencePackResult.evidencePacks,
-			searchLimitation,
-			currentDate,
-		});
-		finalAssembledMarkdown = fallbackReport.markdown;
-		assemblyMetadata = mergeAssemblyMetadata(
-			assemblyMetadata,
-			fallbackReport.metadata,
-		);
-		usedDeterministicFallbackBeforeImprovement = true;
-		currentDraftIsHonestFallback = true;
+
+		outputTokensByTier.firstRepair = repair.usage.outputTokens;
+		assemblyDiagnostics.outputTokensByTier = {
+			...outputTokensByTier,
+		};
+
+		if (
+			needsAssemblyRepair({
+				markdown: finalAssembledMarkdown,
+				acceptedSourceTitles,
+			})
+		) {
+			const firstRepairRepairReason = looksLikeProcessOnlyReport(
+				finalAssembledMarkdown,
+			)
+				? "process_only"
+				: "malformed";
+			assemblyDiagnostics.firstRepairOutputPrefix =
+				repair.text.slice(0, 500);
+			assemblyDiagnostics.firstRepairParsedAsJson =
+				assemblyOutput.metadata.structured;
+			assemblyDiagnostics.firstRepairRepairReason =
+				firstRepairRepairReason;
+
+			await input.dependencies.heartbeat?.({
+				stage: "assemble",
+				progressPercent: 88,
+			});
+			const minimalRepair = await input.dependencies.runModelStage({
+				stage: "assemble",
+				system: stageSystem(
+					"assemble",
+					language,
+					currentDate,
+					profilePosture,
+				),
+				prompt: buildMinimalAssembleRepairPrompt({
+					basePrompt: writerPrompt,
+					query: input.job.query,
+					language,
+				}),
+			});
+			usage = addUsage(usage, minimalRepair.usage);
+			const minimalOutput = parseAtlasAssemblyOutput(minimalRepair.text);
+			assemblyMetadata = mergeAssemblyMetadata(
+				assemblyMetadata,
+				minimalOutput.metadata,
+			);
+			finalAssembledMarkdown = minimalOutput.markdown;
+
+			outputTokensByTier.secondRepair =
+				minimalRepair.usage.outputTokens;
+			assemblyDiagnostics.outputTokensByTier = {
+				...outputTokensByTier,
+			};
+
+			if (
+				needsAssemblyRepair({
+					markdown: finalAssembledMarkdown,
+					acceptedSourceTitles,
+				})
+			) {
+				const secondRepairRepairReason = looksLikeProcessOnlyReport(
+					finalAssembledMarkdown,
+				)
+					? "process_only"
+					: "malformed";
+				assemblyDiagnostics.secondRepairOutputPrefix =
+					minimalRepair.text.slice(0, 500);
+				assemblyDiagnostics.secondRepairParsedAsJson =
+					minimalOutput.metadata.structured;
+				assemblyDiagnostics.secondRepairRepairReason =
+					secondRepairRepairReason;
+				assemblyDiagnostics.finalFailureCheck =
+					"needsAssemblyRepair";
+				assemblyDiagnostics.finalFailureSubCondition =
+					secondRepairRepairReason;
+
+				const fallbackReport = buildHonestEvidenceFallbackReport({
+					language,
+					query: input.job.query,
+					evidencePacks: evidencePackResult.evidencePacks,
+					searchLimitation,
+					currentDate,
+				});
+				finalAssembledMarkdown = fallbackReport.markdown;
+				assemblyMetadata = mergeAssemblyMetadata(
+					assemblyMetadata,
+					fallbackReport.metadata,
+				);
+				usedDeterministicFallbackBeforeImprovement = true;
+				currentDraftIsHonestFallback = true;
+			}
+		}
 	}
 
 	if (!currentDraftIsHonestFallback) {
+		finalAssembledMarkdown = ensureLimitationsSection(
+			finalAssembledMarkdown,
+			language,
+		);
 		finalAssembledMarkdown = sanitizeMalformedWriterHeadings({
 			markdown: finalAssembledMarkdown,
 			acceptedSourceTitles,
@@ -2473,6 +2544,10 @@ export async function runAtlasPipeline(
 			currentDraftIsHonestFallback = true;
 		}
 		if (!currentDraftIsHonestFallback) {
+			finalAssembledMarkdown = ensureLimitationsSection(
+				finalAssembledMarkdown,
+				language,
+			);
 			finalAssembledMarkdown = sanitizeMalformedWriterHeadings({
 				markdown: finalAssembledMarkdown,
 				acceptedSourceTitles,
@@ -2637,6 +2712,12 @@ export async function runAtlasPipeline(
 		documentSource,
 		imageSearch.imageCandidates,
 	);
+	if (assemblyDiagnostics && basisDiagnostics.length > 0) {
+		assemblyDiagnostics = {
+			...assemblyDiagnostics,
+			claimBasisDiagnostics: basisDiagnostics,
+		};
+	}
 	const writerCheckpoint = {
 		evidenceCards: {
 			version: writerEvidenceCardResult.version,

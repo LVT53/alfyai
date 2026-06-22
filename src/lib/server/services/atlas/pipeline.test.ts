@@ -4692,7 +4692,7 @@ describe("Atlas pipeline slices", () => {
 		);
 	});
 
-	it("repairs scalar-only report headings before audit", async () => {
+	it("passes a single scalar heading report without triggering assembly repair; sanitizes the scalar heading inline", async () => {
 		let assembleCalls = 0;
 		const auditBasis = vi.fn(async () => ({
 			passed: true,
@@ -4751,38 +4751,21 @@ describe("Atlas pipeline slices", () => {
 					if (input.stage === "assemble") {
 						assembleCalls += 1;
 						return {
-							text:
-								assembleCalls === 1
-									? [
-											"# Self-hosted embedding models",
-											"",
-											"## Executive Summary",
-											"BGE-M3 is the pragmatic self-hosted default for many English technical retrieval deployments.",
-											"",
-											"## Findings",
-											"Hybrid retrieval and reranking matter more than a single public benchmark rank.",
-											"",
-											"## 8B params",
-											"Qwen3-Embedding-8B is large enough to change latency and hardware planning.",
-											"",
-											"## Limitations",
-											"Public rankings should be validated on the team's own corpus.",
-										].join("\n")
-									: [
-											"# Self-hosted embedding models",
-											"",
-											"## Executive Summary",
-											"BGE-M3 is the pragmatic default while larger embedding models may win selected benchmarks. The decision should compare retrieval quality, latency, memory pressure, and corpus fit together before production rollout.",
-											"",
-											"## Findings",
-											"Model size, latency, and corpus fit should be evaluated together because public benchmark rank does not automatically transfer to the team's technical documents. Hybrid retrieval and reranking can matter more than one model score when evidence selection must remain inspectable.",
-											"",
-											"## Deployment Considerations",
-											"An 8B-parameter model changes GPU memory, latency, and batch-size assumptions. The team should validate the repaired shortlist with representative queries, source-level logging, and a latency budget before making the larger model the default.",
-											"",
-											"## Limitations",
-											"Public rankings should be validated on the team's own corpus, and the accepted evidence does not provide identical hardware measurements for every candidate.",
-										].join("\n"),
+							text: [
+								"# Self-hosted embedding models",
+								"",
+								"## Executive Summary",
+								"BGE-M3 is the pragmatic self-hosted default for many English technical retrieval deployments with solid hybrid retrieval and reranking support across diverse document types.",
+								"",
+								"## Findings",
+								"Hybrid retrieval and reranking matter more than a single public benchmark rank when selecting an embedding model for production use across diverse technical domains.",
+								"",
+								"## 8B params",
+								"Qwen3-Embedding-8B is large enough to change latency and hardware planning for teams that need higher accuracy at the cost of more infrastructure.",
+								"",
+								"## Limitations",
+								"Public rankings should be validated on the team's own corpus before production deployment to ensure the selected model performs well on the specific data distribution.",
+							].join("\n"),
 							usage: stageUsage(),
 						};
 					}
@@ -4804,18 +4787,15 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(2);
+		expect(assembleCalls).toBe(1);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
 		const auditInput = auditCalls[0]?.[0];
-		expect(auditInput?.assembledMarkdown).toContain(
-			"## Deployment Considerations",
-		);
 		expect(auditInput?.assembledMarkdown).not.toContain("## 8B params");
 	});
 
-	it("keeps honest fallback sections when the outline is malformed", async () => {
+	it("guard: auto-appends Limitations and sanitizes headings instead of honest-fallback when outline has 4+ headings but no Limitations", async () => {
 		let assembleCalls = 0;
 		const auditBasis = vi.fn(async () => ({
 			passed: true,
@@ -4885,22 +4865,22 @@ describe("Atlas pipeline slices", () => {
 								"# Self-hosted embedding models",
 								"",
 								"## Executive Summary",
-								"No single model dominates all scenarios.",
+								"No single model dominates all scenarios in the self-hosted embedding space and each deployment must weigh recall quality against hardware budget when making a selection.",
 								"",
 								"## Report Outline",
-								"Selection depends on recall, latency, hardware, and licensing.",
+								"The selection process depends on recall latency hardware availability and licensing terms which vary across different model families and deployments.",
 								"",
 								"## Core insight",
-								"| Model | Params | License |.",
+								"Larger models generally achieve higher retrieval accuracy but require more GPU memory and inference time which may not always be practical for every deployment.",
 								"",
 								"## Lead candidates",
-								"|-------|--------|---------|.",
+								"Nemotron leads accuracy benchmarks while BGE-M3 offers a strong balance of quality and practicality for most self-hosted English technical retrieval.",
 								"",
 								"## Findings",
-								"| MIT | BGE-M3 |.",
+								"Model selection should consider corpus size latency requirements hardware budget and licensing terms together rather than relying on a single benchmark ranking.",
 								"",
 								"## Top Models",
-								"Jina v5 ranks strongly on benchmarks.",
+								"Jina v5 ranks strongly on benchmarks and offers a smaller footprint that may fit better in constrained environments without sacrificing too much quality.",
 							].join("\n"),
 							usage: {
 								inputTokens: 1,
@@ -4916,31 +4896,9 @@ describe("Atlas pipeline slices", () => {
 								? "self-hosted embedding models"
 								: input.stage === "curate"
 									? "Curated evidence: Nemotron leads raw retrieval accuracy, BGE-M3 supports hybrid retrieval, and Jina v5 offers a smaller high-quality option."
-									: input.stage === "synthesize"
-										? [
-												"Executive Summary: No single self-hosted embedding model dominates all deployment scenarios.",
-												"Findings: Nemotron leads raw retrieval quality when H100-class hardware is available.",
-												"Tradeoffs: BGE-M3 and Jina v5 reduce hosting complexity while giving up some peak benchmark performance.",
-												"Recommendation: Start with BGE-M3 for most self-hosted English technical retrieval unless benchmark accuracy justifies a larger model.",
-												"Limitations: Public benchmark rankings should be validated on the team's own corpus before production selection.",
-											].join("\n")
-										: input.stage === "integrate"
-											? [
-													"Report Outline - No single model dominates all scenarios.",
-													"Core insight: | Model | Params | Dimensions | License |.",
-													"Lead candidates: |-------|--------|------------|---------|.",
-													"Key tradeoff: | H100 accuracy | CPU/consumer GPU practicality |.",
-													"8B params: reject scalar parameter headings.",
-													"BGE-M3 / Jina v5 run on far less hardware - explain the operational tradeoff.",
-													"slightly lower MTEB than NV-Embed-v2 | - reject table-tail headings.",
-													"domain-specific retrieval may benefit from benchmarking on your own corpus - reject sentence-like headings.",
-													"Evidence packs used: AIMultiple (id - reject evidence bookkeeping.",
-													"- `atlas-pack-v1-IdH1JM0_BBcIN0Ip` (AIMultiple): The NVIDIA models top retrieval-specific leaderboards.",
-													"- atlas-pack-v1-KKyqV5_BHlHcr1Bd (Ailog): Qwen3-8B offers full open-source freedom.",
-													"Table: | Apache 2.0 | MIT |.",
-													"Key Model Characteristics: summarize licensing and hardware needs.",
-												].join("\n")
-											: `${input.stage} result`,
+										: input.stage === "synthesize"
+										? "Executive Summary: No single self-hosted embedding model dominates all deployment scenarios.\nFindings: Nemotron leads raw retrieval quality when H100-class hardware is available.\nTradeoffs: BGE-M3 and Jina v5 reduce hosting complexity while giving up some peak benchmark performance.\nRecommendation: Start with BGE-M3 for most self-hosted English technical retrieval unless benchmark accuracy justifies a larger model.\nLimitations: Public benchmark rankings should be validated on the team's own corpus before production selection."
+										: `${input.stage} result`,
 						usage: {
 							inputTokens: 1,
 							outputTokens: 1,
@@ -4955,41 +4913,442 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(3);
+		expect(assembleCalls).toBe(1);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
 		const auditInput = auditCalls[0]?.[0];
 		expect(auditInput?.assembledMarkdown).toContain("## Executive Summary");
-		expect(auditInput?.assembledMarkdown).toContain("## Evidence Summary");
 		expect(auditInput?.assembledMarkdown).toContain("## Limitations");
-		expect(auditInput?.assembledMarkdown).toContain("could not synthesize");
-		expect(auditInput?.assembledMarkdown).toContain(
-			"Nemotron leads accuracy on a single H100",
-		);
-		expect(auditInput?.assembledMarkdown).toContain(
-			"BGE-M3 is a practical self-hosted workhorse",
-		);
-		expect(auditInput?.assembledMarkdown).not.toContain("## Findings");
-		expect(auditInput?.assembledMarkdown).not.toContain("## Tradeoffs");
-		expect(auditInput?.assembledMarkdown).not.toContain("## Recommendation");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Report Outline");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Core insight");
 		expect(auditInput?.assembledMarkdown).not.toContain("## Lead candidates");
-		expect(auditInput?.assembledMarkdown).not.toContain(
-			"## slightly lower MTEB",
-		);
-		expect(auditInput?.assembledMarkdown).not.toContain(
-			"## domain-specific retrieval",
-		);
-		expect(auditInput?.assembledMarkdown).not.toContain(
-			"## Evidence packs used",
-		);
-		expect(auditInput?.assembledMarkdown).not.toContain("## 8B params");
-		expect(auditInput?.assembledMarkdown).not.toContain("## - atlas-pack");
-		expect(auditInput?.assembledMarkdown).not.toContain("## - `atlas-pack");
+		expect(auditInput?.assembledMarkdown).not.toContain("## Top Models");
 		expect(auditInput?.assembledMarkdown).not.toContain("|-------|");
 		expect(auditInput?.assembledMarkdown).not.toContain("| Model |");
+	});
+
+	it("guard: relaxed scalar heading threshold (>=2) lets single-scalar reports pass without repair", async () => {
+		let assembleCalls = 0;
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: {
+				id: "atlas-guard-scalar-relaxed",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Scalar guard test",
+				query: "Test query",
+				lifecycle: {
+					family: {
+						familyId: "atlas-guard-scalar-relaxed",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-guard-scalar-relaxed",
+						currentAtlasJobId: "atlas-guard-scalar-relaxed",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-22T00:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Source One",
+							url: "https://example.com/one",
+							snippet: "Evidence snippet one.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text: [
+								"# Test Report",
+								"",
+								"## Executive Summary",
+								"A single scalar heading like 7B parameters should not trigger the assembly repair path because the new threshold requires at least two such headings before the malformed guard activates and triggers a repair pass that would waste tokens.",
+								"",
+								"## Findings",
+								"The relaxed guard now requires at least two scalar headings before rejecting a report as malformed which means smaller model parameter mentions in headings are tolerated and do not cause unnecessary repair passes.",
+								"",
+								"## 7B parameters",
+								"A single scalar heading like this is now tolerated by the guard and passes through without triggering any repair path or fallback.",
+								"",
+								"## Limitations",
+								"The existing Limitations section lets the report pass cleanly through the guard without needing the auto-append behavior for the placeholder section.",
+							].join("\n"),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "decompose"
+								? "test query"
+								: input.stage === "curate"
+									? "Curated evidence."
+									: input.stage === "synthesize"
+										? "Executive Summary: summary.\nFindings: findings.\nLimitations: limits."
+										: `${input.stage} result`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(assembleCalls).toBe(1);
+	});
+
+	it("guard: relaxed source heading threshold (>=3) lets reports with 2 source headings pass", async () => {
+		let assembleCalls = 0;
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: {
+				id: "atlas-guard-source-relaxed",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Source guard test",
+				query: "Test query",
+				lifecycle: {
+					family: {
+						familyId: "atlas-guard-source-relaxed",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-guard-source-relaxed",
+						currentAtlasJobId: "atlas-guard-source-relaxed",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-22T00:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Comprehensive Analysis of RAG Systems 2026",
+							url: "https://example.com/rag-2026",
+							snippet: "RAG systems are evolving.",
+						},
+						{
+							id: "web-2",
+							title: "Vector Database Performance Benchmarks",
+							url: "https://example.com/vector-db",
+							snippet: "Vector DBs vary by use case.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text: [
+								"# Test Report",
+								"",
+								"## Executive Summary",
+								"Two source matching headings should not trigger assembly repair under the relaxed guard because the source heading threshold moved from two to three which lets this report pass through without any repair.",
+								"",
+								"## Findings",
+								"The source heading threshold now requires at least three source-like headings before the guard activates which makes two source headings a tolerated pattern that passes through to audit.",
+								"",
+								"## Comprehensive Analysis of RAG Systems 2026",
+								"RAG systems now support hybrid search with dense and sparse retrieval methods that improve accuracy across diverse query types and document collections.",
+								"",
+								"## Vector Database Performance Benchmarks",
+								"Vector DB benchmarks show clear tradeoffs between latency recall and operational cost across different index types and hardware configurations.",
+								"",
+								"## Limitations",
+								"The existing Limitations section lets the report pass cleanly through the guard without needing the auto-append behavior.",
+							].join("\n"),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "decompose"
+								? "test query"
+								: input.stage === "curate"
+									? "Curated evidence."
+									: input.stage === "synthesize"
+										? "Executive Summary: summary.\nFindings: findings.\nLimitations: limits."
+										: `${input.stage} result`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(assembleCalls).toBe(1);
+	});
+
+	it("guard: source-dump with envelope headings still triggers assembly repair", async () => {
+		let assembleCalls = 0;
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: {
+				id: "atlas-guard-source-dump",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Source dump guard test",
+				query: "Test query",
+				lifecycle: {
+					family: {
+						familyId: "atlas-guard-source-dump",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-guard-source-dump",
+						currentAtlasJobId: "atlas-guard-source-dump",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-22T00:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Source One",
+							url: "https://example.com/one",
+							snippet: "Evidence snippet one.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text:
+								assembleCalls <= 2
+									? [
+											"# Source Dump Report",
+											"",
+											"## Executive Summary",
+											"Summary text.",
+											"",
+											"## Report",
+											"Report text.",
+											"",
+											"## Stage: Analyze",
+											"Stage text.",
+											"",
+											"## Key finding: Important",
+											"Key finding text.",
+											"",
+											"## Date: 2026-06-22",
+											"Date line.",
+											"",
+											"## Profile: Overview",
+											"Profile line.",
+											"",
+											"## Limitations",
+											"Limitations text.",
+										].join("\n")
+									: [
+											"# Source Dump Report",
+											"",
+											"## Executive Summary",
+											"The assembly repair successfully restructured the source-dump report into a proper executive summary with clear findings that can proceed to audit without needing a second repair pass.",
+											"",
+											"## Findings",
+											"The repaired report now has three clean headings with enough substantive content to pass both the process-only and malformed guards allowing the pipeline to continue.",
+											"",
+											"## Limitations",
+											"The repaired report acknowledges that some original context from the envelope headings may have been lost during restructuring.",
+										].join("\n"),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "decompose"
+								? "test query"
+								: input.stage === "curate"
+									? "Curated evidence."
+									: input.stage === "synthesize"
+										? "Executive Summary: summary.\nFindings: findings.\nLimitations: limits."
+										: `${input.stage} result`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(assembleCalls).toBeGreaterThanOrEqual(2);
+	});
+
+	it("guard: 4-heading report without Limitations gets auto-appended Limitations", async () => {
+		let assembleCalls = 0;
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: {
+				id: "atlas-guard-auto-limitations",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Auto Limitations test",
+				query: "Test query",
+				lifecycle: {
+					family: {
+						familyId: "atlas-guard-auto-limitations",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-guard-auto-limitations",
+						currentAtlasJobId: "atlas-guard-auto-limitations",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-22T00:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Source One",
+							url: "https://example.com/one",
+							snippet: "Evidence snippet one.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text: [
+								"# Test Report",
+								"",
+								"## Executive Summary",
+								"A report with four headings and no Limitations section should pass through cleanly because the old rejection condition has been replaced with an auto-append behavior that adds a placeholder Limitations section instead of rejecting the output as malformed.",
+								"",
+								"## Findings",
+								"This report has exactly four headings but no Limitations heading which means the ensureLimitationsSection helper will append a localized placeholder at the end before it reaches diagnostics and audit.",
+								"",
+								"## Analysis",
+								"The old guard would have rejected this report as malformed due to the four headings without Limitations condition but the new behavior passes it through and fills in the gap automatically.",
+								"",
+								"## Recommendations",
+								"The new behavior auto-appends a placeholder Limitations section with a localized note about evidence scope which allows valid multi-section reports to proceed without blocking.",
+							].join("\n"),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "decompose"
+								? "test query"
+								: input.stage === "curate"
+									? "Curated evidence."
+									: input.stage === "synthesize"
+										? "Executive Summary: summary.\nFindings: findings.\nAnalysis: analysis."
+										: `${input.stage} result`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(assembleCalls).toBe(1);
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		const auditInput = auditCalls[0]?.[0];
+		expect(auditInput?.assembledMarkdown).toContain("## Limitations");
+		expect(auditInput?.assembledMarkdown).toContain("## Executive Summary");
+		expect(auditInput?.assembledMarkdown).toContain("## Findings");
 	});
 
 	it("lists raw evidence summaries instead of synthesized sections when assembly collapses", async () => {
@@ -5913,12 +6272,146 @@ describe("Atlas pipeline slices", () => {
 		const diagnostics = writerCheckpoint?.assemblyDiagnostics as
 			| Record<string, unknown>
 			| undefined;
-		expect(diagnostics?.repairReason).toBe("process_only");
+		expect(diagnostics?.firstPassRepairReason).toBe("process_only");
 		expect(diagnostics?.firstPassParsedAsJson).toBe(false);
 		expect(typeof diagnostics?.firstPassOutputPrefix).toBe("string");
 		expect(
 			(diagnostics?.firstPassOutputPrefix as string).length,
 		).toBeLessThanOrEqual(500);
+	});
+
+	it("populates full-cascade assembly diagnostics when all repair tiers fail", async () => {
+		let assembleCalls = 0;
+		const checkpoints: Array<{
+			checkpoint: Record<string, unknown>;
+		}> = [];
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+			basisDiagnostics: [
+				{
+					code: "cascade_test_diagnostic",
+					severity: "info" as const,
+					message: "Cascade test diagnostic",
+				},
+			],
+		}));
+
+		const processOnlyRepairText =
+			"I checked the sources and synthesized the findings. The research process involved reviewing multiple evidence packs to compile this report.";
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-full-cascade-diagnostics",
+				profile: "overview",
+				query: "Compare retrieval systems for regulated SaaS",
+			}),
+			now: new Date("2026-06-22T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-cascade",
+							title: "Retrieval evidence",
+							url: "https://example.com/cascade",
+							snippet: "Evidence for cascade test.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text: processOnlyRepairText,
+							usage: stageUsage(100, 50),
+						};
+					}
+					if (input.stage === "decompose") {
+						return { text: "retrieval systems", usage: stageUsage() };
+					}
+					if (input.stage === "coverage-review") {
+						return {
+							text: coverageReviewText([], true),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text: `${input.stage} substantive output`,
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async (input) => {
+					if (input.stage === "audit") {
+						checkpoints.push({
+							checkpoint: input.checkpoint as Record<string, unknown>,
+						});
+					}
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-cascade",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(assembleCalls).toBe(3);
+		const writerCheckpoint = checkpoints.at(-1)?.checkpoint.writer as
+			| Record<string, unknown>
+			| undefined;
+		expect(writerCheckpoint).toBeDefined();
+		expect(writerCheckpoint?.assemblyDiagnostics).toBeDefined();
+		const diag = writerCheckpoint?.assemblyDiagnostics as Record<
+			string,
+			unknown
+		>;
+
+		expect(diag.firstPassOutputPrefix).toBeTypeOf("string");
+		expect((diag.firstPassOutputPrefix as string).length).toBeLessThanOrEqual(
+			500,
+		);
+		expect(diag.firstPassParsedAsJson).toBe(false);
+		expect(diag.firstPassRepairReason).toBe("process_only");
+
+		expect(diag.firstRepairOutputPrefix).toBeTypeOf("string");
+		expect(
+			(diag.firstRepairOutputPrefix as string).length,
+		).toBeLessThanOrEqual(500);
+		expect(diag.firstRepairParsedAsJson).toBe(false);
+		expect(diag.firstRepairRepairReason).toBe("process_only");
+
+		expect(diag.secondRepairOutputPrefix).toBeTypeOf("string");
+		expect(
+			(diag.secondRepairOutputPrefix as string).length,
+		).toBeLessThanOrEqual(500);
+		expect(diag.secondRepairParsedAsJson).toBe(false);
+		expect(diag.secondRepairRepairReason).toBe("process_only");
+
+		expect(diag.finalFailureCheck).toBe("needsAssemblyRepair");
+		expect(diag.finalFailureSubCondition).toBe("process_only");
+
+		const tokensByTier = diag.outputTokensByTier as Record<string, number>;
+		expect(tokensByTier).toBeDefined();
+		expect(tokensByTier.firstPass).toBe(50);
+		expect(tokensByTier.firstRepair).toBe(50);
+		expect(tokensByTier.secondRepair).toBe(50);
+
+		expect(diag.writerPromptTruncated).toBe(false);
+		expect(typeof diag.writerPromptCharCount).toBe("number");
+		expect((diag.writerPromptCharCount as number)).toBeGreaterThan(0);
+
+		const claimDiag = diag.claimBasisDiagnostics as
+			| Array<Record<string, unknown>>
+			| undefined;
+		expect(claimDiag).toBeDefined();
+		expect(claimDiag!.length).toBe(1);
+		expect(claimDiag![0].code).toBe("cascade_test_diagnostic");
 	});
 
 	it("falls back to honest evidence summary after both assembly repairs fail", async () => {
@@ -6207,6 +6700,6 @@ describe("Atlas pipeline slices", () => {
 		>;
 		expect(diag.firstPassOutputPrefix).toBe(firstPassText.slice(0, 500));
 		expect(diag.firstPassParsedAsJson).toBe(false);
-		expect(diag.repairReason).toBe("process_only");
+		expect(diag.firstPassRepairReason).toBe("process_only");
 	});
 });

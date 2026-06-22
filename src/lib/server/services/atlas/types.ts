@@ -168,6 +168,24 @@ export interface AtlasAssemblyMetadata {
 	structured: boolean;
 }
 
+export interface AtlasAssemblyDiagnostics {
+	firstPassOutputPrefix: string;
+	firstPassParsedAsJson: boolean;
+	firstPassRepairReason?: string;
+	firstRepairOutputPrefix?: string;
+	firstRepairParsedAsJson?: boolean;
+	firstRepairRepairReason?: string;
+	secondRepairOutputPrefix?: string;
+	secondRepairParsedAsJson?: boolean;
+	secondRepairRepairReason?: string;
+	finalFailureCheck?: string;
+	finalFailureSubCondition?: string;
+	outputTokensByTier: Record<string, number>;
+	writerPromptTruncated: boolean;
+	writerPromptCharCount: number;
+	claimBasisDiagnostics?: AtlasClaimBasisDiagnostic[];
+}
+
 export interface AtlasClaimLocator {
 	sectionTitle: string | null;
 	paragraphIndex: number | null;
