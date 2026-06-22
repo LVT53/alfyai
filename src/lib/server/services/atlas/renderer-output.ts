@@ -1122,6 +1122,10 @@ function findClaimAnchor(
 			};
 		}
 	}
+	for (const candidate of candidates) {
+		const result = normalizedAnchorMatch(text, candidate);
+		if (result) return result;
+	}
 	return null;
 }
 
@@ -1153,6 +1157,37 @@ function buildWriterClaimTextMap(
 function normalizeClaimAnchorText(text: string): string | null {
 	const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
 	return normalized || null;
+}
+
+function normalizedAnchorMatch(
+	text: string,
+	candidate: string,
+): { anchorText: string; occurrence: number } | null {
+	const normalized = normalizeClaimAnchorText(candidate);
+	if (!normalized) return null;
+	const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const pattern = escaped.replace(/ /g, "\\s+");
+	try {
+		const regex = new RegExp(pattern, "i");
+		const match = text.match(regex);
+		if (match && match.index !== undefined) {
+			return {
+				anchorText: match[0],
+				occurrence: occurrenceForAnchor(text, match[0], match.index),
+			};
+		}
+	} catch {
+	}
+	return null;
+}
+
+function sentences(text: string): string[] {
+	const trimmed = text.trim();
+	if (!trimmed) return [];
+	const parts = trimmed.match(/[^.!?\s][^.!?]*(?:[.!?]+|$)/g);
+	return (parts ?? [trimmed])
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
 }
 
 function paragraphContexts(blocks: GeneratedDocumentSource["blocks"]): Array<{
@@ -1275,6 +1310,7 @@ function applyAtlasClaimBasisMarkers(
 		writerClaimBasis,
 		claimBasis,
 	);
+	const unplacedPerParagraph = new Map<number, number>();
 
 	for (const [basisIndex, basis] of claimBasis.entries()) {
 		const candidates = contexts.filter(
@@ -1315,10 +1351,21 @@ function applyAtlasClaimBasisMarkers(
 
 		const fallbackContext = candidates[0];
 		if (fallbackContext) {
+			const unplacedCount =
+				unplacedPerParagraph.get(fallbackContext.blockIndex) ?? 0;
+			const paragraphSentences = sentences(fallbackContext.block.text);
+			const sentenceIndex =
+				unplacedCount < paragraphSentences.length
+					? unplacedCount
+					: (paragraphSentences.length > 0
+						? paragraphSentences.length - 1
+						: 0);
+			const anchorText =
+				paragraphSentences[sentenceIndex] ?? fallbackContext.block.text;
 			const marker = paragraphMarkerForClaim({
 				basis,
 				index: basisIndex,
-				anchorText: fallbackContext.block.text,
+				anchorText,
 				occurrence: 0,
 			});
 			const currentBlock = blocks[fallbackContext.blockIndex];
@@ -1328,6 +1375,7 @@ function applyAtlasClaimBasisMarkers(
 					marker,
 				);
 			}
+			unplacedPerParagraph.set(fallbackContext.blockIndex, unplacedCount + 1);
 			continue;
 		}
 
@@ -1339,16 +1387,28 @@ function applyAtlasClaimBasisMarkers(
 		if (nearestParagraphIndex !== null) {
 			const paragraph = blocks[nearestParagraphIndex];
 			if (paragraph?.type === "paragraph") {
+				const unplacedCount =
+					unplacedPerParagraph.get(nearestParagraphIndex) ?? 0;
+				const paragraphSentences = sentences(paragraph.text);
+				const sentenceIndex =
+					unplacedCount < paragraphSentences.length
+						? unplacedCount
+						: (paragraphSentences.length > 0
+							? paragraphSentences.length - 1
+							: 0);
+				const anchorText =
+					paragraphSentences[sentenceIndex] ?? paragraph.text;
 				const marker = paragraphMarkerForClaim({
 					basis,
 					index: basisIndex,
-					anchorText: paragraph.text,
+					anchorText,
 					occurrence: 0,
 				});
 				blocks[nearestParagraphIndex] = paragraphWithBasisMarker(
 					paragraph,
 					marker,
 				);
+				unplacedPerParagraph.set(nearestParagraphIndex, unplacedCount + 1);
 				continue;
 			}
 		}

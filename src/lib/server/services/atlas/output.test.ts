@@ -1309,6 +1309,214 @@ describe("Atlas renderer output", () => {
 		]);
 	});
 
+	it("matches claims with normalized anchor text when exact whitespace or case differs", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Normalized Anchor Atlas",
+			assembledMarkdown: [
+				"## Efficiency",
+				"Heat  pumps are efficient. They save  energy.",
+			].join("\n"),
+			sources: [
+				{
+					title: "Energy study",
+					url: "https://example.com/study",
+					reasoning: "Accepted evidence.",
+				},
+			],
+			honestyMarkers: [],
+			claimBasis: [
+				{
+					version: "atlas.claim-basis.v1",
+					id: "basis-heat-pumps",
+					locator: {
+						sectionTitle: "Efficiency",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText: "Heat pumps are efficient.",
+						quote: "heat pumps are efficient",
+						startOffset: null,
+						endOffset: null,
+					},
+					supportLevel: "supported",
+					evidencePackIds: ["pack-1"],
+					sourceRefs: [
+						{
+							id: "source-1",
+							kind: "web",
+							title: "Energy study",
+							url: "https://example.com/study",
+							authority: "accepted_web",
+						},
+					],
+					supportRationale: "Energy study confirms heat pump efficiency.",
+					auditConcernCode: null,
+				},
+			],
+		});
+
+		const paragraphs = source.blocks.filter(
+			(
+				block,
+			): block is Extract<
+				(typeof source.blocks)[number],
+				{ type: "paragraph" }
+			> => block.type === "paragraph",
+		);
+		expect(paragraphs).toHaveLength(1);
+		expect(paragraphs[0].basisMarkers).toHaveLength(1);
+		expect(paragraphs[0].basisMarkers?.[0]).toMatchObject({
+			id: "basis-heat-pumps",
+			support: "supported",
+		});
+		const marker = paragraphs[0].basisMarkers![0];
+		expect(marker.anchorText).toBeTruthy();
+		expect(
+			paragraphs[0].text
+				.toLowerCase()
+				.includes(marker.anchorText.toLowerCase()),
+		).toBe(true);
+	});
+
+	it("places unplaceable markers after the first sentence instead of full paragraph end", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "First Sentence Fallback Atlas",
+			assembledMarkdown: [
+				"## Risks",
+				"Market signals are unresolved. Adoption is uncertain. More research is needed.",
+			].join("\n"),
+			sources: [],
+			honestyMarkers: [],
+			claimBasis: [
+				{
+					version: "atlas.claim-basis.v1",
+					id: "basis-unmatched",
+					locator: {
+						sectionTitle: "Risks",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText: "A claim that does not appear verbatim in the report text.",
+						quote: "text that is nowhere in the paragraph",
+						startOffset: null,
+						endOffset: null,
+					},
+					supportLevel: "partial",
+					evidencePackIds: ["pack-1"],
+					sourceRefs: [],
+					supportRationale: "Section-level evidence without claim-level anchor.",
+					auditConcernCode: "atlas_claim_basis_section_fallback",
+				},
+			],
+		});
+
+		const paragraphs = source.blocks.filter(
+			(
+				block,
+			): block is Extract<
+				(typeof source.blocks)[number],
+				{ type: "paragraph" }
+			> => block.type === "paragraph",
+		);
+		expect(paragraphs).toHaveLength(1);
+		expect(paragraphs[0].basisMarkers).toHaveLength(1);
+		const anchorText = paragraphs[0].basisMarkers![0].anchorText;
+		const fullParagraphText = paragraphs[0].text;
+		expect(anchorText).not.toBe(fullParagraphText);
+		expect(anchorText.length).toBeLessThan(fullParagraphText.length);
+		expect(fullParagraphText).toContain(anchorText);
+		expect(anchorText).toBe("Market signals are unresolved.");
+	});
+
+	it("distributes multiple unplaced markers across sentences in the same paragraph", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+
+		const source = buildAtlasDocumentSource({
+			title: "Multi Marker Distribution Atlas",
+			assembledMarkdown: [
+				"## Analysis",
+				"First claim point. Second claim area. Third claim topic.",
+			].join("\n"),
+			sources: [],
+			honestyMarkers: [],
+			claimBasis: [
+				{
+					version: "atlas.claim-basis.v1",
+					id: "basis-claim-a",
+					locator: {
+						sectionTitle: "Analysis",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText: "Claim A that is not verbatim in the text.",
+						quote: "nowhere found claim A",
+						startOffset: null,
+						endOffset: null,
+					},
+					supportLevel: "partial",
+					evidencePackIds: ["pack-1"],
+					sourceRefs: [],
+					supportRationale: "Section-level fallback for claim A.",
+					auditConcernCode: "atlas_claim_basis_section_fallback",
+				},
+				{
+					version: "atlas.claim-basis.v1",
+					id: "basis-claim-b",
+					locator: {
+						sectionTitle: "Analysis",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText: "Claim B that is not verbatim in the text.",
+						quote: "nowhere found claim B",
+						startOffset: null,
+						endOffset: null,
+					},
+					supportLevel: "partial",
+					evidencePackIds: ["pack-2"],
+					sourceRefs: [],
+					supportRationale: "Section-level fallback for claim B.",
+					auditConcernCode: "atlas_claim_basis_section_fallback",
+				},
+				{
+					version: "atlas.claim-basis.v1",
+					id: "basis-claim-c",
+					locator: {
+						sectionTitle: "Analysis",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText: "Claim C that is not verbatim in the text.",
+						quote: "nowhere found claim C",
+						startOffset: null,
+						endOffset: null,
+					},
+					supportLevel: "partial",
+					evidencePackIds: ["pack-3"],
+					sourceRefs: [],
+					supportRationale: "Section-level fallback for claim C.",
+					auditConcernCode: "atlas_claim_basis_section_fallback",
+				},
+			],
+		});
+
+		const paragraphs = source.blocks.filter(
+			(
+				block,
+			): block is Extract<
+				(typeof source.blocks)[number],
+				{ type: "paragraph" }
+			> => block.type === "paragraph",
+		);
+		expect(paragraphs).toHaveLength(1);
+		expect(paragraphs[0].basisMarkers).toHaveLength(3);
+		const anchors = paragraphs[0].basisMarkers!.map((m) => m.anchorText);
+		expect(anchors[0]).toBe("First claim point.");
+		expect(anchors[1]).toBe("Second claim area.");
+		expect(anchors[2]).toBe("Third claim topic.");
+		const unique = new Set(anchors);
+		expect(unique.size).toBe(3);
+	});
+
 	it("replaces model-authored final source sections with canonical backend source chips", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 
