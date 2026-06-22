@@ -1120,6 +1120,12 @@ function stripAtlasPromptInstructionTail(value: string): string {
 		.trim();
 }
 
+function normalizeAtlasReportTitleCasing(title: string): string {
+	return title.replace(/^\p{Ll}/u, (letter) =>
+		letter.toLocaleUpperCase("en-US"),
+	);
+}
+
 function normalizeGeneratedTitle(value: unknown): string | null {
 	if (typeof value !== "string") return null;
 	const raw = stripAtlasPromptInstructionTail(value.trim());
@@ -1132,7 +1138,7 @@ function normalizeGeneratedTitle(value: unknown): string | null {
 	if (normalized.length < 4 || normalized.length > 160) return null;
 	if (/^(untitled|title|report|atlas report)$/i.test(normalized)) return null;
 	if (/[\r\n]/.test(normalized)) return null;
-	return normalized;
+	return normalizeAtlasReportTitleCasing(normalized);
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -2384,7 +2390,7 @@ function normalizeFallbackTitle(
 					.slice(0, 121)
 					.replace(/\s+\S*$/, "")
 					.trim();
-	return clipped.length >= 4 ? clipped : null;
+	return clipped.length >= 4 ? normalizeAtlasReportTitleCasing(clipped) : null;
 }
 
 function sourceAssociationsFromEvidencePacks(
@@ -2423,7 +2429,6 @@ const FINAL_REPORT_GATE_WARNING_CODES = new Set([
 	"atlas_report_sections_too_sparse",
 	"atlas_too_many_one_sentence_sections",
 	"atlas_source_projection_dominates_report",
-	"atlas_too_many_images_for_body_size",
 	"atlas_claim_shaped_headings",
 ]);
 const FINAL_REPORT_HARD_STOP_CODES = new Set([

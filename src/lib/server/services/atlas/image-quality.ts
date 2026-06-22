@@ -164,7 +164,12 @@ function hasStrongSubjectRelevance(candidate: AtlasImageCandidate): boolean {
 function isLikelyGenericArticleImage(candidate: AtlasImageCandidate): boolean {
 	const visualText = atlasImageCandidateVisualText(candidate);
 	const sourceText = candidate.sourceTitle ?? "";
-	const combined = [visualText, sourceText].join(" ");
+	const urlText = [
+		normalizedImageUrlText(candidate.imageUrl),
+		normalizedImageUrlText(candidate.thumbnailUrl),
+		normalizedImageUrlText(candidate.sourcePageUrl),
+	].join(" ");
+	const combined = [visualText, sourceText, urlText].join(" ");
 	return (
 		GENERIC_ARTICLE_IMAGE_PATTERN.test(combined) ||
 		(/\b(?:blog|community|medium|news|post|article)\b/i.test(sourceText) &&

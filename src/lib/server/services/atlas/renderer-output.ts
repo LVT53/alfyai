@@ -1420,8 +1420,24 @@ function imageDensityLimit(
 	const sectionCount = blocks.filter(
 		(block) => block.type === "heading" && block.level <= 2,
 	).length;
-	const densityLimit = Math.max(1, Math.floor(Math.max(sectionCount, 1) / 3));
-	return Math.min(maxRenderedImages, densityLimit);
+	const sectionDensityLimit = Math.max(
+		1,
+		Math.floor(Math.max(sectionCount, 1) / 3),
+	);
+	const bodyWords = wordCountForImageDensity(blocks);
+	const bodyDensityLimit =
+		bodyWords < 700 ? 1 : Math.max(1, Math.ceil(bodyWords / 700));
+	return Math.min(maxRenderedImages, sectionDensityLimit, bodyDensityLimit);
+}
+
+function wordCountForImageDensity(
+	blocks: GeneratedDocumentSource["blocks"],
+): number {
+	const text = blocks
+		.map((block) => blockSearchText(block))
+		.filter(Boolean)
+		.join(" ");
+	return text.match(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*/gu)?.length ?? 0;
 }
 
 function capAuthoredImageBlocks(

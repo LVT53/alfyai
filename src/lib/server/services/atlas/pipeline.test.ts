@@ -3299,7 +3299,7 @@ describe("Atlas pipeline slices", () => {
 		);
 		const renderedSource = renderOutputs.mock.calls[0]?.[0];
 		expect(renderedSource.title).toBe(
-			"self-hosted embedding models for English technical-document retrieval in 2026",
+			"Self-hosted embedding models for English technical-document retrieval in 2026",
 		);
 		expect(
 			renderedSource.blocks.filter((block) => block.type === "image"),
