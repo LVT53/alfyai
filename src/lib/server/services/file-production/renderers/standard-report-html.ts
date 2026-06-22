@@ -635,8 +635,13 @@ function renderBlock(
 	},
 ): string {
 	switch (block.type) {
-		case "heading":
-			return `<h${block.level}${options.headingId ? ` id="${escapeHtml(options.headingId)}"` : ""}>${escapeHtml(block.text)}</h${block.level}>`;
+		case "heading": {
+			const recommendationClass = /^(recommend|recommendation|javaslat|ajánlás)/i.test(block.text)
+				? " report-recommendation-heading"
+				: "";
+			const classAttr = recommendationClass ? ` class="${recommendationClass.trim()}"` : "";
+			return `<h${block.level}${options.headingId ? ` id="${escapeHtml(options.headingId)}"` : ""}${classAttr}>${escapeHtml(block.text)}</h${block.level}>`;
+		}
 		case "paragraph":
 			return renderParagraph(block, options.sourceIndex, options.chrome);
 		case "list": {
@@ -812,6 +817,7 @@ export function renderStandardReportHtml(
 		'h1,h2,h3{line-height:1.2;color:var(--report-text);font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;}',
 		"h2{margin:0 0 16px;border-left:3px solid var(--report-accent);padding-left:16px;font-size:24px;font-weight:700;}",
 		"h3{margin:24px 0 8px;font-size:17px;font-weight:700;}",
+		".report-recommendation-heading{font-size:1.1em;font-weight:800;border-left-width:4px;margin-top:28px;padding-top:4px;}",
 		"p,li{font-size:15px;line-height:1.7;color:var(--report-text);}",
 		"a{color:var(--report-accent);text-underline-offset:2px;}",
 		".subtitle,.caption,figcaption,cite{color:var(--report-muted);font-size:.92rem;}",
@@ -848,8 +854,10 @@ export function renderStandardReportHtml(
 		".basis-tooltip span{display:block;color:var(--report-tooltip-muted);}",
 		"pre{white-space:pre-wrap;background:var(--report-panel);padding:12px;overflow-wrap:anywhere;}",
 		"table{width:100%;border-collapse:collapse;font-size:.92rem;}",
-		"th,td{border-bottom:1px solid var(--report-rule);padding:7px;text-align:left;vertical-align:top;}",
+		".table-figure{overflow-x:auto;-webkit-overflow-scrolling:touch;}",
+		"th,td{border-bottom:1px solid var(--report-rule);padding:7px;text-align:left;vertical-align:top;word-break:break-word;overflow-wrap:anywhere;}",
 		"th{background:var(--report-panel);}td.numeric{text-align:right;}",
+		".table-title{font-weight:600;color:var(--report-text);}",
 		".chart-figure svg{max-width:100%;height:auto;}",
 		".report-figure{margin:22px 0 26px;}",
 		".report-figure img{display:block;width:100%;height:auto;border-radius:6px;}",
@@ -881,7 +889,8 @@ export function renderStandardReportHtml(
 		".source-item a:hover{text-decoration:underline;}",
 		".source-domain,.source-provided{color:var(--report-muted);font-size:12px;}",
 		"hr{border:0;border-top:1px solid var(--report-rule);margin:24px 0;}",
-		"@media (max-width: 760px){body{padding:0;}.report-viewer{display:block;height:100vh;height:100dvh;min-height:100vh;min-height:100dvh;border:0;border-radius:0;}.mobile-report-header{display:flex;}.report-sidebar{position:fixed;top:0;left:0;z-index:90;height:100vh;height:100dvh;width:260px!important;box-sizing:border-box;border-right:1px solid var(--report-rule);box-shadow:0 16px 40px rgba(0,0,0,.18);transform:translateX(-100%);transition:transform .25s ease;}.report-sidebar-resizer{display:none;}.report-sidebar.open{transform:translateX(0);}.sidebar-backdrop.open{display:block;}.report-content{height:calc(100vh - 63px);height:calc(100dvh - 63px);max-height:calc(100vh - 63px);max-height:calc(100dvh - 63px);padding:24px;}.report-title{font-size:24px;}}",
+		"@media (max-width: 760px){body{padding:0;}.report-viewer{display:block;height:100vh;height:100dvh;min-height:100vh;min-height:100dvh;border:0;border-radius:0;}.mobile-report-header{display:flex;}.report-sidebar{position:fixed;top:0;left:0;z-index:90;height:100vh;height:100dvh;width:260px!important;box-sizing:border-box;border-right:1px solid var(--report-rule);box-shadow:0 16px 40px rgba(0,0,0,.18);transform:translateX(-100%);transition:transform .25s ease;}.report-sidebar-resizer{display:none;}.report-sidebar.open{transform:translateX(0);}.sidebar-backdrop.open{display:block;}.report-content{height:calc(100vh - 63px);height:calc(100dvh - 63px);max-height:calc(100vh - 63px);max-height:calc(100dvh - 63px);padding:24px;}.report-title{font-size:24px;}th,td{padding:4px;font-size:.82rem;}.table-figure{overflow-x:auto;}}",
+		"@media print{.table-figure{overflow-x:visible;}}",
 		"</style>",
 		"</head>",
 		'<body><div class="report-viewer" id="report-viewer">',

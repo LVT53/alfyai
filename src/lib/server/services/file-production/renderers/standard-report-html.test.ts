@@ -738,4 +738,67 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(markerBlock).not.toContain("<svg");
 		expect(markerBlock).not.toMatch(/<\/button>\s*<span/);
 	});
+
+	it("wraps tables in a horizontally scrollable figure on narrow viewports", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Table scroll report",
+			blocks: [
+				{
+					type: "table",
+					title: "Wide table",
+					columns: [
+						{ key: "a", label: "A", kind: "text" },
+						{ key: "b", label: "B", kind: "text" },
+					],
+					rows: [{ a: "one", b: "two" }],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+
+		expect(html).toContain('<figure class="table-figure">');
+		expect(html).toContain(".table-figure{overflow-x:auto;-webkit-overflow-scrolling:touch;}");
+		expect(html).toContain("word-break:break-word;overflow-wrap:anywhere;");
+		expect(html).toContain(
+			"th,td{padding:4px;font-size:.82rem;}.table-figure{overflow-x:auto;}",
+		);
+		expect(html).toContain("@media print{.table-figure{overflow-x:visible;}}");
+		expect(html).toContain(".table-title{font-weight:600;color:var(--report-text);}");
+	});
+
+	it("marks recommendation headings with a prominence class", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Recommendation report",
+			blocks: [
+				{ type: "heading", level: 2, text: "Recommendations" },
+				{ type: "heading", level: 3, text: "Recommendation: do this" },
+				{ type: "heading", level: 2, text: "Javaslatok" },
+				{ type: "heading", level: 2, text: "Ajánlás" },
+				{ type: "heading", level: 2, text: "Findings" },
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+
+		expect(html).toContain(".report-recommendation-heading{font-size:1.1em;font-weight:800;border-left-width:4px;margin-top:28px;padding-top:4px;}");
+		expect(html).toContain('class="report-recommendation-heading">Recommendations</h2>');
+		expect(html).toContain('class="report-recommendation-heading">Recommendation: do this</h3>');
+		expect(html).toContain('class="report-recommendation-heading">Javaslatok</h2>');
+		expect(html).toContain('class="report-recommendation-heading">Ajánlás</h2>');
+		expect(html).not.toContain('class="report-recommendation-heading">Findings</h2>');
+		expect(html).not.toContain('class="">Findings</h2>');
+	});
 });
