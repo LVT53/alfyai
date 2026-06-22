@@ -177,12 +177,62 @@ function convergeSources(input: {
 	return { sources: accepted, rejectedSources };
 }
 
+/**
+ * Strips known SearXNG artifacts and boilerplate from a search result snippet.
+ *
+ * Removes in order:
+ * 1. SearXNG UI metadata keywords at start (Naptár, Keresés, Beállítások)
+ * 2. Hungarian language filter echoes (Nem tartalmazza: ... | Tartalmaznia kell: ... |)
+ * 3. English language filter echoes (Excluding: ... | Must include: ... |)
+ * 4. YouTube channel prefix (YouTube ·)
+ * 5. Hungarian date prefixes (2024. jan. 26. ·, 2024. január 26. ·)
+ *
+ * After each pass the result is trimmed. Returns empty string when the entire
+ * snippet is consumed by artifacts.
+ */
+export function sanitizeSearchSnippet(snippet: string): string {
+	let result = snippet.trim();
+	if (!result) return result;
+
+	// SearXNG UI metadata keywords at snippet start
+	result = result.replace(/^(Naptár|Keresés|Beállítások)\s*·\s*/, "");
+
+	// Hungarian language filter echo (both conditions: Nem tartalmazza + Tartalmaznia kell)
+	result = result.replace(
+		/^Nem tartalmazza:[^|]+\|\s*Tartalmaznia kell:[^|]+\|\s*/i,
+		"",
+	);
+	// Hungarian single-condition fallbacks
+	result = result.replace(/^Nem tartalmazza:[^|]+\|\s*/i, "");
+	result = result.replace(/^Tartalmaznia kell:[^|]+\|\s*/i, "");
+
+	// English language filter echo (both conditions)
+	result = result.replace(/^Excluding:[^|]+\|\s*Must include:[^|]+\|\s*/i, "");
+	// English single-condition fallbacks
+	result = result.replace(/^Excluding:[^|]+\|\s*/i, "");
+	result = result.replace(/^Must include:[^|]+\|\s*/i, "");
+
+	// YouTube channel prefix
+	result = result.replace(/^YouTube ·\s*/, "");
+
+	// Hungarian date prefixes
+	result = result.replace(
+		/^\d{4}\. (?:jan\.|febr\.|márc\.|ápr\.|máj\.|jún\.|júl\.|aug\.|szept\.|okt\.|nov\.|dec\.|január|február|március|április|május|június|július|augusztus|szeptember|október|november|december) \d{1,2}\. ·\s*/,
+		"",
+	);
+
+	return result.trim();
+}
+
 function fetchedSnippet(input: {
 	source: AtlasSearchSource;
 	title: string | null;
 	text: string;
 }): AtlasSearchSource {
-	const excerpt = input.text.replace(/\s+/g, " ").trim().slice(0, 3_500);
+	const excerpt = sanitizeSearchSnippet(input.text)
+		.replace(/\s+/g, " ")
+		.trim()
+		.slice(0, 3_500);
 	if (!excerpt) return input.source;
 	const searchSnippet = input.source.snippet?.trim();
 	return {
@@ -256,12 +306,17 @@ function normalizeSearxngResult(
 		typeof record.title === "string" && record.title.trim()
 			? record.title.trim()
 			: url;
-	const snippet =
+	const rawSnippet =
 		typeof record.content === "string"
 			? record.content.trim()
 			: typeof record.snippet === "string"
 				? record.snippet.trim()
 				: null;
+	let snippet: string | null = rawSnippet;
+	if (snippet) {
+		const sanitized = sanitizeSearchSnippet(snippet);
+		snippet = sanitized.length > 0 ? sanitized : title;
+	}
 	return {
 		id: `web:${query}:${index}`,
 		title,

@@ -108,6 +108,7 @@ function sourceChipForAtlasSource(
 				: isWeb
 					? chrome.webSourcesReasoning
 					: chrome.librarySourcesReasoning,
+			language,
 		}),
 	};
 }
@@ -154,12 +155,16 @@ function cleanText(value: unknown): string | null {
 }
 
 function withoutRawExcerptTail(text: string): string {
-	const rawLabelMatch = text.match(
-		/\b(?:Fetched page excerpt|Accepted source excerpt)\s*:/i,
-	);
-	if (!rawLabelMatch || typeof rawLabelMatch.index !== "number") return text;
-	if (rawLabelMatch.index === 0) return "";
-	const beforeRawLabel = text.slice(0, rawLabelMatch.index).trim();
+	const allMatches = [
+		...text.matchAll(
+			/\b(?:Fetched page excerpt|Accepted source excerpt|Search result snippet)\s*:/gi,
+		),
+	];
+	if (allMatches.length === 0) return text;
+	const lastMatch = allMatches[allMatches.length - 1];
+	if (!lastMatch || typeof lastMatch.index !== "number") return text;
+	if (lastMatch.index === 0) return "";
+	const beforeRawLabel = text.slice(0, lastMatch.index).trim();
 	return beforeRawLabel.length >= 24 ? beforeRawLabel : "";
 }
 
@@ -172,18 +177,60 @@ function removeSourceDumpLabels(text: string): string {
 		.trim();
 }
 
-function usefulSourceNoteSentences(text: string): string[] {
+const BOILERPLATE_SENTENCE_PATTERNS = {
+	always: [
+		/\b(?:cookie|subscribe|sign in|privacy policy|advertisement|loading|navigation menu|copied from the fetched page)\b/i,
+		// SearXNG metadata echoes
+		/\bNem tartalmazza\b/i,
+		/\bTartalmaznia kell\b/i,
+		/\bKeresés\b/iu,
+		/\bBeállítások\b/iu,
+		/\bNaptár\b/iu,
+		/\bExcluding:\s*/i,
+		/\bMust include:\s*/i,
+		// Google copyright
+		/\bGoogle LLC\b/i,
+		/©\s*\d{4}\s*Google\b/i,
+	],
+	nonHungarianOnly: [
+		// Hungarian YouTube footer
+		/\bIsmertető\b/iu,
+		/\bSajtó\b/iu,
+		/\bSzerzői jog\b/iu,
+		/\bKapcsolatfelvétel\b/iu,
+		/\bAlkotók\b/iu,
+		/\bHirdetés\b/iu,
+		/\bFejlesztők\b/iu,
+		/\bFeltételek\b/iu,
+		/\bAdatvédelem\b/iu,
+		/\bIrányelvek\b/iu,
+		/\bYouTube működése\b/iu,
+		/\bÚj funkciók tesztelése\b/iu,
+		// Hungarian date prefixes
+		/\d{4}\.\s*(?:jan|feb|már|ápr|máj|jún|júl|aug|szept|okt|nov|dec)[a-z]*\s+\d+\.\s*·/iu,
+	],
+};
+
+export function usefulSourceNoteSentences(
+	text: string,
+	language?: SupportedLanguage,
+): string[] {
 	const sentences = text
 		.split(/(?<=[.!?])\s+/)
 		.map((sentence) => sentence.trim())
 		.filter(Boolean);
 	const candidates = sentences.length > 0 ? sentences : [text.trim()];
-	const filtered = candidates.filter(
-		(sentence) =>
-			!/\b(?:cookie|subscribe|sign in|privacy policy|advertisement|loading|navigation menu|copied from the fetched page)\b/i.test(
-				sentence,
-			),
-	);
+	const filtered = candidates.filter((sentence) => {
+		for (const pattern of BOILERPLATE_SENTENCE_PATTERNS.always) {
+			if (pattern.test(sentence)) return false;
+		}
+		if (language !== "hu") {
+			for (const pattern of BOILERPLATE_SENTENCE_PATTERNS.nonHungarianOnly) {
+				if (pattern.test(sentence)) return false;
+			}
+		}
+		return true;
+	});
 	return (filtered.length > 0 ? filtered : candidates).slice(0, 2);
 }
 
@@ -201,12 +248,15 @@ export function compactAtlasSourceRelevanceNote(input: {
 	note?: string | null;
 	fallback: string;
 	maxLength?: number;
+	language?: SupportedLanguage;
 }): string {
 	const fallback =
 		cleanText(input.fallback) ?? "Accepted evidence gathered by Atlas";
 	const normalized = cleanText(input.note) ?? fallback;
 	const cleaned = removeSourceDumpLabels(withoutRawExcerptTail(normalized));
-	const sentences = usefulSourceNoteSentences(cleaned).join(" ");
+	const sentences = usefulSourceNoteSentences(cleaned, input.language).join(
+		" ",
+	);
 	const compact = cleanText(sentences) ?? fallback;
 	return truncateSourceNote(
 		compact,

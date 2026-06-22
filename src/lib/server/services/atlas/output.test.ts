@@ -1554,6 +1554,140 @@ describe("Atlas renderer output", () => {
 		);
 	});
 
+	it("strips Search result snippet tail in withoutRawExcerptTail (asymmetry fix)", async () => {
+		const { compactAtlasSourceRelevanceNote } = await import(
+			"./renderer-output"
+		);
+		const result = compactAtlasSourceRelevanceNote({
+			note: "The source provides useful context. Search result snippet: raw dump text that should be stripped from the reasoning note.",
+			fallback: "Fallback reasoning",
+		});
+		expect(result).toContain("useful context");
+		expect(result).not.toMatch(
+			/Search result snippet|raw dump text|should be stripped/i,
+		);
+	});
+
+	it("filters Hungarian YouTube UI boilerplate from English source notes", async () => {
+		const { compactAtlasSourceRelevanceNote } = await import(
+			"./renderer-output"
+		);
+		const result = compactAtlasSourceRelevanceNote({
+			note: "The search result is relevant. Ismertető Sajtó Szerzői jog Kapcsolatfelvétel Alkotók Hirdetés Fejlesztők Feltételek Adatvédelem Irányelvek YouTube működése Új funkciók tesztelése. The main evidence supports the claim.",
+			fallback: "Fallback reasoning",
+		});
+		expect(result).toContain("search result is relevant");
+		expect(result).toContain("main evidence supports");
+		expect(result).not.toMatch(/Ismertető|Sajtó|Szerzői jog/i);
+	});
+
+	it("filters SearXNG metadata echoes from source notes regardless of language", async () => {
+		const { compactAtlasSourceRelevanceNote } = await import(
+			"./renderer-output"
+		);
+		const result = compactAtlasSourceRelevanceNote({
+			note: "Good evidence here. Nem tartalmazza a kért adatokat. Tartalmaznia kell más elemeket. The finding is corroborated.",
+			fallback: "Fallback reasoning",
+		});
+		expect(result).toContain("Good evidence here");
+		expect(result).not.toMatch(/Nem tartalmazza|Tartalmaznia kell/i);
+	});
+
+	it("filters Google copyright boilerplate from source notes", async () => {
+		const { compactAtlasSourceRelevanceNote } = await import(
+			"./renderer-output"
+		);
+		const result = compactAtlasSourceRelevanceNote({
+			note: "The source analysis is accurate. Google LLC holds the rights. © 2026 Google. The report uses this data.",
+			fallback: "Fallback reasoning",
+		});
+		expect(result).toContain("source analysis is accurate");
+		expect(result).not.toMatch(/Google LLC|2026 Google/i);
+	});
+
+	it("preserves Hungarian UI patterns when language is hu", async () => {
+		const { compactAtlasSourceRelevanceNote } = await import(
+			"./renderer-output"
+		);
+		const result = compactAtlasSourceRelevanceNote({
+			note: "A forrás hiteles. Ismertető és sajtó információk.",
+			fallback: "Fallback reasoning",
+			language: "hu",
+		});
+		expect(result).toContain("A forrás hiteles");
+		expect(result).toContain("Ismertető");
+	});
+
+	it("passes language through sourceChipForAtlasSource to compactAtlasSourceRelevanceNote", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+		const source = buildAtlasDocumentSource({
+			title: "Hungarian Language Atlas",
+			assembledMarkdown:
+				"## Vezetői összefoglaló\nA magyar jelentés a friss forrásokra támaszkodik.",
+			sources: [
+				{
+					title: "Magyar forrás",
+					url: "https://example.com/hu",
+					reasoning: "A forrás hiteles. Ismertető és sajtó információk.",
+				},
+			],
+			honestyMarkers: [],
+			language: "hu",
+		});
+
+		const webSources = source.blocks.find(
+			(block) =>
+				block.type === "sourceChips" && block.title === "Webes források",
+		);
+		if (webSources?.type !== "sourceChips") {
+			throw new Error("Expected Webes források source chips.");
+		}
+		const reasoning = webSources.sources[0]?.reasoning ?? "";
+		expect(reasoning).toContain("Ismertető");
+		expect(reasoning).toContain("sajtó");
+	});
+
+	it("filters Hungarian UI patterns from English reports via sourceChipForAtlasSource", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+		const source = buildAtlasDocumentSource({
+			title: "English Language Atlas",
+			assembledMarkdown:
+				"## Executive Summary\nThe report analyzes market data.",
+			sources: [
+				{
+					title: "English source",
+					url: "https://example.com/en",
+					reasoning:
+						"The source is relevant. Ismertető Sajtó Szerzői jog. The evidence supports the finding.",
+				},
+			],
+			honestyMarkers: [],
+			language: "en",
+		});
+
+		const webSources = source.blocks.find(
+			(block) => block.type === "sourceChips" && block.title === "Web Sources",
+		);
+		if (webSources?.type !== "sourceChips") {
+			throw new Error("Expected Web Sources source chips.");
+		}
+		const reasoning = webSources.sources[0]?.reasoning ?? "";
+		expect(reasoning).toContain("source is relevant");
+		expect(reasoning).not.toMatch(/Ismertető|Sajtó|Szerzői jog/i);
+	});
+
+	it("regression: existing source projection tests still pass", async () => {
+		const { compactAtlasSourceRelevanceNote } = await import(
+			"./renderer-output"
+		);
+		const result = compactAtlasSourceRelevanceNote({
+			note: "Accepted source evidence. Subscribe to our newsletter. Read the privacy policy.",
+			fallback: "Fallback reasoning",
+		});
+		expect(result).toContain("Accepted source evidence");
+		expect(result).not.toMatch(/subscribe|privacy policy/i);
+	});
+
 	it("falls back when source-chip reasoning starts directly with a fetched excerpt", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 		const rawFirstSnippet = [

@@ -1,6 +1,118 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AtlasSearchSource } from "./search";
 
+describe("sanitizeSearchSnippet", () => {
+	it("strips Hungarian language filter echo from snippet start", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"Nem tartalmazza: English | Tartalmaznia kell: technical | Best self-hosted embedding models for enterprise search",
+		);
+		expect(result).toBe(
+			"Best self-hosted embedding models for enterprise search",
+		);
+	});
+
+	it("strips English language filter echo from snippet start", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"Excluding: English | Must include: technical | Best self-hosted embedding models",
+		);
+		expect(result).toBe("Best self-hosted embedding models");
+	});
+
+	it("strips abbreviated Hungarian month date prefix (jan.)", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"2024. jan. 26. · What is retrieval augmented generation",
+		);
+		expect(result).toBe("What is retrieval augmented generation");
+	});
+
+	it("strips abbreviated Hungarian month date prefix (dec.)", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"2023. dec. 05. · A complete guide to RAG pipelines",
+		);
+		expect(result).toBe("A complete guide to RAG pipelines");
+	});
+
+	it("strips full Hungarian month name date prefix (január)", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"2024. január 26. · What is retrieval augmented generation",
+		);
+		expect(result).toBe("What is retrieval augmented generation");
+	});
+
+	it("strips full Hungarian month name date prefix (szeptember)", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"2024. szeptember 15. · Introduction to vector databases",
+		);
+		expect(result).toBe("Introduction to vector databases");
+	});
+
+	it("strips SearXNG metadata keyword Naptár at snippet start", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"Naptár · 2024. jan. 26. · Event details for AI conference",
+		);
+		expect(result).toBe("Event details for AI conference");
+	});
+
+	it("strips SearXNG metadata keyword Keresés at snippet start", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet("Keresés · keresési javaslatok");
+		expect(result).toBe("keresési javaslatok");
+	});
+
+	it("strips SearXNG metadata keyword Beállítások at snippet start", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet("Beállítások · rendszerkonfiguráció");
+		expect(result).toBe("rendszerkonfiguráció");
+	});
+
+	it("strips YouTube channel prefix at snippet start", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"YouTube · TechChannel · How vector databases work",
+		);
+		expect(result).toBe("TechChannel · How vector databases work");
+	});
+
+	it("preserves legitimate Hungarian content", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"A mesterséges intelligencia forradalmasítja a keresést",
+		);
+		expect(result).toBe(
+			"A mesterséges intelligencia forradalmasítja a keresést",
+		);
+	});
+
+	it("returns empty string when snippet is only language filter artifact", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"Nem tartalmazza: English | Tartalmaznia kell: technical |   ",
+		);
+		expect(result).toBe("");
+	});
+
+	it("handles empty and whitespace-only input", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		expect(sanitizeSearchSnippet("")).toBe("");
+		expect(sanitizeSearchSnippet("   ")).toBe("");
+	});
+
+	it("strips language filter echo then date prefix in sequence", async () => {
+		const { sanitizeSearchSnippet } = await import("./search");
+		const result = sanitizeSearchSnippet(
+			"Nem tartalmazza: English | Tartalmaznia kell: technical | 2024. jan. 26. · Actual relevant content here",
+		);
+		expect(result).toBe("Actual relevant content here");
+	});
+});
+
 describe("Atlas search stage", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
