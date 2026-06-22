@@ -449,48 +449,48 @@ describe("Atlas pipeline slices", () => {
 				passed: true,
 				honestyMarkers: [],
 				retryRequested: false,
-				claimBasis: [
-					{
-						version: "atlas.claim-basis.v1" as const,
-						id: "atlas-claim-test",
-						locator: {
-							sectionTitle: "Executive Summary",
-							paragraphIndex: 0,
-							claimIndex: 0,
-							claimText:
-								"Hybrid retrieval remains the strongest architecture pattern.",
-							quote:
-								"Hybrid retrieval remains the strongest architecture pattern",
-							startOffset: 0,
-							endOffset: 63,
-						},
-						supportLevel: "supported" as const,
-						evidencePackIds: [packId],
-						sourceRefs: input.evidencePacks[0]?.sourceRefs ?? [],
-						supportRationale:
-							"The accepted Evidence Pack supports the hybrid retrieval recommendation.",
-						auditConcernCode: null,
+			claimBasis: [
+				{
+					version: "atlas.claim-basis.v1" as const,
+					id: "atlas-claim-test",
+					locator: {
+						sectionTitle: "Findings",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText:
+							"Hybrid retrieval remains the strongest architecture pattern.",
+						quote:
+							"Hybrid retrieval remains the strongest architecture pattern",
+						startOffset: 0,
+						endOffset: 63,
 					},
-				],
-				basisLimitations: [],
-				basisDiagnostics: [
-					{
-						code: "atlas_claim_basis_generated",
-						severity: "info" as const,
-						message: "Claim Basis generated for accepted evidence.",
-					},
-				],
-				claimBasisCoverageBySection: [
-					{
-						sectionTitle: "Executive Summary",
-						factualClaimCount: 1,
-						basisCount: 1,
-						supportedCount: 1,
-						partialCount: 0,
-						unsupportedCount: 0,
-						density: 1,
-					},
-				],
+					supportLevel: "supported" as const,
+					evidencePackIds: [packId],
+					sourceRefs: input.evidencePacks[0]?.sourceRefs ?? [],
+					supportRationale:
+						"The accepted Evidence Pack supports the hybrid retrieval recommendation.",
+					auditConcernCode: null,
+				},
+			],
+			basisLimitations: [],
+			basisDiagnostics: [
+				{
+					code: "atlas_claim_basis_generated",
+					severity: "info" as const,
+					message: "Claim Basis generated for accepted evidence.",
+				},
+			],
+			claimBasisCoverageBySection: [
+				{
+					sectionTitle: "Findings",
+					factualClaimCount: 1,
+					basisCount: 1,
+					supportedCount: 1,
+					partialCount: 0,
+					unsupportedCount: 0,
+					density: 1,
+				},
+			],
 				claimBasisStatus: "succeeded" as const,
 				claimBasisFailureReason: null,
 			};
@@ -600,7 +600,7 @@ describe("Atlas pipeline slices", () => {
 				claimBasisFailureReason: null,
 				claimBasisCoverageBySection: [
 					expect.objectContaining({
-						sectionTitle: "Executive Summary",
+						sectionTitle: "Findings",
 						density: 1,
 					}),
 				],
@@ -1994,7 +1994,7 @@ describe("Atlas pipeline slices", () => {
 					version: "atlas.claim-basis.v1" as const,
 					id: "basis-soft-retry",
 					locator: {
-						sectionTitle: "Executive Summary",
+						sectionTitle: "Findings",
 						paragraphIndex: 0,
 						claimIndex: 0,
 						claimText:
@@ -2024,7 +2024,7 @@ describe("Atlas pipeline slices", () => {
 					code: "limited_web",
 					message: "Web evidence is representative, not exhaustive.",
 					basisIds: ["basis-soft-retry"],
-					sectionTitle: "Executive Summary",
+					sectionTitle: "Findings",
 				},
 			],
 			basisDiagnostics: [],
@@ -4795,6 +4795,104 @@ describe("Atlas pipeline slices", () => {
 		expect(auditInput?.assembledMarkdown).not.toContain("## 8B params");
 	});
 
+	it("promotes heading-like paragraphs to H3 when they are short, have no sentence-ending punctuation, and are followed by a longer paragraph", async () => {
+		let assembleCalls = 0;
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+		const renderOutputs = vi.fn(async () => ({
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: {
+				id: "atlas-heading-like-promotion",
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				action: "create",
+				parentAtlasJobId: null,
+				profile: "overview",
+				title: "Embedding model report",
+				query:
+					"Compare self-hosted embedding models for English technical-document retrieval",
+				lifecycle: {
+					family: {
+						familyId: "atlas-heading-like-promotion",
+						mode: "new_family",
+						action: "create",
+						rootAtlasJobId: "atlas-heading-like-promotion",
+						currentAtlasJobId: "atlas-heading-like-promotion",
+						parentAtlasJobId: null,
+						forkedFromAtlasJobId: null,
+					},
+					seed: null,
+				},
+			},
+			now: new Date("2026-06-21T19:36:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-1",
+							title: "Best Self-Hosted Embedding Models in 2026",
+							url: "https://example.com/embedding-models",
+							snippet:
+								"BGE-M3 is a practical self-hosted option for multilingual and hybrid retrieval.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "assemble") {
+						assembleCalls += 1;
+						return {
+							text: [
+								"# Self-hosted embedding models",
+								"",
+								"## Executive Summary",
+								"BGE-M3 is the pragmatic self-hosted default for many English technical retrieval deployments with solid hybrid retrieval and reranking support across diverse document types and deployment scenarios ranging from single-machine setups to distributed clusters.",
+								"",
+								"Architecture Overview",
+								"The architecture of the embedding model uses a transformer-based encoder with multi-head attention that processes input tokens efficiently across diverse technical domains and document types including both structured and unstructured content with measurable throughput and latency characteristics.",
+							].join("\n"),
+							usage: stageUsage(),
+						};
+					}
+					return {
+						text:
+							input.stage === "decompose"
+								? "self-hosted embedding models"
+								: input.stage === "curate"
+									? "Curated evidence: BGE-M3 is pragmatic, while larger embedding models may improve selected benchmark results with higher operational cost."
+									: input.stage === "synthesize"
+										? "Executive Summary: BGE-M3 is the pragmatic default.\nFindings: model size, latency, and corpus fit matter.\nLimitations: validate on your own corpus."
+										: "Executive Summary - summarize the model choice.\nFindings - compare model size and latency.\nDeployment Considerations - explain hardware implications.\nLimitations - state benchmark limits.",
+						usage: stageUsage(),
+					};
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async () => {}),
+				renderOutputs,
+			},
+		});
+
+		expect(assembleCalls).toBe(1);
+		const auditCalls = auditBasis.mock.calls as unknown as Array<
+			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
+		>;
+		const auditInput = auditCalls[0]?.[0];
+		expect(auditInput?.assembledMarkdown).toContain("### Architecture Overview");
+		expect(auditInput?.assembledMarkdown).not.toMatch(/^## Architecture Overview$/m);
+	});
+
 	it("guard: auto-appends Limitations and sanitizes headings instead of honest-fallback when outline has 4+ headings but no Limitations", async () => {
 		let assembleCalls = 0;
 		const auditBasis = vi.fn(async () => ({
@@ -6861,36 +6959,36 @@ describe("Atlas pipeline slices", () => {
 					passed: true,
 					honestyMarkers: [],
 					retryRequested: false,
-					claimBasis: [
-						{
-							version: "atlas.claim-basis.v1" as const,
-							id: "atlas-claim-audit",
-							locator: {
-								sectionTitle: "Executive Summary",
-								paragraphIndex: 0,
-								claimIndex: 0,
-								claimText:
-									"Hybrid retrieval is the strongest architecture pattern for regulated SaaS deployments",
-								quote: "Hybrid retrieval is the strongest architecture pattern",
-								startOffset: 0,
-								endOffset: 53,
-							},
-							supportLevel: "supported" as const,
-							evidencePackIds: ["pack-web-anchor"],
-							sourceRefs: [],
-							supportRationale:
-								"Accepted evidence supports hybrid retrieval as a strong pattern.",
-							auditConcernCode: null,
-						},
-					],
-					basisLimitations: [],
-					basisDiagnostics: [],
-					claimBasisCoverageBySection: [],
-					claimBasisStatus: "succeeded" as const,
-					claimBasisFailureReason: null,
-				})),
-				writeCheckpoint: vi.fn(async () => {}),
-				renderOutputs,
+			claimBasis: [
+				{
+					version: "atlas.claim-basis.v1" as const,
+					id: "atlas-claim-audit",
+					locator: {
+						sectionTitle: "Findings",
+						paragraphIndex: 0,
+						claimIndex: 0,
+						claimText:
+							"Hybrid retrieval is the strongest architecture pattern for regulated SaaS deployments",
+						quote: "Hybrid retrieval is the strongest architecture pattern",
+						startOffset: 0,
+						endOffset: 53,
+					},
+					supportLevel: "supported" as const,
+					evidencePackIds: ["pack-web-anchor"],
+					sourceRefs: [],
+					supportRationale:
+						"Accepted evidence supports hybrid retrieval as a strong pattern.",
+					auditConcernCode: null,
+				},
+			],
+			basisLimitations: [],
+			basisDiagnostics: [],
+			claimBasisCoverageBySection: [],
+			claimBasisStatus: "succeeded" as const,
+			claimBasisFailureReason: null,
+		})),
+		writeCheckpoint: vi.fn(async () => {}),
+		renderOutputs,
 			},
 		});
 
@@ -6903,7 +7001,7 @@ describe("Atlas pipeline slices", () => {
 						expect.objectContaining({
 							id: "atlas-claim-audit",
 							support: "supported",
-							anchorText: expect.stringContaining("Hybrid retrieval"),
+							anchorText: expect.stringMatching(/hybrid retrieval/i),
 						}),
 					]),
 				}),

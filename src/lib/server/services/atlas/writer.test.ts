@@ -490,4 +490,23 @@ describe("Atlas writer prompt", () => {
 			expect(card.relevantFacts.length).toBeLessThanOrEqual(2);
 		}
 	});
+
+	it("includes positive heading guidance in English writer instructions", () => {
+		const prompt = buildAtlasWriterPrompt(defaultWriterInput());
+		const parsed = JSON.parse(prompt);
+		expect(parsed.instructions).toContain(
+			"Use H2 headings for major report sections",
+		);
+		expect(parsed.instructions).toContain("not use a heading for text that is a single sentence");
+	});
+
+	it("includes positive heading guidance in Hungarian writer instructions", () => {
+		const input = defaultWriterInput({ language: "hu" });
+		const prompt = buildAtlasWriterPrompt(input);
+		const parsed = JSON.parse(prompt);
+		expect(parsed.instructions).toContain(
+			"H2 címsorokat használj a fő jelentésszakaszokhoz",
+		);
+		expect(parsed.instructions).toContain("Ne használj címsort egyetlen mondat számára");
+	});
 });

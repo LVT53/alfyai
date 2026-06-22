@@ -1672,7 +1672,8 @@ function sanitizeMalformedWriterHeadings(input: {
 	markdown: string;
 	acceptedSourceTitles: string[];
 }): string {
-	return input.markdown
+	// Pass 1: Demote malformed headings to bold text
+	const demoted = input.markdown
 		.split(/\r?\n/)
 		.map((line) => {
 			const match = /^(\s*)#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
@@ -1692,6 +1693,38 @@ function sanitizeMalformedWriterHeadings(input: {
 		.join("\n")
 		.replace(/\n{3,}/g, "\n\n")
 		.trim();
+
+	// Pass 2: Promote heading-like lines to H3
+	// A non-heading line looks like a heading when it is short, has no
+	// sentence-ending punctuation, and is followed by a longer paragraph.
+	const demotedLines = demoted.split(/\r?\n/);
+	const promotedLines: string[] = [];
+	for (let i = 0; i < demotedLines.length; i++) {
+		const line = demotedLines[i];
+		const trimmed = line.trim();
+		if (
+			trimmed &&
+			!line.startsWith("#") &&
+			trimmed.length < 60 &&
+			!/[.!?]/.test(trimmed)
+		) {
+			// Look ahead for the next non-empty line
+			let nextNonEmpty = "";
+			for (let j = i + 1; j < demotedLines.length; j++) {
+				const next = demotedLines[j].trim();
+				if (next) {
+					nextNonEmpty = next;
+					break;
+				}
+			}
+			if (nextNonEmpty && nextNonEmpty.length > 120) {
+				promotedLines.push(`### ${trimmed}`);
+				continue;
+			}
+		}
+		promotedLines.push(line);
+	}
+	return promotedLines.join("\n").trim();
 }
 
 export function needsAssemblyRepair(input: {
