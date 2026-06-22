@@ -74,7 +74,7 @@ const ATLAS_PROFILE_RUNTIME_CONFIG: Record<
 		maxAcceptedWebSources: 36,
 		maxImageCandidates: 6,
 		maxRenderedImages: 3,
-		maxOutputTokens: 12000,
+		maxOutputTokens: 24000,
 		architecture: {
 			stageOrder: ATLAS_PIPELINE_STAGES,
 			gapFillCaps: {
@@ -93,7 +93,7 @@ const ATLAS_PROFILE_RUNTIME_CONFIG: Record<
 		maxAcceptedWebSources: 72,
 		maxImageCandidates: 10,
 		maxRenderedImages: 5,
-		maxOutputTokens: 16000,
+		maxOutputTokens: 32000,
 		architecture: {
 			stageOrder: ATLAS_PIPELINE_STAGES,
 			gapFillCaps: {

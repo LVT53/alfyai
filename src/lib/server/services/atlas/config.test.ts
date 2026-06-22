@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetters = {
 	getAtlasOverviewMaxOutputTokens: vi.fn(() => 12000),
-	getAtlasInDepthMaxOutputTokens: vi.fn(() => 12000),
-	getAtlasExhaustiveMaxOutputTokens: vi.fn(() => 16000),
+	getAtlasInDepthMaxOutputTokens: vi.fn(() => 24000),
+	getAtlasExhaustiveMaxOutputTokens: vi.fn(() => 32000),
 };
 
 vi.mock("$lib/server/config-store", () => mockGetters);
@@ -14,8 +14,8 @@ import { ATLAS_PIPELINE_STAGES, ATLAS_PROFILES } from "./types";
 
 beforeEach(() => {
 	mockGetters.getAtlasOverviewMaxOutputTokens.mockReturnValue(12000);
-	mockGetters.getAtlasInDepthMaxOutputTokens.mockReturnValue(12000);
-	mockGetters.getAtlasExhaustiveMaxOutputTokens.mockReturnValue(16000);
+	mockGetters.getAtlasInDepthMaxOutputTokens.mockReturnValue(24000);
+	mockGetters.getAtlasExhaustiveMaxOutputTokens.mockReturnValue(32000);
 });
 
 afterEach(() => {
@@ -75,8 +75,8 @@ describe("Atlas profile runtime config", () => {
 			]),
 		);
 		expect(configs.overview.maxOutputTokens).toBe(12000);
-		expect(configs["in-depth"].maxOutputTokens).toBe(12000);
-		expect(configs.exhaustive.maxOutputTokens).toBe(16000);
+		expect(configs["in-depth"].maxOutputTokens).toBe(24000);
+		expect(configs.exhaustive.maxOutputTokens).toBe(32000);
 	});
 
 	describe("default token caps from config-store", () => {
@@ -88,13 +88,13 @@ describe("Atlas profile runtime config", () => {
 
 		it("uses getAtlasInDepthMaxOutputTokens for in-depth profile", () => {
 			const cfg = getAtlasProfileRuntimeConfig("in-depth");
-			expect(cfg.maxOutputTokens).toBe(12000);
+			expect(cfg.maxOutputTokens).toBe(24000);
 			expect(mockGetters.getAtlasInDepthMaxOutputTokens).toHaveBeenCalled();
 		});
 
 		it("uses getAtlasExhaustiveMaxOutputTokens for exhaustive profile", () => {
 			const cfg = getAtlasProfileRuntimeConfig("exhaustive");
-			expect(cfg.maxOutputTokens).toBe(16000);
+			expect(cfg.maxOutputTokens).toBe(32000);
 			expect(mockGetters.getAtlasExhaustiveMaxOutputTokens).toHaveBeenCalled();
 		});
 	});
@@ -108,16 +108,16 @@ describe("Atlas profile runtime config", () => {
 		});
 
 		it("reflects admin/env override for in-depth maxOutputTokens", () => {
-			mockGetters.getAtlasInDepthMaxOutputTokens.mockReturnValue(16000);
+			mockGetters.getAtlasInDepthMaxOutputTokens.mockReturnValue(32000);
 			expect(getAtlasProfileRuntimeConfig("in-depth").maxOutputTokens).toBe(
-				16000,
+				32000,
 			);
 		});
 
 		it("reflects admin/env override for exhaustive maxOutputTokens", () => {
-			mockGetters.getAtlasExhaustiveMaxOutputTokens.mockReturnValue(32000);
+			mockGetters.getAtlasExhaustiveMaxOutputTokens.mockReturnValue(48000);
 			expect(getAtlasProfileRuntimeConfig("exhaustive").maxOutputTokens).toBe(
-				32000,
+				48000,
 			);
 		});
 	});

@@ -472,12 +472,12 @@ function readConfig(): Config {
 		),
 		atlasInDepthMaxOutputTokens: parsePositiveIntegerEnv(
 			process.env.ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS,
-			12000,
+			24000,
 			1,
 		),
 		atlasExhaustiveMaxOutputTokens: parsePositiveIntegerEnv(
 			process.env.ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS,
-			16000,
+			32000,
 			1,
 		),
 		atlasMaxWriterPromptChars: parsePositiveIntegerEnv(
