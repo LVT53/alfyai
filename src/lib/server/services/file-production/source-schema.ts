@@ -1183,12 +1183,25 @@ export function generatedDocumentBasisClaimLabel(
 	}
 }
 
+export function generatedDocumentBasisClaimShortLabel(
+	support: GeneratedDocumentBasisSupport,
+): string {
+	switch (support) {
+		case "supported":
+			return "Supported";
+		case "partial":
+			return "Partial";
+		case "unsupported":
+			return "Unsupported";
+	}
+}
+
 export function formatGeneratedDocumentBasisNote(
 	marker:
 		| GeneratedDocumentBasisMarkerBlock
 		| GeneratedDocumentParagraphBasisMarker,
 ): string {
-	return `Basis: ${generatedDocumentBasisClaimLabel(marker.support)} - ${marker.rationale}`;
+	return `${generatedDocumentBasisClaimShortLabel(marker.support)} — ${marker.rationale}`;
 }
 
 export function buildGeneratedDocumentProjection(

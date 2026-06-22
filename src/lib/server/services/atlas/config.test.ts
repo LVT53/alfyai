@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetters = {
-	getAtlasOverviewMaxOutputTokens: vi.fn(() => 8000),
+	getAtlasOverviewMaxOutputTokens: vi.fn(() => 12000),
 	getAtlasInDepthMaxOutputTokens: vi.fn(() => 12000),
 	getAtlasExhaustiveMaxOutputTokens: vi.fn(() => 16000),
 };
@@ -13,7 +13,7 @@ const { getAtlasProfileRuntimeConfig } = await import("./config");
 import { ATLAS_PIPELINE_STAGES, ATLAS_PROFILES } from "./types";
 
 beforeEach(() => {
-	mockGetters.getAtlasOverviewMaxOutputTokens.mockReturnValue(8000);
+	mockGetters.getAtlasOverviewMaxOutputTokens.mockReturnValue(12000);
 	mockGetters.getAtlasInDepthMaxOutputTokens.mockReturnValue(12000);
 	mockGetters.getAtlasExhaustiveMaxOutputTokens.mockReturnValue(16000);
 });
@@ -74,7 +74,7 @@ describe("Atlas profile runtime config", () => {
 				getAtlasProfileRuntimeConfig(profile),
 			]),
 		);
-		expect(configs.overview.maxOutputTokens).toBe(8000);
+		expect(configs.overview.maxOutputTokens).toBe(12000);
 		expect(configs["in-depth"].maxOutputTokens).toBe(12000);
 		expect(configs.exhaustive.maxOutputTokens).toBe(16000);
 	});
@@ -82,7 +82,7 @@ describe("Atlas profile runtime config", () => {
 	describe("default token caps from config-store", () => {
 		it("uses getAtlasOverviewMaxOutputTokens for overview profile", () => {
 			const cfg = getAtlasProfileRuntimeConfig("overview");
-			expect(cfg.maxOutputTokens).toBe(8000);
+			expect(cfg.maxOutputTokens).toBe(12000);
 			expect(mockGetters.getAtlasOverviewMaxOutputTokens).toHaveBeenCalled();
 		});
 

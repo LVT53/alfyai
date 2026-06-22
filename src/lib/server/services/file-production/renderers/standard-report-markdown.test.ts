@@ -3,7 +3,7 @@ import { validateGeneratedDocumentSource } from "../source-schema";
 import { renderStandardReportMarkdown } from "./standard-report-markdown";
 
 describe("AlfyAI Standard Report Markdown renderer", () => {
-	it("renders basis markers as compact blockquote notes", () => {
+	it("renders basis markers as inline parenthetical text", () => {
 		const validation = validateGeneratedDocumentSource({
 			version: 1,
 			template: "alfyai_standard_report",
@@ -38,10 +38,10 @@ describe("AlfyAI Standard Report Markdown renderer", () => {
 		).content.toString("utf8");
 
 		expect(markdown).toContain(
-			"Revenue increased by 12%.\n> Basis: Supported claim - Accepted source states revenue increased by 12%.",
+			"Revenue increased by 12%. (Basis: Supported — Accepted source states revenue increased by 12%.)",
 		);
 		expect(markdown).toContain(
-			"> Basis: Unsupported claim - No accepted source supports the fallback claim.",
+			"(Basis: Unsupported — No accepted source supports the fallback claim.)",
 		);
 		expect(markdown).not.toContain("confidence");
 	});

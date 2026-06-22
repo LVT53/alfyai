@@ -57,13 +57,14 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 	switch (block.type) {
 		case "heading":
 			return `${"#".repeat(block.level)} ${block.text}`;
-		case "paragraph":
-			return [
-				block.text,
-				...(block.basisMarkers ?? []).map(
-					(marker) => `> ${formatGeneratedDocumentBasisNote(marker)}`,
-				),
-			].join("\n");
+		case "paragraph": {
+			const markers = block.basisMarkers ?? [];
+			if (markers.length === 0) return block.text;
+			const markerText = markers
+				.map((m) => `(Basis: ${formatGeneratedDocumentBasisNote(m)})`)
+				.join(" ");
+			return `${block.text} ${markerText}`;
+		}
 		case "list":
 			return block.items
 				.map((item, index) =>
@@ -77,7 +78,7 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 		case "confidenceMarker":
 			return `> **${block.label}.** ${block.message}`;
 		case "basisMarker":
-			return `> ${formatGeneratedDocumentBasisNote(block)}`;
+			return `(Basis: ${formatGeneratedDocumentBasisNote(block)})`;
 		case "code":
 			return `\`\`\`${block.language ?? ""}\n${block.text}\n\`\`\``;
 		case "quote":

@@ -150,7 +150,7 @@ describe("Atlas model stage", () => {
 		}
 
 		expect(calls).toEqual([
-			{ profile: "overview", maxOutputTokens: 8000 },
+			{ profile: "overview", maxOutputTokens: 12000 },
 			{ profile: "in-depth", maxOutputTokens: 12000 },
 			{ profile: "exhaustive", maxOutputTokens: 16000 },
 		]);
@@ -184,7 +184,7 @@ describe("Atlas model stage", () => {
 				modelSelection: "model2",
 				messages: [{ role: "user", content: '{"report":"Atlas"}' }],
 				system: expect.stringContaining("Return strict JSON only"),
-				maxOutputTokens: 8000,
+				maxOutputTokens: 12000,
 			}),
 		);
 		expect(result.usage).toEqual({

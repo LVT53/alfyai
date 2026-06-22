@@ -1,3 +1,4 @@
+import { marked } from "marked";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileProductionJob } from "$lib/types";
 
@@ -2259,5 +2260,58 @@ describe("Atlas renderer output", () => {
 			pdfChatGeneratedFileId: "file-pdf",
 			markdownChatGeneratedFileId: "file-md",
 		});
+	});
+});
+
+describe("sanitizeMarkdownForLexer", () => {
+	it("escapes stray > at line start so marked.lexer sees a paragraph", async () => {
+		const { sanitizeMarkdownForLexer } = await import("./renderer-output");
+		const sanitized = sanitizeMarkdownForLexer(
+			"The population is \n> 5 million.",
+		);
+		const tokens = marked.lexer(sanitized, { gfm: true });
+		expect(tokens.some((t) => t.type === "blockquote")).toBe(false);
+		expect(tokens.some((t) => t.type === "paragraph")).toBe(true);
+	});
+
+	it("preserves intentional multi-line blockquote so marked.lexer sees a blockquote", async () => {
+		const { sanitizeMarkdownForLexer } = await import("./renderer-output");
+		const sanitized = sanitizeMarkdownForLexer(
+			"> This is a quote.\n> It spans two lines.",
+		);
+		const tokens = marked.lexer(sanitized, { gfm: true });
+		expect(tokens.some((t) => t.type === "blockquote")).toBe(true);
+	});
+
+	it("escapes --- between paragraphs without blank line so marked.lexer does not produce an hr", async () => {
+		const { sanitizeMarkdownForLexer } = await import("./renderer-output");
+		const sanitized = sanitizeMarkdownForLexer(
+			"Findings above.\n---\nFindings below.",
+		);
+		const tokens = marked.lexer(sanitized, { gfm: true });
+		expect(tokens.some((t) => t.type === "hr")).toBe(false);
+	});
+
+	it("preserves --- with blank lines so marked.lexer produces an hr", async () => {
+		const { sanitizeMarkdownForLexer } = await import("./renderer-output");
+		const sanitized = sanitizeMarkdownForLexer(
+			"Findings above.\n\n---\n\nFindings below.",
+		);
+		const tokens = marked.lexer(sanitized, { gfm: true });
+		expect(tokens.some((t) => t.type === "hr")).toBe(true);
+	});
+
+	it("escapes #tag at line start so marked.lexer does not produce a heading", async () => {
+		const { sanitizeMarkdownForLexer } = await import("./renderer-output");
+		const sanitized = sanitizeMarkdownForLexer("#hashtag is not a heading.");
+		const tokens = marked.lexer(sanitized, { gfm: true });
+		expect(tokens.some((t) => t.type === "heading")).toBe(false);
+	});
+
+	it("preserves ## Heading so marked.lexer produces a heading", async () => {
+		const { sanitizeMarkdownForLexer } = await import("./renderer-output");
+		const sanitized = sanitizeMarkdownForLexer("## This is a heading");
+		const tokens = marked.lexer(sanitized, { gfm: true });
+		expect(tokens.some((t) => t.type === "heading")).toBe(true);
 	});
 });

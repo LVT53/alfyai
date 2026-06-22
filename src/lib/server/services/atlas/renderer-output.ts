@@ -386,11 +386,79 @@ function makeColumnKey(
 	return key;
 }
 
+/**
+ * Applies bounded sanitization to model-generated markdown before it reaches
+ * {@link https://github.com/markedjs/marked | marked.lexer()}.  Only three
+ * accidental-syntax patterns are escaped:
+ *
+ * 1. Stray `>` at line start that is **not** part of a consecutive blockquote
+ *    chain (no adjacent `>` line).
+ * 2. `---` on its own line sandwiched directly between two non-blank text
+ *    paragraphs (no blank line above or below).
+ * 3. `#` at line start that does **not** match the heading pattern
+ *    `^#{1,6}\s`.
+ *
+ * Intentional blockquotes, headings, and horizontal rules with proper blank‑line
+ * separation are left unchanged.
+ */
+export function sanitizeMarkdownForLexer(markdown: string): string {
+	const lines = markdown.split("\n");
+	const result: string[] = [];
+
+	for (let i = 0; i < lines.length; i++) {
+		let line = lines[i];
+
+		if (line.startsWith(">")) {
+			const prevNonBlank = findPrevNonBlankLine(lines, i);
+			const nextNonBlank = findNextNonBlankLine(lines, i);
+			const adjacentBlockquote =
+				(prevNonBlank >= 0 && lines[prevNonBlank].startsWith(">")) ||
+				(nextNonBlank >= 0 && lines[nextNonBlank].startsWith(">"));
+			const hasBlankBefore = i === 0 || (i > 0 && lines[i - 1].trim() === "");
+			if (!adjacentBlockquote && !hasBlankBefore) {
+				line = `\\${line}`;
+			}
+		}
+
+		if (/^---+$/.test(line)) {
+			const blankBefore = i > 0 && lines[i - 1].trim() === "";
+			const blankAfter = i < lines.length - 1 && lines[i + 1].trim() === "";
+			if (!blankBefore && !blankAfter) {
+				line = `\\${line}`;
+			}
+		}
+
+		if (line.startsWith("#") && !/^#{1,6}\s/.test(line)) {
+			line = `\\${line}`;
+		}
+
+		result.push(line);
+	}
+
+	return result.join("\n");
+}
+
+function findPrevNonBlankLine(lines: string[], currentIndex: number): number {
+	for (let i = currentIndex - 1; i >= 0; i--) {
+		if (lines[i].trim() !== "") return i;
+	}
+	return -1;
+}
+
+function findNextNonBlankLine(lines: string[], currentIndex: number): number {
+	for (let i = currentIndex + 1; i < lines.length; i++) {
+		if (lines[i].trim() !== "") return i;
+	}
+	return -1;
+}
+
 function appendMarkdownBlocks(
 	blocks: GeneratedDocumentSource["blocks"],
 	markdown: string,
 ) {
-	const tokens = marked.lexer(markdown, { gfm: true });
+	const tokens = marked.lexer(sanitizeMarkdownForLexer(markdown), {
+		gfm: true,
+	});
 	for (const token of tokens) {
 		if (token.type === "space") continue;
 

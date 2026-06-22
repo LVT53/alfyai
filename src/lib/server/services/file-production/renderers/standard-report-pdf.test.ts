@@ -231,10 +231,10 @@ describe("AlfyAI Standard Report PDF renderer", () => {
 		const text = await extractPdfText(rendered.content);
 
 		expect(text).toContain(
-			"Basis: Supported claim - Accepted source states revenue increased by 12%.",
+			"Supported — Accepted source states revenue increased by 12%.",
 		);
 		expect(text).toContain(
-			"Basis: Unsupported claim - No accepted source supports the fallback claim.",
+			"Unsupported — No accepted source supports the fallback claim.",
 		);
 	});
 
