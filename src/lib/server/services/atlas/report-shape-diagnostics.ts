@@ -6,6 +6,8 @@ import type {
 
 export type AtlasReportShapeWarningCode =
 	| "atlas_report_body_too_thin"
+	| "atlas_report_sections_too_sparse"
+	| "atlas_too_many_one_sentence_sections"
 	| "atlas_source_projection_dominates_report"
 	| "atlas_recommendation_not_decisive"
 	| "atlas_too_many_images_for_body_size";
@@ -20,6 +22,7 @@ export interface AtlasReportShapeDiagnostics {
 	sourceWordCount: number;
 	totalWordCount: number;
 	sourceWordShare: number;
+	sectionCount: number;
 	substantiveSectionCount: number;
 	oneSentenceSectionCount: number;
 	imageCount: number;
@@ -41,11 +44,16 @@ interface ReportShapeParts {
 }
 
 const BODY_TOO_THIN_WORDS = 220;
+const SPARSE_REPORT_MAX_WORDS = 700;
+const SHALLOW_SECTION_REPORT_MAX_WORDS = 900;
+const MIN_SECTIONS_FOR_SPARSE_WARNING = 6;
+const MIN_ONE_SENTENCE_SECTIONS_FOR_WARNING = 6;
 const SOURCE_DOMINATES_MIN_WORDS = 300;
 const SOURCE_DOMINATES_SHARE = 0.55;
 const SOURCE_DOMINATES_RATIO = 2;
 const SUBSTANTIVE_SECTION_WORDS = 55;
 const SUBSTANTIVE_STRUCTURED_SECTION_WORDS = 30;
+const HOLLOW_RECOMMENDATION_WORDS = 18;
 
 const SOURCE_SECTION_LABELS = new Set([
 	"sources",
@@ -127,6 +135,19 @@ function isRecommendationTitle(title: string | null): boolean {
 			/\b(?:recommendation|recommended|decision|verdict|shortlist|what to do|javaslat|dontes)\b/i.test(
 				normalizedHeading(title),
 			),
+	);
+}
+
+function isTitleRestatement(title: string | null, text: string): boolean {
+	if (!title) return false;
+	const normalizedTitle = normalizedHeading(title);
+	const normalizedText = normalizedHeading(text);
+	if (!normalizedTitle || !normalizedText) return false;
+	return (
+		normalizedText === normalizedTitle ||
+		normalizedText.startsWith(`${normalizedTitle} for `) ||
+		normalizedText.startsWith(`${normalizedTitle}:`) ||
+		normalizedText.startsWith(`${normalizedTitle} `)
 	);
 }
 
@@ -299,12 +320,14 @@ function buildWarnings(input: {
 	sourceWordCount: number;
 	totalWordCount: number;
 	sourceWordShare: number;
+	sectionCount: number;
 	substantiveSectionCount: number;
 	oneSentenceSectionCount: number;
 	imageCount: number;
 	hasDecisionOrRecommendationSignal: boolean;
 	hasRecommendationSection: boolean;
 	recommendationSectionHasDecisionSignal: boolean;
+	recommendationSectionIsHollow: boolean;
 }): AtlasReportShapeWarning[] {
 	const warnings: AtlasReportShapeWarning[] = [];
 	if (input.bodyWordCount > 0 && input.bodyWordCount < BODY_TOO_THIN_WORDS) {
@@ -312,6 +335,34 @@ function buildWarnings(input: {
 			code: "atlas_report_body_too_thin",
 			message:
 				"Atlas report body is thin; this diagnostic is advisory and must not fail the job by itself.",
+		});
+	}
+	const substantiveFloor = Math.min(3, Math.ceil(input.sectionCount / 3));
+	if (
+		input.sectionCount >= MIN_SECTIONS_FOR_SPARSE_WARNING &&
+		input.bodyWordCount > 0 &&
+		input.bodyWordCount < SPARSE_REPORT_MAX_WORDS &&
+		input.substantiveSectionCount < substantiveFloor
+	) {
+		warnings.push({
+			code: "atlas_report_sections_too_sparse",
+			message:
+				"Atlas report has too few substantive body sections for the requested decision-quality synthesis; this diagnostic may trigger the bounded writer improvement pass.",
+		});
+	}
+	if (
+		input.sectionCount >= MIN_SECTIONS_FOR_SPARSE_WARNING &&
+		input.bodyWordCount > 0 &&
+		input.bodyWordCount < SHALLOW_SECTION_REPORT_MAX_WORDS &&
+		input.oneSentenceSectionCount >= MIN_ONE_SENTENCE_SECTIONS_FOR_WARNING &&
+		input.oneSentenceSectionCount / input.sectionCount >= 0.6 &&
+		input.substantiveSectionCount <=
+			Math.max(2, Math.floor(input.sectionCount / 3))
+	) {
+		warnings.push({
+			code: "atlas_too_many_one_sentence_sections",
+			message:
+				"Atlas report has many one-sentence sections and needs more decision-quality development in the body.",
 		});
 	}
 	if (
@@ -327,12 +378,13 @@ function buildWarnings(input: {
 	}
 	if (
 		input.hasRecommendationSection &&
-		!input.recommendationSectionHasDecisionSignal
+		(!input.recommendationSectionHasDecisionSignal ||
+			input.recommendationSectionIsHollow)
 	) {
 		warnings.push({
 			code: "atlas_recommendation_not_decisive",
 			message:
-				"Atlas has a recommendation or decision section without a clear decision signal.",
+				"Atlas has a recommendation or decision section without a concrete, developed recommendation.",
 		});
 	}
 	const imageLimit =
@@ -366,27 +418,35 @@ export function diagnoseAtlasReportShape(
 		const words = wordCount(text);
 		return {
 			title: section.title,
+			text,
 			words,
 			sentences: sentenceCount(text),
 			hasStructuredContent: section.hasStructuredContent,
 			hasDecisionSignal: hasDecisionSignal(text),
 		};
 	});
-	const substantiveSectionCount = sectionStats.filter(
+	const bodySectionStats = sectionStats.filter((section) => section.words > 0);
+	const substantiveSectionCount = bodySectionStats.filter(
 		(section) =>
 			section.words >= SUBSTANTIVE_SECTION_WORDS ||
 			(section.hasStructuredContent &&
 				section.words >= SUBSTANTIVE_STRUCTURED_SECTION_WORDS),
 	).length;
-	const oneSentenceSectionCount = sectionStats.filter(
-		(section) => section.words > 0 && section.sentences <= 1,
+	const oneSentenceSectionCount = bodySectionStats.filter(
+		(section) => section.sentences <= 1,
 	).length;
 	const hasDecisionOrRecommendationSignal = hasDecisionSignal(parts.bodyText);
-	const recommendationSections = sectionStats.filter((section) =>
+	const recommendationSections = bodySectionStats.filter((section) =>
 		isRecommendationTitle(section.title),
 	);
 	const recommendationSectionHasDecisionSignal = recommendationSections.some(
 		(section) => section.hasDecisionSignal,
+	);
+	const recommendationSectionIsHollow = recommendationSections.some(
+		(section) =>
+			(section.words < HOLLOW_RECOMMENDATION_WORDS &&
+				!section.hasDecisionSignal) ||
+			isTitleRestatement(section.title, section.text),
 	);
 
 	return {
@@ -394,6 +454,7 @@ export function diagnoseAtlasReportShape(
 		sourceWordCount,
 		totalWordCount,
 		sourceWordShare,
+		sectionCount: bodySectionStats.length,
 		substantiveSectionCount,
 		oneSentenceSectionCount,
 		imageCount: parts.imageCount,
@@ -403,12 +464,14 @@ export function diagnoseAtlasReportShape(
 			sourceWordCount,
 			totalWordCount,
 			sourceWordShare,
+			sectionCount: bodySectionStats.length,
 			substantiveSectionCount,
 			oneSentenceSectionCount,
 			imageCount: parts.imageCount,
 			hasDecisionOrRecommendationSignal,
 			hasRecommendationSection: recommendationSections.length > 0,
 			recommendationSectionHasDecisionSignal,
+			recommendationSectionIsHollow,
 		}),
 	};
 }

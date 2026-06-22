@@ -2906,6 +2906,202 @@ describe("Atlas pipeline slices", () => {
 		);
 	});
 
+	it("runs the bounded writer improvement pass when deterministic fallback is sparse and non-decisive", async () => {
+		const assemblePrompts: string[] = [];
+		const checkpoints: Array<{
+			checkpoint: Record<string, unknown>;
+			qualityDiagnostics: Record<string, unknown>;
+		}> = [];
+		const fallbackStageText = [
+			"Executive Summary: English technical-document retrieval needs a source-grounded comparison across retrieval quality, latency, cost, hardware fit, deployment risk, reranking support, language coverage, and maintenance boundaries, but the fallback draft only names those dimensions without turning them into a deployment decision for the operator.",
+			"Findings: BGE, GTE, E5, Jina, and Nomic model families appear in the accepted evidence with different multilingual coverage, embedding dimensions, serving assumptions, and operational maturity.",
+			"Tradeoffs: Quality signals, memory pressure, batching behavior, reranking depth, and model dimension choices interact in production, but the fallback draft does not rank the consequences.",
+			"Recommendation: Recommendation for English Technical-Document Retrieval.",
+			"Model Shortlist: The candidate set needs ranking by retrieval quality, single-GPU fit, serving maturity, multilingual behavior, and whether a compatible reranker is practical.",
+			"Retrieval Quality: Benchmark references are useful but incomplete because production retrieval depends on chunking, query mix, reranker availability, and validation against representative technical documents.",
+			"Latency and Cost: Latency and cost depend on embedding dimension, batching, quantization, reranking depth, serving runtime, and resident memory for both embedder and reranker.",
+			"Deployment Implications: Single-RT deployment favors predictable memory requirements, stable serving support, clear licensing, simple observability, and enough English-first technical-domain coverage.",
+			"Evidence Gaps: Several accepted sources discuss benchmarks or production factors separately, but few connect all constraints into a definitive single-GPU deployment comparison.",
+			"Limitations: The accepted evidence remains incomplete across identical hardware, identical corpora, and current production latency measurements, so confidence is bounded by source coverage.",
+		].join("\n");
+		const improvedDraft = [
+			"## Executive Summary",
+			"For English technical-document retrieval on a single RT-class machine, start with a strong small-to-mid multilingual embedding model plus a reranker rather than picking the largest embedder by benchmark score alone. This is the most robust recommendation because quality, latency, memory residency, and serving maturity all affect production retrieval more than one leaderboard position. The accepted evidence supports a shortlist-oriented decision rather than a broad source recap.",
+			"",
+			"## Ranked Shortlist",
+			"Rank the candidates by production fit: first choose the model family that gives the best quality-per-parameter ratio on your corpus, then validate a compatible reranker, and only then consider larger embedding dimensions. BGE/GTE/E5-style families remain credible candidates because the decision hinges on English technical recall, serving support, and reranker compatibility. Jina and Nomic-style options should stay in the shortlist when licensing, dimensions, or deployment tooling better match the stack.",
+			"",
+			"## Tradeoffs and Deployment Implications",
+			"The key tradeoff is not only retrieval quality; it is whether the embedder and reranker can stay resident with acceptable batch latency. Higher dimensions may improve recall but increase storage, bandwidth, and reranking pressure, while smaller models can win if they leave enough room for a reranker. Validate chunking, query mix, recall@10, NDCG, and p95 latency on the actual technical corpus before locking the stack.",
+			"",
+			"## Recommendation",
+			"We recommend deploying a compact, well-supported embedding model with a compatible reranker as the default path, then promoting a larger model only if corpus tests show a material recall gain within the latency budget. This gives the team a measurable rollout path: benchmark the shortlist, keep source-level logging, and tune reranking depth before scaling.",
+			"",
+			"## Limitations",
+			"The accepted evidence does not provide identical hardware and corpus measurements for every candidate, so the recommendation should be treated as a deployment starting point. Final selection still depends on licensing, serving runtime, available memory, and measured latency on the user's documents.",
+		].join("\n");
+		const auditBasis = vi.fn(async () => ({
+			passed: true,
+			honestyMarkers: [],
+			retryRequested: false,
+		}));
+
+		await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-fallback-then-improve",
+				profile: "overview",
+				query:
+					"Find the most intelligent embedding model with minimal latency and cost that can be self-hosted on a single RT-class machine",
+			}),
+			now: new Date("2026-06-22T02:12:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: [
+						{
+							id: "web-embedding-models",
+							title: "Best self-hosted embedding model evidence",
+							url: "https://example.com/embedding-models",
+							snippet:
+								"Self-hosted embedding model selection depends on retrieval quality, latency, embedding dimensions, serving support, reranking compatibility, and production validation.",
+						},
+					],
+					rejectedSources: [],
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "self hosted embedding models English technical document retrieval latency cost single GPU reranker",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "coverage-review") {
+						return { text: coverageReviewText([], true), usage: stageUsage() };
+					}
+					if (input.stage === "synthesize") {
+						return { text: fallbackStageText, usage: stageUsage() };
+					}
+					if (input.stage === "integrate") {
+						return {
+							text: [
+								"Executive Summary",
+								"Model Shortlist",
+								"Retrieval Quality",
+								"Latency and Cost",
+								"Deployment Implications",
+								"Recommendation",
+								"Limitations",
+								"Evidence Gaps",
+							].join("; "),
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "assemble") {
+						assemblePrompts.push(input.prompt);
+						return {
+							text:
+								assemblePrompts.length < 3
+									? "I checked the sources and synthesized findings for the report."
+									: JSON.stringify({
+											generatedTitle: "Self-Hosted Embedding Model Choice",
+											bodyMarkdown: improvedDraft,
+											sectionBriefs: [],
+											limitations: [
+												"Identical hardware measurements are not available for every candidate.",
+											],
+										}),
+							usage: stageUsage(),
+						};
+					}
+					return { text: `${input.stage} result`, usage: stageUsage() };
+				}),
+				auditBasis,
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-fallback-then-improve",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(assemblePrompts).toHaveLength(3);
+		expect(JSON.parse(assemblePrompts[1]).repairInstruction).toContain(
+			"process summary",
+		);
+		const improvementPrompt = JSON.parse(assemblePrompts[2]);
+		expect(improvementPrompt.writerImprovement).toMatchObject({
+			pass: 1,
+			maxPasses: 1,
+			warningCodes: expect.arrayContaining([
+				"atlas_report_sections_too_sparse",
+				"atlas_too_many_one_sentence_sections",
+				"atlas_recommendation_not_decisive",
+			]),
+		});
+		expect(improvementPrompt.reportShapeDiagnostics).toMatchObject({
+			bodyWordCount: expect.any(Number),
+			oneSentenceSectionCount: expect.any(Number),
+		});
+		expect(
+			improvementPrompt.reportShapeDiagnostics.bodyWordCount,
+		).toBeGreaterThan(220);
+		expect(
+			improvementPrompt.reportShapeDiagnostics.substantiveSectionCount,
+		).toBeLessThanOrEqual(1);
+		expect(
+			improvementPrompt.reportShapeDiagnostics.oneSentenceSectionCount,
+		).toBeGreaterThanOrEqual(8);
+		expect(improvementPrompt.improvementInstructions).toContain(
+			"Do not add sources",
+		);
+		expect(improvementPrompt.improvementInstructions).toContain(
+			"deployment and operating implications",
+		);
+		expect(auditBasis).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assembledMarkdown: expect.stringContaining(
+					"We recommend deploying a compact",
+				),
+			}),
+		);
+		expect(checkpoints.at(-1)).toMatchObject({
+			checkpoint: {
+				writer: {
+					improvement: {
+						ran: true,
+						passCount: 1,
+						startedAfterDeterministicFallback: true,
+					},
+					firstDraftReportShapeDiagnostics: expect.objectContaining({
+						warnings: expect.arrayContaining([
+							expect.objectContaining({
+								code: "atlas_report_sections_too_sparse",
+							}),
+							expect.objectContaining({
+								code: "atlas_too_many_one_sentence_sections",
+							}),
+							expect.objectContaining({
+								code: "atlas_recommendation_not_decisive",
+							}),
+						]),
+					}),
+				},
+			},
+			qualityDiagnostics: {
+				writerImprovement: expect.objectContaining({
+					ran: true,
+					passCount: 1,
+					startedAfterDeterministicFallback: true,
+				}),
+			},
+		});
+	});
+
 	it("does not run the writer improvement pass for a substantive first draft", async () => {
 		const assemblePrompts: string[] = [];
 		const checkpoints: Array<{ checkpoint: Record<string, unknown> }> = [];
@@ -3509,7 +3705,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(2);
+		expect(assembleCalls).toBe(3);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;
@@ -3649,7 +3845,7 @@ describe("Atlas pipeline slices", () => {
 			},
 		});
 
-		expect(assembleCalls).toBe(2);
+		expect(assembleCalls).toBe(3);
 		const auditCalls = auditBasis.mock.calls as unknown as Array<
 			[Parameters<RunAtlasPipelineInput["dependencies"]["auditBasis"]>[0]]
 		>;

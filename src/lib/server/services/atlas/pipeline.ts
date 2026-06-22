@@ -2320,7 +2320,7 @@ export async function runAtlasPipeline(
 	let assemblyOutput = parseAtlasAssemblyOutput(assemble.text);
 	let assemblyMetadata = assemblyOutput.metadata;
 	let finalAssembledMarkdown = assemblyOutput.markdown;
-	let usedDeterministicFallback = false;
+	let usedDeterministicFallbackBeforeImprovement = false;
 	let reportShapeDiagnostics: AtlasReportShapeDiagnostics | null = null;
 	let firstDraftReportShapeDiagnostics: AtlasReportShapeDiagnostics | null =
 		null;
@@ -2328,6 +2328,7 @@ export async function runAtlasPipeline(
 		ran: false,
 		passCount: 0,
 		reasonWarningCodes: [] as string[],
+		startedAfterDeterministicFallback: false,
 	};
 	const acceptedSourceTitles = [
 		...sources.localSources.map((source) => source.title),
@@ -2393,23 +2394,22 @@ export async function runAtlasPipeline(
 			assemblyMetadata,
 			fallbackReport.metadata,
 		);
-		usedDeterministicFallback = true;
+		usedDeterministicFallbackBeforeImprovement = true;
 	}
 
 	firstDraftReportShapeDiagnostics = diagnoseAtlasReportShape(
 		finalAssembledMarkdown,
 	);
 	reportShapeDiagnostics = firstDraftReportShapeDiagnostics;
-	if (
-		!usedDeterministicFallback &&
-		shouldImproveAtlasWriterDraft(firstDraftReportShapeDiagnostics)
-	) {
+	if (shouldImproveAtlasWriterDraft(firstDraftReportShapeDiagnostics)) {
 		writerImprovement = {
 			ran: true,
 			passCount: 1,
 			reasonWarningCodes: firstDraftReportShapeDiagnostics.warnings.map(
 				(warning) => warning.code,
 			),
+			startedAfterDeterministicFallback:
+				usedDeterministicFallbackBeforeImprovement,
 		};
 		await input.dependencies.heartbeat?.({
 			stage: "assemble",

@@ -48,6 +48,8 @@ const RAW_DUMP_PATTERNS = [
 
 const SERIOUS_REPORT_SHAPE_WARNING_CODES = new Set([
 	"atlas_report_body_too_thin",
+	"atlas_report_sections_too_sparse",
+	"atlas_too_many_one_sentence_sections",
 	"atlas_source_projection_dominates_report",
 	"atlas_recommendation_not_decisive",
 ]);
@@ -89,17 +91,19 @@ function improvementInstructions(language: SupportedLanguage): string {
 	if (language === "hu") {
 		return [
 			"Ez az egyetlen engedélyezett writer improvement pass ehhez az Atlas jobhoz.",
-			"A vázlat alakdiagnosztikája szerint a jelentés túl vékony, nem elég döntésképes, vagy a forrásanyag dominál.",
-			"Írd újra döntésminőségű jelentéssé: őrizd meg a támogatott állításokat, adj rangsort, táblázatot, kompromisszumokat és egyértelmű ajánlást ott, ahol a Writer Evidence Cardok ezt támogatják.",
-			"Do not add sources. Do not run or request new searches. Do not invent unsupported claims.",
+			"A vázlat alakdiagnosztikája szerint a jelentés túl vékony, túl sok egymondatos szakaszból áll, nem elég döntésképes, vagy a forrásanyag dominál.",
+			"Írd újra döntésminőségű jelentéssé a meglévő Writer Evidence Cardokból: legyen vezetői összefoglaló, rangsor vagy shortlist, összehasonlító kompromisszumok, telepítési/üzemeltetési következmények, konkrét ajánlás, valamint korlátok.",
+			"Minden fő szakaszban fejtsd ki a választ több mondatban; ne hagyj címszerű vagy csak egymondatos ajánlási szakaszt.",
+			"Do not add sources. Do not run or request new searches. Do not invent unsupported claims. Do not append a Markdown Sources section.",
 			"Return the same strict JSON schema as the first writer pass.",
 		].join(" ");
 	}
 	return [
 		"This is the only allowed writer improvement pass for this Atlas job.",
-		"The draft shape diagnostics show that the report is too thin, not decisive enough, or dominated by source material.",
-		"Rewrite it into a decision-quality report: preserve grounded claims, add rankings, tables, tradeoffs, and a definitive recommendation where the Writer Evidence Cards support one.",
-		"Do not add sources. Do not run or request new searches. Do not invent unsupported claims.",
+		"The draft shape diagnostics show that the report is too thin, has too many one-sentence sections, is not decisive enough, or is dominated by source material.",
+		"Rewrite it into a decision-quality report from the existing Writer Evidence Cards: include an executive summary, ranking or shortlist, comparative tradeoffs, deployment and operating implications, a concrete recommendation, and limitations.",
+		"Develop each main body section with multiple sentences; do not leave a recommendation section as a heading-like restatement or a single hollow sentence.",
+		"Do not add sources. Do not run or request new searches. Do not invent unsupported claims. Do not append a Markdown Sources section.",
 		"Return the same strict JSON schema as the first writer pass.",
 	].join(" ");
 }
@@ -250,6 +254,8 @@ export function shouldImproveAtlasWriterDraft(
 	);
 	if (warningCodes.has("atlas_source_projection_dominates_report")) return true;
 	if (warningCodes.has("atlas_recommendation_not_decisive")) return true;
+	if (warningCodes.has("atlas_report_sections_too_sparse")) return true;
+	if (warningCodes.has("atlas_too_many_one_sentence_sections")) return true;
 	return (
 		warningCodes.has("atlas_report_body_too_thin") &&
 		diagnostics.bodyWordCount < 90 &&

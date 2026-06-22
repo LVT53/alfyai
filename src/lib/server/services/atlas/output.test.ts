@@ -1249,6 +1249,51 @@ describe("Atlas renderer output", () => {
 		);
 	});
 
+	it("diagnoses sparse one-sentence reports with hollow recommendations", async () => {
+		const { diagnoseAtlasReportShape } = await import(
+			"./report-shape-diagnostics"
+		);
+		const diagnostics = diagnoseAtlasReportShape(
+			[
+				"## Executive Summary",
+				"English technical-document retrieval needs a source-grounded model comparison across quality, latency, hardware fit, memory pressure, serving maturity, reranking compatibility, and maintenance boundaries, but the draft only names those criteria without resolving the operator choice.",
+				"",
+				"## Model Shortlist",
+				"BGE, GTE, E5, Jina, and Nomic families appear in the accepted evidence with different multilingual coverage, embedding dimensions, operational maturity, licensing posture, reranker fit, and deployment assumptions for single-GPU operation.",
+				"",
+				"## Retrieval Quality",
+				"Benchmark references are useful but incomplete because production retrieval depends on corpus chunking, query mix, reranker availability, technical vocabulary, document length, and validation against representative technical documents.",
+				"",
+				"## Latency and Cost",
+				"Latency and cost depend on embedding dimension, batching, quantization, reranking depth, serving runtime, cache behavior, and whether the system can keep both embedder and reranker resident.",
+				"",
+				"## Deployment Implications",
+				"Single-RT deployment favors models with predictable memory requirements, stable serving support, clear licensing, simple observability, tested fallback behavior, and enough multilingual behavior for the expected English-first workload.",
+				"",
+				"## Recommendation",
+				"Recommendation for English Technical-Document Retrieval.",
+				"",
+				"## Limitations",
+				"The evidence remains incomplete across identical hardware, identical corpora, current production latency measurements, matching reranker settings, and long-document retrieval workloads, so confidence is bounded by source coverage.",
+				"",
+				"## Evidence Gaps",
+				"Several sources discuss benchmarks or production factors separately, but few connect all constraints into a definitive single-GPU deployment comparison with shared metrics and reproducible settings.",
+			].join("\n"),
+		);
+
+		const warningCodes = diagnostics.warnings.map((warning) => warning.code);
+		expect(diagnostics.bodyWordCount).toBeGreaterThan(220);
+		expect(diagnostics.substantiveSectionCount).toBeLessThanOrEqual(1);
+		expect(diagnostics.oneSentenceSectionCount).toBeGreaterThanOrEqual(8);
+		expect(warningCodes).toEqual(
+			expect.arrayContaining([
+				"atlas_report_sections_too_sparse",
+				"atlas_too_many_one_sentence_sections",
+				"atlas_recommendation_not_decisive",
+			]),
+		);
+	});
+
 	it("does not warn when a substantive body has compact source projection", async () => {
 		const { buildAtlasDocumentSource } = await import("./renderer-output");
 		const { diagnoseAtlasReportShape } = await import(
