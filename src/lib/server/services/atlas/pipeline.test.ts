@@ -6315,7 +6315,7 @@ describe("Atlas pipeline slices", () => {
 		}
 
 		expect(queryCountsByProfile).toEqual({
-			overview: 6,
+			overview: 5,
 			"in-depth": 14,
 			exhaustive: 28,
 		});

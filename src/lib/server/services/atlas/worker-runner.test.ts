@@ -265,7 +265,7 @@ describe("Atlas worker runner", () => {
 		expect(runAtlasSearchStage).toHaveBeenCalledWith(
 			expect.objectContaining({
 				config: expect.objectContaining({
-					maxAcceptedSources: 16,
+					maxAcceptedSources: 28,
 				}),
 			}),
 		);

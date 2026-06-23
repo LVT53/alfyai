@@ -51,8 +51,8 @@ const ATLAS_PROFILE_RUNTIME_CONFIG: Record<
 	AtlasProfileRuntimeConfig
 > = {
 	overview: {
-		maxSearchQueries: 6,
-		maxAcceptedWebSources: 16,
+		maxSearchQueries: 5,
+		maxAcceptedWebSources: 28,
 		maxImageCandidates: 3,
 		maxRenderedImages: 2,
 		maxOutputTokens: 16000,
