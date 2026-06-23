@@ -970,6 +970,121 @@ describe("Atlas pipeline slices", () => {
 		});
 	});
 
+	it("keeps quality rejection ratio below 50% for a realistic overview source set", async () => {
+		const checkpoints: Array<{ roundNumber: number; checkpoint: unknown }> = [];
+		const acceptedSources = Array.from({ length: 16 }, (_value, index) => ({
+			id: `web-good-${index}`,
+			title: `Source ${index} - Enterprise RAG Architecture Patterns`,
+			url: `https://example.com/rag-source-${index}`,
+			snippet: `Substantive evidence about RAG architectures with detailed benchmarks for source ${index} covering retrieval quality, deployment patterns, and latency analysis for enterprise environments.`,
+		}));
+		const qualityRejectedSources = [
+			...Array.from({ length: 5 }, (_value, index) => ({
+				id: `web-dup-${index}`,
+				title: `Duplicate source ${index}`,
+				url: `https://example.com/rag-source-${index}#fragment`,
+				snippet: `Duplicate URL evidence for already accepted source.`,
+				rejectionReason: "duplicate_url" as const,
+			})),
+			...Array.from({ length: 4 }, (_value, index) => ({
+				id: `web-bad-snippet-${index}`,
+				title: "Log in",
+				url: `https://example.com/login-${index}`,
+				snippet: "Log in",
+				rejectionReason: "unusable_snippet" as const,
+			})),
+			...Array.from({ length: 3 }, (_value, index) => ({
+				id: `web-footer-${index}`,
+				title: `Video - YouTube`,
+				url: `https://youtube.com/watch?v=bad${index}`,
+				snippet:
+					"Ismertető Sajtó Szerzői jog Kapcsolatfelvétel Alkotók Hirdetés Fejlesztők Feltételek Adatvédelem",
+				rejectionReason: "unusable_snippet" as const,
+			})),
+		];
+
+		const result = await runAtlasPipelineWithNoopReranker({
+			job: atlasJob({
+				id: "atlas-rejection-ratio",
+				profile: "overview",
+				query: "Compare enterprise RAG architectures for regulated SaaS",
+			}),
+			now: new Date("2026-06-22T10:00:00.000Z"),
+			dependencies: {
+				resolveSources: vi.fn(async () => ({ localSources: [] })),
+				searchWeb: vi.fn(async () => ({
+					sources: acceptedSources,
+					rejectedSources: qualityRejectedSources,
+					limitation: null,
+				})),
+				runModelStage: vi.fn(async (input) => {
+					if (input.stage === "decompose") {
+						return {
+							text: "enterprise RAG architecture patterns\nvector database comparison\nretrieval quality benchmarks",
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "curate") {
+						return { text: "Curated evidence", usage: stageUsage() };
+					}
+					if (input.stage === "coverage-review") {
+						return {
+							text: JSON.stringify({
+								sufficient: true,
+								proposals: [],
+								approvedGapCandidates: [],
+								diagnostics: [],
+								limitations: [],
+							}),
+							usage: stageUsage(),
+						};
+					}
+					if (input.stage === "assemble") {
+						return {
+							text: [
+								"## Executive Summary",
+								"Enterprise RAG architectures vary significantly by deployment constraints, retrieval quality requirements, and governance needs.",
+								"",
+								"## Findings",
+								"Vector databases with hybrid search and reranking pipelines provide the best retrieval quality for regulated SaaS environments.",
+								"",
+								"## Recommendations",
+								"Deploy a two-stage retrieval pipeline with semantic embedding shortlist followed by cross-encoder reranking for production enterprise search.",
+								"",
+								"## Limitations",
+								"This report is based on 16 accepted web sources and may not cover all vendor-specific deployment patterns.",
+							].join("\n"),
+							usage: stageUsage(),
+						};
+					}
+					return { text: `${input.stage} result`, usage: stageUsage() };
+				}),
+				auditBasis: vi.fn(async () => ({
+					passed: true,
+					honestyMarkers: [],
+					retryRequested: false,
+				})),
+				writeCheckpoint: vi.fn(async (input) => {
+					checkpoints.push(input as (typeof checkpoints)[number]);
+				}),
+				renderOutputs: vi.fn(async () => ({
+					fileProductionJobId: "fp-job-ratio",
+					htmlChatGeneratedFileId: "file-html",
+					pdfChatGeneratedFileId: "file-pdf",
+					markdownChatGeneratedFileId: "file-md",
+				})),
+			},
+		});
+
+		expect(result.sourceCounts.accepted).toBe(16);
+		expect(result.sourceCounts.rejected).toBe(12);
+		const rejectionRatio =
+			result.sourceCounts.rejected /
+			(result.sourceCounts.accepted + result.sourceCounts.rejected);
+		expect(rejectionRatio).toBeLessThan(0.5);
+		expect(rejectionRatio).toBe(12 / 28);
+	});
+
 	it("runs only one useful In-Depth gap-fill round", async () => {
 		const searchWeb = vi
 			.fn()

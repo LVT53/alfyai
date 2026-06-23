@@ -145,12 +145,42 @@ function isUnsafeAdultText(haystack: string): boolean {
 }
 
 /**
+ * Returns `true` when the title is substantive enough to compensate for a
+ * short search-result snippet.  Rejects bare URLs, login/auth pages, and
+ * titles too short to convey meaningful content.
+ */
+export function hasSubstantiveAtlasSourceTitle(title: string): boolean {
+	const trimmed = title.trim();
+	if (!trimmed) return false;
+	if (trimmed.length < 15) return false;
+	// Bare URLs (no spaces, looks like a domain)
+	if (/^https?:\/\//i.test(trimmed)) return false;
+	if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed) && !/\s/.test(trimmed))
+		return false;
+	// Login / auth / registration pages
+	if (
+		/^(log\s*in|sign\s*in|sign\s*up|register|login|signin|signup|bejelentkezés|regisztráció)$/i.test(
+			trimmed,
+		)
+	)
+		return false;
+	return true;
+}
+
+/**
  * Rejects sources whose snippet is empty, pure boilerplate (YouTube footer,
  * SearXNG UI metadata), or too short to produce usable evidence after
  * sanitization.  These sources would fill acceptance slots without
  * contributing to Evidence Packs.
+ *
+ * When an optional `title` is provided and the only rejection reason is a
+ * short (< 12 char) sanitized snippet, a substantive title can override the
+ * rejection so the source is accepted for evidence extraction.
  */
-export function isUnusableAtlasSnippet(snippet: string | null): boolean {
+export function isUnusableAtlasSnippet(
+	snippet: string | null,
+	title?: string,
+): boolean {
 	if (!snippet) return false;
 	const sanitized = sanitizeSearchSnippet(snippet);
 	if (!sanitized) return true;
@@ -183,7 +213,11 @@ export function isUnusableAtlasSnippet(snippet: string | null): boolean {
 	).length;
 	if (footerHits >= 2) return true;
 
-	if (sanitized.length < 15) return true;
+	if (sanitized.length < 12) {
+		// Title exemption: a substantive title can compensate for a short snippet
+		if (title && hasSubstantiveAtlasSourceTitle(title)) return false;
+		return true;
+	}
 
 	return false;
 }
@@ -214,9 +248,8 @@ function convergeSources(input: {
 			continue;
 		}
 
-		if (isUnusableAtlasSnippet(source.snippet)) {
+		if (isUnusableAtlasSnippet(source.snippet, source.title)) {
 			rejectedSources.push({ ...source, rejectionReason: "unusable_snippet" });
-			seenUrls.add(key);
 			continue;
 		}
 
