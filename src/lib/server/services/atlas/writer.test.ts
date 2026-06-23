@@ -155,13 +155,13 @@ describe("Atlas writer prompt", () => {
 		});
 
 		const prompt = buildAtlasWriterPrompt(input);
-		expect(prompt.length).toBeLessThanOrEqual(65000);
+		expect(prompt.length).toBeLessThanOrEqual(80000);
 	});
 
 	it("truncates synthesis and outline to 1500 chars when prompt input is large", () => {
 		const bigSynthesis = "A".repeat(8000);
 		const bigOutline = "B".repeat(8000);
-		const cards = Array.from({ length: 16 }, (_, i) =>
+		const cards = Array.from({ length: 22 }, (_, i) =>
 			makeEvidenceCard(`Source ${i + 1}`, 12),
 		);
 
@@ -268,8 +268,8 @@ describe("Atlas writer prompt", () => {
 	it("logs truncation info when prompt exceeds MAX_WRITER_PROMPT_CHARS", () => {
 		const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
 		try {
-			const cards = Array.from({ length: 16 }, (_, i) =>
-				makeEvidenceCard(`Source ${i + 1}`, 12),
+			const cards = Array.from({ length: 28 }, (_, i) =>
+				makeEvidenceCard(`Source ${i + 1}`, 14),
 			);
 			const input = defaultWriterInput({
 				synthesis: "X".repeat(8000),
@@ -283,9 +283,9 @@ describe("Atlas writer prompt", () => {
 				"[ATLAS_WRITER] Prompt truncated",
 				expect.objectContaining({
 					originalLength: expect.any(Number),
-					maxChars: 65000,
+					maxChars: 80000,
 					profile: "overview",
-					evidenceCardCount: 16,
+					evidenceCardCount: 28,
 				}),
 			);
 		} finally {
@@ -423,7 +423,7 @@ describe("Atlas writer prompt", () => {
 			writerEvidenceCards: cards,
 		});
 		const prompt = buildAtlasWriterPrompt(input);
-		expect(prompt.length).toBeLessThanOrEqual(65000);
+		expect(prompt.length).toBeLessThanOrEqual(80000);
 	});
 
 	it("includes empty-list-item instruction in writer prompt", () => {
@@ -456,11 +456,11 @@ describe("Atlas writer prompt", () => {
 
 	it("truncation preserves evidence card facts longer than synthesis text", () => {
 		const cards = Array.from({ length: 16 }, (_, i) =>
-			makeEvidenceCard(`Source ${i + 1}`, 10),
+			makeEvidenceCard(`Source ${i + 1}`, 20),
 		);
 		const input = defaultWriterInput({
-			synthesis: "X".repeat(8000),
-			outline: "Y".repeat(8000),
+			synthesis: "X".repeat(12000),
+			outline: "Y".repeat(12000),
 			writerEvidenceCards: cards,
 		});
 
@@ -469,7 +469,7 @@ describe("Atlas writer prompt", () => {
 
 		expect(parsed.synthesis.length).toBeLessThanOrEqual(1500);
 		for (const card of parsed.writerEvidenceCards) {
-			expect(card.relevantFacts.length).toBe(10);
+			expect(card.relevantFacts.length).toBe(20);
 		}
 	});
 
@@ -566,10 +566,10 @@ describe("Atlas writer prompt", () => {
 		expect(parsed.evidencePackDiagnostics).toEqual([]);
 		expect(parsed.writerEvidenceCardDiagnostics).toEqual([]);
 		expect(parsed.coverageReview.truncated).toBe(true);
-		expect(result.length).toBeLessThanOrEqual(65000);
+		expect(result.length).toBeLessThanOrEqual(80000);
 	});
 
-	it("fits 16-source overview within 65000 chars with zero fact reduction", () => {
+	it("fits 16-source overview within 80000 chars with zero fact reduction", () => {
 		const cards = Array.from({ length: 16 }, (_, i) =>
 			makeEvidenceCard(`Self-hosted embedding evidence source ${i + 1}`, 8),
 		);
@@ -594,22 +594,22 @@ describe("Atlas writer prompt", () => {
 		const prompt = buildAtlasWriterPrompt(input);
 		const parsed = JSON.parse(prompt);
 
-		// With 65K max, a 16-source overview fits without fact reduction.
+		// With 80K max, a 16-source overview fits without fact reduction.
 		// All 8 facts per card are preserved — truncation loss < 10%.
-		expect(prompt.length).toBeLessThanOrEqual(65000);
+		expect(prompt.length).toBeLessThanOrEqual(80000);
 		for (const card of parsed.writerEvidenceCards) {
 			expect(card.relevantFacts.length).toBe(8);
 		}
 	});
 
-	it("truncates 16-source overview prompt by less than 10%", () => {
-		const cards = Array.from({ length: 16 }, (_, i) =>
+	it("truncates 18-source overview prompt by less than 10%", () => {
+		const cards = Array.from({ length: 18 }, (_, i) =>
 			makeEvidenceCard(
 				`Production-level source ${i + 1} with realistic title`,
-				10,
+				12,
 			),
 		);
-		// Build a prompt whose level-0 size slightly exceeds 65K so only
+		// Build a prompt whose level-0 size slightly exceeds 80K so only
 		// synth/outline are trimmed — all facts preserved.
 		const input = defaultWriterInput({
 			synthesis: "X".repeat(6000),
@@ -636,14 +636,14 @@ describe("Atlas writer prompt", () => {
 		const prompt = buildAtlasWriterPrompt(input);
 		const parsed = JSON.parse(prompt);
 
-		// Must fit within the 65K ceiling.
-		expect(prompt.length).toBeLessThanOrEqual(65000);
-		// All 10 facts per card preserved — no fact-level truncation needed.
+		// Must fit within the 80K ceiling.
+		expect(prompt.length).toBeLessThanOrEqual(80000);
+		// All 12 facts per card preserved — no fact-level truncation needed.
 		for (const card of parsed.writerEvidenceCards) {
-			expect(card.relevantFacts.length).toBe(10);
+			expect(card.relevantFacts.length).toBe(12);
 		}
 		// At level 1, synth/outline are capped to 1500 chars; facts stay intact.
-		// For a ~66-68K base trimmed to ≤ 65K, total truncation is < 10%.
+		// For a ~82-85K base trimmed to ≤ 80K, total truncation is < 10%.
 		expect(parsed.synthesis.length).toBeLessThanOrEqual(1500);
 		expect(parsed.outline.length).toBeLessThanOrEqual(1500);
 	});

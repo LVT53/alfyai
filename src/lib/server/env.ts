@@ -482,7 +482,7 @@ function readConfig(): Config {
 		),
 		atlasMaxWriterPromptChars: parsePositiveIntegerEnv(
 			process.env.ATLAS_MAX_WRITER_PROMPT_CHARS,
-			65000,
+			80000,
 			100,
 		),
 		webPushVapidPublicKey: process.env.WEB_PUSH_VAPID_PUBLIC_KEY || "",
