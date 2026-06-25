@@ -394,6 +394,10 @@ _Avoid_: hidden maybe-memory queue, raw candidate backlog, unstructured classifi
 The path where the **Memory Intake Gate** admits a remembered fact during post-turn processing without waiting for broader maintenance. It should require explicit durable language or strong explicit phrasing for preferences, constraints, goals, project rules, and document rules. Stable user-authored self-statements may be admitted without memory verbs when they are clearly about the user and not merely document-derived or assistant-inferred.
 _Avoid_: soft instruction as durable rule, assistant inference, document-derived self-truth, every preference-like phrase, uncertain immediate write
 
+**Deferred Memory Extraction**:
+The LLM-assisted intake path that processes conversation material the **Immediate Memory Admission** parser could not confidently admit or reject. It runs during **Expensive Memory Reconciliation** as a bounded maintenance slice, inspects a bounded window of recent conversation turns, and produces structured candidate memories with category, scope, and **Memory Decision Confidence Band**. High-confidence candidates are auto-admitted; ambiguous candidates become **Guided Memory Review** items; low-confidence candidates are rejected with telemetry. It does not mirror raw transcript, extracting only durable candidate facts, preferences, constraints, goals, and self-statements. The app owns this extraction using its configured model; Honcho is not the extraction engine.
+_Avoid_: real-time extraction, chat-path LLM call, raw transcript mirror, Honcho deriver as extraction engine, unbounded extraction sweep
+
 **Assistant Prose Memory Exclusion**:
 The rule that ordinary assistant-generated answer text is not a source for **Immediate Memory Admission**. Assistant prose may remain chat history, evidence, or conversation context, but it should not become durable memory authority. App-owned structured outputs may become memory only through typed, scoped, provenance-aware paths.
 _Avoid_: assistant answer as user truth, mirrored assistant prose, summary as profile memory, model guess as memory, feedback loop
@@ -477,6 +481,10 @@ _Avoid_: last-writer-wins, full memory event log, stale maintenance overwrite, h
 **Memory Authority Fallback**:
 The fallback behavior when Honcho-backed memory authority cannot refresh, delete, or reconcile backing memory. The durable **Memory Profile Projection** remains the user-facing active truth, while failed authority work becomes retryable maintenance and telemetry.
 _Avoid_: empty profile fallback, raw Honcho fallback, blocking local profile action, background-error banner, authority-first UI
+
+**Memory Authority Substrate**:
+The durable backing store that holds the canonical copy of remembered facts for cross-session, cross-conversation recall. In AlfyAI, Honcho serves as the **Memory Authority Substrate** while the app-owned **Memory Profile Projection** is the active read model used at prompt time. Writes to the substrate happen asynchronously after admission so the chat path never blocks on external memory service latency. Raw transcript is not stored in the substrate; only curated conclusions from admitted memories are written.
+_Avoid_: local persona-memory system, projection-as-canonical-store, parallel memory store, chat-blocking memory write, raw transcript in substrate
 
 **Expensive Memory Reconciliation**:
 The bounded background maintenance work that deduplicates, expires active use, revisits preserved legacy material, generates review items, reconciles Honcho deletes or replacements, and triggers Honcho Dreaming when needed. It should run from dirty state, cooldowns, and account work budgets rather than from every chat turn or Knowledge Base open.
