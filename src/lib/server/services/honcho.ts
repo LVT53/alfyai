@@ -447,7 +447,7 @@ export async function mirrorWorkCapsuleConclusion(params: {
 	}
 }
 
-function isHonchoMissingError(error: unknown): boolean {
+export function isHonchoMissingError(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
 	return /\b404\b|not found|does not exist|unknown peer|unknown session/i.test(
 		message,
