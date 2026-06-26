@@ -102,8 +102,9 @@ const progressPercent = $derived(
 	Math.max(0, Math.min(100, Math.round(job.progress?.percent ?? 0))),
 );
 const orbitDurationMs = $derived(
-	Math.max(1000, Math.round(4500 - (progressPercent / 100) * 3500)),
+	Math.max(833, Math.round(3750 - (progressPercent / 100) * 2917)),
 );
+let displayedOrbitMs = $state(3750);
 const displayTitle = $derived(getProgressTitle(job));
 const downloadOptions = $derived(getDownloadOptions(job.outputs));
 
@@ -198,6 +199,24 @@ $effect(() => {
 		lastProgressMessageStage = progressMessageStage;
 		progressMessageIndex = 0;
 	}
+});
+
+$effect(() => {
+	if (typeof window === "undefined") return;
+	const target = orbitDurationMs;
+	let rafId = 0;
+	const lerp = 0.06;
+	function tick() {
+		const diff = target - displayedOrbitMs;
+		if (Math.abs(diff) < 5) {
+			displayedOrbitMs = target;
+			return;
+		}
+		displayedOrbitMs += diff * lerp;
+		rafId = requestAnimationFrame(tick);
+	}
+	rafId = requestAnimationFrame(tick);
+	return () => cancelAnimationFrame(rafId);
 });
 
 $effect(() => {
@@ -458,7 +477,7 @@ function submitLifecycleAction() {
 					stroke-linecap="round"
 					stroke-linejoin="round"
 					aria-hidden="true"
-					style={`--atlas-orbit-duration: ${orbitDurationMs}ms;`}
+					style={`--atlas-orbit-duration: ${Math.round(displayedOrbitMs)}ms;`}
 				>
 					<g class="orbit-group">
 						<circle cx="28" cy="28" r="22" opacity="0.25"></circle>
@@ -523,17 +542,19 @@ function submitLifecycleAction() {
 				</button>
 			</div>
 			{#if job.status === "queued"}
-				<p class="atlas-card__kickoff-note">{$t("atlas.kickoffNote")}</p>
+				<p class="atlas-card__kickoff-note" transition:fade={{ duration: PROGRESS_MESSAGE_FADE_MS }}>{$t("atlas.kickoffNote")}</p>
 			{/if}
 			{#if progressItems.length > 0}
-				<div class="atlas-card__queries" aria-label={progressItemsLabel}>
-					<div class="atlas-card__queries-title">{progressItemsTitle}</div>
-					<ul>
-						{#each progressItems as item}
-							<li>{item}</li>
-						{/each}
-					</ul>
-				</div>
+				{#key progressMessageStage}
+					<div class="atlas-card__queries" aria-label={progressItemsLabel} transition:fade={{ duration: PROGRESS_MESSAGE_FADE_MS }}>
+						<div class="atlas-card__queries-title">{progressItemsTitle}</div>
+						<ul>
+							{#each progressItems as item}
+								<li>{item}</li>
+							{/each}
+						</ul>
+					</div>
+				{/key}
 			{/if}
 		</div>
 	{:else if isComplete}

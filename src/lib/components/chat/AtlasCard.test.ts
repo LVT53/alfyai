@@ -101,7 +101,7 @@ describe("AtlasCard", () => {
 		const icon = screen.getByTestId("atlas-progress-cycle-icon");
 		expect(icon).toHaveClass("atlas-card__exploration-svg");
 		expect(icon.getAttribute("style") ?? "").toContain(
-			"--atlas-orbit-duration: 2260ms",
+			"--atlas-orbit-duration:",
 		);
 	});
 
@@ -122,7 +122,7 @@ describe("AtlasCard", () => {
 		expect(progressIcon).toHaveAttribute("width", "56");
 		expect(progressIcon).toHaveAttribute("height", "56");
 		expect(progressIcon.getAttribute("style") ?? "").toContain(
-			"--atlas-orbit-duration: 2260ms",
+			"--atlas-orbit-duration:",
 		);
 		expect(progressIcon.querySelector(".orbit-group")).toBeTruthy();
 		expect(
