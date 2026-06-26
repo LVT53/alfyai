@@ -2273,7 +2273,6 @@ const FINAL_REPORT_GATE_WARNING_CODES = new Set([
 	"atlas_report_sections_too_sparse",
 	"atlas_too_many_one_sentence_sections",
 	"atlas_source_projection_dominates_report",
-	"atlas_claim_shaped_headings",
 ]);
 
 interface AtlasFinalReportQualityGate {

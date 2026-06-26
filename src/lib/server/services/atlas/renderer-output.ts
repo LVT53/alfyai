@@ -998,6 +998,16 @@ function paragraphIsSubstantive(text: string): boolean {
 	return text.replace(/\s+/g, " ").trim().length >= 80;
 }
 
+function isLimitationSectionHeading(text: string): boolean {
+	const normalized = normalizedHeading(text);
+	return (
+		normalized === "limitations" ||
+		normalized === "additional limitations" ||
+		normalized === "korlatok" ||
+		normalized === "tovabbi korlatok"
+	);
+}
+
 function addInlineSourceFallbacks(
 	blocks: GeneratedDocumentSource["blocks"],
 	sources: AtlasReportSource[],
@@ -1014,13 +1024,16 @@ function addInlineSourceFallbacks(
 
 	const eligibleParagraphIndexes: number[] = [];
 	let insideSourcesSection = false;
+	let insideLimitationSection = false;
 	for (const [index, block] of blocks.entries()) {
 		if (block.type === "heading" && block.level <= 2) {
 			insideSourcesSection = isSourcesHeading(block.text);
+			insideLimitationSection = isLimitationSectionHeading(block.text);
 			continue;
 		}
 		if (
 			!insideSourcesSection &&
+			!insideLimitationSection &&
 			block.type === "paragraph" &&
 			paragraphIsSubstantive(block.text)
 		) {

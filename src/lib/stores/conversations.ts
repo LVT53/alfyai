@@ -327,9 +327,12 @@ export function clearConversationStore(): void {
 	deletedConversationIds.clear();
 	localConversationProjectIds.clear();
 	localConversationSidebarStates.clear();
-	seenAtlasBadgeKeys.clear();
-	seenAtlasBadgeKeysLoadedForUserId = undefined;
-	conversationSnapshotUserId = null;
+	// Preserve seenAtlasBadgeKeys and seenAtlasBadgeKeysLoadedForUserId across
+	// logout/login so the accent circle does not reappear after re-login.
+	// hydrateSeenAtlasBadgeKeys already handles user changes by comparing
+	// seenAtlasBadgeKeysLoadedForUserId with the new userId and reloading from
+	// localStorage when they differ.  conversationSnapshotUserId is kept so the
+	// next reconcile can detect an actual owner change via ownerChanged.
 	lastSuccessfulConversationSnapshotAt = 0;
 	conversations.set([]);
 }
