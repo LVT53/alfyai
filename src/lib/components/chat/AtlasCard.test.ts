@@ -79,9 +79,7 @@ describe("AtlasCard", () => {
 		});
 
 		expect(screen.getByTestId("atlas-card")).toHaveTextContent("ATLAS");
-		expect(
-			screen.getByTestId("atlas-progress-cycle-icon").querySelector("title"),
-		).toHaveTextContent("42%");
+		expect(screen.getByText("42%")).toBeInTheDocument();
 		expect(screen.getByText("Weighing source quality")).toBeInTheDocument();
 		expect(screen.queryByText("Curating sources")).not.toBeInTheDocument();
 

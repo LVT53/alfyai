@@ -453,7 +453,8 @@ function submitLifecycleAction() {
 						stroke="none"
 					></path>
 				</svg>
-			{:else}
+		{:else}
+			<div class="atlas-card__action-tooltip-container">
 				<svg
 					class="atlas-card__ring atlas-card__progress-cycle progress-ring-spinner"
 					data-testid="atlas-progress-cycle-icon"
@@ -464,7 +465,6 @@ function submitLifecycleAction() {
 					aria-hidden="true"
 					style={`--atlas-progress: ${progressPercent}%;`}
 				>
-					<title>{progressPercent}%</title>
 					<circle
 						class="atlas-card__progress-cycle-track progress-ring-bg"
 						cx="28"
@@ -480,7 +480,13 @@ function submitLifecycleAction() {
 						style={`--atlas-progress: ${progressPercent}%; stroke-dashoffset: ${150.8 * (1 - progressPercent / 100)};`}
 					></circle>
 				</svg>
-			{/if}
+				<div class="atlas-card__action-tooltip" role="tooltip">
+					<div class="atlas-card__tooltip-content">
+						<span class="atlas-card__tooltip-label">{progressPercent}%</span>
+					</div>
+				</div>
+			</div>
+		{/if}
 		</div>
 		<div class="atlas-card__title-block">
 			<div class="atlas-card__eyebrow">ATLAS</div>
