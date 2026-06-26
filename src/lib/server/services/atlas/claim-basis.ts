@@ -207,8 +207,11 @@ export function buildAtlasClaimBasisPrompt(
 		instructions: [
 			"Use only accepted Evidence Packs, source refs, section briefs, and explicit limitations as support.",
 			"Support level must be exactly supported, partial, or unsupported.",
-			"Thin, stale, contested, or ambiguous evidence must be partial or unsupported based on severity.",
-			"Hallucinated facts or invented logical links must be unsupported, not partial.",
+			"Use 'supported' when an accepted source directly states or clearly implies the claim. One credible source is sufficient — independent verification or multiple sources are not required for 'supported'.",
+			"Use 'partial' only when evidence is indirect, partially relevant, or when the claim extrapolates beyond what sources state. Do not mark as 'partial' merely because evidence is from a single source or is not independently verified.",
+			"Use 'unsupported' for hallucinated facts, invented logical links, or claims with no evidence at all.",
+			"Thin or brief evidence is still 'supported' if it directly states the claim. Stale evidence is 'partial' only if the claim depends on timeliness.",
+			"Contested or contradictory evidence is 'partial' only when sources disagree on the specific claim, not when sources discuss related but different aspects.",
 			"Adjacent claims may share one Claim Basis only when both evidence and rationale match.",
 			"A paragraph with distinct factual claims can receive multiple Claim Basis objects.",
 			"Use quote plus startOffset and endOffset when an important fact appears mid-sentence.",
@@ -563,9 +566,7 @@ function normalizeSupportLevel(input: {
 	}
 	if (
 		input.declared === "supported" &&
-		input.citedPacks.some(
-			(pack) => pack.conflicts.length > 0 || !pack.freshness.isCurrentEvidence,
-		)
+		input.citedPacks.some((pack) => pack.conflicts.length > 0)
 	) {
 		return "partial";
 	}
@@ -1084,7 +1085,7 @@ function isUnsupportedConcern(code: string): boolean {
 }
 
 function isPartialConcern(code: string): boolean {
-	return /(stale|thin|contested|ambiguous|conflict|weak|limited)/i.test(code);
+	return /(stale|contested|contradict|conflict|ambiguous)/i.test(code);
 }
 
 function normalizeCode(value: unknown): string | null {

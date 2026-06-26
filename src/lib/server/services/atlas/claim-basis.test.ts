@@ -142,7 +142,7 @@ describe("Atlas Claim Basis", () => {
 		);
 	});
 
-	it("downgrades stale, thin, contested, and ambiguous evidence to partial support", () => {
+	it("downgrades contested and ambiguous evidence to partial support", () => {
 		const result = parseAtlasClaimBasisModelResult({
 			modelText: JSON.stringify({
 				claimBasis: [
@@ -151,32 +151,6 @@ describe("Atlas Claim Basis", () => {
 							sectionTitle: "Findings",
 							paragraphIndex: 0,
 							claimIndex: 0,
-							claimText: "The deployment evidence is current.",
-						},
-						supportLevel: "supported",
-						evidencePackIds: ["pack-stale"],
-						supportRationale:
-							"The cited parent source is useful but stale for a current deployment claim.",
-						auditConcernCode: "stale_evidence",
-					},
-					{
-						locator: {
-							sectionTitle: "Findings",
-							paragraphIndex: 0,
-							claimIndex: 1,
-							claimText: "The adoption pattern is broadly proven.",
-						},
-						supportLevel: "supported",
-						evidencePackIds: ["pack-hybrid"],
-						supportRationale:
-							"One accepted source suggests the pattern, but the evidence is thin.",
-						auditConcernCode: "thin_evidence",
-					},
-					{
-						locator: {
-							sectionTitle: "Findings",
-							paragraphIndex: 0,
-							claimIndex: 2,
 							claimText: "Benchmarks agree on the best architecture.",
 						},
 						supportLevel: "supported",
@@ -189,7 +163,7 @@ describe("Atlas Claim Basis", () => {
 						locator: {
 							sectionTitle: "Findings",
 							paragraphIndex: 0,
-							claimIndex: 3,
+							claimIndex: 1,
 							claimText: "The evidence clearly identifies the buyer profile.",
 						},
 						supportLevel: "supported",
@@ -207,13 +181,9 @@ describe("Atlas Claim Basis", () => {
 		expect(result.claimBasis.map((basis) => basis.supportLevel)).toEqual([
 			"partial",
 			"partial",
-			"partial",
-			"partial",
 		]);
 		expect(result.limitations).toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({ code: "stale_evidence" }),
-				expect.objectContaining({ code: "thin_evidence" }),
 				expect.objectContaining({ code: "contested_evidence" }),
 				expect.objectContaining({ code: "ambiguous_evidence" }),
 			]),
@@ -306,7 +276,7 @@ describe("Atlas Claim Basis", () => {
 		expect(result.claimBasis[0].supportLevel).toBe("partial");
 	});
 
-	it("still downgrades supported claims with stale evidence packs to partial", () => {
+	it("keeps supported claims with stale evidence packs as supported when no conflicts exist", () => {
 		const staleOnlyPack: AtlasEvidencePack = {
 			...evidencePack,
 			id: "pack-stale-only",
@@ -344,7 +314,7 @@ describe("Atlas Claim Basis", () => {
 
 		expect(result.status).toBe("succeeded");
 		expect(result.claimBasis).toHaveLength(1);
-		expect(result.claimBasis[0].supportLevel).toBe("partial");
+		expect(result.claimBasis[0].supportLevel).toBe("supported");
 	});
 
 	it("maps hallucinated facts and invented logical links to unsupported", () => {
@@ -618,7 +588,7 @@ describe("Atlas Claim Basis", () => {
 			"Do not include hidden chain-of-thought",
 		);
 		expect(prompt.instructions.join(" ")).toContain(
-			"Hallucinated facts or invented logical links must be unsupported",
+			"hallucinated facts, invented logical links",
 		);
 	});
 
@@ -1020,7 +990,7 @@ describe("Atlas Claim Basis", () => {
 		expect(prompt.report.length).toBeGreaterThan(7000);
 	});
 
-	it("preserves all 11 instructions and Hungarian parity check in compacted prompt", () => {
+	it("preserves all instructions and Hungarian parity check in compacted prompt", () => {
 		const prompt = JSON.parse(
 			buildAtlasClaimBasisPrompt({
 				language: "en",
@@ -1037,10 +1007,10 @@ describe("Atlas Claim Basis", () => {
 			languageParityCheck: string;
 		};
 
-		expect(prompt.instructions).toHaveLength(11);
+		expect(prompt.instructions).toHaveLength(14);
 		expect(prompt.instructions.join(" ")).toContain("accepted Evidence Packs");
 		expect(prompt.instructions.join(" ")).toContain(
-			"Hallucinated facts or invented logical links must be unsupported",
+			"hallucinated facts, invented logical links",
 		);
 		expect(prompt.languageParityCheck).toContain("language drift");
 	});
