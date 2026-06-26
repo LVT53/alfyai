@@ -20,7 +20,6 @@ import {
 	atlasImageCandidateEvidenceText,
 	atlasImageMeaningfulTokens,
 	isUsableAtlasImageCandidate,
-	LOGO_OR_ICON_TEXT_PATTERN,
 } from "./image-quality";
 import type {
 	AtlasClaimBasis,
@@ -75,7 +74,7 @@ export interface RenderAtlasOutputsInput {
 
 const ATLAS_OUTPUT_JOB_POLL_INTERVAL_MS = 250;
 const ATLAS_OUTPUT_JOB_POLL_TIMEOUT_MS = 120_000;
-export const ATLAS_SOURCE_RELEVANCE_NOTE_MAX_LENGTH = 220;
+export const ATLAS_SOURCE_RELEVANCE_NOTE_MAX_LENGTH = 140;
 
 function addSourceSection(
 	blocks: GeneratedDocumentSource["blocks"],
@@ -1749,18 +1748,8 @@ function filterAuthoredImageBlocksByCandidates(
 	blocks: GeneratedDocumentSource["blocks"],
 	imageCandidates: AtlasImageCandidate[] | undefined,
 ): void {
-	if (imageCandidates === undefined) {
-		const filtered = blocks.filter((block) => {
-			if (block.type !== "image") return true;
-			if (block.source.kind !== "https") return false;
-			if (
-				typeof block.altText === "string" &&
-				LOGO_OR_ICON_TEXT_PATTERN.test(block.altText)
-			) {
-				return false;
-			}
-			return true;
-		});
+	if (!imageCandidates || imageCandidates.length === 0) {
+		const filtered = blocks.filter((block) => block.type !== "image");
 		if (filtered.length !== blocks.length) {
 			blocks.splice(0, blocks.length, ...filtered);
 		}

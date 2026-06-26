@@ -8110,7 +8110,7 @@ it("does not add a duplicate Limitations heading when audit addendum is appended
 		.join("\n");
 	expect(renderedText).toContain("Limitations");
 	expect(renderedText).toContain(
-		"Atlas audit requested additional verification",
+		"Some claims in this report could not be fully verified",
 	);
 	// Verify only one Limitations heading exists in the rendered blocks
 	const limitationHeadings = renderedSource?.blocks.filter(

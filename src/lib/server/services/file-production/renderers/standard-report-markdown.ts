@@ -3,7 +3,7 @@ import type {
 	GeneratedDocumentSource,
 	GeneratedDocumentTableBlock,
 } from "../source-schema";
-import { formatGeneratedDocumentBasisNote } from "../source-schema";
+import { generatedDocumentBasisClaimShortLabel } from "../source-schema";
 
 export interface StandardReportMarkdownRenderResult {
 	filename: string;
@@ -61,7 +61,10 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 			const markers = block.basisMarkers ?? [];
 			if (markers.length === 0) return block.text;
 			const markerText = markers
-				.map((m) => `(Basis: ${formatGeneratedDocumentBasisNote(m)})`)
+				.map(
+					(m) =>
+						`*(Basis: ${generatedDocumentBasisClaimShortLabel(m.support)})*`,
+				)
 				.join(" ");
 			return `${block.text} ${markerText}`;
 		}
@@ -78,7 +81,7 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 		case "confidenceMarker":
 			return `> **${block.label}.** ${block.message}`;
 		case "basisMarker":
-			return `(Basis: ${formatGeneratedDocumentBasisNote(block)})`;
+			return `*(Basis: ${generatedDocumentBasisClaimShortLabel(block.support)})*`;
 		case "code":
 			return `\`\`\`${block.language ?? ""}\n${block.text}\n\`\`\``;
 		case "quote":

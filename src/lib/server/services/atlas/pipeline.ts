@@ -2888,7 +2888,7 @@ export async function runAtlasPipeline(
 	}
 	const auditFailedOrRetry = !audit.passed || audit.retryRequested;
 	const auditAddendum =
-		"Atlas audit requested additional verification. This version ships with explicit limitations and Basis Markers instead of unsupported certainty.";
+		"Some claims in this report could not be fully verified against the accepted evidence. Review the Basis Markers and Limitations above before relying on specific figures or recommendations.";
 	let auditedMarkdown = finalAssembledMarkdown;
 	if (auditFailedOrRetry) {
 		if (hasLimitationsHeading(finalAssembledMarkdown)) {

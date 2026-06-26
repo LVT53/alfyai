@@ -925,6 +925,34 @@ describe("Atlas renderer output", () => {
 			sources: [],
 			honestyMarkers: [],
 			maxRenderedImages: 4,
+			imageCandidates: [
+				{
+					id: "cand-1",
+					query: "crowded visual atlas",
+					title: "Crowded visual atlas first image",
+					imageUrl: "https://example.com/authored-1.png",
+					sourcePageUrl: "https://example.com/source-1",
+					sourceTitle: "Source 1",
+					thumbnailUrl: null,
+					width: 800,
+					height: 600,
+					caption: "First authored image for crowded visual atlas",
+					selectionReason: "Image result for crowded visual atlas.",
+				},
+				{
+					id: "cand-2",
+					query: "crowded visual atlas",
+					title: "Crowded visual atlas second image",
+					imageUrl: "https://example.com/authored-2.png",
+					sourcePageUrl: "https://example.com/source-2",
+					sourceTitle: "Source 2",
+					thumbnailUrl: null,
+					width: 800,
+					height: 600,
+					caption: "Second authored image for crowded visual atlas",
+					selectionReason: "Image result for crowded visual atlas.",
+				},
+			],
 		});
 
 		const imageBlocks = source.blocks.filter((block) => block.type === "image");
@@ -2375,6 +2403,21 @@ describe("Atlas renderer output", () => {
 				},
 			],
 			honestyMarkers: [],
+			imageCandidates: [
+				{
+					id: "cand-adoption",
+					query: "AI market atlas vendor adoption",
+					title: "Vendor adoption chart",
+					imageUrl: "https://example.com/adoption.png",
+					sourcePageUrl: "https://example.com/benchmark",
+					sourceTitle: "Vendor benchmark",
+					thumbnailUrl: null,
+					width: 800,
+					height: 600,
+					caption: "Vendor benchmark adoption chart",
+					selectionReason: "Image result for vendor adoption.",
+				},
+			],
 		});
 
 		expect(source.blocks[0]).not.toMatchObject({

@@ -38,11 +38,9 @@ describe("AlfyAI Standard Report Markdown renderer", () => {
 		).content.toString("utf8");
 
 		expect(markdown).toContain(
-			"Revenue increased by 12%. (Basis: Supported — Accepted source states revenue increased by 12%.)",
+			"Revenue increased by 12%. *(Basis: Supported)*",
 		);
-		expect(markdown).toContain(
-			"(Basis: Unsupported — No accepted source supports the fallback claim.)",
-		);
+		expect(markdown).toContain("*(Basis: Unsupported)*");
 		expect(markdown).not.toContain("confidence");
 	});
 
