@@ -223,6 +223,10 @@ $effect(() => {
 $effect(() => {
 	if (updated.current && !isServerUpdateNoticeSuppressed()) {
 		serverUpdateAvailable = true;
+		const timeout = setTimeout(() => {
+			window.location.reload();
+		}, 3000);
+		return () => clearTimeout(timeout);
 	}
 });
 

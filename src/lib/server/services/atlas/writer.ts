@@ -67,9 +67,11 @@ function writerInstructions(language: SupportedLanguage): string {
 			"Írj olvasói, döntésminőségű Atlas jelentést a bodyMarkdown mezőben; a jelentés a kérdésre válaszoljon, ne a kutatási folyamatot írja le.",
 			"A szerkezetet a kéréshez igazítsd. Döntési vagy választási kérésnél használhatsz rangsorolt shortlistet, döntési kritériumokat, hardver/latency/költség kompromisszumokat, ajánlott stacket, kerülendő opciókat és bizonyítékhiányokat.",
 			"Do not write Markdown Sources, bibliographies, references, works-cited sections, citation appendices, or source lists; source projection is backend-owned.",
+			"Do not include inline source citations, source website names, URLs, or 'Source: ...' attributions in body paragraphs. All source references are handled deterministically by the backend.",
 			"Do not include raw source dumps, fetched-page excerpts, search-result snippets, or long quoted source blocks.",
 			"Put the canonical report title only in generatedTitle, not in bodyMarkdown.",
 			"Ne írj H1/H2 címet, alcímet vagy jelentéscím blokkot a bodyMarkdown elejére; ha van vezetői összefoglaló, azzal kezdj.",
+			"Ne ismételd a jelentés címét vagy annak változatát a bodyMarkdownban; a cím egyszer szerepel a generatedTitle mezőben, a háttérrendszer rendereli.",
 			"H2 címsorokat használj a fő jelentésszakaszokhoz (pl. Elemzés, Javaslatok, Korlátok). Minden címsor alatt több bekezdéssel fejtsd ki az elemzést. H3 címsorokat használj alszakaszokhoz. Ne használj címsort egyetlen mondat számára — azt bekezdésként írd meg. Ne írj hosszú bekezdést ott, ahol egy H3 alszakasz törés javítaná az olvashatóságot.",
 			"A Writer Evidence Cardokból írj elemzést, rangsorolást, kompromisszumokat, korlátokat és bizonyítékhoz kötött ajánlást, ahol ezt a forrásalap támogatja.",
 			"Csak támogatott állításokat tegyél. Ha a bizonyíték gyenge vagy ellentmondásos, mondd ki a releváns szakaszban és a limitations mezőben.",
@@ -85,9 +87,11 @@ function writerInstructions(language: SupportedLanguage): string {
 		"Write a reader-facing, decision-quality Atlas report in bodyMarkdown; answer the user's question instead of describing the research process.",
 		"Choose a structure that fits the request. For decision or selection queries, you may use ranked shortlists, decision criteria, hardware fit, latency/cost tradeoffs, language/domain coverage, recommended stack, what to avoid, and evidence gaps.",
 		"Do not write Markdown Sources, bibliographies, references, works-cited sections, citation appendices, or source lists; source projection is backend-owned.",
+		"Do not include inline source citations, source website names, URLs, or 'Source: ...' attributions in body paragraphs. All source references are handled deterministically by the backend.",
 		"Do not include raw source dumps, fetched-page excerpts, search-result snippets, or long quoted source blocks.",
 		"Put the canonical report title only in generatedTitle, not in bodyMarkdown.",
 		"Do not emit an H1/H2 title, subtitle, alternate report name, or report-title block at the start of bodyMarkdown; start with Executive Summary when that section is useful.",
+		"Do not repeat the report title or any variant of it inside bodyMarkdown; the title appears once in generatedTitle and is rendered by the backend.",
 		"Use H2 headings for major report sections (e.g., Analysis, Recommendations, Limitations). Under each heading, use multiple paragraphs to develop the analysis. Use H3 for sub-sections within a major section. Do not use a heading for text that is a single sentence — make it a paragraph instead. Do not write a long paragraph where an H3 sub-section break would improve readability.",
 		"Use Writer Evidence Cards to write analysis, rankings, tradeoffs, limitations, and evidence-grounded recommendations where the source basis supports them.",
 		"Make only supported claims. If evidence is weak or conflicting, state that in the relevant section and in limitations.",
@@ -106,7 +110,7 @@ function improvementInstructions(language: SupportedLanguage): string {
 			"A vázlat alakdiagnosztikája szerint a jelentés túl vékony, a szakaszszámhoz vagy bizonyítékalaphoz képest alul kidolgozott, túl sok egymondatos szakaszból áll, nem elég döntésképes, vagy a forrásanyag dominál.",
 			"Írd újra döntésminőségű jelentéssé a meglévő Writer Evidence Cardokból: legyen vezetői összefoglaló, rangsor vagy shortlist, összehasonlító kompromisszumok, telepítési/üzemeltetési következmények, konkrét ajánlás, valamint korlátok.",
 			"Minden fő szakaszban fejtsd ki a választ több mondatban; ne hagyj címszerű vagy csak egymondatos ajánlási szakaszt.",
-			"Do not add sources. Do not run or request new searches. Do not invent unsupported claims. Do not append a Markdown Sources section.",
+			"Do not add sources. Do not run or request new searches. Do not invent unsupported claims. Do not append a Markdown Sources section. Do not include inline source citations, URLs, or 'Source: ...' attributions in body paragraphs.",
 			"Return the same strict JSON schema as the first writer pass.",
 		].join(" ");
 	}
@@ -115,7 +119,7 @@ function improvementInstructions(language: SupportedLanguage): string {
 		"The draft shape diagnostics show that the report is too thin, underdeveloped for its section count or evidence basis, has too many one-sentence sections, is not decisive enough, or is dominated by source material.",
 		"Rewrite it into a decision-quality report from the existing Writer Evidence Cards: include an executive summary, ranking or shortlist, comparative tradeoffs, deployment and operating implications, a concrete recommendation, and limitations.",
 		"Develop each main body section with multiple sentences; do not leave a recommendation section as a heading-like restatement or a single hollow sentence.",
-		"Do not add sources. Do not run or request new searches. Do not invent unsupported claims. Do not append a Markdown Sources section.",
+		"Do not add sources. Do not run or request new searches. Do not invent unsupported claims. Do not append a Markdown Sources section. Do not include inline source citations, URLs, or 'Source: ...' attributions in body paragraphs.",
 		"Return the same strict JSON schema as the first writer pass.",
 	].join(" ");
 }

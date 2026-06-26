@@ -180,6 +180,14 @@ function removeSourceDumpLabels(text: string): string {
 		.trim();
 }
 
+function stripInlineSourceAttributions(text: string): string {
+	return text
+		.replace(/\s*Source:\s*[^\n]{1,120}/gi, "")
+		.replace(/\s*Forrás:\s*[^\n]{1,120}/gi, "")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 export function sanitizeSourceTitle(title: string): string {
 	let result = title.trim();
 	if (!result) return result;
@@ -486,7 +494,8 @@ function appendMarkdownBlocks(
 					blocks.push({ type: "paragraph", text });
 				continue;
 			}
-			const text = blockText(token);
+			const rawText = blockText(token);
+			const text = rawText ? stripInlineSourceAttributions(rawText) : null;
 			if (text) blocks.push({ type: "paragraph", text });
 			continue;
 		}

@@ -146,9 +146,19 @@ const appHandle: Handle = async ({ event, resolve }) => {
 		throw redirect(303, "/");
 	}
 
-	return await resolve(event, {
+	const response = await resolve(event, {
 		preload: ({ type }) => type === "js",
 	});
+	if (
+		response.headers.get("content-type")?.includes("text/html") &&
+		!event.url.pathname.startsWith("/api/")
+	) {
+		response.headers.set(
+			"Cache-Control",
+			"private, no-cache, no-store, must-revalidate",
+		);
+	}
+	return response;
 };
 
 export const handle = sequence(Sentry.sentryHandle(), appHandle);
