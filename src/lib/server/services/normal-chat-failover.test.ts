@@ -174,6 +174,46 @@ describe("resolveNormalChatFallbackTargetModelId", () => {
 		expect(mocks.getProviderModel).toHaveBeenCalledWith("fallback-model");
 	});
 
+	it("skips per-model fallback and uses global target when skipPerModelFallback is true", async () => {
+		mocks.getProviderModel.mockImplementation(async (id: string) => {
+			if (id === "source-model") {
+				return createProviderModelRow({
+					id: "source-model",
+					providerId: "provider-1",
+					name: "source-model",
+					displayName: "Source Model",
+					fallbackProviderModelId: "fallback-model",
+					capabilitiesJson: compatibleCapabilities,
+				});
+			}
+			if (id === "global-fallback-model") {
+				return createProviderModelRow({
+					id: "global-fallback-model",
+					providerId: "provider-1",
+					name: "global-fallback-model",
+					displayName: "Global Fallback Model",
+					capabilitiesJson: compatibleCapabilities,
+				});
+			}
+			return null;
+		});
+
+		await expect(
+			resolveNormalChatFallbackTargetModelId(
+				"provider:provider-1:source-model",
+				runtimeConfig({
+					modelTimeoutFailoverTargetModel:
+						"provider:provider-1:global-fallback-model",
+				}),
+				{ skipPerModelFallback: true },
+			),
+		).resolves.toBe("provider:provider-1:global-fallback-model");
+		expect(mocks.getProviderModel).not.toHaveBeenCalledWith("fallback-model");
+		expect(mocks.getProviderModel).toHaveBeenCalledWith(
+			"global-fallback-model",
+		);
+	});
+
 	it("rejects a provider-only global fallback target", async () => {
 		await expect(
 			resolveNormalChatFallbackTargetModelId(

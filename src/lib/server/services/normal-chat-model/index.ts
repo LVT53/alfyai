@@ -659,6 +659,8 @@ async function resolveFirstOutputTimeoutMs(
 	params: StreamingNormalChatModelRunParams,
 	currentModelId: string,
 	allowFallbackAttempt: boolean,
+	originalModelId: string,
+	skipPerModelFallback: boolean,
 ): Promise<number | null> {
 	if (!allowFallbackAttempt) return null;
 
@@ -678,8 +680,9 @@ async function resolveFirstOutputTimeoutMs(
 	}
 	if (!params.runtimeConfig) return null;
 	const fallbackTarget = await resolveNormalChatFallbackTargetModelId(
-		currentModelId as ModelId,
+		originalModelId as ModelId,
 		params.runtimeConfig,
+		{ skipPerModelFallback },
 	);
 	if (!fallbackTarget) return null;
 	const effective =
@@ -733,22 +736,23 @@ export async function runPlainNormalChatModelRun(
 	const originalModelId =
 		params.modelId ?? params.provider.modelId ?? params.provider.id;
 	let currentModelId = originalModelId;
-	let attemptedFallback = false;
+	let fallbackAttempts = 0;
+	const MAX_FALLBACK_ATTEMPTS = 2;
 
 	for (;;) {
 		const runtimeConfig = params.runtimeConfig;
-		const fallbackTarget =
-			runtimeConfig && !attemptedFallback
+		const nextFallbackTarget =
+			runtimeConfig && fallbackAttempts < MAX_FALLBACK_ATTEMPTS
 				? await resolveNormalChatFallbackTargetModelId(
-						currentModelId as ModelId,
+						originalModelId as ModelId,
 						runtimeConfig,
+						{ skipPerModelFallback: fallbackAttempts > 0 },
 					)
 				: null;
 		const shouldArmAttemptTimeout =
 			Boolean(runtimeConfig) &&
-			currentModelId === originalModelId &&
-			!attemptedFallback &&
-			fallbackTarget !== null;
+			nextFallbackTarget !== null &&
+			nextFallbackTarget !== currentModelId;
 		const attemptTimeoutMs = runtimeConfig
 			? Math.min(
 					runtimeConfig.requestTimeoutMs,
@@ -791,24 +795,18 @@ export async function runPlainNormalChatModelRun(
 			}
 
 			if (
-				currentModelId === originalModelId &&
-				!attemptedFallback &&
+				nextFallbackTarget &&
+				nextFallbackTarget !== currentModelId &&
 				params.runtimeConfig &&
 				isRetryableNormalChatFallbackError(retryableError)
 			) {
-				const fallbackModelId = await resolveNormalChatFallbackTargetModelId(
-					currentModelId as ModelId,
+				currentProvider = await resolveNormalChatModelRunProvider(
+					nextFallbackTarget,
 					params.runtimeConfig,
 				);
-				if (fallbackModelId) {
-					currentProvider = await resolveNormalChatModelRunProvider(
-						fallbackModelId,
-						params.runtimeConfig,
-					);
-					currentModelId = fallbackModelId;
-					attemptedFallback = true;
-					continue;
-				}
+				currentModelId = nextFallbackTarget;
+				fallbackAttempts += 1;
+				continue;
 			}
 
 			throw error;
@@ -941,13 +939,18 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 	const originalModelId =
 		params.modelId ?? params.provider.modelId ?? params.provider.id;
 	let currentModelId = originalModelId;
-	let attemptedFallback = false;
+	let fallbackAttempts = 0;
+	const MAX_FALLBACK_ATTEMPTS = 2;
 
 	attemptLoop: for (;;) {
+		const allowFallbackAttempt = fallbackAttempts < MAX_FALLBACK_ATTEMPTS;
+		const skipPerModelFallback = fallbackAttempts > 0;
 		const firstOutputTimeoutMs = await resolveFirstOutputTimeoutMs(
 			params,
 			currentModelId,
-			currentModelId === originalModelId && !attemptedFallback,
+			allowFallbackAttempt,
+			originalModelId,
+			skipPerModelFallback,
 		);
 		const timeoutMs = firstOutputTimeoutMs ?? 0;
 		const attemptAbortController = timeoutMs > 0 ? new AbortController() : null;
@@ -1000,14 +1003,15 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 					const retry = await resolveNormalChatFallbackProvider({
 						error: upstreamError,
 						currentModelId,
+						originalModelId,
+						skipPerModelFallback,
+						allowFallbackAttempt,
 						runtimeConfig: params.runtimeConfig,
-						allowFallbackAttempt:
-							currentModelId === originalModelId && !attemptedFallback,
 					});
 					if (retry) {
 						currentProvider = retry.provider;
 						currentModelId = retry.modelId;
-						attemptedFallback = true;
+						fallbackAttempts += 1;
 						continue attemptLoop;
 					}
 
@@ -1026,14 +1030,15 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 				const retry = await resolveNormalChatFallbackProvider({
 					error: upstreamError,
 					currentModelId,
+					originalModelId,
+					skipPerModelFallback,
+					allowFallbackAttempt,
 					runtimeConfig: params.runtimeConfig,
-					allowFallbackAttempt:
-						currentModelId === originalModelId && !attemptedFallback,
 				});
 				if (retry) {
 					currentProvider = retry.provider;
 					currentModelId = retry.modelId;
-					attemptedFallback = true;
+					fallbackAttempts += 1;
 					continue;
 				}
 				yield { type: "error", error: upstreamError.message };
@@ -1051,14 +1056,15 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 			const retry = await resolveNormalChatFallbackProvider({
 				error: terminalError,
 				currentModelId,
+				originalModelId,
+				skipPerModelFallback,
+				allowFallbackAttempt,
 				runtimeConfig: params.runtimeConfig,
-				allowFallbackAttempt:
-					currentModelId === originalModelId && !attemptedFallback,
 			});
 			if (retry) {
 				currentProvider = retry.provider;
 				currentModelId = retry.modelId;
-				attemptedFallback = true;
+				fallbackAttempts += 1;
 				continue;
 			}
 
@@ -1073,8 +1079,10 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 async function resolveNormalChatFallbackProvider(params: {
 	error: unknown;
 	currentModelId: string;
-	runtimeConfig?: RuntimeConfig;
+	originalModelId: string;
+	skipPerModelFallback: boolean;
 	allowFallbackAttempt: boolean;
+	runtimeConfig?: RuntimeConfig;
 }): Promise<{
 	provider: NormalChatModelRunProvider;
 	modelId: string;
@@ -1083,8 +1091,9 @@ async function resolveNormalChatFallbackProvider(params: {
 	if (!isRetryableNormalChatFallbackError(params.error)) return null;
 
 	const fallbackModelId = await resolveNormalChatFallbackTargetModelId(
-		params.currentModelId as ModelId,
+		params.originalModelId as ModelId,
 		params.runtimeConfig,
+		{ skipPerModelFallback: params.skipPerModelFallback },
 	);
 	if (!fallbackModelId || fallbackModelId === params.currentModelId)
 		return null;

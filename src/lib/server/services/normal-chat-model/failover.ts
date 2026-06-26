@@ -166,12 +166,16 @@ export function isRetryableNormalChatFallbackError(error: unknown): boolean {
 export async function resolveNormalChatFallbackTargetModelId(
 	modelId?: ModelId | null,
 	config: RuntimeConfig = getConfig(),
+	options?: { skipPerModelFallback?: boolean },
 ): Promise<ModelId | null> {
 	const sourceModelId = modelId ?? "model1";
 	const sourceProviderModel =
 		await resolveCompositeProviderModelRow(sourceModelId);
 
-	if (sourceProviderModel?.fallbackProviderModelId) {
+	if (
+		!options?.skipPerModelFallback &&
+		sourceProviderModel?.fallbackProviderModelId
+	) {
 		const modelSpecificFallback =
 			await resolveProviderModelFallbackTargetModelId(
 				sourceProviderModel,
