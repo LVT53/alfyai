@@ -14,6 +14,7 @@ import {
 	ArrowUpRight,
 	List,
 	Download,
+	FileText,
 	Maximize2,
 	X,
 	Sparkles,
@@ -80,6 +81,7 @@ let compareSummary: ReturnType<typeof summarizeTextComparison> | null =
 let compareLoading = $state(false);
 let compareError: string | null = $state(null);
 let syncScrollEnabled = $state(false);
+let expandedDownloadMenuOpen = $state(false);
 let leftPanelBody: HTMLDivElement | null = $state(null);
 let rightPanelBody: HTMLDivElement | null = $state(null);
 let isSyncingScroll = false;
@@ -477,6 +479,63 @@ function getDocumentDownloadUrl(
 	return null;
 }
 
+type AtlasOutputDocument = DocumentWorkspaceItem & {
+	atlasHtmlChatGeneratedFileId?: string | null;
+	atlasPdfChatGeneratedFileId?: string | null;
+	atlasMarkdownChatGeneratedFileId?: string | null;
+};
+
+type AtlasDownloadOption = {
+	key: "html" | "pdf" | "markdown";
+	label: string;
+	url: string;
+};
+
+function isAtlasOutputDocument(
+	document: DocumentWorkspaceItem,
+): document is AtlasOutputDocument {
+	return (
+		document.source === "chat_generated_file" &&
+		"atlasHtmlChatGeneratedFileId" in document &&
+		Boolean(document.atlasHtmlChatGeneratedFileId)
+	);
+}
+
+function getAtlasDownloadOptions(
+	document: AtlasOutputDocument,
+): AtlasDownloadOption[] {
+	const options: AtlasDownloadOption[] = [];
+	const htmlId = document.atlasHtmlChatGeneratedFileId;
+	const pdfId = document.atlasPdfChatGeneratedFileId;
+	const markdownId = document.atlasMarkdownChatGeneratedFileId;
+	if (htmlId) {
+		options.push({
+			key: "html",
+			label: $t("atlas.action.downloadHtml"),
+			url: `/api/chat/files/${htmlId}/download`,
+		});
+	}
+	if (pdfId) {
+		options.push({
+			key: "pdf",
+			label: $t("atlas.action.downloadPdf"),
+			url: `/api/chat/files/${pdfId}/download`,
+		});
+	}
+	if (markdownId) {
+		options.push({
+			key: "markdown",
+			label: $t("atlas.action.downloadMarkdown"),
+			url: `/api/chat/files/${markdownId}/download`,
+		});
+	}
+	return options;
+}
+
+function toggleExpandedDownloadMenu() {
+	expandedDownloadMenuOpen = !expandedDownloadMenuOpen;
+}
+
 function requestExpandedPresentation() {
 	onPresentationChange?.("expanded");
 }
@@ -683,12 +742,91 @@ function syncScroll(
 function toggleSyncScroll() {
 	syncScrollEnabled = !syncScrollEnabled;
 }
+
+function clickOutside(node: HTMLElement, handler: () => void) {
+	function handleMouseDown(event: MouseEvent) {
+		if (node && !node.contains(event.target as Node)) {
+			handler();
+		}
+	}
+
+	document.addEventListener("mousedown", handleMouseDown);
+	return {
+		destroy() {
+			document.removeEventListener("mousedown", handleMouseDown);
+		},
+	};
+}
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
 <svelte:document onpointerdown={handleDocumentPointerdown} />
 
 {#if shouldRender && activeDocument}
+	{#snippet atlasDownloadControl(document: DocumentWorkspaceItem)}
+		{#if isAtlasOutputDocument(document)}
+			{@const options = getAtlasDownloadOptions(document)}
+			{#if options.length > 0}
+				<div
+					class="workspace-download-dropdown"
+					use:clickOutside={() => {
+						expandedDownloadMenuOpen = false;
+					}}
+				>
+					<button
+						type="button"
+						class="btn-icon-bare workspace-download-button"
+						onclick={toggleExpandedDownloadMenu}
+						aria-label={$t('atlas.action.download')}
+						title={$t('atlas.action.download')}
+						aria-haspopup="menu"
+						aria-expanded={expandedDownloadMenuOpen}
+					>
+						<Download size={18} strokeWidth={2} aria-hidden="true" />
+					</button>
+					{#if expandedDownloadMenuOpen}
+						<div
+							class="workspace-download-menu"
+							role="menu"
+							aria-label={$t('atlas.action.download')}
+						>
+							{#each options as option}
+								<a
+									class="workspace-download-option"
+									href={option.url}
+									role="menuitem"
+									target="_blank"
+									rel="noopener noreferrer"
+									onclick={() => {
+										expandedDownloadMenuOpen = false;
+									}}
+								>
+									{#if option.key === 'markdown'}
+										<FileText size={14} strokeWidth={2} aria-hidden="true" />
+									{:else}
+										<Download size={14} strokeWidth={2} aria-hidden="true" />
+									{/if}
+									<span>{option.label}</span>
+								</a>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/if}
+		{:else if getDocumentDownloadUrl(document)}
+			<a
+				class="btn-icon-bare workspace-download-button"
+				href={getDocumentDownloadUrl(document)}
+				target="_blank"
+				rel="noopener noreferrer"
+				aria-label={$t('filePreview.download', { filename: document.filename })}
+				title={$t('filePreview.download', { filename: document.filename })}
+			>
+				<Download size={18} strokeWidth={2} aria-hidden="true" />
+			</a>
+		{/if}
+	{/snippet}
+
 	<!-- Mobile overlay -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
@@ -739,18 +877,7 @@ function toggleSyncScroll() {
 									<span aria-hidden="true">{documents.length}</span>
 								</button>
 							{/if}
-							{#if getDocumentDownloadUrl(activeDocument)}
-								<a
-									class="btn-icon-bare workspace-download-button"
-									href={getDocumentDownloadUrl(activeDocument)}
-									target="_blank"
-									rel="noopener noreferrer"
-									aria-label={$t('filePreview.download', { filename: activeDocument.filename })}
-									title={$t('filePreview.download', { filename: activeDocument.filename })}
-								>
-									<Download size={18} strokeWidth={2} aria-hidden="true" />
-								</a>
-							{/if}
+							{@render atlasDownloadControl(activeDocument)}
 							{#if showPresentationToggle}
 								<button
 									type="button"
@@ -997,18 +1124,7 @@ function toggleSyncScroll() {
 						</div>
 					{/if}
 					<div class="workspace-header-actions">
-						{#if getDocumentDownloadUrl(activeDocument)}
-							<a
-								class="btn-icon-bare workspace-download-button"
-								href={getDocumentDownloadUrl(activeDocument)}
-								target="_blank"
-								rel="noopener noreferrer"
-								aria-label={$t('filePreview.download', { filename: activeDocument.filename })}
-								title={$t('filePreview.download', { filename: activeDocument.filename })}
-							>
-								<Download size={18} strokeWidth={2} aria-hidden="true" />
-							</a>
-						{/if}
+						{@render atlasDownloadControl(activeDocument)}
 						{#if showPresentationToggle && presentation !== "expanded"}
 							<button
 								type="button"
@@ -1936,5 +2052,49 @@ function toggleSyncScroll() {
 
 	.workspace-shell-mobile .workspace-expand-button {
 		display: none;
+	}
+
+	.workspace-download-dropdown {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.workspace-download-menu {
+		position: absolute;
+		top: calc(100% + 0.35rem);
+		right: 0;
+		z-index: 5;
+		display: grid;
+		min-width: 11rem;
+		gap: 0.15rem;
+		border: 1px solid color-mix(in srgb, var(--border-default) 84%, transparent);
+		border-radius: var(--radius-sm);
+		background: var(--surface-elevated);
+		padding: 0.3rem;
+		box-shadow: var(--shadow-md, 0 0.8rem 2rem rgb(0 0 0 / 16%));
+	}
+
+	.workspace-download-option {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		border-radius: calc(var(--radius-sm) - 2px);
+		padding: 0.48rem 0.55rem;
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		text-decoration: none;
+		transition:
+			transform 140ms ease,
+			background-color 140ms ease;
+	}
+
+	.workspace-download-option:hover {
+		background: color-mix(in srgb, var(--accent) 10%, transparent);
+		transform: translateX(1px);
+	}
+
+	.workspace-download-option:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 36%, transparent);
 	}
 </style>

@@ -85,6 +85,7 @@ describe("GET /api/analytics", () => {
 			month: "2026-05",
 			systemMonth: "2026-06",
 			timeline: "weekly",
+			excludedUserIds: [],
 		});
 	});
 
@@ -101,6 +102,7 @@ describe("GET /api/analytics", () => {
 			month: null,
 			systemMonth: null,
 			timeline: null,
+			excludedUserIds: [],
 		});
 	});
 });

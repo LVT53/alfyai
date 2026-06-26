@@ -570,6 +570,9 @@ const settingsDict = {
 		"analytics.user": "User",
 		"analytics.userActivity": "User Activity",
 		"analytics.yourActivity": "Your Activity",
+		"analytics.excludedUsers": "Excluded Users",
+		"analytics.excludedUsersDescription":
+			"Excluded users are hidden from the System Overview and Per-User Breakdown sections. Your personal analytics are not affected.",
 		"campaignCrop.backdropClose": "Close campaign screenshot cropper",
 		"campaignCrop.cropAreaLabel": "Campaign screenshot crop area",
 		"campaignCrop.desktopMetadata": "16:10 desktop crop",
@@ -1265,6 +1268,9 @@ const settingsDict = {
 		"analytics.user": "Felhasználó",
 		"analytics.userActivity": "Felhasználói aktivitás",
 		"analytics.yourActivity": "A tevékenységed",
+		"analytics.excludedUsers": "Kizárt felhasználók",
+		"analytics.excludedUsersDescription":
+			"A kizárt felhasználók nem jelennek meg a Rendszeráttekintés és a Felhasználónkénti bontás szekciókban. A személyes analitikádat ez nem érinti.",
 		"campaignCrop.backdropClose": "Kampány képernyőkép-vágó bezárása",
 		"campaignCrop.cropAreaLabel": "Kampány képernyőkép kivágási területe",
 		"campaignCrop.desktopMetadata": "16:10 asztali kivágás",

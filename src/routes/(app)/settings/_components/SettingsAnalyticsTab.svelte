@@ -21,6 +21,9 @@ let {
 	onMonthChange = undefined,
 	onSystemMonthChange = undefined,
 	onTimelineChange = undefined,
+	allUsers = [],
+	excludedUserIds = [],
+	onExcludedUsersChange = undefined,
 }: {
 	analyticsData?: SettingsAnalyticsData | null;
 	analyticsLoading?: boolean;
@@ -34,6 +37,9 @@ let {
 	onMonthChange?: ((month: string | null) => void) | undefined;
 	onSystemMonthChange?: ((month: string | null) => void) | undefined;
 	onTimelineChange?: ((granularity: string) => void) | undefined;
+	allUsers?: Array<{ id: string; email: string; name: string | null }>;
+	excludedUserIds?: string[];
+	onExcludedUsersChange?: ((userIds: string[]) => void) | undefined;
 } = $props();
 
 let modelChart = $state<ChartInstance | null>(null);
@@ -168,6 +174,14 @@ function nextSystemMonth() {
 
 function selectAllSystemTime() {
 	onSystemMonthChange?.(null);
+}
+
+function toggleExcludedUser(userId: string) {
+	if (!onExcludedUsersChange) return;
+	const next = excludedUserIds.includes(userId)
+		? excludedUserIds.filter((id) => id !== userId)
+		: [...excludedUserIds, userId];
+	onExcludedUsersChange(next);
 }
 
 let comparisonHint = $derived.by(() => {
@@ -649,6 +663,30 @@ onDestroy(() => {
 				</div>
 			</section>
 		{/if}
+	{/if}
+
+	{#if isAdmin && allUsers.length > 0}
+		<section class="settings-card mb-4">
+			<div class="flex items-center justify-between mb-3">
+				<h2 class="settings-section-title mb-0">{$t('analytics.excludedUsers')}</h2>
+			</div>
+			<p class="text-xs text-text-muted mb-3">{$t('analytics.excludedUsersDescription')}</p>
+			<div class="grid grid-cols-1 gap-1 sm:grid-cols-2">
+				{#each allUsers as user}
+					{@const excluded = excludedUserIds.includes(user.id)}
+					<label class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-surface-page cursor-pointer">
+						<input
+							type="checkbox"
+							checked={excluded}
+							oninput={() => toggleExcludedUser(user.id)}
+							class="h-4 w-4 rounded border-border text-accent focus:ring-accent"
+						/>
+						<span class="text-text-primary">{user.name || user.email}</span>
+						<span class="text-xs text-text-muted">{user.email}</span>
+					</label>
+				{/each}
+			</div>
+		</section>
 	{/if}
 {:else}
 	<div class="settings-card py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>

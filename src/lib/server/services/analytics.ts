@@ -53,6 +53,7 @@ export interface AnalyticsDashboardReadParams {
 	month?: string | null;
 	systemMonth?: string | null;
 	timeline?: string | null;
+	excludedUserIds?: string[];
 }
 
 interface AnalyticsByModelRow {
@@ -570,6 +571,7 @@ export async function getAnalyticsDashboardReadModel({
 	month = null,
 	systemMonth = null,
 	timeline = null,
+	excludedUserIds = [],
 }: AnalyticsDashboardReadParams): Promise<AnalyticsDashboardReadModel> {
 	const isAdmin = user.role === "admin";
 
@@ -583,17 +585,12 @@ export async function getAnalyticsDashboardReadModel({
 	]);
 
 	const systemMonthParam = isAdmin ? (systemMonth ?? month) : null;
+
 	const filteredUsage = month
 		? usageRows.filter((row) => row.billingMonth === month)
 		: usageRows;
 	const filteredConversations = month
 		? conversationRows.filter((row) => row.billingMonth === month)
-		: conversationRows;
-	const systemFilteredUsage = systemMonthParam
-		? usageRows.filter((row) => row.billingMonth === systemMonthParam)
-		: usageRows;
-	const systemFilteredConversations = systemMonthParam
-		? conversationRows.filter((row) => row.billingMonth === systemMonthParam)
 		: conversationRows;
 
 	const personalUsageRows = filteredUsage.filter(
@@ -605,6 +602,24 @@ export async function getAnalyticsDashboardReadModel({
 	const availableMonths = monthlyBreakdown(
 		usageRows.filter((row) => row.userId === user.id),
 	).map((row) => row.month);
+
+	const excludedSet = new Set(excludedUserIds);
+	let systemFilteredUsage = systemMonthParam
+		? usageRows.filter((row) => row.billingMonth === systemMonthParam)
+		: usageRows;
+	let systemFilteredConversations = systemMonthParam
+		? conversationRows.filter((row) => row.billingMonth === systemMonthParam)
+		: conversationRows;
+
+	if (isAdmin && excludedSet.size > 0) {
+		systemFilteredUsage = systemFilteredUsage.filter(
+			(row) => !excludedSet.has(row.userId),
+		);
+		systemFilteredConversations = systemFilteredConversations.filter(
+			(row) => !excludedSet.has(row.userId),
+		);
+	}
+
 	const systemAvailableMonths = isAdmin
 		? monthlyBreakdown(usageRows).map((row) => row.month)
 		: undefined;
@@ -997,6 +1012,61 @@ export async function recordMessageAnalytics(
 		costUsd: microsToUsd(costUsdMicros),
 		providerId: isProviderModelId(params.model) ? model.providerId : null,
 	});
+}
+
+export async function recordAtlasJobAnalytics(params: {
+	userId: string;
+	conversationId: string;
+	atlasJobId: string;
+	assistantMessageId: string | null;
+	profile: string;
+	inputTokens: number;
+	outputTokens: number;
+	totalTokens: number;
+	costUsdMicros: number;
+}): Promise<void> {
+	const [user, conversation] = await Promise.all([
+		getUserSnapshot(params.userId),
+		getConversationSnapshot(params.userId, params.conversationId),
+	]);
+	const billingMonth = new Date().toISOString().slice(0, 7);
+	const modelDisplayName = `Atlas (${params.profile})`;
+	await db
+		.insert(usageEvents)
+		.values({
+			id: crypto.randomUUID(),
+			userId: params.userId,
+			userEmail: user.email,
+			userName: user.name,
+			conversationId: params.conversationId,
+			conversationTitle: conversation.title,
+			messageId: params.atlasJobId,
+			modelId: "atlas",
+			modelDisplayName,
+			providerId: null,
+			providerDisplayName: null,
+			providerBaseUrl: null,
+			providerModelName: null,
+			promptTokens: params.inputTokens,
+			cachedInputTokens: 0,
+			cacheHitTokens: 0,
+			cacheMissTokens: 0,
+			completionTokens: params.outputTokens,
+			reasoningTokens: 0,
+			totalTokens: params.totalTokens,
+			usageSource: "estimated",
+			generationTimeMs: null,
+			billingMonth,
+			costUsdMicros: params.costUsdMicros,
+			priceRuleId: null,
+		})
+		.onConflictDoNothing();
+	await recordConversationAnalytics({
+		conversationId: params.conversationId,
+		userId: params.userId,
+		title: conversation.title,
+		createdAt: conversation.createdAt,
+	}).catch(() => undefined);
 }
 
 export interface ConversationCostSummary {

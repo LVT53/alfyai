@@ -3,9 +3,10 @@ import {
 	Check,
 	Download,
 	FileText,
-	GitBranch,
+	MessagesSquare,
 	Pencil,
 	RefreshCw,
+	Split,
 	Square,
 } from "@lucide/svelte";
 import { fade } from "svelte/transition";
@@ -16,6 +17,7 @@ import type {
 	AtlasProfile,
 	DocumentWorkspaceItem,
 } from "$lib/types";
+import type { AtlasJobProgressDetails } from "$lib/server/services/atlas/types";
 
 let {
 	job,
@@ -46,6 +48,7 @@ let {
 
 let activePanel = $state<AtlasAction | null>(null);
 let downloadMenuOpen = $state(false);
+let downloadMenuElement: HTMLDivElement | null = $state(null);
 let lifecycleMessage = $state("");
 let progressMessageIndex = $state(0);
 let lastProgressMessageStage = $state("");
@@ -98,6 +101,7 @@ const lifecyclePanelLabel = $derived(
 const progressPercent = $derived(
 	Math.max(0, Math.min(100, Math.round(job.progress?.percent ?? 0))),
 );
+const displayTitle = $derived(getProgressTitle(job));
 const downloadOptions = $derived(getDownloadOptions(job.outputs));
 
 const PROGRESS_MESSAGE_INTERVAL_MS = 4200;
@@ -208,10 +212,54 @@ $effect(() => {
 	return () => window.clearInterval(interval);
 });
 
+$effect(() => {
+	if (!downloadMenuOpen || typeof window === "undefined") return;
+
+	function handleMouseDown(event: MouseEvent) {
+		const target = event.target;
+		if (
+			target instanceof Node &&
+			downloadMenuElement &&
+			!downloadMenuElement.contains(target)
+		) {
+			downloadMenuOpen = false;
+		}
+	}
+
+	window.addEventListener("mousedown", handleMouseDown);
+	return () => window.removeEventListener("mousedown", handleMouseDown);
+});
+
 function formatProfile(profile: AtlasProfile): string {
 	if (profile === "exhaustive") return $t("composerTools.atlasExhaustive");
 	if (profile === "in-depth") return $t("composerTools.atlasInDepth");
 	return $t("composerTools.atlasOverview");
+}
+
+type AtlasJobProgressDetailsWithTitle = AtlasJobProgressDetails & {
+	generatedTitle: string;
+};
+
+type AtlasOutputDocument = DocumentWorkspaceItem & {
+	atlasHtmlChatGeneratedFileId?: string | null;
+	atlasPdfChatGeneratedFileId?: string | null;
+	atlasMarkdownChatGeneratedFileId?: string | null;
+};
+
+function hasGeneratedTitle(job: AtlasJobCard): job is AtlasJobCard & {
+	progress: { details: AtlasJobProgressDetailsWithTitle };
+} {
+	return (
+		typeof job.progress?.details === "object" &&
+		"generatedTitle" in job.progress.details &&
+		typeof job.progress.details.generatedTitle === "string" &&
+		job.progress.details.generatedTitle.trim().length > 0
+	);
+}
+
+function getProgressTitle(job: AtlasJobCard): string {
+	if (hasGeneratedTitle(job)) return job.progress.details.generatedTitle;
+	return job.title || $t("atlas.defaultTitle");
 }
 
 function formatStage(stage: string | null | undefined): string {
@@ -261,19 +309,20 @@ function formatDuration(start: number, end: number | null | undefined): string {
 function openDocument() {
 	const fileId = job.outputs.htmlChatGeneratedFileId;
 	if (!fileId || !onOpenDocument) return;
-	onOpenDocument(
-		{
-			id: fileId,
-			source: "chat_generated_file",
-			filename: `${job.title || "atlas-report"}.html`,
-			title: job.title || $t("atlas.defaultTitle"),
-			mimeType: "text/html",
-			conversationId: job.conversationId,
-			downloadUrl: `/api/chat/files/${fileId}/download`,
-			previewUrl: `/api/chat/files/${fileId}/preview`,
-		},
-		{ presentation: "expanded" },
-	);
+	const document: AtlasOutputDocument = {
+		id: fileId,
+		source: "chat_generated_file",
+		filename: `${displayTitle || "atlas-report"}.html`,
+		title: displayTitle,
+		mimeType: "text/html",
+		conversationId: job.conversationId,
+		downloadUrl: `/api/chat/files/${fileId}/download`,
+		previewUrl: `/api/chat/files/${fileId}/preview`,
+		atlasHtmlChatGeneratedFileId: job.outputs.htmlChatGeneratedFileId,
+		atlasPdfChatGeneratedFileId: job.outputs.pdfChatGeneratedFileId,
+		atlasMarkdownChatGeneratedFileId: job.outputs.markdownChatGeneratedFileId,
+	};
+	onOpenDocument(document, { presentation: "expanded" });
 }
 
 function downloadUrl(fileId: string | null | undefined): string | null {
@@ -415,6 +464,7 @@ function submitLifecycleAction() {
 					aria-hidden="true"
 					style={`--atlas-progress: ${progressPercent}%;`}
 				>
+					<title>{progressPercent}%</title>
 					<circle
 						class="atlas-card__progress-cycle-track progress-ring-bg"
 						cx="28"
@@ -434,7 +484,7 @@ function submitLifecycleAction() {
 		</div>
 		<div class="atlas-card__title-block">
 			<div class="atlas-card__eyebrow">ATLAS</div>
-			<h3 class="atlas-card__title">{job.title || $t("atlas.defaultTitle")}</h3>
+			<h3 class="atlas-card__title">{displayTitle}</h3>
 			{#if isComplete}
 				<div class="atlas-card__meta">
 					<span>{profileLabel}</span>
@@ -511,6 +561,7 @@ function submitLifecycleAction() {
 							class="atlas-card__download-menu"
 							role="menu"
 							aria-label={$t("atlas.action.download")}
+							bind:this={downloadMenuElement}
 						>
 							{#each downloadOptions as option}
 								<a
@@ -538,7 +589,7 @@ function submitLifecycleAction() {
 				aria-label={$t("atlas.action.continue")}
 				title={$t("atlas.action.continue")}
 			>
-				<RefreshCw size={16} strokeWidth={2} aria-hidden="true" />
+				<MessagesSquare size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
 			<button
 				type="button"
@@ -547,7 +598,7 @@ function submitLifecycleAction() {
 				aria-label={$t("atlas.action.fork")}
 				title={$t("atlas.action.fork")}
 			>
-				<GitBranch size={16} strokeWidth={2} aria-hidden="true" />
+				<Split size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
 			<button
 				type="button"

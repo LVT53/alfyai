@@ -154,7 +154,7 @@ describe("MessageBubble", () => {
 		expect(screen.getByTestId("atlas-card")).toBeInTheDocument();
 	});
 
-	it("shows localized ready copy instead of the Atlas kickoff text when the linked Atlas job succeeded", async () => {
+	it("keeps the original Atlas kickoff text even when the linked Atlas job succeeded", async () => {
 		const message: ChatMessage = {
 			id: "assistant-atlas",
 			renderKey: "assistant-atlas",
@@ -181,8 +181,8 @@ describe("MessageBubble", () => {
 			],
 		});
 
-		expect(await screen.findByText("Report is ready")).toBeInTheDocument();
-		expect(screen.queryByText(atlasKickoffText)).not.toBeInTheDocument();
+		expect(await screen.findByText(atlasKickoffText)).toBeInTheDocument();
+		expect(screen.queryByText("Report is ready")).not.toBeInTheDocument();
 	});
 
 	it("keeps the Atlas kickoff text while the linked Atlas job is still running", async () => {

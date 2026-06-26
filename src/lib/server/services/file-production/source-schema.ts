@@ -33,12 +33,18 @@ export type GeneratedDocumentBasisSupport =
 	| "partial"
 	| "unsupported";
 
+export interface GeneratedDocumentBasisSourceRef {
+	title: string;
+	url?: string | null;
+}
+
 export interface GeneratedDocumentBasisMarkerBlock {
 	type: "basisMarker";
 	id: string;
 	support: GeneratedDocumentBasisSupport;
 	rationale: string;
 	auditCode?: string;
+	sourceRefs?: GeneratedDocumentBasisSourceRef[];
 }
 
 export interface GeneratedDocumentParagraphBasisMarker
@@ -669,6 +675,24 @@ function normalizeBasisSupport(
 		: null;
 }
 
+function normalizeBasisSourceRef(
+	value: unknown,
+): GeneratedDocumentBasisSourceRef | null {
+	if (!isRecord(value)) return null;
+	const title = cleanText(value.title);
+	if (!title) return null;
+	return { title, url: cleanText(value.url) };
+}
+
+function normalizeBasisSourceRefs(
+	value: unknown,
+): GeneratedDocumentBasisSourceRef[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.map(normalizeBasisSourceRef)
+		.filter((ref): ref is GeneratedDocumentBasisSourceRef => Boolean(ref));
+}
+
 function normalizeBasisMarkerBase(
 	value: unknown,
 ): GeneratedDocumentBasisMarkerBlock | null {
@@ -678,12 +702,14 @@ function normalizeBasisMarkerBase(
 	const rationale = cleanText(value.rationale);
 	if (!id || !support || !rationale) return null;
 	const auditCode = cleanKey(value.auditCode);
+	const sourceRefs = normalizeBasisSourceRefs(value.sourceRefs);
 	return {
 		type: "basisMarker",
 		id,
 		support,
 		rationale,
 		...(auditCode ? { auditCode } : {}),
+		...(sourceRefs.length > 0 ? { sourceRefs } : {}),
 	};
 }
 

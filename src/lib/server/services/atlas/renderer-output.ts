@@ -1,6 +1,7 @@
 import { marked } from "marked";
 import type {
 	GeneratedDocumentBasisMarkerBlock,
+	GeneratedDocumentBasisSourceRef,
 	GeneratedDocumentBlock,
 	GeneratedDocumentChartBlock,
 	GeneratedDocumentImageBlock,
@@ -72,7 +73,7 @@ export interface RenderAtlasOutputsInput {
 }
 
 const ATLAS_OUTPUT_JOB_POLL_INTERVAL_MS = 250;
-const ATLAS_OUTPUT_JOB_POLL_TIMEOUT_MS = 30_000;
+const ATLAS_OUTPUT_JOB_POLL_TIMEOUT_MS = 120_000;
 export const ATLAS_SOURCE_RELEVANCE_NOTE_MAX_LENGTH = 220;
 
 function addSourceSection(
@@ -1044,12 +1045,20 @@ function basisMarkerForClaim(
 ): GeneratedDocumentBasisMarkerBlock {
 	const id = cleanBasisKey(basis.id) ?? `atlas_basis_${index + 1}`;
 	const auditCode = cleanBasisKey(basis.auditConcernCode);
+	const sourceRefs: GeneratedDocumentBasisSourceRef[] =
+		basis.sourceRefs.length > 0
+			? basis.sourceRefs.map((ref) => ({
+					title: ref.title,
+					url: ref.url,
+				}))
+			: [];
 	return {
 		type: "basisMarker",
 		id,
 		support: basis.supportLevel,
 		rationale: cleanText(basis.supportRationale) ?? basis.supportRationale,
 		...(auditCode ? { auditCode } : {}),
+		...(sourceRefs.length > 0 ? { sourceRefs } : {}),
 	};
 }
 
@@ -1597,7 +1606,7 @@ function filterAuthoredImageBlocksByCandidates(
 	if (imageCandidates === undefined) return;
 	const allowedUrls = new Set(
 		imageCandidates
-			.filter(isUsableAtlasImageCandidate)
+			.filter((candidate) => isUsableAtlasImageCandidate(candidate))
 			.map((candidate) => candidate.imageUrl),
 	);
 	const filtered = blocks.filter((block) => {
@@ -1861,17 +1870,39 @@ async function createFileProductionAtlasOutputJob(input: {
 				: "Atlas output files were not produced.",
 		);
 	}
+	const htmlChatGeneratedFileId =
+		completedJob.files.find((file) => file.mimeType === "text/html")?.id ??
+		null;
+	const pdfChatGeneratedFileId =
+		completedJob.files.find((file) => file.mimeType === "application/pdf")
+			?.id ?? null;
+	const markdownChatGeneratedFileId =
+		completedJob.files.find((file) => file.mimeType === "text/markdown")?.id ??
+		null;
+	const missingOutputs = [
+		htmlChatGeneratedFileId === null && "html",
+		pdfChatGeneratedFileId === null && "pdf",
+		markdownChatGeneratedFileId === null && "markdown",
+	].filter(Boolean);
+	if (missingOutputs.length > 0) {
+		console.warn(
+			`[ATLAS] File production job ${completedJob.id} succeeded but missing expected output types: ${missingOutputs.join(", ")}. Available files: ${completedJob.files.map((f) => f.mimeType).join(", ") || "none"}`,
+		);
+	}
+	if (
+		!htmlChatGeneratedFileId &&
+		!pdfChatGeneratedFileId &&
+		!markdownChatGeneratedFileId
+	) {
+		throw new Error(
+			`Atlas output file production job ${completedJob.id} succeeded but produced no expected output files (HTML, PDF, Markdown). Available mime types: ${completedJob.files.map((f) => f.mimeType).join(", ") || "none"}.`,
+		);
+	}
 	return {
 		fileProductionJobId: completedJob.id,
-		htmlChatGeneratedFileId:
-			completedJob.files.find((file) => file.mimeType === "text/html")?.id ??
-			null,
-		pdfChatGeneratedFileId:
-			completedJob.files.find((file) => file.mimeType === "application/pdf")
-				?.id ?? null,
-		markdownChatGeneratedFileId:
-			completedJob.files.find((file) => file.mimeType === "text/markdown")
-				?.id ?? null,
+		htmlChatGeneratedFileId,
+		pdfChatGeneratedFileId,
+		markdownChatGeneratedFileId,
 	};
 }
 

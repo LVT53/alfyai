@@ -7,13 +7,16 @@ import type {
 } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
+import LogoMark from "$lib/components/chat/LogoMark.svelte";
 
 let {
 	message,
 	modelIconUrl = null,
+	atlasCostUsdMicros = null,
 }: {
 	message: ChatMessage;
 	modelIconUrl?: string | null;
+	atlasCostUsdMicros?: number | null;
 } = $props();
 
 type AuditRow = {
@@ -86,11 +89,14 @@ function buildPrimaryRows(): AuditRow[] {
 		});
 	}
 	if (message.modelDisplayName) {
+		const isAtlasModel = message.modelDisplayName
+			?.toLowerCase()
+			.includes("atlas");
 		rows.push({
 			label: $t("messageBubble.auditModel"),
 			value: message.modelDisplayName,
 			kind: "model",
-			iconUrl: modelIconUrl,
+			iconUrl: isAtlasModel ? "__atlas_logo__" : modelIconUrl,
 		});
 	}
 	const depthLabel = formatDepthMetadata(message.depthMetadata);
@@ -121,7 +127,12 @@ function buildPrimaryRows(): AuditRow[] {
 			value: totalTokenCount.toLocaleString(),
 		});
 	}
-	if (message.costUsd != null) {
+	if (atlasCostUsdMicros != null && atlasCostUsdMicros > 0) {
+		rows.push({
+			label: $t("messageBubble.auditCost"),
+			value: `$${(atlasCostUsdMicros / 1_000_000).toFixed(6)}`,
+		});
+	} else if (message.costUsd != null) {
 		rows.push({
 			label: $t("messageBubble.auditCost"),
 			value: `$${message.costUsd.toFixed(6)}`,
@@ -142,9 +153,13 @@ function buildPrimaryRows(): AuditRow[] {
 				<div class="audit-row">
 					<span class="audit-label">{row.label}</span>
 					<span class="audit-value" class:audit-model-value={row.kind === 'model'}>
-						{#if row.kind === 'model'}
+					{#if row.kind === 'model'}
+						{#if row.iconUrl === '__atlas_logo__'}
+							<LogoMark size={18} />
+						{:else}
 							<ModelIcon iconUrl={row.iconUrl ?? null} displayName={row.value} size={18} />
 						{/if}
+					{/if}
 						<span>{row.value}</span>
 					</span>
 				</div>

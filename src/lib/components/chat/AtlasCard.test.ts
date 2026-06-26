@@ -6,8 +6,13 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
+import type { AtlasJobProgressDetails } from "$lib/server/services/atlas/types";
 import type { AtlasAction, AtlasJobCard } from "$lib/types";
 import AtlasCard from "./AtlasCard.svelte";
+
+type AtlasJobProgressDetailsWithTitle = AtlasJobProgressDetails & {
+	generatedTitle: string;
+};
 
 function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 	return {
@@ -43,6 +48,29 @@ function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 }
 
 describe("AtlasCard", () => {
+	it("prefers a generated title from progress details over the default job title", () => {
+		render(AtlasCard, {
+			job: atlasJobFixture({
+				title: "User query fallback",
+				progress: {
+					percent: 35,
+					stage: "search",
+					details: {
+						queries: [],
+						generatedTitle: "Generated Research Title",
+					} as AtlasJobProgressDetailsWithTitle,
+				},
+			}),
+		});
+
+		expect(
+			screen.getByRole("heading", { name: "Generated Research Title" }),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("heading", { name: "User query fallback" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("renders running Atlas progress and emits cancel", async () => {
 		const onCancel = vi.fn();
 		render(AtlasCard, {
@@ -51,7 +79,9 @@ describe("AtlasCard", () => {
 		});
 
 		expect(screen.getByTestId("atlas-card")).toHaveTextContent("ATLAS");
-		expect(screen.queryByText("42%")).not.toBeInTheDocument();
+		expect(
+			screen.getByTestId("atlas-progress-cycle-icon").querySelector("title"),
+		).toHaveTextContent("42%");
 		expect(screen.getByText("Weighing source quality")).toBeInTheDocument();
 		expect(screen.queryByText("Curating sources")).not.toBeInTheDocument();
 

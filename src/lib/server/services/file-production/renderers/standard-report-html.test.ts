@@ -680,7 +680,7 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain("<strong>Partially supported claim</strong>");
 		expect(html).toContain("<strong>Unsupported claim</strong>");
 		expect(html).toContain(
-			"<span>Accepted source states revenue increased by 12%. This should compact.</span>",
+			'<span class="basis-tooltip-rationale">Accepted source states revenue increased by 12%. This should compact.</span>',
 		);
 		expect(html).toMatch(
 			/Revenue increased by 12%<button type="button" class="basis-marker basis-marker--supported"[\s\S]*?<\/button> while churn evidence remains thin/,
@@ -731,12 +731,65 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		);
 		expect(markerBlock).toContain("<strong>Unsupported claim</strong>");
 		expect(markerBlock).toContain(
-			"<span>No accepted source supports the fallback claim.</span>",
+			'<span class="basis-tooltip-rationale">No accepted source supports the fallback claim.</span>',
 		);
 		expect(markerBlock).not.toContain("Basis:");
 		expect(markerBlock).not.toContain('class="basis-marker-message"');
 		expect(markerBlock).not.toContain("<svg");
 		expect(markerBlock).not.toMatch(/<\/button>\s*<span/);
+	});
+
+	it("renders basis markers with source refs and favicons in tooltip source list", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Basis marker source ref HTML report",
+			blocks: [
+				{
+					type: "paragraph",
+					text: "Revenue increased by 12%.",
+					basisMarkers: [
+						{
+							type: "basisMarker",
+							id: "basis-with-sources",
+							support: "supported",
+							anchorText: "Revenue increased by 12%",
+							rationale: "Verified by earnings report.",
+							sourceRefs: [
+								{
+									title: "Q4 Earnings Report",
+									url: "https://example.com/earnings",
+								},
+								{
+									title: "Local memo",
+									url: null,
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+
+		expect(html).toContain('<ul class="basis-tooltip-sources">');
+		expect(html).toContain('<li class="basis-tooltip-source-item">');
+		expect(html).toContain(
+			'<a href="https://example.com/earnings" target="_blank" rel="noopener noreferrer" class="basis-tooltip-source-link">Q4 Earnings Report</a>',
+		);
+		expect(html).toContain(
+			'<span class="basis-tooltip-source-link">Local memo</span>',
+		);
+		expect(html).toContain('class="basis-tooltip-source-item"');
+		expect(html).toContain(".basis-tooltip-source-link{");
+		expect(html).toContain(
+			".basis-tooltip-source-link:hover{text-decoration:underline;}",
+		);
 	});
 
 	it("wraps tables in a horizontally scrollable figure on narrow viewports", () => {

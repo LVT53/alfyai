@@ -127,6 +127,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"FILE_PRODUCTION_RENDERER_TIMEOUT_MS",
 	"FILE_PRODUCTION_MAX_OUTPUT_FILE_BYTES",
 	"FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES",
+	"ANALYTICS_EXCLUDED_USER_IDS",
 	"CONTEXT_DIAGNOSTICS_DEBUG",
 ] as const;
 
@@ -242,6 +243,7 @@ export interface RuntimeConfig {
 	fileProductionRendererTimeoutMs: number;
 	fileProductionMaxOutputFileBytes: number;
 	fileProductionMaxTotalOutputBytes: number;
+	analyticsExcludedUserIds: string[];
 }
 
 function buildDefaultConfig(): RuntimeConfig {
@@ -258,6 +260,7 @@ function buildDefaultConfig(): RuntimeConfig {
 			envConfig.reasoningDepthClassifierModel?.trim() || null,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
+		analyticsExcludedUserIds: [],
 	};
 }
 
@@ -917,6 +920,19 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		if (parsed !== undefined)
 			config.fileProductionMaxTotalOutputBytes = Math.max(1024, parsed);
 	},
+	ANALYTICS_EXCLUDED_USER_IDS: (config, value) => {
+		try {
+			const parsed: unknown = JSON.parse(value);
+			if (
+				Array.isArray(parsed) &&
+				parsed.every((id): id is string => typeof id === "string")
+			) {
+				config.analyticsExcludedUserIds = parsed.filter((id) => id.length > 0);
+			}
+		} catch {
+			config.analyticsExcludedUserIds = [];
+		}
+	},
 	CONTEXT_DIAGNOSTICS_DEBUG: (config, value) => {
 		config.contextDiagnosticsDebug = value === "true";
 	},
@@ -1016,6 +1032,10 @@ export function getAtlasExhaustiveMaxOutputTokens(): number {
 
 export function getAtlasMaxWriterPromptChars(): number {
 	return runtimeConfig.atlasMaxWriterPromptChars;
+}
+
+export function getAnalyticsExcludedUserIds(): string[] {
+	return [...runtimeConfig.analyticsExcludedUserIds];
 }
 
 export function isModelEnabled(
@@ -1263,6 +1283,9 @@ export function getResolvedAdminConfigValues(
 		),
 		FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES: String(
 			config.fileProductionMaxTotalOutputBytes,
+		),
+		ANALYTICS_EXCLUDED_USER_IDS: JSON.stringify(
+			config.analyticsExcludedUserIds,
 		),
 		CONTEXT_DIAGNOSTICS_DEBUG: String(config.contextDiagnosticsDebug),
 	};

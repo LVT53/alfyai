@@ -167,6 +167,14 @@ let dedupedAtlasJobs = $derived(
 		{ seen: new Set<string>(), list: [] as AtlasJobCard[] },
 	).list,
 );
+let atlasJobCostUsdMicros = $derived(
+	dedupedAtlasJobs.length > 0
+		? dedupedAtlasJobs.reduce(
+				(sum, job) => sum + (job.usage?.costUsdMicros ?? 0),
+				0,
+			)
+		: null,
+);
 let isUser = $derived(message.role === "user");
 let hasAttachments = $derived((message.attachments?.length ?? 0) > 0);
 let hasThinking = $derived(Boolean(message.thinking?.trim()));
@@ -186,19 +194,6 @@ type DeliberationStatusEntry =
 	| DeliberationThinkingStatus
 	| DeliberationActivityEntry;
 type AttachmentArtifactSummary = ArtifactSummary & { artifactId: string };
-
-const ATLAS_PROFILES = ["overview", "in-depth", "exhaustive"] as const;
-
-function isAtlasKickoffMessage(content: string): boolean {
-	const normalized = content.trim();
-	return ATLAS_PROFILES.some(
-		(profile) =>
-			normalized ===
-				`Atlas is queued with the ${profile} profile. You can close this page and return for progress.` ||
-			normalized ===
-				`Az Atlas várólistára került a(z) ${profile} profillal. Bezárhatod ezt az oldalt, és később visszatérhetsz a folyamat állásához.`,
-	);
-}
 
 function isDeliberationThinkingStatus(
 	segment: ThinkingSegment,
@@ -266,14 +261,6 @@ let sourceForks = $derived(message.sourceForks);
 let userMessageSegments = $derived(
 	isUser ? tokenizeTextLinks(message.content) : [],
 );
-let assistantDisplayContent = $derived(
-	!isUser &&
-		isAtlasKickoffMessage(message.content) &&
-		dedupedAtlasJobs.some((job) => job.status === "succeeded")
-		? $t("atlas.reportReady")
-		: message.content,
-);
-
 // Thinking is definitively done once visible response text has started streaming
 // OR the whole message is complete. This keeps the label as "Thinking" between
 // multi-burst thinking phases (isThinkingStreaming briefly false, but no content yet).
@@ -752,12 +739,12 @@ function toggleForkDetails() {
 			{/if}
 		{:else}
 			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.5] md:leading-[1.55]">
-				<MarkdownRenderer
-					content={assistantDisplayContent}
-					isDark={$isDark}
-					isStreaming={Boolean(message.isStreaming)}
-					compactExternalLinks
-				/>
+			<MarkdownRenderer
+				content={message.content}
+				isDark={$isDark}
+				isStreaming={Boolean(message.isStreaming)}
+				compactExternalLinks
+			/>
 			</div>
 			{#if showPreparingStatus}
 				<div class="preparing-status" aria-live="polite">{$t('chat.preparingResponse')}</div>
@@ -884,10 +871,11 @@ function toggleForkDetails() {
 						id={auditDetailsId}
 						class="info-popover"
 					>
-						<ResponseAuditDetails
-							{message}
-							modelIconUrl={messageModelIconUrl}
-						/>
+					<ResponseAuditDetails
+						{message}
+						modelIconUrl={messageModelIconUrl}
+						atlasCostUsdMicros={atlasJobCostUsdMicros}
+					/>
 					</div>
 				</div>
 			{/if}

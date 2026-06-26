@@ -106,7 +106,10 @@ export interface RunAtlasPipelineInput {
 			localSources: AtlasPipelineLocalSource[];
 		}>;
 		searchWeb: (queries: string[]) => Promise<AtlasPipelineSearchResult>;
-		searchImages?: (queries: string[]) => Promise<{
+		searchImages?: (
+			queries: string[],
+			timeRange?: string | null,
+		) => Promise<{
 			imageCandidates: AtlasImageCandidate[];
 			imageLimitation: { code: string; message: string } | null;
 		}>;
@@ -190,15 +193,42 @@ export interface AtlasPipelineResult {
 	};
 }
 
+export interface AtlasQualityFailureContext {
+	profile: string;
+	stage: string;
+	sourceCounts?: {
+		local: number;
+		web: number;
+		accepted: number;
+		rejected: number;
+	};
+	usage?: {
+		inputTokens: number;
+		outputTokens: number;
+		totalTokens: number;
+		costUsdMicros: number;
+	};
+	assembledMarkdownSummary?: string;
+	claimBasisStatus?: string;
+	claimBasisFailureReason?: string | null;
+	writerFinishReason?: string | null;
+	auditFinishReason?: string | null;
+}
+
 export class AtlasPipelineQualityError extends Error {
 	readonly code = "atlas_quality_gate_failed";
 	readonly markers: AtlasHonestyMarker[];
+	readonly failureContext: AtlasQualityFailureContext;
 
-	constructor(markers: AtlasHonestyMarker[]) {
+	constructor(
+		markers: AtlasHonestyMarker[],
+		failureContext: AtlasQualityFailureContext,
+	) {
 		const markerCodes = markers.map((marker) => marker.code).join(", ");
 		super(`Atlas quality gate failed${markerCodes ? `: ${markerCodes}` : "."}`);
 		this.name = "AtlasPipelineQualityError";
 		this.markers = markers;
+		this.failureContext = failureContext;
 	}
 }
 
@@ -636,6 +666,28 @@ function applyFreshnessGrounding(input: {
 	return uniqueQueries(grounded).slice(0, input.maxQueries);
 }
 
+function computeAtlasImageSearchTimeRange(
+	query: string,
+	currentYear: number,
+): string | null {
+	if (!isFreshnessSensitiveQuery(query, currentYear)) return null;
+	const freshnessPatterns: Array<{ pattern: RegExp; range: string }> = [
+		{
+			pattern: /\b(today|now|breaking|price|availability|deadline|schedule)\b/i,
+			range: "day",
+		},
+		{ pattern: /\bthis week\b/i, range: "week" },
+		{ pattern: /\b(latest|recent|news|current|live)\b/i, range: "week" },
+		{ pattern: /\bthis month\b/i, range: "month" },
+		{ pattern: /\bthis year\b/i, range: "year" },
+	];
+	for (const { pattern, range } of freshnessPatterns) {
+		if (pattern.test(query)) return range;
+	}
+	if (new RegExp(`\\b${currentYear}\\b`).test(query)) return "year";
+	return "week";
+}
+
 type AtlasResearchRoundKind = "initial" | "gap-fill";
 
 interface AtlasGapFillDiagnostics {
@@ -728,13 +780,20 @@ async function runAtlasResearchRound(input: {
 		imageLimitation: { code: string; message: string } | null;
 	} = { imageCandidates: [], imageLimitation: null };
 	if (input.roundKind === "initial" && input.dependencies.searchImages) {
+		const imageTimeRange = computeAtlasImageSearchTimeRange(
+			input.job.query,
+			input.now.getUTCFullYear(),
+		);
 		await input.dependencies.heartbeat?.({
 			stage: "search",
 			progressPercent: 32,
 			progressDetails: { queries: input.searchQueries },
 		});
 		try {
-			imageSearch = await input.dependencies.searchImages(input.searchQueries);
+			imageSearch = await input.dependencies.searchImages(
+				input.searchQueries,
+				imageTimeRange,
+			);
 		} catch (error) {
 			imageSearch = {
 				imageCandidates: [],
@@ -3083,7 +3142,30 @@ export async function runAtlasPipeline(
 	}
 
 	if (hasStructuralCriticalAuditFinding(audit.honestyMarkers)) {
-		throw new AtlasPipelineQualityError(audit.honestyMarkers);
+		throw new AtlasPipelineQualityError(audit.honestyMarkers, {
+			profile: input.job.profile,
+			stage: "audit",
+			sourceCounts: {
+				local: sources.localSources.length,
+				web: finalResearchRound.webSources.length,
+				accepted:
+					sources.localSources.length + finalResearchRound.webSources.length,
+				rejected: finalResearchRound.rejectedWebSources.filter(
+					(source) => source.rejectionReason !== "source_cap",
+				).length,
+			},
+			usage: {
+				inputTokens: usage.inputTokens,
+				outputTokens: usage.outputTokens,
+				totalTokens: usage.totalTokens,
+				costUsdMicros: usage.costUsdMicros,
+			},
+			assembledMarkdownSummary: auditedMarkdown.slice(0, 1000),
+			claimBasisStatus,
+			claimBasisFailureReason,
+			writerFinishReason: writerFinishReason ?? null,
+			auditFinishReason: auditFinishReason ?? null,
+		});
 	}
 	audit = {
 		...audit,

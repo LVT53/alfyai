@@ -18,7 +18,10 @@ import {
 	updateUserPreferences,
 	type AnalyticsResponse,
 } from "$lib/client/api/settings";
-import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
+import {
+	fetchAdminUsers,
+	fetchPublicPersonalityProfiles,
+} from "$lib/client/api/admin";
 import { reconcileConversationSnapshot } from "$lib/stores/conversations";
 import {
 	avatarState,
@@ -218,9 +221,28 @@ let analyticsLoading = $state(false);
 let analyticsError = $state("");
 let analyticsMonth = $state<string | null>(null);
 let systemAnalyticsMonth = $state<string | null>(null);
+let excludedAnalyticsUserIds = $state<string[]>(parseExcludedUserIds());
+let allAdminUsers = $state<
+	Array<{ id: string; email: string; name: string | null }>
+>([]);
+let excludedUsersLoading = $state(false);
 let showAvatarPicker = $state(false);
 let showPictureEditor = $state(false);
 let removingPhoto = $state(false);
+
+function parseExcludedUserIds(): string[] {
+	const raw = initialCurrentConfigValues?.ANALYTICS_EXCLUDED_USER_IDS;
+	if (!raw) return [];
+	try {
+		const parsed = JSON.parse(raw);
+		if (Array.isArray(parsed) && parsed.every((id) => typeof id === "string")) {
+			return parsed;
+		}
+	} catch {
+		// not valid JSON, return empty
+	}
+	return [];
+}
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -249,7 +271,8 @@ async function loadAnalytics(
 
 async function handleMonthChange(month: string | null) {
 	analyticsMonth = month;
-	await loadAnalytics(month, "weekly", systemAnalyticsMonth);
+	systemAnalyticsMonth = month;
+	await loadAnalytics(month, "weekly", month);
 }
 
 async function handleTimelineChange(granularity: string) {
@@ -257,8 +280,43 @@ async function handleTimelineChange(granularity: string) {
 }
 
 async function handleSystemMonthChange(month: string | null) {
+	analyticsMonth = month;
 	systemAnalyticsMonth = month;
-	await loadAnalytics(analyticsMonth, "weekly", month);
+	await loadAnalytics(month, "weekly", month);
+}
+
+async function loadAllAdminUsers() {
+	if (!isAdmin || allAdminUsers.length > 0) return;
+	excludedUsersLoading = true;
+	try {
+		const users = await fetchAdminUsers();
+		allAdminUsers = users.map((u) => ({
+			id: u.id,
+			email: u.email,
+			name: u.name,
+		}));
+	} catch {
+		// non-fatal
+	} finally {
+		excludedUsersLoading = false;
+	}
+}
+
+async function handleExcludedUsersChange(userIds: string[]) {
+	excludedAnalyticsUserIds = userIds;
+	try {
+		await updateAdminConfig({
+			ANALYTICS_EXCLUDED_USER_IDS: JSON.stringify(userIds),
+			...adminConfig,
+		});
+		adminConfig = {
+			...adminConfig,
+			ANALYTICS_EXCLUDED_USER_IDS: JSON.stringify(userIds),
+		};
+		await loadAnalytics(analyticsMonth, "weekly", systemAnalyticsMonth);
+	} catch {
+		// non-fatal
+	}
 }
 
 async function removePhoto() {
@@ -450,6 +508,9 @@ async function handleTabChange(tab: Tab) {
 	if (tab === "analytics" && !analyticsData && !analyticsLoading) {
 		await loadAnalytics();
 	}
+	if (tab === "analytics" && isAdmin) {
+		void loadAllAdminUsers();
+	}
 }
 
 function handlePageSwitcherChange(tab: string) {
@@ -564,6 +625,9 @@ $effect(() => {
 				onMonthChange={handleMonthChange}
 				onSystemMonthChange={handleSystemMonthChange}
 				onTimelineChange={handleTimelineChange}
+				allUsers={allAdminUsers}
+				excludedUserIds={excludedAnalyticsUserIds}
+				onExcludedUsersChange={handleExcludedUsersChange}
 			/>
 		{/if}
 

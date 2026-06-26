@@ -1,6 +1,9 @@
 import { json } from "@sveltejs/kit";
+import { eq } from "drizzle-orm";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
+import { db } from "$lib/server/db";
+import { atlasJobs } from "$lib/server/db/schema";
 import {
 	cancelAtlasJob,
 	linkAtlasJobAssistantMessage,
@@ -192,6 +195,30 @@ async function runAtlasSendTurn({
 				},
 				{ status: atlasPreflight.error.status },
 			);
+		}
+		if (turn.atlasAction !== "create" && turn.parentAtlasId) {
+			const [parentJob] = await db
+				.select({
+					id: atlasJobs.id,
+					userId: atlasJobs.userId,
+					status: atlasJobs.status,
+				})
+				.from(atlasJobs)
+				.where(eq(atlasJobs.id, turn.parentAtlasId))
+				.limit(1);
+			if (
+				!parentJob ||
+				parentJob.userId !== user.id ||
+				parentJob.status !== "succeeded"
+			) {
+				return json(
+					{
+						error:
+							"The parent Atlas report must be completed successfully before continuing, forking, or revising.",
+					},
+					{ status: 409 },
+				);
+			}
 		}
 		const intake = await submitAtlasJobIntake({
 			userId: user.id,

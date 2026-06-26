@@ -308,6 +308,7 @@ describe("Atlas persistence foundation", () => {
 		const { submitAtlasJobIntake } = await import("./index");
 		const { buildAtlasLifecycleContext, writeAtlasRoundCheckpoint } =
 			await import("./checkpoints");
+		const { db: serverDb } = await import("$lib/server/db");
 		const parent = await submitAtlasJobIntake({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -318,6 +319,10 @@ describe("Atlas persistence foundation", () => {
 			clientAtlasTurnId: "parent-turn",
 			now: new Date("2026-06-19T12:03:00.000Z"),
 		});
+		await serverDb
+			.update(schema.atlasJobs)
+			.set({ status: "succeeded", stage: "render" })
+			.where(eq(schema.atlasJobs.id, parent.job.id));
 		await writeAtlasRoundCheckpoint({
 			jobId: parent.job.id,
 			roundNumber: 1,

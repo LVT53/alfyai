@@ -183,10 +183,11 @@ describe("KnowledgeMemoryView", () => {
 		expect(screen.queryByText("Global")).not.toBeInTheDocument();
 		expect(screen.getByText("Project")).toBeInTheDocument();
 
-		const review = screen.getByRole("heading", { name: "Needs Review" })
-			.parentElement?.parentElement;
+		const review = screen
+			.getByRole("heading", { name: "Needs Review" })
+			.closest("section");
 		expect(review).not.toBeNull();
-		expect(review).toHaveClass("memory-review-callout");
+		expect(review).toHaveClass("memory-review-section");
 		expect(review?.querySelector(".memory-review-card")).not.toBeNull();
 		expect(screen.getByText("Remember Hungarian labels.")).toBeInTheDocument();
 		expect(screen.getByText("Prefer icon actions.")).toBeInTheDocument();

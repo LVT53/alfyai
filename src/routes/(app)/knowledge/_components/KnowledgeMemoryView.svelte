@@ -312,13 +312,18 @@ $effect(() => {
 		</div>
 
 		{#if profile && profile.review.openCount > 0}
-			<div class="memory-review-callout rounded-[0.5rem] px-4 py-4 shadow-sm">
+			<section class="memory-review-section" aria-labelledby="memory-review-title">
 				<div class="flex flex-wrap items-center justify-between gap-3">
-					<h3 class="memory-review-title font-sans font-semibold">{$t("memoryProfile.needsReview")}</h3>
+					<div class="flex items-center gap-2">
+						<h3 id="memory-review-title" class="memory-review-title font-sans font-semibold">{$t("memoryProfile.needsReview")}</h3>
+						<span class="memory-review-count rounded-full px-2 py-0.5 text-xs font-sans">
+							{profile.review.openCount}
+						</span>
+					</div>
 					{#if reviewOverflowCount > 0}
 						<button
 							type="button"
-							class="memory-review-more min-h-11 cursor-pointer rounded-full px-4 py-1 text-xs font-sans font-medium transition"
+							class="memory-review-more cursor-pointer text-xs font-sans font-medium transition"
 							onclick={() => (reviewOverflowOpen = true)}
 						>
 							{$t("memoryProfile.more", { count: reviewOverflowCount })}
@@ -327,14 +332,14 @@ $effect(() => {
 				</div>
 				<div class="mt-3 grid gap-2">
 					{#each visibleReviewItems as item (item.id)}
-						<div class="memory-review-card flex items-start justify-between gap-3 rounded-[0.5rem] px-3 py-3">
+						<div class="memory-review-card flex items-start justify-between gap-3 rounded-[0.75rem] border border-border bg-surface-page px-3 py-3">
 							<div class="min-w-0">
-								<p class="break-words text-xs font-sans leading-[1.45] text-text-muted">{item.subject}</p>
 								{#if item.question}
-									<p class="mt-1 break-words text-sm font-sans leading-[1.5] text-text-primary">{item.question}</p>
+									<p class="break-words text-sm font-sans leading-[1.55] text-text-primary">{item.question}</p>
 								{/if}
+								<p class="break-words text-xs font-sans leading-[1.45] text-text-muted">{item.subject}</p>
 								{#if item.reason}
-									<p class="memory-review-reason mt-2 rounded-[0.4rem] px-2 py-1 text-xs font-sans leading-[1.45] text-text-muted">{item.reason}</p>
+									<p class="memory-review-reason mt-1 break-words text-xs font-sans leading-[1.45] text-text-muted">{item.reason}</p>
 								{/if}
 							</div>
 							<div class="memory-card-actions flex shrink-0 items-center gap-1">
@@ -383,7 +388,7 @@ $effect(() => {
 						</div>
 					{/each}
 				</div>
-			</div>
+			</section>
 		{/if}
 
 		<div class="grid gap-4 lg:grid-cols-2">
@@ -508,20 +513,20 @@ $effect(() => {
 					<X size={18} strokeWidth={2.1} aria-hidden="true" />
 				</button>
 			</div>
-			<div class="max-h-[calc(88vh-80px)] overflow-y-auto px-5 py-5">
-				<div class="grid gap-2">
-					{#each additionalReviewItems as item (item.id)}
-						<div class="memory-review-card flex items-start justify-between gap-3 rounded-[0.75rem] border border-border bg-surface-page px-3 py-3">
-							<div class="min-w-0">
-								<p class="break-words text-xs font-sans leading-[1.45] text-text-muted">{item.subject}</p>
-								{#if item.question}
-									<p class="mt-1 break-words text-sm font-sans leading-[1.5] text-text-primary">{item.question}</p>
-								{/if}
-								{#if item.reason}
-									<p class="memory-review-reason mt-2 rounded-[0.4rem] px-2 py-1 text-xs font-sans leading-[1.45] text-text-muted">{item.reason}</p>
-								{/if}
-							</div>
-							<div class="memory-card-actions flex shrink-0 items-center gap-1">
+				<div class="max-h-[calc(88vh-80px)] overflow-y-auto px-5 py-5">
+					<div class="grid gap-2">
+						{#each additionalReviewItems as item (item.id)}
+							<div class="memory-review-card flex items-start justify-between gap-3 rounded-[0.75rem] border border-border bg-surface-page px-3 py-3">
+								<div class="min-w-0">
+									{#if item.question}
+										<p class="break-words text-sm font-sans leading-[1.55] text-text-primary">{item.question}</p>
+									{/if}
+									<p class="break-words text-xs font-sans leading-[1.45] text-text-muted">{item.subject}</p>
+									{#if item.reason}
+										<p class="memory-review-reason mt-1 break-words text-xs font-sans leading-[1.45] text-text-muted">{item.reason}</p>
+									{/if}
+								</div>
+								<div class="memory-card-actions flex shrink-0 items-center gap-1">
 								{#if item.canAccept}
 									<button
 										type="button"
@@ -573,42 +578,39 @@ $effect(() => {
 {/if}
 
 <style>
-	.memory-review-callout {
-		border: 1px solid color-mix(in srgb, var(--warning) 46%, var(--border-default) 54%);
-		background: color-mix(in srgb, var(--warning) 14%, var(--surface-elevated) 86%);
-		box-shadow:
-			inset 5px 0 0 var(--warning),
-			0 10px 24px color-mix(in srgb, var(--warning) 12%, transparent 88%);
-	}
-
 	.memory-review-title {
-		color: var(--warning);
-		font-size: 0.95rem;
+		color: var(--accent);
+		font-size: var(--text-base);
 		line-height: 1.35;
 	}
 
+	.memory-review-count {
+		border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated) 92%);
+		color: var(--accent);
+	}
+
 	.memory-review-more {
-		border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--surface-page) 60%);
-		background: color-mix(in srgb, var(--warning) 12%, var(--surface-page) 88%);
-		color: color-mix(in srgb, var(--warning) 82%, var(--text-primary) 18%);
+		color: var(--accent);
+		text-decoration: underline;
+		text-underline-offset: 0.18em;
 	}
 
 	.memory-review-more:hover {
-		background: color-mix(in srgb, var(--warning) 18%, var(--surface-page) 82%);
+		color: var(--accent-hover);
 	}
 
 	.memory-review-card {
-		border: 1px solid color-mix(in srgb, var(--warning) 34%, var(--border-subtle) 66%);
-		background: color-mix(in srgb, var(--warning) 9%, var(--surface-page) 91%);
+		border-left: 2px solid var(--accent);
+		background: color-mix(in srgb, var(--accent) 5%, var(--surface-page) 95%);
 	}
 
 	:global(.dark) .memory-review-card {
-		background: color-mix(in srgb, var(--warning) 14%, var(--surface-elevated) 86%);
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface-page) 92%);
 	}
 
 	.memory-review-reason {
-		border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--surface-page) 72%);
-		background: color-mix(in srgb, var(--warning) 12%, var(--surface-page) 88%);
+		color: var(--text-muted);
 	}
 
 	.memory-review-accept {
@@ -638,7 +640,7 @@ $effect(() => {
 			grid-template-columns: minmax(0, 1fr);
 		}
 
-		.memory-review-callout,
+		.memory-review-section,
 		.memory-category-card {
 			width: 100%;
 			min-width: 0;

@@ -212,7 +212,7 @@ export function buildAtlasClaimBasisPrompt(
 			"Adjacent claims may share one Claim Basis only when both evidence and rationale match.",
 			"A paragraph with distinct factual claims can receive multiple Claim Basis objects.",
 			"Use quote plus startOffset and endOffset when an important fact appears mid-sentence.",
-			"Write one compact supportRationale suitable for user display.",
+			'Write a reader-friendly supportRationale sentence that references specific source titles when possible (e.g., "Source X demonstrates this claim is verified" or "Source X confirms the general direction but precise data is lacking"). Keep it compact for end-user display.',
 			"Do not include hidden chain-of-thought or model-certainty scores.",
 			"If Claim Basis generation is not possible, return an empty claimBasis array plus diagnostics and limitations; do not invent support data.",
 			"Do not generate Claim Basis entries for the Executive Summary section — it is descriptive, not a factual claim section.",

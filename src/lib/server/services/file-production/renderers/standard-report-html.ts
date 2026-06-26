@@ -495,7 +495,22 @@ function renderBasisMarker(
 	const label = generatedDocumentBasisClaimLabel(marker.support);
 	const rationale = escapeHtml(marker.rationale);
 	const accessibleLabel = escapeHtml(`${label}: ${marker.rationale}`);
-	return `<button type="button" class="basis-marker basis-marker--${escapeHtml(marker.support)}" data-basis-id="${escapeHtml(marker.id)}" data-basis-support="${escapeHtml(marker.support)}" title="${accessibleLabel}" aria-label="${accessibleLabel}"><span class="basis-tooltip" role="tooltip"><strong>${escapeHtml(label)}</strong><span>${rationale}</span></span></button>`;
+	const sourceRefs = marker.sourceRefs ?? [];
+	let sourceListHtml = "";
+	if (sourceRefs.length > 0) {
+		const items = sourceRefs
+			.map((ref) => {
+				const favicon = renderSourceFavicon(ref.url);
+				const title = escapeHtml(ref.title);
+				const link = ref.url
+					? `<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer" class="basis-tooltip-source-link">${title}</a>`
+					: `<span class="basis-tooltip-source-link">${title}</span>`;
+				return `<li class="basis-tooltip-source-item">${favicon}${link}</li>`;
+			})
+			.join("");
+		sourceListHtml = `<ul class="basis-tooltip-sources">${items}</ul>`;
+	}
+	return `<button type="button" class="basis-marker basis-marker--${escapeHtml(marker.support)}" data-basis-id="${escapeHtml(marker.id)}" data-basis-support="${escapeHtml(marker.support)}" title="${accessibleLabel}" aria-label="${accessibleLabel}"><span class="basis-tooltip" role="tooltip"><strong>${escapeHtml(label)}</strong><span class="basis-tooltip-rationale">${rationale}</span>${sourceListHtml}</span></button>`;
 }
 
 function markerAnchorIndex(
@@ -780,7 +795,7 @@ export function renderStandardReportHtml(
 		headingId: block.type === "heading" ? slugifyId(block.text, index) : null,
 	}));
 	const headingEntries = blockEntries.flatMap((entry) =>
-		entry.block.type === "heading" && entry.headingId
+		entry.block.type === "heading" && entry.block.level === 2 && entry.headingId
 			? [{ id: entry.headingId, text: entry.block.text }]
 			: [],
 	);
@@ -806,7 +821,7 @@ export function renderStandardReportHtml(
 		".report-nav{display:flex;flex-direction:column;gap:2px;list-style:none;margin:0;padding:0;}",
 		".report-nav a{display:block;border-left:3px solid transparent;border-radius:6px;padding:8px 12px;color:var(--report-muted);font-size:13px;text-decoration:none;transition:background .15s ease,color .15s ease,border-color .15s ease;}",
 		".report-nav a:hover,.report-nav a:focus{background:rgba(0,0,0,.03);border-left-color:var(--report-accent);color:var(--report-text);outline:none;}",
-		".report-nav a.active{background:rgba(182,95,61,.08);border-left-color:var(--report-accent);color:var(--report-accent);}",
+		".report-nav a.active{background:rgba(182,95,61,.08);border-left:3px solid var(--report-accent);color:var(--report-accent);border-radius:0;}",
 		".mobile-report-header{display:none;align-items:center;gap:10px;padding:14px 18px;background:var(--report-panel);border-bottom:1px solid var(--report-rule);}",
 		".mobile-menu-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:0;border-radius:6px;background:transparent;color:var(--report-text);cursor:pointer;}",
 		".mobile-menu-btn:hover,.mobile-menu-btn:focus{background:rgba(0,0,0,.04);outline:none;}",
@@ -818,7 +833,7 @@ export function renderStandardReportHtml(
 		".report-section{margin:0 0 24px;padding-bottom:12px;border-bottom:1px solid rgba(0,0,0,.04);}",
 		".report-section:last-of-type{border-bottom:none;}",
 		'h1,h2,h3{line-height:1.2;color:var(--report-text);font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;}',
-		"h2{margin:0 0 16px;border-left:3px solid var(--report-accent);padding-left:16px;font-size:24px;font-weight:700;}",
+		"h2{margin:0 0 8px;border-left:3px solid var(--report-accent);padding-left:16px;font-size:24px;font-weight:700;}",
 		"h3{margin:24px 0 8px;font-size:17px;font-weight:700;}",
 		".report-recommendation-heading{font-size:1.1em;font-weight:800;border-left-width:4px;margin-top:28px;padding-top:4px;}",
 		"p,li{font-size:15px;line-height:1.7;color:var(--report-text);}",
@@ -843,21 +858,27 @@ export function renderStandardReportHtml(
 		".honesty-marker:hover .honesty-tooltip,.honesty-marker:focus .honesty-tooltip{opacity:1;visibility:visible;}",
 		".honesty-tooltip strong{display:block;margin-bottom:4px;font-weight:600;color:var(--report-tooltip-text);}",
 		".honesty-tooltip-code{display:block;margin-top:4px;color:var(--report-tooltip-muted);font-size:11px;}",
-		".basis-marker{appearance:none;display:inline-block;position:relative;width:10px;height:10px;margin:0 3px;border:0;border-radius:999px;padding:0;vertical-align:super;cursor:help;}",
+		".basis-marker{appearance:none;display:inline-block;position:relative;width:10px;height:10px;margin:0 3px;border:0;border-radius:999px;padding:0;vertical-align:middle;cursor:help;}",
 		".basis-marker--supported{background:#15803D;}",
 		".basis-marker--partial{background:#D97706;}",
 		".basis-marker--unsupported{background:#B91C1C;}",
 		".basis-marker:hover,.basis-marker:focus{outline:2px solid rgba(182,95,61,.28);outline-offset:2px;}",
 		".basis-marker-block{display:flex;align-items:center;gap:8px;margin:10px 0;color:var(--report-muted);font-size:12px;line-height:1.5;}",
-		".basis-tooltip{position:fixed;top:var(--tooltip-top,0);left:var(--tooltip-left,50vw);z-index:120;width:280px;max-width:min(280px,calc(100vw - 32px));box-sizing:border-box;border:1px solid var(--report-tooltip-border);border-radius:6px;background:var(--report-tooltip-bg);box-shadow:0 10px 30px rgba(0,0,0,.22);color:var(--report-tooltip-text);opacity:0;visibility:hidden;padding:8px 10px;pointer-events:none;text-align:left;transform:var(--tooltip-transform,translate(-50%,-100%));transition:opacity .15s ease;white-space:normal;font-size:12px;font-weight:400;line-height:1.45;}",
+		".basis-tooltip{position:fixed;top:var(--tooltip-top,0);left:var(--tooltip-left,50vw);z-index:120;width:320px;max-width:min(320px,calc(100vw - 32px));box-sizing:border-box;border:1px solid var(--report-tooltip-border);border-radius:6px;background:var(--report-tooltip-bg);box-shadow:0 10px 30px rgba(0,0,0,.22);color:var(--report-tooltip-text);opacity:0;visibility:hidden;padding:8px 10px;pointer-events:none;text-align:left;transform:var(--tooltip-transform,translate(-50%,-100%));transition:opacity .15s ease;white-space:normal;font-size:12px;font-weight:400;line-height:1.45;}",
 		'.basis-tooltip::after{content:"";position:absolute;top:100%;left:50%;border:6px solid transparent;border-top-color:var(--report-tooltip-bg);transform:translateX(-50%);}',
 		".basis-tooltip.tooltip-below::after{top:auto;bottom:100%;border-top-color:transparent;border-bottom-color:var(--report-tooltip-bg);}",
-		".basis-marker:hover .basis-tooltip,.basis-marker:focus .basis-tooltip{opacity:1;visibility:visible;}",
+		".basis-marker:hover .basis-tooltip,.basis-marker:focus .basis-tooltip,.basis-marker .basis-tooltip:hover{opacity:1;visibility:visible;pointer-events:auto;}",
 		".basis-tooltip strong{display:block;margin-bottom:4px;font-weight:600;color:var(--report-tooltip-text);}",
-		".basis-tooltip span{display:block;color:var(--report-tooltip-muted);}",
+		".basis-tooltip-rationale{display:block;margin:4px 0 6px;color:var(--report-tooltip-muted);font-size:12px;line-height:1.4;}",
+		".basis-tooltip-sources{display:flex;flex-direction:column;gap:3px;list-style:none;margin:6px 0 0;padding:0;border-top:1px solid var(--report-tooltip-border);padding-top:6px;}",
+		".basis-tooltip-source-item{display:flex;align-items:center;gap:6px;min-width:0;}",
+		".basis-tooltip-source-item .source-favicon,.basis-tooltip-source-item .source-favicon img,.basis-tooltip-source-item .favicon-placeholder{display:block;width:16px;height:16px;border-radius:3px;flex-shrink:0;}",
+		".basis-tooltip-source-link{color:var(--report-tooltip-text);font-size:12px;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}",
+		".basis-tooltip-source-link:hover{text-decoration:underline;}",
 		"pre{white-space:pre-wrap;background:var(--report-panel);padding:12px;overflow-wrap:anywhere;}",
 		"table{width:100%;border-collapse:collapse;font-size:.92rem;}",
 		".table-figure{overflow-x:auto;-webkit-overflow-scrolling:touch;}",
+		".table-figure{margin:0;width:100%;}",
 		"th,td{border-bottom:1px solid var(--report-rule);padding:7px;text-align:left;vertical-align:top;word-break:break-word;overflow-wrap:anywhere;}",
 		"th{background:var(--report-panel);}td.numeric{text-align:right;}",
 		".table-title{font-weight:600;color:var(--report-text);}",

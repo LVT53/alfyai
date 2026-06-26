@@ -80,7 +80,9 @@ vi.mock("./job-ledger", () => ({
 vi.mock("./pipeline", () => ({
 	runAtlasPipeline: mocks.runAtlasPipeline,
 	AtlasPipelineQualityError: class AtlasPipelineQualityError extends Error {
-		constructor(markers: unknown[]) {
+		readonly markers: unknown[];
+		readonly failureContext: unknown;
+		constructor(markers: unknown[], failureContext?: unknown) {
 			const markerCodes = (markers as { code: string }[])
 				.map((m) => m.code)
 				.join(", ");
@@ -88,6 +90,8 @@ vi.mock("./pipeline", () => ({
 				`Atlas quality gate failed${markerCodes ? `: ${markerCodes}` : "."}`,
 			);
 			this.name = "AtlasPipelineQualityError";
+			this.markers = markers;
+			this.failureContext = failureContext;
 		}
 	},
 }));

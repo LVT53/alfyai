@@ -211,11 +211,21 @@ async function loadParentLifecycleSeed(input: {
 	includeCuratedSourcePool: boolean;
 }): Promise<AtlasLifecycleSeed | null> {
 	const [parentJob] = await db
-		.select({ id: atlasJobs.id, userId: atlasJobs.userId })
+		.select({
+			id: atlasJobs.id,
+			userId: atlasJobs.userId,
+			status: atlasJobs.status,
+		})
 		.from(atlasJobs)
 		.where(eq(atlasJobs.id, input.parentAtlasJobId))
 		.limit(1);
 	if (!parentJob || parentJob.userId !== input.userId) {
+		return null;
+	}
+	if (parentJob.status !== "succeeded") {
+		console.warn(
+			`[ATLAS] Lifecycle seed requested for parent job ${input.parentAtlasJobId} with status "${parentJob.status}" (not "succeeded") — returning null seed`,
+		);
 		return null;
 	}
 	const checkpoint = await getLatestAtlasRoundCheckpoint(

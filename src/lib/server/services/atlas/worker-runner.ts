@@ -3,6 +3,7 @@ import { and, desc, eq, lt, sql } from "drizzle-orm";
 import { getConfig, isModelEnabled } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
+import { recordAtlasJobAnalytics } from "$lib/server/services/analytics";
 import { notifyAtlasCompletion } from "$lib/server/services/browser-push";
 import type { ModelId } from "$lib/types";
 import {
@@ -146,7 +147,7 @@ export async function executeNextAtlasJob(
 								config.webResearchExtractCacheTtlHours,
 						},
 					}),
-				searchImages: (queries) =>
+				searchImages: (queries, timeRange) =>
 					runAtlasImageSearchStage({
 						queries,
 						config: {
@@ -155,6 +156,7 @@ export async function executeNextAtlasJob(
 							interBatchDelayMs: config.atlasSearchBatchDelayMs,
 							maxImageCandidates: profileConfig.maxImageCandidates,
 						},
+						timeRange,
 					}),
 				runModelStage: ({ stage, prompt, system }) =>
 					runAtlasModelStage({
@@ -234,6 +236,22 @@ export async function executeNextAtlasJob(
 			});
 			return true;
 		}
+		await recordAtlasJobAnalytics({
+			userId: claimed.userId,
+			conversationId: claimed.job.conversationId,
+			atlasJobId: claimed.job.id,
+			assistantMessageId: claimed.job.assistantMessageId,
+			profile: claimed.job.profile,
+			inputTokens: result.usage.inputTokens,
+			outputTokens: result.usage.outputTokens,
+			totalTokens: result.usage.totalTokens,
+			costUsdMicros: result.usage.costUsdMicros,
+		}).catch((error) => {
+			console.warn("[ATLAS] Failed to record job analytics", {
+				jobId: claimed.job.id,
+				error,
+			});
+		});
 		void notifyAtlasCompletion({
 			userId: claimed.userId,
 			conversationId: claimed.job.conversationId,
@@ -256,7 +274,10 @@ export async function executeNextAtlasJob(
 				error instanceof Error ? error.message : "Atlas pipeline failed.",
 			retryable: true,
 			failureMetadata: qualityError
-				? { honestyMarkers: qualityError.markers }
+				? {
+						honestyMarkers: qualityError.markers,
+						failureContext: qualityError.failureContext,
+					}
 				: undefined,
 			now: new Date(),
 		});

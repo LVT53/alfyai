@@ -371,6 +371,7 @@ export interface AtlasImageCandidate {
 	height: number | null;
 	caption: string;
 	selectionReason: string;
+	publishedAt?: string | null;
 }
 
 export type AtlasDocumentFamilyMode = "new_family" | "same_family";

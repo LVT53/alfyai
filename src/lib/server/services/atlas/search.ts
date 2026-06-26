@@ -81,6 +81,7 @@ export interface RunAtlasImageSearchStageInput {
 		| "maxRetryBackoffMs"
 		| "maxAttempts"
 	>;
+	timeRange?: string | null;
 	searchImages?: (query: string) => Promise<AtlasImageCandidate[]>;
 	sleep?: (ms: number) => Promise<void>;
 }
@@ -526,6 +527,7 @@ function normalizeSearxngImageResult(
 		(sourcePageUrl ? new URL(sourcePageUrl).hostname : null);
 	const { width, height } = parseResolution(record.resolution);
 	const caption = cleanOptionalText(record.content) ?? title;
+	const publishedAt = cleanOptionalText(record.publishedDate);
 	return {
 		id: `image:${query}:${index}`,
 		query,
@@ -538,19 +540,33 @@ function normalizeSearxngImageResult(
 		height,
 		caption,
 		selectionReason: `Image result for "${query}" from SearXNG.`,
+		publishedAt,
 	};
 }
 
 function convergeImageCandidates(input: {
 	imageCandidates: AtlasImageCandidate[];
 	maxAccepted: number;
+	freshnessSensitive?: boolean;
 }): AtlasImageCandidate[] {
+	const candidates = [...input.imageCandidates];
+	if (input.freshnessSensitive) {
+		candidates.sort((a, b) => {
+			const dateA = a.publishedAt ? Date.parse(a.publishedAt) : 0;
+			const dateB = b.publishedAt ? Date.parse(b.publishedAt) : 0;
+			if (dateA && dateB && dateA !== dateB) return dateB - dateA;
+			if (dateA && !dateB) return -1;
+			if (!dateA && dateB) return 1;
+			return 0;
+		});
+	}
 	const accepted: AtlasImageCandidate[] = [];
 	const seenUrls = new Set<string>();
 
-	for (const candidate of input.imageCandidates) {
+	for (const candidate of candidates) {
 		if (isUnsafeAdultImageCandidate(candidate)) continue;
-		if (!isUsableAtlasImageCandidate(candidate)) continue;
+		if (!isUsableAtlasImageCandidate(candidate, input.freshnessSensitive))
+			continue;
 		const key = normalizedSourceUrlKey(candidate.imageUrl);
 		if (seenUrls.has(key)) continue;
 		seenUrls.add(key);
@@ -564,6 +580,7 @@ function convergeImageCandidates(input: {
 async function searchSearxngImages(
 	baseUrl: string,
 	query: string,
+	timeRange?: string | null,
 ): Promise<AtlasImageCandidate[]> {
 	const url = new URL(`${normalizeBaseUrl(baseUrl)}/search`);
 	url.searchParams.set("q", query);
@@ -574,6 +591,9 @@ async function searchSearxngImages(
 		String(DEFAULT_ATLAS_IMAGE_SEARCH_SAFESEARCH),
 	);
 	url.searchParams.set("image_proxy", "0");
+	if (timeRange) {
+		url.searchParams.set("time_range", timeRange);
+	}
 	const response = await fetch(url);
 	if (!response.ok) {
 		throw new Error(`SearXNG image search failed with HTTP ${response.status}`);
@@ -762,11 +782,14 @@ export async function runAtlasImageSearchStage(
 	const maxRetryBackoffMs =
 		input.config.maxRetryBackoffMs ?? DEFAULT_ATLAS_SEARCH_MAX_RETRY_BACKOFF_MS;
 	const sleep = input.sleep ?? defaultSleep;
+	const timeRange = input.timeRange ?? null;
 	const searchImages =
-		input.searchImages ?? ((query) => searchSearxngImages(baseUrl, query));
+		input.searchImages ??
+		((query) => searchSearxngImages(baseUrl, query, timeRange));
 	const imageCandidates: AtlasImageCandidate[] = [];
 	const failedQueries: string[] = [];
 	const maxImageCandidates = Math.max(0, input.config.maxImageCandidates ?? 3);
+	const freshnessSensitive = timeRange != null;
 	if (maxImageCandidates === 0) {
 		return { imageCandidates: [], imageLimitation: null };
 	}
@@ -799,6 +822,7 @@ export async function runAtlasImageSearchStage(
 		imageCandidates: convergeImageCandidates({
 			imageCandidates,
 			maxAccepted: maxImageCandidates,
+			freshnessSensitive,
 		}),
 		imageLimitation:
 			failedQueries.length > 0

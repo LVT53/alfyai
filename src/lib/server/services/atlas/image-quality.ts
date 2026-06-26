@@ -86,12 +86,15 @@ function normalizedImageUrlText(value: string | null | undefined): string {
 	}
 }
 
-export function atlasImageMeaningfulTokens(text: string): Set<string> {
+export function atlasImageMeaningfulTokens(
+	text: string,
+	freshnessSensitive?: boolean,
+): Set<string> {
 	const tokens = normalizeImageText(text)
 		.split(/[^a-z0-9]+/)
 		.filter((token) => {
 			if (!token) return false;
-			if (/^20\d{2}$/.test(token)) return false;
+			if (!freshnessSensitive && /^20\d{2}$/.test(token)) return false;
 			if (IMAGE_TOKEN_STOPWORDS.has(token)) return false;
 			return token.length >= 3 || /\d/.test(token);
 		});
@@ -101,9 +104,10 @@ export function atlasImageMeaningfulTokens(text: string): Set<string> {
 export function atlasImageTokenOverlapScore(
 	leftText: string,
 	rightText: string,
+	freshnessSensitive?: boolean,
 ): number {
-	const left = atlasImageMeaningfulTokens(leftText);
-	const right = atlasImageMeaningfulTokens(rightText);
+	const left = atlasImageMeaningfulTokens(leftText, freshnessSensitive);
+	const right = atlasImageMeaningfulTokens(rightText, freshnessSensitive);
 	let score = 0;
 	for (const token of left) {
 		for (const candidate of right) {
@@ -144,36 +148,55 @@ function atlasImageCandidateSourceContextText(
 	].join(" ");
 }
 
-function minimumQueryOverlap(query: string): number {
-	const tokenCount = atlasImageMeaningfulTokens(query).size;
+function minimumQueryOverlap(
+	query: string,
+	freshnessSensitive?: boolean,
+): number {
+	const tokenCount = atlasImageMeaningfulTokens(query, freshnessSensitive).size;
 	if (tokenCount === 0) return 0;
 	return Math.min(2, tokenCount);
 }
 
-function hasStrongQueryRelevance(candidate: AtlasImageCandidate): boolean {
-	const requiredOverlap = minimumQueryOverlap(candidate.query);
+function hasStrongQueryRelevance(
+	candidate: AtlasImageCandidate,
+	freshnessSensitive?: boolean,
+): boolean {
+	const requiredOverlap = minimumQueryOverlap(
+		candidate.query,
+		freshnessSensitive,
+	);
 	if (requiredOverlap === 0) return true;
 	const visualScore = atlasImageTokenOverlapScore(
 		candidate.query,
 		atlasImageCandidateVisualText(candidate),
+		freshnessSensitive,
 	);
 	const sourceContextScore = atlasImageTokenOverlapScore(
 		candidate.query,
 		atlasImageCandidateSourceContextText(candidate),
+		freshnessSensitive,
 	);
 	return visualScore > 0 && visualScore + sourceContextScore >= requiredOverlap;
 }
 
-function hasStrongSubjectRelevance(candidate: AtlasImageCandidate): boolean {
-	const requiredOverlap = minimumQueryOverlap(candidate.query);
+function hasStrongSubjectRelevance(
+	candidate: AtlasImageCandidate,
+	freshnessSensitive?: boolean,
+): boolean {
+	const requiredOverlap = minimumQueryOverlap(
+		candidate.query,
+		freshnessSensitive,
+	);
 	if (requiredOverlap === 0) return true;
 	const visualScore = atlasImageTokenOverlapScore(
 		candidate.query,
 		atlasImageCandidateVisualText(candidate),
+		freshnessSensitive,
 	);
 	const sourceTitleScore = atlasImageTokenOverlapScore(
 		candidate.query,
 		candidate.sourceTitle ?? "",
+		freshnessSensitive,
 	);
 	return (
 		visualScore >= Math.max(2, requiredOverlap) ||
@@ -183,7 +206,10 @@ function hasStrongSubjectRelevance(candidate: AtlasImageCandidate): boolean {
 	);
 }
 
-function isLikelyGenericArticleImage(candidate: AtlasImageCandidate): boolean {
+function isLikelyGenericArticleImage(
+	candidate: AtlasImageCandidate,
+	freshnessSensitive?: boolean,
+): boolean {
 	const visualText = atlasImageCandidateVisualText(candidate);
 	const sourceText = candidate.sourceTitle ?? "";
 	const urlText = [
@@ -196,7 +222,7 @@ function isLikelyGenericArticleImage(candidate: AtlasImageCandidate): boolean {
 		GENERIC_ARTICLE_IMAGE_PATTERN.test(combined) ||
 		(/\b(?:blog|community|medium|news|post|article)\b/i.test(sourceText) &&
 			GENERIC_VISUAL_NOUN_PATTERN.test(visualText) &&
-			atlasImageMeaningfulTokens(visualText).size <= 4)
+			atlasImageMeaningfulTokens(visualText, freshnessSensitive).size <= 4)
 	);
 }
 
@@ -279,6 +305,7 @@ function hasStrongSelfHostedRetrievalIntentRelevance(
 
 function isWeakManagedApiComparisonForSelfHostedReport(
 	candidate: AtlasImageCandidate,
+	_freshnessSensitive?: boolean,
 ): boolean {
 	return (
 		isSelfHostedLocalDeploymentQuery(candidate.query) &&
@@ -289,16 +316,20 @@ function isWeakManagedApiComparisonForSelfHostedReport(
 
 export function isUsableAtlasImageCandidate(
 	candidate: AtlasImageCandidate,
+	freshnessSensitive?: boolean,
 ): boolean {
 	if (isLikelySvgOrIconFile(candidate)) return false;
 	if (isLikelyLogoOrIcon(candidate)) return false;
 	if (isTooSmallForReport(candidate)) return false;
-	if (isWeakManagedApiComparisonForSelfHostedReport(candidate)) return false;
 	if (
-		isLikelyGenericArticleImage(candidate) &&
-		!hasStrongSubjectRelevance(candidate)
+		isWeakManagedApiComparisonForSelfHostedReport(candidate, freshnessSensitive)
+	)
+		return false;
+	if (
+		isLikelyGenericArticleImage(candidate, freshnessSensitive) &&
+		!hasStrongSubjectRelevance(candidate, freshnessSensitive)
 	) {
 		return false;
 	}
-	return hasStrongQueryRelevance(candidate);
+	return hasStrongQueryRelevance(candidate, freshnessSensitive);
 }
