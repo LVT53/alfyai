@@ -406,7 +406,7 @@ describe("Atlas writer prompt", () => {
 			shouldImproveAtlasWriterDraft(
 				emptyReportShapeDiagnostics({
 					warnings: [{ code: "atlas_report_body_too_thin", message: "..." }],
-					bodyWordCount: 100,
+					bodyWordCount: 250,
 					hasDecisionOrRecommendationSignal: false,
 				}),
 			),

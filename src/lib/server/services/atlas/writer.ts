@@ -92,14 +92,15 @@ function writerInstructions(language: SupportedLanguage): string {
 		"Put the canonical report title only in generatedTitle, not in bodyMarkdown.",
 		"Do not emit an H1/H2 title, subtitle, alternate report name, or report-title block at the start of bodyMarkdown; start with Executive Summary when that section is useful.",
 		"Do not repeat the report title or any variant of it inside bodyMarkdown; the title appears once in generatedTitle and is rendered by the backend.",
-		"Use H2 headings for major report sections (e.g., Analysis, Recommendations, Limitations). Under each heading, use multiple paragraphs to develop the analysis. Use H3 for sub-sections within a major section. Do not use a heading for text that is a single sentence — make it a paragraph instead. Do not write a long paragraph where an H3 sub-section break would improve readability.",
+		"Use H2 headings for major report sections (e.g., Analysis, Recommendations, Limitations). Under each heading, write at least 2-3 paragraphs of analysis. Use H3 for sub-sections within a major section. Do not use a heading for text that is a single sentence — make it a paragraph instead. Do not write a long paragraph where an H3 sub-section break would improve readability.",
+		"Each major section must contain substantive analysis, not just bullet points or a single paragraph. Aim for at least 150 words per major section. The Executive Summary should be 2-3 sentences summarizing the key conclusion and main tradeoffs.",
 		"Use Writer Evidence Cards to write analysis, rankings, tradeoffs, limitations, and evidence-grounded recommendations where the source basis supports them.",
 		"Make only supported claims. If evidence is weak or conflicting, state that in the relevant section and in limitations.",
 		"Use compact Markdown tables when comparisons or decision criteria become clearer as a table.",
-		"Choose images only from imageCandidates with HTTPS URLs; do not invent image URLs and do not use logos, icons, devicons, SVG/vector assets, or decorative images.",
+		"Choose images only from imageCandidates with HTTPS URLs; do not invent image URLs and do not use logos, icons, devicons, SVG/vector assets, or decorative images. Only choose images that are directly relevant to the report topic.",
 		"Each sectionBrief must preserve relevant evidencePackIds and sourceAssociations when the section depends on specific cards.",
 		"Do not emit list items that have only a label and colon with no content after the colon (e.g., '- **Hardware fit:**' is invalid). Every list item must have descriptive text after any label.",
-		"Optionally return a claimBasis array to verify key factual claims against evidence cards; each entry should include claimText, sectionTitle, supportLevel (supported/partial/unsupported), evidenceCardIds, and rationale.",
+		"Optionally return a claimBasis array to verify key factual claims against evidence cards; each entry should include claimText, sectionTitle, supportLevel (supported/partial/unsupported), evidenceCardIds, and rationale. Do not place claimBasis entries in the Executive Summary section.",
 	].join(" ");
 }
 
@@ -318,7 +319,7 @@ export function buildAtlasWriterPrompt(
 ): string {
 	const effectiveMax = Math.min(
 		getAtlasMaxWriterPromptChars(),
-		Math.floor(getMaxModelContext() * 0.4),
+		Math.floor(getMaxModelContext() * 0.55),
 	);
 	const firstPass = JSON.stringify(baseWriterPrompt(input));
 	if (firstPass.length <= effectiveMax) return firstPass;
@@ -340,7 +341,7 @@ export function buildAtlasWriterImprovementPrompt(
 ): string {
 	const effectiveMax = Math.min(
 		getAtlasMaxWriterPromptChars(),
-		Math.floor(getMaxModelContext() * 0.4),
+		Math.floor(getMaxModelContext() * 0.55),
 	);
 	const codeWarnings = input.reportShapeDiagnostics.warnings
 		.map((warning) => warning.code)
@@ -367,6 +368,7 @@ export function buildAtlasWriterImprovementPrompt(
 
 export function shouldImproveAtlasWriterDraft(
 	diagnostics: AtlasReportShapeDiagnostics,
+	context?: { evidenceCardCount?: number },
 ): boolean {
 	const warningCodes = new Set(
 		diagnostics.warnings.map((warning) => warning.code),
@@ -381,9 +383,10 @@ export function shouldImproveAtlasWriterDraft(
 	}
 	if (warningCodes.has("atlas_report_sections_too_sparse")) return true;
 	if (warningCodes.has("atlas_too_many_one_sentence_sections")) return true;
+	const evidenceCardCount = context?.evidenceCardCount ?? 0;
 	return (
 		warningCodes.has("atlas_report_body_too_thin") &&
-		diagnostics.bodyWordCount < 90 &&
+		diagnostics.bodyWordCount < Math.max(200, evidenceCardCount * 12) &&
 		!diagnostics.hasDecisionOrRecommendationSignal
 	);
 }

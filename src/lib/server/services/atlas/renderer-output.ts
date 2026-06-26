@@ -20,6 +20,7 @@ import {
 	atlasImageCandidateEvidenceText,
 	atlasImageMeaningfulTokens,
 	isUsableAtlasImageCandidate,
+	LOGO_OR_ICON_TEXT_PATTERN,
 } from "./image-quality";
 import type {
 	AtlasClaimBasis,
@@ -858,18 +859,26 @@ function normalizedHeading(text: string): string {
 		.replace(/[.:;]+$/g, "");
 }
 
-function isExecutiveSummaryHeading(
-	block: GeneratedDocumentBlock,
+function isExecutiveSummaryTitle(
+	title: string | null,
 	language: SupportedLanguage,
 ): boolean {
-	if (block.type !== "heading") return false;
-	const normalized = normalizedHeading(block.text);
+	if (!title) return false;
+	const normalized = normalizedHeading(title);
 	if (language === "hu") {
 		return (
 			normalized === "vezetoi osszefoglalo" || normalized === "osszefoglalo"
 		);
 	}
 	return normalized === "executive summary" || normalized === "summary";
+}
+
+function isExecutiveSummaryHeading(
+	block: GeneratedDocumentBlock,
+	language: SupportedLanguage,
+): boolean {
+	if (block.type !== "heading") return false;
+	return isExecutiveSummaryTitle(block.text, language);
 }
 
 function textBlockText(block: GeneratedDocumentBlock): string | null {
@@ -1377,16 +1386,31 @@ function nearestParagraphIndexForClaimBasisFallback(
 	blocks: GeneratedDocumentSource["blocks"],
 	insertionIndex: number,
 ): number | null {
+	const isInsideExecSummary = (index: number): boolean => {
+		let sectionTitle: string | null = null;
+		for (let i = index; i >= 0; i -= 1) {
+			const block = blocks[i];
+			if (block?.type === "heading" && block.level <= 2) {
+				sectionTitle = block.text;
+				break;
+			}
+		}
+		return isExecutiveSummaryTitle(sectionTitle, "en");
+	};
 	for (
 		let index = Math.min(insertionIndex - 1, blocks.length - 1);
 		index >= 0;
 		index -= 1
 	) {
-		if (blocks[index]?.type === "paragraph") return index;
+		if (blocks[index]?.type === "paragraph") {
+			if (!isInsideExecSummary(index)) return index;
+		}
 		if (blocks[index]?.type === "heading" && index < insertionIndex - 1) break;
 	}
 	for (let index = insertionIndex; index < blocks.length; index += 1) {
-		if (blocks[index]?.type === "paragraph") return index;
+		if (blocks[index]?.type === "paragraph") {
+			if (!isInsideExecSummary(index)) return index;
+		}
 		if (blocks[index]?.type === "heading" && index > insertionIndex) break;
 	}
 	return null;
@@ -1457,6 +1481,7 @@ function applyAtlasClaimBasisMarkers(
 
 		const candidates = contexts.filter(
 			(context) =>
+				!isExecutiveSummaryTitle(context.sectionTitle, "en") &&
 				sectionMatchesLocator(
 					context.sectionTitle,
 					basis.locator.sectionTitle,
@@ -1724,7 +1749,23 @@ function filterAuthoredImageBlocksByCandidates(
 	blocks: GeneratedDocumentSource["blocks"],
 	imageCandidates: AtlasImageCandidate[] | undefined,
 ): void {
-	if (imageCandidates === undefined) return;
+	if (imageCandidates === undefined) {
+		const filtered = blocks.filter((block) => {
+			if (block.type !== "image") return true;
+			if (block.source.kind !== "https") return false;
+			if (
+				typeof block.altText === "string" &&
+				LOGO_OR_ICON_TEXT_PATTERN.test(block.altText)
+			) {
+				return false;
+			}
+			return true;
+		});
+		if (filtered.length !== blocks.length) {
+			blocks.splice(0, blocks.length, ...filtered);
+		}
+		return;
+	}
 	const allowedUrls = new Set(
 		imageCandidates
 			.filter((candidate) => isUsableAtlasImageCandidate(candidate))
@@ -1732,7 +1773,8 @@ function filterAuthoredImageBlocksByCandidates(
 	);
 	const filtered = blocks.filter((block) => {
 		if (block.type !== "image") return true;
-		return block.source.kind === "https" && allowedUrls.has(block.source.url);
+		if (block.source.kind !== "https") return false;
+		return allowedUrls.has(block.source.url);
 	});
 	if (filtered.length !== blocks.length) {
 		blocks.splice(0, blocks.length, ...filtered);

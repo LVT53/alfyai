@@ -2720,7 +2720,11 @@ export async function runAtlasPipeline(
 			startedAfterDeterministicFallback: true,
 			skippedReason: "honest_fallback_does_not_need_improvement",
 		};
-	} else if (shouldImproveAtlasWriterDraft(firstDraftReportShapeDiagnostics)) {
+	} else if (
+		shouldImproveAtlasWriterDraft(firstDraftReportShapeDiagnostics, {
+			evidenceCardCount: writerEvidenceCardResult.writerEvidenceCards.length,
+		})
+	) {
 		writerImprovement = {
 			ran: true,
 			passCount: 1,

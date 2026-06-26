@@ -31,7 +31,7 @@ const IMAGE_TOKEN_STOPWORDS = new Set([
 	"with",
 ]);
 
-const LOGO_OR_ICON_TEXT_PATTERN =
+export const LOGO_OR_ICON_TEXT_PATTERN =
 	/\b(?:app\s+icon|apple-touch-icon|brand\s+mark|brandmark|devicon|favicon|icon|icons|logo|logos|logomark|mark\s+only|simple\s+icons|svg\s+icon|technology\s+icon|vector\s+icon|vector\s+logo|wordmark)\b/i;
 
 const LOGO_OR_ICON_URL_PATTERN =
@@ -331,5 +331,30 @@ export function isUsableAtlasImageCandidate(
 	) {
 		return false;
 	}
-	return hasStrongQueryRelevance(candidate, freshnessSensitive);
+	if (!hasStrongQueryRelevance(candidate, freshnessSensitive)) return false;
+	const visualTokens = atlasImageMeaningfulTokens(
+		atlasImageCandidateVisualText(candidate),
+		freshnessSensitive,
+	);
+	const queryTokens = atlasImageMeaningfulTokens(
+		candidate.query,
+		freshnessSensitive,
+	);
+	if (queryTokens.size >= 3 && visualTokens.size > 0) {
+		let visualOverlap = 0;
+		for (const token of queryTokens) {
+			for (const vToken of visualTokens) {
+				if (
+					vToken === token ||
+					vToken.includes(token) ||
+					token.includes(vToken)
+				) {
+					visualOverlap += 1;
+					break;
+				}
+			}
+		}
+		if (visualOverlap === 0) return false;
+	}
+	return true;
 }
