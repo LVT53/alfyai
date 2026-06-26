@@ -113,13 +113,16 @@ export const init: ServerInit = async () => {
 	// closeIdleConnections(), then server.close(), then after SHUTDOWN_TIMEOUT
 	// (default 30s) calls closeAllConnections(), then emits sveltekit:shutdown.
 	// Without this handler the process would linger until systemd's
-	// TimeoutStopSec (default 90s) sends SIGKILL.
+	// TimeoutStopSec (90s) sends SIGKILL.
 	process.on("sveltekit:shutdown", (_reason: string) => {
 		console.log("[SHUTDOWN] Server closed, stopping background workers");
 		stopMemoryMaintenanceScheduler();
-		// Exit immediately so systemd restart completes quickly.
-		// systemd TimeoutStopSec=90 provides the safety net if something blocks.
-		process.exit(0);
+		// Give in-flight work (Atlas jobs, active responses) a grace period
+		// to complete naturally. systemd TimeoutStopSec=90 is the hard cap.
+		setTimeout(() => {
+			console.log("[SHUTDOWN] Grace period expired, exiting");
+			process.exit(0);
+		}, 10_000);
 	});
 };
 
