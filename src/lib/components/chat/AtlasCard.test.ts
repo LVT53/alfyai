@@ -87,7 +87,7 @@ describe("AtlasCard", () => {
 		expect(onCancel).toHaveBeenCalledWith("atlas-job-1");
 	});
 
-	it("renders a determinate progress ring driven by completion percent only", () => {
+	it("renders a determinate exploration icon driven by completion percent only", () => {
 		render(AtlasCard, {
 			job: atlasJobFixture({
 				progress: {
@@ -98,19 +98,14 @@ describe("AtlasCard", () => {
 			}),
 		});
 
-		const ring = screen
-			.getByTestId("atlas-card")
-			.querySelector(".atlas-card__ring");
-		expect(ring).toHaveAttribute(
-			"style",
-			expect.stringContaining("--atlas-progress: 64%;"),
-		);
-		expect(ring?.getAttribute("style") ?? "").not.toContain(
-			"--atlas-stage-progress",
+		const icon = screen.getByTestId("atlas-progress-cycle-icon");
+		expect(icon).toHaveClass("atlas-card__exploration-svg");
+		expect(icon.getAttribute("style") ?? "").toContain(
+			"--atlas-orbit-duration: 2260ms",
 		);
 	});
 
-	it("renders an animated progress-cycle icon for running Atlas jobs", () => {
+	it("renders an animated exploration icon for running Atlas jobs", () => {
 		render(AtlasCard, {
 			job: atlasJobFixture({
 				progress: {
@@ -123,25 +118,13 @@ describe("AtlasCard", () => {
 
 		const progressIcon = screen.getByTestId("atlas-progress-cycle-icon");
 		expect(progressIcon).toHaveAttribute("viewBox", "0 0 56 56");
-		expect(progressIcon).toHaveClass("progress-ring-spinner");
+		expect(progressIcon).toHaveClass("atlas-card__exploration-svg");
 		expect(progressIcon).toHaveAttribute("width", "56");
 		expect(progressIcon).toHaveAttribute("height", "56");
-		expect(progressIcon.querySelector(".progress-ring-bg")).toBeTruthy();
-		expect(progressIcon.querySelector(".progress-ring-fill")).toHaveAttribute(
-			"style",
-			expect.stringContaining("stroke-dashoffset: 54.288"),
+		expect(progressIcon.getAttribute("style") ?? "").toContain(
+			"--atlas-orbit-duration: 2260ms",
 		);
-		expect(progressIcon.querySelector(".progress-ring-bg")).toHaveAttribute(
-			"r",
-			"24",
-		);
-		expect(progressIcon.querySelector(".progress-ring-fill")).toHaveAttribute(
-			"stroke-dasharray",
-			"150.8",
-		);
-		expect(
-			progressIcon.querySelector(".atlas-card__progress-cycle-sweep"),
-		).toBeNull();
+		expect(progressIcon.querySelector(".orbit-group")).toBeTruthy();
 		expect(
 			screen.queryByTestId("atlas-exploration-svg"),
 		).not.toBeInTheDocument();

@@ -101,6 +101,9 @@ const lifecyclePanelLabel = $derived(
 const progressPercent = $derived(
 	Math.max(0, Math.min(100, Math.round(job.progress?.percent ?? 0))),
 );
+const orbitDurationMs = $derived(
+	Math.max(1000, Math.round(4500 - (progressPercent / 100) * 3500)),
+);
 const displayTitle = $derived(getProgressTitle(job));
 const downloadOptions = $derived(getDownloadOptions(job.outputs));
 
@@ -440,45 +443,39 @@ function submitLifecycleAction() {
 					<path d="M14 28 Q28 21 42 28" opacity="0.5"></path>
 					<path d="M28 14 Q35 28 28 42" opacity="0.5"></path>
 					<path d="M28 14 Q21 28 28 42" opacity="0.5"></path>
-					<path
-						d="M21 25 Q25 23 29 27 Q27 31 23 31 Z"
-						fill="currentColor"
-						opacity="0.35"
-						stroke="none"
-					></path>
-					<path
-						d="M33 20 Q37 22 35 28 Q31 26 33 20 Z"
-						fill="currentColor"
-						opacity="0.35"
-						stroke="none"
-					></path>
 				</svg>
 		{:else}
 			<div class="atlas-card__action-tooltip-container">
 				<svg
-					class="atlas-card__ring atlas-card__progress-cycle progress-ring-spinner"
+					class="atlas-card__exploration-svg exploration-svg"
 					data-testid="atlas-progress-cycle-icon"
 					width="56"
 					height="56"
 					viewBox="0 0 56 56"
 					fill="none"
+					stroke="currentColor"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
 					aria-hidden="true"
-					style={`--atlas-progress: ${progressPercent}%;`}
+					style={`--atlas-orbit-duration: ${orbitDurationMs}ms;`}
 				>
-					<circle
-						class="atlas-card__progress-cycle-track progress-ring-bg"
-						cx="28"
-						cy="28"
-						r="24"
-					></circle>
-					<circle
-						class="atlas-card__progress-cycle-fill progress-ring-fill"
-						cx="28"
-						cy="28"
-						r="24"
-						stroke-dasharray="150.8"
-						style={`--atlas-progress: ${progressPercent}%; stroke-dashoffset: ${150.8 * (1 - progressPercent / 100)};`}
-					></circle>
+					<g class="orbit-group">
+						<circle cx="28" cy="28" r="22" opacity="0.25"></circle>
+						<g transform="translate(28, 6)">
+							<path
+								d="M-5 -2 L4 0 L-5 2 Z"
+								fill="currentColor"
+								stroke="none"
+							></path>
+							<line x1="-9" y1="0" x2="-5" y2="0" opacity="0.5"></line>
+						</g>
+					</g>
+					<circle cx="28" cy="28" r="15" stroke-width="2"></circle>
+					<path d="M14 28 Q28 35 42 28" opacity="0.5"></path>
+					<path d="M14 28 Q28 21 42 28" opacity="0.5"></path>
+					<path d="M28 14 Q35 28 28 42" opacity="0.5"></path>
+					<path d="M28 14 Q21 28 28 42" opacity="0.5"></path>
 				</svg>
 				<div class="atlas-card__action-tooltip" role="tooltip">
 					<div class="atlas-card__tooltip-content">
@@ -734,61 +731,9 @@ function submitLifecycleAction() {
 	}
 
 	.atlas-card__exploration-svg .orbit-group {
-		animation: atlas-orbit 2.6s linear infinite;
+		animation: atlas-orbit var(--atlas-orbit-duration, 2.6s) linear infinite;
 		transform-box: view-box;
 		transform-origin: 28px 28px;
-	}
-
-	.atlas-card__ring {
-		width: 3.5rem;
-		height: 3.5rem;
-		overflow: visible;
-	}
-
-	.atlas-card__progress-cycle {
-		animation: atlas-progress-cycle-spin 2s linear infinite;
-		display: block;
-		transform-box: view-box;
-		transform-origin: 28px 28px;
-	}
-
-	.atlas-card__progress-cycle-track,
-	.atlas-card__progress-cycle-fill {
-		fill: none;
-		stroke-width: 4;
-	}
-
-	.atlas-card__progress-cycle-track {
-		stroke: color-mix(in srgb, currentColor 16%, transparent);
-	}
-
-	.atlas-card__progress-cycle-fill {
-		stroke: currentColor;
-		stroke-linecap: round;
-		transform: rotate(-90deg);
-		transform-origin: 50% 50%;
-		transition: stroke-dashoffset 420ms ease;
-	}
-
-	.progress-ring-spinner {
-		animation: atlas-progress-cycle-spin 2s linear infinite;
-		transform-origin: 50% 50%;
-	}
-
-	.progress-ring-bg {
-		fill: none;
-		stroke: color-mix(in srgb, currentColor 16%, transparent);
-		stroke-width: 4;
-	}
-
-	.progress-ring-fill {
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 4;
-		stroke-linecap: round;
-		transform: rotate(-90deg);
-		transform-origin: 50% 50%;
-		transition: stroke-dashoffset 0.5s ease;
 	}
 
 	.atlas-card__title-block {
@@ -1101,12 +1046,6 @@ function submitLifecycleAction() {
 		}
 	}
 
-	@keyframes atlas-progress-cycle-spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
 	@keyframes atlas-completion-card-in {
 		from {
 			opacity: 0;
@@ -1133,12 +1072,10 @@ function submitLifecycleAction() {
 	@media (prefers-reduced-motion: reduce) {
 		.atlas-card--complete,
 		.atlas-card--completion-enter .atlas-card__mark--complete,
-		.atlas-card__exploration-svg .orbit-group,
-		.atlas-card__progress-cycle {
+		.atlas-card__exploration-svg .orbit-group {
 			animation: none;
 		}
 
-		.atlas-card__progress-cycle-fill,
 		.atlas-card__open,
 		.atlas-card__ghost,
 		.atlas-card__icon-action,
