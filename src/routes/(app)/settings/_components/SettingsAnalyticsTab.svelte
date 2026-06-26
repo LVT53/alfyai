@@ -39,7 +39,9 @@ let {
 	onTimelineChange?: ((granularity: string) => void) | undefined;
 	allUsers?: Array<{ id: string; email: string; name: string | null }>;
 	excludedUserIds?: string[];
-	onExcludedUsersChange?: ((userIds: string[]) => void) | undefined;
+	onExcludedUsersChange?:
+		| ((userIds: string[]) => Promise<void> | void)
+		| undefined;
 } = $props();
 
 let modelChart = $state<ChartInstance | null>(null);
@@ -49,6 +51,10 @@ let modelChartCanvas = $state<HTMLCanvasElement | null>(null);
 let userChartCanvas = $state<HTMLCanvasElement | null>(null);
 let timelineChartCanvas = $state<HTMLCanvasElement | null>(null);
 let timelineGranularity = $state<"weekly" | "monthly" | "yearly">("weekly");
+let excludedUsersSaveState = $state<"idle" | "saving" | "saved" | "error">(
+	"idle",
+);
+let excludedUsersSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const timelineRows = $derived(analyticsData?.timeline ?? []);
 const perUserRows = $derived(analyticsData?.perUser ?? []);
 const hasPerUser = $derived(perUserRows.length > 0);
@@ -176,12 +182,28 @@ function selectAllSystemTime() {
 	onSystemMonthChange?.(null);
 }
 
-function toggleExcludedUser(userId: string) {
+async function toggleExcludedUser(userId: string) {
 	if (!onExcludedUsersChange) return;
 	const next = excludedUserIds.includes(userId)
 		? excludedUserIds.filter((id) => id !== userId)
 		: [...excludedUserIds, userId];
-	onExcludedUsersChange(next);
+	excludedUsersSaveState = "saving";
+	if (excludedUsersSaveTimer) {
+		clearTimeout(excludedUsersSaveTimer);
+		excludedUsersSaveTimer = null;
+	}
+	try {
+		await onExcludedUsersChange(next);
+		excludedUsersSaveState = "saved";
+		excludedUsersSaveTimer = setTimeout(() => {
+			excludedUsersSaveState = "idle";
+		}, 2000);
+	} catch {
+		excludedUsersSaveState = "error";
+		excludedUsersSaveTimer = setTimeout(() => {
+			excludedUsersSaveState = "idle";
+		}, 3000);
+	}
 }
 
 let comparisonHint = $derived.by(() => {
@@ -667,9 +689,25 @@ onDestroy(() => {
 
 	{#if isAdmin && allUsers.length > 0}
 		<section class="settings-card mb-4">
-			<div class="flex items-center justify-between mb-3">
-				<h2 class="settings-section-title mb-0">{$t('analytics.excludedUsers')}</h2>
-			</div>
+		<div class="flex items-center justify-between mb-3">
+			<h2 class="settings-section-title mb-0">{$t('analytics.excludedUsers')}</h2>
+			{#if excludedUsersSaveState !== "idle"}
+				<span
+					class="text-xs font-medium transition-opacity duration-200"
+					class:text-success={excludedUsersSaveState === "saved"}
+					class:text-danger={excludedUsersSaveState === "error"}
+					class:text-text-muted={excludedUsersSaveState === "saving"}
+				>
+					{#if excludedUsersSaveState === "saving"}
+						{$t('analytics.saving')}
+					{:else if excludedUsersSaveState === "saved"}
+						{$t('analytics.saved')}
+					{:else if excludedUsersSaveState === "error"}
+						{$t('analytics.saveFailed')}
+					{/if}
+				</span>
+			{/if}
+		</div>
 			<p class="text-xs text-text-muted mb-3">{$t('analytics.excludedUsersDescription')}</p>
 			<div class="grid grid-cols-1 gap-1 sm:grid-cols-2">
 				{#each allUsers as user}

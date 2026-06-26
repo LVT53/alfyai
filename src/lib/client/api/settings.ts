@@ -98,6 +98,12 @@ interface PerUserAnalytics {
 	conversationCount: number;
 }
 
+export interface AnalyticsUserSummary {
+	userId: string;
+	email: string | null;
+	name: string | null;
+}
+
 export interface AnalyticsResponse {
 	personal: PersonalAnalytics;
 	system?: SystemAnalytics;
@@ -105,6 +111,7 @@ export interface AnalyticsResponse {
 	availableMonths?: string[];
 	systemAvailableMonths?: string[];
 	timeline?: Array<{ label: string; tokens: number }>;
+	analyticsUsers?: AnalyticsUserSummary[];
 }
 
 export async function fetchUserSettings(

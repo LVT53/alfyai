@@ -286,15 +286,24 @@ async function handleSystemMonthChange(month: string | null) {
 }
 
 async function loadAllAdminUsers() {
-	if (!isAdmin || allAdminUsers.length > 0) return;
+	if (!isAdmin) return;
 	excludedUsersLoading = true;
 	try {
 		const users = await fetchAdminUsers();
-		allAdminUsers = users.map((u) => ({
+		const activeUsers = users.map((u) => ({
 			id: u.id,
 			email: u.email,
 			name: u.name,
 		}));
+		const activeIds = new Set(activeUsers.map((u) => u.id));
+		const historicalUsers = (analyticsData?.analyticsUsers ?? [])
+			.filter((u) => !activeIds.has(u.userId))
+			.map((u) => ({
+				id: u.userId,
+				email: u.email ?? "",
+				name: u.name ?? u.email ?? u.userId,
+			}));
+		allAdminUsers = [...activeUsers, ...historicalUsers];
 	} catch {
 		// non-fatal
 	} finally {
@@ -304,19 +313,15 @@ async function loadAllAdminUsers() {
 
 async function handleExcludedUsersChange(userIds: string[]) {
 	excludedAnalyticsUserIds = userIds;
-	try {
-		await updateAdminConfig({
-			ANALYTICS_EXCLUDED_USER_IDS: JSON.stringify(userIds),
-			...adminConfig,
-		});
-		adminConfig = {
-			...adminConfig,
-			ANALYTICS_EXCLUDED_USER_IDS: JSON.stringify(userIds),
-		};
-		await loadAnalytics(analyticsMonth, "weekly", systemAnalyticsMonth);
-	} catch {
-		// non-fatal
-	}
+	await updateAdminConfig({
+		ANALYTICS_EXCLUDED_USER_IDS: JSON.stringify(userIds),
+		...adminConfig,
+	});
+	adminConfig = {
+		...adminConfig,
+		ANALYTICS_EXCLUDED_USER_IDS: JSON.stringify(userIds),
+	};
+	await loadAnalytics(analyticsMonth, "weekly", systemAnalyticsMonth);
 }
 
 async function removePhoto() {

@@ -142,6 +142,12 @@ interface PerUserAnalytics {
 	conversationCount: number;
 }
 
+export interface AnalyticsUserSummary {
+	userId: string;
+	email: string | null;
+	name: string | null;
+}
+
 export interface AnalyticsDashboardReadModel {
 	personal: PersonalAnalytics;
 	system?: SystemAnalytics;
@@ -149,6 +155,7 @@ export interface AnalyticsDashboardReadModel {
 	availableMonths?: string[];
 	systemAvailableMonths?: string[];
 	timeline?: Array<{ label: string; tokens: number }>;
+	analyticsUsers?: AnalyticsUserSummary[];
 }
 
 const MOCK_ANALYTICS: AnalyticsDashboardReadModel = {
@@ -695,12 +702,30 @@ export async function getAnalyticsDashboardReadModel({
 		)
 	).sort((left, right) => right.messageCount - left.messageCount);
 
+	const analyticsUsers: AnalyticsUserSummary[] = [
+		...new Map(
+			usageRows.map((row) => [
+				row.userId,
+				{
+					userId: row.userId,
+					email: row.userEmail ?? null,
+					name: row.userName ?? null,
+				},
+			]),
+		).values(),
+	].sort((left, right) => {
+		const leftName = left.name ?? left.email ?? left.userId;
+		const rightName = right.name ?? right.email ?? right.userId;
+		return leftName.localeCompare(rightName);
+	});
+
 	return {
 		personal,
 		system,
 		perUser,
 		availableMonths,
 		systemAvailableMonths,
+		analyticsUsers: isAdmin ? analyticsUsers : undefined,
 		...(timelineRows ? { timeline: timelineRows } : {}),
 	};
 }
