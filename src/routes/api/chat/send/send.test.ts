@@ -429,8 +429,7 @@ describe("POST /api/chat/send", () => {
 		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Research Atlas transport" },
 			assistantMessage: {
-				content:
-					"Atlas is queued with the overview profile. You can close this page.",
+				content: "",
 			},
 		});
 
@@ -456,7 +455,7 @@ describe("POST /api/chat/send", () => {
 		expect(data).toEqual(
 			expect.objectContaining({
 				response: {
-					text: "Atlas is queued with the overview profile. You can close this page and return for progress.",
+					text: "",
 				},
 				conversationId: "conv-1",
 				atlasJob: expect.objectContaining({
@@ -483,7 +482,7 @@ describe("POST /api/chat/send", () => {
 		expect(mockCreateMessage).toHaveBeenCalledWith(
 			"conv-1",
 			"assistant",
-			"Atlas is queued with the overview profile. You can close this page and return for progress.",
+			"",
 			undefined,
 			undefined,
 			expect.objectContaining({

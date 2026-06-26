@@ -257,8 +257,8 @@ export async function kickoffAtlasTurn(
 	};
 }
 
-function buildAtlasKickoffAssistantMessage(profile: AtlasProfile): string {
-	return `Atlas is queued with the ${profile} profile. You can close this page and return for progress.`;
+function buildAtlasKickoffAssistantMessage(_profile: AtlasProfile): string {
+	return "";
 }
 
 function normalizeAtlasAction(action: AtlasAction | undefined): AtlasAction {

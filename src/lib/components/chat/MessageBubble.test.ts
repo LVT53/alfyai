@@ -21,8 +21,7 @@ const markdownLoaderMock = vi.hoisted(() => ({
 	),
 }));
 
-const atlasKickoffText =
-	"Atlas is queued with the overview profile. You can close this page and return for progress.";
+const atlasKickoffText = "";
 
 function buildAtlasJob(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 	return {
@@ -154,7 +153,7 @@ describe("MessageBubble", () => {
 		expect(screen.getByTestId("atlas-card")).toBeInTheDocument();
 	});
 
-	it("keeps the original Atlas kickoff text even when the linked Atlas job succeeded", async () => {
+	it("shows the Atlas card without kickoff text when the linked Atlas job succeeded", async () => {
 		const message: ChatMessage = {
 			id: "assistant-atlas",
 			renderKey: "assistant-atlas",
@@ -181,11 +180,11 @@ describe("MessageBubble", () => {
 			],
 		});
 
-		expect(await screen.findByText(atlasKickoffText)).toBeInTheDocument();
+		expect(await screen.findByTestId("atlas-card")).toBeInTheDocument();
 		expect(screen.queryByText("Report is ready")).not.toBeInTheDocument();
 	});
 
-	it("keeps the Atlas kickoff text while the linked Atlas job is still running", async () => {
+	it("shows the Atlas card without kickoff text while the linked Atlas job is still running", async () => {
 		const message: ChatMessage = {
 			id: "assistant-atlas",
 			renderKey: "assistant-atlas",
@@ -201,7 +200,7 @@ describe("MessageBubble", () => {
 			atlasJobs: [buildAtlasJob({ status: "running" })],
 		});
 
-		expect(await screen.findByText(atlasKickoffText)).toBeInTheDocument();
+		expect(await screen.findByTestId("atlas-card")).toBeInTheDocument();
 		expect(screen.queryByText("Report is ready")).not.toBeInTheDocument();
 	});
 

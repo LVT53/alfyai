@@ -387,16 +387,13 @@ async function runAtlasSendTurn({
 }
 
 function buildAtlasKickoffAssistantMessage({
-	profile,
-	language,
+	profile: _profile,
+	language: _language,
 }: {
 	profile: string;
 	language: "en" | "hu";
 }): string {
-	if (language === "hu") {
-		return `Az Atlas várólistára került a(z) ${profile} profillal. Bezárhatod ezt az oldalt, és később visszatérhetsz a folyamat állásához.`;
-	}
-	return `Atlas is queued with the ${profile} profile. You can close this page and return for progress.`;
+	return "";
 }
 
 async function snapshotAtlasLinkedSources(input: {

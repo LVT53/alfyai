@@ -739,12 +739,14 @@ function toggleForkDetails() {
 			{/if}
 		{:else}
 			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.5] md:leading-[1.55]">
+			{#if !hasAtlasCards}
 			<MarkdownRenderer
 				content={message.content}
 				isDark={$isDark}
 				isStreaming={Boolean(message.isStreaming)}
 				compactExternalLinks
 			/>
+			{/if}
 			</div>
 			{#if showPreparingStatus}
 				<div class="preparing-status" aria-live="polite">{$t('chat.preparingResponse')}</div>
