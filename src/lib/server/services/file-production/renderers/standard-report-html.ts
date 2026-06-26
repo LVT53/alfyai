@@ -510,7 +510,7 @@ function renderBasisMarker(
 			.join("");
 		sourceListHtml = `<ul class="basis-tooltip-sources">${items}</ul>`;
 	}
-	return `<button type="button" class="basis-marker basis-marker--${escapeHtml(marker.support)}" data-basis-id="${escapeHtml(marker.id)}" data-basis-support="${escapeHtml(marker.support)}" title="${accessibleLabel}" aria-label="${accessibleLabel}"><span class="basis-tooltip" role="tooltip"><strong>${escapeHtml(label)}</strong><span class="basis-tooltip-rationale">${rationale}</span>${sourceListHtml}</span></button>`;
+	return `<button type="button" class="basis-marker basis-marker--${escapeHtml(marker.support)}" data-basis-id="${escapeHtml(marker.id)}" data-basis-support="${escapeHtml(marker.support)}" aria-label="${accessibleLabel}"><span class="basis-tooltip" role="tooltip"><strong>${escapeHtml(label)}</strong><span class="basis-tooltip-rationale">${rationale}</span>${sourceListHtml}</span></button>`;
 }
 
 function markerAnchorIndex(

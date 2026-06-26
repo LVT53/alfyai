@@ -724,11 +724,9 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 			'class="basis-marker basis-marker--unsupported"',
 		);
 		expect(markerBlock).toContain(
-			'title="Unsupported claim: No accepted source supports the fallback claim."',
-		);
-		expect(markerBlock).toContain(
 			'aria-label="Unsupported claim: No accepted source supports the fallback claim."',
 		);
+		expect(markerBlock).not.toContain('title="');
 		expect(markerBlock).toContain("<strong>Unsupported claim</strong>");
 		expect(markerBlock).toContain(
 			'<span class="basis-tooltip-rationale">No accepted source supports the fallback claim.</span>',
