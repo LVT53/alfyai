@@ -13,7 +13,6 @@ import {
 import {
 	DEFAULT_ATLAS_GLOBAL_ACTIVE_LIMIT,
 	DEFAULT_ATLAS_PER_USER_ACTIVE_LIMIT,
-	DEFAULT_ATLAS_STALE_WORKER_MS,
 	DEFAULT_ATLAS_WORKER_ENABLED,
 	getAtlasProfileRuntimeConfig,
 } from "./config";
@@ -353,8 +352,9 @@ export async function ensureAtlasWorker(): Promise<void> {
 	const config = getConfig();
 	const enabled = config.atlasWorkerEnabled ?? DEFAULT_ATLAS_WORKER_ENABLED;
 	if (!enabled) return;
+	// On startup, recover ALL running jobs — the prior process is dead.
 	const recovered = await recoverStaleAtlasJobs({
-		staleBefore: new Date(Date.now() - DEFAULT_ATLAS_STALE_WORKER_MS),
+		staleBefore: new Date(),
 	});
 	if (recovered.recovered > 0) {
 		console.info("[ATLAS] Recovered stale jobs", {

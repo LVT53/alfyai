@@ -141,6 +141,7 @@ async function runNormalChatModelBoundary(
 	return model.runPlainNormalChatModelRun({
 		provider,
 		modelId: resolvedModelId,
+		runtimeConfig,
 		messages: input.messages,
 		system: input.system,
 		maxOutputTokens: input.maxOutputTokens,
