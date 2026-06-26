@@ -516,7 +516,7 @@ $effect(() => {
 				<div class="max-h-[calc(88vh-80px)] overflow-y-auto px-5 py-5">
 					<div class="grid gap-2">
 						{#each additionalReviewItems as item (item.id)}
-							<div class="memory-review-card flex items-start justify-between gap-3 rounded-[0.75rem] border border-border bg-surface-page px-3 py-3">
+					<div class="memory-review-card flex items-start justify-between gap-3 bg-surface-page px-3 py-3">
 								<div class="min-w-0">
 									{#if item.question}
 										<p class="break-words text-sm font-sans leading-[1.55] text-text-primary">{item.question}</p>
@@ -601,7 +601,8 @@ $effect(() => {
 	}
 
 	.memory-review-card {
-		border-left: 2px solid var(--accent);
+		border-left: 3px solid var(--accent);
+		border-radius: 0;
 		background: color-mix(in srgb, var(--accent) 5%, var(--surface-page) 95%);
 	}
 

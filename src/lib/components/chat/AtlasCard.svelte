@@ -582,34 +582,58 @@ function submitLifecycleAction() {
 					{/if}
 				</div>
 			{/if}
+		<div class="atlas-card__action-tooltip-container">
 			<button
 				type="button"
 				class="atlas-card__icon-action"
 				onclick={() => togglePanel('continue')}
 				aria-label={$t("atlas.action.continue")}
-				title={$t("atlas.action.continue")}
+				aria-describedby="atlas-continue-tooltip"
 			>
 				<MessagesSquare size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
+			<div id="atlas-continue-tooltip" class="atlas-card__action-tooltip" role="tooltip">
+				<div class="atlas-card__tooltip-content">
+					<span class="atlas-card__tooltip-label">{$t("atlas.action.continue")}</span>
+					<span class="atlas-card__tooltip-desc">{$t("atlas.action.continueTooltip")}</span>
+				</div>
+			</div>
+		</div>
+		<div class="atlas-card__action-tooltip-container">
 			<button
 				type="button"
 				class="atlas-card__icon-action"
 				onclick={() => togglePanel('fork')}
 				aria-label={$t("atlas.action.fork")}
-				title={$t("atlas.action.fork")}
+				aria-describedby="atlas-fork-tooltip"
 			>
 				<Split size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
+			<div id="atlas-fork-tooltip" class="atlas-card__action-tooltip" role="tooltip">
+				<div class="atlas-card__tooltip-content">
+					<span class="atlas-card__tooltip-label">{$t("atlas.action.fork")}</span>
+					<span class="atlas-card__tooltip-desc">{$t("atlas.action.forkTooltip")}</span>
+				</div>
+			</div>
+		</div>
+		<div class="atlas-card__action-tooltip-container">
 			<button
 				type="button"
 				class="atlas-card__icon-action"
 				onclick={() => togglePanel('revise')}
 				aria-label={$t("atlas.action.revise")}
-				title={$t("atlas.action.revise")}
+				aria-describedby="atlas-revise-tooltip"
 			>
 				<Pencil size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
+			<div id="atlas-revise-tooltip" class="atlas-card__action-tooltip" role="tooltip">
+				<div class="atlas-card__tooltip-content">
+					<span class="atlas-card__tooltip-label">{$t("atlas.action.revise")}</span>
+					<span class="atlas-card__tooltip-desc">{$t("atlas.action.reviseTooltip")}</span>
+				</div>
+			</div>
 		</div>
+	</div>
 
 		{#if activePanel}
 			<section class="atlas-card__panel" aria-label={lifecyclePanelLabel}>
@@ -939,6 +963,61 @@ function submitLifecycleAction() {
 	.atlas-card__download {
 		position: relative;
 		display: inline-flex;
+	}
+
+	.atlas-card__action-tooltip-container {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.atlas-card__action-tooltip {
+		position: absolute;
+		bottom: calc(100% + 8px);
+		left: 50%;
+		transform: translateX(-50%) translateY(4px);
+		opacity: 0;
+		visibility: hidden;
+		transition:
+			opacity var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out),
+			visibility var(--duration-standard);
+		z-index: 50;
+		pointer-events: none;
+	}
+
+	.atlas-card__action-tooltip-container:hover .atlas-card__action-tooltip,
+	.atlas-card__action-tooltip-container:focus-within .atlas-card__action-tooltip {
+		opacity: 1;
+		visibility: visible;
+		transform: translateX(-50%) translateY(0);
+	}
+
+	.atlas-card__tooltip-content {
+		background: var(--surface-overlay);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		padding: var(--space-sm) var(--space-md);
+		box-shadow: var(--shadow-lg);
+		white-space: normal;
+		width: max-content;
+		max-width: 16rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.atlas-card__tooltip-label {
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.atlas-card__tooltip-desc {
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		line-height: 1.4;
+		color: var(--text-muted);
 	}
 
 	.atlas-card__download-menu {

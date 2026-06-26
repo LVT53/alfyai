@@ -56,12 +56,18 @@ const chatDict = {
 		"chat.uploadingFile": "Uploading file...",
 		"atlas.action.cancel": "Cancel Atlas",
 		"atlas.action.continue": "Continue Atlas",
+		"atlas.action.continueTooltip":
+			"Go deeper into this research. Builds on the same evidence and sources to expand the report.",
 		"atlas.action.download": "Download Atlas",
 		"atlas.action.downloadHtml": "Download HTML",
 		"atlas.action.downloadMarkdown": "Download Markdown",
 		"atlas.action.downloadPdf": "Download PDF",
 		"atlas.action.fork": "Fork Atlas",
+		"atlas.action.forkTooltip":
+			"Start a new research direction from this report. Creates a separate branch with fresh searches.",
 		"atlas.action.revise": "Revise Atlas",
+		"atlas.action.reviseTooltip":
+			"Update this report with new information. Reuses the same evidence base and runs fresh searches for newer data.",
 		"atlas.cancelUnavailable":
 			"Atlas cancellation is not available until the worker endpoint is enabled.",
 		"browserPush.denied": "Notifications denied",
@@ -674,12 +680,18 @@ const chatDict = {
 		"chat.uploadingFile": "Fájl feltöltése...",
 		"atlas.action.cancel": "Atlas megszakítása",
 		"atlas.action.continue": "Atlas folytatása",
+		"atlas.action.continueTooltip":
+			"Mélyebb kutatás ugyanebben a témában. A meglévő bizonyítékokra és forrásokra építve bővíti a jelentést.",
 		"atlas.action.download": "Atlas letöltése",
 		"atlas.action.downloadHtml": "HTML letöltése",
 		"atlas.action.downloadMarkdown": "Markdown letöltése",
 		"atlas.action.downloadPdf": "PDF letöltése",
 		"atlas.action.fork": "Atlas elágaztatása",
+		"atlas.action.forkTooltip":
+			"Új kutatási irány indítása ebből a jelentésből. Külön ágat hoz létre friss keresésekkel.",
 		"atlas.action.revise": "Atlas átdolgozása",
+		"atlas.action.reviseTooltip":
+			"A jelentés frissítése új információkkal. Újrahasználja a bizonyítékokat és friss kereséseket futtat újabb adatokért.",
 		"atlas.cancelUnavailable":
 			"Az Atlas megszakítása a worker végpont bekapcsolása után érhető el.",
 		"browserPush.denied": "Az értesítések tiltva",
