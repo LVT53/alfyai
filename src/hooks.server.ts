@@ -17,7 +17,10 @@ import { prewarmSandboxImageInBackground } from "$lib/server/sandbox/config";
 import { ensureAtlasWorker } from "$lib/server/services/atlas";
 import { validateSession } from "$lib/server/services/auth";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
-import { ensureMemoryMaintenanceScheduler } from "$lib/server/services/memory-maintenance";
+import {
+	ensureMemoryMaintenanceScheduler,
+	stopMemoryMaintenanceScheduler,
+} from "$lib/server/services/memory-maintenance";
 import { seedDefaultProviders } from "$lib/server/services/providers";
 
 const PUBLIC_PATHS = [
@@ -105,6 +108,19 @@ export const init: ServerInit = async () => {
 	ensureAtlasWorker().catch((error) =>
 		console.error("Failed to start Atlas worker:", error),
 	);
+
+	// Graceful shutdown: adapter-node's graceful_shutdown handler calls
+	// closeIdleConnections(), then server.close(), then after SHUTDOWN_TIMEOUT
+	// (default 30s) calls closeAllConnections(), then emits sveltekit:shutdown.
+	// Without this handler the process would linger until systemd's
+	// TimeoutStopSec (default 90s) sends SIGKILL.
+	process.on("sveltekit:shutdown", (_reason: string) => {
+		console.log("[SHUTDOWN] Server closed, stopping background workers");
+		stopMemoryMaintenanceScheduler();
+		// Exit immediately so systemd restart completes quickly.
+		// systemd TimeoutStopSec=90 provides the safety net if something blocks.
+		process.exit(0);
+	});
 };
 
 const appHandle: Handle = async ({ event, resolve }) => {

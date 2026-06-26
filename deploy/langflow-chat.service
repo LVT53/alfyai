@@ -5,13 +5,14 @@ After=network.target
 [Service]
 Type=simple
 User=alfyai
+Group=alfyai
 WorkingDirectory=/opt/alfyai
 EnvironmentFile=/opt/alfyai/.env
-ExecStart=/usr/bin/npm start
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/alfyai/build/index.js
 Restart=on-failure
 RestartSec=10
-TimeoutStopSec=15
-KillMode=mixed
+TimeoutStopSec=90
 StandardOutput=journal
 StandardError=journal
 
