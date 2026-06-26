@@ -853,7 +853,7 @@ function toggleForkDetails() {
 
 	</div>
 
-	{#if !message.isStreaming && !isEditing}
+	{#if !message.isStreaming && !isEditing && !hasAtlasCards}
 		<div
 			class="copy-action-row flex w-full items-center gap-0.5 opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100"
 			class:justify-end={isUser}
@@ -882,8 +882,8 @@ function toggleForkDetails() {
 				</div>
 			{/if}
 
-			{#if !isUser && !readOnly}
-				<!-- Regenerate button -->
+		{#if !isUser && !readOnly}
+			<!-- Regenerate button -->
 				<div class="action-tooltip-container">
 					<button
 						id={regenerateButtonId}
