@@ -1,6 +1,3 @@
-import type { NormalChatModelRunCompatibilityProvider } from "./provider-compatibility";
-import { isMiMoProvider } from "./provider-compatibility";
-
 export type MiMoReasoningReplayState = {
 	reasoningByToolCallId: Map<string, string>;
 };
@@ -18,11 +15,9 @@ type PreparedFetchRequest = {
 const OMIT_JSON_BODY = Symbol("omit-json-body");
 
 export function createMiMoReasoningReplayFetch(params: {
-	provider: NormalChatModelRunCompatibilityProvider;
 	fetch?: typeof fetch;
 }): typeof fetch {
 	const baseFetch = params.fetch ?? fetch;
-	if (!isMiMoProvider(params.provider)) return baseFetch;
 
 	const replayState: MiMoReasoningReplayState = {
 		reasoningByToolCallId: new Map(),

@@ -13,6 +13,11 @@ import {
 	getProviderWithSecrets,
 } from "../providers";
 import type { NormalChatModelRunProvider } from "./index";
+import {
+	type NormalChatModelRunCompatibilityProvider,
+	type OpenAICompatibleProviderErrorClassification,
+	resolveOpenAICompatibleProviderAdapterProfile,
+} from "./provider-compatibility";
 
 type ModelTimeoutLikeError = Error & {
 	code?: unknown;
@@ -24,6 +29,10 @@ type ModelRateLimitLikeError = Error & {
 	status?: unknown;
 	code?: unknown;
 	cause?: unknown;
+};
+
+type NormalChatFallbackClassificationOptions = {
+	provider?: NormalChatModelRunCompatibilityProvider | null;
 };
 
 const TIMEOUT_ERROR_NAMES = new Set(["apitimeouterror", "timeouterror"]);
@@ -139,23 +148,41 @@ export function isModelRateLimitError(error: unknown): boolean {
 	return isModelRateLimitErrorInner(error, new Set<unknown>());
 }
 
-export function isRetryableNormalChatFallbackError(error: unknown): boolean {
+export function isRetryableNormalChatFallbackError(
+	error: unknown,
+	options: NormalChatFallbackClassificationOptions = {},
+): boolean {
 	if (isModelTimeoutError(error) || isModelRateLimitError(error)) {
 		return true;
 	}
 
-	const statusCode = readHttpStatusCode(error);
-	if (statusCode !== null) {
-		if (statusCode >= 500) return true;
-		if (statusCode === 429) return true;
+	if (
+		error instanceof Error &&
+		isNonRetryableFallbackMessage(error.message.toLowerCase())
+	) {
 		return false;
 	}
+
+	const adapterClassification = classifyProviderErrorForFallback(
+		error,
+		options.provider,
+	);
+
+	const statusCode = readHttpStatusCode(error);
+	if (statusCode !== null) {
+		if (statusCode === 401 || statusCode === 403) return false;
+		if (statusCode >= 500) return true;
+		if (statusCode === 429) return true;
+		if (adapterClassification === "retryable") return true;
+		return false;
+	}
+
+	if (adapterClassification === "retryable") return true;
+	if (adapterClassification === "non_retryable") return false;
 
 	if (!(error instanceof Error)) return false;
 
 	const message = error.message.toLowerCase();
-	if (isNonRetryableFallbackMessage(message)) return false;
-
 	return (
 		isRetryableTransportMessage(message) ||
 		isRetryableUnavailableMessage(message) ||
@@ -203,6 +230,60 @@ function readHttpStatusCode(error: unknown): number | null {
 	if (typeof maybe.statusCode === "number") return maybe.statusCode;
 	if (typeof maybe.status === "number") return maybe.status;
 	return null;
+}
+
+function classifyProviderErrorForFallback(
+	error: unknown,
+	provider?: NormalChatModelRunCompatibilityProvider | null,
+): OpenAICompatibleProviderErrorClassification {
+	if (!provider) return "unknown";
+	const payload = readStructuredProviderErrorPayload(error);
+	if (!payload) return "unknown";
+
+	try {
+		return resolveOpenAICompatibleProviderAdapterProfile(
+			provider,
+		).classifyProviderError(payload);
+	} catch {
+		return "unknown";
+	}
+}
+
+function readStructuredProviderErrorPayload(
+	error: unknown,
+	seen = new Set<unknown>(),
+): Record<string, unknown> | null {
+	if (!isRecord(error)) return null;
+	if (seen.has(error)) return null;
+	seen.add(error);
+
+	if (isRecord(error.data)) return error.data;
+
+	const parsedResponseBody = parseStructuredProviderErrorResponseBody(
+		error.responseBody,
+	);
+	if (parsedResponseBody) return parsedResponseBody;
+
+	return readStructuredProviderErrorPayload(error.cause, seen);
+}
+
+function parseStructuredProviderErrorResponseBody(
+	responseBody: unknown,
+): Record<string, unknown> | null {
+	if (typeof responseBody !== "string") return null;
+	const trimmed = responseBody.trim();
+	if (!trimmed.startsWith("{")) return null;
+
+	try {
+		const parsed: unknown = JSON.parse(trimmed);
+		return isRecord(parsed) ? parsed : null;
+	} catch {
+		return null;
+	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function isRetryableTransportMessage(message: string): boolean {

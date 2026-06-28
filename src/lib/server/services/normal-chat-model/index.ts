@@ -42,7 +42,7 @@ import {
 	resolveNormalChatFallbackTargetModelId,
 } from "./failover";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "./openai-compatible-provider";
-import { buildNormalChatModelRunCompatibilityProviderOptions } from "./provider-compatibility";
+import { resolveOpenAICompatibleProviderAdapterProfile } from "./provider-compatibility";
 
 export {
 	createOpenAICompatibleProviderForNormalChatModelRun,
@@ -315,6 +315,14 @@ export type StreamingNormalChatModelRunEvent =
 			error: string;
 	  };
 
+type StreamingNormalChatModelRunAttemptEvent =
+	| StreamingNormalChatModelRunEvent
+	| {
+			type: "internal_error";
+			error: string;
+			rawError: unknown;
+	  };
+
 export async function resolveNormalChatModelRunProvider(
 	modelId: string,
 	runtimeConfig?: NormalChatModelRunRuntimeConfig,
@@ -490,10 +498,9 @@ export function buildNormalChatModelRunProviderOptions(
 ): NormalChatModelRunProviderOptions | undefined {
 	if (isCapabilityUnsupported(provider, "reasoningControls")) return undefined;
 
-	const options = buildNormalChatModelRunCompatibilityProviderOptions(
-		provider,
-		thinkingMode,
-	);
+	const adapterProfile =
+		resolveOpenAICompatibleProviderAdapterProfile(provider);
+	const options = adapterProfile.buildProviderOptions(provider, thinkingMode);
 	if (Object.keys(options).length === 0) return undefined;
 
 	return { [provider.name]: options };
@@ -798,7 +805,9 @@ export async function runPlainNormalChatModelRun(
 				nextFallbackTarget &&
 				nextFallbackTarget !== currentModelId &&
 				params.runtimeConfig &&
-				isRetryableNormalChatFallbackError(retryableError)
+				isRetryableNormalChatFallbackError(retryableError, {
+					provider: currentProvider,
+				})
 			) {
 				currentProvider = await resolveNormalChatModelRunProvider(
 					nextFallbackTarget,
@@ -991,17 +1000,18 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 			for await (const event of streamStreamingNormalChatModelRunAttempt(
 				attemptParams,
 			)) {
-				if (event.type === "error") {
+				if (event.type === "internal_error") {
 					if (params.abortSignal?.aborted || hasEmittedRetryBoundary) {
-						yield event;
+						yield { type: "error", error: event.error };
 						return;
 					}
 
 					const upstreamError = firstOutputTimedOut
 						? createFirstOutputTimeoutError()
-						: new Error(event.error);
+						: event.rawError;
 					const retry = await resolveNormalChatFallbackProvider({
 						error: upstreamError,
+						currentProvider,
 						currentModelId,
 						originalModelId,
 						skipPerModelFallback,
@@ -1015,7 +1025,7 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 						continue attemptLoop;
 					}
 
-					yield event;
+					yield { type: "error", error: event.error };
 					return;
 				}
 
@@ -1029,6 +1039,7 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 				const upstreamError = createFirstOutputTimeoutError();
 				const retry = await resolveNormalChatFallbackProvider({
 					error: upstreamError,
+					currentProvider,
 					currentModelId,
 					originalModelId,
 					skipPerModelFallback,
@@ -1055,6 +1066,7 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 
 			const retry = await resolveNormalChatFallbackProvider({
 				error: terminalError,
+				currentProvider,
 				currentModelId,
 				originalModelId,
 				skipPerModelFallback,
@@ -1078,6 +1090,7 @@ async function* streamStreamingNormalChatModelRunWithFailover(
 
 async function resolveNormalChatFallbackProvider(params: {
 	error: unknown;
+	currentProvider: NormalChatModelRunProvider;
 	currentModelId: string;
 	originalModelId: string;
 	skipPerModelFallback: boolean;
@@ -1088,7 +1101,13 @@ async function resolveNormalChatFallbackProvider(params: {
 	modelId: string;
 } | null> {
 	if (!params.allowFallbackAttempt || !params.runtimeConfig) return null;
-	if (!isRetryableNormalChatFallbackError(params.error)) return null;
+	if (
+		!isRetryableNormalChatFallbackError(params.error, {
+			provider: params.currentProvider,
+		})
+	) {
+		return null;
+	}
 
 	const fallbackModelId = await resolveNormalChatFallbackTargetModelId(
 		params.originalModelId as ModelId,
@@ -1111,7 +1130,7 @@ async function resolveNormalChatFallbackProvider(params: {
 
 async function* streamStreamingNormalChatModelRunAttempt(
 	params: StreamingNormalChatModelRunParams,
-): AsyncIterable<StreamingNormalChatModelRunEvent> {
+): AsyncIterable<StreamingNormalChatModelRunAttemptEvent> {
 	const provider = createNormalChatOpenAICompatibleProvider({
 		provider: params.provider,
 		fetch: params.fetch,
@@ -1157,7 +1176,7 @@ async function* streamStreamingNormalChatModelRunAttempt(
 
 	const yieldStreamEvents = async function* (
 		fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
-	): AsyncGenerator<StreamingNormalChatModelRunEvent, void, undefined> {
+	): AsyncGenerator<StreamingNormalChatModelRunAttemptEvent, void, undefined> {
 		for await (const part of fullStream) {
 			switch (part.type) {
 				case "text-delta":
@@ -1247,7 +1266,11 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					};
 					break;
 				case "error":
-					yield { type: "error", error: errorMessage(part.error) };
+					yield {
+						type: "internal_error",
+						error: errorMessage(part.error),
+						rawError: part.error,
+					};
 					break;
 				default:
 					break;
@@ -1280,6 +1303,10 @@ async function* streamStreamingNormalChatModelRunAttempt(
 			);
 		}
 	} catch (error) {
-		yield { type: "error", error: errorMessage(error) };
+		yield {
+			type: "internal_error",
+			error: errorMessage(error),
+			rawError: error,
+		};
 	}
 }

@@ -166,7 +166,7 @@ function normalizeServerSentEvent(
 		return rawEvent;
 	}
 
-	const normalized = normalizeChatCompletionChunkToolCalls(
+	const normalized = normalizeChatCompletionChunk(
 		parsed,
 		state,
 		createSyntheticId,
@@ -185,6 +185,22 @@ function normalizeServerSentEvent(
 
 	lines[dataLineIndex] = `data: ${JSON.stringify(normalized)}`;
 	return `${parameterlessArgumentEvents}${lines.join(newline)}${separator}`;
+}
+
+function normalizeChatCompletionChunk(
+	value: unknown,
+	state: StreamNormalizerState,
+	createSyntheticId: SyntheticToolCallIdFactory,
+): unknown {
+	const normalizedToolCalls = normalizeChatCompletionChunkToolCalls(
+		value,
+		state,
+		createSyntheticId,
+	);
+	if (normalizedToolCalls === OMIT_SERVER_SENT_EVENT) {
+		return OMIT_SERVER_SENT_EVENT;
+	}
+	return normalizeChatCompletionChunkChoiceUsage(normalizedToolCalls);
 }
 
 function normalizeChatCompletionChunkToolCalls(
@@ -290,6 +306,29 @@ function normalizeChatCompletionChunkToolCalls(
 	if (!changed) return value;
 	if (choices.length === 0) return OMIT_SERVER_SENT_EVENT;
 	return { ...value, choices };
+}
+
+function normalizeChatCompletionChunkChoiceUsage(value: unknown): unknown {
+	if (!isRecord(value) || !Array.isArray(value.choices)) return value;
+
+	let liftedUsage: unknown;
+	let changed = false;
+	const choices = value.choices.map((choice) => {
+		if (!isRecord(choice) || !isRecord(choice.usage)) return choice;
+
+		liftedUsage = choice.usage;
+		changed = true;
+		const choiceWithoutUsage = { ...choice };
+		delete choiceWithoutUsage.usage;
+		return choiceWithoutUsage;
+	});
+
+	if (!changed) return value;
+	return {
+		...value,
+		choices,
+		usage: isRecord(value.usage) ? value.usage : liftedUsage,
+	};
 }
 
 function normalizeToolCallId(

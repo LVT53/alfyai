@@ -1,4 +1,4 @@
-import { tool } from "ai";
+import { generateText, streamText, tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
@@ -29,6 +29,7 @@ vi.mock("../provider-models", () => ({
 
 import {
 	buildNormalChatModelRunProviderOptions,
+	createOpenAICompatibleProviderForNormalChatModelRun,
 	mapNormalChatModelRunUsageToProviderSnapshot,
 	resolveNormalChatModelRunProvider,
 	runPlainNormalChatModelRun,
@@ -86,6 +87,19 @@ function createDoneTool() {
 	return tool({
 		description: "Finish the assistant response.",
 		inputSchema: doneToolSchema,
+	});
+}
+
+function createMemoryContextTool(
+	execute: (
+		input: Record<string, never>,
+		context?: { toolCallId?: string },
+	) => unknown = vi.fn(),
+) {
+	return tool({
+		description: "Read relevant memory context.",
+		inputSchema: z.object({}),
+		execute,
 	});
 }
 
@@ -228,13 +242,16 @@ function createStreamResponse(
 	);
 }
 
-function createProviderFromFixture(fixture: ProviderStreamFixture) {
+function createProviderFromFixture(
+	fixture: ProviderStreamFixture,
+	options: { requestedModelName?: string } = {},
+) {
 	return {
 		id: `${fixture.providerName}-provider`,
 		name: fixture.providerName,
 		displayName: fixture.providerDisplayName,
 		baseUrl: fixture.baseUrl,
-		modelName: fixture.model,
+		modelName: options.requestedModelName ?? fixture.model,
 		apiKey: "plain-secret",
 	};
 }
@@ -245,6 +262,42 @@ async function collectStreamingEvents(args: StreamRunArgs) {
 		events.push(event);
 	}
 	return events;
+}
+
+function expectedUsageEvent(fixture: ProviderStreamFixture) {
+	return {
+		type: "usage",
+		usage: {
+			inputTokens: fixture.expected.usage?.prompt_tokens,
+			outputTokens: fixture.expected.usage?.completion_tokens,
+			totalTokens: fixture.expected.usage?.total_tokens,
+		},
+	};
+}
+
+function expectedFinishReason(fixture: ProviderStreamFixture) {
+	return fixture.expected.finishReason === "tool_calls"
+		? "tool-calls"
+		: fixture.expected.finishReason;
+}
+
+function expectedFixtureFinishEvent(
+	fixture: ProviderStreamFixture,
+	requestedModelName: string,
+) {
+	return {
+		type: "finish",
+		finishReason: expectedFinishReason(fixture),
+		rawFinishReason: fixture.expected.finishReason,
+		model: {
+			modelId: `${fixture.providerName}-provider`,
+			providerId: `${fixture.providerName}-provider`,
+			providerName: fixture.providerName,
+			displayName: fixture.providerDisplayName,
+			requestedModelName,
+			responseModelName: fixture.expected.responseModelName,
+		},
+	};
 }
 
 function createMockChatCompletionResponse({
@@ -676,6 +729,127 @@ describe("Normal Chat Model Run provider options", () => {
 		expect(buildNormalChatModelRunProviderOptions(provider, "off")).toEqual({
 			dashscope: {
 				enable_thinking: false,
+			},
+		});
+	});
+});
+
+describe("Normal Chat Model Run OpenAI-compatible provider factory", () => {
+	it("keeps the resolved adapter profile for request body transforms and runs caller transforms afterwards", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: {
+					role: "assistant",
+					content: "Plain answer",
+				},
+				usage: null,
+			}),
+		);
+		const provider = {
+			name: "xiaomi_mimo",
+			displayName: "Xiaomi MiMo",
+			baseUrl: "https://api.xiaomimimo.example/v1/chat/completions",
+			modelName: "mimo-v2.5-pro",
+			apiKey: "plain-secret",
+		};
+		const openaiCompatibleProvider =
+			createOpenAICompatibleProviderForNormalChatModelRun({
+				provider,
+				fetch,
+				normalizeStreaming: false,
+				transformRequestBody: (body) => ({
+					...body,
+					caller_transform_saw_max_completion_tokens:
+						body.max_completion_tokens,
+					caller_transform_saw_max_tokens: body.max_tokens,
+				}),
+			});
+
+		Object.assign(provider, {
+			name: "generic",
+			displayName: "Generic",
+			baseUrl: "https://generic.example/v1",
+			modelName: "generic-chat-model",
+		});
+
+		await generateText({
+			model: openaiCompatibleProvider("mimo-v2.5-pro"),
+			prompt: "Hello",
+			maxOutputTokens: 321,
+			maxRetries: 0,
+		});
+
+		expect(fetch).toHaveBeenCalledWith(
+			"https://api.xiaomimimo.example/v1/chat/completions",
+			expect.objectContaining({
+				method: "POST",
+			}),
+		);
+		const body = parseRequestBody(fetch);
+		expect(body.max_completion_tokens).toBe(321);
+		expect(body.caller_transform_saw_max_completion_tokens).toBe(321);
+		expect(body).not.toHaveProperty("max_tokens");
+		expect(body).not.toHaveProperty("caller_transform_saw_max_tokens");
+	});
+
+	it("passes OpenAI-compatible factory options through to the AI SDK provider", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createStreamResponse([
+				{
+					content: "Streamed answer",
+					finishReason: "stop",
+					usage: {
+						prompt_tokens: 11,
+						completion_tokens: 3,
+						total_tokens: 14,
+					},
+				},
+			]),
+		);
+		const openaiCompatibleProvider =
+			createOpenAICompatibleProviderForNormalChatModelRun({
+				provider: {
+					name: "customhost",
+					displayName: "Custom Host",
+					baseUrl: "https://openai-compatible.example/chat/completions",
+					modelName: "custom-chat-model",
+					apiKey: "plain-secret",
+				},
+				fetch,
+				includeUsage: true,
+				supportsStructuredOutputs: true,
+				normalizeStreaming: false,
+			});
+		const model = openaiCompatibleProvider("custom-chat-model");
+
+		expect(
+			(model as { supportsStructuredOutputs?: boolean })
+				.supportsStructuredOutputs,
+		).toBe(true);
+
+		for await (const _part of streamText({
+			model,
+			prompt: "Hello",
+			maxRetries: 0,
+		}).fullStream) {
+			// Consume the stream so the AI SDK sends the request.
+		}
+
+		expect(fetch).toHaveBeenCalledWith(
+			"https://openai-compatible.example/v1/chat/completions",
+			expect.objectContaining({
+				method: "POST",
+				headers: expect.objectContaining({
+					authorization: "Bearer plain-secret",
+					"content-type": "application/json",
+				}),
+			}),
+		);
+		expect(parseRequestBody(fetch)).toMatchObject({
+			model: "custom-chat-model",
+			stream: true,
+			stream_options: {
+				include_usage: true,
 			},
 		});
 	});
@@ -1228,6 +1402,98 @@ describe("Plain Normal Chat Model Run", () => {
 		).rejects.toThrow("model unavailable");
 
 		expect(fetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("uses the selected adapter profile to classify structured provider errors for plain fallback", async () => {
+		mocks.getProviderByName.mockResolvedValue(null);
+		mocks.getProviderWithSecrets.mockResolvedValue(null);
+		mocks.listEnabledProviderModels.mockResolvedValue([]);
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						error: {
+							message: "provider family capacity guard tripped",
+							type: "overloaded_error",
+						},
+					}),
+					{
+						status: 418,
+						statusText: "Provider Family Error",
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			)
+			.mockResolvedValueOnce(
+				createMockChatCompletionResponse({
+					responseId: "chatcmpl-adapter-classified-fallback",
+					model: "provider-returned-model-2",
+					message: {
+						role: "assistant",
+						content: "Adapter-classified fallback answer",
+					},
+					created: 1_717_171_721,
+					usage: null,
+				}),
+			);
+
+		const result = await runPlainNormalChatModelRun({
+			provider: {
+				id: "model1",
+				name: "dashscope",
+				displayName: "Qwen Cloud",
+				baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+				modelName: "qwen3.6-plus",
+				apiKey: "model-one-secret",
+			},
+			modelId: "model1",
+			runtimeConfig: {
+				requestTimeoutMs: 30_000,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: "model2",
+				modelTimeoutFailoverTimeoutMs: 1_000,
+				model2Enabled: true,
+				model1: {
+					baseUrl: "https://model-one.example/v1",
+					apiKey: "model-one-secret",
+					modelName: "model-one",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://model-two.example/v1",
+					apiKey: "model-two-secret",
+					modelName: "model-two",
+					displayName: "Model Two",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as never,
+			messages: [userTextMessage("Hello")],
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(result.text).toBe("Adapter-classified fallback answer");
+		expect(result.model).toMatchObject({
+			providerId: "model2",
+			displayName: "Model Two",
+			requestedModelName: "model-two",
+			responseModelName: "provider-returned-model-2",
+		});
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(fetch.mock.calls[0]?.[0]).toBe(
+			"https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+		);
+		expect(fetch.mock.calls[1]?.[0]).toBe(
+			"https://model-two.example/v1/chat/completions",
+		);
 	});
 
 	it("uses the source provider model fallback once and does not chain to the global target", async () => {
@@ -2481,6 +2747,199 @@ describe("Streaming Normal Chat Model Run", () => {
 		]);
 	});
 
+	it.each([
+		{
+			name: "DeepSeek V4 reasoning text",
+			fixture: providerStreamFixtures.deepseekV4ReasoningText,
+			expectedEvents: [
+				{
+					type: "reasoning_delta",
+					text: "Inspect provider evidence. ",
+				},
+				{
+					type: "text_delta",
+					text: "DeepSeek answer.",
+				},
+			],
+		},
+		{
+			name: "Xiaomi MiMo argument-first tool call",
+			fixture: providerStreamFixtures.xiaomiMiMoArgumentsBeforeName,
+			maxToolSteps: 1,
+			tools: () => ({
+				produce_file: createProduceFileTool(({ title }) => ({
+					jobId: "job-xiaomi-mimo",
+					title,
+				})),
+			}),
+			expectedEvents: [
+				{
+					type: "reasoning_delta",
+					text: "Need a file-producing tool. ",
+				},
+				{
+					type: "tool_call",
+					callId: "call_compat_0",
+					toolName: "produce_file",
+					input: { title: "MiMo report" },
+				},
+				{
+					type: "tool_result",
+					callId: "call_compat_0",
+					toolName: "produce_file",
+					output: {
+						jobId: "job-xiaomi-mimo",
+						title: "MiMo report",
+					},
+				},
+			],
+		},
+		{
+			name: "Kimi K2 split tool arguments",
+			fixture: providerStreamFixtures.kimiK2SplitArguments,
+			maxToolSteps: 1,
+			tools: () => ({
+				produce_file: createProduceFileTool(({ title }) => ({
+					jobId: "job-kimi-k2",
+					title,
+				})),
+			}),
+			expectedEvents: [
+				{
+					type: "text_delta",
+					text: "Preparing Kimi tool call. ",
+				},
+				{
+					type: "tool_call",
+					callId: "call-kimi-1",
+					toolName: "produce_file",
+					input: { title: "Kimi deck" },
+				},
+				{
+					type: "tool_result",
+					callId: "call-kimi-1",
+					toolName: "produce_file",
+					output: {
+						jobId: "job-kimi-k2",
+						title: "Kimi deck",
+					},
+				},
+			],
+		},
+		{
+			name: "GLM 5 parameterless tool call",
+			fixture: providerStreamFixtures.glm5ParameterlessTool,
+			maxToolSteps: 1,
+			tools: () => ({
+				memory_context: createMemoryContextTool(() => ({
+					memories: [],
+				})),
+			}),
+			expectedEvents: [
+				{
+					type: "tool_call",
+					callId: "call_compat_0",
+					toolName: "memory_context",
+					input: {},
+				},
+				{
+					type: "tool_result",
+					callId: "call_compat_0",
+					toolName: "memory_context",
+					output: {
+						memories: [],
+					},
+				},
+			],
+		},
+		{
+			name: "Qwen 3 reasoning usage",
+			fixture: providerStreamFixtures.qwen3ReasoningUsage,
+			expectedEvents: [
+				{
+					type: "reasoning_delta",
+					text: "Use preserved thinking. ",
+				},
+				{
+					type: "text_delta",
+					text: "Qwen answer.",
+				},
+			],
+		},
+	])("maps the $name fixture to public neutral stream events after adapter shaping", async ({
+		fixture,
+		tools,
+		maxToolSteps,
+		expectedEvents,
+	}) => {
+		const requestedModelName = `${fixture.model}-requested`;
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createFixtureEventStreamResponse(fixture, {
+				chunkBoundaries: [3, 17, 51],
+			}),
+		);
+
+		const events = await collectStreamingEvents({
+			provider: createProviderFromFixture(fixture, { requestedModelName }),
+			messages: [userTextMessage("Exercise provider fixture")],
+			...(tools ? { tools: tools() } : {}),
+			...(maxToolSteps ? { maxToolSteps } : {}),
+			fetch,
+			maxRetries: 0,
+		});
+		const expected = [
+			...expectedEvents,
+			expectedUsageEvent(fixture),
+			expectedFixtureFinishEvent(fixture, requestedModelName),
+		];
+
+		expect(events).toEqual(expected);
+		expect(events.map((event) => event.type)).toEqual(
+			expected.map((event) => event.type),
+		);
+		expect(fetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("maps fixture tool execution failures to neutral tool_error events after adapter shaping", async () => {
+		const fixture = providerStreamFixtures.glm5ParameterlessTool;
+		const requestedModelName = `${fixture.model}-requested`;
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createFixtureEventStreamResponse(fixture, {
+				chunkBoundaries: [3, 17, 51],
+			}),
+		);
+
+		const events = await collectStreamingEvents({
+			provider: createProviderFromFixture(fixture, { requestedModelName }),
+			messages: [userTextMessage("Exercise provider fixture")],
+			tools: {
+				memory_context: createMemoryContextTool(() => {
+					throw new Error("memory unavailable");
+				}),
+			},
+			maxToolSteps: 1,
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(events).toEqual([
+			{
+				type: "tool_call",
+				callId: "call_compat_0",
+				toolName: "memory_context",
+				input: {},
+			},
+			{
+				type: "tool_error",
+				callId: "call_compat_0",
+				toolName: "memory_context",
+				error: "memory unavailable",
+			},
+			expectedUsageEvent(fixture),
+			expectedFixtureFinishEvent(fixture, requestedModelName),
+		]);
+	});
+
 	it("replays a fixture tool call and passes the normalized call id to local tool execution", async () => {
 		const toolFixture = providerStreamFixtures.xiaomiMiMoArgumentsBeforeName;
 		const finalFixture = providerStreamFixtures.xiaomiMiMoFinalText;
@@ -2784,6 +3243,116 @@ describe("Streaming Normal Chat Model Run", () => {
 		expect(events).toContainEqual({
 			type: "text_delta",
 			text: "Model 2 answer",
+		});
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				type: "finish",
+				model: expect.objectContaining({
+					providerId: "model2",
+					displayName: "Model Two",
+					requestedModelName: "model-two",
+					responseModelName: "provider-returned-model-2",
+				}),
+			}),
+		);
+	});
+
+	it("uses the selected adapter profile to classify structured streaming provider errors for fallback", async () => {
+		mocks.getProviderByName.mockResolvedValue(null);
+		mocks.getProviderWithSecrets.mockResolvedValue(null);
+		mocks.listEnabledProviderModels.mockResolvedValue([]);
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						error: {
+							message: "provider family capacity guard tripped",
+							type: "overloaded_error",
+						},
+					}),
+					{
+						status: 418,
+						statusText: "Provider Family Error",
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			)
+			.mockResolvedValueOnce(
+				createStreamResponse([
+					{
+						model: "provider-returned-model-2",
+						content: "Adapter streaming fallback",
+					},
+					{
+						model: "provider-returned-model-2",
+						finishReason: "stop",
+						usage: {
+							prompt_tokens: 6,
+							completion_tokens: 3,
+							total_tokens: 9,
+						},
+					},
+				]),
+			);
+
+		const events = await collectStreamingEvents({
+			provider: {
+				id: "model1",
+				name: "dashscope",
+				displayName: "Qwen Cloud",
+				baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+				modelName: "qwen3.6-plus",
+				apiKey: "model-one-secret",
+			},
+			modelId: "model1",
+			runtimeConfig: {
+				requestTimeoutMs: 30_000,
+				modelTimeoutFailoverEnabled: true,
+				modelTimeoutFailoverTargetModel: "model2",
+				modelTimeoutFailoverTimeoutMs: 1_000,
+				model2Enabled: true,
+				model1: {
+					baseUrl: "https://model-one.example/v1",
+					apiKey: "model-one-secret",
+					modelName: "model-one",
+					displayName: "Model One",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+				model2: {
+					baseUrl: "https://model-two.example/v1",
+					apiKey: "model-two-secret",
+					modelName: "model-two",
+					displayName: "Model Two",
+					systemPrompt: "",
+					maxTokens: null,
+					reasoningEffort: null,
+					thinkingType: null,
+				},
+			} as never,
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "Hello" }],
+				},
+			],
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(fetch.mock.calls[0]?.[0]).toBe(
+			"https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+		);
+		expect(fetch.mock.calls[1]?.[0]).toBe(
+			"https://model-two.example/v1/chat/completions",
+		);
+		expect(events).toContainEqual({
+			type: "text_delta",
+			text: "Adapter streaming fallback",
 		});
 		expect(events).toContainEqual(
 			expect.objectContaining({

@@ -465,6 +465,109 @@ describe("resolveNormalChatFallbackTargetModelId", () => {
 });
 
 describe("isRetryableNormalChatFallbackError", () => {
+	it("preserves the generic fallback retryability matrix", () => {
+		const retryableCases = [
+			Object.assign(new Error("provider timed out"), { name: "TimeoutError" }),
+			Object.assign(new Error("rate limited"), { statusCode: 429 }),
+			Object.assign(new Error("server failed"), { statusCode: 503 }),
+			new Error("fetch failed: socket hang up"),
+			new Error("temporarily unavailable"),
+			new Error("stream ended unexpectedly before usable assistant answer"),
+		];
+		const nonRetryableCases = [
+			Object.assign(new Error("invalid api key"), { statusCode: 401 }),
+			Object.assign(new Error("forbidden"), { statusCode: 403 }),
+			Object.assign(new Error("invalid prompt"), { statusCode: 400 }),
+			Object.assign(new Error("schema validation failed"), {
+				statusCode: 400,
+			}),
+			new Error("model refusal"),
+			Object.assign(new Error("The operation was aborted"), {
+				name: "AbortError",
+			}),
+		];
+
+		for (const error of retryableCases) {
+			expect(isRetryableNormalChatFallbackError(error)).toBe(true);
+		}
+		for (const error of nonRetryableCases) {
+			expect(isRetryableNormalChatFallbackError(error)).toBe(false);
+		}
+	});
+
+	it("falls back to generic classification when adapter classification is unknown", () => {
+		const provider = {
+			name: "dashscope",
+			displayName: "Qwen Cloud",
+			baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			modelName: "qwen3.6-plus",
+		};
+		const error = Object.assign(new Error("opaque provider failure"), {
+			statusCode: 503,
+			data: {
+				error: {
+					message: "opaque provider failure",
+					type: "provider_specific_unknown",
+				},
+			},
+		});
+
+		expect(isRetryableNormalChatFallbackError(error, { provider })).toBe(true);
+	});
+
+	it("keeps HTTP 5xx retryable even when structured provider payloads are non-retryable", () => {
+		const provider = {
+			name: "dashscope",
+			displayName: "Qwen Cloud",
+			baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			modelName: "qwen3.6-plus",
+		};
+		const error = Object.assign(new Error("provider returned 503"), {
+			statusCode: 503,
+			data: {
+				error: {
+					message: "invalid request",
+					type: "invalid_request_error",
+				},
+			},
+		});
+
+		expect(isRetryableNormalChatFallbackError(error, { provider })).toBe(true);
+	});
+
+	it("does not let adapter retryable payloads override terminal failure categories", () => {
+		const provider = {
+			name: "dashscope",
+			displayName: "Qwen Cloud",
+			baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			modelName: "qwen3.6-plus",
+		};
+		const payload = {
+			error: {
+				message: "temporary upstream overload",
+				type: "overloaded_error",
+			},
+		};
+
+		expect(
+			isRetryableNormalChatFallbackError(
+				Object.assign(new Error("unauthorized"), {
+					statusCode: 401,
+					data: payload,
+				}),
+				{ provider },
+			),
+		).toBe(false);
+		expect(
+			isRetryableNormalChatFallbackError(
+				Object.assign(new Error("The operation was aborted"), {
+					data: payload,
+				}),
+				{ provider },
+			),
+		).toBe(false);
+	});
+
 	it("does not retry permanent unavailable phrasing", () => {
 		expect(
 			isRetryableNormalChatFallbackError(new Error("model unavailable")),
