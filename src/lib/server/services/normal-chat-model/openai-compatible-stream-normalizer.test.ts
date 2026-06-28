@@ -1,7 +1,110 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+	collectFixtureFinishReasons,
+	collectFixtureReasoningDeltas,
+	collectFixtureTextDeltas,
+	collectFixtureToolCalls,
+	collectFixtureUsage,
+	collectFixtureUsageFrames,
+	createFixtureEventStreamResponse,
+	createFixtureEventStreamResponseFromDataFrames as eventStreamResponse,
+	normalizerProviderStreamFixtureCatalog,
+	parseFixtureEventStreamData,
+	parseFixtureEventStreamJson,
+	parseFixtureEventStreamData as parseServerSentEventData,
+	providerStreamFixtures,
+} from "../../../../../tests/fixtures/ai/openai-compatible-stream-fixtures";
 import { createOpenAICompatibleStreamNormalizingFetch } from "./openai-compatible-stream-normalizer";
 
 describe("OpenAI-compatible stream normalizer", () => {
+	it("fixture harness preserves SSE framing across deterministic chunk boundaries", async () => {
+		const response = createFixtureEventStreamResponse(
+			providerStreamFixtures.deepseekV4ReasoningText,
+			{
+				chunkBoundaries: [1, 9, 27],
+			},
+		);
+
+		expect(response.headers.get("content-type")).toContain("text/event-stream");
+		await expect(response.text()).resolves.toBe(
+			providerStreamFixtures.deepseekV4ReasoningText.expected.rawEventStream,
+		);
+		expect(
+			parseFixtureEventStreamData(
+				providerStreamFixtures.deepseekV4ReasoningText.expected.rawEventStream,
+			),
+		).toEqual(
+			providerStreamFixtures.deepseekV4ReasoningText.expected.rawDataFrames,
+		);
+	});
+
+	it.each(
+		normalizerProviderStreamFixtureCatalog,
+	)("normalizes provider fixture $id", async (fixture) => {
+		const fetch = createOpenAICompatibleStreamNormalizingFetch(
+			vi.fn(async () =>
+				createFixtureEventStreamResponse(fixture, {
+					chunkBoundaries: [2, 11, 37, 101],
+				}),
+			),
+		);
+
+		const response = await fetch(
+			"https://provider.example/v1/chat/completions",
+		);
+		const rawEventStream = await response.text();
+		const dataFrames = parseFixtureEventStreamData(rawEventStream);
+		const frames = parseFixtureEventStreamJson(rawEventStream);
+
+		expect(dataFrames.at(-1)).toBe("[DONE]");
+		expect(collectFixtureTextDeltas(frames)).toEqual(
+			fixture.expected.textDeltas,
+		);
+		expect(collectFixtureReasoningDeltas(frames)).toEqual(
+			fixture.expected.reasoningDeltas,
+		);
+		expect(collectFixtureToolCalls(frames)).toEqual(
+			fixture.expected.toolCalls.map(({ id, name, argumentsText }) => ({
+				id,
+				name,
+				argumentsText,
+			})),
+		);
+		expect(collectFixtureUsage(frames)).toEqual(fixture.expected.usage);
+		if (fixture.expected.finishReason) {
+			expect(collectFixtureFinishReasons(frames)).toContain(
+				fixture.expected.finishReason,
+			);
+		}
+	});
+
+	it("fixtures model provider-specific usage frame topology", () => {
+		for (const fixture of normalizerProviderStreamFixtureCatalog) {
+			expect(
+				collectFixtureUsageFrames(
+					parseFixtureEventStreamJson(fixture.expected.rawEventStream),
+				),
+			).toEqual(fixture.expected.usageFrames);
+		}
+
+		expect(
+			providerStreamFixtures.deepseekV4ReasoningText.expected.usageFrames,
+		).toEqual([
+			expect.objectContaining({ location: "top-level-empty-choices" }),
+		]);
+		expect(
+			providerStreamFixtures.kimiK2SplitArguments.expected.usageFrames,
+		).toEqual([expect.objectContaining({ location: "choice-finish" })]);
+		expect(
+			providerStreamFixtures.qwen3ReasoningUsage.expected.usageFrames[0]?.usage,
+		).toMatchObject({
+			prompt_tokens_details: { cached_tokens: 2 },
+		});
+		expect(
+			providerStreamFixtures.qwen3ReasoningUsage.expected.usageFrames[0]?.usage,
+		).not.toHaveProperty("prompt_cache_hit_tokens");
+	});
+
 	it("leaves non-streaming responses untouched", async () => {
 		const fetch = createOpenAICompatibleStreamNormalizingFetch(
 			vi.fn(
@@ -351,28 +454,3 @@ describe("OpenAI-compatible stream normalizer", () => {
 		expect(frames.at(-1)).toBe("[DONE]");
 	});
 });
-
-function eventStreamResponse(
-	frames: Array<Record<string, unknown> | "[DONE]">,
-): Response {
-	return new Response(
-		frames
-			.map((frame) =>
-				frame === "[DONE]" ? "data: [DONE]" : `data: ${JSON.stringify(frame)}`,
-			)
-			.join("\n\n")
-			.concat("\n\n"),
-		{
-			status: 200,
-			headers: { "Content-Type": "text/event-stream" },
-		},
-	);
-}
-
-function parseServerSentEventData(rawEventStream: string): string[] {
-	return rawEventStream
-		.split(/\r?\n\r?\n/)
-		.map((event) => event.trim())
-		.filter(Boolean)
-		.map((event) => event.replace(/^data:\s*/, ""));
-}

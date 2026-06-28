@@ -646,11 +646,10 @@ export function runChatStreamOrchestrator(
 				status: "done",
 				detail: turn.depthMetadata?.appliedProfile ?? "standard",
 			});
-			const fileProductionJobIdsAtStart =
-				startFileProductionJobIdsAtStartFact({
-					userId: user.id,
-					conversationId,
-				});
+			const fileProductionJobIdsAtStart = startFileProductionJobIdsAtStartFact({
+				userId: user.id,
+				conversationId,
+			});
 
 			const emitError = (code: StreamErrorCode) =>
 				enqueueChunk(streamErrorEvent(code));

@@ -204,7 +204,9 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (!orbitGroupEl || typeof window === "undefined") return;
+	const element = orbitGroupEl;
+	if (!element || typeof window === "undefined") return;
+	const orbitElement: SVGGElement = element;
 	if (
 		typeof window.matchMedia === "function" &&
 		window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -212,21 +214,52 @@ $effect(() => {
 		return;
 	}
 	const targetSpeed = 360 / orbitDurationMs;
-	let rafId = 0;
+	let rafId: number | null = null;
 	let lastTime = 0;
+	let running = true;
+	function scheduleNextFrame() {
+		if (!running) return;
+		let requestReturned = false;
+		let callbackRanSynchronously = false;
+		const nextRafId = window.requestAnimationFrame((time) => {
+			if (!requestReturned) {
+				callbackRanSynchronously = true;
+				running = false;
+				return;
+			}
+			rafId = null;
+			tick(time);
+		});
+		requestReturned = true;
+		if (callbackRanSynchronously) {
+			window.cancelAnimationFrame(nextRafId);
+			return;
+		}
+		rafId = nextRafId;
+	}
 	function tick(time: number) {
+		if (!running) return;
 		if (lastTime === 0) lastTime = time;
 		const delta = time - lastTime;
 		lastTime = time;
 		orbitSpeed += (targetSpeed - orbitSpeed) * 0.04;
 		orbitAngle = (orbitAngle + orbitSpeed * delta) % 360;
-		if (orbitGroupEl) {
-			orbitGroupEl.style.transform = `rotate(${orbitAngle}deg)`;
+		if (orbitElement.isConnected) {
+			orbitElement.style.transform = `rotate(${orbitAngle}deg)`;
+		} else {
+			running = false;
+			return;
 		}
-		rafId = requestAnimationFrame(tick);
+		scheduleNextFrame();
 	}
-	rafId = requestAnimationFrame(tick);
-	return () => cancelAnimationFrame(rafId);
+	scheduleNextFrame();
+	return () => {
+		running = false;
+		if (rafId !== null) {
+			window.cancelAnimationFrame(rafId);
+			rafId = null;
+		}
+	};
 });
 
 $effect(() => {

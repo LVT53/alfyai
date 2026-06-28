@@ -390,7 +390,7 @@ function renderPage(data = pageData()) {
 type AnimationFrameTimer = number;
 
 let animationFrameId = 0;
-let animationFrameTimers = new Map<number, AnimationFrameTimer>();
+const animationFrameTimers = new Map<number, AnimationFrameTimer>();
 
 function installAnimationFrameMock() {
 	animationFrameTimers.clear();

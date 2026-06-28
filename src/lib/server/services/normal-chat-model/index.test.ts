@@ -2,6 +2,11 @@ import { tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
+import {
+	createFixtureEventStreamResponse,
+	type ProviderStreamFixture,
+	providerStreamFixtures,
+} from "../../../../../tests/fixtures/ai/openai-compatible-stream-fixtures";
 
 const mocks = vi.hoisted(() => ({
 	decryptApiKey: vi.fn(),
@@ -221,6 +226,17 @@ function createStreamResponse(
 			headers: { "Content-Type": "text/event-stream" },
 		},
 	);
+}
+
+function createProviderFromFixture(fixture: ProviderStreamFixture) {
+	return {
+		id: `${fixture.providerName}-provider`,
+		name: fixture.providerName,
+		displayName: fixture.providerDisplayName,
+		baseUrl: fixture.baseUrl,
+		modelName: fixture.model,
+		apiKey: "plain-secret",
+	};
 }
 
 async function collectStreamingEvents(args: StreamRunArgs) {
@@ -2419,6 +2435,116 @@ describe("Streaming Normal Chat Model Run", () => {
 			text: "Thinking",
 		});
 		expect(events).toContainEqual({ type: "text_delta", text: "Answer" });
+	});
+
+	it("replays a provider fixture into neutral text, reasoning, usage, and finish events", async () => {
+		const fixture = providerStreamFixtures.qwen3ReasoningUsage;
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createFixtureEventStreamResponse(fixture, {
+				chunkBoundaries: [4, 13, 89],
+			}),
+		);
+
+		const events = await collectStreamingEvents({
+			provider: createProviderFromFixture(fixture),
+			messages: [userTextMessage("Hello")],
+			fetch,
+		});
+
+		expect(events).toEqual([
+			{
+				type: "reasoning_delta",
+				text: "Use preserved thinking. ",
+			},
+			{ type: "text_delta", text: "Qwen answer." },
+			{
+				type: "usage",
+				usage: {
+					inputTokens: 19,
+					outputTokens: 6,
+					totalTokens: 25,
+				},
+			},
+			{
+				type: "finish",
+				finishReason: "stop",
+				rawFinishReason: "stop",
+				model: {
+					modelId: "dashscope-provider",
+					providerId: "dashscope-provider",
+					providerName: "dashscope",
+					displayName: "Qwen Cloud",
+					requestedModelName: "qwen3.6-plus",
+					responseModelName: "qwen3.6-plus",
+				},
+			},
+		]);
+	});
+
+	it("replays a fixture tool call and passes the normalized call id to local tool execution", async () => {
+		const toolFixture = providerStreamFixtures.xiaomiMiMoArgumentsBeforeName;
+		const finalFixture = providerStreamFixtures.xiaomiMiMoFinalText;
+		const toolExecute = vi.fn(
+			async (
+				{ title }: { title: string },
+				context?: { toolCallId?: string },
+			) => ({
+				jobId: "job-mimo",
+				title,
+				toolCallId: context?.toolCallId,
+			}),
+		);
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockResolvedValueOnce(
+				createFixtureEventStreamResponse(toolFixture, {
+					chunkBoundaries: [3, 17, 51],
+				}),
+			)
+			.mockResolvedValueOnce(
+				createFixtureEventStreamResponse(finalFixture, {
+					chunkBoundaries: [5, 23, 71],
+				}),
+			);
+
+		const events = await collectStreamingEvents({
+			provider: createProviderFromFixture(toolFixture),
+			messages: [userTextMessage("Create a report file")],
+			tools: {
+				produce_file: createProduceFileTool(toolExecute),
+			},
+			fetch,
+		});
+
+		expect(events).toContainEqual({
+			type: "reasoning_delta",
+			text: "Need a file-producing tool. ",
+		});
+		expect(events).toContainEqual({
+			type: "tool_call",
+			callId: "call_compat_0",
+			toolName: "produce_file",
+			input: { title: "MiMo report" },
+		});
+		expect(events).toContainEqual({
+			type: "tool_result",
+			callId: "call_compat_0",
+			toolName: "produce_file",
+			output: {
+				jobId: "job-mimo",
+				title: "MiMo report",
+				toolCallId: "call_compat_0",
+			},
+		});
+		expect(events).toContainEqual({
+			type: "text_delta",
+			text: "Queued the MiMo report.",
+		});
+		expect(toolExecute).toHaveBeenCalledWith(
+			{ title: "MiMo report" },
+			expect.objectContaining({ toolCallId: "call_compat_0" }),
+		);
+		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 
 	it("does not request streaming usage when usage reporting is unsupported", async () => {

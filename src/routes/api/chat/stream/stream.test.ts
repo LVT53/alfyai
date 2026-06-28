@@ -137,7 +137,9 @@ function makeStreamResponse() {
 	});
 }
 
-async function expectResolvedWithoutWaiting<T>(promise: Promise<T>): Promise<T> {
+async function expectResolvedWithoutWaiting<T>(
+	promise: Promise<T>,
+): Promise<T> {
 	const timedOut = Symbol("timedOut");
 	const result = await Promise.race([
 		promise,
