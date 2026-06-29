@@ -28,6 +28,11 @@ import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
 import type { ContextCompressionControlSender } from "./context-compression";
 import { detectLanguage, type SupportedLanguage } from "./language";
 import { inferModelContextWindow } from "./model-context";
+import {
+	getDefaultNormalChatContextPreparationPlan,
+	type NormalChatContextPreparationActivityCallback,
+	runNormalChatContextPreparationStages,
+} from "./normal-chat-context-preparation";
 
 const UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK = 150_000;
 const CURRENT_USER_MESSAGE_MARKER = "## Current User Message\n";
@@ -99,6 +104,23 @@ type AutomaticContextCompressionResult = {
 	rawSourceTokensWithSafety?: number;
 	sourceMessageCount?: number;
 	snapshotId?: string | null;
+};
+
+type OutboundChatContextPreparationState = {
+	inputValue: string;
+	contextStatus?: import("$lib/types").ConversationContextStatus;
+	taskState?: import("$lib/types").TaskState | null;
+	contextDebug?: import("$lib/types").ContextDebugState | null;
+	honchoContext?: import("$lib/types").HonchoContextInfo | null;
+	honchoSnapshot?: import("$lib/types").HonchoContextSnapshot | null;
+	contextTraceSections?: LegacyContextTraceSectionInput[];
+	prefetchedToolCalls: ToolCallEntry[];
+	reuseData?: ConstructedContextReuseData;
+	baseSystemPrompt?: string;
+	systemPrompt?: string;
+	contextLimits?: PromptContextLimits;
+	automaticCompression?: AutomaticContextCompressionResult;
+	outputTokenBudget?: OutputTokenBudget;
 };
 
 const JSON_FORMATTING_RULES = [
@@ -873,6 +895,8 @@ function applyOutboundPromptBudget(params: {
 				afterInputTokens: estimateTokenCount(finalInputValue),
 				afterInputTokensWithSafety:
 					estimateOutboundPromptTokens(finalInputValue),
+				automaticCompressionOutcome:
+					params.automaticCompression?.outcome ?? "untracked",
 				fallbackAfterAutomaticCompression:
 					params.automaticCompression?.outcome ?? "untracked",
 				automaticCompressionAttempted:
@@ -1275,7 +1299,7 @@ export function emitOutboundContextTrace(params: {
 	}
 }
 
-export async function prepareOutboundChatContext(params: {
+type PrepareOutboundChatContextParams = {
 	message: string;
 	sessionId: string;
 	modelConfig: NormalChatContextModelConfig;
@@ -1293,204 +1317,382 @@ export async function prepareOutboundChatContext(params: {
 	contextLimits?: PromptContextLimits;
 	compressionControlMessageSender?: ContextCompressionControlSender;
 	reasoningDepthEffort?: ReasoningDepthEffort;
+	onContextPreparationActivity?: NormalChatContextPreparationActivityCallback;
 	logLabel: string;
-}): Promise<PreparedOutboundChatContext> {
-	let inputValue = params.message;
-	let contextStatus: import("$lib/types").ConversationContextStatus | undefined;
-	let taskState: import("$lib/types").TaskState | null | undefined;
-	let contextDebug: import("$lib/types").ContextDebugState | null | undefined;
-	let honchoContext: import("$lib/types").HonchoContextInfo | null | undefined;
-	let honchoSnapshot:
-		| import("$lib/types").HonchoContextSnapshot
-		| null
-		| undefined;
-	let contextTraceSections: LegacyContextTraceSectionInput[] | undefined;
-	let prefetchedToolCalls: ToolCallEntry[] = [];
-	let reuseData: ConstructedContextReuseData | undefined;
+};
 
-	if (params.user?.id && !params.skipHonchoContext) {
-		const constructed = await buildConstructedContext({
-			userId: params.user.id,
-			conversationId: params.sessionId,
-			message: params.message,
-			attachmentIds: params.attachmentIds,
-			activeDocumentArtifactId: params.activeDocumentArtifactId,
-			attachmentTraceId: params.attachmentTraceId,
-			modelId: params.modelId,
-			contextLimits: params.contextLimits,
-		});
-		inputValue = constructed.inputValue;
-		contextStatus = constructed.contextStatus;
-		taskState = constructed.taskState;
-		contextDebug = constructed.contextDebug;
-		honchoContext = constructed.honchoContext;
-		honchoSnapshot = constructed.honchoSnapshot;
-		contextTraceSections = constructed.contextTraceSections;
-		reuseData = constructed._reuseData;
+function applyConstructedContextToPreparationState(
+	state: OutboundChatContextPreparationState,
+	constructed: ConstructedContextResult,
+): OutboundChatContextPreparationState {
+	return {
+		...state,
+		inputValue: constructed.inputValue,
+		contextStatus: constructed.contextStatus,
+		taskState: constructed.taskState,
+		contextDebug: constructed.contextDebug,
+		honchoContext: constructed.honchoContext,
+		honchoSnapshot: constructed.honchoSnapshot,
+		contextTraceSections: constructed.contextTraceSections,
+		reuseData: constructed._reuseData,
+	};
+}
+
+function requirePreparationValue<T>(value: T | undefined, label: string): T {
+	if (value === undefined) {
+		throw new Error(`Missing normal chat context preparation value: ${label}`);
 	}
+	return value;
+}
 
-	const attachmentSection = summarizeAttachmentSectionInInput(inputValue);
-	if ((params.attachmentIds?.length ?? 0) > 0) {
-		logAttachmentTrace("normal_chat_context", {
-			traceId: params.attachmentTraceId ?? null,
-			sessionId: params.sessionId,
-			inputValueLength: inputValue.length,
-			hasCurrentAttachmentsMarker: attachmentSection.hasMarker,
-			attachmentSectionPreview: attachmentSection.preview,
-			attachmentSectionPreviewHash: attachmentSection.previewHash,
-		});
-		if (!attachmentSection.hasMarker) {
-			console.warn(
-				`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Attachment marker missing from outgoing ${params.logLabel}`,
-				{
-					sessionId: params.sessionId,
-					attachmentIds: params.attachmentIds ?? [],
-					traceId: params.attachmentTraceId ?? null,
-					inputValueLength: inputValue.length,
-				},
-			);
-		}
-	}
-
-	const configuredBasePrompt =
-		params.systemPromptOverride ??
-		(getConfig().systemPrompt || params.modelConfig.systemPrompt);
-	const baseSystemPrompt =
-		params.user?.id && !params.systemPromptOverride
-			? await buildEnhancedSystemPrompt(configuredBasePrompt, {
-					userId: params.user.id,
-					displayName: params.user.displayName,
-					email: params.user.email,
-				})
-			: getSystemPrompt(configuredBasePrompt);
-	let systemPrompt = buildOutboundSystemPrompt({
-		basePrompt: baseSystemPrompt,
-		inputValue,
-		responseLanguage: detectLanguage(params.message),
-		modelDisplayName: params.modelConfig.displayName,
-		modelName: params.modelConfig.modelName,
-		systemPromptAppendix: params.systemPromptAppendix,
-		personalityPrompt: params.personalityPrompt,
-		forceWebSearch: params.forceWebSearch,
-		reasoningDepthEffort: params.reasoningDepthEffort,
-		skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
+function buildPreparationSystemPrompt(
+	params: PrepareOutboundChatContextParams,
+	state: OutboundChatContextPreparationState,
+): string {
+	return buildPreparationSystemPromptFromInput({
+		params,
+		inputValue: state.inputValue,
+		baseSystemPrompt: requirePreparationValue(
+			state.baseSystemPrompt,
+			"baseSystemPrompt",
+		),
 	});
+}
+
+function buildPreparationSystemPromptFromInput(input: {
+	params: PrepareOutboundChatContextParams;
+	inputValue: string;
+	baseSystemPrompt: string;
+}): string {
+	return buildOutboundSystemPrompt({
+		basePrompt: input.baseSystemPrompt,
+		inputValue: input.inputValue,
+		responseLanguage: detectLanguage(input.params.message),
+		modelDisplayName: input.params.modelConfig.displayName,
+		modelName: input.params.modelConfig.modelName,
+		systemPromptAppendix: input.params.systemPromptAppendix,
+		personalityPrompt: input.params.personalityPrompt,
+		forceWebSearch: input.params.forceWebSearch,
+		reasoningDepthEffort: input.params.reasoningDepthEffort,
+		skipDefaultRuntimeGuidance: input.params.skipDefaultRuntimeGuidance,
+	});
+}
+
+function resolveAutomaticCompressionModelId(
+	modelId: ModelId | string | undefined,
+): ModelId {
+	if (modelId && isProviderModelId(modelId)) {
+		return modelId;
+	}
+	return modelId === "model2" ? "model2" : "model1";
+}
+
+type AutomaticContextCompressionStageResult = {
+	decision: AutomaticContextCompressionResult;
+	rebuiltContext: ConstructedContextResult | null;
+	rebuiltSystemPrompt?: string;
+};
+
+async function runAutomaticContextCompressionStage(input: {
+	params: PrepareOutboundChatContextParams;
+	inputValue: string;
+	baseSystemPrompt: string;
+	systemPrompt: string;
+	contextLimits: PromptContextLimits;
+	reuseData?: ConstructedContextReuseData;
+}): Promise<AutomaticContextCompressionStageResult> {
+	if (input.params.skipHonchoContext) {
+		return {
+			decision: automaticCompressionResult({
+				outcome: "not_possible",
+				reason: "honcho_context_disabled",
+				attempted: false,
+			}),
+			rebuiltContext: null,
+		};
+	}
+
+	const decision = await maybeRunAutomaticContextCompression({
+		user: input.params.user,
+		sessionId: input.params.sessionId,
+		message: input.params.message,
+		modelId: resolveAutomaticCompressionModelId(input.params.modelId),
+		modelConfig: input.params.modelConfig,
+		contextLimits: input.contextLimits,
+		inputValue: input.inputValue,
+		systemPrompt: input.systemPrompt,
+		attachmentIds: input.params.attachmentIds,
+		activeDocumentArtifactId: input.params.activeDocumentArtifactId,
+		attachmentTraceId: input.params.attachmentTraceId,
+		controlMessageSender: input.params.compressionControlMessageSender,
+		reuseFromContext: input.reuseData,
+	}).catch((error) => {
+		console.warn(
+			`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Automatic context compression skipped`,
+			{
+				sessionId: input.params.sessionId,
+				modelId: input.params.modelId ?? "model1",
+				error: error instanceof Error ? error.message : String(error),
+			},
+		);
+		return automaticCompressionResult({
+			outcome: "failed",
+			reason: error instanceof Error ? error.message : String(error),
+			attempted: true,
+		});
+	});
+
+	if (!decision.context) {
+		return {
+			decision,
+			rebuiltContext: null,
+		};
+	}
+
+	return {
+		decision,
+		rebuiltContext: decision.context,
+		rebuiltSystemPrompt: buildPreparationSystemPromptFromInput({
+			params: input.params,
+			inputValue: decision.context.inputValue,
+			baseSystemPrompt: input.baseSystemPrompt,
+		}),
+	};
+}
+
+async function runForcedWebPrefetchStage(input: {
+	params: PrepareOutboundChatContextParams;
+	state: OutboundChatContextPreparationState;
+}): Promise<
+	Pick<
+		OutboundChatContextPreparationState,
+		"inputValue" | "prefetchedToolCalls"
+	> &
+		Partial<Pick<OutboundChatContextPreparationState, "systemPrompt">>
+> {
+	const forcedWebPrefetch = await maybePrefetchWebResearch({
+		inputValue: input.state.inputValue,
+		message: input.params.message,
+		forceWebSearch: input.params.forceWebSearch,
+		sessionId: input.params.sessionId,
+		modelId: input.params.modelId,
+	});
+	if (forcedWebPrefetch.prefetchedToolCalls.length === 0) {
+		return {
+			inputValue: forcedWebPrefetch.inputValue,
+			prefetchedToolCalls: forcedWebPrefetch.prefetchedToolCalls,
+		};
+	}
+
+	const nextState = {
+		...input.state,
+		inputValue: forcedWebPrefetch.inputValue,
+		prefetchedToolCalls: forcedWebPrefetch.prefetchedToolCalls,
+	};
+	return {
+		inputValue: nextState.inputValue,
+		prefetchedToolCalls: nextState.prefetchedToolCalls,
+		systemPrompt: buildPreparationSystemPrompt(input.params, nextState),
+	};
+}
+
+function runPromptBudgetStage(input: {
+	params: PrepareOutboundChatContextParams;
+	state: OutboundChatContextPreparationState;
+}): Pick<
+	OutboundChatContextPreparationState,
+	"inputValue" | "outputTokenBudget"
+> {
+	const budgetedPrompt = applyOutboundPromptBudget({
+		inputValue: input.state.inputValue,
+		message: input.params.message,
+		systemPrompt: requirePreparationValue(
+			input.state.systemPrompt,
+			"systemPrompt",
+		),
+		contextLimits: requirePreparationValue(
+			input.state.contextLimits,
+			"contextLimits",
+		),
+		maxTokens: input.params.modelConfig.maxTokens,
+		sessionId: input.params.sessionId,
+		modelId: input.params.modelId ?? "model1",
+		modelName: input.params.modelConfig.modelName,
+		providerId: input.params.modelConfig.providerId ?? null,
+		automaticCompression: input.state.automaticCompression,
+	});
+	return {
+		inputValue: budgetedPrompt.inputValue,
+		outputTokenBudget: budgetedPrompt.outputTokenBudget,
+	};
+}
+
+export async function prepareOutboundChatContext(
+	params: PrepareOutboundChatContextParams,
+): Promise<PreparedOutboundChatContext> {
+	let runtimeConfig: RuntimeConfig | undefined;
+	const getPreparationConfig = () => {
+		runtimeConfig ??= getConfig();
+		return runtimeConfig;
+	};
 	const contextLimits =
 		params.contextLimits ??
 		resolvePromptContextLimits(
 			params.modelId ?? "model1",
 			params.modelConfig,
-			getConfig(),
+			getPreparationConfig(),
 		);
-	const automaticCompression = !params.skipHonchoContext
-		? await maybeRunAutomaticContextCompression({
-				user: params.user,
-				sessionId: params.sessionId,
-				message: params.message,
-				modelId:
-					params.modelId && isProviderModelId(params.modelId)
-						? params.modelId
-						: params.modelId === "model2"
-							? "model2"
-							: "model1",
-				modelConfig: params.modelConfig,
-				contextLimits,
-				inputValue,
-				systemPrompt,
-				attachmentIds: params.attachmentIds,
-				activeDocumentArtifactId: params.activeDocumentArtifactId,
-				attachmentTraceId: params.attachmentTraceId,
-				controlMessageSender: params.compressionControlMessageSender,
-				reuseFromContext: reuseData,
-			}).catch((error) => {
-				console.warn(
-					`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Automatic context compression skipped`,
-					{
-						sessionId: params.sessionId,
-						modelId: params.modelId ?? "model1",
-						error: error instanceof Error ? error.message : String(error),
+	const { state } =
+		await runNormalChatContextPreparationStages<OutboundChatContextPreparationState>(
+			{
+				plan: getDefaultNormalChatContextPreparationPlan(),
+				initialState: {
+					inputValue: params.message,
+					prefetchedToolCalls: [],
+					contextLimits,
+				} satisfies OutboundChatContextPreparationState,
+				handlers: {
+					plan: (currentState) => currentState,
+					constructed_context: async (currentState) => {
+						if (!params.user?.id || params.skipHonchoContext) {
+							return currentState;
+						}
+
+						const constructed = await buildConstructedContext({
+							userId: params.user.id,
+							conversationId: params.sessionId,
+							message: params.message,
+							attachmentIds: params.attachmentIds,
+							activeDocumentArtifactId: params.activeDocumentArtifactId,
+							attachmentTraceId: params.attachmentTraceId,
+							modelId: params.modelId,
+							contextLimits,
+						});
+						return applyConstructedContextToPreparationState(
+							currentState,
+							constructed,
+						);
 					},
-				);
-				return automaticCompressionResult({
-					outcome: "failed",
-					reason: error instanceof Error ? error.message : String(error),
-					attempted: true,
-				});
-			})
-		: automaticCompressionResult({
-				outcome: "not_possible",
-				reason: "honcho_context_disabled",
-				attempted: false,
-			});
-	if (automaticCompression.context) {
-		inputValue = automaticCompression.context.inputValue;
-		contextStatus = automaticCompression.context.contextStatus;
-		taskState = automaticCompression.context.taskState;
-		contextDebug = automaticCompression.context.contextDebug;
-		honchoContext = automaticCompression.context.honchoContext;
-		honchoSnapshot = automaticCompression.context.honchoSnapshot;
-		contextTraceSections = automaticCompression.context.contextTraceSections;
-		systemPrompt = buildOutboundSystemPrompt({
-			basePrompt: baseSystemPrompt,
-			inputValue,
-			responseLanguage: detectLanguage(params.message),
-			modelDisplayName: params.modelConfig.displayName,
-			modelName: params.modelConfig.modelName,
-			systemPromptAppendix: params.systemPromptAppendix,
-			personalityPrompt: params.personalityPrompt,
-			forceWebSearch: params.forceWebSearch,
-			reasoningDepthEffort: params.reasoningDepthEffort,
-			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
-		});
-	}
-	const forcedWebPrefetch = await maybePrefetchWebResearch({
-		inputValue,
-		message: params.message,
-		forceWebSearch: params.forceWebSearch,
-		sessionId: params.sessionId,
-		modelId: params.modelId,
-	});
-	inputValue = forcedWebPrefetch.inputValue;
-	prefetchedToolCalls = forcedWebPrefetch.prefetchedToolCalls;
-	if (prefetchedToolCalls.length > 0) {
-		systemPrompt = buildOutboundSystemPrompt({
-			basePrompt: baseSystemPrompt,
-			inputValue,
-			responseLanguage: detectLanguage(params.message),
-			modelDisplayName: params.modelConfig.displayName,
-			modelName: params.modelConfig.modelName,
-			systemPromptAppendix: params.systemPromptAppendix,
-			personalityPrompt: params.personalityPrompt,
-			forceWebSearch: params.forceWebSearch,
-			reasoningDepthEffort: params.reasoningDepthEffort,
-			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
-		});
-	}
-	const budgetedPrompt = applyOutboundPromptBudget({
-		inputValue,
-		message: params.message,
-		systemPrompt,
-		contextLimits,
-		maxTokens: params.modelConfig.maxTokens,
-		sessionId: params.sessionId,
-		modelId: params.modelId ?? "model1",
-		modelName: params.modelConfig.modelName,
-		providerId: params.modelConfig.providerId ?? null,
-		automaticCompression,
-	});
-	inputValue = budgetedPrompt.inputValue;
+					attachment_trace: (currentState) => {
+						const attachmentSection = summarizeAttachmentSectionInInput(
+							currentState.inputValue,
+						);
+						if ((params.attachmentIds?.length ?? 0) > 0) {
+							logAttachmentTrace("normal_chat_context", {
+								traceId: params.attachmentTraceId ?? null,
+								sessionId: params.sessionId,
+								inputValueLength: currentState.inputValue.length,
+								hasCurrentAttachmentsMarker: attachmentSection.hasMarker,
+								attachmentSectionPreview: attachmentSection.preview,
+								attachmentSectionPreviewHash: attachmentSection.previewHash,
+							});
+							if (!attachmentSection.hasMarker) {
+								console.warn(
+									`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Attachment marker missing from outgoing ${params.logLabel}`,
+									{
+										sessionId: params.sessionId,
+										attachmentIds: params.attachmentIds ?? [],
+										traceId: params.attachmentTraceId ?? null,
+										inputValueLength: currentState.inputValue.length,
+									},
+								);
+							}
+						}
+						return currentState;
+					},
+					base_prompt: async () => {
+						const configuredBasePrompt =
+							params.systemPromptOverride ??
+							(getPreparationConfig().systemPrompt ||
+								params.modelConfig.systemPrompt);
+						const baseSystemPrompt =
+							params.user?.id && !params.systemPromptOverride
+								? await buildEnhancedSystemPrompt(configuredBasePrompt, {
+										userId: params.user.id,
+										displayName: params.user.displayName,
+										email: params.user.email,
+									})
+								: getSystemPrompt(configuredBasePrompt);
+						return { baseSystemPrompt };
+					},
+					system_prompt: (currentState) => ({
+						systemPrompt: buildPreparationSystemPrompt(params, currentState),
+					}),
+					automatic_compression: async (currentState) => {
+						const contextLimits = requirePreparationValue(
+							currentState.contextLimits,
+							"contextLimits",
+						);
+						const systemPrompt = requirePreparationValue(
+							currentState.systemPrompt,
+							"systemPrompt",
+						);
+						const baseSystemPrompt = requirePreparationValue(
+							currentState.baseSystemPrompt,
+							"baseSystemPrompt",
+						);
+						const compressionStage = await runAutomaticContextCompressionStage({
+							params,
+							inputValue: currentState.inputValue,
+							baseSystemPrompt,
+							systemPrompt,
+							contextLimits,
+							reuseData: currentState.reuseData,
+						});
+						let nextState: OutboundChatContextPreparationState = {
+							...currentState,
+							contextLimits,
+							automaticCompression: compressionStage.decision,
+						};
+						if (compressionStage.rebuiltContext) {
+							nextState = applyConstructedContextToPreparationState(
+								nextState,
+								compressionStage.rebuiltContext,
+							);
+							nextState = {
+								...nextState,
+								systemPrompt: requirePreparationValue(
+									compressionStage.rebuiltSystemPrompt,
+									"automaticCompression.rebuiltSystemPrompt",
+								),
+							};
+						}
+						return nextState;
+					},
+					forced_web_prefetch: async (currentState) => {
+						return runForcedWebPrefetchStage({
+							params,
+							state: currentState,
+						});
+					},
+					prompt_budget: (currentState) => {
+						return runPromptBudgetStage({
+							params,
+							state: currentState,
+						});
+					},
+				},
+				onActivity: params.onContextPreparationActivity,
+			},
+		);
 
 	return {
-		inputValue,
-		systemPrompt,
-		contextStatus,
-		taskState,
-		contextDebug,
-		honchoContext,
-		honchoSnapshot,
-		contextTraceSections,
-		prefetchedToolCalls,
-		outputTokenBudget: budgetedPrompt.outputTokenBudget,
-		contextLimits,
+		inputValue: state.inputValue,
+		systemPrompt: requirePreparationValue(state.systemPrompt, "systemPrompt"),
+		contextStatus: state.contextStatus,
+		taskState: state.taskState,
+		contextDebug: state.contextDebug,
+		honchoContext: state.honchoContext,
+		honchoSnapshot: state.honchoSnapshot,
+		contextTraceSections: state.contextTraceSections,
+		prefetchedToolCalls: state.prefetchedToolCalls,
+		outputTokenBudget: requirePreparationValue(
+			state.outputTokenBudget,
+			"outputTokenBudget",
+		),
+		contextLimits: requirePreparationValue(
+			state.contextLimits,
+			"contextLimits",
+		),
 	};
 }

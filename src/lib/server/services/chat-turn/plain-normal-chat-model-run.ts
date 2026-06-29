@@ -31,6 +31,10 @@ import {
 	prepareOutboundChatContext,
 } from "$lib/server/services/normal-chat-context";
 import {
+	createNormalChatContextPreparationActivityHandler,
+	type NormalChatContextPreparationActivity,
+} from "$lib/server/services/normal-chat-context-preparation";
+import {
 	buildNormalChatModelRunProviderOptions,
 	mapNormalChatModelRunUsageToProviderSnapshot,
 	type NormalChatModelRunProvider,
@@ -74,6 +78,9 @@ export type PlainNormalChatSendModelParams = {
 	forceProduceFileTool?: boolean;
 	depthClarificationClassifier?: DepthClarificationClassifier;
 	overrideProvider?: NormalChatModelRunProvider;
+	onContextPreparationActivity?: (
+		activity: NormalChatContextPreparationActivity,
+	) => void;
 	onResponseActivity?: (
 		entry: import("$lib/types").ResponseActivityEntry,
 	) => void;
@@ -330,6 +337,8 @@ async function prepareOutboundContext(
 		contextLimits:
 			activeDepthEffort?.contextLimits ?? runtime.baseContextLimits,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
+		onContextPreparationActivity:
+			createNormalChatContextPreparationActivityHandler(params),
 		logLabel: "provider request",
 	});
 }

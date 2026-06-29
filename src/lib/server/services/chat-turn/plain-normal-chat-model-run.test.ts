@@ -161,6 +161,62 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
+	it("forwards typed context preparation activity without exposing stage labels as response activity text", async () => {
+		const contextPreparationActivity = vi.fn();
+		const responseActivity = vi.fn();
+		mocks.prepareOutboundChatContext.mockImplementation(async (params) => {
+			params.onContextPreparationActivity?.({
+				stageId: "plan",
+				status: "started",
+			});
+			params.onContextPreparationActivity?.({
+				stageId: "plan",
+				status: "done",
+			});
+			params.onContextPreparationActivity?.({
+				stageId: "prompt_budget",
+				status: "started",
+			});
+			params.onContextPreparationActivity?.({
+				stageId: "prompt_budget",
+				status: "done",
+			});
+			return createPlainNormalChatPreparedContext();
+		});
+
+		await runSubject({
+			onContextPreparationActivity: contextPreparationActivity,
+			onResponseActivity: responseActivity,
+		});
+
+		expect(
+			contextPreparationActivity.mock.calls.map(([activity]) => activity),
+		).toEqual([
+			{ stageId: "plan", status: "started" },
+			{ stageId: "plan", status: "done" },
+			{ stageId: "prompt_budget", status: "started" },
+			{ stageId: "prompt_budget", status: "done" },
+		]);
+		expect(responseActivity.mock.calls.map(([entry]) => entry)).toEqual([
+			{ id: "context-preparing", kind: "context", status: "running" },
+			{ id: "context-preparing", kind: "context", status: "running" },
+			{ id: "context-preparing", kind: "context", status: "running" },
+			{ id: "context-preparing", kind: "context", status: "done" },
+		]);
+		expect(
+			responseActivity.mock.calls.map(([entry]) => entry.id),
+		).not.toContain("plan");
+		expect(
+			responseActivity.mock.calls.map(([entry]) => entry.id),
+		).not.toContain("prompt_budget");
+		expect(responseActivity.mock.calls.every(([entry]) => !entry.label)).toBe(
+			true,
+		);
+		expect(responseActivity.mock.calls.every(([entry]) => !entry.detail)).toBe(
+			true,
+		);
+	});
+
 	it("leaves tool choice automatic for explicit file requests after removing produce_file auto-force", async () => {
 		await runSubject({
 			message: "Please create a downloadable PDF report for me",

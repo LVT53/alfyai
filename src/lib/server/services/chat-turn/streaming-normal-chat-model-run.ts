@@ -29,6 +29,10 @@ import {
 	prepareOutboundChatContext,
 } from "$lib/server/services/normal-chat-context";
 import {
+	createNormalChatContextPreparationActivityHandler,
+	type NormalChatContextPreparationActivity,
+} from "$lib/server/services/normal-chat-context-preparation";
+import {
 	buildNormalChatModelRunProviderOptions,
 	type NormalChatModelRunProvider,
 	resolveNormalChatModelRunProvider,
@@ -71,6 +75,9 @@ export type StreamingNormalChatSendModelParams = {
 	signal?: AbortSignal;
 	depthClarificationClassifier?: DepthClarificationClassifier;
 	overrideProvider?: NormalChatModelRunProvider;
+	onContextPreparationActivity?: (
+		activity: NormalChatContextPreparationActivity,
+	) => void;
 	onResponseActivity?: (entry: ResponseActivityEntry) => void;
 };
 
@@ -165,6 +172,8 @@ export async function runStreamingNormalChatSendModel(
 		modelId,
 		contextLimits: activeDepthEffort?.contextLimits ?? baseContextLimits,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
+		onContextPreparationActivity:
+			createNormalChatContextPreparationActivityHandler(params),
 		logLabel: "provider streaming request",
 	});
 	const turnId = params.createTurnId?.() ?? randomUUID();
