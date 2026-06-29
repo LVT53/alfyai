@@ -128,6 +128,41 @@ describe("Reasoning Depth Auto selection", () => {
 		expect(mocks.sendJsonControlMessage).not.toHaveBeenCalled();
 	});
 
+	it("fast-paths direct production-check benchmark prompts", async () => {
+		const listRecentMessages = vi.fn(async () => []);
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
+
+		const result = await resolveReasoningDepthSelection({
+			userId: "user-1",
+			conversationId: "conv-1",
+			request: {
+				normalizedMessage:
+					"Reply in one short sentence about keeping production checks repeatable. Do not use external tools, web search, or files.",
+				reasoningDepth: "auto",
+				modelId: "model1",
+				modelDisplayName: "Model One",
+				providerDisplayName: "Provider One",
+				attachmentIds: [],
+				linkedSources: [],
+				pendingSkill: null,
+				forceWebSearch: false,
+			},
+			listRecentMessages,
+		});
+
+		expect(result.metadata).toMatchObject({
+			requested: "auto",
+			appliedProfile: "standard",
+			fallback: false,
+			classifierSource: "deterministic_fast_path",
+			constraintNote: "simple_auto_standard_fast_path",
+		});
+		expect(listRecentMessages).not.toHaveBeenCalled();
+		expect(mocks.sendJsonControlMessage).not.toHaveBeenCalled();
+	});
+
 	it("keeps the control classifier for positive web and source requests", async () => {
 		const listRecentMessages = vi.fn(async () => []);
 		mocks.sendJsonControlMessage.mockResolvedValueOnce({

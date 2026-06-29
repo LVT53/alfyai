@@ -36,7 +36,7 @@ const AUTO_FAST_PATH_REFERENTIAL_PATTERN =
 const AUTO_FAST_PATH_SHORT_FOLLOWUP_PATTERN =
 	/^(?:why\??|how so\??|tell me more\.?|go on\.?|continue\.?|what about (?:this|that|it|them|these|those)\??)$/i;
 const AUTO_FAST_PATH_COMPLEXITY_PATTERN =
-	/\b(compare|analy[sz]e|analysis|multi[- ]?step|planning|plan|debug|evaluate|trade[- ]?off|review|assess|refactor|optimi[sz]e|migrate|design|architecture|strategy|recommend|comprehensive|exhaustive|edge cases?|failure modes?|critical|production|regulatory|compliance|security|audit|prove|verify|validate|guarantee|think hard|hard|deep|maximum|effort)\b/i;
+	/\b(compare|analy[sz]e|analysis|multi[- ]?step|planning|plan|debug|evaluate|trade[- ]?off|review|assess|refactor|optimi[sz]e|migrate|design|architecture|strategy|recommend|comprehensive|exhaustive|edge cases?|failure modes?|critical|regulatory|compliance|security|audit|prove|verify|validate|guarantee|think hard|hard|deep|maximum|effort)\b/i;
 const AUTO_FAST_PATH_GROUNDING_PATTERN =
 	/\b(current|latest|recent|today|tomorrow|yesterday|news|weather|price|citation|citations|cite|web|internet|online|google|search|browse|look up|lookup|source-backed)\b/i;
 const AUTO_FAST_PATH_BLOCKING_PATTERNS = [
